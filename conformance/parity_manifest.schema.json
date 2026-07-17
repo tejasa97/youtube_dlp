@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ytdlp-go/ytdlp/conformance/parity_manifest.schema.json",
+  "title": "yt-dlp Go capability parity manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "capabilities"],
+  "properties": {
+    "version": {"const": 1},
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/capability"}
+    }
+  },
+  "$defs": {
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "phase", "compatibility_target", "status", "owner"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1, "pattern": "^[a-z0-9_.-]+$"},
+        "name": {"type": "string", "minLength": 1},
+        "phase": {"type": "integer", "minimum": 0},
+        "compatibility_target": {"type": "string", "minLength": 1},
+        "status": {
+          "enum": ["not_started", "partial", "compatible", "intentional_deviation", "blocked"]
+        },
+        "evidence": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "owner": {"type": "string", "minLength": 1},
+        "depends_on": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "known_deviation": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

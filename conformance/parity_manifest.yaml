@@ -1,0 +1,116 @@
+version: 1
+capabilities:
+  - id: foundation.cli
+    name: Foundation CLI boundary
+    phase: 0
+    compatibility_target: Parse a single operation and expose stable help, version, and exit behavior.
+    status: partial
+    evidence:
+      - internal/cli.TestRunVersion
+      - internal/cli.TestRunRequiresURL
+    owner: core
+    known_deviation: Extraction and yt-dlp-compatible options are not implemented yet.
+
+  - id: foundation.embedding_api
+    name: Cancellable Go embedding boundary
+    phase: 0
+    compatibility_target: Expose a context-aware operation interface with categorized errors.
+    status: partial
+    evidence:
+      - pkg/ytdlp.TestIsCategory
+    owner: core
+    known_deviation: The operation implementation and result metadata are not wired yet.
+
+  - id: foundation.capability_manifest
+    name: Capability evidence manifest
+    phase: 0
+    compatibility_target: Reject invalid claims, duplicate IDs, and unknown capability dependencies.
+    status: compatible
+    evidence:
+      - internal/conformance.TestRepositoryManifest
+      - internal/conformance.TestValidateRequiresEvidenceForCompatibleClaim
+      - internal/conformance.TestValidateRejectsUnknownDependency
+    owner: conformance
+
+  - id: metadata.ordered_values
+    name: Ordered dynamic metadata values
+    phase: 0
+    compatibility_target: Preserve field order, heterogeneous values, and missing-versus-null semantics.
+    status: compatible
+    evidence:
+      - internal/value.TestMissingAndNullAreDistinct
+      - internal/value.TestObjectOrderAndUpdate
+      - internal/value.TestMergeRulesAndClone
+    owner: core
+
+  - id: metadata.deterministic_json
+    name: Deterministic metadata JSON
+    phase: 0
+    compatibility_target: Encode ordered metadata deterministically with documented numeric behavior.
+    status: compatible
+    evidence:
+      - internal/value.TestDeterministicJSONAndMissingOmission
+      - internal/value.TestJSONRoundTripPreservesOrderAndKinds
+      - internal/value.FuzzValueJSON
+    owner: core
+    depends_on:
+      - metadata.ordered_values
+
+  - id: test.fixture_server
+    name: Offline deterministic fixture server
+    phase: 0
+    compatibility_target: Provide deterministic page, media, redirect, cookie, compression, and failure endpoints.
+    status: compatible
+    evidence:
+      - internal/testserver.TestPageDescribesDirectMedia
+      - internal/testserver.TestMediaFullAndRangeResponses
+      - internal/testserver.TestRedirectGzipAndCookies
+      - internal/testserver.TestSlowEndpointHonorsCancellation
+      - internal/testserver.TestDisconnectEndpointTruncatesResponse
+      - internal/testserver.TestMutableEndpointAdvancesDeterministically
+    owner: io
+
+  - id: network.shared_transport
+    name: Shared HTTP transport
+    phase: 0
+    compatibility_target: Provide cancellable HTTP behavior shared by extractors and downloaders.
+    status: not_started
+    owner: io
+    depends_on:
+      - test.fixture_server
+
+  - id: extractor.direct_media
+    name: Direct-media extraction
+    phase: 0
+    compatibility_target: Normalize a direct media URL into the common metadata and format model.
+    status: not_started
+    owner: core
+    depends_on:
+      - metadata.ordered_values
+      - network.shared_transport
+
+  - id: downloader.direct_http
+    name: Resumable direct HTTP download
+    phase: 0
+    compatibility_target: Download direct media with progress, cancellation, safe finalization, and validated resume.
+    status: not_started
+    owner: io
+    depends_on:
+      - network.shared_transport
+
+  - id: compat.output_template_minimal
+    name: Minimal output-template subset
+    phase: 0
+    compatibility_target: Render literals, percent escapes, and simple string field substitutions safely.
+    status: not_started
+    owner: core
+    depends_on:
+      - metadata.ordered_values
+
+  - id: verification.python_free
+    name: Python-free runtime verification
+    phase: 0
+    compatibility_target: Build, test, and run the binary in an environment without Python executables or libraries.
+    status: partial
+    owner: conformance
+    known_deviation: The clean-container CI gate is present but the end-to-end operation does not exist yet.
