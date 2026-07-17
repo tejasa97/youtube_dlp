@@ -242,8 +242,12 @@ capabilities:
       - internal/javascript/protocol.TestRequestNormalizeDefaultsAndHash
       - internal/javascript/protocol.TestRequestRejectsLimitsHashesModulesAndArguments
       - internal/javascript/protocol.TestFrameRoundTripAndBounds
+      - internal/javascript/engine.TestExecuteEvaluateAndCall
+      - internal/javascript/engine.TestExecuteCachesProgramsWithoutSharingRuntimeState
+      - internal/javascript/engine.TestExecuteTimeoutCancellationAndFailures
+      - internal/javascript/engine.TestExecuteOutputLimitAndNoAmbientHostAPIs
     owner: runtime
-    known_deviation: The versioned bounded protocol is complete; the supervised helper engine and EJS challenge corpus are the next checkpoint.
+    known_deviation: The pure-Go engine is bounded in-process; process supervision, helper memory enforcement, and the EJS challenge corpus are the next checkpoint.
 
   - id: network.impersonation
     name: Browser impersonation transport

@@ -19,5 +19,11 @@ The Phase 0 HTTP fixture server generates its media bytes and responses in Go.
 No captured yt-dlp site response, media file, or upstream source code is included
 in the repository.
 
+## goja
+
+The isolated JavaScript helper uses `github.com/dop251/goja`, an ECMAScript
+engine licensed under the MIT License. The exact module revision and transitive
+dependency versions are recorded in `go.mod` and `go.sum`.
+
 The project itself still requires an explicit project-license decision before a
 public release; this notice does not grant a license to the project code.

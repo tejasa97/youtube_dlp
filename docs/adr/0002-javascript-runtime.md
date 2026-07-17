@@ -30,8 +30,10 @@ runtime is used by a production extractor.
 
 ## Phase 1 candidate review (2026-07-17)
 
-The first engine implementation will evaluate `dop251/goja` behind the helper
-protocol. It is pure Go, exposes explicit interruption, and does not provide
+The first engine implementation pins `dop251/goja` revision
+`cfe4039cb6d77b297d8b637182f774fa4a54b7d5` behind the helper protocol. This is
+the newest reviewed revision before its minimum toolchain changed from Go 1.20
+to Go 1.25. It is pure Go, exposes explicit interruption, and does not provide
 ambient browser or Node APIs unless the host adds them. Its incomplete modern
 ECMAScript coverage is a material risk and must be tested against the pinned
 challenge corpus rather than assumed compatible.
