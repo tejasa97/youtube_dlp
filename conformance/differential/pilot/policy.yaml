@@ -1,0 +1,19 @@
+version: 1
+rules:
+  - path: $.metadata.duration
+    mode: tolerance
+    tolerance: 0.001
+    reason: Synthetic fixtures model sub-millisecond container rounding.
+    owner: media
+  - path: $.formats[*].url
+    mode: redacted_url
+    reason: Signed token values are volatile and secret-bearing.
+    owner: network
+  - path: $.playlists
+    mode: set
+    reason: This synthetic source declares playlist discovery order insignificant.
+    owner: extractors
+  - path: $.events[*].timestamp
+    mode: ignore
+    reason: Wall-clock timestamps are not deterministic fixture semantics.
+    owner: events

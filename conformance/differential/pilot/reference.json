@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "metadata": {
+    "id": "fixture-1",
+    "title": "Synthetic video",
+    "duration": 12.5
+  },
+  "formats": [
+    {
+      "format_id": "video+audio",
+      "url": "https://cdn.example/media?token=REFERENCE&visible=yes"
+    }
+  ],
+  "playlists": ["entry-a", "entry-b"],
+  "events": [
+    {
+      "type": "download.completed",
+      "timestamp": 100
+    }
+  ],
+  "selection": {
+    "selector": "bestvideo+bestaudio/best",
+    "format_id": "video+audio"
+  },
+  "outputs": [
+    {
+      "filename": "fixture-1.mp4",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ]
+}
