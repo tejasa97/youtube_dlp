@@ -43,7 +43,10 @@ func (Generic) Extract(ctx context.Context, request Request) (value.Info, error)
 		base = "download"
 	}
 	extension := strings.TrimPrefix(path.Ext(base), ".")
-	if extension == "" {
+	protocol := protocolForMediaType(mediaType)
+	if protocol != "" {
+		extension = "mp4"
+	} else if extension == "" {
 		extension = extensionForMediaType(mediaType)
 	}
 	title := strings.TrimSuffix(base, path.Ext(base))
@@ -56,6 +59,9 @@ func (Generic) Extract(ctx context.Context, request Request) (value.Info, error)
 		value.Field{Key: "url", Value: value.String(request.URL)},
 		value.Field{Key: "ext", Value: value.String(extension)},
 	)
+	if protocol != "" {
+		format.Set("protocol", value.String(protocol))
+	}
 	if response.ContentLength >= 0 {
 		format.Set("filesize", value.Int(response.ContentLength))
 	}
@@ -71,7 +77,18 @@ func (Generic) Extract(ctx context.Context, request Request) (value.Info, error)
 }
 
 func isDirectMediaType(mediaType string) bool {
-	return strings.HasPrefix(mediaType, "audio/") || strings.HasPrefix(mediaType, "video/") || mediaType == "application/octet-stream"
+	return strings.HasPrefix(mediaType, "audio/") || strings.HasPrefix(mediaType, "video/") || mediaType == "application/octet-stream" || protocolForMediaType(mediaType) != ""
+}
+
+func protocolForMediaType(mediaType string) string {
+	switch mediaType {
+	case "application/vnd.apple.mpegurl", "application/x-mpegurl":
+		return "m3u8_native"
+	case "application/dash+xml":
+		return "http_dash_segments"
+	default:
+		return ""
+	}
 }
 
 func extensionForMediaType(mediaType string) string {

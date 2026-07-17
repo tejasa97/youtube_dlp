@@ -91,3 +91,30 @@ func TestGenericDirectMediaExtraction(t *testing.T) {
 		t.Fatalf("extension = %q", extension)
 	}
 }
+
+func TestGenericManifestExtraction(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	registry := NewRegistry(NewFixture(), NewGeneric())
+	for _, test := range []struct {
+		path     string
+		protocol string
+	}{
+		{"/hls/master.m3u8", "m3u8_native"},
+		{"/dash/manifest.mpd", "http_dash_segments"},
+	} {
+		info, _, err := registry.Extract(context.Background(), Request{URL: server.URL + test.path, Transport: transport})
+		if err != nil {
+			t.Fatalf("extract %s: %v", test.path, err)
+		}
+		formats, _ := info.Formats()
+		format, _ := formats[0].Object()
+		if got, _ := format.Lookup("protocol").StringValue(); got != test.protocol {
+			t.Fatalf("protocol for %s = %q", test.path, got)
+		}
+		if ext, _ := info.Extension(); ext != "mp4" {
+			t.Fatalf("extension for %s = %q", test.path, ext)
+		}
+	}
+}

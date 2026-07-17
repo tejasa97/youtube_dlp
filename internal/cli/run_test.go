@@ -130,3 +130,18 @@ func TestRunProgressJSONStaysOnStderr(t *testing.T) {
 		}
 	}
 }
+
+func TestRunHLSProtocolDispatch(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"--quiet", "--output-dir", root, server.URL + "/hls/master.m3u8"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code = %d, stderr = %s", code, stderr.String())
+	}
+	contents, err := os.ReadFile(filepath.Join(root, "master.mp4"))
+	if err != nil || string(contents) != string(server.HLSMedia()) {
+		t.Fatalf("HLS output = %q, error = %v", contents, err)
+	}
+}

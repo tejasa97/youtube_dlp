@@ -15,6 +15,7 @@ type Selection struct {
 	URL      string
 	Ext      string
 	Filesize int64
+	Protocol string
 }
 
 // Best selects the first normalized format. Phase 0 extractors order their
@@ -37,6 +38,7 @@ func Best(info value.Info) (Selection, error) {
 		selection.ID, _ = object.Lookup("format_id").StringValue()
 		selection.Ext, _ = object.Lookup("ext").StringValue()
 		selection.Filesize, _ = object.Lookup("filesize").Int()
+		selection.Protocol, _ = object.Lookup("protocol").StringValue()
 		return selection, nil
 	}
 	return Selection{}, fmt.Errorf("%w: formats contain no URL", ErrNoFormats)

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	outputtemplate "github.com/ytdlp-go/ytdlp/internal/compat/template"
@@ -13,7 +14,11 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/events"
 	"github.com/ytdlp-go/ytdlp/internal/extractor"
 	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
+	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
+	"github.com/ytdlp-go/ytdlp/internal/media/pipeline"
 	"github.com/ytdlp-go/ytdlp/internal/network"
+	"github.com/ytdlp-go/ytdlp/internal/protocol/dash"
+	"github.com/ytdlp-go/ytdlp/internal/protocol/hls"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
@@ -165,15 +170,48 @@ func (client *Client) Run(ctx context.Context, request Request) (Result, error) 
 			Fragment: event.Fragment, Fragments: event.Fragments,
 		})
 	})
-	downloaded, err := downloader.New(transport).Download(ctx, downloader.Job{
-		URL: selectedFormat.URL, OutputRoot: outputDir, Destination: destination, Overwrite: request.Overwrite,
-	}, sink)
-	if err != nil {
-		return Result{}, categorized("download", err)
+	var downloadedPath string
+	var downloadedBytes int64
+	switch selectedFormat.Protocol {
+	case "m3u8_native":
+		downloaded, err := hls.NewDownloader(transport, hls.Config{}).Download(ctx, selectedFormat.URL, outputDir, destination, request.Overwrite, sink)
+		if err != nil {
+			return Result{}, categorized("download HLS", err)
+		}
+		downloadedPath, downloadedBytes = downloaded.Path, downloaded.Bytes
+	case "http_dash_segments":
+		downloaded, err := dash.NewDownloader(transport, dash.Config{}).Download(ctx, selectedFormat.URL, outputDir, destination, request.Overwrite, sink)
+		if err != nil {
+			return Result{}, categorized("download DASH", err)
+		}
+		if downloaded.MergeRequired {
+			tools, err := ffmpeg.Discover(ffmpeg.Config{})
+			if err != nil {
+				return Result{}, categorized("discover ffmpeg", err)
+			}
+			if err := pipeline.FinalizeDASH(ctx, downloaded, destination, request.Overwrite, tools, sink); err != nil {
+				return Result{}, categorized("merge DASH", err)
+			}
+			downloadedPath = destination
+			if info, statErr := os.Stat(destination); statErr == nil {
+				downloadedBytes = info.Size()
+			}
+		} else {
+			downloadedPath = downloaded.Tracks[0].Download.Path
+			downloadedBytes = downloaded.Tracks[0].Download.Bytes
+		}
+	default:
+		downloaded, err := downloader.New(transport).Download(ctx, downloader.Job{
+			URL: selectedFormat.URL, OutputRoot: outputDir, Destination: destination, Overwrite: request.Overwrite,
+		}, sink)
+		if err != nil {
+			return Result{}, categorized("download", err)
+		}
+		downloadedPath, downloadedBytes = downloaded.Path, downloaded.Bytes
 	}
 	result.Downloaded = true
-	result.Filename = downloaded.Path
-	result.Bytes = downloaded.Bytes
+	result.Filename = downloadedPath
+	result.Bytes = downloadedBytes
 	return result, nil
 }
 
@@ -193,6 +231,8 @@ func categorized(op string, err error) error {
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		category = ErrorCancelled
 	case errors.Is(err, extractor.ErrUnsupported):
+		category = ErrorUnsupported
+	case errors.Is(err, ffmpeg.ErrFFmpegUnavailable), errors.Is(err, ffmpeg.ErrFFprobeUnavailable):
 		category = ErrorUnsupported
 	case errors.Is(err, outputtemplate.ErrInvalidTemplate), errors.Is(err, outputtemplate.ErrUnsafePath),
 		errors.Is(err, downloader.ErrDestinationExists), errors.Is(err, downloader.ErrUnsafeDestination),

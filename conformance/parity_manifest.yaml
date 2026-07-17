@@ -198,6 +198,8 @@ capabilities:
       - internal/protocol/hls.TestDownloadMasterByteRangeMapAndAES128
       - internal/protocol/hls.TestDownloadLivePollDeduplicatesSegments
       - internal/protocol/hls.TestDownloadLiveHonorsCancellation
+      - pkg/ytdlp.TestClientHLSAndDASHDispatch
+      - internal/cli.TestRunHLSProtocolDispatch
     owner: io
     known_deviation: The pilot is not wired into format dispatch yet; low-latency HLS and non-AES-128 encryption remain explicitly unsupported.
 
@@ -212,6 +214,8 @@ capabilities:
       - internal/protocol/dash.TestDownloadSeparateAudioVideoTracks
       - internal/protocol/dash.TestDownloadDynamicMPDPollsAndDeduplicates
       - internal/media/pipeline.TestDASHDownloadAndFFmpegMergeEndToEnd
+      - pkg/ytdlp.TestClientHLSAndDASHDispatch
+      - pkg/ytdlp.TestClientDASHMergeDispatch
     owner: io
     known_deviation: The pilot is not wired into product format dispatch; negative-repeat live timelines and several DASH addressing modes remain unsupported.
 
@@ -224,6 +228,7 @@ capabilities:
       - internal/media/ffmpeg.TestDiscoverVersionsProbeAndMerge
       - internal/media/ffmpeg.TestCommandCancellation
       - internal/media/pipeline.TestDASHDownloadAndFFmpegMergeEndToEnd
+      - pkg/ytdlp.TestClientDASHMergeDispatch
     owner: media
     known_deviation: Probe and merge supervision are implemented, but broader postprocessors and product dispatch remain unimplemented.
 

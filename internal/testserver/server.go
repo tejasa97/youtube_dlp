@@ -56,7 +56,50 @@ func (server *Server) handler() http.Handler {
 	mux.HandleFunc("/mutable", server.handleMutable)
 	mux.HandleFunc("/headers", server.handleHeaders)
 	mux.HandleFunc("/large", server.handleLarge)
+	mux.HandleFunc("/hls/master.m3u8", server.handleHLSMaster)
+	mux.HandleFunc("/hls/high.m3u8", server.handleHLSHigh)
+	mux.HandleFunc("/hls/low.m3u8", server.handleHLSLow)
+	mux.HandleFunc("/hls/init.bin", fixedBody("application/octet-stream", []byte("hls-init-")))
+	mux.HandleFunc("/hls/one.bin", fixedBody("application/octet-stream", []byte("hls-one-")))
+	mux.HandleFunc("/hls/two.bin", fixedBody("application/octet-stream", []byte("hls-two")))
+	mux.HandleFunc("/dash/manifest.mpd", server.handleDASHManifest)
+	mux.HandleFunc("/dash/init.bin", fixedBody("application/octet-stream", []byte("dash-init-")))
+	mux.HandleFunc("/dash/1.bin", fixedBody("application/octet-stream", []byte("dash-one-")))
+	mux.HandleFunc("/dash/2.bin", fixedBody("application/octet-stream", []byte("dash-two")))
 	return mux
+}
+
+func (server *Server) HLSMedia() []byte  { return []byte("hls-init-hls-one-hls-two") }
+func (server *Server) DASHMedia() []byte { return []byte("dash-init-dash-one-dash-two") }
+
+func (server *Server) handleHLSMaster(writer http.ResponseWriter, _ *http.Request) {
+	writer.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+	_, _ = writer.Write([]byte("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=100\nlow.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=1000\nhigh.m3u8\n"))
+}
+
+func (server *Server) handleHLSHigh(writer http.ResponseWriter, _ *http.Request) {
+	writer.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+	_, _ = writer.Write([]byte("#EXTM3U\n#EXT-X-MAP:URI=init.bin\n#EXTINF:1,\none.bin\n#EXTINF:1,\ntwo.bin\n#EXT-X-ENDLIST\n"))
+}
+
+func (server *Server) handleHLSLow(writer http.ResponseWriter, _ *http.Request) {
+	writer.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+	_, _ = writer.Write([]byte("#EXTM3U\n#EXTINF:1,\none.bin\n#EXT-X-ENDLIST\n"))
+}
+
+func (server *Server) handleDASHManifest(writer http.ResponseWriter, _ *http.Request) {
+	writer.Header().Set("Content-Type", "application/dash+xml")
+	_, _ = writer.Write([]byte(`<MPD type="static" mediaPresentationDuration="PT2S"><Period><AdaptationSet contentType="video" mimeType="video/mp4"><Representation id="fixture" bandwidth="1000"><SegmentTemplate duration="1" initialization="init.bin" media="$Number$.bin"/></Representation></AdaptationSet></Period></MPD>`))
+}
+
+func fixedBody(contentType string, body []byte) http.HandlerFunc {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", contentType)
+		writer.Header().Set("Content-Length", strconv.Itoa(len(body)))
+		if request.Method != http.MethodHead {
+			_, _ = writer.Write(body)
+		}
+	}
 }
 
 func (server *Server) handleHeaders(writer http.ResponseWriter, request *http.Request) {
