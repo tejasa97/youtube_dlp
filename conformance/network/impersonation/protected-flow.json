@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "profile": "chrome-133",
+  "engine": "github.com/bogdanfinn/tls-client",
+  "engine_version": "v1.9.2",
+  "hybrid_curve_id": 4588,
+  "required_headers": {
+    "User-Agent": "Chrome/133",
+    "Sec-Ch-Ua": "\"133\""
+  },
+  "expected_body": "protected flow accepted"
+}

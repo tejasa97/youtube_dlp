@@ -3,6 +3,8 @@ package network
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -10,7 +12,10 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/ytdlp-go/ytdlp/internal/network/impersonate"
 )
 
 const (
@@ -19,8 +24,9 @@ const (
 )
 
 var (
-	ErrPageTooLarge = errors.New("HTTP response exceeds page size limit")
-	ErrInvalidProxy = errors.New("invalid proxy URL")
+	ErrPageTooLarge             = errors.New("HTTP response exceeds page size limit")
+	ErrInvalidProxy             = errors.New("invalid proxy URL")
+	ErrImpersonationUnavailable = errors.New("impersonation profile unavailable")
 )
 
 // Doer is the minimal transport boundary consumed by extractors and downloaders.
@@ -34,13 +40,18 @@ type Config struct {
 	MaxPageSize    int64
 	DefaultHeaders http.Header
 	RoundTripper   http.RoundTripper
+	RootCAs        *x509.CertPool
 }
 
 // Client owns cookies and shared HTTP behavior for one operation.
 type Client struct {
 	httpClient     *http.Client
+	jar            http.CookieJar
 	defaultHeaders http.Header
 	maxPageSize    int64
+	profileConfig  impersonate.Config
+	profileMu      sync.Mutex
+	profiles       map[string]*impersonate.Client
 }
 
 func New(config Config) (*Client, error) {
@@ -50,9 +61,17 @@ func New(config Config) (*Client, error) {
 		if config.Proxy != "" {
 			proxyURL, err := url.Parse(config.Proxy)
 			if err != nil || proxyURL.Scheme == "" || proxyURL.Host == "" {
-				return nil, fmt.Errorf("%w %q", ErrInvalidProxy, config.Proxy)
+				return nil, ErrInvalidProxy
 			}
 			base.Proxy = http.ProxyURL(proxyURL)
+		}
+		if config.RootCAs != nil {
+			if base.TLSClientConfig == nil {
+				base.TLSClientConfig = &tls.Config{}
+			} else {
+				base.TLSClientConfig = base.TLSClientConfig.Clone()
+			}
+			base.TLSClientConfig.RootCAs = config.RootCAs
 		}
 		transport = base
 	}
@@ -72,24 +91,40 @@ func New(config Config) (*Client, error) {
 	if headers == nil {
 		headers = make(http.Header)
 	}
-	if headers.Get("User-Agent") == "" {
-		headers.Set("User-Agent", "ytdlp-go/0.0.0-dev")
-	}
-
-	return &Client{
+	client := &Client{
 		httpClient: &http.Client{
 			Transport: transport,
 			Jar:       jar,
 			Timeout:   timeout,
 		},
+		jar:            jar,
 		defaultHeaders: headers,
 		maxPageSize:    maxPageSize,
-	}, nil
+		profileConfig: impersonate.Config{
+			Proxy: config.Proxy, Timeout: timeout, Jar: jar, RootCAs: config.RootCAs,
+		},
+		profiles: make(map[string]*impersonate.Client),
+	}
+	return client, nil
 }
 
 // Do clones request, applies operation defaults, and binds it to ctx. The
 // caller owns and must close a successful response body.
 func (client *Client) Do(ctx context.Context, request *http.Request) (*http.Response, error) {
+	return client.do(ctx, request, "")
+}
+
+// DoProfile executes a request with an explicitly named browser profile. An
+// unknown or unavailable profile is an error; it never falls back to native
+// net/http behavior.
+func (client *Client) DoProfile(ctx context.Context, request *http.Request, profileName string) (*http.Response, error) {
+	if profileName == "" {
+		return client.Do(ctx, request)
+	}
+	return client.do(ctx, request, profileName)
+}
+
+func (client *Client) do(ctx context.Context, request *http.Request, profileName string) (*http.Response, error) {
 	if request == nil {
 		return nil, errors.New("HTTP request must not be nil")
 	}
@@ -102,20 +137,75 @@ func (client *Client) Do(ctx context.Context, request *http.Request) (*http.Resp
 			cloned.Header.Add(key, value)
 		}
 	}
-	response, err := client.httpClient.Do(cloned)
+	if profileName == "" && cloned.Header.Get("User-Agent") == "" {
+		cloned.Header.Set("User-Agent", "ytdlp-go/0.0.0-dev")
+	}
+	var response *http.Response
+	var err error
+	if profileName == "" {
+		response, err = client.httpClient.Do(cloned)
+	} else {
+		profileClient, profileErr := client.profileClient(profileName)
+		if profileErr != nil {
+			return nil, profileErr
+		}
+		response, err = profileClient.Do(cloned)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("HTTP %s %s: %w", cloned.Method, RedactURL(cloned.URL), err)
+		return nil, &RequestError{Method: cloned.Method, URL: RedactURL(cloned.URL), Err: err}
 	}
 	return response, nil
 }
 
+func (client *Client) profileClient(name string) (*impersonate.Client, error) {
+	profile, err := impersonate.Lookup(name)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrImpersonationUnavailable, name)
+	}
+	client.profileMu.Lock()
+	defer client.profileMu.Unlock()
+	if existing := client.profiles[name]; existing != nil {
+		return existing, nil
+	}
+	config := client.profileConfig
+	config.Profile = profile
+	created, err := impersonate.New(config)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrImpersonationUnavailable, name)
+	}
+	client.profiles[name] = created
+	return created, nil
+}
+
+// CloseIdleConnections releases pooled native and impersonated connections.
+func (client *Client) CloseIdleConnections() {
+	client.httpClient.CloseIdleConnections()
+	client.profileMu.Lock()
+	defer client.profileMu.Unlock()
+	for _, profile := range client.profiles {
+		profile.CloseIdleConnections()
+	}
+}
+
 // ReadPage fetches a bounded successful response and always closes its body.
 func (client *Client) ReadPage(ctx context.Context, rawURL string) ([]byte, http.Header, error) {
+	return client.readPage(ctx, rawURL, "")
+}
+
+// ReadPageProfile is the bounded page helper for named browser profiles.
+func (client *Client) ReadPageProfile(ctx context.Context, rawURL, profileName string) ([]byte, http.Header, error) {
+	if profileName == "" {
+		return client.ReadPage(ctx, rawURL)
+	}
+	return client.readPage(ctx, rawURL, profileName)
+}
+
+func (client *Client) readPage(ctx context.Context, rawURL, profileName string) ([]byte, http.Header, error) {
 	request, err := http.NewRequest(http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("create page request: %w", err)
 	}
-	response, err := client.Do(ctx, request)
+	response, err := client.DoProfile(ctx, request, profileName)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -133,6 +223,48 @@ func (client *Client) ReadPage(ctx context.Context, rawURL string) ([]byte, http
 	}
 	return body, response.Header.Clone(), nil
 }
+
+// Cookies returns a defensive snapshot of cookies applicable to rawURL. This
+// is primarily used to prove native/impersonated jar continuity.
+func (client *Client) Cookies(rawURL string) ([]*http.Cookie, error) {
+	target, err := url.Parse(rawURL)
+	if err != nil || target.Scheme == "" || target.Host == "" {
+		return nil, errors.New("invalid cookie URL")
+	}
+	cookies := client.jar.Cookies(target)
+	cloned := make([]*http.Cookie, len(cookies))
+	for index, cookie := range cookies {
+		copy := *cookie
+		copy.Unparsed = append([]string(nil), cookie.Unparsed...)
+		cloned[index] = &copy
+	}
+	return cloned, nil
+}
+
+func SupportedImpersonationProfiles() []impersonate.Profile { return impersonate.Supported() }
+
+// RequestError retains the underlying cause for errors.Is/errors.As while its
+// rendered message omits dependency-provided URLs and proxy credentials.
+type RequestError struct {
+	Method string
+	URL    string
+	Err    error
+}
+
+func (err *RequestError) Error() string {
+	if err == nil {
+		return "<nil>"
+	}
+	if errors.Is(err.Err, context.Canceled) {
+		return fmt.Sprintf("HTTP %s %s: context canceled", err.Method, err.URL)
+	}
+	if errors.Is(err.Err, context.DeadlineExceeded) {
+		return fmt.Sprintf("HTTP %s %s: context deadline exceeded", err.Method, err.URL)
+	}
+	return fmt.Sprintf("HTTP %s %s: request failed", err.Method, err.URL)
+}
+
+func (err *RequestError) Unwrap() error { return err.Err }
 
 type StatusError struct {
 	Code int

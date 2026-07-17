@@ -54,6 +54,34 @@ func TestRegistryRejectsMalformedURL(t *testing.T) {
 	}
 }
 
+func TestProfileTransportCapabilityIsExplicit(t *testing.T) {
+	transport := &memoryTransport{pages: map[string][]byte{"https://example.test": []byte("native")}}
+	if _, _, err := ReadPageWithProfile(context.Background(), transport, "https://example.test", "chrome-133"); !errors.Is(err, ErrTransportProfile) {
+		t.Fatalf("ReadPageWithProfile() error = %v", err)
+	}
+
+	profiled := &recordingProfileTransport{memoryTransport: transport}
+	body, _, err := ReadPageWithProfile(context.Background(), profiled, "https://example.test", "chrome-133")
+	if err != nil || string(body) != "native" || profiled.profile != "chrome-133" {
+		t.Fatalf("body = %q, profile = %q, error = %v", body, profiled.profile, err)
+	}
+}
+
+type recordingProfileTransport struct {
+	*memoryTransport
+	profile string
+}
+
+func (transport *recordingProfileTransport) DoProfile(ctx context.Context, request *http.Request, profile string) (*http.Response, error) {
+	transport.profile = profile
+	return transport.Do(ctx, request)
+}
+
+func (transport *recordingProfileTransport) ReadPageProfile(ctx context.Context, rawURL, profile string) ([]byte, http.Header, error) {
+	transport.profile = profile
+	return transport.ReadPage(ctx, rawURL)
+}
+
 func TestFixtureExtraction(t *testing.T) {
 	server := testserver.New()
 	defer server.Close()

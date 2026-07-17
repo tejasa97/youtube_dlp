@@ -13,16 +13,46 @@ import (
 )
 
 var (
-	ErrUnsupported     = errors.New("unsupported URL")
-	ErrInvalidMetadata = errors.New("invalid extractor metadata")
-	ErrUnavailable     = errors.New("media unavailable")
-	ErrAuthentication  = errors.New("authentication required")
-	ErrChallengeSolver = errors.New("JavaScript challenge solver unavailable")
+	ErrUnsupported      = errors.New("unsupported URL")
+	ErrInvalidMetadata  = errors.New("invalid extractor metadata")
+	ErrUnavailable      = errors.New("media unavailable")
+	ErrAuthentication   = errors.New("authentication required")
+	ErrChallengeSolver  = errors.New("JavaScript challenge solver unavailable")
+	ErrTransportProfile = errors.New("transport profile unavailable")
 )
 
 type Transport interface {
 	Do(context.Context, *http.Request) (*http.Response, error)
 	ReadPage(context.Context, string) ([]byte, http.Header, error)
+}
+
+// ProfileTransport is an optional capability implemented by request directors
+// that can execute an explicitly named browser transport profile.
+type ProfileTransport interface {
+	DoProfile(context.Context, *http.Request, string) (*http.Response, error)
+	ReadPageProfile(context.Context, string, string) ([]byte, http.Header, error)
+}
+
+func DoWithProfile(ctx context.Context, transport Transport, request *http.Request, profile string) (*http.Response, error) {
+	if profile == "" {
+		return transport.Do(ctx, request)
+	}
+	profiled, ok := transport.(ProfileTransport)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrTransportProfile, profile)
+	}
+	return profiled.DoProfile(ctx, request, profile)
+}
+
+func ReadPageWithProfile(ctx context.Context, transport Transport, rawURL, profile string) ([]byte, http.Header, error) {
+	if profile == "" {
+		return transport.ReadPage(ctx, rawURL)
+	}
+	profiled, ok := transport.(ProfileTransport)
+	if !ok {
+		return nil, nil, fmt.Errorf("%w: %s", ErrTransportProfile, profile)
+	}
+	return profiled.ReadPageProfile(ctx, rawURL, profile)
 }
 
 type Request struct {

@@ -136,6 +136,7 @@ func (client *Client) Run(ctx context.Context, request Request) (Result, error) 
 	if err != nil {
 		return Result{}, categorized("configure network", err)
 	}
+	defer transport.CloseIdleConnections()
 	registry := extractor.NewRegistry(extractor.NewYouTube(), extractor.NewFixture(), extractor.NewGeneric())
 	selected, err := registry.Select(request.URL)
 	if err != nil {
@@ -255,7 +256,8 @@ func categorized(op string, err error) error {
 		category = ErrorUnsupported
 	case errors.Is(err, extractor.ErrAuthentication):
 		category = ErrorAuthentication
-	case errors.Is(err, extractor.ErrUnavailable), errors.Is(err, extractor.ErrChallengeSolver):
+	case errors.Is(err, extractor.ErrUnavailable), errors.Is(err, extractor.ErrChallengeSolver),
+		errors.Is(err, extractor.ErrTransportProfile), errors.Is(err, network.ErrImpersonationUnavailable):
 		category = ErrorUnsupported
 	case errors.Is(err, ffmpeg.ErrFFmpegUnavailable), errors.Is(err, ffmpeg.ErrFFprobeUnavailable):
 		category = ErrorUnsupported

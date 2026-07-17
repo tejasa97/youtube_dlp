@@ -260,10 +260,22 @@ capabilities:
     name: Browser impersonation transport
     phase: 1
     compatibility_target: Execute a selected protected flow with a versioned browser network profile.
-    status: not_started
+    status: compatible
+    evidence:
+      - internal/network.TestImpersonatedProtectedFlowAndSharedCookies
+      - internal/network.TestImpersonationRejectsUnknownProfileWithoutFallback
+      - internal/network.TestImpersonationProfileDiagnostics
+      - internal/network.TestImpersonationUsesProxyAndRedactsFailures
+      - internal/network/impersonate.TestProfileMetadataAndCopiesAreStable
+      - internal/network/impersonate.TestRequestAdapterPreservesSemanticsAndAppliesProfile
+      - internal/network/impersonate.TestCookieJarAdapterRoundTripsAllSupportedFields
+      - cmd/impersonationcheck.TestSummarizeExtractsBoundedFingerprintEvidence
+      - conformance/network/impersonation/PROVENANCE.md
+      - conformance/network/impersonation/LIVE_CANARY.md
     owner: io
     depends_on:
       - network.shared_transport
+    known_deviation: Compatibility is scoped to the versioned Chrome 133 TLS/HTTP2 pilot profile; HTTP/3 and newer browser profiles remain later profile updates.
 
   - id: cookies.browser_import
     name: Browser-cookie import
