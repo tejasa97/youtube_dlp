@@ -190,8 +190,16 @@ capabilities:
     name: HLS downloading
     phase: 1
     compatibility_target: Download VOD and live HLS variants with yt-dlp-compatible selection and recovery behavior.
-    status: not_started
+    status: partial
+    evidence:
+      - internal/fragment.TestEngineDownloadsRangesDecryptsAndAssemblesInOrder
+      - internal/fragment.TestEngineReusesCompletedFragments
+      - internal/protocol/hls.TestParseMasterAndMedia
+      - internal/protocol/hls.TestDownloadMasterByteRangeMapAndAES128
+      - internal/protocol/hls.TestDownloadLivePollDeduplicatesSegments
+      - internal/protocol/hls.TestDownloadLiveHonorsCancellation
     owner: io
+    known_deviation: The pilot is not wired into format dispatch yet; low-latency HLS and non-AES-128 encryption remain explicitly unsupported.
 
   - id: protocol.dash
     name: DASH downloading

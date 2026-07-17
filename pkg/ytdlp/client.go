@@ -78,6 +78,8 @@ type Event struct {
 	Attempt   int    `json:"attempt,omitempty"`
 	Resuming  bool   `json:"resuming,omitempty"`
 	Message   string `json:"message,omitempty"`
+	Fragment  int    `json:"fragment,omitempty"`
+	Fragments int    `json:"fragments,omitempty"`
 }
 
 type EventHandler func(context.Context, Event) error
@@ -160,6 +162,7 @@ func (client *Client) Run(ctx context.Context, request Request) (Result, error) 
 		return client.emit(ctx, Event{
 			Kind: string(event.Kind), URL: event.URL, Path: event.Path, Bytes: event.Bytes,
 			Total: event.Total, Attempt: event.Attempt, Resuming: event.Resuming, Message: event.Message,
+			Fragment: event.Fragment, Fragments: event.Fragments,
 		})
 	})
 	downloaded, err := downloader.New(transport).Download(ctx, downloader.Job{

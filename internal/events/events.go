@@ -9,13 +9,15 @@ import (
 type Kind string
 
 const (
-	KindExtracting Kind = "extracting"
-	KindExtracted  Kind = "extracted"
-	KindStarting   Kind = "download_starting"
-	KindProgress   Kind = "download_progress"
-	KindRetry      Kind = "download_retry"
-	KindCancelled  Kind = "download_cancelled"
-	KindCompleted  Kind = "download_completed"
+	KindExtracting        Kind = "extracting"
+	KindExtracted         Kind = "extracted"
+	KindStarting          Kind = "download_starting"
+	KindProgress          Kind = "download_progress"
+	KindRetry             Kind = "download_retry"
+	KindCancelled         Kind = "download_cancelled"
+	KindCompleted         Kind = "download_completed"
+	KindFragmentStarting  Kind = "fragment_starting"
+	KindFragmentCompleted Kind = "fragment_completed"
 )
 
 // Event contains stable operation data. It intentionally excludes wall-clock
@@ -30,6 +32,8 @@ type Event struct {
 	Attempt   int    `json:"attempt,omitempty"`
 	Resuming  bool   `json:"resuming,omitempty"`
 	Message   string `json:"message,omitempty"`
+	Fragment  int    `json:"fragment,omitempty"`
+	Fragments int    `json:"fragments,omitempty"`
 }
 
 type Sink interface {
