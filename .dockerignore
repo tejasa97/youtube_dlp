@@ -1,0 +1,5 @@
+.git
+bin
+build
+dist
+.DS_Store

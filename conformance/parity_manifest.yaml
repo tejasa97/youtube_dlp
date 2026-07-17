@@ -3,23 +3,28 @@ capabilities:
   - id: foundation.cli
     name: Foundation CLI boundary
     phase: 0
-    compatibility_target: Parse a single operation and expose stable help, version, and exit behavior.
-    status: partial
+    compatibility_target: Run the Phase 0 fixture/direct-HTTP workflow with stable help, output separation, and categorized exits.
+    status: compatible
     evidence:
       - internal/cli.TestRunVersion
       - internal/cli.TestRunRequiresURL
+      - internal/cli.TestRunWalkingSkeletonAndJSONSeparation
+      - internal/cli.TestRunResumesPartialDownload
+      - internal/cli.TestRunCancellationExitCode
+      - internal/e2e.TestCLIProcessWalkingSkeleton
     owner: core
-    known_deviation: Extraction and yt-dlp-compatible options are not implemented yet.
 
   - id: foundation.embedding_api
     name: Cancellable Go embedding boundary
     phase: 0
     compatibility_target: Expose a context-aware operation interface with categorized errors.
-    status: partial
+    status: compatible
     evidence:
       - pkg/ytdlp.TestIsCategory
+      - pkg/ytdlp.TestClientWalkingSkeleton
+      - pkg/ytdlp.TestClientConcurrentOperationsDoNotShareState
+      - pkg/ytdlp.TestClientCancellationReachesTransport
     owner: core
-    known_deviation: The operation implementation and result metadata are not wired yet.
 
   - id: foundation.capability_manifest
     name: Capability evidence manifest
@@ -74,7 +79,13 @@ capabilities:
     name: Shared HTTP transport
     phase: 0
     compatibility_target: Provide cancellable HTTP behavior shared by extractors and downloaders.
-    status: not_started
+    status: compatible
+    evidence:
+      - internal/network.TestClientHeadersCookiesRedirectsAndCompression
+      - internal/network.TestReadPageLimitAndCancellation
+      - internal/network.TestClientUsesConfiguredProxy
+      - internal/network.TestDoLeavesBodyOwnershipToCaller
+      - internal/network.TestRedaction
     owner: io
     depends_on:
       - test.fixture_server
@@ -83,7 +94,12 @@ capabilities:
     name: Direct-media extraction
     phase: 0
     compatibility_target: Normalize a direct media URL into the common metadata and format model.
-    status: not_started
+    status: compatible
+    evidence:
+      - internal/extractor.TestRegistrySelectionIsDeterministic
+      - internal/extractor.TestFixtureExtraction
+      - internal/extractor.TestGenericDirectMediaExtraction
+      - internal/extractor.TestFixtureRejectsMalformedMetadata
     owner: core
     depends_on:
       - metadata.ordered_values
@@ -93,7 +109,17 @@ capabilities:
     name: Resumable direct HTTP download
     phase: 0
     compatibility_target: Download direct media with progress, cancellation, safe finalization, and validated resume.
-    status: not_started
+    status: compatible
+    evidence:
+      - internal/downloader.TestDownloadCompleteAndResume
+      - internal/downloader.TestDownloadRestartsWhenServerIgnoresRange
+      - internal/downloader.TestDownloadUnknownLength
+      - internal/downloader.TestDownloadCancellationLeavesPartialState
+      - internal/downloader.TestDownloadSafetyAndOverwrite
+      - internal/downloader.TestDownloadRejectsSymlinkEscape
+      - internal/downloader.TestDownloadRejectsSymlinkPartialFile
+      - internal/downloader.TestDownloadRetriesRetryableFailure
+      - internal/downloader.TestDownloadRestartsOnChangedETag
     owner: io
     depends_on:
       - network.shared_transport
@@ -102,7 +128,13 @@ capabilities:
     name: Minimal output-template subset
     phase: 0
     compatibility_target: Render literals, percent escapes, and simple string field substitutions safely.
-    status: not_started
+    status: compatible
+    evidence:
+      - internal/compat/template.TestRenderSubset
+      - internal/compat/template.TestResolveSanitizesAndConfines
+      - internal/compat/template.TestResolveRejectsTraversalAndAbsolutePaths
+      - internal/compat/template.TestReservedFilename
+      - internal/compat/template.FuzzResolve
     owner: core
     depends_on:
       - metadata.ordered_values
@@ -111,6 +143,149 @@ capabilities:
     name: Python-free runtime verification
     phase: 0
     compatibility_target: Build, test, and run the binary in an environment without Python executables or libraries.
-    status: partial
+    status: compatible
+    evidence:
+      - .github/python-free.Dockerfile
+      - .github/workflows/ci.yml#python-free
+      - internal/e2e.TestCLIProcessWalkingSkeleton
     owner: conformance
-    known_deviation: The clean-container CI gate is present but the end-to-end operation does not exist yet.
+
+  - id: operation.structured_events
+    name: Structured operation events
+    phase: 0
+    compatibility_target: Keep progress and lifecycle data independent from terminal rendering and machine output.
+    status: compatible
+    evidence:
+      - internal/events.TestMultiEmitsInOrderAndJoinsErrors
+      - internal/cli.TestRunProgressJSONStaysOnStderr
+      - pkg/ytdlp.TestClientWalkingSkeleton
+    owner: core
+
+  - id: format.selection_minimal
+    name: Minimal format selection
+    phase: 0
+    compatibility_target: Select the first best-first normalized format containing a downloadable URL.
+    status: compatible
+    evidence:
+      - internal/format.TestBestSelectsFirstDownloadableFormat
+      - internal/format.TestBestRejectsMissingFormats
+    owner: core
+    depends_on:
+      - metadata.ordered_values
+
+  - id: architecture.risk_decisions
+    name: High-risk architecture decisions
+    phase: 0
+    compatibility_target: Record bounded decisions for regex, JavaScript, impersonation, plugins, and ffmpeg.
+    status: compatible
+    evidence:
+      - docs/adr/0001-regex-compatibility.md
+      - docs/adr/0002-javascript-runtime.md
+      - docs/adr/0003-browser-impersonation.md
+      - docs/adr/0004-plugin-architecture.md
+      - docs/adr/0005-ffmpeg-boundary.md
+    owner: architecture
+
+  - id: protocol.hls
+    name: HLS downloading
+    phase: 1
+    compatibility_target: Download VOD and live HLS variants with yt-dlp-compatible selection and recovery behavior.
+    status: not_started
+    owner: io
+
+  - id: protocol.dash
+    name: DASH downloading
+    phase: 1
+    compatibility_target: Download and assemble DASH representations with compatible fragment recovery.
+    status: not_started
+    owner: io
+
+  - id: postprocess.ffmpeg
+    name: ffmpeg and ffprobe orchestration
+    phase: 1
+    compatibility_target: Probe, merge, convert, and post-process through supervised external tools.
+    status: not_started
+    owner: media
+
+  - id: javascript.ejs
+    name: Python-free EJS execution
+    phase: 1
+    compatibility_target: Execute supported extractor JavaScript with bounded resources and no Python runtime.
+    status: not_started
+    owner: runtime
+
+  - id: network.impersonation
+    name: Browser impersonation transport
+    phase: 1
+    compatibility_target: Execute a selected protected flow with a versioned browser network profile.
+    status: not_started
+    owner: io
+    depends_on:
+      - network.shared_transport
+
+  - id: cookies.browser_import
+    name: Browser-cookie import
+    phase: 1
+    compatibility_target: Import cookies from one Chromium-family browser without Python.
+    status: not_started
+    owner: authentication
+
+  - id: extractor.youtube_pilot
+    name: YouTube pilot extraction
+    phase: 1
+    compatibility_target: Prove metadata, formats, playlists, and challenge execution for a pinned YouTube corpus.
+    status: not_started
+    owner: extractors
+    depends_on:
+      - javascript.ejs
+
+  - id: extractor.playlists
+    name: Playlist extraction model
+    phase: 1
+    compatibility_target: Preserve ordered, lazy, and nested playlist semantics required by pilot extractors.
+    status: not_started
+    owner: extractors
+
+  - id: extractor.live
+    name: Live extraction pilot
+    phase: 1
+    compatibility_target: Extract and download one representative live platform without Python.
+    status: not_started
+    owner: extractors
+    depends_on:
+      - protocol.hls
+
+  - id: compat.configuration
+    name: Configuration compatibility
+    phase: 2
+    compatibility_target: Discover and merge supported yt-dlp configuration files with compatible precedence.
+    status: not_started
+    owner: core
+
+  - id: compat.download_archive
+    name: Download archive compatibility
+    phase: 2
+    compatibility_target: Read, update, and migrate download archives without duplicate-download regressions.
+    status: not_started
+    owner: core
+
+  - id: plugins.rpc
+    name: Out-of-process plugin protocol
+    phase: 1
+    compatibility_target: Load versioned RPC plugins with cancellation, limits, and explicit permissions.
+    status: not_started
+    owner: runtime
+
+  - id: plugins.wasm
+    name: WASM plugin experiment
+    phase: 1
+    compatibility_target: Evaluate a portable sandboxed plugin path for suitable extractor extensions.
+    status: not_started
+    owner: runtime
+
+  - id: release.updater
+    name: Signed updater and release metadata
+    phase: 3
+    compatibility_target: Verify and install signed cross-platform releases with safe rollback behavior.
+    status: not_started
+    owner: release

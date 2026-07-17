@@ -556,3 +556,23 @@ The first implementation slice can start immediately with these ordered tasks:
 Tasks 3 and 5 can proceed alongside task 4 after the module and CI baseline are
 merged. The first integration checkpoint is metadata extraction only; file
 downloading follows after the model and transport contracts are stable.
+
+## 15. Completion record
+
+Phase 0 was completed on 2026-07-17. All eleven work packages have implementation
+or decision evidence:
+
+- P0-01 through P0-03: Go/CI baseline, validated capability manifest with a
+  generated summary, and the ordered value model.
+- P0-04 through P0-06: context-driven client lifecycle, structured events,
+  shared HTTP transport, deterministic registry, fixture extraction, generic
+  direct-media extraction, and minimal format selection.
+- P0-07 through P0-09: bounded-retry/resumable downloader, confined output
+  templates, embedding API, CLI, JSON progress, cancellation, and stable exit
+  categories.
+- P0-10: deterministic offline fixtures for normal and injected-failure paths.
+- P0-11: accepted ADRs for regex, JavaScript, impersonation, plugins, and
+  ffmpeg boundaries.
+
+The detailed evidence and remaining Phase 1 limitations are recorded in
+`docs/PHASE_0_EXIT_REVIEW.md` and `conformance/parity_manifest.yaml`.

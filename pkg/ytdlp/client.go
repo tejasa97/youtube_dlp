@@ -1,17 +1,22 @@
-// Package ytdlp defines the supported embedding boundary for the Go port.
-//
-// The API is intentionally small during Phase 0. New capability should first
-// be implemented behind internal interfaces and promoted here only when its
-// compatibility and lifecycle semantics are stable.
+// Package ytdlp provides the supported Go embedding API.
 package ytdlp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
+
+	outputtemplate "github.com/ytdlp-go/ytdlp/internal/compat/template"
+	"github.com/ytdlp-go/ytdlp/internal/downloader"
+	"github.com/ytdlp-go/ytdlp/internal/events"
+	"github.com/ytdlp-go/ytdlp/internal/extractor"
+	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
+	"github.com/ytdlp-go/ytdlp/internal/network"
+	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
-// ErrorCategory is a stable, machine-readable class of operation failure.
 type ErrorCategory string
 
 const (
@@ -22,44 +27,176 @@ const (
 	ErrorInternal     ErrorCategory = "internal"
 )
 
-// Error wraps an operation failure with a stable category.
 type Error struct {
 	Category ErrorCategory
 	Op       string
 	Err      error
 }
 
-func (e *Error) Error() string {
-	if e == nil {
+func (err *Error) Error() string {
+	if err == nil {
 		return "<nil>"
 	}
-	if e.Op == "" {
-		return fmt.Sprintf("%s: %v", e.Category, e.Err)
+	if err.Op == "" {
+		return fmt.Sprintf("%s: %v", err.Category, err.Err)
 	}
-	return fmt.Sprintf("%s: %s: %v", e.Category, e.Op, e.Err)
+	return fmt.Sprintf("%s: %s: %v", err.Category, err.Op, err.Err)
 }
 
-func (e *Error) Unwrap() error { return e.Err }
+func (err *Error) Unwrap() error { return err.Err }
 
-// IsCategory reports whether err or a wrapped error has category.
 func IsCategory(err error, category ErrorCategory) bool {
 	var target *Error
 	return errors.As(err, &target) && target.Category == category
 }
 
-// Request describes one extraction/download operation.
 type Request struct {
-	URL string
+	URL            string
+	OutputTemplate string
+	OutputDir      string
+	Proxy          string
+	Timeout        time.Duration
+	Overwrite      bool
+	SkipDownload   bool
 }
 
-// Result is the stable envelope returned by a completed operation.
-// Fields will be extended as Phase 0 components become available.
 type Result struct {
+	InfoJSON   json.RawMessage
+	Extractor  string
 	Downloaded bool
 	Filename   string
+	Bytes      int64
 }
 
-// Client is the cancellable operation boundary used by embedders and the CLI.
-type Client interface {
+type Event struct {
+	Kind      string `json:"kind"`
+	Extractor string `json:"extractor,omitempty"`
+	URL       string `json:"url,omitempty"`
+	Path      string `json:"path,omitempty"`
+	Bytes     int64  `json:"bytes,omitempty"`
+	Total     int64  `json:"total,omitempty"`
+	Attempt   int    `json:"attempt,omitempty"`
+	Resuming  bool   `json:"resuming,omitempty"`
+	Message   string `json:"message,omitempty"`
+}
+
+type EventHandler func(context.Context, Event) error
+
+type Option func(*Client)
+
+func WithEventHandler(handler EventHandler) Option {
+	return func(client *Client) { client.handler = handler }
+}
+
+// Runner is the cancellable operation contract.
+type Runner interface {
 	Run(context.Context, Request) (Result, error)
+}
+
+// Client is stateless between operations and safe for concurrent use. A
+// configured event handler must provide its own synchronization when shared.
+type Client struct {
+	handler EventHandler
+}
+
+func NewClient(options ...Option) *Client {
+	client := &Client{}
+	for _, option := range options {
+		option(client)
+	}
+	return client
+}
+
+func (client *Client) Run(ctx context.Context, request Request) (Result, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	transport, err := network.New(network.Config{Proxy: request.Proxy, Timeout: request.Timeout})
+	if err != nil {
+		return Result{}, categorized("configure network", err)
+	}
+	registry := extractor.NewRegistry(extractor.NewFixture(), extractor.NewGeneric())
+	selected, err := registry.Select(request.URL)
+	if err != nil {
+		return Result{}, categorized("select extractor", err)
+	}
+	if err := client.emit(ctx, Event{Kind: string(events.KindExtracting), Extractor: selected.Name(), URL: request.URL}); err != nil {
+		return Result{}, &Error{Category: ErrorInternal, Op: "emit extracting event", Err: err}
+	}
+	info, err := selected.Extract(ctx, extractor.Request{URL: request.URL, Transport: transport})
+	if err != nil {
+		return Result{}, categorized(selected.Name()+" extraction", err)
+	}
+	if err := client.emit(ctx, Event{Kind: string(events.KindExtracted), Extractor: selected.Name(), URL: request.URL}); err != nil {
+		return Result{}, &Error{Category: ErrorInternal, Op: "emit extracted event", Err: err}
+	}
+	encoded, err := json.Marshal(value.ObjectValue(info.Fields()))
+	if err != nil {
+		return Result{}, &Error{Category: ErrorInternal, Op: "encode metadata", Err: err}
+	}
+	result := Result{InfoJSON: encoded, Extractor: selected.Name()}
+	if request.SkipDownload {
+		return result, nil
+	}
+
+	selectedFormat, err := mediaformat.Best(info)
+	if err != nil {
+		return Result{}, categorized("select format", err)
+	}
+	pattern := request.OutputTemplate
+	if pattern == "" {
+		pattern = "%(title)s.%(ext)s"
+	}
+	outputDir := request.OutputDir
+	if outputDir == "" {
+		outputDir = "."
+	}
+	destination, err := outputtemplate.Resolve(outputDir, pattern, info)
+	if err != nil {
+		return Result{}, categorized("render output template", err)
+	}
+
+	sink := events.SinkFunc(func(ctx context.Context, event events.Event) error {
+		return client.emit(ctx, Event{
+			Kind: string(event.Kind), URL: event.URL, Path: event.Path, Bytes: event.Bytes,
+			Total: event.Total, Attempt: event.Attempt, Resuming: event.Resuming, Message: event.Message,
+		})
+	})
+	downloaded, err := downloader.New(transport).Download(ctx, downloader.Job{
+		URL: selectedFormat.URL, OutputRoot: outputDir, Destination: destination, Overwrite: request.Overwrite,
+	}, sink)
+	if err != nil {
+		return Result{}, categorized("download", err)
+	}
+	result.Downloaded = true
+	result.Filename = downloaded.Path
+	result.Bytes = downloaded.Bytes
+	return result, nil
+}
+
+func (client *Client) emit(ctx context.Context, event Event) error {
+	if client.handler == nil {
+		return nil
+	}
+	return client.handler(ctx, event)
+}
+
+func categorized(op string, err error) error {
+	if err == nil {
+		return nil
+	}
+	category := ErrorNetwork
+	switch {
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		category = ErrorCancelled
+	case errors.Is(err, extractor.ErrUnsupported):
+		category = ErrorUnsupported
+	case errors.Is(err, outputtemplate.ErrInvalidTemplate), errors.Is(err, outputtemplate.ErrUnsafePath),
+		errors.Is(err, downloader.ErrDestinationExists), errors.Is(err, downloader.ErrUnsafeDestination),
+		errors.Is(err, network.ErrInvalidProxy):
+		category = ErrorInvalidInput
+	case errors.Is(err, mediaformat.ErrNoFormats), errors.Is(err, extractor.ErrInvalidMetadata):
+		category = ErrorInternal
+	}
+	return &Error{Category: category, Op: op, Err: err}
 }

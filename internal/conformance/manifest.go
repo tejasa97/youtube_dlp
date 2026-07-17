@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -29,6 +30,40 @@ const (
 type Manifest struct {
 	Version      int          `yaml:"version"`
 	Capabilities []Capability `yaml:"capabilities"`
+}
+
+// WriteSummary writes a deterministic human-readable Markdown status report.
+func WriteSummary(writer io.Writer, manifest *Manifest) error {
+	if err := manifest.Validate(); err != nil {
+		return err
+	}
+	counts := make(map[Status]int)
+	phases := make(map[int][]Capability)
+	for _, capability := range manifest.Capabilities {
+		counts[capability.Status]++
+		phases[capability.Phase] = append(phases[capability.Phase], capability)
+	}
+	if _, err := fmt.Fprintf(writer, "# Capability Status\n\nTotal: %d; compatible: %d; partial: %d; not started: %d; intentional deviations: %d; blocked: %d.\n",
+		len(manifest.Capabilities), counts[StatusCompatible], counts[StatusPartial], counts[StatusNotStarted], counts[StatusIntentionalDeviation], counts[StatusBlocked]); err != nil {
+		return err
+	}
+	phaseNumbers := make([]int, 0, len(phases))
+	for phase := range phases {
+		phaseNumbers = append(phaseNumbers, phase)
+	}
+	sort.Ints(phaseNumbers)
+	for _, phase := range phaseNumbers {
+		if _, err := fmt.Fprintf(writer, "\n## Phase %d\n\n| ID | Status | Target |\n| --- | --- | --- |\n", phase); err != nil {
+			return err
+		}
+		for _, capability := range phases[phase] {
+			target := strings.ReplaceAll(capability.CompatibilityTarget, "|", "\\|")
+			if _, err := fmt.Fprintf(writer, "| `%s` | %s | %s |\n", capability.ID, capability.Status, target); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // Capability describes one independently verifiable compatibility target.

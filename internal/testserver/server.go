@@ -54,7 +54,23 @@ func (server *Server) handler() http.Handler {
 	mux.HandleFunc("/slow", server.handleSlow)
 	mux.HandleFunc("/disconnect", server.handleDisconnect)
 	mux.HandleFunc("/mutable", server.handleMutable)
+	mux.HandleFunc("/headers", server.handleHeaders)
+	mux.HandleFunc("/large", server.handleLarge)
 	return mux
+}
+
+func (server *Server) handleHeaders(writer http.ResponseWriter, request *http.Request) {
+	writer.Header().Set("Content-Type", "application/json")
+	_, _ = fmt.Fprintf(writer, `{"user_agent":%q,"x_fixture":%q}`+"\n", request.UserAgent(), request.Header.Get("X-Fixture"))
+}
+
+func (server *Server) handleLarge(writer http.ResponseWriter, request *http.Request) {
+	size, _ := strconv.Atoi(request.URL.Query().Get("size"))
+	if size < 0 || size > 1<<20 {
+		size = 0
+	}
+	writer.Header().Set("Content-Length", strconv.Itoa(size))
+	_, _ = writer.Write(make([]byte, size))
 }
 
 func (server *Server) handlePage(writer http.ResponseWriter, request *http.Request) {

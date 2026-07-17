@@ -21,6 +21,8 @@ jobs:
       - run: git diff --exit-code -- go.mod go.sum
       - run: go vet ./...
       - run: go run ./cmd/paritycheck
+      - run: go test -run=^$ -fuzz=FuzzValueJSON -fuzztime=2s ./internal/value
+      - run: go test -run=^$ -fuzz=FuzzResolve -fuzztime=2s ./internal/compat/template
 
   test:
     strategy:

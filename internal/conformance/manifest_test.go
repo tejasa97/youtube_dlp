@@ -1,6 +1,7 @@
 package conformance
 
 import (
+	"bytes"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -91,5 +92,22 @@ func TestValidateMatchesSchemaConstraints(t *testing.T) {
 				t.Fatalf("Validate() error = %v, want %q", err, test.want)
 			}
 		})
+	}
+}
+
+func TestWriteSummary(t *testing.T) {
+	manifest := Manifest{Version: 1, Capabilities: []Capability{{
+		ID: "phase.zero", Name: "Phase zero", CompatibilityTarget: "Works | safely", Status: StatusCompatible, Owner: "core", Evidence: []string{"TestEvidence"},
+	}, {
+		ID: "phase.one", Name: "Phase one", Phase: 1, CompatibilityTarget: "Later", Status: StatusNotStarted, Owner: "core",
+	}}}
+	var output bytes.Buffer
+	if err := WriteSummary(&output, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"Total: 2", "## Phase 0", "`phase.zero`", "Works \\| safely", "## Phase 1"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("summary lacks %q:\n%s", expected, output.String())
+		}
 	}
 }

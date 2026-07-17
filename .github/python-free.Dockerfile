@@ -14,4 +14,5 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ytdlp-go ./cmd/ytd
 
 FROM scratch
 COPY --from=build /out/ytdlp-go /ytdlp-go
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 ENTRYPOINT ["/ytdlp-go"]
