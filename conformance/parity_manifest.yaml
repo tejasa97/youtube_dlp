@@ -236,8 +236,14 @@ capabilities:
     name: Python-free EJS execution
     phase: 1
     compatibility_target: Execute supported extractor JavaScript with bounded resources and no Python runtime.
-    status: not_started
+    status: partial
+    evidence:
+      - docs/JAVASCRIPT_HELPER_PROTOCOL.md
+      - internal/javascript/protocol.TestRequestNormalizeDefaultsAndHash
+      - internal/javascript/protocol.TestRequestRejectsLimitsHashesModulesAndArguments
+      - internal/javascript/protocol.TestFrameRoundTripAndBounds
     owner: runtime
+    known_deviation: The versioned bounded protocol is complete; the supervised helper engine and EJS challenge corpus are the next checkpoint.
 
   - id: network.impersonation
     name: Browser impersonation transport
