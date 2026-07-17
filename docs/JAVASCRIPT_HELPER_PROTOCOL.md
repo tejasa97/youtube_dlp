@@ -25,6 +25,14 @@ immutable programs by this hash, but each request receives a fresh runtime so
 global mutations never cross requests. Cancellation or a helper fault causes
 the host to terminate the helper process and discard its cache.
 
+The Go helper starts with both `GOMEMLIMIT` and `runtime/debug.SetMemoryLimit`
+set to the supervisor's configured process budget. Requests cannot ask for more
+memory than that process budget. This is a Go-runtime memory ceiling rather than
+an operating-system sandbox guarantee; abnormal exhaustion kills only the
+helper and is reported by the supervisor as a helper crash. The process has a
+minimal environment and the JavaScript runtime exposes no filesystem, network,
+Node, browser, timer, or subprocess host functions.
+
 The stable error codes distinguish invalid input, incompatible versions,
 syntax and execution failures, missing functions, unsupported modules, timeout,
 cancellation, input/output/memory limits, helper crashes, and protocol faults.

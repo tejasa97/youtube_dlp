@@ -66,3 +66,4 @@ jobs:
       - uses: actions/checkout@v4
       - run: docker build --file .github/python-free.Dockerfile --tag ytdlp-go-python-free .
       - run: docker run --rm ytdlp-go-python-free --version
+      - run: docker run --rm --entrypoint /jscheck ytdlp-go-python-free -helper /ytdlp-js-helper
