@@ -205,15 +205,27 @@ capabilities:
     name: DASH downloading
     phase: 1
     compatibility_target: Download and assemble DASH representations with compatible fragment recovery.
-    status: not_started
+    status: partial
+    evidence:
+      - internal/protocol/dash.TestParseBaseInheritanceTemplatesAndSegmentList
+      - internal/protocol/dash.TestParseDurationTemplate
+      - internal/protocol/dash.TestDownloadSeparateAudioVideoTracks
+      - internal/protocol/dash.TestDownloadDynamicMPDPollsAndDeduplicates
+      - internal/media/pipeline.TestDASHDownloadAndFFmpegMergeEndToEnd
     owner: io
+    known_deviation: The pilot is not wired into product format dispatch; negative-repeat live timelines and several DASH addressing modes remain unsupported.
 
   - id: postprocess.ffmpeg
     name: ffmpeg and ffprobe orchestration
     phase: 1
     compatibility_target: Probe, merge, convert, and post-process through supervised external tools.
-    status: not_started
+    status: partial
+    evidence:
+      - internal/media/ffmpeg.TestDiscoverVersionsProbeAndMerge
+      - internal/media/ffmpeg.TestCommandCancellation
+      - internal/media/pipeline.TestDASHDownloadAndFFmpegMergeEndToEnd
     owner: media
+    known_deviation: Probe and merge supervision are implemented, but broader postprocessors and product dispatch remain unimplemented.
 
   - id: javascript.ejs
     name: Python-free EJS execution

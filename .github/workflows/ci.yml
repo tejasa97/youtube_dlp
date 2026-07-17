@@ -48,6 +48,17 @@ jobs:
           cache: true
       - run: go test -race ./...
 
+  media:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: sudo apt-get update && sudo apt-get install --yes ffmpeg
+      - run: go test -v ./internal/media/ffmpeg ./internal/protocol/hls ./internal/protocol/dash
+
   python-free:
     runs-on: ubuntu-latest
     steps:

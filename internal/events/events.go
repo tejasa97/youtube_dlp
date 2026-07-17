@@ -9,15 +9,18 @@ import (
 type Kind string
 
 const (
-	KindExtracting        Kind = "extracting"
-	KindExtracted         Kind = "extracted"
-	KindStarting          Kind = "download_starting"
-	KindProgress          Kind = "download_progress"
-	KindRetry             Kind = "download_retry"
-	KindCancelled         Kind = "download_cancelled"
-	KindCompleted         Kind = "download_completed"
-	KindFragmentStarting  Kind = "fragment_starting"
-	KindFragmentCompleted Kind = "fragment_completed"
+	KindExtracting           Kind = "extracting"
+	KindExtracted            Kind = "extracted"
+	KindStarting             Kind = "download_starting"
+	KindProgress             Kind = "download_progress"
+	KindRetry                Kind = "download_retry"
+	KindCancelled            Kind = "download_cancelled"
+	KindCompleted            Kind = "download_completed"
+	KindFragmentStarting     Kind = "fragment_starting"
+	KindFragmentCompleted    Kind = "fragment_completed"
+	KindPostprocessStarting  Kind = "postprocess_starting"
+	KindPostprocessProgress  Kind = "postprocess_progress"
+	KindPostprocessCompleted Kind = "postprocess_completed"
 )
 
 // Event contains stable operation data. It intentionally excludes wall-clock
