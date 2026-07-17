@@ -291,27 +291,33 @@ capabilities:
     name: Format-selector parser pilot
     phase: 1
     compatibility_target: Parse and evaluate the selected fallback, merge, media-kind, and filter syntax corpus.
-    status: partial
+    status: compatible
     evidence:
       - internal/format.TestSelectorFallbackMergeAndFilters
       - internal/format.TestSelectorBestWorstAndStringFilters
       - internal/format.TestSelectorRejectsInvalidSyntaxAndNoMatch
+      - internal/format.TestSelectorSyntaxErrorReportsSourceSpan
       - internal/format.FuzzParseSelector
+      - internal/compat_test.TestPinnedCompatibilityCorpus
+      - conformance/compatibility/PROVENANCE.md
     owner: core
-    known_deviation: The parser is not exposed through the CLI yet and the full yt-dlp selector grammar is outside the current pilot corpus.
+    known_deviation: Compatibility is claimed only for the checked-in Phase 1 syntax corpus; broader yt-dlp grammar remains a later phase.
 
   - id: compat.output_template_pilot
     name: Output-template parser pilot
     phase: 1
     compatibility_target: Render the selected traversal, alternative, default, replacement, date, and numeric formatting corpus safely.
-    status: partial
+    status: compatible
     evidence:
       - internal/compat/template.TestRenderTraversalAlternativesDefaultsAndReplacement
       - internal/compat/template.TestRenderNumericAndDateFormatting
+      - internal/compat/template.TestRenderSyntaxErrorReportsSourceSpan
       - internal/compat/template.TestResolveSanitizesAndConfines
       - internal/compat/template.FuzzResolve
+      - internal/compat_test.TestPinnedCompatibilityCorpus
+      - conformance/compatibility/PROVENANCE.md
     owner: core
-    known_deviation: The complete yt-dlp template mini-language and differential oracle corpus remain unfinished.
+    known_deviation: Compatibility is claimed only for the checked-in Phase 1 syntax corpus; the complete output-template mini-language remains a later phase.
 
   - id: conformance.differential_runner
     name: Differential conformance runner

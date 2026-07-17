@@ -84,6 +84,22 @@ func TestRenderRejectsUnsupportedSyntax(t *testing.T) {
 	}
 }
 
+func TestRenderSyntaxErrorReportsSourceSpan(t *testing.T) {
+	_, err := Render("%(title.upper)s", fixtureInfo())
+	var syntaxError *SyntaxError
+	if !errors.As(err, &syntaxError) {
+		t.Fatalf("Render() error = %v", err)
+	}
+	if syntaxError.Start != 2 || syntaxError.End != 13 {
+		t.Fatalf("syntax span = %d:%d, want 2:13", syntaxError.Start, syntaxError.End)
+	}
+
+	_, err = Render("prefix %title", fixtureInfo())
+	if !errors.As(err, &syntaxError) || syntaxError.Start != 7 || syntaxError.End != 9 {
+		t.Fatalf("percent syntax error = %#v, %v", syntaxError, err)
+	}
+}
+
 func TestReservedFilename(t *testing.T) {
 	info := value.NewInfo(value.NewObject(value.Field{Key: "title", Value: value.String("CON")}))
 	got, err := Resolve(t.TempDir(), "%(title)s.txt", info)

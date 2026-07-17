@@ -34,12 +34,30 @@ type Filter struct {
 	Value    string
 }
 
+// SyntaxError identifies the exact byte range rejected by the pilot parser.
+type SyntaxError struct {
+	Start   int
+	End     int
+	Message string
+}
+
+func (err *SyntaxError) Error() string {
+	return fmt.Sprintf("%v at bytes %d:%d: %s", ErrInvalidSelector, err.Start, err.End, err.Message)
+}
+
+func (err *SyntaxError) Unwrap() error { return ErrInvalidSelector }
+
+type selectorSegment struct {
+	text       string
+	start, end int
+}
+
 func ParseSelector(input string) (Selector, error) {
-	input = strings.TrimSpace(input)
-	if input == "" {
-		return Selector{}, fmt.Errorf("%w: selector is empty", ErrInvalidSelector)
+	root := trimSelectorSegment(selectorSegment{text: input, start: 0, end: len(input)})
+	if root.text == "" {
+		return Selector{}, selectorSyntax(root.start, root.end, "selector is empty")
 	}
-	alternatives, err := splitTopLevel(input, '/')
+	alternatives, err := splitTopLevel(root, '/')
 	if err != nil {
 		return Selector{}, err
 	}
@@ -51,7 +69,7 @@ func ParseSelector(input string) (Selector, error) {
 		}
 		choice := Choice{}
 		for _, part := range parts {
-			term, err := parseTerm(strings.TrimSpace(part))
+			term, err := parseTerm(trimSelectorSegment(part))
 			if err != nil {
 				return Selector{}, err
 			}
@@ -91,49 +109,52 @@ func Select(info value.Info, selector Selector) ([]Selection, error) {
 	return nil, ErrNoMatch
 }
 
-func parseTerm(input string) (Term, error) {
-	if input == "" {
-		return Term{}, fmt.Errorf("%w: empty term", ErrInvalidSelector)
+func parseTerm(segment selectorSegment) (Term, error) {
+	if segment.text == "" {
+		return Term{}, selectorSyntax(segment.start, segment.end, "empty term")
 	}
-	open := strings.IndexByte(input, '[')
-	name := input
+	open := strings.IndexByte(segment.text, '[')
+	name := segment.text
 	remaining := ""
+	remainingStart := segment.end
 	if open >= 0 {
-		name, remaining = input[:open], input[open:]
+		name, remaining = segment.text[:open], segment.text[open:]
+		remainingStart = segment.start + open
 	}
 	switch name {
 	case "best", "worst", "bestvideo", "worstvideo", "bestaudio", "worstaudio":
 	default:
-		return Term{}, fmt.Errorf("%w: unknown term %q", ErrInvalidSelector, name)
+		return Term{}, selectorSyntax(segment.start, segment.start+len(name), fmt.Sprintf("unknown term %q", name))
 	}
 	term := Term{Name: name}
 	for remaining != "" {
 		if remaining[0] != '[' {
-			return Term{}, fmt.Errorf("%w: unexpected text %q", ErrInvalidSelector, remaining)
+			return Term{}, selectorSyntax(remainingStart, segment.end, fmt.Sprintf("unexpected text %q", remaining))
 		}
 		close := strings.IndexByte(remaining, ']')
 		if close < 0 {
-			return Term{}, fmt.Errorf("%w: unclosed filter", ErrInvalidSelector)
+			return Term{}, selectorSyntax(remainingStart, segment.end, "unclosed filter")
 		}
-		filter, err := parseFilter(remaining[1:close])
+		filter, err := parseFilter(remaining[1:close], remainingStart+1)
 		if err != nil {
 			return Term{}, err
 		}
 		term.Filters = append(term.Filters, filter)
 		remaining = remaining[close+1:]
+		remainingStart += close + 1
 	}
 	return term, nil
 }
 
 var fieldPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-func parseFilter(input string) (Filter, error) {
+func parseFilter(input string, start int) (Filter, error) {
 	for _, operator := range []string{"!=", ">=", "<=", "^=", "$=", "*=", "~=", "=", ">", "<"} {
 		if index := strings.Index(input, operator); index > 0 {
 			field := strings.TrimSpace(input[:index])
 			filterValue := strings.TrimSpace(input[index+len(operator):])
 			if !fieldPattern.MatchString(field) || filterValue == "" {
-				return Filter{}, fmt.Errorf("%w: malformed filter %q", ErrInvalidSelector, input)
+				return Filter{}, selectorSyntax(start, start+len(input), fmt.Sprintf("malformed filter %q", input))
 			}
 			if len(filterValue) >= 2 && ((filterValue[0] == '"' && filterValue[len(filterValue)-1] == '"') || (filterValue[0] == '\'' && filterValue[len(filterValue)-1] == '\'')) {
 				filterValue = filterValue[1 : len(filterValue)-1]
@@ -141,34 +162,49 @@ func parseFilter(input string) (Filter, error) {
 			return Filter{Field: field, Operator: operator, Value: filterValue}, nil
 		}
 	}
-	return Filter{}, fmt.Errorf("%w: filter %q has no operator", ErrInvalidSelector, input)
+	return Filter{}, selectorSyntax(start, start+len(input), fmt.Sprintf("filter %q has no operator", input))
 }
 
-func splitTopLevel(input string, separator byte) ([]string, error) {
+func splitTopLevel(input selectorSegment, separator byte) ([]selectorSegment, error) {
 	depth := 0
 	start := 0
-	var result []string
-	for index := 0; index < len(input); index++ {
-		switch input[index] {
+	lastOpen := -1
+	var result []selectorSegment
+	for index := 0; index < len(input.text); index++ {
+		switch input.text[index] {
 		case '[':
 			depth++
+			lastOpen = index
 		case ']':
 			depth--
 			if depth < 0 {
-				return nil, fmt.Errorf("%w: unexpected ] at byte %d", ErrInvalidSelector, index)
+				return nil, selectorSyntax(input.start+index, input.start+index+1, "unexpected ]")
 			}
 		default:
-			if input[index] == separator && depth == 0 {
-				result = append(result, input[start:index])
+			if input.text[index] == separator && depth == 0 {
+				result = append(result, selectorSegment{text: input.text[start:index], start: input.start + start, end: input.start + index})
 				start = index + 1
 			}
 		}
 	}
 	if depth != 0 {
-		return nil, fmt.Errorf("%w: unclosed filter", ErrInvalidSelector)
+		return nil, selectorSyntax(input.start+lastOpen, input.end, "unclosed filter")
 	}
-	result = append(result, input[start:])
+	result = append(result, selectorSegment{text: input.text[start:], start: input.start + start, end: input.end})
 	return result, nil
+}
+
+func trimSelectorSegment(segment selectorSegment) selectorSegment {
+	left := len(segment.text) - len(strings.TrimLeft(segment.text, " \t\r\n"))
+	rightText := strings.TrimRight(segment.text[left:], " \t\r\n")
+	return selectorSegment{text: rightText, start: segment.start + left, end: segment.start + left + len(rightText)}
+}
+
+func selectorSyntax(start, end int, message string) error {
+	if end < start {
+		end = start
+	}
+	return &SyntaxError{Start: start, End: end, Message: message}
 }
 
 func selectTerm(formats []*value.Object, term Term) (Selection, bool) {

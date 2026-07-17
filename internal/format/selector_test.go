@@ -75,6 +75,22 @@ func TestSelectorRejectsInvalidSyntaxAndNoMatch(t *testing.T) {
 	}
 }
 
+func TestSelectorSyntaxErrorReportsSourceSpan(t *testing.T) {
+	_, err := ParseSelector("bestvideo+unknown")
+	var syntaxError *SyntaxError
+	if !errors.As(err, &syntaxError) {
+		t.Fatalf("ParseSelector() error = %v", err)
+	}
+	if syntaxError.Start != 10 || syntaxError.End != 17 {
+		t.Fatalf("syntax span = %d:%d, want 10:17", syntaxError.Start, syntaxError.End)
+	}
+
+	_, err = ParseSelector("best[height]")
+	if !errors.As(err, &syntaxError) || syntaxError.Start != 5 || syntaxError.End != 11 {
+		t.Fatalf("filter syntax error = %#v, %v", syntaxError, err)
+	}
+}
+
 func FuzzParseSelector(f *testing.F) {
 	f.Add("bestvideo[height<=1080]+bestaudio/best")
 	f.Add("best[ext=mp4]")

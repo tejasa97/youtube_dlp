@@ -1,4 +1,3 @@
-// Package template implements the Phase 0 output-template compatibility subset.
 // Package template implements the output-template compatibility layers.
 package template
 
@@ -19,6 +18,19 @@ var (
 	ErrUnsafePath      = errors.New("output path escapes its root")
 )
 
+// SyntaxError identifies the byte range rejected by the pilot parser.
+type SyntaxError struct {
+	Start   int
+	End     int
+	Message string
+}
+
+func (err *SyntaxError) Error() string {
+	return fmt.Sprintf("%v at bytes %d:%d: %s", ErrInvalidTemplate, err.Start, err.End, err.Message)
+}
+
+func (err *SyntaxError) Unwrap() error { return ErrInvalidTemplate }
+
 var formatSpecPattern = regexp.MustCompile(`^[-+0 #]*[0-9]*(\.[0-9]+)?[sdf]$`)
 
 // Render supports literal text, %%, traversal/alternative/default expressions,
@@ -37,11 +49,12 @@ func Render(pattern string, info value.Info) (string, error) {
 			continue
 		}
 		if index+2 >= len(pattern) || pattern[index+1] != '(' {
-			return "", fmt.Errorf("%w at byte %d: expected %% or %%(field)s", ErrInvalidTemplate, index)
+			end := min(index+2, len(pattern))
+			return "", templateSyntax(index, end, "expected % or %(field)s")
 		}
 		closeOffset := strings.IndexByte(pattern[index+2:], ')')
 		if closeOffset < 0 {
-			return "", fmt.Errorf("%w at byte %d: unclosed field", ErrInvalidTemplate, index)
+			return "", templateSyntax(index, len(pattern), "unclosed field")
 		}
 		closeIndex := index + 2 + closeOffset
 		specEnd := closeIndex + 1
@@ -49,21 +62,28 @@ func Render(pattern string, info value.Info) (string, error) {
 			specEnd++
 		}
 		if specEnd >= len(pattern) {
-			return "", fmt.Errorf("%w at byte %d: missing conversion type", ErrInvalidTemplate, index)
+			return "", templateSyntax(closeIndex+1, len(pattern), "missing conversion type")
 		}
 		spec := pattern[closeIndex+1 : specEnd+1]
 		if !formatSpecPattern.MatchString(spec) {
-			return "", fmt.Errorf("%w at byte %d: invalid format spec %q", ErrInvalidTemplate, closeIndex+1, spec)
+			return "", templateSyntax(closeIndex+1, specEnd+1, fmt.Sprintf("invalid format spec %q", spec))
 		}
 		expression := pattern[index+2 : closeIndex]
 		rendered, err := renderExpression(expression, spec, info)
 		if err != nil {
-			return "", fmt.Errorf("%w at byte %d: expression %q: %v", ErrInvalidTemplate, index, expression, err)
+			return "", templateSyntax(index+2, closeIndex, fmt.Sprintf("expression %q: %v", expression, err))
 		}
 		output.WriteString(rendered)
 		index = specEnd + 1
 	}
 	return output.String(), nil
+}
+
+func templateSyntax(start, end int, message string) error {
+	if end < start {
+		end = start
+	}
+	return &SyntaxError{Start: start, End: end, Message: message}
 }
 
 // Resolve renders and sanitizes a relative template beneath outputRoot.
