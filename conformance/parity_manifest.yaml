@@ -300,6 +300,19 @@ capabilities:
     owner: core
     known_deviation: The parser is not exposed through the CLI yet and the full yt-dlp selector grammar is outside the current pilot corpus.
 
+  - id: compat.output_template_pilot
+    name: Output-template parser pilot
+    phase: 1
+    compatibility_target: Render the selected traversal, alternative, default, replacement, date, and numeric formatting corpus safely.
+    status: partial
+    evidence:
+      - internal/compat/template.TestRenderTraversalAlternativesDefaultsAndReplacement
+      - internal/compat/template.TestRenderNumericAndDateFormatting
+      - internal/compat/template.TestResolveSanitizesAndConfines
+      - internal/compat/template.FuzzResolve
+    owner: core
+    known_deviation: The complete yt-dlp template mini-language and differential oracle corpus remain unfinished.
+
   - id: compat.download_archive
     name: Download archive compatibility
     phase: 2

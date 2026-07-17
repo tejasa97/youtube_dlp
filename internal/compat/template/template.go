@@ -1,13 +1,15 @@
 // Package template implements the Phase 0 output-template compatibility subset.
+// Package template implements the output-template compatibility layers.
 package template
 
 import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
-	"unicode"
+	"time"
 
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
@@ -17,7 +19,10 @@ var (
 	ErrUnsafePath      = errors.New("output path escapes its root")
 )
 
-// Render supports literal text, %%, and simple %(field)s substitutions.
+var formatSpecPattern = regexp.MustCompile(`^[-+0 #]*[0-9]*(\.[0-9]+)?[sdf]$`)
+
+// Render supports literal text, %%, traversal/alternative/default expressions,
+// replacement templates, date conversion, and bounded scalar format specs.
 func Render(pattern string, info value.Info) (string, error) {
 	var output strings.Builder
 	for index := 0; index < len(pattern); {
@@ -39,19 +44,24 @@ func Render(pattern string, info value.Info) (string, error) {
 			return "", fmt.Errorf("%w at byte %d: unclosed field", ErrInvalidTemplate, index)
 		}
 		closeIndex := index + 2 + closeOffset
-		if closeIndex+1 >= len(pattern) || pattern[closeIndex+1] != 's' {
-			return "", fmt.Errorf("%w at byte %d: only string conversion is supported", ErrInvalidTemplate, index)
+		specEnd := closeIndex + 1
+		for specEnd < len(pattern) && !strings.ContainsRune("sdf", rune(pattern[specEnd])) {
+			specEnd++
 		}
-		field := pattern[index+2 : closeIndex]
-		if !validField(field) {
-			return "", fmt.Errorf("%w at byte %d: invalid field %q", ErrInvalidTemplate, index, field)
+		if specEnd >= len(pattern) {
+			return "", fmt.Errorf("%w at byte %d: missing conversion type", ErrInvalidTemplate, index)
 		}
-		rendered, err := renderValue(info.Lookup(field))
+		spec := pattern[closeIndex+1 : specEnd+1]
+		if !formatSpecPattern.MatchString(spec) {
+			return "", fmt.Errorf("%w at byte %d: invalid format spec %q", ErrInvalidTemplate, closeIndex+1, spec)
+		}
+		expression := pattern[index+2 : closeIndex]
+		rendered, err := renderExpression(expression, spec, info)
 		if err != nil {
-			return "", fmt.Errorf("%w: field %q: %v", ErrInvalidTemplate, field, err)
+			return "", fmt.Errorf("%w at byte %d: expression %q: %v", ErrInvalidTemplate, index, expression, err)
 		}
 		output.WriteString(rendered)
-		index = closeIndex + 2
+		index = specEnd + 1
 	}
 	return output.String(), nil
 }
@@ -92,19 +102,127 @@ func Resolve(outputRoot, pattern string, info value.Info) (string, error) {
 	return destination, nil
 }
 
-func validField(field string) bool {
-	if field == "" {
-		return false
+func renderExpression(expression, spec string, info value.Info) (string, error) {
+	if expression == "" {
+		return "", errors.New("empty expression")
 	}
-	for _, character := range field {
-		if !unicode.IsLetter(character) && !unicode.IsDigit(character) && character != '_' {
-			return false
+	source, defaultValue, hasDefault := strings.Cut(expression, "|")
+	source, replacement, hasReplacement := strings.Cut(source, "&")
+	var selected value.Value
+	var dateFormat string
+	for _, alternative := range strings.Split(source, ",") {
+		path, format, hasDateFormat := strings.Cut(strings.TrimSpace(alternative), ">")
+		candidate, err := traverse(info, path)
+		if err != nil {
+			return "", err
+		}
+		if candidate.IsMissing() || candidate.IsNull() {
+			continue
+		}
+		selected = candidate
+		if hasDateFormat {
+			dateFormat = format
+		}
+		break
+	}
+	if selected.IsMissing() || selected.IsNull() {
+		if hasDefault {
+			selected = value.String(defaultValue)
+		} else {
+			selected = value.String("NA")
 		}
 	}
-	return true
+	if dateFormat != "" {
+		converted, err := renderDate(selected, dateFormat)
+		if err != nil {
+			return "", err
+		}
+		selected = value.String(converted)
+	}
+	if hasReplacement {
+		if !strings.Contains(replacement, "{}") {
+			return "", errors.New("replacement must contain {}")
+		}
+		raw, err := scalarString(selected)
+		if err != nil {
+			return "", err
+		}
+		selected = value.String(strings.ReplaceAll(replacement, "{}", raw))
+	}
+	return formatValue(selected, spec)
 }
 
-func renderValue(input value.Value) (string, error) {
+func traverse(info value.Info, path string) (value.Value, error) {
+	parts := strings.Split(path, ".")
+	if len(parts) == 0 || parts[0] == "" {
+		return value.Missing(), errors.New("empty traversal path")
+	}
+	current := info.Lookup(parts[0])
+	for _, part := range parts[1:] {
+		switch current.Kind() {
+		case value.KindObject:
+			object, _ := current.Object()
+			current = object.Lookup(part)
+		case value.KindList:
+			items, _ := current.ListValue()
+			index, err := strconv.Atoi(part)
+			if err != nil {
+				return value.Missing(), fmt.Errorf("list index %q is not an integer", part)
+			}
+			if index < 0 {
+				index += len(items)
+			}
+			if index < 0 || index >= len(items) {
+				return value.Missing(), nil
+			}
+			current = items[index]
+		case value.KindMissing, value.KindNull:
+			return value.Missing(), nil
+		default:
+			return value.Missing(), fmt.Errorf("cannot traverse %q through %s", part, current.Kind())
+		}
+	}
+	return current, nil
+}
+
+func formatValue(input value.Value, spec string) (string, error) {
+	conversion := spec[len(spec)-1]
+	format := "%" + spec
+	switch conversion {
+	case 's':
+		raw, err := scalarString(input)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf(format, raw), nil
+	case 'd':
+		integer, ok := input.Int()
+		if !ok {
+			if floating, floatOK := input.Float(); floatOK {
+				integer, ok = int64(floating), true
+			}
+		}
+		if !ok {
+			return "", fmt.Errorf("kind %s is not numeric", input.Kind())
+		}
+		return fmt.Sprintf(format, integer), nil
+	case 'f':
+		floating, ok := input.Float()
+		if !ok {
+			if integer, intOK := input.Int(); intOK {
+				floating, ok = float64(integer), true
+			}
+		}
+		if !ok {
+			return "", fmt.Errorf("kind %s is not numeric", input.Kind())
+		}
+		return fmt.Sprintf(format, floating), nil
+	default:
+		return "", fmt.Errorf("unsupported conversion %q", conversion)
+	}
+}
+
+func scalarString(input value.Value) (string, error) {
 	switch input.Kind() {
 	case value.KindMissing, value.KindNull:
 		return "NA", nil
@@ -123,6 +241,35 @@ func renderValue(input value.Value) (string, error) {
 	default:
 		return "", fmt.Errorf("kind %s cannot be rendered as a string", input.Kind())
 	}
+}
+
+func renderDate(input value.Value, format string) (string, error) {
+	raw, ok := input.StringValue()
+	if !ok {
+		return "", fmt.Errorf("date value has kind %s", input.Kind())
+	}
+	var parsed time.Time
+	var err error
+	for _, layout := range []string{"20060102", "20060102150405", time.RFC3339} {
+		parsed, err = time.Parse(layout, raw)
+		if err == nil {
+			break
+		}
+	}
+	if err != nil {
+		return "", fmt.Errorf("unsupported date %q", raw)
+	}
+	const escapedPercent = "\x00"
+	escaped := strings.ReplaceAll(format, "%%", escapedPercent)
+	replacer := strings.NewReplacer(
+		"%Y", "2006", "%m", "01", "%d", "02", "%H", "15", "%M", "04", "%S", "05",
+	)
+	converted := replacer.Replace(escaped)
+	if strings.Contains(converted, "%") {
+		return "", fmt.Errorf("unsupported date format %q", format)
+	}
+	converted = strings.ReplaceAll(converted, escapedPercent, "%")
+	return parsed.Format(converted), nil
 }
 
 var windowsReserved = map[string]struct{}{

@@ -14,6 +14,14 @@ func fixtureInfo() value.Info {
 		value.Field{Key: "title", Value: value.String("A: video?")},
 		value.Field{Key: "ext", Value: value.String("mp4")},
 		value.Field{Key: "none", Value: value.Null()},
+		value.Field{Key: "uploader", Value: value.String("alice")},
+		value.Field{Key: "view_count", Value: value.Int(42)},
+		value.Field{Key: "rating", Value: value.Float(4.25)},
+		value.Field{Key: "upload_date", Value: value.String("20260717")},
+		value.Field{Key: "chapters", Value: value.List(
+			value.ObjectValue(value.NewObject(value.Field{Key: "title", Value: value.String("first")})),
+			value.ObjectValue(value.NewObject(value.Field{Key: "title", Value: value.String("last")})),
+		)},
 	))
 }
 
@@ -23,6 +31,27 @@ func TestRenderSubset(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got != "% A: video?.mp4 NA NA" {
+		t.Fatalf("Render() = %q", got)
+	}
+}
+
+func TestRenderTraversalAlternativesDefaultsAndReplacement(t *testing.T) {
+	pattern := "%(missing,uploader|anonymous)s %(missing|anonymous)s %(uploader&by {}|unknown)s %(chapters.-1.title)s"
+	got, err := Render(pattern, fixtureInfo())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "alice anonymous by alice last" {
+		t.Fatalf("Render() = %q", got)
+	}
+}
+
+func TestRenderNumericAndDateFormatting(t *testing.T) {
+	got, err := Render("%(view_count)08d %(rating).1f %(upload_date>%Y-%m-%d %% done)s", fixtureInfo())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "00000042 4.2 2026-07-17 % done" {
 		t.Fatalf("Render() = %q", got)
 	}
 }
@@ -48,7 +77,7 @@ func TestResolveRejectsTraversalAndAbsolutePaths(t *testing.T) {
 }
 
 func TestRenderRejectsUnsupportedSyntax(t *testing.T) {
-	for _, pattern := range []string{"%(title)", "%(title)d", "%title", "%(title.upper)s"} {
+	for _, pattern := range []string{"%(title)", "%(title)d", "%title", "%(title.upper)s", "%(uploader&prefix)s", "%(upload_date>%Q)s"} {
 		if _, err := Render(pattern, fixtureInfo()); !errors.Is(err, ErrInvalidTemplate) {
 			t.Fatalf("Render(%q) error = %v", pattern, err)
 		}
