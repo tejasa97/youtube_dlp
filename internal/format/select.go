@@ -16,6 +16,10 @@ type Selection struct {
 	Ext      string
 	Filesize int64
 	Protocol string
+	VCodec   string
+	ACodec   string
+	Height   int64
+	TBR      float64
 }
 
 // Best selects the first normalized format. Phase 0 extractors order their
@@ -39,7 +43,18 @@ func Best(info value.Info) (Selection, error) {
 		selection.Ext, _ = object.Lookup("ext").StringValue()
 		selection.Filesize, _ = object.Lookup("filesize").Int()
 		selection.Protocol, _ = object.Lookup("protocol").StringValue()
+		selection.VCodec, _ = object.Lookup("vcodec").StringValue()
+		selection.ACodec, _ = object.Lookup("acodec").StringValue()
+		selection.Height, _ = object.Lookup("height").Int()
+		selection.TBR, _ = numeric(object.Lookup("tbr"))
 		return selection, nil
 	}
 	return Selection{}, fmt.Errorf("%w: formats contain no URL", ErrNoFormats)
+}
+
+func numeric(input value.Value) (float64, bool) {
+	if integer, ok := input.Int(); ok {
+		return float64(integer), true
+	}
+	return input.Float()
 }

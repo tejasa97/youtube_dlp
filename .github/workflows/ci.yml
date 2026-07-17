@@ -23,6 +23,7 @@ jobs:
       - run: go run ./cmd/paritycheck
       - run: go test -run=^$ -fuzz=FuzzValueJSON -fuzztime=2s ./internal/value
       - run: go test -run=^$ -fuzz=FuzzResolve -fuzztime=2s ./internal/compat/template
+      - run: go test -run=^$ -fuzz=FuzzParseSelector -fuzztime=2s ./internal/format
 
   test:
     strategy:

@@ -287,6 +287,19 @@ capabilities:
     status: not_started
     owner: core
 
+  - id: compat.format_selector_pilot
+    name: Format-selector parser pilot
+    phase: 1
+    compatibility_target: Parse and evaluate the selected fallback, merge, media-kind, and filter syntax corpus.
+    status: partial
+    evidence:
+      - internal/format.TestSelectorFallbackMergeAndFilters
+      - internal/format.TestSelectorBestWorstAndStringFilters
+      - internal/format.TestSelectorRejectsInvalidSyntaxAndNoMatch
+      - internal/format.FuzzParseSelector
+    owner: core
+    known_deviation: The parser is not exposed through the CLI yet and the full yt-dlp selector grammar is outside the current pilot corpus.
+
   - id: compat.download_archive
     name: Download archive compatibility
     phase: 2
