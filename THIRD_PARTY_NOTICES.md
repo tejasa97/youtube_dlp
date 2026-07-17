@@ -25,5 +25,14 @@ The isolated JavaScript helper uses `github.com/dop251/goja`, an ECMAScript
 engine licensed under the MIT License. The exact module revision and transitive
 dependency versions are recorded in `go.mod` and `go.sum`.
 
+## yt-dlp-ejs 0.8.0 bundles
+
+The Go binary embeds the official `yt.solver.core.min.js` and
+`yt.solver.lib.min.js` assets from `yt-dlp-ejs` 0.8.0. EJS is Unlicense. The
+library bundle contains Meriyah 6.1.4 under the ISC License and Astring 1.9.0
+under the MIT License. Their complete generated license banner remains embedded
+in `yt.solver.lib.min.js`; provenance and upstream allowlist hashes are recorded
+in `conformance/javascript/ejs-0.8.0/PROVENANCE.md`.
+
 The project itself still requires an explicit project-license decision before a
 public release; this notice does not grant a license to the project code.

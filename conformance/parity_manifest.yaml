@@ -236,7 +236,7 @@ capabilities:
     name: Python-free EJS execution
     phase: 1
     compatibility_target: Execute supported extractor JavaScript with bounded resources and no Python runtime.
-    status: partial
+    status: compatible
     evidence:
       - docs/JAVASCRIPT_HELPER_PROTOCOL.md
       - internal/javascript/protocol.TestRequestNormalizeDefaultsAndHash
@@ -249,9 +249,12 @@ capabilities:
       - internal/javascript/supervisor.TestSupervisorExecutesAndRetainsCompiledCache
       - internal/javascript/supervisor.TestSupervisorCancellationDiscardsAndRestartsHelper
       - internal/javascript/supervisor.TestSupervisorCategorizesCrashAndMalformedResponse
+      - internal/javascript/ejs.TestPinnedEJSCorpus
+      - internal/javascript/ejs.TestVerifyAssetsAndInputBounds
+      - conformance/javascript/ejs-0.8.0/PROVENANCE.md
       - .github/python-free.Dockerfile
     owner: runtime
-    known_deviation: The supervised helper boundary is complete; the pinned EJS/YouTube challenge corpus remains the next checkpoint.
+    known_deviation: Compatibility is scoped to the pinned Phase 1 EJS corpus; live player-variant breadth and component updates remain extractor and upstream-delta work.
 
   - id: network.impersonation
     name: Browser impersonation transport

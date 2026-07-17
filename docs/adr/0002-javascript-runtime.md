@@ -1,6 +1,6 @@
 # ADR 0002: JavaScript runtime isolation
 
-Status: Accepted for the Phase 1 experiment
+Status: Accepted for the Phase 1 pilot
 
 ## Context
 
@@ -42,3 +42,11 @@ QuickJS/QuickJS-NG remains the fallback experiment because upstream EJS supports
 it directly, but it adds a separately distributed native executable and has
 temporary-file and version-performance concerns. The helper protocol prevents
 either choice from becoming an extractor API commitment.
+
+The pilot result selects the pinned pure-Go goja engine. It executes the exact
+EJS 0.8.0 core/library bundles required by the reference yt-dlp commit and
+passes the offline AST-extraction, n-challenge, and signature corpus inside the
+supervised helper. The official EJS assets are verified against yt-dlp's
+SHA3-512 allowlist at startup. QuickJS remains a bounded fallback if future
+player variants exceed goja's ECMAScript coverage; no extractor API changes
+would be required.

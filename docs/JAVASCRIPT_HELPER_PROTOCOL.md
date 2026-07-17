@@ -41,3 +41,9 @@ secret query values.
 
 This boundary contains no Python dependency. Oracle generation for migration
 fixtures remains outside the product and Python-free CI path.
+
+The Phase 1 implementation embeds the official `yt-dlp-ejs` 0.8.0 core and
+library JavaScript assets, not its Python wheel modules. Go verifies their
+published SHA3-512 allowlist hashes and executes them inside the helper. Bundle
+and corpus provenance is recorded in
+`conformance/javascript/ejs-0.8.0/PROVENANCE.md`.

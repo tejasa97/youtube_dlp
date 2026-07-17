@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "ejs_version": "0.8.0",
+  "reference_commit": "aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8",
+  "requests": [
+    {
+      "type": "n",
+      "challenges": ["abc", "IlLiA21ny7gqA2m4p37"],
+      "expected": {"abc": "cba-n", "IlLiA21ny7gqA2m4p37": "73p4m2Aqg7yn12AiLlI-n"}
+    },
+    {
+      "type": "sig",
+      "challenges": ["abcdef", "NJAJEij0"],
+      "expected": {"abcdef": "fedcba", "NJAJEij0": "0jiEJAJN"}
+    }
+  ]
+}

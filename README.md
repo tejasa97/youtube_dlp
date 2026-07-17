@@ -5,11 +5,16 @@ This repository is the planning and implementation workspace for a Go port of
 Python-free while retaining yt-dlp's user-visible capabilities wherever they
 are technically and legally reproducible.
 
-Status: Phase 0 is implemented. The Python-free walking skeleton supports the
-deterministic fixture extractor and generic direct HTTP media, ordered metadata
-JSON, safe output templates, structured progress, cancellation, atomic file
-completion, retries, and validated range resume. Broader site and protocol
-support starts in Phase 1 and is not claimed here.
+The Phase 1 JavaScript path is also Python-free: the product supervises a
+separate pure-Go helper and embeds hash-pinned EJS JavaScript assets for the
+selected YouTube challenge corpus. No Python executable, library, helper, or
+plugin is loaded at runtime.
+
+Status: Phase 0 is complete and Phase 1 is in progress. Completed Phase 1
+milestones include HLS/DASH fragment pipelines, ffmpeg supervision,
+compatibility parser pilots, differential comparison, and the isolated EJS
+challenge path. Site breadth, browser impersonation, cookie import, plugins,
+and upstream-delta replay are still in progress and are not claimed complete.
 
 ## Build and test
 
@@ -22,11 +27,13 @@ go vet ./...
 go run ./cmd/paritycheck
 go run ./cmd/paritycheck -summary
 go run ./cmd/ytdlp-go --version
+go build -o /tmp/ytdlp-js-helper ./cmd/ytdlp-js-helper
+go run ./cmd/jscheck -helper /tmp/ytdlp-js-helper
 ```
 
 The capability manifest is the source of truth for what is implemented. A
-`compatible` Phase 0 entry has named automated evidence; future capabilities
-remain explicitly `not_started`.
+`compatible` entry has named automated evidence; incomplete capabilities remain
+explicitly `partial` or `not_started`.
 
 ## Project documents
 
