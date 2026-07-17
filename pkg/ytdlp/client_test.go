@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ytdlp-go/ytdlp/internal/extractor"
 	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
 	"github.com/ytdlp-go/ytdlp/internal/testserver"
 )
@@ -28,6 +29,28 @@ func TestIsCategory(t *testing.T) {
 	}
 	if !errors.Is(err, err.Err) {
 		t.Fatal("Error does not unwrap its cause")
+	}
+}
+
+func TestExtractorFailuresAreCategorized(t *testing.T) {
+	for _, test := range []struct {
+		err      error
+		category ErrorCategory
+	}{
+		{extractor.ErrAuthentication, ErrorAuthentication},
+		{extractor.ErrUnavailable, ErrorUnsupported},
+		{extractor.ErrChallengeSolver, ErrorUnsupported},
+	} {
+		if err := categorized("extract", test.err); !IsCategory(err, test.category) {
+			t.Fatalf("categorized(%v) = %v", test.err, err)
+		}
+	}
+}
+
+func TestJavaScriptHelperConfigurationTakesPrecedence(t *testing.T) {
+	configured := filepath.Join(t.TempDir(), "custom-helper")
+	if got := discoverJavaScriptHelper(configured); got != configured {
+		t.Fatalf("discoverJavaScriptHelper() = %q, want %q", got, configured)
 	}
 }
 

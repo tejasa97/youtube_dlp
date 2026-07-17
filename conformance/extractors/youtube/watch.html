@@ -1,0 +1,47 @@
+<!doctype html>
+<html>
+  <head><title>Synthetic YouTube fixture</title></head>
+  <body>
+    <script>
+      var ytInitialPlayerResponse = {
+        "playabilityStatus": {"status": "OK"},
+        "videoDetails": {
+          "videoId": "fixture0001",
+          "title": "Synthetic YouTube Video",
+          "lengthSeconds": "123",
+          "author": "fixture channel",
+          "channelId": "UCfixture",
+          "shortDescription": "offline fixture with a } brace and an escaped \" quote",
+          "viewCount": "456",
+          "isLiveContent": false,
+          "thumbnail": {"thumbnails": [
+            {"url": "https://img.example/small.jpg"},
+            {"url": "https://img.example/large.jpg"}
+          ]}
+        },
+        "streamingData": {
+          "formats": [{
+            "itag": 18,
+            "url": "https://media.example/video.mp4?n=abc",
+            "mimeType": "video/mp4; codecs=\"avc1.42001E, mp4a.40.2\"",
+            "bitrate": 500000,
+            "contentLength": "1000",
+            "width": 640,
+            "height": 360,
+            "fps": 30
+          }],
+          "adaptiveFormats": [{
+            "itag": 140,
+            "signatureCipher": "url=https%3A%2F%2Fmedia.example%2Faudio.m4a%3Ffoo%3Dbar&s=abcdef&sp=sig",
+            "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+            "bitrate": 128000,
+            "contentLength": "500"
+          }],
+          "hlsManifestUrl": "https://media.example/master.m3u8",
+          "dashManifestUrl": "https://media.example/manifest.mpd"
+        },
+        "assets": {"js": "/s/player/fixture/base.js"}
+      };
+    </script>
+  </body>
+</html>

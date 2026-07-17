@@ -1,0 +1,48 @@
+{
+  "id": "fixture0001",
+  "title": "Synthetic YouTube Video",
+  "description": "offline fixture with a } brace and an escaped \" quote",
+  "uploader": "fixture channel",
+  "channel_id": "UCfixture",
+  "webpage_url": "https://www.youtube.com/watch?v=fixture0001",
+  "ext": "mp4",
+  "formats": [
+    {
+      "format_id": "18",
+      "url": "https://media.example/video.mp4?n=cba-n",
+      "ext": "mp4",
+      "vcodec": "avc1.42001E",
+      "acodec": "mp4a.40.2",
+      "tbr": 500,
+      "filesize": 1000,
+      "width": 640,
+      "height": 360,
+      "fps": 30
+    },
+    {
+      "format_id": "140",
+      "url": "https://media.example/audio.m4a?foo=bar&sig=fedcba",
+      "ext": "m4a",
+      "vcodec": "none",
+      "acodec": "mp4a.40.2",
+      "tbr": 128,
+      "filesize": 500
+    },
+    {
+      "format_id": "hls",
+      "url": "https://media.example/master.m3u8",
+      "ext": "mp4",
+      "protocol": "m3u8_native"
+    },
+    {
+      "format_id": "dash",
+      "url": "https://media.example/manifest.mpd",
+      "ext": "mp4",
+      "protocol": "http_dash_segments"
+    }
+  ],
+  "duration": 123,
+  "view_count": 456,
+  "thumbnail": "https://img.example/large.jpg",
+  "live_status": "not_live"
+}

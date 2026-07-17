@@ -8,12 +8,16 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/ytdlp-go/ytdlp/internal/javascript/ejs"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
 var (
 	ErrUnsupported     = errors.New("unsupported URL")
 	ErrInvalidMetadata = errors.New("invalid extractor metadata")
+	ErrUnavailable     = errors.New("media unavailable")
+	ErrAuthentication  = errors.New("authentication required")
+	ErrChallengeSolver = errors.New("JavaScript challenge solver unavailable")
 )
 
 type Transport interface {
@@ -22,8 +26,13 @@ type Transport interface {
 }
 
 type Request struct {
-	URL       string
-	Transport Transport
+	URL             string
+	Transport       Transport
+	ChallengeSolver YouTubeChallengeSolver
+}
+
+type YouTubeChallengeSolver interface {
+	SolvePlayer(context.Context, string, string, []ejs.ChallengeRequest, bool) (ejs.Result, error)
 }
 
 type Extractor interface {

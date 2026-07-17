@@ -7,6 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"time"
 
 	outputtemplate "github.com/ytdlp-go/ytdlp/internal/compat/template"
@@ -14,6 +17,8 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/events"
 	"github.com/ytdlp-go/ytdlp/internal/extractor"
 	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
+	"github.com/ytdlp-go/ytdlp/internal/javascript/ejs"
+	"github.com/ytdlp-go/ytdlp/internal/javascript/supervisor"
 	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
 	"github.com/ytdlp-go/ytdlp/internal/media/pipeline"
 	"github.com/ytdlp-go/ytdlp/internal/network"
@@ -25,11 +30,12 @@ import (
 type ErrorCategory string
 
 const (
-	ErrorUnsupported  ErrorCategory = "unsupported"
-	ErrorInvalidInput ErrorCategory = "invalid_input"
-	ErrorNetwork      ErrorCategory = "network"
-	ErrorCancelled    ErrorCategory = "cancelled"
-	ErrorInternal     ErrorCategory = "internal"
+	ErrorUnsupported    ErrorCategory = "unsupported"
+	ErrorAuthentication ErrorCategory = "authentication"
+	ErrorInvalidInput   ErrorCategory = "invalid_input"
+	ErrorNetwork        ErrorCategory = "network"
+	ErrorCancelled      ErrorCategory = "cancelled"
+	ErrorInternal       ErrorCategory = "internal"
 )
 
 type Error struct {
@@ -95,6 +101,13 @@ func WithEventHandler(handler EventHandler) Option {
 	return func(client *Client) { client.handler = handler }
 }
 
+// WithJavaScriptHelper selects the isolated helper used for extractor
+// JavaScript challenges. If unset, the client checks beside its executable and
+// then PATH for ytdlp-js-helper.
+func WithJavaScriptHelper(path string) Option {
+	return func(client *Client) { client.javascriptHelper = path }
+}
+
 // Runner is the cancellable operation contract.
 type Runner interface {
 	Run(context.Context, Request) (Result, error)
@@ -103,7 +116,8 @@ type Runner interface {
 // Client is stateless between operations and safe for concurrent use. A
 // configured event handler must provide its own synchronization when shared.
 type Client struct {
-	handler EventHandler
+	handler          EventHandler
+	javascriptHelper string
 }
 
 func NewClient(options ...Option) *Client {
@@ -122,7 +136,7 @@ func (client *Client) Run(ctx context.Context, request Request) (Result, error) 
 	if err != nil {
 		return Result{}, categorized("configure network", err)
 	}
-	registry := extractor.NewRegistry(extractor.NewFixture(), extractor.NewGeneric())
+	registry := extractor.NewRegistry(extractor.NewYouTube(), extractor.NewFixture(), extractor.NewGeneric())
 	selected, err := registry.Select(request.URL)
 	if err != nil {
 		return Result{}, categorized("select extractor", err)
@@ -130,7 +144,14 @@ func (client *Client) Run(ctx context.Context, request Request) (Result, error) 
 	if err := client.emit(ctx, Event{Kind: string(events.KindExtracting), Extractor: selected.Name(), URL: request.URL}); err != nil {
 		return Result{}, &Error{Category: ErrorInternal, Op: "emit extracting event", Err: err}
 	}
-	info, err := selected.Extract(ctx, extractor.Request{URL: request.URL, Transport: transport})
+	var challengeSolver *lazyYouTubeSolver
+	if selected.Name() == "youtube" {
+		challengeSolver = &lazyYouTubeSolver{path: discoverJavaScriptHelper(client.javascriptHelper)}
+		defer challengeSolver.Close()
+	}
+	info, err := selected.Extract(ctx, extractor.Request{
+		URL: request.URL, Transport: transport, ChallengeSolver: challengeSolver,
+	})
 	if err != nil {
 		return Result{}, categorized(selected.Name()+" extraction", err)
 	}
@@ -232,6 +253,10 @@ func categorized(op string, err error) error {
 		category = ErrorCancelled
 	case errors.Is(err, extractor.ErrUnsupported):
 		category = ErrorUnsupported
+	case errors.Is(err, extractor.ErrAuthentication):
+		category = ErrorAuthentication
+	case errors.Is(err, extractor.ErrUnavailable), errors.Is(err, extractor.ErrChallengeSolver):
+		category = ErrorUnsupported
 	case errors.Is(err, ffmpeg.ErrFFmpegUnavailable), errors.Is(err, ffmpeg.ErrFFprobeUnavailable):
 		category = ErrorUnsupported
 	case errors.Is(err, outputtemplate.ErrInvalidTemplate), errors.Is(err, outputtemplate.ErrUnsafePath),
@@ -242,4 +267,58 @@ func categorized(op string, err error) error {
 		category = ErrorInternal
 	}
 	return &Error{Category: category, Op: op, Err: err}
+}
+
+type lazyYouTubeSolver struct {
+	path       string
+	supervisor *supervisor.Client
+	solver     *ejs.Solver
+}
+
+func (solver *lazyYouTubeSolver) SolvePlayer(
+	ctx context.Context,
+	id string,
+	player string,
+	requests []ejs.ChallengeRequest,
+	outputPreprocessed bool,
+) (ejs.Result, error) {
+	if solver.solver == nil {
+		client, err := supervisor.New(supervisor.Config{Path: solver.path, MemoryBytes: ejs.SolverMemoryBytes})
+		if err != nil {
+			return ejs.Result{}, err
+		}
+		challengeSolver, err := ejs.New(client)
+		if err != nil {
+			_ = client.Close()
+			return ejs.Result{}, err
+		}
+		solver.supervisor, solver.solver = client, challengeSolver
+	}
+	return solver.solver.SolvePlayer(ctx, id, player, requests, outputPreprocessed)
+}
+
+func (solver *lazyYouTubeSolver) Close() {
+	if solver != nil && solver.supervisor != nil {
+		_ = solver.supervisor.Close()
+	}
+}
+
+func discoverJavaScriptHelper(configured string) string {
+	if configured != "" {
+		return configured
+	}
+	name := "ytdlp-js-helper"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	if executable, err := os.Executable(); err == nil {
+		candidate := filepath.Join(filepath.Dir(executable), name)
+		if info, statErr := os.Stat(candidate); statErr == nil && !info.IsDir() {
+			return candidate
+		}
+	}
+	if path, err := exec.LookPath(name); err == nil {
+		return path
+	}
+	return name
 }

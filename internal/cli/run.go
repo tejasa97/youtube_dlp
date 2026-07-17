@@ -25,7 +25,7 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	flags.Usage = func() {
 		fmt.Fprintln(flags.Output(), "Usage: ytdlp-go [OPTIONS] URL")
 		fmt.Fprintln(flags.Output())
-		fmt.Fprintln(flags.Output(), "Experimental Python-free Go port of yt-dlp (Phase 0 fixture/direct HTTP support).")
+		fmt.Fprintln(flags.Output(), "Experimental Python-free Go port of yt-dlp (Phase 1 pilot support).")
 		fmt.Fprintln(flags.Output())
 		flags.PrintDefaults()
 	}
@@ -40,6 +40,7 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	overwrite := flags.Bool("force-overwrites", false, "replace an existing final file")
 	progressJSON := flags.Bool("progress-json", false, "write newline-delimited progress events to stderr")
 	quiet := flags.Bool("quiet", false, "suppress human-readable progress")
+	javascriptHelper := flags.String("js-helper", "", "path to the isolated JavaScript helper")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -75,7 +76,7 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		}
 		return nil
 	}
-	client := ytdlp.NewClient(ytdlp.WithEventHandler(handler))
+	client := ytdlp.NewClient(ytdlp.WithEventHandler(handler), ytdlp.WithJavaScriptHelper(*javascriptHelper))
 	result, err := client.Run(ctx, ytdlp.Request{
 		URL: flags.Arg(0), OutputTemplate: *output, OutputDir: *outputDir, Proxy: *proxy,
 		Timeout: *timeout, Overwrite: *overwrite, SkipDownload: *skipDownload,
@@ -97,6 +98,8 @@ func exitCode(err error) int {
 		return 2
 	case ytdlp.IsCategory(err, ytdlp.ErrorUnsupported):
 		return 3
+	case ytdlp.IsCategory(err, ytdlp.ErrorAuthentication):
+		return 5
 	case ytdlp.IsCategory(err, ytdlp.ErrorNetwork):
 		return 4
 	case ytdlp.IsCategory(err, ytdlp.ErrorCancelled), errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):

@@ -276,10 +276,18 @@ capabilities:
     name: YouTube pilot extraction
     phase: 1
     compatibility_target: Prove metadata, formats, playlists, and challenge execution for a pinned YouTube corpus.
-    status: not_started
+    status: partial
+    evidence:
+      - internal/extractor.TestYouTubeSuitableAndVideoID
+      - internal/extractor.TestYouTubeExtractsPinnedVideoAndSolvesChallenges
+      - internal/extractor.TestYouTubeChallengeAndAvailabilityFailuresAreCategorized
+      - internal/extractor.TestYouTubeCanonicalizesShortURLsBeforeFetching
+      - internal/extractor.TestYouTubeRejectsMalformedPlayerResponse
+      - conformance/extractors/youtube/PROVENANCE.md
     owner: extractors
     depends_on:
       - javascript.ejs
+    known_deviation: The pinned video corpus covers metadata, direct and ciphered formats, EJS challenge execution, and manifest exposure; playlist extraction, authenticated clients, subtitles, comments, and live player breadth remain pending.
 
   - id: extractor.playlists
     name: Playlist extraction model

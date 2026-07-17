@@ -13,8 +13,11 @@ plugin is loaded at runtime.
 Status: Phase 0 is complete and Phase 1 is in progress. Completed Phase 1
 milestones include HLS/DASH fragment pipelines, ffmpeg supervision,
 compatibility parser pilots, differential comparison, and the isolated EJS
-challenge path. Site breadth, browser impersonation, cookie import, plugins,
-and upstream-delta replay are still in progress and are not claimed complete.
+challenge path. The first offline YouTube video corpus now covers player
+metadata, direct and ciphered formats, `n`/signature transformation, and
+HLS/DASH manifest exposure through the product registry. Playlists, broader
+site coverage, browser impersonation, cookie import, plugins, and
+upstream-delta replay are still in progress and are not claimed complete.
 
 ## Build and test
 
@@ -30,6 +33,11 @@ go run ./cmd/ytdlp-go --version
 go build -o /tmp/ytdlp-js-helper ./cmd/ytdlp-js-helper
 go run ./cmd/jscheck -helper /tmp/ytdlp-js-helper
 ```
+
+YouTube challenge extraction uses the separate `ytdlp-js-helper` executable.
+Place it beside `ytdlp-go`, put it on `PATH`, or pass its path with
+`--js-helper`. Pages whose formats do not require a JavaScript challenge do not
+start the helper.
 
 The capability manifest is the source of truth for what is implemented. A
 `compatible` entry has named automated evidence; incomplete capabilities remain
