@@ -33,6 +33,7 @@ remain explicitly `not_started`.
 - [Port evaluation](GO_PORT_EVALUATION.md)
 - [Zero-Python program plan](ZERO_PYTHON_GO_PORT_PLAN.md)
 - [Phase 0 implementation plan](PHASE_0_IMPLEMENTATION_PLAN.md)
+- [Phase 1 implementation plan](PHASE_1_IMPLEMENTATION_PLAN.md)
 - [Contribution and verification rules](CONTRIBUTING.md)
 - [Phase 0 exit review](docs/PHASE_0_EXIT_REVIEW.md)
 - [Architecture decisions](docs/adr/README.md)
