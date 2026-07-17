@@ -281,8 +281,23 @@ capabilities:
     name: Browser-cookie import
     phase: 1
     compatibility_target: Import cookies from one Chromium-family browser without Python.
-    status: not_started
+    status: compatible
+    evidence:
+      - internal/cookies/chromium.TestDeriveMacKeyMatchesPinnedReference
+      - internal/cookies/chromium.TestMacDecryptorPinnedCorpus
+      - internal/cookies/chromium.TestMacDecryptorRejectsWrongHostPaddingAndKey
+      - internal/cookies/chromium.FuzzMacDecryptor
+      - internal/cookies/chromium.TestImportCopiesLiveWALAndReturnsPartialResults
+      - internal/cookies/chromium.TestImportSupportsOlderSecureSchema
+      - internal/cookies/chromium.TestImportReportsUnavailableKeyWithoutDiscardingPlaintext
+      - internal/cookies/chromium.TestImportRejectsUnsafePathsAndCancellation
+      - internal/network.TestAddCookiesPreservesHostScopeAndSecurity
+      - pkg/ytdlp.TestClientImportsBrowserCookiesBeforeExtraction
+      - conformance/cookies/chromium-macos/PROVENANCE.md
     owner: authentication
+    depends_on:
+      - network.shared_transport
+    known_deviation: Compatibility is scoped to Google Chrome v10 cookie encryption on macOS. Other Chromium brands and Windows/Linux credential stores remain later profiles.
 
   - id: extractor.youtube_pilot
     name: YouTube pilot extraction

@@ -262,6 +262,49 @@ func TestImpersonationProfileDiagnostics(t *testing.T) {
 	}
 }
 
+func TestAddCookiesPreservesHostScopeAndSecurity(t *testing.T) {
+	client, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = client.AddCookies([]*http.Cookie{
+		{Name: "host_only", Value: "one", Domain: "example.com", Path: "/"},
+		{Name: "domain", Value: "two", Domain: ".example.com", Path: "/"},
+		{Name: "secure", Value: "three", Domain: ".example.com", Path: "/", Secure: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, _ := client.Cookies("https://example.com/")
+	if got := cookieValues(root); got["host_only"] != "one" || got["domain"] != "two" || got["secure"] != "three" {
+		t.Fatalf("root cookies = %#v", got)
+	}
+	subdomain, _ := client.Cookies("https://sub.example.com/")
+	if got := cookieValues(subdomain); got["host_only"] != "" || got["domain"] != "two" || got["secure"] != "three" {
+		t.Fatalf("subdomain cookies = %#v", got)
+	}
+	insecure, _ := client.Cookies("http://example.com/")
+	if got := cookieValues(insecure); got["secure"] != "" {
+		t.Fatalf("insecure cookies = %#v", got)
+	}
+	for _, invalid := range [][]*http.Cookie{nil, {nil}, {{Name: "", Domain: "example.com"}}, {{Name: "x", Domain: "bad/path"}}} {
+		if invalid == nil {
+			continue
+		}
+		if err := client.AddCookies(invalid); !errors.Is(err, ErrInvalidCookie) {
+			t.Fatalf("AddCookies(%#v) error = %v", invalid, err)
+		}
+	}
+}
+
+func cookieValues(cookies []*http.Cookie) map[string]string {
+	values := make(map[string]string, len(cookies))
+	for _, cookie := range cookies {
+		values[cookie.Name] = cookie.Value
+	}
+	return values
+}
+
 func TestRedaction(t *testing.T) {
 	parsed, _ := url.Parse("https://user:secret@example.invalid/v?token=secret&visible=yes")
 	redacted := RedactURL(parsed)

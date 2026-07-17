@@ -16,9 +16,10 @@ compatibility parser pilots, differential comparison, and the isolated EJS
 challenge path. The first offline YouTube video corpus now covers player
 metadata, direct and ciphered formats, `n`/signature transformation, and
 HLS/DASH manifest exposure through the product registry. Playlists, broader
-site coverage, browser-cookie import, plugins, and upstream-delta replay are
-still in progress and are not claimed complete. The versioned Chrome 133
-TLS/HTTP2 impersonation pilot is available for protected extractor flows.
+site coverage, plugins, and upstream-delta replay are still in progress and are
+not claimed complete. The versioned Chrome 133 TLS/HTTP2 impersonation pilot
+and macOS Google Chrome cookie import are available for protected extractor
+flows.
 
 ## Build and test
 
@@ -46,6 +47,16 @@ The browser-profile live canary is intentionally opt-in and excluded from CI:
 go run ./cmd/impersonationcheck
 ```
 
+On macOS, an explicitly selected Chrome profile can seed the operation cookie
+jar. This may trigger the normal Keychain authorization prompt:
+
+```sh
+go run ./cmd/ytdlp-go --cookies-from-browser chrome:Default URL
+```
+
+See [Chromium cookie import](docs/CHROMIUM_COOKIE_IMPORT.md) for its security
+model and current platform boundary.
+
 The capability manifest is the source of truth for what is implemented. A
 `compatible` entry has named automated evidence; incomplete capabilities remain
 explicitly `partial` or `not_started`.
@@ -60,6 +71,7 @@ explicitly `partial` or `not_started`.
 - [Phase 0 exit review](docs/PHASE_0_EXIT_REVIEW.md)
 - [Architecture decisions](docs/adr/README.md)
 - [Fixture policy](docs/FIXTURE_POLICY.md)
+- [Chromium cookie import](docs/CHROMIUM_COOKIE_IMPORT.md)
 - [Third-party notices](THIRD_PARTY_NOTICES.md)
 
 No compatibility claim should be made until a capability has a passing

@@ -26,6 +26,7 @@ const (
 var (
 	ErrPageTooLarge             = errors.New("HTTP response exceeds page size limit")
 	ErrInvalidProxy             = errors.New("invalid proxy URL")
+	ErrInvalidCookie            = errors.New("invalid cookie")
 	ErrImpersonationUnavailable = errors.New("impersonation profile unavailable")
 )
 
@@ -239,6 +240,36 @@ func (client *Client) Cookies(rawURL string) ([]*http.Cookie, error) {
 		cloned[index] = &copy
 	}
 	return cloned, nil
+}
+
+// AddCookies seeds the operation jar with browser cookies. Chromium host-only
+// cookies omit the leading dot; clear Domain for those entries so cookiejar
+// does not widen their scope to subdomains.
+func (client *Client) AddCookies(cookies []*http.Cookie) error {
+	for _, cookie := range cookies {
+		if cookie == nil || cookie.Name == "" {
+			return ErrInvalidCookie
+		}
+		host := strings.TrimPrefix(cookie.Domain, ".")
+		if host == "" || strings.ContainsAny(host, "/?#@") {
+			return ErrInvalidCookie
+		}
+		scheme := "http"
+		if cookie.Secure {
+			scheme = "https"
+		}
+		target := &url.URL{Scheme: scheme, Host: host, Path: "/"}
+		if target.Hostname() == "" {
+			return ErrInvalidCookie
+		}
+		cloned := *cookie
+		cloned.Unparsed = append([]string(nil), cookie.Unparsed...)
+		if !strings.HasPrefix(cookie.Domain, ".") {
+			cloned.Domain = ""
+		}
+		client.jar.SetCookies(target, []*http.Cookie{&cloned})
+	}
+	return nil
 }
 
 func SupportedImpersonationProfiles() []impersonate.Profile { return impersonate.Supported() }

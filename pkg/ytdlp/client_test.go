@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ytdlp-go/ytdlp/internal/cookies/chromium"
 	"github.com/ytdlp-go/ytdlp/internal/extractor"
 	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
 	"github.com/ytdlp-go/ytdlp/internal/testserver"
@@ -51,6 +53,95 @@ func TestJavaScriptHelperConfigurationTakesPrecedence(t *testing.T) {
 	configured := filepath.Join(t.TempDir(), "custom-helper")
 	if got := discoverJavaScriptHelper(configured); got != configured {
 		t.Fatalf("discoverJavaScriptHelper() = %q, want %q", got, configured)
+	}
+}
+
+func TestBrowserCookieSpec(t *testing.T) {
+	for _, test := range []struct {
+		spec    string
+		profile string
+	}{
+		{"chrome", ""},
+		{"chrome:Default", "Default"},
+		{"chrome:Profile 1", "Profile 1"},
+	} {
+		options, err := parseBrowserCookieSpec(test.spec)
+		if err != nil || options.Browser != chromium.Chrome || options.Profile != test.profile {
+			t.Fatalf("parseBrowserCookieSpec(%q) = %#v, %v", test.spec, options, err)
+		}
+	}
+	for _, spec := range []string{"firefox", "chrome:", "chrome:../Default", "chrome:one:two"} {
+		if _, err := parseBrowserCookieSpec(spec); !errors.Is(err, errInvalidBrowserCookieSpec) {
+			t.Fatalf("parseBrowserCookieSpec(%q) error = %v", spec, err)
+		}
+	}
+}
+
+func TestClientImportsBrowserCookiesBeforeExtraction(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		cookie, err := request.Cookie("authenticated")
+		if err != nil || cookie.Value != "present" {
+			http.Error(writer, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		writer.Header().Set("Content-Type", "video/mp4")
+		writer.Header().Set("Content-Length", "4")
+		if request.Method != http.MethodHead {
+			_, _ = writer.Write([]byte("data"))
+		}
+	}))
+	defer server.Close()
+	target, _ := url.Parse(server.URL)
+	var events []Event
+	client := NewClient(WithEventHandler(func(_ context.Context, event Event) error {
+		events = append(events, event)
+		return nil
+	}))
+	var optionsSeen chromium.Options
+	client.browserCookieImporter = func(_ context.Context, options chromium.Options) (chromium.Result, error) {
+		optionsSeen = options
+		return chromium.Result{
+			Cookies: []*http.Cookie{{Name: "authenticated", Value: "present", Domain: target.Hostname(), Path: "/"}},
+			Total:   2, Imported: 1, Failed: 1,
+		}, chromium.ErrDecrypt
+	}
+	result, err := client.Run(context.Background(), Request{
+		URL: server.URL + "/protected.mp4", CookiesFromBrowser: "chrome:Profile 1", SkipDownload: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Extractor != "generic" || optionsSeen.Profile != "Profile 1" {
+		t.Fatalf("result=%#v options=%#v", result, optionsSeen)
+	}
+	if len(events) < 2 || events[0].Kind != "browser_cookies" || events[0].Message != "imported 1 of 2 browser cookies; skipped 1" {
+		t.Fatalf("events = %#v", events)
+	}
+}
+
+func TestClientBrowserCookieFailureIsAuthenticationError(t *testing.T) {
+	client := NewClient()
+	client.browserCookieImporter = func(context.Context, chromium.Options) (chromium.Result, error) {
+		return chromium.Result{}, chromium.ErrKeyUnavailable
+	}
+	_, err := client.Run(context.Background(), Request{URL: "https://example.invalid/media.mp4", CookiesFromBrowser: "chrome", SkipDownload: true})
+	if !IsCategory(err, ErrorAuthentication) || !errors.Is(err, chromium.ErrKeyUnavailable) {
+		t.Fatalf("Run() error = %v", err)
+	}
+}
+
+func TestClientDoesNotRecoverFromCancelledCookieImport(t *testing.T) {
+	client := NewClient()
+	client.browserCookieImporter = func(context.Context, chromium.Options) (chromium.Result, error) {
+		return chromium.Result{
+			Cookies:  []*http.Cookie{{Name: "partial", Value: "secret", Domain: "example.invalid", Path: "/"}},
+			Total:    2,
+			Imported: 1,
+		}, context.Canceled
+	}
+	_, err := client.Run(context.Background(), Request{URL: "https://example.invalid/media.mp4", CookiesFromBrowser: "chrome", SkipDownload: true})
+	if !IsCategory(err, ErrorCancelled) || !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run() error = %v", err)
 	}
 }
 

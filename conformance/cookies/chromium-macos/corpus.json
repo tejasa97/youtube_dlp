@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "reference_commit": "aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8",
+  "vectors": [
+    {
+      "name": "yt-dlp-macos-v10",
+      "meta_version": 23,
+      "host": ".example.com",
+      "password": "6eIDUdtKAacvlHwBVwvg/Q==",
+      "encrypted_base64": "djEws76toVufQ6GY4JoB2c+/Yw==",
+      "expected": "2021-06-01-22"
+    },
+    {
+      "name": "chromium-meta24-host-digest",
+      "meta_version": 24,
+      "host": ".example.com",
+      "password": "abc",
+      "encrypted_base64": "djEwqXxQ4y30kpveilVsRpOEWHeXf0ktvFV7qM/zzpUUkM+o5GVwq/qK5pFiBXHYMk4b",
+      "expected": "meta-cookie"
+    }
+  ]
+}

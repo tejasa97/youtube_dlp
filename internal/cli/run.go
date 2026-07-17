@@ -41,6 +41,7 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	progressJSON := flags.Bool("progress-json", false, "write newline-delimited progress events to stderr")
 	quiet := flags.Bool("quiet", false, "suppress human-readable progress")
 	javascriptHelper := flags.String("js-helper", "", "path to the isolated JavaScript helper")
+	cookiesFromBrowser := flags.String("cookies-from-browser", "", "import cookies from chrome[:PROFILE] (macOS pilot)")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -79,7 +80,7 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	client := ytdlp.NewClient(ytdlp.WithEventHandler(handler), ytdlp.WithJavaScriptHelper(*javascriptHelper))
 	result, err := client.Run(ctx, ytdlp.Request{
 		URL: flags.Arg(0), OutputTemplate: *output, OutputDir: *outputDir, Proxy: *proxy,
-		Timeout: *timeout, Overwrite: *overwrite, SkipDownload: *skipDownload,
+		CookiesFromBrowser: *cookiesFromBrowser, Timeout: *timeout, Overwrite: *overwrite, SkipDownload: *skipDownload,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)

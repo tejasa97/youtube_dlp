@@ -10,9 +10,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	outputtemplate "github.com/ytdlp-go/ytdlp/internal/compat/template"
+	"github.com/ytdlp-go/ytdlp/internal/cookies/chromium"
 	"github.com/ytdlp-go/ytdlp/internal/downloader"
 	"github.com/ytdlp-go/ytdlp/internal/events"
 	"github.com/ytdlp-go/ytdlp/internal/extractor"
@@ -62,13 +64,14 @@ func IsCategory(err error, category ErrorCategory) bool {
 }
 
 type Request struct {
-	URL            string
-	OutputTemplate string
-	OutputDir      string
-	Proxy          string
-	Timeout        time.Duration
-	Overwrite      bool
-	SkipDownload   bool
+	URL                string
+	OutputTemplate     string
+	OutputDir          string
+	Proxy              string
+	CookiesFromBrowser string
+	Timeout            time.Duration
+	Overwrite          bool
+	SkipDownload       bool
 }
 
 type Result struct {
@@ -116,8 +119,9 @@ type Runner interface {
 // Client is stateless between operations and safe for concurrent use. A
 // configured event handler must provide its own synchronization when shared.
 type Client struct {
-	handler          EventHandler
-	javascriptHelper string
+	handler               EventHandler
+	javascriptHelper      string
+	browserCookieImporter func(context.Context, chromium.Options) (chromium.Result, error)
 }
 
 func NewClient(options ...Option) *Client {
@@ -137,6 +141,34 @@ func (client *Client) Run(ctx context.Context, request Request) (Result, error) 
 		return Result{}, categorized("configure network", err)
 	}
 	defer transport.CloseIdleConnections()
+	if request.CookiesFromBrowser != "" {
+		options, err := parseBrowserCookieSpec(request.CookiesFromBrowser)
+		if err != nil {
+			return Result{}, categorized("parse browser cookie source", err)
+		}
+		importer := client.browserCookieImporter
+		if importer == nil {
+			importer = chromium.Import
+		}
+		cookies, importErr := importer(ctx, options)
+		if importErr != nil {
+			recoverable := len(cookies.Cookies) > 0 &&
+				(errors.Is(importErr, chromium.ErrDecrypt) || errors.Is(importErr, chromium.ErrKeyUnavailable))
+			if !recoverable {
+				return Result{}, categorized("import browser cookies", importErr)
+			}
+		}
+		if err := transport.AddCookies(cookies.Cookies); err != nil {
+			return Result{}, categorized("load browser cookies", err)
+		}
+		message := fmt.Sprintf("imported %d of %d browser cookies", cookies.Imported, cookies.Total)
+		if cookies.Failed > 0 {
+			message += fmt.Sprintf("; skipped %d", cookies.Failed)
+		}
+		if err := client.emit(ctx, Event{Kind: "browser_cookies", Message: message}); err != nil {
+			return Result{}, &Error{Category: ErrorInternal, Op: "emit browser cookie event", Err: err}
+		}
+	}
 	registry := extractor.NewRegistry(extractor.NewYouTube(), extractor.NewFixture(), extractor.NewGeneric())
 	selected, err := registry.Select(request.URL)
 	if err != nil {
@@ -256,6 +288,11 @@ func categorized(op string, err error) error {
 		category = ErrorUnsupported
 	case errors.Is(err, extractor.ErrAuthentication):
 		category = ErrorAuthentication
+	case errors.Is(err, chromium.ErrDatabaseNotFound), errors.Is(err, chromium.ErrInvalidDatabase), errors.Is(err, chromium.ErrSnapshot),
+		errors.Is(err, chromium.ErrKeyUnavailable), errors.Is(err, chromium.ErrDecrypt):
+		category = ErrorAuthentication
+	case errors.Is(err, chromium.ErrUnsupportedBrowser), errors.Is(err, chromium.ErrUnsupportedPlatform):
+		category = ErrorUnsupported
 	case errors.Is(err, extractor.ErrUnavailable), errors.Is(err, extractor.ErrChallengeSolver),
 		errors.Is(err, extractor.ErrTransportProfile), errors.Is(err, network.ErrImpersonationUnavailable):
 		category = ErrorUnsupported
@@ -263,12 +300,26 @@ func categorized(op string, err error) error {
 		category = ErrorUnsupported
 	case errors.Is(err, outputtemplate.ErrInvalidTemplate), errors.Is(err, outputtemplate.ErrUnsafePath),
 		errors.Is(err, downloader.ErrDestinationExists), errors.Is(err, downloader.ErrUnsafeDestination),
-		errors.Is(err, network.ErrInvalidProxy):
+		errors.Is(err, network.ErrInvalidProxy), errors.Is(err, network.ErrInvalidCookie),
+		errors.Is(err, errInvalidBrowserCookieSpec):
 		category = ErrorInvalidInput
 	case errors.Is(err, mediaformat.ErrNoFormats), errors.Is(err, extractor.ErrInvalidMetadata):
 		category = ErrorInternal
 	}
 	return &Error{Category: category, Op: op, Err: err}
+}
+
+var errInvalidBrowserCookieSpec = errors.New("invalid browser cookie source")
+
+func parseBrowserCookieSpec(spec string) (chromium.Options, error) {
+	browserName, profile, hasProfile := strings.Cut(strings.TrimSpace(spec), ":")
+	if browserName != string(chromium.Chrome) {
+		return chromium.Options{}, fmt.Errorf("%w: supported value is chrome[:PROFILE]", errInvalidBrowserCookieSpec)
+	}
+	if hasProfile && (profile == "" || profile == "." || profile == ".." || strings.ContainsAny(profile, `:/\\\x00`)) {
+		return chromium.Options{}, fmt.Errorf("%w: invalid Chrome profile", errInvalidBrowserCookieSpec)
+	}
+	return chromium.Options{Browser: chromium.Chrome, Profile: profile}, nil
 }
 
 type lazyYouTubeSolver struct {

@@ -53,3 +53,13 @@ technical selection provenance is recorded in
 
 The project itself still requires an explicit project-license decision before a
 public release; this notice does not grant a license to the project code.
+
+## Chromium cookie database reader
+
+The Python-free browser-cookie importer uses `github.com/ncruces/go-sqlite3`
+v0.28.0 under the MIT License. SQLite executes through the pure-Go wazero
+runtime (`github.com/tetratelabs/wazero` v1.9.0), licensed under Apache License
+2.0; it does not require cgo or a system SQLite library. Exact versions and all
+transitive dependencies are pinned in `go.mod` and `go.sum`. Their complete
+license texts are retained under `third_party/licenses/` and included in the
+minimal runtime image.
