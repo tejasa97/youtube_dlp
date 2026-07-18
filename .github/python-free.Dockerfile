@@ -6,6 +6,7 @@ RUN go mod download
 COPY cmd ./cmd
 COPY .github ./.github
 COPY conformance ./conformance
+COPY docs ./docs
 COPY internal ./internal
 COPY pkg ./pkg
 RUN ! command -v python && ! command -v python3
