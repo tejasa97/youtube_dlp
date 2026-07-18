@@ -16,7 +16,8 @@ import (
 	"github.com/ytdlp-go/ytdlp/pkg/ytdlp"
 )
 
-const Version = "0.0.0-dev"
+// Version is overridden with -X for release artifacts.
+var Version = "0.0.0-dev"
 
 func Run(args []string, stdout, stderr io.Writer) int {
 	return RunContext(context.Background(), args, stdout, stderr)
