@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -39,12 +40,9 @@ type Client struct {
 }
 
 func New(config Config) (*Client, error) {
-	if config.Path == "" {
-		config.Path = "ytdlp-js-helper"
-	}
-	path, err := exec.LookPath(config.Path)
+	path, err := resolveHelper(config.Path)
 	if err != nil {
-		return nil, fmt.Errorf("find JavaScript helper: %w", err)
+		return nil, err
 	}
 	config.Path = path
 	if config.MemoryBytes == 0 {
@@ -62,6 +60,43 @@ func New(config Config) (*Client, error) {
 	client := &Client{config: config, gate: make(chan struct{}, 1)}
 	client.gate <- struct{}{}
 	return client, nil
+}
+
+// resolveHelper deliberately does not consult PATH. A helper is native code,
+// so implicit executable search would turn an extractor challenge into code
+// execution from any writable search-path directory. An explicit path must be
+// absolute; the only implicit location is beside the running application.
+func resolveHelper(configured string) (string, error) {
+	path := configured
+	if path == "" {
+		name := "ytdlp-js-helper"
+		if runtime.GOOS == "windows" {
+			name += ".exe"
+		}
+		executable, err := os.Executable()
+		if err != nil {
+			return "", fmt.Errorf("locate JavaScript helper: %w", err)
+		}
+		path = filepath.Join(filepath.Dir(executable), name)
+	}
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return "", errors.New("JavaScript helper path must be absolute")
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return "", fmt.Errorf("inspect JavaScript helper: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return "", errors.New("JavaScript helper must be a regular non-symlink file")
+	}
+	canonical, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", errors.New("JavaScript helper path cannot be canonicalized")
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0 {
+		return "", errors.New("JavaScript helper is not executable")
+	}
+	return canonical, nil
 }
 
 func (client *Client) Execute(ctx context.Context, request protocol.Request) protocol.Response {

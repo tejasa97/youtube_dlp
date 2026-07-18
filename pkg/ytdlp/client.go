@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -146,8 +145,8 @@ func WithEventHandler(handler EventHandler) Option {
 }
 
 // WithJavaScriptHelper selects the isolated helper used for extractor
-// JavaScript challenges. If unset, the client checks beside its executable and
-// then PATH for ytdlp-js-helper.
+// JavaScript challenges. The path must be absolute. If unset, the client checks
+// only beside its executable; PATH is never searched for native helper code.
 func WithJavaScriptHelper(path string) Option {
 	return func(client *Client) { client.javascriptHelper = path }
 }
@@ -803,8 +802,5 @@ func discoverJavaScriptHelper(configured string) string {
 			return candidate
 		}
 	}
-	if path, err := exec.LookPath(name); err == nil {
-		return path
-	}
-	return name
+	return ""
 }

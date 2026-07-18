@@ -66,6 +66,20 @@ func TestSupervisorExecutesAndRetainsCompiledCache(t *testing.T) {
 	}
 }
 
+func TestSupervisorRejectsSearchPathAndSymlinkHelpers(t *testing.T) {
+	t.Setenv("PATH", filepath.Dir(helperPath)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if _, err := New(Config{Path: filepath.Base(helperPath)}); err == nil {
+		t.Fatal("relative helper unexpectedly accepted from PATH")
+	}
+	link := filepath.Join(t.TempDir(), "helper-link")
+	if err := os.Symlink(helperPath, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(Config{Path: link}); err == nil {
+		t.Fatal("symlink helper unexpectedly accepted")
+	}
+}
+
 func TestSupervisorCancellationDiscardsAndRestartsHelper(t *testing.T) {
 	client := newTestClient(t, helperPath)
 	defer client.Close()

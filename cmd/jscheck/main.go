@@ -17,7 +17,7 @@ import (
 func main() {
 	flags := flag.NewFlagSet("jscheck", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
-	helper := flags.String("helper", "ytdlp-js-helper", "path to the isolated JavaScript helper")
+	helper := flags.String("helper", "", "absolute path to the isolated JavaScript helper (default: beside this executable)")
 	if err := flags.Parse(os.Args[1:]); err != nil || flags.NArg() != 0 {
 		os.Exit(2)
 	}
