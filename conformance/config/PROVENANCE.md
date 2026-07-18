@@ -18,5 +18,7 @@ Known bounded deviations are documented in package tests and API comments:
 locale-dependent implicit encodings are intentionally rejected in favor of
 UTF-8 unless a supported BOM or coding declaration is present; the public
 alias formatter supports positional numeric fields and escaped braces, not
-Python's full formatting mini-language; and the caller supplies the resolved
-`--paths home:` directory through `Environment.HomeConfigDir`.
+Python's full formatting mini-language; alias definitions expand following
+tokens in merged precedence order rather than relying on optparse's globally
+mutated option registry; and the caller supplies the resolved `--paths home:`
+directory through `Environment.HomeConfigDir`.
