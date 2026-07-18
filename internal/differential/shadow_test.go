@@ -9,7 +9,9 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestPhase3CorpusCanonicalComparisonAndRedaction(t *testing.T) {
@@ -124,6 +126,72 @@ func TestMalformedOversizedAndCancellation(t *testing.T) {
 	overLimit.Formats = make([]FormatObservation, MaxShadowItems+1)
 	if _, err := SanitizeObservation(overLimit); !errors.Is(err, ErrObservationLimit) {
 		t.Fatalf("item limit = %v", err)
+	}
+}
+
+func TestParseObservationInterruptsBlockingReaderOnCancellation(t *testing.T) {
+	reader := newBlockingReadCloser()
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() {
+		_, err := ParseObservation(ctx, reader)
+		result <- err
+	}()
+	select {
+	case <-reader.started:
+	case <-time.After(time.Second):
+		t.Fatal("ParseObservation did not start the blocking read")
+	}
+	cancel()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("blocking read cancellation = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("ParseObservation did not honor cancellation")
+	}
+	select {
+	case <-reader.released:
+	case <-time.After(time.Second):
+		t.Fatal("ParseObservation did not close the blocking reader")
+	}
+}
+
+func TestPersistedIdentifiersUseRestrictedGrammar(t *testing.T) {
+	valid := fixtureObservation()
+	valid.Producer = "shadow.v1"
+	valid.Routing.Extractor = "synthetic_auth"
+	valid.Routing.TransparentTo = "plugin:example-v1"
+	valid.Formats[0].ID = "137+140"
+	valid.Playlist.ID = "owner/list-1"
+	valid.Warnings = []WarningObservation{{Code: "extractor.warning-v1"}}
+	valid.Protocols[0].Name = "m3u8_native"
+	if _, _, err := CanonicalObservation(context.Background(), valid); err != nil {
+		t.Fatalf("registered identifier grammar rejected: %v", err)
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(*ObservationEnvelope)
+	}{
+		{"producer assignment", func(value *ObservationEnvelope) { value.Producer = "producer token=hostile-secret" }},
+		{"extractor query", func(value *ObservationEnvelope) { value.Routing.Extractor = "generic?token=hostile-secret" }},
+		{"format control", func(value *ObservationEnvelope) { value.Formats[0].ID = "format\nhostile-secret" }},
+		{"warning oversized", func(value *ObservationEnvelope) {
+			value.Warnings = []WarningObservation{{Code: strings.Repeat("a", 129) + "hostile-secret"}}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := fixtureObservation()
+			test.mutate(&candidate)
+			encoded, _, err := CanonicalObservation(context.Background(), candidate)
+			if !errors.Is(err, ErrInvalidObservation) {
+				t.Fatalf("CanonicalObservation() = %s, %v", encoded, err)
+			}
+			if strings.Contains(err.Error(), "hostile-secret") || bytes.Contains(encoded, []byte("hostile-secret")) {
+				t.Fatalf("hostile identifier leaked: %q / %v", encoded, err)
+			}
+		})
 	}
 }
 
@@ -243,4 +311,26 @@ func assertSemanticMismatch(t *testing.T, report ShadowReport, class MismatchCla
 		}
 	}
 	t.Fatalf("mismatch %s/%s/%s not found in %#v", class, severity, path, report.Mismatches)
+}
+
+type blockingReadCloser struct {
+	started     chan struct{}
+	released    chan struct{}
+	startOnce   sync.Once
+	releaseOnce sync.Once
+}
+
+func newBlockingReadCloser() *blockingReadCloser {
+	return &blockingReadCloser{started: make(chan struct{}), released: make(chan struct{})}
+}
+
+func (reader *blockingReadCloser) Read([]byte) (int, error) {
+	reader.startOnce.Do(func() { close(reader.started) })
+	<-reader.released
+	return 0, errors.New("reader closed")
+}
+
+func (reader *blockingReadCloser) Close() error {
+	reader.releaseOnce.Do(func() { close(reader.released) })
+	return nil
 }

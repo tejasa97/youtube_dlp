@@ -20,5 +20,12 @@
   assignments; producers must not place arbitrary secrets in free-form text.
 - Object key order is canonicalized and is not a semantic signal in the Phase
   3 envelope. Format, playlist, warning, and protocol order are explicit policy.
+- Producer, extractor, format, playlist, warning, and protocol dimensions use
+  bounded ASCII identifiers. Opaque display text belongs in redacted metadata,
+  not in these persisted routing and aggregation dimensions.
+- Cancellation closes blocking readers that implement `io.Closer`. For an
+  arbitrary non-closeable reader, parsing returns on cancellation but Go cannot
+  force the reader's own blocked operation to terminate; it must eventually
+  return to release its read goroutine.
 - Windows and regional behavior require separately attributable observations;
   no network or location claim is made here.

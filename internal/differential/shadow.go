@@ -115,9 +115,14 @@ func ParseObservation(ctx context.Context, reader io.Reader) (ObservationEnvelop
 	if err := ctx.Err(); err != nil {
 		return ObservationEnvelope{}, err
 	}
-	limited := io.LimitReader(reader, MaxShadowBytes+1)
-	data, err := io.ReadAll(limited)
+	if reader == nil {
+		return ObservationEnvelope{}, fmt.Errorf("%w: nil reader", ErrInvalidObservation)
+	}
+	data, err := readAllContext(ctx, reader, MaxShadowBytes+1)
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ObservationEnvelope{}, ctxErr
+		}
 		return ObservationEnvelope{}, fmt.Errorf("%w: read: %v", ErrInvalidObservation, err)
 	}
 	if len(data) > MaxShadowBytes {
@@ -145,10 +150,41 @@ func ParseObservation(ctx context.Context, reader io.Reader) (ObservationEnvelop
 	return result, nil
 }
 
+type readResult struct {
+	data []byte
+	err  error
+}
+
+// readAllContext runs the potentially blocking Reader outside the caller's
+// goroutine. Cancellation also closes readers that expose io.Closer, allowing
+// files, pipes, and response bodies to release their read promptly.
+func readAllContext(ctx context.Context, reader io.Reader, maximum int64) ([]byte, error) {
+	results := make(chan readResult, 1)
+	go func() {
+		data, err := io.ReadAll(io.LimitReader(reader, maximum))
+		results <- readResult{data: data, err: err}
+	}()
+	select {
+	case result := <-results:
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		return result.data, result.err
+	case <-ctx.Done():
+		if closer, ok := reader.(io.Closer); ok {
+			go func() { _ = closer.Close() }()
+		}
+		return nil, ctx.Err()
+	}
+}
+
 type observationWire ObservationEnvelope
 
 func validateObservation(input ObservationEnvelope) error {
-	if input.SchemaVersion != ShadowSchemaVersion || !safeToken(input.Producer) || !safeToken(input.Routing.Extractor) || !safeMethod(input.Request.Method) || !validObservationURL(input.Routing.InputURL) || !validObservationURL(input.Request.URL) {
+	if input.SchemaVersion != ShadowSchemaVersion || !validIdentifier(input.Producer, 64) || !validIdentifier(input.Routing.Extractor, 128) || !safeMethod(input.Request.Method) || !validObservationURL(input.Routing.InputURL) || !validObservationURL(input.Request.URL) {
+		return ErrInvalidObservation
+	}
+	if input.Routing.TransparentTo != "" && !validIdentifier(input.Routing.TransparentTo, 128) {
 		return ErrInvalidObservation
 	}
 	if input.Routing.CanonicalURL != "" && !validObservationURL(input.Routing.CanonicalURL) {
@@ -168,7 +204,7 @@ func validateObservation(input ObservationEnvelope) error {
 	}
 	headerValues := 0
 	for key, values := range input.Request.Headers {
-		if !safeToken(key) || len(values) > MaxShadowItems {
+		if !validHeaderName(key) || len(values) > MaxShadowItems {
 			return ErrInvalidObservation
 		}
 		headerValues += len(values)
@@ -183,7 +219,7 @@ func validateObservation(input ObservationEnvelope) error {
 	}
 	metadataBytes := 0
 	for key, raw := range input.Metadata {
-		if !safeToken(key) || len(raw) == 0 || len(raw) > MaxShadowBytes {
+		if !validFieldName(key) || len(raw) == 0 || len(raw) > MaxShadowBytes {
 			return ErrInvalidObservation
 		}
 		metadataBytes += len(key) + len(raw)
@@ -200,31 +236,34 @@ func validateObservation(input ObservationEnvelope) error {
 	}
 	formatIDs := make(map[string]struct{}, len(input.Formats))
 	for _, format := range input.Formats {
-		if !safeToken(format.ID) || format.Bitrate != nil && (*format.Bitrate < 0) || format.URL != "" && !validObservationURL(format.URL) {
+		if !validIdentifier(format.ID, 128) || format.Protocol != "" && !validIdentifier(format.Protocol, 32) || format.Extension != "" && !validIdentifier(format.Extension, 16) || format.AudioCodec != "" && !validIdentifier(format.AudioCodec, 64) || format.VideoCodec != "" && !validIdentifier(format.VideoCodec, 64) || format.Bitrate != nil && (*format.Bitrate < 0) || format.URL != "" && !validObservationURL(format.URL) {
 			return ErrInvalidObservation
 		}
 		if _, duplicate := formatIDs[format.ID]; duplicate {
-			return fmt.Errorf("%w: duplicate format id %q", ErrInvalidObservation, format.ID)
+			return fmt.Errorf("%w: duplicate format id", ErrInvalidObservation)
 		}
 		formatIDs[format.ID] = struct{}{}
 	}
+	if input.Playlist.ID != "" && !validIdentifier(input.Playlist.ID, 128) {
+		return ErrInvalidObservation
+	}
 	for _, entry := range input.Playlist.Entries {
-		if !safeToken(entry.ID) || entry.URL != "" && !validObservationURL(entry.URL) {
+		if !validIdentifier(entry.ID, 128) || entry.URL != "" && !validObservationURL(entry.URL) {
 			return ErrInvalidObservation
 		}
 	}
 	for _, warning := range input.Warnings {
-		if !safeToken(warning.Code) || len(warning.Message) > 16<<10 {
+		if !validIdentifier(warning.Code, 128) || len(warning.Message) > 16<<10 {
 			return ErrInvalidObservation
 		}
 	}
 	protocolNames := make(map[string]struct{}, len(input.Protocols))
 	for _, protocol := range input.Protocols {
-		if !safeToken(protocol.Name) || protocol.Fragments < 0 || protocol.Manifest != "" && !validObservationURL(protocol.Manifest) {
+		if !validIdentifier(protocol.Name, 32) || protocol.Fragments < 0 || protocol.Manifest != "" && !validObservationURL(protocol.Manifest) {
 			return ErrInvalidObservation
 		}
 		if _, duplicate := protocolNames[protocol.Name]; duplicate {
-			return fmt.Errorf("%w: duplicate protocol name %q", ErrInvalidObservation, protocol.Name)
+			return fmt.Errorf("%w: duplicate protocol name", ErrInvalidObservation)
 		}
 		protocolNames[protocol.Name] = struct{}{}
 	}
@@ -281,7 +320,7 @@ func scanJSONValue(decoder *json.Decoder, depth int, tokens *int) error {
 				return ErrInvalidObservation
 			}
 			if _, duplicate := seen[key]; duplicate {
-				return fmt.Errorf("%w: duplicate key %q", ErrInvalidObservation, key)
+				return fmt.Errorf("%w: duplicate key", ErrInvalidObservation)
 			}
 			seen[key] = struct{}{}
 			*tokens++
@@ -313,14 +352,48 @@ func validHexDigest(input string) bool {
 	return err == nil
 }
 
-func safeToken(input string) bool {
-	if input == "" || len(input) > 256 {
+func validIdentifier(input string, maximum int) bool {
+	if input == "" || len(input) > maximum || !asciiAlphaNumeric(input[0]) {
 		return false
 	}
-	for _, r := range input {
-		if r < 0x20 || r == 0x7f {
-			return false
+	for index := 1; index < len(input); index++ {
+		character := input[index]
+		if asciiAlphaNumeric(character) || strings.ContainsRune("._:/@+-", rune(character)) {
+			continue
 		}
+		return false
+	}
+	return true
+}
+
+func asciiAlphaNumeric(input byte) bool {
+	return input >= 'a' && input <= 'z' || input >= 'A' && input <= 'Z' || input >= '0' && input <= '9'
+}
+
+func validFieldName(input string) bool {
+	if input == "" || len(input) > 128 || !asciiAlphaNumeric(input[0]) && input[0] != '_' {
+		return false
+	}
+	for index := 1; index < len(input); index++ {
+		character := input[index]
+		if asciiAlphaNumeric(character) || strings.ContainsRune("_.:-", rune(character)) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func validHeaderName(input string) bool {
+	if input == "" || len(input) > 128 {
+		return false
+	}
+	for index := range len(input) {
+		character := input[index]
+		if asciiAlphaNumeric(character) || strings.ContainsRune("!#$%&'*+-.^_`|~", rune(character)) {
+			continue
+		}
+		return false
 	}
 	return true
 }
