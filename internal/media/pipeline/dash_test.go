@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -76,5 +77,46 @@ func TestDASHDownloadAndFFmpegMergeEndToEnd(t *testing.T) {
 		if _, err := os.Stat(track.Download.Path); !os.IsNotExist(err) {
 			t.Fatalf("temporary track remains: %s", track.Download.Path)
 		}
+	}
+}
+
+func TestRemuxDownloadFinalizesThenRemovesSource(t *testing.T) {
+	ffmpegPath, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg unavailable")
+	}
+	tools, err := ffmpeg.Discover(ffmpeg.Config{FFmpegPath: ffmpegPath})
+	if err != nil {
+		t.Skipf("ffmpeg toolchain unavailable: %v", err)
+	}
+	root := t.TempDir()
+	source := filepath.Join(root, "source.mp4")
+	command := exec.Command(ffmpegPath,
+		"-nostdin", "-y", "-f", "lavfi", "-i", "color=c=green:s=16x16:d=0.2",
+		"-an", "-c:v", "mpeg4", source)
+	if output, commandErr := command.CombinedOutput(); commandErr != nil {
+		t.Fatalf("generate media: %v: %s", commandErr, output)
+	}
+	destination := filepath.Join(root, "remuxed.mkv")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := RemuxDownload(ctx, source, destination, false, tools, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(source); !os.IsNotExist(err) {
+		t.Fatalf("source remains after remux: %v", err)
+	}
+	probe, err := tools.Probe(ctx, destination)
+	if err != nil || len(probe.Streams) != 1 || probe.Streams[0].CodecType != "video" {
+		t.Fatalf("probe = %#v, error = %v", probe, err)
+	}
+}
+
+func TestMediaPipelineRejectsMissingToolset(t *testing.T) {
+	if err := RemuxDownload(context.Background(), "source", "destination", false, nil, nil); !errors.Is(err, ErrMissingToolset) {
+		t.Fatalf("RemuxDownload() error = %v", err)
+	}
+	if err := FinalizeDASH(context.Background(), dash.Result{MergeRequired: true}, "destination", false, nil, nil); !errors.Is(err, ErrMissingDASHTracks) {
+		t.Fatalf("FinalizeDASH() missing tracks error = %v", err)
 	}
 }

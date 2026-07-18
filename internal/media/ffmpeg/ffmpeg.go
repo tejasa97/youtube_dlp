@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,7 +23,11 @@ import (
 var (
 	ErrFFmpegUnavailable  = errors.New("ffmpeg is unavailable")
 	ErrFFprobeUnavailable = errors.New("ffprobe is unavailable")
+	ErrMediaFailure       = errors.New("ffmpeg media processing failed")
+	ErrDestinationExists  = errors.New("postprocessor destination exists")
 )
+
+var sensitiveDiagnosticPattern = regexp.MustCompile(`(?i)(authorization|password|signature|token|sig|key)=([^&[:space:]]+)`)
 
 type Config struct {
 	FFmpegPath  string
@@ -105,20 +110,41 @@ func (tools *Toolset) Probe(ctx context.Context, path string) (Probe, error) {
 	}
 	var probe Probe
 	if err := json.Unmarshal(output, &probe); err != nil {
-		return Probe{}, fmt.Errorf("decode ffprobe JSON: %w", err)
+		return Probe{}, fmt.Errorf("%w: decode ffprobe JSON: %v", ErrMediaFailure, err)
 	}
 	return probe, nil
 }
 
 func (tools *Toolset) Merge(ctx context.Context, videoPath, audioPath, destination string, overwrite bool, sink events.Sink) error {
+	return tools.runAtomic(ctx, destination, overwrite, sink, func(temporary string) []string {
+		return []string{
+			"-i", videoPath, "-i", audioPath,
+			"-map", "0:v:0?", "-map", "1:a:0?", "-c", "copy",
+			"-progress", "pipe:1", "-nostats", temporary,
+		}
+	})
+}
+
+// Remux changes the media container without re-encoding streams. Output is
+// atomically finalized and removed on cancellation or ffmpeg failure.
+func (tools *Toolset) Remux(ctx context.Context, inputPath, destination string, overwrite bool, sink events.Sink) error {
+	return tools.runAtomic(ctx, destination, overwrite, sink, func(temporary string) []string {
+		return []string{
+			"-i", inputPath, "-map", "0", "-c", "copy",
+			"-map_metadata", "0", "-progress", "pipe:1", "-nostats", temporary,
+		}
+	})
+}
+
+func (tools *Toolset) runAtomic(ctx context.Context, destination string, overwrite bool, sink events.Sink, operation func(string) []string) error {
 	if sink == nil {
 		sink = events.Nop()
 	}
 	if _, err := os.Stat(destination); err == nil && !overwrite {
-		return fmt.Errorf("destination exists: %s", destination)
+		return fmt.Errorf("%w: %s", ErrDestinationExists, destination)
 	}
 	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
-		return err
+		return fmt.Errorf("%w: create output directory: %v", ErrMediaFailure, err)
 	}
 	extension := filepath.Ext(destination)
 	temporary := strings.TrimSuffix(destination, extension) + ".part" + extension
@@ -129,11 +155,7 @@ func (tools *Toolset) Merge(ctx context.Context, videoPath, audioPath, destinati
 	} else {
 		args = append(args, "-n")
 	}
-	args = append(args,
-		"-i", videoPath, "-i", audioPath,
-		"-map", "0:v:0?", "-map", "1:a:0?", "-c", "copy",
-		"-progress", "pipe:1", "-nostats", temporary,
-	)
+	args = append(args, operation(temporary)...)
 	if err := sink.Emit(ctx, events.Event{Kind: events.KindPostprocessStarting, Path: destination}); err != nil {
 		return err
 	}
@@ -157,7 +179,7 @@ func (tools *Toolset) Merge(ctx context.Context, videoPath, audioPath, destinati
 	}
 	if err := replace(temporary, destination, overwrite); err != nil {
 		_ = os.Remove(temporary)
-		return err
+		return fmt.Errorf("%w: finalize output: %v", ErrMediaFailure, err)
 	}
 	return sink.Emit(ctx, events.Event{Kind: events.KindPostprocessCompleted, Path: destination, Bytes: totalSize})
 }
@@ -173,7 +195,7 @@ func (tools *Toolset) execute(ctx context.Context, binary string, args []string,
 	stderr := newBoundedBuffer(tools.maxOutput)
 	command.Stderr = stderr
 	if err := command.Start(); err != nil {
-		return nil, fmt.Errorf("start %s: %w", filepath.Base(binary), err)
+		return nil, fmt.Errorf("%w: start %s: %v", ErrMediaFailure, filepath.Base(binary), err)
 	}
 	done := make(chan struct{})
 	go func() {
@@ -195,6 +217,9 @@ func (tools *Toolset) execute(ctx context.Context, binary string, args []string,
 		}
 		if onLine != nil && callbackErr == nil {
 			callbackErr = onLine(line)
+			if callbackErr != nil {
+				terminateCommand(command)
+			}
 		}
 	}
 	scanErr := scanner.Err()
@@ -207,12 +232,16 @@ func (tools *Toolset) execute(ctx context.Context, binary string, args []string,
 		return nil, callbackErr
 	}
 	if scanErr != nil {
-		return nil, fmt.Errorf("read %s output: %w", filepath.Base(binary), scanErr)
+		return nil, fmt.Errorf("%w: read %s output: %v", ErrMediaFailure, filepath.Base(binary), scanErr)
 	}
 	if waitErr != nil {
-		return nil, fmt.Errorf("%s failed: %w: %s", filepath.Base(binary), waitErr, strings.TrimSpace(stderr.String()))
+		return nil, fmt.Errorf("%w: %s failed: %v: %s", ErrMediaFailure, filepath.Base(binary), waitErr, redactDiagnostic(strings.TrimSpace(stderr.String())))
 	}
 	return output.Bytes(), nil
+}
+
+func redactDiagnostic(input string) string {
+	return sensitiveDiagnosticPattern.ReplaceAllString(input, "$1=[redacted]")
 }
 
 func discover(configured, name string, unavailable error) (string, error) {

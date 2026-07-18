@@ -68,6 +68,17 @@ func TestDiscoverVersionsProbeAndMerge(t *testing.T) {
 	if info, err := os.Stat(destination); err != nil || info.Size() == 0 {
 		t.Fatalf("merged output missing: %v", err)
 	}
+	remuxed := filepath.Join(root, "remuxed.mkv")
+	if err := tools.Remux(ctx, destination, remuxed, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	remuxProbe, err := tools.Probe(ctx, remuxed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remuxProbe.Streams) != len(probe.Streams) || remuxProbe.Format.FormatName == "" {
+		t.Fatalf("remux probe = %#v", remuxProbe)
+	}
 }
 
 func TestCommandCancellation(t *testing.T) {
@@ -96,6 +107,64 @@ func TestDiscoverRejectsMissingConfiguredTool(t *testing.T) {
 	}
 }
 
+func TestRemuxCategorizesFailureAndDestinationConflict(t *testing.T) {
+	tools, err := Discover(Config{})
+	if err != nil {
+		t.Skipf("ffmpeg unavailable: %v", err)
+	}
+	root := t.TempDir()
+	destination := filepath.Join(root, "output.mkv")
+	err = tools.Remux(context.Background(), filepath.Join(root, "missing.mp4"), destination, false, nil)
+	if !errors.Is(err, ErrMediaFailure) {
+		t.Fatalf("Remux() error = %v", err)
+	}
+	if writeErr := os.WriteFile(destination, []byte("existing"), 0o600); writeErr != nil {
+		t.Fatal(writeErr)
+	}
+	err = tools.Remux(context.Background(), filepath.Join(root, "missing.mp4"), destination, false, nil)
+	if !errors.Is(err, ErrDestinationExists) {
+		t.Fatalf("Remux() conflict error = %v", err)
+	}
+}
+
+func TestAtomicPostprocessCancellationRemovesTemporaryOutput(t *testing.T) {
+	tools, err := Discover(Config{})
+	if err != nil {
+		t.Skipf("ffmpeg unavailable: %v", err)
+	}
+	root := t.TempDir()
+	destination := filepath.Join(root, "cancelled.mp4")
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	err = tools.runAtomic(ctx, destination, false, nil, func(temporary string) []string {
+		return []string{
+			"-f", "lavfi", "-i", "testsrc=size=16x16:rate=30",
+			"-c:v", "mpeg4", "-progress", "pipe:1", "-nostats", temporary,
+		}
+	})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("runAtomic() error = %v", err)
+	}
+	for _, path := range []string{destination, filepath.Join(root, "cancelled.part.mp4")} {
+		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+			t.Fatalf("temporary output remains at %s: %v", path, statErr)
+		}
+	}
+}
+
+func TestDiagnosticRedaction(t *testing.T) {
+	input := "https://example.test/media?token=secret&visible=yes signature=hunter2 authorization=Bearer"
+	got := redactDiagnostic(input)
+	for _, secret := range []string{"secret", "hunter2", "Bearer"} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("redacted diagnostic contains %q: %q", secret, got)
+		}
+	}
+	if !strings.Contains(got, "visible=yes") {
+		t.Fatalf("non-sensitive query was removed: %q", got)
+	}
+}
+
 func TestBoundedBuffer(t *testing.T) {
 	buffer := newBoundedBuffer(4)
 	if count, err := buffer.Write([]byte("123456")); err != nil || count != 6 {
@@ -104,4 +173,14 @@ func TestBoundedBuffer(t *testing.T) {
 	if got := buffer.String(); got != "1234 [truncated]" {
 		t.Fatalf("String() = %q", got)
 	}
+}
+
+func FuzzRedactDiagnostic(f *testing.F) {
+	f.Add("https://example.test/video?token=secret&quality=best")
+	f.Fuzz(func(t *testing.T, input string) {
+		if len(input) > 1<<20 {
+			t.Skip()
+		}
+		_ = redactDiagnostic(input)
+	})
 }

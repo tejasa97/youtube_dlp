@@ -12,7 +12,10 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/protocol/dash"
 )
 
-var ErrMissingDASHTracks = errors.New("DASH result lacks mergeable audio/video tracks")
+var (
+	ErrMissingDASHTracks = errors.New("DASH result lacks mergeable audio/video tracks")
+	ErrMissingToolset    = errors.New("media pipeline requires an ffmpeg toolset")
+)
 
 // FinalizeDASH merges separate selected tracks and removes their temporary
 // assembled files only after ffmpeg completes successfully.
@@ -36,10 +39,32 @@ func FinalizeDASH(ctx context.Context, result dash.Result, destination string, o
 		return ErrMissingDASHTracks
 	}
 	if tools == nil {
-		return fmt.Errorf("%w: ffmpeg toolset is nil", ErrMissingDASHTracks)
+		return ErrMissingToolset
 	}
 	if err := tools.Merge(ctx, videoPath, audioPath, destination, overwrite, sink); err != nil {
 		return err
 	}
 	return errors.Join(os.Remove(videoPath), os.Remove(audioPath))
+}
+
+// RemuxDownload runs a container-only postprocessor and removes the source
+// only after the destination has been atomically finalized. The source remains
+// resumable on cancellation or media failure.
+func RemuxDownload(ctx context.Context, source, destination string, overwrite bool, tools *ffmpeg.Toolset, sink events.Sink) error {
+	if tools == nil {
+		return ErrMissingToolset
+	}
+	if source == "" || destination == "" {
+		return fmt.Errorf("%w: source and destination are required", ffmpeg.ErrMediaFailure)
+	}
+	if err := tools.Remux(ctx, source, destination, overwrite, sink); err != nil {
+		return err
+	}
+	if source == destination {
+		return nil
+	}
+	if err := os.Remove(source); err != nil {
+		return fmt.Errorf("%w: remove remux source: %v", ffmpeg.ErrMediaFailure, err)
+	}
+	return nil
 }
