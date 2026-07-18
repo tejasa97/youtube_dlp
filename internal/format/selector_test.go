@@ -188,6 +188,42 @@ func TestSelectorExtensionAndFreePreferencesBreakQualityTies(t *testing.T) {
 	}
 }
 
+func TestSelectorMergesGlobalAndPerFormatHeaders(t *testing.T) {
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "http_headers", Value: value.ObjectValue(value.NewObject(
+			value.Field{Key: "Referer", Value: value.String("https://page.example/video")},
+			value.Field{Key: "User-Agent", Value: value.String("global-agent")},
+		))},
+		value.Field{Key: "formats", Value: value.List(
+			value.ObjectValue(value.NewObject(value.Field{Key: "format_id", Value: value.String("video")}, value.Field{Key: "url", Value: value.String("https://cdn.example/video")}, value.Field{Key: "height", Value: value.Int(720)}, value.Field{Key: "vcodec", Value: value.String("avc")}, value.Field{Key: "acodec", Value: value.String("none")}, value.Field{Key: "http_headers", Value: value.ObjectValue(value.NewObject(value.Field{Key: "User-Agent", Value: value.String("video-agent")}))})),
+			value.ObjectValue(value.NewObject(value.Field{Key: "format_id", Value: value.String("audio")}, value.Field{Key: "url", Value: value.String("https://cdn.example/audio")}, value.Field{Key: "vcodec", Value: value.String("none")}, value.Field{Key: "acodec", Value: value.String("aac")}, value.Field{Key: "http_headers", Value: value.ObjectValue(value.NewObject(value.Field{Key: "X-Audio", Value: value.String("1")}))})),
+		)},
+	))
+	selector, err := ParseSelector("video+audio")
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, err := Select(info, selector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(selected) != 2 || selected[0].Headers.Get("Referer") != "https://page.example/video" || selected[0].Headers.Get("User-Agent") != "video-agent" || selected[1].Headers.Get("User-Agent") != "global-agent" || selected[1].Headers.Get("X-Audio") != "1" {
+		t.Fatalf("headers = %#v", selected)
+	}
+	selected[0].Headers.Set("Referer", "mutated")
+	if selected[1].Headers.Get("Referer") != "https://page.example/video" {
+		t.Fatalf("headers alias across selections: %#v", selected)
+	}
+}
+
+func TestSelectorRejectsMalformedSelectedHeaders(t *testing.T) {
+	info := value.NewInfo(value.NewObject(value.Field{Key: "formats", Value: value.List(value.ObjectValue(value.NewObject(value.Field{Key: "format_id", Value: value.String("1")}, value.Field{Key: "url", Value: value.String("https://cdn.example/1")}, value.Field{Key: "http_headers", Value: value.ObjectValue(value.NewObject(value.Field{Key: "X-Test", Value: value.String("bad\r\nvalue")}))})))}))
+	selector, _ := ParseSelector("1")
+	if _, err := Select(info, selector); !errors.Is(err, ErrInvalidHeaders) {
+		t.Fatalf("Select() = %v", err)
+	}
+}
+
 func FuzzParseSelector(f *testing.F) {
 	f.Add("bestvideo[height<=1080]+bestaudio/best")
 	f.Add("best[ext=mp4]")

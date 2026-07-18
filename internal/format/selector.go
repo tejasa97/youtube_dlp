@@ -144,10 +144,42 @@ func SelectWithOptions(info value.Info, selector Selector, options Options) ([]S
 			selected = append(selected, selection)
 		}
 		if matched {
+			if err := attachHeaders(info, selected, objects); err != nil {
+				return nil, err
+			}
 			return selected, nil
 		}
 	}
 	return nil, ErrNoMatch
+}
+
+// attachHeaders gives selector results the same download-header semantics as
+// Best: video-level headers are inherited and per-format values override them.
+// Selections carry their own header maps so callers may safely mutate one.
+func attachHeaders(info value.Info, selections []Selection, formats []*value.Object) error {
+	for index := range selections {
+		object := selectedObject(selections[index], formats)
+		if object == nil {
+			return fmt.Errorf("%w: selected format metadata is unavailable", ErrNoFormats)
+		}
+		headers, err := mergeHeaders(info.Lookup("http_headers"), object.Lookup("http_headers"))
+		if err != nil {
+			return err
+		}
+		selections[index].Headers = headers
+	}
+	return nil
+}
+
+func selectedObject(selection Selection, formats []*value.Object) *value.Object {
+	for _, candidate := range formats {
+		id, _ := candidate.Lookup("format_id").StringValue()
+		url, _ := candidate.Lookup("url").StringValue()
+		if id == selection.ID && url == selection.URL {
+			return candidate
+		}
+	}
+	return nil
 }
 
 func parseTerm(segment selectorSegment) (Term, error) {
