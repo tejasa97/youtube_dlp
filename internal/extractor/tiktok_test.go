@@ -85,7 +85,7 @@ func TestTikTokSuitableAndEmbedCanonicalization(t *testing.T) {
 			t.Fatalf("Suitable(%q) = false", rawURL)
 		}
 	}
-	for _, rawURL := range []string{"https://example.com/@x/video/1", "https://www.tiktok.com/@x", "https://www.tiktok.com/live/1"} {
+	for _, rawURL := range []string{"https://example.com/@x/video/1", "https://www.tiktok.com/@x", "https://www.tiktok.com/live/1", "ftp://www.tiktok.com/@x/video/1"} {
 		parsed, _ := url.Parse(rawURL)
 		if NewTikTok().Suitable(parsed) {
 			t.Fatalf("Suitable(%q) = true", rawURL)

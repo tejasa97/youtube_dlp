@@ -30,6 +30,9 @@ func NewTikTok() TikTok { return TikTok{} }
 func (TikTok) Name() string { return "tiktok" }
 
 func (TikTok) Suitable(parsed *url.URL) bool {
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return false
+	}
 	host := strings.ToLower(parsed.Hostname())
 	if host != "www.tiktok.com" && host != "tiktok.com" {
 		return false

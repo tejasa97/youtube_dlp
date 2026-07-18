@@ -174,7 +174,7 @@ func (client *Client) Run(ctx context.Context, request Request) (Result, error) 
 	defer challengeSolver.Close()
 	operation := &operation{
 		client: client, request: request, transport: transport,
-		registry: extractor.NewRegistry(extractor.NewYouTube(), extractor.NewVimeo(), extractor.NewTwitch(), extractor.NewFixture(), extractor.NewGeneric()),
+		registry: extractor.NewRegistry(extractor.NewYouTube(), extractor.NewVimeo(), extractor.NewTikTok(), extractor.NewTwitch(), extractor.NewFixture(), extractor.NewGeneric()),
 		solver:   challengeSolver,
 	}
 	return operation.process(ctx, request.URL, "", nil, make(map[string]bool), 0)

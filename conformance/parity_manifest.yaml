@@ -419,6 +419,25 @@ capabilities:
       - protocol.dash
     known_deviation: Compatibility is scoped to the pinned public-video/player-config corpus. Password submission, showcases/channels, unlisted hashes, DRM, subtitles, and live archive variants remain broader Vimeo work.
 
+  - id: extractor.tiktok_pilot
+    name: TikTok impersonation and anti-bot pilot
+    phase: 1
+    compatibility_target: Extract a public TikTok video from bounded hydration state through an explicit browser profile with no native fallback.
+    status: compatible
+    evidence:
+      - internal/extractor.TestTikTokExtractsProtectedHydrationFormats
+      - internal/extractor.TestTikTokSuitableAndEmbedCanonicalization
+      - internal/extractor.TestTikTokFailuresAreCategorizedAndSecretSafe
+      - internal/extractor.TestTikTokCancellationAndHydrationBound
+      - internal/extractor.FuzzParseTikTokPage
+      - conformance/extractors/tiktok/PROVENANCE.md
+      - docs/P1_TIKTOK_PILOT.md
+    owner: extractors
+    depends_on:
+      - network.impersonation
+      - network.shared_transport
+    known_deviation: Compatibility is scoped to the pinned public hydration corpus. Mobile API signing/device rotation, WAF proof-of-work, SIGI fallback, captions, image slideshows, and broader availability labels remain explicit anti-bot work.
+
   - id: compat.configuration
     name: Configuration compatibility
     phase: 2
