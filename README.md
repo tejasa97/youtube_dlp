@@ -10,16 +10,15 @@ separate pure-Go helper and embeds hash-pinned EJS JavaScript assets for the
 selected YouTube challenge corpus. No Python executable, library, helper, or
 plugin is loaded at runtime.
 
-Status: Phase 0 is complete and Phase 1 is in progress. Completed Phase 1
-milestones include HLS/DASH fragment pipelines, ffmpeg supervision,
-compatibility parser pilots, differential comparison, and the isolated EJS
-challenge path. The first offline YouTube video corpus now covers player
-metadata, direct and ciphered formats, `n`/signature transformation,
-HLS/DASH manifest exposure, pinned playlist continuations, and live-HLS
-discovery. Broader playlists, site coverage, plugins, and upstream-delta replay
-are still in progress and are not claimed complete. The versioned Chrome 133
-TLS/HTTP2 impersonation pilot and macOS Google Chrome cookie import are
-available for protected extractor flows.
+Status: Phase 0 and the Phase 1 risk-retirement pilot are complete. Phase 1
+includes HLS/DASH pipelines, ffmpeg supervision, compatibility parser pilots,
+differential comparison, isolated EJS execution, browser impersonation and
+cookie import, RPC/WASM plugin experiments, and representative generic,
+YouTube, Vimeo, Twitch, SoundCloud, TikTok, authenticated, and regional
+extractors. Compatibility remains scoped to each checked-in corpus and its
+explicit deviations; this is not yet a broad yt-dlp parity release. See the
+[Phase 1 exit review](docs/PHASE_1_EXIT_REVIEW.md) for the gate evidence and
+the time-bounded upstream-replay limitation.
 
 ## Build and test
 
@@ -58,8 +57,9 @@ See [Chromium cookie import](docs/CHROMIUM_COOKIE_IMPORT.md) for its security
 model and current platform boundary.
 
 The capability manifest is the source of truth for what is implemented. A
-`compatible` entry has named automated evidence; incomplete capabilities remain
-explicitly `partial` or `not_started`.
+`compatible` entry has named automated evidence; incomplete or deliberately
+bounded capabilities remain explicit as `partial`, `not_started`, or
+`intentional_deviation`.
 
 ## Project documents
 
@@ -69,6 +69,8 @@ explicitly `partial` or `not_started`.
 - [Phase 1 implementation plan](PHASE_1_IMPLEMENTATION_PLAN.md)
 - [Contribution and verification rules](CONTRIBUTING.md)
 - [Phase 0 exit review](docs/PHASE_0_EXIT_REVIEW.md)
+- [Phase 1 exit review](docs/PHASE_1_EXIT_REVIEW.md)
+- [Phase 1 differential review](docs/P1_DIFFERENTIAL_REVIEW.md)
 - [Architecture decisions](docs/adr/README.md)
 - [Fixture policy](docs/FIXTURE_POLICY.md)
 - [Chromium cookie import](docs/CHROMIUM_COOKIE_IMPORT.md)
