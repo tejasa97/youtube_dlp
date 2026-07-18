@@ -1,0 +1,103 @@
+{
+  "schema": "ytdlp-go.plugin-upgrade/v1",
+  "case_id": "extractor-options-metadata-v1.0-to-v1.1",
+  "host": {
+    "minimum": 1,
+    "maximum": 65537
+  },
+  "baseline": {
+    "manifest": {
+      "schema": "ytdlp-go.plugin/v1",
+      "id": "fixture.upgrade.extractor",
+      "name": "Upgrade fixture extractor",
+      "release": "1.0.0",
+      "runtime": "native",
+      "entrypoint": "fixture-plugin",
+      "abi": {
+        "minimum": 1,
+        "maximum": 1
+      },
+      "capabilities": [
+        "extractor"
+      ],
+      "permissions": [
+        "network"
+      ]
+    },
+    "transcript": [
+      {
+        "type": "extract",
+        "version": 1,
+        "request": {
+          "id": "request-1",
+          "url": "https://fixture.invalid/watch/1",
+          "options": {
+            "format": "best"
+          }
+        }
+      },
+      {
+        "type": "result",
+        "response": {
+          "id": "request-1",
+          "metadata": {
+            "id": "1",
+            "title": "Fixture title"
+          }
+        }
+      }
+    ]
+  },
+  "candidate": {
+    "manifest": {
+      "schema": "ytdlp-go.plugin/v1",
+      "id": "fixture.upgrade.extractor",
+      "name": "Upgrade fixture extractor",
+      "release": "1.1.0",
+      "runtime": "native",
+      "entrypoint": "fixture-plugin",
+      "abi": {
+        "minimum": 1,
+        "maximum": 65537
+      },
+      "capabilities": [
+        "extractor"
+      ],
+      "permissions": [
+        "network"
+      ]
+    },
+    "transcript": [
+      {
+        "type": "extract",
+        "version": 65537,
+        "request": {
+          "id": "request-1",
+          "url": "https://fixture.invalid/watch/1",
+          "options": {
+            "format": "best",
+            "client_hints": {
+              "locale": "en-US",
+              "player": "web"
+            }
+          }
+        }
+      },
+      {
+        "type": "result",
+        "response": {
+          "id": "request-1",
+          "metadata": {
+            "id": "1",
+            "title": "Fixture title",
+            "availability": "public",
+            "provenance": {
+              "api": "fixture-v2"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "expected_transcript_sha256": "e7d0b3f5cedc06f3fa7f487ecddbb3d8fe93ca77ef969928b175027b529e3bb7"
+}
