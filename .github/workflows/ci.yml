@@ -130,6 +130,28 @@ jobs:
             target: FuzzSyntheticAuthResponse
           - package: ./internal/extractor
             target: FuzzRegionSVTVideoResponse
+          - package: ./internal/extractor
+            target: FuzzParseHostedEmbedPayloads
+          - package: ./internal/extractor
+            target: FuzzNormalizeDailymotion
+          - package: ./internal/extractor
+            target: FuzzMixcloudStreamURL
+          - package: ./internal/extractor
+            target: FuzzRumbleVariants
+          - package: ./internal/extractor
+            target: FuzzParseBilibiliPage
+          - package: ./internal/extractor
+            target: FuzzParseInstagramPage
+          - package: ./internal/extractor
+            target: FuzzClassifyKickURL
+          - package: ./internal/extractor
+            target: FuzzParseBBCMediaSelector
+          - package: ./internal/extractor
+            target: FuzzNormalizeARDMedia
+          - package: ./internal/extractor
+            target: FuzzParseNRKCatalog
+          - package: ./internal/extractor
+            target: FuzzParseNRKDuration
           - package: ./internal/upstreamdelta
             target: FuzzParseLog
     steps:

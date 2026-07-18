@@ -775,8 +775,34 @@ capabilities:
     name: Phase 2 representative extractor breadth
     phase: 2
     compatibility_target: Register at least 25 native representative extractors spanning every declared major capability class.
-    status: not_started
+    status: compatible
+    evidence:
+      - pkg/ytdlp.TestRepresentativeExtractorCatalogCountRoutingAndRiskCoverage
+      - pkg/ytdlp.TestProductRegistryIncludesIntegratedExtractors
+      - internal/extractor.TestSharedHostingSuccessFixtures
+      - internal/extractor.TestSharedHostingErrorsAreCategorizedAndSecretSafe
+      - internal/extractor.TestDailymotionPublicMetadata
+      - internal/extractor.TestRedditPublicListing
+      - internal/extractor.TestTwitterSyndicationMetadata
+      - internal/extractor.TestBandcampPublicTrackAndAlbum
+      - internal/extractor.TestMixcloudPublicGraphQLAndLazyCollection
+      - internal/extractor.TestRumbleEmbedAndLazyChannel
+      - internal/extractor.TestBilibiliHydrationAndAnthology
+      - internal/extractor.TestInstagramRoutingAndPostExtraction
+      - internal/extractor.TestKickRoutingLiveExtractionAndProfile
+      - internal/extractor.TestBBCIPlayerRoutingEpisodeGeoFallbackAndFormats
+      - internal/extractor.TestARDRoutingItemFormatsAndLiveState
+      - internal/extractor.TestNRKRoutingProgrammeFormatsAndLive
+      - internal/extractor.TestRiskFormatsIntegrateWithHLS_DASHAndDirectDownloaders
+      - conformance/extractors/shared/PROVENANCE.md
+      - conformance/extractors/public/PROVENANCE.md
+      - conformance/extractors/risk/instagram/PROVENANCE.md
+      - conformance/extractors/risk/kick/PROVENANCE.md
+      - conformance/extractors/risk/bbciplayer/PROVENANCE.md
+      - conformance/extractors/risk/ard/PROVENANCE.md
+      - conformance/extractors/risk/nrk/PROVENANCE.md
     owner: extractors
+    known_deviation: Compatibility is limited to the documented deterministic corpus. Legacy provider APIs, volatile authenticated bootstrap flows, general article/embed matrices, and some password/SSO/CDN fallbacks remain explicit per-family provenance deviations; no extractor silently invokes Python or an unregistered fallback.
 
   - id: verification.g2_security
     name: Gate G2 security and fallback audit
