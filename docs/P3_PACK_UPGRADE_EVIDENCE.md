@@ -2,10 +2,13 @@
 
 ## Scope
 
-`internal/pack/upgrade` is a self-contained, Python-free signed contract for
-moving extractor packs from v1.0 to the additive v1.1 schema. It deliberately
-does not alter the existing pack archive, RPC, WASM, registry, or installer
-packages. Hosts provide trust keys and upgrade policy explicitly.
+`internal/pack/upgrade` defines the Python-free signed contract for moving
+extractor packs from v1.0 to the additive v1.1 schema. The production
+`internal/pack/transaction` path adopts it: a signed catalog entry is bound to
+the exact artifact bytes, publisher, archive signature, contract, permission
+review, and existing atomic installer before any filesystem mutation. The
+public `InstallPackCatalogTransaction` API exposes that transaction. Hosts
+provide trust keys and upgrade policy explicitly.
 
 ## Compatibility and safety matrix
 
@@ -24,6 +27,9 @@ packages. Hosts provide trust keys and upgrade policy explicitly.
 | Unknown fields, noncanonical JSON, malformed signatures/keys | categorized rejection; fuzz covered |
 | Cancellation | checked before work, during negotiation, and before return |
 | Resource limits | signed-record, permission, capability, annotation, and host-input bounds |
+| Catalog-to-install binding | `TestPrepareBindsCatalogArtifactPublisherAndContractBeforeMutation` |
+| Old install/new v1.1 activation | `TestInstallEndToEndUpgradeAndCompatibilityMatrix` |
+| Rollback and revocation | `TestRollbackRevalidatesCatalogContractArtifactAndRevocation` |
 
 Canonical signing sorts set-like fields and signs a domain-separated canonical
 manifest with Ed25519. `TestCanonicalizationIsPermutationInvariant` exercises
@@ -37,7 +43,9 @@ The increment is accepted only after these commands pass:
 
 ```text
 go test ./internal/pack/upgrade
+go test ./internal/pack/transaction
 go test -race ./internal/pack/upgrade
+go test -race ./internal/pack/transaction
 go vet ./internal/pack/upgrade
 go test ./internal/pack/upgrade -run '^$' -fuzz '^FuzzVerifyAndNegotiate$' -fuzztime=100x -parallel=1
 CGO_ENABLED=0 GOOS={linux,darwin,windows} GOARCH=amd64 go test -c ./internal/pack/upgrade

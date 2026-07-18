@@ -340,13 +340,16 @@ capabilities:
       - internal/cookies/chromium.TestImportSupportsOlderSecureSchema
       - internal/cookies/chromium.TestImportReportsUnavailableKeyWithoutDiscardingPlaintext
       - internal/cookies/chromium.TestImportRejectsUnsafePathsAndCancellation
+      - internal/cookies/chromium.TestImportEnforcesRowAndFieldLimits
+      - internal/cookies/chromium.TestImportRejectsInvalidBoundedCookieFields
+      - internal/cookies/chromium.FuzzValidCookie
       - internal/network.TestAddCookiesPreservesHostScopeAndSecurity
       - pkg/ytdlp.TestClientImportsBrowserCookiesBeforeExtraction
       - conformance/cookies/chromium-macos/PROVENANCE.md
     owner: authentication
     depends_on:
       - network.shared_transport
-    known_deviation: Compatibility is scoped to Google Chrome v10 cookie encryption on macOS. Other Chromium brands and Windows/Linux credential stores remain later profiles.
+    known_deviation: This original capability remains scoped to Google Chrome v10 cookie encryption on macOS; the separate portable-sources capability adds bounded Firefox plus Chromium-family Linux and Windows profiles. Real-profile observations remain opt-in and platform-native.
 
   - id: extractor.youtube_pilot
     name: YouTube pilot extraction
@@ -956,13 +959,18 @@ capabilities:
       - internal/pack/upgrade.TestRejectsUnknownMajorMalformedPythonAndUntrustedRecords
       - internal/pack/upgrade.TestCancellationAndResourceBounds
       - internal/pack/upgrade.FuzzVerifyAndNegotiate
+      - internal/pack/transaction.TestInstallEndToEndUpgradeAndCompatibilityMatrix
+      - internal/pack/transaction.TestPrepareBindsCatalogArtifactPublisherAndContractBeforeMutation
+      - internal/pack/transaction.TestPermissionRevocationCancellationAndLoaderFailuresPrecedeMutation
+      - internal/pack/transaction.TestRollbackRevalidatesCatalogContractArtifactAndRevocation
+      - internal/pack/transaction.FuzzPrepare
       - conformance/plugin/abi-v1.1/PROVENANCE.md
       - conformance/pack/upgrade-v1.1/PROVENANCE.md
       - docs/P3_PACK_UPGRADE_EVIDENCE.md
     owner: runtime
     depends_on:
       - plugins.abi_v1
-    known_deviation: Plugin additions are confined to existing options and metadata extension maps. The pack v1.1 contract adds explicit host/provided capabilities and annotations, but remains a conformance contract pending product installer adoption; unknown optional top-level plugin envelope fields remain fail-closed.
+    known_deviation: Plugin additions are confined to existing options and metadata extension maps. The pack v1.1 contract is adopted by the authenticated catalog/install transaction with explicit host/provided capabilities and annotations; unknown optional top-level plugin envelope fields remain fail-closed.
 
   - id: release.signed_packs
     name: Signed extractor and plugin packs
@@ -980,10 +988,16 @@ capabilities:
       - internal/pack/catalog.TestVerifyRejectsTamperTrustRevocationExpiryAndCancellation
       - internal/pack/catalog.TestCatalogRejectsHostilePathsDuplicatesAndBounds
       - internal/pack/catalog.FuzzVerify
+      - internal/pack/transaction.TestInstallEndToEndUpgradeAndCompatibilityMatrix
+      - internal/pack/transaction.TestPrepareBindsCatalogArtifactPublisherAndContractBeforeMutation
+      - internal/pack/transaction.TestRollbackRevalidatesCatalogContractArtifactAndRevocation
+      - internal/pack/transaction.TestConcurrentTransactionsHaveSingleActivation
+      - internal/pack/transaction.FuzzPrepare
       - pkg/ytdlp.TestPublicPackCatalogVerificationAndExactResolution
       - cmd/ytdlp-pack.TestRunCatalogVerifyAndExactResolve
       - internal/sandbox.TestLinuxPlanIsolatesFilesystemNetworkAndSecrets
       - internal/sandbox.TestDarwinPlanHasExplicitProfileAndLimitDeviation
+      - pkg/ytdlp.TestSandboxedPluginHostBuildsFailClosedNativePolicy
       - pkg/ytdlp.TestSignedWASMPluginPackHostAndProductIntegration
       - pkg/ytdlp.TestPluginPackBindingFailsBeforeFilesystemMutation
       - cmd/ytdlp-pack.TestRunVerifyRejectsMalformedPackWithoutLeakingBytes
@@ -993,7 +1007,7 @@ capabilities:
       - docs/P3_PACK_CATALOG.md
       - docs/P2_PLUGIN_THREAT_MODEL.md
     owner: release
-    known_deviation: Canonical build and verification are portable, but secure install, rollback, and removal currently fail closed outside Linux and macOS because equivalent Windows owner/ACL, lock, and atomic-publication evidence is not yet available. macOS sandbox-exec is deprecated and cannot enforce requested resource quotas; Linux adapters require bwrap and prlimit when those guarantees are requested.
+    known_deviation: Canonical build and verification are portable, but secure install, rollback, and removal currently fail closed outside Linux and macOS because equivalent Windows owner/ACL, lock, and atomic-publication evidence is not yet available. Native sandbox execution is explicit and fail-closed: macOS sandbox-exec is deprecated and cannot enforce requested resource quotas; Linux requires bwrap and prlimit for requested quotas; Windows remains unsupported. Unsandboxed native hosts retain the documented signed-and-approved trusted-code boundary.
 
   - id: extractor.phase2_breadth
     name: Phase 2 representative extractor breadth
