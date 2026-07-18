@@ -48,6 +48,7 @@ const (
 	ErrorAuthentication ErrorCategory = "authentication"
 	ErrorInvalidInput   ErrorCategory = "invalid_input"
 	ErrorNetwork        ErrorCategory = "network"
+	ErrorSecurity       ErrorCategory = "security"
 	ErrorCancelled      ErrorCategory = "cancelled"
 	ErrorInternal       ErrorCategory = "internal"
 )
