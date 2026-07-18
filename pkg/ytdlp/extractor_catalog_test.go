@@ -29,6 +29,7 @@ var representativeExtractorCatalog = []representativeExtractor{
 	{"vimeo", "https://vimeo.com/123456789", []extractorRiskClass{riskManifestHeavy}},
 	{"twitch", "https://www.twitch.tv/fixture_channel", []extractorRiskClass{riskLive, riskManifestHeavy}},
 	{"soundcloud", "https://soundcloud.com/fixture-artist/synthetic-signal", []extractorRiskClass{riskPlaylistAPI}},
+	{"streamable", "https://streamable.com/e/fixture_1", []extractorRiskClass{riskSharedBackend, riskSimpleDirect}},
 	{"tiktok", "https://www.tiktok.com/@fixture/video/1234567890123456789", []extractorRiskClass{riskAntiBot}},
 	{"synthetic_auth", "https://auth-fixture.invalid/watch/fixture123", []extractorRiskClass{riskAuthenticated}},
 	{"region_svt", "https://www.svtplay.se/video/fixture-program?modalId=fixture123", []extractorRiskClass{riskRegional, riskLive}},

@@ -285,6 +285,7 @@ func (client *Client) productRegistry() *extractor.Registry {
 		extractor.NewNRK(),
 		extractor.NewTwitch(),
 		extractor.NewSoundCloud(),
+		extractor.NewStreamable(),
 		extractor.NewRegionSVT(),
 		extractor.NewSyntheticAuth(),
 	}

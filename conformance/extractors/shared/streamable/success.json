@@ -1,0 +1,31 @@
+{
+  "status": 2,
+  "title": "Fixture title",
+  "reddit_title": "Fixture reddit title",
+  "description": "Deterministic Streamable fixture",
+  "thumbnail_url": "//cdn.example.test/thumb.jpg",
+  "date_added": 1454964157.35115,
+  "duration": 61.516,
+  "plays": 42,
+  "owner": {"user_name": "fixture-owner"},
+  "files": {
+    "mp4-mobile": {
+      "url": "//cdn.example.test/mobile.mp4",
+      "width": 640,
+      "height": 360,
+      "size": 1024,
+      "framerate": 30,
+      "bitrate": 800000
+    },
+    "mp4": {
+      "url": "https://cdn.example.test/video.mp4",
+      "width": 1280,
+      "height": 720,
+      "size": 4096,
+      "framerate": 60,
+      "bitrate": 2500000,
+      "input_metadata": {"video_codec_name": "h264", "audio_codec_name": "aac"}
+    },
+    "unsafe": {"url": "file:///etc/passwd"}
+  }
+}
