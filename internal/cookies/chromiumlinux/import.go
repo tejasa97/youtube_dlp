@@ -197,7 +197,8 @@ func snapshot(ctx context.Context, source, tempRoot string) (string, func(), err
 		return "", func() {}, ErrSnapshot
 	}
 	destination := filepath.Join(dir, "Cookies")
-	for _, suffix := range []string{"", "-wal", "-shm"} {
+	// Copy durable database/WAL state, but never the process-local SHM locks.
+	for _, suffix := range []string{"", "-wal"} {
 		if err := copyFile(ctx, source+suffix, destination+suffix, suffix != ""); err != nil {
 			cleanup()
 			return "", func() {}, err

@@ -226,7 +226,9 @@ func copySnapshot(ctx context.Context, source, tempRoot string) (string, func(),
 	}
 	cleanup := func() { _ = os.RemoveAll(dir) }
 	destination := filepath.Join(dir, "cookies.sqlite")
-	for _, suffix := range []string{"", "-wal", "-shm"} {
+	// The WAL is durable state required to see committed live-browser writes.
+	// The shared-memory file contains process-local locks and must not be copied.
+	for _, suffix := range []string{"", "-wal"} {
 		if err := copyRegular(ctx, source+suffix, destination+suffix, suffix == ""); err != nil {
 			cleanup()
 			return "", func() {}, err
