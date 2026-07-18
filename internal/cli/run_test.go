@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -84,6 +85,53 @@ func TestRunRejectsUnsupportedBrowserCookieSource(t *testing.T) {
 	code := Run([]string{"--cookies-from-browser", "safari", "https://example.invalid/video.mp4"}, &stdout, &stderr)
 	if code != 2 || !strings.Contains(stderr.String(), "unsupported browser") {
 		t.Fatalf("code = %d; stderr = %q", code, stderr.String())
+	}
+}
+
+func TestRunLoadsExplicitConfigurationAndCommandLineWins(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	configDir := t.TempDir()
+	configuredOutput := filepath.Join(configDir, "configured")
+	commandOutput := filepath.Join(configDir, "command")
+	configPath := filepath.Join(configDir, "yt-dlp.conf")
+	configText := "--output configured.%(ext)s\n--output-dir '" + configuredOutput + "'\n"
+	if err := os.WriteFile(configPath, []byte(configText), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := RunContext(context.Background(), []string{
+		"--config-location", configPath,
+		"--output", "command.%(ext)s",
+		"--output-dir", commandOutput,
+		server.URL + "/page",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(commandOutput, "command.bin")); err != nil {
+		t.Fatalf("command-line output did not win precedence: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(configuredOutput, "configured.bin")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("lower-precedence configured output exists: %v", err)
+	}
+}
+
+func TestRunReportsSourceLocatedConfigurationFailure(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "broken.conf")
+	if err := os.WriteFile(configPath, []byte("--output 'unterminated\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := RunContext(context.Background(), []string{"--config-location", configPath, "https://example.invalid/video"}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), configPath+":1:") || !strings.Contains(stderr.String(), "unterminated quote") {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+}
+
+func TestHomePathFromArgs(t *testing.T) {
+	if got := homePathFromArgs([]string{"-P", "home:first", "--paths=home:second"}); got != "second" {
+		t.Fatalf("homePathFromArgs() = %q", got)
 	}
 }
 

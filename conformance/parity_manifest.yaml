@@ -523,8 +523,26 @@ capabilities:
     name: Configuration compatibility
     phase: 2
     compatibility_target: Discover and merge supported yt-dlp configuration files with compatible precedence.
-    status: not_started
+    status: compatible
+    evidence:
+      - internal/compat/config.TestLoadReferenceDerivedFixture
+      - internal/compat/config.TestLoadDefaultPrecedenceAcrossGroups
+      - internal/compat/config.TestLoadExplicitPrecedenceRelativeDirectoriesAndDeduplication
+      - internal/compat/config.TestLoadIgnoreConfigFromCommandPortableAndSystem
+      - internal/compat/config.TestLoadStdinOnceAndCancellation
+      - internal/compat/config.TestLoadCategorizedPathRecursionAndSizeFailures
+      - internal/compat/config.TestTokenizeQuotesCommentsEscapesAndLocations
+      - internal/compat/config.TestTokenizeExactSyntaxLocationAndNoSecret
+      - internal/compat/config.TestDecodeBOMsAndCodingDeclarations
+      - internal/compat/config.TestExpandAliasesDynamicRepeatedAndPreset
+      - internal/compat/config.FuzzTokenize
+      - internal/compat/config.FuzzDecode
+      - internal/compat/config.FuzzExpandAliases
+      - internal/cli.TestRunLoadsExplicitConfigurationAndCommandLineWins
+      - internal/cli.TestRunReportsSourceLocatedConfigurationFailure
+      - conformance/config/PROVENANCE.md
     owner: core
+    known_deviation: The declared corpus defaults to UTF-8 and supports BOM UTF-8/16/32 plus declared ASCII, Latin-1, and CP1252 rather than implicit locale codecs. Dynamic aliases support bounded numeric fields; the reference's wider Python format mini-language and process-global alias registry are not claimed.
 
   - id: cache.namespaced_storage
     name: Bounded namespaced cache
