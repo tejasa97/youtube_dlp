@@ -1,0 +1,6 @@
+{
+  "target": {"goos": "linux", "goarch": "amd64"},
+  "program": "go",
+  "arguments": ["build", "-trimpath", "-buildvcs=false", "-mod=readonly", "-ldflags=-buildid=", "-tags=netgo,osusergo", "-o", "ytdlp-go", "./cmd/ytdlp-go"],
+  "environment": ["CGO_ENABLED=0", "GOARCH=amd64", "GOOS=linux", "SOURCE_DATE_EPOCH=1784376000"]
+}
