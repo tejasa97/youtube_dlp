@@ -19,6 +19,17 @@ type provider struct {
 	called   int
 }
 
+type borrowedProvider struct{ password []byte }
+
+func (p *borrowedProvider) Password(context.Context, string) ([]byte, error) { return p.password, nil }
+
+type cancelProvider struct{ cancel context.CancelFunc }
+
+func (p cancelProvider) Password(ctx context.Context, _ string) ([]byte, error) {
+	p.cancel()
+	return nil, ctx.Err()
+}
+
 func (p *provider) Password(ctx context.Context, service string) ([]byte, error) {
 	p.called++
 	if err := ctx.Err(); err != nil {
@@ -176,6 +187,32 @@ func TestMeta24HostBindingRejectsWrongDomain(t *testing.T) {
 	value, err := d.decrypt(context.Background(), "wrong.example", encrypted)
 	if !errors.Is(err, ErrDecrypt) || value != "" || strings.Contains(err.Error(), "secret-value") {
 		t.Fatalf("value=%q err=%v", value, err)
+	}
+}
+
+func TestImportZeroesProviderPassword(t *testing.T) {
+	host := "example.com"
+	password := []byte("caller-owned-keyring-secret")
+	provider := &borrowedProvider{password: password}
+	rows := [][]any{{host, "protected", "", encrypt(t, "v11", password, []byte("value"), host, 23), "/", int64(0), 0, 0, -1}}
+	result, err := Import(context.Background(), Options{DatabasePath: database(t, 23, rows), PasswordProvider: provider})
+	if err != nil || result.Imported != 1 {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	for _, value := range password {
+		if value != 0 {
+			t.Fatal("provider password buffer was not zeroed")
+		}
+	}
+}
+
+func TestCredentialLookupCancellation(t *testing.T) {
+	host := "example.com"
+	rows := [][]any{{host, "protected", "", encrypt(t, "v11", []byte("key"), []byte("value"), host, 23), "/", int64(0), 0, 0, -1}}
+	ctx, cancel := context.WithCancel(context.Background())
+	_, err := Import(ctx, Options{DatabasePath: database(t, 23, rows), PasswordProvider: cancelProvider{cancel: cancel}})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("got %v", err)
 	}
 }
 
