@@ -94,6 +94,40 @@ func TestDownloadLivePollDeduplicatesSegments(t *testing.T) {
 	}
 }
 
+func TestDownloadLowLatencyPartsAreReplacedByCompletedSegment(t *testing.T) {
+	var polls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/live.m3u8":
+			if polls.Add(1) == 1 {
+				_, _ = fmt.Fprint(writer, "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:10\n#EXT-X-PART:DURATION=0.5,URI=10.0.bin\n#EXT-X-PART:DURATION=0.5,URI=10.1.bin\n")
+			} else {
+				_, _ = fmt.Fprint(writer, "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:10\n#EXTINF:1,\n10.bin\n#EXT-X-PART:DURATION=0.5,URI=11.0.bin\n#EXT-X-PART:DURATION=0.5,URI=11.1.bin\n#EXT-X-ENDLIST\n")
+			}
+		case "/10.bin":
+			_, _ = writer.Write([]byte("complete-ten-"))
+		case "/10.0.bin", "/10.1.bin":
+			_, _ = writer.Write([]byte("duplicate"))
+		case "/11.0.bin":
+			_, _ = writer.Write([]byte("eleven-part-a-"))
+		case "/11.1.bin":
+			_, _ = writer.Write([]byte("eleven-part-b"))
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "low-latency.bin")
+	_, err := NewDownloader(transport, Config{PollInterval: time.Millisecond, MaxPolls: 3}).Download(context.Background(), server.URL+"/live.m3u8", root, destination, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(destination)
+	if err != nil || string(contents) != "complete-ten-eleven-part-a-eleven-part-b" || polls.Load() != 2 {
+		t.Fatalf("contents=%q polls=%d error=%v", contents, polls.Load(), err)
+	}
+}
+
 func TestDownloadLiveHonorsCancellation(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if strings.HasSuffix(request.URL.Path, ".m3u8") {

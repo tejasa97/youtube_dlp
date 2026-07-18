@@ -218,13 +218,17 @@ capabilities:
       - internal/protocol/hls.TestDownloadMasterByteRangeMapAndAES128
       - internal/protocol/hls.TestDownloadLivePollDeduplicatesSegments
       - internal/protocol/hls.TestDownloadLiveHonorsCancellation
+      - internal/protocol/hls.TestParseLowLatencyPartsAndDeltaSkip
+      - internal/protocol/hls.TestParseRejectsInvalidLowLatencyAttributes
+      - internal/protocol/hls.TestDownloadLowLatencyPartsAreReplacedByCompletedSegment
       - internal/protocol/hls.TestDownloadEmptyPlaylistReturnsNoSegments
       - internal/protocol/hls.TestParseBoundsInputAndEntryCount
       - internal/protocol/hls.FuzzParse
       - pkg/ytdlp.TestClientHLSAndDASHDispatch
       - internal/cli.TestRunHLSProtocolDispatch
+      - conformance/media/llhls/PROVENANCE.md
     owner: io
-    known_deviation: Product format dispatch is implemented. Low-latency HLS, SAMPLE-AES, and non-AES-128 encryption remain explicitly unsupported by the Phase 1 pilot.
+    known_deviation: Product format dispatch includes bounded low-latency parts and delta skips. Preload hints and rendition reports are ignored; SAMPLE-AES and non-AES-128 encryption remain explicitly unsupported.
 
   - id: protocol.dash
     name: DASH downloading

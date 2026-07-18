@@ -54,6 +54,45 @@ func TestParseBoundsInputAndEntryCount(t *testing.T) {
 	}
 }
 
+func TestParseLowLatencyPartsAndDeltaSkip(t *testing.T) {
+	playlist, err := Parse("https://example.invalid/live/media.m3u8", []byte(`#EXTM3U
+#EXT-X-MEDIA-SEQUENCE:40
+#EXT-X-PART-INF:PART-TARGET=0.5
+#EXT-X-SKIP:SKIPPED-SEGMENTS=2
+#EXT-X-MAP:URI="init.mp4"
+#EXT-X-PART:DURATION=0.5,URI="part.mp4",BYTERANGE="4@2",INDEPENDENT=YES
+#EXT-X-PART:DURATION=0.5,URI="part.mp4",BYTERANGE="3"
+#EXT-X-ENDLIST
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	media := playlist.Media
+	if media == nil || media.PartTarget != 500*time.Millisecond || len(media.Segments) != 2 {
+		t.Fatalf("media=%#v", media)
+	}
+	first, second := media.Segments[0], media.Segments[1]
+	if !first.Partial || first.Sequence != 42 || first.PartIndex != 0 || first.RangeStart != 2 || first.RangeLength != 4 || first.Map == nil {
+		t.Fatalf("first part=%#v", first)
+	}
+	if !second.Partial || second.Sequence != 42 || second.PartIndex != 1 || second.RangeStart != 6 || second.RangeLength != 3 {
+		t.Fatalf("second part=%#v", second)
+	}
+}
+
+func TestParseRejectsInvalidLowLatencyAttributes(t *testing.T) {
+	for _, input := range []string{
+		"#EXTM3U\n#EXT-X-PART-INF:PART-TARGET=0\n",
+		"#EXTM3U\n#EXT-X-SKIP:SKIPPED-SEGMENTS=-1\n",
+		"#EXTM3U\n#EXT-X-PART:DURATION=0,URI=x\n",
+		"#EXTM3U\n#EXT-X-PART:DURATION=1,URI=x,BYTERANGE=0\n",
+	} {
+		if _, err := Parse("https://example.invalid/live/media.m3u8", []byte(input)); !errors.Is(err, ErrInvalidPlaylist) {
+			t.Fatalf("input=%q error=%v", input, err)
+		}
+	}
+}
+
 func FuzzParse(f *testing.F) {
 	f.Add("https://example.invalid/media.m3u8", []byte("#EXTM3U\n#EXTINF:1,\nsegment.ts\n#EXT-X-ENDLIST\n"))
 	f.Add("https://example.invalid/master.m3u8", []byte("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nmedia.m3u8\n"))

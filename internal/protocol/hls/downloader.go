@@ -53,12 +53,30 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 	if err != nil {
 		return fragment.Result{}, err
 	}
-	segmentsBySequence := make(map[int64]Segment)
+	type segmentKey struct {
+		sequence int64
+		part     int
+		partial  bool
+	}
+	segments := make(map[segmentKey]Segment)
+	complete := make(map[int64]bool)
 	polls := 0
 	for {
 		polls++
 		for _, segment := range media.Segments {
-			segmentsBySequence[segment.Sequence] = segment
+			if segment.Partial {
+				if !complete[segment.Sequence] {
+					segments[segmentKey{sequence: segment.Sequence, part: segment.PartIndex, partial: true}] = segment
+				}
+				continue
+			}
+			complete[segment.Sequence] = true
+			for key := range segments {
+				if key.sequence == segment.Sequence && key.partial {
+					delete(segments, key)
+				}
+			}
+			segments[segmentKey{sequence: segment.Sequence}] = segment
 		}
 		if media.EndList {
 			break
@@ -84,16 +102,24 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 		media = parsed.Media
 	}
 
-	sequences := make([]int64, 0, len(segmentsBySequence))
-	for sequence := range segmentsBySequence {
-		sequences = append(sequences, sequence)
+	keys := make([]segmentKey, 0, len(segments))
+	for key := range segments {
+		keys = append(keys, key)
 	}
-	sort.Slice(sequences, func(left, right int) bool { return sequences[left] < sequences[right] })
+	sort.Slice(keys, func(left, right int) bool {
+		if keys[left].sequence != keys[right].sequence {
+			return keys[left].sequence < keys[right].sequence
+		}
+		if keys[left].partial != keys[right].partial {
+			return !keys[left].partial
+		}
+		return keys[left].part < keys[right].part
+	})
 	keyCache := make(map[string][]byte)
 	seenMaps := make(map[string]struct{})
 	var plan []fragment.Segment
-	for _, sequence := range sequences {
-		segment := segmentsBySequence[sequence]
+	for _, key := range keys {
+		segment := segments[key]
 		if segment.Map != nil {
 			mapKey := fmt.Sprintf("%s:%d:%d", segment.Map.URL, segment.Map.RangeStart, segment.Map.RangeLength)
 			if _, exists := seenMaps[mapKey]; !exists {

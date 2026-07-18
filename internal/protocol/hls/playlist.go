@@ -38,6 +38,7 @@ type Variant struct {
 type MediaPlaylist struct {
 	Sequence       int64
 	TargetDuration time.Duration
+	PartTarget     time.Duration
 	Segments       []Segment
 	EndList        bool
 }
@@ -51,6 +52,8 @@ type Segment struct {
 	Map           *Map
 	Key           *Key
 	Discontinuity bool
+	Partial       bool
+	PartIndex     int
 }
 
 type Map struct {
@@ -87,6 +90,8 @@ func Parse(rawURL string, input []byte) (Playlist, error) {
 	var currentMap *Map
 	var currentKey *Key
 	var discontinuity bool
+	partIndex := 0
+	nextPartRangeStart := int64(0)
 	sequence := int64(0)
 
 	for scanner.Scan() {
@@ -128,6 +133,8 @@ func Parse(rawURL string, input []byte) (Playlist, error) {
 			}
 			media.Segments = append(media.Segments, segment)
 			sequence++
+			partIndex = 0
+			nextPartRangeStart = 0
 			pendingDuration = 0
 			if pendingRangeLength > 0 {
 				nextRangeStart = pendingRangeStart + pendingRangeLength
@@ -148,6 +155,46 @@ func Parse(rawURL string, input []byte) (Playlist, error) {
 			var seconds int64
 			seconds, err = strconv.ParseInt(strings.TrimPrefix(line, "#EXT-X-TARGETDURATION:"), 10, 64)
 			media.TargetDuration = time.Duration(seconds) * time.Second
+		case strings.HasPrefix(line, "#EXT-X-PART-INF:"):
+			var attributes map[string]string
+			attributes, err = parseAttributes(strings.TrimPrefix(line, "#EXT-X-PART-INF:"))
+			if err == nil {
+				var seconds float64
+				seconds, err = strconv.ParseFloat(attributes["PART-TARGET"], 64)
+				if err == nil && seconds <= 0 {
+					err = errors.New("part target must be positive")
+				}
+				media.PartTarget = time.Duration(seconds * float64(time.Second))
+			}
+		case strings.HasPrefix(line, "#EXT-X-SKIP:"):
+			var attributes map[string]string
+			attributes, err = parseAttributes(strings.TrimPrefix(line, "#EXT-X-SKIP:"))
+			if err == nil {
+				var skipped int64
+				skipped, err = strconv.ParseInt(attributes["SKIPPED-SEGMENTS"], 10, 64)
+				if err == nil && skipped < 0 {
+					err = errors.New("skipped segment count must not be negative")
+				}
+				if err == nil {
+					sequence += skipped
+				}
+			}
+		case strings.HasPrefix(line, "#EXT-X-PART:"):
+			var attributes map[string]string
+			attributes, err = parseAttributes(strings.TrimPrefix(line, "#EXT-X-PART:"))
+			if err == nil {
+				var part Segment
+				part, nextPartRangeStart, err = parsePart(base, attributes, sequence, partIndex, nextPartRangeStart, currentMap, currentKey, discontinuity)
+				if err == nil {
+					if len(media.Segments) >= maxPlaylistEntries {
+						err = fmt.Errorf("segment count exceeds %d", maxPlaylistEntries)
+					} else {
+						media.Segments = append(media.Segments, part)
+						partIndex++
+						discontinuity = false
+					}
+				}
+			}
 		case strings.HasPrefix(line, "#EXTINF:"):
 			value := strings.SplitN(strings.TrimPrefix(line, "#EXTINF:"), ",", 2)[0]
 			var seconds float64
@@ -260,6 +307,36 @@ func parseMap(base *url.URL, attributes map[string]string) (*Map, error) {
 		}
 	}
 	return result, err
+}
+
+func parsePart(base *url.URL, attributes map[string]string, sequence int64, partIndex int, inferredStart int64, currentMap *Map, currentKey *Key, discontinuity bool) (Segment, int64, error) {
+	rawURI := attributes["URI"]
+	resolved, err := resolveURL(base, rawURI)
+	if err != nil {
+		return Segment{}, inferredStart, err
+	}
+	seconds, err := strconv.ParseFloat(attributes["DURATION"], 64)
+	if err != nil || seconds <= 0 {
+		return Segment{}, inferredStart, errors.New("part duration must be positive")
+	}
+	part := Segment{URL: resolved, Sequence: sequence, Duration: time.Duration(seconds * float64(time.Second)), Map: cloneMap(currentMap), Key: cloneKey(currentKey), Discontinuity: discontinuity, Partial: true, PartIndex: partIndex}
+	nextStart := int64(0)
+	if rawRange := attributes["BYTERANGE"]; rawRange != "" {
+		pieces := strings.SplitN(rawRange, "@", 2)
+		part.RangeLength, err = strconv.ParseInt(pieces[0], 10, 64)
+		if err != nil || part.RangeLength <= 0 {
+			return Segment{}, inferredStart, errors.New("part byte range must be positive")
+		}
+		part.RangeStart = inferredStart
+		if len(pieces) == 2 {
+			part.RangeStart, err = strconv.ParseInt(pieces[1], 10, 64)
+			if err != nil || part.RangeStart < 0 {
+				return Segment{}, inferredStart, errors.New("part byte range start is invalid")
+			}
+		}
+		nextStart = part.RangeStart + part.RangeLength
+	}
+	return part, nextStart, nil
 }
 
 func parseKey(base *url.URL, attributes map[string]string) (*Key, error) {
