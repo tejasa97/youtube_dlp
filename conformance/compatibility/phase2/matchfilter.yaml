@@ -1,0 +1,16 @@
+reference:
+  repository: yt-dlp/yt-dlp
+  commit: aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8
+  files:
+    - yt_dlp/utils/_utils.py:3331-3355
+derived_on: 2026-07-18
+cases:
+  - input: "duration >= 90 & uploader = alice"
+    pass: true
+  - input: "duration < 90"
+    pass: false
+  - input: "missing > 0"
+    incomplete_pass: true
+notes:
+  - Repeated filters are ORed; ampersand joins conditions within one filter.
+  - Regular expressions are compiled under explicit size limits.

@@ -1,0 +1,23 @@
+reference:
+  repository: yt-dlp/yt-dlp
+  commit: aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8
+  files:
+    - yt_dlp/YoutubeDL.py:2205-2650
+    - yt_dlp/utils/_utils.py:5498-5615
+derived_on: 2026-07-18
+fixtures:
+  - name: direct-format-id
+    selector: "720+bestaudio"
+    expected_ids: ["720", "audio-high"]
+  - name: fallback
+    selector: "bestvideo[ext=mp4]/bestvideo+bestaudio"
+    expected_ids: ["720", "audio-high"]
+  - name: byte-suffix-filter
+    selector: "best[filesize<50M]"
+    expected: bounded-number parsing is deterministic
+  - name: sort-closest-tie
+    sort: "height~800"
+    expected: preserve extractor order when distances tie
+notes:
+  - Fixtures are attributable behavioural expectations, not copied upstream test data.
+  - The Go implementation does not execute arbitrary Python expressions or plugins.

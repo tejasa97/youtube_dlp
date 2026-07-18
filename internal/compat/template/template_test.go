@@ -56,6 +56,16 @@ func TestRenderNumericAndDateFormatting(t *testing.T) {
 	}
 }
 
+func TestRenderJSON(t *testing.T) {
+	got, err := Render("%(chapters)j", fixtureInfo())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != `[{"title":"first"},{"title":"last"}]` {
+		t.Fatalf("Render JSON = %q", got)
+	}
+}
+
 func TestResolveSanitizesAndConfines(t *testing.T) {
 	root := t.TempDir()
 	got, err := Resolve(root, "videos/%(title)s.%(ext)s", fixtureInfo())

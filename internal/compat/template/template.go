@@ -2,6 +2,7 @@
 package template
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -31,12 +32,21 @@ func (err *SyntaxError) Error() string {
 
 func (err *SyntaxError) Unwrap() error { return ErrInvalidTemplate }
 
-var formatSpecPattern = regexp.MustCompile(`^[-+0 #]*[0-9]*(\.[0-9]+)?[sdf]$`)
+const (
+	maxTemplateBytes = 64 << 10
+	maxExpressions   = 256
+)
+
+var formatSpecPattern = regexp.MustCompile(`^[-+0 #]*[0-9]*(\.[0-9]+)?[sdf]$|^j$`)
 
 // Render supports literal text, %%, traversal/alternative/default expressions,
 // replacement templates, date conversion, and bounded scalar format specs.
 func Render(pattern string, info value.Info) (string, error) {
+	if len(pattern) > maxTemplateBytes {
+		return "", templateSyntax(0, len(pattern), "template exceeds size limit")
+	}
 	var output strings.Builder
+	expressions := 0
 	for index := 0; index < len(pattern); {
 		if pattern[index] != '%' {
 			output.WriteByte(pattern[index])
@@ -58,7 +68,7 @@ func Render(pattern string, info value.Info) (string, error) {
 		}
 		closeIndex := index + 2 + closeOffset
 		specEnd := closeIndex + 1
-		for specEnd < len(pattern) && !strings.ContainsRune("sdf", rune(pattern[specEnd])) {
+		for specEnd < len(pattern) && !strings.ContainsRune("sdfj", rune(pattern[specEnd])) {
 			specEnd++
 		}
 		if specEnd >= len(pattern) {
@@ -69,6 +79,10 @@ func Render(pattern string, info value.Info) (string, error) {
 			return "", templateSyntax(closeIndex+1, specEnd+1, fmt.Sprintf("invalid format spec %q", spec))
 		}
 		expression := pattern[index+2 : closeIndex]
+		expressions++
+		if expressions > maxExpressions {
+			return "", templateSyntax(index, closeIndex+1, "too many template expressions")
+		}
 		rendered, err := renderExpression(expression, spec, info)
 		if err != nil {
 			return "", templateSyntax(index+2, closeIndex, fmt.Sprintf("expression %q: %v", expression, err))
@@ -237,6 +251,12 @@ func formatValue(input value.Value, spec string) (string, error) {
 			return "", fmt.Errorf("kind %s is not numeric", input.Kind())
 		}
 		return fmt.Sprintf(format, floating), nil
+	case 'j':
+		encoded, err := json.Marshal(input)
+		if err != nil {
+			return "", fmt.Errorf("encode JSON: %w", err)
+		}
+		return string(encoded), nil
 	default:
 		return "", fmt.Errorf("unsupported conversion %q", conversion)
 	}
