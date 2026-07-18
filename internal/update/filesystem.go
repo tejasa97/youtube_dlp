@@ -295,24 +295,29 @@ func (manager *Manager) lock(ctx context.Context) (func(), error) {
 		if err != nil {
 			return nil, ErrLock
 		}
-		if err := os.Mkdir(path, 0o700); err == nil {
-			owner := token + "\n" + strconv.FormatInt(manager.options.Clock().UnixNano(), 10) + "\n" + strconv.Itoa(os.Getpid()) + "\n"
-			if err := os.WriteFile(filepath.Join(path, "owner"), []byte(owner), 0o600); err != nil {
-				_ = os.RemoveAll(path)
-				return nil, ErrLock
-			}
+		owner := token + "\n" + strconv.FormatInt(manager.options.Clock().UnixNano(), 10) + "\n" + strconv.Itoa(os.Getpid()) + "\n"
+		if acquired, err := createLockObject(path, []byte(owner)); err == nil && acquired {
 			return func() { releaseLock(path, token) }, nil
-		} else if !errors.Is(err, os.ErrExist) {
+		} else if err != nil && !lockContention(err) {
 			return nil, ErrLock
 		}
 		info, err := os.Lstat(path)
-		if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
-		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		if err != nil {
+			if lockContention(err) {
+				if err := waitLock(ctx, manager.options.LockPoll); err != nil {
+					return nil, err
+				}
+				continue
+			}
+			return nil, ErrLock
+		}
+		if !validLockObject(info) {
 			return nil, fmt.Errorf("%w: lock object", ErrUnsafePath)
 		}
-		if err := validateDirectorySecurity(path); err != nil {
+		if err := validateLockSecurity(path); err != nil {
 			if _, statErr := os.Lstat(path); errors.Is(statErr, os.ErrNotExist) {
 				continue
 			}
@@ -321,23 +326,30 @@ func (manager *Manager) lock(ctx context.Context) (func(), error) {
 		if manager.lockStale(path, info.ModTime()) {
 			tombstone := path + ".stale-" + token
 			if os.Rename(path, tombstone) == nil {
-				_ = os.RemoveAll(tombstone)
+				removeLockObject(tombstone)
 				continue
 			}
 		}
-		timer := time.NewTimer(manager.options.LockPoll)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return nil, ctx.Err()
-		case <-timer.C:
+		if err := waitLock(ctx, manager.options.LockPoll); err != nil {
+			return nil, err
 		}
+	}
+}
+
+func waitLock(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
 }
 
 func (manager *Manager) lockStale(path string, fallback time.Time) bool {
 	stamp := fallback
-	if encoded, err := os.ReadFile(filepath.Join(path, "owner")); err == nil && len(encoded) <= 256 {
+	if encoded, err := readLockOwner(path); err == nil && len(encoded) <= 256 {
 		parts := strings.Split(string(encoded), "\n")
 		if len(parts) >= 4 {
 			if nanos, err := strconv.ParseInt(parts[1], 10, 64); err == nil {
@@ -362,8 +374,8 @@ func (manager *Manager) lockStale(path string, fallback time.Time) bool {
 }
 
 func releaseLock(path, token string) {
-	encoded, err := os.ReadFile(filepath.Join(path, "owner"))
+	encoded, err := readLockOwner(path)
 	if err == nil && len(encoded) <= 256 && strings.HasPrefix(string(encoded), token+"\n") {
-		_ = os.RemoveAll(path)
+		removeLockObject(path)
 	}
 }

@@ -68,7 +68,7 @@ func TestDestinationRejectsExistingSymlink(t *testing.T) {
 	}
 }
 
-func TestFinalizePreservesExistingWindowsDestination(t *testing.T) {
+func TestFinalizeReplacesExistingWindowsDestination(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Windows rename semantics")
 	}
@@ -77,11 +77,30 @@ func TestFinalizePreservesExistingWindowsDestination(t *testing.T) {
 	destination := filepath.Join(dir, "out")
 	_ = os.WriteFile(part, []byte("new"), 0o600)
 	_ = os.WriteFile(destination, []byte("old"), 0o600)
-	if err := finalizeOnce(part, destination, true); err == nil {
-		t.Fatal("Windows overwrite unexpectedly replaced destination")
+	if err := finalizeOnce(part, destination, true); err != nil {
+		t.Fatalf("Windows overwrite: %v", err)
 	}
 	body, _ := os.ReadFile(destination)
-	if string(body) != "old" {
+	if string(body) != "new" {
+		t.Fatalf("destination=%q", body)
+	}
+}
+
+func TestFinalizeWithoutOverwritePreservesConcurrentDestination(t *testing.T) {
+	dir := t.TempDir()
+	part := filepath.Join(dir, "part")
+	destination := filepath.Join(dir, "out")
+	if err := os.WriteFile(part, []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(destination, []byte("concurrent"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := finalizeOnce(part, destination, false); err == nil {
+		t.Fatal("non-overwrite finalize replaced a concurrent destination")
+	}
+	body, _ := os.ReadFile(destination)
+	if string(body) != "concurrent" {
 		t.Fatalf("destination=%q", body)
 	}
 }

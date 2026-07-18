@@ -199,11 +199,11 @@ func (downloader *Downloader) finalize(ctx context.Context, job Job, partPath, d
 	return downloader.retryFile(ctx, job, func() error { return finalizeOnce(partPath, destination, overwrite) })
 }
 
-func finalizeOnce(partPath, destination string, _ bool) error {
-	// os.Rename replaces regular files atomically on Unix. On Windows a
-	// pre-existing destination causes Rename to fail, which intentionally
-	// preserves the old file instead of deleting it non-atomically.
-	return os.Rename(partPath, destination)
+func finalizeOnce(partPath, destination string, overwrite bool) error {
+	if overwrite {
+		return replaceDestination(partPath, destination)
+	}
+	return installDestination(partPath, destination)
 }
 
 func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, partPath, statePath string, sink events.Sink) (Result, error) {

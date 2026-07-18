@@ -3,7 +3,9 @@
 package update
 
 import (
+	"errors"
 	"os"
+	"path/filepath"
 	"syscall"
 )
 
@@ -28,6 +30,27 @@ func secureRegular(info os.FileInfo) bool {
 }
 
 func replaceFile(source, destination string) error { return os.Rename(source, destination) }
+
+func createLockObject(path string, owner []byte) (bool, error) {
+	if err := os.Mkdir(path, 0o700); err != nil {
+		return false, err
+	}
+	if err := os.WriteFile(filepath.Join(path, "owner"), owner, 0o600); err != nil {
+		_ = os.RemoveAll(path)
+		return false, err
+	}
+	return true, nil
+}
+
+func lockContention(err error) bool { return errors.Is(err, os.ErrExist) }
+func validLockObject(info os.FileInfo) bool {
+	return info.IsDir() && info.Mode()&os.ModeSymlink == 0
+}
+func validateLockSecurity(path string) error { return validateDirectorySecurity(path) }
+func readLockOwner(path string) ([]byte, error) {
+	return os.ReadFile(filepath.Join(path, "owner"))
+}
+func removeLockObject(path string) { _ = os.RemoveAll(path) }
 
 func processAlive(pid int) bool {
 	err := syscall.Kill(pid, 0)

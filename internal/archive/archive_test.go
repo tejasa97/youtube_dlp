@@ -179,10 +179,7 @@ func TestArchiveCrossProcessLocking(t *testing.T) {
 func TestArchiveLockCancellationAndStaleRecovery(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "archive.txt")
 	lockPath := path + ".lock"
-	if err := os.Mkdir(lockPath, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(lockPath, "owner"), []byte("owner\n"+strconv.FormatInt(time.Now().UnixNano(), 10)+"\n"), 0o600); err != nil {
+	if err := writeTestLock(lockPath, []byte("owner\n"+strconv.FormatInt(time.Now().UnixNano(), 10)+"\n")); err != nil {
 		t.Fatal(err)
 	}
 	store, err := Open(context.Background(), path, Options{LockPoll: time.Millisecond, StaleLockAfter: time.Hour})

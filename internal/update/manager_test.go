@@ -272,7 +272,7 @@ func TestHostilePathsLocksAndJournal(t *testing.T) {
 		t.Fatalf("corrupt journal error = %v", err)
 	}
 	_ = os.Remove(filepath.Join(root, "journal.json"))
-	if err := os.Mkdir(filepath.Join(root, ".update.lock"), 0o700); err != nil {
+	if err := writeTestLock(filepath.Join(root, ".update.lock"), nil); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
@@ -292,12 +292,9 @@ func TestStaleLockRequiresDeadOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 	lockPath := filepath.Join(manager.root, ".update.lock")
-	if err := os.Mkdir(lockPath, 0o700); err != nil {
-		t.Fatal(err)
-	}
 	old := testNow.Add(-2 * time.Hour).UnixNano()
 	owner := fmt.Sprintf("owner\n%d\n%d\n", old, os.Getpid())
-	if err := os.WriteFile(filepath.Join(lockPath, "owner"), []byte(owner), 0o600); err != nil {
+	if err := writeTestLock(lockPath, []byte(owner)); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
@@ -305,7 +302,7 @@ func TestStaleLockRequiresDeadOwner(t *testing.T) {
 	if _, err := manager.Snapshot(ctx); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("live old lock error = %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(lockPath, "owner"), []byte(fmt.Sprintf("owner\n%d\n%d\n", old, 1<<30)), 0o600); err != nil {
+	if err := replaceTestLockOwner(lockPath, []byte(fmt.Sprintf("owner\n%d\n%d\n", old, 1<<30))); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := manager.Snapshot(context.Background()); err != nil {
