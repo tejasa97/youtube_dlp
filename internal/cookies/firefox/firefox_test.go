@@ -1,0 +1,146 @@
+package firefox
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func makeDatabase(t *testing.T, schema int, wal bool) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "cookies.sqlite")
+	db, err := sql.Open("sqlite3", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wal {
+		if _, err = db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err = db.Exec("CREATE TABLE moz_cookies(host TEXT,name TEXT,value TEXT,path TEXT,expiry INTEGER,isSecure INTEGER,isHttpOnly INTEGER,sameSite INTEGER,originAttributes TEXT)"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec("PRAGMA user_version = " + fmtInt(schema)); err != nil {
+		t.Fatal(err)
+	}
+	expiry := int64(1_893_456_000)
+	if schema >= 16 {
+		expiry *= 1000
+	}
+	if _, err = db.Exec("INSERT INTO moz_cookies VALUES(?,?,?,?,?,?,?,?,?)", ".example.com", "sid", "secret", "/", expiry, 1, 1, 1, "^userContextId=7"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec("INSERT INTO moz_cookies VALUES(?,?,?,?,?,?,?,?,?)", "plain.example", "session", "value", "/", 0, 0, 0, 0, ""); err != nil {
+		t.Fatal(err)
+	}
+	if wal {
+		if _, err = db.Exec("PRAGMA wal_checkpoint(PASSIVE)"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err = db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func fmtInt(value int) string {
+	const digits = "0123456789"
+	if value == 0 {
+		return "0"
+	}
+	var out [20]byte
+	index := len(out)
+	for value > 0 {
+		index--
+		out[index] = digits[value%10]
+		value /= 10
+	}
+	return string(out[index:])
+}
+
+func TestImportSchema16ExpiryFlagsAndContainer(t *testing.T) {
+	path := makeDatabase(t, 16, false)
+	containers := `{"identities":[{"name":"Work","userContextId":7,"l10nID":"userContext7.label"}]}`
+	if err := os.WriteFile(filepath.Join(filepath.Dir(path), "containers.json"), []byte(containers), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Import(context.Background(), Options{DatabasePath: path, Container: "Work"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Imported != 1 || result.ContainerID == nil || *result.ContainerID != 7 {
+		t.Fatalf("%+v", result)
+	}
+	cookie := result.Cookies[0]
+	if cookie.Expires.Unix() != 1_893_456_000 || !cookie.Secure || !cookie.HttpOnly || cookie.SameSite != 2 {
+		t.Fatalf("%+v", cookie)
+	}
+}
+
+func TestImportOlderSchemaVariant(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cookies.sqlite")
+	db, err := sql.Open("sqlite3", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec("CREATE TABLE moz_cookies(host TEXT,name TEXT,value TEXT,path TEXT,expiry INTEGER,isSecure INTEGER); INSERT INTO moz_cookies VALUES('example.com','name','value','/',0,0); PRAGMA user_version=15")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	result, err := Import(context.Background(), Options{DatabasePath: path})
+	if err != nil || result.Imported != 1 || result.Cookies[0].HttpOnly {
+		t.Fatalf("%+v %v", result, err)
+	}
+}
+
+func TestImportCopiesDatabaseAndWAL(t *testing.T) {
+	result, err := Import(context.Background(), Options{DatabasePath: makeDatabase(t, 17, true)})
+	if err != nil || result.Imported != 2 {
+		t.Fatalf("%+v %v", result, err)
+	}
+}
+
+func TestImportCancellationAndUnsafePath(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := Import(ctx, Options{DatabasePath: makeDatabase(t, 17, false)})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("got %v", err)
+	}
+	dir := t.TempDir()
+	_, err = Import(context.Background(), Options{DatabasePath: dir})
+	if !errors.Is(err, ErrUnsafePath) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestErrorsRedactCookieSecrets(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cookies.sqlite")
+	if err := os.WriteFile(path, []byte("secret-cookie-value"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Import(context.Background(), Options{DatabasePath: path})
+	if !errors.Is(err, ErrInvalidDatabase) {
+		t.Fatalf("got %v", err)
+	}
+	if strings.Contains(err.Error(), "secret-cookie-value") {
+		t.Fatal("secret leaked")
+	}
+}
+
+func FuzzValidCookie(f *testing.F) {
+	f.Add("example.com", "name", "value", "/")
+	f.Fuzz(func(t *testing.T, h, n, v, p string) {
+		if len(h)+len(n)+len(v)+len(p) > 1<<20 {
+			t.Skip()
+		}
+		_ = validCookie(h, n, v, p)
+	})
+}
