@@ -1,0 +1,75 @@
+{
+  "metadata": {
+    "identifier": "fixture_concert",
+    "title": "Fixture Concert",
+    "description": ["A synthetic", "public item."],
+    "creator": ["Fixture Ensemble", "Fixture Archive"],
+    "uploader": "fixture@example.invalid",
+    "licenseurl": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "date": "2024-02-03",
+    "publicdate": "2024-02-04T05:06:07Z",
+    "venue": "Fixture Hall",
+    "year": "2024"
+  },
+  "files": [
+    {
+      "name": "track02.mp4",
+      "format": "MPEG4",
+      "source": "original",
+      "title": "Second movement",
+      "length": "00:02:03.5",
+      "width": "1280",
+      "height": "720",
+      "size": "4096"
+    },
+    {
+      "name": "fixture_concert_itemimage.png",
+      "format": "Item Tile",
+      "width": "640",
+      "height": "360",
+      "size": "512"
+    },
+    {
+      "name": "track01.mp3",
+      "original": "track01.flac",
+      "format": "VBR MP3",
+      "source": "derivative",
+      "size": "2048"
+    },
+    {
+      "name": "track01.en.vtt",
+      "original": "track01.flac",
+      "format": "Web Video Text Tracks"
+    },
+    {
+      "name": "track01.jpg",
+      "original": "track01.flac",
+      "format": "Thumbnail",
+      "width": "320",
+      "height": "180"
+    },
+    {
+      "name": "track01.flac",
+      "format": "Flac",
+      "source": "original",
+      "title": "First movement",
+      "creator": "Fixture Soloist",
+      "length": "61.25",
+      "track": "1",
+      "disc": "1",
+      "album": "Fixture Concert",
+      "year": "2024",
+      "size": "8192"
+    },
+    {
+      "name": "private-master.wav",
+      "format": "WAVE",
+      "source": "original",
+      "private": true
+    },
+    {
+      "name": "fixture_concert_files.xml",
+      "format": "Metadata"
+    }
+  ]
+}
