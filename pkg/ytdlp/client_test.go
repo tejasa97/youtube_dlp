@@ -19,6 +19,7 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/cookies/chromium"
 	"github.com/ytdlp-go/ytdlp/internal/extractor"
 	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
+	"github.com/ytdlp-go/ytdlp/internal/media/pipeline"
 	"github.com/ytdlp-go/ytdlp/internal/network"
 	"github.com/ytdlp-go/ytdlp/internal/testserver"
 	"github.com/ytdlp-go/ytdlp/internal/value"
@@ -48,6 +49,23 @@ func TestExtractorFailuresAreCategorized(t *testing.T) {
 	} {
 		if err := categorized("extract", test.err); !IsCategory(err, test.category) {
 			t.Fatalf("categorized(%v) = %v", test.err, err)
+		}
+	}
+}
+
+func TestMediaFailuresAreCategorized(t *testing.T) {
+	for _, test := range []struct {
+		err      error
+		category ErrorCategory
+	}{
+		{ffmpeg.ErrFFmpegUnavailable, ErrorUnsupported},
+		{ffmpeg.ErrDestinationExists, ErrorInvalidInput},
+		{ffmpeg.ErrMediaFailure, ErrorInternal},
+		{pipeline.ErrMissingDASHTracks, ErrorInternal},
+		{pipeline.ErrMissingToolset, ErrorInternal},
+	} {
+		if err := categorized("media", test.err); !IsCategory(err, test.category) {
+			t.Fatalf("categorized(%v) = %v, want %s", test.err, err, test.category)
 		}
 	}
 }

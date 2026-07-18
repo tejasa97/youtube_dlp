@@ -421,11 +421,14 @@ func categorized(op string, err error) error {
 		category = ErrorUnsupported
 	case errors.Is(err, outputtemplate.ErrInvalidTemplate), errors.Is(err, outputtemplate.ErrUnsafePath),
 		errors.Is(err, downloader.ErrDestinationExists), errors.Is(err, downloader.ErrUnsafeDestination),
+		errors.Is(err, ffmpeg.ErrDestinationExists),
 		errors.Is(err, network.ErrInvalidProxy), errors.Is(err, network.ErrInvalidCookie),
 		errors.Is(err, errInvalidBrowserCookieSpec):
 		category = ErrorInvalidInput
 	case errors.Is(err, mediaformat.ErrNoFormats), errors.Is(err, extractor.ErrInvalidMetadata),
-		errors.Is(err, extractor.ErrInvalidPlaylist), errors.Is(err, extractor.ErrPlaylistLimit):
+		errors.Is(err, extractor.ErrInvalidPlaylist), errors.Is(err, extractor.ErrPlaylistLimit),
+		errors.Is(err, ffmpeg.ErrMediaFailure), errors.Is(err, pipeline.ErrMissingDASHTracks),
+		errors.Is(err, pipeline.ErrMissingToolset):
 		category = ErrorInternal
 	}
 	return &Error{Category: category, Op: op, Err: err}
