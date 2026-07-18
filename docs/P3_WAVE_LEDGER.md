@@ -9,10 +9,19 @@ claims are added only after review and scoped verification.
 
 | Lane | Branch / worktree | Ownership | State | Delivery |
 | --- | --- | --- | --- | --- |
-| Privacy-safe measurement | `codex/p3-telemetry` / `youtube_dlp-p3-telemetry` | `internal/telemetry/**`, `conformance/telemetry/**` | In progress | Pending |
-| Semantic differential | `codex/p3-differential` / `youtube_dlp-p3-differential` | `internal/differential/**`, `conformance/differential/phase3/**` | In progress | Pending |
-| ABI upgrade conformance | `codex/p3-sdk-upgrade` / `youtube_dlp-p3-sdk-upgrade` | `internal/plugin/upgrade/**`, `conformance/plugin/abi-v1.1/**` | In progress | Pending |
-| Primary integration | `main` / `youtube_dlp` | public API, events, manifest, CLI, docs, shared policy | In progress | Phase plan drafted |
+| Privacy-safe measurement | `codex/p3-telemetry` / `youtube_dlp-p3-telemetry` | `internal/telemetry/**`, `conformance/telemetry/**` | Integrated | `b36d549`, public/CLI integration `6e41260`, `0b232ec` |
+| Semantic differential | `codex/p3-differential` / `youtube_dlp-p3-differential` | `internal/differential/**`, `conformance/differential/phase3/**` | Integrated | `3e6d453`, review hardening `e4a466c` |
+| ABI upgrade conformance | `codex/p3-sdk-upgrade` / `youtube_dlp-p3-sdk-upgrade` | `internal/plugin/upgrade/**`, `conformance/plugin/abi-v1.1/**` | Integrated | `00215f2`, native compatibility matrix `39764c1` |
+| Primary integration | `main` / `youtube_dlp` | public API, events, manifest, CLI, docs, shared policy | Complete | Opt-in full-denominator telemetry, semantic-shadow claim, and actual ABI matrix integrated |
+
+## Wave 2: Shared and high-usage breadth
+
+| Lane | Branch / worktree | Ownership | State | Delivery |
+| --- | --- | --- | --- | --- |
+| Federated shared hosting | `codex/p3-peertube` / `youtube_dlp-p3-peertube` | PeerTube extractor and fixtures | In progress | Pending |
+| Public API and playlists | `codex/p3-internetarchive` / `youtube_dlp-p3-internetarchive` | Internet Archive extractor and fixtures | In progress | Pending |
+| Direct shared hosting | `main` / `youtube_dlp` | Streamable extractor, registry, manifest | Integrated | `8b5b851` |
+| Primary integration | `main` / `youtube_dlp` | registry, public API, manifest, priority policy | In progress | Awaiting isolated lanes |
 
 ## Gate boundary
 

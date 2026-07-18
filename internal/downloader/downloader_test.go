@@ -137,10 +137,16 @@ func TestDownloadCancellationLeavesPartialState(t *testing.T) {
 	defer server.Close()
 	transport, _ := network.New(network.Config{})
 	destination := filepath.Join(t.TempDir(), "cancel.bin")
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	_, err := New(transport).Download(ctx, Job{URL: server.URL, OutputRoot: filepath.Dir(destination), Destination: destination}, nil)
-	if !errors.Is(err, context.DeadlineExceeded) {
+	sink := events.SinkFunc(func(_ context.Context, event events.Event) error {
+		if event.Kind == events.KindProgress {
+			cancel()
+		}
+		return nil
+	})
+	_, err := New(transport).Download(ctx, Job{URL: server.URL, OutputRoot: filepath.Dir(destination), Destination: destination}, sink)
+	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Download() error = %v", err)
 	}
 	if info, err := os.Stat(destination + ".part"); err != nil || info.Size() == 0 {
