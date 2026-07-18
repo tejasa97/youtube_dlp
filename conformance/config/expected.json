@@ -1,0 +1,22 @@
+{
+  "arguments_low_to_high": [
+    "--output",
+    "child title.%(ext)s",
+    "--retries",
+    "1",
+    "--add-header",
+    "X-Fixture: one two",
+    "--output",
+    "root # title.%(ext)s",
+    "--config-locations",
+    "child.conf",
+    "-f",
+    "bestaudio",
+    "-x",
+    "--retries",
+    "2",
+    "--retries",
+    "4",
+    "--verbose"
+  ]
+}
