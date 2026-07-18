@@ -21,9 +21,76 @@ jobs:
       - run: git diff --exit-code -- go.mod go.sum
       - run: go vet ./...
       - run: go run ./cmd/paritycheck
-      - run: go test -run=^$ -fuzz=FuzzValueJSON -fuzztime=2s ./internal/value
-      - run: go test -run=^$ -fuzz=FuzzResolve -fuzztime=2s ./internal/compat/template
-      - run: go test -run=^$ -fuzz=FuzzParseSelector -fuzztime=2s ./internal/format
+
+  fuzz:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: ./internal/value
+            target: FuzzValueJSON
+          - package: ./internal/compat/template
+            target: FuzzResolve
+          - package: ./internal/format
+            target: FuzzParseSelector
+          - package: ./internal/protocol/hls
+            target: FuzzParse
+          - package: ./internal/protocol/dash
+            target: FuzzParse
+          - package: ./internal/media/ffmpeg
+            target: FuzzRedactDiagnostic
+          - package: ./internal/plugin/rpc
+            target: FuzzReadFrame
+          - package: ./internal/plugin/wasm
+            target: FuzzDecodeResponse
+          - package: ./internal/cookies/chromium
+            target: FuzzMacDecryptor
+          - package: ./internal/extractor
+            target: FuzzParseYouTubePlaylistData
+          - package: ./internal/extractor
+            target: FuzzOnDemandEntries
+          - package: ./internal/extractor
+            target: FuzzTwitchMetadataResponse
+          - package: ./internal/extractor
+            target: FuzzSoundCloudURLClassification
+          - package: ./internal/extractor
+            target: FuzzSoundCloudPageEntries
+          - package: ./internal/extractor
+            target: FuzzParseVimeoConfig
+          - package: ./internal/extractor
+            target: FuzzParseTikTokPage
+          - package: ./internal/extractor
+            target: FuzzSyntheticAuthResponse
+          - package: ./internal/extractor
+            target: FuzzRegionSVTVideoResponse
+          - package: ./internal/upstreamdelta
+            target: FuzzParseLog
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go test -run=^$ -fuzz='^${{ matrix.target }}$' -fuzztime=2s ${{ matrix.package }}
+
+  cross-build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, darwin, windows]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go build ./...
+        env:
+          CGO_ENABLED: 0
+          GOOS: ${{ matrix.goos }}
+          GOARCH: amd64
 
   test:
     strategy:

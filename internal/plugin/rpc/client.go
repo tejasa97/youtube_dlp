@@ -49,8 +49,6 @@ func (Client) Extract(ctx context.Context, config Config, request plugin.Extract
 		return plugin.ExtractResponse{}, fmt.Errorf("%w: start: %v", plugin.ErrCrashed, err)
 	}
 
-	wait := make(chan error, 1)
-	go func() { wait <- command.Wait() }()
 	var writeMu sync.Mutex
 	send := func(value envelope) error {
 		writeMu.Lock()
@@ -104,6 +102,12 @@ func (Client) Extract(ctx context.Context, config Config, request plugin.Extract
 
 	cleanup := func() {
 		_ = stdin.Close()
+		// Wait closes StdoutPipe after observing process exit. Starting it before
+		// the protocol reader has consumed the final frame can truncate a valid
+		// response on fast-exiting plugins, so process reaping begins only after
+		// the exchange has completed or cancellation has started cleanup.
+		wait := make(chan error, 1)
+		go func() { wait <- command.Wait() }()
 		select {
 		case <-wait:
 		case <-time.After(limits.CancelGrace):

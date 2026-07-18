@@ -4,6 +4,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd ./cmd
+COPY .github ./.github
 COPY conformance ./conformance
 COPY internal ./internal
 COPY pkg ./pkg
