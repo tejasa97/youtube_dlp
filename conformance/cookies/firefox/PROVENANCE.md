@@ -8,3 +8,8 @@ Synthetic SQLite databases cover old optional-column schemas, schema 16+
 millisecond expiry, WAL-safe copying, Firefox containers, session cookies,
 security flags, cancellation, and malformed data. No real browser profile or
 credential is used.
+
+Discovery checks the pinned reference's platform roots and common direct,
+single-child, and `Profiles/*` layouts, selecting the newest database. It does
+not parse `profiles.ini` aliases; callers can pass `ProfileDir` or
+`DatabasePath` for nonstandard layouts.

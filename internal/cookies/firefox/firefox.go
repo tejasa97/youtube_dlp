@@ -240,7 +240,7 @@ func copyRegular(ctx context.Context, source, destination string, required bool)
 	if os.IsNotExist(err) && !required {
 		return nil
 	}
-	if err != nil || !info.Mode().IsRegular() {
+	if err != nil || !info.Mode().IsRegular() || info.Size() < 0 || info.Size() > 2<<30 {
 		return ErrSnapshot
 	}
 	input, err := os.Open(source)
@@ -310,7 +310,7 @@ func firefoxQuery(columns map[string]bool, container string, id *int) (string, [
 	if columns["ishttponly"] {
 		httpOnly = "isHttpOnly"
 	}
-	sameSite := "0"
+	sameSite := "-1"
 	if columns["samesite"] {
 		sameSite = "sameSite"
 	}
@@ -365,6 +365,8 @@ func resolveContainer(ctx context.Context, options Options, profileDir string) (
 
 func firefoxSameSite(value int) http.SameSite {
 	switch value {
+	case 0:
+		return http.SameSiteNoneMode
 	case 1:
 		return http.SameSiteLaxMode
 	case 2:
@@ -374,7 +376,8 @@ func firefoxSameSite(value int) http.SameSite {
 	}
 }
 func validCookie(host, name, value, path string) bool {
-	return host != "" && len(host) <= 255 && path != "" && strings.HasPrefix(path, "/") && !strings.ContainsAny(host+name+value+path, "\r\n\x00")
+	return host != "" && len(host) <= 255 && len(name) <= 4096 && len(value) <= 16<<20 && path != "" && len(path) <= 4096 && strings.HasPrefix(path, "/") &&
+		!strings.ContainsAny(host, "\r\n\x00") && !strings.ContainsAny(name, "\r\n\x00") && !strings.ContainsAny(value, "\r\n\x00") && !strings.ContainsAny(path, "\r\n\x00")
 }
 func categorizeDB(ctx context.Context, err error) error {
 	if ctxErr := ctx.Err(); ctxErr != nil {
