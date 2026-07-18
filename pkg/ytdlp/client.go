@@ -24,6 +24,7 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/cookies/chromiumlinux"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/firefox"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/netscape"
+	credentialnetrc "github.com/ytdlp-go/ytdlp/internal/credentials/netrc"
 	"github.com/ytdlp-go/ytdlp/internal/downloader"
 	"github.com/ytdlp-go/ytdlp/internal/events"
 	"github.com/ytdlp-go/ytdlp/internal/extractor"
@@ -84,6 +85,8 @@ type Request struct {
 	ImpersonationProfile   string
 	CookieFile             string
 	CookiesFromBrowser     string
+	UseNetRC               bool
+	NetRCLocation          string
 	DownloadArchive        string
 	CacheDir               string
 	Timeout                time.Duration
@@ -261,6 +264,13 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 			return Result{}, &Error{Category: ErrorInternal, Op: "emit cookie-file event", Err: err}
 		}
 	}
+	var credentials extractor.CredentialProvider
+	if request.UseNetRC {
+		credentials, err = loadNetRCCredentials(ctx, request.NetRCLocation)
+		if err != nil {
+			return Result{}, categorized("load netrc credentials", err)
+		}
+	}
 	var downloadArchive *archive.Store
 	if request.DownloadArchive != "" {
 		downloadArchive, err = archive.Open(ctx, request.DownloadArchive, archive.Options{})
@@ -281,6 +291,7 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 		client: client, request: request, transport: transport,
 		registry: client.productRegistry(),
 		solver:   challengeSolver, archive: downloadArchive, cache: operationCache,
+		credentials:   credentials,
 		compatibility: compatibility,
 		rootExtractor: &rootExtractor,
 	}
@@ -346,6 +357,7 @@ type operation struct {
 	solver        extractor.YouTubeChallengeSolver
 	archive       *archive.Store
 	cache         *cache.Store
+	credentials   extractor.CredentialProvider
 	compatibility compatibilityPlan
 	rootExtractor *string
 }
@@ -372,7 +384,7 @@ func (operation *operation) process(ctx context.Context, rawURL, extractorKey st
 		return Result{}, &Error{Category: ErrorInternal, Op: "emit extracting event", Err: err}
 	}
 	extracted, err := selected.Extract(ctx, extractor.Request{
-		URL: rawURL, Transport: operation.transport, ChallengeSolver: operation.solver,
+		URL: rawURL, Transport: operation.transport, ChallengeSolver: operation.solver, Credentials: operation.credentials,
 	})
 	if err != nil {
 		return Result{}, categorized(selected.Name()+" extraction", err)
@@ -597,6 +609,10 @@ func categorized(op string, err error) error {
 		category = ErrorUnsupported
 	case errors.Is(err, extractor.ErrAuthentication):
 		category = ErrorAuthentication
+	case errors.Is(err, credentialnetrc.ErrUnsafeFile):
+		category = ErrorSecurity
+	case errors.Is(err, credentialnetrc.ErrIO):
+		category = ErrorAuthentication
 	case errors.Is(err, chromium.ErrDatabaseNotFound), errors.Is(err, chromium.ErrInvalidDatabase), errors.Is(err, chromium.ErrSnapshot),
 		errors.Is(err, chromium.ErrKeyUnavailable), errors.Is(err, chromium.ErrDecrypt),
 		errors.Is(err, firefox.ErrNotFound), errors.Is(err, firefox.ErrInvalidDatabase), errors.Is(err, firefox.ErrSnapshot),
@@ -634,6 +650,7 @@ func categorized(op string, err error) error {
 		errors.Is(err, netscape.ErrWrongFormat), errors.Is(err, netscape.ErrTooLarge),
 		errors.Is(err, firefox.ErrUnsafePath), errors.Is(err, firefox.ErrLimit),
 		errors.Is(err, chromiumlinux.ErrUnsafePath), errors.Is(err, chromiumlinux.ErrLimit),
+		errors.Is(err, credentialnetrc.ErrSyntax), errors.Is(err, credentialnetrc.ErrLimit), errors.Is(err, credentialnetrc.ErrInvalidHost),
 		errors.Is(err, archive.ErrInvalidIdentity), errors.Is(err, archive.ErrCorrupt), errors.Is(err, archive.ErrTooLarge), errors.Is(err, archive.ErrUnsafePath),
 		errors.Is(err, cache.ErrInvalidName), errors.Is(err, cache.ErrUnsafePath), errors.Is(err, cache.ErrTooLarge), errors.Is(err, cache.ErrCorrupt):
 		category = ErrorInvalidInput

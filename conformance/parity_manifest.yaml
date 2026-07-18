@@ -408,7 +408,7 @@ capabilities:
     owner: extractors
     depends_on:
       - protocol.hls
-    known_deviation: The compatible pilot includes Twitch extraction through signed HLS discovery, live polling, end-of-stream, de-duplication, and ordered assembly. Live-from-start VOD fallback, subscriber entitlements, chat, and broader Twitch URL types remain later coverage.
+    known_deviation: The compatible pilot includes Twitch extraction through signed HLS discovery, live polling, end-of-stream, de-duplication, and ordered assembly. Live-from-start fallback, subscriber entitlements, and chat remain later coverage; VOD and clip breadth is tracked by extractor.twitch_pilot.
 
   - id: extractor.twitch_pilot
     name: Twitch live extraction pilot
@@ -424,12 +424,19 @@ capabilities:
       - internal/extractor.TestTwitchErrorsDoNotExposeResponseSecrets
       - internal/extractor.TestTwitchExtractHonorsCancellation
       - internal/extractor.FuzzTwitchMetadataResponse
+      - internal/extractor.TestTwitchVODMetadataReplayManifestChaptersAndStartOffset
+      - internal/extractor.TestTwitchClipDirectLandscapePortraitAndMetadata
+      - internal/extractor.TestTwitchVODAndClipFailuresAreBoundedCategorizedAndRedacted
+      - internal/extractor.FuzzTwitchRouting
+      - internal/extractor.FuzzTwitchVODMetadataResponse
+      - internal/extractor.FuzzTwitchClipResponse
       - conformance/extractors/twitch/PROVENANCE.md
+      - docs/P3_TWITCH_BREADTH.md
     owner: extractors
     depends_on:
       - protocol.hls
       - network.shared_transport
-    known_deviation: Compatibility is scoped to the pinned public stream corpus. VODs, clips, channel playlists, live-from-start, chat/subtitles, OAuth cookie translation, and subscriber-only entitlement diagnostics remain broader Twitch work.
+    known_deviation: Compatibility covers pinned public live, VOD, and clip corpora. Storyboard MHTML, subscriber-cookie success, historical clip archive IDs/preference scores, channel/collection enumeration, live-from-start fallback, and chat remain explicit deviations.
 
   - id: extractor.soundcloud_pilot
     name: SoundCloud API and playlist pilot
@@ -589,17 +596,31 @@ capabilities:
     evidence:
       - internal/extractor.TestSyntheticAuthSuitable
       - internal/extractor.TestSyntheticAuthUsesScopedOperationJarAndDropsSecret
+      - internal/extractor.TestSyntheticAuthUsesExtractorScopedCredentials
       - internal/extractor.TestSyntheticAuthCategorizesAuthenticationAndAvailability
       - internal/extractor.TestSyntheticAuthErrorsDoNotExposeCookieOrResponse
       - internal/extractor.TestSyntheticAuthHonorsCancellation
       - internal/extractor.FuzzSyntheticAuthResponse
+      - internal/credentials/netrc.TestParseLookupDuplicateDefaultQuotedEscapedAndEmpty
+      - internal/credentials/netrc.TestMalformedInputErrorsAreCategorizedAndSecretSafe
+      - internal/credentials/netrc.TestResourceBounds
+      - internal/credentials/netrc.TestCancellationDuringParseAndLookup
+      - internal/credentials/netrc.TestCanonicalHostPolicyAndInvalidAuthorities
+      - internal/credentials/netrc.TestLoadRejectsPermissionsSymlinkHardlinkDirectoryAndOversize
+      - internal/credentials/netrc.FuzzParse
+      - internal/credentials/netrc.FuzzLookupHost
+      - pkg/ytdlp.TestLoadNetRCCredentialsFromDirectory
+      - pkg/ytdlp.TestClientRejectsUnsafeNetRCBeforeExtraction
+      - internal/cli.TestRunNetRCFlagsFailClosedBeforeNetwork
       - conformance/extractors/synthetic-auth/PROVENANCE.md
+      - conformance/auth/netrc/PROVENANCE.md
       - docs/P1_AUTH_REGION_EXTRACTORS.md
+      - docs/P3_NETRC_EVIDENCE.md
     owner: authentication
     depends_on:
       - network.shared_transport
       - cookies.browser_import
-    known_deviation: The gate uses a reserved synthetic origin to prove the shared cookie/authentication boundary. It intentionally does not model a third-party login flow, credential submission, or refresh-token lifecycle.
+    known_deviation: The reserved synthetic origin proves scoped cookie and native netrc credential boundaries. Netrc macros are ignored, netrc-cmd is intentionally absent because it would introduce shell execution, and third-party login or refresh-token lifecycles are not modeled.
 
   - id: extractor.region_svt_pilot
     name: SVT Play regional extraction pilot

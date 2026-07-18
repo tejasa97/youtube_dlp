@@ -74,6 +74,18 @@ func TestRunExplicitImpersonationProfileAndFailClosedUnknown(t *testing.T) {
 	}
 }
 
+func TestRunNetRCFlagsFailClosedBeforeNetwork(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "missing.netrc")
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"--netrc", "--netrc-location", missing, "https://auth-fixture.invalid/watch/auth-001"}, &stdout, &stderr)
+	if code == 0 || !strings.Contains(stderr.String(), "load netrc credentials") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if strings.Contains(stderr.String(), "password") || strings.Contains(stderr.String(), "login") {
+		t.Fatalf("credential diagnostic exposed fields: %q", stderr.String())
+	}
+}
+
 func TestRunResumesPartialDownload(t *testing.T) {
 	server := testserver.New()
 	defer server.Close()

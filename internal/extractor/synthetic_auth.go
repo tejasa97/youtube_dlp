@@ -38,8 +38,23 @@ func (SyntheticAuth) Extract(ctx context.Context, request Request) (Extraction, 
 	}
 	match := syntheticAuthPath.FindStringSubmatch(parsed.Path)
 	requestedID := match[1]
+	headers := make(http.Header)
+	if request.Credentials != nil {
+		credential, ok, lookupErr := request.Credentials.Lookup(ctx, "auth-fixture.invalid")
+		if lookupErr != nil {
+			return Extraction{}, lookupErr
+		}
+		if ok {
+			authRequest, requestErr := http.NewRequest(http.MethodGet, syntheticAuthAPIBase, nil)
+			if requestErr != nil {
+				return Extraction{}, fmt.Errorf("%w: synthetic authenticated request", ErrInvalidMetadata)
+			}
+			authRequest.SetBasicAuth(credential.Username, credential.Password)
+			headers.Set("Authorization", authRequest.Header.Get("Authorization"))
+		}
+	}
 	var response syntheticAuthResponse
-	if err := RequestJSON(ctx, request.Transport, http.MethodGet, syntheticAuthAPIBase+url.PathEscape(requestedID), nil, make(http.Header), &response); err != nil {
+	if err := RequestJSON(ctx, request.Transport, http.MethodGet, syntheticAuthAPIBase+url.PathEscape(requestedID), nil, headers, &response); err != nil {
 		var status *HTTPStatusError
 		if errors.As(err, &status) {
 			switch status.Code {

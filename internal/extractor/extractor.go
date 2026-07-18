@@ -60,6 +60,24 @@ type Request struct {
 	URL             string
 	Transport       Transport
 	ChallengeSolver YouTubeChallengeSolver
+	Credentials     CredentialProvider
+}
+
+// Credential is an extractor-scoped authentication tuple. It must never be
+// included in metadata, events, or diagnostic errors.
+type Credential struct {
+	Username string
+	Password string
+}
+
+func (Credential) String() string   { return "[redacted extractor credential]" }
+func (Credential) GoString() string { return "extractor.Credential{[redacted]}" }
+
+// CredentialProvider resolves a stable extractor machine key. Extractors must
+// request credentials explicitly; credentials are never attached globally to
+// arbitrary requests or redirect targets.
+type CredentialProvider interface {
+	Lookup(context.Context, string) (Credential, bool, error)
 }
 
 type YouTubeChallengeSolver interface {

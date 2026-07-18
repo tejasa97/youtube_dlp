@@ -3,6 +3,15 @@
 The native package provides bounded in-memory parsing, secure file loading,
 and context-aware lookup without Python, a shell, or an external command.
 
+The Go API enables it with `Request.UseNetRC` and an optional
+`Request.NetRCLocation`; the CLI exposes `--netrc` and `--netrc-location`.
+The default is `~/.netrc`, and a supplied directory resolves to its `.netrc`
+child. Loading remains opt-in. Credentials are passed through an
+extractor-scoped provider: an extractor must request its stable machine key,
+so the product does not attach a default credential to arbitrary requests,
+media hosts, or redirect targets. The deterministic authenticated extractor
+proves Basic authentication without retaining the tuple in metadata or events.
+
 Supported semantics:
 
 - `machine` and `default` entries; the final duplicate definition wins.

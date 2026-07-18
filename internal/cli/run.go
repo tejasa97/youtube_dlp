@@ -66,6 +66,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	javascriptHelper := flags.String("js-helper", "", "path to the isolated JavaScript helper")
 	cookieFile := flags.String("cookies", "", "load cookies from a Netscape cookies.txt file")
 	cookiesFromBrowser := flags.String("cookies-from-browser", "", "import cookies from firefox, macOS chrome, or Linux chrome/chromium/brave")
+	useNetRC := flags.Bool("netrc", false, "use credentials from a native .netrc file")
+	netRCLocation := flags.String("netrc-location", "", "path to .netrc or its containing directory")
 	downloadArchive := flags.String("download-archive", "", "record and skip downloaded extractor IDs")
 	flags.BoolFunc("no-download-archive", "disable an inherited download archive", func(string) error {
 		*downloadArchive = ""
@@ -185,7 +187,7 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	}
 	result, err := client.Run(ctx, ytdlp.Request{
 		URL: flags.Arg(0), OutputTemplate: *output, OutputDir: *outputDir, Proxy: *proxy, ImpersonationProfile: *impersonationProfile,
-		CookieFile: *cookieFile, CookiesFromBrowser: *cookiesFromBrowser, DownloadArchive: *downloadArchive, CacheDir: *cacheDir,
+		CookieFile: *cookieFile, CookiesFromBrowser: *cookiesFromBrowser, UseNetRC: *useNetRC, NetRCLocation: *netRCLocation, DownloadArchive: *downloadArchive, CacheDir: *cacheDir,
 		Timeout: *timeout, Overwrite: *overwrite, SkipDownload: *skipDownload,
 		Format: *format, FormatSort: append([]string(nil), formatSort...),
 		PreferFreeFormats: *preferFreeFormats, AllowUnplayableFormats: *allowUnplayable,

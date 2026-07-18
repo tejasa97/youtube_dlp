@@ -27,11 +27,11 @@ claims are added only after review and scoped verification.
 
 | Lane | Branch / worktree | Ownership | State | Delivery |
 | --- | --- | --- | --- | --- |
-| Native netrc credentials | `codex/p3-netrc` / `youtube_dlp-p3-netrc` | bounded parser, store, fixtures | In progress | Pending |
-| Twitch replay breadth | `codex/p3-twitch-breadth` / `youtube_dlp-p3-twitch-breadth` | VOD, clip, and live extractor behavior | In progress | Pending |
-| Browser impersonation profiles | `codex/p3-impersonation-profiles` / `youtube_dlp-p3-impersonation-profiles` | honest engine-supported Firefox/Safari profiles | In progress | Pending |
+| Native netrc credentials | `codex/p3-netrc` / `youtube_dlp-p3-netrc` | bounded parser, store, fixtures | Integrated | `2949455`, public/CLI scoped-credential integration pending commit |
+| Twitch replay breadth | `codex/p3-twitch-breadth` / `youtube_dlp-p3-twitch-breadth` | VOD, clip, and live extractor behavior | Integrated | `b1829c0`, manifest reconciliation pending commit |
+| Browser impersonation profiles | `codex/p3-impersonation-profiles` / `youtube_dlp-p3-impersonation-profiles` | honest engine-supported Firefox/Safari profiles | Integrated | `41f9fdb`, public/CLI integration `df82bc4` |
 | Low-latency HLS | `main` / `youtube_dlp` | partial segments, delta skips, completion replacement | Integrated | `60fccbd`, overflow hardening `9ad13de` |
-| Primary integration | `main` / `youtube_dlp` | credential/transport API, registry, manifest, security policy | In progress | Awaiting isolated lanes |
+| Primary integration | `main` / `youtube_dlp` | credential/transport API, registry, manifest, security policy | In progress | Local integration verification underway |
 
 ## Gate boundary
 

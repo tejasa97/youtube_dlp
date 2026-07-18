@@ -20,12 +20,14 @@ import (
 const syntheticAuthFixtureRoot = "../../conformance/extractors/synthetic-auth"
 
 type syntheticAuthRoundTripper struct {
-	mu           sync.Mutex
-	body         []byte
-	status       int
-	wantCookie   string
-	seenCookie   string
-	blockForDone bool
+	mu                sync.Mutex
+	body              []byte
+	status            int
+	wantCookie        string
+	seenCookie        string
+	wantAuthorization string
+	seenAuthorization string
+	blockForDone      bool
 }
 
 func (roundTripper *syntheticAuthRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
@@ -36,6 +38,7 @@ func (roundTripper *syntheticAuthRoundTripper) RoundTrip(request *http.Request) 
 	roundTripper.mu.Lock()
 	defer roundTripper.mu.Unlock()
 	roundTripper.seenCookie = request.Header.Get("Cookie")
+	roundTripper.seenAuthorization = request.Header.Get("Authorization")
 	status := roundTripper.status
 	if status == 0 {
 		status = http.StatusOK
@@ -49,6 +52,45 @@ func (roundTripper *syntheticAuthRoundTripper) RoundTrip(request *http.Request) 
 		Body:       io.NopCloser(bytes.NewReader(roundTripper.body)),
 		Request:    request,
 	}, nil
+}
+
+type syntheticCredentialProvider struct {
+	machine, username, password string
+}
+
+func (provider syntheticCredentialProvider) Lookup(_ context.Context, machine string) (Credential, bool, error) {
+	if machine != provider.machine {
+		return Credential{}, false, nil
+	}
+	return Credential{Username: provider.username, Password: provider.password}, true, nil
+}
+
+func TestSyntheticAuthUsesExtractorScopedCredentials(t *testing.T) {
+	const username, password = "fixture-user", "basic-secret-never-export"
+	roundTripper := &syntheticAuthRoundTripper{body: syntheticAuthFixture(t, "success.json")}
+	client := syntheticAuthClient(t, roundTripper)
+	result, err := NewSyntheticAuth().Extract(context.Background(), Request{
+		URL: "https://auth-fixture.invalid/watch/auth-001", Transport: client,
+		Credentials: syntheticCredentialProvider{machine: "auth-fixture.invalid", username: username, password: password},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id, _ := result.Info.ID(); id != "auth-001" {
+		t.Fatalf("id = %q", id)
+	}
+	roundTripper.mu.Lock()
+	authorization := roundTripper.seenAuthorization
+	roundTripper.mu.Unlock()
+	request, _ := http.NewRequest(http.MethodGet, "https://auth-fixture.invalid", nil)
+	request.SetBasicAuth(username, password)
+	if authorization != request.Header.Get("Authorization") {
+		t.Fatalf("Authorization was not the scoped Basic credential")
+	}
+	serialized, _ := json.Marshal(result.Info.Fields())
+	if strings.Contains(string(serialized), username) || strings.Contains(string(serialized), password) {
+		t.Fatalf("metadata retained credential: %s", serialized)
+	}
 }
 
 func syntheticAuthFixture(t testing.TB, name string) []byte {

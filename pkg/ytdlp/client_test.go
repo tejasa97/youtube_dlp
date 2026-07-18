@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -19,6 +20,7 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/cookies/chromium"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/chromiumlinux"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/firefox"
+	credentialnetrc "github.com/ytdlp-go/ytdlp/internal/credentials/netrc"
 	"github.com/ytdlp-go/ytdlp/internal/downloader"
 	"github.com/ytdlp-go/ytdlp/internal/extractor"
 	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
@@ -41,6 +43,43 @@ func TestIsCategory(t *testing.T) {
 	}
 	if !errors.Is(err, err.Err) {
 		t.Fatal("Error does not unwrap its cause")
+	}
+}
+
+func TestLoadNetRCCredentialsFromDirectory(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, ".netrc")
+	const username, password = "fixture-user", "netrc-secret-never-export"
+	if err := os.WriteFile(path, []byte("machine auth-fixture.invalid login "+username+" password "+password+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	provider, err := loadNetRCCredentials(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	credential, ok, err := provider.Lookup(context.Background(), "auth-fixture.invalid")
+	if err != nil || !ok || credential.Username != username || credential.Password != password {
+		t.Fatalf("credential lookup mismatch: found=%t error=%v", ok, err)
+	}
+	if rendered := fmt.Sprintf("%v", provider); strings.Contains(rendered, username) || strings.Contains(rendered, password) {
+		t.Fatalf("provider formatting exposed credentials: %q", rendered)
+	}
+}
+
+func TestClientRejectsUnsafeNetRCBeforeExtraction(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("mode-bit policy is Unix-specific")
+	}
+	path := filepath.Join(t.TempDir(), "credentials.netrc")
+	if err := os.WriteFile(path, []byte("machine auth-fixture.invalid login user password secret\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := NewClient().Run(context.Background(), Request{
+		URL: "https://auth-fixture.invalid/watch/auth-001", SkipDownload: true,
+		UseNetRC: true, NetRCLocation: path,
+	})
+	if !IsCategory(err, ErrorSecurity) || !errors.Is(err, credentialnetrc.ErrUnsafeFile) || strings.Contains(err.Error(), "secret") {
+		t.Fatalf("Run() error = %v", err)
 	}
 }
 
