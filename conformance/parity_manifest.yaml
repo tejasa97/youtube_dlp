@@ -213,7 +213,7 @@ capabilities:
     status: compatible
     evidence:
       - internal/fragment.TestEngineDownloadsRangesDecryptsAndAssemblesInOrder
-      - internal/fragment.TestEngineReusesCompletedFragments
+      - internal/fragment.TestEngineRevalidatesLegacyFragmentsWithoutDigests
       - internal/protocol/hls.TestParseMasterAndMedia
       - internal/protocol/hls.TestDownloadMasterByteRangeMapAndAES128
       - internal/protocol/hls.TestDownloadLivePollDeduplicatesSegments
@@ -306,8 +306,8 @@ capabilities:
       - internal/network.TestImpersonationProfileDiagnostics
       - internal/network.TestImpersonationUsesProxyAndRedactsFailures
       - internal/network/impersonate.TestProfileMetadataAndCopiesAreStable
-      - internal/network/impersonate.TestRequestAdapterPreservesSemanticsAndAppliesProfile
-      - internal/network/impersonate.TestCookieJarAdapterRoundTripsAllSupportedFields
+      - internal/network/impersonate.TestClientPreservesRequestSemanticsAndAppliesProfile
+      - internal/network/impersonate.TestClientUsesStandardCookieJar
       - internal/network/impersonate.TestFirefox120ConformanceCapture
       - internal/network/impersonate.TestFirefox120UsesExactSupportedClientHello
       - internal/network/impersonate.TestFirefoxLookupAndFingerprintAreDefensive
@@ -453,7 +453,7 @@ capabilities:
       - internal/extractor.TestSoundCloudRejectsUntrustedContinuationAndAsset
       - internal/extractor.FuzzSoundCloudURLClassification
       - internal/extractor.FuzzSoundCloudPageEntries
-      - pkg/ytdlp.TestProductRegistryIncludesPhaseOneExtractors
+      - pkg/ytdlp.TestProductRegistryIncludesIntegratedExtractors
       - conformance/extractors/soundcloud/PROVENANCE.md
       - docs/P1_SOUNDCLOUD_EVIDENCE.md
     owner: extractors
@@ -831,7 +831,7 @@ capabilities:
       - internal/format.TestSelectorRejectsInvalidSyntaxAndNoMatch
       - internal/format.TestSelectorSyntaxErrorReportsSourceSpan
       - internal/format.FuzzParseSelector
-      - internal/compat_test.TestPinnedCompatibilityCorpus
+      - internal/compat.TestPinnedCompatibilityCorpus
       - conformance/compatibility/PROVENANCE.md
     owner: core
     known_deviation: Compatibility is claimed only for the checked-in Phase 1 syntax corpus; broader yt-dlp grammar remains a later phase.
@@ -847,7 +847,7 @@ capabilities:
       - internal/compat/template.TestRenderSyntaxErrorReportsSourceSpan
       - internal/compat/template.TestResolveSanitizesAndConfines
       - internal/compat/template.FuzzResolve
-      - internal/compat_test.TestPinnedCompatibilityCorpus
+      - internal/compat.TestPinnedCompatibilityCorpus
       - conformance/compatibility/PROVENANCE.md
     owner: core
     known_deviation: Compatibility is claimed only for the checked-in Phase 1 syntax corpus; the complete output-template mini-language remains a later phase.
@@ -877,7 +877,9 @@ capabilities:
       - internal/differential.TestMalformedOversizedAndCancellation
       - internal/differential.TestMetadataAndWarningSecretRedaction
       - internal/differential.FuzzParseObservation
+      - cmd/shadowcheck.TestRunEqualAndCriticalMismatch
       - conformance/differential/phase3/PROVENANCE.md
+      - docs/P3_SEMANTIC_REVIEW_LEDGER.md
     owner: conformance
     depends_on:
       - conformance.differential_runner

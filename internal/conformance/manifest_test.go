@@ -2,6 +2,10 @@ package conformance
 
 import (
 	"bytes"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,6 +20,63 @@ func TestRepositoryManifest(t *testing.T) {
 	if len(manifest.Capabilities) < 5 {
 		t.Fatalf("capability count = %d, want at least 5", len(manifest.Capabilities))
 	}
+}
+
+func TestRepositoryManifestEvidenceExists(t *testing.T) {
+	root := filepath.Join("..", "..")
+	manifest, err := LoadFile(filepath.Join(root, "conformance", "parity_manifest.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	functions := make(map[string]map[string]bool)
+	for _, capability := range manifest.Capabilities {
+		for _, evidence := range capability.Evidence {
+			separator := strings.LastIndexByte(evidence, '.')
+			if separator > 0 && (strings.HasPrefix(evidence[separator+1:], "Test") || strings.HasPrefix(evidence[separator+1:], "Fuzz")) {
+				packagePath, function := evidence[:separator], evidence[separator+1:]
+				known, ok := functions[packagePath]
+				if !ok {
+					known = testFunctions(t, filepath.Join(root, filepath.FromSlash(packagePath)))
+					functions[packagePath] = known
+				}
+				if !known[function] {
+					t.Errorf("capability %s has stale test evidence %s", capability.ID, evidence)
+				}
+				continue
+			}
+			if strings.Contains(evidence, "/") {
+				fileEvidence, _, _ := strings.Cut(evidence, "#")
+				if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(fileEvidence))); err != nil || info.IsDir() {
+					t.Errorf("capability %s has missing file evidence %s", capability.ID, evidence)
+				}
+			}
+		}
+	}
+}
+
+func testFunctions(t *testing.T, directory string) map[string]bool {
+	t.Helper()
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return map[string]bool{}
+	}
+	result := make(map[string]bool)
+	files := token.NewFileSet()
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+		parsed, err := parser.ParseFile(files, filepath.Join(directory, entry.Name()), nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", entry.Name(), err)
+		}
+		for _, declaration := range parsed.Decls {
+			if function, ok := declaration.(*ast.FuncDecl); ok && function.Recv == nil {
+				result[function.Name.Name] = true
+			}
+		}
+	}
+	return result
 }
 
 func TestLoadRejectsUnknownField(t *testing.T) {

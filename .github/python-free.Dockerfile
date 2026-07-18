@@ -15,6 +15,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ytdlp-go ./cmd/ytd
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ytdlp-js-helper ./cmd/ytdlp-js-helper
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/jscheck ./cmd/jscheck
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/impersonationcheck ./cmd/impersonationcheck
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/shadowcheck ./cmd/shadowcheck
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/telemetrycheck ./cmd/telemetrycheck
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ytdlp-ops ./cmd/ytdlp-ops
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ytdlp-pack ./cmd/ytdlp-pack
@@ -26,6 +27,7 @@ COPY --from=build /out/ytdlp-go /ytdlp-go
 COPY --from=build /out/ytdlp-js-helper /ytdlp-js-helper
 COPY --from=build /out/jscheck /jscheck
 COPY --from=build /out/impersonationcheck /impersonationcheck
+COPY --from=build /out/shadowcheck /shadowcheck
 COPY --from=build /out/telemetrycheck /telemetrycheck
 COPY --from=build /out/ytdlp-ops /ytdlp-ops
 COPY --from=build /out/ytdlp-pack /ytdlp-pack
