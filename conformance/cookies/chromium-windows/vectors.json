@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "reference_commit": "aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8",
+  "vectors": [
+    {
+      "name": "chromium-windows-v10-meta24",
+      "meta_version": 24,
+      "host": ".example.test",
+      "master_key_base64": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+      "nonce_base64": "Zml4ZWQtbm9uY2Uh",
+      "encrypted_base64": "djEwZml4ZWQtbm9uY2UhssP5lgcayQbrIrnGAfmnr8M8hWTHTLcucmNbIAHbfNr4MNoAZXmzbtwmoWPvfvm+XnPQ9dT51NO2S5JbuA==",
+      "expected": "fixture-value"
+    }
+  ]
+}
