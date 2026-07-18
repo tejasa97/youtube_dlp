@@ -401,6 +401,31 @@ capabilities:
       - network.shared_transport
     known_deviation: Compatibility is scoped to the pinned public stream corpus. VODs, clips, channel playlists, live-from-start, chat/subtitles, OAuth cookie translation, and subscriber-only entitlement diagnostics remain broader Twitch work.
 
+  - id: extractor.soundcloud_pilot
+    name: SoundCloud API and playlist pilot
+    phase: 1
+    compatibility_target: Extract SoundCloud tracks, sets, and lazy user-track pages through bounded public API discovery without Python.
+    status: compatible
+    evidence:
+      - internal/extractor.TestSoundCloudSuitableGuards
+      - internal/extractor.TestSoundCloudTrackMetadataAndTranscodingResolution
+      - internal/extractor.TestSoundCloudUserTrackPagesAreLazyOrderedAndReusable
+      - internal/extractor.TestSoundCloudSetEntriesRemainOrderedTransparentURLs
+      - internal/extractor.TestSoundCloudCancellationInterruptsLazyPage
+      - internal/extractor.TestSoundCloudCategorizedFailuresAndSecretRedaction
+      - internal/extractor.TestSoundCloudRejectsUntrustedContinuationAndAsset
+      - internal/extractor.FuzzSoundCloudURLClassification
+      - internal/extractor.FuzzSoundCloudPageEntries
+      - pkg/ytdlp.TestProductRegistryIncludesPhaseOneExtractors
+      - conformance/extractors/soundcloud/PROVENANCE.md
+      - docs/P1_SOUNDCLOUD_EVIDENCE.md
+    owner: extractors
+    depends_on:
+      - extractor.playlists
+      - protocol.hls
+      - network.shared_transport
+    known_deviation: Compatibility is scoped to the pinned public track, static-set, and lazy user-tracks corpus. OAuth/private media, premium originals, search, comments, stations, related media, non-track profile tabs, and private-set batch hydration remain broader SoundCloud work.
+
   - id: extractor.vimeo_pilot
     name: Vimeo manifest-heavy extraction pilot
     phase: 1

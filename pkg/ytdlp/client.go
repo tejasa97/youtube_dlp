@@ -174,10 +174,24 @@ func (client *Client) Run(ctx context.Context, request Request) (Result, error) 
 	defer challengeSolver.Close()
 	operation := &operation{
 		client: client, request: request, transport: transport,
-		registry: extractor.NewRegistry(extractor.NewYouTube(), extractor.NewVimeo(), extractor.NewTikTok(), extractor.NewTwitch(), extractor.NewRegionSVT(), extractor.NewSyntheticAuth(), extractor.NewFixture(), extractor.NewGeneric()),
+		registry: productRegistry(),
 		solver:   challengeSolver,
 	}
 	return operation.process(ctx, request.URL, "", nil, make(map[string]bool), 0)
+}
+
+func productRegistry() *extractor.Registry {
+	return extractor.NewRegistry(
+		extractor.NewYouTube(),
+		extractor.NewVimeo(),
+		extractor.NewTikTok(),
+		extractor.NewTwitch(),
+		extractor.NewSoundCloud(),
+		extractor.NewRegionSVT(),
+		extractor.NewSyntheticAuth(),
+		extractor.NewFixture(),
+		extractor.NewGeneric(),
+	)
 }
 
 const (

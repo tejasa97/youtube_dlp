@@ -54,6 +54,33 @@ func TestExtractorFailuresAreCategorized(t *testing.T) {
 	}
 }
 
+func TestProductRegistryIncludesPhaseOneExtractors(t *testing.T) {
+	tests := []struct {
+		rawURL string
+		name   string
+	}{
+		{"https://www.youtube.com/watch?v=dQw4w9WgXcQ", "youtube"},
+		{"https://vimeo.com/123456789", "vimeo"},
+		{"https://www.tiktok.com/@fixture/video/1234567890123456789", "tiktok"},
+		{"https://www.twitch.tv/fixture_channel", "twitch"},
+		{"https://soundcloud.com/fixture-artist/synthetic-signal", "soundcloud"},
+		{"https://www.svtplay.se/video/fixture-program?modalId=fixture123", "region_svt"},
+		{"https://auth-fixture.invalid/watch/fixture123", "synthetic_auth"},
+		{"https://example.com/media.mp4", "generic"},
+	}
+	registry := productRegistry()
+	for _, test := range tests {
+		selected, err := registry.Select(test.rawURL)
+		if err != nil {
+			t.Errorf("Select(%q): %v", test.rawURL, err)
+			continue
+		}
+		if selected.Name() != test.name {
+			t.Errorf("Select(%q) = %q, want %q", test.rawURL, selected.Name(), test.name)
+		}
+	}
+}
+
 func TestMediaFailuresAreCategorized(t *testing.T) {
 	for _, test := range []struct {
 		err      error
