@@ -1,0 +1,12 @@
+{
+  "dynamic": true,
+  "minimum_update_period_ms": 2000,
+  "representation_id": "video",
+  "urls": [
+    "https://media.example.test/live/init-video.mp4",
+    "https://media.example.test/live/chunk-4.m4s",
+    "https://media.example.test/live/chunk-6.m4s",
+    "https://media.example.test/live/chunk-8.m4s",
+    "https://media.example.test/live/chunk-10.m4s"
+  ]
+}

@@ -1,0 +1,17 @@
+<MPD type="dynamic"
+     availabilityStartTime="2024-01-01T00:00:00Z"
+     publishTime="2024-01-01T00:00:12Z"
+     minimumUpdatePeriod="PT2S">
+  <Period start="PT2S">
+    <SegmentTemplate timescale="1" initialization="init-$RepresentationID$.mp4">
+      <SegmentTimeline>
+        <S t="4" d="2" r="-1"/>
+        <S t="10" d="2"/>
+      </SegmentTimeline>
+    </SegmentTemplate>
+    <AdaptationSet contentType="video" mimeType="video/mp4">
+      <SegmentTemplate media="chunk-$Time$.m4s"/>
+      <Representation id="video" bandwidth="1000"/>
+    </AdaptationSet>
+  </Period>
+</MPD>

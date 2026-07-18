@@ -43,9 +43,6 @@ func NewDownloader(transport Transport, config Config) *Downloader {
 	if config.DynamicPolls <= 0 {
 		config.DynamicPolls = 1
 	}
-	if config.PollInterval <= 0 {
-		config.PollInterval = time.Second
-	}
 	return &Downloader{transport: transport, config: config}
 }
 
@@ -61,10 +58,17 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 	if mpd.Dynamic && downloader.config.DynamicPolls > 1 {
 		byID := make(map[string]*Representation, len(selected))
 		for index := range selected {
-			byID[selected[index].ID] = &selected[index]
+			byID[representationKey(selected[index])] = &selected[index]
+		}
+		pollInterval := downloader.config.PollInterval
+		if pollInterval <= 0 {
+			pollInterval = mpd.MinimumUpdatePeriod
+		}
+		if pollInterval <= 0 {
+			pollInterval = time.Second
 		}
 		for poll := 1; poll < downloader.config.DynamicPolls; poll++ {
-			timer := time.NewTimer(downloader.config.PollInterval)
+			timer := time.NewTimer(pollInterval)
 			select {
 			case <-ctx.Done():
 				timer.Stop()
@@ -76,9 +80,15 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 				return Result{}, err
 			}
 			for _, representation := range updated.Representations {
-				if target := byID[representation.ID]; target != nil {
+				if target := byID[representationKey(representation)]; target != nil {
 					target.Segments = mergeSegments(target.Segments, representation.Segments)
 				}
+			}
+			if !updated.Dynamic {
+				break
+			}
+			if downloader.config.PollInterval <= 0 && updated.MinimumUpdatePeriod > 0 {
+				pollInterval = updated.MinimumUpdatePeriod
 			}
 		}
 	}
@@ -103,6 +113,10 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 		result.Tracks = append(result.Tracks, TrackResult{Representation: representation, Download: downloaded})
 	}
 	return result, nil
+}
+
+func representationKey(representation Representation) string {
+	return trackSuffix(representation) + "\x00" + representation.ID
 }
 
 func (downloader *Downloader) load(ctx context.Context, manifestURL string) (MPD, error) {

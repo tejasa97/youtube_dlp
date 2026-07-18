@@ -75,3 +75,62 @@ func TestDownloadDynamicMPDPollsAndDeduplicates(t *testing.T) {
 		t.Fatalf("contents = %q, polls = %d", contents, polls.Load())
 	}
 }
+
+func TestDownloadDynamicUsesManifestPollIntervalAndCancels(t *testing.T) {
+	var polls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		polls.Add(1)
+		_, _ = fmt.Fprint(writer, `<MPD type="dynamic" minimumUpdatePeriod="PT5S"><Period><AdaptationSet contentType="video"><Representation id="v"><SegmentTemplate media="$Time$.m4s"><SegmentTimeline><S t="0" d="1"/></SegmentTimeline></SegmentTemplate></Representation></AdaptationSet></Period></MPD>`)
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	destination := filepath.Join(root, "cancelled.bin")
+	_, err := NewDownloader(transport, Config{DynamicPolls: 2}).Download(ctx, server.URL+"/live.mpd", root, destination, false, nil)
+	if err != context.DeadlineExceeded {
+		t.Fatalf("Download() error = %v", err)
+	}
+	if polls.Load() != 1 {
+		t.Fatalf("polls = %d", polls.Load())
+	}
+	if _, statErr := os.Stat(destination); !os.IsNotExist(statErr) {
+		t.Fatalf("destination should not be finalized: %v", statErr)
+	}
+}
+
+func TestDownloadDynamicDoesNotCollideSameRepresentationID(t *testing.T) {
+	var polls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/live.mpd" {
+			t := polls.Add(1) - 1
+			_, _ = fmt.Fprintf(writer, `<MPD type="dynamic" minimumUpdatePeriod="PT0.001S"><Period>
+<AdaptationSet contentType="video"><Representation id="same" bandwidth="1000"><SegmentTemplate media="v-$Time$"><SegmentTimeline><S t="%d" d="1"/></SegmentTimeline></SegmentTemplate></Representation></AdaptationSet>
+<AdaptationSet contentType="audio"><Representation id="same" bandwidth="128"><SegmentTemplate media="a-$Time$"><SegmentTimeline><S t="%d" d="1"/></SegmentTimeline></SegmentTemplate></Representation></AdaptationSet>
+</Period></MPD>`, t, t)
+			return
+		}
+		_, _ = writer.Write([]byte(request.URL.Path))
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	result, err := NewDownloader(transport, Config{DynamicPolls: 2}).Download(context.Background(), server.URL+"/live.mpd", root, filepath.Join(root, "same.bin"), false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, track := range result.Tracks {
+		contents, readErr := os.ReadFile(track.Download.Path)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		prefix := "/v-"
+		if track.Representation.ContentType == "audio" {
+			prefix = "/a-"
+		}
+		if got, want := string(contents), prefix+"0"+prefix+"1"; got != want {
+			t.Fatalf("%s contents = %q, want %q", track.Representation.ContentType, got, want)
+		}
+	}
+}
