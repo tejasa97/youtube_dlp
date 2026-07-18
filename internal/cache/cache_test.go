@@ -111,6 +111,30 @@ func TestCacheAtomicOverwriteAndConcurrentWriters(t *testing.T) {
 	}
 }
 
+func TestCacheBoundsNamespaceBytesAndEntryCount(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "cache")
+	store, err := Open(root, Options{MaxValueBytes: 1024, MaxNamespaceBytes: 600, MaxEntriesPerNamespace: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Store(context.Background(), "test", "one", []byte(strings.Repeat("a", 40)), 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Store(context.Background(), "test", "two", []byte(strings.Repeat("b", 40)), 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Store(context.Background(), "test", "three", []byte("c"), 0); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("entry count bound = %v", err)
+	}
+	if err := store.Store(context.Background(), "test", "one", []byte(strings.Repeat("z", 500)), 0); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("namespace byte bound = %v", err)
+	}
+	value, hit, err := store.Lookup(context.Background(), "test", "one")
+	if err != nil || !hit || string(value) != strings.Repeat("a", 40) {
+		t.Fatalf("bounded replacement changed prior value = %q, %v, %v", value, hit, err)
+	}
+}
+
 func TestCacheRejectsTraversalAndSymlinks(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "cache")
 	store, err := Open(root, Options{})
@@ -295,6 +319,28 @@ func TestCacheRemoveNamespaceFailsClosedOnSymlink(t *testing.T) {
 	data, _ := os.ReadFile(target)
 	if string(data) != "safe" {
 		t.Fatal("RemoveNamespace followed symlink")
+	}
+}
+
+func TestCacheRemoveNamespacePreservesUnknownRegularFile(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "cache"), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory, err := store.namespacePath("test", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknown := filepath.Join(directory, "user-document")
+	if err := os.WriteFile(unknown, []byte("preserve"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RemoveNamespace(context.Background(), "test"); !errors.Is(err, ErrUnsafePath) {
+		t.Fatalf("RemoveNamespace = %v", err)
+	}
+	data, err := os.ReadFile(unknown)
+	if err != nil || string(data) != "preserve" {
+		t.Fatalf("unknown file changed = %q, %v", data, err)
 	}
 }
 

@@ -30,14 +30,22 @@ const magic = "ytdlp-go-cache-v1\n"
 
 // Options bounds cache operations. Clock enables deterministic expiry tests.
 type Options struct {
-	MaxValueBytes int64
-	MaxKeyBytes   int
-	Clock         func() time.Time
+	MaxValueBytes          int64
+	MaxNamespaceBytes      int64
+	MaxEntriesPerNamespace int
+	MaxKeyBytes            int
+	Clock                  func() time.Time
 }
 
 func (options Options) withDefaults() Options {
 	if options.MaxValueBytes <= 0 {
 		options.MaxValueBytes = 16 << 20
+	}
+	if options.MaxNamespaceBytes <= 0 {
+		options.MaxNamespaceBytes = 512 << 20
+	}
+	if options.MaxEntriesPerNamespace <= 0 {
+		options.MaxEntriesPerNamespace = 100_000
 	}
 	if options.MaxKeyBytes <= 0 {
 		options.MaxKeyBytes = 1024
@@ -50,8 +58,9 @@ func (options Options) withDefaults() Options {
 
 // Store is rooted at a private cache directory.
 type Store struct {
-	root    string
-	options Options
+	root      string
+	options   Options
+	writeGate chan struct{}
 }
 
 // Open validates or creates root without following a root symlink.
@@ -62,7 +71,7 @@ func Open(root string, options Options) (*Store, error) {
 	if err := secureDirectory(root); err != nil {
 		return nil, err
 	}
-	return &Store{root: root, options: options.withDefaults()}, nil
+	return &Store{root: root, options: options.withDefaults(), writeGate: make(chan struct{}, 1)}, nil
 }
 
 // Store atomically writes a value. A non-positive TTL means no expiry.
@@ -73,11 +82,18 @@ func (store *Store) Store(ctx context.Context, namespace, key string, value []by
 	if int64(len(value)) > store.options.MaxValueBytes {
 		return ErrTooLarge
 	}
+	if err := store.acquireWrite(ctx); err != nil {
+		return err
+	}
+	defer store.releaseWrite()
 	path, directory, err := store.path(namespace, key, true)
 	if err != nil {
 		return err
 	}
 	if err := rejectExistingNonRegular(path); err != nil {
+		return err
+	}
+	if err := store.checkNamespaceBounds(directory, path, int64(len(value))+256); err != nil {
 		return err
 	}
 	expires := int64(0)
@@ -137,6 +153,45 @@ func (store *Store) Store(ctx context.Context, namespace, key string, value []by
 	}
 	if err := os.Rename(temporaryPath, path); err != nil {
 		return fmt.Errorf("%w: replace entry", ErrIO)
+	}
+	return nil
+}
+
+func (store *Store) checkNamespaceBounds(directory, replacedPath string, replacementBytes int64) error {
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return fmt.Errorf("%w: list namespace", ErrIO)
+	}
+	var total int64
+	count := 0
+	replacing := false
+	for _, entry := range entries {
+		if count >= store.options.MaxEntriesPerNamespace {
+			return ErrTooLarge
+		}
+		if !validEntryFilename(entry.Name()) {
+			return ErrUnsafePath
+		}
+		info, err := entry.Info()
+		if err != nil || !info.Mode().IsRegular() || entry.Type()&os.ModeSymlink != 0 {
+			return ErrUnsafePath
+		}
+		count++
+		entryPath := filepath.Join(directory, entry.Name())
+		if entryPath == replacedPath {
+			replacing = true
+			continue
+		}
+		if info.Size() < 0 || total > store.options.MaxNamespaceBytes-info.Size() {
+			return ErrTooLarge
+		}
+		total += info.Size()
+	}
+	if !replacing && count >= store.options.MaxEntriesPerNamespace {
+		return ErrTooLarge
+	}
+	if replacementBytes < 0 || total > store.options.MaxNamespaceBytes-replacementBytes {
+		return ErrTooLarge
 	}
 	return nil
 }
@@ -220,6 +275,10 @@ func (store *Store) Remove(ctx context.Context, namespace, key string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if err := store.acquireWrite(ctx); err != nil {
+		return err
+	}
+	defer store.releaseWrite()
 	path, _, err := store.path(namespace, key, false)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -233,6 +292,10 @@ func (store *Store) Remove(ctx context.Context, namespace, key string) error {
 // RemoveNamespace removes only regular entry files in namespace. Unknown
 // directories, links, and special files make removal fail closed.
 func (store *Store) RemoveNamespace(ctx context.Context, namespace string) error {
+	if err := store.acquireWrite(ctx); err != nil {
+		return err
+	}
+	defer store.releaseWrite()
 	directory, err := store.namespacePath(namespace, false)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -248,6 +311,9 @@ func (store *Store) RemoveNamespace(ctx context.Context, namespace string) error
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		if !validEntryFilename(entry.Name()) {
+			return ErrUnsafePath
+		}
 		info, err := entry.Info()
 		if err != nil || !info.Mode().IsRegular() || entry.Type()&os.ModeSymlink != 0 {
 			return ErrUnsafePath
@@ -260,6 +326,26 @@ func (store *Store) RemoveNamespace(ctx context.Context, namespace string) error
 		return fmt.Errorf("%w: remove namespace", ErrIO)
 	}
 	return nil
+}
+
+func validEntryFilename(name string) bool {
+	return strings.HasSuffix(name, ".cache") || strings.HasPrefix(name, ".cache-")
+}
+
+func (store *Store) acquireWrite(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	select {
+	case store.writeGate <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (store *Store) releaseWrite() {
+	<-store.writeGate
 }
 
 func readHeader(reader *bufio.Reader) (expires int64, length int64, digest [sha256.Size]byte, err error) {
