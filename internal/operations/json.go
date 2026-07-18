@@ -1,0 +1,156 @@
+package operations
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"sort"
+)
+
+const (
+	DefaultMaxDocumentBytes int64 = 4 << 20
+	HardMaxDocumentBytes    int64 = 16 << 20
+)
+
+func MarshalSuite(suite Suite) ([]byte, error) {
+	canonical, err := NewSuite(suite.Canaries)
+	if err != nil || suite.SchemaVersion != SchemaVersion {
+		return nil, ErrInvalidSpec
+	}
+	return json.Marshal(canonical)
+}
+
+func DecodeSuite(ctx context.Context, reader io.Reader, maxBytes int64) (Suite, error) {
+	if reader == nil {
+		return Suite{}, ErrDecode
+	}
+	if maxBytes == 0 {
+		maxBytes = DefaultMaxDocumentBytes
+	}
+	if maxBytes < 1 || maxBytes > HardMaxDocumentBytes {
+		return Suite{}, ErrResourceLimit
+	}
+	limited := &io.LimitedReader{R: &contextReader{ctx: ctx, reader: reader}, N: maxBytes + 1}
+	data, err := io.ReadAll(limited)
+	if err != nil {
+		if contextError(ctx) != nil {
+			return Suite{}, contextError(ctx)
+		}
+		return Suite{}, ErrDecode
+	}
+	if int64(len(data)) > maxBytes {
+		return Suite{}, ErrResourceLimit
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var wire struct {
+		SchemaVersion *int          `json:"schema_version"`
+		Canaries      *[]CanarySpec `json:"canaries"`
+	}
+	if err := decoder.Decode(&wire); err != nil {
+		return Suite{}, ErrDecode
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return Suite{}, ErrDecode
+	}
+	if wire.SchemaVersion == nil || *wire.SchemaVersion != SchemaVersion || wire.Canaries == nil {
+		return Suite{}, ErrDecode
+	}
+	suite, err := NewSuite(*wire.Canaries)
+	if err != nil {
+		return Suite{}, err
+	}
+	return suite, nil
+}
+
+func MarshalIncident(evidence IncidentEvidence) ([]byte, error) {
+	if !validIncident(evidence) {
+		return nil, ErrInvalidDrill
+	}
+	return json.Marshal(evidence)
+}
+
+func MarshalMetrics(snapshot MetricsSnapshot) ([]byte, error) {
+	if snapshot.SchemaVersion != SchemaVersion {
+		return nil, ErrInvalidOutcome
+	}
+	copySnapshot := snapshot
+	copySnapshot.ByCanary = append(make([]CanaryCounts, 0, len(snapshot.ByCanary)), snapshot.ByCanary...)
+	sort.Slice(copySnapshot.ByCanary, func(i, j int) bool { return copySnapshot.ByCanary[i].CanaryID < copySnapshot.ByCanary[j].CanaryID })
+	if !validOutcomeCounts(copySnapshot.Counts) || !validPatchMetrics(copySnapshot.Patch) {
+		return nil, ErrInvalidOutcome
+	}
+	for _, item := range copySnapshot.ByCanary {
+		if !identifierPattern.MatchString(item.CanaryID) || item.Counts.Total == 0 || !validOutcomeCounts(item.Counts) {
+			return nil, ErrInvalidOutcome
+		}
+	}
+	for index := 1; index < len(copySnapshot.ByCanary); index++ {
+		if copySnapshot.ByCanary[index-1].CanaryID == copySnapshot.ByCanary[index].CanaryID {
+			return nil, ErrInvalidOutcome
+		}
+	}
+	return json.Marshal(copySnapshot)
+}
+
+func validOutcomeCounts(counts OutcomeCounts) bool {
+	if counts.Total > hardMaxRollingRecords {
+		return false
+	}
+	values := [...]uint64{counts.Success, counts.Breakage, counts.Fallback, counts.Unsupported,
+		counts.CredentialUnavailable, counts.RegionUnavailable, counts.Canceled, counts.Timeout}
+	for _, value := range values {
+		if value > counts.Total {
+			return false
+		}
+	}
+	sum := counts.Success + counts.Breakage + counts.Fallback + counts.Unsupported +
+		counts.CredentialUnavailable + counts.RegionUnavailable + counts.Canceled + counts.Timeout
+	if sum != counts.Total {
+		return false
+	}
+	if counts.Total == 0 {
+		return counts.SuccessBasisPoints == 0 && counts.BreakageBasisPoints == 0 && counts.FallbackBasisPoints == 0
+	}
+	return counts.SuccessBasisPoints == counts.Success*10_000/counts.Total &&
+		counts.BreakageBasisPoints == counts.Breakage*10_000/counts.Total &&
+		counts.FallbackBasisPoints == counts.Fallback*10_000/counts.Total
+}
+
+func validPatchMetrics(metrics PatchMetrics) bool {
+	if metrics.Samples > hardMaxRollingRecords || metrics.Met24H > metrics.Samples ||
+		metrics.Met48H > metrics.Samples || metrics.Missed48H > metrics.Samples ||
+		metrics.Met24H+metrics.Met48H+metrics.Missed48H != metrics.Samples {
+		return false
+	}
+	if metrics.MaxLatencyMS > uint64(maxIncidentLatencyMS) ||
+		metrics.TotalLatencyMS > metrics.Samples*uint64(maxIncidentLatencyMS) {
+		return false
+	}
+	if metrics.Samples == 0 {
+		return metrics.TotalLatencyMS == 0 && metrics.MaxLatencyMS == 0
+	}
+	return metrics.TotalLatencyMS >= metrics.MaxLatencyMS
+}
+
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (reader *contextReader) Read(buffer []byte) (int, error) {
+	if err := contextError(reader.ctx); err != nil {
+		return 0, err
+	}
+	return reader.reader.Read(buffer)
+}
+
+func contextError(ctx context.Context) error {
+	if ctx == nil {
+		return nil
+	}
+	return ctx.Err()
+}
