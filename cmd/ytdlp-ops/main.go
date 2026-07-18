@@ -17,7 +17,7 @@ func main() { os.Exit(run(context.Background(), os.Args[1:], os.Stdout, os.Stder
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: ytdlp-ops <validate-suite|summarize> [options]")
+		fmt.Fprintln(stderr, "usage: ytdlp-ops <validate-suite|validate-policy|validate-replay|summarize> [options]")
 		return 2
 	}
 	operation, args := args[0], args[1:]
@@ -26,6 +26,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	suitePath := flags.String("suite", "", "versioned canary suite JSON")
 	recordsPath := flags.String("records", "", "redacted canary record-set JSON")
 	incidentsPath := flags.String("incidents", "", "redacted incident-set JSON")
+	policyPath := flags.String("policy", "", "bounded canary execution policy JSON")
+	replayPath := flags.String("replay", "", "redacted semantic replay JSON")
 	maxRecords := flags.Int("max-records", 100000, "bounded rolling record window")
 	maxIncidents := flags.Int("max-incidents", 100000, "bounded rolling incident window")
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 || *suitePath == "" {
@@ -51,6 +53,52 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		}
 		_, err = stdout.Write(append(encoded, '\n'))
 		if err != nil {
+			return 1
+		}
+		return 0
+	case "validate-policy":
+		if *policyPath == "" {
+			fmt.Fprintln(stderr, "ytdlp-ops: --policy is required")
+			return 2
+		}
+		file, err := os.Open(*policyPath)
+		if err != nil {
+			fmt.Fprintln(stderr, "ytdlp-ops: open policy failed")
+			return 2
+		}
+		policy, decodeErr := operations.DecodeExecutionPolicy(ctx, file, 0, suite)
+		_ = file.Close()
+		if decodeErr != nil {
+			return report(stderr, decodeErr)
+		}
+		encoded, err := operations.MarshalExecutionPolicy(suite, policy)
+		if err != nil {
+			return report(stderr, err)
+		}
+		if _, err := stdout.Write(append(encoded, '\n')); err != nil {
+			return 1
+		}
+		return 0
+	case "validate-replay":
+		if *replayPath == "" {
+			fmt.Fprintln(stderr, "ytdlp-ops: --replay is required")
+			return 2
+		}
+		file, err := os.Open(*replayPath)
+		if err != nil {
+			fmt.Fprintln(stderr, "ytdlp-ops: open replay failed")
+			return 2
+		}
+		replay, decodeErr := operations.DecodeReplay(ctx, file, 0, suite)
+		_ = file.Close()
+		if decodeErr != nil {
+			return report(stderr, decodeErr)
+		}
+		encoded, err := operations.MarshalReplay(replay, suite)
+		if err != nil {
+			return report(stderr, err)
+		}
+		if _, err := stdout.Write(append(encoded, '\n')); err != nil {
 			return 1
 		}
 		return 0

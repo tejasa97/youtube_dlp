@@ -565,10 +565,17 @@ capabilities:
       - internal/operations.TestExecuteRequiresOptInAndEmitsRedactedSemanticRecords
       - internal/operations.TestExecuteRedactsRunnerErrorsRejectsLabelsAndEnforcesTimeout
       - internal/operations.TestRollingMetricsWindowAndCanonicalSnapshot
+      - internal/operations.TestRollingMetricsAggregatesEveryFailureClass
+      - internal/operations.TestAuthorizeExecutionEnforcesValidityExpiryAndFrequency
+      - internal/operations.TestExecuteControlledDoesNotInvokeRunnerWhenDenied
+      - internal/operations.TestReplayCaptureIsDeterministicRedactedAndExecutable
+      - internal/operations.TestReplayCaptureRejectsWrongSuiteDuplicatesAndUncapturedInvocation
       - internal/operations.TestMajorSiteDrillMatchesConformanceFixture
       - internal/operations.TestDrillSLOBoundaries
       - internal/operations.TestRecordAndIncidentDocumentsRoundTripAndRejectAmbiguity
       - internal/operations.FuzzDecodeSuite
+      - internal/operations.FuzzAuthorizeExecution
+      - internal/operations.FuzzDecodeReplay
       - internal/operations.FuzzDrillTransitions
       - cmd/ytdlp-ops.TestValidateAndSummarizeDeterministicEvidence
       - conformance/operations/PROVENANCE.md
@@ -1007,7 +1014,8 @@ capabilities:
       - docs/P3_PACK_CATALOG.md
       - docs/P2_PLUGIN_THREAT_MODEL.md
     owner: release
-    known_deviation: Canonical build and verification are portable, but secure install, rollback, and removal currently fail closed outside Linux and macOS because equivalent Windows owner/ACL, lock, and atomic-publication evidence is not yet available. Native sandbox execution is explicit and fail-closed: macOS sandbox-exec is deprecated and cannot enforce requested resource quotas; Linux requires bwrap and prlimit for requested quotas; Windows remains unsupported. Unsandboxed native hosts retain the documented signed-and-approved trusted-code boundary.
+    known_deviation: >-
+      Canonical build and verification are portable, but secure install, rollback, and removal currently fail closed outside Linux and macOS because equivalent Windows owner/ACL, lock, and atomic-publication evidence is not yet available. Native sandbox execution is explicit and fail-closed: macOS sandbox-exec is deprecated and cannot enforce requested resource quotas; Linux requires bwrap and prlimit for requested quotas; Windows remains unsupported. Unsandboxed native hosts retain the documented signed-and-approved trusted-code boundary.
 
   - id: extractor.phase2_breadth
     name: Phase 2 representative extractor breadth

@@ -40,3 +40,23 @@ func TestRejectsDuplicateAndDoesNotExposeInputPath(t *testing.T) {
 		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
 }
+
+func TestValidateBoundedPolicyAndReplayFixtures(t *testing.T) {
+	root := filepath.Join("..", "..", "conformance", "operations")
+	suite := filepath.Join(root, "canary_suite_v1.json")
+	for _, test := range []struct {
+		operation string
+		flag      string
+		file      string
+		contains  string
+	}{
+		{"validate-policy", "--policy", "canary_policy_v1.json", `"max_runs_per_window":2`},
+		{"validate-replay", "--replay", "replay_capture_v1.json", `"schema_version":1`},
+	} {
+		var stdout, stderr bytes.Buffer
+		code := run(context.Background(), []string{test.operation, "--suite", suite, test.flag, filepath.Join(root, test.file)}, &stdout, &stderr)
+		if code != 0 || !strings.Contains(stdout.String(), test.contains) {
+			t.Fatalf("%s code=%d stdout=%q stderr=%q", test.operation, code, stdout.String(), stderr.String())
+		}
+	}
+}
