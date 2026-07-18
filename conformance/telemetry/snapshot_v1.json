@@ -1,0 +1,1 @@
+{"schema_version":1,"counts":[{"extractor":"generic","capability":"download","outcome":"fallback","count":3},{"extractor":"twitch","capability":"live","outcome":"unsupported","count":2},{"extractor":"youtube","capability":"extract","outcome":"success","count":42}],"overflow":{"cell_limit":1,"counter_saturation":0}}
