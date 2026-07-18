@@ -26,6 +26,21 @@ capabilities:
       - pkg/ytdlp.TestClientCancellationReachesTransport
     owner: core
 
+  - id: api.alpha_contract
+    name: Initial public Go alpha contract
+    phase: 2
+    compatibility_target: Publish a versioned cancellable Go embedding contract with stable categorized errors and structured event serialization.
+    status: compatible
+    evidence:
+      - pkg/ytdlp.TestAlphaAPIContractCompilesAndCategorizesCancellation
+      - pkg/ytdlp.TestAlphaEventJSONContract
+      - pkg/ytdlp.TestPublicEventKindsMatchOperationEvents
+      - docs/P2_API_COMPATIBILITY_POLICY.md
+      - docs/P2_FALLBACK_INVENTORY.md
+    owner: core
+    depends_on:
+      - foundation.embedding_api
+
   - id: foundation.capability_manifest
     name: Capability evidence manifest
     phase: 0
