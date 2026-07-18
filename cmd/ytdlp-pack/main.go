@@ -25,13 +25,14 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: ytdlp-pack <verify|install|rollback|remove> [options]")
+		fmt.Fprintln(stderr, "usage: ytdlp-pack <verify|install|rollback|remove|catalog-verify|catalog-resolve> [options]")
 		return 2
 	}
 	operation, args := args[0], args[1:]
 	flags := flag.NewFlagSet("ytdlp-pack "+operation, flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	archivePath := flags.String("archive", "", "signed pack archive (verify/install)")
+	catalogPath := flags.String("catalog", "", "signed offline pack catalog (catalog-verify/catalog-resolve)")
 	publicKeyHex := flags.String("public-key", "", "trusted Ed25519 public key in hex")
 	nowText := flags.String("now", "", "verification time as canonical UTC RFC3339")
 	hostVersion := flags.String("host-version", "", "current host version")
@@ -52,6 +53,34 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	encoder := json.NewEncoder(stdout)
 	encoder.SetEscapeHTML(false)
 	switch operation {
+	case "catalog-verify", "catalog-resolve":
+		encoded, err := readBoundedNamed(*catalogPath, "--catalog")
+		if err != nil {
+			fmt.Fprintf(stderr, "ytdlp-pack: %v\n", err)
+			return 2
+		}
+		catalog, err := ytdlp.VerifyPackCatalog(ctx, encoded, ytdlp.PackCatalogTrust{Keys: trust.Keys, Now: trust.Now})
+		if err != nil {
+			return report(stderr, err)
+		}
+		if operation == "catalog-verify" {
+			if err := encoder.Encode(catalog); err != nil {
+				return 1
+			}
+			return 0
+		}
+		if *name == "" || *version == "" {
+			fmt.Fprintln(stderr, "ytdlp-pack: --name and --pack-version are required for catalog-resolve")
+			return 2
+		}
+		entry, err := catalog.Resolve(ctx, *name, *version)
+		if err != nil {
+			return report(stderr, err)
+		}
+		if err := encoder.Encode(entry); err != nil {
+			return 1
+		}
+		return 0
 	case "verify", "install":
 		archive, err := readBounded(*archivePath)
 		if err != nil {
@@ -141,8 +170,12 @@ func parseTrust(publicKeyHex, nowText, hostVersion, currentVersion string) (ytdl
 }
 
 func readBounded(path string) ([]byte, error) {
+	return readBoundedNamed(path, "--archive")
+}
+
+func readBoundedNamed(path, flagName string) ([]byte, error) {
 	if path == "" {
-		return nil, errors.New("--archive is required")
+		return nil, fmt.Errorf("%s is required", flagName)
 	}
 	file, err := os.Open(path)
 	if err != nil {

@@ -933,6 +933,8 @@ capabilities:
       - internal/pack/catalog.TestVerifyRejectsTamperTrustRevocationExpiryAndCancellation
       - internal/pack/catalog.TestCatalogRejectsHostilePathsDuplicatesAndBounds
       - internal/pack/catalog.FuzzVerify
+      - pkg/ytdlp.TestPublicPackCatalogVerificationAndExactResolution
+      - cmd/ytdlp-pack.TestRunCatalogVerifyAndExactResolve
       - internal/sandbox.TestLinuxPlanIsolatesFilesystemNetworkAndSecrets
       - internal/sandbox.TestDarwinPlanHasExplicitProfileAndLimitDeviation
       - pkg/ytdlp.TestSignedWASMPluginPackHostAndProductIntegration

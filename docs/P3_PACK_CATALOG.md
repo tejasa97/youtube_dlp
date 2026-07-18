@@ -11,3 +11,9 @@ read credentials, execute plugins, or select a floating version. Artifact
 transport and production signing custody remain deployment responsibilities;
 the catalog supplies authenticated discovery metadata for the existing pack
 verification and installation boundary.
+
+Embedding clients use `VerifyPackCatalog` and the verified catalog's `Resolve`
+method. The `ytdlp-pack catalog-verify` and `catalog-resolve` commands expose
+the same boundary for local distribution workflows. Both require an explicit
+trusted Ed25519 key and canonical verification time; resolution requires an
+exact name and semantic version.

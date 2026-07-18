@@ -36,6 +36,7 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/media/pipeline"
 	"github.com/ytdlp-go/ytdlp/internal/media/postprocess"
 	"github.com/ytdlp-go/ytdlp/internal/network"
+	packcatalog "github.com/ytdlp-go/ytdlp/internal/pack/catalog"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/dash"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/hls"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/ism"
@@ -656,6 +657,10 @@ func categorized(op string, err error) error {
 		category = ErrorInvalidInput
 	case errors.Is(err, archive.ErrIO), errors.Is(err, archive.ErrLock), errors.Is(err, cache.ErrIO):
 		category = ErrorInternal
+	case errors.Is(err, packcatalog.ErrUntrusted), errors.Is(err, packcatalog.ErrSignature), errors.Is(err, packcatalog.ErrRevoked), errors.Is(err, packcatalog.ErrExpired):
+		category = ErrorSecurity
+	case errors.Is(err, packcatalog.ErrInvalid), errors.Is(err, packcatalog.ErrLimit), errors.Is(err, packcatalog.ErrNotFound):
+		category = ErrorInvalidInput
 	case errors.Is(err, mediaformat.ErrNoFormats), errors.Is(err, extractor.ErrInvalidMetadata),
 		errors.Is(err, extractor.ErrInvalidPlaylist), errors.Is(err, extractor.ErrPlaylistLimit),
 		errors.Is(err, downloader.ErrExternalFailed), errors.Is(err, fragment.ErrNoSegments),
