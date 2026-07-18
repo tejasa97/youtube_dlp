@@ -1,0 +1,60 @@
+{
+  "id": "7460000000000000001",
+  "title": "A deterministic anti-bot fixture",
+  "description": "A deterministic anti-bot fixture",
+  "webpage_url": "https://www.tiktok.com/@fixture_creator/video/7460000000000000001",
+  "ext": "mp4",
+  "formats": [
+    {
+      "format_id": "h264_720p_1500000",
+      "url": "https://media.tiktok.example/720.mp4",
+      "ext": "mp4",
+      "vcodec": "h264",
+      "acodec": "aac",
+      "width": 720,
+      "height": 1280,
+      "filesize": 123456,
+      "tbr": 1500
+    },
+    {
+      "format_id": "play",
+      "url": "https://media.tiktok.example/play.mp4?token=redacted",
+      "ext": "mp4",
+      "vcodec": "h264",
+      "acodec": "aac",
+      "format_note": "Direct video",
+      "width": 1080,
+      "height": 1920
+    },
+    {
+      "format_id": "download",
+      "url": "https://media.tiktok.example/watermarked.mp4",
+      "ext": "mp4",
+      "vcodec": "h264",
+      "acodec": "aac",
+      "format_note": "watermarked",
+      "width": 1080,
+      "height": 1920
+    }
+  ],
+  "http_headers": {
+    "Referer": "https://www.tiktok.com/@fixture_creator/video/7460000000000000001"
+  },
+  "uploader": "fixture_creator",
+  "uploader_id": "7000000000000000001",
+  "channel": "Fixture Creator",
+  "channel_id": "SEC_FIXTURE_PUBLIC",
+  "channel_url": "https://www.tiktok.com/@SEC_FIXTURE_PUBLIC",
+  "uploader_url": "https://www.tiktok.com/@fixture_creator",
+  "track": "Fixture Track",
+  "album": "Fixture Album",
+  "artists": ["Fixture Artist"],
+  "duration": 12,
+  "timestamp": 1735689600,
+  "view_count": 101,
+  "like_count": 11,
+  "repost_count": 3,
+  "comment_count": 7,
+  "save_count": 5,
+  "thumbnail": "https://images.tiktok.example/cover.jpeg"
+}
