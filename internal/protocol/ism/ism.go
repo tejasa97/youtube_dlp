@@ -13,9 +13,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ytdlp-go/ytdlp/internal/events"
 	"github.com/ytdlp-go/ytdlp/internal/fragment"
+	"github.com/ytdlp-go/ytdlp/internal/network"
 )
 
 var (
@@ -36,7 +38,12 @@ type Transport interface {
 	Do(context.Context, *http.Request) (*http.Response, error)
 	ReadPage(context.Context, string) ([]byte, http.Header, error)
 }
-type Config struct{ FragmentConcurrency, PerHostConcurrency, MaxSegments int }
+type Config struct {
+	Headers                                                        http.Header
+	FragmentConcurrency, PerHostConcurrency, MaxSegments, Attempts int
+	MaxSegmentSize                                                 int64
+	RetryBaseDelay, RetryMaxDelay                                  time.Duration
+}
 type Manifest struct {
 	Timescale int64
 	Duration  int64
@@ -68,11 +75,12 @@ type Downloader struct {
 }
 
 func NewDownloader(transport Transport, config Config) *Downloader {
+	config.Headers = config.Headers.Clone()
 	if config.MaxSegments == 0 {
 		config.MaxSegments = 10000
 	}
 	var configErr error
-	if config.MaxSegments < 0 || config.MaxSegments > maxSegments || config.FragmentConcurrency < 0 || config.FragmentConcurrency > 128 || config.PerHostConcurrency < 0 || config.PerHostConcurrency > 128 {
+	if config.MaxSegments < 0 || config.MaxSegments > maxSegments || config.FragmentConcurrency < 0 || config.FragmentConcurrency > 128 || config.PerHostConcurrency < 0 || config.PerHostConcurrency > 128 || config.Attempts < 0 || config.Attempts > 100 || config.MaxSegmentSize < 0 || config.MaxSegmentSize > 512<<20 || config.RetryBaseDelay < 0 || config.RetryMaxDelay < 0 || config.RetryBaseDelay > time.Minute || config.RetryMaxDelay > time.Minute || (config.RetryBaseDelay > 0 && config.RetryMaxDelay > 0 && config.RetryBaseDelay > config.RetryMaxDelay) {
 		configErr = ErrInvalidConfig
 	}
 	return &Downloader{transport: transport, config: config, configErr: configErr}
@@ -145,7 +153,13 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 	if downloader.configErr != nil {
 		return Result{}, downloader.configErr
 	}
-	body, _, err := downloader.transport.ReadPage(ctx, manifestURL)
+	var body []byte
+	var err error
+	if len(downloader.config.Headers) == 0 {
+		body, _, err = downloader.transport.ReadPage(ctx, manifestURL)
+	} else {
+		body, _, err = network.ReadPageWithHeaders(ctx, downloader.transport, manifestURL, downloader.config.Headers, maxManifestBytes)
+	}
 	if err != nil {
 		return Result{}, err
 	}
@@ -168,7 +182,13 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 		if len(selected) > 1 {
 			trackDestination += "." + filepath.Clean(stream.Type)
 		}
-		downloaded, err := fragment.New(downloader.transport).Download(ctx, fragment.Job{Segments: plan, OutputRoot: outputRoot, Destination: trackDestination, Concurrency: downloader.config.FragmentConcurrency, PerHostConcurrency: downloader.config.PerHostConcurrency, MaxSegments: downloader.config.MaxSegments, Overwrite: overwrite}, sink)
+		downloaded, err := fragment.New(downloader.transport).Download(ctx, fragment.Job{
+			Segments: plan, Headers: downloader.config.Headers, OutputRoot: outputRoot, Destination: trackDestination,
+			Concurrency: downloader.config.FragmentConcurrency, PerHostConcurrency: downloader.config.PerHostConcurrency,
+			MaxSegments: downloader.config.MaxSegments, MaxSegmentSize: downloader.config.MaxSegmentSize,
+			Attempts: downloader.config.Attempts, RetryBaseDelay: downloader.config.RetryBaseDelay,
+			RetryMaxDelay: downloader.config.RetryMaxDelay, Overwrite: overwrite,
+		}, sink)
 		if err != nil {
 			return Result{}, fmt.Errorf("ISM %s: %w", stream.Type, err)
 		}

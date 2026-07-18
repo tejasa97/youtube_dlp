@@ -598,22 +598,67 @@ capabilities:
     name: Principal compatibility languages
     phase: 2
     compatibility_target: Evaluate the declared principal format, sorting, output, progress, metadata, and match-filter language corpus with bounded exact diagnostics.
-    status: not_started
+    status: compatible
+    evidence:
+      - internal/format.TestSelectorFallbackMergeAndFilters
+      - internal/format.TestSelectorDirectIDAllAndPreferences
+      - internal/format.TestSelectorDRMAndSortPolicy
+      - internal/format.TestSelectorSyntaxErrorReportsSourceSpan
+      - internal/compat/template.TestRenderTraversalAlternativesDefaultsAndReplacement
+      - internal/compat/progress.TestRender
+      - internal/compat/metadata.TestInterpretAndReplace
+      - internal/compat/matchfilter.TestErrorsHaveSpan
+      - pkg/ytdlp.TestOperationUsesRequestedFormatSelection
+      - pkg/ytdlp.TestClientAppliesMetadataBeforeMatchFilter
+      - pkg/ytdlp.TestClientRendersProgressTemplateIntoEvents
+      - internal/cli.TestRunWaveTwoCompatibilityFlags
+      - conformance/compatibility/phase2/PROVENANCE.md
     owner: core
+    known_deviation: Compatibility is scoped to the bounded Phase 2 corpus. Arbitrary template code/arithmetic, the full selector and match-filter coercion grammar, and product download of arbitrary all-format sets remain explicitly unsupported.
 
   - id: downloader.protocol_matrix
     name: Alpha downloader and protocol matrix
     phase: 2
     compatibility_target: Provide declared rate, retry, throttling, artifact, ISM, and external-downloader behavior with cancellation-safe resume.
-    status: not_started
+    status: compatible
+    evidence:
+      - internal/downloader.TestDownloadRetriesRetryableFailure
+      - internal/downloader.TestThrottleUsesInjectedClockAndSleeper
+      - internal/downloader.TestDownloadRestartsAfterThrottleAndRecovers
+      - internal/downloader.TestFileRetryIsBoundedAndCancellable
+      - internal/downloader.TestExternalAdapterUsesArgvAndCategorizesFailures
+      - internal/downloader.TestExternalAdapterRejectsInterpreters
+      - internal/fragment.TestEngineLimitsConcurrentRequestsPerHost
+      - internal/fragment.TestEngineRevalidatesLegacyFragmentsWithoutDigests
+      - internal/protocol/ism.TestAddressAndDownload
+      - internal/protocol/ism.FuzzParse
+      - internal/protocol/hls.TestDownloadPropagatesSelectedFormatHeaders
+      - pkg/ytdlp.TestClientISMDispatch
+      - pkg/ytdlp.TestClientRejectsInvalidWaveTwoOptionsBeforeNetwork
+      - conformance/downloader/PROVENANCE.md
+      - conformance/media/ism/PROVENANCE.md
     owner: io
+    known_deviation: External tools receive a generic argv contract and direct-child cancellation; callers must provide tool-specific protected-media header flags. Native HLS, DASH, and ISM paths propagate selected headers. Native PIFF synthesis and arbitrary multi-track archival layouts are not implemented.
 
   - id: postprocess.core_operations
     name: Core postprocessor operations
     phase: 2
     compatibility_target: Execute typed audio, conversion, embedding, fixup, concat, chapter, and file-move operations atomically and without a shell.
-    status: not_started
+    status: compatible
+    evidence:
+      - internal/media/ffmpeg.TestTypedAudioMetadataConcatOperations
+      - internal/media/ffmpeg.TestTypedSubtitleAndImageConversions
+      - internal/media/ffmpeg.TestOperationValidationAndAtomicFailure
+      - internal/media/ffmpeg.TestCommandCancellation
+      - internal/media/postprocess.TestGraphValidationAndSafeMove
+      - internal/media/postprocess.TestArtifactAndDestinationFailures
+      - internal/media/postprocess.FuzzArtifactPaths
+      - pkg/ytdlp.TestClientExtractAudioPostprocessorIntegration
+      - pkg/ytdlp.FuzzConfinedPostprocessPath
+      - pkg/ytdlp.TestClientRejectsInvalidWaveTwoOptionsBeforeNetwork
+      - conformance/media/postprocess/PROVENANCE.md
     owner: media
+    known_deviation: SponsorBlock/chapter mutation is not implemented. Windows refuses unsafe atomic overwrite and currently terminates only the direct child process; Unix process-group cancellation is covered. The CLI exposes audio extraction and remux while the Go API exposes every typed operation.
 
   - id: compat.format_selector_pilot
     name: Format-selector parser pilot

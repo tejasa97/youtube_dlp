@@ -201,3 +201,46 @@ func TestRunHLSProtocolDispatch(t *testing.T) {
 		t.Fatalf("HLS output = %q, error = %v", contents, err)
 	}
 }
+
+func TestRunWaveTwoCompatibilityFlags(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"--skip-download", "--print-json", "-f", "best", "-S", "size",
+		"--replace-in-metadata", "title:Deterministic:Native",
+		"--match-filter", "title~=Native", server.URL + "/page",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code = %d; stderr = %s", code, stderr.String())
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata["title"] != "Native Fixture" {
+		t.Fatalf("metadata = %#v", metadata)
+	}
+}
+
+func TestRunRejectsInvalidWaveTwoLimits(t *testing.T) {
+	for _, arguments := range [][]string{
+		{"--limit-rate", "invalid", "https://example.invalid/video"},
+		{"--concurrent-fragments", "129", "https://example.invalid/video"},
+		{"--retry-base-delay", "2s", "--retry-max-delay", "1s", "https://example.invalid/video"},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := Run(arguments, &stdout, &stderr); code != 2 {
+			t.Errorf("Run(%q) code = %d; stderr = %q", arguments, code, stderr.String())
+		}
+	}
+}
+
+func TestByteSizeFlagSuffixes(t *testing.T) {
+	var value byteSizeFlag
+	for input, expected := range map[string]int64{"1": 1, "2K": 2 << 10, "3m": 3 << 20, "4G": 4 << 30} {
+		if err := value.Set(input); err != nil || int64(value) != expected {
+			t.Fatalf("Set(%q) = %d, %v", input, value, err)
+		}
+	}
+}

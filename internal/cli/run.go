@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -47,6 +48,7 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 
 	showVersion := flags.Bool("version", false, "print the version and exit")
 	output := flags.String("output", "%(title)s.%(ext)s", "output filename template")
+	flags.StringVar(output, "o", *output, "alias for --output")
 	outputDir := flags.String("output-dir", ".", "directory that confines output files")
 	paths := &homePathFlag{target: outputDir}
 	flags.Var(paths, "paths", "set a home output/config path (home:PATH)")
@@ -71,6 +73,40 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		*cacheDir = ""
 		return nil
 	})
+	format := flags.String("format", "", "format selector expression")
+	flags.StringVar(format, "f", "", "alias for --format")
+	var formatSort, matchFilters, parseMetadata, replaceMetadata stringListFlag
+	flags.Var(&formatSort, "format-sort", "format sort field (repeatable)")
+	flags.Var(&formatSort, "S", "alias for --format-sort")
+	preferFreeFormats := flags.Bool("prefer-free-formats", false, "prefer free containers when otherwise equivalent")
+	allowUnplayable := flags.Bool("allow-unplayable-formats", false, "include DRM-marked formats in selection")
+	progressTemplate := flags.String("progress-template", "", "render download events with a bounded progress template")
+	flags.Var(&matchFilters, "match-filter", "metadata filter expression (repeatable OR)")
+	flags.Var(&parseMetadata, "parse-metadata", "bounded FROM:TO metadata action")
+	flags.Var(&replaceMetadata, "replace-in-metadata", "bounded FIELD:REGEX:REPLACEMENT action")
+	retries := flags.Int("retries", 0, "direct and fragment download attempts (maximum 100)")
+	retryBaseDelay := flags.Duration("retry-base-delay", 0, "deterministic initial retry delay")
+	retryMaxDelay := flags.Duration("retry-max-delay", 0, "maximum retry delay")
+	fragmentConcurrency := flags.Int("concurrent-fragments", 0, "parallel fragment downloads (maximum 128)")
+	perHostFragments := flags.Int("per-host-fragments", 0, "parallel fragments per host (maximum 128)")
+	maxSegments := flags.Int("max-segments", 0, "maximum fragments in a manifest (maximum 10000)")
+	fileRetries := flags.Int("file-access-retries", 0, "file finalization retries (maximum 10)")
+	throttleRestarts := flags.Int("throttle-restarts", 0, "low-speed restart count (maximum 10)")
+	throttleWindow := flags.Duration("throttle-window", 0, "low-speed observation window")
+	var rateLimit, maxBytes, throttleRate, maxFragmentBytes byteSizeFlag
+	flags.Var(&rateLimit, "limit-rate", "maximum transfer rate in bytes/s (K, M, G suffixes supported)")
+	flags.Var(&maxBytes, "max-download-bytes", "maximum direct download size")
+	flags.Var(&throttleRate, "throttled-rate", "restart below this transfer rate")
+	flags.Var(&maxFragmentBytes, "max-fragment-bytes", "maximum size of one fragment")
+	externalDownloader := flags.String("downloader", "", "explicit shell-free external downloader executable")
+	var externalArgs stringListFlag
+	flags.Var(&externalArgs, "downloader-arg", "external downloader argv item (repeatable)")
+	extractAudio := flags.Bool("extract-audio", false, "extract an audio-only output with ffmpeg")
+	flags.BoolVar(extractAudio, "x", false, "alias for --extract-audio")
+	audioFormat := flags.String("audio-format", "mp3", "audio codec/container for --extract-audio")
+	audioBitrate := flags.String("audio-bitrate", "", "ffmpeg audio bitrate for --extract-audio")
+	audioQuality := flags.Int("audio-quality", 0, "ffmpeg audio quality for --extract-audio")
+	remuxVideo := flags.String("remux-video", "", "remux video to the selected container with ffmpeg")
 	var configLocations stringListFlag
 	flags.Var(&configLocations, "config-location", "load an additional configuration file")
 	flags.Var(&configLocations, "config-locations", "alias for --config-location")
@@ -113,10 +149,32 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return nil
 	}
 	client := ytdlp.NewClient(ytdlp.WithEventHandler(handler), ytdlp.WithJavaScriptHelper(*javascriptHelper))
+	downloaderOptions := ytdlp.DownloaderOptions{
+		Attempts: *retries, RetryBaseDelay: *retryBaseDelay, RetryMaxDelay: *retryMaxDelay,
+		RateLimit: int64(rateLimit), MaxBytes: int64(maxBytes), ThrottleRate: int64(throttleRate),
+		ThrottleWindow: *throttleWindow, ThrottleRestarts: *throttleRestarts, FileAttempts: *fileRetries,
+		FragmentConcurrency: *fragmentConcurrency, PerHostFragmentConcurrency: *perHostFragments,
+		MaxSegments: *maxSegments, MaxSegmentBytes: int64(maxFragmentBytes),
+	}
+	if *externalDownloader != "" {
+		downloaderOptions.External = &ytdlp.ExternalDownloader{Executable: *externalDownloader, Arguments: append([]string(nil), externalArgs...)}
+	}
+	postprocessors := make([]ytdlp.Postprocessor, 0, 2)
+	if *extractAudio {
+		postprocessors = append(postprocessors, ytdlp.Postprocessor{ExtractAudio: &ytdlp.ExtractAudioPostprocessor{Codec: *audioFormat, Bitrate: *audioBitrate, Quality: *audioQuality}})
+	}
+	if *remuxVideo != "" {
+		postprocessors = append(postprocessors, ytdlp.Postprocessor{Remux: &ytdlp.RemuxPostprocessor{Format: *remuxVideo}})
+	}
 	result, err := client.Run(ctx, ytdlp.Request{
 		URL: flags.Arg(0), OutputTemplate: *output, OutputDir: *outputDir, Proxy: *proxy,
 		CookieFile: *cookieFile, CookiesFromBrowser: *cookiesFromBrowser, DownloadArchive: *downloadArchive, CacheDir: *cacheDir,
 		Timeout: *timeout, Overwrite: *overwrite, SkipDownload: *skipDownload,
+		Format: *format, FormatSort: append([]string(nil), formatSort...),
+		PreferFreeFormats: *preferFreeFormats, AllowUnplayableFormats: *allowUnplayable,
+		ProgressTemplate: *progressTemplate, MatchFilters: append([]string(nil), matchFilters...),
+		ParseMetadata: append([]string(nil), parseMetadata...), ReplaceMetadata: append([]string(nil), replaceMetadata...),
+		Downloader: downloaderOptions, Postprocessors: postprocessors,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
@@ -134,6 +192,31 @@ type stringListFlag []string
 func (values *stringListFlag) String() string { return strings.Join(*values, ",") }
 func (values *stringListFlag) Set(value string) error {
 	*values = append(*values, value)
+	return nil
+}
+
+type byteSizeFlag int64
+
+func (value *byteSizeFlag) String() string { return strconv.FormatInt(int64(*value), 10) }
+func (value *byteSizeFlag) Set(input string) error {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" {
+		return errors.New("byte size must not be empty")
+	}
+	multiplier := int64(1)
+	switch suffix := strings.ToUpper(trimmed[len(trimmed)-1:]); suffix {
+	case "K":
+		multiplier, trimmed = 1024, trimmed[:len(trimmed)-1]
+	case "M":
+		multiplier, trimmed = 1024*1024, trimmed[:len(trimmed)-1]
+	case "G":
+		multiplier, trimmed = 1024*1024*1024, trimmed[:len(trimmed)-1]
+	}
+	parsed, err := strconv.ParseInt(trimmed, 10, 64)
+	if err != nil || parsed < 0 || (parsed > 0 && parsed > (1<<63-1)/multiplier) {
+		return fmt.Errorf("invalid byte size %q", input)
+	}
+	*value = byteSizeFlag(parsed * multiplier)
 	return nil
 }
 

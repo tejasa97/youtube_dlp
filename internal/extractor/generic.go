@@ -86,6 +86,8 @@ func protocolForMediaType(mediaType string) string {
 		return "m3u8_native"
 	case "application/dash+xml":
 		return "http_dash_segments"
+	case "application/vnd.ms-sstr+xml", "text/xml+smoothstreaming":
+		return "ism"
 	default:
 		return ""
 	}

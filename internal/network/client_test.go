@@ -51,6 +51,28 @@ func TestClientHeadersCookiesRedirectsAndCompression(t *testing.T) {
 	}
 }
 
+func TestReadPageWithHeadersIsBounded(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("X-Fixture") != "present" {
+			http.Error(writer, "missing header", http.StatusForbidden)
+			return
+		}
+		_, _ = writer.Write([]byte("bounded"))
+	}))
+	defer server.Close()
+	client, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ReadPageWithHeaders(context.Background(), client, server.URL, http.Header{"X-Fixture": []string{"present"}}, 6); !errors.Is(err, ErrPageTooLarge) {
+		t.Fatalf("oversized response error = %v", err)
+	}
+	body, _, err := ReadPageWithHeaders(context.Background(), client, server.URL, http.Header{"X-Fixture": []string{"present"}}, 7)
+	if err != nil || string(body) != "bounded" {
+		t.Fatalf("body = %q, error = %v", body, err)
+	}
+}
+
 // The historical replay includes yt-dlp 272657252, which fixed cookie leakage
 // by an external downloader across redirects. The native Go path delegates
 // redirect scoping to its cookie jar; keep that boundary under regression.

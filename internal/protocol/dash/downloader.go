@@ -11,6 +11,7 @@ import (
 
 	"github.com/ytdlp-go/ytdlp/internal/events"
 	"github.com/ytdlp-go/ytdlp/internal/fragment"
+	"github.com/ytdlp-go/ytdlp/internal/network"
 )
 
 type Transport interface {
@@ -19,9 +20,16 @@ type Transport interface {
 }
 
 type Config struct {
+	Headers             http.Header
 	DynamicPolls        int
 	PollInterval        time.Duration
 	FragmentConcurrency int
+	PerHostConcurrency  int
+	MaxSegments         int
+	MaxSegmentSize      int64
+	Attempts            int
+	RetryBaseDelay      time.Duration
+	RetryMaxDelay       time.Duration
 }
 
 type Downloader struct {
@@ -40,6 +48,7 @@ type Result struct {
 }
 
 func NewDownloader(transport Transport, config Config) *Downloader {
+	config.Headers = config.Headers.Clone()
 	if config.DynamicPolls <= 0 {
 		config.DynamicPolls = 1
 	}
@@ -104,8 +113,11 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 			segments[index] = fragment.Segment{URL: segment.URL, RangeStart: segment.RangeStart, RangeLength: segment.RangeLength}
 		}
 		downloaded, err := fragment.New(downloader.transport).Download(ctx, fragment.Job{
-			Segments: segments, OutputRoot: outputRoot, Destination: trackDestination,
-			Concurrency: downloader.config.FragmentConcurrency, Overwrite: overwrite,
+			Segments: segments, Headers: downloader.config.Headers, OutputRoot: outputRoot, Destination: trackDestination,
+			Concurrency: downloader.config.FragmentConcurrency, PerHostConcurrency: downloader.config.PerHostConcurrency,
+			MaxSegments: downloader.config.MaxSegments, MaxSegmentSize: downloader.config.MaxSegmentSize,
+			Attempts: downloader.config.Attempts, RetryBaseDelay: downloader.config.RetryBaseDelay,
+			RetryMaxDelay: downloader.config.RetryMaxDelay, Overwrite: overwrite,
 		}, sink)
 		if err != nil {
 			return Result{}, fmt.Errorf("representation %s: %w", representation.ID, err)
@@ -120,7 +132,13 @@ func representationKey(representation Representation) string {
 }
 
 func (downloader *Downloader) load(ctx context.Context, manifestURL string) (MPD, error) {
-	body, _, err := downloader.transport.ReadPage(ctx, manifestURL)
+	var body []byte
+	var err error
+	if len(downloader.config.Headers) == 0 {
+		body, _, err = downloader.transport.ReadPage(ctx, manifestURL)
+	} else {
+		body, _, err = network.ReadPageWithHeaders(ctx, downloader.transport, manifestURL, downloader.config.Headers, 16<<20)
+	}
 	if err != nil {
 		return MPD{}, err
 	}

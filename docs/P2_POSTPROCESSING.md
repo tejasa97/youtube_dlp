@@ -20,6 +20,12 @@ concat, and safe file moves. An owned input is removed only after its replacemen
 has been atomically finalized. Metadata and media-option values are validated;
 there is no command-string API.
 
+The public Go request contract exposes a tagged postprocessor union and returns
+typed output artifacts. The CLI currently exposes the common audio-extraction
+and remux operations; embedders can request every typed operation. Operation
+count and path confinement are checked before network work begins, and product
+integration is covered by generated-media ffprobe verification.
+
 Known deviations: chapter writing uses explicit millisecond `ffmetadata`
 chapters and preserves supplied boundaries/titles; yt-dlp's more extensive
 chapter removal and sponsor-block mutation workflows are not part of this lane

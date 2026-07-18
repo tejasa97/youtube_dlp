@@ -32,6 +32,10 @@ fragments, Smooth Streaming (ISM), and opt-in external downloader tools.
   scheme/host and bounded arguments, never invokes a shell, redacts diagnostic
   output, and categorizes unavailable tools, invalid input, failure, and
   cancellation.
+- The public API and CLI expose the bounded rate, retry, throttling, file retry,
+  fragment concurrency/size/count, ISM, and external-downloader controls.
+  Selected-format HTTP headers are propagated to direct files and to HLS,
+  DASH, and ISM manifests, keys, and fragments.
 
 ## Explicit deviations
 
@@ -39,6 +43,10 @@ fragments, Smooth Streaming (ISM), and opt-in external downloader tools.
   the direct child on supported platforms. Recursive process-group teardown is
   intentionally not claimed here; the postprocessing lane owns process-tree
   supervision. The adapter never launches a shell or interpolates arguments.
+- The generic external-downloader argv contract does not synthesize
+  tool-specific HTTP-header flags. Callers that need protected media must pass
+  the relevant tool's explicit header arguments themselves; native protocols
+  remain the preferred header-aware path.
 - ISM downloads fMP4 fragments and exposes track/merge requirements. Native
   PIFF header synthesis and final container merge belong to postprocessing,
   not the network downloader.

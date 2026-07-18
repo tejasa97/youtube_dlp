@@ -157,3 +157,9 @@ func TestGenericManifestExtraction(t *testing.T) {
 		}
 	}
 }
+
+func TestGenericRecognizesSmoothStreamingManifest(t *testing.T) {
+	if got := protocolForMediaType("application/vnd.ms-sstr+xml"); got != "ism" {
+		t.Fatalf("protocol = %q, want ism", got)
+	}
+}

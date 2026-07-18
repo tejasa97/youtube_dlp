@@ -23,6 +23,8 @@ func TestPublicEventKindsMatchOperationEvents(t *testing.T) {
 		{EventPostprocessStarting, events.KindPostprocessStarting},
 		{EventPostprocessProgress, events.KindPostprocessProgress},
 		{EventPostprocessCompleted, events.KindPostprocessCompleted},
+		{EventMetadataWarning, events.KindMetadataWarning},
+		{EventMatchFilterSkipped, events.KindMatchFilterSkipped},
 	}
 	for _, pair := range pairs {
 		if pair.public != string(pair.internal) {

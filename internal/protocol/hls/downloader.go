@@ -11,6 +11,7 @@ import (
 
 	"github.com/ytdlp-go/ytdlp/internal/events"
 	"github.com/ytdlp-go/ytdlp/internal/fragment"
+	"github.com/ytdlp-go/ytdlp/internal/network"
 )
 
 type Transport interface {
@@ -19,9 +20,16 @@ type Transport interface {
 }
 
 type Config struct {
+	Headers             http.Header
 	PollInterval        time.Duration
 	MaxPolls            int
 	FragmentConcurrency int
+	PerHostConcurrency  int
+	MaxSegments         int
+	MaxSegmentSize      int64
+	Attempts            int
+	RetryBaseDelay      time.Duration
+	RetryMaxDelay       time.Duration
 }
 
 type Downloader struct {
@@ -30,6 +38,7 @@ type Downloader struct {
 }
 
 func NewDownloader(transport Transport, config Config) *Downloader {
+	config.Headers = config.Headers.Clone()
 	if config.PollInterval <= 0 {
 		config.PollInterval = time.Second
 	}
@@ -64,7 +73,7 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 			return fragment.Result{}, ctx.Err()
 		case <-timer.C:
 		}
-		body, _, err := downloader.transport.ReadPage(ctx, mediaURL)
+		body, _, err := downloader.readPage(ctx, mediaURL)
 		if err != nil {
 			return fragment.Result{}, err
 		}
@@ -96,7 +105,7 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 		if segment.Key != nil {
 			key := keyCache[segment.Key.URL]
 			if key == nil {
-				body, _, err := downloader.transport.ReadPage(ctx, segment.Key.URL)
+				body, _, err := downloader.readPage(ctx, segment.Key.URL)
 				if err != nil {
 					return fragment.Result{}, err
 				}
@@ -116,13 +125,16 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 		plan = append(plan, planned)
 	}
 	return fragment.New(downloader.transport).Download(ctx, fragment.Job{
-		Segments: plan, OutputRoot: outputRoot, Destination: destination,
-		Concurrency: downloader.config.FragmentConcurrency, Overwrite: overwrite,
+		Segments: plan, Headers: downloader.config.Headers, OutputRoot: outputRoot, Destination: destination,
+		Concurrency: downloader.config.FragmentConcurrency, PerHostConcurrency: downloader.config.PerHostConcurrency,
+		MaxSegments: downloader.config.MaxSegments, MaxSegmentSize: downloader.config.MaxSegmentSize,
+		Attempts: downloader.config.Attempts, RetryBaseDelay: downloader.config.RetryBaseDelay,
+		RetryMaxDelay: downloader.config.RetryMaxDelay, Overwrite: overwrite,
 	}, sink)
 }
 
 func (downloader *Downloader) loadMedia(ctx context.Context, manifestURL string) (string, *MediaPlaylist, error) {
-	body, _, err := downloader.transport.ReadPage(ctx, manifestURL)
+	body, _, err := downloader.readPage(ctx, manifestURL)
 	if err != nil {
 		return "", nil, err
 	}
@@ -142,7 +154,7 @@ func (downloader *Downloader) loadMedia(ctx context.Context, manifestURL string)
 			selected = variant
 		}
 	}
-	body, _, err = downloader.transport.ReadPage(ctx, selected.URL)
+	body, _, err = downloader.readPage(ctx, selected.URL)
 	if err != nil {
 		return "", nil, err
 	}
@@ -151,4 +163,11 @@ func (downloader *Downloader) loadMedia(ctx context.Context, manifestURL string)
 		return "", nil, errors.Join(err, ErrInvalidPlaylist)
 	}
 	return selected.URL, playlist.Media, nil
+}
+
+func (downloader *Downloader) readPage(ctx context.Context, rawURL string) ([]byte, http.Header, error) {
+	if len(downloader.config.Headers) == 0 {
+		return downloader.transport.ReadPage(ctx, rawURL)
+	}
+	return network.ReadPageWithHeaders(ctx, downloader.transport, rawURL, downloader.config.Headers, maxPlaylistBytes)
 }

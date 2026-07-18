@@ -14,8 +14,10 @@ product layer to wire into its request/CLI contract.
   rejection decision (not an extraction error).
 
 All parsers report byte source spans where syntax is rejected and use explicit
-length/count limits. Product/CLI wiring, public option names, and manifest
-claims are owned by the integration lane.
+length/count limits. The public `pkg/ytdlp` request contract and CLI now wire
+these languages into format choice, metadata mutation, policy skips, output
+paths, and structured progress events. Invalid language input is rejected
+before extraction or download begins.
 
 Intentional unsupported syntax is explicit rather than silently approximated:
 
@@ -30,3 +32,6 @@ Intentional unsupported syntax is explicit rather than silently approximated:
   code evaluation. Supported traversal is object keys and numeric list indexes.
 - Metadata actions do not execute postprocessor code; they accept only bounded
   regular-expression interpretation and replacement.
+- A selector result containing more than one video and one audio stream is
+  rejected explicitly; arbitrary `all`-format archival layouts are not yet a
+  product download mode.

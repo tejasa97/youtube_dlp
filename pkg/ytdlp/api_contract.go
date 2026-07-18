@@ -25,4 +25,6 @@ const (
 	EventPostprocessProgress  = "postprocess_progress"
 	EventPostprocessCompleted = "postprocess_completed"
 	EventArchiveMatch         = "archive_match"
+	EventMetadataWarning      = "metadata_warning"
+	EventMatchFilterSkipped   = "match_filter_skipped"
 )

@@ -19,10 +19,14 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/cookies/chromium"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/chromiumlinux"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/firefox"
+	"github.com/ytdlp-go/ytdlp/internal/downloader"
 	"github.com/ytdlp-go/ytdlp/internal/extractor"
 	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
 	"github.com/ytdlp-go/ytdlp/internal/media/pipeline"
 	"github.com/ytdlp-go/ytdlp/internal/network"
+	"github.com/ytdlp-go/ytdlp/internal/protocol/dash"
+	"github.com/ytdlp-go/ytdlp/internal/protocol/hls"
+	"github.com/ytdlp-go/ytdlp/internal/protocol/ism"
 	"github.com/ytdlp-go/ytdlp/internal/testserver"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
@@ -93,10 +97,164 @@ func TestMediaFailuresAreCategorized(t *testing.T) {
 		{ffmpeg.ErrMediaFailure, ErrorInternal},
 		{pipeline.ErrMissingDASHTracks, ErrorInternal},
 		{pipeline.ErrMissingToolset, ErrorInternal},
+		{downloader.ErrExternalUnavailable, ErrorUnsupported},
+		{downloader.ErrExternalFailed, ErrorInternal},
+		{hls.ErrUnsupportedEncryption, ErrorUnsupported},
+		{hls.ErrInvalidPlaylist, ErrorInternal},
+		{dash.ErrUnsupportedAddressing, ErrorUnsupported},
+		{dash.ErrInvalidMPD, ErrorInternal},
+		{ism.ErrInvalidManifest, ErrorInternal},
 	} {
 		if err := categorized("media", test.err); !IsCategory(err, test.category) {
 			t.Fatalf("categorized(%v) = %v, want %s", test.err, err, test.category)
 		}
+	}
+}
+
+func TestClientRejectsInvalidWaveTwoOptionsBeforeNetwork(t *testing.T) {
+	hits := 0
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits++ }))
+	defer server.Close()
+	tests := []Request{
+		{Downloader: DownloaderOptions{FragmentConcurrency: 129}},
+		{Downloader: DownloaderOptions{RetryBaseDelay: 2 * time.Second, RetryMaxDelay: time.Second}},
+		{Downloader: DownloaderOptions{External: &ExternalDownloader{Executable: "tool", Arguments: []string{"bad\nargument"}}}},
+		{Postprocessors: []Postprocessor{{}}},
+		{Postprocessors: []Postprocessor{{Move: &MovePostprocessor{Destination: "out.mp4"}, Remux: &RemuxPostprocessor{Destination: "out.mkv"}}}},
+		{OutputDir: t.TempDir(), Postprocessors: []Postprocessor{{Move: &MovePostprocessor{Destination: "../escape.mp4"}}}},
+	}
+	for index, request := range tests {
+		request.URL = server.URL + "/media.mp4"
+		if _, err := NewClient().Run(context.Background(), request); !IsCategory(err, ErrorInvalidInput) {
+			t.Errorf("case %d error = %v", index, err)
+		}
+	}
+	if hits != 0 {
+		t.Fatalf("preflight-invalid requests made %d network calls", hits)
+	}
+}
+
+func TestClientAppliesMetadataBeforeMatchFilter(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "video/mp4")
+		writer.Header().Set("Content-Length", "4")
+		if request.Method != http.MethodHead {
+			_, _ = writer.Write([]byte("data"))
+		}
+	}))
+	defer server.Close()
+	var events []Event
+	result, err := NewClient(WithEventHandler(func(_ context.Context, event Event) error {
+		events = append(events, event)
+		return nil
+	})).Run(context.Background(), Request{
+		URL: server.URL + "/clip.mp4", SkipDownload: true,
+		ReplaceMetadata: []string{"title:clip:renamed"}, MatchFilters: []string{"title=other"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Skipped || !strings.Contains(result.SkipReason, "renamed") {
+		t.Fatalf("result = %#v", result)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(result.InfoJSON, &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata["title"] != "renamed" {
+		t.Fatalf("metadata title = %#v", metadata["title"])
+	}
+	if events[len(events)-1].Kind != EventMatchFilterSkipped {
+		t.Fatalf("events = %#v", events)
+	}
+}
+
+func TestClientRendersProgressTemplateIntoEvents(t *testing.T) {
+	server := playlistMediaServer(t)
+	defer server.Close()
+	var messages []string
+	result, err := NewClient(WithEventHandler(func(_ context.Context, event Event) error {
+		if event.Kind == EventDownloadProgress {
+			messages = append(messages, event.Message)
+		}
+		return nil
+	})).Run(context.Background(), Request{
+		URL: server.URL + "/one.mp4", OutputDir: t.TempDir(),
+		ProgressTemplate: "%(status)s:%(downloaded_bytes)d",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Downloaded || len(messages) == 0 || !strings.HasPrefix(messages[len(messages)-1], EventDownloadProgress+":") {
+		t.Fatalf("result=%#v messages=%#v", result, messages)
+	}
+}
+
+func TestOperationUsesRequestedFormatSelection(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_, _ = writer.Write([]byte(strings.TrimPrefix(request.URL.Path, "/")))
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	request := Request{OutputDir: t.TempDir(), Format: "low"}
+	compatibility, err := prepareCompatibility(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("selection")},
+		value.Field{Key: "title", Value: value.String("selection")},
+		value.Field{Key: "ext", Value: value.String("mp4")},
+		value.Field{Key: "formats", Value: value.List(
+			value.ObjectValue(value.NewObject(value.Field{Key: "format_id", Value: value.String("high")}, value.Field{Key: "url", Value: value.String(server.URL + "/high")}, value.Field{Key: "ext", Value: value.String("mp4")}, value.Field{Key: "height", Value: value.Int(1080)}, value.Field{Key: "vcodec", Value: value.String("avc")}, value.Field{Key: "acodec", Value: value.String("aac")})),
+			value.ObjectValue(value.NewObject(value.Field{Key: "format_id", Value: value.String("low")}, value.Field{Key: "url", Value: value.String(server.URL + "/low")}, value.Field{Key: "ext", Value: value.String("mp4")}, value.Field{Key: "height", Value: value.Int(360)}, value.Field{Key: "vcodec", Value: value.String("avc")}, value.Field{Key: "acodec", Value: value.String("aac")})),
+		)},
+	))
+	operation := &operation{client: NewClient(), request: request, transport: transport, compatibility: compatibility}
+	result, err := operation.processMedia(context.Background(), info, "fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(result.Filename)
+	if err != nil || string(contents) != "low" {
+		t.Fatalf("selected contents = %q, error = %v", contents, err)
+	}
+}
+
+func TestClientExtractAudioPostprocessorIntegration(t *testing.T) {
+	ffmpegPath, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg unavailable")
+	}
+	fixtureRoot := t.TempDir()
+	root := t.TempDir()
+	source := filepath.Join(fixtureRoot, "source.mp4")
+	output, err := exec.Command(ffmpegPath, "-nostdin", "-y", "-f", "lavfi", "-i", "sine=frequency=700:duration=0.2", "-c:a", "aac", source).CombinedOutput()
+	if err != nil {
+		t.Fatalf("generate fixture: %v: %s", err, output)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "video/mp4")
+		http.ServeFile(writer, request, source)
+	}))
+	defer server.Close()
+	result, err := NewClient().Run(context.Background(), Request{
+		URL: server.URL + "/source.mp4", OutputDir: root,
+		Postprocessors: []Postprocessor{{ExtractAudio: &ExtractAudioPostprocessor{Codec: "mp3"}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Ext(result.Filename) != ".mp3" || len(result.Artifacts) != 1 || result.Artifacts[0].Kind != "media" {
+		t.Fatalf("result = %#v", result)
+	}
+	tools, err := ffmpeg.Discover(ffmpeg.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe, err := tools.Probe(context.Background(), result.Filename)
+	if err != nil || len(probe.Streams) == 0 || probe.Streams[0].CodecType != "audio" {
+		t.Fatalf("probe = %#v, error = %v", probe, err)
 	}
 }
 
@@ -411,6 +569,31 @@ func TestClientHLSAndDASHDispatch(t *testing.T) {
 	}
 }
 
+func TestClientISMDispatch(t *testing.T) {
+	const manifest = `<SmoothStreamingMedia TimeScale="10" Duration="20"><StreamIndex Type="video" Url="video/QualityLevels({bitrate})/Fragments(video={start time})"><QualityLevel Bitrate="200" FourCC="H264"/><c t="0" d="10" r="1"/></StreamIndex></SmoothStreamingMedia>`
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/Manifest" {
+			writer.Header().Set("Content-Type", "application/vnd.ms-sstr+xml")
+			writer.Header().Set("Content-Length", fmt.Sprint(len(manifest)))
+			if request.Method != http.MethodHead {
+				_, _ = writer.Write([]byte(manifest))
+			}
+			return
+		}
+		_, _ = writer.Write([]byte(filepath.Base(request.URL.Path)))
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	result, err := NewClient().Run(context.Background(), Request{URL: server.URL + "/Manifest", OutputDir: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(result.Filename)
+	if err != nil || string(contents) != "Fragments(video=0)Fragments(video=10)" {
+		t.Fatalf("ISM output = %q, error = %v", contents, err)
+	}
+}
+
 func TestClientDASHMergeDispatch(t *testing.T) {
 	ffmpegPath, err := exec.LookPath("ffmpeg")
 	if err != nil {
@@ -643,4 +826,21 @@ func playlistMediaServer(t *testing.T) *httptest.Server {
 			_, _ = writer.Write([]byte(body))
 		}
 	}))
+}
+
+func FuzzConfinedPostprocessPath(f *testing.F) {
+	f.Add("media.mp4")
+	f.Add("nested/output.mkv")
+	f.Add("../escape")
+	f.Fuzz(func(t *testing.T, requested string) {
+		root := t.TempDir()
+		path, err := confinedPostprocessPath(root, requested)
+		if err != nil {
+			return
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			t.Fatalf("accepted escaping path %q as %q", requested, path)
+		}
+	})
 }

@@ -113,6 +113,38 @@ func TestDownloadLiveHonorsCancellation(t *testing.T) {
 	}
 }
 
+func TestDownloadPropagatesSelectedFormatHeaders(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Referer") != "https://origin.example/watch" || request.Header.Get("X-Media-Token") != "fixture" {
+			http.Error(writer, "missing format headers", http.StatusForbidden)
+			return
+		}
+		switch request.URL.Path {
+		case "/media.m3u8":
+			_, _ = fmt.Fprint(writer, "#EXTM3U\n#EXTINF:1,\nsegment.bin\n#EXT-X-ENDLIST\n")
+		case "/segment.bin":
+			_, _ = writer.Write([]byte("protected"))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "protected.bin")
+	_, err := NewDownloader(transport, Config{Headers: http.Header{
+		"Referer":       []string{"https://origin.example/watch"},
+		"X-Media-Token": []string{"fixture"},
+	}}).Download(context.Background(), server.URL+"/media.m3u8", root, destination, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(destination)
+	if err != nil || string(contents) != "protected" {
+		t.Fatalf("contents = %q, error = %v", contents, err)
+	}
+}
+
 // Regression derived from yt-dlp aefce1eea: an empty test fragment list must
 // remain empty and fail explicitly rather than manufacturing a nil fragment.
 func TestDownloadEmptyPlaylistReturnsNoSegments(t *testing.T) {

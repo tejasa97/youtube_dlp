@@ -16,6 +16,9 @@ import (
 
 	"github.com/ytdlp-go/ytdlp/internal/archive"
 	"github.com/ytdlp-go/ytdlp/internal/cache"
+	"github.com/ytdlp-go/ytdlp/internal/compat/matchfilter"
+	compatmetadata "github.com/ytdlp-go/ytdlp/internal/compat/metadata"
+	"github.com/ytdlp-go/ytdlp/internal/compat/progress"
 	outputtemplate "github.com/ytdlp-go/ytdlp/internal/compat/template"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/chromium"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/chromiumlinux"
@@ -25,13 +28,16 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/events"
 	"github.com/ytdlp-go/ytdlp/internal/extractor"
 	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
+	"github.com/ytdlp-go/ytdlp/internal/fragment"
 	"github.com/ytdlp-go/ytdlp/internal/javascript/ejs"
 	"github.com/ytdlp-go/ytdlp/internal/javascript/supervisor"
 	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
 	"github.com/ytdlp-go/ytdlp/internal/media/pipeline"
+	"github.com/ytdlp-go/ytdlp/internal/media/postprocess"
 	"github.com/ytdlp-go/ytdlp/internal/network"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/dash"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/hls"
+	"github.com/ytdlp-go/ytdlp/internal/protocol/ism"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
@@ -70,17 +76,28 @@ func IsCategory(err error, category ErrorCategory) bool {
 }
 
 type Request struct {
-	URL                string
-	OutputTemplate     string
-	OutputDir          string
-	Proxy              string
-	CookieFile         string
-	CookiesFromBrowser string
-	DownloadArchive    string
-	CacheDir           string
-	Timeout            time.Duration
-	Overwrite          bool
-	SkipDownload       bool
+	URL                    string
+	OutputTemplate         string
+	OutputDir              string
+	Proxy                  string
+	CookieFile             string
+	CookiesFromBrowser     string
+	DownloadArchive        string
+	CacheDir               string
+	Timeout                time.Duration
+	Overwrite              bool
+	SkipDownload           bool
+	Format                 string
+	FormatSort             []string
+	PreferredExtensions    []string
+	PreferFreeFormats      bool
+	AllowUnplayableFormats bool
+	ProgressTemplate       string
+	MatchFilters           []string
+	ParseMetadata          []string
+	ReplaceMetadata        []string
+	Downloader             DownloaderOptions
+	Postprocessors         []Postprocessor
 }
 
 type Result struct {
@@ -88,9 +105,12 @@ type Result struct {
 	Extractor  string
 	Downloaded bool
 	Archived   bool
+	Skipped    bool
+	SkipReason string
 	Filename   string
 	Bytes      int64
 	Entries    []Result
+	Artifacts  []Artifact
 }
 
 type Event struct {
@@ -149,6 +169,13 @@ func NewClient(options ...Option) *Client {
 func (client *Client) Run(ctx context.Context, request Request) (Result, error) {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if err := validateRequestOptions(request); err != nil {
+		return Result{}, categorized("validate request options", err)
+	}
+	compatibility, err := prepareCompatibility(request)
+	if err != nil {
+		return Result{}, err
 	}
 	transport, err := network.New(network.Config{Proxy: request.Proxy, Timeout: request.Timeout})
 	if err != nil {
@@ -223,6 +250,7 @@ func (client *Client) Run(ctx context.Context, request Request) (Result, error) 
 		client: client, request: request, transport: transport,
 		registry: productRegistry(),
 		solver:   challengeSolver, archive: downloadArchive, cache: operationCache,
+		compatibility: compatibility,
 	}
 	return operation.process(ctx, request.URL, "", nil, make(map[string]bool), 0)
 }
@@ -247,13 +275,14 @@ const (
 )
 
 type operation struct {
-	client    *Client
-	request   Request
-	transport *network.Client
-	registry  *extractor.Registry
-	solver    extractor.YouTubeChallengeSolver
-	archive   *archive.Store
-	cache     *cache.Store
+	client        *Client
+	request       Request
+	transport     *network.Client
+	registry      *extractor.Registry
+	solver        extractor.YouTubeChallengeSolver
+	archive       *archive.Store
+	cache         *cache.Store
+	compatibility compatibilityPlan
 }
 
 func (operation *operation) process(ctx context.Context, rawURL, extractorKey string, overlay *extractor.Entry, ancestors map[string]bool, depth int) (Result, error) {
@@ -376,11 +405,22 @@ func encodeInfo(info value.Info) (json.RawMessage, error) {
 }
 
 func (operation *operation) processMedia(ctx context.Context, info value.Info, extractorName string) (Result, error) {
+	decision, err := operation.applyCompatibility(ctx, &info)
+	if err != nil {
+		return Result{}, err
+	}
 	encoded, err := encodeInfo(info)
 	if err != nil {
 		return Result{}, err
 	}
 	result := Result{InfoJSON: encoded, Extractor: extractorName}
+	if !decision.Pass {
+		result.Skipped, result.SkipReason = true, decision.Reason
+		if err := operation.client.emit(ctx, Event{Kind: EventMatchFilterSkipped, Extractor: extractorName, Message: decision.Reason}); err != nil {
+			return Result{}, &Error{Category: ErrorInternal, Op: "emit match-filter skip", Err: err}
+		}
+		return result, nil
+	}
 	var archiveIdentity archive.Identity
 	if operation.archive != nil {
 		id, ok := info.ID()
@@ -411,7 +451,7 @@ func (operation *operation) processMedia(ctx context.Context, info value.Info, e
 		return result, nil
 	}
 
-	selectedFormat, err := mediaformat.Best(info)
+	selectedFormats, err := operation.selectFormats(info)
 	if err != nil {
 		return Result{}, categorized("select format", err)
 	}
@@ -428,51 +468,17 @@ func (operation *operation) processMedia(ctx context.Context, info value.Info, e
 		return Result{}, categorized("render output template", err)
 	}
 
-	sink := events.SinkFunc(func(ctx context.Context, event events.Event) error {
-		return operation.client.emit(ctx, Event{
-			Kind: string(event.Kind), URL: network.RedactRawURL(event.URL), Path: event.Path, Bytes: event.Bytes,
-			Total: event.Total, Attempt: event.Attempt, Resuming: event.Resuming, Message: event.Message,
-			Fragment: event.Fragment, Fragments: event.Fragments,
-		})
-	})
-	var downloadedPath string
-	var downloadedBytes int64
-	switch selectedFormat.Protocol {
-	case "m3u8_native":
-		downloaded, err := hls.NewDownloader(operation.transport, hls.Config{}).Download(ctx, selectedFormat.URL, outputDir, destination, operation.request.Overwrite, sink)
-		if err != nil {
-			return Result{}, categorized("download HLS", err)
-		}
-		downloadedPath, downloadedBytes = downloaded.Path, downloaded.Bytes
-	case "http_dash_segments":
-		downloaded, err := dash.NewDownloader(operation.transport, dash.Config{}).Download(ctx, selectedFormat.URL, outputDir, destination, operation.request.Overwrite, sink)
-		if err != nil {
-			return Result{}, categorized("download DASH", err)
-		}
-		if downloaded.MergeRequired {
-			tools, err := ffmpeg.Discover(ffmpeg.Config{})
-			if err != nil {
-				return Result{}, categorized("discover ffmpeg", err)
-			}
-			if err := pipeline.FinalizeDASH(ctx, downloaded, destination, operation.request.Overwrite, tools, sink); err != nil {
-				return Result{}, categorized("merge DASH", err)
-			}
-			downloadedPath = destination
-			if info, statErr := os.Stat(destination); statErr == nil {
-				downloadedBytes = info.Size()
-			}
-		} else {
-			downloadedPath = downloaded.Tracks[0].Download.Path
-			downloadedBytes = downloaded.Tracks[0].Download.Bytes
-		}
-	default:
-		downloaded, err := downloader.New(operation.transport).Download(ctx, downloader.Job{
-			URL: selectedFormat.URL, Headers: selectedFormat.Headers, OutputRoot: outputDir, Destination: destination, Overwrite: operation.request.Overwrite,
-		}, sink)
-		if err != nil {
-			return Result{}, categorized("download", err)
-		}
-		downloadedPath, downloadedBytes = downloaded.Path, downloaded.Bytes
+	sink := operation.eventSink()
+	downloadedPath, downloadedBytes, err := operation.downloadSelections(ctx, selectedFormats, outputDir, destination, sink)
+	if err != nil {
+		return Result{}, categorized("download selected formats", err)
+	}
+	downloadedPath, result.Artifacts, err = operation.applyPostprocessors(ctx, outputDir, downloadedPath, sink)
+	if err != nil {
+		return Result{}, categorized("run postprocessors", err)
+	}
+	if info, statErr := os.Stat(downloadedPath); statErr == nil {
+		downloadedBytes = info.Size()
 	}
 	result.Downloaded = true
 	result.Filename = downloadedPath
@@ -537,9 +543,24 @@ func categorized(op string, err error) error {
 		category = ErrorUnsupported
 	case errors.Is(err, ffmpeg.ErrFFmpegUnavailable), errors.Is(err, ffmpeg.ErrFFprobeUnavailable):
 		category = ErrorUnsupported
+	case errors.Is(err, downloader.ErrExternalUnavailable), errors.Is(err, hls.ErrUnsupportedEncryption),
+		errors.Is(err, dash.ErrUnsupportedTimeline), errors.Is(err, dash.ErrUnsupportedAddressing):
+		category = ErrorUnsupported
 	case errors.Is(err, outputtemplate.ErrInvalidTemplate), errors.Is(err, outputtemplate.ErrUnsafePath),
+		errors.Is(err, errInvalidRequestOptions),
+		errors.Is(err, matchfilter.ErrInvalidFilter), errors.Is(err, compatmetadata.ErrInvalidAction),
+		errors.Is(err, progress.ErrInvalidProgress), errors.Is(err, mediaformat.ErrInvalidSelector),
+		errors.Is(err, mediaformat.ErrInvalidPreference), errors.Is(err, mediaformat.ErrInvalidHeaders),
 		errors.Is(err, downloader.ErrDestinationExists), errors.Is(err, downloader.ErrUnsafeDestination),
+		errors.Is(err, downloader.ErrTooManyAttempts), errors.Is(err, downloader.ErrInvalidLimits),
+		errors.Is(err, downloader.ErrUnsafeExternalArg), errors.Is(err, downloader.ErrUnsafeExternalTool),
+		errors.Is(err, downloader.ErrInvalidExternalURL),
+		errors.Is(err, fragment.ErrTooManySegments), errors.Is(err, fragment.ErrTooManyAttempts),
+		errors.Is(err, fragment.ErrTooMuchConcurrency), errors.Is(err, fragment.ErrSegmentTooLarge),
+		errors.Is(err, fragment.ErrUnsafeDestination), errors.Is(err, ism.ErrInvalidConfig),
 		errors.Is(err, ffmpeg.ErrDestinationExists),
+		errors.Is(err, ffmpeg.ErrInvalidOperation), errors.Is(err, postprocess.ErrInvalidGraph),
+		errors.Is(err, postprocess.ErrUnsafePath),
 		errors.Is(err, network.ErrInvalidProxy), errors.Is(err, network.ErrInvalidCookie),
 		errors.Is(err, errInvalidBrowserCookieSpec), errors.Is(err, netscape.ErrMalformed),
 		errors.Is(err, netscape.ErrWrongFormat), errors.Is(err, netscape.ErrTooLarge),
@@ -550,8 +571,11 @@ func categorized(op string, err error) error {
 		category = ErrorInvalidInput
 	case errors.Is(err, archive.ErrIO), errors.Is(err, archive.ErrLock), errors.Is(err, cache.ErrIO):
 		category = ErrorInternal
-	case errors.Is(err, mediaformat.ErrNoFormats), errors.Is(err, mediaformat.ErrInvalidHeaders), errors.Is(err, extractor.ErrInvalidMetadata),
+	case errors.Is(err, mediaformat.ErrNoFormats), errors.Is(err, extractor.ErrInvalidMetadata),
 		errors.Is(err, extractor.ErrInvalidPlaylist), errors.Is(err, extractor.ErrPlaylistLimit),
+		errors.Is(err, downloader.ErrExternalFailed), errors.Is(err, fragment.ErrNoSegments),
+		errors.Is(err, fragment.ErrInvalidEncryption), errors.Is(err, hls.ErrInvalidPlaylist),
+		errors.Is(err, dash.ErrInvalidMPD), errors.Is(err, ism.ErrInvalidManifest), errors.Is(err, ism.ErrTimelineBound),
 		errors.Is(err, ffmpeg.ErrMediaFailure), errors.Is(err, pipeline.ErrMissingDASHTracks),
 		errors.Is(err, pipeline.ErrMissingToolset):
 		category = ErrorInternal

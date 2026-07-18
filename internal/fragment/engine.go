@@ -54,6 +54,7 @@ type Segment struct {
 
 type Job struct {
 	Segments           []Segment
+	Headers            http.Header
 	OutputRoot         string
 	Destination        string
 	Concurrency        int
@@ -264,7 +265,7 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 func (engine *Engine) fetchWithRetry(ctx context.Context, job Job, segment Segment, destination string, attempts int, maxSize int64, retryEvent func(int, error) error) error {
 	var lastErr error
 	for attempt := 1; attempt <= attempts; attempt++ {
-		lastErr = engine.fetch(ctx, segment, destination, maxSize)
+		lastErr = engine.fetch(ctx, segment, destination, maxSize, job.Headers)
 		if lastErr == nil {
 			return nil
 		}
@@ -378,7 +379,7 @@ func segmentHost(raw string) (string, error) {
 	return strings.ToLower(parsed.Hostname()), nil
 }
 
-func (engine *Engine) fetch(ctx context.Context, segment Segment, destination string, maxSize int64) error {
+func (engine *Engine) fetch(ctx context.Context, segment Segment, destination string, maxSize int64, headers http.Header) error {
 	if isSymlink(destination) || isSymlink(destination+".tmp") {
 		return ErrUnsafeDestination
 	}
@@ -388,6 +389,11 @@ func (engine *Engine) fetch(ctx context.Context, segment Segment, destination st
 	}
 	if segment.RangeLength > 0 {
 		request.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", segment.RangeStart, segment.RangeStart+segment.RangeLength-1))
+	}
+	for key, values := range headers {
+		for _, value := range values {
+			request.Header.Add(key, value)
+		}
 	}
 	response, err := engine.transport.Do(ctx, request)
 	if err != nil {

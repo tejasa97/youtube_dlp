@@ -21,6 +21,8 @@ const (
 	KindPostprocessStarting  Kind = "postprocess_starting"
 	KindPostprocessProgress  Kind = "postprocess_progress"
 	KindPostprocessCompleted Kind = "postprocess_completed"
+	KindMetadataWarning      Kind = "metadata_warning"
+	KindMatchFilterSkipped   Kind = "match_filter_skipped"
 )
 
 // Event contains stable operation data. It intentionally excludes wall-clock
