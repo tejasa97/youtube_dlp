@@ -42,6 +42,13 @@ claims are added only after review and scoped verification.
 | Windows browser credentials | `codex/p3-windows-cookies` / isolated worktree | Windows Chromium cookie import | In progress | Pending |
 | Primary integration | `main` / `youtube_dlp` | public ABI, trust policy, manifest, distribution policy | In progress | Reviewing compatible-upgrade and distribution boundaries |
 
+## Wave 5: Operations
+
+| Lane | Branch / worktree | Ownership | State | Delivery |
+| --- | --- | --- | --- | --- |
+| Canary, metrics, and patch drill | `codex/p3-operations` / `youtube_dlp-p3-operations` | `internal/operations/**`, fixtures, evidence | Integrated | `796a1ef`, local report integration pending commit |
+| Primary integration | `main` / `youtube_dlp` | local reporting, operational policy, manifest | In progress | Strict record/incident ingestion and `ytdlp-ops` report added |
+
 ## Gate boundary
 
 GitHub Actions is intentionally disabled and is not Phase 3 evidence. Local

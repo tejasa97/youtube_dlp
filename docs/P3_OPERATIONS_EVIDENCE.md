@@ -20,6 +20,11 @@ a strict breakage → diagnosis → patch → successful-verification state mach
 The deterministic major-site fixture proves the 24-hour tier; tests also prove
 the 24–48-hour and missed-48-hour tiers.
 
+`ytdlp-ops validate-suite` canonicalizes an offline suite, and
+`ytdlp-ops summarize` validates redacted record/incident sets against that
+suite before emitting the bounded metrics snapshot. The command performs no
+canary network execution and never resolves target or secret handles.
+
 ## Deployment deviations
 
 - No scheduler, dashboard, alert sink, credential resolver, regional runner, or

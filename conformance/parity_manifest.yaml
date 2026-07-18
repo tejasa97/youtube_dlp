@@ -551,6 +551,31 @@ capabilities:
       - foundation.capability_manifest
     known_deviation: The library intentionally does not choose a destination, retention period, identifier allowlist, or network exporter. Deployments must opt in and publish those policies before measured traffic can support Gate G3.
 
+  - id: operations.canary_and_patch
+    name: Bounded canary and regression-patch operations
+    phase: 3
+    compatibility_target: Define opt-in public, credential, and regional canaries with secret handles, redacted records, bounded operational metrics, and deterministic 24–48 hour patch-SLO evidence.
+    status: compatible
+    evidence:
+      - internal/operations.TestCanarySuiteCanonicalClassesAndSecretHandles
+      - internal/operations.TestCanarySpecsRejectEmbeddedSecretsURLsAndResources
+      - internal/operations.TestExecuteRequiresOptInAndEmitsRedactedSemanticRecords
+      - internal/operations.TestExecuteRedactsRunnerErrorsRejectsLabelsAndEnforcesTimeout
+      - internal/operations.TestRollingMetricsWindowAndCanonicalSnapshot
+      - internal/operations.TestMajorSiteDrillMatchesConformanceFixture
+      - internal/operations.TestDrillSLOBoundaries
+      - internal/operations.TestRecordAndIncidentDocumentsRoundTripAndRejectAmbiguity
+      - internal/operations.FuzzDecodeSuite
+      - internal/operations.FuzzDrillTransitions
+      - cmd/ytdlp-ops.TestValidateAndSummarizeDeterministicEvidence
+      - conformance/operations/PROVENANCE.md
+      - docs/P3_OPERATIONS_EVIDENCE.md
+    owner: operations
+    depends_on:
+      - operations.privacy_safe_telemetry
+      - conformance.semantic_shadow
+    known_deviation: The repository provides deployment-neutral opt-in execution and local reports, not a scheduler, alert sink, credential resolver, regional network runner, or hosted dashboard. A non-cooperative injected runner can leak its own goroutine after timeout and is therefore a deployment policy violation.
+
   - id: extractor.vimeo_pilot
     name: Vimeo manifest-heavy extraction pilot
     phase: 1

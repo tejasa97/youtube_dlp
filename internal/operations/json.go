@@ -7,6 +7,8 @@ import (
 	"errors"
 	"io"
 	"sort"
+
+	"github.com/ytdlp-go/ytdlp/pkg/pluginapi"
 )
 
 const (
@@ -23,25 +25,9 @@ func MarshalSuite(suite Suite) ([]byte, error) {
 }
 
 func DecodeSuite(ctx context.Context, reader io.Reader, maxBytes int64) (Suite, error) {
-	if reader == nil {
-		return Suite{}, ErrDecode
-	}
-	if maxBytes == 0 {
-		maxBytes = DefaultMaxDocumentBytes
-	}
-	if maxBytes < 1 || maxBytes > HardMaxDocumentBytes {
-		return Suite{}, ErrResourceLimit
-	}
-	limited := &io.LimitedReader{R: &contextReader{ctx: ctx, reader: reader}, N: maxBytes + 1}
-	data, err := io.ReadAll(limited)
+	data, err := readDocument(ctx, reader, maxBytes)
 	if err != nil {
-		if contextError(ctx) != nil {
-			return Suite{}, contextError(ctx)
-		}
-		return Suite{}, ErrDecode
-	}
-	if int64(len(data)) > maxBytes {
-		return Suite{}, ErrResourceLimit
+		return Suite{}, err
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
@@ -64,6 +50,105 @@ func DecodeSuite(ctx context.Context, reader io.Reader, maxBytes int64) (Suite, 
 		return Suite{}, err
 	}
 	return suite, nil
+}
+
+type IncidentSet struct {
+	SchemaVersion int                `json:"schema_version"`
+	Incidents     []IncidentEvidence `json:"incidents"`
+}
+
+func DecodeRecords(ctx context.Context, reader io.Reader, maxBytes int64, suite Suite) ([]Record, error) {
+	data, err := readDocument(ctx, reader, maxBytes)
+	if err != nil {
+		return nil, err
+	}
+	var set RecordSet
+	if err := decodeStrict(data, &set); err != nil || set.SchemaVersion != SchemaVersion || len(set.Records) > hardMaxRollingRecords {
+		return nil, ErrDecode
+	}
+	if _, err := MarshalRecords(suite, set.Records); err != nil {
+		return nil, err
+	}
+	return append([]Record(nil), set.Records...), nil
+}
+
+func MarshalIncidents(suite Suite, incidents []IncidentEvidence) ([]byte, error) {
+	canonical, err := NewSuite(suite.Canaries)
+	if err != nil || suite.SchemaVersion != SchemaVersion || len(incidents) > hardMaxRollingRecords {
+		return nil, ErrInvalidDrill
+	}
+	allowed := make(map[string]string, len(canonical.Canaries))
+	for _, spec := range canonical.Canaries {
+		allowed[spec.ID] = spec.Extractor
+	}
+	copyIncidents := append([]IncidentEvidence(nil), incidents...)
+	sort.Slice(copyIncidents, func(i, j int) bool {
+		if copyIncidents[i].DetectedUnixMS != copyIncidents[j].DetectedUnixMS {
+			return copyIncidents[i].DetectedUnixMS < copyIncidents[j].DetectedUnixMS
+		}
+		return copyIncidents[i].IncidentID < copyIncidents[j].IncidentID
+	})
+	for _, incident := range copyIncidents {
+		if !validIncident(incident) || allowed[incident.CanaryID] != incident.Extractor {
+			return nil, ErrInvalidDrill
+		}
+	}
+	return json.Marshal(IncidentSet{SchemaVersion: SchemaVersion, Incidents: copyIncidents})
+}
+
+func DecodeIncidents(ctx context.Context, reader io.Reader, maxBytes int64, suite Suite) ([]IncidentEvidence, error) {
+	data, err := readDocument(ctx, reader, maxBytes)
+	if err != nil {
+		return nil, err
+	}
+	var set IncidentSet
+	if err := decodeStrict(data, &set); err != nil || set.SchemaVersion != SchemaVersion || len(set.Incidents) > hardMaxRollingRecords {
+		return nil, ErrDecode
+	}
+	if _, err := MarshalIncidents(suite, set.Incidents); err != nil {
+		return nil, err
+	}
+	return append([]IncidentEvidence(nil), set.Incidents...), nil
+}
+
+func readDocument(ctx context.Context, reader io.Reader, maxBytes int64) ([]byte, error) {
+	if reader == nil || ctx == nil {
+		return nil, ErrDecode
+	}
+	if maxBytes == 0 {
+		maxBytes = DefaultMaxDocumentBytes
+	}
+	if maxBytes < 1 || maxBytes > HardMaxDocumentBytes {
+		return nil, ErrResourceLimit
+	}
+	limited := &io.LimitedReader{R: &contextReader{ctx: ctx, reader: reader}, N: maxBytes + 1}
+	data, err := io.ReadAll(limited)
+	if err != nil {
+		if contextError(ctx) != nil {
+			return nil, contextError(ctx)
+		}
+		return nil, ErrDecode
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, ErrResourceLimit
+	}
+	if err := pluginapi.ValidateJSONFrame(data); err != nil {
+		return nil, ErrDecode
+	}
+	return data, nil
+}
+
+func decodeStrict(data []byte, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return ErrDecode
+	}
+	return nil
 }
 
 func MarshalIncident(evidence IncidentEvidence) ([]byte, error) {
