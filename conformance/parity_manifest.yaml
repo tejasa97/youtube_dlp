@@ -148,6 +148,7 @@ capabilities:
       - .github/python-free.Dockerfile
       - .github/workflows/ci.yml#python-free
       - internal/e2e.TestCLIProcessWalkingSkeleton
+      - internal/conformance.TestProductionSourcesDoNotInvokePython
     owner: conformance
 
   - id: operation.structured_events
