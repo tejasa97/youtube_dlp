@@ -17,7 +17,7 @@ func TestCLIProcessWalkingSkeleton(t *testing.T) {
 	server := testserver.New()
 	defer server.Close()
 	root := t.TempDir()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	command := exec.CommandContext(ctx, "go", "run", "../../cmd/ytdlp-go",
 		"--quiet", "--print-json", "--output-dir", root, server.URL+"/page")

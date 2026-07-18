@@ -1,6 +1,6 @@
 module github.com/ytdlp-go/ytdlp
 
-go 1.25.0
+go 1.25.12
 
 require (
 	github.com/dop251/goja v0.0.0-20260603125802-cfe4039cb6d7

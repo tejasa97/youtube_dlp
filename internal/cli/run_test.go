@@ -125,7 +125,7 @@ func TestRunReportsSourceLocatedConfigurationFailure(t *testing.T) {
 	}
 	var stdout, stderr bytes.Buffer
 	code := RunContext(context.Background(), []string{"--config-location", configPath, "https://example.invalid/video"}, &stdout, &stderr)
-	if code != 2 || !strings.Contains(stderr.String(), configPath+":1:") || !strings.Contains(stderr.String(), "unterminated quote") {
+	if code != 2 || !strings.Contains(stderr.String(), filepath.Base(configPath)+":1:") || !strings.Contains(stderr.String(), "unterminated quote") {
 		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
 }

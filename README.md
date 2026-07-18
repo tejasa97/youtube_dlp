@@ -23,7 +23,7 @@ the time-bounded upstream-replay limitation.
 
 ## Build and test
 
-Go 1.25 or newer is required. The floor includes security-fixed networking and
+Go 1.25.12 or newer is required. The floor includes security-fixed networking and
 cryptographic transitive dependencies used by browser impersonation.
 
 ```sh
