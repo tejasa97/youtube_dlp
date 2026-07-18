@@ -179,6 +179,37 @@ func TestEngineDoesNotRetryPermanentStatus(t *testing.T) {
 	}
 }
 
+func TestEngineRejectsSymlinkedState(t *testing.T) {
+	root := t.TempDir()
+	destination := filepath.Join(root, "out")
+	workDir := destination + ".fragments"
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(t.TempDir(), "outside"), filepath.Join(workDir, "state.json")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	_, err := New(nil).Download(context.Background(), Job{OutputRoot: root, Destination: destination, Segments: []Segment{{URL: "https://example.test/a"}}}, nil)
+	if !errors.Is(err, ErrUnsafeDestination) {
+		t.Fatalf("error=%v", err)
+	}
+}
+func TestManifestDoesNotReuseSymlinkArtifact(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target")
+	if err := os.WriteFile(target, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "artifact")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	manifest := &artifactManifest{state: manifestState{Artifacts: map[int]artifact{0: {Bytes: 1, SHA256: strings.Repeat("0", 64)}}}}
+	if manifest.Valid(0, link) {
+		t.Fatal("symlink artifact was trusted")
+	}
+}
+
 func FuzzPlanHash(f *testing.F) {
 	f.Add("https://example.test/a", int64(0), int64(1))
 	f.Fuzz(func(t *testing.T, raw string, start, length int64) {

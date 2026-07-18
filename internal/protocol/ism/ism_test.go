@@ -3,6 +3,7 @@ package ism
 import (
 	"context"
 	"github.com/ytdlp-go/ytdlp/internal/network"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -33,13 +34,35 @@ func TestAddressAndDownload(t *testing.T) {
 	}
 }
 func TestRejectsUnboundedTimeline(t *testing.T) {
-	manifest, err := Parse("https://example.test/Manifest", []byte(`<SmoothStreamingMedia><StreamIndex Type="video" Url="x"><QualityLevel Bitrate="1"/><c d="1" r="-1"/></StreamIndex></SmoothStreamingMedia>`))
+	manifest, err := Parse("https://example.test/Manifest", []byte(`<SmoothStreamingMedia TimeScale="1" Duration="1"><StreamIndex Type="video" Url="x"><QualityLevel Bitrate="1"/><c d="1" r="-1"/></StreamIndex></SmoothStreamingMedia>`))
 	if err != nil {
 		t.Fatal(err)
 	}
+	manifest.Duration = 0
 	_, err = Address("https://example.test/Manifest", manifest, manifest.Streams[0], 3)
 	if err == nil {
 		t.Fatal("Address accepted unbounded repeat")
+	}
+}
+func TestParseRejectsBoundsAndUnknownPlaceholders(t *testing.T) {
+	for _, body := range [][]byte{
+		[]byte(`<SmoothStreamingMedia TimeScale="0" Duration="1"><StreamIndex Type="video" Url="x"><QualityLevel Bitrate="1"/><c d="1"/></StreamIndex></SmoothStreamingMedia>`),
+		[]byte(`<SmoothStreamingMedia TimeScale="1" Duration="1"><StreamIndex Type="binary" Url="x"><QualityLevel Bitrate="1"/><c d="1"/></StreamIndex></SmoothStreamingMedia>`),
+		[]byte(`<SmoothStreamingMedia TimeScale="1" Duration="1"><StreamIndex Type="video" Url="x/{wat}"><QualityLevel Bitrate="1"/><c d="1"/></StreamIndex></SmoothStreamingMedia>`),
+	} {
+		if _, err := Parse("https://example.test/Manifest", body); err == nil {
+			t.Fatalf("Parse accepted %q", body)
+		}
+	}
+	if _, err := Parse("https://example.test/Manifest", make([]byte, maxManifestBytes+1)); err == nil {
+		t.Fatal("Parse accepted oversized body")
+	}
+}
+func TestAddressClampsLimitAndRejectsOverflow(t *testing.T) {
+	manifest := Manifest{Duration: math.MaxInt64, Streams: []Stream{{Type: "video", URL: "x/{bitrate}/{start time}", Qualities: []Quality{{Bitrate: 1}}, Chunks: []Chunk{{Time: math.MaxInt64 - 1, Duration: 2, Repeat: 1}}}}}
+	_, err := Address("https://example.test/Manifest", manifest, manifest.Streams[0], maxSegments+1)
+	if err == nil {
+		t.Fatal("Address accepted overflow")
 	}
 }
 func FuzzParse(f *testing.F) {

@@ -33,6 +33,13 @@ var (
 	ErrTooMuchConcurrency = errors.New("fragment concurrency exceeds limit")
 )
 
+const (
+	maxFragmentSegments    = 100000
+	maxFragmentConcurrency = 128
+	maxFragmentSize        = 512 << 20
+	maxRetryDelay          = time.Minute
+)
+
 type AES128 struct {
 	Key []byte `json:"key"`
 	IV  []byte `json:"iv"`
@@ -81,8 +88,14 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 		return Result{}, ErrNoSegments
 	}
 	maxSegments := job.MaxSegments
+	if maxSegments < 0 {
+		return Result{}, ErrTooManySegments
+	}
 	if maxSegments <= 0 {
-		maxSegments = 100000
+		maxSegments = maxFragmentSegments
+	}
+	if maxSegments > maxFragmentSegments {
+		return Result{}, ErrTooManySegments
 	}
 	if len(job.Segments) > maxSegments {
 		return Result{}, fmt.Errorf("%w: got %d, limit %d", ErrTooManySegments, len(job.Segments), maxSegments)
@@ -104,7 +117,10 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 	if concurrency <= 0 {
 		concurrency = 4
 	}
-	if concurrency > 128 {
+	if concurrency > maxFragmentConcurrency {
+		return Result{}, ErrTooMuchConcurrency
+	}
+	if job.PerHostConcurrency < 0 || job.PerHostConcurrency > maxFragmentConcurrency {
 		return Result{}, ErrTooMuchConcurrency
 	}
 	attempts := job.Attempts
@@ -115,8 +131,17 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 		return Result{}, ErrTooManyAttempts
 	}
 	maxSize := job.MaxSegmentSize
+	if maxSize < 0 {
+		return Result{}, ErrSegmentTooLarge
+	}
 	if maxSize <= 0 {
 		maxSize = 64 << 20
+	}
+	if maxSize > maxFragmentSize {
+		return Result{}, ErrSegmentTooLarge
+	}
+	if job.RetryBaseDelay < 0 || job.RetryMaxDelay < 0 || job.RetryBaseDelay > maxRetryDelay || job.RetryMaxDelay > maxRetryDelay || (job.RetryBaseDelay > 0 && job.RetryMaxDelay > 0 && job.RetryBaseDelay > job.RetryMaxDelay) {
+		return Result{}, ErrTooManyAttempts
 	}
 	workDir := job.Destination + ".fragments"
 	if isSymlink(workDir) {
@@ -276,9 +301,6 @@ func fragmentRetryDelay(job Job, attempt int) time.Duration {
 	if max <= 0 {
 		max = time.Second
 	}
-	if base > max {
-		return max
-	}
 	for index := 1; index < attempt; index++ {
 		if base >= max || base > max/2 {
 			return max
@@ -423,12 +445,26 @@ func planHash(segments []Segment) (string, error) {
 
 func prepareWorkDir(path, hash string) error {
 	statePath := filepath.Join(path, "state.json")
-	encoded, err := os.ReadFile(statePath)
+	if isSymlink(statePath) {
+		return ErrUnsafeDestination
+	}
+	file, err := os.Open(statePath)
 	if err == nil {
+		defer file.Close()
+		encoded, readErr := io.ReadAll(io.LimitReader(file, maxManifestBytes+1))
+		if readErr != nil {
+			return readErr
+		}
+		if len(encoded) > maxManifestBytes {
+			return fmt.Errorf("fragment state exceeds %d bytes", maxManifestBytes)
+		}
 		var state planState
-		if json.Unmarshal(encoded, &state) == nil && state.Hash == hash {
+		decoder := json.NewDecoder(strings.NewReader(string(encoded)))
+		if decoder.Decode(&state) == nil && decoder.Decode(&struct{}{}) == io.EOF && state.Hash == hash {
 			return nil
 		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
 	if err := os.RemoveAll(path); err != nil {
 		return err
@@ -436,7 +472,7 @@ func prepareWorkDir(path, hash string) error {
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		return err
 	}
-	encoded, _ = json.Marshal(planState{Hash: hash})
+	encoded, _ := json.Marshal(planState{Hash: hash})
 	return os.WriteFile(statePath, encoded, 0o600)
 }
 

@@ -51,11 +51,11 @@ func openArtifactManifest(workDir, hash string) (*artifactManifest, error) {
 	}
 	var state manifestState
 	decoder := json.NewDecoder(strings.NewReader(string(encoded)))
-	if decoder.Decode(&state) != nil || decoder.Decode(&struct{}{}) != io.EOF || state.Hash != hash || len(state.Artifacts) > 10000 {
+	if decoder.Decode(&state) != nil || decoder.Decode(&struct{}{}) != io.EOF || state.Hash != hash || len(state.Artifacts) > maxFragmentSegments {
 		return nil, fmt.Errorf("invalid fragment artifact manifest")
 	}
 	for index, artifact := range state.Artifacts {
-		if index < 0 || artifact.Bytes <= 0 || len(artifact.SHA256) != 64 {
+		if index < 0 || index >= maxFragmentSegments || artifact.Bytes <= 0 || len(artifact.SHA256) != 64 {
 			return nil, fmt.Errorf("invalid fragment artifact manifest")
 		}
 	}
@@ -68,6 +68,10 @@ func (manifest *artifactManifest) Valid(index int, path string) bool {
 	if !present {
 		return false
 	} // Legacy state lacked integrity evidence; re-download safely.
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return false
+	}
 	bytes, digest, err := digestFile(path)
 	return err == nil && bytes == known.Bytes && digest == known.SHA256
 }

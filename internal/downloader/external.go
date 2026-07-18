@@ -17,6 +17,7 @@ var (
 	ErrExternalFailed      = errors.New("external downloader failed")
 	ErrUnsafeExternalArg   = errors.New("unsafe external downloader argument")
 	ErrInvalidExternalURL  = errors.New("invalid external downloader URL")
+	ErrUnsafeExternalTool  = errors.New("unsafe external downloader executable")
 )
 
 // ExternalRequest is a typed, shell-free boundary for optional download
@@ -69,6 +70,9 @@ func (adapter *ExternalAdapter) Download(ctx context.Context, request ExternalRe
 	if request.Executable == "" || strings.ContainsRune(request.Executable, '\x00') {
 		return ExternalResult{}, ErrExternalUnavailable
 	}
+	if interpreter(request.Executable) {
+		return ExternalResult{}, ErrUnsafeExternalTool
+	}
 	if len(request.Arguments) > 128 {
 		return ExternalResult{}, ErrUnsafeExternalArg
 	}
@@ -76,6 +80,9 @@ func (adapter *ExternalAdapter) Download(ctx context.Context, request ExternalRe
 	binary, err := exec.LookPath(request.Executable)
 	if err != nil {
 		return ExternalResult{}, fmt.Errorf("%w: %s", ErrExternalUnavailable, filepath.Base(request.Executable))
+	}
+	if interpreter(binary) {
+		return ExternalResult{}, ErrUnsafeExternalTool
 	}
 	if err := os.MkdirAll(filepath.Dir(request.Destination), 0o755); err != nil {
 		return ExternalResult{}, fmt.Errorf("create external destination: %w", err)
@@ -111,6 +118,15 @@ func (adapter *ExternalAdapter) Download(ctx context.Context, request ExternalRe
 		return ExternalResult{Stderr: safeDiagnostic(stderr)}, fmt.Errorf("%w: tool did not create destination", ErrExternalFailed)
 	}
 	return ExternalResult{Path: request.Destination, Stderr: safeDiagnostic(stderr)}, nil
+}
+
+func interpreter(path string) bool {
+	name := strings.TrimSuffix(strings.ToLower(filepath.Base(path)), ".exe")
+	switch name {
+	case "sh", "bash", "zsh", "fish", "cmd", "powershell", "pwsh", "python", "python2", "python3", "pypy", "node", "perl", "ruby", "lua", "php", "env", "busybox":
+		return true
+	}
+	return strings.HasPrefix(name, "python")
 }
 
 func safeDiagnostic(stderr []byte) string {
