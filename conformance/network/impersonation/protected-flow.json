@@ -1,8 +1,8 @@
 {
   "version": 1,
   "profile": "chrome-133",
-  "engine": "github.com/bogdanfinn/tls-client",
-  "engine_version": "v1.9.2",
+  "engine": "github.com/imroc/req/v3",
+  "engine_version": "v3.59.0",
   "hybrid_curve_id": 4588,
   "required_headers": {
     "User-Agent": "Chrome/133",

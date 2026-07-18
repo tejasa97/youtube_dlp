@@ -83,9 +83,9 @@ and unavailable Windows signed-pack lifecycle. Each has an owner and later
 milestone in `docs/P2_SECURITY_REVIEW.md`.
 
 Public distribution remains legally blocked until the repository has a
-project-wide distribution license and the pinned `fhttp` dependency has a
-license conclusion. Production signing custody and publishing credentials are
-also intentionally external operational decisions. These do not weaken the
+project-wide distribution license. The pinned `fhttp` dependency and its
+licensing blocker were removed on 2026-07-18. Production signing custody and
+publishing credentials are also intentionally external operational decisions. These do not weaken the
 internal deterministic alpha, but public artifacts must not be released before
 resolution.
 

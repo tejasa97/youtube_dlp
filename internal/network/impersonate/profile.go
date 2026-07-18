@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/bogdanfinn/tls-client/profiles"
+	"github.com/imroc/req/v3/http2"
+	utls "github.com/refraction-networking/utls"
 )
 
 const (
-	Chrome133Name    = "chrome-133"
-	TLSClientVersion = "v1.9.2"
+	Chrome133Name = "chrome-133"
+	ReqVersion    = "v3.59.0"
 )
 
 // Profile binds one stable public name to TLS, HTTP/2, and header behavior.
@@ -24,15 +25,19 @@ type Profile struct {
 	UserAgent      string
 	Headers        http.Header
 	HeaderOrder    []string
-	clientProfile  profiles.ClientProfile
+
+	clientHelloID     utls.ClientHelloID
+	http2Settings     []http2.Setting
+	pseudoHeaderOrder []string
+	connectionFlow    uint32
 }
 
 var chrome133 = Profile{
 	Name:           Chrome133Name,
 	Browser:        "Chrome",
 	BrowserVersion: "133",
-	Engine:         "github.com/bogdanfinn/tls-client",
-	EngineVersion:  TLSClientVersion,
+	Engine:         "github.com/imroc/req/v3",
+	EngineVersion:  ReqVersion,
 	UserAgent:      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
 	Headers: http.Header{
 		"Accept":                    {"text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8"},
@@ -52,7 +57,15 @@ var chrome133 = Profile{
 		"user-agent", "accept", "sec-fetch-site", "sec-fetch-mode", "sec-fetch-user",
 		"sec-fetch-dest", "accept-encoding", "accept-language", "cookie",
 	},
-	clientProfile: profiles.Chrome_133,
+	clientHelloID: utls.HelloChrome_133,
+	http2Settings: []http2.Setting{
+		{ID: http2.SettingHeaderTableSize, Val: 65536},
+		{ID: http2.SettingEnablePush, Val: 0},
+		{ID: http2.SettingInitialWindowSize, Val: 6291456},
+		{ID: http2.SettingMaxHeaderListSize, Val: 262144},
+	},
+	pseudoHeaderOrder: []string{":method", ":authority", ":scheme", ":path"},
+	connectionFlow:    15663105,
 }
 
 func Lookup(name string) (Profile, error) {
@@ -61,6 +74,8 @@ func Lookup(name string) (Profile, error) {
 		profile := chrome133
 		profile.Headers = profile.Headers.Clone()
 		profile.HeaderOrder = append([]string(nil), profile.HeaderOrder...)
+		profile.http2Settings = append([]http2.Setting(nil), profile.http2Settings...)
+		profile.pseudoHeaderOrder = append([]string(nil), profile.pseudoHeaderOrder...)
 		return profile, nil
 	default:
 		return Profile{}, fmt.Errorf("unknown impersonation profile %q", name)

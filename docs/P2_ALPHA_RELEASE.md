@@ -27,10 +27,10 @@ the signed native-artifact install/update/rollback/execution test. A Linux
 assembly job packages those exact binaries and verifies every checksum.
 Artifacts expire after seven days and are not published as a GitHub Release.
 
-The repository has no project-wide distribution license, and the pinned fhttp
-dependency has no repository-level license conclusion. Therefore this workflow
-is engineering evidence only: public or third-party distribution remains
-blocked on owner/legal review or dependency replacement. No production signing
-key is selected or generated here. Signed updater scenarios continue to use
+The repository has no project-wide distribution license. The former fhttp
+licensing blocker was resolved by replacing that stack with MIT/BSD-licensed
+dependencies, but this workflow remains engineering evidence until the owner
+selects and adds the project's license. No production signing key is selected
+or generated here. Signed updater scenarios continue to use
 deterministic test keys; production root custody and publishing infrastructure
 are external policy inputs.

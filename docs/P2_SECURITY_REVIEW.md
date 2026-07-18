@@ -52,7 +52,7 @@ vulnerability.
 Production root custody, signer identities, quorum, rotation, transparency,
 artifact transport, and publishing credentials are intentionally external
 inputs. The repository neither generates nor selects them. Public binary
-distribution is also blocked because the repository has no project-wide
-distribution license and the pinned fhttp dependency has no repository-level
-license conclusion. These constraints do not weaken the deterministic internal
-alpha evidence and must be resolved before any public release.
+distribution remains blocked because the repository has no project-wide
+distribution license. The former fhttp licensing issue was resolved by replacing
+the dependency. These constraints do not weaken the deterministic internal alpha
+evidence and must be resolved before any public release.

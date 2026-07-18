@@ -37,25 +37,16 @@ in `conformance/javascript/ejs-0.8.0/PROVENANCE.md`.
 ## Browser impersonation stack
 
 The optional `chrome-133` transport profile uses
-`github.com/bogdanfinn/tls-client` v1.9.2 (BSD-4-Clause),
-`github.com/bogdanfinn/fhttp` v0.5.34, and
-`github.com/bogdanfinn/utls` v1.6.5 (BSD-3-Clause), together with their pinned
-transitive dependencies in `go.sum`. Binary redistributions must reproduce the
-tls-client BSD-4-Clause notice and acknowledgement. The exact upstream
-tls-client and uTLS texts are retained under `third_party/licenses/`.
-
-The fhttp v0.5.34 module does not ship a repository-level license file. Many
-files retain the Go Authors BSD-style source header, but that is not treated as
-a project-wide license conclusion here. Public binary distribution of this
-dependency therefore requires explicit legal review or replacement. Exact
-technical selection provenance is recorded in
+`github.com/imroc/req/v3` v3.59.0 (MIT) and
+`github.com/refraction-networking/utls` v1.8.2 (BSD-3-Clause), together with
+their pinned transitive dependencies in `go.sum`. Their exact upstream license
+texts are retained under `third_party/licenses/`. Exact technical selection and
+fixture provenance is recorded in
 `conformance/network/impersonation/PROVENANCE.md`.
 
-The linked browser stack resolves `golang.org/x/net` v0.55.0 and
-`github.com/cloudflare/circl` v1.6.3 to include the security fixes required by
-the Gate G2 vulnerability audit. Exact versions and checksums remain in
-`go.mod` and `go.sum`; release SBOM entries deliberately use `NOASSERTION`
-unless a distribution-license conclusion has been separately reviewed.
+The previously used `bogdanfinn/fhttp`, `bogdanfinn/tls-client`, and
+`bogdanfinn/utls` modules are no longer present in the module or production
+dependency graph. This resolves the fhttp-specific distribution blocker.
 
 The project itself still requires an explicit project-license decision before a
 public release; this notice does not grant a license to the project code.

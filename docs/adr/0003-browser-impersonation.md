@@ -1,6 +1,6 @@
 # ADR 0003: Browser impersonation transport
 
-Status: Accepted and implemented for the Phase 1 pilot
+Status: Accepted; transport engine replaced after the Phase 2 licensing review
 
 ## Context
 
@@ -52,7 +52,22 @@ group plus required Chrome headers, while also proving shared cookies, bounds,
 and cancellation. A live fingerprint canary remains separately controlled and
 must not become a CI dependency.
 
-The selected fhttp tag lacks a repository-level license file even though many
-source files retain Go's BSD-style header. This is a release-blocking legal
-review item, not a technical fallback to Python. The dependency must be cleared
-or replaced before public binary distribution.
+## Transport replacement (2026-07-18)
+
+The implementation now uses `github.com/imroc/req/v3` v3.59.0 (MIT) with
+`github.com/refraction-networking/utls` v1.8.2 (BSD-3-Clause). The public
+`chrome-133` profile name is unchanged. Its TLS ClientHello, ordered HTTP/2
+SETTINGS, connection flow, pseudo-header order, regular-header order, proxy
+support, cancellation, custom roots, and shared standard-library cookie jar are
+configured explicitly behind the existing `net/http` boundary.
+
+The replacement retains the deterministic hybrid-group protected-flow gate and
+adds behavior tests for profile configuration, caller request immutability,
+cookie continuity, cross-origin credential stripping, response-boundary shape,
+and HTTP/1 header ordering. Explicit HTTP proxies retain the prior all-target
+CONNECT behavior, including authentication, and environment proxy variables
+remain ignored unless the product supplies a proxy. Neither `bogdanfinn/fhttp` nor
+`bogdanfinn/tls-client` remains in the module or production dependency graph.
+
+This resolves the fhttp licensing blocker. A project-wide license is still a
+separate prerequisite for public distribution.

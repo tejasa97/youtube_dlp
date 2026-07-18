@@ -98,6 +98,39 @@ func TestRedirectDoesNotForwardHostCookieCrossHost(t *testing.T) {
 	}
 }
 
+func TestImpersonatedRedirectDoesNotForwardCredentialsCrossHost(t *testing.T) {
+	var authorization, cookie string
+	target := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		authorization = request.Header.Get("Authorization")
+		cookie = request.Header.Get("Cookie")
+		_, _ = io.WriteString(writer, "target")
+	}))
+	defer target.Close()
+	source := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		http.Redirect(writer, request, target.URL, http.StatusFound)
+	}))
+	defer source.Close()
+
+	// Force different hostnames so net/http's redirect policy treats the
+	// destination as a different origin even though both fixtures are local.
+	sourceURL := strings.Replace(source.URL, "127.0.0.1", "localhost", 1)
+	client, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, _ := http.NewRequest(http.MethodGet, sourceURL, nil)
+	request.Header.Set("Authorization", "Bearer do-not-forward")
+	request.Header.Set("Cookie", "explicit_secret=do-not-forward")
+	response, err := client.DoProfile(context.Background(), request, impersonate.Chrome133Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if authorization != "" || cookie != "" {
+		t.Fatalf("cross-host impersonated redirect leaked authorization %q or cookie %q", authorization, cookie)
+	}
+}
+
 func TestReadPageLimitAndCancellation(t *testing.T) {
 	server := testserver.New()
 	defer server.Close()
@@ -283,7 +316,7 @@ func loadProtectedFlowFixture(t *testing.T) protectedFlowFixture {
 		t.Fatal(err)
 	}
 	if fixture.Version != 1 || fixture.Profile != impersonate.Chrome133Name ||
-		fixture.Engine != "github.com/bogdanfinn/tls-client" || fixture.EngineVersion != impersonate.TLSClientVersion || fixture.HybridCurveID == 0 ||
+		fixture.Engine != "github.com/imroc/req/v3" || fixture.EngineVersion != impersonate.ReqVersion || fixture.HybridCurveID == 0 ||
 		len(fixture.RequiredHeaders) == 0 || fixture.ExpectedBody == "" {
 		t.Fatalf("invalid protected-flow fixture: %#v", fixture)
 	}
@@ -304,7 +337,7 @@ func TestImpersonationRejectsUnknownProfileWithoutFallback(t *testing.T) {
 
 func TestImpersonationProfileDiagnostics(t *testing.T) {
 	profiles := SupportedImpersonationProfiles()
-	if len(profiles) != 1 || profiles[0].Name != impersonate.Chrome133Name || profiles[0].EngineVersion != impersonate.TLSClientVersion {
+	if len(profiles) != 1 || profiles[0].Name != impersonate.Chrome133Name || profiles[0].EngineVersion != impersonate.ReqVersion {
 		t.Fatalf("profiles = %#v", profiles)
 	}
 }
