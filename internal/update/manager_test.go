@@ -384,6 +384,33 @@ func TestCommandHealthCheckerCancellation(t *testing.T) {
 	}
 }
 
+type failingHealthIsolation struct{}
+
+func (failingHealthIsolation) Terminate() error { return errors.New("injected isolation failure") }
+func (failingHealthIsolation) Close() error     { return nil }
+
+func TestCommandHealthCheckerBoundsFailedIsolation(t *testing.T) {
+	if *healthBlock {
+		select {}
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	checker := CommandHealthChecker{
+		Arguments:    []string{"-test.run=TestCommandHealthCheckerBoundsFailedIsolation", "-ytdlp-health-block"},
+		OutputPrefix: "unused", Timeout: 30 * time.Millisecond, MaxOutput: 1024,
+		attach: func(*exec.Cmd) (healthProcessIsolation, error) { return failingHealthIsolation{}, nil },
+	}
+	started := time.Now()
+	if err := checker.Check(context.Background(), executable, Target{Version: "1.0.0"}); !errors.Is(err, ErrHealth) {
+		t.Fatalf("failed-isolation error = %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 3*time.Second {
+		t.Fatalf("failed isolation cancellation took %v", elapsed)
+	}
+}
+
 func FuzzRecordDecoder(f *testing.F) {
 	f.Add([]byte(`{"payload":{"product":"x"},"sha256":"00"}`))
 	f.Fuzz(func(t *testing.T, encoded []byte) {

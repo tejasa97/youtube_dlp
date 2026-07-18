@@ -15,6 +15,12 @@ type CommandHealthChecker struct {
 	OutputPrefix string
 	Timeout      time.Duration
 	MaxOutput    int
+	attach       func(*exec.Cmd) (healthProcessIsolation, error)
+}
+
+type healthProcessIsolation interface {
+	Terminate() error
+	Close() error
 }
 
 func (checker CommandHealthChecker) Check(ctx context.Context, path string, target Target) error {
@@ -39,12 +45,13 @@ func (checker CommandHealthChecker) Check(ctx context.Context, path string, targ
 	if err := command.Start(); err != nil {
 		return ErrHealth
 	}
-	isolation, err := attachHealthCommand(command)
+	attach := checker.attach
+	if attach == nil {
+		attach = func(command *exec.Cmd) (healthProcessIsolation, error) { return attachHealthCommand(command) }
+	}
+	isolation, err := attach(command)
 	if err != nil {
-		if command.Process != nil {
-			_ = command.Process.Kill()
-		}
-		_ = command.Wait()
+		killAndReap(command)
 		return ErrHealth
 	}
 	defer isolation.Close()
@@ -53,13 +60,36 @@ func (checker CommandHealthChecker) Check(ctx context.Context, path string, targ
 	select {
 	case <-deadlineContext.Done():
 		_ = isolation.Terminate()
-		<-done
+		if command.Process != nil {
+			_ = command.Process.Kill()
+		}
+		timer := time.NewTimer(time.Second)
+		select {
+		case <-done:
+			timer.Stop()
+		case <-timer.C:
+		}
 		return ErrHealth
 	case err := <-done:
 		if err != nil || output.exceeded || strings.TrimSpace(output.String()) != checker.OutputPrefix+target.Version {
 			return ErrHealth
 		}
 		return nil
+	}
+}
+
+func killAndReap(command *exec.Cmd) {
+	if command.Process != nil {
+		_ = command.Process.Kill()
+	}
+	done := make(chan struct{}, 1)
+	go func() {
+		_ = command.Wait()
+		done <- struct{}{}
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
 	}
 }
 
