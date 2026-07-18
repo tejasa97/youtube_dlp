@@ -33,6 +33,15 @@ claims are added only after review and scoped verification.
 | Low-latency HLS | `main` / `youtube_dlp` | partial segments, delta skips, completion replacement | Integrated | `60fccbd`, overflow hardening `9ad13de` |
 | Primary integration | `main` / `youtube_dlp` | credential/transport API, registry, manifest, security policy | Complete | Scoped netrc boundary, Twitch breadth, Firefox default/override behavior, and local-only verification integrated |
 
+## Wave 4: SDK, packs, and distribution
+
+| Lane | Branch / worktree | Ownership | State | Delivery |
+| --- | --- | --- | --- | --- |
+| Pack v1.1 compatible upgrade | `codex/p3-pack-upgrade` / `youtube_dlp-p3-pack-upgrade` | `internal/pack/upgrade/**`, fixtures, evidence | Integrated | `577d330`, manifest reconciliation pending commit |
+| Signed offline catalog | `main` / `youtube_dlp` | catalog trust, exact resolution, revocation | Integrated | `132af3a`, manifest reconciliation pending commit |
+| Windows browser credentials | `codex/p3-windows-cookies` / isolated worktree | Windows Chromium cookie import | In progress | Pending |
+| Primary integration | `main` / `youtube_dlp` | public ABI, trust policy, manifest, distribution policy | In progress | Reviewing compatible-upgrade and distribution boundaries |
+
 ## Gate boundary
 
 GitHub Actions is intentionally disabled and is not Phase 3 evidence. Local

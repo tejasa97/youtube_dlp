@@ -891,7 +891,7 @@ capabilities:
     known_deviation: Native RPC lacks portable CPU, memory, and process-count quotas; Windows has a narrow start-to-Job-assignment race and secure discovery fails closed where owner/DACL proof is unavailable. WASM has no fuel metering. Plugins are product-routed only by explicit signed installation and PluginID selection.
 
   - id: plugins.abi_v1_1_upgrade
-    name: Compatible plugin ABI 1.0 to 1.1 upgrade
+    name: Compatible plugin and pack ABI 1.0 to 1.1 upgrade
     phase: 3
     compatibility_target: Prove additive ABI 1.1 evolution with old-host/new-plugin and new-host/old-plugin native exchanges and unchanged permissions.
     status: compatible
@@ -903,11 +903,19 @@ capabilities:
       - internal/plugin/upgrade.FuzzDecodeFixture
       - internal/plugin/rpc.TestRPCV1MinorUpgradeNegotiatesV1Host
       - internal/plugin/rpc.TestRPCV1MinorUpgradeNewHostRunsV1Plugin
+      - internal/pack/upgrade.TestCanonicalSignedContractFixtures
+      - internal/pack/upgrade.TestCompatibilityMatrixOldHostNewPackAndNewHostOldPack
+      - internal/pack/upgrade.TestUpgradeRejectsDowngradeRemovedCapabilityAndReviewsPermissions
+      - internal/pack/upgrade.TestRejectsUnknownMajorMalformedPythonAndUntrustedRecords
+      - internal/pack/upgrade.TestCancellationAndResourceBounds
+      - internal/pack/upgrade.FuzzVerifyAndNegotiate
       - conformance/plugin/abi-v1.1/PROVENANCE.md
+      - conformance/pack/upgrade-v1.1/PROVENANCE.md
+      - docs/P3_PACK_UPGRADE_EVIDENCE.md
     owner: runtime
     depends_on:
       - plugins.abi_v1
-    known_deviation: Compatible additions are confined to existing options and metadata extension maps. Unknown optional top-level envelope fields remain fail-closed until the public decoder receives an explicit extension-retention policy.
+    known_deviation: Plugin additions are confined to existing options and metadata extension maps. The pack v1.1 contract adds explicit host/provided capabilities and annotations, but remains a conformance contract pending product installer adoption; unknown optional top-level plugin envelope fields remain fail-closed.
 
   - id: release.signed_packs
     name: Signed extractor and plugin packs
@@ -920,13 +928,20 @@ capabilities:
       - internal/pack.TestInstallUpgradeAndVerifiedRollback
       - internal/pack.TestKernelLockRecoversAfterProcessCrash
       - internal/pack.TestRemoveCancellationAndPendingJournalRecovery
+      - internal/pack/catalog.TestBuildVerifyIsDeterministicAndResolveIsExact
+      - internal/pack/catalog.TestSignedRevocationFailsClosed
+      - internal/pack/catalog.TestVerifyRejectsTamperTrustRevocationExpiryAndCancellation
+      - internal/pack/catalog.TestCatalogRejectsHostilePathsDuplicatesAndBounds
+      - internal/pack/catalog.FuzzVerify
       - internal/sandbox.TestLinuxPlanIsolatesFilesystemNetworkAndSecrets
       - internal/sandbox.TestDarwinPlanHasExplicitProfileAndLimitDeviation
       - pkg/ytdlp.TestSignedWASMPluginPackHostAndProductIntegration
       - pkg/ytdlp.TestPluginPackBindingFailsBeforeFilesystemMutation
       - cmd/ytdlp-pack.TestRunVerifyRejectsMalformedPackWithoutLeakingBytes
       - conformance/packs/PROVENANCE.md
+      - conformance/pack/catalog-v1/PROVENANCE.md
       - docs/P2_SIGNED_PACKS.md
+      - docs/P3_PACK_CATALOG.md
       - docs/P2_PLUGIN_THREAT_MODEL.md
     owner: release
     known_deviation: Canonical build and verification are portable, but secure install, rollback, and removal currently fail closed outside Linux and macOS because equivalent Windows owner/ACL, lock, and atomic-publication evidence is not yet available. macOS sandbox-exec is deprecated and cannot enforce requested resource quotas; Linux adapters require bwrap and prlimit when those guarantees are requested.
