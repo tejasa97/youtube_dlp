@@ -25,9 +25,14 @@ checked during discovery, snapshot copying, row iteration, and decryption.
   discovery, cancellation, and secret-redaction tests.
 - Unix symlink, hard-link, ownership/mode security tests.
 - Fixed conformance vector and provenance under
-  `conformance/cookies/chromium-windows`.
+`conformance/cookies/chromium-windows`.
 - Fuzz coverage for arbitrary encrypted framing, host strings, and meta versions.
 - `go test`, race detector, vet, and Windows amd64/arm64 no-cgo compile checks.
+
+Product dispatch supports `chrome`, `chromium`, `edge`, `brave`, `vivaldi`,
+and `opera` through `--cookies-from-browser` on Windows. Partial v20/key
+failures preserve successfully imported cookies while remaining visible in the
+bounded import event; unsafe paths and complete failures fail closed.
 
 ## Explicit deviations and boundaries
 

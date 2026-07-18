@@ -22,6 +22,7 @@ import (
 	outputtemplate "github.com/ytdlp-go/ytdlp/internal/compat/template"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/chromium"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/chromiumlinux"
+	"github.com/ytdlp-go/ytdlp/internal/cookies/chromiumwindows"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/firefox"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/netscape"
 	credentialnetrc "github.com/ytdlp-go/ytdlp/internal/credentials/netrc"
@@ -169,6 +170,7 @@ type Client struct {
 	javascriptHelper      string
 	browserCookieImporter func(context.Context, chromium.Options) (chromium.Result, error)
 	linuxCookieImporter   func(context.Context, chromiumlinux.Options) (chromiumlinux.Result, error)
+	windowsCookieImporter func(context.Context, chromiumwindows.Options) (chromiumwindows.Result, error)
 	firefoxCookieImporter func(context.Context, firefox.Options) (firefox.Result, error)
 	platform              string
 	plugins               []*InstalledPlugin
@@ -226,7 +228,9 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 		if importErr != nil {
 			recoverable := len(cookies.Cookies) > 0 &&
 				(errors.Is(importErr, chromium.ErrDecrypt) || errors.Is(importErr, chromium.ErrKeyUnavailable) ||
-					errors.Is(importErr, chromiumlinux.ErrDecrypt) || errors.Is(importErr, chromiumlinux.ErrKeyUnavailable))
+					errors.Is(importErr, chromiumlinux.ErrDecrypt) || errors.Is(importErr, chromiumlinux.ErrKeyUnavailable) ||
+					errors.Is(importErr, chromiumwindows.ErrDecrypt) || errors.Is(importErr, chromiumwindows.ErrKeyUnavailable) ||
+					errors.Is(importErr, chromiumwindows.ErrAppBound) || errors.Is(importErr, chromiumwindows.ErrInvalidLocalState))
 			if !recoverable {
 				return Result{}, categorized("import browser cookies", importErr)
 			}
@@ -618,10 +622,14 @@ func categorized(op string, err error) error {
 		errors.Is(err, chromium.ErrKeyUnavailable), errors.Is(err, chromium.ErrDecrypt),
 		errors.Is(err, firefox.ErrNotFound), errors.Is(err, firefox.ErrInvalidDatabase), errors.Is(err, firefox.ErrSnapshot),
 		errors.Is(err, chromiumlinux.ErrNotFound), errors.Is(err, chromiumlinux.ErrInvalidDatabase), errors.Is(err, chromiumlinux.ErrSnapshot),
-		errors.Is(err, chromiumlinux.ErrKeyUnavailable), errors.Is(err, chromiumlinux.ErrDecrypt):
+		errors.Is(err, chromiumlinux.ErrKeyUnavailable), errors.Is(err, chromiumlinux.ErrDecrypt),
+		errors.Is(err, chromiumwindows.ErrNotFound), errors.Is(err, chromiumwindows.ErrInvalidDatabase), errors.Is(err, chromiumwindows.ErrSnapshot),
+		errors.Is(err, chromiumwindows.ErrInvalidLocalState), errors.Is(err, chromiumwindows.ErrKeyUnavailable),
+		errors.Is(err, chromiumwindows.ErrAppBound), errors.Is(err, chromiumwindows.ErrDecrypt):
 		category = ErrorAuthentication
 	case errors.Is(err, chromium.ErrUnsupportedBrowser), errors.Is(err, chromium.ErrUnsupportedPlatform),
-		errors.Is(err, chromiumlinux.ErrUnsupportedBrowser), errors.Is(err, chromiumlinux.ErrUnsupportedPlatform):
+		errors.Is(err, chromiumlinux.ErrUnsupportedBrowser), errors.Is(err, chromiumlinux.ErrUnsupportedPlatform),
+		errors.Is(err, chromiumwindows.ErrUnsupportedBrowser), errors.Is(err, chromiumwindows.ErrUnsupportedPlatform):
 		category = ErrorUnsupported
 	case errors.Is(err, extractor.ErrUnavailable), errors.Is(err, extractor.ErrRegionRestricted), errors.Is(err, extractor.ErrChallengeSolver),
 		errors.Is(err, extractor.ErrTransportProfile), errors.Is(err, network.ErrImpersonationUnavailable):
@@ -651,6 +659,7 @@ func categorized(op string, err error) error {
 		errors.Is(err, netscape.ErrWrongFormat), errors.Is(err, netscape.ErrTooLarge),
 		errors.Is(err, firefox.ErrUnsafePath), errors.Is(err, firefox.ErrLimit),
 		errors.Is(err, chromiumlinux.ErrUnsafePath), errors.Is(err, chromiumlinux.ErrLimit),
+		errors.Is(err, chromiumwindows.ErrUnsafePath), errors.Is(err, chromiumwindows.ErrLimit),
 		errors.Is(err, credentialnetrc.ErrSyntax), errors.Is(err, credentialnetrc.ErrLimit), errors.Is(err, credentialnetrc.ErrInvalidHost),
 		errors.Is(err, archive.ErrInvalidIdentity), errors.Is(err, archive.ErrCorrupt), errors.Is(err, archive.ErrTooLarge), errors.Is(err, archive.ErrUnsafePath),
 		errors.Is(err, cache.ErrInvalidName), errors.Is(err, cache.ErrUnsafePath), errors.Is(err, cache.ErrTooLarge), errors.Is(err, cache.ErrCorrupt):
@@ -693,7 +702,7 @@ func parseBrowserCookieSpec(input string) (browserCookieSpec, error) {
 	}
 	browserName, profile, hasProfile := strings.Cut(base, ":")
 	switch browserName {
-	case "chrome", "chromium", "brave", "firefox":
+	case "chrome", "chromium", "brave", "edge", "vivaldi", "opera", "firefox":
 	default:
 		return browserCookieSpec{}, fmt.Errorf("%w: unsupported browser", errInvalidBrowserCookieSpec)
 	}
@@ -733,6 +742,14 @@ func (client *Client) importBrowserCookies(ctx context.Context, specification br
 			importer = chromiumlinux.Import
 		}
 		result, err := importer(ctx, chromiumlinux.Options{Browser: chromiumlinux.Browser(specification.browser), Profile: specification.profile})
+		return cookieImportResult{Cookies: result.Cookies, Total: result.Total, Imported: result.Imported, Failed: result.Failed}, err
+	}
+	if platform == "windows" {
+		importer := client.windowsCookieImporter
+		if importer == nil {
+			importer = chromiumwindows.Import
+		}
+		result, err := importer(ctx, chromiumwindows.Options{Browser: chromiumwindows.Browser(specification.browser), Profile: specification.profile})
 		return cookieImportResult{Cookies: result.Cookies, Total: result.Total, Imported: result.Imported, Failed: result.Failed}, err
 	}
 	return cookieImportResult{}, chromiumlinux.ErrUnsupportedPlatform

@@ -735,13 +735,24 @@ capabilities:
       - internal/cookies/chromiumlinux.TestImportCredentialFailureIsPartialAndRedacted
       - internal/cookies/chromiumlinux.TestImportZeroesProviderPassword
       - internal/cookies/chromiumlinux.FuzzDecrypt
+      - internal/cookies/chromiumwindows.TestImportAllEncryptionFamiliesAndWAL
+      - internal/cookies/chromiumwindows.TestImportLegacySchemaAndLimits
+      - internal/cookies/chromiumwindows.TestHostBindingAndAppBoundFailures
+      - internal/cookies/chromiumwindows.TestInvalidLocalStateIsCategorized
+      - internal/cookies/chromiumwindows.TestCancellationAndSecretSafeErrors
+      - internal/cookies/chromiumwindows.TestDiscoveryAndUnsafePaths
+      - internal/cookies/chromiumwindows.TestSecureSourceRejectsSymlinksAndHardlinks
+      - internal/cookies/chromiumwindows.FuzzDecryptBoundaries
       - pkg/ytdlp.TestClientLoadsNetscapeCookieFileBeforeExtraction
       - pkg/ytdlp.TestPortableBrowserCookieDispatch
+      - pkg/ytdlp.TestClientWindowsCookiePartialAppBoundFailurePreservesCookies
       - conformance/cookies/netscape/PROVENANCE.md
       - conformance/cookies/firefox/PROVENANCE.md
       - conformance/cookies/chromium-linux/PROVENANCE.md
+      - conformance/cookies/chromium-windows/PROVENANCE.md
+      - docs/P3_WINDOWS_CHROMIUM_COOKIES_EVIDENCE.md
     owner: authentication
-    known_deviation: Firefox profile aliases from profiles.ini are not resolved; explicit profile/database paths remain available. Linux Chromium v11 decryption requires an injected Secret Service or KWallet password provider, and Windows Chromium/DPAPI remains pending. No automated test reads a real profile.
+    known_deviation: Firefox profile aliases from profiles.ini are not resolved; explicit profile/database paths remain available. Linux Chromium v11 requires an injected Secret Service or KWallet password provider. Windows v20 requires an identity-appropriate injected app-bound decryptor, and real-account DPAPI remains environmental evidence. No automated test reads a real profile.
 
   - id: compat.languages_principal
     name: Principal compatibility languages

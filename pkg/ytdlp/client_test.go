@@ -19,6 +19,7 @@ import (
 
 	"github.com/ytdlp-go/ytdlp/internal/cookies/chromium"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/chromiumlinux"
+	"github.com/ytdlp-go/ytdlp/internal/cookies/chromiumwindows"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/firefox"
 	credentialnetrc "github.com/ytdlp-go/ytdlp/internal/credentials/netrc"
 	"github.com/ytdlp-go/ytdlp/internal/downloader"
@@ -446,6 +447,46 @@ func TestPortableBrowserCookieDispatch(t *testing.T) {
 	result, err = client.importBrowserCookies(context.Background(), browserCookieSpec{browser: "brave", profile: "Profile 1"})
 	if !errors.Is(err, chromiumlinux.ErrKeyUnavailable) || result.Imported != 1 || result.Failed != 1 {
 		t.Fatalf("Linux result=%#v err=%v", result, err)
+	}
+	client.platform = "windows"
+	client.windowsCookieImporter = func(_ context.Context, options chromiumwindows.Options) (chromiumwindows.Result, error) {
+		if options.Browser != chromiumwindows.Edge || options.Profile != "Profile 2" {
+			t.Fatalf("Windows Chromium options = %#v", options)
+		}
+		return chromiumwindows.Result{Total: 3, Imported: 2, Failed: 1}, chromiumwindows.ErrAppBound
+	}
+	result, err = client.importBrowserCookies(context.Background(), browserCookieSpec{browser: "edge", profile: "Profile 2"})
+	if !errors.Is(err, chromiumwindows.ErrAppBound) || result.Imported != 2 || result.Failed != 1 {
+		t.Fatalf("Windows result=%#v err=%v", result, err)
+	}
+}
+
+func TestClientWindowsCookiePartialAppBoundFailurePreservesCookies(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		cookie, err := request.Cookie("windows_session")
+		if err != nil || cookie.Value != "present" {
+			http.Error(writer, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		writer.Header().Set("Content-Type", "video/mp4")
+		writer.Header().Set("Content-Length", "4")
+		if request.Method != http.MethodHead {
+			_, _ = writer.Write([]byte("data"))
+		}
+	}))
+	defer server.Close()
+	target, _ := url.Parse(server.URL)
+	client := NewClient()
+	client.platform = "windows"
+	client.windowsCookieImporter = func(context.Context, chromiumwindows.Options) (chromiumwindows.Result, error) {
+		return chromiumwindows.Result{
+			Cookies: []*http.Cookie{{Name: "windows_session", Value: "present", Domain: target.Hostname(), Path: "/"}},
+			Total:   2, Imported: 1, Failed: 1,
+		}, chromiumwindows.ErrAppBound
+	}
+	result, err := client.Run(context.Background(), Request{URL: server.URL + "/protected.mp4", CookiesFromBrowser: "edge:Default", SkipDownload: true})
+	if err != nil || result.Extractor != "generic" {
+		t.Fatalf("result=%+v error=%v", result, err)
 	}
 }
 

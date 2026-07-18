@@ -65,7 +65,7 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	quiet := flags.Bool("quiet", false, "suppress human-readable progress")
 	javascriptHelper := flags.String("js-helper", "", "path to the isolated JavaScript helper")
 	cookieFile := flags.String("cookies", "", "load cookies from a Netscape cookies.txt file")
-	cookiesFromBrowser := flags.String("cookies-from-browser", "", "import cookies from firefox, macOS chrome, or Linux chrome/chromium/brave")
+	cookiesFromBrowser := flags.String("cookies-from-browser", "", "import cookies from Firefox or a supported platform Chromium browser")
 	useNetRC := flags.Bool("netrc", false, "use credentials from a native .netrc file")
 	netRCLocation := flags.String("netrc-location", "", "path to .netrc or its containing directory")
 	downloadArchive := flags.String("download-archive", "", "record and skip downloaded extractor IDs")

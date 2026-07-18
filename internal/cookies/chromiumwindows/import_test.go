@@ -212,16 +212,22 @@ func TestHostBindingAndAppBoundFailures(t *testing.T) {
 }
 
 func TestInvalidLocalStateIsCategorized(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "Cookies")
-	state := filepath.Join(dir, "Local State")
-	if err := os.WriteFile(state, []byte(`{"os_crypt":{"encrypted_key":"not-base64"}}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	createCookieDB(t, path, true, 23, []cookieRow{{host: "x.test", name: "a", encrypted: encryptCookie(t, "v10", "x.test", "hidden", 23), path: "/"}}, false)
-	result, err := Import(context.Background(), Options{DatabasePath: path, LocalStatePath: state, Protector: fakeProtector{wrapped: testKey}})
-	if result.Failed != 1 || !errors.Is(err, ErrInvalidLocalState) {
-		t.Fatalf("result=%+v error=%v", result, err)
+	for _, body := range []string{
+		`{"os_crypt":{"encrypted_key":"not-base64"}}`,
+		`{"os_crypt":{"encrypted_key":"one","encrypted_key":"two"}}`,
+		`{"os_crypt":{"encrypted_key":"one"}} trailing`,
+	} {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "Cookies")
+		state := filepath.Join(dir, "Local State")
+		if err := os.WriteFile(state, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		createCookieDB(t, path, true, 23, []cookieRow{{host: "x.test", name: "a", encrypted: encryptCookie(t, "v10", "x.test", "hidden", 23), path: "/"}}, false)
+		result, err := Import(context.Background(), Options{DatabasePath: path, LocalStatePath: state, Protector: fakeProtector{wrapped: testKey}})
+		if result.Failed != 1 || !errors.Is(err, ErrInvalidLocalState) {
+			t.Fatalf("result=%+v error=%v", result, err)
+		}
 	}
 }
 

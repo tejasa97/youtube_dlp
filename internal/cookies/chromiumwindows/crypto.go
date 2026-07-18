@@ -11,6 +11,8 @@ import (
 	"encoding/json"
 	"errors"
 	"unicode/utf8"
+
+	"github.com/ytdlp-go/ytdlp/pkg/pluginapi"
 )
 
 const (
@@ -133,6 +135,10 @@ func (decryptor *cookieDecryptor) key(ctx context.Context) ([]byte, error) {
 		OSCrypt struct {
 			EncryptedKey string `json:"encrypted_key"`
 		} `json:"os_crypt"`
+	}
+	if err := pluginapi.ValidateJSONFrame(encoded); err != nil {
+		decryptor.masterErr = ErrInvalidLocalState
+		return nil, decryptor.masterErr
 	}
 	decoder := json.NewDecoder(bytes.NewReader(encoded))
 	if err := decoder.Decode(&state); err != nil || state.OSCrypt.EncryptedKey == "" || len(state.OSCrypt.EncryptedKey) > 64<<10 {
