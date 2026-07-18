@@ -84,7 +84,7 @@ func NewRegistry(extractors ...Extractor) *Registry {
 // explicit and deterministic priority rule.
 func (registry *Registry) Select(rawURL string) (Extractor, error) {
 	parsed, err := url.Parse(rawURL)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" && parsed.Opaque == "" {
 		return nil, fmt.Errorf("%w: %q", ErrUnsupported, rawURL)
 	}
 	for _, candidate := range registry.extractors {
@@ -102,11 +102,14 @@ func (registry *Registry) SelectFor(rawURL, extractorKey string) (Extractor, err
 		return registry.Select(rawURL)
 	}
 	parsed, err := url.Parse(rawURL)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" && parsed.Opaque == "" {
 		return nil, fmt.Errorf("%w: invalid URL result", ErrUnsupported)
 	}
 	for _, candidate := range registry.extractors {
 		if strings.EqualFold(candidate.Name(), extractorKey) {
+			if parsed.Host == "" && !candidate.Suitable(parsed) {
+				return nil, fmt.Errorf("%w: invalid opaque URL result", ErrUnsupported)
+			}
 			return candidate, nil
 		}
 	}

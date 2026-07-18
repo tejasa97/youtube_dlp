@@ -16,8 +16,10 @@ type Generic struct{}
 
 func NewGeneric() Generic { return Generic{} }
 
-func (Generic) Name() string           { return "generic" }
-func (Generic) Suitable(*url.URL) bool { return true }
+func (Generic) Name() string { return "generic" }
+func (Generic) Suitable(parsed *url.URL) bool {
+	return parsed != nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != "" && parsed.User == nil
+}
 
 func (Generic) Extract(ctx context.Context, request Request) (Extraction, error) {
 	parsed, err := url.Parse(request.URL)

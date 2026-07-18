@@ -60,7 +60,7 @@ func TestExtractorFailuresAreCategorized(t *testing.T) {
 	}
 }
 
-func TestProductRegistryIncludesPhaseOneExtractors(t *testing.T) {
+func TestProductRegistryIncludesIntegratedExtractors(t *testing.T) {
 	tests := []struct {
 		rawURL string
 		name   string
@@ -68,6 +68,18 @@ func TestProductRegistryIncludesPhaseOneExtractors(t *testing.T) {
 		{"https://www.youtube.com/watch?v=dQw4w9WgXcQ", "youtube"},
 		{"https://vimeo.com/123456789", "vimeo"},
 		{"https://www.tiktok.com/@fixture/video/1234567890123456789", "tiktok"},
+		{"https://players.brightcove.net/12345/default_default/index.html?videoId=123", "brightcove"},
+		{"kaltura:123:1_abcd1234", "kaltura"},
+		{"https://cdn.jwplayer.com/players/AbCd1234-ABCDEFGHI.js", "jwplatform"},
+		{"wistia:a1b2c3d4e5", "wistia"},
+		{"https://videos.sproutvideo.com/embed/4abcdef1234567890a/0abcdef1234567890", "sproutvideo"},
+		{"https://www.dailymotion.com/video/x12345", "dailymotion"},
+		{"https://www.reddit.com/r/videos/comments/abc123/title/", "reddit"},
+		{"https://x.com/fixture/status/1234567890", "twitter"},
+		{"https://fixture.bandcamp.com/track/example", "bandcamp"},
+		{"https://www.mixcloud.com/fixture/example/", "mixcloud"},
+		{"https://rumble.com/embed/v12345/", "rumble"},
+		{"https://www.bilibili.com/video/BV1abcdefgh", "bilibili"},
 		{"https://www.twitch.tv/fixture_channel", "twitch"},
 		{"https://soundcloud.com/fixture-artist/synthetic-signal", "soundcloud"},
 		{"https://www.svtplay.se/video/fixture-program?modalId=fixture123", "region_svt"},

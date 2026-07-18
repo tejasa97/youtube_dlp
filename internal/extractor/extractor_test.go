@@ -65,6 +65,30 @@ func TestRegistryHonorsExplicitExtractorKey(t *testing.T) {
 	}
 }
 
+func TestRegistryRoutesSupportedOpaqueURLsOnly(t *testing.T) {
+	registry := NewRegistry(NewKaltura(), NewWistia(), NewGeneric())
+	for _, test := range []struct {
+		rawURL, want string
+	}{
+		{"kaltura:123:1_abcd1234", "kaltura"},
+		{"wistia:a1b2c3d4e5", "wistia"},
+	} {
+		selected, err := registry.Select(test.rawURL)
+		if err != nil || selected.Name() != test.want {
+			t.Fatalf("Select(%q) = %v, %v", test.rawURL, selected, err)
+		}
+		selected, err = registry.SelectFor(test.rawURL, test.want)
+		if err != nil || selected.Name() != test.want {
+			t.Fatalf("SelectFor(%q) = %v, %v", test.rawURL, selected, err)
+		}
+	}
+	for _, rawURL := range []string{"javascript:alert(1)", "generic:payload", "wistia:not-valid"} {
+		if _, err := registry.Select(rawURL); !errors.Is(err, ErrUnsupported) {
+			t.Fatalf("Select(%q) error = %v", rawURL, err)
+		}
+	}
+}
+
 func TestProfileTransportCapabilityIsExplicit(t *testing.T) {
 	transport := &memoryTransport{pages: map[string][]byte{"https://example.test": []byte("native")}}
 	if _, _, err := ReadPageWithProfile(context.Background(), transport, "https://example.test", "chrome-133"); !errors.Is(err, ErrTransportProfile) {
