@@ -51,6 +51,12 @@ dependency therefore requires explicit legal review or replacement. Exact
 technical selection provenance is recorded in
 `conformance/network/impersonation/PROVENANCE.md`.
 
+The linked browser stack resolves `golang.org/x/net` v0.55.0 and
+`github.com/cloudflare/circl` v1.6.3 to include the security fixes required by
+the Gate G2 vulnerability audit. Exact versions and checksums remain in
+`go.mod` and `go.sum`; release SBOM entries deliberately use `NOASSERTION`
+unless a distribution-license conclusion has been separately reviewed.
+
 The project itself still requires an explicit project-license decision before a
 public release; this notice does not grant a license to the project code.
 

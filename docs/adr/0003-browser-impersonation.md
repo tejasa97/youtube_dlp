@@ -36,10 +36,16 @@ boundary. Unknown profiles fail explicitly; native transport remains the
 default.
 
 The current v1.14+ line has newer HTTP/3/browser support but requires Go 1.24.1.
-The v1.9.2 pin retains this project's Go 1.23 floor. Raising the toolchain and
-updating the browser profile is an independent reviewed change, not an implicit
-side effect of this pilot. Direct `refraction-networking/uTLS` was not selected
-because it does not reproduce HTTP/2 behavior or header order by itself.
+The v1.9.2 pin originally retained this project's Go 1.23 floor. Raising the
+toolchain and updating the browser profile is an independent reviewed change,
+not an implicit side effect of this pilot. Direct `refraction-networking/uTLS`
+was not selected because it does not reproduce HTTP/2 behavior or header order
+by itself.
+
+The project subsequently raised its floor to Go 1.25 to consume fixed
+`golang.org/x/net` and `cloudflare/circl` releases after the Gate G2
+vulnerability audit. This does not silently expand the declared impersonation
+profile: upgrading tls-client remains a separate conformance decision.
 
 The deterministic gate rejects native Go TLS and accepts only the pinned hybrid
 group plus required Chrome headers, while also proving shared cookies, bounds,
