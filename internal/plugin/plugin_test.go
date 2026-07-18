@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -18,5 +19,12 @@ func TestNegotiateAndPermissions(t *testing.T) {
 	}
 	if err := CheckPermissions([]Permission{PermissionSecrets}, nil); !errors.Is(err, ErrPermissionDenied) {
 		t.Fatalf("CheckPermissions() error = %v", err)
+	}
+}
+
+func TestRemoteFailureDiagnosticRedaction(t *testing.T) {
+	failure := &RemoteFailure{Detail: RemoteError{Category: RemoteNetwork, Message: "token=fixture-secret visible=yes"}}
+	if rendered := failure.Error(); strings.Contains(rendered, "fixture-secret") || !strings.Contains(rendered, "visible=yes") {
+		t.Fatalf("RemoteFailure.Error() = %q", rendered)
 	}
 }

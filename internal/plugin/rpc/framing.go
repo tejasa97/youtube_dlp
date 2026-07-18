@@ -30,11 +30,24 @@ func writeFrame(w io.Writer, value any, maximum uint32) error {
 	}
 	var header [4]byte
 	binary.BigEndian.PutUint32(header[:], uint32(len(payload)))
-	if _, err := w.Write(header[:]); err != nil {
+	if err := writeAll(w, header[:]); err != nil {
 		return err
 	}
-	_, err = w.Write(payload)
-	return err
+	return writeAll(w, payload)
+}
+
+func writeAll(writer io.Writer, data []byte) error {
+	for len(data) > 0 {
+		written, err := writer.Write(data)
+		if err != nil {
+			return err
+		}
+		if written <= 0 || written > len(data) {
+			return io.ErrShortWrite
+		}
+		data = data[written:]
+	}
+	return nil
 }
 
 func readFrame(r io.Reader, maximum uint32, destination any) error {

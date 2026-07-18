@@ -4,8 +4,11 @@ package plugin
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"time"
 )
+
+var sensitiveDiagnostic = regexp.MustCompile(`(?i)(authorization|password|signature|token|sig|key)=([^&[:space:]]+)`)
 
 const ProtocolVersion uint32 = 1
 
@@ -119,7 +122,14 @@ type RemoteError struct {
 type RemoteFailure struct{ Detail RemoteError }
 
 func (failure *RemoteFailure) Error() string {
-	return fmt.Sprintf("plugin %s error: %s", failure.Detail.Category, failure.Detail.Message)
+	return fmt.Sprintf("plugin %s error: %s", failure.Detail.Category, RedactDiagnostic(failure.Detail.Message))
+}
+
+// RedactDiagnostic removes conventional credential values from untrusted
+// plugin text before it is rendered in errors or logs. Structured callers may
+// still inspect RemoteFailure.Detail explicitly.
+func RedactDiagnostic(input string) string {
+	return sensitiveDiagnostic.ReplaceAllString(input, "$1=REDACTED")
 }
 
 func ResponseError(response ExtractResponse) error {

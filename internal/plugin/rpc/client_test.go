@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,6 +56,13 @@ func TestRPCMalformedCrashAndOversize(t *testing.T) {
 				t.Fatalf("error = %v, want %v", err, test.want)
 			}
 		})
+	}
+}
+
+func TestRPCCrashDoesNotExposeStderrSecrets(t *testing.T) {
+	_, err := (Client{}).Extract(context.Background(), helperConfig("crash-secret"), request())
+	if !errors.Is(err, plugin.ErrCrashed) || strings.Contains(err.Error(), "fixture-secret") {
+		t.Fatalf("crash error = %v", err)
 	}
 }
 
@@ -114,8 +122,12 @@ func TestRPCPluginHelper(t *testing.T) {
 	if err := readFrame(os.Stdin, 1<<20, &hello); err != nil {
 		os.Exit(10)
 	}
-	if mode == "crash" {
-		_, _ = fmt.Fprint(os.Stderr, "fixture crash")
+	if mode == "crash" || mode == "crash-secret" {
+		message := "fixture crash"
+		if mode == "crash-secret" {
+			message = "token=fixture-secret"
+		}
+		_, _ = fmt.Fprint(os.Stderr, message)
 		os.Exit(12)
 	}
 	if mode == "malformed" {

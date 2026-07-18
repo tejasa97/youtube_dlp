@@ -59,6 +59,10 @@ also bounds input/output frames and retained stderr. A crashed, malformed, or
 hostile child cannot corrupt host state because results are accepted only after
 complete validation.
 
+Captured plugin stderr is never embedded in returned errors. Remote structured
+error messages redact conventional token/signature/password/key assignments
+before rendering; callers must treat the explicit detail object as untrusted.
+
 The portable spike bounds time and communication resources. Portable hard
 address-space/process-count limits are not implemented; Phase 2 must add
 platform sandbox adapters or launch plugins through a dedicated supervisor.

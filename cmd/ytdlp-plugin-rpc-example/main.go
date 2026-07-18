@@ -79,9 +79,22 @@ func write(destination io.Writer, value any) error {
 	}
 	var header [4]byte
 	binary.BigEndian.PutUint32(header[:], uint32(len(payload)))
-	if _, err := destination.Write(header[:]); err != nil {
+	if err := writeAll(destination, header[:]); err != nil {
 		return err
 	}
-	_, err = destination.Write(payload)
-	return err
+	return writeAll(destination, payload)
+}
+
+func writeAll(destination io.Writer, data []byte) error {
+	for len(data) > 0 {
+		written, err := destination.Write(data)
+		if err != nil {
+			return err
+		}
+		if written <= 0 || written > len(data) {
+			return io.ErrShortWrite
+		}
+		data = data[written:]
+	}
+	return nil
 }

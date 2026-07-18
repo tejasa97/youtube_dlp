@@ -117,7 +117,7 @@ func (Client) Extract(ctx context.Context, config Config, request plugin.Extract
 	case outcome := <-resultCh:
 		if outcome.err != nil {
 			if errors.Is(outcome.err, io.EOF) || errors.Is(outcome.err, io.ErrUnexpectedEOF) {
-				return plugin.ExtractResponse{}, fmt.Errorf("%w: unexpected exit: %s", plugin.ErrCrashed, stderr.String())
+				return plugin.ExtractResponse{}, fmt.Errorf("%w: unexpected exit", plugin.ErrCrashed)
 			}
 			return plugin.ExtractResponse{}, outcome.err
 		}
