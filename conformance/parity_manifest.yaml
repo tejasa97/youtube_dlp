@@ -358,6 +358,24 @@ capabilities:
       - protocol.hls
     known_deviation: YouTube live-HLS discovery and the reusable HLS downloader are independently proven; a platform-specific live refresh/end-of-stream integration gate remains before compatible status.
 
+  - id: extractor.vimeo_pilot
+    name: Vimeo manifest-heavy extraction pilot
+    phase: 1
+    compatibility_target: Extract Vimeo progressive, HLS, and DASH formats through the protected webpage flow without Python.
+    status: compatible
+    evidence:
+      - internal/extractor.TestVimeoExtractsProgressiveHLSAndDASHWithProfile
+      - internal/extractor.TestVimeoSuitableAndPlayerConfig
+      - internal/extractor.TestVimeoFailuresAreCategorized
+      - internal/extractor.FuzzParseVimeoConfig
+      - conformance/extractors/vimeo/PROVENANCE.md
+    owner: extractors
+    depends_on:
+      - network.impersonation
+      - protocol.hls
+      - protocol.dash
+    known_deviation: Compatibility is scoped to the pinned public-video/player-config corpus. Password submission, showcases/channels, unlisted hashes, DRM, subtitles, and live archive variants remain broader Vimeo work.
+
   - id: compat.configuration
     name: Configuration compatibility
     phase: 2

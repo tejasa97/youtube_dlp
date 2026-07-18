@@ -1,0 +1,24 @@
+{
+  "video": {
+    "id": 123456789,
+    "title": "Synthetic Vimeo Video",
+    "description": "offline manifest-heavy fixture",
+    "duration": 61,
+    "width": 1920,
+    "height": 1080,
+    "thumbs": {
+      "640": "https://img.example/vimeo-640.jpg",
+      "1280": "https://img.example/vimeo-1280.jpg"
+    },
+    "owner": {"name": "Fixture Owner", "url": "https://vimeo.com/fixture-owner"},
+    "files": {
+      "progressive": [{
+        "url": "https://media.example/vimeo/video-720.mp4",
+        "quality": "720p", "width": 1280, "height": 720, "fps": 30, "bitrate": 2500
+      }],
+      "hls": {"cdns": {"akamai": {"url": "https://media.example/vimeo/master.m3u8"}}},
+      "dash": {"cdns": {"fastly": {"url": "https://media.example/vimeo/master.json?json=1"}}}
+    }
+  },
+  "request": {"files": {}}
+}
