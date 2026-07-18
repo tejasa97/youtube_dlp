@@ -1,0 +1,34 @@
+[
+  {
+    "data": {
+      "user": {
+        "login": "fixture_channel",
+        "stream": {
+          "id": "9876543210",
+          "type": "live",
+          "viewers": 31415,
+          "createdAt": "2025-02-03T04:05:06Z"
+        }
+      }
+    }
+  },
+  {
+    "data": {
+      "user": {
+        "displayName": "Fixture Channel",
+        "broadcastSettings": {
+          "title": "A deterministic live broadcast"
+        }
+      }
+    }
+  },
+  {
+    "data": {
+      "user": {
+        "stream": {
+          "previewImageURL": "https://static-cdn.example/live-320x180.jpg?cache=fixture"
+        }
+      }
+    }
+  }
+]

@@ -1,0 +1,13 @@
+{
+  "id": "9876543210",
+  "display_id": "fixture_channel",
+  "title": "Fixture Channel (live)",
+  "description": "A deterministic live broadcast",
+  "uploader": "Fixture Channel",
+  "uploader_id": "fixture_channel",
+  "timestamp": 1738555506,
+  "view_count": 31415,
+  "is_live": true,
+  "live_status": "is_live",
+  "thumbnail": "https://static-cdn.example/live-0x0.jpg?cache=fixture"
+}

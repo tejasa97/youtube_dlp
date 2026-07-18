@@ -1,0 +1,8 @@
+{
+  "data": {
+    "streamPlaybackAccessToken": {
+      "value": "{\"channel\":\"fixture_channel\",\"expires\":4102444800}",
+      "signature": "fixture-signature-do-not-log"
+    }
+  }
+}
