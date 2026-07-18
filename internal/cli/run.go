@@ -25,7 +25,7 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	flags.Usage = func() {
 		fmt.Fprintln(flags.Output(), "Usage: ytdlp-go [OPTIONS] URL")
 		fmt.Fprintln(flags.Output())
-		fmt.Fprintln(flags.Output(), "Experimental Python-free Go port of yt-dlp (Phase 1 pilot support).")
+		fmt.Fprintln(flags.Output(), "Experimental Python-free Go port of yt-dlp (Phase 2 alpha development).")
 		fmt.Fprintln(flags.Output())
 		flags.PrintDefaults()
 	}
@@ -62,17 +62,17 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 			return nil
 		}
 		switch event.Kind {
-		case "extracting":
+		case ytdlp.EventExtracting:
 			_, _ = fmt.Fprintf(stderr, "[%s] Extracting %s\n", event.Extractor, event.URL)
-		case "download_starting":
+		case ytdlp.EventDownloadStarting:
 			_, _ = fmt.Fprintf(stderr, "[download] Destination: %s\n", event.Path)
-		case "download_progress":
+		case ytdlp.EventDownloadProgress:
 			if event.Total > 0 {
 				_, _ = fmt.Fprintf(stderr, "[download] %d/%d bytes\n", event.Bytes, event.Total)
 			}
-		case "download_retry":
+		case ytdlp.EventDownloadRetry:
 			_, _ = fmt.Fprintf(stderr, "[download] Retry %d: %s\n", event.Attempt, event.Message)
-		case "download_completed":
+		case ytdlp.EventDownloadCompleted:
 			_, _ = fmt.Fprintf(stderr, "[download] Completed: %s\n", event.Path)
 		}
 		return nil
