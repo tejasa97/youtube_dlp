@@ -7,6 +7,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -88,6 +90,31 @@ func TestSignVerifySelectDeterministic(t *testing.T) {
 	}
 }
 
+func TestUpdateConformanceFixtures(t *testing.T) {
+	public, private := testKey("release-1")
+	generated, err := Sign(testMetadata([]byte("portable-artifact"), "1.0.0", 1), map[string]ed25519.PrivateKey{KeyID(public): private})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture, err := os.ReadFile(filepath.Join("..", "..", "conformance", "update", "valid-envelope.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(generated, fixture) {
+		t.Fatal("signed update fixture drift")
+	}
+	if _, err := Verify(fixture, testRoot(public)); err != nil {
+		t.Fatal(err)
+	}
+	hostile, err := os.ReadFile(filepath.Join("..", "..", "conformance", "update", "hostile-duplicate-envelope.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Verify(hostile, testRoot(public)); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("hostile fixture error = %v", err)
+	}
+}
+
 func TestThresholdAndScope(t *testing.T) {
 	public1, private1 := testKey("release-1")
 	public2, private2 := testKey("release-2")
@@ -115,6 +142,16 @@ func TestThresholdAndScope(t *testing.T) {
 	root.Platforms = []Platform{{GOOS: "linux", GOARCH: "amd64"}}
 	if _, err := Verify(envelope, root); !errors.Is(err, ErrSignature) {
 		t.Fatalf("platform scope error = %v", err)
+	}
+	root = testRoot(public1)
+	root.Channels = append(root.Channels, root.Channels[0])
+	if _, err := Verify(envelope, root); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("duplicate channel error = %v", err)
+	}
+	root = testRoot(public1)
+	root.Platforms = append(root.Platforms, root.Platforms[0])
+	if _, err := Verify(envelope, root); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("duplicate platform error = %v", err)
 	}
 }
 
@@ -213,5 +250,15 @@ func FuzzVerifyEnvelope(f *testing.F) {
 	f.Add([]byte(`{"signed":{},"signatures":[]}`))
 	f.Fuzz(func(t *testing.T, encoded []byte) {
 		_, _ = Verify(encoded, testRoot(public))
+	})
+}
+
+func FuzzSelectInstalledVersion(f *testing.F) {
+	metadata := testMetadata([]byte("release"), "1.0.0", 2)
+	f.Add("1.0.0")
+	f.Add("x")
+	f.Add("")
+	f.Fuzz(func(t *testing.T, installed string) {
+		_, _ = Select(metadata, Selection{Product: "ytdlp-go", Channel: ChannelStable, GOOS: "linux", GOARCH: "amd64", Installed: installed, HighestGeneration: 1, Now: testNow})
 	})
 }

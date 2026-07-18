@@ -29,6 +29,11 @@ func secureRegular(info os.FileInfo) bool {
 
 func replaceFile(source, destination string) error { return os.Rename(source, destination) }
 
+func processAlive(pid int) bool {
+	err := syscall.Kill(pid, 0)
+	return err == nil || err == syscall.EPERM
+}
+
 func syncDirectory(path string) error {
 	directory, err := os.Open(path)
 	if err != nil {

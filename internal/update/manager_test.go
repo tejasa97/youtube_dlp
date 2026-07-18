@@ -164,6 +164,30 @@ func TestApplySerializesConcurrentWriters(t *testing.T) {
 	}
 }
 
+func TestManagerClonesTrustConfiguration(t *testing.T) {
+	public, private := testKey("release-1")
+	health := HealthCheckFunc(func(context.Context, string, Target) error { return nil })
+	options := managerOptions(public, "linux", "amd64", health)
+	manager, err := Open(context.Background(), filepath.Join(t.TempDir(), "updates"), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Mutating every caller-owned reference after Open must not change or race
+	// with the manager's authorization snapshot.
+	for index := range public {
+		public[index] ^= 0xff
+	}
+	for keyID := range options.Trust.Keys {
+		delete(options.Trust.Keys, keyID)
+	}
+	options.Trust.Channels[0] = ChannelNightly
+	options.Trust.Platforms[0] = Platform{GOOS: "plan9", GOARCH: "amd64"}
+	content := []byte("release")
+	if _, err := manager.Apply(context.Background(), signedMetadata(t, private, testMetadata(content, "1.0.0", 1)), bytes.NewReader(content)); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRecoveryRestoresLastVerifiedState(t *testing.T) {
 	public, private := testKey("release-1")
 	health := HealthCheckFunc(func(context.Context, string, Target) error { return nil })
@@ -251,6 +275,37 @@ func TestHostilePathsLocksAndJournal(t *testing.T) {
 	defer cancel()
 	if _, err := manager.Snapshot(ctx); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("lock cancellation error = %v", err)
+	}
+}
+
+func TestStaleLockRequiresDeadOwner(t *testing.T) {
+	public, _ := testKey("release-1")
+	health := HealthCheckFunc(func(context.Context, string, Target) error { return nil })
+	options := managerOptions(public, "linux", "amd64", health)
+	root := filepath.Join(t.TempDir(), "updates")
+	manager, err := Open(context.Background(), root, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockPath := filepath.Join(manager.root, ".update.lock")
+	if err := os.Mkdir(lockPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	old := testNow.Add(-2 * time.Hour).UnixNano()
+	owner := fmt.Sprintf("owner\n%d\n%d\n", old, os.Getpid())
+	if err := os.WriteFile(filepath.Join(lockPath, "owner"), []byte(owner), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if _, err := manager.Snapshot(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("live old lock error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(lockPath, "owner"), []byte(fmt.Sprintf("owner\n%d\n%d\n", old, 1<<30)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Snapshot(context.Background()); err != nil {
+		t.Fatalf("dead stale lock not recovered: %v", err)
 	}
 }
 

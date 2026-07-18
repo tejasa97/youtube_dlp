@@ -2,6 +2,7 @@ package update
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -96,6 +97,7 @@ func Open(ctx context.Context, root string, options Options) (*Manager, error) {
 		return nil, err
 	}
 	options = options.withDefaults()
+	options.Trust = cloneRoot(options.Trust)
 	if err := validateOptions(options); err != nil {
 		return nil, err
 	}
@@ -116,6 +118,17 @@ func Open(ctx context.Context, root string, options Options) (*Manager, error) {
 		return nil, err
 	}
 	return manager, nil
+}
+
+func cloneRoot(source Root) Root {
+	clone := source
+	clone.Keys = make(map[string]ed25519.PublicKey, len(source.Keys))
+	for keyID, key := range source.Keys {
+		clone.Keys[keyID] = append(ed25519.PublicKey(nil), key...)
+	}
+	clone.Channels = append([]Channel(nil), source.Channels...)
+	clone.Platforms = append([]Platform(nil), source.Platforms...)
+	return clone
 }
 
 func validateOptions(options Options) error {

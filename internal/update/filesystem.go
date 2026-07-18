@@ -242,7 +242,7 @@ func writeRecord(path string, value any) error {
 		return fmt.Errorf("%w: close record", ErrIO)
 	}
 	if info, err := os.Lstat(path); err == nil && !secureRegular(info) {
-		return ErrUnsafePath
+		return fmt.Errorf("%w: record destination", ErrUnsafePath)
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("%w: inspect record", ErrIO)
 	}
@@ -292,7 +292,7 @@ func (manager *Manager) lock(ctx context.Context) (func(), error) {
 			return nil, ErrLock
 		}
 		if err := os.Mkdir(path, 0o700); err == nil {
-			owner := token + "\n" + strconv.FormatInt(manager.options.Clock().UnixNano(), 10) + "\n"
+			owner := token + "\n" + strconv.FormatInt(manager.options.Clock().UnixNano(), 10) + "\n" + strconv.Itoa(os.Getpid()) + "\n"
 			if err := os.WriteFile(filepath.Join(path, "owner"), []byte(owner), 0o600); err != nil {
 				_ = os.RemoveAll(path)
 				return nil, ErrLock
@@ -306,10 +306,13 @@ func (manager *Manager) lock(ctx context.Context) (func(), error) {
 			continue
 		}
 		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-			return nil, ErrUnsafePath
+			return nil, fmt.Errorf("%w: lock object", ErrUnsafePath)
 		}
 		if err := validateDirectorySecurity(path); err != nil {
-			return nil, err
+			if _, statErr := os.Lstat(path); errors.Is(statErr, os.ErrNotExist) {
+				continue
+			}
+			return nil, fmt.Errorf("%w: lock ownership", err)
 		}
 		if manager.lockStale(path, info.ModTime()) {
 			tombstone := path + ".stale-" + token
@@ -332,12 +335,22 @@ func (manager *Manager) lockStale(path string, fallback time.Time) bool {
 	stamp := fallback
 	if encoded, err := os.ReadFile(filepath.Join(path, "owner")); err == nil && len(encoded) <= 256 {
 		parts := strings.Split(string(encoded), "\n")
-		if len(parts) >= 2 {
+		if len(parts) >= 4 {
 			if nanos, err := strconv.ParseInt(parts[1], 10, 64); err == nil {
 				stamp = time.Unix(0, nanos)
+			} else {
+				return false
 			}
+			pid, err := strconv.Atoi(parts[2])
+			if err != nil || pid <= 0 {
+				return false
+			}
+			if processAlive(pid) {
+				return false
+			}
+			return manager.options.Clock().Sub(stamp) > manager.options.StaleLockAfter
 		}
-		return manager.options.Clock().Sub(stamp) > manager.options.StaleLockAfter
+		return false
 	}
 	// A contender can observe the directory before its owner file is written.
 	// Do not apply an injected metadata clock to that filesystem race.

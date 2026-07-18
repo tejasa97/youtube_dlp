@@ -3,6 +3,7 @@
 package update
 
 import (
+	"errors"
 	"os"
 
 	"golang.org/x/sys/windows"
@@ -33,6 +34,17 @@ func replaceFile(source, destination string) error {
 		return err
 	}
 	return windows.MoveFileEx(sourcePointer, destinationPointer, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
+}
+
+func processAlive(pid int) bool {
+	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	if err != nil {
+		return errors.Is(err, windows.ERROR_ACCESS_DENIED)
+	}
+	defer windows.CloseHandle(handle)
+	var exitCode uint32
+	const stillActive = 259
+	return windows.GetExitCodeProcess(handle, &exitCode) == nil && exitCode == stillActive
 }
 
 // Windows has no portable directory fsync primitive. Atomic pointer updates

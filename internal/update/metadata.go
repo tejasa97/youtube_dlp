@@ -187,16 +187,23 @@ func Verify(encoded []byte, root Root) (Metadata, error) {
 	if len(envelope.Signed) == 0 || len(envelope.Signed) > maxMetadata || len(envelope.Signatures) == 0 || len(envelope.Signatures) > maxSigs {
 		return Metadata{}, ErrInvalidMetadata
 	}
+	canonicalEnvelope, err := json.Marshal(envelope)
+	if err != nil || !bytes.Equal(encoded, append(canonicalEnvelope, '\n')) {
+		return Metadata{}, fmt.Errorf("%w: non-canonical envelope", ErrInvalidMetadata)
+	}
 	valid := 0
 	seen := make(map[string]struct{}, len(envelope.Signatures))
-	for _, signature := range envelope.Signatures {
+	for index, signature := range envelope.Signatures {
+		if index > 0 && envelope.Signatures[index-1].KeyID >= signature.KeyID {
+			return Metadata{}, fmt.Errorf("%w: signature order", ErrInvalidMetadata)
+		}
 		if _, duplicate := seen[signature.KeyID]; duplicate {
 			return Metadata{}, fmt.Errorf("%w: duplicate signer", ErrInvalidMetadata)
 		}
 		seen[signature.KeyID] = struct{}{}
 		key, trusted := root.Keys[signature.KeyID]
 		if !trusted {
-			continue
+			return Metadata{}, ErrSignature
 		}
 		decoded, err := base64.RawURLEncoding.DecodeString(signature.Value)
 		if err != nil || len(decoded) != ed25519.SignatureSize {
@@ -237,6 +244,9 @@ func Select(metadata Metadata, selection Selection) (Target, error) {
 	selection = selection.withDefaults()
 	if err := validateMetadata(metadata); err != nil {
 		return Target{}, err
+	}
+	if selection.Installed != "" && !validVersion(selection.Installed) {
+		return Target{}, fmt.Errorf("%w: installed version", ErrInvalidMetadata)
 	}
 	if !selection.Channel.valid() {
 		return Target{}, fmt.Errorf("%w: selection", ErrInvalidMetadata)
@@ -296,10 +306,23 @@ func validateRoot(root Root) error {
 			return fmt.Errorf("%w: trust channel", ErrInvalidMetadata)
 		}
 	}
+	seenChannels := make(map[Channel]struct{}, len(root.Channels))
+	for _, channel := range root.Channels {
+		if _, duplicate := seenChannels[channel]; duplicate {
+			return fmt.Errorf("%w: duplicate trust channel", ErrInvalidMetadata)
+		}
+		seenChannels[channel] = struct{}{}
+	}
+	seenPlatforms := make(map[string]struct{}, len(root.Platforms))
 	for _, platform := range root.Platforms {
 		if !validPlatformPart(platform.GOOS) || !validPlatformPart(platform.GOARCH) {
 			return fmt.Errorf("%w: trust platform", ErrInvalidMetadata)
 		}
+		identity := platform.GOOS + "/" + platform.GOARCH
+		if _, duplicate := seenPlatforms[identity]; duplicate {
+			return fmt.Errorf("%w: duplicate trust platform", ErrInvalidMetadata)
+		}
+		seenPlatforms[identity] = struct{}{}
 	}
 	return nil
 }

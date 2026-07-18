@@ -1,0 +1,11 @@
+{
+  "product": "ytdlp-go",
+  "channel": "stable",
+  "generation": 1,
+  "artifact_base64": "cG9ydGFibGUtYXJ0aWZhY3Q=",
+  "expected": [
+    {"goos": "linux", "goarch": "amd64", "artifact": "ytdlp-go"},
+    {"goos": "darwin", "goarch": "arm64", "artifact": "ytdlp-go"},
+    {"goos": "windows", "goarch": "amd64", "artifact": "ytdlp-go.exe"}
+  ]
+}
