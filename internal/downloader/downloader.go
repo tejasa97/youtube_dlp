@@ -23,6 +23,8 @@ var (
 	ErrUnsafeDestination = errors.New("destination escapes output root")
 	ErrIncomplete        = errors.New("download ended before expected size")
 	ErrTooManyAttempts   = errors.New("download retry attempts exceed limit")
+	ErrThrottled         = errors.New("download response remained below throttle threshold")
+	ErrThrottleExhausted = errors.New("download throttle restart limit exhausted")
 )
 
 type Job struct {
@@ -42,6 +44,13 @@ type Job struct {
 	// MaxBytes bounds a response even where the server omits Content-Length.
 	// Zero means the direct downloader's conservative 8 GiB ceiling.
 	MaxBytes int64
+	// ThrottleRate enables slow-response detection when positive. A response
+	// below this byte/second rate for ThrottleWindow is restarted resumably.
+	ThrottleRate     int64
+	ThrottleWindow   time.Duration
+	ThrottleRestarts int
+	// FileAttempts bounds retry of transient file open/sync/rename operations.
+	FileAttempts int
 }
 
 type Result struct {
@@ -52,10 +61,24 @@ type Result struct {
 
 type Downloader struct {
 	transport network.Doer
+	now       func() time.Time
+	sleep     func(context.Context, time.Duration) error
 }
 
 func New(transport network.Doer) *Downloader {
-	return &Downloader{transport: transport}
+	return NewWithHooks(transport, time.Now, waitFor)
+}
+
+// NewWithHooks supplies deterministic time hooks for native retry and
+// throttling tests. Production callers should use New.
+func NewWithHooks(transport network.Doer, now func() time.Time, sleep func(context.Context, time.Duration) error) *Downloader {
+	if now == nil {
+		now = time.Now
+	}
+	if sleep == nil {
+		sleep = waitFor
+	}
+	return &Downloader{transport: transport, now: now, sleep: sleep}
 }
 
 type partialState struct {
@@ -103,6 +126,7 @@ func (downloader *Downloader) Download(ctx context.Context, job Job, sink events
 
 	var result Result
 	var lastErr error
+	throttleRestarts := 0
 	for attempt := 1; attempt <= attempts; attempt++ {
 		result, lastErr = downloader.downloadAttempt(ctx, job, partPath, statePath, sink)
 		if lastErr == nil {
@@ -113,7 +137,7 @@ func (downloader *Downloader) Download(ctx context.Context, job Job, sink events
 					return Result{}, fmt.Errorf("recheck destination: %w", err)
 				}
 			}
-			if err := finalize(partPath, job.Destination, job.Overwrite); err != nil {
+			if err := downloader.finalize(ctx, job, partPath, job.Destination, job.Overwrite); err != nil {
 				return Result{}, fmt.Errorf("finalize download: %w", err)
 			}
 			_ = os.Remove(statePath)
@@ -128,21 +152,31 @@ func (downloader *Downloader) Download(ctx context.Context, job Job, sink events
 		if !isRetryable(lastErr) {
 			break
 		}
+		if errors.Is(lastErr, ErrThrottled) {
+			throttleRestarts++
+			limit := job.ThrottleRestarts
+			if limit <= 0 {
+				limit = 2
+			}
+			if throttleRestarts > limit {
+				return Result{}, fmt.Errorf("%w: %w", ErrThrottleExhausted, lastErr)
+			}
+		}
 		if attempt < attempts {
 			_ = sink.Emit(ctx, events.Event{Kind: events.KindRetry, URL: eventURL, Path: job.Destination, Attempt: attempt + 1, Message: lastErr.Error()})
-			timer := time.NewTimer(retryDelay(job, attempt))
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				return Result{}, ctx.Err()
-			case <-timer.C:
+			if err := downloader.sleep(ctx, retryDelay(job, attempt)); err != nil {
+				return Result{}, err
 			}
 		}
 	}
 	return Result{}, lastErr
 }
 
-func finalize(partPath, destination string, overwrite bool) error {
+func (downloader *Downloader) finalize(ctx context.Context, job Job, partPath, destination string, overwrite bool) error {
+	return downloader.retryFile(ctx, job, func() error { return finalizeOnce(partPath, destination, overwrite) })
+}
+
+func finalizeOnce(partPath, destination string, overwrite bool) error {
 	err := os.Rename(partPath, destination)
 	if err == nil || !overwrite {
 		return err
@@ -200,7 +234,7 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, part
 	if state.Total > maxBytes {
 		return Result{}, fmt.Errorf("%w: advertised %d bytes exceeds %d", ErrIncomplete, state.Total, maxBytes)
 	}
-	if err := savePartialState(statePath, state); err != nil {
+	if err := downloader.savePartialState(ctx, job, statePath, state); err != nil {
 		return Result{}, err
 	}
 
@@ -208,7 +242,7 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, part
 	if offset == 0 {
 		flags |= os.O_TRUNC
 	}
-	file, err := os.OpenFile(partPath, flags, 0o644)
+	file, err := downloader.openPartial(ctx, job, partPath, flags)
 	if err != nil {
 		return Result{}, fmt.Errorf("open partial file: %w", err)
 	}
@@ -221,6 +255,7 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, part
 
 	written := offset
 	limiter := newThrottle(job.RateLimit)
+	detector := newThrottleDetector(job.ThrottleRate, job.ThrottleWindow, downloader.now)
 	buffer := make([]byte, 64<<10)
 	for {
 		if err := ctx.Err(); err != nil {
@@ -229,6 +264,10 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, part
 		}
 		count, readErr := response.Body.Read(buffer)
 		if count > 0 {
+			if detector.Observe(count) {
+				file.Close()
+				return Result{}, retryableError{ErrThrottled}
+			}
 			if written+int64(count) > maxBytes {
 				file.Close()
 				return Result{}, fmt.Errorf("%w: response exceeds %d bytes", ErrIncomplete, maxBytes)
@@ -259,7 +298,7 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, part
 			return Result{}, retryableError{fmt.Errorf("read download response: %w", readErr)}
 		}
 	}
-	if err := file.Sync(); err != nil {
+	if err := downloader.retryFile(ctx, job, func() error { return file.Sync() }); err != nil {
 		file.Close()
 		return Result{}, fmt.Errorf("sync partial file: %w", err)
 	}
@@ -294,6 +333,8 @@ func retryDelay(job Job, attempt int) time.Duration {
 }
 
 type retryableError struct{ error }
+
+func (err retryableError) Unwrap() error { return err.error }
 
 func isRetryable(err error) bool {
 	var target retryableError
@@ -348,7 +389,11 @@ func loadPartial(partPath, statePath, rawURL string) (partialState, int64) {
 	return state, info.Size()
 }
 
-func savePartialState(path string, state partialState) error {
+func (downloader *Downloader) savePartialState(ctx context.Context, job Job, path string, state partialState) error {
+	return downloader.retryFile(ctx, job, func() error { return savePartialStateOnce(path, state) })
+}
+
+func savePartialStateOnce(path string, state partialState) error {
 	encoded, err := json.Marshal(state)
 	if err != nil {
 		return err

@@ -196,7 +196,9 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 					if hostErr != nil {
 						err = hostErr
 					} else if err = hosts.Acquire(workerCtx, host); err == nil {
-						err = engine.fetchWithRetry(workerCtx, job, job.Segments[index], path, attempts, maxSize)
+						err = engine.fetchWithRetry(workerCtx, job, job.Segments[index], path, attempts, maxSize, func(nextAttempt int, retryErr error) error {
+							return emit(events.Event{Kind: events.KindRetry, URL: eventURL, Path: job.Destination, Attempt: nextAttempt, Fragment: index + 1, Fragments: len(job.Segments), Message: fragmentRetryMessage(retryErr)})
+						})
 						hosts.Release(host)
 					}
 					if err == nil {
@@ -259,7 +261,7 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 	return result, nil
 }
 
-func (engine *Engine) fetchWithRetry(ctx context.Context, job Job, segment Segment, destination string, attempts int, maxSize int64) error {
+func (engine *Engine) fetchWithRetry(ctx context.Context, job Job, segment Segment, destination string, attempts int, maxSize int64, retryEvent func(int, error) error) error {
 	var lastErr error
 	for attempt := 1; attempt <= attempts; attempt++ {
 		lastErr = engine.fetch(ctx, segment, destination, maxSize)
@@ -273,6 +275,11 @@ func (engine *Engine) fetchWithRetry(ctx context.Context, job Job, segment Segme
 			return lastErr
 		}
 		if attempt < attempts {
+			if retryEvent != nil {
+				if err := retryEvent(attempt+1, lastErr); err != nil {
+					return err
+				}
+			}
 			timer := time.NewTimer(fragmentRetryDelay(job, attempt))
 			select {
 			case <-ctx.Done():
@@ -283,6 +290,21 @@ func (engine *Engine) fetchWithRetry(ctx context.Context, job Job, segment Segme
 		}
 	}
 	return lastErr
+}
+
+func fragmentRetryMessage(err error) string {
+	switch {
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return "fragment request cancelled"
+	case errors.Is(err, ErrSegmentTooLarge):
+		return "fragment response exceeds size limit"
+	case errors.Is(err, ErrUnsafeDestination):
+		return "fragment output rejected"
+	case fragmentRetryable(err):
+		return "transient fragment transport failure"
+	default:
+		return "fragment download failed"
+	}
 }
 
 type retryableFragmentError struct{ error }

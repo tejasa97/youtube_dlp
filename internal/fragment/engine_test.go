@@ -179,6 +179,35 @@ func TestEngineDoesNotRetryPermanentStatus(t *testing.T) {
 	}
 }
 
+func TestFragmentRetryTelemetryIsRedactedAndDeterministic(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) == 1 {
+			http.Error(writer, "retry", http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = writer.Write([]byte("ok"))
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	var captured []events.Event
+	sink := events.SinkFunc(func(_ context.Context, event events.Event) error { captured = append(captured, event); return nil })
+	_, err := New(transport).Download(context.Background(), Job{OutputRoot: root, Destination: filepath.Join(root, "out"), Attempts: 2, Segments: []Segment{{URL: server.URL + "/segment?token=secret"}}}, sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var retry events.Event
+	for _, event := range captured {
+		if event.Kind == events.KindRetry {
+			retry = event
+		}
+	}
+	if retry.Attempt != 2 || retry.Fragment != 1 || retry.Fragments != 1 || retry.Message != "transient fragment transport failure" || strings.Contains(retry.URL, "secret") || strings.Contains(retry.Message, "secret") {
+		t.Fatalf("retry=%#v", retry)
+	}
+}
+
 func TestEngineRejectsSymlinkedState(t *testing.T) {
 	root := t.TempDir()
 	destination := filepath.Join(root, "out")

@@ -6,9 +6,11 @@ fragments, Smooth Streaming (ISM), and opt-in external downloader tools.
 ## Evidence-backed behavior
 
 - Direct files preserve resumable partial metadata, add a bounded response
-  size, deterministic exponential retry backoff, and a context-aware sustained
-  byte-rate throttle. The throttle admits an injected clock/sleeper for
-  deterministic tests.
+  size, deterministic exponential retry backoff, bounded transient file
+  operation retries, and a context-aware sustained byte-rate throttle. An
+  optional bounded slow-response detector restarts a throttled response
+  resumably. Native retry/throttle paths admit injected clock/sleeper hooks
+  for deterministic tests.
 - Fragment work directories keep a plan hash and SHA-256 artifact manifest.
   A cancelled job resumes only artifacts whose digest matches. Legacy state
   without digest evidence is intentionally re-downloaded. State is bounded,
