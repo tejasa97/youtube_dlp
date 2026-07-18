@@ -67,6 +67,33 @@ func TestEntrySequencesPropagateCancellationErrorsAndLimits(t *testing.T) {
 	}
 }
 
+func TestContinuationEntriesFollowEmptyPagesAndStopLoops(t *testing.T) {
+	var tokens []string
+	sequence, err := ContinuationEntries([]Entry{{ID: "one"}}, "next-1", func(_ context.Context, token string) ([]Entry, string, error) {
+		tokens = append(tokens, token)
+		switch token {
+		case "next-1":
+			return nil, "next-2", nil
+		case "next-2":
+			return []Entry{{ID: "two"}}, "next-2", nil
+		default:
+			t.Fatalf("unexpected token %q", token)
+			return nil, "", nil
+		}
+	})
+	if err != nil || len(tokens) != 0 {
+		t.Fatalf("ContinuationEntries() = %v, tokens=%v", err, tokens)
+	}
+	entries, err := CollectEntries(context.Background(), sequence, 10)
+	if err != nil || ids(entries) != "one,two" || !reflect.DeepEqual(tokens, []string{"next-1", "next-2"}) {
+		t.Fatalf("entries=%v err=%v tokens=%v", entries, err, tokens)
+	}
+	entries, err = CollectEntries(context.Background(), sequence, 10)
+	if err != nil || ids(entries) != "one,two" {
+		t.Fatalf("second iterator entries=%v err=%v", entries, err)
+	}
+}
+
 func TestPlaylistMarksMetadataWithoutMaterializingEntries(t *testing.T) {
 	info := value.NewInfo(value.NewObject(value.Field{Key: "id", Value: value.String("list")}))
 	result, err := Playlist(info, StaticEntries(Entry{ID: "one"}))

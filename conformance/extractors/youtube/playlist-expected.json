@@ -1,0 +1,12 @@
+{
+  "id": "PL_fixture",
+  "title": "Synthetic Playlist",
+  "description": "offline paged fixture",
+  "webpage_url": "https://www.youtube.com/playlist?list=PL_fixture",
+  "_type": "playlist",
+  "entries": [
+    {"_type":"url","url":"https://www.youtube.com/watch?v=fixture0001","ie_key":"youtube","id":"fixture0001","title":"First Video"},
+    {"_type":"url","url":"https://www.youtube.com/watch?v=fixture0002","ie_key":"youtube","id":"fixture0002","title":"Second Video"},
+    {"_type":"url","url":"https://www.youtube.com/watch?v=fixture0003","ie_key":"youtube","id":"fixture0003","title":"Third Video"}
+  ]
+}

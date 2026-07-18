@@ -14,12 +14,12 @@ Status: Phase 0 is complete and Phase 1 is in progress. Completed Phase 1
 milestones include HLS/DASH fragment pipelines, ffmpeg supervision,
 compatibility parser pilots, differential comparison, and the isolated EJS
 challenge path. The first offline YouTube video corpus now covers player
-metadata, direct and ciphered formats, `n`/signature transformation, and
-HLS/DASH manifest exposure through the product registry. Playlists, broader
-site coverage, plugins, and upstream-delta replay are still in progress and are
-not claimed complete. The versioned Chrome 133 TLS/HTTP2 impersonation pilot
-and macOS Google Chrome cookie import are available for protected extractor
-flows.
+metadata, direct and ciphered formats, `n`/signature transformation,
+HLS/DASH manifest exposure, pinned playlist continuations, and live-HLS
+discovery. Broader playlists, site coverage, plugins, and upstream-delta replay
+are still in progress and are not claimed complete. The versioned Chrome 133
+TLS/HTTP2 impersonation pilot and macOS Google Chrome cookie import are
+available for protected extractor flows.
 
 ## Build and test
 

@@ -13,3 +13,14 @@ The domains use the reserved `.example` namespace, and the in-memory test
 transport rejects every unlisted URL. No live YouTube request is made. The
 expected document is intentionally checked in so field presence, ordering, and
 challenge-transformed URLs remain reviewable.
+
+The playlist corpus is also synthetic and follows the renderer and continuation
+shapes consumed by `YoutubeTabIE` in the pinned reference
+`yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`: ordered
+`playlistVideoRenderer` URL results, `continuationItemRenderer` cursor lookup,
+and `youtubei/v1/browse` continuation requests. The client version is the
+pinned reference's web client value. The live fixture follows the pinned
+reference's `isLive`/`isLiveContent` to `live_status=is_live` classification and
+HLS manifest exposure. All identifiers, metadata, cursors, keys, visitor data,
+and domains are artificial; no captured account or production response is
+stored.

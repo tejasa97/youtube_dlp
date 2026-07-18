@@ -1,0 +1,12 @@
+{
+  "onResponseReceivedActions": [{
+    "appendContinuationItemsAction": {
+      "continuationItems": [{
+        "playlistVideoRenderer": {
+          "videoId": "fixture0003",
+          "title": {"runs": [{"text": "Third "}, {"text": "Video"}]}
+        }
+      }]
+    }
+  }]
+}

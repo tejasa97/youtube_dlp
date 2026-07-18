@@ -190,7 +190,7 @@ capabilities:
     name: HLS downloading
     phase: 1
     compatibility_target: Download VOD and live HLS variants with yt-dlp-compatible selection and recovery behavior.
-    status: partial
+    status: compatible
     evidence:
       - internal/fragment.TestEngineDownloadsRangesDecryptsAndAssemblesInOrder
       - internal/fragment.TestEngineReusesCompletedFragments
@@ -310,11 +310,17 @@ capabilities:
       - internal/extractor.TestYouTubeChallengeAndAvailabilityFailuresAreCategorized
       - internal/extractor.TestYouTubeCanonicalizesShortURLsBeforeFetching
       - internal/extractor.TestYouTubeRejectsMalformedPlayerResponse
+      - internal/extractor.TestYouTubePlaylistIsLazyPagedAndMatchesPinnedShape
+      - internal/extractor.TestYouTubePlaylistFailuresAreCategorized
+      - internal/extractor.TestYouTubeExtractsLiveHLSAndClassifiesLiveStates
+      - internal/extractor.TestRequestJSONBoundsStatusAndSyntax
+      - internal/extractor.FuzzParseYouTubePlaylistData
       - conformance/extractors/youtube/PROVENANCE.md
     owner: extractors
     depends_on:
       - javascript.ejs
-    known_deviation: The pinned video corpus covers metadata, direct and ciphered formats, EJS challenge execution, and manifest exposure; playlist extraction, authenticated clients, subtitles, comments, and live player breadth remain pending.
+      - extractor.playlists
+    known_deviation: Compatibility is scoped to the pinned Phase 1 video, playlist-continuation, and live-HLS corpus. Authenticated clients, subtitles, comments, channel/tab variants, live-from-start, and broader player/renderer variants remain pending.
 
   - id: extractor.playlists
     name: Playlist extraction model
@@ -325,6 +331,7 @@ capabilities:
       - internal/extractor.TestEntryObjectMatchesURLResultShape
       - internal/extractor.TestOnDemandEntriesAreOrderedLazyAndReusable
       - internal/extractor.TestEntrySequencesPropagateCancellationErrorsAndLimits
+      - internal/extractor.TestContinuationEntriesFollowEmptyPagesAndStopLoops
       - internal/extractor.TestPlaylistMarksMetadataWithoutMaterializingEntries
       - internal/extractor.TestRegistryHonorsExplicitExtractorKey
       - internal/extractor.FuzzOnDemandEntries
@@ -340,10 +347,16 @@ capabilities:
     name: Live extraction pilot
     phase: 1
     compatibility_target: Extract and download one representative live platform without Python.
-    status: not_started
+    status: partial
+    evidence:
+      - internal/extractor.TestYouTubeExtractsLiveHLSAndClassifiesLiveStates
+      - internal/protocol/hls.TestDownloadLivePollDeduplicatesSegments
+      - internal/protocol/hls.TestDownloadLiveHonorsCancellation
+      - conformance/extractors/youtube/PROVENANCE.md
     owner: extractors
     depends_on:
       - protocol.hls
+    known_deviation: YouTube live-HLS discovery and the reusable HLS downloader are independently proven; a platform-specific live refresh/end-of-stream integration gate remains before compatible status.
 
   - id: compat.configuration
     name: Configuration compatibility

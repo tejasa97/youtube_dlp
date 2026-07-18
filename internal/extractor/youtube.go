@@ -32,6 +32,9 @@ func (YouTube) Suitable(parsed *url.URL) bool {
 }
 
 func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error) {
+	if playlistID, ok := youtubePlaylistID(request.URL); ok {
+		return extractYouTubePlaylist(ctx, request, playlistID)
+	}
 	videoID, err := youtubeVideoID(request.URL)
 	if err != nil {
 		return Extraction{}, err
@@ -101,32 +104,16 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 		thumbnail := details.Thumbnail.Thumbnails[len(details.Thumbnail.Thumbnails)-1]
 		info.Set("thumbnail", value.String(thumbnail.URL))
 	}
-	if details.IsLiveContent {
-		info.Set("live_status", value.String("is_live"))
-	} else {
-		info.Set("live_status", value.String("not_live"))
+	if liveStatus := youtubeLiveStatus(details); liveStatus != "" {
+		info.Set("live_status", value.String(liveStatus))
 	}
 	return Media(value.NewInfo(info)), nil
 }
 
 type youtubePlayerResponse struct {
 	PlayabilityStatus youtubePlayabilityStatus `json:"playabilityStatus"`
-	VideoDetails      struct {
-		VideoID          string `json:"videoId"`
-		Title            string `json:"title"`
-		LengthSeconds    string `json:"lengthSeconds"`
-		Author           string `json:"author"`
-		ChannelID        string `json:"channelId"`
-		ShortDescription string `json:"shortDescription"`
-		ViewCount        string `json:"viewCount"`
-		IsLiveContent    bool   `json:"isLiveContent"`
-		Thumbnail        struct {
-			Thumbnails []struct {
-				URL string `json:"url"`
-			} `json:"thumbnails"`
-		} `json:"thumbnail"`
-	} `json:"videoDetails"`
-	StreamingData struct {
+	VideoDetails      youtubeVideoDetails      `json:"videoDetails"`
+	StreamingData     struct {
 		Formats         []youtubeFormat `json:"formats"`
 		AdaptiveFormats []youtubeFormat `json:"adaptiveFormats"`
 		HLSManifestURL  string          `json:"hlsManifestUrl"`
@@ -135,6 +122,42 @@ type youtubePlayerResponse struct {
 	Assets struct {
 		JS string `json:"js"`
 	} `json:"assets"`
+}
+
+type youtubeVideoDetails struct {
+	VideoID          string `json:"videoId"`
+	Title            string `json:"title"`
+	LengthSeconds    string `json:"lengthSeconds"`
+	Author           string `json:"author"`
+	ChannelID        string `json:"channelId"`
+	ShortDescription string `json:"shortDescription"`
+	ViewCount        string `json:"viewCount"`
+	IsLive           *bool  `json:"isLive"`
+	IsLiveContent    *bool  `json:"isLiveContent"`
+	IsUpcoming       bool   `json:"isUpcoming"`
+	IsPostLiveDVR    bool   `json:"isPostLiveDvr"`
+	Thumbnail        struct {
+		Thumbnails []struct {
+			URL string `json:"url"`
+		} `json:"thumbnails"`
+	} `json:"thumbnail"`
+}
+
+func youtubeLiveStatus(details youtubeVideoDetails) string {
+	switch {
+	case details.IsPostLiveDVR:
+		return "post_live"
+	case details.IsLive != nil && *details.IsLive:
+		return "is_live"
+	case details.IsUpcoming:
+		return "is_upcoming"
+	case details.IsLiveContent != nil && *details.IsLiveContent:
+		return "was_live"
+	case details.IsLive != nil && !*details.IsLive || details.IsLiveContent != nil && !*details.IsLiveContent:
+		return "not_live"
+	default:
+		return ""
+	}
 }
 
 type youtubePlayabilityStatus struct {

@@ -6,14 +6,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"reflect"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/ytdlp-go/ytdlp/internal/javascript/ejs"
 	"github.com/ytdlp-go/ytdlp/internal/javascript/engine"
+	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
 const (
@@ -55,6 +59,9 @@ func TestYouTubeSuitableAndVideoID(t *testing.T) {
 		if id, err := youtubeVideoID(rawURL); err != nil || id != "fixture0001" {
 			t.Fatalf("youtubeVideoID(%q) = %q, %v", rawURL, id, err)
 		}
+	}
+	if id, ok := youtubePlaylistID("https://www.youtube.com/playlist?list=PL_fixture"); !ok || id != "PL_fixture" {
+		t.Fatalf("youtubePlaylistID() = %q, %v", id, ok)
 	}
 	parsed, _ := url.Parse("https://example.com/watch?v=fixture0001")
 	if extractor.Suitable(parsed) {
@@ -163,7 +170,176 @@ func TestYouTubeRejectsMalformedPlayerResponse(t *testing.T) {
 	}
 }
 
-func readYouTubeFixture(t *testing.T, name string) []byte {
+type youtubePlaylistTransport struct {
+	page         []byte
+	continuation []byte
+	status       int
+	reads        []string
+	requests     int
+}
+
+func (transport *youtubePlaylistTransport) ReadPage(_ context.Context, rawURL string) ([]byte, http.Header, error) {
+	transport.reads = append(transport.reads, rawURL)
+	if rawURL != "https://www.youtube.com/playlist?list=PL_fixture" {
+		return nil, nil, fmt.Errorf("unexpected URL %q", rawURL)
+	}
+	return append([]byte(nil), transport.page...), make(http.Header), nil
+}
+
+func (transport *youtubePlaylistTransport) Do(_ context.Context, request *http.Request) (*http.Response, error) {
+	transport.requests++
+	if request.Method != http.MethodPost || request.URL.Path != "/youtubei/v1/browse" ||
+		request.URL.Query().Get("key") != "fixture-key" || request.URL.Query().Get("prettyPrint") != "false" ||
+		request.Header.Get("X-Youtube-Client-Version") != youtubeDefaultClientVersion {
+		return nil, fmt.Errorf("unexpected continuation request: %s %s headers=%v", request.Method, request.URL, request.Header)
+	}
+	body, err := io.ReadAll(request.Body)
+	if err != nil || !strings.Contains(string(body), `"continuation":"fixture-token-2"`) || !strings.Contains(string(body), `"visitorData":"fixture-visitor"`) {
+		return nil, fmt.Errorf("unexpected continuation body: %s: %v", body, err)
+	}
+	status := transport.status
+	if status == 0 {
+		status = http.StatusOK
+	}
+	return &http.Response{
+		StatusCode: status, Body: io.NopCloser(bytes.NewReader(transport.continuation)),
+		Header: make(http.Header), Request: request,
+	}, nil
+}
+
+func TestYouTubePlaylistIsLazyPagedAndMatchesPinnedShape(t *testing.T) {
+	transport := &youtubePlaylistTransport{
+		page: readYouTubeFixture(t, "playlist.html"), continuation: readYouTubeFixture(t, "playlist-continuation.json"),
+	}
+	result, err := NewYouTube().Extract(context.Background(), Request{
+		URL: "https://www.youtube.com/playlist?feature=share&list=PL_fixture", Transport: transport,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsPlaylist() || transport.requests != 0 || len(transport.reads) != 1 {
+		t.Fatalf("result=%#v reads=%v requests=%d", result, transport.reads, transport.requests)
+	}
+	entries, err := CollectEntries(context.Background(), result.Entries, 10)
+	if err != nil || transport.requests != 1 {
+		t.Fatalf("entries=%#v error=%v requests=%d", entries, err, transport.requests)
+	}
+	info := value.NewInfo(result.Info.Fields().Clone())
+	entryValues := make([]value.Value, len(entries))
+	for index, entry := range entries {
+		entryValues[index] = value.ObjectValue(entry.Object())
+	}
+	info.Set("entries", value.List(entryValues...))
+	actual, err := json.Marshal(info.Fields())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var actualDocument, expectedDocument any
+	if err := json.Unmarshal(actual, &actualDocument); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(readYouTubeFixture(t, "playlist-expected.json"), &expectedDocument); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(actualDocument, expectedDocument) {
+		t.Fatalf("playlist mismatch\nactual: %s\nexpected: %#v", actual, expectedDocument)
+	}
+}
+
+func TestYouTubePlaylistFailuresAreCategorized(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		alert string
+		want  error
+	}{
+		{"private", "This playlist is private. Sign in to continue.", ErrAuthentication},
+		{"unavailable", "The playlist does not exist.", ErrUnavailable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			page := []byte(`ytInitialData={"metadata":{"playlistMetadataRenderer":{"title":"Fixture"}},"alerts":[{"alertRenderer":{"text":{"simpleText":` + strconv.Quote(test.alert) + `}}}]};`)
+			transport := &youtubePlaylistTransport{page: page}
+			_, err := NewYouTube().Extract(context.Background(), Request{URL: "https://www.youtube.com/playlist?list=PL_fixture", Transport: transport})
+			if !errors.Is(err, test.want) {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+	transport := &youtubePlaylistTransport{page: []byte(`ytInitialData={"contents":{}};`)}
+	if _, err := NewYouTube().Extract(context.Background(), Request{URL: "https://www.youtube.com/playlist?list=PL_fixture", Transport: transport}); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("malformed error = %v", err)
+	}
+	transport = &youtubePlaylistTransport{
+		page: readYouTubeFixture(t, "playlist.html"), continuation: []byte(`{}`), status: http.StatusForbidden,
+	}
+	result, err := NewYouTube().Extract(context.Background(), Request{URL: "https://www.youtube.com/playlist?list=PL_fixture", Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CollectEntries(context.Background(), result.Entries, 10); !errors.Is(err, ErrAuthentication) {
+		t.Fatalf("continuation auth error = %v", err)
+	}
+}
+
+func TestYouTubePlaylistTraversalDepthIsBounded(t *testing.T) {
+	data := strings.Repeat(`{"x":`, youtubeMaxJSONDepth+2) + `{}` + strings.Repeat(`}`, youtubeMaxJSONDepth+2)
+	if _, err := parseYouTubePlaylistData([]byte(data)); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("depth error = %v", err)
+	}
+}
+
+func TestYouTubeExtractsLiveHLSAndClassifiesLiveStates(t *testing.T) {
+	liveURL := "https://www.youtube.com/watch?v=livefix0001"
+	transport := &memoryTransport{pages: map[string][]byte{liveURL: readYouTubeFixture(t, "live-watch.html")}}
+	result, err := NewYouTube().Extract(context.Background(), Request{URL: liveURL, Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status, _ := result.Info.Lookup("live_status").StringValue(); status != "is_live" {
+		t.Fatalf("live_status = %q", status)
+	}
+	formats, _ := result.Info.Formats()
+	format, _ := formats[0].Object()
+	if protocol, _ := format.Lookup("protocol").StringValue(); protocol != "m3u8_native" {
+		t.Fatalf("live format = %#v", format)
+	}
+	trueValue, falseValue := true, false
+	for _, test := range []struct {
+		details youtubeVideoDetails
+		want    string
+	}{
+		{youtubeVideoDetails{IsPostLiveDVR: true}, "post_live"},
+		{youtubeVideoDetails{IsUpcoming: true}, "is_upcoming"},
+		{youtubeVideoDetails{IsLiveContent: &trueValue}, "was_live"},
+		{youtubeVideoDetails{IsLive: &falseValue}, "not_live"},
+		{youtubeVideoDetails{}, ""},
+	} {
+		if got := youtubeLiveStatus(test.details); got != test.want {
+			t.Fatalf("youtubeLiveStatus(%#v) = %q, want %q", test.details, got, test.want)
+		}
+	}
+}
+
+func FuzzParseYouTubePlaylistData(f *testing.F) {
+	page := readYouTubeFixture(f, "playlist.html")
+	if initial, err := extractJSONObject(page, youtubeInitialDataMarker); err == nil {
+		f.Add(initial)
+	}
+	f.Add(readYouTubeFixture(f, "playlist-continuation.json"))
+	f.Add([]byte(`{"metadata":{"playlistMetadataRenderer":{"title":"x"}}}`))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > 1<<20 {
+			t.Skip()
+		}
+		_, _ = parseYouTubePlaylistData(data)
+	})
+}
+
+type youtubeTestHelper interface {
+	Helper()
+	Fatal(...any)
+}
+
+func readYouTubeFixture(t youtubeTestHelper, name string) []byte {
 	t.Helper()
 	data, err := os.ReadFile("../../conformance/extractors/youtube/" + name)
 	if err != nil {

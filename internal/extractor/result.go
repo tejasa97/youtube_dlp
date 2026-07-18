@@ -106,6 +106,8 @@ func (iterator *staticEntryIterator) Next(ctx context.Context) (Entry, bool, err
 
 type PageFetcher func(context.Context, int) ([]Entry, error)
 
+type ContinuationFetcher func(context.Context, string) ([]Entry, string, error)
+
 type pagedEntries struct {
 	pageSize int
 	maxPages int
@@ -123,6 +125,86 @@ func OnDemandEntries(pageSize int, fetch PageFetcher) (EntrySequence, error) {
 
 func (entries pagedEntries) Iterator() EntryIterator {
 	return &pagedEntryIterator{source: entries}
+}
+
+type continuationEntries struct {
+	first     []Entry
+	nextToken string
+	fetch     ContinuationFetcher
+	maxPages  int
+}
+
+// ContinuationEntries models cursor APIs whose next request depends on the
+// previous response. Empty intermediate pages are followed, repeated cursors
+// terminate safely, and each iterator owns independent cursor state.
+func ContinuationEntries(first []Entry, nextToken string, fetch ContinuationFetcher) (EntrySequence, error) {
+	if nextToken != "" && fetch == nil {
+		return nil, fmt.Errorf("%w: missing continuation fetcher", ErrInvalidPlaylist)
+	}
+	return continuationEntries{
+		first: append([]Entry(nil), first...), nextToken: nextToken,
+		fetch: fetch, maxPages: defaultMaxPlaylistPages,
+	}, nil
+}
+
+func (entries continuationEntries) Iterator() EntryIterator {
+	seen := make(map[string]bool)
+	if entries.nextToken != "" {
+		seen[entries.nextToken] = true
+	}
+	return &continuationEntryIterator{
+		page: append([]Entry(nil), entries.first...), token: entries.nextToken,
+		fetch: entries.fetch, seen: seen, maxPages: entries.maxPages,
+	}
+}
+
+type continuationEntryIterator struct {
+	page      []Entry
+	pageIndex int
+	token     string
+	fetch     ContinuationFetcher
+	seen      map[string]bool
+	pages     int
+	maxPages  int
+	done      bool
+}
+
+func (iterator *continuationEntryIterator) Next(ctx context.Context) (Entry, bool, error) {
+	if err := contextError(ctx); err != nil {
+		iterator.done = true
+		return Entry{}, false, err
+	}
+	if iterator.done {
+		return Entry{}, false, nil
+	}
+	for iterator.pageIndex >= len(iterator.page) {
+		if iterator.token == "" {
+			iterator.done = true
+			return Entry{}, false, nil
+		}
+		if iterator.pages >= iterator.maxPages {
+			iterator.done = true
+			return Entry{}, false, ErrPlaylistLimit
+		}
+		page, nextToken, err := iterator.fetch(ctx, iterator.token)
+		if err != nil {
+			iterator.done = true
+			return Entry{}, false, err
+		}
+		iterator.pages++
+		iterator.page, iterator.pageIndex = append([]Entry(nil), page...), 0
+		iterator.token = nextToken
+		if nextToken != "" {
+			if iterator.seen[nextToken] {
+				iterator.token = ""
+			} else {
+				iterator.seen[nextToken] = true
+			}
+		}
+	}
+	entry := iterator.page[iterator.pageIndex]
+	iterator.pageIndex++
+	return entry, true, nil
 }
 
 type pagedEntryIterator struct {
