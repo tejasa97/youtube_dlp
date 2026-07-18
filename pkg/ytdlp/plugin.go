@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -77,14 +79,14 @@ type PluginPackInstallOptions struct {
 }
 
 type PluginDescriptor struct {
-	ID               string
-	Name             string
-	Release          string
-	Runtime          string
-	SignerKeyID      string
-	ExecutableDigest string
-	Capabilities     []PluginCapability
-	Permissions      []PluginPermission
+	ID               string             `json:"id"`
+	Name             string             `json:"name"`
+	Release          string             `json:"release"`
+	Runtime          string             `json:"runtime"`
+	SignerKeyID      string             `json:"signer_key_id"`
+	ExecutableDigest string             `json:"executable_digest"`
+	Capabilities     []PluginCapability `json:"capabilities"`
+	Permissions      []PluginPermission `json:"permissions,omitempty"`
 }
 
 // InstalledPlugin is an opaque, revalidated binding between a signed pack and
@@ -112,6 +114,22 @@ func WithInstalledPlugins(installed ...*InstalledPlugin) Option {
 
 func WithPluginPermissionApprover(approver PluginPermissionApprover) Option {
 	return func(client *Client) { client.pluginApprover = approver }
+}
+
+func PluginPackKeyID(key ed25519.PublicKey) (string, error) { return pack.KeyID(key) }
+
+func VerifyPluginPack(archive []byte, trust PluginPackTrust) (PluginDescriptor, error) {
+	verified, err := pack.Verify(archive, packPolicy(trust))
+	if err != nil {
+		return PluginDescriptor{}, categorizePack("verify plugin pack", err)
+	}
+	manifest, err := validatePluginPackBinding(verified)
+	if err != nil {
+		return PluginDescriptor{}, categorizePlugin("validate plugin pack", err)
+	}
+	body := verified.Payload[verified.Manifest.Entrypoint]
+	digest := sha256.Sum256(body)
+	return descriptorFor(manifest, verified.Manifest.PublisherKeyID, hex.EncodeToString(digest[:])), nil
 }
 
 func InstallPluginPack(ctx context.Context, archive []byte, root string, trust PluginPackTrust, options PluginPackInstallOptions) (*InstalledPlugin, PackPermissionReview, error) {
@@ -246,13 +264,17 @@ func bindInstalledPlugin(path, signer string, expected plugin.Manifest) (*Instal
 	loaded.Signer = signer
 	return &InstalledPlugin{
 		packageValue: loaded,
-		descriptor: PluginDescriptor{
-			ID: expected.ID, Name: expected.Name, Release: expected.Release, Runtime: string(expected.Runtime),
-			SignerKeyID: signer, ExecutableDigest: loaded.ExecutableDigest,
-			Capabilities: append([]PluginCapability(nil), expected.Capabilities...),
-			Permissions:  append([]PluginPermission(nil), expected.Permissions...),
-		},
+		descriptor:   descriptorFor(expected, signer, loaded.ExecutableDigest),
 	}, nil
+}
+
+func descriptorFor(manifest plugin.Manifest, signer, executableDigest string) PluginDescriptor {
+	return PluginDescriptor{
+		ID: manifest.ID, Name: manifest.Name, Release: manifest.Release, Runtime: string(manifest.Runtime),
+		SignerKeyID: signer, ExecutableDigest: executableDigest,
+		Capabilities: append([]PluginCapability(nil), manifest.Capabilities...),
+		Permissions:  append([]PluginPermission(nil), manifest.Permissions...),
+	}
 }
 
 type PluginHost struct {
