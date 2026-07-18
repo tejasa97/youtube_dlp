@@ -377,7 +377,7 @@ func (operation *operation) processMedia(ctx context.Context, info value.Info, e
 		}
 	default:
 		downloaded, err := downloader.New(operation.transport).Download(ctx, downloader.Job{
-			URL: selectedFormat.URL, OutputRoot: outputDir, Destination: destination, Overwrite: operation.request.Overwrite,
+			URL: selectedFormat.URL, Headers: selectedFormat.Headers, OutputRoot: outputDir, Destination: destination, Overwrite: operation.request.Overwrite,
 		}, sink)
 		if err != nil {
 			return Result{}, categorized("download", err)
@@ -425,7 +425,7 @@ func categorized(op string, err error) error {
 		errors.Is(err, network.ErrInvalidProxy), errors.Is(err, network.ErrInvalidCookie),
 		errors.Is(err, errInvalidBrowserCookieSpec):
 		category = ErrorInvalidInput
-	case errors.Is(err, mediaformat.ErrNoFormats), errors.Is(err, extractor.ErrInvalidMetadata),
+	case errors.Is(err, mediaformat.ErrNoFormats), errors.Is(err, mediaformat.ErrInvalidHeaders), errors.Is(err, extractor.ErrInvalidMetadata),
 		errors.Is(err, extractor.ErrInvalidPlaylist), errors.Is(err, extractor.ErrPlaylistLimit),
 		errors.Is(err, ffmpeg.ErrMediaFailure), errors.Is(err, pipeline.ErrMissingDASHTracks),
 		errors.Is(err, pipeline.ErrMissingToolset):

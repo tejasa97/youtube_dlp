@@ -99,6 +99,26 @@ func TestDownloadUnknownLength(t *testing.T) {
 	}
 }
 
+func TestDownloadForwardsSelectedHTTPHeaders(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Referer") != "https://page.example/video" || request.Header.Get("X-Extractor") != "fixture" {
+			http.Error(writer, "headers required", http.StatusForbidden)
+			return
+		}
+		_, _ = writer.Write([]byte("media"))
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	_, err := New(transport).Download(context.Background(), Job{
+		URL: server.URL, Headers: http.Header{"Referer": {"https://page.example/video"}, "X-Extractor": {"fixture"}},
+		OutputRoot: root, Destination: filepath.Join(root, "media.bin"),
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDownloadCancellationLeavesPartialState(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("ETag", `"slow"`)

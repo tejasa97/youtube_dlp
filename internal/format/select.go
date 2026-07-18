@@ -4,11 +4,16 @@ package format
 import (
 	"errors"
 	"fmt"
+	"net/http"
+	"strings"
 
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
-var ErrNoFormats = errors.New("no downloadable formats")
+var (
+	ErrNoFormats      = errors.New("no downloadable formats")
+	ErrInvalidHeaders = errors.New("invalid format HTTP headers")
+)
 
 type Selection struct {
 	ID       string
@@ -20,6 +25,7 @@ type Selection struct {
 	ACodec   string
 	Height   int64
 	TBR      float64
+	Headers  http.Header
 }
 
 // Best selects the first normalized format. Phase 0 extractors order their
@@ -38,7 +44,11 @@ func Best(info value.Info) (Selection, error) {
 		if !ok || rawURL == "" {
 			continue
 		}
-		selection := Selection{URL: rawURL}
+		headers, err := mergeHeaders(info.Lookup("http_headers"), object.Lookup("http_headers"))
+		if err != nil {
+			return Selection{}, err
+		}
+		selection := Selection{URL: rawURL, Headers: headers}
 		selection.ID, _ = object.Lookup("format_id").StringValue()
 		selection.Ext, _ = object.Lookup("ext").StringValue()
 		selection.Filesize, _ = object.Lookup("filesize").Int()
@@ -50,6 +60,28 @@ func Best(info value.Info) (Selection, error) {
 		return selection, nil
 	}
 	return Selection{}, fmt.Errorf("%w: formats contain no URL", ErrNoFormats)
+}
+
+func mergeHeaders(values ...value.Value) (http.Header, error) {
+	headers := make(http.Header)
+	for _, candidate := range values {
+		if candidate.IsMissing() || candidate.IsNull() {
+			continue
+		}
+		object, ok := candidate.Object()
+		if !ok {
+			return nil, fmt.Errorf("%w: header collection is not an object", ErrInvalidHeaders)
+		}
+		for _, field := range object.Fields() {
+			text, ok := field.Value.StringValue()
+			name := http.CanonicalHeaderKey(field.Key)
+			if !ok || name == "" || strings.ContainsAny(field.Key+text, "\r\n") {
+				return nil, fmt.Errorf("%w: malformed field", ErrInvalidHeaders)
+			}
+			headers.Set(name, text)
+		}
+	}
+	return headers, nil
 }
 
 func numeric(input value.Value) (float64, bool) {

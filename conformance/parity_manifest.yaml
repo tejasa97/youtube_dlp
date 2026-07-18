@@ -114,6 +114,7 @@ capabilities:
       - internal/downloader.TestDownloadCompleteAndResume
       - internal/downloader.TestDownloadRestartsWhenServerIgnoresRange
       - internal/downloader.TestDownloadUnknownLength
+      - internal/downloader.TestDownloadForwardsSelectedHTTPHeaders
       - internal/downloader.TestDownloadCancellationLeavesPartialState
       - internal/downloader.TestDownloadSafetyAndOverwrite
       - internal/downloader.TestDownloadRejectsSymlinkEscape
@@ -170,6 +171,8 @@ capabilities:
     evidence:
       - internal/format.TestBestSelectsFirstDownloadableFormat
       - internal/format.TestBestRejectsMissingFormats
+      - internal/format.TestBestMergesInfoAndFormatHTTPHeaders
+      - internal/format.TestBestRejectsMalformedHTTPHeaders
     owner: core
     depends_on:
       - metadata.ordered_values

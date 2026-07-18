@@ -30,3 +30,40 @@ func TestBestRejectsMissingFormats(t *testing.T) {
 		t.Fatalf("Best() error = %v", err)
 	}
 }
+
+func TestBestMergesInfoAndFormatHTTPHeaders(t *testing.T) {
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "http_headers", Value: value.ObjectValue(value.NewObject(
+			value.Field{Key: "Referer", Value: value.String("https://page.example/video")},
+			value.Field{Key: "User-Agent", Value: value.String("info-agent")},
+		))},
+		value.Field{Key: "formats", Value: value.List(value.ObjectValue(value.NewObject(
+			value.Field{Key: "url", Value: value.String("https://cdn.example/media")},
+			value.Field{Key: "http_headers", Value: value.ObjectValue(value.NewObject(
+				value.Field{Key: "User-Agent", Value: value.String("format-agent")},
+			))},
+		)))},
+	))
+	selected, err := Best(info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selected.Headers.Get("Referer") != "https://page.example/video" || selected.Headers.Get("User-Agent") != "format-agent" {
+		t.Fatalf("headers = %v", selected.Headers)
+	}
+	selected.Headers.Set("Referer", "mutated")
+	headers, _ := info.Lookup("http_headers").Object()
+	if original, _ := headers.Lookup("Referer").StringValue(); original != "https://page.example/video" {
+		t.Fatal("selection headers mutated metadata")
+	}
+}
+
+func TestBestRejectsMalformedHTTPHeaders(t *testing.T) {
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "http_headers", Value: value.ObjectValue(value.NewObject(value.Field{Key: "X-Test", Value: value.String("bad\r\nvalue")}))},
+		value.Field{Key: "formats", Value: value.List(value.ObjectValue(value.NewObject(value.Field{Key: "url", Value: value.String("https://cdn.example/media")})))},
+	))
+	if _, err := Best(info); !errors.Is(err, ErrInvalidHeaders) {
+		t.Fatalf("Best() error = %v", err)
+	}
+}

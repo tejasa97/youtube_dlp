@@ -26,6 +26,7 @@ var (
 
 type Job struct {
 	URL         string
+	Headers     http.Header
 	OutputRoot  string
 	Destination string
 	Overwrite   bool
@@ -145,6 +146,9 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, part
 	request, err := http.NewRequest(http.MethodGet, job.URL, nil)
 	if err != nil {
 		return Result{}, fmt.Errorf("create download request: %w", err)
+	}
+	if job.Headers != nil {
+		request.Header = job.Headers.Clone()
 	}
 	if offset > 0 {
 		request.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
