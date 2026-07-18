@@ -35,6 +35,7 @@ COPY --from=build /out/ytdlp-pack /ytdlp-pack
 COPY --from=build /out/ytdlp-update /ytdlp-update
 COPY --from=build /out/ytdlp-release /ytdlp-release
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY LICENSE NOTICE /licenses/
 COPY THIRD_PARTY_NOTICES.md /licenses/THIRD_PARTY_NOTICES.md
 COPY third_party/licenses /licenses
 ENTRYPOINT ["/ytdlp-go"]

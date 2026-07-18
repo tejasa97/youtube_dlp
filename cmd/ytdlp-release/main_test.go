@@ -46,6 +46,33 @@ func TestRunReportsAPIVersion(t *testing.T) {
 	}
 }
 
+func TestProjectReleaseMetadataDeclaresApacheLicense(t *testing.T) {
+	version := "v0.1.0-alpha.1"
+	projectLicense := []byte("Apache License\nVersion 2.0\n")
+	components, licenses := dependencyRecords(nil, []byte("notices\n"))
+	components, licenses = appendProjectLicense(components, licenses, version, projectLicense)
+	if err := release.ValidateLicenseCoverage(components, licenses); err != nil {
+		t.Fatal(err)
+	}
+	if components[0].LicenseDeclared != "Apache-2.0" || licenses[0].SPDX != "Apache-2.0" {
+		t.Fatalf("component = %#v, license = %#v", components[0], licenses[0])
+	}
+}
+
+func TestArtifactEntriesIncludeProjectLicense(t *testing.T) {
+	projectLicense := []byte("project license\n")
+	entries := artifactEntries("ytdlp-go", []byte("binary"), projectLicense, []byte("bundle"), []byte("sbom"), []byte("notices"), nil)
+	for _, entry := range entries {
+		if entry.Name == "LICENSE" {
+			if string(entry.Data) != string(projectLicense) {
+				t.Fatalf("license = %q", entry.Data)
+			}
+			return
+		}
+	}
+	t.Fatal("project license missing from artifact")
+}
+
 func TestReadLicenseEntriesRejectsSymlink(t *testing.T) {
 	root := t.TempDir()
 	target := t.TempDir() + string(os.PathSeparator) + "LICENSE"

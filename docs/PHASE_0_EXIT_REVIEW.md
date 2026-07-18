@@ -51,10 +51,10 @@ impersonation, plugins, and full yt-dlp syntax remain Phase 1 or later work.
   capabilities, ran the complete test/E2E suite, and produced a static binary
   for a final `scratch` image.
 
-Native Windows execution is assigned to the checked-in GitHub Actions matrix;
-there is no Git remote in this local repository on which to observe that hosted
-job yet. The local Windows cross-build is complete, and a future remote push is
-not allowed to claim a release until the native matrix passes.
+At the time of this Phase 0 review, native Windows execution was assigned to the
+checked-in GitHub Actions matrix and the checkout had no Git remote on which to
+observe that hosted job. The local Windows cross-build was complete; current
+release-gate status is tracked in `docs/PHASE_2_EXIT_REVIEW.md`.
 
 ## Security review
 

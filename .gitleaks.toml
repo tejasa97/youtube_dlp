@@ -1,0 +1,44 @@
+title = "ytdlp-go Gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Synthetic Chromium password vector documented in fixture provenance"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "line"
+paths = ['''^conformance/cookies/chromium-macos/corpus\.json$''']
+regexes = ['''"password": "6eIDUdtKAacvlHwBVwvg/Q=="''']
+
+[[allowlists]]
+description = "ARD API route constant, not a credential"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "line"
+paths = ['''^internal/extractor/ard\.go$''']
+regexes = ['''apiPath := "widgets/ard/asset/"''']
+
+[[allowlists]]
+description = "ARD compilation API route constant, not a credential"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "line"
+paths = ['''^internal/extractor/ard\.go$''']
+regexes = ['''apiPath = "compilations/ard/"''']
+
+[[allowlists]]
+description = "NRK public service hostname list, not a credential"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "line"
+paths = ['''^internal/extractor/nrk\.go$''']
+regexes = ['''"v8\.psapi\.nrk\.no", "v8-psapi\.nrk\.no"''']
+
+[[allowlists]]
+description = "Public Twitch web client ID also used by the pinned behavioral reference"
+targetRules = ["twitch-api-token"]
+condition = "AND"
+regexTarget = "line"
+paths = ['''^internal/extractor/twitch\.go$''']
+regexes = ['''twitchClientID\s*=\s*"ue6666qo983tsx6so1t0vnawi233wa"''']

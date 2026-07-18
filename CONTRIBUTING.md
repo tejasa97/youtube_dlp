@@ -4,6 +4,11 @@ This repository is an independent Go implementation informed by yt-dlp's
 observable behavior. Do not submit AI-generated work from this repository to
 upstream yt-dlp: the upstream project explicitly does not accept it.
 
+Unless explicitly stated otherwise, contributions intentionally submitted for
+inclusion are licensed under the Apache License 2.0, as described by section 5
+of the project license. Do not submit code, fixtures, or assets that you lack
+the right to contribute.
+
 ## Local checks
 
 The minimum checks for every change are:
@@ -40,6 +45,8 @@ automated evidence. Unsupported behavior should fail explicitly and remain
   maintenance, and a clear advantage over the standard library.
 - Fixtures must be deterministic, small, license-safe, and free of real
   credentials or account data.
+- Every fixture must follow `docs/FIXTURE_POLICY.md` and include provenance
+  sufficient for publication review.
 - Generated files must identify their generator and be reproducible in CI.
 
 ## Change shape
