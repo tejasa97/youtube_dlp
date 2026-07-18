@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "producer": "go-fixture",
+  "routing": {
+    "input_url": "https://media.example/watch?token=go-secret&id=fixture",
+    "extractor": "synthetic"
+  },
+  "request": {
+    "method": "GET",
+    "url": "https://api.example/item?access_token=go-secret&id=fixture",
+    "headers": {
+      "authorization": ["Bearer go-secret"],
+      "cookie": ["session=go-cookie"],
+      "X-Fixture": ["stable"]
+    },
+    "credential_handles": ["credential-go"]
+  },
+  "metadata": {
+    "description": null,
+    "title": "Synthetic observation",
+    "id": "fixture"
+  },
+  "formats": [
+    {"id":"video", "protocol":"hls", "usable":true},
+    {"id":"audio", "protocol":"https", "usable":true}
+  ],
+  "playlist": {
+    "id": "fixture-list",
+    "entries": [{"id":"one"}, {"id":"two"}]
+  },
+  "warnings": [
+    {"code":"metadata", "message":"stable metadata warning"},
+    {"code":"fallback", "message":"stable synthetic warning"}
+  ],
+  "protocols": [
+    {"name":"hls", "usable":true, "fragments":2},
+    {"name":"https", "usable":true}
+  ]
+}

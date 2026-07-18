@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "producer": "reference-fixture",
+  "routing": {
+    "input_url": "https://media.example/watch?id=fixture&token=reference-secret",
+    "extractor": "synthetic"
+  },
+  "request": {
+    "method": "GET",
+    "url": "https://api.example/item?id=fixture&access_token=reference-secret",
+    "headers": {
+      "Authorization": ["Bearer reference-secret"],
+      "Cookie": ["session=reference-cookie"],
+      "X-Fixture": ["stable"]
+    },
+    "credential_handles": ["credential-reference"]
+  },
+  "metadata": {
+    "id": "fixture",
+    "title": "Synthetic observation",
+    "description": null
+  },
+  "formats": [
+    {"id":"audio", "protocol":"https", "usable":true},
+    {"id":"video", "protocol":"hls", "usable":true}
+  ],
+  "playlist": {
+    "id": "fixture-list",
+    "entries": [{"id":"one"}, {"id":"two"}]
+  },
+  "warnings": [
+    {"code":"fallback", "message":"stable synthetic warning"},
+    {"code":"metadata", "message":"stable metadata warning"}
+  ],
+  "protocols": [
+    {"name":"https", "usable":true},
+    {"name":"hls", "usable":true, "fragments":2}
+  ]
+}
