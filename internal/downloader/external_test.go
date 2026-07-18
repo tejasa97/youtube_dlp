@@ -25,8 +25,12 @@ func (process *recordingProcess) Run(_ context.Context, _ string, args []string,
 func TestExternalAdapterUsesArgvAndCategorizesFailures(t *testing.T) {
 	root := t.TempDir()
 	destination := filepath.Join(root, "media.bin")
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
 	process := &recordingProcess{write: true}
-	result, err := NewExternalAdapter(process).Download(context.Background(), ExternalRequest{Executable: "true", Arguments: []string{"--fixture"}, URL: "https://example.test/media?token=secret", OutputRoot: root, Destination: destination})
+	result, err := NewExternalAdapter(process).Download(context.Background(), ExternalRequest{Executable: executable, Arguments: []string{"--fixture"}, URL: "https://example.test/media?token=secret", OutputRoot: root, Destination: destination})
 	if err != nil || result.Path != destination {
 		t.Fatalf("result=%#v err=%v", result, err)
 	}
@@ -34,18 +38,22 @@ func TestExternalAdapterUsesArgvAndCategorizesFailures(t *testing.T) {
 		t.Fatalf("argv=%q", process.args)
 	}
 	process = &recordingProcess{err: errors.New("exit 2")}
-	_, err = NewExternalAdapter(process).Download(context.Background(), ExternalRequest{Executable: "true", URL: "https://example.test", OutputRoot: root, Destination: filepath.Join(root, "bad")})
+	_, err = NewExternalAdapter(process).Download(context.Background(), ExternalRequest{Executable: executable, URL: "https://example.test", OutputRoot: root, Destination: filepath.Join(root, "bad")})
 	if !errors.Is(err, ErrExternalFailed) {
 		t.Fatalf("error=%v", err)
 	}
-	result, err = NewExternalAdapter(process).Download(context.Background(), ExternalRequest{Executable: "true", URL: "https://example.test", OutputRoot: root, Destination: filepath.Join(root, "bad-again")})
+	result, err = NewExternalAdapter(process).Download(context.Background(), ExternalRequest{Executable: executable, URL: "https://example.test", OutputRoot: root, Destination: filepath.Join(root, "bad-again")})
 	if err == nil || result.Stderr != "external downloader emitted diagnostics (redacted)" {
 		t.Fatalf("diagnostic=%q err=%v", result.Stderr, err)
 	}
 }
 func TestExternalAdapterRejectsUnsafeInputs(t *testing.T) {
 	root := t.TempDir()
-	_, err := NewExternalAdapter(&recordingProcess{}).Download(context.Background(), ExternalRequest{Executable: "true", URL: "x\ny", OutputRoot: root, Destination: filepath.Join(root, "x")})
+	executable, setupErr := os.Executable()
+	if setupErr != nil {
+		t.Fatal(setupErr)
+	}
+	_, err := NewExternalAdapter(&recordingProcess{}).Download(context.Background(), ExternalRequest{Executable: executable, URL: "x\ny", OutputRoot: root, Destination: filepath.Join(root, "x")})
 	if !errors.Is(err, ErrUnsafeExternalArg) {
 		t.Fatalf("error=%v", err)
 	}

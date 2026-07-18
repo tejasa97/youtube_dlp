@@ -34,7 +34,7 @@ var (
 )
 
 const (
-	maxFragmentSegments    = 100000
+	maxFragmentSegments    = 10000
 	maxFragmentConcurrency = 128
 	maxFragmentSize        = 512 << 20
 	maxRetryDelay          = time.Minute

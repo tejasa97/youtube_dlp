@@ -2,6 +2,7 @@ package ism
 
 import (
 	"context"
+	"errors"
 	"github.com/ytdlp-go/ytdlp/internal/network"
 	"math"
 	"net/http"
@@ -63,6 +64,16 @@ func TestAddressClampsLimitAndRejectsOverflow(t *testing.T) {
 	_, err := Address("https://example.test/Manifest", manifest, manifest.Streams[0], maxSegments+1)
 	if err == nil {
 		t.Fatal("Address accepted overflow")
+	}
+}
+func TestDownloaderRejectsOverHardLimitConfig(t *testing.T) {
+	_, err := NewDownloader(nil, Config{MaxSegments: maxSegments + 1}).Download(context.Background(), "", "", "", false, nil)
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("segments config error=%v", err)
+	}
+	_, err = NewDownloader(nil, Config{PerHostConcurrency: 129}).Download(context.Background(), "", "", "", false, nil)
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("host config error=%v", err)
 	}
 }
 func FuzzParse(f *testing.F) {

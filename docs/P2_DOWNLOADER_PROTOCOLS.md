@@ -12,12 +12,14 @@ fragments, Smooth Streaming (ISM), and opt-in external downloader tools.
 - Fragment work directories keep a plan hash and SHA-256 artifact manifest.
   A cancelled job resumes only artifacts whose digest matches. Legacy state
   without digest evidence is intentionally re-downloaded. State is bounded,
-  strictly decoded, atomically written, and rejects symlinks.
+  strictly decoded, atomically written, and rejects symlinks. The absolute
+  10,000-artifact cap fits within the 4 MiB manifest bound; writes reject an
+  encoded manifest that would exceed that bound.
 - Fragment concurrency has both global and per-host limits, bounded segment
   count/size, categorized retryability, ordered atomic assembly, and
   cancellation preservation.
 - ISM parses `SmoothStreamingMedia`, selects the best quality in each stream
-  type, expands timeline repeats with a hard cap, addresses fragment URLs, and
+  type, expands timeline repeats with a hard 10,000-segment cap, addresses fragment URLs, and
   uses the native fragment engine. Multi-track ISM output remains explicitly
   `MergeRequired` for the media pipeline.
 - The external adapter receives a structured executable and argv, validates

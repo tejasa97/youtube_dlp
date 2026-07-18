@@ -21,14 +21,15 @@ import (
 var (
 	ErrInvalidManifest = errors.New("invalid ISM manifest")
 	ErrTimelineBound   = errors.New("ISM timeline exceeds segment limit")
+	ErrInvalidConfig   = errors.New("invalid ISM downloader configuration")
 )
 
 const (
 	maxManifestBytes = 8 << 20
 	maxStreams       = 32
 	maxQualities     = 64
-	maxChunks        = 100000
-	maxSegments      = 100000
+	maxChunks        = 10000
+	maxSegments      = 10000
 )
 
 type Transport interface {
@@ -63,19 +64,18 @@ type Segment struct {
 type Downloader struct {
 	transport Transport
 	config    Config
+	configErr error
 }
 
 func NewDownloader(transport Transport, config Config) *Downloader {
-	if config.MaxSegments <= 0 {
+	if config.MaxSegments == 0 {
 		config.MaxSegments = 10000
 	}
-	if config.MaxSegments > maxSegments {
-		config.MaxSegments = maxSegments
+	var configErr error
+	if config.MaxSegments < 0 || config.MaxSegments > maxSegments || config.FragmentConcurrency < 0 || config.FragmentConcurrency > 128 || config.PerHostConcurrency < 0 || config.PerHostConcurrency > 128 {
+		configErr = ErrInvalidConfig
 	}
-	if config.PerHostConcurrency > 128 {
-		config.PerHostConcurrency = 128
-	}
-	return &Downloader{transport: transport, config: config}
+	return &Downloader{transport: transport, config: config, configErr: configErr}
 }
 
 type TrackResult struct {
@@ -142,6 +142,9 @@ func Parse(manifestURL string, body []byte) (Manifest, error) {
 }
 
 func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputRoot, destination string, overwrite bool, sink events.Sink) (Result, error) {
+	if downloader.configErr != nil {
+		return Result{}, downloader.configErr
+	}
 	body, _, err := downloader.transport.ReadPage(ctx, manifestURL)
 	if err != nil {
 		return Result{}, err
@@ -179,7 +182,7 @@ func Address(manifestURL string, manifest Manifest, stream Stream, limit int) ([
 		limit = 10000
 	}
 	if limit > maxSegments {
-		limit = maxSegments
+		return nil, ErrTimelineBound
 	}
 	if len(stream.Qualities) == 0 || unknownPlaceholder(stream.URL) {
 		return nil, ErrInvalidManifest

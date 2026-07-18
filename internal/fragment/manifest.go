@@ -94,6 +94,9 @@ func (manifest *artifactManifest) Record(index int, path string) error {
 	if err != nil {
 		return err
 	}
+	if len(encoded) > maxManifestBytes {
+		return fmt.Errorf("fragment artifact manifest exceeds %d bytes", maxManifestBytes)
+	}
 	return writeManifestAtomically(manifest.path, encoded)
 }
 
