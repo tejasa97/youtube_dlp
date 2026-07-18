@@ -11,13 +11,18 @@ import (
 )
 
 type envelope struct {
-	Type      string                  `json:"type"`
-	Versions  []uint32                `json:"versions,omitempty"`
-	Version   uint32                  `json:"version,omitempty"`
-	Manifest  *plugin.Manifest        `json:"manifest,omitempty"`
-	Request   *plugin.ExtractRequest  `json:"request,omitempty"`
-	Response  *plugin.ExtractResponse `json:"response,omitempty"`
-	RequestID string                  `json:"request_id,omitempty"`
+	Type                string                      `json:"type"`
+	Versions            []uint32                    `json:"versions,omitempty"`
+	ABIRange            *plugin.VersionRange        `json:"abi,omitempty"`
+	Version             uint32                      `json:"version,omitempty"`
+	Manifest            *plugin.Manifest            `json:"manifest,omitempty"`
+	Request             *plugin.ExtractRequest      `json:"request,omitempty"`
+	Response            *plugin.ExtractResponse     `json:"response,omitempty"`
+	PostprocessRequest  *plugin.PostprocessRequest  `json:"postprocess_request,omitempty"`
+	PostprocessResponse *plugin.PostprocessResponse `json:"postprocess_response,omitempty"`
+	ProviderRequest     *plugin.ProviderRequest     `json:"provider_request,omitempty"`
+	ProviderResponse    *plugin.ProviderResponse    `json:"provider_response,omitempty"`
+	RequestID           string                      `json:"request_id,omitempty"`
 }
 
 func writeFrame(w io.Writer, value any, maximum uint32) error {

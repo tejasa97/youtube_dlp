@@ -1,4 +1,4 @@
-// Package rpc implements the experimental length-prefixed stdio plugin protocol.
+// Package rpc implements the stable length-prefixed stdio Plugin ABI v1.
 package rpc
 
 import (
@@ -7,46 +7,137 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"reflect"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/ytdlp-go/ytdlp/internal/plugin"
+	"github.com/ytdlp-go/ytdlp/pkg/pluginapi"
 )
 
 type Config struct {
-	Executable         string
-	Args               []string
-	GrantedPermissions []plugin.Permission
-	Limits             plugin.Limits
+	// Package is the preferred launch source. It must have been returned by
+	// plugin.LoadPackage or plugin.Discover from an explicit trusted root.
+	Package *plugin.Package
+	// Executable is retained solely for deterministic host tests. Production
+	// integrations must use Package.
+	Executable          string
+	UnsafeTestOnly      bool
+	Args                []string
+	Environment         map[string]string
+	GrantedPermissions  []plugin.Permission
+	PreviousPermissions []plugin.Permission
+	Approver            plugin.PermissionApprover
+	SupportedABI        plugin.VersionRange
+	Limits              plugin.Limits
 }
 
 type Client struct{}
 
 func (Client) Extract(ctx context.Context, config Config, request plugin.ExtractRequest) (plugin.ExtractResponse, error) {
-	if config.Executable == "" || request.ID == "" || request.URL == "" {
+	if request.ID == "" || request.URL == "" {
 		return plugin.ExtractResponse{}, plugin.ErrInvalidConfig
 	}
-	if err := ctx.Err(); err != nil {
+	response, err := exchange(ctx, config, envelope{Type: "extract", Request: &request}, "result", request.ID, plugin.CapabilityExtractor)
+	if err != nil {
 		return plugin.ExtractResponse{}, err
+	}
+	if response.Response == nil || response.Response.ID != request.ID {
+		return plugin.ExtractResponse{}, fmt.Errorf("%w: mismatched extractor result", plugin.ErrMalformedMessage)
+	}
+	if err := plugin.ResponseError(response.Response.Error); err != nil {
+		return *response.Response, err
+	}
+	return *response.Response, nil
+}
+
+func (Client) Postprocess(ctx context.Context, config Config, request plugin.PostprocessRequest) (plugin.PostprocessResponse, error) {
+	if request.ID == "" || request.Operation == "" || request.Input.Handle == "" {
+		return plugin.PostprocessResponse{}, plugin.ErrInvalidConfig
+	}
+	response, err := exchange(ctx, config, envelope{Type: "postprocess", PostprocessRequest: &request}, "postprocess_result", request.ID, plugin.CapabilityPostprocessor)
+	if err != nil {
+		return plugin.PostprocessResponse{}, err
+	}
+	if response.PostprocessResponse == nil || response.PostprocessResponse.ID != request.ID {
+		return plugin.PostprocessResponse{}, fmt.Errorf("%w: mismatched postprocessor result", plugin.ErrMalformedMessage)
+	}
+	if err := plugin.ResponseError(response.PostprocessResponse.Error); err != nil {
+		return *response.PostprocessResponse, err
+	}
+	return *response.PostprocessResponse, nil
+}
+
+func (Client) Provide(ctx context.Context, config Config, request plugin.ProviderRequest) (plugin.ProviderResponse, error) {
+	if request.ID == "" || request.Provider == "" || request.Action == "" {
+		return plugin.ProviderResponse{}, plugin.ErrInvalidConfig
+	}
+	response, err := exchange(ctx, config, envelope{Type: "provide", ProviderRequest: &request}, "provider_result", request.ID, plugin.CapabilityProvider)
+	if err != nil {
+		return plugin.ProviderResponse{}, err
+	}
+	if response.ProviderResponse == nil || response.ProviderResponse.ID != request.ID {
+		return plugin.ProviderResponse{}, fmt.Errorf("%w: mismatched provider result", plugin.ErrMalformedMessage)
+	}
+	if err := plugin.ResponseError(response.ProviderResponse.Error); err != nil {
+		return *response.ProviderResponse, err
+	}
+	return *response.ProviderResponse, nil
+}
+
+func exchange(ctx context.Context, config Config, request envelope, resultType, requestID string, capability plugin.Capability) (envelope, error) {
+	if err := ctx.Err(); err != nil {
+		return envelope{}, err
+	}
+	if err := config.Limits.Validate(); err != nil {
+		return envelope{}, err
+	}
+	executable, expected, err := launchTarget(config)
+	if err != nil {
+		return envelope{}, err
+	}
+	environment, err := sanitizedEnvironment(config.Environment)
+	if err != nil {
+		return envelope{}, err
+	}
+	if err := validateArguments(config.Args); err != nil {
+		return envelope{}, err
 	}
 	limits := config.Limits.WithDefaults()
 	operationCtx, cancel := context.WithTimeout(ctx, limits.Timeout)
 	defer cancel()
 
-	command := exec.Command(config.Executable, config.Args...)
+	command := exec.Command(executable, config.Args...)
+	command.Env = environment
+	if expected != nil {
+		command.Dir = expected.Directory
+	}
+	if err := configureIsolation(command); err != nil {
+		return envelope{}, err
+	}
 	stdin, err := command.StdinPipe()
 	if err != nil {
-		return plugin.ExtractResponse{}, fmt.Errorf("%w: stdin: %v", plugin.ErrCrashed, err)
+		return envelope{}, fmt.Errorf("%w: stdin: %v", plugin.ErrCrashed, err)
 	}
 	stdout, err := command.StdoutPipe()
 	if err != nil {
-		return plugin.ExtractResponse{}, fmt.Errorf("%w: stdout: %v", plugin.ErrCrashed, err)
+		return envelope{}, fmt.Errorf("%w: stdout: %v", plugin.ErrCrashed, err)
 	}
 	stderr := &boundedBuffer{maximum: limits.MaxStderrBytes}
 	command.Stderr = stderr
 	if err := command.Start(); err != nil {
-		return plugin.ExtractResponse{}, fmt.Errorf("%w: start: %v", plugin.ErrCrashed, err)
+		return envelope{}, fmt.Errorf("%w: start: %v", plugin.ErrCrashed, plugin.RedactDiagnostic(err.Error()))
+	}
+	isolation, err := attachIsolation(command)
+	if err != nil {
+		_ = command.Process.Kill()
+		_ = command.Wait()
+		return envelope{}, err
 	}
 
 	var writeMu sync.Mutex
@@ -57,12 +148,16 @@ func (Client) Extract(ctx context.Context, config Config, request plugin.Extract
 	}
 
 	type result struct {
-		response plugin.ExtractResponse
+		response envelope
 		err      error
 	}
 	resultCh := make(chan result, 1)
 	go func() {
-		if err := send(envelope{Type: "hello", Versions: []uint32{plugin.ProtocolVersion}}); err != nil {
+		hostRange := config.SupportedABI
+		if hostRange.Minimum == 0 && hostRange.Maximum == 0 {
+			hostRange = plugin.VersionRange{Minimum: plugin.ProtocolV1_0, Maximum: plugin.ProtocolV1_1}
+		}
+		if err := send(envelope{Type: "hello", Versions: []uint32{plugin.ProtocolV1_1, plugin.ProtocolV1_0}, ABIRange: &hostRange}); err != nil {
 			resultCh <- result{err: err}
 			return
 		}
@@ -75,16 +170,38 @@ func (Client) Extract(ctx context.Context, config Config, request plugin.Extract
 			resultCh <- result{err: fmt.Errorf("%w: expected hello", plugin.ErrMalformedMessage)}
 			return
 		}
-		version, err := plugin.Negotiate([]uint32{plugin.ProtocolVersion}, hello.Manifest.Versions)
+		if err := plugin.ValidateManifest(*hello.Manifest); err != nil {
+			resultCh <- result{err: err}
+			return
+		}
+		if expected != nil && !sameManifest(expected.Manifest, *hello.Manifest) {
+			resultCh <- result{err: fmt.Errorf("%w: runtime manifest differs from trusted package", plugin.ErrInvalidManifest)}
+			return
+		}
+		if !plugin.HasCapability(*hello.Manifest, capability) {
+			resultCh <- result{err: fmt.Errorf("%w: capability %q not declared", plugin.ErrPermissionDenied, capability)}
+			return
+		}
+		version, err := plugin.NegotiateRange(hostRange, plugin.ManifestRange(*hello.Manifest))
 		if err != nil {
 			resultCh <- result{err: err}
 			return
 		}
-		if err := plugin.CheckPermissions(hello.Manifest.Permissions, config.GrantedPermissions); err != nil {
+		approval := plugin.ApprovalRequest{
+			PluginID: hello.Manifest.ID, Release: hello.Manifest.Release, ABI: version,
+			Requested: append([]plugin.Permission(nil), hello.Manifest.Permissions...),
+			Added:     plugin.AddedPermissions(config.PreviousPermissions, hello.Manifest.Permissions),
+		}
+		if expected != nil {
+			approval.Signer = expected.Signer
+			approval.ExecutableDigest = expected.ExecutableDigest
+		}
+		if err := plugin.Approve(operationCtx, config.Approver, approval, config.GrantedPermissions); err != nil {
 			resultCh <- result{err: err}
 			return
 		}
-		if err := send(envelope{Type: "extract", Version: version, Request: &request}); err != nil {
+		request.Version = version
+		if err := send(request); err != nil {
 			resultCh <- result{err: err}
 			return
 		}
@@ -93,48 +210,165 @@ func (Client) Extract(ctx context.Context, config Config, request plugin.Extract
 			resultCh <- result{err: err}
 			return
 		}
-		if response.Type != "result" || response.Response == nil || response.Response.ID != request.ID {
+		if response.Type != resultType || responseID(response) != requestID {
 			resultCh <- result{err: fmt.Errorf("%w: mismatched result", plugin.ErrMalformedMessage)}
 			return
 		}
-		resultCh <- result{response: *response.Response}
+		resultCh <- result{response: response}
 	}()
 
-	cleanup := func() {
+	cleanup := func(force bool) {
 		_ = stdin.Close()
-		// Wait closes StdoutPipe after observing process exit. Starting it before
-		// the protocol reader has consumed the final frame can truncate a valid
-		// response on fast-exiting plugins, so process reaping begins only after
-		// the exchange has completed or cancellation has started cleanup.
 		wait := make(chan error, 1)
 		go func() { wait <- command.Wait() }()
+		if force {
+			_ = isolation.Terminate()
+		}
 		select {
 		case <-wait:
 		case <-time.After(limits.CancelGrace):
-			_ = command.Process.Kill()
+			_ = isolation.Terminate()
 			<-wait
 		}
+		_ = isolation.Close()
 	}
-	defer cleanup()
 
 	select {
 	case outcome := <-resultCh:
+		cleanup(outcome.err != nil)
 		if outcome.err != nil {
 			if errors.Is(outcome.err, io.EOF) || errors.Is(outcome.err, io.ErrUnexpectedEOF) {
-				return plugin.ExtractResponse{}, fmt.Errorf("%w: unexpected exit", plugin.ErrCrashed)
+				return envelope{}, fmt.Errorf("%w: unexpected exit", plugin.ErrCrashed)
 			}
-			return plugin.ExtractResponse{}, outcome.err
-		}
-		if err := plugin.ResponseError(outcome.response); err != nil {
-			return outcome.response, err
+			return envelope{}, outcome.err
 		}
 		return outcome.response, nil
 	case <-operationCtx.Done():
-		_ = send(envelope{Type: "cancel", RequestID: request.ID})
+		_ = send(envelope{Type: "cancel", RequestID: requestID})
+		cleanup(false)
 		if errors.Is(operationCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
-			return plugin.ExtractResponse{}, fmt.Errorf("%w: %v", plugin.ErrTimeout, operationCtx.Err())
+			return envelope{}, fmt.Errorf("%w: %v", plugin.ErrTimeout, operationCtx.Err())
 		}
-		return plugin.ExtractResponse{}, operationCtx.Err()
+		return envelope{}, operationCtx.Err()
+	}
+}
+
+func launchTarget(config Config) (string, *plugin.Package, error) {
+	if config.Package != nil {
+		verified, err := plugin.RevalidatePackage(*config.Package)
+		if err != nil {
+			return "", nil, err
+		}
+		if verified.Manifest.Runtime != pluginapi.RuntimeNative || verified.EntrypointPath == "" || !filepath.IsAbs(verified.EntrypointPath) {
+			return "", nil, fmt.Errorf("%w: invalid native package", plugin.ErrInvalidConfig)
+		}
+		if err := rejectPythonExecutable(verified.EntrypointPath); err != nil {
+			return "", nil, err
+		}
+		return verified.EntrypointPath, &verified, nil
+	}
+	if !config.UnsafeTestOnly || config.Executable == "" || !filepath.IsAbs(config.Executable) {
+		return "", nil, fmt.Errorf("%w: trusted package required", plugin.ErrUntrustedPath)
+	}
+	if err := rejectPythonExecutable(config.Executable); err != nil {
+		return "", nil, err
+	}
+	if err := rejectInterpreterExecutable(config.Executable); err != nil {
+		return "", nil, err
+	}
+	return config.Executable, nil, nil
+}
+
+func rejectPythonExecutable(executable string) error {
+	base := strings.ToLower(filepath.Base(executable))
+	base = strings.TrimSuffix(base, filepath.Ext(base))
+	if strings.HasPrefix(base, "python") || strings.HasPrefix(base, "pypy") || base == "uv" {
+		return plugin.ErrPythonRuntime
+	}
+	return nil
+}
+
+func rejectInterpreterExecutable(executable string) error {
+	file, err := os.Open(executable)
+	if err != nil {
+		return fmt.Errorf("%w: inspect executable: %v", plugin.ErrUntrustedPath, err)
+	}
+	defer file.Close()
+	header := make([]byte, 256)
+	read, err := file.Read(header)
+	if err != nil && err != io.EOF {
+		return fmt.Errorf("%w: inspect executable: %v", plugin.ErrUntrustedPath, err)
+	}
+	if bytes.HasPrefix(header[:read], []byte("#!")) {
+		lower := strings.ToLower(string(header[:read]))
+		if strings.Contains(lower, "python") || strings.Contains(lower, "pypy") {
+			return plugin.ErrPythonRuntime
+		}
+		return fmt.Errorf("%w: interpreter/shebang trampolines are prohibited", plugin.ErrUntrustedPath)
+	}
+	return nil
+}
+
+var allowedEnvironment = map[string]struct{}{
+	"LANG": {}, "LC_ALL": {}, "TZ": {}, "TMPDIR": {}, "TMP": {}, "TEMP": {},
+	"SYSTEMROOT": {}, "WINDIR": {},
+}
+
+func sanitizedEnvironment(input map[string]string) ([]string, error) {
+	keys := make([]string, 0, len(input))
+	values := make(map[string]string, len(input))
+	for key, value := range input {
+		upper := strings.ToUpper(key)
+		if _, ok := allowedEnvironment[upper]; !ok || key == "" || strings.ContainsAny(key+value, "\x00\r\n") {
+			return nil, fmt.Errorf("%w: environment key %q", plugin.ErrInvalidConfig, key)
+		}
+		if strings.Contains(strings.ToLower(key), "secret") || strings.Contains(strings.ToLower(key), "token") ||
+			strings.Contains(strings.ToLower(key), "password") || plugin.RedactDiagnostic(value) != value {
+			return nil, plugin.ErrSecretExposure
+		}
+		if _, duplicate := values[upper]; duplicate {
+			return nil, fmt.Errorf("%w: duplicate environment key %q", plugin.ErrInvalidConfig, key)
+		}
+		values[upper] = value
+		keys = append(keys, upper)
+	}
+	sort.Strings(keys)
+	result := make([]string, 0, len(keys))
+	for _, key := range keys {
+		result = append(result, key+"="+values[key])
+	}
+	return result, nil
+}
+
+func validateArguments(arguments []string) error {
+	if len(arguments) > 128 {
+		return fmt.Errorf("%w: too many plugin arguments", plugin.ErrResourceLimit)
+	}
+	for _, argument := range arguments {
+		if len(argument) > 16<<10 || strings.ContainsRune(argument, '\x00') {
+			return fmt.Errorf("%w: invalid plugin argument", plugin.ErrInvalidConfig)
+		}
+		if plugin.RedactDiagnostic(argument) != argument {
+			return plugin.ErrSecretExposure
+		}
+	}
+	return nil
+}
+
+func sameManifest(left, right plugin.Manifest) bool {
+	return reflect.DeepEqual(left, right)
+}
+
+func responseID(value envelope) string {
+	switch {
+	case value.Response != nil:
+		return value.Response.ID
+	case value.PostprocessResponse != nil:
+		return value.PostprocessResponse.ID
+	case value.ProviderResponse != nil:
+		return value.ProviderResponse.ID
+	default:
+		return ""
 	}
 }
 

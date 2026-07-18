@@ -1,0 +1,21 @@
+{
+  "schema": "ytdlp-go.plugin/v1",
+  "id": "fixture.extractor",
+  "name": "Fixture extractor",
+  "release": "1.1.0",
+  "runtime": "native",
+  "entrypoint": "fixture-plugin",
+  "abi": {
+    "minimum": 1,
+    "maximum": 65537
+  },
+  "capabilities": [
+    "extractor",
+    "postprocessor",
+    "provider"
+  ],
+  "permissions": [
+    "network",
+    "cookies"
+  ]
+}

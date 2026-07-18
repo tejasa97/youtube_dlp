@@ -13,7 +13,7 @@ import (
 func TestWASMExtract(t *testing.T) {
 	request := plugin.ExtractRequest{ID: "one", URL: "https://fixture.invalid/video"}
 	output, _ := json.Marshal(plugin.ExtractResponse{ID: "one", Metadata: map[string]any{"title": "WASM fixture"}})
-	response, err := (Host{}).Extract(context.Background(), fixtureModule(plugin.ProtocolVersion, output, false), fixtureConfig(), request)
+	response, err := (Host{}).Extract(context.Background(), fixtureModule(plugin.ProtocolV1_0, output, false), fixtureConfig(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,8 +78,13 @@ func FuzzDecodeResponse(f *testing.F) {
 
 func fixtureConfig() Config {
 	return Config{
-		Manifest: plugin.Manifest{Name: "fixture", Versions: []uint32{plugin.ProtocolVersion}},
-		Limits:   plugin.Limits{Timeout: time.Second, MaxMessageBytes: 1 << 20, MemoryLimitPages: 2},
+		Manifest: plugin.Manifest{
+			Schema: plugin.ManifestSchema, ID: "fixture.wasm", Name: "WASM fixture", Release: "1.0.0",
+			Runtime: "wasm", Entrypoint: "fixture.wasm",
+			ABIRange:     plugin.VersionRange{Minimum: plugin.ProtocolV1_0, Maximum: plugin.ProtocolV1_0},
+			Capabilities: []plugin.Capability{plugin.CapabilityExtractor},
+		},
+		Limits: plugin.Limits{Timeout: time.Second, MaxMessageBytes: 1 << 20, MemoryLimitPages: 2},
 	}
 }
 

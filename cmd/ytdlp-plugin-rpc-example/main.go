@@ -1,36 +1,20 @@
-// ytdlp-plugin-rpc-example is a deterministic example plugin for the P1 RPC spike.
+// ytdlp-plugin-rpc-example is a deterministic Plugin ABI v1 SDK example.
 package main
 
 import (
-	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"io"
 	"os"
+
+	"github.com/ytdlp-go/ytdlp/pkg/pluginapi"
 )
 
 const maximum = 1 << 20
 
-type message struct {
-	Type     string    `json:"type"`
-	Versions []uint32  `json:"versions,omitempty"`
-	Manifest *manifest `json:"manifest,omitempty"`
-	Version  uint32    `json:"version,omitempty"`
-	Request  *request  `json:"request,omitempty"`
-	Response *response `json:"response,omitempty"`
-}
-type manifest struct {
-	Name     string   `json:"name"`
-	Versions []uint32 `json:"versions"`
-}
-type request struct {
-	ID  string `json:"id"`
-	URL string `json:"url"`
-}
-type response struct {
-	ID       string         `json:"id"`
-	Metadata map[string]any `json:"metadata"`
-}
+type message = pluginapi.Envelope
+type manifest = pluginapi.Manifest
+type request = pluginapi.ExtractRequest
+type response = pluginapi.ExtractResponse
 
 func main() {
 	if err := run(os.Stdin, os.Stdout); err != nil {
@@ -43,58 +27,35 @@ func run(stdin io.Reader, stdout io.Writer) error {
 	if err := read(stdin, &hello); err != nil || hello.Type != "hello" {
 		return errors.New("expected hello")
 	}
-	if err := write(stdout, message{Type: "hello", Manifest: &manifest{Name: "example", Versions: []uint32{1}}}); err != nil {
+	pluginManifest := &manifest{
+		Schema: "ytdlp-go.plugin/v1", ID: "example.rpc", Name: "RPC example", Release: "1.0.0",
+		Runtime: pluginapi.RuntimeNative, Entrypoint: "ytdlp-plugin-rpc-example",
+		ABIRange:     pluginapi.VersionRange{Minimum: pluginapi.V1_0, Maximum: pluginapi.V1_1},
+		Capabilities: []pluginapi.Capability{pluginapi.CapabilityExtractor},
+	}
+	if err := write(stdout, message{Type: "hello", Manifest: pluginManifest}); err != nil {
 		return err
 	}
 	var extract message
-	if err := read(stdin, &extract); err != nil || extract.Type != "extract" || extract.Request == nil || extract.Version != 1 {
-		return errors.New("expected extract")
+	if err := read(stdin, &extract); err != nil || extract.Type != "extract" || extract.ExtractRequest == nil ||
+		extract.Version < pluginapi.V1_0 || extract.Version > pluginapi.V1_1 {
+		return errors.New("expected compatible extract")
 	}
-	result := &response{ID: extract.Request.ID, Metadata: map[string]any{
-		"id": "rpc-example", "title": "RPC example", "webpage_url": extract.Request.URL,
+	result := &response{ID: extract.ExtractRequest.ID, Metadata: map[string]any{
+		"id": "rpc-example", "title": "RPC example", "webpage_url": extract.ExtractRequest.URL,
 	}}
-	return write(stdout, message{Type: "result", Response: result})
+	return write(stdout, message{Type: "result", ExtractResponse: result})
 }
 
-func read(source io.Reader, destination any) error {
-	var header [4]byte
-	if _, err := io.ReadFull(source, header[:]); err != nil {
-		return err
-	}
-	size := binary.BigEndian.Uint32(header[:])
-	if size == 0 || size > maximum {
-		return io.ErrUnexpectedEOF
-	}
-	payload := make([]byte, size)
-	if _, err := io.ReadFull(source, payload); err != nil {
-		return err
-	}
-	return json.Unmarshal(payload, destination)
-}
-
-func write(destination io.Writer, value any) error {
-	payload, err := json.Marshal(value)
+func read(source io.Reader, destination *message) error {
+	value, err := (pluginapi.Codec{Maximum: maximum}).Read(source)
 	if err != nil {
 		return err
 	}
-	var header [4]byte
-	binary.BigEndian.PutUint32(header[:], uint32(len(payload)))
-	if err := writeAll(destination, header[:]); err != nil {
-		return err
-	}
-	return writeAll(destination, payload)
+	*destination = value
+	return nil
 }
 
-func writeAll(destination io.Writer, data []byte) error {
-	for len(data) > 0 {
-		written, err := destination.Write(data)
-		if err != nil {
-			return err
-		}
-		if written <= 0 || written > len(data) {
-			return io.ErrShortWrite
-		}
-		data = data[written:]
-	}
-	return nil
+func write(destination io.Writer, value message) error {
+	return (pluginapi.Codec{Maximum: maximum}).Write(destination, value)
 }

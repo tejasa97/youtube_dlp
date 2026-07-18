@@ -18,9 +18,13 @@ import (
 const inputOffset uint32 = 32 << 10
 
 type Config struct {
-	Manifest           plugin.Manifest
-	GrantedPermissions []plugin.Permission
-	Limits             plugin.Limits
+	Manifest            plugin.Manifest
+	GrantedPermissions  []plugin.Permission
+	PreviousPermissions []plugin.Permission
+	Approver            plugin.PermissionApprover
+	Signer              string
+	ModuleDigest        string
+	Limits              plugin.Limits
 }
 
 type Host struct{}
@@ -32,11 +36,26 @@ func (Host) Extract(ctx context.Context, moduleBytes []byte, config Config, requ
 	if err := ctx.Err(); err != nil {
 		return plugin.ExtractResponse{}, err
 	}
-	limits := config.Limits.WithDefaults()
-	if _, err := plugin.Negotiate([]uint32{plugin.ProtocolVersion}, config.Manifest.Versions); err != nil {
+	if err := config.Limits.Validate(); err != nil {
 		return plugin.ExtractResponse{}, err
 	}
-	if err := plugin.CheckPermissions(config.Manifest.Permissions, config.GrantedPermissions); err != nil {
+	limits := config.Limits.WithDefaults()
+	if err := plugin.ValidateManifest(config.Manifest); err != nil {
+		return plugin.ExtractResponse{}, err
+	}
+	if config.Manifest.Runtime != "wasm" || !plugin.HasCapability(config.Manifest, plugin.CapabilityExtractor) {
+		return plugin.ExtractResponse{}, fmt.Errorf("%w: WASM extractor capability required", plugin.ErrInvalidManifest)
+	}
+	version, err := plugin.NegotiateRange(plugin.VersionRange{Minimum: plugin.ProtocolV1_0, Maximum: plugin.ProtocolV1_1}, plugin.ManifestRange(config.Manifest))
+	if err != nil {
+		return plugin.ExtractResponse{}, err
+	}
+	if err := plugin.Approve(ctx, config.Approver, plugin.ApprovalRequest{
+		PluginID: config.Manifest.ID, Release: config.Manifest.Release,
+		Signer: config.Signer, ExecutableDigest: config.ModuleDigest, ABI: version,
+		Requested: config.Manifest.Permissions,
+		Added:     plugin.AddedPermissions(config.PreviousPermissions, config.Manifest.Permissions),
+	}, config.GrantedPermissions); err != nil {
 		return plugin.ExtractResponse{}, err
 	}
 	input, err := json.Marshal(request)
@@ -74,7 +93,7 @@ func (Host) Extract(ctx context.Context, moduleBytes []byte, config Config, requ
 	if err != nil {
 		return plugin.ExtractResponse{}, classifyRuntimeError(ctx, operationCtx, err)
 	}
-	if len(versions) != 1 || uint32(versions[0]) != plugin.ProtocolVersion {
+	if len(versions) != 1 || uint32(versions[0]) != version {
 		return plugin.ExtractResponse{}, fmt.Errorf("%w: module=%v", plugin.ErrIncompatibleVersion, versions)
 	}
 	if !memory.Write(inputOffset, input) {
@@ -103,7 +122,7 @@ func (Host) Extract(ctx context.Context, moduleBytes []byte, config Config, requ
 	if response.ID != request.ID {
 		return plugin.ExtractResponse{}, fmt.Errorf("%w: mismatched response id", plugin.ErrMalformedMessage)
 	}
-	if err := plugin.ResponseError(response); err != nil {
+	if err := plugin.ResponseError(response.Error); err != nil {
 		return response, err
 	}
 	return response, nil
