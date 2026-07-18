@@ -49,8 +49,8 @@ func TestExecuteRequiresOptInAndEmitsRedactedSemanticRecords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(records) != 3 || records[0].CanaryID != "auth.youtube" || records[0].Outcome != OutcomeCredentialUnavailable ||
-		records[1].Outcome != OutcomeSuccess || records[2].Outcome != OutcomeFallback {
+	if len(records) != 4 || records[0].CanaryID != "auth.youtube" || records[0].Outcome != OutcomeCredentialUnavailable ||
+		records[1].CanaryID != "public.twitch" || records[1].Outcome != OutcomeSuccess || records[2].Outcome != OutcomeSuccess || records[3].Outcome != OutcomeFallback {
 		t.Fatalf("records = %#v", records)
 	}
 	if records[0].DurationMS != 125 || seen["auth.youtube"].Secret.Name != "youtube.fixture" || seen["region.bbc"].Region != "GB" {

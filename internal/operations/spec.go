@@ -23,6 +23,10 @@ var (
 	ErrInvalidOutcome = errors.New("invalid canary outcome")
 	ErrInvalidDrill   = errors.New("invalid regression drill transition")
 	ErrDecode         = errors.New("invalid operations evidence document")
+	ErrNotYetValid    = errors.New("operations canary policy is not yet valid")
+	ErrExpired        = errors.New("operations canary policy has expired")
+	ErrRateLimited    = errors.New("operations canary execution rate exceeded")
+	ErrInvalidReplay  = errors.New("invalid operations replay capture")
 )
 
 var identifierPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)

@@ -30,6 +30,9 @@ func TestRollingMetricsWindowAndCanonicalSnapshot(t *testing.T) {
 	if snapshot.Counts.SuccessBasisPoints != 6666 || snapshot.Counts.FallbackBasisPoints != 3333 {
 		t.Fatalf("basis points = %+v", snapshot.Counts)
 	}
+	if snapshot.Failures.Total != 3 || snapshot.Failures.None != 3 || snapshot.Failures.Extractor != 0 {
+		t.Fatalf("failure-class counts = %+v", snapshot.Failures)
+	}
 	if len(snapshot.ByCanary) != 2 || snapshot.ByCanary[0].CanaryID != "public.other" || snapshot.ByCanary[1].CanaryID != "public.youtube" {
 		t.Fatalf("by-canary order = %+v", snapshot.ByCanary)
 	}
@@ -70,6 +73,36 @@ func TestRollingMetricsWindowAndCanonicalSnapshot(t *testing.T) {
 	}
 	if after := metrics.Snapshot(); after.Counts.Total != 0 || after.Patch.Samples != 0 {
 		t.Fatalf("reset after = %+v", after)
+	}
+}
+
+func TestRollingMetricsAggregatesEveryFailureClass(t *testing.T) {
+	metrics, err := NewRollingMetrics(metricsSuite(t), 16, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failures := []FailureClass{FailureExtractor, FailureNetwork, FailureAuth, FailureRegion, FailureMedia, FailureContract, FailureRunner}
+	for index, failure := range failures {
+		outcome := OutcomeBreakage
+		if failure == FailureAuth {
+			outcome = OutcomeCredentialUnavailable
+		} else if failure == FailureRegion {
+			outcome = OutcomeRegionUnavailable
+		} else if failure == FailureRunner {
+			outcome = OutcomeTimeout
+		}
+		if err := metrics.AddRecord(metricRecord("public.youtube", outcome, failure, int64(index+1))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := metrics.Snapshot().Failures
+	if got.Total != 7 || got.None != 0 || got.Extractor != 1 || got.Network != 1 || got.Auth != 1 || got.Region != 1 || got.Media != 1 || got.Contract != 1 || got.Runner != 1 {
+		t.Fatalf("failure-class counts = %+v", got)
+	}
+	invalid := metrics.Snapshot()
+	invalid.Failures.Runner++
+	if _, err := MarshalMetrics(invalid); err != ErrInvalidOutcome {
+		t.Fatalf("invalid failure-class total error = %v", err)
 	}
 }
 

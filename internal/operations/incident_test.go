@@ -8,24 +8,27 @@ import (
 )
 
 func TestMajorSiteDrillMatchesConformanceFixture(t *testing.T) {
-	const detected = int64(1_700_000_001_000)
-	drill, err := NewDrill("youtube-api-regression-001", Record{
-		CanaryID: "public.youtube", Class: ClassPublic, Extractor: "youtube",
-		Outcome: OutcomeBreakage, Failure: FailureExtractor,
-		StartedUnixMS: detected - 1_000, DurationMS: 1_000,
+	const (
+		detected = int64(1_784_407_497_000) // 60fccbd author timestamp
+		fixed    = int64(1_784_407_550_000) // 9ad13de author timestamp
+	)
+	drill, err := NewDrill("twitch-llhls-sequence-overflow-001", Record{
+		CanaryID: "public.twitch", Class: ClassPublic, Extractor: "twitch",
+		Outcome: OutcomeBreakage, Failure: FailureMedia,
+		StartedUnixMS: detected,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := drill.Diagnose(detected+2*hourMS, DiagnosisAPIChange); err != nil {
+	if err := drill.Diagnose(fixed, DiagnosisMediaProtocol); err != nil {
 		t.Fatal(err)
 	}
-	if err := drill.Patch(detected+10*hourMS, "deadbeef"); err != nil {
+	if err := drill.Patch(fixed, "9ad13deac4a7f81fe2ece83d94a53300e926bdaa"); err != nil {
 		t.Fatal(err)
 	}
 	evidence, err := drill.Verify(Record{
-		CanaryID: "public.youtube", Class: ClassPublic, Extractor: "youtube",
-		Outcome: OutcomeSuccess, Failure: FailureNone, StartedUnixMS: detected + 23*hourMS,
+		CanaryID: "public.twitch", Class: ClassPublic, Extractor: "twitch",
+		Outcome: OutcomeSuccess, Failure: FailureNone, StartedUnixMS: fixed,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -40,6 +43,9 @@ func TestMajorSiteDrillMatchesConformanceFixture(t *testing.T) {
 	}
 	if !bytes.Equal(append(got, '\n'), want) {
 		t.Fatalf("fixture drift:\n got: %s\nwant: %s", got, want)
+	}
+	if _, err := MarshalIncidents(fixtureSuite(t), []IncidentEvidence{evidence}); err != nil {
+		t.Fatalf("attributable incident is not bound to the canary suite: %v", err)
 	}
 }
 

@@ -165,7 +165,7 @@ func MarshalMetrics(snapshot MetricsSnapshot) ([]byte, error) {
 	copySnapshot := snapshot
 	copySnapshot.ByCanary = append(make([]CanaryCounts, 0, len(snapshot.ByCanary)), snapshot.ByCanary...)
 	sort.Slice(copySnapshot.ByCanary, func(i, j int) bool { return copySnapshot.ByCanary[i].CanaryID < copySnapshot.ByCanary[j].CanaryID })
-	if !validOutcomeCounts(copySnapshot.Counts) || !validPatchMetrics(copySnapshot.Patch) {
+	if !validOutcomeCounts(copySnapshot.Counts) || !validFailureCounts(copySnapshot.Failures) || copySnapshot.Failures.Total != copySnapshot.Counts.Total || !validPatchMetrics(copySnapshot.Patch) {
 		return nil, ErrInvalidOutcome
 	}
 	for _, item := range copySnapshot.ByCanary {
@@ -179,6 +179,14 @@ func MarshalMetrics(snapshot MetricsSnapshot) ([]byte, error) {
 		}
 	}
 	return json.Marshal(copySnapshot)
+}
+
+func validFailureCounts(counts FailureCounts) bool {
+	if counts.Total > hardMaxRollingRecords {
+		return false
+	}
+	return counts.None+counts.Extractor+counts.Network+counts.Auth+counts.Region+
+		counts.Media+counts.Contract+counts.Runner == counts.Total
 }
 
 func validOutcomeCounts(counts OutcomeCounts) bool {

@@ -31,7 +31,7 @@ func fixtureSuite(t testing.TB) Suite {
 
 func TestCanarySuiteCanonicalClassesAndSecretHandles(t *testing.T) {
 	suite := fixtureSuite(t)
-	if len(suite.Canaries) != 3 || suite.Canaries[0].Class != ClassCredential || suite.Canaries[1].Class != ClassPublic || suite.Canaries[2].Class != ClassRegion {
+	if len(suite.Canaries) != 4 || suite.Canaries[0].Class != ClassCredential || suite.Canaries[1].ID != "public.twitch" || suite.Canaries[2].Class != ClassPublic || suite.Canaries[3].Class != ClassRegion {
 		t.Fatalf("canonical canaries = %#v", suite.Canaries)
 	}
 	if suite.Canaries[0].Secret != (SecretHandle{Provider: "keychain", Name: "youtube.fixture"}) {

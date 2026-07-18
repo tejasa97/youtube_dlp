@@ -27,6 +27,20 @@ type CanaryCounts struct {
 	Counts   OutcomeCounts `json:"counts"`
 }
 
+// FailureCounts is a closed, bounded aggregation. FailureNone is retained so
+// its Total exactly matches outcome Total and consumers can detect drift.
+type FailureCounts struct {
+	Total     uint64 `json:"total"`
+	None      uint64 `json:"none"`
+	Extractor uint64 `json:"extractor"`
+	Network   uint64 `json:"network"`
+	Auth      uint64 `json:"auth"`
+	Region    uint64 `json:"region"`
+	Media     uint64 `json:"media"`
+	Contract  uint64 `json:"contract"`
+	Runner    uint64 `json:"runner"`
+}
+
 type PatchMetrics struct {
 	Samples        uint64 `json:"samples"`
 	Met24H         uint64 `json:"met_24h"`
@@ -39,6 +53,7 @@ type PatchMetrics struct {
 type MetricsSnapshot struct {
 	SchemaVersion int            `json:"schema_version"`
 	Counts        OutcomeCounts  `json:"counts"`
+	Failures      FailureCounts  `json:"failure_classes"`
 	ByCanary      []CanaryCounts `json:"by_canary"`
 	Patch         PatchMetrics   `json:"patch_latency"`
 }
@@ -109,6 +124,7 @@ func (metrics *RollingMetrics) Snapshot() MetricsSnapshot {
 	byCanary := make(map[string]*OutcomeCounts)
 	for _, record := range metrics.records {
 		addOutcome(&result.Counts, record.Outcome)
+		addFailure(&result.Failures, record.Failure)
 		counts := byCanary[record.CanaryID]
 		if counts == nil {
 			counts = &OutcomeCounts{}
@@ -143,6 +159,28 @@ func (metrics *RollingMetrics) Snapshot() MetricsSnapshot {
 		}
 	}
 	return result
+}
+
+func addFailure(counts *FailureCounts, failure FailureClass) {
+	counts.Total++
+	switch failure {
+	case FailureNone:
+		counts.None++
+	case FailureExtractor:
+		counts.Extractor++
+	case FailureNetwork:
+		counts.Network++
+	case FailureAuth:
+		counts.Auth++
+	case FailureRegion:
+		counts.Region++
+	case FailureMedia:
+		counts.Media++
+	case FailureContract:
+		counts.Contract++
+	case FailureRunner:
+		counts.Runner++
+	}
 }
 
 func (metrics *RollingMetrics) Reset() MetricsSnapshot {
