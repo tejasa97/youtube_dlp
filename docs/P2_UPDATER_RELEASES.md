@@ -66,6 +66,13 @@ freeze protection.
   download locations, and optional component digests;
 - deterministic release manifests and a bounded two-build byte comparator.
 
+`cmd/ytdlp-release` now binds those primitives to explicit cross-built Go
+binaries, validates a common linked dependency graph, includes retained license
+texts, and writes the complete release set without replacing existing files.
+The manual alpha workflow builds each native target twice, runs it on its native
+runner, then assembles and verifies the short-lived engineering artifacts. See
+`docs/P2_ALPHA_RELEASE.md` for the procedure and distribution constraints.
+
 All parsers and generators have fixed entry, component, path, metadata, and
 byte limits. Diagnostics use sentinel categories and never render signed bodies,
 artifact contents, URLs, private paths, signatures, keys, or health-check
@@ -106,8 +113,9 @@ artifact install/update/rollback/run execution on each OS, and container audit.
 - Artifact transport, offline-root rotation, transparency, production signing,
   updater UI/events, and automatic scheduling remain outside these internal
   packages. Missing integration must fail closed; it is not a silent fallback.
-- The SPDX and license APIs consume an explicit dependency inventory. Final
-  release tooling must populate it from the reviewed Go module graph and invoke
-  exact coverage validation; the package never guesses or downloads a license.
+- The SPDX and license APIs consume the linked dependency inventory from Go
+  build information and invoke exact coverage validation. Components without a
+  reviewed license conclusion remain `NOASSERTION`; the tool never guesses or
+  downloads a license.
 - Archive construction is memory-oriented and bounded to the declared Phase 2
   limits. Streaming multi-gigabyte release construction is not claimed.

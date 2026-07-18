@@ -192,3 +192,4 @@ jobs:
       - run: docker run --rm --entrypoint /jscheck ytdlp-go-python-free -helper /ytdlp-js-helper
       - run: docker run --rm --entrypoint /ytdlp-pack ytdlp-go-python-free --version
       - run: docker run --rm --entrypoint /ytdlp-update ytdlp-go-python-free --version
+      - run: docker run --rm --entrypoint /ytdlp-release ytdlp-go-python-free --api-version

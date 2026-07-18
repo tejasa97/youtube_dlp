@@ -17,6 +17,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/jscheck ./cmd/jsch
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/impersonationcheck ./cmd/impersonationcheck
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ytdlp-pack ./cmd/ytdlp-pack
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ytdlp-update ./cmd/ytdlp-update
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ytdlp-release ./cmd/ytdlp-release
 
 FROM scratch
 COPY --from=build /out/ytdlp-go /ytdlp-go
@@ -25,6 +26,7 @@ COPY --from=build /out/jscheck /jscheck
 COPY --from=build /out/impersonationcheck /impersonationcheck
 COPY --from=build /out/ytdlp-pack /ytdlp-pack
 COPY --from=build /out/ytdlp-update /ytdlp-update
+COPY --from=build /out/ytdlp-release /ytdlp-release
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY THIRD_PARTY_NOTICES.md /licenses/THIRD_PARTY_NOTICES.md
 COPY third_party/licenses /licenses
