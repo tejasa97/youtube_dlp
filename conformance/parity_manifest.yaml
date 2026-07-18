@@ -198,39 +198,52 @@ capabilities:
       - internal/protocol/hls.TestDownloadMasterByteRangeMapAndAES128
       - internal/protocol/hls.TestDownloadLivePollDeduplicatesSegments
       - internal/protocol/hls.TestDownloadLiveHonorsCancellation
+      - internal/protocol/hls.TestDownloadEmptyPlaylistReturnsNoSegments
       - pkg/ytdlp.TestClientHLSAndDASHDispatch
       - internal/cli.TestRunHLSProtocolDispatch
     owner: io
-    known_deviation: The pilot is not wired into format dispatch yet; low-latency HLS and non-AES-128 encryption remain explicitly unsupported.
+    known_deviation: Product format dispatch is implemented. Low-latency HLS, SAMPLE-AES, and non-AES-128 encryption remain explicitly unsupported by the Phase 1 pilot.
 
   - id: protocol.dash
     name: DASH downloading
     phase: 1
     compatibility_target: Download and assemble DASH representations with compatible fragment recovery.
-    status: partial
+    status: compatible
     evidence:
       - internal/protocol/dash.TestParseBaseInheritanceTemplatesAndSegmentList
       - internal/protocol/dash.TestParseDurationTemplate
+      - internal/protocol/dash.TestParseInheritedNegativeRepeatDynamicTimeline
+      - internal/protocol/dash.TestParseSegmentBaseSingleFileAndRejectsSIDX
       - internal/protocol/dash.TestDownloadSeparateAudioVideoTracks
       - internal/protocol/dash.TestDownloadDynamicMPDPollsAndDeduplicates
+      - internal/protocol/dash.TestDownloadDynamicUsesManifestPollIntervalAndCancels
+      - internal/protocol/dash.TestDownloadDynamicDoesNotCollideSameRepresentationID
+      - internal/protocol/dash.FuzzParse
       - internal/media/pipeline.TestDASHDownloadAndFFmpegMergeEndToEnd
       - pkg/ytdlp.TestClientHLSAndDASHDispatch
       - pkg/ytdlp.TestClientDASHMergeDispatch
+      - conformance/media/dash/PROVENANCE.md
     owner: io
-    known_deviation: The pilot is not wired into product format dispatch; negative-repeat live timelines and several DASH addressing modes remain unsupported.
+    known_deviation: Product dispatch, inherited addressing, live negative-repeat timelines, and dynamic polling are implemented. SegmentBase indexRange/SIDX expansion and multi-period concatenation remain explicit Phase 1 deviations.
 
   - id: postprocess.ffmpeg
     name: ffmpeg and ffprobe orchestration
     phase: 1
-    compatibility_target: Probe, merge, convert, and post-process through supervised external tools.
-    status: partial
+    compatibility_target: Probe, merge, and remux through supervised shell-free ffmpeg/ffprobe operations.
+    status: compatible
     evidence:
       - internal/media/ffmpeg.TestDiscoverVersionsProbeAndMerge
       - internal/media/ffmpeg.TestCommandCancellation
+      - internal/media/ffmpeg.TestAtomicPostprocessCancellationRemovesTemporaryOutput
+      - internal/media/ffmpeg.TestRemuxCategorizesFailureAndDestinationConflict
+      - internal/media/ffmpeg.TestDiagnosticRedaction
+      - internal/media/ffmpeg.FuzzRedactDiagnostic
       - internal/media/pipeline.TestDASHDownloadAndFFmpegMergeEndToEnd
+      - internal/media/pipeline.TestRemuxDownloadFinalizesThenRemovesSource
       - pkg/ytdlp.TestClientDASHMergeDispatch
+      - docs/P1_MEDIA_COMPLETION.md
     owner: media
-    known_deviation: Probe and merge supervision are implemented, but broader postprocessors and product dispatch remain unimplemented.
+    known_deviation: The Phase 1 operation set covers probe, separate-track merge, and atomic container remux. Codec transcoding, subtitle/thumbnail embedding, and metadata rewriting remain broader postprocessor work.
 
   - id: javascript.ejs
     name: Python-free EJS execution
@@ -303,7 +316,7 @@ capabilities:
     name: YouTube pilot extraction
     phase: 1
     compatibility_target: Prove metadata, formats, playlists, and challenge execution for a pinned YouTube corpus.
-    status: partial
+    status: compatible
     evidence:
       - internal/extractor.TestYouTubeSuitableAndVideoID
       - internal/extractor.TestYouTubeExtractsPinnedVideoAndSolvesChallenges
@@ -347,16 +360,40 @@ capabilities:
     name: Live extraction pilot
     phase: 1
     compatibility_target: Extract and download one representative live platform without Python.
-    status: partial
+    status: compatible
     evidence:
       - internal/extractor.TestYouTubeExtractsLiveHLSAndClassifiesLiveStates
       - internal/protocol/hls.TestDownloadLivePollDeduplicatesSegments
       - internal/protocol/hls.TestDownloadLiveHonorsCancellation
+      - internal/extractor.TestTwitchExtractAndDownloadLiveHLS
+      - internal/extractor.TestTwitchCategorizesFailures
       - conformance/extractors/youtube/PROVENANCE.md
+      - conformance/extractors/twitch/PROVENANCE.md
     owner: extractors
     depends_on:
       - protocol.hls
-    known_deviation: YouTube live-HLS discovery and the reusable HLS downloader are independently proven; a platform-specific live refresh/end-of-stream integration gate remains before compatible status.
+    known_deviation: The compatible pilot includes Twitch extraction through signed HLS discovery, live polling, end-of-stream, de-duplication, and ordered assembly. Live-from-start VOD fallback, subscriber entitlements, chat, and broader Twitch URL types remain later coverage.
+
+  - id: extractor.twitch_pilot
+    name: Twitch live extraction pilot
+    phase: 1
+    compatibility_target: Extract and download a Twitch stream through GraphQL metadata, playback authorization, and signed live HLS without Python.
+    status: compatible
+    evidence:
+      - internal/extractor.TestTwitchSuitable
+      - internal/extractor.TestTwitchExtractAndDownloadLiveHLS
+      - internal/extractor.TestTwitchRerunLiveStateAndMissingOptionalFields
+      - internal/extractor.TestTwitchManifestURLIncludesReferenceParameters
+      - internal/extractor.TestTwitchCategorizesFailures
+      - internal/extractor.TestTwitchErrorsDoNotExposeResponseSecrets
+      - internal/extractor.TestTwitchExtractHonorsCancellation
+      - internal/extractor.FuzzTwitchMetadataResponse
+      - conformance/extractors/twitch/PROVENANCE.md
+    owner: extractors
+    depends_on:
+      - protocol.hls
+      - network.shared_transport
+    known_deviation: Compatibility is scoped to the pinned public stream corpus. VODs, clips, channel playlists, live-from-start, chat/subtitles, OAuth cookie translation, and subscriber-only entitlement diagnostics remain broader Twitch work.
 
   - id: extractor.vimeo_pilot
     name: Vimeo manifest-heavy extraction pilot
@@ -439,15 +476,57 @@ capabilities:
     name: Out-of-process plugin protocol
     phase: 1
     compatibility_target: Load versioned RPC plugins with cancellation, limits, and explicit permissions.
-    status: not_started
+    status: compatible
+    evidence:
+      - internal/plugin.TestNegotiateAndPermissions
+      - internal/plugin.TestRemoteFailureDiagnosticRedaction
+      - internal/plugin/rpc.TestRPCExtract
+      - internal/plugin/rpc.TestRPCVersionAndPermissionRejection
+      - internal/plugin/rpc.TestRPCStructuredRemoteError
+      - internal/plugin/rpc.TestRPCMalformedCrashAndOversize
+      - internal/plugin/rpc.TestRPCCancellationAndTimeout
+      - internal/plugin/rpc.TestRPCCrashDoesNotExposeStderrSecrets
+      - internal/plugin/rpc.FuzzReadFrame
+      - cmd/ytdlp-plugin-rpc-example.TestExampleExchange
+      - conformance/plugins/PROVENANCE.md
+      - docs/P1_PLUGIN_PROTOCOL.md
     owner: runtime
+    known_deviation: The protocol spike is explicit-call only. Automatic discovery, signing/update policy, a secret-handle channel, and portable OS-level address-space/process-count sandboxing remain Phase 2 work.
 
   - id: plugins.wasm
     name: WASM plugin experiment
     phase: 1
     compatibility_target: Evaluate a portable sandboxed plugin path for suitable extractor extensions.
-    status: not_started
+    status: compatible
+    evidence:
+      - internal/plugin/wasm.TestWASMExtract
+      - internal/plugin/wasm.TestWASMVersionPermissionsAndMalformedOutput
+      - internal/plugin/wasm.TestWASMTimeoutCancellationAndMemoryLimit
+      - internal/plugin/wasm.TestWASMStructuredRemoteError
+      - internal/plugin/wasm.FuzzDecodeResponse
+      - cmd/ytdlp-plugin-wasm-example.TestExampleModule
+      - conformance/plugins/PROVENANCE.md
+      - docs/P1_PLUGIN_PROTOCOL.md
     owner: runtime
+    known_deviation: The WASM spike has memory, message, and wall-clock limits with no WASI/imports. wazero 1.9 has no stable fuel API, and host network/filesystem APIs, discovery, signing, and updates remain intentionally absent.
+
+  - id: maintenance.upstream_delta_replay
+    name: Eight-week upstream-delta replay
+    phase: 1
+    compatibility_target: Classify and replay eight consecutive weeks of reference changes against stable Go pilot boundaries.
+    status: intentional_deviation
+    evidence:
+      - internal/upstreamdelta.TestPinnedEightWeekInventory
+      - internal/upstreamdelta.TestClassifyRecognizesRequiredChangeClasses
+      - internal/upstreamdelta.TestParseLogAssignsBoundaryCommitToLastWeek
+      - internal/upstreamdelta.TestBuildReportCountsMultiCategoryCommit
+      - internal/upstreamdelta.FuzzParseLog
+      - internal/network.TestRedirectDoesNotForwardHostCookieCrossHost
+      - internal/protocol/hls.TestDownloadEmptyPlaylistReturnsNoSegments
+      - conformance/upstream-delta/PROVENANCE.md
+      - docs/P1_UPSTREAM_DELTA_REPLAY.md
+    owner: maintenance
+    known_deviation: Eight post-pin weeks do not yet exist. The replay uses the real consecutive eight-week window ending at the 2026-07-14 pin; the same Go tool can refresh a forward window after 2026-09-08.
 
   - id: release.updater
     name: Signed updater and release metadata
