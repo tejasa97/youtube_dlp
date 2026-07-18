@@ -173,6 +173,17 @@ func TestRejectsHandlerDeclarationMismatchPythonAndInterpreter(t *testing.T) {
 	if err := server.Serve(context.Background(), newReadCloser(nil), io.Discard); !errors.Is(err, ErrPythonRuntime) {
 		t.Fatalf("runtime error = %v", err)
 	}
+	server.Manifest.Runtime = pluginapi.RuntimeWASM
+	if err := server.Serve(context.Background(), newReadCloser(nil), io.Discard); !errors.Is(err, ErrInvalidManifest) {
+		t.Fatalf("WASM RPC runtime error = %v", err)
+	}
+	server.Manifest.Runtime = pluginapi.RuntimeNative
+	for _, entrypoint := range []string{"nested/plugin", `nested\plugin`, `C:\plugin.exe`} {
+		server.Manifest.Entrypoint = entrypoint
+		if err := server.Serve(context.Background(), newReadCloser(nil), io.Discard); !errors.Is(err, ErrInvalidManifest) {
+			t.Fatalf("non-portable entrypoint %q error = %v", entrypoint, err)
+		}
+	}
 }
 
 func TestRequestVersionIDCapabilityAndOneOperationPolicy(t *testing.T) {

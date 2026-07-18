@@ -45,14 +45,14 @@ func validateManifest(manifest pluginapi.Manifest) error {
 		!releasePattern.MatchString(manifest.Release) {
 		return ErrInvalidManifest
 	}
-	if manifest.Runtime != pluginapi.RuntimeNative && manifest.Runtime != pluginapi.RuntimeWASM {
+	if manifest.Runtime != pluginapi.RuntimeNative {
 		if strings.Contains(strings.ToLower(string(manifest.Runtime)), "python") {
 			return ErrPythonRuntime
 		}
 		return ErrInvalidManifest
 	}
 	if manifest.Entrypoint == "" || filepath.IsAbs(manifest.Entrypoint) || filepath.Base(manifest.Entrypoint) != manifest.Entrypoint ||
-		manifest.Entrypoint == "." || manifest.Entrypoint == ".." || strings.IndexFunc(manifest.Entrypoint, unicode.IsControl) >= 0 {
+		manifest.Entrypoint == "." || manifest.Entrypoint == ".." || strings.ContainsAny(manifest.Entrypoint, `/\:`) || strings.IndexFunc(manifest.Entrypoint, unicode.IsControl) >= 0 {
 		return ErrInvalidManifest
 	}
 	if pythonEntrypoint.MatchString(manifest.Entrypoint) || interpreter.MatchString(manifest.Entrypoint) {

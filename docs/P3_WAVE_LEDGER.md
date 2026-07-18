@@ -38,9 +38,10 @@ claims are added only after review and scoped verification.
 | Lane | Branch / worktree | Ownership | State | Delivery |
 | --- | --- | --- | --- | --- |
 | Pack v1.1 compatible upgrade | `codex/p3-pack-upgrade` / `youtube_dlp-p3-pack-upgrade` | `internal/pack/upgrade/**`, fixtures, evidence | Integrated | `577d330`, manifest reconciliation pending commit |
+| Author-side plugin SDK server | `codex/p3-plugin-sdk-author` / `youtube_dlp-p3-plugin-sdk-author` | `pkg/pluginapi/sdk/**`, fixtures, guide | Integrated | `10396cf`, review hardening and manifest reconciliation pending commit |
 | Signed offline catalog | `main` / `youtube_dlp` | catalog trust, exact resolution, revocation | Integrated | `132af3a`, public/CLI integration pending commit |
 | Windows browser credentials | `codex/p3-windows-cookies` / isolated worktree | Windows Chromium cookie import | Integrated | `19d07ca`, product/CLI integration pending commit |
-| Primary integration | `main` / `youtube_dlp` | public ABI, trust policy, manifest, distribution policy | In progress | Reviewing compatible-upgrade and distribution boundaries |
+| Primary integration | `main` / `youtube_dlp` | public ABI, trust policy, manifest, distribution policy | In progress | SDK runtime/path hardening and local-only verification underway |
 
 ## Wave 5: Operations
 

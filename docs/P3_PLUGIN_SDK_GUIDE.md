@@ -96,7 +96,9 @@ environment.
 - Manifest permissions are declarations for host review, not grants. This SDK
   never opens files, resolves secret handles, reads environment variables, or
   performs network access for a handler.
-- Native and WASM declarations are supported. Python runtimes, Python files,
+- This stdio server accepts only the native RPC runtime. WASM plugins use the
+  separate constrained export ABI and host; treating a WASM declaration as
+  native RPC would be an invalid configuration. Python runtimes, Python files,
   shell scripts, and interpreter entrypoints are rejected.
 
 ## Evidence

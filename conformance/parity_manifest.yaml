@@ -920,9 +920,18 @@ capabilities:
       - internal/plugin/rpc.TestRPCProcessTreeCancellation
       - internal/plugin/wasm.TestWASMTrustedPackageApprovalAndExecution
       - pkg/pluginapi.TestCodecRoundTripAndBounds
+      - pkg/pluginapi/sdk.TestDeterministicV11TranscriptFixture
+      - pkg/pluginapi/sdk.TestHelloNegotiationV10V11AndPermutationProperty
+      - pkg/pluginapi/sdk.TestExactCapabilityDispatchForAllInterfaces
+      - pkg/pluginapi/sdk.TestCancellationMessageStopsHandlerWithoutLeak
+      - pkg/pluginapi/sdk.TestCategorizedFailuresAreSecretSafe
+      - pkg/pluginapi/sdk.TestPayloadResourceAndSecretBounds
+      - pkg/pluginapi/sdk.FuzzServerMalformedInput
       - pkg/ytdlp.TestSignedWASMPluginPackHostAndProductIntegration
       - docs/P2_PLUGIN_ABI_V1.md
+      - docs/P3_PLUGIN_SDK_GUIDE.md
       - conformance/plugin/abi-v1/PROVENANCE.md
+      - conformance/plugin/sdk-v1.1/PROVENANCE.md
     owner: runtime
     known_deviation: Native RPC lacks portable CPU, memory, and process-count quotas; Windows has a narrow start-to-Job-assignment race and secure discovery fails closed where owner/DACL proof is unavailable. WASM has no fuel metering. Plugins are product-routed only by explicit signed installation and PluginID selection.
 
