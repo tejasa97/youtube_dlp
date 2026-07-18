@@ -46,6 +46,24 @@ jobs:
             target: FuzzDecodeResponse
           - package: ./internal/cookies/chromium
             target: FuzzMacDecryptor
+          - package: ./internal/cookies/netscape
+            target: FuzzParse
+          - package: ./internal/cookies/firefox
+            target: FuzzValidCookie
+          - package: ./internal/cookies/chromiumlinux
+            target: FuzzDecrypt
+          - package: ./internal/compat/config
+            target: FuzzTokenize
+          - package: ./internal/compat/config
+            target: FuzzDecode
+          - package: ./internal/compat/config
+            target: FuzzExpandAliases
+          - package: ./internal/archive
+            target: FuzzParseIdentity
+          - package: ./internal/cache
+            target: FuzzCacheKeyEncoding
+          - package: ./internal/cache
+            target: FuzzCacheHeader
           - package: ./internal/extractor
             target: FuzzParseYouTubePlaylistData
           - package: ./internal/extractor
