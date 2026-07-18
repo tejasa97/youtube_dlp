@@ -138,12 +138,13 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 					outcomes <- outcome{index: index, reused: true}
 					continue
 				}
-				err := emit(events.Event{Kind: events.KindFragmentStarting, URL: job.Segments[index].URL, Path: job.Destination, Fragment: index + 1, Fragments: len(job.Segments)})
+				eventURL := network.RedactRawURL(job.Segments[index].URL)
+				err := emit(events.Event{Kind: events.KindFragmentStarting, URL: eventURL, Path: job.Destination, Fragment: index + 1, Fragments: len(job.Segments)})
 				if err == nil {
 					err = engine.fetchWithRetry(workerCtx, job.Segments[index], path, attempts, maxSize)
 				}
 				if err == nil {
-					err = emit(events.Event{Kind: events.KindFragmentCompleted, URL: job.Segments[index].URL, Path: job.Destination, Fragment: index + 1, Fragments: len(job.Segments)})
+					err = emit(events.Event{Kind: events.KindFragmentCompleted, URL: eventURL, Path: job.Destination, Fragment: index + 1, Fragments: len(job.Segments)})
 				}
 				if err != nil {
 					cancel()

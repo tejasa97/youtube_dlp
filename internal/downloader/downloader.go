@@ -83,7 +83,8 @@ func (downloader *Downloader) Download(ctx context.Context, job Job, sink events
 	if attempts <= 0 {
 		attempts = 3
 	}
-	_ = sink.Emit(ctx, events.Event{Kind: events.KindStarting, URL: job.URL, Path: job.Destination})
+	eventURL := network.RedactRawURL(job.URL)
+	_ = sink.Emit(ctx, events.Event{Kind: events.KindStarting, URL: eventURL, Path: job.Destination})
 
 	var result Result
 	var lastErr error
@@ -102,18 +103,18 @@ func (downloader *Downloader) Download(ctx context.Context, job Job, sink events
 			}
 			_ = os.Remove(statePath)
 			result.Path = job.Destination
-			_ = sink.Emit(ctx, events.Event{Kind: events.KindCompleted, URL: job.URL, Path: job.Destination, Bytes: result.Bytes, Total: result.Bytes, Resuming: result.Resumed})
+			_ = sink.Emit(ctx, events.Event{Kind: events.KindCompleted, URL: eventURL, Path: job.Destination, Bytes: result.Bytes, Total: result.Bytes, Resuming: result.Resumed})
 			return result, nil
 		}
 		if ctx.Err() != nil {
-			_ = sink.Emit(context.Background(), events.Event{Kind: events.KindCancelled, URL: job.URL, Path: job.Destination, Message: ctx.Err().Error()})
+			_ = sink.Emit(context.Background(), events.Event{Kind: events.KindCancelled, URL: eventURL, Path: job.Destination, Message: ctx.Err().Error()})
 			return Result{}, ctx.Err()
 		}
 		if !isRetryable(lastErr) {
 			break
 		}
 		if attempt < attempts {
-			_ = sink.Emit(ctx, events.Event{Kind: events.KindRetry, URL: job.URL, Path: job.Destination, Attempt: attempt + 1, Message: lastErr.Error()})
+			_ = sink.Emit(ctx, events.Event{Kind: events.KindRetry, URL: eventURL, Path: job.Destination, Attempt: attempt + 1, Message: lastErr.Error()})
 			timer := time.NewTimer(time.Duration(attempt) * 25 * time.Millisecond)
 			select {
 			case <-ctx.Done():
@@ -211,7 +212,7 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, part
 				}
 				return Result{}, fmt.Errorf("write partial file: %w", writeErr)
 			}
-			if err := sink.Emit(ctx, events.Event{Kind: events.KindProgress, URL: job.URL, Path: job.Destination, Bytes: written, Total: state.Total, Resuming: resuming}); err != nil {
+			if err := sink.Emit(ctx, events.Event{Kind: events.KindProgress, URL: network.RedactRawURL(job.URL), Path: job.Destination, Bytes: written, Total: state.Total, Resuming: resuming}); err != nil {
 				file.Close()
 				return Result{}, fmt.Errorf("emit progress: %w", err)
 			}

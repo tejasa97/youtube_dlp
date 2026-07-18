@@ -311,6 +311,12 @@ func TestRedaction(t *testing.T) {
 	if strings.Contains(redacted, "secret") || !strings.Contains(redacted, "visible=yes") {
 		t.Fatalf("RedactURL() = %q", redacted)
 	}
+	if raw := RedactRawURL(parsed.String()); raw != redacted {
+		t.Fatalf("RedactRawURL() = %q, want %q", raw, redacted)
+	}
+	if raw := RedactRawURL("https://example.invalid/%zz?token=secret"); raw != "<invalid URL>" {
+		t.Fatalf("invalid RedactRawURL() = %q", raw)
+	}
 	headers := RedactHeaders(http.Header{"Authorization": []string{"secret"}, "X-Safe": []string{"yes"}})
 	if headers.Get("Authorization") != "REDACTED" || headers.Get("X-Safe") != "yes" {
 		t.Fatalf("RedactHeaders() = %v", headers)

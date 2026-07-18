@@ -207,7 +207,8 @@ func (operation *operation) process(ctx context.Context, rawURL, extractorKey st
 	if err != nil {
 		return Result{}, categorized("select extractor", err)
 	}
-	if err := operation.client.emit(ctx, Event{Kind: string(events.KindExtracting), Extractor: selected.Name(), URL: rawURL}); err != nil {
+	eventURL := network.RedactRawURL(rawURL)
+	if err := operation.client.emit(ctx, Event{Kind: string(events.KindExtracting), Extractor: selected.Name(), URL: eventURL}); err != nil {
 		return Result{}, &Error{Category: ErrorInternal, Op: "emit extracting event", Err: err}
 	}
 	extracted, err := selected.Extract(ctx, extractor.Request{
@@ -226,7 +227,7 @@ func (operation *operation) process(ctx context.Context, rawURL, extractorKey st
 		}
 		extracted.Info = info
 	}
-	if err := operation.client.emit(ctx, Event{Kind: string(events.KindExtracted), Extractor: selected.Name(), URL: rawURL}); err != nil {
+	if err := operation.client.emit(ctx, Event{Kind: string(events.KindExtracted), Extractor: selected.Name(), URL: eventURL}); err != nil {
 		return Result{}, &Error{Category: ErrorInternal, Op: "emit extracted event", Err: err}
 	}
 	if extracted.IsPlaylist() {
@@ -339,7 +340,7 @@ func (operation *operation) processMedia(ctx context.Context, info value.Info, e
 
 	sink := events.SinkFunc(func(ctx context.Context, event events.Event) error {
 		return operation.client.emit(ctx, Event{
-			Kind: string(event.Kind), URL: event.URL, Path: event.Path, Bytes: event.Bytes,
+			Kind: string(event.Kind), URL: network.RedactRawURL(event.URL), Path: event.Path, Bytes: event.Bytes,
 			Total: event.Total, Attempt: event.Attempt, Resuming: event.Resuming, Message: event.Message,
 			Fragment: event.Fragment, Fragments: event.Fragments,
 		})

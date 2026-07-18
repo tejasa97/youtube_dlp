@@ -333,6 +333,17 @@ func RedactURL(input *url.URL) string {
 	return cloned.String()
 }
 
+// RedactRawURL is the string-input counterpart to RedactURL. It is intended
+// for diagnostics and events only; callers must retain the original URL for
+// requests and resumable state. Invalid URLs are deliberately not echoed.
+func RedactRawURL(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "<invalid URL>"
+	}
+	return RedactURL(parsed)
+}
+
 // RedactHeaders returns a clone safe for diagnostics.
 func RedactHeaders(headers http.Header) http.Header {
 	redacted := headers.Clone()

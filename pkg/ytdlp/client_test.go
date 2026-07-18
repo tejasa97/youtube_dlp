@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -118,6 +119,36 @@ func TestClientImportsBrowserCookiesBeforeExtraction(t *testing.T) {
 	}
 	if len(events) < 2 || events[0].Kind != "browser_cookies" || events[0].Message != "imported 1 of 2 browser cookies; skipped 1" {
 		t.Fatalf("events = %#v", events)
+	}
+}
+
+func TestExtractionEventsRedactInputURL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "video/mp4")
+		writer.Header().Set("Content-Length", "4")
+		if request.Method != http.MethodHead {
+			_, _ = writer.Write([]byte("data"))
+		}
+	}))
+	defer server.Close()
+	var captured []Event
+	client := NewClient(WithEventHandler(func(_ context.Context, event Event) error {
+		captured = append(captured, event)
+		return nil
+	}))
+	_, err := client.Run(context.Background(), Request{
+		URL: server.URL + "/media.mp4?token=input-secret&visible=yes", SkipDownload: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(captured) != 2 {
+		t.Fatalf("events = %#v", captured)
+	}
+	for _, event := range captured {
+		if strings.Contains(event.URL, "secret") || !strings.Contains(event.URL, "visible=yes") {
+			t.Fatalf("event URL was not safely redacted: %#v", event)
+		}
 	}
 }
 

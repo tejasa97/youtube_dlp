@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -219,6 +220,34 @@ func TestDownloadRetriesRetryableFailure(t *testing.T) {
 	}
 	if requests.Load() != 2 || retry.Attempt != 2 || result.Bytes != int64(len("recovered")) {
 		t.Fatalf("requests = %d, retry = %#v, result = %#v", requests.Load(), retry, result)
+	}
+}
+
+func TestDownloadEventsRedactSignedURL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = writer.Write([]byte("media"))
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	var captured []events.Event
+	sink := events.SinkFunc(func(_ context.Context, event events.Event) error {
+		captured = append(captured, event)
+		return nil
+	})
+	root := t.TempDir()
+	rawURL := server.URL + "/media?token=playback-secret&sig=signature-secret&visible=yes"
+	if _, err := New(transport).Download(context.Background(), Job{
+		URL: rawURL, OutputRoot: root, Destination: filepath.Join(root, "media.bin"),
+	}, sink); err != nil {
+		t.Fatal(err)
+	}
+	if len(captured) == 0 {
+		t.Fatal("no download events captured")
+	}
+	for _, event := range captured {
+		if strings.Contains(event.URL, "secret") || !strings.Contains(event.URL, "visible=yes") {
+			t.Fatalf("event URL was not safely redacted: %#v", event)
+		}
 	}
 }
 

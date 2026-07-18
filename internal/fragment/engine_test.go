@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/ytdlp-go/ytdlp/internal/events"
 	"github.com/ytdlp-go/ytdlp/internal/network"
 )
 
@@ -85,6 +86,35 @@ func TestEngineReusesCompletedFragments(t *testing.T) {
 	contents, _ := os.ReadFile(destination)
 	if string(contents) != "reused-network" || result.Reused != 1 || requests.Load() != 1 {
 		t.Fatalf("contents = %q, result = %#v, requests = %d", contents, result, requests.Load())
+	}
+}
+
+func TestFragmentEventsRedactSignedURL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = writer.Write([]byte("segment"))
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	var captured []events.Event
+	sink := events.SinkFunc(func(_ context.Context, event events.Event) error {
+		captured = append(captured, event)
+		return nil
+	})
+	root := t.TempDir()
+	_, err := New(transport).Download(context.Background(), Job{
+		OutputRoot: root, Destination: filepath.Join(root, "media.bin"),
+		Segments: []Segment{{URL: server.URL + "/segment.ts?token=playback-secret&visible=yes"}},
+	}, sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(captured) != 2 {
+		t.Fatalf("events = %#v", captured)
+	}
+	for _, event := range captured {
+		if strings.Contains(event.URL, "secret") || !strings.Contains(event.URL, "visible=yes") {
+			t.Fatalf("event URL was not safely redacted: %#v", event)
+		}
 	}
 }
 
