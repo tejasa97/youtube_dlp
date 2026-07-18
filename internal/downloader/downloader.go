@@ -25,6 +25,15 @@ var (
 	ErrTooManyAttempts   = errors.New("download retry attempts exceed limit")
 	ErrThrottled         = errors.New("download response remained below throttle threshold")
 	ErrThrottleExhausted = errors.New("download throttle restart limit exhausted")
+	ErrInvalidLimits     = errors.New("invalid download resource limits")
+)
+
+const (
+	maxDirectBytes       = 8 << 30
+	maxDirectAttempts    = 100
+	maxDirectFileRetries = 10
+	maxDirectRestarts    = 10
+	maxDirectRetryDelay  = time.Minute
 )
 
 type Job struct {
@@ -88,6 +97,9 @@ type partialState struct {
 }
 
 func (downloader *Downloader) Download(ctx context.Context, job Job, sink events.Sink) (Result, error) {
+	if err := validateJob(job); err != nil {
+		return Result{}, err
+	}
 	if sink == nil {
 		sink = events.Nop()
 	}
@@ -103,22 +115,30 @@ func (downloader *Downloader) Download(ctx context.Context, job Job, sink events
 	if err := validateDestination(job.OutputRoot, job.Destination); err != nil {
 		return Result{}, err
 	}
-	if _, err := os.Stat(job.Destination); err == nil && !job.Overwrite {
-		return Result{}, ErrDestinationExists
-	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+	if info, err := os.Lstat(job.Destination); err == nil {
+		if !info.Mode().IsRegular() {
+			return Result{}, ErrUnsafeDestination
+		}
+		if !job.Overwrite {
+			return Result{}, ErrDestinationExists
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
 		return Result{}, fmt.Errorf("inspect destination: %w", err)
 	}
 
 	partPath := job.Destination + ".part"
 	statePath := partPath + ".json"
-	if symlink(partPath) || symlink(statePath) {
-		return Result{}, ErrUnsafeDestination
+	if err := regularOrAbsent(partPath); err != nil {
+		return Result{}, err
+	}
+	if err := regularOrAbsent(statePath); err != nil {
+		return Result{}, err
 	}
 	attempts := job.Attempts
 	if attempts <= 0 {
 		attempts = 3
 	}
-	if attempts > 100 {
+	if attempts > maxDirectAttempts {
 		return Result{}, ErrTooManyAttempts
 	}
 	eventURL := network.RedactRawURL(job.URL)
@@ -130,12 +150,15 @@ func (downloader *Downloader) Download(ctx context.Context, job Job, sink events
 	for attempt := 1; attempt <= attempts; attempt++ {
 		result, lastErr = downloader.downloadAttempt(ctx, job, partPath, statePath, sink)
 		if lastErr == nil {
-			if !job.Overwrite {
-				if _, err := os.Stat(job.Destination); err == nil {
-					return Result{}, ErrDestinationExists
-				} else if !errors.Is(err, os.ErrNotExist) {
-					return Result{}, fmt.Errorf("recheck destination: %w", err)
+			if info, err := os.Lstat(job.Destination); err == nil {
+				if !info.Mode().IsRegular() {
+					return Result{}, ErrUnsafeDestination
 				}
+				if !job.Overwrite {
+					return Result{}, ErrDestinationExists
+				}
+			} else if !errors.Is(err, os.ErrNotExist) {
+				return Result{}, fmt.Errorf("recheck destination: %w", err)
 			}
 			if err := downloader.finalize(ctx, job, partPath, job.Destination, job.Overwrite); err != nil {
 				return Result{}, fmt.Errorf("finalize download: %w", err)
@@ -176,16 +199,10 @@ func (downloader *Downloader) finalize(ctx context.Context, job Job, partPath, d
 	return downloader.retryFile(ctx, job, func() error { return finalizeOnce(partPath, destination, overwrite) })
 }
 
-func finalizeOnce(partPath, destination string, overwrite bool) error {
-	err := os.Rename(partPath, destination)
-	if err == nil || !overwrite {
-		return err
-	}
-	// Windows does not atomically replace an existing destination. Only remove
-	// it after a complete partial file exists and a direct rename has failed.
-	if removeErr := os.Remove(destination); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-		return errors.Join(err, removeErr)
-	}
+func finalizeOnce(partPath, destination string, _ bool) error {
+	// os.Rename replaces regular files atomically on Unix. On Windows a
+	// pre-existing destination causes Rename to fail, which intentionally
+	// preserves the old file instead of deleting it non-atomically.
 	return os.Rename(partPath, destination)
 }
 
@@ -229,7 +246,7 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, part
 	state.Total = responseTotal(response, offset)
 	maxBytes := job.MaxBytes
 	if maxBytes <= 0 {
-		maxBytes = 8 << 30
+		maxBytes = maxDirectBytes
 	}
 	if state.Total > maxBytes {
 		return Result{}, fmt.Errorf("%w: advertised %d bytes exceeds %d", ErrIncomplete, state.Total, maxBytes)
@@ -311,6 +328,16 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, part
 	return Result{Bytes: written, Resumed: resuming}, nil
 }
 
+func validateJob(job Job) error {
+	if job.Attempts > maxDirectAttempts {
+		return ErrTooManyAttempts
+	}
+	if job.Attempts < 0 || job.RetryBaseDelay < 0 || job.RetryMaxDelay < 0 || job.RetryBaseDelay > maxDirectRetryDelay || job.RetryMaxDelay > maxDirectRetryDelay || (job.RetryBaseDelay > 0 && job.RetryMaxDelay > 0 && job.RetryBaseDelay > job.RetryMaxDelay) || job.RateLimit < 0 || job.MaxBytes < 0 || job.MaxBytes > maxDirectBytes || job.ThrottleRate < 0 || job.ThrottleWindow < 0 || job.ThrottleWindow > maxDirectRetryDelay || job.ThrottleRestarts < 0 || job.ThrottleRestarts > maxDirectRestarts || job.FileAttempts < 0 || job.FileAttempts > maxDirectFileRetries {
+		return ErrInvalidLimits
+	}
+	return nil
+}
+
 func retryDelay(job Job, attempt int) time.Duration {
 	base := job.RetryBaseDelay
 	if base <= 0 {
@@ -373,6 +400,20 @@ func symlink(path string) bool {
 	return err == nil && info.Mode()&os.ModeSymlink != 0
 }
 
+func regularOrAbsent(path string) error {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return ErrUnsafeDestination
+	}
+	return nil
+}
+
 func loadPartial(partPath, statePath, rawURL string) (partialState, int64) {
 	info, err := os.Stat(partPath)
 	if err != nil || info.Size() <= 0 {
@@ -398,12 +439,40 @@ func savePartialStateOnce(path string, state partialState) error {
 	if err != nil {
 		return err
 	}
-	temporary := path + ".tmp"
-	if err := os.WriteFile(temporary, encoded, 0o600); err != nil {
+	if err := regularOrAbsent(path); err != nil {
+		return err
+	}
+	temporary, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return fmt.Errorf("create partial state: %w", err)
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if _, err = temporary.Write(encoded); err == nil {
+		err = temporary.Sync()
+	}
+	if closeErr := temporary.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
 		return fmt.Errorf("write partial state: %w", err)
 	}
-	if err := os.Rename(temporary, path); err != nil {
-		return fmt.Errorf("finalize partial state: %w", err)
+	if err := regularOrAbsent(path); err != nil {
+		return err
+	}
+	if err := os.Rename(temporaryPath, path); err != nil {
+		// Windows cannot replace an existing state file. State metadata is
+		// recoverable from the partial payload, so a checked regular-file
+		// replacement is safe here (unlike replacing the final media output).
+		if replaceErr := regularOrAbsent(path); replaceErr != nil {
+			return replaceErr
+		}
+		if removeErr := os.Remove(path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			return fmt.Errorf("replace partial state: %w", removeErr)
+		}
+		if retryErr := os.Rename(temporaryPath, path); retryErr != nil {
+			return fmt.Errorf("finalize partial state: %w", retryErr)
+		}
 	}
 	return nil
 }

@@ -11,6 +11,10 @@ fragments, Smooth Streaming (ISM), and opt-in external downloader tools.
   optional bounded slow-response detector restarts a throttled response
   resumably. Native retry/throttle paths admit injected clock/sleeper hooks
   for deterministic tests.
+- Final media destinations must be regular files. On Windows an existing
+  destination is preserved when native rename cannot atomically replace it,
+  even with overwrite selected; callers must choose a new destination or
+  explicitly remove the old file before retrying.
 - Fragment work directories keep a plan hash and SHA-256 artifact manifest.
   A cancelled job resumes only artifacts whose digest matches. Legacy state
   without digest evidence is intentionally re-downloaded. State is bounded,

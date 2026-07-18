@@ -18,8 +18,8 @@ func (downloader *Downloader) retryFile(ctx context.Context, job Job, operation 
 	if attempts <= 0 {
 		attempts = 3
 	}
-	if attempts > 10 {
-		attempts = 10
+	if attempts > maxDirectFileRetries {
+		return ErrInvalidLimits
 	}
 	var err error
 	for attempt := 1; attempt <= attempts; attempt++ {

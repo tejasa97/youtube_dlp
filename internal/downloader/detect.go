@@ -1,6 +1,10 @@
 package downloader
 
-import "time"
+import (
+	"math"
+	"math/bits"
+	"time"
+)
 
 type throttleDetector struct {
 	rate    int64
@@ -23,10 +27,17 @@ func (detector *throttleDetector) Observe(bytes int) bool {
 	if detector.rate <= 0 || bytes <= 0 {
 		return false
 	}
+	if int64(bytes) > math.MaxInt64-detector.bytes {
+		return false
+	}
 	detector.bytes += int64(bytes)
 	elapsed := detector.now().Sub(detector.started)
 	if elapsed < detector.window {
 		return false
 	}
-	return detector.bytes < detector.rate*int64(elapsed)/int64(time.Second)
+	// Compare bytes/elapsed with rate using 128-bit products. This avoids
+	// overflowing either side for intentionally large user-supplied rates.
+	leftHigh, leftLow := bits.Mul64(uint64(detector.bytes), uint64(time.Second))
+	rightHigh, rightLow := bits.Mul64(uint64(detector.rate), uint64(elapsed))
+	return leftHigh < rightHigh || (leftHigh == rightHigh && leftLow < rightLow)
 }
