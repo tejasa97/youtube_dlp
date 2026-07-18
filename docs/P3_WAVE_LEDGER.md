@@ -23,6 +23,16 @@ claims are added only after review and scoped verification.
 | Direct shared hosting | `main` / `youtube_dlp` | Streamable extractor, registry, manifest | Integrated | `8b5b851` |
 | Primary integration | `main` / `youtube_dlp` | registry, public API, manifest, priority policy | Complete | Three Python-free extractor families integrated with scoped unit/race/vet/fuzz evidence |
 
+## Wave 3: Authentication and difficult runtime behavior
+
+| Lane | Branch / worktree | Ownership | State | Delivery |
+| --- | --- | --- | --- | --- |
+| Native netrc credentials | `codex/p3-netrc` / `youtube_dlp-p3-netrc` | bounded parser, store, fixtures | In progress | Pending |
+| Twitch replay breadth | `codex/p3-twitch-breadth` / `youtube_dlp-p3-twitch-breadth` | VOD, clip, and live extractor behavior | In progress | Pending |
+| Browser impersonation profiles | `codex/p3-impersonation-profiles` / `youtube_dlp-p3-impersonation-profiles` | honest engine-supported Firefox/Safari profiles | In progress | Pending |
+| Low-latency HLS | `main` / `youtube_dlp` | partial segments, delta skips, completion replacement | Integrated | `60fccbd`, overflow hardening `9ad13de` |
+| Primary integration | `main` / `youtube_dlp` | credential/transport API, registry, manifest, security policy | In progress | Awaiting isolated lanes |
+
 ## Gate boundary
 
 GitHub Actions is intentionally disabled and is not Phase 3 evidence. Local
