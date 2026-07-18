@@ -34,7 +34,11 @@ const maxManifestBytes = 4 << 20
 
 func openArtifactManifest(workDir, hash string) (*artifactManifest, error) {
 	path := filepath.Join(workDir, "state.json")
-	if isSymlink(path) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
 		return nil, ErrUnsafeDestination
 	}
 	file, err := os.Open(path)

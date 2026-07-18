@@ -357,6 +357,9 @@ func segmentHost(raw string) (string, error) {
 }
 
 func (engine *Engine) fetch(ctx context.Context, segment Segment, destination string, maxSize int64) error {
+	if isSymlink(destination) || isSymlink(destination+".tmp") {
+		return ErrUnsafeDestination
+	}
 	request, err := http.NewRequest(http.MethodGet, segment.URL, nil)
 	if err != nil {
 		return err
@@ -394,7 +397,17 @@ func (engine *Engine) fetch(ctx context.Context, segment Segment, destination st
 		}
 	}
 	temporary := destination + ".tmp"
-	file, err := os.OpenFile(temporary, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if info, statErr := os.Lstat(temporary); statErr == nil {
+		if !info.Mode().IsRegular() {
+			return ErrUnsafeDestination
+		}
+		if err := os.Remove(temporary); err != nil {
+			return err
+		}
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return statErr
+	}
+	file, err := os.OpenFile(temporary, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
@@ -445,8 +458,12 @@ func planHash(segments []Segment) (string, error) {
 
 func prepareWorkDir(path, hash string) error {
 	statePath := filepath.Join(path, "state.json")
-	if isSymlink(statePath) {
+	info, statErr := os.Lstat(statePath)
+	if statErr == nil && !info.Mode().IsRegular() {
 		return ErrUnsafeDestination
+	}
+	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+		return statErr
 	}
 	file, err := os.Open(statePath)
 	if err == nil {
