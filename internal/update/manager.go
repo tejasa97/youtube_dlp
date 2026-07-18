@@ -295,8 +295,12 @@ func (manager *Manager) Apply(ctx context.Context, envelope []byte, artifact io.
 		if restoreErr := manager.writeState(before); restoreErr != nil {
 			return State{}, fmt.Errorf("%w: restore after health failure", ErrRecovery)
 		}
-		_ = os.RemoveAll(releasePath)
-		_ = manager.removeJournal()
+		if cleanupErr := os.RemoveAll(releasePath); cleanupErr != nil {
+			return State{}, fmt.Errorf("%w: clean failed release", ErrRecovery)
+		}
+		if cleanupErr := manager.removeJournal(); cleanupErr != nil {
+			return State{}, fmt.Errorf("%w: finalize health rollback", ErrRecovery)
+		}
 		return State{}, ErrHealth
 	}
 	if err := manager.removeJournal(); err != nil {

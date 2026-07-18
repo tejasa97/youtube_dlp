@@ -179,7 +179,9 @@ func (manager *Manager) recover(ctx context.Context) error {
 		}
 	}
 	if value.Staging != "" {
-		_ = os.RemoveAll(filepath.Join(manager.root, "staging", value.Staging))
+		if err := os.RemoveAll(filepath.Join(manager.root, "staging", value.Staging)); err != nil {
+			return ErrRecovery
+		}
 	}
 	if value.Operation == "apply" && value.Release != "" {
 		release := filepath.Join(manager.root, "releases", value.Release)
@@ -191,7 +193,9 @@ func (manager *Manager) recover(ctx context.Context) error {
 			if err := verifyArtifact(artifact, value.After.Active.Size, value.After.Active.SHA256, manager.options.MaxArtifactSize); err != nil {
 				return ErrRecovery
 			}
-			_ = os.RemoveAll(release)
+			if err := os.RemoveAll(release); err != nil {
+				return ErrRecovery
+			}
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return ErrRecovery
 		}

@@ -106,10 +106,12 @@ type Manifest struct {
 	Artifacts   []Artifact `json:"artifacts"`
 }
 
-func NewManifest(version, commit string, generatedAt time.Time, contents map[string]struct {
+type ArtifactInput struct {
 	Target Target
 	Data   []byte
-}) (Manifest, error) {
+}
+
+func NewManifest(version, commit string, generatedAt time.Time, contents map[string]ArtifactInput) (Manifest, error) {
 	if !validVersion(version) || !validCommit(commit) || !reasonableEpoch(generatedAt) || len(contents) == 0 || len(contents) > maxEntries {
 		return Manifest{}, ErrInvalidInput
 	}
@@ -223,7 +225,15 @@ func safePackage(value string) bool {
 }
 
 func safeBase(value string) bool {
-	return value != "" && len(value) <= 128 && value == filepath.Base(value) && value != "." && value != ".." && !strings.ContainsAny(value, "/\\\x00") && !strings.HasSuffix(value, ".") && !strings.HasSuffix(value, " ") && !windowsReserved(value)
+	if value == "" || len(value) > 128 || value != filepath.Base(value) || value == "." || value == ".." || strings.ContainsAny(value, "/\\\x00:") || strings.HasSuffix(value, ".") || strings.HasSuffix(value, " ") || windowsReserved(value) {
+		return false
+	}
+	for _, character := range value {
+		if character < 0x21 || character > 0x7e {
+			return false
+		}
+	}
+	return true
 }
 
 func windowsReserved(value string) bool {
@@ -257,7 +267,26 @@ func validToken(value string, maximum int, extra string) bool {
 	return true
 }
 
-func validVersion(value string) bool { return validToken(value, 64, ".-_") }
+func validVersion(value string) bool {
+	if !validToken(value, 64, ".-_") || strings.Contains(value, "..") || strings.Contains(value, "--") || strings.Contains(value, "__") {
+		return false
+	}
+	first, last := value[0], value[len(value)-1]
+	if !asciiAlphaNumeric(first) || !asciiAlphaNumeric(last) {
+		return false
+	}
+	hasDigit := false
+	for index := range len(value) {
+		if value[index] >= '0' && value[index] <= '9' {
+			hasDigit = true
+		}
+	}
+	return hasDigit
+}
+
+func asciiAlphaNumeric(value byte) bool {
+	return value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z' || value >= '0' && value <= '9'
+}
 
 func validCommit(value string) bool {
 	if len(value) < 7 || len(value) > 64 {

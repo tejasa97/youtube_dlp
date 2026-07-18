@@ -94,9 +94,12 @@ artifact install/update/rollback/run execution on each OS, and container audit.
 - The Windows Go standard-library boundary does not prove root owner or writable
   ACLs. Product policy must select and secure a per-user root. The implementation
   still rejects symlink/reparse-point roots and non-directory components.
-- Health-check cancellation terminates a Unix process group. The Windows helper
-  currently terminates the direct child; a Job Object is required before
-  claiming descendant-tree termination on Windows.
+- Health-check cancellation terminates a Unix process group. Windows uses a
+  `KILL_ON_JOB_CLOSE` Job Object and has a Windows-only descendant termination
+  test. The standard `os/exec` start-then-assign sequence leaves a narrow race
+  in which a hostile binary could spawn and detach a child before Job Object
+  assignment; eliminating it requires a suspended-process launcher outside the
+  current standard-library boundary.
 - Windows has no portable directory-fsync operation. Files are synced and
   replacement requests write-through, but the package does not claim a POSIX
   directory durability primitive there.

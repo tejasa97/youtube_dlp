@@ -18,7 +18,10 @@ import (
 	"time"
 )
 
-var healthHelper = flag.Bool("ytdlp-health-helper", false, "run deterministic updater health helper")
+var (
+	healthHelper = flag.Bool("ytdlp-health-helper", false, "run deterministic updater health helper")
+	healthBlock  = flag.Bool("ytdlp-health-block", false, "run blocking updater health helper")
+)
 
 func managerOptions(public ed25519.PublicKey, goos, goarch string, health HealthChecker) Options {
 	return Options{
@@ -360,6 +363,24 @@ func TestCommandHealthCheckerRunsArtifactWithoutShell(t *testing.T) {
 	checker.OutputPrefix = "wrong "
 	if err := checker.Check(context.Background(), executable, target); !errors.Is(err, ErrHealth) {
 		t.Fatalf("identity error = %v", err)
+	}
+}
+
+func TestCommandHealthCheckerCancellation(t *testing.T) {
+	if *healthBlock {
+		select {}
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	checker := CommandHealthChecker{Arguments: []string{"-test.run=TestCommandHealthCheckerCancellation", "-ytdlp-health-block"}, OutputPrefix: "unused", Timeout: 30 * time.Millisecond, MaxOutput: 1024}
+	started := time.Now()
+	if err := checker.Check(context.Background(), executable, Target{Version: "1.0.0"}); !errors.Is(err, ErrHealth) {
+		t.Fatalf("cancellation error = %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 3*time.Second {
+		t.Fatalf("health cancellation took %v", elapsed)
 	}
 }
 

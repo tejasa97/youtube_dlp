@@ -45,12 +45,18 @@ func VerifyChecksums(encoded []byte, artifacts map[string][]byte) error {
 		return ErrInvalidInput
 	}
 	expected := make(map[string]string, len(artifacts))
+	foldedNames := make(map[string]struct{}, len(artifacts))
 	for name, data := range artifacts {
 		if !safeBase(name) || len(data) > maxEntryBytes {
 			return ErrInvalidInput
 		}
 		digest := sha256.Sum256(data)
 		expected[name] = hex.EncodeToString(digest[:])
+		folded := strings.ToLower(name)
+		if _, duplicate := foldedNames[folded]; duplicate {
+			return ErrInvalidInput
+		}
+		foldedNames[folded] = struct{}{}
 	}
 	seen := make(map[string]struct{}, len(expected))
 	scanner := bufio.NewScanner(bytes.NewReader(encoded))

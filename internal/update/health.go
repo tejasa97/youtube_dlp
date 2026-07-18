@@ -30,18 +30,29 @@ func (checker CommandHealthChecker) Check(ctx context.Context, path string, targ
 	defer cancel()
 	command := exec.Command(path, checker.Arguments...)
 	command.Env = healthEnvironment()
-	configureHealthCommand(command)
+	if err := configureHealthCommand(command); err != nil {
+		return ErrHealth
+	}
 	output := &limitedBuffer{maximum: checker.MaxOutput}
 	command.Stdout = output
 	command.Stderr = output
 	if err := command.Start(); err != nil {
 		return ErrHealth
 	}
+	isolation, err := attachHealthCommand(command)
+	if err != nil {
+		if command.Process != nil {
+			_ = command.Process.Kill()
+		}
+		_ = command.Wait()
+		return ErrHealth
+	}
+	defer isolation.Close()
 	done := make(chan error, 1)
 	go func() { done <- command.Wait() }()
 	select {
 	case <-deadlineContext.Done():
-		terminateHealthCommand(command)
+		_ = isolation.Terminate()
 		<-done
 		return ErrHealth
 	case err := <-done:

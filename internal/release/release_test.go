@@ -234,10 +234,7 @@ func TestChecksumsLicensesSBOMAndManifest(t *testing.T) {
 		t.Fatalf("SBOM = %s", sbom.Bytes())
 	}
 
-	contents := map[string]struct {
-		Target Target
-		Data   []byte
-	}{
+	contents := map[string]ArtifactInput{
 		"ytdlp-go_linux_amd64.tar.gz": {Target: Target{GOOS: "linux", GOARCH: "amd64"}, Data: []byte("linux")},
 		"ytdlp-go_windows_amd64.zip":  {Target: Target{GOOS: "windows", GOARCH: "amd64"}, Data: []byte("windows")},
 	}
