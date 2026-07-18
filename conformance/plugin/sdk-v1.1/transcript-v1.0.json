@@ -1,0 +1,57 @@
+[
+  {
+    "direction": "host_to_plugin",
+    "envelope": {
+      "type": "hello",
+      "versions": [
+        1
+      ]
+    }
+  },
+  {
+    "direction": "plugin_to_host",
+    "envelope": {
+      "type": "hello",
+      "manifest": {
+        "schema": "ytdlp-go.plugin/v1",
+        "id": "fixture.sdk",
+        "name": "SDK fixture",
+        "release": "1.1.0",
+        "runtime": "native",
+        "entrypoint": "fixture-plugin",
+        "abi": {
+          "minimum": 1,
+          "maximum": 65537
+        },
+        "capabilities": [
+          "extractor"
+        ]
+      }
+    }
+  },
+  {
+    "direction": "host_to_plugin",
+    "envelope": {
+      "type": "extract",
+      "version": 1,
+      "request": {
+        "id": "request-1",
+        "url": "https://fixture.invalid/watch/1"
+      }
+    }
+  },
+  {
+    "direction": "plugin_to_host",
+    "envelope": {
+      "type": "result",
+      "response": {
+        "id": "request-1",
+        "metadata": {
+          "id": "fixture-1",
+          "title": "SDK fixture",
+          "webpage_url": "https://fixture.invalid/watch/1"
+        }
+      }
+    }
+  }
+]
