@@ -43,12 +43,18 @@ func (Client) Extract(ctx context.Context, config Config, request plugin.Extract
 	if request.ID == "" || request.URL == "" {
 		return plugin.ExtractResponse{}, plugin.ErrInvalidConfig
 	}
+	if err := plugin.CheckPayload(request.Options); err != nil {
+		return plugin.ExtractResponse{}, err
+	}
 	response, err := exchange(ctx, config, envelope{Type: "extract", Request: &request}, "result", request.ID, plugin.CapabilityExtractor)
 	if err != nil {
 		return plugin.ExtractResponse{}, err
 	}
 	if response.Response == nil || response.Response.ID != request.ID {
 		return plugin.ExtractResponse{}, fmt.Errorf("%w: mismatched extractor result", plugin.ErrMalformedMessage)
+	}
+	if err := plugin.CheckPayload(response.Response.Metadata); err != nil {
+		return plugin.ExtractResponse{}, err
 	}
 	if err := plugin.ResponseError(response.Response.Error); err != nil {
 		return *response.Response, err
@@ -60,12 +66,21 @@ func (Client) Postprocess(ctx context.Context, config Config, request plugin.Pos
 	if request.ID == "" || request.Operation == "" || request.Input.Handle == "" {
 		return plugin.PostprocessResponse{}, plugin.ErrInvalidConfig
 	}
+	if err := plugin.CheckPayload(request.Options); err != nil {
+		return plugin.PostprocessResponse{}, err
+	}
+	if err := plugin.CheckPayload(request.Input); err != nil {
+		return plugin.PostprocessResponse{}, err
+	}
 	response, err := exchange(ctx, config, envelope{Type: "postprocess", PostprocessRequest: &request}, "postprocess_result", request.ID, plugin.CapabilityPostprocessor)
 	if err != nil {
 		return plugin.PostprocessResponse{}, err
 	}
 	if response.PostprocessResponse == nil || response.PostprocessResponse.ID != request.ID {
 		return plugin.PostprocessResponse{}, fmt.Errorf("%w: mismatched postprocessor result", plugin.ErrMalformedMessage)
+	}
+	if err := plugin.CheckPayload(response.PostprocessResponse.Artifacts); err != nil {
+		return plugin.PostprocessResponse{}, err
 	}
 	if err := plugin.ResponseError(response.PostprocessResponse.Error); err != nil {
 		return *response.PostprocessResponse, err
@@ -77,12 +92,21 @@ func (Client) Provide(ctx context.Context, config Config, request plugin.Provide
 	if request.ID == "" || request.Provider == "" || request.Action == "" {
 		return plugin.ProviderResponse{}, plugin.ErrInvalidConfig
 	}
+	if err := plugin.CheckPayload(request.Arguments); err != nil {
+		return plugin.ProviderResponse{}, err
+	}
+	if err := plugin.CheckPayload(request.Secrets); err != nil {
+		return plugin.ProviderResponse{}, err
+	}
 	response, err := exchange(ctx, config, envelope{Type: "provide", ProviderRequest: &request}, "provider_result", request.ID, plugin.CapabilityProvider)
 	if err != nil {
 		return plugin.ProviderResponse{}, err
 	}
 	if response.ProviderResponse == nil || response.ProviderResponse.ID != request.ID {
 		return plugin.ProviderResponse{}, fmt.Errorf("%w: mismatched provider result", plugin.ErrMalformedMessage)
+	}
+	if err := plugin.CheckPayload(response.ProviderResponse.Values); err != nil {
+		return plugin.ProviderResponse{}, err
 	}
 	if err := plugin.ResponseError(response.ProviderResponse.Error); err != nil {
 		return *response.ProviderResponse, err
@@ -95,6 +119,13 @@ func exchange(ctx context.Context, config Config, request envelope, resultType, 
 		return envelope{}, err
 	}
 	if err := config.Limits.Validate(); err != nil {
+		return envelope{}, err
+	}
+	hostRange := config.SupportedABI
+	if hostRange.Minimum == 0 && hostRange.Maximum == 0 {
+		hostRange = plugin.VersionRange{Minimum: plugin.ProtocolV1_0, Maximum: plugin.ProtocolV1_1}
+	}
+	if _, err := plugin.NegotiateRange(hostRange, hostRange); err != nil {
 		return envelope{}, err
 	}
 	executable, expected, err := launchTarget(config)
@@ -111,6 +142,27 @@ func exchange(ctx context.Context, config Config, request envelope, resultType, 
 	limits := config.Limits.WithDefaults()
 	operationCtx, cancel := context.WithTimeout(ctx, limits.Timeout)
 	defer cancel()
+	var preapprovedVersion uint32
+	if expected != nil {
+		if config.Approver == nil {
+			return envelope{}, fmt.Errorf("%w: trusted packages require an identity-bound approver", plugin.ErrPermissionReview)
+		}
+		if !plugin.HasCapability(expected.Manifest, capability) {
+			return envelope{}, fmt.Errorf("%w: capability %q not declared", plugin.ErrPermissionDenied, capability)
+		}
+		preapprovedVersion, err = plugin.NegotiateRange(hostRange, plugin.ManifestRange(expected.Manifest))
+		if err != nil {
+			return envelope{}, err
+		}
+		if err := plugin.Approve(operationCtx, config.Approver, plugin.ApprovalRequest{
+			PluginID: expected.Manifest.ID, Release: expected.Manifest.Release,
+			Signer: expected.Signer, ExecutableDigest: expected.ExecutableDigest, ABI: preapprovedVersion,
+			Requested: append([]plugin.Permission(nil), expected.Manifest.Permissions...),
+			Added:     plugin.AddedPermissions(config.PreviousPermissions, expected.Manifest.Permissions),
+		}, nil); err != nil {
+			return envelope{}, err
+		}
+	}
 
 	command := exec.Command(executable, config.Args...)
 	command.Env = environment
@@ -153,10 +205,6 @@ func exchange(ctx context.Context, config Config, request envelope, resultType, 
 	}
 	resultCh := make(chan result, 1)
 	go func() {
-		hostRange := config.SupportedABI
-		if hostRange.Minimum == 0 && hostRange.Maximum == 0 {
-			hostRange = plugin.VersionRange{Minimum: plugin.ProtocolV1_0, Maximum: plugin.ProtocolV1_1}
-		}
 		if err := send(envelope{Type: "hello", Versions: []uint32{plugin.ProtocolV1_1, plugin.ProtocolV1_0}, ABIRange: &hostRange}); err != nil {
 			resultCh <- result{err: err}
 			return
@@ -166,8 +214,8 @@ func exchange(ctx context.Context, config Config, request envelope, resultType, 
 			resultCh <- result{err: err}
 			return
 		}
-		if hello.Type != "hello" || hello.Manifest == nil {
-			resultCh <- result{err: fmt.Errorf("%w: expected hello", plugin.ErrMalformedMessage)}
+		if err := validatePluginHello(hello); err != nil {
+			resultCh <- result{err: err}
 			return
 		}
 		if err := plugin.ValidateManifest(*hello.Manifest); err != nil {
@@ -187,18 +235,21 @@ func exchange(ctx context.Context, config Config, request envelope, resultType, 
 			resultCh <- result{err: err}
 			return
 		}
-		approval := plugin.ApprovalRequest{
-			PluginID: hello.Manifest.ID, Release: hello.Manifest.Release, ABI: version,
-			Requested: append([]plugin.Permission(nil), hello.Manifest.Permissions...),
-			Added:     plugin.AddedPermissions(config.PreviousPermissions, hello.Manifest.Permissions),
-		}
 		if expected != nil {
-			approval.Signer = expected.Signer
-			approval.ExecutableDigest = expected.ExecutableDigest
-		}
-		if err := plugin.Approve(operationCtx, config.Approver, approval, config.GrantedPermissions); err != nil {
-			resultCh <- result{err: err}
-			return
+			if version != preapprovedVersion {
+				resultCh <- result{err: fmt.Errorf("%w: live ABI differs from pre-launch approval", plugin.ErrInvalidManifest)}
+				return
+			}
+		} else {
+			approval := plugin.ApprovalRequest{
+				PluginID: hello.Manifest.ID, Release: hello.Manifest.Release, ABI: version,
+				Requested: append([]plugin.Permission(nil), hello.Manifest.Permissions...),
+				Added:     plugin.AddedPermissions(config.PreviousPermissions, hello.Manifest.Permissions),
+			}
+			if err := plugin.Approve(operationCtx, config.Approver, approval, config.GrantedPermissions); err != nil {
+				resultCh <- result{err: err}
+				return
+			}
 		}
 		request.Version = version
 		if err := send(request); err != nil {
@@ -210,46 +261,81 @@ func exchange(ctx context.Context, config Config, request envelope, resultType, 
 			resultCh <- result{err: err}
 			return
 		}
-		if response.Type != resultType || responseID(response) != requestID {
+		if err := validateResultEnvelope(response, resultType); err != nil {
+			resultCh <- result{err: err}
+			return
+		}
+		if responseID(response) != requestID {
 			resultCh <- result{err: fmt.Errorf("%w: mismatched result", plugin.ErrMalformedMessage)}
 			return
 		}
 		resultCh <- result{response: response}
 	}()
 
-	cleanup := func(force bool) {
+	cleanup := func(force bool) error {
 		_ = stdin.Close()
 		wait := make(chan error, 1)
 		go func() { wait <- command.Wait() }()
+		var cleanupErr error
 		if force {
-			_ = isolation.Terminate()
+			if err := isolation.Terminate(); err != nil {
+				cleanupErr = fmt.Errorf("%w: terminate: %v", plugin.ErrIsolationUnavailable, err)
+				// Reap the direct child even when process-tree termination failed.
+				_ = command.Process.Kill()
+			}
+		}
+		select {
+		case waitErr := <-wait:
+			_ = isolation.Close()
+			if cleanupErr != nil {
+				return cleanupErr
+			}
+			if waitErr != nil && !force {
+				return fmt.Errorf("%w: non-zero exit", plugin.ErrCrashed)
+			}
+			return nil
+		case <-time.After(limits.CancelGrace):
+			if err := isolation.Terminate(); err != nil {
+				cleanupErr = errors.Join(cleanupErr, fmt.Errorf("%w: terminate: %v", plugin.ErrIsolationUnavailable, err))
+				_ = command.Process.Kill()
+			}
 		}
 		select {
 		case <-wait:
+			_ = isolation.Close()
+			if cleanupErr != nil {
+				return cleanupErr
+			}
+			if !force {
+				return fmt.Errorf("%w: plugin did not exit after response", plugin.ErrCrashed)
+			}
+			return nil
 		case <-time.After(limits.CancelGrace):
-			_ = isolation.Terminate()
-			<-wait
+			_ = isolation.Close()
+			return fmt.Errorf("%w: process tree did not terminate", plugin.ErrIsolationUnavailable)
 		}
-		_ = isolation.Close()
 	}
 
 	select {
 	case outcome := <-resultCh:
-		cleanup(outcome.err != nil)
+		cleanupErr := cleanup(outcome.err != nil)
 		if outcome.err != nil {
 			if errors.Is(outcome.err, io.EOF) || errors.Is(outcome.err, io.ErrUnexpectedEOF) {
-				return envelope{}, fmt.Errorf("%w: unexpected exit", plugin.ErrCrashed)
+				outcome.err = fmt.Errorf("%w: unexpected exit", plugin.ErrCrashed)
 			}
-			return envelope{}, outcome.err
+			return envelope{}, errors.Join(outcome.err, cleanupErr)
+		}
+		if cleanupErr != nil {
+			return envelope{}, cleanupErr
 		}
 		return outcome.response, nil
 	case <-operationCtx.Done():
 		_ = send(envelope{Type: "cancel", RequestID: requestID})
-		cleanup(false)
+		cleanupErr := cleanup(false)
 		if errors.Is(operationCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
-			return envelope{}, fmt.Errorf("%w: %v", plugin.ErrTimeout, operationCtx.Err())
+			return envelope{}, errors.Join(fmt.Errorf("%w: %v", plugin.ErrTimeout, operationCtx.Err()), cleanupErr)
 		}
-		return envelope{}, operationCtx.Err()
+		return envelope{}, errors.Join(operationCtx.Err(), cleanupErr)
 	}
 }
 

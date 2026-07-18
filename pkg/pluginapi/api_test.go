@@ -35,6 +35,15 @@ func TestCodecRoundTripAndBounds(t *testing.T) {
 	if _, err := (Codec{Maximum: 2}).Read(bytes.NewReader([]byte{0, 0, 0, 3})); !errors.Is(err, ErrFrameTooLarge) {
 		t.Fatalf("oversize error = %v", err)
 	}
+	duplicate := []byte(`{"type":"hello","manifest":{"id":"one","id":"two"}}`)
+	framed := append([]byte{0, 0, 0, byte(len(duplicate))}, duplicate...)
+	if _, err := codec.Read(bytes.NewReader(framed)); !errors.Is(err, ErrMalformedFrame) {
+		t.Fatalf("duplicate-key error = %v", err)
+	}
+	invalidUTF8 := []byte{0, 0, 0, 4, '"', 0xff, 0xfe, '"'}
+	if _, err := codec.Read(bytes.NewReader(invalidUTF8)); !errors.Is(err, ErrMalformedFrame) {
+		t.Fatalf("UTF-8 error = %v", err)
+	}
 }
 
 func FuzzCodecRead(f *testing.F) {

@@ -39,6 +39,8 @@ func TestValidateManifestRejectsPythonAndMalformedDeclarations(t *testing.T) {
 		{"unknown capability", func(value *Manifest) { value.Capabilities = []Capability{"shell"} }, ErrInvalidManifest},
 		{"duplicate permission", func(value *Manifest) { value.Permissions = append(value.Permissions, value.Permissions[0]) }, ErrInvalidManifest},
 		{"major upgrade", func(value *Manifest) { value.ABIRange = VersionRange{Minimum: 2, Maximum: 2} }, ErrIncompatibleVersion},
+		{"noncanonical version", func(value *Manifest) { value.ABIRange = VersionRange{Minimum: 1 << 16, Maximum: 1 << 16} }, ErrInvalidManifest},
+		{"inconsistent legacy version", func(value *Manifest) { value.Versions = []uint32{2} }, ErrInvalidManifest},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

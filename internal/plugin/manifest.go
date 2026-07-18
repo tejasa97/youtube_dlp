@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -15,6 +14,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/ytdlp-go/ytdlp/pkg/pluginapi"
 )
@@ -54,8 +54,8 @@ func DecodeManifest(reader io.Reader, maximum int64) (Manifest, error) {
 	if int64(len(payload)) > maximum {
 		return Manifest{}, fmt.Errorf("%w: manifest exceeds %d bytes", ErrResourceLimit, maximum)
 	}
-	if err := rejectDuplicateJSONKeys(payload); err != nil {
-		return Manifest{}, err
+	if err := pluginapi.ValidateJSONFrame(payload); err != nil {
+		return Manifest{}, fmt.Errorf("%w: %v", ErrInvalidManifest, err)
 	}
 	var manifest Manifest
 	decoder := json.NewDecoder(bytes.NewReader(payload))
@@ -79,6 +79,9 @@ func ValidateManifest(manifest Manifest) error {
 		!releasePattern.MatchString(manifest.Release) {
 		return fmt.Errorf("%w: missing or invalid identity", ErrInvalidManifest)
 	}
+	if strings.IndexFunc(manifest.Name, unicode.IsControl) >= 0 {
+		return fmt.Errorf("%w: control character in plugin name", ErrInvalidManifest)
+	}
 	if manifest.Runtime != pluginapi.RuntimeNative && manifest.Runtime != pluginapi.RuntimeWASM {
 		if strings.Contains(strings.ToLower(string(manifest.Runtime)), "python") {
 			return ErrPythonRuntime
@@ -87,7 +90,8 @@ func ValidateManifest(manifest Manifest) error {
 	}
 	if manifest.Entrypoint == "" || filepath.IsAbs(manifest.Entrypoint) ||
 		filepath.Base(manifest.Entrypoint) != manifest.Entrypoint ||
-		manifest.Entrypoint == "." || manifest.Entrypoint == ".." {
+		manifest.Entrypoint == "." || manifest.Entrypoint == ".." ||
+		strings.IndexFunc(manifest.Entrypoint, unicode.IsControl) >= 0 {
 		return fmt.Errorf("%w: entrypoint must be one package-relative filename", ErrInvalidManifest)
 	}
 	if pythonEntrypoint.MatchString(manifest.Entrypoint) {
@@ -97,6 +101,9 @@ func ValidateManifest(manifest Manifest) error {
 		return fmt.Errorf("%w: interpreter entrypoint", ErrInvalidManifest)
 	}
 	rangeValue := manifest.ABIRange
+	if len(manifest.Versions) > 16 {
+		return fmt.Errorf("%w: too many legacy versions", ErrInvalidManifest)
+	}
 	if rangeValue.Minimum == 0 && rangeValue.Maximum == 0 && len(manifest.Versions) != 0 {
 		rangeValue.Minimum, rangeValue.Maximum = manifest.Versions[0], manifest.Versions[0]
 		for _, version := range manifest.Versions[1:] {
@@ -113,6 +120,18 @@ func ValidateManifest(manifest Manifest) error {
 	}
 	if err := validateRange(rangeValue); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidManifest, err)
+	}
+	seenVersions := make(map[uint32]struct{}, len(manifest.Versions))
+	for _, version := range manifest.Versions {
+		major, minor := pluginapi.VersionParts(version)
+		if pluginapi.Version(major, minor) != version || !pluginapi.Compatible(rangeValue.Minimum, version) ||
+			pluginapi.CompareVersions(version, rangeValue.Minimum) < 0 || pluginapi.CompareVersions(version, rangeValue.Maximum) > 0 {
+			return fmt.Errorf("%w: legacy version is inconsistent with ABI range", ErrInvalidManifest)
+		}
+		if _, duplicate := seenVersions[version]; duplicate {
+			return fmt.Errorf("%w: duplicate legacy version", ErrInvalidManifest)
+		}
+		seenVersions[version] = struct{}{}
 	}
 	if major, _ := pluginapi.VersionParts(rangeValue.Minimum); major != pluginapi.ABIMajor {
 		return fmt.Errorf("%w: unsupported ABI major %d", ErrIncompatibleVersion, major)
@@ -396,67 +415,6 @@ func rejectInterpreterFile(path string) error {
 			return ErrPythonRuntime
 		}
 		return fmt.Errorf("%w: interpreter/shebang trampolines are prohibited", ErrUntrustedPath)
-	}
-	return nil
-}
-
-func rejectDuplicateJSONKeys(payload []byte) error {
-	decoder := json.NewDecoder(bytes.NewReader(payload))
-	decoder.UseNumber()
-	if err := consumeJSONValue(decoder); err != nil {
-		return fmt.Errorf("%w: %v", ErrInvalidManifest, err)
-	}
-	if token, err := decoder.Token(); err != io.EOF {
-		return fmt.Errorf("%w: trailing JSON token %v", ErrInvalidManifest, token)
-	}
-	return nil
-}
-
-func consumeJSONValue(decoder *json.Decoder) error {
-	token, err := decoder.Token()
-	if err != nil {
-		return err
-	}
-	delimiter, composite := token.(json.Delim)
-	if !composite {
-		return nil
-	}
-	switch delimiter {
-	case '{':
-		seen := make(map[string]struct{})
-		for decoder.More() {
-			keyToken, err := decoder.Token()
-			if err != nil {
-				return err
-			}
-			key, ok := keyToken.(string)
-			if !ok {
-				return errors.New("object key is not a string")
-			}
-			if _, duplicate := seen[key]; duplicate {
-				return fmt.Errorf("duplicate object key %q", key)
-			}
-			seen[key] = struct{}{}
-			if err := consumeJSONValue(decoder); err != nil {
-				return err
-			}
-		}
-		closing, err := decoder.Token()
-		if err != nil || closing != json.Delim('}') {
-			return errors.New("unterminated object")
-		}
-	case '[':
-		for decoder.More() {
-			if err := consumeJSONValue(decoder); err != nil {
-				return err
-			}
-		}
-		closing, err := decoder.Token()
-		if err != nil || closing != json.Delim(']') {
-			return errors.New("unterminated array")
-		}
-	default:
-		return fmt.Errorf("unexpected delimiter %q", delimiter)
 	}
 	return nil
 }

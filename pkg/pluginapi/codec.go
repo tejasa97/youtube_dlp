@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"unicode/utf8"
 )
 
 var (
@@ -37,6 +38,9 @@ type Codec struct {
 func (codec Codec) maximum() uint32 {
 	if codec.Maximum == 0 {
 		return 1 << 20
+	}
+	if codec.Maximum > 16<<20 {
+		return 16 << 20
 	}
 	return codec.Maximum
 }
@@ -74,6 +78,9 @@ func (codec Codec) Read(reader io.Reader) (Envelope, error) {
 	if _, err := io.ReadFull(reader, payload); err != nil {
 		return Envelope{}, fmt.Errorf("%w: truncated", ErrMalformedFrame)
 	}
+	if err := ValidateJSONFrame(payload); err != nil {
+		return Envelope{}, err
+	}
 	var result Envelope
 	decoder := json.NewDecoder(bytesReader(payload))
 	decoder.DisallowUnknownFields()
@@ -85,6 +92,73 @@ func (codec Codec) Read(reader io.Reader) (Envelope, error) {
 		return Envelope{}, fmt.Errorf("%w: trailing JSON", ErrMalformedFrame)
 	}
 	return result, nil
+}
+
+// ValidateJSONFrame rejects malformed JSON, trailing values, and duplicate
+// object keys at every nesting depth. It is shared by SDK and host decoders so
+// a field cannot be shadowed by a later duplicate.
+func ValidateJSONFrame(payload []byte) error {
+	if !utf8.Valid(payload) {
+		return fmt.Errorf("%w: invalid UTF-8", ErrMalformedFrame)
+	}
+	decoder := json.NewDecoder(bytesReader(payload))
+	decoder.UseNumber()
+	if err := consumeJSONValue(decoder); err != nil {
+		return fmt.Errorf("%w: %v", ErrMalformedFrame, err)
+	}
+	if token, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		return fmt.Errorf("%w: trailing JSON token %v", ErrMalformedFrame, token)
+	}
+	return nil
+}
+
+func consumeJSONValue(decoder *json.Decoder) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	delimiter, composite := token.(json.Delim)
+	if !composite {
+		return nil
+	}
+	switch delimiter {
+	case '{':
+		seen := make(map[string]struct{})
+		for decoder.More() {
+			keyToken, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			key, ok := keyToken.(string)
+			if !ok {
+				return errors.New("object key is not a string")
+			}
+			if _, duplicate := seen[key]; duplicate {
+				return fmt.Errorf("duplicate object key %q", key)
+			}
+			seen[key] = struct{}{}
+			if err := consumeJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		closing, err := decoder.Token()
+		if err != nil || closing != json.Delim('}') {
+			return errors.New("unterminated object")
+		}
+	case '[':
+		for decoder.More() {
+			if err := consumeJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		closing, err := decoder.Token()
+		if err != nil || closing != json.Delim(']') {
+			return errors.New("unterminated array")
+		}
+	default:
+		return fmt.Errorf("unexpected delimiter %q", delimiter)
+	}
+	return nil
 }
 
 func writeAll(writer io.Writer, data []byte) error {

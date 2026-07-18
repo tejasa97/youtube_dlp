@@ -25,6 +25,7 @@ func TestExampleModule(t *testing.T) {
 		t.Fatal(err)
 	}
 	response, err := (pluginwasm.Host{}).Extract(context.Background(), module, pluginwasm.Config{
+		UnsafeTestOnly: true,
 		Manifest: plugin.Manifest{
 			Schema: plugin.ManifestSchema, ID: "example.wasm", Name: "WASM example", Release: "1.0.0",
 			Runtime: "wasm", Entrypoint: "example.wasm",

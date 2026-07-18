@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -13,7 +14,8 @@ import (
 	"github.com/ytdlp-go/ytdlp/pkg/pluginapi"
 )
 
-var sensitiveDiagnostic = regexp.MustCompile(`(?i)(authorization|cookie|password|secret|signature|token|sig|key)([=:][^&[:space:]]+)`)
+var sensitiveDiagnostic = regexp.MustCompile(`(?i)\b(authorization|cookie|password|secret|signature|token|sig|api[_-]?key|key)([=:][^&[:space:]]+)`)
+var remoteCodePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9_.-]{0,127})$`)
 
 const (
 	ProtocolVersion = pluginapi.Current
@@ -85,10 +87,12 @@ const (
 type RemoteError = pluginapi.RemoteError
 
 type Limits struct {
-	Timeout          time.Duration
-	CancelGrace      time.Duration
-	MaxMessageBytes  uint32
-	MaxStderrBytes   int
+	Timeout         time.Duration
+	CancelGrace     time.Duration
+	MaxMessageBytes uint32
+	MaxStderrBytes  int
+	// MemoryLimitPages is enforced by the WASM host only. The native RPC
+	// transport does not claim a portable address-space limit.
 	MemoryLimitPages uint32
 }
 
@@ -112,6 +116,9 @@ func (limits Limits) WithDefaults() Limits {
 }
 
 func (limits Limits) Validate() error {
+	if limits.Timeout < 0 || limits.CancelGrace < 0 || limits.MaxStderrBytes < 0 {
+		return fmt.Errorf("%w: limits cannot be negative", ErrInvalidConfig)
+	}
 	limits = limits.WithDefaults()
 	if limits.Timeout > 10*time.Minute || limits.CancelGrace > 30*time.Second ||
 		limits.MaxMessageBytes > 16<<20 || limits.MaxStderrBytes > 1<<20 ||
@@ -160,10 +167,13 @@ func NegotiateRange(host, candidate VersionRange) (uint32, error) {
 }
 
 func validateRange(value VersionRange) error {
-	minimumMajor, _ := pluginapi.VersionParts(value.Minimum)
-	maximumMajor, _ := pluginapi.VersionParts(value.Maximum)
+	minimumMajor, minimumMinor := pluginapi.VersionParts(value.Minimum)
+	maximumMajor, maximumMinor := pluginapi.VersionParts(value.Maximum)
 	if minimumMajor == 0 || minimumMajor != maximumMajor || pluginapi.CompareVersions(value.Minimum, value.Maximum) > 0 {
 		return fmt.Errorf("%w: invalid ABI range", ErrIncompatibleVersion)
+	}
+	if pluginapi.Version(minimumMajor, minimumMinor) != value.Minimum || pluginapi.Version(maximumMajor, maximumMinor) != value.Maximum {
+		return fmt.Errorf("%w: non-canonical ABI version", ErrIncompatibleVersion)
 	}
 	return nil
 }
@@ -199,19 +209,62 @@ func AddedPermissions(previous, requested []Permission) []Permission {
 // Approve asks the host policy for an exact permission set. The approval is
 // operation-scoped and bound to the immutable descriptor fields.
 func Approve(ctx context.Context, approver PermissionApprover, request ApprovalRequest, static []Permission) error {
+	if err := validatePermissionSet(request.Requested); err != nil {
+		return err
+	}
 	granted := static
 	if approver != nil {
 		approval, err := approver.Approve(ctx, request)
 		if err != nil {
-			return fmt.Errorf("%w: %v", ErrPermissionDenied, err)
+			return fmt.Errorf("%w: %s", ErrPermissionDenied, RedactDiagnostic(err.Error()))
 		}
 		granted = approval.Granted
-	} else if len(request.Added) != 0 {
-		if err := CheckPermissions(request.Requested, static); err != nil {
-			return fmt.Errorf("%w: %w: %v", ErrPermissionDenied, ErrPermissionReview, request.Added)
+	} else if len(request.Added) != 0 && !samePermissions(request.Requested, static) {
+		return fmt.Errorf("%w: %w: %v", ErrPermissionDenied, ErrPermissionReview, request.Added)
+	}
+	if err := validatePermissionSet(granted); err != nil {
+		return err
+	}
+	if !samePermissions(request.Requested, granted) {
+		return fmt.Errorf("%w: approval must grant the exact requested set", ErrPermissionDenied)
+	}
+	return nil
+}
+
+func validatePermissionSet(permissions []Permission) error {
+	seen := make(map[Permission]struct{}, len(permissions))
+	for _, permission := range permissions {
+		switch permission {
+		case PermissionNetwork, PermissionCookies, PermissionSecrets, PermissionFilesystemRead,
+			PermissionFilesystemWrite, PermissionProcess:
+		default:
+			return fmt.Errorf("%w: unknown permission %q", ErrPermissionDenied, permission)
+		}
+		if _, duplicate := seen[permission]; duplicate {
+			return fmt.Errorf("%w: duplicate permission %q", ErrPermissionDenied, permission)
+		}
+		seen[permission] = struct{}{}
+	}
+	return nil
+}
+
+func samePermissions(left, right []Permission) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	counts := make(map[Permission]int, len(left))
+	for _, permission := range left {
+		counts[permission]++
+	}
+	for _, permission := range right {
+		counts[permission]--
+	}
+	for _, count := range counts {
+		if count != 0 {
+			return false
 		}
 	}
-	return CheckPermissions(request.Requested, granted)
+	return true
 }
 
 type RemoteFailure struct{ Detail RemoteError }
@@ -236,10 +289,101 @@ func ResponseError(remote *RemoteError) error {
 	default:
 		return fmt.Errorf("%w: unknown remote error category", ErrMalformedMessage)
 	}
-	if strings.TrimSpace(remote.Message) == "" || len(remote.Message) > 4096 || len(remote.Code) > 128 {
+	if strings.TrimSpace(remote.Message) == "" || len(remote.Message) > 4096 ||
+		remote.Code != "" && !remoteCodePattern.MatchString(remote.Code) {
 		return fmt.Errorf("%w: invalid remote error", ErrMalformedMessage)
 	}
-	return &RemoteFailure{Detail: *remote}
+	detail := *remote
+	detail.Message = RedactDiagnostic(detail.Message)
+	return &RemoteFailure{Detail: detail}
 }
 
 func ResponseErrorLegacy(response ExtractResponse) error { return ResponseError(response.Error) }
+
+// CheckPayload rejects conventional secret-bearing keys and values from
+// ordinary plugin maps. Secrets cross a separate host capability channel as
+// opaque handles; they are not metadata or provider values.
+func CheckPayload(value any) error {
+	nodes := 0
+	var visit func(reflect.Value, int) error
+	visit = func(current reflect.Value, depth int) error {
+		if depth > 64 {
+			return fmt.Errorf("%w: payload nesting", ErrResourceLimit)
+		}
+		nodes++
+		if nodes > 10000 {
+			return fmt.Errorf("%w: payload nodes", ErrResourceLimit)
+		}
+		if !current.IsValid() {
+			return nil
+		}
+		for current.Kind() == reflect.Interface || current.Kind() == reflect.Pointer {
+			if current.IsNil() {
+				return nil
+			}
+			current = current.Elem()
+			if depth++; depth > 64 {
+				return fmt.Errorf("%w: payload nesting", ErrResourceLimit)
+			}
+		}
+		switch current.Kind() {
+		case reflect.Map:
+			if current.Type().Key().Kind() != reflect.String {
+				return fmt.Errorf("%w: plugin payload maps require string keys", ErrInvalidConfig)
+			}
+			iterator := current.MapRange()
+			for iterator.Next() {
+				if sensitivePayloadKey(iterator.Key().String()) {
+					return ErrSecretExposure
+				}
+				if err := visit(iterator.Value(), depth+1); err != nil {
+					return err
+				}
+			}
+		case reflect.Slice, reflect.Array:
+			for index := 0; index < current.Len(); index++ {
+				if err := visit(current.Index(index), depth+1); err != nil {
+					return err
+				}
+			}
+		case reflect.Struct:
+			for index := 0; index < current.NumField(); index++ {
+				field := current.Type().Field(index)
+				if field.PkgPath != "" {
+					continue
+				}
+				name := strings.Split(field.Tag.Get("json"), ",")[0]
+				if name == "-" {
+					continue
+				}
+				if name == "" {
+					name = field.Name
+				}
+				if sensitivePayloadKey(name) {
+					return ErrSecretExposure
+				}
+				if err := visit(current.Field(index), depth+1); err != nil {
+					return err
+				}
+			}
+		case reflect.String:
+			if typed := current.String(); RedactDiagnostic(typed) != typed {
+				return ErrSecretExposure
+			}
+		case reflect.Func, reflect.Chan, reflect.UnsafePointer:
+			return fmt.Errorf("%w: unsupported plugin payload value", ErrInvalidConfig)
+		}
+		return nil
+	}
+	return visit(reflect.ValueOf(value), 0)
+}
+
+func sensitivePayloadKey(key string) bool {
+	lower := strings.ToLower(key)
+	for _, sensitive := range []string{"authorization", "cookie", "password", "secret", "signature", "token", "api_key"} {
+		if lower == sensitive || strings.HasSuffix(lower, "_"+sensitive) {
+			return true
+		}
+	}
+	return false
+}

@@ -2,13 +2,27 @@ package wasm
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
 	"github.com/ytdlp-go/ytdlp/internal/plugin"
 )
+
+type wasmApprover struct {
+	request plugin.ApprovalRequest
+}
+
+func (approver *wasmApprover) Approve(_ context.Context, request plugin.ApprovalRequest) (plugin.Approval, error) {
+	approver.request = request
+	return plugin.Approval{Granted: append([]plugin.Permission(nil), request.Requested...)}, nil
+}
 
 func TestWASMExtract(t *testing.T) {
 	request := plugin.ExtractRequest{ID: "one", URL: "https://fixture.invalid/video"}
@@ -37,6 +51,76 @@ func TestWASMVersionPermissionsAndMalformedOutput(t *testing.T) {
 	}
 	if _, err := (Host{}).Extract(context.Background(), []byte("not wasm"), fixtureConfig(), request); !errors.Is(err, plugin.ErrCrashed) {
 		t.Fatalf("invalid module error = %v", err)
+	}
+	duplicate := []byte(`{"id":"one","metadata":{"title":"one","title":"two"}}`)
+	if _, err := (Host{}).Extract(context.Background(), fixtureModule(1, duplicate, false), fixtureConfig(), request); !errors.Is(err, plugin.ErrMalformedMessage) {
+		t.Fatalf("duplicate output error = %v", err)
+	}
+}
+
+func TestWASMRequiresTrustedPackageOrExplicitTestModeAndVerifiesDigest(t *testing.T) {
+	request := plugin.ExtractRequest{ID: "one", URL: "https://fixture.invalid/video"}
+	output, _ := json.Marshal(plugin.ExtractResponse{ID: "one"})
+	module := fixtureModule(plugin.ProtocolV1_0, output, false)
+	config := fixtureConfig()
+	config.UnsafeTestOnly = false
+	if _, err := (Host{}).Extract(context.Background(), module, config, request); !errors.Is(err, plugin.ErrUntrustedPath) {
+		t.Fatalf("untrusted module error = %v", err)
+	}
+	config.UnsafeTestOnly = true
+	digest := sha256.Sum256([]byte("different module"))
+	config.ModuleDigest = fmt.Sprintf("%x", digest[:])
+	if _, err := (Host{}).Extract(context.Background(), module, config, request); !errors.Is(err, plugin.ErrUntrustedPath) {
+		t.Fatalf("digest mismatch error = %v", err)
+	}
+}
+
+func TestWASMTrustedPackageApprovalAndExecution(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("secure discovery fails closed until Windows ACL ownership verification is available")
+	}
+	request := plugin.ExtractRequest{ID: "one", URL: "https://fixture.invalid/video"}
+	output, _ := json.Marshal(plugin.ExtractResponse{ID: "one", Metadata: map[string]any{"title": "trusted WASM"}})
+	module := fixtureModule(plugin.ProtocolV1_0, output, false)
+	root := t.TempDir()
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	directory := filepath.Join(root, "fixture")
+	if err := os.Mkdir(directory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	manifest := fixtureConfig().Manifest
+	manifest.Entrypoint = "fixture.wasm"
+	manifest.Permissions = []plugin.Permission{plugin.PermissionNetwork}
+	manifestBytes, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "plugin.json"), manifestBytes, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "fixture.wasm"), module, 0600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := plugin.LoadPackage(root, directory, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded.Signer = "fixture-wasm-signer"
+	approver := &wasmApprover{}
+	config := fixtureConfig()
+	config.Package = &loaded
+	config.UnsafeTestOnly = false
+	config.Manifest = manifest
+	config.Approver = approver
+	response, err := (Host{}).Extract(context.Background(), module, config, request)
+	if err != nil || response.Metadata["title"] != "trusted WASM" {
+		t.Fatalf("response, error = %#v, %v", response, err)
+	}
+	if approver.request.Signer != loaded.Signer || approver.request.ExecutableDigest != loaded.ExecutableDigest ||
+		approver.request.ABI != plugin.ProtocolV1_0 || len(approver.request.Requested) != 1 {
+		t.Fatalf("approval request = %#v", approver.request)
 	}
 }
 
@@ -78,6 +162,7 @@ func FuzzDecodeResponse(f *testing.F) {
 
 func fixtureConfig() Config {
 	return Config{
+		UnsafeTestOnly: true,
 		Manifest: plugin.Manifest{
 			Schema: plugin.ManifestSchema, ID: "fixture.wasm", Name: "WASM fixture", Release: "1.0.0",
 			Runtime: "wasm", Entrypoint: "fixture.wasm",

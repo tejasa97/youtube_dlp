@@ -5,19 +5,24 @@ package wasm
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"strings"
 
 	"github.com/tetratelabs/wazero"
 	"github.com/ytdlp-go/ytdlp/internal/plugin"
+	"github.com/ytdlp-go/ytdlp/pkg/pluginapi"
 )
 
 const inputOffset uint32 = 32 << 10
 
 type Config struct {
+	Package             *plugin.Package
+	UnsafeTestOnly      bool
 	Manifest            plugin.Manifest
 	GrantedPermissions  []plugin.Permission
 	PreviousPermissions []plugin.Permission
@@ -33,28 +38,56 @@ func (Host) Extract(ctx context.Context, moduleBytes []byte, config Config, requ
 	if len(moduleBytes) == 0 || request.ID == "" || request.URL == "" {
 		return plugin.ExtractResponse{}, plugin.ErrInvalidConfig
 	}
+	if err := plugin.CheckPayload(request.Options); err != nil {
+		return plugin.ExtractResponse{}, err
+	}
 	if err := ctx.Err(); err != nil {
 		return plugin.ExtractResponse{}, err
+	}
+	manifest := config.Manifest
+	signer := config.Signer
+	expectedDigest := config.ModuleDigest
+	if config.Package != nil {
+		verified, err := plugin.RevalidatePackage(*config.Package)
+		if err != nil {
+			return plugin.ExtractResponse{}, err
+		}
+		if verified.Manifest.Runtime != "wasm" || !reflect.DeepEqual(config.Manifest, verified.Manifest) {
+			return plugin.ExtractResponse{}, fmt.Errorf("%w: trusted WASM manifest mismatch", plugin.ErrInvalidManifest)
+		}
+		if config.Approver == nil {
+			return plugin.ExtractResponse{}, fmt.Errorf("%w: trusted packages require an identity-bound approver", plugin.ErrPermissionReview)
+		}
+		manifest = verified.Manifest
+		signer = verified.Signer
+		expectedDigest = verified.ExecutableDigest
+	} else if !config.UnsafeTestOnly {
+		return plugin.ExtractResponse{}, fmt.Errorf("%w: trusted package required", plugin.ErrUntrustedPath)
+	}
+	moduleHash := sha256.Sum256(moduleBytes)
+	moduleDigest := fmt.Sprintf("%x", moduleHash[:])
+	if expectedDigest != "" && expectedDigest != moduleDigest {
+		return plugin.ExtractResponse{}, fmt.Errorf("%w: WASM module digest changed", plugin.ErrUntrustedPath)
 	}
 	if err := config.Limits.Validate(); err != nil {
 		return plugin.ExtractResponse{}, err
 	}
 	limits := config.Limits.WithDefaults()
-	if err := plugin.ValidateManifest(config.Manifest); err != nil {
+	if err := plugin.ValidateManifest(manifest); err != nil {
 		return plugin.ExtractResponse{}, err
 	}
-	if config.Manifest.Runtime != "wasm" || !plugin.HasCapability(config.Manifest, plugin.CapabilityExtractor) {
+	if manifest.Runtime != "wasm" || !plugin.HasCapability(manifest, plugin.CapabilityExtractor) {
 		return plugin.ExtractResponse{}, fmt.Errorf("%w: WASM extractor capability required", plugin.ErrInvalidManifest)
 	}
-	version, err := plugin.NegotiateRange(plugin.VersionRange{Minimum: plugin.ProtocolV1_0, Maximum: plugin.ProtocolV1_1}, plugin.ManifestRange(config.Manifest))
+	version, err := plugin.NegotiateRange(plugin.VersionRange{Minimum: plugin.ProtocolV1_0, Maximum: plugin.ProtocolV1_1}, plugin.ManifestRange(manifest))
 	if err != nil {
 		return plugin.ExtractResponse{}, err
 	}
 	if err := plugin.Approve(ctx, config.Approver, plugin.ApprovalRequest{
-		PluginID: config.Manifest.ID, Release: config.Manifest.Release,
-		Signer: config.Signer, ExecutableDigest: config.ModuleDigest, ABI: version,
-		Requested: config.Manifest.Permissions,
-		Added:     plugin.AddedPermissions(config.PreviousPermissions, config.Manifest.Permissions),
+		PluginID: manifest.ID, Release: manifest.Release,
+		Signer: signer, ExecutableDigest: moduleDigest, ABI: version,
+		Requested: manifest.Permissions,
+		Added:     plugin.AddedPermissions(config.PreviousPermissions, manifest.Permissions),
 	}, config.GrantedPermissions); err != nil {
 		return plugin.ExtractResponse{}, err
 	}
@@ -122,6 +155,9 @@ func (Host) Extract(ctx context.Context, moduleBytes []byte, config Config, requ
 	if response.ID != request.ID {
 		return plugin.ExtractResponse{}, fmt.Errorf("%w: mismatched response id", plugin.ErrMalformedMessage)
 	}
+	if err := plugin.CheckPayload(response.Metadata); err != nil {
+		return plugin.ExtractResponse{}, err
+	}
 	if err := plugin.ResponseError(response.Error); err != nil {
 		return response, err
 	}
@@ -129,6 +165,9 @@ func (Host) Extract(ctx context.Context, moduleBytes []byte, config Config, requ
 }
 
 func decodeResponse(output []byte) (plugin.ExtractResponse, error) {
+	if err := pluginapi.ValidateJSONFrame(output); err != nil {
+		return plugin.ExtractResponse{}, fmt.Errorf("%w: output: %v", plugin.ErrMalformedMessage, err)
+	}
 	var response plugin.ExtractResponse
 	decoder := json.NewDecoder(bytes.NewReader(output))
 	decoder.DisallowUnknownFields()

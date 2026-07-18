@@ -8,6 +8,7 @@ import (
 	"io"
 
 	"github.com/ytdlp-go/ytdlp/internal/plugin"
+	"github.com/ytdlp-go/ytdlp/pkg/pluginapi"
 )
 
 type envelope struct {
@@ -23,6 +24,36 @@ type envelope struct {
 	ProviderRequest     *plugin.ProviderRequest     `json:"provider_request,omitempty"`
 	ProviderResponse    *plugin.ProviderResponse    `json:"provider_response,omitempty"`
 	RequestID           string                      `json:"request_id,omitempty"`
+}
+
+func validatePluginHello(value envelope) error {
+	if value.Type != "hello" || value.Manifest == nil || len(value.Versions) != 0 || value.ABIRange != nil ||
+		value.Version != 0 || value.RequestID != "" ||
+		value.Request != nil || value.Response != nil || value.PostprocessRequest != nil ||
+		value.PostprocessResponse != nil || value.ProviderRequest != nil || value.ProviderResponse != nil {
+		return fmt.Errorf("%w: invalid plugin hello union", plugin.ErrMalformedMessage)
+	}
+	return nil
+}
+
+func validateResultEnvelope(value envelope, expected string) error {
+	if value.Type != expected || value.Manifest != nil || len(value.Versions) != 0 || value.ABIRange != nil ||
+		value.Version != 0 || value.RequestID != "" || value.Request != nil ||
+		value.PostprocessRequest != nil || value.ProviderRequest != nil {
+		return fmt.Errorf("%w: invalid result union", plugin.ErrMalformedMessage)
+	}
+	present := 0
+	for _, exists := range []bool{value.Response != nil, value.PostprocessResponse != nil, value.ProviderResponse != nil} {
+		if exists {
+			present++
+		}
+	}
+	if present != 1 || expected == "result" && value.Response == nil ||
+		expected == "postprocess_result" && value.PostprocessResponse == nil ||
+		expected == "provider_result" && value.ProviderResponse == nil {
+		return fmt.Errorf("%w: mismatched result union", plugin.ErrMalformedMessage)
+	}
+	return nil
 }
 
 func writeFrame(w io.Writer, value any, maximum uint32) error {
@@ -70,6 +101,9 @@ func readFrame(r io.Reader, maximum uint32, destination any) error {
 	payload := make([]byte, size)
 	if _, err := io.ReadFull(r, payload); err != nil {
 		return fmt.Errorf("%w: truncated frame", plugin.ErrMalformedMessage)
+	}
+	if err := pluginapi.ValidateJSONFrame(payload); err != nil {
+		return fmt.Errorf("%w: %v", plugin.ErrMalformedMessage, err)
 	}
 	decoder := json.NewDecoder(bytesReader(payload))
 	decoder.DisallowUnknownFields()

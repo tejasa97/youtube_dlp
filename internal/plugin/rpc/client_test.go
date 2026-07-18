@@ -59,6 +59,12 @@ func TestRPCStructuredRemoteError(t *testing.T) {
 	}
 }
 
+func TestRPCRejectsSecretMetadata(t *testing.T) {
+	if _, err := (Client{}).Extract(context.Background(), helperConfig("secret-metadata"), request()); !errors.Is(err, plugin.ErrSecretExposure) {
+		t.Fatalf("secret metadata error = %v", err)
+	}
+}
+
 func TestRPCPostprocessorAndProviderCapabilities(t *testing.T) {
 	postprocess, err := (Client{}).Postprocess(context.Background(), helperConfig("multipurpose"), plugin.PostprocessRequest{
 		ID: "post-one", Operation: "normalize", Input: plugin.Artifact{Handle: "host-artifact-1", MediaType: "video/mp4"},
@@ -82,6 +88,7 @@ func TestRPCMalformedCrashAndOversize(t *testing.T) {
 		{"malformed", plugin.ErrMalformedMessage},
 		{"crash", plugin.ErrCrashed},
 		{"oversize", plugin.ErrResourceLimit},
+		{"ambiguous", plugin.ErrMalformedMessage},
 	}
 	for _, test := range tests {
 		t.Run(test.mode, func(t *testing.T) {
@@ -96,6 +103,14 @@ func TestRPCCrashDoesNotExposeStderrSecrets(t *testing.T) {
 	_, err := (Client{}).Extract(context.Background(), helperConfig("crash-secret"), request())
 	if !errors.Is(err, plugin.ErrCrashed) || strings.Contains(err.Error(), "fixture-secret") {
 		t.Fatalf("crash error = %v", err)
+	}
+}
+
+func TestRPCRejectsPluginThatDoesNotExitAfterResult(t *testing.T) {
+	config := helperConfig("result-hang")
+	config.Limits.CancelGrace = 20 * time.Millisecond
+	if _, err := (Client{}).Extract(context.Background(), config, request()); !errors.Is(err, plugin.ErrCrashed) {
+		t.Fatalf("post-result hang error = %v", err)
 	}
 }
 
@@ -146,6 +161,12 @@ func TestRPCRejectsSecretArgumentsEnvironmentAndPython(t *testing.T) {
 type recordingApprover struct {
 	mu      sync.Mutex
 	request plugin.ApprovalRequest
+}
+
+type denyingApprover struct{}
+
+func (denyingApprover) Approve(context.Context, plugin.ApprovalRequest) (plugin.Approval, error) {
+	return plugin.Approval{}, errors.New("fixture denial")
 }
 
 func (approver *recordingApprover) Approve(_ context.Context, request plugin.ApprovalRequest) (plugin.Approval, error) {
@@ -200,6 +221,19 @@ func TestRPCTrustedPackageLaunch(t *testing.T) {
 		t.Fatal(err)
 	}
 	loaded.Signer = "fixture-signing-key"
+	launchMarker := filepath.Join(root, "should-not-launch")
+	denied := helperConfig("launch-marker")
+	denied.Args = append(denied.Args, launchMarker)
+	denied.Package = &loaded
+	denied.Executable = ""
+	denied.UnsafeTestOnly = false
+	denied.Approver = denyingApprover{}
+	if _, err := (Client{}).Extract(context.Background(), denied, request()); !errors.Is(err, plugin.ErrPermissionDenied) {
+		t.Fatalf("pre-launch approval error = %v", err)
+	}
+	if _, err := os.Stat(launchMarker); !os.IsNotExist(err) {
+		t.Fatalf("denied plugin launched before approval: %v", err)
+	}
 	approver := &recordingApprover{}
 	config := helperConfig("trusted")
 	config.Package = &loaded
@@ -241,6 +275,7 @@ func TestRPCProcessTreeCancellation(t *testing.T) {
 	ready := filepath.Join(directory, "ready")
 	done := filepath.Join(directory, "done")
 	config := helperConfig("tree")
+	config.Limits.CancelGrace = 20 * time.Millisecond
 	config.Args = append(config.Args, ready, done)
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
@@ -272,6 +307,17 @@ func FuzzReadFrame(f *testing.F) {
 	})
 }
 
+func TestReadFrameRejectsNestedDuplicateKeys(t *testing.T) {
+	payload := []byte(`{"type":"hello","manifest":{"id":"one","id":"two"}}`)
+	var header [4]byte
+	binary.BigEndian.PutUint32(header[:], uint32(len(payload)))
+	data := append(header[:], payload...)
+	var message envelope
+	if err := readFrame(bytesReader(data), 1024, &message); !errors.Is(err, plugin.ErrMalformedMessage) {
+		t.Fatalf("duplicate-key error = %v", err)
+	}
+}
+
 func helperConfig(mode string) Config {
 	return Config{
 		Executable:     os.Args[0],
@@ -279,7 +325,7 @@ func helperConfig(mode string) Config {
 		Args:           []string{"-test.run=TestRPCPluginHelper", "--", mode},
 		Limits: plugin.Limits{
 			Timeout:         time.Second,
-			CancelGrace:     20 * time.Millisecond,
+			CancelGrace:     2 * time.Second,
 			MaxMessageBytes: 1024,
 		},
 	}
@@ -331,6 +377,18 @@ func TestRPCPluginHelper(t *testing.T) {
 	}
 	if mode == "" {
 		return
+	}
+	if mode == "launch-marker" {
+		separator := 0
+		for index, argument := range os.Args {
+			if argument == "--" {
+				separator = index
+				break
+			}
+		}
+		if separator > 0 && separator+2 < len(os.Args) {
+			_ = os.WriteFile(os.Args[separator+2], []byte("launched"), 0600)
+		}
 	}
 	var hello envelope
 	if err := readFrame(os.Stdin, 1<<20, &hello); err != nil {
@@ -417,6 +475,12 @@ func TestRPCPluginHelper(t *testing.T) {
 		_ = writeFrame(os.Stdout, envelope{Type: "result", Response: &response}, 1<<20)
 		return
 	}
+	if mode == "ambiguous" {
+		response := plugin.ExtractResponse{ID: extract.Request.ID, Metadata: map[string]any{"title": "fixture"}}
+		provider := plugin.ProviderResponse{ID: extract.Request.ID, Values: map[string]any{"ignored": true}}
+		_ = writeFrame(os.Stdout, envelope{Type: "result", Response: &response, ProviderResponse: &provider}, 1<<20)
+		return
+	}
 	if mode == "multipurpose" && extract.Type == "postprocess" {
 		response := plugin.PostprocessResponse{ID: extract.PostprocessRequest.ID, Artifacts: []plugin.Artifact{{Handle: "host-artifact-2", MediaType: "video/mp4"}}}
 		_ = writeFrame(os.Stdout, envelope{Type: "postprocess_result", PostprocessResponse: &response}, 1<<20)
@@ -428,8 +492,14 @@ func TestRPCPluginHelper(t *testing.T) {
 		return
 	}
 	response := plugin.ExtractResponse{ID: extract.Request.ID, Metadata: map[string]any{"id": "fixture", "title": "RPC fixture", "abi": extract.Version}}
+	if mode == "secret-metadata" {
+		response.Metadata["api_token"] = "fixture-secret"
+	}
 	if err := writeFrame(os.Stdout, envelope{Type: "result", Response: &response}, 1<<20); err != nil {
 		os.Exit(14)
+	}
+	if mode == "result-hang" {
+		time.Sleep(time.Second)
 	}
 }
 
