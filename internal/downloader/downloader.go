@@ -22,6 +22,7 @@ var (
 	ErrDestinationExists = errors.New("destination already exists")
 	ErrUnsafeDestination = errors.New("destination escapes output root")
 	ErrIncomplete        = errors.New("download ended before expected size")
+	ErrTooManyAttempts   = errors.New("download retry attempts exceed limit")
 )
 
 type Job struct {
@@ -31,6 +32,16 @@ type Job struct {
 	Destination string
 	Overwrite   bool
 	Attempts    int
+	// RetryBaseDelay and RetryMaxDelay define a deterministic exponential
+	// backoff. Zero values retain the intentionally small native defaults.
+	RetryBaseDelay time.Duration
+	RetryMaxDelay  time.Duration
+	// RateLimit is an optional sustained byte/second limit. It is applied
+	// while writing, so resumed downloads and unknown-length responses obey it.
+	RateLimit int64
+	// MaxBytes bounds a response even where the server omits Content-Length.
+	// Zero means the direct downloader's conservative 8 GiB ceiling.
+	MaxBytes int64
 }
 
 type Result struct {
@@ -84,6 +95,9 @@ func (downloader *Downloader) Download(ctx context.Context, job Job, sink events
 	if attempts <= 0 {
 		attempts = 3
 	}
+	if attempts > 100 {
+		return Result{}, ErrTooManyAttempts
+	}
 	eventURL := network.RedactRawURL(job.URL)
 	_ = sink.Emit(ctx, events.Event{Kind: events.KindStarting, URL: eventURL, Path: job.Destination})
 
@@ -116,7 +130,7 @@ func (downloader *Downloader) Download(ctx context.Context, job Job, sink events
 		}
 		if attempt < attempts {
 			_ = sink.Emit(ctx, events.Event{Kind: events.KindRetry, URL: eventURL, Path: job.Destination, Attempt: attempt + 1, Message: lastErr.Error()})
-			timer := time.NewTimer(time.Duration(attempt) * 25 * time.Millisecond)
+			timer := time.NewTimer(retryDelay(job, attempt))
 			select {
 			case <-ctx.Done():
 				timer.Stop()
@@ -179,6 +193,13 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, part
 	}
 	state.ETag = response.Header.Get("ETag")
 	state.Total = responseTotal(response, offset)
+	maxBytes := job.MaxBytes
+	if maxBytes <= 0 {
+		maxBytes = 8 << 30
+	}
+	if state.Total > maxBytes {
+		return Result{}, fmt.Errorf("%w: advertised %d bytes exceeds %d", ErrIncomplete, state.Total, maxBytes)
+	}
 	if err := savePartialState(statePath, state); err != nil {
 		return Result{}, err
 	}
@@ -199,6 +220,7 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, part
 	}
 
 	written := offset
+	limiter := newThrottle(job.RateLimit)
 	buffer := make([]byte, 64<<10)
 	for {
 		if err := ctx.Err(); err != nil {
@@ -207,6 +229,14 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, part
 		}
 		count, readErr := response.Body.Read(buffer)
 		if count > 0 {
+			if written+int64(count) > maxBytes {
+				file.Close()
+				return Result{}, fmt.Errorf("%w: response exceeds %d bytes", ErrIncomplete, maxBytes)
+			}
+			if err := limiter.Wait(ctx, count); err != nil {
+				file.Close()
+				return Result{}, err
+			}
 			writtenCount, writeErr := file.Write(buffer[:count])
 			written += int64(writtenCount)
 			if writeErr != nil || writtenCount != count {
@@ -240,6 +270,27 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, part
 		return Result{}, retryableError{fmt.Errorf("%w: got %d, want %d bytes", ErrIncomplete, written, state.Total)}
 	}
 	return Result{Bytes: written, Resumed: resuming}, nil
+}
+
+func retryDelay(job Job, attempt int) time.Duration {
+	base := job.RetryBaseDelay
+	if base <= 0 {
+		base = 25 * time.Millisecond
+	}
+	max := job.RetryMaxDelay
+	if max <= 0 {
+		max = time.Second
+	}
+	if base > max {
+		return max
+	}
+	for index := 1; index < attempt; index++ {
+		if base >= max || base > max/2 {
+			return max
+		}
+		base *= 2
+	}
+	return base
 }
 
 type retryableError struct{ error }

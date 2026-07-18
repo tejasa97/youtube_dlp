@@ -1,0 +1,1 @@
+<SmoothStreamingMedia TimeScale="10" Duration="30"><StreamIndex Type="video" Url="video/QualityLevels({bitrate})/Fragments(video={start time})"><QualityLevel Bitrate="100" FourCC="H264"/><QualityLevel Bitrate="200" FourCC="H264"/><c t="0" d="10" r="2"/></StreamIndex></SmoothStreamingMedia>

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/ytdlp-go/ytdlp/internal/events"
 	"github.com/ytdlp-go/ytdlp/internal/network"
@@ -60,7 +61,7 @@ func TestEngineDownloadsRangesDecryptsAndAssemblesInOrder(t *testing.T) {
 	}
 }
 
-func TestEngineReusesCompletedFragments(t *testing.T) {
+func TestEngineRevalidatesLegacyFragmentsWithoutDigests(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		requests.Add(1)
@@ -84,7 +85,7 @@ func TestEngineReusesCompletedFragments(t *testing.T) {
 		t.Fatal(err)
 	}
 	contents, _ := os.ReadFile(destination)
-	if string(contents) != "reused-network" || result.Reused != 1 || requests.Load() != 1 {
+	if string(contents) != "networknetwork" || result.Reused != 0 || requests.Load() != 2 {
 		t.Fatalf("contents = %q, result = %#v, requests = %d", contents, result, requests.Load())
 	}
 }
@@ -137,6 +138,63 @@ func TestEngineRejectsOversizedAndUnsafePlans(t *testing.T) {
 	}, nil)
 	if !errors.Is(err, ErrUnsafeDestination) {
 		t.Fatalf("unsafe destination error = %v", err)
+	}
+}
+
+func TestEngineLimitsConcurrentRequestsPerHost(t *testing.T) {
+	var active, peak atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		current := active.Add(1)
+		for {
+			previous := peak.Load()
+			if current <= previous || peak.CompareAndSwap(previous, current) {
+				break
+			}
+		}
+		time.Sleep(15 * time.Millisecond)
+		active.Add(-1)
+		_, _ = writer.Write([]byte("x"))
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	_, err := New(transport).Download(context.Background(), Job{OutputRoot: root, Destination: filepath.Join(root, "out"), Concurrency: 4, PerHostConcurrency: 1, Segments: []Segment{{URL: server.URL + "/1"}, {URL: server.URL + "/2"}, {URL: server.URL + "/3"}}}, nil)
+	if err != nil || peak.Load() != 1 {
+		t.Fatalf("err=%v peak=%d", err, peak.Load())
+	}
+}
+
+func TestEngineDoesNotRetryPermanentStatus(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		http.Error(writer, "no", http.StatusForbidden)
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	_, err := New(transport).Download(context.Background(), Job{OutputRoot: root, Destination: filepath.Join(root, "out"), Attempts: 3, Segments: []Segment{{URL: server.URL}}}, nil)
+	if err == nil || calls.Load() != 1 {
+		t.Fatalf("err=%v calls=%d", err, calls.Load())
+	}
+}
+
+func FuzzPlanHash(f *testing.F) {
+	f.Add("https://example.test/a", int64(0), int64(1))
+	f.Fuzz(func(t *testing.T, raw string, start, length int64) {
+		_, _ = planHash([]Segment{{URL: raw, RangeStart: start, RangeLength: length}})
+	})
+}
+
+func TestEngineRejectsExcessiveResourceConfiguration(t *testing.T) {
+	root := t.TempDir()
+	job := Job{OutputRoot: root, Destination: filepath.Join(root, "a"), Segments: []Segment{{URL: "https://example.test/a"}}, Concurrency: 129}
+	if _, err := New(nil).Download(context.Background(), job, nil); !errors.Is(err, ErrTooMuchConcurrency) {
+		t.Fatalf("concurrency error=%v", err)
+	}
+	job.Concurrency, job.Attempts = 1, 101
+	if _, err := New(nil).Download(context.Background(), job, nil); !errors.Is(err, ErrTooManyAttempts) {
+		t.Fatalf("attempt error=%v", err)
 	}
 }
 

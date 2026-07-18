@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,10 +24,13 @@ import (
 )
 
 var (
-	ErrNoSegments        = errors.New("fragment plan has no segments")
-	ErrSegmentTooLarge   = errors.New("fragment exceeds size limit")
-	ErrInvalidEncryption = errors.New("invalid AES-128 fragment encryption")
-	ErrUnsafeDestination = errors.New("fragment destination escapes output root")
+	ErrNoSegments         = errors.New("fragment plan has no segments")
+	ErrSegmentTooLarge    = errors.New("fragment exceeds size limit")
+	ErrInvalidEncryption  = errors.New("invalid AES-128 fragment encryption")
+	ErrUnsafeDestination  = errors.New("fragment destination escapes output root")
+	ErrTooManySegments    = errors.New("fragment plan exceeds segment limit")
+	ErrTooManyAttempts    = errors.New("fragment retry attempts exceed limit")
+	ErrTooMuchConcurrency = errors.New("fragment concurrency exceeds limit")
 )
 
 type AES128 struct {
@@ -42,13 +46,17 @@ type Segment struct {
 }
 
 type Job struct {
-	Segments       []Segment
-	OutputRoot     string
-	Destination    string
-	Concurrency    int
-	Attempts       int
-	MaxSegmentSize int64
-	Overwrite      bool
+	Segments           []Segment
+	OutputRoot         string
+	Destination        string
+	Concurrency        int
+	Attempts           int
+	MaxSegmentSize     int64
+	MaxSegments        int
+	PerHostConcurrency int
+	RetryBaseDelay     time.Duration
+	RetryMaxDelay      time.Duration
+	Overwrite          bool
 }
 
 type Result struct {
@@ -72,6 +80,13 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 	if len(job.Segments) == 0 {
 		return Result{}, ErrNoSegments
 	}
+	maxSegments := job.MaxSegments
+	if maxSegments <= 0 {
+		maxSegments = 100000
+	}
+	if len(job.Segments) > maxSegments {
+		return Result{}, fmt.Errorf("%w: got %d, limit %d", ErrTooManySegments, len(job.Segments), maxSegments)
+	}
 	if sink == nil {
 		sink = events.Nop()
 	}
@@ -89,9 +104,15 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 	if concurrency <= 0 {
 		concurrency = 4
 	}
+	if concurrency > 128 {
+		return Result{}, ErrTooMuchConcurrency
+	}
 	attempts := job.Attempts
 	if attempts <= 0 {
 		attempts = 3
+	}
+	if attempts > 100 {
+		return Result{}, ErrTooManyAttempts
 	}
 	maxSize := job.MaxSegmentSize
 	if maxSize <= 0 {
@@ -108,6 +129,11 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 	if err := prepareWorkDir(workDir, hash); err != nil {
 		return Result{}, err
 	}
+	manifest, err := openArtifactManifest(workDir, hash)
+	if err != nil {
+		return Result{}, err
+	}
+	hosts := newHostLimiter(job.PerHostConcurrency)
 
 	workerCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -134,14 +160,23 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 			defer workers.Done()
 			for index := range indices {
 				path := fragmentPath(workDir, index)
-				if info, err := os.Stat(path); err == nil && info.Size() > 0 {
+				if info, err := os.Stat(path); err == nil && info.Size() > 0 && manifest.Valid(index, path) {
 					outcomes <- outcome{index: index, reused: true}
 					continue
 				}
 				eventURL := network.RedactRawURL(job.Segments[index].URL)
 				err := emit(events.Event{Kind: events.KindFragmentStarting, URL: eventURL, Path: job.Destination, Fragment: index + 1, Fragments: len(job.Segments)})
 				if err == nil {
-					err = engine.fetchWithRetry(workerCtx, job.Segments[index], path, attempts, maxSize)
+					host, hostErr := segmentHost(job.Segments[index].URL)
+					if hostErr != nil {
+						err = hostErr
+					} else if err = hosts.Acquire(workerCtx, host); err == nil {
+						err = engine.fetchWithRetry(workerCtx, job, job.Segments[index], path, attempts, maxSize)
+						hosts.Release(host)
+					}
+					if err == nil {
+						err = manifest.Record(index, path)
+					}
 				}
 				if err == nil {
 					err = emit(events.Event{Kind: events.KindFragmentCompleted, URL: eventURL, Path: job.Destination, Fragment: index + 1, Fragments: len(job.Segments)})
@@ -199,7 +234,7 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 	return result, nil
 }
 
-func (engine *Engine) fetchWithRetry(ctx context.Context, segment Segment, destination string, attempts int, maxSize int64) error {
+func (engine *Engine) fetchWithRetry(ctx context.Context, job Job, segment Segment, destination string, attempts int, maxSize int64) error {
 	var lastErr error
 	for attempt := 1; attempt <= attempts; attempt++ {
 		lastErr = engine.fetch(ctx, segment, destination, maxSize)
@@ -209,8 +244,11 @@ func (engine *Engine) fetchWithRetry(ctx context.Context, segment Segment, desti
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
+		if !fragmentRetryable(lastErr) {
+			return lastErr
+		}
 		if attempt < attempts {
-			timer := time.NewTimer(time.Duration(attempt) * 20 * time.Millisecond)
+			timer := time.NewTimer(fragmentRetryDelay(job, attempt))
 			select {
 			case <-ctx.Done():
 				timer.Stop()
@@ -220,6 +258,80 @@ func (engine *Engine) fetchWithRetry(ctx context.Context, segment Segment, desti
 		}
 	}
 	return lastErr
+}
+
+type retryableFragmentError struct{ error }
+
+func fragmentRetryable(err error) bool {
+	var target retryableFragmentError
+	return errors.As(err, &target)
+}
+
+func fragmentRetryDelay(job Job, attempt int) time.Duration {
+	base := job.RetryBaseDelay
+	if base <= 0 {
+		base = 20 * time.Millisecond
+	}
+	max := job.RetryMaxDelay
+	if max <= 0 {
+		max = time.Second
+	}
+	if base > max {
+		return max
+	}
+	for index := 1; index < attempt; index++ {
+		if base >= max || base > max/2 {
+			return max
+		}
+		base *= 2
+	}
+	return base
+}
+
+type hostLimiter struct {
+	perHost int
+	mu      sync.Mutex
+	sem     map[string]chan struct{}
+}
+
+func newHostLimiter(perHost int) *hostLimiter {
+	return &hostLimiter{perHost: perHost, sem: make(map[string]chan struct{})}
+}
+func (limiter *hostLimiter) Acquire(ctx context.Context, host string) error {
+	if limiter.perHost <= 0 {
+		return nil
+	}
+	limiter.mu.Lock()
+	semaphore := limiter.sem[host]
+	if semaphore == nil {
+		semaphore = make(chan struct{}, limiter.perHost)
+		limiter.sem[host] = semaphore
+	}
+	limiter.mu.Unlock()
+	select {
+	case semaphore <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+func (limiter *hostLimiter) Release(host string) {
+	if limiter.perHost <= 0 {
+		return
+	}
+	limiter.mu.Lock()
+	sem := limiter.sem[host]
+	limiter.mu.Unlock()
+	if sem != nil {
+		<-sem
+	}
+}
+func segmentHost(raw string) (string, error) {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Hostname() == "" {
+		return "", fmt.Errorf("invalid fragment URL")
+	}
+	return strings.ToLower(parsed.Hostname()), nil
 }
 
 func (engine *Engine) fetch(ctx context.Context, segment Segment, destination string, maxSize int64) error {
@@ -232,16 +344,20 @@ func (engine *Engine) fetch(ctx context.Context, segment Segment, destination st
 	}
 	response, err := engine.transport.Do(ctx, request)
 	if err != nil {
-		return err
+		return retryableFragmentError{err}
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusPartialContent {
-		return fmt.Errorf("HTTP status %d", response.StatusCode)
+		err := fmt.Errorf("HTTP status %d", response.StatusCode)
+		if network.RetryableStatus(response.StatusCode) {
+			return retryableFragmentError{err}
+		}
+		return err
 	}
 	limited := io.LimitReader(response.Body, maxSize+1)
 	body, err := io.ReadAll(limited)
 	if err != nil {
-		return err
+		return retryableFragmentError{err}
 	}
 	if int64(len(body)) > maxSize {
 		return ErrSegmentTooLarge

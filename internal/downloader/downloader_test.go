@@ -292,3 +292,44 @@ func TestDownloadRestartsOnChangedETag(t *testing.T) {
 		t.Fatal("changed-ETag restart produced wrong bytes")
 	}
 }
+
+func TestRetryDelayIsDeterministicAndBounded(t *testing.T) {
+	job := Job{RetryBaseDelay: 5 * time.Millisecond, RetryMaxDelay: 12 * time.Millisecond}
+	if got := retryDelay(job, 1); got != 5*time.Millisecond {
+		t.Fatalf("first=%s", got)
+	}
+	if got := retryDelay(job, 2); got != 10*time.Millisecond {
+		t.Fatalf("second=%s", got)
+	}
+	if got := retryDelay(job, 3); got != 12*time.Millisecond {
+		t.Fatalf("third=%s", got)
+	}
+}
+
+func FuzzContentRange(f *testing.F) {
+	f.Add("bytes 10-20/30", int64(10))
+	f.Fuzz(func(t *testing.T, header string, offset int64) { _ = validContentRange(header, offset) })
+}
+
+func TestThrottleUsesInjectedClockAndSleeper(t *testing.T) {
+	now := time.Unix(0, 0)
+	var delays []time.Duration
+	limiter := newThrottleWithClock(10, func() time.Time { return now }, func(_ context.Context, delay time.Duration) error { delays = append(delays, delay); return nil })
+	if err := limiter.Wait(context.Background(), 10); err != nil {
+		t.Fatal(err)
+	}
+	if err := limiter.Wait(context.Background(), 10); err != nil {
+		t.Fatal(err)
+	}
+	if len(delays) != 1 || delays[0] != time.Second {
+		t.Fatalf("delays=%v", delays)
+	}
+}
+
+func TestDownloadRejectsUnboundedRetryConfiguration(t *testing.T) {
+	root := t.TempDir()
+	_, err := New(nil).Download(context.Background(), Job{URL: "https://example.test/a", OutputRoot: root, Destination: filepath.Join(root, "a"), Attempts: 101}, nil)
+	if !errors.Is(err, ErrTooManyAttempts) {
+		t.Fatalf("error=%v", err)
+	}
+}
