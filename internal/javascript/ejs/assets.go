@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"sync"
 
 	"golang.org/x/crypto/sha3"
@@ -32,8 +33,8 @@ var (
 func VerifyAssets() error {
 	verifyOnce.Do(func() {
 		for name, asset := range map[string]struct{ source, expected string }{
-			"core": {coreScript, coreSHA3},
-			"lib":  {libraryScript, libSHA3},
+			"core": {canonicalEmbeddedScript(coreScript), coreSHA3},
+			"lib":  {canonicalEmbeddedScript(libraryScript), libSHA3},
 		} {
 			digest := sha3.Sum512([]byte(asset.source))
 			if hex.EncodeToString(digest[:]) != asset.expected {
@@ -49,5 +50,13 @@ func bundledScript() (string, error) {
 	if err := VerifyAssets(); err != nil {
 		return "", err
 	}
-	return libraryScript + "\nObject.assign(globalThis, lib);\n" + coreScript, nil
+	return canonicalEmbeddedScript(libraryScript) + "\nObject.assign(globalThis, lib);\n" + canonicalEmbeddedScript(coreScript), nil
+}
+
+// canonicalEmbeddedScript reverses Git's Windows checkout conversion before
+// checking the upstream-published digest or executing the bundled source.
+// Only CRLF pairs are canonicalized; arbitrary carriage returns remain part
+// of the authenticated input and therefore cannot bypass the allowlist.
+func canonicalEmbeddedScript(source string) string {
+	return strings.ReplaceAll(source, "\r\n", "\n")
 }

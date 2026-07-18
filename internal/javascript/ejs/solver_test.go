@@ -75,6 +75,13 @@ func TestVerifyAssetsAndInputBounds(t *testing.T) {
 	}
 }
 
+func TestCanonicalEmbeddedScriptOnlyNormalizesCRLFPairs(t *testing.T) {
+	got := canonicalEmbeddedScript("one\r\ntwo\rthree\n")
+	if got != "one\ntwo\rthree\n" {
+		t.Fatalf("canonical source = %q", got)
+	}
+}
+
 func TestMissingChallengeFunctionIsSanitized(t *testing.T) {
 	solver, err := New(engine.New(1))
 	if err != nil {

@@ -55,6 +55,7 @@ func TestReleaseConformanceFixtures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	expected = bytes.ReplaceAll(expected, []byte("\r\n"), []byte("\n"))
 	if !bytes.Equal(generated.Bytes(), expected) {
 		t.Fatalf("checksum fixture drift:\n%s", generated.Bytes())
 	}

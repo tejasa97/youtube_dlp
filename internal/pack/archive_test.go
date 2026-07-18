@@ -103,6 +103,9 @@ func TestConformanceFixture(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		// These attributable fixtures are canonical LF text. Git may materialize
+		// CRLF in a Windows checkout, which must not change the signed archive.
+		body = bytes.ReplaceAll(body, []byte("\r\n"), []byte("\n"))
 		payload[file.path] = Payload{Bytes: body, Mode: file.mode}
 	}
 	archive, err := Build(manifest, payload, fixtureKey())

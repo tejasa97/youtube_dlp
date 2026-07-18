@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/ytdlp-go/ytdlp/pkg/pluginapi"
@@ -78,6 +79,9 @@ func TestDecodeManifestBoundsUnknownFieldsAndTrailingJSON(t *testing.T) {
 }
 
 func TestDiscoverUsesOnlyCanonicalSecureRoots(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("covered by explicit fail-closed ownership test")
+	}
 	root := t.TempDir()
 	if err := os.Chmod(root, 0700); err != nil {
 		t.Fatal(err)
@@ -96,6 +100,21 @@ func TestDiscoverUsesOnlyCanonicalSecureRoots(t *testing.T) {
 	}
 	if _, err := Discover(DiscoveryConfig{TrustedRoots: []string{"."}}); !errors.Is(err, ErrUntrustedPath) {
 		t.Fatalf("relative-root error = %v", err)
+	}
+}
+
+func TestDiscoverFailsClosedWithoutOwnershipProof(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows ACL ownership proof is intentionally unavailable")
+	}
+	root := t.TempDir()
+	writePackage(t, root, "fixture", "fixture.windows")
+	packages, err := Discover(DiscoveryConfig{TrustedRoots: []string{root}})
+	if !errors.Is(err, ErrUntrustedPath) || packages != nil {
+		t.Fatalf("Discover() = %#v, %v; want no packages and untrusted path", packages, err)
+	}
+	if !strings.Contains(err.Error(), "platform ownership verification unavailable") {
+		t.Fatalf("Discover() error does not identify unavailable ownership proof: %v", err)
 	}
 }
 
