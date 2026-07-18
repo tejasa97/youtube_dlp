@@ -1,0 +1,5 @@
+[
+  {"data":{"video":{"id":"1234567890","title":"Deterministic archived broadcast","description":"Synthetic VOD fixture","lengthSeconds":3600,"previewThumbnailURL":"https://static-cdn.example.test/vod-320x180.jpg?cache=fixture","publishedAt":"2025-06-01T02:03:04Z","viewCount":54321,"broadcastType":"ARCHIVE","owner":{"displayName":"Fixture Broadcaster","login":"Fixture_Channel"}}}},
+  {"data":{"video":{"moments":{"edges":[{"node":{"positionMilliseconds":0,"durationMilliseconds":1200000,"description":"Opening Game"}},{"node":{"positionMilliseconds":1200000,"durationMilliseconds":2400000,"description":"Second Game"}}]}}}},
+  {"data":{"video":{"seekPreviewsURL":"https://static-cdn.example.test/storyboards/spec.json"}}}
+]

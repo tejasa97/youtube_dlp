@@ -32,3 +32,25 @@ The offline HLS playlists and segments used by `twitch_test.go` are test-only
 synthetic media. They verify that the signed Usher URL produced by extraction
 can drive the repository's existing master-playlist selection, live polling,
 sequence de-duplication, and ordered fragment assembly without network access.
+
+## Phase 3 VOD and clip breadth fixtures
+
+The VOD and clip fixtures added on 2026-07-19 are attributable to the same
+pinned source, specifically:
+
+- `TwitchBaseIE._OPERATION_HASHES` and `_download_access_token`, lines 43–176;
+- `TwitchVodIE._download_info`, `_extract_info_gql`, `_extract_chapters`, and
+  `_real_extract`, lines 412–608;
+- `TwitchClipsIE._real_extract`, lines 1129–1322.
+
+The VOD fixture models the three persisted operations (`VideoMetadata`, chapter
+selection, and seek preview), the `videoPlaybackAccessToken` query, signed
+Usher `/vod/{id}.m3u8`, archived-live state, start offset, thumbnails, and
+chapters. The clip fixture models `ShareClipRenderStatus`, inline playback
+tokens, landscape/portrait direct qualities, thumbnails, broadcaster/curator,
+and category fields.
+
+All identifiers, counts, timestamps, titles, response bodies, signed tokens,
+and `.example.test` asset hosts are synthetic. No Twitch response or user data
+was captured. Tests never fetch the declared VOD, clip, thumbnail, or storyboard
+assets. Python and the reference checkout are not used at build or runtime.
