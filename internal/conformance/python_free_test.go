@@ -9,9 +9,10 @@ import (
 )
 
 var forbiddenPythonInvocation = []*regexp.Regexp{
-	regexp.MustCompile(`exec\.Command(?:Context)?\([^\n,]*["']python(?:3)?["']`),
-	regexp.MustCompile(`exec\.LookPath\(["']python(?:3)?["']\)`),
+	regexp.MustCompile(`exec\.Command(?:Context)?\([^\n,]*["'](?:python(?:2|3)?|pypy(?:2|3)?)["']`),
+	regexp.MustCompile(`exec\.LookPath\(["'](?:python(?:2|3)?|pypy(?:2|3)?)["']\)`),
 	regexp.MustCompile(`os\.Executable\([^)]*python`),
+	regexp.MustCompile(`exec\.Command(?:Context)?\([^\n]*(?:\.py["']|["']-m["'])`),
 }
 
 // TestProductionSourcesDoNotInvokePython is a source-level tripwire. The
@@ -35,6 +36,9 @@ func TestProductionSourcesDoNotInvokePython(t *testing.T) {
 			text := string(data)
 			if strings.Contains(text, `import "C"`) {
 				t.Errorf("%s imports cgo", path)
+			}
+			if strings.Contains(text, "yt-dlp-reference") || strings.Contains(text, "/Users/tejas/projects/yt-dlp-reference") {
+				t.Errorf("%s embeds the read-only reference checkout in production code", path)
 			}
 			for _, pattern := range forbiddenPythonInvocation {
 				if pattern.MatchString(text) {
