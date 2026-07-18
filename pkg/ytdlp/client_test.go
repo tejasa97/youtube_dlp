@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/ytdlp-go/ytdlp/internal/cookies/chromium"
+	"github.com/ytdlp-go/ytdlp/internal/cookies/chromiumlinux"
+	"github.com/ytdlp-go/ytdlp/internal/cookies/firefox"
 	"github.com/ytdlp-go/ytdlp/internal/extractor"
 	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
 	"github.com/ytdlp-go/ytdlp/internal/media/pipeline"
@@ -107,19 +109,19 @@ func TestJavaScriptHelperConfigurationTakesPrecedence(t *testing.T) {
 
 func TestBrowserCookieSpec(t *testing.T) {
 	for _, test := range []struct {
-		spec    string
-		profile string
+		spec, browser, profile, container string
 	}{
-		{"chrome", ""},
-		{"chrome:Default", "Default"},
-		{"chrome:Profile 1", "Profile 1"},
+		{"chrome", "chrome", "", ""},
+		{"chromium:Default", "chromium", "Default", ""},
+		{"brave:Profile 1", "brave", "Profile 1", ""},
+		{"firefox:work::Work", "firefox", "work", "Work"},
 	} {
 		options, err := parseBrowserCookieSpec(test.spec)
-		if err != nil || options.Browser != chromium.Chrome || options.Profile != test.profile {
+		if err != nil || options.browser != test.browser || options.profile != test.profile || options.container != test.container {
 			t.Fatalf("parseBrowserCookieSpec(%q) = %#v, %v", test.spec, options, err)
 		}
 	}
-	for _, spec := range []string{"firefox", "chrome:", "chrome:../Default", "chrome:one:two"} {
+	for _, spec := range []string{"safari", "chrome:", "chrome:../Default", "chrome:one:two", "chrome::Work", "firefox:default::", "firefox:default::one:two"} {
 		if _, err := parseBrowserCookieSpec(spec); !errors.Is(err, errInvalidBrowserCookieSpec) {
 			t.Fatalf("parseBrowserCookieSpec(%q) error = %v", spec, err)
 		}
@@ -146,6 +148,7 @@ func TestClientImportsBrowserCookiesBeforeExtraction(t *testing.T) {
 		events = append(events, event)
 		return nil
 	}))
+	client.platform = "darwin"
 	var optionsSeen chromium.Options
 	client.browserCookieImporter = func(_ context.Context, options chromium.Options) (chromium.Result, error) {
 		optionsSeen = options
@@ -165,6 +168,65 @@ func TestClientImportsBrowserCookiesBeforeExtraction(t *testing.T) {
 	}
 	if len(events) < 2 || events[0].Kind != "browser_cookies" || events[0].Message != "imported 1 of 2 browser cookies; skipped 1" {
 		t.Fatalf("events = %#v", events)
+	}
+}
+
+func TestClientLoadsNetscapeCookieFileBeforeExtraction(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		cookie, err := request.Cookie("from_file")
+		if err != nil || cookie.Value != "present" {
+			http.Error(writer, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		writer.Header().Set("Content-Type", "video/mp4")
+		writer.Header().Set("Content-Length", "4")
+		if request.Method != http.MethodHead {
+			_, _ = writer.Write([]byte("data"))
+		}
+	}))
+	defer server.Close()
+	target, _ := url.Parse(server.URL)
+	cookieFile := filepath.Join(t.TempDir(), "cookies.txt")
+	line := target.Hostname() + "\tFALSE\t/\tFALSE\t0\tfrom_file\tpresent\n"
+	if err := os.WriteFile(cookieFile, []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var events []Event
+	client := NewClient(WithEventHandler(func(_ context.Context, event Event) error {
+		events = append(events, event)
+		return nil
+	}))
+	result, err := client.Run(context.Background(), Request{URL: server.URL + "/media.mp4", CookieFile: cookieFile, SkipDownload: true})
+	if err != nil || result.Extractor != "generic" {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	if len(events) < 3 || events[0].Kind != EventBrowserCookies || events[0].Message != "imported 1 of 1 cookie-file entries" {
+		t.Fatalf("events = %#v", events)
+	}
+}
+
+func TestPortableBrowserCookieDispatch(t *testing.T) {
+	client := NewClient()
+	client.firefoxCookieImporter = func(_ context.Context, options firefox.Options) (firefox.Result, error) {
+		if options.Profile != "fixture" || options.Container != "Work" {
+			t.Fatalf("Firefox options = %#v", options)
+		}
+		return firefox.Result{Total: 1, Imported: 1}, nil
+	}
+	result, err := client.importBrowserCookies(context.Background(), browserCookieSpec{browser: "firefox", profile: "fixture", container: "Work"})
+	if err != nil || result.Imported != 1 {
+		t.Fatalf("Firefox result=%#v err=%v", result, err)
+	}
+	client.platform = "linux"
+	client.linuxCookieImporter = func(_ context.Context, options chromiumlinux.Options) (chromiumlinux.Result, error) {
+		if options.Browser != chromiumlinux.Brave || options.Profile != "Profile 1" {
+			t.Fatalf("Linux Chromium options = %#v", options)
+		}
+		return chromiumlinux.Result{Total: 2, Imported: 1, Failed: 1}, chromiumlinux.ErrKeyUnavailable
+	}
+	result, err = client.importBrowserCookies(context.Background(), browserCookieSpec{browser: "brave", profile: "Profile 1"})
+	if !errors.Is(err, chromiumlinux.ErrKeyUnavailable) || result.Imported != 1 || result.Failed != 1 {
+		t.Fatalf("Linux result=%#v err=%v", result, err)
 	}
 }
 
@@ -200,6 +262,7 @@ func TestExtractionEventsRedactInputURL(t *testing.T) {
 
 func TestClientBrowserCookieFailureIsAuthenticationError(t *testing.T) {
 	client := NewClient()
+	client.platform = "darwin"
 	client.browserCookieImporter = func(context.Context, chromium.Options) (chromium.Result, error) {
 		return chromium.Result{}, chromium.ErrKeyUnavailable
 	}
@@ -211,6 +274,7 @@ func TestClientBrowserCookieFailureIsAuthenticationError(t *testing.T) {
 
 func TestClientDoesNotRecoverFromCancelledCookieImport(t *testing.T) {
 	client := NewClient()
+	client.platform = "darwin"
 	client.browserCookieImporter = func(context.Context, chromium.Options) (chromium.Result, error) {
 		return chromium.Result{
 			Cookies:  []*http.Cookie{{Name: "partial", Value: "secret", Domain: "example.invalid", Path: "/"}},

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,6 +16,9 @@ import (
 
 	outputtemplate "github.com/ytdlp-go/ytdlp/internal/compat/template"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/chromium"
+	"github.com/ytdlp-go/ytdlp/internal/cookies/chromiumlinux"
+	"github.com/ytdlp-go/ytdlp/internal/cookies/firefox"
+	"github.com/ytdlp-go/ytdlp/internal/cookies/netscape"
 	"github.com/ytdlp-go/ytdlp/internal/downloader"
 	"github.com/ytdlp-go/ytdlp/internal/events"
 	"github.com/ytdlp-go/ytdlp/internal/extractor"
@@ -68,6 +72,7 @@ type Request struct {
 	OutputTemplate     string
 	OutputDir          string
 	Proxy              string
+	CookieFile         string
 	CookiesFromBrowser string
 	Timeout            time.Duration
 	Overwrite          bool
@@ -123,6 +128,9 @@ type Client struct {
 	handler               EventHandler
 	javascriptHelper      string
 	browserCookieImporter func(context.Context, chromium.Options) (chromium.Result, error)
+	linuxCookieImporter   func(context.Context, chromiumlinux.Options) (chromiumlinux.Result, error)
+	firefoxCookieImporter func(context.Context, firefox.Options) (firefox.Result, error)
+	platform              string
 }
 
 func NewClient(options ...Option) *Client {
@@ -143,18 +151,15 @@ func (client *Client) Run(ctx context.Context, request Request) (Result, error) 
 	}
 	defer transport.CloseIdleConnections()
 	if request.CookiesFromBrowser != "" {
-		options, err := parseBrowserCookieSpec(request.CookiesFromBrowser)
+		specification, err := parseBrowserCookieSpec(request.CookiesFromBrowser)
 		if err != nil {
 			return Result{}, categorized("parse browser cookie source", err)
 		}
-		importer := client.browserCookieImporter
-		if importer == nil {
-			importer = chromium.Import
-		}
-		cookies, importErr := importer(ctx, options)
+		cookies, importErr := client.importBrowserCookies(ctx, specification)
 		if importErr != nil {
 			recoverable := len(cookies.Cookies) > 0 &&
-				(errors.Is(importErr, chromium.ErrDecrypt) || errors.Is(importErr, chromium.ErrKeyUnavailable))
+				(errors.Is(importErr, chromium.ErrDecrypt) || errors.Is(importErr, chromium.ErrKeyUnavailable) ||
+					errors.Is(importErr, chromiumlinux.ErrDecrypt) || errors.Is(importErr, chromiumlinux.ErrKeyUnavailable))
 			if !recoverable {
 				return Result{}, categorized("import browser cookies", importErr)
 			}
@@ -166,8 +171,31 @@ func (client *Client) Run(ctx context.Context, request Request) (Result, error) 
 		if cookies.Failed > 0 {
 			message += fmt.Sprintf("; skipped %d", cookies.Failed)
 		}
-		if err := client.emit(ctx, Event{Kind: "browser_cookies", Message: message}); err != nil {
+		if err := client.emit(ctx, Event{Kind: EventBrowserCookies, Message: message}); err != nil {
 			return Result{}, &Error{Category: ErrorInternal, Op: "emit browser cookie event", Err: err}
+		}
+	}
+	if request.CookieFile != "" {
+		loaded, loadErr := netscape.LoadFile(ctx, request.CookieFile, netscape.Options{})
+		if loadErr != nil {
+			return Result{}, categorized("load cookie file", loadErr)
+		}
+		cookies := make([]*http.Cookie, 0, len(loaded.Entries))
+		for _, entry := range loaded.Entries {
+			cookie := *entry.Cookie
+			if entry.IncludeSubdomains {
+				cookie.Domain = "." + strings.TrimPrefix(cookie.Domain, ".")
+			} else {
+				cookie.Domain = strings.TrimPrefix(cookie.Domain, ".")
+			}
+			cookies = append(cookies, &cookie)
+		}
+		if err := transport.AddCookies(cookies); err != nil {
+			return Result{}, categorized("load cookie file", err)
+		}
+		message := fmt.Sprintf("imported %d of %d cookie-file entries", loaded.Imported, loaded.Total)
+		if err := client.emit(ctx, Event{Kind: EventBrowserCookies, Message: message}); err != nil {
+			return Result{}, &Error{Category: ErrorInternal, Op: "emit cookie-file event", Err: err}
 		}
 	}
 	challengeSolver := &lazyYouTubeSolver{path: discoverJavaScriptHelper(client.javascriptHelper)}
@@ -424,9 +452,13 @@ func categorized(op string, err error) error {
 	case errors.Is(err, extractor.ErrAuthentication):
 		category = ErrorAuthentication
 	case errors.Is(err, chromium.ErrDatabaseNotFound), errors.Is(err, chromium.ErrInvalidDatabase), errors.Is(err, chromium.ErrSnapshot),
-		errors.Is(err, chromium.ErrKeyUnavailable), errors.Is(err, chromium.ErrDecrypt):
+		errors.Is(err, chromium.ErrKeyUnavailable), errors.Is(err, chromium.ErrDecrypt),
+		errors.Is(err, firefox.ErrNotFound), errors.Is(err, firefox.ErrInvalidDatabase), errors.Is(err, firefox.ErrSnapshot),
+		errors.Is(err, chromiumlinux.ErrNotFound), errors.Is(err, chromiumlinux.ErrInvalidDatabase), errors.Is(err, chromiumlinux.ErrSnapshot),
+		errors.Is(err, chromiumlinux.ErrKeyUnavailable), errors.Is(err, chromiumlinux.ErrDecrypt):
 		category = ErrorAuthentication
-	case errors.Is(err, chromium.ErrUnsupportedBrowser), errors.Is(err, chromium.ErrUnsupportedPlatform):
+	case errors.Is(err, chromium.ErrUnsupportedBrowser), errors.Is(err, chromium.ErrUnsupportedPlatform),
+		errors.Is(err, chromiumlinux.ErrUnsupportedBrowser), errors.Is(err, chromiumlinux.ErrUnsupportedPlatform):
 		category = ErrorUnsupported
 	case errors.Is(err, extractor.ErrUnavailable), errors.Is(err, extractor.ErrRegionRestricted), errors.Is(err, extractor.ErrChallengeSolver),
 		errors.Is(err, extractor.ErrTransportProfile), errors.Is(err, network.ErrImpersonationUnavailable):
@@ -437,7 +469,10 @@ func categorized(op string, err error) error {
 		errors.Is(err, downloader.ErrDestinationExists), errors.Is(err, downloader.ErrUnsafeDestination),
 		errors.Is(err, ffmpeg.ErrDestinationExists),
 		errors.Is(err, network.ErrInvalidProxy), errors.Is(err, network.ErrInvalidCookie),
-		errors.Is(err, errInvalidBrowserCookieSpec):
+		errors.Is(err, errInvalidBrowserCookieSpec), errors.Is(err, netscape.ErrMalformed),
+		errors.Is(err, netscape.ErrWrongFormat), errors.Is(err, netscape.ErrTooLarge),
+		errors.Is(err, firefox.ErrUnsafePath), errors.Is(err, firefox.ErrLimit),
+		errors.Is(err, chromiumlinux.ErrUnsafePath), errors.Is(err, chromiumlinux.ErrLimit):
 		category = ErrorInvalidInput
 	case errors.Is(err, mediaformat.ErrNoFormats), errors.Is(err, mediaformat.ErrInvalidHeaders), errors.Is(err, extractor.ErrInvalidMetadata),
 		errors.Is(err, extractor.ErrInvalidPlaylist), errors.Is(err, extractor.ErrPlaylistLimit),
@@ -450,15 +485,67 @@ func categorized(op string, err error) error {
 
 var errInvalidBrowserCookieSpec = errors.New("invalid browser cookie source")
 
-func parseBrowserCookieSpec(spec string) (chromium.Options, error) {
-	browserName, profile, hasProfile := strings.Cut(strings.TrimSpace(spec), ":")
-	if browserName != string(chromium.Chrome) {
-		return chromium.Options{}, fmt.Errorf("%w: supported value is chrome[:PROFILE]", errInvalidBrowserCookieSpec)
+type browserCookieSpec struct {
+	browser   string
+	profile   string
+	container string
+}
+
+type cookieImportResult struct {
+	Cookies                 []*http.Cookie
+	Total, Imported, Failed int
+}
+
+func parseBrowserCookieSpec(input string) (browserCookieSpec, error) {
+	base, container, hasContainer := strings.Cut(strings.TrimSpace(input), "::")
+	if hasContainer && strings.Contains(container, ":") {
+		return browserCookieSpec{}, fmt.Errorf("%w: invalid container", errInvalidBrowserCookieSpec)
 	}
-	if hasProfile && (profile == "" || profile == "." || profile == ".." || strings.ContainsAny(profile, `:/\\\x00`)) {
-		return chromium.Options{}, fmt.Errorf("%w: invalid Chrome profile", errInvalidBrowserCookieSpec)
+	browserName, profile, hasProfile := strings.Cut(base, ":")
+	switch browserName {
+	case "chrome", "chromium", "brave", "firefox":
+	default:
+		return browserCookieSpec{}, fmt.Errorf("%w: unsupported browser", errInvalidBrowserCookieSpec)
 	}
-	return chromium.Options{Browser: chromium.Chrome, Profile: profile}, nil
+	if hasProfile && (profile == "" || profile == "." || profile == ".." || strings.ContainsAny(profile, `:/\\`+"\x00")) {
+		return browserCookieSpec{}, fmt.Errorf("%w: invalid browser profile", errInvalidBrowserCookieSpec)
+	}
+	if hasContainer && (browserName != "firefox" || container == "" || strings.ContainsAny(container, `:/\\`+"\x00")) {
+		return browserCookieSpec{}, fmt.Errorf("%w: invalid Firefox container", errInvalidBrowserCookieSpec)
+	}
+	return browserCookieSpec{browser: browserName, profile: profile, container: container}, nil
+}
+
+func (client *Client) importBrowserCookies(ctx context.Context, specification browserCookieSpec) (cookieImportResult, error) {
+	if specification.browser == "firefox" {
+		importer := client.firefoxCookieImporter
+		if importer == nil {
+			importer = firefox.Import
+		}
+		result, err := importer(ctx, firefox.Options{Profile: specification.profile, Container: specification.container})
+		return cookieImportResult{Cookies: result.Cookies, Total: result.Total, Imported: result.Imported}, err
+	}
+	platform := client.platform
+	if platform == "" {
+		platform = runtime.GOOS
+	}
+	if platform == "darwin" && specification.browser == "chrome" {
+		importer := client.browserCookieImporter
+		if importer == nil {
+			importer = chromium.Import
+		}
+		result, err := importer(ctx, chromium.Options{Browser: chromium.Chrome, Profile: specification.profile})
+		return cookieImportResult{Cookies: result.Cookies, Total: result.Total, Imported: result.Imported, Failed: result.Failed}, err
+	}
+	if platform == "linux" {
+		importer := client.linuxCookieImporter
+		if importer == nil {
+			importer = chromiumlinux.Import
+		}
+		result, err := importer(ctx, chromiumlinux.Options{Browser: chromiumlinux.Browser(specification.browser), Profile: specification.profile})
+		return cookieImportResult{Cookies: result.Cookies, Total: result.Total, Imported: result.Imported, Failed: result.Failed}, err
+	}
+	return cookieImportResult{}, chromiumlinux.ErrUnsupportedPlatform
 }
 
 type lazyYouTubeSolver struct {

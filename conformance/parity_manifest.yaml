@@ -537,8 +537,30 @@ capabilities:
     name: Portable cookie sources
     phase: 2
     compatibility_target: Read Netscape cookie files and import declared Firefox and Chromium profiles across the supported platform matrix without exposing secrets.
-    status: not_started
+    status: compatible
+    evidence:
+      - internal/cookies/netscape.TestParseSemanticsAndRoundTrip
+      - internal/cookies/netscape.TestParsePartialMalformedAndSecretRedaction
+      - internal/cookies/netscape.TestParseCancellation
+      - internal/cookies/netscape.FuzzParse
+      - internal/cookies/firefox.TestImportSchema16ExpiryFlagsAndContainer
+      - internal/cookies/firefox.TestImportCopiesLockedLiveWAL
+      - internal/cookies/firefox.TestLocateNewestSyntheticProfile
+      - internal/cookies/firefox.TestImportCancellationAndUnsafePath
+      - internal/cookies/firefox.FuzzValidCookie
+      - internal/cookies/chromiumlinux.TestPinnedLinuxV10Corpus
+      - internal/cookies/chromiumlinux.TestPinnedLinuxV11Corpus
+      - internal/cookies/chromiumlinux.TestImportPlainV10V11AndSchema
+      - internal/cookies/chromiumlinux.TestImportCredentialFailureIsPartialAndRedacted
+      - internal/cookies/chromiumlinux.TestImportZeroesProviderPassword
+      - internal/cookies/chromiumlinux.FuzzDecrypt
+      - pkg/ytdlp.TestClientLoadsNetscapeCookieFileBeforeExtraction
+      - pkg/ytdlp.TestPortableBrowserCookieDispatch
+      - conformance/cookies/netscape/PROVENANCE.md
+      - conformance/cookies/firefox/PROVENANCE.md
+      - conformance/cookies/chromium-linux/PROVENANCE.md
     owner: authentication
+    known_deviation: Firefox profile aliases from profiles.ini are not resolved; explicit profile/database paths remain available. Linux Chromium v11 decryption requires an injected Secret Service or KWallet password provider, and Windows Chromium/DPAPI remains pending. No automated test reads a real profile.
 
   - id: compat.languages_principal
     name: Principal compatibility languages
