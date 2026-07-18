@@ -1,0 +1,40 @@
+{
+  "title": "Regionala nyheter",
+  "programTitle": "Lokala Nyheter Sverige",
+  "season": "2",
+  "episodeTitle": "Avsnitt 3",
+  "episodeNumber": 3,
+  "materialLength": "120",
+  "live": false,
+  "inappropriateForChildren": false,
+  "rights": {
+    "validFrom": "2025-03-04T05:06:07Z",
+    "geoBlockedSweden": false
+  },
+  "videoReferences": [
+    {
+      "playerType": "hls",
+      "url": "https://media.svt-fixture.invalid/video/master.m3u8"
+    },
+    {
+      "playerType": "dash",
+      "url": "https://media.svt-fixture.invalid/video/manifest.mpd"
+    },
+    {
+      "format": "http-720p",
+      "url": "https://media.svt-fixture.invalid/video/720.mp4"
+    }
+  ],
+  "subtitles": {
+    "subtitleReferences": [
+      {
+        "language": "sv",
+        "url": "https://media.svt-fixture.invalid/subtitles/sv.vtt"
+      },
+      {
+        "language": "sv",
+        "url": "https://media.svt-fixture.invalid/subtitles/text-open.m3u8"
+      }
+    ]
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "id": "svt-fixture-001",
+  "title": "Regionala nyheter",
+  "series": "Lokala Nyheter Sverige",
+  "season_number": 2,
+  "episode": "Avsnitt 3",
+  "episode_number": 3,
+  "duration": 120,
+  "timestamp": 1741064767,
+  "age_limit": 0,
+  "is_live": false,
+  "format_count": 3,
+  "subtitle_languages": ["sv", "sv-forced"]
+}
