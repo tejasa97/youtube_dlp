@@ -18,8 +18,8 @@ claims are added only after review and scoped verification.
 
 | Lane | Branch / worktree | Ownership | State | Delivery |
 | --- | --- | --- | --- | --- |
-| Federated shared hosting | `codex/p3-peertube` / `youtube_dlp-p3-peertube` | PeerTube extractor and fixtures | Integrated | `c49b388`, primary registration and claim pending commit |
-| Public API and playlists | `codex/p3-internetarchive` / `youtube_dlp-p3-internetarchive` | Internet Archive extractor and fixtures | Integrated | `b1f5ca6`, literal-plus review fix and product registration pending commit |
+| Federated shared hosting | `codex/p3-peertube` / `youtube_dlp-p3-peertube` | PeerTube extractor and fixtures | Integrated | `c49b388`, product registration `fc9b124` |
+| Public API and playlists | `codex/p3-internetarchive` / `youtube_dlp-p3-internetarchive` | Internet Archive extractor and fixtures | Integrated | `b1f5ca6`, product registration/review `fc9b124` |
 | Direct shared hosting | `main` / `youtube_dlp` | Streamable extractor, registry, manifest | Integrated | `8b5b851` |
 | Primary integration | `main` / `youtube_dlp` | registry, public API, manifest, priority policy | Complete | Three Python-free extractor families integrated with scoped unit/race/vet/fuzz evidence |
 
@@ -37,18 +37,27 @@ claims are added only after review and scoped verification.
 
 | Lane | Branch / worktree | Ownership | State | Delivery |
 | --- | --- | --- | --- | --- |
-| Pack v1.1 compatible upgrade | `codex/p3-pack-upgrade` / `youtube_dlp-p3-pack-upgrade` | `internal/pack/upgrade/**`, fixtures, evidence | Integrated | `577d330`, manifest reconciliation pending commit |
-| Author-side plugin SDK server | `codex/p3-plugin-sdk-author` / `youtube_dlp-p3-plugin-sdk-author` | `pkg/pluginapi/sdk/**`, fixtures, guide | Integrated | `10396cf`, review hardening and manifest reconciliation pending commit |
-| Signed offline catalog | `main` / `youtube_dlp` | catalog trust, exact resolution, revocation | Integrated | `132af3a`, public/CLI integration pending commit |
-| Windows browser credentials | `codex/p3-windows-cookies` / isolated worktree | Windows Chromium cookie import | Integrated | `19d07ca`, product/CLI integration pending commit |
-| Primary integration | `main` / `youtube_dlp` | public ABI, trust policy, manifest, distribution policy | In progress | SDK runtime/path hardening and local-only verification underway |
+| Pack v1.1 compatible upgrade | `codex/p3-pack-upgrade` / `youtube_dlp-p3-pack-upgrade` | `internal/pack/upgrade/**`, fixtures, evidence | Integrated | `577d330`; bound catalog/install transaction `20547e8`; public API `7f40b37` |
+| Author-side plugin SDK server | `codex/p3-plugin-sdk-author` / `youtube_dlp-p3-plugin-sdk-author` | `pkg/pluginapi/sdk/**`, fixtures, guide | Integrated | `10396cf`; runtime/path hardening `c40182f` |
+| Signed offline catalog | `main` / `youtube_dlp` | catalog trust, exact resolution, revocation | Integrated | `132af3a`; public/CLI integration `f8c72c6` |
+| Windows browser credentials | `codex/p3-windows-cookies` / isolated worktree | Windows Chromium cookie import | Integrated | `19d07ca`; product/CLI integration `aecdcf3`; deterministic Docker fix `b8e0194` |
+| Primary integration | `main` / `youtube_dlp` | public ABI, trust policy, manifest, distribution policy | Complete | Installer adoption, explicit fail-closed native sandbox constructor `b2b7bb1`, and evidence reconciliation `aac7b0f` complete; platform/deployment deviations remain explicit |
 
 ## Wave 5: Operations
 
 | Lane | Branch / worktree | Ownership | State | Delivery |
 | --- | --- | --- | --- | --- |
-| Canary, metrics, and patch drill | `codex/p3-operations` / `youtube_dlp-p3-operations` | `internal/operations/**`, fixtures, evidence | Integrated | `796a1ef`, local report integration pending commit |
-| Primary integration | `main` / `youtube_dlp` | local reporting, operational policy, manifest | In progress | Strict record/incident ingestion and `ytdlp-ops` report added |
+| Canary, metrics, and patch drill | `codex/p3-operations` / `youtube_dlp-p3-operations` | `internal/operations/**`, fixtures, evidence | Integrated | `796a1ef`; expiry/rate/replay/failure-class remediation `ee5c8cb` |
+| Primary integration | `main` / `youtube_dlp` | local reporting, operational policy, manifest | Complete for repository tooling | Strict local reports `cc54963`, product command `ac1e35e`, and attributable LL-HLS repair history integrated; live/auth/regional observations remain deployment-blocked |
+
+## Wave 6: Independent G3 audits
+
+| Lane | Branch / worktree | Ownership | State | Delivery |
+| --- | --- | --- | --- | --- |
+| Coverage and extractor parity | `codex/p3-audit-coverage` / isolated worktree | independent read-only audit | Integrated | `96ff28d`; stale evidence references fixed by `c24d9fd` |
+| Security, privacy, and isolation | `codex/p3-audit-security` / isolated worktree | independent read-only audit | Integrated | `1eb873b`; helper trust `49c3440`, sandbox `b2b7bb1`, cookie bounds/snapshots `bbe4610` |
+| Release, operations, and ABI | `codex/p3-audit-release-ops` / isolated worktree | independent read-only audit | Integrated | `d073dd1`; Docker flake `b8e0194`, pack transaction `20547e8`, operations controls `ee5c8cb` |
+| Primary gate decision | `main` / `youtube_dlp` | all shared claims and final evidence | Blocked on external observations | Repository-side findings resolved; measured traffic, beta shadow observations, live/auth/regional canaries, native Windows execution, and production distribution authority are not inferred |
 
 ## Gate boundary
 

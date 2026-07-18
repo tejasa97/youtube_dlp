@@ -30,6 +30,13 @@ func TestValidateAndSummarizeDeterministicEvidence(t *testing.T) {
 	}
 }
 
+func TestVersionProbe(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"--version"}, &stdout, &stderr); code != 0 || stdout.String() != "ytdlp-ops 1\n" {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestRejectsDuplicateAndDoesNotExposeInputPath(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "secret-suite-name.json")
 	if err := os.WriteFile(path, []byte(`{"schema_version":1,"schema_version":1,"canaries":[]}`), 0o600); err != nil {
