@@ -2,6 +2,7 @@ package hls
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -41,6 +42,27 @@ blob.bin
 	if segment.Map.URL != "https://example.invalid/live/init.mp4" || segment.Key.URL != "https://example.invalid/live/key.bin" || len(segment.Key.IV) != 16 || segment.Key.IV[15] != 1 {
 		t.Fatalf("map/key = %#v / %#v", segment.Map, segment.Key)
 	}
+}
+
+func TestParseBoundsInputAndEntryCount(t *testing.T) {
+	if _, err := Parse("https://example.invalid/media.m3u8", make([]byte, maxPlaylistBytes+1)); !errors.Is(err, ErrInvalidPlaylist) {
+		t.Fatalf("oversized playlist error = %v", err)
+	}
+	input := "#EXTM3U\n" + strings.Repeat("segment.ts\n", maxPlaylistEntries+1)
+	if _, err := Parse("https://example.invalid/media.m3u8", []byte(input)); !errors.Is(err, ErrInvalidPlaylist) {
+		t.Fatalf("entry-bound error = %v", err)
+	}
+}
+
+func FuzzParse(f *testing.F) {
+	f.Add("https://example.invalid/media.m3u8", []byte("#EXTM3U\n#EXTINF:1,\nsegment.ts\n#EXT-X-ENDLIST\n"))
+	f.Add("https://example.invalid/master.m3u8", []byte("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nmedia.m3u8\n"))
+	f.Fuzz(func(t *testing.T, rawURL string, input []byte) {
+		if len(rawURL) > 4096 || len(input) > 1<<20 {
+			t.Skip()
+		}
+		_, _ = Parse(rawURL, input)
+	})
 }
 
 func TestParseRejectsUnsupportedEncryption(t *testing.T) {

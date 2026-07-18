@@ -200,6 +200,8 @@ capabilities:
       - internal/protocol/hls.TestDownloadLivePollDeduplicatesSegments
       - internal/protocol/hls.TestDownloadLiveHonorsCancellation
       - internal/protocol/hls.TestDownloadEmptyPlaylistReturnsNoSegments
+      - internal/protocol/hls.TestParseBoundsInputAndEntryCount
+      - internal/protocol/hls.FuzzParse
       - pkg/ytdlp.TestClientHLSAndDASHDispatch
       - internal/cli.TestRunHLSProtocolDispatch
     owner: io

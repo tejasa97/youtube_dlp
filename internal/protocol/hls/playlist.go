@@ -18,6 +18,11 @@ var (
 	ErrLivePollLimit         = errors.New("HLS live poll limit reached")
 )
 
+const (
+	maxPlaylistBytes   = 16 << 20
+	maxPlaylistEntries = 100_000
+)
+
 type Playlist struct {
 	Variants []Variant
 	Media    *MediaPlaylist
@@ -61,6 +66,9 @@ type Key struct {
 }
 
 func Parse(rawURL string, input []byte) (Playlist, error) {
+	if len(input) > maxPlaylistBytes {
+		return Playlist{}, fmt.Errorf("%w: playlist exceeds %d bytes", ErrInvalidPlaylist, maxPlaylistBytes)
+	}
 	base, err := url.Parse(rawURL)
 	if err != nil {
 		return Playlist{}, fmt.Errorf("%w: base URL: %v", ErrInvalidPlaylist, err)
@@ -100,12 +108,18 @@ func Parse(rawURL string, input []byte) (Playlist, error) {
 				return Playlist{}, fmt.Errorf("%w at line %d: %v", ErrInvalidPlaylist, lineNumber, err)
 			}
 			if pendingVariant != nil {
+				if len(playlist.Variants) >= maxPlaylistEntries {
+					return Playlist{}, fmt.Errorf("%w: variant count exceeds %d", ErrInvalidPlaylist, maxPlaylistEntries)
+				}
 				bandwidth, _ := strconv.ParseInt(pendingVariant["BANDWIDTH"], 10, 64)
 				playlist.Variants = append(playlist.Variants, Variant{
 					URL: resolved, Bandwidth: bandwidth, Codecs: pendingVariant["CODECS"], Resolution: pendingVariant["RESOLUTION"],
 				})
 				pendingVariant = nil
 				continue
+			}
+			if len(media.Segments) >= maxPlaylistEntries {
+				return Playlist{}, fmt.Errorf("%w: segment count exceeds %d", ErrInvalidPlaylist, maxPlaylistEntries)
 			}
 			segment := Segment{
 				URL: resolved, Sequence: sequence, Duration: pendingDuration,
