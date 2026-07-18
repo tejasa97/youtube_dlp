@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"strconv"
 	"strings"
@@ -126,6 +127,9 @@ func Parse(rawURL string, input []byte) (Playlist, error) {
 			if len(media.Segments) >= maxPlaylistEntries {
 				return Playlist{}, fmt.Errorf("%w: segment count exceeds %d", ErrInvalidPlaylist, maxPlaylistEntries)
 			}
+			if sequence == math.MaxInt64 {
+				return Playlist{}, fmt.Errorf("%w: media sequence overflow", ErrInvalidPlaylist)
+			}
 			segment := Segment{
 				URL: resolved, Sequence: sequence, Duration: pendingDuration,
 				RangeStart: pendingRangeStart, RangeLength: pendingRangeLength,
@@ -150,6 +154,9 @@ func Parse(rawURL string, input []byte) (Playlist, error) {
 			pendingVariant, err = parseAttributes(strings.TrimPrefix(line, "#EXT-X-STREAM-INF:"))
 		case strings.HasPrefix(line, "#EXT-X-MEDIA-SEQUENCE:"):
 			sequence, err = strconv.ParseInt(strings.TrimPrefix(line, "#EXT-X-MEDIA-SEQUENCE:"), 10, 64)
+			if err == nil && sequence < 0 {
+				err = errors.New("media sequence must not be negative")
+			}
 			media.Sequence = sequence
 		case strings.HasPrefix(line, "#EXT-X-TARGETDURATION:"):
 			var seconds int64
@@ -172,8 +179,8 @@ func Parse(rawURL string, input []byte) (Playlist, error) {
 			if err == nil {
 				var skipped int64
 				skipped, err = strconv.ParseInt(attributes["SKIPPED-SEGMENTS"], 10, 64)
-				if err == nil && skipped < 0 {
-					err = errors.New("skipped segment count must not be negative")
+				if err == nil && (skipped < 0 || skipped > math.MaxInt64-sequence) {
+					err = errors.New("skipped segment count is invalid")
 				}
 				if err == nil {
 					sequence += skipped

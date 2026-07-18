@@ -82,8 +82,10 @@ func TestParseLowLatencyPartsAndDeltaSkip(t *testing.T) {
 
 func TestParseRejectsInvalidLowLatencyAttributes(t *testing.T) {
 	for _, input := range []string{
+		"#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:-1\n",
 		"#EXTM3U\n#EXT-X-PART-INF:PART-TARGET=0\n",
 		"#EXTM3U\n#EXT-X-SKIP:SKIPPED-SEGMENTS=-1\n",
+		"#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:9223372036854775807\n#EXT-X-SKIP:SKIPPED-SEGMENTS=1\n",
 		"#EXTM3U\n#EXT-X-PART:DURATION=0,URI=x\n",
 		"#EXTM3U\n#EXT-X-PART:DURATION=1,URI=x,BYTERANGE=0\n",
 	} {
