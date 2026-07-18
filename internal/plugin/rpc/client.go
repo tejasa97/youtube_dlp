@@ -11,14 +11,24 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/ytdlp-go/ytdlp/internal/plugin"
+	"github.com/ytdlp-go/ytdlp/internal/sandbox"
 	"github.com/ytdlp-go/ytdlp/pkg/pluginapi"
 )
+
+type SandboxConfig struct {
+	ReadOnlyPaths []string
+	WritablePaths []string
+	SecretHandles []string
+	Limits        sandbox.Limits
+	Lookup        sandbox.Lookup
+}
 
 type Config struct {
 	// Package is the preferred launch source. It must have been returned by
@@ -35,6 +45,9 @@ type Config struct {
 	Approver            plugin.PermissionApprover
 	SupportedABI        plugin.VersionRange
 	Limits              plugin.Limits
+	// Sandbox makes native execution fail closed through the platform adapter.
+	// A nil value preserves the signed-and-approved, trusted-native boundary.
+	Sandbox *SandboxConfig
 }
 
 type Client struct{}
@@ -164,11 +177,51 @@ func exchange(ctx context.Context, config Config, request envelope, resultType, 
 		}
 	}
 
-	command := exec.Command(executable, config.Args...)
-	command.Env = environment
+	commandExecutable, commandArguments, commandEnvironment := executable, config.Args, environment
+	commandDirectory := ""
 	if expected != nil {
-		command.Dir = expected.Directory
+		commandDirectory = expected.Directory
 	}
+	if config.Sandbox != nil {
+		if expected == nil {
+			return envelope{}, fmt.Errorf("%w: sandbox requires a trusted package", plugin.ErrInvalidConfig)
+		}
+		if len(config.Environment) != 0 {
+			return envelope{}, fmt.Errorf("%w: sandbox forbids environment overrides", plugin.ErrInvalidConfig)
+		}
+		if len(config.Sandbox.ReadOnlyPaths) != 0 && !hasPermission(expected.Manifest.Permissions, plugin.PermissionFilesystemRead) {
+			return envelope{}, fmt.Errorf("%w: read-only sandbox roots require filesystem_read", plugin.ErrPermissionDenied)
+		}
+		if len(config.Sandbox.WritablePaths) != 0 && !hasPermission(expected.Manifest.Permissions, plugin.PermissionFilesystemWrite) {
+			return envelope{}, fmt.Errorf("%w: writable sandbox roots require filesystem_write", plugin.ErrPermissionDenied)
+		}
+		if len(config.Sandbox.SecretHandles) != 0 && !hasPermission(expected.Manifest.Permissions, plugin.PermissionSecrets) {
+			return envelope{}, fmt.Errorf("%w: secret handles require secrets", plugin.ErrPermissionDenied)
+		}
+		readOnly := append([]string{expected.Directory}, config.Sandbox.ReadOnlyPaths...)
+		plan, prepareErr := sandbox.PrepareForOS(runtime.GOOS, sandbox.Spec{
+			Executable: executable, Arguments: config.Args, WorkingDirectory: expected.Directory,
+			ReadOnlyPaths: readOnly, WritablePaths: config.Sandbox.WritablePaths,
+			AllowNetwork:  hasPermission(expected.Manifest.Permissions, plugin.PermissionNetwork),
+			SecretHandles: config.Sandbox.SecretHandles, Limits: config.Sandbox.Limits,
+		}, config.Sandbox.Lookup)
+		if config.Sandbox.Lookup == nil {
+			plan, prepareErr = sandbox.Prepare(sandbox.Spec{
+				Executable: executable, Arguments: config.Args, WorkingDirectory: expected.Directory,
+				ReadOnlyPaths: readOnly, WritablePaths: config.Sandbox.WritablePaths,
+				AllowNetwork:  hasPermission(expected.Manifest.Permissions, plugin.PermissionNetwork),
+				SecretHandles: config.Sandbox.SecretHandles, Limits: config.Sandbox.Limits,
+			})
+		}
+		if prepareErr != nil {
+			return envelope{}, fmt.Errorf("%w: sandbox: %v", plugin.ErrIsolationUnavailable, prepareErr)
+		}
+		commandExecutable, commandArguments = plan.Executable, plan.Arguments
+		commandEnvironment, commandDirectory = plan.Environment, plan.WorkingDirectory
+	}
+	command := exec.Command(commandExecutable, commandArguments...)
+	command.Env = commandEnvironment
+	command.Dir = commandDirectory
 	if err := configureIsolation(command); err != nil {
 		return envelope{}, err
 	}
@@ -337,6 +390,15 @@ func exchange(ctx context.Context, config Config, request envelope, resultType, 
 		}
 		return envelope{}, errors.Join(operationCtx.Err(), cleanupErr)
 	}
+}
+
+func hasPermission(permissions []plugin.Permission, expected plugin.Permission) bool {
+	for _, permission := range permissions {
+		if permission == expected {
+			return true
+		}
+	}
+	return false
 }
 
 func launchTarget(config Config) (string, *plugin.Package, error) {

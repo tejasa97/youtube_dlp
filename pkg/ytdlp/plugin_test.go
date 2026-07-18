@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ytdlp-go/ytdlp/internal/pack"
+	"github.com/ytdlp-go/ytdlp/internal/plugin"
 	"github.com/ytdlp-go/ytdlp/pkg/pluginapi"
 )
 
@@ -79,6 +80,26 @@ func TestPluginPackBindingFailsBeforeFilesystemMutation(t *testing.T) {
 	}
 	if _, err := os.Lstat(root); !os.IsNotExist(err) {
 		t.Fatalf("invalid binding mutated install root: %v", err)
+	}
+}
+
+func TestSandboxedPluginHostBuildsFailClosedNativePolicy(t *testing.T) {
+	installed := &InstalledPlugin{packageValue: plugin.Package{
+		Manifest:  plugin.Manifest{Runtime: pluginapi.RuntimeNative},
+		Directory: "/trusted/plugin", EntrypointPath: "/trusted/plugin/helper",
+	}}
+	approver := PluginPermissionApproveFunc(func(context.Context, PluginApprovalRequest) (PluginApproval, error) {
+		return PluginApproval{}, nil
+	})
+	policy := PluginSandbox{ReadOnlyPaths: []string{"/input"}, WritablePaths: []string{"/output"}, CPUSeconds: 5, OpenFiles: 32}
+	host, err := NewSandboxedPluginHost(installed, approver, PluginLimits{}, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy.ReadOnlyPaths[0] = "/changed"
+	config := host.rpcConfig()
+	if config.Sandbox == nil || config.Sandbox.ReadOnlyPaths[0] != "/input" || config.Sandbox.Limits.CPUSeconds != 5 || config.Sandbox.Limits.OpenFiles != 32 {
+		t.Fatalf("sandbox config = %#v", config.Sandbox)
 	}
 }
 

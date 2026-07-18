@@ -20,6 +20,7 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/plugin"
 	"github.com/ytdlp-go/ytdlp/internal/plugin/rpc"
 	pluginwasm "github.com/ytdlp-go/ytdlp/internal/plugin/wasm"
+	"github.com/ytdlp-go/ytdlp/internal/sandbox"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 	"github.com/ytdlp-go/ytdlp/pkg/pluginapi"
 )
@@ -59,6 +60,19 @@ type PluginLimits struct {
 	MaxMessageBytes  uint32
 	MaxStderrBytes   int
 	MemoryLimitPages uint32
+}
+
+// PluginSandbox configures fail-closed OS isolation for a native plugin. The
+// installed package is always mounted read-only. Extra roots require the
+// corresponding filesystem permission in the signed manifest.
+type PluginSandbox struct {
+	ReadOnlyPaths     []string
+	WritablePaths     []string
+	SecretHandles     []string
+	AddressSpaceBytes uint64
+	CPUSeconds        uint64
+	Processes         uint64
+	OpenFiles         uint64
 }
 
 type PackRevocation = pack.PackageRevocation
@@ -281,6 +295,23 @@ type PluginHost struct {
 	installed *InstalledPlugin
 	approver  PluginPermissionApprover
 	limits    PluginLimits
+	sandbox   *PluginSandbox
+}
+
+// NewSandboxedPluginHost requires the native plugin to launch through the
+// platform sandbox adapter. Missing or unsupported adapters fail closed. WASM
+// plugins retain their separate no-WASI, bounded-memory isolation boundary.
+func NewSandboxedPluginHost(installed *InstalledPlugin, approver PluginPermissionApprover, limits PluginLimits, policy PluginSandbox) (*PluginHost, error) {
+	host, err := NewPluginHost(installed, approver, limits)
+	if err != nil {
+		return nil, err
+	}
+	copy := policy
+	copy.ReadOnlyPaths = append([]string(nil), policy.ReadOnlyPaths...)
+	copy.WritablePaths = append([]string(nil), policy.WritablePaths...)
+	copy.SecretHandles = append([]string(nil), policy.SecretHandles...)
+	host.sandbox = &copy
+	return host, nil
 }
 
 func NewPluginHost(installed *InstalledPlugin, approver PluginPermissionApprover, limits PluginLimits) (*PluginHost, error) {
@@ -294,7 +325,7 @@ func (host *PluginHost) Extract(ctx context.Context, request PluginExtractReques
 	if host == nil || host.installed == nil {
 		return PluginExtractResponse{}, &Error{Category: ErrorInvalidInput, Op: "extract with plugin", Err: plugin.ErrInvalidConfig}
 	}
-	response, err := runPluginExtract(ctx, host.installed, host.approver, host.limits, request)
+	response, err := runPluginExtract(ctx, host.installed, host.approver, host.limits, host.sandbox, request)
 	return response, categorizePlugin("extract with plugin", err)
 }
 
@@ -302,7 +333,7 @@ func (host *PluginHost) Postprocess(ctx context.Context, request PluginPostproce
 	if host == nil || host.installed == nil || host.installed.packageValue.Manifest.Runtime != pluginapi.RuntimeNative {
 		return PluginPostprocessResponse{}, &Error{Category: ErrorUnsupported, Op: "postprocess with plugin", Err: plugin.ErrInvalidConfig}
 	}
-	response, err := (rpc.Client{}).Postprocess(ctx, rpc.Config{Package: &host.installed.packageValue, Approver: host.approver, Limits: internalPluginLimits(host.limits)}, request)
+	response, err := (rpc.Client{}).Postprocess(ctx, host.rpcConfig(), request)
 	return response, categorizePlugin("postprocess with plugin", err)
 }
 
@@ -310,7 +341,7 @@ func (host *PluginHost) Provide(ctx context.Context, request PluginProviderReque
 	if host == nil || host.installed == nil || host.installed.packageValue.Manifest.Runtime != pluginapi.RuntimeNative {
 		return PluginProviderResponse{}, &Error{Category: ErrorUnsupported, Op: "invoke plugin provider", Err: plugin.ErrInvalidConfig}
 	}
-	response, err := (rpc.Client{}).Provide(ctx, rpc.Config{Package: &host.installed.packageValue, Approver: host.approver, Limits: internalPluginLimits(host.limits)}, request)
+	response, err := (rpc.Client{}).Provide(ctx, host.rpcConfig(), request)
 	return response, categorizePlugin("invoke plugin provider", err)
 }
 
@@ -322,7 +353,20 @@ func internalPluginLimits(limits PluginLimits) plugin.Limits {
 	}
 }
 
-func runPluginExtract(ctx context.Context, installed *InstalledPlugin, approver PluginPermissionApprover, limits PluginLimits, request PluginExtractRequest) (PluginExtractResponse, error) {
+func (host *PluginHost) rpcConfig() rpc.Config {
+	config := rpc.Config{Package: &host.installed.packageValue, Approver: host.approver, Limits: internalPluginLimits(host.limits)}
+	if host.sandbox != nil {
+		config.Sandbox = &rpc.SandboxConfig{
+			ReadOnlyPaths: append([]string(nil), host.sandbox.ReadOnlyPaths...),
+			WritablePaths: append([]string(nil), host.sandbox.WritablePaths...),
+			SecretHandles: append([]string(nil), host.sandbox.SecretHandles...),
+			Limits:        sandbox.Limits{AddressSpaceBytes: host.sandbox.AddressSpaceBytes, CPUSeconds: host.sandbox.CPUSeconds, Processes: host.sandbox.Processes, OpenFiles: host.sandbox.OpenFiles},
+		}
+	}
+	return config
+}
+
+func runPluginExtract(ctx context.Context, installed *InstalledPlugin, approver PluginPermissionApprover, limits PluginLimits, sandboxPolicy *PluginSandbox, request PluginExtractRequest) (PluginExtractResponse, error) {
 	if installed == nil || approver == nil {
 		return PluginExtractResponse{}, plugin.ErrInvalidConfig
 	}
@@ -336,7 +380,8 @@ func runPluginExtract(ctx context.Context, installed *InstalledPlugin, approver 
 			Approver: approver, Limits: internalPluginLimits(limits),
 		}, request)
 	}
-	return (rpc.Client{}).Extract(ctx, rpc.Config{Package: &installed.packageValue, Approver: approver, Limits: internalPluginLimits(limits)}, request)
+	host := &PluginHost{installed: installed, approver: approver, limits: limits, sandbox: sandboxPolicy}
+	return (rpc.Client{}).Extract(ctx, host.rpcConfig(), request)
 }
 
 type installedPluginExtractor struct {
@@ -350,7 +395,7 @@ func (candidate *installedPluginExtractor) Name() string {
 func (*installedPluginExtractor) Suitable(*url.URL) bool { return false }
 
 func (candidate *installedPluginExtractor) Extract(ctx context.Context, request extractor.Request) (extractor.Extraction, error) {
-	response, err := runPluginExtract(ctx, candidate.installed, candidate.approver, PluginLimits{}, pluginapi.ExtractRequest{ID: "one", URL: request.URL})
+	response, err := runPluginExtract(ctx, candidate.installed, candidate.approver, PluginLimits{}, nil, pluginapi.ExtractRequest{ID: "one", URL: request.URL})
 	if err != nil {
 		return extractor.Extraction{}, mapPluginExtractorError(err)
 	}
