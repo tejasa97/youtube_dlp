@@ -18,10 +18,10 @@ claims are added only after review and scoped verification.
 
 | Lane | Branch / worktree | Ownership | State | Delivery |
 | --- | --- | --- | --- | --- |
-| Federated shared hosting | `codex/p3-peertube` / `youtube_dlp-p3-peertube` | PeerTube extractor and fixtures | In progress | Pending |
-| Public API and playlists | `codex/p3-internetarchive` / `youtube_dlp-p3-internetarchive` | Internet Archive extractor and fixtures | In progress | Pending |
+| Federated shared hosting | `codex/p3-peertube` / `youtube_dlp-p3-peertube` | PeerTube extractor and fixtures | Integrated | `c49b388`, primary registration and claim pending commit |
+| Public API and playlists | `codex/p3-internetarchive` / `youtube_dlp-p3-internetarchive` | Internet Archive extractor and fixtures | Integrated | `b1f5ca6`, literal-plus review fix and product registration pending commit |
 | Direct shared hosting | `main` / `youtube_dlp` | Streamable extractor, registry, manifest | Integrated | `8b5b851` |
-| Primary integration | `main` / `youtube_dlp` | registry, public API, manifest, priority policy | In progress | Awaiting isolated lanes |
+| Primary integration | `main` / `youtube_dlp` | registry, public API, manifest, priority policy | Complete | Three Python-free extractor families integrated with scoped unit/race/vet/fuzz evidence |
 
 ## Gate boundary
 

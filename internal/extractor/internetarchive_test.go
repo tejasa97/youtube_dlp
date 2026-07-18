@@ -259,6 +259,15 @@ func TestInternetArchiveHelpers(t *testing.T) {
 	if got := internetArchiveDetailsURL("fixture_concert", `disc1/A+B.mp3`); got != "https://archive.org/details/fixture_concert/disc1/A%2BB.mp3" {
 		t.Fatalf("details URL=%q", got)
 	}
+	generated := internetArchiveDetailsURL("fixture+concert", `disc1/A+B.mp3`)
+	parsed, err := url.Parse(generated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identifier, entry, ok := classifyInternetArchiveURL(parsed)
+	if !ok || identifier != "fixture+concert" || entry != "disc1/A+B.mp3" {
+		t.Fatalf("literal plus round trip=%q %q %v from %q", identifier, entry, ok, generated)
+	}
 	if !errors.Is(categorizeInternetArchiveError(fmt.Errorf("wrapped: %w", &HTTPStatusError{Code: 503})), ErrInternetArchiveNetwork) {
 		t.Fatal("wrapped status was not categorized")
 	}

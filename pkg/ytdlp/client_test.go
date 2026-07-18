@@ -53,6 +53,8 @@ func TestExtractorFailuresAreCategorized(t *testing.T) {
 		{extractor.ErrUnavailable, ErrorUnsupported},
 		{extractor.ErrChallengeSolver, ErrorUnsupported},
 		{extractor.ErrRegionRestricted, ErrorUnsupported},
+		{extractor.ErrPeerTubeNetwork, ErrorNetwork},
+		{extractor.ErrInternetArchiveNetwork, ErrorNetwork},
 	} {
 		if err := categorized("extract", test.err); !IsCategory(err, test.category) {
 			t.Fatalf("categorized(%v) = %v", test.err, err)
@@ -87,6 +89,9 @@ func TestProductRegistryIncludesIntegratedExtractors(t *testing.T) {
 		{"nrk:MDDP12000117", "nrk"},
 		{"https://www.twitch.tv/fixture_channel", "twitch"},
 		{"https://soundcloud.com/fixture-artist/synthetic-signal", "soundcloud"},
+		{"https://streamable.com/e/fixture_1", "streamable"},
+		{"peertube:peertube.example:00000000-0000-4000-8000-000000000001", "peertube"},
+		{"https://archive.org/details/fixture_concert", "internetarchive"},
 		{"https://www.svtplay.se/video/fixture-program?modalId=fixture123", "region_svt"},
 		{"https://auth-fixture.invalid/watch/fixture123", "synthetic_auth"},
 		{"https://example.com/media.mp4", "generic"},

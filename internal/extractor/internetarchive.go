@@ -24,7 +24,7 @@ const (
 )
 
 var (
-	internetArchiveIdentifier = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$`)
+	internetArchiveIdentifier = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]{0,254}$`)
 	internetArchiveHTMLTag    = regexp.MustCompile(`(?s)<[^>]*>`)
 	ErrInternetArchiveNetwork = errors.New("Internet Archive network failure")
 )
@@ -55,7 +55,7 @@ func (InternetArchive) Extract(ctx context.Context, request Request) (Extraction
 		return Extraction{}, err
 	}
 	var metadata internetArchiveMetadata
-	endpoint := "https://archive.org/metadata/" + url.PathEscape(identifier)
+	endpoint := "https://archive.org/metadata/" + internetArchiveEscapeSegment(identifier)
 	if err := RequestJSON(ctx, request.Transport, http.MethodGet, endpoint, nil, make(http.Header), &metadata); err != nil {
 		return Extraction{}, categorizeInternetArchiveError(err)
 	}
@@ -75,17 +75,25 @@ func classifyInternetArchiveURL(parsed *url.URL) (string, string, bool) {
 	if strings.Contains(escaped, "%2f") || strings.Contains(escaped, "%5c") {
 		return "", "", false
 	}
-	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	parts := strings.Split(strings.Trim(parsed.EscapedPath(), "/"), "/")
 	if len(parts) < 2 || (parts[0] != "details" && parts[0] != "embed") {
 		return "", "", false
 	}
-	identifier := strings.ReplaceAll(parts[1], "+", " ")
-	if !internetArchiveIdentifier.MatchString(identifier) {
+	identifier, err := internetArchiveUnquotePlus(parts[1])
+	if err != nil || !internetArchiveIdentifier.MatchString(identifier) {
 		return "", "", false
 	}
 	entry := ""
 	if len(parts) > 2 {
-		entry = strings.ReplaceAll(strings.Join(parts[2:], "/"), "+", " ")
+		decoded := make([]string, 0, len(parts)-2)
+		for _, segment := range parts[2:] {
+			value, err := internetArchiveUnquotePlus(segment)
+			if err != nil {
+				return "", "", false
+			}
+			decoded = append(decoded, value)
+		}
+		entry = strings.Join(decoded, "/")
 		if !validInternetArchiveAsset(entry) {
 			return "", "", false
 		}
@@ -329,7 +337,7 @@ func internetArchiveItemInfo(identifier string, metadata map[string]any) *value.
 	info := value.NewObject(
 		value.Field{Key: "id", Value: value.String(identifier)},
 		value.Field{Key: "title", Value: value.String(title)},
-		value.Field{Key: "webpage_url", Value: value.String("https://archive.org/details/" + url.PathEscape(identifier))},
+		value.Field{Key: "webpage_url", Value: value.String("https://archive.org/details/" + internetArchiveEscapeSegment(identifier))},
 	)
 	if description := cleanInternetArchiveDescription(strings.Join(internetArchiveStrings(metadata["description"]), " ")); description != "" {
 		info.Set("description", value.String(description))
@@ -419,11 +427,19 @@ func validInternetArchiveAsset(name string) bool {
 }
 
 func internetArchiveDownloadURL(identifier, name string) string {
-	return "https://archive.org/download/" + url.PathEscape(identifier) + "/" + internetArchiveEscapedPath(name)
+	return "https://archive.org/download/" + internetArchiveEscapeSegment(identifier) + "/" + internetArchiveEscapedPath(name)
 }
 
 func internetArchiveDetailsURL(identifier, name string) string {
-	return "https://archive.org/details/" + url.PathEscape(identifier) + "/" + internetArchiveEscapedPath(name)
+	return "https://archive.org/details/" + internetArchiveEscapeSegment(identifier) + "/" + internetArchiveEscapedPath(name)
+}
+
+func internetArchiveUnquotePlus(segment string) (string, error) {
+	return url.PathUnescape(strings.ReplaceAll(segment, "+", " "))
+}
+
+func internetArchiveEscapeSegment(segment string) string {
+	return strings.ReplaceAll(url.PathEscape(segment), "+", "%2B")
 }
 
 func internetArchiveEscapedPath(name string) string {
@@ -431,7 +447,7 @@ func internetArchiveEscapedPath(name string) string {
 	for index := range parts {
 		// ArchiveOrgIE applies unquote_plus to entry paths. Escape a literal
 		// plus explicitly so generated playlist URLs round-trip exactly.
-		parts[index] = strings.ReplaceAll(url.PathEscape(parts[index]), "+", "%2B")
+		parts[index] = internetArchiveEscapeSegment(parts[index])
 	}
 	return strings.Join(parts, "/")
 }

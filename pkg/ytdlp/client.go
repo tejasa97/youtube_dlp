@@ -311,6 +311,8 @@ func (client *Client) productRegistry() *extractor.Registry {
 		extractor.NewTwitch(),
 		extractor.NewSoundCloud(),
 		extractor.NewStreamable(),
+		extractor.NewPeerTube(),
+		extractor.NewInternetArchive(),
 		extractor.NewRegionSVT(),
 		extractor.NewSyntheticAuth(),
 	}

@@ -459,6 +459,48 @@ capabilities:
       - network.shared_transport
     known_deviation: Compatibility is scoped to the pinned anonymous metadata corpus. Account uploads, private media, deletion, API authentication, and historical response variants outside the synthetic corpus are not claimed.
 
+  - id: extractor.peertube_shared
+    name: PeerTube federated shared-hosting extraction
+    phase: 3
+    compatibility_target: Extract public PeerTube videos from conservative instance routes with direct and HLS formats, captions, metadata, and live state.
+    status: compatible
+    evidence:
+      - internal/extractor.TestPeerTubeExtractsFederatedMetadataFormatsCaptionsAndLiveState
+      - internal/extractor.TestPeerTubeRoutingIsConservativeAndFederationExplicit
+      - internal/extractor.TestPeerTubeErrorsAreCategorizedAndSecretSafe
+      - internal/extractor.TestPeerTubeCancellationOptionalCaptionsAndAssetTrust
+      - internal/extractor.FuzzPeerTubeRouting
+      - internal/extractor.FuzzPeerTubeMetadata
+      - pkg/ytdlp.TestRepresentativeExtractorCatalogCountRoutingAndRiskCoverage
+      - conformance/extractors/shared/peertube/PROVENANCE.md
+      - docs/P3_PEERTUBE_EVIDENCE.md
+    owner: extractors
+    depends_on:
+      - protocol.hls
+      - network.shared_transport
+    known_deviation: Arbitrary instances require the explicit peertube scheme; HTTP routing uses a conservative established-instance set. Generic page discovery, account/channel playlists, and password-protected success are not claimed.
+
+  - id: extractor.internetarchive_public
+    name: Internet Archive public API and playlist extraction
+    phase: 3
+    compatibility_target: Extract public archive.org item media and reusable multi-file playlists through the bounded metadata API.
+    status: compatible
+    evidence:
+      - internal/extractor.TestInternetArchiveItemPlaylistIsDeterministicAndReusable
+      - internal/extractor.TestInternetArchiveRequestedMediaMetadataFormatsSubtitlesAndThumbnails
+      - internal/extractor.TestInternetArchiveCategorizedFailuresAndCancellation
+      - internal/extractor.TestInternetArchiveRejectsMalformedOversizedPrivateAndUntrustedAssets
+      - internal/extractor.FuzzNormalizeInternetArchive
+      - internal/extractor.FuzzClassifyInternetArchiveURL
+      - pkg/ytdlp.TestRepresentativeExtractorCatalogCountRoutingAndRiskCoverage
+      - conformance/extractors/public/internetarchive/PROVENANCE.md
+      - docs/P3_INTERNET_ARCHIVE_EVIDENCE.md
+    owner: extractors
+    depends_on:
+      - extractor.playlists
+      - network.shared_transport
+    known_deviation: Embed HTML, authenticated private media, reviews/comments, and file types outside the documented conservative media allowlist are not claimed.
+
   - id: operations.privacy_safe_telemetry
     name: Privacy-safe bounded traffic measurement
     phase: 3
