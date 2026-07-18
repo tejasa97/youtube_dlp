@@ -18,6 +18,7 @@ var (
 	ErrInvalidDatabase     = errors.New("invalid browser cookie database")
 	ErrUnsafeDatabase      = errors.New("unsafe browser cookie database")
 	ErrSnapshot            = errors.New("browser cookie database snapshot failed")
+	ErrLimit               = errors.New("browser cookie import exceeds safety limits")
 	ErrKeyUnavailable      = errors.New("browser cookie key unavailable")
 	ErrDecrypt             = errors.New("browser cookie decryption failed")
 )
@@ -40,6 +41,7 @@ type Options struct {
 	DatabasePath string
 	KeyProvider  KeyProvider
 	TempRoot     string
+	MaxCookies   int
 }
 
 type Result struct {

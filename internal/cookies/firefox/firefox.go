@@ -242,7 +242,7 @@ func copyRegular(ctx context.Context, source, destination string, required bool)
 	if os.IsNotExist(err) && !required {
 		return nil
 	}
-	if err != nil || !info.Mode().IsRegular() || info.Size() < 0 || info.Size() > 2<<30 {
+	if err != nil || !info.Mode().IsRegular() || info.Size() < 0 || info.Size() > maxSnapshotBytes {
 		return ErrSnapshot
 	}
 	input, err := os.Open(source)
@@ -250,29 +250,50 @@ func copyRegular(ctx context.Context, source, destination string, required bool)
 		return ErrSnapshot
 	}
 	defer input.Close()
+	opened, err := input.Stat()
+	if err != nil || !safeOpenedSnapshot(info, opened) {
+		return ErrSnapshot
+	}
 	output, err := os.OpenFile(destination, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return ErrSnapshot
 	}
 	defer output.Close()
 	buffer := make([]byte, 64<<10)
+	var copied int64
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		n, readErr := input.Read(buffer)
 		if n > 0 {
+			copied += int64(n)
+			if copied > maxSnapshotBytes {
+				return ErrSnapshot
+			}
 			if _, err := output.Write(buffer[:n]); err != nil {
 				return ErrSnapshot
 			}
 		}
 		if errors.Is(readErr, io.EOF) {
+			after, statErr := input.Stat()
+			if statErr != nil || !safeOpenedSnapshot(opened, after) {
+				return ErrSnapshot
+			}
 			return nil
 		}
 		if readErr != nil {
 			return ErrSnapshot
 		}
 	}
+}
+
+const maxSnapshotBytes int64 = 2 << 30
+
+func safeOpenedSnapshot(expected, opened os.FileInfo) bool {
+	return expected != nil && opened != nil && expected.Mode().IsRegular() && opened.Mode().IsRegular() &&
+		expected.Size() >= 0 && expected.Size() <= maxSnapshotBytes && opened.Size() >= 0 && opened.Size() <= maxSnapshotBytes &&
+		os.SameFile(expected, opened) && expected.Size() == opened.Size() && expected.ModTime() == opened.ModTime()
 }
 
 func sqliteURI(path string) string {

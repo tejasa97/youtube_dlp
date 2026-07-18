@@ -113,6 +113,56 @@ func TestImportSupportsOlderSecureSchema(t *testing.T) {
 	}
 }
 
+func TestImportEnforcesRowAndFieldLimits(t *testing.T) {
+	t.Run("rows", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "Cookies")
+		database := createCookieDatabase(t, path, false)
+		insertCookie(t, database, "one.example", "one", "value", nil, "/", 0, 0, 0, -1)
+		insertCookie(t, database, "two.example", "two", "value", nil, "/", 0, 0, 0, -1)
+		if err := database.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Import(context.Background(), Options{DatabasePath: path, MaxCookies: 1}); !errors.Is(err, ErrLimit) {
+			t.Fatalf("Import() error = %v", err)
+		}
+	})
+
+	for _, test := range []struct {
+		name      string
+		statement string
+	}{
+		{"host", "INSERT INTO cookies VALUES(printf('%.*c', 256, 'h'), 'name', 'value', X'', '/', 0, 0, 0, -1)"},
+		{"name", "INSERT INTO cookies VALUES('example.com', printf('%.*c', 4097, 'n'), 'value', X'', '/', 0, 0, 0, -1)"},
+		{"value", "INSERT INTO cookies VALUES('example.com', 'name', CAST(zeroblob(16777217) AS TEXT), X'', '/', 0, 0, 0, -1)"},
+		{"encrypted", "INSERT INTO cookies VALUES('example.com', 'name', '', zeroblob(16777217), '/', 0, 0, 0, -1)"},
+		{"path", "INSERT INTO cookies VALUES('example.com', 'name', 'value', X'', '/' || printf('%.*c', 4096, 'p'), 0, 0, 0, -1)"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "Cookies")
+			database := createCookieDatabase(t, path, false)
+			execStatements(t, database, test.statement)
+			if err := database.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Import(context.Background(), Options{DatabasePath: path}); !errors.Is(err, ErrLimit) {
+				t.Fatalf("Import() error = %v", err)
+			}
+		})
+	}
+}
+
+func TestImportRejectsInvalidBoundedCookieFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "Cookies")
+	database := createCookieDatabase(t, path, false)
+	insertCookie(t, database, "example.com\nforged", "name", "value", nil, "/", 0, 0, 0, -1)
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Import(context.Background(), Options{DatabasePath: path}); !errors.Is(err, ErrInvalidDatabase) {
+		t.Fatalf("Import() error = %v", err)
+	}
+}
+
 func TestImportReportsUnavailableKeyWithoutDiscardingPlaintext(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "Cookies")
 	database := createCookieDatabase(t, path, false)
@@ -228,4 +278,14 @@ func cookiesByName(cookies []*http.Cookie) map[string]*http.Cookie {
 		result[cookie.Name] = cookie
 	}
 	return result
+}
+
+func FuzzValidCookie(f *testing.F) {
+	f.Add("example.com", "name", "value", "/")
+	f.Fuzz(func(t *testing.T, host, name, value, path string) {
+		if len(host)+len(name)+len(value)+len(path) > 1<<20 {
+			t.Skip()
+		}
+		_ = validCookie(host, name, value, path)
+	})
 }

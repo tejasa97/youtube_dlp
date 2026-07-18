@@ -170,6 +170,41 @@ func TestImportCancellationUnsafeAndMalformed(t *testing.T) {
 	}
 }
 
+func TestSafeOpenedSnapshotRequiresSameRegularBoundedFile(t *testing.T) {
+	first := filepath.Join(t.TempDir(), "first")
+	second := filepath.Join(t.TempDir(), "second")
+	if err := os.WriteFile(first, []byte("one"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, []byte("two"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	firstInfo, err := os.Lstat(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opened, err := os.Open(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer opened.Close()
+	openedInfo, err := opened.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondInfo, err := os.Lstat(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directoryInfo, err := os.Lstat(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !safeOpenedSnapshot(firstInfo, openedInfo) || safeOpenedSnapshot(secondInfo, openedInfo) || safeOpenedSnapshot(directoryInfo, directoryInfo) {
+		t.Fatal("opened snapshot identity/type validation failed")
+	}
+}
+
 func TestImportOlderSchemaFromLockedWAL(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "Cookies")

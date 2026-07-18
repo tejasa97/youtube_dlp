@@ -63,6 +63,13 @@ func Import(ctx context.Context, options Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	maxCookies := options.MaxCookies
+	if maxCookies <= 0 {
+		maxCookies = 1_000_000
+	}
+	if err := validateCookieBounds(ctx, database, maxCookies); err != nil {
+		return Result{}, err
+	}
 	rows, err := database.QueryContext(ctx, query)
 	if err != nil {
 		return Result{}, ErrInvalidDatabase
@@ -89,6 +96,15 @@ func Import(ctx context.Context, options Options) (Result, error) {
 			return result, ErrInvalidDatabase
 		}
 		result.Total++
+		if result.Total > maxCookies {
+			return result, ErrLimit
+		}
+		if !validCookie(host, name, plainValue, path) {
+			return result, ErrInvalidDatabase
+		}
+		if len(encryptedValue) > maxCookieValueBytes {
+			return result, ErrLimit
+		}
 		value := plainValue
 		if len(encryptedValue) > 0 {
 			result.Encrypted++
@@ -127,6 +143,44 @@ func Import(ctx context.Context, options Options) (Result, error) {
 		failures = append(failures, fmt.Errorf("%w: %d cookies skipped", ErrDecrypt, decryptFailures))
 	}
 	return result, errors.Join(failures...)
+}
+
+const (
+	maxCookieHostBytes  = 255
+	maxCookieNameBytes  = 4096
+	maxCookieValueBytes = 16 << 20
+	maxCookiePathBytes  = 4096
+)
+
+// validateCookieBounds checks sizes in SQLite before the driver materializes
+// attacker-controlled TEXT and BLOB values into Go memory.
+func validateCookieBounds(ctx context.Context, database *sql.DB, maxCookies int) error {
+	var count, host, name, value, encrypted, path int64
+	err := database.QueryRowContext(ctx, `SELECT COUNT(*),
+		COALESCE(MAX(length(CAST(host_key AS BLOB))), 0),
+		COALESCE(MAX(length(CAST(name AS BLOB))), 0),
+		COALESCE(MAX(length(CAST(value AS BLOB))), 0),
+		COALESCE(MAX(length(CAST(encrypted_value AS BLOB))), 0),
+		COALESCE(MAX(length(CAST(path AS BLOB))), 0)
+		FROM cookies`).Scan(&count, &host, &name, &value, &encrypted, &path)
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		return ErrInvalidDatabase
+	}
+	if count < 0 || count > int64(maxCookies) || host > maxCookieHostBytes || name > maxCookieNameBytes ||
+		value > maxCookieValueBytes || encrypted > maxCookieValueBytes || path > maxCookiePathBytes {
+		return ErrLimit
+	}
+	return nil
+}
+
+func validCookie(host, name, value, path string) bool {
+	return host != "" && len(host) <= maxCookieHostBytes && len(name) <= maxCookieNameBytes && len(value) <= maxCookieValueBytes &&
+		path != "" && len(path) <= maxCookiePathBytes && strings.HasPrefix(path, "/") &&
+		!strings.ContainsAny(host, "\r\n\x00") && !strings.ContainsAny(name, "\r\n\x00") &&
+		!strings.ContainsAny(value, "\r\n\x00") && !strings.ContainsAny(path, "\r\n\x00")
 }
 
 func settingsFor(browser Browser) (browserSettings, error) {
