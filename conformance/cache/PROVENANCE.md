@@ -11,5 +11,12 @@ envelope. The checksummed envelope, expiry timestamps, atomic replacement,
 strict symlink handling, and per-entry/per-namespace resource limits are
 Go-port extensions.
 
+For platform-stable paths, the port restricts namespaces to the ASCII subset
+`[A-Za-z0-9_.-]`; Python's Unicode-aware `\w` also accepts non-ASCII letters.
+Cache payload files are disposable and are not migrated from upstream's JSON
+envelope. Multiple goroutines using one Store are serialized for hard resource
+bounds; independent processes retain atomic last-writer-wins behavior but can
+temporarily race near a configured namespace cap.
+
 No secret or live service data is present. Neither Python nor the reference
 checkout is required by production or tests.
