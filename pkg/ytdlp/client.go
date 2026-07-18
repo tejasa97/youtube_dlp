@@ -146,6 +146,12 @@ func WithJavaScriptHelper(path string) Option {
 	return func(client *Client) { client.javascriptHelper = path }
 }
 
+// WithTelemetryCollector enables bounded aggregate observations. Telemetry is
+// disabled by default and never changes an operation's result or error.
+func WithTelemetryCollector(collector *TelemetryCollector) Option {
+	return func(client *Client) { client.telemetry = collector }
+}
+
 // Runner is the cancellable operation contract.
 type Runner interface {
 	Run(context.Context, Request) (Result, error)
@@ -162,6 +168,7 @@ type Client struct {
 	platform              string
 	plugins               []*InstalledPlugin
 	pluginApprover        PluginPermissionApprover
+	telemetry             *TelemetryCollector
 }
 
 func NewClient(options ...Option) *Client {
@@ -172,9 +179,26 @@ func NewClient(options ...Option) *Client {
 	return client
 }
 
-func (client *Client) Run(ctx context.Context, request Request) (Result, error) {
+func (client *Client) Run(ctx context.Context, request Request) (result Result, runErr error) {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	rootExtractor := ""
+	if client.telemetry != nil {
+		defer func() {
+			extractorName := rootExtractor
+			if extractorName == "" {
+				extractorName = result.Extractor
+			}
+			outcome := TelemetryOutcomeSuccess
+			if runErr != nil {
+				outcome = TelemetryOutcomeError
+				if IsCategory(runErr, ErrorUnsupported) {
+					outcome = TelemetryOutcomeUnsupported
+				}
+			}
+			client.telemetry.observe(extractorName, outcome)
+		}()
 	}
 	if err := validateRequestOptions(request); err != nil {
 		return Result{}, categorized("validate request options", err)
@@ -257,6 +281,7 @@ func (client *Client) Run(ctx context.Context, request Request) (Result, error) 
 		registry: client.productRegistry(),
 		solver:   challengeSolver, archive: downloadArchive, cache: operationCache,
 		compatibility: compatibility,
+		rootExtractor: &rootExtractor,
 	}
 	return operation.process(ctx, request.URL, request.PluginID, nil, make(map[string]bool), 0)
 }
@@ -319,6 +344,7 @@ type operation struct {
 	archive       *archive.Store
 	cache         *cache.Store
 	compatibility compatibilityPlan
+	rootExtractor *string
 }
 
 func (operation *operation) process(ctx context.Context, rawURL, extractorKey string, overlay *extractor.Entry, ancestors map[string]bool, depth int) (Result, error) {
@@ -334,6 +360,9 @@ func (operation *operation) process(ctx context.Context, rawURL, extractorKey st
 	selected, err := operation.registry.SelectFor(rawURL, extractorKey)
 	if err != nil {
 		return Result{}, categorized("select extractor", err)
+	}
+	if depth == 0 && operation.rootExtractor != nil {
+		*operation.rootExtractor = selected.Name()
 	}
 	eventURL := network.RedactRawURL(rawURL)
 	if err := operation.client.emit(ctx, Event{Kind: string(events.KindExtracting), Extractor: selected.Name(), URL: eventURL}); err != nil {

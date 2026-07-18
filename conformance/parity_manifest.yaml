@@ -459,6 +459,30 @@ capabilities:
       - network.shared_transport
     known_deviation: Compatibility is scoped to the pinned anonymous metadata corpus. Account uploads, private media, deletion, API authentication, and historical response variants outside the synthetic corpus are not claimed.
 
+  - id: operations.privacy_safe_telemetry
+    name: Privacy-safe bounded traffic measurement
+    phase: 3
+    compatibility_target: Measure the full intended-operation denominator with fixed dimensions, overflow accounting, deterministic merge/export, and telemetry disabled by default.
+    status: compatible
+    evidence:
+      - internal/telemetry.TestObserveSnapshotResetAndCanonicalJSON
+      - internal/telemetry.TestEveryOutcomeIsExplicit
+      - internal/telemetry.TestConcurrentObservation
+      - internal/telemetry.TestMergeIsDeterministicBoundedAndAtomicOnFailure
+      - internal/telemetry.TestDecodeRejectsMalformedAmbiguousOrSensitiveDimensions
+      - internal/telemetry.TestCalculateCoverageKeepsFailuresFallbackAndOverflowInDenominator
+      - internal/telemetry.TestCalculateCoverageMarksSaturatedTotalsInexact
+      - internal/telemetry.FuzzDecode
+      - internal/telemetry.FuzzMerge
+      - pkg/ytdlp.TestTelemetryCollectorProductIntegrationAndCanonicalRoundTrip
+      - pkg/ytdlp.TestTelemetryIsDisabledByDefaultAndUnknownExtractorIsBounded
+      - conformance/telemetry/PROVENANCE.md
+      - docs/P3_TELEMETRY.md
+    owner: operations
+    depends_on:
+      - foundation.capability_manifest
+    known_deviation: The library intentionally does not choose a destination, retention period, identifier allowlist, or network exporter. Deployments must opt in and publish those policies before measured traffic can support Gate G3.
+
   - id: extractor.vimeo_pilot
     name: Vimeo manifest-heavy extraction pilot
     phase: 1
