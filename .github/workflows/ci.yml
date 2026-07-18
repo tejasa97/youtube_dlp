@@ -32,14 +32,32 @@ jobs:
             target: FuzzValueJSON
           - package: ./internal/compat/template
             target: FuzzResolve
+          - package: ./internal/compat/matchfilter
+            target: FuzzParse
+          - package: ./internal/compat/metadata
+            target: FuzzActions
+          - package: ./internal/compat/progress
+            target: FuzzRender
           - package: ./internal/format
             target: FuzzParseSelector
+          - package: ./internal/downloader
+            target: FuzzContentRange
+          - package: ./internal/fragment
+            target: FuzzPlanHash
           - package: ./internal/protocol/hls
             target: FuzzParse
           - package: ./internal/protocol/dash
             target: FuzzParse
+          - package: ./internal/protocol/ism
+            target: FuzzParse
           - package: ./internal/media/ffmpeg
             target: FuzzRedactDiagnostic
+          - package: ./internal/media/ffmpeg
+            target: FuzzOperationInputValidation
+          - package: ./internal/media/postprocess
+            target: FuzzArtifactPaths
+          - package: ./pkg/ytdlp
+            target: FuzzConfinedPostprocessPath
           - package: ./internal/plugin/rpc
             target: FuzzReadFrame
           - package: ./internal/plugin/wasm
@@ -143,7 +161,7 @@ jobs:
           go-version-file: go.mod
           cache: true
       - run: sudo apt-get update && sudo apt-get install --yes ffmpeg
-      - run: go test -v ./internal/media/ffmpeg ./internal/protocol/hls ./internal/protocol/dash
+      - run: go test -v ./internal/media/ffmpeg ./internal/media/postprocess ./internal/protocol/hls ./internal/protocol/dash ./internal/protocol/ism ./pkg/ytdlp
 
   python-free:
     runs-on: ubuntu-latest
