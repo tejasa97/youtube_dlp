@@ -73,3 +73,18 @@ func TestTelemetryIsDisabledByDefaultAndUnknownExtractorIsBounded(t *testing.T) 
 		t.Fatalf("snapshot=%+v", snapshot)
 	}
 }
+
+func TestBuiltInExtractorIDsAreUniqueAndIncludeProductBoundaries(t *testing.T) {
+	seen := make(map[string]bool)
+	for _, id := range BuiltInExtractorIDs() {
+		if seen[id] {
+			t.Fatalf("duplicate extractor %q", id)
+		}
+		seen[id] = true
+	}
+	for _, id := range []string{"youtube", "streamable", "fixture", "generic"} {
+		if !seen[id] {
+			t.Fatalf("missing built-in extractor %q", id)
+		}
+	}
+}

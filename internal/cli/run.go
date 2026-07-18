@@ -60,6 +60,7 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	timeout := flags.Duration("socket-timeout", 30*time.Second, "network operation timeout")
 	overwrite := flags.Bool("force-overwrites", false, "replace an existing final file")
 	progressJSON := flags.Bool("progress-json", false, "write newline-delimited progress events to stderr")
+	telemetryJSON := flags.Bool("telemetry-json", false, "write one privacy-safe aggregate telemetry snapshot to stdout")
 	quiet := flags.Bool("quiet", false, "suppress human-readable progress")
 	javascriptHelper := flags.String("js-helper", "", "path to the isolated JavaScript helper")
 	cookieFile := flags.String("cookies", "", "load cookies from a Netscape cookies.txt file")
@@ -125,6 +126,10 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		flags.Usage()
 		return 2
 	}
+	if *telemetryJSON && *printJSON {
+		fmt.Fprintln(stderr, "ytdlp-go: --telemetry-json and --print-json cannot share stdout")
+		return 2
+	}
 
 	handler := func(_ context.Context, event ytdlp.Event) error {
 		if *progressJSON {
@@ -149,7 +154,17 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		}
 		return nil
 	}
-	client := ytdlp.NewClient(ytdlp.WithEventHandler(handler), ytdlp.WithJavaScriptHelper(*javascriptHelper))
+	clientOptions := []ytdlp.Option{ytdlp.WithEventHandler(handler), ytdlp.WithJavaScriptHelper(*javascriptHelper)}
+	var telemetryCollector *ytdlp.TelemetryCollector
+	if *telemetryJSON {
+		telemetryCollector, err = ytdlp.NewTelemetryCollector(ytdlp.TelemetryConfig{Extractors: ytdlp.BuiltInExtractorIDs()})
+		if err != nil {
+			fmt.Fprintln(stderr, "ytdlp-go: cannot configure telemetry")
+			return 2
+		}
+		clientOptions = append(clientOptions, ytdlp.WithTelemetryCollector(telemetryCollector))
+	}
+	client := ytdlp.NewClient(clientOptions...)
 	downloaderOptions := ytdlp.DownloaderOptions{
 		Attempts: *retries, RetryBaseDelay: *retryBaseDelay, RetryMaxDelay: *retryMaxDelay,
 		RateLimit: int64(rateLimit), MaxBytes: int64(maxBytes), ThrottleRate: int64(throttleRate),
@@ -177,6 +192,12 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		ParseMetadata: append([]string(nil), parseMetadata...), ReplaceMetadata: append([]string(nil), replaceMetadata...),
 		Downloader: downloaderOptions, Postprocessors: postprocessors,
 	})
+	if telemetryCollector != nil {
+		if writeErr := telemetryCollector.WriteCanonical(context.Background(), stdout); writeErr != nil {
+			fmt.Fprintln(stderr, "ytdlp-go: cannot write telemetry snapshot")
+			return 1
+		}
+	}
 	if err != nil {
 		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
 		return exitCode(err)

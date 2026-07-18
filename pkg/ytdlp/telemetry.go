@@ -43,6 +43,12 @@ type TelemetryCollector struct {
 	extractors map[string]struct{}
 }
 
+// BuiltInExtractorIDs returns native product extractor identifiers in routing
+// priority order. Installed plugin IDs remain deployment-specific.
+func BuiltInExtractorIDs() []string {
+	return productRegistry().Names()
+}
+
 func NewTelemetryCollector(config TelemetryConfig) (*TelemetryCollector, error) {
 	extractors := make([]string, 0, len(config.Extractors)+1)
 	allowed := make(map[string]struct{}, len(config.Extractors)+1)

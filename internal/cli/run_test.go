@@ -26,6 +26,40 @@ func TestRunVersion(t *testing.T) {
 	}
 }
 
+func TestRunTelemetryJSONSuccessFailureAndConflict(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"--telemetry-json", "--skip-download", server.URL + "/page"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("success code=%d stderr=%q", code, stderr.String())
+	}
+	snapshot, err := ytdlp.DecodeTelemetrySnapshot(context.Background(), bytes.NewReader(stdout.Bytes()), 0)
+	if err != nil || len(snapshot.Counts) != 1 || snapshot.Counts[0].Extractor != "fixture" || snapshot.Counts[0].Outcome != ytdlp.TelemetryOutcomeSuccess {
+		t.Fatalf("success snapshot=%+v error=%v", snapshot, err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run([]string{"--telemetry-json", "not-a-url"}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatalf("invalid URL succeeded: stdout=%q", stdout.String())
+	}
+	snapshot, err = ytdlp.DecodeTelemetrySnapshot(context.Background(), bytes.NewReader(stdout.Bytes()), 0)
+	if err != nil || len(snapshot.Counts) != 1 || snapshot.Counts[0].Extractor != ytdlp.TelemetryUnknownExtractor || snapshot.Counts[0].Outcome != ytdlp.TelemetryOutcomeUnsupported {
+		t.Fatalf("failure snapshot=%+v error=%v stderr=%q", snapshot, err, stderr.String())
+	}
+	if strings.Contains(stdout.String(), "not-a-url") {
+		t.Fatalf("telemetry exposed input: %q", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"--telemetry-json", "--print-json", server.URL + "/page"}, &stdout, &stderr); code != 2 || stdout.Len() != 0 {
+		t.Fatalf("conflict code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestRunResumesPartialDownload(t *testing.T) {
 	server := testserver.New()
 	defer server.Close()

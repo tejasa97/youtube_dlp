@@ -76,6 +76,20 @@ type Registry struct {
 	extractors []Extractor
 }
 
+// Names returns extractor identifiers in deterministic routing-priority order.
+func (registry *Registry) Names() []string {
+	if registry == nil {
+		return nil
+	}
+	names := make([]string, 0, len(registry.extractors))
+	for _, candidate := range registry.extractors {
+		if candidate != nil {
+			names = append(names, candidate.Name())
+		}
+	}
+	return names
+}
+
 func NewRegistry(extractors ...Extractor) *Registry {
 	return &Registry{extractors: append([]Extractor(nil), extractors...)}
 }

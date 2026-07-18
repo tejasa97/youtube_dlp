@@ -10,6 +10,11 @@ bounded extraction outcome for each `Run`, including operations that fail
 before routing. Cancellation does not erase the observation from the declared
 denominator.
 
+The CLI remains disabled by default. `--telemetry-json` enables a single-run
+snapshot on stdout so an operator can merge snapshots outside the process. It
+is mutually exclusive with `--print-json`, records failed operations before
+the CLI returns, and never writes a URL or error message to the snapshot.
+
 The public collector accepts a fixed extractor allowlist. Any extractor not in
 that set, including a newly installed plugin, maps to the literal `unknown`
 bucket. The only public capability is `extract`, and outcomes are limited to

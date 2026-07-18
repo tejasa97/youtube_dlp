@@ -476,6 +476,8 @@ capabilities:
       - internal/telemetry.FuzzMerge
       - pkg/ytdlp.TestTelemetryCollectorProductIntegrationAndCanonicalRoundTrip
       - pkg/ytdlp.TestTelemetryIsDisabledByDefaultAndUnknownExtractorIsBounded
+      - pkg/ytdlp.TestBuiltInExtractorIDsAreUniqueAndIncludeProductBoundaries
+      - internal/cli.TestRunTelemetryJSONSuccessFailureAndConflict
       - conformance/telemetry/PROVENANCE.md
       - docs/P3_TELEMETRY.md
     owner: operations
