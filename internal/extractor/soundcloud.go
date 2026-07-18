@@ -20,9 +20,13 @@ import (
 )
 
 const (
-	soundCloudAPIBase       = "https://api-v2.soundcloud.com/"
-	soundCloudWebBase       = "https://soundcloud.com/"
-	soundCloudMaxAssetBytes = int64(4 << 20)
+	soundCloudAPIBase         = "https://api-v2.soundcloud.com/"
+	soundCloudWebBase         = "https://soundcloud.com/"
+	soundCloudMaxAssetBytes   = int64(4 << 20)
+	soundCloudMaxTranscodings = 64
+	soundCloudMaxPageEntries  = 200
+	soundCloudMaxSetEntries   = 10_000
+	soundCloudMaxURLBytes     = 8 << 10
 )
 
 var (
@@ -91,7 +95,7 @@ type soundCloudTarget struct {
 }
 
 func classifySoundCloudURL(parsed *url.URL) (soundCloudTarget, bool) {
-	if parsed == nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Port() != "" || parsed.User != nil || strings.Contains(strings.ToLower(parsed.EscapedPath()), "%2f") {
+	if parsed == nil || len(parsed.String()) > soundCloudMaxURLBytes || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Port() != "" || parsed.User != nil || strings.Contains(strings.ToLower(parsed.EscapedPath()), "%2f") {
 		return soundCloudTarget{}, false
 	}
 	host := strings.ToLower(parsed.Hostname())
@@ -103,6 +107,14 @@ func classifySoundCloudURL(parsed *url.URL) (soundCloudTarget, bool) {
 	secret := parsed.Query().Get("secret_token")
 	if secret != "" && !soundCloudTokenPattern.MatchString(secret) {
 		return soundCloudTarget{}, false
+	}
+	if len(secret) > 256 {
+		return soundCloudTarget{}, false
+	}
+	for _, segment := range segments {
+		if len(segment) > 256 {
+			return soundCloudTarget{}, false
+		}
 	}
 	switch host {
 	case "soundcloud.com", "www.soundcloud.com", "m.soundcloud.com":
@@ -149,13 +161,17 @@ func soundCloudNumericID(input string) string {
 	if index := strings.LastIndex(input, ":"); index >= 0 {
 		input = input[index+1:]
 	}
-	if input == "" {
+	if input == "" || len(input) > 20 {
 		return ""
 	}
 	for _, character := range input {
 		if character < '0' || character > '9' {
 			return ""
 		}
+	}
+	parsed, err := strconv.ParseUint(input, 10, 64)
+	if err != nil || parsed == 0 {
+		return ""
 	}
 	return input
 }
@@ -183,7 +199,7 @@ func (extractor *SoundCloud) extractSet(ctx context.Context, transport Transport
 	if err := extractor.requestJSON(ctx, transport, endpoint, &playlist); err != nil {
 		return Extraction{}, err
 	}
-	if playlist.ID.String() == "" || strings.TrimSpace(playlist.Title) == "" || playlist.Tracks == nil {
+	if !validSoundCloudJSONID(playlist.ID) || strings.TrimSpace(playlist.Title) == "" || playlist.Tracks == nil || len(playlist.Tracks) > soundCloudMaxSetEntries {
 		return Extraction{}, fmt.Errorf("%w: malformed SoundCloud playlist", ErrInvalidMetadata)
 	}
 	entries := make([]Entry, 0, len(playlist.Tracks))
@@ -203,7 +219,7 @@ func (extractor *SoundCloud) extractUserTracks(ctx context.Context, transport Tr
 	if err := extractor.requestJSON(ctx, transport, endpoint, &user); err != nil {
 		return Extraction{}, err
 	}
-	if user.ID.String() == "" || strings.TrimSpace(user.Username) == "" {
+	if !validSoundCloudJSONID(user.ID) || strings.TrimSpace(user.Username) == "" {
 		return Extraction{}, fmt.Errorf("%w: malformed SoundCloud user", ErrInvalidMetadata)
 	}
 	firstURL := soundCloudAPIBase + "users/" + user.ID.String() + "/tracks?linked_partitioning=1&limit=200"
@@ -231,7 +247,7 @@ func (extractor *SoundCloud) fetchTrackPage(ctx context.Context, transport Trans
 	if err := extractor.requestJSON(ctx, transport, validated, &page); err != nil {
 		return nil, "", err
 	}
-	if page.Collection == nil {
+	if page.Collection == nil || len(page.Collection) > soundCloudMaxPageEntries {
 		return nil, "", fmt.Errorf("%w: malformed SoundCloud page", ErrInvalidPlaylist)
 	}
 	entries := make([]Entry, 0, len(page.Collection))
@@ -323,7 +339,7 @@ type soundCloudPage struct {
 
 func (extractor *SoundCloud) normalizeTrack(ctx context.Context, transport Transport, track soundCloudTrack, secretToken string) (Extraction, error) {
 	trackID := track.ID.String()
-	if trackID == "" || strings.TrimSpace(track.Title) == "" || track.Media.Transcodings == nil {
+	if !validSoundCloudJSONID(track.ID) || strings.TrimSpace(track.Title) == "" || track.Media.Transcodings == nil || len(track.Media.Transcodings) > soundCloudMaxTranscodings {
 		return Extraction{}, fmt.Errorf("%w: malformed SoundCloud track", ErrInvalidMetadata)
 	}
 	formats := make([]value.Value, 0, len(track.Media.Transcodings))
@@ -477,7 +493,10 @@ func soundCloudExtension(mimeType, codec, fallback string) string {
 }
 
 func soundCloudTrackEntry(track soundCloudTrack, secretToken string) (Entry, bool) {
-	id := track.ID.String()
+	id := ""
+	if validSoundCloudJSONID(track.ID) {
+		id = track.ID.String()
+	}
 	rawURL := track.PermalinkURL
 	parsed, parseErr := url.Parse(rawURL)
 	target, suitable := classifySoundCloudURL(parsed)
@@ -494,6 +513,9 @@ func soundCloudTrackEntry(track soundCloudTrack, secretToken string) (Entry, boo
 }
 
 func soundCloudPlaylistEntry(playlist soundCloudPlaylist) (Entry, bool) {
+	if !validSoundCloudJSONID(playlist.ID) {
+		return Entry{}, false
+	}
 	parsed, err := url.Parse(playlist.PermalinkURL)
 	target, suitable := classifySoundCloudURL(parsed)
 	if err != nil || !suitable || target.kind != soundCloudSetTarget {
@@ -616,6 +638,9 @@ func soundCloudAssetURL(rawURL string) (string, bool) {
 }
 
 func validateSoundCloudCursor(rawURL string) (string, error) {
+	if len(rawURL) > soundCloudMaxURLBytes {
+		return "", fmt.Errorf("%w: invalid SoundCloud continuation", ErrInvalidPlaylist)
+	}
 	parsed, err := url.Parse(rawURL)
 	if err != nil || parsed.Scheme != "https" || parsed.Host != "api-v2.soundcloud.com" || parsed.User != nil || !strings.HasPrefix(path.Clean(parsed.Path), "/users/") {
 		return "", fmt.Errorf("%w: invalid SoundCloud continuation", ErrInvalidPlaylist)
@@ -624,6 +649,10 @@ func validateSoundCloudCursor(rawURL string) (string, error) {
 	query.Del("client_id")
 	parsed.RawQuery = query.Encode()
 	return parsed.String(), nil
+}
+
+func validSoundCloudJSONID(input json.Number) bool {
+	return soundCloudNumericID(input.String()) != ""
 }
 
 func addSoundCloudQuery(rawURL, key, input string) string {

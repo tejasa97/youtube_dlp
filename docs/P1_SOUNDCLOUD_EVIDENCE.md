@@ -16,6 +16,9 @@ The shared registry and parity manifest remain owned by the primary integrator.
   progressive HTTP, native HLS, encrypted-HLS labeling, codec/extension/bitrate
   normalization, preview labeling, URL de-duplication, broken ABR rejection,
   and explicit DRM/block handling.
+- Response cardinalities are capped at 64 transcodings, 200 linked-partition
+  entries per page, and 10,000 set entries; URLs, slugs, tokens, assets, and
+  JSON bodies also have explicit limits.
 - Deterministic normalized track metadata for identifiers, title/track,
   uploader, duration, timestamps, counts, license, genre, artwork, webpage URL,
   and audio-only formats.

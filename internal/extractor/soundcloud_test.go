@@ -130,6 +130,7 @@ func TestSoundCloudSuitableGuards(t *testing.T) {
 		{"https://soundcloud.com/artist/sets/album", true},
 		{"https://soundcloud.com/artist/tracks", true},
 		{"https://api.soundcloud.com/tracks/4242", true},
+		{"https://api.soundcloud.com/tracks/0", false},
 		{"https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A4242", true},
 		{"https://api-v2.soundcloud.com/playlists/soundcloud:playlists:55", true},
 		{"https://soundcloud.com/artist/likes", false},
@@ -360,6 +361,12 @@ func TestSoundCloudCancellationInterruptsLazyPage(t *testing.T) {
 }
 
 func TestSoundCloudCategorizedFailuresAndSecretRedaction(t *testing.T) {
+	tooManyTranscodings := soundCloudTrack{ID: json.Number("4242"), Title: "too many"}
+	tooManyTranscodings.Media.Transcodings = make([]soundCloudTranscoding, soundCloudMaxTranscodings+1)
+	tooManyBody, marshalErr := json.Marshal(tooManyTranscodings)
+	if marshalErr != nil {
+		t.Fatal(marshalErr)
+	}
 	tests := []struct {
 		name   string
 		status int
@@ -371,6 +378,7 @@ func TestSoundCloudCategorizedFailuresAndSecretRedaction(t *testing.T) {
 		{name: "malformed JSON", status: http.StatusOK, body: []byte(`{"id":`), want: ErrInvalidMetadata},
 		{name: "malformed metadata", status: http.StatusOK, body: []byte(`{"id":4242,"media":{"transcodings":[]}}`), want: ErrInvalidMetadata},
 		{name: "blocked", status: http.StatusOK, body: []byte(`{"id":4242,"title":"blocked","policy":"BLOCK","media":{"transcodings":[]}}`), want: ErrUnavailable},
+		{name: "transcoding bound", status: http.StatusOK, body: tooManyBody, want: ErrInvalidMetadata},
 		{name: "bounded", status: http.StatusOK, body: []byte(strings.Repeat(" ", int(maxExtractorJSONBytes+1))), want: ErrJSONResponseTooLarge},
 	}
 	for _, test := range tests {
