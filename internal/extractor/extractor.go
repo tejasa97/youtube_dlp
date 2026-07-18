@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/ytdlp-go/ytdlp/internal/javascript/ejs"
-	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
 var (
@@ -68,7 +68,7 @@ type YouTubeChallengeSolver interface {
 type Extractor interface {
 	Name() string
 	Suitable(*url.URL) bool
-	Extract(context.Context, Request) (value.Info, error)
+	Extract(context.Context, Request) (Extraction, error)
 }
 
 type Registry struct {
@@ -94,14 +94,32 @@ func (registry *Registry) Select(rawURL string) (Extractor, error) {
 	return nil, fmt.Errorf("%w: %s", ErrUnsupported, parsed.Redacted())
 }
 
-func (registry *Registry) Extract(ctx context.Context, request Request) (value.Info, string, error) {
+// SelectFor honors an explicit URL-result extractor key. It never silently
+// falls back when the producer requested an unknown extractor.
+func (registry *Registry) SelectFor(rawURL, extractorKey string) (Extractor, error) {
+	if extractorKey == "" {
+		return registry.Select(rawURL)
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return nil, fmt.Errorf("%w: invalid URL result", ErrUnsupported)
+	}
+	for _, candidate := range registry.extractors {
+		if strings.EqualFold(candidate.Name(), extractorKey) {
+			return candidate, nil
+		}
+	}
+	return nil, fmt.Errorf("%w: extractor key %q", ErrUnsupported, extractorKey)
+}
+
+func (registry *Registry) Extract(ctx context.Context, request Request) (Extraction, string, error) {
 	selected, err := registry.Select(request.URL)
 	if err != nil {
-		return value.Info{}, "", err
+		return Extraction{}, "", err
 	}
-	info, err := selected.Extract(ctx, request)
+	result, err := selected.Extract(ctx, request)
 	if err != nil {
-		return value.Info{}, selected.Name(), fmt.Errorf("%s extractor: %w", selected.Name(), err)
+		return Extraction{}, selected.Name(), fmt.Errorf("%s extractor: %w", selected.Name(), err)
 	}
-	return info, selected.Name(), nil
+	return result, selected.Name(), nil
 }

@@ -80,6 +80,7 @@ type Result struct {
 	Downloaded bool
 	Filename   string
 	Bytes      int64
+	Entries    []Result
 }
 
 type Event struct {
@@ -169,34 +170,153 @@ func (client *Client) Run(ctx context.Context, request Request) (Result, error) 
 			return Result{}, &Error{Category: ErrorInternal, Op: "emit browser cookie event", Err: err}
 		}
 	}
-	registry := extractor.NewRegistry(extractor.NewYouTube(), extractor.NewFixture(), extractor.NewGeneric())
-	selected, err := registry.Select(request.URL)
+	challengeSolver := &lazyYouTubeSolver{path: discoverJavaScriptHelper(client.javascriptHelper)}
+	defer challengeSolver.Close()
+	operation := &operation{
+		client: client, request: request, transport: transport,
+		registry: extractor.NewRegistry(extractor.NewYouTube(), extractor.NewFixture(), extractor.NewGeneric()),
+		solver:   challengeSolver,
+	}
+	return operation.process(ctx, request.URL, "", nil, make(map[string]bool), 0)
+}
+
+const (
+	maxPlaylistDepth   = 8
+	maxPlaylistEntries = 10_000
+)
+
+type operation struct {
+	client    *Client
+	request   Request
+	transport *network.Client
+	registry  *extractor.Registry
+	solver    extractor.YouTubeChallengeSolver
+}
+
+func (operation *operation) process(ctx context.Context, rawURL, extractorKey string, overlay *extractor.Entry, ancestors map[string]bool, depth int) (Result, error) {
+	if err := ctx.Err(); err != nil {
+		return Result{}, categorized("process extraction", err)
+	}
+	if depth > maxPlaylistDepth || ancestors[rawURL] {
+		return Result{}, categorized("expand playlist", extractor.ErrPlaylistLimit)
+	}
+	ancestors[rawURL] = true
+	defer delete(ancestors, rawURL)
+
+	selected, err := operation.registry.SelectFor(rawURL, extractorKey)
 	if err != nil {
 		return Result{}, categorized("select extractor", err)
 	}
-	if err := client.emit(ctx, Event{Kind: string(events.KindExtracting), Extractor: selected.Name(), URL: request.URL}); err != nil {
+	if err := operation.client.emit(ctx, Event{Kind: string(events.KindExtracting), Extractor: selected.Name(), URL: rawURL}); err != nil {
 		return Result{}, &Error{Category: ErrorInternal, Op: "emit extracting event", Err: err}
 	}
-	var challengeSolver *lazyYouTubeSolver
-	if selected.Name() == "youtube" {
-		challengeSolver = &lazyYouTubeSolver{path: discoverJavaScriptHelper(client.javascriptHelper)}
-		defer challengeSolver.Close()
-	}
-	info, err := selected.Extract(ctx, extractor.Request{
-		URL: request.URL, Transport: transport, ChallengeSolver: challengeSolver,
+	extracted, err := selected.Extract(ctx, extractor.Request{
+		URL: rawURL, Transport: operation.transport, ChallengeSolver: operation.solver,
 	})
 	if err != nil {
 		return Result{}, categorized(selected.Name()+" extraction", err)
 	}
-	if err := client.emit(ctx, Event{Kind: string(events.KindExtracted), Extractor: selected.Name(), URL: request.URL}); err != nil {
+	if overlay != nil && overlay.Transparent {
+		info := value.NewInfo(extracted.Info.Fields().Clone())
+		if overlay.ID != "" {
+			info.Set("id", value.String(overlay.ID))
+		}
+		if overlay.Title != "" {
+			info.Set("title", value.String(overlay.Title))
+		}
+		extracted.Info = info
+	}
+	if err := operation.client.emit(ctx, Event{Kind: string(events.KindExtracted), Extractor: selected.Name(), URL: rawURL}); err != nil {
 		return Result{}, &Error{Category: ErrorInternal, Op: "emit extracted event", Err: err}
 	}
+	if extracted.IsPlaylist() {
+		return operation.processPlaylist(ctx, extracted, selected.Name(), ancestors, depth)
+	}
+	return operation.processMedia(ctx, extracted.Info, selected.Name())
+}
+
+func (operation *operation) processPlaylist(ctx context.Context, extracted extractor.Extraction, extractorName string, ancestors map[string]bool, depth int) (Result, error) {
+	iterator := extracted.Entries.Iterator()
+	children := make([]Result, 0)
+	entryValues := make([]value.Value, 0)
+	playlistID, _ := extracted.Info.ID()
+	playlistTitle, _ := extracted.Info.Title()
+	for index := 0; ; index++ {
+		entry, ok, err := iterator.Next(ctx)
+		if err != nil {
+			return Result{}, categorized(extractorName+" playlist iteration", err)
+		}
+		if !ok {
+			info := value.NewInfo(extracted.Info.Fields().Clone())
+			info.Set("entries", value.List(entryValues...))
+			encoded, err := encodeInfo(info)
+			if err != nil {
+				return Result{}, err
+			}
+			result := Result{InfoJSON: encoded, Extractor: extractorName, Entries: children}
+			for _, child := range children {
+				result.Bytes += child.Bytes
+				result.Downloaded = result.Downloaded || child.Downloaded
+			}
+			return result, nil
+		}
+		if index >= maxPlaylistEntries {
+			return Result{}, categorized(extractorName+" playlist iteration", extractor.ErrPlaylistLimit)
+		}
+		if entry.URL == "" {
+			return Result{}, categorized(extractorName+" playlist entry", extractor.ErrInvalidPlaylist)
+		}
+		child, err := operation.process(ctx, entry.URL, entry.ExtractorKey, &entry, ancestors, depth+1)
+		if err != nil {
+			return Result{}, fmt.Errorf("playlist entry %d: %w", index+1, err)
+		}
+		entryValue, err := playlistEntryValue(child.InfoJSON, index+1, playlistID, playlistTitle)
+		if err != nil {
+			return Result{}, err
+		}
+		child.InfoJSON, err = entryValue.MarshalJSON()
+		if err != nil {
+			return Result{}, &Error{Category: ErrorInternal, Op: "encode playlist entry metadata", Err: err}
+		}
+		children = append(children, child)
+		entryValues = append(entryValues, entryValue)
+	}
+}
+
+func playlistEntryValue(encoded json.RawMessage, index int, playlistID, playlistTitle string) (value.Value, error) {
+	var entry value.Value
+	if err := json.Unmarshal(encoded, &entry); err != nil {
+		return value.Missing(), &Error{Category: ErrorInternal, Op: "decode playlist entry metadata", Err: err}
+	}
+	object, ok := entry.Object()
+	if !ok {
+		return value.Missing(), &Error{Category: ErrorInternal, Op: "decode playlist entry metadata", Err: extractor.ErrInvalidMetadata}
+	}
+	object.Set("playlist_index", value.Int(int64(index)))
+	if playlistID != "" {
+		object.Set("playlist_id", value.String(playlistID))
+	}
+	if playlistTitle != "" {
+		object.Set("playlist_title", value.String(playlistTitle))
+	}
+	return value.ObjectValue(object), nil
+}
+
+func encodeInfo(info value.Info) (json.RawMessage, error) {
 	encoded, err := json.Marshal(value.ObjectValue(info.Fields()))
 	if err != nil {
-		return Result{}, &Error{Category: ErrorInternal, Op: "encode metadata", Err: err}
+		return nil, &Error{Category: ErrorInternal, Op: "encode metadata", Err: err}
 	}
-	result := Result{InfoJSON: encoded, Extractor: selected.Name()}
-	if request.SkipDownload {
+	return encoded, nil
+}
+
+func (operation *operation) processMedia(ctx context.Context, info value.Info, extractorName string) (Result, error) {
+	encoded, err := encodeInfo(info)
+	if err != nil {
+		return Result{}, err
+	}
+	result := Result{InfoJSON: encoded, Extractor: extractorName}
+	if operation.request.SkipDownload {
 		return result, nil
 	}
 
@@ -204,11 +324,11 @@ func (client *Client) Run(ctx context.Context, request Request) (Result, error) 
 	if err != nil {
 		return Result{}, categorized("select format", err)
 	}
-	pattern := request.OutputTemplate
+	pattern := operation.request.OutputTemplate
 	if pattern == "" {
 		pattern = "%(title)s.%(ext)s"
 	}
-	outputDir := request.OutputDir
+	outputDir := operation.request.OutputDir
 	if outputDir == "" {
 		outputDir = "."
 	}
@@ -218,7 +338,7 @@ func (client *Client) Run(ctx context.Context, request Request) (Result, error) 
 	}
 
 	sink := events.SinkFunc(func(ctx context.Context, event events.Event) error {
-		return client.emit(ctx, Event{
+		return operation.client.emit(ctx, Event{
 			Kind: string(event.Kind), URL: event.URL, Path: event.Path, Bytes: event.Bytes,
 			Total: event.Total, Attempt: event.Attempt, Resuming: event.Resuming, Message: event.Message,
 			Fragment: event.Fragment, Fragments: event.Fragments,
@@ -228,13 +348,13 @@ func (client *Client) Run(ctx context.Context, request Request) (Result, error) 
 	var downloadedBytes int64
 	switch selectedFormat.Protocol {
 	case "m3u8_native":
-		downloaded, err := hls.NewDownloader(transport, hls.Config{}).Download(ctx, selectedFormat.URL, outputDir, destination, request.Overwrite, sink)
+		downloaded, err := hls.NewDownloader(operation.transport, hls.Config{}).Download(ctx, selectedFormat.URL, outputDir, destination, operation.request.Overwrite, sink)
 		if err != nil {
 			return Result{}, categorized("download HLS", err)
 		}
 		downloadedPath, downloadedBytes = downloaded.Path, downloaded.Bytes
 	case "http_dash_segments":
-		downloaded, err := dash.NewDownloader(transport, dash.Config{}).Download(ctx, selectedFormat.URL, outputDir, destination, request.Overwrite, sink)
+		downloaded, err := dash.NewDownloader(operation.transport, dash.Config{}).Download(ctx, selectedFormat.URL, outputDir, destination, operation.request.Overwrite, sink)
 		if err != nil {
 			return Result{}, categorized("download DASH", err)
 		}
@@ -243,7 +363,7 @@ func (client *Client) Run(ctx context.Context, request Request) (Result, error) 
 			if err != nil {
 				return Result{}, categorized("discover ffmpeg", err)
 			}
-			if err := pipeline.FinalizeDASH(ctx, downloaded, destination, request.Overwrite, tools, sink); err != nil {
+			if err := pipeline.FinalizeDASH(ctx, downloaded, destination, operation.request.Overwrite, tools, sink); err != nil {
 				return Result{}, categorized("merge DASH", err)
 			}
 			downloadedPath = destination
@@ -255,8 +375,8 @@ func (client *Client) Run(ctx context.Context, request Request) (Result, error) 
 			downloadedBytes = downloaded.Tracks[0].Download.Bytes
 		}
 	default:
-		downloaded, err := downloader.New(transport).Download(ctx, downloader.Job{
-			URL: selectedFormat.URL, OutputRoot: outputDir, Destination: destination, Overwrite: request.Overwrite,
+		downloaded, err := downloader.New(operation.transport).Download(ctx, downloader.Job{
+			URL: selectedFormat.URL, OutputRoot: outputDir, Destination: destination, Overwrite: operation.request.Overwrite,
 		}, sink)
 		if err != nil {
 			return Result{}, categorized("download", err)
@@ -303,7 +423,8 @@ func categorized(op string, err error) error {
 		errors.Is(err, network.ErrInvalidProxy), errors.Is(err, network.ErrInvalidCookie),
 		errors.Is(err, errInvalidBrowserCookieSpec):
 		category = ErrorInvalidInput
-	case errors.Is(err, mediaformat.ErrNoFormats), errors.Is(err, extractor.ErrInvalidMetadata):
+	case errors.Is(err, mediaformat.ErrNoFormats), errors.Is(err, extractor.ErrInvalidMetadata),
+		errors.Is(err, extractor.ErrInvalidPlaylist), errors.Is(err, extractor.ErrPlaylistLimit):
 		category = ErrorInternal
 	}
 	return &Error{Category: category, Op: op, Err: err}

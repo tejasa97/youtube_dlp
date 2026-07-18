@@ -31,35 +31,35 @@ func (YouTube) Suitable(parsed *url.URL) bool {
 	return host == "youtube.com" || strings.HasSuffix(host, ".youtube.com") || host == "youtu.be"
 }
 
-func (YouTube) Extract(ctx context.Context, request Request) (value.Info, error) {
+func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error) {
 	videoID, err := youtubeVideoID(request.URL)
 	if err != nil {
-		return value.Info{}, err
+		return Extraction{}, err
 	}
 	webpageURL := "https://www.youtube.com/watch?v=" + videoID
 	page, _, err := request.Transport.ReadPage(ctx, webpageURL)
 	if err != nil {
-		return value.Info{}, err
+		return Extraction{}, err
 	}
 	rawPlayer, err := extractJSONObject(page, youtubePlayerMarker)
 	if err != nil {
-		return value.Info{}, fmt.Errorf("%w: player response: %v", ErrInvalidMetadata, err)
+		return Extraction{}, fmt.Errorf("%w: player response: %v", ErrInvalidMetadata, err)
 	}
 	var player youtubePlayerResponse
 	if err := json.Unmarshal(rawPlayer, &player); err != nil {
-		return value.Info{}, fmt.Errorf("%w: decode player response: %v", ErrInvalidMetadata, err)
+		return Extraction{}, fmt.Errorf("%w: decode player response: %v", ErrInvalidMetadata, err)
 	}
 	if player.VideoDetails.VideoID != "" && player.VideoDetails.VideoID != videoID {
-		return value.Info{}, fmt.Errorf("%w: response video id mismatch", ErrInvalidMetadata)
+		return Extraction{}, fmt.Errorf("%w: response video id mismatch", ErrInvalidMetadata)
 	}
 	if err := checkYouTubeAvailability(player.PlayabilityStatus); err != nil {
-		return value.Info{}, err
+		return Extraction{}, err
 	}
 
 	formats := append(append([]youtubeFormat(nil), player.StreamingData.Formats...), player.StreamingData.AdaptiveFormats...)
 	resolved, err := resolveYouTubeURLs(ctx, request, webpageURL, videoID, player.Assets.JS, formats)
 	if err != nil {
-		return value.Info{}, err
+		return Extraction{}, err
 	}
 	formatValues := make([]value.Value, 0, len(resolved)+2)
 	for _, format := range resolved {
@@ -74,12 +74,12 @@ func (YouTube) Extract(ctx context.Context, request Request) (value.Info, error)
 		formatValues = append(formatValues, value.ObjectValue(manifestFormat("dash", player.StreamingData.DASHManifestURL, "http_dash_segments")))
 	}
 	if len(formatValues) == 0 {
-		return value.Info{}, fmt.Errorf("%w: no downloadable formats", ErrInvalidMetadata)
+		return Extraction{}, fmt.Errorf("%w: no downloadable formats", ErrInvalidMetadata)
 	}
 
 	details := player.VideoDetails
 	if details.Title == "" {
-		return value.Info{}, fmt.Errorf("%w: missing title", ErrInvalidMetadata)
+		return Extraction{}, fmt.Errorf("%w: missing title", ErrInvalidMetadata)
 	}
 	info := value.NewObject(
 		value.Field{Key: "id", Value: value.String(videoID)},
@@ -106,7 +106,7 @@ func (YouTube) Extract(ctx context.Context, request Request) (value.Info, error)
 	} else {
 		info.Set("live_status", value.String("not_live"))
 	}
-	return value.NewInfo(info), nil
+	return Media(value.NewInfo(info)), nil
 }
 
 type youtubePlayerResponse struct {

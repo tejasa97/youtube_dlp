@@ -18,7 +18,9 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/cookies/chromium"
 	"github.com/ytdlp-go/ytdlp/internal/extractor"
 	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
+	"github.com/ytdlp-go/ytdlp/internal/network"
 	"github.com/ytdlp-go/ytdlp/internal/testserver"
+	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
 func TestIsCategory(t *testing.T) {
@@ -291,4 +293,159 @@ func TestClientConcurrentOperationsDoNotShareState(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+}
+
+type playlistFixtureExtractor struct{}
+
+func (playlistFixtureExtractor) Name() string { return "playlist-fixture" }
+
+func (playlistFixtureExtractor) Suitable(parsed *url.URL) bool {
+	return parsed.Path == "/list" || parsed.Path == "/nested" || parsed.Path == "/cycle"
+}
+
+func (playlistFixtureExtractor) Extract(_ context.Context, request extractor.Request) (extractor.Extraction, error) {
+	parsed, _ := url.Parse(request.URL)
+	base := parsed.Scheme + "://" + parsed.Host
+	var id, title string
+	var entries []extractor.Entry
+	switch parsed.Path {
+	case "/list":
+		id, title = "root", "Root Playlist"
+		entries = []extractor.Entry{
+			{URL: base + "/one.mp4", ExtractorKey: "generic", ID: "one"},
+			{URL: base + "/nested", ExtractorKey: "playlist-fixture", ID: "nested"},
+		}
+	case "/nested":
+		id, title = "nested", "Nested Playlist"
+		entries = []extractor.Entry{{URL: base + "/two.mp4", ExtractorKey: "generic", ID: "two"}}
+	case "/cycle":
+		id, title = "cycle", "Cycle"
+		entries = []extractor.Entry{{URL: request.URL, ExtractorKey: "playlist-fixture"}}
+	default:
+		return extractor.Extraction{}, extractor.ErrUnsupported
+	}
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String(id)},
+		value.Field{Key: "title", Value: value.String(title)},
+		value.Field{Key: "webpage_url", Value: value.String(request.URL)},
+	))
+	return extractor.Playlist(info, extractor.StaticEntries(entries...))
+}
+
+func TestOperationResolvesNestedPlaylistInOrder(t *testing.T) {
+	server := playlistMediaServer(t)
+	defer server.Close()
+	transport, err := network.New(network.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := &operation{
+		client: NewClient(), request: Request{SkipDownload: true}, transport: transport,
+		registry: extractor.NewRegistry(playlistFixtureExtractor{}, extractor.NewGeneric()),
+	}
+	result, err := operation.process(context.Background(), server.URL+"/list", "", nil, make(map[string]bool), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Extractor != "playlist-fixture" || len(result.Entries) != 2 || len(result.Entries[1].Entries) != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(result.InfoJSON, &metadata); err != nil {
+		t.Fatal(err)
+	}
+	entries, ok := metadata["entries"].([]any)
+	if !ok || len(entries) != 2 {
+		t.Fatalf("metadata entries = %#v", metadata["entries"])
+	}
+	first := entries[0].(map[string]any)
+	second := entries[1].(map[string]any)
+	if first["id"] != "one" || first["playlist_index"] != float64(1) || second["_type"] != "playlist" {
+		t.Fatalf("entries = %#v", entries)
+	}
+	nested := second["entries"].([]any)[0].(map[string]any)
+	if nested["id"] != "two" || nested["playlist_id"] != "nested" || nested["playlist_index"] != float64(1) {
+		t.Fatalf("nested entry = %#v", nested)
+	}
+}
+
+func TestOperationDownloadsPlaylistAndAggregatesBytes(t *testing.T) {
+	server := playlistMediaServer(t)
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	operation := &operation{
+		client: NewClient(), request: Request{OutputDir: root}, transport: transport,
+		registry: extractor.NewRegistry(playlistFixtureExtractor{}, extractor.NewGeneric()),
+	}
+	result, err := operation.process(context.Background(), server.URL+"/list", "", nil, make(map[string]bool), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Downloaded || result.Bytes != int64(len("one")+len("second")) {
+		t.Fatalf("aggregate result = %#v", result)
+	}
+	for name, want := range map[string]string{"one.mp4": "one", "two.mp4": "second"} {
+		got, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil || string(got) != want {
+			t.Fatalf("%s = %q, %v", name, got, err)
+		}
+	}
+}
+
+func TestOperationRejectsNestedPlaylistCycle(t *testing.T) {
+	server := playlistMediaServer(t)
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	operation := &operation{
+		client: NewClient(), request: Request{SkipDownload: true}, transport: transport,
+		registry: extractor.NewRegistry(playlistFixtureExtractor{}, extractor.NewGeneric()),
+	}
+	_, err := operation.process(context.Background(), server.URL+"/cycle", "", nil, make(map[string]bool), 0)
+	if !IsCategory(err, ErrorInternal) || !errors.Is(err, extractor.ErrPlaylistLimit) {
+		t.Fatalf("cycle error = %v", err)
+	}
+}
+
+func TestOperationMergesTransparentEntryMetadata(t *testing.T) {
+	server := playlistMediaServer(t)
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	operation := &operation{
+		client: NewClient(), request: Request{SkipDownload: true}, transport: transport,
+		registry: extractor.NewRegistry(extractor.NewGeneric()),
+	}
+	overlay := &extractor.Entry{ID: "producer-id", Title: "Producer Title", Transparent: true}
+	result, err := operation.process(context.Background(), server.URL+"/one.mp4", "generic", overlay, make(map[string]bool), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(result.InfoJSON, &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata["id"] != "producer-id" || metadata["title"] != "Producer Title" {
+		t.Fatalf("transparent metadata = %#v", metadata)
+	}
+}
+
+func playlistMediaServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var body string
+		switch request.URL.Path {
+		case "/one.mp4":
+			body = "one"
+		case "/two.mp4":
+			body = "second"
+		default:
+			http.NotFound(writer, request)
+			return
+		}
+		writer.Header().Set("Content-Type", "video/mp4")
+		writer.Header().Set("Content-Length", fmt.Sprint(len(body)))
+		if request.Method != http.MethodHead {
+			_, _ = writer.Write([]byte(body))
+		}
+	}))
 }

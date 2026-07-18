@@ -83,7 +83,7 @@ func TestYouTubeExtractsPinnedVideoAndSolvesChallenges(t *testing.T) {
 		youtubeFixtureURL: watch,
 		youtubePlayerURL:  player,
 	}}
-	info, err := NewYouTube().Extract(context.Background(), Request{
+	result, err := NewYouTube().Extract(context.Background(), Request{
 		URL: youtubeFixtureURL, Transport: transport, ChallengeSolver: solver,
 	})
 	if err != nil {
@@ -93,7 +93,7 @@ func TestYouTubeExtractsPinnedVideoAndSolvesChallenges(t *testing.T) {
 	encoder := json.NewEncoder(&actual)
 	encoder.SetEscapeHTML(false)
 	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(info.Fields()); err != nil {
+	if err := encoder.Encode(result.Info.Fields()); err != nil {
 		t.Fatal(err)
 	}
 	var expectedDocument, actualDocument any

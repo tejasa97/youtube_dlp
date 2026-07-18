@@ -19,23 +19,23 @@ func NewGeneric() Generic { return Generic{} }
 func (Generic) Name() string           { return "generic" }
 func (Generic) Suitable(*url.URL) bool { return true }
 
-func (Generic) Extract(ctx context.Context, request Request) (value.Info, error) {
+func (Generic) Extract(ctx context.Context, request Request) (Extraction, error) {
 	parsed, err := url.Parse(request.URL)
 	if err != nil {
-		return value.Info{}, fmt.Errorf("%w: %v", ErrUnsupported, err)
+		return Extraction{}, fmt.Errorf("%w: %v", ErrUnsupported, err)
 	}
 	httpRequest, _ := http.NewRequest(http.MethodHead, request.URL, nil)
 	response, err := request.Transport.Do(ctx, httpRequest)
 	if err != nil {
-		return value.Info{}, err
+		return Extraction{}, err
 	}
 	response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return value.Info{}, fmt.Errorf("%w: HTTP status %d", ErrUnsupported, response.StatusCode)
+		return Extraction{}, fmt.Errorf("%w: HTTP status %d", ErrUnsupported, response.StatusCode)
 	}
 	mediaType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
 	if !isDirectMediaType(mediaType) {
-		return value.Info{}, fmt.Errorf("%w: content type %q is not direct media", ErrUnsupported, mediaType)
+		return Extraction{}, fmt.Errorf("%w: content type %q is not direct media", ErrUnsupported, mediaType)
 	}
 
 	base := path.Base(parsed.Path)
@@ -73,7 +73,7 @@ func (Generic) Extract(ctx context.Context, request Request) (value.Info, error)
 		value.Field{Key: "formats", Value: value.List(value.ObjectValue(format))},
 		value.Field{Key: "http_headers", Value: value.ObjectValue(headersValue(response.Request.Header))},
 	)
-	return value.NewInfo(info), nil
+	return Media(value.NewInfo(info)), nil
 }
 
 func isDirectMediaType(mediaType string) bool {

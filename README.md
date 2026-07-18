@@ -72,6 +72,7 @@ explicitly `partial` or `not_started`.
 - [Architecture decisions](docs/adr/README.md)
 - [Fixture policy](docs/FIXTURE_POLICY.md)
 - [Chromium cookie import](docs/CHROMIUM_COOKIE_IMPORT.md)
+- [Playlist extraction model](docs/PLAYLIST_MODEL.md)
 - [Third-party notices](THIRD_PARTY_NOTICES.md)
 
 No compatibility claim should be made until a capability has a passing

@@ -320,8 +320,21 @@ capabilities:
     name: Playlist extraction model
     phase: 1
     compatibility_target: Preserve ordered, lazy, and nested playlist semantics required by pilot extractors.
-    status: not_started
+    status: compatible
+    evidence:
+      - internal/extractor.TestEntryObjectMatchesURLResultShape
+      - internal/extractor.TestOnDemandEntriesAreOrderedLazyAndReusable
+      - internal/extractor.TestEntrySequencesPropagateCancellationErrorsAndLimits
+      - internal/extractor.TestPlaylistMarksMetadataWithoutMaterializingEntries
+      - internal/extractor.TestRegistryHonorsExplicitExtractorKey
+      - internal/extractor.FuzzOnDemandEntries
+      - pkg/ytdlp.TestOperationResolvesNestedPlaylistInOrder
+      - pkg/ytdlp.TestOperationDownloadsPlaylistAndAggregatesBytes
+      - pkg/ytdlp.TestOperationRejectsNestedPlaylistCycle
+      - pkg/ytdlp.TestOperationMergesTransparentEntryMetadata
+      - docs/PLAYLIST_MODEL.md
     owner: extractors
+    known_deviation: The Phase 1 model resolves entries sequentially with a fail-fast error policy and supports id/title overlays for transparent URL results. Playlist slicing, random/reverse ordering, arbitrary transparent fields, and configurable ignore-error policy remain broader compatibility work.
 
   - id: extractor.live
     name: Live extraction pilot

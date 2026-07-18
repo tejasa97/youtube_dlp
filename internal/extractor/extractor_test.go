@@ -32,8 +32,8 @@ func TestFixtureRejectsMalformedMetadata(t *testing.T) {
 
 func (extractor namedExtractor) Name() string           { return extractor.name }
 func (extractor namedExtractor) Suitable(*url.URL) bool { return extractor.suitable }
-func (extractor namedExtractor) Extract(context.Context, Request) (value.Info, error) {
-	return value.NewInfo(value.NewObject()), nil
+func (extractor namedExtractor) Extract(context.Context, Request) (Extraction, error) {
+	return Media(value.NewInfo(value.NewObject())), nil
 }
 
 func TestRegistrySelectionIsDeterministic(t *testing.T) {
@@ -51,6 +51,17 @@ func TestRegistryRejectsMalformedURL(t *testing.T) {
 	registry := NewRegistry(NewGeneric())
 	if _, err := registry.Select("not a URL"); !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("Select() error = %v", err)
+	}
+}
+
+func TestRegistryHonorsExplicitExtractorKey(t *testing.T) {
+	registry := NewRegistry(namedExtractor{"first", false}, namedExtractor{"second", false})
+	selected, err := registry.SelectFor("https://example.invalid/video", "Second")
+	if err != nil || selected.Name() != "second" {
+		t.Fatalf("SelectFor() = %v, %v", selected, err)
+	}
+	if _, err := registry.SelectFor("https://example.invalid/video", "missing"); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("unknown key error = %v", err)
 	}
 }
 
@@ -87,17 +98,17 @@ func TestFixtureExtraction(t *testing.T) {
 	defer server.Close()
 	transport, _ := network.New(network.Config{})
 	registry := NewRegistry(NewFixture(), NewGeneric())
-	info, name, err := registry.Extract(context.Background(), Request{URL: server.URL + "/page", Transport: transport})
+	result, name, err := registry.Extract(context.Background(), Request{URL: server.URL + "/page", Transport: transport})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if name != "fixture" {
 		t.Fatalf("extractor = %q", name)
 	}
-	if title, _ := info.Title(); title != "Deterministic Fixture" {
+	if title, _ := result.Info.Title(); title != "Deterministic Fixture" {
 		t.Fatalf("title = %q", title)
 	}
-	formats, _ := info.Formats()
+	formats, _ := result.Info.Formats()
 	if len(formats) != 1 {
 		t.Fatalf("formats = %d", len(formats))
 	}
@@ -108,14 +119,14 @@ func TestGenericDirectMediaExtraction(t *testing.T) {
 	defer server.Close()
 	transport, _ := network.New(network.Config{})
 	registry := NewRegistry(NewFixture(), NewGeneric())
-	info, name, err := registry.Extract(context.Background(), Request{URL: server.URL + "/media", Transport: transport})
+	result, name, err := registry.Extract(context.Background(), Request{URL: server.URL + "/media", Transport: transport})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if name != "generic" {
 		t.Fatalf("extractor = %q", name)
 	}
-	if extension, _ := info.Extension(); extension != "bin" {
+	if extension, _ := result.Info.Extension(); extension != "bin" {
 		t.Fatalf("extension = %q", extension)
 	}
 }
@@ -132,16 +143,16 @@ func TestGenericManifestExtraction(t *testing.T) {
 		{"/hls/master.m3u8", "m3u8_native"},
 		{"/dash/manifest.mpd", "http_dash_segments"},
 	} {
-		info, _, err := registry.Extract(context.Background(), Request{URL: server.URL + test.path, Transport: transport})
+		result, _, err := registry.Extract(context.Background(), Request{URL: server.URL + test.path, Transport: transport})
 		if err != nil {
 			t.Fatalf("extract %s: %v", test.path, err)
 		}
-		formats, _ := info.Formats()
+		formats, _ := result.Info.Formats()
 		format, _ := formats[0].Object()
 		if got, _ := format.Lookup("protocol").StringValue(); got != test.protocol {
 			t.Fatalf("protocol for %s = %q", test.path, got)
 		}
-		if ext, _ := info.Extension(); ext != "mp4" {
+		if ext, _ := result.Info.Extension(); ext != "mp4" {
 			t.Fatalf("extension for %s = %q", test.path, ext)
 		}
 	}
