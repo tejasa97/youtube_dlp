@@ -526,6 +526,41 @@ capabilities:
     status: not_started
     owner: core
 
+  - id: cache.namespaced_storage
+    name: Bounded namespaced cache
+    phase: 2
+    compatibility_target: Store, expire, retrieve, and safely remove bounded namespaced compatibility data with atomic filesystem behavior.
+    status: not_started
+    owner: core
+
+  - id: cookies.portable_sources
+    name: Portable cookie sources
+    phase: 2
+    compatibility_target: Read Netscape cookie files and import declared Firefox and Chromium profiles across the supported platform matrix without exposing secrets.
+    status: not_started
+    owner: authentication
+
+  - id: compat.languages_principal
+    name: Principal compatibility languages
+    phase: 2
+    compatibility_target: Evaluate the declared principal format, sorting, output, progress, metadata, and match-filter language corpus with bounded exact diagnostics.
+    status: not_started
+    owner: core
+
+  - id: downloader.protocol_matrix
+    name: Alpha downloader and protocol matrix
+    phase: 2
+    compatibility_target: Provide declared rate, retry, throttling, artifact, ISM, and external-downloader behavior with cancellation-safe resume.
+    status: not_started
+    owner: io
+
+  - id: postprocess.core_operations
+    name: Core postprocessor operations
+    phase: 2
+    compatibility_target: Execute typed audio, conversion, embedding, fixup, concat, chapter, and file-move operations atomically and without a shell.
+    status: not_started
+    owner: media
+
   - id: compat.format_selector_pilot
     name: Format-selector parser pilot
     phase: 1
@@ -577,6 +612,34 @@ capabilities:
     compatibility_target: Read, update, and migrate download archives without duplicate-download regressions.
     status: not_started
     owner: core
+
+  - id: plugins.abi_v1
+    name: Plugin ABI v1
+    phase: 2
+    compatibility_target: Discover and run explicitly trusted versioned plugins with declared permissions, upgrade compatibility, crash isolation, and no Python runtime.
+    status: not_started
+    owner: runtime
+
+  - id: release.signed_packs
+    name: Signed extractor and plugin packs
+    phase: 2
+    compatibility_target: Verify, install, roll back, and remove deterministic signed packs through path-safe trust policy.
+    status: not_started
+    owner: release
+
+  - id: extractor.phase2_breadth
+    name: Phase 2 representative extractor breadth
+    phase: 2
+    compatibility_target: Register at least 25 native representative extractors spanning every declared major capability class.
+    status: not_started
+    owner: extractors
+
+  - id: verification.g2_security
+    name: Gate G2 security and fallback audit
+    phase: 2
+    compatibility_target: Close critical credential, plugin, updater, command, archive, cache, signature, and filesystem findings and account for every fallback.
+    status: not_started
+    owner: security
 
   - id: plugins.rpc
     name: Out-of-process plugin protocol
@@ -635,8 +698,8 @@ capabilities:
     known_deviation: Eight post-pin weeks do not yet exist. The replay uses the real consecutive eight-week window ending at the 2026-07-14 pin; the same Go tool can refresh a forward window after 2026-09-08.
 
   - id: release.updater
-    name: Signed updater and release metadata
-    phase: 3
-    compatibility_target: Verify and install signed cross-platform releases with safe rollback behavior.
+    name: Signed alpha updater and release metadata
+    phase: 2
+    compatibility_target: Build, install, update, roll back, and run signed Python-free alpha artifacts across the primary platform matrix.
     status: not_started
     owner: release
