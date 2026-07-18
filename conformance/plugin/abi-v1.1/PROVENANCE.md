@@ -22,6 +22,12 @@ compatible 1.1 extension to the ABI's existing open maps. A future ABI that
 adds optional top-level fields must first add an explicit extension-retention
 policy to `pkg/pluginapi`; this harness does not claim that behavior today.
 
+The production RPC tests execute both compatibility directions as real native
+subprocess exchanges: an ABI 1.0 host negotiates 1.0 with a plugin advertising
+the inclusive 1.0–1.1 range, and the default 1.0–1.1 host negotiates 1.0 with a
+plugin advertising only ABI 1.0. The structured fixture separately exercises
+the 1.1 exchange and its additive open-map fields.
+
 The automated rejection matrix also proves that Python runtimes, a new ABI
 major, minor-range downgrades, capability expansion, permission escalation,
 changed required fields, duplicate JSON keys, unknown envelope fields,

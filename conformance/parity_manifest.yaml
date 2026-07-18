@@ -747,6 +747,24 @@ capabilities:
       - conformance/differential/pilot/PROVENANCE.md
     owner: core
 
+  - id: conformance.semantic_shadow
+    name: Typed semantic shadow comparison
+    phase: 3
+    compatibility_target: Compare bounded redacted routing, requests, metadata, formats, playlists, warnings, and protocol usability with deterministic severity reports.
+    status: compatible
+    evidence:
+      - internal/differential.TestPhase3CorpusCanonicalComparisonAndRedaction
+      - internal/differential.TestSemanticMismatchClassificationSeverityAndMissingNull
+      - internal/differential.TestOrderPoliciesAndBoundedMismatchCollection
+      - internal/differential.TestMalformedOversizedAndCancellation
+      - internal/differential.TestMetadataAndWarningSecretRedaction
+      - internal/differential.FuzzParseObservation
+      - conformance/differential/phase3/PROVENANCE.md
+    owner: conformance
+    depends_on:
+      - conformance.differential_runner
+    known_deviation: The synthetic corpus proves the comparison and persistence boundary, not live extractor parity. Free-form warning producers must still avoid unconventional secret syntax, and regional/native-platform observations require separately attributable runners.
+
   - id: compat.download_archive
     name: Download archive compatibility
     phase: 2
@@ -789,6 +807,25 @@ capabilities:
       - conformance/plugin/abi-v1/PROVENANCE.md
     owner: runtime
     known_deviation: Native RPC lacks portable CPU, memory, and process-count quotas; Windows has a narrow start-to-Job-assignment race and secure discovery fails closed where owner/DACL proof is unavailable. WASM has no fuel metering. Plugins are product-routed only by explicit signed installation and PluginID selection.
+
+  - id: plugins.abi_v1_1_upgrade
+    name: Compatible plugin ABI 1.0 to 1.1 upgrade
+    phase: 3
+    compatibility_target: Prove additive ABI 1.1 evolution with old-host/new-plugin and new-host/old-plugin native exchanges and unchanged permissions.
+    status: compatible
+    evidence:
+      - internal/plugin/upgrade.TestCompatibleMinorUpgradeReport
+      - internal/plugin/upgrade.TestRejectsPythonMajorDowngradeAndInvariantChanges
+      - internal/plugin/upgrade.TestDecodeBoundsMalformedAndCancellation
+      - internal/plugin/upgrade.TestCanonicalTranscriptRejectsDuplicateAndIsStable
+      - internal/plugin/upgrade.FuzzDecodeFixture
+      - internal/plugin/rpc.TestRPCV1MinorUpgradeNegotiatesV1Host
+      - internal/plugin/rpc.TestRPCV1MinorUpgradeNewHostRunsV1Plugin
+      - conformance/plugin/abi-v1.1/PROVENANCE.md
+    owner: runtime
+    depends_on:
+      - plugins.abi_v1
+    known_deviation: Compatible additions are confined to existing options and metadata extension maps. Unknown optional top-level envelope fields remain fail-closed until the public decoder receives an explicit extension-retention policy.
 
   - id: release.signed_packs
     name: Signed extractor and plugin packs

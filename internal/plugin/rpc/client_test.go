@@ -51,6 +51,13 @@ func TestRPCV1MinorUpgradeNegotiatesV1Host(t *testing.T) {
 	}
 }
 
+func TestRPCV1MinorUpgradeNewHostRunsV1Plugin(t *testing.T) {
+	response, err := (Client{}).Extract(context.Background(), helperConfig("baseline"), request())
+	if err != nil || response.Metadata["abi"] != float64(plugin.ProtocolV1_0) {
+		t.Fatalf("baseline response, error = %#v, %v", response, err)
+	}
+}
+
 func TestRPCStructuredRemoteError(t *testing.T) {
 	response, err := (Client{}).Extract(context.Background(), helperConfig("remote"), request())
 	var remote *plugin.RemoteFailure
@@ -413,6 +420,10 @@ func TestRPCPluginHelper(t *testing.T) {
 		return
 	}
 	manifest := stableManifest("fixture-plugin")
+	if mode == "baseline" {
+		manifest.Release = "1.0.0"
+		manifest.ABIRange = plugin.VersionRange{Minimum: plugin.ProtocolV1_0, Maximum: plugin.ProtocolV1_0}
+	}
 	if mode == "version" {
 		manifest.ABIRange = plugin.VersionRange{Minimum: 99, Maximum: 99}
 	}
