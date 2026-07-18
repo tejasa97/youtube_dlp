@@ -1,0 +1,12 @@
+{
+  "session": {
+    "authenticated": true
+  },
+  "media": {
+    "id": "auth-001",
+    "title": "Authenticated conformance media",
+    "description": "Available only after the operation jar supplies its scoped cookie.",
+    "url": "https://media.auth-fixture.invalid/auth-001.mp4",
+    "duration": 42
+  }
+}
