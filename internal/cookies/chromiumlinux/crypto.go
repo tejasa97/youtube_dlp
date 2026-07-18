@@ -62,17 +62,22 @@ func (d *decryptor) decrypt(ctx context.Context, host string, encrypted []byte) 
 		if err != nil {
 			continue
 		}
+		fullPlaintext := plaintext[:cap(plaintext)]
 		if d.metaVersion >= 24 {
 			digest := sha256.Sum256([]byte(host))
 			if len(plaintext) < len(digest) || !bytes.Equal(plaintext[:len(digest)], digest[:]) {
+				zero(fullPlaintext)
 				continue
 			}
 			plaintext = plaintext[len(digest):]
 		}
 		if !validValue(plaintext) {
+			zero(fullPlaintext)
 			continue
 		}
-		return string(plaintext), nil
+		value := string(plaintext)
+		zero(fullPlaintext)
+		return value, nil
 	}
 	return "", ErrDecrypt
 }

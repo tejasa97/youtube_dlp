@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func makeDatabase(t *testing.T, schema int, wal bool) string {
@@ -104,6 +105,63 @@ func TestImportCopiesDatabaseAndWAL(t *testing.T) {
 	result, err := Import(context.Background(), Options{DatabasePath: makeDatabase(t, 17, true)})
 	if err != nil || result.Imported != 2 {
 		t.Fatalf("%+v %v", result, err)
+	}
+}
+
+func TestImportCopiesLockedLiveWAL(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cookies.sqlite")
+	db, err := sql.Open("sqlite3", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err = db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		"CREATE TABLE moz_cookies(host TEXT,name TEXT,value TEXT,path TEXT,expiry INTEGER,isSecure INTEGER)",
+		"PRAGMA user_version=15",
+		"INSERT INTO moz_cookies VALUES('example.com','live','value','/',0,0)",
+	} {
+		if _, err = db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, err := Import(context.Background(), Options{DatabasePath: path})
+	if err != nil || result.Imported != 1 {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+}
+
+func TestLocateNewestSyntheticProfile(t *testing.T) {
+	root := t.TempDir()
+	older := filepath.Join(root, "old", "cookies.sqlite")
+	newer := filepath.Join(root, "new", "cookies.sqlite")
+	for _, path := range []string{older, newer} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("synthetic"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	oldTime := time.Unix(1_700_000_000, 0)
+	if err := os.Chtimes(older, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(newer, oldTime.Add(time.Hour), oldTime.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	selected, err := locate(Options{ProfileDir: root})
+	if err != nil || selected != newer {
+		t.Fatalf("selected=%q err=%v", selected, err)
+	}
+}
+
+func TestContainerMissingIsCategorized(t *testing.T) {
+	_, err := Import(context.Background(), Options{DatabasePath: makeDatabase(t, 17, false), Container: "missing"})
+	if !errors.Is(err, ErrContainerMissing) {
+		t.Fatalf("got %v", err)
 	}
 }
 
