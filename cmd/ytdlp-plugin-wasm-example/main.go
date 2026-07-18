@@ -1,0 +1,19 @@
+// ytdlp-plugin-wasm-example writes the deterministic P1 example module to stdout.
+package main
+
+import (
+	"encoding/hex"
+	"os"
+)
+
+const moduleHex = "0061736d01000000010b026000017f60027f7f017e0303020001050401010102073303066d656d6f72790200167974646c705f70726f746f636f6c5f76657273696f6e00000d7974646c705f6578747261637400010a1102040041010b0a0042c48080808080010b0b4b01004180080b447b226964223a226f6e65222c226d65746164617461223a7b226964223a227761736d2d6578616d706c65222c227469746c65223a225741534d206578616d706c65227d7d"
+
+func main() {
+	module, err := hex.DecodeString(moduleHex)
+	if err != nil {
+		panic(err)
+	}
+	if _, err := os.Stdout.Write(module); err != nil {
+		os.Exit(1)
+	}
+}
