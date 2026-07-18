@@ -1,0 +1,1 @@
+{"data":[{"captionPath":"/lazy-static/video-captions/fixture-en.vtt","language":{"id":"en","label":"English"}},{"captionPath":"https://captions.example.test/fixture-fr.vtt","language":{"id":"fr","label":"Français"}},{"captionPath":"//untrusted.example/escape.vtt","language":{"id":"xx"}}]}
