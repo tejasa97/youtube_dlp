@@ -854,6 +854,7 @@ capabilities:
       - internal/update.TestStaleLockRequiresDeadOwner
       - internal/update.TestCommandHealthCheckerBoundsFailedIsolation
       - internal/update.TestPlatformTargetInstallFixtures
+      - internal/update.TestNativeArtifactInstallUpdateRollbackAndRun
       - internal/release.TestBuildPlanIsExplicitAndDeterministic
       - internal/release.TestArchivesAreReproducibleAndNormalized
       - internal/release.TestChecksumsLicensesSBOMAndManifest

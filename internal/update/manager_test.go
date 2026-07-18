@@ -19,8 +19,9 @@ import (
 )
 
 var (
-	healthHelper = flag.Bool("ytdlp-health-helper", false, "run deterministic updater health helper")
-	healthBlock  = flag.Bool("ytdlp-health-block", false, "run blocking updater health helper")
+	healthHelper    = flag.Bool("ytdlp-health-helper", false, "run deterministic updater health helper")
+	healthBlock     = flag.Bool("ytdlp-health-block", false, "run blocking updater health helper")
+	healthInstalled = flag.Bool("ytdlp-health-installed", false, "run installed-artifact health helper")
 )
 
 func managerOptions(public ed25519.PublicKey, goos, goarch string, health HealthChecker) Options {
@@ -337,6 +338,68 @@ func TestPlatformTargetInstallFixtures(t *testing.T) {
 				t.Fatalf("state = %#v", state)
 			}
 		})
+	}
+}
+
+func TestNativeArtifactInstallUpdateRollbackAndRun(t *testing.T) {
+	if *healthInstalled {
+		executable, err := os.Executable()
+		if err != nil {
+			os.Exit(2)
+		}
+		fmt.Printf("ytdlp-go %s", filepath.Base(filepath.Dir(executable)))
+		os.Exit(0)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := os.ReadFile(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	public, private := testKey("native-alpha-release")
+	options := managerOptions(public, runtime.GOOS, runtime.GOARCH, CommandHealthChecker{
+		Arguments:    []string{"-test.run=^TestNativeArtifactInstallUpdateRollbackAndRun$", "-ytdlp-health-installed"},
+		OutputPrefix: "ytdlp-go ", Timeout: 5 * time.Second, MaxOutput: 1024,
+	})
+	options.Trust.Platforms = []Platform{{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}}
+	manager, err := Open(context.Background(), filepath.Join(t.TempDir(), "updates"), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifactName := "ytdlp-go"
+	if runtime.GOOS == "windows" {
+		artifactName += ".exe"
+	}
+	metadata := func(version string, generation uint64) Metadata {
+		return Metadata{
+			Spec: MetadataSpec, Role: ReleaseRole, Product: "ytdlp-go", Generation: generation,
+			Expires: testNow.Add(24 * time.Hour).Format(time.RFC3339),
+			Targets: []Target{{Version: version, Channel: ChannelStable, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, Artifact: artifactName, Size: int64(len(artifact)), SHA256: digestString(artifact)}},
+		}
+	}
+	if _, err := manager.Apply(context.Background(), signedMetadata(t, private, metadata("1.0.0", 1)), bytes.NewReader(artifact)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Apply(context.Background(), signedMetadata(t, private, metadata("1.1.0", 2)), bytes.NewReader(artifact)); err != nil {
+		t.Fatal(err)
+	}
+	state, err := manager.Rollback(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Active == nil || state.Active.Version != "1.0.0" {
+		t.Fatalf("rollback state = %#v", state)
+	}
+	active, err := manager.ActivePath(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command(active, "-test.run=^TestNativeArtifactInstallUpdateRollbackAndRun$", "-ytdlp-health-installed")
+	output, err := command.Output()
+	if err != nil || strings.TrimSpace(string(output)) != "ytdlp-go 1.0.0" {
+		t.Fatalf("installed output = %q, error = %v", output, err)
 	}
 }
 

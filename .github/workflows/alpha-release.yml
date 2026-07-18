@@ -45,7 +45,9 @@ jobs:
           cmp dist/first${{ matrix.suffix }} dist/ytdlp-go${{ matrix.suffix }}
       - name: Run native alpha binary
         shell: bash
-        run: dist/ytdlp-go${{ matrix.suffix }} --version
+        run: |
+          go test -run '^TestNativeArtifactInstallUpdateRollbackAndRun$' ./internal/update
+          dist/ytdlp-go${{ matrix.suffix }} --version
       - uses: actions/upload-artifact@v4
         with:
           name: binary-${{ matrix.goos }}-${{ matrix.goarch }}

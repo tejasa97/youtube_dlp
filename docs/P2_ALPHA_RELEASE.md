@@ -22,8 +22,9 @@ and are never replaced.
 
 `.github/workflows/alpha-release.yml` is manual and has read-only repository
 permissions. Linux, macOS, and Windows each build the product twice from the
-same no-cgo inputs, compare complete bytes, and run the native executable. A
-Linux assembly job packages those exact binaries and verifies every checksum.
+same no-cgo inputs, compare complete bytes, run the native executable, and run
+the signed native-artifact install/update/rollback/execution test. A Linux
+assembly job packages those exact binaries and verifies every checksum.
 Artifacts expire after seven days and are not published as a GitHub Release.
 
 The repository has no project-wide distribution license, and the pinned fhttp
