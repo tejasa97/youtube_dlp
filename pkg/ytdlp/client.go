@@ -99,6 +99,9 @@ type Request struct {
 	ReplaceMetadata        []string
 	Downloader             DownloaderOptions
 	Postprocessors         []Postprocessor
+	// PluginID explicitly selects an installed signed plugin extractor. Plugins
+	// are never considered by automatic URL routing.
+	PluginID string
 }
 
 type Result struct {
@@ -157,6 +160,8 @@ type Client struct {
 	linuxCookieImporter   func(context.Context, chromiumlinux.Options) (chromiumlinux.Result, error)
 	firefoxCookieImporter func(context.Context, firefox.Options) (firefox.Result, error)
 	platform              string
+	plugins               []*InstalledPlugin
+	pluginApprover        PluginPermissionApprover
 }
 
 func NewClient(options ...Option) *Client {
@@ -249,15 +254,15 @@ func (client *Client) Run(ctx context.Context, request Request) (Result, error) 
 	defer challengeSolver.Close()
 	operation := &operation{
 		client: client, request: request, transport: transport,
-		registry: productRegistry(),
+		registry: client.productRegistry(),
 		solver:   challengeSolver, archive: downloadArchive, cache: operationCache,
 		compatibility: compatibility,
 	}
-	return operation.process(ctx, request.URL, "", nil, make(map[string]bool), 0)
+	return operation.process(ctx, request.URL, request.PluginID, nil, make(map[string]bool), 0)
 }
 
-func productRegistry() *extractor.Registry {
-	return extractor.NewRegistry(
+func (client *Client) productRegistry() *extractor.Registry {
+	registered := []extractor.Extractor{
 		extractor.NewYouTube(),
 		extractor.NewVimeo(),
 		extractor.NewTikTok(),
@@ -265,10 +270,22 @@ func productRegistry() *extractor.Registry {
 		extractor.NewSoundCloud(),
 		extractor.NewRegionSVT(),
 		extractor.NewSyntheticAuth(),
+	}
+	for _, installed := range client.plugins {
+		if installed != nil {
+			registered = append(registered, &installedPluginExtractor{installed: installed, approver: client.pluginApprover})
+		}
+	}
+	registered = append(registered,
 		extractor.NewFixture(),
 		extractor.NewGeneric(),
 	)
+	return extractor.NewRegistry(registered...)
 }
+
+// productRegistry retains the package-level test seam for the native-only
+// product registry.
+func productRegistry() *extractor.Registry { return (&Client{}).productRegistry() }
 
 const (
 	maxPlaylistDepth   = 8

@@ -12,6 +12,9 @@ import (
 type RemoveOptions struct {
 	ActivatePrevious          bool
 	ApprovePermissionIncrease bool
+	// ValidateReplacement binds an optional replacement pack to the product's
+	// runtime contract before removal publishes it as active.
+	ValidateReplacement func(Verified) error
 }
 
 type RemovalReceipt struct {
@@ -92,6 +95,11 @@ func Remove(ctx context.Context, root, name, version string, policy VerifyPolicy
 				return receipt, verifyErr
 			}
 			return receipt, ErrCorruptInstall
+		}
+		if options.ValidateReplacement != nil {
+			if err := options.ValidateReplacement(verified); err != nil {
+				return receipt, err
+			}
 		}
 		review = ReviewPermissions(removed.Permissions, replacementRecord.Permissions)
 		if review.Increase() && !options.ApprovePermissionIncrease {

@@ -232,6 +232,9 @@ func Install(ctx context.Context, archive []byte, root string, policy VerifyPoli
 
 type RollbackOptions struct {
 	ApprovePermissionIncrease bool
+	// Validate, when set by a product integration, binds the verified pack to
+	// an additional runtime contract before activation.
+	Validate func(Verified) error
 }
 
 // Rollback activates the previous version with fail-closed permission review.
@@ -289,6 +292,11 @@ func RollbackWithOptions(ctx context.Context, root, name string, policy VerifyPo
 	verified, err := verifyInstalled(target, rollbackPolicy)
 	if err != nil {
 		return receipt, err
+	}
+	if options.Validate != nil {
+		if err := options.Validate(verified); err != nil {
+			return receipt, err
+		}
 	}
 	record := recordFor(state, state.Previous)
 	if record == nil || record.ArchiveSHA256 != verified.ArchiveSHA256 || record.ManifestSHA256 != verified.ManifestSHA256 || record.ArchiveSize != verified.ArchiveSize {
