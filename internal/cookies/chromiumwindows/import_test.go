@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	_ "github.com/ncruces/go-sqlite3/driver"
 	_ "github.com/ncruces/go-sqlite3/embed"
@@ -269,6 +270,13 @@ func TestDiscoveryAndUnsafePaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(newer, []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	oldTime := time.Unix(1_700_000_000, 0)
+	if err := os.Chtimes(old, oldTime, oldTime); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(newer, oldTime.Add(time.Minute), oldTime.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	db, state, err := locateInputs(Options{Browser: Chrome, ProfileRoot: root})
