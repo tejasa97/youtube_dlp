@@ -10,7 +10,8 @@ separate pure-Go helper and embeds hash-pinned EJS JavaScript assets for the
 selected YouTube challenge corpus. No Python executable, library, helper, or
 plugin is loaded at runtime.
 
-Status: Phase 0 and the Phase 1 risk-retirement pilot are complete. Phase 1
+Status: Phase 0 and the Phase 1 risk-retirement pilot are complete; Phase 2
+native-alpha development is underway. Phase 1
 includes HLS/DASH pipelines, ffmpeg supervision, compatibility parser pilots,
 differential comparison, isolated EJS execution, browser impersonation and
 cookie import, RPC/WASM plugin experiments, and representative generic,
@@ -67,6 +68,7 @@ bounded capabilities remain explicit as `partial`, `not_started`, or
 - [Zero-Python program plan](ZERO_PYTHON_GO_PORT_PLAN.md)
 - [Phase 0 implementation plan](PHASE_0_IMPLEMENTATION_PLAN.md)
 - [Phase 1 implementation plan](PHASE_1_IMPLEMENTATION_PLAN.md)
+- [Phase 2 implementation plan](PHASE_2_IMPLEMENTATION_PLAN.md)
 - [Contribution and verification rules](CONTRIBUTING.md)
 - [Phase 0 exit review](docs/PHASE_0_EXIT_REVIEW.md)
 - [Phase 1 exit review](docs/PHASE_1_EXIT_REVIEW.md)
