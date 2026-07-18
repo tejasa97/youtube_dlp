@@ -60,6 +60,20 @@ func TestRunTelemetryJSONSuccessFailureAndConflict(t *testing.T) {
 	}
 }
 
+func TestRunExplicitImpersonationProfileAndFailClosedUnknown(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"--impersonate", "firefox-120", "--skip-download", server.URL + "/page"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("Firefox code=%d stderr=%q", code, stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"--impersonate", "firefox-latest", "--skip-download", server.URL + "/page"}, &stdout, &stderr); code == 0 || !strings.Contains(stderr.String(), "impersonation profile unavailable") {
+		t.Fatalf("unknown code=%d stderr=%q", code, stderr.String())
+	}
+}
+
 func TestRunResumesPartialDownload(t *testing.T) {
 	server := testserver.New()
 	defer server.Close()

@@ -40,6 +40,7 @@ type Config struct {
 	Timeout        time.Duration
 	MaxPageSize    int64
 	DefaultHeaders http.Header
+	DefaultProfile string
 	RoundTripper   http.RoundTripper
 	RootCAs        *x509.CertPool
 }
@@ -50,12 +51,18 @@ type Client struct {
 	jar            http.CookieJar
 	defaultHeaders http.Header
 	maxPageSize    int64
+	defaultProfile string
 	profileConfig  impersonate.Config
 	profileMu      sync.Mutex
 	profiles       map[string]*impersonate.Client
 }
 
 func New(config Config) (*Client, error) {
+	if config.DefaultProfile != "" {
+		if _, err := impersonate.Lookup(config.DefaultProfile); err != nil {
+			return nil, fmt.Errorf("%w: %s", ErrImpersonationUnavailable, config.DefaultProfile)
+		}
+	}
 	transport := config.RoundTripper
 	if transport == nil {
 		base := http.DefaultTransport.(*http.Transport).Clone()
@@ -101,6 +108,7 @@ func New(config Config) (*Client, error) {
 		jar:            jar,
 		defaultHeaders: headers,
 		maxPageSize:    maxPageSize,
+		defaultProfile: config.DefaultProfile,
 		profileConfig: impersonate.Config{
 			Proxy: config.Proxy, Timeout: timeout, Jar: jar, RootCAs: config.RootCAs,
 		},
@@ -112,7 +120,7 @@ func New(config Config) (*Client, error) {
 // Do clones request, applies operation defaults, and binds it to ctx. The
 // caller owns and must close a successful response body.
 func (client *Client) Do(ctx context.Context, request *http.Request) (*http.Response, error) {
-	return client.do(ctx, request, "")
+	return client.do(ctx, request, client.defaultProfile)
 }
 
 // DoProfile executes a request with an explicitly named browser profile. An
@@ -190,7 +198,7 @@ func (client *Client) CloseIdleConnections() {
 
 // ReadPage fetches a bounded successful response and always closes its body.
 func (client *Client) ReadPage(ctx context.Context, rawURL string) ([]byte, http.Header, error) {
-	return client.readPage(ctx, rawURL, "")
+	return client.readPage(ctx, rawURL, client.defaultProfile)
 }
 
 // ReadPageProfile is the bounded page helper for named browser profiles.

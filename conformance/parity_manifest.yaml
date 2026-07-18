@@ -308,13 +308,23 @@ capabilities:
       - internal/network/impersonate.TestProfileMetadataAndCopiesAreStable
       - internal/network/impersonate.TestRequestAdapterPreservesSemanticsAndAppliesProfile
       - internal/network/impersonate.TestCookieJarAdapterRoundTripsAllSupportedFields
+      - internal/network/impersonate.TestFirefox120ConformanceCapture
+      - internal/network/impersonate.TestFirefox120UsesExactSupportedClientHello
+      - internal/network/impersonate.TestFirefoxLookupAndFingerprintAreDefensive
+      - internal/network/impersonate.TestFirefoxHTTP1HeaderOrderMatchesLocalCapture
+      - internal/network/impersonate.TestFirefoxProfileRetainsProxyPathAndCancellation
+      - internal/network/impersonate.FuzzProfileLookup
+      - internal/network.TestDefaultImpersonationProfileAppliesAndExplicitProfileOverrides
+      - internal/cli.TestRunExplicitImpersonationProfileAndFailClosedUnknown
       - cmd/impersonationcheck.TestSummarizeExtractsBoundedFingerprintEvidence
       - conformance/network/impersonation/PROVENANCE.md
+      - conformance/network/impersonation-profiles/PROVENANCE.md
       - conformance/network/impersonation/LIVE_CANARY.md
+      - docs/P3_IMPERSONATION_PROFILES.md
     owner: io
     depends_on:
       - network.shared_transport
-    known_deviation: Compatibility is scoped to the versioned Chrome 133 TLS/HTTP2 pilot profile; HTTP/3 and newer browser profiles remain later profile updates.
+    known_deviation: Compatibility is scoped to exact versioned Chrome 133 and Firefox 120 TLS/HTTP2 profiles; Safari is blocked because the pinned engine's advertised Safari 16.6 helper uses a Safari 16.0 ClientHello, and HTTP/3 is not yet represented.
 
   - id: cookies.browser_import
     name: Browser-cookie import

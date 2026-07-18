@@ -37,12 +37,8 @@ func New(config Config) (*Client, error) {
 		SetTLSClientConfig(&tls.Config{
 			RootCAs:    config.RootCAs,
 			NextProtos: []string{"h2", "http/1.1"},
-		}).
-		SetTLSFingerprint(config.Profile.clientHelloID).
-		SetHTTP2SettingsFrame(config.Profile.http2Settings...).
-		SetHTTP2ConnectionFlow(config.Profile.connectionFlow).
-		SetCommonPseudoHeaderOder(config.Profile.pseudoHeaderOrder...).
-		SetCommonHeaderOrder(config.Profile.HeaderOrder...)
+		})
+	config.Profile.apply(client)
 	// The previous impersonation stack never consulted HTTP_PROXY or related
 	// process environment variables. req defaults to ProxyFromEnvironment, so
 	// disable that implicit behavior before applying an explicit product proxy.

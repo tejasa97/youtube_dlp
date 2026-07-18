@@ -337,8 +337,42 @@ func TestImpersonationRejectsUnknownProfileWithoutFallback(t *testing.T) {
 
 func TestImpersonationProfileDiagnostics(t *testing.T) {
 	profiles := SupportedImpersonationProfiles()
-	if len(profiles) != 1 || profiles[0].Name != impersonate.Chrome133Name || profiles[0].EngineVersion != impersonate.ReqVersion {
+	if len(profiles) != 2 || profiles[0].Name != impersonate.Chrome133Name || profiles[1].Name != impersonate.Firefox120Name || profiles[0].EngineVersion != impersonate.ReqVersion || profiles[1].EngineVersion != impersonate.ReqVersion {
 		t.Fatalf("profiles = %#v", profiles)
+	}
+}
+
+func TestDefaultImpersonationProfileAppliesAndExplicitProfileOverrides(t *testing.T) {
+	observed := make(chan string, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		observed <- request.UserAgent()
+		_, _ = writer.Write([]byte("ok"))
+	}))
+	defer server.Close()
+	client, err := New(Config{DefaultProfile: impersonate.Firefox120Name})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, _ := http.NewRequest(http.MethodGet, server.URL, nil)
+	response, err := client.Do(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if userAgent := <-observed; !strings.Contains(userAgent, "Firefox/120.0") {
+		t.Fatalf("default user agent=%q", userAgent)
+	}
+	request, _ = http.NewRequest(http.MethodGet, server.URL, nil)
+	response, err = client.DoProfile(context.Background(), request, impersonate.Chrome133Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if userAgent := <-observed; !strings.Contains(userAgent, "Chrome/133.0.0.0") {
+		t.Fatalf("override user agent=%q", userAgent)
+	}
+	if _, err := New(Config{DefaultProfile: "firefox-latest"}); !errors.Is(err, ErrImpersonationUnavailable) {
+		t.Fatalf("unknown default error=%v", err)
 	}
 }
 

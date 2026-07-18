@@ -16,6 +16,12 @@ The existing explicit proxy dialer remains in use. Profile selection does not
 read environment proxy variables, expose proxy credentials, or change request
 cancellation semantics.
 
+The public Go request and CLI `--impersonate` option select a fail-closed
+default profile for ordinary transport requests. An extractor may still choose
+an explicit site-specific profile; that narrower requirement takes precedence
+over the request default. Unknown profile IDs are rejected before extraction or
+network access.
+
 ## Known deviations and blockers
 
 - This is a pinned engine interoperability profile, not a promise that every

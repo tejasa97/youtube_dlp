@@ -81,6 +81,7 @@ type Request struct {
 	OutputTemplate         string
 	OutputDir              string
 	Proxy                  string
+	ImpersonationProfile   string
 	CookieFile             string
 	CookiesFromBrowser     string
 	DownloadArchive        string
@@ -207,7 +208,7 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 	if err != nil {
 		return Result{}, err
 	}
-	transport, err := network.New(network.Config{Proxy: request.Proxy, Timeout: request.Timeout})
+	transport, err := network.New(network.Config{Proxy: request.Proxy, Timeout: request.Timeout, DefaultProfile: request.ImpersonationProfile})
 	if err != nil {
 		return Result{}, categorized("configure network", err)
 	}

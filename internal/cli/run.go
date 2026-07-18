@@ -57,6 +57,7 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	printJSON := flags.Bool("print-json", false, "print normalized metadata JSON to stdout")
 	skipDownload := flags.Bool("skip-download", false, "extract metadata without downloading")
 	proxy := flags.String("proxy", "", "HTTP/HTTPS proxy URL")
+	impersonationProfile := flags.String("impersonate", "", "default explicit browser profile (for example firefox-120)")
 	timeout := flags.Duration("socket-timeout", 30*time.Second, "network operation timeout")
 	overwrite := flags.Bool("force-overwrites", false, "replace an existing final file")
 	progressJSON := flags.Bool("progress-json", false, "write newline-delimited progress events to stderr")
@@ -183,7 +184,7 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		postprocessors = append(postprocessors, ytdlp.Postprocessor{Remux: &ytdlp.RemuxPostprocessor{Format: *remuxVideo}})
 	}
 	result, err := client.Run(ctx, ytdlp.Request{
-		URL: flags.Arg(0), OutputTemplate: *output, OutputDir: *outputDir, Proxy: *proxy,
+		URL: flags.Arg(0), OutputTemplate: *output, OutputDir: *outputDir, Proxy: *proxy, ImpersonationProfile: *impersonationProfile,
 		CookieFile: *cookieFile, CookiesFromBrowser: *cookiesFromBrowser, DownloadArchive: *downloadArchive, CacheDir: *cacheDir,
 		Timeout: *timeout, Overwrite: *overwrite, SkipDownload: *skipDownload,
 		Format: *format, FormatSort: append([]string(nil), formatSort...),
