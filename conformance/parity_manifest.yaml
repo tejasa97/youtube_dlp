@@ -808,8 +808,23 @@ capabilities:
     name: Gate G2 security and fallback audit
     phase: 2
     compatibility_target: Close critical credential, plugin, updater, command, archive, cache, signature, and filesystem findings and account for every fallback.
-    status: not_started
+    status: compatible
+    evidence:
+      - internal/conformance.TestProductionSourcesDoNotInvokePython
+      - internal/conformance.TestLoadFallbackInventory
+      - internal/conformance.TestFallbackInventoryRequiresPythonAndSilentProhibitions
+      - internal/downloader.TestExternalAdapterRejectsInterpreters
+      - internal/plugin.TestLoadPackageRejectsInterpreterTrampolineAndOversize
+      - internal/pack.TestVerifyRejectsAmbiguousOrHostileArchives
+      - internal/update.TestHostilePathsLocksAndJournal
+      - internal/release.TestChecksumsLicensesSBOMAndManifest
+      - .github/python-free.Dockerfile
+      - .github/workflows/ci.yml#vulnerability-audit
+      - docs/P2_SECURITY_REVIEW.md
+      - docs/P2_FALLBACK_INVENTORY.md
+      - docs/PHASE_2_EXIT_REVIEW.md
     owner: security
+    known_deviation: No critical finding remains. Residual medium and lower risks, fail-closed platform limitations, public-distribution legal blockers, and the external Windows native-run evidence blocker are enumerated in the Phase 2 security and exit reviews.
 
   - id: plugins.rpc
     name: Out-of-process plugin protocol

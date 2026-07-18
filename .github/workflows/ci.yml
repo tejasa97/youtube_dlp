@@ -160,7 +160,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - run: go test -run=^$ -fuzz='^${{ matrix.target }}$' -fuzztime=2s ${{ matrix.package }}
+      - run: go test -run=^$ -fuzz='^${{ matrix.target }}$' -fuzztime=100x -parallel=1 ${{ matrix.package }}
 
   cross-build:
     runs-on: ubuntu-latest

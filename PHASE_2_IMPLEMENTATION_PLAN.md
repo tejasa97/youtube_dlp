@@ -1,6 +1,6 @@
 # Phase 2 Implementation Plan: Native Foundation and Alpha
 
-Status: Approved implementation baseline  
+Status: Implementation complete; Gate G2 awaits external Windows native-run evidence
 Date: 2026-07-18  
 Behavioral reference: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`
 
