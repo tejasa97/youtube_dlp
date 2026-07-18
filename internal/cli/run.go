@@ -61,6 +61,16 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	javascriptHelper := flags.String("js-helper", "", "path to the isolated JavaScript helper")
 	cookieFile := flags.String("cookies", "", "load cookies from a Netscape cookies.txt file")
 	cookiesFromBrowser := flags.String("cookies-from-browser", "", "import cookies from firefox, macOS chrome, or Linux chrome/chromium/brave")
+	downloadArchive := flags.String("download-archive", "", "record and skip downloaded extractor IDs")
+	flags.BoolFunc("no-download-archive", "disable an inherited download archive", func(string) error {
+		*downloadArchive = ""
+		return nil
+	})
+	cacheDir := flags.String("cache-dir", "", "directory for bounded compatibility cache entries")
+	flags.BoolFunc("no-cache-dir", "disable an inherited cache directory", func(string) error {
+		*cacheDir = ""
+		return nil
+	})
 	var configLocations stringListFlag
 	flags.Var(&configLocations, "config-location", "load an additional configuration file")
 	flags.Var(&configLocations, "config-locations", "alias for --config-location")
@@ -105,7 +115,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	client := ytdlp.NewClient(ytdlp.WithEventHandler(handler), ytdlp.WithJavaScriptHelper(*javascriptHelper))
 	result, err := client.Run(ctx, ytdlp.Request{
 		URL: flags.Arg(0), OutputTemplate: *output, OutputDir: *outputDir, Proxy: *proxy,
-		CookieFile: *cookieFile, CookiesFromBrowser: *cookiesFromBrowser, Timeout: *timeout, Overwrite: *overwrite, SkipDownload: *skipDownload,
+		CookieFile: *cookieFile, CookiesFromBrowser: *cookiesFromBrowser, DownloadArchive: *downloadArchive, CacheDir: *cacheDir,
+		Timeout: *timeout, Overwrite: *overwrite, SkipDownload: *skipDownload,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)

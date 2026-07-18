@@ -24,4 +24,5 @@ const (
 	EventPostprocessStarting  = "postprocess_starting"
 	EventPostprocessProgress  = "postprocess_progress"
 	EventPostprocessCompleted = "postprocess_completed"
+	EventArchiveMatch         = "archive_match"
 )

@@ -330,6 +330,60 @@ func TestClientWalkingSkeleton(t *testing.T) {
 	}
 }
 
+func TestClientDownloadArchiveRecordsAndSkips(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	archivePath := filepath.Join(root, "archive.txt")
+	request := Request{URL: server.URL + "/page", OutputDir: root, DownloadArchive: archivePath}
+	first, err := NewClient().Run(context.Background(), request)
+	if err != nil || !first.Downloaded || first.Archived {
+		t.Fatalf("first result=%#v err=%v", first, err)
+	}
+	data, err := os.ReadFile(archivePath)
+	if err != nil || string(data) != "fixture fixture-direct\n" {
+		t.Fatalf("archive=%q err=%v", data, err)
+	}
+	var events []Event
+	second, err := NewClient(WithEventHandler(func(_ context.Context, event Event) error {
+		events = append(events, event)
+		return nil
+	})).Run(context.Background(), request)
+	if err != nil || second.Downloaded || !second.Archived || second.Bytes != 0 {
+		t.Fatalf("second result=%#v err=%v", second, err)
+	}
+	found := false
+	for _, event := range events {
+		if event.Kind == EventArchiveMatch && event.Message == "fixture fixture-direct" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("archive event missing: %#v", events)
+	}
+}
+
+func TestClientInitializesConfiguredCacheSafely(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	cacheRoot := filepath.Join(t.TempDir(), "cache")
+	result, err := NewClient().Run(context.Background(), Request{URL: server.URL + "/page", CacheDir: cacheRoot, SkipDownload: true})
+	if err != nil || result.Extractor != "fixture" {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	info, err := os.Lstat(cacheRoot)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("cache root info=%v err=%v", info, err)
+	}
+	unsafe := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(cacheRoot, unsafe); err == nil {
+		_, err = NewClient().Run(context.Background(), Request{URL: server.URL + "/page", CacheDir: unsafe, SkipDownload: true})
+		if !IsCategory(err, ErrorInvalidInput) {
+			t.Fatalf("unsafe cache error = %v", err)
+		}
+	}
+}
+
 func TestClientHLSAndDASHDispatch(t *testing.T) {
 	server := testserver.New()
 	defer server.Close()

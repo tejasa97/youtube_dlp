@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ytdlp-go/ytdlp/internal/archive"
+	"github.com/ytdlp-go/ytdlp/internal/cache"
 	outputtemplate "github.com/ytdlp-go/ytdlp/internal/compat/template"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/chromium"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/chromiumlinux"
@@ -74,6 +76,8 @@ type Request struct {
 	Proxy              string
 	CookieFile         string
 	CookiesFromBrowser string
+	DownloadArchive    string
+	CacheDir           string
 	Timeout            time.Duration
 	Overwrite          bool
 	SkipDownload       bool
@@ -83,6 +87,7 @@ type Result struct {
 	InfoJSON   json.RawMessage
 	Extractor  string
 	Downloaded bool
+	Archived   bool
 	Filename   string
 	Bytes      int64
 	Entries    []Result
@@ -198,12 +203,26 @@ func (client *Client) Run(ctx context.Context, request Request) (Result, error) 
 			return Result{}, &Error{Category: ErrorInternal, Op: "emit cookie-file event", Err: err}
 		}
 	}
+	var downloadArchive *archive.Store
+	if request.DownloadArchive != "" {
+		downloadArchive, err = archive.Open(ctx, request.DownloadArchive, archive.Options{})
+		if err != nil {
+			return Result{}, categorized("open download archive", err)
+		}
+	}
+	var operationCache *cache.Store
+	if request.CacheDir != "" {
+		operationCache, err = cache.Open(request.CacheDir, cache.Options{})
+		if err != nil {
+			return Result{}, categorized("open cache", err)
+		}
+	}
 	challengeSolver := &lazyYouTubeSolver{path: discoverJavaScriptHelper(client.javascriptHelper)}
 	defer challengeSolver.Close()
 	operation := &operation{
 		client: client, request: request, transport: transport,
 		registry: productRegistry(),
-		solver:   challengeSolver,
+		solver:   challengeSolver, archive: downloadArchive, cache: operationCache,
 	}
 	return operation.process(ctx, request.URL, "", nil, make(map[string]bool), 0)
 }
@@ -233,6 +252,8 @@ type operation struct {
 	transport *network.Client
 	registry  *extractor.Registry
 	solver    extractor.YouTubeChallengeSolver
+	archive   *archive.Store
+	cache     *cache.Store
 }
 
 func (operation *operation) process(ctx context.Context, rawURL, extractorKey string, overlay *extractor.Entry, ancestors map[string]bool, depth int) (Result, error) {
@@ -300,6 +321,7 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 			for _, child := range children {
 				result.Bytes += child.Bytes
 				result.Downloaded = result.Downloaded || child.Downloaded
+				result.Archived = result.Archived || child.Archived
 			}
 			return result, nil
 		}
@@ -359,6 +381,32 @@ func (operation *operation) processMedia(ctx context.Context, info value.Info, e
 		return Result{}, err
 	}
 	result := Result{InfoJSON: encoded, Extractor: extractorName}
+	var archiveIdentity archive.Identity
+	if operation.archive != nil {
+		id, ok := info.ID()
+		if !ok {
+			return Result{}, categorized("build archive identity", archive.ErrInvalidIdentity)
+		}
+		archiveIdentity, err = archive.NewIdentity(extractorName, id)
+		if err != nil {
+			return Result{}, categorized("build archive identity", err)
+		}
+		legacyIDs, legacyErr := oldArchiveIDs(info)
+		if legacyErr != nil {
+			return Result{}, categorized("read legacy archive identities", legacyErr)
+		}
+		matched, found, matchErr := operation.archive.Match(ctx, archiveIdentity, legacyIDs)
+		if matchErr != nil {
+			return Result{}, categorized("match download archive", matchErr)
+		}
+		if found {
+			result.Archived = true
+			if err := operation.client.emit(ctx, Event{Kind: EventArchiveMatch, Extractor: extractorName, Message: matched}); err != nil {
+				return Result{}, &Error{Category: ErrorInternal, Op: "emit archive event", Err: err}
+			}
+			return result, nil
+		}
+	}
 	if operation.request.SkipDownload {
 		return result, nil
 	}
@@ -429,6 +477,30 @@ func (operation *operation) processMedia(ctx context.Context, info value.Info, e
 	result.Downloaded = true
 	result.Filename = downloadedPath
 	result.Bytes = downloadedBytes
+	if operation.archive != nil {
+		if _, err := operation.archive.Record(ctx, archiveIdentity); err != nil {
+			return Result{}, categorized("record download archive", err)
+		}
+	}
+	return result, nil
+}
+
+func oldArchiveIDs(info value.Info) ([]string, error) {
+	items, ok := info.Lookup("_old_archive_ids").ListValue()
+	if !ok {
+		return nil, nil
+	}
+	if len(items) > 1024 {
+		return nil, archive.ErrTooLarge
+	}
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		id, ok := item.StringValue()
+		if !ok {
+			return nil, archive.ErrCorrupt
+		}
+		result = append(result, id)
+	}
 	return result, nil
 }
 
@@ -472,8 +544,12 @@ func categorized(op string, err error) error {
 		errors.Is(err, errInvalidBrowserCookieSpec), errors.Is(err, netscape.ErrMalformed),
 		errors.Is(err, netscape.ErrWrongFormat), errors.Is(err, netscape.ErrTooLarge),
 		errors.Is(err, firefox.ErrUnsafePath), errors.Is(err, firefox.ErrLimit),
-		errors.Is(err, chromiumlinux.ErrUnsafePath), errors.Is(err, chromiumlinux.ErrLimit):
+		errors.Is(err, chromiumlinux.ErrUnsafePath), errors.Is(err, chromiumlinux.ErrLimit),
+		errors.Is(err, archive.ErrInvalidIdentity), errors.Is(err, archive.ErrCorrupt), errors.Is(err, archive.ErrTooLarge), errors.Is(err, archive.ErrUnsafePath),
+		errors.Is(err, cache.ErrInvalidName), errors.Is(err, cache.ErrUnsafePath), errors.Is(err, cache.ErrTooLarge), errors.Is(err, cache.ErrCorrupt):
 		category = ErrorInvalidInput
+	case errors.Is(err, archive.ErrIO), errors.Is(err, archive.ErrLock), errors.Is(err, cache.ErrIO):
+		category = ErrorInternal
 	case errors.Is(err, mediaformat.ErrNoFormats), errors.Is(err, mediaformat.ErrInvalidHeaders), errors.Is(err, extractor.ErrInvalidMetadata),
 		errors.Is(err, extractor.ErrInvalidPlaylist), errors.Is(err, extractor.ErrPlaylistLimit),
 		errors.Is(err, ffmpeg.ErrMediaFailure), errors.Is(err, pipeline.ErrMissingDASHTracks),

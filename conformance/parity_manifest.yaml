@@ -548,8 +548,22 @@ capabilities:
     name: Bounded namespaced cache
     phase: 2
     compatibility_target: Store, expire, retrieve, and safely remove bounded namespaced compatibility data with atomic filesystem behavior.
-    status: not_started
+    status: compatible
+    evidence:
+      - internal/cache.TestCacheReferenceEncodingStoreLookupExpiryAndRemove
+      - internal/cache.TestCacheAtomicOverwriteAndConcurrentWriters
+      - internal/cache.TestCacheBoundsNamespaceBytesAndEntryCount
+      - internal/cache.TestCacheRejectsTraversalAndSymlinks
+      - internal/cache.TestCacheRejectsCorruptionTruncationAndEntrySymlink
+      - internal/cache.TestCacheAtomicReplacementDoesNotMutateHardlink
+      - internal/cache.TestCacheMidWriteCancellationLeavesPriorValue
+      - internal/cache.TestCacheRemoveNamespacePreservesUnknownRegularFile
+      - internal/cache.FuzzCacheKeyEncoding
+      - internal/cache.FuzzCacheHeader
+      - pkg/ytdlp.TestClientInitializesConfiguredCacheSafely
+      - conformance/cache/PROVENANCE.md
     owner: core
+    known_deviation: The cache uses a checksummed ytdlp-go .cache envelope and intentionally does not consume disposable upstream JSON cache files. Namespaces use a portable ASCII subset, and independent processes may race near a namespace entry/byte cap while individual entries remain atomic.
 
   - id: cookies.portable_sources
     name: Portable cookie sources
@@ -650,8 +664,22 @@ capabilities:
     name: Download archive compatibility
     phase: 2
     compatibility_target: Read, update, and migrate download archives without duplicate-download regressions.
-    status: not_started
+    status: compatible
+    evidence:
+      - internal/archive.TestIdentityReferenceSemantics
+      - internal/archive.TestArchivePreloadStripsSurroundingWhitespaceLikeReference
+      - internal/archive.TestArchiveMatchMigrationAndAtomicFailure
+      - internal/archive.TestArchiveConcurrentDuplicatePrevention
+      - internal/archive.TestArchiveCrossProcessLocking
+      - internal/archive.TestArchiveLockCancellationAndStaleRecovery
+      - internal/archive.TestArchiveRejectsSymlinkCorruptionAndOversize
+      - internal/archive.TestArchiveAcceptsTruncatedFinalRecordAndDoesNotMutateHardlink
+      - internal/archive.TestArchiveRejectsMaliciousLockSymlink
+      - internal/archive.FuzzParseIdentity
+      - pkg/ytdlp.TestClientDownloadArchiveRecordsAndSkips
+      - conformance/archive/PROVENANCE.md
     owner: core
+    known_deviation: The product uses portable atomic rewrites and directory locks rather than append plus platform file locks. It rejects invalid UTF-8, NUL, oversized records, and unsafe filesystem objects while preserving trimmed opaque legacy IDs and canonical yt-dlp identity matching.
 
   - id: plugins.abi_v1
     name: Plugin ABI v1
