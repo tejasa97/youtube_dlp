@@ -28,6 +28,10 @@ func (values *stringList) Set(value string) error {
 }
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	if len(args) == 1 && args[0] == "--version" {
+		fmt.Fprintf(stdout, "ytdlp-update %s\n", ytdlp.APIVersion)
+		return 0
+	}
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "usage: ytdlp-update <apply|rollback|snapshot|active> [options]")
 		return 2

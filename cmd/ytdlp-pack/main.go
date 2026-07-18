@@ -20,6 +20,10 @@ const maximumPackInput = 80 << 20
 func main() { os.Exit(run(context.Background(), os.Args[1:], os.Stdout, os.Stderr)) }
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	if len(args) == 1 && args[0] == "--version" {
+		fmt.Fprintf(stdout, "ytdlp-pack %s\n", ytdlp.APIVersion)
+		return 0
+	}
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, "usage: ytdlp-pack <verify|install|rollback|remove> [options]")
 		return 2

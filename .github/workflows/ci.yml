@@ -62,6 +62,26 @@ jobs:
             target: FuzzReadFrame
           - package: ./internal/plugin/wasm
             target: FuzzDecodeResponse
+          - package: ./internal/plugin
+            target: FuzzDecodeManifest
+          - package: ./pkg/pluginapi
+            target: FuzzCodecRead
+          - package: ./internal/pack
+            target: FuzzVerify
+          - package: ./internal/pack
+            target: FuzzPayloadPath
+          - package: ./internal/sandbox
+            target: FuzzPrepareArguments
+          - package: ./internal/update
+            target: FuzzVerifyEnvelope
+          - package: ./internal/update
+            target: FuzzSelectInstalledVersion
+          - package: ./internal/update
+            target: FuzzRecordDecoder
+          - package: ./internal/release
+            target: FuzzArchivePaths
+          - package: ./internal/release
+            target: FuzzChecksumManifest
           - package: ./internal/cookies/chromium
             target: FuzzMacDecryptor
           - package: ./internal/cookies/netscape
@@ -170,3 +190,5 @@ jobs:
       - run: docker build --file .github/python-free.Dockerfile --tag ytdlp-go-python-free .
       - run: docker run --rm ytdlp-go-python-free --version
       - run: docker run --rm --entrypoint /jscheck ytdlp-go-python-free -helper /ytdlp-js-helper
+      - run: docker run --rm --entrypoint /ytdlp-pack ytdlp-go-python-free --version
+      - run: docker run --rm --entrypoint /ytdlp-update ytdlp-go-python-free --version

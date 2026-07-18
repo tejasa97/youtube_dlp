@@ -2,6 +2,7 @@ package ytdlp_test
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -19,6 +20,18 @@ func TestAlphaAPIContractCompilesAndCategorizesCancellation(t *testing.T) {
 	}
 	if ytdlp.APIVersion != "v1alpha1" || len(ytdlp.CompatibilityReferenceCommit) != 40 {
 		t.Fatalf("API metadata = %q %q", ytdlp.APIVersion, ytdlp.CompatibilityReferenceCommit)
+	}
+}
+
+func TestAlphaTrustAPIContractCompiles(t *testing.T) {
+	var _ ytdlp.PluginPermissionApprover = ytdlp.PluginPermissionApproveFunc(func(context.Context, ytdlp.PluginApprovalRequest) (ytdlp.PluginApproval, error) {
+		return ytdlp.PluginApproval{}, nil
+	})
+	var _ ytdlp.UpdateHealthChecker = ytdlp.UpdateHealthCheckFunc(func(context.Context, string, ytdlp.UpdateTarget) error { return nil })
+	_ = ytdlp.PluginPackTrust{Keys: map[string]ed25519.PublicKey{}}
+	_ = ytdlp.UpdateOptions{Channel: ytdlp.UpdateChannelStable}
+	if ytdlp.ErrorSecurity != "security" {
+		t.Fatalf("security category = %q", ytdlp.ErrorSecurity)
 	}
 }
 

@@ -33,6 +33,7 @@ capabilities:
     status: compatible
     evidence:
       - pkg/ytdlp.TestAlphaAPIContractCompilesAndCategorizesCancellation
+      - pkg/ytdlp.TestAlphaTrustAPIContractCompiles
       - pkg/ytdlp.TestAlphaEventJSONContract
       - pkg/ytdlp.TestPublicEventKindsMatchOperationEvents
       - docs/P2_API_COMPATIBILITY_POLICY.md
@@ -730,15 +731,45 @@ capabilities:
     name: Plugin ABI v1
     phase: 2
     compatibility_target: Discover and run explicitly trusted versioned plugins with declared permissions, upgrade compatibility, crash isolation, and no Python runtime.
-    status: not_started
+    status: compatible
+    evidence:
+      - internal/plugin.TestDecodeManifestV1UpgradeFixtures
+      - internal/plugin.TestDiscoverUsesOnlyCanonicalSecureRoots
+      - internal/plugin.TestLoadPackageRejectsInterpreterTrampolineAndOversize
+      - internal/plugin.TestRevalidatePackageDetectsMutation
+      - internal/plugin.TestApproveRequiresExactPermissionSet
+      - internal/plugin/rpc.TestRPCPostprocessorAndProviderCapabilities
+      - internal/plugin/rpc.TestRPCPermissionChangeApprovalIsIdentityBound
+      - internal/plugin/rpc.TestRPCProcessTreeCancellation
+      - internal/plugin/wasm.TestWASMTrustedPackageApprovalAndExecution
+      - pkg/pluginapi.TestCodecRoundTripAndBounds
+      - pkg/ytdlp.TestSignedWASMPluginPackHostAndProductIntegration
+      - docs/P2_PLUGIN_ABI_V1.md
+      - conformance/plugin/abi-v1/PROVENANCE.md
     owner: runtime
+    known_deviation: Native RPC lacks portable CPU, memory, and process-count quotas; Windows has a narrow start-to-Job-assignment race and secure discovery fails closed where owner/DACL proof is unavailable. WASM has no fuel metering. Plugins are product-routed only by explicit signed installation and PluginID selection.
 
   - id: release.signed_packs
     name: Signed extractor and plugin packs
     phase: 2
     compatibility_target: Verify, install, roll back, and remove deterministic signed packs through path-safe trust policy.
-    status: not_started
+    status: compatible
+    evidence:
+      - internal/pack.TestBuildVerifyDeterministic
+      - internal/pack.TestVerifyRejectsAmbiguousOrHostileArchives
+      - internal/pack.TestInstallUpgradeAndVerifiedRollback
+      - internal/pack.TestKernelLockRecoversAfterProcessCrash
+      - internal/pack.TestRemoveCancellationAndPendingJournalRecovery
+      - internal/sandbox.TestLinuxPlanIsolatesFilesystemNetworkAndSecrets
+      - internal/sandbox.TestDarwinPlanHasExplicitProfileAndLimitDeviation
+      - pkg/ytdlp.TestSignedWASMPluginPackHostAndProductIntegration
+      - pkg/ytdlp.TestPluginPackBindingFailsBeforeFilesystemMutation
+      - cmd/ytdlp-pack.TestRunVerifyRejectsMalformedPackWithoutLeakingBytes
+      - conformance/packs/PROVENANCE.md
+      - docs/P2_SIGNED_PACKS.md
+      - docs/P2_PLUGIN_THREAT_MODEL.md
     owner: release
+    known_deviation: Canonical build and verification are portable, but secure install, rollback, and removal currently fail closed outside Linux and macOS because equivalent Windows owner/ACL, lock, and atomic-publication evidence is not yet available. macOS sandbox-exec is deprecated and cannot enforce requested resource quotas; Linux adapters require bwrap and prlimit when those guarantees are requested.
 
   - id: extractor.phase2_breadth
     name: Phase 2 representative extractor breadth
@@ -814,5 +845,22 @@ capabilities:
     name: Signed alpha updater and release metadata
     phase: 2
     compatibility_target: Build, install, update, roll back, and run signed Python-free alpha artifacts across the primary platform matrix.
-    status: not_started
+    status: compatible
+    evidence:
+      - internal/update.TestSignVerifySelectDeterministic
+      - internal/update.TestThresholdAndScope
+      - internal/update.TestApplyUpdateRollbackAndHealthFailure
+      - internal/update.TestRecoveryRestoresLastVerifiedState
+      - internal/update.TestStaleLockRequiresDeadOwner
+      - internal/update.TestCommandHealthCheckerBoundsFailedIsolation
+      - internal/update.TestPlatformTargetInstallFixtures
+      - internal/release.TestBuildPlanIsExplicitAndDeterministic
+      - internal/release.TestArchivesAreReproducibleAndNormalized
+      - internal/release.TestChecksumsLicensesSBOMAndManifest
+      - pkg/ytdlp.TestPublicUpdaterApplyAndRollback
+      - cmd/ytdlp-update.TestRunValidatesExplicitTrustAndRoot
+      - conformance/update/PROVENANCE.md
+      - conformance/release/PROVENANCE.md
+      - docs/P2_UPDATER_RELEASES.md
     owner: release
+    known_deviation: The updater has a narrow Windows start-to-Job-assignment race and cannot prove Windows root ACL ownership or POSIX directory fsync semantics. Production root custody, signer selection, transport, transparency, and scheduling remain explicit external policy; deterministic repository keys are tests only.

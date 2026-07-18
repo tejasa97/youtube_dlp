@@ -33,6 +33,26 @@ external tools, archives, caches and updater operations. A client is safe for
 concurrent independent operations; mutable operation state and credentials are
 not shared between calls.
 
+The v1alpha1 trust surface is explicit:
+
+- `InstallPluginPack`, `RollbackPluginPack`, and `RemovePluginPack` accept an
+  exact Ed25519 trust map, verification time, and permission-review decision;
+- an `InstalledPlugin` is opaque and can only be produced after the signed pack
+  and ABI manifests agree on runtime, version, entrypoint, and permissions;
+- `WithInstalledPlugins` never participates in automatic URL routing: a
+  request must name `PluginID`, and an identity-bound permission approver is
+  mandatory before execution;
+- `PluginHost` exposes the ABI v1 extractor, postprocessor, and provider
+  operations while retaining context cancellation and categorized failures;
+- `OpenUpdater` snapshots threshold trust and exposes signed apply, snapshot,
+  active-path, and verified rollback operations; and
+- `ErrorSecurity` distinguishes signature, hash, unsafe-path, permission,
+  revocation, freeze, and downgrade rejection from ordinary invalid input.
+
+The `ytdlp-pack` and `ytdlp-update` commands are thin consumers of this same
+API. They require explicit public keys and never select a publisher or
+production signing ceremony.
+
 ## Compatibility change review
 
 Every public change must identify:

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ytdlp-go/ytdlp/internal/testserver"
+	"github.com/ytdlp-go/ytdlp/pkg/ytdlp"
 )
 
 func TestRunVersion(t *testing.T) {
@@ -242,5 +243,12 @@ func TestByteSizeFlagSuffixes(t *testing.T) {
 		if err := value.Set(input); err != nil || int64(value) != expected {
 			t.Fatalf("Set(%q) = %d, %v", input, value, err)
 		}
+	}
+}
+
+func TestSecurityErrorExitCode(t *testing.T) {
+	err := &ytdlp.Error{Category: ytdlp.ErrorSecurity, Op: "verify", Err: errors.New("rejected")}
+	if code := exitCode(err); code != 6 {
+		t.Fatalf("exitCode() = %d, want 6", code)
 	}
 }

@@ -10,8 +10,11 @@ document explains that inventory for reviewers.
 There is no production Python fallback and no temporary compatibility fallback
 at the Phase 2 baseline. Unknown impersonation profiles, unsupported manifest
 features, unavailable JavaScript helpers, unsupported parser syntax, missing
-plugins and missing external media tools fail explicitly with categorized
-errors.
+plugins, unavailable plugin sandboxes, unproved Windows pack ownership, and
+missing external media tools fail explicitly with categorized errors. Plugin
+extractors require exact `PluginID` selection; they are not a hidden fallback
+for a failed native extractor. Update verification never falls back to an
+older, unsigned, wrong-channel, or wrong-platform artifact.
 
 The following uses of the word “fallback” are not temporary execution bridges:
 

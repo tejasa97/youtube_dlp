@@ -14,6 +14,10 @@ import (
 
 func TestRunRejectsMissingAndInvalidTrust(t *testing.T) {
 	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"--version"}, &stdout, &stderr); code != 0 || !strings.Contains(stdout.String(), "v1alpha1") {
+		t.Fatalf("version exit/output = %d %q", code, stdout.String())
+	}
+	stdout.Reset()
 	if code := run(context.Background(), nil, &stdout, &stderr); code != 2 {
 		t.Fatalf("missing operation exit = %d", code)
 	}

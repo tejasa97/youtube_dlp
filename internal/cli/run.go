@@ -280,6 +280,8 @@ func exitCode(err error) int {
 		return 5
 	case ytdlp.IsCategory(err, ytdlp.ErrorNetwork):
 		return 4
+	case ytdlp.IsCategory(err, ytdlp.ErrorSecurity):
+		return 6
 	case ytdlp.IsCategory(err, ytdlp.ErrorCancelled), errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		return 130
 	default:

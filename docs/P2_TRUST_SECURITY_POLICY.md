@@ -106,3 +106,19 @@ private paths containing credentials, plugin stderr, and artifact contents are
 not logged. Temporary fallbacks remain governed by
 `conformance/fallback_inventory.yaml`; silent and Python-backed fallback is
 prohibited.
+
+## Product integration
+
+The v1alpha1 product exposes signed-pack and updater operations through
+`pkg/ytdlp`, `cmd/ytdlp-pack`, and `cmd/ytdlp-update`. Plugin pack integration
+validates the signed in-memory ABI binding before filesystem mutation, repeats
+pack verification during installation, then reloads and hashes the installed
+tree before returning an opaque handle. Rollback and active-version removal
+run the same ABI-binding validator while the pack lifecycle lock is held and
+before state publication.
+
+Installed plugin extractors are never considered by normal URL suitability
+routing. The caller must select the exact plugin ID and provide an approver
+that grants the exact signed permission set while binding signer, release,
+digest, and ABI. This preserves explicit trust even when a validly signed pack
+is present on disk.
