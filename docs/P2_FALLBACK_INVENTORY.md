@@ -2,6 +2,11 @@
 
 Review baseline: 2026-07-18
 
+The validated source of truth is
+`conformance/fallback_inventory.yaml`; `go run ./cmd/paritycheck` rejects an
+unobservable, ownerless, unscheduled, Python-backed, or silent fallback. This
+document explains that inventory for reviewers.
+
 There is no production Python fallback and no temporary compatibility fallback
 at the Phase 2 baseline. Unknown impersonation profiles, unsupported manifest
 features, unavailable JavaScript helpers, unsupported parser syntax, missing

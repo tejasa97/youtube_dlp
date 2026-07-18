@@ -13,6 +13,7 @@ func main() {
 	flags := flag.NewFlagSet("paritycheck", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	summary := flags.Bool("summary", false, "print a Markdown capability summary")
+	fallbackInventory := flags.String("fallback-inventory", "conformance/fallback_inventory.yaml", "machine-readable fallback inventory")
 	if err := flags.Parse(os.Args[1:]); err != nil {
 		os.Exit(2)
 	}
@@ -30,6 +31,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "paritycheck: %v\n", err)
 		os.Exit(1)
 	}
+	inventory, err := conformance.LoadFallbackInventoryFile(*fallbackInventory)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "paritycheck: %v\n", err)
+		os.Exit(1)
+	}
 	if *summary {
 		if err := conformance.WriteSummary(os.Stdout, manifest); err != nil {
 			fmt.Fprintf(os.Stderr, "paritycheck: write summary: %v\n", err)
@@ -37,5 +43,5 @@ func main() {
 		}
 		return
 	}
-	fmt.Printf("validated %d capabilities in %s\n", len(manifest.Capabilities), path)
+	fmt.Printf("validated %d capabilities in %s and %d temporary fallbacks in %s\n", len(manifest.Capabilities), path, len(inventory.TemporaryFallbacks), *fallbackInventory)
 }

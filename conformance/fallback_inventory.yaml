@@ -1,0 +1,21 @@
+version: 1
+temporary_fallbacks: []
+permanent_alternatives:
+  - id: format-selector.choice
+    surface: format selector `/`
+    behavior: User-requested ordered format-choice operator; it is syntax, not an execution bridge.
+    owner: compatibility
+    milestone: permanent
+  - id: javascript-helper.discovery
+    surface: JavaScript helper executable discovery
+    behavior: Selects the same pure-Go helper from an explicit path, beside the executable, or PATH.
+    owner: runtime
+    milestone: permanent
+  - id: extractor-url.normalization
+    surface: extractor URL normalization
+    behavior: A native extractor may synthesize its canonical API URL when optional webpage data is absent.
+    owner: extractors
+    milestone: corpus-specific permanent behavior
+prohibited:
+  - python-backed
+  - silent
