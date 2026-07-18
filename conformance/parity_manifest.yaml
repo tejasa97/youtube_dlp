@@ -520,8 +520,11 @@ capabilities:
       - pkg/ytdlp.TestTelemetryIsDisabledByDefaultAndUnknownExtractorIsBounded
       - pkg/ytdlp.TestBuiltInExtractorIDsAreUniqueAndIncludeProductBoundaries
       - internal/cli.TestRunTelemetryJSONSuccessFailureAndConflict
+      - cmd/telemetrycheck.TestRunMergesSnapshotsAndEvaluatesCoverage
+      - cmd/telemetrycheck.TestRunGateFailuresAndSecretSafeDiagnostics
       - conformance/telemetry/PROVENANCE.md
       - docs/P3_TELEMETRY.md
+      - docs/P3_LOCAL_COVERAGE_REPORT.md
     owner: operations
     depends_on:
       - foundation.capability_manifest
