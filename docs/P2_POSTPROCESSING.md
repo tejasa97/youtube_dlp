@@ -3,11 +3,13 @@
 `internal/media/ffmpeg` is the sole external-tool boundary. It starts ffmpeg
 and ffprobe with argument vectors (never a shell), uses an explicitly bounded
 environment and diagnostics, starts a separate process group on Unix, and
-atomically finalizes outputs. Cancellation kills the supervised process tree;
-failed and cancelled work removes `.part` outputs.
+atomically finalizes outputs. Cancellation kills the supervised Unix process
+group; on Windows it currently kills the direct child only. Failed and cancelled
+work removes temporary outputs.
 
-Each invocation receives a unique same-directory temporary filename, so
-concurrent operations cannot collide. Existing destination symlinks and
+Each invocation gets a private same-filesystem temporary directory and an
+exclusive output file, so concurrent operations cannot collide or replace its
+intermediate through the destination directory. Existing destination symlinks and
 non-regular files are rejected. Concat accepts bounded, existing local regular
 files only; it cannot turn a URL or protocol string into an ffmpeg input.
 
@@ -24,10 +26,13 @@ chapter removal and sponsor-block mutation workflows are not part of this lane
 yet. Thumbnail embedding depends on ffmpeg/container support and reports the
 categorized media failure without altering the input.
 
-Safe cross-device moves stream through a private temporary file, honor context
+Safe cross-device moves stream through an exclusive temporary file, honor context
 cancellation, sync before publish, and retain the source until publication. On
 Windows, overwriting an existing move destination is refused because the Go
-rename primitive cannot provide the same atomic replacement guarantee there.
+rename primitive cannot provide the same atomic replacement guarantee there;
+the same restriction applies to ffmpeg post-processing finalization.
+Windows process-tree termination is a known deviation until the supervisor uses
+a tested Job Object implementation.
 Hardlink-count inspection is intentionally not enforced cross-platform: callers
 must treat an `Owned` artifact as exclusively owned before asking the graph to
 delete it.

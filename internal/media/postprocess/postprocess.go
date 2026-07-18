@@ -317,17 +317,17 @@ func SafeMoveContext(ctx context.Context, source, destination string, overwrite 
 	if err := os.Rename(source, destination); err == nil {
 		return nil
 	}
-	temporary := destination + ".move.part"
-	_ = os.Remove(temporary)
 	in, err := os.Open(source)
 	if err != nil {
 		return err
 	}
 	defer in.Close()
-	out, err := os.OpenFile(temporary, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	temporaryFile, err := os.CreateTemp(filepath.Dir(destination), ".ytdlp-move-*"+filepath.Ext(destination))
 	if err != nil {
 		return err
 	}
+	temporary := temporaryFile.Name()
+	out := temporaryFile
 	copyErr := copyContext(ctx, out, in)
 	syncErr := out.Sync()
 	closeErr := out.Close()

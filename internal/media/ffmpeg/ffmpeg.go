@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -325,31 +326,34 @@ func (tools *Toolset) runAtomic(ctx context.Context, destination string, overwri
 		if !overwrite {
 			return fmt.Errorf("%w: %s", ErrDestinationExists, destination)
 		}
+		if runtime.GOOS == "windows" {
+			return fmt.Errorf("%w: atomic overwrite unavailable on Windows", ErrDestinationExists)
+		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("%w: inspect destination: %v", ErrMediaFailure, err)
 	}
 	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
 		return fmt.Errorf("%w: create output directory: %v", ErrMediaFailure, err)
 	}
+	temporaryDirectory, err := os.MkdirTemp(filepath.Dir(destination), ".ytdlp-postprocess-")
+	if err != nil {
+		return fmt.Errorf("%w: allocate private temporary directory: %v", ErrMediaFailure, err)
+	}
+	defer os.RemoveAll(temporaryDirectory)
 	extension := filepath.Ext(destination)
-	temporaryFile, err := os.CreateTemp(filepath.Dir(destination), ".ytdlp-part-*."+strings.TrimPrefix(extension, "."))
+	temporaryFile, err := os.CreateTemp(temporaryDirectory, "output-*"+extension)
 	if err != nil {
 		return fmt.Errorf("%w: allocate temporary output: %v", ErrMediaFailure, err)
 	}
 	temporary := temporaryFile.Name()
+	// The intermediate file is inside a private same-filesystem directory.
+	// Close it before handing its pathname to ffmpeg (notably required on
+	// Windows), and always use -y only for this already-isolated intermediate.
 	if err := temporaryFile.Close(); err != nil {
 		_ = os.Remove(temporary)
 		return fmt.Errorf("%w: close temporary output: %v", ErrMediaFailure, err)
 	}
-	if err := os.Remove(temporary); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("%w: prepare temporary output: %v", ErrMediaFailure, err)
-	}
-	args := []string{"-nostdin", "-hide_banner", "-loglevel", "error"}
-	if overwrite {
-		args = append(args, "-y")
-	} else {
-		args = append(args, "-n")
-	}
+	args := []string{"-nostdin", "-hide_banner", "-loglevel", "error", "-y"}
 	args = append(args, operation(temporary)...)
 	if err := sink.Emit(ctx, events.Event{Kind: events.KindPostprocessStarting, Path: destination}); err != nil {
 		return err
@@ -618,6 +622,9 @@ func replace(source, destination string, overwrite bool) error {
 	err := os.Rename(source, destination)
 	if err == nil || !overwrite {
 		return err
+	}
+	if runtime.GOOS == "windows" {
+		return fmt.Errorf("%w: atomic overwrite unavailable on Windows", ErrDestinationExists)
 	}
 	if removeErr := os.Remove(destination); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
 		return errors.Join(err, removeErr)

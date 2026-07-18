@@ -146,11 +146,13 @@ func TestAtomicPostprocessCancellationRemovesTemporaryOutput(t *testing.T) {
 		t.Fatalf("runAtomic() error = %v", err)
 	}
 	paths := []string{destination}
-	parts, globErr := filepath.Glob(filepath.Join(root, ".ytdlp-part-*"))
+	parts, globErr := filepath.Glob(filepath.Join(root, ".ytdlp-postprocess-*"))
 	if globErr != nil {
 		t.Fatal(globErr)
 	}
-	paths = append(paths, parts...)
+	if len(parts) != 0 {
+		t.Fatalf("private temporary directories remain: %v", parts)
+	}
 	for _, path := range paths {
 		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
 			t.Fatalf("temporary output remains at %s: %v", path, statErr)

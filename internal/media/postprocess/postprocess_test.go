@@ -34,8 +34,15 @@ func TestGraphValidationAndSafeMove(t *testing.T) {
 	if err := SafeMove(destination, destination, false); err != nil {
 		t.Fatalf("identity move: %v", err)
 	}
+	predictable := filepath.Join(root, "final.mp4.move.part")
+	if err := os.WriteFile(predictable, []byte("must survive"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := (Graph{Operations: []Operation{Move{Input: Artifact{Path: destination, Kind: ArtifactMedia}, Output: Artifact{Path: filepath.Join(root, "final.mp4"), Kind: ArtifactMedia}}}}).Run(context.Background(), nil, nil); err != nil {
 		t.Fatalf("move-only graph should not need ffmpeg: %v", err)
+	}
+	if body, err := os.ReadFile(predictable); err != nil || string(body) != "must survive" {
+		t.Fatalf("predictable temporary was changed: %q %v", body, err)
 	}
 }
 
