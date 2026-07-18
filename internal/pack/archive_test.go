@@ -172,6 +172,45 @@ func TestVerifyRevocations(t *testing.T) {
 	}
 }
 
+func TestVerifyRejectsInvalidRevocationMetadata(t *testing.T) {
+	archive := fixtureArchive(t, "1.2.3", "payload")
+	policy := fixturePolicy(t, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
+	policy.Revocations.KeyIDs = []string{"not-a-key-id"}
+	if _, err := Verify(archive, policy); !errors.Is(err, ErrInvalidRevocations) {
+		t.Fatalf("Verify() error = %v, want invalid revocations", err)
+	}
+	policy = fixturePolicy(t, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
+	policy.Revocations.Packages = []PackageRevocation{{Name: "../unsafe", Version: "1.0.0"}}
+	if _, err := Verify(archive, policy); !errors.Is(err, ErrInvalidRevocations) {
+		t.Fatalf("Verify() error = %v, want invalid revocations", err)
+	}
+}
+
+func TestVerifyRejectsSignedMetadataPayloadMismatch(t *testing.T) {
+	archive := fixtureArchive(t, "1.0.0", "payload")
+	policy := fixturePolicy(t, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
+	verified, err := Verify(archive, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signatureBytes, err := json.Marshal(verified.Signature)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := make(map[string][]byte, len(verified.Payload))
+	for path, body := range verified.Payload {
+		payload[path] = append([]byte(nil), body...)
+	}
+	payload["bin/fixture"][0] ^= 0x20
+	tampered, err := encodeArchive(verified.ManifestBytes, signatureBytes, verified.Manifest.Files, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Verify(tampered, policy); !errors.Is(err, ErrSignature) {
+		t.Fatalf("Verify() error = %v, want signature category", err)
+	}
+}
+
 func TestVerifyRejectsAmbiguousOrHostileArchives(t *testing.T) {
 	archive := fixtureArchive(t, "1.0.0", "payload")
 	policy := fixturePolicy(t, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))

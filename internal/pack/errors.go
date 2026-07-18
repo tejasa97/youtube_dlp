@@ -19,6 +19,7 @@ var (
 	ErrIncompatibleHost   = errors.New("plugin pack requires a newer host")
 	ErrPermissionReview   = errors.New("plugin pack permission increase requires review")
 	ErrAlreadyInstalled   = errors.New("plugin pack version is already installed")
+	ErrNotInstalled       = errors.New("plugin pack version is not installed")
 	ErrLocked             = errors.New("plugin pack installation is locked")
 	ErrCorruptInstall     = errors.New("installed plugin pack is corrupt")
 	ErrPlatformSecurity   = errors.New("plugin pack secure installation is unsupported on this platform")

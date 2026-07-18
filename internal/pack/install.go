@@ -41,12 +41,13 @@ type Transition struct {
 }
 
 type State struct {
-	SchemaVersion  int               `json:"schema_version"`
-	Name           string            `json:"name"`
-	Current        string            `json:"current"`
-	Previous       string            `json:"previous,omitempty"`
-	Records        []InstalledRecord `json:"records"`
-	LastTransition Transition        `json:"last_transition"`
+	SchemaVersion   int               `json:"schema_version"`
+	Name            string            `json:"name"`
+	Current         string            `json:"current"`
+	Previous        string            `json:"previous,omitempty"`
+	Records         []InstalledRecord `json:"records"`
+	PendingRemovals []string          `json:"pending_removals,omitempty"`
+	LastTransition  Transition        `json:"last_transition"`
 }
 
 type InstallOptions struct {
@@ -83,12 +84,26 @@ func Install(ctx context.Context, archive []byte, root string, policy VerifyPoli
 	if err != nil {
 		return receipt, err
 	}
+	if err := syncDirectory(root); err != nil {
+		return receipt, err
+	}
 	unlock, err := acquireLock(packRoot)
 	if err != nil {
 		return receipt, err
 	}
 	defer unlock()
 	state, err := loadState(packRoot, verified.Manifest.Name)
+	if err != nil {
+		return receipt, err
+	}
+	versionsRoot, err := secureChildDirectory(packRoot, "versions")
+	if err != nil {
+		return receipt, err
+	}
+	if err := syncDirectory(packRoot); err != nil {
+		return receipt, err
+	}
+	state, err = recoverPendingRemovals(packRoot, versionsRoot, state)
 	if err != nil {
 		return receipt, err
 	}
@@ -112,13 +127,26 @@ func Install(ctx context.Context, archive []byte, root string, policy VerifyPoli
 	if review.Increase() && !options.ApprovePermissionIncrease {
 		return Receipt{Verified: verified, Review: review, State: state}, ErrPermissionReview
 	}
-	versionsRoot, err := secureChildDirectory(packRoot, "versions")
-	if err != nil {
+	if err := cleanupStaging(versionsRoot); err != nil {
 		return receipt, err
 	}
 	destination := filepath.Join(versionsRoot, verified.Manifest.Version)
 	if _, err := os.Lstat(destination); err == nil {
-		return receipt, ErrAlreadyInstalled
+		// A crash after the version-directory rename but before state
+		// publication leaves an inactive orphan. Recover only when the signed
+		// bytes exactly match this requested archive.
+		orphanPolicy := policy
+		orphanPolicy.CurrentVersion = ""
+		orphan, verifyErr := verifyInstalled(destination, orphanPolicy)
+		if verifyErr != nil || orphan.ArchiveSHA256 != verified.ArchiveSHA256 {
+			return receipt, ErrCorruptInstall
+		}
+		if err := os.RemoveAll(destination); err != nil {
+			return receipt, fmt.Errorf("%w: remove inactive version", ErrIO)
+		}
+		if err := syncDirectory(versionsRoot); err != nil {
+			return receipt, err
+		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return receipt, fmt.Errorf("%w: inspect destination", ErrIO)
 	}
@@ -134,19 +162,29 @@ func Install(ctx context.Context, archive []byte, root string, policy VerifyPoli
 	defer func() {
 		if staged {
 			_ = os.RemoveAll(staging)
+			_ = syncDirectory(versionsRoot)
 		}
 	}()
 	if err := extractVerified(ctx, staging, verified); err != nil {
 		return receipt, err
 	}
+	if err := syncTreeDirectories(staging); err != nil {
+		return receipt, err
+	}
 	if err := os.Rename(staging, destination); err != nil {
 		return receipt, fmt.Errorf("%w: activate staged version", ErrIO)
+	}
+	if err := syncDirectory(versionsRoot); err != nil {
+		_ = os.RemoveAll(destination)
+		_ = syncDirectory(versionsRoot)
+		return receipt, err
 	}
 	staged = false
 	cleanupDestination := true
 	defer func() {
 		if cleanupDestination {
 			_ = os.RemoveAll(destination)
+			_ = syncDirectory(versionsRoot)
 		}
 	}()
 	recheckPolicy := policy
@@ -156,7 +194,13 @@ func Install(ctx context.Context, archive []byte, root string, policy VerifyPoli
 		if err == nil {
 			err = ErrCorruptInstall
 		}
-		return receipt, err
+		removeErr := os.RemoveAll(destination)
+		syncErr := syncDirectory(versionsRoot)
+		cleanupDestination = false
+		if removeErr != nil {
+			removeErr = fmt.Errorf("%w: remove failed activation", ErrIO)
+		}
+		return receipt, errors.Join(err, removeErr, syncErr)
 	}
 	now := policy.Now.UTC().Format(time.RFC3339)
 	record := InstalledRecord{
@@ -177,15 +221,28 @@ func Install(ctx context.Context, archive []byte, root string, policy VerifyPoli
 	transition := Transition{From: from, To: state.Current, Reason: "install", At: now}
 	state.LastTransition = transition
 	if err := writeState(packRoot, state); err != nil {
+		_ = os.RemoveAll(destination)
+		_ = syncDirectory(versionsRoot)
+		cleanupDestination = false
 		return receipt, err
 	}
 	cleanupDestination = false
 	return Receipt{Path: destination, Verified: verified, Review: review, State: state, Transition: transition}, nil
 }
 
-// Rollback activates the previous version only after reconstructing and
-// verifying its signed canonical archive and all installed payload digests.
+type RollbackOptions struct {
+	ApprovePermissionIncrease bool
+}
+
+// Rollback activates the previous version with fail-closed permission review.
+// Use RollbackWithOptions to explicitly approve a permission increase.
 func Rollback(ctx context.Context, root, name string, policy VerifyPolicy) (Receipt, error) {
+	return RollbackWithOptions(ctx, root, name, policy, RollbackOptions{})
+}
+
+// RollbackWithOptions activates the previous version only after reconstructing
+// and verifying its signed canonical archive and all installed payload digests.
+func RollbackWithOptions(ctx context.Context, root, name string, policy VerifyPolicy, options RollbackOptions) (Receipt, error) {
 	var receipt Receipt
 	if err := ctx.Err(); err != nil {
 		return receipt, err
@@ -212,12 +269,16 @@ func Rollback(ctx context.Context, root, name string, policy VerifyPolicy) (Rece
 	if err != nil {
 		return receipt, err
 	}
-	if state.Current == "" || state.Previous == "" {
-		return receipt, fmt.Errorf("%w: no rollback target", ErrCorruptInstall)
-	}
 	versionsRoot := filepath.Join(packRoot, "versions")
 	if err := validateSecureDirectory(versionsRoot); err != nil {
 		return receipt, err
+	}
+	state, err = recoverPendingRemovals(packRoot, versionsRoot, state)
+	if err != nil {
+		return receipt, err
+	}
+	if state.Current == "" || state.Previous == "" {
+		return receipt, fmt.Errorf("%w: no rollback target", ErrCorruptInstall)
 	}
 	target := filepath.Join(versionsRoot, state.Previous)
 	if err := validateSecureDirectory(target); err != nil {
@@ -234,15 +295,18 @@ func Rollback(ctx context.Context, root, name string, policy VerifyPolicy) (Rece
 		return receipt, ErrCorruptInstall
 	}
 	from, to := state.Current, state.Previous
+	review := PermissionReview{}
+	if oldRecord := recordFor(state, from); oldRecord != nil {
+		review = ReviewPermissions(oldRecord.Permissions, record.Permissions)
+	}
+	if review.Increase() && !options.ApprovePermissionIncrease {
+		return Receipt{Path: target, Verified: verified, Review: review, State: state}, ErrPermissionReview
+	}
 	state.Current, state.Previous = to, from
 	transition := Transition{From: from, To: to, Reason: "rollback", At: policy.Now.UTC().Format(time.RFC3339)}
 	state.LastTransition = transition
 	if err := writeState(packRoot, state); err != nil {
 		return receipt, err
-	}
-	review := PermissionReview{}
-	if oldRecord := recordFor(state, from); oldRecord != nil {
-		review = ReviewPermissions(oldRecord.Permissions, record.Permissions)
 	}
 	return Receipt{Path: target, Verified: verified, Review: review, State: state, Transition: transition}, nil
 }
@@ -313,6 +377,37 @@ func verifyInstalled(versionRoot string, policy VerifyPolicy) (Verified, error) 
 	return verified, nil
 }
 
+func cleanupStaging(versionsRoot string) error {
+	entries, err := os.ReadDir(versionsRoot)
+	if err != nil {
+		return fmt.Errorf("%w: inspect staging directory", ErrIO)
+	}
+	changed := false
+	for _, entry := range entries {
+		isStage := strings.HasPrefix(entry.Name(), ".stage-")
+		isRemoval := strings.HasPrefix(entry.Name(), ".remove-")
+		if !isStage && !isRemoval {
+			continue
+		}
+		path := filepath.Join(versionsRoot, entry.Name())
+		info, err := os.Lstat(path)
+		if err != nil || !secureOwnership(info) {
+			return ErrUnsafePath
+		}
+		if isStage && (!info.IsDir() || info.Mode()&os.ModeSymlink != 0) {
+			return ErrUnsafePath
+		}
+		if err := os.RemoveAll(path); err != nil {
+			return fmt.Errorf("%w: remove abandoned staging directory", ErrIO)
+		}
+		changed = true
+	}
+	if changed {
+		return syncDirectory(versionsRoot)
+	}
+	return nil
+}
+
 func verifyInstalledTree(versionRoot string, manifest Manifest) error {
 	expectedFiles := map[string]os.FileMode{manifestMetaName: 0o600, signatureMetaName: 0o600}
 	expectedDirectories := map[string]struct{}{".": {}}
@@ -358,10 +453,20 @@ func prepareRoot(root string) error {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("%w: inspect install root", ErrIO)
 	}
-	if err := os.MkdirAll(root, 0o700); err != nil {
+	parent := filepath.Dir(root)
+	if err := validateSecureDirectory(parent); err != nil {
+		return fmt.Errorf("%w: install-root parent must already be a secure directory", ErrUnsafePath)
+	}
+	if err := os.Mkdir(root, 0o700); err != nil {
 		return fmt.Errorf("%w: create install root", ErrIO)
 	}
-	return validateExistingRoot(root)
+	if err := validateExistingRoot(root); err != nil {
+		return err
+	}
+	if err := syncDirectory(root); err != nil {
+		return err
+	}
+	return syncDirectory(parent)
 }
 
 func validateExistingRoot(root string) error {
@@ -511,22 +616,6 @@ func readRegular(path string, limit int) ([]byte, error) {
 	return body, nil
 }
 
-func acquireLock(packRoot string) (func(), error) {
-	path := filepath.Join(packRoot, ".install.lock")
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if errors.Is(err, os.ErrExist) {
-		return nil, ErrLocked
-	}
-	if err != nil {
-		return nil, fmt.Errorf("%w: acquire install lock", ErrIO)
-	}
-	if err := file.Close(); err != nil {
-		_ = os.Remove(path)
-		return nil, fmt.Errorf("%w: close install lock", ErrIO)
-	}
-	return func() { _ = os.Remove(path) }, nil
-}
-
 func loadState(packRoot, name string) (State, error) {
 	path := filepath.Join(packRoot, "state.json")
 	body, err := readRegular(path, maxStateBytes)
@@ -546,7 +635,7 @@ func loadState(packRoot, name string) (State, error) {
 }
 
 func validateState(state State, name string) error {
-	if state.SchemaVersion != stateSchemaVersion || state.Name != name || len(state.Records) > maxInstallRecords {
+	if state.SchemaVersion != stateSchemaVersion || state.Name != name || len(state.Records) > maxInstallRecords || len(state.PendingRemovals) > maxInstallRecords {
 		return ErrCorruptInstall
 	}
 	seen := make(map[string]struct{}, len(state.Records))
@@ -569,6 +658,9 @@ func validateState(state State, name string) error {
 		if len(record.Permissions) > maxPermissions {
 			return ErrCorruptInstall
 		}
+		if err := validatePermissions(record.Permissions, true); err != nil {
+			return ErrCorruptInstall
+		}
 		if _, duplicate := seen[record.Version]; duplicate {
 			return ErrCorruptInstall
 		}
@@ -584,7 +676,83 @@ func validateState(state State, name string) error {
 			return ErrCorruptInstall
 		}
 	}
+	if state.LastTransition.Reason != "" {
+		if state.LastTransition.Reason != "install" && state.LastTransition.Reason != "rollback" && state.LastTransition.Reason != "remove" {
+			return ErrCorruptInstall
+		}
+		if _, err := parseTimestamp(state.LastTransition.At); err != nil {
+			return ErrCorruptInstall
+		}
+		if state.LastTransition.From != "" {
+			if _, err := parseVersion(state.LastTransition.From); err != nil {
+				return ErrCorruptInstall
+			}
+		}
+		if state.LastTransition.To != "" {
+			if _, err := parseVersion(state.LastTransition.To); err != nil {
+				return ErrCorruptInstall
+			}
+		}
+	}
+	pending := make(map[string]struct{}, len(state.PendingRemovals))
+	for _, version := range state.PendingRemovals {
+		if _, err := parseVersion(version); err != nil {
+			return ErrCorruptInstall
+		}
+		if _, duplicate := pending[version]; duplicate {
+			return ErrCorruptInstall
+		}
+		if _, active := seen[version]; active {
+			return ErrCorruptInstall
+		}
+		pending[version] = struct{}{}
+	}
 	return nil
+}
+
+func recoverPendingRemovals(packRoot, versionsRoot string, state State) (State, error) {
+	if len(state.PendingRemovals) == 0 {
+		return state, nil
+	}
+	for _, version := range state.PendingRemovals {
+		if err := removeVersionDurably(versionsRoot, version); err != nil {
+			return State{}, err
+		}
+	}
+	state.PendingRemovals = nil
+	if err := writeState(packRoot, state); err != nil {
+		return State{}, err
+	}
+	return state, nil
+}
+
+func removeVersionDurably(versionsRoot, version string) error {
+	if _, err := parseVersion(version); err != nil {
+		return ErrCorruptInstall
+	}
+	target := filepath.Join(versionsRoot, version)
+	if _, err := os.Lstat(target); errors.Is(err, os.ErrNotExist) {
+		return cleanupStaging(versionsRoot)
+	} else if err != nil {
+		return fmt.Errorf("%w: inspect removal target", ErrIO)
+	}
+	placeholder, err := os.MkdirTemp(versionsRoot, ".remove-")
+	if err != nil {
+		return fmt.Errorf("%w: create removal quarantine", ErrIO)
+	}
+	if err := os.Remove(placeholder); err != nil {
+		return fmt.Errorf("%w: prepare removal quarantine", ErrIO)
+	}
+	if err := os.Rename(target, placeholder); err != nil {
+		return fmt.Errorf("%w: quarantine removed version", ErrIO)
+	}
+	if err := syncDirectory(versionsRoot); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(placeholder); err != nil {
+		return fmt.Errorf("%w: remove quarantined version", ErrIO)
+	}
+	return syncDirectory(versionsRoot)
 }
 
 func validDigest(input string) bool {
@@ -608,7 +776,11 @@ func writeState(packRoot string, state State) error {
 		return fmt.Errorf("%w: create temporary state", ErrIO)
 	}
 	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
+	defer func() {
+		if removeErr := os.Remove(temporaryPath); removeErr == nil {
+			_ = syncDirectory(packRoot)
+		}
+	}()
 	if err := temporary.Chmod(0o600); err != nil {
 		temporary.Close()
 		return fmt.Errorf("%w: secure temporary state", ErrIO)
@@ -635,7 +807,7 @@ func writeState(packRoot string, state State) error {
 	if err := os.Rename(temporaryPath, destination); err != nil {
 		return fmt.Errorf("%w: atomically replace state", ErrIO)
 	}
-	return nil
+	return syncDirectory(packRoot)
 }
 
 func recordFor(state State, version string) *InstalledRecord {

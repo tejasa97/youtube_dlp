@@ -136,20 +136,11 @@ func validateManifest(manifest Manifest) error {
 	if err != nil || !expires.After(created) {
 		return fmt.Errorf("%w: invalid expiration", ErrInvalidManifest)
 	}
-	if len(manifest.Permissions) > maxPermissions || len(manifest.Files) == 0 || len(manifest.Files) > maxFiles {
+	if len(manifest.Files) == 0 || len(manifest.Files) > maxFiles {
 		return ErrResourceLimit
 	}
-	seenPermissions := make(map[Permission]struct{}, len(manifest.Permissions))
-	for _, permission := range manifest.Permissions {
-		switch permission {
-		case PermissionNetwork, PermissionCookies, PermissionSecrets, PermissionFilesystemRead, PermissionFilesystemWrite:
-		default:
-			return fmt.Errorf("%w: unknown permission", ErrInvalidManifest)
-		}
-		if _, exists := seenPermissions[permission]; exists {
-			return fmt.Errorf("%w: duplicate permission", ErrInvalidManifest)
-		}
-		seenPermissions[permission] = struct{}{}
+	if err := validatePermissions(manifest.Permissions, false); err != nil {
+		return err
 	}
 	var total int64
 	seenFiles := make(map[string]struct{}, len(manifest.Files))
@@ -194,6 +185,28 @@ func validateManifest(manifest Manifest) error {
 				return fmt.Errorf("%w: RPC entrypoint is not executable", ErrInvalidManifest)
 			}
 		}
+	}
+	return nil
+}
+
+func validatePermissions(permissions []Permission, requireSorted bool) error {
+	if len(permissions) > maxPermissions {
+		return ErrResourceLimit
+	}
+	seen := make(map[Permission]struct{}, len(permissions))
+	for index, permission := range permissions {
+		switch permission {
+		case PermissionNetwork, PermissionCookies, PermissionSecrets, PermissionFilesystemRead, PermissionFilesystemWrite:
+		default:
+			return fmt.Errorf("%w: unknown permission", ErrInvalidManifest)
+		}
+		if _, exists := seen[permission]; exists {
+			return fmt.Errorf("%w: duplicate permission", ErrInvalidManifest)
+		}
+		if requireSorted && index > 0 && permissions[index-1] > permission {
+			return fmt.Errorf("%w: permissions are not canonical", ErrInvalidManifest)
+		}
+		seen[permission] = struct{}{}
 	}
 	return nil
 }

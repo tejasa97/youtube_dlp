@@ -6,7 +6,9 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -15,6 +17,9 @@ func canonicalTestRoot(t *testing.T) string {
 	t.Helper()
 	real, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(real, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	return filepath.Join(real, "packs")
@@ -86,6 +91,28 @@ func TestInstallPermissionIncreaseRequiresExplicitApproval(t *testing.T) {
 	}
 }
 
+func TestRollbackPermissionIncreaseRequiresExplicitApproval(t *testing.T) {
+	root := canonicalTestRoot(t)
+	policy := installPolicy(t)
+	if _, err := Install(context.Background(), fixtureArchive(t, "1.0.0", "one", PermissionNetwork), root, policy, InstallOptions{ApprovePermissionIncrease: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Install(context.Background(), fixtureArchive(t, "2.0.0", "two"), root, policy, InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := Rollback(context.Background(), root, "fixture-pack", policy)
+	if !errors.Is(err, ErrPermissionReview) || !receipt.Review.Increase() || receipt.Review.Added[0] != PermissionNetwork {
+		t.Fatalf("rollback review = %#v, error = %v", receipt.Review, err)
+	}
+	approved, err := RollbackWithOptions(context.Background(), root, "fixture-pack", policy, RollbackOptions{ApprovePermissionIncrease: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approved.State.Current != "1.0.0" {
+		t.Fatalf("approved rollback did not activate previous: %#v", approved.State)
+	}
+}
+
 func TestInstallRejectsDowngradeDuplicateAndLock(t *testing.T) {
 	root := canonicalTestRoot(t)
 	policy := installPolicy(t)
@@ -99,11 +126,102 @@ func TestInstallRejectsDowngradeDuplicateAndLock(t *testing.T) {
 		t.Fatalf("duplicate error = %v", err)
 	}
 	lock := filepath.Join(root, "fixture-pack", ".install.lock")
-	if err := os.WriteFile(lock, []byte("held"), 0o600); err != nil {
+	lockFile, err := os.OpenFile(lock, os.O_RDWR, 0o600)
+	if err != nil {
 		t.Fatal(err)
 	}
+	defer lockFile.Close()
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
 	if _, err := Install(context.Background(), fixtureArchive(t, "3.0.0", "three"), root, policy, InstallOptions{}); !errors.Is(err, ErrLocked) {
 		t.Fatalf("locked error = %v", err)
+	}
+}
+
+func TestKernelLockRecoversAfterProcessCrash(t *testing.T) {
+	root := canonicalTestRoot(t)
+	policy := installPolicy(t)
+	if _, err := Install(context.Background(), fixtureArchive(t, "1.0.0", "one"), root, policy, InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	lock := filepath.Join(root, "fixture-pack", ".install.lock")
+	command := exec.Command(os.Args[0], "-test.run=^TestLockCrashHelperProcess$")
+	command.Env = append(os.Environ(), "YTDLP_PACK_CRASH_LOCK="+lock)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("crash helper: %v: %s", err, output)
+	}
+	if _, err := Install(context.Background(), fixtureArchive(t, "2.0.0", "two"), root, policy, InstallOptions{}); err != nil {
+		t.Fatalf("kernel did not release crashed lock: %v", err)
+	}
+}
+
+func TestLockCrashHelperProcess(t *testing.T) {
+	path := os.Getenv("YTDLP_PACK_CRASH_LOCK")
+	if path == "" {
+		return
+	}
+	file, err := os.OpenFile(path, os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	// Deliberately exit without unlock or Close. The kernel must release the
+	// advisory lock exactly as it would after a crashed installer.
+	os.Exit(0)
+}
+
+func TestInstallRecoversSignedOrphanAndAbandonedStage(t *testing.T) {
+	root := canonicalTestRoot(t)
+	policy := installPolicy(t)
+	if _, err := Install(context.Background(), fixtureArchive(t, "1.0.0", "one"), root, policy, InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	archive := fixtureArchive(t, "2.0.0", "two")
+	verified, err := Verify(archive, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	versions := filepath.Join(root, "fixture-pack", "versions")
+	stage, err := os.MkdirTemp(versions, ".stage-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(stage, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := extractVerified(context.Background(), stage, verified); err != nil {
+		t.Fatal(err)
+	}
+	if err := syncTreeDirectories(stage); err != nil {
+		t.Fatal(err)
+	}
+	orphan := filepath.Join(versions, "2.0.0")
+	if err := os.Rename(stage, orphan); err != nil {
+		t.Fatal(err)
+	}
+	if err := syncDirectory(versions); err != nil {
+		t.Fatal(err)
+	}
+	abandoned := filepath.Join(versions, ".stage-abandoned")
+	if err := os.Mkdir(abandoned, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(abandoned, "partial"), []byte("partial"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := Install(context.Background(), archive, root, policy, InstallOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.State.Current != "2.0.0" {
+		t.Fatalf("orphan recovery did not activate version: %#v", receipt.State)
+	}
+	if _, err := os.Lstat(abandoned); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("abandoned staging directory remains: %v", err)
 	}
 }
 
@@ -184,6 +302,9 @@ func TestInstallRejectsUnsafeRootsAndState(t *testing.T) {
 	archive := fixtureArchive(t, "1.0.0", "one")
 	base, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(base, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	target := filepath.Join(base, "target")
