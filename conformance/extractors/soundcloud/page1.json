@@ -1,0 +1,7 @@
+{
+  "collection": [
+    {"id": 100, "title": "First", "permalink_url": "https://soundcloud.com/fixture-artist/first"},
+    {"track": {"id": 101, "title": "Second", "permalink_url": "https://soundcloud.com/fixture-artist/second"}}
+  ],
+  "next_href": "https://api-v2.soundcloud.com/users/7/tracks?cursor=page2&limit=200&client_id=stale"
+}

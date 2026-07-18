@@ -1,0 +1,14 @@
+{
+  "id": 55,
+  "title": "Synthetic Set",
+  "description": "Ordered synthetic playlist",
+  "duration": 3000,
+  "created_at": "2024-01-02T03:04:05Z",
+  "permalink_url": "https://soundcloud.com/fixture-artist/sets/synthetic-set",
+  "set_type": "playlist",
+  "user": {"id":7,"username":"Fixture Artist","permalink_url":"https://soundcloud.com/fixture-artist"},
+  "tracks": [
+    {"id":100,"title":"First","permalink_url":"https://soundcloud.com/fixture-artist/first"},
+    {"id":101,"title":"Second"}
+  ]
+}

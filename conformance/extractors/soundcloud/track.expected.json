@@ -1,0 +1,10 @@
+{
+  "id": "4242",
+  "title": "Synthetic Signal",
+  "duration": 123.456,
+  "timestamp": 1704164645,
+  "uploader": "Fixture Artist",
+  "format_ids": ["http_mp3_128k", "hls_aac_160k"],
+  "extensions": ["mp3", "m4a"],
+  "protocols": ["http", "m3u8_native"]
+}

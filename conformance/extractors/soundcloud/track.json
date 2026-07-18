@@ -1,0 +1,38 @@
+{
+  "id": 4242,
+  "title": "Synthetic Signal",
+  "description": "License-safe generated metadata",
+  "duration": 123456,
+  "created_at": "2024/01/02 03:04:05 +0000",
+  "permalink_url": "https://soundcloud.com/fixture-artist/synthetic-signal",
+  "artwork_url": "https://i1.sndcdn.com/artworks-fixture-large.jpg",
+  "license": "cc-by",
+  "genre": "Test Tone",
+  "playback_count": 1200,
+  "likes_count": 34,
+  "comment_count": 5,
+  "reposts_count": 6,
+  "policy": "ALLOW",
+  "user": {
+    "id": 7,
+    "username": "Fixture Artist",
+    "permalink_url": "https://soundcloud.com/fixture-artist",
+    "avatar_url": "https://i1.sndcdn.com/avatars-fixture-large.jpg"
+  },
+  "media": {
+    "transcodings": [
+      {
+        "url": "https://api-v2.soundcloud.com/media/4242/progressive",
+        "preset": "mp3_128k",
+        "quality": "sq",
+        "format": {"protocol": "progressive", "mime_type": "audio/mpeg"}
+      },
+      {
+        "url": "https://api-v2.soundcloud.com/media/4242/hls",
+        "preset": "aac_160k",
+        "quality": "hq",
+        "format": {"protocol": "hls", "mime_type": "audio/mp4; codecs=\"mp4a.40.2\""}
+      }
+    ]
+  }
+}
