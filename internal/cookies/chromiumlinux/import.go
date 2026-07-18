@@ -247,13 +247,20 @@ func copyFile(ctx context.Context, source, destination string, optional bool) er
 	}
 }
 func sqliteURI(path string) string {
-	u := &url.URL{Scheme: "file", Path: path}
+	u := &url.URL{Scheme: "file", Path: sqliteURLPath(path)}
 	q := u.Query()
 	q.Set("mode", "rw")
 	q.Add("_pragma", "query_only(1)")
 	q.Add("_pragma", "busy_timeout(1000)")
 	u.RawQuery = q.Encode()
 	return u.String()
+}
+func sqliteURLPath(path string) string {
+	path = filepath.ToSlash(path)
+	if filepath.VolumeName(path) != "" && !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return path
 }
 func metaVersion(ctx context.Context, db *sql.DB) (int, error) {
 	var raw string

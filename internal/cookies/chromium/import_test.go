@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -15,6 +16,21 @@ import (
 )
 
 const meta24Ciphertext = "djEwqXxQ4y30kpveilVsRpOEWHeXf0ktvFV7qM/zzpUUkM+o5GVwq/qK5pFiBXHYMk4b"
+
+func TestSnapshotURIUsesCanonicalNativeFilePath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "profile with space", "Cookies")
+	uri := snapshotURI(path)
+	parsed, err := url.Parse(uri)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Scheme != "file" || parsed.Host != "" || parsed.Path != sqliteURLPath(path) {
+		t.Fatalf("snapshotURI(%q) = %q (host=%q path=%q)", path, uri, parsed.Host, parsed.Path)
+	}
+	if parsed.Query().Get("mode") != "rw" || len(parsed.Query()["_pragma"]) != 2 {
+		t.Fatalf("snapshot URI query = %v", parsed.Query())
+	}
+}
 
 func TestImportCopiesLiveWALAndReturnsPartialResults(t *testing.T) {
 	root := t.TempDir()

@@ -186,13 +186,25 @@ func locateDatabase(options Options, settings browserSettings) (string, error) {
 }
 
 func snapshotURI(path string) string {
-	target := &url.URL{Scheme: "file", Path: path}
+	target := &url.URL{Scheme: "file", Path: sqliteURLPath(path)}
 	query := target.Query()
 	query.Set("mode", "rw")
 	query.Add("_pragma", "query_only(1)")
 	query.Add("_pragma", "busy_timeout(1000)")
 	target.RawQuery = query.Encode()
 	return target.String()
+}
+
+// sqliteURLPath converts the native filename to the slash-separated path
+// component required by a file URI. In particular, a Windows drive path must
+// be encoded as file:///C:/path, not file://C:%5Cpath (which treats the drive
+// as a URL host and makes SQLite open the wrong file).
+func sqliteURLPath(path string) string {
+	path = filepath.ToSlash(path)
+	if filepath.VolumeName(path) != "" && !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return path
 }
 
 func readMetaVersion(ctx context.Context, database *sql.DB) (int, error) {

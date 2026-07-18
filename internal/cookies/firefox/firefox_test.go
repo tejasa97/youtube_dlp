@@ -4,12 +4,28 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestSQLiteURIUsesCanonicalNativeFilePath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "profile with space", "cookies.sqlite")
+	uri := sqliteURI(path)
+	parsed, err := url.Parse(uri)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Scheme != "file" || parsed.Host != "" || parsed.Path != sqliteURLPath(path) {
+		t.Fatalf("sqliteURI(%q) = %q (host=%q path=%q)", path, uri, parsed.Host, parsed.Path)
+	}
+	if parsed.Query().Get("mode") != "rw" || len(parsed.Query()["_pragma"]) != 2 {
+		t.Fatalf("SQLite URI query = %v", parsed.Query())
+	}
+}
 
 func makeDatabase(t *testing.T, schema int, wal bool) string {
 	t.Helper()

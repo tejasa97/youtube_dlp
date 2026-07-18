@@ -86,7 +86,7 @@ func groupPaths(groups []Group) [][]string {
 	result := make([][]string, len(groups))
 	for groupIndex, group := range groups {
 		for _, candidate := range group.Candidates {
-			result[groupIndex] = append(result[groupIndex], filepath.ToSlash(candidate.Path))
+			result[groupIndex] = append(result[groupIndex], candidate.Path)
 		}
 	}
 	return result

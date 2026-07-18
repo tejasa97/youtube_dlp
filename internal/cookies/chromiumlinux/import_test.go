@@ -7,11 +7,27 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestSQLiteURIUsesCanonicalNativeFilePath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "profile with space", "Cookies")
+	uri := sqliteURI(path)
+	parsed, err := url.Parse(uri)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Scheme != "file" || parsed.Host != "" || parsed.Path != sqliteURLPath(path) {
+		t.Fatalf("sqliteURI(%q) = %q (host=%q path=%q)", path, uri, parsed.Host, parsed.Path)
+	}
+	if parsed.Query().Get("mode") != "rw" || len(parsed.Query()["_pragma"]) != 2 {
+		t.Fatalf("SQLite URI query = %v", parsed.Query())
+	}
+}
 
 type provider struct {
 	password []byte
