@@ -1,0 +1,1831 @@
+{
+  "schema_version": 1,
+  "reference_commit": "aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8",
+  "window_start": "2026-05-19T14:14:20Z",
+  "window_end": "2026-07-14T14:14:20Z",
+  "commit_count": 114,
+  "category_counts": {
+    "challenge": 7,
+    "cli": 12,
+    "downloader": 9,
+    "extractor": 73,
+    "other": 25,
+    "postprocessor": 3,
+    "transport": 4
+  },
+  "weeks": [
+    {
+      "number": 1,
+      "start": "2026-05-19T14:14:20Z",
+      "end": "2026-05-26T14:14:20Z",
+      "commit_count": 6,
+      "category_counts": {
+        "challenge": 3,
+        "extractor": 3,
+        "other": 3
+      }
+    },
+    {
+      "number": 2,
+      "start": "2026-05-26T14:14:20Z",
+      "end": "2026-06-02T14:14:20Z",
+      "commit_count": 0,
+      "category_counts": {}
+    },
+    {
+      "number": 3,
+      "start": "2026-06-02T14:14:20Z",
+      "end": "2026-06-09T14:14:20Z",
+      "commit_count": 10,
+      "category_counts": {
+        "challenge": 1,
+        "cli": 1,
+        "extractor": 5,
+        "other": 4,
+        "postprocessor": 1
+      }
+    },
+    {
+      "number": 4,
+      "start": "2026-06-09T14:14:20Z",
+      "end": "2026-06-16T14:14:20Z",
+      "commit_count": 30,
+      "category_counts": {
+        "cli": 5,
+        "downloader": 6,
+        "extractor": 16,
+        "other": 3,
+        "postprocessor": 2,
+        "transport": 3
+      }
+    },
+    {
+      "number": 5,
+      "start": "2026-06-16T14:14:20Z",
+      "end": "2026-06-23T14:14:20Z",
+      "commit_count": 11,
+      "category_counts": {
+        "extractor": 9,
+        "other": 2
+      }
+    },
+    {
+      "number": 6,
+      "start": "2026-06-23T14:14:20Z",
+      "end": "2026-06-30T14:14:20Z",
+      "commit_count": 27,
+      "category_counts": {
+        "challenge": 1,
+        "cli": 2,
+        "downloader": 1,
+        "extractor": 19,
+        "other": 6
+      }
+    },
+    {
+      "number": 7,
+      "start": "2026-06-30T14:14:20Z",
+      "end": "2026-07-07T14:14:20Z",
+      "commit_count": 25,
+      "category_counts": {
+        "cli": 4,
+        "downloader": 1,
+        "extractor": 17,
+        "other": 7,
+        "transport": 1
+      }
+    },
+    {
+      "number": 8,
+      "start": "2026-07-07T14:14:20Z",
+      "end": "2026-07-14T14:14:20Z",
+      "commit_count": 5,
+      "category_counts": {
+        "challenge": 2,
+        "downloader": 1,
+        "extractor": 4
+      }
+    }
+  ],
+  "commits": [
+    {
+      "hash": "125bb40468a8618e592d607c1c496095fda764f0",
+      "committed": "2026-05-22T17:23:03Z",
+      "subject": "[ci] Update 2 actions in 2 workflows (#16743)",
+      "week": 1,
+      "categories": [
+        "other"
+      ],
+      "files": [
+        ".github/workflows/codeql.yml",
+        ".github/workflows/test-workflows.yml"
+      ]
+    },
+    {
+      "hash": "e534a32619d1d944631a0483f28522bdd11f0745",
+      "committed": "2026-05-24T22:49:00Z",
+      "subject": "[ie/youtube] Drop support for `deno\u003c2.3.0` (#16788)",
+      "week": 1,
+      "categories": [
+        "extractor",
+        "challenge"
+      ],
+      "files": [
+        ".github/workflows/challenge-tests.yml",
+        "yt_dlp/utils/_jsruntime.py"
+      ]
+    },
+    {
+      "hash": "b536d72c869e47eb048fc54746e4d2f384706d2f",
+      "committed": "2026-05-24T22:56:27Z",
+      "subject": "[ie/youtube] Drop support for `node\u003c22` (#16787)",
+      "week": 1,
+      "categories": [
+        "extractor",
+        "challenge"
+      ],
+      "files": [
+        ".github/workflows/challenge-tests.yml",
+        "yt_dlp/utils/_jsruntime.py"
+      ]
+    },
+    {
+      "hash": "98e42eb04486e00bf86479b24dbfe19321f652ee",
+      "committed": "2026-05-24T23:07:42Z",
+      "subject": "[ie/youtube] Drop support for `bun\u003c1.2.11` and `bun\u003e1.3.14` (#16786)",
+      "week": 1,
+      "categories": [
+        "extractor",
+        "challenge"
+      ],
+      "files": [
+        ".github/workflows/challenge-tests.yml",
+        "test/test_jsc/conftest.py",
+        "yt_dlp/extractor/youtube/jsc/_builtin/bun.py",
+        "yt_dlp/extractor/youtube/pot/_director.py",
+        "yt_dlp/extractor/youtube/pot/_provider.py",
+        "yt_dlp/utils/_jsruntime.py"
+      ]
+    },
+    {
+      "hash": "dd17897eaeb0de7da31690d6d1807a1e9a041384",
+      "committed": "2026-05-25T22:47:15Z",
+      "subject": "[build] Update 14 dependencies (#16589)",
+      "week": 1,
+      "categories": [
+        "other"
+      ],
+      "files": [
+        "bundle/requirements/build.txt",
+        "bundle/requirements/curl-cffi.txt",
+        "bundle/requirements/default.txt",
+        "bundle/requirements/dev.txt",
+        "bundle/requirements/linux.txt",
+        "bundle/requirements/macos.txt",
+        "bundle/requirements/pip.txt",
+        "bundle/requirements/pyinstaller.txt",
+        "bundle/requirements/static-analysis.txt",
+        "bundle/requirements/test.txt",
+        "bundle/requirements/uv.txt",
+        "bundle/requirements/win-arm64-pyinstaller.txt",
+        "bundle/requirements/win-x64-pyinstaller.txt",
+        "bundle/requirements/win-x86-pyinstaller.txt",
+        "pyproject.toml",
+        "uv.lock"
+      ]
+    },
+    {
+      "hash": "acf8ab7a6e3024325f62426e35a17f365c4d5d54",
+      "committed": "2026-05-25T23:21:37Z",
+      "subject": "[utils] `random_user_agent`: Bump version range 137-143 =\u003e 142-148 (#16588)",
+      "week": 1,
+      "categories": [
+        "other"
+      ],
+      "files": [
+        "yt_dlp/utils/networking.py"
+      ]
+    },
+    {
+      "hash": "7fdc46d01619afbb2371b0465d6830602013148f",
+      "committed": "2026-06-06T20:49:26Z",
+      "subject": "[ie/youtube] Fix PO token sanitization for Python 3.15 (#16884)",
+      "week": 3,
+      "categories": [
+        "extractor",
+        "challenge"
+      ],
+      "files": [
+        "yt_dlp/extractor/youtube/pot/_director.py"
+      ]
+    },
+    {
+      "hash": "7aac95eae663be82cffeaf2a8c1193a5e349e401",
+      "committed": "2026-06-06T21:08:51Z",
+      "subject": "[ci] Test with Python 3.15 (#16896)",
+      "week": 3,
+      "categories": [
+        "other"
+      ],
+      "files": [
+        ".github/workflows/challenge-tests.yml",
+        ".github/workflows/core.yml"
+      ]
+    },
+    {
+      "hash": "5faffa999fd33b373d47773e8ee639d072accec2",
+      "committed": "2026-06-06T21:24:53Z",
+      "subject": "[pp/exec] Restrict `--exec` template usage to safe conversions (#16883)",
+      "week": 3,
+      "categories": [
+        "cli",
+        "postprocessor"
+      ],
+      "files": [
+        "README.md",
+        "test/test_postprocessors.py",
+        "yt_dlp/YoutubeDL.py",
+        "yt_dlp/__init__.py",
+        "yt_dlp/options.py",
+        "yt_dlp/postprocessor/exec.py",
+        "yt_dlp/utils/_utils.py"
+      ]
+    },
+    {
+      "hash": "1e4668e9df78ff2409e139b51610442cbefe762e",
+      "committed": "2026-06-08T23:36:42Z",
+      "subject": "[utils] `random_user_agent`: Bump version range 142-148 =\u003e 143-149 (#16906)",
+      "week": 3,
+      "categories": [
+        "other"
+      ],
+      "files": [
+        "yt_dlp/utils/networking.py"
+      ]
+    },
+    {
+      "hash": "10b54835cf3f0d63cdd964a2f411db8f7cac3ff1",
+      "committed": "2026-06-09T00:18:46Z",
+      "subject": "[build] Update 12 dependencies (#16903)",
+      "week": 3,
+      "categories": [
+        "other"
+      ],
+      "files": [
+        "bundle/requirements/build.txt",
+        "bundle/requirements/curl-cffi.txt",
+        "bundle/requirements/default.txt",
+        "bundle/requirements/dev.txt",
+        "bundle/requirements/linux.txt",
+        "bundle/requirements/macos.txt",
+        "bundle/requirements/pip.txt",
+        "bundle/requirements/static-analysis.txt",
+        "bundle/requirements/test.txt",
+        "bundle/requirements/uv.txt",
+        "pyproject.toml",
+        "uv.lock"
+      ]
+    },
+    {
+      "hash": "59bba1be7bb476d4445dc4eae94f602300cb865a",
+      "committed": "2026-06-09T00:52:34Z",
+      "subject": "[ci] Update 3 actions in 9 workflows (#16782)",
+      "week": 3,
+      "categories": [
+        "other"
+      ],
+      "files": [
+        ".github/workflows/build.yml",
+        ".github/workflows/challenge-tests.yml",
+        ".github/workflows/codeql.yml",
+        ".github/workflows/core.yml",
+        ".github/workflows/quick-test.yml",
+        ".github/workflows/release-nightly.yml",
+        ".github/workflows/release.yml",
+        ".github/workflows/test-workflows.yml",
+        ".github/workflows/wiki.yml"
+      ]
+    },
+    {
+      "hash": "72ac62051593184552733e353da4a8cb8ec214ed",
+      "committed": "2026-06-09T06:18:39Z",
+      "subject": "[ie/reddit] Fix unauthenticated extraction (#16839)",
+      "week": 3,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/reddit.py"
+      ]
+    },
+    {
+      "hash": "70050a626265922072cc56f69519214c47dbcad6",
+      "committed": "2026-06-09T06:22:59Z",
+      "subject": "[ie/thisoldhouse] Fix extractor (#16909)",
+      "week": 3,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/thisoldhouse.py"
+      ]
+    },
+    {
+      "hash": "bc90c36b139c87cdc59399561dc1650198047a72",
+      "committed": "2026-06-09T06:31:34Z",
+      "subject": "[ie/onsen] Fix extraction (#16830)",
+      "week": 3,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/onsen.py"
+      ]
+    },
+    {
+      "hash": "618b5e446c4379c9d95fe7b30fd6a0fc6af19a70",
+      "committed": "2026-06-09T06:42:48Z",
+      "subject": "[ie] Extract supplemental codecs from DASH manifests (#16827)",
+      "week": 3,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "test/test_InfoExtractor.py",
+        "test/testdata/mpd/supplemental_codecs.mpd",
+        "yt_dlp/extractor/common.py"
+      ]
+    },
+    {
+      "hash": "83564f85db7507486fbe3b0d0e72498f31ab0600",
+      "committed": "2026-06-09T14:44:18Z",
+      "subject": "[ie/pornhub] Support browser impersonation (#16794)",
+      "week": 4,
+      "categories": [
+        "extractor",
+        "transport"
+      ],
+      "files": [
+        "yt_dlp/extractor/pornhub.py"
+      ]
+    },
+    {
+      "hash": "37a8c6f42b1e0866bbeec47ca57a68a6ae63784e",
+      "committed": "2026-06-09T15:20:30Z",
+      "subject": "[rh:curl_cffi] Add actual `reason` to response (#16818)",
+      "week": 4,
+      "categories": [
+        "transport"
+      ],
+      "files": [
+        "yt_dlp/networking/_curlcffi.py"
+      ]
+    },
+    {
+      "hash": "7edb5ee8705cecc20537d519e1992ac202a30699",
+      "committed": "2026-06-09T15:39:53Z",
+      "subject": "[ie/twitter] Fix `view_count` extraction (#16814)",
+      "week": 4,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/twitter.py"
+      ]
+    },
+    {
+      "hash": "174afac7e304fd1c055d33d52a1fccdb3dca3b37",
+      "committed": "2026-06-09T15:59:32Z",
+      "subject": "[ie/S4C] Extract more metadata (#16813)",
+      "week": 4,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/s4c.py"
+      ]
+    },
+    {
+      "hash": "a75d66ae2c3e86e38eb05ae06e4a416077df001b",
+      "committed": "2026-06-09T16:07:06Z",
+      "subject": "[ie/monstercat] Support older URLs (#16780)",
+      "week": 4,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/monstercat.py"
+      ]
+    },
+    {
+      "hash": "1a1481e89b28ff1bf3f00eda00a66071f8caba9f",
+      "committed": "2026-06-09T20:59:42Z",
+      "subject": "[ie/iwara] Fix extractors (#16014)",
+      "week": 4,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/iwara.py"
+      ]
+    },
+    {
+      "hash": "519a662aa267ddcd48ea859729ba330361cff157",
+      "committed": "2026-06-09T21:03:41Z",
+      "subject": "[ie/AbemaTV] Extract subtitles (#16502)",
+      "week": 4,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/abematv.py"
+      ]
+    },
+    {
+      "hash": "0d8460b407fe8a9ac7ded8cbf21813554f9d2442",
+      "committed": "2026-06-09T21:17:28Z",
+      "subject": "[ie/soundcloud] Support `--extractor-retries` for original formats (#16690)",
+      "week": 4,
+      "categories": [
+        "extractor",
+        "cli"
+      ],
+      "files": [
+        "yt_dlp/extractor/soundcloud.py"
+      ]
+    },
+    {
+      "hash": "aaa1c78956ed4ff63df067671396de864afdc43e",
+      "committed": "2026-06-09T21:25:35Z",
+      "subject": "[ie/twitch] Remove dead `rechat` subtitles (#16660)",
+      "week": 4,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/twitch.py"
+      ]
+    },
+    {
+      "hash": "3d1f8a4a0d4da01fac484bd1593056a1dc9f30a9",
+      "committed": "2026-06-09T21:43:18Z",
+      "subject": "[ie/wikimedia] Rework extractor (#15413)",
+      "week": 4,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/wikimedia.py"
+      ]
+    },
+    {
+      "hash": "98c0beab97933e4115ed034f06a8b626eb282d3f",
+      "committed": "2026-06-09T21:52:07Z",
+      "subject": "[docs] Update badges (#14893)",
+      "week": 4,
+      "categories": [
+        "other"
+      ],
+      "files": [
+        "README.md"
+      ]
+    },
+    {
+      "hash": "a6791415e04aaf4bb4c105991ceb3ca6b24afc18",
+      "committed": "2026-06-09T22:05:24Z",
+      "subject": "[fd/ffmpeg] Use info dict `http_headers` for direct merge downloads (#15456)",
+      "week": 4,
+      "categories": [
+        "downloader"
+      ],
+      "files": [
+        "yt_dlp/downloader/external.py"
+      ]
+    },
+    {
+      "hash": "e85da3b98532761573d8b48ccd4d8d28dee94b15",
+      "committed": "2026-06-09T22:09:45Z",
+      "subject": "[pp/FFmpegMetadata] Avoid erroneous ISO 639 conversions (#16046)",
+      "week": 4,
+      "categories": [
+        "postprocessor"
+      ],
+      "files": [
+        "yt_dlp/postprocessor/ffmpeg.py"
+      ]
+    },
+    {
+      "hash": "3ba1534fa3f55ddb599a891b544ec96e5a15f3cc",
+      "committed": "2026-06-09T22:35:57Z",
+      "subject": "[cleanup] Remove dead extractors (#16137)",
+      "week": 4,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "test/test_subtitles.py",
+        "yt_dlp/extractor/_extractors.py",
+        "yt_dlp/extractor/airtv.py",
+        "yt_dlp/extractor/alsace20tv.py",
+        "yt_dlp/extractor/anchorfm.py",
+        "yt_dlp/extractor/appletrailers.py",
+        "yt_dlp/extractor/atvat.py",
+        "yt_dlp/extractor/awaan.py",
+        "yt_dlp/extractor/axs.py",
+        "yt_dlp/extractor/beatbump.py",
+        "yt_dlp/extractor/bigflix.py",
+        "yt_dlp/extractor/bokecc.py",
+        "yt_dlp/extractor/caffeinetv.py",
+        "yt_dlp/extractor/callin.py",
+        "yt_dlp/extractor/camdemy.py",
+        "yt_dlp/extractor/clippit.py",
+        "yt_dlp/extractor/contv.py",
+        "yt_dlp/extractor/drooble.py",
+        "yt_dlp/extractor/duboku.py",
+        "yt_dlp/extractor/eighttracks.py",
+        "yt_dlp/extractor/eitb.py",
+        "yt_dlp/extractor/eyedotv.py",
+        "yt_dlp/extractor/footyroom.py",
+        "yt_dlp/extractor/franceinter.py",
+        "yt_dlp/extractor/fujitv.py",
+        "yt_dlp/extractor/gab.py",
+        "yt_dlp/extractor/googlepodcasts.py",
+        "yt_dlp/extractor/goshgay.py",
+        "yt_dlp/extractor/gputechconf.py",
+        "yt_dlp/extractor/hketv.py",
+        "yt_dlp/extractor/idolplus.py",
+        "yt_dlp/extractor/infoq.py",
+        "yt_dlp/extractor/internetvideoarchive.py",
+        "yt_dlp/extractor/izlesene.py",
+        "yt_dlp/extractor/kinja.py",
+        "yt_dlp/extractor/koo.py",
+        "yt_dlp/extractor/leeco.py",
+        "yt_dlp/extractor/livestream.py",
+        "yt_dlp/extractor/lynda.py",
+        "yt_dlp/extractor/microsoftstream.py",
+        "yt_dlp/extractor/minoto.py",
+        "yt_dlp/extractor/mojvideo.py",
+        "yt_dlp/extractor/motherless.py",
+        "yt_dlp/extractor/moview.py",
+        "yt_dlp/extractor/moviezine.py",
+        "yt_dlp/extractor/musicdex.py",
+        "yt_dlp/extractor/nationalgeographic.py",
+        "yt_dlp/extractor/naver.py",
+        "yt_dlp/extractor/nerdcubed.py",
+        "yt_dlp/extractor/netverse.py",
+        "yt_dlp/extractor/nuum.py",
+        "yt_dlp/extractor/onionstudios.py",
+        "yt_dlp/extractor/ora.py",
+        "yt_dlp/extractor/piramidetv.py",
+        "yt_dlp/extractor/planetmarathi.py",
+        "yt_dlp/extractor/playplustv.py",
+        "yt_dlp/extractor/playwire.py",
+        "yt_dlp/extractor/plvideo.py",
+        "yt_dlp/extractor/prosiebensat1.py",
+        "yt_dlp/extractor/puls4.py",
+        "yt_dlp/extractor/radiocomercial.py",
+        "yt_dlp/extractor/redge.py",
+        "yt_dlp/extractor/rheinmaintv.py",
+        "yt_dlp/extractor/rmcdecouverte.py",
+        "yt_dlp/extractor/sejmpl.py",
+        "yt_dlp/extractor/sendtonews.py",
+        "yt_dlp/extractor/sharevideos.py",
+        "yt_dlp/extractor/snotr.py",
+        "yt_dlp/extractor/springboardplatform.py",
+        "yt_dlp/extractor/stanfordoc.py",
+        "yt_dlp/extractor/stitcher.py",
+        "yt_dlp/extractor/stretchinternet.py",
+        "yt_dlp/extractor/swearnet.py",
+        "yt_dlp/extractor/syvdk.py",
+        "yt_dlp/extractor/tempo.py",
+        "yt_dlp/extractor/theholetv.py",
+        "yt_dlp/extractor/traileraddict.py",
+        "yt_dlp/extractor/triller.py",
+        "yt_dlp/extractor/tvplayer.py",
+        "yt_dlp/extractor/ufctv.py",
+        "yt_dlp/extractor/uktvplay.py",
+        "yt_dlp/extractor/unsupported.py",
+        "yt_dlp/extractor/utreon.py",
+        "yt_dlp/extractor/vgtv.py",
+        "yt_dlp/extractor/videodetective.py",
+        "yt_dlp/extractor/videofyme.py",
+        "yt_dlp/extractor/videoken.py",
+        "yt_dlp/extractor/videomore.py",
+        "yt_dlp/extractor/vimm.py",
+        "yt_dlp/extractor/vodpl.py",
+        "yt_dlp/extractor/vuclip.py",
+        "yt_dlp/extractor/vvvvid.py",
+        "yt_dlp/extractor/wdr.py",
+        "yt_dlp/extractor/weyyak.py",
+        "yt_dlp/extractor/xstream.py",
+        "yt_dlp/extractor/zee5.py"
+      ]
+    },
+    {
+      "hash": "e578e265f7c6ca94a74b30e0d8d6196a4d19fb6a",
+      "committed": "2026-06-10T00:39:57+02:00",
+      "subject": "Remove `url`, `desktop` and `webloc` from safe extensions",
+      "week": 4,
+      "categories": [
+        "cli"
+      ],
+      "files": [
+        "yt_dlp/YoutubeDL.py",
+        "yt_dlp/utils/_utils.py"
+      ]
+    },
+    {
+      "hash": "2726572520238356bcf64aba2040228648b44c82",
+      "committed": "2026-06-10T00:40:01+02:00",
+      "subject": "[fd/external] `curl`: Fix cookie leak on redirect",
+      "week": 4,
+      "categories": [
+        "transport",
+        "downloader"
+      ],
+      "files": [
+        "test/test_downloader_external.py",
+        "yt_dlp/downloader/external.py",
+        "yt_dlp/utils/_utils.py"
+      ]
+    },
+    {
+      "hash": "25056f0d2d47adbd235a8d422fa62d68d0be2bc2",
+      "committed": "2026-06-10T00:40:03+02:00",
+      "subject": "[fd/external] `aria2c`: Remove support for m3u8/dash protocols",
+      "week": 4,
+      "categories": [
+        "downloader"
+      ],
+      "files": [
+        "README.md",
+        "yt_dlp/downloader/external.py"
+      ]
+    },
+    {
+      "hash": "821bef0f00178916d60dbc86bc0bcb8cc3bae8d5",
+      "committed": "2026-06-09T23:01:32Z",
+      "subject": "[cleanup] Misc (#16697)",
+      "week": 4,
+      "categories": [
+        "cli",
+        "downloader"
+      ],
+      "files": [
+        "devscripts/changelog_override.json",
+        "devscripts/update_requirements.py",
+        "test/test_YoutubeDL.py",
+        "test/test_downloader_external.py",
+        "test/test_execution.py",
+        "yt_dlp/YoutubeDL.py",
+        "yt_dlp/downloader/external.py"
+      ]
+    },
+    {
+      "hash": "7f7bdc974dc61d941d1a0d51c4e21a0fdb7b2d06",
+      "committed": "2026-06-09T23:08:31Z",
+      "subject": "Release 2026.06.09",
+      "week": 4,
+      "categories": [
+        "other"
+      ],
+      "files": [
+        "CONTRIBUTORS",
+        "Changelog.md",
+        "README.md",
+        "supportedsites.md",
+        "yt_dlp/version.py"
+      ]
+    },
+    {
+      "hash": "a541df1ea5a593abf3ceaf94ed806e4b52a2c459",
+      "committed": "2026-06-10T22:34:16Z",
+      "subject": "[ie/bandcamp:weekly] Fix extractor (#16925)",
+      "week": 4,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/bandcamp.py"
+      ]
+    },
+    {
+      "hash": "e47691215f75fe7e9684080d17fadf340c9a8450",
+      "committed": "2026-06-10T23:00:05Z",
+      "subject": "Fix `allow-unsafe-ext` compat option (#16920)",
+      "week": 4,
+      "categories": [
+        "cli"
+      ],
+      "files": [
+        "test/test_utils.py",
+        "yt_dlp/__init__.py",
+        "yt_dlp/utils/_utils.py"
+      ]
+    },
+    {
+      "hash": "cb309b3293c9919cfb55f5d9ffa2c8c109a5f1eb",
+      "committed": "2026-06-11T16:43:24+02:00",
+      "subject": "[utils] `HTTPHeaderDict`: Fix `__ior__` (#16930)",
+      "week": 4,
+      "categories": [
+        "other"
+      ],
+      "files": [
+        "test/test_utils.py",
+        "yt_dlp/utils/networking.py"
+      ]
+    },
+    {
+      "hash": "7937a139cf3e1e1ccd1b277f18ab73fc6dec06a7",
+      "committed": "2026-06-12T09:00:06Z",
+      "subject": "[fd/external] `curl`: Support development versions (#16922)",
+      "week": 4,
+      "categories": [
+        "downloader"
+      ],
+      "files": [
+        "yt_dlp/downloader/external.py"
+      ]
+    },
+    {
+      "hash": "707537a03946fbc5707e22be429545c670cd8ec2",
+      "committed": "2026-06-12T09:14:10Z",
+      "subject": "[ie/patreon] Support new URL format (#16926)",
+      "week": 4,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/patreon.py"
+      ]
+    },
+    {
+      "hash": "a2483524fbf9c1f5406774622d8d048430b320e9",
+      "committed": "2026-06-12T17:22:08Z",
+      "subject": "[ie/peertube] Support password-protected videos (#16873)",
+      "week": 4,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/peertube.py"
+      ]
+    },
+    {
+      "hash": "b05b408d10ebf8f4c47c0db1236eb713b6ad7ab6",
+      "committed": "2026-06-12T22:53:58Z",
+      "subject": "[utils] Deprecate `make_dir` in favor of `make_parent_dirs` (#16931)",
+      "week": 4,
+      "categories": [
+        "cli",
+        "postprocessor"
+      ],
+      "files": [
+        "pyproject.toml",
+        "yt_dlp/YoutubeDL.py",
+        "yt_dlp/postprocessor/movefilesafterdownload.py",
+        "yt_dlp/utils/_deprecated.py",
+        "yt_dlp/utils/_utils.py"
+      ]
+    },
+    {
+      "hash": "9055188250348c3e6e29eee53e5fb3dc2c951977",
+      "committed": "2026-06-12T22:55:22Z",
+      "subject": "[ie/bandcamp:weekly] Fix metadata extraction (#16941)",
+      "week": 4,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/bandcamp.py"
+      ]
+    },
+    {
+      "hash": "b23046bbc8e53f32a3853dc33138f2986f3aed06",
+      "committed": "2026-06-13T23:06:23Z",
+      "subject": "[ie/youtube:tab] Fix pagination (#16948)",
+      "week": 4,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/youtube/_base.py",
+        "yt_dlp/extractor/youtube/_tab.py"
+      ]
+    },
+    {
+      "hash": "8902f6ba8c7baba8fb43fb08ea1a9ddfef77e998",
+      "committed": "2026-06-15T22:35:04+02:00",
+      "subject": "[fd/mhtml] Fix storyboard content-length calculation (#13998)",
+      "week": 4,
+      "categories": [
+        "downloader"
+      ],
+      "files": [
+        "yt_dlp/downloader/mhtml.py"
+      ]
+    },
+    {
+      "hash": "ad6b5f4b3552472c17b3955a3f1525296bed6137",
+      "committed": "2026-06-16T02:00:53Z",
+      "subject": "[ie/youtube:tab] Fix flat playlist metadata extraction (#16965)",
+      "week": 4,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/youtube/_tab.py"
+      ]
+    },
+    {
+      "hash": "01f4f06fdd1e1e088981fa4af3422806aefa0c2a",
+      "committed": "2026-06-17T21:14:06Z",
+      "subject": "[ie/mxplayer] Fix extractors (#16988)",
+      "week": 5,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/mxplayer.py"
+      ]
+    },
+    {
+      "hash": "24aecad5df6090ef9c2a9deff27a7182c5164f07",
+      "committed": "2026-06-17T22:32:41Z",
+      "subject": "[ie/telewebion] Fix extractor (#16986)",
+      "week": 5,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/telewebion.py"
+      ]
+    },
+    {
+      "hash": "cfee151fcd9e1a0f4e5af9ca8440f1253cb70b88",
+      "committed": "2026-06-17T22:34:00Z",
+      "subject": "[ie/ZDF] Detect livestreams (#16954)",
+      "week": 5,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/zdf.py"
+      ]
+    },
+    {
+      "hash": "c4f94545c9d3ce356f2f3149c8fde2134073cee2",
+      "committed": "2026-06-17T22:53:29Z",
+      "subject": "[ie/niconico] Fix error detection (#16991)",
+      "week": 5,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/niconico.py"
+      ]
+    },
+    {
+      "hash": "4af5541bb56b08d462f32773dfa15c207de13b74",
+      "committed": "2026-06-18T02:32:03Z",
+      "subject": "[ie/niconico] Support shorts (#16992)",
+      "week": 5,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/niconico.py"
+      ]
+    },
+    {
+      "hash": "2b27a203f7573cb491c8bef77cb4d944cee6f8cf",
+      "committed": "2026-06-18T04:58:54Z",
+      "subject": "[ie/periscope] Improve metadata extraction (#16084)",
+      "week": 5,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/periscope.py",
+        "yt_dlp/extractor/twitter.py"
+      ]
+    },
+    {
+      "hash": "9ae7df9a22b29e2f81825230c9bba7d444190de0",
+      "committed": "2026-06-18T22:05:08Z",
+      "subject": "[ie/tviplayer] Fix extractor (#16527)",
+      "week": 5,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/tviplayer.py"
+      ]
+    },
+    {
+      "hash": "8a5f1dd3bd39ad2e917755a29b313a51b5446871",
+      "committed": "2026-06-20T22:59:22Z",
+      "subject": "[build] Update 17 dependencies (#17014)",
+      "week": 5,
+      "categories": [
+        "other"
+      ],
+      "files": [
+        "bundle/requirements/build.txt",
+        "bundle/requirements/curl-cffi.txt",
+        "bundle/requirements/default.txt",
+        "bundle/requirements/dev.txt",
+        "bundle/requirements/linux.txt",
+        "bundle/requirements/macos.txt",
+        "bundle/requirements/pyinstaller.txt",
+        "bundle/requirements/static-analysis.txt",
+        "bundle/requirements/test.txt",
+        "bundle/requirements/uv.txt",
+        "bundle/requirements/win-arm64-pyinstaller.txt",
+        "bundle/requirements/win-x64-pyinstaller.txt",
+        "bundle/requirements/win-x86-pyinstaller.txt",
+        "pyproject.toml",
+        "uv.lock"
+      ]
+    },
+    {
+      "hash": "da99b21b2d6e32690d1871afc9e9779701dd7f8c",
+      "committed": "2026-06-20T23:11:44Z",
+      "subject": "[ci] Bump actions/checkout v6.0.3 =\u003e v7.0.0 (#17015)",
+      "week": 5,
+      "categories": [
+        "other"
+      ],
+      "files": [
+        ".github/workflows/build.yml",
+        ".github/workflows/challenge-tests.yml",
+        ".github/workflows/codeql.yml",
+        ".github/workflows/core.yml",
+        ".github/workflows/quick-test.yml",
+        ".github/workflows/release-nightly.yml",
+        ".github/workflows/release.yml",
+        ".github/workflows/test-workflows.yml",
+        ".github/workflows/wiki.yml"
+      ]
+    },
+    {
+      "hash": "98036ccd4fd9a6b15e025bbc164e27286e342be7",
+      "committed": "2026-06-21T22:48:47Z",
+      "subject": "[cleanup] Fix invalid info dict fields (#17007)",
+      "week": 5,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/adobetv.py",
+        "yt_dlp/extractor/afreecatv.py",
+        "yt_dlp/extractor/alura.py",
+        "yt_dlp/extractor/audius.py",
+        "yt_dlp/extractor/bilibili.py",
+        "yt_dlp/extractor/err.py",
+        "yt_dlp/extractor/ichinanalive.py",
+        "yt_dlp/extractor/idagio.py",
+        "yt_dlp/extractor/itv.py",
+        "yt_dlp/extractor/lecturio.py",
+        "yt_dlp/extractor/neteasemusic.py",
+        "yt_dlp/extractor/peertube.py",
+        "yt_dlp/extractor/qqmusic.py",
+        "yt_dlp/extractor/rcti.py",
+        "yt_dlp/extractor/redgifs.py",
+        "yt_dlp/extractor/rule34video.py",
+        "yt_dlp/extractor/sovietscloset.py",
+        "yt_dlp/extractor/spreaker.py",
+        "yt_dlp/extractor/teamtreehouse.py",
+        "yt_dlp/extractor/weibo.py",
+        "yt_dlp/extractor/ximalaya.py"
+      ]
+    },
+    {
+      "hash": "d6c411bcd0a0519a0db3b330df2530c8213eb9f0",
+      "committed": "2026-06-21T22:49:35Z",
+      "subject": "[ie/youtube:tab] Fix metadata extraction (#16976)",
+      "week": 5,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/youtube/_base.py",
+        "yt_dlp/extractor/youtube/_tab.py"
+      ]
+    },
+    {
+      "hash": "a75ba96fa48522738b91a907773a6fa9efe6e2d4",
+      "committed": "2026-06-24T14:27:38Z",
+      "subject": "[ie/youtube:tab] Fix flat extraction of collaborators (#17045)",
+      "week": 6,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/youtube/_tab.py"
+      ]
+    },
+    {
+      "hash": "7b03011294c0210802ffc901390006c39152b999",
+      "committed": "2026-06-24T14:31:45Z",
+      "subject": "Raise minimum recommended Python version to 3.11 (#17034)",
+      "week": 6,
+      "categories": [
+        "other"
+      ],
+      "files": [
+        "yt_dlp/update.py"
+      ]
+    },
+    {
+      "hash": "3c279b33cb6d1133624a468e71560c6a75039586",
+      "committed": "2026-06-26T16:52:12Z",
+      "subject": "[ie/youtube] Fix detection of forced preroll wait time (#17062)",
+      "week": 6,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/youtube/_video.py"
+      ]
+    },
+    {
+      "hash": "a5e0f87140c6ea73ad3f34914339e873681b4dca",
+      "committed": "2026-06-26T22:24:22Z",
+      "subject": "[ie/linkedin] Remove broken login support (#17039)",
+      "week": 6,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/linkedin.py"
+      ]
+    },
+    {
+      "hash": "917dad55e5b4dbf88d61541477d1830740ab3115",
+      "committed": "2026-06-26T22:25:15Z",
+      "subject": "[ie/reddit] Remove broken login support (#17038)",
+      "week": 6,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/reddit.py"
+      ]
+    },
+    {
+      "hash": "25a05fc0e24ebda38578e87c3f6772a149522786",
+      "committed": "2026-06-26T22:28:58Z",
+      "subject": "[utils] `pkcs1pad`: Fix invalid PKCS#1 v1.5 padding bytes (#17035)",
+      "week": 6,
+      "categories": [
+        "other"
+      ],
+      "files": [
+        "yt_dlp/utils/_utils.py"
+      ]
+    },
+    {
+      "hash": "57528faa361314a69d47aead8f44c6a5380ca66a",
+      "committed": "2026-06-26T22:33:21Z",
+      "subject": "[ie/youtube] Fix minor issues (#17060)",
+      "week": 6,
+      "categories": [
+        "extractor",
+        "challenge"
+      ],
+      "files": [
+        "yt_dlp/extractor/youtube/_video.py",
+        "yt_dlp/extractor/youtube/jsc/_builtin/ejs.py",
+        "yt_dlp/extractor/youtube/jsc/_director.py"
+      ]
+    },
+    {
+      "hash": "c102b2096525218a6918a46b415fb167786f9656",
+      "committed": "2026-06-26T22:36:35Z",
+      "subject": "[cleanup] Replace dead example/test URL (#17061)",
+      "week": 6,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "CONTRIBUTING.md",
+        "README.md",
+        "devscripts/make_issue_template.py",
+        "test/test_youtube_lists.py",
+        "yt_dlp/extractor/commonmistakes.py",
+        "yt_dlp/extractor/commonprotocols.py",
+        "yt_dlp/extractor/generic.py",
+        "yt_dlp/extractor/youtube/_mistakes.py",
+        "yt_dlp/extractor/youtube/_video.py"
+      ]
+    },
+    {
+      "hash": "f69e64a954524518add538648f6327611349ead4",
+      "committed": "2026-06-26T22:53:55Z",
+      "subject": "[ie/soundcloud] Extract `uploader_url` for playlists (#16842)",
+      "week": 6,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/soundcloud.py"
+      ]
+    },
+    {
+      "hash": "6b67e1f2b77feb6d97852be08bfc2e0ab1c8aef0",
+      "committed": "2026-06-26T22:55:42Z",
+      "subject": "[ie/mgtv] Fix VIP stream extraction (#16982)",
+      "week": 6,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/mgtv.py"
+      ]
+    },
+    {
+      "hash": "4a6296248fb6218d77221da4e5421c84bbc792d4",
+      "committed": "2026-06-26T23:03:15Z",
+      "subject": "[ie/zoom:clips] Add extractor (#17005)",
+      "week": 6,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/_extractors.py",
+        "yt_dlp/extractor/zoom.py"
+      ]
+    },
+    {
+      "hash": "d23e6f5a387d5933bc24e1eb5437da8fd563c1f0",
+      "committed": "2026-06-26T23:04:05Z",
+      "subject": "Always include warnings in debug output (#17059)",
+      "week": 6,
+      "categories": [
+        "cli"
+      ],
+      "files": [
+        "yt_dlp/YoutubeDL.py"
+      ]
+    },
+    {
+      "hash": "6a24c96f7f61e5e651466cc3d4c6a30982318efe",
+      "committed": "2026-06-27T21:32:42Z",
+      "subject": "[ie/youtube] Fix `extract_relative_time` for abbreviated units (#16687)",
+      "week": 6,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "test/test_youtube_misc.py",
+        "yt_dlp/extractor/youtube/_base.py"
+      ]
+    },
+    {
+      "hash": "785e507ef06b709f7f68744f29c16a5cdb8942f2",
+      "committed": "2026-06-27T22:13:07Z",
+      "subject": "[ie/soundcloud] Extract comments (#16938)",
+      "week": 6,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/common.py",
+        "yt_dlp/extractor/soundcloud.py"
+      ]
+    },
+    {
+      "hash": "af8a3f34370c82f323ed30074e3fe741ebcc98ca",
+      "committed": "2026-06-27T22:56:10Z",
+      "subject": "[ie] Always include `id` in request error output (#17068)",
+      "week": 6,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/common.py"
+      ]
+    },
+    {
+      "hash": "c13e2f8a20fc1fafb31cba4e6287c874bc0c0cc0",
+      "committed": "2026-06-27T23:31:07Z",
+      "subject": "[ie] Fix request logging (#17072)",
+      "week": 6,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/common.py"
+      ]
+    },
+    {
+      "hash": "3cf981af60dd0b1b6c40807fb542d68ddb0a5f84",
+      "committed": "2026-06-28T17:09:39Z",
+      "subject": "[utils] `qualities`: Avoid repeated index lookups (#17025)",
+      "week": 6,
+      "categories": [
+        "other"
+      ],
+      "files": [
+        "yt_dlp/utils/_utils.py"
+      ]
+    },
+    {
+      "hash": "7a569456f24fd9afcda09ae55c10d3bbd03f46ef",
+      "committed": "2026-06-28T17:10:34Z",
+      "subject": "[cookies] Use `'` instead of `\"` for SQL string quoting (#17078)",
+      "week": 6,
+      "categories": [
+        "other"
+      ],
+      "files": [
+        "yt_dlp/cookies.py"
+      ]
+    },
+    {
+      "hash": "1249676e98aecf2131901f10f0230fb5e1bdc17e",
+      "committed": "2026-06-28T17:17:38Z",
+      "subject": "[utils] `parse_resolution`: Support fps suffixes (#17073)",
+      "week": 6,
+      "categories": [
+        "other"
+      ],
+      "files": [
+        "test/test_utils.py",
+        "yt_dlp/utils/_utils.py"
+      ]
+    },
+    {
+      "hash": "f49b551a0c4c25358d2afaeda4ee63989d2d56ab",
+      "committed": "2026-06-28T17:35:50Z",
+      "subject": "[ie/instagram] Rework extractor (#17075)",
+      "week": 6,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "README.md",
+        "yt_dlp/extractor/instagram.py"
+      ]
+    },
+    {
+      "hash": "55a58debec7fa5bbaa119dfbc874fb84dd48c76e",
+      "committed": "2026-06-28T19:51:40Z",
+      "subject": "[ie/mxplayer] Rework extractors (#17018)",
+      "week": 6,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/_extractors.py",
+        "yt_dlp/extractor/mxplayer.py"
+      ]
+    },
+    {
+      "hash": "5678b282e2a17a8181e682a9681461b9c82ff008",
+      "committed": "2026-06-28T22:29:02Z",
+      "subject": "[ie/unsupported] Update unsupported sites (#17085)",
+      "week": 6,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/_extractors.py",
+        "yt_dlp/extractor/gofile.py",
+        "yt_dlp/extractor/unsupported.py"
+      ]
+    },
+    {
+      "hash": "500e54cf860e4807d259bfe6a7abb47e51364a3b",
+      "committed": "2026-06-29T22:00:03Z",
+      "subject": "[fd/external] Fix resuming downloads with aria2c (#11698)",
+      "week": 6,
+      "categories": [
+        "downloader"
+      ],
+      "files": [
+        "yt_dlp/downloader/external.py"
+      ]
+    },
+    {
+      "hash": "b0472c3bce71eb08996a8d70c4c1b1df8cad4042",
+      "committed": "2026-06-29T23:08:40Z",
+      "subject": "[cleanup] Fix minor mistakes (#17083)",
+      "week": 6,
+      "categories": [
+        "extractor",
+        "cli"
+      ],
+      "files": [
+        "yt_dlp/YoutubeDL.py",
+        "yt_dlp/extractor/allocine.py",
+        "yt_dlp/extractor/amp.py",
+        "yt_dlp/extractor/bbc.py",
+        "yt_dlp/extractor/brainpop.py",
+        "yt_dlp/extractor/byutv.py",
+        "yt_dlp/extractor/common.py",
+        "yt_dlp/extractor/hrti.py",
+        "yt_dlp/extractor/iqiyi.py",
+        "yt_dlp/extractor/libsyn.py",
+        "yt_dlp/extractor/mirrativ.py",
+        "yt_dlp/extractor/nova.py",
+        "yt_dlp/extractor/pandatv.py",
+        "yt_dlp/extractor/periscope.py",
+        "yt_dlp/extractor/radiocanada.py",
+        "yt_dlp/extractor/rcti.py",
+        "yt_dlp/extractor/saitosan.py",
+        "yt_dlp/extractor/sonyliv.py",
+        "yt_dlp/extractor/spankbang.py",
+        "yt_dlp/extractor/tvp.py",
+        "yt_dlp/extractor/wdr.py",
+        "yt_dlp/extractor/yandexmusic.py"
+      ]
+    },
+    {
+      "hash": "e7b5d68f372499167fbf9711de42d3180a92e4de",
+      "committed": "2026-06-30T03:17:35Z",
+      "subject": "[ie/truth] Support share URLs (#16096)",
+      "week": 6,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/truth.py"
+      ]
+    },
+    {
+      "hash": "c84b2c6736ac5fac6c3eb9a0cbbeee4d6ed84fdd",
+      "committed": "2026-06-30T03:20:11Z",
+      "subject": "[ie/svt] Fix extractor (#16288)",
+      "week": 6,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/svt.py"
+      ]
+    },
+    {
+      "hash": "e584a65f2a0feee0c6c363b3309e9ebd6065f6b4",
+      "committed": "2026-06-30T03:28:49Z",
+      "subject": "[utils] `parse_duration`: Return `int` when appropriate (#13899)",
+      "week": 6,
+      "categories": [
+        "other"
+      ],
+      "files": [
+        "yt_dlp/utils/_utils.py"
+      ]
+    },
+    {
+      "hash": "acc995cf9137918568857d39b68a94498726543a",
+      "committed": "2026-07-01T04:41:25Z",
+      "subject": "[ie/trovo] Remove dead extractors (#16353)",
+      "week": 7,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/_extractors.py",
+        "yt_dlp/extractor/trovo.py"
+      ]
+    },
+    {
+      "hash": "8bdfbfd4461a643e5c37a232b0efd7bcd86a3091",
+      "committed": "2026-07-01T04:46:54Z",
+      "subject": "[ie/soundcloud] Improve metadata extraction (#17088)",
+      "week": 7,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/soundcloud.py"
+      ]
+    },
+    {
+      "hash": "249aa5d6e667308fbf95ae5cfb40eba8177a802c",
+      "committed": "2026-07-01T18:27:40Z",
+      "subject": "[docs] Make \"No AI / No LLM Policy\" abundantly clear (#16285)",
+      "week": 7,
+      "categories": [
+        "other"
+      ],
+      "files": [
+        ".NO_AI/README.md",
+        ".github/ISSUE_TEMPLATE/1_broken_site.yml",
+        ".github/ISSUE_TEMPLATE/2_site_support_request.yml",
+        ".github/ISSUE_TEMPLATE/3_site_feature_request.yml",
+        ".github/ISSUE_TEMPLATE/4_bug_report.yml",
+        ".github/ISSUE_TEMPLATE/5_feature_request.yml",
+        ".github/ISSUE_TEMPLATE/6_question.yml",
+        ".github/ISSUE_TEMPLATE_tmpl/1_broken_site.yml",
+        ".github/ISSUE_TEMPLATE_tmpl/2_site_support_request.yml",
+        ".github/ISSUE_TEMPLATE_tmpl/3_site_feature_request.yml",
+        ".github/ISSUE_TEMPLATE_tmpl/4_bug_report.yml",
+        ".github/ISSUE_TEMPLATE_tmpl/5_feature_request.yml",
+        ".github/ISSUE_TEMPLATE_tmpl/6_question.yml",
+        ".github/PULL_REQUEST_TEMPLATE.md",
+        "CONTRIBUTING.md"
+      ]
+    },
+    {
+      "hash": "8b8e3e3cb4d3ba0dedf7b1fd00ce68f07da7e588",
+      "committed": "2026-07-01T21:46:52Z",
+      "subject": "[ie/instagram] Add fallback for when impersonation is unavailable (#17113)",
+      "week": 7,
+      "categories": [
+        "extractor",
+        "transport"
+      ],
+      "files": [
+        "yt_dlp/extractor/instagram.py"
+      ]
+    },
+    {
+      "hash": "16bdcc525e6a550781d65d6fed92a37800ad95e1",
+      "committed": "2026-07-01T22:12:50Z",
+      "subject": "[ie/arte] Fix playlist support (#13191)",
+      "week": 7,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/arte.py"
+      ]
+    },
+    {
+      "hash": "498e51f5da47539f3b4cc52ff85be5f33e7e9d2f",
+      "committed": "2026-07-02T04:55:14Z",
+      "subject": "[ie/wrestleuniverse:vod] Fix extractor  (#16685)",
+      "week": 7,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/wrestleuniverse.py"
+      ]
+    },
+    {
+      "hash": "40dd052c03c2d1b5c180f393d9344be2bd718ba3",
+      "committed": "2026-07-02T16:44:42Z",
+      "subject": "[build] Update 6 dependencies (#17086)",
+      "week": 7,
+      "categories": [
+        "other"
+      ],
+      "files": [
+        "bundle/requirements/curl-cffi.txt",
+        "bundle/requirements/default.txt",
+        "bundle/requirements/dev.txt",
+        "bundle/requirements/linux.txt",
+        "bundle/requirements/macos.txt",
+        "bundle/requirements/static-analysis.txt",
+        "bundle/requirements/test.txt",
+        "bundle/requirements/uv.txt",
+        "pyproject.toml",
+        "uv.lock"
+      ]
+    },
+    {
+      "hash": "d120d841dde18839f28cba4a8b0df6d3c4fc6761",
+      "committed": "2026-07-02T18:16:54Z",
+      "subject": "[utils] `random_user_agent`: Bump version range 143-149 =\u003e 144-150 (#17117)",
+      "week": 7,
+      "categories": [
+        "other"
+      ],
+      "files": [
+        "yt_dlp/utils/networking.py"
+      ]
+    },
+    {
+      "hash": "84db5246faab5bffb8909de60c75e7c692b5dd79",
+      "committed": "2026-07-02T18:18:59Z",
+      "subject": "[ci] Update 5 actions in 8 workflows (#17024)",
+      "week": 7,
+      "categories": [
+        "other"
+      ],
+      "files": [
+        ".github/workflows/build.yml",
+        ".github/workflows/challenge-tests.yml",
+        ".github/workflows/codeql.yml",
+        ".github/workflows/core.yml",
+        ".github/workflows/quick-test.yml",
+        ".github/workflows/release-nightly.yml",
+        ".github/workflows/release.yml",
+        ".github/workflows/test-workflows.yml"
+      ]
+    },
+    {
+      "hash": "ad9a6f25f69344ebc060f7be223e5c19fc03e9b5",
+      "committed": "2026-07-02T18:35:25Z",
+      "subject": "[ie/zan] Add extractor (#16086)",
+      "week": 7,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "README.md",
+        "yt_dlp/extractor/_extractors.py",
+        "yt_dlp/extractor/zan.py"
+      ]
+    },
+    {
+      "hash": "ac4c955ea93f35a3a426903141436a6468bddf9f",
+      "committed": "2026-07-03T18:16:37Z",
+      "subject": "[ie/instagram] Detect when cookies are invalidated (#17126)",
+      "week": 7,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/instagram.py"
+      ]
+    },
+    {
+      "hash": "161dd9fd05d1c9a0380c3c7ff9a217e9b3c91cd3",
+      "committed": "2026-07-03T18:28:53Z",
+      "subject": "[ie/instagram] Avoid unnecessary API call (#17127)",
+      "week": 7,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/instagram.py"
+      ]
+    },
+    {
+      "hash": "26654a359d8d8dbe3c95b8fc6b0b09aca9a17fba",
+      "committed": "2026-07-03T18:49:39Z",
+      "subject": "[ie/streaks] Fix extractor (#16413)",
+      "week": 7,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "README.md",
+        "yt_dlp/extractor/streaks.py"
+      ]
+    },
+    {
+      "hash": "5aa335ecd9d12251b63b5afb23e166ea63cd7271",
+      "committed": "2026-07-03T18:55:36Z",
+      "subject": "[ie/openrec] Rework extractors (#16857)",
+      "week": 7,
+      "categories": [
+        "extractor",
+        "cli"
+      ],
+      "files": [
+        "README.md",
+        "yt_dlp/extractor/_extractors.py",
+        "yt_dlp/extractor/openrec.py",
+        "yt_dlp/options.py"
+      ]
+    },
+    {
+      "hash": "fa383a9efa02c2f89aba315b17e47fb6bf9e5bee",
+      "committed": "2026-07-03T22:36:01Z",
+      "subject": "[ie/omnyfm] Add extractors (#15942)",
+      "week": 7,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/_extractors.py",
+        "yt_dlp/extractor/omnyfm.py"
+      ]
+    },
+    {
+      "hash": "6694ef82993396847e5a66802634c12944c42a5e",
+      "committed": "2026-07-03T23:00:59Z",
+      "subject": "[ie/openrec] Change `_NETRC_MACHINE` to `mellowfan` (#17130)",
+      "week": 7,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/openrec.py"
+      ]
+    },
+    {
+      "hash": "1472d1098020d46ea1f15940b80d515ad13eb420",
+      "committed": "2026-07-03T23:27:24Z",
+      "subject": "[ci] Add label handler workflow (#17128)",
+      "week": 7,
+      "categories": [
+        "other"
+      ],
+      "files": [
+        ".github/actionlint.yml",
+        ".github/workflows/label-handler.yml"
+      ]
+    },
+    {
+      "hash": "e8de28e23c1ecb4a12b2c3dec188c07e998c412c",
+      "committed": "2026-07-03T23:36:55Z",
+      "subject": "[ie/bilibili] Fix API extraction (#13730)",
+      "week": 7,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/bilibili.py"
+      ]
+    },
+    {
+      "hash": "8c1f07d813175cbcf84651f27a827bad84fd8184",
+      "committed": "2026-07-04T21:43:19Z",
+      "subject": "[ie/youtube] Support live adaptive formats (#16771)",
+      "week": 7,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "README.md",
+        "yt_dlp/extractor/youtube/_video.py"
+      ]
+    },
+    {
+      "hash": "bed3d58c5c1ff088584c5dac3c16eea4ff01c7b5",
+      "committed": "2026-07-04T21:59:16Z",
+      "subject": "[cleanup] Remove RTSP and MMS support (#17030)",
+      "week": 7,
+      "categories": [
+        "extractor",
+        "cli",
+        "downloader"
+      ],
+      "files": [
+        "README.md",
+        "test/test_utils.py",
+        "yt_dlp/YoutubeDL.py",
+        "yt_dlp/downloader/__init__.py",
+        "yt_dlp/downloader/external.py",
+        "yt_dlp/downloader/rtsp.py",
+        "yt_dlp/extractor/_extractors.py",
+        "yt_dlp/extractor/common.py",
+        "yt_dlp/extractor/commonprotocols.py",
+        "yt_dlp/extractor/filmon.py",
+        "yt_dlp/extractor/mangomolo.py",
+        "yt_dlp/options.py",
+        "yt_dlp/utils/_utils.py"
+      ]
+    },
+    {
+      "hash": "b6590aaa1e3808155d69c9a79a797ae484163789",
+      "committed": "2026-07-04T17:04:14-05:00",
+      "subject": "Validate and escape values in `--write-link` output",
+      "week": 7,
+      "categories": [
+        "cli"
+      ],
+      "files": [
+        "test/test_utils.py",
+        "yt_dlp/YoutubeDL.py",
+        "yt_dlp/utils/_utils.py"
+      ]
+    },
+    {
+      "hash": "997fa140840a08df3938b40da470c78049fef1f6",
+      "committed": "2026-07-04T22:14:51Z",
+      "subject": "[cleanup] Misc (#17031)",
+      "week": 7,
+      "categories": [
+        "extractor",
+        "cli"
+      ],
+      "files": [
+        "Maintainers.md",
+        "devscripts/changelog_override.json",
+        "yt_dlp/YoutubeDL.py",
+        "yt_dlp/__init__.py",
+        "yt_dlp/extractor/adobeconnect.py",
+        "yt_dlp/extractor/dispeak.py",
+        "yt_dlp/extractor/folketinget.py",
+        "yt_dlp/extractor/karaoketv.py",
+        "yt_dlp/extractor/mangomolo.py",
+        "yt_dlp/extractor/oktoberfesttv.py",
+        "yt_dlp/extractor/playtvak.py",
+        "yt_dlp/extractor/rtl2.py",
+        "yt_dlp/extractor/showroomlive.py",
+        "yt_dlp/extractor/unsupported.py",
+        "yt_dlp/extractor/walla.py",
+        "yt_dlp/extractor/whowatch.py",
+        "yt_dlp/update.py"
+      ]
+    },
+    {
+      "hash": "fdec00e0bf530dc6c3cc7b1dd780e95d9ae460e9",
+      "committed": "2026-07-04T22:23:07Z",
+      "subject": "Release 2026.07.04",
+      "week": 7,
+      "categories": [
+        "other"
+      ],
+      "files": [
+        "CONTRIBUTORS",
+        "Changelog.md",
+        "supportedsites.md",
+        "yt_dlp/version.py"
+      ]
+    },
+    {
+      "hash": "981190089f5bb75ae691c29c8a5d9d7be87ba8a6",
+      "committed": "2026-07-06T21:44:28Z",
+      "subject": "[ie/ard] Remove dead extractor (#17158)",
+      "week": 7,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/_extractors.py",
+        "yt_dlp/extractor/ard.py"
+      ]
+    },
+    {
+      "hash": "b3854cc41bc906c905e3b0f7bb39755210acd6d1",
+      "committed": "2026-07-06T21:46:30Z",
+      "subject": "[misc] Fix third party license information (#17150)",
+      "week": 7,
+      "categories": [
+        "other"
+      ],
+      "files": [
+        ".github/workflows/release.yml",
+        "README.md",
+        "THIRD_PARTY_LICENSES.txt",
+        "bundle/pyinstaller.py",
+        "devscripts/generate_third_party_licenses.py"
+      ]
+    },
+    {
+      "hash": "1328586f72cef4cb4cff33e9eff87ad5b7b9fb60",
+      "committed": "2026-07-09T21:42:39Z",
+      "subject": "[ie/youtube] Add `visionos` player client (#17184)",
+      "week": 8,
+      "categories": [
+        "extractor",
+        "challenge"
+      ],
+      "files": [
+        "README.md",
+        "yt_dlp/extractor/youtube/_base.py",
+        "yt_dlp/extractor/youtube/_video.py"
+      ]
+    },
+    {
+      "hash": "59d9ae606a24a80523da35de9fb75b71eb35b501",
+      "committed": "2026-07-09T23:11:00Z",
+      "subject": "[ie/youtube] Update player client versions (#17185)",
+      "week": 8,
+      "categories": [
+        "extractor",
+        "challenge"
+      ],
+      "files": [
+        "yt_dlp/extractor/youtube/_base.py"
+      ]
+    },
+    {
+      "hash": "6a188aed91fb0a1b9d62f20377015b8fd2c69762",
+      "committed": "2026-07-12T00:48:16Z",
+      "subject": "[ie/showroom] Rework extractors (#17142)",
+      "week": 8,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/_extractors.py",
+        "yt_dlp/extractor/showroomlive.py"
+      ]
+    },
+    {
+      "hash": "d9813a3da6959662841dfb34cad0ee6c07a65d1e",
+      "committed": "2026-07-12T19:39:51Z",
+      "subject": "[ie/americastestkitchen] Fix season/series extraction (#17151)",
+      "week": 8,
+      "categories": [
+        "extractor"
+      ],
+      "files": [
+        "yt_dlp/extractor/americastestkitchen.py"
+      ]
+    },
+    {
+      "hash": "aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8",
+      "committed": "2026-07-14T14:14:20Z",
+      "subject": "[fd/hls] Fix crash on empty fragment lists in tests (#17218)",
+      "week": 8,
+      "categories": [
+        "downloader"
+      ],
+      "files": [
+        "yt_dlp/downloader/hls.py"
+      ]
+    }
+  ]
+}

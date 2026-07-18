@@ -51,6 +51,31 @@ func TestClientHeadersCookiesRedirectsAndCompression(t *testing.T) {
 	}
 }
 
+// The historical replay includes yt-dlp 272657252, which fixed cookie leakage
+// by an external downloader across redirects. The native Go path delegates
+// redirect scoping to its cookie jar; keep that boundary under regression.
+func TestRedirectDoesNotForwardHostCookieCrossHost(t *testing.T) {
+	var leaked string
+	target := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		leaked = request.Header.Get("Cookie")
+		_, _ = io.WriteString(writer, "target")
+	}))
+	defer target.Close()
+	source := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		http.SetCookie(writer, &http.Cookie{Name: "source_secret", Value: "do-not-forward", Path: "/"})
+		http.Redirect(writer, request, target.URL, http.StatusFound)
+	}))
+	defer source.Close()
+	sourceURL := strings.Replace(source.URL, "127.0.0.1", "localhost", 1)
+	client, _ := New(Config{})
+	if _, _, err := client.ReadPage(context.Background(), sourceURL); err != nil {
+		t.Fatal(err)
+	}
+	if leaked != "" {
+		t.Fatalf("cross-host redirect leaked cookies: %q", leaked)
+	}
+}
+
 func TestReadPageLimitAndCancellation(t *testing.T) {
 	server := testserver.New()
 	defer server.Close()

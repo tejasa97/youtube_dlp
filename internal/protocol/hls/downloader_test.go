@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ytdlp-go/ytdlp/internal/fragment"
 	"github.com/ytdlp-go/ytdlp/internal/network"
 )
 
@@ -108,6 +110,22 @@ func TestDownloadLiveHonorsCancellation(t *testing.T) {
 	_, err := NewDownloader(transport, Config{PollInterval: time.Second}).Download(ctx, server.URL+"/live.m3u8", root, filepath.Join(root, "cancel.bin"), false, nil)
 	if err == nil || ctx.Err() == nil {
 		t.Fatalf("Download() error = %v, context = %v", err, ctx.Err())
+	}
+}
+
+// Regression derived from yt-dlp aefce1eea: an empty test fragment list must
+// remain empty and fail explicitly rather than manufacturing a nil fragment.
+func TestDownloadEmptyPlaylistReturnsNoSegments(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprint(writer, "#EXTM3U\n#EXT-X-ENDLIST\n")
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	_, err := NewDownloader(transport, Config{}).Download(
+		context.Background(), server.URL+"/empty.m3u8", root, filepath.Join(root, "empty.bin"), false, nil)
+	if !errors.Is(err, fragment.ErrNoSegments) {
+		t.Fatalf("empty playlist error = %v", err)
 	}
 }
 
