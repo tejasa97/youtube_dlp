@@ -145,7 +145,13 @@ func TestAtomicPostprocessCancellationRemovesTemporaryOutput(t *testing.T) {
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("runAtomic() error = %v", err)
 	}
-	for _, path := range []string{destination, filepath.Join(root, "cancelled.part.mp4")} {
+	paths := []string{destination}
+	parts, globErr := filepath.Glob(filepath.Join(root, ".ytdlp-part-*"))
+	if globErr != nil {
+		t.Fatal(globErr)
+	}
+	paths = append(paths, parts...)
+	for _, path := range paths {
 		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
 			t.Fatalf("temporary output remains at %s: %v", path, statErr)
 		}
