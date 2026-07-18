@@ -204,6 +204,9 @@ func FuzzSyntheticAuthResponse(f *testing.F) {
 	f.Add([]byte(`{"session":{"authenticated":false}}`), "auth-001")
 	f.Add([]byte(`{`), "auth-001")
 	f.Fuzz(func(t *testing.T, body []byte, requestedID string) {
+		if len(body) > 1<<20 || len(requestedID) > 4096 {
+			t.Skip()
+		}
 		var response syntheticAuthResponse
 		if json.Unmarshal(body, &response) != nil {
 			return

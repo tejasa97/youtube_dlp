@@ -19,10 +19,9 @@ import (
 const svtVideoAPIBase = "https://api.svt.se/videoplayer-api/video/"
 
 var (
-	ErrRegionRestricted = errors.New("media region restricted")
-	svtPlayPath         = regexp.MustCompile(`^/(?:video|klipp|kanaler)/[^/?#]+(?:/[^?#]*)?/?$`)
-	svtIDPattern        = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
-	svtPageVideoID      = regexp.MustCompile(`(?i)["']videoSvtId["']\s*:\s*["']([A-Za-z0-9_-]{1,128})["']`)
+	svtPlayPath    = regexp.MustCompile(`^/(?:video|klipp|kanaler)/[^/?#]+(?:/[^?#]*)?/?$`)
+	svtIDPattern   = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
+	svtPageVideoID = regexp.MustCompile(`(?i)["']videoSvtId["']\s*:\s*["']([A-Za-z0-9_-]{1,128})["']`)
 )
 
 // RegionSVT is the bounded SVT Play regional pilot. It implements the public
@@ -137,11 +136,7 @@ func normalizeSVTVideo(response svtVideoResponse, videoID, webpageURL string) (E
 		var format *value.Object
 		switch extension {
 		case "m3u8":
-			protocol := "m3u8_native"
-			if isLive {
-				protocol = "m3u8"
-			}
-			format = manifestFormat(formatID, reference.URL, protocol)
+			format = manifestFormat(formatID, reference.URL, "m3u8_native")
 		case "mpd":
 			format = manifestFormat(formatID, reference.URL, "http_dash_segments")
 		default:

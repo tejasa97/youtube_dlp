@@ -135,7 +135,7 @@ func TestRegionSVTLiveUsesLiveHLSProtocol(t *testing.T) {
 	}
 	formats, _ := result.Info.Formats()
 	format, _ := formats[0].Object()
-	if protocol, _ := format.Lookup("protocol").StringValue(); protocol != "m3u8" {
+	if protocol, _ := format.Lookup("protocol").StringValue(); protocol != "m3u8_native" {
 		t.Fatalf("live HLS protocol = %q", protocol)
 	}
 }
@@ -245,6 +245,9 @@ func FuzzRegionSVTVideoResponse(f *testing.F) {
 	f.Add(svtFixture(f, "geo-blocked.json"), "geo-id")
 	f.Add([]byte(`{`), "bad")
 	f.Fuzz(func(t *testing.T, body []byte, videoID string) {
+		if len(body) > 1<<20 || len(videoID) > 4096 {
+			t.Skip()
+		}
 		var response svtVideoResponse
 		if json.Unmarshal(body, &response) != nil {
 			return

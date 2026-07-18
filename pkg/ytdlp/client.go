@@ -174,7 +174,7 @@ func (client *Client) Run(ctx context.Context, request Request) (Result, error) 
 	defer challengeSolver.Close()
 	operation := &operation{
 		client: client, request: request, transport: transport,
-		registry: extractor.NewRegistry(extractor.NewYouTube(), extractor.NewVimeo(), extractor.NewTikTok(), extractor.NewTwitch(), extractor.NewFixture(), extractor.NewGeneric()),
+		registry: extractor.NewRegistry(extractor.NewYouTube(), extractor.NewVimeo(), extractor.NewTikTok(), extractor.NewTwitch(), extractor.NewRegionSVT(), extractor.NewSyntheticAuth(), extractor.NewFixture(), extractor.NewGeneric()),
 		solver:   challengeSolver,
 	}
 	return operation.process(ctx, request.URL, "", nil, make(map[string]bool), 0)
@@ -414,7 +414,7 @@ func categorized(op string, err error) error {
 		category = ErrorAuthentication
 	case errors.Is(err, chromium.ErrUnsupportedBrowser), errors.Is(err, chromium.ErrUnsupportedPlatform):
 		category = ErrorUnsupported
-	case errors.Is(err, extractor.ErrUnavailable), errors.Is(err, extractor.ErrChallengeSolver),
+	case errors.Is(err, extractor.ErrUnavailable), errors.Is(err, extractor.ErrRegionRestricted), errors.Is(err, extractor.ErrChallengeSolver),
 		errors.Is(err, extractor.ErrTransportProfile), errors.Is(err, network.ErrImpersonationUnavailable):
 		category = ErrorUnsupported
 	case errors.Is(err, ffmpeg.ErrFFmpegUnavailable), errors.Is(err, ffmpeg.ErrFFprobeUnavailable):

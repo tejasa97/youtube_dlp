@@ -438,6 +438,47 @@ capabilities:
       - network.shared_transport
     known_deviation: Compatibility is scoped to the pinned public hydration corpus. Mobile API signing/device rotation, WAF proof-of-work, SIGI fallback, captions, image slideshows, and broader availability labels remain explicit anti-bot work.
 
+  - id: extractor.authenticated_pilot
+    name: Deterministic authenticated extractor pilot
+    phase: 1
+    compatibility_target: Prove scoped operation-jar authentication and secret-safe extraction through a deterministic protected API.
+    status: compatible
+    evidence:
+      - internal/extractor.TestSyntheticAuthSuitable
+      - internal/extractor.TestSyntheticAuthUsesScopedOperationJarAndDropsSecret
+      - internal/extractor.TestSyntheticAuthCategorizesAuthenticationAndAvailability
+      - internal/extractor.TestSyntheticAuthErrorsDoNotExposeCookieOrResponse
+      - internal/extractor.TestSyntheticAuthHonorsCancellation
+      - internal/extractor.FuzzSyntheticAuthResponse
+      - conformance/extractors/synthetic-auth/PROVENANCE.md
+      - docs/P1_AUTH_REGION_EXTRACTORS.md
+    owner: authentication
+    depends_on:
+      - network.shared_transport
+      - cookies.browser_import
+    known_deviation: The gate uses a reserved synthetic origin to prove the shared cookie/authentication boundary. It intentionally does not model a third-party login flow, credential submission, or refresh-token lifecycle.
+
+  - id: extractor.region_svt_pilot
+    name: SVT Play regional extraction pilot
+    phase: 1
+    compatibility_target: Extract localized SVT Play single-video metadata and distinguish Sweden-only availability without Python.
+    status: compatible
+    evidence:
+      - internal/extractor.TestRegionSVTSuitable
+      - internal/extractor.TestRegionSVTExtractExplicitID
+      - internal/extractor.TestRegionSVTDiscoversIDFromPage
+      - internal/extractor.TestRegionSVTLiveUsesLiveHLSProtocol
+      - internal/extractor.TestRegionSVTCategorizesFailures
+      - internal/extractor.TestRegionSVTHonorsCancellation
+      - internal/extractor.FuzzRegionSVTVideoResponse
+      - conformance/extractors/region-svt/PROVENANCE.md
+      - docs/P1_AUTH_REGION_EXTRACTORS.md
+    owner: extractors
+    depends_on:
+      - protocol.hls
+      - protocol.dash
+    known_deviation: Compatibility is scoped to the pinned SVT single-video corpus. Series/page playlists, full URQL transformation, HDS, manifest pre-expansion, and geo-bypass header synthesis remain broader regional work.
+
   - id: compat.configuration
     name: Configuration compatibility
     phase: 2

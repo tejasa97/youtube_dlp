@@ -16,6 +16,7 @@ var (
 	ErrUnsupported      = errors.New("unsupported URL")
 	ErrInvalidMetadata  = errors.New("invalid extractor metadata")
 	ErrUnavailable      = errors.New("media unavailable")
+	ErrRegionRestricted = errors.New("media region restricted")
 	ErrAuthentication   = errors.New("authentication required")
 	ErrChallengeSolver  = errors.New("JavaScript challenge solver unavailable")
 	ErrTransportProfile = errors.New("transport profile unavailable")

@@ -46,6 +46,7 @@ func TestExtractorFailuresAreCategorized(t *testing.T) {
 		{extractor.ErrAuthentication, ErrorAuthentication},
 		{extractor.ErrUnavailable, ErrorUnsupported},
 		{extractor.ErrChallengeSolver, ErrorUnsupported},
+		{extractor.ErrRegionRestricted, ErrorUnsupported},
 	} {
 		if err := categorized("extract", test.err); !IsCategory(err, test.category) {
 			t.Fatalf("categorized(%v) = %v", test.err, err)
