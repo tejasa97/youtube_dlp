@@ -36,6 +36,34 @@ func TestIncompleteAndRegex(t *testing.T) {
 		t.Fatal("incomplete missing value should pass")
 	}
 }
+func TestUnaryPresentMissingAndIncomplete(t *testing.T) {
+	present := value.NewInfo(value.NewObject(value.Field{Key: "enabled", Value: value.Bool(true)}, value.Field{Key: "disabled", Value: value.Bool(false)}, value.Field{Key: "title", Value: value.String("set")}))
+	for _, test := range []struct {
+		expression string
+		want       bool
+	}{
+		{"enabled", true}, {"!enabled", false}, {"disabled", false}, {"!disabled", true}, {"title", true}, {"!title", false}, {"missing", false}, {"!missing", true},
+	} {
+		program, err := Parse([]string{test.expression})
+		if err != nil {
+			t.Fatalf("Parse(%q): %v", test.expression, err)
+		}
+		if got := program.Evaluate(present, false).Pass; got != test.want {
+			t.Fatalf("%q = %v, want %v", test.expression, got, test.want)
+		}
+	}
+	program, _ := Parse([]string{"!missing"})
+	if !program.Evaluate(present, true).Pass {
+		t.Fatal("incomplete missing unary condition should pass")
+	}
+}
+func TestNumericParsingIsFiniteAndExact(t *testing.T) {
+	for _, raw := range []string{"12junk", "NaN", "+Inf", "1e999"} {
+		if _, ok := parseNumber(raw); ok {
+			t.Fatalf("parseNumber(%q) accepted invalid input", raw)
+		}
+	}
+}
 func TestErrorsHaveSpan(t *testing.T) {
 	_, err := Parse([]string{"duration &"})
 	var syntax *SyntaxError

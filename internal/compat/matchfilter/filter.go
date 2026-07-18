@@ -6,7 +6,9 @@ package matchfilter
 import (
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/ytdlp-go/ytdlp/internal/value"
@@ -142,7 +144,7 @@ var validField = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 func parseCondition(input segment) (condition, error) {
 	part := strings.TrimSpace(input.text)
 	offset := input.start + len(input.text) - len(strings.TrimLeft(input.text, " \t"))
-	if strings.HasPrefix(part, "!") && !strings.ContainsAny(part, "<>=!~") {
+	if strings.HasPrefix(part, "!") && !strings.ContainsAny(part[1:], "<>=!~") {
 		field := strings.TrimSpace(part[1:])
 		if !validField.MatchString(field) {
 			return condition{}, syntax(offset, input.end, "invalid field")
@@ -181,9 +183,15 @@ func parseCondition(input segment) (condition, error) {
 func (c condition) matches(info value.Info, incomplete bool) bool {
 	input := info.Lookup(c.field)
 	if input.IsMissing() || input.IsNull() {
-		return incomplete
+		if incomplete {
+			return true
+		}
+		return c.operator == "" && c.negated
 	}
 	if c.operator == "" {
+		if boolean, ok := input.Bool(); ok {
+			return boolean != c.negated
+		}
 		return !c.negated
 	}
 	text, textOK := input.StringValue()
@@ -219,8 +227,8 @@ func number(v value.Value) (float64, bool) {
 	return v.Float()
 }
 func parseNumber(raw string) (float64, bool) {
-	var n float64
-	if _, err := fmt.Sscan(raw, &n); err != nil {
+	n, err := strconv.ParseFloat(raw, 64)
+	if err != nil || math.IsNaN(n) || math.IsInf(n, 0) {
 		return 0, false
 	}
 	return n, true

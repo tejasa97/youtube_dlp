@@ -33,8 +33,12 @@ func (err *SyntaxError) Error() string {
 func (err *SyntaxError) Unwrap() error { return ErrInvalidTemplate }
 
 const (
-	maxTemplateBytes = 64 << 10
-	maxExpressions   = 256
+	maxTemplateBytes   = 64 << 10
+	maxExpressions     = 256
+	maxRenderedBytes   = 1 << 20
+	maxScalarBytes     = 256 << 10
+	maxFormatWidth     = 4096
+	maxFormatPrecision = 4096
 )
 
 var formatSpecPattern = regexp.MustCompile(`^[-+0 #]*[0-9]*(\.[0-9]+)?[sdf]$|^j$`)
@@ -49,12 +53,16 @@ func Render(pattern string, info value.Info) (string, error) {
 	expressions := 0
 	for index := 0; index < len(pattern); {
 		if pattern[index] != '%' {
-			output.WriteByte(pattern[index])
+			if err := appendBounded(&output, pattern[index:index+1]); err != nil {
+				return "", err
+			}
 			index++
 			continue
 		}
 		if index+1 < len(pattern) && pattern[index+1] == '%' {
-			output.WriteByte('%')
+			if err := appendBounded(&output, "%"); err != nil {
+				return "", err
+			}
 			index += 2
 			continue
 		}
@@ -87,10 +95,20 @@ func Render(pattern string, info value.Info) (string, error) {
 		if err != nil {
 			return "", templateSyntax(index+2, closeIndex, fmt.Sprintf("expression %q: %v", expression, err))
 		}
-		output.WriteString(rendered)
+		if err := appendBounded(&output, rendered); err != nil {
+			return "", err
+		}
 		index = specEnd + 1
 	}
 	return output.String(), nil
+}
+
+func appendBounded(output *strings.Builder, text string) error {
+	if len(text) > maxRenderedBytes-output.Len() {
+		return fmt.Errorf("%w: rendered output exceeds %d bytes", ErrInvalidTemplate, maxRenderedBytes)
+	}
+	output.WriteString(text)
+	return nil
 }
 
 func templateSyntax(start, end int, message string) error {
@@ -181,9 +199,34 @@ func renderExpression(expression, spec string, info value.Info) (string, error) 
 		if err != nil {
 			return "", err
 		}
-		selected = value.String(strings.ReplaceAll(replacement, "{}", raw))
+		replaced, err := replaceBounded(replacement, raw)
+		if err != nil {
+			return "", err
+		}
+		selected = value.String(replaced)
 	}
 	return formatValue(selected, spec)
+}
+
+func replaceBounded(replacement, raw string) (string, error) {
+	if len(raw) > maxScalarBytes {
+		return "", errors.New("replacement source exceeds size limit")
+	}
+	count := strings.Count(replacement, "{}")
+	if count == 0 {
+		return "", errors.New("replacement must contain {}")
+	}
+	length := len(replacement)
+	if len(raw) >= 2 {
+		if count > (maxScalarBytes-length)/(len(raw)-2) {
+			return "", errors.New("replacement output exceeds size limit")
+		}
+		length += count * (len(raw) - 2)
+	}
+	if length > maxScalarBytes {
+		return "", errors.New("replacement output exceeds size limit")
+	}
+	return strings.ReplaceAll(replacement, "{}", raw), nil
 }
 
 func traverse(info value.Info, path string) (value.Value, error) {
@@ -220,6 +263,9 @@ func traverse(info value.Info, path string) (value.Value, error) {
 }
 
 func formatValue(input value.Value, spec string) (string, error) {
+	if !validFormatSpec(spec) {
+		return "", fmt.Errorf("format width or precision exceeds limit")
+	}
 	conversion := spec[len(spec)-1]
 	format := "%" + spec
 	switch conversion {
@@ -228,7 +274,7 @@ func formatValue(input value.Value, spec string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf(format, raw), nil
+		return boundedFormatted(fmt.Sprintf(format, raw))
 	case 'd':
 		integer, ok := input.Int()
 		if !ok {
@@ -239,7 +285,7 @@ func formatValue(input value.Value, spec string) (string, error) {
 		if !ok {
 			return "", fmt.Errorf("kind %s is not numeric", input.Kind())
 		}
-		return fmt.Sprintf(format, integer), nil
+		return boundedFormatted(fmt.Sprintf(format, integer))
 	case 'f':
 		floating, ok := input.Float()
 		if !ok {
@@ -250,15 +296,129 @@ func formatValue(input value.Value, spec string) (string, error) {
 		if !ok {
 			return "", fmt.Errorf("kind %s is not numeric", input.Kind())
 		}
-		return fmt.Sprintf(format, floating), nil
+		return boundedFormatted(fmt.Sprintf(format, floating))
 	case 'j':
+		if _, ok := estimateJSON(input, maxRenderedBytes); !ok {
+			return "", errors.New("JSON output exceeds size limit")
+		}
 		encoded, err := json.Marshal(input)
 		if err != nil {
 			return "", fmt.Errorf("encode JSON: %w", err)
 		}
-		return string(encoded), nil
+		return boundedFormatted(string(encoded))
 	default:
 		return "", fmt.Errorf("unsupported conversion %q", conversion)
+	}
+}
+
+func validFormatSpec(spec string) bool {
+	if !formatSpecPattern.MatchString(spec) {
+		return false
+	}
+	if spec == "j" {
+		return true
+	}
+	body := spec[:len(spec)-1]
+	body = strings.TrimLeft(body, "-+0 #")
+	width := body
+	precision := ""
+	if before, after, found := strings.Cut(body, "."); found {
+		width, precision = before, after
+	}
+	if width != "" {
+		parsed, err := strconv.Atoi(width)
+		if err != nil || parsed > maxFormatWidth {
+			return false
+		}
+	}
+	if precision != "" {
+		parsed, err := strconv.Atoi(precision)
+		if err != nil || parsed > maxFormatPrecision {
+			return false
+		}
+	}
+	return true
+}
+
+func boundedFormatted(text string) (string, error) {
+	if len(text) > maxRenderedBytes {
+		return "", errors.New("formatted value exceeds size limit")
+	}
+	return text, nil
+}
+
+func estimateJSON(input value.Value, limit int) (int, bool) {
+	if limit < 0 {
+		return 0, false
+	}
+	add := func(total, amount int) (int, bool) {
+		if amount > limit-total {
+			return 0, false
+		}
+		return total + amount, true
+	}
+	switch input.Kind() {
+	case value.KindMissing, value.KindNull:
+		return 4, limit >= 4
+	case value.KindBool:
+		return 5, limit >= 5
+	case value.KindInt, value.KindFloat:
+		return 32, limit >= 32
+	case value.KindString:
+		text, _ := input.StringValue()
+		if len(text) > (limit-2)/6 {
+			return 0, false
+		}
+		return 2 + len(text)*6, true
+	case value.KindBytes:
+		bytes, _ := input.BytesValue()
+		if len(bytes) > (limit-2)/2 {
+			return 0, false
+		}
+		return 2 + len(bytes)*2, true
+	case value.KindList:
+		items, _ := input.ListValue()
+		total := 2
+		for _, item := range items {
+			if total == limit {
+				return 0, false
+			}
+			if total > 1 {
+				total++
+			}
+			size, ok := estimateJSON(item, limit-total)
+			if !ok {
+				return 0, false
+			}
+			total, ok = add(total, size)
+			if !ok {
+				return 0, false
+			}
+		}
+		return total, true
+	case value.KindObject:
+		object, _ := input.Object()
+		total := 2
+		for _, field := range object.Fields() {
+			if total > 1 {
+				total++
+			}
+			if len(field.Key) > (limit-total-3)/6 {
+				return 0, false
+			}
+			total += 2 + len(field.Key)*6 + 1
+			size, ok := estimateJSON(field.Value, limit-total)
+			if !ok {
+				return 0, false
+			}
+			total, ok = add(total, size)
+			if !ok {
+				return 0, false
+			}
+		}
+		return total, true
+	default:
+		return 0, false
 	}
 }
 
@@ -268,6 +428,9 @@ func scalarString(input value.Value) (string, error) {
 		return "NA", nil
 	case value.KindString:
 		result, _ := input.StringValue()
+		if len(result) > maxScalarBytes {
+			return "", errors.New("string value exceeds size limit")
+		}
 		return result, nil
 	case value.KindInt:
 		result, _ := input.Int()

@@ -305,7 +305,7 @@ func selectTerm(formats []*value.Object, term Term) (Selection, bool) {
 }
 
 func selectTermWithOptions(formats []*value.Object, term Term, options Options) (Selection, bool) {
-	if len(options.Sort) == 0 {
+	if len(options.Sort) == 0 && len(options.PreferExtensions) == 0 && !options.PreferFreeFormats {
 		return selectTerm(formats, term)
 	}
 	if term.Name != "best" && term.Name != "worst" && !strings.HasPrefix(term.Name, "best") && !strings.HasPrefix(term.Name, "worst") {
@@ -314,6 +314,9 @@ func selectTermWithOptions(formats []*value.Object, term Term, options Options) 
 	wantVideo := strings.HasSuffix(term.Name, "video")
 	wantAudio := strings.HasSuffix(term.Name, "audio")
 	wantWorst := strings.HasPrefix(term.Name, "worst")
+	if len(options.Sort) == 0 {
+		return selectTermWithPreferenceTiebreak(formats, term, options, wantVideo, wantAudio, wantWorst)
+	}
 	if wantWorst {
 		for index := len(formats) - 1; index >= 0; index-- {
 			if candidateMatchesKind(formats[index], wantVideo, wantAudio, term.Filters) {
@@ -328,6 +331,35 @@ func selectTermWithOptions(formats []*value.Object, term Term, options Options) 
 		}
 	}
 	return Selection{}, false
+}
+
+// User extension/free preferences only break equal quality scores. This keeps
+// yt-dlp's quality-first selection semantics while making the preference
+// policy visible and deterministic when formats are otherwise equivalent.
+func selectTermWithPreferenceTiebreak(formats []*value.Object, term Term, options Options, wantVideo, wantAudio, wantWorst bool) (Selection, bool) {
+	var selected *value.Object
+	selectedScore := float64(0)
+	for _, candidate := range formats {
+		if !candidateMatchesKind(candidate, wantVideo, wantAudio, term.Filters) {
+			continue
+		}
+		score := formatScore(candidate, wantVideo, wantAudio)
+		if selected == nil || (wantWorst && score < selectedScore) || (!wantWorst && score > selectedScore) || (score == selectedScore && preferenceRank(candidate, options) > preferenceRank(selected, options)) {
+			selected, selectedScore = candidate, score
+		}
+	}
+	if selected == nil {
+		return Selection{}, false
+	}
+	return objectSelection(selected), true
+}
+
+func preferenceRank(object *value.Object, options Options) int {
+	rank := extensionRank(object, options.PreferExtensions) * 2
+	if options.PreferFreeFormats {
+		rank += freeRank(object)
+	}
+	return rank
 }
 
 func candidateMatchesKind(candidate *value.Object, wantVideo, wantAudio bool, filters []Filter) bool {

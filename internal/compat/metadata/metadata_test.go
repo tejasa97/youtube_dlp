@@ -2,8 +2,10 @@ package metadata
 
 import (
 	"errors"
-	"github.com/ytdlp-go/ytdlp/internal/value"
+	"strings"
 	"testing"
+
+	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
 func TestInterpretAndReplace(t *testing.T) {
@@ -28,6 +30,22 @@ func TestInterpretAndReplace(t *testing.T) {
 	}
 	if len(result.Changed) != 3 {
 		t.Fatalf("result = %#v", result)
+	}
+}
+func TestApplyRejectsConstructedInvalidAndExpansion(t *testing.T) {
+	info := value.NewInfo(value.NewObject(value.Field{Key: "title", Value: value.String("x")}, value.Field{Key: "description", Value: value.String(strings.Repeat("x", 1024))}))
+	for _, action := range []Action{{Kind: Interpret}, {Kind: Replace, Field: "description"}} {
+		if _, err := Apply(&info, []Action{action}); !errors.Is(err, ErrInvalidAction) {
+			t.Fatalf("Apply(%#v) = %v", action, err)
+		}
+	}
+	action, err := ParseReplace("description:x:" + strings.Repeat("z", 1024))
+	if err != nil {
+		t.Fatal(err)
+	}
+	info.Set("description", value.String(strings.Repeat("x", 300)))
+	if _, err := Apply(&info, []Action{action}); !errors.Is(err, ErrInvalidAction) {
+		t.Fatalf("bounded expansion error = %v", err)
 	}
 }
 func TestWarningsAndErrors(t *testing.T) {

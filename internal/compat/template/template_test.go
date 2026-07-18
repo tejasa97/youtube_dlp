@@ -66,6 +66,23 @@ func TestRenderJSON(t *testing.T) {
 	}
 }
 
+func TestRenderRejectsExpansionAndFormatAllocation(t *testing.T) {
+	for _, pattern := range []string{"%(view_count)5000d", "%(rating).5000f"} {
+		if _, err := Render(pattern, fixtureInfo()); !errors.Is(err, ErrInvalidTemplate) {
+			t.Fatalf("Render(%q) = %v", pattern, err)
+		}
+	}
+	info := fixtureInfo()
+	info.Set("title", value.String(strings.Repeat("x", 128)))
+	if _, err := Render("%(title&"+strings.Repeat("{}", 4096)+")s", info); !errors.Is(err, ErrInvalidTemplate) {
+		t.Fatalf("replacement expansion = %v", err)
+	}
+	info.Set("huge", value.String(strings.Repeat("x", maxScalarBytes+1)))
+	if _, err := Render("%(huge)j", info); !errors.Is(err, ErrInvalidTemplate) {
+		t.Fatalf("JSON estimate = %v", err)
+	}
+}
+
 func TestResolveSanitizesAndConfines(t *testing.T) {
 	root := t.TempDir()
 	got, err := Resolve(root, "videos/%(title)s.%(ext)s", fixtureInfo())

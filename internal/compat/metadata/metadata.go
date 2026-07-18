@@ -13,7 +13,11 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
-const maxActionBytes = 8192
+const (
+	maxActionBytes      = 8192
+	maxRenderedInput    = 256 << 10
+	maxReplacementBytes = 256 << 10
+)
 
 var ErrInvalidAction = errors.New("invalid metadata action")
 
@@ -102,6 +106,9 @@ func Apply(info *value.Info, actions []Action) (Result, error) {
 	for _, action := range actions {
 		switch action.Kind {
 		case Interpret:
+			if action.expression == nil || len(action.From) > maxActionBytes || len(action.To) > maxActionBytes {
+				return result, fmt.Errorf("%w: invalid interpret action", ErrInvalidAction)
+			}
 			input := action.From
 			if fieldName.MatchString(input) {
 				input = "%(" + input + ")s"
@@ -109,6 +116,9 @@ func Apply(info *value.Info, actions []Action) (Result, error) {
 			rendered, err := template.Render(input, *info)
 			if err != nil {
 				return result, fmt.Errorf("render metadata input: %w", err)
+			}
+			if len(rendered) > maxRenderedInput {
+				return result, fmt.Errorf("%w: rendered metadata input exceeds %d bytes", ErrInvalidAction, maxRenderedInput)
 			}
 			match := action.expression.FindStringSubmatch(rendered)
 			if match == nil {
@@ -122,12 +132,21 @@ func Apply(info *value.Info, actions []Action) (Result, error) {
 				}
 			}
 		case Replace:
+			if action.expression == nil || !fieldName.MatchString(action.Field) || len(action.Search) > maxActionBytes || len(action.Replacement) > maxActionBytes {
+				return result, fmt.Errorf("%w: invalid replace action", ErrInvalidAction)
+			}
 			current, ok := info.Lookup(action.Field).StringValue()
 			if !ok {
 				result.Warnings = append(result.Warnings, fmt.Sprintf("field %q is not a string", action.Field))
 				continue
 			}
-			replaced := action.expression.ReplaceAllString(current, action.Replacement)
+			if len(current) > maxRenderedInput {
+				return result, fmt.Errorf("%w: replacement source exceeds %d bytes", ErrInvalidAction, maxRenderedInput)
+			}
+			replaced, err := boundedReplace(action.expression, current, action.Replacement)
+			if err != nil {
+				return result, err
+			}
 			if replaced != current {
 				info.Set(action.Field, value.String(replaced))
 				result.Changed = append(result.Changed, action.Field)
@@ -137,6 +156,36 @@ func Apply(info *value.Info, actions []Action) (Result, error) {
 		}
 	}
 	return result, nil
+}
+
+func boundedReplace(expression *regexp.Regexp, source, replacement string) (string, error) {
+	matches := expression.FindAllStringSubmatchIndex(source, -1)
+	if len(matches) == 0 {
+		return source, nil
+	}
+	var output strings.Builder
+	output.Grow(min(len(source), maxReplacementBytes))
+	cursor := 0
+	for _, match := range matches {
+		if match[0] < cursor {
+			continue
+		}
+		if output.Len()+match[0]-cursor > maxReplacementBytes {
+			return "", fmt.Errorf("%w: replacement output exceeds %d bytes", ErrInvalidAction, maxReplacementBytes)
+		}
+		output.WriteString(source[cursor:match[0]])
+		expanded := expression.ExpandString(nil, replacement, source, match)
+		if len(expanded) > maxReplacementBytes-output.Len() {
+			return "", fmt.Errorf("%w: replacement output exceeds %d bytes", ErrInvalidAction, maxReplacementBytes)
+		}
+		output.Write(expanded)
+		cursor = match[1]
+	}
+	if len(source)-cursor > maxReplacementBytes-output.Len() {
+		return "", fmt.Errorf("%w: replacement output exceeds %d bytes", ErrInvalidAction, maxReplacementBytes)
+	}
+	output.WriteString(source[cursor:])
+	return output.String(), nil
 }
 
 var fieldName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)

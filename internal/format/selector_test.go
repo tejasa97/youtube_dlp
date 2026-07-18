@@ -167,6 +167,27 @@ func TestSelectorNumericAndMissingInequality(t *testing.T) {
 	}
 }
 
+func TestSelectorExtensionAndFreePreferencesBreakQualityTies(t *testing.T) {
+	format := func(id, ext string, height int64) value.Value {
+		return value.ObjectValue(value.NewObject(value.Field{Key: "format_id", Value: value.String(id)}, value.Field{Key: "url", Value: value.String("https://example.invalid/" + id)}, value.Field{Key: "ext", Value: value.String(ext)}, value.Field{Key: "height", Value: value.Int(height)}, value.Field{Key: "tbr", Value: value.Int(100)}, value.Field{Key: "vcodec", Value: value.String("avc")}, value.Field{Key: "acodec", Value: value.String("aac")}))
+	}
+	info := value.NewInfo(value.NewObject(value.Field{Key: "formats", Value: value.List(format("mp4", "mp4", 720), format("webm", "webm", 720), format("higher", "mp4", 1080))}))
+	selector, _ := ParseSelector("best")
+	selected, err := SelectWithOptions(info, selector, Options{PreferExtensions: []string{"webm"}})
+	if err != nil || selected[0].ID != "higher" {
+		t.Fatalf("quality must precede extension: %#v, %v", selected, err)
+	}
+	tied := value.NewInfo(value.NewObject(value.Field{Key: "formats", Value: value.List(format("mp4", "mp4", 720), format("webm", "webm", 720))}))
+	selected, err = SelectWithOptions(tied, selector, Options{PreferExtensions: []string{"webm"}})
+	if err != nil || selected[0].ID != "webm" {
+		t.Fatalf("extension preference: %#v, %v", selected, err)
+	}
+	selected, err = SelectWithOptions(tied, selector, Options{PreferFreeFormats: true})
+	if err != nil || selected[0].ID != "webm" {
+		t.Fatalf("free preference: %#v, %v", selected, err)
+	}
+}
+
 func FuzzParseSelector(f *testing.F) {
 	f.Add("bestvideo[height<=1080]+bestaudio/best")
 	f.Add("best[ext=mp4]")
