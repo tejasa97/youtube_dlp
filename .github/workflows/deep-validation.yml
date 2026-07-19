@@ -1,0 +1,109 @@
+name: Deep validation
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      fuzz_iterations:
+        description: Mutations per fuzz target
+        required: true
+        default: "100"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deep-validation
+  cancel-in-progress: false
+
+jobs:
+  fuzz:
+    name: Fuzz shard ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run deterministic fuzz shard
+        shell: bash
+        env:
+          FUZZ_ITERATIONS: ${{ inputs.fuzz_iterations || '100' }}
+          SHARD: ${{ matrix.shard }}
+          SHARD_COUNT: 6
+        run: |
+          set -euo pipefail
+          [[ "$FUZZ_ITERATIONS" =~ ^[1-9][0-9]*$ ]]
+          index=0
+          selected=0
+          while IFS= read -r package; do
+            listing=$(go test -list '^Fuzz' "$package")
+            while IFS= read -r target; do
+              [ -n "$target" ] || continue
+              if ((index % SHARD_COUNT == SHARD)); then
+                selected=$((selected + 1))
+                go test -run='^$' -fuzz="^${target}$" -fuzztime="${FUZZ_ITERATIONS}x" -parallel=1 "$package"
+              fi
+              index=$((index + 1))
+            done < <(printf '%s\n' "$listing" | grep '^Fuzz' | LC_ALL=C sort || true)
+          done < <(go list ./... | LC_ALL=C sort)
+          test "$selected" -gt 0
+
+  native-test:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go test ./...
+
+  linux-deep:
+    name: Linux race, media, portability, and Python-free
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install media tools
+        run: sudo apt-get update && sudo apt-get install --yes ffmpeg
+      - name: Race test
+        run: go test -race ./...
+      - name: Vulnerability audit
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
+      - name: Native media integration
+        run: go test -v ./internal/media/ffmpeg ./internal/media/postprocess ./internal/protocol/hls ./internal/protocol/dash ./internal/protocol/ism ./pkg/ytdlp
+      - name: Cross-build supported targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          for target in linux/amd64 darwin/amd64 windows/amd64; do
+            GOOS="${target%/*}" GOARCH="${target#*/}" CGO_ENABLED=0 go build ./...
+          done
+      - name: Python-free container
+        shell: bash
+        run: |
+          docker build --file .github/python-free.Dockerfile --tag ytdlp-go-python-free .
+          docker run --rm ytdlp-go-python-free --version
+          docker run --rm --entrypoint /jscheck ytdlp-go-python-free -helper /ytdlp-js-helper
+          docker run --rm --entrypoint /ytdlp-pack ytdlp-go-python-free --version
+          docker run --rm --entrypoint /ytdlp-update ytdlp-go-python-free --version
+          docker run --rm --entrypoint /ytdlp-release ytdlp-go-python-free --api-version

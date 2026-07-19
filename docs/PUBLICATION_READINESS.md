@@ -54,9 +54,11 @@ Scanner findings reduced to the following reviewed non-secret categories:
   yt-dlp behavioral reference.
 
 `.gitleaks.toml` suppresses only those exact rule, path, and line combinations.
-The secret-scan workflow is prepared to check complete history on pushes, pull
-requests, and weekly once GitHub Actions is re-enabled. Any broader or changed
-value remains detectable.
+The single regular CI job is prepared to check complete history on pull
+requests and pushes to `main` once GitHub Actions is re-enabled. Any broader or
+changed value remains detectable. Expensive fuzz, native-platform, race, media,
+vulnerability, cross-build, and Python-free checks are isolated in the weekly
+or manually dispatched deep-validation workflow.
 
 The non-fuzz job logs from failed GitHub Actions runs `29650623857` and
 `29657803150` were also scanned without a finding. GitHub's own masking remains

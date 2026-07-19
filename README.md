@@ -346,8 +346,8 @@ captured private responses. New claims require success, failure, cancellation,
 security, and provenance evidence appropriate to their risk.
 
 See [Contributing](CONTRIBUTING.md), the [fixture
-policy](docs/FIXTURE_POLICY.md), and the [Phase 3
-plan](PHASE_3_IMPLEMENTATION_PLAN.md).
+policy](docs/FIXTURE_POLICY.md), [continuous integration](docs/CI.md), and the
+[Phase 3 plan](PHASE_3_IMPLEMENTATION_PLAN.md).
 
 ## Getting help and contributing
 

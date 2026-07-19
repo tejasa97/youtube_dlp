@@ -2,226 +2,47 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  quality:
+  verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
-      - run: test -z "$(gofmt -l .)"
-      - run: go mod tidy
-      - run: git diff --exit-code -- go.mod go.sum
-      - run: go vet ./...
-      - run: go run ./cmd/paritycheck
-
-  vulnerability-audit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
-
-  fuzz:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - package: ./internal/value
-            target: FuzzValueJSON
-          - package: ./internal/compat/template
-            target: FuzzResolve
-          - package: ./internal/compat/matchfilter
-            target: FuzzParse
-          - package: ./internal/compat/metadata
-            target: FuzzActions
-          - package: ./internal/compat/progress
-            target: FuzzRender
-          - package: ./internal/format
-            target: FuzzParseSelector
-          - package: ./internal/downloader
-            target: FuzzContentRange
-          - package: ./internal/fragment
-            target: FuzzPlanHash
-          - package: ./internal/protocol/hls
-            target: FuzzParse
-          - package: ./internal/protocol/dash
-            target: FuzzParse
-          - package: ./internal/protocol/ism
-            target: FuzzParse
-          - package: ./internal/media/ffmpeg
-            target: FuzzRedactDiagnostic
-          - package: ./internal/media/ffmpeg
-            target: FuzzOperationInputValidation
-          - package: ./internal/media/postprocess
-            target: FuzzArtifactPaths
-          - package: ./pkg/ytdlp
-            target: FuzzConfinedPostprocessPath
-          - package: ./internal/plugin/rpc
-            target: FuzzReadFrame
-          - package: ./internal/plugin/wasm
-            target: FuzzDecodeResponse
-          - package: ./internal/plugin
-            target: FuzzDecodeManifest
-          - package: ./pkg/pluginapi
-            target: FuzzCodecRead
-          - package: ./internal/pack
-            target: FuzzVerify
-          - package: ./internal/pack
-            target: FuzzPayloadPath
-          - package: ./internal/sandbox
-            target: FuzzPrepareArguments
-          - package: ./internal/update
-            target: FuzzVerifyEnvelope
-          - package: ./internal/update
-            target: FuzzSelectInstalledVersion
-          - package: ./internal/update
-            target: FuzzRecordDecoder
-          - package: ./internal/release
-            target: FuzzArchivePaths
-          - package: ./internal/release
-            target: FuzzChecksumManifest
-          - package: ./internal/cookies/chromium
-            target: FuzzMacDecryptor
-          - package: ./internal/cookies/netscape
-            target: FuzzParse
-          - package: ./internal/cookies/firefox
-            target: FuzzValidCookie
-          - package: ./internal/cookies/chromiumlinux
-            target: FuzzDecrypt
-          - package: ./internal/compat/config
-            target: FuzzTokenize
-          - package: ./internal/compat/config
-            target: FuzzDecode
-          - package: ./internal/compat/config
-            target: FuzzExpandAliases
-          - package: ./internal/archive
-            target: FuzzParseIdentity
-          - package: ./internal/cache
-            target: FuzzCacheKeyEncoding
-          - package: ./internal/cache
-            target: FuzzCacheHeader
-          - package: ./internal/extractor
-            target: FuzzParseYouTubePlaylistData
-          - package: ./internal/extractor
-            target: FuzzOnDemandEntries
-          - package: ./internal/extractor
-            target: FuzzTwitchMetadataResponse
-          - package: ./internal/extractor
-            target: FuzzSoundCloudURLClassification
-          - package: ./internal/extractor
-            target: FuzzSoundCloudPageEntries
-          - package: ./internal/extractor
-            target: FuzzParseVimeoConfig
-          - package: ./internal/extractor
-            target: FuzzParseTikTokPage
-          - package: ./internal/extractor
-            target: FuzzSyntheticAuthResponse
-          - package: ./internal/extractor
-            target: FuzzRegionSVTVideoResponse
-          - package: ./internal/extractor
-            target: FuzzParseHostedEmbedPayloads
-          - package: ./internal/extractor
-            target: FuzzNormalizeDailymotion
-          - package: ./internal/extractor
-            target: FuzzMixcloudStreamURL
-          - package: ./internal/extractor
-            target: FuzzRumbleVariants
-          - package: ./internal/extractor
-            target: FuzzParseBilibiliPage
-          - package: ./internal/extractor
-            target: FuzzParseInstagramPage
-          - package: ./internal/extractor
-            target: FuzzClassifyKickURL
-          - package: ./internal/extractor
-            target: FuzzParseBBCMediaSelector
-          - package: ./internal/extractor
-            target: FuzzNormalizeARDMedia
-          - package: ./internal/extractor
-            target: FuzzParseNRKCatalog
-          - package: ./internal/extractor
-            target: FuzzParseNRKDuration
-          - package: ./internal/upstreamdelta
-            target: FuzzParseLog
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-      - run: go test -run=^$ -fuzz='^${{ matrix.target }}$' -fuzztime=100x -parallel=1 ${{ matrix.package }}
-
-  cross-build:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        goos: [linux, darwin, windows]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-      - run: go build ./...
-        env:
-          CGO_ENABLED: 0
-          GOOS: ${{ matrix.goos }}
-          GOARCH: amd64
-
-  test:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-      - run: go test ./...
-
-  race:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-      - run: go test -race ./...
-
-  media:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-      - run: sudo apt-get update && sudo apt-get install --yes ffmpeg
-      - run: go test -v ./internal/media/ffmpeg ./internal/media/postprocess ./internal/protocol/hls ./internal/protocol/dash ./internal/protocol/ism ./pkg/ytdlp
-
-  python-free:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: docker build --file .github/python-free.Dockerfile --tag ytdlp-go-python-free .
-      - run: docker run --rm ytdlp-go-python-free --version
-      - run: docker run --rm --entrypoint /jscheck ytdlp-go-python-free -helper /ytdlp-js-helper
-      - run: docker run --rm --entrypoint /ytdlp-pack ytdlp-go-python-free --version
-      - run: docker run --rm --entrypoint /ytdlp-update ytdlp-go-python-free --version
-      - run: docker run --rm --entrypoint /ytdlp-release ytdlp-go-python-free --api-version
+      - name: Scan complete history for secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools=$(mktemp -d)
+          trap 'rm -rf "$tools"' EXIT
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            --output "$tools/gitleaks.tar.gz" \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  $tools/gitleaks.tar.gz" | sha256sum --check --strict
+          tar -xzf "$tools/gitleaks.tar.gz" -C "$tools" gitleaks
+          "$tools/gitleaks" git --config .gitleaks.toml --redact --log-opts=--all
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+      - name: Check module drift
+        run: go mod tidy -diff
+      - name: Vet
+        run: go vet ./...
+      - name: Validate compatibility claims
+        run: go run ./cmd/paritycheck
+      - name: Test
+        run: go test ./...

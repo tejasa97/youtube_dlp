@@ -42,6 +42,7 @@ The executable help is the authoritative CLI option list:
 
 ## Releases and security
 
+- [Continuous integration](CI.md)
 - [Alpha release procedure](P2_ALPHA_RELEASE.md)
 - [Updater and releases](P2_UPDATER_RELEASES.md)
 - [Phase 2 security review](P2_SECURITY_REVIEW.md)
