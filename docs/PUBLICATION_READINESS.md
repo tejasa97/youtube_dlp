@@ -1,14 +1,14 @@
 # Publication-readiness review
 
 Review date: 2026-07-19
-Reviewed baseline: `05da0d2` plus this review's changes
+Reviewed baseline: `62d23cf` plus the publication and documentation changes
 
 ## Decision
 
 The source repository is suitable to make publicly visible based on the local
 checks in this review once the repository owner accepts Apache License 2.0.
-This is a practical engineering and provenance review, not legal advice. Making source
-public does not by itself authorize publishing production-signed binaries,
+This is a practical engineering and provenance review, not legal advice.
+Making source public does not itself authorize publishing production-signed binaries,
 enable private vulnerability reporting, or establish signing-key custody.
 
 ## Licensing
@@ -37,10 +37,12 @@ Gitleaks v8.30.1 scanned the complete locally reachable Git history with
 current tree. Additional targeted patterns checked for private-key headers and
 common AWS, GitHub, Google, and Slack token formats. No real secret was found.
 
-Ten history findings collapsed to five unique reviewed values:
+Scanner findings reduced to the following reviewed non-secret categories:
 
 - two ARD public API routes and an NRK public hostname list;
 - a deterministic Chromium password test vector documented by adjacent
+  provenance;
+- a deterministic Windows Chromium AES key vector documented by adjacent
   provenance;
 - Twitch's public web client identifier, matching the identifier in the pinned
   yt-dlp behavioral reference.
@@ -57,8 +59,8 @@ retained in this repository.
 
 ## Fixture publication safety
 
-The review covered all 36 `conformance/**/PROVENANCE.md` records and all 92
-other fixture/data files under `conformance/` (excluding the capability
+The refreshed review covered all 51 `conformance/**/PROVENANCE.md` records and
+all 118 other fixture/data files under `conformance/` (excluding the capability
 manifest). The corpus consists of generated or hand-authored responses,
 reserved or invented identifiers, deterministic non-production keys and
 credentials, schema-derived expectations, and attributable differential
@@ -75,9 +77,9 @@ future additions.
 ## CI and operational state
 
 The verification baseline uses Go 1.25.12 and runs formatting/tidy drift, vet,
-parity, symbol-aware vulnerability analysis, deterministic fuzz targets, cross-builds,
-native tests on Linux/macOS/Windows, race tests, media tests, and a Python-free
-container. GitHub Actions is temporarily disabled, so this publication decision
+parity, symbol-aware vulnerability analysis, deterministic fuzz targets,
+cross-builds, host-native tests where available, race tests, media tests, and a
+Python-free container. GitHub Actions is temporarily disabled, so this publication decision
 does not depend on a hosted run. The Windows filesystem/config/fixture defects
 exposed by the first hosted dry runs were fixed in commits `19957c2` through
 `b374c5b`; local native macOS tests, race tests, and no-cgo cross-builds provide
@@ -91,7 +93,7 @@ Before changing visibility:
 3. Confirm that the owner accepts Apache-2.0 and the public commit author
    names/emails already present in Git history.
 4. Keep releases disabled until signing custody, publishing credentials, and
-   the Phase 2 operational gates are explicitly approved.
+   the Phase 2/Phase 3 operational gates are explicitly approved.
 
 ## Local verification record
 
@@ -103,7 +105,7 @@ GitHub Actions:
 - formatting, module-tidy drift, `go vet ./...`, `go test ./...`, and
   `go test -race ./...`;
 - `actionlint v1.7.7` over every checked-in workflow;
-- parity validation: 48 capabilities and zero temporary fallbacks;
+- parity validation: 55 capabilities and zero temporary fallbacks;
 - `govulncheck v1.6.0 ./...`: zero reachable vulnerabilities;
 - no-cgo amd64 builds for Linux, macOS, and Windows;
 - the two release fuzz targets at 100 mutations each;

@@ -86,6 +86,18 @@ func TestRunNetRCFlagsFailClosedBeforeNetwork(t *testing.T) {
 	}
 }
 
+func TestRunHelpIsCurrentAndSuccessful(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"--help"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("Run() code = %d, want 0; stderr = %q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "Usage: ytdlp-go") ||
+		!strings.Contains(stderr.String(), "Experimental Python-free Go implementation") ||
+		strings.Contains(stderr.String(), "Phase 2 alpha development") {
+		t.Fatalf("help is stale: %q", stderr.String())
+	}
+}
+
 func TestRunResumesPartialDownload(t *testing.T) {
 	server := testserver.New()
 	defer server.Close()

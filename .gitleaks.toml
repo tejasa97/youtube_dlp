@@ -12,6 +12,22 @@ paths = ['''^conformance/cookies/chromium-macos/corpus\.json$''']
 regexes = ['''"password": "6eIDUdtKAacvlHwBVwvg/Q=="''']
 
 [[allowlists]]
+description = "Synthetic Windows Chromium AES key documented in fixture provenance"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "line"
+paths = ['''^conformance/cookies/chromium-windows/vectors\.json$''']
+regexes = ['''"master_key_base64": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="''']
+
+[[allowlists]]
+description = "Gitleaks decoded form of the same synthetic Windows Chromium AES key"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "line"
+paths = ['''^conformance/cookies/chromium-windows/vectors\.json$''']
+regexes = ['''"master_key_base64": "0123456789abcdef0123456789abcdef"''']
+
+[[allowlists]]
 description = "ARD API route constant, not a credential"
 targetRules = ["generic-api-key"]
 condition = "AND"

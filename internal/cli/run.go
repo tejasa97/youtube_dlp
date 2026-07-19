@@ -42,7 +42,7 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	flags.Usage = func() {
 		fmt.Fprintln(flags.Output(), "Usage: ytdlp-go [OPTIONS] URL")
 		fmt.Fprintln(flags.Output())
-		fmt.Fprintln(flags.Output(), "Experimental Python-free Go port of yt-dlp (Phase 2 alpha development).")
+		fmt.Fprintln(flags.Output(), "Experimental Python-free Go implementation informed by yt-dlp behavior.")
 		fmt.Fprintln(flags.Output())
 		flags.PrintDefaults()
 	}
@@ -119,6 +119,9 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	_ = flags.Bool("no-config", false, "alias for --ignore-config")
 	_ = flags.Bool("no-config-locations", false, "clear inherited explicit configuration locations")
 	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 2
 	}
 	if *showVersion {
