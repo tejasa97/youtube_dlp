@@ -54,6 +54,7 @@ func run(ctx context.Context, args []string) error {
 	epochText := flags.String("epoch", "", "canonical UTC RFC3339 source epoch")
 	output := flags.String("output", "", "existing output directory")
 	noticesPath := flags.String("notices", "THIRD_PARTY_NOTICES.md", "third-party notices input")
+	projectLicensePath := flags.String("project-license", "LICENSE", "project license input")
 	licensesPath := flags.String("license-dir", "third_party/licenses", "third-party license directory")
 	var artifacts stringsFlag
 	flags.Var(&artifacts, "artifact", "GOOS/GOARCH:binary path (repeatable)")
@@ -72,13 +73,19 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return release.ErrIO
 	}
+	projectLicense, err := os.ReadFile(*projectLicensePath)
+	if err != nil {
+		return release.ErrIO
+	}
+	if len(projectLicense) == 0 || len(projectLicense) > 4<<20 || bytes.IndexByte(projectLicense, 0) >= 0 {
+		return release.ErrInvalidInput
+	}
 	extraLicenseEntries, err := readLicenseEntries(*licensesPath)
 	if err != nil {
 		return err
 	}
 	components, licenses := dependencyRecords(dependencies, notices)
-	components = append(components, release.Component{Name: "github.com/ytdlp-go/ytdlp", Version: *version, SPDXID: "SPDXRef-ytdlp-go", LicenseDeclared: "NOASSERTION", Download: "NOASSERTION"})
-	licenses = append(licenses, release.License{Component: "github.com/ytdlp-go/ytdlp", Version: *version, SPDX: "NOASSERTION", Text: []byte("NOASSERTION: this repository has no project-wide distribution license.\n")})
+	components, licenses = appendProjectLicense(components, licenses, *version, projectLicense)
 	if err := release.ValidateLicenseCoverage(components, licenses); err != nil {
 		return err
 	}
@@ -99,8 +106,7 @@ func run(ctx context.Context, args []string) error {
 			format, suffix, binaryName = release.FormatZIP, ".zip", "ytdlp-go.exe"
 		}
 		name := "ytdlp-go_" + *version + "_" + input.target.GOOS + "_" + input.target.GOARCH + suffix
-		entries := []release.Entry{{Name: binaryName, Data: input.data, Executable: true}, {Name: "LICENSES.txt", Data: licenseBundle.Bytes()}, {Name: "SBOM.spdx.json", Data: sbom.Bytes()}, {Name: "THIRD_PARTY_NOTICES.md", Data: notices}}
-		entries = append(entries, extraLicenseEntries...)
+		entries := artifactEntries(binaryName, input.data, projectLicense, licenseBundle.Bytes(), sbom.Bytes(), notices, extraLicenseEntries)
 		var archive bytes.Buffer
 		if err := release.WriteArchive(ctx, &archive, format, entries, epoch); err != nil {
 			return err
@@ -124,12 +130,23 @@ func run(ctx context.Context, args []string) error {
 			return err
 		}
 	}
-	for name, body := range map[string][]byte{"SHA256SUMS": checksums.Bytes(), "release.json": manifestJSON.Bytes(), "SBOM.spdx.json": sbom.Bytes(), "LICENSES.txt": licenseBundle.Bytes()} {
+	for name, body := range map[string][]byte{"SHA256SUMS": checksums.Bytes(), "release.json": manifestJSON.Bytes(), "SBOM.spdx.json": sbom.Bytes(), "LICENSE": projectLicense, "LICENSES.txt": licenseBundle.Bytes()} {
 		if err := atomicWrite(*output, name, body); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func appendProjectLicense(components []release.Component, licenses []release.License, version string, body []byte) ([]release.Component, []release.License) {
+	components = append(components, release.Component{Name: "github.com/ytdlp-go/ytdlp", Version: version, SPDXID: "SPDXRef-ytdlp-go", LicenseDeclared: "Apache-2.0", Download: "NOASSERTION"})
+	licenses = append(licenses, release.License{Component: "github.com/ytdlp-go/ytdlp", Version: version, SPDX: "Apache-2.0", Text: body})
+	return components, licenses
+}
+
+func artifactEntries(binaryName string, binary, projectLicense, licenseBundle, sbom, notices []byte, extra []release.Entry) []release.Entry {
+	entries := []release.Entry{{Name: binaryName, Data: binary, Executable: true}, {Name: "LICENSE", Data: projectLicense}, {Name: "LICENSES.txt", Data: licenseBundle}, {Name: "SBOM.spdx.json", Data: sbom}, {Name: "THIRD_PARTY_NOTICES.md", Data: notices}}
+	return append(entries, extra...)
 }
 
 func readArtifacts(specs []string) ([]artifactInput, []*debug.Module, error) {

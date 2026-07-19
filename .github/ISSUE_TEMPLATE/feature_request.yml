@@ -1,0 +1,34 @@
+name: Feature request
+description: Propose a CLI, API, protocol, extension, or workflow capability.
+title: "[feature] "
+labels: [enhancement]
+body:
+  - type: checkboxes
+    attributes:
+      label: Preflight
+      options:
+        - label: I checked the README, CLI help, documentation index, and existing issues.
+          required: true
+        - label: This request describes one user problem.
+          required: true
+  - type: textarea
+    attributes:
+      label: Use case
+      description: Explain the real workflow and outcome, not only a proposed implementation.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Why existing behavior is insufficient
+      description: Identify the closest current CLI option, Go API, plugin, or configuration mechanism.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Proposed behavior
+      description: Include compatibility, security, portability, and Python-free implications when relevant.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Alternatives considered

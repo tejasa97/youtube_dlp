@@ -30,7 +30,7 @@ substituted for deployment observations.
 | P3-06 authentication | Scoped netrc, Firefox, Chromium-family macOS/Linux/Windows imports, partial app-bound handling, bounds, identity-stable snapshots, and secret-safe errors. | Deterministic support complete for claimed profiles; real-profile and native-Windows observations remain opt-in/external. |
 | P3-07 live media | Twitch live/VOD/clip, scheduled-state handling, LL-HLS parts/deltas, discontinuities, DASH/HLS pipelines, cancellation, and overflow regression evidence. | Deterministic representative breadth complete; live entitlement/interoperability observation is external. |
 | P3-08 impersonation/regional | Versioned Chrome/Firefox profiles, explicit proxy policy, challenge execution, geo failures, and region contracts. Implicit helper `PATH` execution was removed in `49c3440`. | Claimed deterministic profiles complete; Safari/HTTP3 and regional execution remain deviations. |
-| P3-09 distribution/sandbox | Signed offline catalog, revocation, v1.x transactional install/rollback, public API, and explicit fail-closed native sandbox host (`b2b7bb1`). | Repository transaction complete. Linux/macOS adapter availability, deprecated macOS adapter, Windows lifecycle/sandbox, key custody, transport, and licensing remain external/declared. |
+| P3-09 distribution/sandbox | Signed offline catalog, revocation, v1.x transactional install/rollback, public API, and explicit fail-closed native sandbox host (`b2b7bb1`). | Repository transaction complete. Linux/macOS adapter availability, deprecated macOS adapter, Windows lifecycle/sandbox, key custody, transport, and publishing authority remain external/declared. The source project is Apache-2.0. |
 | P3-10 canaries | Opt-in suites, opaque secret handles, expiry, suite binding, minimum interval/window limits, bounded ledger, replay capture, redaction, timeout, panic handling, and local validation command. | Framework complete; scheduler, atomic distributed ledger, credential resolver, regional infrastructure, and actual runs are external. |
 | P3-11 operations | Coverage/differential/canary reports, bounded outcome and failure-class aggregation, replay, incident schema, and attributable LL-HLS fix `9ad13de`. | Local tooling complete. Git proves a 53-second introduce-to-fix interval, not a production detection-to-patch drill; G3-4 remains blocked. |
 | P3-12 audit/exit | Three independent audits, repository remediation, full local matrix, Python-free scratch container, and this review. | Review complete; exit decision is blocked. |
@@ -96,8 +96,8 @@ redacted evidence for:
 4. opted-in public, authenticated, and regional canary observations under the
    committed expiry/rate/redaction controls;
 5. any claimed native Windows lifecycle/isolation behavior; and
-6. production distribution decisions for project licensing, signing custody,
-   rotation, revocation delivery, artifact transport, and rollback authority.
+6. production distribution decisions for signing custody, rotation, revocation
+   delivery, artifact transport, publishing authority, and rollback authority.
 
 Until those records exist, Phase 3 remains blocked and Phase 4 must not treat G3
 as passed.

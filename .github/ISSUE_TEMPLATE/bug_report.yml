@@ -1,0 +1,54 @@
+name: Bug report
+description: Report a reproducible defect in documented ytdlp-go behavior.
+title: "[bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Reproduce on current `main`. Never include cookies, tokens, browser profiles, signed media URLs, private response dumps, or personal data. Use the Security tab for vulnerabilities.
+  - type: checkboxes
+    attributes:
+      label: Preflight
+      options:
+        - label: I reproduced this with the current `main` revision and searched existing issues.
+          required: true
+        - label: I removed credentials, personal data, private-media details, and expiring signed URLs.
+          required: true
+        - label: This is one independently actionable problem.
+          required: true
+  - type: input
+    attributes:
+      label: Revision and version
+      description: Paste `git rev-parse HEAD` and `ytdlp-go --version`.
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Platform
+      description: Operating system, version, and architecture.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Reproduction
+      description: Provide the smallest command and a safe public URL or synthetic input.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Actual behavior and diagnostics
+      description: Paste plain text, not screenshots. Redact values without removing surrounding context.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Optional components
+      description: Note ffmpeg/ffprobe, helper, cookies, impersonation, plugins, proxy, or external downloader use without exposing secrets.

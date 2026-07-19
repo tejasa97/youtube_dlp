@@ -1,6 +1,6 @@
 # Phase 2 fallback inventory
 
-Review baseline: 2026-07-18
+Review baseline: 2026-07-18; helper-discovery policy updated 2026-07-19
 
 The validated source of truth is
 `conformance/fallback_inventory.yaml`; `go run ./cmd/paritycheck` rejects an
@@ -21,7 +21,7 @@ The following uses of the word “fallback” are not temporary execution bridge
 | Surface | Meaning | Owner | Milestone |
 | --- | --- | --- | --- |
 | format selector `/` | user-requested format-choice operator | compatibility | permanent syntax |
-| JavaScript helper path search | configured path, executable directory, then `PATH` discovery of the same pure-Go helper | runtime | permanent discovery policy |
+| JavaScript helper discovery | configured path, then executable directory; `PATH` discovery was removed by `49c3440` | runtime | permanent fail-closed discovery policy |
 | extractor URL normalization | a site may synthesize its canonical API URL when optional webpage data is absent | extractor owner | corpus-specific behavior |
 
 Any future temporary fallback must emit an observable capability-decision

@@ -116,6 +116,7 @@ artifact install/update/rollback/run execution on each OS, and container audit.
 - The SPDX and license APIs consume the linked dependency inventory from Go
   build information and invoke exact coverage validation. Components without a
   reviewed license conclusion remain `NOASSERTION`; the tool never guesses or
-  downloads a license.
+  downloads a license. The project component is explicitly declared
+  `Apache-2.0` and its checked-in license text is included in every archive.
 - Archive construction is memory-oriented and bounded to the declared Phase 2
   limits. Streaming multi-gigabyte release construction is not claimed.
