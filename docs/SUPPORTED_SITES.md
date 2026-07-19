@@ -75,4 +75,5 @@ Before reporting a failure:
 
 Security-sensitive failures must be reported privately under
 [SECURITY.md](../SECURITY.md). Do not attach browser profiles, cookies, tokens,
-or production signing material.
+or production signing material. See [Support](../SUPPORT.md) for the complete
+public-report checklist and scope boundaries.

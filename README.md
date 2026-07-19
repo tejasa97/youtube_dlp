@@ -31,6 +31,7 @@ service names identify compatibility targets only.
 - [Plugins, signed packs, and updates](#plugins-signed-packs-and-updates)
 - [Compatibility and Python-free policy](#compatibility-and-python-free-policy)
 - [Development and verification](#development-and-verification)
+- [Getting help and contributing](#getting-help-and-contributing)
 - [Security, legal use, and license](#security-legal-use-and-license)
 - [Documentation](#documentation)
 
@@ -257,10 +258,18 @@ evidence](docs/P3_NETRC_EVIDENCE.md), and [Security policy](SECURITY.md).
 
 ## Embedding in Go
 
-The supported package is github.com/ytdlp-go/ytdlp/pkg/ytdlp. Its v1alpha1
-contract accepts context-aware requests and returns categorized errors,
+The supported package contract is `github.com/ytdlp-go/ytdlp/pkg/ytdlp`. Its
+v1alpha1 API accepts context-aware requests and returns categorized errors,
 structured events, normalized metadata, playlist entries, and produced
 artifacts.
+
+> [!IMPORTANT]
+> The current repository is hosted at `github.com/tejasa97/youtube_dlp`, while
+> `go.mod` declares the intended canonical module path
+> `github.com/ytdlp-go/ytdlp`. Until those locations are reconciled, the module
+> is not advertised as directly installable with `go get`. Build within a
+> cloned checkout, or use a temporary local `replace` directive for embedding
+> evaluation. Do not publish a dependency on an unreconciled path.
 
     client := ytdlp.NewClient(
         ytdlp.WithEventHandler(func(ctx context.Context, event ytdlp.Event) error {
@@ -339,6 +348,18 @@ security, and provenance evidence appropriate to their risk.
 See [Contributing](CONTRIBUTING.md), the [fixture
 policy](docs/FIXTURE_POLICY.md), and the [Phase 3
 plan](PHASE_3_IMPLEMENTATION_PLAN.md).
+
+## Getting help and contributing
+
+Read [Support](SUPPORT.md) before filing a bug, site request, or feature
+request. Reports need a current revision, a minimal safe reproduction, and
+plain-text diagnostics with credentials and personal data removed. Security
+reports use the private process in [SECURITY.md](SECURITY.md).
+
+[Contributing](CONTRIBUTING.md) covers local verification, extractor evidence,
+fixture provenance, compatibility claims, pull-request scope, licensing, and
+the separation from upstream yt-dlp. GitHub Actions is temporarily disabled;
+contributors must report the local checks they ran.
 
 ## Security, legal use, and license
 

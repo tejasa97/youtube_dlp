@@ -13,6 +13,7 @@ when evaluating a compatibility claim.
 - [Native netrc evidence](P3_NETRC_EVIDENCE.md)
 - [Impersonation profiles](P3_IMPERSONATION_PROFILES.md)
 - [Playlist model](PLAYLIST_MODEL.md)
+- [Support and issue reporting](../SUPPORT.md)
 - [Security reporting](../SECURITY.md)
 
 The executable help is the authoritative CLI option list:

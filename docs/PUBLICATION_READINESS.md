@@ -11,6 +11,12 @@ This is a practical engineering and provenance review, not legal advice.
 Making source public does not itself authorize publishing production-signed binaries,
 enable private vulnerability reporting, or establish signing-key custody.
 
+The repository remote is currently `github.com/tejasa97/youtube_dlp`, while
+`go.mod` declares `github.com/ytdlp-go/ytdlp`. This does not block public source
+visibility or builds inside a checkout, but it must be reconciled before the
+project advertises normal `go get` installation, tags a public Go module, or
+promises stable external module resolution.
+
 ## Licensing
 
 Apache License 2.0 was selected for the project because it is permissive and
@@ -89,11 +95,26 @@ remains a separate alpha-release limitation, not a source-visibility blocker.
 Before changing visibility:
 
 1. Retain the passing local verification record for the exact published commit.
-2. Enable GitHub private vulnerability reporting and branch protection.
-3. Confirm that the owner accepts Apache-2.0 and the public commit author
+2. Confirm that the owner accepts Apache-2.0 and the public commit author
    names/emails already present in Git history.
-4. Keep releases disabled until signing custody, publishing credentials, and
+3. Keep releases disabled until signing custody, publishing credentials, and
    the Phase 2/Phase 3 operational gates are explicitly approved.
+4. Decide whether to publish at the declared canonical module path or migrate
+   `go.mod`; until then, keep external module installation documented as
+   unavailable rather than relying on Git redirection behavior.
+
+Immediately after changing visibility:
+
+1. Enable GitHub private vulnerability reporting and verify that the Security
+   contact link opens the private advisory form. The API does not expose this
+   feature for the repository in its current private state.
+2. Enable branch protection for `main`. GitHub currently reports that branch
+   protection requires either a public repository or an account-plan upgrade.
+3. Verify the public README, issue forms, support links, license detection, and
+   unauthenticated clone from a signed-out session.
+
+These post-visibility settings should be completed in the same publication
+window. They do not require GitHub Actions to be enabled.
 
 ## Local verification record
 

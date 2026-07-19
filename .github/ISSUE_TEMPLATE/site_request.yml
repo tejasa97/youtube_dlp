@@ -1,0 +1,41 @@
+name: Site or URL support
+description: Request a new service or a URL family outside the declared corpus.
+title: "[site] "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Provide a legal public example with obvious playable media. Requests requiring DRM decryption are out of scope. Never share account credentials or private media.
+  - type: checkboxes
+    attributes:
+      label: Preflight
+      options:
+        - label: I checked the supported-extractor catalog and searched existing issues.
+          required: true
+        - label: The example is public and contains no credentials, personal data, or expiring signed URL.
+          required: true
+        - label: The service is not limited to DRM-protected media.
+          required: true
+  - type: input
+    attributes:
+      label: Service and public example URL
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Media and access conditions
+      description: Describe video/audio, playlist/live state, login, subscription, region, impersonation, or JavaScript requirements.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Existing behavior
+      description: Paste the current categorized error or safe plain-text diagnostics.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Shared backend
+      description: If known, identify an embedded player or API already represented in the extractor catalog.

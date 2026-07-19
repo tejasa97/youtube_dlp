@@ -1,9 +1,27 @@
 # Embedding ytdlp-go
 
-The supported Go package is github.com/ytdlp-go/ytdlp/pkg/ytdlp. The current
-contract version is v1alpha1. It is context-aware, safe for concurrent
-independent operations, and returns categorized errors rather than requiring
-callers to inspect diagnostic text.
+The supported Go package contract is `github.com/ytdlp-go/ytdlp/pkg/ytdlp`.
+The current contract version is v1alpha1. It is context-aware, safe for
+concurrent independent operations, and returns categorized errors rather than
+requiring callers to inspect diagnostic text.
+
+## Module availability
+
+The repository is currently hosted at `github.com/tejasa97/youtube_dlp`, but
+`go.mod` declares the intended canonical module path
+`github.com/ytdlp-go/ytdlp`. Until the repository location and module path are
+reconciled, consumers should not publish a dependency that assumes
+`go get github.com/ytdlp-go/ytdlp` works.
+
+To compile an application against a local checkout for evaluation, declare the
+intended module and replace it locally:
+
+    require github.com/ytdlp-go/ytdlp v0.0.0
+
+    replace github.com/ytdlp-go/ytdlp => /absolute/path/to/youtube_dlp
+
+This workaround is for local development only. A tagged public module requires
+canonical hosting, or an intentional module-path migration, before release.
 
 ## Minimal metadata extraction
 
