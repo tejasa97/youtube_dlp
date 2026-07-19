@@ -48,8 +48,9 @@ The previously used `bogdanfinn/fhttp`, `bogdanfinn/tls-client`, and
 `bogdanfinn/utls` modules are no longer present in the module or production
 dependency graph. This resolves the fhttp-specific distribution blocker.
 
-The project itself still requires an explicit project-license decision before a
-public release; this notice does not grant a license to the project code.
+The project code is distributed under the Apache License 2.0 in `LICENSE`.
+Third-party components and embedded assets remain governed by the separate
+licenses identified here and under `third_party/licenses/`.
 
 ## Chromium cookie database reader
 

@@ -11,3 +11,17 @@
 - Large or ambiguous-license fixtures require review before they are added.
 - Differential Python-oracle output may be generated during migration, but the
   Go product and Python-free gate must never invoke that oracle.
+
+## Publication checklist
+
+Every checked-in corpus must have adjacent provenance that identifies whether
+it is generated, hand-authored, derived from a public specification, or derived
+from the pinned behavioral reference. Provenance must record any applicable
+source revision and license, explain sanitization, and distinguish public
+service identifiers from secrets. Test keys and credentials must be clearly
+marked deterministic and non-production.
+
+Before publication, review all fixture and provenance files for real account
+data, personal information, signed or expiring URLs, copyrighted captured
+responses, production keys, and ambiguous redistribution rights. A passing
+secret scanner supplements this review but does not replace it.

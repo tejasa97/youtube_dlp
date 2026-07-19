@@ -9,8 +9,8 @@ The command reads Go build information from every input and rejects target sets
 whose linked module identities differ. It creates normalized `tar.gz` archives
 for Unix targets and ZIP archives for Windows, plus a sorted `SHA256SUMS`, a
 canonical `release.json`, an SPDX 2.3 dependency SBOM, and a deterministic
-license bundle. Retained third-party license files are included separately in
-each archive. Inputs and outputs are bounded; existing output paths, symlinked
+license bundle. The project Apache-2.0 license and retained third-party license
+files are included separately in each archive. Inputs and outputs are bounded; existing output paths, symlinked
 license inputs, malformed targets, non-Go binaries, and dependency drift fail
 closed.
 
@@ -27,10 +27,10 @@ the signed native-artifact install/update/rollback/execution test. A Linux
 assembly job packages those exact binaries and verifies every checksum.
 Artifacts expire after seven days and are not published as a GitHub Release.
 
-The repository has no project-wide distribution license. The former fhttp
-licensing blocker was resolved by replacing that stack with MIT/BSD-licensed
-dependencies, but this workflow remains engineering evidence until the owner
-selects and adds the project's license. No production signing key is selected
-or generated here. Signed updater scenarios continue to use
+The project is licensed under Apache License 2.0. The former fhttp licensing
+blocker was resolved by replacing that stack with MIT/BSD-licensed
+dependencies. This workflow remains engineering evidence until release
+operations and signing custody are approved. No production signing key is
+selected or generated here. Signed updater scenarios continue to use
 deterministic test keys; production root custody and publishing infrastructure
 are external policy inputs.

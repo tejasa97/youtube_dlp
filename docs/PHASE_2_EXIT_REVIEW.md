@@ -19,10 +19,11 @@ artifacts to install, update, roll back, and run on Linux, macOS, and Windows.
 Linux/amd64 was executed through the explicit Linux/amd64 container target;
 the macOS/amd64 artifact ran under the host's native compatibility support and
 the host-native macOS updater lifecycle passed. Windows binaries and updater
-lifecycle tests cross-compile, and the repository's Windows CI job runs the lifecycle test, but
-this checkout has no Git remote, Windows runner, Wine, or Wine64 with which to
-observe that final native execution. This is an external infrastructure
-evidence blocker, not an implementation or test failure.
+lifecycle tests cross-compile, and the repository's Windows job is prepared to
+run the lifecycle test when GitHub Actions is re-enabled. The local environment
+has no Windows runner, Wine, or Wine64 with which to observe that final native
+execution. This is an external infrastructure evidence blocker, not an
+implementation or test failure and not a blocker to public source visibility.
 
 ## Work-package disposition
 
@@ -82,12 +83,11 @@ macOS sandbox facilities, release-directory concurrent replacement assumptions,
 and unavailable Windows signed-pack lifecycle. Each has an owner and later
 milestone in `docs/P2_SECURITY_REVIEW.md`.
 
-Public distribution remains legally blocked until the repository has a
-project-wide distribution license. The pinned `fhttp` dependency and its
-licensing blocker were removed on 2026-07-18. Production signing custody and
-publishing credentials are also intentionally external operational decisions. These do not weaken the
-internal deterministic alpha, but public artifacts must not be released before
-resolution.
+The project is now licensed under Apache License 2.0, and the pinned `fhttp`
+dependency and its licensing blocker were removed on 2026-07-18. Production
+signing custody and publishing credentials remain intentionally external
+operational decisions. These do not weaken the internal deterministic alpha,
+but public artifacts must not be released before operational approval.
 
 To close Gate G2, run the existing Windows CI matrix (or an equivalent clean
 Windows/amd64 host), retain the passing output of
