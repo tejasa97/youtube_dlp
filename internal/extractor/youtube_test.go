@@ -18,6 +18,7 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/javascript/ejs"
 	"github.com/ytdlp-go/ytdlp/internal/javascript/engine"
 	"github.com/ytdlp-go/ytdlp/internal/value"
+	"github.com/ytdlp-go/ytdlp/internal/youtubepot"
 )
 
 const (
@@ -280,6 +281,83 @@ func TestYouTubeRecoversURLBearingFormatsFromNativeClient(t *testing.T) {
 		body.Context.Client.Version != "21.26.364" || body.Context.Client.Visitor != "fixture-visitor" ||
 		body.PlaybackContext.Content.Preference != "HTML5_PREF_WANTS" {
 		t.Fatalf("body = %#v, error=%v", body, err)
+	}
+}
+
+func TestYouTubeAppliesPlayerAndGVSTokensToIsolatedRecovery(t *testing.T) {
+	director, err := youtubepot.New(youtubepot.Config{
+		Policy: youtubepot.FetchAlways,
+		Providers: []youtubepot.Provider{youtubepot.ProviderFunc{ProviderName: "fixture", Function: func(_ context.Context, request youtubepot.Request) (youtubepot.Response, error) {
+			switch request.Context {
+			case youtubepot.ContextPlayer:
+				return youtubepot.Response{Token: "cGxheWVy"}, nil
+			case youtubepot.ContextGVS:
+				return youtubepot.Response{Token: "Z3Zz"}, nil
+			default:
+				return youtubepot.Response{}, youtubepot.ErrRejected
+			}
+		}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := &youtubeFallbackTransport{
+		memoryTransport: &memoryTransport{pages: map[string][]byte{
+			youtubeFixtureURL: readYouTubeFixture(t, "sabr-watch.html"),
+		}},
+		responses: map[string][]byte{
+			"3": readYouTubeFixture(t, "android-player.json"), "28": readYouTubeFixture(t, "android-vr-player.json"),
+		},
+	}
+	result, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport, YouTubePOT: director})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(transport.bodies) != 2 {
+		t.Fatalf("request bodies = %d", len(transport.bodies))
+	}
+	for _, body := range transport.bodies {
+		if !bytes.Contains(body, []byte(`"serviceIntegrityDimensions":{"poToken":"cGxheWVy"}`)) {
+			t.Fatalf("player token missing from request: %s", body)
+		}
+	}
+	formats, _ := result.Info.Formats()
+	if len(formats) == 0 {
+		t.Fatal("no tokenized formats")
+	}
+	for _, item := range formats {
+		format, _ := item.Object()
+		rawURL, _ := format.Lookup("url").StringValue()
+		parsed, err := url.Parse(rawURL)
+		if err != nil || parsed.Query().Get("pot") != "Z3Zz" {
+			t.Fatalf("format URL is not tokenized: %q", rawURL)
+		}
+	}
+}
+
+func TestYouTubeGVSTokenPlacement(t *testing.T) {
+	player := youtubePlayerResponse{}
+	player.StreamingData.Formats = []youtubeFormat{{URL: "https://media.example/video?x=1"}}
+	player.StreamingData.AdaptiveFormats = []youtubeFormat{{SignatureCipher: "url=https%3A%2F%2Fmedia.example%2Faudio&sp=sig&s=fixture"}}
+	player.StreamingData.HLSManifestURL = "https://media.example/live/master.m3u8?keep=1"
+	player.StreamingData.DASHManifestURL = "https://media.example/dash/manifest.mpd"
+	applyYouTubeGVSToken(&player, "Z3Zz")
+
+	if parsed, _ := url.Parse(player.StreamingData.Formats[0].URL); parsed.Query().Get("pot") != "Z3Zz" || parsed.Query().Get("x") != "1" {
+		t.Fatalf("direct URL = %q", player.StreamingData.Formats[0].URL)
+	}
+	cipher, err := url.ParseQuery(player.StreamingData.AdaptiveFormats[0].SignatureCipher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed, _ := url.Parse(cipher.Get("url")); parsed.Query().Get("pot") != "Z3Zz" {
+		t.Fatalf("cipher URL = %q", cipher.Get("url"))
+	}
+	for _, manifest := range []string{player.StreamingData.HLSManifestURL, player.StreamingData.DASHManifestURL} {
+		parsed, err := url.Parse(manifest)
+		if err != nil || !strings.HasSuffix(parsed.Path, "/pot/Z3Zz") {
+			t.Fatalf("manifest URL = %q, error=%v", manifest, err)
+		}
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/ytdlp-go/ytdlp/internal/javascript/ejs"
+	"github.com/ytdlp-go/ytdlp/internal/youtubepot"
 )
 
 var (
@@ -69,6 +70,7 @@ type Request struct {
 	Transport       Transport
 	ChallengeSolver YouTubeChallengeSolver
 	Credentials     CredentialProvider
+	YouTubePOT      *youtubepot.Director
 }
 
 // Credential is an extractor-scoped authentication tuple. It must never be

@@ -82,7 +82,7 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 			return Extraction{}, fmt.Errorf("%w: authenticated YouTube format recovery is not implemented", ErrAuthentication)
 		}
 		visitorData := pageConfig.visitorData(player.ResponseContext.VisitorData)
-		recovered, err := recoverYouTubeFormats(ctx, request.Transport, videoID, visitorData)
+		recovered, err := recoverYouTubeFormats(ctx, request.Transport, videoID, visitorData, playerPath, request.YouTubePOT)
 		if err != nil {
 			return Extraction{}, err
 		}
