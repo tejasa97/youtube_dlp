@@ -20,6 +20,11 @@ const youtubePlayerMarker = "ytInitialPlayerResponse"
 
 var youtubeIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{11}$`)
 
+var youtubePlayerConfigPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`"PLAYER_JS_URL"\s*:\s*("(?:\\.|[^"\\])*")`),
+	regexp.MustCompile(`"jsUrl"\s*:\s*("(?:\\.|[^"\\])*")`),
+}
+
 type YouTube struct{}
 
 func NewYouTube() YouTube { return YouTube{} }
@@ -58,9 +63,24 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 	if err := checkYouTubeAvailability(player.PlayabilityStatus); err != nil {
 		return Extraction{}, err
 	}
+	playerPath := discoverYouTubePlayerPath(page, player.Assets.JS)
+	formatPlayers := []youtubePlayerResponse{player}
+	if !hasYouTubeFormatCandidates(player) {
+		recovered, err := recoverYouTubeFormats(ctx, request.Transport, videoID)
+		if err != nil {
+			return Extraction{}, err
+		}
+		formatPlayers = append(formatPlayers, recovered)
+		if playerPath == "" {
+			playerPath = recovered.Assets.JS
+		}
+		if player.VideoDetails.Title == "" {
+			player.VideoDetails = recovered.VideoDetails
+		}
+	}
 
-	formats := append(append([]youtubeFormat(nil), player.StreamingData.Formats...), player.StreamingData.AdaptiveFormats...)
-	resolved, err := resolveYouTubeURLs(ctx, request, webpageURL, videoID, player.Assets.JS, formats)
+	formats := mergeYouTubeFormats(formatPlayers)
+	resolved, err := resolveYouTubeURLs(ctx, request, webpageURL, videoID, playerPath, formats)
 	if err != nil {
 		return Extraction{}, err
 	}
@@ -70,14 +90,19 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 			formatValues = append(formatValues, value.ObjectValue(normalized))
 		}
 	}
-	if player.StreamingData.HLSManifestURL != "" {
-		formatValues = append(formatValues, value.ObjectValue(manifestFormat("hls", player.StreamingData.HLSManifestURL, "m3u8_native")))
-	}
-	if player.StreamingData.DASHManifestURL != "" {
-		formatValues = append(formatValues, value.ObjectValue(manifestFormat("dash", player.StreamingData.DASHManifestURL, "http_dash_segments")))
+	for _, candidate := range formatPlayers {
+		if candidate.StreamingData.HLSManifestURL != "" {
+			formatValues = append(formatValues, value.ObjectValue(manifestFormat("hls", candidate.StreamingData.HLSManifestURL, "m3u8_native")))
+		}
+		if candidate.StreamingData.DASHManifestURL != "" {
+			formatValues = append(formatValues, value.ObjectValue(manifestFormat("dash", candidate.StreamingData.DASHManifestURL, "http_dash_segments")))
+		}
 	}
 	if len(formatValues) == 0 {
-		return Extraction{}, fmt.Errorf("%w: no downloadable formats", ErrInvalidMetadata)
+		if hasYouTubeSABR(formatPlayers) {
+			return Extraction{}, fmt.Errorf("%w: YouTube returned SABR-only formats", ErrUnavailable)
+		}
+		return Extraction{}, fmt.Errorf("%w: no downloadable formats", ErrUnavailable)
 	}
 
 	details := player.VideoDetails
@@ -118,10 +143,67 @@ type youtubePlayerResponse struct {
 		AdaptiveFormats []youtubeFormat `json:"adaptiveFormats"`
 		HLSManifestURL  string          `json:"hlsManifestUrl"`
 		DASHManifestURL string          `json:"dashManifestUrl"`
+		ServerABRURL    string          `json:"serverAbrStreamingUrl"`
 	} `json:"streamingData"`
 	Assets struct {
 		JS string `json:"js"`
 	} `json:"assets"`
+}
+
+func discoverYouTubePlayerPath(page []byte, assetPath string) string {
+	for _, pattern := range youtubePlayerConfigPatterns {
+		match := pattern.FindSubmatch(page)
+		if len(match) != 2 {
+			continue
+		}
+		var playerPath string
+		if json.Unmarshal(match[1], &playerPath) == nil && playerPath != "" {
+			return playerPath
+		}
+	}
+	return assetPath
+}
+
+func hasYouTubeFormatCandidates(player youtubePlayerResponse) bool {
+	if player.StreamingData.HLSManifestURL != "" || player.StreamingData.DASHManifestURL != "" {
+		return true
+	}
+	formats := append(append([]youtubeFormat(nil), player.StreamingData.Formats...), player.StreamingData.AdaptiveFormats...)
+	for _, format := range formats {
+		if format.URL != "" {
+			return true
+		}
+		if cipher, err := url.ParseQuery(format.SignatureCipher); err == nil && cipher.Get("url") != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func hasYouTubeSABR(players []youtubePlayerResponse) bool {
+	for _, player := range players {
+		if player.StreamingData.ServerABRURL != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func mergeYouTubeFormats(players []youtubePlayerResponse) []youtubeFormat {
+	var merged []youtubeFormat
+	seen := make(map[string]struct{})
+	for _, player := range players {
+		formats := append(append([]youtubeFormat(nil), player.StreamingData.Formats...), player.StreamingData.AdaptiveFormats...)
+		for _, format := range formats {
+			key := strconv.Itoa(format.Itag) + "\x00" + format.MimeType + "\x00" + format.URL + "\x00" + format.SignatureCipher
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			merged = append(merged, format)
+		}
+	}
+	return merged
 }
 
 type youtubeVideoDetails struct {

@@ -24,7 +24,7 @@ func RequestJSON(ctx context.Context, transport Transport, method, rawURL string
 	if transport == nil || target == nil {
 		return errors.New("invalid JSON request")
 	}
-	request, err := http.NewRequest(method, rawURL, bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(ctx, method, rawURL, bytes.NewReader(body))
 	if err != nil {
 		return errors.New("invalid JSON request")
 	}
