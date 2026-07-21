@@ -1,0 +1,16 @@
+{
+  "playabilityStatus": {"status": "OK"},
+  "videoDetails": {"videoId": "fixture0001", "title": "fallback title is not authoritative"},
+  "streamingData": {
+    "formats": [{
+      "itag": 18,
+      "url": "https://media.example/android-video.mp4",
+      "mimeType": "video/mp4; codecs=\"avc1.42001E, mp4a.40.2\"",
+      "bitrate": 500000,
+      "contentLength": "1000",
+      "width": 640,
+      "height": 360,
+      "fps": 30
+    }]
+  }
+}
