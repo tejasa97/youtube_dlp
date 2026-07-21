@@ -177,7 +177,10 @@ func TestYouTubeRecoversURLBearingFormatsFromNativeClient(t *testing.T) {
 		memoryTransport: &memoryTransport{pages: map[string][]byte{
 			youtubeFixtureURL: readYouTubeFixture(t, "sabr-watch.html"),
 		}},
-		responses: map[string][]byte{"3": readYouTubeFixture(t, "android-player.json")},
+		responses: map[string][]byte{
+			"3":  readYouTubeFixture(t, "android-player.json"),
+			"28": readYouTubeFixture(t, "android-vr-player.json"),
+		},
 	}
 	result, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport})
 	if err != nil {
@@ -187,20 +190,21 @@ func TestYouTubeRecoversURLBearingFormatsFromNativeClient(t *testing.T) {
 		t.Fatalf("title = %q", title)
 	}
 	formats, _ := result.Info.Formats()
-	if len(formats) != 1 {
+	if len(formats) != 3 {
 		t.Fatalf("formats = %#v", formats)
 	}
 	format, _ := formats[0].Object()
 	if rawURL, _ := format.Lookup("url").StringValue(); rawURL != "https://media.example/android-video.mp4" {
 		t.Fatalf("format = %#v", format)
 	}
-	if len(transport.requests) != 1 {
+	if len(transport.requests) != 2 {
 		t.Fatalf("requests = %d", len(transport.requests))
 	}
 	request := transport.requests[0]
 	if request.Method != http.MethodPost || request.URL.String() != youtubePlayerAPIURL ||
 		request.Header.Get("X-Youtube-Client-Name") != "3" ||
 		request.Header.Get("X-Youtube-Client-Version") != "21.26.364" ||
+		request.Header.Get("X-Goog-Visitor-Id") != "fixture-visitor" ||
 		request.Header.Get("User-Agent") == "" {
 		t.Fatalf("request = %s %s headers=%v", request.Method, request.URL, request.Header)
 	}
@@ -212,12 +216,19 @@ func TestYouTubeRecoversURLBearingFormatsFromNativeClient(t *testing.T) {
 			Client struct {
 				Name    string `json:"clientName"`
 				Version string `json:"clientVersion"`
+				Visitor string `json:"visitorData"`
 			} `json:"client"`
 		} `json:"context"`
+		PlaybackContext struct {
+			Content struct {
+				Preference string `json:"html5Preference"`
+			} `json:"contentPlaybackContext"`
+		} `json:"playbackContext"`
 	}
 	if err := json.Unmarshal(transport.bodies[0], &body); err != nil || body.VideoID != "fixture0001" ||
 		!body.ContentCheck || !body.RacyCheck || body.Context.Client.Name != "ANDROID" ||
-		body.Context.Client.Version != "21.26.364" {
+		body.Context.Client.Version != "21.26.364" || body.Context.Client.Visitor != "fixture-visitor" ||
+		body.PlaybackContext.Content.Preference != "HTML5_PREF_WANTS" {
 		t.Fatalf("body = %#v, error=%v", body, err)
 	}
 }
@@ -486,12 +497,14 @@ func FuzzParseYouTubePlaylistData(f *testing.F) {
 func FuzzDiscoverYouTubePlayerPath(f *testing.F) {
 	f.Add([]byte(`{"PLAYER_JS_URL":"\/s\/player\/fixture\/base.js"}`))
 	f.Add([]byte(`{"jsUrl":"https://www.youtube.com/s/player/fixture/base.js"}`))
+	f.Add([]byte(`{"VISITOR_DATA":"fixture-visitor"}`))
 	f.Add([]byte(`{"PLAYER_JS_URL":"unterminated}`))
 	f.Fuzz(func(t *testing.T, page []byte) {
 		if len(page) > 1<<20 {
 			t.Skip()
 		}
 		_ = discoverYouTubePlayerPath(page, "")
+		_ = discoverYouTubeVisitorData(page, "")
 	})
 }
 

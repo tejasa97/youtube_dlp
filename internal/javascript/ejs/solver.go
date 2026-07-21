@@ -19,7 +19,10 @@ const (
 	SolverMemoryBytes = 128 << 20
 	SolverOutputBytes = 8 << 20
 	SolverSourceBytes = 2 << 20
-	SolverWallTimeMS  = 10_000
+	// Current YouTube player programs can take longer than ten seconds to
+	// preprocess in the isolated pure-Go runtime. Keep execution bounded at the
+	// protocol hard limit while allowing those valid programs to complete.
+	SolverWallTimeMS = 30_000
 )
 
 type ChallengeType string

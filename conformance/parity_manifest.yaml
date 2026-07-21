@@ -99,6 +99,7 @@ capabilities:
     evidence:
       - internal/network.TestClientHeadersCookiesRedirectsAndCompression
       - internal/network.TestReadPageLimitAndCancellation
+      - internal/network.TestConfiguredTimeoutDoesNotCapActiveResponseBody
       - internal/network.TestClientUsesConfiguredProxy
       - internal/network.TestDoLeavesBodyOwnershipToCaller
       - internal/network.TestRedaction
@@ -377,7 +378,7 @@ capabilities:
     depends_on:
       - javascript.ejs
       - extractor.playlists
-    known_deviation: Compatibility is scoped to the pinned Phase 1 video, playlist-continuation, live-HLS, player-config discovery, and native-client SABR-recovery corpus. The extractor can recover URL-bearing formats with bounded Android and Android VR client attempts, but direct SABR transport, PO-token providers, authenticated Innertube clients, subtitles, comments, channel/tab variants, live-from-start, and broader player/renderer variants remain pending.
+    known_deviation: Compatibility is scoped to the pinned video, playlist-continuation, live-HLS, player-config discovery, and native-client recovery corpus. Anonymous visitor identity is propagated across bounded Android and Android VR requests, enabling URL-bearing adaptive video/audio recovery. Direct SABR transport, PO-token providers, authenticated Innertube clients, subtitles, comments, channel/tab variants, live-from-start, and broader player/renderer variants remain pending.
 
   - id: extractor.playlists
     name: Playlist extraction model
@@ -843,6 +844,8 @@ capabilities:
     evidence:
       - internal/format.TestSelectorFallbackMergeAndFilters
       - internal/format.TestSelectorBestWorstAndStringFilters
+      - internal/format.TestDefaultPrefersAdaptivePairThenCombined
+      - pkg/ytdlp.TestMergedOutputExtensionFollowsSelectedTracks
       - internal/format.TestSelectorRejectsInvalidSyntaxAndNoMatch
       - internal/format.TestSelectorSyntaxErrorReportsSourceSpan
       - internal/format.FuzzParseSelector

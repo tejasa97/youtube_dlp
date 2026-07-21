@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -63,9 +64,16 @@ func New(config Config) (*Client, error) {
 			return nil, fmt.Errorf("%w: %s", ErrImpersonationUnavailable, config.DefaultProfile)
 		}
 	}
+	timeout := config.Timeout
+	if timeout <= 0 {
+		timeout = defaultTimeout
+	}
 	transport := config.RoundTripper
 	if transport == nil {
 		base := http.DefaultTransport.(*http.Transport).Clone()
+		base.DialContext = (&net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second}).DialContext
+		base.TLSHandshakeTimeout = timeout
+		base.ResponseHeaderTimeout = timeout
 		if config.Proxy != "" {
 			proxyURL, err := url.Parse(config.Proxy)
 			if err != nil || proxyURL.Scheme == "" || proxyURL.Host == "" {
@@ -87,10 +95,6 @@ func New(config Config) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create cookie jar: %w", err)
 	}
-	timeout := config.Timeout
-	if timeout <= 0 {
-		timeout = defaultTimeout
-	}
 	maxPageSize := config.MaxPageSize
 	if maxPageSize <= 0 {
 		maxPageSize = defaultMaxPageSize
@@ -103,7 +107,6 @@ func New(config Config) (*Client, error) {
 		httpClient: &http.Client{
 			Transport: transport,
 			Jar:       jar,
-			Timeout:   timeout,
 		},
 		jar:            jar,
 		defaultHeaders: headers,

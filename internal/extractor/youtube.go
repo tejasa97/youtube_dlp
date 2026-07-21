@@ -25,6 +25,8 @@ var youtubePlayerConfigPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`"jsUrl"\s*:\s*("(?:\\.|[^"\\])*")`),
 }
 
+var youtubeVisitorDataPattern = regexp.MustCompile(`"VISITOR_DATA"\s*:\s*("(?:\\.|[^"\\])*")`)
+
 type YouTube struct{}
 
 func NewYouTube() YouTube { return YouTube{} }
@@ -66,16 +68,19 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 	playerPath := discoverYouTubePlayerPath(page, player.Assets.JS)
 	formatPlayers := []youtubePlayerResponse{player}
 	if !hasYouTubeFormatCandidates(player) {
-		recovered, err := recoverYouTubeFormats(ctx, request.Transport, videoID)
+		visitorData := discoverYouTubeVisitorData(page, player.ResponseContext.VisitorData)
+		recovered, err := recoverYouTubeFormats(ctx, request.Transport, videoID, visitorData)
 		if err != nil {
 			return Extraction{}, err
 		}
-		formatPlayers = append(formatPlayers, recovered)
-		if playerPath == "" {
-			playerPath = recovered.Assets.JS
-		}
-		if player.VideoDetails.Title == "" {
-			player.VideoDetails = recovered.VideoDetails
+		formatPlayers = append(formatPlayers, recovered...)
+		for _, recoveredPlayer := range recovered {
+			if playerPath == "" {
+				playerPath = recoveredPlayer.Assets.JS
+			}
+			if player.VideoDetails.Title == "" {
+				player.VideoDetails = recoveredPlayer.VideoDetails
+			}
 		}
 	}
 
@@ -148,6 +153,9 @@ type youtubePlayerResponse struct {
 	Assets struct {
 		JS string `json:"js"`
 	} `json:"assets"`
+	ResponseContext struct {
+		VisitorData string `json:"visitorData"`
+	} `json:"responseContext"`
 }
 
 func discoverYouTubePlayerPath(page []byte, assetPath string) string {
@@ -162,6 +170,16 @@ func discoverYouTubePlayerPath(page []byte, assetPath string) string {
 		}
 	}
 	return assetPath
+}
+
+func discoverYouTubeVisitorData(page []byte, responseVisitorData string) string {
+	if match := youtubeVisitorDataPattern.FindSubmatch(page); len(match) == 2 {
+		var visitorData string
+		if json.Unmarshal(match[1], &visitorData) == nil && visitorData != "" {
+			return visitorData
+		}
+	}
+	return responseVisitorData
 }
 
 func hasYouTubeFormatCandidates(player youtubePlayerResponse) bool {
