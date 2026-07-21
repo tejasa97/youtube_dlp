@@ -38,8 +38,15 @@ type youtubeFallbackTransport struct {
 }
 
 func (transport *youtubeFallbackTransport) Do(ctx context.Context, request *http.Request) (*http.Response, error) {
+	return nil, errors.New("unexpected cookie-bearing YouTube fallback request")
+}
+
+func (transport *youtubeFallbackTransport) DoWithoutCookies(ctx context.Context, request *http.Request) (*http.Response, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if request.Header.Get("Cookie") != "" {
+		return nil, errors.New("isolated YouTube fallback request contains cookies")
 	}
 	body, err := io.ReadAll(request.Body)
 	if err != nil {
@@ -149,9 +156,13 @@ func TestYouTubeDiscoversPlayerJavaScriptFromPageConfig(t *testing.T) {
 	watch := bytes.Replace(
 		readYouTubeFixture(t, "watch.html"),
 		[]byte(`"assets": {"js": "/s/player/fixture/base.js"}`),
-		[]byte(`"assets": {}, "webPlayerContextConfig": {"jsUrl": "\/s\/player\/fixture\/base.js"}`),
+		[]byte(`"assets": {}`),
 		1,
 	)
+	watch = bytes.Replace(watch, []byte("<body>"), []byte(`<body><script>
+      var unrelated = {"jsUrl":"https://attacker.example/s/player/bad/base.js"};
+      ytcfg.set({"WEB_PLAYER_CONTEXT_CONFIGS":{"WEB_PLAYER_CONTEXT_CONFIG_ID_KEVLAR_WATCH":{"jsUrl":"\/s\/player\/fixture\/base.js"}}});
+    </script>`), 1)
 	solver, err := ejs.New(engine.New(4))
 	if err != nil {
 		t.Fatal(err)
@@ -169,6 +180,45 @@ func TestYouTubeDiscoversPlayerJavaScriptFromPageConfig(t *testing.T) {
 	formats, _ := result.Info.Formats()
 	if len(formats) != 4 || len(transport.reads) != 2 || transport.reads[1] != youtubePlayerURL {
 		t.Fatalf("formats=%d reads=%v", len(formats), transport.reads)
+	}
+}
+
+func TestYouTubePlayerURLValidation(t *testing.T) {
+	for _, playerPath := range []string{
+		"/s/player/fixture/base.js",
+		"https://www.youtube.com/s/player/fixture/base.js?cache=1",
+		"https://www.youtube-nocookie.com/s/player/fixture/base.js",
+	} {
+		if _, err := resolveYouTubePlayerURL(youtubeFixtureURL, playerPath); err != nil {
+			t.Fatalf("resolveYouTubePlayerURL(%q) error = %v", playerPath, err)
+		}
+	}
+	for _, playerPath := range []string{
+		"http://www.youtube.com/s/player/fixture/base.js",
+		"https://attacker.example/s/player/fixture/base.js",
+		"https://localhost/s/player/fixture/base.js",
+		"https://user@www.youtube.com/s/player/fixture/base.js",
+		"https://www.youtube.com:444/s/player/fixture/base.js",
+		"https://www.youtube.com/api/internal.js",
+		"https://www.youtube.com/s/player/../private.js",
+		"https://www.youtube.com/s/player/%2e%2e/private.js",
+		"https://www.youtube.com/s/player/fixture/base.js#fragment",
+	} {
+		if _, err := resolveYouTubePlayerURL(youtubeFixtureURL, playerPath); !errors.Is(err, ErrInvalidMetadata) {
+			t.Fatalf("resolveYouTubePlayerURL(%q) error = %v", playerPath, err)
+		}
+	}
+}
+
+func TestYouTubePageConfigParsingIsStructuredAndBounded(t *testing.T) {
+	var page strings.Builder
+	page.WriteString(`var unrelated={"PLAYER_JS_URL":"https://attacker.example/s/player/bad/base.js","VISITOR_DATA":"bad"};`)
+	for index := 0; index <= youtubeMaxPageConfigs; index++ {
+		fmt.Fprintf(&page, `ytcfg.set({"VISITOR_DATA":"visitor-%d"});`, index)
+	}
+	config := discoverYouTubePageConfig([]byte(page.String()))
+	if config.PlayerJSURL != "" || config.VisitorData != "visitor-7" {
+		t.Fatalf("config = %#v", config)
 	}
 }
 
@@ -230,6 +280,49 @@ func TestYouTubeRecoversURLBearingFormatsFromNativeClient(t *testing.T) {
 		body.Context.Client.Version != "21.26.364" || body.Context.Client.Visitor != "fixture-visitor" ||
 		body.PlaybackContext.Content.Preference != "HTML5_PREF_WANTS" {
 		t.Fatalf("body = %#v, error=%v", body, err)
+	}
+}
+
+func TestYouTubeRecoveryFailsClosedWithoutCookieIsolation(t *testing.T) {
+	transport := &memoryTransport{pages: map[string][]byte{
+		youtubeFixtureURL: readYouTubeFixture(t, "sabr-watch.html"),
+	}}
+	_, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport})
+	if !errors.Is(err, ErrTransportIsolation) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestYouTubeAuthenticatedPageDoesNotUseAnonymousRecovery(t *testing.T) {
+	page := bytes.Replace(readYouTubeFixture(t, "sabr-watch.html"), []byte(`"LOGGED_IN":false`), []byte(`"LOGGED_IN":true`), 1)
+	transport := &youtubeFallbackTransport{
+		memoryTransport: &memoryTransport{pages: map[string][]byte{youtubeFixtureURL: page}},
+		responses: map[string][]byte{
+			"3": readYouTubeFixture(t, "android-player.json"), "28": readYouTubeFixture(t, "android-vr-player.json"),
+		},
+	}
+	_, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport})
+	if !errors.Is(err, ErrAuthentication) || len(transport.requests) != 0 {
+		t.Fatalf("error=%v requests=%d", err, len(transport.requests))
+	}
+}
+
+func TestYouTubeRecoveryContinuesAfterOneClientFails(t *testing.T) {
+	transport := &youtubeFallbackTransport{
+		memoryTransport: &memoryTransport{pages: map[string][]byte{
+			youtubeFixtureURL: readYouTubeFixture(t, "sabr-watch.html"),
+		}},
+		responses: map[string][]byte{
+			"3": []byte(`{"playabilityStatus":`), "28": readYouTubeFixture(t, "android-vr-player.json"),
+		},
+	}
+	result, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	formats, _ := result.Info.Formats()
+	if len(formats) != 2 || len(transport.requests) != 2 {
+		t.Fatalf("formats=%d requests=%d", len(formats), len(transport.requests))
 	}
 }
 
@@ -494,17 +587,18 @@ func FuzzParseYouTubePlaylistData(f *testing.F) {
 	})
 }
 
-func FuzzDiscoverYouTubePlayerPath(f *testing.F) {
-	f.Add([]byte(`{"PLAYER_JS_URL":"\/s\/player\/fixture\/base.js"}`))
-	f.Add([]byte(`{"jsUrl":"https://www.youtube.com/s/player/fixture/base.js"}`))
-	f.Add([]byte(`{"VISITOR_DATA":"fixture-visitor"}`))
-	f.Add([]byte(`{"PLAYER_JS_URL":"unterminated}`))
+func FuzzDiscoverYouTubePageConfig(f *testing.F) {
+	f.Add([]byte(`ytcfg.set({"PLAYER_JS_URL":"\/s\/player\/fixture\/base.js"})`))
+	f.Add([]byte(`ytcfg.data_ = {"WEB_PLAYER_CONTEXT_CONFIGS":{"watch":{"jsUrl":"https://www.youtube.com/s/player/fixture/base.js"}}}`))
+	f.Add([]byte(`ytcfg.set({"VISITOR_DATA":"fixture-visitor","LOGGED_IN":false})`))
+	f.Add([]byte(`ytcfg.set({"PLAYER_JS_URL":"unterminated}`))
 	f.Fuzz(func(t *testing.T, page []byte) {
 		if len(page) > 1<<20 {
 			t.Skip()
 		}
-		_ = discoverYouTubePlayerPath(page, "")
-		_ = discoverYouTubeVisitorData(page, "")
+		config := discoverYouTubePageConfig(page)
+		_ = config.playerPath("")
+		_ = config.visitorData("")
 	})
 }
 

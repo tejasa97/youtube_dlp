@@ -51,6 +51,46 @@ func TestClientHeadersCookiesRedirectsAndCompression(t *testing.T) {
 	}
 }
 
+func TestDoWithoutCookiesDoesNotSendOrPersistCookies(t *testing.T) {
+	var isolatedCookies, regularCookies string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/set":
+			http.SetCookie(writer, &http.Cookie{Name: "session", Value: "secret", Path: "/"})
+		case "/isolated":
+			isolatedCookies = request.Header.Get("Cookie")
+			http.SetCookie(writer, &http.Cookie{Name: "must_not_persist", Value: "secret", Path: "/"})
+		case "/regular":
+			regularCookies = request.Header.Get("Cookie")
+		}
+		_, _ = io.WriteString(writer, "ok")
+	}))
+	defer server.Close()
+	client, err := New(Config{DefaultHeaders: http.Header{"Cookie": {"default=secret"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := client.ReadPage(context.Background(), server.URL+"/set"); err != nil {
+		t.Fatal(err)
+	}
+	request, _ := http.NewRequest(http.MethodGet, server.URL+"/isolated", nil)
+	request.Header.Set("Cookie", "explicit=secret")
+	response, err := client.DoWithoutCookies(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if _, _, err := client.ReadPage(context.Background(), server.URL+"/regular"); err != nil {
+		t.Fatal(err)
+	}
+	if isolatedCookies != "" {
+		t.Fatalf("isolated request sent cookies %q", isolatedCookies)
+	}
+	if !strings.Contains(regularCookies, "session=secret") || strings.Contains(regularCookies, "must_not_persist") {
+		t.Fatalf("regular request cookies = %q", regularCookies)
+	}
+}
+
 func TestReadPageWithHeadersIsBounded(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Header.Get("X-Fixture") != "present" {

@@ -76,7 +76,7 @@ func requestYouTubePlayer(ctx context.Context, transport Transport, videoID, vis
 		headers.Set("X-Goog-Visitor-Id", visitorData)
 	}
 	var player youtubePlayerResponse
-	if err := RequestJSON(ctx, transport, http.MethodPost, youtubePlayerAPIURL, body, headers, &player); err != nil {
+	if err := RequestJSONWithoutCookies(ctx, transport, http.MethodPost, youtubePlayerAPIURL, body, headers, &player); err != nil {
 		return youtubePlayerResponse{}, fmt.Errorf("YouTube %s player request: %w", profile.Name, err)
 	}
 	if player.VideoDetails.VideoID != "" && player.VideoDetails.VideoID != videoID {
@@ -92,6 +92,9 @@ func recoverYouTubeFormats(ctx context.Context, transport Transport, videoID, vi
 		player, err := requestYouTubePlayer(ctx, transport, videoID, visitorData, profile)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil, err
+			}
+			if errors.Is(err, ErrTransportIsolation) {
 				return nil, err
 			}
 			if firstRequestError == nil {

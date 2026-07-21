@@ -21,7 +21,28 @@ func (err *HTTPStatusError) Error() string { return fmt.Sprintf("HTTP status %d"
 // RequestJSON executes a bounded JSON request through the shared operation
 // transport. Request and response bodies are never included in errors.
 func RequestJSON(ctx context.Context, transport Transport, method, rawURL string, body []byte, headers http.Header, target any) error {
-	if transport == nil || target == nil {
+	if transport == nil {
+		return errors.New("invalid JSON request")
+	}
+	return requestJSON(ctx, transport.Do, method, rawURL, body, headers, target)
+}
+
+// RequestJSONWithoutCookies executes a bounded JSON request only when the
+// transport can guarantee that neither its jar nor explicit request headers
+// attach cookies. It fails closed when that capability is unavailable.
+func RequestJSONWithoutCookies(ctx context.Context, transport Transport, method, rawURL string, body []byte, headers http.Header, target any) error {
+	if transport == nil {
+		return errors.New("invalid JSON request")
+	}
+	isolated, ok := transport.(CookieIsolatedTransport)
+	if !ok {
+		return ErrTransportIsolation
+	}
+	return requestJSON(ctx, isolated.DoWithoutCookies, method, rawURL, body, headers, target)
+}
+
+func requestJSON(ctx context.Context, execute func(context.Context, *http.Request) (*http.Response, error), method, rawURL string, body []byte, headers http.Header, target any) error {
+	if execute == nil || target == nil {
 		return errors.New("invalid JSON request")
 	}
 	request, err := http.NewRequestWithContext(ctx, method, rawURL, bytes.NewReader(body))
@@ -29,7 +50,7 @@ func RequestJSON(ctx context.Context, transport Transport, method, rawURL string
 		return errors.New("invalid JSON request")
 	}
 	request.Header = headers.Clone()
-	response, err := transport.Do(ctx, request)
+	response, err := execute(ctx, request)
 	if err != nil {
 		return err
 	}
