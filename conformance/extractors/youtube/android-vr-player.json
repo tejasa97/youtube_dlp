@@ -1,0 +1,25 @@
+{
+  "playabilityStatus": {"status": "OK"},
+  "videoDetails": {"videoId": "fixture0001", "title": "fallback title is not authoritative"},
+  "streamingData": {
+    "adaptiveFormats": [
+      {
+        "itag": 137,
+        "url": "https://media.example/android-vr-video.mp4",
+        "mimeType": "video/mp4; codecs=\"avc1.640028\"",
+        "bitrate": 2500000,
+        "contentLength": "5000",
+        "width": 1920,
+        "height": 1080,
+        "fps": 30
+      },
+      {
+        "itag": 251,
+        "url": "https://media.example/android-vr-audio.webm",
+        "mimeType": "audio/webm; codecs=\"opus\"",
+        "bitrate": 130000,
+        "contentLength": "1000"
+      }
+    ]
+  }
+}

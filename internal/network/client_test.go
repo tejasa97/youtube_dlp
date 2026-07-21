@@ -146,6 +146,30 @@ func TestReadPageLimitAndCancellation(t *testing.T) {
 	}
 }
 
+func TestConfiguredTimeoutDoesNotCapActiveResponseBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		flusher, _ := writer.(http.Flusher)
+		for range 6 {
+			_, _ = io.WriteString(writer, "chunk")
+			flusher.Flush()
+			time.Sleep(15 * time.Millisecond)
+		}
+	}))
+	defer server.Close()
+	client, err := New(Config{Timeout: 40 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	body, _, err := client.ReadPage(context.Background(), server.URL)
+	if err != nil || string(body) != strings.Repeat("chunk", 6) {
+		t.Fatalf("body=%q error=%v", body, err)
+	}
+	if time.Since(started) <= 40*time.Millisecond {
+		t.Fatal("fixture did not exceed the configured connection/header timeout")
+	}
+}
+
 func TestClientUsesConfiguredProxy(t *testing.T) {
 	var received string
 	proxy := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

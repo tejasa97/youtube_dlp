@@ -64,6 +64,30 @@ func TestSelectorBestWorstAndStringFilters(t *testing.T) {
 	}
 }
 
+func TestDefaultPrefersAdaptivePairThenCombined(t *testing.T) {
+	combined := value.ObjectValue(value.NewObject(
+		value.Field{Key: "format_id", Value: value.String("combined")},
+		value.Field{Key: "url", Value: value.String("https://example.invalid/combined")},
+		value.Field{Key: "ext", Value: value.String("mp4")},
+		value.Field{Key: "vcodec", Value: value.String("avc1")},
+		value.Field{Key: "acodec", Value: value.String("aac")},
+		value.Field{Key: "height", Value: value.Int(360)},
+	))
+	adaptive := selectorInfo()
+	formats, _ := adaptive.Formats()
+	info := value.NewInfo(value.NewObject(value.Field{Key: "formats", Value: value.List(append([]value.Value{combined}, formats...)...)}))
+	selected, err := Default(info, Options{})
+	if err != nil || len(selected) != 2 || selected[0].ID != "720" || selected[1].ID != "audio-high" {
+		t.Fatalf("Default() = %#v, %v", selected, err)
+	}
+
+	onlyCombined := value.NewInfo(value.NewObject(value.Field{Key: "formats", Value: value.List(combined)}))
+	selected, err = Default(onlyCombined, Options{})
+	if err != nil || len(selected) != 1 || selected[0].ID != "combined" {
+		t.Fatalf("combined Default() = %#v, %v", selected, err)
+	}
+}
+
 func TestSelectorRejectsInvalidSyntaxAndNoMatch(t *testing.T) {
 	for _, input := range []string{"", "?unknown", "best[height]", "best[height>10", "best+"} {
 		if _, err := ParseSelector(input); !errors.Is(err, ErrInvalidSelector) {

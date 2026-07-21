@@ -28,6 +28,17 @@ type Selection struct {
 	Headers  http.Header
 }
 
+// Default applies yt-dlp-style best-quality selection: prefer a video-only and
+// audio-only pair, then a single combined format. Explicit user selectors
+// remain authoritative.
+func Default(info value.Info, options Options) ([]Selection, error) {
+	selector := Selector{Alternatives: []Choice{
+		{Terms: []Term{{Name: "bestvideo"}, {Name: "bestaudio"}}},
+		{Terms: []Term{{Name: "best"}}},
+	}}
+	return SelectWithOptions(info, selector, options)
+}
+
 // Best selects the first normalized format. Phase 0 extractors order their
 // formats best-first; richer selector syntax is intentionally deferred.
 func Best(info value.Info) (Selection, error) {

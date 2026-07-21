@@ -38,7 +38,7 @@ var youtubeFormatRecoveryClients = []youtubeClientProfile{
 		ClientName:    "ANDROID_VR",
 		ClientID:      "28",
 		ClientVersion: "1.65.10",
-		UserAgent:     "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; Quest 3 Build/SQ3A.220605.009.A1) gzip",
+		UserAgent:     "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
 		Context: map[string]any{
 			"androidSdkVersion": 32, "osName": "Android", "osVersion": "12L",
 			"deviceMake": "Oculus", "deviceModel": "Quest 3",
@@ -46,16 +46,23 @@ var youtubeFormatRecoveryClients = []youtubeClientProfile{
 	},
 }
 
-func requestYouTubePlayer(ctx context.Context, transport Transport, videoID string, profile youtubeClientProfile) (youtubePlayerResponse, error) {
-	clientContext := make(map[string]any, len(profile.Context)+2)
+func requestYouTubePlayer(ctx context.Context, transport Transport, videoID, visitorData string, profile youtubeClientProfile) (youtubePlayerResponse, error) {
+	clientContext := make(map[string]any, len(profile.Context)+3)
 	for key, item := range profile.Context {
 		clientContext[key] = item
 	}
 	clientContext["clientName"] = profile.ClientName
 	clientContext["clientVersion"] = profile.ClientVersion
+	if visitorData != "" {
+		clientContext["visitorData"] = visitorData
+	}
 	body, err := json.Marshal(map[string]any{
 		"context": map[string]any{"client": clientContext},
-		"videoId": videoID, "contentCheckOk": true, "racyCheckOk": true,
+		"videoId": videoID,
+		"playbackContext": map[string]any{
+			"contentPlaybackContext": map[string]any{"html5Preference": "HTML5_PREF_WANTS"},
+		},
+		"contentCheckOk": true, "racyCheckOk": true,
 	})
 	if err != nil {
 		return youtubePlayerResponse{}, fmt.Errorf("encode YouTube client request: %w", err)
@@ -65,6 +72,9 @@ func requestYouTubePlayer(ctx context.Context, transport Transport, videoID stri
 	headers.Set("User-Agent", profile.UserAgent)
 	headers.Set("X-Youtube-Client-Name", profile.ClientID)
 	headers.Set("X-Youtube-Client-Version", profile.ClientVersion)
+	if visitorData != "" {
+		headers.Set("X-Goog-Visitor-Id", visitorData)
+	}
 	var player youtubePlayerResponse
 	if err := RequestJSON(ctx, transport, http.MethodPost, youtubePlayerAPIURL, body, headers, &player); err != nil {
 		return youtubePlayerResponse{}, fmt.Errorf("YouTube %s player request: %w", profile.Name, err)
@@ -75,13 +85,14 @@ func requestYouTubePlayer(ctx context.Context, transport Transport, videoID stri
 	return player, nil
 }
 
-func recoverYouTubeFormats(ctx context.Context, transport Transport, videoID string) (youtubePlayerResponse, error) {
+func recoverYouTubeFormats(ctx context.Context, transport Transport, videoID, visitorData string) ([]youtubePlayerResponse, error) {
 	var firstRequestError error
+	var recovered []youtubePlayerResponse
 	for _, profile := range youtubeFormatRecoveryClients {
-		player, err := requestYouTubePlayer(ctx, transport, videoID, profile)
+		player, err := requestYouTubePlayer(ctx, transport, videoID, visitorData, profile)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return youtubePlayerResponse{}, err
+				return nil, err
 			}
 			if firstRequestError == nil {
 				firstRequestError = err
@@ -89,11 +100,14 @@ func recoverYouTubeFormats(ctx context.Context, transport Transport, videoID str
 			continue
 		}
 		if player.PlayabilityStatus.Status == "OK" && hasYouTubeFormatCandidates(player) {
-			return player, nil
+			recovered = append(recovered, player)
 		}
 	}
-	if firstRequestError != nil {
-		return youtubePlayerResponse{}, firstRequestError
+	if len(recovered) > 0 {
+		return recovered, nil
 	}
-	return youtubePlayerResponse{}, fmt.Errorf("%w: YouTube returned no URL-bearing formats from fallback clients", ErrUnavailable)
+	if firstRequestError != nil {
+		return nil, firstRequestError
+	}
+	return nil, fmt.Errorf("%w: YouTube returned no URL-bearing formats from fallback clients", ErrUnavailable)
 }

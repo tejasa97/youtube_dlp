@@ -80,11 +80,7 @@ func (operation *operation) applyCompatibility(ctx context.Context, ctxInfo *val
 
 func (operation *operation) selectFormats(info value.Info) ([]mediaformat.Selection, error) {
 	if operation.compatibility.selector == nil {
-		selected, err := mediaformat.Best(info)
-		if err != nil {
-			return nil, err
-		}
-		return []mediaformat.Selection{selected}, nil
+		return mediaformat.Default(info, operation.compatibility.formatOptions)
 	}
 	selected, err := mediaformat.SelectWithOptions(info, *operation.compatibility.selector, operation.compatibility.formatOptions)
 	if err != nil {

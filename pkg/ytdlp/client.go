@@ -543,11 +543,13 @@ func (operation *operation) processMedia(ctx context.Context, info value.Info, e
 	if pattern == "" {
 		pattern = "%(title)s.%(ext)s"
 	}
+	outputInfo := value.NewInfo(info.Fields().Clone())
+	outputInfo.Set("ext", value.String(mergedOutputExtension(selectedFormats)))
 	outputDir := operation.request.OutputDir
 	if outputDir == "" {
 		outputDir = "."
 	}
-	destination, err := outputtemplate.Resolve(outputDir, pattern, info)
+	destination, err := outputtemplate.Resolve(outputDir, pattern, outputInfo)
 	if err != nil {
 		return Result{}, categorized("render output template", err)
 	}

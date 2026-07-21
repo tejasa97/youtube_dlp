@@ -319,7 +319,7 @@ func selectTerm(formats []*value.Object, term Term) (Selection, bool) {
 		acodec, _ := candidate.Lookup("acodec").StringValue()
 		hasVideo := vcodec != "" && vcodec != "none"
 		hasAudio := acodec != "" && acodec != "none"
-		if wantVideo && !hasVideo || wantAudio && !hasAudio {
+		if wantVideo && (!hasVideo || hasAudio) || wantAudio && (!hasAudio || hasVideo) {
 			continue
 		}
 		if !matchesFilters(candidate, term.Filters) {
@@ -399,7 +399,7 @@ func candidateMatchesKind(candidate *value.Object, wantVideo, wantAudio bool, fi
 	acodec, _ := candidate.Lookup("acodec").StringValue()
 	hasVideo := vcodec != "" && vcodec != "none"
 	hasAudio := acodec != "" && acodec != "none"
-	return (!wantVideo || hasVideo) && (!wantAudio || hasAudio) && matchesFilters(candidate, filters)
+	return (!wantVideo || hasVideo && !hasAudio) && (!wantAudio || hasAudio && !hasVideo) && matchesFilters(candidate, filters)
 }
 
 func matchesFilters(object *value.Object, filters []Filter) bool {
