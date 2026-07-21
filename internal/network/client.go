@@ -123,7 +123,14 @@ func New(config Config) (*Client, error) {
 // Do clones request, applies operation defaults, and binds it to ctx. The
 // caller owns and must close a successful response body.
 func (client *Client) Do(ctx context.Context, request *http.Request) (*http.Response, error) {
-	return client.do(ctx, request, client.defaultProfile)
+	return client.do(ctx, request, client.defaultProfile, true)
+}
+
+// DoWithoutCookies executes a native request without consulting the operation
+// jar and removes any explicit Cookie header after defaults are applied. It is
+// used by protocols whose client identity is incompatible with browser cookies.
+func (client *Client) DoWithoutCookies(ctx context.Context, request *http.Request) (*http.Response, error) {
+	return client.do(ctx, request, "", false)
 }
 
 // DoProfile executes a request with an explicitly named browser profile. An
@@ -133,10 +140,10 @@ func (client *Client) DoProfile(ctx context.Context, request *http.Request, prof
 	if profileName == "" {
 		return client.Do(ctx, request)
 	}
-	return client.do(ctx, request, profileName)
+	return client.do(ctx, request, profileName, true)
 }
 
-func (client *Client) do(ctx context.Context, request *http.Request, profileName string) (*http.Response, error) {
+func (client *Client) do(ctx context.Context, request *http.Request, profileName string, includeCookies bool) (*http.Response, error) {
 	if request == nil {
 		return nil, errors.New("HTTP request must not be nil")
 	}
@@ -152,10 +159,19 @@ func (client *Client) do(ctx context.Context, request *http.Request, profileName
 	if profileName == "" && cloned.Header.Get("User-Agent") == "" {
 		cloned.Header.Set("User-Agent", "ytdlp-go/0.0.0-dev")
 	}
+	if !includeCookies {
+		cloned.Header.Del("Cookie")
+	}
 	var response *http.Response
 	var err error
 	if profileName == "" {
-		response, err = client.httpClient.Do(cloned)
+		httpClient := client.httpClient
+		if !includeCookies {
+			isolated := *client.httpClient
+			isolated.Jar = nil
+			httpClient = &isolated
+		}
+		response, err = httpClient.Do(cloned)
 	} else {
 		profileClient, profileErr := client.profileClient(profileName)
 		if profileErr != nil {

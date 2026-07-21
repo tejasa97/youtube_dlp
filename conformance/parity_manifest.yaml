@@ -361,7 +361,12 @@ capabilities:
       - internal/extractor.TestYouTubeSuitableAndVideoID
       - internal/extractor.TestYouTubeExtractsPinnedVideoAndSolvesChallenges
       - internal/extractor.TestYouTubeDiscoversPlayerJavaScriptFromPageConfig
+      - internal/extractor.TestYouTubePlayerURLValidation
+      - internal/extractor.TestYouTubePageConfigParsingIsStructuredAndBounded
       - internal/extractor.TestYouTubeRecoversURLBearingFormatsFromNativeClient
+      - internal/extractor.TestYouTubeRecoveryFailsClosedWithoutCookieIsolation
+      - internal/extractor.TestYouTubeAuthenticatedPageDoesNotUseAnonymousRecovery
+      - internal/extractor.TestYouTubeRecoveryContinuesAfterOneClientFails
       - internal/extractor.TestYouTubeSABRFallbackFailureIsCategorizedAndCancelable
       - internal/extractor.TestYouTubeRejectsMalformedNativeClientResponses
       - internal/extractor.TestYouTubeChallengeAndAvailabilityFailuresAreCategorized
@@ -372,13 +377,14 @@ capabilities:
       - internal/extractor.TestYouTubeExtractsLiveHLSAndClassifiesLiveStates
       - internal/extractor.TestRequestJSONBoundsStatusAndSyntax
       - internal/extractor.FuzzParseYouTubePlaylistData
-      - internal/extractor.FuzzDiscoverYouTubePlayerPath
+      - internal/extractor.FuzzDiscoverYouTubePageConfig
+      - internal/network.TestDoWithoutCookiesDoesNotSendOrPersistCookies
       - conformance/extractors/youtube/PROVENANCE.md
     owner: extractors
     depends_on:
       - javascript.ejs
       - extractor.playlists
-    known_deviation: Compatibility is scoped to the pinned video, playlist-continuation, live-HLS, player-config discovery, and native-client recovery corpus. Anonymous visitor identity is propagated across bounded Android and Android VR requests, enabling URL-bearing adaptive video/audio recovery. Direct SABR transport, PO-token providers, authenticated Innertube clients, subtitles, comments, channel/tab variants, live-from-start, and broader player/renderer variants remain pending.
+    known_deviation: Compatibility is scoped to the pinned video, playlist-continuation, live-HLS, structured player-config discovery, and native-client recovery corpus. Anonymous visitor identity is propagated across bounded, cookie-isolated Android and Android VR requests, enabling URL-bearing adaptive video/audio recovery. Authenticated pages fail explicitly instead of leaking browser cookies to clients that do not support them or silently substituting an anonymous session. Direct SABR transport, PO-token providers, authenticated Innertube clients, subtitles, comments, channel/tab variants, live-from-start, and broader player/renderer variants remain pending.
 
   - id: extractor.playlists
     name: Playlist extraction model
