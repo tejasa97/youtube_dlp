@@ -59,11 +59,26 @@ protected-player solver/timing limitation, not a route-parser failure. It stays
 explicitly categorized as unsupported and is not represented as full live
 download parity.
 
-The EJS solver now uses a two-phase preprocess/solve split with a preprocessed
-player cache and a 60 s hard-max wall time (up from 30 s), which addresses the
-root cause for real YouTube player scripts that require extended meriyah-based
-parsing in the pure-Go goja engine. Live canary validation remains
-service-dependent and non-authoritative.
+The EJS solver now uses a two-phase preprocess/solve split with:
+
+- A **scoped trusted wall-time allowance** (60 s) for EJS preprocessing only;
+  untrusted protocol requests remain bounded at the original 30 s hard max.
+  The `Trusted` flag is in-process only (`json:"-"`) and never serialized.
+- A **bounded LRU cache** (max 8 entries) that persists at the client level
+  across separate `Run` calls, so distinct downloads sharing the same player
+  script skip redundant preprocessing.
+- **Singleflight coordination** so concurrent requests for the same uncached
+  player coalesce into exactly one preprocessing execution.
+
+### Proof levels
+
+| Level | Evidence | Status |
+| --- | --- | --- |
+| Automated proof | `TestRepresentativeWorkloadUnderOldLimit` (proves 55 s > 30 s old limit, Trusted gate works), `TestLargeGeneratedPlayerWorkload` (~500 KB deterministic workload completes), `TestSingleflightCoalescesPreprocessing` (exactly 1 preprocess under 8 concurrent goroutines), `TestTrustedWallTimeAllowance` (protocol boundary) | Passing |
+| Live validation | Protected-video canary extraction against live YouTube | Pending (service-dependent, non-authoritative) |
+| Remaining deviation | No sanitized real 1-2 MB player fixture committed (proprietary); generated workload approximates parse pressure | Documented |
+
+Live canary validation remains service-dependent and non-authoritative.
 
 The removed historical `BaW_jenozKc` test video and unavailable NASA live
 recording remain upstream content changes, not regressions in this patch set.

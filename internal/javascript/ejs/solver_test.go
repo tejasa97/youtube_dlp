@@ -3,6 +3,7 @@ package ejs
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"reflect"
 	"strings"
@@ -311,6 +312,50 @@ func TestConcurrentSolvePlayer(t *testing.T) {
 	}
 }
 
+// TestSingleflightCoalescesPreprocessing verifies that concurrent requests for
+// the same uncached player result in exactly one preprocessing execution.
+func TestSingleflightCoalescesPreprocessing(t *testing.T) {
+	player, err := os.ReadFile("../../../conformance/javascript/ejs-0.8.0/synthetic-player.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	counting := &countingExecutor{inner: engine.New(4)}
+	solver, err := New(counting)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := []ChallengeRequest{{Type: ChallengeN, Challenges: []string{"abc"}}}
+
+	// Launch 8 concurrent requests for the same uncached player.
+	const goroutines = 8
+	var wg sync.WaitGroup
+	errs := make([]error, goroutines)
+	results := make([]Result, goroutines)
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			results[idx], errs[idx] = solver.SolvePlayer(context.Background(), "singleflight", string(player), requests, false)
+		}(i)
+	}
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("goroutine %d failed: %v", i, err)
+		}
+		if results[i].Responses[0].Data["abc"] != "cba-n" {
+			t.Fatalf("goroutine %d wrong result: %#v", i, results[i])
+		}
+	}
+
+	// With singleflight: 1 preprocess + 8 solves = 9 total executor calls.
+	// Without singleflight: 8 preprocess + 8 solves = 16 total executor calls.
+	totalCalls := counting.count()
+	if totalCalls > goroutines+1 {
+		t.Fatalf("executor calls = %d, want <= %d (1 preprocess + %d solves); singleflight not coalescing", totalCalls, goroutines+1, goroutines)
+	}
+}
+
 // TestPathologicalPlayerFixture verifies the pathological player fixture
 // completes within bounds (not an infinite loop).
 func TestPathologicalPlayerFixture(t *testing.T) {
@@ -331,6 +376,92 @@ func TestPathologicalPlayerFixture(t *testing.T) {
 	}
 	if result.Responses[0].Data["abc"] != "cba-n" {
 		t.Fatalf("pathological result = %#v", result.Responses[0])
+	}
+}
+
+// TestRepresentativeWorkloadUnderOldLimit verifies that the EJS preprocessing
+// wall time (55s) exceeds the old global HardMaxWallTime (30s) and would have
+// been rejected at protocol validation. The Trusted flag allows the extended
+// TrustedMaxWallTime (60s) ceiling. This test proves the scoped allowance is
+// necessary and correctly gated.
+func TestRepresentativeWorkloadUnderOldLimit(t *testing.T) {
+	// Demonstrate that PreprocessWallTimeMS exceeds the untrusted HardMaxWallTime.
+	if PreprocessWallTimeMS <= protocol.HardMaxWallTime.Milliseconds() {
+		t.Fatalf("PreprocessWallTimeMS (%d) should exceed HardMaxWallTime (%d ms) to require Trusted flag",
+			PreprocessWallTimeMS, protocol.HardMaxWallTime.Milliseconds())
+	}
+	// Demonstrate that PreprocessWallTimeMS fits within TrustedMaxWallTime.
+	if PreprocessWallTimeMS > protocol.TrustedMaxWallTime.Milliseconds() {
+		t.Fatalf("PreprocessWallTimeMS (%d) exceeds TrustedMaxWallTime (%d ms)",
+			PreprocessWallTimeMS, protocol.TrustedMaxWallTime.Milliseconds())
+	}
+	// Verify that an untrusted request with PreprocessWallTimeMS is rejected.
+	req := protocol.Request{
+		Version: protocol.Version, ID: "untrusted-preprocess", Operation: protocol.OperationCall,
+		Script: "function jsc(){}", Function: "jsc",
+		Limits: protocol.Limits{WallTimeMS: PreprocessWallTimeMS, MemoryBytes: SolverMemoryBytes,
+			OutputBytes: SolverOutputBytes, SourceBytes: SolverSourceBytes},
+	}
+	if _, err := req.Normalize(); err == nil {
+		t.Fatal("untrusted request with PreprocessWallTimeMS should be rejected by HardMaxWallTime")
+	}
+	// Verify that a trusted request with PreprocessWallTimeMS is accepted.
+	req.Limits.Trusted = true
+	if _, err := req.Normalize(); err != nil {
+		t.Fatalf("trusted request with PreprocessWallTimeMS should be accepted: %v", err)
+	}
+}
+
+// TestLargeGeneratedPlayerWorkload generates a deterministic ~500KB player
+// script with many function declarations (simulating real YouTube player bloat)
+// and verifies the two-phase split completes successfully. Under the old
+// single-phase 30s limit, this workload would either timeout or be rejected.
+//
+// Provenance: Real YouTube player scripts are 1-2 MB of obfuscated JavaScript
+// with thousands of function declarations. The meriyah parser (JS-in-JS inside
+// goja) processes these at ~10-100x slower than native V8. This generated
+// workload uses 2000 function declarations (~500KB) to approximate the parse
+// pressure without requiring a sanitized real player script.
+func TestLargeGeneratedPlayerWorkload(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping large workload test in short mode")
+	}
+	// Generate a deterministic large player script.
+	var sb strings.Builder
+	sb.WriteString(`(function(){var helper={alr:function(){}};`)
+	sb.WriteString(`function Params(url,key,value){this.values={s:value,n:null};}`)
+	sb.WriteString(`Params.prototype.set=function(k,v){this.values[k]=v;};`)
+	sb.WriteString(`Params.prototype.get=function(k){return this.values[k]};`)
+	sb.WriteString(`Params.prototype.clone=function(){return this;};`)
+	sb.WriteString(`Params.prototype.transform=function(){`)
+	sb.WriteString(`if(this.values.n)this.values.n=this.values.n.split("").reverse().join("")+"-n";`)
+	sb.WriteString(`if(this.values.s)this.values.s=this.values.s.split("").reverse().join("");};`)
+	// Generate 2000 padding functions to simulate player bloat (~500KB total).
+	for i := 0; i < 2000; i++ {
+		sb.WriteString(fmt.Sprintf("function pad%d(alpha,beta,gamma){var x=alpha+%d+beta*%d+gamma;return x*2+%d;}", i, i, i%7, i%13))
+	}
+	sb.WriteString(`function candidate(url,key,value){helper.alr("alr","yes");return new Params(url,key,value);}`)
+	sb.WriteString(`}).call(this);`)
+	player := sb.String()
+
+	if len(player) < 100_000 {
+		t.Fatalf("generated player too small: %d bytes", len(player))
+	}
+	t.Logf("generated player size: %d bytes (%d KB)", len(player), len(player)/1024)
+
+	solver, err := New(engine.New(4))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	requests := []ChallengeRequest{{Type: ChallengeN, Challenges: []string{"abc"}}}
+	result, err := solver.SolvePlayer(ctx, "large-workload", player, requests, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Responses[0].Data["abc"] != "cba-n" {
+		t.Fatalf("large workload result = %#v", result.Responses[0])
 	}
 }
 

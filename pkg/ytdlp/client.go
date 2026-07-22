@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ytdlp-go/ytdlp/internal/archive"
@@ -164,8 +165,10 @@ type Runner interface {
 	Run(context.Context, Request) (Result, error)
 }
 
-// Client is stateless between operations and safe for concurrent use. A
-// configured event handler must provide its own synchronization when shared.
+// Client is safe for concurrent use. The shared EJS solver and its bounded
+// preprocessed-player cache persist across Run calls so that separate
+// downloads sharing the same YouTube player script skip redundant parsing.
+// A configured event handler must provide its own synchronization when shared.
 type Client struct {
 	handler               EventHandler
 	javascriptHelper      string
@@ -179,6 +182,9 @@ type Client struct {
 	telemetry             *TelemetryCollector
 	youtubePOT            *youtubepot.Director
 	youtubePOTErr         error
+
+	solverMu     sync.Mutex
+	sharedSolver *lazyYouTubeSolver
 }
 
 func NewClient(options ...Option) *Client {
@@ -296,8 +302,7 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 			return Result{}, categorized("open cache", err)
 		}
 	}
-	challengeSolver := &lazyYouTubeSolver{path: discoverJavaScriptHelper(client.javascriptHelper)}
-	defer challengeSolver.Close()
+	challengeSolver := client.sharedChallengeSolver()
 	operation := &operation{
 		client: client, request: request, transport: transport,
 		registry: client.productRegistry(),
@@ -765,7 +770,31 @@ func (client *Client) importBrowserCookies(ctx context.Context, specification br
 	return cookieImportResult{}, chromiumlinux.ErrUnsupportedPlatform
 }
 
+// sharedChallengeSolver returns the client-level EJS solver, creating it on
+// first use. The solver and its bounded cache persist across Run calls.
+func (client *Client) sharedChallengeSolver() *lazyYouTubeSolver {
+	client.solverMu.Lock()
+	defer client.solverMu.Unlock()
+	if client.sharedSolver == nil {
+		client.sharedSolver = &lazyYouTubeSolver{path: discoverJavaScriptHelper(client.javascriptHelper)}
+	}
+	return client.sharedSolver
+}
+
+// Close releases the shared EJS solver and its supervisor child process.
+// It is safe to call multiple times. After Close, subsequent Run calls will
+// lazily recreate the solver if a JavaScript helper is available.
+func (client *Client) Close() {
+	client.solverMu.Lock()
+	defer client.solverMu.Unlock()
+	if client.sharedSolver != nil {
+		client.sharedSolver.Close()
+		client.sharedSolver = nil
+	}
+}
+
 type lazyYouTubeSolver struct {
+	mu         sync.Mutex
 	path       string
 	supervisor *supervisor.Client
 	solver     *ejs.Solver
@@ -778,24 +807,34 @@ func (solver *lazyYouTubeSolver) SolvePlayer(
 	requests []ejs.ChallengeRequest,
 	outputPreprocessed bool,
 ) (ejs.Result, error) {
+	solver.mu.Lock()
 	if solver.solver == nil {
 		client, err := supervisor.New(supervisor.Config{Path: solver.path, MemoryBytes: ejs.SolverMemoryBytes})
 		if err != nil {
+			solver.mu.Unlock()
 			return ejs.Result{}, err
 		}
 		challengeSolver, err := ejs.New(client)
 		if err != nil {
 			_ = client.Close()
+			solver.mu.Unlock()
 			return ejs.Result{}, err
 		}
 		solver.supervisor, solver.solver = client, challengeSolver
 	}
+	solver.mu.Unlock()
 	return solver.solver.SolvePlayer(ctx, id, player, requests, outputPreprocessed)
 }
 
 func (solver *lazyYouTubeSolver) Close() {
-	if solver != nil && solver.supervisor != nil {
-		_ = solver.supervisor.Close()
+	if solver != nil {
+		solver.mu.Lock()
+		defer solver.mu.Unlock()
+		if solver.supervisor != nil {
+			_ = solver.supervisor.Close()
+			solver.supervisor = nil
+			solver.solver = nil
+		}
 	}
 }
 
