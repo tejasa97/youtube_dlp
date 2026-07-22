@@ -97,7 +97,7 @@ func (operation *operation) downloadSelection(ctx context.Context, selected medi
 		if err != nil {
 			return "", 0, err
 		}
-		if result.MergeRequired {
+		if result.MergeRequired || result.MultiPeriod {
 			tools, discoverErr := ffmpeg.Discover(ffmpeg.Config{})
 			if discoverErr != nil {
 				return "", 0, discoverErr
