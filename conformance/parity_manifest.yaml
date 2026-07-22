@@ -1048,6 +1048,7 @@ capabilities:
       - internal/extractor.TestMixcloudPublicGraphQLAndLazyCollection
       - internal/extractor.TestRumbleEmbedAndLazyChannel
       - internal/extractor.TestBilibiliHydrationAndAnthology
+      - internal/extractor.TestBilibiliDASHPreservesReportedCodecs
       - internal/extractor.TestInstagramRoutingAndPostExtraction
       - internal/extractor.TestKickRoutingLiveExtractionAndProfile
       - internal/extractor.TestBBCIPlayerRoutingEpisodeGeoFallbackAndFormats
