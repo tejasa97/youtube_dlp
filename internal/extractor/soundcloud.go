@@ -312,52 +312,79 @@ func (extractor *SoundCloud) fetchCollectionPage(ctx context.Context, transport 
 	return entries, next, nil
 }
 
-// soundCloudDirectCollectionEntry classifies a direct collection item by its
-// permalink URL and/or explicit kind, matching the reference resolve_entry
-// behavior. Direct playlist objects produce set entries; direct track objects
-// produce track entries. Malformed entries are skipped safely.
+// soundCloudDirectCollectionEntry classifies a direct collection item using
+// its explicit kind field and/or permalink URL, matching the reference
+// resolve_entry behavior with typed, fail-closed dispatch.
+//
+// Dispatch rules:
+//   - kind "track": use valid track permalink, or /tracks/<id> fallback.
+//   - kind "playlist": use valid set/playlist permalink, or /playlists/<id> fallback.
+//   - kind unknown/empty: use permalink only if it independently provides an
+//     unambiguous supported type (track or set). Otherwise skip (fail closed).
+//   - Contradictory kind/permalink: skip (fail closed).
+//
+// A malformed direct candidate returns false so that valid nested candidates
+// can still be considered.
 func soundCloudDirectCollectionEntry(item soundCloudTrack) (Entry, bool) {
 	id := ""
 	if validSoundCloudJSONID(item.ID) {
 		id = item.ID.String()
 	}
+	kind := strings.ToLower(strings.TrimSpace(item.Kind))
+
+	// Classify the permalink independently.
+	var permalinkKind soundCloudTargetKind // 0 = unclassified
 	rawURL := item.PermalinkURL
-	if rawURL == "" {
-		// No permalink: fall back to track API URL if we have a valid ID
+	if rawURL != "" {
+		if parsed, parseErr := url.Parse(rawURL); parseErr == nil {
+			if target, suitable := classifySoundCloudURL(parsed); suitable {
+				permalinkKind = target.kind
+			}
+		}
+	}
+
+	switch kind {
+	case "track":
+		// Direct track: use valid track permalink or /tracks/<id> fallback.
+		if permalinkKind == soundCloudTrackTarget {
+			return Entry{URL: rawURL, ExtractorKey: "soundcloud", ID: id, Title: item.Title, Transparent: true}, true
+		}
+		// Contradictory: permalink classifies as something else (e.g., set).
+		if permalinkKind != 0 {
+			return Entry{}, false
+		}
+		// Missing or unclassifiable permalink: fall back to track API URL.
 		if id == "" {
 			return Entry{}, false
 		}
 		return Entry{URL: soundCloudAPIBase + "tracks/" + id, ExtractorKey: "soundcloud", ID: id, Title: item.Title, Transparent: true}, true
-	}
-	parsed, parseErr := url.Parse(rawURL)
-	if parseErr != nil {
-		// Malformed permalink: fall back to track API URL if we have a valid ID
+
+	case "playlist":
+		// Direct playlist: use valid set/playlist permalink or /playlists/<id> fallback.
+		if permalinkKind == soundCloudSetTarget || permalinkKind == soundCloudAPIPlaylistTarget {
+			return Entry{URL: rawURL, ExtractorKey: "soundcloud", ID: id, Title: item.Title, Transparent: true}, true
+		}
+		// Contradictory: permalink classifies as something else (e.g., track).
+		if permalinkKind != 0 {
+			return Entry{}, false
+		}
+		// Missing or unclassifiable permalink: fall back to playlist API URL.
 		if id == "" {
 			return Entry{}, false
 		}
-		return Entry{URL: soundCloudAPIBase + "tracks/" + id, ExtractorKey: "soundcloud", ID: id, Title: item.Title, Transparent: true}, true
-	}
-	target, suitable := classifySoundCloudURL(parsed)
-	if !suitable {
-		// Unclassifiable permalink: fall back to track API URL if we have a valid ID
-		if id == "" {
-			return Entry{}, false
-		}
-		return Entry{URL: soundCloudAPIBase + "tracks/" + id, ExtractorKey: "soundcloud", ID: id, Title: item.Title, Transparent: true}, true
-	}
-	// Classify based on the permalink URL kind
-	switch target.kind {
-	case soundCloudTrackTarget:
-		return Entry{URL: rawURL, ExtractorKey: "soundcloud", ID: id, Title: item.Title, Transparent: true}, true
-	case soundCloudSetTarget, soundCloudAPIPlaylistTarget:
-		// Direct playlist object: produce a playlist entry
-		return Entry{URL: rawURL, ExtractorKey: "soundcloud", ID: id, Title: item.Title, Transparent: true}, true
+		return Entry{URL: soundCloudAPIBase + "playlists/" + id, ExtractorKey: "soundcloud", ID: id, Title: item.Title, Transparent: true}, true
+
 	default:
-		// Other kinds (user tracks, station, related): fall back to track API URL
-		if id == "" {
+		// Unknown or empty kind: use permalink only if unambiguous.
+		switch permalinkKind {
+		case soundCloudTrackTarget:
+			return Entry{URL: rawURL, ExtractorKey: "soundcloud", ID: id, Title: item.Title, Transparent: true}, true
+		case soundCloudSetTarget, soundCloudAPIPlaylistTarget:
+			return Entry{URL: rawURL, ExtractorKey: "soundcloud", ID: id, Title: item.Title, Transparent: true}, true
+		default:
+			// No usable permalink and unknown kind: fail closed (skip).
 			return Entry{}, false
 		}
-		return Entry{URL: soundCloudAPIBase + "tracks/" + id, ExtractorKey: "soundcloud", ID: id, Title: item.Title, Transparent: true}, true
 	}
 }
 
@@ -443,6 +470,7 @@ func (extractor *SoundCloud) extractRelated(ctx context.Context, transport Trans
 }
 
 type soundCloudTrack struct {
+	Kind             string      `json:"kind"`
 	ID               json.Number `json:"id"`
 	Title            string      `json:"title"`
 	Description      string      `json:"description"`
@@ -865,7 +893,12 @@ func (policy soundCloudContinuationPolicy) validate(rawURL string) (string, erro
 		}
 	}
 	// Query cardinality and value limits.
-	query := parsed.Query()
+	// Use url.ParseQuery explicitly to reject malformed percent-escaping and
+	// invalid semicolon syntax that parsed.Query() would silently discard.
+	query, queryErr := url.ParseQuery(parsed.RawQuery)
+	if queryErr != nil {
+		return "", fmt.Errorf("%w: invalid SoundCloud continuation", ErrInvalidPlaylist)
+	}
 	if len(query) > soundCloudMaxQueryParams {
 		return "", fmt.Errorf("%w: invalid SoundCloud continuation", ErrInvalidPlaylist)
 	}

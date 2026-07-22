@@ -38,8 +38,14 @@ Deliberate Go hardening beyond the pinned reference:
   does not classify as a SoundCloud set;
 - Direct collection item dispatch matching the reference `resolve_entry(e,
   e.get('track'), e.get('playlist'))` ordering: the direct item is classified
-  by its permalink URL kind before track fallback, so direct playlist objects
-  produce set entries rather than incorrect track API URLs;
+  by its explicit `kind` field and/or permalink URL kind before track fallback.
+  Direct `playlist` objects produce set entries (or `/playlists/<id>` fallback);
+  direct `track` objects produce track entries (or `/tracks/<id>` fallback).
+  Unknown or contradictory kind/permalink combinations fail closed (skip) unless
+  the permalink independently provides an unambiguous supported type;
+- Malformed continuation query rejection: `url.ParseQuery` is used explicitly
+  instead of `parsed.Query()` to reject malformed percent-escaping and invalid
+  semicolon syntax that would otherwise be silently discarded;
 - Secret-safe related-resource failures: `errors[].error_message` from the
   remote response is never exposed in public Go errors. A generic
   `ErrUnavailable: SoundCloud related resource unavailable` diagnostic is

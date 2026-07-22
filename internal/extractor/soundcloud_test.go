@@ -662,8 +662,8 @@ func TestSoundCloudMixedCollectionDecoding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Expect: direct track (400), direct playlist (63), nested playlist (62)
-	if len(entries) != 3 || entries[0].ID != "400" || entries[1].ID != "63" || entries[2].ID != "62" {
+	// Expect: direct track (400), direct playlist (63), direct playlist no-permalink (64), nested playlist (62)
+	if len(entries) != 4 || entries[0].ID != "400" || entries[1].ID != "63" || entries[2].ID != "64" || entries[3].ID != "62" {
 		t.Fatalf("entries = %#v", entries)
 	}
 	if entries[0].URL != "https://soundcloud.com/fixture-artist/mixed-track" {
@@ -672,6 +672,10 @@ func TestSoundCloudMixedCollectionDecoding(t *testing.T) {
 	// Direct playlist should use its set permalink, not a track API URL
 	if entries[1].URL != "https://soundcloud.com/fixture-artist/sets/direct-playlist" {
 		t.Fatalf("direct playlist entry URL = %q", entries[1].URL)
+	}
+	// Direct playlist with no permalink should fall back to /playlists/<id>
+	if entries[2].URL != "https://api-v2.soundcloud.com/playlists/64" {
+		t.Fatalf("direct playlist no-permalink entry URL = %q", entries[2].URL)
 	}
 }
 
@@ -883,6 +887,56 @@ func TestSoundCloudContinuationQueryBounds(t *testing.T) {
 	}
 }
 
+func TestSoundCloudContinuationMalformedQueryEscaping(t *testing.T) {
+	policy := soundCloudContinuationPolicy{allowedPath: "/users/7/tracks"}
+	tests := []struct {
+		name    string
+		rawURL  string
+		wantErr bool
+	}{
+		// Malformed percent escape in cursor value
+		{"malformed escape in value", "https://api-v2.soundcloud.com/users/7/tracks?cursor=%zz", true},
+		// Malformed percent escape in key
+		{"malformed escape in key", "https://api-v2.soundcloud.com/users/7/tracks?cur%sor=abc", true},
+		// Invalid semicolon syntax
+		{"semicolon syntax", "https://api-v2.soundcloud.com/users/7/tracks?cursor=ok;bad=x", true},
+		// Mixture of valid and malformed pairs
+		{"mixed valid and malformed", "https://api-v2.soundcloud.com/users/7/tracks?cursor=ok&bad=%zz", true},
+		// Valid escaped cursor value
+		{"valid escaped value", "https://api-v2.soundcloud.com/users/7/tracks?cursor=%41%42%43", false},
+		// Valid cursor whose value contains the text client_id
+		{"value contains client_id text", "https://api-v2.soundcloud.com/users/7/tracks?cursor=client_id", false},
+		// Stale client_id key removal while other params remain
+		{"client_id key stripped", "https://api-v2.soundcloud.com/users/7/tracks?cursor=abc&client_id=stale&limit=200", false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := policy.validate(test.rawURL)
+			if test.wantErr {
+				if !errors.Is(err, ErrInvalidPlaylist) {
+					t.Fatalf("validate(%q) error = %v, want ErrInvalidPlaylist", test.rawURL, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("validate(%q) unexpected error = %v", test.rawURL, err)
+			}
+			// Verify client_id key is stripped
+			parsed, _ := url.Parse(result)
+			query, _ := url.ParseQuery(parsed.RawQuery)
+			if query.Has("client_id") {
+				t.Fatalf("client_id key not stripped: %s", result)
+			}
+			// For the "client_id key stripped" test, verify other params remain
+			if test.name == "client_id key stripped" {
+				if query.Get("cursor") != "abc" || query.Get("limit") != "200" {
+					t.Fatalf("valid params lost: %s", result)
+				}
+			}
+		})
+	}
+}
+
 func FuzzSoundCloudContinuationPolicy(f *testing.F) {
 	f.Add("https://api-v2.soundcloud.com/users/7/tracks?cursor=abc")
 	f.Add("https://api-v2.soundcloud.com/stations/soundcloud:track-stations:5000/tracks?cursor=page2")
@@ -892,6 +946,12 @@ func FuzzSoundCloudContinuationPolicy(f *testing.F) {
 	f.Add("https://api-v2.soundcloud.com/users/8/../7/tracks")
 	f.Add("https://api-v2.soundcloud.com/users/7/tracks/")
 	f.Add("https://api-v2.soundcloud.com/users/7/tracks#frag")
+	f.Add("https://api-v2.soundcloud.com/users/7/tracks?cursor=client_id")
+	f.Add("https://api-v2.soundcloud.com/users/7/tracks?cursor=%zz")
+	f.Add("https://api-v2.soundcloud.com/users/7/tracks?cursor=ok;%00bad=x")
+	f.Add("https://api-v2.soundcloud.com/users/7/tracks?%41=x")
+	f.Add("https://api-v2.soundcloud.com/users/./7/tracks")
+	f.Add("https://api-v2.soundcloud.com/users/7/tracks%2fextra")
 	f.Fuzz(func(t *testing.T, rawURL string) {
 		if len(rawURL) > 16<<10 {
 			t.Skip()
@@ -924,13 +984,37 @@ func FuzzSoundCloudContinuationPolicy(f *testing.F) {
 		if parsed.Path != "/users/7/tracks" {
 			t.Fatalf("accepted non-exact path %q: %s", parsed.Path, result)
 		}
-		if strings.Contains(result, "client_id") {
-			t.Fatalf("client_id not stripped: %s", result)
+		// Query must parse without errors
+		query, queryErr := url.ParseQuery(parsed.RawQuery)
+		if queryErr != nil {
+			t.Fatalf("accepted result has malformed query: %v", queryErr)
+		}
+		// No exact client_id key remains (value containing "client_id" is fine)
+		if query.Has("client_id") {
+			t.Fatalf("client_id key not stripped: %s", result)
+		}
+		// Query count and value size within limits
+		if len(query) > soundCloudMaxQueryParams {
+			t.Fatalf("accepted too many query params: %s", result)
+		}
+		for key, values := range query {
+			if len(key) > 256 {
+				t.Fatalf("accepted oversized query key: %s", result)
+			}
+			for _, v := range values {
+				if len(v) > soundCloudMaxQueryValue {
+					t.Fatalf("accepted oversized query value: %s", result)
+				}
+			}
 		}
 		// No encoded separators
 		escaped := strings.ToLower(parsed.EscapedPath())
 		if strings.Contains(escaped, "%2f") || strings.Contains(escaped, "%5c") || strings.Contains(escaped, "%00") {
 			t.Fatalf("accepted encoded separator: %s", result)
+		}
+		// No NUL anywhere
+		if strings.Contains(result, "\x00") {
+			t.Fatalf("accepted NUL: %s", result)
 		}
 		// No dot segments
 		for _, segment := range strings.Split(parsed.EscapedPath(), "/") {
@@ -951,54 +1035,110 @@ func TestSoundCloudDirectCollectionEntryClassification(t *testing.T) {
 		wantURL string
 		wantID  string
 	}{
+		// Direct track with valid permalink
 		{
-			name:    "direct top-level track",
-			item:    soundCloudTrack{ID: json.Number("100"), Title: "Track", PermalinkURL: "https://soundcloud.com/artist/track"},
+			name:    "direct track valid permalink",
+			item:    soundCloudTrack{Kind: "track", ID: json.Number("100"), Title: "Track", PermalinkURL: "https://soundcloud.com/artist/track"},
 			wantOK:  true,
 			wantURL: "https://soundcloud.com/artist/track",
 			wantID:  "100",
 		},
+		// Direct playlist with valid permalink
 		{
-			name:    "direct top-level playlist",
-			item:    soundCloudTrack{ID: json.Number("60"), Title: "Playlist", PermalinkURL: "https://soundcloud.com/artist/sets/album"},
+			name:    "direct playlist valid permalink",
+			item:    soundCloudTrack{Kind: "playlist", ID: json.Number("60"), Title: "Playlist", PermalinkURL: "https://soundcloud.com/artist/sets/album"},
 			wantOK:  true,
 			wantURL: "https://soundcloud.com/artist/sets/album",
 			wantID:  "60",
 		},
+		// Direct track with missing permalink
 		{
-			name:    "missing permalink with valid ID falls back to track API",
-			item:    soundCloudTrack{ID: json.Number("100"), Title: "Track"},
+			name:    "direct track missing permalink",
+			item:    soundCloudTrack{Kind: "track", ID: json.Number("100"), Title: "Track"},
 			wantOK:  true,
 			wantURL: "https://api-v2.soundcloud.com/tracks/100",
 			wantID:  "100",
 		},
+		// Direct playlist with missing permalink
 		{
-			name:    "malformed permalink with valid ID falls back to track API",
-			item:    soundCloudTrack{ID: json.Number("100"), Title: "Track", PermalinkURL: "://invalid"},
+			name:    "direct playlist missing permalink",
+			item:    soundCloudTrack{Kind: "playlist", ID: json.Number("60"), Title: "Playlist"},
 			wantOK:  true,
-			wantURL: "https://api-v2.soundcloud.com/tracks/100",
+			wantURL: "https://api-v2.soundcloud.com/playlists/60",
+			wantID:  "60",
+		},
+		// Direct playlist with malformed permalink
+		{
+			name:    "direct playlist malformed permalink",
+			item:    soundCloudTrack{Kind: "playlist", ID: json.Number("60"), Title: "Playlist", PermalinkURL: "://invalid"},
+			wantOK:  true,
+			wantURL: "https://api-v2.soundcloud.com/playlists/60",
+			wantID:  "60",
+		},
+		// Direct playlist with foreign/unclassifiable permalink
+		{
+			name:    "direct playlist foreign permalink",
+			item:    soundCloudTrack{Kind: "playlist", ID: json.Number("60"), Title: "Playlist", PermalinkURL: "https://example.com/not-soundcloud"},
+			wantOK:  true,
+			wantURL: "https://api-v2.soundcloud.com/playlists/60",
+			wantID:  "60",
+		},
+		// Unknown kind with unambiguous valid track permalink
+		{
+			name:    "unknown kind track permalink",
+			item:    soundCloudTrack{Kind: "unknown", ID: json.Number("100"), Title: "X", PermalinkURL: "https://soundcloud.com/artist/track"},
+			wantOK:  true,
+			wantURL: "https://soundcloud.com/artist/track",
 			wantID:  "100",
 		},
+		// Unknown kind with unambiguous valid set permalink
 		{
-			name:    "unclassifiable permalink with valid ID falls back to track API",
-			item:    soundCloudTrack{ID: json.Number("100"), Title: "Track", PermalinkURL: "https://example.com/not-soundcloud"},
+			name:    "unknown kind set permalink",
+			item:    soundCloudTrack{Kind: "unknown", ID: json.Number("60"), Title: "X", PermalinkURL: "https://soundcloud.com/artist/sets/album"},
 			wantOK:  true,
-			wantURL: "https://api-v2.soundcloud.com/tracks/100",
-			wantID:  "100",
+			wantURL: "https://soundcloud.com/artist/sets/album",
+			wantID:  "60",
 		},
+		// Unknown kind with no usable permalink
 		{
-			name:   "missing permalink and missing ID skipped",
-			item:   soundCloudTrack{Title: "No ID"},
+			name:   "unknown kind no permalink",
+			item:   soundCloudTrack{Kind: "unknown", ID: json.Number("100"), Title: "X"},
 			wantOK: false,
 		},
+		// Empty kind with no usable permalink
 		{
-			name:   "zero ID skipped",
-			item:   soundCloudTrack{ID: json.Number("0"), Title: "Zero"},
+			name:   "empty kind no permalink",
+			item:   soundCloudTrack{ID: json.Number("100"), Title: "X"},
 			wantOK: false,
 		},
+		// Contradictory: kind track but set permalink
 		{
-			name:    "API playlist URL classified as playlist",
-			item:    soundCloudTrack{ID: json.Number("55"), Title: "API Playlist", PermalinkURL: "https://api-v2.soundcloud.com/playlists/55"},
+			name:   "contradictory track kind set permalink",
+			item:   soundCloudTrack{Kind: "track", ID: json.Number("100"), Title: "X", PermalinkURL: "https://soundcloud.com/artist/sets/album"},
+			wantOK: false,
+		},
+		// Contradictory: kind playlist but track permalink
+		{
+			name:   "contradictory playlist kind track permalink",
+			item:   soundCloudTrack{Kind: "playlist", ID: json.Number("60"), Title: "X", PermalinkURL: "https://soundcloud.com/artist/track"},
+			wantOK: false,
+		},
+		// Missing ID and missing permalink
+		{
+			name:   "track kind missing ID and permalink",
+			item:   soundCloudTrack{Kind: "track", Title: "X"},
+			wantOK: false,
+		},
+		// Zero ID
+		{
+			name:   "track kind zero ID",
+			item:   soundCloudTrack{Kind: "track", ID: json.Number("0"), Title: "X"},
+			wantOK: false,
+		},
+		// API playlist URL with playlist kind
+		{
+			name:    "playlist kind API playlist URL",
+			item:    soundCloudTrack{Kind: "playlist", ID: json.Number("55"), Title: "API Playlist", PermalinkURL: "https://api-v2.soundcloud.com/playlists/55"},
 			wantOK:  true,
 			wantURL: "https://api-v2.soundcloud.com/playlists/55",
 			wantID:  "55",
@@ -1020,6 +1160,24 @@ func TestSoundCloudDirectCollectionEntryClassification(t *testing.T) {
 				t.Errorf("ID = %q, want %q", entry.ID, test.wantID)
 			}
 		})
+	}
+}
+
+func TestSoundCloudMalformedDirectCandidateFallsThroughToNested(t *testing.T) {
+	// A malformed direct candidate (unknown kind, no permalink) must not
+	// prevent a valid nested candidate from being considered.
+	item := soundCloudCollectionItem{
+		soundCloudTrack: soundCloudTrack{Kind: "unknown", ID: json.Number("999"), Title: "Bad Direct"},
+		Track:           soundCloudTrack{Kind: "track", ID: json.Number("200"), Title: "Nested Track", PermalinkURL: "https://soundcloud.com/artist/nested"},
+	}
+	// Direct candidate should fail
+	if _, ok := soundCloudDirectCollectionEntry(item.soundCloudTrack); ok {
+		t.Fatal("malformed direct candidate should not produce an entry")
+	}
+	// Nested track should succeed
+	entry, ok := soundCloudTrackEntry(item.Track, "")
+	if !ok || entry.ID != "200" || entry.URL != "https://soundcloud.com/artist/nested" {
+		t.Fatalf("nested track entry = %#v, %v", entry, ok)
 	}
 }
 

@@ -1,7 +1,8 @@
 {
   "collection": [
-    {"id": 400, "title": "Mixed Track", "permalink_url": "https://soundcloud.com/fixture-artist/mixed-track"},
-    {"id": 63, "title": "Direct Playlist", "permalink_url": "https://soundcloud.com/fixture-artist/sets/direct-playlist"},
+    {"kind": "track", "id": 400, "title": "Mixed Track", "permalink_url": "https://soundcloud.com/fixture-artist/mixed-track"},
+    {"kind": "playlist", "id": 63, "title": "Direct Playlist", "permalink_url": "https://soundcloud.com/fixture-artist/sets/direct-playlist"},
+    {"kind": "playlist", "id": 64, "title": "Direct Playlist No Permalink"},
     {"playlist": {"id": 62, "title": "Nested Playlist", "permalink_url": "https://soundcloud.com/fixture-artist/sets/nested-playlist", "set_type": "playlist"}}
   ],
   "next_href": null
