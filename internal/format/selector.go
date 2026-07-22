@@ -315,11 +315,8 @@ func selectTerm(formats []*value.Object, term Term) (Selection, bool) {
 	var selected *value.Object
 	var selectedScore float64
 	for _, candidate := range formats {
-		vcodec, _ := candidate.Lookup("vcodec").StringValue()
-		acodec, _ := candidate.Lookup("acodec").StringValue()
-		hasVideo := vcodec != "" && vcodec != "none"
-		hasAudio := acodec != "" && acodec != "none"
-		if wantVideo && !hasVideo || wantAudio && !hasAudio {
+		hasVideo, hasAudio := candidateMediaKinds(candidate)
+		if wantVideo && (!hasVideo || hasAudio) || wantAudio && (!hasAudio || hasVideo) {
 			continue
 		}
 		if !matchesFilters(candidate, term.Filters) {
@@ -395,11 +392,19 @@ func preferenceRank(object *value.Object, options Options) int {
 }
 
 func candidateMatchesKind(candidate *value.Object, wantVideo, wantAudio bool, filters []Filter) bool {
+	hasVideo, hasAudio := candidateMediaKinds(candidate)
+	return (!wantVideo || hasVideo && !hasAudio) && (!wantAudio || hasAudio && !hasVideo) && matchesFilters(candidate, filters)
+}
+
+// An explicit absent side is enough to classify a track even when an
+// extractor cannot name the present codec. This matches yt-dlp's bestvideo and
+// bestaudio treatment of acodec=none and vcodec=none respectively.
+func candidateMediaKinds(candidate *value.Object) (hasVideo, hasAudio bool) {
 	vcodec, _ := candidate.Lookup("vcodec").StringValue()
 	acodec, _ := candidate.Lookup("acodec").StringValue()
-	hasVideo := vcodec != "" && vcodec != "none"
-	hasAudio := acodec != "" && acodec != "none"
-	return (!wantVideo || hasVideo) && (!wantAudio || hasAudio) && matchesFilters(candidate, filters)
+	hasVideo = vcodec != "none" && (vcodec != "" || acodec == "none")
+	hasAudio = acodec != "none" && (acodec != "" || vcodec == "none")
+	return hasVideo, hasAudio
 }
 
 func matchesFilters(object *value.Object, filters []Filter) bool {

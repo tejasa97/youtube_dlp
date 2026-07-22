@@ -543,11 +543,13 @@ func (operation *operation) processMedia(ctx context.Context, info value.Info, e
 	if pattern == "" {
 		pattern = "%(title)s.%(ext)s"
 	}
+	outputInfo := value.NewInfo(info.Fields().Clone())
+	outputInfo.Set("ext", value.String(mergedOutputExtension(selectedFormats)))
 	outputDir := operation.request.OutputDir
 	if outputDir == "" {
 		outputDir = "."
 	}
-	destination, err := outputtemplate.Resolve(outputDir, pattern, info)
+	destination, err := outputtemplate.Resolve(outputDir, pattern, outputInfo)
 	if err != nil {
 		return Result{}, categorized("render output template", err)
 	}
@@ -631,7 +633,7 @@ func categorized(op string, err error) error {
 		errors.Is(err, chromiumwindows.ErrUnsupportedBrowser), errors.Is(err, chromiumwindows.ErrUnsupportedPlatform):
 		category = ErrorUnsupported
 	case errors.Is(err, extractor.ErrUnavailable), errors.Is(err, extractor.ErrRegionRestricted), errors.Is(err, extractor.ErrChallengeSolver),
-		errors.Is(err, extractor.ErrTransportProfile), errors.Is(err, network.ErrImpersonationUnavailable):
+		errors.Is(err, extractor.ErrTransportProfile), errors.Is(err, extractor.ErrTransportIsolation), errors.Is(err, network.ErrImpersonationUnavailable):
 		category = ErrorUnsupported
 	case errors.Is(err, ffmpeg.ErrFFmpegUnavailable), errors.Is(err, ffmpeg.ErrFFprobeUnavailable):
 		category = ErrorUnsupported

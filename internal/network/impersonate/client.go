@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"net"
 	"net/http"
 	"net/url"
 	"time"
@@ -31,13 +32,17 @@ func New(config Config) (*Client, error) {
 	if config.Profile.Name == "" {
 		return nil, errors.New("impersonation profile is required")
 	}
+	timeout := compatibleTimeout(config.Timeout)
 	client := req.C().
 		SetLogger(nil).
-		SetTimeout(compatibleTimeout(config.Timeout)).
-		SetTLSClientConfig(&tls.Config{
-			RootCAs:    config.RootCAs,
-			NextProtos: []string{"h2", "http/1.1"},
-		})
+		SetTimeout(0).
+		SetDial((&net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second}).DialContext).
+		SetTLSHandshakeTimeout(timeout)
+	client.SetResponseHeaderTimeout(timeout)
+	client.SetTLSClientConfig(&tls.Config{
+		RootCAs:    config.RootCAs,
+		NextProtos: []string{"h2", "http/1.1"},
+	})
 	config.Profile.apply(client)
 	// The previous impersonation stack never consulted HTTP_PROXY or related
 	// process environment variables. req defaults to ProxyFromEnvironment, so
@@ -49,7 +54,7 @@ func New(config Config) (*Client, error) {
 		if err != nil || proxyURL.Scheme == "" || proxyURL.Host == "" {
 			return nil, errors.New("invalid impersonation proxy URL")
 		}
-		dialContext, err := newProxyDialContext(proxyURL, compatibleTimeout(config.Timeout))
+		dialContext, err := newProxyDialContext(proxyURL, timeout)
 		if err != nil {
 			return nil, err
 		}
