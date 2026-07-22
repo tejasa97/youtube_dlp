@@ -59,5 +59,11 @@ protected-player solver/timing limitation, not a route-parser failure. It stays
 explicitly categorized as unsupported and is not represented as full live
 download parity.
 
+The EJS solver now uses a two-phase preprocess/solve split with a preprocessed
+player cache and a 60 s hard-max wall time (up from 30 s), which addresses the
+root cause for real YouTube player scripts that require extended meriyah-based
+parsing in the pure-Go goja engine. Live canary validation remains
+service-dependent and non-authoritative.
+
 The removed historical `BaW_jenozKc` test video and unavailable NASA live
 recording remain upstream content changes, not regressions in this patch set.

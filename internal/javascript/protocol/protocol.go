@@ -48,7 +48,12 @@ const (
 	DefaultModuleBytes = 2 << 20
 	DefaultMaxModules  = 16
 
-	HardMaxWallTime    = 30 * time.Second
+	// HardMaxWallTime bounds a single protocol request. The EJS player
+	// preprocessing step runs a JS parser (meriyah) inside the pure-Go goja
+	// engine; real YouTube player scripts (~1-2 MB) require substantially more
+	// time than generic evaluations. 60 s keeps the bound tight while allowing
+	// valid preprocessing to complete without resorting to unbounded execution.
+	HardMaxWallTime    = 60 * time.Second
 	HardMaxMemoryBytes = 512 << 20
 	HardMaxOutputBytes = 8 << 20
 	HardMaxSourceBytes = 8 << 20

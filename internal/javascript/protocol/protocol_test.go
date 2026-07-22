@@ -77,3 +77,61 @@ func withRequest(request Request, mutate func(*Request)) Request {
 	mutate(&request)
 	return request
 }
+
+// FuzzRequestNormalize exercises the request validation boundary with
+// arbitrary inputs to ensure no panics or unbounded behavior.
+func FuzzRequestNormalize(f *testing.F) {
+	f.Add([]byte(`{"version":1,"id":"x","operation":"evaluate","script":"1"}`))
+	f.Add([]byte(`{"version":1,"id":"y","operation":"call","script":"function f(){}","function":"f"}`))
+	f.Add([]byte(`{"version":2,"id":"z","operation":"evaluate","script":""}`))
+	f.Add([]byte(`{}`))
+	f.Add([]byte(`{"version":1,"id":"","operation":"evaluate","script":"x"}`))
+	f.Add([]byte(`{"version":1,"id":"a","operation":"bad","script":"1"}`))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		var request Request
+		if err := json.Unmarshal(data, &request); err != nil {
+			return // Invalid JSON is not a protocol boundary concern.
+		}
+		// Normalize must never panic regardless of input.
+		normalized, err := request.Normalize()
+		if err != nil {
+			return
+		}
+		// If normalization succeeds, invariants must hold.
+		if normalized.Version != Version {
+			t.Fatal("normalized version mismatch")
+		}
+		if normalized.Limits.WallTimeMS <= 0 || normalized.Limits.WallTimeMS > HardMaxWallTime.Milliseconds() {
+			t.Fatal("normalized wall time out of bounds")
+		}
+		if normalized.Limits.MemoryBytes <= 0 || normalized.Limits.MemoryBytes > HardMaxMemoryBytes {
+			t.Fatal("normalized memory out of bounds")
+		}
+		if normalized.ScriptHash == "" {
+			t.Fatal("normalized script hash is empty")
+		}
+	})
+}
+
+// FuzzFrameRoundTrip exercises the frame encoding boundary.
+func FuzzFrameRoundTrip(f *testing.F) {
+	f.Add([]byte(`{"version":1}`))
+	f.Add([]byte(""))
+	f.Add(make([]byte, 1024))
+	f.Fuzz(func(t *testing.T, payload []byte) {
+		if len(payload) > MaxFrameBytes {
+			return // Skip oversized payloads.
+		}
+		var buffer bytes.Buffer
+		if err := WriteFrame(&buffer, payload); err != nil {
+			return
+		}
+		got, err := ReadFrame(&buffer, MaxFrameBytes)
+		if err != nil {
+			t.Fatalf("ReadFrame failed after WriteFrame: %v", err)
+		}
+		if !bytes.Equal(got, payload) {
+			t.Fatal("frame round-trip mismatch")
+		}
+	})
+}
