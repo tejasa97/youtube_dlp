@@ -32,8 +32,9 @@ propagated when a provider returns it.
 - Go strings cannot guarantee zeroization. Tokens are therefore kept out of
   errors and events, but exist in provider responses, request URLs, and cache
   entries as required for playback.
-- Direct SABR/UMP, protected subtitles, authenticated Innertube breadth, and
-  renderer breadth remain later waves.
+- Direct SABR/UMP, authenticated Innertube breadth, and renderer breadth remain
+  later waves. The `subs` context is now consumed by the bounded caption
+  renderer documented in `YOUTUBE_CAPTIONS_EVIDENCE.md`.
 
 Deterministic fixtures use inert synthetic tokens and `.example` media URLs.
 No live token, credential, visitor identity, or captured production response is

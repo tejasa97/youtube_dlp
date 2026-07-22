@@ -90,8 +90,9 @@ func TestDirectorFetchPolicies(t *testing.T) {
 		required bool
 		wantCall bool
 		wantOK   bool
+		wantErr  error
 	}{
-		{name: "never-required", policy: FetchNever, required: true},
+		{name: "never-required", policy: FetchNever, required: true, wantErr: ErrUnavailable},
 		{name: "auto-optional", policy: FetchAuto},
 		{name: "auto-required", policy: FetchAuto, required: true, wantCall: true, wantOK: true},
 		{name: "always-optional", policy: FetchAlways, wantCall: true, wantOK: true},
@@ -109,10 +110,28 @@ func TestDirectorFetchPolicies(t *testing.T) {
 				t.Fatal(err)
 			}
 			token, ok, err := director.Resolve(context.Background(), request, test.required)
-			if err != nil || called != test.wantCall || ok != test.wantOK {
+			if !errors.Is(err, test.wantErr) || called != test.wantCall || ok != test.wantOK {
 				t.Fatalf("resolve token=%q ok=%v called=%v error=%v", token, ok, called, err)
 			}
 		})
+	}
+}
+
+func TestDirectorRecommendedPolicyFetchesWithoutRequiringSuccess(t *testing.T) {
+	var calls atomic.Int32
+	director, err := New(Config{Providers: []Provider{ProviderFunc{
+		ProviderName: "fixture",
+		Function: func(context.Context, Request) (Response, error) {
+			calls.Add(1)
+			return Response{}, ErrRejected
+		},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := validRequestFixture(ContextPlayer)
+	if token, ok, err := director.ResolvePolicy(context.Background(), request, false, true); err != nil || ok || token != "" || calls.Load() != 1 {
+		t.Fatalf("recommended resolve = %q %v %v calls=%d", token, ok, err, calls.Load())
 	}
 }
 

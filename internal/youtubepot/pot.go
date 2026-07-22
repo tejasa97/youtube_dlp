@@ -172,13 +172,27 @@ func safeProviderName(provider Provider) (name string, ok bool) {
 // ("", false, nil); required misses return ErrUnavailable. Provider error text
 // and token material are never propagated into diagnostics.
 func (director *Director) Resolve(ctx context.Context, request Request, required bool) (string, bool, error) {
+	return director.ResolvePolicy(ctx, request, required, false)
+}
+
+// ResolvePolicy additionally permits a caller to recommend an optional token.
+// In auto mode recommended requests invoke providers but a miss remains
+// non-fatal. This keeps the decision to fetch separate from the decision to
+// fail when no token is available.
+func (director *Director) ResolvePolicy(ctx context.Context, request Request, required, recommended bool) (string, bool, error) {
 	if director == nil || ctx == nil || !validRequest(request) {
 		return "", false, ErrInvalidRequest
 	}
 	if err := ctx.Err(); err != nil {
 		return "", false, err
 	}
-	if director.policy == FetchNever || director.policy == FetchAuto && !required {
+	if director.policy == FetchNever {
+		if required {
+			return "", false, ErrUnavailable
+		}
+		return "", false, nil
+	}
+	if director.policy == FetchAuto && !required && !recommended {
 		return "", false, nil
 	}
 	key := cacheKey(request)
