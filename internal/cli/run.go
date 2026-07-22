@@ -112,6 +112,31 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	audioBitrate := flags.String("audio-bitrate", "", "ffmpeg audio bitrate for --extract-audio")
 	audioQuality := flags.Int("audio-quality", 0, "ffmpeg audio quality for --extract-audio")
 	remuxVideo := flags.String("remux-video", "", "remux video to the selected container with ffmpeg")
+	writeSubtitles := flags.Bool("write-subs", false, "write manual subtitle sidecar files")
+	flags.BoolVar(writeSubtitles, "write-srt", false, "alias for --write-subs")
+	flags.BoolFunc("no-write-subs", "disable writing manual subtitles", func(string) error {
+		*writeSubtitles = false
+		return nil
+	})
+	flags.BoolFunc("no-write-srt", "alias for --no-write-subs", func(string) error {
+		*writeSubtitles = false
+		return nil
+	})
+	writeAutomaticSubtitles := flags.Bool("write-auto-subs", false, "write automatic-caption sidecar files")
+	flags.BoolVar(writeAutomaticSubtitles, "write-automatic-subs", false, "alias for --write-auto-subs")
+	flags.BoolFunc("no-write-auto-subs", "disable writing automatic captions", func(string) error {
+		*writeAutomaticSubtitles = false
+		return nil
+	})
+	flags.BoolFunc("no-write-automatic-subs", "alias for --no-write-auto-subs", func(string) error {
+		*writeAutomaticSubtitles = false
+		return nil
+	})
+	subtitleFormat := flags.String("sub-format", "best", "subtitle format preference separated by / (for example srt/vtt/best)")
+	allSubtitles := flags.Bool("all-subs", false, "select every available subtitle language (requires a subtitle write option)")
+	var subtitleLanguages stringListFlag
+	flags.Var(&subtitleLanguages, "sub-langs", "subtitle languages or regexes separated by commas (repeatable)")
+	flags.Var(&subtitleLanguages, "srt-langs", "alias for --sub-langs")
 	var configLocations stringListFlag
 	flags.Var(&configLocations, "config-location", "load an additional configuration file")
 	flags.Var(&configLocations, "config-locations", "alias for --config-location")
@@ -196,6 +221,10 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		PreferFreeFormats: *preferFreeFormats, AllowUnplayableFormats: *allowUnplayable,
 		ProgressTemplate: *progressTemplate, MatchFilters: append([]string(nil), matchFilters...),
 		ParseMetadata: append([]string(nil), parseMetadata...), ReplaceMetadata: append([]string(nil), replaceMetadata...),
+		Subtitles: ytdlp.SubtitleOptions{
+			WriteManual: *writeSubtitles, WriteAutomatic: *writeAutomaticSubtitles,
+			Languages: subtitleLanguageRules(subtitleLanguages, *allSubtitles), Format: *subtitleFormat,
+		},
 		Downloader: downloaderOptions, Postprocessors: postprocessors,
 	})
 	if telemetryCollector != nil {
@@ -221,6 +250,25 @@ func (values *stringListFlag) String() string { return strings.Join(*values, ","
 func (values *stringListFlag) Set(value string) error {
 	*values = append(*values, value)
 	return nil
+}
+
+func splitCommaList(values []string) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		for _, item := range strings.Split(value, ",") {
+			if item = strings.TrimSpace(item); item != "" {
+				result = append(result, item)
+			}
+		}
+	}
+	return result
+}
+
+func subtitleLanguageRules(values []string, all bool) []string {
+	if all {
+		return []string{"all"}
+	}
+	return splitCommaList(values)
 }
 
 type byteSizeFlag int64

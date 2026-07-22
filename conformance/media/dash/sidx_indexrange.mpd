@@ -1,0 +1,20 @@
+<MPD type="static" mediaPresentationDuration="PT4S">
+  <Period>
+    <AdaptationSet contentType="video" mimeType="video/mp4" codecs="avc1.64001F">
+      <Representation id="v1" bandwidth="2000000" width="1280" height="720">
+        <BaseURL>video_720p.mp4</BaseURL>
+        <SegmentBase indexRange="100-563">
+          <Initialization range="0-99"/>
+        </SegmentBase>
+      </Representation>
+    </AdaptationSet>
+    <AdaptationSet contentType="audio" mimeType="audio/mp4" codecs="mp4a.40.2">
+      <SegmentBase indexRange="0-399">
+        <Initialization sourceURL="audio_init.mp4" range="0-199"/>
+      </SegmentBase>
+      <Representation id="a1" bandwidth="128000">
+        <BaseURL>audio_128k.mp4</BaseURL>
+      </Representation>
+    </AdaptationSet>
+  </Period>
+</MPD>

@@ -101,6 +101,7 @@ type Request struct {
 	PreferFreeFormats         bool
 	AllowUnplayableFormats    bool
 	YouTubeTranslatedCaptions bool
+	Subtitles                 SubtitleOptions
 	ProgressTemplate          string
 	MatchFilters              []string
 	ParseMetadata             []string
@@ -544,14 +545,35 @@ func (operation *operation) processMedia(ctx context.Context, info value.Info, e
 			return result, nil
 		}
 	}
+	var selectedFormats []mediaformat.Selection
+	if !operation.request.SkipDownload {
+		selectedFormats, err = operation.selectFormats(info)
+		if err != nil {
+			return Result{}, categorized("select format", err)
+		}
+	}
+	selectedSubtitles, requestedSubtitles, err := selectSubtitles(info, operation.request.Subtitles)
+	if err != nil {
+		return Result{}, categorized("select subtitles", err)
+	}
+	if requestedSubtitles != nil {
+		info.Set("requested_subtitles", value.ObjectValue(requestedSubtitles))
+	}
+	result.Artifacts, result.Bytes, err = operation.downloadSubtitles(ctx, info, selectedSubtitles, operation.eventSink())
+	if err != nil {
+		return Result{}, categorized("download subtitles", err)
+	}
+	if len(result.Artifacts) > 0 {
+		result.Downloaded = true
+	}
+	result.InfoJSON, err = encodeInfo(info)
+	if err != nil {
+		return Result{}, err
+	}
 	if operation.request.SkipDownload {
 		return result, nil
 	}
 
-	selectedFormats, err := operation.selectFormats(info)
-	if err != nil {
-		return Result{}, categorized("select format", err)
-	}
 	pattern := operation.request.OutputTemplate
 	if pattern == "" {
 		pattern = "%(title)s.%(ext)s"
@@ -572,16 +594,18 @@ func (operation *operation) processMedia(ctx context.Context, info value.Info, e
 	if err != nil {
 		return Result{}, categorized("download selected formats", err)
 	}
-	downloadedPath, result.Artifacts, err = operation.applyPostprocessors(ctx, outputDir, downloadedPath, sink)
+	var mediaArtifacts []Artifact
+	downloadedPath, mediaArtifacts, err = operation.applyPostprocessors(ctx, outputDir, downloadedPath, sink)
 	if err != nil {
 		return Result{}, categorized("run postprocessors", err)
 	}
+	result.Artifacts = append(result.Artifacts, mediaArtifacts...)
 	if info, statErr := os.Stat(downloadedPath); statErr == nil {
 		downloadedBytes = info.Size()
 	}
 	result.Downloaded = true
 	result.Filename = downloadedPath
-	result.Bytes = downloadedBytes
+	result.Bytes += downloadedBytes
 	if operation.archive != nil {
 		if _, err := operation.archive.Record(ctx, archiveIdentity); err != nil {
 			return Result{}, categorized("record download archive", err)

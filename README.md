@@ -79,6 +79,11 @@ Download a supported URL:
 
     ./bin/ytdlp-go URL
 
+Write selected subtitle sidecars without downloading the media:
+
+    ./bin/ytdlp-go --skip-download --write-subs --write-auto-subs \
+        --sub-langs "en.*,ja" --sub-format "srt/vtt/best" URL
+
 Extract metadata without downloading:
 
     ./bin/ytdlp-go --skip-download --print-json URL
