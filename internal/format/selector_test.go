@@ -88,6 +88,25 @@ func TestDefaultPrefersAdaptivePairThenCombined(t *testing.T) {
 	}
 }
 
+func TestDefaultInfersAdaptiveKindsFromExplicitAbsentCodecSide(t *testing.T) {
+	video := value.ObjectValue(value.NewObject(
+		value.Field{Key: "format_id", Value: value.String("video")},
+		value.Field{Key: "url", Value: value.String("https://example.invalid/video")},
+		value.Field{Key: "acodec", Value: value.String("none")},
+		value.Field{Key: "height", Value: value.Int(1080)},
+	))
+	audio := value.ObjectValue(value.NewObject(
+		value.Field{Key: "format_id", Value: value.String("audio")},
+		value.Field{Key: "url", Value: value.String("https://example.invalid/audio")},
+		value.Field{Key: "vcodec", Value: value.String("none")},
+	))
+	info := value.NewInfo(value.NewObject(value.Field{Key: "formats", Value: value.List(video, audio)}))
+	selected, err := Default(info, Options{})
+	if err != nil || len(selected) != 2 || selected[0].ID != "video" || selected[1].ID != "audio" {
+		t.Fatalf("Default() = %#v, %v", selected, err)
+	}
+}
+
 func TestSelectorRejectsInvalidSyntaxAndNoMatch(t *testing.T) {
 	for _, input := range []string{"", "?unknown", "best[height]", "best[height>10", "best+"} {
 		if _, err := ParseSelector(input); !errors.Is(err, ErrInvalidSelector) {
