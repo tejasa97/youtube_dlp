@@ -8,6 +8,11 @@ A listed extractor has deterministic routing and evidence for its declared
 corpus. It may not cover every URL shape, playlist, account state, region,
 live-state transition, anti-bot response, or subsequent service change.
 
+When an extractor exposes `subtitles` or `automatic_captions`, the common
+language/format selector can write native subtitle sidecars, including with
+`--skip-download`. Availability still depends on the extractor's declared
+corpus and the remote service response.
+
 | Extractor | Representative URL family | Principal risk coverage |
 | --- | --- | --- |
 | generic | Direct HTTP/HTTPS media | simple/direct |
@@ -73,7 +78,7 @@ The following limitations are intentional and remain:
   playability surfaces an authentication error rather than a signed-in
   recovery path;
 - some protected active streams may still hit the documented EJS-helper
-  timeout while the player challenge is being solved; and
+  timeout while the player challenge is being solved;
 - subtitle listing and CLI conversion/embedding are not yet exposed; and
 - when a caller separately selects an adaptive video stream and an adaptive
   audio stream, they must be merged with ffmpeg (or an equivalent muxer);
