@@ -56,6 +56,12 @@ func (server *Server) handler() http.Handler {
 	mux.HandleFunc("/mutable", server.handleMutable)
 	mux.HandleFunc("/headers", server.handleHeaders)
 	mux.HandleFunc("/large", server.handleLarge)
+	mux.HandleFunc("/subs/en.srt", fixedBody("application/x-subrip", []byte("1\n00:00:00,000 --> 00:00:01,000\nmanual english\n")))
+	mux.HandleFunc("/subs/en.vtt", fixedBody("text/vtt", []byte("WEBVTT\n\n00:00.000 --> 00:01.000\nmanual english\n")))
+	mux.HandleFunc("/subs/es.vtt", fixedBody("text/vtt", []byte("WEBVTT\n\n00:00.000 --> 00:01.000\nmanual spanish\n")))
+	mux.HandleFunc("/subs/fr.vtt", fixedBody("text/vtt", []byte("WEBVTT\n\n00:00.000 --> 00:01.000\nmanual french\n")))
+	mux.HandleFunc("/subs/auto-es.vtt", fixedBody("text/vtt", []byte("WEBVTT\n\n00:00.000 --> 00:01.000\nautomatic spanish\n")))
+	mux.HandleFunc("/subs/auto-pt.vtt", fixedBody("text/vtt", []byte("WEBVTT\n\n00:00.000 --> 00:01.000\nautomatic portuguese\n")))
 	mux.HandleFunc("/hls/master.m3u8", server.handleHLSMaster)
 	mux.HandleFunc("/hls/high.m3u8", server.handleHLSHigh)
 	mux.HandleFunc("/hls/low.m3u8", server.handleHLSLow)
@@ -128,12 +134,29 @@ func (server *Server) handlePage(writer http.ResponseWriter, request *http.Reque
 		value.Field{Key: "ext", Value: value.String("bin")},
 		value.Field{Key: "filesize", Value: value.Int(int64(len(server.media)))},
 	)
+	subtitle := func(path, extension string) value.Value {
+		return value.ObjectValue(value.NewObject(
+			value.Field{Key: "url", Value: value.String(origin(request) + path)},
+			value.Field{Key: "ext", Value: value.String(extension)},
+		))
+	}
+	manualSubtitles := value.NewObject(
+		value.Field{Key: "en", Value: value.List(subtitle("/subs/en.srt", "srt"), subtitle("/subs/en.vtt", "vtt"))},
+		value.Field{Key: "es", Value: value.List(subtitle("/subs/es.vtt", "vtt"))},
+		value.Field{Key: "fr", Value: value.List(subtitle("/subs/fr.vtt", "vtt"))},
+	)
+	automaticCaptions := value.NewObject(
+		value.Field{Key: "es", Value: value.List(subtitle("/subs/auto-es.vtt", "vtt"))},
+		value.Field{Key: "pt", Value: value.List(subtitle("/subs/auto-pt.vtt", "vtt"))},
+	)
 	info := value.NewObject(
 		value.Field{Key: "id", Value: value.String("fixture-direct")},
 		value.Field{Key: "title", Value: value.String("Deterministic Fixture")},
 		value.Field{Key: "webpage_url", Value: value.String(origin(request) + request.URL.Path)},
 		value.Field{Key: "ext", Value: value.String("bin")},
 		value.Field{Key: "formats", Value: value.List(value.ObjectValue(format))},
+		value.Field{Key: "subtitles", Value: value.ObjectValue(manualSubtitles)},
+		value.Field{Key: "automatic_captions", Value: value.ObjectValue(automaticCaptions)},
 	)
 
 	writer.Header().Set("Content-Type", "application/json; charset=utf-8")
