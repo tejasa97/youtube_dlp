@@ -363,16 +363,17 @@ const (
 )
 
 type operation struct {
-	client        *Client
-	request       Request
-	transport     *network.Client
-	registry      *extractor.Registry
-	solver        extractor.YouTubeChallengeSolver
-	archive       *archive.Store
-	cache         *cache.Store
-	credentials   extractor.CredentialProvider
-	compatibility compatibilityPlan
-	rootExtractor *string
+	client                           *Client
+	request                          Request
+	transport                        *network.Client
+	registry                         *extractor.Registry
+	solver                           extractor.YouTubeChallengeSolver
+	archive                          *archive.Store
+	cache                            *cache.Store
+	credentials                      extractor.CredentialProvider
+	compatibility                    compatibilityPlan
+	rootExtractor                    *string
+	playlistItemsRangeWarningEmitted bool
 }
 
 func (operation *operation) process(ctx context.Context, rawURL, extractorKey string, overlay *extractor.Entry, ancestors map[string]bool, depth int) (Result, error) {
@@ -423,7 +424,13 @@ func (operation *operation) process(ctx context.Context, rawURL, extractorKey st
 }
 
 func (operation *operation) processPlaylist(ctx context.Context, extracted extractor.Extraction, extractorName string, ancestors map[string]bool, depth int) (Result, error) {
-	iterator := newSelectedPlaylistIterator(extracted.Entries.Iterator(), operation.request.Playlist)
+	if err := operation.emitPlaylistItemsRangeWarning(ctx); err != nil {
+		return Result{}, err
+	}
+	iterator, err := newPlaylistEntryIterator(extracted.Entries.Iterator(), operation.request.Playlist)
+	if err != nil {
+		return Result{}, categorized(extractorName+" playlist selection", fmt.Errorf("%w: %w", errInvalidRequestOptions, err))
+	}
 	var reversed []indexedPlaylistEntry
 	if operation.request.Playlist.Reverse {
 		for {
@@ -494,9 +501,37 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 	}
 }
 
+func (operation *operation) emitPlaylistItemsRangeWarning(ctx context.Context) error {
+	if operation.playlistItemsRangeWarningEmitted || !playlistItemsOverrideRange(operation.request.Playlist) {
+		return nil
+	}
+	operation.playlistItemsRangeWarningEmitted = true
+	if err := operation.client.emit(ctx, Event{
+		Kind: EventMetadataWarning, Message: "playlist items override playlist start and end",
+	}); err != nil {
+		return &Error{Category: ErrorInternal, Op: "emit playlist selection warning", Err: err}
+	}
+	return nil
+}
+
 type indexedPlaylistEntry struct {
 	Entry       extractor.Entry
 	SourceIndex int
+}
+
+type indexedPlaylistEntryIterator interface {
+	Next(context.Context) (indexedPlaylistEntry, bool, error)
+}
+
+func newPlaylistEntryIterator(source extractor.EntryIterator, options PlaylistOptions) (indexedPlaylistEntryIterator, error) {
+	if options.Items == "" {
+		return newSelectedPlaylistIterator(source, options), nil
+	}
+	specs, err := parsePlaylistItems(options.Items)
+	if err != nil {
+		return nil, err
+	}
+	return &playlistItemsIterator{source: source, specs: specs}, nil
 }
 
 type selectedPlaylistIterator struct {
