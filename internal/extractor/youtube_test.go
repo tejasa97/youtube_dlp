@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -110,6 +111,149 @@ func TestYouTubeSuitableAndVideoID(t *testing.T) {
 		if _, err := youtubeVideoID(rawURL); !errors.Is(err, ErrUnsupported) {
 			t.Fatalf("youtubeVideoID(%q) error = %v", rawURL, err)
 		}
+	}
+}
+
+func TestYouTubeChannelLiveAliasMatching(t *testing.T) {
+	for _, rawURL := range []string{
+		"https://www.youtube.com/@fixture/live",
+		"https://youtube.com/channel/UCfixture_channel_00001/live",
+		"https://m.youtube.com/user/fixture.name/live/",
+		"https://www.youtube.com/c/fixture-name/live",
+		"https://www.youtube.com/c/ИгорьКлейнер/live?feature=share#ignored",
+		"http://youtube.com/TheYoungTurks/live?feature=share",
+	} {
+		if !youtubeChannelLiveAlias(rawURL) {
+			t.Errorf("youtubeChannelLiveAlias(%q) = false", rawURL)
+		}
+	}
+	for _, rawURL := range []string{
+		"https://www.youtube.com/@fixture/videos",
+		"https://example.com/@fixture/live",
+		"https://www.youtube.com/@fixture%2Flive",
+		"https://www.youtube.com/watch/live",
+		"https://www.youtube.com/feed/live",
+		"https://www.youtube.com/signin/live",
+		"https://www.youtube.com/s/live",
+	} {
+		if youtubeChannelLiveAlias(rawURL) {
+			t.Errorf("youtubeChannelLiveAlias(%q) = true", rawURL)
+		}
+	}
+	canonical, ok := youtubeChannelLiveAliasURL("http://m.youtube.com/@fixture/live?feature=share#ignored")
+	if !ok || canonical != "https://www.youtube.com/@fixture/live" {
+		t.Fatalf("canonical alias = %q, %v", canonical, ok)
+	}
+}
+
+func TestYouTubeChannelLiveAliasResolvesThroughVideoExtractor(t *testing.T) {
+	const alias = "https://www.youtube.com/@fixture/live"
+	watch := readYouTubeFixture(t, "live-watch.html")
+	transport := &memoryTransport{pages: map[string][]byte{
+		alias: watch, "https://www.youtube.com/watch?v=livefix0001": watch,
+	}}
+	result, err := NewYouTube().Extract(context.Background(), Request{URL: alias, Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id, _ := result.Info.ID(); id != "livefix0001" {
+		t.Fatalf("id = %q", id)
+	}
+	if status, _ := result.Info.Lookup("live_status").StringValue(); status != "is_live" {
+		t.Fatalf("live_status = %q", status)
+	}
+	if !reflect.DeepEqual(transport.reads, []string{alias, "https://www.youtube.com/watch?v=livefix0001"}) {
+		t.Fatalf("reads = %v", transport.reads)
+	}
+}
+
+func TestYouTubeChannelLiveAliasOfflineAndMalformed(t *testing.T) {
+	const alias = "https://www.youtube.com/@fixture/live"
+	transport := &memoryTransport{pages: map[string][]byte{alias: []byte(`ytInitialData={"contents":{}};`)}}
+	if _, err := NewYouTube().Extract(context.Background(), Request{URL: alias, Transport: transport}); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("offline error = %v", err)
+	}
+
+	badPlayer := []byte(`ytInitialPlayerResponse={"playabilityStatus":{"status":"OK"},"videoDetails":{"videoId":"bad"}};`)
+	transport = &memoryTransport{pages: map[string][]byte{alias: badPlayer}}
+	if _, err := NewYouTube().Extract(context.Background(), Request{URL: alias, Transport: transport}); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("malformed error = %v", err)
+	}
+}
+
+func TestParseYouTubeTargetOffsets(t *testing.T) {
+	for _, test := range []struct {
+		url              string
+		start, end       float64
+		hasStart, hasEnd bool
+	}{
+		{"https://www.youtube.com/watch?v=fixture0001&t=1s&end=9", 1, 9, true, true},
+		{"https://www.youtube.com/watch?v=fixture0001#t=1h2m3.5s&end=4000", 3723.5, 4000, true, true},
+		{"https://www.youtube.com/watch?v=fixture0001#t=2m&t=3m", 120, 0, true, false},
+		{"https://www.youtube.com/watch?v=fixture0001&t=bad&start=7", 0, 0, false, false},
+		{"https://www.youtube.com/watch?v=fixture0001&t=-1&end=huge", 0, 0, false, false},
+		{"https://www.youtube.com/watch?v=fixture0001&t=1:02", 62, 0, true, false},
+		{"https://www.youtube.com/watch?v=fixture0001&t=1:02:03.5", 3723.5, 0, true, false},
+		{"https://www.youtube.com/watch?v=fixture0001&t=P1DT2H3M4S", 93784, 0, true, false},
+		{"https://www.youtube.com/watch?v=fixture0001&t=1.5hours", 5400, 0, true, false},
+	} {
+		target, err := parseYouTubeTarget(test.url)
+		if err != nil {
+			t.Fatalf("parseYouTubeTarget(%q): %v", test.url, err)
+		}
+		if target.videoID != "fixture0001" || (target.startTime != nil) != test.hasStart || (target.endTime != nil) != test.hasEnd {
+			t.Fatalf("parseYouTubeTarget(%q) = %#v", test.url, target)
+		}
+		if target.startTime != nil && *target.startTime != test.start {
+			t.Fatalf("start(%q) = %v", test.url, *target.startTime)
+		}
+		if target.endTime != nil && *target.endTime != test.end {
+			t.Fatalf("end(%q) = %v", test.url, *target.endTime)
+		}
+	}
+}
+
+func TestParseYouTubeOffsetReferenceCases(t *testing.T) {
+	// Derived from yt-dlp test/test_utils.py::test_parse_duration at
+	// aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8.
+	for _, test := range []struct {
+		input string
+		want  float64
+	}{
+		{"1337:12", 80232},
+		{"3 hours, 11 mins, 53 secs", 11513},
+		{"01:02:03.05", 3723.05},
+		{"T30M38S", 1838},
+		{"1 hour 3 minutes", 3780},
+		{"87 Min.", 5220},
+		{"PT1H0.040S", 3600.04},
+		{"PT00H03M30SZ", 210},
+		{"P0Y0M0DT0H4M20.880S", 260.88},
+		{"01:02:03:050", 3723.05},
+		{"103:050", 103.05},
+		{"1HR 3MIN", 3780},
+		{"2hrs 3mins", 7380},
+	} {
+		got, ok := parseYouTubeOffset(test.input)
+		if !ok || math.Abs(got-test.want) > 1e-9 {
+			t.Errorf("parseYouTubeOffset(%q) = (%v, %v), want (%v, true)", test.input, got, ok, test.want)
+		}
+	}
+}
+
+func TestYouTubeExtractionPreservesURLOffsets(t *testing.T) {
+	watch := readYouTubeFixture(t, "live-watch.html")
+	transport := &memoryTransport{pages: map[string][]byte{"https://www.youtube.com/watch?v=livefix0001": watch}}
+	result, err := NewYouTube().Extract(context.Background(), Request{
+		URL: "https://www.youtube.com/watch?v=livefix0001&t=1s&end=9", Transport: transport,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	start, _ := result.Info.Lookup("start_time").Int()
+	end, _ := result.Info.Lookup("end_time").Int()
+	if start != 1 || end != 9 {
+		t.Fatalf("offsets = %d, %d", start, end)
 	}
 }
 
@@ -577,6 +721,64 @@ func TestYouTubePlaylistIsLazyPagedAndMatchesPinnedShape(t *testing.T) {
 	}
 }
 
+func TestYouTubePlaylistParsesModernLockupAndContinuationViewModels(t *testing.T) {
+	page := readYouTubeFixture(t, "playlist-modern.html")
+	raw, err := extractJSONObject(page, youtubeInitialDataMarker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := parseYouTubePlaylistData(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.title != "Modern fixture playlist" || parsed.continuation != "modern-token-2" || len(parsed.entries) != 2 {
+		t.Fatalf("parsed = %#v", parsed)
+	}
+	entry := parsed.entries[0]
+	if entry.ID != "modern00001" || entry.Title != "Modern fixture video" || entry.URL != "https://www.youtube.com/watch?v=modern00001" || entry.ExtractorKey != "youtube" {
+		t.Fatalf("entry = %#v", entry)
+	}
+	if parsed.entries[1].ID != "modern00001" || parsed.entries[1].Title != "Repeated fixture video" {
+		t.Fatalf("repeated entry = %#v", parsed.entries[1])
+	}
+
+	continued, err := parseYouTubePlaylistData(readYouTubeFixture(t, "playlist-modern-continuation.json"))
+	if err != nil || len(continued.entries) != 1 || continued.entries[0].ID != "modern00002" {
+		t.Fatalf("continued = %#v, %v", continued, err)
+	}
+}
+
+func TestYouTubeContinuationViewModelBounds(t *testing.T) {
+	tooMany := make([]value.Value, youtubeMaxContinuationCommands+1)
+	for index := range tooMany {
+		tooMany[index] = value.ObjectValue(value.NewObject())
+	}
+	viewModel := value.NewObject(value.Field{Key: "continuationCommand", Value: value.ObjectValue(value.NewObject(
+		value.Field{Key: "innertubeCommand", Value: value.ObjectValue(value.NewObject(
+			value.Field{Key: "commandExecutorCommand", Value: value.ObjectValue(value.NewObject(
+				value.Field{Key: "commands", Value: value.List(tooMany...)},
+			))},
+		))},
+	))})
+	if token := youtubeContinuationViewModelToken(viewModel); token != "" {
+		t.Fatalf("oversized executor token = %q", token)
+	}
+	if token := validYouTubeContinuationToken(strings.Repeat("x", youtubeMaxContinuationBytes+1)); token != "" {
+		t.Fatalf("oversized token accepted")
+	}
+}
+
+func TestYouTubePlaylistLockupRejectsNonVideoAndInvalidID(t *testing.T) {
+	for _, object := range []*value.Object{
+		value.NewObject(value.Field{Key: "contentId", Value: value.String("modern00001")}, value.Field{Key: "contentType", Value: value.String("LOCKUP_CONTENT_TYPE_PLAYLIST")}),
+		value.NewObject(value.Field{Key: "contentId", Value: value.String("too-short")}, value.Field{Key: "contentType", Value: value.String("LOCKUP_CONTENT_TYPE_VIDEO")}),
+	} {
+		if entry, ok := youtubePlaylistLockupEntry(object); ok {
+			t.Fatalf("accepted lockup %#v", entry)
+		}
+	}
+}
+
 func TestYouTubePlaylistFailuresAreCategorized(t *testing.T) {
 	for _, test := range []struct {
 		name  string
@@ -656,6 +858,10 @@ func FuzzParseYouTubePlaylistData(f *testing.F) {
 		f.Add(initial)
 	}
 	f.Add(readYouTubeFixture(f, "playlist-continuation.json"))
+	if modern, err := extractJSONObject(readYouTubeFixture(f, "playlist-modern.html"), youtubeInitialDataMarker); err == nil {
+		f.Add(modern)
+	}
+	f.Add(readYouTubeFixture(f, "playlist-modern-continuation.json"))
 	f.Add([]byte(`{"metadata":{"playlistMetadataRenderer":{"title":"x"}}}`))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		if len(data) > 1<<20 {
@@ -677,6 +883,28 @@ func FuzzDiscoverYouTubePageConfig(f *testing.F) {
 		config := discoverYouTubePageConfig(page)
 		_ = config.playerPath("")
 		_ = config.visitorData("")
+	})
+}
+
+func FuzzParseYouTubeTarget(f *testing.F) {
+	f.Add("https://www.youtube.com/watch?v=fixture0001&t=1s&end=9")
+	f.Add("https://youtu.be/fixture0001#t=1h2m3s")
+	f.Fuzz(func(t *testing.T, rawURL string) {
+		if len(rawURL) > 4096 {
+			t.Skip()
+		}
+		_, _ = parseYouTubeTarget(rawURL)
+	})
+}
+
+func FuzzYouTubeChannelLiveAlias(f *testing.F) {
+	f.Add("https://www.youtube.com/@fixture/live")
+	f.Add("https://youtube.com/channel/UCfixture_channel_00001/live")
+	f.Fuzz(func(t *testing.T, rawURL string) {
+		if len(rawURL) > 4096 {
+			t.Skip()
+		}
+		_ = youtubeChannelLiveAlias(rawURL)
 	})
 }
 

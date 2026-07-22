@@ -119,6 +119,19 @@ Python and copies static executables into a scratch image:
     docker build -f .github/python-free.Dockerfile -t ytdlp-go .
     docker run --rm ytdlp-go --version
 
+For adaptive media merging and post-processing, build the separate non-root
+runtime image. It remains Python-free but includes ffmpeg and ffprobe:
+
+    docker build -f .github/runtime.Dockerfile -t ytdlp-go-runtime .
+    docker volume create ytdlp-downloads
+    docker run --rm --read-only --tmpfs /tmp \
+        -v ytdlp-downloads:/downloads ytdlp-go-runtime URL
+
+The scratch image is the strict dependency-audit artifact; the runtime image is
+the practical downloader distribution. See
+[`docs/PYTHON_FREE_RUNTIME_IMAGE.md`](docs/PYTHON_FREE_RUNTIME_IMAGE.md) for the
+local verification boundary.
+
 ## Runtime dependencies
 
 The main downloader is a static Go program and does not require Python.

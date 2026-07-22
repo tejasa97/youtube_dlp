@@ -23,6 +23,7 @@ var (
 	ErrMalformed   = errors.New("malformed Netscape cookie file")
 	ErrWrongFormat = errors.New("cookie file is not Netscape format")
 	ErrTooLarge    = errors.New("Netscape cookie file exceeds safety limits")
+	ErrFile        = errors.New("cannot open Netscape cookie file")
 )
 
 // Entry retains the host-only bit that net/http.Cookie cannot represent.
@@ -50,10 +51,15 @@ type Options struct {
 func LoadFile(ctx context.Context, path string, options Options) (Result, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return Result{}, fmt.Errorf("open Netscape cookie file: %w", err)
+		return Result{}, fmt.Errorf("%w: %w", ErrFile, err)
 	}
 	defer file.Close()
-	return Parse(ctx, file, options)
+	result, err := Parse(ctx, file, options)
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, ErrMalformed) || errors.Is(err, ErrWrongFormat) || errors.Is(err, ErrTooLarge) {
+		return result, err
+	}
+	return result, fmt.Errorf("%w: %w", ErrFile, err)
 }
 
 // Parse accepts valid lines and reports malformed lines as a categorized

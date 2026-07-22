@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -33,6 +35,20 @@ func TestParseSemanticsAndRoundTrip(t *testing.T) {
 	again, err := Parse(context.Background(), &encoded, Options{})
 	if err != nil || again.Imported != 2 || !again.Entries[0].Cookie.HttpOnly {
 		t.Fatalf("round trip failed: %+v %v", again, err)
+	}
+}
+
+func TestLoadFileCategorizesMissingPath(t *testing.T) {
+	_, err := LoadFile(context.Background(), filepath.Join(t.TempDir(), "missing.txt"), Options{})
+	if !errors.Is(err, ErrFile) || !errors.Is(err, os.ErrNotExist) || !strings.Contains(err.Error(), "missing.txt") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestLoadFileCategorizesReadFailure(t *testing.T) {
+	_, err := LoadFile(context.Background(), t.TempDir(), Options{})
+	if !errors.Is(err, ErrFile) {
+		t.Fatalf("error = %v", err)
 	}
 }
 
