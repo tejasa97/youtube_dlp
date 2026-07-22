@@ -76,6 +76,9 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 	}
 	pageConfig := discoverYouTubePageConfig(page)
 	playerPath := pageConfig.playerPath(player.Assets.JS)
+	player.clientName = "WEB"
+	player.visitorData = pageConfig.visitorData(player.ResponseContext.VisitorData)
+	player.playerURL = playerPath
 	formatPlayers := []youtubePlayerResponse{player}
 	if !hasYouTubeFormatCandidates(player) {
 		if pageConfig.LoggedIn != nil && *pageConfig.LoggedIn {
@@ -97,7 +100,12 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 		}
 	}
 
+	captionResult, err := normalizeYouTubeCaptions(ctx, formatPlayers, videoID, request.YouTubePOT, request.YouTubeTranslatedCaptions)
+	if err != nil {
+		return Extraction{}, err
+	}
 	formats := mergeYouTubeFormats(formatPlayers)
+	applyYouTubeAudioLanguage(formats, captionResult.audioLanguage)
 	resolved, err := resolveYouTubeURLs(ctx, request, webpageURL, videoID, playerPath, formats)
 	if err != nil {
 		return Extraction{}, err
@@ -150,6 +158,12 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 	if liveStatus := youtubeLiveStatus(details); liveStatus != "" {
 		info.Set("live_status", value.String(liveStatus))
 	}
+	if captionResult.subtitles.Len() != 0 {
+		info.Set("subtitles", value.ObjectValue(captionResult.subtitles))
+	}
+	if captionResult.automaticCaptions.Len() != 0 {
+		info.Set("automatic_captions", value.ObjectValue(captionResult.automaticCaptions))
+	}
 	return Media(value.NewInfo(info)), nil
 }
 
@@ -169,6 +183,15 @@ type youtubePlayerResponse struct {
 	ResponseContext struct {
 		VisitorData string `json:"visitorData"`
 	} `json:"responseContext"`
+	Captions struct {
+		Tracklist youtubeCaptionTracklist `json:"playerCaptionsTracklistRenderer"`
+	} `json:"captions"`
+
+	clientName          string
+	visitorData         string
+	playerURL           string
+	playerTokenProvided bool
+	subsPolicy          youtubePOTPolicy
 }
 
 func (config youtubePageConfig) playerPath(assetPath string) string {
@@ -348,6 +371,7 @@ type youtubeFormat struct {
 	Width           int64  `json:"width"`
 	Height          int64  `json:"height"`
 	FPS             int64  `json:"fps"`
+	Language        string `json:"language"`
 }
 
 type pendingYouTubeFormat struct {
@@ -495,6 +519,9 @@ func normalizeYouTubeFormat(format youtubeFormat) (*value.Object, bool) {
 	}
 	if format.FPS > 0 {
 		object.Set("fps", value.Int(format.FPS))
+	}
+	if format.Language != "" {
+		object.Set("language", value.String(format.Language))
 	}
 	return object, true
 }

@@ -66,11 +66,12 @@ func ReadPageWithProfile(ctx context.Context, transport Transport, rawURL, profi
 }
 
 type Request struct {
-	URL             string
-	Transport       Transport
-	ChallengeSolver YouTubeChallengeSolver
-	Credentials     CredentialProvider
-	YouTubePOT      *youtubepot.Director
+	URL                       string
+	Transport                 Transport
+	ChallengeSolver           YouTubeChallengeSolver
+	Credentials               CredentialProvider
+	YouTubePOT                *youtubepot.Director
+	YouTubeTranslatedCaptions bool
 }
 
 // Credential is an extractor-scoped authentication tuple. It must never be

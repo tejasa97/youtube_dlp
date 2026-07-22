@@ -49,3 +49,12 @@ reference's `yt_dlp/extractor/youtube/pot/provider.py`,
 its identities and URLs are synthetic. The fixture proves the Go provider
 boundary and placement rules, not interoperability with a production token
 generator.
+
+`captions-watch.html` is a synthetic caption renderer derived from
+`YoutubeIE._real_extract`'s `playerCaptionsTracklistRenderer` traversal and
+`YoutubeIE._SUBTITLE_FORMATS` in the same pinned checkout. It covers manual and
+ASR tracks, original/translated language naming, stable caption URL formats,
+and the `subs` token query fields `pot`, `potc`, and `c`. The `xpe`/`xpv`
+required-token expectation follows the pinned caption experiment check. All
+names, language entries, visitor data, media URLs, and base64url tokens are
+artificial; the fixture is never used to request YouTube caption content.

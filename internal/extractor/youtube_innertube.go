@@ -21,7 +21,19 @@ type youtubeClientProfile struct {
 	ClientVersion string
 	UserAgent     string
 	Context       map[string]any
-	RequireGVS    bool
+	GVSPolicy     youtubePOTPolicy
+	PlayerPolicy  youtubePOTPolicy
+	SubsPolicy    youtubePOTPolicy
+}
+
+type youtubePOTPolicy struct {
+	Required                   bool
+	Recommended                bool
+	NotRequiredWithPlayerToken bool
+}
+
+func (policy youtubePOTPolicy) required(playerTokenProvided bool) bool {
+	return policy.Required && !(policy.NotRequiredWithPlayerToken && playerTokenProvided)
 }
 
 // These profiles are intentionally small and data-driven. Their values match
@@ -37,7 +49,10 @@ var youtubeFormatRecoveryClients = []youtubeClientProfile{
 		Context: map[string]any{
 			"androidSdkVersion": 30, "osName": "Android", "osVersion": "11",
 		},
-		RequireGVS: true,
+		GVSPolicy: youtubePOTPolicy{
+			Required: true, Recommended: true, NotRequiredWithPlayerToken: true,
+		},
+		PlayerPolicy: youtubePOTPolicy{Recommended: true},
 	},
 	{
 		Name:          "android_vr",
@@ -70,16 +85,21 @@ func requestYouTubePlayer(ctx context.Context, transport Transport, videoID, vis
 		},
 		"contentCheckOk": true, "racyCheckOk": true,
 	}
+	playerTokenProvided := false
 	if tokens != nil {
-		token, ok, tokenErr := tokens.Resolve(ctx, youtubepot.Request{
+		token, ok, tokenErr := tokens.ResolvePolicy(ctx, youtubepot.Request{
 			Context: youtubepot.ContextPlayer, Client: profile.ClientName, VisitorData: visitorData,
 			VideoID: videoID, PlayerURL: playerURL,
-		}, false)
+		}, profile.PlayerPolicy.Required, profile.PlayerPolicy.Recommended)
 		if tokenErr != nil {
+			if errors.Is(tokenErr, context.Canceled) || errors.Is(tokenErr, context.DeadlineExceeded) {
+				return youtubePlayerResponse{}, tokenErr
+			}
 			return youtubePlayerResponse{}, fmt.Errorf("%w: player token", ErrUnavailable)
 		}
 		if ok {
 			payload["serviceIntegrityDimensions"] = map[string]any{"poToken": token}
+			playerTokenProvided = true
 		}
 	}
 	body, err := json.Marshal(payload)
@@ -101,6 +121,11 @@ func requestYouTubePlayer(ctx context.Context, transport Transport, videoID, vis
 	if player.VideoDetails.VideoID != "" && player.VideoDetails.VideoID != videoID {
 		return youtubePlayerResponse{}, fmt.Errorf("%w: %s response video id mismatch", ErrInvalidMetadata, profile.Name)
 	}
+	player.clientName = profile.ClientName
+	player.visitorData = visitorData
+	player.playerURL = playerURL
+	player.playerTokenProvided = playerTokenProvided
+	player.subsPolicy = profile.SubsPolicy
 	return player, nil
 }
 
@@ -123,11 +148,33 @@ func recoverYouTubeFormats(ctx context.Context, transport Transport, videoID, vi
 		}
 		if player.PlayabilityStatus.Status == "OK" && hasYouTubeFormatCandidates(player) {
 			if tokens != nil {
-				token, ok, tokenErr := tokens.Resolve(ctx, youtubepot.Request{
+				required := profile.GVSPolicy.required(player.playerTokenProvided) && youtubePlayerHasGVSRequiredFormats(player)
+				token, ok, tokenErr := tokens.ResolvePolicy(ctx, youtubepot.Request{
 					Context: youtubepot.ContextGVS, Client: profile.ClientName, VisitorData: visitorData,
 					VideoID: videoID, PlayerURL: playerURL,
-				}, profile.RequireGVS)
+				}, required, profile.GVSPolicy.Recommended)
 				if tokenErr != nil {
+					if errors.Is(tokenErr, context.Canceled) || errors.Is(tokenErr, context.DeadlineExceeded) {
+						return nil, tokenErr
+					}
+					if required {
+						dropYouTubeGVSRequiredFormats(&player)
+						if hasYouTubeFormatCandidates(player) {
+							recovered = append(recovered, player)
+							continue
+						}
+					}
+					if firstRequestError == nil {
+						firstRequestError = fmt.Errorf("%w: GVS token", ErrUnavailable)
+					}
+					continue
+				}
+				if required && !ok {
+					dropYouTubeGVSRequiredFormats(&player)
+					if hasYouTubeFormatCandidates(player) {
+						recovered = append(recovered, player)
+						continue
+					}
 					if firstRequestError == nil {
 						firstRequestError = fmt.Errorf("%w: GVS token", ErrUnavailable)
 					}
@@ -147,6 +194,35 @@ func recoverYouTubeFormats(ctx context.Context, transport Transport, videoID, vi
 		return nil, firstRequestError
 	}
 	return nil, fmt.Errorf("%w: YouTube returned no URL-bearing formats from fallback clients", ErrUnavailable)
+}
+
+func youtubePlayerHasGVSRequiredFormats(player youtubePlayerResponse) bool {
+	if player.StreamingData.DASHManifestURL != "" {
+		return true
+	}
+	for _, formats := range [][]youtubeFormat{player.StreamingData.Formats, player.StreamingData.AdaptiveFormats} {
+		for _, format := range formats {
+			if format.Itag != 18 && (format.URL != "" || format.SignatureCipher != "") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func dropYouTubeGVSRequiredFormats(player *youtubePlayerResponse) {
+	keep := func(formats []youtubeFormat) []youtubeFormat {
+		kept := formats[:0]
+		for _, format := range formats {
+			if format.Itag == 18 {
+				kept = append(kept, format)
+			}
+		}
+		return kept
+	}
+	player.StreamingData.Formats = keep(player.StreamingData.Formats)
+	player.StreamingData.AdaptiveFormats = keep(player.StreamingData.AdaptiveFormats)
+	player.StreamingData.DASHManifestURL = ""
 }
 
 func applyYouTubeGVSToken(player *youtubePlayerResponse, token string) {

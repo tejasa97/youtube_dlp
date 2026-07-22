@@ -142,6 +142,11 @@ provider count, request fields, token size, expiry, and its process-local cache;
 it has no built-in token service, executable, or Python fallback. See [native
 YouTube PO-token evidence](YOUTUBE_POT_EVIDENCE.md) for the exact boundary.
 
+YouTube manual and automatic captions are included in normalized metadata.
+Set `Request.YouTubeTranslatedCaptions` to additionally generate translated
+manual-caption entries; automatic-caption translations follow the bounded
+player renderer. See [YouTube captions evidence](YOUTUBE_CAPTIONS_EVIDENCE.md).
+
 ## Updater
 
 OpenUpdater accepts caller-owned threshold trust and an explicit health
