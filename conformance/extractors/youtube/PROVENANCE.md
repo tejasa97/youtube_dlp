@@ -36,6 +36,11 @@ All identifiers, text, endpoints, and continuation tokens in these fixtures are
 artificial; no production visitor data, tracking values, signed URLs, or media
 metadata is retained.
 
+The watch offset expectations follow the pinned `YoutubeIE._real_extract`
+fragment-then-query traversal and its `start`/`t` to `start_time` and `end` to
+`end_time` mapping. Tests use only synthetic IDs plus the pinned public Big Buck
+Bunny URL for an optional live acceptance check.
+
 `sabr-watch.html`, `android-player.json`, and `android-vr-player.json` are synthetic regression fixtures
 for URL-less `serverAbrStreamingUrl` webpage responses and native-client format
 recovery. Their response fields and client-request expectations are derived

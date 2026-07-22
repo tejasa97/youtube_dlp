@@ -113,6 +113,50 @@ func TestYouTubeSuitableAndVideoID(t *testing.T) {
 	}
 }
 
+func TestParseYouTubeTargetOffsets(t *testing.T) {
+	for _, test := range []struct {
+		url              string
+		start, end       float64
+		hasStart, hasEnd bool
+	}{
+		{"https://www.youtube.com/watch?v=fixture0001&t=1s&end=9", 1, 9, true, true},
+		{"https://www.youtube.com/watch?v=fixture0001#t=1h2m3.5s&end=4000", 3723.5, 4000, true, true},
+		{"https://www.youtube.com/watch?v=fixture0001#t=2m&t=3m", 120, 0, true, false},
+		{"https://www.youtube.com/watch?v=fixture0001&t=bad&start=7", 7, 0, true, false},
+		{"https://www.youtube.com/watch?v=fixture0001&t=-1&end=huge", 0, 0, false, false},
+	} {
+		target, err := parseYouTubeTarget(test.url)
+		if err != nil {
+			t.Fatalf("parseYouTubeTarget(%q): %v", test.url, err)
+		}
+		if target.videoID != "fixture0001" || (target.startTime != nil) != test.hasStart || (target.endTime != nil) != test.hasEnd {
+			t.Fatalf("parseYouTubeTarget(%q) = %#v", test.url, target)
+		}
+		if target.startTime != nil && *target.startTime != test.start {
+			t.Fatalf("start(%q) = %v", test.url, *target.startTime)
+		}
+		if target.endTime != nil && *target.endTime != test.end {
+			t.Fatalf("end(%q) = %v", test.url, *target.endTime)
+		}
+	}
+}
+
+func TestYouTubeExtractionPreservesURLOffsets(t *testing.T) {
+	watch := readYouTubeFixture(t, "live-watch.html")
+	transport := &memoryTransport{pages: map[string][]byte{"https://www.youtube.com/watch?v=livefix0001": watch}}
+	result, err := NewYouTube().Extract(context.Background(), Request{
+		URL: "https://www.youtube.com/watch?v=livefix0001&t=1s&end=9", Transport: transport,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	start, _ := result.Info.Lookup("start_time").Int()
+	end, _ := result.Info.Lookup("end_time").Int()
+	if start != 1 || end != 9 {
+		t.Fatalf("offsets = %d, %d", start, end)
+	}
+}
+
 func TestYouTubeExtractsPinnedVideoAndSolvesChallenges(t *testing.T) {
 	watch := readYouTubeFixture(t, "watch.html")
 	player := readYouTubeFixture(t, "../../javascript/ejs-0.8.0/synthetic-player.js")
@@ -716,6 +760,17 @@ func FuzzDiscoverYouTubePageConfig(f *testing.F) {
 		config := discoverYouTubePageConfig(page)
 		_ = config.playerPath("")
 		_ = config.visitorData("")
+	})
+}
+
+func FuzzParseYouTubeTarget(f *testing.F) {
+	f.Add("https://www.youtube.com/watch?v=fixture0001&t=1s&end=9")
+	f.Add("https://youtu.be/fixture0001#t=1h2m3s")
+	f.Fuzz(func(t *testing.T, rawURL string) {
+		if len(rawURL) > 4096 {
+			t.Skip()
+		}
+		_, _ = parseYouTubeTarget(rawURL)
 	})
 }
 
