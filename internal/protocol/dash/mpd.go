@@ -209,7 +209,7 @@ func Parse(rawURL string, input []byte) (MPD, error) {
 				}
 				template := mergeSegmentTemplates(period.SegmentTemplate, adaptation.SegmentTemplate, representation.SegmentTemplate)
 				list := mergeSegmentLists(period.SegmentList, adaptation.SegmentList, representation.SegmentList)
-				segmentBase := firstSegmentBase(representation.SegmentBase, adaptation.SegmentBase, period.SegmentBase)
+				segmentBase := mergeSegmentBases(period.SegmentBase, adaptation.SegmentBase, representation.SegmentBase)
 				switch {
 				case template != nil:
 					normalized.Segments, err = templateSegments(representationBase, normalized, template, periodDuration)
@@ -502,13 +502,34 @@ func mergeSegmentLists(values ...*segmentListXML) *segmentListXML {
 	return result
 }
 
-func firstSegmentBase(values ...*segmentBaseXML) *segmentBaseXML {
+// mergeSegmentBases merges SegmentBase fields across hierarchy levels
+// (Period → AdaptationSet → Representation). More specific levels override
+// less specific ones, field by field, matching the DASH inheritance model.
+func mergeSegmentBases(values ...*segmentBaseXML) *segmentBaseXML {
+	var result *segmentBaseXML
 	for _, value := range values {
-		if value != nil {
-			return value
+		if value == nil {
+			continue
+		}
+		if result == nil {
+			result = &segmentBaseXML{}
+		}
+		if value.IndexRange != "" {
+			result.IndexRange = value.IndexRange
+		}
+		if value.Initialization != nil {
+			if result.Initialization == nil {
+				result.Initialization = &initializationXML{}
+			}
+			if value.Initialization.SourceURL != "" {
+				result.Initialization.SourceURL = value.Initialization.SourceURL
+			}
+			if value.Initialization.Range != "" {
+				result.Initialization.Range = value.Initialization.Range
+			}
 		}
 	}
-	return nil
+	return result
 }
 
 func rangedSegment(base *url.URL, rawURL, rawRange string) (Segment, error) {

@@ -9,10 +9,15 @@ commit `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`, principally:
 
 - `yt_dlp/extractor/common.py` (`_parse_mpd_periods`, including multisegment
   inheritance and `$Time$` expansion)
-- `yt_dlp/extractor/common.py` (`_parse_mpd_segments`, SegmentBase/indexRange
-  handling and SIDX expansion logic)
-- ISO/IEC 23009-1:2019 §5.3.9.4 (Segment index box)
-- ISO/IEC 14496-12:2022 §8.16.3 (SegmentIndexBox 'sidx')
+
+The SegmentBase/indexRange SIDX expansion capability is a **Go-native
+extension beyond the pinned reference**. At commit `aefce1ee`, yt-dlp does
+not expand `SegmentBase@indexRange` through SIDX parsing in its MPD parser.
+Behavioral expectations for SIDX expansion were derived from the normative
+ISO-BMFF specifications:
+
+- ISO/IEC 23009-1:2019 §5.3.9.4 (Segment index box referencing)
+- ISO/IEC 14496-12:2022 §8.16.3 (SegmentIndexBox 'sidx' layout and semantics)
 
 ## Fixture inventory
 

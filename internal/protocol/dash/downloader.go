@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -287,15 +288,21 @@ func (downloader *Downloader) expandOneSIDX(ctx context.Context, marker Segment)
 		if parseErr != nil {
 			return nil, fmt.Errorf("%w: initialization range: %v", ErrUnsupportedAddressing, parseErr)
 		}
-		// Avoid duplicating init if it overlaps with the first media range.
-		if len(mediaRanges) == 0 || initEnd < mediaRanges[0].Start || initStart > mediaRanges[0].Start+mediaRanges[0].Length-1 {
-			result = append(result, Segment{
-				URL:         marker.URL,
-				RangeStart:  initStart,
-				RangeLength: initEnd - initStart + 1,
-				Initialize:  true,
-			})
+		// Reject any overlap between the initialization range and media ranges.
+		// Partial trimming could corrupt codec configuration; full omission
+		// discards required bytes. Explicit rejection is the safe choice.
+		for _, mediaRange := range mediaRanges {
+			mediaEnd := mediaRange.Start + mediaRange.Length - 1
+			if initStart <= mediaEnd && initEnd >= mediaRange.Start {
+				return nil, fmt.Errorf("%w: initialization range %d-%d overlaps media range %d-%d", ErrUnsupportedAddressing, initStart, initEnd, mediaRange.Start, mediaEnd)
+			}
 		}
+		result = append(result, Segment{
+			URL:         marker.URL,
+			RangeStart:  initStart,
+			RangeLength: initEnd - initStart + 1,
+			Initialize:  true,
+		})
 	}
 
 	// Expand media ranges into segments.
@@ -333,11 +340,14 @@ func (downloader *Downloader) fetchIndexRange(ctx context.Context, mediaURL stri
 
 	switch response.StatusCode {
 	case http.StatusPartialContent:
-		// Validate Content-Range if present.
-		if contentRange := response.Header.Get("Content-Range"); contentRange != "" {
-			if !validContentRange(contentRange, rangeStart, rangeLength) {
-				return nil, fmt.Errorf("%w: Content-Range mismatch", ErrUnsupportedAddressing)
-			}
+		// Content-Range is mandatory for 206 responses. A correctly sized body
+		// does not prove it came from the requested offset.
+		contentRange := response.Header.Get("Content-Range")
+		if contentRange == "" {
+			return nil, fmt.Errorf("%w: 206 response missing Content-Range header", ErrUnsupportedAddressing)
+		}
+		if !validContentRange(contentRange, rangeStart, rangeLength) {
+			return nil, fmt.Errorf("%w: Content-Range mismatch", ErrUnsupportedAddressing)
 		}
 	case http.StatusOK:
 		// Server ignored the Range header. Only accept if the response is
@@ -381,6 +391,7 @@ func (downloader *Downloader) fetchIndexRange(ctx context.Context, mediaURL stri
 
 // validContentRange checks that a Content-Range header matches the expected
 // byte range. Format: "bytes START-END/TOTAL" or "bytes START-END/*".
+// Parsing is strict: only pure decimal digits are accepted for START and END.
 func validContentRange(header string, expectedStart, expectedLength int64) bool {
 	if !strings.HasPrefix(header, "bytes ") {
 		return false
@@ -395,11 +406,17 @@ func validContentRange(header string, expectedStart, expectedLength int64) bool 
 	if dashIndex < 0 {
 		return false
 	}
-	var start, end int64
-	if _, err := fmt.Sscanf(rangeSpec[:dashIndex], "%d", &start); err != nil {
+	startStr := rangeSpec[:dashIndex]
+	endStr := rangeSpec[dashIndex+1:]
+	if startStr == "" || endStr == "" {
 		return false
 	}
-	if _, err := fmt.Sscanf(rangeSpec[dashIndex+1:], "%d", &end); err != nil {
+	start, err := strconv.ParseInt(startStr, 10, 64)
+	if err != nil || start < 0 {
+		return false
+	}
+	end, err := strconv.ParseInt(endStr, 10, 64)
+	if err != nil || end < 0 {
 		return false
 	}
 	return start == expectedStart && end == expectedStart+expectedLength-1
