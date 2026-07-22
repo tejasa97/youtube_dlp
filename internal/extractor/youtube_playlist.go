@@ -20,6 +20,8 @@ const (
 	youtubePlaylistContinuationURL = "https://www.youtube.com/youtubei/v1/browse"
 	youtubeMaxJSONDepth            = 128
 	youtubeMaxJSONNodes            = 1_000_000
+	youtubeMaxContinuationCommands = 32
+	youtubeMaxContinuationBytes    = 16 << 10
 )
 
 var youtubePlaylistIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,200}$`)
@@ -169,19 +171,29 @@ func parseYouTubePlaylistData(data []byte) (youtubePlaylistPage, error) {
 		return youtubePlaylistPage{}, fmt.Errorf("%w: YouTube playlist root", ErrInvalidMetadata)
 	}
 	var page youtubePlaylistPage
+	appendEntry := func(entry Entry, ok bool) {
+		if !ok {
+			return
+		}
+		page.entries = append(page.entries, entry)
+	}
 	nodes := 0
 	err := walkOrderedJSON(root, 0, &nodes, func(key string, object *value.Object) {
 		switch key {
 		case "playlistVideoRenderer", "playlistPanelVideoRenderer":
-			if entry, ok := youtubePlaylistEntry(object); ok {
-				page.entries = append(page.entries, entry)
-			}
+			appendEntry(youtubePlaylistEntry(object))
+		case "lockupViewModel":
+			appendEntry(youtubePlaylistLockupEntry(object))
 		case "continuationItemRenderer":
-			if token := objectString(object, "continuationEndpoint", "continuationCommand", "token"); token != "" {
+			if token := validYouTubeContinuationToken(objectString(object, "continuationEndpoint", "continuationCommand", "token")); token != "" {
+				page.continuation = token
+			}
+		case "continuationItemViewModel":
+			if token := youtubeContinuationViewModelToken(object); token != "" {
 				page.continuation = token
 			}
 		case "nextContinuationData":
-			if token := objectString(object, "continuation"); token != "" {
+			if token := validYouTubeContinuationToken(objectString(object, "continuation")); token != "" {
 				page.continuation = token
 			}
 		case "playlistMetadataRenderer":
@@ -204,6 +216,58 @@ func parseYouTubePlaylistData(data []byte) (youtubePlaylistPage, error) {
 		return youtubePlaylistPage{}, err
 	}
 	return page, nil
+}
+
+func youtubeContinuationViewModelToken(viewModel *value.Object) string {
+	command, ok := viewModel.Lookup("continuationCommand").Object()
+	if !ok {
+		return ""
+	}
+	innertube, ok := command.Lookup("innertubeCommand").Object()
+	if !ok {
+		return ""
+	}
+	if token := validYouTubeContinuationToken(objectString(innertube, "continuationCommand", "token")); token != "" {
+		return token
+	}
+	executor, ok := innertube.Lookup("commandExecutorCommand").Object()
+	if !ok {
+		return ""
+	}
+	commands, ok := executor.Lookup("commands").ListValue()
+	if !ok || len(commands) > youtubeMaxContinuationCommands {
+		return ""
+	}
+	for _, item := range commands {
+		if candidate, ok := item.Object(); ok {
+			if token := validYouTubeContinuationToken(objectString(candidate, "continuationCommand", "token")); token != "" {
+				return token
+			}
+		}
+	}
+	return ""
+}
+
+func validYouTubeContinuationToken(token string) string {
+	if token == "" || len(token) > youtubeMaxContinuationBytes || strings.ContainsAny(token, "\x00\r\n") {
+		return ""
+	}
+	return token
+}
+
+func youtubePlaylistLockupEntry(viewModel *value.Object) (Entry, bool) {
+	if objectString(viewModel, "contentType") != "LOCKUP_CONTENT_TYPE_VIDEO" {
+		return Entry{}, false
+	}
+	videoID := objectString(viewModel, "contentId")
+	if !youtubeIDPattern.MatchString(videoID) {
+		return Entry{}, false
+	}
+	title := objectString(viewModel, "metadata", "lockupMetadataViewModel", "title", "content")
+	return Entry{
+		URL: "https://www.youtube.com/watch?v=" + videoID, ExtractorKey: "youtube",
+		ID: videoID, Title: title,
+	}, true
 }
 
 func youtubePlaylistEntry(renderer *value.Object) (Entry, bool) {

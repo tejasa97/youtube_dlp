@@ -21,9 +21,11 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/cookies/chromiumlinux"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/chromiumwindows"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/firefox"
+	"github.com/ytdlp-go/ytdlp/internal/cookies/netscape"
 	credentialnetrc "github.com/ytdlp-go/ytdlp/internal/credentials/netrc"
 	"github.com/ytdlp-go/ytdlp/internal/downloader"
 	"github.com/ytdlp-go/ytdlp/internal/extractor"
+	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
 	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
 	"github.com/ytdlp-go/ytdlp/internal/media/pipeline"
 	"github.com/ytdlp-go/ytdlp/internal/network"
@@ -167,10 +169,31 @@ func TestMediaFailuresAreCategorized(t *testing.T) {
 		{dash.ErrUnsupportedAddressing, ErrorUnsupported},
 		{dash.ErrInvalidMPD, ErrorInternal},
 		{ism.ErrInvalidManifest, ErrorInternal},
+		{mediaformat.ErrNoMatch, ErrorInvalidInput},
+		{mediaformat.ErrNoFormats, ErrorInternal},
 	} {
 		if err := categorized("media", test.err); !IsCategory(err, test.category) {
 			t.Fatalf("categorized(%v) = %v, want %s", test.err, err, test.category)
 		}
+	}
+}
+
+func TestClientCategorizesMissingCookieFileAsInvalidInput(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "missing-cookies.txt")
+	_, err := NewClient().Run(context.Background(), Request{
+		URL: "https://example.com/media.mp4", CookieFile: missing, SkipDownload: true,
+	})
+	if !IsCategory(err, ErrorInvalidInput) || !errors.Is(err, netscape.ErrFile) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestClientCategorizesCookieDirectoryAsInvalidInput(t *testing.T) {
+	_, err := NewClient().Run(context.Background(), Request{
+		URL: "https://example.com/media.mp4", CookieFile: t.TempDir(), SkipDownload: true,
+	})
+	if !IsCategory(err, ErrorInvalidInput) || !errors.Is(err, netscape.ErrFile) {
+		t.Fatalf("error = %v", err)
 	}
 }
 

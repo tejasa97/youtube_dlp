@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"mime"
 	"net/url"
 	"path"
@@ -51,10 +52,15 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 	if playlistID, ok := youtubePlaylistID(request.URL); ok {
 		return extractYouTubePlaylist(ctx, request, playlistID)
 	}
-	videoID, err := youtubeVideoID(request.URL)
+	if aliasURL, ok := youtubeChannelLiveAliasURL(request.URL); ok {
+		request.URL = aliasURL
+		return extractYouTubeChannelLiveAlias(ctx, request)
+	}
+	target, err := parseYouTubeTarget(request.URL)
 	if err != nil {
 		return Extraction{}, err
 	}
+	videoID := target.videoID
 	webpageURL := "https://www.youtube.com/watch?v=" + videoID
 	page, _, err := request.Transport.ReadPage(ctx, webpageURL)
 	if err != nil {
@@ -164,7 +170,89 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 	if captionResult.automaticCaptions.Len() != 0 {
 		info.Set("automatic_captions", value.ObjectValue(captionResult.automaticCaptions))
 	}
+	if target.startTime != nil {
+		setYouTubeOffset(info, "start_time", *target.startTime)
+	}
+	if target.endTime != nil {
+		setYouTubeOffset(info, "end_time", *target.endTime)
+	}
 	return Media(value.NewInfo(info)), nil
+}
+
+func youtubeChannelLiveAlias(rawURL string) bool {
+	_, ok := youtubeChannelLiveAliasURL(rawURL)
+	return ok
+}
+
+func youtubeChannelLiveAliasURL(rawURL string) (string, bool) {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.User != nil || parsed.Port() != "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return "", false
+	}
+	rawPath := strings.ToLower(parsed.EscapedPath())
+	if strings.Contains(rawPath, "%2f") || strings.Contains(rawPath, "%5c") || strings.Contains(rawPath, "%00") {
+		return "", false
+	}
+	host := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
+	if host != "youtube.com" && !strings.HasSuffix(host, ".youtube.com") {
+		return "", false
+	}
+	pathValue := strings.Trim(parsed.Path, "/")
+	parts := strings.Split(pathValue, "/")
+	validName := func(name string) bool {
+		return name != "" && len(name) <= 200 && !strings.ContainsAny(name, "\x00\\")
+	}
+	valid := false
+	switch {
+	case len(parts) == 2 && strings.HasPrefix(parts[0], "@"):
+		valid = parts[1] == "live" && validName(strings.TrimPrefix(parts[0], "@"))
+	case len(parts) == 3 && (parts[0] == "channel" || parts[0] == "user" || parts[0] == "c"):
+		valid = parts[2] == "live" && validName(parts[1])
+	case len(parts) == 2 && !youtubeReservedChannelName(parts[0]):
+		valid = parts[1] == "live" && validName(parts[0])
+	}
+	if !valid {
+		return "", false
+	}
+	canonical := &url.URL{Scheme: "https", Host: "www.youtube.com", Path: "/" + pathValue}
+	return canonical.String(), true
+}
+
+func youtubeReservedChannelName(name string) bool {
+	switch strings.ToLower(name) {
+	case "about", "account", "api", "browse", "c", "channel", "clip", "e", "embed", "explore",
+		"feed", "feeds", "get_video_info", "hashtag", "iframe_api", "index", "live", "logout",
+		"movies", "oembed", "oops", "playlist", "redirect", "results", "s", "search", "shared",
+		"shorts", "signin", "source", "storefront", "t", "trending", "upload", "user", "v", "w",
+		"watch", "watch_popup", "youtubei":
+		return true
+	default:
+		return false
+	}
+}
+
+func extractYouTubeChannelLiveAlias(ctx context.Context, request Request) (Extraction, error) {
+	page, _, err := request.Transport.ReadPage(ctx, request.URL)
+	if err != nil {
+		return Extraction{}, err
+	}
+	rawPlayer, err := extractJSONObject(page, youtubePlayerMarker)
+	if err != nil {
+		return Extraction{}, fmt.Errorf("%w: channel is not currently live", ErrUnavailable)
+	}
+	var player youtubePlayerResponse
+	if err := json.Unmarshal(rawPlayer, &player); err != nil {
+		return Extraction{}, fmt.Errorf("%w: decode channel live player response", ErrInvalidMetadata)
+	}
+	if err := checkYouTubeAvailability(player.PlayabilityStatus); err != nil {
+		return Extraction{}, err
+	}
+	videoID := player.VideoDetails.VideoID
+	if !youtubeIDPattern.MatchString(videoID) {
+		return Extraction{}, fmt.Errorf("%w: channel live page has no valid video", ErrUnavailable)
+	}
+	request.URL = "https://www.youtube.com/watch?v=" + videoID
+	return NewYouTube().Extract(ctx, request)
 }
 
 type youtubePlayerResponse struct {
@@ -536,9 +624,20 @@ func manifestFormat(id, rawURL, protocolName string) *value.Object {
 }
 
 func youtubeVideoID(rawURL string) (string, error) {
+	target, err := parseYouTubeTarget(rawURL)
+	return target.videoID, err
+}
+
+type youtubeTarget struct {
+	videoID            string
+	startTime, endTime *float64
+	startSet, endSet   bool
+}
+
+func parseYouTubeTarget(rawURL string) (youtubeTarget, error) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
-		return "", fmt.Errorf("%w: invalid YouTube URL", ErrUnsupported)
+		return youtubeTarget{}, fmt.Errorf("%w: invalid YouTube URL", ErrUnsupported)
 	}
 	var id string
 	if strings.EqualFold(parsed.Hostname(), "youtu.be") {
@@ -552,9 +651,140 @@ func youtubeVideoID(rawURL string) (string, error) {
 		}
 	}
 	if !youtubeIDPattern.MatchString(id) {
-		return "", fmt.Errorf("%w: invalid YouTube video id", ErrUnsupported)
+		return youtubeTarget{}, fmt.Errorf("%w: invalid YouTube video id", ErrUnsupported)
 	}
-	return id, nil
+	target := youtubeTarget{videoID: id}
+	for _, component := range []string{parsed.Fragment, parsed.RawQuery} {
+		for _, pair := range strings.Split(component, "&") {
+			key, rawValue, ok := strings.Cut(pair, "=")
+			if !ok {
+				continue
+			}
+			key, keyErr := url.QueryUnescape(key)
+			rawValue, valueErr := url.QueryUnescape(rawValue)
+			if keyErr != nil || valueErr != nil {
+				continue
+			}
+			switch key {
+			case "start", "t":
+				if !target.startSet {
+					target.startSet = true
+					if seconds, ok := parseYouTubeOffset(rawValue); ok {
+						target.startTime = &seconds
+					}
+				}
+			case "end":
+				if !target.endSet {
+					target.endSet = true
+					if seconds, ok := parseYouTubeOffset(rawValue); ok {
+						target.endTime = &seconds
+					}
+				}
+			}
+		}
+	}
+	return target, nil
+}
+
+var (
+	youtubeOffsetPattern     = regexp.MustCompile(`(?i)^(?:P?(?:[0-9]+\s*y(?:ears?)?,?\s*)?(?:[0-9]+\s*m(?:onths?)?,?\s*)?(?:[0-9]+\s*w(?:eeks?)?,?\s*)?(?:(\d+)\s*d(?:ays?)?,?\s*)?T)?(?:(\d+)\s*h(?:(?:ou)?rs?)?,?\s*)?(?:(\d+)\s*m(?:in(?:ute)?s?)?,?\s*)?(?:(\d+(?:\.\d+)?)\s*s(?:ec(?:ond)?s?)?\s*)?Z?$`)
+	youtubeWordOffsetPattern = regexp.MustCompile(`(?i)^(?:([0-9.]+)\s*hours?|([0-9.]+)\s*mins?\.?|([0-9.]+)\s*minutes?)Z?$`)
+)
+
+func parseYouTubeOffset(input string) (float64, bool) {
+	input = strings.TrimSpace(input)
+	if input == "" || len(input) > 64 {
+		return 0, false
+	}
+	if seconds, err := strconv.ParseFloat(input, 64); err == nil {
+		return validYouTubeOffset(seconds)
+	}
+	if strings.Contains(input, ":") {
+		return parseYouTubeClockOffset(input)
+	}
+	match := youtubeOffsetPattern.FindStringSubmatch(input)
+	if match != nil && (match[1] != "" || match[2] != "" || match[3] != "" || match[4] != "") {
+		var seconds float64
+		for index, scale := range []float64{86400, 3600, 60, 1} {
+			if match[index+1] == "" {
+				continue
+			}
+			part, err := strconv.ParseFloat(match[index+1], 64)
+			if err != nil {
+				return 0, false
+			}
+			seconds += part * scale
+		}
+		return validYouTubeOffset(seconds)
+	}
+	word := youtubeWordOffsetPattern.FindStringSubmatch(input)
+	if word == nil {
+		return 0, false
+	}
+	for index, scale := range []float64{3600, 60, 60} {
+		if word[index+1] != "" {
+			part, err := strconv.ParseFloat(word[index+1], 64)
+			if err != nil {
+				return 0, false
+			}
+			return validYouTubeOffset(part * scale)
+		}
+	}
+	return 0, false
+}
+
+func parseYouTubeClockOffset(input string) (float64, bool) {
+	input = strings.TrimSuffix(strings.TrimSuffix(input, "Z"), "z")
+	parts := strings.Split(input, ":")
+	if len(parts) < 2 || len(parts) > 5 {
+		return 0, false
+	}
+	fraction := 0.0
+	if len(parts) >= 2 && len(parts[len(parts)-1]) > 2 && !strings.Contains(parts[len(parts)-1], ".") {
+		milliseconds, err := strconv.ParseFloat("0."+parts[len(parts)-1], 64)
+		if err != nil {
+			return 0, false
+		}
+		fraction = milliseconds
+		parts = parts[:len(parts)-1]
+	}
+	if len(parts) < 1 || len(parts) > 4 {
+		return 0, false
+	}
+	scales := []float64{86400, 3600, 60, 1}[4-len(parts):]
+	var seconds float64
+	for index, part := range parts {
+		if part == "" {
+			return 0, false
+		}
+		if index == len(parts)-1 && len(parts) > 1 {
+			integer := strings.SplitN(part, ".", 2)[0]
+			if len(integer) > 2 {
+				return 0, false
+			}
+		}
+		value, err := strconv.ParseFloat(part, 64)
+		if err != nil || value < 0 {
+			return 0, false
+		}
+		seconds += value * scales[index]
+	}
+	return validYouTubeOffset(seconds + fraction)
+}
+
+func validYouTubeOffset(seconds float64) (float64, bool) {
+	if seconds < 0 || seconds > float64(1<<53) || math.IsNaN(seconds) || math.IsInf(seconds, 0) {
+		return 0, false
+	}
+	return seconds, true
+}
+
+func setYouTubeOffset(info *value.Object, key string, seconds float64) {
+	if seconds == float64(int64(seconds)) {
+		info.Set(key, value.Int(int64(seconds)))
+		return
+	}
+	info.Set(key, value.Float(seconds))
 }
 
 func resolveYouTubePlayerURL(webpageURL, playerPath string) (string, error) {
