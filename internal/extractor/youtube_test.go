@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -119,21 +120,29 @@ func TestYouTubeChannelLiveAliasMatching(t *testing.T) {
 		"https://youtube.com/channel/UCfixture_channel_00001/live",
 		"https://m.youtube.com/user/fixture.name/live/",
 		"https://www.youtube.com/c/fixture-name/live",
+		"https://www.youtube.com/c/ИгорьКлейнер/live?feature=share#ignored",
+		"http://youtube.com/TheYoungTurks/live?feature=share",
 	} {
 		if !youtubeChannelLiveAlias(rawURL) {
 			t.Errorf("youtubeChannelLiveAlias(%q) = false", rawURL)
 		}
 	}
 	for _, rawURL := range []string{
-		"http://www.youtube.com/@fixture/live",
-		"https://www.youtube.com/@fixture/live?redirect=https://example.com",
 		"https://www.youtube.com/@fixture/videos",
 		"https://example.com/@fixture/live",
 		"https://www.youtube.com/@fixture%2Flive",
+		"https://www.youtube.com/watch/live",
+		"https://www.youtube.com/feed/live",
+		"https://www.youtube.com/signin/live",
+		"https://www.youtube.com/s/live",
 	} {
 		if youtubeChannelLiveAlias(rawURL) {
 			t.Errorf("youtubeChannelLiveAlias(%q) = true", rawURL)
 		}
+	}
+	canonical, ok := youtubeChannelLiveAliasURL("http://m.youtube.com/@fixture/live?feature=share#ignored")
+	if !ok || canonical != "https://www.youtube.com/@fixture/live" {
+		t.Fatalf("canonical alias = %q, %v", canonical, ok)
 	}
 }
 
@@ -181,8 +190,12 @@ func TestParseYouTubeTargetOffsets(t *testing.T) {
 		{"https://www.youtube.com/watch?v=fixture0001&t=1s&end=9", 1, 9, true, true},
 		{"https://www.youtube.com/watch?v=fixture0001#t=1h2m3.5s&end=4000", 3723.5, 4000, true, true},
 		{"https://www.youtube.com/watch?v=fixture0001#t=2m&t=3m", 120, 0, true, false},
-		{"https://www.youtube.com/watch?v=fixture0001&t=bad&start=7", 7, 0, true, false},
+		{"https://www.youtube.com/watch?v=fixture0001&t=bad&start=7", 0, 0, false, false},
 		{"https://www.youtube.com/watch?v=fixture0001&t=-1&end=huge", 0, 0, false, false},
+		{"https://www.youtube.com/watch?v=fixture0001&t=1:02", 62, 0, true, false},
+		{"https://www.youtube.com/watch?v=fixture0001&t=1:02:03.5", 3723.5, 0, true, false},
+		{"https://www.youtube.com/watch?v=fixture0001&t=P1DT2H3M4S", 93784, 0, true, false},
+		{"https://www.youtube.com/watch?v=fixture0001&t=1.5hours", 5400, 0, true, false},
 	} {
 		target, err := parseYouTubeTarget(test.url)
 		if err != nil {
@@ -196,6 +209,34 @@ func TestParseYouTubeTargetOffsets(t *testing.T) {
 		}
 		if target.endTime != nil && *target.endTime != test.end {
 			t.Fatalf("end(%q) = %v", test.url, *target.endTime)
+		}
+	}
+}
+
+func TestParseYouTubeOffsetReferenceCases(t *testing.T) {
+	// Derived from yt-dlp test/test_utils.py::test_parse_duration at
+	// aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8.
+	for _, test := range []struct {
+		input string
+		want  float64
+	}{
+		{"1337:12", 80232},
+		{"3 hours, 11 mins, 53 secs", 11513},
+		{"01:02:03.05", 3723.05},
+		{"T30M38S", 1838},
+		{"1 hour 3 minutes", 3780},
+		{"87 Min.", 5220},
+		{"PT1H0.040S", 3600.04},
+		{"PT00H03M30SZ", 210},
+		{"P0Y0M0DT0H4M20.880S", 260.88},
+		{"01:02:03:050", 3723.05},
+		{"103:050", 103.05},
+		{"1HR 3MIN", 3780},
+		{"2hrs 3mins", 7380},
+	} {
+		got, ok := parseYouTubeOffset(test.input)
+		if !ok || math.Abs(got-test.want) > 1e-9 {
+			t.Errorf("parseYouTubeOffset(%q) = (%v, %v), want (%v, true)", test.input, got, ok, test.want)
 		}
 	}
 }
@@ -690,17 +731,40 @@ func TestYouTubePlaylistParsesModernLockupAndContinuationViewModels(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if parsed.title != "Modern fixture playlist" || parsed.continuation != "modern-token-2" || len(parsed.entries) != 1 {
+	if parsed.title != "Modern fixture playlist" || parsed.continuation != "modern-token-2" || len(parsed.entries) != 2 {
 		t.Fatalf("parsed = %#v", parsed)
 	}
 	entry := parsed.entries[0]
 	if entry.ID != "modern00001" || entry.Title != "Modern fixture video" || entry.URL != "https://www.youtube.com/watch?v=modern00001" || entry.ExtractorKey != "youtube" {
 		t.Fatalf("entry = %#v", entry)
 	}
+	if parsed.entries[1].ID != "modern00001" || parsed.entries[1].Title != "Repeated fixture video" {
+		t.Fatalf("repeated entry = %#v", parsed.entries[1])
+	}
 
 	continued, err := parseYouTubePlaylistData(readYouTubeFixture(t, "playlist-modern-continuation.json"))
 	if err != nil || len(continued.entries) != 1 || continued.entries[0].ID != "modern00002" {
 		t.Fatalf("continued = %#v, %v", continued, err)
+	}
+}
+
+func TestYouTubeContinuationViewModelBounds(t *testing.T) {
+	tooMany := make([]value.Value, youtubeMaxContinuationCommands+1)
+	for index := range tooMany {
+		tooMany[index] = value.ObjectValue(value.NewObject())
+	}
+	viewModel := value.NewObject(value.Field{Key: "continuationCommand", Value: value.ObjectValue(value.NewObject(
+		value.Field{Key: "innertubeCommand", Value: value.ObjectValue(value.NewObject(
+			value.Field{Key: "commandExecutorCommand", Value: value.ObjectValue(value.NewObject(
+				value.Field{Key: "commands", Value: value.List(tooMany...)},
+			))},
+		))},
+	))})
+	if token := youtubeContinuationViewModelToken(viewModel); token != "" {
+		t.Fatalf("oversized executor token = %q", token)
+	}
+	if token := validYouTubeContinuationToken(strings.Repeat("x", youtubeMaxContinuationBytes+1)); token != "" {
+		t.Fatalf("oversized token accepted")
 	}
 }
 
