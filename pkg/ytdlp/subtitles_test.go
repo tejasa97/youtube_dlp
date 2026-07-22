@@ -193,6 +193,50 @@ func TestSubtitleHeadersValidateOnlySelectedTrack(t *testing.T) {
 	}
 }
 
+func TestSubtitleExtensionInference(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		metadata *value.Object
+		rawURL   string
+		want     string
+	}{
+		{"explicit", value.NewObject(value.Field{Key: "ext", Value: value.String("ass")}), "https://captions.example/file", "ass"},
+		{"mime", value.NewObject(value.Field{Key: "mime_type", Value: value.String("text/vtt; charset=utf-8")}), "https://captions.example/file", "vtt"},
+		{"path", value.NewObject(), "https://captions.example/file.SRT?token=secret", "srt"},
+		{"query", value.NewObject(), "https://captions.example/file.php?fmt=ttml", "ttml"},
+		{"unknown path", value.NewObject(), "https://captions.example/file.php", "vtt"},
+		{"extensionless", value.NewObject(), "https://captions.example/api/caption?id=1", "vtt"},
+		{"invalid explicit", value.NewObject(value.Field{Key: "ext", Value: value.String("../vtt")}), "https://captions.example/file.vtt", ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := subtitleExtension(test.metadata, test.rawURL); got != test.want {
+				t.Fatalf("extension = %q; want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestSelectSubtitleWithoutExplicitExtension(t *testing.T) {
+	info := value.NewInfo(value.NewObject(value.Field{
+		Key: "subtitles", Value: value.ObjectValue(value.NewObject(value.Field{
+			Key: "en", Value: value.List(value.ObjectValue(value.NewObject(
+				value.Field{Key: "url", Value: value.String("https://captions.example/subtitle.SRT?token=secret")},
+			))),
+		})),
+	}))
+	tracks, requested, err := selectSubtitles(info, SubtitleOptions{WriteManual: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tracks) != 1 || tracks[0].extension != "srt" {
+		t.Fatalf("tracks = %#v", tracks)
+	}
+	selected, _ := requested.Lookup("en").Object()
+	if extension, _ := selected.Lookup("ext").StringValue(); extension != "srt" {
+		t.Fatalf("requested subtitle extension = %q", extension)
+	}
+}
+
 func TestSelectSubtitleLanguagesOrderedRules(t *testing.T) {
 	// Derived from yt-dlp test/test_YoutubeDL.py subtitle-selection cases at
 	// aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8.
@@ -303,5 +347,24 @@ func FuzzValidateSubtitleOptions(f *testing.F) {
 		_ = validateSubtitleOptions(SubtitleOptions{
 			WriteManual: true, Languages: []string{language}, Format: format,
 		})
+	})
+}
+
+func FuzzSubtitleExtension(f *testing.F) {
+	f.Add("", "", "https://captions.example/file.vtt")
+	f.Add("", "text/srt", "https://captions.example/file")
+	f.Add("ass", "", "https://captions.example/file")
+	f.Fuzz(func(t *testing.T, extension, mimeType, rawURL string) {
+		metadata := value.NewObject()
+		if extension != "" {
+			metadata.Set("ext", value.String(extension))
+		}
+		if mimeType != "" {
+			metadata.Set("mime_type", value.String(mimeType))
+		}
+		got := subtitleExtension(metadata, rawURL)
+		if got != "" && !subtitleExtensionPattern.MatchString(got) {
+			t.Fatalf("unsafe inferred extension %q", got)
+		}
 	})
 }

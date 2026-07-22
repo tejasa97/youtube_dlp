@@ -70,6 +70,8 @@ jobs:
             target: FuzzConfinedPostprocessPath
           - package: ./pkg/ytdlp
             target: FuzzValidateSubtitleOptions
+          - package: ./pkg/ytdlp
+            target: FuzzSubtitleExtension
           - package: ./internal/plugin/rpc
             target: FuzzReadFrame
           - package: ./internal/plugin/wasm

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -30,6 +31,17 @@ const (
 var (
 	subtitleLanguagePattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 	subtitleExtensionPattern = regexp.MustCompile(`^[A-Za-z0-9]{1,16}$`)
+	subtitleExtensionAliases = map[string]string{
+		"ass": "ass", "dfxp": "dfxp", "json": "json", "json3": "json3",
+		"lrc": "lrc", "sami": "sami", "smi": "smi", "srt": "srt",
+		"srv1": "srv1", "srv2": "srv2", "srv3": "srv3", "ssa": "ssa",
+		"sub": "sub", "subrip": "srt", "text": "txt", "tml": "ttml",
+		"ttml": "ttml", "txt": "txt", "vtt": "vtt", "webvtt": "vtt", "xml": "xml",
+	}
+	subtitleMIMEExtensions = map[string]string{
+		"application/srt": "srt", "application/ttml+xml": "ttml",
+		"application/x-subrip": "srt", "text/srt": "srt", "text/vtt": "vtt",
+	}
 )
 
 type subtitleTrack struct {
@@ -120,11 +132,15 @@ func selectSubtitles(info value.Info, options SubtitleOptions) ([]subtitleTrack,
 					continue
 				}
 				rawURL, urlOK := object.Lookup("url").StringValue()
-				extension, extOK := object.Lookup("ext").StringValue()
-				if !urlOK || !extOK || !validSubtitleURL(rawURL) || !subtitleExtensionPattern.MatchString(extension) {
+				if !urlOK || !validSubtitleURL(rawURL) {
+					continue
+				}
+				extension := subtitleExtension(object, rawURL)
+				if extension == "" {
 					continue
 				}
 				metadata := object.Clone()
+				metadata.Set("ext", value.String(extension))
 				metadata.Set("_auto", value.Bool(automatic))
 				tracks = append(tracks, subtitleTrack{
 					language: language, extension: extension, rawURL: rawURL,
@@ -178,6 +194,41 @@ func selectSubtitles(info value.Info, options SubtitleOptions) ([]subtitleTrack,
 		metadata.Set(language, value.ObjectValue(track.metadata))
 	}
 	return selected, metadata, nil
+}
+
+func subtitleExtension(metadata *value.Object, rawURL string) string {
+	if extension, ok := metadata.Lookup("ext").StringValue(); ok {
+		if subtitleExtensionPattern.MatchString(extension) {
+			return extension
+		}
+		return ""
+	}
+	for _, field := range []string{"mime_type", "type"} {
+		mimeType, ok := metadata.Lookup(field).StringValue()
+		if !ok {
+			continue
+		}
+		mimeType = strings.ToLower(strings.TrimSpace(strings.SplitN(mimeType, ";", 2)[0]))
+		if extension := subtitleMIMEExtensions[mimeType]; extension != "" {
+			return extension
+		}
+	}
+	parsed, err := url.Parse(rawURL)
+	if err == nil {
+		if extension := knownSubtitleExtension(strings.TrimPrefix(path.Ext(parsed.Path), ".")); extension != "" {
+			return extension
+		}
+		for _, key := range []string{"fmt", "format", "ext"} {
+			if extension := knownSubtitleExtension(parsed.Query().Get(key)); extension != "" {
+				return extension
+			}
+		}
+	}
+	return "vtt"
+}
+
+func knownSubtitleExtension(candidate string) string {
+	return subtitleExtensionAliases[strings.ToLower(strings.TrimSpace(candidate))]
 }
 
 func selectSubtitleLanguages(available []subtitleLanguage, manualCount int, rules []string) ([]string, error) {
