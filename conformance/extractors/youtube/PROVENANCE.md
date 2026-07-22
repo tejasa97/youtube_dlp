@@ -41,6 +41,12 @@ fragment-then-query traversal and its `start`/`t` to `start_time` and `end` to
 `end_time` mapping. Tests use only synthetic IDs plus the pinned public Big Buck
 Bunny URL for an optional live acceptance check.
 
+Channel live-alias matching follows the `/channel/.../live`, `/user/.../live`,
+`/c/.../live`, and handle routes exercised by `YoutubeTabIE` in the pinned
+reference. The deterministic resolver reuses the synthetic `live-watch.html`
+player response and resolves only a validated video ID through the existing
+video extractor. It does not retain a production channel page or redirect.
+
 `sabr-watch.html`, `android-player.json`, and `android-vr-player.json` are synthetic regression fixtures
 for URL-less `serverAbrStreamingUrl` webpage responses and native-client format
 recovery. Their response fields and client-request expectations are derived

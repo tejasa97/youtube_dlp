@@ -22,6 +22,8 @@ const youtubePlayerMarker = "ytInitialPlayerResponse"
 
 var youtubeIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{11}$`)
 
+var youtubeChannelLivePathPattern = regexp.MustCompile(`^/(?:@[A-Za-z0-9._-]{1,100}|(?:channel|user|c)/[A-Za-z0-9._-]{1,100})/live/?$`)
+
 const (
 	youtubeMaxPageConfigs       = 8
 	youtubeMaxConfigStartOffset = 64
@@ -50,6 +52,9 @@ func (YouTube) Suitable(parsed *url.URL) bool {
 func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error) {
 	if playlistID, ok := youtubePlaylistID(request.URL); ok {
 		return extractYouTubePlaylist(ctx, request, playlistID)
+	}
+	if youtubeChannelLiveAlias(request.URL) {
+		return extractYouTubeChannelLiveAlias(ctx, request)
 	}
 	target, err := parseYouTubeTarget(request.URL)
 	if err != nil {
@@ -172,6 +177,42 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 		setYouTubeOffset(info, "end_time", *target.endTime)
 	}
 	return Media(value.NewInfo(info)), nil
+}
+
+func youtubeChannelLiveAlias(rawURL string) bool {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.User != nil || parsed.Port() != "" {
+		return false
+	}
+	host := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
+	if host != "youtube.com" && !strings.HasSuffix(host, ".youtube.com") {
+		return false
+	}
+	return parsed.Scheme == "https" && youtubeChannelLivePathPattern.MatchString(parsed.EscapedPath())
+}
+
+func extractYouTubeChannelLiveAlias(ctx context.Context, request Request) (Extraction, error) {
+	page, _, err := request.Transport.ReadPage(ctx, request.URL)
+	if err != nil {
+		return Extraction{}, err
+	}
+	rawPlayer, err := extractJSONObject(page, youtubePlayerMarker)
+	if err != nil {
+		return Extraction{}, fmt.Errorf("%w: channel is not currently live", ErrUnavailable)
+	}
+	var player youtubePlayerResponse
+	if err := json.Unmarshal(rawPlayer, &player); err != nil {
+		return Extraction{}, fmt.Errorf("%w: decode channel live player response", ErrInvalidMetadata)
+	}
+	if err := checkYouTubeAvailability(player.PlayabilityStatus); err != nil {
+		return Extraction{}, err
+	}
+	videoID := player.VideoDetails.VideoID
+	if !youtubeIDPattern.MatchString(videoID) {
+		return Extraction{}, fmt.Errorf("%w: channel live page has no valid video", ErrUnavailable)
+	}
+	request.URL = "https://www.youtube.com/watch?v=" + videoID
+	return NewYouTube().Extract(ctx, request)
 }
 
 type youtubePlayerResponse struct {

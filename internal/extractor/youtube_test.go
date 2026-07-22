@@ -113,6 +113,65 @@ func TestYouTubeSuitableAndVideoID(t *testing.T) {
 	}
 }
 
+func TestYouTubeChannelLiveAliasMatching(t *testing.T) {
+	for _, rawURL := range []string{
+		"https://www.youtube.com/@fixture/live",
+		"https://youtube.com/channel/UCfixture_channel_00001/live",
+		"https://m.youtube.com/user/fixture.name/live/",
+		"https://www.youtube.com/c/fixture-name/live",
+	} {
+		if !youtubeChannelLiveAlias(rawURL) {
+			t.Errorf("youtubeChannelLiveAlias(%q) = false", rawURL)
+		}
+	}
+	for _, rawURL := range []string{
+		"http://www.youtube.com/@fixture/live",
+		"https://www.youtube.com/@fixture/live?redirect=https://example.com",
+		"https://www.youtube.com/@fixture/videos",
+		"https://example.com/@fixture/live",
+		"https://www.youtube.com/@fixture%2Flive",
+	} {
+		if youtubeChannelLiveAlias(rawURL) {
+			t.Errorf("youtubeChannelLiveAlias(%q) = true", rawURL)
+		}
+	}
+}
+
+func TestYouTubeChannelLiveAliasResolvesThroughVideoExtractor(t *testing.T) {
+	const alias = "https://www.youtube.com/@fixture/live"
+	watch := readYouTubeFixture(t, "live-watch.html")
+	transport := &memoryTransport{pages: map[string][]byte{
+		alias: watch, "https://www.youtube.com/watch?v=livefix0001": watch,
+	}}
+	result, err := NewYouTube().Extract(context.Background(), Request{URL: alias, Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id, _ := result.Info.ID(); id != "livefix0001" {
+		t.Fatalf("id = %q", id)
+	}
+	if status, _ := result.Info.Lookup("live_status").StringValue(); status != "is_live" {
+		t.Fatalf("live_status = %q", status)
+	}
+	if !reflect.DeepEqual(transport.reads, []string{alias, "https://www.youtube.com/watch?v=livefix0001"}) {
+		t.Fatalf("reads = %v", transport.reads)
+	}
+}
+
+func TestYouTubeChannelLiveAliasOfflineAndMalformed(t *testing.T) {
+	const alias = "https://www.youtube.com/@fixture/live"
+	transport := &memoryTransport{pages: map[string][]byte{alias: []byte(`ytInitialData={"contents":{}};`)}}
+	if _, err := NewYouTube().Extract(context.Background(), Request{URL: alias, Transport: transport}); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("offline error = %v", err)
+	}
+
+	badPlayer := []byte(`ytInitialPlayerResponse={"playabilityStatus":{"status":"OK"},"videoDetails":{"videoId":"bad"}};`)
+	transport = &memoryTransport{pages: map[string][]byte{alias: badPlayer}}
+	if _, err := NewYouTube().Extract(context.Background(), Request{URL: alias, Transport: transport}); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("malformed error = %v", err)
+	}
+}
+
 func TestParseYouTubeTargetOffsets(t *testing.T) {
 	for _, test := range []struct {
 		url              string
@@ -771,6 +830,17 @@ func FuzzParseYouTubeTarget(f *testing.F) {
 			t.Skip()
 		}
 		_, _ = parseYouTubeTarget(rawURL)
+	})
+}
+
+func FuzzYouTubeChannelLiveAlias(f *testing.F) {
+	f.Add("https://www.youtube.com/@fixture/live")
+	f.Add("https://youtube.com/channel/UCfixture_channel_00001/live")
+	f.Fuzz(func(t *testing.T, rawURL string) {
+		if len(rawURL) > 4096 {
+			t.Skip()
+		}
+		_ = youtubeChannelLiveAlias(rawURL)
 	})
 }
 
