@@ -242,6 +242,7 @@ func TestYouTubeNoCookieParseTarget(t *testing.T) {
 			"https://user:pass@www.youtube-nocookie.com/embed/fixture0001",
 			"https://www.youtube-nocookie.com:443/embed/fixture0001",
 			"https://www.youtube-nocookie.com:8080/embed/fixture0001",
+			"https://www.youtube-nocookie.com:/embed/fixture0001",
 			"ftp://www.youtube-nocookie.com/embed/fixture0001",
 			"file:///etc/passwd",
 			"https://www.youtube-nocookie.com/embed/fixture0001%2Fextra",
@@ -330,6 +331,7 @@ func TestYouTubeExtractRejectsHostilePlaylistURLs(t *testing.T) {
 		"https://user:pass@www.youtube.com/playlist?list=PL_fixture",
 		"https://www.youtube.com:443/playlist?list=PL_fixture",
 		"https://www.youtube.com:8080/playlist?list=PL_fixture",
+		"https://www.youtube.com:/playlist?list=PL_fixture",
 		"https://example.com/playlist?list=PL_fixture",
 		"https://evil-youtube.com/playlist?list=PL_fixture",
 		"https://www.youtube.com/playlist%2F?list=PL_fixture",
@@ -355,6 +357,7 @@ func TestYouTubeExtractRejectsHostileLiveAliasURLs(t *testing.T) {
 		"ftp://www.youtube.com/@fixture/live",
 		"https://user@www.youtube.com/@fixture/live",
 		"https://www.youtube.com:443/@fixture/live",
+		"https://www.youtube.com:/@fixture/live",
 		"https://example.com/@fixture/live",
 		"https://www.youtube.com/@fix%2fture/live",
 		"https://www.youtube.com/@fix%00ture/live",
@@ -368,6 +371,96 @@ func TestYouTubeExtractRejectsHostileLiveAliasURLs(t *testing.T) {
 	}
 	if len(transport.reads) != 0 {
 		t.Fatalf("transport.reads = %v; want empty (no requests for hostile URLs)", transport.reads)
+	}
+}
+
+func TestYouTubeExtractRejectsEmptyPortAllRoutes(t *testing.T) {
+	transport := &memoryTransport{pages: map[string][]byte{}}
+	for _, rawURL := range []string{
+		// Standard video routes.
+		"https://www.youtube.com:/watch?v=fixture0001",
+		"https://youtube.com:/embed/fixture0001",
+		"https://youtu.be:/fixture0001",
+		// Nocookie route.
+		"https://www.youtube-nocookie.com:/embed/fixture0001",
+	} {
+		_, err := NewYouTube().Extract(context.Background(), Request{
+			URL: rawURL, Transport: transport,
+		})
+		if !errors.Is(err, ErrUnsupported) {
+			t.Errorf("Extract(%q) error = %v; want ErrUnsupported", rawURL, err)
+		}
+	}
+	if len(transport.reads) != 0 {
+		t.Fatalf("transport.reads = %v; want empty", transport.reads)
+	}
+}
+
+// stubChallengeSolver returns a fixed error from SolvePlayer, allowing tests
+// to exercise the cancellation guard in resolveYouTubeURLs without running the
+// real JavaScript engine.
+type stubChallengeSolver struct {
+	err error
+}
+
+func (s stubChallengeSolver) SolvePlayer(context.Context, string, string, []ejs.ChallengeRequest, bool) (ejs.Result, error) {
+	return ejs.Result{}, s.err
+}
+
+func TestYouTubeSolverCancellationPropagation(t *testing.T) {
+	watch := readYouTubeFixture(t, "watch.html")
+	player := readYouTubeFixture(t, "../../javascript/ejs-0.8.0/synthetic-player.js")
+
+	for _, test := range []struct {
+		name    string
+		solver  stubChallengeSolver
+		wantIs  error
+		wantNot error
+	}{
+		{
+			name:    "context.Canceled",
+			solver:  stubChallengeSolver{err: context.Canceled},
+			wantIs:  context.Canceled,
+			wantNot: ErrChallengeSolver,
+		},
+		{
+			name:    "context.DeadlineExceeded",
+			solver:  stubChallengeSolver{err: context.DeadlineExceeded},
+			wantIs:  context.DeadlineExceeded,
+			wantNot: ErrChallengeSolver,
+		},
+		{
+			name:    "wrapped cancellation",
+			solver:  stubChallengeSolver{err: fmt.Errorf("solver timeout: %w", context.Canceled)},
+			wantIs:  context.Canceled,
+			wantNot: ErrChallengeSolver,
+		},
+		{
+			name:   "normal solver failure remains ErrChallengeSolver",
+			solver: stubChallengeSolver{err: errors.New("n-param transform failed")},
+			wantIs: ErrChallengeSolver,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			transport := &memoryTransport{pages: map[string][]byte{
+				youtubeFixtureURL: watch,
+				youtubePlayerURL:  player,
+			}}
+			_, err := NewYouTube().Extract(context.Background(), Request{
+				URL:             "https://www.youtube-nocookie.com/embed/fixture0001",
+				Transport:       transport,
+				ChallengeSolver: test.solver,
+			})
+			if err == nil {
+				t.Fatal("expected error from stub solver")
+			}
+			if !errors.Is(err, test.wantIs) {
+				t.Fatalf("error = %v; want errors.Is(err, %v)", err, test.wantIs)
+			}
+			if test.wantNot != nil && errors.Is(err, test.wantNot) {
+				t.Fatalf("error = %v; must NOT satisfy errors.Is(err, %v)", err, test.wantNot)
+			}
+		})
 	}
 }
 
@@ -1158,6 +1251,7 @@ func FuzzParseYouTubeTarget(f *testing.F) {
 	f.Add("https://www.youtube-nocookie.com/embed/fixture0001/extra")
 	f.Add("https://user:pass@www.youtube-nocookie.com/embed/fixture0001")
 	f.Add("https://www.youtube-nocookie.com:443/embed/fixture0001")
+	f.Add("https://www.youtube-nocookie.com:/embed/fixture0001")
 	f.Add("ftp://www.youtube-nocookie.com/embed/fixture0001")
 	f.Add("https://www.youtube-nocookie.com/embed%2Ffixture0001")
 	f.Add("https://evil-youtube-nocookie.com/embed/fixture0001")
