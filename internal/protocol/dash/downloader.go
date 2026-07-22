@@ -396,7 +396,8 @@ func (downloader *Downloader) fetchIndexRange(ctx context.Context, mediaURL stri
 
 // validContentRange checks that a Content-Range header matches the expected
 // byte range. Format: "bytes START-END/TOTAL" or "bytes START-END/*".
-// Parsing is strict: only pure decimal digits are accepted for START and END.
+// Parsing is strict per RFC 9110 §14.4: first-pos, last-pos, and
+// complete-length are 1*DIGIT (ASCII 0-9 only; signs are not allowed).
 // The total must be either "*" or a decimal integer strictly greater than END.
 func validContentRange(header string, expectedStart, expectedLength int64) bool {
 	if !strings.HasPrefix(header, "bytes ") {
@@ -415,15 +416,15 @@ func validContentRange(header string, expectedStart, expectedLength int64) bool 
 	}
 	startStr := rangeSpec[:dashIndex]
 	endStr := rangeSpec[dashIndex+1:]
-	if startStr == "" || endStr == "" {
+	if !isDigits(startStr) || !isDigits(endStr) {
 		return false
 	}
 	start, err := strconv.ParseInt(startStr, 10, 64)
-	if err != nil || start < 0 {
+	if err != nil {
 		return false
 	}
 	end, err := strconv.ParseInt(endStr, 10, 64)
-	if err != nil || end < 0 {
+	if err != nil {
 		return false
 	}
 	if start != expectedStart || end != expectedStart+expectedLength-1 {
@@ -433,12 +434,27 @@ func validContentRange(header string, expectedStart, expectedLength int64) bool 
 	if totalSpec == "*" {
 		return true
 	}
-	if totalSpec == "" {
+	if !isDigits(totalSpec) {
 		return false
 	}
 	total, err := strconv.ParseInt(totalSpec, 10, 64)
-	if err != nil || total < 0 {
+	if err != nil {
 		return false
 	}
 	return total > end
+}
+
+// isDigits reports whether s is non-empty and contains only ASCII digits 0-9.
+// RFC 9110 §14.4 defines first-pos, last-pos, and complete-length as 1*DIGIT;
+// strconv.ParseInt accepts an optional leading sign which must be rejected.
+func isDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
