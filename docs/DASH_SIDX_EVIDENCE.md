@@ -210,6 +210,65 @@ rejected**. Rationale:
 3. Full omission discards required bytes, producing unplayable output.
 4. No known production MPD uses overlapping initialization and media ranges.
 
+## Design decision: hierarchical SIDX expansion
+
+A SIDX entry with `reference_type == 1` does not describe a media subsegment
+but points at another SIDX index. The downloader resolves these recursively
+into ordered media byte ranges. The expansion is depth-first in manifest and
+SIDX reference order so the final byte ranges match the production reference
+order even when nested indexes rearrange the underlying bytes.
+
+### Safety limits (with rationale)
+
+- `maxSIDXDepth = 8` (cumulative): bounds the recursion depth across the
+  whole representation so a hostile or pathological manifest cannot trigger
+  unbounded stack growth. Eight levels is well above the two-to-three levels
+  observed in real production hierarchies.
+- `maxSIDXBoxesPerRepresentation = 256` (cumulative): bounds the total
+  number of parsed SIDX boxes for a single representation, so an attacker
+  cannot create arbitrarily many cheap boxes that each trigger a range
+  request.
+- `maxCumulativeIndexBytes = 16 MiB` (cumulative): bounds the total bytes
+  fetched for index data across the entire hierarchy. This rejects both
+  deeply-nested and broadly-shallow topologies that would otherwise be
+  within the box count and depth limits but still consume excessive
+  network and memory.
+- `effectiveMaxSegments` (per representation): bounds the number of leaf
+  media references returned for a single representation; uses the configured
+  `Config.MaxSegments` clamped to the parser hard limit
+  `maxSegmentsPerRepresentation` (100,000).
+
+Limits are checked on each recursive call so a hostile or pathological
+hierarchy cannot evade a per-level limit by alternating levels. Cycle
+detection additionally rejects repeated `(URL, start, length)` index ranges
+to bound recursion fan-out across the same media URL.
+
+### Failure semantics
+
+The recursive expansion fails closed for every category required by the
+task brief:
+
+- recursive or cyclic references (visited range set + bounded depth),
+- repeated hostile ranges (per-call leaf count and cumulative byte budget),
+- integer overflow in offsets, sizes, or endpoints (`addInt64` /
+  `addUint64ToInt64` overflow checks before any byte is fetched),
+- oversized child indexes (`maxCumulativeIndexBytes`),
+- excessive depth or fan-out (`maxSIDXDepth` / `maxSIDXBoxesPerRepresentation`
+  / effective leaf count),
+- truncated or malformed child SIDX boxes (the parser already
+  fails closed),
+- invalid or mismatched Content-Range responses (preserved from the
+  flat SIDX path),
+- dynamic SegmentBase/SIDX manifests (explicitly rejected at
+  `expandSIDXSegments`),
+- initialization/media overlap (preserved from the flat SIDX path).
+
+### Deviation
+
+Single-attempt index retrieval is preserved from the flat SIDX path. We
+deliberately do not add transient index-fetch retries in this change; a
+later PR can introduce them if evidence shows a real need.
+
 ## Design decision: Initialization shallow inheritance
 
 The `Initialization` child element inherits as a **wholesale override**, not

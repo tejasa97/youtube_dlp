@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -492,6 +493,14 @@ func (downloader *Downloader) expandSIDXSegments(ctx context.Context, dynamic bo
 // parses the SIDX box, and expands it into concrete byte-range media segments.
 // If the SIDX contains hierarchical (index) references, recursive expansion is
 // performed with bounded depth, box count, and cumulative index byte limits.
+//
+// The cumulative transfer budget (maxCumulativeIndexBytes) accounts for actual
+// bytes read from response bodies, not merely the final sliced result. This
+// prevents 200 fallback responses from bypassing the budget.
+//
+// After expansion, all leaf media ranges and the initialization range are
+// validated against every fetched index interval (root and nested) to ensure
+// no index bytes can enter assembled media output.
 func (downloader *Downloader) expandOneSIDX(ctx context.Context, marker Segment) ([]Segment, error) {
 	rangeStart, rangeEnd, err := parseByteRange(marker.IndexRange)
 	if err != nil {
@@ -502,14 +511,24 @@ func (downloader *Downloader) expandOneSIDX(ctx context.Context, marker Segment)
 		return nil, fmt.Errorf("%w: index range %d bytes exceeds limit", ErrUnsupportedAddressing, rangeLength)
 	}
 
-	// Fetch the index range bytes.
-	indexData, err := downloader.fetchIndexRange(ctx, marker.URL, rangeStart, rangeLength)
+	// Initialize expansion state for safety tracking. The root index request
+	// is included in the cumulative transfer budget.
+	state := &sidxExpansionState{
+		mediaURL:     marker.URL,
+		visited:      make(map[string]struct{}),
+		maxLeafCount: downloader.effectiveMaxSegments(),
+	}
+
+	// Fetch the root index range bytes, enforcing the cumulative budget.
+	rootResult, err := downloader.fetchIndexRange(ctx, marker.URL, rangeStart, rangeLength, maxCumulativeIndexBytes)
 	if err != nil {
 		return nil, err
 	}
+	state.indexBytes = rootResult.TransferredBytes
+	state.indexIntervals = append(state.indexIntervals, MediaRange{Start: rangeStart, Length: rangeLength})
 
 	// Parse the SIDX box.
-	sidx, sidxOffset, err := ParseSIDX(indexData)
+	sidx, sidxOffset, err := ParseSIDX(rootResult.Data)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrUnsupportedAddressing, err)
 	}
@@ -519,14 +538,7 @@ func (downloader *Downloader) expandOneSIDX(ctx context.Context, marker Segment)
 	// offset of the sidx box within the fetched data.
 	baseOffset := rangeStart + int64(sidxOffset)
 
-	// Initialize expansion state for safety tracking.
-	state := &sidxExpansionState{
-		mediaURL:     marker.URL,
-		visited:      make(map[string]struct{}),
-		boxesParsed:  1,
-		indexBytes:   int64(len(indexData)),
-		maxLeafCount: downloader.effectiveMaxSegments(),
-	}
+	state.boxesParsed = 1
 	// Record the root index range as visited.
 	state.visited[rangeKey(marker.URL, rangeStart, rangeLength)] = struct{}{}
 
@@ -534,6 +546,24 @@ func (downloader *Downloader) expandOneSIDX(ctx context.Context, marker Segment)
 	mediaRanges, err := downloader.expandSIDXReferences(ctx, sidx, baseOffset, 0, state)
 	if err != nil {
 		return nil, err
+	}
+
+	// Validate no leaf media range overlaps any fetched index interval.
+	// This ensures index bytes never enter assembled media output.
+	for i, leaf := range mediaRanges {
+		leafEnd, overflow := safeEnd(leaf.Start, leaf.Length)
+		if overflow {
+			return nil, fmt.Errorf("%w: leaf media range %d overflows", ErrUnsupportedAddressing, i)
+		}
+		for j, idx := range state.indexIntervals {
+			idxEnd, idxOverflow := safeEnd(idx.Start, idx.Length)
+			if idxOverflow {
+				return nil, fmt.Errorf("%w: index interval %d overflows", ErrUnsupportedAddressing, j)
+			}
+			if leaf.Start < idxEnd && idx.Start < leafEnd {
+				return nil, fmt.Errorf("%w: leaf media range %d overlaps index interval %d", ErrUnsupportedAddressing, i, j)
+			}
+		}
 	}
 
 	// Build the expanded segment list.
@@ -545,23 +575,35 @@ func (downloader *Downloader) expandOneSIDX(ctx context.Context, marker Segment)
 		if parseErr != nil {
 			return nil, fmt.Errorf("%w: initialization range: %v", ErrUnsupportedAddressing, parseErr)
 		}
+		initLength := initEnd - initStart + 1
 		// Reject any overlap between the initialization range and media ranges.
 		// Partial trimming could corrupt codec configuration; full omission
 		// discards required bytes. Explicit rejection is the safe choice.
-		// This also covers overlap with root or nested index ranges: since
-		// index bytes are never emitted as media, any init/media overlap is
-		// the only checked condition. Init/index overlap is fail-closed by
-		// the same logic (index bytes are not media output).
 		for _, mediaRange := range mediaRanges {
 			mediaEnd := mediaRange.Start + mediaRange.Length - 1
 			if initStart <= mediaEnd && initEnd >= mediaRange.Start {
 				return nil, fmt.Errorf("%w: initialization range %d-%d overlaps media range %d-%d", ErrUnsupportedAddressing, initStart, initEnd, mediaRange.Start, mediaEnd)
 			}
 		}
+		// Reject initialization overlap with any fetched index interval.
+		// Index bytes are not media; init/index overlap is fail-closed.
+		initRangeEnd, initOverflow := safeEnd(initStart, initLength)
+		if initOverflow {
+			return nil, fmt.Errorf("%w: initialization range overflows", ErrUnsupportedAddressing)
+		}
+		for j, idx := range state.indexIntervals {
+			idxEnd, idxOverflow := safeEnd(idx.Start, idx.Length)
+			if idxOverflow {
+				return nil, fmt.Errorf("%w: index interval %d overflows", ErrUnsupportedAddressing, j)
+			}
+			if initStart < idxEnd && idx.Start < initRangeEnd {
+				return nil, fmt.Errorf("%w: initialization range overlaps index interval %d", ErrUnsupportedAddressing, j)
+			}
+		}
 		result = append(result, Segment{
 			URL:         marker.URL,
 			RangeStart:  initStart,
-			RangeLength: initEnd - initStart + 1,
+			RangeLength: initLength,
 			Initialize:  true,
 		})
 	}
@@ -577,14 +619,33 @@ func (downloader *Downloader) expandOneSIDX(ctx context.Context, marker Segment)
 	return result, nil
 }
 
+// safeEnd computes start+length with overflow detection. Returns the exclusive
+// end and whether overflow occurred.
+func safeEnd(start, length int64) (int64, bool) {
+	if length < 0 || start < 0 || start > math.MaxInt64-length {
+		return 0, true
+	}
+	return start + length, false
+}
+
+// indexRangeResult is the typed result of a bounded index-range fetch.
+// TransferredBytes is the actual number of bytes read from the response body,
+// which may exceed len(Data) for 200 fallback responses where the full body is
+// read before slicing to the requested range.
+type indexRangeResult struct {
+	Data             []byte
+	TransferredBytes int64
+}
+
 // sidxExpansionState tracks safety counters during recursive SIDX expansion.
 type sidxExpansionState struct {
-	mediaURL     string
-	visited      map[string]struct{} // range keys for cycle detection
-	boxesParsed  int
-	indexBytes   int64
-	leafCount    int
-	maxLeafCount int
+	mediaURL       string
+	visited        map[string]struct{} // range keys for cycle detection
+	indexIntervals []MediaRange        // all fetched index intervals (root + nested)
+	boxesParsed    int
+	indexBytes     int64 // cumulative bytes actually transferred for index data
+	leafCount      int
+	maxLeafCount   int
 }
 
 // rangeKey produces a unique key for a fetched index range, used for cycle
@@ -636,17 +697,20 @@ func (downloader *Downloader) expandSIDXReferences(ctx context.Context, sidx *SI
 		}
 
 		// Check cumulative index bytes before fetching.
-		if state.indexBytes > maxCumulativeIndexBytes-nestedRange.Length {
+		remaining := maxCumulativeIndexBytes - state.indexBytes
+		if remaining <= 0 {
 			return nil, fmt.Errorf("%w: cumulative index bytes exceed %d", ErrUnsupportedAddressing, maxCumulativeIndexBytes)
 		}
 
-		nestedData, fetchErr := downloader.fetchIndexRange(ctx, state.mediaURL, nestedRange.Start, nestedRange.Length)
+		nestedResult, fetchErr := downloader.fetchIndexRange(ctx, state.mediaURL, nestedRange.Start, nestedRange.Length, remaining)
 		if fetchErr != nil {
 			return nil, fetchErr
 		}
-		state.indexBytes += int64(len(nestedData))
+		state.indexBytes += nestedResult.TransferredBytes
+		// Record the nested index interval for overlap validation.
+		state.indexIntervals = append(state.indexIntervals, MediaRange{Start: nestedRange.Start, Length: nestedRange.Length})
 
-		nestedSIDX, nestedOffset, parseErr := ParseSIDX(nestedData)
+		nestedSIDX, nestedOffset, parseErr := ParseSIDX(nestedResult.Data)
 		if parseErr != nil {
 			return nil, fmt.Errorf("%w: nested SIDX at offset %d: %v", ErrUnsupportedAddressing, nestedRange.Start, parseErr)
 		}
@@ -702,10 +766,19 @@ func (downloader *Downloader) effectiveMaxSegments() int {
 // It propagates configured headers and preserves cancellation. It requires a
 // 206 Partial Content response, or safely handles a bounded 200 response only
 // if the exact requested bytes can be extracted.
-func (downloader *Downloader) fetchIndexRange(ctx context.Context, mediaURL string, rangeStart, rangeLength int64) ([]byte, error) {
+//
+// The remainingBudget parameter bounds the total bytes that may be read from
+// the response body. This enforces the cumulative transfer budget at the read
+// boundary, preventing a 200 fallback from transferring more data than the
+// budget allows before the caller notices.
+//
+// The returned indexRangeResult reports both the extracted Data and the actual
+// TransferredBytes read from the wire. For 206 responses these are normally
+// equal; for 200 fallbacks TransferredBytes may exceed len(Data).
+func (downloader *Downloader) fetchIndexRange(ctx context.Context, mediaURL string, rangeStart, rangeLength, remainingBudget int64) (indexRangeResult, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, mediaURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("create index range request: %w", err)
+		return indexRangeResult{}, fmt.Errorf("create index range request: %w", err)
 	}
 	request.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", rangeStart, rangeStart+rangeLength-1))
 	for key, values := range downloader.config.Headers {
@@ -716,7 +789,7 @@ func (downloader *Downloader) fetchIndexRange(ctx context.Context, mediaURL stri
 
 	response, err := downloader.transport.Do(ctx, request)
 	if err != nil {
-		return nil, fmt.Errorf("index range request: %w", err)
+		return indexRangeResult{}, fmt.Errorf("index range request: %w", err)
 	}
 	defer response.Body.Close()
 
@@ -726,32 +799,44 @@ func (downloader *Downloader) fetchIndexRange(ctx context.Context, mediaURL stri
 		// does not prove it came from the requested offset.
 		contentRange := response.Header.Get("Content-Range")
 		if contentRange == "" {
-			return nil, fmt.Errorf("%w: 206 response missing Content-Range header", ErrUnsupportedAddressing)
+			return indexRangeResult{}, fmt.Errorf("%w: 206 response missing Content-Range header", ErrUnsupportedAddressing)
 		}
 		if !validContentRange(contentRange, rangeStart, rangeLength) {
-			return nil, fmt.Errorf("%w: Content-Range mismatch", ErrUnsupportedAddressing)
+			return indexRangeResult{}, fmt.Errorf("%w: Content-Range mismatch", ErrUnsupportedAddressing)
 		}
 	case http.StatusOK:
 		// Server ignored the Range header. Only accept if the response is
 		// bounded and we can extract the exact bytes.
 		if response.ContentLength > maxIndexRangeBytes {
-			return nil, fmt.Errorf("%w: 200 response too large for index extraction", ErrUnsupportedAddressing)
+			return indexRangeResult{}, fmt.Errorf("%w: 200 response too large for index extraction", ErrUnsupportedAddressing)
 		}
 	default:
 		if network.RetryableStatus(response.StatusCode) {
-			return nil, fmt.Errorf("index range request: HTTP status %d", response.StatusCode)
+			return indexRangeResult{}, fmt.Errorf("index range request: HTTP status %d", response.StatusCode)
 		}
-		return nil, fmt.Errorf("%w: index range request returned HTTP %d", ErrUnsupportedAddressing, response.StatusCode)
+		return indexRangeResult{}, fmt.Errorf("%w: index range request returned HTTP %d", ErrUnsupportedAddressing, response.StatusCode)
 	}
 
-	// Read with a bounded limit.
-	limited := io.LimitReader(response.Body, maxIndexRangeBytes+1)
+	// Read with a bounded limit: the lesser of maxIndexRangeBytes+1 and the
+	// remaining cumulative budget+1. The +1 allows detecting over-budget reads.
+	readLimit := int64(maxIndexRangeBytes) + 1
+	if remainingBudget+1 < readLimit {
+		readLimit = remainingBudget + 1
+	}
+	limited := io.LimitReader(response.Body, readLimit)
 	body, err := io.ReadAll(limited)
 	if err != nil {
-		return nil, fmt.Errorf("read index range response: %w", err)
+		return indexRangeResult{}, fmt.Errorf("read index range response: %w", err)
 	}
-	if int64(len(body)) > maxIndexRangeBytes {
-		return nil, fmt.Errorf("%w: index response exceeds %d bytes", ErrUnsupportedAddressing, maxIndexRangeBytes)
+	transferred := int64(len(body))
+
+	// Enforce per-request bound.
+	if transferred > maxIndexRangeBytes {
+		return indexRangeResult{}, fmt.Errorf("%w: index response exceeds %d bytes", ErrUnsupportedAddressing, maxIndexRangeBytes)
+	}
+	// Enforce cumulative transfer budget.
+	if transferred > remainingBudget {
+		return indexRangeResult{}, fmt.Errorf("%w: cumulative index transfer budget exhausted (read %d, budget %d)", ErrUnsupportedAddressing, transferred, remainingBudget)
 	}
 
 	// For a 200 response, extract the requested byte range.
@@ -760,20 +845,20 @@ func (downloader *Downloader) fetchIndexRange(ctx context.Context, mediaURL stri
 	if response.StatusCode == http.StatusOK {
 		bodyLen := int64(len(body))
 		if rangeStart > bodyLen {
-			return nil, fmt.Errorf("%w: 200 response too short for requested range", ErrUnsupportedAddressing)
+			return indexRangeResult{}, fmt.Errorf("%w: 200 response too short for requested range", ErrUnsupportedAddressing)
 		}
 		if rangeLength > bodyLen-rangeStart {
-			return nil, fmt.Errorf("%w: 200 response too short for requested range", ErrUnsupportedAddressing)
+			return indexRangeResult{}, fmt.Errorf("%w: 200 response too short for requested range", ErrUnsupportedAddressing)
 		}
 		body = body[rangeStart : rangeStart+rangeLength]
 	}
 
 	// Validate we got the expected amount of data for a 206.
 	if response.StatusCode == http.StatusPartialContent && int64(len(body)) != rangeLength {
-		return nil, fmt.Errorf("%w: index response length %d != requested %d", ErrUnsupportedAddressing, len(body), rangeLength)
+		return indexRangeResult{}, fmt.Errorf("%w: index response length %d != requested %d", ErrUnsupportedAddressing, len(body), rangeLength)
 	}
 
-	return body, nil
+	return indexRangeResult{Data: body, TransferredBytes: transferred}, nil
 }
 
 // validContentRange checks that a Content-Range header matches the expected
