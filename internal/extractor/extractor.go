@@ -13,18 +13,26 @@ import (
 )
 
 var (
-	ErrUnsupported      = errors.New("unsupported URL")
-	ErrInvalidMetadata  = errors.New("invalid extractor metadata")
-	ErrUnavailable      = errors.New("media unavailable")
-	ErrRegionRestricted = errors.New("media region restricted")
-	ErrAuthentication   = errors.New("authentication required")
-	ErrChallengeSolver  = errors.New("JavaScript challenge solver unavailable")
-	ErrTransportProfile = errors.New("transport profile unavailable")
+	ErrUnsupported        = errors.New("unsupported URL")
+	ErrInvalidMetadata    = errors.New("invalid extractor metadata")
+	ErrUnavailable        = errors.New("media unavailable")
+	ErrRegionRestricted   = errors.New("media region restricted")
+	ErrAuthentication     = errors.New("authentication required")
+	ErrChallengeSolver    = errors.New("JavaScript challenge solver unavailable")
+	ErrTransportProfile   = errors.New("transport profile unavailable")
+	ErrTransportIsolation = errors.New("cookie-isolated transport unavailable")
 )
 
 type Transport interface {
 	Do(context.Context, *http.Request) (*http.Response, error)
 	ReadPage(context.Context, string) ([]byte, http.Header, error)
+}
+
+// CookieIsolatedTransport is an optional capability for requests that must not
+// inherit the operation cookie jar or an explicit Cookie header. Extractors use
+// it for clients whose protocol explicitly does not support browser cookies.
+type CookieIsolatedTransport interface {
+	DoWithoutCookies(context.Context, *http.Request) (*http.Response, error)
 }
 
 // ProfileTransport is an optional capability implemented by request directors

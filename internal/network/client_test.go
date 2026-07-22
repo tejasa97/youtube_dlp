@@ -51,6 +51,46 @@ func TestClientHeadersCookiesRedirectsAndCompression(t *testing.T) {
 	}
 }
 
+func TestDoWithoutCookiesDoesNotSendOrPersistCookies(t *testing.T) {
+	var isolatedCookies, regularCookies string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/set":
+			http.SetCookie(writer, &http.Cookie{Name: "session", Value: "secret", Path: "/"})
+		case "/isolated":
+			isolatedCookies = request.Header.Get("Cookie")
+			http.SetCookie(writer, &http.Cookie{Name: "must_not_persist", Value: "secret", Path: "/"})
+		case "/regular":
+			regularCookies = request.Header.Get("Cookie")
+		}
+		_, _ = io.WriteString(writer, "ok")
+	}))
+	defer server.Close()
+	client, err := New(Config{DefaultHeaders: http.Header{"Cookie": {"default=secret"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := client.ReadPage(context.Background(), server.URL+"/set"); err != nil {
+		t.Fatal(err)
+	}
+	request, _ := http.NewRequest(http.MethodGet, server.URL+"/isolated", nil)
+	request.Header.Set("Cookie", "explicit=secret")
+	response, err := client.DoWithoutCookies(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if _, _, err := client.ReadPage(context.Background(), server.URL+"/regular"); err != nil {
+		t.Fatal(err)
+	}
+	if isolatedCookies != "" {
+		t.Fatalf("isolated request sent cookies %q", isolatedCookies)
+	}
+	if !strings.Contains(regularCookies, "session=secret") || strings.Contains(regularCookies, "must_not_persist") {
+		t.Fatalf("regular request cookies = %q", regularCookies)
+	}
+}
+
 func TestReadPageWithHeadersIsBounded(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Header.Get("X-Fixture") != "present" {
@@ -143,6 +183,30 @@ func TestReadPageLimitAndCancellation(t *testing.T) {
 	defer cancel()
 	if _, _, err := client.ReadPage(ctx, server.URL+"/slow?delay=1s"); err == nil || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("cancel error = %v", err)
+	}
+}
+
+func TestConfiguredTimeoutDoesNotCapActiveResponseBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		flusher, _ := writer.(http.Flusher)
+		for range 6 {
+			_, _ = io.WriteString(writer, "chunk")
+			flusher.Flush()
+			time.Sleep(15 * time.Millisecond)
+		}
+	}))
+	defer server.Close()
+	client, err := New(Config{Timeout: 40 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	body, _, err := client.ReadPage(context.Background(), server.URL)
+	if err != nil || string(body) != strings.Repeat("chunk", 6) {
+		t.Fatalf("body=%q error=%v", body, err)
+	}
+	if time.Since(started) <= 40*time.Millisecond {
+		t.Fatal("fixture did not exceed the configured connection/header timeout")
 	}
 }
 

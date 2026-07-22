@@ -1,6 +1,7 @@
 package extractor
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"net/url"
 	"path"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -19,6 +21,20 @@ import (
 const youtubePlayerMarker = "ytInitialPlayerResponse"
 
 var youtubeIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{11}$`)
+
+const (
+	youtubeMaxPageConfigs       = 8
+	youtubeMaxConfigStartOffset = 64
+)
+
+type youtubePageConfig struct {
+	PlayerJSURL    string `json:"PLAYER_JS_URL"`
+	VisitorData    string `json:"VISITOR_DATA"`
+	LoggedIn       *bool  `json:"LOGGED_IN"`
+	PlayerContexts map[string]struct {
+		JSURL string `json:"jsUrl"`
+	} `json:"WEB_PLAYER_CONTEXT_CONFIGS"`
+}
 
 type YouTube struct{}
 
@@ -58,9 +74,31 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 	if err := checkYouTubeAvailability(player.PlayabilityStatus); err != nil {
 		return Extraction{}, err
 	}
+	pageConfig := discoverYouTubePageConfig(page)
+	playerPath := pageConfig.playerPath(player.Assets.JS)
+	formatPlayers := []youtubePlayerResponse{player}
+	if !hasYouTubeFormatCandidates(player) {
+		if pageConfig.LoggedIn != nil && *pageConfig.LoggedIn {
+			return Extraction{}, fmt.Errorf("%w: authenticated YouTube format recovery is not implemented", ErrAuthentication)
+		}
+		visitorData := pageConfig.visitorData(player.ResponseContext.VisitorData)
+		recovered, err := recoverYouTubeFormats(ctx, request.Transport, videoID, visitorData)
+		if err != nil {
+			return Extraction{}, err
+		}
+		formatPlayers = append(formatPlayers, recovered...)
+		for _, recoveredPlayer := range recovered {
+			if playerPath == "" {
+				playerPath = recoveredPlayer.Assets.JS
+			}
+			if player.VideoDetails.Title == "" {
+				player.VideoDetails = recoveredPlayer.VideoDetails
+			}
+		}
+	}
 
-	formats := append(append([]youtubeFormat(nil), player.StreamingData.Formats...), player.StreamingData.AdaptiveFormats...)
-	resolved, err := resolveYouTubeURLs(ctx, request, webpageURL, videoID, player.Assets.JS, formats)
+	formats := mergeYouTubeFormats(formatPlayers)
+	resolved, err := resolveYouTubeURLs(ctx, request, webpageURL, videoID, playerPath, formats)
 	if err != nil {
 		return Extraction{}, err
 	}
@@ -70,14 +108,19 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 			formatValues = append(formatValues, value.ObjectValue(normalized))
 		}
 	}
-	if player.StreamingData.HLSManifestURL != "" {
-		formatValues = append(formatValues, value.ObjectValue(manifestFormat("hls", player.StreamingData.HLSManifestURL, "m3u8_native")))
-	}
-	if player.StreamingData.DASHManifestURL != "" {
-		formatValues = append(formatValues, value.ObjectValue(manifestFormat("dash", player.StreamingData.DASHManifestURL, "http_dash_segments")))
+	for _, candidate := range formatPlayers {
+		if candidate.StreamingData.HLSManifestURL != "" {
+			formatValues = append(formatValues, value.ObjectValue(manifestFormat("hls", candidate.StreamingData.HLSManifestURL, "m3u8_native")))
+		}
+		if candidate.StreamingData.DASHManifestURL != "" {
+			formatValues = append(formatValues, value.ObjectValue(manifestFormat("dash", candidate.StreamingData.DASHManifestURL, "http_dash_segments")))
+		}
 	}
 	if len(formatValues) == 0 {
-		return Extraction{}, fmt.Errorf("%w: no downloadable formats", ErrInvalidMetadata)
+		if hasYouTubeSABR(formatPlayers) {
+			return Extraction{}, fmt.Errorf("%w: YouTube returned SABR-only formats", ErrUnavailable)
+		}
+		return Extraction{}, fmt.Errorf("%w: no downloadable formats", ErrUnavailable)
 	}
 
 	details := player.VideoDetails
@@ -118,10 +161,140 @@ type youtubePlayerResponse struct {
 		AdaptiveFormats []youtubeFormat `json:"adaptiveFormats"`
 		HLSManifestURL  string          `json:"hlsManifestUrl"`
 		DASHManifestURL string          `json:"dashManifestUrl"`
+		ServerABRURL    string          `json:"serverAbrStreamingUrl"`
 	} `json:"streamingData"`
 	Assets struct {
 		JS string `json:"js"`
 	} `json:"assets"`
+	ResponseContext struct {
+		VisitorData string `json:"visitorData"`
+	} `json:"responseContext"`
+}
+
+func (config youtubePageConfig) playerPath(assetPath string) string {
+	if config.PlayerJSURL != "" {
+		return config.PlayerJSURL
+	}
+	keys := make([]string, 0, len(config.PlayerContexts))
+	for key := range config.PlayerContexts {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if playerPath := config.PlayerContexts[key].JSURL; playerPath != "" {
+			return playerPath
+		}
+	}
+	return assetPath
+}
+
+func (config youtubePageConfig) visitorData(responseVisitorData string) string {
+	if config.VisitorData != "" {
+		return config.VisitorData
+	}
+	return responseVisitorData
+}
+
+func discoverYouTubePageConfig(page []byte) youtubePageConfig {
+	var result youtubePageConfig
+	searchOffset := 0
+	for count := 0; count < youtubeMaxPageConfigs && searchOffset < len(page); count++ {
+		markerOffset, markerLength := nextYouTubeConfigMarker(page, searchOffset)
+		if markerOffset < 0 {
+			break
+		}
+		rawConfig, end, err := extractJSONObjectFrom(page, markerOffset+markerLength, youtubeMaxConfigStartOffset)
+		if err != nil {
+			searchOffset = markerOffset + markerLength
+			continue
+		}
+		var candidate youtubePageConfig
+		if json.Unmarshal(rawConfig, &candidate) == nil {
+			mergeYouTubePageConfig(&result, candidate)
+		}
+		searchOffset = end
+	}
+	return result
+}
+
+func nextYouTubeConfigMarker(page []byte, offset int) (int, int) {
+	bestOffset, bestLength := -1, 0
+	for _, marker := range []string{"ytcfg.set", "ytcfg.data_"} {
+		relative := bytes.Index(page[offset:], []byte(marker))
+		if relative < 0 {
+			continue
+		}
+		absolute := offset + relative
+		if bestOffset < 0 || absolute < bestOffset {
+			bestOffset, bestLength = absolute, len(marker)
+		}
+	}
+	return bestOffset, bestLength
+}
+
+func mergeYouTubePageConfig(target *youtubePageConfig, source youtubePageConfig) {
+	if source.PlayerJSURL != "" {
+		target.PlayerJSURL = source.PlayerJSURL
+	}
+	if source.VisitorData != "" {
+		target.VisitorData = source.VisitorData
+	}
+	if source.LoggedIn != nil {
+		loggedIn := *source.LoggedIn
+		target.LoggedIn = &loggedIn
+	}
+	if len(source.PlayerContexts) > 0 {
+		if target.PlayerContexts == nil {
+			target.PlayerContexts = make(map[string]struct {
+				JSURL string `json:"jsUrl"`
+			})
+		}
+		for key, context := range source.PlayerContexts {
+			target.PlayerContexts[key] = context
+		}
+	}
+}
+
+func hasYouTubeFormatCandidates(player youtubePlayerResponse) bool {
+	if player.StreamingData.HLSManifestURL != "" || player.StreamingData.DASHManifestURL != "" {
+		return true
+	}
+	formats := append(append([]youtubeFormat(nil), player.StreamingData.Formats...), player.StreamingData.AdaptiveFormats...)
+	for _, format := range formats {
+		if format.URL != "" {
+			return true
+		}
+		if cipher, err := url.ParseQuery(format.SignatureCipher); err == nil && cipher.Get("url") != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func hasYouTubeSABR(players []youtubePlayerResponse) bool {
+	for _, player := range players {
+		if player.StreamingData.ServerABRURL != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func mergeYouTubeFormats(players []youtubePlayerResponse) []youtubeFormat {
+	var merged []youtubeFormat
+	seen := make(map[string]struct{})
+	for _, player := range players {
+		formats := append(append([]youtubeFormat(nil), player.StreamingData.Formats...), player.StreamingData.AdaptiveFormats...)
+		for _, format := range formats {
+			key := strconv.Itoa(format.Itag) + "\x00" + format.MimeType + "\x00" + format.URL + "\x00" + format.SignatureCipher
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			merged = append(merged, format)
+		}
+	}
+	return merged
 }
 
 type youtubeVideoDetails struct {
@@ -366,7 +539,15 @@ func resolveYouTubePlayerURL(webpageURL, playerPath string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("%w: invalid player URL", ErrInvalidMetadata)
 	}
-	return base.ResolveReference(reference).String(), nil
+	resolved := base.ResolveReference(reference)
+	host := strings.ToLower(strings.TrimSuffix(resolved.Hostname(), "."))
+	allowedHost := host == "youtube.com" || strings.HasSuffix(host, ".youtube.com") ||
+		host == "youtube-nocookie.com" || strings.HasSuffix(host, ".youtube-nocookie.com")
+	if resolved.Scheme != "https" || !allowedHost || resolved.Port() != "" || resolved.User != nil || resolved.Fragment != "" ||
+		resolved.RawPath != "" || !strings.HasPrefix(resolved.Path, "/s/player/") || path.Clean(resolved.Path) != resolved.Path {
+		return "", fmt.Errorf("%w: untrusted player JavaScript URL", ErrInvalidMetadata)
+	}
+	return resolved.String(), nil
 }
 
 func checkYouTubeAvailability(status youtubePlayabilityStatus) error {
@@ -381,16 +562,26 @@ func checkYouTubeAvailability(status youtubePlayabilityStatus) error {
 }
 
 func extractJSONObject(page []byte, marker string) ([]byte, error) {
-	pageText := string(page)
-	markerIndex := strings.Index(pageText, marker)
+	markerIndex := strings.Index(string(page), marker)
 	if markerIndex < 0 {
 		return nil, fmt.Errorf("marker %q not found", marker)
 	}
-	startOffset := strings.IndexByte(pageText[markerIndex+len(marker):], '{')
-	if startOffset < 0 {
-		return nil, errors.New("JSON object start not found")
+	raw, _, err := extractJSONObjectFrom(page, markerIndex+len(marker), 0)
+	return raw, err
+}
+
+func extractJSONObjectFrom(page []byte, offset, maxStartOffset int) ([]byte, int, error) {
+	if offset < 0 || offset > len(page) {
+		return nil, 0, errors.New("invalid JSON search offset")
 	}
-	start := markerIndex + len(marker) + startOffset
+	startOffset := bytes.IndexByte(page[offset:], '{')
+	if startOffset < 0 {
+		return nil, 0, errors.New("JSON object start not found")
+	}
+	if maxStartOffset > 0 && startOffset > maxStartOffset {
+		return nil, 0, errors.New("JSON object start is too far from marker")
+	}
+	start := offset + startOffset
 	depth := 0
 	inString, escaped := false, false
 	for index := start; index < len(page); index++ {
@@ -413,11 +604,11 @@ func extractJSONObject(page []byte, marker string) ([]byte, error) {
 		case '}':
 			depth--
 			if depth == 0 {
-				return page[start : index+1], nil
+				return page[start : index+1], index + 1, nil
 			}
 		}
 	}
-	return nil, errors.New("JSON object is not closed")
+	return nil, 0, errors.New("JSON object is not closed")
 }
 
 func appendUnique(items []string, item string) []string {

@@ -92,6 +92,7 @@ func TestExtractorFailuresAreCategorized(t *testing.T) {
 		{extractor.ErrAuthentication, ErrorAuthentication},
 		{extractor.ErrUnavailable, ErrorUnsupported},
 		{extractor.ErrChallengeSolver, ErrorUnsupported},
+		{extractor.ErrTransportIsolation, ErrorUnsupported},
 		{extractor.ErrRegionRestricted, ErrorUnsupported},
 		{extractor.ErrPeerTubeNetwork, ErrorNetwork},
 		{extractor.ErrInternetArchiveNetwork, ErrorNetwork},

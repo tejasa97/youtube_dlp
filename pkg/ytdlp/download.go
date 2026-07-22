@@ -184,6 +184,27 @@ func mergeableSelections(selections []mediaformat.Selection) bool {
 	return video == 1 && audio == 1
 }
 
+func mergedOutputExtension(selections []mediaformat.Selection) string {
+	if len(selections) == 1 {
+		return safeExtension(selections[0].Ext)
+	}
+	if len(selections) != 2 || !mergeableSelections(selections) {
+		return "mkv"
+	}
+	video, audio := selections[0], selections[1]
+	if audio.VCodec != "" && audio.VCodec != "none" {
+		video, audio = audio, video
+	}
+	switch {
+	case video.Ext == "webm" && audio.Ext == "webm":
+		return "webm"
+	case video.Ext == "mp4" && (audio.Ext == "m4a" || audio.Ext == "mp4"):
+		return "mp4"
+	default:
+		return "mkv"
+	}
+}
+
 var extensionPattern = regexp.MustCompile(`^[A-Za-z0-9]{1,16}$`)
 
 func safeExtension(extension string) string {

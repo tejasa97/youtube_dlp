@@ -99,6 +99,7 @@ capabilities:
     evidence:
       - internal/network.TestClientHeadersCookiesRedirectsAndCompression
       - internal/network.TestReadPageLimitAndCancellation
+      - internal/network.TestConfiguredTimeoutDoesNotCapActiveResponseBody
       - internal/network.TestClientUsesConfiguredProxy
       - internal/network.TestDoLeavesBodyOwnershipToCaller
       - internal/network.TestRedaction
@@ -359,6 +360,15 @@ capabilities:
     evidence:
       - internal/extractor.TestYouTubeSuitableAndVideoID
       - internal/extractor.TestYouTubeExtractsPinnedVideoAndSolvesChallenges
+      - internal/extractor.TestYouTubeDiscoversPlayerJavaScriptFromPageConfig
+      - internal/extractor.TestYouTubePlayerURLValidation
+      - internal/extractor.TestYouTubePageConfigParsingIsStructuredAndBounded
+      - internal/extractor.TestYouTubeRecoversURLBearingFormatsFromNativeClient
+      - internal/extractor.TestYouTubeRecoveryFailsClosedWithoutCookieIsolation
+      - internal/extractor.TestYouTubeAuthenticatedPageDoesNotUseAnonymousRecovery
+      - internal/extractor.TestYouTubeRecoveryContinuesAfterOneClientFails
+      - internal/extractor.TestYouTubeSABRFallbackFailureIsCategorizedAndCancelable
+      - internal/extractor.TestYouTubeRejectsMalformedNativeClientResponses
       - internal/extractor.TestYouTubeChallengeAndAvailabilityFailuresAreCategorized
       - internal/extractor.TestYouTubeCanonicalizesShortURLsBeforeFetching
       - internal/extractor.TestYouTubeRejectsMalformedPlayerResponse
@@ -367,12 +377,14 @@ capabilities:
       - internal/extractor.TestYouTubeExtractsLiveHLSAndClassifiesLiveStates
       - internal/extractor.TestRequestJSONBoundsStatusAndSyntax
       - internal/extractor.FuzzParseYouTubePlaylistData
+      - internal/extractor.FuzzDiscoverYouTubePageConfig
+      - internal/network.TestDoWithoutCookiesDoesNotSendOrPersistCookies
       - conformance/extractors/youtube/PROVENANCE.md
     owner: extractors
     depends_on:
       - javascript.ejs
       - extractor.playlists
-    known_deviation: Compatibility is scoped to the pinned Phase 1 video, playlist-continuation, and live-HLS corpus. Authenticated clients, subtitles, comments, channel/tab variants, live-from-start, and broader player/renderer variants remain pending.
+    known_deviation: Compatibility is scoped to the pinned video, playlist-continuation, live-HLS, structured player-config discovery, and native-client recovery corpus. Anonymous visitor identity is propagated across bounded, cookie-isolated Android and Android VR requests, enabling URL-bearing adaptive video/audio recovery. Authenticated pages fail explicitly instead of leaking browser cookies to clients that do not support them or silently substituting an anonymous session. Direct SABR transport, PO-token providers, authenticated Innertube clients, subtitles, comments, channel/tab variants, live-from-start, and broader player/renderer variants remain pending.
 
   - id: extractor.playlists
     name: Playlist extraction model
@@ -838,6 +850,9 @@ capabilities:
     evidence:
       - internal/format.TestSelectorFallbackMergeAndFilters
       - internal/format.TestSelectorBestWorstAndStringFilters
+      - internal/format.TestDefaultPrefersAdaptivePairThenCombined
+      - internal/format.TestDefaultInfersAdaptiveKindsFromExplicitAbsentCodecSide
+      - pkg/ytdlp.TestMergedOutputExtensionFollowsSelectedTracks
       - internal/format.TestSelectorRejectsInvalidSyntaxAndNoMatch
       - internal/format.TestSelectorSyntaxErrorReportsSourceSpan
       - internal/format.FuzzParseSelector
@@ -1034,6 +1049,7 @@ capabilities:
       - internal/extractor.TestMixcloudPublicGraphQLAndLazyCollection
       - internal/extractor.TestRumbleEmbedAndLazyChannel
       - internal/extractor.TestBilibiliHydrationAndAnthology
+      - internal/extractor.TestBilibiliDASHPreservesReportedCodecs
       - internal/extractor.TestInstagramRoutingAndPostExtraction
       - internal/extractor.TestKickRoutingLiveExtractionAndProfile
       - internal/extractor.TestBBCIPlayerRoutingEpisodeGeoFallbackAndFormats

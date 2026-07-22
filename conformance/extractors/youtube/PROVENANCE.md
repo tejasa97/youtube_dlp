@@ -24,3 +24,18 @@ reference's `isLive`/`isLiveContent` to `live_status=is_live` classification and
 HLS manifest exposure. All identifiers, metadata, cursors, keys, visitor data,
 and domains are artificial; no captured account or production response is
 stored.
+
+`sabr-watch.html`, `android-player.json`, and `android-vr-player.json` are synthetic regression fixtures
+for URL-less `serverAbrStreamingUrl` webpage responses and native-client format
+recovery. Their response fields and client-request expectations are derived
+from `YoutubeIE._extract_player_responses`, `_DEFAULT_CLIENTS`, and the Android
+client table in the same pinned reference checkout. They also pin propagation
+of the webpage visitor identity required to keep multi-client player requests
+in one anonymous session. The cookie-isolation and authenticated-page policy is
+derived from `_get_requested_clients` in
+`yt_dlp/extractor/youtube/_video.py`, which excludes clients without
+`SUPPORTS_COOKIES` when authenticated. The synthetic watch page uses the
+bounded `ytcfg.set({...})` shape observed by the pinned implementation; player
+URLs are accepted only from structured configuration or the player response's
+`assets.js`, then constrained to HTTPS YouTube `/s/player/` paths. No production
+response, media URL, cookie, visitor identifier, or account data is retained.

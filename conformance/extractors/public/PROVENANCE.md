@@ -13,3 +13,7 @@ Explicit deviations: Dailymotion uses anonymous player metadata rather than
 the reference OAuth/GraphQL path; Twitter uses its public syndication endpoint
 rather than an embedded bearer-token GraphQL flow; Bilibili uses page hydration
 rather than signed WBI calls; Bandcamp does not follow customer download links.
+Bilibili DASH codec-side normalization follows `BiliBiliBaseIE.extract_formats`:
+audio tracks expose `acodec` with `vcodec=none`, while video tracks expose
+`vcodec` with `acodec=none`. The synthetic corpus intentionally also covers an
+omitted codec name, preserving the known media kind with an `unknown` marker.
