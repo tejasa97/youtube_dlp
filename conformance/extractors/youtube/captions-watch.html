@@ -1,0 +1,47 @@
+<!doctype html>
+<html><body><script>
+ytInitialPlayerResponse = {
+  "playabilityStatus": {"status": "OK"},
+  "videoDetails": {
+    "videoId": "fixture0001",
+    "title": "Synthetic Caption Video",
+    "lengthSeconds": "42",
+    "author": "Fixture Channel",
+    "channelId": "UCfixture",
+    "shortDescription": "Synthetic caption fixture",
+    "viewCount": "7"
+  },
+  "streamingData": {
+    "formats": [{
+      "itag": 18,
+      "url": "https://media.example/caption-video.mp4",
+      "mimeType": "video/mp4; codecs=\"avc1.42001E, mp4a.40.2\"",
+      "bitrate": 500000
+    }]
+  },
+  "captions": {"playerCaptionsTracklistRenderer": {
+    "captionTracks": [
+      {
+        "baseUrl": "https://www.youtube.com/api/timedtext?v=fixture0001&lang=en&keep=manual&xosf=1",
+        "vssId": ".en",
+        "languageCode": "en",
+        "name": {"simpleText": "English"},
+        "isTranslatable": true
+      },
+      {
+        "baseUrl": "https://www.youtube.com/api/timedtext?v=fixture0001&lang=es&kind=asr&keep=automatic&xosf=1",
+        "vssId": ".a.es",
+        "languageCode": "es",
+        "name": {"runs": [{"text": "Spanish (auto-generated)"}]},
+        "kind": "asr",
+        "isTranslatable": true
+      }
+    ],
+    "translationLanguages": [
+      {"languageCode": "es", "languageName": {"simpleText": "Spanish"}},
+      {"languageCode": "fr", "languageName": {"simpleText": "French"}}
+    ]
+  }},
+  "responseContext": {"visitorData": "caption-visitor"}
+};
+</script></body></html>
