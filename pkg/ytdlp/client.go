@@ -429,7 +429,7 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 	}
 	iterator, err := newPlaylistEntryIterator(extracted.Entries.Iterator(), operation.request.Playlist)
 	if err != nil {
-		return Result{}, categorized(extractorName+" playlist selection", fmt.Errorf("%w: %v", errInvalidRequestOptions, err))
+		return Result{}, categorized(extractorName+" playlist selection", fmt.Errorf("%w: %w", errInvalidRequestOptions, err))
 	}
 	var reversed []indexedPlaylistEntry
 	if operation.request.Playlist.Reverse {
