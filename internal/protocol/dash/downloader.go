@@ -373,12 +373,17 @@ func (downloader *Downloader) fetchIndexRange(ctx context.Context, mediaURL stri
 	}
 
 	// For a 200 response, extract the requested byte range.
+	// Use subtraction-based bounds checks to avoid overflow when rangeStart
+	// is near MaxInt64 (e.g., a hostile indexRange like "9223372036854775807-9223372036854775807").
 	if response.StatusCode == http.StatusOK {
-		end := rangeStart + rangeLength
-		if int64(len(body)) < end {
+		bodyLen := int64(len(body))
+		if rangeStart > bodyLen {
 			return nil, fmt.Errorf("%w: 200 response too short for requested range", ErrUnsupportedAddressing)
 		}
-		body = body[rangeStart:end]
+		if rangeLength > bodyLen-rangeStart {
+			return nil, fmt.Errorf("%w: 200 response too short for requested range", ErrUnsupportedAddressing)
+		}
+		body = body[rangeStart : rangeStart+rangeLength]
 	}
 
 	// Validate we got the expected amount of data for a 206.
@@ -392,6 +397,7 @@ func (downloader *Downloader) fetchIndexRange(ctx context.Context, mediaURL stri
 // validContentRange checks that a Content-Range header matches the expected
 // byte range. Format: "bytes START-END/TOTAL" or "bytes START-END/*".
 // Parsing is strict: only pure decimal digits are accepted for START and END.
+// The total must be either "*" or a decimal integer strictly greater than END.
 func validContentRange(header string, expectedStart, expectedLength int64) bool {
 	if !strings.HasPrefix(header, "bytes ") {
 		return false
@@ -402,6 +408,7 @@ func validContentRange(header string, expectedStart, expectedLength int64) bool 
 		return false
 	}
 	rangeSpec := spec[:slashIndex]
+	totalSpec := spec[slashIndex+1:]
 	dashIndex := strings.IndexByte(rangeSpec, '-')
 	if dashIndex < 0 {
 		return false
@@ -419,5 +426,19 @@ func validContentRange(header string, expectedStart, expectedLength int64) bool 
 	if err != nil || end < 0 {
 		return false
 	}
-	return start == expectedStart && end == expectedStart+expectedLength-1
+	if start != expectedStart || end != expectedStart+expectedLength-1 {
+		return false
+	}
+	// Validate the total field: must be "*" or a decimal integer > end.
+	if totalSpec == "*" {
+		return true
+	}
+	if totalSpec == "" {
+		return false
+	}
+	total, err := strconv.ParseInt(totalSpec, 10, 64)
+	if err != nil || total < 0 {
+		return false
+	}
+	return total > end
 }

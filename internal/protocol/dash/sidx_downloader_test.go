@@ -748,3 +748,117 @@ func TestDownloadSIDXInitNoOverlapSucceeds(t *testing.T) {
 		t.Fatalf("contents length = %d, want 146", len(contents))
 	}
 }
+
+func TestDownloadSIDXHostileRangeOverflowNoPanic(t *testing.T) {
+	// A hostile indexRange like MaxInt64-MaxInt64 passes parseByteRange with
+	// length 1. The 200 fallback must not panic on slice bounds.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/manifest.mpd":
+			fmt.Fprint(w, `<MPD><Period><AdaptationSet mimeType="video/mp4"><Representation id="v" bandwidth="1000"><BaseURL>video.mp4</BaseURL><SegmentBase indexRange="9223372036854775807-9223372036854775807"/></Representation></AdaptationSet></Period></MPD>`)
+		case "/video.mp4":
+			// Server ignores Range and returns 200 with a small body.
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("small body"))
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	_, err := NewDownloader(transport, Config{}).Download(context.Background(), server.URL+"/manifest.mpd", root, filepath.Join(root, "out.mp4"), false, nil)
+	if err == nil {
+		t.Fatal("expected error for hostile range, got nil")
+	}
+	if !strings.Contains(err.Error(), "too short") && !strings.Contains(err.Error(), "exceeds limit") {
+		t.Fatalf("err = %v, want categorized error without panic", err)
+	}
+}
+
+func TestValidContentRangeTotalValidation(t *testing.T) {
+	// expectedStart=100, expectedLength=56 → END=155
+	tests := []struct {
+		name   string
+		header string
+		want   bool
+	}{
+		{"valid star total", "bytes 100-155/*", true},
+		{"valid numeric total", "bytes 100-155/999", true},
+		{"valid total equals end+1", "bytes 100-155/156", true},
+		{"empty total", "bytes 100-155/", false},
+		{"junk total", "bytes 100-155/junk", false},
+		{"total equals end", "bytes 100-155/155", false},
+		{"total less than end", "bytes 100-155/100", false},
+		{"trailing junk after total", "bytes 100-155/999junk", false},
+		{"negative total", "bytes 100-155/-1", false},
+		{"space in total", "bytes 100-155/ 999", false},
+		{"zero total", "bytes 100-155/0", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := validContentRange(tt.header, 100, 56)
+			if got != tt.want {
+				t.Errorf("validContentRange(%q, 100, 56) = %v, want %v", tt.header, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDownloadSIDXContentRangeEmptyTotal(t *testing.T) {
+	resource, indexRange := sidxTestMedia()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/manifest.mpd":
+			fmt.Fprintf(w, `<MPD><Period><AdaptationSet mimeType="video/mp4"><Representation id="v" bandwidth="1000"><BaseURL>video.mp4</BaseURL><SegmentBase indexRange="%s"><Initialization range="0-99"/></SegmentBase></Representation></AdaptationSet></Period></MPD>`, indexRange)
+		case "/video.mp4":
+			if r.Header.Get("Range") == "bytes="+indexRange {
+				// Content-Range with empty total after slash.
+				parts := strings.SplitN(indexRange, "-", 2)
+				var start, end int64
+				fmt.Sscanf(parts[0], "%d", &start)
+				fmt.Sscanf(parts[1], "%d", &end)
+				w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/", start, end))
+				w.WriteHeader(http.StatusPartialContent)
+				w.Write(resource[start : end+1])
+				return
+			}
+			serveRange(w, r, resource)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	_, err := NewDownloader(transport, Config{}).Download(context.Background(), server.URL+"/manifest.mpd", root, filepath.Join(root, "out.mp4"), false, nil)
+	if err == nil || !strings.Contains(err.Error(), "Content-Range mismatch") {
+		t.Fatalf("err = %v, want Content-Range mismatch for empty total", err)
+	}
+}
+
+func TestDownloadSIDXContentRangeInconsistentTotal(t *testing.T) {
+	resource, indexRange := sidxTestMedia()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/manifest.mpd":
+			fmt.Fprintf(w, `<MPD><Period><AdaptationSet mimeType="video/mp4"><Representation id="v" bandwidth="1000"><BaseURL>video.mp4</BaseURL><SegmentBase indexRange="%s"><Initialization range="0-99"/></SegmentBase></Representation></AdaptationSet></Period></MPD>`, indexRange)
+		case "/video.mp4":
+			if r.Header.Get("Range") == "bytes="+indexRange {
+				// Content-Range with total <= END (inconsistent).
+				parts := strings.SplitN(indexRange, "-", 2)
+				var start, end int64
+				fmt.Sscanf(parts[0], "%d", &start)
+				fmt.Sscanf(parts[1], "%d", &end)
+				w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, end))
+				w.WriteHeader(http.StatusPartialContent)
+				w.Write(resource[start : end+1])
+				return
+			}
+			serveRange(w, r, resource)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	_, err := NewDownloader(transport, Config{}).Download(context.Background(), server.URL+"/manifest.mpd", root, filepath.Join(root, "out.mp4"), false, nil)
+	if err == nil || !strings.Contains(err.Error(), "Content-Range mismatch") {
+		t.Fatalf("err = %v, want Content-Range mismatch for inconsistent total", err)
+	}
+}

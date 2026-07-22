@@ -11,8 +11,13 @@ Branch: `minimax/dash-sidx`
 ## Behavior implemented
 
 1. **MPD model**: `SegmentBase@indexRange` is parsed at Representation,
-   AdaptationSet, and Period levels (inherited via `firstSegmentBase`).
-   Malformed, reversed, negative, and overflowing ranges are rejected with
+   AdaptationSet, and Period levels. Fields inherit individually via
+   `mergeSegmentBases` (Period → AdaptationSet → Representation), matching
+   the existing template/list merge pattern. `Initialization` is treated as
+   an overriding element: a more-specific Initialization replaces the parent
+   element wholesale (shallow inheritance), matching DASH-IF dash.js
+   behavior (SegmentValuesMap.js, objectiron.js). Malformed, reversed,
+   negative, and overflowing ranges are rejected with
    `ErrUnsupportedAddressing`.
 
 2. **SIDX parser** (`sidx.go`): Standalone, fuzzable ISO-BMFF SIDX parser
@@ -22,16 +27,25 @@ Branch: `minimax/dash-sidx`
    segment count limits).
 
 3. **Index-range retrieval** (`downloader.go`): Bounded HTTP range request
-   with header propagation, cancellation, 206/200 handling, Content-Range
-   validation, and size limits. Expanded segments pass through the existing
-   fragment downloader for retry, concurrency, atomic publication, and limits.
+   with header propagation, cancellation, 206/200 handling, and size limits.
+   Content-Range is mandatory for every 206 response and strictly validated:
+   START-END must match the request, and the total must be `*` or a decimal
+   integer strictly greater than END. The 200 fallback uses subtraction-based
+   bounds checks to prevent overflow panics from hostile ranges. Expanded
+   segments pass through the existing fragment downloader for retry,
+   concurrency, atomic publication, and limits.
 
-4. **Dynamic manifests**: Dynamic SegmentBase/SIDX is explicitly rejected
+4. **Initialization/media overlap**: Any overlap between the initialization
+   range and any media range is explicitly rejected with
+   `ErrUnsupportedAddressing`. Rationale: partial trimming risks corrupting
+   codec configuration; full omission discards required bytes.
+
+5. **Dynamic manifests**: Dynamic SegmentBase/SIDX is explicitly rejected
    with `ErrUnsupportedAddressing`. Rationale: stale SIDX data cannot be
    safely applied to a resource that may have changed between polls. This is
    the smaller provably-correct behavior versus re-fetching on each poll.
 
-5. **Multi-period**: Not implemented. Each period's representations remain
+6. **Multi-period**: Not implemented. Each period's representations remain
    independent; no concatenation is performed.
 
 ## Remaining deviations
@@ -39,6 +53,7 @@ Branch: `minimax/dash-sidx`
 - Dynamic SegmentBase/SIDX is rejected (not re-fetched per poll).
 - Hierarchical SIDX (`reference_type == 1`) is rejected.
 - Multi-period concatenation is not implemented.
+- Initialization/media range overlap is rejected (not trimmed).
 - The index fetch does not retry on transient failure (single attempt);
   media segment retries use the existing fragment engine machinery.
 
@@ -75,6 +90,9 @@ by the primary agent:
 - `TestParseSegmentBaseIndexRangeRepresentationLevel`
 - `TestParseSegmentBaseIndexRangeInheritedPeriod`
 - `TestParseSegmentBaseIndexRangeInheritedAdaptationSet`
+- `TestParseSegmentBaseFieldLevelInheritanceSplitFields`
+- `TestParseSegmentBaseFieldLevelInheritanceOverride`
+- `TestParseSegmentBaseFieldLevelInheritanceInitSourceURLFromPeriod`
 - `TestParseSegmentBaseIndexRangeSeparateInitResource`
 - `TestParseSegmentBaseIndexRangeSameResourceInit`
 - `TestParseSegmentBaseIndexRangeMalformedRanges`
@@ -87,8 +105,14 @@ by the primary agent:
 - `TestDownloadSIDX206Success`
 - `TestDownloadSIDX200Fallback`
 - `TestDownloadSIDXInvalidContentRange`
+- `TestDownloadSIDXMissingContentRange`
+- `TestDownloadSIDXMalformedContentRange`
+- `TestDownloadSIDXMismatchedContentRange`
+- `TestDownloadSIDXContentRangeEmptyTotal`
+- `TestDownloadSIDXContentRangeInconsistentTotal`
 - `TestDownloadSIDXTruncatedResponse`
 - `TestDownloadSIDXOversized200Response`
+- `TestDownloadSIDXHostileRangeOverflowNoPanic`
 - `TestDownloadSIDXOrderedInitAndMediaAssembly`
 - `TestDownloadSIDXRetryTransientIndexFailure`
 - `TestDownloadSIDXRetryTransientMediaFailure`
@@ -98,6 +122,13 @@ by the primary agent:
 - `TestDownloadSIDXAudioVideoMergeRequired`
 - `TestDownloadSIDXAtomicPublication`
 - `TestDownloadSIDXDynamicRejected`
+- `TestDownloadSIDXInitFullOverlapRejected`
+- `TestDownloadSIDXInitPartialOverlapRejected`
+- `TestDownloadSIDXInitOverlapWithLaterReferenceRejected`
+- `TestDownloadSIDXInitNoOverlapSucceeds`
+
+### Content-Range unit tests
+- `TestValidContentRangeTotalValidation`
 
 ### Fuzz targets
 - `FuzzSIDX` (bounded, no network/filesystem; seeded with v0, v1, truncated,
@@ -116,6 +147,29 @@ re-fetching the index on each poll. Rationale:
    guarantees for SegmentBase (unlike SegmentTemplate which uses time/number
    addressing).
 4. The explicit rejection is provably safe: no stale data is ever applied.
+
+## Design decision: initialization/media overlap
+
+Any overlap between the initialization range and media ranges is **explicitly
+rejected**. Rationale:
+
+1. Initialization segments contain codec configuration (ftyp, moov) that must
+   be delivered complete and unmodified.
+2. Partial trimming of duplicated bytes risks corrupting the initialization
+   data if the overlap boundary does not align with box boundaries.
+3. Full omission discards required bytes, producing unplayable output.
+4. No known production MPD uses overlapping initialization and media ranges.
+
+## Design decision: Initialization shallow inheritance
+
+The `Initialization` child element inherits as a **wholesale override**, not
+field-by-field. A more-specific `Initialization` element replaces the parent's
+entirely. This matches DASH-IF dash.js behavior:
+- `src/dash/parser/maps/SegmentValuesMap.js` (L37-L49)
+- `src/dash/parser/objectiron.js` (L35-L42)
+
+Rationale: combining `sourceURL` from a parent with `range` from a child would
+request the child's byte range from the wrong resource.
 
 ## Files changed
 

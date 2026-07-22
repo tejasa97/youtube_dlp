@@ -505,6 +505,9 @@ func mergeSegmentLists(values ...*segmentListXML) *segmentListXML {
 // mergeSegmentBases merges SegmentBase fields across hierarchy levels
 // (Period → AdaptationSet → Representation). More specific levels override
 // less specific ones, field by field, matching the DASH inheritance model.
+// Initialization is treated as an overriding element: a more-specific
+// Initialization replaces the parent element wholesale (shallow inheritance),
+// matching DASH-IF dash.js behavior (SegmentValuesMap.js, objectiron.js).
 func mergeSegmentBases(values ...*segmentBaseXML) *segmentBaseXML {
 	var result *segmentBaseXML
 	for _, value := range values {
@@ -518,15 +521,7 @@ func mergeSegmentBases(values ...*segmentBaseXML) *segmentBaseXML {
 			result.IndexRange = value.IndexRange
 		}
 		if value.Initialization != nil {
-			if result.Initialization == nil {
-				result.Initialization = &initializationXML{}
-			}
-			if value.Initialization.SourceURL != "" {
-				result.Initialization.SourceURL = value.Initialization.SourceURL
-			}
-			if value.Initialization.Range != "" {
-				result.Initialization.Range = value.Initialization.Range
-			}
+			result.Initialization = value.Initialization
 		}
 	}
 	return result
