@@ -48,12 +48,14 @@ const (
 	DefaultModuleBytes = 2 << 20
 	DefaultMaxModules  = 16
 
-	// HardMaxWallTime bounds a single protocol request. The EJS player
-	// preprocessing step runs a JS parser (meriyah) inside the pure-Go goja
-	// engine; real YouTube player scripts (~1-2 MB) require substantially more
-	// time than generic evaluations. 60 s keeps the bound tight while allowing
-	// valid preprocessing to complete without resorting to unbounded execution.
-	HardMaxWallTime    = 60 * time.Second
+	// HardMaxWallTime bounds untrusted protocol requests.
+	HardMaxWallTime = 30 * time.Second
+
+	// TrustedMaxWallTime is the extended ceiling for explicitly trusted
+	// internal callers (e.g., EJS player preprocessing that runs a JS parser
+	// inside the pure-Go goja engine). Requests must opt in via Limits.Trusted.
+	TrustedMaxWallTime = 60 * time.Second
+
 	HardMaxMemoryBytes = 512 << 20
 	HardMaxOutputBytes = 8 << 20
 	HardMaxSourceBytes = 8 << 20
@@ -75,6 +77,10 @@ type Limits struct {
 	SourceBytes int64 `json:"source_bytes,omitempty"`
 	ModuleBytes int64 `json:"module_bytes,omitempty"`
 	MaxModules  int   `json:"max_modules,omitempty"`
+	// Trusted opts into the extended TrustedMaxWallTime ceiling. It is never
+	// serialized over the wire; only in-process callers (EJS preprocessing)
+	// may set it. The helper process ignores this field.
+	Trusted bool `json:"-"`
 }
 
 // Module is an explicitly supplied source module. The helper never resolves
@@ -201,11 +207,15 @@ func (limits Limits) withDefaults() Limits {
 }
 
 func (limits Limits) validate() error {
+	wallTimeMax := HardMaxWallTime.Milliseconds()
+	if limits.Trusted {
+		wallTimeMax = TrustedMaxWallTime.Milliseconds()
+	}
 	checks := []struct {
 		name       string
 		value, max int64
 	}{
-		{"wall_time_ms", limits.WallTimeMS, HardMaxWallTime.Milliseconds()},
+		{"wall_time_ms", limits.WallTimeMS, wallTimeMax},
 		{"memory_bytes", limits.MemoryBytes, HardMaxMemoryBytes},
 		{"output_bytes", limits.OutputBytes, HardMaxOutputBytes},
 		{"source_bytes", limits.SourceBytes, HardMaxSourceBytes},

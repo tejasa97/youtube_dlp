@@ -39,6 +39,49 @@ func TestRequestRejectsLimitsHashesModulesAndArguments(t *testing.T) {
 	}
 }
 
+func TestTrustedWallTimeAllowance(t *testing.T) {
+	base := Request{Version: Version, ID: "walltime", Operation: OperationEvaluate, Script: "1+1"}
+
+	// Untrusted request at HardMaxWallTime should succeed.
+	req := withRequest(base, func(r *Request) { r.Limits.WallTimeMS = HardMaxWallTime.Milliseconds() })
+	if _, err := req.Normalize(); err != nil {
+		t.Fatalf("untrusted request at HardMaxWallTime should succeed: %v", err)
+	}
+
+	// Untrusted request above HardMaxWallTime should fail.
+	req = withRequest(base, func(r *Request) { r.Limits.WallTimeMS = HardMaxWallTime.Milliseconds() + 1 })
+	if _, err := req.Normalize(); err == nil {
+		t.Fatal("untrusted request above HardMaxWallTime should fail")
+	}
+
+	// Trusted request above HardMaxWallTime but within TrustedMaxWallTime should succeed.
+	req = withRequest(base, func(r *Request) {
+		r.Limits.WallTimeMS = TrustedMaxWallTime.Milliseconds()
+		r.Limits.Trusted = true
+	})
+	if _, err := req.Normalize(); err != nil {
+		t.Fatalf("trusted request at TrustedMaxWallTime should succeed: %v", err)
+	}
+
+	// Trusted request above TrustedMaxWallTime should fail.
+	req = withRequest(base, func(r *Request) {
+		r.Limits.WallTimeMS = TrustedMaxWallTime.Milliseconds() + 1
+		r.Limits.Trusted = true
+	})
+	if _, err := req.Normalize(); err == nil {
+		t.Fatal("trusted request above TrustedMaxWallTime should fail")
+	}
+
+	// Trusted flag is not serialized over the wire (json:"-").
+	encoded, err := json.Marshal(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "trusted") || strings.Contains(string(encoded), "Trusted") {
+		t.Fatalf("Trusted field leaked into JSON: %s", encoded)
+	}
+}
+
 func TestFrameRoundTripAndBounds(t *testing.T) {
 	payload := []byte(`{"version":1}`)
 	var buffer bytes.Buffer

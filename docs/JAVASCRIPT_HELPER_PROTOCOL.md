@@ -15,7 +15,10 @@ Version 1 enforces these hard ceilings before engine execution:
 - 64 modules and 8 MiB aggregate module source;
 - 8 MiB serialized output;
 - 512 MiB requested memory budget;
-- 60 seconds requested wall time.
+- 30 seconds requested wall time (untrusted requests);
+- 60 seconds requested wall time (trusted internal callers only, e.g. EJS
+  player preprocessing; the `Trusted` flag is in-process only and never
+  serialized over the wire).
 
 Defaults are lower: 2 MiB source, 16 modules/2 MiB, 1 MiB output, 64 MiB
 memory, and two seconds. The host may impose stricter limits.
@@ -23,8 +26,10 @@ memory, and two seconds. The host may impose stricter limits.
 The EJS challenge solver splits player processing into two bounded phases:
 a preprocess phase (meriyah-based player parsing, up to 55 s wall time) and
 a solve phase (transform execution, up to 10 s). Preprocessed players are
-cached by SHA-256 so repeated videos sharing the same player script skip the
-expensive parsing step.
+cached by SHA-256 in a bounded LRU (max 8 entries) that persists at the
+client level across separate downloads. Concurrent requests for the same
+uncached player are coalesced via singleflight so preprocessing runs exactly
+once per unique player script.
 
 Scripts are keyed by lowercase SHA-256. A long-lived helper may cache compiled
 immutable programs by this hash, but each request receives a fresh runtime so

@@ -281,6 +281,7 @@ capabilities:
       - docs/JAVASCRIPT_HELPER_PROTOCOL.md
       - internal/javascript/protocol.TestRequestNormalizeDefaultsAndHash
       - internal/javascript/protocol.TestRequestRejectsLimitsHashesModulesAndArguments
+      - internal/javascript/protocol.TestTrustedWallTimeAllowance
       - internal/javascript/protocol.TestFrameRoundTripAndBounds
       - internal/javascript/protocol.FuzzRequestNormalize
       - internal/javascript/protocol.FuzzFrameRoundTrip
@@ -295,17 +296,33 @@ capabilities:
       - internal/javascript/ejs.TestVerifyAssetsAndInputBounds
       - internal/javascript/ejs.TestPreprocessCacheReuse
       - internal/javascript/ejs.TestPreprocessCacheEviction
+      - internal/javascript/ejs.TestSingleflightCoalescesPreprocessing
       - internal/javascript/ejs.TestSolvePlayerCancellation
       - internal/javascript/ejs.TestSolvePlayerTimeout
       - internal/javascript/ejs.TestSolvePlayerMalformedPreprocessResponse
       - internal/javascript/ejs.TestSolvePlayerResourceLimits
       - internal/javascript/ejs.TestSolvePlayerOutputPreprocessed
       - internal/javascript/ejs.TestConcurrentSolvePlayer
+      - internal/javascript/ejs.TestRepresentativeWorkloadUnderOldLimit
+      - internal/javascript/ejs.TestLargeGeneratedPlayerWorkload
       - internal/javascript/ejs.TestPathologicalPlayerFixture
       - conformance/javascript/ejs-0.8.0/PROVENANCE.md
       - .github/python-free.Dockerfile
     owner: runtime
-    known_deviation: Compatibility is scoped to the pinned Phase 1 EJS corpus; live player-variant breadth and component updates remain extractor and upstream-delta work. The two-phase preprocess/solve split and 60 s hard-max wall time accommodate the pure-Go goja engine's slower meriyah-based player parsing relative to native V8/SpiderMonkey runtimes.
+    known_deviation: >
+      Compatibility is scoped to the pinned Phase 1 EJS corpus; live
+      player-variant breadth and component updates remain extractor and
+      upstream-delta work. The two-phase preprocess/solve split uses a
+      scoped trusted wall-time allowance (60 s) for EJS preprocessing only;
+      untrusted requests remain bounded at 30 s. The preprocessed-player
+      LRU cache (max 8) persists at the client level across downloads.
+      Concurrent cache misses are coalesced via singleflight.
+      Automated proof: TestRepresentativeWorkloadUnderOldLimit,
+      TestLargeGeneratedPlayerWorkload, TestSingleflightCoalescesPreprocessing.
+      Live validation: pending (requires service conditions permitting
+      protected-video extraction). Remaining deviation: no sanitized
+      real 1-2 MB player fixture committed (proprietary); the generated
+      ~500 KB workload approximates parse pressure deterministically.
 
   - id: network.impersonation
     name: Browser impersonation transport

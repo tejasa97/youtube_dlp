@@ -68,13 +68,23 @@ type Result struct {
 // Solver executes EJS challenge solving through an isolated JavaScript helper.
 // It caches preprocessed players so that repeated videos sharing the same
 // player script skip the expensive meriyah-based preprocessing phase.
+// Concurrent requests for the same uncached player are coalesced via
+// singleflight coordination so preprocessing runs exactly once.
 type Solver struct {
 	executor Executor
 	script   string
 
-	mu    sync.Mutex
-	cache map[string]string // player SHA-256 → preprocessed player
-	order []string          // LRU eviction order (oldest first)
+	mu     sync.Mutex
+	cache  map[string]string // player SHA-256 → preprocessed player
+	order  []string          // LRU eviction order (oldest first)
+	flight map[string]*call  // in-flight preprocessing coordination
+}
+
+// call represents an in-flight preprocessing operation.
+type call struct {
+	wg  sync.WaitGroup
+	val string
+	err error
 }
 
 func New(executor Executor) (*Solver, error) {
@@ -89,6 +99,7 @@ func New(executor Executor) (*Solver, error) {
 		executor: executor,
 		script:   script,
 		cache:    make(map[string]string, MaxCachedPlayers),
+		flight:   make(map[string]*call),
 	}, nil
 }
 
@@ -109,18 +120,56 @@ func (solver *Solver) SolvePlayer(ctx context.Context, id, player string, reques
 	}
 
 	playerHash := protocol.HashScript(player)
-	preprocessed, cached := solver.lookupPreprocessed(playerHash)
-
-	if !cached {
-		var err error
-		preprocessed, err = solver.preprocess(ctx, id, player)
-		if err != nil {
-			return Result{}, err
-		}
-		solver.storePreprocessed(playerHash, preprocessed)
+	preprocessed, err := solver.getPreprocessed(ctx, id, playerHash, player)
+	if err != nil {
+		return Result{}, err
 	}
 
 	return solver.solve(ctx, id, preprocessed, requests, outputPreprocessed, player)
+}
+
+// getPreprocessed returns the cached preprocessed player or coalesces
+// concurrent preprocessing via singleflight so it runs exactly once per
+// unique player hash.
+func (solver *Solver) getPreprocessed(ctx context.Context, id, playerHash, player string) (string, error) {
+	// Fast path: cache hit.
+	if preprocessed, ok := solver.lookupPreprocessed(playerHash); ok {
+		return preprocessed, nil
+	}
+
+	// Singleflight: coalesce concurrent misses for the same player.
+	solver.mu.Lock()
+	if preprocessed, ok := solver.cache[playerHash]; ok {
+		solver.mu.Unlock()
+		return preprocessed, nil
+	}
+	if inflight, ok := solver.flight[playerHash]; ok {
+		solver.mu.Unlock()
+		// Wait for the in-flight preprocessing to complete.
+		inflight.wg.Wait()
+		return inflight.val, inflight.err
+	}
+	// Register this goroutine as the leader for this player hash.
+	inflight := &call{}
+	inflight.wg.Add(1)
+	solver.flight[playerHash] = inflight
+	solver.mu.Unlock()
+
+	// Execute preprocessing (only the leader reaches here).
+	preprocessed, err := solver.preprocess(ctx, id, player)
+	inflight.val = preprocessed
+	inflight.err = err
+	inflight.wg.Done()
+
+	// Clean up in-flight entry and store result.
+	solver.mu.Lock()
+	delete(solver.flight, playerHash)
+	solver.mu.Unlock()
+
+	if err == nil {
+		solver.storePreprocessed(playerHash, preprocessed)
+	}
+	return preprocessed, err
 }
 
 // preprocess runs the expensive player parsing phase with an extended wall time.
@@ -130,7 +179,7 @@ func (solver *Solver) preprocess(ctx context.Context, id, player string) (string
 		Player             string             `json:"player"`
 		Requests           []ChallengeRequest `json:"requests"`
 		OutputPreprocessed bool               `json:"output_preprocessed"`
-	}{"player", player, nil, true}
+	}{"player", player, []ChallengeRequest{}, true}
 	argument, err := json.Marshal(input)
 	if err != nil {
 		return "", fmt.Errorf("encode EJS preprocess input: %w", err)
@@ -141,6 +190,7 @@ func (solver *Solver) preprocess(ctx context.Context, id, player string) (string
 		Limits: protocol.Limits{
 			WallTimeMS: PreprocessWallTimeMS, MemoryBytes: SolverMemoryBytes,
 			OutputBytes: SolverOutputBytes, SourceBytes: SolverSourceBytes,
+			Trusted: true, // EJS preprocessing requires extended wall time.
 		},
 	})
 	if response.Error != nil {
