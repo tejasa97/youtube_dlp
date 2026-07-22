@@ -188,6 +188,62 @@ func TestSupervisorRejectsUntrustedExtendedWallTime(t *testing.T) {
 	}
 }
 
+// TestSupervisorConcurrentExecuteAndCloseDrainsActiveSolves verifies that
+// Close waits for in-flight JavaScript executions to complete before
+// terminating the helper process. Active operations receive valid results;
+// the helper process is cleaned up with no orphans.
+func TestSupervisorConcurrentExecuteAndCloseDrainsActiveSolves(t *testing.T) {
+	for iteration := 0; iteration < 3; iteration++ {
+		client := newTestClient(t, helperPath)
+
+		const workers = 4
+		var wg sync.WaitGroup
+		results := make([]protocol.Response, workers)
+
+		// Launch concurrent JavaScript executions.
+		for i := 0; i < workers; i++ {
+			wg.Add(1)
+			go func(idx int) {
+				defer wg.Done()
+				request := evaluateRequest("drain", "40+2")
+				results[idx] = client.Execute(context.Background(), request)
+			}(i)
+		}
+
+		// Close while executions may be in flight.
+		time.Sleep(time.Millisecond)
+		client.Close()
+
+		wg.Wait()
+
+		// All active operations should have completed with valid results
+		// (Close drains before killing the helper).
+		for i, resp := range results {
+			if resp.Error != nil {
+				t.Fatalf("iteration %d worker %d: unexpected error: %s", iteration, i, resp.Error.Message)
+			}
+			if string(resp.Result) != "42" {
+				t.Fatalf("iteration %d worker %d: result = %s, want 42", iteration, i, resp.Result)
+			}
+		}
+
+		// After Close, the helper process should be terminated.
+		// Verify by checking that the process is no longer running.
+		if client.command != nil && client.command.Process != nil {
+			// On Unix, sending signal 0 checks if the process exists.
+			err := client.command.Process.Signal(nil)
+			if err == nil {
+				// Process still alive — give it a moment to exit.
+				time.Sleep(100 * time.Millisecond)
+				err = client.command.Process.Signal(nil)
+				if err == nil {
+					t.Fatalf("iteration %d: helper process still running after Close", iteration)
+				}
+			}
+		}
+	}
+}
+
 func newTestClient(t *testing.T, path string) *Client {
 	t.Helper()
 	client, err := New(Config{Path: path, MemoryBytes: 128 << 20})

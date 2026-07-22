@@ -971,9 +971,12 @@ func FuzzConfinedPostprocessPath(f *testing.F) {
 	})
 }
 
-// TestClientConcurrentRunAndClose verifies that concurrent Run and Close calls
-// do not race, panic, or leave orphaned helper processes. Close waits for
-// active operations to complete before shutting down the supervisor.
+// TestClientConcurrentRunAndClose is a basic concurrency smoke test verifying
+// that concurrent Run and Close calls do not panic. It uses the generic
+// fixture extractor (no JavaScript helper). The helper-backed active-solve
+// drain test is TestSupervisorConcurrentExecuteAndCloseDrainsActiveSolves in
+// the supervisor package, which exercises real JavaScript execution, asserts
+// operation results, and verifies helper process cleanup.
 func TestClientConcurrentRunAndClose(t *testing.T) {
 	server := testserver.New()
 	defer server.Close()

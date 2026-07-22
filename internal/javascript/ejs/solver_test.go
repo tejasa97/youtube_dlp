@@ -406,6 +406,72 @@ func TestSingleflightFollowerCancellation(t *testing.T) {
 	}
 }
 
+// TestSingleflightCanceledLeaderDoesNotFailLiveFollower verifies that
+// canceling the leader's context does not propagate the cancellation error
+// to followers whose contexts remain active. Preprocessing is decoupled
+// from the leader's context via context.WithoutCancel.
+func TestSingleflightCanceledLeaderDoesNotFailLiveFollower(t *testing.T) {
+	player, err := os.ReadFile("../../../conformance/javascript/ejs-0.8.0/synthetic-player.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Use a slow executor so we can cancel the leader mid-preprocessing.
+	slow := &slowExecutor{inner: engine.New(4), delay: 1 * time.Second}
+	solver, err := New(slow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := []ChallengeRequest{{Type: ChallengeN, Challenges: []string{"abc"}}}
+
+	// Start the leader with a context that will be canceled.
+	leaderCtx, leaderCancel := context.WithCancel(context.Background())
+	leaderDone := make(chan error, 1)
+	go func() {
+		_, err := solver.SolvePlayer(leaderCtx, "leader", string(player), requests, false)
+		leaderDone <- err
+	}()
+
+	// Give the leader time to register the in-flight entry.
+	time.Sleep(100 * time.Millisecond)
+
+	// Start a follower with a live (long-lived) context.
+	followerDone := make(chan struct {
+		Result
+		error
+	}, 1)
+	go func() {
+		result, err := solver.SolvePlayer(context.Background(), "follower", string(player), requests, false)
+		followerDone <- struct {
+			Result
+			error
+		}{result, err}
+	}()
+
+	// Cancel the leader's context while preprocessing is in flight.
+	time.Sleep(50 * time.Millisecond)
+	leaderCancel()
+
+	// The leader should fail with context canceled.
+	leaderErr := <-leaderDone
+	if leaderErr == nil {
+		t.Fatal("leader should have been canceled")
+	}
+
+	// The follower should succeed because preprocessing is decoupled
+	// from the leader's context.
+	select {
+	case outcome := <-followerDone:
+		if outcome.error != nil {
+			t.Fatalf("follower failed due to leader cancellation: %v", outcome.error)
+		}
+		if outcome.Result.Responses[0].Data["abc"] != "cba-n" {
+			t.Fatalf("follower wrong result: %#v", outcome.Result)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("follower timed out waiting for preprocessing")
+	}
+}
+
 // TestPathologicalPlayerFixture verifies the pathological player fixture
 // completes within bounds (not an infinite loop).
 func TestPathologicalPlayerFixture(t *testing.T) {
