@@ -1,0 +1,38 @@
+{
+  "dynamic": false,
+  "representations": [
+    {
+      "id": "v1",
+      "content_type": "video",
+      "mime_type": "video/mp4",
+      "codecs": "avc1.64001F",
+      "bandwidth": 2000000,
+      "segments": [
+        {
+          "url": "https://media.example.test/dash/video_720p.mp4",
+          "index_range": "100-563",
+          "init_range": "0-99"
+        }
+      ]
+    },
+    {
+      "id": "a1",
+      "content_type": "audio",
+      "mime_type": "audio/mp4",
+      "codecs": "mp4a.40.2",
+      "bandwidth": 128000,
+      "segments": [
+        {
+          "url": "https://media.example.test/dash/audio_init.mp4",
+          "range_start": 0,
+          "range_length": 200,
+          "initialize": true
+        },
+        {
+          "url": "https://media.example.test/dash/audio_128k.mp4",
+          "index_range": "0-399"
+        }
+      ]
+    }
+  ]
+}
