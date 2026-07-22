@@ -19,23 +19,50 @@ var (
 	ErrUnsupportedAddressing = errors.New("unsupported DASH segment addressing")
 )
 
-const maxSegmentsPerRepresentation = 100_000
+const (
+	maxSegmentsPerRepresentation = 100_000
+	// The supervised ffmpeg concat boundary accepts at most 128 explicit
+	// inputs, so the parser enforces the same end-to-end period limit.
+	maxPeriods = 128
+)
 
 type MPD struct {
-	Dynamic             bool
-	MinimumUpdatePeriod time.Duration
-	Representations     []Representation
+	Dynamic              bool
+	MinimumUpdatePeriod  time.Duration
+	PresentationDuration time.Duration
+	PeriodCount          int
+	Periods              []Period
+	Representations      []Representation
+}
+
+// Period records the resolved presentation interval for one MPD Period.
+// TimingKnown is false when the manifest does not provide enough information
+// to prove that multi-period concatenation preserves the presentation timeline.
+type Period struct {
+	ID          string
+	Start       time.Duration
+	Duration    time.Duration
+	TimingKnown bool
 }
 
 type Representation struct {
 	ID          string
+	PeriodID    string
+	PeriodIndex int
+	Fragmented  bool
 	ContentType string
 	MimeType    string
 	Codecs      string
+	Language    string
+	FrameRate   string
+	AudioRate   string
 	Bandwidth   int64
 	Width       int
 	Height      int
 	Segments    []Segment
+	// PeriodSegments preserves static multi-period boundaries for supervised
+	// media concatenation. It is nil for ordinary single-period MPDs.
+	PeriodSegments [][]Segment
 }
 
 type Segment struct {
@@ -65,6 +92,7 @@ type mpdXML struct {
 }
 
 type periodXML struct {
+	ID              string              `xml:"id,attr"`
 	Start           string              `xml:"start,attr"`
 	Duration        string              `xml:"duration,attr"`
 	BaseURL         string              `xml:"BaseURL"`
@@ -78,6 +106,9 @@ type adaptationSetXML struct {
 	ContentType     string              `xml:"contentType,attr"`
 	MimeType        string              `xml:"mimeType,attr"`
 	Codecs          string              `xml:"codecs,attr"`
+	Language        string              `xml:"lang,attr"`
+	FrameRate       string              `xml:"frameRate,attr"`
+	AudioRate       string              `xml:"audioSamplingRate,attr"`
 	BaseURL         string              `xml:"BaseURL"`
 	SegmentTemplate *segmentTemplateXML `xml:"SegmentTemplate"`
 	SegmentList     *segmentListXML     `xml:"SegmentList"`
@@ -92,6 +123,9 @@ type representationXML struct {
 	Height          int                 `xml:"height,attr"`
 	MimeType        string              `xml:"mimeType,attr"`
 	Codecs          string              `xml:"codecs,attr"`
+	Language        string              `xml:"lang,attr"`
+	FrameRate       string              `xml:"frameRate,attr"`
+	AudioRate       string              `xml:"audioSamplingRate,attr"`
 	BaseURL         string              `xml:"BaseURL"`
 	SegmentTemplate *segmentTemplateXML `xml:"SegmentTemplate"`
 	SegmentList     *segmentListXML     `xml:"SegmentList"`
@@ -142,6 +176,102 @@ type segmentURLXML struct {
 	MediaRange string `xml:"mediaRange,attr"`
 }
 
+type resolvedPeriodTiming struct {
+	start, duration           time.Duration
+	startKnown, durationKnown bool
+}
+
+func resolvePeriodTimings(periods []periodXML, presentationDuration time.Duration) ([]Period, error) {
+	resolved := make([]resolvedPeriodTiming, len(periods))
+	for index, period := range periods {
+		if period.Start != "" {
+			start, err := parseISODuration(period.Start)
+			if err != nil {
+				return nil, fmt.Errorf("period %d start: %w", index, err)
+			}
+			resolved[index].start, resolved[index].startKnown = start, true
+		}
+		if period.Duration != "" {
+			duration, err := parseISODuration(period.Duration)
+			if err != nil {
+				return nil, fmt.Errorf("period %d duration: %w", index, err)
+			}
+			resolved[index].duration, resolved[index].durationKnown = duration, true
+		}
+	}
+	if len(resolved) != 0 && !resolved[0].startKnown {
+		resolved[0].startKnown = true
+	}
+
+	// DASH permits starts and durations to be inferred from adjacent Periods.
+	// Iterate in both directions so an MPD duration or a later explicit start
+	// can resolve an otherwise omitted boundary without guessing.
+	for pass := 0; pass < len(resolved)*2+1; pass++ {
+		changed := false
+		for index := range resolved {
+			current := &resolved[index]
+			if index+1 < len(resolved) {
+				next := &resolved[index+1]
+				if current.startKnown && current.durationKnown && !next.startKnown {
+					end, ok := addPeriodDuration(current.start, current.duration)
+					if !ok {
+						return nil, fmt.Errorf("period %d end overflows", index)
+					}
+					next.start, next.startKnown, changed = end, true, true
+				}
+				if current.startKnown && next.startKnown && !current.durationKnown {
+					if next.start < current.start {
+						return nil, fmt.Errorf("period %d starts before period %d", index+1, index)
+					}
+					current.duration, current.durationKnown, changed = next.start-current.start, true, true
+				}
+			}
+			if index == len(resolved)-1 && presentationDuration > 0 {
+				if current.startKnown && !current.durationKnown {
+					if presentationDuration < current.start {
+						return nil, fmt.Errorf("period %d starts after the presentation ends", index)
+					}
+					current.duration, current.durationKnown, changed = presentationDuration-current.start, true, true
+				} else if current.durationKnown && !current.startKnown {
+					if presentationDuration < current.duration {
+						return nil, fmt.Errorf("period %d duration exceeds the presentation", index)
+					}
+					current.start, current.startKnown, changed = presentationDuration-current.duration, true, true
+				}
+			}
+		}
+		for index := len(resolved) - 2; index >= 0; index-- {
+			current, next := &resolved[index], &resolved[index+1]
+			if !current.startKnown && current.durationKnown && next.startKnown {
+				if next.start < current.duration {
+					return nil, fmt.Errorf("period %d duration precedes the presentation start", index)
+				}
+				current.start, current.startKnown, changed = next.start-current.duration, true, true
+			}
+		}
+		if !changed {
+			break
+		}
+	}
+
+	result := make([]Period, len(periods))
+	for index, period := range periods {
+		timing := resolved[index]
+		result[index] = Period{
+			ID: period.ID, Start: timing.start, Duration: timing.duration,
+			TimingKnown: timing.startKnown && timing.durationKnown,
+		}
+	}
+	return result, nil
+}
+
+func addPeriodDuration(start, duration time.Duration) (time.Duration, bool) {
+	if start < 0 || duration < 0 || start > time.Duration(math.MaxInt64)-duration {
+		return 0, false
+	}
+	return start + duration, true
+}
+
 func Parse(rawURL string, input []byte) (MPD, error) {
 	base, err := url.Parse(rawURL)
 	if err != nil {
@@ -151,6 +281,9 @@ func Parse(rawURL string, input []byte) (MPD, error) {
 	if err := xml.Unmarshal(input, &document); err != nil {
 		return MPD{}, fmt.Errorf("%w: XML: %v", ErrInvalidMPD, err)
 	}
+	if len(document.Periods) > maxPeriods {
+		return MPD{}, fmt.Errorf("%w: period count exceeds %d", ErrInvalidMPD, maxPeriods)
+	}
 	minimumUpdate, err := parseISODuration(document.MinimumUpdatePeriod)
 	if err != nil {
 		return MPD{}, fmt.Errorf("%w: minimumUpdatePeriod: %v", ErrInvalidMPD, err)
@@ -159,7 +292,14 @@ func Parse(rawURL string, input []byte) (MPD, error) {
 	if err != nil {
 		return MPD{}, fmt.Errorf("%w: mediaPresentationDuration: %v", ErrInvalidMPD, err)
 	}
-	result := MPD{Dynamic: document.Type == "dynamic", MinimumUpdatePeriod: minimumUpdate}
+	periods, err := resolvePeriodTimings(document.Periods, presentationDuration)
+	if err != nil {
+		return MPD{}, fmt.Errorf("%w: period timing: %v", ErrInvalidMPD, err)
+	}
+	result := MPD{
+		Dynamic: document.Type == "dynamic", MinimumUpdatePeriod: minimumUpdate,
+		PresentationDuration: presentationDuration, PeriodCount: len(document.Periods), Periods: periods,
+	}
 	availabilityStart, availabilityErr := parseOptionalTime(document.AvailabilityStartTime)
 	if availabilityErr != nil {
 		return MPD{}, fmt.Errorf("%w: availabilityStartTime: %v", ErrInvalidMPD, availabilityErr)
@@ -172,18 +312,9 @@ func Parse(rawURL string, input []byte) (MPD, error) {
 	if err != nil {
 		return MPD{}, err
 	}
-	for _, period := range document.Periods {
-		periodStart, err := parseISODuration(period.Start)
-		if err != nil {
-			return MPD{}, fmt.Errorf("%w: period start: %v", ErrInvalidMPD, err)
-		}
-		periodDuration, err := parseISODuration(period.Duration)
-		if err != nil {
-			return MPD{}, fmt.Errorf("%w: period duration: %v", ErrInvalidMPD, err)
-		}
-		if periodDuration <= 0 {
-			periodDuration = presentationDuration
-		}
+	for periodIndex, period := range document.Periods {
+		periodStart := periods[periodIndex].Start
+		periodDuration := periods[periodIndex].Duration
 		if periodDuration <= 0 && !availabilityStart.IsZero() && !publishTime.IsZero() {
 			periodDuration = publishTime.Sub(availabilityStart) - periodStart
 		}
@@ -202,10 +333,14 @@ func Parse(rawURL string, input []byte) (MPD, error) {
 					return MPD{}, err
 				}
 				normalized := Representation{
-					ID: representation.ID, ContentType: adaptation.ContentType,
-					MimeType:  firstNonEmpty(representation.MimeType, adaptation.MimeType),
-					Codecs:    firstNonEmpty(representation.Codecs, adaptation.Codecs),
-					Bandwidth: representation.Bandwidth, Width: representation.Width, Height: representation.Height,
+					ID: representation.ID, PeriodID: period.ID, PeriodIndex: periodIndex,
+					ContentType: adaptation.ContentType,
+					MimeType:    firstNonEmpty(representation.MimeType, adaptation.MimeType),
+					Codecs:      firstNonEmpty(representation.Codecs, adaptation.Codecs),
+					Language:    firstNonEmpty(representation.Language, adaptation.Language),
+					FrameRate:   firstNonEmpty(representation.FrameRate, adaptation.FrameRate),
+					AudioRate:   firstNonEmpty(representation.AudioRate, adaptation.AudioRate),
+					Bandwidth:   representation.Bandwidth, Width: representation.Width, Height: representation.Height,
 				}
 				template := mergeSegmentTemplates(period.SegmentTemplate, adaptation.SegmentTemplate, representation.SegmentTemplate)
 				list := mergeSegmentLists(period.SegmentList, adaptation.SegmentList, representation.SegmentList)
@@ -213,10 +348,13 @@ func Parse(rawURL string, input []byte) (MPD, error) {
 				switch {
 				case template != nil:
 					normalized.Segments, err = templateSegments(representationBase, normalized, template, periodDuration)
+					normalized.Fragmented = true
 				case list != nil:
 					normalized.Segments, err = listSegments(representationBase, list)
+					normalized.Fragmented = true
 				case segmentBase != nil:
 					normalized.Segments, err = baseSegments(representationBase, segmentBase)
+					normalized.Fragmented = segmentBase.IndexRange != ""
 				case representation.BaseURL != "":
 					normalized.Segments = []Segment{{URL: representationBase.String()}}
 				default:

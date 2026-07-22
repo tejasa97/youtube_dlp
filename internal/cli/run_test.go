@@ -143,6 +143,42 @@ func TestRunRequiresURL(t *testing.T) {
 	}
 }
 
+func TestRunRejectsInvalidPlaylistRange(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"--playlist-start", "4", "--playlist-end", "3", "https://example.invalid/video.mp4"}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), "invalid request options: playlist range") {
+		t.Fatalf("code = %d; stdout = %q; stderr = %q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunAcceptsLegacyUnboundedPlaylistEnd(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"--playlist-end", "-1", "--skip-download", server.URL + "/page"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code = %d; stdout = %q; stderr = %q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunAcceptsNoPlaylistReverseAfterInheritedReverse(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	configPath := filepath.Join(t.TempDir(), "yt-dlp.conf")
+	if err := os.WriteFile(configPath, []byte("--playlist-reverse\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"--config-location", configPath,
+		"--no-playlist-reverse",
+		"--skip-download",
+		server.URL + "/page",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code = %d; stdout = %q; stderr = %q", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestRunRejectsMalformedURL(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := Run([]string{"not-a-url"}, &stdout, &stderr); code != 3 {

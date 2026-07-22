@@ -1,0 +1,13 @@
+{
+  "period_count": 2,
+  "period_ids": ["opening", "feature"],
+  "period_starts_ms": [0, 2000],
+  "period_durations_ms": [2000, 2000],
+  "representation_ids": ["opening-video", "feature-video"],
+  "urls": [
+    "https://media.example.test/root/media/opening/init.mp4",
+    "https://media.example.test/root/media/opening/one.m4s",
+    "https://media.example.test/root/media/feature/init.mp4",
+    "https://media.example.test/root/media/feature/two.m4s"
+  ]
+}
