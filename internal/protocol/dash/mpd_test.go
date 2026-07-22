@@ -185,23 +185,22 @@ func TestParseSegmentBaseFieldLevelInheritanceSplitFields(t *testing.T) {
 
 func TestParseSegmentBaseFieldLevelInheritanceOverride(t *testing.T) {
 	// Period sets indexRange="100-199", Representation overrides with "200-399".
-	// AdaptationSet sets Initialization sourceURL, Representation overrides range.
+	// AdaptationSet sets Initialization sourceURL, Representation overrides with
+	// a different Initialization element (range only). Wholesale override means
+	// the Representation's Initialization replaces the parent's entirely.
 	mpd, err := Parse("https://example.test/manifest.mpd", []byte(`<MPD><Period><SegmentBase indexRange="100-199"/><AdaptationSet mimeType="video/mp4"><SegmentBase><Initialization sourceURL="init.mp4"/></SegmentBase><Representation id="v" bandwidth="1000"><BaseURL>video.mp4</BaseURL><SegmentBase indexRange="200-399"><Initialization range="0-49"/></SegmentBase></Representation></AdaptationSet></Period></MPD>`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	segments := mpd.Representations[0].Segments
-	// Representation indexRange overrides Period; Initialization merges
-	// sourceURL from AdaptationSet with range from Representation.
-	// Since sourceURL points to a different resource, we get init segment + marker.
-	if len(segments) != 2 {
-		t.Fatalf("segments = %#v", segments)
+	// Representation indexRange overrides Period. Representation's Initialization
+	// (range="0-49", no sourceURL) wholesale replaces AdaptationSet's
+	// (sourceURL="init.mp4"). Result: same-resource init range on marker.
+	if len(segments) != 1 {
+		t.Fatalf("segments = %#v, want 1 marker segment", segments)
 	}
-	if !segments[0].Initialize || segments[0].URL != "https://example.test/init.mp4" || segments[0].RangeStart != 0 || segments[0].RangeLength != 50 {
-		t.Fatalf("init segment = %#v", segments[0])
-	}
-	if segments[1].IndexRange != "200-399" {
-		t.Fatalf("marker segment = %#v", segments[1])
+	if segments[0].IndexRange != "200-399" || segments[0].InitRange != "0-49" {
+		t.Fatalf("segment = %#v, want IndexRange=200-399 InitRange=0-49", segments[0])
 	}
 }
 
