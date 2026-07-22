@@ -49,14 +49,18 @@ The shared registry and parity manifest remain owned by the primary integrator.
   encoded separators (`%2f`, `%5c`, `%00`) or NULs, no literal `.` or `..` path
   segments, no trailing slash, and a decoded path that exactly equals the
   allowed path (no `path.Clean` normalization), preventing cross-user,
-  cross-track, cross-station, and cross-relation transitions. Query cardinality
-  and per-value length are bounded; stale client IDs are stripped.
-  Repeated cursors terminate safely.
+  cross-track, cross-station, and cross-relation transitions. Query parsing
+  uses `url.ParseQuery` explicitly to reject malformed percent-escaping and
+  invalid semicolon syntax. Query cardinality and per-value length are bounded;
+  stale `client_id` keys are stripped. Repeated cursors terminate safely.
 - Mixed track/playlist collection decoding: collection items are resolved using
   the reference `resolve_entry(e, e.get('track'), e.get('playlist'))` ordering.
-  The direct collection item is classified by its permalink URL kind before any
-  track fallback: direct playlist objects (with `/sets/...` permalinks) produce
-  set entries, not incorrect track API URLs. Nested track and playlist
+  The direct collection item is classified by its explicit `kind` field and/or
+  permalink URL kind: direct `playlist` objects produce set entries (or
+  `/playlists/<id>` fallback when the permalink is absent or unusable); direct
+  `track` objects produce track entries (or `/tracks/<id>` fallback). Unknown
+  or contradictory kind/permalink combinations fail closed unless the permalink
+  independently provides an unambiguous supported type. Nested track and playlist
   candidates follow. Playlist entries without a classifiable permalink fall
   back to the v2 API playlist URL.
 - HTTP authentication/unavailability, malformed metadata/playlists/station
@@ -90,9 +94,11 @@ The shared registry and parity manifest remain owned by the primary integrator.
 - `internal/extractor.TestSoundCloudContinuationPolicyAcceptsValidCursors`
 - `internal/extractor.TestSoundCloudContinuationQueryBounds`
 - `internal/extractor.TestSoundCloudDirectCollectionEntryClassification`
+- `internal/extractor.TestSoundCloudMalformedDirectCandidateFallsThroughToNested`
 - `internal/extractor.TestSoundCloudNestedTrackAndPlaylistEntries`
 - `internal/extractor.TestSoundCloudRelatedErrorSecretSafety`
 - `internal/extractor.TestSoundCloudContinuationExactPathComparison`
+- `internal/extractor.TestSoundCloudContinuationMalformedQueryEscaping`
 - `internal/extractor.TestSoundCloudRelatedSlugFallback`
 - `internal/extractor.TestSoundCloudRelatedSlugFallbackAlbumsAndSets`
 - `internal/extractor.FuzzSoundCloudURLClassification`
