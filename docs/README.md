@@ -37,6 +37,8 @@ The executable help is the authoritative CLI option list:
 - [Downloader and protocols](P2_DOWNLOADER_PROTOCOLS.md)
 - [Post-processing](P2_POSTPROCESSING.md)
 - [Fallback inventory](P2_FALLBACK_INVENTORY.md)
+- [YouTube protected-playback continuation](YOUTUBE_PROTECTED_PLAYBACK_PLAN.md)
+- [Native YouTube PO-token evidence](YOUTUBE_POT_EVIDENCE.md)
 - [Privacy-safe telemetry](P3_TELEMETRY.md)
 - [Semantic review ledger](P3_SEMANTIC_REVIEW_LEDGER.md)
 

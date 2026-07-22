@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/ytdlp-go/ytdlp/internal/javascript/ejs"
+	"github.com/ytdlp-go/ytdlp/internal/youtubepot"
 )
 
 var (
@@ -65,10 +66,12 @@ func ReadPageWithProfile(ctx context.Context, transport Transport, rawURL, profi
 }
 
 type Request struct {
-	URL             string
-	Transport       Transport
-	ChallengeSolver YouTubeChallengeSolver
-	Credentials     CredentialProvider
+	URL                       string
+	Transport                 Transport
+	ChallengeSolver           YouTubeChallengeSolver
+	Credentials               CredentialProvider
+	YouTubePOT                *youtubepot.Director
+	YouTubeTranslatedCaptions bool
 }
 
 // Credential is an extractor-scoped authentication tuple. It must never be

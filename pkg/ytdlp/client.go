@@ -41,6 +41,7 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/protocol/hls"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/ism"
 	"github.com/ytdlp-go/ytdlp/internal/value"
+	"github.com/ytdlp-go/ytdlp/internal/youtubepot"
 )
 
 type ErrorCategory string
@@ -79,31 +80,32 @@ func IsCategory(err error, category ErrorCategory) bool {
 }
 
 type Request struct {
-	URL                    string
-	OutputTemplate         string
-	OutputDir              string
-	Proxy                  string
-	ImpersonationProfile   string
-	CookieFile             string
-	CookiesFromBrowser     string
-	UseNetRC               bool
-	NetRCLocation          string
-	DownloadArchive        string
-	CacheDir               string
-	Timeout                time.Duration
-	Overwrite              bool
-	SkipDownload           bool
-	Format                 string
-	FormatSort             []string
-	PreferredExtensions    []string
-	PreferFreeFormats      bool
-	AllowUnplayableFormats bool
-	ProgressTemplate       string
-	MatchFilters           []string
-	ParseMetadata          []string
-	ReplaceMetadata        []string
-	Downloader             DownloaderOptions
-	Postprocessors         []Postprocessor
+	URL                       string
+	OutputTemplate            string
+	OutputDir                 string
+	Proxy                     string
+	ImpersonationProfile      string
+	CookieFile                string
+	CookiesFromBrowser        string
+	UseNetRC                  bool
+	NetRCLocation             string
+	DownloadArchive           string
+	CacheDir                  string
+	Timeout                   time.Duration
+	Overwrite                 bool
+	SkipDownload              bool
+	Format                    string
+	FormatSort                []string
+	PreferredExtensions       []string
+	PreferFreeFormats         bool
+	AllowUnplayableFormats    bool
+	YouTubeTranslatedCaptions bool
+	ProgressTemplate          string
+	MatchFilters              []string
+	ParseMetadata             []string
+	ReplaceMetadata           []string
+	Downloader                DownloaderOptions
+	Postprocessors            []Postprocessor
 	// PluginID explicitly selects an installed signed plugin extractor. Plugins
 	// are never considered by automatic URL routing.
 	PluginID string
@@ -175,6 +177,8 @@ type Client struct {
 	plugins               []*InstalledPlugin
 	pluginApprover        PluginPermissionApprover
 	telemetry             *TelemetryCollector
+	youtubePOT            *youtubepot.Director
+	youtubePOTErr         error
 }
 
 func NewClient(options ...Option) *Client {
@@ -208,6 +212,9 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 	}
 	if err := validateRequestOptions(request); err != nil {
 		return Result{}, categorized("validate request options", err)
+	}
+	if client.youtubePOTErr != nil {
+		return Result{}, &Error{Category: ErrorInvalidInput, Op: "configure YouTube PO-token providers", Err: client.youtubePOTErr}
 	}
 	compatibility, err := prepareCompatibility(request)
 	if err != nil {
@@ -389,6 +396,7 @@ func (operation *operation) process(ctx context.Context, rawURL, extractorKey st
 	}
 	extracted, err := selected.Extract(ctx, extractor.Request{
 		URL: rawURL, Transport: operation.transport, ChallengeSolver: operation.solver, Credentials: operation.credentials,
+		YouTubePOT: operation.client.youtubePOT, YouTubeTranslatedCaptions: operation.request.YouTubeTranslatedCaptions,
 	})
 	if err != nil {
 		return Result{}, categorized(selected.Name()+" extraction", err)
