@@ -35,6 +35,16 @@ type ExternalDownloader struct {
 	Arguments  []string
 }
 
+// SubtitleOptions selects and writes subtitle sidecars exposed by an
+// extractor. Manual subtitles take precedence over automatic captions for the
+// same language, matching yt-dlp's selection behavior.
+type SubtitleOptions struct {
+	WriteManual    bool
+	WriteAutomatic bool
+	Languages      []string
+	Format         string
+}
+
 // Artifact describes a file produced by the requested media pipeline.
 type Artifact struct {
 	Path string `json:"path"`
@@ -134,6 +144,9 @@ func validateRequestOptions(request Request) error {
 	}
 	if len(request.Postprocessors) > 64 {
 		return fmt.Errorf("%w: more than 64 postprocessors", errInvalidRequestOptions)
+	}
+	if err := validateSubtitleOptions(request.Subtitles); err != nil {
+		return fmt.Errorf("%w: %v", errInvalidRequestOptions, err)
 	}
 	for index, postprocessor := range request.Postprocessors {
 		if countPostprocessorChoices(postprocessor) != 1 {
