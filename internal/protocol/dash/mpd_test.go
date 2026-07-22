@@ -168,6 +168,61 @@ func TestParseSegmentBaseIndexRangeInheritedAdaptationSet(t *testing.T) {
 	}
 }
 
+func TestParseSegmentBaseFieldLevelInheritanceSplitFields(t *testing.T) {
+	// indexRange at Period level, Initialization at Representation level.
+	mpd, err := Parse("https://example.test/manifest.mpd", []byte(`<MPD><Period><SegmentBase indexRange="100-499"/><AdaptationSet mimeType="video/mp4"><Representation id="v" bandwidth="1000"><BaseURL>video.mp4</BaseURL><SegmentBase><Initialization range="0-99"/></SegmentBase></Representation></AdaptationSet></Period></MPD>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	segments := mpd.Representations[0].Segments
+	if len(segments) != 1 {
+		t.Fatalf("segments = %#v", segments)
+	}
+	if segments[0].IndexRange != "100-499" || segments[0].InitRange != "0-99" {
+		t.Fatalf("segment = %#v, want IndexRange=100-499 InitRange=0-99", segments[0])
+	}
+}
+
+func TestParseSegmentBaseFieldLevelInheritanceOverride(t *testing.T) {
+	// Period sets indexRange="100-199", Representation overrides with "200-399".
+	// AdaptationSet sets Initialization sourceURL, Representation overrides range.
+	mpd, err := Parse("https://example.test/manifest.mpd", []byte(`<MPD><Period><SegmentBase indexRange="100-199"/><AdaptationSet mimeType="video/mp4"><SegmentBase><Initialization sourceURL="init.mp4"/></SegmentBase><Representation id="v" bandwidth="1000"><BaseURL>video.mp4</BaseURL><SegmentBase indexRange="200-399"><Initialization range="0-49"/></SegmentBase></Representation></AdaptationSet></Period></MPD>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	segments := mpd.Representations[0].Segments
+	// Representation indexRange overrides Period; Initialization merges
+	// sourceURL from AdaptationSet with range from Representation.
+	// Since sourceURL points to a different resource, we get init segment + marker.
+	if len(segments) != 2 {
+		t.Fatalf("segments = %#v", segments)
+	}
+	if !segments[0].Initialize || segments[0].URL != "https://example.test/init.mp4" || segments[0].RangeStart != 0 || segments[0].RangeLength != 50 {
+		t.Fatalf("init segment = %#v", segments[0])
+	}
+	if segments[1].IndexRange != "200-399" {
+		t.Fatalf("marker segment = %#v", segments[1])
+	}
+}
+
+func TestParseSegmentBaseFieldLevelInheritanceInitSourceURLFromPeriod(t *testing.T) {
+	// Period provides Initialization sourceURL, Representation provides indexRange.
+	mpd, err := Parse("https://example.test/manifest.mpd", []byte(`<MPD><Period><SegmentBase><Initialization sourceURL="common_init.mp4" range="0-199"/></SegmentBase><AdaptationSet mimeType="video/mp4"><Representation id="v" bandwidth="1000"><BaseURL>video.mp4</BaseURL><SegmentBase indexRange="0-499"/></Representation></AdaptationSet></Period></MPD>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	segments := mpd.Representations[0].Segments
+	if len(segments) != 2 {
+		t.Fatalf("segments = %#v", segments)
+	}
+	if !segments[0].Initialize || segments[0].URL != "https://example.test/common_init.mp4" || segments[0].RangeLength != 200 {
+		t.Fatalf("init segment = %#v", segments[0])
+	}
+	if segments[1].IndexRange != "0-499" || segments[1].URL != "https://example.test/video.mp4" {
+		t.Fatalf("marker segment = %#v", segments[1])
+	}
+}
+
 func TestParseSegmentBaseIndexRangeSeparateInitResource(t *testing.T) {
 	mpd, err := Parse("https://example.test/manifest.mpd", []byte(`<MPD><Period><AdaptationSet mimeType="video/mp4"><Representation id="v" bandwidth="1000"><BaseURL>video.mp4</BaseURL><SegmentBase indexRange="0-999"><Initialization sourceURL="init.mp4" range="0-199"/></SegmentBase></Representation></AdaptationSet></Period></MPD>`))
 	if err != nil {

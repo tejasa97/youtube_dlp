@@ -529,3 +529,222 @@ func serveRange(w http.ResponseWriter, r *http.Request, resource []byte) {
 	w.WriteHeader(http.StatusPartialContent)
 	w.Write(resource[start : end+1])
 }
+
+func TestDownloadSIDXMissingContentRange(t *testing.T) {
+	resource, indexRange := sidxTestMedia()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/manifest.mpd":
+			fmt.Fprintf(w, `<MPD><Period><AdaptationSet mimeType="video/mp4"><Representation id="v" bandwidth="1000"><BaseURL>video.mp4</BaseURL><SegmentBase indexRange="%s"><Initialization range="0-99"/></SegmentBase></Representation></AdaptationSet></Period></MPD>`, indexRange)
+		case "/video.mp4":
+			if r.Header.Get("Range") == "bytes="+indexRange {
+				// 206 without Content-Range header.
+				parts := strings.SplitN(indexRange, "-", 2)
+				var start, end int64
+				fmt.Sscanf(parts[0], "%d", &start)
+				fmt.Sscanf(parts[1], "%d", &end)
+				w.WriteHeader(http.StatusPartialContent)
+				w.Write(resource[start : end+1])
+				return
+			}
+			serveRange(w, r, resource)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	_, err := NewDownloader(transport, Config{}).Download(context.Background(), server.URL+"/manifest.mpd", root, filepath.Join(root, "out.mp4"), false, nil)
+	if err == nil || !strings.Contains(err.Error(), "missing Content-Range") {
+		t.Fatalf("err = %v, want missing Content-Range", err)
+	}
+}
+
+func TestDownloadSIDXMalformedContentRange(t *testing.T) {
+	resource, indexRange := sidxTestMedia()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/manifest.mpd":
+			fmt.Fprintf(w, `<MPD><Period><AdaptationSet mimeType="video/mp4"><Representation id="v" bandwidth="1000"><BaseURL>video.mp4</BaseURL><SegmentBase indexRange="%s"><Initialization range="0-99"/></SegmentBase></Representation></AdaptationSet></Period></MPD>`, indexRange)
+		case "/video.mp4":
+			if r.Header.Get("Range") == "bytes="+indexRange {
+				// Malformed Content-Range with junk after numbers.
+				w.Header().Set("Content-Range", "bytes 100junk-155junk/999")
+				w.WriteHeader(http.StatusPartialContent)
+				parts := strings.SplitN(indexRange, "-", 2)
+				var start, end int64
+				fmt.Sscanf(parts[0], "%d", &start)
+				fmt.Sscanf(parts[1], "%d", &end)
+				w.Write(resource[start : end+1])
+				return
+			}
+			serveRange(w, r, resource)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	_, err := NewDownloader(transport, Config{}).Download(context.Background(), server.URL+"/manifest.mpd", root, filepath.Join(root, "out.mp4"), false, nil)
+	if err == nil || !strings.Contains(err.Error(), "Content-Range mismatch") {
+		t.Fatalf("err = %v, want Content-Range mismatch", err)
+	}
+}
+
+func TestDownloadSIDXMismatchedContentRange(t *testing.T) {
+	resource, indexRange := sidxTestMedia()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/manifest.mpd":
+			fmt.Fprintf(w, `<MPD><Period><AdaptationSet mimeType="video/mp4"><Representation id="v" bandwidth="1000"><BaseURL>video.mp4</BaseURL><SegmentBase indexRange="%s"><Initialization range="0-99"/></SegmentBase></Representation></AdaptationSet></Period></MPD>`, indexRange)
+		case "/video.mp4":
+			if r.Header.Get("Range") == "bytes="+indexRange {
+				// Valid format but wrong offset.
+				w.Header().Set("Content-Range", fmt.Sprintf("bytes 0-55/%d", len(resource)))
+				w.WriteHeader(http.StatusPartialContent)
+				parts := strings.SplitN(indexRange, "-", 2)
+				var start, end int64
+				fmt.Sscanf(parts[0], "%d", &start)
+				fmt.Sscanf(parts[1], "%d", &end)
+				w.Write(resource[start : end+1])
+				return
+			}
+			serveRange(w, r, resource)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	_, err := NewDownloader(transport, Config{}).Download(context.Background(), server.URL+"/manifest.mpd", root, filepath.Join(root, "out.mp4"), false, nil)
+	if err == nil || !strings.Contains(err.Error(), "Content-Range mismatch") {
+		t.Fatalf("err = %v, want Content-Range mismatch", err)
+	}
+}
+
+func TestDownloadSIDXInitFullOverlapRejected(t *testing.T) {
+	// Build a resource where the init range fully overlaps the first media range.
+	media1 := []byte("MEDIA_SEGMENT_ONE_DATA_")
+	media2 := []byte("MEDIA_SEGMENT_TWO_DATA_")
+	refs := []SIDXReference{
+		{ReferencedSize: uint32(len(media1)), SubsegmentDuration: 48000, StartsWithSAP: true, SAPType: 1},
+		{ReferencedSize: uint32(len(media2)), SubsegmentDuration: 48000, StartsWithSAP: true, SAPType: 1},
+	}
+	sidxBox := buildSIDX(0, 1, 48000, 0, 0, refs)
+	// Layout: [sidx at 0] [media1] [media2]
+	var resource []byte
+	resource = append(resource, sidxBox...)
+	resource = append(resource, media1...)
+	resource = append(resource, media2...)
+	// Init range 0-99 fully overlaps the sidx+media region.
+	indexRange := fmt.Sprintf("0-%d", len(sidxBox)-1)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/manifest.mpd":
+			fmt.Fprintf(w, `<MPD><Period><AdaptationSet mimeType="video/mp4"><Representation id="v" bandwidth="1000"><BaseURL>video.mp4</BaseURL><SegmentBase indexRange="%s"><Initialization range="0-99"/></SegmentBase></Representation></AdaptationSet></Period></MPD>`, indexRange)
+		case "/video.mp4":
+			serveRange(w, r, resource)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	_, err := NewDownloader(transport, Config{}).Download(context.Background(), server.URL+"/manifest.mpd", root, filepath.Join(root, "out.mp4"), false, nil)
+	if err == nil || !strings.Contains(err.Error(), "overlaps") {
+		t.Fatalf("err = %v, want overlap rejection", err)
+	}
+}
+
+func TestDownloadSIDXInitPartialOverlapRejected(t *testing.T) {
+	// Init range partially overlaps the first media range.
+	media1 := []byte("MEDIA_SEGMENT_ONE_DATA_")
+	refs := []SIDXReference{
+		{ReferencedSize: uint32(len(media1)), SubsegmentDuration: 48000, StartsWithSAP: true, SAPType: 1},
+	}
+	sidxBox := buildSIDX(0, 1, 48000, 0, 0, refs)
+	// Layout: [sidx at 0] [media1 at len(sidx)]
+	var resource []byte
+	resource = append(resource, sidxBox...)
+	resource = append(resource, media1...)
+	// media1 starts at len(sidxBox). Init range ends inside media1.
+	mediaStart := len(sidxBox)
+	initEnd := mediaStart + 5 // partial overlap
+	indexRange := fmt.Sprintf("0-%d", len(sidxBox)-1)
+	initRange := fmt.Sprintf("0-%d", initEnd)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/manifest.mpd":
+			fmt.Fprintf(w, `<MPD><Period><AdaptationSet mimeType="video/mp4"><Representation id="v" bandwidth="1000"><BaseURL>video.mp4</BaseURL><SegmentBase indexRange="%s"><Initialization range="%s"/></SegmentBase></Representation></AdaptationSet></Period></MPD>`, indexRange, initRange)
+		case "/video.mp4":
+			serveRange(w, r, resource)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	_, err := NewDownloader(transport, Config{}).Download(context.Background(), server.URL+"/manifest.mpd", root, filepath.Join(root, "out.mp4"), false, nil)
+	if err == nil || !strings.Contains(err.Error(), "overlaps") {
+		t.Fatalf("err = %v, want overlap rejection", err)
+	}
+}
+
+func TestDownloadSIDXInitOverlapWithLaterReferenceRejected(t *testing.T) {
+	// Init range does not overlap first media range but overlaps the second.
+	media1 := []byte("AAAA")
+	media2 := []byte("BBBBBBBB")
+	refs := []SIDXReference{
+		{ReferencedSize: uint32(len(media1)), SubsegmentDuration: 1000},
+		{ReferencedSize: uint32(len(media2)), SubsegmentDuration: 1000},
+	}
+	sidxBox := buildSIDX(0, 1, 1000, 0, 0, refs)
+	var resource []byte
+	resource = append(resource, sidxBox...)
+	resource = append(resource, media1...)
+	resource = append(resource, media2...)
+	// media2 starts at len(sidx)+4. Set init range to overlap media2.
+	media2Start := len(sidxBox) + len(media1)
+	initStart := media2Start + 2
+	initEnd := media2Start + 5
+	indexRange := fmt.Sprintf("0-%d", len(sidxBox)-1)
+	initRange := fmt.Sprintf("%d-%d", initStart, initEnd)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/manifest.mpd":
+			fmt.Fprintf(w, `<MPD><Period><AdaptationSet mimeType="video/mp4"><Representation id="v" bandwidth="1000"><BaseURL>video.mp4</BaseURL><SegmentBase indexRange="%s"><Initialization range="%s"/></SegmentBase></Representation></AdaptationSet></Period></MPD>`, indexRange, initRange)
+		case "/video.mp4":
+			serveRange(w, r, resource)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	_, err := NewDownloader(transport, Config{}).Download(context.Background(), server.URL+"/manifest.mpd", root, filepath.Join(root, "out.mp4"), false, nil)
+	if err == nil || !strings.Contains(err.Error(), "overlaps") {
+		t.Fatalf("err = %v, want overlap rejection", err)
+	}
+}
+
+func TestDownloadSIDXInitNoOverlapSucceeds(t *testing.T) {
+	// Init range is before all media ranges — should succeed.
+	resource, indexRange := sidxTestMedia()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/manifest.mpd":
+			fmt.Fprintf(w, `<MPD><Period><AdaptationSet mimeType="video/mp4"><Representation id="v" bandwidth="1000"><BaseURL>video.mp4</BaseURL><SegmentBase indexRange="%s"><Initialization range="0-99"/></SegmentBase></Representation></AdaptationSet></Period></MPD>`, indexRange)
+		case "/video.mp4":
+			serveRange(w, r, resource)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	dest := filepath.Join(root, "out.mp4")
+	result, err := NewDownloader(transport, Config{}).Download(context.Background(), server.URL+"/manifest.mpd", root, dest, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, _ := os.ReadFile(result.Tracks[0].Download.Path)
+	if len(contents) != 146 {
+		t.Fatalf("contents length = %d, want 146", len(contents))
+	}
+}
