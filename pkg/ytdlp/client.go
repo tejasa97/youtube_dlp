@@ -508,14 +508,15 @@ type selectedPlaylistIterator struct {
 }
 
 func newSelectedPlaylistIterator(source extractor.EntryIterator, options PlaylistOptions) *selectedPlaylistIterator {
-	start := options.Start
-	if start == 0 {
-		start = 1
-	}
-	return &selectedPlaylistIterator{source: source, start: start, end: options.End}
+	start, end := normalizedPlaylistRange(options)
+	return &selectedPlaylistIterator{source: source, start: start, end: end}
 }
 
 func (iterator *selectedPlaylistIterator) Next(ctx context.Context) (indexedPlaylistEntry, bool, error) {
+	if err := ctx.Err(); err != nil {
+		iterator.done = true
+		return indexedPlaylistEntry{}, false, err
+	}
 	if iterator.done {
 		return indexedPlaylistEntry{}, false, nil
 	}

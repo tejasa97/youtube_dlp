@@ -483,9 +483,12 @@ capabilities:
       - pkg/ytdlp.TestOperationPlaylistEndStopsBeforeFetchingAnotherPage
       - pkg/ytdlp.TestOperationReversesSelectedRangeWithoutLosingSourceIndexes
       - pkg/ytdlp.TestSelectedPlaylistIteratorHonorsCancellationWhileSkipping
+      - pkg/ytdlp.TestSelectedPlaylistIteratorHonorsCancellationAtEndBoundary
       - pkg/ytdlp.TestPlaylistSelectionConformanceFixture
       - pkg/ytdlp.FuzzSelectedPlaylistIterator
       - internal/cli.TestRunRejectsInvalidPlaylistRange
+      - internal/cli.TestRunAcceptsLegacyUnboundedPlaylistEnd
+      - internal/cli.TestRunAcceptsNoPlaylistReverseAfterInheritedReverse
       - conformance/playlists/PROVENANCE.md
       - docs/PLAYLIST_MODEL.md
     owner: extractors

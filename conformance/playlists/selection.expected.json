@@ -16,6 +16,14 @@
       "reverse": true,
       "ids": ["item-4", "item-3", "item-2"],
       "playlist_indexes": [4, 3, 2]
+    },
+    {
+      "name": "legacy_negative_one_end",
+      "start": 1,
+      "end": -1,
+      "reverse": false,
+      "ids": ["item-1", "item-2", "item-3", "item-4", "item-5"],
+      "playlist_indexes": [1, 2, 3, 4, 5]
     }
   ]
 }
