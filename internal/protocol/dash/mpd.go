@@ -43,6 +43,15 @@ type Segment struct {
 	RangeStart  int64
 	RangeLength int64
 	Initialize  bool
+	// IndexRange is set when this segment requires SIDX expansion. The
+	// downloader fetches this byte range from the media resource, parses the
+	// SIDX box, and replaces this segment with expanded media byte ranges.
+	// Format: "start-end" (inclusive).
+	IndexRange string
+	// InitRange is the byte range of the initialization segment within the
+	// same media resource. Only set alongside IndexRange when the
+	// initialization is in-file rather than a separate resource.
+	InitRange string
 }
 
 type mpdXML struct {
@@ -333,7 +342,7 @@ func listSegments(base *url.URL, list *segmentListXML) ([]Segment, error) {
 
 func baseSegments(base *url.URL, segmentBase *segmentBaseXML) ([]Segment, error) {
 	if segmentBase.IndexRange != "" {
-		return nil, fmt.Errorf("%w: SegmentBase indexRange requires SIDX expansion", ErrUnsupportedAddressing)
+		return indexRangeSegments(base, segmentBase)
 	}
 	// A SegmentBase without an index is a single-file representation. When the
 	// initialization source is a different resource it must precede that file;
@@ -354,6 +363,78 @@ func baseSegments(base *url.URL, segmentBase *segmentBaseXML) ([]Segment, error)
 		}
 	}
 	return append(result, Segment{URL: base.String()}), nil
+}
+
+// indexRangeSegments builds the segment plan for a SegmentBase with indexRange.
+// It validates the range and returns a marker segment that the downloader will
+// expand via SIDX fetch and parse.
+func indexRangeSegments(base *url.URL, segmentBase *segmentBaseXML) ([]Segment, error) {
+	start, end, err := parseByteRange(segmentBase.IndexRange)
+	if err != nil {
+		return nil, fmt.Errorf("%w: indexRange: %v", ErrUnsupportedAddressing, err)
+	}
+	_ = start
+	_ = end
+
+	segment := Segment{
+		URL:        base.String(),
+		IndexRange: segmentBase.IndexRange,
+	}
+
+	// Handle initialization.
+	if initialization := segmentBase.Initialization; initialization != nil {
+		if initialization.SourceURL != "" {
+			// Separate initialization resource.
+			resolved, err := resolveBase(base, initialization.SourceURL)
+			if err != nil {
+				return nil, err
+			}
+			initSegment, err := rangedSegment(base, initialization.SourceURL, initialization.Range)
+			if err != nil {
+				return nil, err
+			}
+			initSegment.Initialize = true
+			// If the init resource is the same as the media resource, record
+			// the range on the marker segment so the downloader can prepend it.
+			if resolved.String() == base.String() {
+				segment.InitRange = initialization.Range
+				return []Segment{segment}, nil
+			}
+			return []Segment{initSegment, segment}, nil
+		}
+		if initialization.Range != "" {
+			// Same-resource initialization range.
+			if _, _, err := parseByteRange(initialization.Range); err != nil {
+				return nil, fmt.Errorf("%w: initialization range: %v", ErrUnsupportedAddressing, err)
+			}
+			segment.InitRange = initialization.Range
+		}
+	}
+	return []Segment{segment}, nil
+}
+
+// parseByteRange parses a "start-end" inclusive byte range string and validates
+// that it is well-formed: non-negative, non-reversed, and non-overflowing.
+func parseByteRange(raw string) (int64, int64, error) {
+	parts := strings.SplitN(raw, "-", 2)
+	if len(parts) != 2 {
+		return 0, 0, fmt.Errorf("invalid byte range %q", raw)
+	}
+	start, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil || start < 0 {
+		return 0, 0, fmt.Errorf("invalid byte range start %q", parts[0])
+	}
+	end, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil || end < 0 {
+		return 0, 0, fmt.Errorf("invalid byte range end %q", parts[1])
+	}
+	if end < start {
+		return 0, 0, fmt.Errorf("reversed byte range %d-%d", start, end)
+	}
+	if end-start+1 <= 0 {
+		return 0, 0, fmt.Errorf("overflowing byte range %d-%d", start, end)
+	}
+	return start, end, nil
 }
 
 func mergeSegmentTemplates(values ...*segmentTemplateXML) *segmentTemplateXML {

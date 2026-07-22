@@ -1,0 +1,13 @@
+# Synthetic SIDX v0 box: 2 references, timescale=48000, first_offset=0
+# Layout: box_size(4) + 'sidx'(4) + version/flags(4) + ref_id(4) + timescale(4)
+#         + ept(4) + first_offset(4) + reserved(2) + ref_count(2)
+#         + [ref_size(4) + duration(4) + sap(4)] * 2
+# Total: 56 bytes
+#
+# Reference 1: size=1000, duration=48000, SAP type 1
+# Reference 2: size=2000, duration=48000, no SAP
+#
+# Hex encoding (big-endian):
+00000038 73696478 00000000 00000001 0000bb80
+00000000 00000000 00000002 000003e8 0000bb80
+90000000 000007d0 0000bb80 00000000
