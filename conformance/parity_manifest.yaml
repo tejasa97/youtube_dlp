@@ -292,11 +292,14 @@ capabilities:
       - internal/javascript/supervisor.TestSupervisorExecutesAndRetainsCompiledCache
       - internal/javascript/supervisor.TestSupervisorCancellationDiscardsAndRestartsHelper
       - internal/javascript/supervisor.TestSupervisorCategorizesCrashAndMalformedResponse
+      - internal/javascript/supervisor.TestSupervisorTrustedWallTimeCrossesProcessBoundary
+      - internal/javascript/supervisor.TestSupervisorRejectsUntrustedExtendedWallTime
       - internal/javascript/ejs.TestPinnedEJSCorpus
       - internal/javascript/ejs.TestVerifyAssetsAndInputBounds
       - internal/javascript/ejs.TestPreprocessCacheReuse
       - internal/javascript/ejs.TestPreprocessCacheEviction
       - internal/javascript/ejs.TestSingleflightCoalescesPreprocessing
+      - internal/javascript/ejs.TestSingleflightFollowerCancellation
       - internal/javascript/ejs.TestSolvePlayerCancellation
       - internal/javascript/ejs.TestSolvePlayerTimeout
       - internal/javascript/ejs.TestSolvePlayerMalformedPreprocessResponse
@@ -314,15 +317,24 @@ capabilities:
       player-variant breadth and component updates remain extractor and
       upstream-delta work. The two-phase preprocess/solve split uses a
       scoped trusted wall-time allowance (60 s) for EJS preprocessing only;
-      untrusted requests remain bounded at 30 s. The preprocessed-player
-      LRU cache (max 8) persists at the client level across downloads.
-      Concurrent cache misses are coalesced via singleflight.
-      Automated proof: TestRepresentativeWorkloadUnderOldLimit,
-      TestLargeGeneratedPlayerWorkload, TestSingleflightCoalescesPreprocessing.
+      untrusted requests remain bounded at 30 s. The Trusted flag is
+      in-process only (json:"-"); the helper marks all received requests
+      as trusted since it is only reachable from the supervisor. The
+      preprocessed-player LRU cache (max 8) persists at the client level
+      across downloads. Concurrent cache misses are coalesced via
+      cancellation-safe singleflight (channel + select on ctx.Done()).
+      Close coordinates with active operations via WaitGroup.
+      Automated proof: TestSupervisorTrustedWallTimeCrossesProcessBoundary,
+      TestRepresentativeWorkloadUnderOldLimit,
+      TestSingleflightCoalescesPreprocessing,
+      TestSingleflightFollowerCancellation,
+      TestClientConcurrentRunAndClose.
       Live validation: pending (requires service conditions permitting
       protected-video extraction). Remaining deviation: no sanitized
       real 1-2 MB player fixture committed (proprietary); the generated
-      ~500 KB workload approximates parse pressure deterministically.
+      ~150 KB workload exercises the parse path but does not empirically
+      reproduce the original 30 s timeout; the fix is proven structurally
+      via protocol validation gating.
 
   - id: network.impersonation
     name: Browser impersonation transport

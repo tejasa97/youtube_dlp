@@ -82,9 +82,9 @@ type Solver struct {
 
 // call represents an in-flight preprocessing operation.
 type call struct {
-	wg  sync.WaitGroup
-	val string
-	err error
+	done chan struct{} // closed when preprocessing completes
+	val  string
+	err  error
 }
 
 func New(executor Executor) (*Solver, error) {
@@ -130,7 +130,9 @@ func (solver *Solver) SolvePlayer(ctx context.Context, id, player string, reques
 
 // getPreprocessed returns the cached preprocessed player or coalesces
 // concurrent preprocessing via singleflight so it runs exactly once per
-// unique player hash.
+// unique player hash. Followers select on ctx.Done() so they can cancel
+// while waiting. The result is cached atomically before the flight entry
+// is removed to prevent duplicate preprocessing in the gap.
 func (solver *Solver) getPreprocessed(ctx context.Context, id, playerHash, player string) (string, error) {
 	// Fast path: cache hit.
 	if preprocessed, ok := solver.lookupPreprocessed(playerHash); ok {
@@ -145,13 +147,16 @@ func (solver *Solver) getPreprocessed(ctx context.Context, id, playerHash, playe
 	}
 	if inflight, ok := solver.flight[playerHash]; ok {
 		solver.mu.Unlock()
-		// Wait for the in-flight preprocessing to complete.
-		inflight.wg.Wait()
-		return inflight.val, inflight.err
+		// Wait for the in-flight preprocessing, respecting cancellation.
+		select {
+		case <-inflight.done:
+			return inflight.val, inflight.err
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
 	}
 	// Register this goroutine as the leader for this player hash.
-	inflight := &call{}
-	inflight.wg.Add(1)
+	inflight := &call{done: make(chan struct{})}
 	solver.flight[playerHash] = inflight
 	solver.mu.Unlock()
 
@@ -159,16 +164,18 @@ func (solver *Solver) getPreprocessed(ctx context.Context, id, playerHash, playe
 	preprocessed, err := solver.preprocess(ctx, id, player)
 	inflight.val = preprocessed
 	inflight.err = err
-	inflight.wg.Done()
 
-	// Clean up in-flight entry and store result.
+	// Atomically cache the result and remove the flight entry before
+	// signaling followers, so no duplicate preprocessing can start in
+	// the gap between flight removal and cache insertion.
 	solver.mu.Lock()
+	if err == nil {
+		solver.storePreprocessedLocked(playerHash, preprocessed)
+	}
 	delete(solver.flight, playerHash)
 	solver.mu.Unlock()
+	close(inflight.done)
 
-	if err == nil {
-		solver.storePreprocessed(playerHash, preprocessed)
-	}
 	return preprocessed, err
 }
 
@@ -263,9 +270,9 @@ func (solver *Solver) lookupPreprocessed(hash string) (string, bool) {
 	return value, ok
 }
 
-func (solver *Solver) storePreprocessed(hash, preprocessed string) {
-	solver.mu.Lock()
-	defer solver.mu.Unlock()
+// storePreprocessedLocked stores a preprocessed player in the LRU cache.
+// The caller must hold solver.mu.
+func (solver *Solver) storePreprocessedLocked(hash, preprocessed string) {
 	if _, exists := solver.cache[hash]; exists {
 		return
 	}

@@ -84,6 +84,13 @@ func executeSafely(runtime executor, request protocol.Request) (response protoco
 			response = protocol.FailureResponse(request.ID, protocol.CodeHelperCrash, errors.New("JavaScript engine panicked"))
 		}
 	}()
+	// The helper is only reachable from the supervisor process via pipes.
+	// The supervisor validates untrusted requests at HardMaxWallTime (30 s)
+	// before forwarding. Mark all received requests as trusted so the
+	// extended TrustedMaxWallTime (60 s) ceiling applies—this is safe
+	// because the supervisor is the trust boundary and the helper has no
+	// other input source.
+	request.Limits.Trusted = true
 	return runtime.Execute(context.Background(), request)
 }
 

@@ -798,6 +798,8 @@ type lazyYouTubeSolver struct {
 	path       string
 	supervisor *supervisor.Client
 	solver     *ejs.Solver
+	active     sync.WaitGroup // tracks in-flight SolvePlayer calls
+	closed     bool
 }
 
 func (solver *lazyYouTubeSolver) SolvePlayer(
@@ -808,6 +810,10 @@ func (solver *lazyYouTubeSolver) SolvePlayer(
 	outputPreprocessed bool,
 ) (ejs.Result, error) {
 	solver.mu.Lock()
+	if solver.closed {
+		solver.mu.Unlock()
+		return ejs.Result{}, errors.New("solver is closed")
+	}
 	if solver.solver == nil {
 		client, err := supervisor.New(supervisor.Config{Path: solver.path, MemoryBytes: ejs.SolverMemoryBytes})
 		if err != nil {
@@ -822,19 +828,31 @@ func (solver *lazyYouTubeSolver) SolvePlayer(
 		}
 		solver.supervisor, solver.solver = client, challengeSolver
 	}
+	solver.active.Add(1)
+	activeSolver := solver.solver
 	solver.mu.Unlock()
-	return solver.solver.SolvePlayer(ctx, id, player, requests, outputPreprocessed)
+
+	defer solver.active.Done()
+	return activeSolver.SolvePlayer(ctx, id, player, requests, outputPreprocessed)
 }
 
+// Close waits for active operations to complete, then shuts down the
+// supervisor. It is safe to call multiple times.
 func (solver *lazyYouTubeSolver) Close() {
-	if solver != nil {
-		solver.mu.Lock()
-		defer solver.mu.Unlock()
-		if solver.supervisor != nil {
-			_ = solver.supervisor.Close()
-			solver.supervisor = nil
-			solver.solver = nil
-		}
+	if solver == nil {
+		return
+	}
+	solver.mu.Lock()
+	solver.closed = true
+	sup := solver.supervisor
+	solver.supervisor = nil
+	solver.solver = nil
+	solver.mu.Unlock()
+
+	// Wait for in-flight operations to finish before killing the helper.
+	solver.active.Wait()
+	if sup != nil {
+		_ = sup.Close()
 	}
 }
 

@@ -144,6 +144,50 @@ func TestSupervisorEnforcesProcessMemoryBudget(t *testing.T) {
 	}
 }
 
+// TestSupervisorTrustedWallTimeCrossesProcessBoundary verifies that a request
+// with WallTimeMS > HardMaxWallTime (30 s) succeeds end-to-end through the
+// supervisor → helper pipe when the caller sets Limits.Trusted. The helper
+// marks all received requests as trusted (it is only reachable from the
+// supervisor), so the extended TrustedMaxWallTime (60 s) ceiling applies.
+func TestSupervisorTrustedWallTimeCrossesProcessBoundary(t *testing.T) {
+	client := newTestClient(t, helperPath)
+	defer client.Close()
+
+	// WallTimeMS = 45 s exceeds HardMaxWallTime (30 s) but fits within
+	// TrustedMaxWallTime (60 s). Without the helper-side trusted marking,
+	// the helper would reject this at Normalize().
+	request := evaluateRequest("trusted-e2e", "1+1")
+	request.Limits.WallTimeMS = 45_000
+	request.Limits.Trusted = true // passes supervisor validation
+
+	response := client.Execute(context.Background(), request)
+	if response.Error != nil {
+		t.Fatalf("trusted request failed across process boundary: code=%s msg=%s",
+			response.Error.Code, response.Error.Message)
+	}
+	assertSupervisorResult(t, response, "2")
+}
+
+// TestSupervisorRejectsUntrustedExtendedWallTime verifies that a request with
+// WallTimeMS > HardMaxWallTime without the Trusted flag is rejected by the
+// supervisor before reaching the helper.
+func TestSupervisorRejectsUntrustedExtendedWallTime(t *testing.T) {
+	client := newTestClient(t, helperPath)
+	defer client.Close()
+
+	request := evaluateRequest("untrusted-e2e", "1+1")
+	request.Limits.WallTimeMS = 45_000
+	// Trusted is false — supervisor should reject at Normalize().
+
+	response := client.Execute(context.Background(), request)
+	if response.Error == nil {
+		t.Fatal("untrusted request with 45 s wall time should be rejected")
+	}
+	if response.Error.Code != protocol.CodeInvalidRequest {
+		t.Fatalf("expected invalid_request, got %s", response.Error.Code)
+	}
+}
+
 func newTestClient(t *testing.T, path string) *Client {
 	t.Helper()
 	client, err := New(Config{Path: path, MemoryBytes: 128 << 20})
