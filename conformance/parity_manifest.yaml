@@ -479,9 +479,17 @@ capabilities:
       - pkg/ytdlp.TestOperationDownloadsPlaylistAndAggregatesBytes
       - pkg/ytdlp.TestOperationRejectsNestedPlaylistCycle
       - pkg/ytdlp.TestOperationMergesTransparentEntryMetadata
+      - pkg/ytdlp.TestOperationSlicesPlaylistLazilyAndPreservesSourceIndexes
+      - pkg/ytdlp.TestOperationPlaylistEndStopsBeforeFetchingAnotherPage
+      - pkg/ytdlp.TestOperationReversesSelectedRangeWithoutLosingSourceIndexes
+      - pkg/ytdlp.TestSelectedPlaylistIteratorHonorsCancellationWhileSkipping
+      - pkg/ytdlp.TestPlaylistSelectionConformanceFixture
+      - pkg/ytdlp.FuzzSelectedPlaylistIterator
+      - internal/cli.TestRunRejectsInvalidPlaylistRange
+      - conformance/playlists/PROVENANCE.md
       - docs/PLAYLIST_MODEL.md
     owner: extractors
-    known_deviation: The Phase 1 model resolves entries sequentially with a fail-fast error policy and supports id/title overlays for transparent URL results. Playlist slicing, random/reverse ordering, arbitrary transparent fields, and configurable ignore-error policy remain broader compatibility work.
+    known_deviation: Playlist ranges are inclusive and one-based, preserve original source indexes, stop pagination at an explicit end, and can reverse a bounded selected range. Entries resolve sequentially with a fail-fast error policy and id/title overlays for transparent URL results. Arbitrary playlist-item expressions, random ordering, flat extraction, arbitrary transparent fields, and configurable ignore-error policy remain broader compatibility work.
 
   - id: extractor.live
     name: Live extraction pilot

@@ -143,6 +143,14 @@ func TestRunRequiresURL(t *testing.T) {
 	}
 }
 
+func TestRunRejectsInvalidPlaylistRange(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"--playlist-start", "4", "--playlist-end", "3", "https://example.invalid/video.mp4"}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), "invalid request options: playlist range") {
+		t.Fatalf("code = %d; stdout = %q; stderr = %q", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestRunRejectsMalformedURL(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := Run([]string{"not-a-url"}, &stdout, &stderr); code != 3 {

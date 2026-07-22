@@ -45,6 +45,15 @@ type SubtitleOptions struct {
 	Format         string
 }
 
+// PlaylistOptions selects an inclusive, one-based playlist range. Start zero
+// means the first entry and End zero means no explicit end. Reverse is applied
+// after slicing while playlist_index continues to identify the source entry.
+type PlaylistOptions struct {
+	Start   int
+	End     int
+	Reverse bool
+}
+
 // Artifact describes a file produced by the requested media pipeline.
 type Artifact struct {
 	Path string `json:"path"`
@@ -126,6 +135,14 @@ func validateRequestOptions(request Request) error {
 		options.MaxSegments < 0 || options.MaxSegments > 10_000 ||
 		options.MaxSegmentBytes < 0 || options.MaxSegmentBytes > 512<<20 {
 		return fmt.Errorf("%w: downloader resource limits", errInvalidRequestOptions)
+	}
+	playlistStart := request.Playlist.Start
+	if playlistStart == 0 {
+		playlistStart = 1
+	}
+	if playlistStart < 1 || playlistStart > maxPlaylistEntries || request.Playlist.End < 0 || request.Playlist.End > maxPlaylistEntries ||
+		(request.Playlist.End != 0 && request.Playlist.End < playlistStart) {
+		return fmt.Errorf("%w: playlist range", errInvalidRequestOptions)
 	}
 	if external := options.External; external != nil {
 		if external.Executable == "" || strings.ContainsRune(external.Executable, 0) || len(external.Arguments) > 128 {

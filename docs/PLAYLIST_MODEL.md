@@ -19,6 +19,15 @@ operation transport, cookie jar, challenge solver, output policy, and
 cancellation context. Parent byte counts and download status aggregate
 successful descendants.
 
+Each playlist encountered by an operation applies the request's inclusive,
+one-based `Playlist.Start` and `Playlist.End` bounds (`0` means the first entry
+or no explicit end in the Go API). The CLI exposes these as `--playlist-start`
+and `--playlist-end`. Normal selection stays lazy and does not request a page
+after the end bound. `Playlist.Reverse`/`--playlist-reverse` reverses the
+selected range, so it buffers at most the bounded 10,000-entry operation limit.
+In either output order, `playlist_index` remains the entry's original position
+in its source playlist.
+
 ## Bounds and failure policy
 
 - A context cancellation stops static iteration, page fetching, extraction,
@@ -31,7 +40,7 @@ successful descendants.
 - Metadata is held in memory after resolution so `--print-json` can emit the
   complete ordered hierarchy.
 
-This is the reusable base for the representative Phase 1 site pilots. Broader
-yt-dlp options such as playlist slicing, reverse/random order, flat extraction,
-and configurable ignore-error thresholds remain explicit later compatibility
-work rather than hidden behavior.
+This is the reusable base for the representative site pilots. Broader yt-dlp
+options such as arbitrary playlist-item expressions, random ordering, flat
+extraction, arbitrary transparent field overlays, and configurable ignore-error
+thresholds remain explicit later compatibility work rather than hidden behavior.
