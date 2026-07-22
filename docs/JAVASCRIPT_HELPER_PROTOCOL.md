@@ -15,10 +15,16 @@ Version 1 enforces these hard ceilings before engine execution:
 - 64 modules and 8 MiB aggregate module source;
 - 8 MiB serialized output;
 - 512 MiB requested memory budget;
-- 30 seconds requested wall time.
+- 60 seconds requested wall time.
 
 Defaults are lower: 2 MiB source, 16 modules/2 MiB, 1 MiB output, 64 MiB
 memory, and two seconds. The host may impose stricter limits.
+
+The EJS challenge solver splits player processing into two bounded phases:
+a preprocess phase (meriyah-based player parsing, up to 55 s wall time) and
+a solve phase (transform execution, up to 10 s). Preprocessed players are
+cached by SHA-256 so repeated videos sharing the same player script skip the
+expensive parsing step.
 
 Scripts are keyed by lowercase SHA-256. A long-lived helper may cache compiled
 immutable programs by this hash, but each request receives a fresh runtime so

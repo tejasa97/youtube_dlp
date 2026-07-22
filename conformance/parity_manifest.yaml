@@ -282,6 +282,8 @@ capabilities:
       - internal/javascript/protocol.TestRequestNormalizeDefaultsAndHash
       - internal/javascript/protocol.TestRequestRejectsLimitsHashesModulesAndArguments
       - internal/javascript/protocol.TestFrameRoundTripAndBounds
+      - internal/javascript/protocol.FuzzRequestNormalize
+      - internal/javascript/protocol.FuzzFrameRoundTrip
       - internal/javascript/engine.TestExecuteEvaluateAndCall
       - internal/javascript/engine.TestExecuteCachesProgramsWithoutSharingRuntimeState
       - internal/javascript/engine.TestExecuteTimeoutCancellationAndFailures
@@ -291,10 +293,19 @@ capabilities:
       - internal/javascript/supervisor.TestSupervisorCategorizesCrashAndMalformedResponse
       - internal/javascript/ejs.TestPinnedEJSCorpus
       - internal/javascript/ejs.TestVerifyAssetsAndInputBounds
+      - internal/javascript/ejs.TestPreprocessCacheReuse
+      - internal/javascript/ejs.TestPreprocessCacheEviction
+      - internal/javascript/ejs.TestSolvePlayerCancellation
+      - internal/javascript/ejs.TestSolvePlayerTimeout
+      - internal/javascript/ejs.TestSolvePlayerMalformedPreprocessResponse
+      - internal/javascript/ejs.TestSolvePlayerResourceLimits
+      - internal/javascript/ejs.TestSolvePlayerOutputPreprocessed
+      - internal/javascript/ejs.TestConcurrentSolvePlayer
+      - internal/javascript/ejs.TestPathologicalPlayerFixture
       - conformance/javascript/ejs-0.8.0/PROVENANCE.md
       - .github/python-free.Dockerfile
     owner: runtime
-    known_deviation: Compatibility is scoped to the pinned Phase 1 EJS corpus; live player-variant breadth and component updates remain extractor and upstream-delta work.
+    known_deviation: Compatibility is scoped to the pinned Phase 1 EJS corpus; live player-variant breadth and component updates remain extractor and upstream-delta work. The two-phase preprocess/solve split and 60 s hard-max wall time accommodate the pure-Go goja engine's slower meriyah-based player parsing relative to native V8/SpiderMonkey runtimes.
 
   - id: network.impersonation
     name: Browser impersonation transport

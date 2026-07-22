@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/ytdlp-go/ytdlp/internal/javascript/protocol"
 )
@@ -19,10 +20,22 @@ const (
 	SolverMemoryBytes = 128 << 20
 	SolverOutputBytes = 8 << 20
 	SolverSourceBytes = 2 << 20
-	// Current YouTube player programs can take longer than ten seconds to
-	// preprocess in the isolated pure-Go runtime. Keep execution bounded at the
-	// protocol hard limit while allowing those valid programs to complete.
-	SolverWallTimeMS = 30_000
+
+	// PreprocessWallTimeMS bounds the player preprocessing phase (meriyah
+	// parse + AST extraction + code generation). Real YouTube player scripts
+	// (~1-2 MB) executed through the pure-Go goja engine require substantially
+	// more time than native V8/SpiderMonkey runtimes. This uses the protocol
+	// hard max to give valid preprocessing adequate headroom.
+	PreprocessWallTimeMS = 55_000
+
+	// SolveWallTimeMS bounds the challenge-solving phase (executing extracted
+	// transforms against challenge values). This phase operates on the compact
+	// preprocessed player and completes quickly.
+	SolveWallTimeMS = 10_000
+
+	// MaxCachedPlayers bounds the preprocessed-player cache to prevent
+	// unbounded memory growth across many distinct player versions.
+	MaxCachedPlayers = 8
 )
 
 type ChallengeType string
@@ -52,9 +65,16 @@ type Result struct {
 	PreprocessedPlayer string
 }
 
+// Solver executes EJS challenge solving through an isolated JavaScript helper.
+// It caches preprocessed players so that repeated videos sharing the same
+// player script skip the expensive meriyah-based preprocessing phase.
 type Solver struct {
 	executor Executor
 	script   string
+
+	mu    sync.Mutex
+	cache map[string]string // player SHA-256 → preprocessed player
+	order []string          // LRU eviction order (oldest first)
 }
 
 func New(executor Executor) (*Solver, error) {
@@ -65,10 +85,21 @@ func New(executor Executor) (*Solver, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Solver{executor: executor, script: script}, nil
+	return &Solver{
+		executor: executor,
+		script:   script,
+		cache:    make(map[string]string, MaxCachedPlayers),
+	}, nil
 }
 
 // SolvePlayer preprocesses one player and solves ordered n/sig request groups.
+// The operation is split into two protocol calls:
+//  1. Preprocess: parse the player and extract transform functions (expensive,
+//     cached by player hash).
+//  2. Solve: execute the extracted transforms against challenge values (fast).
+//
+// This split ensures the expensive meriyah-based parsing only occurs once per
+// unique player script, and the solve phase completes within a tight timeout.
 func (solver *Solver) SolvePlayer(ctx context.Context, id, player string, requests []ChallengeRequest, outputPreprocessed bool) (Result, error) {
 	if len(player) == 0 || len(player) > MaxPlayerBytes {
 		return Result{}, fmt.Errorf("player source must contain 1-%d bytes", MaxPlayerBytes)
@@ -76,28 +107,125 @@ func (solver *Solver) SolvePlayer(ctx context.Context, id, player string, reques
 	if err := validateChallenges(requests); err != nil {
 		return Result{}, err
 	}
+
+	playerHash := protocol.HashScript(player)
+	preprocessed, cached := solver.lookupPreprocessed(playerHash)
+
+	if !cached {
+		var err error
+		preprocessed, err = solver.preprocess(ctx, id, player)
+		if err != nil {
+			return Result{}, err
+		}
+		solver.storePreprocessed(playerHash, preprocessed)
+	}
+
+	return solver.solve(ctx, id, preprocessed, requests, outputPreprocessed, player)
+}
+
+// preprocess runs the expensive player parsing phase with an extended wall time.
+func (solver *Solver) preprocess(ctx context.Context, id, player string) (string, error) {
 	input := struct {
 		Type               string             `json:"type"`
 		Player             string             `json:"player"`
 		Requests           []ChallengeRequest `json:"requests"`
 		OutputPreprocessed bool               `json:"output_preprocessed"`
-	}{"player", player, requests, outputPreprocessed}
+	}{"player", player, nil, true}
 	argument, err := json.Marshal(input)
 	if err != nil {
-		return Result{}, fmt.Errorf("encode EJS input: %w", err)
+		return "", fmt.Errorf("encode EJS preprocess input: %w", err)
+	}
+	response := solver.executor.Execute(ctx, protocol.Request{
+		Version: protocol.Version, ID: id + "-preprocess", Operation: protocol.OperationCall,
+		Script: solver.script, Function: "jsc", Arguments: []json.RawMessage{argument},
+		Limits: protocol.Limits{
+			WallTimeMS: PreprocessWallTimeMS, MemoryBytes: SolverMemoryBytes,
+			OutputBytes: SolverOutputBytes, SourceBytes: SolverSourceBytes,
+		},
+	})
+	if response.Error != nil {
+		return "", fmt.Errorf("EJS helper %s: %s", response.Error.Code, response.Error.Message)
+	}
+	var output struct {
+		Type               string `json:"type"`
+		Error              string `json:"error"`
+		PreprocessedPlayer string `json:"preprocessed_player"`
+	}
+	if err := json.Unmarshal(response.Result, &output); err != nil {
+		return "", errors.New("EJS returned malformed preprocess JSON")
+	}
+	if output.Type != "result" {
+		return "", errors.New("EJS preprocess failed")
+	}
+	if output.PreprocessedPlayer == "" {
+		return "", errors.New("EJS preprocess returned empty player")
+	}
+	return output.PreprocessedPlayer, nil
+}
+
+// solve executes the extracted transforms against challenge values using the
+// compact preprocessed player. This phase is fast and uses a tight timeout.
+func (solver *Solver) solve(ctx context.Context, id, preprocessed string, requests []ChallengeRequest, outputPreprocessed bool, originalPlayer string) (Result, error) {
+	input := struct {
+		Type               string             `json:"type"`
+		PreprocessedPlayer string             `json:"preprocessed_player"`
+		Requests           []ChallengeRequest `json:"requests"`
+	}{"preprocessed", preprocessed, requests}
+	argument, err := json.Marshal(input)
+	if err != nil {
+		return Result{}, fmt.Errorf("encode EJS solve input: %w", err)
 	}
 	response := solver.executor.Execute(ctx, protocol.Request{
 		Version: protocol.Version, ID: id, Operation: protocol.OperationCall,
 		Script: solver.script, Function: "jsc", Arguments: []json.RawMessage{argument},
 		Limits: protocol.Limits{
-			WallTimeMS: SolverWallTimeMS, MemoryBytes: SolverMemoryBytes,
+			WallTimeMS: SolveWallTimeMS, MemoryBytes: SolverMemoryBytes,
 			OutputBytes: SolverOutputBytes, SourceBytes: SolverSourceBytes,
 		},
 	})
 	if response.Error != nil {
 		return Result{}, fmt.Errorf("EJS helper %s: %s", response.Error.Code, response.Error.Message)
 	}
-	return decodeOutput(response.Result, requests)
+	result, err := decodeOutput(response.Result, requests)
+	if err != nil {
+		return Result{}, err
+	}
+	if outputPreprocessed {
+		result.PreprocessedPlayer = preprocessed
+	}
+	return result, nil
+}
+
+func (solver *Solver) lookupPreprocessed(hash string) (string, bool) {
+	solver.mu.Lock()
+	defer solver.mu.Unlock()
+	value, ok := solver.cache[hash]
+	if ok {
+		// Move to end (most recently used).
+		for i, h := range solver.order {
+			if h == hash {
+				solver.order = append(solver.order[:i], solver.order[i+1:]...)
+				solver.order = append(solver.order, hash)
+				break
+			}
+		}
+	}
+	return value, ok
+}
+
+func (solver *Solver) storePreprocessed(hash, preprocessed string) {
+	solver.mu.Lock()
+	defer solver.mu.Unlock()
+	if _, exists := solver.cache[hash]; exists {
+		return
+	}
+	if len(solver.cache) >= MaxCachedPlayers {
+		oldest := solver.order[0]
+		solver.order = solver.order[1:]
+		delete(solver.cache, oldest)
+	}
+	solver.cache[hash] = preprocessed
+	solver.order = append(solver.order, hash)
 }
 
 func validateChallenges(requests []ChallengeRequest) error {
