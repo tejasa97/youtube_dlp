@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/ytdlp-go/ytdlp/internal/events"
 	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
@@ -20,6 +22,9 @@ var (
 // FinalizeDASH merges separate selected tracks and removes their temporary
 // assembled files only after ffmpeg completes successfully.
 func FinalizeDASH(ctx context.Context, result dash.Result, destination string, overwrite bool, tools *ffmpeg.Toolset, sink events.Sink) error {
+	if result.MultiPeriod {
+		return finalizeMultiPeriodDASH(ctx, result, destination, overwrite, tools, sink)
+	}
 	if !result.MergeRequired {
 		if len(result.Tracks) != 1 {
 			return ErrMissingDASHTracks
@@ -28,7 +33,7 @@ func FinalizeDASH(ctx context.Context, result dash.Result, destination string, o
 	}
 	var videoPath, audioPath string
 	for _, track := range result.Tracks {
-		switch track.Representation.ContentType {
+		switch dashTrackKind(track.Representation) {
 		case "video":
 			videoPath = track.Download.Path
 		case "audio":
@@ -45,6 +50,91 @@ func FinalizeDASH(ctx context.Context, result dash.Result, destination string, o
 		return err
 	}
 	return errors.Join(os.Remove(videoPath), os.Remove(audioPath))
+}
+
+func finalizeMultiPeriodDASH(ctx context.Context, result dash.Result, destination string, overwrite bool, tools *ffmpeg.Toolset, sink events.Sink) error {
+	if len(result.Tracks) == 0 {
+		return ErrMissingDASHTracks
+	}
+	if tools == nil {
+		return ErrMissingToolset
+	}
+	inputs := func(track dash.TrackResult) ([]string, error) {
+		if len(track.PeriodDownloads) < 2 {
+			return nil, ErrMissingDASHTracks
+		}
+		paths := make([]string, len(track.PeriodDownloads))
+		for index, download := range track.PeriodDownloads {
+			if download.Path == "" {
+				return nil, ErrMissingDASHTracks
+			}
+			paths[index] = download.Path
+		}
+		return paths, nil
+	}
+	removeInputs := func() error {
+		var err error
+		for _, track := range result.Tracks {
+			for _, download := range track.PeriodDownloads {
+				err = errors.Join(err, os.Remove(download.Path))
+			}
+		}
+		return err
+	}
+
+	if !result.MergeRequired {
+		if len(result.Tracks) != 1 {
+			return ErrMissingDASHTracks
+		}
+		paths, err := inputs(result.Tracks[0])
+		if err != nil {
+			return err
+		}
+		if err := tools.Concat(ctx, paths, destination, overwrite, sink); err != nil {
+			return err
+		}
+		return removeInputs()
+	}
+
+	temporaryRoot, err := os.MkdirTemp(filepath.Dir(destination), ".ytdlp-dash-periods-")
+	if err != nil {
+		return fmt.Errorf("%w: allocate multi-period workspace: %v", ffmpeg.ErrMediaFailure, err)
+	}
+	defer os.RemoveAll(temporaryRoot)
+	var videoPath, audioPath string
+	for _, track := range result.Tracks {
+		kind := dashTrackKind(track.Representation)
+		if kind != "video" && kind != "audio" {
+			return ErrMissingDASHTracks
+		}
+		paths, inputErr := inputs(track)
+		if inputErr != nil {
+			return inputErr
+		}
+		concatenated := filepath.Join(temporaryRoot, kind+".mp4")
+		if err := tools.Concat(ctx, paths, concatenated, false, sink); err != nil {
+			return err
+		}
+		if kind == "video" {
+			videoPath = concatenated
+		} else {
+			audioPath = concatenated
+		}
+	}
+	if videoPath == "" || audioPath == "" {
+		return ErrMissingDASHTracks
+	}
+	if err := tools.Merge(ctx, videoPath, audioPath, destination, overwrite, sink); err != nil {
+		return err
+	}
+	return removeInputs()
+}
+
+func dashTrackKind(representation dash.Representation) string {
+	if representation.ContentType != "" {
+		return representation.ContentType
+	}
+	return strings.SplitN(representation.MimeType, "/", 2)[0]
 }
 
 // RemuxDownload runs a container-only postprocessor and removes the source

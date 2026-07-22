@@ -2,13 +2,17 @@
 
 The fixtures in this directory are independently authored, license-safe MPD and
 binary structures used to exercise DASH segment addressing, timeline expansion,
-and SIDX-based SegmentBase indexRange support.
+static multi-period composition, and SIDX-based SegmentBase indexRange support.
 
 Behavioral expectations were reviewed against the pinned yt-dlp reference at
 commit `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`, principally:
 
 - `yt_dlp/extractor/common.py` (`_parse_mpd_periods`, including multisegment
   inheritance and `$Time$` expansion)
+- `yt_dlp/extractor/common.py::_merge_mpd_periods`, which groups compatible
+  formats and appends their fragment lists in Period order
+- `yt_dlp/postprocessor/ffmpeg.py::FFmpegFixupDuplicateMoovPP`, which performs
+  the stream-copy repair required after multi-period DASH assembly
 
 The SegmentBase/indexRange SIDX expansion capability is a **Go-native
 extension beyond the pinned reference**. At commit `aefce1ee`, yt-dlp does
@@ -25,6 +29,8 @@ ISO-BMFF specifications:
 |------|---------|
 | `negative_repeat.mpd` | Inherited SegmentTemplate, timeline `r="-1"`, dynamic boundary |
 | `negative_repeat.expected.json` | Expected parse output for the above |
+| `multi_period.mpd` | Two static periods with compatible fragmented video representations |
+| `multi_period.expected.json` | Expected period identity, representation order, and resolved URLs |
 | `sidx_indexrange.mpd` | SegmentBase with indexRange at representation and adaptation-set levels |
 | `sidx_indexrange.expected.json` | Expected parse output showing marker segments |
 | `sidx_v0_two_refs.hex` | Synthetic SIDX v0 binary box with 2 references |
@@ -49,3 +55,10 @@ guessing an infinite sequence.
 Dynamic manifests with SegmentBase/SIDX are explicitly rejected
 (`ErrUnsupportedAddressing`) rather than risking stale SIDX data applied to a
 changed resource. This is documented in `docs/DASH_SIDX_EVIDENCE.md`.
+
+Static multi-period composition retains period boundaries, intersects exact
+format signatures across every period, downloads each period atomically, and
+uses the supervised ffmpeg concat boundary before optional audio/video merge.
+Dynamic multi-period manifests, unfragmented multi-period resources, and sets
+without one compatible signature across every period fail closed. This is
+documented in `docs/DASH_MULTI_PERIOD_EVIDENCE.md`.

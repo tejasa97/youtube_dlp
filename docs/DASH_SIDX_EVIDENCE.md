@@ -45,14 +45,16 @@ Branch: `minimax/dash-sidx`
    safely applied to a resource that may have changed between polls. This is
    the smaller provably-correct behavior versus re-fetching on each poll.
 
-6. **Multi-period**: Not implemented. Each period's representations remain
-   independent; no concatenation is performed.
+6. **Multi-period**: Static compatible SIDX representations retain period
+   boundaries and participate in the supervised multi-period concat path.
+   Dynamic SegmentBase/SIDX remains rejected.
 
 ## Remaining deviations
 
 - Dynamic SegmentBase/SIDX is rejected (not re-fetched per poll).
 - Hierarchical SIDX (`reference_type == 1`) is rejected.
-- Multi-period concatenation is not implemented.
+- Multi-period composition requires compatible fragmented signatures across
+  every static period; dynamic and unfragmented multi-period sets are rejected.
 - Initialization/media range overlap is rejected (not trimmed).
 - The index fetch does not retry on transient failure (single attempt);
   media segment retries use the existing fragment engine machinery.
@@ -97,7 +99,7 @@ by the primary agent:
 - `TestParseSegmentBaseIndexRangeSameResourceInit`
 - `TestParseSegmentBaseIndexRangeMalformedRanges`
 - `TestParseSegmentBaseCoexistsWithTemplateAndList`
-- `TestParseMultiPeriodPreservesExplicitBehavior`
+- `TestParseMultiPeriodPreservesPeriodIdentity`
 
 ### Downloader integration tests
 - `TestDownloadSIDXExactRangeHeader`
