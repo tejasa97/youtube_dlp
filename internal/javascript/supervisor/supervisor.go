@@ -24,6 +24,10 @@ type Config struct {
 	Path           string
 	MemoryBytes    int64
 	MaxStderrBytes int
+	// TrustedScriptHash is the SHA-256 hash of the pinned EJS solver script.
+	// The supervisor mints the extended wall-time grant only for requests
+	// whose ScriptHash matches this value. Empty disables trusted grants.
+	TrustedScriptHash string
 }
 
 // Client serializes requests through one helper so compiled-program caching is
@@ -113,10 +117,13 @@ func (client *Client) Execute(ctx context.Context, request protocol.Request) pro
 		}
 		return protocol.FailureResponse(request.ID, code, err)
 	}
-	// Mint the serialized trusted wall-time grant only for approved EJS
-	// preprocessing calls (operation=call, function="jsc", Trusted=true).
-	// Generic evaluate/call requests cannot obtain more than 30 s.
-	if callerTrusted && normalized.Operation == protocol.OperationCall && normalized.Function == "jsc" {
+	// Mint the serialized trusted wall-time grant only for the pinned EJS
+	// preprocessing call: operation=call, function="jsc", Trusted=true,
+	// and ScriptHash matching the configured pinned bundle. Arbitrary
+	// scripts defining "jsc" cannot obtain the extended allowance.
+	if callerTrusted && normalized.Operation == protocol.OperationCall &&
+		normalized.Function == "jsc" && client.config.TrustedScriptHash != "" &&
+		normalized.ScriptHash == client.config.TrustedScriptHash {
 		normalized.Limits.TrustedWallTimeMS = protocol.TrustedMaxWallTime.Milliseconds()
 	}
 	if normalized.Limits.MemoryBytes > client.config.MemoryBytes {

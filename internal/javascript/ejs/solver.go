@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/ytdlp-go/ytdlp/internal/javascript/protocol"
 )
@@ -85,12 +84,16 @@ type Solver struct {
 // independent of any individual caller's context. Waiters select between
 // flight completion and their own context. When all waiters cancel, the
 // shared preprocessing is canceled to avoid orphaned work.
+//
+// All waiter admission, departure, and abandonment decisions are coordinated
+// under solver.mu to prevent races between joining and cancellation.
 type call struct {
-	done    chan struct{}      // closed when preprocessing completes
-	cancel  context.CancelFunc // cancels the shared preprocessing goroutine
-	waiters atomic.Int32       // active waiters; when 0, preprocessing is canceled
-	val     string
-	err     error
+	done      chan struct{}      // closed when preprocessing completes
+	cancel    context.CancelFunc // cancels the shared preprocessing goroutine
+	waiters   int32              // active waiters (mutated under solver.mu)
+	abandoned bool               // true when all waiters left (set under solver.mu)
+	val       string
+	err       error
 }
 
 func New(executor Executor) (*Solver, error) {
@@ -141,6 +144,9 @@ func (solver *Solver) SolvePlayer(ctx context.Context, id, player string, reques
 // its own context. When all waiters cancel, the shared preprocessing is
 // canceled to avoid orphaned work. The result is cached atomically before
 // the flight entry is removed to prevent duplicate preprocessing.
+//
+// Waiter admission, departure, and abandonment are all coordinated under
+// solver.mu to prevent races between joining and cancellation.
 func (solver *Solver) getPreprocessed(ctx context.Context, id, playerHash, player string) (string, error) {
 	// Fast path: cache hit.
 	if preprocessed, ok := solver.lookupPreprocessed(playerHash); ok {
@@ -154,15 +160,20 @@ func (solver *Solver) getPreprocessed(ctx context.Context, id, playerHash, playe
 		return preprocessed, nil
 	}
 	if inflight, ok := solver.flight[playerHash]; ok {
-		// Join existing flight as a waiter.
-		inflight.waiters.Add(1)
-		solver.mu.Unlock()
-		return solver.waitForFlight(ctx, inflight)
+		if inflight.abandoned {
+			// Flight is being canceled; do not join. Fall through to
+			// start a new flight below.
+			delete(solver.flight, playerHash)
+		} else {
+			// Join existing flight as a waiter.
+			inflight.waiters++
+			solver.mu.Unlock()
+			return solver.waitForFlight(ctx, inflight)
+		}
 	}
 	// Register a new flight. This goroutine is the first waiter.
 	preprocessCtx, cancel := context.WithCancel(context.Background())
-	inflight := &call{done: make(chan struct{}), cancel: cancel}
-	inflight.waiters.Store(1)
+	inflight := &call{done: make(chan struct{}), cancel: cancel, waiters: 1}
 	solver.flight[playerHash] = inflight
 	solver.mu.Unlock()
 
@@ -187,17 +198,24 @@ func (solver *Solver) getPreprocessed(ctx context.Context, id, playerHash, playe
 }
 
 // waitForFlight blocks until the flight completes or the caller's context is
-// canceled. When a caller cancels, it decrements the waiter count; if no
-// waiters remain, the shared preprocessing is canceled.
+// canceled. Cancellation coordinates under solver.mu: the waiter count is
+// decremented and abandonment is decided atomically with respect to new
+// joiners, preventing the race where a new waiter joins a flight that is
+// about to be canceled.
 func (solver *Solver) waitForFlight(ctx context.Context, inflight *call) (string, error) {
 	select {
 	case <-inflight.done:
 		return inflight.val, inflight.err
 	case <-ctx.Done():
-		// This waiter is leaving. If no waiters remain, cancel preprocessing.
-		if inflight.waiters.Add(-1) == 0 {
+		// Coordinate departure under the solver lock so that no new waiter
+		// can join between our decrement and the cancellation decision.
+		solver.mu.Lock()
+		inflight.waiters--
+		if inflight.waiters == 0 {
+			inflight.abandoned = true
 			inflight.cancel()
 		}
+		solver.mu.Unlock()
 		return "", ctx.Err()
 	}
 }

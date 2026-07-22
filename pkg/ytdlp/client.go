@@ -839,7 +839,15 @@ func (solver *lazyYouTubeSolver) SolvePlayer(
 		return ejs.Result{}, errors.New("solver is closed")
 	}
 	if solver.solver == nil {
-		client, err := supervisor.New(supervisor.Config{Path: solver.path, MemoryBytes: ejs.SolverMemoryBytes})
+		scriptHash, hashErr := ejs.BundledScriptHash()
+		if hashErr != nil {
+			solver.mu.Unlock()
+			return ejs.Result{}, hashErr
+		}
+		client, err := supervisor.New(supervisor.Config{
+			Path: solver.path, MemoryBytes: ejs.SolverMemoryBytes,
+			TrustedScriptHash: scriptHash,
+		})
 		if err != nil {
 			solver.mu.Unlock()
 			return ejs.Result{}, err

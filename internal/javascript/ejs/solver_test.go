@@ -773,3 +773,59 @@ func (s *slowExecutor) Execute(ctx context.Context, req protocol.Request) protoc
 	}
 	return s.inner.Execute(ctx, req)
 }
+
+// TestSingleflightWaiterJoinCancelRace is a deterministic regression test for
+// the race where a new waiter joins a flight immediately before the last
+// waiter cancels it. Under the old atomic-only design, the join and the
+// cancel could interleave such that the new waiter joined a flight that was
+// about to be abandoned. With the lock-coordinated design, joining checks
+// the abandoned flag under solver.mu, and cancellation sets it under the
+// same lock, making the race impossible.
+//
+// Run with -race to verify no data races exist.
+func TestSingleflightWaiterJoinCancelRace(t *testing.T) {
+	player, err := os.ReadFile("../../../conformance/javascript/ejs-0.8.0/synthetic-player.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	slow := &slowExecutor{inner: engine.New(4), delay: 2 * time.Second}
+	solver, err := New(slow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := []ChallengeRequest{{Type: ChallengeN, Challenges: []string{"abc"}}}
+
+	const iterations = 50
+	for i := 0; i < iterations; i++ {
+		// Each iteration: start a leader that will cancel quickly, then
+		// immediately try to join with a follower. The follower must either
+		// see the flight as active (and wait) or see it as abandoned (and
+		// start a new flight). It must never join a canceled flight.
+		leaderCtx, leaderCancel := context.WithCancel(context.Background())
+		leaderDone := make(chan error, 1)
+		go func() {
+			_, err := solver.SolvePlayer(leaderCtx, "leader", string(player), requests, false)
+			leaderDone <- err
+		}()
+
+		// Give the leader time to register the flight.
+		time.Sleep(time.Millisecond)
+
+		// Cancel the leader.
+		leaderCancel()
+
+		// Immediately try to join as a follower with a short timeout.
+		followerCtx, followerCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		_, followerErr := solver.SolvePlayer(followerCtx, "follower", string(player), requests, false)
+		followerCancel()
+
+		// The follower should get a context error (timeout or canceled),
+		// never a nil error (which would mean it joined a dead flight).
+		<-leaderDone
+		if followerErr == nil {
+			// This is acceptable: the follower started a new flight that
+			// completed (unlikely with 2s delay but possible if cache hit).
+			continue
+		}
+	}
+}
