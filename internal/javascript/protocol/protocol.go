@@ -79,11 +79,13 @@ type Limits struct {
 	MaxModules  int   `json:"max_modules,omitempty"`
 	// Trusted opts into the extended TrustedMaxWallTime ceiling for
 	// in-process validation (supervisor side). Never serialized.
+	// Only honored for EJS preprocessing calls (function "jsc").
 	Trusted bool `json:"-"`
-	// TrustedWallTimeMS is the serialized wall-time ceiling granted by the
-	// supervisor for explicitly trusted operations (EJS preprocessing).
+	// TrustedWallTimeMS is the serialized wall-time ceiling minted by the
+	// supervisor for approved EJS preprocessing calls. Callers must not
+	// provide this field; the supervisor strips it at the boundary and
+	// mints it only for operation=call, function="jsc" with Trusted=true.
 	// The helper validates WallTimeMS against this value when present.
-	// Only the supervisor may set it; the helper never originates it.
 	TrustedWallTimeMS int64 `json:"trusted_wall_time_ms,omitempty"`
 }
 
@@ -149,6 +151,15 @@ func (request Request) Normalize() (Request, error) {
 		return Request{}, fmt.Errorf("unsupported operation %q", request.Operation)
 	}
 	request.Limits = request.Limits.withDefaults()
+	// The extended trusted wall-time allowance is restricted to EJS
+	// preprocessing calls (operation=call, function="jsc"). Strip any
+	// caller-provided TrustedWallTimeMS or Trusted flag from other
+	// operations to prevent generic evaluate/call requests from
+	// obtaining more than HardMaxWallTime (30 s).
+	if request.Operation != OperationCall || request.Function != "jsc" {
+		request.Limits.TrustedWallTimeMS = 0
+		request.Limits.Trusted = false
+	}
 	if err := request.Limits.validate(); err != nil {
 		return Request{}, err
 	}

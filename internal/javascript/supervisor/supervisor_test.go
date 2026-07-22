@@ -144,28 +144,28 @@ func TestSupervisorEnforcesProcessMemoryBudget(t *testing.T) {
 	}
 }
 
-// TestSupervisorTrustedWallTimeCrossesProcessBoundary verifies that a request
-// with WallTimeMS > HardMaxWallTime (30 s) succeeds end-to-end through the
-// supervisor → helper pipe when the caller sets Limits.Trusted. The helper
-// marks all received requests as trusted (it is only reachable from the
-// supervisor), so the extended TrustedMaxWallTime (60 s) ceiling applies.
+// TestSupervisorTrustedWallTimeCrossesProcessBoundary verifies that an EJS
+// preprocessing call (operation=call, function="jsc") with WallTimeMS >
+// HardMaxWallTime (30 s) succeeds end-to-end through the supervisor → helper
+// pipe when the caller sets Limits.Trusted. The supervisor mints the
+// serialized TrustedWallTimeMS grant only for approved EJS calls.
 func TestSupervisorTrustedWallTimeCrossesProcessBoundary(t *testing.T) {
 	client := newTestClient(t, helperPath)
 	defer client.Close()
 
-	// WallTimeMS = 45 s exceeds HardMaxWallTime (30 s) but fits within
-	// TrustedMaxWallTime (60 s). Without the helper-side trusted marking,
-	// the helper would reject this at Normalize().
-	request := evaluateRequest("trusted-e2e", "1+1")
+	// EJS preprocessing call with 45 s wall time (exceeds 30 s untrusted).
+	request := ejsCallRequest("trusted-e2e", `function jsc(input){return JSON.stringify({preprocessed:true})}`)
 	request.Limits.WallTimeMS = 45_000
-	request.Limits.Trusted = true // passes supervisor validation
+	request.Limits.Trusted = true
 
 	response := client.Execute(context.Background(), request)
 	if response.Error != nil {
-		t.Fatalf("trusted request failed across process boundary: code=%s msg=%s",
+		t.Fatalf("trusted EJS call failed across process boundary: code=%s msg=%s",
 			response.Error.Code, response.Error.Message)
 	}
-	assertSupervisorResult(t, response, "2")
+	if response.Result == nil {
+		t.Fatal("expected non-nil result")
+	}
 }
 
 // TestSupervisorRejectsUntrustedExtendedWallTime verifies that a request with
@@ -175,7 +175,7 @@ func TestSupervisorRejectsUntrustedExtendedWallTime(t *testing.T) {
 	client := newTestClient(t, helperPath)
 	defer client.Close()
 
-	request := evaluateRequest("untrusted-e2e", "1+1")
+	request := ejsCallRequest("untrusted-e2e", `function jsc(input){return "{}"}`)
 	request.Limits.WallTimeMS = 45_000
 	// Trusted is false — supervisor should reject at Normalize().
 
@@ -188,57 +188,129 @@ func TestSupervisorRejectsUntrustedExtendedWallTime(t *testing.T) {
 	}
 }
 
+// TestSupervisorRejectsTrustedGenericEvaluate verifies that a generic evaluate
+// request cannot obtain the extended timeout even with Trusted=true. The
+// allowance is restricted to EJS preprocessing calls (function "jsc").
+func TestSupervisorRejectsTrustedGenericEvaluate(t *testing.T) {
+	client := newTestClient(t, helperPath)
+	defer client.Close()
+
+	request := evaluateRequest("generic-eval", "1+1")
+	request.Limits.WallTimeMS = 45_000
+	request.Limits.Trusted = true // should be ignored for non-EJS
+
+	response := client.Execute(context.Background(), request)
+	if response.Error == nil {
+		t.Fatal("generic evaluate with 45 s wall time should be rejected even with Trusted")
+	}
+	if response.Error.Code != protocol.CodeInvalidRequest {
+		t.Fatalf("expected invalid_request, got %s", response.Error.Code)
+	}
+}
+
+// TestSupervisorRejectsSpoofedTrustedWallTimeMS verifies that a caller cannot
+// forge the serialized TrustedWallTimeMS grant. The supervisor strips it at
+// the boundary before validation.
+func TestSupervisorRejectsSpoofedTrustedWallTimeMS(t *testing.T) {
+	client := newTestClient(t, helperPath)
+	defer client.Close()
+
+	// Attempt to spoof the grant on a generic evaluate request.
+	request := evaluateRequest("spoof-eval", "1+1")
+	request.Limits.WallTimeMS = 45_000
+	request.Limits.TrustedWallTimeMS = 60_000 // forged grant
+
+	response := client.Execute(context.Background(), request)
+	if response.Error == nil {
+		t.Fatal("spoofed TrustedWallTimeMS on evaluate should be rejected")
+	}
+
+	// Attempt to spoof the grant on an EJS call without Trusted flag.
+	ejsReq := ejsCallRequest("spoof-ejs", `function jsc(input){return "{}"}`)
+	ejsReq.Limits.WallTimeMS = 45_000
+	ejsReq.Limits.TrustedWallTimeMS = 60_000 // forged grant, no Trusted flag
+
+	response = client.Execute(context.Background(), ejsReq)
+	if response.Error == nil {
+		t.Fatal("spoofed TrustedWallTimeMS without Trusted flag should be rejected")
+	}
+}
+
+// TestSupervisorRejectsTrustedNonJSCCall verifies that a call request with
+// Trusted=true but a function other than "jsc" cannot obtain the extended
+// timeout.
+func TestSupervisorRejectsTrustedNonJSCCall(t *testing.T) {
+	client := newTestClient(t, helperPath)
+	defer client.Close()
+
+	request := protocol.Request{
+		Version: protocol.Version, ID: "non-jsc", Operation: protocol.OperationCall,
+		Script: "function other(x){return x}", Function: "other",
+		Arguments: []json.RawMessage{json.RawMessage(`"hello"`)},
+		Limits:    protocol.Limits{WallTimeMS: 45_000, Trusted: true},
+	}
+
+	response := client.Execute(context.Background(), request)
+	if response.Error == nil {
+		t.Fatal("trusted non-jsc call with 45 s wall time should be rejected")
+	}
+	if response.Error.Code != protocol.CodeInvalidRequest {
+		t.Fatalf("expected invalid_request, got %s", response.Error.Code)
+	}
+}
+
 // TestSupervisorConcurrentExecuteAndCloseDrainsActiveSolves verifies that
-// Close waits for in-flight JavaScript executions to complete before
-// terminating the helper process. Active operations receive valid results;
-// the helper process is cleaned up with no orphans.
+// Close blocks until in-flight JavaScript executions complete, then
+// terminates the helper process. Uses a slow script to guarantee execution
+// is active when Close is invoked.
 func TestSupervisorConcurrentExecuteAndCloseDrainsActiveSolves(t *testing.T) {
 	for iteration := 0; iteration < 3; iteration++ {
 		client := newTestClient(t, helperPath)
 
-		const workers = 4
-		var wg sync.WaitGroup
-		results := make([]protocol.Response, workers)
-
-		// Launch concurrent JavaScript executions.
-		for i := 0; i < workers; i++ {
-			wg.Add(1)
-			go func(idx int) {
-				defer wg.Done()
-				request := evaluateRequest("drain", "40+2")
-				results[idx] = client.Execute(context.Background(), request)
-			}(i)
+		// Capture the process handle before Close clears it.
+		// Force the helper to start by running a quick request first.
+		warmup := evaluateRequest("warmup", "1")
+		if resp := client.Execute(context.Background(), warmup); resp.Error != nil {
+			t.Fatalf("iteration %d warmup failed: %s", iteration, resp.Error.Message)
 		}
+		proc := client.command.Process
 
-		// Close while executions may be in flight.
-		time.Sleep(time.Millisecond)
+		// Launch a slow JavaScript execution (~300ms busy loop).
+		activeDone := make(chan protocol.Response, 1)
+		go func() {
+			request := evaluateRequest("slow", "var x=0;for(var i=0;i<5000000;i++){x+=i%7}x")
+			request.Limits.WallTimeMS = 30_000
+			activeDone <- client.Execute(context.Background(), request)
+		}()
+
+		// Give the execution time to become active in the helper.
+		time.Sleep(50 * time.Millisecond)
+
+		// Close should block until the active execution completes.
+		closeStart := time.Now()
 		client.Close()
+		closeElapsed := time.Since(closeStart)
 
-		wg.Wait()
-
-		// All active operations should have completed with valid results
-		// (Close drains before killing the helper).
-		for i, resp := range results {
-			if resp.Error != nil {
-				t.Fatalf("iteration %d worker %d: unexpected error: %s", iteration, i, resp.Error.Message)
-			}
-			if string(resp.Result) != "42" {
-				t.Fatalf("iteration %d worker %d: result = %s, want 42", iteration, i, resp.Result)
-			}
+		// The active execution should have completed with a valid result.
+		resp := <-activeDone
+		if resp.Error != nil {
+			t.Fatalf("iteration %d: active execution failed after Close: %s", iteration, resp.Error.Message)
+		}
+		if resp.Result == nil {
+			t.Fatalf("iteration %d: active execution returned nil result", iteration)
 		}
 
-		// After Close, the helper process should be terminated.
-		// Verify by checking that the process is no longer running.
-		if client.command != nil && client.command.Process != nil {
-			// On Unix, sending signal 0 checks if the process exists.
-			err := client.command.Process.Signal(nil)
+		// Close should have waited for the execution (not returned instantly).
+		if closeElapsed < 10*time.Millisecond {
+			t.Fatalf("iteration %d: Close returned in %v, expected to block for active execution", iteration, closeElapsed)
+		}
+
+		// The helper process should be terminated.
+		if proc != nil {
+			time.Sleep(50 * time.Millisecond)
+			err := proc.Signal(nil)
 			if err == nil {
-				// Process still alive — give it a moment to exit.
-				time.Sleep(100 * time.Millisecond)
-				err = client.command.Process.Signal(nil)
-				if err == nil {
-					t.Fatalf("iteration %d: helper process still running after Close", iteration)
-				}
+				t.Fatalf("iteration %d: helper process still running after Close", iteration)
 			}
 		}
 	}
@@ -255,6 +327,14 @@ func newTestClient(t *testing.T, path string) *Client {
 
 func evaluateRequest(id, script string) protocol.Request {
 	return protocol.Request{Version: protocol.Version, ID: id, Operation: protocol.OperationEvaluate, Script: script}
+}
+
+func ejsCallRequest(id, script string) protocol.Request {
+	return protocol.Request{
+		Version: protocol.Version, ID: id, Operation: protocol.OperationCall,
+		Script: script, Function: "jsc",
+		Arguments: []json.RawMessage{json.RawMessage(`{"type":"preprocess","player":"","requests":[]}`)},
+	}
 }
 
 func assertSupervisorResult(t *testing.T, response protocol.Response, want string) {

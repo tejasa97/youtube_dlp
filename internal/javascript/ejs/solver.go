@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/ytdlp-go/ytdlp/internal/javascript/protocol"
 )
@@ -80,11 +81,16 @@ type Solver struct {
 	flight map[string]*call  // in-flight preprocessing coordination
 }
 
-// call represents an in-flight preprocessing operation.
+// call represents an in-flight preprocessing operation owned by the flight,
+// independent of any individual caller's context. Waiters select between
+// flight completion and their own context. When all waiters cancel, the
+// shared preprocessing is canceled to avoid orphaned work.
 type call struct {
-	done chan struct{} // closed when preprocessing completes
-	val  string
-	err  error
+	done    chan struct{}      // closed when preprocessing completes
+	cancel  context.CancelFunc // cancels the shared preprocessing goroutine
+	waiters atomic.Int32       // active waiters; when 0, preprocessing is canceled
+	val     string
+	err     error
 }
 
 func New(executor Executor) (*Solver, error) {
@@ -129,10 +135,12 @@ func (solver *Solver) SolvePlayer(ctx context.Context, id, player string, reques
 }
 
 // getPreprocessed returns the cached preprocessed player or coalesces
-// concurrent preprocessing via singleflight so it runs exactly once per
-// unique player hash. Followers select on ctx.Done() so they can cancel
-// while waiting. The result is cached atomically before the flight entry
-// is removed to prevent duplicate preprocessing in the gap.
+// concurrent preprocessing via a flight-owned lifecycle. Preprocessing runs
+// in a dedicated goroutine independent of any individual caller's context.
+// Every caller (including the first) selects between flight completion and
+// its own context. When all waiters cancel, the shared preprocessing is
+// canceled to avoid orphaned work. The result is cached atomically before
+// the flight entry is removed to prevent duplicate preprocessing.
 func (solver *Solver) getPreprocessed(ctx context.Context, id, playerHash, player string) (string, error) {
 	// Fast path: cache hit.
 	if preprocessed, ok := solver.lookupPreprocessed(playerHash); ok {
@@ -146,41 +154,52 @@ func (solver *Solver) getPreprocessed(ctx context.Context, id, playerHash, playe
 		return preprocessed, nil
 	}
 	if inflight, ok := solver.flight[playerHash]; ok {
+		// Join existing flight as a waiter.
+		inflight.waiters.Add(1)
 		solver.mu.Unlock()
-		// Wait for the in-flight preprocessing, respecting cancellation.
-		select {
-		case <-inflight.done:
-			return inflight.val, inflight.err
-		case <-ctx.Done():
-			return "", ctx.Err()
-		}
+		return solver.waitForFlight(ctx, inflight)
 	}
-	// Register this goroutine as the leader for this player hash.
-	inflight := &call{done: make(chan struct{})}
+	// Register a new flight. This goroutine is the first waiter.
+	preprocessCtx, cancel := context.WithCancel(context.Background())
+	inflight := &call{done: make(chan struct{}), cancel: cancel}
+	inflight.waiters.Store(1)
 	solver.flight[playerHash] = inflight
 	solver.mu.Unlock()
 
-	// Execute preprocessing detached from the leader's context so that
-	// canceling one download does not fail unrelated followers sharing
-	// the same player. The engine enforces its own wall-time budget
-	// (PreprocessWallTimeMS) independently of the caller's deadline.
-	preprocessCtx := context.WithoutCancel(ctx)
-	preprocessed, err := solver.preprocess(preprocessCtx, id, player)
-	inflight.val = preprocessed
-	inflight.err = err
+	// Start shared preprocessing in a dedicated goroutine.
+	go func() {
+		preprocessed, err := solver.preprocess(preprocessCtx, id, player)
+		inflight.val = preprocessed
+		inflight.err = err
 
-	// Atomically cache the result and remove the flight entry before
-	// signaling followers, so no duplicate preprocessing can start in
-	// the gap between flight removal and cache insertion.
-	solver.mu.Lock()
-	if err == nil {
-		solver.storePreprocessedLocked(playerHash, preprocessed)
+		// Atomically cache the result and remove the flight entry before
+		// signaling waiters, so no duplicate preprocessing can start.
+		solver.mu.Lock()
+		if err == nil {
+			solver.storePreprocessedLocked(playerHash, preprocessed)
+		}
+		delete(solver.flight, playerHash)
+		solver.mu.Unlock()
+		close(inflight.done)
+	}()
+
+	return solver.waitForFlight(ctx, inflight)
+}
+
+// waitForFlight blocks until the flight completes or the caller's context is
+// canceled. When a caller cancels, it decrements the waiter count; if no
+// waiters remain, the shared preprocessing is canceled.
+func (solver *Solver) waitForFlight(ctx context.Context, inflight *call) (string, error) {
+	select {
+	case <-inflight.done:
+		return inflight.val, inflight.err
+	case <-ctx.Done():
+		// This waiter is leaving. If no waiters remain, cancel preprocessing.
+		if inflight.waiters.Add(-1) == 0 {
+			inflight.cancel()
+		}
+		return "", ctx.Err()
 	}
-	delete(solver.flight, playerHash)
-	solver.mu.Unlock()
-	close(inflight.done)
-
-	return preprocessed, err
 }
 
 // preprocess runs the expensive player parsing phase with an extended wall time.
