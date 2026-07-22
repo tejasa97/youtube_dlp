@@ -20,6 +20,11 @@ import (
 // maxIndexRangeBytes bounds the SIDX index fetch to prevent unbounded reads.
 const maxIndexRangeBytes = 16 << 20
 
+// defaultMaxDownloadSegments mirrors the fragment engine's public default and
+// keeps the limit global to a selected track even when Periods are downloaded
+// as separate atomic jobs.
+const defaultMaxDownloadSegments = 10_000
+
 type Transport interface {
 	Do(context.Context, *http.Request) (*http.Response, error)
 	ReadPage(context.Context, string) ([]byte, http.Header, error)
@@ -59,6 +64,9 @@ func NewDownloader(transport Transport, config Config) *Downloader {
 	config.Headers = config.Headers.Clone()
 	if config.DynamicPolls <= 0 {
 		config.DynamicPolls = 1
+	}
+	if config.MaxSegments == 0 {
+		config.MaxSegments = defaultMaxDownloadSegments
 	}
 	return &Downloader{transport: transport, config: config}
 }
@@ -133,6 +141,11 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 			if downloader.config.PollInterval <= 0 && updated.MinimumUpdatePeriod > 0 {
 				pollInterval = updated.MinimumUpdatePeriod
 			}
+		}
+	}
+	for _, representation := range selected {
+		if downloader.config.MaxSegments < 0 || len(representation.Segments) > downloader.config.MaxSegments {
+			return Result{}, fmt.Errorf("representation %s: %w: got %d, limit %d", representation.ID, fragment.ErrTooManySegments, len(representation.Segments), downloader.config.MaxSegments)
 		}
 	}
 
@@ -214,6 +227,9 @@ func selectRepresentations(mpd MPD) ([]Representation, error) {
 	if mpd.Dynamic {
 		return nil, fmt.Errorf("%w: dynamic multi-period manifests", ErrUnsupportedAddressing)
 	}
+	if err := validateMultiPeriodTiming(mpd); err != nil {
+		return nil, err
+	}
 
 	periods := make([][]Representation, mpd.PeriodCount)
 	for _, representation := range mpd.Representations {
@@ -291,6 +307,31 @@ func selectRepresentations(mpd MPD) ([]Representation, error) {
 		selected = append(selected, combined)
 	}
 	return selected, nil
+}
+
+func validateMultiPeriodTiming(mpd MPD) error {
+	if len(mpd.Periods) != mpd.PeriodCount {
+		return fmt.Errorf("%w: incomplete multi-period timing metadata", ErrUnsupportedAddressing)
+	}
+	for index, period := range mpd.Periods {
+		if !period.TimingKnown || period.Duration <= 0 {
+			return fmt.Errorf("%w: period %d has unresolved timing", ErrUnsupportedAddressing, index)
+		}
+		if index == 0 && period.Start != 0 {
+			return fmt.Errorf("%w: first period starts at %s", ErrUnsupportedAddressing, period.Start)
+		}
+		end, ok := addPeriodDuration(period.Start, period.Duration)
+		if !ok {
+			return fmt.Errorf("%w: period %d end overflows", ErrUnsupportedAddressing, index)
+		}
+		if index+1 < len(mpd.Periods) && mpd.Periods[index+1].Start != end {
+			return fmt.Errorf("%w: periods %d and %d are not contiguous", ErrUnsupportedAddressing, index, index+1)
+		}
+		if index == len(mpd.Periods)-1 && mpd.PresentationDuration > 0 && end != mpd.PresentationDuration {
+			return fmt.Errorf("%w: final period does not end at the presentation duration", ErrUnsupportedAddressing)
+		}
+	}
+	return nil
 }
 
 type representationSignature struct {

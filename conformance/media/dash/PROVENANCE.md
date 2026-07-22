@@ -59,6 +59,9 @@ changed resource. This is documented in `docs/DASH_SIDX_EVIDENCE.md`.
 Static multi-period composition retains period boundaries, intersects exact
 format signatures across every period, downloads each period atomically, and
 uses the supervised ffmpeg concat boundary before optional audio/video merge.
+Omitted timing is derived only from adjacent Period boundaries or the declared
+presentation duration; unresolved, gapped, or overlapping timelines fail
+closed. The configured segment limit applies to the complete selected track.
 Dynamic multi-period manifests, unfragmented multi-period resources, and sets
-without one compatible signature across every period fail closed. This is
-documented in `docs/DASH_MULTI_PERIOD_EVIDENCE.md`.
+without one compatible signature across every period also fail closed. This
+is documented in `docs/DASH_MULTI_PERIOD_EVIDENCE.md`.

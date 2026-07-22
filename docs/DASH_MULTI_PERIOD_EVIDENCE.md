@@ -14,8 +14,10 @@ Behavior was reviewed against the pinned reference
 
 ## Implemented behavior
 
-1. The parser records bounded Period identity and preserves each
-   representation's period index, ID, and fragmented/unfragmented state.
+1. The parser records bounded Period identity, derives omitted starts or
+   durations from adjacent Periods and the presentation duration where
+   possible, and preserves each representation's period index, ID, and
+   fragmented/unfragmented state.
 2. Static multi-period selection intersects exact format signatures across
    every period. Content kind, MIME type, codecs, language, frame rate, audio
    sampling rate, bandwidth, width, and height must agree; representation IDs
@@ -25,7 +27,9 @@ Behavior was reviewed against the pinned reference
    cannot displace a lower common representation and truncate the result.
 4. SegmentTemplate, SegmentList, and static SegmentBase/SIDX plans retain their
    period boundaries. Each period is downloaded atomically through the shared
-   fragment engine with normal headers, bounds, retries, and cancellation.
+   fragment engine with normal headers, bounds, retries, and cancellation. The
+   configured segment limit applies to the complete selected track, not once
+   per Period.
 5. Completed period files are passed to the bounded ffmpeg concat demuxer in
    manifest order. Separate video/audio tracks are each concatenated before
    the existing merge operation. Source period files are removed only after
@@ -41,6 +45,9 @@ Behavior was reviewed against the pinned reference
   period identity and expiry rules not present in the current model.
 - Direct/unfragmented multi-period resources are rejected rather than byte
   concatenated.
+- Period timing must be fully derivable, start at zero, remain contiguous, and
+  agree with a declared presentation duration. Gaps, overlaps, zero-duration
+  Periods, and unresolved timing are rejected rather than silently flattened.
 - Every emitted track requires one exact compatible signature in every period.
 - Missing periods, incompatible codecs/geometry/bitrates, missing media tools,
   malformed manifests, failed fragments, and cancellation never publish a
@@ -57,7 +64,10 @@ mechanically testable.
 - `internal/protocol/dash.TestParseRejectsPeriodCountBeyondConcatBoundary`
 - `internal/protocol/dash.TestSelectMultiPeriodChoosesHighestCommonSignature`
 - `internal/protocol/dash.TestSelectMultiPeriodRejectsUnsafeCombinations`
+- `internal/protocol/dash.TestSelectMultiPeriodRejectsDiscontinuousOrUnknownTiming`
+- `internal/protocol/dash.TestParseDerivesContiguousPeriodTiming`
 - `internal/protocol/dash.TestDownloadMultiPeriodConcatenatesFragmentsInManifestOrder`
+- `internal/protocol/dash.TestDownloadMultiPeriodEnforcesAggregateSegmentLimit`
 - `internal/protocol/dash.TestDownloadMultiPeriodFailureDoesNotPublishTrack`
 - `internal/protocol/dash.TestDownloadMultiPeriodCancellationDoesNotPublishTrack`
 - `internal/media/pipeline.TestFinalizeDASHMultiPeriodRemuxesAndRemovesSource`

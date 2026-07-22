@@ -48,7 +48,7 @@ func TestClientDASHMultiPeriodDispatchAndFixup(t *testing.T) {
 	manifest.WriteString(`<MPD type="static">`)
 	for period, segments := range periodSegments {
 		prefix := fmt.Sprintf("p%d", period+1)
-		fmt.Fprintf(&manifest, `<Period id="%s"><AdaptationSet contentType="video" mimeType="video/mp4" codecs="mp4v.20.9"><Representation id="%s-video" bandwidth="200000" width="16" height="16"><SegmentList><Initialization sourceURL="%s-init.mp4"/>`, prefix, prefix, prefix)
+		fmt.Fprintf(&manifest, `<Period id="%s" duration="PT0.25S"><AdaptationSet contentType="video" mimeType="video/mp4" codecs="mp4v.20.9"><Representation id="%s-video" bandwidth="200000" width="16" height="16"><SegmentList><Initialization sourceURL="%s-init.mp4"/>`, prefix, prefix, prefix)
 		for _, segment := range segments {
 			fmt.Fprintf(&manifest, `<SegmentURL media="%s"/>`, segment)
 		}

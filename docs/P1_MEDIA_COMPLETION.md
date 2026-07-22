@@ -22,8 +22,9 @@ Implemented and covered by automated tests:
 - Separate deterministic best audio/video selection, including equal
   representation IDs across content types.
 - A post-Phase 1 extension intersects compatible fragmented formats across
-  ordered static periods and finalizes each track through bounded ffmpeg concat
-  before optional audio/video merge.
+  ordered, contiguous static periods, applies the segment budget across the
+  complete track, and finalizes each track through bounded ffmpeg concat before
+  optional audio/video merge.
 - Dynamic MPD updates using explicit configuration or the manifest minimum
   update period, ordered URL/range de-duplication, transition to static MPDs,
   and context cancellation before output finalization.
@@ -44,6 +45,8 @@ Key evidence:
 - `internal/protocol/dash.TestDownloadDynamicUsesManifestPollIntervalAndCancels`
 - `internal/protocol/dash.TestDownloadDynamicDoesNotCollideSameRepresentationID`
 - `internal/protocol/dash.TestDownloadMultiPeriodConcatenatesFragmentsInManifestOrder`
+- `internal/protocol/dash.TestSelectMultiPeriodRejectsDiscontinuousOrUnknownTiming`
+- `internal/protocol/dash.TestDownloadMultiPeriodEnforcesAggregateSegmentLimit`
 - `internal/media/pipeline.TestFinalizeDASHMultiPeriodConcatenatesAndMergesTracks`
 - `pkg/ytdlp.TestClientDASHMultiPeriodDispatchAndFixup`
 - `internal/protocol/dash.FuzzParse`
