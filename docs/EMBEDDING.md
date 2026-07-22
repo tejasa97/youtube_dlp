@@ -147,6 +147,12 @@ Set `Request.YouTubeTranslatedCaptions` to additionally generate translated
 manual-caption entries; automatic-caption translations follow the bounded
 player renderer. See [YouTube captions evidence](YOUTUBE_CAPTIONS_EVIDENCE.md).
 
+Set `Request.Subtitles` to select and write manual or automatic caption
+sidecars. Language rules accept ordered, bounded RE2 expressions and `all`;
+format preferences are slash-separated. Sidecars are reported as subtitle
+artifacts and can still be written when `SkipDownload` is true. See [YouTube
+subtitle CLI evidence](YOUTUBE_SUBTITLE_CLI_EVIDENCE.md).
+
 ## Updater
 
 OpenUpdater accepts caller-owned threshold trust and an explicit health
