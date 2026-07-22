@@ -105,13 +105,13 @@ func TestOperationReversesSelectedRangeWithoutLosingSourceIndexes(t *testing.T) 
 
 func TestPlaylistRangeValidation(t *testing.T) {
 	for _, options := range []PlaylistOptions{
-		{Start: -1}, {Start: maxPlaylistEntries + 1}, {End: -1}, {End: maxPlaylistEntries + 1}, {Start: 4, End: 3},
+		{Start: -1}, {Start: maxPlaylistEntries + 1}, {End: -2}, {End: maxPlaylistEntries + 1}, {Start: 4, End: 3},
 	} {
 		if err := validateRequestOptions(Request{Playlist: options}); err == nil {
 			t.Errorf("validateRequestOptions(%+v) succeeded", options)
 		}
 	}
-	for _, options := range []PlaylistOptions{{}, {Start: 1}, {End: 3}, {Start: 2, End: 3}, {Reverse: true}} {
+	for _, options := range []PlaylistOptions{{}, {Start: 1}, {End: -1}, {End: 3}, {Start: 2, End: 3}, {Reverse: true}} {
 		if err := validateRequestOptions(Request{Playlist: options}); err != nil {
 			t.Errorf("validateRequestOptions(%+v): %v", options, err)
 		}
@@ -160,6 +160,22 @@ func TestSelectedPlaylistIteratorHonorsCancellationWhileSkipping(t *testing.T) {
 	_, ok, err := iterator.Next(ctx)
 	if ok || !errors.Is(err, context.Canceled) {
 		t.Fatalf("Next() = ok %v, error %v; want context cancellation", ok, err)
+	}
+}
+
+func TestSelectedPlaylistIteratorHonorsCancellationAtEndBoundary(t *testing.T) {
+	iterator := newSelectedPlaylistIterator(
+		extractor.StaticEntries(extractor.Entry{ID: "first"}).Iterator(),
+		PlaylistOptions{End: 1},
+	)
+	if _, ok, err := iterator.Next(context.Background()); err != nil || !ok {
+		t.Fatalf("first Next() = ok %v, error %v; want entry", ok, err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, ok, err := iterator.Next(ctx)
+	if ok || !errors.Is(err, context.Canceled) {
+		t.Fatalf("terminating Next() = ok %v, error %v; want context cancellation", ok, err)
 	}
 }
 

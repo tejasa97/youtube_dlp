@@ -21,8 +21,10 @@ successful descendants.
 
 Each playlist encountered by an operation applies the request's inclusive,
 one-based `Playlist.Start` and `Playlist.End` bounds (`0` means the first entry
-or no explicit end in the Go API). The CLI exposes these as `--playlist-start`
-and `--playlist-end`. Normal selection stays lazy and does not request a page
+or no explicit end in the Go API; the legacy end value `-1` is also unbounded).
+The CLI exposes these as `--playlist-start` and `--playlist-end`, with
+`--no-playlist-reverse` available to override inherited configuration. Normal
+selection stays lazy and does not request a page
 after the end bound. `Playlist.Reverse`/`--playlist-reverse` reverses the
 selected range, so it buffers at most the bounded 10,000-entry operation limit.
 In either output order, `playlist_index` remains the entry's original position

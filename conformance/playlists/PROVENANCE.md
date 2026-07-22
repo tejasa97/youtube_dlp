@@ -5,7 +5,7 @@ from the pinned yt-dlp reference checkout at commit
 `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`.
 
 The behavioral source is
-`test/test_YoutubeDL.py::TestPlaylistSelection::test_playlist_items_selection`
+`test/test_YoutubeDL.py::TestYoutubeDL::test_playlist_items_selection`
 in `/Users/tejas/projects/yt-dlp-reference`. The upstream test establishes that
 playlist start/end values are inclusive and one-based, reversal occurs after
 selection, and each result retains its original source `playlist_index`.
