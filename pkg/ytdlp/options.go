@@ -45,6 +45,16 @@ type SubtitleOptions struct {
 	Format         string
 }
 
+// PlaylistOptions selects an inclusive, one-based playlist range. Start zero
+// means the first entry; End zero or the legacy yt-dlp value -1 means no
+// explicit end. Reverse is applied after slicing while playlist_index continues
+// to identify the source entry.
+type PlaylistOptions struct {
+	Start   int
+	End     int
+	Reverse bool
+}
+
 // Artifact describes a file produced by the requested media pipeline.
 type Artifact struct {
 	Path string `json:"path"`
@@ -127,6 +137,11 @@ func validateRequestOptions(request Request) error {
 		options.MaxSegmentBytes < 0 || options.MaxSegmentBytes > 512<<20 {
 		return fmt.Errorf("%w: downloader resource limits", errInvalidRequestOptions)
 	}
+	playlistStart, playlistEnd := normalizedPlaylistRange(request.Playlist)
+	if playlistStart < 1 || playlistStart > maxPlaylistEntries || request.Playlist.End < -1 || playlistEnd > maxPlaylistEntries ||
+		(playlistEnd != 0 && playlistEnd < playlistStart) {
+		return fmt.Errorf("%w: playlist range", errInvalidRequestOptions)
+	}
 	if external := options.External; external != nil {
 		if external.Executable == "" || strings.ContainsRune(external.Executable, 0) || len(external.Arguments) > 128 {
 			return fmt.Errorf("%w: external downloader", errInvalidRequestOptions)
@@ -157,4 +172,15 @@ func validateRequestOptions(request Request) error {
 		return fmt.Errorf("%w: %v", errInvalidRequestOptions, err)
 	}
 	return nil
+}
+
+func normalizedPlaylistRange(options PlaylistOptions) (start, end int) {
+	start, end = options.Start, options.End
+	if start == 0 {
+		start = 1
+	}
+	if end == -1 {
+		end = 0
+	}
+	return start, end
 }

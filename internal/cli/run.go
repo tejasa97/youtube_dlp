@@ -78,6 +78,13 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		*cacheDir = ""
 		return nil
 	})
+	playlistStart := flags.Int("playlist-start", 1, "first one-based playlist entry to process")
+	playlistEnd := flags.Int("playlist-end", 0, "last one-based playlist entry to process (0 or -1 means all)")
+	playlistReverse := flags.Bool("playlist-reverse", false, "process the selected playlist entries in reverse order")
+	flags.BoolFunc("no-playlist-reverse", "disable inherited reverse playlist order", func(string) error {
+		*playlistReverse = false
+		return nil
+	})
 	format := flags.String("format", "", "format selector expression")
 	flags.StringVar(format, "f", "", "alias for --format")
 	var formatSort, matchFilters, parseMetadata, replaceMetadata stringListFlag
@@ -225,6 +232,7 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 			WriteManual: *writeSubtitles, WriteAutomatic: *writeAutomaticSubtitles,
 			Languages: subtitleLanguageRules(subtitleLanguages, *allSubtitles), Format: *subtitleFormat,
 		},
+		Playlist:   ytdlp.PlaylistOptions{Start: *playlistStart, End: *playlistEnd, Reverse: *playlistReverse},
 		Downloader: downloaderOptions, Postprocessors: postprocessors,
 	})
 	if telemetryCollector != nil {
