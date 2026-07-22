@@ -235,6 +235,42 @@ func TestRunWalkingSkeletonAndJSONSeparation(t *testing.T) {
 	}
 }
 
+func TestRunWritesSelectedSubtitlesWhileSkippingMedia(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := RunContext(context.Background(), []string{
+		"--output-dir", root,
+		"--skip-download",
+		"--write-subs",
+		"--sub-langs", "es,fr",
+		"--sub-format", "srt/vtt/best",
+		server.URL + "/page",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	for _, language := range []string{"es", "fr"} {
+		path := filepath.Join(root, "Deterministic Fixture."+language+".vtt")
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("subtitle %s: %v", language, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "Deterministic Fixture.bin")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("media was downloaded: %v", err)
+	}
+}
+
+func TestSubtitleLanguageRules(t *testing.T) {
+	if got := strings.Join(subtitleLanguageRules([]string{" en, ,fr ", "-en"}, false), ","); got != "en,fr,-en" {
+		t.Fatalf("rules = %q", got)
+	}
+	if got := strings.Join(subtitleLanguageRules([]string{"en"}, true), ","); got != "all" {
+		t.Fatalf("all rules = %q", got)
+	}
+}
+
 func TestRunTemplateFailure(t *testing.T) {
 	server := testserver.New()
 	defer server.Close()

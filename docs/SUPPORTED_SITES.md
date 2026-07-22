@@ -55,6 +55,8 @@ protected-playback workstream. The following are supported:
   `automatic_captions`; automatic captions are translated across every
   language YouTube advertises, while translated manual captions are
   generated only when the caller explicitly opts in;
+- bounded language/format selection and native subtitle sidecar downloads,
+  including subtitle-only operation with `--skip-download`;
 - adaptive video and audio formats recovered from the WEB player response and
   the Android / Android VR format-recovery clients; and
 - a protected-playback token provider boundary that requests PO tokens from a
@@ -72,6 +74,7 @@ The following limitations are intentional and remain:
   recovery path;
 - some protected active streams may still hit the documented EJS-helper
   timeout while the player challenge is being solved; and
+- subtitle listing and CLI conversion/embedding are not yet exposed; and
 - when a caller separately selects an adaptive video stream and an adaptive
   audio stream, they must be merged with ffmpeg (or an equivalent muxer);
   downloads that pick a single muxed format do not require ffmpeg.
