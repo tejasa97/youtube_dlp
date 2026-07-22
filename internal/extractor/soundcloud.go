@@ -27,19 +27,26 @@ const (
 	soundCloudMaxPageEntries  = 200
 	soundCloudMaxSetEntries   = 10_000
 	soundCloudMaxURLBytes     = 8 << 10
+	soundCloudMaxQueryParams  = 16
+	soundCloudMaxQueryValue   = 1024
 )
 
 var (
-	soundCloudSlugPattern     = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
-	soundCloudSetSlugPattern  = regexp.MustCompile(`^[A-Za-z0-9_:-]+$`)
-	soundCloudTokenPattern    = regexp.MustCompile(`^s-[A-Za-z0-9_-]+$`)
-	soundCloudClientIDPattern = regexp.MustCompile(`(?i)client_id\s*:\s*["']([0-9a-zA-Z]{32})["']`)
-	soundCloudScriptPattern   = regexp.MustCompile(`(?i)<script[^>]+src=["']([^"']+)["']`)
-	soundCloudCodecPattern    = regexp.MustCompile(`(?i)codecs=["']([^"']+)`)
-	soundCloudABRPattern      = regexp.MustCompile(`(?i)(\d+)k(?:_|$)`)
-	soundCloudTrackReserved   = map[string]bool{
+	soundCloudSlugPattern      = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+	soundCloudSetSlugPattern   = regexp.MustCompile(`^[A-Za-z0-9_:-]+$`)
+	soundCloudTokenPattern     = regexp.MustCompile(`^s-[A-Za-z0-9_-]+$`)
+	soundCloudClientIDPattern  = regexp.MustCompile(`(?i)client_id\s*:\s*["']([0-9a-zA-Z]{32})["']`)
+	soundCloudScriptPattern    = regexp.MustCompile(`(?i)<script[^>]+src=["']([^"']+)["']`)
+	soundCloudCodecPattern     = regexp.MustCompile(`(?i)codecs=["']([^"']+)`)
+	soundCloudABRPattern       = regexp.MustCompile(`(?i)(\d+)k(?:_|$)`)
+	soundCloudStationIDPattern = regexp.MustCompile(`^soundcloud:track-stations:(\d+)$`)
+	soundCloudTrackReserved    = map[string]bool{
 		"tracks": true, "albums": true, "sets": true, "reposts": true,
 		"likes": true, "spotlight": true, "comments": true,
+		"stations": true, "recommended": true,
+	}
+	soundCloudRelations = map[string]bool{
+		"recommended": true, "albums": true, "sets": true,
 	}
 )
 
@@ -73,6 +80,10 @@ func (extractor *SoundCloud) Extract(ctx context.Context, request Request) (Extr
 		return extractor.extractSet(ctx, request.Transport, target)
 	case soundCloudUserTracksTarget:
 		return extractor.extractUserTracks(ctx, request.Transport, target)
+	case soundCloudStationTarget:
+		return extractor.extractStation(ctx, request.Transport, target)
+	case soundCloudRelatedTarget:
+		return extractor.extractRelated(ctx, request.Transport, target)
 	default:
 		return Extraction{}, ErrUnsupported
 	}
@@ -85,17 +96,21 @@ const (
 	soundCloudSetTarget
 	soundCloudAPIPlaylistTarget
 	soundCloudUserTracksTarget
+	soundCloudStationTarget
+	soundCloudRelatedTarget
 )
 
 type soundCloudTarget struct {
-	kind        soundCloudTargetKind
-	id          string
-	canonical   string
-	secretToken string
+	kind         soundCloudTargetKind
+	id           string
+	canonical    string
+	secretToken  string
+	relation     string
+	baseTrackURL string
 }
 
 func classifySoundCloudURL(parsed *url.URL) (soundCloudTarget, bool) {
-	if parsed == nil || len(parsed.String()) > soundCloudMaxURLBytes || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Port() != "" || parsed.User != nil || strings.Contains(strings.ToLower(parsed.EscapedPath()), "%2f") {
+	if parsed == nil || len(parsed.String()) > soundCloudMaxURLBytes || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Port() != "" || parsed.User != nil || soundCloudEncodedSeparators(parsed) {
 		return soundCloudTarget{}, false
 	}
 	host := strings.ToLower(parsed.Hostname())
@@ -118,6 +133,9 @@ func classifySoundCloudURL(parsed *url.URL) (soundCloudTarget, bool) {
 	}
 	switch host {
 	case "soundcloud.com", "www.soundcloud.com", "m.soundcloud.com":
+		if len(segments) == 4 && segments[0] == "stations" && segments[1] == "track" && soundCloudSlugPattern.MatchString(segments[2]) && soundCloudSlugPattern.MatchString(segments[3]) {
+			return soundCloudTarget{kind: soundCloudStationTarget, canonical: soundCloudWebBase + strings.Join(segments, "/")}, true
+		}
 		if len(segments) == 2 && soundCloudSlugPattern.MatchString(segments[0]) && segments[1] == "tracks" {
 			return soundCloudTarget{kind: soundCloudUserTracksTarget, canonical: soundCloudWebBase + segments[0] + "/tracks"}, true
 		}
@@ -129,6 +147,14 @@ func classifySoundCloudURL(parsed *url.URL) (soundCloudTarget, bool) {
 				secret = segments[3]
 			}
 			return soundCloudTarget{kind: soundCloudSetTarget, canonical: soundCloudWebBase + strings.Join(segments, "/"), secretToken: secret}, true
+		}
+		if len(segments) == 3 && soundCloudSlugPattern.MatchString(segments[0]) && soundCloudSlugPattern.MatchString(segments[1]) && !soundCloudTrackReserved[segments[1]] && soundCloudRelations[segments[2]] {
+			return soundCloudTarget{
+				kind:         soundCloudRelatedTarget,
+				relation:     segments[2],
+				canonical:    soundCloudWebBase + strings.Join(segments, "/"),
+				baseTrackURL: soundCloudWebBase + segments[0] + "/" + segments[1],
+			}, true
 		}
 		if (len(segments) == 2 || len(segments) == 3) && soundCloudSlugPattern.MatchString(segments[0]) && soundCloudSlugPattern.MatchString(segments[1]) && !soundCloudTrackReserved[segments[1]] {
 			if len(segments) == 3 {
@@ -155,6 +181,11 @@ func classifySoundCloudURL(parsed *url.URL) (soundCloudTarget, bool) {
 		}
 	}
 	return soundCloudTarget{}, false
+}
+
+func soundCloudEncodedSeparators(parsed *url.URL) bool {
+	escaped := strings.ToLower(parsed.EscapedPath())
+	return strings.Contains(escaped, "%2f") || strings.Contains(escaped, "%5c") || strings.Contains(escaped, "%00") || strings.Contains(parsed.String(), "\x00")
 }
 
 func soundCloudNumericID(input string) string {
@@ -222,9 +253,11 @@ func (extractor *SoundCloud) extractUserTracks(ctx context.Context, transport Tr
 	if !validSoundCloudJSONID(user.ID) || strings.TrimSpace(user.Username) == "" {
 		return Extraction{}, fmt.Errorf("%w: malformed SoundCloud user", ErrInvalidMetadata)
 	}
-	firstURL := soundCloudAPIBase + "users/" + user.ID.String() + "/tracks?linked_partitioning=1&limit=200"
+	apiPath := "users/" + user.ID.String() + "/tracks"
+	firstURL := soundCloudAPIBase + apiPath + "?linked_partitioning=1&limit=200"
+	policy := soundCloudContinuationPolicy{allowedPath: "/" + apiPath}
 	sequence, err := ContinuationEntries(nil, firstURL, func(ctx context.Context, cursor string) ([]Entry, string, error) {
-		return extractor.fetchTrackPage(ctx, transport, cursor)
+		return extractor.fetchCollectionPage(ctx, transport, cursor, policy)
 	})
 	if err != nil {
 		return Extraction{}, err
@@ -238,8 +271,8 @@ func (extractor *SoundCloud) extractUserTracks(ctx context.Context, transport Tr
 	return Playlist(value.NewInfo(info), sequence)
 }
 
-func (extractor *SoundCloud) fetchTrackPage(ctx context.Context, transport Transport, cursor string) ([]Entry, string, error) {
-	validated, err := validateSoundCloudCursor(cursor)
+func (extractor *SoundCloud) fetchCollectionPage(ctx context.Context, transport Transport, cursor string, policy soundCloudContinuationPolicy) ([]Entry, string, error) {
+	validated, err := policy.validate(cursor)
 	if err != nil {
 		return nil, "", err
 	}
@@ -252,20 +285,21 @@ func (extractor *SoundCloud) fetchTrackPage(ctx context.Context, transport Trans
 	}
 	entries := make([]Entry, 0, len(page.Collection))
 	for _, item := range page.Collection {
-		for _, candidate := range []soundCloudTrack{item.soundCloudTrack, item.Track} {
-			if entry, ok := soundCloudTrackEntry(candidate, ""); ok {
-				entries = append(entries, entry)
-				goto nextItem
-			}
+		if entry, ok := soundCloudTrackEntry(item.soundCloudTrack, ""); ok {
+			entries = append(entries, entry)
+			continue
 		}
-		if entry, ok := soundCloudPlaylistEntry(item.Playlist); ok {
+		if entry, ok := soundCloudTrackEntry(item.Track, ""); ok {
+			entries = append(entries, entry)
+			continue
+		}
+		if entry, ok := soundCloudPlaylistCollectionEntry(item.Playlist); ok {
 			entries = append(entries, entry)
 		}
-	nextItem:
 	}
 	next := ""
 	if page.NextHref != "" {
-		next, err = validateSoundCloudCursor(page.NextHref)
+		next, err = policy.validate(page.NextHref)
 		if err != nil {
 			return nil, "", err
 		}
@@ -273,26 +307,114 @@ func (extractor *SoundCloud) fetchTrackPage(ctx context.Context, transport Trans
 	return entries, next, nil
 }
 
+func (extractor *SoundCloud) extractStation(ctx context.Context, transport Transport, target soundCloudTarget) (Extraction, error) {
+	endpoint := soundCloudAPIBase + "resolve?url=" + url.QueryEscape(target.canonical)
+	var station soundCloudStation
+	if err := extractor.requestJSON(ctx, transport, endpoint, &station); err != nil {
+		return Extraction{}, err
+	}
+	match := soundCloudStationIDPattern.FindStringSubmatch(station.ID)
+	if len(match) != 2 || soundCloudNumericID(match[1]) == "" {
+		return Extraction{}, fmt.Errorf("%w: malformed SoundCloud station identifier", ErrInvalidMetadata)
+	}
+	trackID := match[1]
+	if strings.TrimSpace(station.Title) == "" {
+		return Extraction{}, fmt.Errorf("%w: malformed SoundCloud station", ErrInvalidMetadata)
+	}
+	apiPath := "stations/" + station.ID + "/tracks"
+	firstURL := soundCloudAPIBase + apiPath + "?linked_partitioning=1&limit=200"
+	policy := soundCloudContinuationPolicy{allowedPath: "/" + apiPath}
+	sequence, err := ContinuationEntries(nil, firstURL, func(ctx context.Context, cursor string) ([]Entry, string, error) {
+		return extractor.fetchCollectionPage(ctx, transport, cursor, policy)
+	})
+	if err != nil {
+		return Extraction{}, err
+	}
+	info := value.NewObject(
+		value.Field{Key: "id", Value: value.String(trackID)},
+		value.Field{Key: "title", Value: value.String("Track station: " + station.Title)},
+		value.Field{Key: "webpage_url", Value: value.String(target.canonical)},
+	)
+	return Playlist(value.NewInfo(info), sequence)
+}
+
+func (extractor *SoundCloud) extractRelated(ctx context.Context, transport Transport, target soundCloudTarget) (Extraction, error) {
+	endpoint := soundCloudAPIBase + "resolve?url=" + url.QueryEscape(target.baseTrackURL)
+	var track soundCloudTrack
+	if err := extractor.requestJSON(ctx, transport, endpoint, &track); err != nil {
+		return Extraction{}, err
+	}
+	if len(track.Errors) > 0 {
+		messages := make([]string, 0, len(track.Errors))
+		for _, e := range track.Errors {
+			if e.ErrorMessage != "" {
+				messages = append(messages, e.ErrorMessage)
+			}
+		}
+		return Extraction{}, fmt.Errorf("%w: SoundCloud related: %s", ErrUnavailable, strings.Join(messages, ", "))
+	}
+	if !validSoundCloudJSONID(track.ID) || strings.TrimSpace(track.Title) == "" {
+		return Extraction{}, fmt.Errorf("%w: malformed SoundCloud track", ErrInvalidMetadata)
+	}
+	trackID := track.ID.String()
+	var apiPath, suffix string
+	switch target.relation {
+	case "recommended":
+		apiPath = "tracks/" + trackID + "/related"
+		suffix = "Recommended"
+	case "albums":
+		apiPath = "tracks/" + trackID + "/albums"
+		suffix = "Albums"
+	case "sets":
+		apiPath = "tracks/" + trackID + "/playlists_without_albums"
+		suffix = "Sets"
+	default:
+		return Extraction{}, ErrUnsupported
+	}
+	firstURL := soundCloudAPIBase + apiPath + "?linked_partitioning=1&limit=200"
+	policy := soundCloudContinuationPolicy{allowedPath: "/" + apiPath}
+	sequence, err := ContinuationEntries(nil, firstURL, func(ctx context.Context, cursor string) ([]Entry, string, error) {
+		return extractor.fetchCollectionPage(ctx, transport, cursor, policy)
+	})
+	if err != nil {
+		return Extraction{}, err
+	}
+	info := value.NewObject(
+		value.Field{Key: "id", Value: value.String(trackID)},
+		value.Field{Key: "title", Value: value.String(track.Title + " (" + suffix + ")")},
+		value.Field{Key: "webpage_url", Value: value.String(target.canonical)},
+	)
+	return Playlist(value.NewInfo(info), sequence)
+}
+
 type soundCloudTrack struct {
-	ID               json.Number    `json:"id"`
-	Title            string         `json:"title"`
-	Description      string         `json:"description"`
-	Duration         int64          `json:"duration"`
-	CreatedAt        string         `json:"created_at"`
-	PermalinkURL     string         `json:"permalink_url"`
-	ArtworkURL       string         `json:"artwork_url"`
-	License          string         `json:"license"`
-	Genre            string         `json:"genre"`
-	PlaybackCount    *int64         `json:"playback_count"`
-	LikesCount       *int64         `json:"likes_count"`
-	FavoritingsCount *int64         `json:"favoritings_count"`
-	CommentCount     *int64         `json:"comment_count"`
-	RepostsCount     *int64         `json:"reposts_count"`
-	Policy           string         `json:"policy"`
-	User             soundCloudUser `json:"user"`
-	Media            struct {
+	ID               json.Number `json:"id"`
+	Title            string      `json:"title"`
+	Description      string      `json:"description"`
+	Duration         int64       `json:"duration"`
+	CreatedAt        string      `json:"created_at"`
+	PermalinkURL     string      `json:"permalink_url"`
+	ArtworkURL       string      `json:"artwork_url"`
+	License          string      `json:"license"`
+	Genre            string      `json:"genre"`
+	PlaybackCount    *int64      `json:"playback_count"`
+	LikesCount       *int64      `json:"likes_count"`
+	FavoritingsCount *int64      `json:"favoritings_count"`
+	CommentCount     *int64      `json:"comment_count"`
+	RepostsCount     *int64      `json:"reposts_count"`
+	Policy           string      `json:"policy"`
+	Errors           []struct {
+		ErrorMessage string `json:"error_message"`
+	} `json:"errors"`
+	User  soundCloudUser `json:"user"`
+	Media struct {
 		Transcodings []soundCloudTranscoding `json:"transcodings"`
 	} `json:"media"`
+}
+
+type soundCloudStation struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
 }
 
 type soundCloudUser struct {
@@ -524,6 +646,22 @@ func soundCloudPlaylistEntry(playlist soundCloudPlaylist) (Entry, bool) {
 	return Entry{URL: playlist.PermalinkURL, ExtractorKey: "soundcloud", ID: playlist.ID.String(), Title: playlist.Title, Transparent: true}, true
 }
 
+func soundCloudPlaylistCollectionEntry(playlist soundCloudPlaylist) (Entry, bool) {
+	if !validSoundCloudJSONID(playlist.ID) {
+		return Entry{}, false
+	}
+	id := playlist.ID.String()
+	if validHTTPURL(playlist.PermalinkURL) {
+		parsed, err := url.Parse(playlist.PermalinkURL)
+		if err == nil {
+			if _, ok := classifySoundCloudURL(parsed); ok {
+				return Entry{URL: playlist.PermalinkURL, ExtractorKey: "soundcloud", ID: id, Title: playlist.Title, Transparent: true}, true
+			}
+		}
+	}
+	return Entry{URL: soundCloudAPIBase + "playlists/" + id, ExtractorKey: "soundcloud", ID: id, Title: playlist.Title, Transparent: true}, true
+}
+
 func soundCloudPlaylistInfo(playlist soundCloudPlaylist) value.Info {
 	info := value.NewObject(
 		value.Field{Key: "id", Value: value.String(playlist.ID.String())},
@@ -637,15 +775,38 @@ func soundCloudAssetURL(rawURL string) (string, bool) {
 	return resolved.String(), true
 }
 
-func validateSoundCloudCursor(rawURL string) (string, error) {
-	if len(rawURL) > soundCloudMaxURLBytes {
+type soundCloudContinuationPolicy struct {
+	allowedPath string
+}
+
+func (policy soundCloudContinuationPolicy) validate(rawURL string) (string, error) {
+	if len(rawURL) > soundCloudMaxURLBytes || strings.Contains(rawURL, "\x00") {
 		return "", fmt.Errorf("%w: invalid SoundCloud continuation", ErrInvalidPlaylist)
 	}
 	parsed, err := url.Parse(rawURL)
-	if err != nil || parsed.Scheme != "https" || parsed.Host != "api-v2.soundcloud.com" || parsed.User != nil || !strings.HasPrefix(path.Clean(parsed.Path), "/users/") {
+	if err != nil {
+		return "", fmt.Errorf("%w: invalid SoundCloud continuation", ErrInvalidPlaylist)
+	}
+	if parsed.Scheme != "https" || strings.ToLower(parsed.Hostname()) != "api-v2.soundcloud.com" || parsed.Port() != "" || parsed.User != nil || soundCloudEncodedSeparators(parsed) {
+		return "", fmt.Errorf("%w: invalid SoundCloud continuation", ErrInvalidPlaylist)
+	}
+	if path.Clean(parsed.Path) != policy.allowedPath {
 		return "", fmt.Errorf("%w: invalid SoundCloud continuation", ErrInvalidPlaylist)
 	}
 	query := parsed.Query()
+	if len(query) > soundCloudMaxQueryParams {
+		return "", fmt.Errorf("%w: invalid SoundCloud continuation", ErrInvalidPlaylist)
+	}
+	for key, values := range query {
+		if len(key) > 256 {
+			return "", fmt.Errorf("%w: invalid SoundCloud continuation", ErrInvalidPlaylist)
+		}
+		for _, v := range values {
+			if len(v) > soundCloudMaxQueryValue {
+				return "", fmt.Errorf("%w: invalid SoundCloud continuation", ErrInvalidPlaylist)
+			}
+		}
+	}
 	query.Del("client_id")
 	parsed.RawQuery = query.Encode()
 	return parsed.String(), nil

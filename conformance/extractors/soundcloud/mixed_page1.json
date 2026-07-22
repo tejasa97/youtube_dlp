@@ -1,0 +1,7 @@
+{
+  "collection": [
+    {"id": 400, "title": "Mixed Track", "permalink_url": "https://soundcloud.com/fixture-artist/mixed-track"},
+    {"playlist": {"id": 62, "title": "Mixed Playlist", "permalink_url": "https://soundcloud.com/fixture-artist/sets/mixed-playlist", "set_type": "playlist"}}
+  ],
+  "next_href": null
+}
