@@ -108,6 +108,12 @@ func (client *Client) Execute(ctx context.Context, request protocol.Request) pro
 		}
 		return protocol.FailureResponse(request.ID, code, err)
 	}
+	// Propagate the trusted wall-time ceiling to the helper via the
+	// serialized TrustedWallTimeMS field. Only requests that passed
+	// supervisor-side Trusted validation receive this grant.
+	if request.Limits.Trusted {
+		normalized.Limits.TrustedWallTimeMS = protocol.TrustedMaxWallTime.Milliseconds()
+	}
 	if normalized.Limits.MemoryBytes > client.config.MemoryBytes {
 		return protocol.FailureResponse(normalized.ID, protocol.CodeMemoryLimit, errors.New("request memory budget exceeds helper process limit"))
 	}

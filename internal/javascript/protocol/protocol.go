@@ -77,10 +77,14 @@ type Limits struct {
 	SourceBytes int64 `json:"source_bytes,omitempty"`
 	ModuleBytes int64 `json:"module_bytes,omitempty"`
 	MaxModules  int   `json:"max_modules,omitempty"`
-	// Trusted opts into the extended TrustedMaxWallTime ceiling. It is never
-	// serialized over the wire; only in-process callers (EJS preprocessing)
-	// may set it. The helper process ignores this field.
+	// Trusted opts into the extended TrustedMaxWallTime ceiling for
+	// in-process validation (supervisor side). Never serialized.
 	Trusted bool `json:"-"`
+	// TrustedWallTimeMS is the serialized wall-time ceiling granted by the
+	// supervisor for explicitly trusted operations (EJS preprocessing).
+	// The helper validates WallTimeMS against this value when present.
+	// Only the supervisor may set it; the helper never originates it.
+	TrustedWallTimeMS int64 `json:"trusted_wall_time_ms,omitempty"`
 }
 
 // Module is an explicitly supplied source module. The helper never resolves
@@ -210,6 +214,12 @@ func (limits Limits) validate() error {
 	wallTimeMax := HardMaxWallTime.Milliseconds()
 	if limits.Trusted {
 		wallTimeMax = TrustedMaxWallTime.Milliseconds()
+	} else if limits.TrustedWallTimeMS > 0 {
+		// Serialized trusted ceiling from the supervisor (helper side).
+		if limits.TrustedWallTimeMS > TrustedMaxWallTime.Milliseconds() {
+			return fmt.Errorf("trusted_wall_time_ms exceeds %d", TrustedMaxWallTime.Milliseconds())
+		}
+		wallTimeMax = limits.TrustedWallTimeMS
 	}
 	checks := []struct {
 		name       string

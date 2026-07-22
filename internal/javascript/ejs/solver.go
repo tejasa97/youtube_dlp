@@ -160,8 +160,12 @@ func (solver *Solver) getPreprocessed(ctx context.Context, id, playerHash, playe
 	solver.flight[playerHash] = inflight
 	solver.mu.Unlock()
 
-	// Execute preprocessing (only the leader reaches here).
-	preprocessed, err := solver.preprocess(ctx, id, player)
+	// Execute preprocessing detached from the leader's context so that
+	// canceling one download does not fail unrelated followers sharing
+	// the same player. The engine enforces its own wall-time budget
+	// (PreprocessWallTimeMS) independently of the caller's deadline.
+	preprocessCtx := context.WithoutCancel(ctx)
+	preprocessed, err := solver.preprocess(preprocessCtx, id, player)
 	inflight.val = preprocessed
 	inflight.err = err
 
