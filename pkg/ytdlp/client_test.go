@@ -188,6 +188,15 @@ func TestClientCategorizesMissingCookieFileAsInvalidInput(t *testing.T) {
 	}
 }
 
+func TestClientCategorizesCookieDirectoryAsInvalidInput(t *testing.T) {
+	_, err := NewClient().Run(context.Background(), Request{
+		URL: "https://example.com/media.mp4", CookieFile: t.TempDir(), SkipDownload: true,
+	})
+	if !IsCategory(err, ErrorInvalidInput) || !errors.Is(err, netscape.ErrFile) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestClientRejectsInvalidWaveTwoOptionsBeforeNetwork(t *testing.T) {
 	hits := 0
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits++ }))
