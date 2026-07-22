@@ -11,7 +11,7 @@ live-state transition, anti-bot response, or subsequent service change.
 | Extractor | Representative URL family | Principal risk coverage |
 | --- | --- | --- |
 | generic | Direct HTTP/HTTPS media | simple/direct |
-| youtube | youtube.com/watch and declared playlist corpus | playlist/API, manifest-heavy, JavaScript challenge |
+| youtube | youtube.com/watch and youtu.be, /embed, /shorts, /playlist, and channel live alias URLs | playlist/API, manifest-heavy, JavaScript challenge |
 | vimeo | vimeo.com videos | manifest-heavy |
 | twitch | twitch.tv channels | live, manifest-heavy |
 | soundcloud | soundcloud.com tracks, sets, and user-track pages | playlist/API |
@@ -38,6 +38,48 @@ live-state transition, anti-bot response, or subsequent service change.
 | bbciplayer | bbc.co.uk iPlayer episodes | playlist/API, manifest-heavy, regional |
 | ard | ardmediathek.de player and collection pages | playlist/API, manifest-heavy, regional |
 | nrk | nrk.no pages and nrk: opaque URLs | playlist/API, manifest-heavy, regional |
+
+## YouTube support boundaries
+
+The YouTube extractor's scope matches the functionality completed in the
+protected-playback workstream. The following are supported:
+
+- watch URLs (`youtube.com/watch?v=...`) and youtu.be short links;
+- embed URLs (`youtube.com/embed/...`);
+- Shorts (`youtube.com/shorts/...`);
+- playlists (`youtube.com/playlist?list=...`) including modern
+  `lockupViewModel` playlist renderers and continuation paging;
+- channel live aliases (`@handle/live`, `/channel/<id>/live`, `/user/<name>/live`,
+  `/c/<name>/live`) routed into the resolved live video;
+- manual and automatic captions exposed as `subtitles` and
+  `automatic_captions`; automatic captions are translated across every
+  language YouTube advertises, while translated manual captions are
+  generated only when the caller explicitly opts in;
+- adaptive video and audio formats recovered from the WEB player response and
+  the Android / Android VR format-recovery clients; and
+- a protected-playback token provider boundary that requests PO tokens from a
+  pluggable director for GVS, player, and subtitle contexts according to the
+  explicit provider, fetch-mode, and client policy.
+
+The following limitations are intentional and remain:
+
+- no general channel or tab enumeration (channel home, videos, shorts, and
+  community tabs are not extracted as playlists);
+- no live-from-start parity (post-live DVR segments and live rewinds are not
+  reconstructed to the original stream start);
+- authenticated Innertube coverage remains limited: `LOGIN_REQUIRED`
+  playability surfaces an authentication error rather than a signed-in
+  recovery path;
+- some protected active streams may still hit the documented EJS-helper
+  timeout while the player challenge is being solved; and
+- when a caller separately selects an adaptive video stream and an adaptive
+  audio stream, they must be merged with ffmpeg (or an equivalent muxer);
+  downloads that pick a single muxed format do not require ffmpeg.
+
+This is not a claim of full yt-dlp or full YouTube parity. Coverage is
+limited to the deterministic corpus checked into
+`conformance/extractors/youtube/` and the bounded evidence listed in
+`conformance/parity_manifest.yaml`.
 
 ## Protocol coverage
 
