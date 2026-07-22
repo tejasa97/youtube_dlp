@@ -577,6 +577,41 @@ func TestYouTubePlaylistIsLazyPagedAndMatchesPinnedShape(t *testing.T) {
 	}
 }
 
+func TestYouTubePlaylistParsesModernLockupAndContinuationViewModels(t *testing.T) {
+	page := readYouTubeFixture(t, "playlist-modern.html")
+	raw, err := extractJSONObject(page, youtubeInitialDataMarker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := parseYouTubePlaylistData(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.title != "Modern fixture playlist" || parsed.continuation != "modern-token-2" || len(parsed.entries) != 1 {
+		t.Fatalf("parsed = %#v", parsed)
+	}
+	entry := parsed.entries[0]
+	if entry.ID != "modern00001" || entry.Title != "Modern fixture video" || entry.URL != "https://www.youtube.com/watch?v=modern00001" || entry.ExtractorKey != "youtube" {
+		t.Fatalf("entry = %#v", entry)
+	}
+
+	continued, err := parseYouTubePlaylistData(readYouTubeFixture(t, "playlist-modern-continuation.json"))
+	if err != nil || len(continued.entries) != 1 || continued.entries[0].ID != "modern00002" {
+		t.Fatalf("continued = %#v, %v", continued, err)
+	}
+}
+
+func TestYouTubePlaylistLockupRejectsNonVideoAndInvalidID(t *testing.T) {
+	for _, object := range []*value.Object{
+		value.NewObject(value.Field{Key: "contentId", Value: value.String("modern00001")}, value.Field{Key: "contentType", Value: value.String("LOCKUP_CONTENT_TYPE_PLAYLIST")}),
+		value.NewObject(value.Field{Key: "contentId", Value: value.String("too-short")}, value.Field{Key: "contentType", Value: value.String("LOCKUP_CONTENT_TYPE_VIDEO")}),
+	} {
+		if entry, ok := youtubePlaylistLockupEntry(object); ok {
+			t.Fatalf("accepted lockup %#v", entry)
+		}
+	}
+}
+
 func TestYouTubePlaylistFailuresAreCategorized(t *testing.T) {
 	for _, test := range []struct {
 		name  string
@@ -656,6 +691,10 @@ func FuzzParseYouTubePlaylistData(f *testing.F) {
 		f.Add(initial)
 	}
 	f.Add(readYouTubeFixture(f, "playlist-continuation.json"))
+	if modern, err := extractJSONObject(readYouTubeFixture(f, "playlist-modern.html"), youtubeInitialDataMarker); err == nil {
+		f.Add(modern)
+	}
+	f.Add(readYouTubeFixture(f, "playlist-modern-continuation.json"))
 	f.Add([]byte(`{"metadata":{"playlistMetadataRenderer":{"title":"x"}}}`))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		if len(data) > 1<<20 {

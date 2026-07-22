@@ -25,6 +25,17 @@ HLS manifest exposure. All identifiers, metadata, cursors, keys, visitor data,
 and domains are artificial; no captured account or production response is
 stored.
 
+`playlist-modern.html` and `playlist-modern-continuation.json` extend that
+synthetic corpus with the `lockupViewModel` video and
+`continuationItemViewModel` shapes handled by the pinned reference's
+`YoutubeTabBaseInfoExtractor._extract_lockup_view_model` and
+`YoutubeBaseInfoExtractor._extract_continuation` at commit
+`aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`. The minimal field layout was also
+checked against the anonymous public single-video playlist page on 2026-07-22.
+All identifiers, text, endpoints, and continuation tokens in these fixtures are
+artificial; no production visitor data, tracking values, signed URLs, or media
+metadata is retained.
+
 `sabr-watch.html`, `android-player.json`, and `android-vr-player.json` are synthetic regression fixtures
 for URL-less `serverAbrStreamingUrl` webpage responses and native-client format
 recovery. Their response fields and client-request expectations are derived

@@ -169,15 +169,30 @@ func parseYouTubePlaylistData(data []byte) (youtubePlaylistPage, error) {
 		return youtubePlaylistPage{}, fmt.Errorf("%w: YouTube playlist root", ErrInvalidMetadata)
 	}
 	var page youtubePlaylistPage
+	seenEntries := make(map[string]struct{})
+	appendEntry := func(entry Entry, ok bool) {
+		if !ok {
+			return
+		}
+		if _, exists := seenEntries[entry.ID]; exists {
+			return
+		}
+		seenEntries[entry.ID] = struct{}{}
+		page.entries = append(page.entries, entry)
+	}
 	nodes := 0
 	err := walkOrderedJSON(root, 0, &nodes, func(key string, object *value.Object) {
 		switch key {
 		case "playlistVideoRenderer", "playlistPanelVideoRenderer":
-			if entry, ok := youtubePlaylistEntry(object); ok {
-				page.entries = append(page.entries, entry)
-			}
+			appendEntry(youtubePlaylistEntry(object))
+		case "lockupViewModel":
+			appendEntry(youtubePlaylistLockupEntry(object))
 		case "continuationItemRenderer":
 			if token := objectString(object, "continuationEndpoint", "continuationCommand", "token"); token != "" {
+				page.continuation = token
+			}
+		case "continuationItemViewModel":
+			if token := objectString(object, "continuationCommand", "innertubeCommand", "continuationCommand", "token"); token != "" {
 				page.continuation = token
 			}
 		case "nextContinuationData":
@@ -204,6 +219,21 @@ func parseYouTubePlaylistData(data []byte) (youtubePlaylistPage, error) {
 		return youtubePlaylistPage{}, err
 	}
 	return page, nil
+}
+
+func youtubePlaylistLockupEntry(viewModel *value.Object) (Entry, bool) {
+	if objectString(viewModel, "contentType") != "LOCKUP_CONTENT_TYPE_VIDEO" {
+		return Entry{}, false
+	}
+	videoID := objectString(viewModel, "contentId")
+	if !youtubeIDPattern.MatchString(videoID) {
+		return Entry{}, false
+	}
+	title := objectString(viewModel, "metadata", "lockupMetadataViewModel", "title", "content")
+	return Entry{
+		URL: "https://www.youtube.com/watch?v=" + videoID, ExtractorKey: "youtube",
+		ID: videoID, Title: title,
+	}, true
 }
 
 func youtubePlaylistEntry(renderer *value.Object) (Entry, bool) {
