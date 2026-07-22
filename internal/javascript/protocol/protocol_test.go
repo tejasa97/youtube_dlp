@@ -41,6 +41,11 @@ func TestRequestRejectsLimitsHashesModulesAndArguments(t *testing.T) {
 
 func TestTrustedWallTimeAllowance(t *testing.T) {
 	base := Request{Version: Version, ID: "walltime", Operation: OperationEvaluate, Script: "1+1"}
+	// EJS preprocessing call — the only operation eligible for trusted wall time.
+	ejsBase := Request{Version: Version, ID: "walltime-ejs", Operation: OperationCall,
+		Script: `function jsc(i){return "{}"}`, Function: "jsc",
+		Arguments: []json.RawMessage{json.RawMessage(`{}`)},
+	}
 
 	// Untrusted request at HardMaxWallTime should succeed.
 	req := withRequest(base, func(r *Request) { r.Limits.WallTimeMS = HardMaxWallTime.Milliseconds() })
@@ -54,22 +59,31 @@ func TestTrustedWallTimeAllowance(t *testing.T) {
 		t.Fatal("untrusted request above HardMaxWallTime should fail")
 	}
 
-	// Trusted request above HardMaxWallTime but within TrustedMaxWallTime should succeed.
-	req = withRequest(base, func(r *Request) {
+	// Trusted EJS call above HardMaxWallTime but within TrustedMaxWallTime should succeed.
+	req = withRequest(ejsBase, func(r *Request) {
 		r.Limits.WallTimeMS = TrustedMaxWallTime.Milliseconds()
 		r.Limits.Trusted = true
 	})
 	if _, err := req.Normalize(); err != nil {
-		t.Fatalf("trusted request at TrustedMaxWallTime should succeed: %v", err)
+		t.Fatalf("trusted EJS call at TrustedMaxWallTime should succeed: %v", err)
 	}
 
-	// Trusted request above TrustedMaxWallTime should fail.
-	req = withRequest(base, func(r *Request) {
+	// Trusted EJS call above TrustedMaxWallTime should fail.
+	req = withRequest(ejsBase, func(r *Request) {
 		r.Limits.WallTimeMS = TrustedMaxWallTime.Milliseconds() + 1
 		r.Limits.Trusted = true
 	})
 	if _, err := req.Normalize(); err == nil {
-		t.Fatal("trusted request above TrustedMaxWallTime should fail")
+		t.Fatal("trusted EJS call above TrustedMaxWallTime should fail")
+	}
+
+	// Trusted flag on a generic evaluate is stripped (restricted to EJS).
+	req = withRequest(base, func(r *Request) {
+		r.Limits.WallTimeMS = TrustedMaxWallTime.Milliseconds()
+		r.Limits.Trusted = true
+	})
+	if _, err := req.Normalize(); err == nil {
+		t.Fatal("trusted generic evaluate above HardMaxWallTime should fail (Trusted stripped)")
 	}
 
 	// Trusted flag is not serialized over the wire (json:"-").

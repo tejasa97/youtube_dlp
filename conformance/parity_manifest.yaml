@@ -340,19 +340,28 @@ capabilities:
       Compatibility is scoped to the pinned Phase 1 EJS corpus; live
       player-variant breadth and component updates remain extractor and
       upstream-delta work. The two-phase preprocess/solve split uses a
-      scoped trusted wall-time allowance (60 s) for EJS preprocessing only;
-      untrusted requests remain bounded at 30 s. The Trusted flag is
-      in-process only (json:"-"); the helper marks all received requests
-      as trusted since it is only reachable from the supervisor. The
-      preprocessed-player LRU cache (max 8) persists at the client level
-      across downloads. Concurrent cache misses are coalesced via
-      cancellation-safe singleflight (channel + select on ctx.Done()).
-      Close coordinates with active operations via WaitGroup.
+      scoped trusted wall-time allowance (60 s) for EJS preprocessing only.
+      The supervisor strips caller-provided TrustedWallTimeMS at the
+      boundary and mints the serialized grant exclusively for
+      operation=call, function="jsc" with Trusted=true. Callers cannot
+      forge the grant; generic evaluate/call requests are bounded at 30 s.
+      Normalize() additionally strips Trusted/TrustedWallTimeMS from
+      non-EJS operations as defense in depth. The preprocessed-player LRU
+      cache (max 8) persists at the client level across downloads.
+      Concurrent cache misses are coalesced via a flight-owned singleflight:
+      preprocessing runs in a dedicated goroutine; all callers select
+      between flight completion and their own context; when all waiters
+      cancel, shared preprocessing is canceled; the result is cached
+      atomically before the flight entry is removed. Close coordinates
+      with active operations via WaitGroup and gate-based serialization.
       Automated proof: TestSupervisorTrustedWallTimeCrossesProcessBoundary,
-      TestRepresentativeWorkloadUnderOldLimit,
-      TestSingleflightCoalescesPreprocessing,
-      TestSingleflightFollowerCancellation,
-      TestClientConcurrentRunAndClose.
+      TestSupervisorRejectsSpoofedTrustedWallTimeMS,
+      TestSupervisorRejectsTrustedGenericEvaluate,
+      TestSupervisorRejectsTrustedNonJSCCall,
+      TestSingleflightCanceledLeaderDoesNotFailLiveFollower,
+      TestSingleflightAllWaitersCancelCancelsPreprocessing,
+      TestSingleflightCanceledLeaderNoFollowersReturnsPromptly,
+      TestSupervisorConcurrentExecuteAndCloseDrainsActiveSolves.
       Live validation: pending (requires service conditions permitting
       protected-video extraction). Remaining deviation: no sanitized
       real 1-2 MB player fixture committed (proprietary); the generated

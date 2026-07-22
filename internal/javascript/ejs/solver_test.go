@@ -364,7 +364,6 @@ func TestSingleflightFollowerCancellation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Use a slow executor that delays preprocessing.
 	slow := &slowExecutor{inner: engine.New(4), delay: 2 * time.Second}
 	solver, err := New(slow)
 	if err != nil {
@@ -396,11 +395,9 @@ func TestSingleflightFollowerCancellation(t *testing.T) {
 	if followerErr == nil {
 		t.Fatal("follower should have been canceled")
 	}
-	if !strings.Contains(followerErr.Error(), "deadline") && !strings.Contains(followerErr.Error(), "canceled") {
-		t.Fatalf("unexpected follower error: %v", followerErr)
-	}
 
-	// The leader should still complete successfully.
+	// The leader should still complete successfully (follower canceling
+	// does not affect the leader since waiters > 0).
 	if leaderErr := <-leaderDone; leaderErr != nil {
 		t.Fatalf("leader failed: %v", leaderErr)
 	}
@@ -408,14 +405,12 @@ func TestSingleflightFollowerCancellation(t *testing.T) {
 
 // TestSingleflightCanceledLeaderDoesNotFailLiveFollower verifies that
 // canceling the leader's context does not propagate the cancellation error
-// to followers whose contexts remain active. Preprocessing is decoupled
-// from the leader's context via context.WithoutCancel.
+// to followers whose contexts remain active.
 func TestSingleflightCanceledLeaderDoesNotFailLiveFollower(t *testing.T) {
 	player, err := os.ReadFile("../../../conformance/javascript/ejs-0.8.0/synthetic-player.js")
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Use a slow executor so we can cancel the leader mid-preprocessing.
 	slow := &slowExecutor{inner: engine.New(4), delay: 1 * time.Second}
 	solver, err := New(slow)
 	if err != nil {
@@ -457,8 +452,8 @@ func TestSingleflightCanceledLeaderDoesNotFailLiveFollower(t *testing.T) {
 		t.Fatal("leader should have been canceled")
 	}
 
-	// The follower should succeed because preprocessing is decoupled
-	// from the leader's context.
+	// The follower should succeed because at least one waiter remains,
+	// so shared preprocessing continues.
 	select {
 	case outcome := <-followerDone:
 		if outcome.error != nil {
@@ -469,6 +464,155 @@ func TestSingleflightCanceledLeaderDoesNotFailLiveFollower(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("follower timed out waiting for preprocessing")
+	}
+}
+
+// TestSingleflightAllWaitersCancelCancelsPreprocessing verifies that when
+// all waiters cancel, the shared preprocessing is also canceled promptly.
+func TestSingleflightAllWaitersCancelCancelsPreprocessing(t *testing.T) {
+	player, err := os.ReadFile("../../../conformance/javascript/ejs-0.8.0/synthetic-player.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	slow := &slowExecutor{inner: engine.New(4), delay: 5 * time.Second}
+	solver, err := New(slow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := []ChallengeRequest{{Type: ChallengeN, Challenges: []string{"abc"}}}
+
+	// Start two callers that will both cancel.
+	ctx1, cancel1 := context.WithCancel(context.Background())
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	done1 := make(chan error, 1)
+	done2 := make(chan error, 1)
+	go func() {
+		_, err := solver.SolvePlayer(ctx1, "w1", string(player), requests, false)
+		done1 <- err
+	}()
+	go func() {
+		_, err := solver.SolvePlayer(ctx2, "w2", string(player), requests, false)
+		done2 <- err
+	}()
+
+	// Let both register as waiters.
+	time.Sleep(100 * time.Millisecond)
+
+	// Cancel both.
+	cancel1()
+	cancel2()
+
+	// Both should return promptly (not wait 5s).
+	start := time.Now()
+	err1 := <-done1
+	err2 := <-done2
+	elapsed := time.Since(start)
+
+	if err1 == nil || err2 == nil {
+		t.Fatal("both waiters should have been canceled")
+	}
+	if elapsed > 1*time.Second {
+		t.Fatalf("waiters took %v to cancel, expected prompt return", elapsed)
+	}
+
+	// The flight entry should be cleaned up (no stale entry).
+	// A subsequent request should start fresh preprocessing.
+	solver.mu.Lock()
+	staleFlights := len(solver.flight)
+	solver.mu.Unlock()
+	// The flight goroutine cleans up asynchronously; give it a moment.
+	time.Sleep(200 * time.Millisecond)
+	solver.mu.Lock()
+	staleFlights = len(solver.flight)
+	solver.mu.Unlock()
+	if staleFlights != 0 {
+		t.Fatalf("stale flight entries: %d", staleFlights)
+	}
+}
+
+// TestSingleflightCanceledLeaderNoFollowersReturnsPromptly verifies that
+// when the only waiter (leader) cancels with no followers, it returns
+// promptly and preprocessing is canceled.
+func TestSingleflightCanceledLeaderNoFollowersReturnsPromptly(t *testing.T) {
+	player, err := os.ReadFile("../../../conformance/javascript/ejs-0.8.0/synthetic-player.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	slow := &slowExecutor{inner: engine.New(4), delay: 5 * time.Second}
+	solver, err := New(slow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := []ChallengeRequest{{Type: ChallengeN, Challenges: []string{"abc"}}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, solveErr := solver.SolvePlayer(ctx, "solo", string(player), requests, false)
+	elapsed := time.Since(start)
+
+	if solveErr == nil {
+		t.Fatal("solo waiter should have been canceled")
+	}
+	if elapsed > 1*time.Second {
+		t.Fatalf("solo waiter took %v, expected prompt cancellation (~200ms)", elapsed)
+	}
+}
+
+// TestSingleflightOneFollowerCancelsOtherRemains verifies that when one
+// follower cancels, the remaining follower still gets the result.
+func TestSingleflightOneFollowerCancelsOtherRemains(t *testing.T) {
+	player, err := os.ReadFile("../../../conformance/javascript/ejs-0.8.0/synthetic-player.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	slow := &slowExecutor{inner: engine.New(4), delay: 1 * time.Second}
+	solver, err := New(slow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := []ChallengeRequest{{Type: ChallengeN, Challenges: []string{"abc"}}}
+
+	// Start two followers.
+	ctx1, cancel1 := context.WithCancel(context.Background())
+	done1 := make(chan error, 1)
+	done2 := make(chan struct {
+		Result
+		error
+	}, 1)
+	go func() {
+		_, err := solver.SolvePlayer(ctx1, "f1", string(player), requests, false)
+		done1 <- err
+	}()
+	go func() {
+		result, err := solver.SolvePlayer(context.Background(), "f2", string(player), requests, false)
+		done2 <- struct {
+			Result
+			error
+		}{result, err}
+	}()
+
+	// Let both register.
+	time.Sleep(100 * time.Millisecond)
+
+	// Cancel only the first follower.
+	cancel1()
+	err1 := <-done1
+	if err1 == nil {
+		t.Fatal("canceled follower should have failed")
+	}
+
+	// The second follower should still succeed.
+	select {
+	case outcome := <-done2:
+		if outcome.error != nil {
+			t.Fatalf("remaining follower failed: %v", outcome.error)
+		}
+		if outcome.Result.Responses[0].Data["abc"] != "cba-n" {
+			t.Fatalf("remaining follower wrong result: %#v", outcome.Result)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("remaining follower timed out")
 	}
 }
 

@@ -100,6 +100,11 @@ func resolveHelper(configured string) (string, error) {
 }
 
 func (client *Client) Execute(ctx context.Context, request protocol.Request) protocol.Response {
+	// Strip any caller-provided TrustedWallTimeMS at the supervisor
+	// boundary. Callers must not forge the serialized grant.
+	callerTrusted := request.Limits.Trusted
+	request.Limits.TrustedWallTimeMS = 0
+
 	normalized, err := request.Normalize()
 	if err != nil {
 		code := protocol.CodeInvalidRequest
@@ -108,10 +113,10 @@ func (client *Client) Execute(ctx context.Context, request protocol.Request) pro
 		}
 		return protocol.FailureResponse(request.ID, code, err)
 	}
-	// Propagate the trusted wall-time ceiling to the helper via the
-	// serialized TrustedWallTimeMS field. Only requests that passed
-	// supervisor-side Trusted validation receive this grant.
-	if request.Limits.Trusted {
+	// Mint the serialized trusted wall-time grant only for approved EJS
+	// preprocessing calls (operation=call, function="jsc", Trusted=true).
+	// Generic evaluate/call requests cannot obtain more than 30 s.
+	if callerTrusted && normalized.Operation == protocol.OperationCall && normalized.Function == "jsc" {
 		normalized.Limits.TrustedWallTimeMS = protocol.TrustedMaxWallTime.Milliseconds()
 	}
 	if normalized.Limits.MemoryBytes > client.config.MemoryBytes {
