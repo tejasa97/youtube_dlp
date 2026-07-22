@@ -312,6 +312,63 @@ func TestYouTubeNoCookieContextCancellation(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error from cancelled context")
 	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v; want errors.Is(err, context.Canceled)", err)
+	}
+	// Cancellation must not cause additional transport work beyond what was
+	// already in-flight. The first ReadPage should fail immediately.
+	if len(transport.reads) > 1 {
+		t.Fatalf("transport.reads = %v; expected at most 1 read before cancellation", transport.reads)
+	}
+}
+
+func TestYouTubeExtractRejectsHostilePlaylistURLs(t *testing.T) {
+	transport := &memoryTransport{pages: map[string][]byte{}}
+	for _, rawURL := range []string{
+		"ftp://www.youtube.com/playlist?list=PL_fixture",
+		"https://user@www.youtube.com/playlist?list=PL_fixture",
+		"https://user:pass@www.youtube.com/playlist?list=PL_fixture",
+		"https://www.youtube.com:443/playlist?list=PL_fixture",
+		"https://www.youtube.com:8080/playlist?list=PL_fixture",
+		"https://example.com/playlist?list=PL_fixture",
+		"https://evil-youtube.com/playlist?list=PL_fixture",
+		"https://www.youtube.com/playlist%2F?list=PL_fixture",
+		"https://www.youtube.com/playlist%5c?list=PL_fixture",
+		"https://www.youtube.com/play%00list?list=PL_fixture",
+	} {
+		_, err := NewYouTube().Extract(context.Background(), Request{
+			URL: rawURL, Transport: transport,
+		})
+		if !errors.Is(err, ErrUnsupported) {
+			t.Errorf("Extract(%q) error = %v; want ErrUnsupported", rawURL, err)
+		}
+	}
+	// Verify no transport requests were made for any hostile URL.
+	if len(transport.reads) != 0 {
+		t.Fatalf("transport.reads = %v; want empty (no requests for hostile URLs)", transport.reads)
+	}
+}
+
+func TestYouTubeExtractRejectsHostileLiveAliasURLs(t *testing.T) {
+	transport := &memoryTransport{pages: map[string][]byte{}}
+	for _, rawURL := range []string{
+		"ftp://www.youtube.com/@fixture/live",
+		"https://user@www.youtube.com/@fixture/live",
+		"https://www.youtube.com:443/@fixture/live",
+		"https://example.com/@fixture/live",
+		"https://www.youtube.com/@fix%2fture/live",
+		"https://www.youtube.com/@fix%00ture/live",
+	} {
+		_, err := NewYouTube().Extract(context.Background(), Request{
+			URL: rawURL, Transport: transport,
+		})
+		if !errors.Is(err, ErrUnsupported) {
+			t.Errorf("Extract(%q) error = %v; want ErrUnsupported", rawURL, err)
+		}
+	}
+	if len(transport.reads) != 0 {
+		t.Fatalf("transport.reads = %v; want empty (no requests for hostile URLs)", transport.reads)
+	}
 }
 
 func TestYouTubeChannelLiveAliasMatching(t *testing.T) {

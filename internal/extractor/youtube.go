@@ -67,6 +67,28 @@ func classifyYouTubeHost(parsed *url.URL) (string, youtubeHostKind) {
 	}
 }
 
+// validateYouTubeURLPolicy enforces the shared URL-security policy that every
+// YouTube route (video, playlist, live-alias) must satisfy before dispatch.
+// It rejects non-HTTP(S) schemes, userinfo, explicit ports, encoded path
+// separators (%2f, %5c), encoded NUL bytes (%00), and unrecognized hosts.
+// On success it returns the normalized host and its classification.
+func validateYouTubeURLPolicy(parsed *url.URL) (string, youtubeHostKind, error) {
+	if parsed.Scheme != "http" && parsed.Scheme != "https" && parsed.Scheme != "" {
+		return "", hostUnknown, fmt.Errorf("%w: unsupported URL scheme", ErrUnsupported)
+	}
+	if parsed.User != nil || parsed.Port() != "" {
+		return "", hostUnknown, fmt.Errorf("%w: unsupported YouTube URL form", ErrUnsupported)
+	}
+	if rawPath := strings.ToLower(parsed.EscapedPath()); strings.Contains(rawPath, "%2f") || strings.Contains(rawPath, "%5c") || strings.Contains(rawPath, "%00") {
+		return "", hostUnknown, fmt.Errorf("%w: unsupported YouTube URL form", ErrUnsupported)
+	}
+	host, kind := classifyYouTubeHost(parsed)
+	if kind == hostUnknown {
+		return "", hostUnknown, fmt.Errorf("%w: unsupported host", ErrUnsupported)
+	}
+	return host, kind, nil
+}
+
 type YouTube struct{}
 
 func NewYouTube() YouTube { return YouTube{} }
@@ -79,18 +101,28 @@ func (YouTube) Suitable(parsed *url.URL) bool {
 }
 
 func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error) {
+	// Apply the shared URL-security policy before any routing so that
+	// playlist, live-alias, and video paths cannot be reached with hostile
+	// URL forms (bad schemes, userinfo, ports, encoded separators, or
+	// unrecognized hosts).
+	parsed, parseErr := url.Parse(request.URL)
+	if parseErr != nil {
+		return Extraction{}, fmt.Errorf("%w: invalid YouTube URL", ErrUnsupported)
+	}
+	_, kind, policyErr := validateYouTubeURLPolicy(parsed)
+	if policyErr != nil {
+		return Extraction{}, policyErr
+	}
 	// Privacy-enhanced embed hosts never serve playlists or channel-live
 	// alias pages; skip those branches so parseYouTubeTarget can reject
 	// every non-/embed/ path uniformly on nocookie hosts.
-	if parsed, parseErr := url.Parse(request.URL); parseErr == nil {
-		if _, kind := classifyYouTubeHost(parsed); kind != hostNoCookie {
-			if playlistID, ok := youtubePlaylistID(request.URL); ok {
-				return extractYouTubePlaylist(ctx, request, playlistID)
-			}
-			if aliasURL, ok := youtubeChannelLiveAliasURL(request.URL); ok {
-				request.URL = aliasURL
-				return extractYouTubeChannelLiveAlias(ctx, request)
-			}
+	if kind == hostStandard {
+		if playlistID, ok := youtubePlaylistID(request.URL); ok {
+			return extractYouTubePlaylist(ctx, request, playlistID)
+		}
+		if aliasURL, ok := youtubeChannelLiveAliasURL(request.URL); ok {
+			request.URL = aliasURL
+			return extractYouTubeChannelLiveAlias(ctx, request)
 		}
 	}
 	target, err := parseYouTubeTarget(request.URL)
@@ -566,6 +598,11 @@ func resolveYouTubeURLs(ctx context.Context, request Request, webpageURL, videoI
 	}
 	solved, err := request.ChallengeSolver.SolvePlayer(ctx, "youtube-"+videoID, string(playerSource), challengeRequests, false)
 	if err != nil {
+		// Preserve context cancellation and deadline expiry so callers can
+		// observe them with errors.Is; do not recategorize as ErrChallengeSolver.
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err
+		}
 		return nil, fmt.Errorf("%w: %v", ErrChallengeSolver, err)
 	}
 	results := make(map[ejs.ChallengeType]map[string]string, len(solved.Responses))

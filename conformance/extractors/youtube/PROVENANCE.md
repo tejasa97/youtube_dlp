@@ -124,3 +124,21 @@ Deliberate deviations from the pinned reference:
 
 These deviations are documented as intentional hardening; full upstream
 URL-regex parity is not claimed.
+
+### Shared URL-policy enforcement
+
+The URL-security gates (scheme, userinfo, port, encoded separators, host
+classification) are enforced by a single `validateYouTubeURLPolicy` helper
+called at the top of `YouTube.Extract` before any route dispatch. This ensures
+video, playlist, and channel-live-alias routing all reject hostile URL forms
+consistently; no route can bypass the policy by dispatching before validation.
+Playlist dispatch additionally requires `hostStandard` classification.
+
+### Context cancellation propagation
+
+Context cancellation (`context.Canceled`) and deadline expiry
+(`context.DeadlineExceeded`) from the JavaScript challenge solver are returned
+directly without recategorization as `ErrChallengeSolver`, so callers can
+observe them with `errors.Is`. This guarantee applies to the `SolvePlayer`
+call in `resolveYouTubeURLs`; the `recoverYouTubeFormats` path already
+propagated context errors prior to this change.
