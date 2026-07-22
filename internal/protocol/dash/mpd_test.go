@@ -293,24 +293,27 @@ func TestParseSegmentBaseCoexistsWithTemplateAndList(t *testing.T) {
 	}
 }
 
-func TestParseMultiPeriodPreservesExplicitBehavior(t *testing.T) {
-	// Multi-period: each period's representations are independent. No
-	// concatenation is performed.
+func TestParseMultiPeriodPreservesPeriodIdentity(t *testing.T) {
+	// Parsing preserves each period's representations. The downloader performs
+	// compatibility matching and ordered concatenation after format selection.
 	mpd, err := Parse("https://example.test/manifest.mpd", []byte(`<MPD mediaPresentationDuration="PT4S"><Period start="PT0S" duration="PT2S"><AdaptationSet mimeType="video/mp4"><Representation id="p1v" bandwidth="1000"><BaseURL>p1.mp4</BaseURL><SegmentBase indexRange="0-99"/></Representation></AdaptationSet></Period><Period start="PT2S" duration="PT2S"><AdaptationSet mimeType="video/mp4"><Representation id="p2v" bandwidth="1000"><BaseURL>p2.mp4</BaseURL><SegmentBase indexRange="0-99"/></Representation></AdaptationSet></Period></MPD>`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Both periods produce separate representations; no concatenation.
 	if len(mpd.Representations) != 2 {
 		t.Fatalf("representations = %d", len(mpd.Representations))
 	}
 	if mpd.Representations[0].ID != "p1v" || mpd.Representations[1].ID != "p2v" {
 		t.Fatalf("IDs = %s, %s", mpd.Representations[0].ID, mpd.Representations[1].ID)
 	}
+	if mpd.PeriodCount != 2 || mpd.Representations[0].PeriodIndex != 0 || mpd.Representations[1].PeriodIndex != 1 {
+		t.Fatalf("period identity = %#v", mpd.Representations)
+	}
 }
 
 func FuzzParse(f *testing.F) {
 	f.Add("https://example.test/manifest.mpd", []byte(`<MPD mediaPresentationDuration="PT2S"><Period><AdaptationSet mimeType="video/mp4"><Representation id="v"><SegmentTemplate duration="1" media="$Number$.m4s"/></Representation></AdaptationSet></Period></MPD>`))
+	f.Add("https://example.test/manifest.mpd", []byte(`<MPD><Period id="one"><AdaptationSet contentType="video" mimeType="video/mp4"><Representation id="v1"><SegmentList><SegmentURL media="one.m4s"/></SegmentList></Representation></AdaptationSet></Period><Period id="two"><AdaptationSet contentType="video" mimeType="video/mp4"><Representation id="v2"><SegmentList><SegmentURL media="two.m4s"/></SegmentList></Representation></AdaptationSet></Period></MPD>`))
 	f.Fuzz(func(t *testing.T, rawURL string, input []byte) {
 		if len(rawURL) > 4096 || len(input) > 1<<20 {
 			t.Skip()
