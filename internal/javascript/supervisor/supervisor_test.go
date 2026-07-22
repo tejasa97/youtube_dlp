@@ -144,17 +144,17 @@ func TestSupervisorEnforcesProcessMemoryBudget(t *testing.T) {
 	}
 }
 
-// TestSupervisorTrustedWallTimeCrossesProcessBoundary verifies that an EJS
-// preprocessing call (operation=call, function="jsc") with WallTimeMS >
-// HardMaxWallTime (30 s) succeeds end-to-end through the supervisor → helper
-// pipe when the caller sets Limits.Trusted. The supervisor mints the
-// serialized TrustedWallTimeMS grant only for approved EJS calls.
+// TestSupervisorTrustedWallTimeCrossesProcessBoundary verifies that the pinned
+// EJS preprocessing call (operation=call, function="jsc", matching script hash)
+// with WallTimeMS > HardMaxWallTime (30 s) succeeds end-to-end through the
+// supervisor → helper pipe when the caller sets Limits.Trusted.
 func TestSupervisorTrustedWallTimeCrossesProcessBoundary(t *testing.T) {
-	client := newTestClient(t, helperPath)
+	script := `function jsc(input){return JSON.stringify({preprocessed:true})}`
+	client := newTrustedTestClient(t, helperPath, script)
 	defer client.Close()
 
 	// EJS preprocessing call with 45 s wall time (exceeds 30 s untrusted).
-	request := ejsCallRequest("trusted-e2e", `function jsc(input){return JSON.stringify({preprocessed:true})}`)
+	request := ejsCallRequest("trusted-e2e", script)
 	request.Limits.WallTimeMS = 45_000
 	request.Limits.Trusted = true
 
@@ -259,6 +259,31 @@ func TestSupervisorRejectsTrustedNonJSCCall(t *testing.T) {
 	}
 }
 
+// TestSupervisorRejectsArbitraryJSCScript verifies that an arbitrary script
+// defining "jsc" does NOT receive the extended allowance when the supervisor
+// is configured with a different TrustedScriptHash. Only the pinned bundled
+// EJS script hash qualifies.
+func TestSupervisorRejectsArbitraryJSCScript(t *testing.T) {
+	// Supervisor trusts a different script (simulating the pinned EJS hash).
+	pinnedScript := `function jsc(input){return "pinned"}`
+	client := newTrustedTestClient(t, helperPath, pinnedScript)
+	defer client.Close()
+
+	// Attacker sends a different script that also defines "jsc".
+	attackerScript := `function jsc(input){while(true){}}`
+	request := ejsCallRequest("attacker", attackerScript)
+	request.Limits.WallTimeMS = 45_000
+	request.Limits.Trusted = true
+
+	response := client.Execute(context.Background(), request)
+	if response.Error == nil {
+		t.Fatal("expected arbitrary jsc script to be rejected for extended wall time")
+	}
+	if response.Error.Code != protocol.CodeInvalidRequest {
+		t.Fatalf("expected invalid_request, got %s", response.Error.Code)
+	}
+}
+
 // TestSupervisorConcurrentExecuteAndCloseDrainsActiveSolves verifies that
 // Close blocks until in-flight JavaScript executions complete, then
 // terminates the helper process. Uses a slow script to guarantee execution
@@ -275,10 +300,11 @@ func TestSupervisorConcurrentExecuteAndCloseDrainsActiveSolves(t *testing.T) {
 		}
 		proc := client.command.Process
 
-		// Launch a slow JavaScript execution (~300ms busy loop).
+		// Launch a fixed-time JavaScript execution (~300ms via Date.now).
+		// This is portable and hardware-independent.
 		activeDone := make(chan protocol.Response, 1)
 		go func() {
-			request := evaluateRequest("slow", "var x=0;for(var i=0;i<5000000;i++){x+=i%7}x")
+			request := evaluateRequest("slow", "var t=Date.now()+300;while(Date.now()<t){}42")
 			request.Limits.WallTimeMS = 30_000
 			activeDone <- client.Execute(context.Background(), request)
 		}()
@@ -319,6 +345,20 @@ func TestSupervisorConcurrentExecuteAndCloseDrainsActiveSolves(t *testing.T) {
 func newTestClient(t *testing.T, path string) *Client {
 	t.Helper()
 	client, err := New(Config{Path: path, MemoryBytes: 128 << 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return client
+}
+
+// newTrustedTestClient creates a supervisor that trusts the given script for
+// extended wall-time grants. The TrustedScriptHash is computed from the script.
+func newTrustedTestClient(t *testing.T, path, script string) *Client {
+	t.Helper()
+	client, err := New(Config{
+		Path: path, MemoryBytes: 128 << 20,
+		TrustedScriptHash: protocol.HashScript(script),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

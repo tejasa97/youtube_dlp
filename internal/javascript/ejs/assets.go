@@ -8,6 +8,8 @@ import (
 	"sync"
 
 	"golang.org/x/crypto/sha3"
+
+	"github.com/ytdlp-go/ytdlp/internal/javascript/protocol"
 )
 
 const (
@@ -51,6 +53,17 @@ func bundledScript() (string, error) {
 		return "", err
 	}
 	return canonicalEmbeddedScript(libraryScript) + "\nObject.assign(globalThis, lib);\n" + canonicalEmbeddedScript(coreScript), nil
+}
+
+// BundledScriptHash returns the SHA-256 hash of the pinned EJS solver script.
+// The supervisor uses this to validate that only the authentic bundled script
+// receives the extended trusted wall-time allowance.
+func BundledScriptHash() (string, error) {
+	script, err := bundledScript()
+	if err != nil {
+		return "", err
+	}
+	return protocol.HashScript(script), nil
 }
 
 // canonicalEmbeddedScript reverses Git's Windows checkout conversion before
