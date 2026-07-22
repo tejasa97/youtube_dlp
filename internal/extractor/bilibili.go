@@ -293,7 +293,7 @@ func bilibiliFormats(play bilibiliPlayinfo) []value.Value {
 		if !validHTTPURL(raw) {
 			continue
 		}
-		f := value.NewObject(value.Field{Key: "format_id", Value: value.String("dash-audio-" + strconv.FormatInt(a.ID, 10))}, value.Field{Key: "url", Value: value.String(raw)}, value.Field{Key: "ext", Value: value.String(bilibiliMIMEExt(a.MimeType, a.MimeTypeAlt, "m4a"))}, value.Field{Key: "vcodec", Value: value.String("none")}, value.Field{Key: "protocol", Value: value.String("https")})
+		f := value.NewObject(value.Field{Key: "format_id", Value: value.String("dash-audio-" + strconv.FormatInt(a.ID, 10))}, value.Field{Key: "url", Value: value.String(raw)}, value.Field{Key: "ext", Value: value.String(bilibiliMIMEExt(a.MimeType, a.MimeTypeAlt, "m4a"))}, value.Field{Key: "vcodec", Value: value.String("none")}, value.Field{Key: "acodec", Value: value.String(bilibiliCodec(a.Codecs))}, value.Field{Key: "protocol", Value: value.String("https")})
 		if a.Bandwidth > 0 {
 			f.Set("abr", value.Float(float64(a.Bandwidth)/1000))
 		}
@@ -304,7 +304,7 @@ func bilibiliFormats(play bilibiliPlayinfo) []value.Value {
 		if !validHTTPURL(raw) {
 			continue
 		}
-		f := value.NewObject(value.Field{Key: "format_id", Value: value.String("dash-video-" + strconv.FormatInt(v.ID, 10))}, value.Field{Key: "url", Value: value.String(raw)}, value.Field{Key: "ext", Value: value.String(bilibiliMIMEExt(v.MimeType, v.MimeTypeAlt, "mp4"))}, value.Field{Key: "acodec", Value: value.String("none")}, value.Field{Key: "protocol", Value: value.String("https")})
+		f := value.NewObject(value.Field{Key: "format_id", Value: value.String("dash-video-" + strconv.FormatInt(v.ID, 10))}, value.Field{Key: "url", Value: value.String(raw)}, value.Field{Key: "ext", Value: value.String(bilibiliMIMEExt(v.MimeType, v.MimeTypeAlt, "mp4"))}, value.Field{Key: "vcodec", Value: value.String(bilibiliCodec(v.Codecs))}, value.Field{Key: "acodec", Value: value.String("none")}, value.Field{Key: "protocol", Value: value.String("https")})
 		setPositiveInt(f, "width", v.Width)
 		setPositiveInt(f, "height", v.Height)
 		if v.Bandwidth > 0 {
@@ -322,6 +322,17 @@ func bilibiliFormats(play bilibiliPlayinfo) []value.Value {
 	}
 	return out
 }
+
+// Bilibili's DASH media kind is authoritative even when a response omits the
+// codec name. Keep that distinction explicit so adaptive selectors do not
+// mistake a known audio-only or video-only track for an untyped format.
+func bilibiliCodec(codec string) string {
+	if codec = strings.TrimSpace(codec); codec != "" {
+		return codec
+	}
+	return "unknown"
+}
+
 func bilibiliDashURL(d bilibiliDash) string {
 	if d.BaseURL != "" {
 		return d.BaseURL
