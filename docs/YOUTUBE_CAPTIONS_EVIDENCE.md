@@ -33,10 +33,15 @@ player token can make its separate GVS token optional. Required requests under
 the explicit `never` fetch policy now return the documented unavailable result
 instead of silently looking successful.
 
+The common product pipeline now selects and writes manual and automatic
+caption sidecars through the native downloader. CLI and embedding behavior,
+including language/format rules and `--skip-download`, is documented in
+[YouTube subtitle CLI evidence](YOUTUBE_SUBTITLE_CLI_EVIDENCE.md).
+
 ## Explicit deviations
 
-- Caption metadata is extracted, but the project does not yet expose yt-dlp's
-  full CLI subtitle-selection and write flags.
+- Subtitle listing, CLI conversion/embedding, and inline extractor-provided
+  subtitle data remain outside the completed sidecar scope.
 - Authenticated/Premium client policy, live-chat captions, and caption renderer
   variants outside `playerCaptionsTracklistRenderer` remain pending.
 - No built-in PO-token generator or Python fallback is introduced.

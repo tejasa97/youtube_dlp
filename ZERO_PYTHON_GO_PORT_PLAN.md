@@ -1,9 +1,17 @@
 # Zero-Python yt-dlp Go Port Plan
 
-Status: Draft  
-Date: 2026-07-17  
-Related assessment: [GO_PORT_EVALUATION.md](./GO_PORT_EVALUATION.md)  
-Initial reference: [`yt-dlp/yt-dlp@aefce1ee`](https://github.com/yt-dlp/yt-dlp/tree/aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8)
+- Status: Active program; Phases 0–3 repository implementation complete, with
+  external gate evidence and full capability parity still open
+- Date: 2026-07-17
+- Last reconciled: 2026-07-22
+- Related assessment: [GO_PORT_EVALUATION.md](./GO_PORT_EVALUATION.md)
+- Initial reference: [`yt-dlp/yt-dlp@aefce1ee`](https://github.com/yt-dlp/yt-dlp/tree/aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8)
+
+Phase plans and exit reviews record the completed repository gates. This
+program remains active because the full upstream extractor and user-workflow
+surface is substantially larger than the currently declared compatibility
+corpus, and Gates G2/G3 still require the external evidence identified by their
+exit reviews.
 
 ## 1. Objective
 
