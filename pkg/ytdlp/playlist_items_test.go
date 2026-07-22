@@ -215,6 +215,13 @@ func TestPlaylistItemsValidation(t *testing.T) {
 	}
 }
 
+func TestPlaylistItemsIteratorFactoryPreservesValidationCause(t *testing.T) {
+	_, err := newPlaylistEntryIterator(extractor.StaticEntries().Iterator(), PlaylistOptions{Items: "1::0"})
+	if !errors.Is(err, errInvalidPlaylistItems) {
+		t.Fatalf("iterator factory error = %v; want playlist-items cause", err)
+	}
+}
+
 func FuzzPlaylistItemsParserAndExpansion(f *testing.F) {
 	for _, seed := range []string{"2,4", "2-4,3", "::-1", "-15::2", "1:inf:2", "0--2:2"} {
 		f.Add(seed, uint8(10))
