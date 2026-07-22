@@ -87,6 +87,8 @@ func TestYouTubeSuitableAndVideoID(t *testing.T) {
 		"https://m.youtube.com/shorts/fixture0001",
 		"https://youtube.com/embed/fixture0001",
 		"https://youtube.com/live/fixture0001",
+		"https://www.youtube-nocookie.com/embed/fixture0001",
+		"https://youtube-nocookie.com/embed/fixture0001",
 	} {
 		parsed, err := url.Parse(rawURL)
 		if err != nil || !extractor.Suitable(parsed) {
@@ -99,18 +101,216 @@ func TestYouTubeSuitableAndVideoID(t *testing.T) {
 	if id, ok := youtubePlaylistID("https://www.youtube.com/playlist?list=PL_fixture"); !ok || id != "PL_fixture" {
 		t.Fatalf("youtubePlaylistID() = %q, %v", id, ok)
 	}
-	parsed, _ := url.Parse("https://example.com/watch?v=fixture0001")
-	if extractor.Suitable(parsed) {
-		t.Fatal("non-YouTube host is suitable")
+	for _, rawURL := range []string{
+		"https://example.com/watch?v=fixture0001",
+		"https://www.youtube-nocookie.com.evil.example/embed/fixture0001",
+		"https://evil-youtube-nocookie.com/embed/fixture0001",
+		"https://attacker.youtube-nocookie.com/embed/fixture0001",
+	} {
+		parsed, _ := url.Parse(rawURL)
+		if extractor.Suitable(parsed) {
+			t.Fatalf("Suitable(%q) = true, want false", rawURL)
+		}
 	}
 	for _, rawURL := range []string{
 		"https://www.youtube.com/watch?v=short",
 		"https://www.youtube.com/playlist?list=fixture0001",
 		"https://youtu.be/fixture0001/extra",
+		"https://www.youtube-nocookie.com/embed/short",
 	} {
 		if _, err := youtubeVideoID(rawURL); !errors.Is(err, ErrUnsupported) {
 			t.Fatalf("youtubeVideoID(%q) error = %v", rawURL, err)
 		}
+	}
+}
+
+func TestYouTubeNoCookieSuitable(t *testing.T) {
+	extractor := NewYouTube()
+	for _, rawURL := range []string{
+		"https://www.youtube-nocookie.com/embed/fixture0001",
+		"https://youtube-nocookie.com/embed/fixture0001",
+		"http://www.youtube-nocookie.com/embed/fixture0001",
+		"http://youtube-nocookie.com/embed/fixture0001",
+		"//www.youtube-nocookie.com/embed/fixture0001",
+	} {
+		parsed, err := url.Parse(rawURL)
+		if err != nil {
+			t.Fatalf("parse(%q): %v", rawURL, err)
+		}
+		if !extractor.Suitable(parsed) {
+			t.Errorf("Suitable(%q) = false; want true", rawURL)
+		}
+	}
+	for _, rawURL := range []string{
+		"https://attacker.youtube-nocookie.com/embed/fixture0001",
+		"https://youtube-nocookie.com.evil.example/embed/fixture0001",
+		"https://evil-youtube-nocookie.com/embed/fixture0001",
+		"https://notyoutube-nocookie.com/embed/fixture0001",
+		"https://youtube-nocookie.com.attacker.com/embed/fixture0001",
+	} {
+		parsed, err := url.Parse(rawURL)
+		if err != nil {
+			t.Fatalf("parse(%q): %v", rawURL, err)
+		}
+		if extractor.Suitable(parsed) {
+			t.Errorf("Suitable(%q) = true; want false (lookalike)", rawURL)
+		}
+	}
+}
+
+func TestYouTubeNoCookieParseTarget(t *testing.T) {
+	t.Run("accepted", func(t *testing.T) {
+		for _, test := range []struct {
+			url              string
+			start, end       float64
+			hasStart, hasEnd bool
+		}{
+			{"https://www.youtube-nocookie.com/embed/fixture0001", 0, 0, false, false},
+			{"https://youtube-nocookie.com/embed/fixture0001", 0, 0, false, false},
+			{"http://www.youtube-nocookie.com/embed/fixture0001", 0, 0, false, false},
+			{"http://youtube-nocookie.com/embed/fixture0001", 0, 0, false, false},
+			{"//www.youtube-nocookie.com/embed/fixture0001", 0, 0, false, false},
+			{"https://www.youtube-nocookie.com/embed/fixture0001?t=10&end=20", 10, 20, true, true},
+			{"https://www.youtube-nocookie.com/embed/fixture0001#t=1h2m&end=2h", 3720, 7200, true, true},
+		} {
+			target, err := parseYouTubeTarget(test.url)
+			if err != nil {
+				t.Fatalf("parseYouTubeTarget(%q): %v", test.url, err)
+			}
+			if target.videoID != "fixture0001" {
+				t.Fatalf("parseYouTubeTarget(%q).videoID = %q", test.url, target.videoID)
+			}
+			if (target.startTime != nil) != test.hasStart || (target.endTime != nil) != test.hasEnd {
+				t.Fatalf("parseYouTubeTarget(%q) start/end presence mismatch: %#v", test.url, target)
+			}
+			if target.startTime != nil && *target.startTime != test.start {
+				t.Fatalf("parseYouTubeTarget(%q).startTime = %v, want %v", test.url, *target.startTime, test.start)
+			}
+			if target.endTime != nil && *target.endTime != test.end {
+				t.Fatalf("parseYouTubeTarget(%q).endTime = %v, want %v", test.url, *target.endTime, test.end)
+			}
+		}
+	})
+
+	t.Run("unsupported-routes", func(t *testing.T) {
+		for _, rawURL := range []string{
+			"https://www.youtube-nocookie.com/watch?v=fixture0001",
+			"https://www.youtube-nocookie.com/shorts/fixture0001",
+			"https://www.youtube-nocookie.com/live/fixture0001",
+			"https://www.youtube-nocookie.com/channel/UCfixture_channel_00001",
+			"https://www.youtube-nocookie.com/@fixture/live",
+			"https://www.youtube-nocookie.com/playlist?list=PL_fixture",
+			"https://www.youtube-nocookie.com/c/fixture-name/live",
+			"https://www.youtube-nocookie.com/user/fixture.name/live",
+		} {
+			if _, err := parseYouTubeTarget(rawURL); !errors.Is(err, ErrUnsupported) {
+				t.Errorf("parseYouTubeTarget(%q): err = %v; want ErrUnsupported", rawURL, err)
+			}
+		}
+	})
+
+	t.Run("path-shape-rejected", func(t *testing.T) {
+		for _, rawURL := range []string{
+			"https://www.youtube-nocookie.com/embed/fixture0001/",
+			"https://www.youtube-nocookie.com//embed/fixture0001",
+			"https://www.youtube-nocookie.com/embed//fixture0001",
+			"https://www.youtube-nocookie.com/embed/fixture0001/extra",
+		} {
+			if _, err := parseYouTubeTarget(rawURL); !errors.Is(err, ErrUnsupported) {
+				t.Errorf("parseYouTubeTarget(%q): err = %v; want ErrUnsupported", rawURL, err)
+			}
+		}
+	})
+
+	t.Run("host-confusion-rejected", func(t *testing.T) {
+		for _, rawURL := range []string{
+			"https://evil-youtube-nocookie.com/embed/fixture0001",
+			"https://youtube-nocookie.com.evil.example/embed/fixture0001",
+			"https://attacker.youtube-nocookie.com/embed/fixture0001",
+			"https://example.com/embed/fixture0001",
+			"https://example.com/watch?v=fixture0001",
+		} {
+			if _, err := parseYouTubeTarget(rawURL); !errors.Is(err, ErrUnsupported) {
+				t.Errorf("parseYouTubeTarget(%q): err = %v; want ErrUnsupported", rawURL, err)
+			}
+		}
+	})
+
+	t.Run("hostile-forms-rejected", func(t *testing.T) {
+		for _, rawURL := range []string{
+			"https://user@www.youtube-nocookie.com/embed/fixture0001",
+			"https://user:pass@www.youtube-nocookie.com/embed/fixture0001",
+			"https://www.youtube-nocookie.com:443/embed/fixture0001",
+			"https://www.youtube-nocookie.com:8080/embed/fixture0001",
+			"ftp://www.youtube-nocookie.com/embed/fixture0001",
+			"file:///etc/passwd",
+			"https://www.youtube-nocookie.com/embed/fixture0001%2Fextra",
+			"https://www.youtube-nocookie.com/embed/fixture0001%5cextra",
+			"https://www.youtube-nocookie.com/embed/fix%00ture0001",
+			"https://www.youtube-nocookie.com/embed/short",
+		} {
+			if _, err := parseYouTubeTarget(rawURL); !errors.Is(err, ErrUnsupported) {
+				t.Errorf("parseYouTubeTarget(%q): err = %v; want ErrUnsupported", rawURL, err)
+			}
+		}
+	})
+}
+
+func TestYouTubeNoCookieDeterministicExtraction(t *testing.T) {
+	watch := readYouTubeFixture(t, "watch.html")
+	player := readYouTubeFixture(t, "../../javascript/ejs-0.8.0/synthetic-player.js")
+	solver, err := ejs.New(engine.New(4))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const embedURL = "https://www.youtube-nocookie.com/embed/fixture0001"
+	transport := &memoryTransport{pages: map[string][]byte{
+		youtubeFixtureURL: watch,
+		youtubePlayerURL:  player,
+		// Register the embed URL so any accidental fetch is visible.
+		embedURL: watch,
+	}}
+	result, err := NewYouTube().Extract(context.Background(), Request{
+		URL: embedURL, Transport: transport, ChallengeSolver: solver,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id, _ := result.Info.ID(); id != "fixture0001" {
+		t.Fatalf("id = %q", id)
+	}
+	if rawURL, _ := result.Info.Lookup("webpage_url").StringValue(); rawURL != youtubeFixtureURL {
+		t.Fatalf("webpage_url = %q; want %q", rawURL, youtubeFixtureURL)
+	}
+	formats, _ := result.Info.Formats()
+	if len(formats) == 0 {
+		t.Fatal("formats = 0")
+	}
+	// The nocookie URL must never be fetched; only canonical watch + player JS.
+	wantReads := []string{youtubeFixtureURL, youtubePlayerURL}
+	if !reflect.DeepEqual(transport.reads, wantReads) {
+		t.Fatalf("reads = %v; want %v", transport.reads, wantReads)
+	}
+}
+
+func TestYouTubeNoCookieContextCancellation(t *testing.T) {
+	watch := readYouTubeFixture(t, "watch.html")
+	player := readYouTubeFixture(t, "../../javascript/ejs-0.8.0/synthetic-player.js")
+	solver, err := ejs.New(engine.New(4))
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := &memoryTransport{pages: map[string][]byte{
+		youtubeFixtureURL: watch,
+		youtubePlayerURL:  player,
+	}}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+	_, err = NewYouTube().Extract(ctx, Request{
+		URL: "https://www.youtube-nocookie.com/embed/fixture0001", Transport: transport, ChallengeSolver: solver,
+	})
+	if err == nil {
+		t.Fatal("expected error from cancelled context")
 	}
 }
 
@@ -889,11 +1089,36 @@ func FuzzDiscoverYouTubePageConfig(f *testing.F) {
 func FuzzParseYouTubeTarget(f *testing.F) {
 	f.Add("https://www.youtube.com/watch?v=fixture0001&t=1s&end=9")
 	f.Add("https://youtu.be/fixture0001#t=1h2m3s")
+	// Privacy-enhanced embed seeds.
+	f.Add("https://www.youtube-nocookie.com/embed/fixture0001")
+	f.Add("https://youtube-nocookie.com/embed/fixture0001")
+	f.Add("//www.youtube-nocookie.com/embed/fixture0001")
+	f.Add("https://www.youtube-nocookie.com/embed/fixture0001?t=10&end=20")
+	f.Add("https://www.youtube-nocookie.com/embed/fixture0001#t=1h2m&end=2h")
+	// Hostile and negative seeds.
+	f.Add("https://www.youtube-nocookie.com/embed/short")
+	f.Add("https://www.youtube-nocookie.com/watch?v=fixture0001")
+	f.Add("https://www.youtube-nocookie.com/embed/fixture0001/extra")
+	f.Add("https://user:pass@www.youtube-nocookie.com/embed/fixture0001")
+	f.Add("https://www.youtube-nocookie.com:443/embed/fixture0001")
+	f.Add("ftp://www.youtube-nocookie.com/embed/fixture0001")
+	f.Add("https://www.youtube-nocookie.com/embed%2Ffixture0001")
+	f.Add("https://evil-youtube-nocookie.com/embed/fixture0001")
+	f.Add("https://example.com/embed/fixture0001")
 	f.Fuzz(func(t *testing.T, rawURL string) {
 		if len(rawURL) > 4096 {
 			t.Skip()
 		}
-		_, _ = parseYouTubeTarget(rawURL)
+		target, err := parseYouTubeTarget(rawURL)
+		if err == nil {
+			if !youtubeIDPattern.MatchString(target.videoID) {
+				t.Fatalf("parseYouTubeTarget(%q) returned invalid ID %q", rawURL, target.videoID)
+			}
+		} else {
+			if !errors.Is(err, ErrUnsupported) {
+				t.Fatalf("parseYouTubeTarget(%q) error = %v, want ErrUnsupported", rawURL, err)
+			}
+		}
 	})
 }
 

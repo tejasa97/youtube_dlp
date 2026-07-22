@@ -81,3 +81,46 @@ and the `subs` token query fields `pot`, `potc`, and `c`. The `xpe`/`xpv`
 required-token expectation follows the pinned caption experiment check. All
 names, language entries, visitor data, media URLs, and base64url tokens are
 artificial; the fixture is never used to request YouTube caption content.
+
+## Privacy-Enhanced Embed URL Support (youtube-nocookie.com)
+
+Behavioral reference: `YoutubeIE._VALID_URL` and `YoutubeIE._EMBED_REGEX` in
+`yt_dlp/extractor/youtube/_video.py` at pinned commit
+`aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`.
+
+The pinned reference accepts youtube-nocookie.com via the broad
+`(?:\w+\.)?[yY][oO][uU][tT][uU][bB][eE](?:-nocookie|kids)?\.com` host pattern
+combined with the multi-path alternation (`v/`, `embed/`, `e/`, `shorts/`,
+`live/`, `watch?v=`). The Go implementation intentionally deviates with a
+narrower, security-conscious policy:
+
+Accepted URL forms:
+
+- `https://www.youtube-nocookie.com/embed/<11-char-video-id>`
+- `https://youtube-nocookie.com/embed/<11-char-video-id>`
+- `http://www.youtube-nocookie.com/embed/<11-char-video-id>`
+- `http://youtube-nocookie.com/embed/<11-char-video-id>`
+- `//www.youtube-nocookie.com/embed/<11-char-video-id>` (protocol-relative)
+
+Query and fragment `t`/`start`/`end` offsets are preserved using the existing
+`parseYouTubeOffset` machinery. Extraction canonicalizes to
+`https://www.youtube.com/watch?v=<id>` and never fetches the nocookie URL.
+
+Deliberate deviations from the pinned reference:
+
+1. Host allowlist is exact apex (`youtube-nocookie.com`) and `www` only;
+   wildcard subdomains (e.g. `m.youtube-nocookie.com`) are rejected.
+2. Only the `/embed/<id>` path shape is accepted on nocookie hosts; `v/`,
+   `e/`, `shorts/`, `live/`, `watch?v=`, and all other routes are rejected
+   with the categorized `ErrUnsupported` boundary.
+3. Userinfo (`user@host`, `user:pass@host`), explicit ports (`:443`, `:8080`),
+   and non-HTTP(S) schemes (`ftp:`, `file:`, `data:`) are unconditionally
+   rejected on all YouTube hosts.
+4. Encoded path separators (`%2f`, `%5c`) and NUL bytes (`%00`) are rejected
+   as defense-in-depth, even though `net/url` does not reject them.
+5. Lookalike and suffix-confusion hosts (`evil-youtube-nocookie.com`,
+   `youtube-nocookie.com.evil.example`, `attacker.youtube-nocookie.com`) are
+   rejected by exact string comparison rather than regex wildcard.
+
+These deviations are documented as intentional hardening; full upstream
+URL-regex parity is not claimed.

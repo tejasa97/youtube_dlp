@@ -37,6 +37,36 @@ type youtubePageConfig struct {
 	} `json:"WEB_PLAYER_CONTEXT_CONFIGS"`
 }
 
+// youtubeHostKind classifies a parsed URL host into one of three categories.
+// Both Suitable and parseYouTubeTarget use classifyYouTubeHost so the two
+// views of the host policy cannot drift apart.
+type youtubeHostKind int
+
+const (
+	hostUnknown  youtubeHostKind = iota // unrecognized host
+	hostStandard                        // youtube.com, *.youtube.com, youtu.be
+	hostNoCookie                        // youtube-nocookie.com, www.youtube-nocookie.com
+)
+
+// classifyYouTubeHost lower-cases the hostname of parsed (stripping any
+// trailing dot) and returns the normalized host string together with its
+// classification. Only the exact apex and www nocookie hosts are recognized;
+// subdomains, lookalikes, and suffix-confusion domains yield hostUnknown.
+func classifyYouTubeHost(parsed *url.URL) (string, youtubeHostKind) {
+	if parsed == nil {
+		return "", hostUnknown
+	}
+	host := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
+	switch {
+	case host == "youtube.com" || strings.HasSuffix(host, ".youtube.com") || host == "youtu.be":
+		return host, hostStandard
+	case host == "youtube-nocookie.com" || host == "www.youtube-nocookie.com":
+		return host, hostNoCookie
+	default:
+		return host, hostUnknown
+	}
+}
+
 type YouTube struct{}
 
 func NewYouTube() YouTube { return YouTube{} }
@@ -44,17 +74,24 @@ func NewYouTube() YouTube { return YouTube{} }
 func (YouTube) Name() string { return "youtube" }
 
 func (YouTube) Suitable(parsed *url.URL) bool {
-	host := strings.ToLower(parsed.Hostname())
-	return host == "youtube.com" || strings.HasSuffix(host, ".youtube.com") || host == "youtu.be"
+	_, kind := classifyYouTubeHost(parsed)
+	return kind != hostUnknown
 }
 
 func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error) {
-	if playlistID, ok := youtubePlaylistID(request.URL); ok {
-		return extractYouTubePlaylist(ctx, request, playlistID)
-	}
-	if aliasURL, ok := youtubeChannelLiveAliasURL(request.URL); ok {
-		request.URL = aliasURL
-		return extractYouTubeChannelLiveAlias(ctx, request)
+	// Privacy-enhanced embed hosts never serve playlists or channel-live
+	// alias pages; skip those branches so parseYouTubeTarget can reject
+	// every non-/embed/ path uniformly on nocookie hosts.
+	if parsed, parseErr := url.Parse(request.URL); parseErr == nil {
+		if _, kind := classifyYouTubeHost(parsed); kind != hostNoCookie {
+			if playlistID, ok := youtubePlaylistID(request.URL); ok {
+				return extractYouTubePlaylist(ctx, request, playlistID)
+			}
+			if aliasURL, ok := youtubeChannelLiveAliasURL(request.URL); ok {
+				request.URL = aliasURL
+				return extractYouTubeChannelLiveAlias(ctx, request)
+			}
+		}
 	}
 	target, err := parseYouTubeTarget(request.URL)
 	if err != nil {
@@ -634,21 +671,59 @@ type youtubeTarget struct {
 	startSet, endSet   bool
 }
 
+// youtubeNoCookieEmbedPath is the literal path prefix that privacy-enhanced
+// embeds require. The path must be exactly "/embed/" + an 11-character ID;
+// trailing slashes, doubled separators, empty segments, and extra components
+// are rejected.
+const youtubeNoCookieEmbedPath = "/embed/"
+
 func parseYouTubeTarget(rawURL string) (youtubeTarget, error) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
 		return youtubeTarget{}, fmt.Errorf("%w: invalid YouTube URL", ErrUnsupported)
 	}
+	// Scheme gate: accept http, https, and protocol-relative (empty scheme).
+	// Any other scheme (ftp, file, data, etc.) is rejected at the boundary.
+	if parsed.Scheme != "http" && parsed.Scheme != "https" && parsed.Scheme != "" {
+		return youtubeTarget{}, fmt.Errorf("%w: unsupported URL scheme", ErrUnsupported)
+	}
+	// Userinfo and explicit ports are always rejected; they are common
+	// hostile vectors and the pinned reference never produces them.
+	if parsed.User != nil || parsed.Port() != "" {
+		return youtubeTarget{}, fmt.Errorf("%w: unsupported YouTube URL form", ErrUnsupported)
+	}
+	// Encoded path separators and NULs: defense in depth. url.Parse does
+	// not reject these; EscapedPath is the raw form.
+	if rawPath := strings.ToLower(parsed.EscapedPath()); strings.Contains(rawPath, "%2f") || strings.Contains(rawPath, "%5c") || strings.Contains(rawPath, "%00") {
+		return youtubeTarget{}, fmt.Errorf("%w: unsupported YouTube URL form", ErrUnsupported)
+	}
+
+	host, kind := classifyYouTubeHost(parsed)
 	var id string
-	if strings.EqualFold(parsed.Hostname(), "youtu.be") {
-		id = strings.TrimSpace(strings.Trim(parsed.Path, "/"))
-	} else if parsed.Path == "/watch" {
-		id = parsed.Query().Get("v")
-	} else {
-		parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
-		if len(parts) == 2 && (parts[0] == "shorts" || parts[0] == "embed" || parts[0] == "live") {
-			id = parts[1]
+	switch {
+	case kind == hostNoCookie:
+		// Privacy-enhanced embeds: accept exactly "/embed/" + 11-char ID.
+		if !strings.HasPrefix(parsed.Path, youtubeNoCookieEmbedPath) {
+			return youtubeTarget{}, fmt.Errorf("%w: unsupported nocookie path", ErrUnsupported)
 		}
+		tail := parsed.Path[len(youtubeNoCookieEmbedPath):]
+		if len(tail) != 11 {
+			return youtubeTarget{}, fmt.Errorf("%w: invalid YouTube video id", ErrUnsupported)
+		}
+		id = tail
+	case kind == hostStandard && host == "youtu.be":
+		id = strings.TrimSpace(strings.Trim(parsed.Path, "/"))
+	case kind == hostStandard:
+		if parsed.Path == "/watch" {
+			id = parsed.Query().Get("v")
+		} else {
+			parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+			if len(parts) == 2 && (parts[0] == "shorts" || parts[0] == "embed" || parts[0] == "live") {
+				id = parts[1]
+			}
+		}
+	default:
+		return youtubeTarget{}, fmt.Errorf("%w: unsupported host", ErrUnsupported)
 	}
 	if !youtubeIDPattern.MatchString(id) {
 		return youtubeTarget{}, fmt.Errorf("%w: invalid YouTube video id", ErrUnsupported)
