@@ -18,11 +18,15 @@ The shared registry and parity manifest remain owned by the primary integrator.
   `Track station: <resolved title>`.
 - Related-resource pages: `soundcloud.com/<artist>/<track>/recommended`,
   `/albums`, and `/sets`. The base track URL (without the relation suffix) is
-  resolved, the track ID and title are validated, and relation-specific API
+  resolved, the track ID is validated, and relation-specific API
   routes are used: `tracks/<id>/related`, `tracks/<id>/albums`, and
   `tracks/<id>/playlists_without_albums`. Playlist metadata: ID = resolved
   numeric track ID, title = `<track title> (Recommended|Albums|Sets)`,
-  webpage_url = original canonical relation URL.
+  webpage_url = original canonical relation URL. When the resolved track title
+  is blank, the title falls back to the URL slug (`artist/track`), matching the
+  reference `track.get('title') or slug` behavior. Remote `errors[].error_message`
+  content is never exposed in public diagnostics; a generic
+  `ErrUnavailable: SoundCloud related resource unavailable` is returned instead.
 - Bounded client-ID discovery from the SoundCloud homepage and at most 64
   first-party `soundcloud.com`/`sndcdn.com` script candidates. The identifier is
   cached per extractor instance and refreshed once after API 401/403 responses.
@@ -41,15 +45,20 @@ The shared registry and parity manifest remain owned by the primary integrator.
 - Lazy, independently reusable linked-partition iterators for public user tracks,
   track stations, and related-resource pages.
 - Route-aware continuation policy: every `next_href` must use HTTPS, the exact
-  `api-v2.soundcloud.com` host, no userinfo or explicit port, no encoded
-  separators or NULs, a path that exactly matches the original playlist family
-  (preventing cross-user, cross-track, cross-station, and cross-relation
-  transitions), bounded query values, and stale client IDs are stripped.
+  `api-v2.soundcloud.com` host, no userinfo, no explicit port, no fragment, no
+  encoded separators (`%2f`, `%5c`, `%00`) or NULs, no literal `.` or `..` path
+  segments, no trailing slash, and a decoded path that exactly equals the
+  allowed path (no `path.Clean` normalization), preventing cross-user,
+  cross-track, cross-station, and cross-relation transitions. Query cardinality
+  and per-value length are bounded; stale client IDs are stripped.
   Repeated cursors terminate safely.
-- Mixed track/playlist collection decoding: collection items are resolved as
-  inline track, nested track, then playlist, matching the reference
-  `resolve_entry` ordering. Playlist entries without a classifiable permalink
-  fall back to the v2 API playlist URL.
+- Mixed track/playlist collection decoding: collection items are resolved using
+  the reference `resolve_entry(e, e.get('track'), e.get('playlist'))` ordering.
+  The direct collection item is classified by its permalink URL kind before any
+  track fallback: direct playlist objects (with `/sets/...` permalinks) produce
+  set entries, not incorrect track API URLs. Nested track and playlist
+  candidates follow. Playlist entries without a classifiable permalink fall
+  back to the v2 API playlist URL.
 - HTTP authentication/unavailability, malformed metadata/playlists/station
   identifiers, oversized bodies/pages, invalid continuations, related `errors`
   fields, and missing formats have categorized errors. Request/response bodies
@@ -80,6 +89,12 @@ The shared registry and parity manifest remain owned by the primary integrator.
 - `internal/extractor.TestSoundCloudSecretRedactionInStationErrors`
 - `internal/extractor.TestSoundCloudContinuationPolicyAcceptsValidCursors`
 - `internal/extractor.TestSoundCloudContinuationQueryBounds`
+- `internal/extractor.TestSoundCloudDirectCollectionEntryClassification`
+- `internal/extractor.TestSoundCloudNestedTrackAndPlaylistEntries`
+- `internal/extractor.TestSoundCloudRelatedErrorSecretSafety`
+- `internal/extractor.TestSoundCloudContinuationExactPathComparison`
+- `internal/extractor.TestSoundCloudRelatedSlugFallback`
+- `internal/extractor.TestSoundCloudRelatedSlugFallbackAlbumsAndSets`
 - `internal/extractor.FuzzSoundCloudURLClassification`
 - `internal/extractor.FuzzSoundCloudPageEntries`
 - `internal/extractor.FuzzSoundCloudContinuationPolicy`
