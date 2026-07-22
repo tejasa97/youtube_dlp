@@ -76,7 +76,7 @@ func validateYouTubeURLPolicy(parsed *url.URL) (string, youtubeHostKind, error) 
 	if parsed.Scheme != "http" && parsed.Scheme != "https" && parsed.Scheme != "" {
 		return "", hostUnknown, fmt.Errorf("%w: unsupported URL scheme", ErrUnsupported)
 	}
-	if parsed.User != nil || parsed.Port() != "" {
+	if parsed.User != nil || strings.Contains(parsed.Host, ":") {
 		return "", hostUnknown, fmt.Errorf("%w: unsupported YouTube URL form", ErrUnsupported)
 	}
 	if rawPath := strings.ToLower(parsed.EscapedPath()); strings.Contains(rawPath, "%2f") || strings.Contains(rawPath, "%5c") || strings.Contains(rawPath, "%00") {
@@ -255,7 +255,7 @@ func youtubeChannelLiveAlias(rawURL string) bool {
 
 func youtubeChannelLiveAliasURL(rawURL string) (string, bool) {
 	parsed, err := url.Parse(rawURL)
-	if err != nil || parsed.User != nil || parsed.Port() != "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+	if err != nil || parsed.User != nil || strings.Contains(parsed.Host, ":") || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return "", false
 	}
 	rawPath := strings.ToLower(parsed.EscapedPath())
@@ -726,7 +726,9 @@ func parseYouTubeTarget(rawURL string) (youtubeTarget, error) {
 	}
 	// Userinfo and explicit ports are always rejected; they are common
 	// hostile vectors and the pinned reference never produces them.
-	if parsed.User != nil || parsed.Port() != "" {
+	// strings.Contains(parsed.Host, ":") catches both non-empty ports and
+	// the empty-port form "host:" where Port() returns "".
+	if parsed.User != nil || strings.Contains(parsed.Host, ":") {
 		return youtubeTarget{}, fmt.Errorf("%w: unsupported YouTube URL form", ErrUnsupported)
 	}
 	// Encoded path separators and NULs: defense in depth. url.Parse does

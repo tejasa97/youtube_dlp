@@ -113,8 +113,9 @@ Deliberate deviations from the pinned reference:
 2. Only the `/embed/<id>` path shape is accepted on nocookie hosts; `v/`,
    `e/`, `shorts/`, `live/`, `watch?v=`, and all other routes are rejected
    with the categorized `ErrUnsupported` boundary.
-3. Userinfo (`user@host`, `user:pass@host`), explicit ports (`:443`, `:8080`),
-   and non-HTTP(S) schemes (`ftp:`, `file:`, `data:`) are unconditionally
+3. Userinfo (`user@host`, `user:pass@host`), explicit ports (`:443`, `:8080`,
+   and the empty-port form `host:` where Go's `Port()` returns ""), and
+   non-HTTP(S) schemes (`ftp:`, `file:`, `data:`) are unconditionally
    rejected on all YouTube hosts.
 4. Encoded path separators (`%2f`, `%5c`) and NUL bytes (`%00`) are rejected
    as defense-in-depth, even though `net/url` does not reject them.
