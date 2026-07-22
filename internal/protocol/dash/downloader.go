@@ -2,6 +2,7 @@ package dash
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -150,6 +151,13 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 	}
 
 	result := Result{MergeRequired: len(selected) > 1, MultiPeriod: mpd.PeriodCount > 1}
+	if result.MultiPeriod && !overwrite {
+		if _, statErr := os.Lstat(destination); statErr == nil {
+			return Result{}, fmt.Errorf("destination exists: %s", destination)
+		} else if !errors.Is(statErr, os.ErrNotExist) {
+			return Result{}, fmt.Errorf("inspect destination: %w", statErr)
+		}
+	}
 	for _, representation := range selected {
 		track := TrackResult{Representation: representation}
 		if result.MultiPeriod {
