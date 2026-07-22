@@ -3,6 +3,7 @@ package ytdlp
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 	"path/filepath"
 	"regexp"
@@ -12,6 +13,7 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/downloader"
 	"github.com/ytdlp-go/ytdlp/internal/events"
 	"github.com/ytdlp-go/ytdlp/internal/extractor"
+	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
@@ -34,6 +36,7 @@ type subtitleTrack struct {
 	language  string
 	extension string
 	rawURL    string
+	headers   http.Header
 	automatic bool
 	metadata  *value.Object
 }
@@ -167,6 +170,10 @@ func selectSubtitles(info value.Info, options SubtitleOptions) ([]subtitleTrack,
 	for _, language := range requested {
 		item := available[positions[language]]
 		track := chooseSubtitleFormat(item.tracks, preferences)
+		track.headers, err = mediaformat.MergeHeaders(info.Lookup("http_headers"), track.metadata.Lookup("http_headers"))
+		if err != nil {
+			return nil, nil, err
+		}
 		selected = append(selected, track)
 		metadata.Set(language, value.ObjectValue(track.metadata))
 	}
@@ -288,18 +295,22 @@ func (operation *operation) downloadSubtitles(ctx context.Context, info value.In
 			return artifacts, total, err
 		}
 		outputInfo := value.NewInfo(info.Fields().Clone())
-		outputInfo.Set("ext", value.String("subtitle"))
+		expectedExtension, ok := outputInfo.Lookup("ext").StringValue()
+		if !ok || !subtitleExtensionPattern.MatchString(expectedExtension) {
+			expectedExtension = "subtitle"
+			outputInfo.Set("ext", value.String(expectedExtension))
+		}
 		base, err := outputtemplate.Resolve(outputRoot, pattern, outputInfo)
 		if err != nil {
 			return artifacts, total, err
 		}
-		destination := subtitleFilename(base, track.language, track.extension)
+		destination := subtitleFilename(base, expectedExtension, track.language, track.extension)
 		options := operation.request.Downloader
 		if options.MaxBytes <= 0 || options.MaxBytes > maxSubtitleBytes {
 			options.MaxBytes = maxSubtitleBytes
 		}
 		result, err := downloader.New(operation.transport).Download(ctx, downloader.Job{
-			URL: track.rawURL, OutputRoot: outputRoot, Destination: destination,
+			URL: track.rawURL, Headers: track.headers, OutputRoot: outputRoot, Destination: destination,
 			Overwrite: operation.request.Overwrite, Attempts: options.Attempts,
 			RetryBaseDelay: options.RetryBaseDelay, RetryMaxDelay: options.RetryMaxDelay,
 			RateLimit: options.RateLimit, MaxBytes: options.MaxBytes,
@@ -316,9 +327,9 @@ func (operation *operation) downloadSubtitles(ctx context.Context, info value.In
 	return artifacts, total, nil
 }
 
-func subtitleFilename(base, language, extension string) string {
+func subtitleFilename(base, expectedExtension, language, extension string) string {
 	suffix := filepath.Ext(base)
-	if suffix == ".subtitle" {
+	if suffix == "."+expectedExtension {
 		base = strings.TrimSuffix(base, suffix)
 	}
 	return base + "." + language + "." + extension

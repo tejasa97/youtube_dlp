@@ -404,6 +404,9 @@ capabilities:
       - pkg/ytdlp.TestSubtitleSidecarsDownloadWithSkipDownload
       - pkg/ytdlp.TestSubtitleSelectionMatchesPinnedReferenceCases
       - pkg/ytdlp.TestSubtitleAndMediaArtifactsAreBothReported
+      - pkg/ytdlp.TestSubtitleFormatSelectionFailsBeforeSidecarWrite
+      - pkg/ytdlp.TestSubtitleLiteralOutputSuffixIsPreserved
+      - pkg/ytdlp.TestSubtitleHeadersValidateOnlySelectedTrack
       - pkg/ytdlp.TestSelectSubtitleLanguagesOrderedRules
       - pkg/ytdlp.TestSubtitleDestinationExistingFileFailsClosed
       - pkg/ytdlp.TestSubtitleDownloadCancellation

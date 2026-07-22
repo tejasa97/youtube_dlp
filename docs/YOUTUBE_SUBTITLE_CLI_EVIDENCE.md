@@ -26,9 +26,10 @@ falls back to the extractor's final (best) entry.
 
 Sidecars use the confined output template and the conventional
 `NAME.LANGUAGE.EXTENSION` filename. They are downloaded atomically through the
-native downloader with retries, rate limits, cancellation, overwrite policy,
-URL redaction, and a 16 MiB hard ceiling. `--skip-download` skips media while
-still writing requested subtitle sidecars. Public results expose subtitle
+native downloader with validated global/per-track HTTP headers, retries, rate
+limits, cancellation, overwrite policy, URL redaction, and a 16 MiB hard
+ceiling. `--skip-download` skips media while still writing requested subtitle
+sidecars. Public results expose subtitle
 artifacts and add the selected `_auto`, `filepath`, URL, and extension under
 `requested_subtitles`.
 
@@ -51,6 +52,9 @@ reference runtime, production caption URL, account, cookie, or token is used.
 
 Required evidence includes `TestSubtitleSidecarsDownloadWithSkipDownload`,
 `TestSubtitleSelectionMatchesPinnedReferenceCases`,
+`TestSubtitleFormatSelectionFailsBeforeSidecarWrite`,
+`TestSubtitleLiteralOutputSuffixIsPreserved`,
+`TestSubtitleHeadersValidateOnlySelectedTrack`,
 `TestSelectSubtitleLanguagesOrderedRules`,
 `TestSubtitleDestinationExistingFileFailsClosed`,
 `TestSubtitleDownloadCancellation`,

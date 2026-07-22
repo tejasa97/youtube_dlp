@@ -540,6 +540,13 @@ func (operation *operation) processMedia(ctx context.Context, info value.Info, e
 			return result, nil
 		}
 	}
+	var selectedFormats []mediaformat.Selection
+	if !operation.request.SkipDownload {
+		selectedFormats, err = operation.selectFormats(info)
+		if err != nil {
+			return Result{}, categorized("select format", err)
+		}
+	}
 	selectedSubtitles, requestedSubtitles, err := selectSubtitles(info, operation.request.Subtitles)
 	if err != nil {
 		return Result{}, categorized("select subtitles", err)
@@ -562,10 +569,6 @@ func (operation *operation) processMedia(ctx context.Context, info value.Info, e
 		return result, nil
 	}
 
-	selectedFormats, err := operation.selectFormats(info)
-	if err != nil {
-		return Result{}, categorized("select format", err)
-	}
 	pattern := operation.request.OutputTemplate
 	if pattern == "" {
 		pattern = "%(title)s.%(ext)s"

@@ -15,6 +15,7 @@ import (
 
 	"github.com/ytdlp-go/ytdlp/internal/downloader"
 	"github.com/ytdlp-go/ytdlp/internal/extractor"
+	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
 	"github.com/ytdlp-go/ytdlp/internal/testserver"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
@@ -128,6 +129,67 @@ func TestSubtitleAndMediaArtifactsAreBothReported(t *testing.T) {
 		if _, err := os.Stat(artifact.Path); err != nil {
 			t.Fatalf("artifact %q: %v", artifact.Path, err)
 		}
+	}
+}
+
+func TestSubtitleFormatSelectionFailsBeforeSidecarWrite(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	_, err := NewClient().Run(context.Background(), Request{
+		URL: server.URL + "/page", OutputDir: root, Format: "missing",
+		Subtitles: SubtitleOptions{WriteManual: true},
+	})
+	if !IsCategory(err, ErrorInvalidInput) {
+		t.Fatalf("error = %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, "Deterministic Fixture.en.vtt")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("subtitle was written before format validation: %v", statErr)
+	}
+}
+
+func TestSubtitleLiteralOutputSuffixIsPreserved(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	result, err := NewClient().Run(context.Background(), Request{
+		URL: server.URL + "/page", OutputDir: root, OutputTemplate: "archive.subtitle", SkipDownload: true,
+		Subtitles: SubtitleOptions{WriteManual: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(root, "archive.subtitle.en.vtt")
+	if len(result.Artifacts) != 1 || result.Artifacts[0].Path != want {
+		t.Fatalf("artifacts = %#v; want %q", result.Artifacts, want)
+	}
+	if _, err := os.Stat(want); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSubtitleHeadersValidateOnlySelectedTrack(t *testing.T) {
+	track := func(headers *value.Object) value.Value {
+		return value.ObjectValue(value.NewObject(
+			value.Field{Key: "url", Value: value.String("https://captions.example/sub.vtt")},
+			value.Field{Key: "ext", Value: value.String("vtt")},
+			value.Field{Key: "http_headers", Value: value.ObjectValue(headers)},
+		))
+	}
+	info := value.NewInfo(value.NewObject(value.Field{
+		Key: "subtitles", Value: value.ObjectValue(value.NewObject(
+			value.Field{Key: "en", Value: value.List(track(value.NewObject()))},
+			value.Field{Key: "fr", Value: value.List(track(value.NewObject(
+				value.Field{Key: "X-Test", Value: value.String("bad\r\nvalue")},
+			)))},
+		)),
+	}))
+	if _, _, err := selectSubtitles(info, SubtitleOptions{WriteManual: true}); err != nil {
+		t.Fatalf("unselected malformed headers caused failure: %v", err)
+	}
+	_, _, err := selectSubtitles(info, SubtitleOptions{WriteManual: true, Languages: []string{"fr"}})
+	if !errors.Is(err, mediaformat.ErrInvalidHeaders) {
+		t.Fatalf("selected malformed headers error = %v", err)
 	}
 }
 

@@ -57,7 +57,7 @@ func (server *Server) handler() http.Handler {
 	mux.HandleFunc("/headers", server.handleHeaders)
 	mux.HandleFunc("/large", server.handleLarge)
 	mux.HandleFunc("/subs/en.srt", fixedBody("application/x-subrip", []byte("1\n00:00:00,000 --> 00:00:01,000\nmanual english\n")))
-	mux.HandleFunc("/subs/en.vtt", fixedBody("text/vtt", []byte("WEBVTT\n\n00:00.000 --> 00:01.000\nmanual english\n")))
+	mux.HandleFunc("/subs/en.vtt", server.handleHeaderProtectedSubtitle)
 	mux.HandleFunc("/subs/es.vtt", fixedBody("text/vtt", []byte("WEBVTT\n\n00:00.000 --> 00:01.000\nmanual spanish\n")))
 	mux.HandleFunc("/subs/fr.vtt", fixedBody("text/vtt", []byte("WEBVTT\n\n00:00.000 --> 00:01.000\nmanual french\n")))
 	mux.HandleFunc("/subs/auto-es.vtt", fixedBody("text/vtt", []byte("WEBVTT\n\n00:00.000 --> 00:01.000\nautomatic spanish\n")))
@@ -140,8 +140,13 @@ func (server *Server) handlePage(writer http.ResponseWriter, request *http.Reque
 			value.Field{Key: "ext", Value: value.String(extension)},
 		))
 	}
+	englishVTT := subtitle("/subs/en.vtt", "vtt")
+	englishVTTObject, _ := englishVTT.Object()
+	englishVTTObject.Set("http_headers", value.ObjectValue(value.NewObject(
+		value.Field{Key: "X-Subtitle", Value: value.String("subtitle")},
+	)))
 	manualSubtitles := value.NewObject(
-		value.Field{Key: "en", Value: value.List(subtitle("/subs/en.srt", "srt"), subtitle("/subs/en.vtt", "vtt"))},
+		value.Field{Key: "en", Value: value.List(subtitle("/subs/en.srt", "srt"), englishVTT)},
 		value.Field{Key: "es", Value: value.List(subtitle("/subs/es.vtt", "vtt"))},
 		value.Field{Key: "fr", Value: value.List(subtitle("/subs/fr.vtt", "vtt"))},
 	)
@@ -155,6 +160,10 @@ func (server *Server) handlePage(writer http.ResponseWriter, request *http.Reque
 		value.Field{Key: "webpage_url", Value: value.String(origin(request) + request.URL.Path)},
 		value.Field{Key: "ext", Value: value.String("bin")},
 		value.Field{Key: "formats", Value: value.List(value.ObjectValue(format))},
+		value.Field{Key: "http_headers", Value: value.ObjectValue(value.NewObject(
+			value.Field{Key: "X-Global", Value: value.String("global")},
+			value.Field{Key: "X-Subtitle", Value: value.String("global-value-must-be-overridden")},
+		))},
 		value.Field{Key: "subtitles", Value: value.ObjectValue(manualSubtitles)},
 		value.Field{Key: "automatic_captions", Value: value.ObjectValue(automaticCaptions)},
 	)
@@ -164,6 +173,14 @@ func (server *Server) handlePage(writer http.ResponseWriter, request *http.Reque
 	if err := json.NewEncoder(writer).Encode(value.ObjectValue(info)); err != nil {
 		panic(err)
 	}
+}
+
+func (server *Server) handleHeaderProtectedSubtitle(writer http.ResponseWriter, request *http.Request) {
+	if request.Header.Get("X-Global") != "global" || request.Header.Get("X-Subtitle") != "subtitle" {
+		http.Error(writer, "missing subtitle headers", http.StatusForbidden)
+		return
+	}
+	fixedBody("text/vtt", []byte("WEBVTT\n\n00:00.000 --> 00:01.000\nmanual english\n"))(writer, request)
 }
 
 func (server *Server) handleMedia(writer http.ResponseWriter, request *http.Request) {
