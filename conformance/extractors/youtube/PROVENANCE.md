@@ -27,7 +27,8 @@ stored.
 
 `playlist-modern.html` and `playlist-modern-continuation.json` extend that
 synthetic corpus with the `lockupViewModel` video and
-`continuationItemViewModel` shapes handled by the pinned reference's
+`continuationItemViewModel` shapes, including an executor-wrapped continuation
+command and repeated video occurrences, handled by the pinned reference's
 `YoutubeTabBaseInfoExtractor._extract_lockup_view_model` and
 `YoutubeBaseInfoExtractor._extract_continuation` at commit
 `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`. The minimal field layout was also
