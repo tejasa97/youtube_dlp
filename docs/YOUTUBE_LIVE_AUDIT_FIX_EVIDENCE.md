@@ -74,9 +74,9 @@ The EJS solver now uses a two-phase preprocess/solve split with:
 
 | Level | Evidence | Status |
 | --- | --- | --- |
-| Automated proof | `TestRepresentativeWorkloadUnderOldLimit` (proves 55 s > 30 s old limit, Trusted gate works), `TestLargeGeneratedPlayerWorkload` (~500 KB deterministic workload completes), `TestSingleflightCoalescesPreprocessing` (exactly 1 preprocess under 8 concurrent goroutines), `TestTrustedWallTimeAllowance` (protocol boundary) | Passing |
+| Automated proof | `TestRepresentativeWorkloadUnderOldLimit` (proves 55 s > 30 s old limit, Trusted gate works), `TestSupervisorTrustedWallTimeCrossesProcessBoundary` (end-to-end: 45 s request succeeds across supervisor→helper pipe), `TestSupervisorRejectsUntrustedExtendedWallTime` (untrusted 45 s rejected), `TestSingleflightCoalescesPreprocessing` (exactly 1 preprocess under 8 concurrent goroutines), `TestSingleflightFollowerCancellation` (follower cancels in ~200 ms, not 55 s), `TestLargeGeneratedPlayerWorkload` (~150 KB deterministic workload completes), `TestTrustedWallTimeAllowance` (protocol boundary), `TestClientConcurrentRunAndClose` (no race/panic under concurrent Run+Close) | Passing |
 | Live validation | Protected-video canary extraction against live YouTube | Pending (service-dependent, non-authoritative) |
-| Remaining deviation | No sanitized real 1-2 MB player fixture committed (proprietary); generated workload approximates parse pressure | Documented |
+| Remaining deviation | No sanitized real 1-2 MB player fixture committed (proprietary); generated ~150 KB workload exercises meriyah parse path but does not empirically reproduce the original 30 s timeout (that required a real 1-2 MB player under the old single-phase architecture); the fix is proven structurally via protocol validation gating | Documented |
 
 Live canary validation remains service-dependent and non-authoritative.
 

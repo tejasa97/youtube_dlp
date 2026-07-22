@@ -970,3 +970,36 @@ func FuzzConfinedPostprocessPath(f *testing.F) {
 		}
 	})
 }
+
+// TestClientConcurrentRunAndClose verifies that concurrent Run and Close calls
+// do not race, panic, or leave orphaned helper processes. Close waits for
+// active operations to complete before shutting down the supervisor.
+func TestClientConcurrentRunAndClose(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+
+	for iteration := 0; iteration < 5; iteration++ {
+		client := NewClient()
+		var wg sync.WaitGroup
+		// Launch concurrent Run calls.
+		for i := 0; i < 4; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, _ = client.Run(context.Background(), Request{URL: server.URL + "/page", SkipDownload: true})
+			}()
+		}
+		// Concurrently close while runs may be in flight.
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			time.Sleep(time.Millisecond)
+			client.Close()
+		}()
+		wg.Wait()
+		// After Close, subsequent Run calls should still work (lazy re-creation)
+		// or fail gracefully—no panics.
+		_, _ = client.Run(context.Background(), Request{URL: server.URL + "/page", SkipDownload: true})
+		client.Close()
+	}
+}

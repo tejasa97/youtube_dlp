@@ -356,6 +356,56 @@ func TestSingleflightCoalescesPreprocessing(t *testing.T) {
 	}
 }
 
+// TestSingleflightFollowerCancellation verifies that a follower waiting on
+// in-flight preprocessing can cancel via its context without blocking for the
+// full preprocessing duration.
+func TestSingleflightFollowerCancellation(t *testing.T) {
+	player, err := os.ReadFile("../../../conformance/javascript/ejs-0.8.0/synthetic-player.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Use a slow executor that delays preprocessing.
+	slow := &slowExecutor{inner: engine.New(4), delay: 2 * time.Second}
+	solver, err := New(slow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := []ChallengeRequest{{Type: ChallengeN, Challenges: []string{"abc"}}}
+
+	// Start the leader (will take 2s due to slow executor).
+	leaderDone := make(chan error, 1)
+	go func() {
+		_, err := solver.SolvePlayer(context.Background(), "leader", string(player), requests, false)
+		leaderDone <- err
+	}()
+
+	// Give the leader time to register the in-flight entry.
+	time.Sleep(100 * time.Millisecond)
+
+	// Start a follower with a short-lived context.
+	followerCtx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, followerErr := solver.SolvePlayer(followerCtx, "follower", string(player), requests, false)
+	elapsed := time.Since(start)
+
+	// The follower should cancel quickly (~200ms), not wait the full 2s.
+	if elapsed > 1*time.Second {
+		t.Fatalf("follower took %v, expected cancellation within ~200ms", elapsed)
+	}
+	if followerErr == nil {
+		t.Fatal("follower should have been canceled")
+	}
+	if !strings.Contains(followerErr.Error(), "deadline") && !strings.Contains(followerErr.Error(), "canceled") {
+		t.Fatalf("unexpected follower error: %v", followerErr)
+	}
+
+	// The leader should still complete successfully.
+	if leaderErr := <-leaderDone; leaderErr != nil {
+		t.Fatalf("leader failed: %v", leaderErr)
+	}
+}
+
 // TestPathologicalPlayerFixture verifies the pathological player fixture
 // completes within bounds (not an infinite loop).
 func TestPathologicalPlayerFixture(t *testing.T) {
@@ -412,16 +462,18 @@ func TestRepresentativeWorkloadUnderOldLimit(t *testing.T) {
 	}
 }
 
-// TestLargeGeneratedPlayerWorkload generates a deterministic ~500KB player
-// script with many function declarations (simulating real YouTube player bloat)
-// and verifies the two-phase split completes successfully. Under the old
-// single-phase 30s limit, this workload would either timeout or be rejected.
+// TestLargeGeneratedPlayerWorkload generates a deterministic ~150 KB player
+// script with 2000 function declarations and verifies the two-phase split
+// completes successfully within the extended preprocessing budget.
 //
-// Provenance: Real YouTube player scripts are 1-2 MB of obfuscated JavaScript
-// with thousands of function declarations. The meriyah parser (JS-in-JS inside
-// goja) processes these at ~10-100x slower than native V8. This generated
-// workload uses 2000 function declarations (~500KB) to approximate the parse
-// pressure without requiring a sanitized real player script.
+// Provenance: Real YouTube player scripts are 1-2 MB of obfuscated JavaScript.
+// This generated workload (~150 KB, 2000 functions) exercises the meriyah
+// parse + astring code-generation path at meaningful scale. It does NOT
+// reproduce the original 30 s timeout empirically—that failure mode required
+// a real 1-2 MB player under the old single-phase architecture. The timeout
+// fix is proven structurally by TestRepresentativeWorkloadUnderOldLimit
+// (protocol validation rejects 55 s without the Trusted flag) and by the
+// end-to-end supervisor test that exercises the full process boundary.
 func TestLargeGeneratedPlayerWorkload(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping large workload test in short mode")
@@ -436,7 +488,7 @@ func TestLargeGeneratedPlayerWorkload(t *testing.T) {
 	sb.WriteString(`Params.prototype.transform=function(){`)
 	sb.WriteString(`if(this.values.n)this.values.n=this.values.n.split("").reverse().join("")+"-n";`)
 	sb.WriteString(`if(this.values.s)this.values.s=this.values.s.split("").reverse().join("");};`)
-	// Generate 2000 padding functions to simulate player bloat (~500KB total).
+	// Generate 2000 padding functions to simulate player bloat (~150 KB total).
 	for i := 0; i < 2000; i++ {
 		sb.WriteString(fmt.Sprintf("function pad%d(alpha,beta,gamma){var x=alpha+%d+beta*%d+gamma;return x*2+%d;}", i, i, i%7, i%13))
 	}
@@ -496,4 +548,18 @@ type malformedExecutor struct{}
 
 func (malformedExecutor) Execute(_ context.Context, req protocol.Request) protocol.Response {
 	return protocol.Response{Version: protocol.Version, ID: req.ID, Result: json.RawMessage(`{invalid`)}
+}
+
+type slowExecutor struct {
+	inner Executor
+	delay time.Duration
+}
+
+func (s *slowExecutor) Execute(ctx context.Context, req protocol.Request) protocol.Response {
+	select {
+	case <-time.After(s.delay):
+	case <-ctx.Done():
+		return protocol.FailureResponse(req.ID, protocol.CodeTimeout, ctx.Err())
+	}
+	return s.inner.Execute(ctx, req)
 }
