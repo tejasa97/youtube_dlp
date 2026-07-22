@@ -17,7 +17,8 @@ Implemented and covered by automated tests:
   duration, media-presentation duration, or deterministic dynamic
   availability/publish boundary.
 - SegmentList URLs and byte ranges, initialization ranges, and single-file
-  SegmentBase representations.
+  SegmentBase representations. A post-Phase 1 extension also expands bounded
+  static `SegmentBase@indexRange` entries through native SIDX v0/v1 parsing.
 - Separate deterministic best audio/video selection, including equal
   representation IDs across content types.
 - Dynamic MPD updates using explicit configuration or the manifest minimum
@@ -32,18 +33,22 @@ Key evidence:
 
 - `internal/protocol/dash.TestParseBaseInheritanceTemplatesAndSegmentList`
 - `internal/protocol/dash.TestParseInheritedNegativeRepeatDynamicTimeline`
-- `internal/protocol/dash.TestParseSegmentBaseSingleFileAndRejectsSIDX`
+- `internal/protocol/dash.TestParseSegmentBaseSingleFileAndIndexRange`
+- `internal/protocol/dash.TestDownloadSIDX206Success`
+- `internal/protocol/dash.TestDownloadSIDXCancellationDuringIndexRetrieval`
+- `internal/protocol/dash.FuzzSIDX`
 - `internal/protocol/dash.TestDownloadDynamicMPDPollsAndDeduplicates`
 - `internal/protocol/dash.TestDownloadDynamicUsesManifestPollIntervalAndCancels`
 - `internal/protocol/dash.TestDownloadDynamicDoesNotCollideSameRepresentationID`
 - `internal/protocol/dash.FuzzParse`
 - `conformance/media/dash/PROVENANCE.md`
 
-Known deviation: SegmentBase `indexRange` requires parsing an ISO BMFF SIDX box
-and range-fetching the referenced subsegments. This mode fails with
-`ErrUnsupportedAddressing`; it is never silently treated as a complete media
-range. Multiple DASH periods are parsed, but the Phase 1 selector still chooses
-one best representation per media type rather than concatenating periods.
+Remaining deviations: dynamic SegmentBase/SIDX manifests and hierarchical SIDX
+references fail with `ErrUnsupportedAddressing`; initialization/media overlap
+is rejected instead of trimmed, and index retrieval is single-attempt. Multiple
+DASH periods are parsed, but the selector still chooses one best representation
+per media type rather than concatenating periods. See
+`docs/DASH_SIDX_EVIDENCE.md` for the later static-SIDX extension and evidence.
 
 ## P1-04: ffmpeg and ffprobe supervision
 
@@ -76,7 +81,9 @@ Key evidence:
 - `internal/media/pipeline.TestRemuxDownloadFinalizesThenRemovesSource`
 
 Known deviation: Phase 1 does not implement codec-specific transcoding,
-subtitle embedding, thumbnail embedding, metadata rewriting, or SIDX parsing.
+subtitle embedding, thumbnail embedding, or metadata rewriting. SIDX parsing
+was subsequently added to the DASH layer and does not change the ffmpeg
+supervision boundary described here.
 The new `Toolset.Remux` and `pipeline.RemuxDownload` APIs are product-facing
 integration hooks; shared client dispatch remains owned by the primary agent.
 
