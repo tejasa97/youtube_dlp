@@ -21,13 +21,17 @@ Implemented and covered by automated tests:
   static `SegmentBase@indexRange` entries through native SIDX v0/v1 parsing.
 - Separate deterministic best audio/video selection, including equal
   representation IDs across content types.
+- A post-Phase 1 extension intersects compatible fragmented formats across
+  ordered, contiguous static periods, applies the segment budget across the
+  complete track, and finalizes each track through bounded ffmpeg concat before
+  optional audio/video merge.
 - Dynamic MPD updates using explicit configuration or the manifest minimum
   update period, ordered URL/range de-duplication, transition to static MPDs,
   and context cancellation before output finalization.
 - Fragment transfer, retries, resumable state, bounded concurrency, and atomic
   output continue to use the shared fragment engine.
-- The downloader returns track results and a merge requirement; parsing and
-  downloading do not invoke ffmpeg.
+- The downloader returns track results plus merge/multi-period requirements;
+  parsing and downloading do not invoke ffmpeg directly.
 
 Key evidence:
 
@@ -40,15 +44,20 @@ Key evidence:
 - `internal/protocol/dash.TestDownloadDynamicMPDPollsAndDeduplicates`
 - `internal/protocol/dash.TestDownloadDynamicUsesManifestPollIntervalAndCancels`
 - `internal/protocol/dash.TestDownloadDynamicDoesNotCollideSameRepresentationID`
+- `internal/protocol/dash.TestDownloadMultiPeriodConcatenatesFragmentsInManifestOrder`
+- `internal/protocol/dash.TestSelectMultiPeriodRejectsDiscontinuousOrUnknownTiming`
+- `internal/protocol/dash.TestDownloadMultiPeriodEnforcesAggregateSegmentLimit`
+- `internal/media/pipeline.TestFinalizeDASHMultiPeriodConcatenatesAndMergesTracks`
+- `pkg/ytdlp.TestClientDASHMultiPeriodDispatchAndFixup`
 - `internal/protocol/dash.FuzzParse`
 - `conformance/media/dash/PROVENANCE.md`
 
 Remaining deviations: dynamic SegmentBase/SIDX manifests and hierarchical SIDX
 references fail with `ErrUnsupportedAddressing`; initialization/media overlap
-is rejected instead of trimmed, and index retrieval is single-attempt. Multiple
-DASH periods are parsed, but the selector still chooses one best representation
-per media type rather than concatenating periods. See
-`docs/DASH_SIDX_EVIDENCE.md` for the later static-SIDX extension and evidence.
+is rejected instead of trimmed, and index retrieval is single-attempt. Dynamic,
+unfragmented, or format-incompatible multi-period sets fail closed. See
+`docs/DASH_SIDX_EVIDENCE.md` and `docs/DASH_MULTI_PERIOD_EVIDENCE.md` for the
+later extensions and evidence.
 
 ## P1-04: ffmpeg and ffprobe supervision
 

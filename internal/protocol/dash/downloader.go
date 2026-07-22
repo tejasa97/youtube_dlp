@@ -2,9 +2,11 @@ package dash
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -18,6 +20,11 @@ import (
 
 // maxIndexRangeBytes bounds the SIDX index fetch to prevent unbounded reads.
 const maxIndexRangeBytes = 16 << 20
+
+// defaultMaxDownloadSegments mirrors the fragment engine's public default and
+// keeps the limit global to a selected track even when Periods are downloaded
+// as separate atomic jobs.
+const defaultMaxDownloadSegments = 10_000
 
 type Transport interface {
 	Do(context.Context, *http.Request) (*http.Response, error)
@@ -43,19 +50,24 @@ type Downloader struct {
 }
 
 type TrackResult struct {
-	Representation Representation
-	Download       fragment.Result
+	Representation  Representation
+	Download        fragment.Result
+	PeriodDownloads []fragment.Result
 }
 
 type Result struct {
 	Tracks        []TrackResult
 	MergeRequired bool
+	MultiPeriod   bool
 }
 
 func NewDownloader(transport Transport, config Config) *Downloader {
 	config.Headers = config.Headers.Clone()
 	if config.DynamicPolls <= 0 {
 		config.DynamicPolls = 1
+	}
+	if config.MaxSegments == 0 {
+		config.MaxSegments = defaultMaxDownloadSegments
 	}
 	return &Downloader{transport: transport, config: config}
 }
@@ -65,13 +77,29 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 	if err != nil {
 		return Result{}, err
 	}
-	selected := selectRepresentations(mpd.Representations)
+	selected, err := selectRepresentations(mpd)
+	if err != nil {
+		return Result{}, err
+	}
 	if len(selected) == 0 {
 		return Result{}, fmt.Errorf("%w: no selectable representation", ErrInvalidMPD)
 	}
 
-	// Expand any SIDX-based segments before dynamic polling or download.
+	// Expand any SIDX-based segments before dynamic polling or download while
+	// retaining static multi-period boundaries for the media concat stage.
 	for index := range selected {
+		if len(selected[index].PeriodSegments) != 0 {
+			selected[index].Segments = nil
+			for periodIndex, segments := range selected[index].PeriodSegments {
+				expanded, expandErr := downloader.expandSIDXSegments(ctx, false, segments)
+				if expandErr != nil {
+					return Result{}, fmt.Errorf("representation %s period %d: %w", selected[index].ID, periodIndex, expandErr)
+				}
+				selected[index].PeriodSegments[periodIndex] = expanded
+				selected[index].Segments = append(selected[index].Segments, expanded...)
+			}
+			continue
+		}
 		expanded, expandErr := downloader.expandSIDXSegments(ctx, mpd.Dynamic, selected[index].Segments)
 		if expandErr != nil {
 			return Result{}, fmt.Errorf("representation %s: %w", selected[index].ID, expandErr)
@@ -116,30 +144,70 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 			}
 		}
 	}
-
-	result := Result{MergeRequired: len(selected) > 1}
 	for _, representation := range selected {
+		if downloader.config.MaxSegments < 0 || len(representation.Segments) > downloader.config.MaxSegments {
+			return Result{}, fmt.Errorf("representation %s: %w: got %d, limit %d", representation.ID, fragment.ErrTooManySegments, len(representation.Segments), downloader.config.MaxSegments)
+		}
+	}
+
+	result := Result{MergeRequired: len(selected) > 1, MultiPeriod: mpd.PeriodCount > 1}
+	if result.MultiPeriod && !overwrite {
+		if _, statErr := os.Lstat(destination); statErr == nil {
+			return Result{}, fmt.Errorf("destination exists: %s", destination)
+		} else if !errors.Is(statErr, os.ErrNotExist) {
+			return Result{}, fmt.Errorf("inspect destination: %w", statErr)
+		}
+	}
+	for _, representation := range selected {
+		track := TrackResult{Representation: representation}
+		if result.MultiPeriod {
+			for periodIndex, segments := range representation.PeriodSegments {
+				trackDestination := fmt.Sprintf("%s.%s.period-%04d", destination, trackSuffix(representation), periodIndex)
+				downloaded, err := downloader.downloadSegments(ctx, segments, outputRoot, trackDestination, overwrite, sink)
+				if err != nil {
+					removePeriodDownloads(track.PeriodDownloads)
+					for _, completedTrack := range result.Tracks {
+						removePeriodDownloads(completedTrack.PeriodDownloads)
+					}
+					return Result{}, fmt.Errorf("representation %s period %d: %w", representation.ID, periodIndex, err)
+				}
+				track.PeriodDownloads = append(track.PeriodDownloads, downloaded)
+			}
+			result.Tracks = append(result.Tracks, track)
+			continue
+		}
 		trackDestination := destination
 		if len(selected) > 1 {
 			trackDestination += "." + trackSuffix(representation)
 		}
-		segments := make([]fragment.Segment, len(representation.Segments))
-		for index, segment := range representation.Segments {
-			segments[index] = fragment.Segment{URL: segment.URL, RangeStart: segment.RangeStart, RangeLength: segment.RangeLength}
-		}
-		downloaded, err := fragment.New(downloader.transport).Download(ctx, fragment.Job{
-			Segments: segments, Headers: downloader.config.Headers, OutputRoot: outputRoot, Destination: trackDestination,
-			Concurrency: downloader.config.FragmentConcurrency, PerHostConcurrency: downloader.config.PerHostConcurrency,
-			MaxSegments: downloader.config.MaxSegments, MaxSegmentSize: downloader.config.MaxSegmentSize,
-			Attempts: downloader.config.Attempts, RetryBaseDelay: downloader.config.RetryBaseDelay,
-			RetryMaxDelay: downloader.config.RetryMaxDelay, Overwrite: overwrite,
-		}, sink)
+		downloaded, err := downloader.downloadSegments(ctx, representation.Segments, outputRoot, trackDestination, overwrite, sink)
 		if err != nil {
 			return Result{}, fmt.Errorf("representation %s: %w", representation.ID, err)
 		}
-		result.Tracks = append(result.Tracks, TrackResult{Representation: representation, Download: downloaded})
+		track.Download = downloaded
+		result.Tracks = append(result.Tracks, track)
 	}
 	return result, nil
+}
+
+func (downloader *Downloader) downloadSegments(ctx context.Context, plan []Segment, outputRoot, destination string, overwrite bool, sink events.Sink) (fragment.Result, error) {
+	segments := make([]fragment.Segment, len(plan))
+	for index, segment := range plan {
+		segments[index] = fragment.Segment{URL: segment.URL, RangeStart: segment.RangeStart, RangeLength: segment.RangeLength}
+	}
+	return fragment.New(downloader.transport).Download(ctx, fragment.Job{
+		Segments: segments, Headers: downloader.config.Headers, OutputRoot: outputRoot, Destination: destination,
+		Concurrency: downloader.config.FragmentConcurrency, PerHostConcurrency: downloader.config.PerHostConcurrency,
+		MaxSegments: downloader.config.MaxSegments, MaxSegmentSize: downloader.config.MaxSegmentSize,
+		Attempts: downloader.config.Attempts, RetryBaseDelay: downloader.config.RetryBaseDelay,
+		RetryMaxDelay: downloader.config.RetryMaxDelay, Overwrite: overwrite,
+	}, sink)
+}
+
+func removePeriodDownloads(downloads []fragment.Result) {
+	for _, download := range downloads {
+		_ = os.Remove(download.Path)
+	}
 }
 
 func representationKey(representation Representation) string {
@@ -160,16 +228,171 @@ func (downloader *Downloader) load(ctx context.Context, manifestURL string) (MPD
 	return Parse(manifestURL, body)
 }
 
-func selectRepresentations(representations []Representation) []Representation {
+func selectRepresentations(mpd MPD) ([]Representation, error) {
+	if mpd.PeriodCount <= 1 {
+		return selectBestRepresentations(mpd.Representations), nil
+	}
+	if mpd.Dynamic {
+		return nil, fmt.Errorf("%w: dynamic multi-period manifests", ErrUnsupportedAddressing)
+	}
+	if err := validateMultiPeriodTiming(mpd); err != nil {
+		return nil, err
+	}
+
+	periods := make([][]Representation, mpd.PeriodCount)
+	for _, representation := range mpd.Representations {
+		if representation.PeriodIndex < 0 || representation.PeriodIndex >= len(periods) {
+			return nil, fmt.Errorf("%w: invalid period index", ErrInvalidMPD)
+		}
+		periods[representation.PeriodIndex] = append(periods[representation.PeriodIndex], representation)
+	}
+	for index, period := range periods {
+		if len(period) == 0 {
+			return nil, fmt.Errorf("%w: period %d has no representations", ErrUnsupportedAddressing, index)
+		}
+	}
+
+	kinds := make(map[string]struct{})
+	for _, period := range periods {
+		for _, representation := range period {
+			kinds[representationKind(representation)] = struct{}{}
+		}
+	}
+	orderedKinds := make([]string, 0, len(kinds))
+	for kind := range kinds {
+		orderedKinds = append(orderedKinds, kind)
+	}
+	sort.Strings(orderedKinds)
+
+	selected := make([]Representation, 0, len(orderedKinds))
+	for _, kind := range orderedKinds {
+		periodFormats := make([]map[representationSignature]Representation, len(periods))
+		for periodIndex, period := range periods {
+			periodFormats[periodIndex] = make(map[representationSignature]Representation)
+			for _, representation := range period {
+				if representationKind(representation) != kind {
+					continue
+				}
+				if !representation.Fragmented {
+					continue
+				}
+				signature := signatureFor(representation)
+				if _, exists := periodFormats[periodIndex][signature]; !exists {
+					periodFormats[periodIndex][signature] = representation
+				}
+			}
+		}
+
+		var bestSignature representationSignature
+		bestFound := false
+		for signature := range periodFormats[0] {
+			compatible := true
+			for periodIndex := 1; periodIndex < len(periodFormats); periodIndex++ {
+				if _, exists := periodFormats[periodIndex][signature]; !exists {
+					compatible = false
+					break
+				}
+			}
+			if compatible && (!bestFound || betterSignature(signature, bestSignature)) {
+				bestSignature, bestFound = signature, true
+			}
+		}
+		if !bestFound {
+			return nil, fmt.Errorf("%w: no compatible %s representation across %d periods", ErrUnsupportedAddressing, kind, len(periods))
+		}
+
+		combined := periodFormats[0][bestSignature]
+		combined.Segments = nil
+		combined.PeriodSegments = make([][]Segment, len(periodFormats))
+		for periodIndex := range periodFormats {
+			periodRepresentation := periodFormats[periodIndex][bestSignature]
+			if len(combined.Segments) > maxSegmentsPerRepresentation-len(periodRepresentation.Segments) {
+				return nil, fmt.Errorf("%w: combined %s segment count exceeds %d", ErrUnsupportedAddressing, kind, maxSegmentsPerRepresentation)
+			}
+			combined.PeriodSegments[periodIndex] = append([]Segment(nil), periodRepresentation.Segments...)
+			combined.Segments = append(combined.Segments, periodRepresentation.Segments...)
+		}
+		selected = append(selected, combined)
+	}
+	return selected, nil
+}
+
+func validateMultiPeriodTiming(mpd MPD) error {
+	if len(mpd.Periods) != mpd.PeriodCount {
+		return fmt.Errorf("%w: incomplete multi-period timing metadata", ErrUnsupportedAddressing)
+	}
+	for index, period := range mpd.Periods {
+		if !period.TimingKnown || period.Duration <= 0 {
+			return fmt.Errorf("%w: period %d has unresolved timing", ErrUnsupportedAddressing, index)
+		}
+		if index == 0 && period.Start != 0 {
+			return fmt.Errorf("%w: first period starts at %s", ErrUnsupportedAddressing, period.Start)
+		}
+		end, ok := addPeriodDuration(period.Start, period.Duration)
+		if !ok {
+			return fmt.Errorf("%w: period %d end overflows", ErrUnsupportedAddressing, index)
+		}
+		if index+1 < len(mpd.Periods) && mpd.Periods[index+1].Start != end {
+			return fmt.Errorf("%w: periods %d and %d are not contiguous", ErrUnsupportedAddressing, index, index+1)
+		}
+		if index == len(mpd.Periods)-1 && mpd.PresentationDuration > 0 && end != mpd.PresentationDuration {
+			return fmt.Errorf("%w: final period does not end at the presentation duration", ErrUnsupportedAddressing)
+		}
+	}
+	return nil
+}
+
+type representationSignature struct {
+	Kind      string
+	MimeType  string
+	Codecs    string
+	Language  string
+	FrameRate string
+	AudioRate string
+	Bandwidth int64
+	Width     int
+	Height    int
+}
+
+func signatureFor(representation Representation) representationSignature {
+	return representationSignature{
+		Kind: representationKind(representation), MimeType: representation.MimeType,
+		Codecs: representation.Codecs, Language: representation.Language,
+		FrameRate: representation.FrameRate, AudioRate: representation.AudioRate,
+		Bandwidth: representation.Bandwidth,
+		Width:     representation.Width, Height: representation.Height,
+	}
+}
+
+func betterSignature(candidate, current representationSignature) bool {
+	if candidate.Bandwidth != current.Bandwidth {
+		return candidate.Bandwidth > current.Bandwidth
+	}
+	if candidate.Height != current.Height {
+		return candidate.Height > current.Height
+	}
+	if candidate.Width != current.Width {
+		return candidate.Width > current.Width
+	}
+	if candidate.Codecs != current.Codecs {
+		return candidate.Codecs < current.Codecs
+	}
+	if candidate.Language != current.Language {
+		return candidate.Language < current.Language
+	}
+	if candidate.FrameRate != current.FrameRate {
+		return candidate.FrameRate < current.FrameRate
+	}
+	if candidate.AudioRate != current.AudioRate {
+		return candidate.AudioRate < current.AudioRate
+	}
+	return candidate.MimeType < current.MimeType
+}
+
+func selectBestRepresentations(representations []Representation) []Representation {
 	best := make(map[string]Representation)
 	for _, representation := range representations {
-		kind := representation.ContentType
-		if kind == "" {
-			kind = strings.SplitN(representation.MimeType, "/", 2)[0]
-		}
-		if kind != "audio" && kind != "video" {
-			kind = "media"
-		}
+		kind := representationKind(representation)
 		current, exists := best[kind]
 		if !exists || representation.Bandwidth > current.Bandwidth {
 			best[kind] = representation
@@ -183,6 +406,17 @@ func selectRepresentations(representations []Representation) []Representation {
 		return trackSuffix(result[left]) < trackSuffix(result[right])
 	})
 	return result
+}
+
+func representationKind(representation Representation) string {
+	kind := representation.ContentType
+	if kind == "" {
+		kind = strings.SplitN(representation.MimeType, "/", 2)[0]
+	}
+	if kind != "audio" && kind != "video" {
+		kind = "media"
+	}
+	return kind
 }
 
 func mergeSegments(existing, updated []Segment) []Segment {
