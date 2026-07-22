@@ -792,6 +792,9 @@ func TestValidContentRangeTotalValidation(t *testing.T) {
 		{"negative total", "bytes 100-155/-1", false},
 		{"space in total", "bytes 100-155/ 999", false},
 		{"zero total", "bytes 100-155/0", false},
+		{"leading plus in start", "bytes +100-155/999", false},
+		{"leading plus in end", "bytes 100-+155/999", false},
+		{"leading plus in total", "bytes 100-155/+999", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
