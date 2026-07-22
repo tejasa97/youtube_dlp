@@ -851,6 +851,7 @@ capabilities:
       - internal/format.TestSelectorFallbackMergeAndFilters
       - internal/format.TestSelectorBestWorstAndStringFilters
       - internal/format.TestDefaultPrefersAdaptivePairThenCombined
+      - internal/format.TestDefaultInfersAdaptiveKindsFromExplicitAbsentCodecSide
       - pkg/ytdlp.TestMergedOutputExtensionFollowsSelectedTracks
       - internal/format.TestSelectorRejectsInvalidSyntaxAndNoMatch
       - internal/format.TestSelectorSyntaxErrorReportsSourceSpan
