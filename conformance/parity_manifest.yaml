@@ -407,12 +407,15 @@ capabilities:
       - pkg/ytdlp.TestSubtitleFormatSelectionFailsBeforeSidecarWrite
       - pkg/ytdlp.TestSubtitleLiteralOutputSuffixIsPreserved
       - pkg/ytdlp.TestSubtitleHeadersValidateOnlySelectedTrack
+      - pkg/ytdlp.TestSubtitleExtensionInference
+      - pkg/ytdlp.TestSelectSubtitleWithoutExplicitExtension
       - pkg/ytdlp.TestSelectSubtitleLanguagesOrderedRules
       - pkg/ytdlp.TestSubtitleDestinationExistingFileFailsClosed
       - pkg/ytdlp.TestSubtitleDownloadCancellation
       - pkg/ytdlp.TestSubtitleOptionsRejectInvalidRegexBeforeNetwork
       - pkg/ytdlp.TestSubtitleMetadataCombinedLanguageLimit
       - pkg/ytdlp.FuzzValidateSubtitleOptions
+      - pkg/ytdlp.FuzzSubtitleExtension
       - internal/cli.TestRunWritesSelectedSubtitlesWhileSkippingMedia
       - conformance/extractors/youtube/PROVENANCE.md
       - docs/YOUTUBE_POT_EVIDENCE.md
