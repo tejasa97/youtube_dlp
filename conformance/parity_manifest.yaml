@@ -267,15 +267,25 @@ capabilities:
       - internal/protocol/dash.TestDownloadDynamicMPDPollsAndDeduplicates
       - internal/protocol/dash.TestDownloadDynamicUsesManifestPollIntervalAndCancels
       - internal/protocol/dash.TestDownloadDynamicDoesNotCollideSameRepresentationID
+      - internal/protocol/dash.TestParseMultiPeriodFixture
+      - internal/protocol/dash.TestSelectMultiPeriodChoosesHighestCommonSignature
+      - internal/protocol/dash.TestSelectMultiPeriodRejectsUnsafeCombinations
+      - internal/protocol/dash.TestDownloadMultiPeriodConcatenatesFragmentsInManifestOrder
+      - internal/protocol/dash.TestDownloadMultiPeriodFailureDoesNotPublishTrack
+      - internal/protocol/dash.TestDownloadMultiPeriodCancellationDoesNotPublishTrack
       - internal/protocol/dash.FuzzParse
       - internal/protocol/dash.FuzzSIDX
       - internal/media/pipeline.TestDASHDownloadAndFFmpegMergeEndToEnd
+      - internal/media/pipeline.TestFinalizeDASHMultiPeriodRemuxesAndRemovesSource
+      - internal/media/pipeline.TestFinalizeDASHMultiPeriodConcatenatesAndMergesTracks
       - pkg/ytdlp.TestClientHLSAndDASHDispatch
       - pkg/ytdlp.TestClientDASHMergeDispatch
+      - pkg/ytdlp.TestClientDASHMultiPeriodDispatchAndFixup
       - conformance/media/dash/PROVENANCE.md
       - docs/DASH_SIDX_EVIDENCE.md
+      - docs/DASH_MULTI_PERIOD_EVIDENCE.md
     owner: io
-    known_deviation: Product dispatch, inherited addressing, live negative-repeat timelines, dynamic polling, and bounded SegmentBase indexRange/SIDX expansion are implemented. Dynamic SegmentBase/SIDX, hierarchical SIDX references, and multi-period concatenation remain unsupported; initialization/media overlap is rejected rather than trimmed, and index retrieval is single-attempt while media fragments use normal retry policy.
+    known_deviation: Product dispatch, inherited addressing, live negative-repeat timelines, dynamic polling, bounded SegmentBase indexRange/SIDX expansion, and compatible static fragmented multi-period composition are implemented. Dynamic SegmentBase/SIDX, hierarchical SIDX references, and dynamic, unfragmented, or format-incompatible multi-period composition remain unsupported; initialization/media overlap is rejected rather than trimmed, and index retrieval is single-attempt while media fragments use normal retry policy.
 
   - id: postprocess.ffmpeg
     name: ffmpeg and ffprobe orchestration
