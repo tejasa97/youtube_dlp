@@ -36,7 +36,8 @@ Behavior was reviewed against the pinned reference
    successful finalization and remain recoverable when postprocessing fails.
 6. Product dispatch recognizes the multi-period result and requires the
    supervised media toolchain instead of publishing a raw duplicate-MOOV byte
-   stream.
+   stream. When overwrite is disabled, an existing final destination is
+   rejected before any Period fragments are transferred.
 
 ## Fail-closed boundaries
 
@@ -68,6 +69,7 @@ mechanically testable.
 - `internal/protocol/dash.TestParseDerivesContiguousPeriodTiming`
 - `internal/protocol/dash.TestDownloadMultiPeriodConcatenatesFragmentsInManifestOrder`
 - `internal/protocol/dash.TestDownloadMultiPeriodEnforcesAggregateSegmentLimit`
+- `internal/protocol/dash.TestDownloadMultiPeriodRejectsExistingDestinationBeforeFragments`
 - `internal/protocol/dash.TestDownloadMultiPeriodFailureDoesNotPublishTrack`
 - `internal/protocol/dash.TestDownloadMultiPeriodCancellationDoesNotPublishTrack`
 - `internal/media/pipeline.TestFinalizeDASHMultiPeriodRemuxesAndRemovesSource`

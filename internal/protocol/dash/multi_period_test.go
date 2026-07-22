@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -268,6 +269,35 @@ func TestDownloadMultiPeriodEnforcesAggregateSegmentLimit(t *testing.T) {
 		context.Background(), server.URL+"/manifest.mpd", root, filepath.Join(root, "limited.mp4"), false, nil)
 	if !errors.Is(err, fragment.ErrTooManySegments) {
 		t.Fatalf("Download() error = %v; want ErrTooManySegments", err)
+	}
+}
+
+func TestDownloadMultiPeriodRejectsExistingDestinationBeforeFragments(t *testing.T) {
+	var fragmentRequests atomic.Int32
+	server := multiPeriodServer(t, func(_ http.ResponseWriter, request *http.Request) bool {
+		if request.URL.Path != "/manifest.mpd" {
+			fragmentRequests.Add(1)
+		}
+		return false
+	})
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "existing.mp4")
+	if err := os.WriteFile(destination, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := NewDownloader(transport, Config{}).Download(
+		context.Background(), server.URL+"/manifest.mpd", root, destination, false, nil)
+	if err == nil || !strings.Contains(err.Error(), "destination exists") {
+		t.Fatalf("Download() error = %v; want destination-exists failure", err)
+	}
+	if fragmentRequests.Load() != 0 {
+		t.Fatalf("fragment requests = %d; want 0", fragmentRequests.Load())
+	}
+	contents, readErr := os.ReadFile(destination)
+	if readErr != nil || string(contents) != "keep" {
+		t.Fatalf("destination = %q, error = %v", contents, readErr)
 	}
 }
 
