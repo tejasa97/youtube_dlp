@@ -24,17 +24,30 @@ Behavioral expectations were derived from the pinned yt-dlp checkout at commit
 
 Deliberate Go hardening beyond the pinned reference:
 
-- Route-aware continuation policy with exact path matching (the reference uses
-  a prefix-free `next_href` passthrough);
+- Route-aware continuation policy with genuinely exact path matching (the
+  reference uses a prefix-free `next_href` passthrough). The decoded path must
+  equal `allowedPath` exactly; `path.Clean` is not used. Dot segments (`.` and
+  `..`), trailing slashes, fragments, explicit ports, userinfo, and encoded
+  separators (`%2f`, `%5c`, `%00`) are all rejected fail-closed;
 - Cross-station, cross-track, cross-user, and cross-relation continuation
   rejection via exact allowedPath comparison;
-- Encoded path-separator (`%2f`, `%5c`) and NUL rejection in both URL
-  classification and continuation validation;
 - Bounded query parameter count and per-value length on continuations;
 - `stations` and `recommended` added to the reserved-segment set to prevent
   ambiguous profile misclassification;
 - API playlist URL fallback for playlist collection entries whose permalink
-  does not classify as a SoundCloud set.
+  does not classify as a SoundCloud set;
+- Direct collection item dispatch matching the reference `resolve_entry(e,
+  e.get('track'), e.get('playlist'))` ordering: the direct item is classified
+  by its permalink URL kind before track fallback, so direct playlist objects
+  produce set entries rather than incorrect track API URLs;
+- Secret-safe related-resource failures: `errors[].error_message` from the
+  remote response is never exposed in public Go errors. A generic
+  `ErrUnavailable: SoundCloud related resource unavailable` diagnostic is
+  returned instead, preventing leakage of client IDs, signed URLs, tokens, or
+  arbitrary server messages;
+- Slug fallback for missing related-track title: when `track.title` is blank,
+  the playlist title falls back to the URL slug (`artist/track`), matching the
+  reference `track.get('title') or slug` behavior.
 
 The fixture client ID, IDs, timestamps, titles, cursors, URLs, counts, and
 response bodies were independently authored for this Go conformance corpus.

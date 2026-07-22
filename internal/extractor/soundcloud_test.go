@@ -516,7 +516,7 @@ func FuzzSoundCloudPageEntries(f *testing.F) {
 			return
 		}
 		for _, item := range page.Collection {
-			_, _ = soundCloudTrackEntry(item.soundCloudTrack, "")
+			_, _ = soundCloudDirectCollectionEntry(item.soundCloudTrack)
 			_, _ = soundCloudTrackEntry(item.Track, "")
 			_, _ = soundCloudPlaylistEntry(item.Playlist)
 			_, _ = soundCloudPlaylistCollectionEntry(item.Playlist)
@@ -662,11 +662,16 @@ func TestSoundCloudMixedCollectionDecoding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 2 || entries[0].ID != "400" || entries[1].ID != "62" {
+	// Expect: direct track (400), direct playlist (63), nested playlist (62)
+	if len(entries) != 3 || entries[0].ID != "400" || entries[1].ID != "63" || entries[2].ID != "62" {
 		t.Fatalf("entries = %#v", entries)
 	}
 	if entries[0].URL != "https://soundcloud.com/fixture-artist/mixed-track" {
 		t.Fatalf("track entry URL = %q", entries[0].URL)
+	}
+	// Direct playlist should use its set permalink, not a track API URL
+	if entries[1].URL != "https://soundcloud.com/fixture-artist/sets/direct-playlist" {
+		t.Fatalf("direct playlist entry URL = %q", entries[1].URL)
 	}
 }
 
@@ -739,10 +744,11 @@ func TestSoundCloudMalformedStationIdentifier(t *testing.T) {
 }
 
 func TestSoundCloudMalformedResolvedTrack(t *testing.T) {
+	// Missing/zero/malformed ID remains rejected
 	transport := newSoundCloudFixtureTransport(t)
 	transport.override = func(request *http.Request) (int, []byte, bool) {
 		if request.URL.Path == "/resolve" {
-			return http.StatusOK, []byte(`{"id":8000,"title":""}`), true
+			return http.StatusOK, []byte(`{"id":0,"title":"Valid Title"}`), true
 		}
 		return 0, nil, false
 	}
@@ -883,11 +889,348 @@ func FuzzSoundCloudContinuationPolicy(f *testing.F) {
 	f.Add("https://api-v2.soundcloud.com/tracks/8000/related?offset=200")
 	f.Add("https://evil.example/users/7/tracks")
 	f.Add("http://api-v2.soundcloud.com/users/7/tracks")
+	f.Add("https://api-v2.soundcloud.com/users/8/../7/tracks")
+	f.Add("https://api-v2.soundcloud.com/users/7/tracks/")
+	f.Add("https://api-v2.soundcloud.com/users/7/tracks#frag")
 	f.Fuzz(func(t *testing.T, rawURL string) {
 		if len(rawURL) > 16<<10 {
 			t.Skip()
 		}
 		policy := soundCloudContinuationPolicy{allowedPath: "/users/7/tracks"}
-		_, _ = policy.validate(rawURL)
+		result, err := policy.validate(rawURL)
+		if err != nil {
+			return // Rejected: safe
+		}
+		// Assert canonical invariant on any accepted result
+		parsed, parseErr := url.Parse(result)
+		if parseErr != nil {
+			t.Fatalf("accepted result does not parse: %v", parseErr)
+		}
+		if parsed.Scheme != "https" {
+			t.Fatalf("accepted non-https scheme: %s", result)
+		}
+		if strings.ToLower(parsed.Hostname()) != "api-v2.soundcloud.com" {
+			t.Fatalf("accepted wrong host: %s", result)
+		}
+		if parsed.Port() != "" {
+			t.Fatalf("accepted explicit port: %s", result)
+		}
+		if parsed.User != nil {
+			t.Fatalf("accepted userinfo: %s", result)
+		}
+		if parsed.Fragment != "" || parsed.RawFragment != "" {
+			t.Fatalf("accepted fragment: %s", result)
+		}
+		if parsed.Path != "/users/7/tracks" {
+			t.Fatalf("accepted non-exact path %q: %s", parsed.Path, result)
+		}
+		if strings.Contains(result, "client_id") {
+			t.Fatalf("client_id not stripped: %s", result)
+		}
+		// No encoded separators
+		escaped := strings.ToLower(parsed.EscapedPath())
+		if strings.Contains(escaped, "%2f") || strings.Contains(escaped, "%5c") || strings.Contains(escaped, "%00") {
+			t.Fatalf("accepted encoded separator: %s", result)
+		}
+		// No dot segments
+		for _, segment := range strings.Split(parsed.EscapedPath(), "/") {
+			if segment == "." || segment == ".." {
+				t.Fatalf("accepted dot segment: %s", result)
+			}
+		}
 	})
+}
+
+// Fix 1: Direct playlist collection entries classification tests
+
+func TestSoundCloudDirectCollectionEntryClassification(t *testing.T) {
+	tests := []struct {
+		name    string
+		item    soundCloudTrack
+		wantOK  bool
+		wantURL string
+		wantID  string
+	}{
+		{
+			name:    "direct top-level track",
+			item:    soundCloudTrack{ID: json.Number("100"), Title: "Track", PermalinkURL: "https://soundcloud.com/artist/track"},
+			wantOK:  true,
+			wantURL: "https://soundcloud.com/artist/track",
+			wantID:  "100",
+		},
+		{
+			name:    "direct top-level playlist",
+			item:    soundCloudTrack{ID: json.Number("60"), Title: "Playlist", PermalinkURL: "https://soundcloud.com/artist/sets/album"},
+			wantOK:  true,
+			wantURL: "https://soundcloud.com/artist/sets/album",
+			wantID:  "60",
+		},
+		{
+			name:    "missing permalink with valid ID falls back to track API",
+			item:    soundCloudTrack{ID: json.Number("100"), Title: "Track"},
+			wantOK:  true,
+			wantURL: "https://api-v2.soundcloud.com/tracks/100",
+			wantID:  "100",
+		},
+		{
+			name:    "malformed permalink with valid ID falls back to track API",
+			item:    soundCloudTrack{ID: json.Number("100"), Title: "Track", PermalinkURL: "://invalid"},
+			wantOK:  true,
+			wantURL: "https://api-v2.soundcloud.com/tracks/100",
+			wantID:  "100",
+		},
+		{
+			name:    "unclassifiable permalink with valid ID falls back to track API",
+			item:    soundCloudTrack{ID: json.Number("100"), Title: "Track", PermalinkURL: "https://example.com/not-soundcloud"},
+			wantOK:  true,
+			wantURL: "https://api-v2.soundcloud.com/tracks/100",
+			wantID:  "100",
+		},
+		{
+			name:   "missing permalink and missing ID skipped",
+			item:   soundCloudTrack{Title: "No ID"},
+			wantOK: false,
+		},
+		{
+			name:   "zero ID skipped",
+			item:   soundCloudTrack{ID: json.Number("0"), Title: "Zero"},
+			wantOK: false,
+		},
+		{
+			name:    "API playlist URL classified as playlist",
+			item:    soundCloudTrack{ID: json.Number("55"), Title: "API Playlist", PermalinkURL: "https://api-v2.soundcloud.com/playlists/55"},
+			wantOK:  true,
+			wantURL: "https://api-v2.soundcloud.com/playlists/55",
+			wantID:  "55",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			entry, ok := soundCloudDirectCollectionEntry(test.item)
+			if ok != test.wantOK {
+				t.Fatalf("ok = %v, want %v", ok, test.wantOK)
+			}
+			if !ok {
+				return
+			}
+			if entry.URL != test.wantURL {
+				t.Errorf("URL = %q, want %q", entry.URL, test.wantURL)
+			}
+			if entry.ID != test.wantID {
+				t.Errorf("ID = %q, want %q", entry.ID, test.wantID)
+			}
+		})
+	}
+}
+
+func TestSoundCloudNestedTrackAndPlaylistEntries(t *testing.T) {
+	// Nested track
+	nestedTrack := soundCloudTrack{ID: json.Number("200"), Title: "Nested Track", PermalinkURL: "https://soundcloud.com/artist/nested"}
+	if entry, ok := soundCloudTrackEntry(nestedTrack, ""); !ok || entry.URL != "https://soundcloud.com/artist/nested" || entry.ID != "200" {
+		t.Fatalf("nested track entry = %#v, %v", entry, ok)
+	}
+	// Nested playlist
+	nestedPlaylist := soundCloudPlaylist{ID: json.Number("62"), Title: "Nested Playlist", PermalinkURL: "https://soundcloud.com/artist/sets/nested"}
+	if entry, ok := soundCloudPlaylistCollectionEntry(nestedPlaylist); !ok || entry.URL != "https://soundcloud.com/artist/sets/nested" || entry.ID != "62" {
+		t.Fatalf("nested playlist entry = %#v, %v", entry, ok)
+	}
+	// Nested playlist with missing permalink falls back to API URL
+	noPermalink := soundCloudPlaylist{ID: json.Number("63"), Title: "No Permalink"}
+	if entry, ok := soundCloudPlaylistCollectionEntry(noPermalink); !ok || entry.URL != "https://api-v2.soundcloud.com/playlists/63" {
+		t.Fatalf("no-permalink playlist entry = %#v, %v", entry, ok)
+	}
+}
+
+// Fix 2: Secret-safe related error tests
+
+func TestSoundCloudRelatedErrorSecretSafety(t *testing.T) {
+	// error_message contains unmistakable synthetic secrets and URLs
+	secretBody := []byte(`{"id":8000,"title":"x","errors":[{"error_message":"client_id=SUPERSECRET123 token=s-topsecret https://signed.example/url?sig=ABC123"}]}`)
+	transport := newSoundCloudFixtureTransport(t)
+	transport.override = func(request *http.Request) (int, []byte, bool) {
+		if request.URL.Path == "/resolve" {
+			return http.StatusOK, secretBody, true
+		}
+		return 0, nil, false
+	}
+	_, err := NewSoundCloud().Extract(context.Background(), Request{
+		URL: "https://soundcloud.com/fixture-artist/related-signal/recommended", Transport: transport,
+	})
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("Extract() error = %v, want ErrUnavailable", err)
+	}
+	errMsg := err.Error()
+	for _, secret := range []string{"SUPERSECRET123", "s-topsecret", "signed.example", "sig=ABC123", "client_id="} {
+		if strings.Contains(errMsg, secret) {
+			t.Fatalf("error leaked secret %q: %v", secret, err)
+		}
+	}
+	// Verify generic diagnostic is present
+	if !strings.Contains(errMsg, "SoundCloud related resource unavailable") {
+		t.Fatalf("error missing generic diagnostic: %v", err)
+	}
+}
+
+// Fix 3: Exact continuation path comparison tests
+
+func TestSoundCloudContinuationExactPathComparison(t *testing.T) {
+	policy := soundCloudContinuationPolicy{allowedPath: "/users/7/tracks"}
+	tests := []struct {
+		name    string
+		rawURL  string
+		wantErr bool
+	}{
+		// Valid
+		{"exact valid path", "https://api-v2.soundcloud.com/users/7/tracks", false},
+		{"valid with cursor", "https://api-v2.soundcloud.com/users/7/tracks?cursor=abc", false},
+		{"valid with linked_partitioning", "https://api-v2.soundcloud.com/users/7/tracks?linked_partitioning=1&limit=200", false},
+		{"valid strips client_id", "https://api-v2.soundcloud.com/users/7/tracks?cursor=x&client_id=stale", false},
+		// Cross-identity paths
+		{"cross-user path", "https://api-v2.soundcloud.com/users/8/tracks", true},
+		{"cross-track path", "https://api-v2.soundcloud.com/tracks/7", true},
+		{"cross-station path", "https://api-v2.soundcloud.com/stations/soundcloud:track-stations:5000/tracks", true},
+		{"cross-relation path", "https://api-v2.soundcloud.com/tracks/8000/related", true},
+		// Trailing slash
+		{"trailing slash", "https://api-v2.soundcloud.com/users/7/tracks/", true},
+		// Dot and dot-dot segments
+		{"dot-dot segment", "https://api-v2.soundcloud.com/users/8/../7/tracks", true},
+		{"dot segment", "https://api-v2.soundcloud.com/users/./7/tracks", true},
+		{"dot-dot in middle", "https://api-v2.soundcloud.com/users/7/../7/tracks", true},
+		// Encoded separators
+		{"encoded slash", "https://api-v2.soundcloud.com/users/7/tracks%2fextra", true},
+		{"encoded backslash", "https://api-v2.soundcloud.com/users/7/tracks%5cextra", true},
+		{"encoded NUL", "https://api-v2.soundcloud.com/users/7/tracks%00extra", true},
+		// Authority violations
+		{"explicit port", "https://api-v2.soundcloud.com:443/users/7/tracks", true},
+		{"userinfo", "https://user@api-v2.soundcloud.com/users/7/tracks", true},
+		{"wrong host", "https://evil.example/users/7/tracks", true},
+		{"http scheme", "http://api-v2.soundcloud.com/users/7/tracks", true},
+		// Fragment
+		{"fragment", "https://api-v2.soundcloud.com/users/7/tracks#frag", true},
+		// Extra path segments
+		{"extra segment", "https://api-v2.soundcloud.com/users/7/tracks/extra", true},
+		// Malformed
+		{"NUL in URL", "https://api-v2.soundcloud.com/users/7/tracks\x00", true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := policy.validate(test.rawURL)
+			if test.wantErr {
+				if !errors.Is(err, ErrInvalidPlaylist) {
+					t.Fatalf("validate(%q) error = %v, want ErrInvalidPlaylist", test.rawURL, err)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("validate(%q) unexpected error = %v", test.rawURL, err)
+				}
+				// Verify client_id is stripped
+				if strings.Contains(result, "client_id") {
+					t.Fatalf("client_id not stripped: %s", result)
+				}
+			}
+		})
+	}
+}
+
+// Fix 4: Slug fallback tests
+
+func TestSoundCloudRelatedSlugFallback(t *testing.T) {
+	tests := []struct {
+		name      string
+		body      string
+		wantTitle string
+		wantErr   error
+	}{
+		{
+			name:      "valid ID with missing title uses slug",
+			body:      `{"id":8000}`,
+			wantTitle: "fixture-artist/related-signal (Recommended)",
+		},
+		{
+			name:      "whitespace-only title uses slug",
+			body:      `{"id":8000,"title":"   "}`,
+			wantTitle: "fixture-artist/related-signal (Recommended)",
+		},
+		{
+			name:      "empty title uses slug",
+			body:      `{"id":8000,"title":""}`,
+			wantTitle: "fixture-artist/related-signal (Recommended)",
+		},
+		{
+			name:      "normal title behavior unchanged",
+			body:      `{"id":8000,"title":"Related Signal"}`,
+			wantTitle: "Related Signal (Recommended)",
+		},
+		{
+			name:    "missing ID rejected",
+			body:    `{"title":"No ID"}`,
+			wantErr: ErrInvalidMetadata,
+		},
+		{
+			name:    "zero ID rejected",
+			body:    `{"id":0,"title":"Zero"}`,
+			wantErr: ErrInvalidMetadata,
+		},
+		{
+			name:    "malformed ID rejected",
+			body:    `{"id":"abc","title":"Bad"}`,
+			wantErr: ErrInvalidMetadata,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			transport := newSoundCloudFixtureTransport(t)
+			transport.override = func(request *http.Request) (int, []byte, bool) {
+				if request.URL.Path == "/resolve" {
+					return http.StatusOK, []byte(test.body), true
+				}
+				return 0, nil, false
+			}
+			result, err := NewSoundCloud().Extract(context.Background(), Request{
+				URL: "https://soundcloud.com/fixture-artist/related-signal/recommended", Transport: transport,
+			})
+			if test.wantErr != nil {
+				if !errors.Is(err, test.wantErr) {
+					t.Fatalf("Extract() error = %v, want %v", err, test.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, _ := result.Info.Title(); got != test.wantTitle {
+				t.Fatalf("title = %q, want %q", got, test.wantTitle)
+			}
+		})
+	}
+}
+
+func TestSoundCloudRelatedSlugFallbackAlbumsAndSets(t *testing.T) {
+	// Verify slug fallback works for albums and sets relations too
+	for _, relation := range []struct {
+		urlSuffix string
+		apiPath   string
+		suffix    string
+	}{
+		{"albums", "/tracks/8000/albums", "Albums"},
+		{"sets", "/tracks/8000/playlists_without_albums", "Sets"},
+	} {
+		transport := newSoundCloudFixtureTransport(t)
+		transport.override = func(request *http.Request) (int, []byte, bool) {
+			if request.URL.Path == "/resolve" {
+				return http.StatusOK, []byte(`{"id":8000}`), true
+			}
+			return 0, nil, false
+		}
+		result, err := NewSoundCloud().Extract(context.Background(), Request{
+			URL: "https://soundcloud.com/fixture-artist/related-signal/" + relation.urlSuffix, Transport: transport,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantTitle := "fixture-artist/related-signal (" + relation.suffix + ")"
+		if got, _ := result.Info.Title(); got != wantTitle {
+			t.Fatalf("%s title = %q, want %q", relation.suffix, got, wantTitle)
+		}
+	}
 }
