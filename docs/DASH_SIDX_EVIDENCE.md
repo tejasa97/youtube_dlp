@@ -4,9 +4,10 @@
 
 This document records the implementation of native, Python-free DASH
 SegmentBase `indexRange` support via ISO-BMFF SIDX box parsing and expansion
-into bounded byte-range media segments.
+into bounded byte-range media segments, including bounded hierarchical
+(reference_type=1) recursive expansion.
 
-Branch: `minimax/dash-sidx`
+Branch: `codex/dash-hierarchical-sidx`
 
 ## Behavior implemented
 
@@ -23,10 +24,19 @@ Branch: `minimax/dash-sidx`
 2. **SIDX parser** (`sidx.go`): Standalone, fuzzable ISO-BMFF SIDX parser
    supporting version 0 and 1, normal and 64-bit extended box sizes,
    non-SIDX box skipping, and all fail-closed conditions (truncation,
-   overflow, hierarchical references, zero timescale, zero reference size,
-   segment count limits).
+   overflow, zero timescale, zero reference size, segment count limits).
+   Both reference_type=0 (leaf media) and reference_type=1 (nested index)
+   are parsed and preserved via the `IsIndex` field on `SIDXReference`.
 
-3. **Index-range retrieval** (`downloader.go`): Bounded HTTP range request
+3. **Hierarchical SIDX expansion** (`downloader.go`): Bounded recursive
+   resolver expands hierarchical SIDX indexes into ordered leaf media ranges.
+   Safety limits: max depth 8, max 256 parsed boxes per representation,
+   max 16 MiB cumulative index bytes, leaf count bounded by effective
+   MaxSegments. Cycle detection via visited-range key (URL + start + length).
+   Overlapping final leaf media ranges are rejected. Depth-first reference
+   order is preserved. Nested index bytes never enter assembled media output.
+
+4. **Index-range retrieval** (`downloader.go`): Bounded HTTP range request
    with header propagation, cancellation, 206/200 handling, and size limits.
    Content-Range is mandatory for every 206 response and strictly validated:
    START-END must match the request, and the total must be `*` or a decimal
@@ -52,12 +62,14 @@ Branch: `minimax/dash-sidx`
 ## Remaining deviations
 
 - Dynamic SegmentBase/SIDX is rejected (not re-fetched per poll).
-- Hierarchical SIDX (`reference_type == 1`) is rejected.
 - Multi-period composition requires compatible fragmented signatures across
   every static period; dynamic and unfragmented multi-period sets are rejected.
 - Initialization/media range overlap is rejected (not trimmed).
 - The index fetch does not retry on transient failure (single attempt);
   media segment retries use the existing fragment engine machinery.
+- Remote or cross-resource nested indexes are not followed; hierarchy
+  remains within the trusted SegmentBase media URL.
+- Malformed or unverifiable hierarchies fail closed.
 
 ## Test names for parity manifest integration
 
@@ -129,12 +141,48 @@ by the primary agent:
 - `TestDownloadSIDXInitOverlapWithLaterReferenceRejected`
 - `TestDownloadSIDXInitNoOverlapSucceeds`
 
+### Hierarchical SIDX tests
+- `TestSIDXHierarchicalReferenceParsed`
+- `TestSIDXVersion0NestedReference`
+- `TestSIDXVersion1NestedReference`
+- `TestSIDXMixedLeafAndNestedReferences`
+- `TestSIDXNestedWithNonZeroFirstOffset`
+- `TestSIDXNestedAfterNonSIDXBox`
+- `TestSIDXLeafOnlyHasNoHierarchicalReferences`
+- `TestDownloadHierarchicalSIDXOneLevel`
+- `TestDownloadHierarchicalSIDXTwoLevels`
+- `TestDownloadHierarchicalSIDXMixedOrdering`
+- `TestDownloadHierarchicalSIDXExactNestedRangeHeader`
+- `TestDownloadHierarchicalSIDXHeadersPropagated`
+- `TestDownloadHierarchicalSIDX200Fallback`
+- `TestDownloadHierarchicalSIDXNoSIDXBytesInOutput`
+- `TestDownloadHierarchicalSIDXExcessiveDepth`
+- `TestDownloadHierarchicalSIDXExcessiveBoxCount`
+- `TestDownloadHierarchicalSIDXRepeatedRangeDetection`
+- `TestDownloadHierarchicalSIDXTruncatedNested`
+- `TestDownloadHierarchicalSIDXLeafCountLimit`
+- `TestDownloadHierarchicalSIDXNestedTransportFailure`
+- `TestDownloadHierarchicalSIDXCancellationDuringNestedFetch`
+- `TestDownloadHierarchicalSIDXNoOutputOnFailure`
+- `TestDownloadHierarchicalSIDXMultiPeriod`
+- `TestDownloadHierarchicalSIDXAudioVideo`
+- `TestDownloadHierarchicalSIDXVersion1Child`
+- `TestDownloadHierarchicalSIDXExtendedSizeChild`
+- `TestDownloadHierarchicalSIDXCumulativeByteBudget`
+- `TestDownloadHierarchicalSIDXTruncatedChildResponse`
+- `TestDownloadHierarchicalSIDXOffsetOverflow`
+- `TestDownloadHierarchicalSIDXRoundTripV0Hex`
+
 ### Content-Range unit tests
 - `TestValidContentRangeTotalValidation`
 
 ### Fuzz targets
 - `FuzzSIDX` (bounded, no network/filesystem; seeded with v0, v1, truncated,
-  malformed, and non-SIDX inputs)
+  malformed, and non-SIDX inputs including index references)
+- `FuzzSIDXRecursiveExpansion` (bounded, no network/filesystem; seeds a root
+  index range over a deterministic in-memory resource and uses
+  `downloader.expandOneSIDX` to surface panic, unbounded allocation, or
+  invalid segment emission across fuzzed SIDX payloads)
 
 ## Design decision: dynamic SIDX
 

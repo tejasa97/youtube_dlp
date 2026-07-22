@@ -34,6 +34,8 @@ ISO-BMFF specifications:
 | `sidx_indexrange.mpd` | SegmentBase with indexRange at representation and adaptation-set levels |
 | `sidx_indexrange.expected.json` | Expected parse output showing marker segments |
 | `sidx_v0_two_refs.hex` | Synthetic SIDX v0 binary box with 2 references |
+| `sidx_hierarchical_v0.hex` | Synthetic hierarchical SIDX: root index ref → nested SIDX with 2 leaf refs |
+| `sidx_hierarchical_v0.expected.json` | Expected absolute leaf ranges and expansion order for the above |
 
 ## Synthetic data attestation
 
@@ -42,6 +44,11 @@ ISO-BMFF specifications:
 - The SIDX binary fixture (`sidx_v0_two_refs.hex`) was constructed from the
   ISO-BMFF SegmentIndexBox layout (ISO/IEC 14496-12 §8.16.3) with synthetic
   reference sizes and durations.
+- The hierarchical SIDX fixture (`sidx_hierarchical_v0.hex`) was constructed
+  from the same normative layout with a root SIDX containing one
+  reference_type=1 (index) entry pointing to a nested SIDX with two
+  reference_type=0 (leaf) entries. Expected absolute leaf ranges are recorded
+  in the companion `.expected.json`.
 - The MPD fixtures use `example.test` domain URLs that cannot resolve.
 
 ## Implementation notes

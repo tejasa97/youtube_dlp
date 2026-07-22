@@ -21,6 +21,18 @@ import (
 // maxIndexRangeBytes bounds the SIDX index fetch to prevent unbounded reads.
 const maxIndexRangeBytes = 16 << 20
 
+// Hierarchical SIDX expansion safety limits.
+const (
+	// maxSIDXDepth bounds the nesting depth of hierarchical SIDX indexes.
+	maxSIDXDepth = 8
+	// maxSIDXBoxesPerRepresentation bounds the total number of SIDX boxes
+	// parsed during expansion of a single representation's index.
+	maxSIDXBoxesPerRepresentation = 256
+	// maxCumulativeIndexBytes bounds the total bytes fetched for index data
+	// during hierarchical expansion of a single representation.
+	maxCumulativeIndexBytes = 16 << 20 // 16 MiB
+)
+
 // defaultMaxDownloadSegments mirrors the fragment engine's public default and
 // keeps the limit global to a selected track even when Periods are downloaded
 // as separate atomic jobs.
@@ -478,6 +490,8 @@ func (downloader *Downloader) expandSIDXSegments(ctx context.Context, dynamic bo
 
 // expandOneSIDX fetches the index range for a single SIDX marker segment,
 // parses the SIDX box, and expands it into concrete byte-range media segments.
+// If the SIDX contains hierarchical (index) references, recursive expansion is
+// performed with bounded depth, box count, and cumulative index byte limits.
 func (downloader *Downloader) expandOneSIDX(ctx context.Context, marker Segment) ([]Segment, error) {
 	rangeStart, rangeEnd, err := parseByteRange(marker.IndexRange)
 	if err != nil {
@@ -505,12 +519,21 @@ func (downloader *Downloader) expandOneSIDX(ctx context.Context, marker Segment)
 	// offset of the sidx box within the fetched data.
 	baseOffset := rangeStart + int64(sidxOffset)
 
-	mediaRanges, err := sidx.MediaRanges(baseOffset)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrUnsupportedAddressing, err)
+	// Initialize expansion state for safety tracking.
+	state := &sidxExpansionState{
+		mediaURL:     marker.URL,
+		visited:      make(map[string]struct{}),
+		boxesParsed:  1,
+		indexBytes:   int64(len(indexData)),
+		maxLeafCount: downloader.effectiveMaxSegments(),
 	}
-	if len(mediaRanges) > maxSegmentsPerRepresentation {
-		return nil, fmt.Errorf("%w: %d segments", ErrUnsupportedAddressing, len(mediaRanges))
+	// Record the root index range as visited.
+	state.visited[rangeKey(marker.URL, rangeStart, rangeLength)] = struct{}{}
+
+	// Expand references (recursively if hierarchical).
+	mediaRanges, err := downloader.expandSIDXReferences(ctx, sidx, baseOffset, 0, state)
+	if err != nil {
+		return nil, err
 	}
 
 	// Build the expanded segment list.
@@ -525,6 +548,10 @@ func (downloader *Downloader) expandOneSIDX(ctx context.Context, marker Segment)
 		// Reject any overlap between the initialization range and media ranges.
 		// Partial trimming could corrupt codec configuration; full omission
 		// discards required bytes. Explicit rejection is the safe choice.
+		// This also covers overlap with root or nested index ranges: since
+		// index bytes are never emitted as media, any init/media overlap is
+		// the only checked condition. Init/index overlap is fail-closed by
+		// the same logic (index bytes are not media output).
 		for _, mediaRange := range mediaRanges {
 			mediaEnd := mediaRange.Start + mediaRange.Length - 1
 			if initStart <= mediaEnd && initEnd >= mediaRange.Start {
@@ -548,6 +575,127 @@ func (downloader *Downloader) expandOneSIDX(ctx context.Context, marker Segment)
 		})
 	}
 	return result, nil
+}
+
+// sidxExpansionState tracks safety counters during recursive SIDX expansion.
+type sidxExpansionState struct {
+	mediaURL     string
+	visited      map[string]struct{} // range keys for cycle detection
+	boxesParsed  int
+	indexBytes   int64
+	leafCount    int
+	maxLeafCount int
+}
+
+// rangeKey produces a unique key for a fetched index range, used for cycle
+// detection. It contains the URL, absolute start, and length.
+func rangeKey(url string, start, length int64) string {
+	return fmt.Sprintf("%s\x00%d\x00%d", url, start, length)
+}
+
+// expandSIDXReferences recursively expands SIDX references into leaf media
+// ranges. For leaf references (IsIndex=false), the range is emitted directly.
+// For index references (IsIndex=true), the referenced byte range is fetched,
+// parsed as a nested SIDX, and its references are expanded recursively.
+// Depth-first manifest/SIDX reference order is preserved.
+func (downloader *Downloader) expandSIDXReferences(ctx context.Context, sidx *SIDX, baseOffset int64, depth int, state *sidxExpansionState) ([]MediaRange, error) {
+	if depth > maxSIDXDepth {
+		return nil, fmt.Errorf("%w: hierarchy depth %d exceeds limit %d", ErrUnsupportedAddressing, depth, maxSIDXDepth)
+	}
+
+	allRanges, err := sidx.MediaRanges(baseOffset)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrUnsupportedAddressing, err)
+	}
+
+	var leaves []MediaRange
+	for i, reference := range sidx.References {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if !reference.IsIndex {
+			// Leaf media reference: emit directly.
+			state.leafCount++
+			if state.leafCount > state.maxLeafCount {
+				return nil, fmt.Errorf("%w: leaf segment count %d exceeds limit %d", ErrUnsupportedAddressing, state.leafCount, state.maxLeafCount)
+			}
+			leaves = append(leaves, allRanges[i])
+			continue
+		}
+
+		// Index reference: fetch and recursively expand.
+		nestedRange := allRanges[i]
+		key := rangeKey(state.mediaURL, nestedRange.Start, nestedRange.Length)
+		if _, seen := state.visited[key]; seen {
+			return nil, fmt.Errorf("%w: cycle detected at index range %d-%d", ErrUnsupportedAddressing, nestedRange.Start, nestedRange.Start+nestedRange.Length-1)
+		}
+		state.visited[key] = struct{}{}
+
+		if nestedRange.Length > maxIndexRangeBytes {
+			return nil, fmt.Errorf("%w: nested index range %d bytes exceeds limit", ErrUnsupportedAddressing, nestedRange.Length)
+		}
+
+		// Check cumulative index bytes before fetching.
+		if state.indexBytes > maxCumulativeIndexBytes-nestedRange.Length {
+			return nil, fmt.Errorf("%w: cumulative index bytes exceed %d", ErrUnsupportedAddressing, maxCumulativeIndexBytes)
+		}
+
+		nestedData, fetchErr := downloader.fetchIndexRange(ctx, state.mediaURL, nestedRange.Start, nestedRange.Length)
+		if fetchErr != nil {
+			return nil, fetchErr
+		}
+		state.indexBytes += int64(len(nestedData))
+
+		nestedSIDX, nestedOffset, parseErr := ParseSIDX(nestedData)
+		if parseErr != nil {
+			return nil, fmt.Errorf("%w: nested SIDX at offset %d: %v", ErrUnsupportedAddressing, nestedRange.Start, parseErr)
+		}
+		state.boxesParsed++
+		if state.boxesParsed > maxSIDXBoxesPerRepresentation {
+			return nil, fmt.Errorf("%w: parsed SIDX box count %d exceeds limit %d", ErrUnsupportedAddressing, state.boxesParsed, maxSIDXBoxesPerRepresentation)
+		}
+
+		// The absolute base for the nested SIDX is the requested range start
+		// plus the offset of the sidx box within the returned bytes.
+		nestedBase := nestedRange.Start + int64(nestedOffset)
+
+		nestedLeaves, expandErr := downloader.expandSIDXReferences(ctx, nestedSIDX, nestedBase, depth+1, state)
+		if expandErr != nil {
+			return nil, expandErr
+		}
+		leaves = append(leaves, nestedLeaves...)
+	}
+
+	// Validate no duplicate or overlapping final media ranges.
+	// Sort a copy by start position to detect overlaps regardless of
+	// depth-first emission order.
+	if len(leaves) > 1 {
+		sorted := make([]MediaRange, len(leaves))
+		copy(sorted, leaves)
+		sort.Slice(sorted, func(i, j int) bool { return sorted[i].Start < sorted[j].Start })
+		for i := 1; i < len(sorted); i++ {
+			prevEnd := sorted[i-1].Start + sorted[i-1].Length
+			if sorted[i].Start < prevEnd {
+				return nil, fmt.Errorf("%w: overlapping leaf media ranges at index %d", ErrUnsupportedAddressing, i)
+			}
+		}
+	}
+
+	return leaves, nil
+}
+
+// effectiveMaxSegments returns the effective maximum segment count for
+// hierarchical expansion, bounded by both the configured MaxSegments and the
+// parser hard limit.
+func (downloader *Downloader) effectiveMaxSegments() int {
+	limit := downloader.config.MaxSegments
+	if limit <= 0 {
+		limit = defaultMaxDownloadSegments
+	}
+	if limit > maxSegmentsPerRepresentation {
+		limit = maxSegmentsPerRepresentation
+	}
+	return limit
 }
 
 // fetchIndexRange performs a bounded HTTP range request for the SIDX index.
