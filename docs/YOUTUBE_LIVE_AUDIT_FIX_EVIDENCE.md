@@ -1,7 +1,7 @@
 # YouTube live-audit fix evidence
 
-Date: 2026-07-22  
-Host: macOS/arm64, Docker Desktop Linux/arm64  
+Date: 2026-07-22
+Host: macOS/arm64, Docker Desktop Linux/arm64
 Reference: read-only `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`
 
 No test or production path invoked Python or the reference checkout. Public
@@ -11,11 +11,11 @@ network checks were non-gating and used anonymous requests.
 
 | Area | Automated evidence | Anonymous live result |
 | --- | --- | --- |
-| Modern playlists | legacy and `lockupViewModel` fixtures, de-duplication, modern continuation seeds and parser fuzzing | pinned single-video playlist returned one `aqz-KE-bpKQ` entry; pinned empty playlist returned zero |
+| Modern playlists | legacy and `lockupViewModel` fixtures, duplicate-occurrence preservation, direct and executor-wrapped continuation seeds, continuation bounds, and parser fuzzing | pinned single-video playlist returned one `aqz-KE-bpKQ` entry; pinned empty playlist returned zero |
 | Playback offsets | typed URL parser tests and fuzzing | Big Buck Bunny with `t=1s&end=9` returned `start_time=1`, `end_time=9`, and 25 formats |
 | Error categories | wrapped-sentinel and client category tests | missing cookie file and unmatched format both returned exit 2 / `invalid_input` |
 | Channel live aliases | route, active fixture, offline, malformed, hostile route, and fuzz tests | `@LofiGirl/live` entered the resolved video extractor; that active stream then reached the known EJS-helper timeout described below |
-| Runtime image | pinned Alpine build, non-root/read-only probes | UID 65532 image had ffmpeg/ffprobe, no Python, and merged formats `299+140` into a two-stream MP4 |
+| Runtime image | digest-pinned Alpine stages and checksum-verified, LGPL-only FFmpeg 6.1.2 and LAME 3.100 source builds; exact sources and licenses ship in the image | UID 65532 image had ffmpeg/ffprobe, no Python, merged formats `299+140` into a two-stream MP4, and retained MP3 extraction |
 
 ## Regression matrix
 

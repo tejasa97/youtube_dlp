@@ -123,8 +123,9 @@ For adaptive media merging and post-processing, build the separate non-root
 runtime image. It remains Python-free but includes ffmpeg and ffprobe:
 
     docker build -f .github/runtime.Dockerfile -t ytdlp-go-runtime .
+    docker volume create ytdlp-downloads
     docker run --rm --read-only --tmpfs /tmp \
-        -v "$PWD/downloads:/downloads" ytdlp-go-runtime URL
+        -v ytdlp-downloads:/downloads ytdlp-go-runtime URL
 
 The scratch image is the strict dependency-audit artifact; the runtime image is
 the practical downloader distribution. See
