@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ytdlp-go/ytdlp/internal/fragment"
 	"github.com/ytdlp-go/ytdlp/internal/network"
 )
 
@@ -33,6 +34,8 @@ func TestParseMultiPeriodFixture(t *testing.T) {
 	var expected struct {
 		PeriodCount       int      `json:"period_count"`
 		PeriodIDs         []string `json:"period_ids"`
+		PeriodStartsMS    []int64  `json:"period_starts_ms"`
+		PeriodDurationsMS []int64  `json:"period_durations_ms"`
 		RepresentationIDs []string `json:"representation_ids"`
 		URLs              []string `json:"urls"`
 	}
@@ -48,6 +51,11 @@ func TestParseMultiPeriodFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	var periodIDs, representationIDs, URLs []string
+	var periodStartsMS, periodDurationsMS []int64
+	for _, period := range mpd.Periods {
+		periodStartsMS = append(periodStartsMS, period.Start.Milliseconds())
+		periodDurationsMS = append(periodDurationsMS, period.Duration.Milliseconds())
+	}
 	for _, representation := range mpd.Representations {
 		periodIDs = append(periodIDs, representation.PeriodID)
 		representationIDs = append(representationIDs, representation.ID)
@@ -56,8 +64,9 @@ func TestParseMultiPeriodFixture(t *testing.T) {
 		}
 	}
 	if mpd.PeriodCount != expected.PeriodCount || !reflect.DeepEqual(periodIDs, expected.PeriodIDs) ||
+		!reflect.DeepEqual(periodStartsMS, expected.PeriodStartsMS) || !reflect.DeepEqual(periodDurationsMS, expected.PeriodDurationsMS) ||
 		!reflect.DeepEqual(representationIDs, expected.RepresentationIDs) || !reflect.DeepEqual(URLs, expected.URLs) {
-		t.Fatalf("parsed MPD = %#v, period IDs = %v, representation IDs = %v, URLs = %v", mpd, periodIDs, representationIDs, URLs)
+		t.Fatalf("parsed MPD = %#v, period IDs = %v, starts = %v, durations = %v, representation IDs = %v, URLs = %v", mpd, periodIDs, periodStartsMS, periodDurationsMS, representationIDs, URLs)
 	}
 }
 
@@ -93,6 +102,8 @@ func TestSelectMultiPeriodChoosesHighestCommonSignature(t *testing.T) {
 		representation(1, "p1-low", 100, "p1-low"),
 		representation(1, "p1-common", 200, "p1-common"),
 	}}
+	mpd.Periods = testPeriods(2)
+	mpd.PresentationDuration = 2 * time.Second
 	selected, err := selectRepresentations(mpd)
 	if err != nil {
 		t.Fatal(err)
@@ -143,10 +154,54 @@ func TestSelectMultiPeriodRejectsUnsafeCombinations(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			test.mpd.Periods = testPeriods(test.mpd.PeriodCount)
+			test.mpd.PresentationDuration = time.Duration(test.mpd.PeriodCount) * time.Second
 			if _, err := selectRepresentations(test.mpd); !errors.Is(err, ErrUnsupportedAddressing) {
 				t.Fatalf("selectRepresentations() error = %v", err)
 			}
 		})
+	}
+}
+
+func TestSelectMultiPeriodRejectsDiscontinuousOrUnknownTiming(t *testing.T) {
+	representation := func(period int) Representation {
+		return Representation{
+			ID: fmt.Sprintf("v%d", period), PeriodIndex: period, Fragmented: true,
+			ContentType: "video", MimeType: "video/mp4", Codecs: "avc1", Bandwidth: 100,
+			Segments: []Segment{{URL: fmt.Sprintf("p%d.m4s", period)}},
+		}
+	}
+	for _, test := range []struct {
+		name    string
+		periods []Period
+	}{
+		{"gap", []Period{{Start: 0, Duration: time.Second, TimingKnown: true}, {Start: 2 * time.Second, Duration: time.Second, TimingKnown: true}}},
+		{"overlap", []Period{{Start: 0, Duration: 2 * time.Second, TimingKnown: true}, {Start: time.Second, Duration: time.Second, TimingKnown: true}}},
+		{"unknown", []Period{{Start: 0}, {}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			mpd := MPD{PeriodCount: 2, Periods: test.periods, Representations: []Representation{representation(0), representation(1)}}
+			if _, err := selectRepresentations(mpd); !errors.Is(err, ErrUnsupportedAddressing) {
+				t.Fatalf("selectRepresentations() error = %v", err)
+			}
+		})
+	}
+}
+
+func TestParseDerivesContiguousPeriodTiming(t *testing.T) {
+	mpd, err := Parse("https://example.test/manifest.mpd", []byte(`<MPD mediaPresentationDuration="PT4S"><Period id="p1" duration="PT2S"><AdaptationSet contentType="video" mimeType="video/mp4" codecs="avc1"><Representation id="v1" bandwidth="100"><SegmentList><SegmentURL media="p1.m4s"/></SegmentList></Representation></AdaptationSet></Period><Period id="p2"><AdaptationSet contentType="video" mimeType="video/mp4" codecs="avc1"><Representation id="v2" bandwidth="100"><SegmentList><SegmentURL media="p2.m4s"/></SegmentList></Representation></AdaptationSet></Period></MPD>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Period{
+		{ID: "p1", Start: 0, Duration: 2 * time.Second, TimingKnown: true},
+		{ID: "p2", Start: 2 * time.Second, Duration: 2 * time.Second, TimingKnown: true},
+	}
+	if !reflect.DeepEqual(mpd.Periods, want) {
+		t.Fatalf("Periods = %#v; want %#v", mpd.Periods, want)
+	}
+	if _, err := selectRepresentations(mpd); err != nil {
+		t.Fatalf("selectRepresentations(): %v", err)
 	}
 }
 
@@ -204,6 +259,18 @@ func TestDownloadMultiPeriodFailureDoesNotPublishTrack(t *testing.T) {
 	}
 }
 
+func TestDownloadMultiPeriodEnforcesAggregateSegmentLimit(t *testing.T) {
+	server := multiPeriodServer(t, nil)
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	_, err := NewDownloader(transport, Config{MaxSegments: 3}).Download(
+		context.Background(), server.URL+"/manifest.mpd", root, filepath.Join(root, "limited.mp4"), false, nil)
+	if !errors.Is(err, fragment.ErrTooManySegments) {
+		t.Fatalf("Download() error = %v; want ErrTooManySegments", err)
+	}
+}
+
 func TestDownloadMultiPeriodCancellationDoesNotPublishTrack(t *testing.T) {
 	server := multiPeriodServer(t, func(_ http.ResponseWriter, request *http.Request) bool {
 		if request.URL.Path != "/p2-media.m4s" {
@@ -248,6 +315,14 @@ func withPeriodAndLanguage(representation Representation, period int, language s
 	return representation
 }
 
+func testPeriods(count int) []Period {
+	periods := make([]Period, count)
+	for index := range periods {
+		periods[index] = Period{Start: time.Duration(index) * time.Second, Duration: time.Second, TimingKnown: true}
+	}
+	return periods
+}
+
 func multiPeriodServer(t *testing.T, override func(http.ResponseWriter, *http.Request) bool) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -256,7 +331,7 @@ func multiPeriodServer(t *testing.T, override func(http.ResponseWriter, *http.Re
 		}
 		switch request.URL.Path {
 		case "/manifest.mpd":
-			_, _ = fmt.Fprint(writer, `<MPD type="static"><Period id="p1"><AdaptationSet contentType="video" mimeType="video/mp4" codecs="avc1" bandwidth="100"><Representation id="v1" bandwidth="100"><SegmentList><Initialization sourceURL="p1-init.mp4"/><SegmentURL media="p1-media.m4s"/></SegmentList></Representation></AdaptationSet></Period><Period id="p2"><AdaptationSet contentType="video" mimeType="video/mp4" codecs="avc1"><Representation id="v2" bandwidth="100"><SegmentList><Initialization sourceURL="p2-init.mp4"/><SegmentURL media="p2-media.m4s"/></SegmentList></Representation></AdaptationSet></Period></MPD>`)
+			_, _ = fmt.Fprint(writer, `<MPD type="static" mediaPresentationDuration="PT2S"><Period id="p1" duration="PT1S"><AdaptationSet contentType="video" mimeType="video/mp4" codecs="avc1" bandwidth="100"><Representation id="v1" bandwidth="100"><SegmentList><Initialization sourceURL="p1-init.mp4"/><SegmentURL media="p1-media.m4s"/></SegmentList></Representation></AdaptationSet></Period><Period id="p2" duration="PT1S"><AdaptationSet contentType="video" mimeType="video/mp4" codecs="avc1"><Representation id="v2" bandwidth="100"><SegmentList><Initialization sourceURL="p2-init.mp4"/><SegmentURL media="p2-media.m4s"/></SegmentList></Representation></AdaptationSet></Period></MPD>`)
 		case "/p1-init.mp4":
 			_, _ = writer.Write([]byte("P1-INIT"))
 		case "/p1-media.m4s":
