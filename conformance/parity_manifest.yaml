@@ -486,13 +486,24 @@ capabilities:
       - pkg/ytdlp.TestSelectedPlaylistIteratorHonorsCancellationAtEndBoundary
       - pkg/ytdlp.TestPlaylistSelectionConformanceFixture
       - pkg/ytdlp.FuzzSelectedPlaylistIterator
+      - pkg/ytdlp.TestPlaylistItemsConformanceFixture
+      - pkg/ytdlp.TestOperationPlaylistItemsPreservesRequestedOrderAndStopsPagination
+      - pkg/ytdlp.TestPlaylistItemsFiniteWideStepDoesNotOverfetch
+      - pkg/ytdlp.TestOperationPlaylistItemsZeroDoesNotFetchEntries
+      - pkg/ytdlp.TestOperationPlaylistItemsNegativeIndexConsumesBoundedSequence
+      - pkg/ytdlp.TestOperationPlaylistItemsTakePrecedenceAndReverseAfterSelection
+      - pkg/ytdlp.TestPlaylistItemsOverrideRangeWarningPolicy
+      - pkg/ytdlp.TestPlaylistItemsOverrideRangeWarningEmittedOnce
+      - pkg/ytdlp.TestPlaylistItemsIteratorCancellationAndLimit
+      - pkg/ytdlp.FuzzPlaylistItemsParserAndExpansion
       - internal/cli.TestRunRejectsInvalidPlaylistRange
       - internal/cli.TestRunAcceptsLegacyUnboundedPlaylistEnd
       - internal/cli.TestRunAcceptsNoPlaylistReverseAfterInheritedReverse
+      - internal/cli.TestRunPlaylistItemsAliasAndInvalidSpec
       - conformance/playlists/PROVENANCE.md
       - docs/PLAYLIST_MODEL.md
     owner: extractors
-    known_deviation: Playlist ranges are inclusive and one-based, preserve original source indexes, stop pagination at an explicit end, and can reverse a bounded selected range. Entries resolve sequentially with a fail-fast error policy and id/title overlays for transparent URL results. Arbitrary playlist-item expressions, random ordering, flat extraction, arbitrary transparent fields, and configurable ignore-error policy remain broader compatibility work.
+    known_deviation: Playlist ranges and bounded item expressions are one-based, preserve original source indexes, support sparse and negative indexes plus positive/negative steps, suppress duplicate selections, stop finite pagination at the last requested index, and can reverse the selected result. Expressions that require the final length consume the bounded sequence, and the sequential extractor boundary may fetch earlier pages that an upstream random-access paged list can skip. Entries resolve sequentially with a fail-fast error policy and id/title overlays for transparent URL results. Random ordering, flat extraction, arbitrary transparent fields, and configurable ignore-error policy remain broader compatibility work.
 
   - id: extractor.live
     name: Live extraction pilot

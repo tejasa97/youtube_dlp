@@ -30,6 +30,18 @@ selected range, so it buffers at most the bounded 10,000-entry operation limit.
 In either output order, `playlist_index` remains the entry's original position
 in its source playlist.
 
+`Playlist.Items` and `-I`/`--playlist-items` select comma-separated one-based
+indexes or `[START]:[END][:STEP]` ranges; the legacy `START-END` spelling is
+also accepted. Sparse order, duplicate suppression, zero, `inf`, open ranges,
+positive and negative steps, and negative indexes follow the pinned reference
+corpus. An item expression takes precedence over Start/End with a structured
+warning when either range bound was also selected, and Reverse is applied
+afterward. Finite non-negative expressions stop iteration at the last
+requested source index. Expressions that need the final playlist length are
+resolved after consuming the bounded sequence. Specifications are limited to
+4 KiB, 256 segments, integer magnitudes of one billion, and the existing
+10,000-source-entry operation bound.
+
 ## Bounds and failure policy
 
 - A context cancellation stops static iteration, page fetching, extraction,
@@ -43,6 +55,8 @@ in its source playlist.
   complete ordered hierarchy.
 
 This is the reusable base for the representative site pilots. Broader yt-dlp
-options such as arbitrary playlist-item expressions, random ordering, flat
-extraction, arbitrary transparent field overlays, and configurable ignore-error
-thresholds remain explicit later compatibility work rather than hidden behavior.
+options such as random ordering, flat extraction, arbitrary transparent field
+overlays, and configurable ignore-error thresholds remain explicit later
+compatibility work rather than hidden behavior. Unlike upstream random-access
+paged lists, this sequential extractor boundary may fetch earlier pages while
+seeking a later sparse index.
