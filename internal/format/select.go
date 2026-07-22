@@ -95,6 +95,12 @@ func mergeHeaders(values ...value.Value) (http.Header, error) {
 	return headers, nil
 }
 
+// MergeHeaders validates and combines ordered metadata header collections.
+// Later collections override earlier values.
+func MergeHeaders(values ...value.Value) (http.Header, error) {
+	return mergeHeaders(values...)
+}
+
 func numeric(input value.Value) (float64, bool) {
 	if integer, ok := input.Int(); ok {
 		return float64(integer), true

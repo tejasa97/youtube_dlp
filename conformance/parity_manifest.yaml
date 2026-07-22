@@ -401,15 +401,32 @@ capabilities:
       - pkg/ytdlp.TestPublicYouTubePOTProviderConfiguration
       - pkg/ytdlp.TestPublicYouTubePOTConfigurationFailsClosed
       - pkg/ytdlp.TestPublicYouTubeCaptionOptionsReachExtractor
+      - pkg/ytdlp.TestSubtitleSidecarsDownloadWithSkipDownload
+      - pkg/ytdlp.TestSubtitleSelectionMatchesPinnedReferenceCases
+      - pkg/ytdlp.TestSubtitleAndMediaArtifactsAreBothReported
+      - pkg/ytdlp.TestSubtitleFormatSelectionFailsBeforeSidecarWrite
+      - pkg/ytdlp.TestSubtitleLiteralOutputSuffixIsPreserved
+      - pkg/ytdlp.TestSubtitleHeadersValidateOnlySelectedTrack
+      - pkg/ytdlp.TestSubtitleExtensionInference
+      - pkg/ytdlp.TestSelectSubtitleWithoutExplicitExtension
+      - pkg/ytdlp.TestSelectSubtitleLanguagesOrderedRules
+      - pkg/ytdlp.TestSubtitleDestinationExistingFileFailsClosed
+      - pkg/ytdlp.TestSubtitleDownloadCancellation
+      - pkg/ytdlp.TestSubtitleOptionsRejectInvalidRegexBeforeNetwork
+      - pkg/ytdlp.TestSubtitleMetadataCombinedLanguageLimit
+      - pkg/ytdlp.FuzzValidateSubtitleOptions
+      - pkg/ytdlp.FuzzSubtitleExtension
+      - internal/cli.TestRunWritesSelectedSubtitlesWhileSkippingMedia
       - conformance/extractors/youtube/PROVENANCE.md
       - docs/YOUTUBE_POT_EVIDENCE.md
       - docs/YOUTUBE_CAPTIONS_EVIDENCE.md
+      - docs/YOUTUBE_SUBTITLE_CLI_EVIDENCE.md
       - docs/YOUTUBE_PROTECTED_PLAYBACK_PLAN.md
     owner: extractors
     depends_on:
       - javascript.ejs
       - extractor.playlists
-    known_deviation: Compatibility is scoped to the pinned video, playlist-continuation, live-HLS, structured player-config discovery, native-client recovery, manual/automatic/translated caption renderer, and explicit native-Go PO-token provider corpus. Anonymous visitor identity is propagated across bounded, cookie-isolated Android and Android VR requests, enabling URL-bearing adaptive video/audio recovery. Player, GVS, and subtitle token placement is supported through an embedding-provided Go provider; no built-in generator, implicit endpoint, executable, Python bridge, persistent cache, or upstream external-provider protocol is claimed. Authenticated pages fail explicitly instead of leaking browser cookies to clients that do not support them or silently substituting an anonymous session. Full CLI subtitle-selection/write flags, direct SABR transport, authenticated Innertube clients, comments, channel/tab variants, live-from-start, and broader player/renderer variants remain pending.
+    known_deviation: Compatibility is scoped to the pinned video, playlist-continuation, live-HLS, structured player-config discovery, native-client recovery, manual/automatic/translated caption renderer, bounded subtitle sidecar selection/download, and explicit native-Go PO-token provider corpus. Anonymous visitor identity is propagated across bounded, cookie-isolated Android and Android VR requests, enabling URL-bearing adaptive video/audio recovery. Player, GVS, and subtitle token placement is supported through an embedding-provided Go provider; no built-in generator, implicit endpoint, executable, Python bridge, persistent cache, or upstream external-provider protocol is claimed. Authenticated pages fail explicitly instead of leaking browser cookies to clients that do not support them or silently substituting an anonymous session. Existing sidecars fail closed unless overwrite is enabled. Subtitle listing, CLI conversion/embedding, Python-regex-only language rules, direct SABR transport, authenticated Innertube clients, comments, channel/tab variants, live-from-start, and broader player/renderer variants remain pending.
 
   - id: extractor.playlists
     name: Playlist extraction model
