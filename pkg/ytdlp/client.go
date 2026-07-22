@@ -102,6 +102,7 @@ type Request struct {
 	AllowUnplayableFormats    bool
 	YouTubeTranslatedCaptions bool
 	Subtitles                 SubtitleOptions
+	Playlist                  PlaylistOptions
 	ProgressTemplate          string
 	MatchFilters              []string
 	ParseMetadata             []string
@@ -427,15 +428,40 @@ func (operation *operation) process(ctx context.Context, rawURL, extractorKey st
 }
 
 func (operation *operation) processPlaylist(ctx context.Context, extracted extractor.Extraction, extractorName string, ancestors map[string]bool, depth int) (Result, error) {
-	iterator := extracted.Entries.Iterator()
+	iterator := newSelectedPlaylistIterator(extracted.Entries.Iterator(), operation.request.Playlist)
+	var reversed []indexedPlaylistEntry
+	if operation.request.Playlist.Reverse {
+		for {
+			entry, ok, err := iterator.Next(ctx)
+			if err != nil {
+				return Result{}, categorized(extractorName+" playlist iteration", err)
+			}
+			if !ok {
+				break
+			}
+			reversed = append(reversed, entry)
+		}
+		for left, right := 0, len(reversed)-1; left < right; left, right = left+1, right-1 {
+			reversed[left], reversed[right] = reversed[right], reversed[left]
+		}
+	}
 	children := make([]Result, 0)
 	entryValues := make([]value.Value, 0)
 	playlistID, _ := extracted.Info.ID()
 	playlistTitle, _ := extracted.Info.Title()
-	for index := 0; ; index++ {
-		entry, ok, err := iterator.Next(ctx)
-		if err != nil {
-			return Result{}, categorized(extractorName+" playlist iteration", err)
+	for outputIndex := 0; ; outputIndex++ {
+		var selected indexedPlaylistEntry
+		var ok bool
+		if operation.request.Playlist.Reverse {
+			if outputIndex < len(reversed) {
+				selected, ok = reversed[outputIndex], true
+			}
+		} else {
+			var err error
+			selected, ok, err = iterator.Next(ctx)
+			if err != nil {
+				return Result{}, categorized(extractorName+" playlist iteration", err)
+			}
 		}
 		if !ok {
 			info := value.NewInfo(extracted.Info.Fields().Clone())
@@ -452,17 +478,15 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 			}
 			return result, nil
 		}
-		if index >= maxPlaylistEntries {
-			return Result{}, categorized(extractorName+" playlist iteration", extractor.ErrPlaylistLimit)
-		}
+		entry := selected.Entry
 		if entry.URL == "" {
 			return Result{}, categorized(extractorName+" playlist entry", extractor.ErrInvalidPlaylist)
 		}
 		child, err := operation.process(ctx, entry.URL, entry.ExtractorKey, &entry, ancestors, depth+1)
 		if err != nil {
-			return Result{}, fmt.Errorf("playlist entry %d: %w", index+1, err)
+			return Result{}, fmt.Errorf("playlist entry %d: %w", selected.SourceIndex, err)
 		}
-		entryValue, err := playlistEntryValue(child.InfoJSON, index+1, playlistID, playlistTitle)
+		entryValue, err := playlistEntryValue(child.InfoJSON, selected.SourceIndex, playlistID, playlistTitle)
 		if err != nil {
 			return Result{}, err
 		}
@@ -472,6 +496,58 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 		}
 		children = append(children, child)
 		entryValues = append(entryValues, entryValue)
+	}
+}
+
+type indexedPlaylistEntry struct {
+	Entry       extractor.Entry
+	SourceIndex int
+}
+
+type selectedPlaylistIterator struct {
+	source      extractor.EntryIterator
+	start       int
+	end         int
+	sourceIndex int
+	done        bool
+}
+
+func newSelectedPlaylistIterator(source extractor.EntryIterator, options PlaylistOptions) *selectedPlaylistIterator {
+	start, end := normalizedPlaylistRange(options)
+	return &selectedPlaylistIterator{source: source, start: start, end: end}
+}
+
+func (iterator *selectedPlaylistIterator) Next(ctx context.Context) (indexedPlaylistEntry, bool, error) {
+	if err := ctx.Err(); err != nil {
+		iterator.done = true
+		return indexedPlaylistEntry{}, false, err
+	}
+	if iterator.done {
+		return indexedPlaylistEntry{}, false, nil
+	}
+	for {
+		if iterator.end != 0 && iterator.sourceIndex >= iterator.end {
+			iterator.done = true
+			return indexedPlaylistEntry{}, false, nil
+		}
+		entry, ok, err := iterator.source.Next(ctx)
+		if err != nil {
+			iterator.done = true
+			return indexedPlaylistEntry{}, false, err
+		}
+		if !ok {
+			iterator.done = true
+			return indexedPlaylistEntry{}, false, nil
+		}
+		iterator.sourceIndex++
+		if iterator.sourceIndex > maxPlaylistEntries {
+			iterator.done = true
+			return indexedPlaylistEntry{}, false, extractor.ErrPlaylistLimit
+		}
+		if iterator.sourceIndex < iterator.start {
+			continue
+		}
+		return indexedPlaylistEntry{Entry: entry, SourceIndex: iterator.sourceIndex}, true, nil
 	}
 }
 
