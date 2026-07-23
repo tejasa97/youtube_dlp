@@ -795,21 +795,25 @@ capabilities:
   - id: extractor.tiktok_pilot
     name: TikTok impersonation and anti-bot pilot
     phase: 1
-    compatibility_target: Extract a public TikTok video from bounded hydration state through an explicit browser profile with no native fallback.
+    compatibility_target: Extract a public TikTok video and bounded webpage captions from hydration state through an explicit browser profile with no native fallback.
     status: compatible
     evidence:
       - internal/extractor.TestTikTokExtractsProtectedHydrationFormats
       - internal/extractor.TestTikTokSuitableAndEmbedCanonicalization
       - internal/extractor.TestTikTokFailuresAreCategorizedAndSecretSafe
       - internal/extractor.TestTikTokCancellationAndHydrationBound
+      - internal/extractor.TestTikTokCaptionValidationBoundsAndCoreMetadata
+      - internal/extractor.TestTikTokCaptionURLsRejectSecretsWithoutDiagnostics
       - internal/extractor.FuzzParseTikTokPage
+      - internal/extractor.FuzzParseTikTokCaptionURL
       - conformance/extractors/tiktok/PROVENANCE.md
       - docs/P1_TIKTOK_PILOT.md
+      - docs/TIKTOK_CAPTIONS_EVIDENCE.md
     owner: extractors
     depends_on:
       - network.impersonation
       - network.shared_transport
-    known_deviation: Compatibility is scoped to the pinned public hydration corpus. Mobile API signing/device rotation, WAF proof-of-work, SIGI fallback, captions, image slideshows, and broader availability labels remain explicit anti-bot work.
+    known_deviation: Compatibility is scoped to the pinned public hydration corpus, including the first 128 `video.subtitleInfos` entries on the exact attributable caption CDN host. Blank caption languages fall back to English; malformed nonblank locales and unsafe tracks are skipped, and signed query bytes remain opaque. Mobile API signing/device rotation, WAF proof-of-work, API/interaction-sticker caption fallbacks, image slideshows, and broader availability labels remain explicit anti-bot work.
 
   - id: extractor.authenticated_pilot
     name: Deterministic authenticated extractor pilot

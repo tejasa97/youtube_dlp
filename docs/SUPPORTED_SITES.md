@@ -23,7 +23,7 @@ corpus and the remote service response.
 | streamable | streamable.com public, embed, and short-link URLs | shared backend, simple/direct |
 | peertube | conservative PeerTube instance routes and peertube: opaque URLs | shared backend, live, manifest-heavy |
 | internetarchive | archive.org item pages | playlist/API |
-| tiktok | tiktok.com public video pages | anti-bot/impersonated |
+| tiktok | tiktok.com public video pages with bounded webpage captions | anti-bot/impersonated |
 | synthetic_auth | auth-fixture.invalid deterministic test service | authenticated behavior only; not a public service |
 | region_svt | svtplay.se video pages | regional, live |
 | brightcove | players.brightcove.net embeds | shared backend, manifest-heavy |
