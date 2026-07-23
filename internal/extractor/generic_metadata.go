@@ -32,28 +32,33 @@ const (
 	maxGenericMetadataText       = 8 << 10
 	maxGenericMetadataTags       = 128
 	maxGenericMetadataTagBytes   = 256
+	maxGenericInteractionStats   = 128
 )
 
 var genericISODuration = regexp.MustCompile(`^PT(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?$`)
 
 type genericMetadataCandidate struct {
-	rawURL      string
-	embedURL    string
-	mediaType   string
-	kind        string
-	title       string
-	description string
-	thumbnail   string
-	duration    *float64
-	uploader    string
-	artist      string
-	timestamp   *int64
-	filesize    *int64
-	bitrate     *float64
-	width       *int64
-	height      *int64
-	viewCount   *int64
-	tags        []string
+	rawURL        string
+	embedURL      string
+	mediaType     string
+	kind          string
+	title         string
+	description   string
+	thumbnail     string
+	duration      *float64
+	uploader      string
+	artist        string
+	timestamp     *int64
+	filesize      *int64
+	bitrate       *float64
+	width         *int64
+	height        *int64
+	viewCount     *int64
+	likeCount     *int64
+	dislikeCount  *int64
+	commentCount  *int64
+	averageRating *float64
+	tags          []string
 }
 
 type genericMetadataDocument struct {
@@ -374,7 +379,71 @@ func genericJSONLDCandidate(item map[string]any) (genericMetadataCandidate, bool
 	if genericJSONLDType(item["@type"], "AudioObject") && !genericJSONLDType(item["@type"], "VideoObject") {
 		candidate.kind = "audio"
 	}
+	genericJSONLDInteractions(item, &candidate)
 	return candidate, true
+}
+
+func genericJSONLDInteractions(item map[string]any, candidate *genericMetadataCandidate) {
+	if candidate == nil {
+		return
+	}
+	if aggregate, ok := item["aggregateRating"].(map[string]any); ok {
+		candidate.averageRating = genericJSONLDFloat(aggregate["ratingValue"], true)
+	}
+	var statistics []any
+	switch raw := item["interactionStatistic"].(type) {
+	case map[string]any:
+		statistics = []any{raw}
+	case []any:
+		statistics = raw
+	}
+	for index, raw := range statistics {
+		if index >= maxGenericInteractionStats {
+			break
+		}
+		statistic, ok := raw.(map[string]any)
+		if !ok || !genericJSONLDType(statistic["@type"], "InteractionCounter") {
+			continue
+		}
+		interactionType := statistic["interactionType"]
+		if object, ok := interactionType.(map[string]any); ok {
+			interactionType = object["@type"]
+		}
+		name := genericJSONString(interactionType)
+		if separator := strings.LastIndexByte(name, '/'); separator >= 0 {
+			name = name[separator+1:]
+		}
+		count := genericJSONLDRelaxedCount(statistic["userInteractionCount"])
+		if count == nil {
+			continue
+		}
+		switch name {
+		case "WatchAction", "ViewAction", "ListenAction":
+			if candidate.viewCount == nil {
+				candidate.viewCount = count
+			}
+		case "LikeAction", "AgreeAction":
+			if candidate.likeCount == nil {
+				candidate.likeCount = count
+			}
+		case "DislikeAction", "DisagreeAction":
+			if candidate.dislikeCount == nil {
+				candidate.dislikeCount = count
+			}
+		case "CommentAction":
+			if candidate.commentCount == nil {
+				candidate.commentCount = count
+			}
+		}
+	}
+}
+
+func genericJSONLDRelaxedCount(raw any) *int64 {
+	if text, ok := raw.(string); ok {
+		text = strings.NewReplacer(",", "", ".", "", "+", "").Replace(strings.TrimSpace(text))
+		return genericJSONLDInt(text, true)
+	}
+	return genericJSONLDInt(raw, true)
 }
 
 func genericJSONLDEmbedExtraction(
@@ -693,6 +762,18 @@ func genericSetJSONLDInfoFields(info *value.Object, candidate genericMetadataCan
 	}
 	if candidate.viewCount != nil {
 		info.Set("view_count", value.Int(*candidate.viewCount))
+	}
+	if candidate.likeCount != nil {
+		info.Set("like_count", value.Int(*candidate.likeCount))
+	}
+	if candidate.dislikeCount != nil {
+		info.Set("dislike_count", value.Int(*candidate.dislikeCount))
+	}
+	if candidate.commentCount != nil {
+		info.Set("comment_count", value.Int(*candidate.commentCount))
+	}
+	if candidate.averageRating != nil {
+		info.Set("average_rating", value.Float(*candidate.averageRating))
 	}
 	if len(candidate.tags) != 0 {
 		tags := make([]value.Value, len(candidate.tags))
