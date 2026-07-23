@@ -17,6 +17,12 @@ The public Go API represents these as `PrintRule` values and returns ordered
 `playlist`. Values are captured at the corresponding native operation boundary;
 the CLI emits them deterministically after the operation returns.
 
+`--print-to-file [WHEN:]TEMPLATE FILE` uses the same stage and field shorthand
+but appends each rendered record to a confined filename template. In the Go
+API, set `PrintRule.FileTemplate`. File rules neither emit console output nor
+implicitly select quiet or simulation. An explicit simulation suppresses the
+file, consistent with the port's global no-artifact invariant.
+
 A bare field or comma-separated field list is expanded to output-template
 expressions. The legacy `-g`/`--get-url`, `-e`/`--get-title`, `--get-id`,
 `--get-thumbnail`, `--get-description`, `--get-duration`, `--get-filename`,
@@ -28,9 +34,12 @@ Rules through the `video` stage imply simulation unless `--no-simulate` is
 given. A later lifecycle stage requires the normal operation to proceed, as in
 the pinned reference. Simulation still suppresses every filesystem artifact.
 
-All rules are bounded by the native output-template engine and validated before
-related-file or media side effects. Context cancellation is honored while
-capturing and writing output.
+All rules and filenames are bounded by the native output-template engine.
+Print files reject traversal, nested symlink parents, symlink/non-regular
+destinations, and oversized records. Linux and macOS opens use `O_NOFOLLOW`;
+records use a single append write so concurrent operations cannot share a
+mutable offset. Context cancellation is honored while capturing and writing
+output.
 
 Known deviations:
 
@@ -38,7 +47,7 @@ Known deviations:
   rather than streamed at each lifecycle instant;
 - `post_process` and `after_move` both observe the final native pipeline path
   because this port atomically publishes postprocessed media as one operation;
-- `--print-to-file`, dict shorthand, trailing `=` diagnostic shorthand, and
-  upstream-only output-template syntax remain pending;
+- dict shorthand, trailing `=` diagnostic shorthand, and upstream-only
+  output-template syntax remain pending;
 - the `formats_table`, `thumbnails_table`, `subtitles_table`, and
   `automatic_captions_table` synthetic print fields are not exposed.

@@ -168,7 +168,9 @@ listing evidence](YOUTUBE_SUBTITLE_LISTING_EVIDENCE.md).
 
 Set `Request.PrintRules` to capture bounded output templates at native lifecycle
 stages. Ordered values are returned through `Result.Prints`; embedding callers
-choose where and when to display them. See [staged print-output
+choose where and when to display them. Set `PrintRule.FileTemplate` to append
+the rendered line to a confined output-template path; produced files are
+reported as `print` artifacts. See [staged print-output
 evidence](CLI_PRINT_OUTPUT_EVIDENCE.md).
 
 ## Updater

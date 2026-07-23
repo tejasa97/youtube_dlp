@@ -536,6 +536,11 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 				result.Bytes += artifactBytes
 				result.Downloaded = result.Downloaded || len(artifacts) > 0
 			}
+			printArtifacts, printBytes, err := operation.writePrintFiles(ctx, PrintPlaylist, info, nil, "")
+			if err != nil {
+				return Result{}, categorized("write playlist print file", err)
+			}
+			addPrintFileArtifacts(&result, printArtifacts, printBytes)
 			prints, err := operation.capturePrints(ctx, PrintPlaylist, info, nil, "")
 			if err != nil {
 				return Result{}, categorized("render playlist print", err)
@@ -559,6 +564,11 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 					return Result{}, fmt.Errorf("flat playlist entry %d print: %w", selected.SourceIndex, err)
 				}
 				child.Prints = append(child.Prints, prints...)
+				printArtifacts, printBytes, err := operation.writePrintFiles(ctx, PrintVideo, entryInfo, nil, "")
+				if err != nil {
+					return Result{}, fmt.Errorf("flat playlist entry %d print file: %w", selected.SourceIndex, err)
+				}
+				addPrintFileArtifacts(&child, printArtifacts, printBytes)
 			}
 			children = append(children, child)
 			entryValues = append(entryValues, value.ObjectValue(entryInfo.Fields()))
@@ -766,11 +776,16 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	if err != nil {
 		return Result{}, categorized("render pre-process print", err)
 	}
+	preProcessArtifacts, preProcessBytes, err := operation.writePrintFiles(ctx, PrintPreProcess, info, nil, "")
+	if err != nil {
+		return Result{}, categorized("write pre-process print file", err)
+	}
 	result, archiveIdentity, terminal, err := operation.prepareMediaResult(ctx, &info, extractorName, false)
 	if err != nil {
 		return Result{}, err
 	}
 	result.Prints = append(result.Prints, preProcessPrints...)
+	addPrintFileArtifacts(&result, preProcessArtifacts, preProcessBytes)
 	if terminal {
 		if !result.Skipped {
 			prints, printErr := operation.capturePrints(ctx, PrintAfterFilter, info, nil, "")
@@ -778,6 +793,11 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 				return Result{}, categorized("render after-filter print", printErr)
 			}
 			result.Prints = append(result.Prints, prints...)
+			printArtifacts, printBytes, printErr := operation.writePrintFiles(ctx, PrintAfterFilter, info, nil, "")
+			if printErr != nil {
+				return Result{}, categorized("write after-filter print file", printErr)
+			}
+			addPrintFileArtifacts(&result, printArtifacts, printBytes)
 		}
 		return result, nil
 	}
@@ -786,6 +806,11 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		return Result{}, categorized("render after-filter print", err)
 	}
 	result.Prints = append(result.Prints, prints...)
+	printArtifacts, printBytes, err := operation.writePrintFiles(ctx, PrintAfterFilter, info, nil, "")
+	if err != nil {
+		return Result{}, categorized("write after-filter print file", err)
+	}
+	addPrintFileArtifacts(&result, printArtifacts, printBytes)
 	if extracted.Enrich != nil {
 		if err := extracted.Enrich(ctx, &info); err != nil {
 			return Result{}, categorized(extractorName+" deferred metadata", err)
@@ -828,6 +853,11 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		return Result{}, categorized("render video print", err)
 	}
 	result.Prints = append(result.Prints, prints...)
+	printArtifacts, printBytes, err = operation.writePrintFiles(ctx, PrintVideo, info, selectedFormats, destination)
+	if err != nil {
+		return Result{}, categorized("write video print file", err)
+	}
+	addPrintFileArtifacts(&result, printArtifacts, printBytes)
 	if operation.request.Simulate {
 		return result, nil
 	}
@@ -842,6 +872,11 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		return Result{}, categorized("render before-download print", err)
 	}
 	result.Prints = append(result.Prints, prints...)
+	printArtifacts, printBytes, err = operation.writePrintFiles(ctx, PrintBeforeDL, info, selectedFormats, destination)
+	if err != nil {
+		return Result{}, categorized("write before-download print file", err)
+	}
+	addPrintFileArtifacts(&result, printArtifacts, printBytes)
 	subtitleArtifacts, subtitleBytes, err := operation.downloadSubtitles(ctx, info, selectedSubtitles, operation.eventSink())
 	if err != nil {
 		return Result{}, categorized("download subtitles", err)
@@ -875,6 +910,11 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 				return Result{}, categorized("render "+string(stage)+" print", err)
 			}
 			result.Prints = append(result.Prints, prints...)
+			printArtifacts, printBytes, err = operation.writePrintFiles(ctx, stage, info, selectedFormats, destination)
+			if err != nil {
+				return Result{}, categorized("write "+string(stage)+" print file", err)
+			}
+			addPrintFileArtifacts(&result, printArtifacts, printBytes)
 		}
 		return result, nil
 	}
@@ -925,6 +965,11 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 			return Result{}, categorized("render "+string(stage)+" print", err)
 		}
 		result.Prints = append(result.Prints, prints...)
+		printArtifacts, printBytes, err = operation.writePrintFiles(ctx, stage, info, selectedFormats, downloadedPath)
+		if err != nil {
+			return Result{}, categorized("write "+string(stage)+" print file", err)
+		}
+		addPrintFileArtifacts(&result, printArtifacts, printBytes)
 	}
 	if operation.archive != nil {
 		if _, err := operation.archive.Record(ctx, archiveIdentity); err != nil {
@@ -973,6 +1018,8 @@ func categorized(op string, err error) error {
 	case errors.Is(err, extractor.ErrAuthentication):
 		category = ErrorAuthentication
 	case errors.Is(err, credentialnetrc.ErrUnsafeFile):
+		category = ErrorSecurity
+	case errors.Is(err, errUnsafePrintFile):
 		category = ErrorSecurity
 	case errors.Is(err, credentialnetrc.ErrIO):
 		category = ErrorAuthentication

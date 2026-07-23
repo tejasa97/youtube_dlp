@@ -35,6 +35,39 @@ func TestParsePrintRulesStagesShorthandAndSimulation(t *testing.T) {
 	}
 }
 
+func TestExtractAndParsePrintToFileArguments(t *testing.T) {
+	cleaned, specifications, err := extractPrintToFileArgs([]string{
+		"--quiet",
+		"--print-to-file", "title,id", "records.txt",
+		"--print-to-file=after_move:%(filepath)s", "%(id)s.log",
+		"https://example.invalid/video",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(cleaned, []string{"--quiet", "https://example.invalid/video"}) {
+		t.Fatalf("cleaned=%#v", cleaned)
+	}
+	rules, err := parsePrintFileRules(specifications)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []ytdlp.PrintRule{
+		{Stage: ytdlp.PrintVideo, Template: "%(title)s\n%(id)s", FileTemplate: "records.txt"},
+		{Stage: ytdlp.PrintAfterMove, Template: "%(filepath)s", FileTemplate: "%(id)s.log"},
+	}
+	if !reflect.DeepEqual(rules, want) || printRulesImplySimulation(rules) || hasConsolePrintRules(rules) {
+		t.Fatalf("rules=%#v", rules)
+	}
+	if _, _, err := extractPrintToFileArgs([]string{"--print-to-file", "title"}); err == nil {
+		t.Fatal("missing filename accepted")
+	}
+	cleaned, specifications, err = extractPrintToFileArgs([]string{"--", "--print-to-file", "title", "file"})
+	if err != nil || len(specifications) != 0 || !reflect.DeepEqual(cleaned, []string{"--", "--print-to-file", "title", "file"}) {
+		t.Fatalf("option terminator cleaned=%#v specs=%#v error=%v", cleaned, specifications, err)
+	}
+}
+
 func TestAppendLegacyPrintRulesOrderAndOptionalFields(t *testing.T) {
 	rules := appendLegacyPrintRules(nil, true, true, true, true, true, true, true, true)
 	fields := []string{"title", "id", "urls", "thumbnail", "description", "filename", "duration_string", "format"}
@@ -97,6 +130,22 @@ func FuzzParsePrintRules(f *testing.F) {
 		}
 		if len(rules) != 1 || rules[0].Template == "" {
 			t.Fatalf("invalid successful parse: %#v", rules)
+		}
+	})
+}
+
+func FuzzExtractPrintToFileArgs(f *testing.F) {
+	for _, seed := range []string{"title", "video:%(title)s", "--print-to-file", "", "records.txt"} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, input string) {
+		cleaned, specifications, err := extractPrintToFileArgs([]string{"--print-to-file", input, "records.txt", "URL"})
+		if err != nil {
+			return
+		}
+		if len(cleaned) != 1 || cleaned[0] != "URL" || len(specifications) != 1 ||
+			specifications[0].template != input {
+			t.Fatalf("invalid extraction: cleaned=%#v specs=%#v", cleaned, specifications)
 		}
 	})
 }

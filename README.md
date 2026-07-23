@@ -180,6 +180,13 @@ Print selected fields without downloading:
 Use a lifecycle prefix such as `after_move:%(filename)s` when the value must be
 captured after the native media pipeline. Later stages do not imply simulation.
 
+Append staged output to a confined file:
+
+```sh
+./bin/ytdlp-go --print-to-file "after_move:%(filepath)s" \
+    "%(uploader)s-downloads.txt" URL
+```
+
 Select a format and output name:
 
 ```sh
