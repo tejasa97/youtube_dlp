@@ -3,9 +3,11 @@ package ytdlp
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
+	"time"
 
 	"github.com/ytdlp-go/ytdlp/internal/downloader"
 	"github.com/ytdlp-go/ytdlp/internal/events"
@@ -16,6 +18,7 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/protocol/dash"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/hls"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/ism"
+	"github.com/ytdlp-go/ytdlp/internal/protocol/youtubelive"
 )
 
 func (operation *operation) downloadSelections(ctx context.Context, selections []mediaformat.Selection, outputRoot, destination string, sink events.Sink) (string, int64, error) {
@@ -60,6 +63,30 @@ func (operation *operation) downloadSelections(ctx context.Context, selections [
 
 func (operation *operation) downloadSelection(ctx context.Context, selected mediaformat.Selection, outputRoot, destination string, sink events.Sink) (string, int64, error) {
 	options := operation.request.Downloader
+	if selected.YouTubePostLive {
+		if options.External != nil {
+			return "", 0, fmt.Errorf("%w: external downloaders cannot consume generated YouTube post-live fragments", extractor.ErrUnsupported)
+		}
+		if selected.TargetDuration <= 0 || selected.TargetDuration > 3600 ||
+			math.IsNaN(selected.TargetDuration) || math.IsInf(selected.TargetDuration, 0) {
+			return "", 0, fmt.Errorf("%w: invalid YouTube post-live target duration", extractor.ErrInvalidMetadata)
+		}
+		targetDuration := time.Duration(selected.TargetDuration * float64(time.Second))
+		if targetDuration <= 0 {
+			return "", 0, fmt.Errorf("%w: invalid YouTube post-live target duration", extractor.ErrInvalidMetadata)
+		}
+		result, err := youtubelive.NewDownloader(operation.transport, youtubelive.Config{
+			Headers: selected.Headers, TargetDuration: targetDuration,
+			LiveStartTimestamp:  selected.LiveStartTimestamp,
+			FragmentConcurrency: options.FragmentConcurrency, PerHostConcurrency: options.PerHostFragmentConcurrency,
+			MaxSegments: options.MaxSegments, MaxSegmentSize: options.MaxSegmentBytes, Attempts: options.Attempts,
+			RetryBaseDelay: options.RetryBaseDelay, RetryMaxDelay: options.RetryMaxDelay,
+		}).Download(ctx, selected.URL, outputRoot, destination, operation.request.Overwrite, sink)
+		if err != nil {
+			return "", 0, err
+		}
+		return result.Path, result.Bytes, nil
+	}
 	if options.External != nil {
 		result, err := downloader.NewExternalAdapter(nil).Download(ctx, downloader.ExternalRequest{
 			Executable: options.External.Executable, Arguments: append([]string(nil), options.External.Arguments...),

@@ -75,10 +75,21 @@ func TestDefaultPrefersAdaptivePairThenCombined(t *testing.T) {
 	))
 	adaptive := selectorInfo()
 	formats, _ := adaptive.Formats()
+	for _, index := range []int{1, 3} {
+		object, _ := formats[index].Object()
+		object.Set("_youtube_post_live", value.Bool(true))
+		object.Set("target_duration", value.Float(5))
+		object.Set("live_start_timestamp", value.Int(1234))
+	}
 	info := value.NewInfo(value.NewObject(value.Field{Key: "formats", Value: value.List(append([]value.Value{combined}, formats...)...)}))
 	selected, err := Default(info, Options{})
 	if err != nil || len(selected) != 2 || selected[0].ID != "720" || selected[1].ID != "audio-high" {
 		t.Fatalf("Default() = %#v, %v", selected, err)
+	}
+	for _, selection := range selected {
+		if !selection.YouTubePostLive || selection.TargetDuration != 5 || selection.LiveStartTimestamp != 1234 {
+			t.Fatalf("post-live metadata dropped: %#v", selected)
+		}
 	}
 
 	onlyCombined := value.NewInfo(value.NewObject(value.Field{Key: "formats", Value: value.List(combined)}))
@@ -104,6 +115,46 @@ func TestDefaultInfersAdaptiveKindsFromExplicitAbsentCodecSide(t *testing.T) {
 	selected, err := Default(info, Options{})
 	if err != nil || len(selected) != 2 || selected[0].ID != "video" || selected[1].ID != "audio" {
 		t.Fatalf("Default() = %#v, %v", selected, err)
+	}
+}
+
+func TestPreferenceRanksDefaultsButNotExplicitFormatIDs(t *testing.T) {
+	info := value.NewInfo(value.NewObject(value.Field{Key: "formats", Value: value.List(
+		value.ObjectValue(value.NewObject(
+			value.Field{Key: "format_id", Value: value.String("finite")},
+			value.Field{Key: "url", Value: value.String("https://example.invalid/finite")},
+			value.Field{Key: "height", Value: value.Int(720)},
+			value.Field{Key: "vcodec", Value: value.String("avc")},
+			value.Field{Key: "acodec", Value: value.String("none")},
+		)),
+		value.ObjectValue(value.NewObject(
+			value.Field{Key: "format_id", Value: value.String("18")},
+			value.Field{Key: "url", Value: value.String("https://example.invalid/incomplete")},
+			value.Field{Key: "height", Value: value.Int(2160)},
+			value.Field{Key: "vcodec", Value: value.String("avc")},
+			value.Field{Key: "acodec", Value: value.String("none")},
+			value.Field{Key: "preference", Value: value.Int(-10)},
+		)),
+	)}))
+	defaultSelection, err := Select(info, Selector{Alternatives: []Choice{{Terms: []Term{{Name: "bestvideo"}}}}})
+	if err != nil || len(defaultSelection) != 1 || defaultSelection[0].ID != "finite" {
+		t.Fatalf("default selection = %#v, %v", defaultSelection, err)
+	}
+	sortFields, err := ParseSortFields([]string{"height"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sorted, err := SelectWithOptions(
+		info,
+		Selector{Alternatives: []Choice{{Terms: []Term{{Name: "bestvideo"}}}}},
+		Options{Sort: sortFields},
+	)
+	if err != nil || len(sorted) != 1 || sorted[0].ID != "finite" {
+		t.Fatalf("height-sorted selection = %#v, %v", sorted, err)
+	}
+	explicit, err := Select(info, Selector{Alternatives: []Choice{{Terms: []Term{{Name: "18"}}}}})
+	if err != nil || len(explicit) != 1 || explicit[0].ID != "18" {
+		t.Fatalf("explicit selection = %#v, %v", explicit, err)
 	}
 }
 

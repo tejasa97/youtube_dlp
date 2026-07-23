@@ -1252,14 +1252,136 @@ func TestYouTubeExtractsLiveHLSAndClassifiesLiveStates(t *testing.T) {
 		details youtubeVideoDetails
 		want    string
 	}{
-		{youtubeVideoDetails{IsPostLiveDVR: true}, "post_live"},
-		{youtubeVideoDetails{IsUpcoming: true}, "is_upcoming"},
+		{youtubeVideoDetails{IsPostLiveDVR: &trueValue}, "post_live"},
+		{youtubeVideoDetails{IsUpcoming: &trueValue}, "is_upcoming"},
 		{youtubeVideoDetails{IsLiveContent: &trueValue}, "was_live"},
 		{youtubeVideoDetails{IsLive: &falseValue}, "not_live"},
 		{youtubeVideoDetails{}, ""},
 	} {
 		if got := youtubeLiveStatus(test.details); got != test.want {
 			t.Fatalf("youtubeLiveStatus(%#v) = %q, want %q", test.details, got, test.want)
+		}
+	}
+}
+
+func TestYouTubePostLiveAdaptiveFormatsUseFiniteDVRProtocol(t *testing.T) {
+	const rawURL = "https://www.youtube.com/watch?v=postlive001"
+	page := []byte(`ytInitialPlayerResponse={
+		"playabilityStatus":{"status":"OK"},
+		"videoDetails":{
+			"videoId":"postlive001","title":"Post-live fixture",
+			"isPostLiveDvr":true,"isLiveContent":true
+		},
+		"streamingData":{"hlsManifestUrl":"https://media.example/incomplete.m3u8","adaptiveFormats":[
+			{"itag":137,"url":"https://media.example/video?sig=video","mimeType":"video/mp4; codecs=\"avc1.4d401f\"","width":1280,"height":720,"targetDurationSec":5},
+			{"itag":140,"url":"https://media.example/audio?sig=audio","mimeType":"audio/mp4; codecs=\"mp4a.40.2\"","targetDurationSec":5},
+			{"itag":18,"url":"https://media.example/incomplete?sig=combined","mimeType":"video/mp4; codecs=\"avc1.42001E, mp4a.40.2\""}
+		]},
+		"microformat":{"playerMicroformatRenderer":{"liveBroadcastDetails":{
+			"startTimestamp":"2026-07-23T10:00:00Z",
+			"endTimestamp":"2026-07-23T10:02:03Z"
+		}}}
+	};`)
+	transport := &memoryTransport{pages: map[string][]byte{rawURL: page}}
+	result, err := NewYouTube().Extract(context.Background(), Request{URL: rawURL, Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status, _ := result.Info.Lookup("live_status").StringValue(); status != "post_live" {
+		t.Fatalf("live_status = %q", status)
+	}
+	if timestamp, _ := result.Info.Lookup("release_timestamp").Int(); timestamp != 1784800800 {
+		t.Fatalf("release_timestamp = %d", timestamp)
+	}
+	if duration, _ := result.Info.Lookup("duration").Int(); duration != 123 {
+		t.Fatalf("duration = %d", duration)
+	}
+	formats, ok := result.Info.Formats()
+	if !ok || len(formats) != 3 {
+		t.Fatalf("formats = %#v", formats)
+	}
+	for index, candidate := range formats {
+		format, _ := candidate.Object()
+		protocol, _ := format.Lookup("protocol").StringValue()
+		if index < 2 {
+			postLive, _ := format.Lookup("_youtube_post_live").Bool()
+			if protocol != "http_dash_segments" || !postLive {
+				t.Fatalf("format %d = %#v", index, format)
+			}
+			if targetDuration, _ := format.Lookup("target_duration").Float(); targetDuration != 5 {
+				t.Fatalf("format %d target_duration = %v", index, targetDuration)
+			}
+			if liveStart, _ := format.Lookup("live_start_timestamp").Int(); liveStart != 1784800800 {
+				t.Fatalf("format %d live_start_timestamp = %v", index, liveStart)
+			}
+		}
+	}
+	incomplete, _ := formats[2].Object()
+	if id, _ := incomplete.Lookup("format_id").StringValue(); id != "18" {
+		t.Fatalf("incomplete format ID = %q", id)
+	}
+	if preference, _ := incomplete.Lookup("preference").Int(); preference != -10 {
+		t.Fatalf("incomplete preference = %d", preference)
+	}
+}
+
+func TestYouTubePostLiveMetadataFallsBackAcrossPlayerResponses(t *testing.T) {
+	const rawURL = "https://www.youtube.com/watch?v=fixture0001"
+	page := []byte(`ytInitialPlayerResponse={
+		"playabilityStatus":{"status":"OK"},
+		"videoDetails":{"videoId":"fixture0001","title":"Initial metadata"}
+	};ytcfg.set({"VISITOR_DATA":"fixture-visitor","LOGGED_IN":false});`)
+	recovered := []byte(`{
+		"playabilityStatus":{"status":"OK"},
+		"videoDetails":{"videoId":"fixture0001","isPostLiveDvr":true},
+		"streamingData":{"adaptiveFormats":[
+			{"itag":137,"url":"https://media.example/video?pot=video","mimeType":"video/mp4; codecs=\"avc1.4d401f\"","width":1280,"height":720,"targetDurationSec":5},
+			{"itag":140,"url":"https://media.example/audio?pot=audio","mimeType":"audio/mp4; codecs=\"mp4a.40.2\"","targetDurationSec":5}
+		]},
+		"microformat":{"playerMicroformatRenderer":{"liveBroadcastDetails":{
+			"startTimestamp":"2026-07-23T10:00:00Z",
+			"endTimestamp":"2026-07-23T10:02:03Z"
+		}}}
+	}`)
+	transport := &youtubeFallbackTransport{
+		memoryTransport: &memoryTransport{pages: map[string][]byte{rawURL: page}},
+		responses:       map[string][]byte{"3": recovered, "28": recovered},
+	}
+	result, err := NewYouTube().Extract(context.Background(), Request{URL: rawURL, Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if title, _ := result.Info.Lookup("title").StringValue(); title != "Initial metadata" {
+		t.Fatalf("title = %q", title)
+	}
+	if status, _ := result.Info.Lookup("live_status").StringValue(); status != "post_live" {
+		t.Fatalf("live_status = %q", status)
+	}
+	if timestamp, _ := result.Info.Lookup("release_timestamp").Int(); timestamp != 1784800800 {
+		t.Fatalf("release_timestamp = %d", timestamp)
+	}
+	if duration, _ := result.Info.Lookup("duration").Int(); duration != 123 {
+		t.Fatalf("duration = %d", duration)
+	}
+	formats, _ := result.Info.Formats()
+	if len(formats) != 2 {
+		t.Fatalf("formats = %#v", formats)
+	}
+	for _, candidate := range formats {
+		format, _ := candidate.Object()
+		if postLive, _ := format.Lookup("_youtube_post_live").Bool(); !postLive {
+			t.Fatalf("format = %#v", format)
+		}
+	}
+}
+
+func TestParseYouTubeLiveTimestampBounds(t *testing.T) {
+	if got, ok := parseYouTubeLiveTimestamp("2026-07-23T10:00:00+05:30"); !ok || got != 1784781000 {
+		t.Fatalf("timestamp = %d, %v", got, ok)
+	}
+	for _, raw := range []string{"", "not-a-time", strings.Repeat("x", 65), "2026-07-23T10:00:00Z\n"} {
+		if _, ok := parseYouTubeLiveTimestamp(raw); ok {
+			t.Fatalf("accepted %q", raw)
 		}
 	}
 }
