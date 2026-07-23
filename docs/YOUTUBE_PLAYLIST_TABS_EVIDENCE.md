@@ -1,7 +1,7 @@
 # YouTube playlist-tab evidence
 
 The original increment added a bounded public playlist-tab slice for exact
-`/channel/<UCID>/playlists` and ASCII `/@handle/playlists` routes. A separate
+`/channel/<UCID>/playlists` and Unicode-aware `/@handle/playlists` routes. A separate
 bounded alias slice now adds `/user/<alias>/playlists` and
 `/c/<alias>/playlists`, including valid Unicode aliases. Both derive from the
 read-only pinned reference
@@ -13,7 +13,7 @@ read-only pinned reference
 ## Supported behavior
 
 - Exact public YouTube web routes for a validated 24-character UCID, the
-  existing bounded ASCII handle grammar, or a bounded legacy `/user` or `/c`
+  pinned Unicode-aware handle grammar, or a bounded legacy `/user` or `/c`
   alias.
 - Legacy `playlistRenderer` and `gridPlaylistRenderer` entries.
 - Modern `lockupViewModel` entries whose type is exactly playlist or podcast.
@@ -27,8 +27,8 @@ read-only pinned reference
   metadata, traversal-limit, and cancellation categories.
 
 Route parsing rejects non-web hosts and schemes, credentials, explicit ports,
-fragments, trailing path components, ambiguous encoded paths, encoded
-separators or NULs, oversized URLs, invalid UCIDs, invalid handles or aliases,
+fragments, trailing path components, encoded separators or NULs, invalid
+UTF-8, oversized URLs, invalid UCIDs, invalid handles or aliases,
 and unsupported tabs. Playlist IDs use the existing bounded YouTube
 playlist-ID grammar. Entry titles are limited to 4096 bytes; an invalid
 optional title is omitted rather than weakening the canonical entry identity.
@@ -57,8 +57,6 @@ rejection without contacting YouTube.
 
 ## Known deviations
 
-- Full Unicode YouTube handle grammar remains outside the bounded handle
-  route.
 - Channel home, community, releases, podcasts, membership, search, and bare
   alias routes are not claimed.
 - Only playlist and podcast lockup types are accepted on playlist tabs; other

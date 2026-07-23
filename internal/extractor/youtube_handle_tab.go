@@ -11,18 +11,35 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
-// Handles accepted here are deliberately ASCII-only: an @ followed by 3–30
-// letters, digits, dots, underscores, or hyphens, with at least one letter or
-// digit.  This bounded subset avoids silently mis-canonicalizing Unicode
-// handles while retaining ordinary public handles.
-var youtubeHandlePattern = regexp.MustCompile(`^@[A-Za-z0-9._-]{3,30}$`)
-var youtubeHandleHasAlnumPattern = regexp.MustCompile(`[A-Za-z0-9]`)
+// validYouTubeHandle mirrors the pinned reference's Unicode-aware
+// @[\w.-]{3,30} grammar. Python's Unicode \w accepts letters, numbers, and
+// underscore; dots and hyphens are the two additional handle characters.
+// Length is measured in Unicode code points, matching the reference regex.
+func validYouTubeHandle(handle string) bool {
+	if !utf8.ValidString(handle) || !strings.HasPrefix(handle, "@") {
+		return false
+	}
+	value := strings.TrimPrefix(handle, "@")
+	count := utf8.RuneCountInString(value)
+	if count < 3 || count > 30 {
+		return false
+	}
+	for _, character := range value {
+		if character == '_' || character == '.' || character == '-' ||
+			unicode.IsLetter(character) || unicode.IsNumber(character) {
+			continue
+		}
+		return false
+	}
+	return true
+}
 
 var (
 	ErrYouTubeHandleTabRateLimited = errors.New("YouTube handle tab rate limited")
@@ -76,18 +93,13 @@ func youtubeHandleTabTarget(parsed *url.URL) (handle, tab string, ok bool) {
 	if raw := strings.ToLower(parsed.RawQuery); strings.Contains(raw, "%2f") || strings.Contains(raw, "%5c") || strings.Contains(raw, "%00") {
 		return "", "", false
 	}
-	// Refuse encoded paths even where net/url has decoded them: the route is
-	// intentionally exact and this avoids alternate canonical forms.
-	if parsed.RawPath != "" {
-		return "", "", false
-	}
 	parts := strings.Split(parsed.Path, "/")
-	if len(parts) != 3 || parts[0] != "" || !youtubeHandlePattern.MatchString(parts[1]) || !youtubeHandleHasAlnumPattern.MatchString(parts[1]) {
+	if len(parts) != 3 || parts[0] != "" || !validYouTubeHandle(parts[1]) {
 		return "", "", false
 	}
 	switch parts[2] {
 	case "videos", "shorts", "streams", "playlists":
-		return strings.ToLower(parts[1]), parts[2], true
+		return parts[1], parts[2], true
 	default:
 		return "", "", false
 	}
