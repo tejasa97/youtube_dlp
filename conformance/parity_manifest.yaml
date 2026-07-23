@@ -318,9 +318,18 @@ capabilities:
     evidence:
       - internal/media/ffmpeg.TestDiscoverVersionsProbeAndMerge
       - internal/media/ffmpeg.TestCommandCancellation
+      - internal/media/ffmpeg.TestCompletedEventCannotVetoCommittedOutput
       - internal/media/ffmpeg.TestAtomicPostprocessCancellationRemovesTemporaryOutput
       - internal/media/ffmpeg.TestRemuxCategorizesFailureAndDestinationConflict
       - internal/media/ffmpeg.TestDiagnosticRedaction
+      - internal/media/ffmpeg.TestEmbedSubtitleTracksMP4MapsMetadataAndReplacesExisting
+      - internal/media/ffmpeg.TestEmbedSubtitleTracksMKVAndLegacyEntryPoint
+      - internal/media/ffmpeg.TestEmbedSubtitleTracksRemainingContainerMatrix
+      - internal/media/ffmpeg.TestEmbedSubtitleTracksWebMRequiresAndAcceptsVTT
+      - internal/media/ffmpeg.TestEmbedSubtitleTracksRejectsInvalidInputsBeforeOutput
+      - internal/media/ffmpeg.TestEmbedSubtitleTracksCancellationPreservesInputs
+      - internal/media/ffmpeg.TestSubtitleEmbedArgsDropsDataAndUnknownStreams
+      - internal/media/ffmpeg.FuzzSubtitleEmbedMetadataValidation
       - internal/media/ffmpeg.FuzzRedactDiagnostic
       - internal/media/pipeline.TestDASHDownloadAndFFmpegMergeEndToEnd
       - internal/media/pipeline.TestRemuxDownloadFinalizesThenRemovesSource
@@ -333,8 +342,9 @@ capabilities:
       - pkg/ytdlp.TestClientDASHMergeDispatch
       - docs/P1_MEDIA_COMPLETION.md
       - docs/YOUTUBE_SUBTITLE_CONVERSION_EVIDENCE.md
+      - docs/YOUTUBE_SUBTITLE_EMBEDDING_EVIDENCE.md
     owner: media
-    known_deviation: The operation set covers probe, separate-track merge, atomic container remux, and bounded SRT/ASS/WebVTT sidecar conversion. Arbitrary media codec transcoding, subtitle/thumbnail embedding, and broader metadata rewriting remain postprocessor work.
+    known_deviation: The operation set covers probe, separate-track merge, atomic container remux, bounded SRT/ASS/WebVTT sidecar conversion, and bounded multi-track subtitle embedding. Arbitrary media codec transcoding and broader metadata rewriting remain postprocessor work; embedding is limited to the documented text-track and container matrix.
 
   - id: javascript.ejs
     name: Python-free EJS execution
@@ -602,9 +612,16 @@ capabilities:
       - internal/cli.FuzzRenderSubtitleListing
       - internal/cli.TestParseYouTubeCommentLimits
       - internal/cli.TestRunAcceptsYouTubeCommentAliasesAndClears
+      - internal/cli.TestRunEmbedSubtitlesImplicitSelectionAndClear
+      - internal/cli.TestRunEmbedsAutomaticSubtitleAndUsesPinnedRetentionRule
       - internal/cli.TestConvertResultSubtitlesSuccessRecursesAndUsesArgv
       - internal/cli.TestSubtitleConversionMetadataPreflightAndRelativePaths
       - internal/cli.FuzzSubtitleConversionPlanner
+      - pkg/ytdlp.TestProductEmbedsSelectedSubtitleTracksAndAppliesRetention
+      - pkg/ytdlp.TestProductSkipsUnsupportedEmbeddingContainerWithoutDeletingSidecar
+      - pkg/ytdlp.TestProductSkipsUnsupportedWebMTrackWithoutDeletingSidecar
+      - pkg/ytdlp.TestProductConvertsBeforeEmbeddingForWebM
+      - pkg/ytdlp.TestSubtitleCleanupFailureIsNonVetoableAndReported
       - conformance/extractors/youtube/PROVENANCE.md
       - conformance/extractors/youtube_channel/PROVENANCE.md
       - conformance/extractors/youtube_handle_tab/PROVENANCE.md
@@ -615,6 +632,7 @@ capabilities:
       - docs/YOUTUBE_SUBTITLE_CLI_EVIDENCE.md
       - docs/YOUTUBE_SUBTITLE_LISTING_EVIDENCE.md
       - docs/YOUTUBE_SUBTITLE_CONVERSION_EVIDENCE.md
+      - docs/YOUTUBE_SUBTITLE_EMBEDDING_EVIDENCE.md
       - docs/YOUTUBE_CHANNEL_EVIDENCE.md
       - docs/YOUTUBE_HANDLE_TAB_EVIDENCE.md
       - docs/YOUTUBE_PLAYLIST_TABS_EVIDENCE.md
@@ -626,7 +644,7 @@ capabilities:
     depends_on:
       - javascript.ejs
       - extractor.playlists
-    known_deviation: Compatibility is scoped to the pinned video, playlist-continuation, exact public UCID and bounded ASCII `@handle` `/videos`, `/shorts`, `/streams`, and `/playlists` tabs, bounded public `ytsearch` and results-URL video search, bounded playable YouTube Music default/song/video search, bounded opt-in public comments, live-HLS, structured player-config discovery, native-client recovery, manual/automatic/translated caption renderer, bounded subtitle listing, sidecar selection/download/conversion, and explicit native-Go PO-token provider corpus. Comment retrieval supports top/new ordering, visitor rotation, legacy and modern fields, inline replies, click-tracked reply continuations, nested subthreads, pinned duplicate handling, bounded transient/incomplete retries, actual retrieved counts, and explicit total/parent/reply/per-thread/depth limits. It does not claim authenticated comments, approximate count before retrieval, estimated timestamps, upstream's configurable ignore-error policy, or untested renderer families. Anonymous visitor identity is propagated across bounded, cookie-isolated Android and Android VR requests, enabling URL-bearing adaptive video/audio recovery. Player, GVS, and subtitle token placement is supported through an embedding-provided Go provider; no built-in generator, implicit endpoint, executable, Python bridge, persistent cache, or upstream external-provider protocol is claimed. Authenticated pages fail explicitly instead of leaking browser cookies to clients that do not support them or silently substituting an anonymous session. Existing sidecars fail closed unless overwrite is enabled. Search is capped at 50 results; general search does not claim channel/playlist/hashtag results or arbitrary filter parity, while Music search excludes albums, artists, playlists, podcasts, arbitrary filters, and authenticated/premium success. Unicode/full handle grammar, handle home/community/release tabs, `/user` and `/c` tabs, CLI subtitle embedding, `--no-simulate` listing, Python-regex-only language rules, direct SABR transport, authenticated Innertube clients, live-from-start, and broader player/renderer variants remain pending.
+    known_deviation: Compatibility is scoped to the pinned video, playlist-continuation, exact public UCID and bounded ASCII `@handle` `/videos`, `/shorts`, `/streams`, and `/playlists` tabs, bounded public `ytsearch` and results-URL video search, bounded playable YouTube Music default/song/video search, bounded opt-in public comments, live-HLS, structured player-config discovery, native-client recovery, manual/automatic/translated caption renderer, bounded subtitle listing, sidecar selection/download/conversion/embedding, and explicit native-Go PO-token provider corpus. Comment retrieval supports top/new ordering, visitor rotation, legacy and modern fields, inline replies, click-tracked reply continuations, nested subthreads, pinned duplicate handling, bounded transient/incomplete retries, actual retrieved counts, and explicit total/parent/reply/per-thread/depth limits. It does not claim authenticated comments, approximate count before retrieval, estimated timestamps, upstream's configurable ignore-error policy, or untested renderer families. Anonymous visitor identity is propagated across bounded, cookie-isolated Android and Android VR requests, enabling URL-bearing adaptive video/audio recovery. Player, GVS, and subtitle token placement is supported through an embedding-provided Go provider; no built-in generator, implicit endpoint, executable, Python bridge, persistent cache, or upstream external-provider protocol is claimed. Authenticated pages fail explicitly instead of leaking browser cookies to clients that do not support them or silently substituting an anonymous session. Existing sidecars fail closed unless overwrite is enabled. Search is capped at 50 results; general search does not claim channel/playlist/hashtag results or arbitrary filter parity, while Music search excludes albums, artists, playlists, podcasts, arbitrary filters, and authenticated/premium success. Unicode/full handle grammar, handle home/community/release tabs, `/user` and `/c` tabs, `--no-simulate` listing, Python-regex-only language rules, direct SABR transport, authenticated Innertube clients, live-from-start, and broader player/renderer variants remain pending.
 
   - id: extractor.playlists
     name: Playlist extraction model
@@ -1131,15 +1149,29 @@ capabilities:
       - internal/media/ffmpeg.TestTypedSubtitleAndImageConversions
       - internal/media/ffmpeg.TestOperationValidationAndAtomicFailure
       - internal/media/ffmpeg.TestCommandCancellation
+      - internal/media/ffmpeg.TestCompletedEventCannotVetoCommittedOutput
+      - internal/media/ffmpeg.TestSubtitleEmbedArgsDropsDataAndUnknownStreams
       - internal/media/postprocess.TestGraphValidationAndSafeMove
       - internal/media/postprocess.TestArtifactAndDestinationFailures
+      - internal/media/postprocess.TestSubtitleEmbedFailurePreservesOwnedInputs
       - internal/media/postprocess.FuzzArtifactPaths
       - pkg/ytdlp.TestClientExtractAudioPostprocessorIntegration
+      - pkg/ytdlp.TestProductEmbedsSelectedSubtitleTracksAndAppliesRetention
+      - pkg/ytdlp.TestProductSkipsUnsupportedEmbeddingContainerWithoutDeletingSidecar
+      - pkg/ytdlp.TestProductSkipsUnsupportedWebMTrackWithoutDeletingSidecar
+      - pkg/ytdlp.TestProductConvertsBeforeEmbeddingForWebM
+      - pkg/ytdlp.TestSubtitleCleanupFailureIsNonVetoableAndReported
+      - pkg/ytdlp.TestSubtitleEmbeddingImplicitlySelectsManualTracks
+      - pkg/ytdlp.TestSubtitleKeepFilesRequiresEmbedding
+      - pkg/ytdlp.TestSubtitleEmbeddingTrackLimitFailsBeforeDownload
+      - internal/cli.TestRunEmbedSubtitlesImplicitSelectionAndClear
+      - internal/cli.TestRunEmbedsAutomaticSubtitleAndUsesPinnedRetentionRule
       - pkg/ytdlp.FuzzConfinedPostprocessPath
       - pkg/ytdlp.TestClientRejectsInvalidWaveTwoOptionsBeforeNetwork
       - conformance/media/postprocess/PROVENANCE.md
+      - docs/YOUTUBE_SUBTITLE_EMBEDDING_EVIDENCE.md
     owner: media
-    known_deviation: SponsorBlock/chapter mutation is not implemented. Windows refuses unsafe atomic overwrite and currently terminates only the direct child process; Unix process-group cancellation is covered. The CLI exposes audio extraction and remux while the Go API exposes every typed operation.
+    known_deviation: SponsorBlock/chapter mutation is not implemented. Windows refuses unsafe atomic overwrite and currently terminates only the direct child process; Unix process-group cancellation is covered. The CLI exposes audio extraction, remuxing, and bounded multi-track subtitle embedding while the Go API exposes every typed operation.
 
   - id: compat.format_selector_pilot
     name: Format-selector parser pilot

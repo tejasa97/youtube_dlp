@@ -35,12 +35,16 @@ type ExternalDownloader struct {
 	Arguments  []string
 }
 
-// SubtitleOptions selects and writes subtitle sidecars exposed by an
-// extractor. Manual subtitles take precedence over automatic captions for the
-// same language, matching yt-dlp's selection behavior.
+// SubtitleOptions selects subtitle tracks exposed by an extractor. Embed
+// attaches compatible selected tracks to supported media containers; when no
+// write mode is selected it implicitly selects manual subtitles. KeepFiles
+// retains downloaded sidecars after a successful embed.
 type SubtitleOptions struct {
 	WriteManual    bool
 	WriteAutomatic bool
+	Embed          bool
+	KeepFiles      bool
+	ConvertFormat  string
 	Languages      []string
 	Format         string
 }
