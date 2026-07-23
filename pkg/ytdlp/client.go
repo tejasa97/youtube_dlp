@@ -323,6 +323,7 @@ func (client *Client) productRegistry() *extractor.Registry {
 	registered := []extractor.Extractor{
 		extractor.NewYouTubeMusicSearch(),
 		extractor.NewYouTubeSearch(),
+		extractor.NewYouTubeAliasTab(),
 		extractor.NewYouTubeHandleTab(),
 		extractor.NewYouTubeChannelTab(),
 		extractor.NewYouTube(),

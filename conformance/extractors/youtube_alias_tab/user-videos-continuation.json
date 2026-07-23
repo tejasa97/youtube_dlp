@@ -1,0 +1,7 @@
+{
+  "responseContext":{"visitorData":"rotated-visitor"},
+  "onResponseReceivedActions":[{"appendContinuationItemsAction":{"continuationItems":[
+    {"gridVideoRenderer":{"videoId":"wxyzABCDE12","title":{"runs":[{"text":"Continued legacy video"}]}}},
+    {"continuationItemRenderer":{"continuationEndpoint":{"continuationCommand":{"token":"alias-next-1"}}}}
+  ]}}]
+}

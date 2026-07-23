@@ -243,8 +243,22 @@ func youtubeHandleTabVideoEntry(renderer *value.Object) (Entry, bool) {
 }
 
 func fetchYouTubeHandleTabContinuation(ctx context.Context, transport Transport, token, visitorData string, config youtubePlaylistConfig, tab string) ([]Entry, string, string, error) {
+	return fetchYouTubeTabContinuation(ctx, transport, token, visitorData, config, tab, "handle", categorizeYouTubeHandleTabError)
+}
+
+// fetchYouTubeTabContinuation is shared by the bounded channel-tab
+// extractors. Renderer parsing and continuation state must stay identical
+// across the different public channel URL forms.
+func fetchYouTubeTabContinuation(
+	ctx context.Context,
+	transport Transport,
+	token, visitorData string,
+	config youtubePlaylistConfig,
+	tab, subject string,
+	categorize func(error) error,
+) ([]Entry, string, string, error) {
 	if token = validYouTubeContinuationToken(token); token == "" {
-		return nil, "", visitorData, fmt.Errorf("%w: invalid YouTube handle tab continuation", ErrInvalidPlaylist)
+		return nil, "", visitorData, fmt.Errorf("%w: invalid YouTube %s tab continuation", ErrInvalidPlaylist, subject)
 	}
 	version := config.ClientVersion
 	if version == "" {
@@ -253,7 +267,7 @@ func fetchYouTubeHandleTabContinuation(ctx context.Context, transport Transport,
 	payload := map[string]any{"context": map[string]any{"client": map[string]any{"clientName": "WEB", "clientVersion": version, "hl": "en", "timeZone": "UTC", "utcOffsetMinutes": 0, "visitorData": visitorData}}, "continuation": token}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return nil, "", visitorData, fmt.Errorf("%w: encode YouTube handle tab continuation", ErrInvalidMetadata)
+		return nil, "", visitorData, fmt.Errorf("%w: encode YouTube %s tab continuation", ErrInvalidMetadata, subject)
 	}
 	endpoint, _ := url.Parse(youtubePlaylistContinuationURL)
 	query := endpoint.Query()
@@ -269,7 +283,7 @@ func fetchYouTubeHandleTabContinuation(ctx context.Context, transport Transport,
 	headers.Set("X-Youtube-Client-Version", version)
 	var response json.RawMessage
 	if err := RequestJSON(ctx, transport, http.MethodPost, endpoint.String(), body, headers, &response); err != nil {
-		return nil, "", visitorData, categorizeYouTubeHandleTabError(err)
+		return nil, "", visitorData, categorize(err)
 	}
 	parsed, err := parseYouTubeHandleTabData(response, tab)
 	if err != nil {
