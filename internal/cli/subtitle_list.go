@@ -145,12 +145,13 @@ func decodeSubtitleTracks(raw json.RawMessage) ([]subtitleTrack, error) {
 		if err := d.Decode(&item); err != nil {
 			return nil, err
 		}
-		var ext, name string
-		if value, ok := item["ext"]; ok {
-			_ = json.Unmarshal(value, &ext)
+		ext, err := subtitleTrackText(item, "ext")
+		if err != nil {
+			return nil, err
 		}
-		if value, ok := item["name"]; ok {
-			_ = json.Unmarshal(value, &name)
+		name, err := subtitleTrackText(item, "name")
+		if err != nil {
+			return nil, err
 		}
 		if ext == "" {
 			ext = "unknown"
@@ -162,6 +163,21 @@ func decodeSubtitleTracks(raw json.RawMessage) ([]subtitleTrack, error) {
 	}
 	_, err := d.Token()
 	return tracks, err
+}
+
+func subtitleTrackText(item map[string]json.RawMessage, key string) (string, error) {
+	raw, found := item[key]
+	if !found {
+		return "", nil
+	}
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return "", errInvalidSubtitleListing
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err != nil {
+		return "", errInvalidSubtitleListing
+	}
+	return text, nil
 }
 
 func boundedText(input string) string {
@@ -190,25 +206,32 @@ func renderSubtitleListing(ctx context.Context, raw json.RawMessage) (string, st
 	}
 	var stdout, stderr strings.Builder
 	if listing.Automatic != nil {
-		renderSubtitleSection(ctx, &stdout, &stderr, listing.ID, "automatic captions", *listing.Automatic)
+		if err := renderSubtitleSection(ctx, &stdout, &stderr, listing.ID, "automatic captions", *listing.Automatic); err != nil {
+			return "", "", err
+		}
 	}
-	renderSubtitleSection(ctx, &stdout, &stderr, listing.ID, "subtitles", listing.Manual)
+	if err := renderSubtitleSection(ctx, &stdout, &stderr, listing.ID, "subtitles", listing.Manual); err != nil {
+		return "", "", err
+	}
 	if err := ctx.Err(); err != nil {
 		return "", "", err
 	}
 	return stdout.String(), stderr.String(), nil
 }
 
-func renderSubtitleSection(ctx context.Context, stdout, stderr *strings.Builder, id, name string, section subtitleSection) {
-	if ctx.Err() != nil {
-		return
+func renderSubtitleSection(ctx context.Context, stdout, stderr *strings.Builder, id, name string, section subtitleSection) error {
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if len(section.Languages) == 0 {
 		fmt.Fprintf(stderr, "%s has no %s\n", id, name)
-		return
+		return nil
 	}
 	rows := make([][3]string, 0, len(section.Languages))
 	for _, language := range section.Languages {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		// An empty format list is not a usable subtitle language. Treat it like
 		// absent extractor data rather than indexing an empty names slice.
 		if len(language.Tracks) == 0 {
@@ -216,6 +239,9 @@ func renderSubtitleSection(ctx context.Context, stdout, stderr *strings.Builder,
 		}
 		exts, names := make([]string, 0, len(language.Tracks)), make([]string, 0, len(language.Tracks))
 		for index := len(language.Tracks) - 1; index >= 0; index-- {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			exts = append(exts, language.Tracks[index].Ext)
 			names = append(names, language.Tracks[index].Name)
 		}
@@ -235,19 +261,26 @@ func renderSubtitleSection(ctx context.Context, stdout, stderr *strings.Builder,
 	}
 	if len(rows) == 0 {
 		fmt.Fprintf(stderr, "%s has no %s\n", id, name)
-		return
+		return nil
 	}
 	fmt.Fprintf(stderr, "[info] Available %s for %s:\n", name, id)
 	widths := [3]int{len("Language"), len("Name"), len("Formats")}
 	for _, row := range rows {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		for i, cell := range row {
-			if len(cell) > widths[i] {
-				widths[i] = len(cell)
+			if width := utf8.RuneCountInString(cell); width > widths[i] {
+				widths[i] = width
 			}
 		}
 	}
 	fmt.Fprintf(stdout, "%-*s  %-*s  %-*s\n", widths[0], "Language", widths[1], "Name", widths[2], "Formats")
 	for _, row := range rows {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		fmt.Fprintf(stdout, "%-*s  %-*s  %-*s\n", widths[0], row[0], widths[1], row[1], widths[2], row[2])
 	}
+	return nil
 }

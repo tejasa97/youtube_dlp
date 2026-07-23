@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
+	"unicode/utf8"
 
 	"github.com/ytdlp-go/ytdlp/pkg/ytdlp"
 )
@@ -38,6 +40,8 @@ func TestRenderSubtitleListingOrderAndNoTracks(t *testing.T) {
 func TestRenderSubtitleListingRejectsMalformedAndBounds(t *testing.T) {
 	for _, raw := range []json.RawMessage{
 		json.RawMessage(`{"id":"bad","subtitles":{"en":{}}}`),
+		json.RawMessage(`{"id":"bad","subtitles":{"en":[{"ext":1}]}}`),
+		json.RawMessage(`{"id":"bad","subtitles":{"en":[{"ext":"vtt","name":false}]}}`),
 		json.RawMessage(`[]`),
 		json.RawMessage(`{"id":"bad","subtitles":{}} {}`),
 		json.RawMessage(`{"subtitles":{"en":[` + strings.Repeat(`{"ext":"vtt"},`, maxSubtitleListTracks) + `{"ext":"vtt"}]}}`),
@@ -52,11 +56,53 @@ func TestRenderSubtitleListingRejectsMalformedAndBounds(t *testing.T) {
 	}
 }
 
+func TestRenderSubtitleListingUsesRuneWidths(t *testing.T) {
+	stdout, _, err := renderSubtitleListing(context.Background(), json.RawMessage(`{"id":"unicode","subtitles":{"语言":[{"ext":"vtt"}],"en":[{"ext":"vtt"}]}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("lines=%q", stdout)
+	}
+	left := func(line string) int {
+		prefix, _, found := strings.Cut(line, "vtt")
+		if !found {
+			t.Fatalf("format column missing: %q", line)
+		}
+		return utf8.RuneCountInString(prefix)
+	}
+	if left(lines[1]) != left(lines[2]) {
+		t.Fatalf("format columns do not align by runes: %q", stdout)
+	}
+}
+
 func TestRenderSubtitleListingCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, _, err := renderSubtitleListing(ctx, json.RawMessage(`{"id":"x","subtitles":{}}`)); err != context.Canceled {
 		t.Fatalf("error=%v", err)
+	}
+}
+
+type cancelAfterContext struct{ calls, cancelAt int }
+
+func (ctx *cancelAfterContext) Deadline() (time.Time, bool) { return time.Time{}, false }
+func (ctx *cancelAfterContext) Done() <-chan struct{}       { return nil }
+func (ctx *cancelAfterContext) Value(any) any               { return nil }
+func (ctx *cancelAfterContext) Err() error {
+	ctx.calls++
+	if ctx.calls >= ctx.cancelAt {
+		return context.Canceled
+	}
+	return nil
+}
+
+func TestRenderSubtitleListingChecksCancellationWithinTracks(t *testing.T) {
+	ctx := &cancelAfterContext{cancelAt: 4}
+	_, _, err := renderSubtitleListing(ctx, json.RawMessage(`{"id":"x","subtitles":{"en":[{"ext":"vtt"},{"ext":"srt"}]}}`))
+	if err != context.Canceled {
+		t.Fatalf("error=%v calls=%d", err, ctx.calls)
 	}
 }
 
