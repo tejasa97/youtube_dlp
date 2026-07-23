@@ -128,6 +128,14 @@ Convert written subtitle sidecars to a supported format:
 ./bin/ytdlp-go --skip-download --write-subs --convert-subs vtt URL
 ```
 
+Embed selected subtitles in a supported media container:
+
+```sh
+./bin/ytdlp-go --embed-subs --sub-langs 'en,fr' URL
+```
+
+Add `--write-subs` to retain the sidecar files after successful embedding.
+
 List available manual and automatic subtitles without writing files:
 
 ```sh

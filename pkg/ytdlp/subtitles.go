@@ -21,6 +21,7 @@ import (
 const (
 	maxSubtitleLanguages      = 256
 	maxSubtitleFormatsPerLang = 32
+	maxEmbeddedSubtitleTracks = 64
 	maxSubtitleRules          = 128
 	maxSubtitleRuleBytes      = 256
 	maxSubtitleFormatBytes    = 1024
@@ -59,6 +60,15 @@ type subtitleLanguage struct {
 }
 
 func validateSubtitleOptions(options SubtitleOptions) error {
+	if options.KeepFiles && !options.Embed {
+		return fmt.Errorf("subtitle retention requires embedding")
+	}
+	switch options.ConvertFormat {
+	case "", "srt", "ass", "vtt", "webvtt":
+	default:
+		return fmt.Errorf("unsupported subtitle conversion format")
+	}
+	options = normalizedSubtitleOptions(options)
 	if !options.WriteManual && !options.WriteAutomatic {
 		return nil
 	}
@@ -97,6 +107,7 @@ func validateSubtitleOptions(options SubtitleOptions) error {
 }
 
 func selectSubtitles(info value.Info, options SubtitleOptions) ([]subtitleTrack, *value.Object, error) {
+	options = normalizedSubtitleOptions(options)
 	if !options.WriteManual && !options.WriteAutomatic {
 		return nil, nil, nil
 	}
@@ -193,7 +204,17 @@ func selectSubtitles(info value.Info, options SubtitleOptions) ([]subtitleTrack,
 		selected = append(selected, track)
 		metadata.Set(language, value.ObjectValue(track.metadata))
 	}
+	if options.Embed && len(selected) > maxEmbeddedSubtitleTracks {
+		return nil, nil, fmt.Errorf("%w: subtitle embedding track limit", extractor.ErrInvalidMetadata)
+	}
 	return selected, metadata, nil
+}
+
+func normalizedSubtitleOptions(options SubtitleOptions) SubtitleOptions {
+	if options.Embed && !options.WriteManual && !options.WriteAutomatic {
+		options.WriteManual = true
+	}
+	return options
 }
 
 func subtitleExtension(metadata *value.Object, rawURL string) string {

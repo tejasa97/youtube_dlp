@@ -62,6 +62,26 @@ func TestArtifactAndDestinationFailures(t *testing.T) {
 	if err := (SubtitleEmbed{Input: Artifact{Path: media, Kind: ArtifactMedia}, Subtitle: Artifact{Path: "caption.vtt", Kind: ArtifactMedia}, Output: Artifact{Path: "out.mp4", Kind: ArtifactMedia}}).Run(context.Background(), nil, nil); !errors.Is(err, ErrInvalidGraph) {
 		t.Fatalf("kind mismatch: %v", err)
 	}
+	subtitle := filepath.Join(root, "caption.vtt")
+	if err := os.WriteFile(subtitle, []byte("WEBVTT\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := (SubtitleEmbed{
+		Input:     Artifact{Path: media, Kind: ArtifactMedia},
+		Subtitle:  Artifact{Path: subtitle, Kind: ArtifactSubtitle},
+		Subtitles: []SubtitleEmbedInput{{Artifact: Artifact{Path: subtitle, Kind: ArtifactSubtitle}, Extension: "vtt"}},
+		Output:    Artifact{Path: filepath.Join(root, "both.mp4"), Kind: ArtifactMedia},
+	}).Run(context.Background(), nil, nil); !errors.Is(err, ErrInvalidGraph) {
+		t.Fatalf("single and multiple subtitle inputs: %v", err)
+	}
+	tooMany := make([]SubtitleEmbedInput, 65)
+	if err := (SubtitleEmbed{
+		Input:     Artifact{Path: media, Kind: ArtifactMedia},
+		Subtitles: tooMany,
+		Output:    Artifact{Path: filepath.Join(root, "too-many.mp4"), Kind: ArtifactMedia},
+	}).Run(context.Background(), nil, nil); !errors.Is(err, ErrInvalidGraph) {
+		t.Fatalf("subtitle input limit: %v", err)
+	}
 	if err := SafeMove("nul\x00path", "output", false); !errors.Is(err, ErrUnsafePath) {
 		t.Fatalf("nul path: %v", err)
 	}
@@ -88,6 +108,42 @@ func TestArtifactAndDestinationFailures(t *testing.T) {
 		t.Fatalf("cancelled move: %v", err)
 	}
 	_ = ffmpeg.FixupNone
+}
+
+func TestSubtitleEmbedFailurePreservesOwnedInputs(t *testing.T) {
+	tools, err := ffmpeg.Discover(ffmpeg.Config{})
+	if err != nil {
+		t.Skipf("ffmpeg unavailable: %v", err)
+	}
+	root := t.TempDir()
+	media := filepath.Join(root, "invalid.mp4")
+	subtitle := filepath.Join(root, "caption.vtt")
+	output := filepath.Join(root, "output.mp4")
+	if err := os.WriteFile(media, []byte("not media"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(subtitle, []byte("WEBVTT\n\n00:00.000 --> 00:00.100\nhello\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	operation := SubtitleEmbed{
+		Input: Artifact{Path: media, Kind: ArtifactMedia, Owned: true},
+		Subtitles: []SubtitleEmbedInput{{
+			Artifact: Artifact{Path: subtitle, Kind: ArtifactSubtitle, Owned: true},
+			Language: "eng", Extension: "vtt",
+		}},
+		Output: Artifact{Path: output, Kind: ArtifactMedia},
+	}
+	if err := operation.Run(context.Background(), tools, nil); !errors.Is(err, ffmpeg.ErrMediaFailure) {
+		t.Fatalf("error = %v", err)
+	}
+	for _, path := range []string{media, subtitle} {
+		if _, statErr := os.Stat(path); statErr != nil {
+			t.Fatalf("owned input %q changed: %v", path, statErr)
+		}
+	}
+	if _, statErr := os.Stat(output); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("failed output exists: %v", statErr)
+	}
 }
 
 func FuzzArtifactPaths(f *testing.F) {
