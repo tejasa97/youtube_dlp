@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
@@ -33,18 +34,21 @@ func (err *SyntaxError) Error() string {
 func (err *SyntaxError) Unwrap() error { return ErrInvalidTemplate }
 
 const (
-	maxTemplateBytes   = 64 << 10
-	maxExpressions     = 256
-	maxRenderedBytes   = 1 << 20
-	maxScalarBytes     = 256 << 10
-	maxFormatWidth     = 4096
-	maxFormatPrecision = 4096
+	maxTemplateBytes    = 64 << 10
+	maxExpressions      = 256
+	maxRenderedBytes    = 1 << 20
+	maxScalarBytes      = 256 << 10
+	maxFormatWidth      = 4096
+	maxFormatPrecision  = 4096
+	maxProjectionFields = 64
+	maxJSONDepth        = 64
 )
 
-var formatSpecPattern = regexp.MustCompile(`^[-+0 #]*[0-9]*(\.[0-9]+)?[sdf]$|^j$`)
+var formatSpecPattern = regexp.MustCompile(`^[-+0 #]*[0-9]*(\.[0-9]+)?[sdf]$|^#?j$`)
 
 // Render supports literal text, %%, traversal/alternative/default expressions,
-// replacement templates, date conversion, and bounded scalar format specs.
+// object projections, replacement templates, date conversion, and bounded
+// scalar and JSON format specs.
 func Render(pattern string, info value.Info) (string, error) {
 	if len(pattern) > maxTemplateBytes {
 		return "", templateSyntax(0, len(pattern), "template exceeds size limit")
@@ -162,7 +166,7 @@ func renderExpression(expression, spec string, info value.Info) (string, error) 
 	source, replacement, hasReplacement := strings.Cut(source, "&")
 	var selected value.Value
 	var dateFormat string
-	for _, alternative := range strings.Split(source, ",") {
+	for _, alternative := range splitAlternatives(source) {
 		path, format, hasDateFormat := strings.Cut(strings.TrimSpace(alternative), ">")
 		candidate, err := traverse(info, path)
 		if err != nil {
@@ -208,6 +212,13 @@ func renderExpression(expression, spec string, info value.Info) (string, error) 
 	return formatValue(selected, spec)
 }
 
+func splitAlternatives(source string) []string {
+	if strings.HasPrefix(source, ".{") && strings.HasSuffix(source, "}") {
+		return []string{source}
+	}
+	return strings.Split(source, ",")
+}
+
 func replaceBounded(replacement, raw string) (string, error) {
 	if len(raw) > maxScalarBytes {
 		return "", errors.New("replacement source exceeds size limit")
@@ -230,6 +241,9 @@ func replaceBounded(replacement, raw string) (string, error) {
 }
 
 func traverse(info value.Info, path string) (value.Value, error) {
+	if strings.HasPrefix(path, ".{") && strings.HasSuffix(path, "}") {
+		return project(info, path[2:len(path)-1])
+	}
 	parts := strings.Split(path, ".")
 	if len(parts) == 0 || parts[0] == "" {
 		return value.Missing(), errors.New("empty traversal path")
@@ -260,6 +274,30 @@ func traverse(info value.Info, path string) (value.Value, error) {
 		}
 	}
 	return current, nil
+}
+
+func project(info value.Info, selectors string) (value.Value, error) {
+	if selectors == "" {
+		return value.Missing(), errors.New("empty object projection")
+	}
+	fields := strings.Split(selectors, ",")
+	if len(fields) > maxProjectionFields {
+		return value.Missing(), errors.New("object projection has too many fields")
+	}
+	projected := value.NewObject()
+	for _, selector := range fields {
+		if selector == "" || strings.ContainsAny(selector, "{}|&>") {
+			return value.Missing(), fmt.Errorf("invalid object projection field %q", selector)
+		}
+		selected, err := traverse(info, selector)
+		if err != nil || selected.IsNull() {
+			selected = value.Missing()
+		} else if object, ok := selected.Object(); ok && object.Len() == 0 {
+			selected = value.Missing()
+		}
+		projected.Set(selector, selected)
+	}
+	return value.ObjectValue(projected), nil
 }
 
 func formatValue(input value.Value, spec string) (string, error) {
@@ -305,7 +343,14 @@ func formatValue(input value.Value, spec string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("encode JSON: %w", err)
 		}
-		return boundedFormatted(string(encoded))
+		encoded, err = normalizeJSONEncoding(encoded)
+		if err != nil {
+			return "", err
+		}
+		if strings.Contains(spec, "#") {
+			return formatPrettyJSON(encoded)
+		}
+		return formatCompactJSON(encoded)
 	default:
 		return "", fmt.Errorf("unsupported conversion %q", conversion)
 	}
@@ -315,7 +360,7 @@ func validFormatSpec(spec string) bool {
 	if !formatSpecPattern.MatchString(spec) {
 		return false
 	}
-	if spec == "j" {
+	if spec == "j" || spec == "#j" {
 		return true
 	}
 	body := spec[:len(spec)-1]
@@ -338,6 +383,194 @@ func validFormatSpec(spec string) bool {
 		}
 	}
 	return true
+}
+
+func normalizeJSONEncoding(encoded []byte) ([]byte, error) {
+	var output strings.Builder
+	inString := false
+	for index := 0; index < len(encoded); index++ {
+		character := encoded[index]
+		if character == '"' {
+			inString = !inString
+			if err := appendBounded(&output, `"`); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if !inString {
+			if err := appendBounded(&output, string(character)); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if character == '\\' {
+			if index+5 < len(encoded) {
+				escape := string(encoded[index : index+6])
+				switch escape {
+				case `\u003c`:
+					if err := appendBounded(&output, "<"); err != nil {
+						return nil, err
+					}
+					index += 5
+					continue
+				case `\u003e`:
+					if err := appendBounded(&output, ">"); err != nil {
+						return nil, err
+					}
+					index += 5
+					continue
+				case `\u0026`:
+					if err := appendBounded(&output, "&"); err != nil {
+						return nil, err
+					}
+					index += 5
+					continue
+				}
+			}
+			if index+1 < len(encoded) {
+				if err := appendBounded(&output, string(encoded[index:index+2])); err != nil {
+					return nil, err
+				}
+				index++
+				continue
+			}
+		}
+		if character < utf8.RuneSelf {
+			if err := appendBounded(&output, string(character)); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		decoded, size := utf8.DecodeRune(encoded[index:])
+		if decoded == utf8.RuneError && size == 1 {
+			return nil, errors.New("invalid UTF-8 in JSON output")
+		}
+		if decoded <= 0xffff {
+			if err := appendBounded(&output, fmt.Sprintf(`\u%04x`, decoded)); err != nil {
+				return nil, err
+			}
+		} else {
+			decoded -= 0x10000
+			high := 0xd800 + decoded>>10
+			low := 0xdc00 + decoded&0x3ff
+			if err := appendBounded(&output, fmt.Sprintf(`\u%04x\u%04x`, high, low)); err != nil {
+				return nil, err
+			}
+		}
+		index += size - 1
+	}
+	return []byte(output.String()), nil
+}
+
+func formatCompactJSON(encoded []byte) (string, error) {
+	var output strings.Builder
+	inString, escaped := false, false
+	for _, character := range encoded {
+		if err := appendBounded(&output, string(character)); err != nil {
+			return "", err
+		}
+		if inString {
+			if escaped {
+				escaped = false
+			} else if character == '\\' {
+				escaped = true
+			} else if character == '"' {
+				inString = false
+			}
+			continue
+		}
+		if character == '"' {
+			inString = true
+		} else if character == ',' || character == ':' {
+			if err := appendBounded(&output, " "); err != nil {
+				return "", err
+			}
+		}
+	}
+	return output.String(), nil
+}
+
+func formatPrettyJSON(encoded []byte) (string, error) {
+	var output strings.Builder
+	depth := 0
+	inString, escaped := false, false
+	indent := func(level int) error {
+		return appendBounded(&output, strings.Repeat(" ", level*4))
+	}
+	for index, character := range encoded {
+		if inString {
+			if err := appendBounded(&output, string(character)); err != nil {
+				return "", err
+			}
+			if escaped {
+				escaped = false
+			} else if character == '\\' {
+				escaped = true
+			} else if character == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch character {
+		case '"':
+			inString = true
+			if err := appendBounded(&output, `"`); err != nil {
+				return "", err
+			}
+		case '{', '[':
+			depth++
+			if depth > maxJSONDepth {
+				return "", errors.New("JSON nesting exceeds size limit")
+			}
+			if err := appendBounded(&output, string(character)); err != nil {
+				return "", err
+			}
+			next := byte('}')
+			if character == '[' {
+				next = ']'
+			}
+			if index+1 < len(encoded) && encoded[index+1] != next {
+				if err := appendBounded(&output, "\n"); err != nil {
+					return "", err
+				}
+				if err := indent(depth); err != nil {
+					return "", err
+				}
+			}
+		case '}', ']':
+			depth--
+			if depth < 0 {
+				return "", errors.New("invalid JSON nesting")
+			}
+			if index > 0 && encoded[index-1] != '{' && encoded[index-1] != '[' {
+				if err := appendBounded(&output, "\n"); err != nil {
+					return "", err
+				}
+				if err := indent(depth); err != nil {
+					return "", err
+				}
+			}
+			if err := appendBounded(&output, string(character)); err != nil {
+				return "", err
+			}
+		case ',':
+			if err := appendBounded(&output, ",\n"); err != nil {
+				return "", err
+			}
+			if err := indent(depth); err != nil {
+				return "", err
+			}
+		case ':':
+			if err := appendBounded(&output, ": "); err != nil {
+				return "", err
+			}
+		default:
+			if err := appendBounded(&output, string(character)); err != nil {
+				return "", err
+			}
+		}
+	}
+	return output.String(), nil
 }
 
 func boundedFormatted(text string) (string, error) {

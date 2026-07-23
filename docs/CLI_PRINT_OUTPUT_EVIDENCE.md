@@ -24,9 +24,13 @@ implicitly select quiet or simulation. An explicit simulation suppresses the
 file, consistent with the port's global no-artifact invariant.
 
 A bare field or comma-separated field list is expanded to output-template
-expressions. The legacy `-g`/`--get-url`, `-e`/`--get-title`, `--get-id`,
+expressions. Dictionary shorthand such as `{id,title}` emits one ordered JSON
+object and omits unavailable fields. A trailing `=` emits the selected field
+name and JSON-formatted value; it works with field lists and dictionaries and
+uses indented JSON for composite values. These forms also work with
+`--print-to-file`. The legacy `-g`/`--get-url`, `-e`/`--get-title`, `--get-id`,
 `--get-thumbnail`, `--get-description`, `--get-duration`, `--get-filename`,
-and `--get-format` aliases are also supported in pinned output order. Optional
+and `--get-format` aliases are supported in pinned output order. Optional
 legacy fields are omitted when unavailable.
 
 Print rules imply quiet mode unless the user explicitly selects `--no-quiet`.
@@ -47,7 +51,7 @@ Known deviations:
   rather than streamed at each lifecycle instant;
 - `post_process` and `after_move` both observe the final native pipeline path
   because this port atomically publishes postprocessed media as one operation;
-- dict shorthand, trailing `=` diagnostic shorthand, and upstream-only
-  output-template syntax remain pending;
+- upstream-only output-template syntax beyond the bounded native parser remains
+  pending;
 - the `formats_table`, `thumbnails_table`, `subtitles_table`, and
   `automatic_captions_table` synthetic print fields are not exposed.

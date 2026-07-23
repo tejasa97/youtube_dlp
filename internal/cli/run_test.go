@@ -384,6 +384,9 @@ func TestRunPrintTemplatesSimulationAndLaterStageDownload(t *testing.T) {
 		download   bool
 	}{
 		{name: "field shorthand", arguments: []string{"-O", "title,id"}, wantOutput: "Deterministic Fixture\nfixture-direct\n"},
+		{name: "dict shorthand", arguments: []string{"-O", "{id,title}"}, wantOutput: "{\"id\": \"fixture-direct\", \"title\": \"Deterministic Fixture\"}\n"},
+		{name: "diagnostic shorthand", arguments: []string{"-O", "title="}, wantOutput: "title = \"Deterministic Fixture\"\n"},
+		{name: "dict diagnostic shorthand", arguments: []string{"-O", "{id,title}="}, wantOutput: ".{id,title} = {\n    \"id\": \"fixture-direct\",\n    \"title\": \"Deterministic Fixture\"\n}\n"},
 		{name: "selected fields", arguments: []string{"--print", "%(format_id)s|%(ext)s"}, wantOutput: "direct-http|bin\n"},
 		{name: "explicit no simulate", arguments: []string{"--no-simulate", "-O", "title"}, wantOutput: "Deterministic Fixture\n", download: true},
 		{name: "later stage", arguments: []string{"--print", "before_dl:title"}, wantOutput: "Deterministic Fixture\n", download: true},
@@ -437,6 +440,7 @@ func TestRunPrintToFileAppendsWithoutConsoleOrImplicitQuiet(t *testing.T) {
 		"--skip-download",
 		"--print-to-file", "title", "records.txt",
 		"--print-to-file", "after_video:id", "records.txt",
+		"--print-to-file", "{id,title}", "records.txt",
 		"--output-dir", root, server.URL + "/page",
 	}, &stdout, &stderr)
 	if code != 0 {
@@ -449,7 +453,7 @@ func TestRunPrintToFileAppendsWithoutConsoleOrImplicitQuiet(t *testing.T) {
 		t.Fatalf("print-to-file unexpectedly implied quiet: %q", stderr.String())
 	}
 	body, err := os.ReadFile(filepath.Join(root, "records.txt"))
-	if err != nil || string(body) != "Deterministic Fixture\nfixture-direct\n" {
+	if err != nil || string(body) != "Deterministic Fixture\n{\"id\": \"fixture-direct\", \"title\": \"Deterministic Fixture\"}\nfixture-direct\n" {
 		t.Fatalf("records=%q error=%v", body, err)
 	}
 	assertPathExists(t, filepath.Join(root, "Deterministic Fixture.bin"), false)

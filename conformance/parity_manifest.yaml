@@ -102,6 +102,9 @@ capabilities:
       - internal/cli.TestRunPrintToFileLoadsFromConfiguration
       - internal/cli.FuzzParsePrintRules
       - internal/cli.FuzzExtractPrintToFileArgs
+      - internal/compat/template.TestRenderObjectProjectionAndDiagnosticJSON
+      - internal/compat/template.TestRenderJSONMatchesPinnedEscaping
+      - internal/compat/template.TestRenderProjectionRejectsInvalidAndOversizedExpressions
       - conformance/print_output/PROVENANCE.md
       - docs/CLI_PRINT_OUTPUT_EVIDENCE.md
     owner: core
@@ -109,7 +112,7 @@ capabilities:
       - cli.simulation
       - compat.output_template_minimal
       - extractor.playlists
-    known_deviation: Captured console values retain native lifecycle stages, but terminal output is emitted after the complete operation. Post-process and after-move observe the final native pipeline path. Dict and trailing-equals shorthand, upstream-only template syntax, and synthetic table fields remain pending.
+    known_deviation: Captured console values retain native lifecycle stages, but terminal output is emitted after the complete operation. Post-process and after-move observe the final native pipeline path. Upstream-only template syntax beyond the bounded native parser and synthetic table fields remain pending.
 
   - id: foundation.embedding_api
     name: Cancellable Go embedding boundary
@@ -1412,11 +1415,14 @@ capabilities:
   - id: compat.output_template_pilot
     name: Output-template parser pilot
     phase: 1
-    compatibility_target: Render the selected traversal, alternative, default, replacement, date, and numeric formatting corpus safely.
+    compatibility_target: Render the selected traversal, projection, alternative, default, replacement, date, numeric, and JSON formatting corpus safely.
     status: compatible
     evidence:
       - internal/compat/template.TestRenderTraversalAlternativesDefaultsAndReplacement
       - internal/compat/template.TestRenderNumericAndDateFormatting
+      - internal/compat/template.TestRenderObjectProjectionAndDiagnosticJSON
+      - internal/compat/template.TestRenderJSONMatchesPinnedEscaping
+      - internal/compat/template.TestRenderProjectionRejectsInvalidAndOversizedExpressions
       - internal/compat/template.TestRenderSyntaxErrorReportsSourceSpan
       - internal/compat/template.TestResolveSanitizesAndConfines
       - internal/compat/template.FuzzResolve
