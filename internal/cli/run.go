@@ -38,6 +38,11 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return 2
 	}
 	args = loaded.Arguments
+	args, printFileSpecifications, err := extractPrintToFileArgs(args)
+	if err != nil {
+		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
+		return 2
+	}
 	flags := flag.NewFlagSet("ytdlp-go", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.Usage = func() {
@@ -45,6 +50,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		fmt.Fprintln(flags.Output())
 		fmt.Fprintln(flags.Output(), "Experimental Python-free Go implementation informed by yt-dlp behavior.")
 		fmt.Fprintln(flags.Output())
+		fmt.Fprintln(flags.Output(), "  --print-to-file [WHEN:]TEMPLATE FILE")
+		fmt.Fprintln(flags.Output(), "        append a rendered template line to a confined file")
 		flags.PrintDefaults()
 	}
 
@@ -280,13 +287,19 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
 		return 2
 	}
+	printFileRules, err := parsePrintFileRules(printFileSpecifications)
+	if err != nil {
+		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
+		return 2
+	}
+	printRules = append(printRules, printFileRules...)
 	legacyGetting := *getURL || *getTitle || *getID || *getThumbnail || *getDescription ||
 		*getDuration || *getFilename || *getFormat
 	printRules = appendLegacyPrintRules(
 		printRules, *getURL, *getTitle, *getID, *getThumbnail, *getDescription,
 		*getDuration, *getFilename, *getFormat,
 	)
-	if (*dumpJSON || *dumpSingleJSON || len(printRules) > 0) && !quietSet {
+	if (*dumpJSON || *dumpSingleJSON || hasConsolePrintRules(printRules)) && !quietSet {
 		quiet = true
 	}
 	subtitleConvertFormat, err := parseSubtitleConvertFormat(*convertSubtitles)
@@ -395,7 +408,7 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
 		return exitCode(err)
 	}
-	if len(printRules) > 0 {
+	if hasConsolePrintRules(printRules) {
 		if err := writePrintOutputs(ctx, result, stdout); err != nil {
 			fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
 			return exitCode(err)

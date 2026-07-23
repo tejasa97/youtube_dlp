@@ -428,6 +428,79 @@ func TestRunLegacyGetAliasesOrderAndOptionalOmission(t *testing.T) {
 	assertPathExists(t, filepath.Join(root, "Deterministic Fixture.bin"), false)
 }
 
+func TestRunPrintToFileAppendsWithoutConsoleOrImplicitQuiet(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"--skip-download",
+		"--print-to-file", "title", "records.txt",
+		"--print-to-file", "after_video:id", "records.txt",
+		"--output-dir", root, server.URL + "/page",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("print-to-file leaked to stdout: %q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "Extracting") {
+		t.Fatalf("print-to-file unexpectedly implied quiet: %q", stderr.String())
+	}
+	body, err := os.ReadFile(filepath.Join(root, "records.txt"))
+	if err != nil || string(body) != "Deterministic Fixture\nfixture-direct\n" {
+		t.Fatalf("records=%q error=%v", body, err)
+	}
+	assertPathExists(t, filepath.Join(root, "Deterministic Fixture.bin"), false)
+}
+
+func TestRunPrintToFileDefaultDownloadsAndSimulationSuppressesFile(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{
+		"--print-to-file", "title", "records.txt", "--output-dir", root, server.URL + "/page",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("download code=%d stderr=%q", code, stderr.String())
+	}
+	assertPathExists(t, filepath.Join(root, "Deterministic Fixture.bin"), true)
+	assertPathExists(t, filepath.Join(root, "records.txt"), true)
+
+	simulatedRoot := t.TempDir()
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{
+		"--simulate", "--print-to-file", "title", "records.txt",
+		"--output-dir", simulatedRoot, server.URL + "/page",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("simulation code=%d stderr=%q", code, stderr.String())
+	}
+	assertPathExists(t, filepath.Join(simulatedRoot, "records.txt"), false)
+	assertPathExists(t, filepath.Join(simulatedRoot, "Deterministic Fixture.bin"), false)
+}
+
+func TestRunPrintToFileLoadsFromConfiguration(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "yt-dlp.conf")
+	if err := os.WriteFile(configPath, []byte("--skip-download\n--print-to-file \"id\" \"records.txt\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{
+		"--config-location", configPath, "--output-dir", root, server.URL + "/page",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	body, err := os.ReadFile(filepath.Join(root, "records.txt"))
+	if err != nil || string(body) != "fixture-direct\n" {
+		t.Fatalf("records=%q error=%v", body, err)
+	}
+}
+
 func TestRunDumpJSONSimulationSuppressesRelatedFiles(t *testing.T) {
 	server := testserver.New()
 	defer server.Close()

@@ -37,7 +37,7 @@ func TestAlphaTrustAPIContractCompiles(t *testing.T) {
 
 func TestAlphaPrintAPIContractCompiles(t *testing.T) {
 	request := ytdlp.Request{PrintRules: []ytdlp.PrintRule{{
-		Stage: ytdlp.PrintAfterMove, Template: "%(filepath)s",
+		Stage: ytdlp.PrintAfterMove, Template: "%(filepath)s", FileTemplate: "records.txt",
 	}}}
 	result := ytdlp.Result{Prints: []ytdlp.PrintOutput{{
 		Stage: ytdlp.PrintAfterMove, Text: "video.mp4",
