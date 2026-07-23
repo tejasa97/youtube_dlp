@@ -105,6 +105,20 @@ URLs are accepted only from structured configuration or the player response's
 `assets.js`, then constrained to HTTPS YouTube `/s/player/` paths. No production
 response, media URL, cookie, visitor identifier, or account data is retained.
 
+The authenticated WEB player recovery tests are synthetic expectations derived
+from the pinned reference's SID-cookie selection, SHA-1 authorization
+construction, authenticated-session predicate, and Innertube header generation
+in `yt_dlp/extractor/youtube/_base.py:724-799` and `:921-961`, plus the WEB
+player request body in `yt_dlp/extractor/youtube/_video.py:2903-2956` and
+`:2685-2710`. They cover the `SAPISID` fallback, 1P/3P schemes, delegated and
+user session identifiers, account index, visitor identity, fixed WEB origin,
+and HTML5 playback context. All cookie values, hashes, account/session
+identifiers, client versions, visitor data, URLs, and responses are artificial.
+No production cookie, account, request, or response was captured. The Go slice
+is intentionally limited to format recovery from the exact WEB player endpoint;
+authenticated comments, browse/search/Music clients, multi-client rotation,
+and direct SABR/UMP remain outside this evidence.
+
 The protected-playback token fixture is derived from the `player`, `gvs`, and
 `subs` context definitions and token placement behavior in the pinned
 reference's `yt_dlp/extractor/youtube/pot/provider.py`,
