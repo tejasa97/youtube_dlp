@@ -497,6 +497,8 @@ capabilities:
       - pkg/ytdlp.TestPlaylistItemsIteratorCancellationAndLimit
       - pkg/ytdlp.FuzzPlaylistItemsParserAndExpansion
       - pkg/ytdlp.TestOperationFlatPlaylistRetainsEntriesWithoutChildExtraction
+      - pkg/ytdlp.TestOperationFlatPlaylistAppliesMetadataBeforeIncompleteMatchFilter
+      - pkg/ytdlp.TestOperationFlatPlaylistChecksArchiveWithoutRecording
       - pkg/ytdlp.TestFlatPlaylistEntryValuePreservesURLResultShape
       - pkg/ytdlp.FuzzFlatPlaylistEntryValue
       - internal/cli.TestRunRejectsInvalidPlaylistRange

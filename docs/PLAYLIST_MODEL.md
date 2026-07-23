@@ -43,13 +43,14 @@ resolved after consuming the bounded sequence. Specifications are limited to
 10,000-source-entry operation bound.
 
 `Playlist.Flat` and `--flat-playlist` retain each selected URL-result entry
-without selecting its extractor, recursively expanding it, applying media
-filters or archives, or downloading it. The entry keeps its URL, declared
-extractor key, id, title, transparent/non-transparent type, and source playlist
-fields in both `InfoJSON` and `Result.Entries`. Range/item selection and reverse
-ordering happen before flat materialization, so their pagination and ordering
-bounds are unchanged. `--no-flat-playlist` disables an inherited configuration
-value.
+without selecting its extractor, recursively expanding it, or downloading it.
+Supported metadata actions run before incomplete-entry match filters, and
+archive matches are reported when the entry declares both an extractor key and
+id. The entry keeps its URL, declared extractor key, transformed id/title,
+transparent/non-transparent type, and source playlist fields in both
+`InfoJSON` and `Result.Entries`. Range/item selection and reverse ordering
+happen before flat materialization, so their pagination and ordering bounds are
+unchanged. `--no-flat-playlist` disables an inherited configuration value.
 
 ## Bounds and failure policy
 

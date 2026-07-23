@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/ytdlp-go/ytdlp/internal/archive"
 	"github.com/ytdlp-go/ytdlp/internal/extractor"
 	"github.com/ytdlp-go/ytdlp/internal/network"
 )
@@ -120,7 +121,7 @@ func TestFlatPlaylistEntryValuePreservesURLResultShape(t *testing.T) {
 			URL: "https://example.invalid/watch/one", ExtractorKey: "fixture",
 			ID: "one", Title: "One", Transparent: transparent,
 		}
-		encoded, err := flatPlaylistEntryValue(entry, 3, "parent", "Parent").MarshalJSON()
+		encoded, err := encodeInfo(flatPlaylistEntryInfo(entry, 3, "parent", "Parent"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -138,6 +139,120 @@ func TestFlatPlaylistEntryValuePreservesURLResultShape(t *testing.T) {
 	}
 }
 
+func TestOperationFlatPlaylistAppliesMetadataBeforeIncompleteMatchFilter(t *testing.T) {
+	server, requests := selectionMediaServer(t)
+	defer server.Close()
+	transport, err := network.New(network.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := Request{
+		Playlist:        PlaylistOptions{Items: "2", Flat: true},
+		ReplaceMetadata: []string{"title:Item:Renamed"},
+		MatchFilters:    []string{"title=other"},
+	}
+	compatibility, err := prepareCompatibility(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pages atomic.Int32
+	var events []Event
+	operation := &operation{
+		client: NewClient(WithEventHandler(func(_ context.Context, event Event) error {
+			events = append(events, event)
+			return nil
+		})),
+		request: request, compatibility: compatibility, transport: transport,
+		registry: extractor.NewRegistry(
+			&selectionFixtureExtractor{pageFetches: &pages}, extractor.NewGeneric(),
+		),
+	}
+	result, err := operation.process(context.Background(), server.URL+"/selection", "", nil, make(map[string]bool), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := requests(); len(got) != 0 {
+		t.Fatalf("flat playlist made child requests: %v", got)
+	}
+	if len(result.Entries) != 1 || !result.Entries[0].Skipped ||
+		!strings.Contains(result.Entries[0].SkipReason, "Renamed 2") {
+		t.Fatalf("flat filtered result = %#v", result)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(result.Entries[0].InfoJSON, &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata["title"] != "Renamed 2" {
+		t.Fatalf("transformed title = %#v", metadata["title"])
+	}
+	var parent map[string]any
+	if err := json.Unmarshal(result.InfoJSON, &parent); err != nil {
+		t.Fatal(err)
+	}
+	parentEntries := parent["entries"].([]any)
+	if title := parentEntries[0].(map[string]any)["title"]; title != "Renamed 2" {
+		t.Fatalf("parent transformed title = %#v", title)
+	}
+	foundSkipEvent := false
+	for _, event := range events {
+		if event.Kind == EventMatchFilterSkipped && strings.Contains(event.Message, "Renamed 2") {
+			foundSkipEvent = true
+		}
+	}
+	if !foundSkipEvent {
+		t.Fatalf("match-filter event missing: %#v", events)
+	}
+}
+
+func TestOperationFlatPlaylistChecksArchiveWithoutRecording(t *testing.T) {
+	server, requests := selectionMediaServer(t)
+	defer server.Close()
+	archivePath := filepath.Join(t.TempDir(), "archive.txt")
+	if err := os.WriteFile(archivePath, []byte("generic item-2\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := archive.Open(context.Background(), archivePath, archive.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, err := network.New(network.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pages atomic.Int32
+	var archiveEvent Event
+	operation := &operation{
+		client: NewClient(WithEventHandler(func(_ context.Context, event Event) error {
+			if event.Kind == EventArchiveMatch {
+				archiveEvent = event
+			}
+			return nil
+		})),
+		request:   Request{Playlist: PlaylistOptions{Items: "2", Flat: true}},
+		transport: transport, archive: store,
+		registry: extractor.NewRegistry(
+			&selectionFixtureExtractor{pageFetches: &pages}, extractor.NewGeneric(),
+		),
+	}
+	result, err := operation.process(context.Background(), server.URL+"/selection", "", nil, make(map[string]bool), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := requests(); len(got) != 0 {
+		t.Fatalf("flat playlist made child requests: %v", got)
+	}
+	if len(result.Entries) != 1 || !result.Entries[0].Archived || !result.Archived {
+		t.Fatalf("flat archived result = %#v", result)
+	}
+	if archiveEvent.Extractor != "generic" || archiveEvent.Message != "generic item-2" {
+		t.Fatalf("archive event = %#v", archiveEvent)
+	}
+	data, err := os.ReadFile(archivePath)
+	if err != nil || string(data) != "generic item-2\n" {
+		t.Fatalf("archive changed: %q, %v", data, err)
+	}
+}
+
 func FuzzFlatPlaylistEntryValue(f *testing.F) {
 	f.Add("id", "title", "https://example.invalid/video", true)
 	f.Add("", "", "opaque:fixture", false)
@@ -145,10 +260,10 @@ func FuzzFlatPlaylistEntryValue(f *testing.F) {
 		if len(id)+len(title)+len(rawURL) > 4096 {
 			t.Skip()
 		}
-		value := flatPlaylistEntryValue(extractor.Entry{
+		info := flatPlaylistEntryInfo(extractor.Entry{
 			URL: rawURL, ID: id, Title: title, ExtractorKey: "fixture", Transparent: transparent,
 		}, 1, "playlist", "Playlist")
-		encoded, err := value.MarshalJSON()
+		encoded, err := encodeInfo(info)
 		if err != nil {
 			t.Fatal(err)
 		}
