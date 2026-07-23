@@ -560,6 +560,8 @@ capabilities:
       - internal/extractor.TestYouTubePostLiveAdaptiveFormatsUseFiniteDVRProtocol
       - internal/extractor.TestYouTubePostLiveMetadataFallsBackAcrossPlayerResponses
       - internal/extractor.TestParseYouTubeLiveTimestampBounds
+      - internal/extractor.TestYouTubeLiveFromStartEligibilityAndMetadataOnlyExtraction
+      - internal/extractor.TestYouTubeLiveFromStartRequiresEligibleAdaptiveFormats
       - internal/extractor.TestRequestJSONBoundsStatusAndSyntax
       - internal/extractor.FuzzParseYouTubePlaylistData
       - internal/extractor.FuzzParseYouTubeChannelTabData
@@ -628,6 +630,8 @@ capabilities:
       - pkg/ytdlp.TestYouTubePostLiveAdaptiveTracksDownloadAndMerge
       - pkg/ytdlp.TestYouTubePostLiveRejectsExternalDownloaderAndCategorizesFailures
       - pkg/ytdlp.TestOperationPostLivePreferenceKeepsExplicitDirectFormatAuthoritative
+      - pkg/ytdlp.TestYouTubeLiveFromStartDownloadsTracksConcurrentlyAndMerges
+      - pkg/ytdlp.TestYouTubeLiveRefreshCoordinatorCachesAndMatchesExactIdentity
       - conformance/extractors/youtube/PROVENANCE.md
       - conformance/extractors/youtube_channel/PROVENANCE.md
       - conformance/extractors/youtube_handle_tab/PROVENANCE.md
@@ -646,12 +650,13 @@ capabilities:
       - docs/YOUTUBE_MUSIC_SEARCH_EVIDENCE.md
       - docs/YOUTUBE_COMMENTS_EVIDENCE.md
       - docs/YOUTUBE_POST_LIVE_DVR_EVIDENCE.md
+      - docs/YOUTUBE_LIVE_FROM_START_EVIDENCE.md
       - docs/YOUTUBE_PROTECTED_PLAYBACK_PLAN.md
     owner: extractors
     depends_on:
       - javascript.ejs
       - extractor.playlists
-    known_deviation: Compatibility is scoped to the pinned video, playlist-continuation, exact public UCID and bounded ASCII `@handle` `/videos`, `/shorts`, `/streams`, and `/playlists` tabs, bounded public `ytsearch` and results-URL video search, bounded playable YouTube Music default/song/video search, bounded opt-in public comments, live-HLS, finite post-live DVR reconstruction, structured player-config discovery, native-client recovery, manual/automatic/translated caption renderer, bounded subtitle listing, sidecar selection/download/conversion/embedding, and explicit native-Go PO-token provider corpus. Comment retrieval supports top/new ordering, visitor rotation, legacy and modern fields, inline replies, click-tracked reply continuations, nested subthreads, pinned duplicate handling, bounded transient/incomplete retries, actual retrieved counts, and explicit total/parent/reply/per-thread/depth limits. It does not claim authenticated comments, approximate count before retrieval, estimated timestamps, upstream's configurable ignore-error policy, or untested renderer families. Anonymous visitor identity is propagated across bounded, cookie-isolated Android and Android VR requests, enabling URL-bearing adaptive video/audio recovery. Player, GVS, and subtitle token placement is supported through an embedding-provided Go provider; no built-in generator, implicit endpoint, executable, Python bridge, persistent cache, or upstream external-provider protocol is claimed. Authenticated pages fail explicitly instead of leaking browser cookies to clients that do not support them or silently substituting an anonymous session. Existing sidecars fail closed unless overwrite is enabled. Search is capped at 50 results; general search does not claim channel/playlist/hashtag results or arbitrary filter parity, while Music search excludes albums, artists, playlists, podcasts, arbitrary filters, and authenticated/premium success. Unicode/full handle grammar, handle home/community/release tabs, `/user` and `/c` tabs, `--no-simulate` listing, Python-regex-only language rules, direct SABR transport, authenticated Innertube clients, active live-from-start, and broader player/renderer variants remain pending.
+    known_deviation: Compatibility is scoped to the pinned video, playlist-continuation, exact public UCID and bounded ASCII `@handle` `/videos`, `/shorts`, `/streams`, and `/playlists` tabs, bounded public `ytsearch` and results-URL video search, bounded playable YouTube Music default/song/video search, bounded opt-in public comments, live-HLS, finite post-live DVR reconstruction, opt-in active live-from-start reconstruction, structured player-config discovery, native-client recovery, manual/automatic/translated caption renderer, bounded subtitle listing, sidecar selection/download/conversion/embedding, and explicit native-Go PO-token provider corpus. Comment retrieval supports top/new ordering, visitor rotation, legacy and modern fields, inline replies, click-tracked reply continuations, nested subthreads, pinned duplicate handling, bounded transient/incomplete retries, actual retrieved counts, and explicit total/parent/reply/per-thread/depth limits. It does not claim authenticated comments, approximate count before retrieval, estimated timestamps, upstream's configurable ignore-error policy, or untested renderer families. Anonymous visitor identity is propagated across bounded, cookie-isolated Android and Android VR requests, enabling URL-bearing adaptive video/audio recovery. Player, GVS, and subtitle token placement is supported through an embedding-provided Go provider; no built-in generator, implicit endpoint, executable, Python bridge, persistent cache, or upstream external-provider protocol is claimed. Authenticated pages fail explicitly instead of leaking browser cookies to clients that do not support them or silently substituting an anonymous session. Existing sidecars fail closed unless overwrite is enabled. Search is capped at 50 results; general search does not claim channel/playlist/hashtag results or arbitrary filter parity, while Music search excludes albums, artists, playlists, podcasts, arbitrary filters, and authenticated/premium success. Unicode/full handle grammar, handle home/community/release tabs, `/user` and `/c` tabs, `--no-simulate` listing, Python-regex-only language rules, direct SABR transport, authenticated Innertube clients, external live-generator delegation, restart resume, and broader player/renderer variants remain pending.
 
   - id: extractor.playlists
     name: Playlist extraction model
@@ -719,10 +724,16 @@ capabilities:
       - internal/protocol/youtubelive.TestDownloadCancellationStopsWorkAndCleansState
       - internal/protocol/youtubelive.FuzzParseHeadSequence
       - internal/protocol/youtubelive.FuzzSequenceURLConstruction
+      - internal/protocol/youtubelive.TestLiveDownloadRefreshesAndFinalProbesEndedStream
+      - internal/protocol/youtubelive.TestLiveDownloadAggressivelyRefreshesAfterMisses
+      - internal/protocol/youtubelive.TestLiveCancellationCleansTemporaryArtifacts
+      - internal/protocol/youtubelive.FuzzLiveBeginSequence
       - pkg/ytdlp.TestYouTubePostLiveAdaptiveTracksDownloadAndMerge
       - pkg/ytdlp.TestOperationPostLivePreferenceKeepsExplicitDirectFormatAuthoritative
+      - pkg/ytdlp.TestYouTubeLiveFromStartDownloadsTracksConcurrentlyAndMerges
       - internal/protocol/youtubelive/PROVENANCE.md
       - docs/YOUTUBE_POST_LIVE_DVR_EVIDENCE.md
+      - docs/YOUTUBE_LIVE_FROM_START_EVIDENCE.md
       - internal/protocol/hls.TestDownloadLivePollDeduplicatesSegments
       - internal/protocol/hls.TestDownloadLiveHonorsCancellation
       - internal/extractor.TestTwitchExtractAndDownloadLiveHLS
@@ -732,7 +743,7 @@ capabilities:
     owner: extractors
     depends_on:
       - protocol.hls
-    known_deviation: The compatible pilot includes Twitch extraction through signed HLS discovery, live polling, end-of-stream, de-duplication, and ordered assembly, plus bounded finite YouTube post-live DVR reconstruction. Active live-from-start fallback, subscriber entitlements, and chat remain later coverage; VOD and clip breadth is tracked by extractor.twitch_pilot.
+    known_deviation: The compatible pilot includes Twitch extraction through signed HLS discovery, live polling, end-of-stream, de-duplication, and ordered assembly, plus bounded finite and opt-in active YouTube live-from-start reconstruction. External live-generator delegation, restart resume, subscriber entitlements, and chat remain later coverage; VOD and clip breadth is tracked by extractor.twitch_pilot.
 
   - id: extractor.twitch_pilot
     name: Twitch live extraction pilot

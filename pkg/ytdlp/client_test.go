@@ -1125,6 +1125,115 @@ func TestYouTubePostLiveAdaptiveTracksDownloadAndMerge(t *testing.T) {
 	}
 }
 
+func TestYouTubeLiveFromStartDownloadsTracksConcurrentlyAndMerges(t *testing.T) {
+	ffmpegPath, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg unavailable")
+	}
+	fixtureRoot := t.TempDir()
+	videoPath := filepath.Join(fixtureRoot, "video.mp4")
+	audioPath := filepath.Join(fixtureRoot, "audio.m4a")
+	generate := func(arguments ...string) {
+		output, err := exec.Command(ffmpegPath, arguments...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("generate fixture: %v: %s", err, output)
+		}
+	}
+	generate("-nostdin", "-y", "-f", "lavfi", "-i", "color=c=green:s=16x16:d=0.3", "-an", "-c:v", "mpeg4", videoPath)
+	generate("-nostdin", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=0.3", "-vn", "-c:a", "aac", audioPath)
+	chunk := func(path string) [][]byte {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result := make([][]byte, 4)
+		for index := range result {
+			result[index] = body[len(body)*index/4 : len(body)*(index+1)/4]
+		}
+		return result
+	}
+	chunks := map[string][][]byte{"/video": chunk(videoPath), "/audio": chunk(audioPath)}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		sequenceText := request.URL.Query().Get("sq")
+		if sequenceText == "" {
+			writer.Header().Set("X-Head-Seqnum", "3")
+			return
+		}
+		sequence, parseErr := strconv.Atoi(sequenceText)
+		if parseErr != nil || sequence < 0 || sequence >= 4 {
+			http.Error(writer, "bad sequence", http.StatusBadRequest)
+			return
+		}
+		_, _ = writer.Write(chunks[request.URL.Path][sequence])
+	}))
+	defer server.Close()
+	transport, err := network.New(network.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var refreshes atomic.Int32
+	bothRefreshing := make(chan struct{})
+	operation := &operation{
+		client: NewClient(), transport: transport,
+		request: Request{OutputDir: t.TempDir(), Downloader: DownloaderOptions{
+			MaxSegments: 16, MaxSegmentBytes: 8 << 20, Attempts: 1,
+			LivePollInterval: time.Millisecond, LiveRefreshInterval: time.Nanosecond,
+			LiveMaxPolls: 4, LiveMaxNoProgressPolls: 2,
+		}},
+	}
+	operation.youtubeLiveRefresh = func(selection mediaformat.Selection) youtubelive.LiveRefreshFunc {
+		return func(ctx context.Context, request youtubelive.LiveRefreshRequest) (youtubelive.LiveRefreshResult, error) {
+			if refreshes.Add(1) == 2 {
+				close(bothRefreshing)
+			}
+			select {
+			case <-bothRefreshing:
+			case <-ctx.Done():
+				return youtubelive.LiveRefreshResult{}, ctx.Err()
+			}
+			return youtubelive.LiveRefreshResult{
+				URL: request.URL, Headers: request.Headers, StillLive: false,
+			}, nil
+		}
+	}
+	selections := []mediaformat.Selection{
+		{
+			ID: "137", URL: server.URL + "/video?pot=video", Ext: "mp4",
+			VCodec: "mpeg4", ACodec: "none", YouTubeLiveFromStart: true, TargetDuration: 5,
+		},
+		{
+			ID: "140", URL: server.URL + "/audio?pot=audio", Ext: "m4a",
+			VCodec: "none", ACodec: "aac", YouTubeLiveFromStart: true, TargetDuration: 5,
+		},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	root := operation.request.OutputDir
+	destination := filepath.Join(root, "live-from-start.mp4")
+	path, bytes, err := operation.downloadSelections(ctx, selections, root, destination, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != destination || bytes <= 0 || refreshes.Load() != 2 {
+		t.Fatalf("path=%q bytes=%d refreshes=%d", path, bytes, refreshes.Load())
+	}
+	tools, err := ffmpeg.Discover(ffmpeg.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe, err := tools.Probe(ctx, destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	types := map[string]bool{}
+	for _, stream := range probe.Streams {
+		types[stream.CodecType] = true
+	}
+	if !types["video"] || !types["audio"] {
+		t.Fatalf("streams=%#v", probe.Streams)
+	}
+}
+
 func TestYouTubePostLiveRejectsExternalDownloaderAndCategorizesFailures(t *testing.T) {
 	op := &operation{request: Request{Downloader: DownloaderOptions{External: &ExternalDownloader{
 		Executable: "unused",
@@ -1135,6 +1244,12 @@ func TestYouTubePostLiveRejectsExternalDownloaderAndCategorizesFailures(t *testi
 	if !errors.Is(err, extractor.ErrUnsupported) {
 		t.Fatalf("external error=%v", err)
 	}
+	_, _, err = op.downloadSelection(context.Background(), mediaformat.Selection{
+		URL: "https://media.example/video", YouTubeLiveFromStart: true, TargetDuration: 5,
+	}, t.TempDir(), filepath.Join(t.TempDir(), "out"), nil)
+	if !errors.Is(err, extractor.ErrUnsupported) {
+		t.Fatalf("live external error=%v", err)
+	}
 	for _, test := range []struct {
 		err      error
 		category ErrorCategory
@@ -1144,6 +1259,12 @@ func TestYouTubePostLiveRejectsExternalDownloaderAndCategorizesFailures(t *testi
 		{youtubelive.ErrHeadSequence, ErrorInternal},
 		{youtubelive.ErrDownloadFailed, ErrorInternal},
 		{youtubelive.ErrEventSink, ErrorInternal},
+		{youtubelive.ErrLiveInvalidConfig, ErrorInvalidInput},
+		{youtubelive.ErrLiveHeadSequence, ErrorInternal},
+		{youtubelive.ErrLiveNoProgress, ErrorInternal},
+		{youtubelive.ErrLivePollLimit, ErrorInternal},
+		{youtubelive.ErrLiveProbeFailed, ErrorNetwork},
+		{youtubelive.ErrLiveRefreshFailed, ErrorNetwork},
 		{youtubelive.ErrProbeFailed, ErrorNetwork},
 	} {
 		if got := categorized("post-live", test.err); !IsCategory(got, test.category) {

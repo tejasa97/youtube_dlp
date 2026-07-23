@@ -102,6 +102,7 @@ type Request struct {
 	PreferFreeFormats         bool
 	AllowUnplayableFormats    bool
 	YouTubeTranslatedCaptions bool
+	LiveFromStart             bool
 	YouTubeComments           YouTubeCommentOptions
 	Subtitles                 SubtitleOptions
 	Playlist                  PlaylistOptions
@@ -387,6 +388,7 @@ type operation struct {
 	rootExtractor                    *string
 	playlistItemsRangeWarningEmitted bool
 	removeFile                       func(string) error
+	youtubeLiveRefresh               func(mediaformat.Selection) youtubelive.LiveRefreshFunc
 }
 
 func (operation *operation) process(ctx context.Context, rawURL, extractorKey string, overlay *extractor.Entry, ancestors map[string]bool, depth int) (Result, error) {
@@ -413,6 +415,7 @@ func (operation *operation) process(ctx context.Context, rawURL, extractorKey st
 	extracted, err := selected.Extract(ctx, extractor.Request{
 		URL: rawURL, Transport: operation.transport, ChallengeSolver: operation.solver, Credentials: operation.credentials,
 		YouTubePOT: operation.client.youtubePOT, YouTubeTranslatedCaptions: operation.request.YouTubeTranslatedCaptions,
+		YouTubeLiveFromStart: operation.request.LiveFromStart,
 		YouTubeComments: extractor.YouTubeCommentOptions{
 			Enabled:             operation.request.YouTubeComments.Enabled,
 			Sort:                operation.request.YouTubeComments.Sort,
@@ -922,6 +925,7 @@ func categorized(op string, err error) error {
 		errors.Is(err, fragment.ErrUnsafeDestination), errors.Is(err, ism.ErrInvalidConfig),
 		errors.Is(err, youtubelive.ErrInvalidBaseURL), errors.Is(err, youtubelive.ErrInvalidConfig),
 		errors.Is(err, youtubelive.ErrUnsafeOutput), errors.Is(err, youtubelive.ErrOutputExists),
+		errors.Is(err, youtubelive.ErrLiveInvalidConfig),
 		errors.Is(err, ffmpeg.ErrDestinationExists),
 		errors.Is(err, ffmpeg.ErrInvalidOperation), errors.Is(err, postprocess.ErrInvalidGraph),
 		errors.Is(err, postprocess.ErrUnsafePath),
@@ -949,7 +953,9 @@ func categorized(op string, err error) error {
 		errors.Is(err, ffmpeg.ErrMediaFailure), errors.Is(err, pipeline.ErrMissingDASHTracks),
 		errors.Is(err, pipeline.ErrMissingToolset), errors.Is(err, youtubelive.ErrHeadSequence),
 		errors.Is(err, youtubelive.ErrNoSegments), errors.Is(err, youtubelive.ErrInvalidWindow),
-		errors.Is(err, youtubelive.ErrDownloadFailed), errors.Is(err, youtubelive.ErrEventSink):
+		errors.Is(err, youtubelive.ErrDownloadFailed), errors.Is(err, youtubelive.ErrEventSink),
+		errors.Is(err, youtubelive.ErrLiveHeadSequence), errors.Is(err, youtubelive.ErrLiveNoProgress),
+		errors.Is(err, youtubelive.ErrLivePollLimit):
 		category = ErrorInternal
 	}
 	return &Error{Category: category, Op: op, Err: err}

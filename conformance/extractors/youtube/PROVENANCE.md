@@ -196,3 +196,14 @@ and 120-hour retained-window semantics from
 `yt_dlp/extractor/youtube/_video.py` at the pinned commit above. Media bodies
 are locally generated and split into artificial sequence chunks; all signed
 query values and headers are inert test data.
+
+## Active live-from-start reconstruction
+
+The opt-in active fixtures derive their format eligibility, inclusive active
+head, five-second polling model, five-hour normal refresh, accelerated refresh
+after repeated misses, exact `(itag, client)` refreshed-format identity, and
+active-to-ended final probe from `YoutubeIE._needs_live_processing`,
+`_prepare_live_from_start_formats`, and `_live_adaptive_fragments` at the
+pinned commit above. The Go implementation adds explicit poll, segment,
+refresh-failure, response-size, cancellation, and filesystem bounds. All
+player responses, signing values, clocks, waits, and media are synthetic.
