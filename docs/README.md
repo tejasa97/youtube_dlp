@@ -49,6 +49,7 @@ The executable help is the authoritative CLI option list:
 - [YouTube playlist-tab evidence](YOUTUBE_PLAYLIST_TABS_EVIDENCE.md)
 - [YouTube search evidence](YOUTUBE_SEARCH_EVIDENCE.md)
 - [YouTube Music search evidence](YOUTUBE_MUSIC_SEARCH_EVIDENCE.md)
+- [YouTube comments evidence](YOUTUBE_COMMENTS_EVIDENCE.md)
 - [SoundCloud search evidence](SOUNDCLOUD_SEARCH_EVIDENCE.md)
 - [Vimeo subtitle evidence](VIMEO_SUBTITLES_EVIDENCE.md)
 - [TikTok caption evidence](TIKTOK_CAPTIONS_EVIDENCE.md)

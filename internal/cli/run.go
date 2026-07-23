@@ -156,6 +156,18 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		*writeAutomaticSubtitles = false
 		return nil
 	})
+	writeComments := flags.Bool("write-comments", false, "retrieve comments into metadata")
+	flags.BoolVar(writeComments, "get-comments", false, "alias for --write-comments")
+	flags.BoolFunc("no-write-comments", "disable comment retrieval", func(string) error {
+		*writeComments = false
+		return nil
+	})
+	flags.BoolFunc("no-get-comments", "alias for --no-write-comments", func(string) error {
+		*writeComments = false
+		return nil
+	})
+	youtubeMaxComments := flags.String("youtube-max-comments", "", "bounded YouTube limits TOTAL[,PARENTS[,REPLIES[,PER_THREAD[,DEPTH]]]]")
+	youtubeCommentSort := flags.String("youtube-comment-sort", "new", "YouTube comment order: new or top")
 	convertSubtitles := flags.String("convert-subs", "none", "convert written subtitle sidecars to srt, ass, or vtt (none disables)")
 	flags.StringVar(convertSubtitles, "convert-sub", "none", "alias for --convert-subs")
 	flags.StringVar(convertSubtitles, "convert-subtitles", "none", "alias for --convert-subs")
@@ -254,6 +266,13 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	if *listSubtitles {
 		requestSubtitles = ytdlp.SubtitleOptions{}
 	}
+	commentLimits, err := parseYouTubeCommentLimits(*youtubeMaxComments)
+	if err != nil {
+		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
+		return 2
+	}
+	commentLimits.Enabled = *writeComments
+	commentLimits.Sort = *youtubeCommentSort
 	result, err := client.Run(ctx, ytdlp.Request{
 		URL: flags.Arg(0), OutputTemplate: *output, OutputDir: *outputDir, Proxy: *proxy, ImpersonationProfile: *impersonationProfile,
 		CookieFile: *cookieFile, CookiesFromBrowser: *cookiesFromBrowser, UseNetRC: *useNetRC, NetRCLocation: *netRCLocation, DownloadArchive: *downloadArchive, CacheDir: *cacheDir,
@@ -262,7 +281,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		PreferFreeFormats: *preferFreeFormats, AllowUnplayableFormats: *allowUnplayable,
 		ProgressTemplate: *progressTemplate, MatchFilters: append([]string(nil), matchFilters...),
 		ParseMetadata: append([]string(nil), parseMetadata...), ReplaceMetadata: append([]string(nil), replaceMetadata...),
-		Subtitles: requestSubtitles,
+		Subtitles:       requestSubtitles,
+		YouTubeComments: commentLimits,
 		Playlist: ytdlp.PlaylistOptions{
 			Start: *playlistStart, End: *playlistEnd, Reverse: *playlistReverse, Items: *playlistItems, Flat: *flatPlaylist,
 		},
@@ -345,6 +365,43 @@ func subtitleLanguageRules(values []string, all bool) []string {
 		return []string{"all"}
 	}
 	return splitCommaList(values)
+}
+
+func parseYouTubeCommentLimits(input string) (ytdlp.YouTubeCommentOptions, error) {
+	var options ytdlp.YouTubeCommentOptions
+	if input == "" {
+		return options, nil
+	}
+	parts := strings.Split(input, ",")
+	if len(parts) > 5 {
+		return options, errors.New("youtube-max-comments accepts at most five values")
+	}
+	values := make([]int, 5)
+	for index, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			return options, errors.New("youtube-max-comments values must not be empty")
+		}
+		parsed, err := strconv.Atoi(part)
+		if err != nil || parsed < 0 || parsed > 10_000 || index == 4 && parsed > 8 {
+			return options, fmt.Errorf("invalid youtube-max-comments value %q", part)
+		}
+		values[index] = parsed
+	}
+	options.MaxComments = values[0]
+	if len(parts) > 1 {
+		options.MaxParents = values[1]
+	}
+	if len(parts) > 2 {
+		options.MaxReplies = values[2]
+	}
+	if len(parts) > 3 {
+		options.MaxRepliesPerThread = values[3]
+	}
+	if len(parts) > 4 {
+		options.MaxDepth = values[4]
+	}
+	return options, nil
 }
 
 type byteSizeFlag int64

@@ -245,7 +245,26 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 	if target.endTime != nil {
 		setYouTubeOffset(info, "end_time", *target.endTime)
 	}
-	return Media(value.NewInfo(info)), nil
+	result := Media(value.NewInfo(info))
+	if request.YouTubeComments.Enabled {
+		options := request.YouTubeComments
+		result.Enrich = func(ctx context.Context, target *value.Info) error {
+			comments, disabled, err := extractYouTubeComments(ctx, request.Transport, page, videoID, options)
+			if err != nil {
+				return err
+			}
+			fields := target.Fields()
+			if disabled {
+				fields.Set("comments", value.Null())
+				fields.Set("comment_count", value.Null())
+				return nil
+			}
+			fields.Set("comments", value.List(comments...))
+			fields.Set("comment_count", value.Int(int64(len(comments))))
+			return nil
+		}
+	}
+	return result, nil
 }
 
 func youtubeChannelLiveAlias(rawURL string) bool {

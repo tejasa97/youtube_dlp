@@ -45,6 +45,18 @@ type SubtitleOptions struct {
 	Format         string
 }
 
+// CommentOptions controls opt-in comment metadata retrieval. The initial
+// native implementation applies these settings to YouTube videos.
+type YouTubeCommentOptions struct {
+	Enabled             bool
+	Sort                string
+	MaxComments         int
+	MaxParents          int
+	MaxReplies          int
+	MaxRepliesPerThread int
+	MaxDepth            int
+}
+
 // PlaylistOptions selects an inclusive, one-based playlist range. Start zero
 // means the first entry; End zero or the legacy yt-dlp value -1 means no
 // explicit end. A non-empty Items expression takes precedence over Start and
@@ -171,6 +183,15 @@ func validateRequestOptions(request Request) error {
 	}
 	if err := validateSubtitleOptions(request.Subtitles); err != nil {
 		return fmt.Errorf("%w: %v", errInvalidRequestOptions, err)
+	}
+	comments := request.YouTubeComments
+	if comments.MaxComments < 0 || comments.MaxComments > 10_000 ||
+		comments.MaxParents < 0 || comments.MaxParents > 10_000 ||
+		comments.MaxReplies < 0 || comments.MaxReplies > 10_000 ||
+		comments.MaxRepliesPerThread < 0 || comments.MaxRepliesPerThread > 10_000 ||
+		comments.MaxDepth < 0 || comments.MaxDepth > 8 ||
+		(comments.Sort != "" && comments.Sort != "top" && comments.Sort != "new") {
+		return fmt.Errorf("%w: comment options", errInvalidRequestOptions)
 	}
 	for index, postprocessor := range request.Postprocessors {
 		if countPostprocessorChoices(postprocessor) != 1 {

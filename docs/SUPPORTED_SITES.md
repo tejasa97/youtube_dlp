@@ -76,6 +76,12 @@ protected-playback workstream. The following are supported:
   with `--convert-subs`;
 - deterministic `--list-subs` output for available automatic and manual
   caption languages, names, and formats without writing files;
+- bounded, opt-in public video comments with `--write-comments` or
+  `--get-comments`, `top`/`new` ordering, actual retrieved `comment_count`,
+  visitor rotation, legacy and modern comment fields, click-tracked root and
+  reply continuations, nested subthreads, transient/incomplete-response
+  retries, pinned duplicate handling, and explicit
+  total/parent/reply/per-thread/depth limits;
 - adaptive video and audio formats recovered from the WEB player response and
   the Android / Android VR format-recovery clients; and
 - a protected-playback token provider boundary that requests PO tokens from a
@@ -95,7 +101,10 @@ The following limitations are intentional and remain:
   reconstructed to the original stream start);
 - authenticated Innertube coverage remains limited: `LOGIN_REQUIRED`
   playability surfaces an authentication error rather than a signed-in
-  recovery path;
+  recovery path, and authenticated comments are not supported;
+- comment extraction does not synthesize estimated timestamps or expose
+  YouTube's approximate count before retrieval, and supports only the
+  explicitly tested legacy and modern renderer families;
 - some protected active streams may still hit the documented EJS-helper
   timeout while the player challenge is being solved;
 - subtitle embedding is not yet exposed; and

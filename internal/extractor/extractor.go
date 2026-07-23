@@ -72,6 +72,19 @@ type Request struct {
 	Credentials               CredentialProvider
 	YouTubePOT                *youtubepot.Director
 	YouTubeTranslatedCaptions bool
+	YouTubeComments           YouTubeCommentOptions
+}
+
+// YouTubeCommentOptions controls opt-in comment retrieval. Zero Max selects
+// the extractor's bounded default. Sort accepts "top" or "new".
+type YouTubeCommentOptions struct {
+	Enabled             bool
+	Sort                string
+	MaxComments         int
+	MaxParents          int
+	MaxReplies          int
+	MaxRepliesPerThread int
+	MaxDepth            int
 }
 
 // Credential is an extractor-scoped authentication tuple. It must never be
