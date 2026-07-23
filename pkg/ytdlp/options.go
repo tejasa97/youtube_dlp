@@ -49,12 +49,14 @@ type SubtitleOptions struct {
 // means the first entry; End zero or the legacy yt-dlp value -1 means no
 // explicit end. A non-empty Items expression takes precedence over Start and
 // End. Reverse is applied after selection while playlist_index continues to
-// identify the source entry.
+// identify the source entry. Flat retains the selected URL-result metadata
+// without recursively extracting or downloading child entries.
 type PlaylistOptions struct {
 	Start   int
 	End     int
 	Reverse bool
 	Items   string
+	Flat    bool
 }
 
 // Artifact describes a file produced by the requested media pipeline.
