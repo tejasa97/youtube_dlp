@@ -487,6 +487,37 @@ func TestRunRejectsInvalidWaveTwoLimits(t *testing.T) {
 	}
 }
 
+func TestParseYouTubeCommentLimits(t *testing.T) {
+	options, err := parseYouTubeCommentLimits("100,20,30,4,3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if options.MaxComments != 100 || options.MaxParents != 20 || options.MaxReplies != 30 ||
+		options.MaxRepliesPerThread != 4 || options.MaxDepth != 3 {
+		t.Fatalf("options = %#v", options)
+	}
+	for _, input := range []string{",", "1,", "one", "-1", "10001", "1,2,3,4,9", "1,2,3,4,5,6"} {
+		if _, err := parseYouTubeCommentLimits(input); err == nil {
+			t.Errorf("parseYouTubeCommentLimits(%q) error = nil", input)
+		}
+	}
+}
+
+func TestRunAcceptsYouTubeCommentAliasesAndClears(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	for _, arguments := range [][]string{
+		{"--skip-download", "--get-comments", "--youtube-max-comments", "10,2,3,1,2", "--youtube-comment-sort", "top", server.URL + "/page"},
+		{"--skip-download", "--write-comments", "--no-write-comments", server.URL + "/page"},
+		{"--skip-download", "--get-comments", "--no-get-comments", server.URL + "/page"},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := Run(arguments, &stdout, &stderr); code != 0 {
+			t.Fatalf("Run(%q) code=%d stderr=%q", arguments, code, stderr.String())
+		}
+	}
+}
+
 func TestByteSizeFlagSuffixes(t *testing.T) {
 	var value byteSizeFlag
 	for input, expected := range map[string]int64{"1": 1, "2K": 2 << 10, "3m": 3 << 20, "4G": 4 << 30} {

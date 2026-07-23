@@ -1,0 +1,107 @@
+{
+  "responseContext": {"visitorData": "visitor-comments-page"},
+  "frameworkUpdates": {
+    "entityBatchUpdate": {
+      "mutations": [
+        {
+          "entityKey": "modern-comment-key",
+          "payload": {
+            "commentEntityPayload": {
+              "properties": {
+                "commentId": "modern-comment",
+                "content": {"content": "Modern comment text"},
+                "publishedTime": "2 days ago"
+              },
+              "toolbar": {"likeCountA11y": "1.2K likes"},
+              "author": {
+                "channelId": "UCmodernAuthor",
+                "displayName": "Modern Author",
+                "avatarThumbnailUrl": "https://yt3.example.test/modern.jpg",
+                "isCreator": true,
+                "isVerified": true,
+                "channelCommand": {
+                  "innertubeCommand": {
+                    "browseEndpoint": {"canonicalBaseUrl": "/@modern-author"}
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "entityKey": "modern-toolbar-key",
+          "payload": {
+            "engagementToolbarStateEntityPayload": {
+              "heartState": "TOOLBAR_HEART_STATE_HEARTED"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "onResponseReceivedEndpoints": [{
+    "appendContinuationItemsAction": {
+      "continuationItems": [
+        {
+          "commentThreadRenderer": {
+            "comment": {
+              "commentRenderer": {
+                "commentId": "legacy-comment",
+                "contentText": {"runs": [{"text": "Legacy "}, {"text": "comment text"}]},
+                "voteCount": {"simpleText": "12"},
+                "authorText": {"simpleText": "Legacy Author"},
+                "authorEndpoint": {
+                  "browseEndpoint": {
+                    "browseId": "UClegacyAuthor",
+                    "canonicalBaseUrl": "/@legacy-author"
+                  }
+                },
+                "authorThumbnail": {
+                  "thumbnails": [{"url": "https://yt3.example.test/legacy.jpg"}]
+                },
+                "publishedTimeText": {"simpleText": "3 days ago"},
+                "authorIsChannelOwner": false,
+                "pinnedCommentBadge": {"pinnedCommentBadgeRenderer": {}},
+                "actionButtons": {
+                  "commentActionButtonsRenderer": {
+                    "creatorHeart": {"creatorHeartRenderer": {}}
+                  }
+                }
+              }
+            },
+            "replies": {
+              "commentRepliesRenderer": {
+                "contents": [{
+                  "commentRenderer": {
+                    "commentId": "legacy-reply",
+                    "contentText": {"simpleText": "Inline reply"},
+                    "authorText": {"simpleText": "Reply Author"},
+                    "publishedTimeText": {"simpleText": "1 day ago"}
+                  }
+                }]
+              }
+            }
+          }
+        },
+        {
+          "commentThreadRenderer": {
+            "commentViewModel": {
+              "commentViewModel": {
+                "commentKey": "modern-comment-key",
+                "toolbarStateKey": "modern-toolbar-key",
+                "pinnedText": "Pinned"
+              }
+            }
+          }
+        },
+        {
+          "continuationItemRenderer": {
+            "continuationEndpoint": {
+              "continuationCommand": {"token": "comments-page-2"}
+            }
+          }
+        }
+      ]
+    }
+  }]
+}

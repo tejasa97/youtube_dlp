@@ -3,7 +3,8 @@
 Status: Wave 1 and the caption portion of Wave 3, including bounded sidecar
 conversion, are implemented and locally verified. Wave 2 and authenticated
 clients remain open. Wave 4 now includes a bounded public video-search slice;
-its other renderer breadth remains open.
+bounded public YouTube Music search, playlist tabs, and an opt-in public
+comments slice; its other renderer breadth remains open.
 
 This is post-review compatibility work while Gate G3 remains blocked by the
 external observations listed in `PHASE_3_EXIT_REVIEW.md`. It does not open
@@ -46,9 +47,12 @@ Innertube profiles remain pending.
 
 Implementation status: exact public UCID and bounded ASCII-handle
 video/Shorts/streams/playlist tabs plus bounded public and playable YouTube
-Music search are implemented. Full handle grammar, home/community/release tabs,
-non-playable search result breadth, comments, and live-from-start remain
-pending.
+Music search are implemented. A bounded, opt-in public-comments slice covers
+top/new sorting, legacy and modern fields, click-tracked reply continuations,
+nested subthreads, bounded retries, pinned duplicate handling, visitor
+rotation, and explicit resource limits. Authenticated comments, estimated
+pre-fetch counts, full handle grammar, home/community/release tabs,
+non-playable search result breadth, and live-from-start remain pending.
 
 - expand channel, tab, search, comments, and live-from-start renderers;
 - derive attributable synthetic fixtures from the pinned reference;
