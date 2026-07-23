@@ -15,6 +15,7 @@ import (
 )
 
 const youtubeAuthenticatedWEBPlayerURL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false"
+const youtubeAuthenticatedWEBNextURL = "https://www.youtube.com/youtubei/v1/next?prettyPrint=false"
 const youtubeAuthOrigin = "https://www.youtube.com"
 
 // youtubeAuthenticatedTransport is deliberately narrower than Transport. An
@@ -230,4 +231,91 @@ func requestAuthenticatedYouTubeWEBPlayer(ctx context.Context, transport Transpo
 	player.clientName = config.ClientName
 	player.visitorData = config.VisitorData
 	return player, nil
+}
+
+// requestAuthenticatedYouTubeWEBNext issues exactly one authenticated WEB
+// continuation request. The endpoint is deliberately constrained to the
+// YouTube /next API: comments may carry an optional webpage API key, but must
+// not be allowed to redirect credentials or turn this into a general-purpose
+// authenticated HTTP primitive.
+func requestAuthenticatedYouTubeWEBNext(ctx context.Context, transport Transport, endpoint string, body []byte, config youtubeWEBAuthConfig, now func() time.Time, target any) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if !config.LoggedIn || now == nil || target == nil || !validYouTubeWEBNextEndpoint(endpoint) {
+		return ErrAuthentication
+	}
+	authTransport, ok := transport.(youtubeAuthenticatedTransport)
+	if !ok {
+		return ErrAuthentication
+	}
+	cookies, err := authTransport.Cookies(youtubeAuthOrigin)
+	if err != nil {
+		return ErrAuthentication
+	}
+	authorization, err := youtubeSIDAuthorization(cookies, config.UserSessionID, now())
+	if err != nil {
+		return ErrAuthentication
+	}
+	headers, err := youtubeWEBAuthHeaders(config, authorization)
+	if err != nil {
+		return ErrAuthentication
+	}
+	err = requestJSON(ctx, authTransport.DoNoRedirect, http.MethodPost, endpoint, body, headers, target)
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	var status *HTTPStatusError
+	if errors.As(err, &status) {
+		if (status.Code >= http.StatusMultipleChoices && status.Code < http.StatusBadRequest) || status.Code == http.StatusUnauthorized || status.Code == http.StatusForbidden {
+			return ErrAuthentication
+		}
+		// Continuation retry/categorization needs the actual HTTP status for
+		// availability, throttling, timeout, and server failures.
+		return err
+	}
+	if errors.Is(err, ErrInvalidMetadata) || errors.Is(err, ErrJSONResponseTooLarge) {
+		return err
+	}
+	// Transport errors can contain request credentials in implementations or
+	// upstream error text. Do not expose them through the extractor boundary.
+	return ErrAuthentication
+}
+
+func validYouTubeWEBNextEndpoint(rawEndpoint string) bool {
+	endpoint, err := url.Parse(rawEndpoint)
+	if err != nil || endpoint.Scheme != "https" || endpoint.Host != "www.youtube.com" || endpoint.Hostname() != "www.youtube.com" || endpoint.Port() != "" || endpoint.User != nil || endpoint.Fragment != "" || endpoint.Path != "/youtubei/v1/next" || endpoint.RawPath != "" {
+		return false
+	}
+	query, err := url.ParseQuery(endpoint.RawQuery)
+	if err != nil || len(query) == 0 || len(query["prettyPrint"]) != 1 || query.Get("prettyPrint") != "false" {
+		return false
+	}
+	if len(query) > 2 {
+		return false
+	}
+	for name, values := range query {
+		switch name {
+		case "prettyPrint":
+			if len(values) != 1 || values[0] != "false" {
+				return false
+			}
+		case "key":
+			if len(values) != 1 || !validYouTubeWEBAPIKey(values[0]) {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func validYouTubeWEBAPIKey(value string) bool {
+	// API keys are request material, never headers. This is a resource and
+	// control-character bound only; their format is controlled by YouTube.
+	return value != "" && len(value) <= 512 && !strings.ContainsAny(value, "\r\n\x00")
 }
