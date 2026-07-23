@@ -13,13 +13,17 @@ import (
 
 func TestParsePrintRulesStagesShorthandAndSimulation(t *testing.T) {
 	rules, err := parsePrintRules([]string{
-		"title,id", "after_filter:%(title)s", "https://example.invalid:literal",
+		"title,id", "{id,title}", "title,id=", "{id,title}=",
+		"after_filter:%(title)s", "https://example.invalid:literal",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := []ytdlp.PrintRule{
 		{Stage: ytdlp.PrintVideo, Template: "%(title)s\n%(id)s"},
+		{Stage: ytdlp.PrintVideo, Template: "%(.{id,title})j"},
+		{Stage: ytdlp.PrintVideo, Template: "title = %(title)#j\nid = %(id)#j"},
+		{Stage: ytdlp.PrintVideo, Template: ".{id,title} = %(.{id,title})#j"},
 		{Stage: ytdlp.PrintAfterFilter, Template: "%(title)s"},
 		{Stage: ytdlp.PrintVideo, Template: "https://example.invalid:literal"},
 	}
@@ -120,7 +124,10 @@ func (shortPrintWriter) Write(input []byte) (int, error) {
 }
 
 func FuzzParsePrintRules(f *testing.F) {
-	for _, seed := range []string{"title", "video:%(title)s", "before_dl:id", "https://example.invalid:x", "video:"} {
+	for _, seed := range []string{
+		"title", "{id,title}", "title=", "{id,title}=", "video:%(title)s",
+		"before_dl:id", "https://example.invalid:x", "video:",
+	} {
 		f.Add(seed)
 	}
 	f.Fuzz(func(t *testing.T, input string) {

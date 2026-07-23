@@ -11,9 +11,11 @@ import (
 
 func fixtureInfo() value.Info {
 	return value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("fixture-1")},
 		value.Field{Key: "title", Value: value.String("A: video?")},
 		value.Field{Key: "ext", Value: value.String("mp4")},
 		value.Field{Key: "none", Value: value.Null()},
+		value.Field{Key: "empty_object", Value: value.ObjectValue(value.NewObject())},
 		value.Field{Key: "uploader", Value: value.String("alice")},
 		value.Field{Key: "view_count", Value: value.Int(42)},
 		value.Field{Key: "rating", Value: value.Float(4.25)},
@@ -61,8 +63,56 @@ func TestRenderJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != `[{"title":"first"},{"title":"last"}]` {
+	if got != `[{"title": "first"}, {"title": "last"}]` {
 		t.Fatalf("Render JSON = %q", got)
+	}
+}
+
+func TestRenderObjectProjectionAndDiagnosticJSON(t *testing.T) {
+	got, err := Render("%(.{id,title,missing,none,empty_object,title.invalid})j", fixtureInfo())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != `{"id": "fixture-1", "title": "A: video?"}` {
+		t.Fatalf("projection = %q", got)
+	}
+	got, err = Render("title = %(title)#j\nobject = %(.{id,chapters.0.title})#j", fixtureInfo())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "title = \"A: video?\"\nobject = {\n" +
+		"    \"id\": \"fixture-1\",\n" +
+		"    \"chapters.0.title\": \"first\"\n}"
+	if got != want {
+		t.Fatalf("diagnostic JSON = %q, want %q", got, want)
+	}
+}
+
+func TestRenderJSONMatchesPinnedEscaping(t *testing.T) {
+	info := fixtureInfo()
+	info.Set("unicode", value.String("á 𝐀 <tag>& literal \\u003c \"quote\""))
+	got, err := Render("%(unicode)j", info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != `"\u00e1 \ud835\udc00 <tag>& literal \\u003c \"quote\""` {
+		t.Fatalf("JSON escaping = %q", got)
+	}
+}
+
+func TestRenderProjectionRejectsInvalidAndOversizedExpressions(t *testing.T) {
+	fields := make([]string, maxProjectionFields+1)
+	for index := range fields {
+		fields[index] = "id"
+	}
+	for _, pattern := range []string{
+		"%(.{})j",
+		"%(.{id,,title})j",
+		"%(.{" + strings.Join(fields, ",") + "})j",
+	} {
+		if _, err := Render(pattern, fixtureInfo()); !errors.Is(err, ErrInvalidTemplate) {
+			t.Fatalf("Render(%q) error = %v", pattern, err)
+		}
 	}
 }
 
@@ -80,6 +130,14 @@ func TestRenderRejectsExpansionAndFormatAllocation(t *testing.T) {
 	info.Set("huge", value.String(strings.Repeat("x", maxScalarBytes+1)))
 	if _, err := Render("%(huge)j", info); !errors.Is(err, ErrInvalidTemplate) {
 		t.Fatalf("JSON estimate = %v", err)
+	}
+	deep := value.String("leaf")
+	for range maxJSONDepth + 1 {
+		deep = value.List(deep)
+	}
+	info.Set("deep", deep)
+	if _, err := Render("%(deep)#j", info); !errors.Is(err, ErrInvalidTemplate) {
+		t.Fatalf("JSON depth = %v", err)
 	}
 }
 
@@ -143,6 +201,8 @@ func FuzzResolve(f *testing.F) {
 	f.Add("%(title)s.%(ext)s")
 	f.Add("../%(title)s")
 	f.Add("%%")
+	f.Add("%(.{id,title})j")
+	f.Add("%(.{id,title})#j")
 	f.Fuzz(func(t *testing.T, pattern string) {
 		resolved, err := Resolve(root, pattern, fixtureInfo())
 		if err != nil {
