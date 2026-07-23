@@ -33,6 +33,13 @@ uses indented JSON for composite values. These forms also work with
 and `--get-format` aliases are supported in pinned output order. Optional
 legacy fields are omitted when unavailable.
 
+The synthetic `formats_table`, `thumbnails_table`, `subtitles_table`, and
+`automatic_captions_table` fields are rendered from ordered normalized
+metadata. Their column hiding, tab-based numeric alignment, format details,
+reverse subtitle-format order, and compact byte/protocol labels follow the
+pinned reference's redirected plain-text output. Missing tables retain the
+normal `NA` placeholder.
+
 Print rules imply quiet mode unless the user explicitly selects `--no-quiet`.
 Rules through the `video` stage imply simulation unless `--no-simulate` is
 given. A later lifecycle stage requires the normal operation to proceed, as in
@@ -52,6 +59,4 @@ Known deviations:
 - `post_process` and `after_move` both observe the final native pipeline path
   because this port atomically publishes postprocessed media as one operation;
 - upstream-only output-template syntax beyond the bounded native parser remains
-  pending;
-- the `formats_table`, `thumbnails_table`, `subtitles_table`, and
-  `automatic_captions_table` synthetic print fields are not exposed.
+  pending.

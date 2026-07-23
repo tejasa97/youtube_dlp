@@ -11,13 +11,25 @@ Relevant pinned sources:
   mapping;
 - `yt_dlp/YoutubeDL.py`: `_forceprint`, append-to-file ordering, field and
   filename templates, dictionary and trailing-`=` shorthand expansion,
-  compact/indented JSON conversions, derived filename, selected URL/format
-  fields, optional legacy fields, and lifecycle dispatch;
-- `yt_dlp/utils/_utils.py`: legacy duration formatting.
+  compact/indented JSON conversions, `render_formats_table`,
+  `render_thumbnails_table`, `render_subtitles_table`, derived filename,
+  selected URL/format fields, optional legacy fields, and lifecycle dispatch;
+- `yt_dlp/utils/_utils.py`: `render_table`, `format_bytes`, field formatting,
+  and legacy duration formatting;
+- `yt_dlp/downloader/__init__.py`: displayed protocol abbreviations.
 
 Pinned differential expectations include `title,id`, `{id,title}`, `title=`,
 and `{id,title}=` normalization, missing projected-field omission, and the
 four-space indentation used by `#j`.
+
+The generic table-layout corpus is attributable to
+`test/test_utils.py::TestUtil::test_render_table`. Synthetic table fixtures are
+repository-authored and cover ordered format, thumbnail, manual-subtitle, and
+automatic-caption metadata without copying upstream media data.
+
+The resulting fixtures were manually compared with the pinned checkout in an
+isolated Python 3.13 container. Python is not invoked by repository tests,
+builds, or production code.
 
 All automated fixtures are repository-authored and deterministic. Production,
 test, and build execution does not invoke Python or depend on the reference

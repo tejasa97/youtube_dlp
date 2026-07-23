@@ -79,7 +79,9 @@ func (operation *operation) capturePrints(
 			return outputs, err
 		}
 		printInfo := value.NewInfo(info.Fields().Clone())
-		addPrintFields(&printInfo, selections, filename, printStageRank(stage) >= printStageRank(PrintPostProcess))
+		if err := addPrintFields(&printInfo, selections, filename, printStageRank(stage) >= printStageRank(PrintPostProcess)); err != nil {
+			return outputs, err
+		}
 		if rule.OmitIfMissing != "" {
 			candidate := printInfo.Lookup(rule.OmitIfMissing)
 			if candidate.IsMissing() || candidate.IsNull() {
@@ -110,10 +112,12 @@ func (operation *operation) validatePrintRules(
 			return err
 		}
 		printInfo := value.NewInfo(info.Fields().Clone())
-		addPrintFields(
+		if err := addPrintFields(
 			&printInfo, selections, filename,
 			printStageRank(rule.Stage) >= printStageRank(PrintPostProcess),
-		)
+		); err != nil {
+			return err
+		}
 		if _, err := outputtemplate.Render(rule.Template, printInfo); err != nil {
 			return err
 		}
@@ -154,7 +158,9 @@ func (operation *operation) writePrintFiles(
 			return artifacts, total, err
 		}
 		printInfo := value.NewInfo(info.Fields().Clone())
-		addPrintFields(&printInfo, selections, filename, printStageRank(stage) >= printStageRank(PrintPostProcess))
+		if err := addPrintFields(&printInfo, selections, filename, printStageRank(stage) >= printStageRank(PrintPostProcess)); err != nil {
+			return artifacts, total, err
+		}
 		if rule.OmitIfMissing != "" {
 			candidate := printInfo.Lookup(rule.OmitIfMissing)
 			if candidate.IsMissing() || candidate.IsNull() {
@@ -256,7 +262,7 @@ func addPrintFileArtifacts(result *Result, artifacts []Artifact, bytes int64) {
 	result.Downloaded = result.Downloaded || len(artifacts) > 0
 }
 
-func addPrintFields(info *value.Info, selections []mediaformat.Selection, filename string, includeFilepath bool) {
+func addPrintFields(info *value.Info, selections []mediaformat.Selection, filename string, includeFilepath bool) error {
 	if filename != "" {
 		info.Set("filename", value.String(filename))
 		if includeFilepath {
@@ -293,6 +299,7 @@ func addPrintFields(info *value.Info, selections []mediaformat.Selection, filena
 	if duration, ok := numericPrintValue(info.Lookup("duration")); ok && duration >= 0 {
 		info.Set("duration_string", value.String(formatPrintDuration(duration)))
 	}
+	return addPrintTableFields(info)
 }
 
 func numericPrintValue(input value.Value) (float64, bool) {
