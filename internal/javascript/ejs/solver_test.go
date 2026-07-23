@@ -81,6 +81,34 @@ func TestVerifyAssetsAndInputBounds(t *testing.T) {
 	}
 }
 
+func TestSolvePlayerAcceptsMaximumLengthRequestID(t *testing.T) {
+	player, err := os.ReadFile("../../../conformance/javascript/ejs-0.8.0/synthetic-player.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	solver, err := New(engine.New(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := strings.Repeat("a", protocol.MaxRequestIDLength)
+	result, err := solver.SolvePlayer(
+		context.Background(),
+		id,
+		string(player),
+		[]ChallengeRequest{{Type: ChallengeN, Challenges: []string{"abc"}}},
+		false,
+	)
+	if err != nil {
+		t.Fatalf("SolvePlayer() rejected a maximum-length request ID: %v", err)
+	}
+	if got := result.Responses[0].Data["abc"]; got != "cba-n" {
+		t.Fatalf("challenge result = %q, want %q", got, "cba-n")
+	}
+	if got := preprocessRequestID(id); got != id {
+		t.Fatalf("preprocess request ID changed at protocol limit: got %q", got)
+	}
+}
+
 func TestCanonicalEmbeddedScriptOnlyNormalizesCRLFPairs(t *testing.T) {
 	got := canonicalEmbeddedScript("one\r\ntwo\rthree\n")
 	if got != "one\ntwo\rthree\n" {

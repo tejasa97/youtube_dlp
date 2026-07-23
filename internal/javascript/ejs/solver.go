@@ -237,7 +237,7 @@ func (solver *Solver) preprocess(ctx context.Context, id, player string) (string
 		return "", fmt.Errorf("encode EJS preprocess input: %w", err)
 	}
 	response := solver.executor.Execute(ctx, protocol.Request{
-		Version: protocol.Version, ID: id + "-preprocess", Operation: protocol.OperationCall,
+		Version: protocol.Version, ID: preprocessRequestID(id), Operation: protocol.OperationCall,
 		Script: solver.script, Function: "jsc", Arguments: []json.RawMessage{argument},
 		Limits: protocol.Limits{
 			WallTimeMS: PreprocessWallTimeMS, MemoryBytes: SolverMemoryBytes,
@@ -263,6 +263,19 @@ func (solver *Solver) preprocess(ctx context.Context, id, player string) (string
 		return "", errors.New("EJS preprocess returned empty player")
 	}
 	return output.PreprocessedPlayer, nil
+}
+
+const preprocessRequestIDSuffix = "-preprocess"
+
+// preprocessRequestID keeps the phase marker when it fits, but preserves an
+// already-valid full-length caller ID instead of making it invalid at the
+// helper boundary. Preprocess and solve execute sequentially, so reusing the
+// caller ID at the protocol limit remains unambiguous.
+func preprocessRequestID(id string) string {
+	if len(id)+len(preprocessRequestIDSuffix) <= protocol.MaxRequestIDLength {
+		return id + preprocessRequestIDSuffix
+	}
+	return id
 }
 
 // solve executes the extracted transforms against challenge values using the

@@ -23,6 +23,20 @@ func TestRequestNormalizeDefaultsAndHash(t *testing.T) {
 	}
 }
 
+func TestRequestIDLengthBoundary(t *testing.T) {
+	base := Request{
+		Version: Version, Operation: OperationEvaluate, Script: "1+1",
+	}
+	base.ID = strings.Repeat("a", MaxRequestIDLength)
+	if _, err := base.Normalize(); err != nil {
+		t.Fatalf("%d-byte request ID rejected: %v", MaxRequestIDLength, err)
+	}
+	base.ID += "a"
+	if _, err := base.Normalize(); err == nil {
+		t.Fatalf("%d-byte request ID accepted", MaxRequestIDLength+1)
+	}
+}
+
 func TestRequestRejectsLimitsHashesModulesAndArguments(t *testing.T) {
 	base := Request{Version: Version, ID: "request", Operation: OperationEvaluate, Script: "1+1"}
 	tests := []Request{

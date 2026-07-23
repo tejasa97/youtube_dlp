@@ -13,7 +13,10 @@ import (
 	"time"
 )
 
-const Version = 1
+const (
+	Version            = 1
+	MaxRequestIDLength = 128
+)
 
 type Operation string
 
@@ -64,7 +67,7 @@ const (
 )
 
 var (
-	requestIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
+	requestIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 	functionPattern  = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*$`)
 	modulePattern    = regexp.MustCompile(`^[A-Za-z0-9@._/-]{1,256}$`)
 )
@@ -135,7 +138,7 @@ func (request Request) Normalize() (Request, error) {
 	if request.Version != Version {
 		return Request{}, fmt.Errorf("version %d is incompatible with %d", request.Version, Version)
 	}
-	if !requestIDPattern.MatchString(request.ID) {
+	if len(request.ID) > MaxRequestIDLength || !requestIDPattern.MatchString(request.ID) {
 		return Request{}, errors.New("id must contain 1-128 safe characters")
 	}
 	switch request.Operation {
