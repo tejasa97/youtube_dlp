@@ -60,6 +60,12 @@ priority over Twitter and OpenGraph even when those tags appear earlier in the
 document. Malformed JSON-LD is ignored so a valid lower-priority metadata
 source can still be used.
 
+JSON-LD VideoObject/AudioObject metadata also carries the pinned core fields
+for uploader, artist, upload timestamp, content size, bitrate, width, height,
+interaction count, and deduplicated keywords. Numeric strings are accepted
+where the reference accepts them; invalid or out-of-range optional values are
+omitted without discarding a valid media URL.
+
 ## Resource and security bounds
 
 - HTML response: 2 MiB;
@@ -72,7 +78,8 @@ source can still be used.
 - JSON-LD scripts: 32;
 - one JSON-LD script: 512 KiB;
 - traversed JSON-LD nodes: 2,048 with depth 64; and
-- normalized title/description: 1 KiB/8 KiB.
+- normalized title/description: 1 KiB/8 KiB; and
+- JSON-LD keywords: 128 unique values of at most 256 bytes each.
 
 Userinfo, explicit ports (including an empty explicit port), fragments,
 encoded separators/NULs, unsupported schemes, provider lookalikes, and URLs
@@ -91,6 +98,6 @@ as formats of one page media item rather than separate playlist entries.
 
 This increment does not implement generic direct URLs found in arbitrary
 scripts, `embedUrl`-only JSON-LD, arbitrary JW Player configuration, OpenGraph
-structured properties beyond the documented core, provider discovery, or
-iframe crawling. Unsupported HTML remains a categorized unsupported
-extraction.
+structured properties beyond the documented core, JSON-LD interaction
+statistics/chapters/ratings and broader date formats, provider discovery, or
+iframe crawling. Unsupported HTML remains a categorized unsupported extraction.

@@ -75,7 +75,7 @@ decisions. Synthetic fixtures are not presented as substitutes for those facts.
 | Operations | Opt-in privacy-safe telemetry, semantic-shadow comparison, bounded canaries, and local diagnosis reports |
 | Releases | Reproducible no-cgo alpha assembly, SPDX/license output, signed updater metadata, rollback, and Python-free container evidence |
 
-The capability manifest currently records 56 capabilities: 55 compatible
+The capability manifest currently records 58 capabilities: 57 compatible
 within their declared corpora and one intentional deviation. A compatible
 entry is not a claim of complete yt-dlp parity. See the
 [Phase 3 exit review](docs/PHASE_3_EXIT_REVIEW.md), [Phase 2 security
