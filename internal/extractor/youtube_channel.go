@@ -105,8 +105,12 @@ func extractYouTubeChannelTab(ctx context.Context, transport Transport, channelI
 		return Extraction{}, fmt.Errorf("%w: missing YouTube channel metadata", ErrInvalidMetadata)
 	}
 	config := extractYouTubePlaylistConfig(page)
-	entries, err := ContinuationEntries(parsed.entries, parsed.continuation, func(ctx context.Context, token string) ([]Entry, string, error) {
-		return fetchYouTubeChannelContinuation(ctx, transport, token, config, tab)
+	visitorData := parsed.visitorData
+	if visitorData == "" {
+		visitorData = config.VisitorData
+	}
+	entries, err := StatefulContinuationEntries(parsed.entries, parsed.continuation, visitorData, func(ctx context.Context, token, visitorData string) ([]Entry, string, string, error) {
+		return fetchYouTubeChannelContinuation(ctx, transport, token, visitorData, config, tab)
 	})
 	if err != nil {
 		return Extraction{}, err
@@ -121,6 +125,7 @@ func extractYouTubeChannelTab(ctx context.Context, transport Transport, channelI
 type youtubeChannelTabPage struct {
 	entries                    []Entry
 	continuation, title, alert string
+	visitorData                string
 }
 
 func parseYouTubeChannelTabData(data []byte, tab string) (youtubeChannelTabPage, error) {
@@ -128,12 +133,13 @@ func parseYouTubeChannelTabData(data []byte, tab string) (youtubeChannelTabPage,
 	if err := json.Unmarshal(data, &root); err != nil {
 		return youtubeChannelTabPage{}, fmt.Errorf("%w: decode YouTube channel tab data", ErrInvalidMetadata)
 	}
-	if _, ok := root.Object(); !ok {
+	rootObject, ok := root.Object()
+	if !ok {
 		return youtubeChannelTabPage{}, fmt.Errorf("%w: YouTube channel tab root", ErrInvalidMetadata)
 	}
 	var page youtubeChannelTabPage
 	nodes := 0
-	err := walkOrderedJSON(root, 0, &nodes, func(key string, object *value.Object) {
+	err := walkOrderedJSON(youtubePlaylistContentScope(rootObject), 0, &nodes, func(key string, object *value.Object) {
 		switch key {
 		case "videoRenderer", "gridVideoRenderer":
 			if tab != "playlists" {
@@ -167,23 +173,36 @@ func parseYouTubeChannelTabData(data []byte, tab string) (youtubeChannelTabPage,
 			if token := validYouTubeContinuationToken(objectString(object, "continuation")); token != "" {
 				page.continuation = token
 			}
-		case "channelMetadataRenderer":
-			if page.title == "" {
-				page.title = objectString(object, "title")
-			}
-		case "c4TabbedHeaderRenderer":
-			if page.title == "" {
-				page.title = rendererText(object.Lookup("title"))
-			}
-		case "alertRenderer":
-			if page.alert == "" {
-				page.alert = rendererText(object.Lookup("text"))
-			}
 		}
 	})
 	if err != nil {
 		return youtubeChannelTabPage{}, err
 	}
+	metadataNodes := 0
+	if err := walkOrderedJSON(rootObject.Lookup("metadata"), 0, &metadataNodes, func(key string, object *value.Object) {
+		if key == "channelMetadataRenderer" && page.title == "" {
+			page.title = objectString(object, "title")
+		}
+	}); err != nil {
+		return youtubeChannelTabPage{}, err
+	}
+	headerNodes := 0
+	if err := walkOrderedJSON(rootObject.Lookup("header"), 0, &headerNodes, func(key string, object *value.Object) {
+		if key == "c4TabbedHeaderRenderer" && page.title == "" {
+			page.title = rendererText(object.Lookup("title"))
+		}
+	}); err != nil {
+		return youtubeChannelTabPage{}, err
+	}
+	alertNodes := 0
+	if err := walkOrderedJSON(rootObject.Lookup("alerts"), 0, &alertNodes, func(key string, object *value.Object) {
+		if key == "alertRenderer" && page.alert == "" {
+			page.alert = rendererText(object.Lookup("text"))
+		}
+	}); err != nil {
+		return youtubeChannelTabPage{}, err
+	}
+	page.visitorData = objectString(rootObject, "responseContext", "visitorData")
 	return page, nil
 }
 
@@ -227,22 +246,22 @@ func youtubeTabPlaylistResult(playlistID, title string) Entry {
 	}
 	return Entry{
 		URL: "https://www.youtube.com/playlist?list=" + playlistID, ExtractorKey: "youtube",
-		ID: playlistID, Title: title, Transparent: true,
+		ID: playlistID, Title: title,
 	}
 }
 
-func fetchYouTubeChannelContinuation(ctx context.Context, transport Transport, token string, config youtubePlaylistConfig, tab string) ([]Entry, string, error) {
+func fetchYouTubeChannelContinuation(ctx context.Context, transport Transport, token, visitorData string, config youtubePlaylistConfig, tab string) ([]Entry, string, string, error) {
 	if token = validYouTubeContinuationToken(token); token == "" {
-		return nil, "", fmt.Errorf("%w: invalid YouTube continuation", ErrInvalidPlaylist)
+		return nil, "", visitorData, fmt.Errorf("%w: invalid YouTube continuation", ErrInvalidPlaylist)
 	}
 	version := config.ClientVersion
 	if version == "" {
 		version = youtubeDefaultClientVersion
 	}
-	payload := map[string]any{"context": map[string]any{"client": map[string]any{"clientName": "WEB", "clientVersion": version, "hl": "en", "timeZone": "UTC", "utcOffsetMinutes": 0, "visitorData": config.VisitorData}}, "continuation": token}
+	payload := map[string]any{"context": map[string]any{"client": map[string]any{"clientName": "WEB", "clientVersion": version, "hl": "en", "timeZone": "UTC", "utcOffsetMinutes": 0, "visitorData": visitorData}}, "continuation": token}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return nil, "", fmt.Errorf("%w: encode YouTube continuation", ErrInvalidMetadata)
+		return nil, "", visitorData, fmt.Errorf("%w: encode YouTube continuation", ErrInvalidMetadata)
 	}
 	endpoint, _ := url.Parse(youtubePlaylistContinuationURL)
 	query := endpoint.Query()
@@ -258,16 +277,19 @@ func fetchYouTubeChannelContinuation(ctx context.Context, transport Transport, t
 	headers.Set("X-Youtube-Client-Version", version)
 	var response json.RawMessage
 	if err := RequestJSON(ctx, transport, http.MethodPost, endpoint.String(), body, headers, &response); err != nil {
-		return nil, "", categorizeYouTubeChannelError(err)
+		return nil, "", visitorData, categorizeYouTubeChannelError(err)
 	}
 	parsed, err := parseYouTubeChannelTabData(response, tab)
 	if err != nil {
-		return nil, "", err
+		return nil, "", visitorData, err
 	}
 	if parsed.alert != "" && len(parsed.entries) == 0 {
-		return nil, "", youtubePlaylistAlertError(parsed.alert)
+		return nil, "", visitorData, youtubePlaylistAlertError(parsed.alert)
 	}
-	return parsed.entries, parsed.continuation, nil
+	if parsed.visitorData == "" {
+		parsed.visitorData = visitorData
+	}
+	return parsed.entries, parsed.continuation, parsed.visitorData, nil
 }
 
 func categorizeYouTubeChannelError(err error) error {

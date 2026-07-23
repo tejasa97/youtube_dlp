@@ -1,4 +1,5 @@
 {
+  "responseContext": {"visitorData": "handle-visitor-rotated"},
   "onResponseReceivedEndpoints": [{
     "appendContinuationItemsAction": {
       "continuationItems": [
