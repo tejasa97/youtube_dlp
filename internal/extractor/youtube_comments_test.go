@@ -31,6 +31,78 @@ type youtubeCommentRetryTransport struct {
 
 type youtubeCommentChainTransport struct{ calls int }
 
+// youtubeAuthenticatedCommentTransport fails closed if a comment operation
+// accidentally uses the ordinary transport. Authenticated continuations must
+// go exclusively through DoNoRedirect after obtaining the scoped cookie jar.
+type youtubeAuthenticatedCommentTransport struct {
+	responses map[string][]byte
+	statuses  map[string]int
+	cookies   []*http.Cookie
+	cookieErr error
+
+	doCalls         int
+	noRedirectCalls int
+	requests        []*http.Request
+	visitors        []string
+	versions        []string
+}
+
+func (transport *youtubeAuthenticatedCommentTransport) ReadPage(context.Context, string) ([]byte, http.Header, error) {
+	return nil, nil, errors.New("unexpected ReadPage")
+}
+
+func (transport *youtubeAuthenticatedCommentTransport) Do(context.Context, *http.Request) (*http.Response, error) {
+	transport.doCalls++
+	return nil, errors.New("authenticated comments used ordinary transport")
+}
+
+func (transport *youtubeAuthenticatedCommentTransport) Cookies(string) ([]*http.Cookie, error) {
+	return transport.cookies, transport.cookieErr
+}
+
+func (transport *youtubeAuthenticatedCommentTransport) DoNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	transport.noRedirectCalls++
+	copy := request.Clone(request.Context())
+	copy.Body = request.Body
+	transport.requests = append(transport.requests, copy)
+	var payload struct {
+		Continuation string `json:"continuation"`
+		Context      struct {
+			Client struct {
+				VisitorData   string `json:"visitorData"`
+				ClientVersion string `json:"clientVersion"`
+			} `json:"client"`
+		} `json:"context"`
+	}
+	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+	transport.visitors = append(transport.visitors, payload.Context.Client.VisitorData)
+	transport.versions = append(transport.versions, payload.Context.Client.ClientVersion)
+	status := transport.statuses[payload.Continuation]
+	if status == 0 {
+		status = http.StatusOK
+	}
+	return &http.Response{
+		StatusCode: status, Header: make(http.Header),
+		Body: io.NopCloser(bytes.NewReader(transport.responses[payload.Continuation])), Request: request,
+	}, nil
+}
+
+func youtubeAuthenticatedCommentCookies() []*http.Cookie {
+	return []*http.Cookie{{Name: "LOGIN_INFO", Value: "logged-in"}, {Name: "SAPISID", Value: "sapi"}}
+}
+
+func youtubeAuthenticatedCommentConfig() *youtubeCommentAuth {
+	return &youtubeCommentAuth{config: &youtubeWEBAuthConfig{
+		ClientName: "WEB", ClientID: "1", ClientVersion: "2.fixture-comments",
+		VisitorData: "visitor-initial", UserAgent: "fixture-agent", LoggedIn: true,
+	}}
+}
+
 func (*youtubeCommentChainTransport) ReadPage(context.Context, string) ([]byte, http.Header, error) {
 	return nil, nil, errors.New("unexpected ReadPage")
 }
@@ -120,7 +192,7 @@ func TestYouTubeCommentsDefaultNewSortVisitorRotationAndFields(t *testing.T) {
 	transport := &youtubeCommentFixtureTransport{responses: youtubeCommentFixtureResponses(t)}
 	comments, disabled, err := extractYouTubeComments(context.Background(), transport,
 		readYouTubeFixture(t, "comments-watch.html"), "fixture0001",
-		YouTubeCommentOptions{Enabled: true, MaxComments: 10})
+		YouTubeCommentOptions{Enabled: true, MaxComments: 10}, nil)
 	if err != nil || disabled {
 		t.Fatalf("comments=%v disabled=%v err=%v", comments, disabled, err)
 	}
@@ -165,6 +237,103 @@ func TestYouTubeCommentsDefaultNewSortVisitorRotationAndFields(t *testing.T) {
 	}
 }
 
+func TestYouTubeAuthenticatedCommentsUseNoRedirectForEveryContinuation(t *testing.T) {
+	transport := &youtubeAuthenticatedCommentTransport{
+		responses: youtubeCommentFixtureResponses(t), cookies: youtubeAuthenticatedCommentCookies(),
+	}
+	authenticated := youtubeAuthenticatedCommentConfig()
+	authenticated.apiKey = "bounded-discovery-key"
+	authenticated.config.ClientVersion = "2.bounded-discovery"
+	comments, disabled, err := extractYouTubeComments(context.Background(), transport,
+		readYouTubeFixture(t, "comments-watch.html"), "fixture0001",
+		YouTubeCommentOptions{Enabled: true, MaxComments: 10}, authenticated)
+	if err != nil || disabled || len(comments) != 4 {
+		t.Fatalf("comments=%#v disabled=%v err=%v", comments, disabled, err)
+	}
+	if transport.doCalls != 0 || transport.noRedirectCalls != 3 || len(transport.requests) != 3 {
+		t.Fatalf("ordinary=%d no-redirect=%d requests=%d", transport.doCalls, transport.noRedirectCalls, len(transport.requests))
+	}
+	for index, request := range transport.requests {
+		if request.URL.Path != "/youtubei/v1/next" || request.URL.Query().Get("prettyPrint") != "false" || request.URL.Query().Get("key") != "bounded-discovery-key" || request.Header.Get("Authorization") == "" || request.Header.Get("Cookie") != "" {
+			t.Fatalf("request %d is not protected /next: %s %#v", index, request.URL, request.Header)
+		}
+	}
+	// The header value is generated from the latest continuation response,
+	// rather than frozen to the initial webpage visitor id.
+	if got := []string{transport.requests[0].Header.Get("X-Goog-Visitor-Id"), transport.requests[1].Header.Get("X-Goog-Visitor-Id"), transport.requests[2].Header.Get("X-Goog-Visitor-Id")}; strings.Join(got, ",") != "visitor-initial,visitor-header,visitor-comments-page" {
+		t.Fatalf("visitor headers=%q", got)
+	}
+	if got := strings.Join(transport.visitors, ","); got != "visitor-initial,visitor-header,visitor-comments-page" {
+		t.Fatalf("visitor payloads=%q", got)
+	}
+	if got := strings.Join(transport.versions, ","); got != "2.bounded-discovery,2.bounded-discovery,2.bounded-discovery" {
+		t.Fatalf("client versions=%q", got)
+	}
+	for index, request := range transport.requests {
+		if request.Header.Get("X-Youtube-Client-Version") != "2.bounded-discovery" {
+			t.Fatalf("request %d client version=%q", index, request.Header.Get("X-Youtube-Client-Version"))
+		}
+	}
+}
+
+func TestYouTubeAuthenticatedCommentFailuresStayProtectedAndCategorized(t *testing.T) {
+	page := readYouTubeFixture(t, "comments-watch.html")
+	for _, test := range []struct {
+		name   string
+		status int
+		want   error
+		calls  int
+	}{
+		{"redirect", http.StatusFound, ErrAuthentication, 1},
+		{"unauthorized", http.StatusUnauthorized, ErrAuthentication, 1},
+		{"forbidden", http.StatusForbidden, ErrAuthentication, 1},
+		{"rate limited", http.StatusTooManyRequests, ErrYouTubeCommentsRateLimited, 1},
+		{"request timeout retry", http.StatusRequestTimeout, ErrYouTubeCommentsNetwork, maxYouTubeCommentAttempts},
+		{"server retry", http.StatusInternalServerError, ErrYouTubeCommentsNetwork, maxYouTubeCommentAttempts},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			transport := &youtubeAuthenticatedCommentTransport{
+				responses: youtubeCommentFixtureResponses(t), cookies: youtubeAuthenticatedCommentCookies(),
+				statuses: map[string]int{"initial-comments-token": test.status},
+			}
+			_, _, err := extractYouTubeComments(context.Background(), transport, page, "fixture0001", YouTubeCommentOptions{Enabled: true}, youtubeAuthenticatedCommentConfig())
+			if !errors.Is(err, test.want) || transport.doCalls != 0 || transport.noRedirectCalls != test.calls {
+				t.Fatalf("error=%v ordinary=%d no-redirect=%d", err, transport.doCalls, transport.noRedirectCalls)
+			}
+			if strings.Contains(err.Error(), "sapi") || strings.Contains(err.Error(), "logged-in") {
+				t.Fatalf("credential leaked in error: %v", err)
+			}
+		})
+	}
+	malformed := &youtubeAuthenticatedCommentTransport{
+		responses: map[string][]byte{"initial-comments-token": []byte(`{`)}, cookies: youtubeAuthenticatedCommentCookies(),
+	}
+	_, _, err := extractYouTubeComments(context.Background(), malformed, page, "fixture0001", YouTubeCommentOptions{Enabled: true}, youtubeAuthenticatedCommentConfig())
+	if !errors.Is(err, ErrInvalidMetadata) || malformed.doCalls != 0 || malformed.noRedirectCalls != 1 {
+		t.Fatalf("malformed error=%v ordinary=%d no-redirect=%d", err, malformed.doCalls, malformed.noRedirectCalls)
+	}
+}
+
+func TestYouTubeAuthenticatedCommentsFailClosedForMissingCapabilityCookiesAndCancellation(t *testing.T) {
+	page := readYouTubeFixture(t, "comments-watch.html")
+	_, _, err := extractYouTubeComments(context.Background(), &youtubeCommentFixtureTransport{responses: youtubeCommentFixtureResponses(t)}, page, "fixture0001", YouTubeCommentOptions{Enabled: true}, youtubeAuthenticatedCommentConfig())
+	if !errors.Is(err, ErrAuthentication) {
+		t.Fatalf("missing auth capability error=%v", err)
+	}
+	missingCookies := &youtubeAuthenticatedCommentTransport{responses: youtubeCommentFixtureResponses(t)}
+	_, _, err = extractYouTubeComments(context.Background(), missingCookies, page, "fixture0001", YouTubeCommentOptions{Enabled: true}, youtubeAuthenticatedCommentConfig())
+	if !errors.Is(err, ErrAuthentication) || missingCookies.doCalls != 0 || missingCookies.noRedirectCalls != 0 {
+		t.Fatalf("missing cookies error=%v ordinary=%d no-redirect=%d", err, missingCookies.doCalls, missingCookies.noRedirectCalls)
+	}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	transport := &youtubeAuthenticatedCommentTransport{responses: youtubeCommentFixtureResponses(t), cookies: youtubeAuthenticatedCommentCookies()}
+	_, _, err = extractYouTubeComments(cancelled, transport, page, "fixture0001", YouTubeCommentOptions{Enabled: true}, youtubeAuthenticatedCommentConfig())
+	if !errors.Is(err, context.Canceled) || transport.doCalls != 0 {
+		t.Fatalf("cancellation error=%v ordinary=%d", err, transport.doCalls)
+	}
+}
+
 func TestYouTubeCommentsTopSortAndBounds(t *testing.T) {
 	transport := &youtubeCommentFixtureTransport{responses: youtubeCommentFixtureResponses(t)}
 	comments, disabled, err := extractYouTubeComments(context.Background(), transport,
@@ -172,7 +341,7 @@ func TestYouTubeCommentsTopSortAndBounds(t *testing.T) {
 		YouTubeCommentOptions{
 			Enabled: true, Sort: "top", MaxComments: 10,
 			MaxParents: 1, MaxReplies: 1, MaxRepliesPerThread: 1, MaxDepth: 2,
-		})
+		}, nil)
 	if err != nil || disabled {
 		t.Fatalf("comments=%v disabled=%v err=%v", comments, disabled, err)
 	}
@@ -235,7 +404,7 @@ func TestYouTubeCommentsWrappedSortReplyContinuationAndMultipleActions(t *testin
 	}}
 	comments, disabled, err := extractYouTubeComments(context.Background(), transport,
 		readYouTubeFixture(t, "comments-watch.html"), "fixture0001",
-		YouTubeCommentOptions{Enabled: true, MaxComments: 10, MaxParents: 1, MaxReplies: 2, MaxDepth: 2})
+		YouTubeCommentOptions{Enabled: true, MaxComments: 10, MaxParents: 1, MaxReplies: 2, MaxDepth: 2}, nil)
 	if err != nil || disabled {
 		t.Fatalf("comments=%v disabled=%v err=%v", comments, disabled, err)
 	}
@@ -258,7 +427,7 @@ func TestYouTubeCommentsWrappedSortReplyContinuationAndMultipleActions(t *testin
 	}}
 	deepComments, _, err := extractYouTubeComments(context.Background(), deepTransport,
 		readYouTubeFixture(t, "comments-watch.html"), "fixture0001",
-		YouTubeCommentOptions{Enabled: true, MaxComments: 10, MaxParents: 1, MaxReplies: 3, MaxDepth: 3})
+		YouTubeCommentOptions{Enabled: true, MaxComments: 10, MaxParents: 1, MaxReplies: 3, MaxDepth: 3}, nil)
 	if err != nil || len(deepComments) != 3 ||
 		objectStringValue(deepComments[2], "parent") != "reply-2" {
 		t.Fatalf("deep comments=%#v err=%v", deepComments, err)
@@ -280,7 +449,7 @@ func TestYouTubeCommentsPinnedDuplicateDoesNotStopTraversal(t *testing.T) {
 	}}
 	comments, disabled, err := extractYouTubeComments(context.Background(), transport,
 		readYouTubeFixture(t, "comments-watch.html"), "fixture0001",
-		YouTubeCommentOptions{Enabled: true, MaxComments: 10})
+		YouTubeCommentOptions{Enabled: true, MaxComments: 10}, nil)
 	if err != nil || disabled || len(comments) != 2 ||
 		objectStringValue(comments[0], "id") != "duplicate" ||
 		objectStringValue(comments[1], "id") != "after" {
@@ -307,7 +476,7 @@ func TestYouTubeCommentsReplyContinuationIsDepthFirstForTotalLimit(t *testing.T)
 	}}
 	comments, _, err := extractYouTubeComments(context.Background(), transport,
 		readYouTubeFixture(t, "comments-watch.html"), "fixture0001",
-		YouTubeCommentOptions{Enabled: true, MaxComments: 2})
+		YouTubeCommentOptions{Enabled: true, MaxComments: 2}, nil)
 	if err != nil || len(comments) != 2 ||
 		objectStringValue(comments[0], "id") != "parent-a" ||
 		objectStringValue(comments[1], "id") != "reply-a-1" {
@@ -322,7 +491,7 @@ func TestYouTubeCommentsDisabledAndForcedContinuation(t *testing.T) {
 		forced: readYouTubeFixture(t, "comments-disabled.json"),
 	}}
 	comments, disabled, err := extractYouTubeComments(context.Background(), transport, page, "fixture0001",
-		YouTubeCommentOptions{Enabled: true})
+		YouTubeCommentOptions{Enabled: true}, nil)
 	if err != nil || !disabled || comments != nil {
 		t.Fatalf("comments=%v disabled=%v err=%v", comments, disabled, err)
 	}
@@ -347,7 +516,7 @@ func TestYouTubeCommentFailuresCancellationAndLimits(t *testing.T) {
 			statuses:  map[string]int{"initial-comments-token": test.status},
 		}
 		_, _, err := extractYouTubeComments(context.Background(), transport, page, "fixture0001",
-			YouTubeCommentOptions{Enabled: true})
+			YouTubeCommentOptions{Enabled: true}, nil)
 		if !errors.Is(err, test.want) {
 			t.Fatalf("status %d error=%v", test.status, err)
 		}
@@ -356,7 +525,7 @@ func TestYouTubeCommentFailuresCancellationAndLimits(t *testing.T) {
 	cancel()
 	_, _, err := extractYouTubeComments(cancelled,
 		&youtubeCommentFixtureTransport{responses: youtubeCommentFixtureResponses(t)},
-		page, "fixture0001", YouTubeCommentOptions{Enabled: true})
+		page, "fixture0001", YouTubeCommentOptions{Enabled: true}, nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation=%v", err)
 	}
@@ -383,7 +552,7 @@ func TestYouTubeCommentRetriesTransientAndIncompleteResponses(t *testing.T) {
 		transport := &youtubeCommentRetryTransport{statuses: test.statuses, bodies: test.bodies}
 		attempts := 0
 		page, err := fetchYouTubeCommentPage(context.Background(), transport,
-			youtubeCommentContinuation{token: "retry-token", parent: "root", depth: 1}, "visitor", config, &attempts)
+			youtubeCommentContinuation{token: "retry-token", parent: "root", depth: 1}, "visitor", config, nil, &attempts)
 		if err != nil || len(page.comments) != 1 || transport.calls != 2 {
 			t.Fatalf("page=%#v calls=%d err=%v", page, transport.calls, err)
 		}
@@ -394,7 +563,7 @@ func TestYouTubeCommentsCapActualHTTPAttempts(t *testing.T) {
 	transport := &youtubeCommentChainTransport{}
 	_, _, err := extractYouTubeComments(context.Background(), transport,
 		readYouTubeFixture(t, "comments-watch.html"), "fixture0001",
-		YouTubeCommentOptions{Enabled: true, MaxComments: 10})
+		YouTubeCommentOptions{Enabled: true, MaxComments: 10}, nil)
 	if !errors.Is(err, ErrPlaylistLimit) || transport.calls != maxYouTubeCommentPages {
 		t.Fatalf("calls=%d err=%v", transport.calls, err)
 	}

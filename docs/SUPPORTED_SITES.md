@@ -113,9 +113,11 @@ The following limitations are intentional and remain:
   process-restart resume;
 - authenticated Innertube coverage remains limited: a logged-in watch page can
   recover URL-bearing formats through one exact-origin WEB player request when
-  valid YouTube SID cookies and bounded WEB configuration are present.
-  Authenticated comments, browse/search/Music clients, broader player-client
-  rotation, and direct SABR/UMP are not supported;
+  valid YouTube SID cookies and bounded WEB configuration are present. Opt-in
+  comments use the same account-bound, redirect-disabled WEB session for every
+  root, reply, sort, and retry continuation. Authenticated browse/search/Music
+  clients, broader player-client rotation, and direct SABR/UMP are not
+  supported;
 - comment extraction does not synthesize estimated timestamps or expose
   YouTube's approximate count before retrieval, and supports only the
   explicitly tested legacy and modern renderer families;

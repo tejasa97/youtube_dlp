@@ -70,6 +70,13 @@ The primary automated evidence is:
 - `internal/extractor.TestYouTubeCommentFailuresCancellationAndLimits`
 - `internal/extractor.TestYouTubeCommentRetriesTransientAndIncompleteResponses`
 - `internal/extractor.TestYouTubeCommentsCapActualHTTPAttempts`
+- `internal/extractor.TestRequestAuthenticatedYouTubeWEBNext`
+- `internal/extractor.TestRequestAuthenticatedYouTubeWEBNextErrors`
+- `internal/extractor.TestRequestAuthenticatedYouTubeWEBNextCancellation`
+- `internal/extractor.TestYouTubeAuthenticatedCommentsUseNoRedirectForEveryContinuation`
+- `internal/extractor.TestYouTubeAuthenticatedCommentFailuresStayProtectedAndCategorized`
+- `internal/extractor.TestYouTubeAuthenticatedCommentsFailClosedForMissingCapabilityCookiesAndCancellation`
+- `internal/extractor.TestYouTubeAuthenticatedCommentsUseProductionCookieJarAndNoRedirectPath`
 - `internal/extractor.TestParseYouTubeCommentPageEnforcesStructuralBudgets`
 - `internal/extractor.TestYouTubeModernCommentSanitizesIdentityAndThumbnail`
 - `internal/extractor.TestParseYouTubeCommentPageRejectsMalformedAndOversizedText`
@@ -84,8 +91,9 @@ locations are recorded in
 
 This evidence does not claim full upstream YouTube-comment parity:
 
-- authenticated comments and signed-in Innertube comment clients are not
-  supported;
+- authenticated comments are limited to the signed-in WEB client and exact
+  `/youtubei/v1/next` continuations; other authenticated Innertube clients are
+  not supported;
 - the approximate header count is not exposed before retrieval; after a
   complete bounded retrieval, `comment_count` is the number actually emitted;
 - relative time text is retained as `_time_text`, but an estimated Unix

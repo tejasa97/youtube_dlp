@@ -52,11 +52,11 @@ authenticated Innertube profiles remain pending.
 Implementation status: exact public UCID, bounded ASCII-handle, and bounded
 legacy `/user` and `/c` alias video/Shorts/streams/playlist tabs plus bounded
 public and playable YouTube Music search are implemented. A bounded, opt-in
-public-comments slice covers
+public and authenticated-WEB comments slices cover
 top/new sorting, legacy and modern fields, click-tracked reply continuations,
 nested subthreads, bounded retries, pinned duplicate handling, visitor
-rotation, and explicit resource limits. Authenticated comments, estimated
-pre-fetch counts, full handle grammar, home/community/release tabs,
+rotation, exact-origin signed continuations, and explicit resource limits.
+Estimated pre-fetch counts, full handle grammar, home/community/release tabs,
 non-playable search result breadth remain pending.
 
 The finite post-live DVR and opt-in active live-from-start paths are complete:
