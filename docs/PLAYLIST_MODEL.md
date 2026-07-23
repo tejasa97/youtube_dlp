@@ -61,8 +61,9 @@ unchanged. `--no-flat-playlist` disables an inherited configuration value.
   levels; recursive URL cycles fail before another request.
 - Iterator, extraction, and download errors are fail-fast in this pilot. They
   retain structured error categories and the failing one-based entry index.
-- Metadata is held in memory after resolution so `--print-json` can emit the
-  complete ordered hierarchy.
+- Metadata is held in memory after resolution so `--print-json` and
+  `--dump-single-json` can emit the complete ordered hierarchy, while
+  `--dump-json` recursively emits ordered leaf entries.
 
 This is the reusable base for the representative site pilots. Broader yt-dlp
 options such as random ordering, the non-CLI global/discard variants of
