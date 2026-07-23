@@ -1,7 +1,7 @@
 # Playlist selection fixture provenance
 
-`selection.expected.json` and `items.expected.json` are attributable,
-synthetic expectations derived
+`selection.expected.json`, `items.expected.json`, and `flat.expected.json` are
+attributable, synthetic expectations derived
 from the pinned yt-dlp reference checkout at commit
 `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`.
 
@@ -13,8 +13,18 @@ selection, and each result retains its original source `playlist_index`.
 
 The item-spec cases cover the pinned test's sparse indexes, legacy dash ranges,
 colon ranges, positive and negative steps, negative indexes, infinity, zero,
-and ordered duplicate suppression. The identifiers and compact JSON
-representation in this directory were written specifically for this Go
-project. They do not copy service responses, credentials, executable Python,
-or upstream implementation code. Production and test execution do not access
-the reference checkout.
+and ordered duplicate suppression.
+
+The flat-playlist expectation is derived from the pinned
+`yt_dlp/options.py` definition of `--flat-playlist` and
+`yt_dlp/YoutubeDL.py::YoutubeDL.process_ie_result`, which retain an unresolved
+URL result inside a playlist instead of recursively extracting or downloading
+it. The synthetic case combines that behavior with the pinned item-selection
+and reverse ordering expectations. It records the retained URL-result type,
+declared extractor key, and source `playlist_index`, with zero child
+extractions and downloads.
+
+The identifiers and compact JSON representations in this directory were
+written specifically for this Go project. They do not copy service responses,
+credentials, executable Python, or upstream implementation code. Production
+and test execution do not access the reference checkout.
