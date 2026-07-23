@@ -24,6 +24,9 @@ fragments, Smooth Streaming (ISM), and opt-in external downloader tools.
 - Fragment concurrency has both global and per-host limits, bounded segment
   count/size, categorized retryability, ordered atomic assembly, and
   cancellation preservation.
+- Native HLS suppresses media and low-latency parts attributed by the pinned
+  Anvato and Uplynk ad-marker state machine while preserving physical
+  sequence identities for live and delta reconciliation.
 - ISM parses `SmoothStreamingMedia`, selects the best quality in each stream
   type, expands timeline repeats with a hard 10,000-segment cap, addresses fragment URLs, and
   uses the native fragment engine. Multi-track ISM output remains explicitly
@@ -50,6 +53,10 @@ fragments, Smooth Streaming (ISM), and opt-in external downloader tools.
 - ISM downloads fMP4 fragments and exposes track/merge requirements. Native
   PIFF header synthesis and final container merge belong to postprocessing,
   not the network downloader.
+- HLS ad suppression is limited to the documented attributed Anvato and Uplynk
+  markers. It does not guess SCTE-35, cue/date-range, asset-list, or
+  markerless server-side ad insertion.
 
 See `conformance/downloader/PROVENANCE.md` and
-`conformance/media/ism/PROVENANCE.md` for the pinned-reference provenance.
+`conformance/media/ism/PROVENANCE.md` for the original lane provenance. See
+`docs/HLS_AD_FRAGMENT_SUPPRESSION_EVIDENCE.md` for the later HLS extension.
