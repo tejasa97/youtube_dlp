@@ -42,6 +42,15 @@ resolved after consuming the bounded sequence. Specifications are limited to
 4 KiB, 256 segments, integer magnitudes of one billion, and the existing
 10,000-source-entry operation bound.
 
+`Playlist.Flat` and `--flat-playlist` retain each selected URL-result entry
+without selecting its extractor, recursively expanding it, applying media
+filters or archives, or downloading it. The entry keeps its URL, declared
+extractor key, id, title, transparent/non-transparent type, and source playlist
+fields in both `InfoJSON` and `Result.Entries`. Range/item selection and reverse
+ordering happen before flat materialization, so their pagination and ordering
+bounds are unchanged. `--no-flat-playlist` disables an inherited configuration
+value.
+
 ## Bounds and failure policy
 
 - A context cancellation stops static iteration, page fetching, extraction,
@@ -55,8 +64,8 @@ resolved after consuming the bounded sequence. Specifications are limited to
   complete ordered hierarchy.
 
 This is the reusable base for the representative site pilots. Broader yt-dlp
-options such as random ordering, flat extraction, arbitrary transparent field
-overlays, and configurable ignore-error thresholds remain explicit later
-compatibility work rather than hidden behavior. Unlike upstream random-access
-paged lists, this sequential extractor boundary may fetch earlier pages while
-seeking a later sparse index.
+options such as random ordering, the non-CLI global/discard variants of
+`extract_flat`, arbitrary transparent field overlays, and configurable
+ignore-error thresholds remain explicit later compatibility work rather than
+hidden behavior. Unlike upstream random-access paged lists, this sequential
+extractor boundary may fetch earlier pages while seeking a later sparse index.

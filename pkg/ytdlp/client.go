@@ -484,6 +484,16 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 		if entry.URL == "" {
 			return Result{}, categorized(extractorName+" playlist entry", extractor.ErrInvalidPlaylist)
 		}
+		if operation.request.Playlist.Flat {
+			entryValue := flatPlaylistEntryValue(entry, selected.SourceIndex, playlistID, playlistTitle)
+			encoded, err := entryValue.MarshalJSON()
+			if err != nil {
+				return Result{}, &Error{Category: ErrorInternal, Op: "encode flat playlist entry metadata", Err: err}
+			}
+			children = append(children, Result{InfoJSON: encoded, Extractor: entry.ExtractorKey})
+			entryValues = append(entryValues, entryValue)
+			continue
+		}
 		child, err := operation.process(ctx, entry.URL, entry.ExtractorKey, &entry, ancestors, depth+1)
 		if err != nil {
 			return Result{}, fmt.Errorf("playlist entry %d: %w", selected.SourceIndex, err)
@@ -498,6 +508,22 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 		}
 		children = append(children, child)
 		entryValues = append(entryValues, entryValue)
+	}
+}
+
+func flatPlaylistEntryValue(entry extractor.Entry, index int, playlistID, playlistTitle string) value.Value {
+	object := entry.Object()
+	addPlaylistEntryFields(object, index, playlistID, playlistTitle)
+	return value.ObjectValue(object)
+}
+
+func addPlaylistEntryFields(object *value.Object, index int, playlistID, playlistTitle string) {
+	object.Set("playlist_index", value.Int(int64(index)))
+	if playlistID != "" {
+		object.Set("playlist_id", value.String(playlistID))
+	}
+	if playlistTitle != "" {
+		object.Set("playlist_title", value.String(playlistTitle))
 	}
 }
 
@@ -590,13 +616,7 @@ func playlistEntryValue(encoded json.RawMessage, index int, playlistID, playlist
 	if !ok {
 		return value.Missing(), &Error{Category: ErrorInternal, Op: "decode playlist entry metadata", Err: extractor.ErrInvalidMetadata}
 	}
-	object.Set("playlist_index", value.Int(int64(index)))
-	if playlistID != "" {
-		object.Set("playlist_id", value.String(playlistID))
-	}
-	if playlistTitle != "" {
-		object.Set("playlist_title", value.String(playlistTitle))
-	}
+	addPlaylistEntryFields(object, index, playlistID, playlistTitle)
 	return value.ObjectValue(object), nil
 }
 

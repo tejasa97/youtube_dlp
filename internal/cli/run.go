@@ -87,6 +87,11 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	})
 	playlistItems := flags.String("playlist-items", "", "comma-separated playlist indexes or START:END:STEP ranges")
 	flags.StringVar(playlistItems, "I", "", "alias for --playlist-items")
+	flatPlaylist := flags.Bool("flat-playlist", false, "list playlist entries without recursively extracting them")
+	flags.BoolFunc("no-flat-playlist", "fully extract playlist entries (default)", func(string) error {
+		*flatPlaylist = false
+		return nil
+	})
 	format := flags.String("format", "", "format selector expression")
 	flags.StringVar(format, "f", "", "alias for --format")
 	var formatSort, matchFilters, parseMetadata, replaceMetadata stringListFlag
@@ -234,7 +239,9 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 			WriteManual: *writeSubtitles, WriteAutomatic: *writeAutomaticSubtitles,
 			Languages: subtitleLanguageRules(subtitleLanguages, *allSubtitles), Format: *subtitleFormat,
 		},
-		Playlist:   ytdlp.PlaylistOptions{Start: *playlistStart, End: *playlistEnd, Reverse: *playlistReverse, Items: *playlistItems},
+		Playlist: ytdlp.PlaylistOptions{
+			Start: *playlistStart, End: *playlistEnd, Reverse: *playlistReverse, Items: *playlistItems, Flat: *flatPlaylist,
+		},
 		Downloader: downloaderOptions, Postprocessors: postprocessors,
 	})
 	if telemetryCollector != nil {

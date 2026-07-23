@@ -1,0 +1,10 @@
+{
+  "items": "2,4",
+  "reverse": true,
+  "entries": [
+    {"id": "item-4", "playlist_index": 4, "type": "url_transparent", "extractor_key": "generic"},
+    {"id": "item-2", "playlist_index": 2, "type": "url_transparent", "extractor_key": "generic"}
+  ],
+  "child_extractions": 0,
+  "child_downloads": 0
+}
