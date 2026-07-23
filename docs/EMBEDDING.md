@@ -158,6 +158,12 @@ format preferences are slash-separated. Sidecars are reported as subtitle
 artifacts and can still be written when `SkipDownload` is true. See [YouTube
 subtitle CLI evidence](YOUTUBE_SUBTITLE_CLI_EVIDENCE.md).
 
+Set `Request.Simulate` when extraction and normalized metadata are needed
+without any media, subtitle, download-archive, or postprocessor output
+artifacts. This is intentionally distinct from `SkipDownload`, which suppresses
+only the media download and permits related-file writes. See [YouTube subtitle
+listing evidence](YOUTUBE_SUBTITLE_LISTING_EVIDENCE.md).
+
 ## Updater
 
 OpenUpdater accepts caller-owned threshold trust and an explicit health

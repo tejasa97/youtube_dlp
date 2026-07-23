@@ -99,6 +99,7 @@ func TestRunHelpIsCurrentAndSuccessful(t *testing.T) {
 	if !strings.Contains(stderr.String(), "Usage: ytdlp-go") ||
 		!strings.Contains(stderr.String(), "Experimental Python-free Go implementation") ||
 		!strings.Contains(stderr.String(), "live-from-start") ||
+		!strings.Contains(stderr.String(), "no-simulate") ||
 		strings.Contains(stderr.String(), "Phase 2 alpha development") {
 		t.Fatalf("help is stale: %q", stderr.String())
 	}
@@ -515,6 +516,108 @@ func TestRunListSubsSimulatesAndPreservesOutputChannels(t *testing.T) {
 	}
 	if !strings.Contains(quietOut.String(), "Language") || !strings.Contains(quietErr.String(), "Available subtitles") || strings.Contains(quietErr.String(), "Extracting") {
 		t.Fatalf("quiet stdout=%q stderr=%q", quietOut.String(), quietErr.String())
+	}
+}
+
+func TestRunSimulationTriStateAndSkipDownloadRemainDistinct(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	mediaName := "Deterministic Fixture.bin"
+	tests := []struct {
+		name       string
+		arguments  []string
+		wantMedia  bool
+		wantManual bool
+	}{
+		{
+			name:      "explicit simulate",
+			arguments: []string{"--simulate", "--write-subs"},
+		},
+		{
+			name:      "short simulate alias wins last",
+			arguments: []string{"--no-simulate", "-s"},
+		},
+		{
+			name:      "explicit no-simulate wins last",
+			arguments: []string{"--simulate", "--no-simulate"},
+			wantMedia: true,
+		},
+		{
+			name:      "false positive form disables simulation",
+			arguments: []string{"--simulate=false"},
+			wantMedia: true,
+		},
+		{
+			name:      "negative false form enables simulation",
+			arguments: []string{"--no-simulate=false"},
+		},
+		{
+			name:       "skip download still writes related files",
+			arguments:  []string{"--no-download", "--write-subs", "--sub-langs", "es"},
+			wantManual: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			arguments := append([]string{"--output-dir", root}, test.arguments...)
+			arguments = append(arguments, server.URL+"/page")
+			var stdout, stderr bytes.Buffer
+			if code := Run(arguments, &stdout, &stderr); code != 0 {
+				t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+			}
+			assertPathExists(t, filepath.Join(root, mediaName), test.wantMedia)
+			assertPathExists(t, filepath.Join(root, "Deterministic Fixture.es.vtt"), test.wantManual)
+		})
+	}
+}
+
+func TestRunListSubsNoSimulateDownloadsAndHonorsSubtitleWrites(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"--list-subs", "--no-simulate", "--write-subs", "--sub-langs", "es",
+		"--output-dir", root, server.URL + "/page",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Language") {
+		t.Fatalf("missing subtitle listing: %q", stdout.String())
+	}
+	assertPathExists(t, filepath.Join(root, "Deterministic Fixture.bin"), true)
+	assertPathExists(t, filepath.Join(root, "Deterministic Fixture.es.vtt"), true)
+}
+
+func TestRunCommandLineNoSimulateOverridesInheritedSimulation(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "yt-dlp.conf")
+	if err := os.WriteFile(configPath, []byte("--simulate\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"--config-location", configPath, "--list-subs", "--no-simulate",
+		"--output-dir", root, server.URL + "/page",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	assertPathExists(t, filepath.Join(root, "Deterministic Fixture.bin"), true)
+}
+
+func assertPathExists(t *testing.T, path string, want bool) {
+	t.Helper()
+	_, err := os.Stat(path)
+	if want && err != nil {
+		t.Fatalf("%s: %v", path, err)
+	}
+	if !want && !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("%s unexpectedly exists: %v", path, err)
 	}
 }
 
