@@ -11,7 +11,9 @@ ordered video/Short URL entries, metadata extraction, and lazy reusable
 `youtubei/v1/browse` continuation behavior without live access.
 
 `handle-playlists.html` and `handle-playlists-continuation.json` add the exact
-bounded ASCII `/@handle/playlists` route. They structurally model legacy
+Unicode-aware `/@handle/playlists` route. The route grammar and one-pass URL
+decoding derive from `_YT_HANDLE_RE` and `handle_or_none` in
+`yt_dlp/extractor/youtube/_base.py:599-615`. They structurally model legacy
 `playlistRenderer`/`gridPlaylistRenderer`, modern playlist and podcast
 `lockupViewModel`, both continuation action containers, and a repeated cursor.
 A video-type lockup proves that playlist tabs do not relabel videos as
