@@ -104,6 +104,8 @@ func TestExtractorFailuresAreCategorized(t *testing.T) {
 		{extractor.ErrYouTubeSearchNetwork, ErrorNetwork},
 		{extractor.ErrYouTubeHandleTabRateLimited, ErrorNetwork},
 		{extractor.ErrYouTubeHandleTabNetwork, ErrorNetwork},
+		{extractor.ErrYouTubeMusicSearchRateLimited, ErrorNetwork},
+		{extractor.ErrYouTubeMusicSearchNetwork, ErrorNetwork},
 	} {
 		if err := categorized("extract", test.err); !IsCategory(err, test.category) {
 			t.Fatalf("categorized(%v) = %v", test.err, err)
@@ -120,6 +122,7 @@ func TestProductRegistryIncludesIntegratedExtractors(t *testing.T) {
 		{"https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/videos", "youtube_channel_tab"},
 		{"https://www.youtube.com/@synthetic-handle/videos", "youtube_handle_tab"},
 		{"ytsearch5:fixture query", "youtube_search"},
+		{"https://music.youtube.com/search?q=fixture#songs", "youtube_music_search"},
 		{"https://vimeo.com/123456789", "vimeo"},
 		{"https://www.tiktok.com/@fixture/video/1234567890123456789", "tiktok"},
 		{"https://players.brightcove.net/12345/default_default/index.html?videoId=123", "brightcove"},
