@@ -54,6 +54,10 @@ rotation, and explicit resource limits. Authenticated comments, estimated
 pre-fetch counts, full handle grammar, home/community/release tabs,
 non-playable search result breadth, and live-from-start remain pending.
 
+The finite post-live DVR foundation is complete: eligible adaptive tracks use
+bounded `X-Head-Seqnum`/`sq` reconstruction and normal A/V merging. Active
+rewind, URL refresh, and the public live-from-start flags remain pending.
+
 - expand channel, tab, search, comments, and live-from-start renderers;
 - derive attributable synthetic fixtures from the pinned reference;
 - keep every compatibility claim tied to deterministic success and failure

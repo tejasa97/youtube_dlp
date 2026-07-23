@@ -185,3 +185,14 @@ directly without recategorization as `ErrChallengeSolver`, so callers can
 observe them with `errors.Is`. This guarantee applies to the `SolvePlayer`
 call in `resolveYouTubeURLs`; the `recoverYouTubeFormats` path already
 propagated context errors prior to this change.
+
+## Finite post-live DVR reconstruction
+
+The synthetic post-live fixture and protocol tests derive their status,
+`targetDurationSec`, live timestamp, `X-Head-Seqnum`, `sq`, two-sequence tail,
+and 120-hour retained-window semantics from
+`YoutubeIE._needs_live_processing`, `_prepare_live_from_start_formats`,
+`_live_adaptive_fragments`, and the live metadata assembly in
+`yt_dlp/extractor/youtube/_video.py` at the pinned commit above. Media bodies
+are locally generated and split into artificial sequence chunks; all signed
+query values and headers are inert test data.

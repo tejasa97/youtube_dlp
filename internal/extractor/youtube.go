@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ytdlp-go/ytdlp/internal/javascript/ejs"
 	"github.com/ytdlp-go/ytdlp/internal/value"
@@ -185,17 +186,42 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 	if err != nil {
 		return Extraction{}, err
 	}
+	details := firstYouTubeVideoDetails(formatPlayers)
+	if details.Title == "" {
+		return Extraction{}, fmt.Errorf("%w: missing title", ErrInvalidMetadata)
+	}
+	liveStatus := youtubeLiveStatusFromPlayers(formatPlayers)
+	startTimestamp, hasStart := firstYouTubeLiveTimestamp(formatPlayers, true)
+	endTimestamp, hasEnd := firstYouTubeLiveTimestamp(formatPlayers, false)
+	duration, hasDuration := int64(0), false
+	if parsed, parseErr := strconv.ParseInt(details.LengthSeconds, 10, 64); parseErr == nil && parsed >= 0 {
+		duration, hasDuration = parsed, true
+	} else if hasStart && hasEnd && endTimestamp >= startTimestamp {
+		duration, hasDuration = endTimestamp-startTimestamp, true
+	}
 	formatValues := make([]value.Value, 0, len(resolved)+2)
 	for _, format := range resolved {
 		if normalized, ok := normalizeYouTubeFormat(format); ok {
+			if liveStatus == "post_live" && format.TargetDurationSec > 0 {
+				normalized.Set("protocol", value.String("http_dash_segments"))
+				normalized.Set("target_duration", value.Float(format.TargetDurationSec))
+				normalized.Set("_youtube_post_live", value.Bool(true))
+				if hasStart {
+					normalized.Set("live_start_timestamp", value.Int(startTimestamp))
+				}
+			} else if liveStatus == "post_live" {
+				// Keep incomplete current-edge formats available for explicit
+				// format-ID selection while preferring the finite DVR tracks.
+				normalized.Set("preference", value.Int(-10))
+			}
 			formatValues = append(formatValues, value.ObjectValue(normalized))
 		}
 	}
 	for _, candidate := range formatPlayers {
-		if candidate.StreamingData.HLSManifestURL != "" {
+		if liveStatus != "post_live" && candidate.StreamingData.HLSManifestURL != "" {
 			formatValues = append(formatValues, value.ObjectValue(manifestFormat("hls", candidate.StreamingData.HLSManifestURL, "m3u8_native")))
 		}
-		if candidate.StreamingData.DASHManifestURL != "" {
+		if candidate.StreamingData.DASHManifestURL != "" && !(liveStatus == "post_live" && hasDuration && duration > 2*60*60) {
 			formatValues = append(formatValues, value.ObjectValue(manifestFormat("dash", candidate.StreamingData.DASHManifestURL, "http_dash_segments")))
 		}
 	}
@@ -206,10 +232,6 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 		return Extraction{}, fmt.Errorf("%w: no downloadable formats", ErrUnavailable)
 	}
 
-	details := player.VideoDetails
-	if details.Title == "" {
-		return Extraction{}, fmt.Errorf("%w: missing title", ErrInvalidMetadata)
-	}
 	info := value.NewObject(
 		value.Field{Key: "id", Value: value.String(videoID)},
 		value.Field{Key: "title", Value: value.String(details.Title)},
@@ -220,8 +242,11 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 		value.Field{Key: "ext", Value: value.String("mp4")},
 		value.Field{Key: "formats", Value: value.List(formatValues...)},
 	)
-	if duration, err := strconv.ParseInt(details.LengthSeconds, 10, 64); err == nil {
+	if hasDuration {
 		info.Set("duration", value.Int(duration))
+	}
+	if hasStart {
+		info.Set("release_timestamp", value.Int(startTimestamp))
 	}
 	if views, err := strconv.ParseInt(details.ViewCount, 10, 64); err == nil {
 		info.Set("view_count", value.Int(views))
@@ -230,7 +255,7 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 		thumbnail := details.Thumbnail.Thumbnails[len(details.Thumbnail.Thumbnails)-1]
 		info.Set("thumbnail", value.String(thumbnail.URL))
 	}
-	if liveStatus := youtubeLiveStatus(details); liveStatus != "" {
+	if liveStatus != "" {
 		info.Set("live_status", value.String(liveStatus))
 	}
 	if captionResult.subtitles.Len() != 0 {
@@ -362,6 +387,14 @@ type youtubePlayerResponse struct {
 	Captions struct {
 		Tracklist youtubeCaptionTracklist `json:"playerCaptionsTracklistRenderer"`
 	} `json:"captions"`
+	Microformat struct {
+		PlayerMicroformatRenderer struct {
+			LiveBroadcastDetails struct {
+				StartTimestamp string `json:"startTimestamp"`
+				EndTimestamp   string `json:"endTimestamp"`
+			} `json:"liveBroadcastDetails"`
+		} `json:"playerMicroformatRenderer"`
+	} `json:"microformat"`
 
 	clientName          string
 	visitorData         string
@@ -506,8 +539,8 @@ type youtubeVideoDetails struct {
 	ViewCount        string `json:"viewCount"`
 	IsLive           *bool  `json:"isLive"`
 	IsLiveContent    *bool  `json:"isLiveContent"`
-	IsUpcoming       bool   `json:"isUpcoming"`
-	IsPostLiveDVR    bool   `json:"isPostLiveDvr"`
+	IsUpcoming       *bool  `json:"isUpcoming"`
+	IsPostLiveDVR    *bool  `json:"isPostLiveDvr"`
 	Thumbnail        struct {
 		Thumbnails []struct {
 			URL string `json:"url"`
@@ -517,11 +550,11 @@ type youtubeVideoDetails struct {
 
 func youtubeLiveStatus(details youtubeVideoDetails) string {
 	switch {
-	case details.IsPostLiveDVR:
+	case details.IsPostLiveDVR != nil && *details.IsPostLiveDVR:
 		return "post_live"
 	case details.IsLive != nil && *details.IsLive:
 		return "is_live"
-	case details.IsUpcoming:
+	case details.IsUpcoming != nil && *details.IsUpcoming:
 		return "is_upcoming"
 	case details.IsLiveContent != nil && *details.IsLiveContent:
 		return "was_live"
@@ -532,22 +565,100 @@ func youtubeLiveStatus(details youtubeVideoDetails) string {
 	}
 }
 
+func firstYouTubeVideoDetails(players []youtubePlayerResponse) youtubeVideoDetails {
+	var result youtubeVideoDetails
+	for _, player := range players {
+		candidate := player.VideoDetails
+		if result.VideoID == "" {
+			result.VideoID = candidate.VideoID
+		}
+		if result.Title == "" {
+			result.Title = candidate.Title
+		}
+		if result.LengthSeconds == "" {
+			result.LengthSeconds = candidate.LengthSeconds
+		}
+		if result.Author == "" {
+			result.Author = candidate.Author
+		}
+		if result.ChannelID == "" {
+			result.ChannelID = candidate.ChannelID
+		}
+		if result.ShortDescription == "" {
+			result.ShortDescription = candidate.ShortDescription
+		}
+		if result.ViewCount == "" {
+			result.ViewCount = candidate.ViewCount
+		}
+		if len(result.Thumbnail.Thumbnails) == 0 {
+			result.Thumbnail = candidate.Thumbnail
+		}
+		if result.IsPostLiveDVR == nil && candidate.IsPostLiveDVR != nil {
+			value := *candidate.IsPostLiveDVR
+			result.IsPostLiveDVR = &value
+		}
+		if result.IsUpcoming == nil && candidate.IsUpcoming != nil {
+			value := *candidate.IsUpcoming
+			result.IsUpcoming = &value
+		}
+		if result.IsLive == nil && candidate.IsLive != nil {
+			value := *candidate.IsLive
+			result.IsLive = &value
+		}
+		if result.IsLiveContent == nil && candidate.IsLiveContent != nil {
+			value := *candidate.IsLiveContent
+			result.IsLiveContent = &value
+		}
+	}
+	return result
+}
+
+func youtubeLiveStatusFromPlayers(players []youtubePlayerResponse) string {
+	return youtubeLiveStatus(firstYouTubeVideoDetails(players))
+}
+
+func firstYouTubeLiveTimestamp(players []youtubePlayerResponse, start bool) (int64, bool) {
+	for _, player := range players {
+		details := player.Microformat.PlayerMicroformatRenderer.LiveBroadcastDetails
+		raw := details.EndTimestamp
+		if start {
+			raw = details.StartTimestamp
+		}
+		if timestamp, ok := parseYouTubeLiveTimestamp(raw); ok {
+			return timestamp, true
+		}
+	}
+	return 0, false
+}
+
+func parseYouTubeLiveTimestamp(raw string) (int64, bool) {
+	if raw == "" || len(raw) > 64 || strings.ContainsAny(raw, "\x00\r\n") {
+		return 0, false
+	}
+	parsed, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return 0, false
+	}
+	return parsed.Unix(), true
+}
+
 type youtubePlayabilityStatus struct {
 	Status string `json:"status"`
 	Reason string `json:"reason"`
 }
 
 type youtubeFormat struct {
-	Itag            int    `json:"itag"`
-	URL             string `json:"url"`
-	SignatureCipher string `json:"signatureCipher"`
-	MimeType        string `json:"mimeType"`
-	Bitrate         int64  `json:"bitrate"`
-	ContentLength   string `json:"contentLength"`
-	Width           int64  `json:"width"`
-	Height          int64  `json:"height"`
-	FPS             int64  `json:"fps"`
-	Language        string `json:"language"`
+	Itag              int     `json:"itag"`
+	URL               string  `json:"url"`
+	SignatureCipher   string  `json:"signatureCipher"`
+	MimeType          string  `json:"mimeType"`
+	Bitrate           int64   `json:"bitrate"`
+	ContentLength     string  `json:"contentLength"`
+	Width             int64   `json:"width"`
+	Height            int64   `json:"height"`
+	FPS               int64   `json:"fps"`
+	Language          string  `json:"language"`
+	TargetDurationSec float64 `json:"targetDurationSec"`
 }
 
 type pendingYouTubeFormat struct {
