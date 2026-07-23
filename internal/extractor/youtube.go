@@ -33,6 +33,7 @@ type youtubePageConfig struct {
 	PlayerJSURL        string                  `json:"PLAYER_JS_URL"`
 	VisitorData        string                  `json:"VISITOR_DATA"`
 	LoggedIn           *bool                   `json:"LOGGED_IN"`
+	APIKey             string                  `json:"INNERTUBE_API_KEY"`
 	ClientVersion      string                  `json:"INNERTUBE_CLIENT_VERSION"`
 	ContextClientName  json.RawMessage         `json:"INNERTUBE_CONTEXT_CLIENT_NAME"`
 	SessionIndex       json.RawMessage         `json:"SESSION_INDEX"`
@@ -339,8 +340,16 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 	result := Media(value.NewInfo(info))
 	if request.YouTubeComments.Enabled {
 		options := request.YouTubeComments
+		var commentAuth *youtubeCommentAuth
+		if pageConfig.LoggedIn != nil && *pageConfig.LoggedIn {
+			authConfig := pageConfig.webAuthConfig(
+				player.ResponseContext.VisitorData,
+				player.ResponseContext.MainAppWebResponseContext.DataSyncID,
+			)
+			commentAuth = &youtubeCommentAuth{config: &authConfig, apiKey: pageConfig.APIKey}
+		}
 		result.Enrich = func(ctx context.Context, target *value.Info) error {
-			comments, disabled, err := extractYouTubeComments(ctx, request.Transport, page, videoID, options)
+			comments, disabled, err := extractYouTubeComments(ctx, request.Transport, page, videoID, options, commentAuth)
 			if err != nil {
 				return err
 			}
@@ -613,6 +622,9 @@ func mergeYouTubePageConfig(target *youtubePageConfig, source youtubePageConfig)
 	}
 	if source.ClientVersion != "" {
 		target.ClientVersion = source.ClientVersion
+	}
+	if source.APIKey != "" {
+		target.APIKey = source.APIKey
 	}
 	if len(source.ContextClientName) > 0 {
 		target.ContextClientName = append(target.ContextClientName[:0], source.ContextClientName...)

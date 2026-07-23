@@ -70,6 +70,15 @@ type youtubeCommentLimits struct {
 	total, parents, replies, perThread, depth int
 }
 
+// youtubeCommentAuth is deliberately local to comment continuation handling.
+// The WEB authentication configuration is reusable, but the API key belongs
+// to this /next endpoint rather than to authenticated player recovery.
+// A nil value preserves the public, cookie-agnostic comment path.
+type youtubeCommentAuth struct {
+	config *youtubeWEBAuthConfig
+	apiKey string
+}
+
 func normalizeYouTubeCommentLimits(options YouTubeCommentOptions) (youtubeCommentLimits, error) {
 	limits := youtubeCommentLimits{
 		total: options.MaxComments, parents: options.MaxParents, replies: options.MaxReplies,
@@ -101,7 +110,7 @@ func normalizeYouTubeCommentLimits(options YouTubeCommentOptions) (youtubeCommen
 	return limits, nil
 }
 
-func extractYouTubeComments(ctx context.Context, transport Transport, webpage []byte, videoID string, options YouTubeCommentOptions) ([]value.Value, bool, error) {
+func extractYouTubeComments(ctx context.Context, transport Transport, webpage []byte, videoID string, options YouTubeCommentOptions, authenticated *youtubeCommentAuth) ([]value.Value, bool, error) {
 	if !options.Enabled {
 		return nil, false, nil
 	}
@@ -118,6 +127,16 @@ func extractYouTubeComments(ctx context.Context, transport Transport, webpage []
 	}
 
 	config := extractYouTubePlaylistConfig(webpage)
+	if authenticated != nil {
+		// Keep the page-derived endpoint key separate from the reusable WEB
+		// authentication configuration. A bounded multi-ytcfg discovery result
+		// supplied by the caller takes precedence over the legacy local parser.
+		apiKey := authenticated.apiKey
+		if apiKey == "" {
+			apiKey = config.APIKey
+		}
+		authenticated = &youtubeCommentAuth{config: authenticated.config, apiKey: apiKey}
+	}
 	initial := extractYouTubeInitialCommentContinuation(webpage)
 	if initial.token == "" {
 		initial = youtubeCommentContinuation{token: generateYouTubeCommentContinuation(videoID), parent: "root", depth: 1}
@@ -154,7 +173,7 @@ func extractYouTubeComments(ctx context.Context, transport Transport, webpage []
 			return nil
 		}
 		seenTokens[tokenKey] = struct{}{}
-		page, err := fetchYouTubeCommentPage(ctx, transport, continuation, visitorData, config, &requestAttempts)
+		page, err := fetchYouTubeCommentPage(ctx, transport, continuation, visitorData, config, authenticated, &requestAttempts)
 		if err != nil {
 			return err
 		}
@@ -275,11 +294,14 @@ func generateYouTubeCommentContinuation(videoID string) string {
 	return base64.StdEncoding.EncodeToString([]byte(raw))
 }
 
-func fetchYouTubeCommentPage(ctx context.Context, transport Transport, continuation youtubeCommentContinuation, visitorData string, config youtubePlaylistConfig, requestAttempts *int) (youtubeCommentPage, error) {
+func fetchYouTubeCommentPage(ctx context.Context, transport Transport, continuation youtubeCommentContinuation, visitorData string, config youtubePlaylistConfig, authenticated *youtubeCommentAuth, requestAttempts *int) (youtubeCommentPage, error) {
 	if validYouTubeContinuationToken(continuation.token) == "" {
 		return youtubeCommentPage{}, fmt.Errorf("%w: invalid YouTube comment continuation", ErrInvalidPlaylist)
 	}
 	version := config.ClientVersion
+	if authenticated != nil && authenticated.config != nil && authenticated.config.ClientVersion != "" {
+		version = authenticated.config.ClientVersion
+	}
 	if version == "" {
 		version = youtubeDefaultClientVersion
 	}
@@ -300,18 +322,14 @@ func fetchYouTubeCommentPage(ctx context.Context, transport Transport, continuat
 	endpoint, _ := url.Parse("https://www.youtube.com/youtubei/v1/next")
 	query := endpoint.Query()
 	query.Set("prettyPrint", "false")
-	if config.APIKey != "" {
-		query.Set("key", config.APIKey)
+	apiKey := config.APIKey
+	if authenticated != nil {
+		apiKey = authenticated.apiKey
+	}
+	if apiKey != "" {
+		query.Set("key", apiKey)
 	}
 	endpoint.RawQuery = query.Encode()
-	headers := make(http.Header)
-	headers.Set("Content-Type", "application/json")
-	headers.Set("Origin", "https://www.youtube.com")
-	headers.Set("X-Youtube-Client-Name", "1")
-	headers.Set("X-Youtube-Client-Version", version)
-	if visitorData != "" {
-		headers.Set("X-Goog-Visitor-Id", visitorData)
-	}
 	var lastErr error
 	for attempt := 0; attempt < maxYouTubeCommentAttempts; attempt++ {
 		if requestAttempts == nil || *requestAttempts >= maxYouTubeCommentPages {
@@ -319,15 +337,38 @@ func fetchYouTubeCommentPage(ctx context.Context, transport Transport, continuat
 		}
 		*requestAttempts++
 		var response json.RawMessage
-		if err := RequestJSON(ctx, transport, http.MethodPost, endpoint.String(), body, headers, &response); err != nil {
-			lastErr = err
-			if attempt+1 < maxYouTubeCommentAttempts && retryableYouTubeCommentError(err) {
+		var requestErr error
+		if authenticated != nil {
+			if authenticated.config == nil {
+				return youtubeCommentPage{}, ErrAuthentication
+			}
+			authConfig := *authenticated.config
+			// Continuation responses can rotate visitor data. Every subsequent
+			// authenticated request uses that value both in the JSON context and
+			// X-Goog-Visitor-Id generated by the auth helper.
+			authConfig.VisitorData = visitorData
+			authConfig.ClientVersion = version
+			requestErr = requestAuthenticatedYouTubeWEBNext(ctx, transport, endpoint.String(), body, authConfig, time.Now, &response)
+		} else {
+			headers := make(http.Header)
+			headers.Set("Content-Type", "application/json")
+			headers.Set("Origin", "https://www.youtube.com")
+			headers.Set("X-Youtube-Client-Name", "1")
+			headers.Set("X-Youtube-Client-Version", version)
+			if visitorData != "" {
+				headers.Set("X-Goog-Visitor-Id", visitorData)
+			}
+			requestErr = RequestJSON(ctx, transport, http.MethodPost, endpoint.String(), body, headers, &response)
+		}
+		if requestErr != nil {
+			lastErr = requestErr
+			if attempt+1 < maxYouTubeCommentAttempts && retryableYouTubeCommentError(requestErr) {
 				if err := waitYouTubeCommentRetry(ctx, attempt); err != nil {
 					return youtubeCommentPage{}, err
 				}
 				continue
 			}
-			return youtubeCommentPage{}, categorizeYouTubeCommentError(err)
+			return youtubeCommentPage{}, categorizeYouTubeCommentError(requestErr)
 		}
 		page, err := parseYouTubeCommentPageFor(response, continuation.parent, continuation.depth)
 		if err == nil {
@@ -357,7 +398,9 @@ func waitYouTubeCommentRetry(ctx context.Context, attempt int) error {
 
 func retryableYouTubeCommentError(err error) bool {
 	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
-		errors.Is(err, ErrJSONResponseTooLarge) {
+		errors.Is(err, ErrJSONResponseTooLarge) || errors.Is(err, ErrInvalidMetadata) ||
+		errors.Is(err, ErrAuthentication) ||
+		errors.Is(err, ErrUnavailable) || errors.Is(err, ErrInvalidPlaylist) {
 		return false
 	}
 	var status *HTTPStatusError

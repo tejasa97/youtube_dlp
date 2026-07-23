@@ -763,6 +763,7 @@ func TestYouTubePageConfigParsingIsStructuredAndBounded(t *testing.T) {
 
 func TestYouTubePageConfigBuildsBoundedWEBAuthContext(t *testing.T) {
 	page := []byte(`ytcfg.set({
+		"INNERTUBE_API_KEY":"fixture-api-key",
 		"INNERTUBE_CONTEXT_CLIENT_NAME":1,
 		"INNERTUBE_CLIENT_VERSION":"2.fixture",
 		"SESSION_INDEX":"3",
@@ -776,6 +777,9 @@ func TestYouTubePageConfigBuildsBoundedWEBAuthContext(t *testing.T) {
 		config.DelegatedSessionID != "delegated" || config.UserSessionID != "user" ||
 		config.SessionIndex != "3" || !config.LoggedIn {
 		t.Fatalf("auth config = %#v", config)
+	}
+	if discovered := discoverYouTubePageConfig(page); discovered.APIKey != "fixture-api-key" {
+		t.Fatalf("API key = %q", discovered.APIKey)
 	}
 	responseFallback := discoverYouTubePageConfig([]byte(`ytcfg.set({
 		"INNERTUBE_CONTEXT_CLIENT_NAME":1,
@@ -1145,6 +1149,95 @@ func TestYouTubeAuthenticatedWEBRecoveryUsesProductionCookieJarAndNoRedirectPath
 	formats, _ := result.Info.Formats()
 	if len(formats) != 1 || playerRequests != 1 {
 		t.Fatalf("formats = %#v player requests = %d", formats, playerRequests)
+	}
+}
+
+func TestYouTubeAuthenticatedCommentsUseProductionCookieJarAndNoRedirectPath(t *testing.T) {
+	page := []byte(`<!doctype html><script>
+		ytcfg.set({
+			"INNERTUBE_API_KEY":"fixture-comment-key",
+			"INNERTUBE_CLIENT_VERSION":"2.fixture-comments",
+			"INNERTUBE_CONTEXT_CLIENT_NAME":1,
+			"VISITOR_DATA":"visitor-initial",
+			"LOGGED_IN":true,
+			"INNERTUBE_CONTEXT":{"client":{"clientName":"WEB"}}
+		});
+		var ytInitialPlayerResponse={
+			"playabilityStatus":{"status":"OK"},
+			"videoDetails":{"videoId":"fixture0001","title":"Authenticated comments fixture"},
+			"streamingData":{"formats":[{
+				"itag":18,
+				"url":"https://media.example/video.mp4",
+				"mimeType":"video/mp4; codecs=\"avc1.42001E, mp4a.40.2\""
+			}]}
+		};
+		var ytInitialData={"contents":{"twoColumnWatchNextResults":{"results":{"results":{"contents":[{
+			"itemSectionRenderer":{
+				"sectionIdentifier":"comment-item-section",
+				"contents":[{"continuationItemRenderer":{"continuationEndpoint":{
+					"continuationCommand":{"token":"initial-comments-token"}
+				}}}]
+			}
+		}]}}}}};
+	</script>`)
+	var nextRequests int
+	transport, err := network.New(network.Config{
+		DefaultHeaders: http.Header{"Cookie": {"default-cookie=must-not-send"}},
+		RoundTripper: youtubeRoundTripperFunc(func(request *http.Request) (*http.Response, error) {
+			var body []byte
+			switch {
+			case request.Method == http.MethodGet && request.URL.String() == youtubeFixtureURL:
+				body = page
+			case request.Method == http.MethodPost && request.URL.Path == "/youtubei/v1/next":
+				nextRequests++
+				cookie := request.Header.Get("Cookie")
+				if !strings.Contains(cookie, "LOGIN_INFO=logged-in") ||
+					!strings.Contains(cookie, "SAPISID=secret-sid") ||
+					strings.Contains(cookie, "default-cookie") {
+					return nil, errors.New("unexpected authenticated comment cookies")
+				}
+				if request.Header.Get("Authorization") == "" ||
+					request.Header.Get("X-Origin") != youtubeAuthOrigin ||
+					request.URL.Query().Get("key") != "fixture-comment-key" {
+					return nil, errors.New("missing authenticated comment request data")
+				}
+				body = readYouTubeFixture(t, "comments-page-2.json")
+			default:
+				return nil, fmt.Errorf("unexpected request %s %s", request.Method, request.URL)
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(bytes.NewReader(body)),
+				Header:     make(http.Header),
+				Request:    request,
+			}, nil
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := transport.AddCookies([]*http.Cookie{
+		{Name: "LOGIN_INFO", Value: "logged-in", Domain: ".youtube.com", Path: "/", Secure: true},
+		{Name: "SAPISID", Value: "secret-sid", Domain: ".youtube.com", Path: "/", Secure: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := NewYouTube().Extract(context.Background(), Request{
+		URL: youtubeFixtureURL, Transport: transport,
+		YouTubeComments: YouTubeCommentOptions{Enabled: true, MaxComments: 1},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Enrich == nil {
+		t.Fatal("missing comment enricher")
+	}
+	if err := result.Enrich(context.Background(), &result.Info); err != nil {
+		t.Fatal(err)
+	}
+	comments, ok := result.Info.Fields().Lookup("comments").ListValue()
+	if !ok || len(comments) != 1 || nextRequests != 1 {
+		t.Fatalf("comments = %#v next requests = %d", comments, nextRequests)
 	}
 }
 
