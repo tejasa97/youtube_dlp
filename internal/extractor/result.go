@@ -21,11 +21,20 @@ var (
 // Extraction is either one media item or a playlist. Playlist entries remain
 // lazy until a caller asks the Entries sequence for an iterator.
 type Extraction struct {
-	Info    value.Info
-	Entries EntrySequence
+	Info     value.Info
+	Entries  EntrySequence
+	Redirect *Entry
 }
 
 func Media(info value.Info) Extraction { return Extraction{Info: info} }
+
+func URLResult(entry Entry) (Extraction, error) {
+	if entry.URL == "" {
+		return Extraction{}, fmt.Errorf("%w: missing URL result target", ErrInvalidPlaylist)
+	}
+	cloned := entry
+	return Extraction{Redirect: &cloned}, nil
+}
 
 func Playlist(info value.Info, entries EntrySequence) (Extraction, error) {
 	if entries == nil {
@@ -37,6 +46,7 @@ func Playlist(info value.Info, entries EntrySequence) (Extraction, error) {
 }
 
 func (result Extraction) IsPlaylist() bool { return result.Entries != nil }
+func (result Extraction) IsURL() bool      { return result.Redirect != nil }
 
 // Entry mirrors yt-dlp's lazy URL result. Resolution and nested playlist
 // expansion are owned by the product registry rather than the producing site.
