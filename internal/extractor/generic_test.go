@@ -257,6 +257,35 @@ func TestGenericJSONLDInvalidExtendedMetadataIsIgnored(t *testing.T) {
 	}
 }
 
+func TestGenericJSONLDTimestampPinnedISOAndCompactCorpus(t *testing.T) {
+	tests := []struct {
+		input string
+		want  int64
+	}{
+		{"2026-07-01T12:34:56.123456789+0530", time.Date(2026, 7, 1, 7, 4, 56, 123456789, time.UTC).Unix()},
+		{"2026-07-01 12:34:56-04:00", time.Date(2026, 7, 1, 16, 34, 56, 0, time.UTC).Unix()},
+		{"2026-07-01T12:34:56.25", time.Date(2026, 7, 1, 12, 34, 56, 250000000, time.UTC).Unix()},
+		{"2026/07/01 12:34", time.Date(2026, 7, 1, 12, 34, 0, 0, time.UTC).Unix()},
+		{"20260701123456", time.Date(2026, 7, 1, 12, 34, 56, 0, time.UTC).Unix()},
+		{"  2026-07-01   12:34:56  ", time.Date(2026, 7, 1, 12, 34, 56, 0, time.UTC).Unix()},
+	}
+	for _, test := range tests {
+		t.Run(test.input, func(t *testing.T) {
+			timestamp := genericJSONLDTimestamp(test.input)
+			if timestamp == nil || *timestamp != test.want {
+				t.Fatalf("timestamp = %v, want %d", timestamp, test.want)
+			}
+		})
+	}
+	for _, input := range []string{
+		"not-a-date", "1960-01-01T00:00:00Z", strings.Repeat("2", 129),
+	} {
+		if timestamp := genericJSONLDTimestamp(input); timestamp != nil {
+			t.Fatalf("timestamp for %q = %d", input, *timestamp)
+		}
+	}
+}
+
 func TestGenericJSONLDRatingsAndInteractionStatistics(t *testing.T) {
 	page := []byte(`<script type="application/ld+json">{
 		"@context":"https://schema.org","@type":"VideoObject",
