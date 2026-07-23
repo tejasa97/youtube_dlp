@@ -57,6 +57,8 @@ protected-playback workstream. The following are supported:
 - explicit public channel tabs at
   `/channel/<UCID>/{videos,shorts,streams}`, including bounded lazy
   continuation paging;
+- explicit public ASCII-handle tabs at
+  `/@handle/{videos,shorts,streams}`, including bounded lazy continuation;
 - bounded public video searches using `ytsearch:`, `ytsearchN:`,
   `ytsearchall:` (capped at 50), and exact `/results` or `/search` URLs;
 - channel live aliases (`@handle/live`, `/channel/<id>/live`, `/user/<name>/live`,
@@ -77,8 +79,9 @@ protected-playback workstream. The following are supported:
 
 The following limitations are intentional and remain:
 
-- no general channel discovery or arbitrary tab enumeration: handles, channel
-  home, community, playlist, and release tabs are not extracted as playlists;
+- no general channel discovery or arbitrary tab enumeration: Unicode/full
+  handles, channel home, community, playlist, and release tabs, plus `/user`
+  and `/c` tabs, are not extracted as playlists;
 - search does not cover YouTube Music, channel/playlist/hashtag results,
   authenticated search, or arbitrary filter/sort parity;
 - no live-from-start parity (post-live DVR segments and live rewinds are not
@@ -97,6 +100,7 @@ This is not a claim of full yt-dlp or full YouTube parity. Coverage is
 limited to the deterministic corpus checked into
 `conformance/extractors/youtube/`,
 `conformance/extractors/youtube_channel/`,
+`conformance/extractors/youtube_handle_tab/`,
 `conformance/extractors/youtube_search/`, and the bounded evidence listed in
 `conformance/parity_manifest.yaml`.
 
