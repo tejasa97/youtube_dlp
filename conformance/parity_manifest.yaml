@@ -431,6 +431,10 @@ capabilities:
       - internal/extractor.TestYouTubeSearchTargetHostileAndRouting
       - internal/extractor.TestYouTubeSearchTargetCounts
       - internal/extractor.TestYouTubeSearchFailures
+      - internal/extractor.TestYouTubeMusicSearchSectionsPagingAndRequest
+      - internal/extractor.TestYouTubeMusicSearchLazyReusableAndCancellation
+      - internal/extractor.TestYouTubeMusicSearchTargetPolicy
+      - internal/extractor.TestYouTubeMusicSearchErrorsAndAlerts
       - internal/extractor.TestYouTubeExtractsLiveHLSAndClassifiesLiveStates
       - internal/extractor.TestRequestJSONBoundsStatusAndSyntax
       - internal/extractor.FuzzParseYouTubePlaylistData
@@ -440,6 +444,8 @@ capabilities:
       - internal/extractor.FuzzYouTubeHandleTabTarget
       - internal/extractor.FuzzParseYouTubeSearchData
       - internal/extractor.FuzzYouTubeSearchTarget
+      - internal/extractor.FuzzParseYouTubeMusicSearchData
+      - internal/extractor.FuzzYouTubeMusicSearchTarget
       - internal/extractor.FuzzDiscoverYouTubePageConfig
       - internal/extractor.FuzzParseYouTubeCaptionURL
       - internal/extractor.FuzzNormalizeYouTubeCaptionTrack
@@ -483,6 +489,7 @@ capabilities:
       - conformance/extractors/youtube_channel/PROVENANCE.md
       - conformance/extractors/youtube_handle_tab/PROVENANCE.md
       - conformance/extractors/youtube_search/PROVENANCE.md
+      - conformance/extractors/youtube_music_search/PROVENANCE.md
       - docs/YOUTUBE_POT_EVIDENCE.md
       - docs/YOUTUBE_CAPTIONS_EVIDENCE.md
       - docs/YOUTUBE_SUBTITLE_CLI_EVIDENCE.md
@@ -490,12 +497,13 @@ capabilities:
       - docs/YOUTUBE_CHANNEL_EVIDENCE.md
       - docs/YOUTUBE_HANDLE_TAB_EVIDENCE.md
       - docs/YOUTUBE_SEARCH_EVIDENCE.md
+      - docs/YOUTUBE_MUSIC_SEARCH_EVIDENCE.md
       - docs/YOUTUBE_PROTECTED_PLAYBACK_PLAN.md
     owner: extractors
     depends_on:
       - javascript.ejs
       - extractor.playlists
-    known_deviation: Compatibility is scoped to the pinned video, playlist-continuation, exact public UCID and bounded ASCII `@handle` `/videos`, `/shorts`, and `/streams` tabs, bounded public `ytsearch` and results-URL video search, live-HLS, structured player-config discovery, native-client recovery, manual/automatic/translated caption renderer, bounded subtitle listing and sidecar selection/download, and explicit native-Go PO-token provider corpus. Anonymous visitor identity is propagated across bounded, cookie-isolated Android and Android VR requests, enabling URL-bearing adaptive video/audio recovery. Player, GVS, and subtitle token placement is supported through an embedding-provided Go provider; no built-in generator, implicit endpoint, executable, Python bridge, persistent cache, or upstream external-provider protocol is claimed. Authenticated pages fail explicitly instead of leaking browser cookies to clients that do not support them or silently substituting an anonymous session. Existing sidecars fail closed unless overwrite is enabled. Search is capped at 50 results and does not claim YouTube Music, channel/playlist/hashtag results, or arbitrary filter parity. Unicode/full handle grammar, handle home/community/playlist/release tabs, `/user` and `/c` tabs, CLI subtitle conversion/embedding, `--no-simulate` listing, Python-regex-only language rules, direct SABR transport, authenticated Innertube clients, comments, live-from-start, and broader player/renderer variants remain pending.
+    known_deviation: Compatibility is scoped to the pinned video, playlist-continuation, exact public UCID and bounded ASCII `@handle` `/videos`, `/shorts`, and `/streams` tabs, bounded public `ytsearch` and results-URL video search, bounded playable YouTube Music default/song/video search, live-HLS, structured player-config discovery, native-client recovery, manual/automatic/translated caption renderer, bounded subtitle listing and sidecar selection/download, and explicit native-Go PO-token provider corpus. Anonymous visitor identity is propagated across bounded, cookie-isolated Android and Android VR requests, enabling URL-bearing adaptive video/audio recovery. Player, GVS, and subtitle token placement is supported through an embedding-provided Go provider; no built-in generator, implicit endpoint, executable, Python bridge, persistent cache, or upstream external-provider protocol is claimed. Authenticated pages fail explicitly instead of leaking browser cookies to clients that do not support them or silently substituting an anonymous session. Existing sidecars fail closed unless overwrite is enabled. Search is capped at 50 results; general search does not claim channel/playlist/hashtag results or arbitrary filter parity, while Music search excludes albums, artists, playlists, podcasts, arbitrary filters, and authenticated/premium success. Unicode/full handle grammar, handle home/community/playlist/release tabs, `/user` and `/c` tabs, CLI subtitle conversion/embedding, `--no-simulate` listing, Python-regex-only language rules, direct SABR transport, authenticated Innertube clients, comments, live-from-start, and broader player/renderer variants remain pending.
 
   - id: extractor.playlists
     name: Playlist extraction model
