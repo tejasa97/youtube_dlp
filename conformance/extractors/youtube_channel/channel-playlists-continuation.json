@@ -1,0 +1,13 @@
+{
+  "responseContext": {"visitorData": "channel-visitor-rotated"},
+  "onResponseReceivedActions": [{
+    "appendContinuationItemsAction": {
+      "continuationItems": [
+        {"playlistRenderer":{"playlistId":"PLchannelLegacy003","title":{"runs":[{"text":"Continued channel playlist"}]}}},
+        {"lockupViewModel":{"contentId":"PLchannelPodcast004","contentType":"LOCKUP_CONTENT_TYPE_PODCAST","metadata":{"lockupMetadataViewModel":{"title":{"content":"Channel podcast"}}}}},
+        {"gridPlaylistRenderer":{"playlistId":"PLchannelLegacy001","title":{"simpleText":"Repeated channel playlist"}}},
+        {"continuationItemRenderer":{"continuationEndpoint":{"continuationCommand":{"token":"next-channel-playlists"}}}}
+      ]
+    }
+  }]
+}

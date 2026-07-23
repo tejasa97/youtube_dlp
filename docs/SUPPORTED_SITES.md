@@ -55,10 +55,11 @@ protected-playback workstream. The following are supported:
 - playlists (`youtube.com/playlist?list=...`) including modern
   `lockupViewModel` playlist renderers and continuation paging;
 - explicit public channel tabs at
-  `/channel/<UCID>/{videos,shorts,streams}`, including bounded lazy
+  `/channel/<UCID>/{videos,shorts,streams,playlists}`, including bounded lazy
   continuation paging;
 - explicit public ASCII-handle tabs at
-  `/@handle/{videos,shorts,streams}`, including bounded lazy continuation;
+  `/@handle/{videos,shorts,streams,playlists}`, including bounded lazy
+  continuation;
 - bounded public video searches using `ytsearch:`, `ytsearchN:`,
   `ytsearchall:` (capped at 50), and exact `/results` or `/search` URLs;
 - bounded playable YouTube Music searches at `music.youtube.com/search`,
@@ -84,8 +85,8 @@ protected-playback workstream. The following are supported:
 The following limitations are intentional and remain:
 
 - no general channel discovery or arbitrary tab enumeration: Unicode/full
-  handles, channel home, community, playlist, and release tabs, plus `/user`
-  and `/c` tabs, are not extracted as playlists;
+  handles, channel home, community, and release tabs, plus `/user` and `/c`
+  tabs, are not extracted as playlists;
 - general search does not cover channel/playlist/hashtag results,
   authenticated search, or arbitrary filter/sort parity; Music search excludes
   albums, artists, playlists, podcasts, arbitrary filters, and

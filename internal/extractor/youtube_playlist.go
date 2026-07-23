@@ -62,8 +62,12 @@ func extractYouTubePlaylist(ctx context.Context, request Request, playlistID str
 		return Extraction{}, fmt.Errorf("%w: missing playlist metadata", ErrInvalidMetadata)
 	}
 	config := extractYouTubePlaylistConfig(page)
-	sequence, err := ContinuationEntries(parsed.entries, parsed.continuation, func(ctx context.Context, token string) ([]Entry, string, error) {
-		return fetchYouTubePlaylistContinuation(ctx, request.Transport, token, config)
+	visitorData := parsed.visitorData
+	if visitorData == "" {
+		visitorData = config.VisitorData
+	}
+	sequence, err := StatefulContinuationEntries(parsed.entries, parsed.continuation, visitorData, func(ctx context.Context, token, visitorData string) ([]Entry, string, string, error) {
+		return fetchYouTubePlaylistContinuation(ctx, request.Transport, token, visitorData, config)
 	})
 	if err != nil {
 		return Extraction{}, err
@@ -77,7 +81,7 @@ func extractYouTubePlaylist(ctx context.Context, request Request, playlistID str
 	return Playlist(info, sequence)
 }
 
-func fetchYouTubePlaylistContinuation(ctx context.Context, transport Transport, token string, config youtubePlaylistConfig) ([]Entry, string, error) {
+func fetchYouTubePlaylistContinuation(ctx context.Context, transport Transport, token, visitorData string, config youtubePlaylistConfig) ([]Entry, string, string, error) {
 	clientVersion := config.ClientVersion
 	if clientVersion == "" {
 		clientVersion = youtubeDefaultClientVersion
@@ -99,11 +103,11 @@ func fetchYouTubePlaylistContinuation(ctx context.Context, transport Transport, 
 	payload := requestBody{Continuation: token}
 	payload.Context.Client = clientContext{
 		ClientName: "WEB", ClientVersion: clientVersion, HL: "en", TimeZone: "UTC",
-		UTCOffsetMinutes: 0, VisitorData: config.VisitorData,
+		UTCOffsetMinutes: 0, VisitorData: visitorData,
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return nil, "", fmt.Errorf("%w: encode playlist continuation", ErrInvalidMetadata)
+		return nil, "", visitorData, fmt.Errorf("%w: encode playlist continuation", ErrInvalidMetadata)
 	}
 	endpoint, _ := url.Parse(youtubePlaylistContinuationURL)
 	query := endpoint.Query()
@@ -121,18 +125,21 @@ func fetchYouTubePlaylistContinuation(ctx context.Context, transport Transport, 
 	if err := RequestJSON(ctx, transport, http.MethodPost, endpoint.String(), body, headers, &response); err != nil {
 		var status *HTTPStatusError
 		if errors.As(err, &status) && (status.Code == http.StatusUnauthorized || status.Code == http.StatusForbidden) {
-			return nil, "", ErrAuthentication
+			return nil, "", visitorData, ErrAuthentication
 		}
-		return nil, "", err
+		return nil, "", visitorData, err
 	}
 	parsed, err := parseYouTubePlaylistData(response)
 	if err != nil {
-		return nil, "", err
+		return nil, "", visitorData, err
 	}
 	if parsed.alert != "" && len(parsed.entries) == 0 {
-		return nil, "", youtubePlaylistAlertError(parsed.alert)
+		return nil, "", visitorData, youtubePlaylistAlertError(parsed.alert)
 	}
-	return parsed.entries, parsed.continuation, nil
+	if parsed.visitorData == "" {
+		parsed.visitorData = visitorData
+	}
+	return parsed.entries, parsed.continuation, parsed.visitorData, nil
 }
 
 func extractYouTubePlaylistConfig(page []byte) youtubePlaylistConfig {
@@ -160,6 +167,7 @@ type youtubePlaylistPage struct {
 	title        string
 	description  string
 	alert        string
+	visitorData  string
 }
 
 func parseYouTubePlaylistData(data []byte) (youtubePlaylistPage, error) {
@@ -170,6 +178,7 @@ func parseYouTubePlaylistData(data []byte) (youtubePlaylistPage, error) {
 	if _, ok := root.Object(); !ok {
 		return youtubePlaylistPage{}, fmt.Errorf("%w: YouTube playlist root", ErrInvalidMetadata)
 	}
+	rootObject, _ := root.Object()
 	var page youtubePlaylistPage
 	appendEntry := func(entry Entry, ok bool) {
 		if !ok {
@@ -177,45 +186,142 @@ func parseYouTubePlaylistData(data []byte) (youtubePlaylistPage, error) {
 		}
 		page.entries = append(page.entries, entry)
 	}
-	nodes := 0
-	err := walkOrderedJSON(root, 0, &nodes, func(key string, object *value.Object) {
-		switch key {
-		case "playlistVideoRenderer", "playlistPanelVideoRenderer":
-			appendEntry(youtubePlaylistEntry(object))
-		case "lockupViewModel":
-			appendEntry(youtubePlaylistLockupEntry(object))
-		case "continuationItemRenderer":
-			if token := validYouTubeContinuationToken(objectString(object, "continuationEndpoint", "continuationCommand", "token")); token != "" {
-				page.continuation = token
-			}
-		case "continuationItemViewModel":
-			if token := youtubeContinuationViewModelToken(object); token != "" {
-				page.continuation = token
-			}
-		case "nextContinuationData":
-			if token := validYouTubeContinuationToken(objectString(object, "continuation")); token != "" {
-				page.continuation = token
-			}
-		case "playlistMetadataRenderer":
-			if page.title == "" {
-				page.title = objectString(object, "title")
-				page.description = objectString(object, "description")
-			}
-		case "playlistHeaderRenderer":
-			if page.title == "" {
-				page.title = rendererText(object.Lookup("title"))
-				page.description = rendererText(object.Lookup("descriptionText"))
-			}
-		case "alertRenderer":
-			if page.alert == "" {
-				page.alert = rendererText(object.Lookup("text"))
-			}
+	captureContinuation := func(key string, object *value.Object) {
+		if token := youtubeContinuationToken(key, object); token != "" {
+			page.continuation = token
 		}
-	})
-	if err != nil {
+	}
+	parseScope := func(scope value.Value) error {
+		nodes := 0
+		return walkOrderedJSON(scope, 0, &nodes, func(key string, object *value.Object) {
+			switch key {
+			case "playlistVideoRenderer", "playlistPanelVideoRenderer":
+				appendEntry(youtubePlaylistEntry(object))
+			case "lockupViewModel":
+				appendEntry(youtubePlaylistLockupEntry(object))
+			}
+			captureContinuation(key, object)
+		})
+	}
+	contentScope := youtubePlaylistContentScope(rootObject)
+	if err := parseScope(contentScope); err != nil {
 		return youtubePlaylistPage{}, err
 	}
+	continuationNodes := 0
+	if err := walkOrderedJSON(rootObject.Lookup("continuationContents"), 0, &continuationNodes, captureContinuation); err != nil {
+		return youtubePlaylistPage{}, err
+	}
+	metadataNodes := 0
+	if err := walkOrderedJSON(rootObject.Lookup("metadata"), 0, &metadataNodes, func(key string, object *value.Object) {
+		if key == "playlistMetadataRenderer" && page.title == "" {
+			page.title = objectString(object, "title")
+			page.description = objectString(object, "description")
+		}
+	}); err != nil {
+		return youtubePlaylistPage{}, err
+	}
+	headerNodes := 0
+	if err := walkOrderedJSON(rootObject.Lookup("header"), 0, &headerNodes, func(key string, object *value.Object) {
+		if key == "playlistHeaderRenderer" && page.title == "" {
+			page.title = rendererText(object.Lookup("title"))
+			page.description = rendererText(object.Lookup("descriptionText"))
+		}
+	}); err != nil {
+		return youtubePlaylistPage{}, err
+	}
+	alertNodes := 0
+	if err := walkOrderedJSON(rootObject.Lookup("alerts"), 0, &alertNodes, func(key string, object *value.Object) {
+		if key == "alertRenderer" && page.alert == "" {
+			page.alert = rendererText(object.Lookup("text"))
+		}
+	}); err != nil {
+		return youtubePlaylistPage{}, err
+	}
+	page.visitorData = objectString(rootObject, "responseContext", "visitorData")
 	return page, nil
+}
+
+func youtubeContinuationToken(key string, object *value.Object) string {
+	switch key {
+	case "continuationItemRenderer":
+		return validYouTubeContinuationToken(objectString(object, "continuationEndpoint", "continuationCommand", "token"))
+	case "continuationItemViewModel":
+		return youtubeContinuationViewModelToken(object)
+	case "nextContinuationData":
+		return validYouTubeContinuationToken(objectString(object, "continuation"))
+	default:
+		return ""
+	}
+}
+
+// youtubePlaylistContentScope returns only the selected initial tab or the
+// first recognized continuation container. This prevents renderers from
+// unrelated tabs and action payloads from becoming playlist entries.
+func youtubePlaylistContentScope(root *value.Object) value.Value {
+	if root == nil {
+		return value.Missing()
+	}
+	contentsValue := root.Lookup("contents")
+	if contents, ok := contentsValue.Object(); ok {
+		if browse, ok := contents.Lookup("twoColumnBrowseResultsRenderer").Object(); ok {
+			if tabs, ok := browse.Lookup("tabs").ListValue(); ok {
+				for _, tab := range tabs {
+					tabObject, ok := tab.Object()
+					if !ok {
+						continue
+					}
+					renderer, ok := tabObject.Lookup("tabRenderer").Object()
+					if !ok {
+						continue
+					}
+					selected, _ := renderer.Lookup("selected").Bool()
+					if selected {
+						return renderer.Lookup("content")
+					}
+				}
+				if len(tabs) == 1 {
+					if tabObject, ok := tabs[0].Object(); ok {
+						if renderer, ok := tabObject.Lookup("tabRenderer").Object(); ok {
+							return renderer.Lookup("content")
+						}
+					}
+				}
+			}
+			return value.Missing()
+		}
+		// Compatibility fallback for bounded synthetic and legacy response
+		// shapes that expose the playlist content directly.
+		return value.ObjectValue(contents)
+	}
+	if _, ok := contentsValue.ListValue(); ok {
+		return contentsValue
+	}
+	for _, key := range []string{"onResponseReceivedActions", "onResponseReceivedEndpoints"} {
+		items, ok := root.Lookup(key).ListValue()
+		if !ok {
+			continue
+		}
+		for _, item := range items {
+			action, ok := item.Object()
+			if !ok {
+				continue
+			}
+			appendAction, ok := action.Lookup("appendContinuationItemsAction").Object()
+			if ok {
+				return appendAction.Lookup("continuationItems")
+			}
+		}
+	}
+	if continuations, ok := root.Lookup("continuationContents").Object(); ok {
+		for _, key := range []string{"playlistVideoListContinuation", "sectionListContinuation", "gridContinuation"} {
+			container, ok := continuations.Lookup(key).Object()
+			if !ok {
+				continue
+			}
+			return value.ObjectValue(container)
+		}
+	}
+	return value.ObjectValue(root)
 }
 
 func youtubeContinuationViewModelToken(viewModel *value.Object) string {
