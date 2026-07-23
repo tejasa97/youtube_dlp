@@ -180,6 +180,37 @@ func TestGenericJSONLDPrecedesOpenGraphAndPreservesMetadata(t *testing.T) {
 	if duration, ok := result.Info.Lookup("duration").Float(); !ok || duration != 62.5 {
 		t.Fatalf("duration = %v, %t", duration, ok)
 	}
+	for key, expected := range map[string]string{
+		"uploader": "Fixture Publisher",
+		"artist":   "Fixture Artist",
+	} {
+		if actual, _ := result.Info.Lookup(key).StringValue(); actual != expected {
+			t.Fatalf("%s = %q", key, actual)
+		}
+	}
+	for key, expected := range map[string]int64{
+		"timestamp":  time.Date(2026, time.July, 1, 12, 34, 56, 0, time.UTC).Unix(),
+		"filesize":   1234567,
+		"width":      1920,
+		"height":     1080,
+		"view_count": 7654,
+	} {
+		if actual, ok := result.Info.Lookup(key).Int(); !ok || actual != expected {
+			t.Fatalf("%s = %d, %t", key, actual, ok)
+		}
+	}
+	if bitrate, ok := result.Info.Lookup("tbr").Float(); !ok || bitrate != 2500.5 {
+		t.Fatalf("tbr = %v, %t", bitrate, ok)
+	}
+	tags, ok := result.Info.Lookup("tags").ListValue()
+	if !ok || len(tags) != 2 {
+		t.Fatalf("tags = %#v", tags)
+	}
+	for index, expected := range []string{"native Go", "metadata"} {
+		if actual, _ := tags[index].StringValue(); actual != expected {
+			t.Fatalf("tag[%d] = %q", index, actual)
+		}
+	}
 	formats, _ := result.Info.Lookup("formats").ListValue()
 	if len(formats) != 1 {
 		t.Fatalf("formats = %#v", formats)
@@ -187,6 +218,39 @@ func TestGenericJSONLDPrecedesOpenGraphAndPreservesMetadata(t *testing.T) {
 	format, _ := formats[0].Object()
 	if rawURL, _ := format.Lookup("url").StringValue(); rawURL != "https://publisher.invalid/media/jsonld" {
 		t.Fatalf("JSON-LD URL = %q", rawURL)
+	}
+	for key, expected := range map[string]int64{"filesize": 1234567, "width": 1920, "height": 1080} {
+		if actual, ok := format.Lookup(key).Int(); !ok || actual != expected {
+			t.Fatalf("format %s = %d, %t", key, actual, ok)
+		}
+	}
+	if bitrate, ok := format.Lookup("tbr").Float(); !ok || bitrate != 2500.5 {
+		t.Fatalf("format tbr = %v, %t", bitrate, ok)
+	}
+}
+
+func TestGenericJSONLDInvalidExtendedMetadataIsIgnored(t *testing.T) {
+	page := []byte(`<script type="application/ld+json">{
+		"@context":"https://schema.org","@type":"VideoObject",
+		"contentUrl":"/video.mp4","uploadDate":"not-a-date",
+		"contentSize":"-1","bitrate":"NaN","width":"1.5","height":0,
+		"interactionCount":"9223372036854775808","keywords":[null,{},42]
+	}</script>`)
+	result, err := NewGeneric().Extract(context.Background(), genericHTMLRequest(page))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"timestamp", "filesize", "tbr", "width", "height", "view_count", "tags"} {
+		if !result.Info.Lookup(key).IsMissing() {
+			t.Fatalf("%s unexpectedly present", key)
+		}
+	}
+	formats, _ := result.Info.Formats()
+	format, _ := formats[0].Object()
+	for _, key := range []string{"filesize", "tbr", "width", "height"} {
+		if !format.Lookup(key).IsMissing() {
+			t.Fatalf("format %s unexpectedly present", key)
+		}
 	}
 }
 
