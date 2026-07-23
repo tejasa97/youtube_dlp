@@ -301,10 +301,17 @@ capabilities:
       - internal/media/ffmpeg.FuzzRedactDiagnostic
       - internal/media/pipeline.TestDASHDownloadAndFFmpegMergeEndToEnd
       - internal/media/pipeline.TestRemuxDownloadFinalizesThenRemovesSource
+      - internal/cli.TestConvertResultSubtitlesSuccessRecursesAndUsesArgv
+      - internal/cli.TestConvertResultSubtitlesMissingToolFailureAndOverwrite
+      - internal/cli.TestConvertResultSubtitlesProcessFailurePreservesSource
+      - internal/cli.TestSubtitleConversionRejectsUnsafeAndCancellation
+      - internal/cli.TestSubtitleConversionMetadataPreflightAndRelativePaths
+      - internal/cli.FuzzSubtitleConversionPlanner
       - pkg/ytdlp.TestClientDASHMergeDispatch
       - docs/P1_MEDIA_COMPLETION.md
+      - docs/YOUTUBE_SUBTITLE_CONVERSION_EVIDENCE.md
     owner: media
-    known_deviation: The Phase 1 operation set covers probe, separate-track merge, and atomic container remux. Codec transcoding, subtitle/thumbnail embedding, and metadata rewriting remain broader postprocessor work.
+    known_deviation: The operation set covers probe, separate-track merge, atomic container remux, and bounded SRT/ASS/WebVTT sidecar conversion. Arbitrary media codec transcoding, subtitle/thumbnail embedding, and broader metadata rewriting remain postprocessor work.
 
   - id: javascript.ejs
     name: Python-free EJS execution
@@ -485,6 +492,9 @@ capabilities:
       - internal/cli.TestRenderSubtitleListingChecksCancellationWithinTracks
       - internal/cli.TestWriteSubtitleListingsUsesPlaylistEntries
       - internal/cli.FuzzRenderSubtitleListing
+      - internal/cli.TestConvertResultSubtitlesSuccessRecursesAndUsesArgv
+      - internal/cli.TestSubtitleConversionMetadataPreflightAndRelativePaths
+      - internal/cli.FuzzSubtitleConversionPlanner
       - conformance/extractors/youtube/PROVENANCE.md
       - conformance/extractors/youtube_channel/PROVENANCE.md
       - conformance/extractors/youtube_handle_tab/PROVENANCE.md
@@ -494,6 +504,7 @@ capabilities:
       - docs/YOUTUBE_CAPTIONS_EVIDENCE.md
       - docs/YOUTUBE_SUBTITLE_CLI_EVIDENCE.md
       - docs/YOUTUBE_SUBTITLE_LISTING_EVIDENCE.md
+      - docs/YOUTUBE_SUBTITLE_CONVERSION_EVIDENCE.md
       - docs/YOUTUBE_CHANNEL_EVIDENCE.md
       - docs/YOUTUBE_HANDLE_TAB_EVIDENCE.md
       - docs/YOUTUBE_SEARCH_EVIDENCE.md
@@ -503,7 +514,7 @@ capabilities:
     depends_on:
       - javascript.ejs
       - extractor.playlists
-    known_deviation: Compatibility is scoped to the pinned video, playlist-continuation, exact public UCID and bounded ASCII `@handle` `/videos`, `/shorts`, and `/streams` tabs, bounded public `ytsearch` and results-URL video search, bounded playable YouTube Music default/song/video search, live-HLS, structured player-config discovery, native-client recovery, manual/automatic/translated caption renderer, bounded subtitle listing and sidecar selection/download, and explicit native-Go PO-token provider corpus. Anonymous visitor identity is propagated across bounded, cookie-isolated Android and Android VR requests, enabling URL-bearing adaptive video/audio recovery. Player, GVS, and subtitle token placement is supported through an embedding-provided Go provider; no built-in generator, implicit endpoint, executable, Python bridge, persistent cache, or upstream external-provider protocol is claimed. Authenticated pages fail explicitly instead of leaking browser cookies to clients that do not support them or silently substituting an anonymous session. Existing sidecars fail closed unless overwrite is enabled. Search is capped at 50 results; general search does not claim channel/playlist/hashtag results or arbitrary filter parity, while Music search excludes albums, artists, playlists, podcasts, arbitrary filters, and authenticated/premium success. Unicode/full handle grammar, handle home/community/playlist/release tabs, `/user` and `/c` tabs, CLI subtitle conversion/embedding, `--no-simulate` listing, Python-regex-only language rules, direct SABR transport, authenticated Innertube clients, comments, live-from-start, and broader player/renderer variants remain pending.
+    known_deviation: Compatibility is scoped to the pinned video, playlist-continuation, exact public UCID and bounded ASCII `@handle` `/videos`, `/shorts`, and `/streams` tabs, bounded public `ytsearch` and results-URL video search, bounded playable YouTube Music default/song/video search, live-HLS, structured player-config discovery, native-client recovery, manual/automatic/translated caption renderer, bounded subtitle listing, sidecar selection/download/conversion, and explicit native-Go PO-token provider corpus. Anonymous visitor identity is propagated across bounded, cookie-isolated Android and Android VR requests, enabling URL-bearing adaptive video/audio recovery. Player, GVS, and subtitle token placement is supported through an embedding-provided Go provider; no built-in generator, implicit endpoint, executable, Python bridge, persistent cache, or upstream external-provider protocol is claimed. Authenticated pages fail explicitly instead of leaking browser cookies to clients that do not support them or silently substituting an anonymous session. Existing sidecars fail closed unless overwrite is enabled. Search is capped at 50 results; general search does not claim channel/playlist/hashtag results or arbitrary filter parity, while Music search excludes albums, artists, playlists, podcasts, arbitrary filters, and authenticated/premium success. Unicode/full handle grammar, handle home/community/playlist/release tabs, `/user` and `/c` tabs, CLI subtitle embedding, `--no-simulate` listing, Python-regex-only language rules, direct SABR transport, authenticated Innertube clients, comments, live-from-start, and broader player/renderer variants remain pending.
 
   - id: extractor.playlists
     name: Playlist extraction model
