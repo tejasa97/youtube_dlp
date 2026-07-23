@@ -1,4 +1,5 @@
 {
+  "responseContext": {"visitorData": "fixture-visitor-rotated"},
   "onResponseReceivedActions": [{
     "appendContinuationItemsAction": {
       "continuationItems": [{

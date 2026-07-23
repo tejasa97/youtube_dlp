@@ -45,8 +45,8 @@ Innertube profiles remain pending.
 ## Wave 4 — renderer breadth
 
 Implementation status: exact public UCID and bounded ASCII-handle
-video/Shorts/streams tabs plus bounded public and playable YouTube Music search
-are implemented. Full handle grammar, home/community/playlist/release tabs,
+video/Shorts/streams/playlist tabs plus bounded public and playable YouTube
+Music search are implemented. Full handle grammar, home/community/release tabs,
 non-playable search result breadth, comments, and live-from-start remain
 pending.
 
