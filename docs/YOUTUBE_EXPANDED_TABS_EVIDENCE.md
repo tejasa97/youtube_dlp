@@ -60,8 +60,8 @@ remain Python-free.
 
 ## Known deviations
 
-- Bare channel, handle, and legacy alias URLs, membership, arbitrary custom
-  tabs, and channel search remain outside this explicit-tab slice.
+- Membership, arbitrary custom tabs, and channel search remain outside this
+  explicit-tab slice. Bare upload aggregation is documented separately.
 - Community text, images, polls, post metadata, and non-media links are not
   emitted because yt-dlp's tab extractor yields media URL results from these
   post renderers.
