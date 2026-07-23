@@ -61,6 +61,8 @@ protected-playback workstream. The following are supported:
   `/@handle/{videos,shorts,streams}`, including bounded lazy continuation;
 - bounded public video searches using `ytsearch:`, `ytsearchN:`,
   `ytsearchall:` (capped at 50), and exact `/results` or `/search` URLs;
+- bounded playable YouTube Music searches at `music.youtube.com/search`,
+  including pinned `#songs` and `#videos` sections;
 - channel live aliases (`@handle/live`, `/channel/<id>/live`, `/user/<name>/live`,
   `/c/<name>/live`) routed into the resolved live video;
 - manual and automatic captions exposed as `subtitles` and
@@ -82,8 +84,10 @@ The following limitations are intentional and remain:
 - no general channel discovery or arbitrary tab enumeration: Unicode/full
   handles, channel home, community, playlist, and release tabs, plus `/user`
   and `/c` tabs, are not extracted as playlists;
-- search does not cover YouTube Music, channel/playlist/hashtag results,
-  authenticated search, or arbitrary filter/sort parity;
+- general search does not cover channel/playlist/hashtag results,
+  authenticated search, or arbitrary filter/sort parity; Music search excludes
+  albums, artists, playlists, podcasts, arbitrary filters, and
+  authenticated/premium success;
 - no live-from-start parity (post-live DVR segments and live rewinds are not
   reconstructed to the original stream start);
 - authenticated Innertube coverage remains limited: `LOGIN_REQUIRED`
@@ -101,7 +105,8 @@ limited to the deterministic corpus checked into
 `conformance/extractors/youtube/`,
 `conformance/extractors/youtube_channel/`,
 `conformance/extractors/youtube_handle_tab/`,
-`conformance/extractors/youtube_search/`, and the bounded evidence listed in
+`conformance/extractors/youtube_search/`,
+`conformance/extractors/youtube_music_search/`, and the bounded evidence listed in
 `conformance/parity_manifest.yaml`.
 
 ## Protocol coverage
