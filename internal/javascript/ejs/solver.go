@@ -183,13 +183,17 @@ func (solver *Solver) getPreprocessed(ctx context.Context, id, playerHash, playe
 		inflight.val = preprocessed
 		inflight.err = err
 
-		// Atomically cache the result and remove the flight entry before
-		// signaling waiters, so no duplicate preprocessing can start.
+		// Cache the result and remove the flight entry only if this flight
+		// still owns the map slot. An abandoned flight may have been replaced
+		// by a newer flight for the same hash; deleting unconditionally would
+		// remove the replacement.
 		solver.mu.Lock()
 		if err == nil {
 			solver.storePreprocessedLocked(playerHash, preprocessed)
 		}
-		delete(solver.flight, playerHash)
+		if solver.flight[playerHash] == inflight {
+			delete(solver.flight, playerHash)
+		}
 		solver.mu.Unlock()
 		close(inflight.done)
 	}()

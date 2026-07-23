@@ -21,7 +21,12 @@ func main() {
 	if err := flags.Parse(os.Args[1:]); err != nil || flags.NArg() != 0 {
 		os.Exit(2)
 	}
-	client, err := supervisor.New(supervisor.Config{Path: *helper, MemoryBytes: ejs.SolverMemoryBytes})
+	scriptHash, err := ejs.BundledScriptHash()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "jscheck: EJS assets invalid")
+		os.Exit(1)
+	}
+	client, err := supervisor.New(supervisor.Config{Path: *helper, MemoryBytes: ejs.SolverMemoryBytes, TrustedScriptHash: scriptHash})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "jscheck: helper unavailable")
 		os.Exit(1)
