@@ -118,6 +118,8 @@ type PageFetcher func(context.Context, int) ([]Entry, error)
 
 type ContinuationFetcher func(context.Context, string) ([]Entry, string, error)
 
+type StatefulContinuationFetcher func(context.Context, string, string) ([]Entry, string, string, error)
+
 type pagedEntries struct {
 	pageSize int
 	maxPages int
@@ -166,6 +168,89 @@ func (entries continuationEntries) Iterator() EntryIterator {
 		page: append([]Entry(nil), entries.first...), token: entries.nextToken,
 		fetch: entries.fetch, seen: seen, maxPages: entries.maxPages,
 	}
+}
+
+type statefulContinuationEntries struct {
+	first     []Entry
+	nextToken string
+	state     string
+	fetch     StatefulContinuationFetcher
+	maxPages  int
+}
+
+// StatefulContinuationEntries models cursor APIs that rotate request state
+// independently of the continuation token. Each iterator owns both values, so
+// reusable sequences and concurrent consumers cannot leak state into one
+// another.
+func StatefulContinuationEntries(first []Entry, nextToken, state string, fetch StatefulContinuationFetcher) (EntrySequence, error) {
+	if nextToken != "" && fetch == nil {
+		return nil, fmt.Errorf("%w: missing continuation fetcher", ErrInvalidPlaylist)
+	}
+	return statefulContinuationEntries{
+		first: append([]Entry(nil), first...), nextToken: nextToken, state: state,
+		fetch: fetch, maxPages: defaultMaxPlaylistPages,
+	}, nil
+}
+
+func (entries statefulContinuationEntries) Iterator() EntryIterator {
+	seen := make(map[string]bool)
+	if entries.nextToken != "" {
+		seen[entries.nextToken] = true
+	}
+	return &statefulContinuationEntryIterator{
+		page: append([]Entry(nil), entries.first...), token: entries.nextToken,
+		state: entries.state, fetch: entries.fetch, seen: seen, maxPages: entries.maxPages,
+	}
+}
+
+type statefulContinuationEntryIterator struct {
+	page      []Entry
+	pageIndex int
+	token     string
+	state     string
+	fetch     StatefulContinuationFetcher
+	seen      map[string]bool
+	pages     int
+	maxPages  int
+	done      bool
+}
+
+func (iterator *statefulContinuationEntryIterator) Next(ctx context.Context) (Entry, bool, error) {
+	if err := contextError(ctx); err != nil {
+		iterator.done = true
+		return Entry{}, false, err
+	}
+	if iterator.done {
+		return Entry{}, false, nil
+	}
+	for iterator.pageIndex >= len(iterator.page) {
+		if iterator.token == "" {
+			iterator.done = true
+			return Entry{}, false, nil
+		}
+		if iterator.pages >= iterator.maxPages {
+			iterator.done = true
+			return Entry{}, false, ErrPlaylistLimit
+		}
+		page, nextToken, nextState, err := iterator.fetch(ctx, iterator.token, iterator.state)
+		if err != nil {
+			iterator.done = true
+			return Entry{}, false, err
+		}
+		iterator.pages++
+		iterator.page, iterator.pageIndex = append([]Entry(nil), page...), 0
+		iterator.token, iterator.state = nextToken, nextState
+		if nextToken != "" {
+			if iterator.seen[nextToken] {
+				iterator.token = ""
+			} else {
+				iterator.seen[nextToken] = true
+			}
+		}
+	}
+	entry := iterator.page[iterator.pageIndex]
+	iterator.pageIndex++
+	return entry, true, nil
 }
 
 type continuationEntryIterator struct {

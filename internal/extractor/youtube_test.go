@@ -1098,6 +1098,41 @@ func TestYouTubePlaylistParsesModernLockupAndContinuationViewModels(t *testing.T
 	}
 }
 
+func TestYouTubePlaylistScopesSelectedTabAndFirstContinuationAction(t *testing.T) {
+	initial := []byte(`{
+		"contents":{"twoColumnBrowseResultsRenderer":{"tabs":[
+			{"tabRenderer":{"selected":false,"content":{"playlistVideoRenderer":{"videoId":"decoy000001","title":{"simpleText":"decoy"}}}}},
+			{"tabRenderer":{"selected":true,"content":{"playlistVideoRenderer":{"videoId":"chosen00001","title":{"simpleText":"chosen"}}}}}
+		]}}
+	}`)
+	parsed, err := parseYouTubePlaylistData(initial)
+	if err != nil || len(parsed.entries) != 1 || parsed.entries[0].ID != "chosen00001" {
+		t.Fatalf("initial parsed=%#v err=%v", parsed, err)
+	}
+
+	continuation := []byte(`{
+		"onResponseReceivedActions":[
+			{"appendContinuationItemsAction":{"continuationItems":[{"playlistVideoRenderer":{"videoId":"first000001","title":{"simpleText":"first"}}}]}},
+			{"appendContinuationItemsAction":{"continuationItems":[{"playlistVideoRenderer":{"videoId":"decoy000002","title":{"simpleText":"decoy"}}}]}}
+		],
+		"unrelated":{"playlistVideoRenderer":{"videoId":"decoy000003","title":{"simpleText":"decoy"}}}
+	}`)
+	parsed, err = parseYouTubePlaylistData(continuation)
+	if err != nil || len(parsed.entries) != 1 || parsed.entries[0].ID != "first000001" {
+		t.Fatalf("continuation parsed=%#v err=%v", parsed, err)
+	}
+}
+
+func TestYouTubePlaylistContinuationRefreshesVisitorData(t *testing.T) {
+	parsed, err := parseYouTubePlaylistData(readYouTubeFixture(t, "playlist-continuation.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.visitorData != "fixture-visitor-rotated" {
+		t.Fatalf("visitorData=%q", parsed.visitorData)
+	}
+}
+
 func TestYouTubeContinuationViewModelBounds(t *testing.T) {
 	tooMany := make([]value.Value, youtubeMaxContinuationCommands+1)
 	for index := range tooMany {
