@@ -173,7 +173,7 @@ func TestYouTubeChannelPlaylistsTabLegacyModernContinuationAndOccurrences(t *tes
 			if !ok {
 				break
 			}
-			if !entry.Transparent || entry.ExtractorKey != "youtube" ||
+			if entry.Transparent || entry.ExtractorKey != "youtube" ||
 				entry.URL != "https://www.youtube.com/playlist?list="+entry.ID {
 				t.Fatalf("unsafe playlist entry: %#v", entry)
 			}
@@ -292,6 +292,21 @@ func TestYouTubeChannelPlaylistsTabRejectsHostileRenderersAndCategorizesFailures
 	}
 }
 
+func TestYouTubeChannelTabScopesSelectedContentAndRefreshesVisitorData(t *testing.T) {
+	page, err := parseYouTubeChannelTabData([]byte(`{
+		"metadata":{"channelMetadataRenderer":{"title":"Selected"}},
+		"responseContext":{"visitorData":"rotated-channel"},
+		"contents":{"twoColumnBrowseResultsRenderer":{"tabs":[
+			{"tabRenderer":{"selected":false,"content":{"gridPlaylistRenderer":{"playlistId":"PLdecoy","title":{"simpleText":"decoy"}}}}},
+			{"tabRenderer":{"selected":true,"content":{"gridPlaylistRenderer":{"playlistId":"PLchosen","title":{"simpleText":"chosen"}}}}}
+		]}},
+		"unrelated":{"gridPlaylistRenderer":{"playlistId":"PLother","title":{"simpleText":"other"}}}
+	}`), "playlists")
+	if err != nil || len(page.entries) != 1 || page.entries[0].ID != "PLchosen" || page.visitorData != "rotated-channel" {
+		t.Fatalf("page=%#v err=%v", page, err)
+	}
+}
+
 func assertYouTubeTabEntriesSafe(t *testing.T, entries []Entry, tab string) {
 	t.Helper()
 	for _, entry := range entries {
@@ -299,7 +314,7 @@ func assertYouTubeTabEntriesSafe(t *testing.T, entries []Entry, tab string) {
 			t.Fatalf("unsafe extractor key: %#v", entry)
 		}
 		if tab == "playlists" {
-			if !youtubePlaylistIDPattern.MatchString(entry.ID) || !entry.Transparent ||
+			if !youtubePlaylistIDPattern.MatchString(entry.ID) || entry.Transparent ||
 				entry.URL != "https://www.youtube.com/playlist?list="+entry.ID {
 				t.Fatalf("unsafe playlist entry: %#v", entry)
 			}
@@ -380,7 +395,7 @@ func TestYouTubeChannelTabFailuresAndCancellation(t *testing.T) {
 }
 
 func TestYouTubeChannelTabContinuationRejectsBadToken(t *testing.T) {
-	_, _, err := fetchYouTubeChannelContinuation(context.Background(), &channelFixtureTransport{}, "bad\nvalue", youtubePlaylistConfig{}, "playlists")
+	_, _, _, err := fetchYouTubeChannelContinuation(context.Background(), &channelFixtureTransport{}, "bad\nvalue", "visitor", youtubePlaylistConfig{}, "playlists")
 	if !errors.Is(err, ErrInvalidPlaylist) {
 		t.Fatalf("err = %v", err)
 	}

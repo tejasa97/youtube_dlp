@@ -151,7 +151,7 @@ func TestYouTubeHandlePlaylistsTabLegacyModernContinuationAndOccurrences(t *test
 			if !ok {
 				break
 			}
-			if !entry.Transparent || entry.ExtractorKey != "youtube" ||
+			if entry.Transparent || entry.ExtractorKey != "youtube" ||
 				entry.URL != "https://www.youtube.com/playlist?list="+entry.ID {
 				t.Fatalf("unsafe playlist entry: %#v", entry)
 			}
@@ -265,6 +265,20 @@ func TestYouTubeHandlePlaylistsTabRejectsHostileRenderersAndCategorizesFailures(
 	}
 }
 
+func TestYouTubeHandleTabScopesFirstContinuationActionAndRefreshesVisitorData(t *testing.T) {
+	page, err := parseYouTubeHandleTabData([]byte(`{
+		"responseContext":{"visitorData":"rotated-handle"},
+		"onResponseReceivedEndpoints":[
+			{"appendContinuationItemsAction":{"continuationItems":[{"playlistRenderer":{"playlistId":"PLfirst","title":{"simpleText":"first"}}}]}},
+			{"appendContinuationItemsAction":{"continuationItems":[{"playlistRenderer":{"playlistId":"PLdecoy","title":{"simpleText":"decoy"}}}]}}
+		],
+		"unrelated":{"playlistRenderer":{"playlistId":"PLother","title":{"simpleText":"other"}}}
+	}`), "playlists")
+	if err != nil || len(page.entries) != 1 || page.entries[0].ID != "PLfirst" || page.visitorData != "rotated-handle" {
+		t.Fatalf("page=%#v err=%v", page, err)
+	}
+}
+
 func TestYouTubeHandleTabFallbackIDAndRoutingPolicy(t *testing.T) {
 	page, err := parseYouTubeHandleTabData([]byte(`{"metadata":{"channelMetadataRenderer":{"title":"No ID"}}}`), "videos")
 	if err != nil || page.channelID != "" {
@@ -336,7 +350,7 @@ func TestYouTubeHandleTabFailuresMalformedCancellationAndLoop(t *testing.T) {
 	if _, ok, err := iterator.Next(context.Background()); err != nil || ok {
 		t.Fatalf("loop stop = ok:%v err:%v", ok, err)
 	}
-	if _, _, err := fetchYouTubeHandleTabContinuation(context.Background(), &handleFixtureTransport{}, "bad\nvalue", youtubePlaylistConfig{}, "playlists"); !errors.Is(err, ErrInvalidPlaylist) {
+	if _, _, _, err := fetchYouTubeHandleTabContinuation(context.Background(), &handleFixtureTransport{}, "bad\nvalue", "visitor", youtubePlaylistConfig{}, "playlists"); !errors.Is(err, ErrInvalidPlaylist) {
 		t.Fatalf("bad token = %v", err)
 	}
 }

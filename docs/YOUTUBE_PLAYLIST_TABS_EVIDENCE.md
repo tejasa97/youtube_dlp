@@ -58,7 +58,9 @@ rejection without contacting YouTube.
 - Only playlist and podcast lockup types are accepted on playlist tabs; other
   entity and shelf variants remain unsupported.
 - Rich playlist metadata such as thumbnails, uploader details, video counts,
-  badges, and availability is not copied onto transparent URL entries.
+  badges, and availability is not copied onto URL entries. Entries use
+  upstream-style `_type: url` handoff so authoritative child metadata is not
+  overwritten by a tab-renderer title.
 - Entry occurrences are intentionally not collapsed. Only repeated
   continuation cursors are de-duplicated.
 - Authenticated, private, region-dependent, or Premium success is not claimed;

@@ -250,7 +250,8 @@ func youtubePlaylistContentScope(root *value.Object) value.Value {
 	if root == nil {
 		return value.Missing()
 	}
-	if contents, ok := root.Lookup("contents").Object(); ok {
+	contentsValue := root.Lookup("contents")
+	if contents, ok := contentsValue.Object(); ok {
 		if browse, ok := contents.Lookup("twoColumnBrowseResultsRenderer").Object(); ok {
 			if tabs, ok := browse.Lookup("tabs").ListValue(); ok {
 				for _, tab := range tabs {
@@ -267,12 +268,22 @@ func youtubePlaylistContentScope(root *value.Object) value.Value {
 						return renderer.Lookup("content")
 					}
 				}
+				if len(tabs) == 1 {
+					if tabObject, ok := tabs[0].Object(); ok {
+						if renderer, ok := tabObject.Lookup("tabRenderer").Object(); ok {
+							return renderer.Lookup("content")
+						}
+					}
+				}
 			}
 			return value.Missing()
 		}
 		// Compatibility fallback for bounded synthetic and legacy response
 		// shapes that expose the playlist content directly.
 		return value.ObjectValue(contents)
+	}
+	if _, ok := contentsValue.ListValue(); ok {
+		return contentsValue
 	}
 	for _, key := range []string{"onResponseReceivedActions", "onResponseReceivedEndpoints"} {
 		items, ok := root.Lookup(key).ListValue()

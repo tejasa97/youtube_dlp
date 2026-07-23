@@ -1,4 +1,5 @@
 {
+  "responseContext": {"visitorData": "channel-visitor-rotated"},
   "onResponseReceivedActions": [{
     "appendContinuationItemsAction": {
       "continuationItems": [
