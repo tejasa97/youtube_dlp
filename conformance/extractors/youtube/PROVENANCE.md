@@ -119,6 +119,15 @@ is intentionally limited to format recovery from the exact WEB player endpoint;
 authenticated comments, browse/search/Music clients, multi-client rotation,
 and direct SABR/UMP remain outside this evidence.
 
+The authenticated comment continuation expectations extend that same synthetic
+session model to the pinned reference's `generate_api_headers` call and
+`/youtubei/v1/next` traversal in
+`yt_dlp/extractor/youtube/_video.py:2445-2677`. Tests prove that root, sort,
+reply, retry, and visitor-rotation requests retain the exact WEB identity and
+redirect-disabled cookie boundary. API keys, continuation values, hashes,
+cookies, account/session identifiers, visitors, comments, and response bodies
+are wholly artificial; no signed-in traffic or account data was captured.
+
 The protected-playback token fixture is derived from the `player`, `gvs`, and
 `subs` context definitions and token placement behavior in the pinned
 reference's `yt_dlp/extractor/youtube/pot/provider.py`,
