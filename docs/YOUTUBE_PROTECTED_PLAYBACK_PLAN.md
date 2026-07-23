@@ -1,8 +1,9 @@
 # YouTube protected-playback continuation
 
-Status: Wave 1 and the caption portion of Wave 3, including bounded sidecar
-conversion, are implemented and locally verified. Wave 2 and authenticated
-clients remain open. Wave 4 now includes a bounded public video-search slice;
+Status: Wave 1 and the caption and bounded WEB format-recovery portions of
+Wave 3, including bounded sidecar conversion, are implemented and locally
+verified. Wave 2 and broader authenticated clients remain open. Wave 4 now
+includes a bounded public video-search slice;
 bounded public YouTube Music search, playlist tabs, and an opt-in public
 comments slice; its other renderer breadth remains open.
 
@@ -35,13 +36,16 @@ Implementation status: pending.
 
 Implementation status: caption extraction, translation, protected-token
 placement, native sidecar selection/download, bounded CLI listing,
-post-download conversion to SRT, ASS, or WebVTT, and bounded multi-track
-embedding are complete. Authenticated Innertube profiles remain pending.
+post-download conversion to SRT, ASS, or WebVTT, bounded multi-track embedding,
+and authenticated WEB player format recovery are complete. Broader
+authenticated Innertube profiles remain pending.
 
 - consume the `subs` PO-token context for protected caption requests;
 - add bounded subtitle and automatic-caption extraction;
 - add explicit authenticated Innertube profiles without crossing cookie or
-  visitor identities between incompatible clients.
+  visitor identities between incompatible clients. The implemented WEB slice
+  uses exact-origin SID hashes, a redirect-disabled request, and the operation
+  cookie jar; anonymous Android/VR recovery remains cookie-isolated.
 
 ## Wave 4 — renderer breadth
 
