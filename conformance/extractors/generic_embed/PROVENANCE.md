@@ -40,9 +40,19 @@ or decimal strings, ISO-8601 timestamps, string/object people, and string/list
 keywords; malformed optional values are omitted rather than poisoning valid
 media discovery.
 
-`open_graph.html`, `json_ld.html`, and `metadata_unsafe.html` were independently
-authored for this repository. They contain only reserved hosts, relative paths,
-and inert metadata. No upstream webpage or service response was copied.
+The Go implementation additionally recognizes Schema.org `embedUrl` when a
+VideoObject/AudioObject has no `contentUrl`. This is an intentional native
+improvement rather than a pinned-reference parity claim. It never follows the
+URL generically: the candidate must pass the same exact provider host, route,
+userinfo, port, fragment, and encoded-separator policy as an explicit HTML
+embed. A declared `contentUrl` remains authoritative.
+If any JSON-LD `contentUrl` produces a valid media result, that result takes
+precedence over all embed-only candidates from the same document.
+
+`open_graph.html`, `json_ld.html`, `json_ld_embed.html`, and
+`metadata_unsafe.html` were independently authored for this repository. They
+contain only reserved hosts, relative paths, and inert metadata. No upstream
+webpage or service response was copied.
 
 The current shared `Extraction` model supports root URL results, playlists,
 and media. One native-provider embed is a root URL result; multiple embeds are

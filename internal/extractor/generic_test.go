@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -251,6 +252,97 @@ func TestGenericJSONLDInvalidExtendedMetadataIsIgnored(t *testing.T) {
 		if !format.Lookup(key).IsMissing() {
 			t.Fatalf("format %s unexpectedly present", key)
 		}
+	}
+}
+
+func TestGenericJSONLDEmbedURLUsesStrictProviderRouting(t *testing.T) {
+	result, err := NewGeneric().Extract(context.Background(), genericHTMLRequest(readGenericEmbedFixture(t, "json_ld_embed.html")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsURL() {
+		t.Fatalf("result = %+v", result)
+	}
+	entry := *result.Redirect
+	if entry.URL != "https://www.youtube.com/watch?start=15&v=ABCDEFGHIJK" ||
+		entry.ExtractorKey != "youtube" || entry.ID != "ABCDEFGHIJK" || !entry.Transparent {
+		t.Fatalf("entry = %#v", entry)
+	}
+}
+
+func TestGenericJSONLDEmbedURLPlaylistOrderDeduplicationAndPrecedence(t *testing.T) {
+	t.Run("playlist", func(t *testing.T) {
+		page := []byte(`<script type="application/ld+json">{
+			"@context":"https://schema.org","@graph":[
+				{"@type":"VideoObject","embedUrl":"https://player.vimeo.com/video/123456789"},
+				{"@type":"VideoObject","embedUrl":"https://unsupported.invalid/embed/ignored"},
+				{"@type":"VideoObject","embedUrl":"https://player.vimeo.com/video/123456789"},
+				{"@type":"VideoObject","embedUrl":"https://streamable.com/e/Ab_C12"}
+			]
+		}</script>`)
+		result, err := NewGeneric().Extract(context.Background(), genericHTMLRequest(page))
+		if err != nil {
+			t.Fatal(err)
+		}
+		entries, err := CollectEntries(context.Background(), result.Entries, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entries) != 2 ||
+			entries[0].URL != "https://vimeo.com/123456789" || entries[0].ExtractorKey != "vimeo" ||
+			entries[1].URL != "https://streamable.com/Ab_C12" || entries[1].ExtractorKey != "streamable" {
+			t.Fatalf("entries = %#v", entries)
+		}
+	})
+	t.Run("content URL wins", func(t *testing.T) {
+		page := []byte(`<script type="application/ld+json">{
+			"@context":"https://schema.org","@type":"VideoObject",
+			"contentUrl":"/authoritative.mp4",
+			"embedUrl":"https://www.youtube.com/embed/ABCDEFGHIJK"
+		}</script>`)
+		result, err := NewGeneric().Extract(context.Background(), genericHTMLRequest(page))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.IsURL() || result.IsPlaylist() {
+			t.Fatalf("contentUrl did not remain authoritative: %+v", result)
+		}
+		formats, _ := result.Info.Formats()
+		format, _ := formats[0].Object()
+		if rawURL, _ := format.Lookup("url").StringValue(); rawURL != "https://publisher.invalid/authoritative.mp4" {
+			t.Fatalf("format URL = %q", rawURL)
+		}
+	})
+	t.Run("unsupported embed falls through", func(t *testing.T) {
+		page := []byte(`<script type="application/ld+json">{
+			"@context":"https://schema.org","@type":"VideoObject",
+			"embedUrl":"https://youtube.example.invalid/embed/ABCDEFGHIJK"
+		}</script><meta property="og:video" content="/fallback.mp4">`)
+		result, err := NewGeneric().Extract(context.Background(), genericHTMLRequest(page))
+		if err != nil {
+			t.Fatal(err)
+		}
+		formats, _ := result.Info.Formats()
+		format, _ := formats[0].Object()
+		if formatID, _ := format.Lookup("format_id").StringValue(); formatID != "open-graph" {
+			t.Fatalf("format ID = %q", formatID)
+		}
+	})
+}
+
+func TestGenericJSONLDEmbedURLBoundsAndCancellation(t *testing.T) {
+	base := mustGenericURL(t, "https://publisher.invalid/article")
+	candidates := make([]genericMetadataCandidate, maxGenericEmbeds+1)
+	for index := range candidates {
+		candidates[index].embedURL = fmt.Sprintf("https://player.vimeo.com/video/%d", 100000000+index)
+	}
+	if _, _, err := genericJSONLDEmbedExtraction(context.Background(), base, candidates); !errors.Is(err, ErrPlaylistLimit) {
+		t.Fatalf("limit error = %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, _, err := genericJSONLDEmbedExtraction(ctx, base, candidates[:1]); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancellation error = %v", err)
 	}
 }
 

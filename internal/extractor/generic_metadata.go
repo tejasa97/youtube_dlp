@@ -38,6 +38,7 @@ var genericISODuration = regexp.MustCompile(`^PT(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\
 
 type genericMetadataCandidate struct {
 	rawURL      string
+	embedURL    string
 	mediaType   string
 	kind        string
 	title       string
@@ -79,11 +80,16 @@ func discoverGenericMetadataMedia(ctx context.Context, pageURL *url.URL, page []
 	if err != nil {
 		return Extraction{}, false, err
 	}
+	if extraction, found := genericMetadataExtraction(pageURL, document, "json-ld", document.jsonLD); found {
+		return extraction, true, nil
+	}
+	if extraction, found, err := genericJSONLDEmbedExtraction(ctx, pageURL, document.jsonLD); err != nil || found {
+		return extraction, found, err
+	}
 	for _, source := range []struct {
 		name       string
 		candidates []genericMetadataCandidate
 	}{
-		{name: "json-ld", candidates: document.jsonLD},
 		{name: "twitter", candidates: document.twitter},
 		{name: "open-graph", candidates: document.openGraph},
 	} {
@@ -342,12 +348,14 @@ func genericJSONLDType(raw any, expected ...string) bool {
 }
 
 func genericJSONLDCandidate(item map[string]any) (genericMetadataCandidate, bool) {
-	rawURL, ok := item["contentUrl"].(string)
-	if !ok || strings.TrimSpace(rawURL) == "" {
+	rawURL := genericJSONString(item["contentUrl"])
+	embedURL := genericJSONString(item["embedUrl"])
+	if rawURL == "" && embedURL == "" {
 		return genericMetadataCandidate{}, false
 	}
 	candidate := genericMetadataCandidate{
 		rawURL:      rawURL,
+		embedURL:    embedURL,
 		mediaType:   genericJSONString(item["encodingFormat"]),
 		title:       genericMetadataText(genericJSONString(item["name"]), maxGenericMetadataTitle),
 		description: genericMetadataText(genericJSONString(item["description"]), maxGenericMetadataText),
@@ -367,6 +375,55 @@ func genericJSONLDCandidate(item map[string]any) (genericMetadataCandidate, bool
 		candidate.kind = "audio"
 	}
 	return candidate, true
+}
+
+func genericJSONLDEmbedExtraction(
+	ctx context.Context,
+	pageURL *url.URL,
+	candidates []genericMetadataCandidate,
+) (Extraction, bool, error) {
+	entries := make([]Entry, 0)
+	seen := make(map[string]struct{})
+	for index, candidate := range candidates {
+		if index%64 == 0 {
+			if err := contextError(ctx); err != nil {
+				return Extraction{}, false, err
+			}
+		}
+		// A declared contentUrl remains authoritative. embedUrl is a bounded
+		// fallback only for VideoObject/AudioObject nodes without one.
+		if candidate.rawURL != "" || candidate.embedURL == "" {
+			continue
+		}
+		entry, ok := canonicalGenericEmbed(pageURL, candidate.embedURL)
+		if !ok {
+			continue
+		}
+		key := entry.ExtractorKey + "\x00" + entry.URL
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+		if len(entries) >= maxGenericEmbeds {
+			return Extraction{}, false, fmt.Errorf("%w: generic JSON-LD embed limit exceeded", ErrPlaylistLimit)
+		}
+		seen[key] = struct{}{}
+		entries = append(entries, entry)
+	}
+	if len(entries) == 0 {
+		return Extraction{}, false, nil
+	}
+	if len(entries) == 1 {
+		extraction, err := URLResult(entries[0])
+		return extraction, err == nil, err
+	}
+	id, title := genericPageIdentity(pageURL)
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String(id)},
+		value.Field{Key: "title", Value: value.String(title)},
+		value.Field{Key: "webpage_url", Value: value.String(pageURL.String())},
+	))
+	extraction, err := Playlist(info, StaticEntries(entries...))
+	return extraction, err == nil, err
 }
 
 func genericJSONLDPersonName(raw any) string {

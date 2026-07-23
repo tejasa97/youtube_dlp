@@ -66,6 +66,15 @@ interaction count, and deduplicated keywords. Numeric strings are accepted
 where the reference accepts them; invalid or out-of-range optional values are
 omitted without discarding a valid media URL.
 
+An `embedUrl`-only JSON-LD object may route through an existing native provider
+extractor. This is deliberately narrower than generic URL discovery: the URL
+must pass the same canonical provider allowlist used for explicit iframe/embed
+attributes. A node with `contentUrl` never falls back to its `embedUrl`;
+any valid JSON-LD `contentUrl` media result precedes all embed-only candidates;
+unsupported or hostile embed URLs are ignored so lower-priority metadata can
+still be considered. Multiple accepted JSON-LD embeds preserve their JSON-array
+order, deduplicate canonically, and use the existing 64-entry embed limit.
+
 ## Resource and security bounds
 
 - HTML response: 2 MiB;
@@ -97,7 +106,7 @@ unsafe thumbnail URLs. Multiple metadata URLs from one source are represented
 as formats of one page media item rather than separate playlist entries.
 
 This increment does not implement generic direct URLs found in arbitrary
-scripts, `embedUrl`-only JSON-LD, arbitrary JW Player configuration, OpenGraph
-structured properties beyond the documented core, JSON-LD interaction
+scripts, arbitrary JW Player configuration, OpenGraph structured properties
+beyond the documented core, JSON-LD interaction
 statistics/chapters/ratings and broader date formats, provider discovery, or
 iframe crawling. Unsupported HTML remains a categorized unsupported extraction.
