@@ -842,7 +842,8 @@ func categorized(op string, err error) error {
 		category = ErrorUnsupported
 	case errors.Is(err, outputtemplate.ErrInvalidTemplate), errors.Is(err, outputtemplate.ErrUnsafePath),
 		errors.Is(err, errInvalidRequestOptions),
-		errors.Is(err, matchfilter.ErrInvalidFilter), errors.Is(err, compatmetadata.ErrInvalidAction),
+		errors.Is(err, matchfilter.ErrInvalidFilter), errors.Is(err, matchfilter.ErrEvaluation),
+		errors.Is(err, matchfilter.ErrEvaluationLimit), errors.Is(err, compatmetadata.ErrInvalidAction),
 		errors.Is(err, progress.ErrInvalidProgress), errors.Is(err, mediaformat.ErrInvalidSelector),
 		errors.Is(err, mediaformat.ErrNoMatch),
 		errors.Is(err, mediaformat.ErrInvalidPreference), errors.Is(err, mediaformat.ErrInvalidHeaders),

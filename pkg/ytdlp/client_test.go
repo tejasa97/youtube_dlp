@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ytdlp-go/ytdlp/internal/compat/matchfilter"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/chromium"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/chromiumlinux"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/chromiumwindows"
@@ -265,6 +266,40 @@ func TestClientAppliesMetadataBeforeMatchFilter(t *testing.T) {
 	}
 	if events[len(events)-1].Kind != EventMatchFilterSkipped {
 		t.Fatalf("events = %#v", events)
+	}
+}
+
+type numericMetadataExtractor struct{}
+
+func (numericMetadataExtractor) Name() string           { return "numeric-metadata" }
+func (numericMetadataExtractor) Suitable(*url.URL) bool { return true }
+func (numericMetadataExtractor) Extract(context.Context, extractor.Request) (extractor.Extraction, error) {
+	return extractor.Media(value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("fixture")},
+		value.Field{Key: "title", Value: value.String("Fixture")},
+		value.Field{Key: "duration", Value: value.Int(4)},
+	))), nil
+}
+
+func TestClientCategorizesMatchFilterEvaluationFailure(t *testing.T) {
+	request := Request{URL: "https://fixture.invalid/video", SkipDownload: true, MatchFilters: []string{"duration *= 4"}}
+	plan, err := prepareCompatibility(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := &operation{
+		client: NewClient(), request: request, registry: extractor.NewRegistry(numericMetadataExtractor{}),
+		compatibility: plan,
+	}
+	_, err = operation.process(context.Background(), request.URL, "", nil, make(map[string]bool), 0)
+	if err == nil {
+		t.Fatal("process() error = nil")
+	}
+	if !IsCategory(err, ErrorInvalidInput) {
+		t.Fatalf("process() category = %v, want %v", err, ErrorInvalidInput)
+	}
+	if !errors.Is(err, matchfilter.ErrEvaluation) {
+		t.Fatalf("process() error = %v, want matchfilter.ErrEvaluation", err)
 	}
 }
 

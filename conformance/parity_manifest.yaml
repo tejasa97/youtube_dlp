@@ -1034,13 +1034,20 @@ capabilities:
       - internal/compat/progress.TestRender
       - internal/compat/metadata.TestInterpretAndReplace
       - internal/compat/matchfilter.TestErrorsHaveSpan
+      - internal/compat/matchfilter.TestStringOperatorsNegationAndEscapes
+      - internal/compat/matchfilter.TestNoneInclusiveAndIncompleteFields
+      - internal/compat/matchfilter.TestNumericFilesizeDurationAndDecimalCoercion
+      - internal/compat/matchfilter.TestNumericComparisonPreservesInt64Precision
+      - internal/compat/matchfilter.TestEvaluationCancellationAndBounds
+      - internal/compat/matchfilter.TestPinnedMatchFilterConformance
       - pkg/ytdlp.TestOperationUsesRequestedFormatSelection
       - pkg/ytdlp.TestClientAppliesMetadataBeforeMatchFilter
+      - pkg/ytdlp.TestClientCategorizesMatchFilterEvaluationFailure
       - pkg/ytdlp.TestClientRendersProgressTemplateIntoEvents
       - internal/cli.TestRunWaveTwoCompatibilityFlags
       - conformance/compatibility/phase2/PROVENANCE.md
     owner: core
-    known_deviation: Compatibility is scoped to the bounded Phase 2 corpus. Arbitrary template code/arithmetic, the full selector and match-filter coercion grammar, and product download of arbitrary all-format sets remain explicitly unsupported.
+    known_deviation: Compatibility is scoped to the bounded Phase 2 corpus. Match filters support the documented boolean, string, numeric, none-inclusive, filesize, and duration grammar with explicit evaluation bounds; interactive/break filters and Python regular-expression semantics remain unsupported. Arbitrary template code/arithmetic, the full selector grammar, and product download of arbitrary all-format sets remain explicitly unsupported.
 
   - id: downloader.protocol_matrix
     name: Alpha downloader and protocol matrix
