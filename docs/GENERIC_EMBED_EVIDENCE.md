@@ -66,6 +66,12 @@ interaction count, and deduplicated keywords. Numeric strings are accepted
 where the reference accepts them; invalid or out-of-range optional values are
 omitted without discarding a valid media URL.
 
+Schema.org interaction statistics map Watch/View/Listen, Like/Agree,
+Dislike/Disagree, and Comment actions to their normalized count fields.
+`interactionCount` wins over a view statistic, matching the pinned behavior.
+Aggregate ratings are retained as `average_rating`. Unknown actions, malformed
+objects, non-finite ratings, and overflowing counts are ignored.
+
 An `embedUrl`-only JSON-LD object may route through an existing native provider
 extractor. This is deliberately narrower than generic URL discovery: the URL
 must pass the same canonical provider allowlist used for explicit iframe/embed
@@ -81,14 +87,15 @@ order, deduplicate canonically, and use the existing 64-entry embed limit.
 - tokenizer tokens: 100,000;
 - element nesting depth: 256;
 - embed-bearing attributes examined: 256;
-- unique embeds returned: 64; and
-- candidate URL: 8 KiB.
+- unique embeds returned: 64;
+- candidate URL: 8 KiB;
 - metadata candidates: 256;
 - JSON-LD scripts: 32;
 - one JSON-LD script: 512 KiB;
-- traversed JSON-LD nodes: 2,048 with depth 64; and
-- normalized title/description: 1 KiB/8 KiB; and
-- JSON-LD keywords: 128 unique values of at most 256 bytes each.
+- traversed JSON-LD nodes: 2,048 with depth 64;
+- normalized title/description: 1 KiB/8 KiB;
+- JSON-LD keywords: 128 unique values of at most 256 bytes each; and
+- JSON-LD interaction statistics: 128 per media object.
 
 Userinfo, explicit ports (including an empty explicit port), fragments,
 encoded separators/NULs, unsupported schemes, provider lookalikes, and URLs
@@ -107,6 +114,6 @@ as formats of one page media item rather than separate playlist entries.
 
 This increment does not implement generic direct URLs found in arbitrary
 scripts, arbitrary JW Player configuration, OpenGraph structured properties
-beyond the documented core, JSON-LD interaction
-statistics/chapters/ratings and broader date formats, provider discovery, or
+beyond the documented core, JSON-LD chapters and broader date formats,
+provider discovery, or
 iframe crawling. Unsupported HTML remains a categorized unsupported extraction.
