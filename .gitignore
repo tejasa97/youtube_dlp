@@ -2,6 +2,8 @@
 /bin/
 /build/
 /dist/
+/ytdlp-go
+/ytdlp-go.exe
 *.test
 *.out
 coverage.*

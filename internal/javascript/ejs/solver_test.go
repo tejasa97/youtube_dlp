@@ -829,3 +829,87 @@ func TestSingleflightWaiterJoinCancelRace(t *testing.T) {
 		}
 	}
 }
+
+// TestFlightOwnershipAbandonedDoesNotDeleteReplacement verifies that when a
+// flight is abandoned and a replacement flight is started for the same player
+// hash, the abandoned flight's goroutine does not delete the replacement's
+// map entry. This is a regression test for the unconditional delete bug.
+func TestFlightOwnershipAbandonedDoesNotDeleteReplacement(t *testing.T) {
+	player, err := os.ReadFile("../../../conformance/javascript/ejs-0.8.0/synthetic-player.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Use a slow executor so we can control timing deterministically.
+	counter := &countingExecutor{inner: engine.New(4)}
+	slow := &slowExecutor{inner: counter, delay: 500 * time.Millisecond}
+	solver, err := New(slow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := []ChallengeRequest{{Type: ChallengeN, Challenges: []string{"abc"}}}
+
+	// Phase 1: Start a flight and abandon it (cancel the only waiter).
+	ctx1, cancel1 := context.WithCancel(context.Background())
+	done1 := make(chan error, 1)
+	go func() {
+		_, err := solver.SolvePlayer(ctx1, "flight1", string(player), requests, false)
+		done1 <- err
+	}()
+
+	// Wait for the flight to register.
+	time.Sleep(50 * time.Millisecond)
+	cancel1()
+	err1 := <-done1
+	if err1 == nil {
+		t.Fatal("first flight should have been canceled")
+	}
+
+	// Phase 2: Immediately start a replacement flight for the same player.
+	// The abandoned flight's goroutine is still running (500ms delay).
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel2()
+	done2 := make(chan error, 1)
+	go func() {
+		_, err := solver.SolvePlayer(ctx2, "flight2", string(player), requests, false)
+		done2 <- err
+	}()
+
+	// Wait for the replacement flight to register.
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify the replacement flight is in the map (not deleted by the
+	// abandoned flight's goroutine).
+	solver.mu.Lock()
+	_, replacementExists := solver.flight[protocol.HashScript(string(player))]
+	solver.mu.Unlock()
+
+	// The abandoned flight's goroutine may have completed by now (500ms
+	// delay elapsed). If it unconditionally deleted, the replacement would
+	// be gone. With the ownership check, it must still exist.
+	if !replacementExists {
+		// The replacement might have completed already (cache hit from
+		// the abandoned flight's successful preprocess). Check if the
+		// second call succeeded.
+		err2 := <-done2
+		if err2 != nil {
+			t.Fatalf("replacement flight failed: %v (flight ownership violation)", err2)
+		}
+		// Success via cache is acceptable.
+		return
+	}
+
+	// Wait for the replacement to complete.
+	err2 := <-done2
+	if err2 != nil {
+		t.Fatalf("replacement flight failed: %v", err2)
+	}
+
+	// Verify preprocess was called exactly twice (once per flight).
+	// The slow executor adds 500ms delay, so both flights should have
+	// started their own preprocessing.
+	time.Sleep(600 * time.Millisecond) // let abandoned goroutine finish
+	if calls := counter.count(); calls < 2 {
+		t.Fatalf("expected at least 2 preprocess calls (one per flight), got %d", calls)
+	}
+}

@@ -309,8 +309,25 @@ func TestSupervisorConcurrentExecuteAndCloseDrainsActiveSolves(t *testing.T) {
 			activeDone <- client.Execute(context.Background(), request)
 		}()
 
-		// Give the execution time to become active in the helper.
-		time.Sleep(50 * time.Millisecond)
+		// Wait until the slow request acquires the gate, proving execution
+		// has started. This replaces a racy time.Sleep with a deterministic
+		// signal: the gate is empty only while a request is in-flight.
+		gateHeld := func() bool {
+			select {
+			case <-client.gate:
+				client.gate <- struct{}{}
+				return false
+			default:
+				return true
+			}
+		}
+		deadline := time.Now().Add(5 * time.Second)
+		for !gateHeld() {
+			if time.Now().After(deadline) {
+				t.Fatalf("iteration %d: timed out waiting for execution to acquire gate", iteration)
+			}
+			runtime.Gosched()
+		}
 
 		// Close should block until the active execution completes.
 		closeStart := time.Now()
@@ -331,9 +348,9 @@ func TestSupervisorConcurrentExecuteAndCloseDrainsActiveSolves(t *testing.T) {
 			t.Fatalf("iteration %d: Close returned in %v, expected to block for active execution", iteration, closeElapsed)
 		}
 
-		// The helper process should be terminated.
+		// The helper process should be terminated. stopLocked waits on
+		// waitDone, so the process is guaranteed dead after Close returns.
 		if proc != nil {
-			time.Sleep(50 * time.Millisecond)
 			err := proc.Signal(nil)
 			if err == nil {
 				t.Fatalf("iteration %d: helper process still running after Close", iteration)
