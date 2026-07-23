@@ -16,7 +16,7 @@ service response.
 
 | Extractor | Representative URL family | Principal risk coverage |
 | --- | --- | --- |
-| generic | Direct HTTP/HTTPS media and bounded native-provider HTML embeds | simple/direct, shared backend |
+| generic | Direct HTTP/HTTPS media, bounded native-provider embeds, and JSON-LD/Twitter/OpenGraph media | simple/direct, shared backend |
 | youtube | youtube.com/watch and youtu.be, /embed, /shorts, /playlist, and channel live alias URLs | playlist/API, manifest-heavy, JavaScript challenge |
 | vimeo | vimeo.com videos with bounded public text tracks | manifest-heavy |
 | twitch | twitch.tv channels | live, manifest-heavy |

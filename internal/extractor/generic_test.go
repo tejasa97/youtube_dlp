@@ -131,6 +131,185 @@ func TestGenericDiscoversMultipleEmbedsInDocumentOrder(t *testing.T) {
 	}
 }
 
+func TestGenericDiscoversOpenGraphMediaWithRefererAndManifest(t *testing.T) {
+	result, err := NewGeneric().Extract(context.Background(), genericHTMLRequest(readGenericEmbedFixture(t, "open_graph.html")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsPlaylist() || result.IsURL() {
+		t.Fatalf("metadata media result shape: %+v", result)
+	}
+	if title, _ := result.Info.Title(); title != "Synthetic OpenGraph Feature" {
+		t.Fatalf("title = %q", title)
+	}
+	if description, _ := result.Info.Lookup("description").StringValue(); description != "A deterministic metadata-media fixture." {
+		t.Fatalf("description = %q", description)
+	}
+	if thumbnail, _ := result.Info.Lookup("thumbnail").StringValue(); thumbnail != "https://publisher.invalid/images/poster.jpg" {
+		t.Fatalf("thumbnail = %q", thumbnail)
+	}
+	formats, ok := result.Info.Lookup("formats").ListValue()
+	if !ok || len(formats) != 2 {
+		t.Fatalf("formats = %#v", formats)
+	}
+	first, _ := formats[0].Object()
+	second, _ := formats[1].Object()
+	if rawURL, _ := first.Lookup("url").StringValue(); rawURL != "https://publisher.invalid/media/feature.mp4" {
+		t.Fatalf("first URL = %q", rawURL)
+	}
+	if protocol, _ := second.Lookup("protocol").StringValue(); protocol != "m3u8_native" {
+		t.Fatalf("second protocol = %q", protocol)
+	}
+	headers, _ := second.Lookup("http_headers").Object()
+	if referer, _ := headers.Lookup("Referer").StringValue(); referer != "https://publisher.invalid/articles/embed-roundup" {
+		t.Fatalf("referer = %q", referer)
+	}
+}
+
+func TestGenericJSONLDPrecedesOpenGraphAndPreservesMetadata(t *testing.T) {
+	result, err := NewGeneric().Extract(context.Background(), genericHTMLRequest(readGenericEmbedFixture(t, "json_ld.html")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if title, _ := result.Info.Title(); title != "Synthetic JSON-LD Feature" {
+		t.Fatalf("title = %q", title)
+	}
+	if description, _ := result.Info.Lookup("description").StringValue(); description != "A bounded VideoObject fixture." {
+		t.Fatalf("description = %q", description)
+	}
+	if duration, ok := result.Info.Lookup("duration").Float(); !ok || duration != 62.5 {
+		t.Fatalf("duration = %v, %t", duration, ok)
+	}
+	formats, _ := result.Info.Lookup("formats").ListValue()
+	if len(formats) != 1 {
+		t.Fatalf("formats = %#v", formats)
+	}
+	format, _ := formats[0].Object()
+	if rawURL, _ := format.Lookup("url").StringValue(); rawURL != "https://publisher.invalid/media/jsonld" {
+		t.Fatalf("JSON-LD URL = %q", rawURL)
+	}
+}
+
+func TestGenericProviderEmbedsPrecedeMetadataMedia(t *testing.T) {
+	page := []byte(`<html><head><meta property="og:video" content="/fallback.mp4"></head><body><iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ"></iframe></body></html>`)
+	result, err := NewGeneric().Extract(context.Background(), genericHTMLRequest(page))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsURL() || result.Redirect.ExtractorKey != "youtube" {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestGenericMetadataMediaRejectsUnsafeAndNonMediaURLs(t *testing.T) {
+	_, err := NewGeneric().Extract(context.Background(), genericHTMLRequest(readGenericEmbedFixture(t, "metadata_unsafe.html")))
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestGenericTwitterStreamPrecedesOpenGraphAndHandlesTypeBeforeURL(t *testing.T) {
+	page := []byte(`<html><head>
+		<meta property="og:video" content="/fallback.mp4">
+		<meta name="twitter:player:stream:content_type" content="video/mp4">
+		<meta name="twitter:player:stream" content="/twitter-stream">
+	</head></html>`)
+	result, err := NewGeneric().Extract(context.Background(), genericHTMLRequest(page))
+	if err != nil {
+		t.Fatal(err)
+	}
+	formats, _ := result.Info.Lookup("formats").ListValue()
+	format, _ := formats[0].Object()
+	if rawURL, _ := format.Lookup("url").StringValue(); rawURL != "https://publisher.invalid/twitter-stream" {
+		t.Fatalf("URL = %q", rawURL)
+	}
+	if formatID, _ := format.Lookup("format_id").StringValue(); formatID != "twitter" {
+		t.Fatalf("format ID = %q", formatID)
+	}
+}
+
+func TestGenericMalformedJSONLDFallsBackAndAudioObjectIsAudioOnly(t *testing.T) {
+	t.Run("fallback", func(t *testing.T) {
+		page := []byte(`<html><head>
+			<script type="application/ld+json">{"@type":"VideoObject",broken}</script>
+			<meta property="og:video" content="/fallback.mp4">
+		</head></html>`)
+		result, err := NewGeneric().Extract(context.Background(), genericHTMLRequest(page))
+		if err != nil {
+			t.Fatal(err)
+		}
+		formats, _ := result.Info.Lookup("formats").ListValue()
+		format, _ := formats[0].Object()
+		if formatID, _ := format.Lookup("format_id").StringValue(); formatID != "open-graph" {
+			t.Fatalf("format ID = %q", formatID)
+		}
+	})
+	t.Run("audio", func(t *testing.T) {
+		page := []byte(`<script type="application/ld+json">{
+			"@context":"https://schema.org","@type":"AudioObject",
+			"name":"Synthetic audio","encodingFormat":"audio/mpeg","contentUrl":"/audio"
+		}</script>`)
+		result, err := NewGeneric().Extract(context.Background(), genericHTMLRequest(page))
+		if err != nil {
+			t.Fatal(err)
+		}
+		formats, _ := result.Info.Lookup("formats").ListValue()
+		format, _ := formats[0].Object()
+		if extension, _ := format.Lookup("ext").StringValue(); extension != "mp3" {
+			t.Fatalf("extension = %q", extension)
+		}
+		if vcodec, _ := format.Lookup("vcodec").StringValue(); vcodec != "none" {
+			t.Fatalf("vcodec = %q", vcodec)
+		}
+	})
+}
+
+func TestGenericMetadataMediaBoundsAndCancellation(t *testing.T) {
+	base := mustGenericURL(t, "https://publisher.invalid/article")
+	t.Run("scripts", func(t *testing.T) {
+		page := []byte(strings.Repeat(`<script type="application/ld+json">{}</script>`, maxGenericJSONLDScripts+1))
+		if _, _, err := discoverGenericMetadataMedia(context.Background(), base, page); !errors.Is(err, ErrPlaylistLimit) {
+			t.Fatalf("error = %v", err)
+		}
+	})
+	t.Run("script bytes", func(t *testing.T) {
+		page := []byte(`<script type="application/ld+json">"` + strings.Repeat("x", maxGenericJSONLDBytes+1) + `"</script>`)
+		if _, _, err := discoverGenericMetadataMedia(context.Background(), base, page); !errors.Is(err, ErrInvalidMetadata) {
+			t.Fatalf("error = %v", err)
+		}
+	})
+	t.Run("candidates", func(t *testing.T) {
+		page := []byte(strings.Repeat(`<meta property="og:video" content="/video.mp4">`, maxGenericMetadataCandidates+1))
+		if _, _, err := discoverGenericMetadataMedia(context.Background(), base, page); !errors.Is(err, ErrPlaylistLimit) {
+			t.Fatalf("error = %v", err)
+		}
+	})
+	t.Run("JSON-LD candidates", func(t *testing.T) {
+		object := `{"@context":"https://schema.org","@type":"VideoObject","contentUrl":"/video.mp4"}`
+		page := []byte(`<script type="application/ld+json">[` +
+			strings.TrimSuffix(strings.Repeat(object+",", maxGenericMetadataCandidates+1), ",") +
+			`]</script>`)
+		if _, _, err := discoverGenericMetadataMedia(context.Background(), base, page); !errors.Is(err, ErrPlaylistLimit) {
+			t.Fatalf("error = %v", err)
+		}
+	})
+	t.Run("JSON-LD nodes", func(t *testing.T) {
+		page := []byte(`<script type="application/ld+json">[` +
+			strings.TrimSuffix(strings.Repeat(`{},`, maxGenericJSONLDNodes+1), ",") +
+			`]</script>`)
+		if _, _, err := discoverGenericMetadataMedia(context.Background(), base, page); !errors.Is(err, ErrInvalidMetadata) {
+			t.Fatalf("error = %v", err)
+		}
+	})
+	t.Run("cancelled", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		if _, _, err := discoverGenericMetadataMedia(ctx, base, []byte(`<meta property="og:video" content="/video.mp4">`)); !errors.Is(err, context.Canceled) {
+			t.Fatalf("error = %v", err)
+		}
+	})
+}
+
 func TestCanonicalGenericEmbedSupportedProviderRoutes(t *testing.T) {
 	base, _ := url.Parse("https://publisher.invalid/article")
 	tests := []struct {
@@ -428,6 +607,39 @@ func FuzzDiscoverGenericEmbedEntries(f *testing.F) {
 				t.Fatalf("duplicate entry: %#v", entry)
 			}
 			seen[key] = true
+		}
+	})
+}
+
+func FuzzDiscoverGenericMetadataMedia(f *testing.F) {
+	f.Add([]byte(`<meta property="og:video" content="/video.mp4">`))
+	f.Add([]byte(`<script type="application/ld+json">{"@context":"https://schema.org","@type":"VideoObject","contentUrl":"/video.mp4"}</script>`))
+	base, _ := url.Parse("https://publisher.invalid/article")
+	f.Fuzz(func(t *testing.T, page []byte) {
+		if len(page) > maxGenericHTMLBytes+1 {
+			return
+		}
+		result, found, err := discoverGenericMetadataMedia(context.Background(), base, page)
+		if err != nil || !found {
+			return
+		}
+		if result.IsPlaylist() || result.IsURL() {
+			t.Fatalf("metadata media returned non-media result")
+		}
+		formats, ok := result.Info.Lookup("formats").ListValue()
+		if !ok || len(formats) == 0 || len(formats) > maxGenericMetadataCandidates {
+			t.Fatalf("invalid formats: %#v", formats)
+		}
+		for _, encoded := range formats {
+			format, ok := encoded.Object()
+			if !ok {
+				t.Fatal("non-object format")
+			}
+			rawURL, ok := format.Lookup("url").StringValue()
+			parsed, parseErr := url.Parse(rawURL)
+			if !ok || parseErr != nil || parsed.User != nil || parsed.Scheme != "https" && parsed.Scheme != "http" {
+				t.Fatalf("unsafe format URL %q", rawURL)
+			}
 		}
 	})
 }

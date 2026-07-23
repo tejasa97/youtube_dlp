@@ -1,11 +1,12 @@
-# Conservative generic embed discovery
+# Conservative generic page discovery
 
 Baseline: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`
 
 The generic extractor preserves its direct-media `HEAD` fast path. A rejected
 `HEAD` (405/501), absent media type, HTML response, or inconclusive/misleading
 media type falls back to one bounded `GET`. HTML scanning examines only
-explicit embed-bearing attributes. It never requests an iframe, executes
+explicit embed-bearing attributes, then bounded structured metadata when no
+native-provider embed was accepted. It never requests an iframe, executes
 script, or turns an arbitrary link into a media result.
 
 HTTP redirects are emitted as root URL results before the final document is
@@ -37,6 +38,28 @@ and protocol-relative attributes are resolved against the requested page URL
 when no redirect handoff occurred, and the resolved target must still satisfy
 one of those provider policies.
 
+## Structured metadata media
+
+When no supported provider embed is found, discovery follows the pinned
+generic extractor's precedence:
+
+1. Schema.org-context `VideoObject` or `AudioObject` `contentUrl` values from
+   `application/ld+json`;
+2. `twitter:player:stream`; then
+3. exact `og:video` or `og:audio` properties.
+
+JSON-LD preserves bounded `name`, `description`, `thumbnailUrl`, ISO-8601
+duration, and `encodingFormat` fields. OpenGraph/Twitter metadata supplies
+title, description, and thumbnail fallbacks. Relative URLs resolve against the
+final page URL. Direct audio/video and native HLS, DASH, and ISM formats carry
+the page Referer through actual product downloads. Exact duplicate media URLs
+are suppressed.
+
+Provider embeds remain authoritative over metadata fallbacks. JSON-LD has
+priority over Twitter and OpenGraph even when those tags appear earlier in the
+document. Malformed JSON-LD is ignored so a valid lower-priority metadata
+source can still be used.
+
 ## Resource and security bounds
 
 - HTML response: 2 MiB;
@@ -45,6 +68,11 @@ one of those provider policies.
 - embed-bearing attributes examined: 256;
 - unique embeds returned: 64; and
 - candidate URL: 8 KiB.
+- metadata candidates: 256;
+- JSON-LD scripts: 32;
+- one JSON-LD script: 512 KiB;
+- traversed JSON-LD nodes: 2,048 with depth 64; and
+- normalized title/description: 1 KiB/8 KiB.
 
 Userinfo, explicit ports (including an empty explicit port), fragments,
 encoded separators/NULs, unsupported schemes, provider lookalikes, and URLs
@@ -55,7 +83,14 @@ their underlying error instead of being relabeled as metadata failures.
 
 ## Intentional scope
 
-This increment does not implement generic direct URLs found in scripts,
-OpenGraph media, JSON-LD, arbitrary JW Player configuration, provider
-discovery, or iframe crawling. Unsupported HTML remains a categorized
-unsupported extraction.
+Metadata-media URLs permit valid explicit ports because media CDNs commonly
+use them, but still reject userinfo, fragments, encoded separators/NULs,
+unsupported schemes, non-media extensions without a trusted media type, and
+unsafe thumbnail URLs. Multiple metadata URLs from one source are represented
+as formats of one page media item rather than separate playlist entries.
+
+This increment does not implement generic direct URLs found in arbitrary
+scripts, `embedUrl`-only JSON-LD, arbitrary JW Player configuration, OpenGraph
+structured properties beyond the documented core, provider discovery, or
+iframe crawling. Unsupported HTML remains a categorized unsupported
+extraction.
