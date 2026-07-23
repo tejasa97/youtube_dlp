@@ -1325,6 +1325,82 @@ func TestYouTubePostLiveAdaptiveFormatsUseFiniteDVRProtocol(t *testing.T) {
 	}
 }
 
+func TestYouTubeLiveFromStartEligibilityAndMetadataOnlyExtraction(t *testing.T) {
+	const rawURL = "https://www.youtube.com/watch?v=livefrm0001"
+	page := []byte(`ytInitialPlayerResponse={
+		"playabilityStatus":{"status":"OK"},
+		"videoDetails":{"videoId":"livefrm0001","title":"Active live fixture","isLive":true,"isLiveContent":true},
+		"streamingData":{
+			"hlsManifestUrl":"https://media.example/current.m3u8",
+			"dashManifestUrl":"https://media.example/current.mpd",
+			"adaptiveFormats":[
+				{"itag":137,"url":"https://media.example/video?pot=video","mimeType":"video/mp4; codecs=\"avc1.4d401f\"","width":1280,"height":720,"targetDurationSec":5},
+				{"itag":140,"url":"https://media.example/audio?pot=audio","mimeType":"audio/mp4; codecs=\"mp4a.40.2\"","targetDurationSec":5},
+				{"itag":18,"url":"https://media.example/current?pot=combined","mimeType":"video/mp4; codecs=\"avc1.42001E, mp4a.40.2\""}
+			]
+		},
+		"microformat":{"playerMicroformatRenderer":{"liveBroadcastDetails":{"startTimestamp":"2026-07-23T10:00:00Z"}}}
+	};`)
+	withoutFlag, err := NewYouTube().Extract(context.Background(), Request{
+		URL: rawURL, Transport: &memoryTransport{pages: map[string][]byte{rawURL: page}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	formats, _ := withoutFlag.Info.Formats()
+	if len(formats) != 5 {
+		t.Fatalf("current-edge formats = %#v", formats)
+	}
+	for _, candidate := range formats {
+		format, _ := candidate.Object()
+		if rewind, _ := format.Lookup("_youtube_live_from_start").Bool(); rewind {
+			t.Fatalf("default extraction enabled rewind: %#v", format)
+		}
+	}
+
+	withFlag, err := NewYouTube().Extract(context.Background(), Request{
+		URL: rawURL, Transport: &memoryTransport{pages: map[string][]byte{rawURL: page}},
+		YouTubeLiveFromStart: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	formats, _ = withFlag.Info.Formats()
+	if len(formats) != 2 {
+		t.Fatalf("rewind formats = %#v", formats)
+	}
+	for _, candidate := range formats {
+		format, _ := candidate.Object()
+		rewind, _ := format.Lookup("_youtube_live_from_start").Bool()
+		protocol, _ := format.Lookup("protocol").StringValue()
+		client, _ := format.Lookup("_youtube_client").StringValue()
+		source, _ := format.Lookup("_youtube_source_url").StringValue()
+		target, _ := format.Lookup("target_duration").Float()
+		if !rewind || protocol != "http_dash_segments_generator" || client != "WEB" ||
+			source != rawURL || target != 5 {
+			t.Fatalf("rewind format = %#v", format)
+		}
+	}
+}
+
+func TestYouTubeLiveFromStartRequiresEligibleAdaptiveFormats(t *testing.T) {
+	const rawURL = "https://www.youtube.com/watch?v=livefrm0002"
+	page := []byte(`ytInitialPlayerResponse={
+		"playabilityStatus":{"status":"OK"},
+		"videoDetails":{"videoId":"livefrm0002","title":"No rewind formats","isLive":true},
+		"streamingData":{"formats":[
+			{"itag":18,"url":"https://media.example/current","mimeType":"video/mp4; codecs=\"avc1.42001E, mp4a.40.2\""}
+		]}
+	};`)
+	_, err := NewYouTube().Extract(context.Background(), Request{
+		URL: rawURL, Transport: &memoryTransport{pages: map[string][]byte{rawURL: page}},
+		YouTubeLiveFromStart: true,
+	})
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestYouTubePostLiveMetadataFallsBackAcrossPlayerResponses(t *testing.T) {
 	const rawURL = "https://www.youtube.com/watch?v=fixture0001"
 	page := []byte(`ytInitialPlayerResponse={

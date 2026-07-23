@@ -98,8 +98,23 @@ func TestRunHelpIsCurrentAndSuccessful(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "Usage: ytdlp-go") ||
 		!strings.Contains(stderr.String(), "Experimental Python-free Go implementation") ||
+		!strings.Contains(stderr.String(), "live-from-start") ||
 		strings.Contains(stderr.String(), "Phase 2 alpha development") {
 		t.Fatalf("help is stale: %q", stderr.String())
+	}
+}
+
+func TestRunAcceptsLiveFromStartAndLastNegativeFlagWins(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	for _, arguments := range [][]string{
+		{"--skip-download", "--live-from-start", server.URL + "/page"},
+		{"--skip-download", "--live-from-start", "--no-live-from-start", server.URL + "/page"},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := Run(arguments, &stdout, &stderr); code != 0 {
+			t.Fatalf("Run(%v) code=%d stderr=%q", arguments, code, stderr.String())
+		}
 	}
 }
 

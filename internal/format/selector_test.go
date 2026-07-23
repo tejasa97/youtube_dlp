@@ -78,6 +78,10 @@ func TestDefaultPrefersAdaptivePairThenCombined(t *testing.T) {
 	for _, index := range []int{1, 3} {
 		object, _ := formats[index].Object()
 		object.Set("_youtube_post_live", value.Bool(true))
+		object.Set("_youtube_live_from_start", value.Bool(true))
+		object.Set("_youtube_itag", value.Int(137+int64(index)))
+		object.Set("_youtube_client", value.String("WEB"))
+		object.Set("_youtube_source_url", value.String("https://www.youtube.com/watch?v=fixture0001"))
 		object.Set("target_duration", value.Float(5))
 		object.Set("live_start_timestamp", value.Int(1234))
 	}
@@ -87,7 +91,9 @@ func TestDefaultPrefersAdaptivePairThenCombined(t *testing.T) {
 		t.Fatalf("Default() = %#v, %v", selected, err)
 	}
 	for _, selection := range selected {
-		if !selection.YouTubePostLive || selection.TargetDuration != 5 || selection.LiveStartTimestamp != 1234 {
+		if !selection.YouTubePostLive || !selection.YouTubeLiveFromStart ||
+			selection.YouTubeItag == 0 || selection.YouTubeClient != "WEB" ||
+			selection.YouTubeSourceURL == "" || selection.TargetDuration != 5 || selection.LiveStartTimestamp != 1234 {
 			t.Fatalf("post-live metadata dropped: %#v", selected)
 		}
 	}
