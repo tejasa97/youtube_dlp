@@ -9,6 +9,7 @@ The `youtube_alias_tab` extractor handles exact `youtube.com` and
 
 - `/user/<alias>/{videos,shorts,streams,playlists,home,featured,community,releases,podcasts}`
 - `/c/<alias>/{videos,shorts,streams,playlists,home,featured,community,releases,podcasts}`
+- bare `/user/<alias>` and `/c/<alias>` upload roots
 
 Aliases retain their case and valid Unicode spelling. The route classifier
 rejects ambiguous encoded paths, controls, oversized aliases, alternate
@@ -50,8 +51,8 @@ do not depend on the reference checkout.
 
 ## Known deviations
 
-- Bare alias URLs, membership, arbitrary custom tabs, and channel search
-  remain outside this bounded extractor.
+- Membership, arbitrary custom tabs, channel search, and topic-channel
+  synthesized-playlist fallback remain outside this bounded extractor.
 - Conditional redirects, renamed aliases, authenticated/private tabs, and
   arbitrary renderer parity are not claimed.
 - Alias spelling is preserved rather than guessed or normalized beyond URL

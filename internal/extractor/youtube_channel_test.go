@@ -360,6 +360,7 @@ func TestYouTubeChannelTabShortsEntry(t *testing.T) {
 func TestYouTubeChannelTabRoutingPolicy(t *testing.T) {
 	valid := []string{
 		channelFixtureURL,
+		"https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv",
 		"https://youtube.com/channel/UCabcdefghijklmnopqrstuv/shorts",
 		"http://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/streams",
 		"https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/playlists",
@@ -376,7 +377,7 @@ func TestYouTubeChannelTabRoutingPolicy(t *testing.T) {
 		}
 	}
 	invalid := []string{
-		"https://evil-youtube.com/channel/UCabcdefghijklmnopqrstuv/videos", "https://m.youtube.com/channel/UCabcdefghijklmnopqrstuv/videos", "https://www.youtube.com:443/channel/UCabcdefghijklmnopqrstuv/videos", "https://user@www.youtube.com/channel/UCabcdefghijklmnopqrstuv/videos", "ftp://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/videos", "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv", "https://www.youtube.com/channel/UCshort/videos", "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/membership", "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/playlists/", "https://www.youtube.com/channel%2fUCabcdefghijklmnopqrstuv/videos", "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/videos#fragment", "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/videos?x=%00",
+		"https://evil-youtube.com/channel/UCabcdefghijklmnopqrstuv/videos", "https://m.youtube.com/channel/UCabcdefghijklmnopqrstuv/videos", "https://www.youtube.com:443/channel/UCabcdefghijklmnopqrstuv/videos", "https://user@www.youtube.com/channel/UCabcdefghijklmnopqrstuv/videos", "ftp://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/videos", "https://www.youtube.com/channel/UCshort/videos", "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/membership", "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/playlists/", "https://www.youtube.com/channel%2fUCabcdefghijklmnopqrstuv/videos", "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/videos#fragment", "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/videos?x=%00",
 	}
 	for _, raw := range invalid {
 		request, _ := http.NewRequest(http.MethodGet, raw, nil)
@@ -440,6 +441,7 @@ func FuzzParseYouTubeChannelTabData(f *testing.F) {
 
 func FuzzYouTubeChannelTabTarget(f *testing.F) {
 	f.Add(channelFixtureURL)
+	f.Add("https://youtube.com/channel/UCabcdefghijklmnopqrstuv")
 	f.Add("https://youtube.com/channel/UCabcdefghijklmnopqrstuv/shorts")
 	f.Add("https://www.youtube.com/channel%2fUCabcdefghijklmnopqrstuv/videos")
 	f.Add("https://evil-youtube.com/channel/UCabcdefghijklmnopqrstuv/streams")
@@ -456,7 +458,7 @@ func FuzzYouTubeChannelTabTarget(f *testing.F) {
 			return
 		}
 		if !youtubeChannelIDPattern.MatchString(channelID) ||
-			youtubePublicTabType(tab) == youtubeTabUnsupported {
+			(tab != "" && youtubePublicTabType(tab) == youtubeTabUnsupported) {
 			t.Fatalf("accepted invalid target %q: %q/%q", rawURL, channelID, tab)
 		}
 	})

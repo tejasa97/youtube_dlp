@@ -171,6 +171,8 @@ func TestYouTubeAliasTabTargetPolicy(t *testing.T) {
 		raw, kind, alias, tab string
 	}{
 		{"https://youtube.com/user/MixedCase/videos", "user", "MixedCase", "videos"},
+		{"https://youtube.com/user/MixedCase", "user", "MixedCase", ""},
+		{"https://youtube.com/c/日本語", "c", "日本語", ""},
 		{"http://www.youtube.com/c/日本語/shorts?x=1", "c", "日本語", "shorts"},
 		{"https://www.youtube.com/user/a.b-c_d/streams", "user", "a.b-c_d", "streams"},
 		{"https://youtube.com/c/A/playlists", "c", "A", "playlists"},
@@ -459,6 +461,7 @@ func TestYouTubeAliasTabContinuationRateLimitAndReusableRace(t *testing.T) {
 func FuzzYouTubeAliasTabTarget(f *testing.F) {
 	for _, seed := range []string{
 		"https://youtube.com/user/MixedCase/videos",
+		"https://youtube.com/user/MixedCase",
 		"https://www.youtube.com/c/日本語/playlists?x=1",
 		"https://youtube.com/user/a%2fb/videos",
 		"https://evil.example/c/name/streams",
@@ -481,7 +484,7 @@ func FuzzYouTubeAliasTabTarget(f *testing.F) {
 			if alias == "" || len(alias) > youtubeAliasMaxBytes || !utf8.ValidString(alias) {
 				t.Fatalf("alias=%q", alias)
 			}
-			if youtubePublicTabType(tab) == youtubeTabUnsupported {
+			if tab != "" && youtubePublicTabType(tab) == youtubeTabUnsupported {
 				t.Fatalf("tab=%q", tab)
 			}
 			if parsed.User != nil || parsed.Port() != "" || parsed.Fragment != "" ||

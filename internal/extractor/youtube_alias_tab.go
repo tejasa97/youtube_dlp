@@ -50,6 +50,17 @@ func (YouTubeAliasTab) Extract(ctx context.Context, request Request) (Extraction
 	if !ok {
 		return Extraction{}, fmt.Errorf("%w: unsupported YouTube alias tab", ErrUnsupported)
 	}
+	if tab == "" {
+		canonical := youtubeAliasTabCanonicalURL(kind, alias, "")
+		return extractYouTubeBareChannelUploads(ctx, request.Transport, youtubeBareChannelSpec{
+			canonical: canonical, videosURL: youtubeAliasTabCanonicalURL(kind, alias, "videos"),
+			fallbackID: kind + ":" + alias, subject: "alias",
+			categorize: categorizeYouTubeAliasTabError,
+			extractTab: func(ctx context.Context, transport Transport, tab string) (Extraction, error) {
+				return extractYouTubeAliasTab(ctx, transport, kind, alias, tab)
+			},
+		})
+	}
 	return extractYouTubeAliasTab(ctx, request.Transport, kind, alias, tab)
 }
 
@@ -78,7 +89,7 @@ func youtubeAliasTabTarget(parsed *url.URL) (kind, alias, tab string, ok bool) {
 		return "", "", "", false
 	}
 	parts := strings.Split(parsed.Path, "/")
-	if len(parts) != 4 || parts[0] != "" || (parts[1] != "user" && parts[1] != "c") {
+	if (len(parts) != 3 && len(parts) != 4) || parts[0] != "" || (parts[1] != "user" && parts[1] != "c") {
 		return "", "", "", false
 	}
 	alias = parts[2]
@@ -90,6 +101,9 @@ func youtubeAliasTabTarget(parsed *url.URL) (kind, alias, tab string, ok bool) {
 		if unicode.IsControl(r) {
 			return "", "", "", false
 		}
+	}
+	if len(parts) == 3 {
+		return parts[1], alias, "", true
 	}
 	if youtubePublicTabType(parts[3]) != youtubeTabUnsupported {
 		return parts[1], alias, parts[3], true
@@ -143,10 +157,14 @@ func extractYouTubeAliasTab(ctx context.Context, transport Transport, kind, alia
 }
 
 func youtubeAliasTabCanonicalURL(kind, alias, tab string) string {
+	path := "/" + kind + "/" + alias
+	if tab != "" {
+		path += "/" + tab
+	}
 	return (&url.URL{
 		Scheme: "https",
 		Host:   "www.youtube.com",
-		Path:   "/" + kind + "/" + alias + "/" + tab,
+		Path:   path,
 	}).String()
 }
 
