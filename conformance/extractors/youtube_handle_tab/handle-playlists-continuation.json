@@ -1,0 +1,12 @@
+{
+  "onResponseReceivedEndpoints": [{
+    "appendContinuationItemsAction": {
+      "continuationItems": [
+        {"gridPlaylistRenderer":{"playlistId":"PLhandleLegacy003","title":{"runs":[{"text":"Continued handle playlist"}]}}},
+        {"lockupViewModel":{"contentId":"PLhandlePodcast004","contentType":"LOCKUP_CONTENT_TYPE_PODCAST","metadata":{"lockupMetadataViewModel":{"title":{"content":"Handle podcast"}}}}},
+        {"playlistRenderer":{"playlistId":"PLhandleLegacy001","title":{"simpleText":"Repeated handle playlist"}}},
+        {"continuationItemRenderer":{"continuationEndpoint":{"continuationCommand":{"token":"next-handle-playlists"}}}}
+      ]
+    }
+  }]
+}

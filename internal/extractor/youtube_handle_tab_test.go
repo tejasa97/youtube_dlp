@@ -15,27 +15,39 @@ const handleFixtureURL = "https://www.youtube.com/@synthetic-handle/videos"
 
 type handleFixtureTransport struct {
 	page, continuation []byte
+	pageURL            string
 	mu                 sync.Mutex
 	reads, requests    int
 	err                error
+	status             int
 	lastRequest        *http.Request
 	lastBody           string
 }
 
-func (t *handleFixtureTransport) ReadPage(_ context.Context, rawURL string) ([]byte, http.Header, error) {
+func (t *handleFixtureTransport) ReadPage(ctx context.Context, rawURL string) ([]byte, http.Header, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.reads++
-	if rawURL != handleFixtureURL {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	expectedURL := t.pageURL
+	if expectedURL == "" {
+		expectedURL = handleFixtureURL
+	}
+	if rawURL != expectedURL {
 		return nil, nil, errors.New("unexpected page")
 	}
 	return t.page, nil, t.err
 }
 
-func (t *handleFixtureTransport) Do(_ context.Context, request *http.Request) (*http.Response, error) {
+func (t *handleFixtureTransport) Do(ctx context.Context, request *http.Request) (*http.Response, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.requests++
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if request.URL.Path != "/youtubei/v1/browse" {
 		return nil, errors.New("unexpected continuation endpoint")
 	}
@@ -45,7 +57,11 @@ func (t *handleFixtureTransport) Do(_ context.Context, request *http.Request) (*
 	}
 	t.lastRequest = request.Clone(request.Context())
 	t.lastBody = string(body)
-	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(string(t.continuation)))}, nil
+	status := t.status
+	if status == 0 {
+		status = http.StatusOK
+	}
+	return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(string(t.continuation)))}, nil
 }
 
 func readHandleFixture(t *testing.T, name string) []byte {
@@ -101,8 +117,156 @@ func TestYouTubeHandleTabLazyReusableContinuation(t *testing.T) {
 	}
 }
 
+func TestYouTubeHandlePlaylistsTabLegacyModernContinuationAndOccurrences(t *testing.T) {
+	const rawURL = "https://www.youtube.com/@synthetic-handle/playlists"
+	transport := &handleFixtureTransport{
+		pageURL: rawURL, page: readHandleFixture(t, "handle-playlists.html"),
+		continuation: readHandleFixture(t, "handle-playlists-continuation.json"),
+	}
+	result, err := NewYouTubeHandleTab().Extract(context.Background(), Request{URL: rawURL, Transport: transport})
+	if err != nil || !result.IsPlaylist() {
+		t.Fatalf("result=%v err=%v", result.IsPlaylist(), err)
+	}
+	if id, _ := result.Info.ID(); id != "UCabcdefghijklmnopqrstuv" {
+		t.Fatalf("id = %q", id)
+	}
+	if title, _ := result.Info.Title(); title != "Synthetic Handle Playlists" {
+		t.Fatalf("title = %q", title)
+	}
+	want := []string{
+		"PLhandleLegacy001:Legacy handle playlist",
+		"PLhandleModern002:Modern handle playlist",
+		"PLhandleLegacy003:Continued handle playlist",
+		"PLhandlePodcast004:Handle podcast",
+		"PLhandleLegacy001:Repeated handle playlist",
+	}
+	for run := 0; run < 2; run++ {
+		var got []string
+		iterator := result.Entries.Iterator()
+		for {
+			entry, ok, nextErr := iterator.Next(context.Background())
+			if nextErr != nil {
+				t.Fatal(nextErr)
+			}
+			if !ok {
+				break
+			}
+			if !entry.Transparent || entry.ExtractorKey != "youtube" ||
+				entry.URL != "https://www.youtube.com/playlist?list="+entry.ID {
+				t.Fatalf("unsafe playlist entry: %#v", entry)
+			}
+			got = append(got, entry.ID+":"+entry.Title)
+		}
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Fatalf("entries = %#v", got)
+		}
+	}
+	if transport.requests != 2 {
+		t.Fatalf("continuation requests = %d", transport.requests)
+	}
+	if !strings.Contains(transport.lastBody, `"continuation":"next-handle-playlists"`) {
+		t.Fatalf("continuation body = %s", transport.lastBody)
+	}
+}
+
+func TestYouTubeHandlePlaylistsTabRejectsHostileRenderersAndCategorizesFailures(t *testing.T) {
+	page, err := parseYouTubeHandleTabData([]byte(`{
+		"metadata":{"channelMetadataRenderer":{"title":"Playlists"}},
+		"playlistRenderer":{"playlistId":"bad%2fid","title":{"simpleText":"bad"}},
+		"gridPlaylistRenderer":{"playlistId":"PLsafe_handle","title":{"simpleText":"safe"}},
+		"lockupViewModel":{"contentId":"abcdefghijk","contentType":"LOCKUP_CONTENT_TYPE_VIDEO"}
+	}`), "playlists")
+	if err != nil || len(page.entries) != 1 || page.entries[0].ID != "PLsafe_handle" {
+		t.Fatalf("page=%#v err=%v", page, err)
+	}
+	if got := categorizeYouTubeHandleTabError(ErrInvalidMetadata); !errors.Is(got, ErrInvalidMetadata) ||
+		errors.Is(got, ErrYouTubeHandleTabNetwork) {
+		t.Fatalf("metadata category = %v", got)
+	}
+
+	const rawURL = "https://www.youtube.com/@synthetic-handle/playlists"
+	for _, test := range []struct {
+		err  error
+		want error
+	}{
+		{&HTTPStatusError{Code: http.StatusUnauthorized}, ErrAuthentication},
+		{&HTTPStatusError{Code: http.StatusNotFound}, ErrUnavailable},
+		{&HTTPStatusError{Code: http.StatusTooManyRequests}, ErrYouTubeHandleTabRateLimited},
+	} {
+		_, extractErr := NewYouTubeHandleTab().Extract(context.Background(), Request{
+			URL: rawURL, Transport: &handleFixtureTransport{pageURL: rawURL, err: test.err},
+		})
+		if !errors.Is(extractErr, test.want) {
+			t.Fatalf("error %v: %v", test.err, extractErr)
+		}
+	}
+
+	transport := &handleFixtureTransport{
+		pageURL: rawURL, page: readHandleFixture(t, "handle-playlists.html"),
+		status: http.StatusTooManyRequests,
+	}
+	result, err := NewYouTubeHandleTab().Extract(context.Background(), Request{URL: rawURL, Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	iterator := result.Entries.Iterator()
+	for index := 0; index < 2; index++ {
+		if _, ok, nextErr := iterator.Next(context.Background()); nextErr != nil || !ok {
+			t.Fatalf("initial entry %d: ok=%v err=%v", index, ok, nextErr)
+		}
+	}
+	if _, _, nextErr := iterator.Next(context.Background()); !errors.Is(nextErr, ErrYouTubeHandleTabRateLimited) {
+		t.Fatalf("continuation rate limit = %v", nextErr)
+	}
+	malformed := &handleFixtureTransport{
+		pageURL: rawURL, page: readHandleFixture(t, "handle-playlists.html"),
+		continuation: []byte(`{`),
+	}
+	malformedResult, err := NewYouTubeHandleTab().Extract(context.Background(), Request{URL: rawURL, Transport: malformed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	malformedIterator := malformedResult.Entries.Iterator()
+	for index := 0; index < 2; index++ {
+		_, _, _ = malformedIterator.Next(context.Background())
+	}
+	if _, _, nextErr := malformedIterator.Next(context.Background()); !errors.Is(nextErr, ErrInvalidMetadata) {
+		t.Fatalf("malformed continuation = %v", nextErr)
+	}
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, _, nextErr := result.Entries.Iterator().Next(cancelled); !errors.Is(nextErr, context.Canceled) {
+		t.Fatalf("continuation cancellation = %v", nextErr)
+	}
+
+	blocking := &blockingTabContinuationTransport{
+		pageURL: rawURL, page: readHandleFixture(t, "handle-playlists.html"),
+		started: make(chan struct{}),
+	}
+	blockingResult, err := NewYouTubeHandleTab().Extract(context.Background(), Request{URL: rawURL, Transport: blocking})
+	if err != nil {
+		t.Fatal(err)
+	}
+	blockingIterator := blockingResult.Entries.Iterator()
+	for index := 0; index < 2; index++ {
+		_, _, _ = blockingIterator.Next(context.Background())
+	}
+	inFlight, stop := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, _, nextErr := blockingIterator.Next(inFlight)
+		done <- nextErr
+	}()
+	<-blocking.started
+	stop()
+	if nextErr := <-done; !errors.Is(nextErr, context.Canceled) {
+		t.Fatalf("in-flight cancellation = %v", nextErr)
+	}
+}
+
 func TestYouTubeHandleTabFallbackIDAndRoutingPolicy(t *testing.T) {
-	page, err := parseYouTubeHandleTabData([]byte(`{"metadata":{"channelMetadataRenderer":{"title":"No ID"}}}`))
+	page, err := parseYouTubeHandleTabData([]byte(`{"metadata":{"channelMetadataRenderer":{"title":"No ID"}}}`), "videos")
 	if err != nil || page.channelID != "" {
 		t.Fatalf("page=%#v err=%v", page, err)
 	}
@@ -114,7 +278,7 @@ func TestYouTubeHandleTabFallbackIDAndRoutingPolicy(t *testing.T) {
 	if id, _ := result.Info.ID(); id != "handle:@synthetic-handle" {
 		t.Fatalf("fallback playlist id = %q", id)
 	}
-	valid := []string{handleFixtureURL, "https://youtube.com/@Foo.Bar_1/shorts?view=0", "http://www.youtube.com/@abc/streams"}
+	valid := []string{handleFixtureURL, "https://youtube.com/@Foo.Bar_1/shorts?view=0", "http://www.youtube.com/@abc/streams", "https://www.youtube.com/@synthetic-handle/playlists"}
 	for _, raw := range valid {
 		request, _ := http.NewRequest(http.MethodGet, raw, nil)
 		if !NewYouTubeHandleTab().Suitable(request.URL) {
@@ -122,7 +286,7 @@ func TestYouTubeHandleTabFallbackIDAndRoutingPolicy(t *testing.T) {
 		}
 	}
 	invalid := []string{
-		"https://evil-youtube.com/@synthetic-handle/videos", "https://m.youtube.com/@synthetic-handle/videos", "https://www.youtube.com:443/@synthetic-handle/videos", "https://user@www.youtube.com/@synthetic-handle/videos", "ftp://www.youtube.com/@synthetic-handle/videos", "https://www.youtube.com/@ab/videos", "https://www.youtube.com/@___/videos", "https://www.youtube.com/@synthetic-handle", "https://www.youtube.com/@synthetic-handle/playlists", "https://www.youtube.com/@synthetic-handle/videos/", "https://www.youtube.com/%40synthetic-handle/videos", "https://www.youtube.com/@synthetic-handle/videos#tab", "https://www.youtube.com/@synthetic-handle/videos?x=%00",
+		"https://evil-youtube.com/@synthetic-handle/videos", "https://m.youtube.com/@synthetic-handle/videos", "https://www.youtube.com:443/@synthetic-handle/videos", "https://user@www.youtube.com/@synthetic-handle/videos", "ftp://www.youtube.com/@synthetic-handle/videos", "https://www.youtube.com/@ab/videos", "https://www.youtube.com/@___/videos", "https://www.youtube.com/@synthetic-handle", "https://www.youtube.com/@synthetic-handle/community", "https://www.youtube.com/@synthetic-handle/playlists/", "https://www.youtube.com/%40synthetic-handle/videos", "https://www.youtube.com/@synthetic-handle/videos#tab", "https://www.youtube.com/@synthetic-handle/videos?x=%00",
 	}
 	for _, raw := range invalid {
 		request, _ := http.NewRequest(http.MethodGet, raw, nil)
@@ -147,12 +311,12 @@ func TestYouTubeHandleTabFailuresMalformedCancellationAndLoop(t *testing.T) {
 	if _, err := NewYouTubeHandleTab().Extract(context.Background(), Request{URL: handleFixtureURL, Transport: &handleFixtureTransport{err: errors.New("dial failed")}}); !errors.Is(err, ErrYouTubeHandleTabNetwork) {
 		t.Fatalf("initial network classification = %v", err)
 	}
-	if _, err := parseYouTubeHandleTabData([]byte(`[]`)); !errors.Is(err, ErrInvalidMetadata) {
+	if _, err := parseYouTubeHandleTabData([]byte(`[]`), "videos"); !errors.Is(err, ErrInvalidMetadata) {
 		t.Fatalf("malformed root = %v", err)
 	}
 	private, err := parseYouTubeHandleTabData([]byte(`{
 		"alerts":[{"alertRenderer":{"text":{"simpleText":"This channel is private"}}}]
-	}`))
+	}`), "playlists")
 	if err != nil || !errors.Is(youtubeHandleTabAlertError(private.alert), ErrAuthentication) {
 		t.Fatalf("private alert=%q err=%v", private.alert, err)
 	}
@@ -172,7 +336,7 @@ func TestYouTubeHandleTabFailuresMalformedCancellationAndLoop(t *testing.T) {
 	if _, ok, err := iterator.Next(context.Background()); err != nil || ok {
 		t.Fatalf("loop stop = ok:%v err:%v", ok, err)
 	}
-	if _, _, err := fetchYouTubeHandleTabContinuation(context.Background(), &handleFixtureTransport{}, "bad\nvalue", youtubePlaylistConfig{}); !errors.Is(err, ErrInvalidPlaylist) {
+	if _, _, err := fetchYouTubeHandleTabContinuation(context.Background(), &handleFixtureTransport{}, "bad\nvalue", youtubePlaylistConfig{}, "playlists"); !errors.Is(err, ErrInvalidPlaylist) {
 		t.Fatalf("bad token = %v", err)
 	}
 }
@@ -180,23 +344,17 @@ func TestYouTubeHandleTabFailuresMalformedCancellationAndLoop(t *testing.T) {
 func FuzzParseYouTubeHandleTabData(f *testing.F) {
 	f.Add([]byte(`{"metadata":{"channelMetadataRenderer":{"title":"x"}}}`))
 	f.Add([]byte(`{"onResponseReceivedActions":[{"appendContinuationItemsAction":{"continuationItems":[]}}]}`))
+	f.Add([]byte(`{"lockupViewModel":{"contentId":"PLfuzz","contentType":"LOCKUP_CONTENT_TYPE_PLAYLIST"}}`))
 	f.Fuzz(func(t *testing.T, data []byte) {
-		page, err := parseYouTubeHandleTabData(data)
-		if err != nil {
-			return
-		}
-		for _, entry := range page.entries {
-			if !youtubeIDPattern.MatchString(entry.ID) || entry.ExtractorKey != "youtube" {
-				t.Fatalf("unsafe entry: %#v", entry)
+		for _, tab := range []string{"videos", "playlists"} {
+			page, err := parseYouTubeHandleTabData(data, tab)
+			if err != nil {
+				continue
 			}
-			watchURL := "https://www.youtube.com/watch?v=" + entry.ID
-			shortURL := "https://www.youtube.com/shorts/" + entry.ID
-			if entry.URL != watchURL && entry.URL != shortURL {
-				t.Fatalf("unsafe entry URL: %#v", entry)
+			assertYouTubeTabEntriesSafe(t, page.entries, tab)
+			if page.continuation != "" && validYouTubeContinuationToken(page.continuation) != page.continuation {
+				t.Fatalf("unsafe continuation: %q", page.continuation)
 			}
-		}
-		if page.continuation != "" && validYouTubeContinuationToken(page.continuation) != page.continuation {
-			t.Fatalf("unsafe continuation: %q", page.continuation)
 		}
 	})
 }
@@ -218,7 +376,7 @@ func FuzzYouTubeHandleTabTarget(f *testing.F) {
 		if !ok {
 			return
 		}
-		if !youtubeHandlePattern.MatchString(handle) || !youtubeHandleHasAlnumPattern.MatchString(handle) || (tab != "videos" && tab != "shorts" && tab != "streams") {
+		if !youtubeHandlePattern.MatchString(handle) || !youtubeHandleHasAlnumPattern.MatchString(handle) || (tab != "videos" && tab != "shorts" && tab != "streams" && tab != "playlists") {
 			t.Fatalf("accepted invalid target %q: %q/%q", rawURL, handle, tab)
 		}
 	})
