@@ -368,16 +368,17 @@ const (
 )
 
 type operation struct {
-	client        *Client
-	request       Request
-	transport     *network.Client
-	registry      *extractor.Registry
-	solver        extractor.YouTubeChallengeSolver
-	archive       *archive.Store
-	cache         *cache.Store
-	credentials   extractor.CredentialProvider
-	compatibility compatibilityPlan
-	rootExtractor *string
+	client                           *Client
+	request                          Request
+	transport                        *network.Client
+	registry                         *extractor.Registry
+	solver                           extractor.YouTubeChallengeSolver
+	archive                          *archive.Store
+	cache                            *cache.Store
+	credentials                      extractor.CredentialProvider
+	compatibility                    compatibilityPlan
+	rootExtractor                    *string
+	playlistItemsRangeWarningEmitted bool
 }
 
 func (operation *operation) process(ctx context.Context, rawURL, extractorKey string, overlay *extractor.Entry, ancestors map[string]bool, depth int) (Result, error) {
@@ -428,7 +429,13 @@ func (operation *operation) process(ctx context.Context, rawURL, extractorKey st
 }
 
 func (operation *operation) processPlaylist(ctx context.Context, extracted extractor.Extraction, extractorName string, ancestors map[string]bool, depth int) (Result, error) {
-	iterator := newSelectedPlaylistIterator(extracted.Entries.Iterator(), operation.request.Playlist)
+	if err := operation.emitPlaylistItemsRangeWarning(ctx); err != nil {
+		return Result{}, err
+	}
+	iterator, err := newPlaylistEntryIterator(extracted.Entries.Iterator(), operation.request.Playlist)
+	if err != nil {
+		return Result{}, categorized(extractorName+" playlist selection", fmt.Errorf("%w: %w", errInvalidRequestOptions, err))
+	}
 	var reversed []indexedPlaylistEntry
 	if operation.request.Playlist.Reverse {
 		for {
@@ -482,6 +489,16 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 		if entry.URL == "" {
 			return Result{}, categorized(extractorName+" playlist entry", extractor.ErrInvalidPlaylist)
 		}
+		if operation.request.Playlist.Flat {
+			entryInfo := flatPlaylistEntryInfo(entry, selected.SourceIndex, playlistID, playlistTitle)
+			child, _, _, err := operation.prepareMediaResult(ctx, &entryInfo, entry.ExtractorKey, true)
+			if err != nil {
+				return Result{}, fmt.Errorf("flat playlist entry %d: %w", selected.SourceIndex, err)
+			}
+			children = append(children, child)
+			entryValues = append(entryValues, value.ObjectValue(entryInfo.Fields()))
+			continue
+		}
 		child, err := operation.process(ctx, entry.URL, entry.ExtractorKey, &entry, ancestors, depth+1)
 		if err != nil {
 			return Result{}, fmt.Errorf("playlist entry %d: %w", selected.SourceIndex, err)
@@ -499,9 +516,53 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 	}
 }
 
+func flatPlaylistEntryInfo(entry extractor.Entry, index int, playlistID, playlistTitle string) value.Info {
+	object := entry.Object()
+	addPlaylistEntryFields(object, index, playlistID, playlistTitle)
+	return value.NewInfo(object)
+}
+
+func addPlaylistEntryFields(object *value.Object, index int, playlistID, playlistTitle string) {
+	object.Set("playlist_index", value.Int(int64(index)))
+	if playlistID != "" {
+		object.Set("playlist_id", value.String(playlistID))
+	}
+	if playlistTitle != "" {
+		object.Set("playlist_title", value.String(playlistTitle))
+	}
+}
+
+func (operation *operation) emitPlaylistItemsRangeWarning(ctx context.Context) error {
+	if operation.playlistItemsRangeWarningEmitted || !playlistItemsOverrideRange(operation.request.Playlist) {
+		return nil
+	}
+	operation.playlistItemsRangeWarningEmitted = true
+	if err := operation.client.emit(ctx, Event{
+		Kind: EventMetadataWarning, Message: "playlist items override playlist start and end",
+	}); err != nil {
+		return &Error{Category: ErrorInternal, Op: "emit playlist selection warning", Err: err}
+	}
+	return nil
+}
+
 type indexedPlaylistEntry struct {
 	Entry       extractor.Entry
 	SourceIndex int
+}
+
+type indexedPlaylistEntryIterator interface {
+	Next(context.Context) (indexedPlaylistEntry, bool, error)
+}
+
+func newPlaylistEntryIterator(source extractor.EntryIterator, options PlaylistOptions) (indexedPlaylistEntryIterator, error) {
+	if options.Items == "" {
+		return newSelectedPlaylistIterator(source, options), nil
+	}
+	specs, err := parsePlaylistItems(options.Items)
+	if err != nil {
+		return nil, err
+	}
+	return &playlistItemsIterator{source: source, specs: specs}, nil
 }
 
 type selectedPlaylistIterator struct {
@@ -560,13 +621,7 @@ func playlistEntryValue(encoded json.RawMessage, index int, playlistID, playlist
 	if !ok {
 		return value.Missing(), &Error{Category: ErrorInternal, Op: "decode playlist entry metadata", Err: extractor.ErrInvalidMetadata}
 	}
-	object.Set("playlist_index", value.Int(int64(index)))
-	if playlistID != "" {
-		object.Set("playlist_id", value.String(playlistID))
-	}
-	if playlistTitle != "" {
-		object.Set("playlist_title", value.String(playlistTitle))
-	}
+	addPlaylistEntryFields(object, index, playlistID, playlistTitle)
 	return value.ObjectValue(object), nil
 }
 
@@ -578,48 +633,75 @@ func encodeInfo(info value.Info) (json.RawMessage, error) {
 	return encoded, nil
 }
 
-func (operation *operation) processMedia(ctx context.Context, info value.Info, extractorName string) (Result, error) {
-	decision, err := operation.applyCompatibility(ctx, &info)
+func (operation *operation) prepareMediaResult(
+	ctx context.Context,
+	info *value.Info,
+	extractorName string,
+	incomplete bool,
+) (Result, archive.Identity, bool, error) {
+	decision, err := operation.applyCompatibility(ctx, info, incomplete)
 	if err != nil {
-		return Result{}, err
+		return Result{}, archive.Identity{}, false, err
 	}
-	encoded, err := encodeInfo(info)
+	encoded, err := encodeInfo(*info)
 	if err != nil {
-		return Result{}, err
+		return Result{}, archive.Identity{}, false, err
 	}
 	result := Result{InfoJSON: encoded, Extractor: extractorName}
 	if !decision.Pass {
 		result.Skipped, result.SkipReason = true, decision.Reason
-		if err := operation.client.emit(ctx, Event{Kind: EventMatchFilterSkipped, Extractor: extractorName, Message: decision.Reason}); err != nil {
-			return Result{}, &Error{Category: ErrorInternal, Op: "emit match-filter skip", Err: err}
-		}
-		return result, nil
-	}
-	var archiveIdentity archive.Identity
-	if operation.archive != nil {
-		id, ok := info.ID()
-		if !ok {
-			return Result{}, categorized("build archive identity", archive.ErrInvalidIdentity)
-		}
-		archiveIdentity, err = archive.NewIdentity(extractorName, id)
-		if err != nil {
-			return Result{}, categorized("build archive identity", err)
-		}
-		legacyIDs, legacyErr := oldArchiveIDs(info)
-		if legacyErr != nil {
-			return Result{}, categorized("read legacy archive identities", legacyErr)
-		}
-		matched, found, matchErr := operation.archive.Match(ctx, archiveIdentity, legacyIDs)
-		if matchErr != nil {
-			return Result{}, categorized("match download archive", matchErr)
-		}
-		if found {
-			result.Archived = true
-			if err := operation.client.emit(ctx, Event{Kind: EventArchiveMatch, Extractor: extractorName, Message: matched}); err != nil {
-				return Result{}, &Error{Category: ErrorInternal, Op: "emit archive event", Err: err}
+		if err := operation.client.emit(ctx, Event{
+			Kind: EventMatchFilterSkipped, Extractor: extractorName, Message: decision.Reason,
+		}); err != nil {
+			return Result{}, archive.Identity{}, false, &Error{
+				Category: ErrorInternal, Op: "emit match-filter skip", Err: err,
 			}
-			return result, nil
 		}
+		return result, archive.Identity{}, true, nil
+	}
+	if operation.archive == nil {
+		return result, archive.Identity{}, false, nil
+	}
+	id, hasID := info.ID()
+	if !hasID || extractorName == "" {
+		if incomplete {
+			return result, archive.Identity{}, false, nil
+		}
+		return Result{}, archive.Identity{}, false, categorized("build archive identity", archive.ErrInvalidIdentity)
+	}
+	archiveIdentity, err := archive.NewIdentity(extractorName, id)
+	if err != nil {
+		return Result{}, archive.Identity{}, false, categorized("build archive identity", err)
+	}
+	legacyIDs, err := oldArchiveIDs(*info)
+	if err != nil {
+		return Result{}, archive.Identity{}, false, categorized("read legacy archive identities", err)
+	}
+	matched, found, err := operation.archive.Match(ctx, archiveIdentity, legacyIDs)
+	if err != nil {
+		return Result{}, archive.Identity{}, false, categorized("match download archive", err)
+	}
+	if !found {
+		return result, archiveIdentity, false, nil
+	}
+	result.Archived = true
+	if err := operation.client.emit(ctx, Event{
+		Kind: EventArchiveMatch, Extractor: extractorName, Message: matched,
+	}); err != nil {
+		return Result{}, archive.Identity{}, false, &Error{
+			Category: ErrorInternal, Op: "emit archive event", Err: err,
+		}
+	}
+	return result, archiveIdentity, true, nil
+}
+
+func (operation *operation) processMedia(ctx context.Context, info value.Info, extractorName string) (Result, error) {
+	result, archiveIdentity, terminal, err := operation.prepareMediaResult(ctx, &info, extractorName, false)
+	if err != nil {
+		return Result{}, err
+	}
+	if terminal {
+		return result, nil
 	}
 	var selectedFormats []mediaformat.Selection
 	if !operation.request.SkipDownload {

@@ -65,7 +65,7 @@ func prepareCompatibility(request Request) (compatibilityPlan, error) {
 	return plan, nil
 }
 
-func (operation *operation) applyCompatibility(ctx context.Context, ctxInfo *value.Info) (matchfilter.Decision, error) {
+func (operation *operation) applyCompatibility(ctx context.Context, ctxInfo *value.Info, incomplete bool) (matchfilter.Decision, error) {
 	result, err := compatmetadata.Apply(ctxInfo, operation.compatibility.metadataActions)
 	if err != nil {
 		return matchfilter.Decision{}, categorized("apply metadata actions", err)
@@ -75,7 +75,7 @@ func (operation *operation) applyCompatibility(ctx context.Context, ctxInfo *val
 			return matchfilter.Decision{}, &Error{Category: ErrorInternal, Op: "emit metadata warning", Err: err}
 		}
 	}
-	return operation.compatibility.matchFilter.Evaluate(*ctxInfo, false), nil
+	return operation.compatibility.matchFilter.Evaluate(*ctxInfo, incomplete), nil
 }
 
 func (operation *operation) selectFormats(info value.Info) ([]mediaformat.Selection, error) {

@@ -1,35 +1,55 @@
-# ytdlp-go
+<h1 align="center">ytdlp-go</h1>
 
-ytdlp-go is an experimental, Python-free audio and video downloader written in
-Go. It is an independent implementation informed by the observable behavior of
-[yt-dlp](https://github.com/yt-dlp/yt-dlp), with compatibility proven against
-small, attributable conformance corpora.
+<p align="center"><strong>A native, Python-free audio and video downloader written in Go.</strong></p>
+
+<p align="center">
+  <a href="#current-status"><img src="https://img.shields.io/badge/status-alpha-orange.svg" alt="Project status: alpha"></a>
+  <a href="go.mod"><img src="https://img.shields.io/badge/Go-1.25.12-00ADD8.svg?logo=go&amp;logoColor=white" alt="Go 1.25.12"></a>
+  <a href="#compatibility-and-python-free-policy"><img src="https://img.shields.io/badge/runtime-Python--free-2ea44f.svg" alt="Python-free"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License: Apache-2.0"></a>
+</p>
+
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="docs/SUPPORTED_SITES.md">Supported extractors</a> ·
+  <a href="docs/README.md">Documentation</a> ·
+  <a href="CONTRIBUTING.md">Contributing</a>
+</p>
+
+ytdlp-go is an independent Go implementation informed by the observable
+behavior of [yt-dlp](https://github.com/yt-dlp/yt-dlp). It is not a Python
+wrapper: extraction, networking, playlist handling, media protocols,
+configuration, plugins, and compatibility logic are implemented natively in
+Go and tested against small, attributable conformance corpora.
 
 This project is not affiliated with, endorsed by, or sponsored by yt-dlp,
 GitHub, Google/YouTube, or the operators of supported services. Product and
 service names identify compatibility targets only.
 
-> [!WARNING]
-> This is alpha software, not a drop-in replacement for yt-dlp. The repository
+> [!CAUTION]
+> **This is alpha software, not a drop-in replacement for yt-dlp.** The project
 > has 28 representative native extractors and broad infrastructure coverage,
-> but it does not support thousands of sites or every yt-dlp option. Treat the
+> but it does not yet support thousands of sites or every yt-dlp option. Use the
 > [capability manifest](conformance/parity_manifest.yaml) and
-> [supported-extractor list](docs/SUPPORTED_SITES.md) as the source of truth.
+> [supported-extractor catalog](docs/SUPPORTED_SITES.md) as the source of truth.
 
 ## Contents
 
 - [Current status](#current-status)
+- [Why ytdlp-go?](#why-ytdlp-go)
 - [Quick start](#quick-start)
 - [Build from source](#build-from-source)
 - [Runtime dependencies](#runtime-dependencies)
 - [Usage](#usage)
 - [Configuration](#configuration)
 - [Supported extractors and protocols](#supported-extractors-and-protocols)
+- [How it fits together](#how-it-fits-together)
 - [YouTube JavaScript helper](#youtube-javascript-helper)
 - [Cookies and authentication](#cookies-and-authentication)
 - [Embedding in Go](#embedding-in-go)
 - [Plugins, signed packs, and updates](#plugins-signed-packs-and-updates)
 - [Compatibility and Python-free policy](#compatibility-and-python-free-policy)
+- [Roadmap](#roadmap)
 - [Development and verification](#development-and-verification)
 - [Getting help and contributing](#getting-help-and-contributing)
 - [Security, legal use, and license](#security-legal-use-and-license)
@@ -37,12 +57,11 @@ service names identify compatibility targets only.
 
 ## Current status
 
-Phase 0, Phase 1, Phase 2, and the repository-controlled Phase 3 implementation
-are complete. Gate G3 is blocked because the required traffic window,
-deployment semantic-shadow review, operational regression drill, live canary
-observations, native Windows evidence, and production distribution authority do
-not yet exist. These external evidence gaps do not block source visibility and
-are not replaced with synthetic claims.
+The repository-controlled work for Phases 0 through 3 is implemented. Phase 3
+itself is **not complete**: Gate G3 still requires a measured traffic window,
+deployment semantic-shadow review, an operational regression drill, approved
+live canary observations, native Windows evidence, and production distribution
+decisions. Synthetic fixtures are not presented as substitutes for those facts.
 
 | Area | Current evidence-backed scope |
 | --- | --- |
@@ -63,38 +82,63 @@ entry is not a claim of complete yt-dlp parity. See the
 review](docs/P2_SECURITY_REVIEW.md), and [Phase 3
 plan](PHASE_3_IMPLEMENTATION_PLAN.md) for exact boundaries.
 
+## Why ytdlp-go?
+
+| Goal | What it means here |
+| --- | --- |
+| Native Go deployment | A static downloader and embeddable API, with no Python interpreter or package environment to ship |
+| Explicit compatibility | Every compatibility claim points to deterministic automated evidence and records its known deviations |
+| Safe composition | Context cancellation, structured events, categorized errors, bounded resources, and output confinement are part of the public design |
+| Replaceable boundaries | JavaScript challenges, ffmpeg operations, credentials, browser profiles, plugins, and update trust are explicit rather than hidden fallbacks |
+
+The project is an engineering exploration as well as a downloader: it asks how
+far yt-dlp-style behavior can be reproduced in a portable Go system without
+silently delegating difficult cases back to Python.
+
 ## Quick start
 
 Go 1.25.12 or newer is required to build the project.
 
-    git clone https://github.com/tejasa97/youtube_dlp.git
-    cd youtube_dlp
-    mkdir -p bin
-    go build -trimpath -o bin/ytdlp-go ./cmd/ytdlp-go
-    go build -trimpath -o bin/ytdlp-js-helper ./cmd/ytdlp-js-helper
-    ./bin/ytdlp-go --version
-    ./bin/ytdlp-go --help
+```sh
+git clone https://github.com/tejasa97/youtube_dlp.git
+cd youtube_dlp
+mkdir -p bin
+go build -trimpath -o bin/ytdlp-go ./cmd/ytdlp-go
+go build -trimpath -o bin/ytdlp-js-helper ./cmd/ytdlp-js-helper
+./bin/ytdlp-go --version
+./bin/ytdlp-go --help
+```
 
 Download a supported URL:
 
-    ./bin/ytdlp-go URL
+```sh
+./bin/ytdlp-go URL
+```
 
 Write selected subtitle sidecars without downloading the media:
 
-    ./bin/ytdlp-go --skip-download --write-subs --write-auto-subs \
-        --sub-langs "en.*,ja" --sub-format "srt/vtt/best" URL
+```sh
+./bin/ytdlp-go --skip-download --write-subs --write-auto-subs \
+    --sub-langs "en.*,ja" --sub-format "srt/vtt/best" URL
+```
 
 Extract metadata without downloading:
 
-    ./bin/ytdlp-go --skip-download --print-json URL
+```sh
+./bin/ytdlp-go --skip-download --print-json URL
+```
 
 Select a format and output name:
 
-    ./bin/ytdlp-go -f "bestvideo+bestaudio/best" -o "%(title)s.%(ext)s" URL
+```sh
+./bin/ytdlp-go -f "bestvideo+bestaudio/best" -o "%(title)s.%(ext)s" URL
+```
 
 Extract audio with ffmpeg:
 
-    ./bin/ytdlp-go -x --audio-format mp3 URL
+```sh
+./bin/ytdlp-go -x --audio-format mp3 URL
+```
 
 There are no endorsed public binary releases yet. Build from a reviewed source
 revision and keep production signing or updater trust separate from the
@@ -104,8 +148,10 @@ deterministic test keys in this repository.
 
 Build the main executable and the optional YouTube challenge helper:
 
-    CGO_ENABLED=0 go build -trimpath -o bin/ytdlp-go ./cmd/ytdlp-go
-    CGO_ENABLED=0 go build -trimpath -o bin/ytdlp-js-helper ./cmd/ytdlp-js-helper
+```sh
+CGO_ENABLED=0 go build -trimpath -o bin/ytdlp-go ./cmd/ytdlp-go
+CGO_ENABLED=0 go build -trimpath -o bin/ytdlp-js-helper ./cmd/ytdlp-js-helper
+```
 
 The repository also contains specialist tools:
 
@@ -121,16 +167,20 @@ The repository also contains specialist tools:
 The Python-free Docker target builds and tests in an Alpine Go stage without
 Python and copies static executables into a scratch image:
 
-    docker build -f .github/python-free.Dockerfile -t ytdlp-go .
-    docker run --rm ytdlp-go --version
+```sh
+docker build -f .github/python-free.Dockerfile -t ytdlp-go .
+docker run --rm ytdlp-go --version
+```
 
 For adaptive media merging and post-processing, build the separate non-root
 runtime image. It remains Python-free but includes ffmpeg and ffprobe:
 
-    docker build -f .github/runtime.Dockerfile -t ytdlp-go-runtime .
-    docker volume create ytdlp-downloads
-    docker run --rm --read-only --tmpfs /tmp \
-        -v ytdlp-downloads:/downloads ytdlp-go-runtime URL
+```sh
+docker build -f .github/runtime.Dockerfile -t ytdlp-go-runtime .
+docker volume create ytdlp-downloads
+docker run --rm --read-only --tmpfs /tmp \
+    -v ytdlp-downloads:/downloads ytdlp-go-runtime URL
+```
 
 The scratch image is the strict dependency-audit artifact; the runtime image is
 the practical downloader distribution. See
@@ -156,42 +206,49 @@ The main downloader is a static Go program and does not require Python.
 
 The checked-in CLI help is the authoritative option list:
 
-    ./bin/ytdlp-go --help
+```sh
+./bin/ytdlp-go --help
+```
 
 Common operations:
 
-    # Confine output to a directory
-    ./bin/ytdlp-go -P home:downloads URL
+```sh
+# Confine output to a directory
+./bin/ytdlp-go -P home:downloads URL
 
-    # Print machine-readable metadata while keeping progress on stderr
-    ./bin/ytdlp-go --skip-download --print-json URL
+# Select an inclusive playlist range and process it in reverse
+./bin/ytdlp-go --playlist-start 3 --playlist-end 8 --playlist-reverse URL
 
-    # Emit newline-delimited structured progress events
-    ./bin/ytdlp-go --progress-json URL
+# Print machine-readable metadata while keeping progress on stderr
+./bin/ytdlp-go --skip-download --print-json URL
 
-    # Emit one privacy-safe aggregate operation snapshot
-    ./bin/ytdlp-go --telemetry-json --skip-download URL
+# Emit newline-delimited structured progress events
+./bin/ytdlp-go --progress-json URL
 
-    # Limit transfer rate and retry transient failures
-    ./bin/ytdlp-go --limit-rate 5M --retries 3 URL
+# Emit one privacy-safe aggregate operation snapshot
+./bin/ytdlp-go --telemetry-json --skip-download URL
 
-    # Download HLS/DASH fragments concurrently within bounded limits
-    ./bin/ytdlp-go --concurrent-fragments 8 --per-host-fragments 4 URL
+# Limit transfer rate and retry transient failures
+./bin/ytdlp-go --limit-rate 5M --retries 3 URL
 
-    # Record and skip previously downloaded extractor IDs
-    ./bin/ytdlp-go --download-archive archive.txt URL
+# Download HLS/DASH fragments concurrently within bounded limits
+./bin/ytdlp-go --concurrent-fragments 8 --per-host-fragments 4 URL
 
-    # Import a Netscape cookie file
-    ./bin/ytdlp-go --cookies cookies.txt URL
+# Record and skip previously downloaded extractor IDs
+./bin/ytdlp-go --download-archive archive.txt URL
 
-    # Import an explicitly selected browser profile
-    ./bin/ytdlp-go --cookies-from-browser chrome:Default URL
+# Import a Netscape cookie file
+./bin/ytdlp-go --cookies cookies.txt URL
 
-    # Use an explicitly selected native netrc file
-    ./bin/ytdlp-go --netrc --netrc-location /path/to/.netrc URL
+# Import an explicitly selected browser profile
+./bin/ytdlp-go --cookies-from-browser chrome:Default URL
 
-    # Select a pinned browser impersonation profile
-    ./bin/ytdlp-go --impersonate firefox-120 URL
+# Use an explicitly selected native netrc file
+./bin/ytdlp-go --netrc --netrc-location /path/to/.netrc URL
+
+# Select a pinned browser impersonation profile
+./bin/ytdlp-go --impersonate firefox-120 URL
+```
 
 Supported output-template, format-selector, sorting, metadata, and match-filter
 syntax is intentionally bounded. See the compatibility-language and downloader
@@ -206,19 +263,25 @@ have the highest precedence.
 
 Example yt-dlp.conf:
 
-    # Keep downloads in one directory
-    --output-dir "downloads"
-    --output "%(title)s.%(ext)s"
-    --retries 3
-    --concurrent-fragments 4
+```text
+# Keep downloads in one directory
+--output-dir "downloads"
+--output "%(title)s.%(ext)s"
+--retries 3
+--concurrent-fragments 4
+```
 
 Load a specific file:
 
-    ./bin/ytdlp-go --config-location /path/to/yt-dlp.conf URL
+```sh
+./bin/ytdlp-go --config-location /path/to/yt-dlp.conf URL
+```
 
 Skip discovered configuration:
 
-    ./bin/ytdlp-go --ignore-config URL
+```sh
+./bin/ytdlp-go --ignore-config URL
+```
 
 See [Configuration](docs/CONFIGURATION.md) for discovery paths, precedence,
 encodings, aliases, limits, and security behavior.
@@ -246,12 +309,31 @@ formats may require selected headers, cookies, impersonation, or JavaScript.
 DRM decryption is not implemented; --allow-unplayable-formats only permits
 DRM-marked formats to participate in selection.
 
+## How it fits together
+
+```text
+URL
+ └─► native extractor registry
+      └─► normalized metadata, formats, subtitles, or playlist entries
+           └─► bounded selection and compatibility rules
+                └─► direct / HLS / DASH / ISM downloader
+                     └─► optional ffmpeg post-processing
+                          └─► confined output and structured events
+```
+
+The same pipeline powers the CLI and the public Go API. Network transport,
+cookies, challenge solving, cancellation, archive state, and output policy are
+owned by one operation so nested playlists do not silently escape the caller's
+security or resource settings.
+
 ## YouTube JavaScript helper
 
 The helper must be beside ytdlp-go or selected through --js-helper. PATH is
 deliberately not searched for executable helper code:
 
-    ./bin/ytdlp-go --js-helper ./bin/ytdlp-js-helper URL
+```sh
+./bin/ytdlp-go --js-helper ./bin/ytdlp-js-helper URL
+```
 
 The helper is supervised as a separate process with bounded messages,
 cancellation, timeouts, and no inherited credential environment. Pages whose
@@ -268,7 +350,9 @@ secrets are redacted from diagnostics and events.
 
 On macOS, importing Chrome may trigger the normal Keychain prompt:
 
-    ./bin/ytdlp-go --cookies-from-browser chrome:Default URL
+```sh
+./bin/ytdlp-go --cookies-from-browser chrome:Default URL
+```
 
 Never attach real cookies or tokens to a public issue. See [Chromium cookie
 import](docs/CHROMIUM_COOKIE_IMPORT.md), [native netrc
@@ -289,26 +373,28 @@ artifacts.
 > cloned checkout, or use a temporary local `replace` directive for embedding
 > evaluation. Do not publish a dependency on an unreconciled path.
 
-    client := ytdlp.NewClient(
-        ytdlp.WithEventHandler(func(ctx context.Context, event ytdlp.Event) error {
-            log.Printf("%s: %d/%d", event.Kind, event.Bytes, event.Total)
-            return nil
-        }),
-    )
-    defer client.Close()
+```go
+client := ytdlp.NewClient(
+    ytdlp.WithEventHandler(func(ctx context.Context, event ytdlp.Event) error {
+        log.Printf("%s: %d/%d", event.Kind, event.Bytes, event.Total)
+        return nil
+    }),
+)
+defer client.Close()
 
-    result, err := client.Run(ctx, ytdlp.Request{
-        URL:          rawURL,
-        OutputDir:    "downloads",
-        SkipDownload: true,
-    })
-    if err != nil {
-        if ytdlp.IsCategory(err, ytdlp.ErrorUnsupported) {
-            // Handle unsupported input without matching diagnostic text.
-        }
-        return err
+result, err := client.Run(ctx, ytdlp.Request{
+    URL:          rawURL,
+    OutputDir:    "downloads",
+    SkipDownload: true,
+})
+if err != nil {
+    if ytdlp.IsCategory(err, ytdlp.ErrorUnsupported) {
+        // Handle unsupported input without matching diagnostic text.
     }
-    fmt.Println(string(result.InfoJSON))
+    return err
+}
+fmt.Println(string(result.InfoJSON))
+```
 
 See [Embedding ytdlp-go](docs/EMBEDDING.md) and the [API compatibility
 policy](docs/P2_API_COMPATIBILITY_POLICY.md).
@@ -349,16 +435,36 @@ fixed extractor/capability/outcome dimensions with overflow accounting; it
 does not record URLs, paths, titles, usernames, credentials, or error strings.
 See [Phase 3 telemetry](docs/P3_TELEMETRY.md).
 
+## Roadmap
+
+Near-term work follows the explicit gaps in the capability manifest rather
+than a promise of blanket parity:
+
+1. deepen high-value extractor behavior and replay relevant upstream changes;
+2. close reusable playlist, format-selection, post-processing, and media
+   protocol gaps with attributable conformance evidence;
+3. harden the isolated JavaScript, plugin, credential, and update boundaries;
+4. reconcile the public repository and canonical Go module paths before
+   advertising normal `go get` installation; and
+5. collect the real deployment evidence required by Gate G3 only through
+   approved, privacy-preserving observation and canary workflows.
+
+The exact backlog is recorded as known deviations in
+[`conformance/parity_manifest.yaml`](conformance/parity_manifest.yaml). Phase
+plans explain sequencing; the manifest describes what the current code proves.
+
 ## Development and verification
 
 Run the normal local gate:
 
-    test -z "$(gofmt -l .)"
-    go mod tidy -diff
-    go vet ./...
-    go test ./...
-    go test -race ./...
-    go run ./cmd/paritycheck
+```sh
+test -z "$(gofmt -l .)"
+go mod tidy -diff
+go vet ./...
+go test ./...
+go test -race ./...
+go run ./cmd/paritycheck
+```
 
 The project uses deterministic fixtures rather than real account data or
 captured private responses. New claims require success, failure, cancellation,
