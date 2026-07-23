@@ -313,6 +313,7 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 
 func (client *Client) productRegistry() *extractor.Registry {
 	registered := []extractor.Extractor{
+		extractor.NewYouTubeMusicSearch(),
 		extractor.NewYouTubeSearch(),
 		extractor.NewYouTubeHandleTab(),
 		extractor.NewYouTubeChannelTab(),
