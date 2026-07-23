@@ -110,6 +110,7 @@ type Request struct {
 	YouTubeComments           YouTubeCommentOptions
 	Subtitles                 SubtitleOptions
 	RelatedFiles              RelatedFileOptions
+	PrintRules                []PrintRule
 	Playlist                  PlaylistOptions
 	ProgressTemplate          string
 	MatchFilters              []string
@@ -133,6 +134,7 @@ type Result struct {
 	Bytes      int64
 	Entries    []Result
 	Artifacts  []Artifact
+	Prints     []PrintOutput
 }
 
 type Event struct {
@@ -468,6 +470,9 @@ func (operation *operation) process(ctx context.Context, rawURL, extractorKey st
 }
 
 func (operation *operation) processPlaylist(ctx context.Context, extracted extractor.Extraction, extractorName string, ancestors map[string]bool, depth int) (Result, error) {
+	if err := operation.validatePrintRules(ctx, extracted.Info, nil, "", true); err != nil {
+		return Result{}, categorized("validate playlist print", err)
+	}
 	if err := operation.emitPlaylistItemsRangeWarning(ctx); err != nil {
 		return Result{}, err
 	}
@@ -531,6 +536,11 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 				result.Bytes += artifactBytes
 				result.Downloaded = result.Downloaded || len(artifacts) > 0
 			}
+			prints, err := operation.capturePrints(ctx, PrintPlaylist, info, nil, "")
+			if err != nil {
+				return Result{}, categorized("render playlist print", err)
+			}
+			result.Prints = append(result.Prints, prints...)
 			return result, nil
 		}
 		entry := selected.Entry
@@ -539,9 +549,16 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 		}
 		if operation.request.Playlist.Flat {
 			entryInfo := flatPlaylistEntryInfo(entry, selected.SourceIndex, playlistID, playlistTitle)
-			child, _, _, err := operation.prepareMediaResult(ctx, &entryInfo, entry.ExtractorKey, true)
+			child, _, terminal, err := operation.prepareMediaResult(ctx, &entryInfo, entry.ExtractorKey, true)
 			if err != nil {
 				return Result{}, fmt.Errorf("flat playlist entry %d: %w", selected.SourceIndex, err)
+			}
+			if !terminal {
+				prints, err := operation.capturePrints(ctx, PrintVideo, entryInfo, nil, "")
+				if err != nil {
+					return Result{}, fmt.Errorf("flat playlist entry %d print: %w", selected.SourceIndex, err)
+				}
+				child.Prints = append(child.Prints, prints...)
 			}
 			children = append(children, child)
 			entryValues = append(entryValues, value.ObjectValue(entryInfo.Fields()))
@@ -745,13 +762,30 @@ func (operation *operation) prepareMediaResult(
 
 func (operation *operation) processMedia(ctx context.Context, extracted extractor.Extraction, extractorName string) (Result, error) {
 	info := extracted.Info
+	preProcessPrints, err := operation.capturePrints(ctx, PrintPreProcess, info, nil, "")
+	if err != nil {
+		return Result{}, categorized("render pre-process print", err)
+	}
 	result, archiveIdentity, terminal, err := operation.prepareMediaResult(ctx, &info, extractorName, false)
 	if err != nil {
 		return Result{}, err
 	}
+	result.Prints = append(result.Prints, preProcessPrints...)
 	if terminal {
+		if !result.Skipped {
+			prints, printErr := operation.capturePrints(ctx, PrintAfterFilter, info, nil, "")
+			if printErr != nil {
+				return Result{}, categorized("render after-filter print", printErr)
+			}
+			result.Prints = append(result.Prints, prints...)
+		}
 		return result, nil
 	}
+	prints, err := operation.capturePrints(ctx, PrintAfterFilter, info, nil, "")
+	if err != nil {
+		return Result{}, categorized("render after-filter print", err)
+	}
+	result.Prints = append(result.Prints, prints...)
 	if extracted.Enrich != nil {
 		if err := extracted.Enrich(ctx, &info); err != nil {
 			return Result{}, categorized(extractorName+" deferred metadata", err)
@@ -772,6 +806,28 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	if err != nil {
 		return Result{}, err
 	}
+	var selectedFormats []mediaformat.Selection
+	if (!operation.request.SkipDownload && !operation.request.Simulate) || operation.hasPrintStageAtOrAfter(PrintVideo) {
+		selectedFormats, err = operation.selectFormats(info)
+		if err != nil {
+			return Result{}, categorized("select format", err)
+		}
+	}
+	var destination string
+	if len(selectedFormats) > 0 || operation.hasPrintStageAtOrAfter(PrintVideo) {
+		destination, err = operation.printFilename(info, selectedFormats)
+		if err != nil {
+			return Result{}, categorized("render output template", err)
+		}
+	}
+	if err := operation.validatePrintRules(ctx, info, selectedFormats, destination, false); err != nil {
+		return Result{}, categorized("validate print rules", err)
+	}
+	prints, err = operation.capturePrints(ctx, PrintVideo, info, selectedFormats, destination)
+	if err != nil {
+		return Result{}, categorized("render video print", err)
+	}
+	result.Prints = append(result.Prints, prints...)
 	if operation.request.Simulate {
 		return result, nil
 	}
@@ -781,13 +837,11 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	}
 	result.Artifacts = append(result.Artifacts, relatedArtifacts...)
 	result.Bytes += relatedBytes
-	var selectedFormats []mediaformat.Selection
-	if !operation.request.SkipDownload {
-		selectedFormats, err = operation.selectFormats(info)
-		if err != nil {
-			return Result{}, categorized("select format", err)
-		}
+	prints, err = operation.capturePrints(ctx, PrintBeforeDL, info, selectedFormats, destination)
+	if err != nil {
+		return Result{}, categorized("render before-download print", err)
 	}
+	result.Prints = append(result.Prints, prints...)
 	subtitleArtifacts, subtitleBytes, err := operation.downloadSubtitles(ctx, info, selectedSubtitles, operation.eventSink())
 	if err != nil {
 		return Result{}, categorized("download subtitles", err)
@@ -815,22 +869,19 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		return Result{}, err
 	}
 	if operation.request.SkipDownload {
+		for _, stage := range []PrintStage{PrintPostProcess, PrintAfterMove, PrintAfterVideo} {
+			prints, err = operation.capturePrints(ctx, stage, info, selectedFormats, destination)
+			if err != nil {
+				return Result{}, categorized("render "+string(stage)+" print", err)
+			}
+			result.Prints = append(result.Prints, prints...)
+		}
 		return result, nil
 	}
 
-	pattern := operation.request.OutputTemplate
-	if pattern == "" {
-		pattern = "%(title)s.%(ext)s"
-	}
-	outputInfo := value.NewInfo(info.Fields().Clone())
-	outputInfo.Set("ext", value.String(mergedOutputExtension(selectedFormats)))
 	outputDir := operation.request.OutputDir
 	if outputDir == "" {
 		outputDir = "."
-	}
-	destination, err := outputtemplate.Resolve(outputDir, pattern, outputInfo)
-	if err != nil {
-		return Result{}, categorized("render output template", err)
 	}
 
 	sink := operation.eventSink()
@@ -867,6 +918,13 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		}
 	} else {
 		result.Bytes += downloadedBytes
+	}
+	for _, stage := range []PrintStage{PrintPostProcess, PrintAfterMove, PrintAfterVideo} {
+		prints, err = operation.capturePrints(ctx, stage, info, selectedFormats, downloadedPath)
+		if err != nil {
+			return Result{}, categorized("render "+string(stage)+" print", err)
+		}
+		result.Prints = append(result.Prints, prints...)
 	}
 	if operation.archive != nil {
 		if _, err := operation.archive.Record(ctx, archiveIdentity); err != nil {

@@ -79,6 +79,19 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	flags.BoolVar(dumpJSON, "j", false, "alias for --dump-json")
 	dumpSingleJSON := flags.Bool("dump-single-json", false, "quietly print one JSON object for the complete URL result (simulates unless --no-simulate)")
 	flags.BoolVar(dumpSingleJSON, "J", false, "alias for --dump-single-json")
+	var printTemplates stringListFlag
+	flags.Var(&printTemplates, "print", "print a field or [WHEN:]output template (repeatable)")
+	flags.Var(&printTemplates, "O", "alias for --print")
+	getURL := flags.Bool("get-url", false, "print selected media URL(s)")
+	flags.BoolVar(getURL, "g", false, "alias for --get-url")
+	getTitle := flags.Bool("get-title", false, "print the video title")
+	flags.BoolVar(getTitle, "e", false, "alias for --get-title")
+	getID := flags.Bool("get-id", false, "print the video ID")
+	getThumbnail := flags.Bool("get-thumbnail", false, "print the thumbnail URL when available")
+	getDescription := flags.Bool("get-description", false, "print the description when available")
+	getDuration := flags.Bool("get-duration", false, "print the duration when available")
+	getFilename := flags.Bool("get-filename", false, "print the prepared output filename")
+	getFormat := flags.Bool("get-format", false, "print the selected format ID(s)")
 	listSubtitles := flags.Bool("list-subs", false, "list available subtitles and automatic captions (simulates unless --no-simulate)")
 	var simulate, simulateSet bool
 	setSimulation := func(enabled bool) func(string) error {
@@ -257,11 +270,23 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		flags.Usage()
 		return 2
 	}
-	if *telemetryJSON && (*printJSON || *dumpJSON || *dumpSingleJSON) {
-		fmt.Fprintln(stderr, "ytdlp-go: --telemetry-json and JSON metadata output cannot share stdout")
+	if *telemetryJSON && (*printJSON || *dumpJSON || *dumpSingleJSON || len(printTemplates) > 0 ||
+		*getURL || *getTitle || *getID || *getThumbnail || *getDescription || *getDuration || *getFilename || *getFormat) {
+		fmt.Fprintln(stderr, "ytdlp-go: --telemetry-json and metadata output cannot share stdout")
 		return 2
 	}
-	if (*dumpJSON || *dumpSingleJSON) && !quietSet {
+	printRules, err := parsePrintRules(printTemplates)
+	if err != nil {
+		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
+		return 2
+	}
+	legacyGetting := *getURL || *getTitle || *getID || *getThumbnail || *getDescription ||
+		*getDuration || *getFilename || *getFormat
+	printRules = appendLegacyPrintRules(
+		printRules, *getURL, *getTitle, *getID, *getThumbnail, *getDescription,
+		*getDuration, *getFilename, *getFormat,
+	)
+	if (*dumpJSON || *dumpSingleJSON || len(printRules) > 0) && !quietSet {
 		quiet = true
 	}
 	subtitleConvertFormat, err := parseSubtitleConvertFormat(*convertSubtitles)
@@ -323,7 +348,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	}
 	// yt-dlp's listing flags imply simulation only when the user has not made
 	// the tri-state simulation choice explicit.
-	requestSimulate := simulate || !simulateSet && (*listSubtitles || *dumpJSON || *dumpSingleJSON)
+	requestSimulate := simulate || !simulateSet &&
+		(*listSubtitles || *dumpJSON || *dumpSingleJSON || legacyGetting || printRulesImplySimulation(printRules))
 	requestSubtitles := ytdlp.SubtitleOptions{
 		WriteManual: *writeSubtitles, WriteAutomatic: *writeAutomaticSubtitles,
 		Embed: *embedSubtitles, KeepFiles: *embedSubtitles && *writeSubtitles,
@@ -352,6 +378,7 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 			WriteWeblocLink: *writeWeblocLink, WriteDesktopLink: *writeDesktopLink,
 			NoPlaylist: *noPlaylistMetafiles,
 		},
+		PrintRules:      printRules,
 		YouTubeComments: commentLimits,
 		Playlist: ytdlp.PlaylistOptions{
 			Start: *playlistStart, End: *playlistEnd, Reverse: *playlistReverse, Items: *playlistItems, Flat: *flatPlaylist,
@@ -367,6 +394,12 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	if err != nil {
 		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
 		return exitCode(err)
+	}
+	if len(printRules) > 0 {
+		if err := writePrintOutputs(ctx, result, stdout); err != nil {
+			fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
+			return exitCode(err)
+		}
 	}
 	if *listSubtitles {
 		if err := writeSubtitleListings(ctx, result, stdout, stderr); err != nil {
