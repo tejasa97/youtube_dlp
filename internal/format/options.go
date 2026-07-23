@@ -137,6 +137,9 @@ func orderFormats(formats []*value.Object, options Options) []*value.Object {
 	ordered := append([]*value.Object(nil), formats...)
 	sort.SliceStable(ordered, func(leftIndex, rightIndex int) bool {
 		left, right := ordered[leftIndex], ordered[rightIndex]
+		if l, r := extractorPreference(left), extractorPreference(right); l != r {
+			return l > r
+		}
 		for _, field := range options.Sort {
 			if cmp := compareSortField(left, right, field); cmp != 0 {
 				return cmp > 0
@@ -157,6 +160,14 @@ func orderFormats(formats []*value.Object, options Options) []*value.Object {
 		return false
 	})
 	return ordered
+}
+
+func extractorPreference(object *value.Object) float64 {
+	preference, ok := numeric(object.Lookup("preference"))
+	if !ok || math.IsNaN(preference) || math.IsInf(preference, 0) {
+		return 0
+	}
+	return preference
 }
 
 func compareSortField(left, right *value.Object, field SortField) int {

@@ -41,6 +41,7 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/protocol/dash"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/hls"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/ism"
+	"github.com/ytdlp-go/ytdlp/internal/protocol/youtubelive"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 	"github.com/ytdlp-go/ytdlp/internal/youtubepot"
 )
@@ -919,6 +920,8 @@ func categorized(op string, err error) error {
 		errors.Is(err, fragment.ErrTooManySegments), errors.Is(err, fragment.ErrTooManyAttempts),
 		errors.Is(err, fragment.ErrTooMuchConcurrency), errors.Is(err, fragment.ErrSegmentTooLarge),
 		errors.Is(err, fragment.ErrUnsafeDestination), errors.Is(err, ism.ErrInvalidConfig),
+		errors.Is(err, youtubelive.ErrInvalidBaseURL), errors.Is(err, youtubelive.ErrInvalidConfig),
+		errors.Is(err, youtubelive.ErrUnsafeOutput), errors.Is(err, youtubelive.ErrOutputExists),
 		errors.Is(err, ffmpeg.ErrDestinationExists),
 		errors.Is(err, ffmpeg.ErrInvalidOperation), errors.Is(err, postprocess.ErrInvalidGraph),
 		errors.Is(err, postprocess.ErrUnsafePath),
@@ -944,7 +947,9 @@ func categorized(op string, err error) error {
 		errors.Is(err, fragment.ErrInvalidEncryption), errors.Is(err, hls.ErrInvalidPlaylist),
 		errors.Is(err, dash.ErrInvalidMPD), errors.Is(err, ism.ErrInvalidManifest), errors.Is(err, ism.ErrTimelineBound),
 		errors.Is(err, ffmpeg.ErrMediaFailure), errors.Is(err, pipeline.ErrMissingDASHTracks),
-		errors.Is(err, pipeline.ErrMissingToolset):
+		errors.Is(err, pipeline.ErrMissingToolset), errors.Is(err, youtubelive.ErrHeadSequence),
+		errors.Is(err, youtubelive.ErrNoSegments), errors.Is(err, youtubelive.ErrInvalidWindow),
+		errors.Is(err, youtubelive.ErrDownloadFailed), errors.Is(err, youtubelive.ErrEventSink):
 		category = ErrorInternal
 	}
 	return &Error{Category: category, Op: op, Err: err}

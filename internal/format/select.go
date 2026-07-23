@@ -26,6 +26,12 @@ type Selection struct {
 	Height   int64
 	TBR      float64
 	Headers  http.Header
+
+	// YouTubePostLive selects the finite post-live DVR sequence downloader.
+	// The discriminator is extractor-produced and never inferred from a URL.
+	YouTubePostLive    bool
+	TargetDuration     float64
+	LiveStartTimestamp int64
 }
 
 // Default applies yt-dlp-style best-quality selection: prefer a video-only and
@@ -68,6 +74,9 @@ func Best(info value.Info) (Selection, error) {
 		selection.ACodec, _ = object.Lookup("acodec").StringValue()
 		selection.Height, _ = object.Lookup("height").Int()
 		selection.TBR, _ = numeric(object.Lookup("tbr"))
+		selection.YouTubePostLive, _ = object.Lookup("_youtube_post_live").Bool()
+		selection.TargetDuration, _ = numeric(object.Lookup("target_duration"))
+		selection.LiveStartTimestamp, _ = object.Lookup("live_start_timestamp").Int()
 		return selection, nil
 	}
 	return Selection{}, fmt.Errorf("%w: formats contain no URL", ErrNoFormats)
