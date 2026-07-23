@@ -395,6 +395,21 @@ func TestSubtitleLanguageRules(t *testing.T) {
 	}
 }
 
+func TestRunConvertSubtitleAliasesAndValidation(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	for _, flag := range []string{"--convert-subs", "--convert-sub", "--convert-subtitles"} {
+		var stdout, stderr bytes.Buffer
+		if code := Run([]string{"--skip-download", flag, "vtt", server.URL + "/page"}, &stdout, &stderr); code != 0 {
+			t.Fatalf("%s: code=%d stderr=%q", flag, code, stderr.String())
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"--convert-subs", "mov_text", server.URL + "/page"}, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "unsupported subtitle format") {
+		t.Fatalf("invalid format: code=%d stderr=%q", code, stderr.String())
+	}
+}
+
 func TestRunTemplateFailure(t *testing.T) {
 	server := testserver.New()
 	defer server.Close()

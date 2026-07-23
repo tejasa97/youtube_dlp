@@ -147,6 +147,9 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		*writeAutomaticSubtitles = false
 		return nil
 	})
+	convertSubtitles := flags.String("convert-subs", "none", "convert written subtitle sidecars to srt, ass, or vtt (none disables)")
+	flags.StringVar(convertSubtitles, "convert-sub", "none", "alias for --convert-subs")
+	flags.StringVar(convertSubtitles, "convert-subtitles", "none", "alias for --convert-subs")
 	subtitleFormat := flags.String("sub-format", "best", "subtitle format preference separated by / (for example srt/vtt/best)")
 	allSubtitles := flags.Bool("all-subs", false, "select every available subtitle language (requires a subtitle write option)")
 	var subtitleLanguages stringListFlag
@@ -174,6 +177,10 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	}
 	if *telemetryJSON && *printJSON {
 		fmt.Fprintln(stderr, "ytdlp-go: --telemetry-json and --print-json cannot share stdout")
+		return 2
+	}
+	if _, err := parseSubtitleConvertFormat(*convertSubtitles); err != nil {
+		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
 		return 2
 	}
 
@@ -259,6 +266,10 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		}
 	}
 	if err != nil {
+		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
+		return exitCode(err)
+	}
+	if err := convertResultSubtitles(ctx, &result, *outputDir, *convertSubtitles, *overwrite); err != nil {
 		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
 		return exitCode(err)
 	}

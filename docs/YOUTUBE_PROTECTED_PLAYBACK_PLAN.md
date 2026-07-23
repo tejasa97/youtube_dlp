@@ -1,8 +1,9 @@
 # YouTube protected-playback continuation
 
-Status: Wave 1 and the caption portion of Wave 3 are implemented and locally
-verified. Wave 2 and authenticated clients remain open. Wave 4 now includes a
-bounded public video-search slice; its other renderer breadth remains open.
+Status: Wave 1 and the caption portion of Wave 3, including bounded sidecar
+conversion, are implemented and locally verified. Wave 2 and authenticated
+clients remain open. Wave 4 now includes a bounded public video-search slice;
+its other renderer breadth remains open.
 
 This is post-review compatibility work while Gate G3 remains blocked by the
 external observations listed in `PHASE_3_EXIT_REVIEW.md`. It does not open
@@ -32,8 +33,9 @@ Implementation status: pending.
 ## Wave 3 — captions and authenticated clients
 
 Implementation status: caption extraction, translation, protected-token
-placement, native sidecar selection/download, and bounded CLI listing are
-complete. Authenticated Innertube profiles remain pending.
+placement, native sidecar selection/download, bounded CLI listing, and
+post-download conversion to SRT, ASS, or WebVTT are complete. Authenticated
+Innertube profiles remain pending.
 
 - consume the `subs` PO-token context for protected caption requests;
 - add bounded subtitle and automatic-caption extraction;
