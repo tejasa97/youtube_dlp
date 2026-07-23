@@ -7,8 +7,8 @@ Status: compatible for bounded public explicit `/user` and `/c` tab routes.
 The `youtube_alias_tab` extractor handles exact `youtube.com` and
 `www.youtube.com` URLs shaped as:
 
-- `/user/<alias>/{videos,shorts,streams,playlists}`
-- `/c/<alias>/{videos,shorts,streams,playlists}`
+- `/user/<alias>/{videos,shorts,streams,playlists,home,featured,community,releases,podcasts}`
+- `/c/<alias>/{videos,shorts,streams,playlists,home,featured,community,releases,podcasts}`
 
 Aliases retain their case and valid Unicode spelling. The route classifier
 rejects ambiguous encoded paths, controls, oversized aliases, alternate
@@ -44,12 +44,14 @@ do not depend on the reference checkout.
 - `internal/extractor.TestYouTubeAliasTabCategorizedFailuresAndCancellation`
 - `internal/extractor.TestYouTubeAliasTabContinuationRateLimitAndReusableRace`
 - `internal/extractor.FuzzYouTubeAliasTabTarget`
+- expanded mixed/community/release evidence in
+  `docs/YOUTUBE_EXPANDED_TABS_EVIDENCE.md`
 - `pkg/ytdlp.TestProductRegistryIncludesIntegratedExtractors`
 
 ## Known deviations
 
-- Bare alias URLs and home, community, release, and search tabs remain outside
-  this bounded extractor.
+- Bare alias URLs, membership, arbitrary custom tabs, and channel search
+  remain outside this bounded extractor.
 - Conditional redirects, renamed aliases, authenticated/private tabs, and
   arbitrary renderer parity are not claimed.
 - Alias spelling is preserved rather than guessed or normalized beyond URL
