@@ -48,6 +48,7 @@ The executable help is the authoritative CLI option list:
 - [YouTube search evidence](YOUTUBE_SEARCH_EVIDENCE.md)
 - [YouTube Music search evidence](YOUTUBE_MUSIC_SEARCH_EVIDENCE.md)
 - [SoundCloud search evidence](SOUNDCLOUD_SEARCH_EVIDENCE.md)
+- [Vimeo subtitle evidence](VIMEO_SUBTITLES_EVIDENCE.md)
 - [Privacy-safe telemetry](P3_TELEMETRY.md)
 - [Semantic review ledger](P3_SEMANTIC_REVIEW_LEDGER.md)
 

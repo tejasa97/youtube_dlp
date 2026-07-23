@@ -17,7 +17,7 @@ corpus and the remote service response.
 | --- | --- | --- |
 | generic | Direct HTTP/HTTPS media | simple/direct |
 | youtube | youtube.com/watch and youtu.be, /embed, /shorts, /playlist, and channel live alias URLs | playlist/API, manifest-heavy, JavaScript challenge |
-| vimeo | vimeo.com videos | manifest-heavy |
+| vimeo | vimeo.com videos with bounded public text tracks | manifest-heavy |
 | twitch | twitch.tv channels | live, manifest-heavy |
 | soundcloud | soundcloud.com tracks, sets, user-track pages, and bounded public search | playlist/API |
 | streamable | streamable.com public, embed, and short-link URLs | shared backend, simple/direct |

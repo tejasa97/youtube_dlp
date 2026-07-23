@@ -771,20 +771,26 @@ capabilities:
   - id: extractor.vimeo_pilot
     name: Vimeo manifest-heavy extraction pilot
     phase: 1
-    compatibility_target: Extract Vimeo progressive, HLS, and DASH formats through the protected webpage flow without Python.
+    compatibility_target: Extract Vimeo progressive, HLS, DASH, and public player-config text tracks through the protected webpage flow without Python.
     status: compatible
     evidence:
       - internal/extractor.TestVimeoExtractsProgressiveHLSAndDASHWithProfile
       - internal/extractor.TestVimeoSuitableAndPlayerConfig
       - internal/extractor.TestVimeoFailuresAreCategorized
+      - internal/extractor.TestVimeoConfigURLFailsClosedWithoutRequests
+      - internal/extractor.TestVimeoTextTracksAreBoundedAndFailClosed
+      - internal/extractor.TestNormalizeVimeoTextTrackURLRejectsHostileInputs
       - internal/extractor.FuzzParseVimeoConfig
+      - internal/extractor.FuzzNormalizeVimeoTextTrackURL
+      - internal/extractor.FuzzNormalizeVimeoConfigURL
       - conformance/extractors/vimeo/PROVENANCE.md
+      - docs/VIMEO_SUBTITLES_EVIDENCE.md
     owner: extractors
     depends_on:
       - network.impersonation
       - protocol.hls
       - protocol.dash
-    known_deviation: Compatibility is scoped to the pinned public-video/player-config corpus. Password submission, showcases/channels, unlisted hashes, DRM, subtitles, and live archive variants remain broader Vimeo work.
+    known_deviation: Compatibility is scoped to the pinned public-video/player-config corpus, including manual VTT text tracks on the exact HTTPS player origin. Player-config requests use a canonical token-free Referer and fail closed for untrusted config origins. Password submission, showcases/channels, unlisted hashes, DRM, texttracks API and manifest subtitle fallbacks, and live archive variants remain broader Vimeo work.
 
   - id: extractor.tiktok_pilot
     name: TikTok impersonation and anti-bot pilot
