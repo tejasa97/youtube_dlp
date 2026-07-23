@@ -272,9 +272,11 @@ func TestYouTubeHandleTabScopesFirstContinuationActionAndRefreshesVisitorData(t 
 			{"appendContinuationItemsAction":{"continuationItems":[{"playlistRenderer":{"playlistId":"PLfirst","title":{"simpleText":"first"}}}]}},
 			{"appendContinuationItemsAction":{"continuationItems":[{"playlistRenderer":{"playlistId":"PLdecoy","title":{"simpleText":"decoy"}}}]}}
 		],
+		"continuationContents":{"sectionListContinuation":{"continuations":[{"nextContinuationData":{"continuation":"handle-root-token"}}]}},
 		"unrelated":{"playlistRenderer":{"playlistId":"PLother","title":{"simpleText":"other"}}}
 	}`), "playlists")
-	if err != nil || len(page.entries) != 1 || page.entries[0].ID != "PLfirst" || page.visitorData != "rotated-handle" {
+	if err != nil || len(page.entries) != 1 || page.entries[0].ID != "PLfirst" ||
+		page.visitorData != "rotated-handle" || page.continuation != "handle-root-token" {
 		t.Fatalf("page=%#v err=%v", page, err)
 	}
 }

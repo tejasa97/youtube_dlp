@@ -300,9 +300,11 @@ func TestYouTubeChannelTabScopesSelectedContentAndRefreshesVisitorData(t *testin
 			{"tabRenderer":{"selected":false,"content":{"gridPlaylistRenderer":{"playlistId":"PLdecoy","title":{"simpleText":"decoy"}}}}},
 			{"tabRenderer":{"selected":true,"content":{"gridPlaylistRenderer":{"playlistId":"PLchosen","title":{"simpleText":"chosen"}}}}}
 		]}},
+		"continuationContents":{"gridContinuation":{"continuations":[{"nextContinuationData":{"continuation":"channel-root-token"}}]}},
 		"unrelated":{"gridPlaylistRenderer":{"playlistId":"PLother","title":{"simpleText":"other"}}}
 	}`), "playlists")
-	if err != nil || len(page.entries) != 1 || page.entries[0].ID != "PLchosen" || page.visitorData != "rotated-channel" {
+	if err != nil || len(page.entries) != 1 || page.entries[0].ID != "PLchosen" ||
+		page.visitorData != "rotated-channel" || page.continuation != "channel-root-token" {
 		t.Fatalf("page=%#v err=%v", page, err)
 	}
 }
