@@ -54,6 +54,12 @@ the media duration. The Go implementation additionally rejects missing titles,
 unresolvable boundaries, negative/reversed intervals, overlaps, and more than
 256 clips rather than emitting an ambiguous timeline.
 
+JSON-LD `uploadDate` accepts the pinned machine-date corpus relevant to
+Schema.org: RFC3339, compact or colonized numeric offsets, timezone-less
+fractional timestamps interpreted as UTC, spaced ISO timestamps, slash dates,
+and compact YYYYMMDD forms. Inputs are bounded to 128 bytes and pre-epoch dates
+are omitted. Locale-dependent human date strings remain outside this corpus.
+
 The Go implementation additionally recognizes Schema.org `embedUrl` when a
 VideoObject/AudioObject has no `contentUrl`. This is an intentional native
 improvement rather than a pinned-reference parity claim. It never follows the

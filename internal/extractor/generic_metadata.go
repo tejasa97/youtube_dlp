@@ -587,11 +587,34 @@ func genericJSONLDPersonName(raw any) string {
 
 func genericJSONLDTimestamp(raw any) *int64 {
 	text := genericJSONString(raw)
-	if text == "" {
+	if text == "" || len(text) > 128 {
 		return nil
 	}
-	for _, layout := range []string{time.RFC3339Nano, "2006-01-02"} {
-		parsed, err := time.Parse(layout, text)
+	text = strings.Join(strings.Fields(text), " ")
+	for _, candidate := range []struct {
+		layout, value string
+	}{
+		{layout: time.RFC3339Nano, value: text},
+		{layout: "2006-01-02T15:04:05.999999999Z0700", value: text},
+		{layout: "2006-01-02T15:04:05Z0700", value: text},
+		{layout: "2006-01-02 15:04:05.999999999Z07:00", value: text},
+		{layout: "2006-01-02 15:04:05Z07:00", value: text},
+		{layout: "2006-01-02 15:04:05.999999999Z0700", value: text},
+		{layout: "2006-01-02 15:04:05Z0700", value: text},
+		{layout: "2006-01-02T15:04:05.999999999", value: text},
+		{layout: "2006-01-02T15:04:05", value: text},
+		{layout: "2006-01-02 15:04:05.999999999", value: text},
+		{layout: "2006-01-02 15:04:05", value: text},
+		{layout: "2006-01-02 15:04", value: text},
+		{layout: "2006/01/02 15:04:05", value: text},
+		{layout: "2006/01/02 15:04", value: text},
+		{layout: "20060102150405", value: text},
+		{layout: "200601021504", value: text},
+		{layout: "2006/01/02", value: text},
+		{layout: "20060102", value: text},
+		{layout: "2006-01-02", value: text},
+	} {
+		parsed, err := time.Parse(candidate.layout, candidate.value)
 		if err == nil {
 			timestamp := parsed.Unix()
 			if timestamp >= 0 {

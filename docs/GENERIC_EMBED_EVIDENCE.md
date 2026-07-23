@@ -78,6 +78,11 @@ using the pinned model. The entire optional chapter set is omitted if a title
 or boundary cannot be resolved, intervals reverse or overlap, or the 256-clip
 limit is exceeded.
 
+`uploadDate` recognizes the pinned machine-readable ISO corpus: RFC3339,
+compact numeric offsets, timezone-less UTC timestamps with optional
+fractions, spaced/slashed variants, and compact YYYYMMDD timestamps. Date
+strings are limited to 128 bytes; invalid and pre-epoch values are omitted.
+
 An `embedUrl`-only JSON-LD object may route through an existing native provider
 extractor. This is deliberately narrower than generic URL discovery: the URL
 must pass the same canonical provider allowlist used for explicit iframe/embed
@@ -121,5 +126,6 @@ as formats of one page media item rather than separate playlist entries.
 
 This increment does not implement generic direct URLs found in arbitrary
 scripts, arbitrary JW Player configuration, OpenGraph structured properties
-beyond the documented core, broader JSON-LD date formats, provider discovery, or
-iframe crawling. Unsupported HTML remains a categorized unsupported extraction.
+beyond the documented core, locale-dependent human JSON-LD dates, provider
+discovery, or iframe crawling. Unsupported HTML remains a categorized
+unsupported extraction.
