@@ -174,21 +174,20 @@ func parseYouTubeHandleTabData(data []byte, tab string) (youtubeHandleTabPage, e
 			} else if entry, ok := youtubePlaylistLockupEntry(object); ok {
 				page.entries = append(page.entries, entry)
 			}
-		case "continuationItemRenderer":
-			if token := validYouTubeContinuationToken(objectString(object, "continuationEndpoint", "continuationCommand", "token")); token != "" {
-				page.continuation = token
-			}
-		case "continuationItemViewModel":
-			if token := youtubeContinuationViewModelToken(object); token != "" {
-				page.continuation = token
-			}
-		case "nextContinuationData":
-			if token := validYouTubeContinuationToken(objectString(object, "continuation")); token != "" {
-				page.continuation = token
-			}
+		}
+		if token := youtubeContinuationToken(key, object); token != "" {
+			page.continuation = token
 		}
 	})
 	if err != nil {
+		return youtubeHandleTabPage{}, err
+	}
+	continuationNodes := 0
+	if err := walkOrderedJSON(rootObject.Lookup("continuationContents"), 0, &continuationNodes, func(key string, object *value.Object) {
+		if token := youtubeContinuationToken(key, object); token != "" {
+			page.continuation = token
+		}
+	}); err != nil {
 		return youtubeHandleTabPage{}, err
 	}
 	metadataNodes := 0

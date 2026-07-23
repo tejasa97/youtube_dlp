@@ -1133,6 +1133,33 @@ func TestYouTubePlaylistContinuationRefreshesVisitorData(t *testing.T) {
 	}
 }
 
+func TestYouTubePlaylistRetainsStructuredContinuationContainerTokens(t *testing.T) {
+	initial := []byte(`{
+		"contents":{"twoColumnBrowseResultsRenderer":{"tabs":[{"tabRenderer":{
+			"selected":true,
+			"content":{"playlistVideoRenderer":{"videoId":"chosen00001","title":{"simpleText":"chosen"}}}
+		}}]}},
+		"continuationContents":{"playlistVideoListContinuation":{
+			"continuations":[{"nextContinuationData":{"continuation":"root-token"}}]
+		}}
+	}`)
+	parsed, err := parseYouTubePlaylistData(initial)
+	if err != nil || len(parsed.entries) != 1 || parsed.entries[0].ID != "chosen00001" || parsed.continuation != "root-token" {
+		t.Fatalf("initial parsed=%#v err=%v", parsed, err)
+	}
+
+	continued := []byte(`{
+		"continuationContents":{"playlistVideoListContinuation":{
+			"contents":[{"playlistVideoRenderer":{"videoId":"second00001","title":{"simpleText":"second"}}}],
+			"continuations":[{"nextContinuationData":{"continuation":"sibling-token"}}]
+		}}
+	}`)
+	parsed, err = parseYouTubePlaylistData(continued)
+	if err != nil || len(parsed.entries) != 1 || parsed.entries[0].ID != "second00001" || parsed.continuation != "sibling-token" {
+		t.Fatalf("continued parsed=%#v err=%v", parsed, err)
+	}
+}
+
 func TestYouTubeContinuationViewModelBounds(t *testing.T) {
 	tooMany := make([]value.Value, youtubeMaxContinuationCommands+1)
 	for index := range tooMany {

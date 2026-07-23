@@ -186,6 +186,11 @@ func parseYouTubePlaylistData(data []byte) (youtubePlaylistPage, error) {
 		}
 		page.entries = append(page.entries, entry)
 	}
+	captureContinuation := func(key string, object *value.Object) {
+		if token := youtubeContinuationToken(key, object); token != "" {
+			page.continuation = token
+		}
+	}
 	parseScope := func(scope value.Value) error {
 		nodes := 0
 		return walkOrderedJSON(scope, 0, &nodes, func(key string, object *value.Object) {
@@ -194,23 +199,16 @@ func parseYouTubePlaylistData(data []byte) (youtubePlaylistPage, error) {
 				appendEntry(youtubePlaylistEntry(object))
 			case "lockupViewModel":
 				appendEntry(youtubePlaylistLockupEntry(object))
-			case "continuationItemRenderer":
-				if token := validYouTubeContinuationToken(objectString(object, "continuationEndpoint", "continuationCommand", "token")); token != "" {
-					page.continuation = token
-				}
-			case "continuationItemViewModel":
-				if token := youtubeContinuationViewModelToken(object); token != "" {
-					page.continuation = token
-				}
-			case "nextContinuationData":
-				if token := validYouTubeContinuationToken(objectString(object, "continuation")); token != "" {
-					page.continuation = token
-				}
 			}
+			captureContinuation(key, object)
 		})
 	}
 	contentScope := youtubePlaylistContentScope(rootObject)
 	if err := parseScope(contentScope); err != nil {
+		return youtubePlaylistPage{}, err
+	}
+	continuationNodes := 0
+	if err := walkOrderedJSON(rootObject.Lookup("continuationContents"), 0, &continuationNodes, captureContinuation); err != nil {
 		return youtubePlaylistPage{}, err
 	}
 	metadataNodes := 0
@@ -241,6 +239,19 @@ func parseYouTubePlaylistData(data []byte) (youtubePlaylistPage, error) {
 	}
 	page.visitorData = objectString(rootObject, "responseContext", "visitorData")
 	return page, nil
+}
+
+func youtubeContinuationToken(key string, object *value.Object) string {
+	switch key {
+	case "continuationItemRenderer":
+		return validYouTubeContinuationToken(objectString(object, "continuationEndpoint", "continuationCommand", "token"))
+	case "continuationItemViewModel":
+		return youtubeContinuationViewModelToken(object)
+	case "nextContinuationData":
+		return validYouTubeContinuationToken(objectString(object, "continuation"))
+	default:
+		return ""
+	}
 }
 
 // youtubePlaylistContentScope returns only the selected initial tab or the
@@ -307,10 +318,7 @@ func youtubePlaylistContentScope(root *value.Object) value.Value {
 			if !ok {
 				continue
 			}
-			if key == "gridContinuation" {
-				return container.Lookup("items")
-			}
-			return container.Lookup("contents")
+			return value.ObjectValue(container)
 		}
 	}
 	return value.ObjectValue(root)
