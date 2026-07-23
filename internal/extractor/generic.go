@@ -1,15 +1,29 @@
 package extractor
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"mime"
 	"net/http"
 	"net/url"
 	"path"
+	"strconv"
 	"strings"
 
 	"github.com/ytdlp-go/ytdlp/internal/value"
+	xhtml "golang.org/x/net/html"
+)
+
+const (
+	maxGenericHTMLBytes       = 2 << 20
+	maxGenericHTMLTokens      = 100_000
+	maxGenericHTMLDepth       = 256
+	maxGenericEmbedCandidates = 256
+	maxGenericEmbeds          = 64
+	maxGenericEmbedURLBytes   = 8 << 10
 )
 
 type Generic struct{}
@@ -22,24 +36,65 @@ func (Generic) Suitable(parsed *url.URL) bool {
 }
 
 func (Generic) Extract(ctx context.Context, request Request) (Extraction, error) {
-	parsed, err := url.Parse(request.URL)
-	if err != nil {
-		return Extraction{}, fmt.Errorf("%w: %v", ErrUnsupported, err)
+	if err := contextError(ctx); err != nil {
+		return Extraction{}, err
 	}
-	httpRequest, _ := http.NewRequest(http.MethodHead, request.URL, nil)
+	parsed, err := url.Parse(request.URL)
+	if err != nil || !NewGeneric().Suitable(parsed) {
+		return Extraction{}, fmt.Errorf("%w: invalid generic URL", ErrUnsupported)
+	}
+	if request.Transport == nil {
+		return Extraction{}, fmt.Errorf("%w: missing transport", ErrInvalidMetadata)
+	}
+	httpRequest, err := http.NewRequest(http.MethodHead, request.URL, nil)
+	if err != nil {
+		return Extraction{}, fmt.Errorf("%w: invalid generic URL", ErrUnsupported)
+	}
 	response, err := request.Transport.Do(ctx, httpRequest)
 	if err != nil {
 		return Extraction{}, err
 	}
-	response.Body.Close()
+	if response == nil {
+		return Extraction{}, fmt.Errorf("%w: missing generic response", ErrInvalidMetadata)
+	}
+	if response.Body != nil {
+		_ = response.Body.Close()
+	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return Extraction{}, fmt.Errorf("%w: HTTP status %d", ErrUnsupported, response.StatusCode)
 	}
 	mediaType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
-	if !isDirectMediaType(mediaType) {
-		return Extraction{}, fmt.Errorf("%w: content type %q is not direct media", ErrUnsupported, mediaType)
+	if isDirectMediaType(mediaType) {
+		return genericDirectMedia(parsed, request.URL, mediaType, response), nil
+	}
+	if !isGenericHTMLType(mediaType) {
+		return Extraction{}, fmt.Errorf("%w: content type %q is neither direct media nor HTML", ErrUnsupported, mediaType)
 	}
 
+	page, pageURL, err := readGenericHTMLPage(ctx, request, parsed)
+	if err != nil {
+		return Extraction{}, err
+	}
+	entries, err := discoverGenericEmbedEntries(ctx, pageURL, page)
+	if err != nil {
+		return Extraction{}, err
+	}
+	if len(entries) == 0 {
+		return Extraction{}, fmt.Errorf("%w: no supported embeds", ErrUnsupported)
+	}
+	id, title := genericPageIdentity(pageURL)
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String(id)},
+		value.Field{Key: "title", Value: value.String(title)},
+		value.Field{Key: "webpage_url", Value: value.String(pageURL.String())},
+	))
+	if len(entries) == 1 {
+		return genericSingleEmbed(info, entries[0])
+	}
+	return Playlist(info, StaticEntries(entries...))
+}
+
+func genericDirectMedia(parsed *url.URL, rawURL, mediaType string, response *http.Response) Extraction {
 	base := path.Base(parsed.Path)
 	if base == "." || base == "/" || base == "" {
 		base = "download"
@@ -58,7 +113,7 @@ func (Generic) Extract(ctx context.Context, request Request) (Extraction, error)
 
 	format := value.NewObject(
 		value.Field{Key: "format_id", Value: value.String("direct-http")},
-		value.Field{Key: "url", Value: value.String(request.URL)},
+		value.Field{Key: "url", Value: value.String(rawURL)},
 		value.Field{Key: "ext", Value: value.String(extension)},
 	)
 	if protocol != "" {
@@ -67,15 +122,320 @@ func (Generic) Extract(ctx context.Context, request Request) (Extraction, error)
 	if response.ContentLength >= 0 {
 		format.Set("filesize", value.Int(response.ContentLength))
 	}
+	requestHeaders := make(http.Header)
+	if response.Request != nil {
+		requestHeaders = response.Request.Header
+	}
 	info := value.NewObject(
 		value.Field{Key: "id", Value: value.String(title)},
 		value.Field{Key: "title", Value: value.String(title)},
-		value.Field{Key: "webpage_url", Value: value.String(request.URL)},
+		value.Field{Key: "webpage_url", Value: value.String(rawURL)},
 		value.Field{Key: "ext", Value: value.String(extension)},
 		value.Field{Key: "formats", Value: value.List(value.ObjectValue(format))},
-		value.Field{Key: "http_headers", Value: value.ObjectValue(headersValue(response.Request.Header))},
+		value.Field{Key: "http_headers", Value: value.ObjectValue(headersValue(requestHeaders))},
 	)
-	return Media(value.NewInfo(info)), nil
+	return Media(value.NewInfo(info))
+}
+
+func isGenericHTMLType(mediaType string) bool {
+	return mediaType == "text/html" || mediaType == "application/xhtml+xml"
+}
+
+func readGenericHTMLPage(ctx context.Context, request Request, requestedURL *url.URL) ([]byte, *url.URL, error) {
+	httpRequest, err := http.NewRequest(http.MethodGet, request.URL, nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%w: invalid generic URL", ErrUnsupported)
+	}
+	response, err := request.Transport.Do(ctx, httpRequest)
+	if err != nil {
+		return nil, nil, err
+	}
+	if response == nil {
+		return nil, nil, fmt.Errorf("%w: missing generic HTML response", ErrInvalidMetadata)
+	}
+	if response.Body == nil {
+		return nil, nil, fmt.Errorf("%w: missing generic HTML body", ErrInvalidMetadata)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, nil, fmt.Errorf("%w: HTTP status %d", ErrUnsupported, response.StatusCode)
+	}
+	if mediaType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type")); mediaType != "" && !isGenericHTMLType(mediaType) {
+		return nil, nil, fmt.Errorf("%w: GET content type %q is not HTML", ErrUnsupported, mediaType)
+	}
+	reader := &io.LimitedReader{R: response.Body, N: maxGenericHTMLBytes + 1}
+	page, err := io.ReadAll(reader)
+	if err != nil {
+		if contextErr := contextError(ctx); contextErr != nil {
+			return nil, nil, contextErr
+		}
+		return nil, nil, fmt.Errorf("%w: read generic HTML", ErrInvalidMetadata)
+	}
+	if len(page) > maxGenericHTMLBytes {
+		return nil, nil, fmt.Errorf("%w: generic HTML exceeds %d bytes", ErrInvalidMetadata, maxGenericHTMLBytes)
+	}
+	pageURL := requestedURL
+	if response.Request != nil && response.Request.URL != nil {
+		candidate := response.Request.URL
+		if NewGeneric().Suitable(candidate) {
+			pageURL = candidate
+		}
+	}
+	cloned := *pageURL
+	cloned.Fragment = ""
+	return page, &cloned, nil
+}
+
+// discoverGenericEmbedEntries examines only embed-bearing HTML attributes. It
+// never follows an iframe, executes script, or treats an arbitrary link as
+// media. Every returned entry has first passed a supported extractor's strict
+// URL policy and has been reduced to that extractor's canonical target.
+func discoverGenericEmbedEntries(ctx context.Context, pageURL *url.URL, page []byte) ([]Entry, error) {
+	if err := contextError(ctx); err != nil {
+		return nil, err
+	}
+	if pageURL == nil || !NewGeneric().Suitable(pageURL) {
+		return nil, fmt.Errorf("%w: invalid generic HTML base URL", ErrInvalidMetadata)
+	}
+	if len(page) > maxGenericHTMLBytes {
+		return nil, fmt.Errorf("%w: generic HTML exceeds %d bytes", ErrInvalidMetadata, maxGenericHTMLBytes)
+	}
+
+	tokenizer := xhtml.NewTokenizer(bytes.NewReader(page))
+	entries := make([]Entry, 0)
+	seen := make(map[string]struct{})
+	depth, tokens, candidates := 0, 0, 0
+	for {
+		tokenType := tokenizer.Next()
+		if tokenType == xhtml.ErrorToken {
+			err := tokenizer.Err()
+			if errors.Is(err, io.EOF) {
+				return entries, nil
+			}
+			return nil, fmt.Errorf("%w: tokenize generic HTML", ErrInvalidMetadata)
+		}
+		tokens++
+		if tokens > maxGenericHTMLTokens {
+			return nil, fmt.Errorf("%w: generic HTML token limit exceeded", ErrInvalidMetadata)
+		}
+		if tokens%256 == 0 {
+			if err := contextError(ctx); err != nil {
+				return nil, err
+			}
+		}
+
+		token := tokenizer.Token()
+		switch {
+		case tokenType == xhtml.StartTagToken && !genericVoidElement(token.Data):
+			depth++
+			if depth > maxGenericHTMLDepth {
+				return nil, fmt.Errorf("%w: generic HTML depth limit exceeded", ErrInvalidMetadata)
+			}
+		case tokenType == xhtml.EndTagToken && !genericVoidElement(token.Data):
+			if depth > 0 {
+				depth--
+			}
+		}
+		if tokenType != xhtml.StartTagToken && tokenType != xhtml.SelfClosingTagToken {
+			continue
+		}
+		rawURL, ok := genericEmbedAttribute(token)
+		if !ok {
+			continue
+		}
+		candidates++
+		if candidates > maxGenericEmbedCandidates {
+			return nil, fmt.Errorf("%w: generic embed candidate limit exceeded", ErrPlaylistLimit)
+		}
+		if len(rawURL) == 0 || len(rawURL) > maxGenericEmbedURLBytes || strings.IndexByte(rawURL, 0) >= 0 {
+			return nil, fmt.Errorf("%w: invalid generic embed URL", ErrInvalidMetadata)
+		}
+		entry, ok := canonicalGenericEmbed(pageURL, rawURL)
+		if !ok {
+			continue
+		}
+		key := entry.ExtractorKey + "\x00" + entry.URL
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+		if len(entries) >= maxGenericEmbeds {
+			return nil, fmt.Errorf("%w: generic embed limit exceeded", ErrPlaylistLimit)
+		}
+		seen[key] = struct{}{}
+		entries = append(entries, entry)
+	}
+}
+
+func genericVoidElement(name string) bool {
+	switch strings.ToLower(name) {
+	case "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr":
+		return true
+	default:
+		return false
+	}
+}
+
+func genericEmbedAttribute(token xhtml.Token) (string, bool) {
+	var attributeName string
+	switch strings.ToLower(token.Data) {
+	case "iframe", "embed":
+		attributeName = "src"
+	case "object":
+		attributeName = "data"
+	case "meta":
+		var kind string
+		for _, attribute := range token.Attr {
+			switch strings.ToLower(attribute.Key) {
+			case "name", "property":
+				kind = strings.ToLower(strings.TrimSpace(attribute.Val))
+			}
+		}
+		if kind != "twitter:player" {
+			return "", false
+		}
+		attributeName = "content"
+	default:
+		return "", false
+	}
+	for _, attribute := range token.Attr {
+		if strings.EqualFold(attribute.Key, attributeName) {
+			return strings.TrimSpace(attribute.Val), true
+		}
+	}
+	return "", false
+}
+
+func canonicalGenericEmbed(pageURL *url.URL, rawURL string) (Entry, bool) {
+	reference, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || reference.Scheme != "" && reference.Scheme != "http" && reference.Scheme != "https" {
+		return Entry{}, false
+	}
+	resolved := pageURL.ResolveReference(reference)
+	if resolved == nil || (resolved.Scheme != "http" && resolved.Scheme != "https") || resolved.Hostname() == "" ||
+		resolved.User != nil || resolved.Port() != "" || resolved.Fragment != "" || len(resolved.String()) > maxGenericEmbedURLBytes {
+		return Entry{}, false
+	}
+	host := strings.ToLower(resolved.Hostname())
+	if strings.HasSuffix(host, ".") {
+		return Entry{}, false
+	}
+	if escaped := strings.ToLower(resolved.EscapedPath()); strings.Contains(escaped, "%00") || strings.Contains(escaped, "%2f") || strings.Contains(escaped, "%5c") {
+		return Entry{}, false
+	}
+
+	if target, ok := canonicalGenericYouTubeEmbed(resolved); ok {
+		return target, true
+	}
+	if host == "player.vimeo.com" {
+		if match := vimeoURLPattern.FindStringSubmatch(resolved.Path); len(match) == 2 && strings.HasPrefix(resolved.Path, "/video/") {
+			return genericTransparentEntry("https://vimeo.com/"+match[1], "vimeo", match[1]), true
+		}
+	}
+	if target, ok := parseBrightcoveURL(resolved); ok {
+		return genericTransparentEntry(target.canonical, "brightcove", target.contentID), true
+	}
+	if target, ok := parseKalturaURL(resolved); ok {
+		return genericTransparentEntry(target.canonical, "kaltura", firstNonEmpty(target.entryID, target.playlistID)), true
+	}
+	if id, canonical, ok := parseJWPlatformURL(resolved); ok {
+		return genericTransparentEntry(canonical, "jwplatform", id), true
+	}
+	if target, ok := parseWistiaURL(resolved); ok {
+		return genericTransparentEntry(target.canonical, "wistia", target.id), true
+	}
+	if id, canonical, ok := parseSproutVideoURL(resolved); ok {
+		return genericTransparentEntry(canonical, "sproutvideo", id), true
+	}
+	if genericDailymotionEmbedURL(resolved) {
+		id := dailymotionVideoID(resolved)
+		return genericTransparentEntry("https://www.dailymotion.com/video/"+id, "dailymotion", id), true
+	}
+	if genericRumbleEmbedURL(resolved) {
+		parts := strings.Split(strings.Trim(resolved.Path, "/"), "/")
+		id := strings.TrimSuffix(parts[1], ".html")
+		return genericTransparentEntry("https://rumble.com/embed/"+id, "rumble", id), true
+	}
+	if genericStreamableEmbedURL(resolved) {
+		parts := strings.Split(strings.Trim(resolved.EscapedPath(), "/"), "/")
+		return genericTransparentEntry("https://streamable.com/"+parts[1], "streamable", parts[1]), true
+	}
+	if target, ok := parsePeerTubeURL(resolved); ok && strings.Contains(resolved.EscapedPath(), "/videos/embed/") {
+		return genericTransparentEntry(target.webpageURL(), "peertube", target.id), true
+	}
+	return Entry{}, false
+}
+
+func canonicalGenericYouTubeEmbed(parsed *url.URL) (Entry, bool) {
+	host := strings.ToLower(parsed.Hostname())
+	switch host {
+	case "youtube.com", "www.youtube.com", "m.youtube.com", "youtube-nocookie.com", "www.youtube-nocookie.com":
+	default:
+		return Entry{}, false
+	}
+	if !strings.HasPrefix(parsed.Path, "/embed/") || strings.Count(strings.Trim(parsed.Path, "/"), "/") != 1 {
+		return Entry{}, false
+	}
+	target, err := parseYouTubeTarget(parsed.String())
+	if err != nil {
+		return Entry{}, false
+	}
+	query := url.Values{"v": []string{target.videoID}}
+	if target.startSet && target.startTime != nil {
+		query.Set("start", strconv.FormatFloat(*target.startTime, 'f', -1, 64))
+	}
+	if target.endSet && target.endTime != nil {
+		query.Set("end", strconv.FormatFloat(*target.endTime, 'f', -1, 64))
+	}
+	return genericTransparentEntry("https://www.youtube.com/watch?"+query.Encode(), "youtube", target.videoID), true
+}
+
+func genericDailymotionEmbedURL(parsed *url.URL) bool {
+	host := strings.ToLower(parsed.Hostname())
+	if host != "dailymotion.com" && !strings.HasSuffix(host, ".dailymotion.com") {
+		return false
+	}
+	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	return (len(parts) == 3 && parts[0] == "embed" && parts[1] == "video" && dailymotionVideoID(parsed) != "") ||
+		(strings.HasPrefix(strings.TrimPrefix(parsed.Path, "/"), "player/") && dailymotionID.MatchString(parsed.Query().Get("video")))
+}
+
+func genericRumbleEmbedURL(parsed *url.URL) bool {
+	if host := strings.ToLower(parsed.Hostname()); host != "rumble.com" && host != "www.rumble.com" {
+		return false
+	}
+	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	return len(parts) == 2 && parts[0] == "embed" && rumbleID.MatchString(strings.TrimSuffix(parts[1], ".html"))
+}
+
+func genericStreamableEmbedURL(parsed *url.URL) bool {
+	if !strings.EqualFold(parsed.Hostname(), "streamable.com") {
+		return false
+	}
+	parts := strings.Split(strings.Trim(parsed.EscapedPath(), "/"), "/")
+	return len(parts) == 2 && parts[0] == "e" && streamableID.MatchString(parts[1])
+}
+
+func genericTransparentEntry(rawURL, extractorKey, id string) Entry {
+	return Entry{URL: rawURL, ExtractorKey: extractorKey, ID: id, Transparent: true}
+}
+
+// genericSingleEmbed is intentionally localized. Extraction currently lacks a
+// root URL-result variant, so the primary integration temporarily represents
+// one discovered embed as a one-entry playlist. The shared integration follow-
+// up can replace only this function once root URL-result recursion exists.
+func genericSingleEmbed(info value.Info, entry Entry) (Extraction, error) {
+	return Playlist(info, StaticEntries(entry))
+}
+
+func genericPageIdentity(pageURL *url.URL) (string, string) {
+	base := strings.TrimSuffix(path.Base(pageURL.Path), path.Ext(pageURL.Path))
+	if base == "" || base == "." || base == "/" {
+		base = pageURL.Hostname()
+	}
+	if base == "" {
+		base = "embedded-media"
+	}
+	return base, base
 }
 
 func isDirectMediaType(mediaType string) bool {
