@@ -226,6 +226,52 @@ func TestClientCategorizesCookieDirectoryAsInvalidInput(t *testing.T) {
 	}
 }
 
+func TestClientSimulationSuppressesEveryOutputArtifact(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	archivePath := filepath.Join(root, "archive.txt")
+	result, err := NewClient().Run(context.Background(), Request{
+		URL:             server.URL + "/page",
+		OutputDir:       root,
+		DownloadArchive: archivePath,
+		Simulate:        true,
+		Subtitles: SubtitleOptions{
+			WriteManual: true,
+			Languages:   []string{"es"},
+		},
+		Postprocessors: []Postprocessor{{
+			Move: &MovePostprocessor{Destination: "moved.bin"},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Downloaded || result.Archived || len(result.Artifacts) != 0 || result.Filename != "" || result.Bytes != 0 {
+		t.Fatalf("simulation result = %+v", result)
+	}
+	for _, path := range []string{
+		filepath.Join(root, "Deterministic Fixture.bin"),
+		filepath.Join(root, "Deterministic Fixture.es.vtt"),
+		filepath.Join(root, "moved.bin"),
+		archivePath,
+	} {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("simulation wrote %s: %v", path, err)
+		}
+	}
+	if !json.Valid(result.InfoJSON) {
+		t.Fatalf("simulation metadata = %q", result.InfoJSON)
+	}
+	var info map[string]any
+	if err := json.Unmarshal(result.InfoJSON, &info); err != nil {
+		t.Fatal(err)
+	}
+	if requested, ok := info["requested_subtitles"].(map[string]any); !ok || requested["es"] == nil {
+		t.Fatalf("simulation omitted selected subtitle metadata: %#v", info["requested_subtitles"])
+	}
+}
+
 func TestClientRejectsInvalidWaveTwoOptionsBeforeNetwork(t *testing.T) {
 	hits := 0
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits++ }))

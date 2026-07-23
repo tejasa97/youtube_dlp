@@ -82,19 +82,23 @@ func IsCategory(err error, category ErrorCategory) bool {
 }
 
 type Request struct {
-	URL                       string
-	OutputTemplate            string
-	OutputDir                 string
-	Proxy                     string
-	ImpersonationProfile      string
-	CookieFile                string
-	CookiesFromBrowser        string
-	UseNetRC                  bool
-	NetRCLocation             string
-	DownloadArchive           string
-	CacheDir                  string
-	Timeout                   time.Duration
-	Overwrite                 bool
+	URL                  string
+	OutputTemplate       string
+	OutputDir            string
+	Proxy                string
+	ImpersonationProfile string
+	CookieFile           string
+	CookiesFromBrowser   string
+	UseNetRC             bool
+	NetRCLocation        string
+	DownloadArchive      string
+	CacheDir             string
+	Timeout              time.Duration
+	Overwrite            bool
+	// Simulate suppresses media, sidecar, archive, and postprocessor output
+	// while still performing extraction. Unlike SkipDownload, it does not
+	// permit related-file writes.
+	Simulate                  bool
 	SkipDownload              bool
 	Format                    string
 	FormatSort                []string
@@ -747,19 +751,26 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 			return Result{}, err
 		}
 	}
-	var selectedFormats []mediaformat.Selection
-	if !operation.request.SkipDownload {
-		selectedFormats, err = operation.selectFormats(info)
-		if err != nil {
-			return Result{}, categorized("select format", err)
-		}
-	}
 	selectedSubtitles, requestedSubtitles, err := selectSubtitles(info, operation.request.Subtitles)
 	if err != nil {
 		return Result{}, categorized("select subtitles", err)
 	}
 	if requestedSubtitles != nil {
 		info.Set("requested_subtitles", value.ObjectValue(requestedSubtitles))
+	}
+	result.InfoJSON, err = encodeInfo(info)
+	if err != nil {
+		return Result{}, err
+	}
+	if operation.request.Simulate {
+		return result, nil
+	}
+	var selectedFormats []mediaformat.Selection
+	if !operation.request.SkipDownload {
+		selectedFormats, err = operation.selectFormats(info)
+		if err != nil {
+			return Result{}, categorized("select format", err)
+		}
 	}
 	result.Artifacts, result.Bytes, err = operation.downloadSubtitles(ctx, info, selectedSubtitles, operation.eventSink())
 	if err != nil {

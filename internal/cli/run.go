@@ -55,8 +55,23 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	flags.Var(paths, "paths", "set a home output/config path (home:PATH)")
 	flags.Var(paths, "P", "alias for --paths")
 	printJSON := flags.Bool("print-json", false, "print normalized metadata JSON to stdout")
-	listSubtitles := flags.Bool("list-subs", false, "list available subtitles and automatic captions (simulates; does not write files)")
+	listSubtitles := flags.Bool("list-subs", false, "list available subtitles and automatic captions (simulates unless --no-simulate)")
+	var simulate, simulateSet bool
+	setSimulation := func(enabled bool) func(string) error {
+		return func(input string) error {
+			value, err := strconv.ParseBool(input)
+			if err != nil {
+				return err
+			}
+			simulate, simulateSet = enabled == value, true
+			return nil
+		}
+	}
+	flags.BoolFunc("simulate", "do not download media or write output artifacts", setSimulation(true))
+	flags.BoolFunc("s", "alias for --simulate", setSimulation(true))
+	flags.BoolFunc("no-simulate", "download even when a listing option is used", setSimulation(false))
 	skipDownload := flags.Bool("skip-download", false, "extract metadata without downloading")
+	flags.BoolVar(skipDownload, "no-download", false, "alias for --skip-download")
 	liveFromStart := flags.Bool("live-from-start", false, "download supported live streams from their beginning")
 	flags.BoolFunc("no-live-from-start", "download live streams from the current edge (default)", func(string) error {
 		*liveFromStart = false
@@ -267,17 +282,14 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	if *remuxVideo != "" {
 		postprocessors = append(postprocessors, ytdlp.Postprocessor{Remux: &ytdlp.RemuxPostprocessor{Format: *remuxVideo}})
 	}
-	// yt-dlp lists subtitles in simulation mode. Explicit write-subtitle options
-	// must not turn a listing into a filesystem-writing operation.
-	requestSkipDownload := *skipDownload || *listSubtitles
+	// yt-dlp's listing flags imply simulation only when the user has not made
+	// the tri-state simulation choice explicit.
+	requestSimulate := simulate || !simulateSet && *listSubtitles
 	requestSubtitles := ytdlp.SubtitleOptions{
 		WriteManual: *writeSubtitles, WriteAutomatic: *writeAutomaticSubtitles,
 		Embed: *embedSubtitles, KeepFiles: *embedSubtitles && *writeSubtitles,
 		ConvertFormat: subtitleConvertFormat,
 		Languages:     subtitleLanguageRules(subtitleLanguages, *allSubtitles), Format: *subtitleFormat,
-	}
-	if *listSubtitles {
-		requestSubtitles = ytdlp.SubtitleOptions{}
 	}
 	commentLimits, err := parseYouTubeCommentLimits(*youtubeMaxComments)
 	if err != nil {
@@ -289,7 +301,7 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	result, err := client.Run(ctx, ytdlp.Request{
 		URL: flags.Arg(0), OutputTemplate: *output, OutputDir: *outputDir, Proxy: *proxy, ImpersonationProfile: *impersonationProfile,
 		CookieFile: *cookieFile, CookiesFromBrowser: *cookiesFromBrowser, UseNetRC: *useNetRC, NetRCLocation: *netRCLocation, DownloadArchive: *downloadArchive, CacheDir: *cacheDir,
-		Timeout: *timeout, Overwrite: *overwrite, SkipDownload: requestSkipDownload, LiveFromStart: *liveFromStart,
+		Timeout: *timeout, Overwrite: *overwrite, Simulate: requestSimulate, SkipDownload: *skipDownload, LiveFromStart: *liveFromStart,
 		Format: *format, FormatSort: append([]string(nil), formatSort...),
 		PreferFreeFormats: *preferFreeFormats, AllowUnplayableFormats: *allowUnplayable,
 		ProgressTemplate: *progressTemplate, MatchFilters: append([]string(nil), matchFilters...),
