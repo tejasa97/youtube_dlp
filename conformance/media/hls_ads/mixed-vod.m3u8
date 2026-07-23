@@ -1,0 +1,17 @@
+#EXTM3U
+#EXT-X-MEDIA-SEQUENCE:40
+#EXTINF:1,
+media-40.bin
+#ANVATO-SEGMENT-INFO:type=ad
+#EXTINF:1,
+anvato-ad-41.bin
+#ANVATO-SEGMENT-INFO:type=master
+#EXTINF:1,
+media-42.bin
+#UPLYNK-SEGMENT,ad
+#EXTINF:1,
+uplynk-ad-43.bin
+#UPLYNK-SEGMENT,segment
+#EXTINF:1,
+media-44.bin
+#EXT-X-ENDLIST
