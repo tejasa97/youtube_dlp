@@ -410,6 +410,27 @@ func TestRunPrintTemplatesSimulationAndLaterStageDownload(t *testing.T) {
 	}
 }
 
+func TestRunPrintSyntheticTableFields(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{
+		"-O", "formats_table",
+		"-O", "subtitles_table",
+		"-O", "automatic_captions_table",
+		"-O", "thumbnails_table",
+		server.URL + "/page",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	output := stdout.String()
+	if !strings.Contains(output, "ID          EXT") ||
+		strings.Count(output, "Language Formats") != 2 ||
+		!strings.HasSuffix(output, "NA\n") {
+		t.Fatalf("synthetic tables = %q", output)
+	}
+}
+
 func TestRunLegacyGetAliasesOrderAndOptionalOmission(t *testing.T) {
 	server := testserver.New()
 	defer server.Close()

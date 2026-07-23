@@ -91,6 +91,12 @@ capabilities:
       - pkg/ytdlp.TestPrintToFileSimulationSuppressesDiskButKeepsConsoleCapture
       - pkg/ytdlp.TestPrintToFileRejectsUnsafePathsAndSymlinks
       - pkg/ytdlp.TestAppendPrintLineCancellationLimitAndConcurrentRecords
+      - pkg/ytdlp.TestRenderPrintTablePinnedCorpus
+      - pkg/ytdlp.TestRenderSyntheticPrintTables
+      - pkg/ytdlp.TestSyntheticPrintFieldsAreAvailableAtLifecycleStages
+      - pkg/ytdlp.TestRenderFormatsTableDirectFallbackAndNonVideoOmission
+      - pkg/ytdlp.TestRenderPrintTablesLimitsAndMalformedRows
+      - pkg/ytdlp.FuzzRenderPrintTable
       - internal/cli.TestParsePrintRulesStagesShorthandAndSimulation
       - internal/cli.TestExtractAndParsePrintToFileArguments
       - internal/cli.TestAppendLegacyPrintRulesOrderAndOptionalFields
@@ -100,6 +106,7 @@ capabilities:
       - internal/cli.TestRunPrintToFileAppendsWithoutConsoleOrImplicitQuiet
       - internal/cli.TestRunPrintToFileDefaultDownloadsAndSimulationSuppressesFile
       - internal/cli.TestRunPrintToFileLoadsFromConfiguration
+      - internal/cli.TestRunPrintSyntheticTableFields
       - internal/cli.FuzzParsePrintRules
       - internal/cli.FuzzExtractPrintToFileArgs
       - internal/compat/template.TestRenderObjectProjectionAndDiagnosticJSON
@@ -112,7 +119,7 @@ capabilities:
       - cli.simulation
       - compat.output_template_minimal
       - extractor.playlists
-    known_deviation: Captured console values retain native lifecycle stages, but terminal output is emitted after the complete operation. Post-process and after-move observe the final native pipeline path. Upstream-only template syntax beyond the bounded native parser and synthetic table fields remain pending.
+    known_deviation: Captured console values retain native lifecycle stages, but terminal output is emitted after the complete operation. Post-process and after-move observe the final native pipeline path. Upstream-only template syntax beyond the bounded native parser remains pending.
 
   - id: foundation.embedding_api
     name: Cancellable Go embedding boundary
