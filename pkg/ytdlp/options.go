@@ -83,6 +83,7 @@ const (
 type PrintRule struct {
 	Stage         PrintStage
 	Template      string
+	FileTemplate  string
 	OmitIfMissing string
 }
 
@@ -237,6 +238,7 @@ func validateRequestOptions(request Request) error {
 	}
 	for index, rule := range request.PrintRules {
 		if !validPrintStage(rule.Stage) || rule.Template == "" ||
+			len(rule.FileTemplate) > 64<<10 || strings.ContainsRune(rule.FileTemplate, 0) ||
 			len(rule.OmitIfMissing) > 256 || strings.ContainsAny(rule.OmitIfMissing, "\x00\r\n") {
 			return fmt.Errorf("%w: print rule %d", errInvalidRequestOptions, index)
 		}

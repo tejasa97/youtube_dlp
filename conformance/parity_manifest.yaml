@@ -75,9 +75,9 @@ capabilities:
     known_deviation: Related files use the port's deterministic normalized metadata schema and one shared output template. Per-type output templates, thumbnail and annotation sidecars, and non-atomic Windows replacement where the platform cannot provide it remain outside this claim.
 
   - id: cli.staged_print
-    name: Staged template and legacy field printing
+    name: Staged template, file, and legacy field printing
     phase: 3
-    compatibility_target: Render bounded repeatable print templates and legacy get-field aliases with lifecycle-aware simulation and deterministic output.
+    compatibility_target: Render bounded repeatable console/file templates and legacy get-field aliases with lifecycle-aware simulation and deterministic output.
     status: compatible
     evidence:
       - pkg/ytdlp.TestPrintStagesCaptureTransformedAndSelectedMetadata
@@ -87,12 +87,21 @@ capabilities:
       - pkg/ytdlp.TestLatePrintValidationFailsBeforeOutputSideEffects
       - pkg/ytdlp.TestPlaylistPrintsFollowChildLifecycle
       - pkg/ytdlp.TestFormatPrintDurationPinnedShape
+      - pkg/ytdlp.TestPrintToFileAppendsStagesAndReportsUniqueArtifact
+      - pkg/ytdlp.TestPrintToFileSimulationSuppressesDiskButKeepsConsoleCapture
+      - pkg/ytdlp.TestPrintToFileRejectsUnsafePathsAndSymlinks
+      - pkg/ytdlp.TestAppendPrintLineCancellationLimitAndConcurrentRecords
       - internal/cli.TestParsePrintRulesStagesShorthandAndSimulation
+      - internal/cli.TestExtractAndParsePrintToFileArguments
       - internal/cli.TestAppendLegacyPrintRulesOrderAndOptionalFields
       - internal/cli.TestWritePrintOutputsOrdersChildrenBeforePlaylistAndHandlesFailures
       - internal/cli.TestRunPrintTemplatesSimulationAndLaterStageDownload
       - internal/cli.TestRunLegacyGetAliasesOrderAndOptionalOmission
+      - internal/cli.TestRunPrintToFileAppendsWithoutConsoleOrImplicitQuiet
+      - internal/cli.TestRunPrintToFileDefaultDownloadsAndSimulationSuppressesFile
+      - internal/cli.TestRunPrintToFileLoadsFromConfiguration
       - internal/cli.FuzzParsePrintRules
+      - internal/cli.FuzzExtractPrintToFileArgs
       - conformance/print_output/PROVENANCE.md
       - docs/CLI_PRINT_OUTPUT_EVIDENCE.md
     owner: core
@@ -100,7 +109,7 @@ capabilities:
       - cli.simulation
       - compat.output_template_minimal
       - extractor.playlists
-    known_deviation: Captured values retain native lifecycle stages, but terminal output is emitted after the complete operation. Post-process and after-move observe the final native pipeline path. Print-to-file, dict and trailing-equals shorthand, upstream-only template syntax, and synthetic table fields remain pending.
+    known_deviation: Captured console values retain native lifecycle stages, but terminal output is emitted after the complete operation. Post-process and after-move observe the final native pipeline path. Dict and trailing-equals shorthand, upstream-only template syntax, and synthetic table fields remain pending.
 
   - id: foundation.embedding_api
     name: Cancellable Go embedding boundary

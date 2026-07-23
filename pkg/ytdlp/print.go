@@ -2,14 +2,20 @@ package ytdlp
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	outputtemplate "github.com/ytdlp-go/ytdlp/internal/compat/template"
 	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
+
+var errUnsafePrintFile = errors.New("unsafe print-to-file destination")
 
 func validPrintStage(stage PrintStage) bool {
 	switch stage {
@@ -66,7 +72,7 @@ func (operation *operation) capturePrints(
 ) ([]PrintOutput, error) {
 	outputs := make([]PrintOutput, 0)
 	for _, rule := range operation.request.PrintRules {
-		if rule.Stage != stage {
+		if rule.Stage != stage || rule.FileTemplate != "" {
 			continue
 		}
 		if err := ctx.Err(); err != nil {
@@ -111,8 +117,143 @@ func (operation *operation) validatePrintRules(
 		if _, err := outputtemplate.Render(rule.Template, printInfo); err != nil {
 			return err
 		}
+		if rule.FileTemplate != "" {
+			outputRoot := operation.request.OutputDir
+			if outputRoot == "" {
+				outputRoot = "."
+			}
+			if _, err := outputtemplate.Resolve(outputRoot, rule.FileTemplate, printInfo); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
+}
+
+func (operation *operation) writePrintFiles(
+	ctx context.Context,
+	stage PrintStage,
+	info value.Info,
+	selections []mediaformat.Selection,
+	filename string,
+) ([]Artifact, int64, error) {
+	if operation.request.Simulate {
+		return nil, 0, nil
+	}
+	outputRoot := operation.request.OutputDir
+	if outputRoot == "" {
+		outputRoot = "."
+	}
+	artifacts := make([]Artifact, 0)
+	var total int64
+	for _, rule := range operation.request.PrintRules {
+		if rule.Stage != stage || rule.FileTemplate == "" {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return artifacts, total, err
+		}
+		printInfo := value.NewInfo(info.Fields().Clone())
+		addPrintFields(&printInfo, selections, filename, printStageRank(stage) >= printStageRank(PrintPostProcess))
+		if rule.OmitIfMissing != "" {
+			candidate := printInfo.Lookup(rule.OmitIfMissing)
+			if candidate.IsMissing() || candidate.IsNull() {
+				continue
+			}
+		}
+		rendered, err := outputtemplate.Render(rule.Template, printInfo)
+		if err != nil {
+			return artifacts, total, err
+		}
+		destination, err := outputtemplate.Resolve(outputRoot, rule.FileTemplate, printInfo)
+		if err != nil {
+			return artifacts, total, err
+		}
+		if err := prepareRelatedDestination(outputRoot, destination); err != nil {
+			return artifacts, total, fmt.Errorf("%w: %v", errUnsafePrintFile, err)
+		}
+		written, err := appendPrintLine(ctx, destination, rendered)
+		if err != nil {
+			return artifacts, total, err
+		}
+		artifacts = appendUniqueArtifact(artifacts, Artifact{Path: destination, Kind: "print"})
+		total += written
+	}
+	return artifacts, total, nil
+}
+
+func appendPrintLine(ctx context.Context, destination, rendered string) (int64, error) {
+	lineBreak := "\n"
+	if runtime.GOOS == "windows" {
+		lineBreak = "\r\n"
+	}
+	line := rendered + lineBreak
+	if len(line) > 1<<20 {
+		return 0, fmt.Errorf("%w: print-to-file line exceeds size limit", outputtemplate.ErrInvalidTemplate)
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	if info, err := os.Lstat(destination); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return 0, errUnsafePrintFile
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return 0, err
+	}
+	file, err := openPrintAppendFile(destination)
+	if err != nil {
+		return 0, err
+	}
+	info, statErr := file.Stat()
+	if statErr != nil || !info.Mode().IsRegular() {
+		file.Close()
+		if statErr != nil {
+			return 0, statErr
+		}
+		return 0, errUnsafePrintFile
+	}
+	if err := ctx.Err(); err != nil {
+		file.Close()
+		return 0, err
+	}
+	written, writeErr := io.WriteString(file, line)
+	if writeErr == nil && written != len(line) {
+		writeErr = io.ErrShortWrite
+	}
+	if writeErr == nil {
+		writeErr = file.Sync()
+	}
+	closeErr := file.Close()
+	if writeErr != nil {
+		return int64(written), writeErr
+	}
+	if closeErr != nil {
+		return int64(written), closeErr
+	}
+	return int64(written), nil
+}
+
+func appendUniqueArtifact(artifacts []Artifact, artifact Artifact) []Artifact {
+	for _, existing := range artifacts {
+		if existing.Path == artifact.Path && existing.Kind == artifact.Kind {
+			return artifacts
+		}
+	}
+	return append(artifacts, artifact)
+}
+
+func mergePrintArtifacts(existing, added []Artifact) []Artifact {
+	for _, artifact := range added {
+		existing = appendUniqueArtifact(existing, artifact)
+	}
+	return existing
+}
+
+func addPrintFileArtifacts(result *Result, artifacts []Artifact, bytes int64) {
+	result.Artifacts = mergePrintArtifacts(result.Artifacts, artifacts)
+	result.Bytes += bytes
+	result.Downloaded = result.Downloaded || len(artifacts) > 0
 }
 
 func addPrintFields(info *value.Info, selections []mediaformat.Selection, filename string, includeFilepath bool) {
