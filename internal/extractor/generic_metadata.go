@@ -33,6 +33,7 @@ const (
 	maxGenericMetadataTags       = 128
 	maxGenericMetadataTagBytes   = 256
 	maxGenericInteractionStats   = 128
+	maxGenericJSONLDChapters     = 256
 )
 
 var genericISODuration = regexp.MustCompile(`^PT(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?$`)
@@ -59,6 +60,13 @@ type genericMetadataCandidate struct {
 	commentCount  *int64
 	averageRating *float64
 	tags          []string
+	chapters      []genericJSONLDChapter
+}
+
+type genericJSONLDChapter struct {
+	title string
+	start float64
+	end   float64
 }
 
 type genericMetadataDocument struct {
@@ -376,11 +384,82 @@ func genericJSONLDCandidate(item map[string]any) (genericMetadataCandidate, bool
 		viewCount:   genericJSONLDInt(item["interactionCount"], true),
 		tags:        genericJSONLDTags(item["keywords"]),
 	}
+	candidate.chapters = genericJSONLDChapters(item["hasPart"], candidate.duration)
 	if genericJSONLDType(item["@type"], "AudioObject") && !genericJSONLDType(item["@type"], "VideoObject") {
 		candidate.kind = "audio"
 	}
 	genericJSONLDInteractions(item, &candidate)
 	return candidate, true
+}
+
+func genericJSONLDChapters(raw any, duration *float64) []genericJSONLDChapter {
+	var parts []any
+	switch item := raw.(type) {
+	case map[string]any:
+		parts = []any{item}
+	case []any:
+		parts = item
+	default:
+		return nil
+	}
+	type draft struct {
+		title      string
+		start, end *float64
+	}
+	drafts := make([]draft, 0, min(len(parts), maxGenericJSONLDChapters))
+	for _, rawPart := range parts {
+		part, ok := rawPart.(map[string]any)
+		if !ok || !genericJSONLDType(part["@type"], "Clip") {
+			continue
+		}
+		if len(drafts) >= maxGenericJSONLDChapters {
+			return nil
+		}
+		drafts = append(drafts, draft{
+			title: genericMetadataText(genericJSONString(part["name"]), maxGenericMetadataTitle),
+			start: genericJSONLDFloat(part["startOffset"], true),
+			end:   genericJSONLDFloat(part["endOffset"], true),
+		})
+	}
+	if len(drafts) == 0 {
+		return nil
+	}
+	result := make([]genericJSONLDChapter, len(drafts))
+	for index := range drafts {
+		current := &drafts[index]
+		if current.title == "" {
+			return nil
+		}
+		if current.start == nil {
+			if index == 0 {
+				zero := float64(0)
+				current.start = &zero
+			} else if drafts[index-1].end != nil {
+				start := *drafts[index-1].end
+				current.start = &start
+			} else {
+				return nil
+			}
+		}
+		if current.end == nil {
+			switch {
+			case index+1 < len(drafts) && drafts[index+1].start != nil:
+				end := *drafts[index+1].start
+				current.end = &end
+			case index == len(drafts)-1 && duration != nil:
+				end := *duration
+				current.end = &end
+			default:
+				return nil
+			}
+		}
+		if *current.start < 0 || *current.end < *current.start ||
+			index > 0 && *current.start < result[index-1].end {
+			return nil
+		}
+		result[index] = genericJSONLDChapter{title: current.title, start: *current.start, end: *current.end}
+	}
+	return result
 }
 
 func genericJSONLDInteractions(item map[string]any, candidate *genericMetadataCandidate) {
@@ -781,6 +860,17 @@ func genericSetJSONLDInfoFields(info *value.Object, candidate genericMetadataCan
 			tags[index] = value.String(tag)
 		}
 		info.Set("tags", value.List(tags...))
+	}
+	if len(candidate.chapters) != 0 {
+		chapters := make([]value.Value, len(candidate.chapters))
+		for index, chapter := range candidate.chapters {
+			chapters[index] = value.ObjectValue(value.NewObject(
+				value.Field{Key: "title", Value: value.String(chapter.title)},
+				value.Field{Key: "start_time", Value: value.Float(chapter.start)},
+				value.Field{Key: "end_time", Value: value.Float(chapter.end)},
+			))
+		}
+		info.Set("chapters", value.List(chapters...))
 	}
 }
 

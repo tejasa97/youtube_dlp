@@ -3,6 +3,7 @@ package extractor
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -310,6 +312,71 @@ func TestGenericJSONLDInvalidAndBoundedInteractionStatistics(t *testing.T) {
 	}, &candidate)
 	if candidate.likeCount != nil {
 		t.Fatalf("overflow count = %d", *candidate.likeCount)
+	}
+}
+
+func TestGenericJSONLDChaptersInferBoundaries(t *testing.T) {
+	page := []byte(`<script type="application/ld+json">{
+		"@context":"https://schema.org","@type":"VideoObject",
+		"contentUrl":"/video.mp4","duration":"PT2M",
+		"hasPart":[
+			{"@type":"Clip","name":"Intro","startOffset":0},
+			{"@type":"Clip","name":"Body","startOffset":30,"endOffset":90},
+			{"@type":"Clip","name":"End"}
+		]
+	}</script>`)
+	result, err := NewGeneric().Extract(context.Background(), genericHTMLRequest(page))
+	if err != nil {
+		t.Fatal(err)
+	}
+	chapters, ok := result.Info.Lookup("chapters").ListValue()
+	if !ok || len(chapters) != 3 {
+		t.Fatalf("chapters = %#v", chapters)
+	}
+	for index, expected := range []struct {
+		title      string
+		start, end float64
+	}{
+		{title: "Intro", start: 0, end: 30},
+		{title: "Body", start: 30, end: 90},
+		{title: "End", start: 90, end: 120},
+	} {
+		chapter, _ := chapters[index].Object()
+		title, _ := chapter.Lookup("title").StringValue()
+		start, startOK := chapter.Lookup("start_time").Float()
+		end, endOK := chapter.Lookup("end_time").Float()
+		if title != expected.title || !startOK || start != expected.start || !endOK || end != expected.end {
+			t.Fatalf("chapter[%d] = %#v", index, chapter.Fields())
+		}
+	}
+}
+
+func TestGenericJSONLDChaptersRejectMalformedOverlapAndBounds(t *testing.T) {
+	for _, raw := range []any{
+		[]any{
+			map[string]any{"@type": "Clip", "name": "One", "startOffset": json.Number("0"), "endOffset": json.Number("50")},
+			map[string]any{"@type": "Clip", "name": "Two", "startOffset": json.Number("40"), "endOffset": json.Number("60")},
+		},
+		[]any{map[string]any{"@type": "Clip", "startOffset": json.Number("0"), "endOffset": json.Number("10")}},
+		[]any{
+			map[string]any{"@type": "Clip", "name": "One"},
+			map[string]any{"@type": "Clip", "name": "Two"},
+		},
+	} {
+		if chapters := genericJSONLDChapters(raw, nil); len(chapters) != 0 {
+			t.Fatalf("malformed chapters = %#v", chapters)
+		}
+	}
+	parts := make([]any, maxGenericJSONLDChapters+1)
+	for index := range parts {
+		parts[index] = map[string]any{
+			"@type": "Clip", "name": fmt.Sprintf("Chapter %d", index),
+			"startOffset": json.Number(strconv.Itoa(index)),
+			"endOffset":   json.Number(strconv.Itoa(index + 1)),
+		}
+	}
+	if chapters := genericJSONLDChapters(parts, nil); len(chapters) != 0 {
+		t.Fatalf("over-limit chapters = %d", len(chapters))
 	}
 }
 

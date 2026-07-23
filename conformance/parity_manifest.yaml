@@ -175,6 +175,8 @@ capabilities:
       - internal/extractor.TestGenericJSONLDInvalidExtendedMetadataIsIgnored
       - internal/extractor.TestGenericJSONLDRatingsAndInteractionStatistics
       - internal/extractor.TestGenericJSONLDInvalidAndBoundedInteractionStatistics
+      - internal/extractor.TestGenericJSONLDChaptersInferBoundaries
+      - internal/extractor.TestGenericJSONLDChaptersRejectMalformedOverlapAndBounds
       - internal/extractor.TestGenericJSONLDEmbedURLUsesStrictProviderRouting
       - internal/extractor.TestGenericJSONLDEmbedURLPlaylistOrderDeduplicationAndPrecedence
       - internal/extractor.TestGenericJSONLDEmbedURLBoundsAndCancellation
@@ -194,7 +196,7 @@ capabilities:
       - extractor.direct_media
       - extractor.phase2_breadth
       - extractor.playlists
-    known_deviation: Discovery is limited to explicit embed-bearing HTML attributes, the documented native-provider URL allowlist (including embedUrl-only JSON-LD), JSON-LD VideoObject/AudioObject contentUrl with the documented core metadata and interaction fields, Twitter player streams, and exact OpenGraph video/audio properties. Multiple metadata URLs from one source become formats of one page item. Arbitrary script/player configuration, JSON-LD chapters and broader date formats, arbitrary iframe crawling, and unsupported providers remain explicit gaps.
+    known_deviation: Discovery is limited to explicit embed-bearing HTML attributes, the documented native-provider URL allowlist (including embedUrl-only JSON-LD), JSON-LD VideoObject/AudioObject contentUrl with the documented core metadata, interaction, and chapter fields, Twitter player streams, and exact OpenGraph video/audio properties. Multiple metadata URLs from one source become formats of one page item. Arbitrary script/player configuration, broader JSON-LD date formats, arbitrary iframe crawling, and unsupported providers remain explicit gaps.
 
   - id: downloader.direct_http
     name: Resumable direct HTTP download
