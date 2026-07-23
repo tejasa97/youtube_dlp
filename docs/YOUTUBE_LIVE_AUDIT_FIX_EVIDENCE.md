@@ -59,5 +59,26 @@ protected-player solver/timing limitation, not a route-parser failure. It stays
 explicitly categorized as unsupported and is not represented as full live
 download parity.
 
+The EJS solver now uses a two-phase preprocess/solve split with:
+
+- A **scoped trusted wall-time allowance** (60 s) for EJS preprocessing only;
+  untrusted protocol requests remain bounded at the original 30 s hard max.
+  The `Trusted` flag is in-process only (`json:"-"`) and never serialized.
+- A **bounded LRU cache** (max 8 entries) that persists at the client level
+  across separate `Run` calls, so distinct downloads sharing the same player
+  script skip redundant preprocessing.
+- **Singleflight coordination** so concurrent requests for the same uncached
+  player coalesce into exactly one preprocessing execution.
+
+### Proof levels
+
+| Level | Evidence | Status |
+| --- | --- | --- |
+| Automated proof | `TestSupervisorTrustedWallTimeCrossesProcessBoundary` (EJS call with 45 s succeeds across pipe), `TestSupervisorRejectsUntrustedExtendedWallTime`, `TestSupervisorRejectsTrustedGenericEvaluate` (evaluate+Trusted rejected), `TestSupervisorRejectsSpoofedTrustedWallTimeMS` (forged grant stripped), `TestSupervisorRejectsTrustedNonJSCCall` (non-jsc call rejected), `TestRepresentativeWorkloadUnderOldLimit` (55 s > 30 s structural proof), `TestSingleflightCoalescesPreprocessing`, `TestSingleflightCanceledLeaderDoesNotFailLiveFollower`, `TestSingleflightAllWaitersCancelCancelsPreprocessing`, `TestSingleflightCanceledLeaderNoFollowersReturnsPromptly`, `TestSingleflightOneFollowerCancelsOtherRemains`, `TestSingleflightFollowerCancellation`, `TestSupervisorConcurrentExecuteAndCloseDrainsActiveSolves` (slow JS active during Close, process terminated), `TestLargeGeneratedPlayerWorkload` (~150 KB), `TestClientConcurrentRunAndClose` | Passing |
+| Live validation | Protected-video canary extraction against live YouTube | Pending (service-dependent, non-authoritative) |
+| Remaining deviation | No sanitized real 1-2 MB player fixture committed (proprietary); generated ~150 KB workload exercises meriyah parse path but does not empirically reproduce the original 30 s timeout; the fix is proven structurally via protocol validation gating and end-to-end supervisor tests | Documented |
+
+Live canary validation remains service-dependent and non-authoritative.
+
 The removed historical `BaW_jenozKc` test video and unavailable NASA live
 recording remain upstream content changes, not regressions in this patch set.

@@ -24,6 +24,10 @@ type Config struct {
 	Path           string
 	MemoryBytes    int64
 	MaxStderrBytes int
+	// TrustedScriptHash is the SHA-256 hash of the pinned EJS solver script.
+	// The supervisor mints the extended wall-time grant only for requests
+	// whose ScriptHash matches this value. Empty disables trusted grants.
+	TrustedScriptHash string
 }
 
 // Client serializes requests through one helper so compiled-program caching is
@@ -100,6 +104,11 @@ func resolveHelper(configured string) (string, error) {
 }
 
 func (client *Client) Execute(ctx context.Context, request protocol.Request) protocol.Response {
+	// Strip any caller-provided TrustedWallTimeMS at the supervisor
+	// boundary. Callers must not forge the serialized grant.
+	callerTrusted := request.Limits.Trusted
+	request.Limits.TrustedWallTimeMS = 0
+
 	normalized, err := request.Normalize()
 	if err != nil {
 		code := protocol.CodeInvalidRequest
@@ -107,6 +116,15 @@ func (client *Client) Execute(ctx context.Context, request protocol.Request) pro
 			code = protocol.CodeIncompatibleVersion
 		}
 		return protocol.FailureResponse(request.ID, code, err)
+	}
+	// Mint the serialized trusted wall-time grant only for the pinned EJS
+	// preprocessing call: operation=call, function="jsc", Trusted=true,
+	// and ScriptHash matching the configured pinned bundle. Arbitrary
+	// scripts defining "jsc" cannot obtain the extended allowance.
+	if callerTrusted && normalized.Operation == protocol.OperationCall &&
+		normalized.Function == "jsc" && client.config.TrustedScriptHash != "" &&
+		normalized.ScriptHash == client.config.TrustedScriptHash {
+		normalized.Limits.TrustedWallTimeMS = protocol.TrustedMaxWallTime.Milliseconds()
 	}
 	if normalized.Limits.MemoryBytes > client.config.MemoryBytes {
 		return protocol.FailureResponse(normalized.ID, protocol.CodeMemoryLimit, errors.New("request memory budget exceeds helper process limit"))

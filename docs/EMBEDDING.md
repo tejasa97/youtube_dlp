@@ -37,6 +37,7 @@ canonical hosting, or an intentional module-path migration, before release.
 
     func main() {
         client := ytdlp.NewClient()
+        defer client.Close()
         result, err := client.Run(context.Background(), ytdlp.Request{
             URL:          "https://example.invalid/video",
             SkipDownload: true,
@@ -58,6 +59,7 @@ registered extractor in real code.
             return nil
         }),
     )
+    defer client.Close()
 
     ctx, cancel := context.WithCancel(context.Background())
     defer cancel()
@@ -69,7 +71,10 @@ registered extractor in real code.
 
 Cancellation reaches transport, playlist iteration, fragment downloads,
 helpers, plugins, external tools, archives, caches, and updater operations.
-The Client is stateless between operations. A shared event handler must provide
+The Client retains a bounded preprocessed-player cache and an isolated
+JavaScript helper process across calls for YouTube challenge solving.
+Call `client.Close()` when the client is no longer needed to release the
+helper process and associated resources. A shared event handler must provide
 its own synchronization.
 
 ## Error handling

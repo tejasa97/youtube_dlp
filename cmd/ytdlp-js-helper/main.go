@@ -84,6 +84,10 @@ func executeSafely(runtime executor, request protocol.Request) (response protoco
 			response = protocol.FailureResponse(request.ID, protocol.CodeHelperCrash, errors.New("JavaScript engine panicked"))
 		}
 	}()
+	// The helper validates wall time against TrustedWallTimeMS when the
+	// supervisor has explicitly granted an extended ceiling (EJS preprocessing).
+	// Requests without this field are bounded at HardMaxWallTime (30 s).
+	// The helper never originates TrustedWallTimeMS itself.
 	return runtime.Execute(context.Background(), request)
 }
 
