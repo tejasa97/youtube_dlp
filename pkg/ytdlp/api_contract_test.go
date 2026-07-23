@@ -35,6 +35,18 @@ func TestAlphaTrustAPIContractCompiles(t *testing.T) {
 	}
 }
 
+func TestAlphaPrintAPIContractCompiles(t *testing.T) {
+	request := ytdlp.Request{PrintRules: []ytdlp.PrintRule{{
+		Stage: ytdlp.PrintAfterMove, Template: "%(filepath)s",
+	}}}
+	result := ytdlp.Result{Prints: []ytdlp.PrintOutput{{
+		Stage: ytdlp.PrintAfterMove, Text: "video.mp4",
+	}}}
+	if request.PrintRules[0].Stage != result.Prints[0].Stage {
+		t.Fatal("public staged print types disagree")
+	}
+}
+
 func TestAlphaEventJSONContract(t *testing.T) {
 	event := ytdlp.Event{
 		Kind: ytdlp.EventDownloadProgress, Extractor: "fixture", URL: "https://media.example/video",

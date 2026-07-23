@@ -99,11 +99,13 @@ Request exposes output confinement, proxy, impersonation, cookie, and native
 netrc sources, timeout,
 overwrite and metadata-only operation, format selection/sorting, templates,
 filters, metadata transforms, bounded downloader controls, typed
-postprocessors, archive/cache locations, and explicit plugin selection.
+postprocessors, related files, staged print rules, archive/cache locations, and
+explicit plugin selection.
 
 Result returns normalized InfoJSON, extractor identity, download/archive/skip
-state, filename and byte count, ordered playlist entries, and typed artifacts.
-Unknown ordered metadata is preserved in the normalized envelope.
+state, filename and byte count, ordered playlist entries, typed artifacts, and
+ordered staged print captures. Unknown ordered metadata is preserved in the
+normalized envelope.
 
 Postprocessor is a tagged union. Exactly one operation must be selected per
 step. The CLI exposes audio extraction and remuxing; the Go API additionally
@@ -163,6 +165,11 @@ without any media, subtitle, download-archive, or postprocessor output
 artifacts. This is intentionally distinct from `SkipDownload`, which suppresses
 only the media download and permits related-file writes. See [YouTube subtitle
 listing evidence](YOUTUBE_SUBTITLE_LISTING_EVIDENCE.md).
+
+Set `Request.PrintRules` to capture bounded output templates at native lifecycle
+stages. Ordered values are returned through `Result.Prints`; embedding callers
+choose where and when to display them. See [staged print-output
+evidence](CLI_PRINT_OUTPUT_EVIDENCE.md).
 
 ## Updater
 
