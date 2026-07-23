@@ -30,12 +30,28 @@ const (
 )
 
 type youtubePageConfig struct {
-	PlayerJSURL    string `json:"PLAYER_JS_URL"`
-	VisitorData    string `json:"VISITOR_DATA"`
-	LoggedIn       *bool  `json:"LOGGED_IN"`
-	PlayerContexts map[string]struct {
+	PlayerJSURL        string                  `json:"PLAYER_JS_URL"`
+	VisitorData        string                  `json:"VISITOR_DATA"`
+	LoggedIn           *bool                   `json:"LOGGED_IN"`
+	ClientVersion      string                  `json:"INNERTUBE_CLIENT_VERSION"`
+	ContextClientName  json.RawMessage         `json:"INNERTUBE_CONTEXT_CLIENT_NAME"`
+	SessionIndex       json.RawMessage         `json:"SESSION_INDEX"`
+	DelegatedSessionID string                  `json:"DELEGATED_SESSION_ID"`
+	UserSessionID      string                  `json:"USER_SESSION_ID"`
+	DataSyncID         string                  `json:"DATASYNC_ID"`
+	InnertubeContext   youtubeInnertubeContext `json:"INNERTUBE_CONTEXT"`
+	PlayerContexts     map[string]struct {
 		JSURL string `json:"jsUrl"`
 	} `json:"WEB_PLAYER_CONTEXT_CONFIGS"`
+}
+
+type youtubeInnertubeContext struct {
+	Client struct {
+		ClientName    string `json:"clientName"`
+		ClientVersion string `json:"clientVersion"`
+		VisitorData   string `json:"visitorData"`
+		UserAgent     string `json:"userAgent"`
+	} `json:"client"`
 }
 
 // youtubeHostKind classifies a parsed URL host into one of three categories.
@@ -147,31 +163,62 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 	if player.VideoDetails.VideoID != "" && player.VideoDetails.VideoID != videoID {
 		return Extraction{}, fmt.Errorf("%w: response video id mismatch", ErrInvalidMetadata)
 	}
-	if err := checkYouTubeAvailability(player.PlayabilityStatus); err != nil {
-		return Extraction{}, err
-	}
 	pageConfig := discoverYouTubePageConfig(page)
+	initialHasFormats := hasYouTubeFormatCandidates(player)
+	if availabilityErr := checkYouTubeAvailability(player.PlayabilityStatus); availabilityErr != nil {
+		loggedInRecovery := pageConfig.LoggedIn != nil && *pageConfig.LoggedIn &&
+			!initialHasFormats && errors.Is(availabilityErr, ErrAuthentication)
+		if !loggedInRecovery {
+			return Extraction{}, availabilityErr
+		}
+	}
 	playerPath := pageConfig.playerPath(player.Assets.JS)
 	player.clientName = "WEB"
 	player.visitorData = pageConfig.visitorData(player.ResponseContext.VisitorData)
 	player.playerURL = playerPath
 	formatPlayers := []youtubePlayerResponse{player}
-	if !hasYouTubeFormatCandidates(player) {
+	if !initialHasFormats {
 		if pageConfig.LoggedIn != nil && *pageConfig.LoggedIn {
-			return Extraction{}, fmt.Errorf("%w: authenticated YouTube format recovery is not implemented", ErrAuthentication)
-		}
-		visitorData := pageConfig.visitorData(player.ResponseContext.VisitorData)
-		recovered, err := recoverYouTubeFormats(ctx, request.Transport, videoID, visitorData, playerPath, request.YouTubePOT)
-		if err != nil {
-			return Extraction{}, err
-		}
-		formatPlayers = append(formatPlayers, recovered...)
-		for _, recoveredPlayer := range recovered {
+			recovered, authErr := requestAuthenticatedYouTubeWEBPlayer(
+				ctx,
+				request.Transport,
+				videoID,
+				pageConfig.webAuthConfig(
+					player.ResponseContext.VisitorData,
+					player.ResponseContext.MainAppWebResponseContext.DataSyncID,
+				),
+				time.Now,
+			)
+			if authErr != nil {
+				return Extraction{}, authErr
+			}
+			if authErr := checkYouTubeAvailability(recovered.PlayabilityStatus); authErr != nil {
+				return Extraction{}, authErr
+			}
+			if !hasYouTubeFormatCandidates(recovered) {
+				return Extraction{}, fmt.Errorf("%w: authenticated WEB player returned no URL-bearing formats", ErrUnavailable)
+			}
+			formatPlayers = append(formatPlayers, recovered)
 			if playerPath == "" {
-				playerPath = recoveredPlayer.Assets.JS
+				playerPath = recovered.Assets.JS
 			}
 			if player.VideoDetails.Title == "" {
-				player.VideoDetails = recoveredPlayer.VideoDetails
+				player.VideoDetails = recovered.VideoDetails
+			}
+		} else {
+			visitorData := pageConfig.visitorData(player.ResponseContext.VisitorData)
+			recovered, err := recoverYouTubeFormats(ctx, request.Transport, videoID, visitorData, playerPath, request.YouTubePOT)
+			if err != nil {
+				return Extraction{}, err
+			}
+			formatPlayers = append(formatPlayers, recovered...)
+			for _, recoveredPlayer := range recovered {
+				if playerPath == "" {
+					playerPath = recoveredPlayer.Assets.JS
+				}
+				if player.VideoDetails.Title == "" {
+					player.VideoDetails = recoveredPlayer.VideoDetails
+				}
 			}
 		}
 	}
@@ -401,7 +448,10 @@ type youtubePlayerResponse struct {
 		JS string `json:"js"`
 	} `json:"assets"`
 	ResponseContext struct {
-		VisitorData string `json:"visitorData"`
+		VisitorData               string `json:"visitorData"`
+		MainAppWebResponseContext struct {
+			DataSyncID string `json:"datasyncId"`
+		} `json:"mainAppWebResponseContext"`
 	} `json:"responseContext"`
 	Captions struct {
 		Tracklist youtubeCaptionTracklist `json:"playerCaptionsTracklistRenderer"`
@@ -444,6 +494,73 @@ func (config youtubePageConfig) visitorData(responseVisitorData string) string {
 		return config.VisitorData
 	}
 	return responseVisitorData
+}
+
+func (config youtubePageConfig) webAuthConfig(responseVisitorData, responseDataSyncID string) youtubeWEBAuthConfig {
+	clientName := config.InnertubeContext.Client.ClientName
+	if clientName == "" {
+		clientName = "WEB"
+	}
+	clientVersion := config.ClientVersion
+	if clientVersion == "" {
+		clientVersion = config.InnertubeContext.Client.ClientVersion
+	}
+	visitorData := config.VisitorData
+	if visitorData == "" {
+		visitorData = config.InnertubeContext.Client.VisitorData
+	}
+	if visitorData == "" {
+		visitorData = responseVisitorData
+	}
+	dataSyncID := config.DataSyncID
+	if dataSyncID == "" {
+		dataSyncID = responseDataSyncID
+	}
+	delegatedSessionID, userSessionID := parseYouTubeDataSyncID(dataSyncID)
+	if config.DelegatedSessionID != "" {
+		delegatedSessionID = config.DelegatedSessionID
+	}
+	if config.UserSessionID != "" {
+		userSessionID = config.UserSessionID
+	}
+	loggedIn := config.LoggedIn != nil && *config.LoggedIn
+	return youtubeWEBAuthConfig{
+		ClientName:         clientName,
+		ClientID:           youtubeJSONScalar(config.ContextClientName),
+		ClientVersion:      clientVersion,
+		VisitorData:        visitorData,
+		UserAgent:          config.InnertubeContext.Client.UserAgent,
+		DelegatedSessionID: delegatedSessionID,
+		UserSessionID:      userSessionID,
+		SessionIndex:       youtubeJSONScalar(config.SessionIndex),
+		LoggedIn:           loggedIn,
+	}
+}
+
+func youtubeJSONScalar(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return text
+	}
+	var number json.Number
+	if json.Unmarshal(raw, &number) == nil {
+		return number.String()
+	}
+	return ""
+}
+
+func parseYouTubeDataSyncID(dataSyncID string) (string, string) {
+	if dataSyncID == "" {
+		return "", ""
+	}
+	first, second, found := strings.Cut(dataSyncID, "||")
+	if found && second != "" {
+		return first, second
+	}
+	return "", first
 }
 
 func discoverYouTubePageConfig(page []byte) youtubePageConfig {
@@ -493,6 +610,36 @@ func mergeYouTubePageConfig(target *youtubePageConfig, source youtubePageConfig)
 	if source.LoggedIn != nil {
 		loggedIn := *source.LoggedIn
 		target.LoggedIn = &loggedIn
+	}
+	if source.ClientVersion != "" {
+		target.ClientVersion = source.ClientVersion
+	}
+	if len(source.ContextClientName) > 0 {
+		target.ContextClientName = append(target.ContextClientName[:0], source.ContextClientName...)
+	}
+	if len(source.SessionIndex) > 0 {
+		target.SessionIndex = append(target.SessionIndex[:0], source.SessionIndex...)
+	}
+	if source.DelegatedSessionID != "" {
+		target.DelegatedSessionID = source.DelegatedSessionID
+	}
+	if source.UserSessionID != "" {
+		target.UserSessionID = source.UserSessionID
+	}
+	if source.DataSyncID != "" {
+		target.DataSyncID = source.DataSyncID
+	}
+	if source.InnertubeContext.Client.ClientName != "" {
+		target.InnertubeContext.Client.ClientName = source.InnertubeContext.Client.ClientName
+	}
+	if source.InnertubeContext.Client.ClientVersion != "" {
+		target.InnertubeContext.Client.ClientVersion = source.InnertubeContext.Client.ClientVersion
+	}
+	if source.InnertubeContext.Client.VisitorData != "" {
+		target.InnertubeContext.Client.VisitorData = source.InnertubeContext.Client.VisitorData
+	}
+	if source.InnertubeContext.Client.UserAgent != "" {
+		target.InnertubeContext.Client.UserAgent = source.InnertubeContext.Client.UserAgent
 	}
 	if len(source.PlayerContexts) > 0 {
 		if target.PlayerContexts == nil {

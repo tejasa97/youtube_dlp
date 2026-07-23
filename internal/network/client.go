@@ -133,6 +133,36 @@ func (client *Client) DoWithoutCookies(ctx context.Context, request *http.Reques
 	return client.do(ctx, request, "", false)
 }
 
+// DoNoRedirect executes a native request with operation defaults and scoped
+// operation-jar cookies, but returns the first redirect response instead of
+// following it. Explicit and default Cookie headers are discarded so callers
+// cannot override cookie-jar scoping. It is for security-sensitive flows whose
+// credentials must never be forwarded to a redirect destination. The caller
+// owns and must close a successful response body, including a 3xx response
+// body.
+func (client *Client) DoNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
+	if request == nil {
+		return nil, errors.New("HTTP request must not be nil")
+	}
+	cloned := client.prepareRequest(ctx, request, true, true)
+	// The jar is the sole cookie authority for this sensitive request. net/http
+	// attaches only cookies applicable to the initial request URL after this.
+	cloned.Header.Del("Cookie")
+
+	// Copy the configured native client rather than constructing one from
+	// scratch: this preserves its transport, jar, timeout, and other native
+	// behavior while changing only redirect handling for this request.
+	noRedirect := *client.httpClient
+	noRedirect.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	response, err := noRedirect.Do(cloned)
+	if err != nil {
+		return nil, &RequestError{Method: cloned.Method, URL: RedactURL(cloned.URL), Err: err}
+	}
+	return response, nil
+}
+
 // DoProfile executes a request with an explicitly named browser profile. An
 // unknown or unavailable profile is an error; it never falls back to native
 // net/http behavior.
@@ -147,21 +177,7 @@ func (client *Client) do(ctx context.Context, request *http.Request, profileName
 	if request == nil {
 		return nil, errors.New("HTTP request must not be nil")
 	}
-	cloned := request.Clone(ctx)
-	for key, values := range client.defaultHeaders {
-		if cloned.Header.Values(key) != nil {
-			continue
-		}
-		for _, value := range values {
-			cloned.Header.Add(key, value)
-		}
-	}
-	if profileName == "" && cloned.Header.Get("User-Agent") == "" {
-		cloned.Header.Set("User-Agent", "ytdlp-go/0.0.0-dev")
-	}
-	if !includeCookies {
-		cloned.Header.Del("Cookie")
-	}
+	cloned := client.prepareRequest(ctx, request, includeCookies, profileName == "")
 	var response *http.Response
 	var err error
 	if profileName == "" {
@@ -183,6 +199,25 @@ func (client *Client) do(ctx context.Context, request *http.Request, profileName
 		return nil, &RequestError{Method: cloned.Method, URL: RedactURL(cloned.URL), Err: err}
 	}
 	return response, nil
+}
+
+func (client *Client) prepareRequest(ctx context.Context, request *http.Request, includeCookies, native bool) *http.Request {
+	cloned := request.Clone(ctx)
+	for key, values := range client.defaultHeaders {
+		if cloned.Header.Values(key) != nil {
+			continue
+		}
+		for _, value := range values {
+			cloned.Header.Add(key, value)
+		}
+	}
+	if native && cloned.Header.Get("User-Agent") == "" {
+		cloned.Header.Set("User-Agent", "ytdlp-go/0.0.0-dev")
+	}
+	if !includeCookies {
+		cloned.Header.Del("Cookie")
+	}
+	return cloned
 }
 
 func (client *Client) profileClient(name string) (*impersonate.Client, error) {

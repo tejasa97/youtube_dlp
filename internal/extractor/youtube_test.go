@@ -18,6 +18,7 @@ import (
 
 	"github.com/ytdlp-go/ytdlp/internal/javascript/ejs"
 	"github.com/ytdlp-go/ytdlp/internal/javascript/engine"
+	"github.com/ytdlp-go/ytdlp/internal/network"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 	"github.com/ytdlp-go/ytdlp/internal/youtubepot"
 )
@@ -37,6 +38,49 @@ type youtubeFallbackTransport struct {
 	responses map[string][]byte
 	requests  []*http.Request
 	bodies    [][]byte
+}
+
+type youtubeAuthenticatedRecoveryTransport struct {
+	*memoryTransport
+	cookies  []*http.Cookie
+	response []byte
+	request  *http.Request
+	body     []byte
+}
+
+type youtubeRoundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (function youtubeRoundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return function(request)
+}
+
+func (transport *youtubeAuthenticatedRecoveryTransport) Do(context.Context, *http.Request) (*http.Response, error) {
+	return nil, errors.New("authenticated recovery must use the no-redirect transport")
+}
+
+func (transport *youtubeAuthenticatedRecoveryTransport) Cookies(rawURL string) ([]*http.Cookie, error) {
+	if rawURL != youtubeAuthOrigin {
+		return nil, fmt.Errorf("unexpected cookie scope %q", rawURL)
+	}
+	return append([]*http.Cookie(nil), transport.cookies...), nil
+}
+
+func (transport *youtubeAuthenticatedRecoveryTransport) DoNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	body, err := io.ReadAll(request.Body)
+	if err != nil {
+		return nil, err
+	}
+	transport.request = request.Clone(request.Context())
+	transport.body = body
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(bytes.NewReader(transport.response)),
+		Header:     make(http.Header),
+		Request:    request,
+	}, nil
 }
 
 func (transport *youtubeFallbackTransport) Do(ctx context.Context, request *http.Request) (*http.Response, error) {
@@ -717,6 +761,48 @@ func TestYouTubePageConfigParsingIsStructuredAndBounded(t *testing.T) {
 	}
 }
 
+func TestYouTubePageConfigBuildsBoundedWEBAuthContext(t *testing.T) {
+	page := []byte(`ytcfg.set({
+		"INNERTUBE_CONTEXT_CLIENT_NAME":1,
+		"INNERTUBE_CLIENT_VERSION":"2.fixture",
+		"SESSION_INDEX":"3",
+		"DATASYNC_ID":"delegated||user",
+		"LOGGED_IN":true,
+		"INNERTUBE_CONTEXT":{"client":{"clientName":"WEB","clientVersion":"ignored","visitorData":"context-visitor","userAgent":"fixture-agent"}}
+	});`)
+	config := discoverYouTubePageConfig(page).webAuthConfig("", "")
+	if config.ClientName != "WEB" || config.ClientID != "1" || config.ClientVersion != "2.fixture" ||
+		config.VisitorData != "context-visitor" || config.UserAgent != "fixture-agent" ||
+		config.DelegatedSessionID != "delegated" || config.UserSessionID != "user" ||
+		config.SessionIndex != "3" || !config.LoggedIn {
+		t.Fatalf("auth config = %#v", config)
+	}
+	responseFallback := discoverYouTubePageConfig([]byte(`ytcfg.set({
+		"INNERTUBE_CONTEXT_CLIENT_NAME":1,
+		"INNERTUBE_CLIENT_VERSION":"2.fixture",
+		"LOGGED_IN":true,
+		"INNERTUBE_CONTEXT":{"client":{"clientName":"WEB"}}
+	});`)).webAuthConfig("response-visitor", "response-delegated||response-user")
+	if responseFallback.DelegatedSessionID != "response-delegated" ||
+		responseFallback.UserSessionID != "response-user" ||
+		responseFallback.VisitorData != "response-visitor" {
+		t.Fatalf("response DataSync fallback = %#v", responseFallback)
+	}
+	for _, test := range []struct {
+		raw             string
+		delegated, user string
+	}{
+		{"delegated||user", "delegated", "user"},
+		{"user||", "", "user"},
+		{"user", "", "user"},
+	} {
+		delegated, user := parseYouTubeDataSyncID(test.raw)
+		if delegated != test.delegated || user != test.user {
+			t.Fatalf("parseYouTubeDataSyncID(%q) = %q, %q", test.raw, delegated, user)
+		}
+	}
+}
+
 func TestYouTubeRecoversURLBearingFormatsFromNativeClient(t *testing.T) {
 	transport := &youtubeFallbackTransport{
 		memoryTransport: &memoryTransport{pages: map[string][]byte{
@@ -876,6 +962,189 @@ func TestYouTubeAuthenticatedPageDoesNotUseAnonymousRecovery(t *testing.T) {
 	_, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport})
 	if !errors.Is(err, ErrAuthentication) || len(transport.requests) != 0 {
 		t.Fatalf("error=%v requests=%d", err, len(transport.requests))
+	}
+}
+
+func TestYouTubeRecoversAuthenticatedWEBFormatsWithoutAnonymousFallback(t *testing.T) {
+	page := bytes.Replace(
+		readYouTubeFixture(t, "sabr-watch.html"),
+		[]byte(`{"PLAYER_JS_URL":"\/s\/player\/fixture\/base.js","VISITOR_DATA":"fixture-visitor","LOGGED_IN":false}`),
+		[]byte(`{
+			"PLAYER_JS_URL":"\/s\/player\/fixture\/base.js",
+			"VISITOR_DATA":"fixture-visitor",
+			"LOGGED_IN":true,
+			"INNERTUBE_CONTEXT_CLIENT_NAME":1,
+			"INNERTUBE_CLIENT_VERSION":"2.fixture",
+			"SESSION_INDEX":0,
+			"DATASYNC_ID":"delegated||user",
+			"INNERTUBE_CONTEXT":{"client":{"clientName":"WEB","userAgent":"fixture-agent"}}
+		}`),
+		1,
+	)
+	transport := &youtubeAuthenticatedRecoveryTransport{
+		memoryTransport: &memoryTransport{pages: map[string][]byte{youtubeFixtureURL: page}},
+		cookies: []*http.Cookie{
+			{Name: "LOGIN_INFO", Value: "logged-in"},
+			{Name: "SAPISID", Value: "secret-sid"},
+		},
+		response: []byte(`{
+			"playabilityStatus":{"status":"OK"},
+			"videoDetails":{"videoId":"fixture0001"},
+			"streamingData":{"formats":[{
+				"itag":18,
+				"url":"https://media.example/video.mp4",
+				"mimeType":"video/mp4; codecs=\"avc1.42001E, mp4a.40.2\""
+			}]}
+		}`),
+	}
+	result, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	formats, _ := result.Info.Formats()
+	if len(formats) != 1 || transport.request == nil {
+		t.Fatalf("formats = %#v request = %#v", formats, transport.request)
+	}
+	if transport.request.URL.String() != youtubeAuthenticatedWEBPlayerURL ||
+		transport.request.Header.Get("Authorization") == "" ||
+		transport.request.Header.Get("X-Goog-PageId") != "delegated" ||
+		transport.request.Header.Get("X-Goog-AuthUser") != "0" {
+		t.Fatalf("authenticated request = %s %#v", transport.request.URL, transport.request.Header)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(transport.body, &payload); err != nil || payload["videoId"] != "fixture0001" {
+		t.Fatalf("authenticated payload = %#v, error = %v", payload, err)
+	}
+}
+
+func TestYouTubeAuthenticatedWEBRecoveryCanReplaceInitialLoginRequiredResponse(t *testing.T) {
+	page := bytes.Replace(
+		readYouTubeFixture(t, "sabr-watch.html"),
+		[]byte(`{"PLAYER_JS_URL":"\/s\/player\/fixture\/base.js","VISITOR_DATA":"fixture-visitor","LOGGED_IN":false}`),
+		[]byte(`{
+			"LOGGED_IN":true,
+			"INNERTUBE_CONTEXT_CLIENT_NAME":1,
+			"INNERTUBE_CLIENT_VERSION":"2.fixture",
+			"INNERTUBE_CONTEXT":{"client":{"clientName":"WEB"}}
+		}`),
+		1,
+	)
+	page = bytes.Replace(page, []byte(`"playabilityStatus": {"status": "OK"}`), []byte(`"playabilityStatus": {"status": "LOGIN_REQUIRED","reason":"sign in"}`), 1)
+	page = bytes.Replace(
+		page,
+		[]byte(`"videoDetails": {`),
+		[]byte(`"responseContext":{"visitorData":"response-visitor"},"videoDetails": {`),
+		1,
+	)
+	transport := &youtubeAuthenticatedRecoveryTransport{
+		memoryTransport: &memoryTransport{pages: map[string][]byte{youtubeFixtureURL: page}},
+		cookies: []*http.Cookie{
+			{Name: "LOGIN_INFO", Value: ""},
+			{Name: "__Secure-3PAPISID", Value: "secret-sid"},
+		},
+		response: []byte(`{
+			"playabilityStatus":{"status":"OK"},
+			"videoDetails":{"videoId":"fixture0001"},
+			"streamingData":{"formats":[{
+				"itag":18,
+				"url":"https://media.example/video.mp4",
+				"mimeType":"video/mp4; codecs=\"avc1.42001E, mp4a.40.2\""
+			}]}
+		}`),
+	}
+	result, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	formats, _ := result.Info.Formats()
+	if len(formats) != 1 || transport.request == nil {
+		t.Fatalf("formats = %#v request = %#v", formats, transport.request)
+	}
+	if transport.request.Header.Get("X-Goog-Visitor-Id") != "response-visitor" {
+		t.Fatalf("visitor header = %q", transport.request.Header.Get("X-Goog-Visitor-Id"))
+	}
+	var payload struct {
+		Context struct {
+			Client struct {
+				VisitorData string `json:"visitorData"`
+			} `json:"client"`
+		} `json:"context"`
+	}
+	if err := json.Unmarshal(transport.body, &payload); err != nil ||
+		payload.Context.Client.VisitorData != "response-visitor" {
+		t.Fatalf("visitor payload = %#v, error = %v", payload, err)
+	}
+}
+
+func TestYouTubeAuthenticatedWEBRecoveryUsesProductionCookieJarAndNoRedirectPath(t *testing.T) {
+	page := bytes.Replace(
+		readYouTubeFixture(t, "sabr-watch.html"),
+		[]byte(`{"PLAYER_JS_URL":"\/s\/player\/fixture\/base.js","VISITOR_DATA":"fixture-visitor","LOGGED_IN":false}`),
+		[]byte(`{
+			"PLAYER_JS_URL":"\/s\/player\/fixture\/base.js",
+			"VISITOR_DATA":"fixture-visitor",
+			"LOGGED_IN":true,
+			"INNERTUBE_CONTEXT_CLIENT_NAME":1,
+			"INNERTUBE_CLIENT_VERSION":"2.fixture",
+			"INNERTUBE_CONTEXT":{"client":{"clientName":"WEB","userAgent":"fixture-agent"}}
+		}`),
+		1,
+	)
+	var playerRequests int
+	transport, err := network.New(network.Config{
+		DefaultHeaders: http.Header{"Cookie": {"default-cookie=must-not-send"}},
+		RoundTripper: youtubeRoundTripperFunc(func(request *http.Request) (*http.Response, error) {
+			var body []byte
+			switch {
+			case request.Method == http.MethodGet && request.URL.String() == youtubeFixtureURL:
+				body = page
+			case request.Method == http.MethodPost && request.URL.String() == youtubeAuthenticatedWEBPlayerURL:
+				playerRequests++
+				cookie := request.Header.Get("Cookie")
+				if !strings.Contains(cookie, "LOGIN_INFO=logged-in") ||
+					!strings.Contains(cookie, "SAPISID=secret-sid") ||
+					strings.Contains(cookie, "default-cookie") {
+					return nil, fmt.Errorf("unexpected authenticated cookies")
+				}
+				if request.Header.Get("Authorization") == "" || request.Header.Get("Origin") != youtubeAuthOrigin {
+					return nil, fmt.Errorf("missing authenticated WEB headers")
+				}
+				body = []byte(`{
+					"playabilityStatus":{"status":"OK"},
+					"videoDetails":{"videoId":"fixture0001"},
+					"streamingData":{"formats":[{
+						"itag":18,
+						"url":"https://media.example/video.mp4",
+						"mimeType":"video/mp4; codecs=\"avc1.42001E, mp4a.40.2\""
+					}]}
+				}`)
+			default:
+				return nil, fmt.Errorf("unexpected request %s %s", request.Method, request.URL)
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(bytes.NewReader(body)),
+				Header:     make(http.Header),
+				Request:    request,
+			}, nil
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := transport.AddCookies([]*http.Cookie{
+		{Name: "LOGIN_INFO", Value: "logged-in", Domain: ".youtube.com", Path: "/", Secure: true},
+		{Name: "SAPISID", Value: "secret-sid", Domain: ".youtube.com", Path: "/", Secure: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	formats, _ := result.Info.Formats()
+	if len(formats) != 1 || playerRequests != 1 {
+		t.Fatalf("formats = %#v player requests = %d", formats, playerRequests)
 	}
 }
 
