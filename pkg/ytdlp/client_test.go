@@ -102,6 +102,8 @@ func TestExtractorFailuresAreCategorized(t *testing.T) {
 		{extractor.ErrYouTubeChannelNetwork, ErrorNetwork},
 		{extractor.ErrYouTubeSearchRateLimited, ErrorNetwork},
 		{extractor.ErrYouTubeSearchNetwork, ErrorNetwork},
+		{extractor.ErrYouTubeHandleTabRateLimited, ErrorNetwork},
+		{extractor.ErrYouTubeHandleTabNetwork, ErrorNetwork},
 	} {
 		if err := categorized("extract", test.err); !IsCategory(err, test.category) {
 			t.Fatalf("categorized(%v) = %v", test.err, err)
@@ -116,6 +118,7 @@ func TestProductRegistryIncludesIntegratedExtractors(t *testing.T) {
 	}{
 		{"https://www.youtube.com/watch?v=dQw4w9WgXcQ", "youtube"},
 		{"https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/videos", "youtube_channel_tab"},
+		{"https://www.youtube.com/@synthetic-handle/videos", "youtube_handle_tab"},
 		{"ytsearch5:fixture query", "youtube_search"},
 		{"https://vimeo.com/123456789", "vimeo"},
 		{"https://www.tiktok.com/@fixture/video/1234567890123456789", "tiktok"},

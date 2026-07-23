@@ -314,6 +314,7 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 func (client *Client) productRegistry() *extractor.Registry {
 	registered := []extractor.Extractor{
 		extractor.NewYouTubeSearch(),
+		extractor.NewYouTubeHandleTab(),
 		extractor.NewYouTubeChannelTab(),
 		extractor.NewYouTube(),
 		extractor.NewVimeo(),
