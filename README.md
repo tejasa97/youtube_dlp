@@ -142,11 +142,18 @@ List available manual and automatic subtitles without writing files:
 ./bin/ytdlp-go --list-subs URL
 ```
 
+Add `--no-simulate` to list the tracks and then continue with a normal
+download. Use `-s`/`--simulate` directly to extract metadata without creating
+media, subtitle, archive, or postprocessor output artifacts.
+
 Extract metadata without downloading:
 
 ```sh
 ./bin/ytdlp-go --skip-download --print-json URL
 ```
+
+Unlike simulation, `--skip-download` (alias `--no-download`) still permits
+explicitly requested subtitle sidecars.
 
 Select a format and output name:
 
