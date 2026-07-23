@@ -380,7 +380,7 @@ func TestRunDumpJSONSimulationSuppressesRelatedFiles(t *testing.T) {
 	root := t.TempDir()
 	var stdout, stderr bytes.Buffer
 	code := Run([]string{
-		"--dump-json", "--write-subs", "--sub-langs", "es",
+		"--dump-json", "--write-subs", "--sub-langs", "es", "--write-info-json", "--write-url-link",
 		"--download-archive", filepath.Join(root, "archive.txt"),
 		"--output-dir", root, server.URL + "/page",
 	}, &stdout, &stderr)
@@ -394,6 +394,30 @@ func TestRunDumpJSONSimulationSuppressesRelatedFiles(t *testing.T) {
 	if len(entries) != 0 {
 		t.Fatalf("dump simulation wrote files: %#v", entries)
 	}
+}
+
+func TestRunWritesMetadataAndShortcutSidecarsWithoutMedia(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"--skip-download", "--write-info-json", "--write-url-link",
+		"--output-dir", root, server.URL + "/page",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	infoPath := filepath.Join(root, "Deterministic Fixture.info.json")
+	infoJSON, err := os.ReadFile(infoPath)
+	if err != nil || !json.Valid(infoJSON) {
+		t.Fatalf("info sidecar=%q error=%v", infoJSON, err)
+	}
+	link, err := os.ReadFile(filepath.Join(root, "Deterministic Fixture.url"))
+	if err != nil || !strings.Contains(string(link), server.URL+"/page") {
+		t.Fatalf("link=%q error=%v", link, err)
+	}
+	assertPathExists(t, filepath.Join(root, "Deterministic Fixture.bin"), false)
 }
 
 func TestRunDumpJSONExplicitNoQuietAndCombinedModes(t *testing.T) {

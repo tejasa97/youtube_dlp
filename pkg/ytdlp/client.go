@@ -109,6 +109,7 @@ type Request struct {
 	LiveFromStart             bool
 	YouTubeComments           YouTubeCommentOptions
 	Subtitles                 SubtitleOptions
+	RelatedFiles              RelatedFileOptions
 	Playlist                  PlaylistOptions
 	ProgressTemplate          string
 	MatchFilters              []string
@@ -521,6 +522,15 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 				result.Downloaded = result.Downloaded || child.Downloaded
 				result.Archived = result.Archived || child.Archived
 			}
+			if !operation.request.Simulate && !operation.request.RelatedFiles.NoPlaylist {
+				artifacts, artifactBytes, err := operation.writeRelatedFiles(ctx, info, true)
+				if err != nil {
+					return Result{}, categorized("write playlist related files", err)
+				}
+				result.Artifacts = append(result.Artifacts, artifacts...)
+				result.Bytes += artifactBytes
+				result.Downloaded = result.Downloaded || len(artifacts) > 0
+			}
 			return result, nil
 		}
 		entry := selected.Entry
@@ -765,6 +775,12 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	if operation.request.Simulate {
 		return result, nil
 	}
+	relatedArtifacts, relatedBytes, err := operation.writeRelatedFiles(ctx, info, false)
+	if err != nil {
+		return Result{}, categorized("write related files", err)
+	}
+	result.Artifacts = append(result.Artifacts, relatedArtifacts...)
+	result.Bytes += relatedBytes
 	var selectedFormats []mediaformat.Selection
 	if !operation.request.SkipDownload {
 		selectedFormats, err = operation.selectFormats(info)
@@ -772,10 +788,12 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 			return Result{}, categorized("select format", err)
 		}
 	}
-	result.Artifacts, result.Bytes, err = operation.downloadSubtitles(ctx, info, selectedSubtitles, operation.eventSink())
+	subtitleArtifacts, subtitleBytes, err := operation.downloadSubtitles(ctx, info, selectedSubtitles, operation.eventSink())
 	if err != nil {
 		return Result{}, categorized("download subtitles", err)
 	}
+	result.Artifacts = append(result.Artifacts, subtitleArtifacts...)
+	result.Bytes += subtitleBytes
 	var convertedSubtitles bool
 	selectedSubtitles, result.Artifacts, convertedSubtitles, err = operation.convertSelectedSubtitles(
 		ctx, selectedSubtitles, result.Artifacts, operation.eventSink(),

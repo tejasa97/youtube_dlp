@@ -50,6 +50,30 @@ capabilities:
       - extractor.playlists
     known_deviation: Per-video lines are emitted in deterministic order after the complete product operation returns rather than streaming between playlist entries. The pre-existing hidden --print-json compatibility mode remains whole-result and non-simulating; public dump modes take precedence when combined with it.
 
+  - id: cli.metadata_sidecars
+    name: Metadata, description, and internet-shortcut sidecars
+    phase: 3
+    compatibility_target: Write confined video and playlist metadata files and safe platform shortcut formats without Python or a media download.
+    status: compatible
+    evidence:
+      - pkg/ytdlp.TestWriteRelatedFilesAllKindsAndExistingPolicy
+      - pkg/ytdlp.TestWriteRelatedFilesPlaylistScopeUnsafeLinksAndCancellation
+      - pkg/ytdlp.TestWriteAtomicRelatedFileRejectsSymlink
+      - pkg/ytdlp.TestPrepareRelatedDestinationRejectsNestedSymlink
+      - pkg/ytdlp.TestSafeLinkURLConvertsIRIHostAndEscapesPath
+      - pkg/ytdlp.TestOperationWritesFinalPlaylistAndEntryMetadataSidecars
+      - pkg/ytdlp.FuzzSafeLinkURL
+      - internal/cli.TestRunWritesMetadataAndShortcutSidecarsWithoutMedia
+      - internal/cli.TestRunDumpJSONSimulationSuppressesRelatedFiles
+      - conformance/related_files/PROVENANCE.md
+      - docs/METADATA_SIDECARS_EVIDENCE.md
+    owner: core
+    depends_on:
+      - cli.simulation
+      - compat.output_template_minimal
+      - metadata.deterministic_json
+    known_deviation: Related files use the port's deterministic normalized metadata schema and one shared output template. Per-type output templates, thumbnail and annotation sidecars, and non-atomic Windows replacement where the platform cannot provide it remain outside this claim.
+
   - id: foundation.embedding_api
     name: Cancellable Go embedding boundary
     phase: 0

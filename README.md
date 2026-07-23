@@ -75,7 +75,7 @@ decisions. Synthetic fixtures are not presented as substitutes for those facts.
 | Operations | Opt-in privacy-safe telemetry, semantic-shadow comparison, bounded canaries, and local diagnosis reports |
 | Releases | Reproducible no-cgo alpha assembly, SPDX/license output, signed updater metadata, rollback, and Python-free container evidence |
 
-The capability manifest currently records 58 capabilities: 57 compatible
+The capability manifest currently records 59 capabilities: 58 compatible
 within their declared corpora and one intentional deviation. A compatible
 entry is not a claim of complete yt-dlp parity. See the
 [Phase 3 exit review](docs/PHASE_3_EXIT_REVIEW.md), [Phase 2 security
@@ -153,7 +153,14 @@ Extract metadata without downloading:
 ```
 
 Unlike simulation, `--skip-download` (alias `--no-download`) still permits
-explicitly requested subtitle sidecars.
+explicitly requested subtitle and metadata sidecars.
+
+Write metadata and an internet shortcut without downloading media:
+
+```sh
+./bin/ytdlp-go --skip-download --write-info-json \
+    --write-description --write-link URL
+```
 
 Emit one quiet JSON line per video, simulating by default:
 
