@@ -193,8 +193,97 @@ func TestYouTubeBareRootNoVideosExcludesHomeShelvesAndEmptyRoot(t *testing.T) {
 	if got := collectYouTubeRootEntries(t, emptyResult); len(got) != 0 {
 		t.Fatalf("empty entries=%#v", got)
 	}
-	if len(empty.reads) != 1 || empty.requests != 0 {
+	const uploadsURL = "https://www.youtube.com/playlist?list=UUabcdefghijklmnopqrstuv"
+	if empty.reads[base+"/videos"] != 1 || empty.reads[uploadsURL] != 1 ||
+		len(empty.reads) != 2 || empty.requests != 0 {
 		t.Fatalf("empty reads=%#v requests=%d", empty.reads, empty.requests)
+	}
+
+	withoutUCID := youtubeRootTransport(t, base, []byte(`<script>ytInitialData={
+		"metadata":{"channelMetadataRenderer":{"title":"Synthetic Root Without UCID"}},
+		"contents":{"twoColumnBrowseResultsRenderer":{"tabs":[
+			{"tabRenderer":{"selected":true,"tabIdentifier":"FEhome","content":{"richGridRenderer":{"contents":[]}}}}
+		]}}
+	};</script>`))
+	withoutUCIDResult, err := NewYouTubeHandleTab().Extract(context.Background(), Request{URL: base, Transport: withoutUCID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id, _ := withoutUCIDResult.Info.ID(); id != "handle:@synthetic-handle" {
+		t.Fatalf("fallback id=%q", id)
+	}
+	if got := collectYouTubeRootEntries(t, withoutUCIDResult); len(got) != 0 || len(withoutUCID.reads) != 1 {
+		t.Fatalf("without UCID entries=%#v reads=%#v", got, withoutUCID.reads)
+	}
+}
+
+func TestYouTubeBareRootFallsBackToTopicUploadsPlaylist(t *testing.T) {
+	const (
+		channelID  = "UCabcdefghijklmnopqrstuv"
+		uploadsID  = "UUabcdefghijklmnopqrstuv"
+		uploadsURL = "https://www.youtube.com/playlist?list=" + uploadsID
+	)
+	tests := []struct {
+		name, rawURL, base string
+		extract            func(context.Context, Request) (Extraction, error)
+	}{
+		{"channel", "https://youtube.com/channel/" + channelID, "https://www.youtube.com/channel/" + channelID, NewYouTubeChannelTab().Extract},
+		{"handle", "https://youtube.com/@synthetic-handle", "https://www.youtube.com/@synthetic-handle", NewYouTubeHandleTab().Extract},
+		{"alias", "https://youtube.com/user/SyntheticAlias", "https://www.youtube.com/user/SyntheticAlias", NewYouTubeAliasTab().Extract},
+	}
+	want := []string{
+		"topicVid001:https://www.youtube.com/watch?v=topicVid001:First topic upload",
+		"topicVid002:https://www.youtube.com/watch?v=topicVid002:Continued topic upload",
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			transport := youtubeRootTransport(t, test.base, readYouTubeRootFixture(t, "empty.html"))
+			transport.pages[uploadsURL] = readYouTubeRootFixture(t, "topic-playlist.html")
+			transport.continuation = readYouTubeRootFixture(t, "topic-playlist-continuation.json")
+			result, err := test.extract(context.Background(), Request{URL: test.rawURL, Transport: transport})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if id, _ := result.Info.ID(); id != uploadsID {
+				t.Fatalf("id=%q", id)
+			}
+			if title, _ := result.Info.Title(); title != "Uploads from Synthetic Topic" {
+				t.Fatalf("title=%q", title)
+			}
+			if webpage, _ := result.Info.WebpageURL(); webpage != uploadsURL {
+				t.Fatalf("webpage=%q", webpage)
+			}
+			for run := 0; run < 2; run++ {
+				if got := collectYouTubeRootEntries(t, result); strings.Join(got, "\n") != strings.Join(want, "\n") {
+					t.Fatalf("run %d entries=%#v", run, got)
+				}
+			}
+			if transport.reads[test.base+"/videos"] != 1 || transport.reads[uploadsURL] != 1 ||
+				transport.requests != 2 || !strings.Contains(transport.lastBody, `"continuation":"topic-next"`) {
+				t.Fatalf("reads=%#v requests=%d body=%s", transport.reads, transport.requests, transport.lastBody)
+			}
+		})
+	}
+}
+
+func TestYouTubeBareTopicFallbackPreservesCancellation(t *testing.T) {
+	const (
+		base       = "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv"
+		uploadsURL = "https://www.youtube.com/playlist?list=UUabcdefghijklmnopqrstuv"
+	)
+	transport := youtubeRootTransport(t, base, readYouTubeRootFixture(t, "empty.html"))
+	transport.blockReadPage = uploadsURL
+	transport.readStarted = make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := NewYouTubeChannelTab().Extract(ctx, Request{URL: base, Transport: transport})
+		done <- err
+	}()
+	<-transport.readStarted
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancellation=%v", err)
 	}
 }
 

@@ -8,7 +8,8 @@ Bare-channel URL rewriting and videos/streams/Shorts aggregation derive from
 `YoutubeTabIE._real_extract` in
 `yt_dlp/extractor/youtube/_tab.py:2267-2350`, especially its bare-channel
 redirect to `/videos`, advertised-tab discovery, fixed streams-then-Shorts
-extension order, and no-videos fallback. Renderer and continuation structures
+extension order, no-videos fallback, and the `UU<channel-suffix>` topic-channel
+playlist fallback at lines 2320-2336. Renderer and continuation structures
 derive from `_rich_entries`, `_extract_entries`, and `_entries` at lines
 400-640.
 
@@ -21,7 +22,8 @@ media URL, or copyrighted media is included. The corpus proves:
 - visitor-data propagation through the existing continuation path;
 - exclusion of home-page shelf entries;
 - channels with streams/Shorts but no videos tab;
-- empty channels;
+- successful topic-channel uploads-playlist fallback and continuation;
+- empty channels when the derived uploads playlist is unavailable;
 - exact channel, Unicode-handle, and legacy-alias root integration.
 
 The pinned checkout is evidence only and is not used by production, build, or

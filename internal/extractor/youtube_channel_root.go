@@ -70,6 +70,23 @@ func extractYouTubeBareChannelUploads(ctx context.Context, transport Transport, 
 			tabs = append(tabs, tab)
 		}
 	}
+	// Topic channels may advertise no upload-bearing tab even though their
+	// equivalent UU playlist exists. The pinned extractor treats an
+	// unavailable derived playlist as an empty channel, but cancellation must
+	// remain terminal.
+	if len(tabs) == 0 && youtubeChannelIDPattern.MatchString(metadata.channelID) {
+		uploadsID := "UU" + metadata.channelID[2:]
+		uploadsURL := "https://www.youtube.com/playlist?list=" + uploadsID
+		uploads, playlistErr := extractYouTubePlaylist(ctx, Request{
+			URL: uploadsURL, Transport: transport,
+		}, uploadsID)
+		if playlistErr == nil {
+			return uploads, nil
+		}
+		if errors.Is(playlistErr, context.Canceled) || errors.Is(playlistErr, context.DeadlineExceeded) {
+			return Extraction{}, playlistErr
+		}
+	}
 	preloadVideos := pageURL == spec.videosURL && selected == "videos" && available["videos"]
 	entries := youtubeBareChannelEntries{
 		tabs: tabs,

@@ -14,9 +14,11 @@ playlists, and compatible lockup entries; selected-tab validation; lazy,
 reusable bounded continuations; cancellation, cursor-loop protection, and
 authentication/unavailable/rate-limit/network classification.
 The exact bare `/channel/<UCID>` route lazily aggregates advertised videos,
-streams, and Shorts without admitting home shelves.
+streams, and Shorts without admitting home shelves. When none are advertised,
+it tries the equivalent `UU<channel-suffix>` uploads playlist and returns an
+empty channel playlist if that derived playlist is unavailable.
 
 Not implemented: channel search, membership or arbitrary custom tabs, mixes,
-topic-channel synthesized-playlist fallback, arbitrary renderer parity,
-authenticated/private success, or live-site compatibility guarantees. Handle
-and legacy alias URL families are implemented by their dedicated extractors.
+arbitrary renderer parity, authenticated/private success, or live-site
+compatibility guarantees. Handle and legacy alias URL families are implemented
+by their dedicated extractors.

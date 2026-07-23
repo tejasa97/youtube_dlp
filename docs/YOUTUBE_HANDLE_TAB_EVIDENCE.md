@@ -19,13 +19,14 @@ configuration propagation, and authentication/unavailable/rate-limit/network
 classification. Playlist metadata uses a valid extracted UCID when present;
 otherwise it uses the stable bounded `handle:@handle` ID.
 The exact bare `/@handle` route lazily aggregates advertised videos, streams,
-and Shorts without admitting home shelves.
+and Shorts without admitting home shelves. A metadata UCID permits the same
+bounded synthesized uploads-playlist fallback used by direct channel roots.
 
 Encoded separators, backslashes, NULs, invalid UTF-8, emoji, combining marks,
 and non-HTTP URL forms remain rejected. This matches the pinned Python `\w`
 grammar rather than broadening it to arbitrary Unicode grapheme clusters.
 
 Not implemented: channel search, membership or arbitrary custom tabs,
-topic-channel synthesized-playlist fallback, arbitrary renderer parity,
-authenticated/private success, or live-site compatibility guarantees. The
-separately documented legacy alias extractor covers `/user` and `/c` roots.
+arbitrary renderer parity, authenticated/private success, or live-site
+compatibility guarantees. The separately documented legacy alias extractor
+covers `/user` and `/c` roots.

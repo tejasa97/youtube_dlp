@@ -21,10 +21,12 @@ and Shorts pages are loaded only when iteration reaches them. Independent
 iterators own independent continuation and extra-tab state.
 
 If a channel has streams or Shorts but no videos tab, those advertised tabs
-are still returned and home-page shelf entries are excluded. A channel with no
-upload-bearing tabs produces a valid empty playlist. A missing `/videos` page
-falls back once to the exact root for tab discovery. The combined iterator
-enforces the shared 100,000-entry bound across all tabs.
+are still returned and home-page shelf entries are excluded. If no upload tab
+is advertised and a valid UCID is present, the extractor tries the equivalent
+`UU<channel-suffix>` uploads playlist. A missing derived playlist produces a
+valid empty channel playlist. A missing `/videos` page falls back once to the
+exact root for tab discovery. The combined iterator enforces the shared
+100,000-entry bound across all tabs.
 
 Root URLs preserve validated channel, handle, or alias spelling, remove
 routing-only queries, and use metadata UCIDs when available. All existing
@@ -48,6 +50,8 @@ test paths.
 
 - `internal/extractor.TestYouTubeBareRootsAggregateVideosStreamsAndShortsLazily`
 - `internal/extractor.TestYouTubeBareRootNoVideosExcludesHomeShelvesAndEmptyRoot`
+- `internal/extractor.TestYouTubeBareRootFallsBackToTopicUploadsPlaylist`
+- `internal/extractor.TestYouTubeBareTopicFallbackPreservesCancellation`
 - `internal/extractor.TestYouTubeBareRootFallsBackAfterMissingVideosPage`
 - `internal/extractor.TestYouTubeBareRootSelectedTabValidationBoundsAndCancellation`
 - `internal/extractor.TestYouTubeBareRootNetworkAndAlertCategories`
@@ -57,8 +61,6 @@ test paths.
 
 ## Known deviations
 
-- Topic-channel fallback to a synthesized `UU<channel-suffix>` playlist is not
-  used when no upload tabs are advertised; the result is an empty playlist.
 - Members-only uploads, arbitrary custom tabs, conditional regional channel
   redirects, and authenticated/private success remain outside this slice.
 - Rich child metadata is delegated to each authoritative video extractor.
