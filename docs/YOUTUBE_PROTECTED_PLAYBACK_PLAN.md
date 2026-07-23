@@ -34,9 +34,9 @@ Implementation status: pending.
 ## Wave 3 — captions and authenticated clients
 
 Implementation status: caption extraction, translation, protected-token
-placement, native sidecar selection/download, bounded CLI listing, and
-post-download conversion to SRT, ASS, or WebVTT are complete. Authenticated
-Innertube profiles remain pending.
+placement, native sidecar selection/download, bounded CLI listing,
+post-download conversion to SRT, ASS, or WebVTT, and bounded multi-track
+embedding are complete. Authenticated Innertube profiles remain pending.
 
 - consume the `subs` PO-token context for protected caption requests;
 - add bounded subtitle and automatic-caption extraction;

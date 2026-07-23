@@ -25,4 +25,6 @@ to convert. `--skip-download` remains compatible with explicit subtitle writes,
 and conversion only sees those sidecars. After each successful conversion,
 matching `requested_subtitles[*].filepath` and `ext` InfoJSON fields are
 updated so `--print-json` names the converted sidecar rather than the removed
-source.
+source. If post-conversion source cleanup fails, the committed conversion
+remains successful, the old sidecar stays in the returned artifacts, and a
+non-vetoable metadata warning makes the retained file explicit.

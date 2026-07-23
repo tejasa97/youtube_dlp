@@ -385,6 +385,7 @@ type operation struct {
 	compatibility                    compatibilityPlan
 	rootExtractor                    *string
 	playlistItemsRangeWarningEmitted bool
+	removeFile                       func(string) error
 }
 
 func (operation *operation) process(ctx context.Context, rawURL, extractorKey string, overlay *extractor.Entry, ancestors map[string]bool, depth int) (Result, error) {
@@ -759,6 +760,19 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	if err != nil {
 		return Result{}, categorized("download subtitles", err)
 	}
+	var convertedSubtitles bool
+	selectedSubtitles, result.Artifacts, convertedSubtitles, err = operation.convertSelectedSubtitles(
+		ctx, selectedSubtitles, result.Artifacts, operation.eventSink(),
+	)
+	if err != nil {
+		return Result{}, categorized("convert subtitles", err)
+	}
+	if convertedSubtitles {
+		result.Bytes, err = artifactBytes(result.Artifacts)
+		if err != nil {
+			return Result{}, categorized("account converted subtitle artifacts", err)
+		}
+	}
 	if len(result.Artifacts) > 0 {
 		result.Downloaded = true
 	}
@@ -796,12 +810,30 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		return Result{}, categorized("run postprocessors", err)
 	}
 	result.Artifacts = append(result.Artifacts, mediaArtifacts...)
+	var embeddedSubtitles bool
+	result.Artifacts, embeddedSubtitles, err = operation.embedSelectedSubtitles(
+		ctx, &info, downloadedPath, selectedSubtitles, result.Artifacts, sink,
+	)
+	if err != nil {
+		return Result{}, categorized("embed subtitles", err)
+	}
 	if info, statErr := os.Stat(downloadedPath); statErr == nil {
 		downloadedBytes = info.Size()
 	}
 	result.Downloaded = true
 	result.Filename = downloadedPath
-	result.Bytes += downloadedBytes
+	if embeddedSubtitles {
+		result.Bytes, err = artifactBytes(result.Artifacts)
+		if err != nil {
+			return Result{}, categorized("account embedded subtitle artifacts", err)
+		}
+		result.InfoJSON, err = encodeInfo(info)
+		if err != nil {
+			return Result{}, err
+		}
+	} else {
+		result.Bytes += downloadedBytes
+	}
 	if operation.archive != nil {
 		if _, err := operation.archive.Record(ctx, archiveIdentity); err != nil {
 			return Result{}, categorized("record download archive", err)

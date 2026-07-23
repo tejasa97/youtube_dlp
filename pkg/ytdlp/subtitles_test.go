@@ -318,6 +318,53 @@ func TestSubtitleOptionsRejectInvalidRegexBeforeNetwork(t *testing.T) {
 	}
 }
 
+func TestSubtitleEmbeddingImplicitlySelectsManualTracks(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	result, err := NewClient().Run(context.Background(), Request{
+		URL: server.URL + "/page", OutputDir: root, SkipDownload: true,
+		Subtitles: SubtitleOptions{Embed: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Artifacts) != 1 || result.Artifacts[0].Kind != "subtitle" {
+		t.Fatalf("result=%#v", result)
+	}
+	if _, err := os.Stat(filepath.Join(root, "Deterministic Fixture.en.vtt")); err != nil {
+		t.Fatal(err)
+	}
+
+	autoRoot := t.TempDir()
+	autoResult, err := NewClient().Run(context.Background(), Request{
+		URL: server.URL + "/page", OutputDir: autoRoot, SkipDownload: true,
+		Subtitles: SubtitleOptions{
+			Embed: true, WriteAutomatic: true, Languages: []string{"pt"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(autoResult.Artifacts) != 1 {
+		t.Fatalf("automatic result=%#v", autoResult)
+	}
+	body, err := os.ReadFile(filepath.Join(autoRoot, "Deterministic Fixture.pt.vtt"))
+	if err != nil || !strings.Contains(string(body), "automatic portuguese") {
+		t.Fatalf("automatic subtitle=%q err=%v", body, err)
+	}
+}
+
+func TestSubtitleKeepFilesRequiresEmbedding(t *testing.T) {
+	_, err := NewClient().Run(context.Background(), Request{
+		URL: "https://example.invalid/page", SkipDownload: true,
+		Subtitles: SubtitleOptions{WriteManual: true, KeepFiles: true},
+	})
+	if !IsCategory(err, ErrorInvalidInput) || !errors.Is(err, errInvalidRequestOptions) {
+		t.Fatalf("error=%v", err)
+	}
+}
+
 func TestSubtitleMetadataCombinedLanguageLimit(t *testing.T) {
 	collection := func(prefix string) *value.Object {
 		object := value.NewObject()
@@ -336,6 +383,25 @@ func TestSubtitleMetadataCombinedLanguageLimit(t *testing.T) {
 	_, _, err := selectSubtitles(info, SubtitleOptions{WriteManual: true, WriteAutomatic: true})
 	if !errors.Is(err, extractor.ErrInvalidMetadata) {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestSubtitleEmbeddingTrackLimitFailsBeforeDownload(t *testing.T) {
+	collection := value.NewObject()
+	for index := 0; index <= maxEmbeddedSubtitleTracks; index++ {
+		collection.Set(fmt.Sprintf("l%d", index), value.List(value.ObjectValue(value.NewObject(
+			value.Field{Key: "url", Value: value.String("https://captions.example/sub.vtt")},
+			value.Field{Key: "ext", Value: value.String("vtt")},
+		))))
+	}
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "subtitles", Value: value.ObjectValue(collection)},
+	))
+	_, _, err := selectSubtitles(info, SubtitleOptions{
+		Embed: true, Languages: []string{"all"},
+	})
+	if !errors.Is(err, extractor.ErrInvalidMetadata) {
+		t.Fatalf("error=%v", err)
 	}
 }
 

@@ -5,13 +5,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
 	"github.com/ytdlp-go/ytdlp/internal/testserver"
 	"github.com/ytdlp-go/ytdlp/pkg/ytdlp"
 )
@@ -329,6 +334,138 @@ func TestRunWritesSelectedSubtitlesWhileSkippingMedia(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "Deterministic Fixture.bin")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("media was downloaded: %v", err)
+	}
+}
+
+func TestRunEmbedSubtitlesImplicitSelectionAndClear(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{
+		"--output-dir", root, "--skip-download", "--embed-subs", server.URL + "/page",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("embed code=%d stderr=%q", code, stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(root, "Deterministic Fixture.en.vtt")); err != nil {
+		t.Fatalf("implicit manual subtitle: %v", err)
+	}
+
+	clearRoot := t.TempDir()
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{
+		"--output-dir", clearRoot, "--skip-download", "--embed-subs", "--no-embed-subs", server.URL + "/page",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("clear code=%d stderr=%q", code, stderr.String())
+	}
+	entries, err := os.ReadDir(clearRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("--no-embed-subs left implicit downloads: %#v", entries)
+	}
+}
+
+func TestRunEmbedsAutomaticSubtitleAndUsesPinnedRetentionRule(t *testing.T) {
+	ffmpegPath, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg unavailable")
+	}
+	fixtureRoot := t.TempDir()
+	mediaPath := filepath.Join(fixtureRoot, "media.mp4")
+	output, err := exec.Command(ffmpegPath,
+		"-nostdin", "-y", "-f", "lavfi", "-i", "color=c=black:s=32x32:d=0.3",
+		"-c:v", "mpeg4", mediaPath,
+	).CombinedOutput()
+	if err != nil {
+		t.Fatalf("generate media: %v: %s", err, output)
+	}
+	media, err := os.ReadFile(mediaPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/page":
+			_, _ = fmt.Fprintf(writer, `{
+				"id":"cli-embed","title":"CLI Embed","ext":"mp4",
+				"formats":[{"format_id":"media","url":%q,"ext":"mp4","vcodec":"mpeg4","acodec":"none"}],
+				"subtitles":{"en":[{"url":%q,"ext":"vtt"}]},
+				"automatic_captions":{"pt":[{"url":%q,"ext":"srt"}]}
+			}`, server.URL+"/media.mp4", server.URL+"/en.vtt", server.URL+"/pt.srt")
+		case "/media.mp4":
+			writer.Header().Set("Content-Length", fmt.Sprint(len(media)))
+			if request.Method != http.MethodHead {
+				_, _ = writer.Write(media)
+			}
+		case "/pt.srt":
+			_, _ = writer.Write([]byte("1\n00:00:00,000 --> 00:00:00,200\nAutomatic\n"))
+		case "/en.vtt":
+			_, _ = writer.Write([]byte("WEBVTT\n\n00:00.000 --> 00:00.200\nManual\n"))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{
+		"--quiet", "--output-dir", root, "--embed-subs", "--write-auto-subs",
+		"--sub-langs", "pt", server.URL + "/page",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	outputPath := filepath.Join(root, "CLI Embed.mp4")
+	tools, _ := ffmpeg.Discover(ffmpeg.Config{})
+	probe, err := tools.Probe(context.Background(), outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	subtitles := 0
+	for _, stream := range probe.Streams {
+		if stream.CodecType == "subtitle" {
+			subtitles++
+		}
+	}
+	if subtitles != 1 {
+		t.Fatalf("streams=%#v", probe.Streams)
+	}
+	if _, err := os.Stat(filepath.Join(root, "CLI Embed.pt.srt")); !os.IsNotExist(err) {
+		t.Fatalf("automatic sidecar retained without --write-subs: %v", err)
+	}
+
+	manualRoot := t.TempDir()
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{
+		"--quiet", "--output-dir", manualRoot, "--embed-subs", "--write-subs",
+		"--sub-langs", "en", server.URL + "/page",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("manual code=%d stderr=%q", code, stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(manualRoot, "CLI Embed.en.vtt")); err != nil {
+		t.Fatalf("manual sidecar not retained with --write-subs: %v", err)
+	}
+
+	conversionRoot := t.TempDir()
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{
+		"--quiet", "--skip-download", "--output-dir", conversionRoot,
+		"--write-auto-subs", "--convert-subs", "vtt",
+		"--sub-langs", "pt", server.URL + "/page",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("conversion code=%d stderr=%q", code, stderr.String())
+	}
+	if body, err := os.ReadFile(filepath.Join(conversionRoot, "CLI Embed.pt.vtt")); err != nil ||
+		!strings.Contains(string(body), "WEBVTT") {
+		t.Fatalf("converted sidecar=%q err=%v", body, err)
+	}
+	if _, err := os.Stat(filepath.Join(conversionRoot, "CLI Embed.pt.srt")); !os.IsNotExist(err) {
+		t.Fatalf("source sidecar retained after conversion: %v", err)
 	}
 }
 

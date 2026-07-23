@@ -44,6 +44,7 @@ The executable help is the authoritative CLI option list:
 - [YouTube subtitle CLI and sidecar evidence](YOUTUBE_SUBTITLE_CLI_EVIDENCE.md)
 - [YouTube subtitle-listing evidence](YOUTUBE_SUBTITLE_LISTING_EVIDENCE.md)
 - [YouTube subtitle-conversion evidence](YOUTUBE_SUBTITLE_CONVERSION_EVIDENCE.md)
+- [YouTube subtitle-embedding evidence](YOUTUBE_SUBTITLE_EMBEDDING_EVIDENCE.md)
 - [YouTube channel-tab evidence](YOUTUBE_CHANNEL_EVIDENCE.md)
 - [YouTube handle-tab evidence](YOUTUBE_HANDLE_TAB_EVIDENCE.md)
 - [YouTube playlist-tab evidence](YOUTUBE_PLAYLIST_TABS_EVIDENCE.md)

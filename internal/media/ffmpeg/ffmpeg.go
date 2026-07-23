@@ -97,6 +97,16 @@ type SubtitleOptions struct {
 	Format string
 }
 
+// SubtitleInput describes one local subtitle stream to embed. Extension is the
+// source subtitle format without a leading dot. Language and Name are optional
+// stream metadata.
+type SubtitleInput struct {
+	Path      string
+	Language  string
+	Name      string
+	Extension string
+}
+
 type ImageOptions struct {
 	Format string
 }
@@ -114,6 +124,7 @@ const (
 	maxMetadataBytes  = 128 << 10
 	maxConcatInputs   = 128
 	maxChapters       = 1000
+	maxSubtitleInputs = 64
 )
 
 const (
@@ -269,12 +280,142 @@ func (tools *Toolset) EmbedThumbnail(ctx context.Context, inputPath, imagePath, 
 	})
 }
 
-// EmbedSubtitles adds all subtitle streams from subtitlePath while retaining
-// existing streams.
+// EmbedSubtitles is the backwards-compatible single-track embedding entry
+// point. New callers should use EmbedSubtitleTracks to attach all selected
+// tracks in one deterministic invocation.
 func (tools *Toolset) EmbedSubtitles(ctx context.Context, inputPath, subtitlePath, destination string, overwrite bool, sink events.Sink) error {
+	extension := strings.TrimPrefix(strings.ToLower(filepath.Ext(subtitlePath)), ".")
+	return tools.EmbedSubtitleTracks(ctx, inputPath, []SubtitleInput{{
+		Path:      subtitlePath,
+		Extension: extension,
+	}}, destination, overwrite, sink)
+}
+
+// EmbedSubtitleTracks replaces existing subtitle streams with the supplied
+// local tracks while preserving every non-subtitle input stream. The bounded
+// input model keeps argv and metadata growth predictable.
+func (tools *Toolset) EmbedSubtitleTracks(ctx context.Context, inputPath string, subtitles []SubtitleInput, destination string, overwrite bool, sink events.Sink) error {
+	container := strings.TrimPrefix(strings.ToLower(filepath.Ext(destination)), ".")
+	if !supportedSubtitleContainer(container) {
+		return fmt.Errorf("%w: unsupported subtitle container %q", ErrInvalidOperation, container)
+	}
+	if len(subtitles) == 0 || len(subtitles) > maxSubtitleInputs {
+		return fmt.Errorf("%w: subtitle embedding requires 1 to %d tracks", ErrInvalidOperation, maxSubtitleInputs)
+	}
+	if err := regularMediaInput(inputPath); err != nil {
+		return err
+	}
+	seenPaths := make(map[string]struct{}, len(subtitles))
+	normalized := make([]SubtitleInput, len(subtitles))
+	for index, subtitle := range subtitles {
+		subtitle.Path = filepath.Clean(subtitle.Path)
+		subtitle.Extension = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(subtitle.Extension)), ".")
+		if err := validateSubtitleInput(subtitle, container); err != nil {
+			return fmt.Errorf("%w: subtitle %d: %v", ErrInvalidOperation, index, err)
+		}
+		if _, exists := seenPaths[subtitle.Path]; exists {
+			return fmt.Errorf("%w: subtitle %d repeats an input path", ErrInvalidOperation, index)
+		}
+		seenPaths[subtitle.Path] = struct{}{}
+		normalized[index] = subtitle
+	}
 	return tools.runAtomic(ctx, destination, overwrite, sink, func(temporary string) []string {
-		return []string{"-i", inputPath, "-i", subtitlePath, "-map", "0", "-map", "1:s?", "-c", "copy", "-progress", "pipe:1", "-nostats", temporary}
+		return subtitleEmbedArgs(inputPath, normalized, container, temporary)
 	})
+}
+
+func subtitleEmbedArgs(inputPath string, subtitles []SubtitleInput, container, temporary string) []string {
+	args := []string{"-i", inputPath}
+	for _, subtitle := range subtitles {
+		args = append(args, "-i", subtitle.Path)
+	}
+	// Match yt-dlp's stream-copy policy: preserve known non-subtitle streams,
+	// replace subtitle streams, and deliberately discard data/unknown streams
+	// that ffmpeg cannot safely mux into every supported destination.
+	args = append(args, "-map", "0", "-map", "-0:s", "-dn", "-ignore_unknown")
+	for index := range subtitles {
+		args = append(args, "-map", strconv.Itoa(index+1)+":s:0")
+	}
+	args = append(args, "-c", "copy")
+	if container == "mp4" || container == "mov" || container == "m4a" {
+		args = append(args, "-c:s", "mov_text")
+	}
+	for index, subtitle := range subtitles {
+		stream := strconv.Itoa(index)
+		if subtitle.Language != "" {
+			args = append(args, "-metadata:s:s:"+stream, "language="+subtitle.Language)
+		}
+		if subtitle.Name != "" {
+			args = append(args,
+				"-metadata:s:s:"+stream, "handler_name="+subtitle.Name,
+				"-metadata:s:s:"+stream, "title="+subtitle.Name,
+			)
+		}
+	}
+	return append(args, "-progress", "pipe:1", "-nostats", temporary)
+}
+
+func supportedSubtitleContainer(container string) bool {
+	switch container {
+	case "mp4", "mov", "m4a", "webm", "mkv", "mka":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateSubtitleInput(input SubtitleInput, container string) error {
+	if err := regularMediaInput(input.Path); err != nil {
+		return err
+	}
+	switch input.Extension {
+	case "vtt", "srt", "ass", "ssa":
+	default:
+		return fmt.Errorf("unsupported subtitle format %q", input.Extension)
+	}
+	if container == "webm" && input.Extension != "vtt" {
+		return fmt.Errorf("webm requires vtt subtitles")
+	}
+	if !safeSubtitleMetadata(input.Language, 64, true) {
+		return fmt.Errorf("invalid subtitle language")
+	}
+	if !safeSubtitleMetadata(input.Name, 1024, false) {
+		return fmt.Errorf("invalid subtitle name")
+	}
+	return nil
+}
+
+func regularMediaInput(path string) error {
+	if strings.TrimSpace(path) == "" || strings.ContainsRune(path, 0) {
+		return fmt.Errorf("%w: invalid local input path", ErrInvalidOperation)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("%w: inspect local input: %v", ErrInvalidOperation, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return fmt.Errorf("%w: local input is not a regular file", ErrInvalidOperation)
+	}
+	return nil
+}
+
+func safeSubtitleMetadata(value string, maximum int, restricted bool) bool {
+	if len(value) > maximum || strings.ContainsAny(value, "\x00\r\n") {
+		return false
+	}
+	if !restricted || value == "" {
+		return true
+	}
+	for _, character := range value {
+		if character >= 'a' && character <= 'z' ||
+			character >= 'A' && character <= 'Z' ||
+			character >= '0' && character <= '9' ||
+			character == '.' || character == '_' || character == '-' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 // ApplyFixup performs compatibility-oriented container adjustments.
@@ -318,6 +459,9 @@ func (tools *Toolset) Concat(ctx context.Context, inputs []string, destination s
 func (tools *Toolset) runAtomic(ctx context.Context, destination string, overwrite bool, sink events.Sink, operation func(string) []string) error {
 	if sink == nil {
 		sink = events.Nop()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if info, err := os.Lstat(destination); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
@@ -376,11 +520,20 @@ func (tools *Toolset) runAtomic(ctx context.Context, destination string, overwri
 		_ = os.Remove(temporary)
 		return err
 	}
+	// Once the destination is replaced, the operation is committed and a
+	// completion observer can no longer safely veto it. Honor cancellation at
+	// the last reversible point, then make the terminal notification
+	// deliberately non-vetoable.
+	if err := ctx.Err(); err != nil {
+		_ = os.Remove(temporary)
+		return err
+	}
 	if err := replace(temporary, destination, overwrite); err != nil {
 		_ = os.Remove(temporary)
 		return fmt.Errorf("%w: finalize output: %v", ErrMediaFailure, err)
 	}
-	return sink.Emit(ctx, events.Event{Kind: events.KindPostprocessCompleted, Path: destination, Bytes: totalSize})
+	_ = sink.Emit(ctx, events.Event{Kind: events.KindPostprocessCompleted, Path: destination, Bytes: totalSize})
+	return nil
 }
 
 func (tools *Toolset) execute(ctx context.Context, binary string, args []string, onLine func(string) error) ([]byte, error) {
