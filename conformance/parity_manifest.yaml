@@ -591,6 +591,10 @@ capabilities:
       - internal/extractor.TestYouTubeBareRootFallsBackAfterMissingVideosPage
       - internal/extractor.TestYouTubeBareRootSelectedTabValidationBoundsAndCancellation
       - internal/extractor.TestYouTubeBareRootNetworkAndAlertCategories
+      - internal/extractor.TestYouTubeConditionalChannelRedirectIntegratesEveryRouteFamily
+      - internal/extractor.TestYouTubeConditionalChannelRedirectCancellationBeforeRead
+      - internal/extractor.TestYouTubeConditionalChannelRedirectDestinationFamiliesAndDuplicates
+      - internal/extractor.TestYouTubeConditionalChannelRedirectRejectsHostileAmbiguousAndSelfTargets
       - internal/extractor.TestYouTubeSearchInitialContinuationAndAllCap
       - internal/extractor.TestYouTubeSearchLazyReusableAndCancellation
       - internal/extractor.TestYouTubeSearchTargetHostileAndRouting
@@ -628,6 +632,7 @@ capabilities:
       - internal/extractor.FuzzYouTubeAliasTabTarget
       - internal/extractor.FuzzYouTubeCommunityPostEntries
       - internal/extractor.FuzzYouTubeBareUploadTabs
+      - internal/extractor.FuzzYouTubeConditionalChannelRedirect
       - internal/extractor.FuzzParseYouTubeSearchData
       - internal/extractor.FuzzYouTubeSearchTarget
       - internal/extractor.FuzzParseYouTubeMusicSearchData
@@ -696,6 +701,7 @@ capabilities:
       - conformance/extractors/youtube_channel/PROVENANCE.md
       - conformance/extractors/youtube_handle_tab/PROVENANCE.md
       - conformance/extractors/youtube_alias_tab/PROVENANCE.md
+      - conformance/extractors/youtube_channel_redirect/PROVENANCE.md
       - conformance/extractors/youtube_search/PROVENANCE.md
       - conformance/extractors/youtube_music_search/PROVENANCE.md
       - docs/YOUTUBE_POT_EVIDENCE.md
@@ -710,6 +716,7 @@ capabilities:
       - docs/YOUTUBE_PLAYLIST_TABS_EVIDENCE.md
       - docs/YOUTUBE_EXPANDED_TABS_EVIDENCE.md
       - docs/YOUTUBE_BARE_CHANNEL_EVIDENCE.md
+      - docs/YOUTUBE_CONDITIONAL_REDIRECT_EVIDENCE.md
       - docs/YOUTUBE_SEARCH_EVIDENCE.md
       - docs/YOUTUBE_MUSIC_SEARCH_EVIDENCE.md
       - docs/YOUTUBE_COMMENTS_EVIDENCE.md

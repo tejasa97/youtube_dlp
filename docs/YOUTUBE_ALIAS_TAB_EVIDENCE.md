@@ -23,7 +23,8 @@ YouTube tab renderer model. Playlist identity prefers a valid metadata UCID
 and otherwise uses a stable typed alias identity. Requested-tab mismatches
 fail closed when the page exposes decisive selected-tab metadata. A bare root
 with no advertised upload tabs and a valid metadata UCID tries the equivalent
-synthesized uploads playlist.
+synthesized uploads playlist. Conditional regional destinations are validated
+and preserve the requested explicit tab.
 
 ## Provenance
 
@@ -56,7 +57,7 @@ do not depend on the reference checkout.
 
 - Membership, arbitrary custom tabs, and channel search remain outside this
   bounded extractor.
-- Conditional redirects, renamed aliases, authenticated/private tabs, and
-  arbitrary renderer parity are not claimed.
+- Renamed aliases, authenticated/private tabs, and arbitrary renderer parity
+  are not claimed.
 - Alias spelling is preserved rather than guessed or normalized beyond URL
   parsing and the documented security policy.

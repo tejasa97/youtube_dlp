@@ -107,6 +107,9 @@ func extractYouTubeChannelTab(ctx context.Context, transport Transport, channelI
 	if err != nil {
 		return Extraction{}, fmt.Errorf("%w: YouTube channel tab initial data", ErrInvalidMetadata)
 	}
+	if redirect, ok, err := youtubeConditionalRedirectResult(raw, canonical, tab); err != nil || ok {
+		return redirect, err
+	}
 	if err := validateYouTubeSelectedTab(raw, tab); err != nil {
 		return Extraction{}, err
 	}
