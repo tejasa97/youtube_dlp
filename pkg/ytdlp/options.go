@@ -53,6 +53,18 @@ type SubtitleOptions struct {
 	Format         string
 }
 
+// RelatedFileOptions writes metadata files beside the rendered media path.
+// Simulate suppresses all related files. SkipDownload does not.
+type RelatedFileOptions struct {
+	WriteInfoJSON    bool
+	WriteDescription bool
+	WriteLink        bool
+	WriteURLLink     bool
+	WriteWeblocLink  bool
+	WriteDesktopLink bool
+	NoPlaylist       bool
+}
+
 // CommentOptions controls opt-in comment metadata retrieval. The initial
 // native implementation applies these settings to YouTube videos.
 type YouTubeCommentOptions struct {

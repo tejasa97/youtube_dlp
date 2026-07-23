@@ -55,6 +55,25 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	paths := &homePathFlag{target: outputDir}
 	flags.Var(paths, "paths", "set a home output/config path (home:PATH)")
 	flags.Var(paths, "P", "alias for --paths")
+	writeInfoJSON := flags.Bool("write-info-json", false, "write video metadata to a .info.json sidecar (may contain personal information)")
+	flags.BoolFunc("no-write-info-json", "disable writing metadata sidecars", func(string) error {
+		*writeInfoJSON = false
+		return nil
+	})
+	writeDescription := flags.Bool("write-description", false, "write video descriptions to .description sidecars")
+	flags.BoolFunc("no-write-description", "disable writing description sidecars", func(string) error {
+		*writeDescription = false
+		return nil
+	})
+	writeLink := flags.Bool("write-link", false, "write a platform-native internet shortcut")
+	writeURLLink := flags.Bool("write-url-link", false, "write a Windows .url internet shortcut")
+	writeWeblocLink := flags.Bool("write-webloc-link", false, "write a macOS .webloc internet shortcut")
+	writeDesktopLink := flags.Bool("write-desktop-link", false, "write a Linux .desktop internet shortcut")
+	noPlaylistMetafiles := flags.Bool("no-write-playlist-metafiles", false, "omit playlist metadata sidecars")
+	flags.BoolFunc("write-playlist-metafiles", "write playlist metadata sidecars (default)", func(string) error {
+		*noPlaylistMetafiles = false
+		return nil
+	})
 	printJSON := flags.Bool("print-json", false, "print normalized metadata JSON to stdout")
 	dumpJSON := flags.Bool("dump-json", false, "quietly print one JSON object per video (simulates unless --no-simulate)")
 	flags.BoolVar(dumpJSON, "j", false, "alias for --dump-json")
@@ -326,7 +345,13 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		PreferFreeFormats: *preferFreeFormats, AllowUnplayableFormats: *allowUnplayable,
 		ProgressTemplate: *progressTemplate, MatchFilters: append([]string(nil), matchFilters...),
 		ParseMetadata: append([]string(nil), parseMetadata...), ReplaceMetadata: append([]string(nil), replaceMetadata...),
-		Subtitles:       requestSubtitles,
+		Subtitles: requestSubtitles,
+		RelatedFiles: ytdlp.RelatedFileOptions{
+			WriteInfoJSON: *writeInfoJSON, WriteDescription: *writeDescription,
+			WriteLink: *writeLink, WriteURLLink: *writeURLLink,
+			WriteWeblocLink: *writeWeblocLink, WriteDesktopLink: *writeDesktopLink,
+			NoPlaylist: *noPlaylistMetafiles,
+		},
 		YouTubeComments: commentLimits,
 		Playlist: ytdlp.PlaylistOptions{
 			Start: *playlistStart, End: *playlistEnd, Reverse: *playlistReverse, Items: *playlistItems, Flat: *flatPlaylist,
