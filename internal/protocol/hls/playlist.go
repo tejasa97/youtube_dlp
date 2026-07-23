@@ -55,6 +55,7 @@ type Segment struct {
 	Discontinuity bool
 	Partial       bool
 	PartIndex     int
+	Advertisement bool
 }
 
 type Map struct {
@@ -91,6 +92,7 @@ func Parse(rawURL string, input []byte) (Playlist, error) {
 	var currentMap *Map
 	var currentKey *Key
 	var discontinuity bool
+	advertisement := false
 	partIndex := 0
 	nextPartRangeStart := int64(0)
 	sequence := int64(0)
@@ -134,6 +136,7 @@ func Parse(rawURL string, input []byte) (Playlist, error) {
 				URL: resolved, Sequence: sequence, Duration: pendingDuration,
 				RangeStart: pendingRangeStart, RangeLength: pendingRangeLength,
 				Map: cloneMap(currentMap), Key: cloneKey(currentKey), Discontinuity: discontinuity,
+				Advertisement: advertisement,
 			}
 			media.Segments = append(media.Segments, segment)
 			sequence++
@@ -146,6 +149,17 @@ func Parse(rawURL string, input []byte) (Playlist, error) {
 			pendingRangeLength = 0
 			pendingRangeStart = 0
 			discontinuity = false
+			continue
+		}
+
+		// These two provider-specific marker families mirror yt-dlp's exact
+		// case-sensitive, trimmed-line grammar. Start is intentionally tested
+		// before end so an Anvato line containing both tokens starts an ad.
+		if isAdvertisementStart(line) {
+			advertisement = true
+			continue
+		} else if isAdvertisementEnd(line) {
+			advertisement = false
 			continue
 		}
 
@@ -191,7 +205,7 @@ func Parse(rawURL string, input []byte) (Playlist, error) {
 			attributes, err = parseAttributes(strings.TrimPrefix(line, "#EXT-X-PART:"))
 			if err == nil {
 				var part Segment
-				part, nextPartRangeStart, err = parsePart(base, attributes, sequence, partIndex, nextPartRangeStart, currentMap, currentKey, discontinuity)
+				part, nextPartRangeStart, err = parsePart(base, attributes, sequence, partIndex, nextPartRangeStart, currentMap, currentKey, discontinuity, advertisement)
 				if err == nil {
 					if len(media.Segments) >= maxPlaylistEntries {
 						err = fmt.Errorf("segment count exceeds %d", maxPlaylistEntries)
@@ -249,6 +263,16 @@ func Parse(rawURL string, input []byte) (Playlist, error) {
 		playlist.Media = media
 	}
 	return playlist, nil
+}
+
+func isAdvertisementStart(line string) bool {
+	return (strings.HasPrefix(line, "#ANVATO-SEGMENT-INFO") && strings.Contains(line, "type=ad")) ||
+		(strings.HasPrefix(line, "#UPLYNK-SEGMENT") && strings.HasSuffix(line, ",ad"))
+}
+
+func isAdvertisementEnd(line string) bool {
+	return (strings.HasPrefix(line, "#ANVATO-SEGMENT-INFO") && strings.Contains(line, "type=master")) ||
+		(strings.HasPrefix(line, "#UPLYNK-SEGMENT") && strings.HasSuffix(line, ",segment"))
 }
 
 func parseAttributes(input string) (map[string]string, error) {
@@ -316,7 +340,7 @@ func parseMap(base *url.URL, attributes map[string]string) (*Map, error) {
 	return result, err
 }
 
-func parsePart(base *url.URL, attributes map[string]string, sequence int64, partIndex int, inferredStart int64, currentMap *Map, currentKey *Key, discontinuity bool) (Segment, int64, error) {
+func parsePart(base *url.URL, attributes map[string]string, sequence int64, partIndex int, inferredStart int64, currentMap *Map, currentKey *Key, discontinuity, advertisement bool) (Segment, int64, error) {
 	rawURI := attributes["URI"]
 	resolved, err := resolveURL(base, rawURI)
 	if err != nil {
@@ -326,7 +350,11 @@ func parsePart(base *url.URL, attributes map[string]string, sequence int64, part
 	if err != nil || seconds <= 0 {
 		return Segment{}, inferredStart, errors.New("part duration must be positive")
 	}
-	part := Segment{URL: resolved, Sequence: sequence, Duration: time.Duration(seconds * float64(time.Second)), Map: cloneMap(currentMap), Key: cloneKey(currentKey), Discontinuity: discontinuity, Partial: true, PartIndex: partIndex}
+	part := Segment{
+		URL: resolved, Sequence: sequence, Duration: time.Duration(seconds * float64(time.Second)),
+		Map: cloneMap(currentMap), Key: cloneKey(currentKey), Discontinuity: discontinuity,
+		Partial: true, PartIndex: partIndex, Advertisement: advertisement,
+	}
 	nextStart := int64(0)
 	if rawRange := attributes["BYTERANGE"]; rawRange != "" {
 		pieces := strings.SplitN(rawRange, "@", 2)
