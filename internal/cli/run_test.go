@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -63,6 +64,13 @@ func TestRunTelemetryJSONSuccessFailureAndConflict(t *testing.T) {
 	if code := Run([]string{"--telemetry-json", "--print-json", server.URL + "/page"}, &stdout, &stderr); code != 2 || stdout.Len() != 0 {
 		t.Fatalf("conflict code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
+	for _, flag := range []string{"--dump-json", "--dump-single-json"} {
+		stdout.Reset()
+		stderr.Reset()
+		if code := Run([]string{"--telemetry-json", flag, server.URL + "/page"}, &stdout, &stderr); code != 2 || stdout.Len() != 0 {
+			t.Fatalf("%s conflict code=%d stdout=%q stderr=%q", flag, code, stdout.String(), stderr.String())
+		}
+	}
 }
 
 func TestRunExplicitImpersonationProfileAndFailClosedUnknown(t *testing.T) {
@@ -98,7 +106,10 @@ func TestRunHelpIsCurrentAndSuccessful(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "Usage: ytdlp-go") ||
 		!strings.Contains(stderr.String(), "Experimental Python-free Go implementation") ||
+		!strings.Contains(stderr.String(), "dump-json") ||
+		!strings.Contains(stderr.String(), "dump-single-json") ||
 		!strings.Contains(stderr.String(), "live-from-start") ||
+		!strings.Contains(stderr.String(), "no-quiet") ||
 		!strings.Contains(stderr.String(), "no-simulate") ||
 		strings.Contains(stderr.String(), "Phase 2 alpha development") {
 		t.Fatalf("help is stale: %q", stderr.String())
@@ -324,6 +335,206 @@ func TestRunWalkingSkeletonAndJSONSeparation(t *testing.T) {
 	if !strings.Contains(stderr.String(), "Completed") {
 		t.Fatalf("stderr lacks completion: %q", stderr.String())
 	}
+}
+
+func TestRunDumpJSONModesSimulateQuietlyAndNoSimulateDownloads(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	for _, test := range []struct {
+		name       string
+		flag       string
+		noSimulate bool
+	}{
+		{name: "per video long", flag: "--dump-json"},
+		{name: "per video short", flag: "-j"},
+		{name: "single long", flag: "--dump-single-json"},
+		{name: "single short", flag: "-J"},
+		{name: "no simulate", flag: "--dump-json", noSimulate: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			arguments := []string{test.flag, "--output-dir", root}
+			if test.noSimulate {
+				arguments = append(arguments, "--no-simulate")
+			}
+			arguments = append(arguments, server.URL+"/page")
+			var stdout, stderr bytes.Buffer
+			if code := Run(arguments, &stdout, &stderr); code != 0 {
+				t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+			}
+			lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+			if len(lines) != 1 || !json.Valid([]byte(lines[0])) {
+				t.Fatalf("JSON output = %q", stdout.String())
+			}
+			if strings.Contains(stderr.String(), "Extracting") || strings.Contains(stderr.String(), "Destination") {
+				t.Fatalf("dump mode was not quiet: %q", stderr.String())
+			}
+			assertPathExists(t, filepath.Join(root, "Deterministic Fixture.bin"), test.noSimulate)
+		})
+	}
+}
+
+func TestRunDumpJSONSimulationSuppressesRelatedFiles(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"--dump-json", "--write-subs", "--sub-langs", "es",
+		"--download-archive", filepath.Join(root, "archive.txt"),
+		"--output-dir", root, server.URL + "/page",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("dump simulation wrote files: %#v", entries)
+	}
+}
+
+func TestRunDumpJSONExplicitNoQuietAndCombinedModes(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"--dump-json", "--no-quiet", server.URL + "/page"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("no-quiet code=%d stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "Extracting") {
+		t.Fatalf("explicit --no-quiet did not restore progress: %q", stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"-j", "-J", server.URL + "/page"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("combined code=%d stderr=%q", code, stderr.String())
+	}
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	if len(lines) != 2 || !json.Valid([]byte(lines[0])) || !json.Valid([]byte(lines[1])) {
+		t.Fatalf("combined output = %q", stdout.String())
+	}
+}
+
+func TestRunDumpJSONFromConfigurationHonorsCommandLineNoSimulate(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "yt-dlp.conf")
+	if err := os.WriteFile(configPath, []byte("--dump-json\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{
+		"--config-location", configPath,
+		"--no-simulate",
+		"--output-dir", root,
+		server.URL + "/page",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !json.Valid(bytes.TrimSpace(stdout.Bytes())) {
+		t.Fatalf("JSON output = %q", stdout.String())
+	}
+	if strings.Contains(stderr.String(), "Extracting") {
+		t.Fatalf("configured dump mode was not quiet: %q", stderr.String())
+	}
+	assertPathExists(t, filepath.Join(root, "Deterministic Fixture.bin"), true)
+}
+
+func TestWriteVideoJSONLinesFlattensPlaylistsAndHandlesFailures(t *testing.T) {
+	leafOne := ytdlp.Result{InfoJSON: json.RawMessage(`{"id":"one","title":"One"}`)}
+	leafTwo := ytdlp.Result{InfoJSON: json.RawMessage(`{"id":"two","title":"Two"}`)}
+	nested := ytdlp.Result{
+		InfoJSON: json.RawMessage(`{"_type":"playlist","id":"nested"}`),
+		Entries:  []ytdlp.Result{leafTwo},
+	}
+	playlist := ytdlp.Result{
+		InfoJSON: json.RawMessage(`{"_type":"playlist","id":"root"}`),
+		Entries:  []ytdlp.Result{leafOne, nested},
+	}
+	var output bytes.Buffer
+	if err := writeVideoJSONLines(context.Background(), playlist, &output); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(output.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("lines = %q", output.String())
+	}
+	for index, id := range []string{"one", "two"} {
+		var item struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal([]byte(lines[index]), &item); err != nil || item.ID != id {
+			t.Fatalf("line %d = %q, error %v", index, lines[index], err)
+		}
+	}
+	output.Reset()
+	if err := writeVideoJSONLines(context.Background(), ytdlp.Result{
+		InfoJSON: json.RawMessage(`{"_type":"playlist","id":"empty","entries":[]}`),
+	}, &output); err != nil || output.Len() != 0 {
+		t.Fatalf("empty playlist output=%q error=%v", output.String(), err)
+	}
+	for _, terminal := range []ytdlp.Result{
+		{InfoJSON: leafOne.InfoJSON, Skipped: true},
+		{InfoJSON: leafOne.InfoJSON, Archived: true},
+	} {
+		if err := writeVideoJSONLines(context.Background(), terminal, &output); err != nil || output.Len() != 0 {
+			t.Fatalf("terminal output=%q error=%v", output.String(), err)
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := writeVideoJSONLines(ctx, leafOne, &output); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancellation error = %v", err)
+	}
+	if err := writeVideoJSONLines(context.Background(), ytdlp.Result{InfoJSON: json.RawMessage(`{`)}, &output); err == nil {
+		t.Fatal("invalid metadata succeeded")
+	}
+	if err := writeVideoJSONLines(context.Background(), leafOne, failingJSONWriter{}); !errors.Is(err, errFailingJSONWriter) {
+		t.Fatalf("writer error = %v", err)
+	}
+	if err := writeVideoJSONLines(context.Background(), leafOne, shortJSONWriter{}); !errors.Is(err, io.ErrShortWrite) {
+		t.Fatalf("short writer error = %v", err)
+	}
+}
+
+func FuzzWriteJSONLine(f *testing.F) {
+	for _, seed := range [][]byte{
+		[]byte(`{"id":"video"}`),
+		[]byte("[1,2,3]"),
+		[]byte("null"),
+		[]byte("{"),
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, raw []byte) {
+		var output bytes.Buffer
+		err := writeJSONLine(context.Background(), json.RawMessage(raw), &output)
+		if err != nil {
+			return
+		}
+		line := bytes.TrimSuffix(output.Bytes(), []byte("\n"))
+		if output.Len() == 0 || output.Bytes()[output.Len()-1] != '\n' || !json.Valid(line) {
+			t.Fatalf("successful output is not one JSON line: %q", output.Bytes())
+		}
+	})
+}
+
+var errFailingJSONWriter = errors.New("failing JSON writer")
+
+type failingJSONWriter struct{}
+
+func (failingJSONWriter) Write([]byte) (int, error) { return 0, errFailingJSONWriter }
+
+type shortJSONWriter struct{}
+
+func (shortJSONWriter) Write(input []byte) (int, error) {
+	if len(input) == 0 {
+		return 0, nil
+	}
+	return len(input) - 1, nil
 }
 
 func TestRunWritesSelectedSubtitlesWhileSkippingMedia(t *testing.T) {

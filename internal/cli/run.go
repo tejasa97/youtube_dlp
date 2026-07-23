@@ -2,6 +2,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -55,6 +56,10 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	flags.Var(paths, "paths", "set a home output/config path (home:PATH)")
 	flags.Var(paths, "P", "alias for --paths")
 	printJSON := flags.Bool("print-json", false, "print normalized metadata JSON to stdout")
+	dumpJSON := flags.Bool("dump-json", false, "quietly print one JSON object per video (simulates unless --no-simulate)")
+	flags.BoolVar(dumpJSON, "j", false, "alias for --dump-json")
+	dumpSingleJSON := flags.Bool("dump-single-json", false, "quietly print one JSON object for the complete URL result (simulates unless --no-simulate)")
+	flags.BoolVar(dumpSingleJSON, "J", false, "alias for --dump-single-json")
 	listSubtitles := flags.Bool("list-subs", false, "list available subtitles and automatic captions (simulates unless --no-simulate)")
 	var simulate, simulateSet bool
 	setSimulation := func(enabled bool) func(string) error {
@@ -83,7 +88,19 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	overwrite := flags.Bool("force-overwrites", false, "replace an existing final file")
 	progressJSON := flags.Bool("progress-json", false, "write newline-delimited progress events to stderr")
 	telemetryJSON := flags.Bool("telemetry-json", false, "write one privacy-safe aggregate telemetry snapshot to stdout")
-	quiet := flags.Bool("quiet", false, "suppress human-readable progress")
+	var quiet, quietSet bool
+	setQuiet := func(enabled bool) func(string) error {
+		return func(input string) error {
+			value, err := strconv.ParseBool(input)
+			if err != nil {
+				return err
+			}
+			quiet, quietSet = enabled == value, true
+			return nil
+		}
+	}
+	flags.BoolFunc("quiet", "suppress human-readable progress", setQuiet(true))
+	flags.BoolFunc("no-quiet", "show human-readable progress when metadata output would imply quiet", setQuiet(false))
 	javascriptHelper := flags.String("js-helper", "", "path to the isolated JavaScript helper")
 	cookieFile := flags.String("cookies", "", "load cookies from a Netscape cookies.txt file")
 	cookiesFromBrowser := flags.String("cookies-from-browser", "", "import cookies from Firefox or a supported platform Chromium browser")
@@ -221,9 +238,12 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		flags.Usage()
 		return 2
 	}
-	if *telemetryJSON && *printJSON {
-		fmt.Fprintln(stderr, "ytdlp-go: --telemetry-json and --print-json cannot share stdout")
+	if *telemetryJSON && (*printJSON || *dumpJSON || *dumpSingleJSON) {
+		fmt.Fprintln(stderr, "ytdlp-go: --telemetry-json and JSON metadata output cannot share stdout")
 		return 2
+	}
+	if (*dumpJSON || *dumpSingleJSON) && !quietSet {
+		quiet = true
 	}
 	subtitleConvertFormat, err := parseSubtitleConvertFormat(*convertSubtitles)
 	if err != nil {
@@ -235,7 +255,7 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		if *progressJSON {
 			return json.NewEncoder(stderr).Encode(event)
 		}
-		if *quiet {
+		if quiet {
 			return nil
 		}
 		switch event.Kind {
@@ -284,7 +304,7 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	}
 	// yt-dlp's listing flags imply simulation only when the user has not made
 	// the tri-state simulation choice explicit.
-	requestSimulate := simulate || !simulateSet && *listSubtitles
+	requestSimulate := simulate || !simulateSet && (*listSubtitles || *dumpJSON || *dumpSingleJSON)
 	requestSubtitles := ytdlp.SubtitleOptions{
 		WriteManual: *writeSubtitles, WriteAutomatic: *writeAutomaticSubtitles,
 		Embed: *embedSubtitles, KeepFiles: *embedSubtitles && *writeSubtitles,
@@ -329,11 +349,71 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 			return exitCode(err)
 		}
 	}
-	if *printJSON {
+	if *dumpJSON {
+		if err := writeVideoJSONLines(ctx, result, stdout); err != nil {
+			fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
+			return exitCode(err)
+		}
+	}
+	if *dumpSingleJSON {
+		if err := writeJSONLine(ctx, result.InfoJSON, stdout); err != nil {
+			fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
+			return exitCode(err)
+		}
+	}
+	if *printJSON && !*dumpJSON && !*dumpSingleJSON {
 		_, _ = stdout.Write(result.InfoJSON)
 		_, _ = fmt.Fprintln(stdout)
 	}
 	return 0
+}
+
+func writeVideoJSONLines(ctx context.Context, result ytdlp.Result, writer io.Writer) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if len(result.Entries) != 0 {
+		for _, entry := range result.Entries {
+			if err := writeVideoJSONLines(ctx, entry, writer); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if result.Skipped || result.Archived {
+		return nil
+	}
+	var kind struct {
+		Type string `json:"_type"`
+	}
+	if err := json.Unmarshal(result.InfoJSON, &kind); err != nil {
+		return fmt.Errorf("dump JSON: invalid result metadata")
+	}
+	if kind.Type == "playlist" {
+		return nil
+	}
+	return writeJSONLine(ctx, result.InfoJSON, writer)
+}
+
+func writeJSONLine(ctx context.Context, raw json.RawMessage, writer io.Writer) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, raw); err != nil {
+		return fmt.Errorf("dump JSON: invalid result metadata")
+	}
+	if written, err := writer.Write(compact.Bytes()); err != nil {
+		return fmt.Errorf("write JSON metadata: %w", err)
+	} else if written != compact.Len() {
+		return fmt.Errorf("write JSON metadata: %w", io.ErrShortWrite)
+	}
+	if written, err := io.WriteString(writer, "\n"); err != nil {
+		return fmt.Errorf("write JSON metadata: %w", err)
+	} else if written != 1 {
+		return fmt.Errorf("write JSON metadata: %w", io.ErrShortWrite)
+	}
+	return nil
 }
 
 func writeSubtitleListings(ctx context.Context, result ytdlp.Result, stdout, stderr io.Writer) error {

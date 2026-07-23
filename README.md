@@ -155,6 +155,15 @@ Extract metadata without downloading:
 Unlike simulation, `--skip-download` (alias `--no-download`) still permits
 explicitly requested subtitle sidecars.
 
+Emit one quiet JSON line per video, simulating by default:
+
+```sh
+./bin/ytdlp-go -j URL
+```
+
+Use `-J` for one whole-result JSON line, including playlists. Add
+`--no-simulate` to either mode to emit JSON and continue downloading.
+
 Select a format and output name:
 
 ```sh
