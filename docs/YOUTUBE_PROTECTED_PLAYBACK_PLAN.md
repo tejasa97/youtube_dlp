@@ -58,7 +58,7 @@ top/new sorting, legacy and modern fields, click-tracked reply continuations,
 nested subthreads, bounded retries, pinned duplicate handling, visitor
 rotation, exact-origin signed continuations, and explicit resource limits.
 Bare channel/handle/legacy-alias upload aggregation is implemented. Estimated
-pre-fetch counts, membership/custom tabs, topic-channel playlist fallback, and
+pre-fetch counts, membership/custom tabs, and
 non-playable search result breadth remain pending.
 
 The finite post-live DVR and opt-in active live-from-start paths are complete:

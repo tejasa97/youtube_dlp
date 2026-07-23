@@ -1,6 +1,7 @@
 # YouTube legacy alias-tab evidence
 
-Status: compatible for bounded public explicit `/user` and `/c` tab routes.
+Status: compatible for bounded public `/user` and `/c` tab and bare-root
+routes.
 
 ## Behavior
 
@@ -20,7 +21,9 @@ request.
 Initial pages and bounded browse continuations reuse the existing ordered
 YouTube tab renderer model. Playlist identity prefers a valid metadata UCID
 and otherwise uses a stable typed alias identity. Requested-tab mismatches
-fail closed when the page exposes decisive selected-tab metadata.
+fail closed when the page exposes decisive selected-tab metadata. A bare root
+with no advertised upload tabs and a valid metadata UCID tries the equivalent
+synthesized uploads playlist.
 
 ## Provenance
 
@@ -51,8 +54,8 @@ do not depend on the reference checkout.
 
 ## Known deviations
 
-- Membership, arbitrary custom tabs, channel search, and topic-channel
-  synthesized-playlist fallback remain outside this bounded extractor.
+- Membership, arbitrary custom tabs, and channel search remain outside this
+  bounded extractor.
 - Conditional redirects, renamed aliases, authenticated/private tabs, and
   arbitrary renderer parity are not claimed.
 - Alias spelling is preserved rather than guessed or normalized beyond URL
