@@ -47,6 +47,13 @@ implementation preserves those rules over at most 128 statistics per media
 object. Relaxed string counts remove the same comma, period, and plus
 separators as the reference before bounded int64 conversion.
 
+Schema.org `hasPart` Clip objects follow the pinned chapter model: the first
+missing start defaults to zero, a missing end may use the next explicit start,
+a later missing start may use the prior end, and the final missing end may use
+the media duration. The Go implementation additionally rejects missing titles,
+unresolvable boundaries, negative/reversed intervals, overlaps, and more than
+256 clips rather than emitting an ambiguous timeline.
+
 The Go implementation additionally recognizes Schema.org `embedUrl` when a
 VideoObject/AudioObject has no `contentUrl`. This is an intentional native
 improvement rather than a pinned-reference parity claim. It never follows the
