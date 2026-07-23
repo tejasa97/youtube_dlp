@@ -75,7 +75,7 @@ decisions. Synthetic fixtures are not presented as substitutes for those facts.
 | Operations | Opt-in privacy-safe telemetry, semantic-shadow comparison, bounded canaries, and local diagnosis reports |
 | Releases | Reproducible no-cgo alpha assembly, SPDX/license output, signed updater metadata, rollback, and Python-free container evidence |
 
-The capability manifest currently records 59 capabilities: 58 compatible
+The capability manifest currently records 60 capabilities: 59 compatible
 within their declared corpora and one intentional deviation. A compatible
 entry is not a claim of complete yt-dlp parity. See the
 [Phase 3 exit review](docs/PHASE_3_EXIT_REVIEW.md), [Phase 2 security
@@ -170,6 +170,15 @@ Emit one quiet JSON line per video, simulating by default:
 
 Use `-J` for one whole-result JSON line, including playlists. Add
 `--no-simulate` to either mode to emit JSON and continue downloading.
+
+Print selected fields without downloading:
+
+```sh
+./bin/ytdlp-go -O "title,id" URL
+```
+
+Use a lifecycle prefix such as `after_move:%(filename)s` when the value must be
+captured after the native media pipeline. Later stages do not imply simulation.
 
 Select a format and output name:
 

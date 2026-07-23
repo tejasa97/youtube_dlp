@@ -65,6 +65,33 @@ type RelatedFileOptions struct {
 	NoPlaylist       bool
 }
 
+// PrintStage identifies a metadata lifecycle point for a print rule.
+type PrintStage string
+
+const (
+	PrintPreProcess  PrintStage = "pre_process"
+	PrintAfterFilter PrintStage = "after_filter"
+	PrintVideo       PrintStage = "video"
+	PrintBeforeDL    PrintStage = "before_dl"
+	PrintPostProcess PrintStage = "post_process"
+	PrintAfterMove   PrintStage = "after_move"
+	PrintAfterVideo  PrintStage = "after_video"
+	PrintPlaylist    PrintStage = "playlist"
+)
+
+// PrintRule captures a bounded output template at one lifecycle stage.
+type PrintRule struct {
+	Stage         PrintStage
+	Template      string
+	OmitIfMissing string
+}
+
+// PrintOutput is one rendered print rule in deterministic rule order.
+type PrintOutput struct {
+	Stage PrintStage `json:"stage"`
+	Text  string     `json:"text"`
+}
+
 // CommentOptions controls opt-in comment metadata retrieval. The initial
 // native implementation applies these settings to YouTube videos.
 type YouTubeCommentOptions struct {
@@ -204,6 +231,15 @@ func validateRequestOptions(request Request) error {
 	}
 	if len(request.Postprocessors) > 64 {
 		return fmt.Errorf("%w: more than 64 postprocessors", errInvalidRequestOptions)
+	}
+	if len(request.PrintRules) > 64 {
+		return fmt.Errorf("%w: more than 64 print rules", errInvalidRequestOptions)
+	}
+	for index, rule := range request.PrintRules {
+		if !validPrintStage(rule.Stage) || rule.Template == "" ||
+			len(rule.OmitIfMissing) > 256 || strings.ContainsAny(rule.OmitIfMissing, "\x00\r\n") {
+			return fmt.Errorf("%w: print rule %d", errInvalidRequestOptions, index)
+		}
 	}
 	if err := validateSubtitleOptions(request.Subtitles); err != nil {
 		return fmt.Errorf("%w: %v", errInvalidRequestOptions, err)

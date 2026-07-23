@@ -374,6 +374,60 @@ func TestRunDumpJSONModesSimulateQuietlyAndNoSimulateDownloads(t *testing.T) {
 	}
 }
 
+func TestRunPrintTemplatesSimulationAndLaterStageDownload(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	for _, test := range []struct {
+		name       string
+		arguments  []string
+		wantOutput string
+		download   bool
+	}{
+		{name: "field shorthand", arguments: []string{"-O", "title,id"}, wantOutput: "Deterministic Fixture\nfixture-direct\n"},
+		{name: "selected fields", arguments: []string{"--print", "%(format_id)s|%(ext)s"}, wantOutput: "direct-http|bin\n"},
+		{name: "explicit no simulate", arguments: []string{"--no-simulate", "-O", "title"}, wantOutput: "Deterministic Fixture\n", download: true},
+		{name: "later stage", arguments: []string{"--print", "before_dl:title"}, wantOutput: "Deterministic Fixture\n", download: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			arguments := append([]string{}, test.arguments...)
+			arguments = append(arguments, "--output-dir", root, server.URL+"/page")
+			var stdout, stderr bytes.Buffer
+			if code := Run(arguments, &stdout, &stderr); code != 0 {
+				t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+			}
+			if stdout.String() != test.wantOutput {
+				t.Fatalf("stdout=%q want=%q", stdout.String(), test.wantOutput)
+			}
+			if strings.Contains(stderr.String(), "Extracting") {
+				t.Fatalf("print did not imply quiet: %q", stderr.String())
+			}
+			assertPathExists(t, filepath.Join(root, "Deterministic Fixture.bin"), test.download)
+		})
+	}
+}
+
+func TestRunLegacyGetAliasesOrderAndOptionalOmission(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"--get-url", "--get-title", "--get-id", "--get-thumbnail", "--get-description",
+		"--get-duration", "--get-filename", "--get-format", "--output-dir", root, server.URL + "/page",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	if len(lines) != 5 || lines[0] != "Deterministic Fixture" || lines[1] != "fixture-direct" ||
+		lines[2] != server.URL+"/media" || lines[3] != filepath.Join(root, "Deterministic Fixture.bin") ||
+		lines[4] != "direct-http" {
+		t.Fatalf("legacy output=%q", stdout.String())
+	}
+	assertPathExists(t, filepath.Join(root, "Deterministic Fixture.bin"), false)
+}
+
 func TestRunDumpJSONSimulationSuppressesRelatedFiles(t *testing.T) {
 	server := testserver.New()
 	defer server.Close()
