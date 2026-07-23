@@ -121,6 +121,9 @@ func extractYouTubeAliasTab(ctx context.Context, transport Transport, kind, alia
 	if err != nil {
 		return Extraction{}, fmt.Errorf("%w: YouTube alias tab initial data", ErrInvalidMetadata)
 	}
+	if redirect, ok, err := youtubeConditionalRedirectResult(raw, canonical, tab); err != nil || ok {
+		return redirect, err
+	}
 	if err := validateYouTubeSelectedTab(raw, tab); err != nil {
 		return Extraction{}, err
 	}

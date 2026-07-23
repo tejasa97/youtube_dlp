@@ -21,6 +21,7 @@ otherwise it uses the stable bounded `handle:@handle` ID.
 The exact bare `/@handle` route lazily aggregates advertised videos, streams,
 and Shorts without admitting home shelves. A metadata UCID permits the same
 bounded synthesized uploads-playlist fallback used by direct channel roots.
+Conditional regional redirects preserve the requested explicit tab.
 
 Encoded separators, backslashes, NULs, invalid UTF-8, emoji, combining marks,
 and non-HTTP URL forms remain rejected. This matches the pinned Python `\w`

@@ -16,7 +16,8 @@ authentication/unavailable/rate-limit/network classification.
 The exact bare `/channel/<UCID>` route lazily aggregates advertised videos,
 streams, and Shorts without admitting home shelves. When none are advertised,
 it tries the equivalent `UU<channel-suffix>` uploads playlist and returns an
-empty channel playlist if that derived playlist is unavailable.
+empty channel playlist if that derived playlist is unavailable. Bounded
+conditional regional redirects preserve the requested explicit tab.
 
 Not implemented: channel search, membership or arbitrary custom tabs, mixes,
 arbitrary renderer parity, authenticated/private success, or live-site

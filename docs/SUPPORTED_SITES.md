@@ -66,7 +66,7 @@ protected-playback workstream. The following are supported:
   including bounded Unicode aliases and lazy continuation;
 - bare `/channel/<UCID>`, `/@handle`, `/user/<alias>`, and `/c/<alias>` roots,
   aggregated lazily in videos, streams, then Shorts order without including
-  home-page shelves;
+  home-page shelves, including bounded conditional regional-channel routing;
 - bounded public video searches using `ytsearch:`, `ytsearchN:`,
   `ytsearchall:` (capped at 50), and exact `/results` or `/search` URLs;
 - bounded playable YouTube Music searches at `music.youtube.com/search`,
