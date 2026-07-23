@@ -11,3 +11,12 @@ from that implementation.
 Every URL uses reserved `.example` data except the synthetic input URL. The
 token, identifiers, title, owner, media metadata, and bytes are invented. Tests
 use an in-memory profile-aware transport and make no Vimeo or media request.
+
+`request.text_tracks` models the public manual-caption list handled by
+`VimeoBaseIE._parse_config` in the pinned reference (lines 325-328). Relative
+and protocol-relative tracks intentionally resolve to `player.vimeo.com`; all
+track data and query tokens are synthetic.
+
+The config fixture's `player.vimeo.com` endpoint is likewise deliberate: the
+extractor requests only that HTTPS origin and retains its synthetic query token
+while using a canonical token-free Vimeo Referer.
