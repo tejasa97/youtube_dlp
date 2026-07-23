@@ -392,6 +392,7 @@ client := ytdlp.NewClient(
         return nil
     }),
 )
+defer client.Close()
 
 result, err := client.Run(ctx, ytdlp.Request{
     URL:          rawURL,

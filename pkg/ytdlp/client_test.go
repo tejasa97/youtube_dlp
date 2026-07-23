@@ -983,3 +983,39 @@ func FuzzConfinedPostprocessPath(f *testing.F) {
 		}
 	})
 }
+
+// TestClientConcurrentRunAndClose is a basic concurrency smoke test verifying
+// that concurrent Run and Close calls do not panic. It uses the generic
+// fixture extractor (no JavaScript helper). The helper-backed active-solve
+// drain test is TestSupervisorConcurrentExecuteAndCloseDrainsActiveSolves in
+// the supervisor package, which exercises real JavaScript execution, asserts
+// operation results, and verifies helper process cleanup.
+func TestClientConcurrentRunAndClose(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+
+	for iteration := 0; iteration < 5; iteration++ {
+		client := NewClient()
+		var wg sync.WaitGroup
+		// Launch concurrent Run calls.
+		for i := 0; i < 4; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, _ = client.Run(context.Background(), Request{URL: server.URL + "/page", SkipDownload: true})
+			}()
+		}
+		// Concurrently close while runs may be in flight.
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			time.Sleep(time.Millisecond)
+			client.Close()
+		}()
+		wg.Wait()
+		// After Close, subsequent Run calls should still work (lazy re-creation)
+		// or fail gracefully—no panics.
+		_, _ = client.Run(context.Background(), Request{URL: server.URL + "/page", SkipDownload: true})
+		client.Close()
+	}
+}

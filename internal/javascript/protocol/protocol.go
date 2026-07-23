@@ -13,7 +13,10 @@ import (
 	"time"
 )
 
-const Version = 1
+const (
+	Version            = 1
+	MaxRequestIDLength = 128
+)
 
 type Operation string
 
@@ -48,7 +51,14 @@ const (
 	DefaultModuleBytes = 2 << 20
 	DefaultMaxModules  = 16
 
-	HardMaxWallTime    = 30 * time.Second
+	// HardMaxWallTime bounds untrusted protocol requests.
+	HardMaxWallTime = 30 * time.Second
+
+	// TrustedMaxWallTime is the extended ceiling for explicitly trusted
+	// internal callers (e.g., EJS player preprocessing that runs a JS parser
+	// inside the pure-Go goja engine). Requests must opt in via Limits.Trusted.
+	TrustedMaxWallTime = 60 * time.Second
+
 	HardMaxMemoryBytes = 512 << 20
 	HardMaxOutputBytes = 8 << 20
 	HardMaxSourceBytes = 8 << 20
@@ -57,7 +67,7 @@ const (
 )
 
 var (
-	requestIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
+	requestIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 	functionPattern  = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)*$`)
 	modulePattern    = regexp.MustCompile(`^[A-Za-z0-9@._/-]{1,256}$`)
 )
@@ -70,6 +80,16 @@ type Limits struct {
 	SourceBytes int64 `json:"source_bytes,omitempty"`
 	ModuleBytes int64 `json:"module_bytes,omitempty"`
 	MaxModules  int   `json:"max_modules,omitempty"`
+	// Trusted opts into the extended TrustedMaxWallTime ceiling for
+	// in-process validation (supervisor side). Never serialized.
+	// Only honored for EJS preprocessing calls (function "jsc").
+	Trusted bool `json:"-"`
+	// TrustedWallTimeMS is the serialized wall-time ceiling minted by the
+	// supervisor for approved EJS preprocessing calls. Callers must not
+	// provide this field; the supervisor strips it at the boundary and
+	// mints it only for operation=call, function="jsc" with Trusted=true.
+	// The helper validates WallTimeMS against this value when present.
+	TrustedWallTimeMS int64 `json:"trusted_wall_time_ms,omitempty"`
 }
 
 // Module is an explicitly supplied source module. The helper never resolves
@@ -118,7 +138,7 @@ func (request Request) Normalize() (Request, error) {
 	if request.Version != Version {
 		return Request{}, fmt.Errorf("version %d is incompatible with %d", request.Version, Version)
 	}
-	if !requestIDPattern.MatchString(request.ID) {
+	if len(request.ID) > MaxRequestIDLength || !requestIDPattern.MatchString(request.ID) {
 		return Request{}, errors.New("id must contain 1-128 safe characters")
 	}
 	switch request.Operation {
@@ -134,6 +154,15 @@ func (request Request) Normalize() (Request, error) {
 		return Request{}, fmt.Errorf("unsupported operation %q", request.Operation)
 	}
 	request.Limits = request.Limits.withDefaults()
+	// The extended trusted wall-time allowance is restricted to EJS
+	// preprocessing calls (operation=call, function="jsc"). Strip any
+	// caller-provided TrustedWallTimeMS or Trusted flag from other
+	// operations to prevent generic evaluate/call requests from
+	// obtaining more than HardMaxWallTime (30 s).
+	if request.Operation != OperationCall || request.Function != "jsc" {
+		request.Limits.TrustedWallTimeMS = 0
+		request.Limits.Trusted = false
+	}
 	if err := request.Limits.validate(); err != nil {
 		return Request{}, err
 	}
@@ -196,11 +225,21 @@ func (limits Limits) withDefaults() Limits {
 }
 
 func (limits Limits) validate() error {
+	wallTimeMax := HardMaxWallTime.Milliseconds()
+	if limits.Trusted {
+		wallTimeMax = TrustedMaxWallTime.Milliseconds()
+	} else if limits.TrustedWallTimeMS > 0 {
+		// Serialized trusted ceiling from the supervisor (helper side).
+		if limits.TrustedWallTimeMS > TrustedMaxWallTime.Milliseconds() {
+			return fmt.Errorf("trusted_wall_time_ms exceeds %d", TrustedMaxWallTime.Milliseconds())
+		}
+		wallTimeMax = limits.TrustedWallTimeMS
+	}
 	checks := []struct {
 		name       string
 		value, max int64
 	}{
-		{"wall_time_ms", limits.WallTimeMS, HardMaxWallTime.Milliseconds()},
+		{"wall_time_ms", limits.WallTimeMS, wallTimeMax},
 		{"memory_bytes", limits.MemoryBytes, HardMaxMemoryBytes},
 		{"output_bytes", limits.OutputBytes, HardMaxOutputBytes},
 		{"source_bytes", limits.SourceBytes, HardMaxSourceBytes},
