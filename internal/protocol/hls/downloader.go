@@ -120,6 +120,9 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 	var plan []fragment.Segment
 	for _, key := range keys {
 		segment := segments[key]
+		if segment.Advertisement {
+			continue
+		}
 		if segment.Map != nil {
 			mapKey := fmt.Sprintf("%s:%d:%d", segment.Map.URL, segment.Map.RangeStart, segment.Map.RangeLength)
 			if _, exists := seenMaps[mapKey]; !exists {

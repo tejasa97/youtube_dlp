@@ -247,12 +247,23 @@ capabilities:
       - internal/protocol/hls.TestDownloadLowLatencyPartsAreReplacedByCompletedSegment
       - internal/protocol/hls.TestDownloadEmptyPlaylistReturnsNoSegments
       - internal/protocol/hls.TestParseBoundsInputAndEntryCount
+      - internal/protocol/hls.TestAdvertisementMarkerExactGrammar
+      - internal/protocol/hls.TestParseAdvertisementStateOrderSequencesAndReset
+      - internal/protocol/hls.TestParseAdvertisementDeltaPartsPreserveMetadataAndRanges
+      - internal/protocol/hls.TestDownloadSuppressesAttributedVODAdvertisements
+      - internal/protocol/hls.TestDownloadLiveAdvertisementReclassificationAndCompleteReplacement
+      - internal/protocol/hls.TestDownloadAdvertisementKeysMapsAndPhysicalAESIV
+      - internal/protocol/hls.TestDownloadAllAdvertisementsReturnsNoSegmentsWithoutScratch
       - internal/protocol/hls.FuzzParse
+      - internal/protocol/hls.FuzzAdvertisementMarkers
       - pkg/ytdlp.TestClientHLSAndDASHDispatch
+      - pkg/ytdlp.TestClientHLSSuppressesAttributedAdFragments
       - internal/cli.TestRunHLSProtocolDispatch
       - conformance/media/llhls/PROVENANCE.md
+      - conformance/media/hls_ads/PROVENANCE.md
+      - docs/HLS_AD_FRAGMENT_SUPPRESSION_EVIDENCE.md
     owner: io
-    known_deviation: Product format dispatch includes bounded low-latency parts and delta skips. Preload hints and rendition reports are ignored; SAMPLE-AES and non-AES-128 encryption remain explicitly unsupported.
+    known_deviation: Product format dispatch includes bounded low-latency parts, delta skips, and exact attributed Anvato/Uplynk ad-fragment suppression. Marker state restarts for each playlist snapshot; a sliding window that begins inside an unmarked ad cannot be inferred. SCTE-35, cue/date-range, asset-list, URI-heuristic, and markerless server-side insertion are not guessed. Physical sequence identities are retained across ads for live/delta de-duplication and AES IVs rather than reproducing the pinned native downloader's compact numbering. Preload hints and rendition reports are ignored; SAMPLE-AES and non-AES-128 encryption remain explicitly unsupported.
 
   - id: protocol.dash
     name: DASH downloading

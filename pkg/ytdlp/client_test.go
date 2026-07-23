@@ -930,6 +930,50 @@ func TestClientHLSAndDASHDispatch(t *testing.T) {
 	}
 }
 
+func TestClientHLSSuppressesAttributedAdFragments(t *testing.T) {
+	var adRequests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/media.m3u8":
+			writer.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+			if request.Method != http.MethodHead {
+				_, _ = fmt.Fprint(writer, `#EXTM3U
+#EXTINF:1,
+content-a.bin
+#ANVATO-SEGMENT-INFO:type=ad
+#EXTINF:1,
+ad.bin
+#ANVATO-SEGMENT-INFO:type=master
+#EXTINF:1,
+content-b.bin
+#EXT-X-ENDLIST
+`)
+			}
+		case "/content-a.bin":
+			_, _ = writer.Write([]byte("content-a-"))
+		case "/content-b.bin":
+			_, _ = writer.Write([]byte("content-b"))
+		case "/ad.bin":
+			adRequests.Add(1)
+			_, _ = writer.Write([]byte("advertisement"))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	result, err := NewClient().Run(context.Background(), Request{
+		URL: server.URL + "/media.m3u8", OutputDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(result.Filename)
+	if err != nil || string(contents) != "content-a-content-b" || adRequests.Load() != 0 {
+		t.Fatalf("contents=%q ad requests=%d err=%v", contents, adRequests.Load(), err)
+	}
+}
+
 func TestClientISMDispatch(t *testing.T) {
 	const manifest = `<SmoothStreamingMedia TimeScale="10" Duration="20"><StreamIndex Type="video" Url="video/QualityLevels({bitrate})/Fragments(video={start time})"><QualityLevel Bitrate="200" FourCC="H264"/><c t="0" d="10" r="1"/></StreamIndex></SmoothStreamingMedia>`
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

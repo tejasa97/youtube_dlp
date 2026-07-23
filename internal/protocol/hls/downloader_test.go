@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"net/http"
@@ -192,6 +193,210 @@ func TestDownloadEmptyPlaylistReturnsNoSegments(t *testing.T) {
 		context.Background(), server.URL+"/empty.m3u8", root, filepath.Join(root, "empty.bin"), false, nil)
 	if !errors.Is(err, fragment.ErrNoSegments) {
 		t.Fatalf("empty playlist error = %v", err)
+	}
+}
+
+func TestDownloadSuppressesAttributedVODAdvertisements(t *testing.T) {
+	fixture, err := os.ReadFile("../../../conformance/media/hls_ads/mixed-vod.m3u8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var advertisementHits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/mixed-vod.m3u8":
+			_, _ = writer.Write(fixture)
+		case "/media-40.bin":
+			_, _ = writer.Write([]byte("forty-"))
+		case "/media-42.bin":
+			_, _ = writer.Write([]byte("forty-two-"))
+		case "/media-44.bin":
+			_, _ = writer.Write([]byte("forty-four"))
+		case "/anvato-ad-41.bin", "/uplynk-ad-43.bin":
+			advertisementHits.Add(1)
+			_, _ = writer.Write([]byte("ADVERTISEMENT"))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "suppressed.bin")
+	result, err := NewDownloader(transport, Config{MaxSegments: 3}).Download(
+		context.Background(), server.URL+"/mixed-vod.m3u8", root, destination, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(destination)
+	if err != nil || string(contents) != "forty-forty-two-forty-four" {
+		t.Fatalf("contents=%q err=%v", contents, err)
+	}
+	if got, want := fmt.Sprintf("%x", sha256.Sum256(contents)), "235f2f70c5d54c69777f1f36a19a0f23929a545457420b651de1958b3bfea86e"; got != want {
+		t.Fatalf("output SHA-256=%s want %s", got, want)
+	}
+	if advertisementHits.Load() != 0 || result.Downloaded != 3 {
+		t.Fatalf("ad hits=%d result=%#v", advertisementHits.Load(), result)
+	}
+}
+
+func TestDownloadLiveAdvertisementReclassificationAndCompleteReplacement(t *testing.T) {
+	var polls atomic.Int32
+	var advertisementHits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/live.m3u8":
+			switch polls.Add(1) {
+			case 1:
+				_, _ = fmt.Fprint(writer, `#EXTM3U
+#EXT-X-MEDIA-SEQUENCE:10
+#ANVATO-SEGMENT-INFO:type=ad
+#EXTINF:1,
+ad-10.bin
+#EXT-X-PART:DURATION=0.5,URI="ad-11.0.bin"
+#EXT-X-PART:DURATION=0.5,URI="ad-11.1.bin"
+`)
+			case 2:
+				_, _ = fmt.Fprint(writer, `#EXTM3U
+#EXT-X-MEDIA-SEQUENCE:10
+#EXTINF:1,
+media-10.bin
+#UPLYNK-SEGMENT,ad
+#EXT-X-PART:DURATION=0.5,URI="ad-new-11.0.bin"
+#EXT-X-PART:DURATION=0.5,URI="ad-new-11.1.bin"
+`)
+			default:
+				_, _ = fmt.Fprint(writer, `#EXTM3U
+#EXT-X-MEDIA-SEQUENCE:10
+#EXTINF:1,
+media-10.bin
+#EXTINF:1,
+media-11.bin
+#EXT-X-ENDLIST
+`)
+			}
+		case "/media-10.bin":
+			_, _ = writer.Write([]byte("ten-"))
+		case "/media-11.bin":
+			_, _ = writer.Write([]byte("eleven"))
+		case "/ad-10.bin", "/ad-11.0.bin", "/ad-11.1.bin", "/ad-new-11.0.bin", "/ad-new-11.1.bin":
+			advertisementHits.Add(1)
+			_, _ = writer.Write([]byte("ADVERTISEMENT"))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "live-suppressed.bin")
+	_, err := NewDownloader(transport, Config{PollInterval: time.Millisecond, MaxPolls: 4}).Download(
+		context.Background(), server.URL+"/live.m3u8", root, destination, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(destination)
+	if err != nil || string(contents) != "ten-eleven" {
+		t.Fatalf("contents=%q err=%v", contents, err)
+	}
+	if polls.Load() != 3 || advertisementHits.Load() != 0 {
+		t.Fatalf("polls=%d ad hits=%d", polls.Load(), advertisementHits.Load())
+	}
+}
+
+func TestDownloadAdvertisementKeysMapsAndPhysicalAESIV(t *testing.T) {
+	key := []byte("0123456789abcdef")
+	iv := make([]byte, aes.BlockSize)
+	iv[len(iv)-1] = 6 // Ad is physical sequence 5; retained media is sequence 6.
+	encrypted := encryptSegment(t, []byte("media-secret"), key, iv)
+	var adResourceHits atomic.Int32
+	var mediaKeyHits atomic.Int32
+	var mediaMapHits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/media.m3u8":
+			_, _ = fmt.Fprint(writer, `#EXTM3U
+#EXT-X-MEDIA-SEQUENCE:5
+#ANVATO-SEGMENT-INFO:type=ad
+#EXT-X-MAP:URI="ad-init.bin"
+#EXT-X-KEY:METHOD=AES-128,URI="ad-key.bin"
+#EXTINF:1,
+ad-5.bin
+#ANVATO-SEGMENT-INFO:type=master
+#EXT-X-MAP:URI="media-init.bin"
+#EXT-X-KEY:METHOD=AES-128,URI="media-key.bin"
+#EXTINF:1,
+media-6.bin
+#EXT-X-ENDLIST
+`)
+		case "/ad-init.bin", "/ad-key.bin", "/ad-5.bin":
+			adResourceHits.Add(1)
+			_, _ = writer.Write([]byte("must-not-be-requested"))
+		case "/media-init.bin":
+			mediaMapHits.Add(1)
+			_, _ = writer.Write([]byte("init-"))
+		case "/media-key.bin":
+			mediaKeyHits.Add(1)
+			_, _ = writer.Write(key)
+		case "/media-6.bin":
+			_, _ = writer.Write(encrypted)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "encrypted.bin")
+	_, err := NewDownloader(transport, Config{}).Download(
+		context.Background(), server.URL+"/media.m3u8", root, destination, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(destination)
+	if err != nil || string(contents) != "init-media-secret" {
+		t.Fatalf("contents=%q err=%v", contents, err)
+	}
+	if adResourceHits.Load() != 0 || mediaMapHits.Load() != 1 || mediaKeyHits.Load() != 1 {
+		t.Fatalf("ad=%d map=%d key=%d", adResourceHits.Load(), mediaMapHits.Load(), mediaKeyHits.Load())
+	}
+}
+
+func TestDownloadAllAdvertisementsReturnsNoSegmentsWithoutScratch(t *testing.T) {
+	var resourceHits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/ads.m3u8":
+			_, _ = fmt.Fprint(writer, `#EXTM3U
+#UPLYNK-SEGMENT,ad
+#EXT-X-MAP:URI="ad-init.bin"
+#EXT-X-KEY:METHOD=AES-128,URI="ad-key.bin"
+#EXT-X-PART:DURATION=0.5,URI="ad-part.bin"
+#EXTINF:1,
+ad.bin
+#EXT-X-ENDLIST
+`)
+		default:
+			resourceHits.Add(1)
+			_, _ = writer.Write([]byte("must-not-be-requested"))
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "ads.bin")
+	_, err := NewDownloader(transport, Config{}).Download(
+		context.Background(), server.URL+"/ads.m3u8", root, destination, false, nil)
+	if !errors.Is(err, fragment.ErrNoSegments) {
+		t.Fatalf("error=%v", err)
+	}
+	if resourceHits.Load() != 0 {
+		t.Fatalf("ad resource hits=%d", resourceHits.Load())
+	}
+	for _, path := range []string{destination, destination + ".part", destination + ".fragments"} {
+		if _, statErr := os.Lstat(path); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("scratch path %q exists or returned unexpected error: %v", path, statErr)
+		}
 	}
 }
 
