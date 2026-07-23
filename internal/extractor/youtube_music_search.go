@@ -149,8 +149,14 @@ func parseYouTubeMusicSearchData(data []byte) (youtubeMusicSearchPage, error) {
 	nodes := 0
 	err := walkOrderedJSON(root, 0, &nodes, func(key string, o *value.Object) {
 		switch key {
-		case "musicResponsiveListItemRenderer", "musicTwoRowItemRenderer", "videoRenderer", "reelItemRenderer", "lockupViewModel":
+		case "musicResponsiveListItemRenderer", "musicTwoRowItemRenderer", "videoRenderer", "reelItemRenderer":
 			if e, ok := youtubeMusicSearchEntry(o); ok {
+				page.entries = append(page.entries, e)
+			}
+		case "lockupViewModel":
+			// Lockups can also represent albums, artists and playlists.  Reuse the
+			// strict video-only policy used by the YouTube playlist parser.
+			if e, ok := youtubePlaylistLockupEntry(o); ok {
 				page.entries = append(page.entries, e)
 			}
 		case "continuationItemRenderer":
