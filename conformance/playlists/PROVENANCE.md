@@ -22,7 +22,10 @@ URL result inside a playlist instead of recursively extracting or downloading
 it. The synthetic case combines that behavior with the pinned item-selection
 and reverse ordering expectations. It records the retained URL-result type,
 declared extractor key, and source `playlist_index`, with zero child
-extractions and downloads.
+extractions and downloads. The pinned
+`yt_dlp/YoutubeDL.py::YoutubeDL.__process_playlist` evaluates incomplete entry
+filters and archive membership before processing each flat URL result; the Go
+tests retain those policy boundaries without invoking the child extractor.
 
 The identifiers and compact JSON representations in this directory were
 written specifically for this Go project. They do not copy service responses,
