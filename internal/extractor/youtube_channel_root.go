@@ -45,6 +45,9 @@ func extractYouTubeBareChannelUploads(ctx context.Context, transport Transport, 
 	if err != nil {
 		return Extraction{}, fmt.Errorf("%w: YouTube %s root initial data", ErrInvalidMetadata, spec.subject)
 	}
+	if redirect, ok, err := youtubeConditionalRedirectResult(raw, spec.canonical, ""); err != nil || ok {
+		return redirect, err
+	}
 	metadata, err := parseYouTubeHandleTabData(raw, "videos")
 	if err != nil {
 		return Extraction{}, err

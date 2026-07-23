@@ -27,6 +27,8 @@ is advertised and a valid UCID is present, the extractor tries the equivalent
 valid empty channel playlist. A missing `/videos` page falls back once to the
 exact root for tab discovery. The combined iterator enforces the shared
 100,000-entry bound across all tabs.
+Conditional regional destinations are validated and returned through the
+registered channel-family extractor before root metadata is interpreted.
 
 Root URLs preserve validated channel, handle, or alias spelling, remove
 routing-only queries, and use metadata UCIDs when available. All existing
@@ -61,6 +63,6 @@ test paths.
 
 ## Known deviations
 
-- Members-only uploads, arbitrary custom tabs, conditional regional channel
-  redirects, and authenticated/private success remain outside this slice.
+- Members-only uploads, arbitrary custom tabs, and authenticated/private
+  success remain outside this slice.
 - Rich child metadata is delegated to each authoritative video extractor.
