@@ -111,9 +111,11 @@ The following limitations are intentional and remain:
 - live-from-start and finite `post_live` DVR reconstruction use the documented
   segment/poll bounds and do not support external-downloader delegation or
   process-restart resume;
-- authenticated Innertube coverage remains limited: `LOGIN_REQUIRED`
-  playability surfaces an authentication error rather than a signed-in
-  recovery path, and authenticated comments are not supported;
+- authenticated Innertube coverage remains limited: a logged-in watch page can
+  recover URL-bearing formats through one exact-origin WEB player request when
+  valid YouTube SID cookies and bounded WEB configuration are present.
+  Authenticated comments, browse/search/Music clients, broader player-client
+  rotation, and direct SABR/UMP are not supported;
 - comment extraction does not synthesize estimated timestamps or expose
   YouTube's approximate count before retrieval, and supports only the
   explicitly tested legacy and modern renderer families;
