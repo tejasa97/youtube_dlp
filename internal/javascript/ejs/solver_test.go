@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -830,86 +831,221 @@ func TestSingleflightWaiterJoinCancelRace(t *testing.T) {
 	}
 }
 
+// gateExecutor is a controllable executor for deterministic flight tests.
+// Each preprocess call blocks until its individual gate channel is closed,
+// allowing the test to control exactly when each flight's preprocessing
+// completes.
+type gateExecutor struct {
+	inner     Executor
+	mu        sync.Mutex
+	calls     int
+	gates     []chan struct{}
+	entered   chan int // signals the preprocess call number (1-based)
+	completed chan int // signals when a gated preprocess call returns
+}
+
+func newGateExecutor(inner Executor) *gateExecutor {
+	return &gateExecutor{
+		inner:     inner,
+		entered:   make(chan int, 8),
+		completed: make(chan int, 8),
+	}
+}
+
+func (g *gateExecutor) Execute(ctx context.Context, req protocol.Request) protocol.Response {
+	// Only gate preprocess calls (identified by ID suffix).
+	if !strings.HasSuffix(req.ID, "-preprocess") {
+		return g.inner.Execute(ctx, req)
+	}
+	g.mu.Lock()
+	g.calls++
+	n := g.calls
+	gate := make(chan struct{})
+	g.gates = append(g.gates, gate)
+	g.mu.Unlock()
+
+	// Signal that this preprocess call has entered.
+	g.entered <- n
+
+	// Block until the test releases this specific call.
+	<-gate
+
+	// After release, delegate to the real executor (which will see the
+	// canceled context for abandoned flights).
+	response := g.inner.Execute(ctx, req)
+	g.completed <- n
+	return response
+}
+
+func (g *gateExecutor) release(n int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if n > 0 && n <= len(g.gates) {
+		close(g.gates[n-1])
+	}
+}
+
+func (g *gateExecutor) releaseAll() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for _, gate := range g.gates {
+		select {
+		case <-gate:
+		default:
+			close(gate)
+		}
+	}
+}
+
+func (g *gateExecutor) count() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.calls
+}
+
 // TestFlightOwnershipAbandonedDoesNotDeleteReplacement verifies that when a
 // flight is abandoned and a replacement flight is started for the same player
 // hash, the abandoned flight's goroutine does not delete the replacement's
-// map entry. This is a regression test for the unconditional delete bug.
+// map entry. Uses a gate executor for full determinism.
 func TestFlightOwnershipAbandonedDoesNotDeleteReplacement(t *testing.T) {
 	player, err := os.ReadFile("../../../conformance/javascript/ejs-0.8.0/synthetic-player.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// Use a slow executor so we can control timing deterministically.
-	counter := &countingExecutor{inner: engine.New(4)}
-	slow := &slowExecutor{inner: counter, delay: 500 * time.Millisecond}
-	solver, err := New(slow)
+	gate := newGateExecutor(engine.New(4))
+	defer gate.releaseAll()
+	solver, err := New(gate)
 	if err != nil {
 		t.Fatal(err)
 	}
 	requests := []ChallengeRequest{{Type: ChallengeN, Challenges: []string{"abc"}}}
+	playerHash := protocol.HashScript(string(player))
 
-	// Phase 1: Start a flight and abandon it (cancel the only waiter).
+	// Phase 1: Start flight 1 and wait until it enters preprocessing.
 	ctx1, cancel1 := context.WithCancel(context.Background())
 	done1 := make(chan error, 1)
 	go func() {
-		_, err := solver.SolvePlayer(ctx1, "flight1", string(player), requests, false)
+		_, err := solver.SolvePlayer(ctx1, "f1", string(player), requests, false)
 		done1 <- err
 	}()
 
-	// Wait for the flight to register.
-	time.Sleep(50 * time.Millisecond)
-	cancel1()
-	err1 := <-done1
-	if err1 == nil {
-		t.Fatal("first flight should have been canceled")
+	callNum := waitForEnter(t, gate.entered, 5*time.Second)
+	if callNum != 1 {
+		t.Fatalf("expected preprocess call 1, got %d", callNum)
 	}
 
-	// Phase 2: Immediately start a replacement flight for the same player.
-	// The abandoned flight's goroutine is still running (500ms delay).
-	ctx2, cancel2 := context.WithTimeout(context.Background(), 3*time.Second)
+	// Cancel flight 1's waiter. The flight is abandoned, but the executor is
+	// still blocked on gate[0].
+	cancel1()
+	if err := <-done1; err == nil {
+		t.Fatal("flight 1 should have been canceled")
+	}
+
+	// Phase 2: Start flight 2 for the same player.
+	ctx2, cancel2 := context.WithCancel(context.Background())
 	defer cancel2()
 	done2 := make(chan error, 1)
 	go func() {
-		_, err := solver.SolvePlayer(ctx2, "flight2", string(player), requests, false)
+		_, err := solver.SolvePlayer(ctx2, "f2", string(player), requests, false)
 		done2 <- err
 	}()
 
-	// Wait for the replacement flight to register.
-	time.Sleep(50 * time.Millisecond)
+	callNum = waitForEnter(t, gate.entered, 5*time.Second)
+	if callNum != 2 {
+		t.Fatalf("expected preprocess call 2, got %d", callNum)
+	}
 
-	// Verify the replacement flight is in the map (not deleted by the
-	// abandoned flight's goroutine).
 	solver.mu.Lock()
-	_, replacementExists := solver.flight[protocol.HashScript(string(player))]
+	flight2, owns2 := solver.flight[playerHash]
 	solver.mu.Unlock()
+	if !owns2 {
+		t.Fatal("flight 2 should own solver.flight[playerHash]")
+	}
 
-	// The abandoned flight's goroutine may have completed by now (500ms
-	// delay elapsed). If it unconditionally deleted, the replacement would
-	// be gone. With the ownership check, it must still exist.
-	if !replacementExists {
-		// The replacement might have completed already (cache hit from
-		// the abandoned flight's successful preprocess). Check if the
-		// second call succeeded.
-		err2 := <-done2
-		if err2 != nil {
-			t.Fatalf("replacement flight failed: %v (flight ownership violation)", err2)
+	// Phase 3: Release flight 1. Cleanup must not delete flight 2's entry.
+	gate.release(1)
+	if completed := waitForCompleted(t, gate.completed, 5*time.Second); completed != 1 {
+		t.Fatalf("expected preprocess call 1 to complete, got %d", completed)
+	}
+
+	solver.mu.Lock()
+	current, exists := solver.flight[playerHash]
+	solver.mu.Unlock()
+	if !exists {
+		t.Fatal("flight 2 map entry disappeared after flight 1 cleanup")
+	}
+	if current != flight2 {
+		t.Fatal("flight 2 lost ownership after flight 1 cleanup")
+	}
+
+	// Phase 4: Flight 3 should join flight 2 without a third preprocess.
+	ctx3, cancel3 := context.WithCancel(context.Background())
+	defer cancel3()
+	done3 := make(chan error, 1)
+	go func() {
+		_, err := solver.SolvePlayer(ctx3, "f3", string(player), requests, false)
+		done3 <- err
+	}()
+
+	waitForFlightWaiters(t, solver, playerHash, 2)
+
+	// Phase 5: Release flight 2. Flights 2 and 3 should both complete.
+	gate.release(2)
+
+	if err := <-done2; err != nil {
+		t.Fatalf("flight 2 failed: %v", err)
+	}
+	if err := <-done3; err != nil {
+		t.Fatalf("flight 3 failed: %v", err)
+	}
+
+	if calls := gate.count(); calls != 2 {
+		t.Fatalf("expected exactly 2 preprocess calls, got %d", calls)
+	}
+}
+
+func waitForEnter(t *testing.T, entered <-chan int, timeout time.Duration) int {
+	t.Helper()
+	select {
+	case n := <-entered:
+		return n
+	case <-time.After(timeout):
+		t.Fatal("timed out waiting for preprocess to enter executor")
+		return -1
+	}
+}
+
+func waitForCompleted(t *testing.T, completed <-chan int, timeout time.Duration) int {
+	t.Helper()
+	select {
+	case n := <-completed:
+		return n
+	case <-time.After(timeout):
+		t.Fatal("timed out waiting for preprocess to complete")
+		return -1
+	}
+}
+
+func waitForFlightWaiters(t *testing.T, solver *Solver, playerHash string, want int32) {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	for {
+		solver.mu.Lock()
+		inflight, ok := solver.flight[playerHash]
+		var count int32
+		if ok {
+			count = inflight.waiters
 		}
-		// Success via cache is acceptable.
-		return
-	}
-
-	// Wait for the replacement to complete.
-	err2 := <-done2
-	if err2 != nil {
-		t.Fatalf("replacement flight failed: %v", err2)
-	}
-
-	// Verify preprocess was called exactly twice (once per flight).
-	// The slow executor adds 500ms delay, so both flights should have
-	// started their own preprocessing.
-	time.Sleep(600 * time.Millisecond) // let abandoned goroutine finish
-	if calls := counter.count(); calls < 2 {
-		t.Fatalf("expected at least 2 preprocess calls (one per flight), got %d", calls)
+		solver.mu.Unlock()
+		if ok && count >= want {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for %d waiters on flight, got %d", want, count)
+		default:
+			runtime.Gosched()
+		}
 	}
 }
