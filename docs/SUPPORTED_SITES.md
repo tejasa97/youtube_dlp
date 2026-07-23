@@ -56,15 +56,14 @@ protected-playback workstream. The following are supported:
 - playlists (`youtube.com/playlist?list=...`) including modern
   `lockupViewModel` playlist renderers and continuation paging;
 - explicit public channel tabs at
-  `/channel/<UCID>/{videos,shorts,streams,playlists}`, including bounded lazy
-  continuation paging;
+  `/channel/<UCID>/{videos,shorts,streams,playlists,home,featured,community,releases,podcasts}`,
+  including bounded lazy continuation paging;
 - explicit public Unicode-aware handle tabs at
-  `/@handle/{videos,shorts,streams,playlists}`, including bounded lazy
-  continuation;
+  `/@handle/{videos,shorts,streams,playlists,home,featured,community,releases,podcasts}`,
+  including bounded lazy continuation;
 - explicit public legacy alias tabs at
-  `/user/<alias>/{videos,shorts,streams,playlists}` and
-  `/c/<alias>/{videos,shorts,streams,playlists}`, including bounded Unicode
-  aliases and lazy continuation;
+  `/user/<alias>/<tab>` and `/c/<alias>/<tab>` for the same explicit tab set,
+  including bounded Unicode aliases and lazy continuation;
 - bounded public video searches using `ytsearch:`, `ytsearchN:`,
   `ytsearchall:` (capped at 50), and exact `/results` or `/search` URLs;
 - bounded playable YouTube Music searches at `music.youtube.com/search`,
@@ -101,9 +100,9 @@ protected-playback workstream. The following are supported:
 
 The following limitations are intentional and remain:
 
-- no general channel discovery or arbitrary tab enumeration: Unicode/full
-  handles and channel home, community, and release tabs are not extracted as
-  playlists; legacy aliases require one of the four explicit supported tabs;
+- no general channel discovery, bare-route expansion, or arbitrary tab
+  enumeration; channel, handle, and legacy alias URLs require one of the
+  explicitly supported tabs above;
 - general search does not cover channel/playlist/hashtag results,
   authenticated search, or arbitrary filter/sort parity; Music search excludes
   albums, artists, playlists, podcasts, arbitrary filters, and

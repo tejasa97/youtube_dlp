@@ -9,6 +9,8 @@ All IDs, titles, API keys, visitor data, and continuation values are inert
 synthetic values. They assert the exact public `/@handle/videos` route,
 ordered video/Short URL entries, metadata extraction, and lazy reusable
 `youtubei/v1/browse` continuation behavior without live access.
+The videos fixture includes a decisive synthetic selected-tab identifier so
+the shared mismatch guard is exercised without changing renderer behavior.
 
 `handle-playlists.html` and `handle-playlists-continuation.json` add the exact
 Unicode-aware `/@handle/playlists` route. The route grammar and one-pass URL

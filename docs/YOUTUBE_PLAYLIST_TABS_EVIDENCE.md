@@ -1,9 +1,11 @@
 # YouTube playlist-tab evidence
 
 The original increment added a bounded public playlist-tab slice for exact
-`/channel/<UCID>/playlists` and Unicode-aware `/@handle/playlists` routes. A separate
-bounded alias slice now adds `/user/<alias>/playlists` and
-`/c/<alias>/playlists`, including valid Unicode aliases. Both derive from the
+`/channel/<UCID>/playlists` and Unicode-aware `/@handle/playlists` routes. A
+separate bounded alias slice adds `/user/<alias>/playlists` and
+`/c/<alias>/playlists`, including valid Unicode aliases. The expanded-tab
+slice now applies the same playlist semantics to explicit releases and
+podcasts tabs. These derive from the
 read-only pinned reference
 `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`, principally
 `YoutubeTabIE._rich_entries`, `_extract_lockup_view_model`, `_extract_entries`,
@@ -57,8 +59,8 @@ rejection without contacting YouTube.
 
 ## Known deviations
 
-- Channel home, community, releases, podcasts, membership, search, and bare
-  alias routes are not claimed.
+- Bare routes, membership, channel search, and arbitrary custom tabs are not
+  claimed.
 - Only playlist and podcast lockup types are accepted on playlist tabs; other
   entity and shelf variants remain unsupported.
 - Rich playlist metadata such as thumbnails, uploader details, video counts,

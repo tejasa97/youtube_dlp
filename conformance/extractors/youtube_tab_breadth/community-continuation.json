@@ -1,0 +1,14 @@
+{
+  "responseContext":{"visitorData":"breadth-community-rotated"},
+  "onResponseReceivedEndpoints":[{
+    "appendContinuationItemsAction":{"continuationItems":[
+      {"backstagePostThreadRenderer":{"post":{"backstagePostRenderer":{
+        "backstageAttachment":{"videoRenderer":{"videoId":"commNext001","title":{"simpleText":"Continued community video"}}},
+        "contentText":{"runs":[
+          {"text":"continued inline","navigationEndpoint":{"urlEndpoint":{"url":"/watch?v=commLine002"}}}
+        ]}
+      }}}},
+      {"videoRenderer":{"videoId":"commDirect1","title":{"simpleText":"Direct continuation video"}}}
+    ]}
+  }]
+}

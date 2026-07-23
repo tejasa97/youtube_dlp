@@ -49,14 +49,15 @@ authenticated Innertube profiles remain pending.
 
 ## Wave 4 — renderer breadth
 
-Implementation status: exact public UCID, pinned Unicode-aware handle, and bounded
-legacy `/user` and `/c` alias video/Shorts/streams/playlist tabs plus bounded
-public and playable YouTube Music search are implemented. Bounded, opt-in
+Implementation status: exact public UCID, pinned Unicode-aware handle, and
+bounded legacy `/user` and `/c` alias video/Shorts/streams/playlist plus
+home/featured/community/releases/podcasts tabs are implemented. Bounded public
+and playable YouTube Music search plus bounded, opt-in
 public and authenticated-WEB comment slices cover
 top/new sorting, legacy and modern fields, click-tracked reply continuations,
 nested subthreads, bounded retries, pinned duplicate handling, visitor
 rotation, exact-origin signed continuations, and explicit resource limits.
-Estimated pre-fetch counts, home/community/release tabs,
+Estimated pre-fetch counts, bare channel routes, membership/custom tabs, and
 non-playable search result breadth remain pending.
 
 The finite post-live DVR and opt-in active live-from-start paths are complete:

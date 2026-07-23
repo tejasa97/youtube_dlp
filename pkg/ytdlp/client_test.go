@@ -128,9 +128,12 @@ func TestProductRegistryIncludesIntegratedExtractors(t *testing.T) {
 	}{
 		{"https://www.youtube.com/watch?v=dQw4w9WgXcQ", "youtube"},
 		{"https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/videos", "youtube_channel_tab"},
+		{"https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/releases", "youtube_channel_tab"},
 		{"https://www.youtube.com/@synthetic-handle/videos", "youtube_handle_tab"},
+		{"https://www.youtube.com/@synthetic-handle/community", "youtube_handle_tab"},
 		{"https://www.youtube.com/user/SyntheticAlias/videos", "youtube_alias_tab"},
 		{"https://www.youtube.com/c/СинтетическийКанал/playlists", "youtube_alias_tab"},
+		{"https://www.youtube.com/c/СинтетическийКанал/home", "youtube_alias_tab"},
 		{"ytsearch5:fixture query", "youtube_search"},
 		{"https://music.youtube.com/search?q=fixture#songs", "youtube_music_search"},
 		{"https://vimeo.com/123456789", "vimeo"},
