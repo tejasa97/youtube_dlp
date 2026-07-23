@@ -156,6 +156,11 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		*writeAutomaticSubtitles = false
 		return nil
 	})
+	embedSubtitles := flags.Bool("embed-subs", false, "embed selected subtitles in supported media containers")
+	flags.BoolFunc("no-embed-subs", "disable subtitle embedding (default)", func(string) error {
+		*embedSubtitles = false
+		return nil
+	})
 	writeComments := flags.Bool("write-comments", false, "retrieve comments into metadata")
 	flags.BoolVar(writeComments, "get-comments", false, "alias for --write-comments")
 	flags.BoolFunc("no-write-comments", "disable comment retrieval", func(string) error {
@@ -200,7 +205,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		fmt.Fprintln(stderr, "ytdlp-go: --telemetry-json and --print-json cannot share stdout")
 		return 2
 	}
-	if _, err := parseSubtitleConvertFormat(*convertSubtitles); err != nil {
+	subtitleConvertFormat, err := parseSubtitleConvertFormat(*convertSubtitles)
+	if err != nil {
 		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
 		return 2
 	}
@@ -261,7 +267,9 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	requestSkipDownload := *skipDownload || *listSubtitles
 	requestSubtitles := ytdlp.SubtitleOptions{
 		WriteManual: *writeSubtitles, WriteAutomatic: *writeAutomaticSubtitles,
-		Languages: subtitleLanguageRules(subtitleLanguages, *allSubtitles), Format: *subtitleFormat,
+		Embed: *embedSubtitles, KeepFiles: *embedSubtitles && *writeSubtitles,
+		ConvertFormat: subtitleConvertFormat,
+		Languages:     subtitleLanguageRules(subtitleLanguages, *allSubtitles), Format: *subtitleFormat,
 	}
 	if *listSubtitles {
 		requestSubtitles = ytdlp.SubtitleOptions{}
@@ -295,10 +303,6 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		}
 	}
 	if err != nil {
-		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
-		return exitCode(err)
-	}
-	if err := convertResultSubtitles(ctx, &result, *outputDir, *convertSubtitles, *overwrite); err != nil {
 		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
 		return exitCode(err)
 	}

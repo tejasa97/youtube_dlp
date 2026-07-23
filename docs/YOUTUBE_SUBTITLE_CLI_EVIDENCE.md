@@ -45,9 +45,9 @@ reference runtime, production caption URL, account, cookie, or token is used.
 
 - Go uses bounded RE2 expressions rather than Python's wider regular-expression
   grammar.
-- `--list-subs`, CLI subtitle conversion/embedding, live chat, and inline
-  extractor-provided subtitle `data` remain outside this sidecar wave. Typed Go
-  post-processing APIs already support subtitle conversion and embedding.
+- Live chat and inline extractor-provided subtitle `data` remain outside this
+  sidecar wave. Listing, conversion, and bounded embedding are covered by their
+  dedicated evidence documents.
 - Subtitle sidecars always use the native downloader; external downloader
   argument conventions are not inferred for them.
 - Consistent with this port's fail-closed output policy, an existing sidecar is

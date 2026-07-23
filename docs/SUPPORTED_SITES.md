@@ -10,8 +10,9 @@ live-state transition, anti-bot response, or subsequent service change.
 
 When an extractor exposes `subtitles` or `automatic_captions`, the common
 language/format selector can write native subtitle sidecars, including with
-`--skip-download`. Availability still depends on the extractor's declared
-corpus and the remote service response.
+`--skip-download`, and can embed compatible text tracks with `--embed-subs`.
+Availability still depends on the extractor's declared corpus and the remote
+service response.
 
 | Extractor | Representative URL family | Principal risk coverage |
 | --- | --- | --- |
@@ -74,6 +75,8 @@ protected-playback workstream. The following are supported:
   including subtitle-only operation with `--skip-download`;
 - post-download conversion of written subtitle sidecars to SRT, ASS, or WebVTT
   with `--convert-subs`;
+- bounded multi-track subtitle embedding in MP4/MOV/M4A/WebM/MKV/MKA outputs
+  with `--embed-subs`;
 - deterministic `--list-subs` output for available automatic and manual
   caption languages, names, and formats without writing files;
 - bounded, opt-in public video comments with `--write-comments` or
@@ -107,7 +110,6 @@ The following limitations are intentional and remain:
   explicitly tested legacy and modern renderer families;
 - some protected active streams may still hit the documented EJS-helper
   timeout while the player challenge is being solved;
-- subtitle embedding is not yet exposed; and
 - when a caller separately selects an adaptive video stream and an adaptive
   audio stream, they must be merged with ffmpeg (or an equivalent muxer);
   downloads that pick a single muxed format do not require ffmpeg.
