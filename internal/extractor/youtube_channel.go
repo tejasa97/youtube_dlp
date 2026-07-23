@@ -26,7 +26,7 @@ var (
 type YouTubeChannelTab struct{}
 
 func NewYouTubeChannelTab() YouTubeChannelTab { return YouTubeChannelTab{} }
-func (YouTubeChannelTab) Name() string        { return "youtube:channel_tab" }
+func (YouTubeChannelTab) Name() string        { return "youtube_channel_tab" }
 
 func (YouTubeChannelTab) Suitable(parsed *url.URL) bool {
 	_, _, ok := youtubeChannelTabTarget(parsed)
