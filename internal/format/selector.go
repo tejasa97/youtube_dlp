@@ -314,6 +314,7 @@ func selectTerm(formats []*value.Object, term Term) (Selection, bool) {
 	wantAudio := strings.HasSuffix(term.Name, "audio")
 	var selected *value.Object
 	var selectedScore float64
+	var selectedPreference float64
 	for _, candidate := range formats {
 		hasVideo, hasAudio := candidateMediaKinds(candidate)
 		if wantVideo && (!hasVideo || hasAudio) || wantAudio && (!hasAudio || hasVideo) {
@@ -323,8 +324,11 @@ func selectTerm(formats []*value.Object, term Term) (Selection, bool) {
 			continue
 		}
 		score := formatScore(candidate, wantVideo, wantAudio)
-		if selected == nil || wantBest && score > selectedScore || !wantBest && score < selectedScore {
-			selected, selectedScore = candidate, score
+		preference := extractorPreference(candidate)
+		if selected == nil ||
+			wantBest && (preference > selectedPreference || preference == selectedPreference && score > selectedScore) ||
+			!wantBest && (preference < selectedPreference || preference == selectedPreference && score < selectedScore) {
+			selected, selectedScore, selectedPreference = candidate, score, preference
 		}
 	}
 	if selected == nil {
@@ -368,13 +372,19 @@ func selectTermWithOptions(formats []*value.Object, term Term, options Options) 
 func selectTermWithPreferenceTiebreak(formats []*value.Object, term Term, options Options, wantVideo, wantAudio, wantWorst bool) (Selection, bool) {
 	var selected *value.Object
 	selectedScore := float64(0)
+	selectedPreference := float64(0)
 	for _, candidate := range formats {
 		if !candidateMatchesKind(candidate, wantVideo, wantAudio, term.Filters) {
 			continue
 		}
 		score := formatScore(candidate, wantVideo, wantAudio)
-		if selected == nil || (wantWorst && score < selectedScore) || (!wantWorst && score > selectedScore) || (score == selectedScore && preferenceRank(candidate, options) > preferenceRank(selected, options)) {
-			selected, selectedScore = candidate, score
+		preference := extractorPreference(candidate)
+		samePreference := preference == selectedPreference
+		if selected == nil ||
+			wantWorst && (preference < selectedPreference || samePreference && score < selectedScore) ||
+			!wantWorst && (preference > selectedPreference || samePreference && score > selectedScore) ||
+			samePreference && score == selectedScore && preferenceRank(candidate, options) > preferenceRank(selected, options) {
+			selected, selectedScore, selectedPreference = candidate, score, preference
 		}
 	}
 	if selected == nil {
@@ -478,5 +488,8 @@ func objectSelection(object *value.Object) Selection {
 	selection.ACodec, _ = object.Lookup("acodec").StringValue()
 	selection.Height, _ = object.Lookup("height").Int()
 	selection.TBR, _ = numeric(object.Lookup("tbr"))
+	selection.YouTubePostLive, _ = object.Lookup("_youtube_post_live").Bool()
+	selection.TargetDuration, _ = numeric(object.Lookup("target_duration"))
+	selection.LiveStartTimestamp, _ = object.Lookup("live_start_timestamp").Int()
 	return selection
 }
