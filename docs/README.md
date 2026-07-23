@@ -47,6 +47,7 @@ The executable help is the authoritative CLI option list:
 - [YouTube subtitle-embedding evidence](YOUTUBE_SUBTITLE_EMBEDDING_EVIDENCE.md)
 - [YouTube channel-tab evidence](YOUTUBE_CHANNEL_EVIDENCE.md)
 - [YouTube handle-tab evidence](YOUTUBE_HANDLE_TAB_EVIDENCE.md)
+- [YouTube legacy alias-tab evidence](YOUTUBE_ALIAS_TAB_EVIDENCE.md)
 - [YouTube playlist-tab evidence](YOUTUBE_PLAYLIST_TABS_EVIDENCE.md)
 - [YouTube search evidence](YOUTUBE_SEARCH_EVIDENCE.md)
 - [YouTube Music search evidence](YOUTUBE_MUSIC_SEARCH_EVIDENCE.md)

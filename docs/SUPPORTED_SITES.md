@@ -61,6 +61,10 @@ protected-playback workstream. The following are supported:
 - explicit public ASCII-handle tabs at
   `/@handle/{videos,shorts,streams,playlists}`, including bounded lazy
   continuation;
+- explicit public legacy alias tabs at
+  `/user/<alias>/{videos,shorts,streams,playlists}` and
+  `/c/<alias>/{videos,shorts,streams,playlists}`, including bounded Unicode
+  aliases and lazy continuation;
 - bounded public video searches using `ytsearch:`, `ytsearchN:`,
   `ytsearchall:` (capped at 50), and exact `/results` or `/search` URLs;
 - bounded playable YouTube Music searches at `music.youtube.com/search`,
@@ -98,8 +102,8 @@ protected-playback workstream. The following are supported:
 The following limitations are intentional and remain:
 
 - no general channel discovery or arbitrary tab enumeration: Unicode/full
-  handles, channel home, community, and release tabs, plus `/user` and `/c`
-  tabs, are not extracted as playlists;
+  handles and channel home, community, and release tabs are not extracted as
+  playlists; legacy aliases require one of the four explicit supported tabs;
 - general search does not cover channel/playlist/hashtag results,
   authenticated search, or arbitrary filter/sort parity; Music search excludes
   albums, artists, playlists, podcasts, arbitrary filters, and
@@ -124,6 +128,7 @@ limited to the deterministic corpus checked into
 `conformance/extractors/youtube/`,
 `conformance/extractors/youtube_channel/`,
 `conformance/extractors/youtube_handle_tab/`,
+`conformance/extractors/youtube_alias_tab/`,
 `conformance/extractors/youtube_search/`,
 `conformance/extractors/youtube_music_search/`, and the bounded evidence listed in
 `conformance/parity_manifest.yaml`.
