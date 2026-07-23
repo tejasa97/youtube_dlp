@@ -122,6 +122,18 @@ Write selected subtitle sidecars without downloading the media:
     --sub-langs "en.*,ja" --sub-format "srt/vtt/best" URL
 ```
 
+Convert written subtitle sidecars to a supported format:
+
+```sh
+./bin/ytdlp-go --skip-download --write-subs --convert-subs vtt URL
+```
+
+List available manual and automatic subtitles without writing files:
+
+```sh
+./bin/ytdlp-go --list-subs URL
+```
+
 Extract metadata without downloading:
 
 ```sh

@@ -332,12 +332,81 @@ func TestRunWritesSelectedSubtitlesWhileSkippingMedia(t *testing.T) {
 	}
 }
 
+func TestRunListSubsSimulatesAndPreservesOutputChannels(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := RunContext(context.Background(), []string{
+		"--list-subs", "--write-subs", "--write-auto-subs", "--output-dir", root, server.URL + "/page",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Language") || !strings.Contains(stdout.String(), "es") || !strings.Contains(stdout.String(), "en") {
+		t.Fatalf("missing subtitle tables: %q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "Available automatic captions") || !strings.Contains(stderr.String(), "Available subtitles") {
+		t.Fatalf("status channel=%q", stderr.String())
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("--list-subs wrote files: %#v", entries)
+	}
+
+	var quietOut, quietErr bytes.Buffer
+	if code := Run([]string{"--quiet", "--list-subs", "--skip-download", server.URL + "/page"}, &quietOut, &quietErr); code != 0 {
+		t.Fatalf("quiet code=%d stderr=%q", code, quietErr.String())
+	}
+	if !strings.Contains(quietOut.String(), "Language") || !strings.Contains(quietErr.String(), "Available subtitles") || strings.Contains(quietErr.String(), "Extracting") {
+		t.Fatalf("quiet stdout=%q stderr=%q", quietOut.String(), quietErr.String())
+	}
+}
+
+func TestRunListSubsPrintJSONAndCancellation(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"--list-subs", "--print-json", server.URL + "/page"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	if len(lines) < 2 || !json.Valid([]byte(lines[len(lines)-1])) {
+		t.Fatalf("list/JSON output=%q", stdout.String())
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	stdout.Reset()
+	stderr.Reset()
+	if code := RunContext(ctx, []string{"--list-subs", server.URL + "/page"}, &stdout, &stderr); code != 130 {
+		t.Fatalf("cancel code=%d stderr=%q", code, stderr.String())
+	}
+}
+
 func TestSubtitleLanguageRules(t *testing.T) {
 	if got := strings.Join(subtitleLanguageRules([]string{" en, ,fr ", "-en"}, false), ","); got != "en,fr,-en" {
 		t.Fatalf("rules = %q", got)
 	}
 	if got := strings.Join(subtitleLanguageRules([]string{"en"}, true), ","); got != "all" {
 		t.Fatalf("all rules = %q", got)
+	}
+}
+
+func TestRunConvertSubtitleAliasesAndValidation(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	for _, flag := range []string{"--convert-subs", "--convert-sub", "--convert-subtitles"} {
+		var stdout, stderr bytes.Buffer
+		if code := Run([]string{"--skip-download", flag, "vtt", server.URL + "/page"}, &stdout, &stderr); code != 0 {
+			t.Fatalf("%s: code=%d stderr=%q", flag, code, stderr.String())
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"--convert-subs", "mov_text", server.URL + "/page"}, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "unsupported subtitle format") {
+		t.Fatalf("invalid format: code=%d stderr=%q", code, stderr.String())
 	}
 }
 

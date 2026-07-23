@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"path"
 	"regexp"
 	"slices"
 	"strconv"
@@ -16,11 +17,24 @@ import (
 
 const tiktokImpersonationProfile = "chrome-133"
 
+// These limits deliberately sit well below the hydration document limit. Caption
+// metadata is optional and must never be able to dominate a normal extraction.
+const (
+	tiktokMaxCaptions        = 128
+	tiktokMaxCaptionURLBytes = 4096
+	tiktokMaxCaptionText     = 128
+	tiktokMaxCaptionLocale   = 64
+	tiktokMaxCaptionFormat   = 32
+	tiktokMaxCaptionOutput   = 256 << 10
+	tiktokCaptionCDNHost     = "v16-webapp.tiktok.com"
+)
+
 var (
 	tiktokVideoPathPattern = regexp.MustCompile(`^/@([A-Za-z0-9_.-]+)/video/([0-9]+)/*$`)
 	tiktokEmbedPathPattern = regexp.MustCompile(`^/embed/([0-9]+)/*$`)
 	tiktokUniversalScript  = regexp.MustCompile(`(?is)<script\b[^>]*\bid=["']__UNIVERSAL_DATA_FOR_REHYDRATION__["'][^>]*>(.*?)</script\s*>`)
 	tiktokURLKeyPattern    = regexp.MustCompile(`v[^_]+_([^_]+)_([0-9]+p)_([0-9]+)`)
+	tiktokCaptionLanguage  = regexp.MustCompile(`^[a-z0-9]{1,16}(-[a-z0-9]{1,16}){0,3}$`)
 )
 
 type TikTok struct{}
@@ -63,7 +77,7 @@ func (TikTok) Extract(ctx context.Context, request Request) (Extraction, error) 
 	if err := ctx.Err(); err != nil {
 		return Extraction{}, err
 	}
-	return parseTikTokPage(page, videoID, webpageURL)
+	return parseTikTokPageContext(ctx, page, videoID, webpageURL)
 }
 
 func tiktokVideoIdentity(path string) (videoID, userID string) {
@@ -77,6 +91,10 @@ func tiktokVideoIdentity(path string) (videoID, userID string) {
 }
 
 func parseTikTokPage(page []byte, videoID, webpageURL string) (Extraction, error) {
+	return parseTikTokPageContext(context.Background(), page, videoID, webpageURL)
+}
+
+func parseTikTokPageContext(ctx context.Context, page []byte, videoID, webpageURL string) (Extraction, error) {
 	match := tiktokUniversalScript.FindSubmatch(page)
 	if len(match) != 2 {
 		lower := bytes.ToLower(page)
@@ -118,7 +136,7 @@ func parseTikTokPage(page []byte, videoID, webpageURL string) (Extraction, error
 	if item.Video.Width == 0 && item.Video.Height == 0 && item.Classified {
 		return Extraction{}, ErrAuthentication
 	}
-	return parseTikTokItem(item, videoID, webpageURL)
+	return parseTikTokItem(ctx, item, videoID, webpageURL)
 }
 
 type tiktokHydration struct {
@@ -179,10 +197,21 @@ type tiktokVideo struct {
 			DataSize int64    `json:"DataSize"`
 		} `json:"PlayAddr"`
 	} `json:"bitrateInfo"`
-	Thumbnail    string `json:"thumbnail"`
-	Cover        string `json:"cover"`
-	DynamicCover string `json:"dynamicCover"`
-	OriginCover  string `json:"originCover"`
+	Thumbnail     string          `json:"thumbnail"`
+	Cover         string          `json:"cover"`
+	DynamicCover  string          `json:"dynamicCover"`
+	OriginCover   string          `json:"originCover"`
+	SubtitleInfos []tiktokCaption `json:"subtitleInfos"`
+}
+
+// subtitleInfos is the bounded public-webpage shape used by TikTokIE at the
+// pinned reference revision. Other API and sticker variants intentionally stay
+// outside this extractor's request-free webpage contract.
+type tiktokCaption struct {
+	URL      string `json:"Url"`
+	Language string `json:"LanguageCodeName"`
+	Name     string `json:"LanguageName"`
+	Format   string `json:"Format"`
 }
 
 type tiktokAddress struct{ URLs []string }
@@ -224,7 +253,7 @@ func parseTikTokAddress(raw json.RawMessage) tiktokAddress {
 	return tiktokAddress{URLs: urls}
 }
 
-func parseTikTokItem(item tiktokItem, videoID, webpageURL string) (Extraction, error) {
+func parseTikTokItem(ctx context.Context, item tiktokItem, videoID, webpageURL string) (Extraction, error) {
 	formats := make([]value.Value, 0)
 	seen := map[string]struct{}{}
 	appendFormat := func(rawURL, id, note, codec string, width, height, size, bitrate int64) {
@@ -351,7 +380,144 @@ func parseTikTokItem(item tiktokItem, videoID, webpageURL string) (Extraction, e
 			break
 		}
 	}
+	if subtitles, err := tiktokSubtitles(ctx, item.Video.SubtitleInfos); err != nil {
+		return Extraction{}, err
+	} else if subtitles.Len() != 0 {
+		info.Set("subtitles", value.ObjectValue(subtitles))
+	}
 	return Media(value.NewInfo(info)), nil
+}
+
+func tiktokSubtitles(ctx context.Context, captions []tiktokCaption) (*value.Object, error) {
+	result := value.NewObject()
+	seen := make(map[string]struct{})
+	output := 0
+	for index, caption := range captions {
+		if index >= tiktokMaxCaptions {
+			break
+		}
+		if index&15 == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+		}
+		language := "en"
+		if strings.TrimSpace(caption.Language) != "" {
+			language = normalizeTikTokCaptionLanguage(caption.Language)
+			if language == "" {
+				continue
+			}
+		}
+		captionURL, ok := parseTikTokCaptionURL(caption.URL)
+		if !ok {
+			continue
+		}
+		extension := tiktokCaptionExtension(caption.Format, captionURL.Path)
+		if extension == "" {
+			continue
+		}
+		name := ""
+		if len(caption.Name) <= tiktokMaxCaptionText {
+			name = strings.TrimSpace(caption.Name)
+		}
+		if strings.ContainsAny(name, "\x00\r\n") {
+			name = ""
+		}
+		rawURL := captionURL.String() // preserves signed query bytes exactly
+		key := language + "\x00" + extension + "\x00" + rawURL
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		added := len(language) + len(extension) + len(rawURL) + len(name)
+		if output+added > tiktokMaxCaptionOutput {
+			break
+		}
+		seen[key] = struct{}{}
+		output += added
+		entry := value.NewObject(value.Field{Key: "url", Value: value.String(rawURL)}, value.Field{Key: "ext", Value: value.String(extension)})
+		if name != "" {
+			entry.Set("name", value.String(name))
+		}
+		entries, _ := result.Lookup(language).ListValue()
+		entries = append(entries, value.ObjectValue(entry))
+		result.Set(language, value.List(entries...))
+	}
+	return result, nil
+}
+
+func normalizeTikTokCaptionLanguage(raw string) string {
+	if len(raw) > tiktokMaxCaptionLocale {
+		return ""
+	}
+	language := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(raw), "_", "-"))
+	if !tiktokCaptionLanguage.MatchString(language) {
+		return ""
+	}
+	return language
+}
+
+func tiktokCaptionExtension(format, urlPath string) string {
+	if len(format) > tiktokMaxCaptionFormat {
+		return ""
+	}
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "webvtt", "vtt":
+		return "vtt"
+	case "srt":
+		return "srt"
+	case "creator_caption", "json":
+		return "json"
+	case "":
+		switch strings.ToLower(strings.TrimPrefix(path.Ext(urlPath), ".")) {
+		case "vtt", "srt", "json":
+			return strings.ToLower(strings.TrimPrefix(path.Ext(urlPath), "."))
+		}
+	}
+	return ""
+}
+
+func parseTikTokCaptionURL(raw string) (*url.URL, bool) {
+	if len(raw) == 0 || len(raw) > tiktokMaxCaptionURLBytes || strings.ContainsAny(raw, "\\\x00\r\n") {
+		return nil, false
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "https" || parsed.User != nil || parsed.Port() != "" || parsed.Fragment != "" || parsed.RawPath != "" || parsed.Path == "" {
+		return nil, false
+	}
+	host := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
+	if !tiktokCaptionHost(host) || path.Clean(parsed.Path) != parsed.Path || !tiktokCaptionPathSafe(parsed.EscapedPath()) {
+		return nil, false
+	}
+	return parsed, true
+}
+
+func tiktokCaptionHost(host string) bool {
+	// The pinned public-webpage fixture attributes subtitleInfos URLs to this
+	// web-app caption CDN. Do not broaden this to TikTok web/API or registrable
+	// domains: hydration URLs are untrusted metadata, not a host allowlist.
+	return host == tiktokCaptionCDNHost
+}
+
+// tiktokCaptionPathSafe rejects direct and bounded repeated-decoding forms of
+// encoded separators/NULs. It is deliberately applied only to the path so an
+// accepted signed query remains opaque and byte-preserving.
+func tiktokCaptionPathSafe(escaped string) bool {
+	for round := 0; round < 2; round++ {
+		lower := strings.ToLower(escaped)
+		if strings.ContainsAny(escaped, "\\\x00") || strings.Contains(lower, "%2f") || strings.Contains(lower, "%5c") || strings.Contains(lower, "%00") {
+			return false
+		}
+		decoded, err := url.PathUnescape(escaped)
+		if err != nil {
+			return false
+		}
+		if decoded == escaped {
+			return true
+		}
+		escaped = decoded
+	}
+	// A remaining escape after two rounds is ambiguous by design; fail closed.
+	return !strings.Contains(escaped, "%")
 }
 
 func parseTikTokURLKey(key string) (id, codec string, dimension, bitrate int64) {

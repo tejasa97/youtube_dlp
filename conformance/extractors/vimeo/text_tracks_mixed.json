@@ -1,0 +1,10 @@
+{
+  "video": {"title":"Track fixture","files":{"progressive":[{"url":"https://media.example/video.mp4","quality":"source"}]}},
+  "request": {"text_tracks":[
+    {"lang":"fr", "kind":"subtitles", "label":"Français", "url":"texttrack/fr.vtt?token=fixture"},
+    {"lang":"bad language", "url":"/texttrack/no.vtt"},
+    {"lang":"de", "kind":"chapters", "url":"/texttrack/no.vtt"},
+    {"lang":"it", "url":"https://evil.example/texttrack/no.vtt?token=secret"},
+    {"lang":"pt-BR", "url":"https://player.vimeo.com/texttrack/pt.vtt?token=fixture"}
+  ]}
+}
