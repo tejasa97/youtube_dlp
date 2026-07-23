@@ -43,6 +43,7 @@ The executable help is the authoritative CLI option list:
 - [YouTube subtitle CLI and sidecar evidence](YOUTUBE_SUBTITLE_CLI_EVIDENCE.md)
 - [YouTube subtitle-listing evidence](YOUTUBE_SUBTITLE_LISTING_EVIDENCE.md)
 - [YouTube channel-tab evidence](YOUTUBE_CHANNEL_EVIDENCE.md)
+- [YouTube handle-tab evidence](YOUTUBE_HANDLE_TAB_EVIDENCE.md)
 - [YouTube search evidence](YOUTUBE_SEARCH_EVIDENCE.md)
 - [Privacy-safe telemetry](P3_TELEMETRY.md)
 - [Semantic review ledger](P3_SEMANTIC_REVIEW_LEDGER.md)
