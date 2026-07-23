@@ -338,6 +338,7 @@ func (client *Client) productRegistry() *extractor.Registry {
 		extractor.NewARD(),
 		extractor.NewNRK(),
 		extractor.NewTwitch(),
+		extractor.NewSoundCloudSearch(),
 		extractor.NewSoundCloud(),
 		extractor.NewStreamable(),
 		extractor.NewPeerTube(),

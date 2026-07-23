@@ -143,6 +143,7 @@ func TestProductRegistryIncludesIntegratedExtractors(t *testing.T) {
 		{"https://www.ardmediathek.de/player/Y3JpZDovL2ZpeHR1cmU", "ard"},
 		{"nrk:MDDP12000117", "nrk"},
 		{"https://www.twitch.tv/fixture_channel", "twitch"},
+		{"scsearch3:fixture query", "soundcloud_search"},
 		{"https://soundcloud.com/fixture-artist/synthetic-signal", "soundcloud"},
 		{"https://streamable.com/e/fixture_1", "streamable"},
 		{"peertube:peertube.example:00000000-0000-4000-8000-000000000001", "peertube"},
