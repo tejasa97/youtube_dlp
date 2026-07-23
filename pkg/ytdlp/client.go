@@ -427,6 +427,19 @@ func (operation *operation) process(ctx context.Context, rawURL, extractorKey st
 	if err := operation.client.emit(ctx, Event{Kind: string(events.KindExtracted), Extractor: selected.Name(), URL: eventURL}); err != nil {
 		return Result{}, &Error{Category: ErrorInternal, Op: "emit extracted event", Err: err}
 	}
+	if extracted.IsURL() {
+		entry := *extracted.Redirect
+		if overlay != nil && overlay.Transparent {
+			if overlay.ID != "" {
+				entry.ID = overlay.ID
+			}
+			if overlay.Title != "" {
+				entry.Title = overlay.Title
+			}
+			entry.Transparent = true
+		}
+		return operation.process(ctx, entry.URL, entry.ExtractorKey, &entry, ancestors, depth+1)
+	}
 	if extracted.IsPlaylist() {
 		return operation.processPlaylist(ctx, extracted, selected.Name(), ancestors, depth)
 	}

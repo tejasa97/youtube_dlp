@@ -22,6 +22,17 @@ func TestEntryObjectMatchesURLResultShape(t *testing.T) {
 	}
 }
 
+func TestURLResultRetainsLazyHandoff(t *testing.T) {
+	entry := Entry{URL: "https://example.test/video", ExtractorKey: "Example", Transparent: true}
+	result, err := URLResult(entry)
+	if err != nil || !result.IsURL() || result.IsPlaylist() || result.Redirect == nil || *result.Redirect != entry {
+		t.Fatalf("URLResult() = %#v, %v", result, err)
+	}
+	if _, err := URLResult(Entry{}); !errors.Is(err, ErrInvalidPlaylist) {
+		t.Fatalf("empty URLResult error = %v", err)
+	}
+}
+
 func TestOnDemandEntriesAreOrderedLazyAndReusable(t *testing.T) {
 	var calls []int
 	sequence, err := OnDemandEntries(2, func(_ context.Context, page int) ([]Entry, error) {

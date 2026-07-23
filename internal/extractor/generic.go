@@ -60,20 +60,43 @@ func (Generic) Extract(ctx context.Context, request Request) (Extraction, error)
 	if response.Body != nil {
 		_ = response.Body.Close()
 	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
+	if redirect := genericRedirectEntry(parsed, response); redirect != nil {
+		return URLResult(*redirect)
+	}
+	if response.StatusCode == http.StatusMethodNotAllowed || response.StatusCode == http.StatusNotImplemented {
+		response = nil
+	} else if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return Extraction{}, fmt.Errorf("%w: HTTP status %d", ErrUnsupported, response.StatusCode)
 	}
-	mediaType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
-	if isDirectMediaType(mediaType) {
+	mediaType := ""
+	if response != nil {
+		mediaType, _, _ = mime.ParseMediaType(response.Header.Get("Content-Type"))
+	}
+	if response != nil && isDirectMediaType(mediaType) {
 		return genericDirectMedia(parsed, request.URL, mediaType, response), nil
 	}
-	if !isGenericHTMLType(mediaType) {
-		return Extraction{}, fmt.Errorf("%w: content type %q is neither direct media nor HTML", ErrUnsupported, mediaType)
-	}
 
-	page, pageURL, err := readGenericHTMLPage(ctx, request, parsed)
+	page, pageURL, getResponse, err := readGenericPage(ctx, request, parsed)
 	if err != nil {
 		return Extraction{}, err
+	}
+	if redirect := genericRedirectEntry(parsed, getResponse); redirect != nil {
+		return URLResult(*redirect)
+	}
+	getMediaType, _, _ := mime.ParseMediaType(getResponse.Header.Get("Content-Type"))
+	detectedType, _, _ := mime.ParseMediaType(http.DetectContentType(page))
+	if !isDirectMediaType(getMediaType) && !isGenericHTMLType(getMediaType) &&
+		(isDirectMediaType(detectedType) || isGenericHTMLType(detectedType)) {
+		getMediaType = detectedType
+	}
+	if getMediaType == "" {
+		getMediaType = detectedType
+	}
+	if isDirectMediaType(getMediaType) {
+		return genericDirectMedia(pageURL, pageURL.String(), getMediaType, getResponse), nil
+	}
+	if !isGenericHTMLType(getMediaType) {
+		return Extraction{}, fmt.Errorf("%w: GET content type %q is neither direct media nor HTML", ErrUnsupported, getMediaType)
 	}
 	entries, err := discoverGenericEmbedEntries(ctx, pageURL, page)
 	if err != nil {
@@ -89,7 +112,7 @@ func (Generic) Extract(ctx context.Context, request Request) (Extraction, error)
 		value.Field{Key: "webpage_url", Value: value.String(pageURL.String())},
 	))
 	if len(entries) == 1 {
-		return genericSingleEmbed(info, entries[0])
+		return URLResult(entries[0])
 	}
 	return Playlist(info, StaticEntries(entries...))
 }
@@ -141,39 +164,58 @@ func isGenericHTMLType(mediaType string) bool {
 	return mediaType == "text/html" || mediaType == "application/xhtml+xml"
 }
 
-func readGenericHTMLPage(ctx context.Context, request Request, requestedURL *url.URL) ([]byte, *url.URL, error) {
+func readGenericPage(ctx context.Context, request Request, requestedURL *url.URL) ([]byte, *url.URL, *http.Response, error) {
 	httpRequest, err := http.NewRequest(http.MethodGet, request.URL, nil)
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: invalid generic URL", ErrUnsupported)
+		return nil, nil, nil, fmt.Errorf("%w: invalid generic URL", ErrUnsupported)
 	}
 	response, err := request.Transport.Do(ctx, httpRequest)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if response == nil {
-		return nil, nil, fmt.Errorf("%w: missing generic HTML response", ErrInvalidMetadata)
+		return nil, nil, nil, fmt.Errorf("%w: missing generic response", ErrInvalidMetadata)
 	}
 	if response.Body == nil {
-		return nil, nil, fmt.Errorf("%w: missing generic HTML body", ErrInvalidMetadata)
+		return nil, nil, response, fmt.Errorf("%w: missing generic response body", ErrInvalidMetadata)
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, nil, fmt.Errorf("%w: HTTP status %d", ErrUnsupported, response.StatusCode)
+		return nil, nil, response, fmt.Errorf("%w: HTTP status %d", ErrUnsupported, response.StatusCode)
 	}
-	if mediaType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type")); mediaType != "" && !isGenericHTMLType(mediaType) {
-		return nil, nil, fmt.Errorf("%w: GET content type %q is not HTML", ErrUnsupported, mediaType)
+	prefix := make([]byte, 512)
+	readBytes, readErr := io.ReadFull(response.Body, prefix)
+	prefix = prefix[:readBytes]
+	if readErr != nil && !errors.Is(readErr, io.EOF) && !errors.Is(readErr, io.ErrUnexpectedEOF) {
+		if contextErr := contextError(ctx); contextErr != nil {
+			return nil, nil, response, contextErr
+		}
+		return nil, nil, response, fmt.Errorf("read generic response: %w", readErr)
 	}
-	reader := &io.LimitedReader{R: response.Body, N: maxGenericHTMLBytes + 1}
-	page, err := io.ReadAll(reader)
+	headerType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
+	detectedType, _, _ := mime.ParseMediaType(http.DetectContentType(prefix))
+	if isDirectMediaType(headerType) || (!isGenericHTMLType(headerType) && isDirectMediaType(detectedType)) {
+		return prefix, genericResponseURL(requestedURL, response), response, nil
+	}
+	if !isGenericHTMLType(headerType) && !isGenericHTMLType(detectedType) {
+		return prefix, genericResponseURL(requestedURL, response), response, nil
+	}
+	reader := &io.LimitedReader{R: response.Body, N: maxGenericHTMLBytes - int64(len(prefix)) + 1}
+	remainder, err := io.ReadAll(reader)
 	if err != nil {
 		if contextErr := contextError(ctx); contextErr != nil {
-			return nil, nil, contextErr
+			return nil, nil, response, contextErr
 		}
-		return nil, nil, fmt.Errorf("%w: read generic HTML", ErrInvalidMetadata)
+		return nil, nil, response, fmt.Errorf("read generic response: %w", err)
 	}
+	page := append(prefix, remainder...)
 	if len(page) > maxGenericHTMLBytes {
-		return nil, nil, fmt.Errorf("%w: generic HTML exceeds %d bytes", ErrInvalidMetadata, maxGenericHTMLBytes)
+		return nil, nil, response, fmt.Errorf("%w: generic response exceeds %d bytes", ErrInvalidMetadata, maxGenericHTMLBytes)
 	}
+	return page, genericResponseURL(requestedURL, response), response, nil
+}
+
+func genericResponseURL(requestedURL *url.URL, response *http.Response) *url.URL {
 	pageURL := requestedURL
 	if response.Request != nil && response.Request.URL != nil {
 		candidate := response.Request.URL
@@ -183,7 +225,21 @@ func readGenericHTMLPage(ctx context.Context, request Request, requestedURL *url
 	}
 	cloned := *pageURL
 	cloned.Fragment = ""
-	return page, &cloned, nil
+	return &cloned
+}
+
+func genericRedirectEntry(requested *url.URL, response *http.Response) *Entry {
+	if requested == nil || response == nil || response.Request == nil || response.Request.URL == nil {
+		return nil
+	}
+	final := *response.Request.URL
+	final.Fragment = ""
+	initial := *requested
+	initial.Fragment = ""
+	if final.String() == initial.String() || !NewGeneric().Suitable(&final) {
+		return nil
+	}
+	return &Entry{URL: final.String()}
 }
 
 // discoverGenericEmbedEntries examines only embed-bearing HTML attributes. It
@@ -204,7 +260,8 @@ func discoverGenericEmbedEntries(ctx context.Context, pageURL *url.URL, page []b
 	tokenizer := xhtml.NewTokenizer(bytes.NewReader(page))
 	entries := make([]Entry, 0)
 	seen := make(map[string]struct{})
-	depth, tokens, candidates := 0, 0, 0
+	stack := make([]string, 0, 32)
+	tokens, candidates := 0, 0
 	for {
 		tokenType := tokenizer.Next()
 		if tokenType == xhtml.ErrorToken {
@@ -227,14 +284,23 @@ func discoverGenericEmbedEntries(ctx context.Context, pageURL *url.URL, page []b
 		token := tokenizer.Token()
 		switch {
 		case tokenType == xhtml.StartTagToken && !genericVoidElement(token.Data):
-			depth++
-			if depth > maxGenericHTMLDepth {
+			stack = append(stack, strings.ToLower(token.Data))
+			if len(stack) > maxGenericHTMLDepth {
 				return nil, fmt.Errorf("%w: generic HTML depth limit exceeded", ErrInvalidMetadata)
 			}
 		case tokenType == xhtml.EndTagToken && !genericVoidElement(token.Data):
-			if depth > 0 {
-				depth--
+			name := strings.ToLower(token.Data)
+			found := -1
+			for index := len(stack) - 1; index >= 0; index-- {
+				if stack[index] == name {
+					found = index
+					break
+				}
 			}
+			if found < 0 {
+				return nil, fmt.Errorf("%w: mismatched generic HTML end tag", ErrInvalidMetadata)
+			}
+			stack = stack[:found]
 		}
 		if tokenType != xhtml.StartTagToken && tokenType != xhtml.SelfClosingTagToken {
 			continue
@@ -312,7 +378,7 @@ func canonicalGenericEmbed(pageURL *url.URL, rawURL string) (Entry, bool) {
 	}
 	resolved := pageURL.ResolveReference(reference)
 	if resolved == nil || (resolved.Scheme != "http" && resolved.Scheme != "https") || resolved.Hostname() == "" ||
-		resolved.User != nil || resolved.Port() != "" || resolved.Fragment != "" || len(resolved.String()) > maxGenericEmbedURLBytes {
+		resolved.User != nil || genericHasExplicitPort(resolved) || resolved.Fragment != "" || len(resolved.String()) > maxGenericEmbedURLBytes {
 		return Entry{}, false
 	}
 	host := strings.ToLower(resolved.Hostname())
@@ -363,6 +429,18 @@ func canonicalGenericEmbed(pageURL *url.URL, rawURL string) (Entry, bool) {
 		return genericTransparentEntry(target.webpageURL(), "peertube", target.id), true
 	}
 	return Entry{}, false
+}
+
+func genericHasExplicitPort(parsed *url.URL) bool {
+	if parsed == nil {
+		return false
+	}
+	host := parsed.Host
+	if strings.HasPrefix(host, "[") {
+		closeBracket := strings.LastIndex(host, "]")
+		return closeBracket >= 0 && len(host) > closeBracket+1 && host[closeBracket+1] == ':'
+	}
+	return strings.Contains(host, ":")
 }
 
 func canonicalGenericYouTubeEmbed(parsed *url.URL) (Entry, bool) {
@@ -417,14 +495,6 @@ func genericStreamableEmbedURL(parsed *url.URL) bool {
 
 func genericTransparentEntry(rawURL, extractorKey, id string) Entry {
 	return Entry{URL: rawURL, ExtractorKey: extractorKey, ID: id, Transparent: true}
-}
-
-// genericSingleEmbed is intentionally localized. Extraction currently lacks a
-// root URL-result variant, so the primary integration temporarily represents
-// one discovered embed as a one-entry playlist. The shared integration follow-
-// up can replace only this function once root URL-result recursion exists.
-func genericSingleEmbed(info value.Info, entry Entry) (Extraction, error) {
-	return Playlist(info, StaticEntries(entry))
 }
 
 func genericPageIdentity(pageURL *url.URL) (string, string) {

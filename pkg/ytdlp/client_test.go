@@ -981,6 +981,64 @@ func TestOperationMergesTransparentEntryMetadata(t *testing.T) {
 	}
 }
 
+type URLResultFixtureExtractor struct{}
+
+func (URLResultFixtureExtractor) Name() string { return "url-result-fixture" }
+func (URLResultFixtureExtractor) Suitable(parsed *url.URL) bool {
+	return parsed != nil && parsed.Path == "/handoff"
+}
+func (URLResultFixtureExtractor) Extract(_ context.Context, request extractor.Request) (extractor.Extraction, error) {
+	parsed, err := url.Parse(request.URL)
+	if err != nil {
+		return extractor.Extraction{}, err
+	}
+	parsed.Path = "/one.mp4"
+	return extractor.URLResult(extractor.Entry{URL: parsed.String(), ExtractorKey: "generic", Transparent: true})
+}
+
+func TestOperationURLResultBypassesPlaylistControls(t *testing.T) {
+	server := playlistMediaServer(t)
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	operation := &operation{
+		client: NewClient(),
+		request: Request{
+			SkipDownload: true,
+			Playlist:     PlaylistOptions{Flat: true, Items: "2", Start: 4, End: 4, Reverse: true},
+		},
+		transport: transport,
+		registry:  extractor.NewRegistry(URLResultFixtureExtractor{}, extractor.NewGeneric()),
+	}
+	result, err := operation.process(context.Background(), server.URL+"/handoff", "", nil, make(map[string]bool), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Extractor != "generic" || len(result.Entries) != 0 || result.Skipped {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+type cyclicURLResultExtractor struct{}
+
+func (cyclicURLResultExtractor) Name() string { return "url-cycle" }
+func (cyclicURLResultExtractor) Suitable(parsed *url.URL) bool {
+	return parsed != nil && parsed.Host == "cycle.invalid"
+}
+func (cyclicURLResultExtractor) Extract(_ context.Context, request extractor.Request) (extractor.Extraction, error) {
+	return extractor.URLResult(extractor.Entry{URL: request.URL, ExtractorKey: "url-cycle"})
+}
+
+func TestOperationRejectsURLResultCycle(t *testing.T) {
+	operation := &operation{
+		client: NewClient(), request: Request{SkipDownload: true},
+		registry: extractor.NewRegistry(cyclicURLResultExtractor{}),
+	}
+	_, err := operation.process(context.Background(), "https://cycle.invalid/video", "", nil, make(map[string]bool), 0)
+	if !errors.Is(err, extractor.ErrPlaylistLimit) {
+		t.Fatalf("cycle error = %v", err)
+	}
+}
+
 func playlistMediaServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
