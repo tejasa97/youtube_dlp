@@ -58,7 +58,7 @@ protected-playback workstream. The following are supported:
 - explicit public channel tabs at
   `/channel/<UCID>/{videos,shorts,streams,playlists}`, including bounded lazy
   continuation paging;
-- explicit public ASCII-handle tabs at
+- explicit public Unicode-aware handle tabs at
   `/@handle/{videos,shorts,streams,playlists}`, including bounded lazy
   continuation;
 - explicit public legacy alias tabs at

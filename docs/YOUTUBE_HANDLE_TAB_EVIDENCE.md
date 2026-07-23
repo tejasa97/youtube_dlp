@@ -7,18 +7,19 @@ browse-tab model: an initial `ytInitialData` page yields ordered video URL
 results and a continuation is sent to `youtubei/v1/browse`.
 
 Implemented: exact `youtube.com`/`www.youtube.com`
-`/@handle/{videos,shorts,streams,playlists}` routes, a deliberately bounded ASCII handle
-grammar (`@` + 3–30 ASCII letters/digits/dots/underscores/hyphens, containing
-at least one alphanumeric), public metadata, `videoRenderer`,
+`/@handle/{videos,shorts,streams,playlists}` routes and the pinned reference's
+Unicode-aware `@[\w.-]{3,30}` handle grammar. Raw and percent-encoded handles
+are decoded once, validated by Unicode code point, and canonicalized without
+case folding. Public metadata, `videoRenderer`,
 `gridVideoRenderer`, `reelItemRenderer`, and compatible lockup entries; lazy,
 reusable bounded continuations; cancellation, cursor-loop protection, request
 configuration propagation, and authentication/unavailable/rate-limit/network
 classification. Playlist metadata uses a valid extracted UCID when present;
-otherwise it uses the stable bounded `handle:@lowercase-handle` ID.
+otherwise it uses the stable bounded `handle:@handle` ID.
 
-Deviation: Unicode and other full YouTube handle forms are deliberately
-rejected rather than partially normalized. This avoids claiming parity with
-the reference's broader handle support.
+Encoded separators, backslashes, NULs, invalid UTF-8, emoji, combining marks,
+and non-HTTP URL forms remain rejected. This matches the pinned Python `\w`
+grammar rather than broadening it to arbitrary Unicode grapheme clusters.
 
 Not implemented: handle home resolution, search/community/releases, arbitrary
 renderer parity, authenticated/private success, or live-site compatibility
