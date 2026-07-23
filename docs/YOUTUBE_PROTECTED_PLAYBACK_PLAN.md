@@ -45,9 +45,10 @@ embedding are complete. Authenticated Innertube profiles remain pending.
 
 ## Wave 4 — renderer breadth
 
-Implementation status: exact public UCID and bounded ASCII-handle
-video/Shorts/streams/playlist tabs plus bounded public and playable YouTube
-Music search are implemented. A bounded, opt-in public-comments slice covers
+Implementation status: exact public UCID, bounded ASCII-handle, and bounded
+legacy `/user` and `/c` alias video/Shorts/streams/playlist tabs plus bounded
+public and playable YouTube Music search are implemented. A bounded, opt-in
+public-comments slice covers
 top/new sorting, legacy and modern fields, click-tracked reply continuations,
 nested subthreads, bounded retries, pinned duplicate handling, visitor
 rotation, and explicit resource limits. Authenticated comments, estimated
