@@ -10,7 +10,10 @@ import (
 	"github.com/ytdlp-go/ytdlp/pkg/ytdlp"
 )
 
-var printFieldListPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.:-]*(?:,[A-Za-z_][A-Za-z0-9_.:-]*)*$`)
+var (
+	printFieldListPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.:-]*(?:,[A-Za-z_][A-Za-z0-9_.:-]*)*$`)
+	printDictPattern      = regexp.MustCompile(`^\{([A-Za-z_][A-Za-z0-9_.:-]*(?:,[A-Za-z_][A-Za-z0-9_.:-]*)*)\}$`)
+)
 
 type printFileSpec struct {
 	template     string
@@ -54,15 +57,33 @@ func parsePrintRule(input, fileTemplate string) (ytdlp.PrintRule, error) {
 	if template == "" {
 		return ytdlp.PrintRule{}, fmt.Errorf("empty print template")
 	}
+	template = normalizePrintShorthand(template)
+	return ytdlp.PrintRule{Stage: stage, Template: template, FileTemplate: fileTemplate}, nil
+}
+
+func normalizePrintShorthand(input string) string {
+	diagnostic := strings.HasSuffix(input, "=")
+	template := strings.TrimSuffix(input, "=")
+	if matches := printDictPattern.FindStringSubmatch(template); matches != nil {
+		expression := ".{" + matches[1] + "}"
+		if diagnostic {
+			return expression + " = %(" + expression + ")#j"
+		}
+		return "%(" + expression + ")j"
+	}
 	if printFieldListPattern.MatchString(template) {
 		fields := strings.Split(template, ",")
 		rendered := make([]string, len(fields))
 		for index, field := range fields {
-			rendered[index] = "%(" + field + ")s"
+			if diagnostic {
+				rendered[index] = field + " = %(" + field + ")#j"
+			} else {
+				rendered[index] = "%(" + field + ")s"
+			}
 		}
-		template = strings.Join(rendered, "\n")
+		return strings.Join(rendered, "\n")
 	}
-	return ytdlp.PrintRule{Stage: stage, Template: template, FileTemplate: fileTemplate}, nil
+	return input
 }
 
 func extractPrintToFileArgs(arguments []string) ([]string, []printFileSpec, error) {
