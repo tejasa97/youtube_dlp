@@ -20,12 +20,15 @@ type genericHTMLTransport struct {
 	headStatus, status int
 	finalURL           string
 	blockGET           bool
+	methods            []string
+	getReadError       error
 }
 
 func (transport *genericHTMLTransport) Do(ctx context.Context, request *http.Request) (*http.Response, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	transport.methods = append(transport.methods, request.Method)
 	status := transport.status
 	contentType := transport.getType
 	body := transport.body
@@ -48,13 +51,21 @@ func (transport *genericHTMLTransport) Do(ctx context.Context, request *http.Req
 		}
 		responseRequest.URL = final
 	}
+	responseBody := io.Reader(bytes.NewReader(body))
+	if request.Method == http.MethodGet && transport.getReadError != nil {
+		responseBody = failingGenericReader{err: transport.getReadError}
+	}
 	return &http.Response{
 		StatusCode: status,
 		Header:     http.Header{"Content-Type": []string{contentType}},
-		Body:       io.NopCloser(bytes.NewReader(body)),
+		Body:       io.NopCloser(responseBody),
 		Request:    responseRequest,
 	}, nil
 }
+
+type failingGenericReader struct{ err error }
+
+func (reader failingGenericReader) Read([]byte) (int, error) { return 0, reader.err }
 
 func (*genericHTMLTransport) ReadPage(context.Context, string) ([]byte, http.Header, error) {
 	return nil, nil, errors.New("unexpected ReadPage call")
@@ -83,17 +94,10 @@ func TestGenericDiscoversSingleCanonicalEmbed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPlaylist() {
-		t.Fatal("single embed is not the temporary recursive entry container")
+	if !result.IsURL() || result.Redirect == nil {
+		t.Fatalf("single embed result = %#v", result)
 	}
-	entries, err := CollectEntries(context.Background(), result.Entries, 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 1 {
-		t.Fatalf("entries = %#v", entries)
-	}
-	entry := entries[0]
+	entry := *result.Redirect
 	if entry.URL != "https://www.youtube.com/watch?start=10&v=ABCDEFGHIJK" ||
 		entry.ExtractorKey != "youtube" || entry.ID != "ABCDEFGHIJK" || !entry.Transparent {
 		t.Fatalf("entry = %#v", entry)
@@ -169,7 +173,7 @@ func TestCanonicalGenericEmbedRelativeResolutionIsProviderBounded(t *testing.T) 
 	}
 }
 
-func TestGenericUsesFinalResponseURLForRelativeEmbed(t *testing.T) {
+func TestGenericReturnsRedirectBeforeScanningFinalDocument(t *testing.T) {
 	transport := &genericHTMLTransport{
 		headType: "text/html", getType: "text/html",
 		finalURL: "https://player.vimeo.com/articles/one",
@@ -181,15 +185,55 @@ func TestGenericUsesFinalResponseURLForRelativeEmbed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entries, err := CollectEntries(context.Background(), result.Entries, 10)
-	if err != nil {
-		t.Fatal(err)
+	if !result.IsURL() || result.Redirect == nil || result.Redirect.URL != transport.finalURL {
+		t.Fatalf("redirect result = %#v", result)
 	}
-	if len(entries) != 1 || entries[0].URL != "https://vimeo.com/987654321" {
-		t.Fatalf("entries = %#v", entries)
+	if len(transport.methods) != 1 || transport.methods[0] != http.MethodHead {
+		t.Fatalf("methods = %v", transport.methods)
 	}
-	if got, _ := result.Info.Lookup("webpage_url").StringValue(); got != transport.finalURL {
-		t.Fatalf("webpage_url = %q", got)
+}
+
+func TestGenericFallsBackToGETWhenHEADIsUnusable(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		headStatus int
+		headType   string
+	}{
+		{name: "method not allowed", headStatus: http.StatusMethodNotAllowed},
+		{name: "not implemented", headStatus: http.StatusNotImplemented},
+		{name: "empty type"},
+		{name: "misleading type", headType: "application/json"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			transport := &genericHTMLTransport{
+				headStatus: test.headStatus, headType: test.headType, getType: "text/html",
+				body: readGenericEmbedFixture(t, "single.html"),
+			}
+			result, err := NewGeneric().Extract(context.Background(), Request{
+				URL: "https://publisher.invalid/article", Transport: transport,
+			})
+			if err != nil || !result.IsURL() {
+				t.Fatalf("Extract() = %#v, %v", result, err)
+			}
+			if strings.Join(transport.methods, ",") != "HEAD,GET" {
+				t.Fatalf("methods = %v", transport.methods)
+			}
+		})
+	}
+}
+
+func TestGenericSniffsLargeDirectGETWithoutBufferingWholeBody(t *testing.T) {
+	transport := &genericHTMLTransport{
+		body: bytes.Repeat([]byte{0}, maxGenericHTMLBytes+1),
+	}
+	result, err := NewGeneric().Extract(context.Background(), Request{
+		URL: "https://publisher.invalid/media.bin", Transport: transport,
+	})
+	if err != nil || result.IsPlaylist() || result.IsURL() {
+		t.Fatalf("Extract() = %#v, %v", result, err)
+	}
+	if strings.Join(transport.methods, ",") != "HEAD,GET" {
+		t.Fatalf("methods = %v", transport.methods)
 	}
 }
 
@@ -200,6 +244,7 @@ func TestCanonicalGenericEmbedRejectsUnsafeAndNonEmbedURLs(t *testing.T) {
 		"data:text/html,<iframe>",
 		"https://user@player.vimeo.com/video/123",
 		"https://player.vimeo.com:443/video/123",
+		"https://player.vimeo.com:/video/123",
 		"https://player.vimeo.com/video/123#fragment",
 		"https://player.vimeo.com/video%2f123",
 		"https://player.vimeo.com.evil.invalid/video/123",
@@ -263,6 +308,19 @@ func TestGenericHTMLUnsupportedAndResponseFailures(t *testing.T) {
 	}
 }
 
+func TestGenericPreservesResponseBodyReadFailure(t *testing.T) {
+	want := errors.New("transport body failed")
+	transport := &genericHTMLTransport{
+		headType: "text/html", getType: "text/html", getReadError: want,
+	}
+	_, err := NewGeneric().Extract(context.Background(), Request{
+		URL: "https://publisher.invalid/article", Transport: transport,
+	})
+	if !errors.Is(err, want) || errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("Extract() error = %v", err)
+	}
+}
+
 func TestGenericHTMLBounds(t *testing.T) {
 	t.Run("page bytes", func(t *testing.T) {
 		request := genericHTMLRequest(bytes.Repeat([]byte("x"), maxGenericHTMLBytes+1))
@@ -272,6 +330,12 @@ func TestGenericHTMLBounds(t *testing.T) {
 	})
 	t.Run("depth", func(t *testing.T) {
 		page := []byte(strings.Repeat("<div>", maxGenericHTMLDepth+1))
+		if _, err := discoverGenericEmbedEntries(context.Background(), mustGenericURL(t, "https://publisher.invalid"), page); !errors.Is(err, ErrInvalidMetadata) {
+			t.Fatalf("discover error = %v", err)
+		}
+	})
+	t.Run("mismatched end tag", func(t *testing.T) {
+		page := []byte(`<div></span>`)
 		if _, err := discoverGenericEmbedEntries(context.Background(), mustGenericURL(t, "https://publisher.invalid"), page); !errors.Is(err, ErrInvalidMetadata) {
 			t.Fatalf("discover error = %v", err)
 		}

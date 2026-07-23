@@ -302,7 +302,7 @@ encodings, aliases, limits, and security behavior.
 
 The registered representative extractors are:
 
-- generic direct media, YouTube, Vimeo, Twitch, SoundCloud, Streamable,
+- generic direct media and bounded native-provider embeds, YouTube, Vimeo, Twitch, SoundCloud, Streamable,
   PeerTube, Internet Archive, TikTok, and the deterministic authenticated fixture;
 - SVT Play, Brightcove, Kaltura, JW Platform, Wistia, and SproutVideo;
 - Dailymotion, Reddit, Twitter/X, Bandcamp, Mixcloud, Rumble, and Bilibili;

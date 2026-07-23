@@ -122,6 +122,29 @@ capabilities:
       - metadata.ordered_values
       - network.shared_transport
 
+  - id: extractor.generic_embeds
+    name: Conservative generic embed discovery
+    phase: 3
+    compatibility_target: Discover a bounded allowlist of native-provider embeds in HTML, preserve redirect handoff semantics, and resolve a single embed as a root URL result.
+    status: compatible
+    evidence:
+      - internal/extractor.TestGenericDiscoversSingleCanonicalEmbed
+      - internal/extractor.TestGenericDiscoversMultipleEmbedsInDocumentOrder
+      - internal/extractor.TestGenericFallsBackToGETWhenHEADIsUnusable
+      - internal/extractor.TestGenericReturnsRedirectBeforeScanningFinalDocument
+      - internal/extractor.TestCanonicalGenericEmbedRejectsUnsafeAndNonEmbedURLs
+      - internal/extractor.TestGenericHTMLBounds
+      - internal/extractor.FuzzDiscoverGenericEmbedEntries
+      - pkg/ytdlp.TestOperationURLResultBypassesPlaylistControls
+      - pkg/ytdlp.TestOperationRejectsURLResultCycle
+      - docs/GENERIC_EMBED_EVIDENCE.md
+    owner: core
+    depends_on:
+      - extractor.direct_media
+      - extractor.phase2_breadth
+      - extractor.playlists
+    known_deviation: Discovery is limited to explicit embed-bearing HTML attributes and the documented native-provider URL allowlist. Script configuration, OpenGraph and JSON-LD media, arbitrary iframe crawling, and unsupported providers remain explicit gaps.
+
   - id: downloader.direct_http
     name: Resumable direct HTTP download
     phase: 0
