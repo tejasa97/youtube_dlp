@@ -29,7 +29,7 @@ var (
 	ErrYouTubeHandleTabNetwork     = errors.New("YouTube handle tab network failure")
 )
 
-// YouTubeHandleTab handles exact public /@handle/{videos,shorts,streams}
+// YouTubeHandleTab handles exact public /@handle/{videos,shorts,streams,playlists}
 // URLs. Registration is intentionally owned by the client package.
 type YouTubeHandleTab struct{}
 
@@ -86,7 +86,7 @@ func youtubeHandleTabTarget(parsed *url.URL) (handle, tab string, ok bool) {
 		return "", "", false
 	}
 	switch parts[2] {
-	case "videos", "shorts", "streams":
+	case "videos", "shorts", "streams", "playlists":
 		return strings.ToLower(parts[1]), parts[2], true
 	default:
 		return "", "", false
@@ -103,7 +103,7 @@ func extractYouTubeHandleTab(ctx context.Context, transport Transport, handle, t
 	if err != nil {
 		return Extraction{}, fmt.Errorf("%w: YouTube handle tab initial data", ErrInvalidMetadata)
 	}
-	parsed, err := parseYouTubeHandleTabData(raw)
+	parsed, err := parseYouTubeHandleTabData(raw, tab)
 	if err != nil {
 		return Extraction{}, err
 	}
@@ -119,7 +119,7 @@ func extractYouTubeHandleTab(ctx context.Context, transport Transport, handle, t
 	}
 	config := extractYouTubePlaylistConfig(page)
 	entries, err := ContinuationEntries(parsed.entries, parsed.continuation, func(ctx context.Context, token string) ([]Entry, string, error) {
-		return fetchYouTubeHandleTabContinuation(ctx, transport, token, config)
+		return fetchYouTubeHandleTabContinuation(ctx, transport, token, config, tab)
 	})
 	if err != nil {
 		return Extraction{}, err
@@ -136,7 +136,7 @@ type youtubeHandleTabPage struct {
 	continuation, title, channelID, alert string
 }
 
-func parseYouTubeHandleTabData(data []byte) (youtubeHandleTabPage, error) {
+func parseYouTubeHandleTabData(data []byte, tab string) (youtubeHandleTabPage, error) {
 	var root value.Value
 	if err := json.Unmarshal(data, &root); err != nil {
 		return youtubeHandleTabPage{}, fmt.Errorf("%w: decode YouTube handle tab data", ErrInvalidMetadata)
@@ -149,11 +149,23 @@ func parseYouTubeHandleTabData(data []byte) (youtubeHandleTabPage, error) {
 	err := walkOrderedJSON(root, 0, &nodes, func(key string, object *value.Object) {
 		switch key {
 		case "videoRenderer", "gridVideoRenderer", "reelItemRenderer":
-			if entry, ok := youtubeHandleTabVideoEntry(object); ok {
-				page.entries = append(page.entries, entry)
+			if tab != "playlists" {
+				if entry, ok := youtubeHandleTabVideoEntry(object); ok {
+					page.entries = append(page.entries, entry)
+				}
+			}
+		case "playlistRenderer", "gridPlaylistRenderer":
+			if tab == "playlists" {
+				if entry, ok := youtubeTabPlaylistEntry(object); ok {
+					page.entries = append(page.entries, entry)
+				}
 			}
 		case "lockupViewModel":
-			if entry, ok := youtubePlaylistLockupEntry(object); ok {
+			if tab == "playlists" {
+				if entry, ok := youtubeTabPlaylistLockupEntry(object); ok {
+					page.entries = append(page.entries, entry)
+				}
+			} else if entry, ok := youtubePlaylistLockupEntry(object); ok {
 				page.entries = append(page.entries, entry)
 			}
 		case "continuationItemRenderer":
@@ -206,7 +218,7 @@ func youtubeHandleTabVideoEntry(renderer *value.Object) (Entry, bool) {
 	return Entry{URL: "https://www.youtube.com" + path + videoID, ExtractorKey: "youtube", ID: videoID, Title: rendererText(renderer.Lookup("title"))}, true
 }
 
-func fetchYouTubeHandleTabContinuation(ctx context.Context, transport Transport, token string, config youtubePlaylistConfig) ([]Entry, string, error) {
+func fetchYouTubeHandleTabContinuation(ctx context.Context, transport Transport, token string, config youtubePlaylistConfig, tab string) ([]Entry, string, error) {
 	if token = validYouTubeContinuationToken(token); token == "" {
 		return nil, "", fmt.Errorf("%w: invalid YouTube handle tab continuation", ErrInvalidPlaylist)
 	}
@@ -235,7 +247,7 @@ func fetchYouTubeHandleTabContinuation(ctx context.Context, transport Transport,
 	if err := RequestJSON(ctx, transport, http.MethodPost, endpoint.String(), body, headers, &response); err != nil {
 		return nil, "", categorizeYouTubeHandleTabError(err)
 	}
-	parsed, err := parseYouTubeHandleTabData(response)
+	parsed, err := parseYouTubeHandleTabData(response, tab)
 	if err != nil {
 		return nil, "", err
 	}
@@ -247,6 +259,11 @@ func fetchYouTubeHandleTabContinuation(ctx context.Context, transport Transport,
 
 func categorizeYouTubeHandleTabError(err error) error {
 	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	if errors.Is(err, ErrInvalidMetadata) || errors.Is(err, ErrJSONResponseTooLarge) ||
+		errors.Is(err, ErrInvalidPlaylist) || errors.Is(err, ErrAuthentication) ||
+		errors.Is(err, ErrUnavailable) {
 		return err
 	}
 	var status *HTTPStatusError

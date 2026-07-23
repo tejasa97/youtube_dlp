@@ -15,6 +15,8 @@ import (
 
 var youtubeChannelIDPattern = regexp.MustCompile(`^UC[A-Za-z0-9_-]{22}$`)
 
+const youtubeMaxTabEntryTitleBytes = 4096
+
 var (
 	ErrYouTubeChannelRateLimited = errors.New("YouTube channel rate limited")
 	ErrYouTubeChannelNetwork     = errors.New("YouTube channel network failure")
@@ -52,7 +54,7 @@ func (YouTubeChannelTab) Extract(ctx context.Context, request Request) (Extracti
 // Extract. It accepts exact public web hosts only and rejects the broad class
 // of video URLs that may happen to contain a channel-looking path.
 func youtubeChannelTabTarget(parsed *url.URL) (channelID, tab string, ok bool) {
-	if parsed == nil {
+	if parsed == nil || parsed.Fragment != "" || len(parsed.String()) > 4096 {
 		return "", "", false
 	}
 	if _, _, err := validateYouTubeURLPolicy(parsed); err != nil {
@@ -66,13 +68,18 @@ func youtubeChannelTabTarget(parsed *url.URL) (channelID, tab string, ok bool) {
 	if strings.Contains(raw, "%2f") || strings.Contains(raw, "%5c") || strings.Contains(raw, "%00") {
 		return "", "", false
 	}
-	parts := strings.Split(strings.Trim(parsed.EscapedPath(), "/"), "/")
-	if len(parts) != 3 || parts[0] != "channel" || !youtubeChannelIDPattern.MatchString(parts[1]) {
+	// These are deliberately exact routes. Refusing RawPath prevents an
+	// encoded spelling from becoming an alternate canonical form.
+	if parsed.RawPath != "" {
 		return "", "", false
 	}
-	switch parts[2] {
-	case "videos", "shorts", "streams":
-		return parts[1], parts[2], true
+	parts := strings.Split(parsed.Path, "/")
+	if len(parts) != 4 || parts[0] != "" || parts[1] != "channel" || !youtubeChannelIDPattern.MatchString(parts[2]) {
+		return "", "", false
+	}
+	switch parts[3] {
+	case "videos", "shorts", "streams", "playlists":
+		return parts[2], parts[3], true
 	}
 	return "", "", false
 }
@@ -87,7 +94,7 @@ func extractYouTubeChannelTab(ctx context.Context, transport Transport, channelI
 	if err != nil {
 		return Extraction{}, fmt.Errorf("%w: YouTube channel tab initial data", ErrInvalidMetadata)
 	}
-	parsed, err := parseYouTubeChannelTabData(raw)
+	parsed, err := parseYouTubeChannelTabData(raw, tab)
 	if err != nil {
 		return Extraction{}, err
 	}
@@ -99,7 +106,7 @@ func extractYouTubeChannelTab(ctx context.Context, transport Transport, channelI
 	}
 	config := extractYouTubePlaylistConfig(page)
 	entries, err := ContinuationEntries(parsed.entries, parsed.continuation, func(ctx context.Context, token string) ([]Entry, string, error) {
-		return fetchYouTubeChannelContinuation(ctx, transport, token, config)
+		return fetchYouTubeChannelContinuation(ctx, transport, token, config, tab)
 	})
 	if err != nil {
 		return Extraction{}, err
@@ -116,7 +123,7 @@ type youtubeChannelTabPage struct {
 	continuation, title, alert string
 }
 
-func parseYouTubeChannelTabData(data []byte) (youtubeChannelTabPage, error) {
+func parseYouTubeChannelTabData(data []byte, tab string) (youtubeChannelTabPage, error) {
 	var root value.Value
 	if err := json.Unmarshal(data, &root); err != nil {
 		return youtubeChannelTabPage{}, fmt.Errorf("%w: decode YouTube channel tab data", ErrInvalidMetadata)
@@ -129,11 +136,23 @@ func parseYouTubeChannelTabData(data []byte) (youtubeChannelTabPage, error) {
 	err := walkOrderedJSON(root, 0, &nodes, func(key string, object *value.Object) {
 		switch key {
 		case "videoRenderer", "gridVideoRenderer":
-			if entry, ok := youtubeChannelVideoEntry(object); ok {
-				page.entries = append(page.entries, entry)
+			if tab != "playlists" {
+				if entry, ok := youtubeChannelVideoEntry(object); ok {
+					page.entries = append(page.entries, entry)
+				}
+			}
+		case "playlistRenderer", "gridPlaylistRenderer":
+			if tab == "playlists" {
+				if entry, ok := youtubeTabPlaylistEntry(object); ok {
+					page.entries = append(page.entries, entry)
+				}
 			}
 		case "lockupViewModel":
-			if entry, ok := youtubePlaylistLockupEntry(object); ok {
+			if tab == "playlists" {
+				if entry, ok := youtubeTabPlaylistLockupEntry(object); ok {
+					page.entries = append(page.entries, entry)
+				}
+			} else if entry, ok := youtubePlaylistLockupEntry(object); ok {
 				page.entries = append(page.entries, entry)
 			}
 		case "continuationItemRenderer":
@@ -180,7 +199,39 @@ func youtubeChannelVideoEntry(renderer *value.Object) (Entry, bool) {
 	return Entry{URL: "https://www.youtube.com" + path + videoID, ExtractorKey: "youtube", ID: videoID, Title: rendererText(renderer.Lookup("title"))}, true
 }
 
-func fetchYouTubeChannelContinuation(ctx context.Context, transport Transport, token string, config youtubePlaylistConfig) ([]Entry, string, error) {
+func youtubeTabPlaylistEntry(renderer *value.Object) (Entry, bool) {
+	playlistID := objectString(renderer, "playlistId")
+	if !youtubePlaylistIDPattern.MatchString(playlistID) {
+		return Entry{}, false
+	}
+	return youtubeTabPlaylistResult(playlistID, rendererText(renderer.Lookup("title"))), true
+}
+
+func youtubeTabPlaylistLockupEntry(viewModel *value.Object) (Entry, bool) {
+	switch objectString(viewModel, "contentType") {
+	case "LOCKUP_CONTENT_TYPE_PLAYLIST", "LOCKUP_CONTENT_TYPE_PODCAST":
+	default:
+		return Entry{}, false
+	}
+	playlistID := objectString(viewModel, "contentId")
+	if !youtubePlaylistIDPattern.MatchString(playlistID) {
+		return Entry{}, false
+	}
+	title := objectString(viewModel, "metadata", "lockupMetadataViewModel", "title", "content")
+	return youtubeTabPlaylistResult(playlistID, title), true
+}
+
+func youtubeTabPlaylistResult(playlistID, title string) Entry {
+	if len(title) > youtubeMaxTabEntryTitleBytes || strings.ContainsRune(title, 0) {
+		title = ""
+	}
+	return Entry{
+		URL: "https://www.youtube.com/playlist?list=" + playlistID, ExtractorKey: "youtube",
+		ID: playlistID, Title: title, Transparent: true,
+	}
+}
+
+func fetchYouTubeChannelContinuation(ctx context.Context, transport Transport, token string, config youtubePlaylistConfig, tab string) ([]Entry, string, error) {
 	if token = validYouTubeContinuationToken(token); token == "" {
 		return nil, "", fmt.Errorf("%w: invalid YouTube continuation", ErrInvalidPlaylist)
 	}
@@ -209,7 +260,7 @@ func fetchYouTubeChannelContinuation(ctx context.Context, transport Transport, t
 	if err := RequestJSON(ctx, transport, http.MethodPost, endpoint.String(), body, headers, &response); err != nil {
 		return nil, "", categorizeYouTubeChannelError(err)
 	}
-	parsed, err := parseYouTubeChannelTabData(response)
+	parsed, err := parseYouTubeChannelTabData(response, tab)
 	if err != nil {
 		return nil, "", err
 	}
@@ -221,6 +272,11 @@ func fetchYouTubeChannelContinuation(ctx context.Context, transport Transport, t
 
 func categorizeYouTubeChannelError(err error) error {
 	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	if errors.Is(err, ErrInvalidMetadata) || errors.Is(err, ErrJSONResponseTooLarge) ||
+		errors.Is(err, ErrInvalidPlaylist) || errors.Is(err, ErrAuthentication) ||
+		errors.Is(err, ErrUnavailable) {
 		return err
 	}
 	var status *HTTPStatusError
