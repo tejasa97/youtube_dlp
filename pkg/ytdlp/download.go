@@ -36,6 +36,9 @@ func (operation *operation) downloadSelections(ctx context.Context, selections [
 
 	paths := make([]string, len(selections))
 	var bytes int64
+	if selections[0].YouTubeLiveFromStart && selections[1].YouTubeLiveFromStart {
+		return operation.downloadYouTubeLivePair(ctx, selections, outputRoot, destination, temporaryRoot, sink)
+	}
 	for index, selection := range selections {
 		track := filepath.Join(temporaryRoot, fmt.Sprintf("track-%d.%s", index, safeExtension(selection.Ext)))
 		path, count, downloadErr := operation.downloadSelection(ctx, selection, temporaryRoot, track, sink)
@@ -62,18 +65,46 @@ func (operation *operation) downloadSelections(ctx context.Context, selections [
 }
 
 func (operation *operation) downloadSelection(ctx context.Context, selected mediaformat.Selection, outputRoot, destination string, sink events.Sink) (string, int64, error) {
+	return operation.downloadSelectionWithLiveRefresh(ctx, selected, outputRoot, destination, sink, nil)
+}
+
+func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context, selected mediaformat.Selection, outputRoot, destination string, sink events.Sink, liveRefresh youtubelive.LiveRefreshFunc) (string, int64, error) {
 	options := operation.request.Downloader
+	if selected.YouTubeLiveFromStart {
+		if options.External != nil {
+			return "", 0, fmt.Errorf("%w: external downloaders cannot consume generated YouTube live fragments", extractor.ErrUnsupported)
+		}
+		targetDuration, err := youtubeTargetDuration(selected.TargetDuration)
+		if err != nil {
+			return "", 0, err
+		}
+		if liveRefresh == nil {
+			if operation.youtubeLiveRefresh != nil {
+				liveRefresh = operation.youtubeLiveRefresh(selected)
+			} else {
+				liveRefresh = newYouTubeLiveRefreshCoordinator(operation).callback(selected)
+			}
+		}
+		result, err := youtubelive.NewLiveDownloader(operation.transport, youtubelive.LiveConfig{
+			Headers: selected.Headers, TargetDuration: targetDuration,
+			LiveStartTimestamp: selected.LiveStartTimestamp, Refresh: liveRefresh,
+			PollInterval: options.LivePollInterval, RefreshInterval: options.LiveRefreshInterval,
+			MaxPolls: options.LiveMaxPolls, MaxNoProgressPolls: options.LiveMaxNoProgressPolls,
+			MaxSegments: options.MaxSegments, MaxSegmentSize: options.MaxSegmentBytes, Attempts: options.Attempts,
+			RetryBaseDelay: options.RetryBaseDelay, RetryMaxDelay: options.RetryMaxDelay,
+		}).Download(ctx, selected.URL, outputRoot, destination, operation.request.Overwrite, sink)
+		if err != nil {
+			return "", 0, err
+		}
+		return result.Path, result.Bytes, nil
+	}
 	if selected.YouTubePostLive {
 		if options.External != nil {
 			return "", 0, fmt.Errorf("%w: external downloaders cannot consume generated YouTube post-live fragments", extractor.ErrUnsupported)
 		}
-		if selected.TargetDuration <= 0 || selected.TargetDuration > 3600 ||
-			math.IsNaN(selected.TargetDuration) || math.IsInf(selected.TargetDuration, 0) {
-			return "", 0, fmt.Errorf("%w: invalid YouTube post-live target duration", extractor.ErrInvalidMetadata)
-		}
-		targetDuration := time.Duration(selected.TargetDuration * float64(time.Second))
-		if targetDuration <= 0 {
-			return "", 0, fmt.Errorf("%w: invalid YouTube post-live target duration", extractor.ErrInvalidMetadata)
+		targetDuration, err := youtubeTargetDuration(selected.TargetDuration)
+		if err != nil {
+			return "", 0, err
 		}
 		result, err := youtubelive.NewDownloader(operation.transport, youtubelive.Config{
 			Headers: selected.Headers, TargetDuration: targetDuration,
@@ -196,6 +227,76 @@ func (operation *operation) downloadSelection(ctx context.Context, selected medi
 		}
 		return result.Path, result.Bytes, nil
 	}
+}
+
+func youtubeTargetDuration(seconds float64) (time.Duration, error) {
+	if seconds <= 0 || seconds > 3600 || math.IsNaN(seconds) || math.IsInf(seconds, 0) {
+		return 0, fmt.Errorf("%w: invalid YouTube live target duration", extractor.ErrInvalidMetadata)
+	}
+	duration := time.Duration(seconds * float64(time.Second))
+	if duration <= 0 {
+		return 0, fmt.Errorf("%w: invalid YouTube live target duration", extractor.ErrInvalidMetadata)
+	}
+	return duration, nil
+}
+
+func (operation *operation) downloadYouTubeLivePair(ctx context.Context, selections []mediaformat.Selection, outputRoot, destination, temporaryRoot string, sink events.Sink) (string, int64, error) {
+	if sink == nil {
+		sink = events.Nop()
+	}
+	serializedSink := &lockedEventSink{sink: sink}
+	coordinator := newYouTubeLiveRefreshCoordinator(operation)
+	childCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	type outcome struct {
+		index int
+		path  string
+		bytes int64
+		err   error
+	}
+	outcomes := make(chan outcome, len(selections))
+	for index, selection := range selections {
+		go func(index int, selection mediaformat.Selection) {
+			track := filepath.Join(temporaryRoot, fmt.Sprintf("track-%d.%s", index, safeExtension(selection.Ext)))
+			refresh := coordinator.callback(selection)
+			if operation.youtubeLiveRefresh != nil {
+				refresh = operation.youtubeLiveRefresh(selection)
+			}
+			path, count, err := operation.downloadSelectionWithLiveRefresh(
+				childCtx, selection, temporaryRoot, track, serializedSink, refresh)
+			outcomes <- outcome{index: index, path: path, bytes: count, err: err}
+		}(index, selection)
+	}
+	paths := make([]string, len(selections))
+	var bytes int64
+	var firstErr error
+	for range selections {
+		result := <-outcomes
+		if result.err != nil && firstErr == nil {
+			firstErr = result.err
+			cancel()
+		}
+		paths[result.index] = result.path
+		bytes += result.bytes
+	}
+	if firstErr != nil {
+		return "", 0, firstErr
+	}
+	video, audio := paths[0], paths[1]
+	if selections[1].VCodec != "" && selections[1].VCodec != "none" {
+		video, audio = paths[1], paths[0]
+	}
+	tools, err := ffmpeg.Discover(ffmpeg.Config{})
+	if err != nil {
+		return "", 0, err
+	}
+	if err := tools.Merge(ctx, video, audio, destination, operation.request.Overwrite, serializedSink); err != nil {
+		return "", 0, err
+	}
+	if info, statErr := os.Stat(destination); statErr == nil {
+		bytes = info.Size()
+	}
+	return destination, bytes, nil
 }
 
 func mergeableSelections(selections []mediaformat.Selection) bool {

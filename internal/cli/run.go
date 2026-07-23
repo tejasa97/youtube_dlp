@@ -57,6 +57,11 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	printJSON := flags.Bool("print-json", false, "print normalized metadata JSON to stdout")
 	listSubtitles := flags.Bool("list-subs", false, "list available subtitles and automatic captions (simulates; does not write files)")
 	skipDownload := flags.Bool("skip-download", false, "extract metadata without downloading")
+	liveFromStart := flags.Bool("live-from-start", false, "download supported live streams from their beginning")
+	flags.BoolFunc("no-live-from-start", "download live streams from the current edge (default)", func(string) error {
+		*liveFromStart = false
+		return nil
+	})
 	proxy := flags.String("proxy", "", "HTTP/HTTPS proxy URL")
 	impersonationProfile := flags.String("impersonate", "", "default explicit browser profile (for example firefox-120)")
 	timeout := flags.Duration("socket-timeout", 30*time.Second, "network operation timeout")
@@ -284,7 +289,7 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	result, err := client.Run(ctx, ytdlp.Request{
 		URL: flags.Arg(0), OutputTemplate: *output, OutputDir: *outputDir, Proxy: *proxy, ImpersonationProfile: *impersonationProfile,
 		CookieFile: *cookieFile, CookiesFromBrowser: *cookiesFromBrowser, UseNetRC: *useNetRC, NetRCLocation: *netRCLocation, DownloadArchive: *downloadArchive, CacheDir: *cacheDir,
-		Timeout: *timeout, Overwrite: *overwrite, SkipDownload: requestSkipDownload,
+		Timeout: *timeout, Overwrite: *overwrite, SkipDownload: requestSkipDownload, LiveFromStart: *liveFromStart,
 		Format: *format, FormatSort: append([]string(nil), formatSort...),
 		PreferFreeFormats: *preferFreeFormats, AllowUnplayableFormats: *allowUnplayable,
 		ProgressTemplate: *progressTemplate, MatchFilters: append([]string(nil), matchFilters...),

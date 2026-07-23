@@ -24,3 +24,24 @@ an injectable clock so this behavior has deterministic tests.
 The Go implementation adds explicit URL, count, response-size, concurrency,
 retry, cancellation, and filesystem bounds. It has no runtime or build-time
 dependency on Python or the reference checkout.
+
+## Active live-from-start
+
+The active polling behavior in `live.go` is derived from the same pinned
+`YoutubeIE._live_adaptive_fragments` implementation. For an active stream the
+reference polls the bare adaptive URL for `X-Head-Seqnum` every five seconds
+and yields every newly observed sequence through head `H` inclusively. It
+retains the next monotonically increasing sequence, so repeated heads do not
+duplicate media. The reference normally refreshes expiring player URLs after
+five hours and requests an earlier refresh after repeated missing heads.
+
+When a URL refresh observes that the broadcast has ended, the reference keeps
+the active URL feed for one final probe and still yields through that final
+head inclusively. This differs from extraction of a stream that was already
+post-live, whose finite plan excludes the newest two sequences.
+
+Synthetic tests use injectable clocks, waits, transports, and refresh
+callbacks to exercise polling without wall-clock sleeps or YouTube network
+access. They also cover the 120-hour availability clamp, signed-query
+preservation, query-free diagnostics, cancellation, malformed heads, and
+resource exhaustion. No upstream response body or credential is copied.

@@ -89,6 +89,8 @@ protected-playback workstream. The following are supported:
   the Android / Android VR format-recovery clients;
 - bounded finite reconstruction of retained post-live adaptive audio/video
   sequences, followed by the normal ffmpeg merge path; and
+- opt-in bounded active `--live-from-start` reconstruction with signed-URL
+  refresh, concurrent adaptive audio/video transfer, and final merging; and
 - a protected-playback token provider boundary that requests PO tokens from a
   pluggable director for GVS, player, and subtitle contexts according to the
   explicit provider, fetch-mode, and client policy.
@@ -102,8 +104,9 @@ The following limitations are intentional and remain:
   authenticated search, or arbitrary filter/sort parity; Music search excludes
   albums, artists, playlists, podcasts, arbitrary filters, and
   authenticated/premium success;
-- active live-from-start rewind remains pending; finite `post_live` DVR
-  sequences are reconstructed within the documented 10,000-segment bound;
+- live-from-start and finite `post_live` DVR reconstruction use the documented
+  segment/poll bounds and do not support external-downloader delegation or
+  process-restart resume;
 - authenticated Innertube coverage remains limited: `LOGIN_REQUIRED`
   playability surfaces an authentication error rather than a signed-in
   recovery path, and authenticated comments are not supported;

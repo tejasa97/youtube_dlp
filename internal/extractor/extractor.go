@@ -72,6 +72,7 @@ type Request struct {
 	Credentials               CredentialProvider
 	YouTubePOT                *youtubepot.Director
 	YouTubeTranslatedCaptions bool
+	YouTubeLiveFromStart      bool
 	YouTubeComments           YouTubeCommentOptions
 }
 

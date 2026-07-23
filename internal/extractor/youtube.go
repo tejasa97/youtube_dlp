@@ -191,6 +191,7 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 		return Extraction{}, fmt.Errorf("%w: missing title", ErrInvalidMetadata)
 	}
 	liveStatus := youtubeLiveStatusFromPlayers(formatPlayers)
+	activeFromStart := liveStatus == "is_live" && request.YouTubeLiveFromStart
 	startTimestamp, hasStart := firstYouTubeLiveTimestamp(formatPlayers, true)
 	endTimestamp, hasEnd := firstYouTubeLiveTimestamp(formatPlayers, false)
 	duration, hasDuration := int64(0), false
@@ -201,11 +202,29 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 	}
 	formatValues := make([]value.Value, 0, len(resolved)+2)
 	for _, format := range resolved {
+		targetDurationValid := format.TargetDurationSec > 0 &&
+			!math.IsNaN(format.TargetDurationSec) && !math.IsInf(format.TargetDurationSec, 0)
+		if activeFromStart && !targetDurationValid {
+			continue
+		}
 		if normalized, ok := normalizeYouTubeFormat(format); ok {
-			if liveStatus == "post_live" && format.TargetDurationSec > 0 {
+			if activeFromStart {
+				normalized.Set("protocol", value.String("http_dash_segments_generator"))
+				normalized.Set("target_duration", value.Float(format.TargetDurationSec))
+				normalized.Set("_youtube_live_from_start", value.Bool(true))
+				normalized.Set("_youtube_itag", value.Int(int64(format.Itag)))
+				normalized.Set("_youtube_client", value.String(format.clientName))
+				normalized.Set("_youtube_source_url", value.String(webpageURL))
+				if hasStart {
+					normalized.Set("live_start_timestamp", value.Int(startTimestamp))
+				}
+			} else if liveStatus == "post_live" && targetDurationValid {
 				normalized.Set("protocol", value.String("http_dash_segments"))
 				normalized.Set("target_duration", value.Float(format.TargetDurationSec))
 				normalized.Set("_youtube_post_live", value.Bool(true))
+				normalized.Set("_youtube_itag", value.Int(int64(format.Itag)))
+				normalized.Set("_youtube_client", value.String(format.clientName))
+				normalized.Set("_youtube_source_url", value.String(webpageURL))
 				if hasStart {
 					normalized.Set("live_start_timestamp", value.Int(startTimestamp))
 				}
@@ -218,10 +237,10 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 		}
 	}
 	for _, candidate := range formatPlayers {
-		if liveStatus != "post_live" && candidate.StreamingData.HLSManifestURL != "" {
+		if liveStatus != "post_live" && !activeFromStart && candidate.StreamingData.HLSManifestURL != "" {
 			formatValues = append(formatValues, value.ObjectValue(manifestFormat("hls", candidate.StreamingData.HLSManifestURL, "m3u8_native")))
 		}
-		if candidate.StreamingData.DASHManifestURL != "" && !(liveStatus == "post_live" && hasDuration && duration > 2*60*60) {
+		if !activeFromStart && candidate.StreamingData.DASHManifestURL != "" && !(liveStatus == "post_live" && hasDuration && duration > 2*60*60) {
 			formatValues = append(formatValues, value.ObjectValue(manifestFormat("dash", candidate.StreamingData.DASHManifestURL, "http_dash_segments")))
 		}
 	}
@@ -518,6 +537,7 @@ func mergeYouTubeFormats(players []youtubePlayerResponse) []youtubeFormat {
 	for _, player := range players {
 		formats := append(append([]youtubeFormat(nil), player.StreamingData.Formats...), player.StreamingData.AdaptiveFormats...)
 		for _, format := range formats {
+			format.clientName = player.clientName
 			key := strconv.Itoa(format.Itag) + "\x00" + format.MimeType + "\x00" + format.URL + "\x00" + format.SignatureCipher
 			if _, ok := seen[key]; ok {
 				continue
@@ -659,6 +679,7 @@ type youtubeFormat struct {
 	FPS               int64   `json:"fps"`
 	Language          string  `json:"language"`
 	TargetDurationSec float64 `json:"targetDurationSec"`
+	clientName        string
 }
 
 type pendingYouTubeFormat struct {

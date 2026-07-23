@@ -489,6 +489,10 @@ func objectSelection(object *value.Object) Selection {
 	selection.Height, _ = object.Lookup("height").Int()
 	selection.TBR, _ = numeric(object.Lookup("tbr"))
 	selection.YouTubePostLive, _ = object.Lookup("_youtube_post_live").Bool()
+	selection.YouTubeLiveFromStart, _ = object.Lookup("_youtube_live_from_start").Bool()
+	selection.YouTubeItag, _ = object.Lookup("_youtube_itag").Int()
+	selection.YouTubeClient, _ = object.Lookup("_youtube_client").StringValue()
+	selection.YouTubeSourceURL, _ = object.Lookup("_youtube_source_url").StringValue()
 	selection.TargetDuration, _ = numeric(object.Lookup("target_duration"))
 	selection.LiveStartTimestamp, _ = object.Lookup("live_start_timestamp").Int()
 	return selection

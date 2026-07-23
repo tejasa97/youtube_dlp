@@ -1,7 +1,8 @@
 # YouTube post-live DVR evidence
 
 Status: compatible for the bounded finite post-live adaptive corpus described
-below. Active `--live-from-start` polling remains a separate follow-up.
+below. Active `--live-from-start` polling is implemented separately and
+documented in [YouTube live-from-start evidence](YOUTUBE_LIVE_FROM_START_EVIDENCE.md).
 
 ## User-visible behavior
 
@@ -64,9 +65,9 @@ Python or reads the reference checkout.
 
 ## Known deviations
 
-- Active-stream rewind, URL refresh, active-to-ended polling, and the public
-  `--live-from-start` / `--no-live-from-start` flags are not part of this
-  finite foundation.
+- Active-stream rewind, URL refresh, and active-to-ended polling use the
+  separate live-from-start path; this document covers only finite post-live
+  reconstruction.
 - The native product ceiling is 10,000 segments, below the theoretical
   120-hour sequence count for short target durations.
 - Generated sequences cannot be delegated to an external downloader.

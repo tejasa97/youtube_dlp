@@ -75,7 +75,7 @@ decisions. Synthetic fixtures are not presented as substitutes for those facts.
 | Operations | Opt-in privacy-safe telemetry, semantic-shadow comparison, bounded canaries, and local diagnosis reports |
 | Releases | Reproducible no-cgo alpha assembly, SPDX/license output, signed updater metadata, rollback, and Python-free container evidence |
 
-The capability manifest currently records 55 capabilities: 54 compatible
+The capability manifest currently records 56 capabilities: 55 compatible
 within their declared corpora and one intentional deviation. A compatible
 entry is not a claim of complete yt-dlp parity. See the
 [Phase 3 exit review](docs/PHASE_3_EXIT_REVIEW.md), [Phase 2 security
@@ -334,6 +334,15 @@ Public YouTube comments are opt-in and bounded:
 Use `--youtube-comment-sort new|top` to choose the order. The current scope
 covers anonymous parent comments, click-tracked reply continuations, and
 bounded nested subthreads; authenticated comments are not yet supported.
+
+Public adaptive YouTube live streams can opt into bounded reconstruction from
+their retained beginning:
+
+```sh
+./bin/ytdlp-go --live-from-start 'https://www.youtube.com/watch?v=VIDEO_ID'
+```
+
+Current-edge downloading remains the default.
 
 Native media transfer covers direct HTTP/HTTPS, HLS, DASH, and ISM. Protected
 formats may require selected headers, cookies, impersonation, or JavaScript.

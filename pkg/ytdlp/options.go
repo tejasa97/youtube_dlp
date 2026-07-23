@@ -25,6 +25,10 @@ type DownloaderOptions struct {
 	PerHostFragmentConcurrency int
 	MaxSegments                int
 	MaxSegmentBytes            int64
+	LivePollInterval           time.Duration
+	LiveRefreshInterval        time.Duration
+	LiveMaxPolls               int
+	LiveMaxNoProgressPolls     int
 	External                   *ExternalDownloader
 }
 
@@ -154,7 +158,11 @@ func validateRequestOptions(request Request) error {
 		options.FragmentConcurrency < 0 || options.FragmentConcurrency > 128 ||
 		options.PerHostFragmentConcurrency < 0 || options.PerHostFragmentConcurrency > 128 ||
 		options.MaxSegments < 0 || options.MaxSegments > 10_000 ||
-		options.MaxSegmentBytes < 0 || options.MaxSegmentBytes > 512<<20 {
+		options.MaxSegmentBytes < 0 || options.MaxSegmentBytes > 512<<20 ||
+		options.LivePollInterval < 0 || options.LivePollInterval > time.Hour ||
+		options.LiveRefreshInterval < 0 || options.LiveRefreshInterval > 24*time.Hour ||
+		options.LiveMaxPolls < 0 || options.LiveMaxPolls > 100_000 ||
+		options.LiveMaxNoProgressPolls < 0 || options.LiveMaxNoProgressPolls > 10_000 {
 		return fmt.Errorf("%w: downloader resource limits", errInvalidRequestOptions)
 	}
 	playlistStart, playlistEnd := normalizedPlaylistRange(request.Playlist)
