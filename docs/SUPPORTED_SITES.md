@@ -64,6 +64,9 @@ protected-playback workstream. The following are supported:
 - explicit public legacy alias tabs at
   `/user/<alias>/<tab>` and `/c/<alias>/<tab>` for the same explicit tab set,
   including bounded Unicode aliases and lazy continuation;
+- bare `/channel/<UCID>`, `/@handle`, `/user/<alias>`, and `/c/<alias>` roots,
+  aggregated lazily in videos, streams, then Shorts order without including
+  home-page shelves;
 - bounded public video searches using `ytsearch:`, `ytsearchN:`,
   `ytsearchall:` (capped at 50), and exact `/results` or `/search` URLs;
 - bounded playable YouTube Music searches at `music.youtube.com/search`,
@@ -100,9 +103,8 @@ protected-playback workstream. The following are supported:
 
 The following limitations are intentional and remain:
 
-- no general channel discovery, bare-route expansion, or arbitrary tab
-  enumeration; channel, handle, and legacy alias URLs require one of the
-  explicitly supported tabs above;
+- no general channel discovery or arbitrary tab enumeration beyond the
+  explicit tabs and bounded bare-root upload aggregation above;
 - general search does not cover channel/playlist/hashtag results,
   authenticated search, or arbitrary filter/sort parity; Music search excludes
   albums, artists, playlists, podcasts, arbitrary filters, and

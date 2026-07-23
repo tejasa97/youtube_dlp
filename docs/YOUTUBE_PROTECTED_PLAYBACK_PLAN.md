@@ -57,7 +57,8 @@ public and authenticated-WEB comment slices cover
 top/new sorting, legacy and modern fields, click-tracked reply continuations,
 nested subthreads, bounded retries, pinned duplicate handling, visitor
 rotation, exact-origin signed continuations, and explicit resource limits.
-Estimated pre-fetch counts, bare channel routes, membership/custom tabs, and
+Bare channel/handle/legacy-alias upload aggregation is implemented. Estimated
+pre-fetch counts, membership/custom tabs, topic-channel playlist fallback, and
 non-playable search result breadth remain pending.
 
 The finite post-live DVR and opt-in active live-from-start paths are complete:

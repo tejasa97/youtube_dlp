@@ -47,6 +47,17 @@ func (YouTubeChannelTab) Extract(ctx context.Context, request Request) (Extracti
 	if !ok {
 		return Extraction{}, fmt.Errorf("%w: unsupported YouTube channel tab", ErrUnsupported)
 	}
+	if tab == "" {
+		canonical := "https://www.youtube.com/channel/" + channelID
+		return extractYouTubeBareChannelUploads(ctx, request.Transport, youtubeBareChannelSpec{
+			canonical: canonical, videosURL: canonical + "/videos",
+			fallbackID: channelID, subject: "channel",
+			categorize: categorizeYouTubeChannelError,
+			extractTab: func(ctx context.Context, transport Transport, tab string) (Extraction, error) {
+				return extractYouTubeChannelTab(ctx, transport, channelID, tab)
+			},
+		})
+	}
 	return extractYouTubeChannelTab(ctx, request.Transport, channelID, tab)
 }
 
@@ -74,8 +85,11 @@ func youtubeChannelTabTarget(parsed *url.URL) (channelID, tab string, ok bool) {
 		return "", "", false
 	}
 	parts := strings.Split(parsed.Path, "/")
-	if len(parts) != 4 || parts[0] != "" || parts[1] != "channel" || !youtubeChannelIDPattern.MatchString(parts[2]) {
+	if (len(parts) != 3 && len(parts) != 4) || parts[0] != "" || parts[1] != "channel" || !youtubeChannelIDPattern.MatchString(parts[2]) {
 		return "", "", false
+	}
+	if len(parts) == 3 {
+		return parts[2], "", true
 	}
 	if youtubePublicTabType(parts[3]) != youtubeTabUnsupported {
 		return parts[2], parts[3], true

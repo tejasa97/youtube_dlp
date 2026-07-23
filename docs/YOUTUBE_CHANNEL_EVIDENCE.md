@@ -13,8 +13,10 @@ community media attachments and inline video links, release/podcast
 playlists, and compatible lockup entries; selected-tab validation; lazy,
 reusable bounded continuations; cancellation, cursor-loop protection, and
 authentication/unavailable/rate-limit/network classification.
+The exact bare `/channel/<UCID>` route lazily aggregates advertised videos,
+streams, and Shorts without admitting home shelves.
 
-Not implemented: bare channel resolution, channel search, membership or
-arbitrary custom tabs, mixes, arbitrary renderer parity, authenticated/private
-success, or live-site compatibility guarantees. Handle and legacy alias URL
-families are implemented by their dedicated registered extractors.
+Not implemented: channel search, membership or arbitrary custom tabs, mixes,
+topic-channel synthesized-playlist fallback, arbitrary renderer parity,
+authenticated/private success, or live-site compatibility guarantees. Handle
+and legacy alias URL families are implemented by their dedicated extractors.

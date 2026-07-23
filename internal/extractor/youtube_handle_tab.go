@@ -73,6 +73,17 @@ func (YouTubeHandleTab) Extract(ctx context.Context, request Request) (Extractio
 	if !ok {
 		return Extraction{}, fmt.Errorf("%w: unsupported YouTube handle tab", ErrUnsupported)
 	}
+	if tab == "" {
+		canonical := "https://www.youtube.com/" + handle
+		return extractYouTubeBareChannelUploads(ctx, request.Transport, youtubeBareChannelSpec{
+			canonical: canonical, videosURL: canonical + "/videos",
+			fallbackID: "handle:" + handle, subject: "handle",
+			categorize: categorizeYouTubeHandleTabError,
+			extractTab: func(ctx context.Context, transport Transport, tab string) (Extraction, error) {
+				return extractYouTubeHandleTab(ctx, transport, handle, tab)
+			},
+		})
+	}
 	return extractYouTubeHandleTab(ctx, request.Transport, handle, tab)
 }
 
@@ -94,8 +105,11 @@ func youtubeHandleTabTarget(parsed *url.URL) (handle, tab string, ok bool) {
 		return "", "", false
 	}
 	parts := strings.Split(parsed.Path, "/")
-	if len(parts) != 3 || parts[0] != "" || !validYouTubeHandle(parts[1]) {
+	if (len(parts) != 2 && len(parts) != 3) || parts[0] != "" || !validYouTubeHandle(parts[1]) {
 		return "", "", false
+	}
+	if len(parts) == 2 {
+		return parts[1], "", true
 	}
 	if youtubePublicTabType(parts[2]) != youtubeTabUnsupported {
 		return parts[1], parts[2], true

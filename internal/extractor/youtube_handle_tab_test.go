@@ -296,6 +296,7 @@ func TestYouTubeHandleTabFallbackIDAndRoutingPolicy(t *testing.T) {
 	}
 	valid := []string{
 		handleFixtureURL,
+		"https://www.youtube.com/@synthetic-handle",
 		"https://youtube.com/@Foo.Bar_1/shorts?view=0",
 		"http://www.youtube.com/@abc/streams",
 		"https://www.youtube.com/@synthetic-handle/playlists",
@@ -317,7 +318,7 @@ func TestYouTubeHandleTabFallbackIDAndRoutingPolicy(t *testing.T) {
 		}
 	}
 	invalid := []string{
-		"https://evil-youtube.com/@synthetic-handle/videos", "https://m.youtube.com/@synthetic-handle/videos", "https://www.youtube.com:443/@synthetic-handle/videos", "https://user@www.youtube.com/@synthetic-handle/videos", "ftp://www.youtube.com/@synthetic-handle/videos", "https://www.youtube.com/@ab/videos", "https://www.youtube.com/@synthetic-handle", "https://www.youtube.com/@synthetic-handle/membership", "https://www.youtube.com/@synthetic-handle/playlists/", "https://www.youtube.com/@ab💥/videos", "https://www.youtube.com/%40ab%F0%9F%92%A5/videos", "https://www.youtube.com/@हिन्दी/videos", "https://www.youtube.com/@a\u0301b/videos", "https://www.youtube.com/%40ab%FF/videos", "https://www.youtube.com/@synthetic%2fhandle/videos", "https://www.youtube.com/@synthetic%5chandle/videos", "https://www.youtube.com/@synthetic-handle/videos#tab", "https://www.youtube.com/@synthetic-handle/videos?x=%00",
+		"https://evil-youtube.com/@synthetic-handle/videos", "https://m.youtube.com/@synthetic-handle/videos", "https://www.youtube.com:443/@synthetic-handle/videos", "https://user@www.youtube.com/@synthetic-handle/videos", "ftp://www.youtube.com/@synthetic-handle/videos", "https://www.youtube.com/@ab/videos", "https://www.youtube.com/@synthetic-handle/membership", "https://www.youtube.com/@synthetic-handle/playlists/", "https://www.youtube.com/@ab💥/videos", "https://www.youtube.com/%40ab%F0%9F%92%A5/videos", "https://www.youtube.com/@हिन्दी/videos", "https://www.youtube.com/@a\u0301b/videos", "https://www.youtube.com/%40ab%FF/videos", "https://www.youtube.com/@synthetic%2fhandle/videos", "https://www.youtube.com/@synthetic%5chandle/videos", "https://www.youtube.com/@synthetic-handle/videos#tab", "https://www.youtube.com/@synthetic-handle/videos?x=%00",
 	}
 	for _, raw := range invalid {
 		request, _ := http.NewRequest(http.MethodGet, raw, nil)
@@ -427,6 +428,7 @@ func FuzzParseYouTubeHandleTabData(f *testing.F) {
 
 func FuzzYouTubeHandleTabTarget(f *testing.F) {
 	f.Add(handleFixtureURL)
+	f.Add("https://youtube.com/@Foo.Bar_1")
 	f.Add("https://youtube.com/@Foo.Bar_1/shorts")
 	f.Add("https://www.youtube.com/%40%E6%97%A5%E6%9C%AC%E8%AA%9E/videos")
 	f.Add("https://evil-youtube.com/@synthetic-handle/streams")
@@ -442,7 +444,7 @@ func FuzzYouTubeHandleTabTarget(f *testing.F) {
 		if !ok {
 			return
 		}
-		if !validYouTubeHandle(handle) || youtubePublicTabType(tab) == youtubeTabUnsupported {
+		if !validYouTubeHandle(handle) || (tab != "" && youtubePublicTabType(tab) == youtubeTabUnsupported) {
 			t.Fatalf("accepted invalid target %q: %q/%q", rawURL, handle, tab)
 		}
 	})
