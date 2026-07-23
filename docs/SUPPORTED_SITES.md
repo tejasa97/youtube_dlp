@@ -17,13 +17,13 @@ corpus and the remote service response.
 | --- | --- | --- |
 | generic | Direct HTTP/HTTPS media | simple/direct |
 | youtube | youtube.com/watch and youtu.be, /embed, /shorts, /playlist, and channel live alias URLs | playlist/API, manifest-heavy, JavaScript challenge |
-| vimeo | vimeo.com videos | manifest-heavy |
+| vimeo | vimeo.com videos with bounded public text tracks | manifest-heavy |
 | twitch | twitch.tv channels | live, manifest-heavy |
-| soundcloud | soundcloud.com tracks, sets, and user-track pages | playlist/API |
+| soundcloud | soundcloud.com tracks, sets, user-track pages, and bounded public search | playlist/API |
 | streamable | streamable.com public, embed, and short-link URLs | shared backend, simple/direct |
 | peertube | conservative PeerTube instance routes and peertube: opaque URLs | shared backend, live, manifest-heavy |
 | internetarchive | archive.org item pages | playlist/API |
-| tiktok | tiktok.com public video pages | anti-bot/impersonated |
+| tiktok | tiktok.com public video pages with bounded webpage captions | anti-bot/impersonated |
 | synthetic_auth | auth-fixture.invalid deterministic test service | authenticated behavior only; not a public service |
 | region_svt | svtplay.se video pages | regional, live |
 | brightcove | players.brightcove.net embeds | shared backend, manifest-heavy |
@@ -54,6 +54,15 @@ protected-playback workstream. The following are supported:
 - Shorts (`youtube.com/shorts/...`);
 - playlists (`youtube.com/playlist?list=...`) including modern
   `lockupViewModel` playlist renderers and continuation paging;
+- explicit public channel tabs at
+  `/channel/<UCID>/{videos,shorts,streams}`, including bounded lazy
+  continuation paging;
+- explicit public ASCII-handle tabs at
+  `/@handle/{videos,shorts,streams}`, including bounded lazy continuation;
+- bounded public video searches using `ytsearch:`, `ytsearchN:`,
+  `ytsearchall:` (capped at 50), and exact `/results` or `/search` URLs;
+- bounded playable YouTube Music searches at `music.youtube.com/search`,
+  including pinned `#songs` and `#videos` sections;
 - channel live aliases (`@handle/live`, `/channel/<id>/live`, `/user/<name>/live`,
   `/c/<name>/live`) routed into the resolved live video;
 - manual and automatic captions exposed as `subtitles` and
@@ -62,6 +71,10 @@ protected-playback workstream. The following are supported:
   generated only when the caller explicitly opts in;
 - bounded language/format selection and native subtitle sidecar downloads,
   including subtitle-only operation with `--skip-download`;
+- post-download conversion of written subtitle sidecars to SRT, ASS, or WebVTT
+  with `--convert-subs`;
+- deterministic `--list-subs` output for available automatic and manual
+  caption languages, names, and formats without writing files;
 - adaptive video and audio formats recovered from the WEB player response and
   the Android / Android VR format-recovery clients; and
 - a protected-playback token provider boundary that requests PO tokens from a
@@ -70,8 +83,13 @@ protected-playback workstream. The following are supported:
 
 The following limitations are intentional and remain:
 
-- no general channel or tab enumeration (channel home, videos, shorts, and
-  community tabs are not extracted as playlists);
+- no general channel discovery or arbitrary tab enumeration: Unicode/full
+  handles, channel home, community, playlist, and release tabs, plus `/user`
+  and `/c` tabs, are not extracted as playlists;
+- general search does not cover channel/playlist/hashtag results,
+  authenticated search, or arbitrary filter/sort parity; Music search excludes
+  albums, artists, playlists, podcasts, arbitrary filters, and
+  authenticated/premium success;
 - no live-from-start parity (post-live DVR segments and live rewinds are not
   reconstructed to the original stream start);
 - authenticated Innertube coverage remains limited: `LOGIN_REQUIRED`
@@ -79,14 +97,18 @@ The following limitations are intentional and remain:
   recovery path;
 - some protected active streams may still hit the documented EJS-helper
   timeout while the player challenge is being solved;
-- subtitle listing and CLI conversion/embedding are not yet exposed; and
+- subtitle embedding is not yet exposed; and
 - when a caller separately selects an adaptive video stream and an adaptive
   audio stream, they must be merged with ffmpeg (or an equivalent muxer);
   downloads that pick a single muxed format do not require ffmpeg.
 
 This is not a claim of full yt-dlp or full YouTube parity. Coverage is
 limited to the deterministic corpus checked into
-`conformance/extractors/youtube/` and the bounded evidence listed in
+`conformance/extractors/youtube/`,
+`conformance/extractors/youtube_channel/`,
+`conformance/extractors/youtube_handle_tab/`,
+`conformance/extractors/youtube_search/`,
+`conformance/extractors/youtube_music_search/`, and the bounded evidence listed in
 `conformance/parity_manifest.yaml`.
 
 ## Protocol coverage

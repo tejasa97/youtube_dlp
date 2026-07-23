@@ -98,6 +98,14 @@ func TestExtractorFailuresAreCategorized(t *testing.T) {
 		{extractor.ErrRegionRestricted, ErrorUnsupported},
 		{extractor.ErrPeerTubeNetwork, ErrorNetwork},
 		{extractor.ErrInternetArchiveNetwork, ErrorNetwork},
+		{extractor.ErrYouTubeChannelRateLimited, ErrorNetwork},
+		{extractor.ErrYouTubeChannelNetwork, ErrorNetwork},
+		{extractor.ErrYouTubeSearchRateLimited, ErrorNetwork},
+		{extractor.ErrYouTubeSearchNetwork, ErrorNetwork},
+		{extractor.ErrYouTubeHandleTabRateLimited, ErrorNetwork},
+		{extractor.ErrYouTubeHandleTabNetwork, ErrorNetwork},
+		{extractor.ErrYouTubeMusicSearchRateLimited, ErrorNetwork},
+		{extractor.ErrYouTubeMusicSearchNetwork, ErrorNetwork},
 	} {
 		if err := categorized("extract", test.err); !IsCategory(err, test.category) {
 			t.Fatalf("categorized(%v) = %v", test.err, err)
@@ -111,6 +119,10 @@ func TestProductRegistryIncludesIntegratedExtractors(t *testing.T) {
 		name   string
 	}{
 		{"https://www.youtube.com/watch?v=dQw4w9WgXcQ", "youtube"},
+		{"https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/videos", "youtube_channel_tab"},
+		{"https://www.youtube.com/@synthetic-handle/videos", "youtube_handle_tab"},
+		{"ytsearch5:fixture query", "youtube_search"},
+		{"https://music.youtube.com/search?q=fixture#songs", "youtube_music_search"},
 		{"https://vimeo.com/123456789", "vimeo"},
 		{"https://www.tiktok.com/@fixture/video/1234567890123456789", "tiktok"},
 		{"https://players.brightcove.net/12345/default_default/index.html?videoId=123", "brightcove"},
@@ -131,6 +143,7 @@ func TestProductRegistryIncludesIntegratedExtractors(t *testing.T) {
 		{"https://www.ardmediathek.de/player/Y3JpZDovL2ZpeHR1cmU", "ard"},
 		{"nrk:MDDP12000117", "nrk"},
 		{"https://www.twitch.tv/fixture_channel", "twitch"},
+		{"scsearch3:fixture query", "soundcloud_search"},
 		{"https://soundcloud.com/fixture-artist/synthetic-signal", "soundcloud"},
 		{"https://streamable.com/e/fixture_1", "streamable"},
 		{"peertube:peertube.example:00000000-0000-4000-8000-000000000001", "peertube"},

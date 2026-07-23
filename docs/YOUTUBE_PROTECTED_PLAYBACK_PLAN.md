@@ -1,8 +1,9 @@
 # YouTube protected-playback continuation
 
-Status: Wave 1 and the caption portion of Wave 3 are implemented and locally
-verified. Wave 2, authenticated clients, and Wave 4 renderer breadth remain
-open.
+Status: Wave 1 and the caption portion of Wave 3, including bounded sidecar
+conversion, are implemented and locally verified. Wave 2 and authenticated
+clients remain open. Wave 4 now includes a bounded public video-search slice;
+its other renderer breadth remains open.
 
 This is post-review compatibility work while Gate G3 remains blocked by the
 external observations listed in `PHASE_3_EXIT_REVIEW.md`. It does not open
@@ -32,7 +33,8 @@ Implementation status: pending.
 ## Wave 3 — captions and authenticated clients
 
 Implementation status: caption extraction, translation, protected-token
-placement, and native sidecar selection/download are complete. Authenticated
+placement, native sidecar selection/download, bounded CLI listing, and
+post-download conversion to SRT, ASS, or WebVTT are complete. Authenticated
 Innertube profiles remain pending.
 
 - consume the `subs` PO-token context for protected caption requests;
@@ -42,9 +44,11 @@ Innertube profiles remain pending.
 
 ## Wave 4 — renderer breadth
 
-Implementation status: pending for the declared channel/tab/search/comments
-and live-from-start scope. Playlist continuation and channel-live alias work do
-not constitute general renderer parity.
+Implementation status: exact public UCID and bounded ASCII-handle
+video/Shorts/streams tabs plus bounded public and playable YouTube Music search
+are implemented. Full handle grammar, home/community/playlist/release tabs,
+non-playable search result breadth, comments, and live-from-start remain
+pending.
 
 - expand channel, tab, search, comments, and live-from-start renderers;
 - derive attributable synthetic fixtures from the pinned reference;
