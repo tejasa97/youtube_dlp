@@ -5,15 +5,19 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/ytdlp-go/ytdlp/internal/network"
 )
 
 const soundCloudSearchClientID = "0123456789abcdef0123456789abcdef"
@@ -33,8 +37,28 @@ type soundCloudSearchTransport struct {
 	status                    int
 	failInitial, failNext     error
 	blockNext                 chan struct{}
+	emptyPages                int
 	mu                        sync.Mutex
 	requests                  []string
+	isolateCalls              int
+}
+
+// soundCloudSearchNoIsolationTransport models a cookie-bearing operation
+// transport that has no isolated-request capability. It must fail closed once
+// lazy API paging begins, after permitted first-party bootstrap requests.
+type soundCloudSearchNoIsolationTransport struct{ base *soundCloudSearchTransport }
+
+func (tr soundCloudSearchNoIsolationTransport) Do(ctx context.Context, req *http.Request) (*http.Response, error) {
+	return tr.base.Do(ctx, req)
+}
+func (tr soundCloudSearchNoIsolationTransport) ReadPage(ctx context.Context, rawURL string) ([]byte, http.Header, error) {
+	return tr.base.ReadPage(ctx, rawURL)
+}
+
+type soundCloudSearchRoundTripper func(*http.Request) (*http.Response, error)
+
+func (fn soundCloudSearchRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	return fn(request)
 }
 
 func newSoundCloudSearchTransport(t *testing.T) *soundCloudSearchTransport {
@@ -42,8 +66,19 @@ func newSoundCloudSearchTransport(t *testing.T) *soundCloudSearchTransport {
 }
 
 func (tr *soundCloudSearchTransport) Do(ctx context.Context, req *http.Request) (*http.Response, error) {
+	return tr.do(ctx, req, false)
+}
+
+func (tr *soundCloudSearchTransport) DoWithoutCookies(ctx context.Context, req *http.Request) (*http.Response, error) {
+	return tr.do(ctx, req, true)
+}
+
+func (tr *soundCloudSearchTransport) do(ctx context.Context, req *http.Request, isolated bool) (*http.Response, error) {
 	tr.mu.Lock()
 	tr.requests = append(tr.requests, req.Method+" "+req.URL.String())
+	if isolated {
+		tr.isolateCalls++
+	}
 	tr.mu.Unlock()
 	if req.Method != http.MethodGet {
 		tr.t.Errorf("method=%s", req.Method)
@@ -63,14 +98,20 @@ func (tr *soundCloudSearchTransport) Do(ctx context.Context, req *http.Request) 
 		}
 		return response(200, tr.client), nil
 	case "api-v2.soundcloud.com":
-		if req.URL.Path != "/search/tracks" || req.Header.Get("Cookie") != "" {
+		if !isolated || req.URL.Path != "/search/tracks" || req.Header.Get("Cookie") != "" {
 			tr.t.Errorf("bad API request %s headers=%v", req.URL, req.Header)
 			return nil, errors.New("bad API")
 		}
 		q := req.URL.Query()
-		if q.Get("client_id") != soundCloudSearchClientID || q.Get("linked_partitioning") != "1" || q.Get("offset") == "" {
+		if !soundCloudSearchRequestQuery(q) {
 			tr.t.Errorf("missing API contract %s", req.URL)
 			return nil, errors.New("bad query")
+		}
+		if tr.emptyPages > 0 {
+			tr.emptyPages--
+			offset, _ := strconv.Atoi(q.Get("offset"))
+			next := soundCloudSearchEndpoint + "?" + url.Values{"q": {q.Get("q")}, "limit": {q.Get("limit")}, "linked_partitioning": {"1"}, "offset": {strconv.Itoa(offset + 1)}, "cursor": {fmt.Sprintf("empty-%d", offset+1)}}.Encode()
+			return response(200, []byte(`{"collection":[],"next_href":`+strconv.Quote(next)+`}`)), nil
 		}
 		if q.Get("cursor") == "next-fixture" {
 			if tr.blockNext != nil {
@@ -103,6 +144,21 @@ func (tr *soundCloudSearchTransport) Do(ctx context.Context, req *http.Request) 
 		tr.t.Errorf("unexpected host %s", req.URL.Host)
 		return nil, errors.New("unexpected host")
 	}
+}
+
+func soundCloudSearchRequestQuery(q url.Values) bool {
+	allowed := map[string]bool{"q": true, "limit": true, "linked_partitioning": true, "offset": true, "cursor": true, "client_id": true}
+	for key, values := range q {
+		if !allowed[key] || len(values) != 1 {
+			return false
+		}
+	}
+	if q.Get("client_id") != soundCloudSearchClientID || q.Get("q") == "" || q.Get("linked_partitioning") != "1" || q.Get("offset") == "" || q.Get("limit") == "" {
+		return false
+	}
+	limit, limitErr := strconv.Atoi(q.Get("limit"))
+	_, offsetErr := strconv.ParseUint(q.Get("offset"), 10, 64)
+	return limitErr == nil && limit >= 1 && limit <= soundCloudSearchMaxCount && offsetErr == nil
 }
 func (*soundCloudSearchTransport) ReadPage(context.Context, string) ([]byte, http.Header, error) {
 	return nil, nil, errors.New("not used")
@@ -168,12 +224,73 @@ func TestSoundCloudSearchPagesFilteringReusableAndContract(t *testing.T) {
 	if err != nil || len(got) != 3 || got[0].ID != "101" || got[1].ID != "102" || got[2].ID != "104" {
 		t.Fatalf("entries=%#v err=%v", got, err)
 	}
-	if tr.count("/search/tracks") != 2 || tr.count("https://soundcloud.com/") != 1 || tr.count("/assets/search-fixture.js") != 1 {
+	if tr.count("/search/tracks") != 2 || tr.count("https://soundcloud.com/") != 1 || tr.count("/assets/search-fixture.js") != 1 || tr.isolateCalls != 2 {
 		t.Fatalf("requests=%v", tr.requests)
 	}
 	again, err := CollectEntries(context.Background(), result.Entries, 3)
 	if err != nil || len(again) != 3 || again[2].ID != "104" || tr.count("/search/tracks") != 4 {
 		t.Fatalf("again=%#v err=%v requests=%v", again, err, tr.requests)
+	}
+}
+
+func TestSoundCloudSearchPageCapAndCookieIsolation(t *testing.T) {
+	tr := newSoundCloudSearchTransport(t)
+	tr.emptyPages = soundCloudSearchMaxPages
+	result, err := NewSoundCloudSearch().Extract(context.Background(), Request{URL: "scsearchall:empty", Transport: tr})
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := CollectEntries(context.Background(), result.Entries, soundCloudSearchMaxCount)
+	if len(entries) != 0 || !errors.Is(err, ErrPlaylistLimit) {
+		t.Fatalf("entries=%v err=%v", entries, err)
+	}
+	if got := tr.count("/search/tracks"); got != soundCloudSearchMaxPages || tr.isolateCalls != soundCloudSearchMaxPages {
+		t.Fatalf("API calls=%d isolated=%d", got, tr.isolateCalls)
+	}
+}
+
+func TestSoundCloudSearchRequiresCookieIsolation(t *testing.T) {
+	base := newSoundCloudSearchTransport(t)
+	result, err := NewSoundCloudSearch().Extract(context.Background(), Request{URL: "scsearch:fixture", Transport: soundCloudSearchNoIsolationTransport{base: base}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = CollectEntries(context.Background(), result.Entries, 1)
+	if !errors.Is(err, ErrTransportIsolation) || base.isolateCalls != 0 || base.count("/search/tracks") != 0 {
+		t.Fatalf("err=%v isolated=%d requests=%v", err, base.isolateCalls, base.requests)
+	}
+}
+
+func TestSoundCloudSearchUsesNetworkClientCookieIsolation(t *testing.T) {
+	var apiCookie string
+	client, err := network.New(network.Config{
+		DefaultHeaders: http.Header{"Cookie": {"default=secret"}},
+		RoundTripper: soundCloudSearchRoundTripper(func(request *http.Request) (*http.Response, error) {
+			switch request.URL.Host {
+			case "soundcloud.com":
+				return response(200, readSoundCloudSearchFixture(t, "home.html")), nil
+			case "a-v2.sndcdn.com":
+				return response(200, readSoundCloudSearchFixture(t, "client.js")), nil
+			case "api-v2.soundcloud.com":
+				apiCookie = request.Header.Get("Cookie")
+				if !soundCloudSearchRequestQuery(request.URL.Query()) {
+					return nil, errors.New("invalid isolated API query")
+				}
+				return response(200, readSoundCloudSearchFixture(t, "page1.json")), nil
+			default:
+				return nil, fmt.Errorf("unexpected host %q", request.URL.Host)
+			}
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := NewSoundCloudSearch().Extract(context.Background(), Request{URL: "scsearch3:fixture query", Transport: client})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, nextErr := result.Entries.Iterator().Next(context.Background()); !ok || nextErr != nil || apiCookie != "" {
+		t.Fatalf("entry ok=%v err=%v API cookie=%q", ok, nextErr, apiCookie)
 	}
 }
 
@@ -185,7 +302,7 @@ func TestSoundCloudSearchErrorsCancellationAndContinuations(t *testing.T) {
 		fail   error
 		want   error
 	}{
-		{"malformed-json", []byte("{"), 0, nil, ErrInvalidMetadata}, {"malformed-shape", readSoundCloudSearchFixture(t, "malformed.json"), 0, nil, ErrInvalidMetadata}, {"alert", readSoundCloudSearchFixture(t, "alert.json"), 0, nil, ErrInvalidMetadata}, {"auth", nil, 401, nil, ErrAuthentication}, {"unavailable", nil, 404, nil, ErrUnavailable}, {"network", nil, 0, errors.New("offline"), ErrSoundCloudSearchNetwork},
+		{"malformed-json", []byte("{"), 0, nil, ErrInvalidMetadata}, {"malformed-shape", readSoundCloudSearchFixture(t, "malformed.json"), 0, nil, ErrInvalidMetadata}, {"alert", readSoundCloudSearchFixture(t, "alert.json"), 0, nil, ErrInvalidMetadata}, {"auth", nil, 401, nil, ErrAuthentication}, {"unavailable", nil, 404, nil, ErrUnavailable}, {"network", nil, 0, errors.New("offline token=top-secret"), ErrSoundCloudSearchNetwork},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tr := newSoundCloudSearchTransport(t)
@@ -201,6 +318,9 @@ func TestSoundCloudSearchErrorsCancellationAndContinuations(t *testing.T) {
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("err=%v want=%v", err, tc.want)
 			}
+			if strings.Contains(fmt.Sprint(err), "top-secret") {
+				t.Fatalf("network diagnostic leaked secret: %v", err)
+			}
 		})
 	}
 	tr := newSoundCloudSearchTransport(t)
@@ -212,6 +332,16 @@ func TestSoundCloudSearchErrorsCancellationAndContinuations(t *testing.T) {
 	_, err = CollectEntries(context.Background(), r.Entries, 3)
 	if !errors.Is(err, ErrInvalidPlaylist) {
 		t.Fatalf("cross-origin=%v", err)
+	}
+	tr = newSoundCloudSearchTransport(t)
+	tr.first = []byte(`{"collection":[],"next_href":"https://api-v2.soundcloud.com/search/tracks?q=x&limit=2&linked_partitioning=1&offset=1&cursor=secret&extra=secret"}`)
+	r, err = NewSoundCloudSearch().Extract(context.Background(), Request{URL: "scsearch2:x", Transport: tr})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = CollectEntries(context.Background(), r.Entries, 2)
+	if !errors.Is(err, ErrInvalidPlaylist) || strings.Contains(fmt.Sprint(err), "secret") {
+		t.Fatalf("extra continuation=%v", err)
 	}
 	tr = newSoundCloudSearchTransport(t)
 	tr.first = []byte(`{"collection":[],"next_href":"http://api-v2.soundcloud.com/search/tracks?offset=1"}`)
@@ -262,9 +392,27 @@ func TestSoundCloudSearchErrorsCancellationAndContinuations(t *testing.T) {
 	}
 }
 
+func TestSoundCloudSearchCursorQueryPolicy(t *testing.T) {
+	policy := soundCloudContinuationPolicy{allowedPath: "/search/tracks"}
+	for _, raw := range []string{
+		"https://api-v2.soundcloud.com/search/tracks?q=x&limit=2&linked_partitioning=1&offset=1&extra=secret",
+		"https://api-v2.soundcloud.com/search/tracks?q=x&q=x&limit=2&linked_partitioning=1&offset=1",
+		"https://api-v2.soundcloud.com/search/tracks?q=x&limit=2&linked_partitioning=1&offset=1&cursor=",
+		"https://api-v2.soundcloud.com/search/tracks?q=x&limit=2&linked_partitioning=0&offset=1",
+	} {
+		if _, err := soundCloudSearchCursor(raw, policy, "x", 2); !errors.Is(err, ErrInvalidPlaylist) || strings.Contains(fmt.Sprint(err), "secret") {
+			t.Fatalf("cursor %q err=%v", raw, err)
+		}
+	}
+	validated, err := soundCloudSearchCursor("https://api-v2.soundcloud.com/search/tracks?q=x&limit=2&linked_partitioning=1&offset=1&cursor=next&client_id=stale", policy, "x", 2)
+	if err != nil || strings.Contains(validated, "client_id") {
+		t.Fatalf("stale client id validated=%q err=%v", validated, err)
+	}
+}
+
 func TestSoundCloudSearchContinuationLoopAndBound(t *testing.T) {
 	tr := newSoundCloudSearchTransport(t)
-	tr.first = []byte(`{"collection":[{"id":1,"title":"x","permalink_url":"https://soundcloud.com/a/x"}],"next_href":"https://api-v2.soundcloud.com/search/tracks?linked_partitioning=1&offset=1&q=x&limit=200"}`)
+	tr.first = []byte(`{"collection":[{"kind":"track","id":1,"title":"x","permalink_url":"https://soundcloud.com/a/x"}],"next_href":"https://api-v2.soundcloud.com/search/tracks?linked_partitioning=1&offset=1&q=x&limit=200"}`)
 	tr.next = tr.first
 	r, err := NewSoundCloudSearch().Extract(context.Background(), Request{URL: "scsearchall:x", Transport: tr})
 	if err != nil {
@@ -325,6 +473,9 @@ func FuzzParseSoundCloudSearchPage(f *testing.F) {
 			entry, ok := soundCloudSearchTrackEntry(track)
 			if !ok {
 				continue
+			}
+			if track.Kind != "track" {
+				t.Fatalf("non-track entry %#v", track)
 			}
 			u, e := url.Parse(entry.URL)
 			if e != nil || entry.ID == "" || entry.Title == "" || entry.ExtractorKey != "soundcloud" || u.Scheme != "https" || u.Host != "soundcloud.com" {
