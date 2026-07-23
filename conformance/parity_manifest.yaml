@@ -335,12 +335,23 @@ capabilities:
       - internal/javascript/supervisor.TestSupervisorCategorizesCrashAndMalformedResponse
       - internal/javascript/supervisor.TestSupervisorTrustedWallTimeCrossesProcessBoundary
       - internal/javascript/supervisor.TestSupervisorRejectsUntrustedExtendedWallTime
+      - internal/javascript/supervisor.TestSupervisorRejectsSpoofedTrustedWallTimeMS
+      - internal/javascript/supervisor.TestSupervisorRejectsTrustedGenericEvaluate
+      - internal/javascript/supervisor.TestSupervisorRejectsTrustedNonJSCCall
+      - internal/javascript/supervisor.TestSupervisorRejectsArbitraryJSCScript
+      - internal/javascript/supervisor.TestSupervisorConcurrentExecuteAndCloseDrainsActiveSolves
       - internal/javascript/ejs.TestPinnedEJSCorpus
       - internal/javascript/ejs.TestVerifyAssetsAndInputBounds
       - internal/javascript/ejs.TestPreprocessCacheReuse
       - internal/javascript/ejs.TestPreprocessCacheEviction
       - internal/javascript/ejs.TestSingleflightCoalescesPreprocessing
       - internal/javascript/ejs.TestSingleflightFollowerCancellation
+      - internal/javascript/ejs.TestSingleflightCanceledLeaderDoesNotFailLiveFollower
+      - internal/javascript/ejs.TestSingleflightAllWaitersCancelCancelsPreprocessing
+      - internal/javascript/ejs.TestSingleflightCanceledLeaderNoFollowersReturnsPromptly
+      - internal/javascript/ejs.TestSingleflightOneFollowerCancelsOtherRemains
+      - internal/javascript/ejs.TestSingleflightWaiterJoinCancelRace
+      - internal/javascript/ejs.TestFlightOwnershipAbandonedDoesNotDeleteReplacement
       - internal/javascript/ejs.TestSolvePlayerCancellation
       - internal/javascript/ejs.TestSolvePlayerTimeout
       - internal/javascript/ejs.TestSolvePlayerMalformedPreprocessResponse
@@ -350,6 +361,7 @@ capabilities:
       - internal/javascript/ejs.TestRepresentativeWorkloadUnderOldLimit
       - internal/javascript/ejs.TestLargeGeneratedPlayerWorkload
       - internal/javascript/ejs.TestPathologicalPlayerFixture
+      - pkg/ytdlp.TestClientConcurrentRunAndClose
       - conformance/javascript/ejs-0.8.0/PROVENANCE.md
       - .github/python-free.Dockerfile
     owner: runtime
@@ -360,8 +372,9 @@ capabilities:
       scoped trusted wall-time allowance (60 s) for EJS preprocessing only.
       The supervisor strips caller-provided TrustedWallTimeMS at the
       boundary and mints the serialized grant exclusively for
-      operation=call, function="jsc" with Trusted=true. Callers cannot
-      forge the grant; generic evaluate/call requests are bounded at 30 s.
+      operation=call, function="jsc" with Trusted=true and a ScriptHash
+      matching the pinned bundled EJS solver. Callers cannot forge the
+      grant; arbitrary jsc scripts are rejected at 30 s.
       Normalize() additionally strips Trusted/TrustedWallTimeMS from
       non-EJS operations as defense in depth. The preprocessed-player LRU
       cache (max 8) persists at the client level across downloads.
@@ -375,9 +388,11 @@ capabilities:
       TestSupervisorRejectsSpoofedTrustedWallTimeMS,
       TestSupervisorRejectsTrustedGenericEvaluate,
       TestSupervisorRejectsTrustedNonJSCCall,
+      TestSupervisorRejectsArbitraryJSCScript,
       TestSingleflightCanceledLeaderDoesNotFailLiveFollower,
       TestSingleflightAllWaitersCancelCancelsPreprocessing,
       TestSingleflightCanceledLeaderNoFollowersReturnsPromptly,
+      TestFlightOwnershipAbandonedDoesNotDeleteReplacement,
       TestSupervisorConcurrentExecuteAndCloseDrainsActiveSolves.
       Live validation: pending (requires service conditions permitting
       protected-video extraction). Remaining deviation: no sanitized
