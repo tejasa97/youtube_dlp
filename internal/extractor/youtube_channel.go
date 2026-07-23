@@ -77,8 +77,7 @@ func youtubeChannelTabTarget(parsed *url.URL) (channelID, tab string, ok bool) {
 	if len(parts) != 4 || parts[0] != "" || parts[1] != "channel" || !youtubeChannelIDPattern.MatchString(parts[2]) {
 		return "", "", false
 	}
-	switch parts[3] {
-	case "videos", "shorts", "streams", "playlists":
+	if youtubePublicTabType(parts[3]) != youtubeTabUnsupported {
 		return parts[2], parts[3], true
 	}
 	return "", "", false
@@ -93,6 +92,9 @@ func extractYouTubeChannelTab(ctx context.Context, transport Transport, channelI
 	raw, err := extractJSONObject(page, youtubeInitialDataMarker)
 	if err != nil {
 		return Extraction{}, fmt.Errorf("%w: YouTube channel tab initial data", ErrInvalidMetadata)
+	}
+	if err := validateYouTubeSelectedTab(raw, tab); err != nil {
+		return Extraction{}, err
 	}
 	parsed, err := parseYouTubeChannelTabData(raw, tab)
 	if err != nil {
@@ -138,28 +140,51 @@ func parseYouTubeChannelTabData(data []byte, tab string) (youtubeChannelTabPage,
 		return youtubeChannelTabPage{}, fmt.Errorf("%w: YouTube channel tab root", ErrInvalidMetadata)
 	}
 	var page youtubeChannelTabPage
+	var suppressed map[string]int
+	if tab == "community" {
+		suppressed = make(map[string]int)
+	}
+	appendEntry := func(entry Entry, ok bool) {
+		if !ok {
+			return
+		}
+		key := youtubeTabEntryKey(entry)
+		if suppressed[key] > 0 {
+			suppressed[key]--
+			return
+		}
+		appendYouTubeTabEntry(&page.entries, entry, true)
+	}
 	nodes := 0
 	err := walkOrderedJSON(youtubePlaylistContentScope(rootObject), 0, &nodes, func(key string, object *value.Object) {
 		switch key {
-		case "videoRenderer", "gridVideoRenderer":
-			if tab != "playlists" {
-				if entry, ok := youtubeChannelVideoEntry(object); ok {
-					page.entries = append(page.entries, entry)
-				}
+		case "videoRenderer", "gridVideoRenderer", "reelItemRenderer":
+			if youtubeTabAllowsVideos(tab) {
+				entry, ok := youtubeHandleTabVideoEntry(object)
+				appendEntry(entry, ok)
 			}
 		case "playlistRenderer", "gridPlaylistRenderer":
-			if tab == "playlists" {
-				if entry, ok := youtubeTabPlaylistEntry(object); ok {
-					page.entries = append(page.entries, entry)
-				}
+			if youtubeTabAllowsPlaylists(tab) {
+				entry, ok := youtubeTabPlaylistEntry(object)
+				appendEntry(entry, ok)
 			}
 		case "lockupViewModel":
-			if tab == "playlists" {
-				if entry, ok := youtubeTabPlaylistLockupEntry(object); ok {
-					page.entries = append(page.entries, entry)
+			if youtubeTabAllowsPlaylists(tab) {
+				entry, ok := youtubeTabPlaylistLockupEntry(object)
+				appendEntry(entry, ok)
+			}
+			if youtubeTabAllowsVideos(tab) {
+				entry, ok := youtubePlaylistLockupEntry(object)
+				appendEntry(entry, ok)
+			}
+		case "backstagePostRenderer":
+			if tab == "community" {
+				for _, entry := range youtubeCommunityPostEntries(object) {
+					appendYouTubeTabEntry(&page.entries, entry, true)
 				}
-			} else if entry, ok := youtubePlaylistLockupEntry(object); ok {
-				page.entries = append(page.entries, entry)
+				for _, entry := range youtubeCommunityAttachmentEntries(object) {
+					suppressed[youtubeTabEntryKey(entry)]++
+				}
 			}
 		}
 		if token := youtubeContinuationToken(key, object); token != "" {
@@ -203,18 +228,6 @@ func parseYouTubeChannelTabData(data []byte, tab string) (youtubeChannelTabPage,
 	}
 	page.visitorData = objectString(rootObject, "responseContext", "visitorData")
 	return page, nil
-}
-
-func youtubeChannelVideoEntry(renderer *value.Object) (Entry, bool) {
-	videoID := objectString(renderer, "videoId")
-	if !youtubeIDPattern.MatchString(videoID) {
-		return Entry{}, false
-	}
-	path := "/watch?v="
-	if objectString(renderer, "navigationEndpoint", "reelWatchEndpoint", "videoId") == videoID {
-		path = "/shorts/"
-	}
-	return Entry{URL: "https://www.youtube.com" + path + videoID, ExtractorKey: "youtube", ID: videoID, Title: rendererText(renderer.Lookup("title"))}, true
 }
 
 func youtubeTabPlaylistEntry(renderer *value.Object) (Entry, bool) {

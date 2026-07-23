@@ -46,8 +46,8 @@ var (
 	ErrYouTubeHandleTabNetwork     = errors.New("YouTube handle tab network failure")
 )
 
-// YouTubeHandleTab handles exact public /@handle/{videos,shorts,streams,playlists}
-// URLs. Registration is intentionally owned by the client package.
+// YouTubeHandleTab handles explicit public /@handle tab URLs. Registration is
+// intentionally owned by the client package.
 type YouTubeHandleTab struct{}
 
 func NewYouTubeHandleTab() YouTubeHandleTab { return YouTubeHandleTab{} }
@@ -97,12 +97,10 @@ func youtubeHandleTabTarget(parsed *url.URL) (handle, tab string, ok bool) {
 	if len(parts) != 3 || parts[0] != "" || !validYouTubeHandle(parts[1]) {
 		return "", "", false
 	}
-	switch parts[2] {
-	case "videos", "shorts", "streams", "playlists":
+	if youtubePublicTabType(parts[2]) != youtubeTabUnsupported {
 		return parts[1], parts[2], true
-	default:
-		return "", "", false
 	}
+	return "", "", false
 }
 
 func extractYouTubeHandleTab(ctx context.Context, transport Transport, handle, tab string) (Extraction, error) {
@@ -114,6 +112,9 @@ func extractYouTubeHandleTab(ctx context.Context, transport Transport, handle, t
 	raw, err := extractJSONObject(page, youtubeInitialDataMarker)
 	if err != nil {
 		return Extraction{}, fmt.Errorf("%w: YouTube handle tab initial data", ErrInvalidMetadata)
+	}
+	if err := validateYouTubeSelectedTab(raw, tab); err != nil {
+		return Extraction{}, err
 	}
 	parsed, err := parseYouTubeHandleTabData(raw, tab)
 	if err != nil {
@@ -163,28 +164,51 @@ func parseYouTubeHandleTabData(data []byte, tab string) (youtubeHandleTabPage, e
 		return youtubeHandleTabPage{}, fmt.Errorf("%w: YouTube handle tab root", ErrInvalidMetadata)
 	}
 	var page youtubeHandleTabPage
+	var suppressed map[string]int
+	if tab == "community" {
+		suppressed = make(map[string]int)
+	}
+	appendEntry := func(entry Entry, ok bool) {
+		if !ok {
+			return
+		}
+		key := youtubeTabEntryKey(entry)
+		if suppressed[key] > 0 {
+			suppressed[key]--
+			return
+		}
+		appendYouTubeTabEntry(&page.entries, entry, true)
+	}
 	nodes := 0
 	err := walkOrderedJSON(youtubePlaylistContentScope(rootObject), 0, &nodes, func(key string, object *value.Object) {
 		switch key {
 		case "videoRenderer", "gridVideoRenderer", "reelItemRenderer":
-			if tab != "playlists" {
-				if entry, ok := youtubeHandleTabVideoEntry(object); ok {
-					page.entries = append(page.entries, entry)
-				}
+			if youtubeTabAllowsVideos(tab) {
+				entry, ok := youtubeHandleTabVideoEntry(object)
+				appendEntry(entry, ok)
 			}
 		case "playlistRenderer", "gridPlaylistRenderer":
-			if tab == "playlists" {
-				if entry, ok := youtubeTabPlaylistEntry(object); ok {
-					page.entries = append(page.entries, entry)
-				}
+			if youtubeTabAllowsPlaylists(tab) {
+				entry, ok := youtubeTabPlaylistEntry(object)
+				appendEntry(entry, ok)
 			}
 		case "lockupViewModel":
-			if tab == "playlists" {
-				if entry, ok := youtubeTabPlaylistLockupEntry(object); ok {
-					page.entries = append(page.entries, entry)
+			if youtubeTabAllowsPlaylists(tab) {
+				entry, ok := youtubeTabPlaylistLockupEntry(object)
+				appendEntry(entry, ok)
+			}
+			if youtubeTabAllowsVideos(tab) {
+				entry, ok := youtubePlaylistLockupEntry(object)
+				appendEntry(entry, ok)
+			}
+		case "backstagePostRenderer":
+			if tab == "community" {
+				for _, entry := range youtubeCommunityPostEntries(object) {
+					appendYouTubeTabEntry(&page.entries, entry, true)
 				}
-			} else if entry, ok := youtubePlaylistLockupEntry(object); ok {
-				page.entries = append(page.entries, entry)
+				for _, entry := range youtubeCommunityAttachmentEntries(object) {
+					suppressed[youtubeTabEntryKey(entry)]++
+				}
 			}
 		}
 		if token := youtubeContinuationToken(key, object); token != "" {

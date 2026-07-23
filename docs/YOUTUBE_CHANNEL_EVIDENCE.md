@@ -7,13 +7,14 @@ browse-tab model: an initial `ytInitialData` page yields ordered video URL
 results and a continuation is sent to `youtubei/v1/browse`.
 
 Implemented: exact `youtube.com`/`www.youtube.com` explicit
-`/channel/<UCID>/{videos,shorts,streams}` routes, public initial metadata,
-`videoRenderer`, `gridVideoRenderer`, and compatible lockup entries; lazy,
+`/channel/<UCID>/{videos,shorts,streams,playlists,home,featured,community,releases,podcasts}`
+routes, public initial metadata, mixed video/playlist home renderers,
+community media attachments and inline video links, release/podcast
+playlists, and compatible lockup entries; selected-tab validation; lazy,
 reusable bounded continuations; cancellation, cursor-loop protection, and
 authentication/unavailable/rate-limit/network classification.
 
-Not implemented: channel home resolution, handles, search, playlist/release
-tabs, mixes, comments, arbitrary renderer parity, authenticated/private
-success, or live-site compatibility guarantees. Registration is intentionally
-left to the integration owner; register `NewYouTubeChannelTab()` before
-`NewYouTube()`.
+Not implemented: bare channel resolution, channel search, membership or
+arbitrary custom tabs, mixes, arbitrary renderer parity, authenticated/private
+success, or live-site compatibility guarantees. Handle and legacy alias URL
+families are implemented by their dedicated registered extractors.

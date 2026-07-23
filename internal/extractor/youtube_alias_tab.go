@@ -91,12 +91,10 @@ func youtubeAliasTabTarget(parsed *url.URL) (kind, alias, tab string, ok bool) {
 			return "", "", "", false
 		}
 	}
-	switch parts[3] {
-	case "videos", "shorts", "streams", "playlists":
+	if youtubePublicTabType(parts[3]) != youtubeTabUnsupported {
 		return parts[1], alias, parts[3], true
-	default:
-		return "", "", "", false
 	}
+	return "", "", "", false
 }
 
 func extractYouTubeAliasTab(ctx context.Context, transport Transport, kind, alias, tab string) (Extraction, error) {
@@ -109,7 +107,7 @@ func extractYouTubeAliasTab(ctx context.Context, transport Transport, kind, alia
 	if err != nil {
 		return Extraction{}, fmt.Errorf("%w: YouTube alias tab initial data", ErrInvalidMetadata)
 	}
-	if err := validateYouTubeAliasSelectedTab(raw, tab); err != nil {
+	if err := validateYouTubeSelectedTab(raw, tab); err != nil {
 		return Extraction{}, err
 	}
 	parsed, err := parseYouTubeHandleTabData(raw, tab)
@@ -152,17 +150,17 @@ func youtubeAliasTabCanonicalURL(kind, alias, tab string) string {
 	}).String()
 }
 
-// validateYouTubeAliasSelectedTab fails closed only when the initial response
+// validateYouTubeSelectedTab fails closed only when the initial response
 // contains a decisive tabs array. Continuation payloads intentionally do not
 // pass through this function.
-func validateYouTubeAliasSelectedTab(data []byte, requested string) error {
+func validateYouTubeSelectedTab(data []byte, requested string) error {
 	var root value.Value
 	if err := json.Unmarshal(data, &root); err != nil {
-		return fmt.Errorf("%w: decode YouTube alias tab data", ErrInvalidMetadata)
+		return fmt.Errorf("%w: decode YouTube selected tab data", ErrInvalidMetadata)
 	}
 	rootObject, ok := root.Object()
 	if !ok {
-		return fmt.Errorf("%w: YouTube alias tab root", ErrInvalidMetadata)
+		return fmt.Errorf("%w: YouTube selected tab root", ErrInvalidMetadata)
 	}
 	contents, ok := rootObject.Lookup("contents").Object()
 	if !ok {
@@ -190,18 +188,18 @@ func validateYouTubeAliasSelectedTab(data []byte, requested string) error {
 			isSelected, _ := renderer.Lookup("selected").Bool()
 			if isSelected {
 				if selected != nil {
-					return fmt.Errorf("%w: multiple selected YouTube alias tabs", ErrInvalidMetadata)
+					return fmt.Errorf("%w: multiple selected YouTube tabs", ErrInvalidMetadata)
 				}
 				selected = renderer
 			}
 		}
 	}
 	if selected == nil {
-		return fmt.Errorf("%w: missing selected YouTube alias tab", ErrInvalidMetadata)
+		return fmt.Errorf("%w: missing selected YouTube tab", ErrInvalidMetadata)
 	}
 	identities := youtubeSelectedTabIdentities(selected)
 	if len(identities) == 0 {
-		return fmt.Errorf("%w: unknown selected YouTube alias tab identity", ErrInvalidMetadata)
+		return fmt.Errorf("%w: unknown selected YouTube tab identity", ErrInvalidMetadata)
 	}
 	identity := identities[0]
 	for _, candidate := range identities[1:] {
@@ -210,7 +208,7 @@ func validateYouTubeAliasSelectedTab(data []byte, requested string) error {
 		}
 	}
 	if identity != requested {
-		return fmt.Errorf("%w: selected YouTube alias tab %q does not match %q", ErrInvalidPlaylist, identity, requested)
+		return fmt.Errorf("%w: selected YouTube tab %q does not match %q", ErrInvalidPlaylist, identity, requested)
 	}
 	return nil
 }
@@ -228,15 +226,7 @@ func youtubeSelectedTabIdentities(renderer *value.Object) []string {
 		}
 		identities = append(identities, identity)
 	}
-	identifier := strings.ToLower(objectString(renderer, "tabIdentifier"))
-	for _, tab := range []string{"videos", "shorts", "streams", "playlists"} {
-		if identifier == tab || identifier == "fe"+tab {
-			appendIdentity(tab)
-		}
-	}
-	if identifier == "live" || identifier == "felive" {
-		appendIdentity("streams")
-	}
+	appendIdentity(normalizedYouTubeTabIdentity(objectString(renderer, "tabIdentifier")))
 	for _, candidate := range []string{
 		objectString(renderer, "endpoint", "browseEndpoint", "canonicalBaseUrl"),
 		objectString(renderer, "endpoint", "commandMetadata", "webCommandMetadata", "url"),
@@ -244,14 +234,16 @@ func youtubeSelectedTabIdentities(renderer *value.Object) []string {
 		if parsed, err := url.Parse(candidate); err == nil {
 			parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
 			if len(parts) != 0 {
-				switch parts[len(parts)-1] {
-				case "videos", "shorts", "streams", "playlists":
-					appendIdentity(parts[len(parts)-1])
-				case "live":
-					appendIdentity("streams")
-				}
+				appendIdentity(normalizedYouTubeTabIdentity(parts[len(parts)-1]))
 			}
 		}
+	}
+	// The pinned reference uses the translated display title only when no
+	// identifier can be recovered from the endpoint or tabIdentifier. In
+	// particular, the legacy /featured route may legitimately be titled
+	// "Home" and must not become a false conflict.
+	if len(identities) != 0 {
+		return identities
 	}
 	title, _ := renderer.Lookup("title").StringValue()
 	if title == "" {
@@ -266,6 +258,16 @@ func youtubeSelectedTabIdentities(renderer *value.Object) []string {
 		appendIdentity("streams")
 	case "playlists":
 		appendIdentity("playlists")
+	case "home":
+		appendIdentity("home")
+	case "featured":
+		appendIdentity("featured")
+	case "community":
+		appendIdentity("community")
+	case "releases":
+		appendIdentity("releases")
+	case "podcasts":
+		appendIdentity("podcasts")
 	}
 	return identities
 }
