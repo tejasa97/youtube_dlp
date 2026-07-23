@@ -72,6 +72,12 @@ Dislike/Disagree, and Comment actions to their normalized count fields.
 Aggregate ratings are retained as `average_rating`. Unknown actions, malformed
 objects, non-finite ratings, and overflowing counts are ignored.
 
+Schema.org `hasPart` Clip objects become ordered chapters. Missing boundaries
+are inferred from zero, adjacent explicit boundaries, and the media duration
+using the pinned model. The entire optional chapter set is omitted if a title
+or boundary cannot be resolved, intervals reverse or overlap, or the 256-clip
+limit is exceeded.
+
 An `embedUrl`-only JSON-LD object may route through an existing native provider
 extractor. This is deliberately narrower than generic URL discovery: the URL
 must pass the same canonical provider allowlist used for explicit iframe/embed
@@ -94,8 +100,9 @@ order, deduplicate canonically, and use the existing 64-entry embed limit.
 - one JSON-LD script: 512 KiB;
 - traversed JSON-LD nodes: 2,048 with depth 64;
 - normalized title/description: 1 KiB/8 KiB;
-- JSON-LD keywords: 128 unique values of at most 256 bytes each; and
-- JSON-LD interaction statistics: 128 per media object.
+- JSON-LD keywords: 128 unique values of at most 256 bytes each;
+- JSON-LD interaction statistics: 128 per media object; and
+- JSON-LD chapters: 256 per media object.
 
 Userinfo, explicit ports (including an empty explicit port), fragments,
 encoded separators/NULs, unsupported schemes, provider lookalikes, and URLs
@@ -114,6 +121,5 @@ as formats of one page media item rather than separate playlist entries.
 
 This increment does not implement generic direct URLs found in arbitrary
 scripts, arbitrary JW Player configuration, OpenGraph structured properties
-beyond the documented core, JSON-LD chapters and broader date formats,
-provider discovery, or
+beyond the documented core, broader JSON-LD date formats, provider discovery, or
 iframe crawling. Unsupported HTML remains a categorized unsupported extraction.
