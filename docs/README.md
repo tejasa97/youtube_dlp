@@ -46,6 +46,7 @@ The executable help is the authoritative CLI option list:
 - [YouTube subtitle-conversion evidence](YOUTUBE_SUBTITLE_CONVERSION_EVIDENCE.md)
 - [YouTube channel-tab evidence](YOUTUBE_CHANNEL_EVIDENCE.md)
 - [YouTube handle-tab evidence](YOUTUBE_HANDLE_TAB_EVIDENCE.md)
+- [YouTube playlist-tab evidence](YOUTUBE_PLAYLIST_TABS_EVIDENCE.md)
 - [YouTube search evidence](YOUTUBE_SEARCH_EVIDENCE.md)
 - [YouTube Music search evidence](YOUTUBE_MUSIC_SEARCH_EVIDENCE.md)
 - [SoundCloud search evidence](SOUNDCLOUD_SEARCH_EVIDENCE.md)
