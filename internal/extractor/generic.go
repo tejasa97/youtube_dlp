@@ -103,7 +103,14 @@ func (Generic) Extract(ctx context.Context, request Request) (Extraction, error)
 		return Extraction{}, err
 	}
 	if len(entries) == 0 {
-		return Extraction{}, fmt.Errorf("%w: no supported embeds", ErrUnsupported)
+		metadata, found, err := discoverGenericMetadataMedia(ctx, pageURL, page)
+		if err != nil {
+			return Extraction{}, err
+		}
+		if found {
+			return metadata, nil
+		}
+		return Extraction{}, fmt.Errorf("%w: no supported embeds or metadata media", ErrUnsupported)
 	}
 	id, title := genericPageIdentity(pageURL)
 	info := value.NewInfo(value.NewObject(

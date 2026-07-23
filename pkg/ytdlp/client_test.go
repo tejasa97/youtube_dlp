@@ -272,6 +272,51 @@ func TestClientSimulationSuppressesEveryOutputArtifact(t *testing.T) {
 	}
 }
 
+func TestClientDownloadsGenericOpenGraphMediaWithPageReferer(t *testing.T) {
+	const media = "generic metadata media"
+	var pageURL string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/article":
+			writer.Header().Set("Content-Type", "text/html")
+			if request.Method != http.MethodHead {
+				_, _ = fmt.Fprintf(writer, `<meta property="og:title" content="Metadata Feature"><meta property="og:video" content="/protected.mp4">`)
+			}
+		case "/protected.mp4":
+			if request.Header.Get("Referer") != pageURL {
+				http.Error(writer, "missing referer", http.StatusForbidden)
+				return
+			}
+			writer.Header().Set("Content-Type", "video/mp4")
+			writer.Header().Set("Content-Length", strconv.Itoa(len(media)))
+			if request.Method != http.MethodHead {
+				_, _ = writer.Write([]byte(media))
+			}
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	pageURL = server.URL + "/article"
+	root := t.TempDir()
+	result, err := NewClient().Run(context.Background(), Request{
+		URL: pageURL, OutputDir: root, OutputTemplate: "%(title)s.%(ext)s",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Downloaded {
+		t.Fatalf("result = %+v", result)
+	}
+	downloaded, err := os.ReadFile(filepath.Join(root, "Metadata Feature.mp4"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(downloaded) != media {
+		t.Fatalf("media = %q", downloaded)
+	}
+}
+
 func TestClientRejectsInvalidWaveTwoOptionsBeforeNetwork(t *testing.T) {
 	hits := 0
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits++ }))

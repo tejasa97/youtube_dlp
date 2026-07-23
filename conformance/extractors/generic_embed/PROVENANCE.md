@@ -9,9 +9,12 @@ Reference implementation: `yt_dlp/extractor/generic.py`,
 
 The pinned reference asks registered extractors to identify supported embeds,
 returns a single URL result when one embed is found, and otherwise returns an
-ordered playlist. These fixtures preserve only that observable control flow:
-HTML embed-bearing attributes, document order, canonical target de-duplication,
-and the distinction between one and multiple unique targets.
+ordered playlist. If no registered embed is accepted,
+`GenericIE._extract_embeds` next examines Schema.org VideoObject metadata,
+Twitter player streams, and OpenGraph video/audio metadata in that order.
+The fixtures preserve this observable precedence, metadata normalization,
+relative URL resolution, direct/manifest dispatch, Referer propagation, and
+canonical de-duplication.
 
 All hosts, identifiers, titles, and markup were independently authored for this
 repository. The media identifiers are inert synthetic values, the unsupported
@@ -21,13 +24,19 @@ and make no network request.
 
 The Go implementation is deliberately narrower than the reference. It examines
 only `iframe[src]`, `embed[src]`, `object[data]`, and
-`meta[name|property=twitter:player][content]`; it does not execute JavaScript,
-parse arbitrary player configuration, follow an iframe, or treat ordinary
-links as media. A candidate is retained only when one of the product's existing
-built-in embed URL policies accepts it.
+`meta[name|property=twitter:player][content]` for provider embeds. Its metadata
+fallback accepts only context-bearing JSON-LD VideoObject/AudioObject `contentUrl`,
+`twitter:player:stream`, and exact `og:video`/`og:audio` properties. It does not
+execute JavaScript, parse arbitrary player configuration, follow an iframe, or
+treat ordinary links as media. Provider candidates must pass an existing
+built-in embed policy; metadata candidates must pass the documented direct
+audio/video or native-manifest allowlist.
 
-At this lane boundary, the common `Extraction` type can represent media or a
-playlist but not a root URL result. The single fixture is temporarily surfaced
-as a one-entry playlist. Primary integration will replace that localized
-construction with the shared root URL-result variant; the discovery corpus and
-ordering expectations do not depend on the temporary representation.
+`open_graph.html`, `json_ld.html`, and `metadata_unsafe.html` were independently
+authored for this repository. They contain only reserved hosts, relative paths,
+and inert metadata. No upstream webpage or service response was copied.
+
+The current shared `Extraction` model supports root URL results, playlists,
+and media. One native-provider embed is a root URL result; multiple embeds are
+an ordered playlist; structured metadata is one page media result whose
+deduplicated URLs are formats.

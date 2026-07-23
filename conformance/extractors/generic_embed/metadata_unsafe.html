@@ -1,0 +1,13 @@
+<!doctype html>
+<html>
+<head>
+  <meta property="og:video" content="javascript:alert(1)">
+  <meta property="og:video" content="https://user:secret@media.example.test/video.mp4">
+  <meta property="og:video" content="https://media.example.test/video%2fescape.mp4">
+  <meta property="og:video" content="https://media.example.test:/empty-port.mp4">
+  <meta property="og:video" content="https://media.example.test:65536/bad-port.mp4">
+  <meta property="og:video" content="https://media.example.test/poster.jpg">
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"VideoObject","contentUrl":"data:video/mp4;base64,AAAA"}</script>
+</head>
+<body></body>
+</html>
