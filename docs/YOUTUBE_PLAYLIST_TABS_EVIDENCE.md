@@ -59,9 +59,9 @@ rejection without contacting YouTube.
 
 ## Known deviations
 
-- Membership, channel search, arbitrary custom tabs, and topic-channel
-  synthesized-playlist fallback are not claimed. Bare upload roots are
-  documented separately.
+- Membership, channel search, and arbitrary custom tabs are not claimed. Bare
+  upload roots and their bounded topic-channel fallback are documented
+  separately.
 - Only playlist and podcast lockup types are accepted on playlist tabs; other
   entity and shelf variants remain unsupported.
 - Rich playlist metadata such as thumbnails, uploader details, video counts,

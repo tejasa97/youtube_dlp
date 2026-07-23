@@ -1,0 +1,8 @@
+{
+  "responseContext":{"visitorData":"topic-rotated"},
+  "onResponseReceivedActions":[{
+    "appendContinuationItemsAction":{"continuationItems":[
+      {"playlistVideoRenderer":{"videoId":"topicVid002","title":{"simpleText":"Continued topic upload"}}}
+    ]}
+  }]
+}
