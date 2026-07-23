@@ -14,5 +14,9 @@
   "duration": 61,
   "width": 1920,
   "height": 1080,
-  "thumbnail": "https://img.example/vimeo-1280.jpg"
+  "thumbnail": "https://img.example/vimeo-1280.jpg",
+  "subtitles": {
+    "en": [{"url":"https://player.vimeo.com/texttrack/fixture-en.vtt?token=offline","ext":"vtt","name":"English"}],
+    "es": [{"url":"https://player.vimeo.com/texttrack/fixture-es.vtt?token=offline","ext":"vtt","name":"Español"}]
+  }
 }
