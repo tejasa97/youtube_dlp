@@ -148,7 +148,9 @@ func TestNumericFilesizeDurationAndDecimalCoercion(t *testing.T) {
 		{"duration != 30", true},
 		{"duration !< 30", true},
 		{"duration !>= 120", false},
-		{"aspect_ratio = 1.5", true},
+		{"aspect_ratio = 1.5", false},
+		{"enabled = 1", true},
+		{"disabled = 0", true},
 	}
 	for _, test := range tests {
 		program, err := Parse([]string{test.expression})
@@ -167,6 +169,23 @@ func TestNumericFilesizeDurationAndDecimalCoercion(t *testing.T) {
 		if _, ok := parseNumericComparison(raw); ok {
 			t.Fatalf("parseNumericComparison(%q) accepted invalid input", raw)
 		}
+	}
+}
+
+func TestNumericComparisonPreservesInt64Precision(t *testing.T) {
+	metadata := value.NewInfo(value.NewObject(
+		value.Field{Key: "filesize", Value: value.Int(9007199254740993)},
+	))
+	program, err := Parse([]string{"filesize = 9007199254740992"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision, err := program.EvaluateContext(context.Background(), metadata, EvaluationOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Pass {
+		t.Fatal("adjacent integers above 2^53 compared equal")
 	}
 }
 
@@ -219,7 +238,7 @@ func TestErrorsHaveSpan(t *testing.T) {
 	}
 	for _, input := range []string{
 		"x ~= (", "bad-field=1", "", "-", "title ~= (?=Example)",
-		"title = 'unterminated", "title !? Example",
+		"title = 'unterminated", "title !? Example", "ID = x", "id2 = x",
 	} {
 		if _, err := Parse([]string{input}); !errors.Is(err, ErrInvalidFilter) {
 			t.Fatalf("Parse(%q) = %v", input, err)

@@ -235,7 +235,7 @@ func splitAnd(input string) ([]segment, error) {
 	return append(result, segment{text: input[start:], start: start, end: len(input)}), nil
 }
 
-var validField = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+var validField = regexp.MustCompile(`^[a-z_]+$`)
 
 var comparisonOperators = []string{"*=", "^=", "$=", "~=", "<=", ">=", "=", "<", ">"}
 
@@ -347,10 +347,7 @@ func containsComparisonOperator(input string) bool {
 }
 
 func isFieldByte(input byte, first bool) bool {
-	if input == '_' || input >= 'A' && input <= 'Z' || input >= 'a' && input <= 'z' {
-		return true
-	}
-	return !first && input >= '0' && input <= '9'
+	return input == '_' || input >= 'a' && input <= 'z'
 }
 
 func skipSpace(input string, index int) int {
@@ -388,7 +385,7 @@ func (c condition) matches(info value.Info, options EvaluationOptions) (bool, er
 		if isStringOperator(c.operator) {
 			return false, fmt.Errorf("%w: operator %s only supports string values", ErrEvaluation, c.operator)
 		}
-		right, ok := parseNumericComparison(c.raw)
+		right, ok := parseNumericValue(c.raw)
 		if !ok {
 			return false, fmt.Errorf("%w: %q is not a bounded number, filesize, or duration", ErrEvaluation, c.raw)
 		}
@@ -436,50 +433,97 @@ func isStringOperator(operator string) bool {
 	}
 }
 
-func compareNumbers(left, right float64, operator string) bool {
+type numericValue struct {
+	integer  int64
+	floating float64
+	isInt    bool
+}
+
+func compareNumbers(left, right numericValue, operator string) bool {
+	if left.isInt && right.isInt {
+		switch operator {
+		case "=":
+			return left.integer == right.integer
+		case "<":
+			return left.integer < right.integer
+		case "<=":
+			return left.integer <= right.integer
+		case ">":
+			return left.integer > right.integer
+		case ">=":
+			return left.integer >= right.integer
+		default:
+			return false
+		}
+	}
+	leftFloat := left.floating
+	if left.isInt {
+		leftFloat = float64(left.integer)
+	}
+	rightFloat := right.floating
+	if right.isInt {
+		rightFloat = float64(right.integer)
+	}
 	switch operator {
 	case "=":
-		return left == right
+		return leftFloat == rightFloat
 	case "<":
-		return left < right
+		return leftFloat < rightFloat
 	case "<=":
-		return left <= right
+		return leftFloat <= rightFloat
 	case ">":
-		return left > right
+		return leftFloat > rightFloat
 	case ">=":
-		return left >= right
+		return leftFloat >= rightFloat
 	default:
 		return false
 	}
 }
 
-func number(input value.Value) (float64, bool) {
+func number(input value.Value) (numericValue, bool) {
+	if boolean, ok := input.Bool(); ok {
+		if boolean {
+			return numericValue{integer: 1, isInt: true}, true
+		}
+		return numericValue{integer: 0, isInt: true}, true
+	}
 	if integer, ok := input.Int(); ok {
-		return float64(integer), true
+		return numericValue{integer: integer, isInt: true}, true
 	}
 	floating, ok := input.Float()
-	return floating, ok && !math.IsNaN(floating) && !math.IsInf(floating, 0)
+	return numericValue{floating: floating}, ok && !math.IsNaN(floating) && !math.IsInf(floating, 0)
 }
 
 func parseNumericComparison(raw string) (float64, bool) {
-	if integer, err := strconv.ParseInt(raw, 10, 64); err == nil {
-		return float64(integer), true
+	parsed, ok := parseNumericValue(raw)
+	if !ok {
+		return 0, false
 	}
-	if plainDecimalPattern.MatchString(raw) {
-		if decimal, err := strconv.ParseFloat(raw, 64); err == nil && !math.IsNaN(decimal) && !math.IsInf(decimal, 0) {
-			return decimal, true
-		}
+	if parsed.isInt {
+		return float64(parsed.integer), true
 	}
-	if size, ok := parseFileSize(raw); ok {
-		return size, true
-	}
-	if size, ok := parseFileSize(raw + "B"); ok {
-		return size, true
-	}
-	return parseDuration(raw)
+	return parsed.floating, true
 }
 
-var plainDecimalPattern = regexp.MustCompile(`^[+-]?(?:[0-9]+\.[0-9]*|\.[0-9]+)$`)
+func parseNumericValue(raw string) (numericValue, bool) {
+	if integer, err := strconv.ParseInt(raw, 10, 64); err == nil {
+		return numericValue{integer: integer, isInt: true}, true
+	}
+	if size, ok := parseFileSize(raw); ok {
+		return numericValue{integer: size, isInt: true}, true
+	}
+	if size, ok := parseFileSize(raw + "B"); ok {
+		return numericValue{integer: size, isInt: true}, true
+	}
+	duration, ok := parseDuration(raw)
+	if !ok {
+		return numericValue{}, false
+	}
+	if math.Trunc(duration) == duration && duration <= math.MaxInt64 {
+		return numericValue{integer: int64(duration), isInt: true}, true
+	}
+	return numericValue{floating: duration}, true
+}
 
 // parseNumber is retained for compatibility with the original package tests
 // and callers. Match-filter comparisons use parseNumericComparison, which adds
@@ -510,7 +554,7 @@ var filesizeUnits = map[string]float64{
 	"exabytes": 1e18, "exbibytes": 1 << 60,
 }
 
-func parseFileSize(raw string) (float64, bool) {
+func parseFileSize(raw string) (int64, bool) {
 	match := filesizePattern.FindStringSubmatch(strings.TrimSpace(raw))
 	if match == nil {
 		return 0, false
@@ -524,7 +568,7 @@ func parseFileSize(raw string) (float64, bool) {
 	if math.IsNaN(result) || math.IsInf(result, 0) || result > math.MaxInt64 {
 		return 0, false
 	}
-	return result, true
+	return int64(result), true
 }
 
 var durationUnitPattern = regexp.MustCompile(`(?i)([0-9]+(?:\.[0-9]+)?)\s*(days?|d|hours?|hrs?|h|minutes?|mins?\.?|m|seconds?|secs?|s)`)

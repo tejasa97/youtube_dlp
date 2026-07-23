@@ -102,6 +102,15 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	allowUnplayable := flags.Bool("allow-unplayable-formats", false, "include DRM-marked formats in selection")
 	progressTemplate := flags.String("progress-template", "", "render download events with a bounded progress template")
 	flags.Var(&matchFilters, "match-filter", "metadata filter expression (repeatable OR)")
+	flags.Var(&matchFilters, "match-filters", "alias for --match-filter")
+	flags.BoolFunc("no-match-filter", "clear inherited metadata filters", func(string) error {
+		matchFilters = nil
+		return nil
+	})
+	flags.BoolFunc("no-match-filters", "alias for --no-match-filter", func(string) error {
+		matchFilters = nil
+		return nil
+	})
 	flags.Var(&parseMetadata, "parse-metadata", "bounded FROM:TO metadata action")
 	flags.Var(&replaceMetadata, "replace-in-metadata", "bounded FIELD:REGEX:REPLACEMENT action")
 	retries := flags.Int("retries", 0, "direct and fragment download attempts (maximum 100)")

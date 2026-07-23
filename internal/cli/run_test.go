@@ -457,7 +457,10 @@ func TestRunWaveTwoCompatibilityFlags(t *testing.T) {
 	code := Run([]string{
 		"--skip-download", "--print-json", "-f", "best", "-S", "size",
 		"--replace-in-metadata", "title:Deterministic:Native",
-		"--match-filter", "title~=Native", server.URL + "/page",
+		"--match-filter", "title=discarded",
+		"--no-match-filters",
+		"--match-filters", "title~=Native",
+		server.URL + "/page",
 	}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("code = %d; stderr = %s", code, stderr.String())
