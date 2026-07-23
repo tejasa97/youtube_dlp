@@ -55,6 +55,7 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	flags.Var(paths, "paths", "set a home output/config path (home:PATH)")
 	flags.Var(paths, "P", "alias for --paths")
 	printJSON := flags.Bool("print-json", false, "print normalized metadata JSON to stdout")
+	listSubtitles := flags.Bool("list-subs", false, "list available subtitles and automatic captions (simulates; does not write files)")
 	skipDownload := flags.Bool("skip-download", false, "extract metadata without downloading")
 	proxy := flags.String("proxy", "", "HTTP/HTTPS proxy URL")
 	impersonationProfile := flags.String("impersonate", "", "default explicit browser profile (for example firefox-120)")
@@ -227,18 +228,25 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	if *remuxVideo != "" {
 		postprocessors = append(postprocessors, ytdlp.Postprocessor{Remux: &ytdlp.RemuxPostprocessor{Format: *remuxVideo}})
 	}
+	// yt-dlp lists subtitles in simulation mode. Explicit write-subtitle options
+	// must not turn a listing into a filesystem-writing operation.
+	requestSkipDownload := *skipDownload || *listSubtitles
+	requestSubtitles := ytdlp.SubtitleOptions{
+		WriteManual: *writeSubtitles, WriteAutomatic: *writeAutomaticSubtitles,
+		Languages: subtitleLanguageRules(subtitleLanguages, *allSubtitles), Format: *subtitleFormat,
+	}
+	if *listSubtitles {
+		requestSubtitles = ytdlp.SubtitleOptions{}
+	}
 	result, err := client.Run(ctx, ytdlp.Request{
 		URL: flags.Arg(0), OutputTemplate: *output, OutputDir: *outputDir, Proxy: *proxy, ImpersonationProfile: *impersonationProfile,
 		CookieFile: *cookieFile, CookiesFromBrowser: *cookiesFromBrowser, UseNetRC: *useNetRC, NetRCLocation: *netRCLocation, DownloadArchive: *downloadArchive, CacheDir: *cacheDir,
-		Timeout: *timeout, Overwrite: *overwrite, SkipDownload: *skipDownload,
+		Timeout: *timeout, Overwrite: *overwrite, SkipDownload: requestSkipDownload,
 		Format: *format, FormatSort: append([]string(nil), formatSort...),
 		PreferFreeFormats: *preferFreeFormats, AllowUnplayableFormats: *allowUnplayable,
 		ProgressTemplate: *progressTemplate, MatchFilters: append([]string(nil), matchFilters...),
 		ParseMetadata: append([]string(nil), parseMetadata...), ReplaceMetadata: append([]string(nil), replaceMetadata...),
-		Subtitles: ytdlp.SubtitleOptions{
-			WriteManual: *writeSubtitles, WriteAutomatic: *writeAutomaticSubtitles,
-			Languages: subtitleLanguageRules(subtitleLanguages, *allSubtitles), Format: *subtitleFormat,
-		},
+		Subtitles: requestSubtitles,
 		Playlist: ytdlp.PlaylistOptions{
 			Start: *playlistStart, End: *playlistEnd, Reverse: *playlistReverse, Items: *playlistItems, Flat: *flatPlaylist,
 		},
@@ -254,11 +262,42 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
 		return exitCode(err)
 	}
+	if *listSubtitles {
+		if err := writeSubtitleListings(ctx, result, stdout, stderr); err != nil {
+			fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
+			return exitCode(err)
+		}
+	}
 	if *printJSON {
 		_, _ = stdout.Write(result.InfoJSON)
 		_, _ = fmt.Fprintln(stdout)
 	}
 	return 0
+}
+
+func writeSubtitleListings(ctx context.Context, result ytdlp.Result, stdout, stderr io.Writer) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if len(result.Entries) != 0 {
+		for _, entry := range result.Entries {
+			if err := writeSubtitleListings(ctx, entry, stdout, stderr); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	table, status, err := renderSubtitleListing(ctx, result.InfoJSON)
+	if err != nil {
+		return err
+	}
+	if _, err := io.WriteString(stderr, status); err != nil {
+		return fmt.Errorf("write subtitle listing status: %w", err)
+	}
+	if _, err := io.WriteString(stdout, table); err != nil {
+		return fmt.Errorf("write subtitle listing table: %w", err)
+	}
+	return nil
 }
 
 type stringListFlag []string
