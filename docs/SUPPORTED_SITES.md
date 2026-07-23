@@ -19,7 +19,7 @@ corpus and the remote service response.
 | youtube | youtube.com/watch and youtu.be, /embed, /shorts, /playlist, and channel live alias URLs | playlist/API, manifest-heavy, JavaScript challenge |
 | vimeo | vimeo.com videos | manifest-heavy |
 | twitch | twitch.tv channels | live, manifest-heavy |
-| soundcloud | soundcloud.com tracks, sets, and user-track pages | playlist/API |
+| soundcloud | soundcloud.com tracks, sets, user-track pages, and bounded public search | playlist/API |
 | streamable | streamable.com public, embed, and short-link URLs | shared backend, simple/direct |
 | peertube | conservative PeerTube instance routes and peertube: opaque URLs | shared backend, live, manifest-heavy |
 | internetarchive | archive.org item pages | playlist/API |
