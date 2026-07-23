@@ -7,12 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"mime"
 	"net/url"
 	"path"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -28,6 +30,8 @@ const (
 	maxGenericJSONLDDepth        = 64
 	maxGenericMetadataTitle      = 1024
 	maxGenericMetadataText       = 8 << 10
+	maxGenericMetadataTags       = 128
+	maxGenericMetadataTagBytes   = 256
 )
 
 var genericISODuration = regexp.MustCompile(`^PT(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?$`)
@@ -40,6 +44,15 @@ type genericMetadataCandidate struct {
 	description string
 	thumbnail   string
 	duration    *float64
+	uploader    string
+	artist      string
+	timestamp   *int64
+	filesize    *int64
+	bitrate     *float64
+	width       *int64
+	height      *int64
+	viewCount   *int64
+	tags        []string
 }
 
 type genericMetadataDocument struct {
@@ -340,11 +353,115 @@ func genericJSONLDCandidate(item map[string]any) (genericMetadataCandidate, bool
 		description: genericMetadataText(genericJSONString(item["description"]), maxGenericMetadataText),
 		thumbnail:   genericJSONLDThumbnail(item),
 		duration:    genericJSONLDDuration(item["duration"]),
+		uploader:    genericJSONLDPersonName(item["author"]),
+		artist:      genericJSONLDPersonName(item["byArtist"]),
+		timestamp:   genericJSONLDTimestamp(item["uploadDate"]),
+		filesize:    genericJSONLDInt(item["contentSize"], false),
+		bitrate:     genericJSONLDFloat(item["bitrate"], false),
+		width:       genericJSONLDInt(item["width"], false),
+		height:      genericJSONLDInt(item["height"], false),
+		viewCount:   genericJSONLDInt(item["interactionCount"], true),
+		tags:        genericJSONLDTags(item["keywords"]),
 	}
 	if genericJSONLDType(item["@type"], "AudioObject") && !genericJSONLDType(item["@type"], "VideoObject") {
 		candidate.kind = "audio"
 	}
 	return candidate, true
+}
+
+func genericJSONLDPersonName(raw any) string {
+	switch item := raw.(type) {
+	case string:
+		return genericMetadataText(item, maxGenericMetadataTitle)
+	case map[string]any:
+		return genericMetadataText(genericJSONString(item["name"]), maxGenericMetadataTitle)
+	default:
+		return ""
+	}
+}
+
+func genericJSONLDTimestamp(raw any) *int64 {
+	text := genericJSONString(raw)
+	if text == "" {
+		return nil
+	}
+	for _, layout := range []string{time.RFC3339Nano, "2006-01-02"} {
+		parsed, err := time.Parse(layout, text)
+		if err == nil {
+			timestamp := parsed.Unix()
+			if timestamp >= 0 {
+				return &timestamp
+			}
+			return nil
+		}
+	}
+	return nil
+}
+
+func genericJSONLDInt(raw any, allowZero bool) *int64 {
+	number := genericJSONLDNumber(raw)
+	if number == "" {
+		return nil
+	}
+	value, err := strconv.ParseInt(number, 10, 64)
+	if err != nil || value < 0 || value == 0 && !allowZero {
+		return nil
+	}
+	return &value
+}
+
+func genericJSONLDFloat(raw any, allowZero bool) *float64 {
+	number := genericJSONLDNumber(raw)
+	if number == "" {
+		return nil
+	}
+	value, err := strconv.ParseFloat(number, 64)
+	if err != nil || math.IsInf(value, 0) || math.IsNaN(value) || value < 0 || value == 0 && !allowZero {
+		return nil
+	}
+	return &value
+}
+
+func genericJSONLDNumber(raw any) string {
+	switch item := raw.(type) {
+	case json.Number:
+		return item.String()
+	case string:
+		return strings.TrimSpace(item)
+	default:
+		return ""
+	}
+}
+
+func genericJSONLDTags(raw any) []string {
+	var source []string
+	switch item := raw.(type) {
+	case string:
+		source = strings.Split(item, ",")
+	case []any:
+		for _, value := range item {
+			if text, ok := value.(string); ok {
+				source = append(source, text)
+			}
+		}
+	}
+	tags := make([]string, 0, min(len(source), maxGenericMetadataTags))
+	seen := make(map[string]struct{})
+	for _, rawTag := range source {
+		tag := genericMetadataText(rawTag, maxGenericMetadataTagBytes)
+		if tag == "" {
+			continue
+		}
+		if _, duplicate := seen[tag]; duplicate {
+			continue
+		}
+		if len(tags) >= maxGenericMetadataTags {
+			break
+		}
+		seen[tag] = struct{}{}
+		tags = append(tags, tag)
+	}
+	return tags
 }
 
 func genericJSONString(raw any) string {
@@ -442,6 +559,7 @@ func genericMetadataExtraction(
 		if candidate.kind == "audio" || strings.HasPrefix(mediaType, "audio/") {
 			format.Set("vcodec", value.String("none"))
 		}
+		genericSetJSONLDFormatFields(format, candidate)
 		formats = append(formats, value.ObjectValue(format))
 	}
 	if len(formats) == 0 {
@@ -475,7 +593,57 @@ func genericMetadataExtraction(
 	if selected.duration != nil {
 		info.Set("duration", value.Float(*selected.duration))
 	}
+	genericSetJSONLDInfoFields(info, selected)
 	return Media(value.NewInfo(info)), true
+}
+
+func genericSetJSONLDFormatFields(format *value.Object, candidate genericMetadataCandidate) {
+	if candidate.filesize != nil {
+		format.Set("filesize", value.Int(*candidate.filesize))
+	}
+	if candidate.bitrate != nil {
+		format.Set("tbr", value.Float(*candidate.bitrate))
+	}
+	if candidate.width != nil {
+		format.Set("width", value.Int(*candidate.width))
+	}
+	if candidate.height != nil {
+		format.Set("height", value.Int(*candidate.height))
+	}
+}
+
+func genericSetJSONLDInfoFields(info *value.Object, candidate genericMetadataCandidate) {
+	if candidate.uploader != "" {
+		info.Set("uploader", value.String(candidate.uploader))
+	}
+	if candidate.artist != "" {
+		info.Set("artist", value.String(candidate.artist))
+	}
+	if candidate.timestamp != nil {
+		info.Set("timestamp", value.Int(*candidate.timestamp))
+	}
+	if candidate.filesize != nil {
+		info.Set("filesize", value.Int(*candidate.filesize))
+	}
+	if candidate.bitrate != nil {
+		info.Set("tbr", value.Float(*candidate.bitrate))
+	}
+	if candidate.width != nil {
+		info.Set("width", value.Int(*candidate.width))
+	}
+	if candidate.height != nil {
+		info.Set("height", value.Int(*candidate.height))
+	}
+	if candidate.viewCount != nil {
+		info.Set("view_count", value.Int(*candidate.viewCount))
+	}
+	if len(candidate.tags) != 0 {
+		tags := make([]value.Value, len(candidate.tags))
+		for index, tag := range candidate.tags {
+			tags[index] = value.String(tag)
+		}
+		info.Set("tags", value.List(tags...))
+	}
 }
 
 func genericMetadataURL(pageURL *url.URL, raw string) (*url.URL, bool) {

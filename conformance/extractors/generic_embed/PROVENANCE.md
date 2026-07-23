@@ -32,6 +32,14 @@ treat ordinary links as media. Provider candidates must pass an existing
 built-in embed policy; metadata candidates must pass the documented direct
 audio/video or native-manifest allowlist.
 
+For JSON-LD media, the pinned `InfoExtractor._json_ld` implementation also
+derives uploader, artist, upload timestamp, content size, bitrate, dimensions,
+interaction count, and keywords. The synthetic fixture exercises those fields
+with independently authored values. The Go parser accepts bounded JSON numbers
+or decimal strings, ISO-8601 timestamps, string/object people, and string/list
+keywords; malformed optional values are omitted rather than poisoning valid
+media discovery.
+
 `open_graph.html`, `json_ld.html`, and `metadata_unsafe.html` were independently
 authored for this repository. They contain only reserved hosts, relative paths,
 and inert metadata. No upstream webpage or service response was copied.
