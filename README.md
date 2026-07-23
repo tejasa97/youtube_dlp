@@ -316,6 +316,17 @@ See [Supported extractors](docs/SUPPORTED_SITES.md) for URL families, risk
 classes, limitations, and the distinction between deterministic conformance and
 opt-in live canaries.
 
+Public YouTube comments are opt-in and bounded:
+
+```sh
+./bin/ytdlp-go --write-comments --youtube-max-comments 100 \
+  --skip-download --print-json 'https://www.youtube.com/watch?v=VIDEO_ID'
+```
+
+Use `--youtube-comment-sort new|top` to choose the order. The current scope
+covers anonymous parent comments, click-tracked reply continuations, and
+bounded nested subthreads; authenticated comments are not yet supported.
+
 Native media transfer covers direct HTTP/HTTPS, HLS, DASH, and ISM. Protected
 formats may require selected headers, cookies, impersonation, or JavaScript.
 DRM decryption is not implemented; --allow-unplayable-formats only permits

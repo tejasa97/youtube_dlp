@@ -24,7 +24,12 @@ type Extraction struct {
 	Info     value.Info
 	Entries  EntrySequence
 	Redirect *Entry
+	Enrich   MetadataEnricher
 }
+
+// MetadataEnricher performs explicitly requested, potentially expensive
+// metadata work after product-level match filtering has accepted the item.
+type MetadataEnricher func(context.Context, *value.Info) error
 
 func Media(info value.Info) Extraction { return Extraction{Info: info} }
 

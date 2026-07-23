@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ytdlp-go/ytdlp/internal/archive"
 	"github.com/ytdlp-go/ytdlp/internal/compat/matchfilter"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/chromium"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/chromiumlinux"
@@ -107,6 +108,8 @@ func TestExtractorFailuresAreCategorized(t *testing.T) {
 		{extractor.ErrYouTubeHandleTabNetwork, ErrorNetwork},
 		{extractor.ErrYouTubeMusicSearchRateLimited, ErrorNetwork},
 		{extractor.ErrYouTubeMusicSearchNetwork, ErrorNetwork},
+		{extractor.ErrYouTubeCommentsRateLimited, ErrorNetwork},
+		{extractor.ErrYouTubeCommentsNetwork, ErrorNetwork},
 	} {
 		if err := categorized("extract", test.err); !IsCategory(err, test.category) {
 			t.Fatalf("categorized(%v) = %v", test.err, err)
@@ -222,6 +225,9 @@ func TestClientRejectsInvalidWaveTwoOptionsBeforeNetwork(t *testing.T) {
 		{Postprocessors: []Postprocessor{{}}},
 		{Postprocessors: []Postprocessor{{Move: &MovePostprocessor{Destination: "out.mp4"}, Remux: &RemuxPostprocessor{Destination: "out.mkv"}}}},
 		{OutputDir: t.TempDir(), Postprocessors: []Postprocessor{{Move: &MovePostprocessor{Destination: "../escape.mp4"}}}},
+		{YouTubeComments: YouTubeCommentOptions{Sort: "popular"}},
+		{YouTubeComments: YouTubeCommentOptions{MaxComments: 10_001}},
+		{YouTubeComments: YouTubeCommentOptions{MaxDepth: 9}},
 	}
 	for index, request := range tests {
 		request.URL = server.URL + "/media.mp4"
@@ -279,6 +285,96 @@ func (numericMetadataExtractor) Extract(context.Context, extractor.Request) (ext
 		value.Field{Key: "title", Value: value.String("Fixture")},
 		value.Field{Key: "duration", Value: value.Int(4)},
 	))), nil
+}
+
+type deferredMetadataExtractor struct {
+	calls *int
+}
+
+func (deferredMetadataExtractor) Name() string           { return "deferred-metadata" }
+func (deferredMetadataExtractor) Suitable(*url.URL) bool { return true }
+func (fixture deferredMetadataExtractor) Extract(context.Context, extractor.Request) (extractor.Extraction, error) {
+	extraction := extractor.Media(value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("deferred")},
+		value.Field{Key: "title", Value: value.String("Fixture")},
+		value.Field{Key: "url", Value: value.String("https://fixture.invalid/media.mp4")},
+	)))
+	extraction.Enrich = func(_ context.Context, info *value.Info) error {
+		*fixture.calls++
+		info.Set("comments", value.List(value.ObjectValue(value.NewObject(
+			value.Field{Key: "id", Value: value.String("comment")},
+		))))
+		info.Set("comment_count", value.Int(1))
+		return nil
+	}
+	return extraction, nil
+}
+
+func TestClientDefersExpensiveMetadataUntilAfterMatchFilter(t *testing.T) {
+	for _, test := range []struct {
+		filter    string
+		wantCalls int
+		wantSkip  bool
+	}{
+		{filter: "title=discarded", wantCalls: 0, wantSkip: true},
+		{filter: "title=Fixture", wantCalls: 1},
+	} {
+		calls := 0
+		request := Request{URL: "https://fixture.invalid/video", SkipDownload: true, MatchFilters: []string{test.filter}}
+		compatibility, err := prepareCompatibility(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		operation := &operation{
+			client: NewClient(), request: request,
+			registry:      extractor.NewRegistry(deferredMetadataExtractor{calls: &calls}),
+			compatibility: compatibility,
+		}
+		result, err := operation.process(context.Background(), request.URL, "", nil, make(map[string]bool), 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if calls != test.wantCalls || result.Skipped != test.wantSkip {
+			t.Fatalf("filter=%q calls=%d skipped=%v", test.filter, calls, result.Skipped)
+		}
+		var metadata map[string]any
+		if err := json.Unmarshal(result.InfoJSON, &metadata); err != nil {
+			t.Fatal(err)
+		}
+		_, hasComments := metadata["comments"]
+		if hasComments != (test.wantCalls == 1) {
+			t.Fatalf("filter=%q metadata=%#v", test.filter, metadata)
+		}
+	}
+}
+
+func TestClientDoesNotEnrichArchivedMedia(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "archive.txt")
+	if err := os.WriteFile(path, []byte("deferred-metadata deferred\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := archive.Open(context.Background(), path, archive.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	request := Request{URL: "https://fixture.invalid/video", SkipDownload: true}
+	compatibility, err := prepareCompatibility(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := &operation{
+		client: NewClient(), request: request,
+		registry:      extractor.NewRegistry(deferredMetadataExtractor{calls: &calls}),
+		compatibility: compatibility, archive: store,
+	}
+	result, err := operation.process(context.Background(), request.URL, "", nil, make(map[string]bool), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 0 || !result.Archived {
+		t.Fatalf("calls=%d result=%#v", calls, result)
+	}
 }
 
 func TestClientCategorizesMatchFilterEvaluationFailure(t *testing.T) {
@@ -345,7 +441,7 @@ func TestOperationUsesRequestedFormatSelection(t *testing.T) {
 		)},
 	))
 	operation := &operation{client: NewClient(), request: request, transport: transport, compatibility: compatibility}
-	result, err := operation.processMedia(context.Background(), info, "fixture")
+	result, err := operation.processMedia(context.Background(), extractor.Media(info), "fixture")
 	if err != nil {
 		t.Fatal(err)
 	}

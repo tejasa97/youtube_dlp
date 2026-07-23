@@ -1,0 +1,24 @@
+{
+  "responseContext": {"visitorData": "visitor-comments-page-2"},
+  "onResponseReceivedActions": [{
+    "appendContinuationItemsAction": {
+      "continuationItems": [
+        {
+          "commentRenderer": {
+            "commentId": "final-comment",
+            "contentText": {"simpleText": "Final page comment"},
+            "authorText": {"simpleText": "Final Author"},
+            "voteCount": {"simpleText": "3"}
+          }
+        },
+        {
+          "continuationItemRenderer": {
+            "continuationEndpoint": {
+              "continuationCommand": {"token": "comments-page-2"}
+            }
+          }
+        }
+      ]
+    }
+  }]
+}

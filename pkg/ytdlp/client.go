@@ -101,6 +101,7 @@ type Request struct {
 	PreferFreeFormats         bool
 	AllowUnplayableFormats    bool
 	YouTubeTranslatedCaptions bool
+	YouTubeComments           YouTubeCommentOptions
 	Subtitles                 SubtitleOptions
 	Playlist                  PlaylistOptions
 	ProgressTemplate          string
@@ -410,6 +411,15 @@ func (operation *operation) process(ctx context.Context, rawURL, extractorKey st
 	extracted, err := selected.Extract(ctx, extractor.Request{
 		URL: rawURL, Transport: operation.transport, ChallengeSolver: operation.solver, Credentials: operation.credentials,
 		YouTubePOT: operation.client.youtubePOT, YouTubeTranslatedCaptions: operation.request.YouTubeTranslatedCaptions,
+		YouTubeComments: extractor.YouTubeCommentOptions{
+			Enabled:             operation.request.YouTubeComments.Enabled,
+			Sort:                operation.request.YouTubeComments.Sort,
+			MaxComments:         operation.request.YouTubeComments.MaxComments,
+			MaxParents:          operation.request.YouTubeComments.MaxParents,
+			MaxReplies:          operation.request.YouTubeComments.MaxReplies,
+			MaxRepliesPerThread: operation.request.YouTubeComments.MaxRepliesPerThread,
+			MaxDepth:            operation.request.YouTubeComments.MaxDepth,
+		},
 	})
 	if err != nil {
 		return Result{}, categorized(selected.Name()+" extraction", err)
@@ -443,7 +453,7 @@ func (operation *operation) process(ctx context.Context, rawURL, extractorKey st
 	if extracted.IsPlaylist() {
 		return operation.processPlaylist(ctx, extracted, selected.Name(), ancestors, depth)
 	}
-	return operation.processMedia(ctx, extracted.Info, selected.Name())
+	return operation.processMedia(ctx, extracted, selected.Name())
 }
 
 func (operation *operation) processPlaylist(ctx context.Context, extracted extractor.Extraction, extractorName string, ancestors map[string]bool, depth int) (Result, error) {
@@ -713,13 +723,23 @@ func (operation *operation) prepareMediaResult(
 	return result, archiveIdentity, true, nil
 }
 
-func (operation *operation) processMedia(ctx context.Context, info value.Info, extractorName string) (Result, error) {
+func (operation *operation) processMedia(ctx context.Context, extracted extractor.Extraction, extractorName string) (Result, error) {
+	info := extracted.Info
 	result, archiveIdentity, terminal, err := operation.prepareMediaResult(ctx, &info, extractorName, false)
 	if err != nil {
 		return Result{}, err
 	}
 	if terminal {
 		return result, nil
+	}
+	if extracted.Enrich != nil {
+		if err := extracted.Enrich(ctx, &info); err != nil {
+			return Result{}, categorized(extractorName+" deferred metadata", err)
+		}
+		result.InfoJSON, err = encodeInfo(info)
+		if err != nil {
+			return Result{}, err
+		}
 	}
 	var selectedFormats []mediaformat.Selection
 	if !operation.request.SkipDownload {

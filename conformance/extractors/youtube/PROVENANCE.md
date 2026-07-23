@@ -25,6 +25,48 @@ HLS manifest exposure. All identifiers, metadata, cursors, keys, visitor data,
 and domains are artificial; no captured account or production response is
 stored.
 
+The comments corpus (`comments-watch.html`, `comments-header.json`,
+`comments-page.json`, `comments-page-2.json`, and `comments-disabled.json`) is
+also wholly synthetic. Its field and traversal expectations were derived from
+the read-only pinned reference
+`yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`:
+
+- modern entity-backed comment fields:
+  `yt_dlp/extractor/youtube/_video.py:2367-2394`;
+- legacy `commentRenderer` fields:
+  `yt_dlp/extractor/youtube/_video.py:2396-2443`;
+- header sorting, duplicate detection, reply/subthread traversal, and the five
+  `max_comments` dimensions:
+  `yt_dlp/extractor/youtube/_video.py:2445-2577`;
+- `/youtubei/v1/next` continuation requests, disabled-comment handling, and
+  visitor refresh:
+  `yt_dlp/extractor/youtube/_video.py:2577-2659`;
+- the generated initial continuation:
+  `yt_dlp/extractor/youtube/_video.py:2661-2667`;
+- initial comment-section discovery:
+  `yt_dlp/extractor/youtube/_video.py:2669-2678`;
+- the pre-fetch approximate count:
+  `yt_dlp/extractor/youtube/_video.py:4369-4376`;
+- deferred post-extraction integration:
+  `yt_dlp/extractor/youtube/_video.py:4572` and
+  `yt_dlp/extractor/common.py:3882-3908`; and
+- the public CLI aliases:
+  `yt_dlp/options.py:1524-1533`.
+
+The synthetic data and inline test documents include legacy parents and
+replies, modern entity mutations, wrapped sort commands, root and reply
+continuations, nested subthreads, click-tracking parameters, rotating visitor
+identities, transient/incomplete retry responses, pinned duplicate behavior,
+and a disabled message. All video/comment IDs, authors, text, thumbnails,
+counts, API keys, client versions, continuation tokens, visitor data,
+click-tracking values, and URLs are artificial. No production comment,
+identity, account credential, cookie, tracking value, or response is retained.
+
+The Go capability intentionally remains narrower than those reference paths:
+it is opt-in and bounded; it does not authenticate, synthesize an estimated
+timestamp, expose the approximate count before retrieval, reproduce upstream's
+configurable ignore-error policy, or claim untested renderer families.
+
 `playlist-modern.html` and `playlist-modern-continuation.json` extend that
 synthetic corpus with the `lockupViewModel` video and
 `continuationItemViewModel` shapes, including an executor-wrapped continuation
