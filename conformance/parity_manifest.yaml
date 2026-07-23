@@ -29,6 +29,27 @@ capabilities:
     depends_on:
       - foundation.cli
 
+  - id: cli.json_dump
+    name: Per-video and whole-result JSON dumps
+    phase: 3
+    compatibility_target: Provide quiet, simulation-aware per-video and whole-URL JSON modes with deterministic playlist ordering.
+    status: compatible
+    evidence:
+      - internal/cli.TestRunDumpJSONModesSimulateQuietlyAndNoSimulateDownloads
+      - internal/cli.TestRunDumpJSONSimulationSuppressesRelatedFiles
+      - internal/cli.TestRunDumpJSONExplicitNoQuietAndCombinedModes
+      - internal/cli.TestRunDumpJSONFromConfigurationHonorsCommandLineNoSimulate
+      - internal/cli.TestWriteVideoJSONLinesFlattensPlaylistsAndHandlesFailures
+      - internal/cli.FuzzWriteJSONLine
+      - internal/cli.TestRunTelemetryJSONSuccessFailureAndConflict
+      - docs/CLI_JSON_OUTPUT_EVIDENCE.md
+    owner: core
+    depends_on:
+      - cli.simulation
+      - metadata.deterministic_json
+      - extractor.playlists
+    known_deviation: Per-video lines are emitted in deterministic order after the complete product operation returns rather than streaming between playlist entries. The pre-existing hidden --print-json compatibility mode remains whole-result and non-simulating; public dump modes take precedence when combined with it.
+
   - id: foundation.embedding_api
     name: Cancellable Go embedding boundary
     phase: 0
