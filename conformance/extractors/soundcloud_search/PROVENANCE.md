@@ -13,3 +13,7 @@ cursors were independently authored. No production code reads this directory.
 The native-Go slice accepts `scsearch:`, `scsearchN:`, and `scsearchall:`.
 Unlike upstream's unbounded `all`, `scsearchall` is capped at 200 results and
 requires exact HTTPS `api-v2.soundcloud.com/search/tracks` continuations.
+
+`page1.json` contains a deliberately track-shaped `kind:"user"` object with a
+canonical-looking permalink. It proves this corpus emits only explicit
+`kind:"track"` results rather than inferring a track from its URL.

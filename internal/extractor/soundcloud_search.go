@@ -22,7 +22,11 @@ const (
 	soundCloudSearchMaxCount      = 200 // SoundCloud's documented per-page maximum; also caps scsearchall.
 	soundCloudSearchMaxQueryBytes = 500
 	soundCloudSearchMaxURLBytes   = 4096
-	soundCloudSearchEndpoint      = "https://api-v2.soundcloud.com/search/tracks"
+	// The requested API page size is the result count (at most 200), so one
+	// populated page is sufficient. Three additional pages tolerate empty or
+	// unsupported service results without permitting unbounded cursor churn.
+	soundCloudSearchMaxPages = 4
+	soundCloudSearchEndpoint = "https://api-v2.soundcloud.com/search/tracks"
 )
 
 var (
@@ -59,7 +63,7 @@ func (extractor SoundCloudSearch) Extract(ctx context.Context, request Request) 
 	}
 	firstURL := soundCloudSearchRequestURL(query, count)
 	policy := soundCloudContinuationPolicy{allowedPath: "/search/tracks"}
-	sequence, err := ContinuationEntries(nil, firstURL, func(ctx context.Context, cursor string) ([]Entry, string, error) {
+	sequence, err := soundCloudSearchEntries(firstURL, func(ctx context.Context, cursor string) ([]Entry, string, error) {
 		return extractor.fetchPage(ctx, request.Transport, cursor, policy, query, count)
 	})
 	if err != nil {
@@ -71,6 +75,13 @@ func (extractor SoundCloudSearch) Extract(ctx context.Context, request Request) 
 		value.Field{Key: "webpage_url", Value: value.String(canonical)},
 	))
 	return Playlist(info, limitedEntries{source: sequence, limit: count})
+}
+
+func soundCloudSearchEntries(firstURL string, fetch ContinuationFetcher) (EntrySequence, error) {
+	if firstURL == "" || fetch == nil {
+		return nil, fmt.Errorf("%w: invalid SoundCloud search source", ErrInvalidPlaylist)
+	}
+	return continuationEntries{nextToken: firstURL, fetch: fetch, maxPages: soundCloudSearchMaxPages}, nil
 }
 
 // soundCloudSearchTarget is deliberately shared by route selection and
@@ -134,7 +145,7 @@ func (extractor SoundCloudSearch) fetchPage(ctx context.Context, transport Trans
 		return nil, "", err
 	}
 	var page soundCloudSearchPage
-	if err := extractor.client.requestJSON(ctx, transport, validated, &page); err != nil {
+	if err := extractor.requestJSON(ctx, transport, validated, &page); err != nil {
 		return nil, "", categorizeSoundCloudSearchError(err)
 	}
 	if page.Collection == nil {
@@ -159,6 +170,27 @@ func (extractor SoundCloudSearch) fetchPage(ctx context.Context, transport Trans
 	return entries, next, nil
 }
 
+// requestJSON keeps first-party client-ID bootstrap behavior but intentionally
+// isolates public search API requests from operation cookies. SoundCloud's
+// search endpoint accepts its public client ID; it does not require browser
+// cookies, and permitting them would couple a public request to user state.
+func (extractor SoundCloudSearch) requestJSON(ctx context.Context, transport Transport, endpoint string, target any) error {
+	for attempt := 0; attempt < 2; attempt++ {
+		clientID, err := extractor.client.discoverClientID(ctx, transport, attempt > 0)
+		if err != nil {
+			return categorizeSoundCloudSearchError(err)
+		}
+		requestURL := addSoundCloudQuery(endpoint, "client_id", clientID)
+		err = RequestJSONWithoutCookies(ctx, transport, http.MethodGet, requestURL, nil, make(http.Header), target)
+		var status *HTTPStatusError
+		if errors.As(err, &status) && (status.Code == http.StatusUnauthorized || status.Code == http.StatusForbidden) && attempt == 0 {
+			continue
+		}
+		return categorizeSoundCloudSearchError(categorizeSoundCloudError(err))
+	}
+	return ErrAuthentication
+}
+
 // soundCloudSearchCursor validates both the shared HTTPS authority/path policy
 // and the search-specific pagination contract. It makes continuation URLs
 // incapable of changing a query or increasing the requested bound.
@@ -169,7 +201,7 @@ func soundCloudSearchCursor(raw string, policy soundCloudContinuationPolicy, que
 	}
 	parsed, _ := url.Parse(validated)
 	values, err := url.ParseQuery(parsed.RawQuery)
-	if err != nil || len(values["q"]) != 1 || values.Get("q") != query || values.Get("linked_partitioning") != "1" || len(values["limit"]) != 1 {
+	if err != nil || !validSoundCloudSearchCursorQuery(values, query) {
 		return "", fmt.Errorf("%w: invalid SoundCloud search continuation", ErrInvalidPlaylist)
 	}
 	limit, err := strconv.Atoi(values.Get("limit"))
@@ -183,13 +215,31 @@ func soundCloudSearchCursor(raw string, policy soundCloudContinuationPolicy, que
 	return validated, nil
 }
 
+func validSoundCloudSearchCursorQuery(values url.Values, query string) bool {
+	for key, items := range values {
+		if key != "q" && key != "limit" && key != "linked_partitioning" && key != "offset" && key != "cursor" {
+			return false
+		}
+		if len(items) != 1 {
+			return false
+		}
+	}
+	if len(values["q"]) != 1 || values.Get("q") != query || len(values["limit"]) != 1 || len(values["linked_partitioning"]) != 1 || values.Get("linked_partitioning") != "1" || len(values["offset"]) != 1 {
+		return false
+	}
+	if cursor, present := values["cursor"]; present && (len(cursor) != 1 || cursor[0] == "") {
+		return false
+	}
+	return true
+}
+
 type soundCloudSearchPage struct {
 	Collection []soundCloudTrack `json:"collection"`
 	NextHref   string            `json:"next_href"`
 }
 
 func soundCloudSearchTrackEntry(track soundCloudTrack) (Entry, bool) {
-	if !validSoundCloudJSONID(track.ID) || strings.TrimSpace(track.Title) == "" {
+	if track.Kind != "track" || !validSoundCloudJSONID(track.ID) || strings.TrimSpace(track.Title) == "" {
 		return Entry{}, false
 	}
 	parsed, err := url.Parse(track.PermalinkURL)
@@ -204,12 +254,8 @@ func soundCloudSearchTrackEntry(track soundCloudTrack) (Entry, bool) {
 }
 
 func categorizeSoundCloudSearchError(err error) error {
-	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, ErrAuthentication) || errors.Is(err, ErrUnavailable) || errors.Is(err, ErrInvalidMetadata) || errors.Is(err, ErrInvalidPlaylist) || errors.Is(err, ErrPlaylistLimit) {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, ErrAuthentication) || errors.Is(err, ErrUnavailable) || errors.Is(err, ErrInvalidMetadata) || errors.Is(err, ErrInvalidPlaylist) || errors.Is(err, ErrPlaylistLimit) || errors.Is(err, ErrJSONResponseTooLarge) || errors.Is(err, ErrTransportIsolation) {
 		return err
 	}
-	var status *HTTPStatusError
-	if errors.As(err, &status) && status.Code == http.StatusTooManyRequests {
-		return fmt.Errorf("%w: %w", ErrSoundCloudSearchNetwork, err)
-	}
-	return fmt.Errorf("%w: %v", ErrSoundCloudSearchNetwork, err)
+	return fmt.Errorf("%w: request failed", ErrSoundCloudSearchNetwork)
 }
