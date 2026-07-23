@@ -9,6 +9,8 @@ and `_extract_continuation` in `yt_dlp/extractor/youtube/_tab.py`.
 All IDs, titles, API keys, visitor data, and continuation values are inert
 synthetic values. The corpus asserts explicit `/channel/<UCID>/videos` routing,
 ordered lazy continuation entries, and no live access.
+The videos fixture now includes a decisive synthetic selected-tab identifier
+so the shared mismatch guard is exercised without changing its renderer data.
 
 `channel-playlists.html` and `channel-playlists-continuation.json` add the exact
 public `/channel/<UCID>/playlists` route. They structurally model legacy

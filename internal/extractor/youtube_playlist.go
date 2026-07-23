@@ -270,19 +270,23 @@ func youtubePlaylistContentScope(root *value.Object) value.Value {
 					if !ok {
 						continue
 					}
-					renderer, ok := tabObject.Lookup("tabRenderer").Object()
-					if !ok {
-						continue
-					}
-					selected, _ := renderer.Lookup("selected").Bool()
-					if selected {
-						return renderer.Lookup("content")
+					for _, rendererName := range []string{"tabRenderer", "expandableTabRenderer"} {
+						renderer, ok := tabObject.Lookup(rendererName).Object()
+						if !ok {
+							continue
+						}
+						selected, _ := renderer.Lookup("selected").Bool()
+						if selected {
+							return renderer.Lookup("content")
+						}
 					}
 				}
 				if len(tabs) == 1 {
 					if tabObject, ok := tabs[0].Object(); ok {
-						if renderer, ok := tabObject.Lookup("tabRenderer").Object(); ok {
-							return renderer.Lookup("content")
+						for _, rendererName := range []string{"tabRenderer", "expandableTabRenderer"} {
+							if renderer, ok := tabObject.Lookup(rendererName).Object(); ok {
+								return renderer.Lookup("content")
+							}
 						}
 					}
 				}
@@ -313,7 +317,7 @@ func youtubePlaylistContentScope(root *value.Object) value.Value {
 		}
 	}
 	if continuations, ok := root.Lookup("continuationContents").Object(); ok {
-		for _, key := range []string{"playlistVideoListContinuation", "sectionListContinuation", "gridContinuation"} {
+		for _, key := range []string{"playlistVideoListContinuation", "sectionListContinuation", "gridContinuation", "itemSectionContinuation"} {
 			container, ok := continuations.Lookup(key).Object()
 			if !ok {
 				continue

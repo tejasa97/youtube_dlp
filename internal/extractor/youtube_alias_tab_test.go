@@ -180,6 +180,11 @@ func TestYouTubeAliasTabTargetPolicy(t *testing.T) {
 		{"https://youtube.com/user/%252e/videos", "user", "%2e", "videos"},
 		{"https://youtube.com/c/%E6%97%A5%E6%9C%AC/playlists", "c", "日本", "playlists"},
 		{"https://youtube.com/user/100%25Real/videos", "user", "100%Real", "videos"},
+		{"https://youtube.com/user/name/home", "user", "name", "home"},
+		{"https://youtube.com/c/name/featured", "c", "name", "featured"},
+		{"https://youtube.com/user/name/community", "user", "name", "community"},
+		{"https://youtube.com/c/name/releases", "c", "name", "releases"},
+		{"https://youtube.com/user/name/podcasts", "user", "name", "podcasts"},
 	}
 	for _, test := range valid {
 		parsed, err := url.Parse(test.raw)
@@ -206,7 +211,7 @@ func TestYouTubeAliasTabTargetPolicy(t *testing.T) {
 		"https://youtube.com/user//videos",
 		"https://youtube.com/user/./videos",
 		"https://youtube.com/user/../videos",
-		"https://youtube.com/user/name/home",
+		"https://youtube.com/user/name/membership",
 		"https://youtube.com/user/name/videos?next=%2fwatch",
 		"https://youtube.com/user/name/videos?next=%5cwatch",
 		"https://youtube.com/user/name/videos?next=%00",
@@ -299,12 +304,12 @@ func TestYouTubeAliasTabSelectedIdentityAndMetadataFailures(t *testing.T) {
 		{"malformed", `{`, ErrInvalidMetadata},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if err := validateYouTubeAliasSelectedTab([]byte(test.data), "videos"); !errors.Is(err, test.want) {
+			if err := validateYouTubeSelectedTab([]byte(test.data), "videos"); !errors.Is(err, test.want) {
 				t.Fatalf("err=%v want=%v", err, test.want)
 			}
 		})
 	}
-	if err := validateYouTubeAliasSelectedTab([]byte(`{
+	if err := validateYouTubeSelectedTab([]byte(`{
 		"contents":{"twoColumnBrowseResultsRenderer":{"tabs":[
 			{"tabRenderer":{"selected":true,"title":"Videos","content":{}}}
 		]}}
@@ -312,7 +317,7 @@ func TestYouTubeAliasTabSelectedIdentityAndMetadataFailures(t *testing.T) {
 		t.Fatalf("recognized English title-only identity: %v", err)
 	}
 	// A continuation-like response has no tabs and must not be rejected.
-	if err := validateYouTubeAliasSelectedTab([]byte(`{"onResponseReceivedActions":[]}`), "videos"); err != nil {
+	if err := validateYouTubeSelectedTab([]byte(`{"onResponseReceivedActions":[]}`), "videos"); err != nil {
 		t.Fatalf("continuation-like response: %v", err)
 	}
 	const canonical = "https://www.youtube.com/user/name/videos"
@@ -476,9 +481,7 @@ func FuzzYouTubeAliasTabTarget(f *testing.F) {
 			if alias == "" || len(alias) > youtubeAliasMaxBytes || !utf8.ValidString(alias) {
 				t.Fatalf("alias=%q", alias)
 			}
-			switch tab {
-			case "videos", "shorts", "streams", "playlists":
-			default:
+			if youtubePublicTabType(tab) == youtubeTabUnsupported {
 				t.Fatalf("tab=%q", tab)
 			}
 			if parsed.User != nil || parsed.Port() != "" || parsed.Fragment != "" ||
