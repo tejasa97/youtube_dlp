@@ -179,6 +179,40 @@ func TestRunAcceptsNoPlaylistReverseAfterInheritedReverse(t *testing.T) {
 	}
 }
 
+func TestRunPlaylistItemsAliasAndInvalidSpec(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"-I", "2,4", "--skip-download", server.URL + "/page"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("alias code = %d; stdout = %q; stderr = %q", code, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	code := Run([]string{"--playlist-items", "1::0", "--skip-download", server.URL + "/page"}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), "invalid playlist items") {
+		t.Fatalf("invalid code = %d; stdout = %q; stderr = %q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunAcceptsFlatPlaylistAndCommandLineDisable(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	configPath := filepath.Join(t.TempDir(), "yt-dlp.conf")
+	if err := os.WriteFile(configPath, []byte("--flat-playlist\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"--config-location", configPath,
+		"--no-flat-playlist",
+		"--skip-download",
+		server.URL + "/page",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code = %d; stdout = %q; stderr = %q", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestRunRejectsMalformedURL(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := Run([]string{"not-a-url"}, &stdout, &stderr); code != 3 {

@@ -47,12 +47,16 @@ type SubtitleOptions struct {
 
 // PlaylistOptions selects an inclusive, one-based playlist range. Start zero
 // means the first entry; End zero or the legacy yt-dlp value -1 means no
-// explicit end. Reverse is applied after slicing while playlist_index continues
-// to identify the source entry.
+// explicit end. A non-empty Items expression takes precedence over Start and
+// End. Reverse is applied after selection while playlist_index continues to
+// identify the source entry. Flat retains the selected URL-result metadata
+// without recursively extracting or downloading child entries.
 type PlaylistOptions struct {
 	Start   int
 	End     int
 	Reverse bool
+	Items   string
+	Flat    bool
 }
 
 // Artifact describes a file produced by the requested media pipeline.
@@ -141,6 +145,11 @@ func validateRequestOptions(request Request) error {
 	if playlistStart < 1 || playlistStart > maxPlaylistEntries || request.Playlist.End < -1 || playlistEnd > maxPlaylistEntries ||
 		(playlistEnd != 0 && playlistEnd < playlistStart) {
 		return fmt.Errorf("%w: playlist range", errInvalidRequestOptions)
+	}
+	if request.Playlist.Items != "" {
+		if _, err := parsePlaylistItems(request.Playlist.Items); err != nil {
+			return fmt.Errorf("%w: %w", errInvalidRequestOptions, err)
+		}
 	}
 	if external := options.External; external != nil {
 		if external.Executable == "" || strings.ContainsRune(external.Executable, 0) || len(external.Arguments) > 128 {
