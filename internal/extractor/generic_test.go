@@ -255,6 +255,64 @@ func TestGenericJSONLDInvalidExtendedMetadataIsIgnored(t *testing.T) {
 	}
 }
 
+func TestGenericJSONLDRatingsAndInteractionStatistics(t *testing.T) {
+	page := []byte(`<script type="application/ld+json">{
+		"@context":"https://schema.org","@type":"VideoObject",
+		"contentUrl":"/video.mp4","interactionCount":"7",
+		"aggregateRating":{"@type":"AggregateRating","ratingValue":"4.75"},
+		"interactionStatistic":[
+			{"@type":"InteractionCounter","interactionType":"https://schema.org/ViewAction","userInteractionCount":"999"},
+			{"@type":"InteractionCounter","interactionType":{"@type":"LikeAction"},"userInteractionCount":"1,234"},
+			{"@type":"InteractionCounter","interactionType":"DisagreeAction","userInteractionCount":12},
+			{"@type":"InteractionCounter","interactionType":"CommentAction","userInteractionCount":"0"},
+			{"@type":"InteractionCounter","interactionType":"ShareAction","userInteractionCount":"500"}
+		]
+	}</script>`)
+	result, err := NewGeneric().Extract(context.Background(), genericHTMLRequest(page))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, expected := range map[string]int64{
+		"view_count": 7, "like_count": 1234, "dislike_count": 12, "comment_count": 0,
+	} {
+		if actual, ok := result.Info.Lookup(key).Int(); !ok || actual != expected {
+			t.Fatalf("%s = %d, %t", key, actual, ok)
+		}
+	}
+	if rating, ok := result.Info.Lookup("average_rating").Float(); !ok || rating != 4.75 {
+		t.Fatalf("average_rating = %v, %t", rating, ok)
+	}
+}
+
+func TestGenericJSONLDInvalidAndBoundedInteractionStatistics(t *testing.T) {
+	statistics := make([]any, maxGenericInteractionStats+1)
+	for index := range statistics {
+		statistics[index] = map[string]any{
+			"@type": "InteractionCounter", "interactionType": "UnknownAction", "userInteractionCount": "1",
+		}
+	}
+	statistics[len(statistics)-1] = map[string]any{
+		"@type": "InteractionCounter", "interactionType": "LikeAction", "userInteractionCount": "42",
+	}
+	candidate := genericMetadataCandidate{}
+	genericJSONLDInteractions(map[string]any{
+		"aggregateRating":      map[string]any{"ratingValue": "NaN"},
+		"interactionStatistic": statistics,
+	}, &candidate)
+	if candidate.averageRating != nil || candidate.likeCount != nil {
+		t.Fatalf("candidate = %+v", candidate)
+	}
+	genericJSONLDInteractions(map[string]any{
+		"interactionStatistic": map[string]any{
+			"@type": "InteractionCounter", "interactionType": "LikeAction",
+			"userInteractionCount": "9223372036854775808",
+		},
+	}, &candidate)
+	if candidate.likeCount != nil {
+		t.Fatalf("overflow count = %d", *candidate.likeCount)
+	}
+}
+
 func TestGenericJSONLDEmbedURLUsesStrictProviderRouting(t *testing.T) {
 	result, err := NewGeneric().Extract(context.Background(), genericHTMLRequest(readGenericEmbedFixture(t, "json_ld_embed.html")))
 	if err != nil {
@@ -770,6 +828,8 @@ func FuzzDiscoverGenericEmbedEntries(f *testing.F) {
 func FuzzDiscoverGenericMetadataMedia(f *testing.F) {
 	f.Add([]byte(`<meta property="og:video" content="/video.mp4">`))
 	f.Add([]byte(`<script type="application/ld+json">{"@context":"https://schema.org","@type":"VideoObject","contentUrl":"/video.mp4"}</script>`))
+	f.Add([]byte(`<script type="application/ld+json">{"@context":"https://schema.org","@type":"VideoObject","embedUrl":"https://www.youtube.com/embed/ABCDEFGHIJK"}</script>`))
+	f.Add([]byte(`<script type="application/ld+json">{"@context":"https://schema.org","@type":"VideoObject","contentUrl":"/video.mp4","interactionStatistic":{"@type":"InteractionCounter","interactionType":"LikeAction","userInteractionCount":"1,234"}}</script>`))
 	base, _ := url.Parse("https://publisher.invalid/article")
 	f.Fuzz(func(t *testing.T, page []byte) {
 		if len(page) > maxGenericHTMLBytes+1 {
@@ -779,8 +839,24 @@ func FuzzDiscoverGenericMetadataMedia(f *testing.F) {
 		if err != nil || !found {
 			return
 		}
-		if result.IsPlaylist() || result.IsURL() {
-			t.Fatalf("metadata media returned non-media result")
+		if result.IsURL() {
+			entry := result.Redirect
+			if entry == nil || entry.URL == "" || entry.ExtractorKey == "" || !entry.Transparent {
+				t.Fatalf("invalid URL result: %+v", result)
+			}
+			return
+		}
+		if result.IsPlaylist() {
+			entries, err := CollectEntries(context.Background(), result.Entries, maxGenericEmbeds+1)
+			if err != nil || len(entries) == 0 || len(entries) > maxGenericEmbeds {
+				t.Fatalf("invalid playlist: entries=%#v error=%v", entries, err)
+			}
+			for _, entry := range entries {
+				if entry.URL == "" || entry.ExtractorKey == "" || !entry.Transparent {
+					t.Fatalf("invalid playlist entry: %#v", entry)
+				}
+			}
+			return
 		}
 		formats, ok := result.Info.Lookup("formats").ListValue()
 		if !ok || len(formats) == 0 || len(formats) > maxGenericMetadataCandidates {

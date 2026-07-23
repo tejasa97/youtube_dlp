@@ -40,6 +40,13 @@ or decimal strings, ISO-8601 timestamps, string/object people, and string/list
 keywords; malformed optional values are omitted rather than poisoning valid
 media discovery.
 
+The pinned implementation also maps Schema.org `InteractionCounter` actions to
+view, like, dislike, and comment counts, gives the legacy `interactionCount`
+field precedence for views, and reads `aggregateRating.ratingValue`. The Go
+implementation preserves those rules over at most 128 statistics per media
+object. Relaxed string counts remove the same comma, period, and plus
+separators as the reference before bounded int64 conversion.
+
 The Go implementation additionally recognizes Schema.org `embedUrl` when a
 VideoObject/AudioObject has no `contentUrl`. This is an intentional native
 improvement rather than a pinned-reference parity claim. It never follows the
