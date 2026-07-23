@@ -75,7 +75,15 @@ func (operation *operation) applyCompatibility(ctx context.Context, ctxInfo *val
 			return matchfilter.Decision{}, &Error{Category: ErrorInternal, Op: "emit metadata warning", Err: err}
 		}
 	}
-	return operation.compatibility.matchFilter.Evaluate(*ctxInfo, incomplete), nil
+	decision, err := operation.compatibility.matchFilter.EvaluateContext(
+		ctx,
+		*ctxInfo,
+		matchfilter.EvaluationOptions{IncompleteAll: incomplete},
+	)
+	if err != nil {
+		return matchfilter.Decision{}, categorized("evaluate match filter", err)
+	}
+	return decision, nil
 }
 
 func (operation *operation) selectFormats(info value.Info) ([]mediaformat.Selection, error) {
