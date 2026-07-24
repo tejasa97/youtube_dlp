@@ -187,6 +187,8 @@ func TestYouTubeAliasTabTargetPolicy(t *testing.T) {
 		{"https://youtube.com/user/name/community", "user", "name", "community"},
 		{"https://youtube.com/c/name/releases", "c", "name", "releases"},
 		{"https://youtube.com/user/name/podcasts", "user", "name", "podcasts"},
+		{"https://youtube.com/user/name/membership", "user", "name", "membership"},
+		{"https://youtube.com/c/name/membership", "c", "name", "membership"},
 	}
 	for _, test := range valid {
 		parsed, err := url.Parse(test.raw)
@@ -213,7 +215,8 @@ func TestYouTubeAliasTabTargetPolicy(t *testing.T) {
 		"https://youtube.com/user//videos",
 		"https://youtube.com/user/./videos",
 		"https://youtube.com/user/../videos",
-		"https://youtube.com/user/name/membership",
+		"https://youtube.com/user/name/membership/",
+		"https://youtube.com/user/name/membership/extra",
 		"https://youtube.com/user/name/videos?next=%2fwatch",
 		"https://youtube.com/user/name/videos?next=%5cwatch",
 		"https://youtube.com/user/name/videos?next=%00",

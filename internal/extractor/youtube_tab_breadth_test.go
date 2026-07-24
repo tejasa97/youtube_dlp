@@ -201,6 +201,9 @@ func TestYouTubeExpandedTabIdentityAndCommunityLinkPolicy(t *testing.T) {
 		{"community", `"title":"Community"`},
 		{"releases", `"tabIdentifier":"FEreleases"`},
 		{"podcasts", `"tabIdentifier":"FEpodcasts"`},
+		{"membership", `"tabIdentifier":"TAB_ID_SPONSORSHIPS"`},
+		{"membership", `"tabIdentifier":"FEmembership"`},
+		{"membership", `"title":"Membership"`},
 		{"featured", `"title":"Home","endpoint":{"commandMetadata":{"webCommandMetadata":{"url":"/channel/UCabcdefghijklmnopqrstuv/featured"}}}`},
 	} {
 		data := []byte(`{"contents":{"twoColumnBrowseResultsRenderer":{"tabs":[{"tabRenderer":{"selected":true,` + test.renderer + `}}]}}}`)

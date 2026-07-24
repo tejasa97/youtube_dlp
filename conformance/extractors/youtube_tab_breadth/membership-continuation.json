@@ -1,0 +1,10 @@
+{
+  "responseContext":{"visitorData":"breadth-membership-rotated"},
+  "continuationContents":{"gridContinuation":{
+    "items":[
+      {"videoRenderer":{"videoId":"membVID0004","title":{"simpleText":"Continued direct video"}}},
+      {"gridVideoRenderer":{"videoId":"membVID0005","title":{"simpleText":"Continued grid video"}}},
+      {"gridPlaylistRenderer":{"playlistId":"PLignored01","title":{"simpleText":"Ignored playlist"}}}
+    ]
+  }}
+}

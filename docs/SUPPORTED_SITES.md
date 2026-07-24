@@ -109,10 +109,10 @@ protected-playback workstream. The following are supported:
 - playlists (`youtube.com/playlist?list=...`) including modern
   `lockupViewModel` playlist renderers and continuation paging;
 - explicit public channel tabs at
-  `/channel/<UCID>/{videos,shorts,streams,playlists,home,featured,community,releases,podcasts}`,
+  `/channel/<UCID>/{videos,shorts,streams,playlists,home,featured,community,releases,podcasts,membership}`,
   including bounded lazy continuation paging;
 - explicit public Unicode-aware handle tabs at
-  `/@handle/{videos,shorts,streams,playlists,home,featured,community,releases,podcasts}`,
+  `/@handle/{videos,shorts,streams,playlists,home,featured,community,releases,podcasts,membership}`,
   including bounded lazy continuation;
 - explicit public legacy alias tabs at
   `/user/<alias>/<tab>` and `/c/<alias>/<tab>` for the same explicit tab set,
@@ -158,6 +158,10 @@ The following limitations are intentional and remain:
 
 - no general channel discovery or arbitrary tab enumeration beyond the
   explicit tabs and bounded bare-root upload aggregation above;
+- membership tab extraction is bounded to the explicit `/membership` routes
+  above and returns member videos only when the supplied transport/session is
+  already authorized; it does not add authentication flags, purchase flows, or
+  entitlement acquisition;
 - general search does not cover channel/playlist/hashtag results,
   authenticated search, or arbitrary filter/sort parity; Music search excludes
   albums, artists, playlists, podcasts, arbitrary filters, and

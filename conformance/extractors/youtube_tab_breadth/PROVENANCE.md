@@ -6,7 +6,10 @@ read-only yt-dlp reference checkout at commit
 
 The route and selected-tab expectations derive from
 `yt_dlp/extractor/youtube/_tab.py:2207-2238` and
-`yt_dlp/extractor/youtube/_tab.py:2267-2348`. Mixed rich-grid video and
+`yt_dlp/extractor/youtube/_tab.py:2267-2348`. Membership-tab video renderer
+admission derives from `_grid_entries` and `known_renderers` at lines
+611-614, with `TAB_ID_SPONSORSHIPS` mapped to `membership` at lines
+2223-2224. Mixed rich-grid video and
 playlist behavior derives from `_rich_entries` at lines 400-444. Community
 attachment ordering, duplicate suppression, inline video links, and
 continuation shapes derive from `_post_thread_entries`,
@@ -23,6 +26,9 @@ cookie, token, or copyrighted media is included. The fixtures exercise:
 - attachment/inline duplicate suppression, cross-post occurrence retention,
   and hostile-host rejection;
 - release/podcast playlist renderers with video lockups ignored;
+- membership-tab video renderers (`videoRenderer`, `gridVideoRenderer`,
+  `reelItemRenderer`, and compatible video lockups) with playlist renderers
+  ignored;
 - selected-tab identity validation;
 - action, endpoint, and continuation-container pagination shapes;
 - visitor-data rotation and bounded continuation behavior.
