@@ -360,6 +360,7 @@ func (client *Client) productRegistry() *extractor.Registry {
 		extractor.NewPeerTube(),
 		extractor.NewInternetArchive(),
 		extractor.NewBluesky(),
+		extractor.NewImgur(),
 		extractor.NewRegionSVT(),
 		extractor.NewSyntheticAuth(),
 	}

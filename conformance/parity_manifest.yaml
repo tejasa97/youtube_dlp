@@ -1089,6 +1089,31 @@ capabilities:
       - network.shared_transport
     known_deviation: Public posts only. Login, authenticated sessions, private repositories, arbitrary record types, profile or feed enumeration, and unbounded DID method coverage are out of scope. did:web is restricted to syntactically public HTTPS hostnames with the first exact-type AtprotoPersonalDataServer endpoint; DNS rebinding resistance remains the shared transport's responsibility. HLS is delegated to the existing m3u8 downloader; this extractor produces no segment-level fetching or signing.
 
+  - id: extractor.imgur
+    name: Imgur public media and collection extraction
+    phase: 4
+    compatibility_target: Extract public Imgur videos and animated images from canonical, slugged, direct-CDN, gallery, topic, subreddit, and album URLs through the bounded anonymous post API, preserving ordered lazy collections and normalized metadata.
+    status: compatible
+    evidence:
+      - internal/extractor.TestImgurRouting
+      - internal/extractor.TestImgurExtractVideoMetadataAndFormat
+      - internal/extractor.TestImgurAnimatedImageIsLowPreferenceSilentFormat
+      - internal/extractor.TestImgurAlbumFiltersStaticItemsAndStaysLazy
+      - internal/extractor.TestImgurSingleVideoGalleryAppliesGalleryMetadata
+      - internal/extractor.TestImgurCollection404FallsBackToMedia
+      - internal/extractor.TestImgurFailuresAreCategorizedAndSecretSafe
+      - internal/extractor.TestImgurRejectsStaticUnsafeAndOversizedResponses
+      - internal/extractor.TestImgurHonorsCancellation
+      - internal/extractor.TestNormalizeImgurAssetURL
+      - internal/extractor.FuzzImgurRouting
+      - pkg/ytdlp.TestBuiltInExtractorIDsAreUniqueAndIncludeProductBoundaries
+      - pkg/ytdlp.TestRepresentativeExtractorCatalogCountRoutingAndRiskCoverage
+      - conformance/extractors/imgur/PROVENANCE.md
+    owner: extractors
+    depends_on:
+      - network.shared_transport
+    known_deviation: Public anonymous API extraction only. Static-only posts, authenticated/private content, and the pinned webpage gifv/OG/Twitter fallback source discovery are not claimed. API assets are restricted to hardened i.imgur.com HTTPS URLs and collection inventories are bounded.
+
   - id: extractor.internetarchive_public
     name: Internet Archive public API and playlist extraction
     phase: 3
