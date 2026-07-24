@@ -1,0 +1,45 @@
+{
+  "description": "Hierarchical SIDX v0: root with 1 index reference pointing to a nested SIDX with 2 leaf references",
+  "fixture": "sidx_hierarchical_v0.hex",
+  "root_sidx": {
+    "offset": 0,
+    "box_size": 44,
+    "version": 0,
+    "timescale": 48000,
+    "first_offset": 0,
+    "reference_count": 1,
+    "references": [
+      {"reference_type": 1, "referenced_size": 56, "subsegment_duration": 48000}
+    ]
+  },
+  "nested_sidx": {
+    "offset": 44,
+    "box_size": 56,
+    "version": 0,
+    "timescale": 48000,
+    "first_offset": 0,
+    "reference_count": 2,
+    "references": [
+      {"reference_type": 0, "referenced_size": 16, "subsegment_duration": 48000},
+      {"reference_type": 0, "referenced_size": 16, "subsegment_duration": 48000}
+    ]
+  },
+  "expected_leaf_ranges": [
+    {"start": 100, "length": 16, "order": 0},
+    {"start": 116, "length": 16, "order": 1}
+  ],
+  "rules_exercised": [
+    "ISO/IEC 14496-12:2022 §8.16.3 reference_type=1 (index reference)",
+    "ISO/IEC 23009-1:2019 §5.3.9.4 hierarchical segment index",
+    "Depth-first reference order preservation",
+    "Absolute byte range computation across hierarchy levels",
+    "first_offset semantics at nested level"
+  ],
+  "go_stricter": [
+    "Maximum hierarchy depth enforced (8)",
+    "Maximum parsed SIDX boxes per representation enforced (256)",
+    "Cumulative index bytes bounded (16 MiB)",
+    "Cycle detection via visited-range set",
+    "Overlapping leaf media ranges rejected"
+  ]
+}
