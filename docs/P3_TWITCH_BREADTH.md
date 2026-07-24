@@ -1,4 +1,4 @@
-# Phase 3 Twitch VOD and clip breadth
+# Phase 3 Twitch VOD, clip, and channel videos breadth
 
 This increment extends the existing native live-channel extractor with:
 
@@ -8,14 +8,19 @@ This increment extends the existing native live-channel extractor with:
   start offsets, full-size thumbnails, and bounded chapters;
 - clip routes on `clips.twitch.tv` and channel clip paths;
 - signed landscape and portrait direct clip qualities, thumbnails, channel,
-  curator, follower, verification, category, and timestamp metadata.
+  curator, follower, verification, category, and timestamp metadata;
+- public channel videos/profile playlist routes with pinned filter/sort query
+  mapping and bounded lazy `FilterableVideoTower_Videos` GraphQL pagination.
 
 Routing rejects credentials, explicit ports, encoded IDs, malformed numeric VOD
-IDs, and malformed or excessive clip slugs. Clip media URLs must be bounded
-HTTPS assets on Twitch CDN domains (reserved `.example.test` is accepted only
-for deterministic fixtures), without credentials, ports, IP hosts, fragments,
-or local/internal suffixes. Format, asset, and chapter collections have hard
-bounds. API/transport failures are reduced to categorized, secret-safe errors.
+IDs, and malformed or excessive clip slugs. Channel videos routes additionally
+reject fragments, clips/collections filter enumeration, reserved channel names,
+and extra path components beyond `/videos`, `/videos/all`, and `/profile`. Clip
+media URLs must be bounded HTTPS assets on Twitch CDN domains (reserved
+`.example.test` is accepted only for deterministic fixtures), without
+credentials, ports, IP hosts, fragments, or local/internal suffixes. Format,
+asset, chapter, and playlist page collections have hard bounds. API/transport
+failures are reduced to categorized, secret-safe errors.
 
 Known deviations from the pinned reference:
 
@@ -24,7 +29,8 @@ Known deviations from the pinned reference:
 - subscriber-only playback is categorized as authentication-required, but the
   shared request contract does not yet carry an authenticated Twitch cookie;
 - clip historical archive IDs and format preference scores are not emitted;
-- channel/collection/playlist enumeration remains outside this lane;
+- clips and collections channel enumeration remain outside this lane;
+- chat and arbitrary Twitch routes remain outside this lane;
 - VOD HLS is represented as a signed replay manifest for the existing native
   HLS pipeline; manifest expansion occurs during product download as elsewhere
   in this repository.

@@ -54,3 +54,30 @@ All identifiers, counts, timestamps, titles, response bodies, signed tokens,
 and `.example.test` asset hosts are synthetic. No Twitch response or user data
 was captured. Tests never fetch the declared VOD, clip, thumbnail, or storyboard
 assets. Python and the reference checkout are not used at build or runtime.
+
+## Channel videos playlist fixtures
+
+The channel videos playlist fixtures added on 2026-07-24 are attributable to
+the same pinned source, specifically:
+
+- `TwitchBaseIE._OPERATION_HASHES['FilterableVideoTower_Videos']`, line 45;
+- `TwitchPlaylistBaseIE._entries`, lines 649–697 (`_PAGE_LIMIT = 100`, cursor
+  advancement from the last valid emitted edge, empty-edge stop, and
+  `user.id == ""` channel-not-found guard);
+- `TwitchVideosBaseIE`, lines 700–712 (`FilterableVideoTower_Videos`,
+  `VideoEdge`/`Video` typenames, `_make_variables`);
+- `TwitchVideosIE`, lines 715–820 (route grammar for `/(videos|profile)` and
+  `/videos/all`, filter/sort query mapping, unknown-filter fallback to All
+  Videos, title labels, and `_make_video_result` transparent VOD URLs);
+- `_make_video_result`, lines 595–609.
+
+Fixtures:
+
+- `videos_page1.json` / `videos_page2.json`: synthetic initial and continuation
+  GraphQL pages with mixed valid/invalid edges for deterministic skipping;
+- `videos_empty.json`: present channel with an empty edge list;
+- `videos_not_found.json`: `user.id` exact empty string with decoy edges;
+- `videos_malformed.json`: non-array GraphQL envelope.
+
+All values are synthetic. Clips and collections playlist enumeration are
+intentionally not modeled here.

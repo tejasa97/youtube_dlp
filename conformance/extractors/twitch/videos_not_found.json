@@ -1,0 +1,22 @@
+[
+  {
+    "data": {
+      "user": {
+        "id": "",
+        "videos": {
+          "edges": [
+            {
+              "__typename": "VideoEdge",
+              "cursor": "should-not-emit",
+              "node": {
+                "__typename": "Video",
+                "id": "1000000999",
+                "title": "Unrelated decoy"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

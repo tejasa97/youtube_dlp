@@ -38,6 +38,7 @@ type twitchFixtureTransport struct {
 	tokenStatus     int
 	graphQLRequests []twitchRecordedRequest
 	graphQLFixtures []twitchGraphQLFixture
+	videosPages     map[string][]byte
 	mediaPolls      int
 }
 
@@ -57,8 +58,17 @@ func (transport *twitchFixtureTransport) Do(ctx context.Context, request *http.R
 			return nil, err
 		}
 		transport.mu.Lock()
-		index := len(transport.graphQLRequests)
 		transport.graphQLRequests = append(transport.graphQLRequests, twitchRecordedRequest{header: request.Header.Clone(), body: body})
+		if transport.videosPages != nil {
+			cursor := twitchVideosRequestCursor(body)
+			responseBody, ok := transport.videosPages[cursor]
+			transport.mu.Unlock()
+			if !ok {
+				return nil, fmt.Errorf("unexpected videos cursor %q", cursor)
+			}
+			return twitchHTTPResponse(http.StatusOK, responseBody), nil
+		}
+		index := len(transport.graphQLRequests) - 1
 		if len(transport.graphQLFixtures) != 0 {
 			if index >= len(transport.graphQLFixtures) {
 				transport.mu.Unlock()
@@ -143,6 +153,18 @@ func twitchFixture(t testing.TB, name string) []byte {
 	return body
 }
 
+func twitchVideosRequestCursor(body []byte) string {
+	var operations []struct {
+		Variables struct {
+			Cursor string `json:"cursor"`
+		} `json:"variables"`
+	}
+	if err := json.Unmarshal(body, &operations); err != nil || len(operations) == 0 {
+		return ""
+	}
+	return operations[0].Variables.Cursor
+}
+
 func TestTwitchSuitable(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -154,6 +176,14 @@ func TestTwitchSuitable(t *testing.T) {
 		{"https://m.twitch.tv/fixture_channel", true},
 		{"https://player.twitch.tv/?channel=lotsofs", true},
 		{"https://www.twitch.tv/videos/123", true},
+		{"https://www.twitch.tv/fixture_channel/videos", true},
+		{"https://www.twitch.tv/fixture_channel/videos/all", true},
+		{"https://m.twitch.tv/fixture_channel/profile", true},
+		{"https://go.twitch.tv/fixture_channel/videos?filter=archives&sort=views", true},
+		{"https://www.twitch.tv/fixture_channel/videos?filter=clips", false},
+		{"https://www.twitch.tv/fixture_channel/videos?filter=collections", false},
+		{"https://www.twitch.tv/fixture_channel/videos#fragment", false},
+		{"https://www.twitch.tv/fixture_channel/videos/all/extra", false},
 		{"https://www.twitch.tv/directory", false},
 		{"https://www.twitch.tv/channel/clips", false},
 		{"https://www.twitch.tv/channel//", false},
@@ -566,6 +596,7 @@ func TestTwitchExtractHonorsCancellation(t *testing.T) {
 		"https://twitch.tv/fixture_channel",
 		"https://twitch.tv/videos/1234567890",
 		"https://clips.twitch.tv/CulturedFixtureSlug-abc_123",
+		"https://www.twitch.tv/fixture_channel/videos",
 	} {
 		_, err := NewTwitch().Extract(ctx, Request{URL: rawURL, Transport: &twitchFixtureTransport{}})
 		if !errors.Is(err, context.Canceled) {
@@ -724,6 +755,21 @@ func FuzzTwitchRouting(f *testing.F) {
 		"https://www.twitch.tv/videos/1234567890?t=5m10s",
 		"https://clips.twitch.tv/CulturedFixtureSlug-abc_123",
 		"https://www.twitch.tv/channel/clip/CulturedFixtureSlug-abc_123",
+		"https://www.twitch.tv/fixture_channel/videos",
+		"https://www.twitch.tv/fixture_channel/videos/all?filter=archives&sort=views",
+		"https://www.twitch.tv/fixture_channel/profile",
+		"https://user:pass@www.twitch.tv/fixture_channel/videos",
+		"https://www.twitch.tv:443/fixture_channel/videos",
+		"https://www.twitch.tv/fixture_channel/videos?filter=clips",
+		"https://www.twitch.tv/fixture_channel/videos#x",
+		"https://www.twitch.tv/fixture_channel/videos?filter=%zz",
+		"https://www.twitch.tv/fixture_channel/videos?filter=archives%00",
+		"https://www.twitch.tv/fixture_channel/videos?filter=archives&filter=highlights",
+		"https://www.twitch.tv/fixture_channel/videos?filter=archives&feature=share",
+		"https://www.twitch.tv/fixture_channel/videos?filter=",
+		"https://www.twitch.tv/fixture_channel/videos?sort=",
+		"https://www.twitch.tv/fixture_channel/videos?filter=%FF",
+		"https://www.twitch.tv/fixture_channel/videos?sort=%FF",
 	} {
 		f.Add(seed)
 	}
@@ -732,8 +778,48 @@ func FuzzTwitchRouting(f *testing.F) {
 			t.Skip()
 		}
 		parsed, err := url.Parse(rawURL)
-		if err == nil {
-			_, _ = classifyTwitchURL(parsed)
+		if err != nil {
+			return
+		}
+		target, ok := classifyTwitchURL(parsed)
+		if !ok {
+			return
+		}
+		if parsed.User != nil || parsed.Port() != "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			t.Fatalf("accepted hostile URL %q as %#v", rawURL, target)
+		}
+		host := strings.ToLower(parsed.Hostname())
+		switch host {
+		case "twitch.tv", "www.twitch.tv", "go.twitch.tv", "m.twitch.tv", "player.twitch.tv", "clips.twitch.tv":
+		default:
+			t.Fatalf("accepted lookalike host %q", host)
+		}
+		switch target.kind {
+		case twitchKindLive, twitchKindVideos:
+			if !twitchChannelPattern.MatchString(target.id) {
+				t.Fatalf("accepted malformed channel %q", target.id)
+			}
+			if _, reserved := twitchReservedPaths[target.id]; reserved {
+				t.Fatalf("accepted reserved channel %q", target.id)
+			}
+			if target.kind == twitchKindVideos && parsed.Fragment != "" {
+				t.Fatalf("accepted videos fragment URL %q", rawURL)
+			}
+			if target.kind == twitchKindVideos {
+				if _, err := url.ParseQuery(parsed.RawQuery); err != nil {
+					t.Fatalf("accepted malformed RawQuery %q", rawURL)
+				}
+			}
+		case twitchKindVOD:
+			if !twitchVODPattern.MatchString(target.id) {
+				t.Fatalf("accepted malformed VOD %q", target.id)
+			}
+		case twitchKindClip:
+			if !twitchClipPattern.MatchString(target.id) {
+				t.Fatalf("accepted malformed clip %q", target.id)
+			}
+		default:
+			t.Fatalf("unknown kind %#v", target)
 		}
 	})
 }
@@ -764,6 +850,50 @@ func FuzzTwitchClipResponse(f *testing.F) {
 	})
 }
 
+func FuzzTwitchVideosPageResponse(f *testing.F) {
+	f.Add(twitchFixture(f, "videos_page1.json"))
+	f.Add(twitchFixture(f, "videos_page2.json"))
+	f.Add(twitchFixture(f, "videos_empty.json"))
+	f.Add(twitchFixture(f, "videos_not_found.json"))
+	f.Add(twitchFixture(f, "videos_malformed.json"))
+	f.Add([]byte(`[{"data":{"user":null}}]`))
+	f.Add([]byte(`[]`))
+	f.Fuzz(func(t *testing.T, body []byte) {
+		if len(body) > 1<<20 {
+			t.Skip()
+		}
+		var response []twitchVideosPageResponse
+		if err := json.Unmarshal(body, &response); err != nil {
+			return
+		}
+		entries, cursor, err := parseTwitchVideosPage(response)
+		if err != nil {
+			if strings.Contains(err.Error(), string(body)) {
+				t.Fatalf("error exposed body: %v", err)
+			}
+			return
+		}
+		if len(cursor) > twitchVideosMaxCursor {
+			t.Fatalf("cursor exceeds bound: %d", len(cursor))
+		}
+		if len(entries) > twitchVideosMaxEdges {
+			t.Fatalf("entries exceed bound: %d", len(entries))
+		}
+		for _, entry := range entries {
+			if !strings.HasPrefix(entry.URL, "https://www.twitch.tv/videos/") {
+				t.Fatalf("hostile entry URL %q", entry.URL)
+			}
+			id := strings.TrimPrefix(entry.ID, "v")
+			if !twitchVODPattern.MatchString(id) || entry.ExtractorKey != "twitch" || !entry.Transparent {
+				t.Fatalf("unsafe entry %#v", entry)
+			}
+			if len(entry.Title) > twitchVideosMaxString {
+				t.Fatalf("title exceeds bound")
+			}
+		}
+	})
+}
+
 func TestParseTwitchStartTime(t *testing.T) {
 	tests := map[string]int64{"0": 0, "310": 310, "5m10s": 310, "1h2m3s": 3723}
 	keys := make([]string, 0, len(tests))
@@ -780,5 +910,500 @@ func TestParseTwitchStartTime(t *testing.T) {
 		if got, ok := parseTwitchStartTime(input); ok {
 			t.Errorf("parseTwitchStartTime(%q) = %d, true", input, got)
 		}
+	}
+}
+
+func TestTwitchVideosPlaylistRoutingFiltersSortsAndHostiles(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		rawURL string
+		kind   twitchKind
+		id     string
+		label  string
+		sort   string
+		ok     bool
+	}{
+		{"https://www.twitch.tv/Fixture_Channel/videos", twitchKindVideos, "fixture_channel", "All Videos", "TIME", true},
+		{"https://www.twitch.tv/fixture_channel/videos/all", twitchKindVideos, "fixture_channel", "All Videos", "TIME", true},
+		{"https://www.twitch.tv/fixture_channel/profile", twitchKindVideos, "fixture_channel", "All Videos", "TIME", true},
+		{"https://m.twitch.tv/fixture_channel/videos?filter=all", twitchKindVideos, "fixture_channel", "All Videos", "TIME", true},
+		{"https://go.twitch.tv/fixture_channel/videos?filter=archives", twitchKindVideos, "fixture_channel", "Past Broadcasts", "TIME", true},
+		{"https://www.twitch.tv/fixture_channel/videos?filter=highlights&sort=time", twitchKindVideos, "fixture_channel", "Highlights", "TIME", true},
+		{"https://www.twitch.tv/fixture_channel/videos?filter=uploads&sort=views", twitchKindVideos, "fixture_channel", "Uploads", "VIEWS", true},
+		{"https://www.twitch.tv/fixture_channel/videos?filter=past_premieres", twitchKindVideos, "fixture_channel", "Past Premieres", "TIME", true},
+		{"https://www.twitch.tv/fixture_channel/videos?filter=unknown_filter", twitchKindVideos, "fixture_channel", "All Videos", "TIME", true},
+		{"https://www.twitch.tv/fixture_channel/videos?sort=views", twitchKindVideos, "fixture_channel", "All Videos", "VIEWS", true},
+		{"https://www.twitch.tv/fixture_channel/videos?sort=weird", twitchKindVideos, "fixture_channel", "All Videos", "WEIRD", true},
+		{"https://www.twitch.tv/fixture_channel/videos?filter=archives&feature=share", twitchKindVideos, "fixture_channel", "Past Broadcasts", "TIME", true},
+		{"https://www.twitch.tv/fixture_channel/videos?filter=", twitchKindVideos, "fixture_channel", "All Videos", "TIME", true},
+		{"https://www.twitch.tv/fixture_channel/videos?sort=", twitchKindVideos, "fixture_channel", "All Videos", "TIME", true},
+		{"https://www.twitch.tv/fixture_channel/videos?filter=&sort=", twitchKindVideos, "fixture_channel", "All Videos", "TIME", true},
+		{"https://www.twitch.tv/videos/1000000001", twitchKindVOD, "1000000001", "", "", true},
+		{"https://www.twitch.tv/fixture_channel", twitchKindLive, "fixture_channel", "", "", true},
+		{"https://www.twitch.tv/fixture_channel/videos?filter=clips", 0, "", "", "", false},
+		{"https://www.twitch.tv/fixture_channel/videos?filter=collections", 0, "", "", "", false},
+		{"https://www.twitch.tv/fixture_channel/videos#x", 0, "", "", "", false},
+		{"https://user@www.twitch.tv/fixture_channel/videos", 0, "", "", "", false},
+		{"https://www.twitch.tv:443/fixture_channel/videos", 0, "", "", "", false},
+		{"https://evil-twitch.tv/fixture_channel/videos", 0, "", "", "", false},
+		{"https://www.twitch.tv/videos/fixture_channel/videos", 0, "", "", "", false},
+		{"https://www.twitch.tv/directory/videos", 0, "", "", "", false},
+		{"https://www.twitch.tv/fixture_channel/videos/all/extra", 0, "", "", "", false},
+		{"https://www.twitch.tv/fixture%2Fchannel/videos", 0, "", "", "", false},
+		{"https://www.twitch.tv/fixture_channel/videos?filter=%zz", 0, "", "", "", false},
+		{"https://www.twitch.tv/fixture_channel/videos?sort=%zzarchives", 0, "", "", "", false},
+		{"https://www.twitch.tv/fixture_channel/videos?filter=archives%00", 0, "", "", "", false},
+		{"https://www.twitch.tv/fixture_channel/videos?sort=time%0a", 0, "", "", "", false},
+		{"https://www.twitch.tv/fixture_channel/videos?filter=%01archives", 0, "", "", "", false},
+		{"https://www.twitch.tv/fixture_channel/videos?filter=%FF", 0, "", "", "", false},
+		{"https://www.twitch.tv/fixture_channel/videos?sort=%FF", 0, "", "", "", false},
+		{"https://www.twitch.tv/fixture_channel/videos?filter=archives&filter=highlights", 0, "", "", "", false},
+		{"https://www.twitch.tv/fixture_channel/videos?sort=time&sort=views", 0, "", "", "", false},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.rawURL, func(t *testing.T) {
+			parsed, err := url.Parse(test.rawURL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			target, ok := classifyTwitchURL(parsed)
+			if ok != test.ok {
+				t.Fatalf("ok=%t want %t target=%#v", ok, test.ok, target)
+			}
+			if !test.ok {
+				return
+			}
+			if target.kind != test.kind || target.id != test.id {
+				t.Fatalf("target=%#v", target)
+			}
+			if test.kind == twitchKindVideos {
+				if target.videos.broadcastLabel != test.label || target.videos.videoSort != test.sort {
+					t.Fatalf("videos query=%#v", target.videos)
+				}
+			}
+		})
+	}
+}
+
+func TestTwitchVideosPlaylistLazyContinuationReusableAndContract(t *testing.T) {
+	transport := &twitchFixtureTransport{videosPages: map[string][]byte{
+		"":                   twitchFixture(t, "videos_page1.json"),
+		"cursor-page1-final": twitchFixture(t, "videos_page2.json"),
+	}}
+	result, err := NewTwitch().Extract(context.Background(), Request{
+		URL: "https://www.twitch.tv/fixture_channel/videos?filter=archives&sort=views", Transport: transport,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsPlaylist() {
+		t.Fatal("expected playlist")
+	}
+	assertTwitchString(t, result, "id", "fixture_channel")
+	assertTwitchString(t, result, "title", "fixture_channel - Past Broadcasts sorted by Popular")
+	if len(transport.graphQLRequests) != 0 {
+		t.Fatal("playlist page fetched eagerly")
+	}
+
+	iterator := result.Entries.Iterator()
+	first, ok, err := iterator.Next(context.Background())
+	if err != nil || !ok {
+		t.Fatalf("first entry = %#v ok=%t err=%v", first, ok, err)
+	}
+	if len(transport.graphQLRequests) != 1 {
+		t.Fatalf("first page requests = %d", len(transport.graphQLRequests))
+	}
+	assertTwitchVideosGraphQLRequest(t, transport.graphQLRequests[0], "fixture_channel", "ARCHIVE", "VIEWS", "")
+	if first.ID != "v1000000001" || first.URL != "https://www.twitch.tv/videos/1000000001" || !first.Transparent || first.ExtractorKey != "twitch" {
+		t.Fatalf("first entry = %#v", first)
+	}
+	second, ok, err := iterator.Next(context.Background())
+	if err != nil || !ok || second.ID != "v1000000002" {
+		t.Fatalf("second entry = %#v ok=%t err=%v", second, ok, err)
+	}
+	if len(transport.graphQLRequests) != 1 {
+		t.Fatal("continuation over-fetched before page exhaustion")
+	}
+	third, ok, err := iterator.Next(context.Background())
+	if err != nil || !ok || third.ID != "v1000000003" {
+		t.Fatalf("third entry = %#v ok=%t err=%v", third, ok, err)
+	}
+	if len(transport.graphQLRequests) != 2 {
+		t.Fatalf("continuation requests = %d", len(transport.graphQLRequests))
+	}
+	assertTwitchVideosGraphQLRequest(t, transport.graphQLRequests[1], "fixture_channel", "ARCHIVE", "VIEWS", "cursor-page1-final")
+	if _, ok, err := iterator.Next(context.Background()); err != nil || ok {
+		t.Fatalf("expected end, ok=%t err=%v", ok, err)
+	}
+
+	again, err := CollectEntries(context.Background(), result.Entries, 10)
+	if err != nil || len(again) != 3 || again[0].ID != "v1000000001" || again[2].ID != "v1000000003" {
+		t.Fatalf("reusable iteration = %#v err=%v", again, err)
+	}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			entries, collectErr := CollectEntries(context.Background(), result.Entries, 10)
+			if collectErr != nil {
+				errs <- collectErr
+				return
+			}
+			if len(entries) != 3 || entries[1].ID != "v1000000002" {
+				errs <- fmt.Errorf("concurrent entries = %#v", entries)
+				return
+			}
+			errs <- nil
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestTwitchVideosPlaylistFailuresCancellationAndBounds(t *testing.T) {
+	t.Run("empty channel", func(t *testing.T) {
+		transport := &twitchFixtureTransport{graphQLFixtures: []twitchGraphQLFixture{{body: twitchFixture(t, "videos_empty.json")}}}
+		result, err := NewTwitch().Extract(context.Background(), Request{
+			URL: "https://www.twitch.tv/fixture_channel/videos", Transport: transport,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		entries, err := CollectEntries(context.Background(), result.Entries, 10)
+		if err != nil || len(entries) != 0 {
+			t.Fatalf("empty = %#v err=%v", entries, err)
+		}
+	})
+	t.Run("absent channel", func(t *testing.T) {
+		transport := &twitchFixtureTransport{graphQLFixtures: []twitchGraphQLFixture{{body: twitchFixture(t, "videos_not_found.json")}}}
+		result, err := NewTwitch().Extract(context.Background(), Request{
+			URL: "https://www.twitch.tv/missing_channel/videos", Transport: transport,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _, err = result.Entries.Iterator().Next(context.Background())
+		if !errors.Is(err, ErrUnavailable) {
+			t.Fatalf("absent channel err=%v", err)
+		}
+	})
+	t.Run("malformed envelope", func(t *testing.T) {
+		transport := &twitchFixtureTransport{graphQLFixtures: []twitchGraphQLFixture{{body: twitchFixture(t, "videos_malformed.json")}}}
+		result, err := NewTwitch().Extract(context.Background(), Request{
+			URL: "https://www.twitch.tv/fixture_channel/videos", Transport: transport,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _, err = result.Entries.Iterator().Next(context.Background())
+		if !errors.Is(err, ErrInvalidMetadata) {
+			t.Fatalf("malformed err=%v", err)
+		}
+	})
+	t.Run("http categories", func(t *testing.T) {
+		cases := []struct {
+			status int
+			want   error
+		}{
+			{http.StatusUnauthorized, ErrAuthentication},
+			{http.StatusForbidden, ErrAuthentication},
+			{http.StatusNotFound, ErrUnavailable},
+			{http.StatusGone, ErrUnavailable},
+			{http.StatusTooManyRequests, ErrTwitchRateLimited},
+			{http.StatusBadGateway, ErrTwitchNetwork},
+		}
+		for _, test := range cases {
+			transport := &twitchFixtureTransport{graphQLFixtures: []twitchGraphQLFixture{{status: test.status, body: []byte(`[]`)}}}
+			result, err := NewTwitch().Extract(context.Background(), Request{
+				URL: "https://www.twitch.tv/fixture_channel/videos", Transport: transport,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _, err = result.Entries.Iterator().Next(context.Background())
+			if !errors.Is(err, test.want) {
+				t.Fatalf("status %d err=%v want %v", test.status, err, test.want)
+			}
+		}
+	})
+	t.Run("secret safe errors", func(t *testing.T) {
+		const secret = "fixture-videos-secret-token"
+		transport := &twitchFixtureTransport{graphQLFixtures: []twitchGraphQLFixture{
+			{body: []byte(`[{"data":{"user":{"id":"1","videos":{"edges":[]}}},"errors":[{"message":"` + secret + `"}]}]`)},
+		}}
+		result, err := NewTwitch().Extract(context.Background(), Request{
+			URL: "https://www.twitch.tv/fixture_channel/videos", Transport: transport,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _, err = result.Entries.Iterator().Next(context.Background())
+		if !errors.Is(err, ErrInvalidMetadata) {
+			t.Fatalf("err=%v", err)
+		}
+		if strings.Contains(err.Error(), secret) {
+			t.Fatalf("error exposed secret: %v", err)
+		}
+	})
+	t.Run("cancellation before initial fetch", func(t *testing.T) {
+		transport := &twitchFixtureTransport{graphQLFixtures: []twitchGraphQLFixture{{body: twitchFixture(t, "videos_page1.json")}}}
+		result, err := NewTwitch().Extract(context.Background(), Request{
+			URL: "https://www.twitch.tv/fixture_channel/videos", Transport: transport,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		_, _, err = result.Entries.Iterator().Next(ctx)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("err=%v", err)
+		}
+		if len(transport.graphQLRequests) != 0 {
+			t.Fatal("canceled iterator still fetched")
+		}
+	})
+	t.Run("cancellation during continuation", func(t *testing.T) {
+		transport := &twitchFixtureTransport{graphQLFixtures: []twitchGraphQLFixture{
+			{body: twitchFixture(t, "videos_page1.json")},
+			{body: twitchFixture(t, "videos_page2.json")},
+		}}
+		result, err := NewTwitch().Extract(context.Background(), Request{
+			URL: "https://www.twitch.tv/fixture_channel/videos", Transport: transport,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		iterator := result.Entries.Iterator()
+		if _, _, err := iterator.Next(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := iterator.Next(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		_, _, err = iterator.Next(ctx)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("continuation cancel err=%v", err)
+		}
+		if len(transport.graphQLRequests) != 1 {
+			t.Fatalf("requests after cancel = %d", len(transport.graphQLRequests))
+		}
+	})
+	t.Run("repeated cursor stops", func(t *testing.T) {
+		loop := []byte(`[{"data":{"user":{"id":"9001","videos":{"edges":[{"__typename":"VideoEdge","cursor":"loop","node":{"__typename":"Video","id":"1000000001","title":"Loop"}}]}}}}]`)
+		transport := &twitchFixtureTransport{graphQLFixtures: []twitchGraphQLFixture{{body: loop}, {body: loop}, {body: loop}}}
+		result, err := NewTwitch().Extract(context.Background(), Request{
+			URL: "https://www.twitch.tv/fixture_channel/videos", Transport: transport,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		entries, err := CollectEntries(context.Background(), result.Entries, 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entries) != 2 {
+			t.Fatalf("repeated cursor entries = %d", len(entries))
+		}
+		if len(transport.graphQLRequests) != 2 {
+			t.Fatalf("repeated cursor requests = %d", len(transport.graphQLRequests))
+		}
+	})
+	t.Run("no over-fetch at bound", func(t *testing.T) {
+		transport := &twitchFixtureTransport{graphQLFixtures: []twitchGraphQLFixture{
+			{body: twitchFixture(t, "videos_page1.json")},
+			{body: twitchFixture(t, "videos_page2.json")},
+		}}
+		result, err := NewTwitch().Extract(context.Background(), Request{
+			URL: "https://www.twitch.tv/fixture_channel/videos", Transport: transport,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		iterator := result.Entries.Iterator()
+		for i := 0; i < 2; i++ {
+			if _, ok, nextErr := iterator.Next(context.Background()); nextErr != nil || !ok {
+				t.Fatalf("entry %d ok=%t err=%v", i, ok, nextErr)
+			}
+		}
+		if len(transport.graphQLRequests) != 1 {
+			t.Fatalf("over-fetched: %d", len(transport.graphQLRequests))
+		}
+	})
+	t.Run("default all sends null broadcastType", func(t *testing.T) {
+		transport := &twitchFixtureTransport{graphQLFixtures: []twitchGraphQLFixture{{body: twitchFixture(t, "videos_empty.json")}}}
+		result, err := NewTwitch().Extract(context.Background(), Request{
+			URL: "https://www.twitch.tv/fixture_channel/profile", Transport: transport,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertTwitchString(t, result, "title", "fixture_channel - All Videos sorted by Date")
+		if _, _, err := result.Entries.Iterator().Next(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		assertTwitchVideosGraphQLRequest(t, transport.graphQLRequests[0], "fixture_channel", "", "TIME", "")
+	})
+	t.Run("blank filter and sort query defaults", func(t *testing.T) {
+		cases := []struct {
+			rawURL string
+		}{
+			{"https://www.twitch.tv/fixture_channel/videos?filter="},
+			{"https://www.twitch.tv/fixture_channel/videos?sort="},
+			{"https://www.twitch.tv/fixture_channel/videos?filter=&sort="},
+		}
+		for _, test := range cases {
+			transport := &twitchFixtureTransport{graphQLFixtures: []twitchGraphQLFixture{{body: twitchFixture(t, "videos_empty.json")}}}
+			result, err := NewTwitch().Extract(context.Background(), Request{URL: test.rawURL, Transport: transport})
+			if err != nil {
+				t.Fatalf("%s: %v", test.rawURL, err)
+			}
+			assertTwitchString(t, result, "title", "fixture_channel - All Videos sorted by Date")
+			if _, _, err := result.Entries.Iterator().Next(context.Background()); err != nil {
+				t.Fatalf("%s: %v", test.rawURL, err)
+			}
+			assertTwitchVideosGraphQLRequest(t, transport.graphQLRequests[0], "fixture_channel", "", "TIME", "")
+		}
+	})
+	t.Run("missing continuation cursor stops", func(t *testing.T) {
+		page := []byte(`[{"data":{"user":{"id":"9001","videos":{"edges":[{"__typename":"VideoEdge","node":{"__typename":"Video","id":"1000000001","title":"Only"}}]}}}}]`)
+		transport := &twitchFixtureTransport{graphQLFixtures: []twitchGraphQLFixture{{body: page}, {body: twitchFixture(t, "videos_page2.json")}}}
+		result, err := NewTwitch().Extract(context.Background(), Request{
+			URL: "https://www.twitch.tv/fixture_channel/videos", Transport: transport,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		entries, err := CollectEntries(context.Background(), result.Entries, 10)
+		if err != nil || len(entries) != 1 {
+			t.Fatalf("entries=%#v err=%v", entries, err)
+		}
+		if len(transport.graphQLRequests) != 1 {
+			t.Fatalf("missing cursor still continued: %d", len(transport.graphQLRequests))
+		}
+	})
+}
+
+func TestTwitchVideosPageCursorSemantics(t *testing.T) {
+	t.Parallel()
+	oversized := strings.Repeat("c", twitchVideosMaxCursor+1)
+	mustParse := func(raw string) []twitchVideosPageResponse {
+		t.Helper()
+		var response []twitchVideosPageResponse
+		if err := json.Unmarshal([]byte(raw), &response); err != nil {
+			t.Fatal(err)
+		}
+		return response
+	}
+
+	entries, cursor, err := parseTwitchVideosPage(mustParse(`[{"data":{"user":{"id":"9001","videos":{"edges":[
+			{"__typename":"VideoEdge","cursor":"keep-me","node":{"__typename":"Video","id":"1000000001","title":"First"}},
+			{"__typename":"NotVideoEdge","cursor":"skip-edge","node":{"__typename":"Video","id":"1000000099","title":"Bad edge"}},
+			{"__typename":"VideoEdge","cursor":"skip-node","node":{"__typename":"Clip","id":"1000000002","title":"Bad node"}},
+			{"__typename":"VideoEdge","cursor":"skip-id","node":{"__typename":"Video","id":"not-numeric","title":"Hostile"}},
+			{"__typename":"VideoEdge","cursor":"","node":{"__typename":"Video","id":"1000000002","title":"Empty cursor terminates"}}
+		]}}}}]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 || entries[0].ID != "v1000000001" || entries[1].ID != "v1000000002" {
+		t.Fatalf("entries = %#v", entries)
+	}
+	if cursor != "" {
+		t.Fatalf("empty later cursor should terminate, got %q", cursor)
+	}
+
+	entries, cursor, err = parseTwitchVideosPage(mustParse(`[{"data":{"user":{"id":"9001","videos":{"edges":[
+			{"__typename":"VideoEdge","cursor":"keep-me","node":{"__typename":"Video","id":"1000000001","title":"First"}},
+			{"__typename":"NotVideoEdge","cursor":"noise","node":{"__typename":"Video","id":"1000000099","title":"Noise"}},
+			"not-an-object"
+		]}}}}]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].ID != "v1000000001" || cursor != "keep-me" {
+		t.Fatalf("skipped edges disturbed cursor: entries=%#v cursor=%q", entries, cursor)
+	}
+
+	entries, cursor, err = parseTwitchVideosPage(mustParse(`[{"data":{"user":{"id":"9001","videos":{"edges":[
+			{"__typename":"VideoEdge","cursor":"keep-me","node":{"__typename":"Video","id":"1000000001","title":"First"}},
+			{"__typename":"VideoEdge","cursor":` + strconv.Quote(oversized) + `,"node":{"__typename":"Video","id":"1000000002","title":"Oversized cursor terminates"}}
+		]}}}}]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 || cursor != "" {
+		t.Fatalf("oversized later cursor should terminate: entries=%#v cursor=%q", entries, cursor)
+	}
+}
+
+func assertTwitchVideosGraphQLRequest(t *testing.T, request twitchRecordedRequest, channel, broadcastType, videoSort, cursor string) {
+	t.Helper()
+	if got := request.header.Get("Client-ID"); got != twitchClientID {
+		t.Fatalf("Client-ID = %q", got)
+	}
+	if got := request.header.Get("Content-Type"); got != "text/plain;charset=UTF-8" {
+		t.Fatalf("Content-Type = %q", got)
+	}
+	var operations []struct {
+		OperationName string `json:"operationName"`
+		Variables     struct {
+			ChannelOwnerLogin string  `json:"channelOwnerLogin"`
+			BroadcastType     *string `json:"broadcastType"`
+			VideoSort         string  `json:"videoSort"`
+			Limit             int     `json:"limit"`
+			Cursor            string  `json:"cursor"`
+		} `json:"variables"`
+		Extensions struct {
+			PersistedQuery struct {
+				Version    int    `json:"version"`
+				SHA256Hash string `json:"sha256Hash"`
+			} `json:"persistedQuery"`
+		} `json:"extensions"`
+	}
+	if err := json.Unmarshal(request.body, &operations); err != nil {
+		t.Fatal(err)
+	}
+	if len(operations) != 1 {
+		t.Fatalf("operations = %#v", operations)
+	}
+	operation := operations[0]
+	if operation.OperationName != twitchVideosOperation ||
+		operation.Extensions.PersistedQuery.Version != 1 ||
+		operation.Extensions.PersistedQuery.SHA256Hash != twitchOperationHashes[twitchVideosOperation] {
+		t.Fatalf("operation = %#v", operation)
+	}
+	if operation.Variables.ChannelOwnerLogin != channel || operation.Variables.VideoSort != videoSort || operation.Variables.Limit != twitchVideosPageLimit {
+		t.Fatalf("variables = %#v", operation.Variables)
+	}
+	if broadcastType == "" {
+		if operation.Variables.BroadcastType != nil {
+			t.Fatalf("broadcastType = %#v", operation.Variables.BroadcastType)
+		}
+	} else if operation.Variables.BroadcastType == nil || *operation.Variables.BroadcastType != broadcastType {
+		t.Fatalf("broadcastType = %#v", operation.Variables.BroadcastType)
+	}
+	var raw []map[string]any
+	if err := json.Unmarshal(request.body, &raw); err != nil {
+		t.Fatal(err)
+	}
+	variables := raw[0]["variables"].(map[string]any)
+	if cursor == "" {
+		if _, present := variables["cursor"]; present {
+			t.Fatalf("unexpected cursor in %#v", variables)
+		}
+	} else if got, _ := variables["cursor"].(string); got != cursor {
+		t.Fatalf("cursor = %#v", variables["cursor"])
 	}
 }

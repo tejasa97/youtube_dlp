@@ -1,0 +1,64 @@
+[
+  {
+    "data": {
+      "user": {
+        "id": "9001",
+        "videos": {
+          "edges": [
+            {
+              "__typename": "VideoEdge",
+              "cursor": "cursor-page1-a",
+              "node": {
+                "__typename": "Video",
+                "id": "1000000001",
+                "title": "Synthetic archive one",
+                "previewThumbnailURL": "https://static-cdn.example.test/vod1-320x180.jpg",
+                "lengthSeconds": 120,
+                "viewCount": 11
+              }
+            },
+            {
+              "__typename": "NotVideoEdge",
+              "cursor": "skip-bad-edge",
+              "node": {
+                "__typename": "Video",
+                "id": "1000000099",
+                "title": "Skipped bad edge"
+              }
+            },
+            {
+              "__typename": "VideoEdge",
+              "cursor": "cursor-page1-b",
+              "node": {
+                "__typename": "Clip",
+                "id": "1000000002",
+                "title": "Skipped bad node type"
+              }
+            },
+            {
+              "__typename": "VideoEdge",
+              "cursor": "cursor-page1-c",
+              "node": {
+                "__typename": "Video",
+                "id": "not-numeric",
+                "title": "Skipped hostile id"
+              }
+            },
+            {
+              "__typename": "VideoEdge",
+              "cursor": "cursor-page1-final",
+              "node": {
+                "__typename": "Video",
+                "id": "1000000002",
+                "title": "Synthetic archive two",
+                "previewThumbnailURL": "https://static-cdn.example.test/vod2-320x180.jpg",
+                "lengthSeconds": 240,
+                "viewCount": 22
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]
