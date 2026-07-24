@@ -458,7 +458,43 @@ capabilities:
       - internal/protocol/dash.TestDownloadSIDXInitPartialOverlapRejected
       - internal/protocol/dash.TestDownloadSIDXCancellationDuringIndexRetrieval
       - internal/protocol/dash.TestDownloadSIDXCancellationDuringSegmentDownload
-      - internal/protocol/dash.TestDownloadSIDXDynamicRejected
+      - internal/protocol/dash.TestDownloadSIDXDynamicSingleSnapshot
+      - internal/protocol/dash.TestDownloadDynamicSIDXSecondSnapshotAddsLeaves
+      - internal/protocol/dash.TestDownloadDynamicSIDXPrefixDropRejected
+      - internal/protocol/dash.TestDownloadDynamicSIDXPrefixReorderRejected
+      - internal/protocol/dash.TestDownloadDynamicSIDXPrefixInsertionRejected
+      - internal/protocol/dash.TestDownloadDynamicSIDXPrefixShrinkRejected
+      - internal/protocol/dash.TestDownloadDynamicSIDXUnchangedSnapshotsWithinMaxSegments
+      - internal/protocol/dash.TestDownloadDynamicSIDXAppendBeyondMaxSegmentsRejected
+      - internal/protocol/dash.TestDownloadDynamicSIDXStableIndexRangeAppendPreservesLeafRanges
+      - internal/protocol/dash.TestDownloadDynamicSIDXDynamicToStaticTransition
+      - internal/protocol/dash.TestDownloadDynamicSIDXUsesMinimumUpdatePeriod
+      - internal/protocol/dash.TestDownloadDynamicSIDXUsesConfiguredPollInterval
+      - internal/protocol/dash.TestDownloadDynamicSIDXVideoAudioIndependentEvolution
+      - internal/protocol/dash.TestDownloadDynamicSIDXInitDeduplicated
+      - internal/protocol/dash.TestDownloadDynamicSIDXChangedInitRejected
+      - internal/protocol/dash.TestDownloadDynamicSIDXIgnoresHigherBandwidthSibling
+      - internal/protocol/dash.TestDownloadDynamicSIDXRepresentationDisappeared
+      - internal/protocol/dash.TestDownloadDynamicSIDXTrackPropertyMutationRejected
+      - internal/protocol/dash.TestDownloadDynamicSIDXAudioRateMutationRejected
+      - internal/protocol/dash.TestDownloadDynamicSIDXMediaURLMutationRejected
+      - internal/protocol/dash.TestDownloadDynamicSIDXMixedAddressingRejected
+      - internal/protocol/dash.TestDownloadDynamicSIDXDuplicateRepresentationKeyRejected
+      - internal/protocol/dash.TestValidateRepresentationMarkers
+      - internal/protocol/dash.TestDownloadDynamicSIDXOverlappingEvolutionRejected
+      - internal/protocol/dash.TestDownloadDynamicSIDXCumulativeRootBoxBudgetAcrossPolls
+      - internal/protocol/dash.TestDownloadDynamicSIDXCumulativeLeafBudgetAcrossPolls
+      - internal/protocol/dash.TestDownloadDynamicSIDXCancellationDuringWait
+      - internal/protocol/dash.TestDownloadDynamicSIDXCancellationDuringRootFetch
+      - internal/protocol/dash.TestDownloadDynamicSIDXCancellationDuringMediaFetch
+      - internal/protocol/dash.TestDownloadDynamicSIDXNoDestinationOnFailure
+      - internal/protocol/dash.TestDownloadDynamicSIDXRangeHeaderPropagation
+      - internal/protocol/dash.TestDownloadDynamicSIDX200FallbackBudget
+      - internal/protocol/dash.TestDownloadDynamicSIDXDeterministicRaceOutput
+      - internal/protocol/dash.TestEffectiveDynamicSIDXMediaLeafLimit
+      - internal/protocol/dash.TestSegmentAccumulatorRespectsFragmentEngineMediaCap
+      - internal/protocol/dash.TestValidateDynamicSIDXOutputBudgetRejectsFragmentCapOverflow
+      - internal/protocol/dash.FuzzDynamicSIDXAccumulatorMerge
       - internal/protocol/dash.TestDownloadSeparateAudioVideoTracks
       - internal/protocol/dash.TestDownloadDynamicMPDPollsAndDeduplicates
       - internal/protocol/dash.TestDownloadDynamicUsesManifestPollIntervalAndCancels
@@ -478,11 +514,13 @@ capabilities:
       - pkg/ytdlp.TestClientHLSAndDASHDispatch
       - pkg/ytdlp.TestClientDASHMergeDispatch
       - pkg/ytdlp.TestClientDASHMultiPeriodDispatchAndFixup
+      - pkg/ytdlp.TestDASHDownloadLiveOptionsEnableDynamicSIDXPolling
       - conformance/media/dash/PROVENANCE.md
       - docs/DASH_SIDX_EVIDENCE.md
+      - docs/DASH_DYNAMIC_SIDX_EVIDENCE.md
       - docs/DASH_MULTI_PERIOD_EVIDENCE.md
     owner: io
-    known_deviation: Product dispatch, inherited addressing, live negative-repeat timelines, dynamic polling, bounded SegmentBase indexRange/SIDX expansion (including bounded hierarchical reference_type=1 recursive expansion within a single representation's media URL), and compatible contiguous static fragmented multi-period composition are implemented. Multi-period timing must be derivable and gap-free, and the segment budget applies across the complete selected track. Dynamic SegmentBase/SIDX and dynamic, unfragmented, timing-ambiguous, or format-incompatible multi-period composition remain unsupported; initialization/media overlap is rejected rather than trimmed, and index retrieval is single-attempt while media fragments use normal retry policy.
+    known_deviation: Product dispatch, inherited addressing, live negative-repeat timelines, dynamic SegmentTemplate/List polling, bounded single-period dynamic SegmentBase indexRange/SIDX refresh with append-only prefix accumulation (including bounded hierarchical reference_type=1 recursive expansion within a single representation's media URL), and compatible contiguous static fragmented multi-period composition are implemented. Multi-period timing must be derivable and gap-free; dynamic output MaxSegments applies to unique accumulated media leaves with an effective ceiling of min(configured MaxSegments, 10,000-initCount) enforced before download, while parser/index budgets apply cumulatively across a complete polling session. Append-only checks compare URL/range metadata only and do not detect remote byte mutation behind unchanged ranges. Rolling-window SIDX evolution, mixed selected addressing across representations, dynamic multi-period, unfragmented, timing-ambiguous, or format-incompatible multi-period composition remain unsupported; initialization/media overlap is rejected rather than trimmed, and index retrieval is single-attempt while media fragments use normal retry policy.
 
   - id: postprocess.ffmpeg
     name: ffmpeg and ffprobe orchestration
