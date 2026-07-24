@@ -251,21 +251,42 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	})
 	youtubeMaxComments := flags.String("youtube-max-comments", "", "bounded YouTube limits TOTAL[,PARENTS[,REPLIES[,PER_THREAD[,DEPTH]]]]")
 	youtubeCommentSort := flags.String("youtube-comment-sort", "new", "YouTube comment order: new or top")
-	var sponsorBlockMark []string
+	var sponsorBlockMark, sponsorBlockRemove []string
+	var sponsorBlockForceKeyframes bool
+	setSponsorBlockForceKeyframes := func(enabled bool) func(string) error {
+		return func(input string) error {
+			value, err := strconv.ParseBool(input)
+			if err != nil {
+				return err
+			}
+			sponsorBlockForceKeyframes = enabled == value
+			return nil
+		}
+	}
 	noSponsorBlock := false
 	flags.Func("sponsorblock-mark", "SponsorBlock categories to mark as chapters (repeatable; comma-separated; all/default selects the pinned set; prefix with - to exclude)", func(value string) error {
-		next, err := parseSponsorBlockCategories(value, sponsorBlockMark)
+		next, err := parseSponsorBlockMarkCategories(value, sponsorBlockMark)
 		if err != nil {
 			return err
 		}
 		sponsorBlockMark = next
 		return nil
 	})
+	flags.Func("sponsorblock-remove", "SponsorBlock categories to remove from media (repeatable; comma-separated; all/default selects removable sets; prefix with - to exclude)", func(value string) error {
+		next, err := parseSponsorBlockRemoveCategories(value, sponsorBlockRemove)
+		if err != nil {
+			return err
+		}
+		sponsorBlockRemove = next
+		return nil
+	})
 	sponsorBlockAPI := flags.String("sponsorblock-api", "", "SponsorBlock API origin (default https://sponsor.ajay.app)")
+	flags.BoolFunc("force-keyframes-at-cuts", "force keyframes at SponsorBlock cut boundaries (requires --sponsorblock-remove)", setSponsorBlockForceKeyframes(true))
+	flags.BoolFunc("no-force-keyframes-at-cuts", "disable forced keyframes at SponsorBlock cut boundaries", setSponsorBlockForceKeyframes(false))
 	// Match pinned yt-dlp: record --no-sponsorblock during parse, then clear
-	// marking after all options (config + CLI) are applied so order cannot
-	// re-enable marking. --sponsorblock-api is preserved.
-	flags.BoolFunc("no-sponsorblock", "disable SponsorBlock marking without clearing --sponsorblock-api", func(string) error {
+	// mark/remove after all options (config + CLI) are applied so order cannot
+	// re-enable them. --sponsorblock-api is preserved.
+	flags.BoolFunc("no-sponsorblock", "disable SponsorBlock mark and remove without clearing --sponsorblock-api", func(string) error {
 		noSponsorBlock = true
 		return nil
 	})
@@ -370,8 +391,10 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	commentLimits.Sort = *youtubeCommentSort
 	if noSponsorBlock {
 		sponsorBlockMark = nil
+		sponsorBlockRemove = nil
+		sponsorBlockForceKeyframes = false
 	}
-	sponsorBlockOptions, err := buildSponsorBlockOptions(sponsorBlockMark, *sponsorBlockAPI)
+	sponsorBlockOptions, err := buildSponsorBlockOptions(sponsorBlockMark, sponsorBlockRemove, *sponsorBlockAPI, sponsorBlockForceKeyframes)
 	if err != nil {
 		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
 		return 2
@@ -605,55 +628,143 @@ func parseYouTubeCommentLimits(input string) (ytdlp.YouTubeCommentOptions, error
 	return options, nil
 }
 
-func buildSponsorBlockOptions(categories []string, apiBase string) (ytdlp.SponsorBlockOptions, error) {
+type sponsorBlockCategoryParseConfig struct {
+	flagName         string
+	expandAll        func() []string
+	expandDefault    func() []string
+	requireRemovable bool
+}
+
+var (
+	sponsorBlockMarkCategoryConfig = sponsorBlockCategoryParseConfig{
+		flagName: "sponsorblock-mark",
+		expandAll: func() []string {
+			return sponsorBlockCategoryNames(sponsorblock.AllCategories())
+		},
+		expandDefault: func() []string {
+			return sponsorBlockCategoryNames(sponsorblock.AllCategories())
+		},
+	}
+	sponsorBlockRemoveCategoryConfig = sponsorBlockCategoryParseConfig{
+		flagName:         "sponsorblock-remove",
+		expandAll:        allRemovableCategoryStrings,
+		expandDefault:    defaultRemoveCategoryStrings,
+		requireRemovable: true,
+	}
+)
+
+func sponsorBlockCategoryNames(categories []sponsorblock.Category) []string {
+	out := make([]string, 0, len(categories))
+	for _, category := range categories {
+		out = append(out, string(category))
+	}
+	return out
+}
+
+func allRemovableCategoryStrings() []string {
+	out := make([]string, 0, len(sponsorblock.AllCategories()))
+	for _, category := range sponsorblock.AllCategories() {
+		name := string(category)
+		if sponsorblock.IsRemovableCategory(name) {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+func defaultRemoveCategoryStrings() []string {
+	out := make([]string, 0, len(sponsorblock.AllCategories()))
+	for _, category := range sponsorblock.AllCategories() {
+		name := string(category)
+		if sponsorblock.IsRemovableCategory(name) && name != string(sponsorblock.CategoryFiller) {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+func buildSponsorBlockOptions(mark, remove []string, apiBase string, forceKeyframes bool) (ytdlp.SponsorBlockOptions, error) {
 	options := ytdlp.SponsorBlockOptions{APIBase: strings.TrimSpace(apiBase)}
 	if options.APIBase != "" {
 		if err := validateSponsorBlockAPIBase(options.APIBase); err != nil {
 			return ytdlp.SponsorBlockOptions{}, err
 		}
 	}
-	if len(categories) == 0 {
+	hasMark := len(mark) > 0
+	hasRemove := len(remove) > 0
+	if !hasMark && !hasRemove {
+		if forceKeyframes {
+			return ytdlp.SponsorBlockOptions{}, errors.New("force-keyframes-at-cuts requires --sponsorblock-remove")
+		}
 		return options, nil
 	}
+	if forceKeyframes && !hasRemove {
+		return ytdlp.SponsorBlockOptions{}, errors.New("force-keyframes-at-cuts requires --sponsorblock-remove")
+	}
 	options.Enabled = true
-	options.Mark = true
-	options.Categories = append([]string(nil), categories...)
+	options.Mark = hasMark
+	options.Remove = hasRemove
+	options.Categories = unionSponsorBlockCategories(mark, remove)
+	if hasRemove {
+		options.RemoveCategories = append([]string(nil), remove...)
+		options.ForceKeyframes = forceKeyframes
+	}
 	return options, nil
+}
+
+func unionSponsorBlockCategories(mark, remove []string) []string {
+	result := append([]string(nil), mark...)
+	for _, category := range remove {
+		result = appendUniqueSponsorBlockCategory(result, category)
+	}
+	return result
+}
+
+func parseSponsorBlockMarkCategories(input string, start []string) ([]string, error) {
+	return parseSponsorBlockCategories(input, start, sponsorBlockMarkCategoryConfig)
+}
+
+func parseSponsorBlockRemoveCategories(input string, start []string) ([]string, error) {
+	return parseSponsorBlockCategories(input, start, sponsorBlockRemoveCategoryConfig)
 }
 
 // parseSponsorBlockCategories accumulates a comma-separated SponsorBlock
 // category grammar onto start, matching yt-dlp's orderedSet_from_options:
-// repeated flags accumulate, all/default expand to the pinned set, and a
+// repeated flags accumulate, all/default expand per flag semantics, and a
 // leading "-" excludes a category or alias (for example all,-preview).
-// Exclusions may leave an empty set (marking disabled); only an explicitly
-// empty flag value or malformed empty comma tokens are rejected.
-func parseSponsorBlockCategories(input string, start []string) ([]string, error) {
+// Exclusions may leave an empty set (disabling that flag's effect); only an
+// explicitly empty flag value or malformed empty comma tokens are rejected.
+func parseSponsorBlockCategories(input string, start []string, config sponsorBlockCategoryParseConfig) ([]string, error) {
+	emptyErr := errors.New(config.flagName + " requires at least one category")
 	if strings.TrimSpace(input) == "" {
-		return nil, errors.New("sponsorblock-mark requires at least one category")
+		return nil, emptyErr
 	}
 	result := append([]string(nil), start...)
 	for _, raw := range strings.Split(input, ",") {
 		token := strings.ToLower(strings.TrimSpace(raw))
 		if token == "" {
-			return nil, errors.New("sponsorblock-mark requires at least one category")
+			return nil, emptyErr
 		}
 		exclude := false
 		if strings.HasPrefix(token, "-") {
 			exclude = true
 			token = strings.TrimSpace(token[1:])
 			if token == "" {
-				return nil, errors.New("sponsorblock-mark requires at least one category")
+				return nil, emptyErr
 			}
 		}
 		var values []string
 		switch token {
-		case "all", "default":
-			for _, category := range sponsorblock.AllCategories() {
-				values = append(values, string(category))
-			}
+		case "all":
+			values = append([]string(nil), config.expandAll()...)
+		case "default":
+			values = append([]string(nil), config.expandDefault()...)
 		default:
 			if !sponsorblock.IsValidCategory(token) {
 				return nil, fmt.Errorf("unknown SponsorBlock category %q", token)
+			}
+			if config.requireRemovable && !sponsorblock.IsRemovableCategory(token) {
+				return nil, fmt.Errorf("%s category %q not removable", config.flagName, token)
 			}
 			values = []string{token}
 		}

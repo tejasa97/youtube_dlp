@@ -88,36 +88,55 @@ host are accepted.
 
 ## CLI flags
 
-The CLI exposes the mark/metadata path with yt-dlp-familiar names:
+The CLI exposes SponsorBlock metadata, marking, and removal with
+yt-dlp-familiar names:
 
 | Flag | Effect |
 | --- | --- |
-| `--sponsorblock-mark CATEGORIES` | Sets `Enabled=true`, `Mark=true`, and accumulates `Categories` |
-| `--sponsorblock-api URL` | Sets `APIBase` (kept even when marking is later disabled) |
-| `--no-sponsorblock` | Clears mark enablement only; does not clear `--sponsorblock-api` |
+| `--sponsorblock-mark CATEGORIES` | Sets `Enabled=true`, `Mark=true`, and accumulates mark categories into `Categories` |
+| `--sponsorblock-remove CATEGORIES` | Sets `Enabled=true`, `Remove=true`, and accumulates the resolved remove set into `RemoveCategories` (and the fetch union) |
+| `--sponsorblock-api URL` | Sets `APIBase` (kept even when mark/remove are later disabled) |
+| `--force-keyframes-at-cuts` | Sets `ForceKeyframes=true` when removal is enabled |
+| `--no-force-keyframes-at-cuts` | Sets `ForceKeyframes=false` (last occurrence wins with the positive form) |
+| `--no-sponsorblock` | Clears mark and remove enablement; does not clear `--sponsorblock-api` or reset a stored API base |
 
-`CATEGORIES` is a comma-separated list. Repeated `--sponsorblock-mark`
-flags accumulate in parse order (config arguments first, then command
-line; later `--sponsorblock-api` values overwrite earlier ones). The
-tokens `all` and `default` expand to the pinned full category set from
-`internal/sponsorblock.AllCategories()`. Prefix a category or alias
-with `-` to exclude it after expansion, matching the reference grammar
-(for example `all,-preview`, `default,-intro`, or `sponsor,-sponsor`).
-Exclusions may leave an empty category set, which disables marking.
+`CATEGORIES` is a comma-separated list. Repeated `--sponsorblock-mark` and
+`--sponsorblock-remove` flags each maintain an independent ordered-set
+accumulator (config arguments first, then command line; later
+`--sponsorblock-api` values overwrite earlier ones). For
+`--sponsorblock-mark`, the tokens `all` and `default` expand to the
+pinned full category set from `internal/sponsorblock.AllCategories()`.
+For `--sponsorblock-remove`, `all` expands to every removable category
+(including `filler`) and `default` expands to all removable categories
+except `filler`. Prefix a category or alias with `-` to exclude it after
+expansion, matching the reference grammar (for example `all,-preview`,
+`default,-intro`, or `sponsor,-sponsor`). Exclusions may leave an empty
+category set, which disables that flag's effect. Non-removable categories
+(`poi_highlight`, `chapter`) are rejected by `--sponsorblock-remove` at
+CLI parse time. When a category appears in both mark and remove, removal
+takes operational precedence while metadata is fetched once from the
+deterministic union of both sets.
+
 `--no-sponsorblock` is applied after option parsing (matching pinned
-yt-dlp `opts.no_sponsorblock`), so it clears marking regardless of
-whether mark flags appear before or after it in config or on the
-command line, while preserving `--sponsorblock-api`. Unknown
-identifiers and explicit empty values such as `--sponsorblock-mark=`
-are rejected at CLI parse time (exit status `2`) before any network
-work. Marking writes both `sponsorblock_chapters` and the overlaid
-ordinary `chapters` list. Media cutting (`--sponsorblock-remove` /
-FFmpeg) is not exposed.
+yt-dlp `opts.no_sponsorblock`), so it clears both mark and remove
+regardless of whether those flags appear before or after it in config or
+on the command line, while preserving `--sponsorblock-api` and leaving
+`ForceKeyframes` false. Unknown identifiers, explicit empty values such as
+`--sponsorblock-mark=`, and `--force-keyframes-at-cuts` without any remove
+categories are rejected at CLI parse time (exit status `2`) before any
+network work.
 
-Example:
+Example (mark):
 
 ```sh
 ./bin/ytdlp-go --sponsorblock-mark all,-preview --skip-download --print-json \
+  'https://www.youtube.com/watch?v=VIDEO_ID'
+```
+
+Example (remove):
+
+```sh
+./bin/ytdlp-go --sponsorblock-remove default --force-keyframes-at-cuts \
   'https://www.youtube.com/watch?v=VIDEO_ID'
 ```
 
@@ -325,7 +344,6 @@ exercised without network access, Python, or a clock.
 The following SponsorBlock features from the pinned reference
 remain unimplemented or intentionally different in this release:
 
-- CLI remove/cut flags (`--sponsorblock-remove` and related).
 - SponsorBlock metadata for services other than YouTube
   (PeerTube, Vimeo, etc.).
 - The reference's user-facing `report_warning` call when some
