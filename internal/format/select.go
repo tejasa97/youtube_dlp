@@ -35,7 +35,24 @@ type Selection struct {
 	YouTubeClient        string
 	YouTubeSourceURL     string
 	TargetDuration       float64
-	LiveStartTimestamp   int64
+	// YouTubeSABR selects the finite-VOD SABR/UMP downloader.
+	YouTubeSABR                bool
+	YouTubeSABRTrack           string
+	YouTubeSABRItag            int64
+	YouTubeSABRLastModified    int64
+	YouTubeSABRXTags           string
+	YouTubeSABRServerURL       string
+	YouTubeSABRUstreamerConfig string
+	YouTubeSABRClientID        int64
+	YouTubeSABRClientVersion   string
+	YouTubeSABRUserAgent       string
+	YouTubeSABRVisitorData     string
+	YouTubeSABRDurationSec     int64
+	YouTubeSABRVideoID         string
+	YouTubeSABRClientName      string
+	YouTubeSABRDrc             bool
+	YouTubeSABRAudioTrackID    string
+	LiveStartTimestamp         int64
 }
 
 // Default applies yt-dlp-style best-quality selection: prefer a video-only and
@@ -62,7 +79,8 @@ func Best(info value.Info) (Selection, error) {
 			continue
 		}
 		rawURL, ok := object.Lookup("url").StringValue()
-		if !ok || rawURL == "" {
+		sabr, _ := object.Lookup("_youtube_sabr").Bool()
+		if !sabr && (!ok || rawURL == "") {
 			continue
 		}
 		headers, err := mergeHeaders(info.Lookup("http_headers"), object.Lookup("http_headers"))
@@ -85,6 +103,25 @@ func Best(info value.Info) (Selection, error) {
 		selection.YouTubeSourceURL, _ = object.Lookup("_youtube_source_url").StringValue()
 		selection.TargetDuration, _ = numeric(object.Lookup("target_duration"))
 		selection.LiveStartTimestamp, _ = object.Lookup("live_start_timestamp").Int()
+		selection.YouTubeSABR, _ = object.Lookup("_youtube_sabr").Bool()
+		selection.YouTubeSABRTrack, _ = object.Lookup("_youtube_sabr_track").StringValue()
+		selection.YouTubeSABRItag, _ = object.Lookup("_youtube_sabr_itag").Int()
+		selection.YouTubeSABRLastModified, _ = object.Lookup("_youtube_sabr_last_modified").Int()
+		selection.YouTubeSABRXTags, _ = object.Lookup("_youtube_sabr_xtags").StringValue()
+		selection.YouTubeSABRServerURL, _ = object.Lookup("_youtube_sabr_server_url").StringValue()
+		selection.YouTubeSABRUstreamerConfig, _ = object.Lookup("_youtube_sabr_ustreamer_config").StringValue()
+		selection.YouTubeSABRClientID, _ = object.Lookup("_youtube_sabr_client_id").Int()
+		selection.YouTubeSABRClientVersion, _ = object.Lookup("_youtube_sabr_client_version").StringValue()
+		selection.YouTubeSABRUserAgent, _ = object.Lookup("_youtube_sabr_user_agent").StringValue()
+		selection.YouTubeSABRVisitorData, _ = object.Lookup("_youtube_sabr_visitor_data").StringValue()
+		selection.YouTubeSABRDurationSec, _ = object.Lookup("_youtube_sabr_duration_sec").Int()
+		selection.YouTubeSABRVideoID, _ = object.Lookup("_youtube_sabr_video_id").StringValue()
+		selection.YouTubeSABRClientName, _ = object.Lookup("_youtube_client").StringValue()
+		selection.YouTubeSABRDrc, _ = object.Lookup("_youtube_sabr_drc").Bool()
+		selection.YouTubeSABRAudioTrackID, _ = object.Lookup("_youtube_sabr_audio_track_id").StringValue()
+		if selection.YouTubeSABR {
+			selection.Protocol = "youtube_sabr_ump"
+		}
 		return selection, nil
 	}
 	return Selection{}, fmt.Errorf("%w: formats contain no URL", ErrNoFormats)

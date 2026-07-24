@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -229,6 +230,13 @@ func requestAuthenticatedYouTubeWEBPlayer(ctx context.Context, transport Transpo
 		return youtubePlayerResponse{}, ErrAuthentication
 	}
 	player.clientName = config.ClientName
+	clientID, err := strconv.ParseInt(config.ClientID, 10, 32)
+	if err != nil || clientID <= 0 || clientID > math.MaxInt32 {
+		return youtubePlayerResponse{}, ErrAuthentication
+	}
+	player.clientID = int32(clientID)
+	player.clientVersion = config.ClientVersion
+	player.userAgent = config.UserAgent
 	player.visitorData = config.VisitorData
 	return player, nil
 }

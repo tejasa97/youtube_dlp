@@ -25,12 +25,7 @@ Implementation status: complete.
 
 ## Wave 2 — direct SABR/UMP
 
-Implementation status: pending.
-
-- implement a bounded UMP parser and deterministic byte-stream fixtures;
-- resolve SABR media, initialization, and metadata parts without Python;
-- support cancellation, retries, range validation, and categorized failures;
-- integrate the direct path ahead of native-client URL recovery where safe.
+Implementation status: partial — bounded finite non-live VOD slice with credential-isolated POST transport, multiplexed UMP reconstruction (selected track only), buffered-range progression, strict duration-based completion (no `END_OF_TRACK`, no below-duration tolerance), safe filesystem publish, PO-token resolution at download time (not in extraction JSON or `playback_cookie`), and product dispatch. Live, resume, redirect/context policy loops, server `playback_cookie`, and full client parity remain unsupported.
 
 ## Wave 3 — captions and authenticated clients
 
