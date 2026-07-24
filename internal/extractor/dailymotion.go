@@ -44,8 +44,8 @@ func (Dailymotion) Suitable(u *url.URL) bool {
 		id = strings.Split(id, "_")[0]
 		return dailymotionID.MatchString(id)
 	}
-	if len(parts) == 2 && parts[0] == "playlist" {
-		return dailymotionPlaylistID.MatchString(parts[1])
+	if _, ok := dailymotionPlaylistIDFromPath(parts); ok {
+		return true
 	}
 	return strings.HasPrefix(strings.TrimPrefix(u.Path, "/"), "player/") &&
 		(dailymotionID.MatchString(u.Query().Get("video")) || dailymotionPlaylistID.MatchString(u.Query().Get("playlist")))
@@ -75,15 +75,40 @@ func (Dailymotion) Extract(ctx context.Context, request Request) (Extraction, er
 }
 
 func dailymotionPlaylistIDFromURL(u *url.URL) string {
-	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
-	if len(parts) == 2 && parts[0] == "playlist" && dailymotionPlaylistID.MatchString(parts[1]) {
-		return parts[1]
+	if id, ok := dailymotionPlaylistIDFromPath(strings.Split(strings.Trim(u.Path, "/"), "/")); ok {
+		return id
 	}
 	playlistID := u.Query().Get("playlist")
 	if playlistID != "" && u.Query().Get("video") == "" && dailymotionPlaylistID.MatchString(playlistID) {
 		return playlistID
 	}
 	return ""
+}
+
+func dailymotionPlaylistIDFromPath(parts []string) (string, bool) {
+	if len(parts) < 2 || parts[0] != "playlist" || len(parts) > 3 {
+		return "", false
+	}
+	if len(parts) == 3 && !dailymotionPlaylistPage(parts[2]) {
+		return "", false
+	}
+	id := strings.SplitN(parts[1], "_", 2)[0]
+	if !dailymotionPlaylistID.MatchString(id) {
+		return "", false
+	}
+	return id, true
+}
+
+func dailymotionPlaylistPage(page string) bool {
+	if page == "" {
+		return false
+	}
+	for i := 0; i < len(page); i++ {
+		if page[i] < '0' || page[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func dailymotionVideoID(u *url.URL) string {
