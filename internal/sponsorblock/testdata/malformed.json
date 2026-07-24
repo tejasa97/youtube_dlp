@@ -1,0 +1,28 @@
+[
+  {
+    "videoID": "fixture0001",
+    "segments": [
+      {
+        "UUID": "valid",
+        "segment": [10, 25],
+        "category": "sponsor",
+        "actionType": "skip",
+        "videoDuration": 60
+      },
+      {
+        "UUID": "unknown-category",
+        "segment": [30, 35],
+        "category": "rogue",
+        "actionType": "skip",
+        "videoDuration": 60
+      },
+      {
+        "UUID": "unknown-action",
+        "segment": [40, 45],
+        "category": "sponsor",
+        "actionType": "rogue",
+        "videoDuration": 60
+      }
+    ]
+  }
+]
