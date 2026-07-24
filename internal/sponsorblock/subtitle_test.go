@@ -172,6 +172,49 @@ func TestCutLRCMultiTimestampLine(t *testing.T) {
 	}
 }
 
+func TestCutLRCPreservesEmbeddedTimestampText(t *testing.T) {
+	cuts := []Range{{Start: 10, End: 20}}
+	input := "[00:05.000]see bracket [00:12.000] in lyrics\nno tags here [00:25.000]\n"
+	got, err := CutSubtitle("lrc", []byte(input), cuts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(got)
+	if !strings.Contains(text, "[00:05.000]see bracket [00:12.000] in lyrics") {
+		t.Fatalf("embedded timestamp text must survive verbatim: %s", text)
+	}
+	if !strings.Contains(text, "no tags here [00:25.000]") {
+		t.Fatalf("non-leading timestamp-shaped text must survive: %s", text)
+	}
+}
+
+func TestCutSRTWhitespaceSeparatedCues(t *testing.T) {
+	cuts := []Range{{Start: 10, End: 20}}
+	input := "" +
+		"1\n00:00:05,000 --> 00:00:08,000\nbefore\n" +
+		" \n" +
+		"2\n00:00:12,000 --> 00:00:18,000\ninside\n" +
+		"\t\n" +
+		"3\n00:00:25,000 --> 00:00:30,000\nafter\n"
+	got, err := CutSubtitle("srt", []byte(input), cuts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(got)
+	if strings.Contains(text, "inside") {
+		t.Fatalf("inside cue survived: %s", text)
+	}
+	if !strings.Contains(text, "00:00:05,000 --> 00:00:08,000") {
+		t.Fatalf("before cue missing: %s", text)
+	}
+	if !strings.Contains(text, "00:00:15,000 --> 00:00:20,000") {
+		t.Fatalf("after cue not remapped: %s", text)
+	}
+	if strings.Count(text, " --> ") != 2 {
+		t.Fatalf("expected two surviving cues, got: %s", text)
+	}
+}
+
 func TestCutSRTRejectsMalformedCue(t *testing.T) {
 	cases := []string{
 		"1\nnot a timing line\ntext\n",

@@ -270,7 +270,7 @@ func cutLRC(data []byte, cuts []Range) ([]byte, error) {
 	var out strings.Builder
 	cues := 0
 	for index, line := range lines {
-		matches := lrcTimestamp.FindAllStringSubmatchIndex(line, -1)
+		matches, textStart := leadingLRCTimestampMatches(line)
 		if len(matches) == 0 {
 			out.WriteString(line)
 			if index+1 < len(lines) {
@@ -284,7 +284,6 @@ func cutLRC(data []byte, cuts []Range) ([]byte, error) {
 		}
 		var rebuilt strings.Builder
 		kept := 0
-		textStart := 0
 		for _, match := range matches {
 			min := line[match[2]:match[3]]
 			sec := line[match[4]:match[5]]
@@ -292,7 +291,6 @@ func cutLRC(data []byte, cuts []Range) ([]byte, error) {
 			if match[6] >= 0 {
 				frac = line[match[6]:match[7]]
 			}
-			textStart = match[1]
 			start, err := parseLRCTimestamp(min, sec, frac)
 			if err != nil {
 				return nil, err
@@ -317,6 +315,26 @@ func cutLRC(data []byte, cuts []Range) ([]byte, error) {
 	return []byte(out.String()), nil
 }
 
+// leadingLRCTimestampMatches returns contiguous timestamp tags from the start
+// of line and the byte offset where lyric text begins.
+func leadingLRCTimestampMatches(line string) ([][]int, int) {
+	pos := 0
+	var matches [][]int
+	for {
+		loc := lrcTimestamp.FindStringSubmatchIndex(line[pos:])
+		if loc == nil || loc[0] != 0 {
+			break
+		}
+		match := make([]int, len(loc))
+		for index, value := range loc {
+			match[index] = value + pos
+		}
+		matches = append(matches, match)
+		pos += loc[1]
+	}
+	return matches, pos
+}
+
 func isVTTMetadataBlock(line string) bool {
 	upper := strings.ToUpper(strings.TrimSpace(line))
 	switch {
@@ -334,15 +352,31 @@ func isVTTMetadataBlock(line string) bool {
 func splitSubtitleBlocks(text string) []string {
 	normalized := strings.ReplaceAll(text, "\r\n", "\n")
 	normalized = strings.ReplaceAll(normalized, "\r", "\n")
-	parts := strings.Split(normalized, "\n\n")
-	out := make([]string, 0, len(parts))
-	for _, part := range parts {
-		if strings.TrimSpace(part) == "" {
+	lines := strings.Split(normalized, "\n")
+	var blocks []string
+	var current strings.Builder
+	flush := func() {
+		if current.Len() == 0 {
+			return
+		}
+		block := strings.TrimSpace(current.String())
+		if block != "" {
+			blocks = append(blocks, block)
+		}
+		current.Reset()
+	}
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			flush()
 			continue
 		}
-		out = append(out, strings.TrimSpace(part))
+		if current.Len() > 0 {
+			current.WriteByte('\n')
+		}
+		current.WriteString(line)
 	}
-	return out
+	flush()
+	return blocks
 }
 
 func splitKeepNonEmpty(block string) []string {
