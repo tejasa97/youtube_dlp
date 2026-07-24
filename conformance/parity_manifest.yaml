@@ -1938,6 +1938,8 @@ capabilities:
       - internal/sponsorblock.TestCutLRCTimingCases
       - internal/sponsorblock.TestCutVTTPreservesMetadataBlocks
       - internal/sponsorblock.TestCutLRCMultiTimestampLine
+      - internal/sponsorblock.TestCutLRCPreservesEmbeddedTimestampText
+      - internal/sponsorblock.TestCutSRTWhitespaceSeparatedCues
       - internal/sponsorblock.TestCutSRTRejectsMalformedCue
       - internal/sponsorblock.TestCutSubtitleRejectsUnknown
       - internal/sponsorblock.FuzzPlanCuts

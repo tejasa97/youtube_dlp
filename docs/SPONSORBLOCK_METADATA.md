@@ -221,7 +221,8 @@ supported extensions (`srt`, `vtt`, `ass`/`ssa`, `lrc`). Cues entirely
 inside cut ranges are dropped; cues before, overlapping, or after cuts are
 kept with remapped timestamps. WebVTT `STYLE`, `REGION`, and `NOTE`
 blocks are preserved verbatim. LRC lines with multiple leading timestamps
-remap each timestamp independently and keep surviving lyric text. Malformed
+remap each contiguous leading tag independently and keep surviving lyric text;
+timestamp-shaped text later in lyrics is preserved literally. Malformed
 or unrecognized SRT cue blocks fail closed with `invalid_input` instead
 of silently dropping content. FFmpeg concat is not used for subtitles.
 Unsupported sidecar formats fail closed with a categorized `unsupported`
@@ -301,7 +302,7 @@ SponsorBlock request:
 - Maximum string length per decoded field: 1024 bytes.
 - Maximum JSON depth: 16.
 - Maximum number of groups in a response: 64.
-- Maximum remove cut ranges after merge: 256 (2×512 force-keyframe slots).
+- Maximum remove cut ranges after merge: 256 (512 ÷ 2 force-keyframe slots).
 - Maximum keep segments after planning: 128 (ffmpeg concat-range limit).
 - Maximum unique force-keyframe timestamps: 512.
 
