@@ -11,7 +11,10 @@ import (
 	"path"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
+
+	"github.com/ytdlp-go/ytdlp/internal/network"
 )
 
 type tiktokFixtureTransport struct {
@@ -94,17 +97,18 @@ func (transport *tiktokRedirectFixtureTransport) DoWithoutCookies(ctx context.Co
 	return transport.redirectResponse(request.WithContext(ctx))
 }
 
-func (transport *tiktokRedirectFixtureTransport) DoNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
+func (transport *tiktokRedirectFixtureTransport) DoWithoutCredentialsNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
 	return transport.redirectResponse(request.WithContext(ctx))
 }
 
-// tiktokAutoFollowIsolatedTransport mimics production network.Client: it
-// implements both CookieIsolatedTransport and DoNoRedirect, but
-// DoWithoutCookies follows redirects to a final 200 without exposing Location.
+// tiktokAutoFollowIsolatedTransport mimics production network.Client dual
+// surfaces: DoWithoutCookies follows redirects to a final 200 without exposing
+// Location, while DoWithoutCredentialsNoRedirect returns one hop.
 type tiktokAutoFollowIsolatedTransport struct {
-	redirects           map[string]tiktokRedirectResponse
-	withoutCookiesCalls int
-	noRedirectCalls     int
+	redirects                    map[string]tiktokRedirectResponse
+	withoutCookiesCalls          int
+	withoutCredentialsNoRedirect int
+	noRedirectCalls              int
 }
 
 func (transport *tiktokAutoFollowIsolatedTransport) DoWithoutCookies(ctx context.Context, request *http.Request) (*http.Response, error) {
@@ -139,6 +143,15 @@ func (transport *tiktokAutoFollowIsolatedTransport) DoWithoutCookies(ctx context
 
 func (transport *tiktokAutoFollowIsolatedTransport) DoNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
 	transport.noRedirectCalls++
+	return transport.hopResponse(request)
+}
+
+func (transport *tiktokAutoFollowIsolatedTransport) DoWithoutCredentialsNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
+	transport.withoutCredentialsNoRedirect++
+	return transport.hopResponse(request)
+}
+
+func (transport *tiktokAutoFollowIsolatedTransport) hopResponse(request *http.Request) (*http.Response, error) {
 	step, ok := transport.redirects[request.URL.String()]
 	if !ok {
 		return nil, fmt.Errorf("unexpected no-redirect request: %s", request.URL.String())
@@ -160,6 +173,60 @@ func (*tiktokAutoFollowIsolatedTransport) Do(context.Context, *http.Request) (*h
 }
 
 func (*tiktokAutoFollowIsolatedTransport) ReadPage(context.Context, string) ([]byte, http.Header, error) {
+	return nil, nil, errors.New("unexpected ReadPage")
+}
+
+type tiktokOnlyDoNoRedirectTransport struct {
+	calls int
+}
+
+func (transport *tiktokOnlyDoNoRedirectTransport) DoNoRedirect(context.Context, *http.Request) (*http.Response, error) {
+	transport.calls++
+	return &http.Response{StatusCode: http.StatusFound, Header: make(http.Header), Body: http.NoBody}, nil
+}
+
+func (*tiktokOnlyDoNoRedirectTransport) Do(context.Context, *http.Request) (*http.Response, error) {
+	return nil, errors.New("unexpected Do")
+}
+
+func (*tiktokOnlyDoNoRedirectTransport) ReadPage(context.Context, string) ([]byte, http.Header, error) {
+	return nil, nil, errors.New("unexpected ReadPage")
+}
+
+type tiktokNilResponseTransport struct{}
+
+func (*tiktokNilResponseTransport) DoWithoutCredentialsNoRedirect(context.Context, *http.Request) (*http.Response, error) {
+	return nil, nil
+}
+
+func (*tiktokNilResponseTransport) Do(context.Context, *http.Request) (*http.Response, error) {
+	return nil, errors.New("unexpected Do")
+}
+
+func (*tiktokNilResponseTransport) ReadPage(context.Context, string) ([]byte, http.Header, error) {
+	return nil, nil, errors.New("unexpected ReadPage")
+}
+
+type tiktokNilBodyTransport struct {
+	location string
+}
+
+func (transport *tiktokNilBodyTransport) DoWithoutCredentialsNoRedirect(_ context.Context, request *http.Request) (*http.Response, error) {
+	header := make(http.Header)
+	header.Set("Location", transport.location)
+	return &http.Response{
+		StatusCode: http.StatusFound,
+		Header:     header,
+		Body:       nil,
+		Request:    request,
+	}, nil
+}
+
+func (*tiktokNilBodyTransport) Do(context.Context, *http.Request) (*http.Response, error) {
+	return nil, errors.New("unexpected Do")
+}
+
+func (*tiktokNilBodyTransport) ReadPage(context.Context, string) ([]byte, http.Header, error) {
 	return nil, nil, errors.New("unexpected ReadPage")
 }
 
@@ -469,7 +536,7 @@ type tiktokTestHelper interface {
 	Fatal(...any)
 }
 
-func TestTikTokShortLinkRedirectPrefersDoNoRedirectOverAutoFollow(t *testing.T) {
+func TestTikTokShortLinkRedirectPrefersCredentialIsolatedNoRedirect(t *testing.T) {
 	canonical := "https://www.tiktok.com/@fixture_creator/video/7460000000000000001"
 	transport := &tiktokAutoFollowIsolatedTransport{redirects: map[string]tiktokRedirectResponse{
 		"https://vm.tiktok.com/ZTR45GpSF": {status: http.StatusFound, location: canonical},
@@ -485,10 +552,23 @@ func TestTikTokShortLinkRedirectPrefersDoNoRedirectOverAutoFollow(t *testing.T) 
 		t.Fatalf("redirect result = %#v", result.Redirect)
 	}
 	if transport.withoutCookiesCalls != 0 {
-		t.Fatalf("DoWithoutCookies called %d times; hop-by-hop must use DoNoRedirect", transport.withoutCookiesCalls)
+		t.Fatalf("DoWithoutCookies called %d times; hop-by-hop must use credential isolation", transport.withoutCookiesCalls)
 	}
-	if transport.noRedirectCalls != 1 {
-		t.Fatalf("DoNoRedirect calls = %d", transport.noRedirectCalls)
+	if transport.noRedirectCalls != 0 {
+		t.Fatalf("DoNoRedirect called %d times; hop-by-hop must not use cookie-bearing no-redirect", transport.noRedirectCalls)
+	}
+	if transport.withoutCredentialsNoRedirect != 1 {
+		t.Fatalf("DoWithoutCredentialsNoRedirect calls = %d", transport.withoutCredentialsNoRedirect)
+	}
+
+	onlyNoRedirect := &tiktokOnlyDoNoRedirectTransport{}
+	if _, err := NewTikTok().Extract(context.Background(), Request{
+		URL: "https://vm.tiktok.com/ZTR45GpSF", Transport: onlyNoRedirect,
+	}); !errors.Is(err, ErrTransportIsolation) {
+		t.Fatalf("DoNoRedirect-only transport error = %v", err)
+	}
+	if onlyNoRedirect.calls != 0 {
+		t.Fatalf("DoNoRedirect should not be consulted, calls=%d", onlyNoRedirect.calls)
 	}
 }
 
@@ -619,6 +699,232 @@ func TestTikTokShortLinkRedirectCancellationAndTransport(t *testing.T) {
 	}); !errors.Is(err, ErrTransportIsolation) {
 		t.Fatalf("missing redirect transport error = %v", err)
 	}
+}
+
+func TestTikTokShortLinkTrailingSlashAndMobileHop(t *testing.T) {
+	canonical := "https://www.tiktok.com/@fixture_creator/video/7460000000000000001"
+	parsed, err := url.Parse("https://vm.tiktok.com/ZTR45GpSF/")
+	if err != nil || !NewTikTok().Suitable(parsed) {
+		t.Fatalf("trailing-slash short link should be suitable: err=%v suitable=%v", err, NewTikTok().Suitable(parsed))
+	}
+	transport := &tiktokRedirectFixtureTransport{redirects: map[string]tiktokRedirectResponse{
+		"https://vm.tiktok.com/ZTR45GpSF": {status: http.StatusFound, location: canonical},
+	}}
+	result, err := NewTikTok().Extract(context.Background(), Request{
+		URL:       "https://vm.tiktok.com/ZTR45GpSF/",
+		Transport: transport,
+	})
+	if err != nil || !result.IsURL() || result.Redirect.URL != canonical {
+		t.Fatalf("trailing-slash result=%#v err=%v", result.Redirect, err)
+	}
+	if len(transport.calls) != 1 || transport.calls[0] != "https://vm.tiktok.com/ZTR45GpSF" {
+		t.Fatalf("normalized redirect calls = %#v", transport.calls)
+	}
+
+	mobile := &tiktokRedirectFixtureTransport{redirects: map[string]tiktokRedirectResponse{
+		"https://vm.tiktok.com/ZTR45GpSF": {status: http.StatusFound, location: "https://m.tiktok.com/ZMobileHop"},
+		"https://m.tiktok.com/ZMobileHop": {status: http.StatusFound, location: "https://m.tiktok.com/@fixture_creator/video/7460000000000000001"},
+	}}
+	result, err = NewTikTok().Extract(context.Background(), Request{
+		URL:       "https://vm.tiktok.com/ZTR45GpSF",
+		Transport: mobile,
+	})
+	if err != nil || !result.IsURL() || result.Redirect.URL != canonical {
+		t.Fatalf("mobile-hop result=%#v err=%v", result.Redirect, err)
+	}
+	if len(mobile.calls) != 2 {
+		t.Fatalf("mobile-hop calls = %#v", mobile.calls)
+	}
+}
+
+func TestTikTokShortLinkHopLimitAndURLSize(t *testing.T) {
+	redirects := map[string]tiktokRedirectResponse{}
+	for i := 0; i < tiktokRedirectMaxHops+1; i++ {
+		current := fmt.Sprintf("https://vm.tiktok.com/hop%02d", i)
+		next := fmt.Sprintf("https://vt.tiktok.com/hop%02d", i+1)
+		if i%2 == 1 {
+			current = fmt.Sprintf("https://vt.tiktok.com/hop%02d", i)
+			next = fmt.Sprintf("https://vm.tiktok.com/hop%02d", i+1)
+		}
+		redirects[current] = tiktokRedirectResponse{status: http.StatusFound, location: next}
+	}
+	transport := &tiktokRedirectFixtureTransport{redirects: redirects}
+	_, err := NewTikTok().Extract(context.Background(), Request{
+		URL: "https://vm.tiktok.com/hop00", Transport: transport,
+	})
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("hop-limit error = %v", err)
+	}
+	if !strings.Contains(errString(err), "hop limit") {
+		t.Fatalf("hop-limit message = %v", err)
+	}
+	if len(transport.calls) != tiktokRedirectMaxHops {
+		t.Fatalf("hop-limit calls = %d", len(transport.calls))
+	}
+
+	oversized := "https://www.tiktok.com/t/" + strings.Repeat("A", tiktokRedirectMaxURLBytes)
+	sizeTransport := &tiktokRedirectFixtureTransport{redirects: map[string]tiktokRedirectResponse{
+		"https://vm.tiktok.com/toolong": {status: http.StatusFound, location: oversized},
+	}}
+	if _, err := NewTikTok().Extract(context.Background(), Request{
+		URL: "https://vm.tiktok.com/toolong", Transport: sizeTransport,
+	}); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("url-size error = %v", err)
+	}
+}
+
+func TestTikTokShortLinkNilResponseBodyAndMalformedStatus(t *testing.T) {
+	if _, err := NewTikTok().Extract(context.Background(), Request{
+		URL: "https://vm.tiktok.com/ZTR45GpSF", Transport: &tiktokNilResponseTransport{},
+	}); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("nil response error = %v", err)
+	}
+
+	canonical := "https://www.tiktok.com/@fixture_creator/video/7460000000000000001"
+	result, err := NewTikTok().Extract(context.Background(), Request{
+		URL:       "https://vm.tiktok.com/ZTR45GpSF",
+		Transport: &tiktokNilBodyTransport{location: canonical},
+	})
+	if err != nil || !result.IsURL() || result.Redirect.URL != canonical {
+		t.Fatalf("nil body result=%#v err=%v", result.Redirect, err)
+	}
+
+	for _, status := range []int{0, 100, 199, 400, 500, 999} {
+		transport := &tiktokRedirectFixtureTransport{redirects: map[string]tiktokRedirectResponse{
+			"https://vm.tiktok.com/badstatus": {status: status, location: canonical},
+		}}
+		if _, err := NewTikTok().Extract(context.Background(), Request{
+			URL: "https://vm.tiktok.com/badstatus", Transport: transport,
+		}); !errors.Is(err, ErrUnsupported) {
+			t.Fatalf("status %d error = %v", status, err)
+		}
+	}
+}
+
+func TestTikTokShortLinkRealNetworkClientCredentialIsolation(t *testing.T) {
+	canonical := "https://www.tiktok.com/@fixture_creator/video/7460000000000000001"
+	var (
+		mu       sync.Mutex
+		hosts    []string
+		leaked   []string
+		followed bool
+	)
+	roundTrip := networkRoundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		hosts = append(hosts, request.URL.Hostname())
+		for _, key := range []string{"Authorization", "Cookie", "Proxy-Authorization"} {
+			if request.Header.Get(key) != "" {
+				leaked = append(leaked, key+"="+request.Header.Get(key))
+			}
+		}
+		switch request.URL.Hostname() {
+		case "vm.tiktok.com":
+			header := make(http.Header)
+			header.Set("Location", "https://evil.example/steal?token=secret")
+			return &http.Response{
+				StatusCode: http.StatusFound,
+				Header:     header,
+				Body:       http.NoBody,
+				Request:    request,
+			}, nil
+		case "evil.example":
+			followed = true
+			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Request: request}, nil
+		default:
+			return nil, fmt.Errorf("unexpected host %s", request.URL.Hostname())
+		}
+	})
+	client, err := network.New(network.Config{
+		RoundTripper: roundTrip,
+		DefaultHeaders: http.Header{
+			"Authorization":       {"default-auth"},
+			"Cookie":              {"default-cookie=1"},
+			"Proxy-Authorization": {"proxy-auth"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.AddCookies([]*http.Cookie{{Name: "jar", Value: "secret", Domain: "tiktok.com", Path: "/"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = NewTikTok().Extract(context.Background(), Request{
+		URL:       "https://vm.tiktok.com/ZTR45GpSF",
+		Transport: client,
+	})
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("open-redirect rejection = %v", err)
+	}
+	if err != nil && strings.Contains(err.Error(), "secret") {
+		t.Fatalf("error leaked redirect secret: %v", err)
+	}
+	mu.Lock()
+	if followed {
+		t.Fatal("open redirect was followed by the network client")
+	}
+	if len(leaked) != 0 {
+		t.Fatalf("credential headers leaked: %#v", leaked)
+	}
+	if len(hosts) != 1 || hosts[0] != "vm.tiktok.com" {
+		t.Fatalf("hosts contacted = %#v", hosts)
+	}
+	mu.Unlock()
+
+	// Positive path through the real client: one hop to canonical, still no credentials.
+	hosts, leaked, followed = nil, nil, false
+	roundTrip = networkRoundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		hosts = append(hosts, request.URL.Hostname())
+		for _, key := range []string{"Authorization", "Cookie", "Proxy-Authorization"} {
+			if request.Header.Get(key) != "" {
+				leaked = append(leaked, key+"="+request.Header.Get(key))
+			}
+		}
+		header := make(http.Header)
+		header.Set("Location", canonical)
+		return &http.Response{StatusCode: http.StatusFound, Header: header, Body: http.NoBody, Request: request}, nil
+	})
+	client, err = network.New(network.Config{
+		RoundTripper: roundTrip,
+		DefaultHeaders: http.Header{
+			"Authorization": {"default-auth"},
+			"Cookie":        {"default-cookie=1"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := NewTikTok().Extract(context.Background(), Request{
+		URL:       "https://vm.tiktok.com/ZTR45GpSF",
+		Transport: client,
+	})
+	if err != nil || !result.IsURL() || result.Redirect.URL != canonical {
+		t.Fatalf("real-client redirect result=%#v err=%v", result.Redirect, err)
+	}
+	mu.Lock()
+	if len(leaked) != 0 {
+		t.Fatalf("credential headers leaked on success path: %#v", leaked)
+	}
+	if len(hosts) != 1 || hosts[0] != "vm.tiktok.com" {
+		t.Fatalf("success hosts = %#v", hosts)
+	}
+	mu.Unlock()
+}
+
+type networkRoundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (fn networkRoundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return fn(request)
+}
+
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 func readTikTokFixture(t tiktokTestHelper, name string) []byte {

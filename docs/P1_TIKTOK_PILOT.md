@@ -11,14 +11,17 @@ transport.
 Supported URLs are public `www.tiktok.com/@user/video/id` and
 `www.tiktok.com/embed/id` pages (the bare `tiktok.com` host is accepted too),
 plus short links on `vm.tiktok.com`, `vt.tiktok.com`, and `tiktok.com/t/*`
-that resolve to the canonical video page before hydration extraction.
+(including a valid trailing slash) that resolve to the canonical video page
+before hydration extraction. Intermediate `m.tiktok.com` hops are accepted when
+they remain short tokens or resolve to a canonical `/@user/video/id` path.
 Input query parameters are not forwarded into the canonical webpage request,
 which avoids carrying caller tokens into diagnostics or fixture behavior.
 
 ## Flow
 
-1. For short links, issue bounded `HEAD` requests through `DoNoRedirect`
-   (not `DoWithoutCookies`, which follows redirects) with
+1. For short links, issue bounded `HEAD` requests through
+   `DoWithoutCredentialsNoRedirect` (not `DoWithoutCookies`, which follows
+   redirects, and not `DoNoRedirect`, which may still attach jar cookies) with
    `User-Agent: facebookexternalhit/1.1`, validate each `Location` hop against
    an explicit TikTok host allowlist, and return a lazy URL result to the
    canonical `https://www.tiktok.com/@user/video/id` page.
@@ -48,7 +51,7 @@ request, and checked again before parsing.
 - Missing, malformed, trailing, mismatched-ID, or formatless hydration:
   `ErrInvalidMetadata`.
 - Missing explicit browser-profile support: `ErrTransportProfile`.
-- Missing cookie-isolated or no-redirect transport for short-link resolution:
+- Missing credential-isolated no-redirect transport for short-link resolution:
   `ErrTransportIsolation`.
 - Oversized hydration: `ErrJSONResponseTooLarge`.
 - Cancellation: the original context error.
@@ -78,8 +81,10 @@ invoke Python or the reference checkout.
   request signing, and `odin_tt`/`sid_tt` cookie forwarding are not implemented.
 - The pinned reference's transient WAF proof-of-work cookie solver is not
   implemented. Challenge pages return a stable capability error.
-- SIGI-state fallback, captions, image slideshows, availability labels, and
-  full thumbnail collections are outside the pilot.
+- SIGI-state fallback, image slideshows, availability labels, and full
+  thumbnail collections are outside the pilot. Bounded public-webpage captions
+  from hydration `video.subtitleInfos` are in scope (see
+  `docs/TIKTOK_CAPTIONS_EVIDENCE.md`).
 - TikTok's proprietary `bytevc2` codec is not specially deprioritized.
 - No live canary is part of deterministic CI; current interoperability must be
   assessed separately under the repository's controlled-canary policy.

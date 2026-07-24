@@ -1418,12 +1418,19 @@ capabilities:
     evidence:
       - internal/extractor.TestTikTokExtractsProtectedHydrationFormats
       - internal/extractor.TestTikTokSuitableAndEmbedCanonicalization
-      - internal/extractor.TestTikTokShortLinkRedirectPrefersDoNoRedirectOverAutoFollow
+      - internal/extractor.TestTikTokShortLinkRedirectPrefersCredentialIsolatedNoRedirect
       - internal/extractor.TestTikTokShortLinkRedirectMultiHopAndRelativeLocation
       - internal/extractor.TestTikTokShortLinkRedirectDirectCanonical
       - internal/extractor.TestTikTokShortLinkRedirectLoopAndOpenRedirect
       - internal/extractor.TestTikTokShortLinkRedirectRejectsUnsafeLocations
       - internal/extractor.TestTikTokShortLinkRedirectCancellationAndTransport
+      - internal/extractor.TestTikTokShortLinkTrailingSlashAndMobileHop
+      - internal/extractor.TestTikTokShortLinkHopLimitAndURLSize
+      - internal/extractor.TestTikTokShortLinkNilResponseBodyAndMalformedStatus
+      - internal/extractor.TestTikTokShortLinkRealNetworkClientCredentialIsolation
+      - internal/network.TestDoWithoutCredentialsNoRedirectDropsAllCredentialSources
+      - internal/network.TestDoWithoutCredentialsNoRedirectRefusesSameOriginRedirect
+      - internal/network.TestDoWithoutCredentialsNoRedirectRefusesCrossOriginRedirect
       - internal/extractor.TestTikTokFailuresAreCategorizedAndSecretSafe
       - internal/extractor.TestTikTokCancellationAndHydrationBound
       - internal/extractor.TestTikTokCaptionValidationBoundsAndCoreMetadata

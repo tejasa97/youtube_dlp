@@ -36,6 +36,13 @@ type CookieIsolatedTransport interface {
 	DoWithoutCookies(context.Context, *http.Request) (*http.Response, error)
 }
 
+// CredentialIsolatedNoRedirectTransport is an optional capability for hop-by-hop
+// redirect resolution that must not follow redirects and must not forward
+// operation-jar cookies or credential-bearing headers.
+type CredentialIsolatedNoRedirectTransport interface {
+	DoWithoutCredentialsNoRedirect(context.Context, *http.Request) (*http.Response, error)
+}
+
 // ProfileTransport is an optional capability implemented by request directors
 // that can execute an explicitly named browser transport profile.
 type ProfileTransport interface {
