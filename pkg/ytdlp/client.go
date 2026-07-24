@@ -174,6 +174,15 @@ func WithTelemetryCollector(collector *TelemetryCollector) Option {
 	return func(client *Client) { client.telemetry = collector }
 }
 
+// WithExtractors prepends extractors ahead of the product registry. It is
+// intended for deterministic integration tests that need a YouTube-named
+// fixture without changing production URL routing.
+func WithExtractors(extractors ...extractor.Extractor) Option {
+	return func(client *Client) {
+		client.extraExtractors = append([]extractor.Extractor(nil), extractors...)
+	}
+}
+
 // Runner is the cancellable operation contract.
 type Runner interface {
 	Run(context.Context, Request) (Result, error)
@@ -197,6 +206,7 @@ type Client struct {
 	telemetry             *TelemetryCollector
 	youtubePOT            *youtubepot.Director
 	youtubePOTErr         error
+	extraExtractors       []extractor.Extractor
 
 	solverMu     sync.Mutex
 	sharedSolver *lazyYouTubeSolver
@@ -330,7 +340,8 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 }
 
 func (client *Client) productRegistry() *extractor.Registry {
-	registered := []extractor.Extractor{
+	registered := append([]extractor.Extractor(nil), client.extraExtractors...)
+	registered = append(registered,
 		extractor.NewYouTubeMusicSearch(),
 		extractor.NewYouTubeSearch(),
 		extractor.NewYouTubeAliasTab(),
@@ -367,7 +378,7 @@ func (client *Client) productRegistry() *extractor.Registry {
 		extractor.NewFlickr(),
 		extractor.NewRegionSVT(),
 		extractor.NewSyntheticAuth(),
-	}
+	)
 	for _, installed := range client.plugins {
 		if installed != nil {
 			registered = append(registered, &installedPluginExtractor{installed: installed, approver: client.pluginApprover})

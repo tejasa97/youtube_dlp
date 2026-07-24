@@ -374,6 +374,17 @@ Use `--youtube-comment-sort new|top` to choose the order. The current scope
 covers anonymous parent comments, click-tracked reply continuations, and
 bounded nested subthreads; authenticated comments are not yet supported.
 
+SponsorBlock chapter marking is opt-in for YouTube watch URLs:
+
+```sh
+./bin/ytdlp-go --sponsorblock-mark all --skip-download --print-json \
+  'https://www.youtube.com/watch?v=VIDEO_ID'
+```
+
+Use `--sponsorblock-api URL` to point at a mirror and `--no-sponsorblock` to
+clear inherited enablement. Categories may be a comma-separated list, or
+`all`/`default` for the pinned full set. Media cutting remains out of scope.
+
 Public adaptive YouTube live streams can opt into bounded reconstruction from
 their retained beginning:
 
