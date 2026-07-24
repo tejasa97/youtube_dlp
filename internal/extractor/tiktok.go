@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/http"
 	"net/url"
 	"path"
 	"regexp"
@@ -15,7 +17,12 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
-const tiktokImpersonationProfile = "chrome-133"
+const (
+	tiktokImpersonationProfile = "chrome-133"
+	tiktokRedirectUserAgent    = "facebookexternalhit/1.1"
+	tiktokRedirectMaxHops      = 10
+	tiktokRedirectMaxURLBytes  = 4096
+)
 
 // These limits deliberately sit well below the hydration document limit. Caption
 // metadata is optional and must never be able to dominate a normal extraction.
@@ -30,11 +37,13 @@ const (
 )
 
 var (
-	tiktokVideoPathPattern = regexp.MustCompile(`^/@([A-Za-z0-9_.-]+)/video/([0-9]+)/*$`)
-	tiktokEmbedPathPattern = regexp.MustCompile(`^/embed/([0-9]+)/*$`)
-	tiktokUniversalScript  = regexp.MustCompile(`(?is)<script\b[^>]*\bid=["']__UNIVERSAL_DATA_FOR_REHYDRATION__["'][^>]*>(.*?)</script\s*>`)
-	tiktokURLKeyPattern    = regexp.MustCompile(`v[^_]+_([^_]+)_([0-9]+p)_([0-9]+)`)
-	tiktokCaptionLanguage  = regexp.MustCompile(`^[a-z0-9]{1,16}(-[a-z0-9]{1,16}){0,3}$`)
+	tiktokVideoPathPattern   = regexp.MustCompile(`^/@([A-Za-z0-9_.-]+)/video/([0-9]+)/*$`)
+	tiktokEmbedPathPattern   = regexp.MustCompile(`^/embed/([0-9]+)/*$`)
+	tiktokShortVMPathPattern = regexp.MustCompile(`^/[A-Za-z0-9_-]+/?$`)
+	tiktokShortTPathPattern  = regexp.MustCompile(`^/t/[A-Za-z0-9_-]+/?$`)
+	tiktokUniversalScript    = regexp.MustCompile(`(?is)<script\b[^>]*\bid=["']__UNIVERSAL_DATA_FOR_REHYDRATION__["'][^>]*>(.*?)</script\s*>`)
+	tiktokURLKeyPattern      = regexp.MustCompile(`v[^_]+_([^_]+)_([0-9]+p)_([0-9]+)`)
+	tiktokCaptionLanguage    = regexp.MustCompile(`^[a-z0-9]{1,16}(-[a-z0-9]{1,16}){0,3}$`)
 )
 
 type TikTok struct{}
@@ -44,8 +53,14 @@ func NewTikTok() TikTok { return TikTok{} }
 func (TikTok) Name() string { return "tiktok" }
 
 func (TikTok) Suitable(parsed *url.URL) bool {
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+	if parsed == nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return false
+	}
+	if parsed.User != nil || parsed.Port() != "" {
+		return false
+	}
+	if tiktokIsShortLink(parsed) {
+		return true
 	}
 	host := strings.ToLower(parsed.Hostname())
 	if host != "www.tiktok.com" && host != "tiktok.com" {
@@ -61,6 +76,17 @@ func (TikTok) Extract(ctx context.Context, request Request) (Extraction, error) 
 	parsed, err := url.Parse(request.URL)
 	if err != nil {
 		return Extraction{}, ErrUnsupported
+	}
+	if tiktokIsShortLink(parsed) {
+		canonical, err := resolveTikTokShortLink(ctx, request.Transport, parsed)
+		if err != nil {
+			return Extraction{}, err
+		}
+		parsedCanonical, err := url.Parse(canonical)
+		if err != nil || tiktokIsShortLink(parsedCanonical) {
+			return Extraction{}, ErrUnsupported
+		}
+		return URLResult(Entry{URL: canonical})
 	}
 	videoID, userID := tiktokVideoIdentity(parsed.Path)
 	if videoID == "" {
@@ -88,6 +114,225 @@ func tiktokVideoIdentity(path string) (videoID, userID string) {
 		return match[1], ""
 	}
 	return "", ""
+}
+
+func tiktokIsShortLink(parsed *url.URL) bool {
+	if parsed == nil {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	switch host {
+	case "vm.tiktok.com", "vt.tiktok.com", "m.tiktok.com":
+		return tiktokShortVMPathPattern.MatchString(parsed.Path)
+	case "www.tiktok.com", "tiktok.com":
+		return tiktokShortTPathPattern.MatchString(parsed.Path)
+	default:
+		return false
+	}
+}
+
+func tiktokRedirectHostAllowed(host string, intermediate bool) bool {
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	if net.ParseIP(host) != nil || host == "localhost" {
+		return false
+	}
+	switch host {
+	case "vm.tiktok.com", "vt.tiktok.com", "m.tiktok.com":
+		return intermediate
+	case "www.tiktok.com", "tiktok.com":
+		return true
+	default:
+		return false
+	}
+}
+
+func tiktokNormalizeRedirectPath(raw string) string {
+	if raw == "" {
+		return "/"
+	}
+	cleaned := path.Clean(raw)
+	if cleaned == "." {
+		return "/"
+	}
+	return cleaned
+}
+
+func tiktokValidateRedirectURL(parsed *url.URL) error {
+	if parsed == nil {
+		return ErrUnsupported
+	}
+	if len(parsed.String()) > tiktokRedirectMaxURLBytes {
+		return fmt.Errorf("%w: TikTok redirect URL exceeds limit", ErrUnsupported)
+	}
+	if parsed.Scheme != "https" {
+		return fmt.Errorf("%w: TikTok redirect must use HTTPS", ErrUnsupported)
+	}
+	if parsed.User != nil || parsed.Port() != "" || parsed.Fragment != "" || parsed.RawPath != "" || parsed.RawQuery != "" {
+		return fmt.Errorf("%w: unsafe TikTok redirect URL", ErrUnsupported)
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if net.ParseIP(host) != nil || host == "localhost" {
+		return fmt.Errorf("%w: unsafe TikTok redirect host", ErrUnsupported)
+	}
+	cleaned := tiktokNormalizeRedirectPath(parsed.Path)
+	if cleaned != parsed.Path && cleaned+"/" != parsed.Path {
+		return fmt.Errorf("%w: unsafe TikTok redirect path", ErrUnsupported)
+	}
+	return nil
+}
+
+func tiktokCanonicalVideoURL(userID, videoID string) string {
+	if userID != "" {
+		return "https://www.tiktok.com/@" + userID + "/video/" + videoID
+	}
+	return "https://www.tiktok.com/@_/video/" + videoID
+}
+
+func tiktokCanonicalFromParsed(parsed *url.URL) (string, bool) {
+	host := strings.ToLower(parsed.Hostname())
+	switch host {
+	case "www.tiktok.com", "tiktok.com", "m.tiktok.com":
+	default:
+		return "", false
+	}
+	videoID, userID := tiktokVideoIdentity(parsed.Path)
+	if videoID == "" {
+		return "", false
+	}
+	return tiktokCanonicalVideoURL(userID, videoID), true
+}
+
+func tiktokRedirectKey(parsed *url.URL) string {
+	clone := *parsed
+	clone.Scheme = "https"
+	clone.Host = strings.ToLower(clone.Hostname())
+	clone.Path = tiktokNormalizeRedirectPath(clone.Path)
+	clone.RawQuery = ""
+	clone.Fragment = ""
+	clone.RawPath = ""
+	return clone.String()
+}
+
+func tiktokRedirectDo(ctx context.Context, transport Transport, request *http.Request) (*http.Response, error) {
+	// Require credential-isolated, redirect-disabled transport. Production
+	// DoWithoutCookies follows redirects and would collapse Location validation;
+	// DoNoRedirect may still attach operation-jar cookies to the hop URL.
+	isolated, ok := transport.(CredentialIsolatedNoRedirectTransport)
+	if !ok {
+		return nil, ErrTransportIsolation
+	}
+	return isolated.DoWithoutCredentialsNoRedirect(ctx, request)
+}
+
+func resolveTikTokShortLink(ctx context.Context, transport Transport, start *url.URL) (string, error) {
+	if transport == nil {
+		return "", fmt.Errorf("%w: missing transport", ErrInvalidMetadata)
+	}
+	if start == nil || (start.Scheme != "http" && start.Scheme != "https") {
+		return "", ErrUnsupported
+	}
+	if start.User != nil || start.Port() != "" {
+		return "", fmt.Errorf("%w: unsafe TikTok redirect URL", ErrUnsupported)
+	}
+	if !tiktokIsShortLink(start) {
+		return "", ErrUnsupported
+	}
+
+	current := *start
+	current.Scheme = "https"
+	current.Host = strings.ToLower(current.Hostname())
+	current.Path = tiktokNormalizeRedirectPath(current.Path)
+	current.RawQuery = ""
+	current.Fragment = ""
+	current.RawPath = ""
+	if err := tiktokValidateRedirectURL(&current); err != nil {
+		return "", err
+	}
+	if !tiktokRedirectHostAllowed(current.Hostname(), true) {
+		return "", fmt.Errorf("%w: unsupported TikTok redirect host", ErrUnsupported)
+	}
+	seen := map[string]struct{}{tiktokRedirectKey(&current): {}}
+
+	for hop := 0; hop < tiktokRedirectMaxHops; hop++ {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		if canonical, ok := tiktokCanonicalFromParsed(&current); ok {
+			return canonical, nil
+		}
+		if !tiktokRedirectHostAllowed(current.Hostname(), true) {
+			return "", fmt.Errorf("%w: unsupported TikTok redirect host", ErrUnsupported)
+		}
+
+		request, err := http.NewRequestWithContext(ctx, http.MethodHead, current.String(), nil)
+		if err != nil {
+			return "", fmt.Errorf("%w: invalid TikTok short link", ErrUnsupported)
+		}
+		request.Header.Set("User-Agent", tiktokRedirectUserAgent)
+		response, err := tiktokRedirectDo(ctx, transport, request)
+		if err != nil {
+			return "", err
+		}
+		if response == nil {
+			return "", fmt.Errorf("%w: empty TikTok redirect response", ErrUnsupported)
+		}
+		if response.Body != nil {
+			_ = response.Body.Close()
+		}
+
+		status := response.StatusCode
+		location := ""
+		if response.Header != nil {
+			location = strings.TrimSpace(response.Header.Get("Location"))
+		}
+
+		if status >= 200 && status < 300 {
+			if canonical, ok := tiktokCanonicalFromParsed(&current); ok {
+				return canonical, nil
+			}
+			return "", ErrUnsupported
+		}
+		if status < 300 || status >= 400 || location == "" {
+			return "", fmt.Errorf("%w: TikTok short link redirect failed", ErrUnsupported)
+		}
+
+		next, err := resolveTikTokRedirectLocation(&current, location)
+		if err != nil {
+			return "", err
+		}
+		next.Path = tiktokNormalizeRedirectPath(next.Path)
+		if canonical, ok := tiktokCanonicalFromParsed(next); ok {
+			return canonical, nil
+		}
+		if !tiktokIsShortLink(next) {
+			return "", fmt.Errorf("%w: unsupported TikTok redirect destination", ErrUnsupported)
+		}
+		if !tiktokRedirectHostAllowed(next.Hostname(), true) {
+			return "", fmt.Errorf("%w: unsupported TikTok redirect host", ErrUnsupported)
+		}
+		key := tiktokRedirectKey(next)
+		if _, loop := seen[key]; loop {
+			return "", fmt.Errorf("%w: TikTok redirect loop detected", ErrUnsupported)
+		}
+		seen[key] = struct{}{}
+		current = *next
+	}
+	return "", fmt.Errorf("%w: TikTok redirect hop limit exceeded", ErrUnsupported)
+}
+
+func resolveTikTokRedirectLocation(current *url.URL, location string) (*url.URL, error) {
+	if location == "" || len(location) > tiktokRedirectMaxURLBytes {
+		return nil, fmt.Errorf("%w: invalid TikTok redirect location", ErrUnsupported)
+	}
+	reference, err := url.Parse(location)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid TikTok redirect location", ErrUnsupported)
+	}
+	resolved := current.ResolveReference(reference)
+	if err := tiktokValidateRedirectURL(resolved); err != nil {
+		return nil, err
+	}
+	return resolved, nil
 }
 
 func parseTikTokPage(page []byte, videoID, webpageURL string) (Extraction, error) {
