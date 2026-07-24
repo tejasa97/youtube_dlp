@@ -48,6 +48,64 @@ func (*tiktokFixtureTransport) DoProfile(context.Context, *http.Request, string)
 	return nil, errors.New("unexpected profiled TikTok API request")
 }
 
+type tiktokRedirectResponse struct {
+	status   int
+	location string
+}
+
+type tiktokRedirectFixtureTransport struct {
+	redirects map[string]tiktokRedirectResponse
+	calls     []string
+	userAgent string
+	wait      bool
+	started   chan struct{}
+	blockURL  string
+}
+
+func (transport *tiktokRedirectFixtureTransport) redirectResponse(request *http.Request) (*http.Response, error) {
+	transport.calls = append(transport.calls, request.URL.String())
+	if transport.userAgent == "" {
+		transport.userAgent = request.Header.Get("User-Agent")
+	}
+	if transport.wait && transport.blockURL == request.URL.String() {
+		if transport.started != nil {
+			close(transport.started)
+		}
+		<-request.Context().Done()
+		return nil, request.Context().Err()
+	}
+	step, ok := transport.redirects[request.URL.String()]
+	if !ok {
+		return nil, fmt.Errorf("unexpected redirect request: %s", request.URL.String())
+	}
+	header := make(http.Header)
+	if step.location != "" {
+		header.Set("Location", step.location)
+	}
+	return &http.Response{
+		StatusCode: step.status,
+		Header:     header,
+		Body:       http.NoBody,
+		Request:    request,
+	}, nil
+}
+
+func (transport *tiktokRedirectFixtureTransport) DoWithoutCookies(ctx context.Context, request *http.Request) (*http.Response, error) {
+	return transport.redirectResponse(request.WithContext(ctx))
+}
+
+func (transport *tiktokRedirectFixtureTransport) DoNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
+	return transport.redirectResponse(request.WithContext(ctx))
+}
+
+func (*tiktokRedirectFixtureTransport) Do(context.Context, *http.Request) (*http.Response, error) {
+	return nil, errors.New("unexpected TikTok redirect Do request")
+}
+
+func (*tiktokRedirectFixtureTransport) ReadPage(context.Context, string) ([]byte, http.Header, error) {
+	return nil, nil, errors.New("unexpected TikTok redirect ReadPage request")
+}
+
 func TestTikTokExtractsProtectedHydrationFormats(t *testing.T) {
 	transport := &tiktokFixtureTransport{page: readTikTokFixture(t, "page.html")}
 	result, err := NewTikTok().Extract(context.Background(), Request{
@@ -80,13 +138,25 @@ func TestTikTokSuitableAndEmbedCanonicalization(t *testing.T) {
 	for _, rawURL := range []string{
 		"https://www.tiktok.com/@fixture.creator/video/7460000000000000001",
 		"https://tiktok.com/embed/7460000000000000001",
+		"https://vm.tiktok.com/ZTR45GpSF/",
+		"https://vt.tiktok.com/ZSe4FqkKd",
+		"https://www.tiktok.com/t/ZTRC5xgJp",
+		"https://tiktok.com/t/ZTRC5xgJp",
 	} {
 		parsed, _ := url.Parse(rawURL)
 		if !NewTikTok().Suitable(parsed) {
 			t.Fatalf("Suitable(%q) = false", rawURL)
 		}
 	}
-	for _, rawURL := range []string{"https://example.com/@x/video/1", "https://www.tiktok.com/@x", "https://www.tiktok.com/live/1", "ftp://www.tiktok.com/@x/video/1"} {
+	for _, rawURL := range []string{
+		"https://example.com/@x/video/1",
+		"https://www.tiktok.com/@x",
+		"https://www.tiktok.com/live/1",
+		"ftp://www.tiktok.com/@x/video/1",
+		"https://evil.tiktok.com/t/ZTRC5xgJp",
+		"https://vm.tiktok.com.evil.example/ZTR45GpSF",
+		"https://vm.tiktok.com/@x/video/1",
+	} {
 		parsed, _ := url.Parse(rawURL)
 		if NewTikTok().Suitable(parsed) {
 			t.Fatalf("Suitable(%q) = true", rawURL)
@@ -332,6 +402,135 @@ func assertTikTokSubtitleInvariants(t *testing.T, result Extraction) {
 type tiktokTestHelper interface {
 	Helper()
 	Fatal(...any)
+}
+
+func TestTikTokShortLinkRedirectMultiHopAndRelativeLocation(t *testing.T) {
+	canonical := "https://www.tiktok.com/@fixture_creator/video/7460000000000000001"
+	transport := &tiktokRedirectFixtureTransport{redirects: map[string]tiktokRedirectResponse{
+		"https://vm.tiktok.com/ZTR45GpSF":    {status: http.StatusFound, location: "https://vt.tiktok.com/ZSe4FqkKd"},
+		"https://vt.tiktok.com/ZSe4FqkKd":    {status: http.StatusFound, location: "https://www.tiktok.com/t/ZTRC5xgJp"},
+		"https://www.tiktok.com/t/ZTRC5xgJp": {status: http.StatusFound, location: "/@fixture_creator/video/7460000000000000001"},
+	}}
+	result, err := NewTikTok().Extract(context.Background(), Request{
+		URL:       "https://vm.tiktok.com/ZTR45GpSF?sig=secret-token",
+		Transport: transport,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsURL() || result.Redirect == nil || result.Redirect.URL != canonical {
+		t.Fatalf("redirect result = %#v", result.Redirect)
+	}
+	if transport.userAgent != tiktokRedirectUserAgent {
+		t.Fatalf("redirect user-agent = %q", transport.userAgent)
+	}
+	if len(transport.calls) != 3 {
+		t.Fatalf("redirect calls = %#v", transport.calls)
+	}
+}
+
+func TestTikTokShortLinkRedirectDirectCanonical(t *testing.T) {
+	canonical := "https://www.tiktok.com/@fixture_creator/video/7460000000000000001"
+	transport := &tiktokRedirectFixtureTransport{redirects: map[string]tiktokRedirectResponse{
+		"https://www.tiktok.com/t/ZTRC5xgJp": {status: http.StatusFound, location: canonical},
+	}}
+	result, err := NewTikTok().Extract(context.Background(), Request{
+		URL:       "https://www.tiktok.com/t/ZTRC5xgJp",
+		Transport: transport,
+	})
+	if err != nil || !result.IsURL() || result.Redirect.URL != canonical {
+		t.Fatalf("result=%#v err=%v", result.Redirect, err)
+	}
+}
+
+func TestTikTokShortLinkRedirectLoopAndOpenRedirect(t *testing.T) {
+	loopTransport := &tiktokRedirectFixtureTransport{redirects: map[string]tiktokRedirectResponse{
+		"https://vm.tiktok.com/loop-a": {status: http.StatusFound, location: "https://vt.tiktok.com/loop-b"},
+		"https://vt.tiktok.com/loop-b": {status: http.StatusFound, location: "https://vm.tiktok.com/loop-a"},
+	}}
+	if _, err := NewTikTok().Extract(context.Background(), Request{
+		URL: "https://vm.tiktok.com/loop-a", Transport: loopTransport,
+	}); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("loop error = %v", err)
+	}
+
+	evilTransport := &tiktokRedirectFixtureTransport{redirects: map[string]tiktokRedirectResponse{
+		"https://vm.tiktok.com/open": {status: http.StatusFound, location: "https://evil.example/@x/video/1?token=secret"},
+	}}
+	_, err := NewTikTok().Extract(context.Background(), Request{
+		URL: "https://vm.tiktok.com/open", Transport: evilTransport,
+	})
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("open redirect error = %v", err)
+	}
+	if err != nil && strings.Contains(err.Error(), "secret") {
+		t.Fatalf("error leaked redirect secret: %v", err)
+	}
+
+	stillShort := &tiktokRedirectFixtureTransport{redirects: map[string]tiktokRedirectResponse{
+		"https://vm.tiktok.com/still": {status: http.StatusOK},
+	}}
+	if _, err := NewTikTok().Extract(context.Background(), Request{
+		URL: "https://vm.tiktok.com/still", Transport: stillShort,
+	}); !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("still-short error = %v", err)
+	}
+}
+
+func TestTikTokShortLinkRedirectRejectsUnsafeLocations(t *testing.T) {
+	tests := map[string]tiktokRedirectResponse{
+		"https://vm.tiktok.com/userinfo": {status: http.StatusFound, location: "https://user:secret@www.tiktok.com/t/ZTRC5xgJp"},
+		"https://vm.tiktok.com/port":     {status: http.StatusFound, location: "https://www.tiktok.com:443/t/ZTRC5xgJp"},
+		"https://vm.tiktok.com/ip":       {status: http.StatusFound, location: "https://127.0.0.1/t/ZTRC5xgJp"},
+		"https://vm.tiktok.com/http":     {status: http.StatusFound, location: "http://www.tiktok.com/t/ZTRC5xgJp"},
+	}
+	for start, step := range tests {
+		transport := &tiktokRedirectFixtureTransport{redirects: map[string]tiktokRedirectResponse{start: step}}
+		_, err := NewTikTok().Extract(context.Background(), Request{URL: start, Transport: transport})
+		if !errors.Is(err, ErrUnsupported) {
+			t.Fatalf("%s error = %v", start, err)
+		}
+		if err != nil && strings.Contains(err.Error(), "secret") {
+			t.Fatalf("%s leaked secret: %v", start, err)
+		}
+	}
+}
+
+func TestTikTokShortLinkRedirectCancellationAndTransport(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	transport := &tiktokRedirectFixtureTransport{
+		redirects: map[string]tiktokRedirectResponse{
+			"https://vm.tiktok.com/wait": {status: http.StatusFound, location: "https://www.tiktok.com/t/ZTRC5xgJp"},
+		},
+		wait: true, blockURL: "https://vm.tiktok.com/wait",
+	}
+	if _, err := NewTikTok().Extract(ctx, Request{
+		URL: "https://vm.tiktok.com/wait", Transport: transport,
+	}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("pre-cancel error = %v", err)
+	}
+
+	ctx, cancel = context.WithCancel(context.Background())
+	started := make(chan struct{})
+	transport = &tiktokRedirectFixtureTransport{
+		redirects: map[string]tiktokRedirectResponse{
+			"https://vm.tiktok.com/wait": {status: http.StatusFound, location: "https://www.tiktok.com/t/ZTRC5xgJp"},
+		},
+		wait: true, started: started, blockURL: "https://vm.tiktok.com/wait",
+	}
+	go func() { <-started; cancel() }()
+	if _, err := NewTikTok().Extract(ctx, Request{
+		URL: "https://vm.tiktok.com/wait", Transport: transport,
+	}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("in-flight cancel error = %v", err)
+	}
+
+	if _, err := NewTikTok().Extract(context.Background(), Request{
+		URL: "https://vm.tiktok.com/missing-transport", Transport: &tiktokFixtureTransport{},
+	}); !errors.Is(err, ErrTransportIsolation) {
+		t.Fatalf("missing redirect transport error = %v", err)
+	}
 }
 
 func readTikTokFixture(t tiktokTestHelper, name string) []byte {
