@@ -361,6 +361,7 @@ func (client *Client) productRegistry() *extractor.Registry {
 		extractor.NewInternetArchive(),
 		extractor.NewBluesky(),
 		extractor.NewImgur(),
+		extractor.NewFlickr(),
 		extractor.NewRegionSVT(),
 		extractor.NewSyntheticAuth(),
 	}

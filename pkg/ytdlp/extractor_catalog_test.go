@@ -54,6 +54,7 @@ var representativeExtractorCatalog = []representativeExtractor{
 	{"nrk", "nrk:MDDP12000117", []extractorRiskClass{riskPlaylistAPI, riskManifestHeavy, riskRegional}},
 	{"bluesky", "https://bsky.app/profile/fixture.bsky.social/post/3l4omssdl632g", []extractorRiskClass{riskPlaylistAPI, riskManifestHeavy, riskRegional}},
 	{"imgur", "https://imgur.com/gallery/fixture-A61SaA1", []extractorRiskClass{riskPlaylistAPI, riskSimpleDirect}},
+	{"flickr", "https://www.flickr.com/photos/fixture-user/5645318632/in/photostream/", []extractorRiskClass{riskPlaylistAPI, riskSimpleDirect}},
 }
 
 func TestRepresentativeExtractorCatalogCountRoutingAndRiskCoverage(t *testing.T) {
