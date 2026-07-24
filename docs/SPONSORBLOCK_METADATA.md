@@ -2,10 +2,9 @@
 
 This document describes the native, Python-free SponsorBlock metadata
 foundation available through the public Go product API. The
-foundation is intentionally limited to **metadata fetch and
-normalization**: media cutting, chapter rewriting, FFmpeg
-removal, subtitle synchronization, and CLI option exposure are
-explicitly out of scope and remain unimplemented in this release.
+foundation covers **metadata fetch, normalization, and opt-in chapter
+marking**. Media cutting, FFmpeg removal, subtitle synchronization, and CLI
+option exposure remain explicitly out of scope.
 
 ## What is wired
 
@@ -29,6 +28,7 @@ or depended on at build time. The conformance fixtures in
 ```go
 type SponsorBlockOptions struct {
     Enabled    bool
+    Mark       bool
     Categories []string
     APIBase    string
 }
@@ -36,6 +36,14 @@ type SponsorBlockOptions struct {
 
 `Enabled` is the only field that gates the stage. When false, no
 network requests are issued, regardless of the other fields.
+
+`Mark` requires `Enabled`. It overlays normalized SponsorBlock ranges onto the
+ordinary `chapters` list without changing media bytes. Existing chapter fields
+are preserved on uncovered fragments. When ordinary chapters are unavailable,
+a full-duration background chapter is synthesized from the video title.
+Overlaps preserve first-seen category order, and only fragments created by
+the overlay are eligible for the pinned sub-second merge behavior; originally
+tiny chapters remain intact.
 
 `Categories` is the requested non-empty set of SponsorBlock category
 identifiers. The list is treated as
@@ -212,7 +220,6 @@ remain unimplemented in this release and are explicitly
 deferred:
 
 - FFmpeg-driven media cutting using `cut_out_range`.
-- SponsorBlock chapter merging into the result `chapters` field.
 - Force-keyframes injection around cut boundaries.
 - Subtitle synchronization across cut boundaries.
 - CLI flags for the option, the API base, or the categories.

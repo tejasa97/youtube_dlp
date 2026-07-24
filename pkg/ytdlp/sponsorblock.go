@@ -16,10 +16,9 @@ import (
 // fetch and writes the normalized chapters onto the given info. The
 // function is called only when the public Request explicitly opts in.
 //
-// The integration is intentionally narrow: it is a metadata fetch and
-// normalization stage. Media cutting, chapter rewriting, FFmpeg
-// removal, subtitle synchronization, and CLI surface remain out of
-// scope and are not exercised here.
+// The integration remains metadata-only. Marking may rewrite chapter metadata,
+// but media cutting, FFmpeg removal, subtitle synchronization, and CLI surface
+// remain out of scope.
 //
 // The function never panics. All errors are categorized and surface
 // through the existing pkg/ytdlp Error mechanism. A valid empty
@@ -54,6 +53,18 @@ func (operation *operation) enrichWithSponsorBlock(ctx context.Context, extracto
 			duration = d
 		}
 	}
+	var normal []sponsorblock.NormalChapter
+	var originals []value.Value
+	if operation.request.SponsorBlock.Mark {
+		if duration <= 0 {
+			return mapSponsorBlockError(fmt.Errorf("%w: mark duration", sponsorblock.ErrInvalidInput))
+		}
+		var err error
+		normal, originals, err = ordinarySponsorBlockChapters(info)
+		if err != nil {
+			return mapSponsorBlockError(err)
+		}
+	}
 	options := sponsorblock.Options{
 		Enabled:    true,
 		Categories: operation.request.SponsorBlock.Categories,
@@ -63,12 +74,111 @@ func (operation *operation) enrichWithSponsorBlock(ctx context.Context, extracto
 	if err != nil {
 		return mapSponsorBlockError(err)
 	}
-	values := make([]value.Value, 0, len(result.Chapters))
+	sponsorValues := make([]value.Value, 0, len(result.Chapters))
 	for _, chapter := range result.Chapters {
-		values = append(values, chapterValue(chapter))
+		sponsorValues = append(sponsorValues, chapterValue(chapter))
 	}
-	info.Set("sponsorblock_chapters", value.List(values...))
+	var markedValues []value.Value
+	if operation.request.SponsorBlock.Mark {
+		title, _ := info.Lookup("title").StringValue()
+		marked, err := sponsorblock.MarkChapters(normal, result.Chapters, duration, title)
+		if err != nil {
+			return mapSponsorBlockError(err)
+		}
+		markedValues = renderMarkedChapters(marked, originals)
+	}
+	// Commit metadata only after fetch, parsing, and arrangement all succeed.
+	info.Set("sponsorblock_chapters", value.List(sponsorValues...))
+	if operation.request.SponsorBlock.Mark {
+		info.Set("chapters", value.List(markedValues...))
+	}
 	return nil
+}
+
+func ordinarySponsorBlockChapters(info *value.Info) ([]sponsorblock.NormalChapter, []value.Value, error) {
+	raw := info.Lookup("chapters")
+	if raw.IsMissing() || raw.IsNull() {
+		return nil, nil, nil
+	}
+	originals, ok := raw.ListValue()
+	if !ok {
+		return nil, nil, fmt.Errorf("%w: ordinary chapters", sponsorblock.ErrInvalidInput)
+	}
+	normal := make([]sponsorblock.NormalChapter, 0, len(originals))
+	for index, item := range originals {
+		object, ok := item.Object()
+		if !ok {
+			return nil, nil, fmt.Errorf("%w: ordinary chapter object", sponsorblock.ErrInvalidInput)
+		}
+		start, ok := sponsorblockNumber(object.Lookup("start_time"))
+		if !ok {
+			return nil, nil, fmt.Errorf("%w: ordinary chapter start", sponsorblock.ErrInvalidInput)
+		}
+		end, ok := sponsorblockNumber(object.Lookup("end_time"))
+		if !ok {
+			return nil, nil, fmt.Errorf("%w: ordinary chapter end", sponsorblock.ErrInvalidInput)
+		}
+		title := ""
+		if titleValue := object.Lookup("title"); !titleValue.IsMissing() && !titleValue.IsNull() {
+			title, ok = titleValue.StringValue()
+			if !ok {
+				return nil, nil, fmt.Errorf("%w: ordinary chapter title", sponsorblock.ErrInvalidInput)
+			}
+		}
+		normal = append(normal, sponsorblock.NormalChapter{
+			StartTime: start, EndTime: end, Title: title, Source: index,
+		})
+	}
+	return normal, originals, nil
+}
+
+func sponsorblockNumber(raw value.Value) (float64, bool) {
+	switch raw.Kind() {
+	case value.KindInt:
+		number, ok := raw.Int()
+		return float64(number), ok
+	case value.KindFloat:
+		number, ok := raw.Float()
+		return number, ok && !math.IsNaN(number) && !math.IsInf(number, 0)
+	default:
+		return 0, false
+	}
+}
+
+func renderMarkedChapters(marked []sponsorblock.MarkedChapter, originals []value.Value) []value.Value {
+	rendered := make([]value.Value, 0, len(marked))
+	for _, chapter := range marked {
+		var object *value.Object
+		if !chapter.Sponsor && chapter.Source >= 0 && chapter.Source < len(originals) {
+			cloned := originals[chapter.Source].Clone()
+			object, _ = cloned.Object()
+		}
+		if object == nil {
+			object = value.NewObject()
+		}
+		object.Set("start_time", value.Float(chapter.StartTime))
+		object.Set("end_time", value.Float(chapter.EndTime))
+		object.Set("title", value.String(chapter.Title))
+		if chapter.Sponsor {
+			object.Set("category", value.String(chapter.Category))
+			object.Set("categories", stringListValue(chapter.Categories))
+			object.Set("name", value.String(chapter.Name))
+			object.Set("category_names", stringListValue(chapter.CategoryNames))
+			if chapter.Type != "" {
+				object.Set("type", value.String(chapter.Type))
+			}
+		}
+		rendered = append(rendered, value.ObjectValue(object))
+	}
+	return rendered
+}
+
+func stringListValue(strings []string) value.Value {
+	values := make([]value.Value, len(strings))
+	for index, text := range strings {
+		values[index] = value.String(text)
+	}
+	return value.List(values...)
 }
 
 // extractorSupportsSponsorBlock returns true when extractorName is a
