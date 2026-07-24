@@ -116,6 +116,7 @@ func TestYouTubeConditionalChannelRedirectDestinationFamiliesAndDuplicates(t *te
 		{"user alias", "/user/RegionalAlias", "shorts", "https://www.youtube.com/user/RegionalAlias/shorts", "youtube_alias_tab"},
 		{"custom alias", "/c/RegionalAlias", "streams", "https://www.youtube.com/c/RegionalAlias/streams", "youtube_alias_tab"},
 		{"Unicode alias", "/c/日本語", "videos", "https://www.youtube.com/c/%E6%97%A5%E6%9C%AC%E8%AA%9E/videos", "youtube_alias_tab"},
+		{"membership tab", "/channel/UCabcdefghijklmnopqrstuv", "membership", "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/membership", "youtube_channel_tab"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -174,7 +175,7 @@ func TestYouTubeConditionalChannelRedirectRejectsHostileAmbiguousAndSelfTargets(
 		{"unsupported route", redirectJSON("/watch?v=dQw4w9WgXcQ"), "https://www.youtube.com/source", ""},
 		{"control", redirectJSON("/channel/UCabcdefghijklmnopqrstuv\n"), "https://www.youtube.com/source", ""},
 		{"overlong", redirectJSON("/channel/" + strings.Repeat("a", youtubeMaxConditionalRedirectURLBytes)), "https://www.youtube.com/source", ""},
-		{"unsupported requested tab", valid, "https://www.youtube.com/source", "membership"},
+		{"unsupported requested tab", valid, "https://www.youtube.com/source", "store"},
 		{"self", valid, "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv", ""},
 	}
 	for _, test := range tests {

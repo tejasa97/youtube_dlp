@@ -47,13 +47,16 @@ authenticated Innertube profiles remain pending.
 Implementation status: exact public UCID, pinned Unicode-aware handle, and
 bounded legacy `/user` and `/c` alias video/Shorts/streams/playlist plus
 home/featured/community/releases/podcasts tabs are implemented. Bounded public
+`/membership` tab routes for exact channel, handle, and legacy alias URLs are
+implemented for video-only renderer extraction when the supplied session is
+already authorized. Bounded public
 and playable YouTube Music search plus bounded, opt-in
 public and authenticated-WEB comment slices cover
 top/new sorting, legacy and modern fields, click-tracked reply continuations,
 nested subthreads, bounded retries, pinned duplicate handling, visitor
 rotation, exact-origin signed continuations, and explicit resource limits.
 Bare channel/handle/legacy-alias upload aggregation is implemented. Estimated
-pre-fetch counts, membership/custom tabs, and
+pre-fetch counts, arbitrary custom tabs, and
 non-playable search result breadth remain pending.
 
 The finite post-live DVR and opt-in active live-from-start paths are complete:
