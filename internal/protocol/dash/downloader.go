@@ -685,6 +685,9 @@ func (downloader *Downloader) expandSIDXReferences(ctx context.Context, sidx *SI
 		}
 
 		// Index reference: fetch and recursively expand.
+		if depth >= maxSIDXDepth {
+			return nil, fmt.Errorf("%w: hierarchy depth %d exceeds limit %d", ErrUnsupportedAddressing, depth+1, maxSIDXDepth)
+		}
 		nestedRange := allRanges[i]
 		key := rangeKey(state.mediaURL, nestedRange.Start, nestedRange.Length)
 		if _, seen := state.visited[key]; seen {
