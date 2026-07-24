@@ -22,10 +22,13 @@ type Dailymotion struct{}
 func NewDailymotion() Dailymotion { return Dailymotion{} }
 func (Dailymotion) Name() string  { return "dailymotion" }
 
-var dailymotionID = regexp.MustCompile(`^[A-Za-z0-9]{1,128}$`)
+var (
+	dailymotionID         = regexp.MustCompile(`^[A-Za-z0-9]{1,128}$`)
+	dailymotionPlaylistID = regexp.MustCompile(`^x[A-Za-z0-9]{1,128}$`)
+)
 
 func (Dailymotion) Suitable(u *url.URL) bool {
-	if u == nil || (u.Scheme != "http" && u.Scheme != "https") || u.Port() != "" {
+	if u == nil || (u.Scheme != "http" && u.Scheme != "https") || u.Port() != "" || u.User != nil {
 		return false
 	}
 	host := strings.ToLower(u.Hostname())
@@ -41,8 +44,11 @@ func (Dailymotion) Suitable(u *url.URL) bool {
 		id = strings.Split(id, "_")[0]
 		return dailymotionID.MatchString(id)
 	}
+	if len(parts) == 2 && parts[0] == "playlist" {
+		return dailymotionPlaylistID.MatchString(parts[1])
+	}
 	return strings.HasPrefix(strings.TrimPrefix(u.Path, "/"), "player/") &&
-		(dailymotionID.MatchString(u.Query().Get("video")) || strings.HasPrefix(u.Query().Get("playlist"), "x"))
+		(dailymotionID.MatchString(u.Query().Get("video")) || dailymotionPlaylistID.MatchString(u.Query().Get("playlist")))
 }
 
 func (Dailymotion) Extract(ctx context.Context, request Request) (Extraction, error) {
@@ -53,10 +59,7 @@ func (Dailymotion) Extract(ctx context.Context, request Request) (Extraction, er
 	if err := contextError(ctx); err != nil {
 		return Extraction{}, err
 	}
-	if playlistID := u.Query().Get("playlist"); playlistID != "" && u.Query().Get("video") == "" {
-		if !regexp.MustCompile(`^x[A-Za-z0-9]{1,128}$`).MatchString(playlistID) {
-			return Extraction{}, fmt.Errorf("%w: invalid Dailymotion playlist ID", ErrInvalidPlaylist)
-		}
+	if playlistID := dailymotionPlaylistIDFromURL(u); playlistID != "" {
 		return extractDailymotionPlaylist(ctx, request.Transport, playlistID)
 	}
 	id := dailymotionVideoID(u)
@@ -69,6 +72,18 @@ func (Dailymotion) Extract(ctx context.Context, request Request) (Extraction, er
 		return Extraction{}, categorizeDailymotionError(err)
 	}
 	return normalizeDailymotion(metadata, id, "https://www.dailymotion.com/video/"+id)
+}
+
+func dailymotionPlaylistIDFromURL(u *url.URL) string {
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) == 2 && parts[0] == "playlist" && dailymotionPlaylistID.MatchString(parts[1]) {
+		return parts[1]
+	}
+	playlistID := u.Query().Get("playlist")
+	if playlistID != "" && u.Query().Get("video") == "" && dailymotionPlaylistID.MatchString(playlistID) {
+		return playlistID
+	}
+	return ""
 }
 
 func dailymotionVideoID(u *url.URL) string {
