@@ -1,0 +1,25 @@
+[
+  {
+    "data": {
+      "user": {
+        "id": "9001",
+        "videos": {
+          "edges": [
+            {
+              "__typename": "VideoEdge",
+              "cursor": "",
+              "node": {
+                "__typename": "Video",
+                "id": "1000000003",
+                "title": "Synthetic archive three",
+                "previewThumbnailURL": "https://static-cdn.example.test/vod3-320x180.jpg",
+                "lengthSeconds": 360,
+                "viewCount": 33
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

@@ -19,7 +19,7 @@ service response.
 | generic | Direct HTTP/HTTPS media, bounded native-provider embeds, and JSON-LD/Twitter/OpenGraph media | simple/direct, shared backend |
 | youtube | youtube.com/watch and youtu.be, /embed, /shorts, /playlist, and channel live alias URLs | playlist/API, manifest-heavy, JavaScript challenge |
 | vimeo | vimeo.com videos with bounded public text tracks | manifest-heavy |
-| twitch | twitch.tv channels | live, manifest-heavy |
+| twitch | twitch.tv channels, VODs, clips, and channel videos/profile playlists | live, playlist/API, manifest-heavy |
 | soundcloud | soundcloud.com tracks, sets, user-track pages, and bounded public search | playlist/API |
 | streamable | streamable.com public, embed, and short-link URLs | shared backend, simple/direct |
 | peertube | conservative PeerTube instance routes and peertube: opaque URLs | shared backend, live, manifest-heavy |
