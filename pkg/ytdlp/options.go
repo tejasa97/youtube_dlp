@@ -106,8 +106,8 @@ type YouTubeCommentOptions struct {
 	MaxDepth            int
 }
 
-// SponsorBlockOptions controls the optional SponsorBlock metadata
-// enrichment stage. When Enabled is false, the stage is skipped and
+// SponsorBlockOptions controls the optional SponsorBlock metadata and
+// media-cutting stages. When Enabled is false, both stages are skipped and
 // no network requests are issued. When Enabled is true, the configured
 // categories are requested from the API and the pinned normalization
 // rules produce a deterministic sponsorblock_chapters list on the
@@ -125,9 +125,22 @@ type SponsorBlockOptions struct {
 	Enabled bool
 	// Mark overlays fetched SponsorBlock ranges onto ordinary chapters without
 	// cutting media. It requires Enabled.
-	Mark       bool
+	Mark bool
+	// Remove enables FFmpeg-driven cutting of matching SponsorBlock ranges after
+	// download (yt-dlp --sponsorblock-remove). It requires Enabled.
+	// Simulate and SkipDownload never invent media cuts.
+	Remove bool
+	// Categories is the fetch set and the default Mark/Remove category source.
 	Categories []string
-	APIBase    string
+	// RemoveCategories optionally selects which fetched categories to cut.
+	// When empty and Remove is true, Categories is used after dropping
+	// non-removable poi_highlight/chapter entries (pinned yt-dlp behavior).
+	// Explicit non-removable entries are rejected at validation.
+	RemoveCategories []string
+	// ForceKeyframes re-encodes around cut boundaries before concat
+	// (yt-dlp --force-keyframes-at-cuts). It requires Remove.
+	ForceKeyframes bool
+	APIBase        string
 }
 
 // PlaylistOptions selects an inclusive, one-based playlist range. Start zero
@@ -313,7 +326,22 @@ func validateSponsorBlockOptions(options SponsorBlockOptions) error {
 		if options.Mark {
 			return fmt.Errorf("SponsorBlock marking requires enabled metadata")
 		}
+		if options.Remove {
+			return fmt.Errorf("SponsorBlock remove requires enabled metadata")
+		}
+		if options.ForceKeyframes {
+			return fmt.Errorf("SponsorBlock force keyframes requires remove")
+		}
+		if len(options.RemoveCategories) != 0 {
+			return fmt.Errorf("SponsorBlock remove categories require enabled metadata")
+		}
 		return nil
+	}
+	if options.ForceKeyframes && !options.Remove {
+		return fmt.Errorf("SponsorBlock force keyframes requires remove")
+	}
+	if len(options.RemoveCategories) != 0 && !options.Remove {
+		return fmt.Errorf("SponsorBlock remove categories require remove")
 	}
 	if len(options.Categories) == 0 {
 		return fmt.Errorf("SponsorBlock categories empty")
@@ -337,6 +365,29 @@ func validateSponsorBlockOptions(options SponsorBlockOptions) error {
 			continue
 		}
 		seen[trimmed] = struct{}{}
+	}
+	if len(options.RemoveCategories) > 64 {
+		return fmt.Errorf("too many SponsorBlock remove categories")
+	}
+	removeSeen := make(map[string]struct{}, len(options.RemoveCategories))
+	for index, raw := range options.RemoveCategories {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			return fmt.Errorf("SponsorBlock remove category[%d] empty", index)
+		}
+		if len(trimmed) > 64 {
+			return fmt.Errorf("SponsorBlock remove category[%d] too long", index)
+		}
+		if !validSponsorBlockCategory(trimmed) {
+			return fmt.Errorf("SponsorBlock remove category[%d] unknown", index)
+		}
+		if !validSponsorBlockRemoveCategory(trimmed) {
+			return fmt.Errorf("SponsorBlock remove category[%d] not removable", index)
+		}
+		if _, dup := removeSeen[trimmed]; dup {
+			continue
+		}
+		removeSeen[trimmed] = struct{}{}
 	}
 	if options.APIBase != "" {
 		if len(options.APIBase) > 4096 {
@@ -367,5 +418,14 @@ func validSponsorBlockCategory(category string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func validSponsorBlockRemoveCategory(category string) bool {
+	switch category {
+	case "poi_highlight", "chapter":
+		return false
+	default:
+		return validSponsorBlockCategory(category)
 	}
 }

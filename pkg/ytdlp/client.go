@@ -944,6 +944,14 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		return Result{}, categorized("run postprocessors", err)
 	}
 	result.Artifacts = append(result.Artifacts, mediaArtifacts...)
+	downloadedPath, result.Artifacts, err = operation.applySponsorBlockRemove(ctx, &info, downloadedPath, result.Artifacts, sink)
+	if err != nil {
+		return Result{}, err
+	}
+	result.InfoJSON, err = encodeInfo(info)
+	if err != nil {
+		return Result{}, err
+	}
 	var embeddedSubtitles bool
 	result.Artifacts, embeddedSubtitles, err = operation.embedSelectedSubtitles(
 		ctx, &info, downloadedPath, selectedSubtitles, result.Artifacts, sink,
