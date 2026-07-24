@@ -1,0 +1,31 @@
+{
+  "thread": {
+    "post": {
+      "uri": "at://caption.example.test/app.bsky.feed.post/3l4qhp7bcs52h",
+      "author": {
+        "did": "did:plc:captiondid",
+        "handle": "caption.example.test"
+      },
+      "record": {
+        "text": "Captioned post",
+        "video": {
+          "ref": {"$link": "bafyreicaptionvid"},
+          "mimeType": "video/mp4",
+          "size": 2097152
+        },
+        "captions": [
+          {"lang": "en", "file": {"ref": {"$link": "bafyreicaptionen"}, "mimeType": "text/vtt"}},
+          {"lang": "fr", "file": {"ref": {"$link": "bafyreicaptionfr"}, "mimeType": "text/srt"}}
+        ]
+      },
+      "embed": {
+        "$type": "app.bsky.embed.video.view",
+        "playlist": "https://video.bsky.app/watch/cap/playlist.m3u8",
+        "thumbnail": "https://video.bsky.app/watch/cap/thumb.jpg",
+        "cid": "bafyreicaptionvid",
+        "aspectRatio": {"width": 1920, "height": 1080}
+      }
+    }
+  }
+}
+
