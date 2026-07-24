@@ -374,11 +374,18 @@ capabilities:
       - internal/protocol/hls.TestParseBoundsInputAndEntryCount
       - internal/protocol/hls.TestAdvertisementMarkerExactGrammar
       - internal/protocol/hls.TestParseAdvertisementStateOrderSequencesAndReset
+      - internal/protocol/hls.TestParseCueAdvertisementStateBoundariesAndOrdering
+      - internal/protocol/hls.TestParseCueLeadingWhitespaceRejectedTrailingAccepted
       - internal/protocol/hls.TestParseAdvertisementDeltaPartsPreserveMetadataAndRanges
+      - internal/protocol/hls.TestParseCueAdvertisementMapKeyDiscontinuityAndAdOnly
       - internal/protocol/hls.TestDownloadSuppressesAttributedVODAdvertisements
+      - internal/protocol/hls.TestDownloadSuppressesCueVODAdvertisements
       - internal/protocol/hls.TestDownloadLiveAdvertisementReclassificationAndCompleteReplacement
+      - internal/protocol/hls.TestDownloadCueLiveOUTCONTReclassificationAndCompleteReplacement
       - internal/protocol/hls.TestDownloadAdvertisementKeysMapsAndPhysicalAESIV
+      - internal/protocol/hls.TestDownloadCueAdvertisementKeysMapsAndPhysicalAESIV
       - internal/protocol/hls.TestDownloadAllAdvertisementsReturnsNoSegmentsWithoutScratch
+      - internal/protocol/hls.TestDownloadCueAllAdvertisementsAndCancellation
       - internal/protocol/hls.FuzzParse
       - internal/protocol/hls.FuzzAdvertisementMarkers
       - pkg/ytdlp.TestClientHLSAndDASHDispatch
@@ -388,7 +395,7 @@ capabilities:
       - conformance/media/hls_ads/PROVENANCE.md
       - docs/HLS_AD_FRAGMENT_SUPPRESSION_EVIDENCE.md
     owner: io
-    known_deviation: Product format dispatch includes bounded low-latency parts, delta skips, and exact attributed Anvato/Uplynk ad-fragment suppression. Marker state restarts for each playlist snapshot; a sliding window that begins inside an unmarked ad cannot be inferred. SCTE-35, cue/date-range, asset-list, URI-heuristic, and markerless server-side insertion are not guessed. Physical sequence identities are retained across ads for live/delta de-duplication and AES IVs rather than reproducing the pinned native downloader's compact numbering. Preload hints and rendition reports are ignored; SAMPLE-AES and non-AES-128 encryption remain explicitly unsupported.
+    known_deviation: Product format dispatch includes bounded low-latency parts, delta skips, exact attributed Anvato/Uplynk ad-fragment suppression, and conservative exact-case EXT-X-CUE-{OUT,OUT-CONT,IN} marker state. Marker state restarts for each playlist snapshot unless a new snapshot carries OUT-CONT mid-break. EXT-X-DATERANGE SCTE-35 binary/payload decoding, interstitial asset lists, URI heuristics, generic CLASS strings, SCTE35-CMD-only signals, and markerless server-side insertion are not guessed. Physical sequence identities are retained across ads for live/delta de-duplication and AES IVs rather than reproducing the pinned native downloader's compact numbering. Preload hints and rendition reports are ignored; SAMPLE-AES and non-AES-128 encryption remain explicitly unsupported.
 
   - id: protocol.dash
     name: DASH downloading
