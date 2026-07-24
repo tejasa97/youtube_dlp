@@ -70,16 +70,21 @@ The CLI exposes the mark/metadata path with yt-dlp-familiar names:
 
 `CATEGORIES` is a comma-separated list. Repeated `--sponsorblock-mark`
 flags accumulate in parse order (config arguments first, then command
-line, so later flags win for disable/enable and overwrite-style API
-bases). The tokens `all` and `default` expand to the pinned full
-category set from `internal/sponsorblock.AllCategories()`. Prefix a
-category or alias with `-` to exclude it after expansion, matching the
-reference grammar (for example `all,-preview` or `default,-intro`).
-Unknown identifiers and explicit empty values such as
-`--sponsorblock-mark=` are rejected at CLI parse time (exit status
-`2`) before any network work. Marking writes both
-`sponsorblock_chapters` and the overlaid ordinary `chapters` list.
-Media cutting (`--sponsorblock-remove` / FFmpeg) is not exposed.
+line; later `--sponsorblock-api` values overwrite earlier ones). The
+tokens `all` and `default` expand to the pinned full category set from
+`internal/sponsorblock.AllCategories()`. Prefix a category or alias
+with `-` to exclude it after expansion, matching the reference grammar
+(for example `all,-preview`, `default,-intro`, or `sponsor,-sponsor`).
+Exclusions may leave an empty category set, which disables marking.
+`--no-sponsorblock` is applied after option parsing (matching pinned
+yt-dlp `opts.no_sponsorblock`), so it clears marking regardless of
+whether mark flags appear before or after it in config or on the
+command line, while preserving `--sponsorblock-api`. Unknown
+identifiers and explicit empty values such as `--sponsorblock-mark=`
+are rejected at CLI parse time (exit status `2`) before any network
+work. Marking writes both `sponsorblock_chapters` and the overlaid
+ordinary `chapters` list. Media cutting (`--sponsorblock-remove` /
+FFmpeg) is not exposed.
 
 Example:
 

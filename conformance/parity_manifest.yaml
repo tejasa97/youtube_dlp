@@ -1936,9 +1936,10 @@ capabilities:
       - internal/cli.TestRunRejectsInvalidSponsorBlockBeforeNetwork
       - internal/cli.TestNoSponsorBlockKeepsAPIBase
       - internal/cli.TestRunNoSponsorBlockClearsInheritedMark
+      - internal/cli.TestRunNoSponsorBlockAuthoritativeOrdering
       - internal/cli.TestRunSponsorBlockConfigCommandLinePrecedence
       - internal/network.TestDoWithoutCredentialsDropsExplicitAndDefaultSecrets
       - conformance/sponsorblock/PROVENANCE.md
       - docs/SPONSORBLOCK_METADATA.md
     owner: core
-    known_deviation: This capability covers metadata fetch, normalization, opt-in mark-only chapter overlay, and CLI exposure of --sponsorblock-mark/--sponsorblock-api/--no-sponsorblock with yt-dlp-compatible accumulation and exclusion grammar (for example all,-preview). FFmpeg-driven media cutting, force-keyframes injection, subtitle synchronization, CLI remove/cut flags, and arbitrary-service (Vimeo, PeerTube, etc.) metadata are intentionally out of scope. The reference's warning when duration-mismatched segments are filtered is not yet surfaced; users see only the surviving chapters in sponsorblock_chapters. Network retries and authentication flows follow the existing network.Client; the reference's own retry behavior is not duplicated.
+    known_deviation: This capability covers metadata fetch, normalization, opt-in mark-only chapter overlay, and CLI exposure of --sponsorblock-mark/--sponsorblock-api/--no-sponsorblock with yt-dlp-compatible orderedSet_from_options accumulation/exclusion (including empty results such as -all or sponsor,-sponsor) and post-parse opts.no_sponsorblock clearing that preserves --sponsorblock-api. FFmpeg-driven media cutting, force-keyframes injection, subtitle synchronization, CLI remove/cut flags, and arbitrary-service (Vimeo, PeerTube, etc.) metadata are intentionally out of scope. The reference's warning when duration-mismatched segments are filtered is not yet surfaced; users see only the surviving chapters in sponsorblock_chapters. Network retries and authentication flows follow the existing network.Client; the reference's own retry behavior is not duplicated.

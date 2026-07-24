@@ -382,9 +382,10 @@ SponsorBlock chapter marking is opt-in for YouTube watch URLs:
 ```
 
 Use `--sponsorblock-api URL` to point at a mirror and `--no-sponsorblock` to
-clear mark enablement without clearing the API base. Categories may be a
-comma-separated list (repeatable; `-category` excludes after `all`/`default`
-expansion). Media cutting remains out of scope.
+clear mark enablement without clearing the API base (`--no-sponsorblock` wins
+regardless of mark-flag order). Categories may be a comma-separated list
+(repeatable; `-category` excludes after `all`/`default` expansion, and an
+empty result disables marking). Media cutting remains out of scope.
 
 Public adaptive YouTube live streams can opt into bounded reconstruction from
 their retained beginning:

@@ -252,6 +252,7 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	youtubeMaxComments := flags.String("youtube-max-comments", "", "bounded YouTube limits TOTAL[,PARENTS[,REPLIES[,PER_THREAD[,DEPTH]]]]")
 	youtubeCommentSort := flags.String("youtube-comment-sort", "new", "YouTube comment order: new or top")
 	var sponsorBlockMark []string
+	noSponsorBlock := false
 	flags.Func("sponsorblock-mark", "SponsorBlock categories to mark as chapters (repeatable; comma-separated; all/default selects the pinned set; prefix with - to exclude)", func(value string) error {
 		next, err := parseSponsorBlockCategories(value, sponsorBlockMark)
 		if err != nil {
@@ -261,8 +262,11 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		return nil
 	})
 	sponsorBlockAPI := flags.String("sponsorblock-api", "", "SponsorBlock API origin (default https://sponsor.ajay.app)")
+	// Match pinned yt-dlp: record --no-sponsorblock during parse, then clear
+	// marking after all options (config + CLI) are applied so order cannot
+	// re-enable marking. --sponsorblock-api is preserved.
 	flags.BoolFunc("no-sponsorblock", "disable SponsorBlock marking without clearing --sponsorblock-api", func(string) error {
-		sponsorBlockMark = nil
+		noSponsorBlock = true
 		return nil
 	})
 	convertSubtitles := flags.String("convert-subs", "none", "convert written subtitle sidecars to srt, ass, or vtt (none disables)")
@@ -364,6 +368,9 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	}
 	commentLimits.Enabled = *writeComments
 	commentLimits.Sort = *youtubeCommentSort
+	if noSponsorBlock {
+		sponsorBlockMark = nil
+	}
 	sponsorBlockOptions, err := buildSponsorBlockOptions(sponsorBlockMark, *sponsorBlockAPI)
 	if err != nil {
 		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
@@ -615,9 +622,11 @@ func buildSponsorBlockOptions(categories []string, apiBase string) (ytdlp.Sponso
 }
 
 // parseSponsorBlockCategories accumulates a comma-separated SponsorBlock
-// category grammar onto start, matching yt-dlp's ordered-set semantics:
+// category grammar onto start, matching yt-dlp's orderedSet_from_options:
 // repeated flags accumulate, all/default expand to the pinned set, and a
 // leading "-" excludes a category or alias (for example all,-preview).
+// Exclusions may leave an empty set (marking disabled); only an explicitly
+// empty flag value or malformed empty comma tokens are rejected.
 func parseSponsorBlockCategories(input string, start []string) ([]string, error) {
 	if strings.TrimSpace(input) == "" {
 		return nil, errors.New("sponsorblock-mark requires at least one category")
@@ -657,9 +666,6 @@ func parseSponsorBlockCategories(input string, start []string) ([]string, error)
 		for _, category := range values {
 			result = appendUniqueSponsorBlockCategory(result, category)
 		}
-	}
-	if len(result) == 0 {
-		return nil, errors.New("sponsorblock-mark requires at least one category")
 	}
 	if len(result) > sponsorblock.MaxCategories {
 		return nil, errors.New("too many SponsorBlock categories")
