@@ -10,6 +10,7 @@ import (
 
 	"github.com/ytdlp-go/ytdlp/internal/events"
 	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
+	"github.com/ytdlp-go/ytdlp/internal/sponsorblock"
 )
 
 // SponsorBlockCut removes sponsor ranges from a media file using typed ffmpeg
@@ -62,18 +63,20 @@ func (operation SponsorBlockCut) Run(ctx context.Context, tools *ffmpeg.Toolset,
 	return removeOwned(operation.Input, operation.Output)
 }
 
-// SponsorBlockSubtitleCut applies the same keep ranges to a supported subtitle
-// sidecar without force-keyframes. Unsupported formats must be rejected by the
-// caller before constructing this operation.
+// SponsorBlockSubtitleCut remaps a supported subtitle sidecar through cut
+// ranges using deterministic cue editing (not ffmpeg concat).
 type SponsorBlockSubtitleCut struct {
 	Input, Output Artifact
-	Ranges        []ffmpeg.ConcatRange
+	Cuts          []sponsorblock.Range
 	Overwrite     bool
 }
 
 func (operation SponsorBlockSubtitleCut) Name() string { return "sponsorblock-subtitle-cut" }
 
-func (operation SponsorBlockSubtitleCut) Run(ctx context.Context, tools *ffmpeg.Toolset, sink events.Sink) error {
+func (operation SponsorBlockSubtitleCut) Run(ctx context.Context, _ *ffmpeg.Toolset, _ events.Sink) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := validateArtifact(operation.Input, ArtifactSubtitle); err != nil {
 		return err
 	}
@@ -83,12 +86,17 @@ func (operation SponsorBlockSubtitleCut) Run(ctx context.Context, tools *ffmpeg.
 	if err := localRegular(operation.Input.Path); err != nil {
 		return err
 	}
-	if len(operation.Ranges) == 0 {
-		return fmt.Errorf("%w: missing keep ranges", ErrInvalidGraph)
-	}
 	extension := strings.TrimPrefix(strings.ToLower(filepath.Ext(operation.Input.Path)), ".")
 	if !SupportedSponsorBlockSubtitleExt(extension) {
 		return fmt.Errorf("%w: unsupported subtitle cut format", ErrInvalidGraph)
+	}
+	data, err := os.ReadFile(operation.Input.Path)
+	if err != nil {
+		return err
+	}
+	rewritten, err := sponsorblock.CutSubtitle(extension, data, operation.Cuts)
+	if err != nil {
+		return err
 	}
 	destination := operation.Output.Path
 	if filepath.Clean(operation.Input.Path) == filepath.Clean(destination) {
@@ -96,7 +104,7 @@ func (operation SponsorBlockSubtitleCut) Run(ctx context.Context, tools *ffmpeg.
 			return fmt.Errorf("%w: in-place cut requires overwrite", ErrInvalidGraph)
 		}
 		temporary := destination + ".ytdlp-sponsorblock-subcut" + filepath.Ext(destination)
-		if err := tools.ConcatRanges(ctx, operation.Input.Path, temporary, operation.Ranges, false, sink); err != nil {
+		if err := os.WriteFile(temporary, rewritten, 0o600); err != nil {
 			return err
 		}
 		if err := SafeMoveContext(ctx, temporary, destination, true); err != nil {
@@ -105,21 +113,30 @@ func (operation SponsorBlockSubtitleCut) Run(ctx context.Context, tools *ffmpeg.
 		}
 		return nil
 	}
-	if err := tools.ConcatRanges(ctx, operation.Input.Path, destination, operation.Ranges, operation.Overwrite, sink); err != nil {
+	if info, err := os.Lstat(destination); err == nil {
+		if !operation.Overwrite {
+			return fmt.Errorf("%w: destination exists", ffmpeg.ErrDestinationExists)
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return fmt.Errorf("%w: output is not regular", ErrUnsafePath)
+		}
+	} else if !errorsIsNotExist(err) {
+		return err
+	}
+	if err := os.WriteFile(destination, rewritten, 0o600); err != nil {
 		return err
 	}
 	return removeOwned(operation.Input, operation.Output)
 }
 
-// SupportedSponsorBlockSubtitleExt reports whether ext matches the pinned
-// FFmpegSubtitlesConvertorPP.SUPPORTED_EXTS set used by ModifyChaptersPP.
+func errorsIsNotExist(err error) bool {
+	return err != nil && os.IsNotExist(err)
+}
+
+// SupportedSponsorBlockSubtitleExt reports whether ext is handled by the
+// deterministic SponsorBlock subtitle remapper.
 func SupportedSponsorBlockSubtitleExt(ext string) bool {
-	switch strings.ToLower(ext) {
-	case "srt", "vtt", "ass", "lrc":
-		return true
-	default:
-		return false
-	}
+	return sponsorblock.SupportedSubtitleExt(ext)
 }
 
 // FormatConcatTimestamp renders a seconds value the way yt-dlp formats

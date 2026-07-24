@@ -2,8 +2,10 @@ package ytdlp
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
@@ -23,12 +25,12 @@ func TestSponsorBlockRemoveSkippedUnderSimulateAndSkipDownload(t *testing.T) {
 		{SkipDownload: true, SponsorBlock: SponsorBlockOptions{Enabled: true, Remove: true, Categories: []string{"sponsor"}}},
 	} {
 		operation := &operation{request: request}
-		path, artifacts, err := operation.applySponsorBlockRemove(context.Background(), &info, "missing.mp4", nil, nil)
+		path, artifacts, cut, err := operation.applySponsorBlockRemove(context.Background(), &info, "missing.mp4", nil, nil)
 		if err != nil {
 			t.Fatalf("request=%#v err=%v", request, err)
 		}
-		if path != "missing.mp4" || artifacts != nil {
-			t.Fatalf("unexpected mutation path=%q artifacts=%v", path, artifacts)
+		if cut || path != "missing.mp4" || artifacts != nil {
+			t.Fatalf("unexpected mutation path=%q artifacts=%v cut=%v", path, artifacts, cut)
 		}
 	}
 }
@@ -45,12 +47,12 @@ func TestSponsorBlockRemoveNoopWithoutCuts(t *testing.T) {
 	operation := &operation{request: Request{SponsorBlock: SponsorBlockOptions{
 		Enabled: true, Remove: true, Categories: []string{"sponsor"},
 	}}}
-	path, _, err := operation.applySponsorBlockRemove(context.Background(), &info, media, nil, nil)
+	path, _, cut, err := operation.applySponsorBlockRemove(context.Background(), &info, media, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if path != media {
-		t.Fatalf("path = %q", path)
+	if cut || path != media {
+		t.Fatalf("path = %q cut=%v", path, cut)
 	}
 	body, err := os.ReadFile(media)
 	if err != nil || string(body) != "media" {
@@ -92,9 +94,9 @@ func TestSponsorBlockUnsupportedSubtitleFailsClosedWithoutMutatingMedia(t *testi
 	operation := &operation{request: Request{SponsorBlock: SponsorBlockOptions{
 		Enabled: true, Remove: true, Categories: []string{"sponsor"},
 	}}}
-	_, _, err := operation.applySponsorBlockRemove(context.Background(), &info, media, []Artifact{{Path: sub, Kind: "subtitle"}}, nil)
-	if err == nil || !IsCategory(err, ErrorUnsupported) {
-		t.Fatalf("error = %v", err)
+	_, _, cut, err := operation.applySponsorBlockRemove(context.Background(), &info, media, []Artifact{{Path: sub, Kind: "subtitle"}}, nil)
+	if cut || err == nil || !IsCategory(err, ErrorUnsupported) {
+		t.Fatalf("error = %v cut=%v", err, cut)
 	}
 	body, readErr := os.ReadFile(media)
 	if readErr != nil || string(body) != "media-original" {
@@ -142,6 +144,44 @@ func TestSponsorBlockRemoveRemapsOrdinaryChaptersWithoutMark(t *testing.T) {
 	}
 }
 
+func TestSponsorBlockPrepareChaptersBeforeCommit(t *testing.T) {
+	info := value.Info{}
+	info.Set("duration", value.Float(100))
+	info.Set("chapters", value.List(value.ObjectValue(value.NewObject(
+		value.Field{Key: "start_time", Value: value.Float(0)},
+		value.Field{Key: "end_time", Value: value.Float(50)},
+		value.Field{Key: "title", Value: value.String("A")},
+	))))
+	before, _ := info.Lookup("chapters").ListValue()
+	beforeEnd, _ := sponsorblockNumber(mustObject(t, before[0]).Lookup("end_time"))
+	prepared, present, err := prepareRewrittenChapters(&info, []sponsorblock.Range{{Start: 10, End: 20}})
+	if err != nil || !present {
+		t.Fatalf("prepare = present=%v err=%v", present, err)
+	}
+	after, _ := info.Lookup("chapters").ListValue()
+	afterEnd, _ := sponsorblockNumber(mustObject(t, after[0]).Lookup("end_time"))
+	if afterEnd != beforeEnd {
+		t.Fatal("prepare must not mutate info before commit")
+	}
+	list, ok := prepared.ListValue()
+	if !ok || len(list) != 1 {
+		t.Fatalf("prepared = %#v", prepared)
+	}
+	end, _ := sponsorblockNumber(mustObject(t, list[0]).Lookup("end_time"))
+	if end != 40 {
+		t.Fatalf("prepared end = %v", end)
+	}
+}
+
+func mustObject(t *testing.T, item value.Value) *value.Object {
+	t.Helper()
+	object, ok := item.Object()
+	if !ok {
+		t.Fatal("expected object")
+	}
+	return object
+}
+
 func TestSponsorBlockCutCommitIsTransactional(t *testing.T) {
 	root := t.TempDir()
 	media := filepath.Join(root, "media.mp4")
@@ -161,8 +201,6 @@ func TestSponsorBlockCutCommitIsTransactional(t *testing.T) {
 	if err := os.WriteFile(stagedMedia, []byte("media-staged"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	// Leave the second staged path missing so the first rename commits, then the
-	// second commit step fails and must roll media back to the original bytes.
 	jobs := []sponsorBlockCutJob{
 		{kind: postprocess.ArtifactMedia, original: media, staged: stagedMedia, backup: filepath.Join(staging, "backup-0.mp4")},
 		{kind: postprocess.ArtifactSubtitle, original: sub, staged: stagedSub, backup: filepath.Join(staging, "backup-1.vtt")},
@@ -177,6 +215,70 @@ func TestSponsorBlockCutCommitIsTransactional(t *testing.T) {
 	subBody, err := os.ReadFile(sub)
 	if err != nil || string(subBody) != "sub-original" {
 		t.Fatalf("subtitle should remain original: %v %q", err, subBody)
+	}
+}
+
+func TestSponsorBlockCutCommitReportsRollbackFailure(t *testing.T) {
+	root := t.TempDir()
+	missingBackup := filepath.Join(root, "missing-backup.mp4")
+	target := filepath.Join(root, "target.mp4")
+	err := restoreSponsorBlockBackup(sponsorBlockCutJob{original: target, backup: missingBackup})
+	if err == nil {
+		t.Fatal("expected restore failure for missing backup")
+	}
+
+	blocked := filepath.Join(root, "blocked-original")
+	if err := os.Mkdir(blocked, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(blocked, "nested"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backup := filepath.Join(root, "backup.mp4")
+	if err := os.WriteFile(backup, []byte("backup"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := restoreSponsorBlockBackup(sponsorBlockCutJob{original: blocked, backup: backup}); err == nil {
+		t.Fatal("expected restore failure when original is a non-empty directory")
+	}
+
+	media := filepath.Join(root, "media.mp4")
+	sub := filepath.Join(root, "track.vtt")
+	if err := os.WriteFile(media, []byte("media-original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sub, []byte("sub-original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	staging := filepath.Join(root, "staging")
+	if err := os.MkdirAll(staging, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	jobs := []sponsorBlockCutJob{
+		{
+			kind: postprocess.ArtifactMedia, original: media,
+			staged: filepath.Join(staging, "0.mp4"), backup: filepath.Join(staging, "backup-0.mp4"),
+		},
+		{
+			kind: postprocess.ArtifactSubtitle, original: sub,
+			staged: filepath.Join(staging, "1.vtt"), backup: filepath.Join(staging, "backup-1.vtt"),
+		},
+	}
+	if err := os.WriteFile(jobs[0].staged, []byte("media-staged"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err = commitSponsorBlockCutJobs(context.Background(), jobs)
+	if err == nil {
+		t.Fatal("expected commit failure")
+	}
+	if !errors.Is(err, os.ErrNotExist) && !os.IsNotExist(err) {
+		if !strings.Contains(err.Error(), "no such file") && !strings.Contains(err.Error(), "cannot find") {
+			t.Fatalf("commit err = %v", err)
+		}
+	}
+	body, readErr := os.ReadFile(media)
+	if readErr != nil || string(body) != "media-original" {
+		t.Fatalf("media after rollback = %v %q", readErr, body)
 	}
 }
 
@@ -223,11 +325,64 @@ func TestSponsorBlockCutCommitReplacesAfterAllStaging(t *testing.T) {
 	}
 }
 
+func TestSponsorBlockStageSubtitleDeterministic(t *testing.T) {
+	root := t.TempDir()
+	original := filepath.Join(root, "track.srt")
+	staged := filepath.Join(root, "staged.srt")
+	input := "1\n00:00:05,000 --> 00:00:08,000\nbefore\n\n2\n00:00:12,000 --> 00:00:18,000\ninside\n"
+	if err := os.WriteFile(original, []byte(input), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := stageSponsorBlockSubtitle(original, staged, []sponsorblock.Range{{Start: 10, End: 20}}); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(staged)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	if strings.Contains(text, "inside") || !strings.Contains(text, "before") {
+		t.Fatalf("staged = %q", text)
+	}
+}
+
 func TestSponsorBlockPlanningLimitsAlignWithFFmpeg(t *testing.T) {
 	if sponsorblock.MaxKeepSegments != ffmpeg.MaxConcatRanges {
 		t.Fatalf("keep limit %d != ffmpeg concat %d", sponsorblock.MaxKeepSegments, ffmpeg.MaxConcatRanges)
 	}
 	if sponsorblock.MaxForceKeyframeTimestamps != ffmpeg.MaxForceKeyframes {
 		t.Fatalf("keyframe limit %d != ffmpeg %d", sponsorblock.MaxForceKeyframeTimestamps, ffmpeg.MaxForceKeyframes)
+	}
+}
+
+func TestArtifactBytesRecountsAfterCut(t *testing.T) {
+	root := t.TempDir()
+	media := filepath.Join(root, "media.mp4")
+	sub := filepath.Join(root, "track.vtt")
+	if err := os.WriteFile(media, []byte("12345"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sub, []byte("abc"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	total, err := artifactBytes([]Artifact{
+		{Path: media, Kind: "media"},
+		{Path: sub, Kind: "subtitle"},
+	})
+	if err != nil || total != 8 {
+		t.Fatalf("bytes = %d err=%v", total, err)
+	}
+	if err := os.WriteFile(media, []byte("1"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sub, []byte("xy"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	total, err = artifactBytes([]Artifact{
+		{Path: media, Kind: "media"},
+		{Path: sub, Kind: "subtitle"},
+	})
+	if err != nil || total != 3 {
+		t.Fatalf("recounted bytes = %d err=%v", total, err)
 	}
 }

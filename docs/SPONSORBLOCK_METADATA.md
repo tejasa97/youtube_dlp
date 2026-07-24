@@ -215,13 +215,15 @@ exceed the ffmpeg concat-range (128) or force-keyframe (512) limits.
 
 ## Subtitle synchronization
 
-When subtitle sidecars exist beside the downloaded media, Remove applies
-the same keep ranges through the ffmpeg concat demuxer for the pinned
-supported extensions (`srt`, `vtt`, `ass`, `lrc`). Unsupported sidecar
-formats fail closed with a categorized `unsupported` error so the
-product never silently leaves subtitles desynced. This is stricter than
-yt-dlp's warn-and-continue policy for unsupported external subtitle
-types and is recorded as a known deviation.
+When subtitle sidecars exist beside the downloaded media, Remove rewrites
+them with deterministic cue removal and timestamp remapping for the
+supported extensions (`srt`, `vtt`, `ass`/`ssa`, `lrc`). Cues entirely
+inside cut ranges are dropped; cues before, overlapping, or after cuts are
+kept with remapped timestamps. FFmpeg concat is not used for subtitles.
+Unsupported sidecar formats fail closed with a categorized `unsupported`
+error so the product never silently leaves subtitles desynced. This is
+stricter than yt-dlp's warn-and-continue policy for unsupported external
+subtitle types and is recorded as a known deviation.
 
 ## Output schema
 

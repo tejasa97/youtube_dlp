@@ -1931,6 +1931,15 @@ capabilities:
       - internal/sponsorblock.TestPlanCutsRejectsExcessCutRanges
       - internal/sponsorblock.TestPlanCutsNoMatchingCategoriesIsNoop
       - internal/sponsorblock.TestMapTimeAndRewriteChapters
+      - internal/sponsorblock.TestRemapCueIntervalDropsFullyRemoved
+      - internal/sponsorblock.TestCutSRTTimingCases
+      - internal/sponsorblock.TestCutVTTTimingCases
+      - internal/sponsorblock.TestCutASSTimingCases
+      - internal/sponsorblock.TestCutLRCTimingCases
+      - internal/sponsorblock.TestCutVTTPreservesMetadataBlocks
+      - internal/sponsorblock.TestCutLRCMultiTimestampLine
+      - internal/sponsorblock.TestCutSRTRejectsMalformedCue
+      - internal/sponsorblock.TestCutSubtitleRejectsUnknown
       - internal/sponsorblock.FuzzPlanCuts
       - internal/media/ffmpeg.TestForceKeyframesAndConcatRanges
       - internal/media/ffmpeg.TestConcatRangesValidation
@@ -1957,9 +1966,13 @@ capabilities:
       - pkg/ytdlp.TestSponsorBlockFetchCategoriesUnionsRemoveSet
       - pkg/ytdlp.TestSponsorBlockUnsupportedSubtitleFailsClosedWithoutMutatingMedia
       - pkg/ytdlp.TestSponsorBlockRemoveRemapsOrdinaryChaptersWithoutMark
+      - pkg/ytdlp.TestSponsorBlockPrepareChaptersBeforeCommit
       - pkg/ytdlp.TestSponsorBlockCutCommitIsTransactional
+      - pkg/ytdlp.TestSponsorBlockCutCommitReportsRollbackFailure
       - pkg/ytdlp.TestSponsorBlockCutCommitReplacesAfterAllStaging
+      - pkg/ytdlp.TestSponsorBlockStageSubtitleDeterministic
       - pkg/ytdlp.TestSponsorBlockPlanningLimitsAlignWithFFmpeg
+      - pkg/ytdlp.TestArtifactBytesRecountsAfterCut
       - internal/network.TestDoWithoutCredentialsDropsExplicitAndDefaultSecrets
       - conformance/sponsorblock/PROVENANCE.md
       - docs/SPONSORBLOCK_METADATA.md

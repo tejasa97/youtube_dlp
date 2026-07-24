@@ -20,6 +20,8 @@
 //   - Remove planning merges overlapping/adjacent skip ranges, never cuts
 //     poi_highlight/chapter, and derives concat inpoint/outpoint keep segments
 //     within the ffmpeg concat-range and force-keyframe limits.
+//   - Subtitle sidecars are rewritten with deterministic cue remapping for
+//     srt/vtt/ass/lrc rather than ffmpeg concat.
 //
 // The package is internal because its public surface is a bounded enrichment
 // and cutting stage wired into pkg/ytdlp. The categories, titles, and action
