@@ -1,0 +1,22 @@
+{
+  "thread": {
+    "post": {
+      "uri": "at://primary.example.test/app.bsky.feed.post/3l4qhp7bcs52c",
+      "cid": "bafyreipostmain",
+      "author": {
+        "did": "did:plc:primarydid",
+        "handle": "primary.example.test",
+        "displayName": "Primary Author"
+      },
+      "record": {
+        "text": "Post with a quote and a direct video"
+      },
+      "embed": {
+        "$type": "app.bsky.embed.video.view",
+        "playlist": "https://video.bsky.app/watch/3l4qhp7bcs52c/main.m3u8",
+        "thumbnail": "https://video.bsky.app/watch/3l4qhp7bcs52c/main.jpg",
+        "cid": "bafyreimainvid"
+      }
+    }
+  }
+}

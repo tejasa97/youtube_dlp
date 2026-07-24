@@ -1,0 +1,10 @@
+{
+  "id": "did:plc:malicious",
+  "service": [
+    {
+      "id": "#atproto_pds",
+      "type": "AtprotoPersonalDataServer",
+      "serviceEndpoint": "http://127.0.0.1/xrpc/com.atproto.sync.getBlob"
+    }
+  ]
+}
