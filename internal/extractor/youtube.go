@@ -3,6 +3,7 @@ package extractor
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/ytdlp-go/ytdlp/internal/javascript/ejs"
+	"github.com/ytdlp-go/ytdlp/internal/protocol/youtubeump"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
@@ -177,6 +179,11 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 	player.clientName = "WEB"
 	player.visitorData = pageConfig.visitorData(player.ResponseContext.VisitorData)
 	player.playerURL = playerPath
+	if clientID, clientVersion, userAgent, ok := pageConfig.sabrWEBClientIdentity(); ok {
+		player.clientID = clientID
+		player.clientVersion = clientVersion
+		player.userAgent = userAgent
+	}
 	formatPlayers := []youtubePlayerResponse{player}
 	if !initialHasFormats {
 		if pageConfig.LoggedIn != nil && *pageConfig.LoggedIn {
@@ -210,15 +217,24 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 			visitorData := pageConfig.visitorData(player.ResponseContext.VisitorData)
 			recovered, err := recoverYouTubeFormats(ctx, request.Transport, videoID, visitorData, playerPath, request.YouTubePOT)
 			if err != nil {
-				return Extraction{}, err
-			}
-			formatPlayers = append(formatPlayers, recovered...)
-			for _, recoveredPlayer := range recovered {
-				if playerPath == "" {
-					playerPath = recoveredPlayer.Assets.JS
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					return Extraction{}, err
 				}
-				if player.VideoDetails.Title == "" {
-					player.VideoDetails = recoveredPlayer.VideoDetails
+				if errors.Is(err, ErrTransportIsolation) {
+					return Extraction{}, err
+				}
+				if !hasYouTubeSABR([]youtubePlayerResponse{player}) {
+					return Extraction{}, err
+				}
+			} else {
+				formatPlayers = append(formatPlayers, recovered...)
+				for _, recoveredPlayer := range recovered {
+					if playerPath == "" {
+						playerPath = recoveredPlayer.Assets.JS
+					}
+					if player.VideoDetails.Title == "" {
+						player.VideoDetails = recoveredPlayer.VideoDetails
+					}
 				}
 			}
 		}
@@ -290,6 +306,15 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 		}
 		if !activeFromStart && candidate.StreamingData.DASHManifestURL != "" && !(liveStatus == "post_live" && hasDuration && duration > 2*60*60) {
 			formatValues = append(formatValues, value.ObjectValue(manifestFormat("dash", candidate.StreamingData.DASHManifestURL, "http_dash_segments")))
+		}
+	}
+	if len(formatValues) == 0 {
+		if sabrFormats, sabrErr := buildYouTubeSABRFormats(ctx, formatPlayers, webpageURL, videoID, duration, hasDuration, liveStatus); sabrErr != nil {
+			if hasYouTubeSABR(formatPlayers) {
+				return Extraction{}, sabrErr
+			}
+		} else if len(sabrFormats) > 0 {
+			formatValues = sabrFormats
 		}
 	}
 	if len(formatValues) == 0 {
@@ -453,6 +478,13 @@ type youtubePlayerResponse struct {
 		DASHManifestURL string          `json:"dashManifestUrl"`
 		ServerABRURL    string          `json:"serverAbrStreamingUrl"`
 	} `json:"streamingData"`
+	PlayerConfig struct {
+		MediaCommonConfig struct {
+			MediaUstreamerRequestConfig struct {
+				VideoPlaybackUstreamerConfig string `json:"videoPlaybackUstreamerConfig"`
+			} `json:"mediaUstreamerRequestConfig"`
+		} `json:"mediaCommonConfig"`
+	} `json:"playerConfig"`
 	Assets struct {
 		JS string `json:"js"`
 	} `json:"assets"`
@@ -475,6 +507,9 @@ type youtubePlayerResponse struct {
 	} `json:"microformat"`
 
 	clientName          string
+	clientID            int32
+	clientVersion       string
+	userAgent           string
 	visitorData         string
 	playerURL           string
 	playerTokenProvided bool
@@ -690,6 +725,223 @@ func hasYouTubeSABR(players []youtubePlayerResponse) bool {
 	return false
 }
 
+func buildYouTubeSABRFormats(ctx context.Context, players []youtubePlayerResponse, webpageURL, videoID string, duration int64, hasDuration bool, liveStatus string) ([]value.Value, error) {
+	_ = ctx
+	if liveStatus != "" && liveStatus != "not_live" {
+		return nil, fmt.Errorf("%w: live SABR playback is unsupported", ErrUnsupported)
+	}
+	if !hasDuration || duration <= 0 {
+		return nil, fmt.Errorf("%w: finite VOD duration is required for SABR", ErrInvalidMetadata)
+	}
+	var lastErr error
+	for _, player := range players {
+		if player.StreamingData.ServerABRURL == "" {
+			continue
+		}
+		values, err := normalizeYouTubeSABRCandidate(player, webpageURL, videoID, duration)
+		if err != nil {
+			if lastErr == nil {
+				lastErr = err
+			}
+			continue
+		}
+		if len(values) > 0 {
+			return values, nil
+		}
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, fmt.Errorf("%w: no eligible SABR formats", ErrUnavailable)
+}
+
+func normalizeYouTubeSABRCandidate(player youtubePlayerResponse, webpageURL, videoID string, duration int64) ([]value.Value, error) {
+	if _, err := youtubeump.ValidateSABRURL(player.StreamingData.ServerABRURL); err != nil {
+		return nil, fmt.Errorf("%w: invalid SABR endpoint", ErrInvalidMetadata)
+	}
+	ustreamer, err := decodeYouTubeUstreamerConfig(player.PlayerConfig.MediaCommonConfig.MediaUstreamerRequestConfig.VideoPlaybackUstreamerConfig)
+	if err != nil || len(ustreamer) == 0 {
+		return nil, fmt.Errorf("%w: missing videoPlaybackUstreamerConfig", ErrInvalidMetadata)
+	}
+	if player.clientID == 0 || player.clientVersion == "" || player.userAgent == "" {
+		return nil, fmt.Errorf("%w: missing SABR transport identity", ErrInvalidMetadata)
+	}
+	formats := append(append([]youtubeFormat(nil), player.StreamingData.Formats...), player.StreamingData.AdaptiveFormats...)
+	if len(formats) == 0 {
+		return nil, fmt.Errorf("%w: missing SABR format inventory", ErrUnavailable)
+	}
+	if hasURLBearingYouTubeFormats(formats) {
+		return nil, nil
+	}
+	clientID := player.clientID
+	clientVersion := player.clientVersion
+	userAgent := player.userAgent
+	values := make([]value.Value, 0, len(formats))
+	for _, format := range formats {
+		if normalized, ok := normalizeYouTubeSABRFormat(format, player, webpageURL, videoID, duration, ustreamer, clientID, clientVersion, userAgent); ok {
+			values = append(values, value.ObjectValue(normalized))
+		}
+	}
+	if len(values) == 0 {
+		return nil, fmt.Errorf("%w: no eligible SABR formats", ErrUnavailable)
+	}
+	return values, nil
+}
+
+func hasURLBearingYouTubeFormats(formats []youtubeFormat) bool {
+	for _, format := range formats {
+		if format.URL != "" {
+			return true
+		}
+		if cipher, err := url.ParseQuery(format.SignatureCipher); err == nil && cipher.Get("url") != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func (config youtubePageConfig) sabrWEBClientIdentity() (clientID int32, clientVersion, userAgent string, ok bool) {
+	clientName := config.InnertubeContext.Client.ClientName
+	if clientName == "" {
+		clientName = "WEB"
+	}
+	if clientName != "WEB" {
+		return 0, "", "", false
+	}
+	parsedID, idOK := parseYouTubeContextClientID(config.ContextClientName)
+	if !idOK || parsedID != 1 {
+		return 0, "", "", false
+	}
+	clientVersion = config.ClientVersion
+	if clientVersion == "" {
+		clientVersion = config.InnertubeContext.Client.ClientVersion
+	}
+	userAgent = config.InnertubeContext.Client.UserAgent
+	if clientVersion == "" || userAgent == "" {
+		return 0, "", "", false
+	}
+	return 1, clientVersion, userAgent, true
+}
+
+func parseYouTubeContextClientID(raw json.RawMessage) (int32, bool) {
+	if len(raw) == 0 {
+		return 0, false
+	}
+	var asInt int64
+	if err := json.Unmarshal(raw, &asInt); err == nil {
+		if asInt == 1 {
+			return 1, true
+		}
+		return 0, false
+	}
+	var asString string
+	if err := json.Unmarshal(raw, &asString); err == nil {
+		parsed, err := strconv.ParseInt(strings.TrimSpace(asString), 10, 32)
+		if err != nil || parsed != 1 {
+			return 0, false
+		}
+		return 1, true
+	}
+	return 0, false
+}
+
+func decodeYouTubeUstreamerConfig(raw string) ([]byte, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, errors.New("empty ustreamer config")
+	}
+	if decoded, err := base64.StdEncoding.DecodeString(raw); err == nil {
+		return decoded, nil
+	}
+	if decoded, err := base64.RawStdEncoding.DecodeString(raw); err == nil {
+		return decoded, nil
+	}
+	if decoded, err := base64.URLEncoding.DecodeString(raw); err == nil {
+		return decoded, nil
+	}
+	return base64.RawURLEncoding.DecodeString(raw)
+}
+
+func normalizeYouTubeSABRFormat(format youtubeFormat, player youtubePlayerResponse, webpageURL, videoID string, duration int64, ustreamer []byte, clientID int32, clientVersion, userAgent string) (*value.Object, bool) {
+	mediaType, parameters, _ := mime.ParseMediaType(format.MimeType)
+	if mediaType == "" {
+		return nil, false
+	}
+	extension := youtubeExtension(mediaType, "")
+	trackKind := "video"
+	if strings.HasPrefix(mediaType, "audio/") {
+		trackKind = "audio"
+	} else if !strings.HasPrefix(mediaType, "video/") {
+		return nil, false
+	}
+	var lastModified int64
+	if format.LastModified != "" {
+		parsed, err := strconv.ParseUint(format.LastModified, 10, 64)
+		if err != nil || parsed > math.MaxInt64 {
+			return nil, false
+		}
+		lastModified = int64(parsed)
+	}
+	object := value.NewObject(
+		value.Field{Key: "format_id", Value: value.String(strconv.Itoa(format.Itag))},
+		value.Field{Key: "ext", Value: value.String(extension)},
+		value.Field{Key: "protocol", Value: value.String("youtube_sabr_ump")},
+		value.Field{Key: "preference", Value: value.Int(-5)},
+	)
+	codecs := strings.Split(parameters["codecs"], ",")
+	for index := range codecs {
+		codecs[index] = strings.TrimSpace(codecs[index])
+	}
+	if trackKind == "audio" {
+		object.Set("vcodec", value.String("none"))
+		if len(codecs) > 0 && codecs[0] != "" {
+			object.Set("acodec", value.String(codecs[0]))
+		}
+	} else {
+		if len(codecs) > 0 && codecs[0] != "" {
+			object.Set("vcodec", value.String(codecs[0]))
+		}
+		object.Set("acodec", value.String("none"))
+	}
+	if format.Bitrate > 0 {
+		object.Set("tbr", value.Float(float64(format.Bitrate)/1000))
+	}
+	if format.Width > 0 {
+		object.Set("width", value.Int(format.Width))
+	}
+	if format.Height > 0 {
+		object.Set("height", value.Int(format.Height))
+	}
+	if format.FPS > 0 {
+		object.Set("fps", value.Int(format.FPS))
+	}
+	if format.Language != "" {
+		object.Set("language", value.String(format.Language))
+	}
+	object.Set("_youtube_sabr", value.Bool(true))
+	object.Set("_youtube_sabr_track", value.String(trackKind))
+	object.Set("_youtube_sabr_itag", value.Int(int64(format.Itag)))
+	object.Set("_youtube_sabr_last_modified", value.Int(lastModified))
+	object.Set("_youtube_sabr_xtags", value.String(format.XTags))
+	object.Set("_youtube_sabr_server_url", value.String(player.StreamingData.ServerABRURL))
+	object.Set("_youtube_sabr_ustreamer_config", value.String(base64.StdEncoding.EncodeToString(ustreamer)))
+	object.Set("_youtube_sabr_client_id", value.Int(int64(clientID)))
+	object.Set("_youtube_sabr_client_version", value.String(clientVersion))
+	object.Set("_youtube_sabr_user_agent", value.String(userAgent))
+	object.Set("_youtube_sabr_visitor_data", value.String(player.visitorData))
+	object.Set("_youtube_sabr_duration_sec", value.Int(duration))
+	object.Set("_youtube_sabr_video_id", value.String(videoID))
+	object.Set("_youtube_client", value.String(player.clientName))
+	object.Set("_youtube_source_url", value.String(webpageURL))
+	if format.IsDrc != nil && *format.IsDrc {
+		object.Set("_youtube_sabr_drc", value.Bool(true))
+	}
+	if format.AudioTrack != nil && format.AudioTrack.ID != "" {
+		object.Set("_youtube_sabr_audio_track_id", value.String(format.AudioTrack.ID))
+	}
+	return object, true
+}
+
 func mergeYouTubeFormats(players []youtubePlayerResponse) []youtubeFormat {
 	var merged []youtubeFormat
 	seen := make(map[string]struct{})
@@ -838,7 +1090,13 @@ type youtubeFormat struct {
 	FPS               int64   `json:"fps"`
 	Language          string  `json:"language"`
 	TargetDurationSec float64 `json:"targetDurationSec"`
-	clientName        string
+	LastModified      string  `json:"lastModified"`
+	XTags             string  `json:"xtags"`
+	IsDrc             *bool   `json:"isDrc"`
+	AudioTrack        *struct {
+		ID string `json:"id"`
+	} `json:"audioTrack"`
+	clientName string
 }
 
 type pendingYouTubeFormat struct {

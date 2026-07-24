@@ -1,0 +1,49 @@
+# YouTube SABR/UMP evidence
+
+Status: partial — bounded finite-VOD slice only. Synthetic fixtures only; no claim of full SABR parity.
+
+## Supported wire subset
+
+- UMP framing with 1–5 byte prefix varints (LuanRT/GoogleVideo `UmpReader.ts`, commit `d2fa40d761034a286cf60ee033653307a1295b0c`).
+- Response parts handled: `FORMAT_INITIALIZATION_METADATA` (42), `MEDIA_HEADER` (20), `MEDIA` (21), `MEDIA_END` (22).
+- Multiplexed responses: unselected itag headers are consumed, length-validated, and discarded without writing; selected format initialization metadata is required.
+- Fail-closed on all other part types, including `END_OF_TRACK` (62), `NEXT_REQUEST_POLICY`, `SABR_REDIRECT`, `SABR_ERROR`, `RELOAD_PLAYER_RESPONSE`, live metadata, context update/sending policy, and stream protection.
+- `VideoPlaybackAbrRequest` protobuf fields: `client_abr_state` (player time, enabled tracks, DRC, audio track id), `selected_format_ids`, `buffered_ranges`, `video_playback_ustreamer_config`, preferred audio/video format ids, and `streamer_context` (`client_info`, `po_token` only). `playback_cookie` is omitted in this slice; visitor data is not a playback cookie and is used only for PO-token binding at download time.
+- POST to `serverAbrStreamingUrl` with preserved signed query bytes and `rn` progression, `Content-Type: application/x-protobuf`, `Accept: application/vnd.yt-ump`.
+- Credential-isolated transport: no `Cookie` / `Authorization` / `Proxy-Authorization`, no redirect following, no response cookie persistence (`network.Client.DoWithoutCredentialsNoRedirect`).
+- Caller `Config.Headers` may supply ordinary safe headers but cannot override or duplicate protected control headers (`Content-Type`, `Accept`, `Accept-Encoding`, `User-Agent`, `Host`, hop-by-hop headers, credentials, or `X-Goog-Visitor-Id`).
+- SABR format metadata keeps `url` empty; download dispatch uses `_youtube_sabr` / `_youtube_sabr_server_url` markers. Format selection binds to one player candidate inventory without cross-player merging.
+- WEB SABR transport identity requires attributable `ytcfg` evidence: `INNERTUBE_CONTEXT_CLIENT_NAME`, matching `clientName`, `clientVersion`, and `userAgent`.
+- Completion requires init segment, at least one selected media segment, and cumulative selected media duration ≥ declared finite `duration_sec` (no below-duration tolerance). Active media headers at response EOF are rejected as truncated state. Post-publish `completed` events are best-effort and do not fail an already published artifact.
+
+## Provenance
+
+| Source | Commit / URL | Use |
+|--------|----------------|-----|
+| LuanRT/GoogleVideo | `d2fa40d761034a286cf60ee033653307a1295b0c` | UMP varints, part IDs, protobuf field numbers, `BufferedRange` |
+| davidzeng0/innertube `googlevideo/ump.md` | main @ 2026-07-24 | UMP part semantics documentation |
+| ColeSpringer/WaxTap v2.0.1 | `5d4b07dbfad5c2831c35ea7b95006b576e08f694` | Request marshaling shape cross-check (not a dependency) |
+| yt-dlp reference | `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8` | SABR-only detection only; no direct transport |
+
+Synthetic fixtures: `conformance/extractors/youtube/sabr-only-watch.html` and deterministic UMP bytes in `internal/protocol/youtubeump/*_test.go`.
+
+## Measured bounds
+
+- `MaxRoundBytes` = 64 MiB per SABR response
+- `MaxParts` = 10,000 per response
+- `MaxActiveHeaders` = 8 concurrent in-flight media headers per response
+- `MaxMediaBytes` = 8 GiB per track (shared direct downloader ceiling)
+- `MaxRounds` = 64 POST rounds for finite VOD
+- Redirect responses and redirect directives are rejected (fail-closed)
+
+## Remaining deviations
+
+- Live/post-live, resume, server-driven redirect handling, PO-token refresh, `playback_cookie` / `NEXT_REQUEST_POLICY` loops, and `END_OF_TRACK` completion are unsupported.
+- No claim of parity with WaxTap/GoogleVideo full clients or yt-dlp transport.
+- Authenticated WEB SABR-only pages outside the synthetic fixture are not evidenced here.
+- PO tokens are resolved at download time through the public provider boundary; they are not exported in extraction JSON.
+
+## Tests
+
+- `go test ./internal/protocol/youtubeump ./internal/extractor ./internal/format ./internal/network ./pkg/ytdlp`
+- Fuzz: `FuzzUMPVarint`, `FuzzUMPStream`, `FuzzProtobufWire` in `internal/protocol/youtubeump`

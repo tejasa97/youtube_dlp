@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/ytdlp-go/ytdlp/internal/youtubepot"
@@ -122,6 +124,13 @@ func requestYouTubePlayer(ctx context.Context, transport Transport, videoID, vis
 		return youtubePlayerResponse{}, fmt.Errorf("%w: %s response video id mismatch", ErrInvalidMetadata, profile.Name)
 	}
 	player.clientName = profile.ClientName
+	clientID, err := strconv.ParseInt(profile.ClientID, 10, 32)
+	if err != nil || clientID <= 0 || clientID > math.MaxInt32 {
+		return youtubePlayerResponse{}, fmt.Errorf("%w: invalid recovery client id", ErrInvalidMetadata)
+	}
+	player.clientID = int32(clientID)
+	player.clientVersion = profile.ClientVersion
+	player.userAgent = profile.UserAgent
 	player.visitorData = visitorData
 	player.playerURL = playerURL
 	player.playerTokenProvided = playerTokenProvided

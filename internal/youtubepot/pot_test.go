@@ -135,6 +135,27 @@ func TestDirectorRecommendedPolicyFetchesWithoutRequiringSuccess(t *testing.T) {
 	}
 }
 
+func TestDirectorRequiredMissSanitizesProviderError(t *testing.T) {
+	const secret = "secret-provider-detail"
+	director, err := New(Config{Policy: FetchAlways, Providers: []Provider{ProviderFunc{
+		ProviderName: "fixture",
+		Function: func(context.Context, Request) (Response, error) {
+			return Response{}, errors.New(secret)
+		},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := validRequestFixture(ContextGVS)
+	_, _, err = director.Resolve(context.Background(), request, true)
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("err=%v", err)
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Fatalf("provider error leaked: %v", err)
+	}
+}
+
 func TestValidationBoundsAndTokenNormalization(t *testing.T) {
 	for _, token := range []string{"Zm9v", "Zm9v==", "a?b", "a b", "%61", "", strings.Repeat("a", MaxTokenBytes+1)} {
 		normalized, err := NormalizeToken(token)
