@@ -1,0 +1,21 @@
+{
+  "stat": "ok",
+  "streams": {"stream": [
+    {
+      "type": "appletv",
+      "_content": "https://live.staticflickr.com/video/5645318632/09ff5eef3b/appletv.mp4?token=fixture"
+    },
+    {
+      "type": 700,
+      "_content": "https://live.staticflickr.com/video/5645318632/09ff5eef3b/700.mp4?token=fixture"
+    },
+    {
+      "type": "hls",
+      "_content": "https://live.staticflickr.com/stream/5645318632/09ff5eef3b/master.m3u8?token=fixture"
+    },
+    {
+      "type": "evil",
+      "_content": "https://127.0.0.1/private.mp4"
+    }
+  ]}
+}
