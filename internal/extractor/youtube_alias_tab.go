@@ -289,6 +289,8 @@ func youtubeSelectedTabIdentities(renderer *value.Object) []string {
 		appendIdentity("releases")
 	case "podcasts":
 		appendIdentity("podcasts")
+	case "membership":
+		appendIdentity("membership")
 	}
 	return identities
 }
@@ -318,7 +320,10 @@ func categorizeYouTubeAliasTabError(err error) error {
 
 func youtubeAliasTabAlertError(alert string) error {
 	lower := strings.ToLower(alert)
-	if strings.Contains(lower, "private") || strings.Contains(lower, "sign in") || strings.Contains(lower, "login") {
+	if strings.Contains(lower, "private") || strings.Contains(lower, "sign in") ||
+		strings.Contains(lower, "login") || strings.Contains(lower, "members only") ||
+		strings.Contains(lower, "members-only") || strings.Contains(lower, "member only") ||
+		strings.Contains(lower, "member-only") {
 		return fmt.Errorf("%w: alias tab access denied", ErrAuthentication)
 	}
 	return fmt.Errorf("%w: alias tab unavailable", ErrUnavailable)
