@@ -369,6 +369,7 @@ func TestYouTubeChannelTabRoutingPolicy(t *testing.T) {
 		"https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/community",
 		"https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/releases",
 		"https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/podcasts",
+		"https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/membership",
 	}
 	for _, raw := range valid {
 		parsed, _ := http.NewRequest(http.MethodGet, raw, nil)
@@ -377,7 +378,7 @@ func TestYouTubeChannelTabRoutingPolicy(t *testing.T) {
 		}
 	}
 	invalid := []string{
-		"https://evil-youtube.com/channel/UCabcdefghijklmnopqrstuv/videos", "https://m.youtube.com/channel/UCabcdefghijklmnopqrstuv/videos", "https://www.youtube.com:443/channel/UCabcdefghijklmnopqrstuv/videos", "https://user@www.youtube.com/channel/UCabcdefghijklmnopqrstuv/videos", "ftp://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/videos", "https://www.youtube.com/channel/UCshort/videos", "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/membership", "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/playlists/", "https://www.youtube.com/channel%2fUCabcdefghijklmnopqrstuv/videos", "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/videos#fragment", "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/videos?x=%00",
+		"https://evil-youtube.com/channel/UCabcdefghijklmnopqrstuv/videos", "https://m.youtube.com/channel/UCabcdefghijklmnopqrstuv/videos", "https://www.youtube.com:443/channel/UCabcdefghijklmnopqrstuv/videos", "https://user@www.youtube.com/channel/UCabcdefghijklmnopqrstuv/videos", "ftp://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/videos", "https://www.youtube.com/channel/UCshort/videos", "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/membership/", "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/membership/extra", "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/playlists/", "https://www.youtube.com/channel%2fUCabcdefghijklmnopqrstuv/videos", "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/videos#fragment", "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/videos?x=%00",
 	}
 	for _, raw := range invalid {
 		request, _ := http.NewRequest(http.MethodGet, raw, nil)
@@ -403,7 +404,7 @@ func TestYouTubeChannelTabFailuresAndCancellation(t *testing.T) {
 	private, err := parseYouTubeChannelTabData([]byte(`{
 		"alerts":[{"alertRenderer":{"text":{"simpleText":"This channel is private"}}}]
 	}`), "playlists")
-	if err != nil || !errors.Is(youtubePlaylistAlertError(private.alert), ErrAuthentication) {
+	if err != nil || !errors.Is(youtubeChannelTabAlertError(private.alert), ErrAuthentication) {
 		t.Fatalf("private alert=%q err=%v", private.alert, err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -426,7 +427,7 @@ func FuzzParseYouTubeChannelTabData(f *testing.F) {
 	f.Add([]byte(`{"onResponseReceivedActions":[{"appendContinuationItemsAction":{"continuationItems":[]}}]}`))
 	f.Add([]byte(`{"gridPlaylistRenderer":{"playlistId":"PLfuzz","title":{"simpleText":"fuzz"}}}`))
 	f.Fuzz(func(t *testing.T, data []byte) {
-		for _, tab := range []string{"videos", "playlists", "home", "community", "releases", "podcasts"} {
+		for _, tab := range []string{"videos", "playlists", "home", "community", "releases", "podcasts", "membership"} {
 			page, err := parseYouTubeChannelTabData(data, tab)
 			if err != nil {
 				continue

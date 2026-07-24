@@ -21,7 +21,7 @@ const (
 
 func youtubePublicTabType(tab string) youtubePublicTabKind {
 	switch tab {
-	case "videos", "shorts", "streams":
+	case "videos", "shorts", "streams", "membership":
 		return youtubeTabVideos
 	case "playlists", "releases", "podcasts":
 		return youtubeTabPlaylists

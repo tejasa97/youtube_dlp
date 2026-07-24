@@ -376,7 +376,10 @@ func categorizeYouTubeHandleTabError(err error) error {
 
 func youtubeHandleTabAlertError(alert string) error {
 	lower := strings.ToLower(alert)
-	if strings.Contains(lower, "private") || strings.Contains(lower, "sign in") || strings.Contains(lower, "login") {
+	if strings.Contains(lower, "private") || strings.Contains(lower, "sign in") ||
+		strings.Contains(lower, "login") || strings.Contains(lower, "members only") ||
+		strings.Contains(lower, "members-only") || strings.Contains(lower, "member only") ||
+		strings.Contains(lower, "member-only") {
 		return fmt.Errorf("%w: handle tab access denied", ErrAuthentication)
 	}
 	return fmt.Errorf("%w: handle tab unavailable", ErrUnavailable)

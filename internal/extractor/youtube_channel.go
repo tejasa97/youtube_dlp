@@ -118,7 +118,7 @@ func extractYouTubeChannelTab(ctx context.Context, transport Transport, channelI
 		return Extraction{}, err
 	}
 	if parsed.alert != "" && len(parsed.entries) == 0 {
-		return Extraction{}, youtubePlaylistAlertError(parsed.alert)
+		return Extraction{}, youtubeChannelTabAlertError(parsed.alert)
 	}
 	if parsed.title == "" {
 		return Extraction{}, fmt.Errorf("%w: missing YouTube channel metadata", ErrInvalidMetadata)
@@ -313,12 +313,23 @@ func fetchYouTubeChannelContinuation(ctx context.Context, transport Transport, t
 		return nil, "", visitorData, err
 	}
 	if parsed.alert != "" && len(parsed.entries) == 0 {
-		return nil, "", visitorData, youtubePlaylistAlertError(parsed.alert)
+		return nil, "", visitorData, youtubeChannelTabAlertError(parsed.alert)
 	}
 	if parsed.visitorData == "" {
 		parsed.visitorData = visitorData
 	}
 	return parsed.entries, parsed.continuation, parsed.visitorData, nil
+}
+
+func youtubeChannelTabAlertError(alert string) error {
+	lower := strings.ToLower(alert)
+	if strings.Contains(lower, "private") || strings.Contains(lower, "sign in") ||
+		strings.Contains(lower, "login") || strings.Contains(lower, "members only") ||
+		strings.Contains(lower, "members-only") || strings.Contains(lower, "member only") ||
+		strings.Contains(lower, "member-only") {
+		return fmt.Errorf("%w: channel tab access denied", ErrAuthentication)
+	}
+	return fmt.Errorf("%w: channel tab unavailable", ErrUnavailable)
 }
 
 func categorizeYouTubeChannelError(err error) error {
