@@ -2065,11 +2065,19 @@ capabilities:
       - pkg/ytdlp.TestSponsorBlockMapErrorCategorizes
       - pkg/ytdlp.TestSponsorBlockSecretSafeErrorMessages
       - internal/cli.TestBuildSponsorBlockOptionsMapping
+      - internal/cli.TestBuildSponsorBlockRemoveOptionsMapping
+      - internal/cli.TestBuildSponsorBlockMarkRemoveUnionAndPrecedence
+      - internal/cli.TestSponsorBlockCategorySlicesDoNotAliasAccumulators
       - internal/cli.TestRunRejectsInvalidSponsorBlockBeforeNetwork
       - internal/cli.TestNoSponsorBlockKeepsAPIBase
-      - internal/cli.TestRunNoSponsorBlockClearsInheritedMark
+      - internal/cli.TestRunNoSponsorBlockClearsInheritedMarkAndRemove
       - internal/cli.TestRunNoSponsorBlockAuthoritativeOrdering
       - internal/cli.TestRunSponsorBlockConfigCommandLinePrecedence
+      - internal/cli.TestSponsorBlockRemoveRequestFieldsDeterministic
+      - internal/cli.TestSponsorBlockForceKeyframesFlagLastWins
+      - internal/cli.TestRunForceKeyframesLastWinsParsesBeforeExtraction
+      - internal/cli.FuzzParseSponsorBlockMarkCategories
+      - internal/cli.FuzzParseSponsorBlockRemoveCategories
       - pkg/ytdlp.TestSponsorBlockRemoveSkippedUnderSimulateAndSkipDownload
       - pkg/ytdlp.TestSponsorBlockRemoveNoopWithoutCuts
       - pkg/ytdlp.TestSponsorBlockFetchCategoriesUnionsRemoveSet
@@ -2086,4 +2094,4 @@ capabilities:
       - conformance/sponsorblock/PROVENANCE.md
       - docs/SPONSORBLOCK_METADATA.md
     owner: core
-    known_deviation: This capability covers metadata fetch, normalization, opt-in mark-only chapter overlay, CLI exposure of --sponsorblock-mark/--sponsorblock-api/--no-sponsorblock with yt-dlp-compatible orderedSet_from_options accumulation/exclusion, and API-driven FFmpeg media cutting with force-keyframes and subtitle sync for supported sidecars. CLI remove/cut flags remain unimplemented. Arbitrary-service (Vimeo, PeerTube, etc.) metadata remains unimplemented. The reference's warning when duration-mismatched segments are filtered is not yet surfaced. Regex ordinary-chapter removal and manual remove-ranges outside SponsorBlock categories are not implemented. Unsupported external subtitle formats fail closed during remove instead of yt-dlp's warn-and-continue. Subtitle sync uses deterministic cue remapping for srt/vtt/ass/lrc rather than ffmpeg concat. The full ModifyChapters heap arrangement for mixed remove/mark overlays is approximated by post-cut timestamp remapping. Network retries follow the existing network.Client; the reference's own retry behavior is not duplicated.
+    known_deviation: This capability covers metadata fetch, normalization, opt-in mark-only chapter overlay, CLI exposure of --sponsorblock-mark/--sponsorblock-remove/--sponsorblock-api/--no-sponsorblock/--force-keyframes-at-cuts with yt-dlp-compatible orderedSet_from_options accumulation/exclusion (including remove-only default/all semantics and non-removable rejection), and API-driven FFmpeg media cutting with force-keyframes and subtitle sync for supported sidecars. Arbitrary-service (Vimeo, PeerTube, etc.) metadata remains unimplemented. The reference's warning when duration-mismatched segments are filtered is not yet surfaced. Regex ordinary-chapter removal and manual remove-ranges outside SponsorBlock categories are not implemented. Unsupported external subtitle formats fail closed during remove instead of yt-dlp's warn-and-continue. Subtitle sync uses deterministic cue remapping for srt/vtt/ass/lrc rather than ffmpeg concat. The full ModifyChapters heap arrangement for mixed remove/mark overlays is approximated by post-cut timestamp remapping. Network retries follow the existing network.Client; the reference's own retry behavior is not duplicated.
