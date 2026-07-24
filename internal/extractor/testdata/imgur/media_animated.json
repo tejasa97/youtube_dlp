@@ -1,0 +1,17 @@
+{
+  "id": "Anim123",
+  "created_at": "2024-03-15T07:07:35Z",
+  "media": [{
+    "id": "Anim123",
+    "type": "image",
+    "url": "http://i.imgur.com/Anim123.gif",
+    "mime_type": "image/gif",
+    "width": "320",
+    "height": "240",
+    "metadata": {
+      "is_animated": true,
+      "has_sound": false,
+      "title": "Animated fixture"
+    }
+  }]
+}

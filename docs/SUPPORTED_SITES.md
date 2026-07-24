@@ -1,6 +1,6 @@
 # Supported extractors
 
-ytdlp-go currently registers 29 representative native extractors. This is a
+ytdlp-go currently registers 30 representative native extractors. This is a
 conformance catalog, not a claim of the thousands of sites supported by
 upstream yt-dlp.
 
@@ -45,6 +45,7 @@ service response.
 | ard | ardmediathek.de player and collection pages | playlist/API, manifest-heavy, regional |
 | nrk | nrk.no pages and nrk: opaque URLs | playlist/API, manifest-heavy, regional |
 | bluesky | bsky.app, www.bsky.app, main.bsky.dev post URLs and at:// URIs (public posts only) | playlist/API, manifest-heavy, regional |
+| imgur | imgur.com and i.imgur.com public videos, animated images, galleries, and albums | simple/direct, playlist/API |
 
 ## Bluesky support boundaries
 

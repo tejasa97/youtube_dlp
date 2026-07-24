@@ -1,0 +1,22 @@
+{
+  "id": "Album12",
+  "is_album": true,
+  "title": "Mixed fixture album",
+  "description": "Two videos and one static image",
+  "media": [{
+    "id": "Vid0001",
+    "type": "video",
+    "url": "https://i.imgur.com/Vid0001.mp4",
+    "metadata": {"title": "First video", "has_sound": true}
+  }, {
+    "id": "Still01",
+    "type": "image",
+    "url": "https://i.imgur.com/Still01.jpg",
+    "metadata": {"is_animated": false}
+  }, {
+    "id": "Gif0002",
+    "type": "image",
+    "url": "https://i.imgur.com/Gif0002.gif",
+    "metadata": {"title": "Animated second", "is_animated": true}
+  }]
+}
