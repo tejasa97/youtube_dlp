@@ -1,0 +1,11 @@
+{
+  "id": "did:plc:pzdr5ylumf7vmvwasrpr5bf2",
+  "alsoKnownAs": ["at://blu3blue.bsky.social"],
+  "service": [
+    {
+      "id": "#atproto_pds",
+      "type": "AtprotoPersonalDataServer",
+      "serviceEndpoint": "https://shimeji.us-east.host.bsky.network"
+    }
+  ]
+}

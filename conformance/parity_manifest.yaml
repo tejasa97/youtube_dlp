@@ -1043,6 +1043,52 @@ capabilities:
       - network.shared_transport
     known_deviation: Arbitrary instances require the explicit peertube scheme; HTTP routing uses a conservative established-instance set. Generic page discovery, account/channel playlists, and password-protected success are not claimed.
 
+  - id: extractor.bluesky
+    name: Bluesky public post and AT URI extraction
+    phase: 3
+    compatibility_target: Extract unauthenticated public Bluesky posts from the bsky.app/main.bsky.dev URL family and the equivalent at:// URIs, with deterministic PDS resolution, bounded embed normalization, and HLS + direct blob format selection.
+    status: compatible
+    evidence:
+      - internal/extractor.TestBlueskyRoutingAndClassification
+      - internal/extractor.TestBlueskyExtractsDirectVideoWithHLSAndBlobFormats
+      - internal/extractor.TestBlueskyExtractsRecordWithMediaAsMedia
+      - internal/extractor.TestBlueskyExtractsQuotedPostPlaylist
+      - internal/extractor.TestBlueskyExtractsCaptionsAndAgeLimit
+      - internal/extractor.TestBlueskyAgeLimitIs18ForSexualLabel
+      - internal/extractor.TestBlueskyExternalEmbedRoutesToEntry
+      - internal/extractor.TestBlueskyDIDWebTrustedEndpointResolves
+      - internal/extractor.TestBlueskyDIDDocMaliciousFallbackUsesDefaultPDS
+      - internal/extractor.TestBlueskyDIDDocCredentialsAreRejected
+      - internal/extractor.TestBlueskyCategorizedErrorsAndSecretSafety
+      - internal/extractor.TestBlueskyCategorizesNetworkAndPreservesInvalidMetadata
+      - internal/extractor.TestBlueskyHonorsCancellation
+      - internal/extractor.TestBlueskyRejectsOversizedJSON
+      - internal/extractor.TestBlueskyNoVideoReturnsUnavailable
+      - internal/extractor.TestBlueskyNotFoundThreadIsUnavailable
+      - internal/extractor.TestBlueskyNetworkFailureFallsBackToDefaultPDS
+      - internal/extractor.TestBlueskyMalformedThreadIsInvalidMetadata
+      - internal/extractor.TestBlueskyATURIAcceptsDidAndHandleAuthor
+      - internal/extractor.TestBlueskyATURIRejectsUnsafeShapes
+      - internal/extractor.TestBlueskyBlobURLAvoidsCredentialsAndFragments
+      - internal/extractor.TestBlueskySafeMediaURLRejectsUnsafeSchemes
+      - internal/extractor.TestBlueskyTitleTruncationAndFallback
+      - internal/extractor.TestBlueskyTimestampAndUploadDate
+      - internal/extractor.TestBlueskyOrderedTagsDedupesAndBounds
+      - internal/extractor.TestBlueskyPostIDPatternAcceptsPinnedIDs
+      - internal/extractor.TestBlueskyCycleAndDuplicateEntriesAreDeduped
+      - internal/extractor.TestBlueskyPlaylistEntriesReextractSelectedMedia
+      - internal/extractor.TestBlueskyRequestAssertionsAndQueryArgs
+      - internal/extractor.FuzzBlueskyRouting
+      - internal/extractor.FuzzBlueskyJSON
+      - pkg/ytdlp.TestBuiltInExtractorIDsAreUniqueAndIncludeProductBoundaries
+      - pkg/ytdlp.TestRepresentativeExtractorCatalogCountRoutingAndRiskCoverage
+      - conformance/extractors/bluesky/PROVENANCE.md
+    owner: extractors
+    depends_on:
+      - protocol.hls
+      - network.shared_transport
+    known_deviation: Public posts only. Login, authenticated sessions, private repositories, arbitrary record types, profile or feed enumeration, and unbounded DID method coverage are out of scope. did:web is restricted to syntactically public HTTPS hostnames with the first exact-type AtprotoPersonalDataServer endpoint; DNS rebinding resistance remains the shared transport's responsibility. HLS is delegated to the existing m3u8 downloader; this extractor produces no segment-level fetching or signing.
+
   - id: extractor.internetarchive_public
     name: Internet Archive public API and playlist extraction
     phase: 3

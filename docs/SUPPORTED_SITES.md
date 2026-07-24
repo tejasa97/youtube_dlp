@@ -1,6 +1,6 @@
 # Supported extractors
 
-ytdlp-go currently registers 28 representative native extractors. This is a
+ytdlp-go currently registers 29 representative native extractors. This is a
 conformance catalog, not a claim of the thousands of sites supported by
 upstream yt-dlp.
 
@@ -44,6 +44,57 @@ service response.
 | bbciplayer | bbc.co.uk iPlayer episodes | playlist/API, manifest-heavy, regional |
 | ard | ardmediathek.de player and collection pages | playlist/API, manifest-heavy, regional |
 | nrk | nrk.no pages and nrk: opaque URLs | playlist/API, manifest-heavy, regional |
+| bluesky | bsky.app, www.bsky.app, main.bsky.dev post URLs and at:// URIs (public posts only) | playlist/API, manifest-heavy, regional |
+
+## Bluesky support boundaries
+
+The Bluesky/AT Protocol extractor is intentionally scoped to the
+unauthenticated `public.api.bsky.app` XRPC surface for public posts. The
+following are supported:
+
+- `bsky.app`, `www.bsky.app`, and `main.bsky.dev` post URL families of the
+  form `/profile/<handle-or-DID>/post/<post-id>`;
+- `at://` URIs of the form `at://<handle-or-DID>/app.bsky.feed.post/<post-id>`
+  including both DNS-style handles and `did:plc`/`did:web` authors;
+- the public `app.bsky.feed.getPostThread` XRPC with the deterministic
+  `uri`, `depth=0`, `parentHeight=0` query and `Accept: application/json`;
+- PDS resolution from `plc.directory` (did:plc) and `.well-known/did.json`
+  (did:web) for the first exact-type `AtprotoPersonalDataServer` endpoint
+  with a non-IP, non-local, HTTPS hostname form, plus a deterministic fallback to
+  `https://bsky.social` on transient or non-fatal resolution failure;
+- three documented embed shapes -- `app.bsky.embed.video.view`,
+  `app.bsky.embed.recordWithMedia.view`, and one bounded
+  `app.bsky.embed.record.view` (covering the `record` and `value`
+  alternates) with depth and dedup guards;
+- the HLS playlist format (`format_id=hls`, `protocol=m3u8_native`,
+  `ext=mp4`) plus the optional preferred direct blob format at
+  `<trusted-pds>/xrpc/com.atproto.sync.getBlob?did=...&cid=...` when the
+  author DID and video CID are available;
+- ordered, deduped, bounded labels/tags, age 18 for sexual/porn/graphic
+  labels, and normalized timestamps, upload date, and counts;
+- transparent external URL routing via the standard `url_result` path;
+- deterministic categorization for 401/403, 404/410, 429/5xx, malformed
+  JSON, oversize JSON, cancellation, and the public errors above; and
+- synthesized fixtures and fuzz coverage for routing, URL/AT URI bounds,
+  record shapes, blob URL hardening, DID doc trust, and secret safety.
+
+The following limitations are intentional and remain:
+
+- no login, authenticated sessions, or private repositories;
+- no profile, feed, or arbitrary-record enumeration (only
+  `app.bsky.feed.post` records via the public post thread endpoint);
+- restricted did:web support to syntactically public HTTPS hostnames (no IP
+  literals, no loopback, no `.local`/`.internal` suffixes, no userinfo,
+  no port, no encoded separator/NULs);
+- one bounded nested embed level with deterministic dedup of duplicate
+  playlists and CIDs;
+- HLS is delegated to the existing m3u8 downloader (no inline
+  segment fetching or signing);
+- no record-level webhook, notification, list, or starter-pack
+  enumeration; and
+- fixtures and conformance evidence establish the public-post contract
+  and do not by themselves promote this extractor to G3/G4 readiness or
+  full upstream parity.
 
 ## YouTube support boundaries
 

@@ -359,6 +359,7 @@ func (client *Client) productRegistry() *extractor.Registry {
 		extractor.NewStreamable(),
 		extractor.NewPeerTube(),
 		extractor.NewInternetArchive(),
+		extractor.NewBluesky(),
 		extractor.NewRegionSVT(),
 		extractor.NewSyntheticAuth(),
 	}

@@ -1,0 +1,11 @@
+{
+  "thread": {
+    "post": {
+      "uri": "at://malformed.example.test/app.bsky.feed.post/3l4qhp7bcs52k",
+      "author": {
+        "did": "did:plc:malformeddid",
+        "handle": "malformed.example.test"
+      }
+    }
+  }
+}

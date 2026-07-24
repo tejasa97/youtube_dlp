@@ -1,0 +1,26 @@
+{
+  "thread": {
+    "post": {
+      "uri": "at://rwm.example.test/app.bsky.feed.post/3l4qhp7bcs52e",
+      "author": {
+        "did": "did:plc:rwmdid",
+        "handle": "rwm.example.test"
+      },
+      "record": {
+        "text": "Combined post"
+      },
+      "embed": {
+        "$type": "app.bsky.embed.recordWithMedia",
+        "media": {
+          "$type": "app.bsky.embed.video.view",
+          "playlist": "https://video.bsky.app/watch/3l4qhp7bcs52e/playlist.m3u8",
+          "thumbnail": "https://video.bsky.app/watch/3l4qhp7bcs52e/thumb.jpg",
+          "cid": "bafyreirwmcid"
+        },
+        "record": {
+          "uri": "at://other.example.test/app.bsky.feed.post/3l4qhp7bcs52f"
+        }
+      }
+    }
+  }
+}
