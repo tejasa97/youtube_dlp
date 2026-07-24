@@ -133,6 +133,27 @@ func (client *Client) DoWithoutCookies(ctx context.Context, request *http.Reques
 	return client.do(ctx, request, "", false)
 }
 
+// DoWithoutCredentials executes a native request without the operation cookie
+// jar or credential-bearing request/default headers. It is intended for
+// requests to unrelated third-party APIs where forwarding media-site
+// credentials would cross a trust boundary.
+func (client *Client) DoWithoutCredentials(ctx context.Context, request *http.Request) (*http.Response, error) {
+	if request == nil {
+		return nil, errors.New("HTTP request must not be nil")
+	}
+	cloned := client.prepareRequest(ctx, request, false, true)
+	for _, key := range []string{"Authorization", "Cookie", "Proxy-Authorization"} {
+		cloned.Header.Del(key)
+	}
+	isolated := *client.httpClient
+	isolated.Jar = nil
+	response, err := isolated.Do(cloned)
+	if err != nil {
+		return nil, &RequestError{Method: cloned.Method, URL: RedactURL(cloned.URL), Err: err}
+	}
+	return response, nil
+}
+
 // DoNoRedirect executes a native request with operation defaults and scoped
 // operation-jar cookies, but returns the first redirect response instead of
 // following it. Explicit and default Cookie headers are discarded so callers

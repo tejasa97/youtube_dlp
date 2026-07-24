@@ -1828,3 +1828,55 @@ capabilities:
       - .github/workflows/alpha-release.yml
     owner: release
     known_deviation: The updater has a narrow Windows start-to-Job-assignment race and cannot prove Windows root ACL ownership or POSIX directory fsync semantics. Production root custody, signer selection, transport, transparency, and scheduling remain explicit external policy; deterministic repository keys are tests only. Alpha artifacts are short-lived engineering evidence and cannot be publicly distributed until the repository receives a project-wide license and the remaining owner/legal decisions are resolved. The former fhttp blocker was removed with the licensed impersonation-stack replacement.
+
+  - id: metadata.sponsorblock_metadata
+    name: SponsorBlock metadata fetch and normalization
+    phase: 4
+    compatibility_target: When explicitly enabled in ytdlp.Request, query the SponsorBlock API for a YouTube video and expose deterministic sponsorblock_chapters in the result Info JSON, applying the pinned yt-dlp normalization rules.
+    status: partial
+    evidence:
+      - internal/sponsorblock.TestCategoriesAndTitles
+      - internal/sponsorblock.TestAllCategoriesPinnedSet
+      - internal/sponsorblock.TestHashPrefixMatchesSHA256
+      - internal/sponsorblock.TestBuildEndpointURLCanonical
+      - internal/sponsorblock.TestNormalizeZeroZeroDiscard
+      - internal/sponsorblock.TestNormalizeStartSnapping
+      - internal/sponsorblock.TestNormalizePOIExtension
+      - internal/sponsorblock.TestNormalizeEndSnappingAndClamp
+      - internal/sponsorblock.TestNormalizeDurationMismatchPolicy
+      - internal/sponsorblock.TestNormalizeSortingDeterministic
+      - internal/sponsorblock.TestNormalizePointPOIAndEmptyChapterTitle
+      - internal/sponsorblock.TestNormalizeRejectsMalformed
+      - internal/sponsorblock.TestNormalizeChapterTitleUsesDescription
+      - internal/sponsorblock.TestFetchDisabledProducesNoRequests
+      - internal/sponsorblock.TestFetchCanonicalRequestAndMatchingGroup
+      - internal/sponsorblock.TestFetchCookieIsolationRequired
+      - internal/sponsorblock.TestFetchNotFoundYieldsEmptyResult
+      - internal/sponsorblock.TestFetchRateLimit
+      - internal/sponsorblock.TestFetchServerError
+      - internal/sponsorblock.TestFetchUnauthorized
+      - internal/sponsorblock.TestFetchMalformedBodyCategorized
+      - internal/sponsorblock.TestFetchUnknownCategoryDropsSegment
+      - internal/sponsorblock.TestFetchUnsupportedService
+      - internal/sponsorblock.TestFetchCancellationRespected
+      - internal/sponsorblock.TestFetchOversizedResponse
+      - internal/sponsorblock.TestFetchSecretSafeErrorMessages
+      - internal/sponsorblock.TestDecodeResponseRejectsStructuralAndResourceBounds
+      - internal/sponsorblock.TestConformanceSampleResponseDecodeOnly
+      - internal/sponsorblock.TestConformanceCollisionSelectsExactVideoID
+      - internal/sponsorblock.TestConformanceMalformedEnvelopeDropsInvalidSegments
+      - internal/sponsorblock.TestConformancePrefixIsSHA256FirstFour
+      - internal/sponsorblock.FuzzNormalize
+      - internal/sponsorblock.FuzzDecodeArray
+      - pkg/ytdlp.TestSponsorBlockOptionsValidation
+      - pkg/ytdlp.TestSponsorBlockProcessMediaInfoJSONAndCredentialIsolation
+      - pkg/ytdlp.TestSponsorBlockDisabledUnsupportedAndMissingID
+      - pkg/ytdlp.TestSponsorBlockCancellationCategoryPreservesCause
+      - pkg/ytdlp.TestSponsorBlockRecursesIntoPlaylistMedia
+      - pkg/ytdlp.TestSponsorBlockMapErrorCategorizes
+      - pkg/ytdlp.TestSponsorBlockSecretSafeErrorMessages
+      - internal/network.TestDoWithoutCredentialsDropsExplicitAndDefaultSecrets
+      - conformance/sponsorblock/PROVENANCE.md
+      - docs/SPONSORBLOCK_METADATA.md
+    owner: core
+    known_deviation: This capability covers metadata fetch and normalization only. SponsorBlock chapter merging, FFmpeg-driven media cutting, force-keyframes injection, subtitle synchronization, CLI option exposure, and arbitrary-service (Vimeo, PeerTube, etc.) metadata are intentionally out of scope. The reference's warning when duration-mismatched segments are filtered is not yet surfaced; users see only the surviving chapters in sponsorblock_chapters. Network retries and authentication flows follow the existing network.Client; the reference's own retry behavior is not duplicated.

@@ -108,6 +108,7 @@ type Request struct {
 	YouTubeTranslatedCaptions bool
 	LiveFromStart             bool
 	YouTubeComments           YouTubeCommentOptions
+	SponsorBlock              SponsorBlockOptions
 	Subtitles                 SubtitleOptions
 	RelatedFiles              RelatedFileOptions
 	PrintRules                []PrintRule
@@ -822,6 +823,9 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		if err != nil {
 			return Result{}, err
 		}
+	}
+	if err := operation.enrichWithSponsorBlock(ctx, extractorName, &info); err != nil {
+		return Result{}, err
 	}
 	selectedSubtitles, requestedSubtitles, err := selectSubtitles(info, operation.request.Subtitles)
 	if err != nil {
