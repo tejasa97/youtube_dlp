@@ -15,11 +15,23 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
+type sponsorBlockCutJob struct {
+	kind     postprocess.ArtifactKind
+	original string
+	staged   string
+	backup   string
+}
+
 // applySponsorBlockRemove cuts downloaded media (and supported subtitle
 // sidecars) using the already-fetched sponsorblock_chapters. It is a no-op
 // under Simulate/SkipDownload and when Remove is unset. Missing ffmpeg fails
 // closed. Unsupported subtitle sidecar formats fail closed to avoid silent
 // desync (a documented deviation from yt-dlp's warn-and-continue policy).
+//
+// Cutting is transactional: every artifact is prevalidated, every output is
+// staged, and originals are replaced only after all staging succeeds. Ordinary
+// chapter timestamps are remapped whenever removal succeeds, even when Mark is
+// false.
 func (operation *operation) applySponsorBlockRemove(ctx context.Context, info *value.Info, mediaPath string, artifacts []Artifact, sink events.Sink) (string, []Artifact, error) {
 	if !operation.request.SponsorBlock.Enabled || !operation.request.SponsorBlock.Remove {
 		return mediaPath, artifacts, nil
@@ -74,68 +86,122 @@ func (operation *operation) applySponsorBlockRemove(ctx context.Context, info *v
 	for _, cut := range plan.Cuts {
 		boundaries = append(boundaries, cut.Start, cut.End)
 	}
-	tools, err := ffmpeg.Discover(ffmpeg.Config{})
-	if err != nil {
-		return mediaPath, artifacts, &Error{Category: ErrorInternal, Op: "sponsorblock remove", Err: errors.New("internal failure")}
-	}
-	if err := (postprocess.SponsorBlockCut{
-		Input:          postprocess.Artifact{Path: mediaPath, Kind: postprocess.ArtifactMedia},
-		Output:         postprocess.Artifact{Path: mediaPath, Kind: postprocess.ArtifactMedia},
-		Ranges:         ranges,
-		Boundaries:     boundaries,
-		ForceKeyframes: operation.request.SponsorBlock.ForceKeyframes,
-		Overwrite:      true,
-	}).Run(ctx, tools, sink); err != nil {
-		return mediaPath, artifacts, mapSponsorBlockMediaError(err)
-	}
 
-	artifacts, err = operation.cutSponsorBlockSubtitles(ctx, tools, artifacts, ranges, sink)
+	jobs, err := operation.prepareSponsorBlockCutJobs(mediaPath, artifacts)
 	if err != nil {
 		return mediaPath, artifacts, err
 	}
 
-	info.Set("duration", value.Float(plan.Duration))
-	if operation.request.SponsorBlock.Mark {
-		if err := rewriteMarkedChaptersAfterCuts(info, plan.Cuts); err != nil {
-			return mediaPath, artifacts, mapSponsorBlockError(err)
+	tools, err := ffmpeg.Discover(ffmpeg.Config{})
+	if err != nil {
+		return mediaPath, artifacts, &Error{Category: ErrorInternal, Op: "sponsorblock remove", Err: errors.New("internal failure")}
+	}
+
+	stagingDir, err := os.MkdirTemp(filepath.Dir(mediaPath), ".ytdlp-sponsorblock-tx-")
+	if err != nil {
+		return mediaPath, artifacts, &Error{Category: ErrorInternal, Op: "sponsorblock remove", Err: errors.New("internal failure")}
+	}
+	defer os.RemoveAll(stagingDir)
+
+	for index := range jobs {
+		jobs[index].staged = filepath.Join(stagingDir, fmt.Sprintf("%d%s", index, filepath.Ext(jobs[index].original)))
+		jobs[index].backup = filepath.Join(stagingDir, fmt.Sprintf("backup-%d%s", index, filepath.Ext(jobs[index].original)))
+		switch jobs[index].kind {
+		case postprocess.ArtifactMedia:
+			if err := tools.CutOutRanges(ctx, jobs[index].original, jobs[index].staged, ranges, boundaries, operation.request.SponsorBlock.ForceKeyframes, false, sink); err != nil {
+				return mediaPath, artifacts, mapSponsorBlockMediaError(err)
+			}
+		case postprocess.ArtifactSubtitle:
+			if err := tools.ConcatRanges(ctx, jobs[index].original, jobs[index].staged, ranges, false, sink); err != nil {
+				return mediaPath, artifacts, mapSponsorBlockMediaError(err)
+			}
+		default:
+			return mediaPath, artifacts, &Error{Category: ErrorInternal, Op: "sponsorblock remove", Err: errors.New("internal failure")}
 		}
+	}
+
+	if err := commitSponsorBlockCutJobs(ctx, jobs); err != nil {
+		return mediaPath, artifacts, mapSponsorBlockMediaError(err)
+	}
+
+	info.Set("duration", value.Float(plan.Duration))
+	if err := rewriteChaptersAfterCuts(info, plan.Cuts); err != nil {
+		return mediaPath, artifacts, mapSponsorBlockError(err)
 	}
 	return mediaPath, artifacts, nil
 }
 
-func (operation *operation) cutSponsorBlockSubtitles(ctx context.Context, tools *ffmpeg.Toolset, artifacts []Artifact, ranges []ffmpeg.ConcatRange, sink events.Sink) ([]Artifact, error) {
+func (operation *operation) prepareSponsorBlockCutJobs(mediaPath string, artifacts []Artifact) ([]sponsorBlockCutJob, error) {
+	if err := validateSponsorBlockCutPath(mediaPath); err != nil {
+		return nil, &Error{Category: ErrorInternal, Op: "sponsorblock remove", Err: errors.New("internal failure")}
+	}
+	jobs := []sponsorBlockCutJob{{kind: postprocess.ArtifactMedia, original: mediaPath}}
 	for _, artifact := range artifacts {
 		if artifact.Kind != "subtitle" {
 			continue
 		}
 		extension := strings.TrimPrefix(strings.ToLower(filepath.Ext(artifact.Path)), ".")
 		if !postprocess.SupportedSponsorBlockSubtitleExt(extension) {
-			return artifacts, &Error{
+			return nil, &Error{
 				Category: ErrorUnsupported,
 				Op:       "sponsorblock remove subtitle",
 				Err:      errors.New("unsupported"),
 			}
 		}
-		info, err := os.Lstat(artifact.Path)
-		if err != nil {
+		if err := validateSponsorBlockCutPath(artifact.Path); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				continue
 			}
-			return artifacts, &Error{Category: ErrorInternal, Op: "sponsorblock remove subtitle", Err: errors.New("internal failure")}
+			return nil, &Error{Category: ErrorInternal, Op: "sponsorblock remove subtitle", Err: errors.New("internal failure")}
 		}
-		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-			return artifacts, &Error{Category: ErrorInternal, Op: "sponsorblock remove subtitle", Err: errors.New("internal failure")}
-		}
-		if err := (postprocess.SponsorBlockSubtitleCut{
-			Input:     postprocess.Artifact{Path: artifact.Path, Kind: postprocess.ArtifactSubtitle},
-			Output:    postprocess.Artifact{Path: artifact.Path, Kind: postprocess.ArtifactSubtitle},
-			Ranges:    ranges,
-			Overwrite: true,
-		}).Run(ctx, tools, sink); err != nil {
-			return artifacts, mapSponsorBlockMediaError(err)
+		jobs = append(jobs, sponsorBlockCutJob{kind: postprocess.ArtifactSubtitle, original: artifact.Path})
+	}
+	return jobs, nil
+}
+
+func validateSponsorBlockCutPath(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return fmt.Errorf("%w: not a regular file", os.ErrInvalid)
+	}
+	return nil
+}
+
+func commitSponsorBlockCutJobs(ctx context.Context, jobs []sponsorBlockCutJob) error {
+	for index := range jobs {
+		if err := validateSponsorBlockCutPath(jobs[index].staged); err != nil {
+			return err
 		}
 	}
-	return artifacts, nil
+	committed := 0
+	rollback := func() {
+		for index := 0; index < committed; index++ {
+			_ = os.Rename(jobs[index].backup, jobs[index].original)
+		}
+	}
+	for index := range jobs {
+		if err := ctx.Err(); err != nil {
+			rollback()
+			return err
+		}
+		if err := os.Rename(jobs[index].original, jobs[index].backup); err != nil {
+			rollback()
+			return err
+		}
+		if err := os.Rename(jobs[index].staged, jobs[index].original); err != nil {
+			_ = os.Rename(jobs[index].backup, jobs[index].original)
+			rollback()
+			return err
+		}
+		committed++
+	}
+	for index := range jobs {
+		_ = os.Remove(jobs[index].backup)
+	}
+	return nil
 }
 
 func sponsorblockChaptersFromInfo(info *value.Info) ([]sponsorblock.Chapter, error) {
@@ -174,7 +240,7 @@ func sponsorblockChaptersFromInfo(info *value.Info) ([]sponsorblock.Chapter, err
 	return chapters, nil
 }
 
-func rewriteMarkedChaptersAfterCuts(info *value.Info, cuts []sponsorblock.Range) error {
+func rewriteChaptersAfterCuts(info *value.Info, cuts []sponsorblock.Range) error {
 	raw := info.Lookup("chapters")
 	if raw.IsMissing() || raw.IsNull() {
 		return nil

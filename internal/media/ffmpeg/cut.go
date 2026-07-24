@@ -13,7 +13,13 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/events"
 )
 
-const maxForceKeyframes = 512
+// MaxForceKeyframes caps unique non-zero force-keyframe timestamps and matches
+// internal/sponsorblock.MaxForceKeyframeTimestamps planning.
+const MaxForceKeyframes = 512
+
+// MaxConcatRanges caps keep segments for ConcatRanges and matches
+// internal/sponsorblock.MaxKeepSegments planning. It equals maxConcatInputs.
+const MaxConcatRanges = maxConcatInputs
 
 // ConcatRange is one keep segment expressed as optional in/out points for the
 // ffmpeg concat demuxer. Empty strings mean "unbounded" on that side.
@@ -60,8 +66,8 @@ func (tools *Toolset) ConcatRanges(ctx context.Context, inputPath, destination s
 	if err := validateLocalRegularFile(inputPath); err != nil {
 		return err
 	}
-	if len(ranges) == 0 || len(ranges) > maxConcatInputs {
-		return fmt.Errorf("%w: concat ranges require 1 to %d segments", ErrInvalidOperation, maxConcatInputs)
+	if len(ranges) == 0 || len(ranges) > MaxConcatRanges {
+		return fmt.Errorf("%w: concat ranges require 1 to %d segments", ErrInvalidOperation, MaxConcatRanges)
 	}
 	for index, segment := range ranges {
 		if err := validateConcatRange(segment); err != nil {
@@ -110,7 +116,7 @@ func normalizeForceKeyframeTimestamps(timestamps []float64) ([]string, error) {
 	if len(timestamps) == 0 {
 		return nil, nil
 	}
-	if len(timestamps) > maxForceKeyframes {
+	if len(timestamps) > MaxForceKeyframes {
 		return nil, fmt.Errorf("%w: too many force keyframe timestamps", ErrInvalidOperation)
 	}
 	seen := make(map[string]struct{}, len(timestamps))

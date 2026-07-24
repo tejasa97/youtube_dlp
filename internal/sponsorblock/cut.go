@@ -3,9 +3,17 @@ package sponsorblock
 import (
 	"math"
 	"sort"
+	"strconv"
 )
 
-const maxCutRanges = MaxSegmentCount
+// Planning limits match the typed ffmpeg cut operations:
+// MaxKeepSegments == ffmpeg.MaxConcatRanges and
+// MaxForceKeyframeTimestamps == ffmpeg.MaxForceKeyframes.
+const (
+	MaxKeepSegments            = 128
+	MaxForceKeyframeTimestamps = 512
+	maxCutRanges               = MaxForceKeyframeTimestamps / 2
+)
 
 // Range is a half-open media interval [Start, End) in seconds.
 type Range struct {
@@ -120,9 +128,15 @@ func PlanCuts(chapters []Chapter, removeCategories []string, duration float64) (
 	if len(cuts) == 0 {
 		return CutPlan{Keep: []ConcatSegment{{}}, Duration: duration}, nil
 	}
+	if forceKeyframeTimestampCount(cuts) > MaxForceKeyframeTimestamps {
+		return CutPlan{}, errorf(ErrInvalidInput, "force keyframe limit")
+	}
 	keep := makeConcatOpts(cuts, duration)
 	if len(keep) == 0 {
 		return CutPlan{}, errorf(ErrInvalidInput, "entire media removed")
+	}
+	if len(keep) > MaxKeepSegments {
+		return CutPlan{}, errorf(ErrInvalidInput, "keep segment limit")
 	}
 	kept := 0.0
 	for _, segment := range keep {
@@ -142,6 +156,26 @@ func PlanCuts(chapters []Chapter, removeCategories []string, duration float64) (
 		return CutPlan{}, errorf(ErrInvalidInput, "entire media removed")
 	}
 	return CutPlan{Cuts: cuts, Keep: keep, Duration: kept}, nil
+}
+
+// forceKeyframeTimestampCount mirrors ffmpeg.normalizeForceKeyframeTimestamps
+// cardinality: unique non-zero finite cut boundaries.
+func forceKeyframeTimestampCount(cuts []Range) int {
+	seen := make(map[string]struct{}, len(cuts)*2)
+	for _, cut := range cuts {
+		for _, timestamp := range []float64{cut.Start, cut.End} {
+			if !finite(timestamp) || timestamp < 0 || timestamp == 0 {
+				continue
+			}
+			key := floatKey(timestamp)
+			seen[key] = struct{}{}
+		}
+	}
+	return len(seen)
+}
+
+func floatKey(value float64) string {
+	return strconv.FormatFloat(value, 'f', 6, 64)
 }
 
 // MapTimeThroughCuts maps an original-timeline timestamp onto the post-cut

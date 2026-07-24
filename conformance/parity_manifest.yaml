@@ -1927,12 +1927,15 @@ capabilities:
       - internal/sponsorblock.TestPlanCutsMergesAdjacentAndOverlapping
       - internal/sponsorblock.TestPlanCutsStartAndEndEdgeChunks
       - internal/sponsorblock.TestPlanCutsRejectsEntireRemovalAndBadInput
+      - internal/sponsorblock.TestPlanCutsRejectsExcessKeepSegments
+      - internal/sponsorblock.TestPlanCutsRejectsExcessCutRanges
       - internal/sponsorblock.TestPlanCutsNoMatchingCategoriesIsNoop
       - internal/sponsorblock.TestMapTimeAndRewriteChapters
       - internal/sponsorblock.FuzzPlanCuts
       - internal/media/ffmpeg.TestForceKeyframesAndConcatRanges
       - internal/media/ffmpeg.TestConcatRangesValidation
       - internal/media/ffmpeg.TestNormalizeForceKeyframeTimestamps
+      - internal/media/ffmpeg.TestForceKeyframeAndConcatRangeLimits
       - pkg/ytdlp.TestSponsorBlockOptionsValidation
       - pkg/ytdlp.TestSponsorBlockProcessMediaInfoJSONAndCredentialIsolation
       - pkg/ytdlp.TestSponsorBlockDisabledUnsupportedAndMissingID
@@ -1952,7 +1955,11 @@ capabilities:
       - pkg/ytdlp.TestSponsorBlockRemoveSkippedUnderSimulateAndSkipDownload
       - pkg/ytdlp.TestSponsorBlockRemoveNoopWithoutCuts
       - pkg/ytdlp.TestSponsorBlockFetchCategoriesUnionsRemoveSet
-      - pkg/ytdlp.TestSponsorBlockUnsupportedSubtitleFailsClosed
+      - pkg/ytdlp.TestSponsorBlockUnsupportedSubtitleFailsClosedWithoutMutatingMedia
+      - pkg/ytdlp.TestSponsorBlockRemoveRemapsOrdinaryChaptersWithoutMark
+      - pkg/ytdlp.TestSponsorBlockCutCommitIsTransactional
+      - pkg/ytdlp.TestSponsorBlockCutCommitReplacesAfterAllStaging
+      - pkg/ytdlp.TestSponsorBlockPlanningLimitsAlignWithFFmpeg
       - internal/network.TestDoWithoutCredentialsDropsExplicitAndDefaultSecrets
       - conformance/sponsorblock/PROVENANCE.md
       - docs/SPONSORBLOCK_METADATA.md

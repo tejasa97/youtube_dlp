@@ -79,3 +79,24 @@ func TestNormalizeForceKeyframeTimestamps(t *testing.T) {
 		t.Fatalf("got %v", got)
 	}
 }
+
+func TestForceKeyframeAndConcatRangeLimits(t *testing.T) {
+	if MaxForceKeyframes != 512 || MaxConcatRanges != 128 {
+		t.Fatalf("MaxForceKeyframes=%d MaxConcatRanges=%d", MaxForceKeyframes, MaxConcatRanges)
+	}
+	tooMany := make([]float64, MaxForceKeyframes+1)
+	for index := range tooMany {
+		tooMany[index] = float64(index + 1)
+	}
+	if _, err := normalizeForceKeyframeTimestamps(tooMany); !errors.Is(err, ErrInvalidOperation) {
+		t.Fatalf("force keyframe limit err = %v", err)
+	}
+	ranges := make([]ConcatRange, MaxConcatRanges+1)
+	for index := range ranges {
+		ranges[index] = ConcatRange{InPoint: "1.000000", OutPoint: "2.000000"}
+	}
+	tools := &Toolset{}
+	if err := tools.ConcatRanges(context.Background(), "missing", "out.mp4", ranges, false, nil); !errors.Is(err, ErrInvalidOperation) {
+		t.Fatalf("concat range limit err = %v", err)
+	}
+}
