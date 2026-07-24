@@ -99,7 +99,8 @@ func Parse(rawURL string, input []byte) (Playlist, error) {
 
 	for scanner.Scan() {
 		lineNumber++
-		line := strings.TrimSpace(scanner.Text())
+		rawLine := scanner.Text()
+		line := strings.TrimSpace(rawLine)
 		if line == "" {
 			continue
 		}
@@ -152,13 +153,14 @@ func Parse(rawURL string, input []byte) (Playlist, error) {
 			continue
 		}
 
-		// These two provider-specific marker families mirror yt-dlp's exact
-		// case-sensitive, trimmed-line grammar. Start is intentionally tested
-		// before end so an Anvato line containing both tokens starts an ad.
-		if isAdvertisementStart(line) {
+		// Provider markers use the trimmed line (pinned yt-dlp grammar).
+		// Cue tags require the raw line to begin with the tag at byte zero.
+		// Start is intentionally tested before end so an Anvato line containing
+		// both tokens starts an ad. Cue payloads after ':' are ignored.
+		if isAdvertisementStart(line, rawLine) {
 			advertisement = true
 			continue
-		} else if isAdvertisementEnd(line) {
+		} else if isAdvertisementEnd(line, rawLine) {
 			advertisement = false
 			continue
 		}
@@ -265,14 +267,59 @@ func Parse(rawURL string, input []byte) (Playlist, error) {
 	return playlist, nil
 }
 
-func isAdvertisementStart(line string) bool {
+func isAdvertisementStart(trimmed, raw string) bool {
+	return isProviderAdvertisementStart(trimmed) || isCueAdvertisementStart(raw)
+}
+
+func isAdvertisementEnd(trimmed, raw string) bool {
+	return isProviderAdvertisementEnd(trimmed) || isCueAdvertisementEnd(raw)
+}
+
+func isProviderAdvertisementStart(line string) bool {
 	return (strings.HasPrefix(line, "#ANVATO-SEGMENT-INFO") && strings.Contains(line, "type=ad")) ||
 		(strings.HasPrefix(line, "#UPLYNK-SEGMENT") && strings.HasSuffix(line, ",ad"))
 }
 
-func isAdvertisementEnd(line string) bool {
+func isProviderAdvertisementEnd(line string) bool {
 	return (strings.HasPrefix(line, "#ANVATO-SEGMENT-INFO") && strings.Contains(line, "type=master")) ||
 		(strings.HasPrefix(line, "#UPLYNK-SEGMENT") && strings.HasSuffix(line, ",segment"))
+}
+
+// cueRawLine returns the cue-matching form of a raw playlist line. Cue tags
+// must begin at byte zero: a leading space or tab is a rejected pseudo-tag.
+// Trailing ASCII spaces and tabs are ignored so a packager-trailing-padded
+// cue line matches the same exact tag/colon grammar as the bare tag.
+func cueRawLine(raw string) (string, bool) {
+	if raw == "" || raw[0] == ' ' || raw[0] == '\t' {
+		return "", false
+	}
+	return strings.TrimRight(raw, " \t"), true
+}
+
+// isCueTagName reports an exact uppercase HLS tag or the same tag with a
+// conventional colon payload. Lookalikes that merely share a prefix without
+// an immediate ':' (for example #EXT-X-CUE-OUT-CONT vs #EXT-X-CUE-OUT) are
+// rejected by requiring equality or name+":".
+func isCueTagName(line, name string) bool {
+	return line == name || strings.HasPrefix(line, name+":")
+}
+
+func isCueAdvertisementStart(raw string) bool {
+	line, ok := cueRawLine(raw)
+	if !ok {
+		return false
+	}
+	// OUT-CONT is checked explicitly; OUT uses name+":"/equality so it cannot
+	// swallow the longer OUT-CONT tag.
+	return isCueTagName(line, "#EXT-X-CUE-OUT-CONT") || isCueTagName(line, "#EXT-X-CUE-OUT")
+}
+
+func isCueAdvertisementEnd(raw string) bool {
+	line, ok := cueRawLine(raw)
+	if !ok {
+		return false
+	}
+	return isCueTagName(line, "#EXT-X-CUE-IN")
 }
 
 func parseAttributes(input string) (map[string]string, error) {

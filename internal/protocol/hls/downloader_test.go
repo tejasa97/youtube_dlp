@@ -400,6 +400,216 @@ ad.bin
 	}
 }
 
+func TestDownloadSuppressesCueVODAdvertisements(t *testing.T) {
+	fixture, err := os.ReadFile("../../../conformance/media/hls_ads/mixed-cue-vod.m3u8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var advertisementHits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/mixed-cue-vod.m3u8":
+			_, _ = writer.Write(fixture)
+		case "/media-50.bin":
+			_, _ = writer.Write([]byte("fifty-"))
+		case "/media-53.bin":
+			_, _ = writer.Write([]byte("fifty-three"))
+		case "/cue-ad-51.bin", "/cue-ad-52.bin":
+			advertisementHits.Add(1)
+			_, _ = writer.Write([]byte("ADVERTISEMENT"))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "cue-suppressed.bin")
+	result, err := NewDownloader(transport, Config{MaxSegments: 2}).Download(
+		context.Background(), server.URL+"/mixed-cue-vod.m3u8", root, destination, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(destination)
+	if err != nil || string(contents) != "fifty-fifty-three" {
+		t.Fatalf("contents=%q err=%v", contents, err)
+	}
+	if advertisementHits.Load() != 0 || result.Downloaded != 2 {
+		t.Fatalf("ad hits=%d result=%#v", advertisementHits.Load(), result)
+	}
+}
+
+func TestDownloadCueLiveOUTCONTReclassificationAndCompleteReplacement(t *testing.T) {
+	var polls atomic.Int32
+	var advertisementHits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/live.m3u8":
+			switch polls.Add(1) {
+			case 1:
+				_, _ = fmt.Fprint(writer, `#EXTM3U
+#EXT-X-MEDIA-SEQUENCE:10
+#EXT-X-CUE-OUT:DURATION=4
+#EXTINF:1,
+ad-10.bin
+#EXT-X-PART:DURATION=0.5,URI="ad-11.0.bin"
+#EXT-X-PART:DURATION=0.5,URI="ad-11.1.bin"
+`)
+			case 2:
+				// Sliding snapshot starts mid-break; OUT-CONT re-establishes ads.
+				_, _ = fmt.Fprint(writer, `#EXTM3U
+#EXT-X-MEDIA-SEQUENCE:10
+#EXT-X-SKIP:SKIPPED-SEGMENTS=1
+#EXT-X-CUE-OUT-CONT:ElapsedTime=1.0,Duration=4
+#EXT-X-PART:DURATION=0.5,URI="ad-new-11.0.bin"
+#EXT-X-PART:DURATION=0.5,URI="ad-new-11.1.bin"
+`)
+			default:
+				_, _ = fmt.Fprint(writer, `#EXTM3U
+#EXT-X-MEDIA-SEQUENCE:10
+#EXT-X-SKIP:SKIPPED-SEGMENTS=1
+#EXT-X-CUE-IN
+#EXTINF:1,
+media-11.bin
+#EXT-X-ENDLIST
+`)
+			}
+		case "/media-11.bin":
+			_, _ = writer.Write([]byte("eleven"))
+		case "/ad-10.bin", "/ad-11.0.bin", "/ad-11.1.bin", "/ad-new-11.0.bin", "/ad-new-11.1.bin":
+			advertisementHits.Add(1)
+			_, _ = writer.Write([]byte("ADVERTISEMENT"))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "cue-live.bin")
+	_, err := NewDownloader(transport, Config{PollInterval: time.Millisecond, MaxPolls: 4}).Download(
+		context.Background(), server.URL+"/live.m3u8", root, destination, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(destination)
+	if err != nil || string(contents) != "eleven" {
+		t.Fatalf("contents=%q err=%v", contents, err)
+	}
+	if polls.Load() != 3 || advertisementHits.Load() != 0 {
+		t.Fatalf("polls=%d ad hits=%d", polls.Load(), advertisementHits.Load())
+	}
+}
+
+func TestDownloadCueAdvertisementKeysMapsAndPhysicalAESIV(t *testing.T) {
+	key := []byte("0123456789abcdef")
+	iv := make([]byte, aes.BlockSize)
+	iv[len(iv)-1] = 8 // Ad occupies physical sequences 7; retained media is 8.
+	encrypted := encryptSegment(t, []byte("cue-secret"), key, iv)
+	var adResourceHits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/media.m3u8":
+			_, _ = fmt.Fprint(writer, `#EXTM3U
+#EXT-X-MEDIA-SEQUENCE:7
+#EXT-X-CUE-OUT
+#EXT-X-MAP:URI="ad-init.bin"
+#EXT-X-KEY:METHOD=AES-128,URI="ad-key.bin"
+#EXTINF:1,
+ad-7.bin
+#EXT-X-CUE-IN
+#EXT-X-MAP:URI="media-init.bin"
+#EXT-X-KEY:METHOD=AES-128,URI="media-key.bin"
+#EXTINF:1,
+media-8.bin
+#EXT-X-ENDLIST
+`)
+		case "/ad-init.bin", "/ad-key.bin", "/ad-7.bin":
+			adResourceHits.Add(1)
+			_, _ = writer.Write([]byte("must-not-be-requested"))
+		case "/media-init.bin":
+			_, _ = writer.Write([]byte("init-"))
+		case "/media-key.bin":
+			_, _ = writer.Write(key)
+		case "/media-8.bin":
+			_, _ = writer.Write(encrypted)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "cue-encrypted.bin")
+	_, err := NewDownloader(transport, Config{}).Download(
+		context.Background(), server.URL+"/media.m3u8", root, destination, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(destination)
+	if err != nil || string(contents) != "init-cue-secret" {
+		t.Fatalf("contents=%q err=%v", contents, err)
+	}
+	if adResourceHits.Load() != 0 {
+		t.Fatalf("ad resource hits=%d", adResourceHits.Load())
+	}
+}
+
+func TestDownloadCueAllAdvertisementsAndCancellation(t *testing.T) {
+	var resourceHits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/ads.m3u8":
+			_, _ = fmt.Fprint(writer, `#EXTM3U
+#EXT-X-CUE-OUT:DURATION=3
+#EXT-X-MAP:URI="ad-init.bin"
+#EXT-X-KEY:METHOD=AES-128,URI="ad-key.bin"
+#EXT-X-PART:DURATION=0.5,URI="ad-part.bin"
+#EXTINF:1,
+ad.bin
+#EXT-X-ENDLIST
+`)
+		case "/live.m3u8":
+			_, _ = fmt.Fprint(writer, `#EXTM3U
+#EXT-X-CUE-OUT
+#EXTINF:1,
+ad-live.bin
+`)
+		default:
+			resourceHits.Add(1)
+			_, _ = writer.Write([]byte("must-not-be-requested"))
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "cue-ads.bin")
+	_, err := NewDownloader(transport, Config{}).Download(
+		context.Background(), server.URL+"/ads.m3u8", root, destination, false, nil)
+	if !errors.Is(err, fragment.ErrNoSegments) {
+		t.Fatalf("ad-only error=%v", err)
+	}
+	if resourceHits.Load() != 0 {
+		t.Fatalf("ad resource hits=%d", resourceHits.Load())
+	}
+	for _, path := range []string{destination, destination + ".part", destination + ".fragments"} {
+		if _, statErr := os.Lstat(path); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("scratch path %q exists or returned unexpected error: %v", path, statErr)
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Millisecond)
+	defer cancel()
+	_, err = NewDownloader(transport, Config{PollInterval: time.Second}).Download(
+		ctx, server.URL+"/live.m3u8", root, filepath.Join(root, "cue-cancel.bin"), false, nil)
+	if err == nil || ctx.Err() == nil {
+		t.Fatalf("Download() error = %v, context = %v", err, ctx.Err())
+	}
+	if resourceHits.Load() != 0 {
+		t.Fatalf("cancelled cue live fetched ad media: hits=%d", resourceHits.Load())
+	}
+}
+
 func encryptSegment(t *testing.T, plaintext, key, iv []byte) []byte {
 	t.Helper()
 	padding := aes.BlockSize - len(plaintext)%aes.BlockSize

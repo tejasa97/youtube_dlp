@@ -1,0 +1,14 @@
+#EXTM3U
+#EXT-X-MEDIA-SEQUENCE:50
+#EXTINF:1,
+media-50.bin
+#EXT-X-CUE-OUT:DURATION=6.000
+#EXTINF:1,
+cue-ad-51.bin
+#EXT-X-CUE-OUT-CONT:ElapsedTime=1.000,Duration=6.000
+#EXTINF:1,
+cue-ad-52.bin
+#EXT-X-CUE-IN
+#EXTINF:1,
+media-53.bin
+#EXT-X-ENDLIST
