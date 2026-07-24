@@ -2,6 +2,7 @@ package ytdlp
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"math"
 	"os"
@@ -19,6 +20,8 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/protocol/hls"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/ism"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/youtubelive"
+	"github.com/ytdlp-go/ytdlp/internal/protocol/youtubeump"
+	"github.com/ytdlp-go/ytdlp/internal/youtubepot"
 )
 
 func (operation *operation) downloadSelections(ctx context.Context, selections []mediaformat.Selection, outputRoot, destination string, sink events.Sink) (string, int64, error) {
@@ -113,6 +116,16 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 			MaxSegments: options.MaxSegments, MaxSegmentSize: options.MaxSegmentBytes, Attempts: options.Attempts,
 			RetryBaseDelay: options.RetryBaseDelay, RetryMaxDelay: options.RetryMaxDelay,
 		}).Download(ctx, selected.URL, outputRoot, destination, operation.request.Overwrite, sink)
+		if err != nil {
+			return "", 0, err
+		}
+		return result.Path, result.Bytes, nil
+	}
+	if selected.YouTubeSABR || selected.Protocol == "youtube_sabr_ump" {
+		if options.External != nil {
+			return "", 0, fmt.Errorf("%w: external downloaders cannot consume generated YouTube SABR streams", extractor.ErrUnsupported)
+		}
+		result, err := downloadYouTubeSABRSelection(ctx, operation, selected, outputRoot, destination, sink)
 		if err != nil {
 			return "", 0, err
 		}
@@ -342,4 +355,73 @@ func safeExtension(extension string) string {
 		return "bin"
 	}
 	return extension
+}
+
+func downloadYouTubeSABRSelection(ctx context.Context, operation *operation, selected mediaformat.Selection, outputRoot, destination string, sink events.Sink) (youtubeump.Result, error) {
+	ustreamer, err := base64.StdEncoding.DecodeString(selected.YouTubeSABRUstreamerConfig)
+	if err != nil {
+		return youtubeump.Result{}, fmt.Errorf("%w: invalid SABR ustreamer config", extractor.ErrInvalidMetadata)
+	}
+	trackKind := youtubeump.TrackKind(selected.YouTubeSABRTrack)
+	if trackKind != youtubeump.TrackAudio && trackKind != youtubeump.TrackVideo {
+		return youtubeump.Result{}, fmt.Errorf("%w: unknown SABR track", extractor.ErrInvalidMetadata)
+	}
+	poToken, err := resolveYouTubeSABRPOToken(ctx, operation, selected)
+	if err != nil {
+		return youtubeump.Result{}, err
+	}
+	format, err := youtubeump.FormatIDFromItag(selected.YouTubeSABRItag, selected.YouTubeSABRLastModified, selected.YouTubeSABRXTags)
+	if err != nil {
+		return youtubeump.Result{}, err
+	}
+	clientInfo, err := youtubeump.ClientInfoFromID(selected.YouTubeSABRClientID, selected.YouTubeSABRClientVersion)
+	if err != nil {
+		return youtubeump.Result{}, err
+	}
+	options := operation.request.Downloader
+	config := youtubeump.Config{
+		Headers:         selected.Headers,
+		UserAgent:       selected.YouTubeSABRUserAgent,
+		ServerURL:       selected.YouTubeSABRServerURL,
+		UstreamerConfig: ustreamer,
+		Format:          format,
+		TrackKind:       trackKind,
+		DrcEnabled:      selected.YouTubeSABRDrc,
+		AudioTrackID:    selected.YouTubeSABRAudioTrackID,
+		VisitorData:     selected.YouTubeSABRVisitorData,
+		POToken:         poToken,
+		DurationSec:     selected.YouTubeSABRDurationSec,
+		MaxBytes:        options.MaxBytes,
+		MaxRounds:       youtubeump.MaxRounds,
+		Attempts:        options.Attempts,
+		RetryBaseDelay:  options.RetryBaseDelay,
+		RetryMaxDelay:   options.RetryMaxDelay,
+		ClientInfo:      clientInfo,
+	}
+	return youtubeump.NewDownloader(operation.transport, config).Download(ctx, outputRoot, destination, operation.request.Overwrite, sink)
+}
+
+func resolveYouTubeSABRPOToken(ctx context.Context, operation *operation, selected mediaformat.Selection) ([]byte, error) {
+	if operation == nil || operation.client == nil || operation.client.youtubePOT == nil {
+		return nil, nil
+	}
+	token, ok, err := operation.client.youtubePOT.ResolvePolicy(ctx, youtubepot.Request{
+		Context:     youtubepot.ContextGVS,
+		Client:      selected.YouTubeSABRClientName,
+		VisitorData: selected.YouTubeSABRVisitorData,
+		VideoID:     selected.YouTubeSABRVideoID,
+	}, false, true)
+	if err != nil {
+		return nil, err
+	}
+	if !ok || token == "" {
+		return nil, nil
+	}
+	if decoded, err := base64.RawURLEncoding.DecodeString(token); err == nil {
+		return decoded, nil
+	}
+	if decoded, err := base64.StdEncoding.DecodeString(token); err == nil {
+		return decoded, nil
+	}
+	return nil, fmt.Errorf("%w: invalid SABR PO token encoding", errInvalidRequestOptions)
 }

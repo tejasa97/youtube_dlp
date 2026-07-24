@@ -105,6 +105,15 @@ URLs are accepted only from structured configuration or the player response's
 `assets.js`, then constrained to HTTPS YouTube `/s/player/` paths. No production
 response, media URL, cookie, visitor identifier, or account data is retained.
 
+`sabr-only-watch.html` is a synthetic finite-VOD fixture for the bounded direct
+SABR/UMP slice when native recovery returns no URL-bearing formats. Its
+`playerConfig.mediaCommonConfig.mediaUstreamerRequestConfig.videoPlaybackUstreamerConfig`,
+adaptive format inventory, and `serverAbrStreamingUrl` host policy expectations
+are derived from LuanRT/GoogleVideo commit `d2fa40d761034a286cf60ee033653307a1295b0c`
+and ColeSpringer/WaxTap v2.0.1 commit `5d4b07dbfad5c2831c35ea7b95006b576e08f694`
+as research references only. Deterministic UMP response bytes in Go tests are
+authored locally from that wire documentation; no production response was captured.
+
 The authenticated WEB player recovery tests are synthetic expectations derived
 from the pinned reference's SID-cookie selection, SHA-1 authorization
 construction, authenticated-session predicate, and Innertube header generation

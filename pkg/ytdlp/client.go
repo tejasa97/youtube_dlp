@@ -43,6 +43,7 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/protocol/hls"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/ism"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/youtubelive"
+	"github.com/ytdlp-go/ytdlp/internal/protocol/youtubeump"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 	"github.com/ytdlp-go/ytdlp/internal/youtubepot"
 )
@@ -1112,6 +1113,23 @@ func categorized(op string, err error) error {
 		errors.Is(err, youtubelive.ErrDownloadFailed), errors.Is(err, youtubelive.ErrEventSink),
 		errors.Is(err, youtubelive.ErrLiveHeadSequence), errors.Is(err, youtubelive.ErrLiveNoProgress),
 		errors.Is(err, youtubelive.ErrLivePollLimit):
+		category = ErrorInternal
+	case errors.Is(err, youtubeump.ErrMissingConfig), errors.Is(err, youtubeump.ErrUnsupportedURL),
+		errors.Is(err, youtubeump.ErrUnsafeDestination), errors.Is(err, youtubeump.ErrDestinationExists),
+		errors.Is(err, youtubeump.ErrTooManyAttempts):
+		category = ErrorInvalidInput
+	case errors.Is(err, youtubeump.ErrUnsupportedDirective), errors.Is(err, youtubeump.ErrLiveUnsupported),
+		errors.Is(err, youtubeump.ErrResumeUnsupported):
+		category = ErrorUnsupported
+	case errors.Is(err, youtubeump.ErrRedirect), errors.Is(err, youtubeump.ErrResponseTooLarge),
+		errors.Is(err, youtubeump.ErrInvalidMediaState), errors.Is(err, youtubeump.ErrInvalidProtobuf),
+		errors.Is(err, youtubeump.ErrMalformedFraming), errors.Is(err, youtubeump.ErrTruncatedStream),
+		errors.Is(err, youtubeump.ErrNonCanonicalVarint), errors.Is(err, youtubeump.ErrVarintOverflow),
+		errors.Is(err, youtubeump.ErrInvalidContentType), errors.Is(err, youtubeump.ErrOversizedPart),
+		errors.Is(err, youtubeump.ErrTooManyParts), errors.Is(err, youtubeump.ErrTooManyActiveHeaders),
+		errors.Is(err, youtubeump.ErrDownloadFailed), errors.Is(err, youtubeump.ErrRoundsExhausted):
+		category = ErrorNetwork
+	case errors.Is(err, youtubeump.ErrEventSink):
 		category = ErrorInternal
 	}
 	return &Error{Category: category, Op: op, Err: err}

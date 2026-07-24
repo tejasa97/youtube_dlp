@@ -1269,7 +1269,7 @@ func TestYouTubeSABRFallbackFailureIsCategorizedAndCancelable(t *testing.T) {
 		responses: map[string][]byte{"3": unavailable, "28": unavailable},
 	}
 	_, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport})
-	if !errors.Is(err, ErrUnavailable) || len(transport.requests) != 2 {
+	if !errors.Is(err, ErrInvalidMetadata) || len(transport.requests) != 2 {
 		t.Fatalf("error=%v requests=%d", err, len(transport.requests))
 	}
 
