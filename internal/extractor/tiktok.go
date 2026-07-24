@@ -53,7 +53,7 @@ func NewTikTok() TikTok { return TikTok{} }
 func (TikTok) Name() string { return "tiktok" }
 
 func (TikTok) Suitable(parsed *url.URL) bool {
-	if parsed == nil || parsed.Scheme != "http" && parsed.Scheme != "https" {
+	if parsed == nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return false
 	}
 	if parsed.User != nil || parsed.Port() != "" {
@@ -215,7 +215,7 @@ func resolveTikTokShortLink(ctx context.Context, transport Transport, start *url
 	if transport == nil {
 		return "", fmt.Errorf("%w: missing transport", ErrInvalidMetadata)
 	}
-	if start == nil || start.Scheme != "http" && start.Scheme != "https" {
+	if start == nil || (start.Scheme != "http" && start.Scheme != "https") {
 		return "", ErrUnsupported
 	}
 	if start.User != nil || start.Port() != "" {
