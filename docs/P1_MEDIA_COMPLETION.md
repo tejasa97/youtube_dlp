@@ -41,6 +41,26 @@ Key evidence:
 - `internal/protocol/dash.TestDownloadSIDX206Success`
 - `internal/protocol/dash.TestDownloadSIDXCancellationDuringIndexRetrieval`
 - `internal/protocol/dash.FuzzSIDX`
+- `internal/protocol/dash.FuzzSIDXRecursiveExpansion`
+- `internal/protocol/dash.TestDownloadHierarchicalSIDXOneLevel`
+- `internal/protocol/dash.TestDownloadHierarchicalSIDXTwoLevels`
+- `internal/protocol/dash.TestDownloadHierarchicalSIDXMixedOrdering`
+- `internal/protocol/dash.TestDownloadHierarchicalSIDXHeadersPropagated`
+- `internal/protocol/dash.TestDownloadHierarchicalSIDX200Fallback`
+- `internal/protocol/dash.TestDownloadHierarchicalSIDXExcessiveDepth`
+- `internal/protocol/dash.TestDownloadHierarchicalSIDXRepeatedRangeDetection`
+- `internal/protocol/dash.TestDownloadHierarchicalSIDXTruncatedNested`
+- `internal/protocol/dash.TestDownloadHierarchicalSIDXLeafCountLimit`
+- `internal/protocol/dash.TestDownloadHierarchicalSIDXCancellationDuringNestedFetch`
+- `internal/protocol/dash.TestDownloadHierarchicalSIDXNoOutputOnFailure`
+- `internal/protocol/dash.TestDownloadHierarchicalSIDXMultiPeriod`
+- `internal/protocol/dash.TestDownloadHierarchicalSIDXAudioVideo`
+- `internal/protocol/dash.TestDownloadHierarchicalSIDXVersion1Child`
+- `internal/protocol/dash.TestDownloadHierarchicalSIDXExtendedSizeChild`
+- `internal/protocol/dash.TestDownloadHierarchicalSIDXCumulativeByteBudget`
+- `internal/protocol/dash.TestDownloadHierarchicalSIDXTruncatedChildResponse`
+- `internal/protocol/dash.TestDownloadHierarchicalSIDXOffsetOverflow`
+- `internal/protocol/dash.TestDownloadHierarchicalSIDXRoundTripV0Hex`
 - `internal/protocol/dash.TestDownloadDynamicMPDPollsAndDeduplicates`
 - `internal/protocol/dash.TestDownloadDynamicUsesManifestPollIntervalAndCancels`
 - `internal/protocol/dash.TestDownloadDynamicDoesNotCollideSameRepresentationID`
@@ -52,12 +72,13 @@ Key evidence:
 - `internal/protocol/dash.FuzzParse`
 - `conformance/media/dash/PROVENANCE.md`
 
-Remaining deviations: dynamic SegmentBase/SIDX manifests and hierarchical SIDX
-references fail with `ErrUnsupportedAddressing`; initialization/media overlap
-is rejected instead of trimmed, and index retrieval is single-attempt. Dynamic,
-unfragmented, or format-incompatible multi-period sets fail closed. See
-`docs/DASH_SIDX_EVIDENCE.md` and `docs/DASH_MULTI_PERIOD_EVIDENCE.md` for the
-later extensions and evidence.
+Remaining deviations: dynamic SegmentBase/SIDX manifests fail closed with
+`ErrUnsupportedAddressing`; initialization/media overlap is rejected instead of
+trimmed, and index retrieval is single-attempt. Dynamic, unfragmented, or
+format-incompatible multi-period sets fail closed. Bounded hierarchical
+`reference_type=1` SIDX expansion is supported within a single representation's
+trusted SegmentBase media URL. See `docs/DASH_SIDX_EVIDENCE.md` and
+`docs/DASH_MULTI_PERIOD_EVIDENCE.md` for the extensions and evidence.
 
 ## P1-04: ffmpeg and ffprobe supervision
 
