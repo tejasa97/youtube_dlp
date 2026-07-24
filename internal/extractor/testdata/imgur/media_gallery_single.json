@@ -1,0 +1,10 @@
+{
+  "id": "OnlyVid",
+  "media": [{
+    "id": "OnlyVid",
+    "type": "video",
+    "url": "https://i.imgur.com/OnlyVid.mp4",
+    "mime_type": "video/mp4",
+    "metadata": {"has_sound": true}
+  }]
+}
