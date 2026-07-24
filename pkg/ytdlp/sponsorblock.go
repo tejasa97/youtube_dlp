@@ -17,8 +17,8 @@ import (
 // function is called only when the public Request explicitly opts in.
 //
 // The integration remains metadata-only. Marking may rewrite chapter metadata,
-// but media cutting, FFmpeg removal, subtitle synchronization, and CLI surface
-// remain out of scope.
+// but media cutting, FFmpeg removal, and subtitle synchronization remain out of
+// scope. CLI flags expose Enabled/Mark metadata paths only.
 //
 // The function never panics. All errors are categorized and surface
 // through the existing pkg/ytdlp Error mechanism. A valid empty
