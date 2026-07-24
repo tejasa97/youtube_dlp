@@ -744,7 +744,7 @@ func FuzzSIDXRecursiveExpansion(f *testing.F) {
 			URL:        "https://media.example.test/video.mp4",
 			IndexRange: fmt.Sprintf("%d-%d", indexStart, indexStart+indexLength-1),
 		}
-		segments, err := downloader.expandOneSIDX(context.Background(), marker)
+		segments, err := downloader.expandOneSIDX(context.Background(), marker, nil)
 		if err != nil {
 			// Errors are acceptable; panics and unbounded allocations are not.
 			return

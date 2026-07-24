@@ -148,6 +148,8 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 	case "http_dash_segments":
 		result, err := dash.NewDownloader(operation.transport, dash.Config{
 			Headers:             selected.Headers,
+			DynamicPolls:        options.LiveMaxPolls,
+			PollInterval:        options.LivePollInterval,
 			FragmentConcurrency: options.FragmentConcurrency, PerHostConcurrency: options.PerHostFragmentConcurrency,
 			MaxSegments: options.MaxSegments, MaxSegmentSize: options.MaxSegmentBytes, Attempts: options.Attempts,
 			RetryBaseDelay: options.RetryBaseDelay, RetryMaxDelay: options.RetryMaxDelay,

@@ -489,22 +489,26 @@ func TestDownloadSIDXAtomicPublication(t *testing.T) {
 	}
 }
 
-func TestDownloadSIDXDynamicRejected(t *testing.T) {
-	_, indexRange := sidxTestMedia()
+func TestDownloadSIDXDynamicSingleSnapshot(t *testing.T) {
+	resource, indexRange := sidxTestMedia()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/manifest.mpd":
 			fmt.Fprintf(w, `<MPD type="dynamic" minimumUpdatePeriod="PT1S"><Period><AdaptationSet mimeType="video/mp4"><Representation id="v" bandwidth="1000"><BaseURL>video.mp4</BaseURL><SegmentBase indexRange="%s"><Initialization range="0-99"/></SegmentBase></Representation></AdaptationSet></Period></MPD>`, indexRange)
 		case "/video.mp4":
-			serveRange(w, r, make([]byte, 200))
+			serveRange(w, r, resource)
 		}
 	}))
 	defer server.Close()
 	transport, _ := network.New(network.Config{})
 	root := t.TempDir()
-	_, err := NewDownloader(transport, Config{}).Download(context.Background(), server.URL+"/manifest.mpd", root, filepath.Join(root, "out.mp4"), false, nil)
-	if err == nil || !strings.Contains(err.Error(), "dynamic") {
-		t.Fatalf("err = %v, want dynamic rejection", err)
+	result, err := NewDownloader(transport, Config{DynamicPolls: 1}).Download(context.Background(), server.URL+"/manifest.mpd", root, filepath.Join(root, "out.mp4"), false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, _ := os.ReadFile(result.Tracks[0].Download.Path)
+	if len(contents) != 100+23+23 {
+		t.Fatalf("contents length = %d", len(contents))
 	}
 }
 

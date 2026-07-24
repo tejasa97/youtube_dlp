@@ -39,6 +39,9 @@ const (
 // as separate atomic jobs.
 const defaultMaxDownloadSegments = 10_000
 
+// fragmentHardSegmentCap mirrors fragment.maxFragmentSegments.
+const fragmentHardSegmentCap = 10_000
+
 type Transport interface {
 	Do(context.Context, *http.Request) (*http.Response, error)
 	ReadPage(context.Context, string) ([]byte, http.Header, error)
@@ -98,29 +101,39 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 		return Result{}, fmt.Errorf("%w: no selectable representation", ErrInvalidMPD)
 	}
 
-	// Expand any SIDX-based segments before dynamic polling or download while
-	// retaining static multi-period boundaries for the media concat stage.
-	for index := range selected {
-		if len(selected[index].PeriodSegments) != 0 {
-			selected[index].Segments = nil
-			for periodIndex, segments := range selected[index].PeriodSegments {
-				expanded, expandErr := downloader.expandSIDXSegments(ctx, false, segments)
-				if expandErr != nil {
-					return Result{}, fmt.Errorf("representation %s period %d: %w", selected[index].ID, periodIndex, expandErr)
+	dynamicSIDX := mpd.Dynamic && hasSIDXMarkers(selected)
+	if dynamicSIDX {
+		if err := validateHomogeneousDynamicSIDXSelection(selected); err != nil {
+			return Result{}, err
+		}
+		if err := downloader.pollDynamicSIDX(ctx, manifestURL, mpd, &selected); err != nil {
+			return Result{}, err
+		}
+	} else {
+		// Expand any SIDX-based segments before dynamic polling or download while
+		// retaining static multi-period boundaries for the media concat stage.
+		for index := range selected {
+			if len(selected[index].PeriodSegments) != 0 {
+				selected[index].Segments = nil
+				for periodIndex, segments := range selected[index].PeriodSegments {
+					expanded, expandErr := downloader.expandSIDXSegments(ctx, segments)
+					if expandErr != nil {
+						return Result{}, fmt.Errorf("representation %s period %d: %w", selected[index].ID, periodIndex, expandErr)
+					}
+					selected[index].PeriodSegments[periodIndex] = expanded
+					selected[index].Segments = append(selected[index].Segments, expanded...)
 				}
-				selected[index].PeriodSegments[periodIndex] = expanded
-				selected[index].Segments = append(selected[index].Segments, expanded...)
+				continue
 			}
-			continue
+			expanded, expandErr := downloader.expandSIDXSegments(ctx, selected[index].Segments)
+			if expandErr != nil {
+				return Result{}, fmt.Errorf("representation %s: %w", selected[index].ID, expandErr)
+			}
+			selected[index].Segments = expanded
 		}
-		expanded, expandErr := downloader.expandSIDXSegments(ctx, mpd.Dynamic, selected[index].Segments)
-		if expandErr != nil {
-			return Result{}, fmt.Errorf("representation %s: %w", selected[index].ID, expandErr)
-		}
-		selected[index].Segments = expanded
 	}
 
-	if mpd.Dynamic && downloader.config.DynamicPolls > 1 {
+	if !dynamicSIDX && mpd.Dynamic && downloader.config.DynamicPolls > 1 {
 		byID := make(map[string]*Representation, len(selected))
 		for index := range selected {
 			byID[representationKey(selected[index])] = &selected[index]
@@ -158,6 +171,12 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 		}
 	}
 	for _, representation := range selected {
+		if dynamicSIDX {
+			if err := validateDynamicSIDXOutputBudget(representation.Segments, downloader.config.MaxSegments); err != nil {
+				return Result{}, fmt.Errorf("representation %s: %w", representation.ID, err)
+			}
+			continue
+		}
 		if downloader.config.MaxSegments < 0 || len(representation.Segments) > downloader.config.MaxSegments {
 			return Result{}, fmt.Errorf("representation %s: %w: got %d, limit %d", representation.ID, fragment.ErrTooManySegments, len(representation.Segments), downloader.config.MaxSegments)
 		}
@@ -176,7 +195,7 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 		if result.MultiPeriod {
 			for periodIndex, segments := range representation.PeriodSegments {
 				trackDestination := fmt.Sprintf("%s.%s.period-%04d", destination, trackSuffix(representation), periodIndex)
-				downloaded, err := downloader.downloadSegments(ctx, segments, outputRoot, trackDestination, overwrite, sink)
+				downloaded, err := downloader.downloadSegments(ctx, segments, outputRoot, trackDestination, overwrite, sink, false)
 				if err != nil {
 					removePeriodDownloads(track.PeriodDownloads)
 					for _, completedTrack := range result.Tracks {
@@ -193,7 +212,7 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 		if len(selected) > 1 {
 			trackDestination += "." + trackSuffix(representation)
 		}
-		downloaded, err := downloader.downloadSegments(ctx, representation.Segments, outputRoot, trackDestination, overwrite, sink)
+		downloaded, err := downloader.downloadSegments(ctx, representation.Segments, outputRoot, trackDestination, overwrite, sink, dynamicSIDX)
 		if err != nil {
 			return Result{}, fmt.Errorf("representation %s: %w", representation.ID, err)
 		}
@@ -203,18 +222,36 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 	return result, nil
 }
 
-func (downloader *Downloader) downloadSegments(ctx context.Context, plan []Segment, outputRoot, destination string, overwrite bool, sink events.Sink) (fragment.Result, error) {
+func (downloader *Downloader) downloadSegments(ctx context.Context, plan []Segment, outputRoot, destination string, overwrite bool, sink events.Sink, dynamicSIDX bool) (fragment.Result, error) {
 	segments := make([]fragment.Segment, len(plan))
 	for index, segment := range plan {
 		segments[index] = fragment.Segment{URL: segment.URL, RangeStart: segment.RangeStart, RangeLength: segment.RangeLength}
 	}
+	maxSegments := downloader.config.MaxSegments
+	if dynamicSIDX && maxSegments > 0 {
+		initCount := len(plan) - mediaSegmentCount(plan)
+		maxSegments += initCount
+		if maxSegments > fragmentHardSegmentCap {
+			maxSegments = fragmentHardSegmentCap
+		}
+	}
 	return fragment.New(downloader.transport).Download(ctx, fragment.Job{
 		Segments: segments, Headers: downloader.config.Headers, OutputRoot: outputRoot, Destination: destination,
 		Concurrency: downloader.config.FragmentConcurrency, PerHostConcurrency: downloader.config.PerHostConcurrency,
-		MaxSegments: downloader.config.MaxSegments, MaxSegmentSize: downloader.config.MaxSegmentSize,
+		MaxSegments: maxSegments, MaxSegmentSize: downloader.config.MaxSegmentSize,
 		Attempts: downloader.config.Attempts, RetryBaseDelay: downloader.config.RetryBaseDelay,
 		RetryMaxDelay: downloader.config.RetryMaxDelay, Overwrite: overwrite,
 	}, sink)
+}
+
+func mediaSegmentCount(segments []Segment) int {
+	count := 0
+	for _, segment := range segments {
+		if !segment.Initialize {
+			count++
+		}
+	}
+	return count
 }
 
 func removePeriodDownloads(downloads []fragment.Result) {
@@ -466,27 +503,8 @@ func trackSuffix(representation Representation) string {
 // expandSIDXSegments detects segments that require SIDX expansion (IndexRange
 // set), fetches and parses the SIDX box, and returns the expanded segment plan.
 // Segments without IndexRange are passed through unchanged.
-//
-// Dynamic manifests with SegmentBase/SIDX are explicitly rejected because
-// stale SIDX data cannot be safely applied to a resource that may have changed
-// between polls. This is the smaller provably-correct behavior.
-func (downloader *Downloader) expandSIDXSegments(ctx context.Context, dynamic bool, segments []Segment) ([]Segment, error) {
-	var result []Segment
-	for _, segment := range segments {
-		if segment.IndexRange == "" {
-			result = append(result, segment)
-			continue
-		}
-		if dynamic {
-			return nil, fmt.Errorf("%w: dynamic SegmentBase/SIDX is not supported", ErrUnsupportedAddressing)
-		}
-		expanded, err := downloader.expandOneSIDX(ctx, segment)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, expanded...)
-	}
-	return result, nil
+func (downloader *Downloader) expandSIDXSegments(ctx context.Context, segments []Segment) ([]Segment, error) {
+	return downloader.expandSIDXSegmentsWithSession(ctx, segments, nil)
 }
 
 // expandOneSIDX fetches the index range for a single SIDX marker segment,
@@ -501,7 +519,7 @@ func (downloader *Downloader) expandSIDXSegments(ctx context.Context, dynamic bo
 // After expansion, all leaf media ranges and the initialization range are
 // validated against every fetched index interval (root and nested) to ensure
 // no index bytes can enter assembled media output.
-func (downloader *Downloader) expandOneSIDX(ctx context.Context, marker Segment) ([]Segment, error) {
+func (downloader *Downloader) expandOneSIDX(ctx context.Context, marker Segment, session *sidxSessionState) ([]Segment, error) {
 	rangeStart, rangeEnd, err := parseByteRange(marker.IndexRange)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrUnsupportedAddressing, err)
@@ -513,18 +531,29 @@ func (downloader *Downloader) expandOneSIDX(ctx context.Context, marker Segment)
 
 	// Initialize expansion state for safety tracking. The root index request
 	// is included in the cumulative transfer budget.
+	remainingBudget := int64(maxCumulativeIndexBytes)
+	if session != nil {
+		if session.indexBytes >= maxCumulativeIndexBytes {
+			return nil, fmt.Errorf("%w: cumulative index bytes exceed %d", ErrUnsupportedAddressing, maxCumulativeIndexBytes)
+		}
+		remainingBudget = maxCumulativeIndexBytes - session.indexBytes
+	}
+
 	state := &sidxExpansionState{
 		mediaURL:     marker.URL,
 		visited:      make(map[string]struct{}),
-		maxLeafCount: downloader.effectiveMaxSegments(),
+		maxLeafCount: downloader.effectiveParserLeafBudget(session),
+		session:      session,
 	}
 
 	// Fetch the root index range bytes, enforcing the cumulative budget.
-	rootResult, err := downloader.fetchIndexRange(ctx, marker.URL, rangeStart, rangeLength, maxCumulativeIndexBytes)
+	rootResult, err := downloader.fetchIndexRange(ctx, marker.URL, rangeStart, rangeLength, remainingBudget)
 	if err != nil {
 		return nil, err
 	}
-	state.indexBytes = rootResult.TransferredBytes
+	if err := state.recordIndexTransfer(rootResult.TransferredBytes); err != nil {
+		return nil, err
+	}
 	state.indexIntervals = append(state.indexIntervals, MediaRange{Start: rangeStart, Length: rangeLength})
 
 	// Parse the SIDX box.
@@ -538,7 +567,9 @@ func (downloader *Downloader) expandOneSIDX(ctx context.Context, marker Segment)
 	// offset of the sidx box within the fetched data.
 	baseOffset := rangeStart + int64(sidxOffset)
 
-	state.boxesParsed = 1
+	if _, err := state.incrementBoxCount(); err != nil {
+		return nil, err
+	}
 	// Record the root index range as visited.
 	state.visited[rangeKey(marker.URL, rangeStart, rangeLength)] = struct{}{}
 
@@ -646,6 +677,7 @@ type sidxExpansionState struct {
 	indexBytes     int64 // cumulative bytes actually transferred for index data
 	leafCount      int
 	maxLeafCount   int
+	session        *sidxSessionState
 }
 
 // rangeKey produces a unique key for a fetched index range, used for cycle
@@ -676,9 +708,9 @@ func (downloader *Downloader) expandSIDXReferences(ctx context.Context, sidx *SI
 		}
 		if !reference.IsIndex {
 			// Leaf media reference: emit directly.
-			state.leafCount++
-			if state.leafCount > state.maxLeafCount {
-				return nil, fmt.Errorf("%w: leaf segment count %d exceeds limit %d", ErrUnsupportedAddressing, state.leafCount, state.maxLeafCount)
+			leafCount := state.incrementLeafCount()
+			if leafCount > state.maxLeafCount {
+				return nil, fmt.Errorf("%w: leaf segment count %d exceeds limit %d", ErrUnsupportedAddressing, leafCount, state.maxLeafCount)
 			}
 			leaves = append(leaves, allRanges[i])
 			continue
@@ -699,8 +731,7 @@ func (downloader *Downloader) expandSIDXReferences(ctx context.Context, sidx *SI
 			return nil, fmt.Errorf("%w: nested index range %d bytes exceeds limit", ErrUnsupportedAddressing, nestedRange.Length)
 		}
 
-		// Check cumulative index bytes before fetching.
-		remaining := maxCumulativeIndexBytes - state.indexBytes
+		remaining := state.remainingIndexBudget()
 		if remaining <= 0 {
 			return nil, fmt.Errorf("%w: cumulative index bytes exceed %d", ErrUnsupportedAddressing, maxCumulativeIndexBytes)
 		}
@@ -709,7 +740,9 @@ func (downloader *Downloader) expandSIDXReferences(ctx context.Context, sidx *SI
 		if fetchErr != nil {
 			return nil, fetchErr
 		}
-		state.indexBytes += nestedResult.TransferredBytes
+		if err := state.recordIndexTransfer(nestedResult.TransferredBytes); err != nil {
+			return nil, err
+		}
 		// Record the nested index interval for overlap validation.
 		state.indexIntervals = append(state.indexIntervals, MediaRange{Start: nestedRange.Start, Length: nestedRange.Length})
 
@@ -717,10 +750,11 @@ func (downloader *Downloader) expandSIDXReferences(ctx context.Context, sidx *SI
 		if parseErr != nil {
 			return nil, fmt.Errorf("%w: nested SIDX at offset %d: %v", ErrUnsupportedAddressing, nestedRange.Start, parseErr)
 		}
-		state.boxesParsed++
-		if state.boxesParsed > maxSIDXBoxesPerRepresentation {
-			return nil, fmt.Errorf("%w: parsed SIDX box count %d exceeds limit %d", ErrUnsupportedAddressing, state.boxesParsed, maxSIDXBoxesPerRepresentation)
+		boxCount, err := state.incrementBoxCount()
+		if err != nil {
+			return nil, err
 		}
+		_ = boxCount
 
 		// The absolute base for the nested SIDX is the requested range start
 		// plus the offset of the sidx box within the returned bytes.
@@ -751,9 +785,9 @@ func (downloader *Downloader) expandSIDXReferences(ctx context.Context, sidx *SI
 	return leaves, nil
 }
 
-// effectiveMaxSegments returns the effective maximum segment count for
-// hierarchical expansion, bounded by both the configured MaxSegments and the
-// parser hard limit.
+// effectiveMaxSegments returns the effective maximum unique output leaf count
+// for dynamic SIDX accumulation, bounded by both the configured MaxSegments
+// and the parser hard limit.
 func (downloader *Downloader) effectiveMaxSegments() int {
 	limit := downloader.config.MaxSegments
 	if limit <= 0 {
@@ -763,6 +797,16 @@ func (downloader *Downloader) effectiveMaxSegments() int {
 		limit = maxSegmentsPerRepresentation
 	}
 	return limit
+}
+
+// effectiveParserLeafBudget returns the cumulative leaf-discovery budget for
+// SIDX expansion. Dynamic polling sessions use a separate parser work budget
+// so unchanged snapshots do not consume the final output segment limit.
+func (downloader *Downloader) effectiveParserLeafBudget(session *sidxSessionState) int {
+	if session != nil {
+		return maxSegmentsPerRepresentation
+	}
+	return downloader.effectiveMaxSegments()
 }
 
 // fetchIndexRange performs a bounded HTTP range request for the SIDX index.

@@ -1057,7 +1057,7 @@ func TestDownloadHierarchicalSIDXNoPartialPlanAfterNestedFetchFailure(t *testing
 		URL:        "https://media.example.test/video.mp4",
 		IndexRange: fmt.Sprintf("0-%d", len(rootBox)-1),
 	}
-	segments, err := downloader.expandOneSIDX(context.Background(), marker)
+	segments, err := downloader.expandOneSIDX(context.Background(), marker, nil)
 	if err == nil {
 		t.Fatal("expected error for nested transport failure")
 	}
@@ -1126,7 +1126,7 @@ func TestDownloadHierarchicalSIDXInitOverlapsRootIndex(t *testing.T) {
 		IndexRange: fmt.Sprintf("100-%d", 100+len(leafBox)-1),
 		InitRange:  fmt.Sprintf("0-%d", 100+len(leafBox)/2),
 	}
-	_, err := downloader.expandOneSIDX(context.Background(), marker)
+	_, err := downloader.expandOneSIDX(context.Background(), marker, nil)
 	if err == nil {
 		t.Fatal("expected error for init/index overlap")
 	}
@@ -1159,7 +1159,7 @@ func TestDownloadHierarchicalSIDXInitOverlapsNestedIndex(t *testing.T) {
 		IndexRange: fmt.Sprintf("0-%d", len(rootBox)-1),
 		InitRange:  fmt.Sprintf("%d-%d", nestedStart, nestedStart+len(nestedBox)-1),
 	}
-	_, err := downloader.expandOneSIDX(context.Background(), marker)
+	_, err := downloader.expandOneSIDX(context.Background(), marker, nil)
 	if err == nil {
 		t.Fatal("expected error for init/nested-index overlap")
 	}
@@ -1183,7 +1183,7 @@ func TestDownloadHierarchicalSIDXLeafOverlapsRootIndex(t *testing.T) {
 		URL:        "https://media.example.test/video.mp4",
 		IndexRange: fmt.Sprintf("0-%d", len(leafBox)+4),
 	}
-	_, err := downloader.expandOneSIDX(context.Background(), marker)
+	_, err := downloader.expandOneSIDX(context.Background(), marker, nil)
 	if err == nil || !strings.Contains(err.Error(), "leaf media range 0 overlaps index interval 0") {
 		t.Fatalf("err = %v, want leaf/root-index overlap error", err)
 	}
@@ -1205,7 +1205,7 @@ func TestDownloadHierarchicalSIDXAdjacentRangesSucceed(t *testing.T) {
 		URL:        "https://media.example.test/video.mp4",
 		IndexRange: fmt.Sprintf("0-%d", len(leafBox)-1),
 	}
-	segments, err := downloader.expandOneSIDX(context.Background(), marker)
+	segments, err := downloader.expandOneSIDX(context.Background(), marker, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1233,7 +1233,7 @@ func TestDownloadHierarchicalSIDXNearMaxInt64Interval(t *testing.T) {
 		IndexRange: fmt.Sprintf("0-%d", len(data)-1),
 	}
 	// This should fail with an overflow error, not panic.
-	_, err := downloader.expandOneSIDX(context.Background(), marker)
+	_, err := downloader.expandOneSIDX(context.Background(), marker, nil)
 	if err == nil {
 		t.Fatal("expected overflow error")
 	}
