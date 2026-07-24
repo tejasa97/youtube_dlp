@@ -6,8 +6,8 @@ product layer to wire into its request/CLI contract.
 - `internal/format`: selector alternatives and merges, direct IDs, `all`,
   filters, format preferences, DRM policy, and deterministic ordering.
 - `internal/compat/template`: output templates, traversal, defaults,
-  replacements, date conversion, numeric formatting, JSON conversion, and
-  output-root confinement.
+  replacements, bounded arithmetic, date and Unicode conversion, numeric
+  formatting, JSON conversion, and output-root confinement.
 - `internal/compat/progress`: deterministic progress-template namespaces.
 - `internal/compat/metadata`: parse-metadata and replace-in-metadata actions.
 - `internal/compat/matchfilter`: declarative OR/AND matching and a distinct
@@ -29,9 +29,11 @@ Intentional unsupported syntax is explicit rather than silently approximated:
   unsupported.
 - Format filters do not implement every yt-dlp selector atom, codec/container
   preference alias, filesize approximation, or advanced sort field conversion.
-- Templates do not implement arithmetic, object slicing, Unicode conversion
-  variants, arbitrary traversal operators, Python conversions, or arbitrary
-  code evaluation. Supported traversal is object keys and numeric list indexes.
+- Templates implement bounded arithmetic and Unicode `U` conversions
+  (including `#`/`+` flags), but do not implement object slicing, arbitrary
+  traversal operators, the wider Python format mini-language, or arbitrary
+  code evaluation. Supported traversal covers object keys, numeric list and
+  string indexes and slices, list mapping through `:`, and object projections.
 - Metadata actions do not execute postprocessor code; they accept only bounded
   regular-expression interpretation and replacement.
 - A selector result containing more than one video and one audio stream is
