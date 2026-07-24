@@ -7,6 +7,14 @@
   `_extract_web_data_and_status`, `_extract_web_formats`, and
   `_parse_aweme_video_web` at the pinned commit. Caption field provenance is
   `TikTokIE._get_subtitles`, specifically public webpage `video.subtitleInfos`.
+  Short-link entry points mirror `TikTokVMIE._real_extract`: a `HEAD` with
+  `User-Agent: facebookexternalhit/1.1`. Upstream automatically follows
+  redirects and takes the final response URL; this Go port hardens that path
+  with credential-isolated, redirect-disabled transport
+  (`DoWithoutCredentialsNoRedirect`), hop-by-hop `Location` validation
+  (including optional `m.tiktok.com` intermediate hops), and a lazy
+  `url_result` handoff to the canonical `/@user/video/{numeric-id}` page owned
+  by `TikTokIE`.
 
 The fixture was authored and sanitized for this Go port. It is not a captured
 TikTok response and contains no real cookie, signature, account identifier,
