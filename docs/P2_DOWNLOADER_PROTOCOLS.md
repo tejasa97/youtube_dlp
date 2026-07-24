@@ -25,8 +25,9 @@ fragments, Smooth Streaming (ISM), and opt-in external downloader tools.
   count/size, categorized retryability, ordered atomic assembly, and
   cancellation preservation.
 - Native HLS suppresses media and low-latency parts attributed by the pinned
-  Anvato and Uplynk ad-marker state machine while preserving physical
-  sequence identities for live and delta reconciliation.
+  Anvato and Uplynk ad-marker state machine, and by exact-case
+  `EXT-X-CUE-OUT` / `EXT-X-CUE-OUT-CONT` / `EXT-X-CUE-IN` cue tags, while
+  preserving physical sequence identities for live and delta reconciliation.
 - ISM parses `SmoothStreamingMedia`, selects the best quality in each stream
   type, expands timeline repeats with a hard 10,000-segment cap, addresses fragment URLs, and
   uses the native fragment engine. Multi-track ISM output remains explicitly
@@ -54,8 +55,10 @@ fragments, Smooth Streaming (ISM), and opt-in external downloader tools.
   PIFF header synthesis and final container merge belong to postprocessing,
   not the network downloader.
 - HLS ad suppression is limited to the documented attributed Anvato and Uplynk
-  markers. It does not guess SCTE-35, cue/date-range, asset-list, or
-  markerless server-side ad insertion.
+  markers plus exact-case `EXT-X-CUE-OUT`, `EXT-X-CUE-OUT-CONT`, and
+  `EXT-X-CUE-IN` (payloads after `:` accepted and ignored). It does not guess
+  `EXT-X-DATERANGE` SCTE-35 payloads, SCTE-35 binary decoding, asset lists,
+  URI heuristics, or markerless server-side ad insertion.
 
 See `conformance/downloader/PROVENANCE.md` and
 `conformance/media/ism/PROVENANCE.md` for the original lane provenance. See
