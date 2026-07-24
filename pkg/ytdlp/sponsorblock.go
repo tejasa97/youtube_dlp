@@ -16,9 +16,10 @@ import (
 // fetch and writes the normalized chapters onto the given info. The
 // function is called only when the public Request explicitly opts in.
 //
-// The integration remains metadata-only. Marking may rewrite chapter metadata,
-// but media cutting, FFmpeg removal, and subtitle synchronization remain out of
-// scope. CLI flags expose Enabled/Mark metadata paths only.
+// Marking may rewrite chapter metadata without mutating media bytes.
+// Media cutting is applied later by applySponsorBlockRemove after a
+// real download. CLI exposes mark/API metadata paths; remove/cut wiring
+// remains API-only for now.
 //
 // The function never panics. All errors are categorized and surface
 // through the existing pkg/ytdlp Error mechanism. A valid empty
@@ -67,7 +68,7 @@ func (operation *operation) enrichWithSponsorBlock(ctx context.Context, extracto
 	}
 	options := sponsorblock.Options{
 		Enabled:    true,
-		Categories: operation.request.SponsorBlock.Categories,
+		Categories: sponsorBlockFetchCategories(operation.request.SponsorBlock),
 		APIBase:    operation.request.SponsorBlock.APIBase,
 	}
 	result, err := sponsorblock.Fetch(ctx, operation.transport, options, "YouTube", id, duration)
