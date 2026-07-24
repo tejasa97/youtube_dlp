@@ -1,10 +1,9 @@
 # SponsorBlock metadata
 
-This document describes the native, Python-free SponsorBlock metadata
-foundation available through the public Go product API and the CLI. The
-foundation covers **metadata fetch, normalization, and opt-in chapter
-marking**. Media cutting, FFmpeg removal, and subtitle synchronization
-remain explicitly out of scope.
+This document describes the native, Python-free SponsorBlock product
+surface available through the public Go product API and the CLI. The
+foundation covers **metadata fetch, normalization, opt-in chapter
+marking, and FFmpeg-driven media cutting with subtitle synchronization**.
 
 ## What is wired
 
@@ -15,10 +14,17 @@ SponsorBlock API lookup and writes the result to
 `result.InfoJSON` under the key `sponsorblock_chapters`. Disabled
 requests never touch the network.
 
+When `Remove` is also set, matching skip ranges are cut from the
+downloaded media after postprocessors run and before subtitle
+embedding. `Simulate` and `SkipDownload` never invent media cuts.
+
 The implementation derives its behavior from the pinned yt-dlp
 reference at commit
 `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`
-(`yt_dlp/postprocessor/sponsorblock.py`). The reference is treated
+(`yt_dlp/postprocessor/sponsorblock.py` and
+`yt_dlp/postprocessor/modify_chapters.py`, plus
+`force_keyframes` / concat helpers in
+`yt_dlp/postprocessor/ffmpeg.py`). The reference is treated
 as a read-only behavioral mirror: it is never executed, imported,
 or depended on at build time. The conformance fixtures in
 `conformance/sponsorblock/` document this lineage.
@@ -27,14 +33,17 @@ or depended on at build time. The conformance fixtures in
 
 ```go
 type SponsorBlockOptions struct {
-    Enabled    bool
-    Mark       bool
-    Categories []string
-    APIBase    string
+    Enabled          bool
+    Mark             bool
+    Remove           bool
+    Categories       []string
+    RemoveCategories []string
+    ForceKeyframes   bool
+    APIBase          string
 }
 ```
 
-`Enabled` is the only field that gates the stage. When false, no
+`Enabled` is the only field that gates the metadata stage. When false, no
 network requests are issued, regardless of the other fields.
 
 `Mark` requires `Enabled`. It overlays normalized SponsorBlock ranges onto the
@@ -45,12 +54,31 @@ Overlaps preserve first-seen category order, and only fragments created by
 the overlay are eligible for the pinned sub-second merge behavior; originally
 tiny chapters remain intact.
 
+`Remove` requires `Enabled`. After a real download it plans cut ranges from
+`sponsorblock_chapters`, optionally force-keyframes around boundaries, and
+concatenates keep segments with the ffmpeg concat demuxer
+(`inpoint`/`outpoint`), matching
+`ModifyChaptersPP._make_concat_opts` / `remove_chapters`. Mark and Remove may
+both be set: marking rewrites chapter metadata; removing mutates media and then
+remaps marked chapter timestamps onto the post-cut timeline.
+
 `Categories` is the requested non-empty set of SponsorBlock category
-identifiers. The list is treated as
+identifiers used for the API fetch (and for Mark). The list is treated as
 caller-owned and is never mutated. Unknown identifiers, empty
 entries, whitespace-only entries, and strings longer than 64
 bytes are rejected by request validation. Duplicate identifiers
 are de-duplicated deterministically by the first-seen index.
+
+`RemoveCategories` optionally selects which fetched categories to cut.
+When empty and `Remove` is true, `Categories` is used after dropping
+non-removable `poi_highlight` and `chapter` entries (pinned yt-dlp
+behavior). Explicit non-removable remove categories are rejected at
+validation. The fetch set is the first-seen union of `Categories` and
+`RemoveCategories`.
+
+`ForceKeyframes` requires `Remove`. When true, media is re-encoded with
+`-force_key_frames` at cut boundaries before concat (yt-dlp
+`--force-keyframes-at-cuts`). Subtitle sidecars are never force-keyframed.
 
 `APIBase` is the API origin. When empty, the implementation uses
 `https://sponsor.ajay.app`. Custom bases are intended for
@@ -164,6 +192,44 @@ The function is also exercised by a fuzz target so the
 normalization is verified against random segment shapes and
 response bodies.
 
+## Cutting and keyframes
+
+Pure cut planning lives in `internal/sponsorblock.PlanCuts`:
+
+1. Only removable categories are cut (`poi_highlight` and `chapter`
+   never are).
+2. Adjacent and overlapping remove ranges merge.
+3. Zero-length / non-finite ranges are ignored.
+4. Keep segments are emitted as concat `inpoint`/`outpoint` directives,
+   omitting empty leading/trailing chunks.
+5. Removing the entire media fails closed.
+
+Typed ffmpeg operations in `internal/media/ffmpeg` perform optional
+force-keyframes re-encode and concat-range finalize. Product Remove
+orchestrates a transactional multi-artifact cut: every media and
+supported subtitle path is prevalidated, every output is staged into a
+private temporary directory, and originals are replaced only after all
+staging succeeds (with rename-backup rollback if a later commit step
+fails). Missing tools fail closed. Planning rejects layouts that would
+exceed the ffmpeg concat-range (128) or force-keyframe (512) limits.
+
+## Subtitle synchronization
+
+When subtitle sidecars exist beside the downloaded media, Remove rewrites
+them with deterministic cue removal and timestamp remapping for the
+supported extensions (`srt`, `vtt`, `ass`/`ssa`, `lrc`). Cues entirely
+inside cut ranges are dropped; cues before, overlapping, or after cuts are
+kept with remapped timestamps. WebVTT `STYLE`, `REGION`, and `NOTE`
+blocks are preserved verbatim. LRC lines with multiple leading timestamps
+remap each contiguous leading tag independently and keep surviving lyric text;
+timestamp-shaped text later in lyrics is preserved literally. Malformed
+or unrecognized SRT cue blocks fail closed with `invalid_input` instead
+of silently dropping content. FFmpeg concat is not used for subtitles.
+Unsupported sidecar formats fail closed with a categorized `unsupported`
+error so the product never silently leaves subtitles desynced. This is
+stricter than yt-dlp's warn-and-continue policy for unsupported external
+subtitle types and is recorded as a known deviation.
+
 ## Output schema
 
 The public `sponsorblock_chapters` value is a list of objects
@@ -201,7 +267,10 @@ title. The pinned title mapping is:
 
 Extra API-provided fields are dropped. Floating-point values are
 encoded as JSON numbers; the precision follows the standard
-`encoding/json` rules for `float64`.
+`encoding/json` rules for `float64`. After a successful Remove, Info
+`duration` is updated to the post-cut length and ordinary `chapters`
+timestamps are remapped onto the post-cut timeline even when Mark is
+false. `sponsorblock_chapters` retains pre-cut fetch times.
 
 ## Error categories
 
@@ -233,6 +302,9 @@ SponsorBlock request:
 - Maximum string length per decoded field: 1024 bytes.
 - Maximum JSON depth: 16.
 - Maximum number of groups in a response: 64.
+- Maximum remove cut ranges after merge: 256 (512 ÷ 2 force-keyframe slots).
+- Maximum keep segments after planning: 128 (ffmpeg concat-range limit).
+- Maximum unique force-keyframe timestamps: 512.
 
 Exceeding any bound produces a categorized invalid metadata
 error and the operation stops.
@@ -242,26 +314,29 @@ error and the operation stops.
 `conformance/sponsorblock/` contains three deterministic JSON
 fixtures (`sample_response.json`, `sample_collision.json`,
 `sample_malformed.json`) and a `PROVENANCE.md` file that names
-the pinned reference commit and the source file
-(`yt_dlp/postprocessor/sponsorblock.py`). The fixtures contain no
+the local pinned reference checkout and commit plus the source
+files (`sponsorblock.py`, `modify_chapters.py`). The fixtures contain no
 real cookies, tokens, video IDs, or captured production
 response. They are mirrored by deterministic package fixtures and
 exercised without network access, Python, or a clock.
 
-## Out of scope
+## Out of scope / remaining deviations
 
 The following SponsorBlock features from the pinned reference
-remain unimplemented in this release and are explicitly
-deferred:
+remain unimplemented or intentionally different in this release:
 
-- FFmpeg-driven media cutting using `cut_out_range`.
-- Force-keyframes injection around cut boundaries.
-- Subtitle synchronization across cut boundaries.
 - CLI remove/cut flags (`--sponsorblock-remove` and related).
 - SponsorBlock metadata for services other than YouTube
   (PeerTube, Vimeo, etc.).
 - The reference's user-facing `report_warning` call when some
-  segments are filtered.
+  segments are filtered by duration mismatch.
+- Regex-based ordinary chapter removal (`--remove-chapters`) and
+  manual `--remove-ranges` outside SponsorBlock categories.
+- yt-dlp's warn-and-continue policy for unsupported external
+  subtitle formats during remove (this port fails closed instead).
+- The full ModifyChapters sponsor/normal heap arrangement when
+  mixing remove markers with simultaneous mark overlays beyond the
+  post-cut timestamp remap implemented here.
 
 These are documented in the capability manifest's
 `known_deviation` and are not a regression of any prior claim.

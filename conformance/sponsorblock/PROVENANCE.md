@@ -1,16 +1,18 @@
-# Phase 4 SponsorBlock metadata fixture provenance
+# Phase 4 SponsorBlock fixture provenance
 
 The synthetic fixtures in this directory are deterministic,
 cookie-free, and contain no captured production response. They are
-derived from the pinned yt-dlp reference at commit
+derived from the pinned yt-dlp reference checkout
+`/Users/tejas/projects/yt-dlp-reference` at commit
 `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`
-(`yt_dlp/postprocessor/sponsorblock.py` and the mark-only arrangement in
-`yt_dlp/postprocessor/modify_chapters.py`). The reference is a
+(`yt_dlp/postprocessor/sponsorblock.py`, the mark/remove arrangement in
+`yt_dlp/postprocessor/modify_chapters.py`, and force-keyframes / concat
+helpers in `yt_dlp/postprocessor/ffmpeg.py`). The reference is a
 read-only behavioral mirror and is not executed or imported by the
 Go port; the fixtures replicate its hash prefix, envelope shape,
-and per-segment normalization policy so the Go implementation can
-be regression-tested without contacting the public SponsorBlock
-service.
+per-segment normalization policy, and cut-planning expectations so the
+Go implementation can be regression-tested without contacting the
+public SponsorBlock service.
 
 The deterministic mark-only cases cover normal and synthesized backgrounds,
 overlapping category order, chapter descriptions, exact boundaries,
@@ -18,6 +20,14 @@ preservation of original tiny chapters, removal of tiny fragments created by
 an overlay, adjacent identical markers, validation, immutability, and fuzzed
 timeline invariants. They are derived expectations rather than copied upstream
 fixtures.
+
+The deterministic cut-planning cases cover removable-category filtering
+(excluding `poi_highlight` / `chapter`), adjacent and overlapping merge,
+leading/trailing edge chunks, entire-media rejection, concat
+`inpoint`/`outpoint` keep segments, post-cut timestamp remapping, and fuzzed
+timeline invariants. FFmpeg force-keyframes and concat-range execution are
+covered by package tests under `internal/media/ffmpeg` and product wiring
+under `pkg/ytdlp`.
 
 `sample_response.json` is a hand-authored single-group envelope for
 video ID `fixture0001` with three segments: a sponsor entry, a
