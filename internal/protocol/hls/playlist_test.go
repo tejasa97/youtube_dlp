@@ -2,6 +2,7 @@ package hls
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -103,12 +104,80 @@ func FuzzParse(f *testing.F) {
 	f.Add("https://example.invalid/media.m3u8", []byte("#EXTM3U\n#EXTINF:1,\nsegment.ts\n#EXT-X-ENDLIST\n"))
 	f.Add("https://example.invalid/master.m3u8", []byte("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nmedia.m3u8\n"))
 	f.Add("https://example.invalid/ads.m3u8", []byte("#EXTM3U\n#UPLYNK-SEGMENT,ad\n#EXT-X-PART:DURATION=0.5,URI=ad-part.ts\n#UPLYNK-SEGMENT,segment\n#EXTINF:1,\nmedia.ts\n"))
+	f.Add("https://example.invalid/cue.m3u8", []byte("#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:9\n#EXT-X-CUE-OUT:DURATION=2\n#EXT-X-PART:DURATION=0.5,URI=ad.0.ts\n#EXT-X-CUE-IN\n#EXTINF:1,\nmedia.ts\n#EXT-X-ENDLIST\n"))
+	f.Add("https://example.invalid/cue-cont.m3u8", []byte("#EXTM3U\n#EXT-X-SKIP:SKIPPED-SEGMENTS=1\n#EXT-X-CUE-OUT-CONT:ElapsedTime=1\n#EXTINF:1,\nad.ts\n#EXT-X-CUE-IN\n#EXTINF:1,\nmedia.ts\n"))
 	f.Fuzz(func(t *testing.T, rawURL string, input []byte) {
 		if len(rawURL) > 4096 || len(input) > 1<<20 {
 			t.Skip()
 		}
-		_, _ = Parse(rawURL, input)
+		playlist, err := Parse(rawURL, input)
+		if err != nil {
+			return
+		}
+		assertPlaylistInvariants(t, playlist)
+
+		// Marker advertisement state is local to each Parse call.
+		reset, resetErr := Parse("https://example.invalid/reset.m3u8", []byte("#EXTM3U\n#EXTINF:1,\nmedia.ts\n#EXT-X-ENDLIST\n"))
+		if resetErr != nil {
+			t.Fatalf("reset parse failed: %v", resetErr)
+		}
+		if len(reset.Media.Segments) != 1 || reset.Media.Segments[0].Advertisement {
+			t.Fatalf("advertisement state leaked across Parse: %#v", reset.Media.Segments)
+		}
 	})
+}
+
+func assertPlaylistInvariants(t *testing.T, playlist Playlist) {
+	t.Helper()
+	for _, variant := range playlist.Variants {
+		assertSafeResolvedURL(t, variant.URL)
+	}
+	if playlist.Media == nil {
+		return
+	}
+	lastSequence := int64(-1)
+	lastPart := -1
+	for index, segment := range playlist.Media.Segments {
+		assertSafeResolvedURL(t, segment.URL)
+		if segment.Map != nil {
+			assertSafeResolvedURL(t, segment.Map.URL)
+		}
+		if segment.Key != nil && segment.Key.URL != "" {
+			assertSafeResolvedURL(t, segment.Key.URL)
+		}
+		if segment.Sequence < 0 {
+			t.Fatalf("segment[%d] sequence %d is negative", index, segment.Sequence)
+		}
+		if segment.Partial {
+			if segment.PartIndex < 0 {
+				t.Fatalf("segment[%d] part index %d is negative", index, segment.PartIndex)
+			}
+			// Part indexes advance only within one media sequence run. A later
+			// EXT-X-MEDIA-SEQUENCE may legally restart numbering in fuzz input.
+			if segment.Sequence == lastSequence && segment.PartIndex <= lastPart {
+				t.Fatalf("segment[%d] part order regresses: %#v", index, segment)
+			}
+			lastPart = segment.PartIndex
+		} else if segment.PartIndex != 0 {
+			t.Fatalf("complete segment[%d] has non-zero part index: %#v", index, segment)
+		} else {
+			lastPart = -1
+		}
+		lastSequence = segment.Sequence
+	}
+}
+
+func assertSafeResolvedURL(t *testing.T, raw string) {
+	t.Helper()
+	if raw == "" || strings.Contains(raw, "\x00") || strings.ContainsAny(raw, "\r\n") {
+		t.Fatalf("unsafe resolved URL %q", raw)
+	}
+	if !(strings.HasPrefix(raw, "https://") || strings.HasPrefix(raw, "http://") ||
+		strings.HasPrefix(raw, "file:") || strings.HasPrefix(raw, "/")) {
+		// ResolveReference may yield scheme-relative or opaque forms for weird
+		// inputs; reject only clearly transport-unsafe control material above.
+		return
+	}
 }
 
 func TestParseRejectsUnsupportedEncryption(t *testing.T) {
@@ -120,29 +189,57 @@ func TestParseRejectsUnsupportedEncryption(t *testing.T) {
 
 func TestAdvertisementMarkerExactGrammar(t *testing.T) {
 	for _, test := range []struct {
-		line       string
-		start, end bool
+		trimmed, raw string
+		start, end   bool
 	}{
-		{"#ANVATO-SEGMENT-INFO:type=ad", true, false},
-		{"#ANVATO-SEGMENT-INFORMATION:x,type=advertisement", true, false},
-		{"#ANVATO-SEGMENT-INFO:type=master", false, true},
-		{"#ANVATO-SEGMENT-INFO:type=master,type=ad", true, true},
-		{"#UPLYNK-SEGMENT,ad", true, false},
-		{"#UPLYNK-SEGMENT:anything,ad", true, false},
-		{"#UPLYNK-SEGMENT,segment", false, true},
-		{"#UPLYNK-SEGMENT:anything,segment", false, true},
-		{"#UPLYNK-SEGMENT,ad ", false, false},
-		{"#UPLYNK-SEGMENT,segment,extra", false, false},
-		{"#uplynk-SEGMENT,ad", false, false},
-		{"#ANVATO-SEGMENT-INFO:TYPE=AD", false, false},
-		{"#EXT-X-CUE-OUT:type=ad", false, false},
-		{"#EXT-X-DATERANGE:CLASS=ad", false, false},
+		{"#ANVATO-SEGMENT-INFO:type=ad", "#ANVATO-SEGMENT-INFO:type=ad", true, false},
+		{"#ANVATO-SEGMENT-INFORMATION:x,type=advertisement", "#ANVATO-SEGMENT-INFORMATION:x,type=advertisement", true, false},
+		{"#ANVATO-SEGMENT-INFO:type=master", "#ANVATO-SEGMENT-INFO:type=master", false, true},
+		{"#ANVATO-SEGMENT-INFO:type=master,type=ad", "#ANVATO-SEGMENT-INFO:type=master,type=ad", true, true},
+		{"#UPLYNK-SEGMENT,ad", "#UPLYNK-SEGMENT,ad", true, false},
+		{"#UPLYNK-SEGMENT:anything,ad", "#UPLYNK-SEGMENT:anything,ad", true, false},
+		{"#UPLYNK-SEGMENT,segment", "#UPLYNK-SEGMENT,segment", false, true},
+		{"#UPLYNK-SEGMENT:anything,segment", "#UPLYNK-SEGMENT:anything,segment", false, true},
+		{"#UPLYNK-SEGMENT,ad ", "#UPLYNK-SEGMENT,ad ", false, false},
+		{"#UPLYNK-SEGMENT,segment,extra", "#UPLYNK-SEGMENT,segment,extra", false, false},
+		{"#uplynk-SEGMENT,ad", "#uplynk-SEGMENT,ad", false, false},
+		{"#ANVATO-SEGMENT-INFO:TYPE=AD", "#ANVATO-SEGMENT-INFO:TYPE=AD", false, false},
+		{"#EXT-X-CUE-OUT", "#EXT-X-CUE-OUT", true, false},
+		{"#EXT-X-CUE-OUT:", "#EXT-X-CUE-OUT:", true, false},
+		{"#EXT-X-CUE-OUT:DURATION=30.000", "#EXT-X-CUE-OUT:DURATION=30.000", true, false},
+		{"#EXT-X-CUE-OUT:30.0", "#EXT-X-CUE-OUT:30.0", true, false},
+		{"#EXT-X-CUE-OUT:type=ad", "#EXT-X-CUE-OUT:type=ad", true, false},
+		{"#EXT-X-CUE-OUT", "#EXT-X-CUE-OUT  ", true, false},
+		{"#EXT-X-CUE-OUT", "#EXT-X-CUE-OUT\t", true, false},
+		{"#EXT-X-CUE-OUT-CONT", "#EXT-X-CUE-OUT-CONT", true, false},
+		{"#EXT-X-CUE-OUT-CONT:ElapsedTime=2.5,Duration=30", "#EXT-X-CUE-OUT-CONT:ElapsedTime=2.5,Duration=30", true, false},
+		{"#EXT-X-CUE-OUT-CONT", "#EXT-X-CUE-OUT-CONT  ", true, false},
+		{"#EXT-X-CUE-IN", "#EXT-X-CUE-IN", false, true},
+		{"#EXT-X-CUE-IN:", "#EXT-X-CUE-IN:", false, true},
+		{"#EXT-X-CUE-IN:ignored", "#EXT-X-CUE-IN:ignored", false, true},
+		{"#EXT-X-CUE-IN", "#EXT-X-CUE-IN  ", false, true},
+		{"#ext-x-cue-out", "#ext-x-cue-out", false, false},
+		{"#EXT-X-CUE-OUTING", "#EXT-X-CUE-OUTING", false, false},
+		{"#EXT-X-CUE-OUT-CONTINUE", "#EXT-X-CUE-OUT-CONTINUE", false, false},
+		{"#EXT-X-CUE-OUTCONT", "#EXT-X-CUE-OUTCONT", false, false},
+		{"#EXT-X-CUE-IN-PROGRESS", "#EXT-X-CUE-IN-PROGRESS", false, false},
+		{"# EXT-X-CUE-OUT", "# EXT-X-CUE-OUT", false, false},
+		{"#EXT-X-CUE-OUT", " #EXT-X-CUE-OUT", false, false},
+		{"#EXT-X-CUE-OUT", "\t#EXT-X-CUE-OUT", false, false},
+		{"#EXT-X-CUE-OUT-CONT", " #EXT-X-CUE-OUT-CONT", false, false},
+		{"#EXT-X-CUE-OUT-CONT", "\t#EXT-X-CUE-OUT-CONT", false, false},
+		{"#EXT-X-CUE-IN", " #EXT-X-CUE-IN", false, false},
+		{"#EXT-X-CUE-IN", "\t#EXT-X-CUE-IN", false, false},
+		{"#EXT-X-CUE", "#EXT-X-CUE", false, false},
+		{"#EXT-X-DATERANGE:CLASS=ad", "#EXT-X-DATERANGE:CLASS=ad", false, false},
+		{"#EXT-X-DATERANGE:SCTE35-OUT=0xFC", "#EXT-X-DATERANGE:SCTE35-OUT=0xFC", false, false},
+		{"#EXT-X-SCTE35:CUE-OUT=YES", "#EXT-X-SCTE35:CUE-OUT=YES", false, false},
 	} {
-		if start := isAdvertisementStart(test.line); start != test.start {
-			t.Fatalf("start(%q)=%v want %v", test.line, start, test.start)
+		if start := isAdvertisementStart(test.trimmed, test.raw); start != test.start {
+			t.Fatalf("start(trimmed=%q raw=%q)=%v want %v", test.trimmed, test.raw, start, test.start)
 		}
-		if end := isAdvertisementEnd(test.line); end != test.end {
-			t.Fatalf("end(%q)=%v want %v", test.line, end, test.end)
+		if end := isAdvertisementEnd(test.trimmed, test.raw); end != test.end {
+			t.Fatalf("end(trimmed=%q raw=%q)=%v want %v", test.trimmed, test.raw, end, test.end)
 		}
 	}
 }
@@ -190,6 +287,125 @@ ad-10.bin
 	}
 }
 
+func TestParseCueAdvertisementStateBoundariesAndOrdering(t *testing.T) {
+	playlist, err := Parse("https://example.invalid/cue.m3u8", []byte(`#EXTM3U
+#EXT-X-MEDIA-SEQUENCE:20
+#EXTINF:1,
+media-20.bin
+#EXT-X-CUE-OUT:DURATION=4.0
+#EXT-X-PART:DURATION=0.5,URI="ad-21.0.bin"
+#EXT-X-CUE-OUT-CONT:ElapsedTime=0.5,Duration=4.0
+#EXT-X-PART:DURATION=0.5,URI="ad-21.1.bin"
+#EXTINF:1,
+ad-21.bin
+#EXT-X-CUE-IN
+#EXTINF:1,
+media-22.bin
+#EXT-X-CUE-IN
+#EXT-X-CUE-OUT
+#EXTINF:1,
+ad-23.bin
+#EXT-X-CUE-OUT
+#EXT-X-CUE-IN
+#EXTINF:1,
+media-24.bin
+#EXT-X-ENDLIST
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	segments := playlist.Media.Segments
+	if len(segments) != 7 {
+		t.Fatalf("segments=%#v", segments)
+	}
+	want := []struct {
+		sequence int64
+		partial  bool
+		part     int
+		ad       bool
+	}{
+		{20, false, 0, false},
+		{21, true, 0, true},
+		{21, true, 1, true},
+		{21, false, 0, true},
+		{22, false, 0, false},
+		{23, false, 0, true},
+		{24, false, 0, false},
+	}
+	for index, segment := range segments {
+		expect := want[index]
+		if segment.Sequence != expect.sequence || segment.Partial != expect.partial ||
+			segment.PartIndex != expect.part || segment.Advertisement != expect.ad {
+			t.Fatalf("segment[%d]=%#v want seq=%d partial=%v part=%d ad=%v",
+				index, segment, expect.sequence, expect.partial, expect.part, expect.ad)
+		}
+	}
+
+	midBreak, err := Parse("https://example.invalid/delta.m3u8", []byte(`#EXTM3U
+#EXT-X-MEDIA-SEQUENCE:100
+#EXT-X-SKIP:SKIPPED-SEGMENTS=3
+#EXT-X-CUE-OUT-CONT:ElapsedTime=1.5,Duration=6
+#EXTINF:1,
+ad-103.bin
+#EXT-X-CUE-IN
+#EXTINF:1,
+media-104.bin
+#EXT-X-ENDLIST
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(midBreak.Media.Segments) != 2 ||
+		!midBreak.Media.Segments[0].Advertisement || midBreak.Media.Segments[0].Sequence != 103 ||
+		midBreak.Media.Segments[1].Advertisement || midBreak.Media.Segments[1].Sequence != 104 {
+		t.Fatalf("OUT-CONT mid-break=%#v", midBreak.Media.Segments)
+	}
+
+	reset, err := Parse("https://example.invalid/next.m3u8", []byte("#EXTM3U\n#EXTINF:1,\nmedia.bin\n#EXT-X-ENDLIST\n"))
+	if err != nil || len(reset.Media.Segments) != 1 || reset.Media.Segments[0].Advertisement {
+		t.Fatalf("cue marker state leaked across Parse: playlist=%#v err=%v", reset, err)
+	}
+}
+
+func TestParseCueLeadingWhitespaceRejectedTrailingAccepted(t *testing.T) {
+	playlist, err := Parse("https://example.invalid/cue-ws.m3u8", []byte("#EXTM3U\n"+
+		"#EXT-X-MEDIA-SEQUENCE:1\n"+
+		"#EXTINF:1,\n"+
+		"media-1.bin\n"+
+		" #EXT-X-CUE-OUT\n"+
+		"#EXTINF:1,\n"+
+		"media-2.bin\n"+
+		"\t#EXT-X-CUE-OUT-CONT\n"+
+		"#EXTINF:1,\n"+
+		"media-3.bin\n"+
+		"#EXT-X-CUE-OUT  \n"+
+		"#EXTINF:1,\n"+
+		"ad-4.bin\n"+
+		" #EXT-X-CUE-IN\n"+
+		"#EXTINF:1,\n"+
+		"ad-5.bin\n"+
+		"\t#EXT-X-CUE-IN\n"+
+		"#EXTINF:1,\n"+
+		"ad-6.bin\n"+
+		"#EXT-X-CUE-IN\t\n"+
+		"#EXTINF:1,\n"+
+		"media-7.bin\n"+
+		"#EXT-X-ENDLIST\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	segments := playlist.Media.Segments
+	if len(segments) != 7 {
+		t.Fatalf("segments=%#v", segments)
+	}
+	wantAds := []bool{false, false, false, true, true, true, false}
+	for index, segment := range segments {
+		if segment.Advertisement != wantAds[index] || segment.Sequence != int64(index+1) {
+			t.Fatalf("segment[%d]=%#v want ad=%v seq=%d", index, segment, wantAds[index], index+1)
+		}
+	}
+}
+
 func TestParseAdvertisementDeltaPartsPreserveMetadataAndRanges(t *testing.T) {
 	playlist, err := Parse("https://example.invalid/live/media.m3u8", []byte(`#EXTM3U
 #EXT-X-MEDIA-SEQUENCE:100
@@ -234,13 +450,96 @@ complete.bin
 	}
 }
 
+func TestParseCueAdvertisementMapKeyDiscontinuityAndAdOnly(t *testing.T) {
+	playlist, err := Parse("https://example.invalid/live/media.m3u8", []byte(`#EXTM3U
+#EXT-X-MEDIA-SEQUENCE:5
+#EXT-X-CUE-OUT
+#EXT-X-DISCONTINUITY
+#EXT-X-MAP:URI="ad-init.mp4"
+#EXT-X-KEY:METHOD=AES-128,URI="ad-key.bin"
+#EXT-X-PART:DURATION=0.5,URI="ad-part.bin",BYTERANGE="4@1"
+#EXTINF:1,
+ad-5.bin
+#EXT-X-CUE-IN
+#EXT-X-MAP:URI="media-init.mp4"
+#EXT-X-KEY:METHOD=AES-128,URI="media-key.bin",IV=0x2
+#EXTINF:1,
+media-6.bin
+#EXT-X-ENDLIST
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	segments := playlist.Media.Segments
+	if len(segments) != 3 {
+		t.Fatalf("segments=%#v", segments)
+	}
+	if !segments[0].Advertisement || !segments[0].Partial || !segments[0].Discontinuity ||
+		segments[0].Map == nil || segments[0].Key == nil || segments[0].Sequence != 5 {
+		t.Fatalf("cue ad part=%#v", segments[0])
+	}
+	if !segments[1].Advertisement || segments[1].Partial || segments[1].Sequence != 5 {
+		t.Fatalf("cue ad complete=%#v", segments[1])
+	}
+	if segments[2].Advertisement || segments[2].Sequence != 6 ||
+		segments[2].Map.URL != "https://example.invalid/live/media-init.mp4" ||
+		segments[2].Key.URL != "https://example.invalid/live/media-key.bin" {
+		t.Fatalf("retained media=%#v", segments[2])
+	}
+
+	adOnly, err := Parse("https://example.invalid/ads.m3u8", []byte(`#EXTM3U
+#EXT-X-CUE-OUT:DURATION=2
+#EXTINF:1,
+only-ad.bin
+#EXT-X-CUE-OUT-CONT
+#EXTINF:1,
+still-ad.bin
+#EXT-X-ENDLIST
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(adOnly.Media.Segments) != 2 || !adOnly.Media.Segments[0].Advertisement || !adOnly.Media.Segments[1].Advertisement {
+		t.Fatalf("ad-only playlist=%#v", adOnly.Media.Segments)
+	}
+
+	fixture, err := os.ReadFile("../../../conformance/media/hls_ads/delta-cue-midbreak.m3u8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	delta, err := Parse("https://example.invalid/delta-cue-midbreak.m3u8", fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(delta.Media.Segments) != 4 {
+		t.Fatalf("delta fixture segments=%#v", delta.Media.Segments)
+	}
+	for index, segment := range delta.Media.Segments[:3] {
+		if !segment.Advertisement || segment.Sequence != 202 {
+			t.Fatalf("delta ad[%d]=%#v", index, segment)
+		}
+	}
+	if delta.Media.Segments[3].Advertisement || delta.Media.Segments[3].Sequence != 203 || delta.Media.Segments[3].Partial {
+		t.Fatalf("delta retained=%#v", delta.Media.Segments[3])
+	}
+}
+
 func FuzzAdvertisementMarkers(f *testing.F) {
 	for _, seed := range []string{
 		"#ANVATO-SEGMENT-INFO:type=ad",
 		"#ANVATO-SEGMENT-INFO:type=master,type=ad",
 		"#UPLYNK-SEGMENT,ad",
 		"#UPLYNK-SEGMENT,segment",
-		"#EXT-X-CUE-OUT:type=ad",
+		"#EXT-X-CUE-OUT",
+		"#EXT-X-CUE-OUT:DURATION=30",
+		"#EXT-X-CUE-OUT-CONT:ElapsedTime=1",
+		"#EXT-X-CUE-IN",
+		"#EXT-X-CUE-OUT  ",
+		" #EXT-X-CUE-OUT",
+		"\t#EXT-X-CUE-IN",
+		"#EXT-X-CUE-OUTING",
+		"#ext-x-cue-out",
+		"# EXT-X-CUE-OUT",
 	} {
 		f.Add(seed)
 	}
@@ -248,12 +547,39 @@ func FuzzAdvertisementMarkers(f *testing.F) {
 		if len(line) > 1<<20 {
 			t.Skip()
 		}
-		wantStart := (strings.HasPrefix(line, "#ANVATO-SEGMENT-INFO") && strings.Contains(line, "type=ad")) ||
-			(strings.HasPrefix(line, "#UPLYNK-SEGMENT") && strings.HasSuffix(line, ",ad"))
-		wantEnd := (strings.HasPrefix(line, "#ANVATO-SEGMENT-INFO") && strings.Contains(line, "type=master")) ||
-			(strings.HasPrefix(line, "#UPLYNK-SEGMENT") && strings.HasSuffix(line, ",segment"))
-		if isAdvertisementStart(line) != wantStart || isAdvertisementEnd(line) != wantEnd {
+		trimmed := strings.TrimSpace(line)
+		wantStart := (strings.HasPrefix(trimmed, "#ANVATO-SEGMENT-INFO") && strings.Contains(trimmed, "type=ad")) ||
+			(strings.HasPrefix(trimmed, "#UPLYNK-SEGMENT") && strings.HasSuffix(trimmed, ",ad")) ||
+			fuzzCueStart(line)
+		wantEnd := (strings.HasPrefix(trimmed, "#ANVATO-SEGMENT-INFO") && strings.Contains(trimmed, "type=master")) ||
+			(strings.HasPrefix(trimmed, "#UPLYNK-SEGMENT") && strings.HasSuffix(trimmed, ",segment")) ||
+			fuzzCueEnd(line)
+		if isAdvertisementStart(trimmed, line) != wantStart || isAdvertisementEnd(trimmed, line) != wantEnd {
 			t.Fatalf("marker mismatch for %q", line)
 		}
+		if cue, ok := cueRawLine(line); ok {
+			if cue == "#EXT-X-CUE-OUT-CONT" || strings.HasPrefix(cue, "#EXT-X-CUE-OUT-CONT:") {
+				if !isCueAdvertisementStart(line) || isCueTagName(cue, "#EXT-X-CUE-OUT") {
+					t.Fatalf("OUT-CONT incorrectly classified against bare OUT for %q", line)
+				}
+			}
+		}
 	})
+}
+
+func fuzzCueStart(raw string) bool {
+	line, ok := cueRawLine(raw)
+	if !ok {
+		return false
+	}
+	return line == "#EXT-X-CUE-OUT-CONT" || strings.HasPrefix(line, "#EXT-X-CUE-OUT-CONT:") ||
+		line == "#EXT-X-CUE-OUT" || strings.HasPrefix(line, "#EXT-X-CUE-OUT:")
+}
+
+func fuzzCueEnd(raw string) bool {
+	line, ok := cueRawLine(raw)
+	if !ok {
+		return false
+	}
+	return line == "#EXT-X-CUE-IN" || strings.HasPrefix(line, "#EXT-X-CUE-IN:")
 }
