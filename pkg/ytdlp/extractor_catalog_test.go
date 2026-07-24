@@ -52,6 +52,7 @@ var representativeExtractorCatalog = []representativeExtractor{
 	{"bbciplayer", "https://www.bbc.co.uk/iplayer/episode/p0000000/title", []extractorRiskClass{riskPlaylistAPI, riskManifestHeavy, riskRegional}},
 	{"ard", "https://www.ardmediathek.de/player/Y3JpZDovL2ZpeHR1cmU", []extractorRiskClass{riskPlaylistAPI, riskManifestHeavy, riskRegional}},
 	{"nrk", "nrk:MDDP12000117", []extractorRiskClass{riskPlaylistAPI, riskManifestHeavy, riskRegional}},
+	{"bluesky", "https://bsky.app/profile/fixture.bsky.social/post/3l4omssdl632g", []extractorRiskClass{riskPlaylistAPI, riskManifestHeavy, riskRegional}},
 }
 
 func TestRepresentativeExtractorCatalogCountRoutingAndRiskCoverage(t *testing.T) {

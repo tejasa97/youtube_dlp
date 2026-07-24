@@ -1,0 +1,30 @@
+{
+  "thread": {
+    "post": {
+      "uri": "at://blu3blue.bsky.social/app.bsky.feed.post/3l4omssdl632g",
+      "cid": "bafyreid3abc",
+      "author": {
+        "did": "did:plc:pzdr5ylumf7vmvwasrpr5bf2",
+        "handle": "blu3blue.bsky.social",
+        "displayName": "Blu3Blu3Lilith"
+      },
+      "record": {
+        "text": "OMG WE HAVE VIDEOS NOW",
+        "createdAt": "2024-09-21T13:43:25.000Z"
+      },
+      "embed": {
+        "$type": "app.bsky.embed.video.view",
+        "playlist": "https://video.bsky.app/watch/3l4omssdl632g/playlist.m3u8",
+        "thumbnail": "https://video.bsky.app/watch/3l4omssdl632g/thumbnail.jpg",
+        "alt": "",
+        "cid": "bafyreivideocid1",
+        "aspectRatio": {"width": 1280, "height": 720}
+      },
+      "indexedAt": "2024-09-21T13:43:25.000Z",
+      "likeCount": 42,
+      "repostCount": 7,
+      "replyCount": 5,
+      "labels": []
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "id": "did:web:fixture.example.test",
+  "alsoKnownAs": ["at://fixture.example.test"],
+  "service": [
+    {
+      "id": "#atproto_pds",
+      "type": "AtprotoPersonalDataServer",
+      "serviceEndpoint": "https://127.0.0.1/xrpc/com.atproto.sync.getBlob"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "thread": {
+    "post": {
+      "uri": "at://notext.example.test/app.bsky.feed.post/3l4qhp7bcs52j",
+      "author": {
+        "did": "did:plc:notextdid",
+        "handle": "notext.example.test"
+      },
+      "record": {
+        "text": "No media post"
+      },
+      "indexedAt": "2024-10-01T00:00:00.000Z"
+    }
+  }
+}
