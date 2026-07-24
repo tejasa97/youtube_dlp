@@ -1841,7 +1841,7 @@ capabilities:
   - id: metadata.sponsorblock_metadata
     name: SponsorBlock metadata fetch and normalization
     phase: 4
-    compatibility_target: When explicitly enabled in ytdlp.Request, query the SponsorBlock API for a YouTube video and expose deterministic sponsorblock_chapters in the result Info JSON, applying the pinned yt-dlp normalization rules.
+    compatibility_target: When explicitly enabled in ytdlp.Request, query the SponsorBlock API for a YouTube video, expose deterministic sponsorblock_chapters, and optionally overlay marked ranges onto ordinary chapters without cutting media.
     status: partial
     evidence:
       - internal/sponsorblock.TestCategoriesAndTitles
@@ -1877,15 +1877,25 @@ capabilities:
       - internal/sponsorblock.TestConformancePrefixIsSHA256FirstFour
       - internal/sponsorblock.FuzzNormalize
       - internal/sponsorblock.FuzzDecodeArray
+      - internal/sponsorblock.TestMarkChaptersNoOrdinaryAndOverlap
+      - internal/sponsorblock.TestMarkChaptersPreservesOrdinarySourcesAndChapterDescriptions
+      - internal/sponsorblock.TestMarkChaptersPreservesOriginalTinyChapters
+      - internal/sponsorblock.TestMarkChaptersTinyCreatedFragmentsFollowPinnedMergePolicy
+      - internal/sponsorblock.TestMarkChaptersAdjacentIdenticalSponsorMarkersCoalesce
+      - internal/sponsorblock.TestMarkChaptersValidationDeterminismAndImmutability
+      - internal/sponsorblock.FuzzMarkChapters
       - pkg/ytdlp.TestSponsorBlockOptionsValidation
       - pkg/ytdlp.TestSponsorBlockProcessMediaInfoJSONAndCredentialIsolation
       - pkg/ytdlp.TestSponsorBlockDisabledUnsupportedAndMissingID
       - pkg/ytdlp.TestSponsorBlockCancellationCategoryPreservesCause
       - pkg/ytdlp.TestSponsorBlockRecursesIntoPlaylistMedia
+      - pkg/ytdlp.TestSponsorBlockMarkingRewritesChaptersAndPreservesFields
+      - pkg/ytdlp.TestSponsorBlockMarkingSynthesizesBackgroundChapter
+      - pkg/ytdlp.TestSponsorBlockMarkingFailureDoesNotPartiallyMutateInfo
       - pkg/ytdlp.TestSponsorBlockMapErrorCategorizes
       - pkg/ytdlp.TestSponsorBlockSecretSafeErrorMessages
       - internal/network.TestDoWithoutCredentialsDropsExplicitAndDefaultSecrets
       - conformance/sponsorblock/PROVENANCE.md
       - docs/SPONSORBLOCK_METADATA.md
     owner: core
-    known_deviation: This capability covers metadata fetch and normalization only. SponsorBlock chapter merging, FFmpeg-driven media cutting, force-keyframes injection, subtitle synchronization, CLI option exposure, and arbitrary-service (Vimeo, PeerTube, etc.) metadata are intentionally out of scope. The reference's warning when duration-mismatched segments are filtered is not yet surfaced; users see only the surviving chapters in sponsorblock_chapters. Network retries and authentication flows follow the existing network.Client; the reference's own retry behavior is not duplicated.
+    known_deviation: This capability covers metadata fetch, normalization, and opt-in mark-only chapter overlay. FFmpeg-driven media cutting, force-keyframes injection, subtitle synchronization, CLI option exposure, and arbitrary-service (Vimeo, PeerTube, etc.) metadata are intentionally out of scope. The reference's warning when duration-mismatched segments are filtered is not yet surfaced; users see only the surviving chapters in sponsorblock_chapters. Network retries and authentication flows follow the existing network.Client; the reference's own retry behavior is not duplicated.
