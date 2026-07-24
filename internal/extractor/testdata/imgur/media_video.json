@@ -1,0 +1,33 @@
+{
+  "id": "A61SaA1",
+  "title": "API title",
+  "description": "API description",
+  "is_mature": true,
+  "account_id": 1648642,
+  "upvote_count": 120,
+  "downvote_count": 3,
+  "comment_count": 17,
+  "created_at": "2014-11-20T01:14:28Z",
+  "updated_at": "2014-11-20T02:00:00Z",
+  "account": {
+    "username": "fixture-user",
+    "avatar_url": "https://i.imgur.com/avatar.png"
+  },
+  "media": [{
+    "id": "A61SaA1",
+    "type": "video",
+    "url": "https://i.imgur.com/A61SaA1.mp4",
+    "ext": "mp4",
+    "mime_type": "video/mp4",
+    "width": 640,
+    "height": 360,
+    "size": 123456,
+    "metadata": {
+      "has_sound": true,
+      "title": "MRW gifv works",
+      "description": "Fixture video",
+      "duration": 12.5,
+      "created_at": "2014-11-20T01:14:28Z"
+    }
+  }]
+}
