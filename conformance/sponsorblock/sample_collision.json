@@ -1,0 +1,28 @@
+[
+  {
+    "videoID": "fixture-30",
+    "segments": [
+      {
+        "UUID": "collision-first",
+        "segment": [5.0, 10.0],
+        "category": "sponsor",
+        "actionType": "skip",
+        "videoDuration": 60.0,
+        "description": ""
+      }
+    ]
+  },
+  {
+    "videoID": "fixture-210",
+    "segments": [
+      {
+        "UUID": "matching-second",
+        "segment": [10.0, 25.0],
+        "category": "sponsor",
+        "actionType": "skip",
+        "videoDuration": 60.0,
+        "description": ""
+      }
+    ]
+  }
+]
