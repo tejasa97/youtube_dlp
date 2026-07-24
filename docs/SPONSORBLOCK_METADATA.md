@@ -64,21 +64,27 @@ The CLI exposes the mark/metadata path with yt-dlp-familiar names:
 
 | Flag | Effect |
 | --- | --- |
-| `--sponsorblock-mark CATEGORIES` | Sets `Enabled=true`, `Mark=true`, and parses `Categories` |
-| `--sponsorblock-api URL` | Sets `APIBase` |
-| `--no-sponsorblock` | Clears inherited mark enablement and API override |
+| `--sponsorblock-mark CATEGORIES` | Sets `Enabled=true`, `Mark=true`, and accumulates `Categories` |
+| `--sponsorblock-api URL` | Sets `APIBase` (kept even when marking is later disabled) |
+| `--no-sponsorblock` | Clears mark enablement only; does not clear `--sponsorblock-api` |
 
-`CATEGORIES` is a comma-separated list. The tokens `all` and `default`
-expand to the pinned full category set from
-`internal/sponsorblock.AllCategories()`. Unknown identifiers are rejected
-at CLI parse time (exit status `2`) before any network work. Marking
-writes both `sponsorblock_chapters` and the overlaid ordinary `chapters`
-list. Media cutting (`--sponsorblock-remove` / FFmpeg) is not exposed.
+`CATEGORIES` is a comma-separated list. Repeated `--sponsorblock-mark`
+flags accumulate in parse order (config arguments first, then command
+line, so later flags win for disable/enable and overwrite-style API
+bases). The tokens `all` and `default` expand to the pinned full
+category set from `internal/sponsorblock.AllCategories()`. Prefix a
+category or alias with `-` to exclude it after expansion, matching the
+reference grammar (for example `all,-preview` or `default,-intro`).
+Unknown identifiers and explicit empty values such as
+`--sponsorblock-mark=` are rejected at CLI parse time (exit status
+`2`) before any network work. Marking writes both
+`sponsorblock_chapters` and the overlaid ordinary `chapters` list.
+Media cutting (`--sponsorblock-remove` / FFmpeg) is not exposed.
 
 Example:
 
 ```sh
-./bin/ytdlp-go --sponsorblock-mark all --skip-download --print-json \
+./bin/ytdlp-go --sponsorblock-mark all,-preview --skip-download --print-json \
   'https://www.youtube.com/watch?v=VIDEO_ID'
 ```
 

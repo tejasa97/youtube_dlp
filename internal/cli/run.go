@@ -22,10 +22,6 @@ import (
 // Version is overridden with -X for release artifacts.
 var Version = "0.0.0-dev"
 
-// extraClientOptions is a test seam that prepends client options (for example
-// deterministic YouTube-named fixtures) without changing production routing.
-var extraClientOptions []ytdlp.Option
-
 func Run(args []string, stdout, stderr io.Writer) int {
 	return RunContext(context.Background(), args, stdout, stderr)
 }
@@ -255,15 +251,18 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	})
 	youtubeMaxComments := flags.String("youtube-max-comments", "", "bounded YouTube limits TOTAL[,PARENTS[,REPLIES[,PER_THREAD[,DEPTH]]]]")
 	youtubeCommentSort := flags.String("youtube-comment-sort", "new", "YouTube comment order: new or top")
-	var sponsorBlockMark string
-	flags.Func("sponsorblock-mark", "SponsorBlock categories to mark as chapters (comma-separated; all/default selects the pinned set)", func(value string) error {
-		sponsorBlockMark = value
+	var sponsorBlockMark []string
+	flags.Func("sponsorblock-mark", "SponsorBlock categories to mark as chapters (repeatable; comma-separated; all/default selects the pinned set; prefix with - to exclude)", func(value string) error {
+		next, err := parseSponsorBlockCategories(value, sponsorBlockMark)
+		if err != nil {
+			return err
+		}
+		sponsorBlockMark = next
 		return nil
 	})
 	sponsorBlockAPI := flags.String("sponsorblock-api", "", "SponsorBlock API origin (default https://sponsor.ajay.app)")
-	flags.BoolFunc("no-sponsorblock", "disable SponsorBlock marking and clear inherited enablement", func(string) error {
-		sponsorBlockMark = ""
-		*sponsorBlockAPI = ""
+	flags.BoolFunc("no-sponsorblock", "disable SponsorBlock marking without clearing --sponsorblock-api", func(string) error {
+		sponsorBlockMark = nil
 		return nil
 	})
 	convertSubtitles := flags.String("convert-subs", "none", "convert written subtitle sidecars to srt, ass, or vtt (none disables)")
@@ -370,7 +369,6 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
 		return 2
 	}
-	clientOptions = append(clientOptions, extraClientOptions...)
 	client := ytdlp.NewClient(clientOptions...)
 	downloaderOptions := ytdlp.DownloaderOptions{
 		Attempts: *retries, RetryBaseDelay: *retryBaseDelay, RetryMaxDelay: *retryMaxDelay,
@@ -600,52 +598,64 @@ func parseYouTubeCommentLimits(input string) (ytdlp.YouTubeCommentOptions, error
 	return options, nil
 }
 
-func buildSponsorBlockOptions(mark, apiBase string) (ytdlp.SponsorBlockOptions, error) {
+func buildSponsorBlockOptions(categories []string, apiBase string) (ytdlp.SponsorBlockOptions, error) {
 	options := ytdlp.SponsorBlockOptions{APIBase: strings.TrimSpace(apiBase)}
 	if options.APIBase != "" {
 		if err := validateSponsorBlockAPIBase(options.APIBase); err != nil {
 			return ytdlp.SponsorBlockOptions{}, err
 		}
 	}
-	mark = strings.TrimSpace(mark)
-	if mark == "" {
+	if len(categories) == 0 {
 		return options, nil
-	}
-	categories, err := parseSponsorBlockCategories(mark)
-	if err != nil {
-		return ytdlp.SponsorBlockOptions{}, err
 	}
 	options.Enabled = true
 	options.Mark = true
-	options.Categories = categories
+	options.Categories = append([]string(nil), categories...)
 	return options, nil
 }
 
-func parseSponsorBlockCategories(input string) ([]string, error) {
-	parts := splitCommaList([]string{input})
-	if len(parts) == 0 {
+// parseSponsorBlockCategories accumulates a comma-separated SponsorBlock
+// category grammar onto start, matching yt-dlp's ordered-set semantics:
+// repeated flags accumulate, all/default expand to the pinned set, and a
+// leading "-" excludes a category or alias (for example all,-preview).
+func parseSponsorBlockCategories(input string, start []string) ([]string, error) {
+	if strings.TrimSpace(input) == "" {
 		return nil, errors.New("sponsorblock-mark requires at least one category")
 	}
-	result := make([]string, 0, len(parts))
-	seen := make(map[string]struct{}, len(parts))
-	add := func(category string) {
-		if _, exists := seen[category]; exists {
-			return
+	result := append([]string(nil), start...)
+	for _, raw := range strings.Split(input, ",") {
+		token := strings.ToLower(strings.TrimSpace(raw))
+		if token == "" {
+			return nil, errors.New("sponsorblock-mark requires at least one category")
 		}
-		seen[category] = struct{}{}
-		result = append(result, category)
-	}
-	for _, part := range parts {
-		switch part {
+		exclude := false
+		if strings.HasPrefix(token, "-") {
+			exclude = true
+			token = strings.TrimSpace(token[1:])
+			if token == "" {
+				return nil, errors.New("sponsorblock-mark requires at least one category")
+			}
+		}
+		var values []string
+		switch token {
 		case "all", "default":
 			for _, category := range sponsorblock.AllCategories() {
-				add(string(category))
+				values = append(values, string(category))
 			}
 		default:
-			if !sponsorblock.IsValidCategory(part) {
-				return nil, fmt.Errorf("unknown SponsorBlock category %q", part)
+			if !sponsorblock.IsValidCategory(token) {
+				return nil, fmt.Errorf("unknown SponsorBlock category %q", token)
 			}
-			add(part)
+			values = []string{token}
+		}
+		if exclude {
+			for _, category := range values {
+				result = removeSponsorBlockCategory(result, category)
+			}
+			continue
+		}
+		for _, category := range values {
+			result = appendUniqueSponsorBlockCategory(result, category)
 		}
 	}
 	if len(result) == 0 {
@@ -655,6 +665,26 @@ func parseSponsorBlockCategories(input string) ([]string, error) {
 		return nil, errors.New("too many SponsorBlock categories")
 	}
 	return result, nil
+}
+
+func appendUniqueSponsorBlockCategory(categories []string, category string) []string {
+	for _, existing := range categories {
+		if existing == category {
+			return categories
+		}
+	}
+	return append(categories, category)
+}
+
+func removeSponsorBlockCategory(categories []string, category string) []string {
+	filtered := make([]string, 0, len(categories))
+	for _, existing := range categories {
+		if existing == category {
+			continue
+		}
+		filtered = append(filtered, existing)
+	}
+	return filtered
 }
 
 func validateSponsorBlockAPIBase(raw string) error {
