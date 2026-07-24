@@ -98,6 +98,71 @@ func (transport *tiktokRedirectFixtureTransport) DoNoRedirect(ctx context.Contex
 	return transport.redirectResponse(request.WithContext(ctx))
 }
 
+// tiktokAutoFollowIsolatedTransport mimics production network.Client: it
+// implements both CookieIsolatedTransport and DoNoRedirect, but
+// DoWithoutCookies follows redirects to a final 200 without exposing Location.
+type tiktokAutoFollowIsolatedTransport struct {
+	redirects           map[string]tiktokRedirectResponse
+	withoutCookiesCalls int
+	noRedirectCalls     int
+}
+
+func (transport *tiktokAutoFollowIsolatedTransport) DoWithoutCookies(ctx context.Context, request *http.Request) (*http.Response, error) {
+	transport.withoutCookiesCalls++
+	current := request.URL.String()
+	for hops := 0; hops < 8; hops++ {
+		step, ok := transport.redirects[current]
+		if !ok {
+			return nil, fmt.Errorf("unexpected auto-follow request: %s", current)
+		}
+		if step.status >= 300 && step.status < 400 && step.location != "" {
+			next, err := url.Parse(step.location)
+			if err != nil {
+				return nil, err
+			}
+			if !next.IsAbs() {
+				base, _ := url.Parse(current)
+				next = base.ResolveReference(next)
+			}
+			current = next.String()
+			continue
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       http.NoBody,
+			Request:    request,
+		}, nil
+	}
+	return nil, errors.New("auto-follow hop limit")
+}
+
+func (transport *tiktokAutoFollowIsolatedTransport) DoNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
+	transport.noRedirectCalls++
+	step, ok := transport.redirects[request.URL.String()]
+	if !ok {
+		return nil, fmt.Errorf("unexpected no-redirect request: %s", request.URL.String())
+	}
+	header := make(http.Header)
+	if step.location != "" {
+		header.Set("Location", step.location)
+	}
+	return &http.Response{
+		StatusCode: step.status,
+		Header:     header,
+		Body:       http.NoBody,
+		Request:    request,
+	}, nil
+}
+
+func (*tiktokAutoFollowIsolatedTransport) Do(context.Context, *http.Request) (*http.Response, error) {
+	return nil, errors.New("unexpected TikTok API request")
+}
+
+func (*tiktokAutoFollowIsolatedTransport) ReadPage(context.Context, string) ([]byte, http.Header, error) {
+	return nil, nil, errors.New("unexpected ReadPage")
+}
+
 func (*tiktokRedirectFixtureTransport) Do(context.Context, *http.Request) (*http.Response, error) {
 	return nil, errors.New("unexpected TikTok redirect Do request")
 }
@@ -402,6 +467,29 @@ func assertTikTokSubtitleInvariants(t *testing.T, result Extraction) {
 type tiktokTestHelper interface {
 	Helper()
 	Fatal(...any)
+}
+
+func TestTikTokShortLinkRedirectPrefersDoNoRedirectOverAutoFollow(t *testing.T) {
+	canonical := "https://www.tiktok.com/@fixture_creator/video/7460000000000000001"
+	transport := &tiktokAutoFollowIsolatedTransport{redirects: map[string]tiktokRedirectResponse{
+		"https://vm.tiktok.com/ZTR45GpSF": {status: http.StatusFound, location: canonical},
+	}}
+	result, err := NewTikTok().Extract(context.Background(), Request{
+		URL:       "https://vm.tiktok.com/ZTR45GpSF",
+		Transport: transport,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsURL() || result.Redirect == nil || result.Redirect.URL != canonical {
+		t.Fatalf("redirect result = %#v", result.Redirect)
+	}
+	if transport.withoutCookiesCalls != 0 {
+		t.Fatalf("DoWithoutCookies called %d times; hop-by-hop must use DoNoRedirect", transport.withoutCookiesCalls)
+	}
+	if transport.noRedirectCalls != 1 {
+		t.Fatalf("DoNoRedirect calls = %d", transport.noRedirectCalls)
+	}
 }
 
 func TestTikTokShortLinkRedirectMultiHopAndRelativeLocation(t *testing.T) {

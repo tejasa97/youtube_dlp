@@ -8,9 +8,10 @@
   `_parse_aweme_video_web` at the pinned commit. Caption field provenance is
   `TikTokIE._get_subtitles`, specifically public webpage `video.subtitleInfos`.
   Short-link redirect behavior is mirrored from `TikTokVMIE._real_extract`:
-  `HEAD` with `User-Agent: facebookexternalhit/1.1`, hop-by-hop `Location`
-  validation, and a lazy `url_result` handoff to the canonical
-  `/@user/video/{numeric-id}` page owned by `TikTokIE`.
+  `HEAD` with `User-Agent: facebookexternalhit/1.1` via redirect-disabled
+  transport (`DoNoRedirect`), hop-by-hop `Location` validation, and a lazy
+  `url_result` handoff to the canonical `/@user/video/{numeric-id}` page owned
+  by `TikTokIE`.
 
 The fixture was authored and sanitized for this Go port. It is not a captured
 TikTok response and contains no real cookie, signature, account identifier,

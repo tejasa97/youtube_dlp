@@ -17,7 +17,8 @@ which avoids carrying caller tokens into diagnostics or fixture behavior.
 
 ## Flow
 
-1. For short links, issue bounded `HEAD` requests with
+1. For short links, issue bounded `HEAD` requests through `DoNoRedirect`
+   (not `DoWithoutCookies`, which follows redirects) with
    `User-Agent: facebookexternalhit/1.1`, validate each `Location` hop against
    an explicit TikTok host allowlist, and return a lazy URL result to the
    canonical `https://www.tiktok.com/@user/video/id` page.

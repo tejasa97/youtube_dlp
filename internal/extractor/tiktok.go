@@ -202,9 +202,9 @@ func tiktokRedirectKey(parsed *url.URL) string {
 }
 
 func tiktokRedirectDo(ctx context.Context, transport Transport, request *http.Request) (*http.Response, error) {
-	if isolated, ok := transport.(CookieIsolatedTransport); ok {
-		return isolated.DoWithoutCookies(ctx, request)
-	}
+	// Prefer redirect-disabled transport. Production network.Client also
+	// implements CookieIsolatedTransport, but DoWithoutCookies follows
+	// redirects automatically and would collapse hop-by-hop validation.
 	if redirect, ok := transport.(tiktokNoRedirectTransport); ok {
 		return redirect.DoNoRedirect(ctx, request)
 	}

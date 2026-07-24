@@ -1418,6 +1418,7 @@ capabilities:
     evidence:
       - internal/extractor.TestTikTokExtractsProtectedHydrationFormats
       - internal/extractor.TestTikTokSuitableAndEmbedCanonicalization
+      - internal/extractor.TestTikTokShortLinkRedirectPrefersDoNoRedirectOverAutoFollow
       - internal/extractor.TestTikTokShortLinkRedirectMultiHopAndRelativeLocation
       - internal/extractor.TestTikTokShortLinkRedirectDirectCanonical
       - internal/extractor.TestTikTokShortLinkRedirectLoopAndOpenRedirect
