@@ -1,0 +1,33 @@
+{
+  "data": {
+    "listablesBySlug": [
+      {
+        "id": "jpmQYgn",
+        "name": "Rederiet",
+        "longDescription": "Synthetic long description for the Rederiet fixture series.",
+        "shortDescription": "Synthetic short description.",
+        "associatedContent": [
+          {
+            "id": "season-1-jpmQYgn",
+            "name": "Säsong 1",
+            "items": [
+              {"item": {"videoSvtId": "svt-fixture-s01e01"}},
+              {"item": {"videoSvtId": "svt-fixture-s01e02"}},
+              {"item": {}},
+              {"item": {"videoSvtId": "svt-fixture-s01e01"}},
+              {"item": {"videoSvtId": "bad/id"}}
+            ]
+          },
+          {
+            "id": "season-2-jpmQYgn",
+            "name": "Säsong 2",
+            "items": [
+              {"item": {"videoSvtId": "svt-fixture-s02e01"}},
+              {"item": {"videoSvtId": "svt-fixture-s02e02"}}
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
