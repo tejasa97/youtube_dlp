@@ -79,5 +79,38 @@ Fixtures:
 - `videos_not_found.json`: `user.id` exact empty string with decoy edges;
 - `videos_malformed.json`: non-array GraphQL envelope.
 
-All values are synthetic. Clips and collections playlist enumeration are
-intentionally not modeled here.
+All values are synthetic. Clips playlist enumeration is intentionally not
+modeled here.
+
+## Direct collection and channel collections fixtures
+
+The collection fixtures added on 2026-07-25 are attributable to the same pinned
+source, specifically:
+
+- `TwitchBaseIE._OPERATION_HASHES['CollectionSideBar']`, line 44;
+- `TwitchBaseIE._OPERATION_HASHES['ChannelCollectionsContent']`, line 48;
+- `TwitchCollectionIE`, lines 612–646 (`CollectionSideBar`, variables
+  `collectionID`, `collection.items.edges` transparent VOD entries via
+  `_make_video_result`);
+- `TwitchPlaylistBaseIE._entries`, lines 649–697 (`_PAGE_LIMIT = 100`, cursor
+  advancement from the last valid emitted edge, empty-edge stop, and
+  `user.id == ""` channel-not-found guard);
+- `TwitchVideosCollectionsIE`, lines 896–949 (`ChannelCollectionsContent`,
+  variables `ownerLogin`, `CollectionsItemEdge`/`Collection` typenames,
+  transparent `https://www.twitch.tv/collections/{id}` entries, title
+  `{channel} - Collections`);
+- `_make_video_result`, lines 595–609.
+
+Fixtures:
+
+- `collection_direct.json` / `collection_direct_empty.json` /
+  `collection_direct_unavailable.json` / `collection_direct_malformed.json`:
+  synthetic direct `CollectionSideBar` responses with mixed valid/invalid edges;
+- `collections_page1.json` / `collections_page2.json`: synthetic initial and
+  continuation `ChannelCollectionsContent` pages;
+- `collections_empty.json`: present channel with an empty edge list;
+- `collections_not_found.json`: `user.id` exact empty string with decoy edges;
+- `collections_malformed.json`: non-array GraphQL envelope.
+
+All values are synthetic. Clips enumeration, subscriber entitlements, chat, and
+arbitrary Twitch routes remain outside this lane.

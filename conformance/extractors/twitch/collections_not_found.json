@@ -1,0 +1,22 @@
+[
+  {
+    "data": {
+      "user": {
+        "id": "",
+        "collections": {
+          "edges": [
+            {
+              "__typename": "CollectionsItemEdge",
+              "cursor": "decoy",
+              "node": {
+                "__typename": "Collection",
+                "id": "FixtureCollection99",
+                "title": "Decoy collection"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

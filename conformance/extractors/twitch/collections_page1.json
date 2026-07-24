@@ -1,0 +1,66 @@
+[
+  {
+    "data": {
+      "user": {
+        "id": "9001",
+        "collections": {
+          "edges": [
+            {
+              "__typename": "CollectionsItemEdge",
+              "cursor": "cursor-collections-page1-a",
+              "node": {
+                "__typename": "Collection",
+                "id": "FixtureCollection01",
+                "title": "Synthetic collection one",
+                "thumbnailURL": "https://static-cdn.example.test/coll1-320x180.jpg",
+                "lengthSeconds": 3600,
+                "viewCount": 101,
+                "updatedAt": "2024-01-01T00:00:00Z"
+              }
+            },
+            {
+              "__typename": "NotCollectionsItemEdge",
+              "cursor": "skip-bad-edge",
+              "node": {
+                "__typename": "Collection",
+                "id": "FixtureCollection99",
+                "title": "Skipped bad edge"
+              }
+            },
+            {
+              "__typename": "CollectionsItemEdge",
+              "cursor": "cursor-collections-page1-b",
+              "node": {
+                "__typename": "Video",
+                "id": "1000000001",
+                "title": "Skipped bad node type"
+              }
+            },
+            {
+              "__typename": "CollectionsItemEdge",
+              "cursor": "cursor-collections-page1-c",
+              "node": {
+                "__typename": "Collection",
+                "id": "bad/id",
+                "title": "Skipped hostile id"
+              }
+            },
+            {
+              "__typename": "CollectionsItemEdge",
+              "cursor": "cursor-collections-page1-final",
+              "node": {
+                "__typename": "Collection",
+                "id": "FixtureCollection02",
+                "title": "Synthetic collection two",
+                "thumbnailURL": "https://static-cdn.example.test/coll2-320x180.jpg",
+                "lengthSeconds": 7200,
+                "viewCount": 202,
+                "updatedAt": "2024-02-01T00:00:00Z"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]
