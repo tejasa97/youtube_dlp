@@ -25,6 +25,7 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/cookies/chromiumwindows"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/firefox"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/netscape"
+	"github.com/ytdlp-go/ytdlp/internal/cookies/safari"
 	credentialnetrc "github.com/ytdlp-go/ytdlp/internal/credentials/netrc"
 	"github.com/ytdlp-go/ytdlp/internal/downloader"
 	"github.com/ytdlp-go/ytdlp/internal/events"
@@ -189,6 +190,7 @@ type Client struct {
 	linuxCookieImporter   func(context.Context, chromiumlinux.Options) (chromiumlinux.Result, error)
 	windowsCookieImporter func(context.Context, chromiumwindows.Options) (chromiumwindows.Result, error)
 	firefoxCookieImporter func(context.Context, firefox.Options) (firefox.Result, error)
+	safariCookieImporter  func(context.Context, safari.Options) (safari.Result, error)
 	platform              string
 	plugins               []*InstalledPlugin
 	pluginApprover        PluginPermissionApprover
@@ -1037,11 +1039,13 @@ func categorized(op string, err error) error {
 		errors.Is(err, chromiumlinux.ErrKeyUnavailable), errors.Is(err, chromiumlinux.ErrDecrypt),
 		errors.Is(err, chromiumwindows.ErrNotFound), errors.Is(err, chromiumwindows.ErrInvalidDatabase), errors.Is(err, chromiumwindows.ErrSnapshot),
 		errors.Is(err, chromiumwindows.ErrInvalidLocalState), errors.Is(err, chromiumwindows.ErrKeyUnavailable),
-		errors.Is(err, chromiumwindows.ErrAppBound), errors.Is(err, chromiumwindows.ErrDecrypt):
+		errors.Is(err, chromiumwindows.ErrAppBound), errors.Is(err, chromiumwindows.ErrDecrypt),
+		errors.Is(err, safari.ErrNotFound), errors.Is(err, safari.ErrInvalidDatabase):
 		category = ErrorAuthentication
 	case errors.Is(err, chromium.ErrUnsupportedBrowser), errors.Is(err, chromium.ErrUnsupportedPlatform),
 		errors.Is(err, chromiumlinux.ErrUnsupportedBrowser), errors.Is(err, chromiumlinux.ErrUnsupportedPlatform),
-		errors.Is(err, chromiumwindows.ErrUnsupportedBrowser), errors.Is(err, chromiumwindows.ErrUnsupportedPlatform):
+		errors.Is(err, chromiumwindows.ErrUnsupportedBrowser), errors.Is(err, chromiumwindows.ErrUnsupportedPlatform),
+		errors.Is(err, safari.ErrUnsupportedPlatform):
 		category = ErrorUnsupported
 	case errors.Is(err, extractor.ErrUnavailable), errors.Is(err, extractor.ErrRegionRestricted), errors.Is(err, extractor.ErrChallengeSolver),
 		errors.Is(err, extractor.ErrTransportProfile), errors.Is(err, extractor.ErrTransportIsolation), errors.Is(err, network.ErrImpersonationUnavailable):
@@ -1075,6 +1079,7 @@ func categorized(op string, err error) error {
 		errors.Is(err, errInvalidBrowserCookieSpec), errors.Is(err, netscape.ErrMalformed), errors.Is(err, netscape.ErrFile),
 		errors.Is(err, netscape.ErrWrongFormat), errors.Is(err, netscape.ErrTooLarge),
 		errors.Is(err, firefox.ErrUnsafePath), errors.Is(err, firefox.ErrLimit),
+		errors.Is(err, safari.ErrUnsafePath), errors.Is(err, safari.ErrLimit),
 		errors.Is(err, chromiumlinux.ErrUnsafePath), errors.Is(err, chromiumlinux.ErrLimit),
 		errors.Is(err, chromiumwindows.ErrUnsafePath), errors.Is(err, chromiumwindows.ErrLimit),
 		errors.Is(err, credentialnetrc.ErrSyntax), errors.Is(err, credentialnetrc.ErrLimit), errors.Is(err, credentialnetrc.ErrInvalidHost),
@@ -1123,9 +1128,16 @@ func parseBrowserCookieSpec(input string) (browserCookieSpec, error) {
 	}
 	browserName, profile, hasProfile := strings.Cut(base, ":")
 	switch browserName {
-	case "chrome", "chromium", "brave", "edge", "vivaldi", "opera", "firefox":
+	case "chrome", "chromium", "brave", "edge", "vivaldi", "opera", "firefox", "safari":
 	default:
 		return browserCookieSpec{}, fmt.Errorf("%w: unsupported browser", errInvalidBrowserCookieSpec)
+	}
+	if browserName == "safari" {
+		if hasContainer || (hasProfile && (profile == "" || strings.ContainsRune(profile, 0) ||
+			(!filepath.IsAbs(profile) && !strings.HasPrefix(profile, "~/")))) {
+			return browserCookieSpec{}, fmt.Errorf("%w: invalid Safari database path", errInvalidBrowserCookieSpec)
+		}
+		return browserCookieSpec{browser: browserName, profile: profile}, nil
 	}
 	if hasProfile && (profile == "" || profile == "." || profile == ".." || strings.ContainsAny(profile, `:/\\`+"\x00")) {
 		return browserCookieSpec{}, fmt.Errorf("%w: invalid browser profile", errInvalidBrowserCookieSpec)
@@ -1137,6 +1149,16 @@ func parseBrowserCookieSpec(input string) (browserCookieSpec, error) {
 }
 
 func (client *Client) importBrowserCookies(ctx context.Context, specification browserCookieSpec) (cookieImportResult, error) {
+	if specification.browser == "safari" {
+		importer := client.safariCookieImporter
+		if importer == nil {
+			importer = safari.Import
+		}
+		result, err := importer(ctx, safari.Options{DatabasePath: specification.profile})
+		return cookieImportResult{
+			Cookies: result.Cookies, Total: result.Total, Imported: result.Imported, Failed: result.Failed,
+		}, err
+	}
 	if specification.browser == "firefox" {
 		importer := client.firefoxCookieImporter
 		if importer == nil {
