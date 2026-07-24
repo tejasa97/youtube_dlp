@@ -174,8 +174,18 @@ func attachHeaders(info value.Info, selections []Selection, formats []*value.Obj
 func selectedObject(selection Selection, formats []*value.Object) *value.Object {
 	for _, candidate := range formats {
 		id, _ := candidate.Lookup("format_id").StringValue()
+		if id != selection.ID {
+			continue
+		}
+		if selection.YouTubeSABR {
+			sabr, _ := candidate.Lookup("_youtube_sabr").Bool()
+			if sabr {
+				return candidate
+			}
+			continue
+		}
 		url, _ := candidate.Lookup("url").StringValue()
-		if id == selection.ID && url == selection.URL {
+		if url == selection.URL {
 			return candidate
 		}
 	}
@@ -495,5 +505,24 @@ func objectSelection(object *value.Object) Selection {
 	selection.YouTubeSourceURL, _ = object.Lookup("_youtube_source_url").StringValue()
 	selection.TargetDuration, _ = numeric(object.Lookup("target_duration"))
 	selection.LiveStartTimestamp, _ = object.Lookup("live_start_timestamp").Int()
+	selection.YouTubeSABR, _ = object.Lookup("_youtube_sabr").Bool()
+	selection.YouTubeSABRTrack, _ = object.Lookup("_youtube_sabr_track").StringValue()
+	selection.YouTubeSABRItag, _ = object.Lookup("_youtube_sabr_itag").Int()
+	selection.YouTubeSABRLastModified, _ = object.Lookup("_youtube_sabr_last_modified").Int()
+	selection.YouTubeSABRXTags, _ = object.Lookup("_youtube_sabr_xtags").StringValue()
+	selection.YouTubeSABRServerURL, _ = object.Lookup("_youtube_sabr_server_url").StringValue()
+	selection.YouTubeSABRUstreamerConfig, _ = object.Lookup("_youtube_sabr_ustreamer_config").StringValue()
+	selection.YouTubeSABRClientID, _ = object.Lookup("_youtube_sabr_client_id").Int()
+	selection.YouTubeSABRClientVersion, _ = object.Lookup("_youtube_sabr_client_version").StringValue()
+	selection.YouTubeSABRUserAgent, _ = object.Lookup("_youtube_sabr_user_agent").StringValue()
+	selection.YouTubeSABRVisitorData, _ = object.Lookup("_youtube_sabr_visitor_data").StringValue()
+	selection.YouTubeSABRDurationSec, _ = object.Lookup("_youtube_sabr_duration_sec").Int()
+	selection.YouTubeSABRVideoID, _ = object.Lookup("_youtube_sabr_video_id").StringValue()
+	selection.YouTubeSABRClientName, _ = object.Lookup("_youtube_client").StringValue()
+	selection.YouTubeSABRDrc, _ = object.Lookup("_youtube_sabr_drc").Bool()
+	selection.YouTubeSABRAudioTrackID, _ = object.Lookup("_youtube_sabr_audio_track_id").StringValue()
+	if selection.YouTubeSABR {
+		selection.Protocol = "youtube_sabr_ump"
+	}
 	return selection
 }
