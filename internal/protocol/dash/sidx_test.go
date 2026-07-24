@@ -347,13 +347,6 @@ func TestSIDXHierarchicalReferenceParsed(t *testing.T) {
 	}
 }
 
-// TestSIDXHierarchicalReferenceRejection is retained as a parity-manifest alias.
-// The behavior changed: reference_type=1 is now parsed (not rejected) and
-// handled by the bounded recursive downloader expansion.
-func TestSIDXHierarchicalReferenceRejection(t *testing.T) {
-	TestSIDXHierarchicalReferenceParsed(t)
-}
-
 func TestSIDXSizeOverflow(t *testing.T) {
 	refs := []SIDXReference{{ReferencedSize: math.MaxUint32 & 0x7FFFFFFF}}
 	data := buildSIDX(0, 1, 1000, 0, 0, refs)

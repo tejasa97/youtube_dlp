@@ -43,19 +43,30 @@ Branch: `codex/dash-hierarchical-sidx`
    integer strictly greater than END. The 200 fallback uses subtraction-based
    bounds checks to prevent overflow panics from hostile ranges. Expanded
    segments pass through the existing fragment downloader for retry,
-   concurrency, atomic publication, and limits.
+   concurrency, atomic publication, and limits. The cumulative transfer
+   budget (`maxCumulativeIndexBytes`) accounts for actual bytes read from
+   response bodies, not merely the final sliced result, preventing 200
+   fallbacks from bypassing the budget.
 
-4. **Initialization/media overlap**: Any overlap between the initialization
+5. **Initialization/media overlap**: Any overlap between the initialization
    range and any media range is explicitly rejected with
    `ErrUnsupportedAddressing`. Rationale: partial trimming risks corrupting
    codec configuration; full omission discards required bytes.
 
-5. **Dynamic manifests**: Dynamic SegmentBase/SIDX is explicitly rejected
+6. **Initialization/index overlap**: Any overlap between the initialization
+   range and any fetched index interval (root or nested) is explicitly
+   rejected. Index bytes are not media; init/index overlap is fail-closed.
+
+7. **Leaf/index overlap**: Any overlap between a leaf media range and any
+   fetched index interval is explicitly rejected. This ensures index bytes
+   never enter assembled media output.
+
+8. **Dynamic manifests**: Dynamic SegmentBase/SIDX is explicitly rejected
    with `ErrUnsupportedAddressing`. Rationale: stale SIDX data cannot be
    safely applied to a resource that may have changed between polls. This is
    the smaller provably-correct behavior versus re-fetching on each poll.
 
-6. **Multi-period**: Static compatible SIDX representations retain period
+9. **Multi-period**: Static compatible SIDX representations retain period
    boundaries and participate in the supervised multi-period concat path.
    Dynamic SegmentBase/SIDX remains rejected.
 
@@ -65,8 +76,13 @@ Branch: `codex/dash-hierarchical-sidx`
 - Multi-period composition requires compatible fragmented signatures across
   every static period; dynamic and unfragmented multi-period sets are rejected.
 - Initialization/media range overlap is rejected (not trimmed).
+- Initialization/index range overlap is rejected (fail-closed).
+- Leaf media/index range overlap is rejected (fail-closed).
 - The index fetch does not retry on transient failure (single attempt);
   media segment retries use the existing fragment engine machinery.
+- HTTP 200 fallback responses are accepted but charged at full transferred
+  bytes against the cumulative budget; a 200 response whose body exceeds the
+  remaining budget is rejected.
 - Remote or cross-resource nested indexes are not followed; hierarchy
   remains within the trusted SegmentBase media URL.
 - Malformed or unverifiable hierarchies fail closed.
@@ -89,7 +105,6 @@ by the primary agent:
 - `TestSIDXInvalidVersion`
 - `TestSIDXZeroTimescale`
 - `TestSIDXZeroReferenceSize`
-- `TestSIDXHierarchicalReferenceRejection`
 - `TestSIDXSizeOverflow`
 - `TestSIDXOffsetOverflow`
 - `TestSIDXSegmentCountLimit`
@@ -172,6 +187,14 @@ by the primary agent:
 - `TestDownloadHierarchicalSIDXTruncatedChildResponse`
 - `TestDownloadHierarchicalSIDXOffsetOverflow`
 - `TestDownloadHierarchicalSIDXRoundTripV0Hex`
+- `TestFetchIndexRange200ExceedsBudget`
+- `TestFetchIndexRangeExactBudgetBoundary`
+- `TestDownloadHierarchicalSIDXNoPartialPlanAfterNestedFetchFailure`
+- `TestDownloadHierarchicalSIDXInitOverlapsRootIndex`
+- `TestDownloadHierarchicalSIDXInitOverlapsNestedIndex`
+- `TestDownloadHierarchicalSIDXLeafOverlapsRootIndex`
+- `TestDownloadHierarchicalSIDXAdjacentRangesSucceed`
+- `TestDownloadHierarchicalSIDXNearMaxInt64Interval`
 
 ### Content-Range unit tests
 - `TestValidContentRangeTotalValidation`

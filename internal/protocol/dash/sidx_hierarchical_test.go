@@ -1,10 +1,12 @@
 package dash
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -375,11 +377,13 @@ func TestDownloadHierarchicalSIDXExcessiveDepth(t *testing.T) {
 	resource = append(resource, make([]byte, 10)...)
 	indexRange := fmt.Sprintf("0-%d", len(boxes[0])-1)
 
+	var mediaRequests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/manifest.mpd":
 			fmt.Fprintf(w, `<MPD><Period><AdaptationSet mimeType="video/mp4"><Representation id="v" bandwidth="1000"><BaseURL>video.mp4</BaseURL><SegmentBase indexRange="%s"/></Representation></AdaptationSet></Period></MPD>`, indexRange)
 		case "/video.mp4":
+			mediaRequests.Add(1)
 			serveRange(w, r, resource)
 		}
 	}))
@@ -390,25 +394,29 @@ func TestDownloadHierarchicalSIDXExcessiveDepth(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "depth") {
 		t.Fatalf("err = %v, want depth limit error", err)
 	}
+	if got, want := mediaRequests.Load(), int32(maxSIDXDepth+1); got != want {
+		t.Fatalf("media requests = %d, want %d; over-limit child must not be fetched", got, want)
+	}
 }
 
 func TestDownloadHierarchicalSIDXExcessiveBoxCount(t *testing.T) {
-	// Build a chain of SIDX boxes exceeding maxSIDXBoxesPerRepresentation.
-	// Each level has one index reference pointing to the next.
-	count := maxSIDXBoxesPerRepresentation + 1
-	boxes := make([][]byte, count)
-	leafRefs := []SIDXReference{{ReferencedSize: 10, SubsegmentDuration: 1000}}
-	boxes[count-1] = buildSIDX(0, 1, 1000, 0, 0, leafRefs)
-	for i := count - 2; i >= 0; i-- {
-		refs := []SIDXReference{{ReferencedSize: uint32(len(boxes[i+1])), SubsegmentDuration: 1000, IsIndex: true}}
-		boxes[i] = buildSIDX(0, 1, 1000, 0, 0, refs)
+	// A wide root reaches the box-count limit without first hitting the
+	// independent depth limit.
+	child := buildSIDX(0, 1, 1000, 0, 0, nil)
+	rootRefs := make([]SIDXReference, maxSIDXBoxesPerRepresentation)
+	for i := range rootRefs {
+		rootRefs[i] = SIDXReference{
+			ReferencedSize:     uint32(len(child)),
+			SubsegmentDuration: 1000,
+			IsIndex:            true,
+		}
 	}
-	var resource []byte
-	for _, box := range boxes {
-		resource = append(resource, box...)
+	rootBox := buildSIDX(0, 1, 1000, 0, 0, rootRefs)
+	resource := append([]byte(nil), rootBox...)
+	for range rootRefs {
+		resource = append(resource, child...)
 	}
-	resource = append(resource, make([]byte, 10)...)
-	indexRange := fmt.Sprintf("0-%d", len(boxes[0])-1)
+	indexRange := fmt.Sprintf("0-%d", len(rootBox)-1)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -422,9 +430,8 @@ func TestDownloadHierarchicalSIDXExcessiveBoxCount(t *testing.T) {
 	transport, _ := network.New(network.Config{})
 	root := t.TempDir()
 	_, err := NewDownloader(transport, Config{}).Download(context.Background(), server.URL+"/manifest.mpd", root, filepath.Join(root, "out.mp4"), false, nil)
-	// Should hit either depth or box count limit.
-	if err == nil || (!strings.Contains(err.Error(), "depth") && !strings.Contains(err.Error(), "box count")) {
-		t.Fatalf("err = %v, want depth or box count limit error", err)
+	if err == nil || !strings.Contains(err.Error(), "box count") {
+		t.Fatalf("err = %v, want box count limit error", err)
 	}
 }
 
@@ -1074,5 +1081,261 @@ func TestDownloadHierarchicalSIDXRoundTripV0Hex(t *testing.T) {
 	}
 	if !sidx.References[0].IsIndex {
 		t.Fatal("reference[0].IsIndex = false, want true")
+	}
+}
+
+// static200Transport simulates a server that ignores Range and returns the
+// complete resource with status 200.
+type static200Transport struct {
+	resource      []byte
+	contentLength int64
+}
+
+func (transport *static200Transport) Do(_ context.Context, _ *http.Request) (*http.Response, error) {
+	return &http.Response{
+		StatusCode:    http.StatusOK,
+		Body:          io.NopCloser(bytes.NewReader(transport.resource)),
+		ContentLength: transport.contentLength,
+		Header:        http.Header{},
+	}, nil
+}
+
+func (transport *static200Transport) ReadPage(_ context.Context, _ string) ([]byte, http.Header, error) {
+	return transport.resource, http.Header{}, nil
+}
+
+func TestFetchIndexRange200ExceedsBudget(t *testing.T) {
+	const budget = 64
+	transport := &static200Transport{
+		resource:      make([]byte, budget+1),
+		contentLength: -1,
+	}
+	_, err := NewDownloader(transport, Config{}).fetchIndexRange(
+		context.Background(), "https://media.example.test/video.mp4", 0, 8, budget)
+	if err == nil || !strings.Contains(err.Error(), "budget") {
+		t.Fatalf("err = %v, want cumulative budget error", err)
+	}
+}
+
+func TestFetchIndexRangeExactBudgetBoundary(t *testing.T) {
+	const budget = 64
+	resource := bytes.Repeat([]byte{0x5a}, budget)
+	transport := &static200Transport{
+		resource:      resource,
+		contentLength: budget,
+	}
+	result, err := NewDownloader(transport, Config{}).fetchIndexRange(
+		context.Background(), "https://media.example.test/video.mp4", 8, 16, budget)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.TransferredBytes != budget {
+		t.Fatalf("transferred bytes = %d, want %d", result.TransferredBytes, budget)
+	}
+	if !bytes.Equal(result.Data, resource[8:24]) {
+		t.Fatalf("data = %x, want requested slice", result.Data)
+	}
+}
+
+func TestDownloadHierarchicalSIDXNoPartialPlanAfterNestedFetchFailure(t *testing.T) {
+	// Build a hierarchical resource where the nested fetch will fail.
+	nestedRefs := []SIDXReference{{ReferencedSize: 10, SubsegmentDuration: 1000}}
+	nestedBox := buildSIDX(0, 1, 1000, 0, 0, nestedRefs)
+	rootRefs := []SIDXReference{{ReferencedSize: uint32(len(nestedBox)), SubsegmentDuration: 1000, IsIndex: true}}
+	rootBox := buildSIDX(0, 1, 1000, 0, 0, rootRefs)
+	var resource []byte
+	resource = append(resource, rootBox...)
+	resource = append(resource, nestedBox...)
+	resource = append(resource, make([]byte, 10)...)
+
+	// Transport that fails the second request (nested fetch).
+	transport := &failingAfterNTransport{data: resource, failAfter: 1}
+	downloader := NewDownloader(transport, Config{MaxSegments: 100})
+	marker := Segment{
+		URL:        "https://media.example.test/video.mp4",
+		IndexRange: fmt.Sprintf("0-%d", len(rootBox)-1),
+	}
+	segments, err := downloader.expandOneSIDX(context.Background(), marker)
+	if err == nil {
+		t.Fatal("expected error for nested transport failure")
+	}
+	if len(segments) != 0 {
+		t.Fatalf("segments = %d, want no partial plan after failure", len(segments))
+	}
+}
+
+// failingAfterNTransport fails after N successful requests.
+type failingAfterNTransport struct {
+	data      []byte
+	failAfter int
+	count     int
+}
+
+func (f *failingAfterNTransport) Do(ctx context.Context, req *http.Request) (*http.Response, error) {
+	f.count++
+	if f.count > f.failAfter {
+		return nil, fmt.Errorf("simulated transport failure")
+	}
+	rangeHeader := req.Header.Get("Range")
+	if rangeHeader == "" {
+		return &http.Response{
+			StatusCode:    http.StatusOK,
+			Body:          io.NopCloser(bytes.NewReader(f.data)),
+			ContentLength: int64(len(f.data)),
+			Header:        http.Header{},
+		}, nil
+	}
+	var start, end int64
+	if _, err := fmt.Sscanf(rangeHeader, "bytes=%d-%d", &start, &end); err != nil {
+		return &http.Response{StatusCode: http.StatusBadRequest, Body: io.NopCloser(bytes.NewReader(nil)), Header: http.Header{}}, nil
+	}
+	if start >= int64(len(f.data)) || end >= int64(len(f.data)) || start > end {
+		return &http.Response{StatusCode: http.StatusRequestedRangeNotSatisfiable, Body: io.NopCloser(bytes.NewReader(nil)), Header: http.Header{}}, nil
+	}
+	header := http.Header{}
+	header.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, len(f.data)))
+	return &http.Response{
+		StatusCode:    http.StatusPartialContent,
+		Body:          io.NopCloser(bytes.NewReader(f.data[start : end+1])),
+		ContentLength: end - start + 1,
+		Header:        header,
+	}, nil
+}
+
+func (f *failingAfterNTransport) ReadPage(_ context.Context, _ string) ([]byte, http.Header, error) {
+	return f.data, http.Header{}, nil
+}
+
+func TestDownloadHierarchicalSIDXInitOverlapsRootIndex(t *testing.T) {
+	// Build a resource where init range overlaps the root index range but not
+	// the media. Place the SIDX at offset 100, media after it.
+	leafRefs := []SIDXReference{{ReferencedSize: 10, SubsegmentDuration: 1000}}
+	leafBox := buildSIDX(0, 1, 1000, 0, 0, leafRefs)
+	var resource []byte
+	resource = append(resource, make([]byte, 100)...) // padding before index
+	resource = append(resource, leafBox...)
+	resource = append(resource, make([]byte, 10)...)
+
+	transport := &memoryRangeTransport{data: resource}
+	downloader := NewDownloader(transport, Config{MaxSegments: 100})
+	// The initialization ends halfway through the SIDX, before media starts.
+	marker := Segment{
+		URL:        "https://media.example.test/video.mp4",
+		IndexRange: fmt.Sprintf("100-%d", 100+len(leafBox)-1),
+		InitRange:  fmt.Sprintf("0-%d", 100+len(leafBox)/2),
+	}
+	_, err := downloader.expandOneSIDX(context.Background(), marker)
+	if err == nil {
+		t.Fatal("expected error for init/index overlap")
+	}
+	if !strings.Contains(err.Error(), "initialization range overlaps index interval") {
+		t.Fatalf("err = %v, want init/index overlap error", err)
+	}
+}
+
+func TestDownloadHierarchicalSIDXInitOverlapsNestedIndex(t *testing.T) {
+	// Leave a gap between root and nested indexes so the initialization range
+	// can overlap only the nested interval.
+	const nestedGap = 64
+	nestedRefs := []SIDXReference{{ReferencedSize: 10, SubsegmentDuration: 1000}}
+	nestedBox := buildSIDX(0, 1, 1000, 0, 0, nestedRefs)
+	rootRefs := []SIDXReference{{ReferencedSize: uint32(len(nestedBox)), SubsegmentDuration: 1000, IsIndex: true}}
+	rootBox := buildSIDX(0, 1, 1000, 0, nestedGap, rootRefs)
+
+	// Layout: [root SIDX][gap][nested SIDX][media].
+	var resource []byte
+	resource = append(resource, rootBox...)
+	resource = append(resource, make([]byte, nestedGap)...)
+	nestedStart := len(rootBox) + nestedGap
+	resource = append(resource, nestedBox...)
+	resource = append(resource, make([]byte, 10)...)
+
+	transport := &memoryRangeTransport{data: resource}
+	downloader := NewDownloader(transport, Config{MaxSegments: 100})
+	marker := Segment{
+		URL:        "https://media.example.test/video.mp4",
+		IndexRange: fmt.Sprintf("0-%d", len(rootBox)-1),
+		InitRange:  fmt.Sprintf("%d-%d", nestedStart, nestedStart+len(nestedBox)-1),
+	}
+	_, err := downloader.expandOneSIDX(context.Background(), marker)
+	if err == nil {
+		t.Fatal("expected error for init/nested-index overlap")
+	}
+	if !strings.Contains(err.Error(), "initialization range overlaps index interval 1") {
+		t.Fatalf("err = %v, want nested-index overlap error", err)
+	}
+}
+
+func TestDownloadHierarchicalSIDXLeafOverlapsRootIndex(t *testing.T) {
+	// A hostile indexRange includes trailing bytes beyond the SIDX box, while
+	// the first leaf begins immediately after the actual box.
+	leafRefs := []SIDXReference{{ReferencedSize: 10, SubsegmentDuration: 1000}}
+	leafBox := buildSIDX(0, 1, 1000, 0, 0, leafRefs)
+	var resource []byte
+	resource = append(resource, leafBox...)
+	resource = append(resource, make([]byte, 10)...)
+
+	transport := &memoryRangeTransport{data: resource}
+	downloader := NewDownloader(transport, Config{MaxSegments: 100})
+	marker := Segment{
+		URL:        "https://media.example.test/video.mp4",
+		IndexRange: fmt.Sprintf("0-%d", len(leafBox)+4),
+	}
+	_, err := downloader.expandOneSIDX(context.Background(), marker)
+	if err == nil || !strings.Contains(err.Error(), "leaf media range 0 overlaps index interval 0") {
+		t.Fatalf("err = %v, want leaf/root-index overlap error", err)
+	}
+}
+
+func TestDownloadHierarchicalSIDXAdjacentRangesSucceed(t *testing.T) {
+	// Build a resource where index and leaf ranges are exactly adjacent
+	// (no gap, no overlap). This should succeed.
+	leafRefs := []SIDXReference{{ReferencedSize: 16, SubsegmentDuration: 1000}}
+	leafBox := buildSIDX(0, 1, 1000, 0, 0, leafRefs)
+	media := []byte("ADJACENT_MEDIA__")
+	var resource []byte
+	resource = append(resource, leafBox...)
+	resource = append(resource, media...)
+
+	transport := &memoryRangeTransport{data: resource}
+	downloader := NewDownloader(transport, Config{MaxSegments: 100})
+	marker := Segment{
+		URL:        "https://media.example.test/video.mp4",
+		IndexRange: fmt.Sprintf("0-%d", len(leafBox)-1),
+	}
+	segments, err := downloader.expandOneSIDX(context.Background(), marker)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(segments) != 1 {
+		t.Fatalf("segments = %d, want 1", len(segments))
+	}
+	// Leaf should start exactly at len(leafBox).
+	if segments[0].RangeStart != int64(len(leafBox)) {
+		t.Fatalf("leaf start = %d, want %d", segments[0].RangeStart, len(leafBox))
+	}
+}
+
+func TestDownloadHierarchicalSIDXNearMaxInt64Interval(t *testing.T) {
+	// Test that near-MaxInt64 offsets don't cause overflow or panic.
+	// Use a version 1 SIDX with a huge first_offset that will overflow
+	// when added to the box size.
+	refs := []SIDXReference{{ReferencedSize: 100, SubsegmentDuration: 1000}}
+	// first_offset = MaxInt64 will overflow when the box size is added.
+	data := buildSIDX(1, 1, 1000, 0, uint64(math.MaxInt64), refs)
+
+	transport := &memoryRangeTransport{data: data}
+	downloader := NewDownloader(transport, Config{MaxSegments: 100})
+	marker := Segment{
+		URL:        "https://media.example.test/video.mp4",
+		IndexRange: fmt.Sprintf("0-%d", len(data)-1),
+	}
+	// This should fail with an overflow error, not panic.
+	_, err := downloader.expandOneSIDX(context.Background(), marker)
+	if err == nil {
+		t.Fatal("expected overflow error")
+	}
+	if !strings.Contains(err.Error(), "overflow") {
+		t.Fatalf("err = %v, want overflow error", err)
 	}
 }

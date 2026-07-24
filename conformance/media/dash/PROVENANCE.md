@@ -63,6 +63,16 @@ Dynamic manifests with SegmentBase/SIDX are explicitly rejected
 (`ErrUnsupportedAddressing`) rather than risking stale SIDX data applied to a
 changed resource. This is documented in `docs/DASH_SIDX_EVIDENCE.md`.
 
+Hierarchical SIDX expansion (reference_type=1) is bounded by explicit safety
+limits: max depth 8, max 256 parsed boxes per representation, max 16 MiB
+cumulative index bytes transferred (charged at actual response body bytes, not
+sliced result), and leaf count bounded by the effective MaxSegments. Cycle
+detection uses a visited-range key (URL + start + length). Leaf media ranges
+and initialization ranges are validated against all fetched index intervals to
+ensure index bytes never enter assembled output. HTTP 200 fallback responses
+are accepted but charged at full transferred bytes against the cumulative
+budget. These policies are documented in `docs/DASH_SIDX_EVIDENCE.md`.
+
 Static multi-period composition retains period boundaries, intersects exact
 format signatures across every period, downloads each period atomically, and
 uses the supervised ffmpeg concat boundary before optional audio/video merge.
