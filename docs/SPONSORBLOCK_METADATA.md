@@ -219,7 +219,11 @@ When subtitle sidecars exist beside the downloaded media, Remove rewrites
 them with deterministic cue removal and timestamp remapping for the
 supported extensions (`srt`, `vtt`, `ass`/`ssa`, `lrc`). Cues entirely
 inside cut ranges are dropped; cues before, overlapping, or after cuts are
-kept with remapped timestamps. FFmpeg concat is not used for subtitles.
+kept with remapped timestamps. WebVTT `STYLE`, `REGION`, and `NOTE`
+blocks are preserved verbatim. LRC lines with multiple leading timestamps
+remap each timestamp independently and keep surviving lyric text. Malformed
+or unrecognized SRT cue blocks fail closed with `invalid_input` instead
+of silently dropping content. FFmpeg concat is not used for subtitles.
 Unsupported sidecar formats fail closed with a categorized `unsupported`
 error so the product never silently leaves subtitles desynced. This is
 stricter than yt-dlp's warn-and-continue policy for unsupported external
