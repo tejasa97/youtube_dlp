@@ -2,18 +2,22 @@
 package template
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/ytdlp-go/ytdlp/internal/value"
+	"golang.org/x/text/unicode/norm"
 )
 
 var (
@@ -49,7 +53,10 @@ const (
 	maxJSONDepth        = 64
 )
 
-var formatSpecPattern = regexp.MustCompile(`^[-+0 #]*[0-9]*(\.[0-9]+)?[sdf]$|^[#+]*j$`)
+var formatSpecPattern = regexp.MustCompile(
+	`^[-+0 #]*[0-9]*(\.[0-9]+)?[sdfhlBUDqSrac]$` +
+		`|^[#+]*j$`,
+)
 
 // Render supports literal text, %%, traversal/alternative/default expressions,
 // object projections, replacement templates, date conversion, and bounded
@@ -85,7 +92,7 @@ func Render(pattern string, info value.Info) (string, error) {
 		}
 		closeIndex := index + 2 + closeOffset
 		specEnd := closeIndex + 1
-		for specEnd < len(pattern) && !strings.ContainsRune("sdfj", rune(pattern[specEnd])) {
+		for specEnd < len(pattern) && !strings.ContainsRune("sdfjlhUDBcqSra", rune(pattern[specEnd])) {
 			specEnd++
 		}
 		if specEnd >= len(pattern) {
@@ -909,6 +916,22 @@ func formatValue(input value.Value, spec string) (string, error) {
 			return "", fmt.Errorf("kind %s is not numeric", input.Kind())
 		}
 		return boundedFormatted(fmt.Sprintf(format, floating))
+	case 'l':
+		return formatListConversion(input, spec)
+	case 'h':
+		raw, err := conversionScalarString(input)
+		if err != nil {
+			return "", err
+		}
+		escaped, err := escapeHTMLBounded(raw)
+		if err != nil {
+			return "", err
+		}
+		return formatRuneString(escaped, spec)
+	case 'U':
+		return formatUnicodeConversion(input, spec)
+	case 'D':
+		return formatDecimalConversion(input, spec)
 	case 'j':
 		if _, ok := estimateJSON(input, maxRenderedBytes); !ok {
 			return "", errors.New("JSON output exceeds size limit")
@@ -925,6 +948,16 @@ func formatValue(input value.Value, spec string) (string, error) {
 			return formatPrettyJSON(encoded)
 		}
 		return formatCompactJSON(encoded)
+	case 'B':
+		return formatBytesConversion(input, spec)
+	case 'c':
+		return formatFirstRuneConversion(input, spec)
+	case 'q':
+		return formatShellQuoteConversion(input, spec)
+	case 'S':
+		return formatSanitizeConversion(input, spec)
+	case 'r', 'a':
+		return formatReprConversion(input, spec, conversion == 'a')
 	default:
 		return "", fmt.Errorf("unsupported conversion %q", conversion)
 	}
@@ -957,6 +990,289 @@ func validFormatSpec(spec string) bool {
 		}
 	}
 	return true
+}
+
+type formatOptions struct {
+	flags        string
+	width        int
+	precision    int
+	hasWidth     bool
+	hasPrecision bool
+}
+
+func parseFormatOptions(spec string) (formatOptions, error) {
+	var options formatOptions
+	body := spec[:len(spec)-1]
+	index := 0
+	for index < len(body) && strings.ContainsRune("-+0 #", rune(body[index])) {
+		options.flags += body[index : index+1]
+		index++
+	}
+	widthStart := index
+	for index < len(body) && body[index] >= '0' && body[index] <= '9' {
+		index++
+	}
+	if index > widthStart {
+		width, err := strconv.Atoi(body[widthStart:index])
+		if err != nil || width > maxFormatWidth {
+			return formatOptions{}, errors.New("format width exceeds limit")
+		}
+		options.width, options.hasWidth = width, true
+	}
+	if index < len(body) {
+		if body[index] != '.' {
+			return formatOptions{}, errors.New("invalid format options")
+		}
+		index++
+		if index == len(body) {
+			return formatOptions{}, errors.New("missing format precision")
+		}
+		precision, err := strconv.Atoi(body[index:])
+		if err != nil || precision > maxFormatPrecision {
+			return formatOptions{}, errors.New("format precision exceeds limit")
+		}
+		options.precision, options.hasPrecision = precision, true
+		index = len(body)
+	}
+	if index != len(body) {
+		return formatOptions{}, errors.New("invalid format options")
+	}
+	return options, nil
+}
+
+func formatRuneString(text, spec string) (string, error) {
+	if !utf8.ValidString(text) {
+		return "", errors.New("conversion input is not valid UTF-8")
+	}
+	options, err := parseFormatOptions(spec)
+	if err != nil {
+		return "", err
+	}
+	runes := []rune(text)
+	if options.hasPrecision && len(runes) > options.precision {
+		runes = runes[:options.precision]
+		text = string(runes)
+	}
+	if options.hasWidth && len(runes) < options.width {
+		padding := strings.Repeat(" ", options.width-len(runes))
+		if strings.Contains(options.flags, "-") {
+			text += padding
+		} else {
+			text = padding + text
+		}
+	}
+	return boundedFormatted(text)
+}
+
+func formatListConversion(input value.Value, spec string) (string, error) {
+	items, isList := input.ListValue()
+	if !isList {
+		items = []value.Value{input}
+	}
+	if len(items) > maxTraversalItems {
+		return "", errors.New("list conversion exceeds item limit")
+	}
+	delimiter := ", "
+	if strings.Contains(spec, "#") {
+		delimiter = "\n"
+	}
+	var output strings.Builder
+	for index, item := range items {
+		if index != 0 {
+			if err := appendBounded(&output, delimiter); err != nil {
+				return "", err
+			}
+		}
+		rendered, err := conversionScalarString(item)
+		if err != nil {
+			return "", fmt.Errorf("list element %d: %w", index, err)
+		}
+		if err := appendBounded(&output, rendered); err != nil {
+			return "", err
+		}
+	}
+	return formatRuneString(output.String(), spec)
+}
+
+// conversionScalarString follows Python str for the scalar kinds accepted by
+// yt-dlp's l and h conversions without changing the established s conversion.
+func conversionScalarString(input value.Value) (string, error) {
+	switch input.Kind() {
+	case value.KindMissing:
+		return "NA", nil
+	case value.KindNull:
+		return "None", nil
+	case value.KindBool:
+		boolean, _ := input.Bool()
+		if boolean {
+			return "True", nil
+		}
+		return "False", nil
+	case value.KindFloat:
+		floating, _ := input.Float()
+		switch {
+		case math.IsNaN(floating):
+			return "nan", nil
+		case math.IsInf(floating, 1):
+			return "inf", nil
+		case math.IsInf(floating, -1):
+			return "-inf", nil
+		}
+		rendered := strconv.FormatFloat(floating, 'g', -1, 64)
+		if !strings.ContainsAny(rendered, ".eE") {
+			rendered += ".0"
+		}
+		return rendered, nil
+	default:
+		return scalarString(input)
+	}
+}
+
+func escapeHTMLBounded(text string) (string, error) {
+	if !utf8.ValidString(text) {
+		return "", errors.New("HTML conversion input is not valid UTF-8")
+	}
+	var output strings.Builder
+	for _, character := range text {
+		replacement := ""
+		switch character {
+		case '&':
+			replacement = "&amp;"
+		case '<':
+			replacement = "&lt;"
+		case '>':
+			replacement = "&gt;"
+		case '"':
+			replacement = "&quot;"
+		case '\'':
+			replacement = "&#39;"
+		default:
+			replacement = string(character)
+		}
+		if err := appendBounded(&output, replacement); err != nil {
+			return "", err
+		}
+	}
+	return output.String(), nil
+}
+
+func formatUnicodeConversion(input value.Value, spec string) (string, error) {
+	text, ok := input.StringValue()
+	if !ok {
+		return "", fmt.Errorf("Unicode normalization requires string, got %s", input.Kind())
+	}
+	if len(text) > maxScalarBytes {
+		return "", errors.New("Unicode input exceeds size limit")
+	}
+	if !utf8.ValidString(text) {
+		return "", errors.New("Unicode normalization input is not valid UTF-8")
+	}
+	form := norm.NFC
+	compatibility := strings.Contains(spec, "+")
+	decomposed := strings.Contains(spec, "#")
+	switch {
+	case compatibility && decomposed:
+		form = norm.NFKD
+	case compatibility:
+		form = norm.NFKC
+	case decomposed:
+		form = norm.NFD
+	}
+	normalized := form.String(text)
+	if len(normalized) > maxRenderedBytes {
+		return "", errors.New("normalized value exceeds size limit")
+	}
+	return formatRuneString(normalized, spec)
+}
+
+func formatDecimalConversion(input value.Value, spec string) (string, error) {
+	number, err := decimalNumber(input)
+	if err != nil {
+		return "", err
+	}
+	if number < 0 {
+		return "", errors.New("decimal suffix requires a non-negative number")
+	}
+	options, err := parseFormatOptions(spec)
+	if err != nil {
+		return "", err
+	}
+	factor := float64(1000)
+	if strings.Contains(options.flags, "#") {
+		factor = 1024
+	}
+	const suffixes = "kMGTPEZY"
+	exponent := 0
+	scaled := number
+	for scaled >= factor && exponent < len(suffixes) {
+		scaled /= factor
+		exponent++
+	}
+	suffix := ""
+	if exponent != 0 {
+		suffix = suffixes[exponent-1 : exponent]
+		if factor == 1024 {
+			if suffix == "k" {
+				suffix = "Ki"
+			} else {
+				suffix += "i"
+			}
+		}
+	}
+	format := "%"
+	if strings.Contains(options.flags, "-") {
+		format += "-"
+	} else if strings.Contains(options.flags, "0") {
+		format += "0"
+	}
+	if strings.Contains(options.flags, "+") {
+		format += "+"
+	} else if strings.Contains(options.flags, " ") {
+		format += " "
+	}
+	if options.hasWidth {
+		format += strconv.Itoa(options.width)
+	}
+	var numeric string
+	if options.hasPrecision {
+		format += "." + strconv.Itoa(options.precision) + "f"
+		numeric = fmt.Sprintf(format, scaled)
+	} else {
+		limit := math.Ldexp(1, 63)
+		if scaled < -limit || scaled >= limit {
+			return "", errors.New("decimal suffix value is outside int64 range")
+		}
+		format += "d"
+		numeric = fmt.Sprintf(format, int64(scaled))
+	}
+	return boundedFormatted(numeric + suffix)
+}
+
+func decimalNumber(input value.Value) (float64, error) {
+	var number float64
+	switch input.Kind() {
+	case value.KindInt:
+		integer, _ := input.Int()
+		number = float64(integer)
+	case value.KindFloat:
+		number, _ = input.Float()
+	case value.KindString:
+		text, _ := input.StringValue()
+		if len(text) > maxScalarBytes {
+			return 0, errors.New("decimal input exceeds size limit")
+		}
+		parsed, err := strconv.ParseFloat(text, 64)
+		if err != nil {
+			return 0, errors.New("decimal suffix requires a numeric value")
+		}
+		number = parsed
+	default:
+		return 0, fmt.Errorf("decimal suffix requires numeric input, got %s", input.Kind())
+	}
+	if !isFinite(number) {
+		return 0, errors.New("decimal suffix requires a finite number")
+	}
+	return number, nil
 }
 
 func normalizeJSONEncoding(encoded []byte, rawUnicode bool) ([]byte, error) {
@@ -1166,6 +1482,527 @@ func formatPrettyJSON(encoded []byte) (string, error) {
 		}
 	}
 	return output.String(), nil
+}
+
+// c conversion: a present/truthy value becomes the first Unicode code
+// point of its Python-like str(value); false, zero, empty string and
+// other falsy values still go through the string-format path. Missing
+// or None bypasses the conversion entirely and uses the existing
+// default/NA string rendering.
+func formatFirstRuneConversion(input value.Value, spec string) (string, error) {
+	if input.IsMissing() || input.IsNull() {
+		raw, err := scalarString(input)
+		if err != nil {
+			return "", err
+		}
+		return formatRuneString(raw, spec)
+	}
+	// Mirror Python's "if value:" semantics. A present null is already
+	// handled above, so a present value here is considered truthy.
+	body, err := conversionScalarString(input)
+	if err != nil {
+		return "", err
+	}
+	if body == "" {
+		// Empty string is falsy; default/replacement are not applied
+		// because the value itself was not missing.
+		raw, err := scalarString(input)
+		if err != nil {
+			return "", err
+		}
+		return formatRuneString(raw, spec)
+	}
+	// Numeric 0, Bool False, and Float 0.0 are falsy in Python and
+	// therefore bypassed to the string-format path. They all serialize
+	// to non-empty strings via conversionScalarString, so check the
+	// raw numeric truthiness here.
+	switch input.Kind() {
+	case value.KindBool:
+		flag, _ := input.Bool()
+		if !flag {
+			raw, _ := conversionScalarString(input)
+			return formatRuneString(raw, spec)
+		}
+	case value.KindInt:
+		integer, _ := input.Int()
+		if integer == 0 {
+			raw, _ := conversionScalarString(input)
+			return formatRuneString(raw, spec)
+		}
+	case value.KindFloat:
+		floating, _ := input.Float()
+		if floating == 0 {
+			raw, _ := conversionScalarString(input)
+			return formatRuneString(raw, spec)
+		}
+	}
+	if !utf8.ValidString(body) {
+		return "", errors.New("c conversion input is not valid UTF-8")
+	}
+	decoded, _ := utf8.DecodeRuneInString(body)
+	return formatRuneString(string(decoded), spec)
+}
+
+// B conversion: Python-style %s on the UTF-8 byte representation of
+// str(value), with width/precision measured in bytes. Mirrors the
+// pinned yt-dlp path:
+//
+//	f"%{str_fmt}".encode() % str(value).encode()
+//	value.decode("utf-8", "ignore")
+//
+// Precision truncates bytes first; width padding is byte-based and may
+// split a multibyte rune; the final decode with "ignore" discards any
+// invalid trailing fragments.
+func formatBytesConversion(input value.Value, spec string) (string, error) {
+	if input.IsMissing() || input.IsNull() {
+		raw, err := scalarString(input)
+		if err != nil {
+			return "", err
+		}
+		return boundedFormatted(raw)
+	}
+	body, err := conversionScalarString(input)
+	if err != nil {
+		return "", err
+	}
+	if len(body) > maxScalarBytes {
+		return "", errors.New("bytes conversion input exceeds size limit")
+	}
+	encoded := []byte(body)
+	options, err := parseFormatOptions(spec)
+	if err != nil {
+		return "", err
+	}
+	if options.hasPrecision && options.precision < len(encoded) {
+		encoded = encoded[:options.precision]
+	}
+	if options.hasWidth && len(encoded) < options.width {
+		// For the byte %s format only the "-" flag has any effect;
+		// "0", " ", "+", "#" are silently ignored, matching
+		// b"%-Ns" / b"%Ns" in CPython. The padding is always ASCII
+		// space (0x20) and may split a multibyte rune; the trailing
+		// decode-ignore pass will discard any resulting fragment.
+		padding := options.width - len(encoded)
+		pad := bytes.Repeat([]byte{' '}, padding)
+		if strings.Contains(options.flags, "-") {
+			encoded = append(encoded, pad...)
+		} else {
+			encoded = append(pad, encoded...)
+		}
+	}
+	if len(encoded) > maxRenderedBytes {
+		return "", errors.New("bytes conversion output exceeds size limit")
+	}
+	return boundedFormatted(decodeBytesIgnoreInvalid(encoded))
+}
+
+// decodeBytesIgnoreInvalid mirrors Python's bytes.decode("utf-8", "ignore"):
+// invalid bytes are skipped one at a time and decoding continues, so a
+// stray invalid byte embedded between valid runes does not abort the
+// rest of the buffer (e.g. bytes([97,255,98]) decodes to "ab"). An
+// incomplete leading byte at the end of the buffer is also skipped.
+func decodeBytesIgnoreInvalid(encoded []byte) string {
+	var output strings.Builder
+	for index := 0; index < len(encoded); {
+		if encoded[index] < utf8.RuneSelf {
+			output.WriteByte(encoded[index])
+			index++
+			continue
+		}
+		decoded, size := utf8.DecodeRune(encoded[index:])
+		if decoded == utf8.RuneError && size == 1 {
+			// Skip the offending byte (a stray invalid byte, a
+			// continuation byte at the start, or a leading byte whose
+			// continuation chain does not validate) and continue.
+			index++
+			continue
+		}
+		output.WriteString(string(decoded))
+		index += size
+	}
+	return output.String()
+}
+
+func formatShellQuoteConversion(input value.Value, spec string) (string, error) {
+	var arguments []string
+	if strings.Contains(spec, "#") {
+		if items, ok := input.ListValue(); ok {
+			if len(items) > maxTraversalItems {
+				return "", errors.New("shell quote list exceeds item limit")
+			}
+			arguments = make([]string, 0, len(items))
+			for _, item := range items {
+				rendered, err := pythonString(item)
+				if err != nil {
+					return "", err
+				}
+				arguments = append(arguments, rendered)
+			}
+		}
+	}
+	if arguments == nil {
+		rendered, err := pythonString(input)
+		if err != nil {
+			return "", err
+		}
+		arguments = []string{rendered}
+	}
+	quoted := make([]string, len(arguments))
+	for index, argument := range arguments {
+		if runtime.GOOS == "windows" {
+			quoted[index] = quoteWindowsShell(argument)
+		} else {
+			quoted[index] = quotePOSIXShell(argument)
+		}
+	}
+	return formatRuneString(strings.Join(quoted, " "), spec)
+}
+
+var (
+	posixShellSafe   = regexp.MustCompile(`^[A-Za-z0-9_@%+=:,./-]+$`)
+	windowsShellSafe = regexp.MustCompile(`^[A-Za-z0-9_#$*+\-./:?@\\]+$`)
+)
+
+func quotePOSIXShell(text string) string {
+	if text != "" && posixShellSafe.MatchString(text) {
+		return text
+	}
+	return "'" + strings.ReplaceAll(text, "'", `'"'"'`) + "'"
+}
+
+func quoteWindowsShell(text string) string {
+	if windowsShellSafe.MatchString(text) {
+		return text
+	}
+	var escaped strings.Builder
+	for index := 0; index < len(text); {
+		if text[index] == '\\' {
+			start := index
+			for index < len(text) && text[index] == '\\' {
+				index++
+			}
+			count := index - start
+			escaped.WriteString(strings.Repeat(`\`, count))
+			if index == len(text) || text[index] == '"' {
+				escaped.WriteString(strings.Repeat(`\`, count))
+			}
+			continue
+		}
+		switch text[index] {
+		case '"':
+			escaped.WriteString(`""`)
+		case '\r', '\n':
+			escaped.WriteString("%=%")
+		case '%':
+			escaped.WriteString("%%cd:~,%")
+		default:
+			escaped.WriteByte(text[index])
+		}
+		index++
+	}
+	return `"` + escaped.String() + `"`
+}
+
+func formatSanitizeConversion(input value.Value, spec string) (string, error) {
+	rendered, err := pythonString(input)
+	if err != nil {
+		return "", err
+	}
+	sanitized, err := sanitizeFilename(rendered, strings.Contains(spec, "#"))
+	if err != nil {
+		return "", err
+	}
+	return formatRuneString(sanitized, spec)
+}
+
+func sanitizeFilename(text string, restricted bool) (string, error) {
+	if len(text) > maxScalarBytes {
+		return "", errors.New("filename sanitization input exceeds size limit")
+	}
+	if !utf8.ValidString(text) {
+		return "", errors.New("filename sanitization input is not valid UTF-8")
+	}
+	if text == "" {
+		return "", nil
+	}
+	if restricted {
+		text = norm.NFKC.String(text)
+	}
+	text = replaceTimestampColons(text)
+	var output strings.Builder
+	for _, character := range text {
+		replacement := string(character)
+		if restricted {
+			if accent, ok := restrictedAccent(character); ok {
+				replacement = accent
+			} else if strings.ContainsRune(`!&'()[]{}$;`+"`^,#", character) ||
+				unicode.IsSpace(character) || character > 127 {
+				if unicode.IsMark(character) {
+					replacement = ""
+				} else {
+					replacement = "\x00_"
+				}
+			} else {
+				replacement = sanitizeFilenameCharacter(character, true)
+			}
+		} else {
+			replacement = sanitizeFilenameCharacter(character, false)
+		}
+		if err := appendBounded(&output, replacement); err != nil {
+			return "", err
+		}
+	}
+	result := collapseSanitizeSubstitutes(output.String())
+	result = strings.ReplaceAll(result, "\x00", "")
+	if result == "" {
+		result = "_"
+	}
+	for strings.Contains(result, "__") {
+		result = strings.ReplaceAll(result, "__", "_")
+	}
+	result = strings.Trim(result, "_")
+	if restricted && strings.HasPrefix(result, "-_") {
+		result = result[2:]
+	}
+	if strings.HasPrefix(result, "-") {
+		result = "_" + result[1:]
+	}
+	result = strings.TrimLeft(result, ".")
+	if result == "" {
+		result = "_"
+	}
+	return result, nil
+}
+
+func sanitizeFilenameCharacter(character rune, restricted bool) string {
+	switch {
+	case !restricted && character == '\n':
+		return "\x00 "
+	case !restricted && strings.ContainsRune(`"*:<>?|/\`, character):
+		switch character {
+		case '/':
+			return "⧸"
+		case '\\':
+			return "⧹"
+		default:
+			return string(character + 0xfee0)
+		}
+	case character == '?' || character < 32 || character == 127:
+		return ""
+	case character == '"':
+		if restricted {
+			return ""
+		}
+		return "'"
+	case character == ':':
+		if restricted {
+			return "\x00_\x00-"
+		}
+		return "\x00 \x00-"
+	case strings.ContainsRune(`\/|*<>`, character):
+		return "\x00_"
+	default:
+		return string(character)
+	}
+}
+
+func replaceTimestampColons(text string) string {
+	timestamp := regexp.MustCompile(`[0-9]+(?::[0-9]+)+`)
+	return timestamp.ReplaceAllStringFunc(text, func(match string) string {
+		return strings.ReplaceAll(match, ":", "_")
+	})
+}
+
+func collapseSanitizeSubstitutes(text string) string {
+	for index := 0; index+3 < len(text); {
+		if text[index] == 0 && text[index+2] == 0 && text[index+1] == text[index+3] {
+			text = text[:index+2] + text[index+4:]
+			continue
+		}
+		index++
+	}
+	if strings.HasPrefix(text, "\x00") && len(text) >= 2 {
+		text = text[2:]
+		for len(text) > 0 {
+			if strings.ContainsRune(" _-", rune(text[0])) {
+				text = text[1:]
+			} else if text[0] == 0 && len(text) >= 2 {
+				text = text[2:]
+			} else {
+				break
+			}
+		}
+	}
+	if len(text) >= 2 && text[len(text)-2] == 0 {
+		text = text[:len(text)-2]
+		for len(text) > 0 {
+			if strings.ContainsRune(" _-", rune(text[len(text)-1])) {
+				text = text[:len(text)-1]
+			} else if len(text) >= 2 && text[len(text)-2] == 0 {
+				text = text[:len(text)-2]
+			} else {
+				break
+			}
+		}
+	}
+	return text
+}
+
+func restrictedAccent(character rune) (string, bool) {
+	const accented = "ÂÃÄÀÁÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖŐØŒÙÚÛÜŰÝÞßàáâãäåæçèéêëìíîïðñòóôõöőøœùúûüűýþÿ"
+	replacements := []string{"A", "A", "A", "A", "A", "A", "AE", "C", "E", "E", "E", "E", "I", "I", "I", "I", "D", "N", "O", "O", "O", "O", "O", "O", "O", "O", "OE", "U", "U", "U", "U", "U", "Y", "TH", "ss", "a", "a", "a", "a", "a", "a", "ae", "c", "e", "e", "e", "e", "i", "i", "i", "i", "o", "n", "o", "o", "o", "o", "o", "o", "o", "o", "oe", "u", "u", "u", "u", "u", "y", "th", "y"}
+	for index, accent := range []rune(accented) {
+		if accent == character {
+			return replacements[index], true
+		}
+	}
+	return "", false
+}
+
+func formatReprConversion(input value.Value, spec string, asciiOnly bool) (string, error) {
+	rendered, err := pythonRepr(input, asciiOnly, 0)
+	if err != nil {
+		return "", err
+	}
+	return formatRuneString(rendered, spec)
+}
+
+func pythonString(input value.Value) (string, error) {
+	switch input.Kind() {
+	case value.KindList, value.KindObject, value.KindBytes:
+		return pythonRepr(input, false, 0)
+	default:
+		return conversionScalarString(input)
+	}
+}
+
+func pythonRepr(input value.Value, asciiOnly bool, depth int) (string, error) {
+	if depth > maxJSONDepth {
+		return "", errors.New("repr nesting exceeds depth limit")
+	}
+	switch input.Kind() {
+	case value.KindMissing:
+		return "'NA'", nil
+	case value.KindNull:
+		return "None", nil
+	case value.KindBool:
+		return conversionScalarString(input)
+	case value.KindInt, value.KindFloat:
+		return conversionScalarString(input)
+	case value.KindString:
+		text, _ := input.StringValue()
+		return quotePythonString(text, asciiOnly)
+	case value.KindBytes:
+		data, _ := input.BytesValue()
+		return quotePythonBytes(data), nil
+	case value.KindList:
+		items, _ := input.ListValue()
+		if len(items) > maxTraversalItems {
+			return "", errors.New("repr list exceeds item limit")
+		}
+		parts := make([]string, len(items))
+		for index, item := range items {
+			part, err := pythonRepr(item, asciiOnly, depth+1)
+			if err != nil {
+				return "", err
+			}
+			parts[index] = part
+		}
+		return boundedFormatted("[" + strings.Join(parts, ", ") + "]")
+	case value.KindObject:
+		object, _ := input.Object()
+		if object.Len() > maxTraversalItems {
+			return "", errors.New("repr object exceeds item limit")
+		}
+		parts := make([]string, 0, object.Len())
+		for _, field := range object.Fields() {
+			if field.Value.IsMissing() {
+				continue
+			}
+			key, err := quotePythonString(field.Key, asciiOnly)
+			if err != nil {
+				return "", err
+			}
+			item, err := pythonRepr(field.Value, asciiOnly, depth+1)
+			if err != nil {
+				return "", err
+			}
+			parts = append(parts, key+": "+item)
+		}
+		return boundedFormatted("{" + strings.Join(parts, ", ") + "}")
+	default:
+		return "", fmt.Errorf("unsupported repr kind %s", input.Kind())
+	}
+}
+
+func quotePythonString(text string, asciiOnly bool) (string, error) {
+	if len(text) > maxScalarBytes || !utf8.ValidString(text) {
+		return "", errors.New("repr string is invalid or exceeds size limit")
+	}
+	var output strings.Builder
+	output.WriteByte('\'')
+	for _, character := range text {
+		switch character {
+		case '\\':
+			output.WriteString(`\\`)
+		case '\'':
+			output.WriteString(`\'`)
+		case '\t':
+			output.WriteString(`\t`)
+		case '\n':
+			output.WriteString(`\n`)
+		case '\r':
+			output.WriteString(`\r`)
+		default:
+			if character < 32 || character == 127 || (asciiOnly && character > 127) {
+				writePythonEscape(&output, character)
+			} else {
+				output.WriteRune(character)
+			}
+		}
+		if output.Len() > maxRenderedBytes {
+			return "", errors.New("repr output exceeds size limit")
+		}
+	}
+	output.WriteByte('\'')
+	return output.String(), nil
+}
+
+func writePythonEscape(output *strings.Builder, character rune) {
+	switch {
+	case character <= 0xff:
+		fmt.Fprintf(output, `\x%02x`, character)
+	case character <= 0xffff:
+		fmt.Fprintf(output, `\u%04x`, character)
+	default:
+		fmt.Fprintf(output, `\U%08x`, character)
+	}
+}
+
+func quotePythonBytes(data []byte) string {
+	var output strings.Builder
+	output.WriteString("b'")
+	for _, character := range data {
+		switch character {
+		case '\\', '\'':
+			output.WriteByte('\\')
+			output.WriteByte(character)
+		case '\t':
+			output.WriteString(`\t`)
+		case '\n':
+			output.WriteString(`\n`)
+		case '\r':
+			output.WriteString(`\r`)
+		default:
+			if character >= 32 && character < 127 {
+				output.WriteByte(character)
+			} else {
+				fmt.Fprintf(&output, `\x%02x`, character)
+			}
+		}
+	}
+	output.WriteByte('\'')
+	return output.String()
 }
 
 func boundedFormatted(text string) (string, error) {
