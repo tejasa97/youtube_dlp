@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ytdlp-go/ytdlp/internal/archive"
@@ -24,6 +25,7 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/cookies/chromiumwindows"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/firefox"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/netscape"
+	"github.com/ytdlp-go/ytdlp/internal/cookies/safari"
 	credentialnetrc "github.com/ytdlp-go/ytdlp/internal/credentials/netrc"
 	"github.com/ytdlp-go/ytdlp/internal/downloader"
 	"github.com/ytdlp-go/ytdlp/internal/events"
@@ -40,6 +42,7 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/protocol/dash"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/hls"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/ism"
+	"github.com/ytdlp-go/ytdlp/internal/protocol/youtubelive"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 	"github.com/ytdlp-go/ytdlp/internal/youtubepot"
 )
@@ -80,19 +83,23 @@ func IsCategory(err error, category ErrorCategory) bool {
 }
 
 type Request struct {
-	URL                       string
-	OutputTemplate            string
-	OutputDir                 string
-	Proxy                     string
-	ImpersonationProfile      string
-	CookieFile                string
-	CookiesFromBrowser        string
-	UseNetRC                  bool
-	NetRCLocation             string
-	DownloadArchive           string
-	CacheDir                  string
-	Timeout                   time.Duration
-	Overwrite                 bool
+	URL                  string
+	OutputTemplate       string
+	OutputDir            string
+	Proxy                string
+	ImpersonationProfile string
+	CookieFile           string
+	CookiesFromBrowser   string
+	UseNetRC             bool
+	NetRCLocation        string
+	DownloadArchive      string
+	CacheDir             string
+	Timeout              time.Duration
+	Overwrite            bool
+	// Simulate suppresses media, sidecar, archive, and postprocessor output
+	// while still performing extraction. Unlike SkipDownload, it does not
+	// permit related-file writes.
+	Simulate                  bool
 	SkipDownload              bool
 	Format                    string
 	FormatSort                []string
@@ -100,7 +107,13 @@ type Request struct {
 	PreferFreeFormats         bool
 	AllowUnplayableFormats    bool
 	YouTubeTranslatedCaptions bool
+	LiveFromStart             bool
+	YouTubeComments           YouTubeCommentOptions
+	SponsorBlock              SponsorBlockOptions
 	Subtitles                 SubtitleOptions
+	RelatedFiles              RelatedFileOptions
+	PrintRules                []PrintRule
+	Playlist                  PlaylistOptions
 	ProgressTemplate          string
 	MatchFilters              []string
 	ParseMetadata             []string
@@ -123,6 +136,7 @@ type Result struct {
 	Bytes      int64
 	Entries    []Result
 	Artifacts  []Artifact
+	Prints     []PrintOutput
 }
 
 type Event struct {
@@ -165,8 +179,10 @@ type Runner interface {
 	Run(context.Context, Request) (Result, error)
 }
 
-// Client is stateless between operations and safe for concurrent use. A
-// configured event handler must provide its own synchronization when shared.
+// Client is safe for concurrent use. The shared EJS solver and its bounded
+// preprocessed-player cache persist across Run calls so that separate
+// downloads sharing the same YouTube player script skip redundant parsing.
+// A configured event handler must provide its own synchronization when shared.
 type Client struct {
 	handler               EventHandler
 	javascriptHelper      string
@@ -174,12 +190,16 @@ type Client struct {
 	linuxCookieImporter   func(context.Context, chromiumlinux.Options) (chromiumlinux.Result, error)
 	windowsCookieImporter func(context.Context, chromiumwindows.Options) (chromiumwindows.Result, error)
 	firefoxCookieImporter func(context.Context, firefox.Options) (firefox.Result, error)
+	safariCookieImporter  func(context.Context, safari.Options) (safari.Result, error)
 	platform              string
 	plugins               []*InstalledPlugin
 	pluginApprover        PluginPermissionApprover
 	telemetry             *TelemetryCollector
 	youtubePOT            *youtubepot.Director
 	youtubePOTErr         error
+
+	solverMu     sync.Mutex
+	sharedSolver *lazyYouTubeSolver
 }
 
 func NewClient(options ...Option) *Client {
@@ -297,8 +317,7 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 			return Result{}, categorized("open cache", err)
 		}
 	}
-	challengeSolver := &lazyYouTubeSolver{path: discoverJavaScriptHelper(client.javascriptHelper)}
-	defer challengeSolver.Close()
+	challengeSolver := client.sharedChallengeSolver()
 	operation := &operation{
 		client: client, request: request, transport: transport,
 		registry: client.productRegistry(),
@@ -312,6 +331,11 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 
 func (client *Client) productRegistry() *extractor.Registry {
 	registered := []extractor.Extractor{
+		extractor.NewYouTubeMusicSearch(),
+		extractor.NewYouTubeSearch(),
+		extractor.NewYouTubeAliasTab(),
+		extractor.NewYouTubeHandleTab(),
+		extractor.NewYouTubeChannelTab(),
 		extractor.NewYouTube(),
 		extractor.NewVimeo(),
 		extractor.NewTikTok(),
@@ -333,10 +357,14 @@ func (client *Client) productRegistry() *extractor.Registry {
 		extractor.NewARD(),
 		extractor.NewNRK(),
 		extractor.NewTwitch(),
+		extractor.NewSoundCloudSearch(),
 		extractor.NewSoundCloud(),
 		extractor.NewStreamable(),
 		extractor.NewPeerTube(),
 		extractor.NewInternetArchive(),
+		extractor.NewBluesky(),
+		extractor.NewImgur(),
+		extractor.NewFlickr(),
 		extractor.NewRegionSVT(),
 		extractor.NewSyntheticAuth(),
 	}
@@ -362,16 +390,19 @@ const (
 )
 
 type operation struct {
-	client        *Client
-	request       Request
-	transport     *network.Client
-	registry      *extractor.Registry
-	solver        extractor.YouTubeChallengeSolver
-	archive       *archive.Store
-	cache         *cache.Store
-	credentials   extractor.CredentialProvider
-	compatibility compatibilityPlan
-	rootExtractor *string
+	client                           *Client
+	request                          Request
+	transport                        *network.Client
+	registry                         *extractor.Registry
+	solver                           extractor.YouTubeChallengeSolver
+	archive                          *archive.Store
+	cache                            *cache.Store
+	credentials                      extractor.CredentialProvider
+	compatibility                    compatibilityPlan
+	rootExtractor                    *string
+	playlistItemsRangeWarningEmitted bool
+	removeFile                       func(string) error
+	youtubeLiveRefresh               func(mediaformat.Selection) youtubelive.LiveRefreshFunc
 }
 
 func (operation *operation) process(ctx context.Context, rawURL, extractorKey string, overlay *extractor.Entry, ancestors map[string]bool, depth int) (Result, error) {
@@ -398,6 +429,16 @@ func (operation *operation) process(ctx context.Context, rawURL, extractorKey st
 	extracted, err := selected.Extract(ctx, extractor.Request{
 		URL: rawURL, Transport: operation.transport, ChallengeSolver: operation.solver, Credentials: operation.credentials,
 		YouTubePOT: operation.client.youtubePOT, YouTubeTranslatedCaptions: operation.request.YouTubeTranslatedCaptions,
+		YouTubeLiveFromStart: operation.request.LiveFromStart,
+		YouTubeComments: extractor.YouTubeCommentOptions{
+			Enabled:             operation.request.YouTubeComments.Enabled,
+			Sort:                operation.request.YouTubeComments.Sort,
+			MaxComments:         operation.request.YouTubeComments.MaxComments,
+			MaxParents:          operation.request.YouTubeComments.MaxParents,
+			MaxReplies:          operation.request.YouTubeComments.MaxReplies,
+			MaxRepliesPerThread: operation.request.YouTubeComments.MaxRepliesPerThread,
+			MaxDepth:            operation.request.YouTubeComments.MaxDepth,
+		},
 	})
 	if err != nil {
 		return Result{}, categorized(selected.Name()+" extraction", err)
@@ -415,22 +456,69 @@ func (operation *operation) process(ctx context.Context, rawURL, extractorKey st
 	if err := operation.client.emit(ctx, Event{Kind: string(events.KindExtracted), Extractor: selected.Name(), URL: eventURL}); err != nil {
 		return Result{}, &Error{Category: ErrorInternal, Op: "emit extracted event", Err: err}
 	}
+	if extracted.IsURL() {
+		entry := *extracted.Redirect
+		if overlay != nil && overlay.Transparent {
+			if overlay.ID != "" {
+				entry.ID = overlay.ID
+			}
+			if overlay.Title != "" {
+				entry.Title = overlay.Title
+			}
+			entry.Transparent = true
+		}
+		return operation.process(ctx, entry.URL, entry.ExtractorKey, &entry, ancestors, depth+1)
+	}
 	if extracted.IsPlaylist() {
 		return operation.processPlaylist(ctx, extracted, selected.Name(), ancestors, depth)
 	}
-	return operation.processMedia(ctx, extracted.Info, selected.Name())
+	return operation.processMedia(ctx, extracted, selected.Name())
 }
 
 func (operation *operation) processPlaylist(ctx context.Context, extracted extractor.Extraction, extractorName string, ancestors map[string]bool, depth int) (Result, error) {
-	iterator := extracted.Entries.Iterator()
+	if err := operation.validatePrintRules(ctx, extracted.Info, nil, "", true); err != nil {
+		return Result{}, categorized("validate playlist print", err)
+	}
+	if err := operation.emitPlaylistItemsRangeWarning(ctx); err != nil {
+		return Result{}, err
+	}
+	iterator, err := newPlaylistEntryIterator(extracted.Entries.Iterator(), operation.request.Playlist)
+	if err != nil {
+		return Result{}, categorized(extractorName+" playlist selection", fmt.Errorf("%w: %w", errInvalidRequestOptions, err))
+	}
+	var reversed []indexedPlaylistEntry
+	if operation.request.Playlist.Reverse {
+		for {
+			entry, ok, err := iterator.Next(ctx)
+			if err != nil {
+				return Result{}, categorized(extractorName+" playlist iteration", err)
+			}
+			if !ok {
+				break
+			}
+			reversed = append(reversed, entry)
+		}
+		for left, right := 0, len(reversed)-1; left < right; left, right = left+1, right-1 {
+			reversed[left], reversed[right] = reversed[right], reversed[left]
+		}
+	}
 	children := make([]Result, 0)
 	entryValues := make([]value.Value, 0)
 	playlistID, _ := extracted.Info.ID()
 	playlistTitle, _ := extracted.Info.Title()
-	for index := 0; ; index++ {
-		entry, ok, err := iterator.Next(ctx)
-		if err != nil {
-			return Result{}, categorized(extractorName+" playlist iteration", err)
+	for outputIndex := 0; ; outputIndex++ {
+		var selected indexedPlaylistEntry
+		var ok bool
+		if operation.request.Playlist.Reverse {
+			if outputIndex < len(reversed) {
+				selected, ok = reversed[outputIndex], true
+			}
+		} else {
+			var err error
+			selected, ok, err = iterator.Next(ctx)
+			if err != nil {
+				return Result{}, categorized(extractorName+" playlist iteration", err)
+			}
 		}
 		if !ok {
 			info := value.NewInfo(extracted.Info.Fields().Clone())
@@ -445,19 +533,58 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 				result.Downloaded = result.Downloaded || child.Downloaded
 				result.Archived = result.Archived || child.Archived
 			}
+			if !operation.request.Simulate && !operation.request.RelatedFiles.NoPlaylist {
+				artifacts, artifactBytes, err := operation.writeRelatedFiles(ctx, info, true)
+				if err != nil {
+					return Result{}, categorized("write playlist related files", err)
+				}
+				result.Artifacts = append(result.Artifacts, artifacts...)
+				result.Bytes += artifactBytes
+				result.Downloaded = result.Downloaded || len(artifacts) > 0
+			}
+			printArtifacts, printBytes, err := operation.writePrintFiles(ctx, PrintPlaylist, info, nil, "")
+			if err != nil {
+				return Result{}, categorized("write playlist print file", err)
+			}
+			addPrintFileArtifacts(&result, printArtifacts, printBytes)
+			prints, err := operation.capturePrints(ctx, PrintPlaylist, info, nil, "")
+			if err != nil {
+				return Result{}, categorized("render playlist print", err)
+			}
+			result.Prints = append(result.Prints, prints...)
 			return result, nil
 		}
-		if index >= maxPlaylistEntries {
-			return Result{}, categorized(extractorName+" playlist iteration", extractor.ErrPlaylistLimit)
-		}
+		entry := selected.Entry
 		if entry.URL == "" {
 			return Result{}, categorized(extractorName+" playlist entry", extractor.ErrInvalidPlaylist)
 		}
+		if operation.request.Playlist.Flat {
+			entryInfo := flatPlaylistEntryInfo(entry, selected.SourceIndex, playlistID, playlistTitle)
+			child, _, terminal, err := operation.prepareMediaResult(ctx, &entryInfo, entry.ExtractorKey, true)
+			if err != nil {
+				return Result{}, fmt.Errorf("flat playlist entry %d: %w", selected.SourceIndex, err)
+			}
+			if !terminal {
+				prints, err := operation.capturePrints(ctx, PrintVideo, entryInfo, nil, "")
+				if err != nil {
+					return Result{}, fmt.Errorf("flat playlist entry %d print: %w", selected.SourceIndex, err)
+				}
+				child.Prints = append(child.Prints, prints...)
+				printArtifacts, printBytes, err := operation.writePrintFiles(ctx, PrintVideo, entryInfo, nil, "")
+				if err != nil {
+					return Result{}, fmt.Errorf("flat playlist entry %d print file: %w", selected.SourceIndex, err)
+				}
+				addPrintFileArtifacts(&child, printArtifacts, printBytes)
+			}
+			children = append(children, child)
+			entryValues = append(entryValues, value.ObjectValue(entryInfo.Fields()))
+			continue
+		}
 		child, err := operation.process(ctx, entry.URL, entry.ExtractorKey, &entry, ancestors, depth+1)
 		if err != nil {
-			return Result{}, fmt.Errorf("playlist entry %d: %w", index+1, err)
+			return Result{}, fmt.Errorf("playlist entry %d: %w", selected.SourceIndex, err)
 		}
-		entryValue, err := playlistEntryValue(child.InfoJSON, index+1, playlistID, playlistTitle)
+		entryValue, err := playlistEntryValue(child.InfoJSON, selected.SourceIndex, playlistID, playlistTitle)
 		if err != nil {
 			return Result{}, err
 		}
@@ -470,6 +597,102 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 	}
 }
 
+func flatPlaylistEntryInfo(entry extractor.Entry, index int, playlistID, playlistTitle string) value.Info {
+	object := entry.Object()
+	addPlaylistEntryFields(object, index, playlistID, playlistTitle)
+	return value.NewInfo(object)
+}
+
+func addPlaylistEntryFields(object *value.Object, index int, playlistID, playlistTitle string) {
+	object.Set("playlist_index", value.Int(int64(index)))
+	if playlistID != "" {
+		object.Set("playlist_id", value.String(playlistID))
+	}
+	if playlistTitle != "" {
+		object.Set("playlist_title", value.String(playlistTitle))
+	}
+}
+
+func (operation *operation) emitPlaylistItemsRangeWarning(ctx context.Context) error {
+	if operation.playlistItemsRangeWarningEmitted || !playlistItemsOverrideRange(operation.request.Playlist) {
+		return nil
+	}
+	operation.playlistItemsRangeWarningEmitted = true
+	if err := operation.client.emit(ctx, Event{
+		Kind: EventMetadataWarning, Message: "playlist items override playlist start and end",
+	}); err != nil {
+		return &Error{Category: ErrorInternal, Op: "emit playlist selection warning", Err: err}
+	}
+	return nil
+}
+
+type indexedPlaylistEntry struct {
+	Entry       extractor.Entry
+	SourceIndex int
+}
+
+type indexedPlaylistEntryIterator interface {
+	Next(context.Context) (indexedPlaylistEntry, bool, error)
+}
+
+func newPlaylistEntryIterator(source extractor.EntryIterator, options PlaylistOptions) (indexedPlaylistEntryIterator, error) {
+	if options.Items == "" {
+		return newSelectedPlaylistIterator(source, options), nil
+	}
+	specs, err := parsePlaylistItems(options.Items)
+	if err != nil {
+		return nil, err
+	}
+	return &playlistItemsIterator{source: source, specs: specs}, nil
+}
+
+type selectedPlaylistIterator struct {
+	source      extractor.EntryIterator
+	start       int
+	end         int
+	sourceIndex int
+	done        bool
+}
+
+func newSelectedPlaylistIterator(source extractor.EntryIterator, options PlaylistOptions) *selectedPlaylistIterator {
+	start, end := normalizedPlaylistRange(options)
+	return &selectedPlaylistIterator{source: source, start: start, end: end}
+}
+
+func (iterator *selectedPlaylistIterator) Next(ctx context.Context) (indexedPlaylistEntry, bool, error) {
+	if err := ctx.Err(); err != nil {
+		iterator.done = true
+		return indexedPlaylistEntry{}, false, err
+	}
+	if iterator.done {
+		return indexedPlaylistEntry{}, false, nil
+	}
+	for {
+		if iterator.end != 0 && iterator.sourceIndex >= iterator.end {
+			iterator.done = true
+			return indexedPlaylistEntry{}, false, nil
+		}
+		entry, ok, err := iterator.source.Next(ctx)
+		if err != nil {
+			iterator.done = true
+			return indexedPlaylistEntry{}, false, err
+		}
+		if !ok {
+			iterator.done = true
+			return indexedPlaylistEntry{}, false, nil
+		}
+		iterator.sourceIndex++
+		if iterator.sourceIndex > maxPlaylistEntries {
+			iterator.done = true
+			return indexedPlaylistEntry{}, false, extractor.ErrPlaylistLimit
+		}
+		if iterator.sourceIndex < iterator.start {
+			continue
+		}
+		return indexedPlaylistEntry{Entry: entry, SourceIndex: iterator.sourceIndex}, true, nil
+	}
+}
+
 func playlistEntryValue(encoded json.RawMessage, index int, playlistID, playlistTitle string) (value.Value, error) {
 	var entry value.Value
 	if err := json.Unmarshal(encoded, &entry); err != nil {
@@ -479,13 +702,7 @@ func playlistEntryValue(encoded json.RawMessage, index int, playlistID, playlist
 	if !ok {
 		return value.Missing(), &Error{Category: ErrorInternal, Op: "decode playlist entry metadata", Err: extractor.ErrInvalidMetadata}
 	}
-	object.Set("playlist_index", value.Int(int64(index)))
-	if playlistID != "" {
-		object.Set("playlist_id", value.String(playlistID))
-	}
-	if playlistTitle != "" {
-		object.Set("playlist_title", value.String(playlistTitle))
-	}
+	addPlaylistEntryFields(object, index, playlistID, playlistTitle)
 	return value.ObjectValue(object), nil
 }
 
@@ -497,55 +714,120 @@ func encodeInfo(info value.Info) (json.RawMessage, error) {
 	return encoded, nil
 }
 
-func (operation *operation) processMedia(ctx context.Context, info value.Info, extractorName string) (Result, error) {
-	decision, err := operation.applyCompatibility(ctx, &info)
+func (operation *operation) prepareMediaResult(
+	ctx context.Context,
+	info *value.Info,
+	extractorName string,
+	incomplete bool,
+) (Result, archive.Identity, bool, error) {
+	decision, err := operation.applyCompatibility(ctx, info, incomplete)
 	if err != nil {
-		return Result{}, err
+		return Result{}, archive.Identity{}, false, err
 	}
-	encoded, err := encodeInfo(info)
+	encoded, err := encodeInfo(*info)
 	if err != nil {
-		return Result{}, err
+		return Result{}, archive.Identity{}, false, err
 	}
 	result := Result{InfoJSON: encoded, Extractor: extractorName}
 	if !decision.Pass {
 		result.Skipped, result.SkipReason = true, decision.Reason
-		if err := operation.client.emit(ctx, Event{Kind: EventMatchFilterSkipped, Extractor: extractorName, Message: decision.Reason}); err != nil {
-			return Result{}, &Error{Category: ErrorInternal, Op: "emit match-filter skip", Err: err}
+		if err := operation.client.emit(ctx, Event{
+			Kind: EventMatchFilterSkipped, Extractor: extractorName, Message: decision.Reason,
+		}); err != nil {
+			return Result{}, archive.Identity{}, false, &Error{
+				Category: ErrorInternal, Op: "emit match-filter skip", Err: err,
+			}
+		}
+		return result, archive.Identity{}, true, nil
+	}
+	if operation.archive == nil {
+		return result, archive.Identity{}, false, nil
+	}
+	id, hasID := info.ID()
+	if !hasID || extractorName == "" {
+		if incomplete {
+			return result, archive.Identity{}, false, nil
+		}
+		return Result{}, archive.Identity{}, false, categorized("build archive identity", archive.ErrInvalidIdentity)
+	}
+	archiveIdentity, err := archive.NewIdentity(extractorName, id)
+	if err != nil {
+		return Result{}, archive.Identity{}, false, categorized("build archive identity", err)
+	}
+	legacyIDs, err := oldArchiveIDs(*info)
+	if err != nil {
+		return Result{}, archive.Identity{}, false, categorized("read legacy archive identities", err)
+	}
+	matched, found, err := operation.archive.Match(ctx, archiveIdentity, legacyIDs)
+	if err != nil {
+		return Result{}, archive.Identity{}, false, categorized("match download archive", err)
+	}
+	if !found {
+		return result, archiveIdentity, false, nil
+	}
+	result.Archived = true
+	if err := operation.client.emit(ctx, Event{
+		Kind: EventArchiveMatch, Extractor: extractorName, Message: matched,
+	}); err != nil {
+		return Result{}, archive.Identity{}, false, &Error{
+			Category: ErrorInternal, Op: "emit archive event", Err: err,
+		}
+	}
+	return result, archiveIdentity, true, nil
+}
+
+func (operation *operation) processMedia(ctx context.Context, extracted extractor.Extraction, extractorName string) (Result, error) {
+	info := extracted.Info
+	preProcessPrints, err := operation.capturePrints(ctx, PrintPreProcess, info, nil, "")
+	if err != nil {
+		return Result{}, categorized("render pre-process print", err)
+	}
+	preProcessArtifacts, preProcessBytes, err := operation.writePrintFiles(ctx, PrintPreProcess, info, nil, "")
+	if err != nil {
+		return Result{}, categorized("write pre-process print file", err)
+	}
+	result, archiveIdentity, terminal, err := operation.prepareMediaResult(ctx, &info, extractorName, false)
+	if err != nil {
+		return Result{}, err
+	}
+	result.Prints = append(result.Prints, preProcessPrints...)
+	addPrintFileArtifacts(&result, preProcessArtifacts, preProcessBytes)
+	if terminal {
+		if !result.Skipped {
+			prints, printErr := operation.capturePrints(ctx, PrintAfterFilter, info, nil, "")
+			if printErr != nil {
+				return Result{}, categorized("render after-filter print", printErr)
+			}
+			result.Prints = append(result.Prints, prints...)
+			printArtifacts, printBytes, printErr := operation.writePrintFiles(ctx, PrintAfterFilter, info, nil, "")
+			if printErr != nil {
+				return Result{}, categorized("write after-filter print file", printErr)
+			}
+			addPrintFileArtifacts(&result, printArtifacts, printBytes)
 		}
 		return result, nil
 	}
-	var archiveIdentity archive.Identity
-	if operation.archive != nil {
-		id, ok := info.ID()
-		if !ok {
-			return Result{}, categorized("build archive identity", archive.ErrInvalidIdentity)
+	prints, err := operation.capturePrints(ctx, PrintAfterFilter, info, nil, "")
+	if err != nil {
+		return Result{}, categorized("render after-filter print", err)
+	}
+	result.Prints = append(result.Prints, prints...)
+	printArtifacts, printBytes, err := operation.writePrintFiles(ctx, PrintAfterFilter, info, nil, "")
+	if err != nil {
+		return Result{}, categorized("write after-filter print file", err)
+	}
+	addPrintFileArtifacts(&result, printArtifacts, printBytes)
+	if extracted.Enrich != nil {
+		if err := extracted.Enrich(ctx, &info); err != nil {
+			return Result{}, categorized(extractorName+" deferred metadata", err)
 		}
-		archiveIdentity, err = archive.NewIdentity(extractorName, id)
+		result.InfoJSON, err = encodeInfo(info)
 		if err != nil {
-			return Result{}, categorized("build archive identity", err)
-		}
-		legacyIDs, legacyErr := oldArchiveIDs(info)
-		if legacyErr != nil {
-			return Result{}, categorized("read legacy archive identities", legacyErr)
-		}
-		matched, found, matchErr := operation.archive.Match(ctx, archiveIdentity, legacyIDs)
-		if matchErr != nil {
-			return Result{}, categorized("match download archive", matchErr)
-		}
-		if found {
-			result.Archived = true
-			if err := operation.client.emit(ctx, Event{Kind: EventArchiveMatch, Extractor: extractorName, Message: matched}); err != nil {
-				return Result{}, &Error{Category: ErrorInternal, Op: "emit archive event", Err: err}
-			}
-			return result, nil
+			return Result{}, err
 		}
 	}
-	var selectedFormats []mediaformat.Selection
-	if !operation.request.SkipDownload {
-		selectedFormats, err = operation.selectFormats(info)
-		if err != nil {
-			return Result{}, categorized("select format", err)
-		}
+	if err := operation.enrichWithSponsorBlock(ctx, extractorName, &info); err != nil {
+		return Result{}, err
 	}
 	selectedSubtitles, requestedSubtitles, err := selectSubtitles(info, operation.request.Subtitles)
 	if err != nil {
@@ -554,9 +836,74 @@ func (operation *operation) processMedia(ctx context.Context, info value.Info, e
 	if requestedSubtitles != nil {
 		info.Set("requested_subtitles", value.ObjectValue(requestedSubtitles))
 	}
-	result.Artifacts, result.Bytes, err = operation.downloadSubtitles(ctx, info, selectedSubtitles, operation.eventSink())
+	result.InfoJSON, err = encodeInfo(info)
+	if err != nil {
+		return Result{}, err
+	}
+	var selectedFormats []mediaformat.Selection
+	if (!operation.request.SkipDownload && !operation.request.Simulate) || operation.hasPrintStageAtOrAfter(PrintVideo) {
+		selectedFormats, err = operation.selectFormats(info)
+		if err != nil {
+			return Result{}, categorized("select format", err)
+		}
+	}
+	var destination string
+	if len(selectedFormats) > 0 || operation.hasPrintStageAtOrAfter(PrintVideo) {
+		destination, err = operation.printFilename(info, selectedFormats)
+		if err != nil {
+			return Result{}, categorized("render output template", err)
+		}
+	}
+	if err := operation.validatePrintRules(ctx, info, selectedFormats, destination, false); err != nil {
+		return Result{}, categorized("validate print rules", err)
+	}
+	prints, err = operation.capturePrints(ctx, PrintVideo, info, selectedFormats, destination)
+	if err != nil {
+		return Result{}, categorized("render video print", err)
+	}
+	result.Prints = append(result.Prints, prints...)
+	printArtifacts, printBytes, err = operation.writePrintFiles(ctx, PrintVideo, info, selectedFormats, destination)
+	if err != nil {
+		return Result{}, categorized("write video print file", err)
+	}
+	addPrintFileArtifacts(&result, printArtifacts, printBytes)
+	if operation.request.Simulate {
+		return result, nil
+	}
+	relatedArtifacts, relatedBytes, err := operation.writeRelatedFiles(ctx, info, false)
+	if err != nil {
+		return Result{}, categorized("write related files", err)
+	}
+	result.Artifacts = append(result.Artifacts, relatedArtifacts...)
+	result.Bytes += relatedBytes
+	prints, err = operation.capturePrints(ctx, PrintBeforeDL, info, selectedFormats, destination)
+	if err != nil {
+		return Result{}, categorized("render before-download print", err)
+	}
+	result.Prints = append(result.Prints, prints...)
+	printArtifacts, printBytes, err = operation.writePrintFiles(ctx, PrintBeforeDL, info, selectedFormats, destination)
+	if err != nil {
+		return Result{}, categorized("write before-download print file", err)
+	}
+	addPrintFileArtifacts(&result, printArtifacts, printBytes)
+	subtitleArtifacts, subtitleBytes, err := operation.downloadSubtitles(ctx, info, selectedSubtitles, operation.eventSink())
 	if err != nil {
 		return Result{}, categorized("download subtitles", err)
+	}
+	result.Artifacts = append(result.Artifacts, subtitleArtifacts...)
+	result.Bytes += subtitleBytes
+	var convertedSubtitles bool
+	selectedSubtitles, result.Artifacts, convertedSubtitles, err = operation.convertSelectedSubtitles(
+		ctx, selectedSubtitles, result.Artifacts, operation.eventSink(),
+	)
+	if err != nil {
+		return Result{}, categorized("convert subtitles", err)
+	}
+	if convertedSubtitles {
+		result.Bytes, err = artifactBytes(result.Artifacts)
+		if err != nil {
+			return Result{}, categorized("account converted subtitle artifacts", err)
+		}
 	}
 	if len(result.Artifacts) > 0 {
 		result.Downloaded = true
@@ -566,22 +913,24 @@ func (operation *operation) processMedia(ctx context.Context, info value.Info, e
 		return Result{}, err
 	}
 	if operation.request.SkipDownload {
+		for _, stage := range []PrintStage{PrintPostProcess, PrintAfterMove, PrintAfterVideo} {
+			prints, err = operation.capturePrints(ctx, stage, info, selectedFormats, destination)
+			if err != nil {
+				return Result{}, categorized("render "+string(stage)+" print", err)
+			}
+			result.Prints = append(result.Prints, prints...)
+			printArtifacts, printBytes, err = operation.writePrintFiles(ctx, stage, info, selectedFormats, destination)
+			if err != nil {
+				return Result{}, categorized("write "+string(stage)+" print file", err)
+			}
+			addPrintFileArtifacts(&result, printArtifacts, printBytes)
+		}
 		return result, nil
 	}
 
-	pattern := operation.request.OutputTemplate
-	if pattern == "" {
-		pattern = "%(title)s.%(ext)s"
-	}
-	outputInfo := value.NewInfo(info.Fields().Clone())
-	outputInfo.Set("ext", value.String(mergedOutputExtension(selectedFormats)))
 	outputDir := operation.request.OutputDir
 	if outputDir == "" {
 		outputDir = "."
-	}
-	destination, err := outputtemplate.Resolve(outputDir, pattern, outputInfo)
-	if err != nil {
-		return Result{}, categorized("render output template", err)
 	}
 
 	sink := operation.eventSink()
@@ -595,12 +944,42 @@ func (operation *operation) processMedia(ctx context.Context, info value.Info, e
 		return Result{}, categorized("run postprocessors", err)
 	}
 	result.Artifacts = append(result.Artifacts, mediaArtifacts...)
+	var embeddedSubtitles bool
+	result.Artifacts, embeddedSubtitles, err = operation.embedSelectedSubtitles(
+		ctx, &info, downloadedPath, selectedSubtitles, result.Artifacts, sink,
+	)
+	if err != nil {
+		return Result{}, categorized("embed subtitles", err)
+	}
 	if info, statErr := os.Stat(downloadedPath); statErr == nil {
 		downloadedBytes = info.Size()
 	}
 	result.Downloaded = true
 	result.Filename = downloadedPath
-	result.Bytes += downloadedBytes
+	if embeddedSubtitles {
+		result.Bytes, err = artifactBytes(result.Artifacts)
+		if err != nil {
+			return Result{}, categorized("account embedded subtitle artifacts", err)
+		}
+		result.InfoJSON, err = encodeInfo(info)
+		if err != nil {
+			return Result{}, err
+		}
+	} else {
+		result.Bytes += downloadedBytes
+	}
+	for _, stage := range []PrintStage{PrintPostProcess, PrintAfterMove, PrintAfterVideo} {
+		prints, err = operation.capturePrints(ctx, stage, info, selectedFormats, downloadedPath)
+		if err != nil {
+			return Result{}, categorized("render "+string(stage)+" print", err)
+		}
+		result.Prints = append(result.Prints, prints...)
+		printArtifacts, printBytes, err = operation.writePrintFiles(ctx, stage, info, selectedFormats, downloadedPath)
+		if err != nil {
+			return Result{}, categorized("write "+string(stage)+" print file", err)
+		}
+		addPrintFileArtifacts(&result, printArtifacts, printBytes)
+	}
 	if operation.archive != nil {
 		if _, err := operation.archive.Record(ctx, archiveIdentity); err != nil {
 			return Result{}, categorized("record download archive", err)
@@ -649,6 +1028,8 @@ func categorized(op string, err error) error {
 		category = ErrorAuthentication
 	case errors.Is(err, credentialnetrc.ErrUnsafeFile):
 		category = ErrorSecurity
+	case errors.Is(err, errUnsafePrintFile):
+		category = ErrorSecurity
 	case errors.Is(err, credentialnetrc.ErrIO):
 		category = ErrorAuthentication
 	case errors.Is(err, chromium.ErrDatabaseNotFound), errors.Is(err, chromium.ErrInvalidDatabase), errors.Is(err, chromium.ErrSnapshot),
@@ -658,11 +1039,13 @@ func categorized(op string, err error) error {
 		errors.Is(err, chromiumlinux.ErrKeyUnavailable), errors.Is(err, chromiumlinux.ErrDecrypt),
 		errors.Is(err, chromiumwindows.ErrNotFound), errors.Is(err, chromiumwindows.ErrInvalidDatabase), errors.Is(err, chromiumwindows.ErrSnapshot),
 		errors.Is(err, chromiumwindows.ErrInvalidLocalState), errors.Is(err, chromiumwindows.ErrKeyUnavailable),
-		errors.Is(err, chromiumwindows.ErrAppBound), errors.Is(err, chromiumwindows.ErrDecrypt):
+		errors.Is(err, chromiumwindows.ErrAppBound), errors.Is(err, chromiumwindows.ErrDecrypt),
+		errors.Is(err, safari.ErrNotFound), errors.Is(err, safari.ErrInvalidDatabase):
 		category = ErrorAuthentication
 	case errors.Is(err, chromium.ErrUnsupportedBrowser), errors.Is(err, chromium.ErrUnsupportedPlatform),
 		errors.Is(err, chromiumlinux.ErrUnsupportedBrowser), errors.Is(err, chromiumlinux.ErrUnsupportedPlatform),
-		errors.Is(err, chromiumwindows.ErrUnsupportedBrowser), errors.Is(err, chromiumwindows.ErrUnsupportedPlatform):
+		errors.Is(err, chromiumwindows.ErrUnsupportedBrowser), errors.Is(err, chromiumwindows.ErrUnsupportedPlatform),
+		errors.Is(err, safari.ErrUnsupportedPlatform):
 		category = ErrorUnsupported
 	case errors.Is(err, extractor.ErrUnavailable), errors.Is(err, extractor.ErrRegionRestricted), errors.Is(err, extractor.ErrChallengeSolver),
 		errors.Is(err, extractor.ErrTransportProfile), errors.Is(err, extractor.ErrTransportIsolation), errors.Is(err, network.ErrImpersonationUnavailable):
@@ -674,7 +1057,8 @@ func categorized(op string, err error) error {
 		category = ErrorUnsupported
 	case errors.Is(err, outputtemplate.ErrInvalidTemplate), errors.Is(err, outputtemplate.ErrUnsafePath),
 		errors.Is(err, errInvalidRequestOptions),
-		errors.Is(err, matchfilter.ErrInvalidFilter), errors.Is(err, compatmetadata.ErrInvalidAction),
+		errors.Is(err, matchfilter.ErrInvalidFilter), errors.Is(err, matchfilter.ErrEvaluation),
+		errors.Is(err, matchfilter.ErrEvaluationLimit), errors.Is(err, compatmetadata.ErrInvalidAction),
 		errors.Is(err, progress.ErrInvalidProgress), errors.Is(err, mediaformat.ErrInvalidSelector),
 		errors.Is(err, mediaformat.ErrNoMatch),
 		errors.Is(err, mediaformat.ErrInvalidPreference), errors.Is(err, mediaformat.ErrInvalidHeaders),
@@ -685,6 +1069,9 @@ func categorized(op string, err error) error {
 		errors.Is(err, fragment.ErrTooManySegments), errors.Is(err, fragment.ErrTooManyAttempts),
 		errors.Is(err, fragment.ErrTooMuchConcurrency), errors.Is(err, fragment.ErrSegmentTooLarge),
 		errors.Is(err, fragment.ErrUnsafeDestination), errors.Is(err, ism.ErrInvalidConfig),
+		errors.Is(err, youtubelive.ErrInvalidBaseURL), errors.Is(err, youtubelive.ErrInvalidConfig),
+		errors.Is(err, youtubelive.ErrUnsafeOutput), errors.Is(err, youtubelive.ErrOutputExists),
+		errors.Is(err, youtubelive.ErrLiveInvalidConfig),
 		errors.Is(err, ffmpeg.ErrDestinationExists),
 		errors.Is(err, ffmpeg.ErrInvalidOperation), errors.Is(err, postprocess.ErrInvalidGraph),
 		errors.Is(err, postprocess.ErrUnsafePath),
@@ -692,6 +1079,7 @@ func categorized(op string, err error) error {
 		errors.Is(err, errInvalidBrowserCookieSpec), errors.Is(err, netscape.ErrMalformed), errors.Is(err, netscape.ErrFile),
 		errors.Is(err, netscape.ErrWrongFormat), errors.Is(err, netscape.ErrTooLarge),
 		errors.Is(err, firefox.ErrUnsafePath), errors.Is(err, firefox.ErrLimit),
+		errors.Is(err, safari.ErrUnsafePath), errors.Is(err, safari.ErrLimit),
 		errors.Is(err, chromiumlinux.ErrUnsafePath), errors.Is(err, chromiumlinux.ErrLimit),
 		errors.Is(err, chromiumwindows.ErrUnsafePath), errors.Is(err, chromiumwindows.ErrLimit),
 		errors.Is(err, credentialnetrc.ErrSyntax), errors.Is(err, credentialnetrc.ErrLimit), errors.Is(err, credentialnetrc.ErrInvalidHost),
@@ -710,7 +1098,11 @@ func categorized(op string, err error) error {
 		errors.Is(err, fragment.ErrInvalidEncryption), errors.Is(err, hls.ErrInvalidPlaylist),
 		errors.Is(err, dash.ErrInvalidMPD), errors.Is(err, ism.ErrInvalidManifest), errors.Is(err, ism.ErrTimelineBound),
 		errors.Is(err, ffmpeg.ErrMediaFailure), errors.Is(err, pipeline.ErrMissingDASHTracks),
-		errors.Is(err, pipeline.ErrMissingToolset):
+		errors.Is(err, pipeline.ErrMissingToolset), errors.Is(err, youtubelive.ErrHeadSequence),
+		errors.Is(err, youtubelive.ErrNoSegments), errors.Is(err, youtubelive.ErrInvalidWindow),
+		errors.Is(err, youtubelive.ErrDownloadFailed), errors.Is(err, youtubelive.ErrEventSink),
+		errors.Is(err, youtubelive.ErrLiveHeadSequence), errors.Is(err, youtubelive.ErrLiveNoProgress),
+		errors.Is(err, youtubelive.ErrLivePollLimit):
 		category = ErrorInternal
 	}
 	return &Error{Category: category, Op: op, Err: err}
@@ -736,9 +1128,16 @@ func parseBrowserCookieSpec(input string) (browserCookieSpec, error) {
 	}
 	browserName, profile, hasProfile := strings.Cut(base, ":")
 	switch browserName {
-	case "chrome", "chromium", "brave", "edge", "vivaldi", "opera", "firefox":
+	case "chrome", "chromium", "brave", "edge", "vivaldi", "opera", "firefox", "safari":
 	default:
 		return browserCookieSpec{}, fmt.Errorf("%w: unsupported browser", errInvalidBrowserCookieSpec)
+	}
+	if browserName == "safari" {
+		if hasContainer || (hasProfile && (profile == "" || strings.ContainsRune(profile, 0) ||
+			(!filepath.IsAbs(profile) && !strings.HasPrefix(profile, "~/")))) {
+			return browserCookieSpec{}, fmt.Errorf("%w: invalid Safari database path", errInvalidBrowserCookieSpec)
+		}
+		return browserCookieSpec{browser: browserName, profile: profile}, nil
 	}
 	if hasProfile && (profile == "" || profile == "." || profile == ".." || strings.ContainsAny(profile, `:/\\`+"\x00")) {
 		return browserCookieSpec{}, fmt.Errorf("%w: invalid browser profile", errInvalidBrowserCookieSpec)
@@ -750,6 +1149,16 @@ func parseBrowserCookieSpec(input string) (browserCookieSpec, error) {
 }
 
 func (client *Client) importBrowserCookies(ctx context.Context, specification browserCookieSpec) (cookieImportResult, error) {
+	if specification.browser == "safari" {
+		importer := client.safariCookieImporter
+		if importer == nil {
+			importer = safari.Import
+		}
+		result, err := importer(ctx, safari.Options{DatabasePath: specification.profile})
+		return cookieImportResult{
+			Cookies: result.Cookies, Total: result.Total, Imported: result.Imported, Failed: result.Failed,
+		}, err
+	}
 	if specification.browser == "firefox" {
 		importer := client.firefoxCookieImporter
 		if importer == nil {
@@ -789,10 +1198,36 @@ func (client *Client) importBrowserCookies(ctx context.Context, specification br
 	return cookieImportResult{}, chromiumlinux.ErrUnsupportedPlatform
 }
 
+// sharedChallengeSolver returns the client-level EJS solver, creating it on
+// first use. The solver and its bounded cache persist across Run calls.
+func (client *Client) sharedChallengeSolver() *lazyYouTubeSolver {
+	client.solverMu.Lock()
+	defer client.solverMu.Unlock()
+	if client.sharedSolver == nil {
+		client.sharedSolver = &lazyYouTubeSolver{path: discoverJavaScriptHelper(client.javascriptHelper)}
+	}
+	return client.sharedSolver
+}
+
+// Close releases the shared EJS solver and its supervisor child process.
+// It is safe to call multiple times. After Close, subsequent Run calls will
+// lazily recreate the solver if a JavaScript helper is available.
+func (client *Client) Close() {
+	client.solverMu.Lock()
+	defer client.solverMu.Unlock()
+	if client.sharedSolver != nil {
+		client.sharedSolver.Close()
+		client.sharedSolver = nil
+	}
+}
+
 type lazyYouTubeSolver struct {
+	mu         sync.Mutex
 	path       string
 	supervisor *supervisor.Client
 	solver     *ejs.Solver
+	active     sync.WaitGroup // tracks in-flight SolvePlayer calls
+	closed     bool
 }
 
 func (solver *lazyYouTubeSolver) SolvePlayer(
@@ -802,24 +1237,58 @@ func (solver *lazyYouTubeSolver) SolvePlayer(
 	requests []ejs.ChallengeRequest,
 	outputPreprocessed bool,
 ) (ejs.Result, error) {
+	solver.mu.Lock()
+	if solver.closed {
+		solver.mu.Unlock()
+		return ejs.Result{}, errors.New("solver is closed")
+	}
 	if solver.solver == nil {
-		client, err := supervisor.New(supervisor.Config{Path: solver.path, MemoryBytes: ejs.SolverMemoryBytes})
+		scriptHash, hashErr := ejs.BundledScriptHash()
+		if hashErr != nil {
+			solver.mu.Unlock()
+			return ejs.Result{}, hashErr
+		}
+		client, err := supervisor.New(supervisor.Config{
+			Path: solver.path, MemoryBytes: ejs.SolverMemoryBytes,
+			TrustedScriptHash: scriptHash,
+		})
 		if err != nil {
+			solver.mu.Unlock()
 			return ejs.Result{}, err
 		}
 		challengeSolver, err := ejs.New(client)
 		if err != nil {
 			_ = client.Close()
+			solver.mu.Unlock()
 			return ejs.Result{}, err
 		}
 		solver.supervisor, solver.solver = client, challengeSolver
 	}
-	return solver.solver.SolvePlayer(ctx, id, player, requests, outputPreprocessed)
+	solver.active.Add(1)
+	activeSolver := solver.solver
+	solver.mu.Unlock()
+
+	defer solver.active.Done()
+	return activeSolver.SolvePlayer(ctx, id, player, requests, outputPreprocessed)
 }
 
+// Close waits for active operations to complete, then shuts down the
+// supervisor. It is safe to call multiple times.
 func (solver *lazyYouTubeSolver) Close() {
-	if solver != nil && solver.supervisor != nil {
-		_ = solver.supervisor.Close()
+	if solver == nil {
+		return
+	}
+	solver.mu.Lock()
+	solver.closed = true
+	sup := solver.supervisor
+	solver.supervisor = nil
+	solver.solver = nil
+	solver.mu.Unlock()
+
+	// Wait for in-flight operations to finish before killing the helper.
+	solver.active.Wait()
+	if sup != nil {
+		_ = sup.Close()
 	}
 }
 

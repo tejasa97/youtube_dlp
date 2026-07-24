@@ -21,10 +21,12 @@ before extraction or download begins.
 
 Intentional unsupported syntax is explicit rather than silently approximated:
 
-- Match filters do not implement yt-dlp's none-inclusive `?` comparison form,
-  string negation forms such as `!^=`, field-specific incomplete sets, or its
-  filesize/duration text coercions. Supported negation is unary `!field` and
-  `!=`/`!~=`.
+- Match filters implement bounded boolean composition, presence checks, string
+  and numeric comparisons, none-inclusive `?` comparisons, string negation,
+  incomplete-field handling, and yt-dlp-compatible integer, filesize, and
+  duration coercion for the documented corpus. Interactive/break filters,
+  Python regular-expression semantics, and unbounded expressions remain
+  unsupported.
 - Format filters do not implement every yt-dlp selector atom, codec/container
   preference alias, filesize approximation, or advanced sort field conversion.
 - Templates do not implement arithmetic, object slicing, Unicode conversion

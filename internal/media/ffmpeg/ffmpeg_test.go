@@ -100,6 +100,29 @@ func TestCommandCancellation(t *testing.T) {
 	}
 }
 
+func TestCompletedEventCannotVetoCommittedOutput(t *testing.T) {
+	tools := requireToolset(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	root := t.TempDir()
+	input := filepath.Join(root, "input.m4a")
+	generateAudio(t, ctx, tools, input)
+	destination := filepath.Join(root, "output.mka")
+	observerFailure := errors.New("completed observer failed")
+	sink := events.SinkFunc(func(_ context.Context, event events.Event) error {
+		if event.Kind == events.KindPostprocessCompleted {
+			return observerFailure
+		}
+		return nil
+	})
+	if err := tools.Remux(ctx, input, destination, false, sink); err != nil {
+		t.Fatalf("committed operation was vetoed: %v", err)
+	}
+	if info, err := os.Stat(destination); err != nil || info.Size() == 0 {
+		t.Fatalf("committed output missing: %v", err)
+	}
+}
+
 func TestDiscoverRejectsMissingConfiguredTool(t *testing.T) {
 	_, err := Discover(Config{FFmpegPath: filepath.Join(t.TempDir(), "missing")})
 	if !errors.Is(err, ErrFFmpegUnavailable) {

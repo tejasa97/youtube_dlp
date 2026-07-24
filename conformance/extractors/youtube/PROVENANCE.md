@@ -25,6 +25,48 @@ HLS manifest exposure. All identifiers, metadata, cursors, keys, visitor data,
 and domains are artificial; no captured account or production response is
 stored.
 
+The comments corpus (`comments-watch.html`, `comments-header.json`,
+`comments-page.json`, `comments-page-2.json`, and `comments-disabled.json`) is
+also wholly synthetic. Its field and traversal expectations were derived from
+the read-only pinned reference
+`yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`:
+
+- modern entity-backed comment fields:
+  `yt_dlp/extractor/youtube/_video.py:2367-2394`;
+- legacy `commentRenderer` fields:
+  `yt_dlp/extractor/youtube/_video.py:2396-2443`;
+- header sorting, duplicate detection, reply/subthread traversal, and the five
+  `max_comments` dimensions:
+  `yt_dlp/extractor/youtube/_video.py:2445-2577`;
+- `/youtubei/v1/next` continuation requests, disabled-comment handling, and
+  visitor refresh:
+  `yt_dlp/extractor/youtube/_video.py:2577-2659`;
+- the generated initial continuation:
+  `yt_dlp/extractor/youtube/_video.py:2661-2667`;
+- initial comment-section discovery:
+  `yt_dlp/extractor/youtube/_video.py:2669-2678`;
+- the pre-fetch approximate count:
+  `yt_dlp/extractor/youtube/_video.py:4369-4376`;
+- deferred post-extraction integration:
+  `yt_dlp/extractor/youtube/_video.py:4572` and
+  `yt_dlp/extractor/common.py:3882-3908`; and
+- the public CLI aliases:
+  `yt_dlp/options.py:1524-1533`.
+
+The synthetic data and inline test documents include legacy parents and
+replies, modern entity mutations, wrapped sort commands, root and reply
+continuations, nested subthreads, click-tracking parameters, rotating visitor
+identities, transient/incomplete retry responses, pinned duplicate behavior,
+and a disabled message. All video/comment IDs, authors, text, thumbnails,
+counts, API keys, client versions, continuation tokens, visitor data,
+click-tracking values, and URLs are artificial. No production comment,
+identity, account credential, cookie, tracking value, or response is retained.
+
+The Go capability intentionally remains narrower than those reference paths:
+it is opt-in and bounded; it does not authenticate, synthesize an estimated
+timestamp, expose the approximate count before retrieval, reproduce upstream's
+configurable ignore-error policy, or claim untested renderer families.
+
 `playlist-modern.html` and `playlist-modern-continuation.json` extend that
 synthetic corpus with the `lockupViewModel` video and
 `continuationItemViewModel` shapes, including an executor-wrapped continuation
@@ -63,6 +105,29 @@ URLs are accepted only from structured configuration or the player response's
 `assets.js`, then constrained to HTTPS YouTube `/s/player/` paths. No production
 response, media URL, cookie, visitor identifier, or account data is retained.
 
+The authenticated WEB player recovery tests are synthetic expectations derived
+from the pinned reference's SID-cookie selection, SHA-1 authorization
+construction, authenticated-session predicate, and Innertube header generation
+in `yt_dlp/extractor/youtube/_base.py:724-799` and `:921-961`, plus the WEB
+player request body in `yt_dlp/extractor/youtube/_video.py:2903-2956` and
+`:2685-2710`. They cover the `SAPISID` fallback, 1P/3P schemes, delegated and
+user session identifiers, account index, visitor identity, fixed WEB origin,
+and HTML5 playback context. All cookie values, hashes, account/session
+identifiers, client versions, visitor data, URLs, and responses are artificial.
+No production cookie, account, request, or response was captured. The Go slice
+is intentionally limited to format recovery from the exact WEB player endpoint;
+authenticated comments, browse/search/Music clients, multi-client rotation,
+and direct SABR/UMP remain outside this evidence.
+
+The authenticated comment continuation expectations extend that same synthetic
+session model to the pinned reference's `generate_api_headers` call and
+`/youtubei/v1/next` traversal in
+`yt_dlp/extractor/youtube/_video.py:2445-2677`. Tests prove that root, sort,
+reply, retry, and visitor-rotation requests retain the exact WEB identity and
+redirect-disabled cookie boundary. API keys, continuation values, hashes,
+cookies, account/session identifiers, visitors, comments, and response bodies
+are wholly artificial; no signed-in traffic or account data was captured.
+
 The protected-playback token fixture is derived from the `player`, `gvs`, and
 `subs` context definitions and token placement behavior in the pinned
 reference's `yt_dlp/extractor/youtube/pot/provider.py`,
@@ -81,3 +146,87 @@ and the `subs` token query fields `pot`, `potc`, and `c`. The `xpe`/`xpv`
 required-token expectation follows the pinned caption experiment check. All
 names, language entries, visitor data, media URLs, and base64url tokens are
 artificial; the fixture is never used to request YouTube caption content.
+
+## Privacy-Enhanced Embed URL Support (youtube-nocookie.com)
+
+Behavioral reference: `YoutubeIE._VALID_URL` and `YoutubeIE._EMBED_REGEX` in
+`yt_dlp/extractor/youtube/_video.py` at pinned commit
+`aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`.
+
+The pinned reference accepts youtube-nocookie.com via the broad
+`(?:\w+\.)?[yY][oO][uU][tT][uU][bB][eE](?:-nocookie|kids)?\.com` host pattern
+combined with the multi-path alternation (`v/`, `embed/`, `e/`, `shorts/`,
+`live/`, `watch?v=`). The Go implementation intentionally deviates with a
+narrower, security-conscious policy:
+
+Accepted URL forms:
+
+- `https://www.youtube-nocookie.com/embed/<11-char-video-id>`
+- `https://youtube-nocookie.com/embed/<11-char-video-id>`
+- `http://www.youtube-nocookie.com/embed/<11-char-video-id>`
+- `http://youtube-nocookie.com/embed/<11-char-video-id>`
+- `//www.youtube-nocookie.com/embed/<11-char-video-id>` (protocol-relative)
+
+Query and fragment `t`/`start`/`end` offsets are preserved using the existing
+`parseYouTubeOffset` machinery. Extraction canonicalizes to
+`https://www.youtube.com/watch?v=<id>` and never fetches the nocookie URL.
+
+Deliberate deviations from the pinned reference:
+
+1. Host allowlist is exact apex (`youtube-nocookie.com`) and `www` only;
+   wildcard subdomains (e.g. `m.youtube-nocookie.com`) are rejected.
+2. Only the `/embed/<id>` path shape is accepted on nocookie hosts; `v/`,
+   `e/`, `shorts/`, `live/`, `watch?v=`, and all other routes are rejected
+   with the categorized `ErrUnsupported` boundary.
+3. Userinfo (`user@host`, `user:pass@host`), explicit ports (`:443`, `:8080`,
+   and the empty-port form `host:` where Go's `Port()` returns ""), and
+   non-HTTP(S) schemes (`ftp:`, `file:`, `data:`) are unconditionally
+   rejected on all YouTube hosts.
+4. Encoded path separators (`%2f`, `%5c`) and NUL bytes (`%00`) are rejected
+   as defense-in-depth, even though `net/url` does not reject them.
+5. Lookalike and suffix-confusion hosts (`evil-youtube-nocookie.com`,
+   `youtube-nocookie.com.evil.example`, `attacker.youtube-nocookie.com`) are
+   rejected by exact string comparison rather than regex wildcard.
+
+These deviations are documented as intentional hardening; full upstream
+URL-regex parity is not claimed.
+
+### Shared URL-policy enforcement
+
+The URL-security gates (scheme, userinfo, port, encoded separators, host
+classification) are enforced by a single `validateYouTubeURLPolicy` helper
+called at the top of `YouTube.Extract` before any route dispatch. This ensures
+video, playlist, and channel-live-alias routing all reject hostile URL forms
+consistently; no route can bypass the policy by dispatching before validation.
+Playlist dispatch additionally requires `hostStandard` classification.
+
+### Context cancellation propagation
+
+Context cancellation (`context.Canceled`) and deadline expiry
+(`context.DeadlineExceeded`) from the JavaScript challenge solver are returned
+directly without recategorization as `ErrChallengeSolver`, so callers can
+observe them with `errors.Is`. This guarantee applies to the `SolvePlayer`
+call in `resolveYouTubeURLs`; the `recoverYouTubeFormats` path already
+propagated context errors prior to this change.
+
+## Finite post-live DVR reconstruction
+
+The synthetic post-live fixture and protocol tests derive their status,
+`targetDurationSec`, live timestamp, `X-Head-Seqnum`, `sq`, two-sequence tail,
+and 120-hour retained-window semantics from
+`YoutubeIE._needs_live_processing`, `_prepare_live_from_start_formats`,
+`_live_adaptive_fragments`, and the live metadata assembly in
+`yt_dlp/extractor/youtube/_video.py` at the pinned commit above. Media bodies
+are locally generated and split into artificial sequence chunks; all signed
+query values and headers are inert test data.
+
+## Active live-from-start reconstruction
+
+The opt-in active fixtures derive their format eligibility, inclusive active
+head, five-second polling model, five-hour normal refresh, accelerated refresh
+after repeated misses, exact `(itag, client)` refreshed-format identity, and
+active-to-ended final probe from `YoutubeIE._needs_live_processing`,
+`_prepare_live_from_start_formats`, and `_live_adaptive_fragments` at the
+pinned commit above. The Go implementation adds explicit poll, segment,
+refresh-failure, response-size, cancellation, and filesystem bounds. All
+player responses, signing values, clocks, waits, and media are synthetic.

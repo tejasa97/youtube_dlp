@@ -21,11 +21,25 @@ var (
 // Extraction is either one media item or a playlist. Playlist entries remain
 // lazy until a caller asks the Entries sequence for an iterator.
 type Extraction struct {
-	Info    value.Info
-	Entries EntrySequence
+	Info     value.Info
+	Entries  EntrySequence
+	Redirect *Entry
+	Enrich   MetadataEnricher
 }
 
+// MetadataEnricher performs explicitly requested, potentially expensive
+// metadata work after product-level match filtering has accepted the item.
+type MetadataEnricher func(context.Context, *value.Info) error
+
 func Media(info value.Info) Extraction { return Extraction{Info: info} }
+
+func URLResult(entry Entry) (Extraction, error) {
+	if entry.URL == "" {
+		return Extraction{}, fmt.Errorf("%w: missing URL result target", ErrInvalidPlaylist)
+	}
+	cloned := entry
+	return Extraction{Redirect: &cloned}, nil
+}
 
 func Playlist(info value.Info, entries EntrySequence) (Extraction, error) {
 	if entries == nil {
@@ -37,6 +51,7 @@ func Playlist(info value.Info, entries EntrySequence) (Extraction, error) {
 }
 
 func (result Extraction) IsPlaylist() bool { return result.Entries != nil }
+func (result Extraction) IsURL() bool      { return result.Redirect != nil }
 
 // Entry mirrors yt-dlp's lazy URL result. Resolution and nested playlist
 // expansion are owned by the product registry rather than the producing site.
@@ -108,6 +123,8 @@ type PageFetcher func(context.Context, int) ([]Entry, error)
 
 type ContinuationFetcher func(context.Context, string) ([]Entry, string, error)
 
+type StatefulContinuationFetcher func(context.Context, string, string) ([]Entry, string, string, error)
+
 type pagedEntries struct {
 	pageSize int
 	maxPages int
@@ -156,6 +173,89 @@ func (entries continuationEntries) Iterator() EntryIterator {
 		page: append([]Entry(nil), entries.first...), token: entries.nextToken,
 		fetch: entries.fetch, seen: seen, maxPages: entries.maxPages,
 	}
+}
+
+type statefulContinuationEntries struct {
+	first     []Entry
+	nextToken string
+	state     string
+	fetch     StatefulContinuationFetcher
+	maxPages  int
+}
+
+// StatefulContinuationEntries models cursor APIs that rotate request state
+// independently of the continuation token. Each iterator owns both values, so
+// reusable sequences and concurrent consumers cannot leak state into one
+// another.
+func StatefulContinuationEntries(first []Entry, nextToken, state string, fetch StatefulContinuationFetcher) (EntrySequence, error) {
+	if nextToken != "" && fetch == nil {
+		return nil, fmt.Errorf("%w: missing continuation fetcher", ErrInvalidPlaylist)
+	}
+	return statefulContinuationEntries{
+		first: append([]Entry(nil), first...), nextToken: nextToken, state: state,
+		fetch: fetch, maxPages: defaultMaxPlaylistPages,
+	}, nil
+}
+
+func (entries statefulContinuationEntries) Iterator() EntryIterator {
+	seen := make(map[string]bool)
+	if entries.nextToken != "" {
+		seen[entries.nextToken] = true
+	}
+	return &statefulContinuationEntryIterator{
+		page: append([]Entry(nil), entries.first...), token: entries.nextToken,
+		state: entries.state, fetch: entries.fetch, seen: seen, maxPages: entries.maxPages,
+	}
+}
+
+type statefulContinuationEntryIterator struct {
+	page      []Entry
+	pageIndex int
+	token     string
+	state     string
+	fetch     StatefulContinuationFetcher
+	seen      map[string]bool
+	pages     int
+	maxPages  int
+	done      bool
+}
+
+func (iterator *statefulContinuationEntryIterator) Next(ctx context.Context) (Entry, bool, error) {
+	if err := contextError(ctx); err != nil {
+		iterator.done = true
+		return Entry{}, false, err
+	}
+	if iterator.done {
+		return Entry{}, false, nil
+	}
+	for iterator.pageIndex >= len(iterator.page) {
+		if iterator.token == "" {
+			iterator.done = true
+			return Entry{}, false, nil
+		}
+		if iterator.pages >= iterator.maxPages {
+			iterator.done = true
+			return Entry{}, false, ErrPlaylistLimit
+		}
+		page, nextToken, nextState, err := iterator.fetch(ctx, iterator.token, iterator.state)
+		if err != nil {
+			iterator.done = true
+			return Entry{}, false, err
+		}
+		iterator.pages++
+		iterator.page, iterator.pageIndex = append([]Entry(nil), page...), 0
+		iterator.token, iterator.state = nextToken, nextState
+		if nextToken != "" {
+			if iterator.seen[nextToken] {
+				iterator.token = ""
+			} else {
+				iterator.seen[nextToken] = true
+			}
+		}
+	}
+	entry := iterator.page[iterator.pageIndex]
+	iterator.pageIndex++
+	return entry, true, nil
 }
 
 type continuationEntryIterator struct {

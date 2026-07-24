@@ -1,0 +1,12 @@
+{
+  "id": "Gallery1",
+  "is_album": true,
+  "title": "Gallery title",
+  "description": "Gallery description",
+  "media": [{
+    "id": "OnlyVid",
+    "type": "video",
+    "url": "https://i.imgur.com/OnlyVid.mp4",
+    "metadata": {"title": ""}
+  }]
+}

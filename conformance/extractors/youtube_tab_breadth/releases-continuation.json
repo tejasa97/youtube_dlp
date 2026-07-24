@@ -1,0 +1,9 @@
+{
+  "responseContext":{"visitorData":"breadth-releases-rotated"},
+  "continuationContents":{"gridContinuation":{
+    "items":[
+      {"gridPlaylistRenderer":{"playlistId":"PLrelease004","title":{"simpleText":"Continued release"}}},
+      {"lockupViewModel":{"contentId":"ignoredVid01","contentType":"LOCKUP_CONTENT_TYPE_VIDEO"}}
+    ]
+  }}
+}

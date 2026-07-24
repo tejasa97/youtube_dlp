@@ -171,6 +171,37 @@ func TestImpersonatedRedirectDoesNotForwardCredentialsCrossHost(t *testing.T) {
 	}
 }
 
+func TestDoWithoutCredentialsDropsExplicitAndDefaultSecrets(t *testing.T) {
+	var authorization, cookie, proxyAuthorization string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		authorization = request.Header.Get("Authorization")
+		cookie = request.Header.Get("Cookie")
+		proxyAuthorization = request.Header.Get("Proxy-Authorization")
+		_, _ = io.WriteString(writer, "ok")
+	}))
+	defer server.Close()
+	client, err := New(Config{DefaultHeaders: http.Header{
+		"Authorization":       {"Bearer default-secret"},
+		"Cookie":              {"default=secret"},
+		"Proxy-Authorization": {"Basic proxy-secret"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, _ := http.NewRequest(http.MethodGet, server.URL, nil)
+	request.Header.Set("Authorization", "Bearer explicit-secret")
+	request.Header.Set("Cookie", "explicit=secret")
+	request.Header.Set("Proxy-Authorization", "Basic explicit-proxy-secret")
+	response, err := client.DoWithoutCredentials(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if authorization != "" || cookie != "" || proxyAuthorization != "" {
+		t.Fatalf("credential leak: authorization=%q cookie=%q proxy=%q", authorization, cookie, proxyAuthorization)
+	}
+}
+
 func TestReadPageLimitAndCancellation(t *testing.T) {
 	server := testserver.New()
 	defer server.Close()

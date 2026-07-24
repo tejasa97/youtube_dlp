@@ -37,6 +37,7 @@ canonical hosting, or an intentional module-path migration, before release.
 
     func main() {
         client := ytdlp.NewClient()
+        defer client.Close()
         result, err := client.Run(context.Background(), ytdlp.Request{
             URL:          "https://example.invalid/video",
             SkipDownload: true,
@@ -58,6 +59,7 @@ registered extractor in real code.
             return nil
         }),
     )
+    defer client.Close()
 
     ctx, cancel := context.WithCancel(context.Background())
     defer cancel()
@@ -69,7 +71,10 @@ registered extractor in real code.
 
 Cancellation reaches transport, playlist iteration, fragment downloads,
 helpers, plugins, external tools, archives, caches, and updater operations.
-The Client is stateless between operations. A shared event handler must provide
+The Client retains a bounded preprocessed-player cache and an isolated
+JavaScript helper process across calls for YouTube challenge solving.
+Call `client.Close()` when the client is no longer needed to release the
+helper process and associated resources. A shared event handler must provide
 its own synchronization.
 
 ## Error handling
@@ -94,11 +99,13 @@ Request exposes output confinement, proxy, impersonation, cookie, and native
 netrc sources, timeout,
 overwrite and metadata-only operation, format selection/sorting, templates,
 filters, metadata transforms, bounded downloader controls, typed
-postprocessors, archive/cache locations, and explicit plugin selection.
+postprocessors, related files, staged print rules, archive/cache locations, and
+explicit plugin selection.
 
 Result returns normalized InfoJSON, extractor identity, download/archive/skip
-state, filename and byte count, ordered playlist entries, and typed artifacts.
-Unknown ordered metadata is preserved in the normalized envelope.
+state, filename and byte count, ordered playlist entries, typed artifacts, and
+ordered staged print captures. Unknown ordered metadata is preserved in the
+normalized envelope.
 
 Postprocessor is a tagged union. Exactly one operation must be selected per
 step. The CLI exposes audio extraction and remuxing; the Go API additionally
@@ -152,6 +159,19 @@ sidecars. Language rules accept ordered, bounded RE2 expressions and `all`;
 format preferences are slash-separated. Sidecars are reported as subtitle
 artifacts and can still be written when `SkipDownload` is true. See [YouTube
 subtitle CLI evidence](YOUTUBE_SUBTITLE_CLI_EVIDENCE.md).
+
+Set `Request.Simulate` when extraction and normalized metadata are needed
+without any media, subtitle, download-archive, or postprocessor output
+artifacts. This is intentionally distinct from `SkipDownload`, which suppresses
+only the media download and permits related-file writes. See [YouTube subtitle
+listing evidence](YOUTUBE_SUBTITLE_LISTING_EVIDENCE.md).
+
+Set `Request.PrintRules` to capture bounded output templates at native lifecycle
+stages. Ordered values are returned through `Result.Prints`; embedding callers
+choose where and when to display them. Set `PrintRule.FileTemplate` to append
+the rendered line to a confined output-template path; produced files are
+reported as `print` artifacts. See [staged print-output
+evidence](CLI_PRINT_OUTPUT_EVIDENCE.md).
 
 ## Updater
 

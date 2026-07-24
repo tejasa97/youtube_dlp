@@ -5,13 +5,19 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
 	"github.com/ytdlp-go/ytdlp/internal/testserver"
 	"github.com/ytdlp-go/ytdlp/pkg/ytdlp"
 )
@@ -58,6 +64,13 @@ func TestRunTelemetryJSONSuccessFailureAndConflict(t *testing.T) {
 	if code := Run([]string{"--telemetry-json", "--print-json", server.URL + "/page"}, &stdout, &stderr); code != 2 || stdout.Len() != 0 {
 		t.Fatalf("conflict code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
+	for _, flag := range []string{"--dump-json", "--dump-single-json"} {
+		stdout.Reset()
+		stderr.Reset()
+		if code := Run([]string{"--telemetry-json", flag, server.URL + "/page"}, &stdout, &stderr); code != 2 || stdout.Len() != 0 {
+			t.Fatalf("%s conflict code=%d stdout=%q stderr=%q", flag, code, stdout.String(), stderr.String())
+		}
+	}
 }
 
 func TestRunExplicitImpersonationProfileAndFailClosedUnknown(t *testing.T) {
@@ -93,8 +106,27 @@ func TestRunHelpIsCurrentAndSuccessful(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "Usage: ytdlp-go") ||
 		!strings.Contains(stderr.String(), "Experimental Python-free Go implementation") ||
+		!strings.Contains(stderr.String(), "dump-json") ||
+		!strings.Contains(stderr.String(), "dump-single-json") ||
+		!strings.Contains(stderr.String(), "live-from-start") ||
+		!strings.Contains(stderr.String(), "no-quiet") ||
+		!strings.Contains(stderr.String(), "no-simulate") ||
 		strings.Contains(stderr.String(), "Phase 2 alpha development") {
 		t.Fatalf("help is stale: %q", stderr.String())
+	}
+}
+
+func TestRunAcceptsLiveFromStartAndLastNegativeFlagWins(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	for _, arguments := range [][]string{
+		{"--skip-download", "--live-from-start", server.URL + "/page"},
+		{"--skip-download", "--live-from-start", "--no-live-from-start", server.URL + "/page"},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := Run(arguments, &stdout, &stderr); code != 0 {
+			t.Fatalf("Run(%v) code=%d stderr=%q", arguments, code, stderr.String())
+		}
 	}
 }
 
@@ -143,6 +175,76 @@ func TestRunRequiresURL(t *testing.T) {
 	}
 }
 
+func TestRunRejectsInvalidPlaylistRange(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"--playlist-start", "4", "--playlist-end", "3", "https://example.invalid/video.mp4"}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), "invalid request options: playlist range") {
+		t.Fatalf("code = %d; stdout = %q; stderr = %q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunAcceptsLegacyUnboundedPlaylistEnd(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"--playlist-end", "-1", "--skip-download", server.URL + "/page"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code = %d; stdout = %q; stderr = %q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunAcceptsNoPlaylistReverseAfterInheritedReverse(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	configPath := filepath.Join(t.TempDir(), "yt-dlp.conf")
+	if err := os.WriteFile(configPath, []byte("--playlist-reverse\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"--config-location", configPath,
+		"--no-playlist-reverse",
+		"--skip-download",
+		server.URL + "/page",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code = %d; stdout = %q; stderr = %q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunPlaylistItemsAliasAndInvalidSpec(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"-I", "2,4", "--skip-download", server.URL + "/page"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("alias code = %d; stdout = %q; stderr = %q", code, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	code := Run([]string{"--playlist-items", "1::0", "--skip-download", server.URL + "/page"}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), "invalid playlist items") {
+		t.Fatalf("invalid code = %d; stdout = %q; stderr = %q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunAcceptsFlatPlaylistAndCommandLineDisable(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	configPath := filepath.Join(t.TempDir(), "yt-dlp.conf")
+	if err := os.WriteFile(configPath, []byte("--flat-playlist\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"--config-location", configPath,
+		"--no-flat-playlist",
+		"--skip-download",
+		server.URL + "/page",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code = %d; stdout = %q; stderr = %q", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestRunRejectsMalformedURL(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := Run([]string{"not-a-url"}, &stdout, &stderr); code != 3 {
@@ -153,10 +255,10 @@ func TestRunRejectsMalformedURL(t *testing.T) {
 	}
 }
 
-func TestRunRejectsUnsupportedBrowserCookieSource(t *testing.T) {
+func TestRunAdvertisesSafariBrowserCookieSource(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := Run([]string{"--cookies-from-browser", "safari", "https://example.invalid/video.mp4"}, &stdout, &stderr)
-	if code != 2 || !strings.Contains(stderr.String(), "unsupported browser") {
+	code := Run([]string{"--help"}, &stdout, &stderr)
+	if code != 0 || !strings.Contains(stderr.String(), "Safari, Firefox") {
 		t.Fatalf("code = %d; stderr = %q", code, stderr.String())
 	}
 }
@@ -235,6 +337,382 @@ func TestRunWalkingSkeletonAndJSONSeparation(t *testing.T) {
 	}
 }
 
+func TestRunDumpJSONModesSimulateQuietlyAndNoSimulateDownloads(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	for _, test := range []struct {
+		name       string
+		flag       string
+		noSimulate bool
+	}{
+		{name: "per video long", flag: "--dump-json"},
+		{name: "per video short", flag: "-j"},
+		{name: "single long", flag: "--dump-single-json"},
+		{name: "single short", flag: "-J"},
+		{name: "no simulate", flag: "--dump-json", noSimulate: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			arguments := []string{test.flag, "--output-dir", root}
+			if test.noSimulate {
+				arguments = append(arguments, "--no-simulate")
+			}
+			arguments = append(arguments, server.URL+"/page")
+			var stdout, stderr bytes.Buffer
+			if code := Run(arguments, &stdout, &stderr); code != 0 {
+				t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+			}
+			lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+			if len(lines) != 1 || !json.Valid([]byte(lines[0])) {
+				t.Fatalf("JSON output = %q", stdout.String())
+			}
+			if strings.Contains(stderr.String(), "Extracting") || strings.Contains(stderr.String(), "Destination") {
+				t.Fatalf("dump mode was not quiet: %q", stderr.String())
+			}
+			assertPathExists(t, filepath.Join(root, "Deterministic Fixture.bin"), test.noSimulate)
+		})
+	}
+}
+
+func TestRunPrintTemplatesSimulationAndLaterStageDownload(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	for _, test := range []struct {
+		name       string
+		arguments  []string
+		wantOutput string
+		download   bool
+	}{
+		{name: "field shorthand", arguments: []string{"-O", "title,id"}, wantOutput: "Deterministic Fixture\nfixture-direct\n"},
+		{name: "dict shorthand", arguments: []string{"-O", "{id,title}"}, wantOutput: "{\"id\": \"fixture-direct\", \"title\": \"Deterministic Fixture\"}\n"},
+		{name: "diagnostic shorthand", arguments: []string{"-O", "title="}, wantOutput: "title = \"Deterministic Fixture\"\n"},
+		{name: "dict diagnostic shorthand", arguments: []string{"-O", "{id,title}="}, wantOutput: ".{id,title} = {\n    \"id\": \"fixture-direct\",\n    \"title\": \"Deterministic Fixture\"\n}\n"},
+		{name: "selected fields", arguments: []string{"--print", "%(format_id)s|%(ext)s"}, wantOutput: "direct-http|bin\n"},
+		{name: "explicit no simulate", arguments: []string{"--no-simulate", "-O", "title"}, wantOutput: "Deterministic Fixture\n", download: true},
+		{name: "later stage", arguments: []string{"--print", "before_dl:title"}, wantOutput: "Deterministic Fixture\n", download: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			arguments := append([]string{}, test.arguments...)
+			arguments = append(arguments, "--output-dir", root, server.URL+"/page")
+			var stdout, stderr bytes.Buffer
+			if code := Run(arguments, &stdout, &stderr); code != 0 {
+				t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+			}
+			if stdout.String() != test.wantOutput {
+				t.Fatalf("stdout=%q want=%q", stdout.String(), test.wantOutput)
+			}
+			if strings.Contains(stderr.String(), "Extracting") {
+				t.Fatalf("print did not imply quiet: %q", stderr.String())
+			}
+			assertPathExists(t, filepath.Join(root, "Deterministic Fixture.bin"), test.download)
+		})
+	}
+}
+
+func TestRunPrintSyntheticTableFields(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{
+		"-O", "formats_table",
+		"-O", "subtitles_table",
+		"-O", "automatic_captions_table",
+		"-O", "thumbnails_table",
+		server.URL + "/page",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	output := stdout.String()
+	if !strings.Contains(output, "ID          EXT") ||
+		strings.Count(output, "Language Formats") != 2 ||
+		!strings.HasSuffix(output, "NA\n") {
+		t.Fatalf("synthetic tables = %q", output)
+	}
+}
+
+func TestRunLegacyGetAliasesOrderAndOptionalOmission(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"--get-url", "--get-title", "--get-id", "--get-thumbnail", "--get-description",
+		"--get-duration", "--get-filename", "--get-format", "--output-dir", root, server.URL + "/page",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	if len(lines) != 5 || lines[0] != "Deterministic Fixture" || lines[1] != "fixture-direct" ||
+		lines[2] != server.URL+"/media" || lines[3] != filepath.Join(root, "Deterministic Fixture.bin") ||
+		lines[4] != "direct-http" {
+		t.Fatalf("legacy output=%q", stdout.String())
+	}
+	assertPathExists(t, filepath.Join(root, "Deterministic Fixture.bin"), false)
+}
+
+func TestRunPrintToFileAppendsWithoutConsoleOrImplicitQuiet(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"--skip-download",
+		"--print-to-file", "title", "records.txt",
+		"--print-to-file", "after_video:id", "records.txt",
+		"--print-to-file", "{id,title}", "records.txt",
+		"--output-dir", root, server.URL + "/page",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("print-to-file leaked to stdout: %q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "Extracting") {
+		t.Fatalf("print-to-file unexpectedly implied quiet: %q", stderr.String())
+	}
+	body, err := os.ReadFile(filepath.Join(root, "records.txt"))
+	if err != nil || string(body) != "Deterministic Fixture\n{\"id\": \"fixture-direct\", \"title\": \"Deterministic Fixture\"}\nfixture-direct\n" {
+		t.Fatalf("records=%q error=%v", body, err)
+	}
+	assertPathExists(t, filepath.Join(root, "Deterministic Fixture.bin"), false)
+}
+
+func TestRunPrintToFileDefaultDownloadsAndSimulationSuppressesFile(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{
+		"--print-to-file", "title", "records.txt", "--output-dir", root, server.URL + "/page",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("download code=%d stderr=%q", code, stderr.String())
+	}
+	assertPathExists(t, filepath.Join(root, "Deterministic Fixture.bin"), true)
+	assertPathExists(t, filepath.Join(root, "records.txt"), true)
+
+	simulatedRoot := t.TempDir()
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{
+		"--simulate", "--print-to-file", "title", "records.txt",
+		"--output-dir", simulatedRoot, server.URL + "/page",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("simulation code=%d stderr=%q", code, stderr.String())
+	}
+	assertPathExists(t, filepath.Join(simulatedRoot, "records.txt"), false)
+	assertPathExists(t, filepath.Join(simulatedRoot, "Deterministic Fixture.bin"), false)
+}
+
+func TestRunPrintToFileLoadsFromConfiguration(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "yt-dlp.conf")
+	if err := os.WriteFile(configPath, []byte("--skip-download\n--print-to-file \"id\" \"records.txt\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{
+		"--config-location", configPath, "--output-dir", root, server.URL + "/page",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	body, err := os.ReadFile(filepath.Join(root, "records.txt"))
+	if err != nil || string(body) != "fixture-direct\n" {
+		t.Fatalf("records=%q error=%v", body, err)
+	}
+}
+
+func TestRunDumpJSONSimulationSuppressesRelatedFiles(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"--dump-json", "--write-subs", "--sub-langs", "es", "--write-info-json", "--write-url-link",
+		"--download-archive", filepath.Join(root, "archive.txt"),
+		"--output-dir", root, server.URL + "/page",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("dump simulation wrote files: %#v", entries)
+	}
+}
+
+func TestRunWritesMetadataAndShortcutSidecarsWithoutMedia(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"--skip-download", "--write-info-json", "--write-url-link",
+		"--output-dir", root, server.URL + "/page",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	infoPath := filepath.Join(root, "Deterministic Fixture.info.json")
+	infoJSON, err := os.ReadFile(infoPath)
+	if err != nil || !json.Valid(infoJSON) {
+		t.Fatalf("info sidecar=%q error=%v", infoJSON, err)
+	}
+	link, err := os.ReadFile(filepath.Join(root, "Deterministic Fixture.url"))
+	if err != nil || !strings.Contains(string(link), server.URL+"/page") {
+		t.Fatalf("link=%q error=%v", link, err)
+	}
+	assertPathExists(t, filepath.Join(root, "Deterministic Fixture.bin"), false)
+}
+
+func TestRunDumpJSONExplicitNoQuietAndCombinedModes(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"--dump-json", "--no-quiet", server.URL + "/page"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("no-quiet code=%d stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "Extracting") {
+		t.Fatalf("explicit --no-quiet did not restore progress: %q", stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"-j", "-J", server.URL + "/page"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("combined code=%d stderr=%q", code, stderr.String())
+	}
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	if len(lines) != 2 || !json.Valid([]byte(lines[0])) || !json.Valid([]byte(lines[1])) {
+		t.Fatalf("combined output = %q", stdout.String())
+	}
+}
+
+func TestRunDumpJSONFromConfigurationHonorsCommandLineNoSimulate(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "yt-dlp.conf")
+	if err := os.WriteFile(configPath, []byte("--dump-json\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{
+		"--config-location", configPath,
+		"--no-simulate",
+		"--output-dir", root,
+		server.URL + "/page",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !json.Valid(bytes.TrimSpace(stdout.Bytes())) {
+		t.Fatalf("JSON output = %q", stdout.String())
+	}
+	if strings.Contains(stderr.String(), "Extracting") {
+		t.Fatalf("configured dump mode was not quiet: %q", stderr.String())
+	}
+	assertPathExists(t, filepath.Join(root, "Deterministic Fixture.bin"), true)
+}
+
+func TestWriteVideoJSONLinesFlattensPlaylistsAndHandlesFailures(t *testing.T) {
+	leafOne := ytdlp.Result{InfoJSON: json.RawMessage(`{"id":"one","title":"One"}`)}
+	leafTwo := ytdlp.Result{InfoJSON: json.RawMessage(`{"id":"two","title":"Two"}`)}
+	nested := ytdlp.Result{
+		InfoJSON: json.RawMessage(`{"_type":"playlist","id":"nested"}`),
+		Entries:  []ytdlp.Result{leafTwo},
+	}
+	playlist := ytdlp.Result{
+		InfoJSON: json.RawMessage(`{"_type":"playlist","id":"root"}`),
+		Entries:  []ytdlp.Result{leafOne, nested},
+	}
+	var output bytes.Buffer
+	if err := writeVideoJSONLines(context.Background(), playlist, &output); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(output.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("lines = %q", output.String())
+	}
+	for index, id := range []string{"one", "two"} {
+		var item struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal([]byte(lines[index]), &item); err != nil || item.ID != id {
+			t.Fatalf("line %d = %q, error %v", index, lines[index], err)
+		}
+	}
+	output.Reset()
+	if err := writeVideoJSONLines(context.Background(), ytdlp.Result{
+		InfoJSON: json.RawMessage(`{"_type":"playlist","id":"empty","entries":[]}`),
+	}, &output); err != nil || output.Len() != 0 {
+		t.Fatalf("empty playlist output=%q error=%v", output.String(), err)
+	}
+	for _, terminal := range []ytdlp.Result{
+		{InfoJSON: leafOne.InfoJSON, Skipped: true},
+		{InfoJSON: leafOne.InfoJSON, Archived: true},
+	} {
+		if err := writeVideoJSONLines(context.Background(), terminal, &output); err != nil || output.Len() != 0 {
+			t.Fatalf("terminal output=%q error=%v", output.String(), err)
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := writeVideoJSONLines(ctx, leafOne, &output); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancellation error = %v", err)
+	}
+	if err := writeVideoJSONLines(context.Background(), ytdlp.Result{InfoJSON: json.RawMessage(`{`)}, &output); err == nil {
+		t.Fatal("invalid metadata succeeded")
+	}
+	if err := writeVideoJSONLines(context.Background(), leafOne, failingJSONWriter{}); !errors.Is(err, errFailingJSONWriter) {
+		t.Fatalf("writer error = %v", err)
+	}
+	if err := writeVideoJSONLines(context.Background(), leafOne, shortJSONWriter{}); !errors.Is(err, io.ErrShortWrite) {
+		t.Fatalf("short writer error = %v", err)
+	}
+}
+
+func FuzzWriteJSONLine(f *testing.F) {
+	for _, seed := range [][]byte{
+		[]byte(`{"id":"video"}`),
+		[]byte("[1,2,3]"),
+		[]byte("null"),
+		[]byte("{"),
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, raw []byte) {
+		var output bytes.Buffer
+		err := writeJSONLine(context.Background(), json.RawMessage(raw), &output)
+		if err != nil {
+			return
+		}
+		line := bytes.TrimSuffix(output.Bytes(), []byte("\n"))
+		if output.Len() == 0 || output.Bytes()[output.Len()-1] != '\n' || !json.Valid(line) {
+			t.Fatalf("successful output is not one JSON line: %q", output.Bytes())
+		}
+	})
+}
+
+var errFailingJSONWriter = errors.New("failing JSON writer")
+
+type failingJSONWriter struct{}
+
+func (failingJSONWriter) Write([]byte) (int, error) { return 0, errFailingJSONWriter }
+
+type shortJSONWriter struct{}
+
+func (shortJSONWriter) Write(input []byte) (int, error) {
+	if len(input) == 0 {
+		return 0, nil
+	}
+	return len(input) - 1, nil
+}
+
 func TestRunWritesSelectedSubtitlesWhileSkippingMedia(t *testing.T) {
 	server := testserver.New()
 	defer server.Close()
@@ -262,12 +740,315 @@ func TestRunWritesSelectedSubtitlesWhileSkippingMedia(t *testing.T) {
 	}
 }
 
+func TestRunEmbedSubtitlesImplicitSelectionAndClear(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{
+		"--output-dir", root, "--skip-download", "--embed-subs", server.URL + "/page",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("embed code=%d stderr=%q", code, stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(root, "Deterministic Fixture.en.vtt")); err != nil {
+		t.Fatalf("implicit manual subtitle: %v", err)
+	}
+
+	clearRoot := t.TempDir()
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{
+		"--output-dir", clearRoot, "--skip-download", "--embed-subs", "--no-embed-subs", server.URL + "/page",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("clear code=%d stderr=%q", code, stderr.String())
+	}
+	entries, err := os.ReadDir(clearRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("--no-embed-subs left implicit downloads: %#v", entries)
+	}
+}
+
+func TestRunEmbedsAutomaticSubtitleAndUsesPinnedRetentionRule(t *testing.T) {
+	ffmpegPath, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg unavailable")
+	}
+	fixtureRoot := t.TempDir()
+	mediaPath := filepath.Join(fixtureRoot, "media.mp4")
+	output, err := exec.Command(ffmpegPath,
+		"-nostdin", "-y", "-f", "lavfi", "-i", "color=c=black:s=32x32:d=0.3",
+		"-c:v", "mpeg4", mediaPath,
+	).CombinedOutput()
+	if err != nil {
+		t.Fatalf("generate media: %v: %s", err, output)
+	}
+	media, err := os.ReadFile(mediaPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/page":
+			_, _ = fmt.Fprintf(writer, `{
+				"id":"cli-embed","title":"CLI Embed","ext":"mp4",
+				"formats":[{"format_id":"media","url":%q,"ext":"mp4","vcodec":"mpeg4","acodec":"none"}],
+				"subtitles":{"en":[{"url":%q,"ext":"vtt"}]},
+				"automatic_captions":{"pt":[{"url":%q,"ext":"srt"}]}
+			}`, server.URL+"/media.mp4", server.URL+"/en.vtt", server.URL+"/pt.srt")
+		case "/media.mp4":
+			writer.Header().Set("Content-Length", fmt.Sprint(len(media)))
+			if request.Method != http.MethodHead {
+				_, _ = writer.Write(media)
+			}
+		case "/pt.srt":
+			_, _ = writer.Write([]byte("1\n00:00:00,000 --> 00:00:00,200\nAutomatic\n"))
+		case "/en.vtt":
+			_, _ = writer.Write([]byte("WEBVTT\n\n00:00.000 --> 00:00.200\nManual\n"))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{
+		"--quiet", "--output-dir", root, "--embed-subs", "--write-auto-subs",
+		"--sub-langs", "pt", server.URL + "/page",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	outputPath := filepath.Join(root, "CLI Embed.mp4")
+	tools, _ := ffmpeg.Discover(ffmpeg.Config{})
+	probe, err := tools.Probe(context.Background(), outputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	subtitles := 0
+	for _, stream := range probe.Streams {
+		if stream.CodecType == "subtitle" {
+			subtitles++
+		}
+	}
+	if subtitles != 1 {
+		t.Fatalf("streams=%#v", probe.Streams)
+	}
+	if _, err := os.Stat(filepath.Join(root, "CLI Embed.pt.srt")); !os.IsNotExist(err) {
+		t.Fatalf("automatic sidecar retained without --write-subs: %v", err)
+	}
+
+	manualRoot := t.TempDir()
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{
+		"--quiet", "--output-dir", manualRoot, "--embed-subs", "--write-subs",
+		"--sub-langs", "en", server.URL + "/page",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("manual code=%d stderr=%q", code, stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(manualRoot, "CLI Embed.en.vtt")); err != nil {
+		t.Fatalf("manual sidecar not retained with --write-subs: %v", err)
+	}
+
+	conversionRoot := t.TempDir()
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{
+		"--quiet", "--skip-download", "--output-dir", conversionRoot,
+		"--write-auto-subs", "--convert-subs", "vtt",
+		"--sub-langs", "pt", server.URL + "/page",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("conversion code=%d stderr=%q", code, stderr.String())
+	}
+	if body, err := os.ReadFile(filepath.Join(conversionRoot, "CLI Embed.pt.vtt")); err != nil ||
+		!strings.Contains(string(body), "WEBVTT") {
+		t.Fatalf("converted sidecar=%q err=%v", body, err)
+	}
+	if _, err := os.Stat(filepath.Join(conversionRoot, "CLI Embed.pt.srt")); !os.IsNotExist(err) {
+		t.Fatalf("source sidecar retained after conversion: %v", err)
+	}
+}
+
+func TestRunListSubsSimulatesAndPreservesOutputChannels(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := RunContext(context.Background(), []string{
+		"--list-subs", "--write-subs", "--write-auto-subs", "--output-dir", root, server.URL + "/page",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Language") || !strings.Contains(stdout.String(), "es") || !strings.Contains(stdout.String(), "en") {
+		t.Fatalf("missing subtitle tables: %q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "Available automatic captions") || !strings.Contains(stderr.String(), "Available subtitles") {
+		t.Fatalf("status channel=%q", stderr.String())
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("--list-subs wrote files: %#v", entries)
+	}
+
+	var quietOut, quietErr bytes.Buffer
+	if code := Run([]string{"--quiet", "--list-subs", "--skip-download", server.URL + "/page"}, &quietOut, &quietErr); code != 0 {
+		t.Fatalf("quiet code=%d stderr=%q", code, quietErr.String())
+	}
+	if !strings.Contains(quietOut.String(), "Language") || !strings.Contains(quietErr.String(), "Available subtitles") || strings.Contains(quietErr.String(), "Extracting") {
+		t.Fatalf("quiet stdout=%q stderr=%q", quietOut.String(), quietErr.String())
+	}
+}
+
+func TestRunSimulationTriStateAndSkipDownloadRemainDistinct(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	mediaName := "Deterministic Fixture.bin"
+	tests := []struct {
+		name       string
+		arguments  []string
+		wantMedia  bool
+		wantManual bool
+	}{
+		{
+			name:      "explicit simulate",
+			arguments: []string{"--simulate", "--write-subs"},
+		},
+		{
+			name:      "short simulate alias wins last",
+			arguments: []string{"--no-simulate", "-s"},
+		},
+		{
+			name:      "explicit no-simulate wins last",
+			arguments: []string{"--simulate", "--no-simulate"},
+			wantMedia: true,
+		},
+		{
+			name:      "false positive form disables simulation",
+			arguments: []string{"--simulate=false"},
+			wantMedia: true,
+		},
+		{
+			name:      "negative false form enables simulation",
+			arguments: []string{"--no-simulate=false"},
+		},
+		{
+			name:       "skip download still writes related files",
+			arguments:  []string{"--no-download", "--write-subs", "--sub-langs", "es"},
+			wantManual: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			arguments := append([]string{"--output-dir", root}, test.arguments...)
+			arguments = append(arguments, server.URL+"/page")
+			var stdout, stderr bytes.Buffer
+			if code := Run(arguments, &stdout, &stderr); code != 0 {
+				t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+			}
+			assertPathExists(t, filepath.Join(root, mediaName), test.wantMedia)
+			assertPathExists(t, filepath.Join(root, "Deterministic Fixture.es.vtt"), test.wantManual)
+		})
+	}
+}
+
+func TestRunListSubsNoSimulateDownloadsAndHonorsSubtitleWrites(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"--list-subs", "--no-simulate", "--write-subs", "--sub-langs", "es",
+		"--output-dir", root, server.URL + "/page",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Language") {
+		t.Fatalf("missing subtitle listing: %q", stdout.String())
+	}
+	assertPathExists(t, filepath.Join(root, "Deterministic Fixture.bin"), true)
+	assertPathExists(t, filepath.Join(root, "Deterministic Fixture.es.vtt"), true)
+}
+
+func TestRunCommandLineNoSimulateOverridesInheritedSimulation(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "yt-dlp.conf")
+	if err := os.WriteFile(configPath, []byte("--simulate\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"--config-location", configPath, "--list-subs", "--no-simulate",
+		"--output-dir", root, server.URL + "/page",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	assertPathExists(t, filepath.Join(root, "Deterministic Fixture.bin"), true)
+}
+
+func assertPathExists(t *testing.T, path string, want bool) {
+	t.Helper()
+	_, err := os.Stat(path)
+	if want && err != nil {
+		t.Fatalf("%s: %v", path, err)
+	}
+	if !want && !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("%s unexpectedly exists: %v", path, err)
+	}
+}
+
+func TestRunListSubsPrintJSONAndCancellation(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"--list-subs", "--print-json", server.URL + "/page"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	if len(lines) < 2 || !json.Valid([]byte(lines[len(lines)-1])) {
+		t.Fatalf("list/JSON output=%q", stdout.String())
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	stdout.Reset()
+	stderr.Reset()
+	if code := RunContext(ctx, []string{"--list-subs", server.URL + "/page"}, &stdout, &stderr); code != 130 {
+		t.Fatalf("cancel code=%d stderr=%q", code, stderr.String())
+	}
+}
+
 func TestSubtitleLanguageRules(t *testing.T) {
 	if got := strings.Join(subtitleLanguageRules([]string{" en, ,fr ", "-en"}, false), ","); got != "en,fr,-en" {
 		t.Fatalf("rules = %q", got)
 	}
 	if got := strings.Join(subtitleLanguageRules([]string{"en"}, true), ","); got != "all" {
 		t.Fatalf("all rules = %q", got)
+	}
+}
+
+func TestRunConvertSubtitleAliasesAndValidation(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	for _, flag := range []string{"--convert-subs", "--convert-sub", "--convert-subtitles"} {
+		var stdout, stderr bytes.Buffer
+		if code := Run([]string{"--skip-download", flag, "vtt", server.URL + "/page"}, &stdout, &stderr); code != 0 {
+			t.Fatalf("%s: code=%d stderr=%q", flag, code, stderr.String())
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"--convert-subs", "mov_text", server.URL + "/page"}, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "unsupported subtitle format") {
+		t.Fatalf("invalid format: code=%d stderr=%q", code, stderr.String())
 	}
 }
 
@@ -318,7 +1099,10 @@ func TestRunWaveTwoCompatibilityFlags(t *testing.T) {
 	code := Run([]string{
 		"--skip-download", "--print-json", "-f", "best", "-S", "size",
 		"--replace-in-metadata", "title:Deterministic:Native",
-		"--match-filter", "title~=Native", server.URL + "/page",
+		"--match-filter", "title=discarded",
+		"--no-match-filters",
+		"--match-filters", "title~=Native",
+		server.URL + "/page",
 	}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("code = %d; stderr = %s", code, stderr.String())
@@ -341,6 +1125,37 @@ func TestRunRejectsInvalidWaveTwoLimits(t *testing.T) {
 		var stdout, stderr bytes.Buffer
 		if code := Run(arguments, &stdout, &stderr); code != 2 {
 			t.Errorf("Run(%q) code = %d; stderr = %q", arguments, code, stderr.String())
+		}
+	}
+}
+
+func TestParseYouTubeCommentLimits(t *testing.T) {
+	options, err := parseYouTubeCommentLimits("100,20,30,4,3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if options.MaxComments != 100 || options.MaxParents != 20 || options.MaxReplies != 30 ||
+		options.MaxRepliesPerThread != 4 || options.MaxDepth != 3 {
+		t.Fatalf("options = %#v", options)
+	}
+	for _, input := range []string{",", "1,", "one", "-1", "10001", "1,2,3,4,9", "1,2,3,4,5,6"} {
+		if _, err := parseYouTubeCommentLimits(input); err == nil {
+			t.Errorf("parseYouTubeCommentLimits(%q) error = nil", input)
+		}
+	}
+}
+
+func TestRunAcceptsYouTubeCommentAliasesAndClears(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	for _, arguments := range [][]string{
+		{"--skip-download", "--get-comments", "--youtube-max-comments", "10,2,3,1,2", "--youtube-comment-sort", "top", server.URL + "/page"},
+		{"--skip-download", "--write-comments", "--no-write-comments", server.URL + "/page"},
+		{"--skip-download", "--get-comments", "--no-get-comments", server.URL + "/page"},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := Run(arguments, &stdout, &stderr); code != 0 {
+			t.Fatalf("Run(%q) code=%d stderr=%q", arguments, code, stderr.String())
 		}
 	}
 }

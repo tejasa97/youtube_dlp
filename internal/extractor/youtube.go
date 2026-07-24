@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ytdlp-go/ytdlp/internal/javascript/ejs"
 	"github.com/ytdlp-go/ytdlp/internal/value"
@@ -29,12 +30,81 @@ const (
 )
 
 type youtubePageConfig struct {
-	PlayerJSURL    string `json:"PLAYER_JS_URL"`
-	VisitorData    string `json:"VISITOR_DATA"`
-	LoggedIn       *bool  `json:"LOGGED_IN"`
-	PlayerContexts map[string]struct {
+	PlayerJSURL        string                  `json:"PLAYER_JS_URL"`
+	VisitorData        string                  `json:"VISITOR_DATA"`
+	LoggedIn           *bool                   `json:"LOGGED_IN"`
+	APIKey             string                  `json:"INNERTUBE_API_KEY"`
+	ClientVersion      string                  `json:"INNERTUBE_CLIENT_VERSION"`
+	ContextClientName  json.RawMessage         `json:"INNERTUBE_CONTEXT_CLIENT_NAME"`
+	SessionIndex       json.RawMessage         `json:"SESSION_INDEX"`
+	DelegatedSessionID string                  `json:"DELEGATED_SESSION_ID"`
+	UserSessionID      string                  `json:"USER_SESSION_ID"`
+	DataSyncID         string                  `json:"DATASYNC_ID"`
+	InnertubeContext   youtubeInnertubeContext `json:"INNERTUBE_CONTEXT"`
+	PlayerContexts     map[string]struct {
 		JSURL string `json:"jsUrl"`
 	} `json:"WEB_PLAYER_CONTEXT_CONFIGS"`
+}
+
+type youtubeInnertubeContext struct {
+	Client struct {
+		ClientName    string `json:"clientName"`
+		ClientVersion string `json:"clientVersion"`
+		VisitorData   string `json:"visitorData"`
+		UserAgent     string `json:"userAgent"`
+	} `json:"client"`
+}
+
+// youtubeHostKind classifies a parsed URL host into one of three categories.
+// Both Suitable and parseYouTubeTarget use classifyYouTubeHost so the two
+// views of the host policy cannot drift apart.
+type youtubeHostKind int
+
+const (
+	hostUnknown  youtubeHostKind = iota // unrecognized host
+	hostStandard                        // youtube.com, *.youtube.com, youtu.be
+	hostNoCookie                        // youtube-nocookie.com, www.youtube-nocookie.com
+)
+
+// classifyYouTubeHost lower-cases the hostname of parsed (stripping any
+// trailing dot) and returns the normalized host string together with its
+// classification. Only the exact apex and www nocookie hosts are recognized;
+// subdomains, lookalikes, and suffix-confusion domains yield hostUnknown.
+func classifyYouTubeHost(parsed *url.URL) (string, youtubeHostKind) {
+	if parsed == nil {
+		return "", hostUnknown
+	}
+	host := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
+	switch {
+	case host == "youtube.com" || strings.HasSuffix(host, ".youtube.com") || host == "youtu.be":
+		return host, hostStandard
+	case host == "youtube-nocookie.com" || host == "www.youtube-nocookie.com":
+		return host, hostNoCookie
+	default:
+		return host, hostUnknown
+	}
+}
+
+// validateYouTubeURLPolicy enforces the shared URL-security policy that every
+// YouTube route (video, playlist, live-alias) must satisfy before dispatch.
+// It rejects non-HTTP(S) schemes, userinfo, explicit ports, encoded path
+// separators (%2f, %5c), encoded NUL bytes (%00), and unrecognized hosts.
+// On success it returns the normalized host and its classification.
+func validateYouTubeURLPolicy(parsed *url.URL) (string, youtubeHostKind, error) {
+	if parsed.Scheme != "http" && parsed.Scheme != "https" && parsed.Scheme != "" {
+		return "", hostUnknown, fmt.Errorf("%w: unsupported URL scheme", ErrUnsupported)
+	}
+	if parsed.User != nil || strings.Contains(parsed.Host, ":") {
+		return "", hostUnknown, fmt.Errorf("%w: unsupported YouTube URL form", ErrUnsupported)
+	}
+	if rawPath := strings.ToLower(parsed.EscapedPath()); strings.Contains(rawPath, "%2f") || strings.Contains(rawPath, "%5c") || strings.Contains(rawPath, "%00") {
+		return "", hostUnknown, fmt.Errorf("%w: unsupported YouTube URL form", ErrUnsupported)
+	}
+	host, kind := classifyYouTubeHost(parsed)
+	if kind == hostUnknown {
+		return "", hostUnknown, fmt.Errorf("%w: unsupported host", ErrUnsupported)
+	}
+	return host, kind, nil
 }
 
 type YouTube struct{}
@@ -44,17 +114,34 @@ func NewYouTube() YouTube { return YouTube{} }
 func (YouTube) Name() string { return "youtube" }
 
 func (YouTube) Suitable(parsed *url.URL) bool {
-	host := strings.ToLower(parsed.Hostname())
-	return host == "youtube.com" || strings.HasSuffix(host, ".youtube.com") || host == "youtu.be"
+	_, kind := classifyYouTubeHost(parsed)
+	return kind != hostUnknown
 }
 
 func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error) {
-	if playlistID, ok := youtubePlaylistID(request.URL); ok {
-		return extractYouTubePlaylist(ctx, request, playlistID)
+	// Apply the shared URL-security policy before any routing so that
+	// playlist, live-alias, and video paths cannot be reached with hostile
+	// URL forms (bad schemes, userinfo, ports, encoded separators, or
+	// unrecognized hosts).
+	parsed, parseErr := url.Parse(request.URL)
+	if parseErr != nil {
+		return Extraction{}, fmt.Errorf("%w: invalid YouTube URL", ErrUnsupported)
 	}
-	if aliasURL, ok := youtubeChannelLiveAliasURL(request.URL); ok {
-		request.URL = aliasURL
-		return extractYouTubeChannelLiveAlias(ctx, request)
+	_, kind, policyErr := validateYouTubeURLPolicy(parsed)
+	if policyErr != nil {
+		return Extraction{}, policyErr
+	}
+	// Privacy-enhanced embed hosts never serve playlists or channel-live
+	// alias pages; skip those branches so parseYouTubeTarget can reject
+	// every non-/embed/ path uniformly on nocookie hosts.
+	if kind == hostStandard {
+		if playlistID, ok := youtubePlaylistID(request.URL); ok {
+			return extractYouTubePlaylist(ctx, request, playlistID)
+		}
+		if aliasURL, ok := youtubeChannelLiveAliasURL(request.URL); ok {
+			request.URL = aliasURL
+			return extractYouTubeChannelLiveAlias(ctx, request)
+		}
 	}
 	target, err := parseYouTubeTarget(request.URL)
 	if err != nil {
@@ -77,31 +164,62 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 	if player.VideoDetails.VideoID != "" && player.VideoDetails.VideoID != videoID {
 		return Extraction{}, fmt.Errorf("%w: response video id mismatch", ErrInvalidMetadata)
 	}
-	if err := checkYouTubeAvailability(player.PlayabilityStatus); err != nil {
-		return Extraction{}, err
-	}
 	pageConfig := discoverYouTubePageConfig(page)
+	initialHasFormats := hasYouTubeFormatCandidates(player)
+	if availabilityErr := checkYouTubeAvailability(player.PlayabilityStatus); availabilityErr != nil {
+		loggedInRecovery := pageConfig.LoggedIn != nil && *pageConfig.LoggedIn &&
+			!initialHasFormats && errors.Is(availabilityErr, ErrAuthentication)
+		if !loggedInRecovery {
+			return Extraction{}, availabilityErr
+		}
+	}
 	playerPath := pageConfig.playerPath(player.Assets.JS)
 	player.clientName = "WEB"
 	player.visitorData = pageConfig.visitorData(player.ResponseContext.VisitorData)
 	player.playerURL = playerPath
 	formatPlayers := []youtubePlayerResponse{player}
-	if !hasYouTubeFormatCandidates(player) {
+	if !initialHasFormats {
 		if pageConfig.LoggedIn != nil && *pageConfig.LoggedIn {
-			return Extraction{}, fmt.Errorf("%w: authenticated YouTube format recovery is not implemented", ErrAuthentication)
-		}
-		visitorData := pageConfig.visitorData(player.ResponseContext.VisitorData)
-		recovered, err := recoverYouTubeFormats(ctx, request.Transport, videoID, visitorData, playerPath, request.YouTubePOT)
-		if err != nil {
-			return Extraction{}, err
-		}
-		formatPlayers = append(formatPlayers, recovered...)
-		for _, recoveredPlayer := range recovered {
+			recovered, authErr := requestAuthenticatedYouTubeWEBPlayer(
+				ctx,
+				request.Transport,
+				videoID,
+				pageConfig.webAuthConfig(
+					player.ResponseContext.VisitorData,
+					player.ResponseContext.MainAppWebResponseContext.DataSyncID,
+				),
+				time.Now,
+			)
+			if authErr != nil {
+				return Extraction{}, authErr
+			}
+			if authErr := checkYouTubeAvailability(recovered.PlayabilityStatus); authErr != nil {
+				return Extraction{}, authErr
+			}
+			if !hasYouTubeFormatCandidates(recovered) {
+				return Extraction{}, fmt.Errorf("%w: authenticated WEB player returned no URL-bearing formats", ErrUnavailable)
+			}
+			formatPlayers = append(formatPlayers, recovered)
 			if playerPath == "" {
-				playerPath = recoveredPlayer.Assets.JS
+				playerPath = recovered.Assets.JS
 			}
 			if player.VideoDetails.Title == "" {
-				player.VideoDetails = recoveredPlayer.VideoDetails
+				player.VideoDetails = recovered.VideoDetails
+			}
+		} else {
+			visitorData := pageConfig.visitorData(player.ResponseContext.VisitorData)
+			recovered, err := recoverYouTubeFormats(ctx, request.Transport, videoID, visitorData, playerPath, request.YouTubePOT)
+			if err != nil {
+				return Extraction{}, err
+			}
+			formatPlayers = append(formatPlayers, recovered...)
+			for _, recoveredPlayer := range recovered {
+				if playerPath == "" {
+					playerPath = recoveredPlayer.Assets.JS
+				}
+				if player.VideoDetails.Title == "" {
+					player.VideoDetails = recoveredPlayer.VideoDetails
+				}
 			}
 		}
 	}
@@ -116,17 +234,61 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 	if err != nil {
 		return Extraction{}, err
 	}
+	details := firstYouTubeVideoDetails(formatPlayers)
+	if details.Title == "" {
+		return Extraction{}, fmt.Errorf("%w: missing title", ErrInvalidMetadata)
+	}
+	liveStatus := youtubeLiveStatusFromPlayers(formatPlayers)
+	activeFromStart := liveStatus == "is_live" && request.YouTubeLiveFromStart
+	startTimestamp, hasStart := firstYouTubeLiveTimestamp(formatPlayers, true)
+	endTimestamp, hasEnd := firstYouTubeLiveTimestamp(formatPlayers, false)
+	duration, hasDuration := int64(0), false
+	if parsed, parseErr := strconv.ParseInt(details.LengthSeconds, 10, 64); parseErr == nil && parsed >= 0 {
+		duration, hasDuration = parsed, true
+	} else if hasStart && hasEnd && endTimestamp >= startTimestamp {
+		duration, hasDuration = endTimestamp-startTimestamp, true
+	}
 	formatValues := make([]value.Value, 0, len(resolved)+2)
 	for _, format := range resolved {
+		targetDurationValid := format.TargetDurationSec > 0 &&
+			!math.IsNaN(format.TargetDurationSec) && !math.IsInf(format.TargetDurationSec, 0)
+		if activeFromStart && !targetDurationValid {
+			continue
+		}
 		if normalized, ok := normalizeYouTubeFormat(format); ok {
+			if activeFromStart {
+				normalized.Set("protocol", value.String("http_dash_segments_generator"))
+				normalized.Set("target_duration", value.Float(format.TargetDurationSec))
+				normalized.Set("_youtube_live_from_start", value.Bool(true))
+				normalized.Set("_youtube_itag", value.Int(int64(format.Itag)))
+				normalized.Set("_youtube_client", value.String(format.clientName))
+				normalized.Set("_youtube_source_url", value.String(webpageURL))
+				if hasStart {
+					normalized.Set("live_start_timestamp", value.Int(startTimestamp))
+				}
+			} else if liveStatus == "post_live" && targetDurationValid {
+				normalized.Set("protocol", value.String("http_dash_segments"))
+				normalized.Set("target_duration", value.Float(format.TargetDurationSec))
+				normalized.Set("_youtube_post_live", value.Bool(true))
+				normalized.Set("_youtube_itag", value.Int(int64(format.Itag)))
+				normalized.Set("_youtube_client", value.String(format.clientName))
+				normalized.Set("_youtube_source_url", value.String(webpageURL))
+				if hasStart {
+					normalized.Set("live_start_timestamp", value.Int(startTimestamp))
+				}
+			} else if liveStatus == "post_live" {
+				// Keep incomplete current-edge formats available for explicit
+				// format-ID selection while preferring the finite DVR tracks.
+				normalized.Set("preference", value.Int(-10))
+			}
 			formatValues = append(formatValues, value.ObjectValue(normalized))
 		}
 	}
 	for _, candidate := range formatPlayers {
-		if candidate.StreamingData.HLSManifestURL != "" {
+		if liveStatus != "post_live" && !activeFromStart && candidate.StreamingData.HLSManifestURL != "" {
 			formatValues = append(formatValues, value.ObjectValue(manifestFormat("hls", candidate.StreamingData.HLSManifestURL, "m3u8_native")))
 		}
-		if candidate.StreamingData.DASHManifestURL != "" {
+		if !activeFromStart && candidate.StreamingData.DASHManifestURL != "" && !(liveStatus == "post_live" && hasDuration && duration > 2*60*60) {
 			formatValues = append(formatValues, value.ObjectValue(manifestFormat("dash", candidate.StreamingData.DASHManifestURL, "http_dash_segments")))
 		}
 	}
@@ -137,10 +299,6 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 		return Extraction{}, fmt.Errorf("%w: no downloadable formats", ErrUnavailable)
 	}
 
-	details := player.VideoDetails
-	if details.Title == "" {
-		return Extraction{}, fmt.Errorf("%w: missing title", ErrInvalidMetadata)
-	}
 	info := value.NewObject(
 		value.Field{Key: "id", Value: value.String(videoID)},
 		value.Field{Key: "title", Value: value.String(details.Title)},
@@ -151,8 +309,11 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 		value.Field{Key: "ext", Value: value.String("mp4")},
 		value.Field{Key: "formats", Value: value.List(formatValues...)},
 	)
-	if duration, err := strconv.ParseInt(details.LengthSeconds, 10, 64); err == nil {
+	if hasDuration {
 		info.Set("duration", value.Int(duration))
+	}
+	if hasStart {
+		info.Set("release_timestamp", value.Int(startTimestamp))
 	}
 	if views, err := strconv.ParseInt(details.ViewCount, 10, 64); err == nil {
 		info.Set("view_count", value.Int(views))
@@ -161,7 +322,7 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 		thumbnail := details.Thumbnail.Thumbnails[len(details.Thumbnail.Thumbnails)-1]
 		info.Set("thumbnail", value.String(thumbnail.URL))
 	}
-	if liveStatus := youtubeLiveStatus(details); liveStatus != "" {
+	if liveStatus != "" {
 		info.Set("live_status", value.String(liveStatus))
 	}
 	if captionResult.subtitles.Len() != 0 {
@@ -176,7 +337,34 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 	if target.endTime != nil {
 		setYouTubeOffset(info, "end_time", *target.endTime)
 	}
-	return Media(value.NewInfo(info)), nil
+	result := Media(value.NewInfo(info))
+	if request.YouTubeComments.Enabled {
+		options := request.YouTubeComments
+		var commentAuth *youtubeCommentAuth
+		if pageConfig.LoggedIn != nil && *pageConfig.LoggedIn {
+			authConfig := pageConfig.webAuthConfig(
+				player.ResponseContext.VisitorData,
+				player.ResponseContext.MainAppWebResponseContext.DataSyncID,
+			)
+			commentAuth = &youtubeCommentAuth{config: &authConfig, apiKey: pageConfig.APIKey}
+		}
+		result.Enrich = func(ctx context.Context, target *value.Info) error {
+			comments, disabled, err := extractYouTubeComments(ctx, request.Transport, page, videoID, options, commentAuth)
+			if err != nil {
+				return err
+			}
+			fields := target.Fields()
+			if disabled {
+				fields.Set("comments", value.Null())
+				fields.Set("comment_count", value.Null())
+				return nil
+			}
+			fields.Set("comments", value.List(comments...))
+			fields.Set("comment_count", value.Int(int64(len(comments))))
+			return nil
+		}
+	}
+	return result, nil
 }
 
 func youtubeChannelLiveAlias(rawURL string) bool {
@@ -186,7 +374,7 @@ func youtubeChannelLiveAlias(rawURL string) bool {
 
 func youtubeChannelLiveAliasURL(rawURL string) (string, bool) {
 	parsed, err := url.Parse(rawURL)
-	if err != nil || parsed.User != nil || parsed.Port() != "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+	if err != nil || parsed.User != nil || strings.Contains(parsed.Host, ":") || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return "", false
 	}
 	rawPath := strings.ToLower(parsed.EscapedPath())
@@ -269,11 +457,22 @@ type youtubePlayerResponse struct {
 		JS string `json:"js"`
 	} `json:"assets"`
 	ResponseContext struct {
-		VisitorData string `json:"visitorData"`
+		VisitorData               string `json:"visitorData"`
+		MainAppWebResponseContext struct {
+			DataSyncID string `json:"datasyncId"`
+		} `json:"mainAppWebResponseContext"`
 	} `json:"responseContext"`
 	Captions struct {
 		Tracklist youtubeCaptionTracklist `json:"playerCaptionsTracklistRenderer"`
 	} `json:"captions"`
+	Microformat struct {
+		PlayerMicroformatRenderer struct {
+			LiveBroadcastDetails struct {
+				StartTimestamp string `json:"startTimestamp"`
+				EndTimestamp   string `json:"endTimestamp"`
+			} `json:"liveBroadcastDetails"`
+		} `json:"playerMicroformatRenderer"`
+	} `json:"microformat"`
 
 	clientName          string
 	visitorData         string
@@ -304,6 +503,73 @@ func (config youtubePageConfig) visitorData(responseVisitorData string) string {
 		return config.VisitorData
 	}
 	return responseVisitorData
+}
+
+func (config youtubePageConfig) webAuthConfig(responseVisitorData, responseDataSyncID string) youtubeWEBAuthConfig {
+	clientName := config.InnertubeContext.Client.ClientName
+	if clientName == "" {
+		clientName = "WEB"
+	}
+	clientVersion := config.ClientVersion
+	if clientVersion == "" {
+		clientVersion = config.InnertubeContext.Client.ClientVersion
+	}
+	visitorData := config.VisitorData
+	if visitorData == "" {
+		visitorData = config.InnertubeContext.Client.VisitorData
+	}
+	if visitorData == "" {
+		visitorData = responseVisitorData
+	}
+	dataSyncID := config.DataSyncID
+	if dataSyncID == "" {
+		dataSyncID = responseDataSyncID
+	}
+	delegatedSessionID, userSessionID := parseYouTubeDataSyncID(dataSyncID)
+	if config.DelegatedSessionID != "" {
+		delegatedSessionID = config.DelegatedSessionID
+	}
+	if config.UserSessionID != "" {
+		userSessionID = config.UserSessionID
+	}
+	loggedIn := config.LoggedIn != nil && *config.LoggedIn
+	return youtubeWEBAuthConfig{
+		ClientName:         clientName,
+		ClientID:           youtubeJSONScalar(config.ContextClientName),
+		ClientVersion:      clientVersion,
+		VisitorData:        visitorData,
+		UserAgent:          config.InnertubeContext.Client.UserAgent,
+		DelegatedSessionID: delegatedSessionID,
+		UserSessionID:      userSessionID,
+		SessionIndex:       youtubeJSONScalar(config.SessionIndex),
+		LoggedIn:           loggedIn,
+	}
+}
+
+func youtubeJSONScalar(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return text
+	}
+	var number json.Number
+	if json.Unmarshal(raw, &number) == nil {
+		return number.String()
+	}
+	return ""
+}
+
+func parseYouTubeDataSyncID(dataSyncID string) (string, string) {
+	if dataSyncID == "" {
+		return "", ""
+	}
+	first, second, found := strings.Cut(dataSyncID, "||")
+	if found && second != "" {
+		return first, second
+	}
+	return "", first
 }
 
 func discoverYouTubePageConfig(page []byte) youtubePageConfig {
@@ -354,6 +620,39 @@ func mergeYouTubePageConfig(target *youtubePageConfig, source youtubePageConfig)
 		loggedIn := *source.LoggedIn
 		target.LoggedIn = &loggedIn
 	}
+	if source.ClientVersion != "" {
+		target.ClientVersion = source.ClientVersion
+	}
+	if source.APIKey != "" {
+		target.APIKey = source.APIKey
+	}
+	if len(source.ContextClientName) > 0 {
+		target.ContextClientName = append(target.ContextClientName[:0], source.ContextClientName...)
+	}
+	if len(source.SessionIndex) > 0 {
+		target.SessionIndex = append(target.SessionIndex[:0], source.SessionIndex...)
+	}
+	if source.DelegatedSessionID != "" {
+		target.DelegatedSessionID = source.DelegatedSessionID
+	}
+	if source.UserSessionID != "" {
+		target.UserSessionID = source.UserSessionID
+	}
+	if source.DataSyncID != "" {
+		target.DataSyncID = source.DataSyncID
+	}
+	if source.InnertubeContext.Client.ClientName != "" {
+		target.InnertubeContext.Client.ClientName = source.InnertubeContext.Client.ClientName
+	}
+	if source.InnertubeContext.Client.ClientVersion != "" {
+		target.InnertubeContext.Client.ClientVersion = source.InnertubeContext.Client.ClientVersion
+	}
+	if source.InnertubeContext.Client.VisitorData != "" {
+		target.InnertubeContext.Client.VisitorData = source.InnertubeContext.Client.VisitorData
+	}
+	if source.InnertubeContext.Client.UserAgent != "" {
+		target.InnertubeContext.Client.UserAgent = source.InnertubeContext.Client.UserAgent
+	}
 	if len(source.PlayerContexts) > 0 {
 		if target.PlayerContexts == nil {
 			target.PlayerContexts = make(map[string]struct {
@@ -397,6 +696,7 @@ func mergeYouTubeFormats(players []youtubePlayerResponse) []youtubeFormat {
 	for _, player := range players {
 		formats := append(append([]youtubeFormat(nil), player.StreamingData.Formats...), player.StreamingData.AdaptiveFormats...)
 		for _, format := range formats {
+			format.clientName = player.clientName
 			key := strconv.Itoa(format.Itag) + "\x00" + format.MimeType + "\x00" + format.URL + "\x00" + format.SignatureCipher
 			if _, ok := seen[key]; ok {
 				continue
@@ -418,8 +718,8 @@ type youtubeVideoDetails struct {
 	ViewCount        string `json:"viewCount"`
 	IsLive           *bool  `json:"isLive"`
 	IsLiveContent    *bool  `json:"isLiveContent"`
-	IsUpcoming       bool   `json:"isUpcoming"`
-	IsPostLiveDVR    bool   `json:"isPostLiveDvr"`
+	IsUpcoming       *bool  `json:"isUpcoming"`
+	IsPostLiveDVR    *bool  `json:"isPostLiveDvr"`
 	Thumbnail        struct {
 		Thumbnails []struct {
 			URL string `json:"url"`
@@ -429,11 +729,11 @@ type youtubeVideoDetails struct {
 
 func youtubeLiveStatus(details youtubeVideoDetails) string {
 	switch {
-	case details.IsPostLiveDVR:
+	case details.IsPostLiveDVR != nil && *details.IsPostLiveDVR:
 		return "post_live"
 	case details.IsLive != nil && *details.IsLive:
 		return "is_live"
-	case details.IsUpcoming:
+	case details.IsUpcoming != nil && *details.IsUpcoming:
 		return "is_upcoming"
 	case details.IsLiveContent != nil && *details.IsLiveContent:
 		return "was_live"
@@ -444,22 +744,101 @@ func youtubeLiveStatus(details youtubeVideoDetails) string {
 	}
 }
 
+func firstYouTubeVideoDetails(players []youtubePlayerResponse) youtubeVideoDetails {
+	var result youtubeVideoDetails
+	for _, player := range players {
+		candidate := player.VideoDetails
+		if result.VideoID == "" {
+			result.VideoID = candidate.VideoID
+		}
+		if result.Title == "" {
+			result.Title = candidate.Title
+		}
+		if result.LengthSeconds == "" {
+			result.LengthSeconds = candidate.LengthSeconds
+		}
+		if result.Author == "" {
+			result.Author = candidate.Author
+		}
+		if result.ChannelID == "" {
+			result.ChannelID = candidate.ChannelID
+		}
+		if result.ShortDescription == "" {
+			result.ShortDescription = candidate.ShortDescription
+		}
+		if result.ViewCount == "" {
+			result.ViewCount = candidate.ViewCount
+		}
+		if len(result.Thumbnail.Thumbnails) == 0 {
+			result.Thumbnail = candidate.Thumbnail
+		}
+		if result.IsPostLiveDVR == nil && candidate.IsPostLiveDVR != nil {
+			value := *candidate.IsPostLiveDVR
+			result.IsPostLiveDVR = &value
+		}
+		if result.IsUpcoming == nil && candidate.IsUpcoming != nil {
+			value := *candidate.IsUpcoming
+			result.IsUpcoming = &value
+		}
+		if result.IsLive == nil && candidate.IsLive != nil {
+			value := *candidate.IsLive
+			result.IsLive = &value
+		}
+		if result.IsLiveContent == nil && candidate.IsLiveContent != nil {
+			value := *candidate.IsLiveContent
+			result.IsLiveContent = &value
+		}
+	}
+	return result
+}
+
+func youtubeLiveStatusFromPlayers(players []youtubePlayerResponse) string {
+	return youtubeLiveStatus(firstYouTubeVideoDetails(players))
+}
+
+func firstYouTubeLiveTimestamp(players []youtubePlayerResponse, start bool) (int64, bool) {
+	for _, player := range players {
+		details := player.Microformat.PlayerMicroformatRenderer.LiveBroadcastDetails
+		raw := details.EndTimestamp
+		if start {
+			raw = details.StartTimestamp
+		}
+		if timestamp, ok := parseYouTubeLiveTimestamp(raw); ok {
+			return timestamp, true
+		}
+	}
+	return 0, false
+}
+
+func parseYouTubeLiveTimestamp(raw string) (int64, bool) {
+	if raw == "" || len(raw) > 64 || strings.ContainsAny(raw, "\x00\r\n") {
+		return 0, false
+	}
+	parsed, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return 0, false
+	}
+	return parsed.Unix(), true
+}
+
 type youtubePlayabilityStatus struct {
 	Status string `json:"status"`
 	Reason string `json:"reason"`
 }
 
 type youtubeFormat struct {
-	Itag            int    `json:"itag"`
-	URL             string `json:"url"`
-	SignatureCipher string `json:"signatureCipher"`
-	MimeType        string `json:"mimeType"`
-	Bitrate         int64  `json:"bitrate"`
-	ContentLength   string `json:"contentLength"`
-	Width           int64  `json:"width"`
-	Height          int64  `json:"height"`
-	FPS             int64  `json:"fps"`
-	Language        string `json:"language"`
+	Itag              int     `json:"itag"`
+	URL               string  `json:"url"`
+	SignatureCipher   string  `json:"signatureCipher"`
+	MimeType          string  `json:"mimeType"`
+	Bitrate           int64   `json:"bitrate"`
+	ContentLength     string  `json:"contentLength"`
+	Width             int64   `json:"width"`
+	Height            int64   `json:"height"`
+	FPS               int64   `json:"fps"`
+	Language          string  `json:"language"`
+	TargetDurationSec float64 `json:"targetDurationSec"`
+	clientName        string
 }
 
 type pendingYouTubeFormat struct {
@@ -529,6 +908,11 @@ func resolveYouTubeURLs(ctx context.Context, request Request, webpageURL, videoI
 	}
 	solved, err := request.ChallengeSolver.SolvePlayer(ctx, "youtube-"+videoID, string(playerSource), challengeRequests, false)
 	if err != nil {
+		// Preserve context cancellation and deadline expiry so callers can
+		// observe them with errors.Is; do not recategorize as ErrChallengeSolver.
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err
+		}
 		return nil, fmt.Errorf("%w: %v", ErrChallengeSolver, err)
 	}
 	results := make(map[ejs.ChallengeType]map[string]string, len(solved.Responses))
@@ -634,21 +1018,61 @@ type youtubeTarget struct {
 	startSet, endSet   bool
 }
 
+// youtubeNoCookieEmbedPath is the literal path prefix that privacy-enhanced
+// embeds require. The path must be exactly "/embed/" + an 11-character ID;
+// trailing slashes, doubled separators, empty segments, and extra components
+// are rejected.
+const youtubeNoCookieEmbedPath = "/embed/"
+
 func parseYouTubeTarget(rawURL string) (youtubeTarget, error) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
 		return youtubeTarget{}, fmt.Errorf("%w: invalid YouTube URL", ErrUnsupported)
 	}
+	// Scheme gate: accept http, https, and protocol-relative (empty scheme).
+	// Any other scheme (ftp, file, data, etc.) is rejected at the boundary.
+	if parsed.Scheme != "http" && parsed.Scheme != "https" && parsed.Scheme != "" {
+		return youtubeTarget{}, fmt.Errorf("%w: unsupported URL scheme", ErrUnsupported)
+	}
+	// Userinfo and explicit ports are always rejected; they are common
+	// hostile vectors and the pinned reference never produces them.
+	// strings.Contains(parsed.Host, ":") catches both non-empty ports and
+	// the empty-port form "host:" where Port() returns "".
+	if parsed.User != nil || strings.Contains(parsed.Host, ":") {
+		return youtubeTarget{}, fmt.Errorf("%w: unsupported YouTube URL form", ErrUnsupported)
+	}
+	// Encoded path separators and NULs: defense in depth. url.Parse does
+	// not reject these; EscapedPath is the raw form.
+	if rawPath := strings.ToLower(parsed.EscapedPath()); strings.Contains(rawPath, "%2f") || strings.Contains(rawPath, "%5c") || strings.Contains(rawPath, "%00") {
+		return youtubeTarget{}, fmt.Errorf("%w: unsupported YouTube URL form", ErrUnsupported)
+	}
+
+	host, kind := classifyYouTubeHost(parsed)
 	var id string
-	if strings.EqualFold(parsed.Hostname(), "youtu.be") {
-		id = strings.TrimSpace(strings.Trim(parsed.Path, "/"))
-	} else if parsed.Path == "/watch" {
-		id = parsed.Query().Get("v")
-	} else {
-		parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
-		if len(parts) == 2 && (parts[0] == "shorts" || parts[0] == "embed" || parts[0] == "live") {
-			id = parts[1]
+	switch {
+	case kind == hostNoCookie:
+		// Privacy-enhanced embeds: accept exactly "/embed/" + 11-char ID.
+		if !strings.HasPrefix(parsed.Path, youtubeNoCookieEmbedPath) {
+			return youtubeTarget{}, fmt.Errorf("%w: unsupported nocookie path", ErrUnsupported)
 		}
+		tail := parsed.Path[len(youtubeNoCookieEmbedPath):]
+		if len(tail) != 11 {
+			return youtubeTarget{}, fmt.Errorf("%w: invalid YouTube video id", ErrUnsupported)
+		}
+		id = tail
+	case kind == hostStandard && host == "youtu.be":
+		id = strings.TrimSpace(strings.Trim(parsed.Path, "/"))
+	case kind == hostStandard:
+		if parsed.Path == "/watch" {
+			id = parsed.Query().Get("v")
+		} else {
+			parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+			if len(parts) == 2 && (parts[0] == "shorts" || parts[0] == "embed" || parts[0] == "live") {
+				id = parts[1]
+			}
+		}
+	default:
+		return youtubeTarget{}, fmt.Errorf("%w: unsupported host", ErrUnsupported)
 	}
 	if !youtubeIDPattern.MatchString(id) {
 		return youtubeTarget{}, fmt.Errorf("%w: invalid YouTube video id", ErrUnsupported)

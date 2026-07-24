@@ -1,0 +1,26 @@
+{
+  "stat": "ok",
+  "photo": {
+    "id": "5645318632",
+    "secret": "09ff5eef3b",
+    "media": "video",
+    "license": "5",
+    "dateuploaded": "1303528740",
+    "views": "420",
+    "title": {"_content": "Dark Hollow Waterfalls"},
+    "description": {"_content": "Waterfalls in the Springtime"},
+    "comments": {"_content": "7"},
+    "owner": {
+      "nsid": "10922353@N03",
+      "realname": "Forest Wander",
+      "username": "ForestWander.com",
+      "path_alias": "forestwander-nature-pictures"
+    },
+    "video": {"duration": "19", "width": "640", "height": "363"},
+    "tags": {"tag": [
+      {"_content": "waterfall"},
+      {"_content": "spring"},
+      {"_content": "waterfall"}
+    ]}
+  }
+}

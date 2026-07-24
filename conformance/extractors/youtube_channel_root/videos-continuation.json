@@ -1,0 +1,8 @@
+{
+  "responseContext":{"visitorData":"root-rotated"},
+  "onResponseReceivedActions":[{
+    "appendContinuationItemsAction":{"continuationItems":[
+      {"richItemRenderer":{"content":{"videoRenderer":{"videoId":"rootVideo02","title":{"simpleText":"Continued root video"}}}}}
+    ]}
+  }]
+}

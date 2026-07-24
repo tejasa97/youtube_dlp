@@ -1,0 +1,11 @@
+{
+  "onResponseReceivedEndpoints": [{
+    "reloadContinuationItemsCommand": {
+      "continuationItems": [{
+        "messageRenderer": {
+          "text": {"simpleText": "Comments are turned off."}
+        }
+      }]
+    }
+  }]
+}

@@ -14,6 +14,113 @@ capabilities:
       - internal/e2e.TestCLIProcessWalkingSkeleton
     owner: core
 
+  - id: cli.simulation
+    name: Tri-state simulation mode
+    phase: 3
+    compatibility_target: Keep simulation distinct from media-only skip behavior and let explicit positive or negative choices override listing defaults.
+    status: compatible
+    evidence:
+      - internal/cli.TestRunSimulationTriStateAndSkipDownloadRemainDistinct
+      - internal/cli.TestRunListSubsNoSimulateDownloadsAndHonorsSubtitleWrites
+      - internal/cli.TestRunCommandLineNoSimulateOverridesInheritedSimulation
+      - pkg/ytdlp.TestClientSimulationSuppressesEveryOutputArtifact
+      - docs/YOUTUBE_SUBTITLE_LISTING_EVIDENCE.md
+    owner: core
+    depends_on:
+      - foundation.cli
+
+  - id: cli.json_dump
+    name: Per-video and whole-result JSON dumps
+    phase: 3
+    compatibility_target: Provide quiet, simulation-aware per-video and whole-URL JSON modes with deterministic playlist ordering.
+    status: compatible
+    evidence:
+      - internal/cli.TestRunDumpJSONModesSimulateQuietlyAndNoSimulateDownloads
+      - internal/cli.TestRunDumpJSONSimulationSuppressesRelatedFiles
+      - internal/cli.TestRunDumpJSONExplicitNoQuietAndCombinedModes
+      - internal/cli.TestRunDumpJSONFromConfigurationHonorsCommandLineNoSimulate
+      - internal/cli.TestWriteVideoJSONLinesFlattensPlaylistsAndHandlesFailures
+      - internal/cli.FuzzWriteJSONLine
+      - internal/cli.TestRunTelemetryJSONSuccessFailureAndConflict
+      - docs/CLI_JSON_OUTPUT_EVIDENCE.md
+    owner: core
+    depends_on:
+      - cli.simulation
+      - metadata.deterministic_json
+      - extractor.playlists
+    known_deviation: Per-video lines are emitted in deterministic order after the complete product operation returns rather than streaming between playlist entries. The pre-existing hidden --print-json compatibility mode remains whole-result and non-simulating; public dump modes take precedence when combined with it.
+
+  - id: cli.metadata_sidecars
+    name: Metadata, description, and internet-shortcut sidecars
+    phase: 3
+    compatibility_target: Write confined video and playlist metadata files and safe platform shortcut formats without Python or a media download.
+    status: compatible
+    evidence:
+      - pkg/ytdlp.TestWriteRelatedFilesAllKindsAndExistingPolicy
+      - pkg/ytdlp.TestWriteRelatedFilesPlaylistScopeUnsafeLinksAndCancellation
+      - pkg/ytdlp.TestWriteAtomicRelatedFileRejectsSymlink
+      - pkg/ytdlp.TestPrepareRelatedDestinationRejectsNestedSymlink
+      - pkg/ytdlp.TestSafeLinkURLConvertsIRIHostAndEscapesPath
+      - pkg/ytdlp.TestOperationWritesFinalPlaylistAndEntryMetadataSidecars
+      - pkg/ytdlp.FuzzSafeLinkURL
+      - internal/cli.TestRunWritesMetadataAndShortcutSidecarsWithoutMedia
+      - internal/cli.TestRunDumpJSONSimulationSuppressesRelatedFiles
+      - conformance/related_files/PROVENANCE.md
+      - docs/METADATA_SIDECARS_EVIDENCE.md
+    owner: core
+    depends_on:
+      - cli.simulation
+      - compat.output_template_minimal
+      - metadata.deterministic_json
+    known_deviation: Related files use the port's deterministic normalized metadata schema and one shared output template. Per-type output templates, thumbnail and annotation sidecars, and non-atomic Windows replacement where the platform cannot provide it remain outside this claim.
+
+  - id: cli.staged_print
+    name: Staged template, file, and legacy field printing
+    phase: 3
+    compatibility_target: Render bounded repeatable console/file templates and legacy get-field aliases with lifecycle-aware simulation and deterministic output.
+    status: compatible
+    evidence:
+      - pkg/ytdlp.TestPrintStagesCaptureTransformedAndSelectedMetadata
+      - pkg/ytdlp.TestAlphaPrintAPIContractCompiles
+      - pkg/ytdlp.TestPrintLaterStagesRunInLifecycleOrder
+      - pkg/ytdlp.TestPrintRuleValidationOptionalFieldsAndCancellation
+      - pkg/ytdlp.TestLatePrintValidationFailsBeforeOutputSideEffects
+      - pkg/ytdlp.TestPlaylistPrintsFollowChildLifecycle
+      - pkg/ytdlp.TestFormatPrintDurationPinnedShape
+      - pkg/ytdlp.TestPrintToFileAppendsStagesAndReportsUniqueArtifact
+      - pkg/ytdlp.TestPrintToFileSimulationSuppressesDiskButKeepsConsoleCapture
+      - pkg/ytdlp.TestPrintToFileRejectsUnsafePathsAndSymlinks
+      - pkg/ytdlp.TestAppendPrintLineCancellationLimitAndConcurrentRecords
+      - pkg/ytdlp.TestRenderPrintTablePinnedCorpus
+      - pkg/ytdlp.TestRenderSyntheticPrintTables
+      - pkg/ytdlp.TestSyntheticPrintFieldsAreAvailableAtLifecycleStages
+      - pkg/ytdlp.TestRenderFormatsTableDirectFallbackAndNonVideoOmission
+      - pkg/ytdlp.TestRenderPrintTablesLimitsAndMalformedRows
+      - pkg/ytdlp.FuzzRenderPrintTable
+      - internal/cli.TestParsePrintRulesStagesShorthandAndSimulation
+      - internal/cli.TestExtractAndParsePrintToFileArguments
+      - internal/cli.TestAppendLegacyPrintRulesOrderAndOptionalFields
+      - internal/cli.TestWritePrintOutputsOrdersChildrenBeforePlaylistAndHandlesFailures
+      - internal/cli.TestRunPrintTemplatesSimulationAndLaterStageDownload
+      - internal/cli.TestRunLegacyGetAliasesOrderAndOptionalOmission
+      - internal/cli.TestRunPrintToFileAppendsWithoutConsoleOrImplicitQuiet
+      - internal/cli.TestRunPrintToFileDefaultDownloadsAndSimulationSuppressesFile
+      - internal/cli.TestRunPrintToFileLoadsFromConfiguration
+      - internal/cli.TestRunPrintSyntheticTableFields
+      - internal/cli.FuzzParsePrintRules
+      - internal/cli.FuzzExtractPrintToFileArgs
+      - internal/compat/template.TestRenderObjectProjectionAndDiagnosticJSON
+      - internal/compat/template.TestRenderJSONMatchesPinnedEscaping
+      - internal/compat/template.TestRenderProjectionRejectsInvalidAndOversizedExpressions
+      - conformance/print_output/PROVENANCE.md
+      - docs/CLI_PRINT_OUTPUT_EVIDENCE.md
+    owner: core
+    depends_on:
+      - cli.simulation
+      - compat.output_template_minimal
+      - extractor.playlists
+    known_deviation: Captured console values retain native lifecycle stages, but terminal output is emitted after the complete operation. Post-process and after-move observe the final native pipeline path. Upstream-only template syntax beyond the bounded native parser remains pending.
+
   - id: foundation.embedding_api
     name: Cancellable Go embedding boundary
     phase: 0
@@ -122,6 +229,47 @@ capabilities:
       - metadata.ordered_values
       - network.shared_transport
 
+  - id: extractor.generic_embeds
+    name: Conservative generic page discovery
+    phase: 3
+    compatibility_target: Discover a bounded allowlist of native-provider embeds and structured metadata media in HTML while preserving redirect, precedence, Referer, and root-result semantics.
+    status: compatible
+    evidence:
+      - internal/extractor.TestGenericDiscoversSingleCanonicalEmbed
+      - internal/extractor.TestGenericDiscoversMultipleEmbedsInDocumentOrder
+      - internal/extractor.TestGenericFallsBackToGETWhenHEADIsUnusable
+      - internal/extractor.TestGenericReturnsRedirectBeforeScanningFinalDocument
+      - internal/extractor.TestCanonicalGenericEmbedRejectsUnsafeAndNonEmbedURLs
+      - internal/extractor.TestGenericHTMLBounds
+      - internal/extractor.TestGenericDiscoversOpenGraphMediaWithRefererAndManifest
+      - internal/extractor.TestGenericJSONLDPrecedesOpenGraphAndPreservesMetadata
+      - internal/extractor.TestGenericJSONLDInvalidExtendedMetadataIsIgnored
+      - internal/extractor.TestGenericJSONLDTimestampPinnedISOAndCompactCorpus
+      - internal/extractor.TestGenericJSONLDRatingsAndInteractionStatistics
+      - internal/extractor.TestGenericJSONLDInvalidAndBoundedInteractionStatistics
+      - internal/extractor.TestGenericJSONLDChaptersInferBoundaries
+      - internal/extractor.TestGenericJSONLDChaptersRejectMalformedOverlapAndBounds
+      - internal/extractor.TestGenericJSONLDEmbedURLUsesStrictProviderRouting
+      - internal/extractor.TestGenericJSONLDEmbedURLPlaylistOrderDeduplicationAndPrecedence
+      - internal/extractor.TestGenericJSONLDEmbedURLBoundsAndCancellation
+      - internal/extractor.TestGenericProviderEmbedsPrecedeMetadataMedia
+      - internal/extractor.TestGenericTwitterStreamPrecedesOpenGraphAndHandlesTypeBeforeURL
+      - internal/extractor.TestGenericMalformedJSONLDFallsBackAndAudioObjectIsAudioOnly
+      - internal/extractor.TestGenericMetadataMediaRejectsUnsafeAndNonMediaURLs
+      - internal/extractor.TestGenericMetadataMediaBoundsAndCancellation
+      - internal/extractor.FuzzDiscoverGenericEmbedEntries
+      - internal/extractor.FuzzDiscoverGenericMetadataMedia
+      - pkg/ytdlp.TestClientDownloadsGenericOpenGraphMediaWithPageReferer
+      - pkg/ytdlp.TestOperationURLResultBypassesPlaylistControls
+      - pkg/ytdlp.TestOperationRejectsURLResultCycle
+      - docs/GENERIC_EMBED_EVIDENCE.md
+    owner: core
+    depends_on:
+      - extractor.direct_media
+      - extractor.phase2_breadth
+      - extractor.playlists
+    known_deviation: Discovery is limited to explicit embed-bearing HTML attributes, the documented native-provider URL allowlist (including embedUrl-only JSON-LD), JSON-LD VideoObject/AudioObject contentUrl with the documented core metadata, machine-date, interaction, and chapter fields, Twitter player streams, and exact OpenGraph video/audio properties. Multiple metadata URLs from one source become formats of one page item. Arbitrary script/player configuration, locale-dependent human JSON-LD dates, arbitrary iframe crawling, and unsupported providers remain explicit gaps.
+
   - id: downloader.direct_http
     name: Resumable direct HTTP download
     phase: 0
@@ -224,12 +372,23 @@ capabilities:
       - internal/protocol/hls.TestDownloadLowLatencyPartsAreReplacedByCompletedSegment
       - internal/protocol/hls.TestDownloadEmptyPlaylistReturnsNoSegments
       - internal/protocol/hls.TestParseBoundsInputAndEntryCount
+      - internal/protocol/hls.TestAdvertisementMarkerExactGrammar
+      - internal/protocol/hls.TestParseAdvertisementStateOrderSequencesAndReset
+      - internal/protocol/hls.TestParseAdvertisementDeltaPartsPreserveMetadataAndRanges
+      - internal/protocol/hls.TestDownloadSuppressesAttributedVODAdvertisements
+      - internal/protocol/hls.TestDownloadLiveAdvertisementReclassificationAndCompleteReplacement
+      - internal/protocol/hls.TestDownloadAdvertisementKeysMapsAndPhysicalAESIV
+      - internal/protocol/hls.TestDownloadAllAdvertisementsReturnsNoSegmentsWithoutScratch
       - internal/protocol/hls.FuzzParse
+      - internal/protocol/hls.FuzzAdvertisementMarkers
       - pkg/ytdlp.TestClientHLSAndDASHDispatch
+      - pkg/ytdlp.TestClientHLSSuppressesAttributedAdFragments
       - internal/cli.TestRunHLSProtocolDispatch
       - conformance/media/llhls/PROVENANCE.md
+      - conformance/media/hls_ads/PROVENANCE.md
+      - docs/HLS_AD_FRAGMENT_SUPPRESSION_EVIDENCE.md
     owner: io
-    known_deviation: Product format dispatch includes bounded low-latency parts and delta skips. Preload hints and rendition reports are ignored; SAMPLE-AES and non-AES-128 encryption remain explicitly unsupported.
+    known_deviation: Product format dispatch includes bounded low-latency parts, delta skips, and exact attributed Anvato/Uplynk ad-fragment suppression. Marker state restarts for each playlist snapshot; a sliding window that begins inside an unmarked ad cannot be inferred. SCTE-35, cue/date-range, asset-list, URI-heuristic, and markerless server-side insertion are not guessed. Physical sequence identities are retained across ads for live/delta de-duplication and AES IVs rather than reproducing the pinned native downloader's compact numbering. Preload hints and rendition reports are ignored; SAMPLE-AES and non-AES-128 encryption remain explicitly unsupported.
 
   - id: protocol.dash
     name: DASH downloading
@@ -326,16 +485,33 @@ capabilities:
     evidence:
       - internal/media/ffmpeg.TestDiscoverVersionsProbeAndMerge
       - internal/media/ffmpeg.TestCommandCancellation
+      - internal/media/ffmpeg.TestCompletedEventCannotVetoCommittedOutput
       - internal/media/ffmpeg.TestAtomicPostprocessCancellationRemovesTemporaryOutput
       - internal/media/ffmpeg.TestRemuxCategorizesFailureAndDestinationConflict
       - internal/media/ffmpeg.TestDiagnosticRedaction
+      - internal/media/ffmpeg.TestEmbedSubtitleTracksMP4MapsMetadataAndReplacesExisting
+      - internal/media/ffmpeg.TestEmbedSubtitleTracksMKVAndLegacyEntryPoint
+      - internal/media/ffmpeg.TestEmbedSubtitleTracksRemainingContainerMatrix
+      - internal/media/ffmpeg.TestEmbedSubtitleTracksWebMRequiresAndAcceptsVTT
+      - internal/media/ffmpeg.TestEmbedSubtitleTracksRejectsInvalidInputsBeforeOutput
+      - internal/media/ffmpeg.TestEmbedSubtitleTracksCancellationPreservesInputs
+      - internal/media/ffmpeg.TestSubtitleEmbedArgsDropsDataAndUnknownStreams
+      - internal/media/ffmpeg.FuzzSubtitleEmbedMetadataValidation
       - internal/media/ffmpeg.FuzzRedactDiagnostic
       - internal/media/pipeline.TestDASHDownloadAndFFmpegMergeEndToEnd
       - internal/media/pipeline.TestRemuxDownloadFinalizesThenRemovesSource
+      - internal/cli.TestConvertResultSubtitlesSuccessRecursesAndUsesArgv
+      - internal/cli.TestConvertResultSubtitlesMissingToolFailureAndOverwrite
+      - internal/cli.TestConvertResultSubtitlesProcessFailurePreservesSource
+      - internal/cli.TestSubtitleConversionRejectsUnsafeAndCancellation
+      - internal/cli.TestSubtitleConversionMetadataPreflightAndRelativePaths
+      - internal/cli.FuzzSubtitleConversionPlanner
       - pkg/ytdlp.TestClientDASHMergeDispatch
       - docs/P1_MEDIA_COMPLETION.md
+      - docs/YOUTUBE_SUBTITLE_CONVERSION_EVIDENCE.md
+      - docs/YOUTUBE_SUBTITLE_EMBEDDING_EVIDENCE.md
     owner: media
-    known_deviation: The Phase 1 operation set covers probe, separate-track merge, and atomic container remux. Codec transcoding, subtitle/thumbnail embedding, and metadata rewriting remain broader postprocessor work.
+    known_deviation: The operation set covers probe, separate-track merge, atomic container remux, bounded SRT/ASS/WebVTT sidecar conversion, and bounded multi-track subtitle embedding. Arbitrary media codec transcoding and broader metadata rewriting remain postprocessor work; embedding is limited to the documented text-track and container matrix.
 
   - id: javascript.ejs
     name: Python-free EJS execution
@@ -346,7 +522,10 @@ capabilities:
       - docs/JAVASCRIPT_HELPER_PROTOCOL.md
       - internal/javascript/protocol.TestRequestNormalizeDefaultsAndHash
       - internal/javascript/protocol.TestRequestRejectsLimitsHashesModulesAndArguments
+      - internal/javascript/protocol.TestTrustedWallTimeAllowance
       - internal/javascript/protocol.TestFrameRoundTripAndBounds
+      - internal/javascript/protocol.FuzzRequestNormalize
+      - internal/javascript/protocol.FuzzFrameRoundTrip
       - internal/javascript/engine.TestExecuteEvaluateAndCall
       - internal/javascript/engine.TestExecuteCachesProgramsWithoutSharingRuntimeState
       - internal/javascript/engine.TestExecuteTimeoutCancellationAndFailures
@@ -354,12 +533,73 @@ capabilities:
       - internal/javascript/supervisor.TestSupervisorExecutesAndRetainsCompiledCache
       - internal/javascript/supervisor.TestSupervisorCancellationDiscardsAndRestartsHelper
       - internal/javascript/supervisor.TestSupervisorCategorizesCrashAndMalformedResponse
+      - internal/javascript/supervisor.TestSupervisorTrustedWallTimeCrossesProcessBoundary
+      - internal/javascript/supervisor.TestSupervisorRejectsUntrustedExtendedWallTime
+      - internal/javascript/supervisor.TestSupervisorRejectsSpoofedTrustedWallTimeMS
+      - internal/javascript/supervisor.TestSupervisorRejectsTrustedGenericEvaluate
+      - internal/javascript/supervisor.TestSupervisorRejectsTrustedNonJSCCall
+      - internal/javascript/supervisor.TestSupervisorRejectsArbitraryJSCScript
+      - internal/javascript/supervisor.TestSupervisorConcurrentExecuteAndCloseDrainsActiveSolves
       - internal/javascript/ejs.TestPinnedEJSCorpus
       - internal/javascript/ejs.TestVerifyAssetsAndInputBounds
+      - internal/javascript/ejs.TestPreprocessCacheReuse
+      - internal/javascript/ejs.TestPreprocessCacheEviction
+      - internal/javascript/ejs.TestSingleflightCoalescesPreprocessing
+      - internal/javascript/ejs.TestSingleflightFollowerCancellation
+      - internal/javascript/ejs.TestSingleflightCanceledLeaderDoesNotFailLiveFollower
+      - internal/javascript/ejs.TestSingleflightAllWaitersCancelCancelsPreprocessing
+      - internal/javascript/ejs.TestSingleflightCanceledLeaderNoFollowersReturnsPromptly
+      - internal/javascript/ejs.TestSingleflightOneFollowerCancelsOtherRemains
+      - internal/javascript/ejs.TestSingleflightWaiterJoinCancelRace
+      - internal/javascript/ejs.TestFlightOwnershipAbandonedDoesNotDeleteReplacement
+      - internal/javascript/ejs.TestSolvePlayerCancellation
+      - internal/javascript/ejs.TestSolvePlayerTimeout
+      - internal/javascript/ejs.TestSolvePlayerMalformedPreprocessResponse
+      - internal/javascript/ejs.TestSolvePlayerResourceLimits
+      - internal/javascript/ejs.TestSolvePlayerOutputPreprocessed
+      - internal/javascript/ejs.TestConcurrentSolvePlayer
+      - internal/javascript/ejs.TestRepresentativeWorkloadUnderOldLimit
+      - internal/javascript/ejs.TestLargeGeneratedPlayerWorkload
+      - internal/javascript/ejs.TestPathologicalPlayerFixture
+      - pkg/ytdlp.TestClientConcurrentRunAndClose
       - conformance/javascript/ejs-0.8.0/PROVENANCE.md
       - .github/python-free.Dockerfile
     owner: runtime
-    known_deviation: Compatibility is scoped to the pinned Phase 1 EJS corpus; live player-variant breadth and component updates remain extractor and upstream-delta work.
+    known_deviation: >
+      Compatibility is scoped to the pinned Phase 1 EJS corpus; live
+      player-variant breadth and component updates remain extractor and
+      upstream-delta work. The two-phase preprocess/solve split uses a
+      scoped trusted wall-time allowance (60 s) for EJS preprocessing only.
+      The supervisor strips caller-provided TrustedWallTimeMS at the
+      boundary and mints the serialized grant exclusively for
+      operation=call, function="jsc" with Trusted=true and a ScriptHash
+      matching the pinned bundled EJS solver. Callers cannot forge the
+      grant; arbitrary jsc scripts are rejected at 30 s.
+      Normalize() additionally strips Trusted/TrustedWallTimeMS from
+      non-EJS operations as defense in depth. The preprocessed-player LRU
+      cache (max 8) persists at the client level across downloads.
+      Concurrent cache misses are coalesced via a flight-owned singleflight:
+      preprocessing runs in a dedicated goroutine; all callers select
+      between flight completion and their own context; when all waiters
+      cancel, shared preprocessing is canceled; the result is cached
+      atomically before the flight entry is removed. Close coordinates
+      with active operations via WaitGroup and gate-based serialization.
+      Automated proof: TestSupervisorTrustedWallTimeCrossesProcessBoundary,
+      TestSupervisorRejectsSpoofedTrustedWallTimeMS,
+      TestSupervisorRejectsTrustedGenericEvaluate,
+      TestSupervisorRejectsTrustedNonJSCCall,
+      TestSupervisorRejectsArbitraryJSCScript,
+      TestSingleflightCanceledLeaderDoesNotFailLiveFollower,
+      TestSingleflightAllWaitersCancelCancelsPreprocessing,
+      TestSingleflightCanceledLeaderNoFollowersReturnsPromptly,
+      TestFlightOwnershipAbandonedDoesNotDeleteReplacement,
+      TestSupervisorConcurrentExecuteAndCloseDrainsActiveSolves.
+      Live validation: pending (requires service conditions permitting
+      protected-video extraction). Remaining deviation: no sanitized
+      real 1-2 MB player fixture committed (proprietary); the generated
+      ~150 KB workload exercises the parse path but does not empirically
+      reproduce the original 30 s timeout; the fix is proven structurally
+      via protocol validation gating.
 
   - id: network.impersonation
     name: Browser impersonation transport
@@ -431,6 +671,29 @@ capabilities:
       - internal/extractor.TestYouTubeRecoversURLBearingFormatsFromNativeClient
       - internal/extractor.TestYouTubeRecoveryFailsClosedWithoutCookieIsolation
       - internal/extractor.TestYouTubeAuthenticatedPageDoesNotUseAnonymousRecovery
+      - internal/extractor.TestYouTubeSIDAuthorizationExact
+      - internal/extractor.TestYouTubeSIDAuthorizationFallbackAndFailures
+      - internal/extractor.TestYouTubeWEBAuthHeaders
+      - internal/extractor.TestRequestAuthenticatedYouTubeWEBPlayer
+      - internal/extractor.TestRequestAuthenticatedYouTubeWEBPlayerFailuresAreCategorizedAndSecretFree
+      - internal/extractor.TestRequestAuthenticatedYouTubeWEBPlayerCancellation
+      - internal/extractor.TestRequestAuthenticatedYouTubeWEBNext
+      - internal/extractor.TestValidYouTubeWEBNextEndpoint
+      - internal/extractor.TestRequestAuthenticatedYouTubeWEBNextErrors
+      - internal/extractor.TestRequestAuthenticatedYouTubeWEBNextCancellation
+      - internal/extractor.FuzzValidYouTubeWEBNextEndpoint
+      - internal/extractor.TestYouTubeAuthenticatedCommentsUseNoRedirectForEveryContinuation
+      - internal/extractor.TestYouTubeAuthenticatedCommentFailuresStayProtectedAndCategorized
+      - internal/extractor.TestYouTubeAuthenticatedCommentsFailClosedForMissingCapabilityCookiesAndCancellation
+      - internal/extractor.TestYouTubeAuthenticatedCommentsUseProductionCookieJarAndNoRedirectPath
+      - internal/extractor.TestYouTubePageConfigBuildsBoundedWEBAuthContext
+      - internal/extractor.TestYouTubeRecoversAuthenticatedWEBFormatsWithoutAnonymousFallback
+      - internal/extractor.TestYouTubeAuthenticatedWEBRecoveryCanReplaceInitialLoginRequiredResponse
+      - internal/extractor.TestYouTubeAuthenticatedWEBRecoveryUsesProductionCookieJarAndNoRedirectPath
+      - internal/extractor.FuzzYouTubeWEBAuthConfig
+      - internal/network.TestDoNoRedirectReturnsSameOriginRedirectAndPreservesRequest
+      - internal/network.TestDoNoRedirectDoesNotFollowCrossOriginRedirect
+      - internal/network.TestDoNoRedirectCancellationAndRedactsTransportFailures
       - internal/extractor.TestYouTubeRecoveryContinuesAfterOneClientFails
       - internal/extractor.TestYouTubeSABRFallbackFailureIsCategorizedAndCancelable
       - internal/extractor.TestYouTubeAppliesPlayerAndGVSTokensToIsolatedRecovery
@@ -449,9 +712,87 @@ capabilities:
       - internal/extractor.TestYouTubeRejectsMalformedPlayerResponse
       - internal/extractor.TestYouTubePlaylistIsLazyPagedAndMatchesPinnedShape
       - internal/extractor.TestYouTubePlaylistFailuresAreCategorized
+      - internal/extractor.TestYouTubeChannelTabLazyReusableContinuation
+      - internal/extractor.TestYouTubeChannelTabShortsEntry
+      - internal/extractor.TestYouTubeChannelTabRoutingPolicy
+      - internal/extractor.TestYouTubeChannelTabFailuresAndCancellation
+      - internal/extractor.TestYouTubeChannelTabContinuationRejectsBadToken
+      - internal/extractor.TestYouTubeChannelPlaylistsTabLegacyModernContinuationAndOccurrences
+      - internal/extractor.TestYouTubeChannelPlaylistsTabRejectsHostileRenderersAndCategorizesFailures
+      - internal/extractor.TestYouTubeHandleTabLazyReusableContinuation
+      - internal/extractor.TestYouTubeHandleTabFallbackIDAndRoutingPolicy
+      - internal/extractor.TestYouTubeHandleTabCanonicalizesDecodedUnicodeWithoutCaseFolding
+      - internal/extractor.TestValidYouTubeHandleUsesUnicodeCodePointBounds
+      - internal/extractor.TestYouTubeHandleTabFailuresMalformedCancellationAndLoop
+      - internal/extractor.TestYouTubeHandlePlaylistsTabLegacyModernContinuationAndOccurrences
+      - internal/extractor.TestYouTubeHandlePlaylistsTabRejectsHostileRenderersAndCategorizesFailures
+      - internal/extractor.TestYouTubeAliasTabUserVideosCanonicalContinuationAndUCID
+      - internal/extractor.TestYouTubeAliasTabUnicodeCPlaylistsFallbackAndRenderers
+      - internal/extractor.TestYouTubeAliasTabTargetPolicy
+      - internal/extractor.TestYouTubeAliasTabCanonicalURLPercentSafety
+      - internal/extractor.TestYouTubeAliasTabPercentAliasFetchIsEncodedOnce
+      - internal/extractor.TestYouTubeAliasTabSelectedIdentityAndMetadataFailures
+      - internal/extractor.TestYouTubeAliasTabTraversalBounds
+      - internal/extractor.TestYouTubeAliasTabCategorizedFailuresAndCancellation
+      - internal/extractor.TestYouTubeAliasTabContinuationRateLimitAndReusableRace
+      - internal/extractor.TestYouTubeHomeTabMixedRenderersAndContinuation
+      - internal/extractor.TestYouTubeCommunityTabAttachmentsInlineDedupAndContinuation
+      - internal/extractor.TestYouTubeReleasesTabPlaylistOnlyContinuation
+      - internal/extractor.TestYouTubeExpandedTabsIntegrateChannelAndAliasRoutes
+      - internal/extractor.TestYouTubeExpandedTabIdentityAndCommunityLinkPolicy
+      - internal/extractor.TestYouTubeBareRootsAggregateVideosStreamsAndShortsLazily
+      - internal/extractor.TestYouTubeBareRootNoVideosExcludesHomeShelvesAndEmptyRoot
+      - internal/extractor.TestYouTubeBareRootFallsBackToTopicUploadsPlaylist
+      - internal/extractor.TestYouTubeBareTopicFallbackPreservesCancellation
+      - internal/extractor.TestYouTubeBareRootFallsBackAfterMissingVideosPage
+      - internal/extractor.TestYouTubeBareRootSelectedTabValidationBoundsAndCancellation
+      - internal/extractor.TestYouTubeBareRootNetworkAndAlertCategories
+      - internal/extractor.TestYouTubeConditionalChannelRedirectIntegratesEveryRouteFamily
+      - internal/extractor.TestYouTubeConditionalChannelRedirectCancellationBeforeRead
+      - internal/extractor.TestYouTubeConditionalChannelRedirectDestinationFamiliesAndDuplicates
+      - internal/extractor.TestYouTubeConditionalChannelRedirectRejectsHostileAmbiguousAndSelfTargets
+      - internal/extractor.TestYouTubeSearchInitialContinuationAndAllCap
+      - internal/extractor.TestYouTubeSearchLazyReusableAndCancellation
+      - internal/extractor.TestYouTubeSearchTargetHostileAndRouting
+      - internal/extractor.TestYouTubeSearchTargetCounts
+      - internal/extractor.TestYouTubeSearchFailures
+      - internal/extractor.TestYouTubeMusicSearchSectionsPagingAndRequest
+      - internal/extractor.TestYouTubeMusicSearchLazyReusableAndCancellation
+      - internal/extractor.TestYouTubeMusicSearchTargetPolicy
+      - internal/extractor.TestYouTubeMusicSearchErrorsAndAlerts
+      - internal/extractor.TestYouTubeCommentsDefaultNewSortVisitorRotationAndFields
+      - internal/extractor.TestYouTubeCommentsTopSortAndBounds
+      - internal/extractor.TestYouTubeCommentsWrappedSortReplyContinuationAndMultipleActions
+      - internal/extractor.TestYouTubeCommentsPinnedDuplicateDoesNotStopTraversal
+      - internal/extractor.TestYouTubeCommentsReplyContinuationIsDepthFirstForTotalLimit
+      - internal/extractor.TestYouTubeCommentsDisabledAndForcedContinuation
+      - internal/extractor.TestYouTubeCommentFailuresCancellationAndLimits
+      - internal/extractor.TestYouTubeCommentRetriesTransientAndIncompleteResponses
+      - internal/extractor.TestYouTubeCommentsCapActualHTTPAttempts
+      - internal/extractor.TestParseYouTubeCommentPageRejectsMalformedAndOversizedText
+      - internal/extractor.TestParseYouTubeCommentPageEnforcesStructuralBudgets
+      - internal/extractor.TestYouTubeModernCommentSanitizesIdentityAndThumbnail
+      - internal/extractor.FuzzParseYouTubeCommentPage
       - internal/extractor.TestYouTubeExtractsLiveHLSAndClassifiesLiveStates
+      - internal/extractor.TestYouTubePostLiveAdaptiveFormatsUseFiniteDVRProtocol
+      - internal/extractor.TestYouTubePostLiveMetadataFallsBackAcrossPlayerResponses
+      - internal/extractor.TestParseYouTubeLiveTimestampBounds
+      - internal/extractor.TestYouTubeLiveFromStartEligibilityAndMetadataOnlyExtraction
+      - internal/extractor.TestYouTubeLiveFromStartRequiresEligibleAdaptiveFormats
       - internal/extractor.TestRequestJSONBoundsStatusAndSyntax
       - internal/extractor.FuzzParseYouTubePlaylistData
+      - internal/extractor.FuzzParseYouTubeChannelTabData
+      - internal/extractor.FuzzYouTubeChannelTabTarget
+      - internal/extractor.FuzzParseYouTubeHandleTabData
+      - internal/extractor.FuzzYouTubeHandleTabTarget
+      - internal/extractor.FuzzYouTubeAliasTabTarget
+      - internal/extractor.FuzzYouTubeCommunityPostEntries
+      - internal/extractor.FuzzYouTubeBareUploadTabs
+      - internal/extractor.FuzzYouTubeConditionalChannelRedirect
+      - internal/extractor.FuzzParseYouTubeSearchData
+      - internal/extractor.FuzzYouTubeSearchTarget
+      - internal/extractor.FuzzParseYouTubeMusicSearchData
+      - internal/extractor.FuzzYouTubeMusicSearchTarget
       - internal/extractor.FuzzDiscoverYouTubePageConfig
       - internal/extractor.FuzzParseYouTubeCaptionURL
       - internal/extractor.FuzzNormalizeYouTubeCaptionTrack
@@ -466,6 +807,10 @@ capabilities:
       - pkg/ytdlp.TestPublicYouTubePOTProviderConfiguration
       - pkg/ytdlp.TestPublicYouTubePOTConfigurationFailsClosed
       - pkg/ytdlp.TestPublicYouTubeCaptionOptionsReachExtractor
+      - pkg/ytdlp.TestClientDefersExpensiveMetadataUntilAfterMatchFilter
+      - pkg/ytdlp.TestClientDoesNotEnrichArchivedMedia
+      - pkg/ytdlp.TestClientRejectsInvalidWaveTwoOptionsBeforeNetwork
+      - pkg/ytdlp.TestExtractorFailuresAreCategorized
       - pkg/ytdlp.TestSubtitleSidecarsDownloadWithSkipDownload
       - pkg/ytdlp.TestSubtitleSelectionMatchesPinnedReferenceCases
       - pkg/ytdlp.TestSubtitleAndMediaArtifactsAreBothReported
@@ -482,16 +827,63 @@ capabilities:
       - pkg/ytdlp.FuzzValidateSubtitleOptions
       - pkg/ytdlp.FuzzSubtitleExtension
       - internal/cli.TestRunWritesSelectedSubtitlesWhileSkippingMedia
+      - internal/cli.TestRunListSubsSimulatesAndPreservesOutputChannels
+      - internal/cli.TestRunListSubsPrintJSONAndCancellation
+      - internal/cli.TestRenderSubtitleListingOrderAndNoTracks
+      - internal/cli.TestRenderSubtitleListingRejectsMalformedAndBounds
+      - internal/cli.TestRenderSubtitleListingUsesRuneWidths
+      - internal/cli.TestRenderSubtitleListingCancellation
+      - internal/cli.TestRenderSubtitleListingChecksCancellationWithinTracks
+      - internal/cli.TestWriteSubtitleListingsUsesPlaylistEntries
+      - internal/cli.FuzzRenderSubtitleListing
+      - internal/cli.TestParseYouTubeCommentLimits
+      - internal/cli.TestRunAcceptsYouTubeCommentAliasesAndClears
+      - internal/cli.TestRunEmbedSubtitlesImplicitSelectionAndClear
+      - internal/cli.TestRunEmbedsAutomaticSubtitleAndUsesPinnedRetentionRule
+      - internal/cli.TestConvertResultSubtitlesSuccessRecursesAndUsesArgv
+      - internal/cli.TestSubtitleConversionMetadataPreflightAndRelativePaths
+      - internal/cli.FuzzSubtitleConversionPlanner
+      - pkg/ytdlp.TestProductEmbedsSelectedSubtitleTracksAndAppliesRetention
+      - pkg/ytdlp.TestProductSkipsUnsupportedEmbeddingContainerWithoutDeletingSidecar
+      - pkg/ytdlp.TestProductSkipsUnsupportedWebMTrackWithoutDeletingSidecar
+      - pkg/ytdlp.TestProductConvertsBeforeEmbeddingForWebM
+      - pkg/ytdlp.TestSubtitleCleanupFailureIsNonVetoableAndReported
+      - pkg/ytdlp.TestYouTubePostLiveAdaptiveTracksDownloadAndMerge
+      - pkg/ytdlp.TestYouTubePostLiveRejectsExternalDownloaderAndCategorizesFailures
+      - pkg/ytdlp.TestOperationPostLivePreferenceKeepsExplicitDirectFormatAuthoritative
+      - pkg/ytdlp.TestYouTubeLiveFromStartDownloadsTracksConcurrentlyAndMerges
+      - pkg/ytdlp.TestYouTubeLiveRefreshCoordinatorCachesAndMatchesExactIdentity
       - conformance/extractors/youtube/PROVENANCE.md
+      - conformance/extractors/youtube_channel/PROVENANCE.md
+      - conformance/extractors/youtube_handle_tab/PROVENANCE.md
+      - conformance/extractors/youtube_alias_tab/PROVENANCE.md
+      - conformance/extractors/youtube_channel_redirect/PROVENANCE.md
+      - conformance/extractors/youtube_search/PROVENANCE.md
+      - conformance/extractors/youtube_music_search/PROVENANCE.md
       - docs/YOUTUBE_POT_EVIDENCE.md
       - docs/YOUTUBE_CAPTIONS_EVIDENCE.md
       - docs/YOUTUBE_SUBTITLE_CLI_EVIDENCE.md
+      - docs/YOUTUBE_SUBTITLE_LISTING_EVIDENCE.md
+      - docs/YOUTUBE_SUBTITLE_CONVERSION_EVIDENCE.md
+      - docs/YOUTUBE_SUBTITLE_EMBEDDING_EVIDENCE.md
+      - docs/YOUTUBE_CHANNEL_EVIDENCE.md
+      - docs/YOUTUBE_HANDLE_TAB_EVIDENCE.md
+      - docs/YOUTUBE_ALIAS_TAB_EVIDENCE.md
+      - docs/YOUTUBE_PLAYLIST_TABS_EVIDENCE.md
+      - docs/YOUTUBE_EXPANDED_TABS_EVIDENCE.md
+      - docs/YOUTUBE_BARE_CHANNEL_EVIDENCE.md
+      - docs/YOUTUBE_CONDITIONAL_REDIRECT_EVIDENCE.md
+      - docs/YOUTUBE_SEARCH_EVIDENCE.md
+      - docs/YOUTUBE_MUSIC_SEARCH_EVIDENCE.md
+      - docs/YOUTUBE_COMMENTS_EVIDENCE.md
+      - docs/YOUTUBE_POST_LIVE_DVR_EVIDENCE.md
+      - docs/YOUTUBE_LIVE_FROM_START_EVIDENCE.md
       - docs/YOUTUBE_PROTECTED_PLAYBACK_PLAN.md
     owner: extractors
     depends_on:
       - javascript.ejs
       - extractor.playlists
-    known_deviation: Compatibility is scoped to the pinned video, playlist-continuation, live-HLS, structured player-config discovery, native-client recovery, manual/automatic/translated caption renderer, bounded subtitle sidecar selection/download, and explicit native-Go PO-token provider corpus. Anonymous visitor identity is propagated across bounded, cookie-isolated Android and Android VR requests, enabling URL-bearing adaptive video/audio recovery. Player, GVS, and subtitle token placement is supported through an embedding-provided Go provider; no built-in generator, implicit endpoint, executable, Python bridge, persistent cache, or upstream external-provider protocol is claimed. Authenticated pages fail explicitly instead of leaking browser cookies to clients that do not support them or silently substituting an anonymous session. Existing sidecars fail closed unless overwrite is enabled. Subtitle listing, CLI conversion/embedding, Python-regex-only language rules, direct SABR transport, authenticated Innertube clients, comments, channel/tab variants, live-from-start, and broader player/renderer variants remain pending.
+    known_deviation: Compatibility is scoped to the pinned video, playlist-continuation, exact public UCID, pinned Unicode-aware `@handle`, and bounded Unicode legacy `/user` and `/c` alias explicit `/videos`, `/shorts`, `/streams`, `/playlists`, `/home`, `/featured`, `/community`, `/releases`, and `/podcasts` tabs, plus bare channel/handle/alias roots that lazily aggregate advertised videos, streams, and Shorts or try the synthesized `UU<channel-suffix>` uploads playlist, bounded public `ytsearch` and results-URL video search, bounded playable YouTube Music default/song/video search, bounded opt-in public and authenticated-WEB comments, live-HLS, finite post-live DVR reconstruction, opt-in active live-from-start reconstruction, structured player-config discovery, native-client recovery, authenticated exact-origin WEB player format recovery, manual/automatic/translated caption renderer, bounded subtitle listing with explicit simulation control, sidecar selection/download/conversion/embedding, and explicit native-Go PO-token provider corpus. Mixed home feeds accept video and playlist renderers; community feeds emit attached and inline media URL results with per-post duplicate suppression and cross-post occurrence retention; releases and podcasts emit playlist results. Bare roots exclude home shelves, preserve upload occurrence order, support no-videos and empty channels, and enforce one aggregate entry bound. Comment retrieval supports top/new ordering, visitor rotation, legacy and modern fields, inline replies, click-tracked reply continuations, nested subthreads, pinned duplicate handling, bounded transient/incomplete retries, actual retrieved counts, and explicit total/parent/reply/per-thread/depth limits. Signed-in WEB comments keep root, sort, reply, and retry continuations inside the exact-origin no-redirect cookie boundary. It does not claim other authenticated comment clients, approximate count before retrieval, estimated timestamps, upstream's configurable ignore-error policy, or untested renderer families. Anonymous visitor identity is propagated across bounded, cookie-isolated Android and Android VR requests, enabling URL-bearing adaptive video/audio recovery. Logged-in watch pages with valid SID cookies use redirect-disabled WEB player and comment requests; credentials never cross into anonymous clients. Player, GVS, and subtitle token placement is supported through an embedding-provided Go provider; no built-in generator, implicit endpoint, executable, Python bridge, persistent cache, or upstream external-provider protocol is claimed. Existing sidecars fail closed unless overwrite is enabled. Search is capped at 50 results; general search does not claim channel/playlist/hashtag results or arbitrary filter parity, while Music search excludes albums, artists, playlists, podcasts, arbitrary filters, and authenticated/premium success. Membership/custom tabs, Python-regex-only language rules, direct SABR transport, broader authenticated Innertube clients, external live-generator delegation, restart resume, and broader player/renderer variants remain pending.
 
   - id: extractor.playlists
     name: Playlist extraction model
@@ -510,9 +902,38 @@ capabilities:
       - pkg/ytdlp.TestOperationDownloadsPlaylistAndAggregatesBytes
       - pkg/ytdlp.TestOperationRejectsNestedPlaylistCycle
       - pkg/ytdlp.TestOperationMergesTransparentEntryMetadata
+      - pkg/ytdlp.TestOperationSlicesPlaylistLazilyAndPreservesSourceIndexes
+      - pkg/ytdlp.TestOperationPlaylistEndStopsBeforeFetchingAnotherPage
+      - pkg/ytdlp.TestOperationReversesSelectedRangeWithoutLosingSourceIndexes
+      - pkg/ytdlp.TestSelectedPlaylistIteratorHonorsCancellationWhileSkipping
+      - pkg/ytdlp.TestSelectedPlaylistIteratorHonorsCancellationAtEndBoundary
+      - pkg/ytdlp.TestPlaylistSelectionConformanceFixture
+      - pkg/ytdlp.FuzzSelectedPlaylistIterator
+      - pkg/ytdlp.TestPlaylistItemsConformanceFixture
+      - pkg/ytdlp.TestOperationPlaylistItemsPreservesRequestedOrderAndStopsPagination
+      - pkg/ytdlp.TestPlaylistItemsFiniteWideStepDoesNotOverfetch
+      - pkg/ytdlp.TestOperationPlaylistItemsZeroDoesNotFetchEntries
+      - pkg/ytdlp.TestOperationPlaylistItemsNegativeIndexConsumesBoundedSequence
+      - pkg/ytdlp.TestOperationPlaylistItemsTakePrecedenceAndReverseAfterSelection
+      - pkg/ytdlp.TestPlaylistItemsOverrideRangeWarningPolicy
+      - pkg/ytdlp.TestPlaylistItemsOverrideRangeWarningEmittedOnce
+      - pkg/ytdlp.TestPlaylistItemsIteratorCancellationAndLimit
+      - pkg/ytdlp.FuzzPlaylistItemsParserAndExpansion
+      - pkg/ytdlp.TestOperationFlatPlaylistRetainsEntriesWithoutChildExtraction
+      - pkg/ytdlp.TestOperationFlatPlaylistAppliesMetadataBeforeIncompleteMatchFilter
+      - pkg/ytdlp.TestOperationFlatPlaylistChecksArchiveWithoutRecording
+      - pkg/ytdlp.TestFlatPlaylistEntryValuePreservesURLResultShape
+      - pkg/ytdlp.FuzzFlatPlaylistEntryValue
+      - internal/cli.TestRunRejectsInvalidPlaylistRange
+      - internal/cli.TestRunAcceptsLegacyUnboundedPlaylistEnd
+      - internal/cli.TestRunAcceptsNoPlaylistReverseAfterInheritedReverse
+      - internal/cli.TestRunPlaylistItemsAliasAndInvalidSpec
+      - internal/cli.TestRunAcceptsFlatPlaylistAndCommandLineDisable
+      - conformance/playlists/flat.expected.json
+      - conformance/playlists/PROVENANCE.md
       - docs/PLAYLIST_MODEL.md
     owner: extractors
-    known_deviation: The Phase 1 model resolves entries sequentially with a fail-fast error policy and supports id/title overlays for transparent URL results. Playlist slicing, random/reverse ordering, arbitrary transparent fields, and configurable ignore-error policy remain broader compatibility work.
+    known_deviation: Playlist ranges and bounded item expressions are one-based, preserve original source indexes, support sparse and negative indexes plus positive/negative steps, suppress duplicate selections, stop finite pagination at the last requested index, and can reverse the selected result. Expressions that require the final length consume the bounded sequence, and the sequential extractor boundary may fetch earlier pages that an upstream random-access paged list can skip. Entries resolve sequentially with a fail-fast error policy and id/title overlays for transparent URL results. Flat playlist mode retains selected URL-result metadata without child extraction or download; upstream's non-CLI global/discard extract_flat modes are not exposed. Random ordering, arbitrary transparent fields, and configurable ignore-error policy remain broader compatibility work.
 
   - id: extractor.live
     name: Live extraction pilot
@@ -521,6 +942,25 @@ capabilities:
     status: compatible
     evidence:
       - internal/extractor.TestYouTubeExtractsLiveHLSAndClassifiesLiveStates
+      - internal/extractor.TestYouTubePostLiveAdaptiveFormatsUseFiniteDVRProtocol
+      - internal/extractor.TestYouTubePostLiveMetadataFallsBackAcrossPlayerResponses
+      - internal/format.TestPreferenceRanksDefaultsButNotExplicitFormatIDs
+      - internal/protocol/youtubelive.TestDownloadFinitePostLiveTailAndPreservesSignedQuery
+      - internal/protocol/youtubelive.TestBuildPlanAppliesPinned120HourClampBeforeLimit
+      - internal/protocol/youtubelive.TestProbeHeaderFailuresAndRetry
+      - internal/protocol/youtubelive.TestDownloadCancellationStopsWorkAndCleansState
+      - internal/protocol/youtubelive.FuzzParseHeadSequence
+      - internal/protocol/youtubelive.FuzzSequenceURLConstruction
+      - internal/protocol/youtubelive.TestLiveDownloadRefreshesAndFinalProbesEndedStream
+      - internal/protocol/youtubelive.TestLiveDownloadAggressivelyRefreshesAfterMisses
+      - internal/protocol/youtubelive.TestLiveCancellationCleansTemporaryArtifacts
+      - internal/protocol/youtubelive.FuzzLiveBeginSequence
+      - pkg/ytdlp.TestYouTubePostLiveAdaptiveTracksDownloadAndMerge
+      - pkg/ytdlp.TestOperationPostLivePreferenceKeepsExplicitDirectFormatAuthoritative
+      - pkg/ytdlp.TestYouTubeLiveFromStartDownloadsTracksConcurrentlyAndMerges
+      - internal/protocol/youtubelive/PROVENANCE.md
+      - docs/YOUTUBE_POST_LIVE_DVR_EVIDENCE.md
+      - docs/YOUTUBE_LIVE_FROM_START_EVIDENCE.md
       - internal/protocol/hls.TestDownloadLivePollDeduplicatesSegments
       - internal/protocol/hls.TestDownloadLiveHonorsCancellation
       - internal/extractor.TestTwitchExtractAndDownloadLiveHLS
@@ -530,7 +970,7 @@ capabilities:
     owner: extractors
     depends_on:
       - protocol.hls
-    known_deviation: The compatible pilot includes Twitch extraction through signed HLS discovery, live polling, end-of-stream, de-duplication, and ordered assembly. Live-from-start fallback, subscriber entitlements, and chat remain later coverage; VOD and clip breadth is tracked by extractor.twitch_pilot.
+    known_deviation: The compatible pilot includes Twitch extraction through signed HLS discovery, live polling, end-of-stream, de-duplication, and ordered assembly, plus bounded finite and opt-in active YouTube live-from-start reconstruction. External live-generator delegation, restart resume, subscriber entitlements, and chat remain later coverage; VOD and clip breadth is tracked by extractor.twitch_pilot.
 
   - id: extractor.twitch_pilot
     name: Twitch live extraction pilot
@@ -573,17 +1013,28 @@ capabilities:
       - internal/extractor.TestSoundCloudCancellationInterruptsLazyPage
       - internal/extractor.TestSoundCloudCategorizedFailuresAndSecretRedaction
       - internal/extractor.TestSoundCloudRejectsUntrustedContinuationAndAsset
+      - internal/extractor.TestSoundCloudSearchRoutingAndCounts
+      - internal/extractor.TestSoundCloudSearchPagesFilteringReusableAndContract
+      - internal/extractor.TestSoundCloudSearchPageCapAndCookieIsolation
+      - internal/extractor.TestSoundCloudSearchRequiresCookieIsolation
+      - internal/extractor.TestSoundCloudSearchUsesNetworkClientCookieIsolation
+      - internal/extractor.TestSoundCloudSearchErrorsCancellationAndContinuations
+      - internal/extractor.TestSoundCloudSearchCursorQueryPolicy
       - internal/extractor.FuzzSoundCloudURLClassification
       - internal/extractor.FuzzSoundCloudPageEntries
+      - internal/extractor.FuzzSoundCloudSearchTarget
+      - internal/extractor.FuzzParseSoundCloudSearchPage
       - pkg/ytdlp.TestProductRegistryIncludesIntegratedExtractors
       - conformance/extractors/soundcloud/PROVENANCE.md
+      - conformance/extractors/soundcloud_search/PROVENANCE.md
       - docs/P1_SOUNDCLOUD_EVIDENCE.md
+      - docs/SOUNDCLOUD_SEARCH_EVIDENCE.md
     owner: extractors
     depends_on:
       - extractor.playlists
       - protocol.hls
       - network.shared_transport
-    known_deviation: Compatibility is scoped to the pinned public track, static-set, and lazy user-tracks corpus. OAuth/private media, premium originals, search, comments, stations, related media, non-track profile tabs, and private-set batch hydration remain broader SoundCloud work.
+    known_deviation: Compatibility is scoped to the pinned public track, static-set, lazy user-tracks, stations/related-media, and bounded public track-search corpus. Search supports `scsearch`, counts through 200, a 200-result `scsearchall` cap, and a narrow canonical web URL; it uses cookie-isolated API requests and at most four pages. OAuth/private media, premium originals, comments, non-track search/profile tabs, and private-set batch hydration remain broader SoundCloud work.
 
   - id: extractor.streamable_public
     name: Streamable shared-hosting extraction
@@ -622,6 +1073,101 @@ capabilities:
       - protocol.hls
       - network.shared_transport
     known_deviation: Arbitrary instances require the explicit peertube scheme; HTTP routing uses a conservative established-instance set. Generic page discovery, account/channel playlists, and password-protected success are not claimed.
+
+  - id: extractor.bluesky
+    name: Bluesky public post and AT URI extraction
+    phase: 3
+    compatibility_target: Extract unauthenticated public Bluesky posts from the bsky.app/main.bsky.dev URL family and the equivalent at:// URIs, with deterministic PDS resolution, bounded embed normalization, and HLS + direct blob format selection.
+    status: compatible
+    evidence:
+      - internal/extractor.TestBlueskyRoutingAndClassification
+      - internal/extractor.TestBlueskyExtractsDirectVideoWithHLSAndBlobFormats
+      - internal/extractor.TestBlueskyExtractsRecordWithMediaAsMedia
+      - internal/extractor.TestBlueskyExtractsQuotedPostPlaylist
+      - internal/extractor.TestBlueskyExtractsCaptionsAndAgeLimit
+      - internal/extractor.TestBlueskyAgeLimitIs18ForSexualLabel
+      - internal/extractor.TestBlueskyExternalEmbedRoutesToEntry
+      - internal/extractor.TestBlueskyDIDWebTrustedEndpointResolves
+      - internal/extractor.TestBlueskyDIDDocMaliciousFallbackUsesDefaultPDS
+      - internal/extractor.TestBlueskyDIDDocCredentialsAreRejected
+      - internal/extractor.TestBlueskyCategorizedErrorsAndSecretSafety
+      - internal/extractor.TestBlueskyCategorizesNetworkAndPreservesInvalidMetadata
+      - internal/extractor.TestBlueskyHonorsCancellation
+      - internal/extractor.TestBlueskyRejectsOversizedJSON
+      - internal/extractor.TestBlueskyNoVideoReturnsUnavailable
+      - internal/extractor.TestBlueskyNotFoundThreadIsUnavailable
+      - internal/extractor.TestBlueskyNetworkFailureFallsBackToDefaultPDS
+      - internal/extractor.TestBlueskyMalformedThreadIsInvalidMetadata
+      - internal/extractor.TestBlueskyATURIAcceptsDidAndHandleAuthor
+      - internal/extractor.TestBlueskyATURIRejectsUnsafeShapes
+      - internal/extractor.TestBlueskyBlobURLAvoidsCredentialsAndFragments
+      - internal/extractor.TestBlueskySafeMediaURLRejectsUnsafeSchemes
+      - internal/extractor.TestBlueskyTitleTruncationAndFallback
+      - internal/extractor.TestBlueskyTimestampAndUploadDate
+      - internal/extractor.TestBlueskyOrderedTagsDedupesAndBounds
+      - internal/extractor.TestBlueskyPostIDPatternAcceptsPinnedIDs
+      - internal/extractor.TestBlueskyCycleAndDuplicateEntriesAreDeduped
+      - internal/extractor.TestBlueskyPlaylistEntriesReextractSelectedMedia
+      - internal/extractor.TestBlueskyRequestAssertionsAndQueryArgs
+      - internal/extractor.FuzzBlueskyRouting
+      - internal/extractor.FuzzBlueskyJSON
+      - pkg/ytdlp.TestBuiltInExtractorIDsAreUniqueAndIncludeProductBoundaries
+      - pkg/ytdlp.TestRepresentativeExtractorCatalogCountRoutingAndRiskCoverage
+      - conformance/extractors/bluesky/PROVENANCE.md
+    owner: extractors
+    depends_on:
+      - protocol.hls
+      - network.shared_transport
+    known_deviation: Public posts only. Login, authenticated sessions, private repositories, arbitrary record types, profile or feed enumeration, and unbounded DID method coverage are out of scope. did:web is restricted to syntactically public HTTPS hostnames with the first exact-type AtprotoPersonalDataServer endpoint; DNS rebinding resistance remains the shared transport's responsibility. HLS is delegated to the existing m3u8 downloader; this extractor produces no segment-level fetching or signing.
+
+  - id: extractor.imgur
+    name: Imgur public media and collection extraction
+    phase: 4
+    compatibility_target: Extract public Imgur videos and animated images from canonical, slugged, direct-CDN, gallery, topic, subreddit, and album URLs through the bounded anonymous post API, preserving ordered lazy collections and normalized metadata.
+    status: compatible
+    evidence:
+      - internal/extractor.TestImgurRouting
+      - internal/extractor.TestImgurExtractVideoMetadataAndFormat
+      - internal/extractor.TestImgurAnimatedImageIsLowPreferenceSilentFormat
+      - internal/extractor.TestImgurAlbumFiltersStaticItemsAndStaysLazy
+      - internal/extractor.TestImgurSingleVideoGalleryAppliesGalleryMetadata
+      - internal/extractor.TestImgurCollection404FallsBackToMedia
+      - internal/extractor.TestImgurFailuresAreCategorizedAndSecretSafe
+      - internal/extractor.TestImgurRejectsStaticUnsafeAndOversizedResponses
+      - internal/extractor.TestImgurHonorsCancellation
+      - internal/extractor.TestNormalizeImgurAssetURL
+      - internal/extractor.FuzzImgurRouting
+      - pkg/ytdlp.TestBuiltInExtractorIDsAreUniqueAndIncludeProductBoundaries
+      - pkg/ytdlp.TestRepresentativeExtractorCatalogCountRoutingAndRiskCoverage
+      - conformance/extractors/imgur/PROVENANCE.md
+    owner: extractors
+    depends_on:
+      - network.shared_transport
+    known_deviation: Public anonymous API extraction only. Static-only posts, authenticated/private content, and the pinned webpage gifv/OG/Twitter fallback source discovery are not claimed. API assets are restricted to hardened i.imgur.com HTTPS URLs and collection inventories are bounded.
+
+  - id: extractor.flickr
+    name: Flickr public video extraction
+    phase: 4
+    compatibility_target: Extract public Flickr video pages through anonymous site-key discovery and the bounded REST video-info and stream-info APIs, preserving direct/HLS formats, quality ordering, uploader metadata, counts, tags, timestamps, dimensions, and licenses.
+    status: compatible
+    evidence:
+      - internal/extractor.TestFlickrRouting
+      - internal/extractor.TestFlickrExtractsVideoMetadataAndStreams
+      - internal/extractor.TestFlickrPhotoIsUnavailable
+      - internal/extractor.TestFlickrAPIFailureIsCategorizedAndSecretSafe
+      - internal/extractor.TestFlickrHTTPAndJSONFailures
+      - internal/extractor.TestFlickrRejectsUnsafeOrOversizedStreamInventory
+      - internal/extractor.TestFlickrHonorsCancellation
+      - internal/extractor.TestFlickrFailsClosedWithoutCookieIsolation
+      - internal/extractor.TestNormalizeFlickrStreamURL
+      - internal/extractor.FuzzFlickrRouting
+      - pkg/ytdlp.TestBuiltInExtractorIDsAreUniqueAndIncludeProductBoundaries
+      - pkg/ytdlp.TestRepresentativeExtractorCatalogCountRoutingAndRiskCoverage
+      - conformance/extractors/flickr/PROVENANCE.md
+    owner: extractors
+    depends_on:
+      - network.shared_transport
+    known_deviation: Public video pages only. Photo-only, private, authenticated, account, gallery, and library routes are outside this increment. REST requests require cookie isolation, stream URLs are restricted to hardened staticflickr.com HTTPS hosts, and the 128-entry inventory bound is stricter than upstream.
 
   - id: extractor.internetarchive_public
     name: Internet Archive public API and playlist extraction
@@ -708,39 +1254,49 @@ capabilities:
   - id: extractor.vimeo_pilot
     name: Vimeo manifest-heavy extraction pilot
     phase: 1
-    compatibility_target: Extract Vimeo progressive, HLS, and DASH formats through the protected webpage flow without Python.
+    compatibility_target: Extract Vimeo progressive, HLS, DASH, and public player-config text tracks through the protected webpage flow without Python.
     status: compatible
     evidence:
       - internal/extractor.TestVimeoExtractsProgressiveHLSAndDASHWithProfile
       - internal/extractor.TestVimeoSuitableAndPlayerConfig
       - internal/extractor.TestVimeoFailuresAreCategorized
+      - internal/extractor.TestVimeoConfigURLFailsClosedWithoutRequests
+      - internal/extractor.TestVimeoTextTracksAreBoundedAndFailClosed
+      - internal/extractor.TestNormalizeVimeoTextTrackURLRejectsHostileInputs
       - internal/extractor.FuzzParseVimeoConfig
+      - internal/extractor.FuzzNormalizeVimeoTextTrackURL
+      - internal/extractor.FuzzNormalizeVimeoConfigURL
       - conformance/extractors/vimeo/PROVENANCE.md
+      - docs/VIMEO_SUBTITLES_EVIDENCE.md
     owner: extractors
     depends_on:
       - network.impersonation
       - protocol.hls
       - protocol.dash
-    known_deviation: Compatibility is scoped to the pinned public-video/player-config corpus. Password submission, showcases/channels, unlisted hashes, DRM, subtitles, and live archive variants remain broader Vimeo work.
+    known_deviation: Compatibility is scoped to the pinned public-video/player-config corpus, including manual VTT text tracks on the exact HTTPS player origin. Player-config requests use a canonical token-free Referer and fail closed for untrusted config origins. Password submission, showcases/channels, unlisted hashes, DRM, texttracks API and manifest subtitle fallbacks, and live archive variants remain broader Vimeo work.
 
   - id: extractor.tiktok_pilot
     name: TikTok impersonation and anti-bot pilot
     phase: 1
-    compatibility_target: Extract a public TikTok video from bounded hydration state through an explicit browser profile with no native fallback.
+    compatibility_target: Extract a public TikTok video and bounded webpage captions from hydration state through an explicit browser profile with no native fallback.
     status: compatible
     evidence:
       - internal/extractor.TestTikTokExtractsProtectedHydrationFormats
       - internal/extractor.TestTikTokSuitableAndEmbedCanonicalization
       - internal/extractor.TestTikTokFailuresAreCategorizedAndSecretSafe
       - internal/extractor.TestTikTokCancellationAndHydrationBound
+      - internal/extractor.TestTikTokCaptionValidationBoundsAndCoreMetadata
+      - internal/extractor.TestTikTokCaptionURLsRejectSecretsWithoutDiagnostics
       - internal/extractor.FuzzParseTikTokPage
+      - internal/extractor.FuzzParseTikTokCaptionURL
       - conformance/extractors/tiktok/PROVENANCE.md
       - docs/P1_TIKTOK_PILOT.md
+      - docs/TIKTOK_CAPTIONS_EVIDENCE.md
     owner: extractors
     depends_on:
       - network.impersonation
       - network.shared_transport
-    known_deviation: Compatibility is scoped to the pinned public hydration corpus. Mobile API signing/device rotation, WAF proof-of-work, SIGI fallback, captions, image slideshows, and broader availability labels remain explicit anti-bot work.
+    known_deviation: Compatibility is scoped to the pinned public hydration corpus, including the first 128 `video.subtitleInfos` entries on the exact attributable caption CDN host. Blank caption languages fall back to English; malformed nonblank locales and unsafe tracks are skipped, and signed query bytes remain opaque. Mobile API signing/device rotation, WAF proof-of-work, API/interaction-sticker caption fallbacks, image slideshows, and broader availability labels remain explicit anti-bot work.
 
   - id: extractor.authenticated_pilot
     name: Deterministic authenticated extractor pilot
@@ -846,7 +1402,7 @@ capabilities:
   - id: cookies.portable_sources
     name: Portable cookie sources
     phase: 2
-    compatibility_target: Read Netscape cookie files and import declared Firefox and Chromium profiles across the supported platform matrix without exposing secrets.
+    compatibility_target: Read Netscape cookie files and import declared Firefox, Safari, and Chromium profiles across the supported platform matrix without exposing secrets.
     status: compatible
     evidence:
       - internal/cookies/netscape.TestParseSemanticsAndRoundTrip
@@ -858,6 +1414,13 @@ capabilities:
       - internal/cookies/firefox.TestLocateNewestSyntheticProfile
       - internal/cookies/firefox.TestImportCancellationAndUnsafePath
       - internal/cookies/firefox.FuzzValidCookie
+      - internal/cookies/safari.TestParsePinnedSafariCookieCorpus
+      - internal/cookies/safari.TestParseMultiplePagesSecureOrderAndFooter
+      - internal/cookies/safari.TestParseRejectsStructuralCorruption
+      - internal/cookies/safari.TestParseSkipsFramedInvalidCookieAndEnforcesLimits
+      - internal/cookies/safari.TestParseRejectsInvalidTimestampAndHonorsCancellation
+      - internal/cookies/safari.TestLocateAndReadRegular
+      - internal/cookies/safari.FuzzParse
       - internal/cookies/chromiumlinux.TestPinnedLinuxV10Corpus
       - internal/cookies/chromiumlinux.TestPinnedLinuxV11Corpus
       - internal/cookies/chromiumlinux.TestImportPlainV10V11AndSchema
@@ -877,11 +1440,13 @@ capabilities:
       - pkg/ytdlp.TestClientWindowsCookiePartialAppBoundFailurePreservesCookies
       - conformance/cookies/netscape/PROVENANCE.md
       - conformance/cookies/firefox/PROVENANCE.md
+      - conformance/cookies/safari/PROVENANCE.md
       - conformance/cookies/chromium-linux/PROVENANCE.md
       - conformance/cookies/chromium-windows/PROVENANCE.md
       - docs/P3_WINDOWS_CHROMIUM_COOKIES_EVIDENCE.md
+      - docs/P3_SAFARI_COOKIES_EVIDENCE.md
     owner: authentication
-    known_deviation: Firefox profile aliases from profiles.ini are not resolved; explicit profile/database paths remain available. Linux Chromium v11 requires an injected Secret Service or KWallet password provider. Windows v20 requires an identity-appropriate injected app-bound decryptor, and real-account DPAPI remains environmental evidence. No automated test reads a real profile.
+    known_deviation: Firefox profile aliases from profiles.ini are not resolved; explicit profile/database paths remain available. Safari imports the bounded Cookies.binarycookies format on macOS only and does not claim Safari transport impersonation; no test reads a real Safari profile. Linux Chromium v11 requires an injected Secret Service or KWallet password provider. Windows v20 requires an identity-appropriate injected app-bound decryptor, and real-account DPAPI remains environmental evidence. No automated test reads a real profile.
 
   - id: compat.languages_principal
     name: Principal compatibility languages
@@ -897,13 +1462,20 @@ capabilities:
       - internal/compat/progress.TestRender
       - internal/compat/metadata.TestInterpretAndReplace
       - internal/compat/matchfilter.TestErrorsHaveSpan
+      - internal/compat/matchfilter.TestStringOperatorsNegationAndEscapes
+      - internal/compat/matchfilter.TestNoneInclusiveAndIncompleteFields
+      - internal/compat/matchfilter.TestNumericFilesizeDurationAndDecimalCoercion
+      - internal/compat/matchfilter.TestNumericComparisonPreservesInt64Precision
+      - internal/compat/matchfilter.TestEvaluationCancellationAndBounds
+      - internal/compat/matchfilter.TestPinnedMatchFilterConformance
       - pkg/ytdlp.TestOperationUsesRequestedFormatSelection
       - pkg/ytdlp.TestClientAppliesMetadataBeforeMatchFilter
+      - pkg/ytdlp.TestClientCategorizesMatchFilterEvaluationFailure
       - pkg/ytdlp.TestClientRendersProgressTemplateIntoEvents
       - internal/cli.TestRunWaveTwoCompatibilityFlags
       - conformance/compatibility/phase2/PROVENANCE.md
     owner: core
-    known_deviation: Compatibility is scoped to the bounded Phase 2 corpus. Arbitrary template code/arithmetic, the full selector and match-filter coercion grammar, and product download of arbitrary all-format sets remain explicitly unsupported.
+    known_deviation: Compatibility is scoped to the bounded Phase 2 corpus. Match filters support the documented boolean, string, numeric, none-inclusive, filesize, and duration grammar with explicit evaluation bounds; interactive/break filters and Python regular-expression semantics remain unsupported. Arbitrary template code/arithmetic, the full selector grammar, and product download of arbitrary all-format sets remain explicitly unsupported.
 
   - id: downloader.protocol_matrix
     name: Alpha downloader and protocol matrix
@@ -939,15 +1511,29 @@ capabilities:
       - internal/media/ffmpeg.TestTypedSubtitleAndImageConversions
       - internal/media/ffmpeg.TestOperationValidationAndAtomicFailure
       - internal/media/ffmpeg.TestCommandCancellation
+      - internal/media/ffmpeg.TestCompletedEventCannotVetoCommittedOutput
+      - internal/media/ffmpeg.TestSubtitleEmbedArgsDropsDataAndUnknownStreams
       - internal/media/postprocess.TestGraphValidationAndSafeMove
       - internal/media/postprocess.TestArtifactAndDestinationFailures
+      - internal/media/postprocess.TestSubtitleEmbedFailurePreservesOwnedInputs
       - internal/media/postprocess.FuzzArtifactPaths
       - pkg/ytdlp.TestClientExtractAudioPostprocessorIntegration
+      - pkg/ytdlp.TestProductEmbedsSelectedSubtitleTracksAndAppliesRetention
+      - pkg/ytdlp.TestProductSkipsUnsupportedEmbeddingContainerWithoutDeletingSidecar
+      - pkg/ytdlp.TestProductSkipsUnsupportedWebMTrackWithoutDeletingSidecar
+      - pkg/ytdlp.TestProductConvertsBeforeEmbeddingForWebM
+      - pkg/ytdlp.TestSubtitleCleanupFailureIsNonVetoableAndReported
+      - pkg/ytdlp.TestSubtitleEmbeddingImplicitlySelectsManualTracks
+      - pkg/ytdlp.TestSubtitleKeepFilesRequiresEmbedding
+      - pkg/ytdlp.TestSubtitleEmbeddingTrackLimitFailsBeforeDownload
+      - internal/cli.TestRunEmbedSubtitlesImplicitSelectionAndClear
+      - internal/cli.TestRunEmbedsAutomaticSubtitleAndUsesPinnedRetentionRule
       - pkg/ytdlp.FuzzConfinedPostprocessPath
       - pkg/ytdlp.TestClientRejectsInvalidWaveTwoOptionsBeforeNetwork
       - conformance/media/postprocess/PROVENANCE.md
+      - docs/YOUTUBE_SUBTITLE_EMBEDDING_EVIDENCE.md
     owner: media
-    known_deviation: SponsorBlock/chapter mutation is not implemented. Windows refuses unsafe atomic overwrite and currently terminates only the direct child process; Unix process-group cancellation is covered. The CLI exposes audio extraction and remux while the Go API exposes every typed operation.
+    known_deviation: SponsorBlock/chapter mutation is not implemented. Windows refuses unsafe atomic overwrite and currently terminates only the direct child process; Unix process-group cancellation is covered. The CLI exposes audio extraction, remuxing, and bounded multi-track subtitle embedding while the Go API exposes every typed operation.
 
   - id: compat.format_selector_pilot
     name: Format-selector parser pilot
@@ -971,11 +1557,14 @@ capabilities:
   - id: compat.output_template_pilot
     name: Output-template parser pilot
     phase: 1
-    compatibility_target: Render the selected traversal, alternative, default, replacement, date, and numeric formatting corpus safely.
+    compatibility_target: Render the selected traversal, projection, alternative, default, replacement, date, numeric, and JSON formatting corpus safely.
     status: compatible
     evidence:
       - internal/compat/template.TestRenderTraversalAlternativesDefaultsAndReplacement
       - internal/compat/template.TestRenderNumericAndDateFormatting
+      - internal/compat/template.TestRenderObjectProjectionAndDiagnosticJSON
+      - internal/compat/template.TestRenderJSONMatchesPinnedEscaping
+      - internal/compat/template.TestRenderProjectionRejectsInvalidAndOversizedExpressions
       - internal/compat/template.TestRenderSyntaxErrorReportsSourceSpan
       - internal/compat/template.TestResolveSanitizesAndConfines
       - internal/compat/template.FuzzResolve
@@ -1279,3 +1868,65 @@ capabilities:
       - .github/workflows/alpha-release.yml
     owner: release
     known_deviation: The updater has a narrow Windows start-to-Job-assignment race and cannot prove Windows root ACL ownership or POSIX directory fsync semantics. Production root custody, signer selection, transport, transparency, and scheduling remain explicit external policy; deterministic repository keys are tests only. Alpha artifacts are short-lived engineering evidence and cannot be publicly distributed until the repository receives a project-wide license and the remaining owner/legal decisions are resolved. The former fhttp blocker was removed with the licensed impersonation-stack replacement.
+
+  - id: metadata.sponsorblock_metadata
+    name: SponsorBlock metadata fetch and normalization
+    phase: 4
+    compatibility_target: When explicitly enabled in ytdlp.Request, query the SponsorBlock API for a YouTube video, expose deterministic sponsorblock_chapters, and optionally overlay marked ranges onto ordinary chapters without cutting media.
+    status: partial
+    evidence:
+      - internal/sponsorblock.TestCategoriesAndTitles
+      - internal/sponsorblock.TestAllCategoriesPinnedSet
+      - internal/sponsorblock.TestHashPrefixMatchesSHA256
+      - internal/sponsorblock.TestBuildEndpointURLCanonical
+      - internal/sponsorblock.TestNormalizeZeroZeroDiscard
+      - internal/sponsorblock.TestNormalizeStartSnapping
+      - internal/sponsorblock.TestNormalizePOIExtension
+      - internal/sponsorblock.TestNormalizeEndSnappingAndClamp
+      - internal/sponsorblock.TestNormalizeDurationMismatchPolicy
+      - internal/sponsorblock.TestNormalizeSortingDeterministic
+      - internal/sponsorblock.TestNormalizePointPOIAndEmptyChapterTitle
+      - internal/sponsorblock.TestNormalizeRejectsMalformed
+      - internal/sponsorblock.TestNormalizeChapterTitleUsesDescription
+      - internal/sponsorblock.TestFetchDisabledProducesNoRequests
+      - internal/sponsorblock.TestFetchCanonicalRequestAndMatchingGroup
+      - internal/sponsorblock.TestFetchCookieIsolationRequired
+      - internal/sponsorblock.TestFetchNotFoundYieldsEmptyResult
+      - internal/sponsorblock.TestFetchRateLimit
+      - internal/sponsorblock.TestFetchServerError
+      - internal/sponsorblock.TestFetchUnauthorized
+      - internal/sponsorblock.TestFetchMalformedBodyCategorized
+      - internal/sponsorblock.TestFetchUnknownCategoryDropsSegment
+      - internal/sponsorblock.TestFetchUnsupportedService
+      - internal/sponsorblock.TestFetchCancellationRespected
+      - internal/sponsorblock.TestFetchOversizedResponse
+      - internal/sponsorblock.TestFetchSecretSafeErrorMessages
+      - internal/sponsorblock.TestDecodeResponseRejectsStructuralAndResourceBounds
+      - internal/sponsorblock.TestConformanceSampleResponseDecodeOnly
+      - internal/sponsorblock.TestConformanceCollisionSelectsExactVideoID
+      - internal/sponsorblock.TestConformanceMalformedEnvelopeDropsInvalidSegments
+      - internal/sponsorblock.TestConformancePrefixIsSHA256FirstFour
+      - internal/sponsorblock.FuzzNormalize
+      - internal/sponsorblock.FuzzDecodeArray
+      - internal/sponsorblock.TestMarkChaptersNoOrdinaryAndOverlap
+      - internal/sponsorblock.TestMarkChaptersPreservesOrdinarySourcesAndChapterDescriptions
+      - internal/sponsorblock.TestMarkChaptersPreservesOriginalTinyChapters
+      - internal/sponsorblock.TestMarkChaptersTinyCreatedFragmentsFollowPinnedMergePolicy
+      - internal/sponsorblock.TestMarkChaptersAdjacentIdenticalSponsorMarkersCoalesce
+      - internal/sponsorblock.TestMarkChaptersValidationDeterminismAndImmutability
+      - internal/sponsorblock.FuzzMarkChapters
+      - pkg/ytdlp.TestSponsorBlockOptionsValidation
+      - pkg/ytdlp.TestSponsorBlockProcessMediaInfoJSONAndCredentialIsolation
+      - pkg/ytdlp.TestSponsorBlockDisabledUnsupportedAndMissingID
+      - pkg/ytdlp.TestSponsorBlockCancellationCategoryPreservesCause
+      - pkg/ytdlp.TestSponsorBlockRecursesIntoPlaylistMedia
+      - pkg/ytdlp.TestSponsorBlockMarkingRewritesChaptersAndPreservesFields
+      - pkg/ytdlp.TestSponsorBlockMarkingSynthesizesBackgroundChapter
+      - pkg/ytdlp.TestSponsorBlockMarkingFailureDoesNotPartiallyMutateInfo
+      - pkg/ytdlp.TestSponsorBlockMapErrorCategorizes
+      - pkg/ytdlp.TestSponsorBlockSecretSafeErrorMessages
+      - internal/network.TestDoWithoutCredentialsDropsExplicitAndDefaultSecrets
+      - conformance/sponsorblock/PROVENANCE.md
+      - docs/SPONSORBLOCK_METADATA.md
+    owner: core
+    known_deviation: This capability covers metadata fetch, normalization, and opt-in mark-only chapter overlay. FFmpeg-driven media cutting, force-keyframes injection, subtitle synchronization, CLI option exposure, and arbitrary-service (Vimeo, PeerTube, etc.) metadata are intentionally out of scope. The reference's warning when duration-mismatched segments are filtered is not yet surfaced; users see only the surviving chapters in sponsorblock_chapters. Network retries and authentication flows follow the existing network.Client; the reference's own retry behavior is not duplicated.
