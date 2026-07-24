@@ -1,0 +1,7 @@
+{
+  "video": {"title":"No tracks","files":{"progressive":[{"url":"https://media.example/video.mp4","quality":"source"}]}},
+  "request": {"text_tracks":[
+    {"lang":"en", "url":"javascript:alert(1)"},
+    {"lang":"fr", "url":"https://evil.example/secret?token=should-not-appear"}
+  ]}
+}

@@ -40,6 +40,15 @@
   "http_headers": {
     "Referer": "https://www.tiktok.com/@fixture_creator/video/7460000000000000001"
   },
+  "subtitles": {
+    "en-us": [
+      {"url": "https://v16-webapp.tiktok.com/captions/en.vtt?signature=redacted", "ext": "vtt", "name": "English"},
+      {"url": "https://v16-webapp.tiktok.com/captions/en.srt?signature=redacted", "ext": "srt", "name": "English"}
+    ],
+    "es": [
+      {"url": "https://v16-webapp.tiktok.com/captions/es.vtt?signature=redacted", "ext": "vtt", "name": "Español"}
+    ]
+  },
   "uploader": "fixture_creator",
   "uploader_id": "7000000000000000001",
   "channel": "Fixture Creator",

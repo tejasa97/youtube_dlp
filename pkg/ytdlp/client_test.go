@@ -12,16 +12,22 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/ytdlp-go/ytdlp/internal/archive"
+	"github.com/ytdlp-go/ytdlp/internal/compat/matchfilter"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/chromium"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/chromiumlinux"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/chromiumwindows"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/firefox"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/netscape"
+	"github.com/ytdlp-go/ytdlp/internal/cookies/safari"
 	credentialnetrc "github.com/ytdlp-go/ytdlp/internal/credentials/netrc"
 	"github.com/ytdlp-go/ytdlp/internal/downloader"
 	"github.com/ytdlp-go/ytdlp/internal/extractor"
@@ -32,6 +38,7 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/protocol/dash"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/hls"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/ism"
+	"github.com/ytdlp-go/ytdlp/internal/protocol/youtubelive"
 	"github.com/ytdlp-go/ytdlp/internal/testserver"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
@@ -98,6 +105,16 @@ func TestExtractorFailuresAreCategorized(t *testing.T) {
 		{extractor.ErrRegionRestricted, ErrorUnsupported},
 		{extractor.ErrPeerTubeNetwork, ErrorNetwork},
 		{extractor.ErrInternetArchiveNetwork, ErrorNetwork},
+		{extractor.ErrYouTubeChannelRateLimited, ErrorNetwork},
+		{extractor.ErrYouTubeChannelNetwork, ErrorNetwork},
+		{extractor.ErrYouTubeSearchRateLimited, ErrorNetwork},
+		{extractor.ErrYouTubeSearchNetwork, ErrorNetwork},
+		{extractor.ErrYouTubeHandleTabRateLimited, ErrorNetwork},
+		{extractor.ErrYouTubeHandleTabNetwork, ErrorNetwork},
+		{extractor.ErrYouTubeMusicSearchRateLimited, ErrorNetwork},
+		{extractor.ErrYouTubeMusicSearchNetwork, ErrorNetwork},
+		{extractor.ErrYouTubeCommentsRateLimited, ErrorNetwork},
+		{extractor.ErrYouTubeCommentsNetwork, ErrorNetwork},
 	} {
 		if err := categorized("extract", test.err); !IsCategory(err, test.category) {
 			t.Fatalf("categorized(%v) = %v", test.err, err)
@@ -111,6 +128,18 @@ func TestProductRegistryIncludesIntegratedExtractors(t *testing.T) {
 		name   string
 	}{
 		{"https://www.youtube.com/watch?v=dQw4w9WgXcQ", "youtube"},
+		{"https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/videos", "youtube_channel_tab"},
+		{"https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/releases", "youtube_channel_tab"},
+		{"https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv", "youtube_channel_tab"},
+		{"https://www.youtube.com/@synthetic-handle/videos", "youtube_handle_tab"},
+		{"https://www.youtube.com/@synthetic-handle/community", "youtube_handle_tab"},
+		{"https://www.youtube.com/@synthetic-handle", "youtube_handle_tab"},
+		{"https://www.youtube.com/user/SyntheticAlias/videos", "youtube_alias_tab"},
+		{"https://www.youtube.com/c/СинтетическийКанал/playlists", "youtube_alias_tab"},
+		{"https://www.youtube.com/c/СинтетическийКанал/home", "youtube_alias_tab"},
+		{"https://www.youtube.com/c/СинтетическийКанал", "youtube_alias_tab"},
+		{"ytsearch5:fixture query", "youtube_search"},
+		{"https://music.youtube.com/search?q=fixture#songs", "youtube_music_search"},
 		{"https://vimeo.com/123456789", "vimeo"},
 		{"https://www.tiktok.com/@fixture/video/1234567890123456789", "tiktok"},
 		{"https://players.brightcove.net/12345/default_default/index.html?videoId=123", "brightcove"},
@@ -131,6 +160,7 @@ func TestProductRegistryIncludesIntegratedExtractors(t *testing.T) {
 		{"https://www.ardmediathek.de/player/Y3JpZDovL2ZpeHR1cmU", "ard"},
 		{"nrk:MDDP12000117", "nrk"},
 		{"https://www.twitch.tv/fixture_channel", "twitch"},
+		{"scsearch3:fixture query", "soundcloud_search"},
 		{"https://soundcloud.com/fixture-artist/synthetic-signal", "soundcloud"},
 		{"https://streamable.com/e/fixture_1", "streamable"},
 		{"peertube:peertube.example:00000000-0000-4000-8000-000000000001", "peertube"},
@@ -197,6 +227,97 @@ func TestClientCategorizesCookieDirectoryAsInvalidInput(t *testing.T) {
 	}
 }
 
+func TestClientSimulationSuppressesEveryOutputArtifact(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	archivePath := filepath.Join(root, "archive.txt")
+	result, err := NewClient().Run(context.Background(), Request{
+		URL:             server.URL + "/page",
+		OutputDir:       root,
+		DownloadArchive: archivePath,
+		Simulate:        true,
+		Subtitles: SubtitleOptions{
+			WriteManual: true,
+			Languages:   []string{"es"},
+		},
+		Postprocessors: []Postprocessor{{
+			Move: &MovePostprocessor{Destination: "moved.bin"},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Downloaded || result.Archived || len(result.Artifacts) != 0 || result.Filename != "" || result.Bytes != 0 {
+		t.Fatalf("simulation result = %+v", result)
+	}
+	for _, path := range []string{
+		filepath.Join(root, "Deterministic Fixture.bin"),
+		filepath.Join(root, "Deterministic Fixture.es.vtt"),
+		filepath.Join(root, "moved.bin"),
+		archivePath,
+	} {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("simulation wrote %s: %v", path, err)
+		}
+	}
+	if !json.Valid(result.InfoJSON) {
+		t.Fatalf("simulation metadata = %q", result.InfoJSON)
+	}
+	var info map[string]any
+	if err := json.Unmarshal(result.InfoJSON, &info); err != nil {
+		t.Fatal(err)
+	}
+	if requested, ok := info["requested_subtitles"].(map[string]any); !ok || requested["es"] == nil {
+		t.Fatalf("simulation omitted selected subtitle metadata: %#v", info["requested_subtitles"])
+	}
+}
+
+func TestClientDownloadsGenericOpenGraphMediaWithPageReferer(t *testing.T) {
+	const media = "generic metadata media"
+	var pageURL string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/article":
+			writer.Header().Set("Content-Type", "text/html")
+			if request.Method != http.MethodHead {
+				_, _ = fmt.Fprintf(writer, `<meta property="og:title" content="Metadata Feature"><meta property="og:video" content="/protected.mp4">`)
+			}
+		case "/protected.mp4":
+			if request.Header.Get("Referer") != pageURL {
+				http.Error(writer, "missing referer", http.StatusForbidden)
+				return
+			}
+			writer.Header().Set("Content-Type", "video/mp4")
+			writer.Header().Set("Content-Length", strconv.Itoa(len(media)))
+			if request.Method != http.MethodHead {
+				_, _ = writer.Write([]byte(media))
+			}
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	pageURL = server.URL + "/article"
+	root := t.TempDir()
+	result, err := NewClient().Run(context.Background(), Request{
+		URL: pageURL, OutputDir: root, OutputTemplate: "%(title)s.%(ext)s",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Downloaded {
+		t.Fatalf("result = %+v", result)
+	}
+	downloaded, err := os.ReadFile(filepath.Join(root, "Metadata Feature.mp4"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(downloaded) != media {
+		t.Fatalf("media = %q", downloaded)
+	}
+}
+
 func TestClientRejectsInvalidWaveTwoOptionsBeforeNetwork(t *testing.T) {
 	hits := 0
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits++ }))
@@ -208,6 +329,9 @@ func TestClientRejectsInvalidWaveTwoOptionsBeforeNetwork(t *testing.T) {
 		{Postprocessors: []Postprocessor{{}}},
 		{Postprocessors: []Postprocessor{{Move: &MovePostprocessor{Destination: "out.mp4"}, Remux: &RemuxPostprocessor{Destination: "out.mkv"}}}},
 		{OutputDir: t.TempDir(), Postprocessors: []Postprocessor{{Move: &MovePostprocessor{Destination: "../escape.mp4"}}}},
+		{YouTubeComments: YouTubeCommentOptions{Sort: "popular"}},
+		{YouTubeComments: YouTubeCommentOptions{MaxComments: 10_001}},
+		{YouTubeComments: YouTubeCommentOptions{MaxDepth: 9}},
 	}
 	for index, request := range tests {
 		request.URL = server.URL + "/media.mp4"
@@ -255,6 +379,130 @@ func TestClientAppliesMetadataBeforeMatchFilter(t *testing.T) {
 	}
 }
 
+type numericMetadataExtractor struct{}
+
+func (numericMetadataExtractor) Name() string           { return "numeric-metadata" }
+func (numericMetadataExtractor) Suitable(*url.URL) bool { return true }
+func (numericMetadataExtractor) Extract(context.Context, extractor.Request) (extractor.Extraction, error) {
+	return extractor.Media(value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("fixture")},
+		value.Field{Key: "title", Value: value.String("Fixture")},
+		value.Field{Key: "duration", Value: value.Int(4)},
+	))), nil
+}
+
+type deferredMetadataExtractor struct {
+	calls *int
+}
+
+func (deferredMetadataExtractor) Name() string           { return "deferred-metadata" }
+func (deferredMetadataExtractor) Suitable(*url.URL) bool { return true }
+func (fixture deferredMetadataExtractor) Extract(context.Context, extractor.Request) (extractor.Extraction, error) {
+	extraction := extractor.Media(value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("deferred")},
+		value.Field{Key: "title", Value: value.String("Fixture")},
+		value.Field{Key: "url", Value: value.String("https://fixture.invalid/media.mp4")},
+	)))
+	extraction.Enrich = func(_ context.Context, info *value.Info) error {
+		*fixture.calls++
+		info.Set("comments", value.List(value.ObjectValue(value.NewObject(
+			value.Field{Key: "id", Value: value.String("comment")},
+		))))
+		info.Set("comment_count", value.Int(1))
+		return nil
+	}
+	return extraction, nil
+}
+
+func TestClientDefersExpensiveMetadataUntilAfterMatchFilter(t *testing.T) {
+	for _, test := range []struct {
+		filter    string
+		wantCalls int
+		wantSkip  bool
+	}{
+		{filter: "title=discarded", wantCalls: 0, wantSkip: true},
+		{filter: "title=Fixture", wantCalls: 1},
+	} {
+		calls := 0
+		request := Request{URL: "https://fixture.invalid/video", SkipDownload: true, MatchFilters: []string{test.filter}}
+		compatibility, err := prepareCompatibility(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		operation := &operation{
+			client: NewClient(), request: request,
+			registry:      extractor.NewRegistry(deferredMetadataExtractor{calls: &calls}),
+			compatibility: compatibility,
+		}
+		result, err := operation.process(context.Background(), request.URL, "", nil, make(map[string]bool), 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if calls != test.wantCalls || result.Skipped != test.wantSkip {
+			t.Fatalf("filter=%q calls=%d skipped=%v", test.filter, calls, result.Skipped)
+		}
+		var metadata map[string]any
+		if err := json.Unmarshal(result.InfoJSON, &metadata); err != nil {
+			t.Fatal(err)
+		}
+		_, hasComments := metadata["comments"]
+		if hasComments != (test.wantCalls == 1) {
+			t.Fatalf("filter=%q metadata=%#v", test.filter, metadata)
+		}
+	}
+}
+
+func TestClientDoesNotEnrichArchivedMedia(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "archive.txt")
+	if err := os.WriteFile(path, []byte("deferred-metadata deferred\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := archive.Open(context.Background(), path, archive.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	request := Request{URL: "https://fixture.invalid/video", SkipDownload: true}
+	compatibility, err := prepareCompatibility(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := &operation{
+		client: NewClient(), request: request,
+		registry:      extractor.NewRegistry(deferredMetadataExtractor{calls: &calls}),
+		compatibility: compatibility, archive: store,
+	}
+	result, err := operation.process(context.Background(), request.URL, "", nil, make(map[string]bool), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 0 || !result.Archived {
+		t.Fatalf("calls=%d result=%#v", calls, result)
+	}
+}
+
+func TestClientCategorizesMatchFilterEvaluationFailure(t *testing.T) {
+	request := Request{URL: "https://fixture.invalid/video", SkipDownload: true, MatchFilters: []string{"duration *= 4"}}
+	plan, err := prepareCompatibility(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := &operation{
+		client: NewClient(), request: request, registry: extractor.NewRegistry(numericMetadataExtractor{}),
+		compatibility: plan,
+	}
+	_, err = operation.process(context.Background(), request.URL, "", nil, make(map[string]bool), 0)
+	if err == nil {
+		t.Fatal("process() error = nil")
+	}
+	if !IsCategory(err, ErrorInvalidInput) {
+		t.Fatalf("process() category = %v, want %v", err, ErrorInvalidInput)
+	}
+	if !errors.Is(err, matchfilter.ErrEvaluation) {
+		t.Fatalf("process() error = %v, want matchfilter.ErrEvaluation", err)
+	}
+}
+
 func TestClientRendersProgressTemplateIntoEvents(t *testing.T) {
 	server := playlistMediaServer(t)
 	defer server.Close()
@@ -297,13 +545,98 @@ func TestOperationUsesRequestedFormatSelection(t *testing.T) {
 		)},
 	))
 	operation := &operation{client: NewClient(), request: request, transport: transport, compatibility: compatibility}
-	result, err := operation.processMedia(context.Background(), info, "fixture")
+	result, err := operation.processMedia(context.Background(), extractor.Media(info), "fixture")
 	if err != nil {
 		t.Fatal(err)
 	}
 	contents, err := os.ReadFile(result.Filename)
 	if err != nil || string(contents) != "low" {
 		t.Fatalf("selected contents = %q, error = %v", contents, err)
+	}
+}
+
+func TestOperationPostLivePreferenceKeepsExplicitDirectFormatAuthoritative(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/incomplete" || request.URL.Query().Get("pot") != "fixture" {
+			http.Error(writer, "unexpected request", http.StatusBadRequest)
+			return
+		}
+		_, _ = writer.Write([]byte("explicit-direct"))
+	}))
+	defer server.Close()
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("post-live-selection")},
+		value.Field{Key: "title", Value: value.String("post-live-selection")},
+		value.Field{Key: "ext", Value: value.String("mp4")},
+		value.Field{Key: "formats", Value: value.List(
+			value.ObjectValue(value.NewObject(
+				value.Field{Key: "format_id", Value: value.String("137")},
+				value.Field{Key: "url", Value: value.String(server.URL + "/video")},
+				value.Field{Key: "ext", Value: value.String("mp4")},
+				value.Field{Key: "height", Value: value.Int(720)},
+				value.Field{Key: "vcodec", Value: value.String("avc")},
+				value.Field{Key: "acodec", Value: value.String("none")},
+				value.Field{Key: "_youtube_post_live", Value: value.Bool(true)},
+				value.Field{Key: "target_duration", Value: value.Float(5)},
+			)),
+			value.ObjectValue(value.NewObject(
+				value.Field{Key: "format_id", Value: value.String("140")},
+				value.Field{Key: "url", Value: value.String(server.URL + "/audio")},
+				value.Field{Key: "ext", Value: value.String("m4a")},
+				value.Field{Key: "vcodec", Value: value.String("none")},
+				value.Field{Key: "acodec", Value: value.String("aac")},
+				value.Field{Key: "_youtube_post_live", Value: value.Bool(true)},
+				value.Field{Key: "target_duration", Value: value.Float(5)},
+			)),
+			value.ObjectValue(value.NewObject(
+				value.Field{Key: "format_id", Value: value.String("18")},
+				value.Field{Key: "url", Value: value.String(server.URL + "/incomplete?pot=fixture")},
+				value.Field{Key: "ext", Value: value.String("mp4")},
+				value.Field{Key: "height", Value: value.Int(2160)},
+				value.Field{Key: "vcodec", Value: value.String("avc")},
+				value.Field{Key: "acodec", Value: value.String("aac")},
+				value.Field{Key: "preference", Value: value.Int(-10)},
+			)),
+		)},
+	))
+	defaultOperation := &operation{compatibility: compatibilityPlan{}}
+	selected, err := defaultOperation.selectFormats(info)
+	if err != nil || len(selected) != 2 || selected[0].ID != "137" || selected[1].ID != "140" {
+		t.Fatalf("default selected = %#v, %v", selected, err)
+	}
+	sortedCompatibility, err := prepareCompatibility(Request{FormatSort: []string{"height"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sortedOperation := &operation{compatibility: sortedCompatibility}
+	sorted, err := sortedOperation.selectFormats(info)
+	if err != nil || len(sorted) != 2 || sorted[0].ID != "137" || sorted[1].ID != "140" {
+		t.Fatalf("height-sorted selected = %#v, %v", sorted, err)
+	}
+
+	request := Request{OutputDir: t.TempDir(), Format: "18"}
+	compatibility, err := prepareCompatibility(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, err := network.New(network.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	explicitOperation := &operation{
+		client: NewClient(), request: request, transport: transport, compatibility: compatibility,
+	}
+	explicit, err := explicitOperation.selectFormats(info)
+	if err != nil || len(explicit) != 1 || explicit[0].ID != "18" || explicit[0].YouTubePostLive {
+		t.Fatalf("explicit selected = %#v, %v", explicit, err)
+	}
+	result, err := explicitOperation.processMedia(context.Background(), extractor.Media(info), "fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(result.Filename)
+	if err != nil || string(body) != "explicit-direct" {
+		t.Fatalf("explicit body = %q, %v", body, err)
 	}
 }
 
@@ -359,13 +692,15 @@ func TestBrowserCookieSpec(t *testing.T) {
 		{"chromium:Default", "chromium", "Default", ""},
 		{"brave:Profile 1", "brave", "Profile 1", ""},
 		{"firefox:work::Work", "firefox", "work", "Work"},
+		{"safari", "safari", "", ""},
+		{"safari:/tmp/Cookies.binarycookies", "safari", "/tmp/Cookies.binarycookies", ""},
 	} {
 		options, err := parseBrowserCookieSpec(test.spec)
 		if err != nil || options.browser != test.browser || options.profile != test.profile || options.container != test.container {
 			t.Fatalf("parseBrowserCookieSpec(%q) = %#v, %v", test.spec, options, err)
 		}
 	}
-	for _, spec := range []string{"safari", "chrome:", "chrome:../Default", "chrome:one:two", "chrome::Work", "firefox:default::", "firefox:default::one:two"} {
+	for _, spec := range []string{"safari:", "safari:relative", "safari::Work", "chrome:", "chrome:../Default", "chrome:one:two", "chrome::Work", "firefox:default::", "firefox:default::one:two"} {
 		if _, err := parseBrowserCookieSpec(spec); !errors.Is(err, errInvalidBrowserCookieSpec) {
 			t.Fatalf("parseBrowserCookieSpec(%q) error = %v", spec, err)
 		}
@@ -451,13 +786,25 @@ func TestClientLoadsNetscapeCookieFileBeforeExtraction(t *testing.T) {
 
 func TestPortableBrowserCookieDispatch(t *testing.T) {
 	client := NewClient()
+	client.safariCookieImporter = func(_ context.Context, options safari.Options) (safari.Result, error) {
+		if options.DatabasePath != "/tmp/Cookies.binarycookies" {
+			t.Fatalf("Safari options = %#v", options)
+		}
+		return safari.Result{Total: 2, Imported: 1, Failed: 1}, nil
+	}
+	result, err := client.importBrowserCookies(context.Background(), browserCookieSpec{
+		browser: "safari", profile: "/tmp/Cookies.binarycookies",
+	})
+	if err != nil || result.Total != 2 || result.Imported != 1 || result.Failed != 1 {
+		t.Fatalf("Safari result=%#v err=%v", result, err)
+	}
 	client.firefoxCookieImporter = func(_ context.Context, options firefox.Options) (firefox.Result, error) {
 		if options.Profile != "fixture" || options.Container != "Work" {
 			t.Fatalf("Firefox options = %#v", options)
 		}
 		return firefox.Result{Total: 1, Imported: 1}, nil
 	}
-	result, err := client.importBrowserCookies(context.Background(), browserCookieSpec{browser: "firefox", profile: "fixture", container: "Work"})
+	result, err = client.importBrowserCookies(context.Background(), browserCookieSpec{browser: "firefox", profile: "fixture", container: "Work"})
 	if err != nil || result.Imported != 1 {
 		t.Fatalf("Firefox result=%#v err=%v", result, err)
 	}
@@ -695,6 +1042,50 @@ func TestClientHLSAndDASHDispatch(t *testing.T) {
 	}
 }
 
+func TestClientHLSSuppressesAttributedAdFragments(t *testing.T) {
+	var adRequests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/media.m3u8":
+			writer.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+			if request.Method != http.MethodHead {
+				_, _ = fmt.Fprint(writer, `#EXTM3U
+#EXTINF:1,
+content-a.bin
+#ANVATO-SEGMENT-INFO:type=ad
+#EXTINF:1,
+ad.bin
+#ANVATO-SEGMENT-INFO:type=master
+#EXTINF:1,
+content-b.bin
+#EXT-X-ENDLIST
+`)
+			}
+		case "/content-a.bin":
+			_, _ = writer.Write([]byte("content-a-"))
+		case "/content-b.bin":
+			_, _ = writer.Write([]byte("content-b"))
+		case "/ad.bin":
+			adRequests.Add(1)
+			_, _ = writer.Write([]byte("advertisement"))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	result, err := NewClient().Run(context.Background(), Request{
+		URL: server.URL + "/media.m3u8", OutputDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(result.Filename)
+	if err != nil || string(contents) != "content-a-content-b" || adRequests.Load() != 0 {
+		t.Fatalf("contents=%q ad requests=%d err=%v", contents, adRequests.Load(), err)
+	}
+}
+
 func TestClientISMDispatch(t *testing.T) {
 	const manifest = `<SmoothStreamingMedia TimeScale="10" Duration="20"><StreamIndex Type="video" Url="video/QualityLevels({bitrate})/Fragments(video={start time})"><QualityLevel Bitrate="200" FourCC="H264"/><c t="0" d="10" r="1"/></StreamIndex></SmoothStreamingMedia>`
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -771,6 +1162,306 @@ func TestClientDASHMergeDispatch(t *testing.T) {
 	}
 	if !types["video"] || !types["audio"] {
 		t.Fatalf("merged streams = %#v", probe.Streams)
+	}
+}
+
+func TestYouTubePostLiveAdaptiveTracksDownloadAndMerge(t *testing.T) {
+	ffmpegPath, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg unavailable")
+	}
+	fixtureRoot := t.TempDir()
+	videoPath := filepath.Join(fixtureRoot, "video.mp4")
+	audioPath := filepath.Join(fixtureRoot, "audio.m4a")
+	generate := func(arguments ...string) {
+		output, err := exec.Command(ffmpegPath, arguments...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("generate fixture: %v: %s", err, output)
+		}
+	}
+	generate("-nostdin", "-y", "-f", "lavfi", "-i", "color=c=blue:s=16x16:d=0.3", "-an", "-c:v", "mpeg4", videoPath)
+	generate("-nostdin", "-y", "-f", "lavfi", "-i", "sine=frequency=880:duration=0.3", "-vn", "-c:a", "aac", audioPath)
+	readChunks := func(path string) [][]byte {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		chunks := make([][]byte, 4)
+		for index := range chunks {
+			start := len(body) * index / len(chunks)
+			end := len(body) * (index + 1) / len(chunks)
+			chunks[index] = body[start:end]
+		}
+		return chunks
+	}
+	chunks := map[string][][]byte{
+		"/video": readChunks(videoPath),
+		"/audio": readChunks(audioPath),
+	}
+	var requestMu sync.Mutex
+	requested := map[string][]int{}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("X-Live-Fixture") != "post-live" ||
+			(request.URL.Query().Get("token") != "video" && request.URL.Query().Get("token") != "audio") {
+			http.Error(writer, "missing signed request context", http.StatusForbidden)
+			return
+		}
+		sequenceText := request.URL.Query().Get("sq")
+		if sequenceText == "" {
+			writer.Header().Set("X-Head-Seqnum", "5")
+			return
+		}
+		sequence, err := strconv.Atoi(sequenceText)
+		if err != nil || sequence < 0 || sequence >= len(chunks[request.URL.Path]) {
+			http.Error(writer, "bad sequence", http.StatusBadRequest)
+			return
+		}
+		requestMu.Lock()
+		requested[request.URL.Path] = append(requested[request.URL.Path], sequence)
+		requestMu.Unlock()
+		_, _ = writer.Write(chunks[request.URL.Path][sequence])
+	}))
+	defer server.Close()
+	transport, err := network.New(network.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	operation := &operation{
+		client: NewClient(), transport: transport,
+		request: Request{OutputDir: root, Downloader: DownloaderOptions{
+			MaxSegments: 16, MaxSegmentBytes: 8 << 20, FragmentConcurrency: 2,
+		}},
+	}
+	headers := http.Header{"X-Live-Fixture": []string{"post-live"}}
+	selections := []mediaformat.Selection{
+		{
+			ID: "137", URL: server.URL + "/video?token=video", Ext: "mp4",
+			Protocol: "http_dash_segments", VCodec: "mpeg4", ACodec: "none",
+			Headers: headers, YouTubePostLive: true, TargetDuration: 5,
+			LiveStartTimestamp: time.Now().Unix(),
+		},
+		{
+			ID: "140", URL: server.URL + "/audio?token=audio", Ext: "m4a",
+			Protocol: "http_dash_segments", VCodec: "none", ACodec: "aac",
+			Headers: headers, YouTubePostLive: true, TargetDuration: 5,
+			LiveStartTimestamp: time.Now().Unix(),
+		},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	destination := filepath.Join(root, "post-live.mp4")
+	path, bytes, err := operation.downloadSelections(ctx, selections, root, destination, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != destination || bytes <= 0 {
+		t.Fatalf("path=%q bytes=%d", path, bytes)
+	}
+	tools, err := ffmpeg.Discover(ffmpeg.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe, err := tools.Probe(ctx, destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	types := map[string]bool{}
+	for _, stream := range probe.Streams {
+		types[stream.CodecType] = true
+	}
+	if !types["video"] || !types["audio"] {
+		t.Fatalf("streams=%#v", probe.Streams)
+	}
+	requestMu.Lock()
+	defer requestMu.Unlock()
+	for _, path := range []string{"/video", "/audio"} {
+		sort.Ints(requested[path])
+		if got := fmt.Sprint(requested[path]); got != "[0 1 2 3]" {
+			t.Fatalf("%s sequences=%s", path, got)
+		}
+	}
+}
+
+func TestYouTubeLiveFromStartDownloadsTracksConcurrentlyAndMerges(t *testing.T) {
+	ffmpegPath, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg unavailable")
+	}
+	fixtureRoot := t.TempDir()
+	videoPath := filepath.Join(fixtureRoot, "video.mp4")
+	audioPath := filepath.Join(fixtureRoot, "audio.m4a")
+	generate := func(arguments ...string) {
+		output, err := exec.Command(ffmpegPath, arguments...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("generate fixture: %v: %s", err, output)
+		}
+	}
+	generate("-nostdin", "-y", "-f", "lavfi", "-i", "color=c=green:s=16x16:d=0.3", "-an", "-c:v", "mpeg4", videoPath)
+	generate("-nostdin", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=0.3", "-vn", "-c:a", "aac", audioPath)
+	chunk := func(path string) [][]byte {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result := make([][]byte, 4)
+		for index := range result {
+			result[index] = body[len(body)*index/4 : len(body)*(index+1)/4]
+		}
+		return result
+	}
+	chunks := map[string][][]byte{"/video": chunk(videoPath), "/audio": chunk(audioPath)}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		sequenceText := request.URL.Query().Get("sq")
+		if sequenceText == "" {
+			writer.Header().Set("X-Head-Seqnum", "3")
+			return
+		}
+		sequence, parseErr := strconv.Atoi(sequenceText)
+		if parseErr != nil || sequence < 0 || sequence >= 4 {
+			http.Error(writer, "bad sequence", http.StatusBadRequest)
+			return
+		}
+		_, _ = writer.Write(chunks[request.URL.Path][sequence])
+	}))
+	defer server.Close()
+	transport, err := network.New(network.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var refreshes atomic.Int32
+	bothRefreshing := make(chan struct{})
+	operation := &operation{
+		client: NewClient(), transport: transport,
+		request: Request{OutputDir: t.TempDir(), Downloader: DownloaderOptions{
+			MaxSegments: 16, MaxSegmentBytes: 8 << 20, Attempts: 1,
+			LivePollInterval: time.Millisecond, LiveRefreshInterval: time.Nanosecond,
+			LiveMaxPolls: 4, LiveMaxNoProgressPolls: 2,
+		}},
+	}
+	operation.youtubeLiveRefresh = func(selection mediaformat.Selection) youtubelive.LiveRefreshFunc {
+		return func(ctx context.Context, request youtubelive.LiveRefreshRequest) (youtubelive.LiveRefreshResult, error) {
+			if refreshes.Add(1) == 2 {
+				close(bothRefreshing)
+			}
+			select {
+			case <-bothRefreshing:
+			case <-ctx.Done():
+				return youtubelive.LiveRefreshResult{}, ctx.Err()
+			}
+			return youtubelive.LiveRefreshResult{
+				URL: request.URL, Headers: request.Headers, StillLive: false,
+			}, nil
+		}
+	}
+	selections := []mediaformat.Selection{
+		{
+			ID: "137", URL: server.URL + "/video?pot=video", Ext: "mp4",
+			VCodec: "mpeg4", ACodec: "none", YouTubeLiveFromStart: true, TargetDuration: 5,
+		},
+		{
+			ID: "140", URL: server.URL + "/audio?pot=audio", Ext: "m4a",
+			VCodec: "none", ACodec: "aac", YouTubeLiveFromStart: true, TargetDuration: 5,
+		},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	root := operation.request.OutputDir
+	destination := filepath.Join(root, "live-from-start.mp4")
+	path, bytes, err := operation.downloadSelections(ctx, selections, root, destination, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != destination || bytes <= 0 || refreshes.Load() != 2 {
+		t.Fatalf("path=%q bytes=%d refreshes=%d", path, bytes, refreshes.Load())
+	}
+	tools, err := ffmpeg.Discover(ffmpeg.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe, err := tools.Probe(ctx, destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	types := map[string]bool{}
+	for _, stream := range probe.Streams {
+		types[stream.CodecType] = true
+	}
+	if !types["video"] || !types["audio"] {
+		t.Fatalf("streams=%#v", probe.Streams)
+	}
+}
+
+func TestYouTubePostLiveRejectsExternalDownloaderAndCategorizesFailures(t *testing.T) {
+	op := &operation{request: Request{Downloader: DownloaderOptions{External: &ExternalDownloader{
+		Executable: "unused",
+	}}}}
+	_, _, err := op.downloadSelection(context.Background(), mediaformat.Selection{
+		URL: "https://media.example/video", YouTubePostLive: true, TargetDuration: 5,
+	}, t.TempDir(), filepath.Join(t.TempDir(), "out"), nil)
+	if !errors.Is(err, extractor.ErrUnsupported) {
+		t.Fatalf("external error=%v", err)
+	}
+	_, _, err = op.downloadSelection(context.Background(), mediaformat.Selection{
+		URL: "https://media.example/video", YouTubeLiveFromStart: true, TargetDuration: 5,
+	}, t.TempDir(), filepath.Join(t.TempDir(), "out"), nil)
+	if !errors.Is(err, extractor.ErrUnsupported) {
+		t.Fatalf("live external error=%v", err)
+	}
+	for _, test := range []struct {
+		err      error
+		category ErrorCategory
+	}{
+		{youtubelive.ErrInvalidConfig, ErrorInvalidInput},
+		{youtubelive.ErrOutputExists, ErrorInvalidInput},
+		{youtubelive.ErrHeadSequence, ErrorInternal},
+		{youtubelive.ErrDownloadFailed, ErrorInternal},
+		{youtubelive.ErrEventSink, ErrorInternal},
+		{youtubelive.ErrLiveInvalidConfig, ErrorInvalidInput},
+		{youtubelive.ErrLiveHeadSequence, ErrorInternal},
+		{youtubelive.ErrLiveNoProgress, ErrorInternal},
+		{youtubelive.ErrLivePollLimit, ErrorInternal},
+		{youtubelive.ErrLiveProbeFailed, ErrorNetwork},
+		{youtubelive.ErrLiveRefreshFailed, ErrorNetwork},
+		{youtubelive.ErrProbeFailed, ErrorNetwork},
+	} {
+		if got := categorized("post-live", test.err); !IsCategory(got, test.category) {
+			t.Fatalf("categorized(%v)=%v", test.err, got)
+		}
+	}
+
+	var networkCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		networkCalls.Add(1)
+	}))
+	defer server.Close()
+	transport, transportErr := network.New(network.Config{})
+	if transportErr != nil {
+		t.Fatal(transportErr)
+	}
+	observerFailure := errors.New("observer failed")
+	sinkOp := &operation{
+		client: NewClient(WithEventHandler(func(_ context.Context, event Event) error {
+			if event.Kind == EventDownloadStarting {
+				return observerFailure
+			}
+			return nil
+		})),
+		transport: transport,
+		request:   Request{},
+	}
+	root := t.TempDir()
+	_, _, err = sinkOp.downloadSelection(context.Background(), mediaformat.Selection{
+		URL: server.URL + "/video?pot=secret", YouTubePostLive: true, TargetDuration: 5,
+	}, root, filepath.Join(root, "out"), sinkOp.eventSink())
+	if !errors.Is(err, youtubelive.ErrEventSink) || !errors.Is(err, observerFailure) {
+		t.Fatalf("operation sink error = %v", err)
+	}
+	if got := categorized("post-live", err); !IsCategory(got, ErrorInternal) {
+		t.Fatalf("categorized operation sink error = %v", got)
+	}
+	if networkCalls.Load() != 0 {
+		t.Fatalf("network calls = %d", networkCalls.Load())
 	}
 }
 
@@ -933,6 +1624,64 @@ func TestOperationMergesTransparentEntryMetadata(t *testing.T) {
 	}
 }
 
+type URLResultFixtureExtractor struct{}
+
+func (URLResultFixtureExtractor) Name() string { return "url-result-fixture" }
+func (URLResultFixtureExtractor) Suitable(parsed *url.URL) bool {
+	return parsed != nil && parsed.Path == "/handoff"
+}
+func (URLResultFixtureExtractor) Extract(_ context.Context, request extractor.Request) (extractor.Extraction, error) {
+	parsed, err := url.Parse(request.URL)
+	if err != nil {
+		return extractor.Extraction{}, err
+	}
+	parsed.Path = "/one.mp4"
+	return extractor.URLResult(extractor.Entry{URL: parsed.String(), ExtractorKey: "generic", Transparent: true})
+}
+
+func TestOperationURLResultBypassesPlaylistControls(t *testing.T) {
+	server := playlistMediaServer(t)
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	operation := &operation{
+		client: NewClient(),
+		request: Request{
+			SkipDownload: true,
+			Playlist:     PlaylistOptions{Flat: true, Items: "2", Start: 4, End: 4, Reverse: true},
+		},
+		transport: transport,
+		registry:  extractor.NewRegistry(URLResultFixtureExtractor{}, extractor.NewGeneric()),
+	}
+	result, err := operation.process(context.Background(), server.URL+"/handoff", "", nil, make(map[string]bool), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Extractor != "generic" || len(result.Entries) != 0 || result.Skipped {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+type cyclicURLResultExtractor struct{}
+
+func (cyclicURLResultExtractor) Name() string { return "url-cycle" }
+func (cyclicURLResultExtractor) Suitable(parsed *url.URL) bool {
+	return parsed != nil && parsed.Host == "cycle.invalid"
+}
+func (cyclicURLResultExtractor) Extract(_ context.Context, request extractor.Request) (extractor.Extraction, error) {
+	return extractor.URLResult(extractor.Entry{URL: request.URL, ExtractorKey: "url-cycle"})
+}
+
+func TestOperationRejectsURLResultCycle(t *testing.T) {
+	operation := &operation{
+		client: NewClient(), request: Request{SkipDownload: true},
+		registry: extractor.NewRegistry(cyclicURLResultExtractor{}),
+	}
+	_, err := operation.process(context.Background(), "https://cycle.invalid/video", "", nil, make(map[string]bool), 0)
+	if !errors.Is(err, extractor.ErrPlaylistLimit) {
+		t.Fatalf("cycle error = %v", err)
+	}
+}
+
 func playlistMediaServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -969,4 +1718,40 @@ func FuzzConfinedPostprocessPath(f *testing.F) {
 			t.Fatalf("accepted escaping path %q as %q", requested, path)
 		}
 	})
+}
+
+// TestClientConcurrentRunAndClose is a basic concurrency smoke test verifying
+// that concurrent Run and Close calls do not panic. It uses the generic
+// fixture extractor (no JavaScript helper). The helper-backed active-solve
+// drain test is TestSupervisorConcurrentExecuteAndCloseDrainsActiveSolves in
+// the supervisor package, which exercises real JavaScript execution, asserts
+// operation results, and verifies helper process cleanup.
+func TestClientConcurrentRunAndClose(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+
+	for iteration := 0; iteration < 5; iteration++ {
+		client := NewClient()
+		var wg sync.WaitGroup
+		// Launch concurrent Run calls.
+		for i := 0; i < 4; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, _ = client.Run(context.Background(), Request{URL: server.URL + "/page", SkipDownload: true})
+			}()
+		}
+		// Concurrently close while runs may be in flight.
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			time.Sleep(time.Millisecond)
+			client.Close()
+		}()
+		wg.Wait()
+		// After Close, subsequent Run calls should still work (lazy re-creation)
+		// or fail gracefully—no panics.
+		_, _ = client.Run(context.Background(), Request{URL: server.URL + "/page", SkipDownload: true})
+		client.Close()
+	}
 }

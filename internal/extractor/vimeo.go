@@ -19,6 +19,14 @@ import (
 
 const vimeoImpersonationProfile = "chrome-133"
 
+const (
+	vimeoMaxTextTracks = 128
+	vimeoMaxTextURL    = 8192
+	vimeoMaxTextLang   = 64
+	vimeoMaxTextName   = 256
+	vimeoMaxConfigURL  = 8192
+)
+
 var (
 	vimeoURLPattern       = regexp.MustCompile(`^/(?:video/)?([0-9]+)(?:/)?$`)
 	vimeoConfigURLPattern = regexp.MustCompile(`(?i)\bdata-config-url=["']([^"']+)`)
@@ -45,15 +53,18 @@ func (Vimeo) Extract(ctx context.Context, request Request) (Extraction, error) {
 		return Extraction{}, ErrUnsupported
 	}
 	videoID := match[1]
-	page, _, err := ReadPageWithProfile(ctx, request.Transport, request.URL, vimeoImpersonationProfile)
+	// Never reflect caller query credentials into the webpage request or the
+	// config Referer. The numeric identity is all this bounded route needs.
+	webpageURL := "https://vimeo.com/" + videoID
+	page, _, err := ReadPageWithProfile(ctx, request.Transport, webpageURL, vimeoImpersonationProfile)
 	if err != nil {
 		return Extraction{}, err
 	}
-	config, err := extractVimeoConfig(ctx, request.Transport, request.URL, page)
+	config, err := extractVimeoConfig(ctx, request.Transport, webpageURL, page)
 	if err != nil {
 		return Extraction{}, err
 	}
-	return parseVimeoConfig(config, videoID, "https://vimeo.com/"+videoID)
+	return parseVimeoConfigContext(ctx, config, videoID, webpageURL)
 }
 
 func extractVimeoConfig(ctx context.Context, transport Transport, webpageURL string, page []byte) (vimeoConfig, error) {
@@ -92,6 +103,11 @@ func extractVimeoConfig(ctx context.Context, transport Transport, webpageURL str
 		}
 		return vimeoConfig{}, fmt.Errorf("%w: missing Vimeo config", ErrInvalidMetadata)
 	}
+	configURL, ok := normalizeVimeoConfigURL(configURL)
+	if !ok {
+		// Do not include the untrusted URL: config URLs commonly carry tokens.
+		return vimeoConfig{}, fmt.Errorf("%w: unsafe Vimeo config URL", ErrInvalidMetadata)
+	}
 	headers := make(http.Header)
 	headers.Set("Referer", webpageURL)
 	var config vimeoConfig
@@ -108,6 +124,25 @@ func extractVimeoConfig(ctx context.Context, transport Transport, webpageURL str
 		return vimeoConfig{}, err
 	}
 	return config, nil
+}
+
+// normalizeVimeoConfigURL permits only Vimeo's public player-config origin.
+// It intentionally preserves the query because that is where public config
+// tokens live, while rejecting every path encoding that could alter routing.
+func normalizeVimeoConfigURL(rawURL string) (string, bool) {
+	if len(rawURL) == 0 || len(rawURL) > vimeoMaxConfigURL || strings.ContainsAny(rawURL, "\\\x00\r\n") {
+		return "", false
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Scheme != "https" || parsed.User != nil || parsed.Port() != "" || parsed.Fragment != "" || parsed.RawPath != "" || parsed.Path == "" || strings.ToLower(parsed.Hostname()) != "player.vimeo.com" {
+		return "", false
+	}
+	if vimeoUnsafePath(parsed) {
+		return "", false
+	}
+	parsed.Scheme = "https"
+	parsed.Host = "player.vimeo.com"
+	return parsed.String(), true
 }
 
 type vimeoConfig struct {
@@ -130,8 +165,20 @@ type vimeoConfig struct {
 		Files vimeoFiles `json:"files"`
 	} `json:"video"`
 	Request struct {
-		Files vimeoFiles `json:"files"`
+		Files      vimeoFiles       `json:"files"`
+		TextTracks []vimeoTextTrack `json:"text_tracks"`
 	} `json:"request"`
+}
+
+// vimeoTextTrack is the public player-config shape used for manually supplied
+// captions. The pinned yt-dlp implementation uses lang and url; label/name and
+// kind are accepted only to make the normalized result useful and safe.
+type vimeoTextTrack struct {
+	URL      string `json:"url"`
+	Language string `json:"lang"`
+	Kind     string `json:"kind"`
+	Label    string `json:"label"`
+	Name     string `json:"name"`
 }
 
 type vimeoFiles struct {
@@ -156,6 +203,13 @@ type vimeoFiles struct {
 }
 
 func parseVimeoConfig(config vimeoConfig, videoID, webpageURL string) (Extraction, error) {
+	return parseVimeoConfigContext(context.Background(), config, videoID, webpageURL)
+}
+
+func parseVimeoConfigContext(ctx context.Context, config vimeoConfig, videoID, webpageURL string) (Extraction, error) {
+	if err := contextError(ctx); err != nil {
+		return Extraction{}, err
+	}
 	if config.View == 4 {
 		return Extraction{}, ErrAuthentication
 	}
@@ -168,6 +222,9 @@ func parseVimeoConfig(config vimeoConfig, videoID, webpageURL string) (Extractio
 	}
 	formats := make([]value.Value, 0, len(files.Progressive)+len(files.HLS.CDNs)+len(files.DASH.CDNs))
 	for _, format := range files.Progressive {
+		if err := contextError(ctx); err != nil {
+			return Extraction{}, err
+		}
 		if !validHTTPURL(format.URL) {
 			continue
 		}
@@ -189,12 +246,18 @@ func parseVimeoConfig(config vimeoConfig, videoID, webpageURL string) (Extractio
 		formats = append(formats, value.ObjectValue(object))
 	}
 	for _, name := range sortedVimeoCDNs(files.HLS.CDNs) {
+		if err := contextError(ctx); err != nil {
+			return Extraction{}, err
+		}
 		cdn := files.HLS.CDNs[name]
 		if validHTTPURL(cdn.URL) {
 			formats = append(formats, value.ObjectValue(manifestFormat("hls-"+name, cdn.URL, "m3u8_native")))
 		}
 	}
 	for _, name := range sortedVimeoCDNs(files.DASH.CDNs) {
+		if err := contextError(ctx); err != nil {
+			return Extraction{}, err
+		}
 		cdn := files.DASH.CDNs[name]
 		if validHTTPURL(cdn.URL) {
 			manifestURL := strings.Replace(cdn.URL, "/master.json", "/master.mpd", 1)
@@ -227,7 +290,118 @@ func parseVimeoConfig(config vimeoConfig, videoID, webpageURL string) (Extractio
 	if liveStatus != "" {
 		info.Set("live_status", value.String(liveStatus))
 	}
+	if subtitles, err := vimeoSubtitles(ctx, config.Request.TextTracks); err != nil {
+		return Extraction{}, err
+	} else if subtitles.Len() != 0 {
+		info.Set("subtitles", value.ObjectValue(subtitles))
+	}
 	return Media(value.NewInfo(info)), nil
+}
+
+func vimeoSubtitles(ctx context.Context, tracks []vimeoTextTrack) (*value.Object, error) {
+	if len(tracks) > vimeoMaxTextTracks {
+		return nil, fmt.Errorf("%w: Vimeo text-track limit", ErrInvalidMetadata)
+	}
+	grouped := make(map[string][]value.Value)
+	order := make([]string, 0, len(tracks))
+	seen := make(map[string]struct{}, len(tracks))
+	for _, track := range tracks {
+		if err := contextError(ctx); err != nil {
+			return nil, err
+		}
+		language := boundedVimeoText(track.Language, vimeoMaxTextLang)
+		if !validVimeoLanguage(language) || !validVimeoTextKind(track.Kind) {
+			continue
+		}
+		trackURL := normalizeVimeoTextTrackURL(track.URL)
+		if trackURL == "" {
+			continue
+		}
+		name := boundedVimeoText(track.Label, vimeoMaxTextName)
+		if name == "" {
+			name = boundedVimeoText(track.Name, vimeoMaxTextName)
+		}
+		// A URL is the stable identity of a declared text format. Labels are
+		// presentation metadata and must not manufacture duplicate downloads.
+		key := language + "\x00" + trackURL
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+		seen[key] = struct{}{}
+		if _, exists := grouped[language]; !exists {
+			order = append(order, language)
+		}
+		entry := value.NewObject(
+			value.Field{Key: "url", Value: value.String(trackURL)},
+			value.Field{Key: "ext", Value: value.String("vtt")},
+		)
+		if name != "" {
+			entry.Set("name", value.String(name))
+		}
+		grouped[language] = append(grouped[language], value.ObjectValue(entry))
+	}
+	result := value.NewObject()
+	for _, language := range order {
+		result.Set(language, value.List(grouped[language]...))
+	}
+	return result, nil
+}
+
+func boundedVimeoText(input string, limit int) string {
+	input = strings.TrimSpace(input)
+	if input == "" || len(input) > limit || strings.ContainsRune(input, '\x00') {
+		return ""
+	}
+	return input
+}
+
+func validVimeoLanguage(language string) bool {
+	if language == "" || len(language) > vimeoMaxTextLang {
+		return false
+	}
+	for index, character := range language {
+		if !((character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9') || (index > 0 && (character == '.' || character == '_' || character == '-'))) {
+			return false
+		}
+	}
+	return true
+}
+
+func validVimeoTextKind(kind string) bool {
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	return kind == "" || kind == "subtitles" || kind == "captions"
+}
+
+// normalizeVimeoTextTrackURL mirrors the reference's player.vimeo.com URL
+// join, but fails closed: subtitle tokens never leave the player origin.
+func normalizeVimeoTextTrackURL(rawURL string) string {
+	if len(rawURL) == 0 || len(rawURL) > vimeoMaxTextURL || strings.ContainsAny(rawURL, "\\\x00\r\n") {
+		return ""
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil || vimeoUnsafePath(parsed) {
+		return ""
+	}
+	base, _ := url.Parse("https://player.vimeo.com/")
+	parsed = base.ResolveReference(parsed)
+	if parsed.Scheme != "https" || parsed.User != nil || parsed.Port() != "" || parsed.Fragment != "" || strings.ToLower(parsed.Hostname()) != "player.vimeo.com" || vimeoUnsafePath(parsed) {
+		return ""
+	}
+	parsed.Scheme = "https"
+	parsed.Host = "player.vimeo.com"
+	result := parsed.String()
+	if len(result) > vimeoMaxTextURL {
+		return ""
+	}
+	return result
+}
+
+func vimeoUnsafePath(parsed *url.URL) bool {
+	if parsed == nil || parsed.RawPath != "" || parsed.Path == "" || path.Clean(parsed.Path) != parsed.Path {
+		return true
+	}
+	escaped := strings.ToLower(parsed.EscapedPath())
+	return strings.Contains(escaped, "%2f") || strings.Contains(escaped, "%5c") || strings.Contains(escaped, "%00") || strings.Contains(escaped, "%2e") || strings.Contains(escaped, "%25") || strings.Contains(parsed.String(), "\x00")
 }
 
 func sortedVimeoCDNs(cdns map[string]struct {

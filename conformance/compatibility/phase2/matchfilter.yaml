@@ -1,16 +1,76 @@
+version: 2
 reference:
   repository: yt-dlp/yt-dlp
   commit: aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8
   files:
-    - yt_dlp/utils/_utils.py:3331-3355
-derived_on: 2026-07-18
+    - yt_dlp/utils/_utils.py:1776-1845
+    - yt_dlp/utils/_utils.py:2096-2153
+    - yt_dlp/utils/_utils.py:3239-3355
+    - yt_dlp/options.py:742-767
+    - test/test_YoutubeDL.py:908-991
+derived_on: 2026-07-23
 cases:
-  - input: "duration >= 90 & uploader = alice"
+  - name: repeated filters are OR
+    filters:
+      - "duration < 30"
+      - "id = x"
     pass: true
-  - input: "duration < 90"
+  - name: ampersand joins conditions
+    filters:
+      - "duration >= 90 & playlist_id = 42"
+    pass: true
+  - name: none-inclusive missing comparison
+    filters:
+      - "missing >? 100"
+    pass: true
+  - name: missing comparison normally rejects
+    filters:
+      - "missing > 100"
     pass: false
-  - input: "missing > 0"
-    incomplete_pass: true
+  - name: named incomplete field passes
+    filters:
+      - "missing > 100"
+    incomplete_fields: [missing]
+    pass: true
+  - name: unrelated incomplete field still rejects
+    filters:
+      - "missing > 100"
+    incomplete_fields: [other]
+    pass: false
+  - name: filesize coercion
+    filters:
+      - "filesize > 5KiB"
+    pass: true
+  - name: duration coercion
+    filters:
+      - "duration > 01:30"
+    pass: true
+  - name: escaped ampersand in quoted string
+    filters:
+      - 'description *= "cats \& dogs"'
+    pass: true
+  - name: unicode quoted equality
+    filters:
+      - 'uploader = "變態妍字幕版 太妍 тест"'
+    pass: true
+  - name: negated prefix
+    filters:
+      - "uploader !^= alice"
+    pass: true
+  - name: string typed number remains a string
+    filters:
+      - "playlist_id = 42"
+    pass: true
+  - name: unary false
+    filters:
+      - "disabled"
+    pass: false
+  - name: unary missing
+    filters:
+      - "!missing"
+    pass: true
 notes:
-  - Repeated filters are ORed; ampersand joins conditions within one filter.
-  - Regular expressions are compiled under explicit size limits.
+  - These are attributable, hand-authored expectations; no upstream test data is copied.
+  - Repeated filters are ORed; unescaped ampersands join conditions within one filter.
+  - Regular expressions use bounded Go RE2 syntax. Python-only constructs are rejected.
+  - Interactive "-" and break-match-filter control flow are intentionally outside this core grammar.

@@ -20,5 +20,12 @@
       "dash": {"cdns": {"fastly": {"url": "https://media.example/vimeo/master.json?json=1"}}}
     }
   },
-  "request": {"files": {}}
+  "request": {
+    "files": {},
+    "text_tracks": [
+      {"lang":"en", "kind":"subtitles", "label":"English", "url":"/texttrack/fixture-en.vtt?token=offline"},
+      {"lang":"es", "kind":"captions", "name":"Español", "url":"//player.vimeo.com/texttrack/fixture-es.vtt?token=offline"},
+      {"lang":"en", "kind":"subtitles", "label":"English", "url":"/texttrack/fixture-en.vtt?token=offline"}
+    ]
+  }
 }

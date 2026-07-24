@@ -1,0 +1,29 @@
+{
+  "thread": {
+    "post": {
+      "uri": "at://adult.example.test/app.bsky.feed.post/3l4qhp7bcs52i",
+      "author": {
+        "did": "did:plc:adultdid",
+        "handle": "adult.example.test",
+        "displayName": "Adult Handle"
+      },
+      "record": {
+        "text": "Adult labeled post"
+      },
+      "embed": {
+        "$type": "app.bsky.embed.video.view",
+        "playlist": "https://video.bsky.app/watch/adult/playlist.m3u8",
+        "thumbnail": "https://video.bsky.app/watch/adult/thumb.jpg",
+        "cid": "bafyreidultcid1"
+      },
+      "indexedAt": "2024-10-30T00:00:00.000Z",
+      "likeCount": 1,
+      "repostCount": 0,
+      "replyCount": 0,
+      "labels": [
+        {"val": "sexual", "src": "did:plc:moderator", "cts": "2024-10-30T00:00:00.000Z"},
+        {"val": "needs-review", "src": "did:plc:moderator", "cts": "2024-10-30T00:00:00.000Z"}
+      ]
+    }
+  }
+}

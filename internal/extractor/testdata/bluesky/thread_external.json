@@ -1,0 +1,21 @@
+{
+  "thread": {
+    "post": {
+      "uri": "at://ext.example.test/app.bsky.feed.post/3l4qhp7bcs52g",
+      "author": {
+        "did": "did:plc:extdid",
+        "handle": "ext.example.test"
+      },
+      "record": {
+        "text": "External link post"
+      },
+      "embed": {
+        "$type": "app.bsky.embed.external",
+        "external": {
+          "uri": "https://example.test/article",
+          "title": "Article"
+        }
+      }
+    }
+  }
+}

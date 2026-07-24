@@ -1,0 +1,30 @@
+{
+  "responseContext": {"visitorData": "visitor-header"},
+  "onResponseReceivedEndpoints": [{
+    "reloadContinuationItemsCommand": {
+      "continuationItems": [{
+        "commentsHeaderRenderer": {
+          "countText": {"simpleText": "4 Comments"},
+          "sortMenu": {
+            "sortFilterSubMenuRenderer": {
+              "subMenuItems": [
+                {
+                  "title": "Top comments",
+                  "serviceEndpoint": {
+                    "continuationCommand": {"token": "top-comments-token"}
+                  }
+                },
+                {
+                  "title": "Newest first",
+                  "serviceEndpoint": {
+                    "continuationCommand": {"token": "new-comments-token"}
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }]
+    }
+  }]
+}

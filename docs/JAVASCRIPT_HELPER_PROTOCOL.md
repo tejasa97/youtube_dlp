@@ -15,10 +15,27 @@ Version 1 enforces these hard ceilings before engine execution:
 - 64 modules and 8 MiB aggregate module source;
 - 8 MiB serialized output;
 - 512 MiB requested memory budget;
-- 30 seconds requested wall time.
+- 30 seconds requested wall time (untrusted requests);
+- 60 seconds requested wall time (EJS preprocessing only). The supervisor
+  validates the in-process `Trusted` flag, strips any caller-provided
+  `trusted_wall_time_ms`, and mints the serialized grant exclusively for
+  `operation=call, function="jsc"` requests. Callers cannot forge the grant;
+  generic evaluate/call requests are bounded at 30 s regardless of flags.
 
 Defaults are lower: 2 MiB source, 16 modules/2 MiB, 1 MiB output, 64 MiB
 memory, and two seconds. The host may impose stricter limits.
+
+The EJS challenge solver splits player processing into two bounded phases:
+a preprocess phase (meriyah-based player parsing, up to 55 s wall time) and
+a solve phase (transform execution, up to 10 s). Preprocessed players are
+cached by SHA-256 in a bounded LRU (max 8 entries) that persists at the
+client level across separate downloads. Concurrent requests for the same
+uncached player are coalesced via a flight-owned singleflight: preprocessing
+runs in a dedicated goroutine independent of any individual caller's context.
+Every caller selects between flight completion and its own context. When all
+waiters cancel, the shared preprocessing is canceled to avoid orphaned work;
+when at least one waiter remains, preprocessing continues. The result is
+cached atomically before the flight entry is removed.
 
 Scripts are keyed by lowercase SHA-256. A long-lived helper may cache compiled
 immutable programs by this hash, but each request receives a fresh runtime so

@@ -14,13 +14,23 @@ func TestBestSelectsFirstDownloadableFormat(t *testing.T) {
 			value.Field{Key: "format_id", Value: value.String("best")},
 			value.Field{Key: "url", Value: value.String("https://example.invalid/media")},
 			value.Field{Key: "ext", Value: value.String("mp4")},
+			value.Field{Key: "_youtube_post_live", Value: value.Bool(true)},
+			value.Field{Key: "_youtube_live_from_start", Value: value.Bool(true)},
+			value.Field{Key: "_youtube_itag", Value: value.Int(137)},
+			value.Field{Key: "_youtube_client", Value: value.String("WEB")},
+			value.Field{Key: "_youtube_source_url", Value: value.String("https://www.youtube.com/watch?v=fixture0001")},
+			value.Field{Key: "target_duration", Value: value.Float(5)},
+			value.Field{Key: "live_start_timestamp", Value: value.Int(1234)},
 		)),
 	)}))
 	selected, err := Best(info)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if selected.ID != "best" || selected.Ext != "mp4" {
+	if selected.ID != "best" || selected.Ext != "mp4" || !selected.YouTubePostLive || !selected.YouTubeLiveFromStart ||
+		selected.YouTubeItag != 137 || selected.YouTubeClient != "WEB" ||
+		selected.YouTubeSourceURL != "https://www.youtube.com/watch?v=fixture0001" ||
+		selected.TargetDuration != 5 || selected.LiveStartTimestamp != 1234 {
 		t.Fatalf("selection = %#v", selected)
 	}
 }

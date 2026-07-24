@@ -194,8 +194,16 @@ func (operation ThumbnailEmbed) Run(ctx context.Context, tools *ffmpeg.Toolset, 
 	return errors.Join(removeOwned(operation.Input, operation.Output), removeOwned(operation.Image, operation.Output))
 }
 
+type SubtitleEmbedInput struct {
+	Artifact
+	Language  string
+	Name      string
+	Extension string
+}
+
 type SubtitleEmbed struct {
 	Input, Subtitle, Output Artifact
+	Subtitles               []SubtitleEmbedInput
 	Overwrite               bool
 }
 
@@ -204,16 +212,40 @@ func (operation SubtitleEmbed) Run(ctx context.Context, tools *ffmpeg.Toolset, s
 	if err := validateTransform(operation.Input, operation.Output, ArtifactMedia, ArtifactMedia); err != nil {
 		return err
 	}
-	if err := validateArtifact(operation.Subtitle, ArtifactSubtitle); err != nil {
+	if len(operation.Subtitles) != 0 && operation.Subtitle.Path != "" {
+		return fmt.Errorf("%w: select either Subtitle or Subtitles", ErrInvalidGraph)
+	}
+	subtitles := operation.Subtitles
+	if len(subtitles) == 0 {
+		subtitles = []SubtitleEmbedInput{{
+			Artifact:  operation.Subtitle,
+			Extension: strings.TrimPrefix(strings.ToLower(filepath.Ext(operation.Subtitle.Path)), "."),
+		}}
+	}
+	if len(subtitles) > 64 {
+		return fmt.Errorf("%w: subtitle input limit", ErrInvalidGraph)
+	}
+	inputs := make([]ffmpeg.SubtitleInput, len(subtitles))
+	for index, subtitle := range subtitles {
+		if err := validateArtifact(subtitle.Artifact, ArtifactSubtitle); err != nil {
+			return err
+		}
+		if err := localRegular(subtitle.Path); err != nil {
+			return err
+		}
+		inputs[index] = ffmpeg.SubtitleInput{
+			Path: subtitle.Path, Language: subtitle.Language,
+			Name: subtitle.Name, Extension: subtitle.Extension,
+		}
+	}
+	if err := tools.EmbedSubtitleTracks(ctx, operation.Input.Path, inputs, operation.Output.Path, operation.Overwrite, sink); err != nil {
 		return err
 	}
-	if err := localRegular(operation.Subtitle.Path); err != nil {
-		return err
+	cleanup := removeOwned(operation.Input, operation.Output)
+	for _, subtitle := range subtitles {
+		cleanup = errors.Join(cleanup, removeOwned(subtitle.Artifact, operation.Output))
 	}
-	if err := tools.EmbedSubtitles(ctx, operation.Input.Path, operation.Subtitle.Path, operation.Output.Path, operation.Overwrite, sink); err != nil {
-		return err
-	}
-	return errors.Join(removeOwned(operation.Input, operation.Output), removeOwned(operation.Subtitle, operation.Output))
+	return cleanup
 }
 
 type Fixup struct {

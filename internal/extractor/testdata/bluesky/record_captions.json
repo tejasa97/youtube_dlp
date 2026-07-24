@@ -1,0 +1,12 @@
+{
+  "text": "Captioned post",
+  "video": {
+    "ref": {"$link": "bafyreicaptionvid"},
+    "mimeType": "video/mp4",
+    "size": 1048576
+  },
+  "captions": [
+    {"lang": "en", "file": {"ref": {"$link": "bafyreicaptionen"}, "mimeType": "text/vtt"}},
+    {"lang": "fr", "file": {"ref": {"$link": "bafyreicaptionfr"}, "mimeType": "text/srt"}}
+  ]
+}

@@ -3,6 +3,7 @@ package ytdlp
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -25,6 +26,10 @@ type DownloaderOptions struct {
 	PerHostFragmentConcurrency int
 	MaxSegments                int
 	MaxSegmentBytes            int64
+	LivePollInterval           time.Duration
+	LiveRefreshInterval        time.Duration
+	LiveMaxPolls               int
+	LiveMaxNoProgressPolls     int
 	External                   *ExternalDownloader
 }
 
@@ -35,14 +40,108 @@ type ExternalDownloader struct {
 	Arguments  []string
 }
 
-// SubtitleOptions selects and writes subtitle sidecars exposed by an
-// extractor. Manual subtitles take precedence over automatic captions for the
-// same language, matching yt-dlp's selection behavior.
+// SubtitleOptions selects subtitle tracks exposed by an extractor. Embed
+// attaches compatible selected tracks to supported media containers; when no
+// write mode is selected it implicitly selects manual subtitles. KeepFiles
+// retains downloaded sidecars after a successful embed.
 type SubtitleOptions struct {
 	WriteManual    bool
 	WriteAutomatic bool
+	Embed          bool
+	KeepFiles      bool
+	ConvertFormat  string
 	Languages      []string
 	Format         string
+}
+
+// RelatedFileOptions writes metadata files beside the rendered media path.
+// Simulate suppresses all related files. SkipDownload does not.
+type RelatedFileOptions struct {
+	WriteInfoJSON    bool
+	WriteDescription bool
+	WriteLink        bool
+	WriteURLLink     bool
+	WriteWeblocLink  bool
+	WriteDesktopLink bool
+	NoPlaylist       bool
+}
+
+// PrintStage identifies a metadata lifecycle point for a print rule.
+type PrintStage string
+
+const (
+	PrintPreProcess  PrintStage = "pre_process"
+	PrintAfterFilter PrintStage = "after_filter"
+	PrintVideo       PrintStage = "video"
+	PrintBeforeDL    PrintStage = "before_dl"
+	PrintPostProcess PrintStage = "post_process"
+	PrintAfterMove   PrintStage = "after_move"
+	PrintAfterVideo  PrintStage = "after_video"
+	PrintPlaylist    PrintStage = "playlist"
+)
+
+// PrintRule captures a bounded output template at one lifecycle stage.
+type PrintRule struct {
+	Stage         PrintStage
+	Template      string
+	FileTemplate  string
+	OmitIfMissing string
+}
+
+// PrintOutput is one rendered print rule in deterministic rule order.
+type PrintOutput struct {
+	Stage PrintStage `json:"stage"`
+	Text  string     `json:"text"`
+}
+
+// CommentOptions controls opt-in comment metadata retrieval. The initial
+// native implementation applies these settings to YouTube videos.
+type YouTubeCommentOptions struct {
+	Enabled             bool
+	Sort                string
+	MaxComments         int
+	MaxParents          int
+	MaxReplies          int
+	MaxRepliesPerThread int
+	MaxDepth            int
+}
+
+// SponsorBlockOptions controls the optional SponsorBlock metadata
+// enrichment stage. When Enabled is false, the stage is skipped and
+// no network requests are issued. When Enabled is true, the configured
+// categories are requested from the API and the pinned normalization
+// rules produce a deterministic sponsorblock_chapters list on the
+// result Info JSON.
+//
+// APIBase defaults to https://sponsor.ajay.app; an empty value is
+// resolved to the default by the implementation. Custom bases are
+// only honored for deterministic tests and self-hosted deployments
+// that implement the same API.
+//
+// Categories is treated as caller-owned and is never mutated. An
+// empty slice is invalid when enabled. Unknown identifiers, oversized strings, and
+// empty enabled category sets are rejected by Request validation.
+type SponsorBlockOptions struct {
+	Enabled bool
+	// Mark overlays fetched SponsorBlock ranges onto ordinary chapters without
+	// cutting media. It requires Enabled.
+	Mark       bool
+	Categories []string
+	APIBase    string
+}
+
+// PlaylistOptions selects an inclusive, one-based playlist range. Start zero
+// means the first entry; End zero or the legacy yt-dlp value -1 means no
+// explicit end. A non-empty Items expression takes precedence over Start and
+// End. Reverse is applied after selection while playlist_index continues to
+// identify the source entry. Flat retains the selected URL-result metadata
+// without recursively extracting or downloading child entries.
+type PlaylistOptions struct {
+	Start   int
+	End     int
+	Reverse bool
+	Items   string
+	Flat    bool
 }
 
 // Artifact describes a file produced by the requested media pipeline.
@@ -124,8 +223,22 @@ func validateRequestOptions(request Request) error {
 		options.FragmentConcurrency < 0 || options.FragmentConcurrency > 128 ||
 		options.PerHostFragmentConcurrency < 0 || options.PerHostFragmentConcurrency > 128 ||
 		options.MaxSegments < 0 || options.MaxSegments > 10_000 ||
-		options.MaxSegmentBytes < 0 || options.MaxSegmentBytes > 512<<20 {
+		options.MaxSegmentBytes < 0 || options.MaxSegmentBytes > 512<<20 ||
+		options.LivePollInterval < 0 || options.LivePollInterval > time.Hour ||
+		options.LiveRefreshInterval < 0 || options.LiveRefreshInterval > 24*time.Hour ||
+		options.LiveMaxPolls < 0 || options.LiveMaxPolls > 100_000 ||
+		options.LiveMaxNoProgressPolls < 0 || options.LiveMaxNoProgressPolls > 10_000 {
 		return fmt.Errorf("%w: downloader resource limits", errInvalidRequestOptions)
+	}
+	playlistStart, playlistEnd := normalizedPlaylistRange(request.Playlist)
+	if playlistStart < 1 || playlistStart > maxPlaylistEntries || request.Playlist.End < -1 || playlistEnd > maxPlaylistEntries ||
+		(playlistEnd != 0 && playlistEnd < playlistStart) {
+		return fmt.Errorf("%w: playlist range", errInvalidRequestOptions)
+	}
+	if request.Playlist.Items != "" {
+		if _, err := parsePlaylistItems(request.Playlist.Items); err != nil {
+			return fmt.Errorf("%w: %w", errInvalidRequestOptions, err)
+		}
 	}
 	if external := options.External; external != nil {
 		if external.Executable == "" || strings.ContainsRune(external.Executable, 0) || len(external.Arguments) > 128 {
@@ -145,7 +258,29 @@ func validateRequestOptions(request Request) error {
 	if len(request.Postprocessors) > 64 {
 		return fmt.Errorf("%w: more than 64 postprocessors", errInvalidRequestOptions)
 	}
+	if len(request.PrintRules) > 64 {
+		return fmt.Errorf("%w: more than 64 print rules", errInvalidRequestOptions)
+	}
+	for index, rule := range request.PrintRules {
+		if !validPrintStage(rule.Stage) || rule.Template == "" ||
+			len(rule.FileTemplate) > 64<<10 || strings.ContainsRune(rule.FileTemplate, 0) ||
+			len(rule.OmitIfMissing) > 256 || strings.ContainsAny(rule.OmitIfMissing, "\x00\r\n") {
+			return fmt.Errorf("%w: print rule %d", errInvalidRequestOptions, index)
+		}
+	}
 	if err := validateSubtitleOptions(request.Subtitles); err != nil {
+		return fmt.Errorf("%w: %v", errInvalidRequestOptions, err)
+	}
+	comments := request.YouTubeComments
+	if comments.MaxComments < 0 || comments.MaxComments > 10_000 ||
+		comments.MaxParents < 0 || comments.MaxParents > 10_000 ||
+		comments.MaxReplies < 0 || comments.MaxReplies > 10_000 ||
+		comments.MaxRepliesPerThread < 0 || comments.MaxRepliesPerThread > 10_000 ||
+		comments.MaxDepth < 0 || comments.MaxDepth > 8 ||
+		(comments.Sort != "" && comments.Sort != "top" && comments.Sort != "new") {
+		return fmt.Errorf("%w: comment options", errInvalidRequestOptions)
+	}
+	if err := validateSponsorBlockOptions(request.SponsorBlock); err != nil {
 		return fmt.Errorf("%w: %v", errInvalidRequestOptions, err)
 	}
 	for index, postprocessor := range request.Postprocessors {
@@ -157,4 +292,80 @@ func validateRequestOptions(request Request) error {
 		return fmt.Errorf("%w: %v", errInvalidRequestOptions, err)
 	}
 	return nil
+}
+
+func normalizedPlaylistRange(options PlaylistOptions) (start, end int) {
+	start, end = options.Start, options.End
+	if start == 0 {
+		start = 1
+	}
+	if end == -1 {
+		end = 0
+	}
+	return start, end
+}
+
+// validateSponsorBlockOptions is the public boundary check for the
+// SponsorBlock stage. A disabled option is a no-op. Enabled callers must supply a
+// bounded set of categories and a syntactically valid API base.
+func validateSponsorBlockOptions(options SponsorBlockOptions) error {
+	if !options.Enabled {
+		if options.Mark {
+			return fmt.Errorf("SponsorBlock marking requires enabled metadata")
+		}
+		return nil
+	}
+	if len(options.Categories) == 0 {
+		return fmt.Errorf("SponsorBlock categories empty")
+	}
+	if len(options.Categories) > 64 {
+		return fmt.Errorf("too many SponsorBlock categories")
+	}
+	seen := make(map[string]struct{}, len(options.Categories))
+	for index, raw := range options.Categories {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			return fmt.Errorf("SponsorBlock category[%d] empty", index)
+		}
+		if len(trimmed) > 64 {
+			return fmt.Errorf("SponsorBlock category[%d] too long", index)
+		}
+		if !validSponsorBlockCategory(trimmed) {
+			return fmt.Errorf("SponsorBlock category[%d] unknown", index)
+		}
+		if _, dup := seen[trimmed]; dup {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+	}
+	if options.APIBase != "" {
+		if len(options.APIBase) > 4096 {
+			return fmt.Errorf("SponsorBlock API base too long")
+		}
+		parsed, err := url.Parse(options.APIBase)
+		if err != nil {
+			return fmt.Errorf("SponsorBlock API base invalid")
+		}
+		if parsed.Scheme != "http" && parsed.Scheme != "https" {
+			return fmt.Errorf("SponsorBlock API base scheme")
+		}
+		if parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+			return fmt.Errorf("SponsorBlock API base host")
+		}
+		escaped := strings.ToLower(parsed.EscapedPath())
+		if strings.Contains(escaped, "%2f") || strings.Contains(escaped, "%5c") || strings.Contains(escaped, "%00") {
+			return fmt.Errorf("SponsorBlock API base path")
+		}
+	}
+	return nil
+}
+
+func validSponsorBlockCategory(category string) bool {
+	switch category {
+	case "sponsor", "intro", "outro", "selfpromo", "preview", "filler",
+		"interaction", "music_offtopic", "hook", "poi_highlight", "chapter":
+		return true
+	default:
+		return false
+	}
 }

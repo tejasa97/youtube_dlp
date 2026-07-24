@@ -22,6 +22,17 @@ func TestEntryObjectMatchesURLResultShape(t *testing.T) {
 	}
 }
 
+func TestURLResultRetainsLazyHandoff(t *testing.T) {
+	entry := Entry{URL: "https://example.test/video", ExtractorKey: "Example", Transparent: true}
+	result, err := URLResult(entry)
+	if err != nil || !result.IsURL() || result.IsPlaylist() || result.Redirect == nil || *result.Redirect != entry {
+		t.Fatalf("URLResult() = %#v, %v", result, err)
+	}
+	if _, err := URLResult(Entry{}); !errors.Is(err, ErrInvalidPlaylist) {
+		t.Fatalf("empty URLResult error = %v", err)
+	}
+}
+
 func TestOnDemandEntriesAreOrderedLazyAndReusable(t *testing.T) {
 	var calls []int
 	sequence, err := OnDemandEntries(2, func(_ context.Context, page int) ([]Entry, error) {
@@ -91,6 +102,35 @@ func TestContinuationEntriesFollowEmptyPagesAndStopLoops(t *testing.T) {
 	entries, err = CollectEntries(context.Background(), sequence, 10)
 	if err != nil || ids(entries) != "one,two" {
 		t.Fatalf("second iterator entries=%v err=%v", entries, err)
+	}
+}
+
+func TestStatefulContinuationEntriesRotateIndependentIteratorState(t *testing.T) {
+	var calls []string
+	sequence, err := StatefulContinuationEntries([]Entry{{ID: "one"}}, "next-1", "visitor-1", func(_ context.Context, token, state string) ([]Entry, string, string, error) {
+		calls = append(calls, token+"/"+state)
+		switch token {
+		case "next-1":
+			return nil, "next-2", "visitor-2", nil
+		case "next-2":
+			return []Entry{{ID: "two"}}, "next-2", "visitor-3", nil
+		default:
+			t.Fatalf("unexpected token %q", token)
+			return nil, "", state, nil
+		}
+	})
+	if err != nil || len(calls) != 0 {
+		t.Fatalf("StatefulContinuationEntries() = %v, calls=%v", err, calls)
+	}
+	for iteration := 0; iteration < 2; iteration++ {
+		entries, collectErr := CollectEntries(context.Background(), sequence, 10)
+		if collectErr != nil || ids(entries) != "one,two" {
+			t.Fatalf("iteration %d entries=%v err=%v", iteration, entries, collectErr)
+		}
+	}
+	want := []string{"next-1/visitor-1", "next-2/visitor-2", "next-1/visitor-1", "next-2/visitor-2"}
+	if !reflect.DeepEqual(calls, want) {
+		t.Fatalf("calls=%v, want %v", calls, want)
 	}
 }
 
