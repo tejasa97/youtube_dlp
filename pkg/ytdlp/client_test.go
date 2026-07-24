@@ -27,6 +27,7 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/cookies/chromiumwindows"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/firefox"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/netscape"
+	"github.com/ytdlp-go/ytdlp/internal/cookies/safari"
 	credentialnetrc "github.com/ytdlp-go/ytdlp/internal/credentials/netrc"
 	"github.com/ytdlp-go/ytdlp/internal/downloader"
 	"github.com/ytdlp-go/ytdlp/internal/extractor"
@@ -691,13 +692,15 @@ func TestBrowserCookieSpec(t *testing.T) {
 		{"chromium:Default", "chromium", "Default", ""},
 		{"brave:Profile 1", "brave", "Profile 1", ""},
 		{"firefox:work::Work", "firefox", "work", "Work"},
+		{"safari", "safari", "", ""},
+		{"safari:/tmp/Cookies.binarycookies", "safari", "/tmp/Cookies.binarycookies", ""},
 	} {
 		options, err := parseBrowserCookieSpec(test.spec)
 		if err != nil || options.browser != test.browser || options.profile != test.profile || options.container != test.container {
 			t.Fatalf("parseBrowserCookieSpec(%q) = %#v, %v", test.spec, options, err)
 		}
 	}
-	for _, spec := range []string{"safari", "chrome:", "chrome:../Default", "chrome:one:two", "chrome::Work", "firefox:default::", "firefox:default::one:two"} {
+	for _, spec := range []string{"safari:", "safari:relative", "safari::Work", "chrome:", "chrome:../Default", "chrome:one:two", "chrome::Work", "firefox:default::", "firefox:default::one:two"} {
 		if _, err := parseBrowserCookieSpec(spec); !errors.Is(err, errInvalidBrowserCookieSpec) {
 			t.Fatalf("parseBrowserCookieSpec(%q) error = %v", spec, err)
 		}
@@ -783,13 +786,25 @@ func TestClientLoadsNetscapeCookieFileBeforeExtraction(t *testing.T) {
 
 func TestPortableBrowserCookieDispatch(t *testing.T) {
 	client := NewClient()
+	client.safariCookieImporter = func(_ context.Context, options safari.Options) (safari.Result, error) {
+		if options.DatabasePath != "/tmp/Cookies.binarycookies" {
+			t.Fatalf("Safari options = %#v", options)
+		}
+		return safari.Result{Total: 2, Imported: 1, Failed: 1}, nil
+	}
+	result, err := client.importBrowserCookies(context.Background(), browserCookieSpec{
+		browser: "safari", profile: "/tmp/Cookies.binarycookies",
+	})
+	if err != nil || result.Total != 2 || result.Imported != 1 || result.Failed != 1 {
+		t.Fatalf("Safari result=%#v err=%v", result, err)
+	}
 	client.firefoxCookieImporter = func(_ context.Context, options firefox.Options) (firefox.Result, error) {
 		if options.Profile != "fixture" || options.Container != "Work" {
 			t.Fatalf("Firefox options = %#v", options)
 		}
 		return firefox.Result{Total: 1, Imported: 1}, nil
 	}
-	result, err := client.importBrowserCookies(context.Background(), browserCookieSpec{browser: "firefox", profile: "fixture", container: "Work"})
+	result, err = client.importBrowserCookies(context.Background(), browserCookieSpec{browser: "firefox", profile: "fixture", container: "Work"})
 	if err != nil || result.Imported != 1 {
 		t.Fatalf("Firefox result=%#v err=%v", result, err)
 	}
