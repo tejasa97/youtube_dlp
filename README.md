@@ -371,8 +371,9 @@ Public YouTube comments are opt-in and bounded:
 ```
 
 Use `--youtube-comment-sort new|top` to choose the order. The current scope
-covers anonymous parent comments, click-tracked reply continuations, and
-bounded nested subthreads; authenticated comments are not yet supported.
+covers anonymous and bounded signed-in WEB authenticated parent comments,
+click-tracked reply continuations, and nested subthreads; other authenticated
+Innertube clients are not supported.
 
 Public adaptive YouTube live streams can opt into bounded reconstruction from
 their retained beginning:
