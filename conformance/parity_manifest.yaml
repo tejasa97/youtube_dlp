@@ -1689,6 +1689,33 @@ capabilities:
     owner: core
     known_deviation: Compatibility is claimed only for the checked-in Phase 1 syntax corpus; broader yt-dlp grammar remains a later phase.
 
+  - id: compat.format_selector_atoms
+    name: Format-selector best/worst atoms
+    phase: 2
+    compatibility_target: Parse and evaluate pinned best/worst atom aliases, star variants, and one-based .N indexing with filters, fallback, and merge.
+    status: compatible
+    evidence:
+      - internal/format.TestParseSelectorAtomAliasesAndCanonicalForm
+      - internal/format.TestSelectorAtomFamiliesAndIndexing
+      - internal/format.TestSelectorTypedStarMaySelectCombined
+      - internal/format.TestSelectorPlainBestRejectsMixedAdaptiveWithoutCombined
+      - internal/format.TestSelectorIncompleteFormatFallback
+      - internal/format.TestSelectorFiltersApplyBeforeIndex
+      - internal/format.TestSelectorAtomFallbackMergeAndDirectDottedIDs
+      - internal/format.TestSelectorAtomMalformedSyntaxSpans
+      - internal/format.TestSelectorIndexedNoMatchAndMissingCodec
+      - internal/format.TestSelectorAtomOptionsOrderingTiesDRM
+      - internal/format.TestSelectorAtomNoMutationDeterministicAndConcurrent
+      - internal/format.TestSelectorAtomSABRAndHeaderPropagation
+      - internal/format.FuzzParseSelector
+      - internal/format.FuzzSelectAtoms
+      - internal/cli.TestRunFormatSelectorAtomsAcceptAndNoMatch
+      - conformance/format_selector/PROVENANCE.md
+    owner: core
+    depends_on:
+      - compat.format_selector_pilot
+    known_deviation: Claims only the best/worst atom slice. Groups/parentheses, comma/multi-output, mergeall, extension-name selectors, and interactive filters remain unsupported. Typed exclusive atoms use conservative candidateMediaKinds for missing codec keys; combined/star predicates follow yt-dlp != none checks. See conformance/format_selector/PROVENANCE.md.
+
   - id: compat.output_template_pilot
     name: Output-template parser pilot
     phase: 1

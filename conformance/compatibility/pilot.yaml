@@ -15,7 +15,7 @@ format_cases:
     expression: bestaudio[format_id$=high]
     selected: [audio-high]
   - name: regex filter
-    expression: best[ext~=webm|mp4]
+    expression: bestvideo[ext~=webm|mp4]
     selected: ["720"]
   - name: worst video
     expression: worstvideo

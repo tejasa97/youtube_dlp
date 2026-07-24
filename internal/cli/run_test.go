@@ -1175,3 +1175,27 @@ func TestSecurityErrorExitCode(t *testing.T) {
 		t.Fatalf("exitCode() = %d, want 6", code)
 	}
 }
+
+func TestRunFormatSelectorAtomsAcceptAndNoMatch(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	for _, format := range []string{"b", "best.1", "b*", "w"} {
+		var stdout, stderr bytes.Buffer
+		code := Run([]string{"--skip-download", "--print", "%(format_id)s", "-f", format, server.URL + "/page"}, &stdout, &stderr)
+		if code != 0 || strings.TrimSpace(stdout.String()) != "direct-http" {
+			t.Fatalf("format %q: code=%d stdout=%q stderr=%q", format, code, stdout.String(), stderr.String())
+		}
+	}
+	for _, format := range []string{"best.0", "bv.-1", "w.1001"} {
+		var stdout, stderr bytes.Buffer
+		code := Run([]string{"--skip-download", "-f", format, "https://example.invalid/video"}, &stdout, &stderr)
+		if code != 2 || !strings.Contains(stderr.String(), "invalid format selector") {
+			t.Fatalf("malformed %q: code=%d stderr=%q", format, code, stderr.String())
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{"--skip-download", "--print", "%(format_id)s", "-f", "best.2", server.URL + "/page"}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), "no format matches selector") {
+		t.Fatalf("no-match: code=%d stderr=%q", code, stderr.String())
+	}
+}

@@ -4,7 +4,9 @@ This lane implements bounded, Python-free compatibility primitives for a Go
 product layer to wire into its request/CLI contract.
 
 - `internal/format`: selector alternatives and merges, direct IDs, `all`,
-  filters, format preferences, DRM policy, and deterministic ordering.
+  filters, format preferences, DRM policy, deterministic ordering, and the
+  pinned best/worst atom slice (`b`/`w`/`bv`/`ba`/long forms, optional `*`,
+  and one-based `.N` indexing).
 - `internal/compat/template`: output templates, traversal, defaults,
   replacements, bounded arithmetic, date and Unicode conversion, numeric
   formatting, JSON conversion, and output-root confinement.
@@ -27,8 +29,12 @@ Intentional unsupported syntax is explicit rather than silently approximated:
   duration coercion for the documented corpus. Interactive/break filters,
   Python regular-expression semantics, and unbounded expressions remain
   unsupported.
-- Format filters do not implement every yt-dlp selector atom, codec/container
-  preference alias, filesize approximation, or advanced sort field conversion.
+- Format selectors implement the checked-in best/worst atom slice above, plus
+  `/` fallback, `+` merge, direct IDs, `all`, and filters. They do not
+  implement groups/parentheses, comma/multi-output, `mergeall`,
+  extension-name selectors, interactive filters, codec/container preference
+  aliases beyond the documented preference options, filesize approximation, or
+  advanced sort field conversion outside `Options`.
 - Templates implement bounded arithmetic and Unicode `U` conversions
   (including `#`/`+` flags), but do not implement object slicing, arbitrary
   traversal operators, the wider Python format mini-language, or arbitrary
