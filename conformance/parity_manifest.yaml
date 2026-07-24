@@ -1874,6 +1874,8 @@ capabilities:
       - internal/extractor.TestSharedHostingSuccessFixtures
       - internal/extractor.TestSharedHostingErrorsAreCategorizedAndSecretSafe
       - internal/extractor.TestDailymotionPublicMetadata
+      - internal/extractor.TestDailymotionPlaylist
+      - internal/extractor.TestDailymotionRoutes
       - internal/extractor.TestRedditPublicListing
       - internal/extractor.TestTwitterSyndicationMetadata
       - internal/extractor.TestBandcampPublicTrackAndAlbum
