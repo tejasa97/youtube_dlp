@@ -116,17 +116,13 @@ func tiktokVideoIdentity(path string) (videoID, userID string) {
 	return "", ""
 }
 
-type tiktokNoRedirectTransport interface {
-	DoNoRedirect(context.Context, *http.Request) (*http.Response, error)
-}
-
 func tiktokIsShortLink(parsed *url.URL) bool {
 	if parsed == nil {
 		return false
 	}
 	host := strings.ToLower(parsed.Hostname())
 	switch host {
-	case "vm.tiktok.com", "vt.tiktok.com":
+	case "vm.tiktok.com", "vt.tiktok.com", "m.tiktok.com":
 		return tiktokShortVMPathPattern.MatchString(parsed.Path)
 	case "www.tiktok.com", "tiktok.com":
 		return tiktokShortTPathPattern.MatchString(parsed.Path)
@@ -150,6 +146,17 @@ func tiktokRedirectHostAllowed(host string, intermediate bool) bool {
 	}
 }
 
+func tiktokNormalizeRedirectPath(raw string) string {
+	if raw == "" {
+		return "/"
+	}
+	cleaned := path.Clean(raw)
+	if cleaned == "." {
+		return "/"
+	}
+	return cleaned
+}
+
 func tiktokValidateRedirectURL(parsed *url.URL) error {
 	if parsed == nil {
 		return ErrUnsupported
@@ -167,7 +174,8 @@ func tiktokValidateRedirectURL(parsed *url.URL) error {
 	if net.ParseIP(host) != nil || host == "localhost" {
 		return fmt.Errorf("%w: unsafe TikTok redirect host", ErrUnsupported)
 	}
-	if path.Clean(parsed.Path) != parsed.Path {
+	cleaned := tiktokNormalizeRedirectPath(parsed.Path)
+	if cleaned != parsed.Path && cleaned+"/" != parsed.Path {
 		return fmt.Errorf("%w: unsafe TikTok redirect path", ErrUnsupported)
 	}
 	return nil
@@ -182,7 +190,9 @@ func tiktokCanonicalVideoURL(userID, videoID string) string {
 
 func tiktokCanonicalFromParsed(parsed *url.URL) (string, bool) {
 	host := strings.ToLower(parsed.Hostname())
-	if host != "www.tiktok.com" && host != "tiktok.com" {
+	switch host {
+	case "www.tiktok.com", "tiktok.com", "m.tiktok.com":
+	default:
 		return "", false
 	}
 	videoID, userID := tiktokVideoIdentity(parsed.Path)
@@ -196,19 +206,22 @@ func tiktokRedirectKey(parsed *url.URL) string {
 	clone := *parsed
 	clone.Scheme = "https"
 	clone.Host = strings.ToLower(clone.Hostname())
-	clone.Path = path.Clean(clone.Path)
+	clone.Path = tiktokNormalizeRedirectPath(clone.Path)
+	clone.RawQuery = ""
 	clone.Fragment = ""
+	clone.RawPath = ""
 	return clone.String()
 }
 
 func tiktokRedirectDo(ctx context.Context, transport Transport, request *http.Request) (*http.Response, error) {
-	// Prefer redirect-disabled transport. Production network.Client also
-	// implements CookieIsolatedTransport, but DoWithoutCookies follows
-	// redirects automatically and would collapse hop-by-hop validation.
-	if redirect, ok := transport.(tiktokNoRedirectTransport); ok {
-		return redirect.DoNoRedirect(ctx, request)
+	// Require credential-isolated, redirect-disabled transport. Production
+	// DoWithoutCookies follows redirects and would collapse Location validation;
+	// DoNoRedirect may still attach operation-jar cookies to the hop URL.
+	isolated, ok := transport.(CredentialIsolatedNoRedirectTransport)
+	if !ok {
+		return nil, ErrTransportIsolation
 	}
-	return nil, ErrTransportIsolation
+	return isolated.DoWithoutCredentialsNoRedirect(ctx, request)
 }
 
 func resolveTikTokShortLink(ctx context.Context, transport Transport, start *url.URL) (string, error) {
@@ -228,8 +241,10 @@ func resolveTikTokShortLink(ctx context.Context, transport Transport, start *url
 	current := *start
 	current.Scheme = "https"
 	current.Host = strings.ToLower(current.Hostname())
+	current.Path = tiktokNormalizeRedirectPath(current.Path)
 	current.RawQuery = ""
 	current.Fragment = ""
+	current.RawPath = ""
 	if err := tiktokValidateRedirectURL(&current); err != nil {
 		return "", err
 	}
@@ -258,16 +273,26 @@ func resolveTikTokShortLink(ctx context.Context, transport Transport, start *url
 		if err != nil {
 			return "", err
 		}
-		location := strings.TrimSpace(response.Header.Get("Location"))
-		_ = response.Body.Close()
+		if response == nil {
+			return "", fmt.Errorf("%w: empty TikTok redirect response", ErrUnsupported)
+		}
+		if response.Body != nil {
+			_ = response.Body.Close()
+		}
 
-		if response.StatusCode >= 200 && response.StatusCode < 300 {
+		status := response.StatusCode
+		location := ""
+		if response.Header != nil {
+			location = strings.TrimSpace(response.Header.Get("Location"))
+		}
+
+		if status >= 200 && status < 300 {
 			if canonical, ok := tiktokCanonicalFromParsed(&current); ok {
 				return canonical, nil
 			}
 			return "", ErrUnsupported
 		}
-		if response.StatusCode < 300 || response.StatusCode >= 400 || location == "" {
+		if status < 300 || status >= 400 || location == "" {
 			return "", fmt.Errorf("%w: TikTok short link redirect failed", ErrUnsupported)
 		}
 
@@ -275,6 +300,7 @@ func resolveTikTokShortLink(ctx context.Context, transport Transport, start *url
 		if err != nil {
 			return "", err
 		}
+		next.Path = tiktokNormalizeRedirectPath(next.Path)
 		if canonical, ok := tiktokCanonicalFromParsed(next); ok {
 			return canonical, nil
 		}
