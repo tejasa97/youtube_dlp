@@ -436,41 +436,30 @@ func TestDownloadHierarchicalSIDXExcessiveBoxCount(t *testing.T) {
 }
 
 func TestDownloadHierarchicalSIDXRepeatedRangeDetection(t *testing.T) {
-	// Verify that the visited-range set catches a repeated nested range.
-	// We test this at the unit level by calling expandOneSIDX with a resource
-	// where the root SIDX has an index ref, and the nested SIDX also has an
-	// index ref pointing to the same range as the root indexRange.
-	//
-	// Layout: [rootSIDX at 0] [nestedSIDX at rootEnd]
-	// Root indexRange = "0-{rootEnd-1}" → visited includes this range.
-	// Root ref[0]: index → nested range = [rootEnd, rootEnd+nestedSize)
-	// Nested SIDX ref[0]: index with first_offset set so its range equals
-	// the root indexRange [0, rootEnd). Since first_offset is unsigned and
-	// offsets are forward-only, we instead verify that the depth limit
-	// catches unbounded recursion in this scenario.
-	rootRefs := []SIDXReference{{ReferencedSize: 100, SubsegmentDuration: 1000, IsIndex: true}}
-	rootBox := buildSIDX(0, 1, 1000, 0, 0, rootRefs)
-	// Place padding and another SIDX at the referenced offset.
-	var resource []byte
-	resource = append(resource, rootBox...)
-	resource = append(resource, make([]byte, 100)...) // padding for the index ref
-	indexRange := fmt.Sprintf("0-%d", len(rootBox)-1)
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/manifest.mpd":
-			fmt.Fprintf(w, `<MPD><Period><AdaptationSet mimeType="video/mp4"><Representation id="v" bandwidth="1000"><BaseURL>video.mp4</BaseURL><SegmentBase indexRange="%s"/></Representation></AdaptationSet></Period></MPD>`, indexRange)
-		case "/video.mp4":
-			serveRange(w, r, resource)
-		}
-	}))
-	defer server.Close()
-	transport, _ := network.New(network.Config{})
-	root := t.TempDir()
-	// The nested range [rootEnd, rootEnd+100) contains zeros (no valid SIDX).
-	_, err := NewDownloader(transport, Config{}).Download(context.Background(), server.URL+"/manifest.mpd", root, filepath.Join(root, "out.mp4"), false, nil)
-	if err == nil {
-		t.Fatal("expected error for invalid nested SIDX")
+	const (
+		mediaURL = "https://media.example.test/video.mp4"
+		start    = int64(100)
+		length   = int64(32)
+	)
+	sidx := &SIDX{
+		Timescale: 1,
+		References: []SIDXReference{{
+			ReferencedSize:     uint32(length),
+			SubsegmentDuration: 1,
+			IsIndex:            true,
+		}},
+	}
+	state := &sidxExpansionState{
+		mediaURL: mediaURL,
+		visited: map[string]struct{}{
+			rangeKey(mediaURL, start, length): {},
+		},
+		maxLeafCount: 1,
+	}
+	_, err := NewDownloader(nil, Config{}).expandSIDXReferences(
+		context.Background(), sidx, start, 0, state)
+	if err == nil || !strings.Contains(err.Error(), "cycle detected") {
+		t.Fatalf("err = %v, want repeated-range rejection", err)
 	}
 }
 
@@ -857,116 +846,29 @@ func TestDownloadHierarchicalSIDXExtendedSizeChild(t *testing.T) {
 	}
 }
 
-// largeIndexHierarchicalMedia builds a deep hierarchy with many small index
-// references, exceeding the cumulative byte budget when expanded.
-func largeIndexHierarchicalMedia() ([]byte, string) {
-	// Each level adds a SIDX whose single index reference points to the next
-	// level. After maxCumulativeIndexBytes, the limit is exceeded.
-	levels := 50
-	boxes := make([][]byte, levels)
-	leafRefs := []SIDXReference{{ReferencedSize: 10, SubsegmentDuration: 1000}}
-	boxes[levels-1] = buildSIDX(0, 1, 1000, 0, 0, leafRefs)
-	for i := levels - 2; i >= 0; i-- {
-		refs := []SIDXReference{{ReferencedSize: uint32(len(boxes[i+1])), SubsegmentDuration: 1000, IsIndex: true}}
-		boxes[i] = buildSIDX(0, 1, 1000, 0, 0, refs)
-	}
-	var resource []byte
-	for _, box := range boxes {
-		resource = append(resource, box...)
-	}
-	resource = append(resource, make([]byte, 10)...)
-	indexRange := fmt.Sprintf("0-%d", len(boxes[0])-1)
-	return resource, indexRange
-}
-
-// largeBudgetHierarchicalMedia builds a hierarchy whose total index bytes
-// exceed maxCumulativeIndexBytes (16 MiB) within the depth limit. We achieve
-// this by padding each SIDX to ~2.5 MiB so 7 levels (~17.5 MiB) trigger the
-// cumulative byte budget before the depth limit (8) is reached.
-func largeBudgetHierarchicalMedia() ([]byte, string) {
-	const levels = 7
-	boxes := make([][]byte, levels+1)
-	// Build the leaf first.
-	leafRefs := make([]SIDXReference, 1)
-	leafRefs[0] = SIDXReference{ReferencedSize: 10, SubsegmentDuration: 1000}
-	boxes[levels] = buildSIDX(0, 1, 1000, 0, 0, leafRefs)
-	// Each level has one index ref to the next box. We pad each box to
-	// ~2.5 MiB by appending trailing free-form bytes; the parser will
-	// treat them as non-SIDX trailing data and still successfully parse the
-	// single SIDX at the start. To keep the SIDX valid we instead inflate
-	// the number of references up to the parser limit (~100_000) which
-	// gives us a 1.2 MiB box. We can't reach 16 MiB with depth 7, so we
-	// additionally wrap each index ref with a non-SIDX free box padding.
-	// Easier: build 7 levels using max-reference SIDX (1.2 MiB each) = 8.4 MiB,
-	// plus a larger root box that adds more index bytes. The parser
-	// limit on refs caps this, so we use the smaller but more reliable
-	// approach of failing on box_count with many sibling index refs.
-	// For byte budget: use only 2 levels but each with max refs.
-	const refsPerBox = 100_000
-	mkBox := func() []byte {
-		refs := make([]SIDXReference, refsPerBox)
-		for i := range refs {
-			refs[i] = SIDXReference{ReferencedSize: 1, SubsegmentDuration: 1000}
-		}
-		return buildSIDX(0, 1, 1000, 0, 0, refs)
-	}
-	// Just create two large SIDXes directly. The second one's ReferencedSize
-	// of 1_300_000 will overflow int64 when added to baseOffset but we
-	// bypass that with a smaller actual resource; we only care that the
-	// parser successfully reads both.
-	big := mkBox()
-	smallRefs := []SIDXReference{{ReferencedSize: uint32(len(big)), IsIndex: true}}
-	smallBox := buildSIDX(0, 1, 1000, 0, 0, smallRefs)
-
-	// Resource: smallBox (root) followed by big (nested) plus 10 bytes media.
-	var resource []byte
-	resource = append(resource, smallBox...)
-	resource = append(resource, big...)
-	resource = append(resource, make([]byte, 10)...)
-	indexRange := fmt.Sprintf("0-%d", len(smallBox)-1)
-	return resource, indexRange
-}
-
 func TestDownloadHierarchicalSIDXCumulativeByteBudget(t *testing.T) {
-	// Two SIDXes, each near the parser reference cap. The combined size
-	// exceeds maxCumulativeIndexBytes (16 MiB). The root's single index
-	// ref points to a range of size 1.2 MiB, but the small box size on
-	// the resource is only ~1.2 MiB so the server replies 200 or 206
-	// successfully and the parser sees a malformed content (no sidx at
-	// the index range). We accept any closed-fail error: the byte-budget
-	// check, the host's 416, or a nested parse error. The test's main
-	// purpose is to exercise the budget code path; a separate unit test
-	// confirms the exact error string in isolation.
-	_ = largeBudgetHierarchicalMedia
-	// Direct test: exercise the same helper used by expandOneSIDX.
-	// The function reads many bytes cumulatively, so we build a chain
-	// of two ~700KB SIDXes (well under the per-box parser limit) and
-	// shrink the budget for this test only via in-package state.
-	//
-	// Without the ability to shrink the constant, we instead exercise the
-	// smaller path: use 7 nested boxes, each at the parser cap. 7 * 1.2 MB
-	// = 8.4 MB. That is below 16 MB but exercises the same code path with
-	// a depth limit hit. So we use 50 levels and accept either error.
-	resource, indexRange := largeIndexHierarchicalMedia()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/manifest.mpd":
-			fmt.Fprintf(w, `<MPD><Period><AdaptationSet mimeType="video/mp4"><Representation id="v" bandwidth="1000"><BaseURL>video.mp4</BaseURL><SegmentBase indexRange="%s"/></Representation></AdaptationSet></Period></MPD>`, indexRange)
-		case "/video.mp4":
-			serveRange(w, r, resource)
-		}
-	}))
-	defer server.Close()
-	transport, _ := network.New(network.Config{})
-	root := t.TempDir()
-	_, err := NewDownloader(transport, Config{}).Download(context.Background(), server.URL+"/manifest.mpd", root, filepath.Join(root, "out.mp4"), false, nil)
-	if err == nil {
-		t.Fatal("expected error from hierarchical expansion safety limits")
+	const nestedLength = int64(5)
+	resource := make([]byte, 200)
+	transport := &memoryRangeTransport{data: resource}
+	sidx := &SIDX{
+		Timescale: 1,
+		References: []SIDXReference{{
+			ReferencedSize:     uint32(nestedLength),
+			SubsegmentDuration: 1,
+			IsIndex:            true,
+		}},
 	}
-	if !strings.Contains(err.Error(), "depth") &&
-		!strings.Contains(err.Error(), "box count") &&
-		!strings.Contains(err.Error(), "cumulative index bytes") {
-		t.Fatalf("err = %v, want a hierarchical limit error", err)
+	state := &sidxExpansionState{
+		mediaURL:     "https://media.example.test/video.mp4",
+		visited:      make(map[string]struct{}),
+		boxesParsed:  1,
+		indexBytes:   maxCumulativeIndexBytes - (nestedLength - 1),
+		maxLeafCount: 1,
+	}
+	_, err := NewDownloader(transport, Config{}).expandSIDXReferences(
+		context.Background(), sidx, 100, 0, state)
+	if err == nil || !strings.Contains(err.Error(), "budget") {
+		t.Fatalf("err = %v, want cumulative index transfer budget error", err)
 	}
 }
 

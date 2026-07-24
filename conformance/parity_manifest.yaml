@@ -408,7 +408,6 @@ capabilities:
       - internal/protocol/dash.TestSIDXVersion1SixtyFourBitFields
       - internal/protocol/dash.TestSIDXExtendedBoxSize
       - internal/protocol/dash.TestSIDXNonZeroFirstOffset
-      - internal/protocol/dash.TestSIDXHierarchicalReferenceRejection
       - internal/protocol/dash.TestSIDXHierarchicalReferenceParsed
       - internal/protocol/dash.TestSIDXVersion0NestedReference
       - internal/protocol/dash.TestSIDXVersion1NestedReference
@@ -441,6 +440,14 @@ capabilities:
       - internal/protocol/dash.TestDownloadHierarchicalSIDXTruncatedChildResponse
       - internal/protocol/dash.TestDownloadHierarchicalSIDXOffsetOverflow
       - internal/protocol/dash.TestDownloadHierarchicalSIDXRoundTripV0Hex
+      - internal/protocol/dash.TestFetchIndexRange200ExceedsBudget
+      - internal/protocol/dash.TestFetchIndexRangeExactBudgetBoundary
+      - internal/protocol/dash.TestDownloadHierarchicalSIDXNoPartialPlanAfterNestedFetchFailure
+      - internal/protocol/dash.TestDownloadHierarchicalSIDXInitOverlapsRootIndex
+      - internal/protocol/dash.TestDownloadHierarchicalSIDXInitOverlapsNestedIndex
+      - internal/protocol/dash.TestDownloadHierarchicalSIDXLeafOverlapsRootIndex
+      - internal/protocol/dash.TestDownloadHierarchicalSIDXAdjacentRangesSucceed
+      - internal/protocol/dash.TestDownloadHierarchicalSIDXNearMaxInt64Interval
       - internal/protocol/dash.TestDownloadSIDXExactRangeHeader
       - internal/protocol/dash.TestDownloadSIDXHeadersPropagated
       - internal/protocol/dash.TestDownloadSIDX206Success

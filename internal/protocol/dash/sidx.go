@@ -14,7 +14,6 @@ var (
 	ErrSIDXVersion        = errors.New("unsupported SIDX version")
 	ErrSIDXZeroTimescale  = errors.New("SIDX timescale is zero")
 	ErrSIDXZeroReference  = errors.New("SIDX reference has zero size")
-	ErrSIDXHierarchical   = errors.New("SIDX hierarchical references unsupported")
 	ErrSIDXOverflow       = errors.New("SIDX offset or size overflow")
 	ErrSIDXTooManyEntries = errors.New("SIDX reference count exceeds limit")
 	ErrSIDXBadBoxSize     = errors.New("SIDX box size impossible")

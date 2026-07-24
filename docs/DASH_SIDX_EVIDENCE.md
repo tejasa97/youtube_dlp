@@ -7,7 +7,7 @@ SegmentBase `indexRange` support via ISO-BMFF SIDX box parsing and expansion
 into bounded byte-range media segments, including bounded hierarchical
 (reference_type=1) recursive expansion.
 
-Branch: `codex/dash-hierarchical-sidx`
+Status: implemented and locally verified.
 
 ## Behavior implemented
 
@@ -261,8 +261,9 @@ order even when nested indexes rearrange the underlying bytes.
   `Config.MaxSegments` clamped to the parser hard limit
   `maxSegmentsPerRepresentation` (100,000).
 
-Limits are checked on each recursive call so a hostile or pathological
-hierarchy cannot evade a per-level limit by alternating levels. Cycle
+Limits are checked before an over-limit child fetch and on each recursive call,
+so a hostile or pathological hierarchy cannot evade a per-level limit by
+alternating levels. Cycle
 detection additionally rejects repeated `(URL, start, length)` index ranges
 to bound recursion fan-out across the same media URL.
 
