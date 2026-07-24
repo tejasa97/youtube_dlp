@@ -1,0 +1,31 @@
+[
+  {
+    "videoID": "fixture0001",
+    "segments": [
+      {
+        "UUID": "sponsor-fixture-0001",
+        "segment": [10.0, 25.0],
+        "category": "sponsor",
+        "actionType": "skip",
+        "videoDuration": 120.0,
+        "description": ""
+      },
+      {
+        "UUID": "poi-fixture-0001",
+        "segment": [40.0, 40.5],
+        "category": "poi_highlight",
+        "actionType": "poi",
+        "videoDuration": 120.0,
+        "description": ""
+      },
+      {
+        "UUID": "marker-fixture-0001",
+        "segment": [0.0, 0.0],
+        "category": "sponsor",
+        "actionType": "skip",
+        "videoDuration": 120.0,
+        "description": ""
+      }
+    ]
+  }
+]

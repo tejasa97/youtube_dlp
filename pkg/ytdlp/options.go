@@ -3,6 +3,7 @@ package ytdlp
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -103,6 +104,27 @@ type YouTubeCommentOptions struct {
 	MaxReplies          int
 	MaxRepliesPerThread int
 	MaxDepth            int
+}
+
+// SponsorBlockOptions controls the optional SponsorBlock metadata
+// enrichment stage. When Enabled is false, the stage is skipped and
+// no network requests are issued. When Enabled is true, the configured
+// categories are requested from the API and the pinned normalization
+// rules produce a deterministic sponsorblock_chapters list on the
+// result Info JSON.
+//
+// APIBase defaults to https://sponsor.ajay.app; an empty value is
+// resolved to the default by the implementation. Custom bases are
+// only honored for deterministic tests and self-hosted deployments
+// that implement the same API.
+//
+// Categories is treated as caller-owned and is never mutated. An
+// empty slice is invalid when enabled. Unknown identifiers, oversized strings, and
+// empty enabled category sets are rejected by Request validation.
+type SponsorBlockOptions struct {
+	Enabled    bool
+	Categories []string
+	APIBase    string
 }
 
 // PlaylistOptions selects an inclusive, one-based playlist range. Start zero
@@ -255,6 +277,9 @@ func validateRequestOptions(request Request) error {
 		(comments.Sort != "" && comments.Sort != "top" && comments.Sort != "new") {
 		return fmt.Errorf("%w: comment options", errInvalidRequestOptions)
 	}
+	if err := validateSponsorBlockOptions(request.SponsorBlock); err != nil {
+		return fmt.Errorf("%w: %v", errInvalidRequestOptions, err)
+	}
 	for index, postprocessor := range request.Postprocessors {
 		if countPostprocessorChoices(postprocessor) != 1 {
 			return fmt.Errorf("%w: postprocessors[%d] must select exactly one operation", errInvalidRequestOptions, index)
@@ -275,4 +300,66 @@ func normalizedPlaylistRange(options PlaylistOptions) (start, end int) {
 		end = 0
 	}
 	return start, end
+}
+
+// validateSponsorBlockOptions is the public boundary check for the
+// SponsorBlock stage. A disabled option is a no-op. Enabled callers must supply a
+// bounded set of categories and a syntactically valid API base.
+func validateSponsorBlockOptions(options SponsorBlockOptions) error {
+	if !options.Enabled {
+		return nil
+	}
+	if len(options.Categories) == 0 {
+		return fmt.Errorf("SponsorBlock categories empty")
+	}
+	if len(options.Categories) > 64 {
+		return fmt.Errorf("too many SponsorBlock categories")
+	}
+	seen := make(map[string]struct{}, len(options.Categories))
+	for index, raw := range options.Categories {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			return fmt.Errorf("SponsorBlock category[%d] empty", index)
+		}
+		if len(trimmed) > 64 {
+			return fmt.Errorf("SponsorBlock category[%d] too long", index)
+		}
+		if !validSponsorBlockCategory(trimmed) {
+			return fmt.Errorf("SponsorBlock category[%d] unknown", index)
+		}
+		if _, dup := seen[trimmed]; dup {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+	}
+	if options.APIBase != "" {
+		if len(options.APIBase) > 4096 {
+			return fmt.Errorf("SponsorBlock API base too long")
+		}
+		parsed, err := url.Parse(options.APIBase)
+		if err != nil {
+			return fmt.Errorf("SponsorBlock API base invalid")
+		}
+		if parsed.Scheme != "http" && parsed.Scheme != "https" {
+			return fmt.Errorf("SponsorBlock API base scheme")
+		}
+		if parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+			return fmt.Errorf("SponsorBlock API base host")
+		}
+		escaped := strings.ToLower(parsed.EscapedPath())
+		if strings.Contains(escaped, "%2f") || strings.Contains(escaped, "%5c") || strings.Contains(escaped, "%00") {
+			return fmt.Errorf("SponsorBlock API base path")
+		}
+	}
+	return nil
+}
+
+func validSponsorBlockCategory(category string) bool {
+	switch category {
+	case "sponsor", "intro", "outro", "selfpromo", "preview", "filler",
+		"interaction", "music_offtopic", "hook", "poi_highlight", "chapter":
+		return true
+	default:
+		return false
+	}
 }
