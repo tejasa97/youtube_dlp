@@ -1,10 +1,10 @@
 # SponsorBlock metadata
 
 This document describes the native, Python-free SponsorBlock metadata
-foundation available through the public Go product API. The
+foundation available through the public Go product API and the CLI. The
 foundation covers **metadata fetch, normalization, and opt-in chapter
-marking**. Media cutting, FFmpeg removal, subtitle synchronization, and CLI
-option exposure remain explicitly out of scope.
+marking**. Media cutting, FFmpeg removal, and subtitle synchronization
+remain explicitly out of scope.
 
 ## What is wired
 
@@ -57,6 +57,41 @@ are de-duplicated deterministically by the first-seen index.
 deterministic tests and self-hosted deployments that implement
 the same API. Only `http` and `https` schemes with a non-empty
 host are accepted.
+
+## CLI flags
+
+The CLI exposes the mark/metadata path with yt-dlp-familiar names:
+
+| Flag | Effect |
+| --- | --- |
+| `--sponsorblock-mark CATEGORIES` | Sets `Enabled=true`, `Mark=true`, and accumulates `Categories` |
+| `--sponsorblock-api URL` | Sets `APIBase` (kept even when marking is later disabled) |
+| `--no-sponsorblock` | Clears mark enablement only; does not clear `--sponsorblock-api` |
+
+`CATEGORIES` is a comma-separated list. Repeated `--sponsorblock-mark`
+flags accumulate in parse order (config arguments first, then command
+line; later `--sponsorblock-api` values overwrite earlier ones). The
+tokens `all` and `default` expand to the pinned full category set from
+`internal/sponsorblock.AllCategories()`. Prefix a category or alias
+with `-` to exclude it after expansion, matching the reference grammar
+(for example `all,-preview`, `default,-intro`, or `sponsor,-sponsor`).
+Exclusions may leave an empty category set, which disables marking.
+`--no-sponsorblock` is applied after option parsing (matching pinned
+yt-dlp `opts.no_sponsorblock`), so it clears marking regardless of
+whether mark flags appear before or after it in config or on the
+command line, while preserving `--sponsorblock-api`. Unknown
+identifiers and explicit empty values such as `--sponsorblock-mark=`
+are rejected at CLI parse time (exit status `2`) before any network
+work. Marking writes both `sponsorblock_chapters` and the overlaid
+ordinary `chapters` list. Media cutting (`--sponsorblock-remove` /
+FFmpeg) is not exposed.
+
+Example:
+
+```sh
+./bin/ytdlp-go --sponsorblock-mark all,-preview --skip-download --print-json \
+  'https://www.youtube.com/watch?v=VIDEO_ID'
+```
 
 ## Supported extractor
 
@@ -222,7 +257,7 @@ deferred:
 - FFmpeg-driven media cutting using `cut_out_range`.
 - Force-keyframes injection around cut boundaries.
 - Subtitle synchronization across cut boundaries.
-- CLI flags for the option, the API base, or the categories.
+- CLI remove/cut flags (`--sponsorblock-remove` and related).
 - SponsorBlock metadata for services other than YouTube
   (PeerTube, Vimeo, etc.).
 - The reference's user-facing `report_warning` call when some

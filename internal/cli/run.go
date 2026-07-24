@@ -9,11 +9,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
 	compatconfig "github.com/ytdlp-go/ytdlp/internal/compat/config"
+	"github.com/ytdlp-go/ytdlp/internal/sponsorblock"
 	"github.com/ytdlp-go/ytdlp/pkg/ytdlp"
 )
 
@@ -249,6 +251,24 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	})
 	youtubeMaxComments := flags.String("youtube-max-comments", "", "bounded YouTube limits TOTAL[,PARENTS[,REPLIES[,PER_THREAD[,DEPTH]]]]")
 	youtubeCommentSort := flags.String("youtube-comment-sort", "new", "YouTube comment order: new or top")
+	var sponsorBlockMark []string
+	noSponsorBlock := false
+	flags.Func("sponsorblock-mark", "SponsorBlock categories to mark as chapters (repeatable; comma-separated; all/default selects the pinned set; prefix with - to exclude)", func(value string) error {
+		next, err := parseSponsorBlockCategories(value, sponsorBlockMark)
+		if err != nil {
+			return err
+		}
+		sponsorBlockMark = next
+		return nil
+	})
+	sponsorBlockAPI := flags.String("sponsorblock-api", "", "SponsorBlock API origin (default https://sponsor.ajay.app)")
+	// Match pinned yt-dlp: record --no-sponsorblock during parse, then clear
+	// marking after all options (config + CLI) are applied so order cannot
+	// re-enable marking. --sponsorblock-api is preserved.
+	flags.BoolFunc("no-sponsorblock", "disable SponsorBlock marking without clearing --sponsorblock-api", func(string) error {
+		noSponsorBlock = true
+		return nil
+	})
 	convertSubtitles := flags.String("convert-subs", "none", "convert written subtitle sidecars to srt, ass, or vtt (none disables)")
 	flags.StringVar(convertSubtitles, "convert-sub", "none", "alias for --convert-subs")
 	flags.StringVar(convertSubtitles, "convert-subtitles", "none", "alias for --convert-subs")
@@ -341,6 +361,21 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		}
 		clientOptions = append(clientOptions, ytdlp.WithTelemetryCollector(telemetryCollector))
 	}
+	commentLimits, err := parseYouTubeCommentLimits(*youtubeMaxComments)
+	if err != nil {
+		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
+		return 2
+	}
+	commentLimits.Enabled = *writeComments
+	commentLimits.Sort = *youtubeCommentSort
+	if noSponsorBlock {
+		sponsorBlockMark = nil
+	}
+	sponsorBlockOptions, err := buildSponsorBlockOptions(sponsorBlockMark, *sponsorBlockAPI)
+	if err != nil {
+		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
+		return 2
+	}
 	client := ytdlp.NewClient(clientOptions...)
 	downloaderOptions := ytdlp.DownloaderOptions{
 		Attempts: *retries, RetryBaseDelay: *retryBaseDelay, RetryMaxDelay: *retryMaxDelay,
@@ -369,13 +404,6 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		ConvertFormat: subtitleConvertFormat,
 		Languages:     subtitleLanguageRules(subtitleLanguages, *allSubtitles), Format: *subtitleFormat,
 	}
-	commentLimits, err := parseYouTubeCommentLimits(*youtubeMaxComments)
-	if err != nil {
-		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
-		return 2
-	}
-	commentLimits.Enabled = *writeComments
-	commentLimits.Sort = *youtubeCommentSort
 	result, err := client.Run(ctx, ytdlp.Request{
 		URL: flags.Arg(0), OutputTemplate: *output, OutputDir: *outputDir, Proxy: *proxy, ImpersonationProfile: *impersonationProfile,
 		CookieFile: *cookieFile, CookiesFromBrowser: *cookiesFromBrowser, UseNetRC: *useNetRC, NetRCLocation: *netRCLocation, DownloadArchive: *downloadArchive, CacheDir: *cacheDir,
@@ -393,6 +421,7 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		},
 		PrintRules:      printRules,
 		YouTubeComments: commentLimits,
+		SponsorBlock:    sponsorBlockOptions,
 		Playlist: ytdlp.PlaylistOptions{
 			Start: *playlistStart, End: *playlistEnd, Reverse: *playlistReverse, Items: *playlistItems, Flat: *flatPlaylist,
 		},
@@ -574,6 +603,115 @@ func parseYouTubeCommentLimits(input string) (ytdlp.YouTubeCommentOptions, error
 		options.MaxDepth = values[4]
 	}
 	return options, nil
+}
+
+func buildSponsorBlockOptions(categories []string, apiBase string) (ytdlp.SponsorBlockOptions, error) {
+	options := ytdlp.SponsorBlockOptions{APIBase: strings.TrimSpace(apiBase)}
+	if options.APIBase != "" {
+		if err := validateSponsorBlockAPIBase(options.APIBase); err != nil {
+			return ytdlp.SponsorBlockOptions{}, err
+		}
+	}
+	if len(categories) == 0 {
+		return options, nil
+	}
+	options.Enabled = true
+	options.Mark = true
+	options.Categories = append([]string(nil), categories...)
+	return options, nil
+}
+
+// parseSponsorBlockCategories accumulates a comma-separated SponsorBlock
+// category grammar onto start, matching yt-dlp's orderedSet_from_options:
+// repeated flags accumulate, all/default expand to the pinned set, and a
+// leading "-" excludes a category or alias (for example all,-preview).
+// Exclusions may leave an empty set (marking disabled); only an explicitly
+// empty flag value or malformed empty comma tokens are rejected.
+func parseSponsorBlockCategories(input string, start []string) ([]string, error) {
+	if strings.TrimSpace(input) == "" {
+		return nil, errors.New("sponsorblock-mark requires at least one category")
+	}
+	result := append([]string(nil), start...)
+	for _, raw := range strings.Split(input, ",") {
+		token := strings.ToLower(strings.TrimSpace(raw))
+		if token == "" {
+			return nil, errors.New("sponsorblock-mark requires at least one category")
+		}
+		exclude := false
+		if strings.HasPrefix(token, "-") {
+			exclude = true
+			token = strings.TrimSpace(token[1:])
+			if token == "" {
+				return nil, errors.New("sponsorblock-mark requires at least one category")
+			}
+		}
+		var values []string
+		switch token {
+		case "all", "default":
+			for _, category := range sponsorblock.AllCategories() {
+				values = append(values, string(category))
+			}
+		default:
+			if !sponsorblock.IsValidCategory(token) {
+				return nil, fmt.Errorf("unknown SponsorBlock category %q", token)
+			}
+			values = []string{token}
+		}
+		if exclude {
+			for _, category := range values {
+				result = removeSponsorBlockCategory(result, category)
+			}
+			continue
+		}
+		for _, category := range values {
+			result = appendUniqueSponsorBlockCategory(result, category)
+		}
+	}
+	if len(result) > sponsorblock.MaxCategories {
+		return nil, errors.New("too many SponsorBlock categories")
+	}
+	return result, nil
+}
+
+func appendUniqueSponsorBlockCategory(categories []string, category string) []string {
+	for _, existing := range categories {
+		if existing == category {
+			return categories
+		}
+	}
+	return append(categories, category)
+}
+
+func removeSponsorBlockCategory(categories []string, category string) []string {
+	filtered := make([]string, 0, len(categories))
+	for _, existing := range categories {
+		if existing == category {
+			continue
+		}
+		filtered = append(filtered, existing)
+	}
+	return filtered
+}
+
+func validateSponsorBlockAPIBase(raw string) error {
+	if len(raw) > 4096 {
+		return errors.New("SponsorBlock API base too long")
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return errors.New("SponsorBlock API base invalid")
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return errors.New("SponsorBlock API base scheme")
+	}
+	if parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return errors.New("SponsorBlock API base host")
+	}
+	escaped := strings.ToLower(parsed.EscapedPath())
+	if strings.Contains(escaped, "%2f") || strings.Contains(escaped, "%5c") || strings.Contains(escaped, "%00") {
+		return errors.New("SponsorBlock API base path")
+	}
+	return nil
 }
 
 type byteSizeFlag int64

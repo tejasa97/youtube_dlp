@@ -375,6 +375,19 @@ covers anonymous and bounded signed-in WEB authenticated parent comments,
 click-tracked reply continuations, and nested subthreads; other authenticated
 Innertube clients are not supported.
 
+SponsorBlock chapter marking is opt-in for YouTube watch URLs:
+
+```sh
+./bin/ytdlp-go --sponsorblock-mark all,-preview --skip-download --print-json \
+  'https://www.youtube.com/watch?v=VIDEO_ID'
+```
+
+Use `--sponsorblock-api URL` to point at a mirror and `--no-sponsorblock` to
+clear mark enablement without clearing the API base (`--no-sponsorblock` wins
+regardless of mark-flag order). Categories may be a comma-separated list
+(repeatable; `-category` excludes after `all`/`default` expansion, and an
+empty result disables marking). Media cutting remains out of scope.
+
 Public adaptive YouTube live streams can opt into bounded reconstruction from
 their retained beginning:
 
