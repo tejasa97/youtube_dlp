@@ -205,9 +205,13 @@ Pure cut planning lives in `internal/sponsorblock.PlanCuts`:
 5. Removing the entire media fails closed.
 
 Typed ffmpeg operations in `internal/media/ffmpeg` perform optional
-force-keyframes re-encode and concat-range finalize atomically
-(temp + replace), with cancellation awareness and the existing
-overwrite policy. Missing tools fail closed.
+force-keyframes re-encode and concat-range finalize. Product Remove
+orchestrates a transactional multi-artifact cut: every media and
+supported subtitle path is prevalidated, every output is staged into a
+private temporary directory, and originals are replaced only after all
+staging succeeds (with rename-backup rollback if a later commit step
+fails). Missing tools fail closed. Planning rejects layouts that would
+exceed the ffmpeg concat-range (128) or force-keyframe (512) limits.
 
 ## Subtitle synchronization
 
@@ -257,9 +261,9 @@ title. The pinned title mapping is:
 Extra API-provided fields are dropped. Floating-point values are
 encoded as JSON numbers; the precision follows the standard
 `encoding/json` rules for `float64`. After a successful Remove, Info
-`duration` is updated to the post-cut length; when Mark was also set,
-ordinary `chapters` timestamps are remapped onto the post-cut timeline.
-`sponsorblock_chapters` retains pre-cut fetch times.
+`duration` is updated to the post-cut length and ordinary `chapters`
+timestamps are remapped onto the post-cut timeline even when Mark is
+false. `sponsorblock_chapters` retains pre-cut fetch times.
 
 ## Error categories
 
@@ -291,6 +295,9 @@ SponsorBlock request:
 - Maximum string length per decoded field: 1024 bytes.
 - Maximum JSON depth: 16.
 - Maximum number of groups in a response: 64.
+- Maximum remove cut ranges after merge: 256 (2×512 force-keyframe slots).
+- Maximum keep segments after planning: 128 (ffmpeg concat-range limit).
+- Maximum unique force-keyframe timestamps: 512.
 
 Exceeding any bound produces a categorized invalid metadata
 error and the operation stops.

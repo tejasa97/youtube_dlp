@@ -89,6 +89,45 @@ func TestPlanCutsRejectsEntireRemovalAndBadInput(t *testing.T) {
 	}
 }
 
+func TestPlanCutsRejectsExcessKeepSegments(t *testing.T) {
+	if MaxKeepSegments != 128 {
+		t.Fatalf("MaxKeepSegments = %d want 128", MaxKeepSegments)
+	}
+	chapters := make([]Chapter, 0, MaxKeepSegments)
+	// MaxKeepSegments non-overlapping interior cuts produce MaxKeepSegments+1 keep
+	// segments (leading chunk + one after each cut).
+	for index := 0; index < MaxKeepSegments; index++ {
+		start := float64(2*index + 1)
+		chapters = append(chapters, Chapter{
+			StartTime: start, EndTime: start + 0.5, Category: "sponsor", Type: "skip",
+		})
+	}
+	_, err := PlanCuts(chapters, []string{"sponsor"}, float64(2*MaxKeepSegments+2))
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("keep segment limit err = %v", err)
+	}
+}
+
+func TestPlanCutsRejectsExcessCutRanges(t *testing.T) {
+	if MaxForceKeyframeTimestamps != 512 {
+		t.Fatalf("MaxForceKeyframeTimestamps = %d want 512", MaxForceKeyframeTimestamps)
+	}
+	if maxCutRanges*2 > MaxForceKeyframeTimestamps {
+		t.Fatalf("maxCutRanges=%d exceeds force-keyframe budget", maxCutRanges)
+	}
+	chapters := make([]Chapter, 0, maxCutRanges+1)
+	for index := 0; index < maxCutRanges+1; index++ {
+		start := float64(index*3 + 1)
+		chapters = append(chapters, Chapter{
+			StartTime: start, EndTime: start + 1, Category: "sponsor", Type: "skip",
+		})
+	}
+	_, err := PlanCuts(chapters, []string{"sponsor"}, float64((maxCutRanges+1)*3+2))
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("cut range limit err = %v", err)
+	}
+}
+
 func TestPlanCutsNoMatchingCategoriesIsNoop(t *testing.T) {
 	plan, err := PlanCuts([]Chapter{{StartTime: 1, EndTime: 2, Category: "sponsor", Type: "skip"}}, []string{"intro"}, 10)
 	if err != nil {
