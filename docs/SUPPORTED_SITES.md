@@ -32,7 +32,7 @@ service response.
 | jwplatform | cdn.jwplayer.com players | shared backend |
 | wistia | wistia: opaque URLs and declared embeds | shared backend, playlist/API |
 | sproutvideo | videos.sproutvideo.com embeds | shared backend |
-| dailymotion | dailymotion.com videos | playlist/API |
+| dailymotion | dailymotion.com videos and `/playlist/{id}` | playlist/API |
 | reddit | reddit.com post pages | playlist/API |
 | twitter | x.com and declared Twitter status URLs | playlist/API |
 | bandcamp | artist Bandcamp track pages | playlist/API |
