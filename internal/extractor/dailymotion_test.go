@@ -104,26 +104,51 @@ func TestDailymotionPlaylist(t *testing.T) {
 		}
 		return http.StatusOK, fixture, nil
 	}}
-	result, err := NewDailymotion().Extract(context.Background(), Request{URL: "https://geo.dailymotion.com/player/a.html?playlist=xfixture", Transport: transport})
-	if err != nil || !result.IsPlaylist() {
-		t.Fatalf("playlist=%v err=%v", result.IsPlaylist(), err)
-	}
-	entries, err := CollectEntries(context.Background(), result.Entries, 3)
-	if err != nil || len(entries) != 2 {
-		t.Fatalf("entries=%d err=%v", len(entries), err)
+	for _, raw := range []string{
+		"https://geo.dailymotion.com/player/a.html?playlist=xfixture",
+		"https://www.dailymotion.com/playlist/xfixture",
+		"https://www.dailymotion.com/playlist/xfixture_fixture_slug/1#video=xfixture",
+	} {
+		t.Run(raw, func(t *testing.T) {
+			result, err := NewDailymotion().Extract(context.Background(), Request{URL: raw, Transport: transport})
+			if err != nil || !result.IsPlaylist() {
+				t.Fatalf("playlist=%v err=%v", result.IsPlaylist(), err)
+			}
+			entries, err := CollectEntries(context.Background(), result.Entries, 3)
+			if err != nil || len(entries) != 2 {
+				t.Fatalf("entries=%d err=%v", len(entries), err)
+			}
+		})
 	}
 }
 
 func TestDailymotionRoutes(t *testing.T) {
-	for _, raw := range []string{"https://dai.ly/xfixture", "https://www.dailymotion.com/embed/video/xfixture", "https://geo.dailymotion.com/player/a.html?video=xfixture"} {
+	for _, raw := range []string{
+		"https://dai.ly/xfixture",
+		"https://www.dailymotion.com/embed/video/xfixture",
+		"https://geo.dailymotion.com/player/a.html?video=xfixture",
+		"https://www.dailymotion.com/playlist/xfixture",
+		"https://www.dailymotion.com/playlist/xfixture_fixture_slug/1",
+	} {
 		u, _ := url.Parse(raw)
 		if !NewDailymotion().Suitable(u) {
 			t.Fatalf("not suitable %q", raw)
 		}
 	}
-	u, _ := url.Parse("https://www.dailymotion.com/playlist/xfixture")
-	if NewDailymotion().Suitable(u) {
-		t.Fatal("playlist endpoint should not be claimed without a player query")
+	for _, raw := range []string{
+		"https://user@www.dailymotion.com/playlist/xfixture",
+		"https://www.dailymotion.com/playlist/xfixture/extra",
+		"https://www.dailymotion.com/playlist/xfixture_fixture_slug/extra",
+		"https://www.dailymotion.com/playlist/xfixture/1/extra",
+		"https://www.dailymotion.com/playlist/invalid",
+		"https://www.dailymotion.com/playlist/x",
+		"https://www.dailymotion.com/playlist/_fixture_slug",
+		"https://geo.dailymotion.com/player/a.html?playlist=invalid",
+	} {
+		u, _ := url.Parse(raw)
+		if NewDailymotion().Suitable(u) {
+			t.Fatalf("unexpectedly suitable %q", raw)
+		}
 	}
 }
 func FuzzNormalizeDailymotion(f *testing.F) {
