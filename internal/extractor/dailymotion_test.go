@@ -107,6 +107,7 @@ func TestDailymotionPlaylist(t *testing.T) {
 	for _, raw := range []string{
 		"https://geo.dailymotion.com/player/a.html?playlist=xfixture",
 		"https://www.dailymotion.com/playlist/xfixture",
+		"https://www.dailymotion.com/playlist/xfixture_fixture_slug/1#video=xfixture",
 	} {
 		t.Run(raw, func(t *testing.T) {
 			result, err := NewDailymotion().Extract(context.Background(), Request{URL: raw, Transport: transport})
@@ -127,6 +128,7 @@ func TestDailymotionRoutes(t *testing.T) {
 		"https://www.dailymotion.com/embed/video/xfixture",
 		"https://geo.dailymotion.com/player/a.html?video=xfixture",
 		"https://www.dailymotion.com/playlist/xfixture",
+		"https://www.dailymotion.com/playlist/xfixture_fixture_slug/1",
 	} {
 		u, _ := url.Parse(raw)
 		if !NewDailymotion().Suitable(u) {
@@ -136,8 +138,11 @@ func TestDailymotionRoutes(t *testing.T) {
 	for _, raw := range []string{
 		"https://user@www.dailymotion.com/playlist/xfixture",
 		"https://www.dailymotion.com/playlist/xfixture/extra",
+		"https://www.dailymotion.com/playlist/xfixture_fixture_slug/extra",
+		"https://www.dailymotion.com/playlist/xfixture/1/extra",
 		"https://www.dailymotion.com/playlist/invalid",
 		"https://www.dailymotion.com/playlist/x",
+		"https://www.dailymotion.com/playlist/_fixture_slug",
 		"https://geo.dailymotion.com/player/a.html?playlist=invalid",
 	} {
 		u, _ := url.Parse(raw)
