@@ -172,6 +172,19 @@ func TestCutLRCMultiTimestampLine(t *testing.T) {
 	}
 }
 
+func TestCutLRCMixedFractionalLeadingTags(t *testing.T) {
+	cuts := []Range{{Start: 10, End: 20}}
+	input := "[00:05.000][00:25]text\n"
+	got, err := CutSubtitle("lrc", []byte(input), cuts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(got)
+	if text != "[00:05.000][00:15.000]text\n" {
+		t.Fatalf("unexpected output: %q", text)
+	}
+}
+
 func TestCutLRCPreservesEmbeddedTimestampText(t *testing.T) {
 	cuts := []Range{{Start: 10, End: 20}}
 	input := "[00:05.000]see bracket [00:12.000] in lyrics\nno tags here [00:25.000]\n"

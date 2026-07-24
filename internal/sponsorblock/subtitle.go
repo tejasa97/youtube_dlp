@@ -327,7 +327,11 @@ func leadingLRCTimestampMatches(line string) ([][]int, int) {
 		}
 		match := make([]int, len(loc))
 		for index, value := range loc {
-			match[index] = value + pos
+			if value >= 0 {
+				match[index] = value + pos
+			} else {
+				match[index] = -1
+			}
 		}
 		matches = append(matches, match)
 		pos += loc[1]
