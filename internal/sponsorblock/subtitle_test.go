@@ -1,6 +1,7 @@
 package sponsorblock
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -113,6 +114,75 @@ func TestCutLRCTimingCases(t *testing.T) {
 	}
 	if !strings.Contains(text, "[00:05.000]before") || !strings.Contains(text, "[00:15.000]after") {
 		t.Fatalf("lrc timings wrong: %s", text)
+	}
+}
+
+func TestCutVTTPreservesMetadataBlocks(t *testing.T) {
+	cuts := []Range{{Start: 10, End: 20}}
+	input := "WEBVTT\n\n" +
+		"STYLE\n::cue { color: yellow; }\n\n" +
+		"REGION\nid:fred\nwidth:50%\n\n" +
+		"NOTE This is a note\nMore note text\n\n" +
+		"00:05.000 --> 00:08.000\nbefore\n\n" +
+		"00:12.000 --> 00:18.000\ninside\n"
+	got, err := CutSubtitle("vtt", []byte(input), cuts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(got)
+	for _, want := range []string{
+		"STYLE",
+		"::cue { color: yellow; }",
+		"REGION",
+		"id:fred",
+		"width:50%",
+		"NOTE This is a note",
+		"More note text",
+		"00:05.000 --> 00:08.000",
+		"before",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q in output:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "inside") {
+		t.Fatalf("inside cue survived: %s", text)
+	}
+}
+
+func TestCutLRCMultiTimestampLine(t *testing.T) {
+	cuts := []Range{{Start: 10, End: 20}}
+	input := "[00:05.000][00:12.000]mixed\n[00:12.000][00:25.000]partial\n[00:12.000]only-removed\n"
+	got, err := CutSubtitle("lrc", []byte(input), cuts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(got)
+	if !strings.Contains(text, "[00:05.000]mixed") {
+		t.Fatalf("expected surviving first timestamp only: %s", text)
+	}
+	if strings.Contains(text, "[00:12.000]") {
+		t.Fatalf("removed timestamp survived: %s", text)
+	}
+	if !strings.Contains(text, "[00:15.000]partial") {
+		t.Fatalf("expected remapped surviving timestamp: %s", text)
+	}
+	if strings.Contains(text, "only-removed") {
+		t.Fatalf("fully removed line survived: %s", text)
+	}
+}
+
+func TestCutSRTRejectsMalformedCue(t *testing.T) {
+	cases := []string{
+		"1\nnot a timing line\ntext\n",
+		"garbage without timing\n",
+		"1\n00:bad --> 00:also-bad\nbody\n",
+	}
+	for _, input := range cases {
+		_, err := CutSubtitle("srt", []byte(input), nil)
+		if !errors.Is(err, ErrInvalidInput) {
+			t.Fatalf("CutSubtitle(%q) err = %v, want ErrInvalidInput", input, err)
+		}
 	}
 }
 

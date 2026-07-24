@@ -15,10 +15,10 @@ const (
 )
 
 var (
-	srtTiming   = regexp.MustCompile(`(?i)^\s*(\d{1,2}:\d{2}:\d{2}[,.]\d{1,3})\s*-->\s*(\d{1,2}:\d{2}:\d{2}[,.]\d{1,3})(.*)$`)
-	vttTiming   = regexp.MustCompile(`(?i)^\s*((?:\d{1,2}:)?\d{1,2}:\d{2}\.\d{1,3})\s*-->\s*((?:\d{1,2}:)?\d{1,2}:\d{2}\.\d{1,3})(.*)$`)
-	assDialogue = regexp.MustCompile(`(?i)^(Dialogue:\s*)(\d+)\s*,\s*([^,]+)\s*,\s*([^,]+)\s*,(.*)$`)
-	lrcLine     = regexp.MustCompile(`^\[(\d{1,3}):(\d{2})(?:\.(\d{1,3}))?\](.*)$`)
+	srtTiming    = regexp.MustCompile(`(?i)^\s*(\d{1,2}:\d{2}:\d{2}[,.]\d{1,3})\s*-->\s*(\d{1,2}:\d{2}:\d{2}[,.]\d{1,3})(.*)$`)
+	vttTiming    = regexp.MustCompile(`(?i)^\s*((?:\d{1,2}:)?\d{1,2}:\d{2}\.\d{1,3})\s*-->\s*((?:\d{1,2}:)?\d{1,2}:\d{2}\.\d{1,3})(.*)$`)
+	assDialogue  = regexp.MustCompile(`(?i)^(Dialogue:\s*)(\d+)\s*,\s*([^,]+)\s*,\s*([^,]+)\s*,(.*)$`)
+	lrcTimestamp = regexp.MustCompile(`\[(\d{1,3}):(\d{2})(?:\.(\d{1,3}))?\]`)
 )
 
 // RemapCueInterval maps a cue onto the post-cut timeline. Cues that collapse
@@ -72,18 +72,15 @@ func cutSRT(data []byte, cuts []Range) ([]byte, error) {
 		}
 		timingLine := lines[0]
 		body := lines[1:]
-		if match := srtTiming.FindStringSubmatch(timingLine); match == nil {
-			// Optional numeric index line.
-			if len(lines) >= 2 {
-				if match = srtTiming.FindStringSubmatch(lines[1]); match != nil {
-					timingLine = lines[1]
-					body = lines[2:]
-				}
+		if srtTiming.FindStringSubmatch(timingLine) == nil && len(lines) >= 2 {
+			if _, err := strconv.Atoi(strings.TrimSpace(timingLine)); err == nil {
+				timingLine = lines[1]
+				body = lines[2:]
 			}
 		}
 		match := srtTiming.FindStringSubmatch(timingLine)
 		if match == nil {
-			continue
+			return nil, errorf(ErrInvalidInput, "srt cue")
 		}
 		start, err := parseSRTTimestamp(match[1])
 		if err != nil {
@@ -154,7 +151,23 @@ func cutVTT(data []byte, cuts []Range) ([]byte, error) {
 		}
 		match := vttTiming.FindStringSubmatch(lines[timingIdx])
 		if match == nil {
-			// Skip note/style blocks by consuming until blank.
+			if isVTTMetadataBlock(lines[startLine]) {
+				if body.Len() > 0 {
+					body.WriteByte('\n')
+				}
+				for j := startLine; j < len(lines); j++ {
+					if j > startLine && strings.TrimSpace(lines[j]) == "" {
+						break
+					}
+					body.WriteString(lines[j])
+					body.WriteByte('\n')
+				}
+				i = startLine + 1
+				for i < len(lines) && strings.TrimSpace(lines[i]) != "" {
+					i++
+				}
+				continue
+			}
 			for i < len(lines) && strings.TrimSpace(lines[i]) != "" {
 				i++
 			}
@@ -257,34 +270,65 @@ func cutLRC(data []byte, cuts []Range) ([]byte, error) {
 	var out strings.Builder
 	cues := 0
 	for index, line := range lines {
-		match := lrcLine.FindStringSubmatch(line)
-		if match == nil {
+		matches := lrcTimestamp.FindAllStringSubmatchIndex(line, -1)
+		if len(matches) == 0 {
 			out.WriteString(line)
 			if index+1 < len(lines) {
 				out.WriteByte('\n')
 			}
 			continue
 		}
-		cues++
+		cues += len(matches)
 		if cues > maxSubtitleCues {
 			return nil, errorf(ErrInvalidInput, "subtitle cue limit")
 		}
-		start, err := parseLRCTimestamp(match[1], match[2], match[3])
-		if err != nil {
-			return nil, err
+		var rebuilt strings.Builder
+		kept := 0
+		textStart := 0
+		for _, match := range matches {
+			min := line[match[2]:match[3]]
+			sec := line[match[4]:match[5]]
+			frac := ""
+			if match[6] >= 0 {
+				frac = line[match[6]:match[7]]
+			}
+			textStart = match[1]
+			start, err := parseLRCTimestamp(min, sec, frac)
+			if err != nil {
+				return nil, err
+			}
+			// LRC cues are points; treat as a one-centisecond mark for survival.
+			mappedStart, _, keep := RemapCueInterval(start, start+0.01, cuts)
+			if !keep {
+				continue
+			}
+			rebuilt.WriteString(formatLRCTimestamp(mappedStart))
+			kept++
 		}
-		// LRC cues are points; treat as a one-centisecond mark for survival.
-		mappedStart, _, keep := RemapCueInterval(start, start+0.01, cuts)
-		if !keep {
+		if kept == 0 {
 			continue
 		}
-		out.WriteString(formatLRCTimestamp(mappedStart))
-		out.WriteString(match[4])
+		out.WriteString(rebuilt.String())
+		out.WriteString(line[textStart:])
 		if index+1 < len(lines) {
 			out.WriteByte('\n')
 		}
 	}
 	return []byte(out.String()), nil
+}
+
+func isVTTMetadataBlock(line string) bool {
+	upper := strings.ToUpper(strings.TrimSpace(line))
+	switch {
+	case upper == "NOTE" || strings.HasPrefix(upper, "NOTE "):
+		return true
+	case upper == "STYLE" || strings.HasPrefix(upper, "STYLE "):
+		return true
+	case upper == "REGION" || strings.HasPrefix(upper, "REGION "):
+		return true
+	default:
+		return false
+	}
 }
 
 func splitSubtitleBlocks(text string) []string {
