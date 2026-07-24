@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -24,8 +25,10 @@ func TestSponsorBlockOptionsValidation(t *testing.T) {
 		want    bool
 	}{
 		{"disabled", SponsorBlockOptions{Enabled: false}, true},
+		{"mark while disabled", SponsorBlockOptions{Mark: true}, false},
 		{"empty enabled", SponsorBlockOptions{Enabled: true}, false},
 		{"known category", SponsorBlockOptions{Enabled: true, Categories: []string{"sponsor"}}, true},
+		{"mark known category", SponsorBlockOptions{Enabled: true, Mark: true, Categories: []string{"sponsor"}}, true},
 		{"unknown category", SponsorBlockOptions{Enabled: true, Categories: []string{"unknown"}}, false},
 		{"empty category entry", SponsorBlockOptions{Enabled: true, Categories: []string{""}}, false},
 		{"bad api base", SponsorBlockOptions{Enabled: true, Categories: []string{"sponsor"}, APIBase: "javascript:alert(1)"}, false},
@@ -41,6 +44,136 @@ func TestSponsorBlockOptionsValidation(t *testing.T) {
 				t.Fatal("validate = nil, want error")
 			}
 		})
+	}
+}
+
+func TestSponsorBlockMarkingRewritesChaptersAndPreservesFields(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, `[{"videoID":"abc","segments":[
+			{"segment":[10,30],"category":"sponsor","actionType":"skip","videoDuration":60},
+			{"segment":[20,25],"category":"selfpromo","actionType":"skip","videoDuration":60}
+		]}]`)
+	}))
+	defer server.Close()
+	transport, err := network.New(network.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer transport.CloseIdleConnections()
+	request := Request{SkipDownload: true, SponsorBlock: SponsorBlockOptions{
+		Enabled: true, Mark: true, Categories: []string{"sponsor", "selfpromo"}, APIBase: server.URL,
+	}}
+	compatibility, err := prepareCompatibility(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("abc")},
+		value.Field{Key: "title", Value: value.String("Video")},
+		value.Field{Key: "duration", Value: value.Int(60)},
+		value.Field{Key: "chapters", Value: value.List(
+			value.ObjectValue(value.NewObject(
+				value.Field{Key: "start_time", Value: value.Int(0)},
+				value.Field{Key: "end_time", Value: value.Int(40)},
+				value.Field{Key: "title", Value: value.String("First")},
+				value.Field{Key: "custom", Value: value.String("preserved")},
+			)),
+			value.ObjectValue(value.NewObject(
+				value.Field{Key: "start_time", Value: value.Int(40)},
+				value.Field{Key: "end_time", Value: value.Int(60)},
+				value.Field{Key: "title", Value: value.String("Second")},
+			)),
+		)},
+	))
+	operation := &operation{client: NewClient(), request: request, transport: transport, compatibility: compatibility}
+	result, err := operation.processMedia(context.Background(), extractor.Media(info), "youtube")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var encoded map[string]any
+	if err := json.Unmarshal(result.InfoJSON, &encoded); err != nil {
+		t.Fatal(err)
+	}
+	rawChapters := encoded["chapters"].([]any)
+	if len(rawChapters) != 6 {
+		t.Fatalf("chapters = %#v", rawChapters)
+	}
+	first := rawChapters[0].(map[string]any)
+	overlap := rawChapters[2].(map[string]any)
+	if first["custom"] != "preserved" || first["title"] != "First" {
+		t.Fatalf("ordinary chapter = %#v", first)
+	}
+	if overlap["title"] != "[SponsorBlock]: Sponsor, Unpaid/Self Promotion" ||
+		overlap["category"] != "selfpromo" {
+		t.Fatalf("overlap = %#v", overlap)
+	}
+	if len(encoded["sponsorblock_chapters"].([]any)) != 2 {
+		t.Fatalf("sponsorblock_chapters = %#v", encoded["sponsorblock_chapters"])
+	}
+}
+
+func TestSponsorBlockMarkingSynthesizesBackgroundChapter(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, `[{"videoID":"abc","segments":[{"segment":[5,10],"category":"sponsor","actionType":"skip","videoDuration":20}]}]`)
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	defer transport.CloseIdleConnections()
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("abc")},
+		value.Field{Key: "title", Value: value.String("Video")},
+		value.Field{Key: "duration", Value: value.Int(20)},
+	))
+	operation := &operation{
+		request: Request{SponsorBlock: SponsorBlockOptions{
+			Enabled: true, Mark: true, Categories: []string{"sponsor"}, APIBase: server.URL,
+		}},
+		transport: transport,
+	}
+	if err := operation.enrichWithSponsorBlock(context.Background(), "youtube", &info); err != nil {
+		t.Fatal(err)
+	}
+	chapters, _ := info.Lookup("chapters").ListValue()
+	if len(chapters) != 3 {
+		t.Fatalf("chapters = %#v", chapters)
+	}
+}
+
+func TestSponsorBlockMarkingFailureDoesNotPartiallyMutateInfo(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, `[{"videoID":"abc","segments":[{"segment":[5,10],"category":"sponsor","actionType":"skip","videoDuration":20}]}]`)
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	defer transport.CloseIdleConnections()
+	original := value.List(value.String("malformed"))
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("abc")},
+		value.Field{Key: "title", Value: value.String("Video")},
+		value.Field{Key: "duration", Value: value.Int(20)},
+		value.Field{Key: "chapters", Value: original},
+	))
+	operation := &operation{
+		request: Request{SponsorBlock: SponsorBlockOptions{
+			Enabled: true, Mark: true, Categories: []string{"sponsor"}, APIBase: server.URL,
+		}},
+		transport: transport,
+	}
+	err := operation.enrichWithSponsorBlock(context.Background(), "youtube", &info)
+	if !IsCategory(err, ErrorInvalidInput) {
+		t.Fatalf("error = %v", err)
+	}
+	if !info.Lookup("sponsorblock_chapters").IsMissing() ||
+		!reflect.DeepEqual(info.Lookup("chapters"), original) {
+		t.Fatalf("info was partially mutated: %#v", info)
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("invalid local metadata made %d SponsorBlock requests", calls.Load())
 	}
 }
 

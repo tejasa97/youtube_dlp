@@ -122,7 +122,10 @@ type YouTubeCommentOptions struct {
 // empty slice is invalid when enabled. Unknown identifiers, oversized strings, and
 // empty enabled category sets are rejected by Request validation.
 type SponsorBlockOptions struct {
-	Enabled    bool
+	Enabled bool
+	// Mark overlays fetched SponsorBlock ranges onto ordinary chapters without
+	// cutting media. It requires Enabled.
+	Mark       bool
 	Categories []string
 	APIBase    string
 }
@@ -307,6 +310,9 @@ func normalizedPlaylistRange(options PlaylistOptions) (start, end int) {
 // bounded set of categories and a syntactically valid API base.
 func validateSponsorBlockOptions(options SponsorBlockOptions) error {
 	if !options.Enabled {
+		if options.Mark {
+			return fmt.Errorf("SponsorBlock marking requires enabled metadata")
+		}
 		return nil
 	}
 	if len(options.Categories) == 0 {
