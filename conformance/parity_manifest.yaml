@@ -1114,6 +1114,30 @@ capabilities:
       - network.shared_transport
     known_deviation: Public anonymous API extraction only. Static-only posts, authenticated/private content, and the pinned webpage gifv/OG/Twitter fallback source discovery are not claimed. API assets are restricted to hardened i.imgur.com HTTPS URLs and collection inventories are bounded.
 
+  - id: extractor.flickr
+    name: Flickr public video extraction
+    phase: 4
+    compatibility_target: Extract public Flickr video pages through anonymous site-key discovery and the bounded REST video-info and stream-info APIs, preserving direct/HLS formats, quality ordering, uploader metadata, counts, tags, timestamps, dimensions, and licenses.
+    status: compatible
+    evidence:
+      - internal/extractor.TestFlickrRouting
+      - internal/extractor.TestFlickrExtractsVideoMetadataAndStreams
+      - internal/extractor.TestFlickrPhotoIsUnavailable
+      - internal/extractor.TestFlickrAPIFailureIsCategorizedAndSecretSafe
+      - internal/extractor.TestFlickrHTTPAndJSONFailures
+      - internal/extractor.TestFlickrRejectsUnsafeOrOversizedStreamInventory
+      - internal/extractor.TestFlickrHonorsCancellation
+      - internal/extractor.TestFlickrFailsClosedWithoutCookieIsolation
+      - internal/extractor.TestNormalizeFlickrStreamURL
+      - internal/extractor.FuzzFlickrRouting
+      - pkg/ytdlp.TestBuiltInExtractorIDsAreUniqueAndIncludeProductBoundaries
+      - pkg/ytdlp.TestRepresentativeExtractorCatalogCountRoutingAndRiskCoverage
+      - conformance/extractors/flickr/PROVENANCE.md
+    owner: extractors
+    depends_on:
+      - network.shared_transport
+    known_deviation: Public video pages only. Photo-only, private, authenticated, account, gallery, and library routes are outside this increment. REST requests require cookie isolation, stream URLs are restricted to hardened staticflickr.com HTTPS hosts, and the 128-entry inventory bound is stricter than upstream.
+
   - id: extractor.internetarchive_public
     name: Internet Archive public API and playlist extraction
     phase: 3
