@@ -1100,7 +1100,7 @@ capabilities:
     owner: extractors
     depends_on:
       - protocol.hls
-    known_deviation: The compatible pilot includes Twitch extraction through signed HLS discovery, live polling, end-of-stream, de-duplication, and ordered assembly, plus bounded finite and opt-in active YouTube live-from-start reconstruction. External live-generator delegation, restart resume, subscriber entitlements, and chat remain later coverage; VOD and clip breadth is tracked by extractor.twitch_pilot.
+    known_deviation: The compatible pilot includes Twitch extraction through signed HLS discovery, live polling, end-of-stream, de-duplication, and ordered assembly, plus bounded finite and opt-in active YouTube live-from-start reconstruction. External live-generator delegation, restart resume, subscriber entitlements, and chat remain later coverage; VOD, clip, and channel videos playlist breadth is tracked by extractor.twitch_pilot.
 
   - id: extractor.twitch_pilot
     name: Twitch live extraction pilot
@@ -1119,7 +1119,11 @@ capabilities:
       - internal/extractor.TestTwitchVODMetadataReplayManifestChaptersAndStartOffset
       - internal/extractor.TestTwitchClipDirectLandscapePortraitAndMetadata
       - internal/extractor.TestTwitchVODAndClipFailuresAreBoundedCategorizedAndRedacted
+      - internal/extractor.TestTwitchVideosPlaylistLazyContinuationReusableAndContract
+      - internal/extractor.TestTwitchVideosPlaylistRoutingFiltersSortsAndHostiles
+      - internal/extractor.TestTwitchVideosPlaylistFailuresCancellationAndBounds
       - internal/extractor.FuzzTwitchRouting
+      - internal/extractor.FuzzTwitchVideosPageResponse
       - internal/extractor.FuzzTwitchVODMetadataResponse
       - internal/extractor.FuzzTwitchClipResponse
       - conformance/extractors/twitch/PROVENANCE.md
@@ -1128,7 +1132,8 @@ capabilities:
     depends_on:
       - protocol.hls
       - network.shared_transport
-    known_deviation: Compatibility covers pinned public live, VOD, and clip corpora. Storyboard MHTML, subscriber-cookie success, historical clip archive IDs/preference scores, channel/collection enumeration, live-from-start fallback, and chat remain explicit deviations.
+      - extractor.playlists
+    known_deviation: Compatibility covers pinned public live, VOD, clip, and channel videos/profile playlist corpora. Storyboard MHTML, subscriber-cookie success, historical clip archive IDs/preference scores, clips/collections enumeration, live-from-start fallback, and chat remain explicit deviations.
 
   - id: extractor.soundcloud_pilot
     name: SoundCloud API and playlist pilot

@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
@@ -27,7 +29,20 @@ const (
 	twitchMaxURL     = 8 << 10
 	twitchMaxMoments = 1000
 	twitchMaxAssets  = 64
+
+	twitchVideosOperation   = "FilterableVideoTower_Videos"
+	twitchVideosPageLimit   = 100
+	twitchVideosMaxEdges    = 100
+	twitchVideosMaxCursor   = 4 << 10
+	twitchVideosMaxString   = 16 << 10
+	twitchVideosStartToken  = "__twitch_videos_start__"
+	twitchVideosDefaultSort = "Date"
 )
+
+type twitchVideosBroadcast struct {
+	Type  string
+	Label string
+}
 
 var (
 	twitchChannelPattern = regexp.MustCompile(`^[A-Za-z0-9_]{1,25}$`)
@@ -51,9 +66,28 @@ var twitchOperationHashes = map[string]string{
 	"VideoPlayer_ChapterSelectButtonVideo": "71835d5ef425e154bf282453a926d99b328cdc5e32f36d3a209d0f4778b41203",
 	"VideoPlayer_VODSeekbarPreviewVideo":   "07e99e4d56c5a7c67117a154777b0baf85a5ffefa393b213f4bc712ccaf85dd6",
 	"ShareClipRenderStatus":                "0a02bb974443b576f5579aab0fef1d4b7f44e58a8a256f0c5adfead0db70640f",
+	twitchVideosOperation:                  "67004f7881e65c297936f32c75246470629557a393788fb5a69d6d9a25a8fd5f",
 }
 
-var ErrTwitchNetwork = errors.New("Twitch network request failed")
+var twitchVideosDefaultBroadcast = twitchVideosBroadcast{Type: "", Label: "All Videos"}
+
+var twitchVideosBroadcasts = map[string]twitchVideosBroadcast{
+	"archives":       {Type: "ARCHIVE", Label: "Past Broadcasts"},
+	"highlights":     {Type: "HIGHLIGHT", Label: "Highlights"},
+	"uploads":        {Type: "UPLOAD", Label: "Uploads"},
+	"past_premieres": {Type: "PAST_PREMIERE", Label: "Past Premieres"},
+	"all":            twitchVideosDefaultBroadcast,
+}
+
+var twitchVideosSortLabels = map[string]string{
+	"time":  twitchVideosDefaultSort,
+	"views": "Popular",
+}
+
+var (
+	ErrTwitchNetwork     = errors.New("Twitch network request failed")
+	ErrTwitchRateLimited = errors.New("Twitch rate limited")
+)
 
 type Twitch struct{}
 
@@ -83,6 +117,8 @@ func (Twitch) Extract(ctx context.Context, request Request) (Extraction, error) 
 		return extractTwitchVOD(ctx, request.Transport, target, parsed)
 	case twitchKindClip:
 		return extractTwitchClip(ctx, request.Transport, target)
+	case twitchKindVideos:
+		return extractTwitchVideos(ctx, request.Transport, target)
 	default:
 		return extractTwitchLive(ctx, request.Transport, target.id)
 	}
@@ -94,11 +130,20 @@ const (
 	twitchKindLive twitchKind = iota + 1
 	twitchKindVOD
 	twitchKindClip
+	twitchKindVideos
 )
 
+type twitchVideosQuery struct {
+	broadcastType  string
+	broadcastLabel string
+	videoSort      string
+	sortLabel      string
+}
+
 type twitchTarget struct {
-	kind twitchKind
-	id   string
+	kind   twitchKind
+	id     string
+	videos twitchVideosQuery
 }
 
 func classifyTwitchURL(parsed *url.URL) (twitchTarget, bool) {
@@ -175,10 +220,94 @@ func classifyTwitchURL(parsed *url.URL) (twitchTarget, bool) {
 			return twitchTarget{kind: twitchKindClip, id: slug}, true
 		}
 	}
+	if target, ok := classifyTwitchVideosURL(parsed, parts, decode); ok {
+		return target, true
+	}
 	if channel, ok := twitchChannel(parsed); ok {
 		return twitchTarget{kind: twitchKindLive, id: strings.ToLower(channel)}, true
 	}
 	return twitchTarget{}, false
+}
+
+func classifyTwitchVideosURL(parsed *url.URL, parts []string, decode func(string, *regexp.Regexp) (string, bool)) (twitchTarget, bool) {
+	if parsed == nil || parsed.Fragment != "" {
+		return twitchTarget{}, false
+	}
+	var channelRaw string
+	switch {
+	case len(parts) == 2 && (parts[1] == "videos" || parts[1] == "profile"):
+		channelRaw = parts[0]
+	case len(parts) == 3 && parts[1] == "videos" && parts[2] == "all":
+		channelRaw = parts[0]
+	default:
+		return twitchTarget{}, false
+	}
+	channel, ok := decode(channelRaw, twitchChannelPattern)
+	if !ok {
+		return twitchTarget{}, false
+	}
+	if _, reserved := twitchReservedPaths[strings.ToLower(channel)]; reserved {
+		return twitchTarget{}, false
+	}
+	query, err := url.ParseQuery(parsed.RawQuery)
+	if err != nil {
+		return twitchTarget{}, false
+	}
+	filter := "all"
+	if values, present := query["filter"]; present {
+		if len(values) != 1 || !twitchVideosQueryValueOK(values[0]) {
+			return twitchTarget{}, false
+		}
+		// Pinned parse_qs drops blank values, so filter= falls back to all.
+		if values[0] != "" {
+			filter = values[0]
+		}
+	}
+	// Clips and collections enumeration remain out of scope for this lane.
+	if filter == "clips" || filter == "collections" {
+		return twitchTarget{}, false
+	}
+	sortKey := "time"
+	if values, present := query["sort"]; present {
+		if len(values) != 1 || !twitchVideosQueryValueOK(values[0]) {
+			return twitchTarget{}, false
+		}
+		// Pinned parse_qs drops blank values, so sort= falls back to time.
+		if values[0] != "" {
+			sortKey = values[0]
+		}
+	}
+	broadcast, found := twitchVideosBroadcasts[filter]
+	if !found {
+		// Pinned TwitchVideosIE falls back unknown filters to All Videos.
+		broadcast = twitchVideosDefaultBroadcast
+	}
+	sortLabel, found := twitchVideosSortLabels[sortKey]
+	if !found {
+		sortLabel = twitchVideosDefaultSort
+	}
+	return twitchTarget{
+		kind: twitchKindVideos,
+		id:   strings.ToLower(channel),
+		videos: twitchVideosQuery{
+			broadcastType:  broadcast.Type,
+			broadcastLabel: broadcast.Label,
+			videoSort:      strings.ToUpper(sortKey),
+			sortLabel:      sortLabel,
+		},
+	}, true
+}
+
+func twitchVideosQueryValueOK(value string) bool {
+	if len(value) > twitchVideosMaxString || !utf8.ValidString(value) {
+		return false
+	}
+	for _, character := range value {
+		if character == 0 || unicode.IsControl(character) {
+			return false
+		}
+	}
+	return true
 }
 
 func extractTwitchLive(ctx context.Context, transport Transport, channel string) (Extraction, error) {
@@ -409,6 +538,8 @@ func categorizeTwitchHTTP(err error) error {
 			return ErrAuthentication
 		case http.StatusNotFound, http.StatusGone:
 			return ErrUnavailable
+		case http.StatusTooManyRequests:
+			return ErrTwitchRateLimited
 		case http.StatusUnavailableForLegalReasons:
 			return ErrRegionRestricted
 		default:
@@ -926,4 +1057,199 @@ func seenTwitchThumbnail(thumbnails []value.Value, rawURL string) bool {
 		}
 	}
 	return false
+}
+
+func extractTwitchVideos(ctx context.Context, transport Transport, target twitchTarget) (Extraction, error) {
+	if err := contextError(ctx); err != nil {
+		return Extraction{}, err
+	}
+	if transport == nil || target.kind != twitchKindVideos || target.id == "" {
+		return Extraction{}, ErrUnsupported
+	}
+	channel := target.id
+	query := target.videos
+	sequence, err := ContinuationEntries(nil, twitchVideosStartToken, func(ctx context.Context, cursor string) ([]Entry, string, error) {
+		return fetchTwitchVideosPage(ctx, transport, channel, query, cursor)
+	})
+	if err != nil {
+		return Extraction{}, err
+	}
+	title := channel + " - " + query.broadcastLabel + " sorted by " + query.sortLabel
+	info := value.NewObject(
+		value.Field{Key: "id", Value: value.String(channel)},
+		value.Field{Key: "title", Value: value.String(title)},
+		value.Field{Key: "uploader_id", Value: value.String(channel)},
+		value.Field{Key: "webpage_url", Value: value.String("https://www.twitch.tv/" + channel + "/videos")},
+	)
+	return Playlist(value.NewInfo(info), sequence)
+}
+
+func fetchTwitchVideosPage(ctx context.Context, transport Transport, channel string, query twitchVideosQuery, cursor string) ([]Entry, string, error) {
+	if err := contextError(ctx); err != nil {
+		return nil, "", err
+	}
+	requestCursor := ""
+	if cursor != twitchVideosStartToken {
+		if cursor == "" || len(cursor) > twitchVideosMaxCursor {
+			return nil, "", fmt.Errorf("%w: Twitch videos cursor", ErrInvalidPlaylist)
+		}
+		requestCursor = cursor
+	}
+	body, err := marshalTwitchVideosRequest(channel, query, requestCursor)
+	if err != nil {
+		return nil, "", err
+	}
+	var response []twitchVideosPageResponse
+	if err := RequestJSON(ctx, transport, http.MethodPost, twitchGraphQLURL, body, twitchHeaders(), &response); err != nil {
+		return nil, "", categorizeTwitchHTTP(err)
+	}
+	return parseTwitchVideosPage(response)
+}
+
+func marshalTwitchVideosRequest(channel string, query twitchVideosQuery, cursor string) ([]byte, error) {
+	if channel == "" || len(channel) > 25 || len(query.videoSort) > twitchVideosMaxString {
+		return nil, fmt.Errorf("%w: Twitch videos request", ErrInvalidMetadata)
+	}
+	var broadcastType any
+	if query.broadcastType != "" {
+		broadcastType = query.broadcastType
+	}
+	variables := map[string]any{
+		"channelOwnerLogin": channel,
+		"broadcastType":     broadcastType,
+		"videoSort":         query.videoSort,
+		"limit":             twitchVideosPageLimit,
+	}
+	if cursor != "" {
+		variables["cursor"] = cursor
+	}
+	hash := twitchOperationHashes[twitchVideosOperation]
+	if hash == "" {
+		return nil, fmt.Errorf("%w: Twitch videos operation hash", ErrInvalidMetadata)
+	}
+	payload := []map[string]any{{
+		"operationName": twitchVideosOperation,
+		"variables":     variables,
+		"extensions": map[string]any{
+			"persistedQuery": map[string]any{
+				"version":    1,
+				"sha256Hash": hash,
+			},
+		},
+	}}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("%w: Twitch videos request", ErrInvalidMetadata)
+	}
+	return body, nil
+}
+
+type twitchVideosPageResponse struct {
+	Data struct {
+		User *twitchVideosUser `json:"user"`
+	} `json:"data"`
+	Errors []json.RawMessage `json:"errors"`
+}
+
+type twitchVideosUser struct {
+	ID     json.RawMessage `json:"id"`
+	Videos *struct {
+		Edges []json.RawMessage `json:"edges"`
+	} `json:"videos"`
+}
+
+type twitchVideosEdge struct {
+	Typename string          `json:"__typename"`
+	Cursor   string          `json:"cursor"`
+	Node     json.RawMessage `json:"node"`
+}
+
+type twitchVideosNode struct {
+	Typename string `json:"__typename"`
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+}
+
+func parseTwitchVideosPage(response []twitchVideosPageResponse) ([]Entry, string, error) {
+	if len(response) != 1 {
+		return nil, "", fmt.Errorf("%w: Twitch videos response", ErrInvalidMetadata)
+	}
+	page := response[0]
+	if len(page.Errors) != 0 {
+		return nil, "", fmt.Errorf("%w: Twitch videos response", ErrInvalidMetadata)
+	}
+	user := page.Data.User
+	if user != nil && twitchVideosUserIDEmpty(user.ID) {
+		return nil, "", ErrUnavailable
+	}
+	if user == nil || user.Videos == nil {
+		return nil, "", nil
+	}
+	edges := user.Videos.Edges
+	if edges == nil {
+		return nil, "", nil
+	}
+	if len(edges) > twitchVideosMaxEdges {
+		return nil, "", fmt.Errorf("%w: Twitch videos page exceeds edge bound", ErrInvalidPlaylist)
+	}
+	entries := make([]Entry, 0, len(edges))
+	nextCursor := ""
+	for _, rawEdge := range edges {
+		if len(rawEdge) > twitchMaxURL {
+			continue
+		}
+		var edge twitchVideosEdge
+		if err := json.Unmarshal(rawEdge, &edge); err != nil {
+			continue
+		}
+		if edge.Typename != "VideoEdge" || len(edge.Node) == 0 {
+			continue
+		}
+		entry, ok := twitchVideosEntry(edge.Node)
+		if !ok {
+			continue
+		}
+		entries = append(entries, entry)
+		if edge.Cursor != "" && len(edge.Cursor) <= twitchVideosMaxCursor {
+			nextCursor = edge.Cursor
+		} else {
+			nextCursor = ""
+		}
+	}
+	return entries, nextCursor, nil
+}
+
+func twitchVideosUserIDEmpty(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var id string
+	if err := json.Unmarshal(raw, &id); err != nil {
+		return false
+	}
+	return id == ""
+}
+
+func twitchVideosEntry(raw json.RawMessage) (Entry, bool) {
+	if len(raw) == 0 || len(raw) > twitchMaxURL {
+		return Entry{}, false
+	}
+	var node twitchVideosNode
+	if err := json.Unmarshal(raw, &node); err != nil {
+		return Entry{}, false
+	}
+	if node.Typename != "Video" || !twitchVODPattern.MatchString(node.ID) {
+		return Entry{}, false
+	}
+	title := strings.TrimSpace(node.Title)
+	if len(title) > twitchVideosMaxString {
+		return Entry{}, false
+	}
+	return Entry{
+		URL:          "https://www.twitch.tv/videos/" + node.ID,
+		ExtractorKey: "twitch",
+		ID:           "v" + node.ID,
+		Title:        title,
+		Transparent:  true,
+	}, true
 }
