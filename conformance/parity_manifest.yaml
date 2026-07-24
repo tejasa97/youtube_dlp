@@ -1371,7 +1371,7 @@ capabilities:
   - id: cookies.portable_sources
     name: Portable cookie sources
     phase: 2
-    compatibility_target: Read Netscape cookie files and import declared Firefox and Chromium profiles across the supported platform matrix without exposing secrets.
+    compatibility_target: Read Netscape cookie files and import declared Firefox, Safari, and Chromium profiles across the supported platform matrix without exposing secrets.
     status: compatible
     evidence:
       - internal/cookies/netscape.TestParseSemanticsAndRoundTrip
@@ -1383,6 +1383,13 @@ capabilities:
       - internal/cookies/firefox.TestLocateNewestSyntheticProfile
       - internal/cookies/firefox.TestImportCancellationAndUnsafePath
       - internal/cookies/firefox.FuzzValidCookie
+      - internal/cookies/safari.TestParsePinnedSafariCookieCorpus
+      - internal/cookies/safari.TestParseMultiplePagesSecureOrderAndFooter
+      - internal/cookies/safari.TestParseRejectsStructuralCorruption
+      - internal/cookies/safari.TestParseSkipsFramedInvalidCookieAndEnforcesLimits
+      - internal/cookies/safari.TestParseRejectsInvalidTimestampAndHonorsCancellation
+      - internal/cookies/safari.TestLocateAndReadRegular
+      - internal/cookies/safari.FuzzParse
       - internal/cookies/chromiumlinux.TestPinnedLinuxV10Corpus
       - internal/cookies/chromiumlinux.TestPinnedLinuxV11Corpus
       - internal/cookies/chromiumlinux.TestImportPlainV10V11AndSchema
@@ -1402,11 +1409,13 @@ capabilities:
       - pkg/ytdlp.TestClientWindowsCookiePartialAppBoundFailurePreservesCookies
       - conformance/cookies/netscape/PROVENANCE.md
       - conformance/cookies/firefox/PROVENANCE.md
+      - conformance/cookies/safari/PROVENANCE.md
       - conformance/cookies/chromium-linux/PROVENANCE.md
       - conformance/cookies/chromium-windows/PROVENANCE.md
       - docs/P3_WINDOWS_CHROMIUM_COOKIES_EVIDENCE.md
+      - docs/P3_SAFARI_COOKIES_EVIDENCE.md
     owner: authentication
-    known_deviation: Firefox profile aliases from profiles.ini are not resolved; explicit profile/database paths remain available. Linux Chromium v11 requires an injected Secret Service or KWallet password provider. Windows v20 requires an identity-appropriate injected app-bound decryptor, and real-account DPAPI remains environmental evidence. No automated test reads a real profile.
+    known_deviation: Firefox profile aliases from profiles.ini are not resolved; explicit profile/database paths remain available. Safari imports the bounded Cookies.binarycookies format on macOS only and does not claim Safari transport impersonation; no test reads a real Safari profile. Linux Chromium v11 requires an injected Secret Service or KWallet password provider. Windows v20 requires an identity-appropriate injected app-bound decryptor, and real-account DPAPI remains environmental evidence. No automated test reads a real profile.
 
   - id: compat.languages_principal
     name: Principal compatibility languages

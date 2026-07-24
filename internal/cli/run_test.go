@@ -255,10 +255,10 @@ func TestRunRejectsMalformedURL(t *testing.T) {
 	}
 }
 
-func TestRunRejectsUnsupportedBrowserCookieSource(t *testing.T) {
+func TestRunAdvertisesSafariBrowserCookieSource(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := Run([]string{"--cookies-from-browser", "safari", "https://example.invalid/video.mp4"}, &stdout, &stderr)
-	if code != 2 || !strings.Contains(stderr.String(), "unsupported browser") {
+	code := Run([]string{"--help"}, &stdout, &stderr)
+	if code != 0 || !strings.Contains(stderr.String(), "Safari, Firefox") {
 		t.Fatalf("code = %d; stderr = %q", code, stderr.String())
 	}
 }
