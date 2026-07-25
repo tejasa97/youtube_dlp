@@ -466,6 +466,7 @@ func (client *Client) productRegistry() *extractor.Registry {
 		extractor.NewSoundCloud(),
 		extractor.NewApplePodcasts(),
 		extractor.NewStreamable(),
+		extractor.NewPeerTubePlaylist(),
 		extractor.NewPeerTube(),
 		extractor.NewInternetArchive(),
 		extractor.NewBluesky(),
