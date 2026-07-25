@@ -1,0 +1,22 @@
+{
+  "entries": [
+    {
+      "title": "The Biden factor: will Joe run in 2016?",
+      "description": "Synthetic ThePlatform feed entry",
+      "guid": "n_hardball_5biden_140207",
+      "plmedia$publicUrl": "https://media.example.invalid/tp/feed-public.mp4",
+      "plfile$duration": 467.0,
+      "media$availableDate": 1391824260000,
+      "media$content": [
+        {
+          "plfile$url": "https://media.example.invalid/tp/feed-master.m3u8",
+          "plfile$format": "M3U",
+          "plfile$assetTypes": ["hls"]
+        }
+      ],
+      "media$thumbnails": [
+        { "plfile$url": "https://media.example.invalid/tp/feed-thumb.jpg" }
+      ]
+    }
+  ]
+}

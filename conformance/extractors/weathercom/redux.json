@@ -1,0 +1,22 @@
+{
+  "dal": {
+    "getCMSAssetsUrlConfig": {
+      "asset": {
+        "data": [
+          {
+            "id": "81acef2d-ee8c-4545-ba83-bff3cc80db97",
+            "title": "Invest 95L Fixture",
+            "description": "Synthetic Weather.com video asset",
+            "providername": "TWC - Digital",
+            "cc_url": "https://media.example.invalid/weather/captions.vtt",
+            "variants": {
+              "hls": "https://media.example.invalid/weather/master.m3u8",
+              "mp4": "https://media.example.invalid/weather/video.mp4",
+              "poster": "https://media.example.invalid/weather/poster.jpg"
+            }
+          }
+        ]
+      }
+    }
+  }
+}
