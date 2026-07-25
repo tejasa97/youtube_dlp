@@ -23,4 +23,16 @@ const (
 	MaxPlaybackCookieBytes = 4096
 	// MaxPolicyBackoffMs bounds NEXT_REQUEST_POLICY backoff_time_ms.
 	MaxPolicyBackoffMs = 30_000
+	// MaxSabrContexts bounds stored SABR context entries per downloader.
+	MaxSabrContexts = 64
+	// MaxSabrContextValueBytes bounds one SABR context value.
+	MaxSabrContextValueBytes = 16 << 10
+	// MaxSabrContextValueBytesTotal bounds cumulative stored context values.
+	MaxSabrContextValueBytesTotal = 256 << 10
+	// MaxSabrContextPolicyOps bounds start+stop+discard entries in one policy.
+	MaxSabrContextPolicyOps = 192
+	// MaxRedirectURLBytes bounds one SABR_REDIRECT url field.
+	MaxRedirectURLBytes = 4096
+	// MaxDirectiveRedirects bounds committed UMP SABR_REDIRECT hops.
+	MaxDirectiveRedirects = 8
 )

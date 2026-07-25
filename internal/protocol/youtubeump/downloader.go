@@ -144,6 +144,9 @@ func (downloader *Downloader) Download(ctx context.Context, outputRoot, destinat
 		selectedFormat bool
 		bufferedRanges []BufferedRange
 		playbackCookie []byte
+		serverURL      = config.ServerURL
+		contexts       = newSabrContextState()
+		redirects      = newRedirectTracker(config.ServerURL)
 	)
 	assembler := newTrackAssembler(config.Format, expectedDurationMs, output.file, maxBytes)
 
@@ -168,11 +171,12 @@ func (downloader *Downloader) Download(ctx context.Context, outputRoot, destinat
 			SelectedFormat:  selectedFormat,
 			DrcEnabled:      config.DrcEnabled,
 			AudioTrackID:    config.AudioTrackID,
+			Contexts:        contexts.clone(),
 		}.marshal()
 		if err != nil {
 			return Result{}, err
 		}
-		roundCtrl, err := downloader.postRound(ctx, config, requestNumber, body, assembler, sink, destination, eventURL)
+		roundCtrl, err := downloader.postRound(ctx, config, serverURL, requestNumber, body, assembler, contexts, redirects, sink, destination, eventURL)
 		if err != nil {
 			if ctx.Err() != nil {
 				return Result{}, ctx.Err()
@@ -182,6 +186,9 @@ func (downloader *Downloader) Download(ctx context.Context, outputRoot, destinat
 		if roundCtrl.updateCookie {
 			playbackCookie = bytes.Clone(roundCtrl.cookie)
 		}
+		if roundCtrl.contexts != nil {
+			contexts = roundCtrl.contexts
+		}
 		advance, ranges, selected := assembler.playbackState()
 		playerTimeMs = advance
 		bufferedRanges = ranges
@@ -189,7 +196,13 @@ func (downloader *Downloader) Download(ctx context.Context, outputRoot, destinat
 			selectedFormat = true
 		}
 		if assembler.trackComplete() {
+			// END_OF_TRACK is authoritative: do not POST again for redirect/backoff.
 			break
+		}
+		if roundCtrl.hasRedirect {
+			redirects.record(roundCtrl.redirectURL)
+			serverURL = roundCtrl.redirectURL
+			eventURL = redactURL(serverURL)
 		}
 		if roundCtrl.backoff > 0 {
 			if err := downloader.policyBackoffWait(ctx, roundCtrl.backoff); err != nil {
@@ -216,7 +229,18 @@ func (downloader *Downloader) Download(ctx context.Context, outputRoot, destinat
 
 const maxSABRAttempts = 100
 
-func (downloader *Downloader) postRound(ctx context.Context, config Config, requestNumber int, body []byte, assembler *trackAssembler, sink events.Sink, destination, eventURL string) (roundControl, error) {
+func (downloader *Downloader) postRound(
+	ctx context.Context,
+	config Config,
+	serverURL string,
+	requestNumber int,
+	body []byte,
+	assembler *trackAssembler,
+	contexts *sabrContextState,
+	redirects *redirectTracker,
+	sink events.Sink,
+	destination, eventURL string,
+) (roundControl, error) {
 	var zero roundControl
 	attempts := config.Attempts
 	if attempts <= 0 {
@@ -224,7 +248,7 @@ func (downloader *Downloader) postRound(ctx context.Context, config Config, requ
 	}
 	var lastErr error
 	for attempt := 1; attempt <= attempts; attempt++ {
-		ctrl, err := downloader.postOnce(ctx, config, requestNumber, body, assembler)
+		ctrl, err := downloader.postOnce(ctx, config, serverURL, requestNumber, body, assembler, contexts, redirects)
 		if err == nil {
 			return ctrl, nil
 		}
@@ -250,9 +274,18 @@ func (downloader *Downloader) postRound(ctx context.Context, config Config, requ
 	return zero, lastErr
 }
 
-func (downloader *Downloader) postOnce(ctx context.Context, config Config, requestNumber int, body []byte, assembler *trackAssembler) (roundControl, error) {
+func (downloader *Downloader) postOnce(
+	ctx context.Context,
+	config Config,
+	serverURL string,
+	requestNumber int,
+	body []byte,
+	assembler *trackAssembler,
+	contexts *sabrContextState,
+	redirects *redirectTracker,
+) (roundControl, error) {
 	var zero roundControl
-	request, err := newSABRRequest(ctx, config.ServerURL, requestNumber, body, config.UserAgent, config.AcceptLanguage)
+	request, err := newSABRRequest(ctx, serverURL, requestNumber, body, config.UserAgent, config.AcceptLanguage)
 	if err != nil {
 		return zero, err
 	}
@@ -265,26 +298,32 @@ func (downloader *Downloader) postOnce(ctx context.Context, config Config, reque
 		if ctx.Err() != nil {
 			return zero, ctx.Err()
 		}
-		return zero, retryableError{requestFailure(err, config.ServerURL)}
+		return zero, retryableError{requestFailure(err, serverURL)}
 	}
 	defer response.Body.Close()
 	if isRedirectResponse(response) {
-		return zero, redirectFailure(config.ServerURL)
+		return zero, redirectFailure(serverURL)
 	}
 	if response.StatusCode != http.StatusOK {
-		return zero, responseFailure(response.StatusCode, config.ServerURL)
+		return zero, responseFailure(response.StatusCode, serverURL)
 	}
 	if err := validateResponseContentType(response.Header.Get("Content-Type")); err != nil {
 		return zero, err
 	}
-	return consumeStream(ctx, response.Body, assembler)
+	return consumeStreamState(ctx, response.Body, assembler, contexts, redirects)
 }
 
 func consumeStream(ctx context.Context, body interface {
 	Read([]byte) (int, error)
 }, assembler *trackAssembler) (roundControl, error) {
+	return consumeStreamState(ctx, body, assembler, newSabrContextState(), newRedirectTracker(""))
+}
+
+func consumeStreamState(ctx context.Context, body interface {
+	Read([]byte) (int, error)
+}, assembler *trackAssembler, contexts *sabrContextState, redirects *redirectTracker) (roundControl, error) {
 	var zero roundControl
-	consumer := newStreamConsumer(assembler)
+	consumer := newStreamConsumerState(assembler, contexts, redirects)
 	reader := NewReader(body, MaxRoundBytes)
 	for {
 		if err := ctx.Err(); err != nil {
