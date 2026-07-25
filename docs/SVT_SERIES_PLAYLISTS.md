@@ -32,6 +32,10 @@ inputs; the Go extractor filters them deterministically.
   execute through `DoWithoutCredentialsNoRedirect`, so caller cookies,
   authorization headers, and redirect following are not used.
 - Unknown `tab` season ids return `ErrUnavailable` instead of an empty playlist.
+- Unrelated malformed or oversized season containers are skipped during all-series
+  extraction; season id/name bounds apply only to the selected `tab` season.
+- Opaque GraphQL transport failures map to `ErrSVTSeriesNetwork` without
+  forwarding underlying error text.
 - Playlist entries use validated `svt:<video-id>` opaque pseudo URLs with
   `ie_key=region_svt`, matching the reference handoff to `SVTPlayIE` while
   keeping re-entry inside this extractor.
