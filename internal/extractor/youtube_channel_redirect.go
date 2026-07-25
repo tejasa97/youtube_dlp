@@ -19,12 +19,25 @@ const (
 // channel redirect. Destinations are restricted to the same channel route
 // families owned by the product registry, and the caller's explicit tab is
 // appended only after validating that the response supplied a bare root.
+// When requestedTab is "search", sourceCanonical must carry a validated
+// query/q that is preserved onto the redirected identity.
 func youtubeConditionalChannelRedirect(data []byte, sourceCanonical, requestedTab string) (Entry, bool, error) {
 	// Conditional redirects may append only built-in public tabs or channel
 	// search. Arbitrary custom tabs are never rewritten through this path; the
 	// custom-tab extract continues with its own identity binding instead.
 	if requestedTab != "" && youtubePublicTabType(requestedTab) == youtubeTabUnsupported && requestedTab != "search" {
 		return Entry{}, false, nil
+	}
+	searchQuery := ""
+	if requestedTab == "search" {
+		parsedSource, err := url.Parse(sourceCanonical)
+		if err != nil {
+			return Entry{}, false, fmt.Errorf("%w: invalid YouTube conditional redirect source", ErrInvalidMetadata)
+		}
+		searchQuery = youtubeChannelSearchQuery(parsedSource)
+		if searchQuery == "" {
+			return Entry{}, false, fmt.Errorf("%w: missing YouTube conditional redirect search query", ErrInvalidMetadata)
+		}
 	}
 	if !utf8.Valid(data) {
 		return Entry{}, false, fmt.Errorf("%w: invalid UTF-8 in YouTube conditional redirect", ErrInvalidMetadata)
@@ -56,7 +69,7 @@ func youtubeConditionalChannelRedirect(data []byte, sourceCanonical, requestedTa
 		if raw == "" {
 			continue
 		}
-		candidate, err := normalizeYouTubeConditionalChannelRedirect(raw, requestedTab)
+		candidate, err := normalizeYouTubeConditionalChannelRedirect(raw, requestedTab, searchQuery)
 		if err != nil {
 			return Entry{}, false, err
 		}
@@ -74,7 +87,7 @@ func youtubeConditionalChannelRedirect(data []byte, sourceCanonical, requestedTa
 	return redirect, true, nil
 }
 
-func normalizeYouTubeConditionalChannelRedirect(raw, requestedTab string) (Entry, error) {
+func normalizeYouTubeConditionalChannelRedirect(raw, requestedTab, searchQuery string) (Entry, error) {
 	if raw == "" || len(raw) > youtubeMaxConditionalRedirectURLBytes || !utf8.ValidString(raw) {
 		return Entry{}, fmt.Errorf("%w: invalid YouTube conditional redirect URL", ErrInvalidMetadata)
 	}
@@ -93,25 +106,40 @@ func normalizeYouTubeConditionalChannelRedirect(raw, requestedTab string) (Entry
 		return Entry{}, fmt.Errorf("%w: unsafe YouTube conditional redirect URL", ErrInvalidMetadata)
 	}
 
+	appendTab := func(root string) (string, error) {
+		if requestedTab == "" {
+			return root, nil
+		}
+		if requestedTab == "search" {
+			if !validYouTubeSearchQuery(searchQuery) {
+				return "", fmt.Errorf("%w: missing YouTube conditional redirect search query", ErrInvalidMetadata)
+			}
+			return root + "/search?" + url.Values{"query": {searchQuery}}.Encode(), nil
+		}
+		return root + "/" + requestedTab, nil
+	}
+
 	if channelID, tab, ok := youtubeChannelTabTarget(resolved); ok && tab == "" {
-		canonical := "https://www.youtube.com/channel/" + channelID
-		if requestedTab != "" {
-			canonical += "/" + requestedTab
+		canonical, err := appendTab("https://www.youtube.com/channel/" + channelID)
+		if err != nil {
+			return Entry{}, err
 		}
 		return Entry{URL: canonical, ExtractorKey: "youtube_channel_tab"}, nil
 	}
 	if handle, tab, ok := youtubeHandleTabTarget(resolved); ok && tab == "" {
-		canonical := "https://www.youtube.com/" + handle
-		if requestedTab != "" {
-			canonical += "/" + requestedTab
+		canonical, err := appendTab("https://www.youtube.com/" + handle)
+		if err != nil {
+			return Entry{}, err
 		}
 		return Entry{URL: canonical, ExtractorKey: "youtube_handle_tab"}, nil
 	}
 	if kind, alias, tab, ok := youtubeAliasTabTarget(resolved); ok && tab == "" {
-		return Entry{
-			URL:          youtubeAliasTabCanonicalURL(kind, alias, requestedTab),
-			ExtractorKey: "youtube_alias_tab",
-		}, nil
+		root := youtubeAliasTabCanonicalURL(kind, alias, "")
+		canonical, err := appendTab(root)
+		if err != nil {
+			return Entry{}, err
+		}
+		return Entry{URL: canonical, ExtractorKey: "youtube_alias_tab"}, nil
 	}
 	return Entry{}, fmt.Errorf("%w: unsupported YouTube conditional redirect destination", ErrInvalidMetadata)
 }
