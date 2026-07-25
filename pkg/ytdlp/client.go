@@ -16,6 +16,7 @@ import (
 
 	"github.com/ytdlp-go/ytdlp/internal/archive"
 	"github.com/ytdlp-go/ytdlp/internal/cache"
+	"github.com/ytdlp-go/ytdlp/internal/compat/chapterremove"
 	"github.com/ytdlp-go/ytdlp/internal/compat/matchfilter"
 	compatmetadata "github.com/ytdlp-go/ytdlp/internal/compat/metadata"
 	"github.com/ytdlp-go/ytdlp/internal/compat/progress"
@@ -111,12 +112,19 @@ type Request struct {
 	LiveFromStart             bool
 	YouTubeComments           YouTubeCommentOptions
 	SponsorBlock              SponsorBlockOptions
-	Subtitles                 SubtitleOptions
-	RelatedFiles              RelatedFileOptions
-	PrintRules                []PrintRule
-	Playlist                  PlaylistOptions
-	ProgressTemplate          string
-	MatchFilters              []string
+	// RemoveChapters contains repeatable yt-dlp --remove-chapters
+	// specifications. Values beginning with "*" are manual time ranges;
+	// all other values are chapter-title regular expressions.
+	RemoveChapters []string
+	// ForceKeyframesAtCuts applies to ordinary chapter, manual range, and
+	// SponsorBlock cuts. It is invalid when no removal is requested.
+	ForceKeyframesAtCuts bool
+	Subtitles            SubtitleOptions
+	RelatedFiles         RelatedFileOptions
+	PrintRules           []PrintRule
+	Playlist             PlaylistOptions
+	ProgressTemplate     string
+	MatchFilters         []string
 	// InteractiveMatchFilter is required when MatchFilters or BreakMatchFilters
 	// contains "-". It is called only for complete, non-archived entries.
 	InteractiveMatchFilter InteractiveMatchFilterFunc
@@ -1165,7 +1173,7 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	}
 	var cutApplied bool
 	if !multiOutput {
-		downloadedPath, result.Artifacts, cutApplied, err = operation.applySponsorBlockRemove(ctx, &info, downloadedPath, result.Artifacts, sink)
+		downloadedPath, result.Artifacts, cutApplied, err = operation.applyChapterCuts(ctx, &info, downloadedPath, result.Artifacts, sink)
 		if err != nil {
 			tracker.removeCreated()
 			return Result{}, err
@@ -1296,6 +1304,7 @@ func categorized(op string, err error) error {
 		category = ErrorUnsupported
 	case errors.Is(err, outputtemplate.ErrInvalidTemplate), errors.Is(err, outputtemplate.ErrUnsafePath),
 		errors.Is(err, errInvalidRequestOptions),
+		errors.Is(err, chapterremove.ErrInvalidSpecification), errors.Is(err, chapterremove.ErrLimit),
 		errors.Is(err, ErrInteractiveInput),
 		errors.Is(err, matchfilter.ErrInvalidFilter), errors.Is(err, matchfilter.ErrEvaluation),
 		errors.Is(err, matchfilter.ErrEvaluationLimit), errors.Is(err, compatmetadata.ErrInvalidAction),

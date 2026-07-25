@@ -15,6 +15,9 @@ product layer to wire into its request/CLI contract.
 - `internal/compat/metadata`: parse-metadata and replace-in-metadata actions.
 - `internal/compat/matchfilter`: declarative OR/AND matching and a distinct
   rejection decision (not an extraction error).
+- `internal/compat/chapterremove`: repeatable ordinary chapter-title regular
+  expressions and `*start-end` manual cut ranges, compiled before extraction
+  and applied through the transactional media/subtitle cut pipeline.
 
 All parsers report byte source spans where syntax is rejected and use explicit
 length/count limits. The public `pkg/ytdlp` request contract and CLI now wire
@@ -53,6 +56,16 @@ Intentional unsupported syntax is explicit rather than silently approximated:
   string indexes and slices, list mapping through `:`, and object projections.
 - Metadata actions do not execute postprocessor code; they accept only bounded
   regular-expression interpretation and replacement.
+- Chapter removal uses search semantics, repeatable expressions, open or
+  finite non-negative ranges, `inf`/`infinite`, and the pinned duration forms.
+  It merges ordinary, manual, and SponsorBlock removals before one ffmpeg cut;
+  `--no-remove-chapters` resets inherited rules. Expressions use Go's bounded
+  RE2 syntax, so Python-only look-around and backreferences remain explicit
+  unsupported syntax. Infinite starts and equal/inverted ranges are rejected
+  up front; upstream accepts these degenerate forms initially even though they
+  cannot produce a positive cut. Before mutation, the downloaded media is
+  probed, an open final chapter is completed from its real duration, and a
+  greater-than-one-second metadata mismatch fails closed.
 - A selector result containing more than one video and one audio stream is
   rejected explicitly when tracks cannot be merged. Merge operands are retained
   in evaluation order with only exact duplicate `(format_id, url)` pairs removed;

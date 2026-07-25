@@ -339,12 +339,12 @@ func TestRunRejectsInvalidSponsorBlockBeforeNetwork(t *testing.T) {
 		{
 			name:      "force keyframes without remove",
 			arguments: []string{"--force-keyframes-at-cuts", "https://example.invalid/watch"},
-			want:      "force-keyframes-at-cuts requires --sponsorblock-remove",
+			want:      "force-keyframes-at-cuts requires --remove-chapters or --sponsorblock-remove",
 		},
 		{
 			name:      "force keyframes after cleared remove",
 			arguments: []string{"--sponsorblock-remove", "sponsor", "--sponsorblock-remove", "-all", "--force-keyframes-at-cuts", "https://example.invalid/watch"},
-			want:      "force-keyframes-at-cuts requires --sponsorblock-remove",
+			want:      "force-keyframes-at-cuts requires --remove-chapters or --sponsorblock-remove",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

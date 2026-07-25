@@ -1,0 +1,38 @@
+version: 1
+reference:
+  repository: yt-dlp/yt-dlp
+  commit: aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8
+  files:
+    - yt_dlp/options.py:1817-1828
+    - yt_dlp/__init__.py:350-392
+    - yt_dlp/postprocessor/modify_chapters.py:14-108
+    - yt_dlp/postprocessor/ffmpeg.py:298-317
+    - test/test_postprocessors.py:143-629
+derived_on: 2026-07-26
+duration: 200
+cases:
+  - name: title regex uses search semantics
+    specifications: ['(?i)\bintro\b']
+    title: 'Opening Intro Chapter'
+    matches: true
+  - name: unmatched title is retained
+    specifications: ['(?i)^credits$']
+    title: 'Main'
+    matches: false
+  - name: bounded time ranges preserve order before cut planning
+    specifications: ['*1:30-2:00, -10, 3m-']
+    ranges:
+      - [90, 120]
+      - [0, 10]
+      - [180, 200]
+  - name: infinity resolves to media end
+    specifications: ['*5-infinite']
+    ranges:
+      - [5, 200]
+notes:
+  - These are hand-authored behavioral expectations; no upstream fixture is copied.
+  - Repeated regular expressions are ORed and use search, not full-match, semantics.
+  - Manual ranges are parsed from the same repeatable --remove-chapters option as upstream.
+  - Negative timestamps are rejected for chapter removal.
+  - The Go port additionally rejects infinite starts and equal/inverted ranges before postprocessing.
+  - Product tests probe real media duration, repair an open final chapter, and fail closed on material duration mismatch.
