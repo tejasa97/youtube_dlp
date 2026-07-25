@@ -1,0 +1,8 @@
+{
+  "collection": [
+    {"id": 200, "title": "Liked First", "permalink_url": "https://soundcloud.com/other-artist/liked-first"},
+    {"track": {"id": 201, "title": "Liked Second", "permalink_url": "https://soundcloud.com/other-artist/liked-second"}},
+    {"playlist": {"id": 70, "title": "Liked Set", "permalink_url": "https://soundcloud.com/other-artist/sets/liked-set"}}
+  ],
+  "next_href": "https://api-v2.soundcloud.com/users/7/likes?cursor=page2&limit=200&client_id=stale"
+}

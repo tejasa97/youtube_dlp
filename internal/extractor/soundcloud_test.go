@@ -40,6 +40,7 @@ func newSoundCloudFixtureTransport(t *testing.T) *soundCloudFixtureTransport {
 		"station_resolve.json", "station_page1.json", "station_page2.json",
 		"related_track.json", "recommended_page1.json", "albums_page1.json",
 		"sets_page1.json", "mixed_page1.json",
+		"likes_page1.json", "likes_page2.json",
 	} {
 		data, err := os.ReadFile(filepath.Join("..", "..", "conformance", "extractors", "soundcloud", name))
 		if err != nil {
@@ -78,12 +79,12 @@ func (transport *soundCloudFixtureTransport) Do(ctx context.Context, request *ht
 		switch {
 		case strings.Contains(resolved, "/stations/track/"):
 			return soundCloudResponse(http.StatusOK, transport.fixture["station_resolve.json"]), nil
-		case strings.HasSuffix(resolved, "/tracks"):
-			return soundCloudResponse(http.StatusOK, transport.fixture["user.json"]), nil
 		case strings.Contains(resolved, "/sets/"):
 			return soundCloudResponse(http.StatusOK, transport.fixture["playlist.json"]), nil
 		case strings.HasSuffix(resolved, "/related-signal"):
 			return soundCloudResponse(http.StatusOK, transport.fixture["related_track.json"]), nil
+		case soundCloudResolveIsUserProfile(resolved):
+			return soundCloudResponse(http.StatusOK, transport.fixture["user.json"]), nil
 		default:
 			return soundCloudResponse(http.StatusOK, transport.fixture["track.json"]), nil
 		}
@@ -105,6 +106,16 @@ func (transport *soundCloudFixtureTransport) Do(ctx context.Context, request *ht
 			return soundCloudResponse(http.StatusOK, transport.fixture["page2.json"]), nil
 		}
 		return soundCloudResponse(http.StatusOK, transport.fixture["page1.json"]), nil
+	case "/users/7/likes":
+		if transport.blockUserPage {
+			transport.startOnce.Do(func() { close(transport.pageStarted) })
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		if request.URL.Query().Get("cursor") == "page2" {
+			return soundCloudResponse(http.StatusOK, transport.fixture["likes_page2.json"]), nil
+		}
+		return soundCloudResponse(http.StatusOK, transport.fixture["likes_page1.json"]), nil
 	case "/stations/soundcloud:track-stations:5000/tracks":
 		if transport.blockStationPage {
 			transport.startOnce.Do(func() { close(transport.pageStarted) })
@@ -146,8 +157,42 @@ func (transport *soundCloudFixtureTransport) requestCount(path string) int {
 	return count
 }
 
+func (transport *soundCloudFixtureTransport) snapshotRequests() []string {
+	transport.mu.Lock()
+	defer transport.mu.Unlock()
+	return append([]string(nil), transport.requests...)
+}
+
+func assertSoundCloudString(t *testing.T, result Extraction, key, want string) {
+	t.Helper()
+	got, ok := result.Info.Lookup(key).StringValue()
+	if !ok || got != want {
+		t.Fatalf("%s = %q, %t; want %q", key, got, ok, want)
+	}
+}
+
 func soundCloudResponse(status int, body []byte) *http.Response {
 	return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(string(body)))}
+}
+
+func soundCloudResolveIsUserProfile(resolved string) bool {
+	parsed, err := url.Parse(resolved)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host != "soundcloud.com" && host != "www.soundcloud.com" && host != "m.soundcloud.com" {
+		return false
+	}
+	segments := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	if len(segments) == 1 {
+		return soundCloudSlugPattern.MatchString(segments[0]) && !soundCloudTrackReserved[segments[0]]
+	}
+	if len(segments) == 2 {
+		_, ok := soundCloudUserTabs[segments[1]]
+		return soundCloudSlugPattern.MatchString(segments[0]) && ok
+	}
+	return false
 }
 
 func TestSoundCloudSuitableGuards(t *testing.T) {
@@ -160,6 +205,8 @@ func TestSoundCloudSuitableGuards(t *testing.T) {
 		{"https://m.soundcloud.com/artist/track/s-private", true},
 		{"https://soundcloud.com/artist/sets/album", true},
 		{"https://soundcloud.com/artist/tracks", true},
+		{"https://soundcloud.com/artist/likes", true},
+		{"https://m.soundcloud.com/artist/likes/", true},
 		{"https://soundcloud.com/stations/track/fixture-artist/synthetic-signal", true},
 		{"https://www.soundcloud.com/stations/track/fixture-artist/synthetic-signal", true},
 		{"https://m.soundcloud.com/stations/track/fixture-artist/synthetic-signal", true},
@@ -170,7 +217,7 @@ func TestSoundCloudSuitableGuards(t *testing.T) {
 		{"https://api.soundcloud.com/tracks/0", false},
 		{"https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A4242", true},
 		{"https://api-v2.soundcloud.com/playlists/soundcloud:playlists:55", true},
-		{"https://soundcloud.com/artist/likes", false},
+		{"https://soundcloud.com/artist/reposts", false},
 		{"https://soundcloud.com/artist/track/recommended", true},
 		{"https://soundcloud.com/discover/sets/charts", true},
 		{"https://soundcloud.com:444/artist/track", false},
@@ -321,6 +368,152 @@ func TestSoundCloudUserTrackPagesAreLazyOrderedAndReusable(t *testing.T) {
 	if err != nil || len(again) != 3 || again[0].ID != "100" || again[2].ID != "102" {
 		t.Fatalf("second iteration = %#v, %v", again, err)
 	}
+}
+
+func TestSoundCloudUserLikesPagesAreLazyOrderedReusableAndMixed(t *testing.T) {
+	transport := newSoundCloudFixtureTransport(t)
+	result, err := NewSoundCloud().Extract(context.Background(), Request{
+		URL: "https://soundcloud.com/fixture-artist/likes?caller=do-not-forward#frag", Transport: transport,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertSoundCloudString(t, result, "id", "7")
+	assertSoundCloudString(t, result, "title", "Fixture Artist (Likes)")
+	assertSoundCloudString(t, result, "webpage_url", "https://soundcloud.com/fixture-artist/likes")
+	if transport.requestCount("/users/7/likes") != 0 {
+		t.Fatal("likes playlist page fetched eagerly")
+	}
+	// Profile resolve should hit the bare user URL, matching SoundcloudUserIE.
+	if transport.requestCount("/resolve") != 1 {
+		t.Fatalf("resolve requests = %d", transport.requestCount("/resolve"))
+	}
+	foundProfile := false
+	for _, raw := range transport.snapshotRequests() {
+		if !strings.Contains(raw, "/resolve?") {
+			continue
+		}
+		parsed, _ := url.Parse(raw)
+		if parsed.Query().Get("url") == "https://soundcloud.com/fixture-artist" {
+			foundProfile = true
+		}
+	}
+	if !foundProfile {
+		t.Fatalf("expected profile resolve, requests=%v", transport.snapshotRequests())
+	}
+
+	entries, err := CollectEntries(context.Background(), result.Entries, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 4 {
+		t.Fatalf("entries = %#v", entries)
+	}
+	if entries[0].ID != "200" || entries[1].ID != "201" || entries[2].ID != "70" || entries[3].ID != "202" {
+		t.Fatalf("ids = %#v", entries)
+	}
+	if entries[2].URL != "https://soundcloud.com/other-artist/sets/liked-set" || !entries[2].Transparent {
+		t.Fatalf("liked set entry = %#v", entries[2])
+	}
+	if transport.requestCount("/users/7/likes") != 2 {
+		t.Fatalf("likes page requests = %d", transport.requestCount("/users/7/likes"))
+	}
+	again, err := CollectEntries(context.Background(), result.Entries, 10)
+	if err != nil || len(again) != 4 || again[3].ID != "202" {
+		t.Fatalf("reusable likes iteration = %#v, %v", again, err)
+	}
+}
+
+func TestSoundCloudUserLikesFailuresCancellationAndBounds(t *testing.T) {
+	t.Run("malformed page", func(t *testing.T) {
+		transport := newSoundCloudFixtureTransport(t)
+		transport.override = func(request *http.Request) (int, []byte, bool) {
+			if request.URL.Path == "/users/7/likes" {
+				return http.StatusOK, []byte(`{"next_href":null}`), true
+			}
+			return 0, nil, false
+		}
+		result, err := NewSoundCloud().Extract(context.Background(), Request{
+			URL: "https://soundcloud.com/fixture-artist/likes", Transport: transport,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _, err = result.Entries.Iterator().Next(context.Background())
+		if !errors.Is(err, ErrInvalidPlaylist) {
+			t.Fatalf("Next() error = %v", err)
+		}
+	})
+	t.Run("http categories", func(t *testing.T) {
+		cases := []struct {
+			status int
+			want   error
+		}{
+			{http.StatusUnauthorized, ErrAuthentication},
+			{http.StatusForbidden, ErrAuthentication},
+			{http.StatusNotFound, ErrUnavailable},
+			{http.StatusGone, ErrUnavailable},
+		}
+		for _, test := range cases {
+			transport := newSoundCloudFixtureTransport(t)
+			transport.override = func(request *http.Request) (int, []byte, bool) {
+				if request.URL.Path == "/users/7/likes" {
+					return test.status, []byte(`{"error":"fixture-likes-secret"}`), true
+				}
+				return 0, nil, false
+			}
+			result, err := NewSoundCloud().Extract(context.Background(), Request{
+				URL: "https://soundcloud.com/fixture-artist/likes", Transport: transport,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _, err = result.Entries.Iterator().Next(context.Background())
+			if !errors.Is(err, test.want) {
+				t.Fatalf("status %d err=%v want %v", test.status, err, test.want)
+			}
+			if err != nil && strings.Contains(err.Error(), "fixture-likes-secret") {
+				t.Fatalf("error exposed secret: %v", err)
+			}
+		}
+	})
+	t.Run("cancellation before page fetch", func(t *testing.T) {
+		transport := newSoundCloudFixtureTransport(t)
+		result, err := NewSoundCloud().Extract(context.Background(), Request{
+			URL: "https://soundcloud.com/fixture-artist/likes", Transport: transport,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		_, _, err = result.Entries.Iterator().Next(ctx)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("err=%v", err)
+		}
+		if transport.requestCount("/users/7/likes") != 0 {
+			t.Fatal("canceled iterator still fetched likes page")
+		}
+	})
+	t.Run("hostile continuation rejected", func(t *testing.T) {
+		transport := newSoundCloudFixtureTransport(t)
+		transport.override = func(request *http.Request) (int, []byte, bool) {
+			if request.URL.Path == "/users/7/likes" && request.URL.Query().Get("cursor") == "" {
+				return http.StatusOK, []byte(`{"collection":[{"id":200,"title":"Liked","permalink_url":"https://soundcloud.com/a/b"}],"next_href":"https://api-v2.soundcloud.com/users/8/likes?cursor=x"}`), true
+			}
+			return 0, nil, false
+		}
+		result, err := NewSoundCloud().Extract(context.Background(), Request{
+			URL: "https://soundcloud.com/fixture-artist/likes", Transport: transport,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = CollectEntries(context.Background(), result.Entries, 10)
+		if !errors.Is(err, ErrInvalidPlaylist) {
+			t.Fatalf("hostile continuation err=%v", err)
+		}
+	})
 }
 
 func TestSoundCloudSetEntriesRemainOrderedTransparentURLs(t *testing.T) {
