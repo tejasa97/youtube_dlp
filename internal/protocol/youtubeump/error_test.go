@@ -35,6 +35,7 @@ func containsSecret(message string) bool {
 func TestConsumeStreamRejectsActiveHeadersAtEOF(t *testing.T) {
 	body := encodePart(PartMediaHeader, marshalMediaHeader(MediaHeader{HeaderID: 1, Itag: 137, ContentLength: 3}))
 	assembler := newTrackAssembler(FormatID{Itag: 137}, 10000, nil, 1024)
+	consumer := newStreamConsumer(assembler)
 	reader := NewReader(newByteReader(body), int64(len(body)))
 	for {
 		part, ok, err := reader.ReadPart()
@@ -44,19 +45,20 @@ func TestConsumeStreamRejectsActiveHeadersAtEOF(t *testing.T) {
 		if !ok {
 			break
 		}
-		if err := assembler.consumePart(part); err != nil {
+		if err := consumer.consumePart(part); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := assembler.finishResponse(); !errors.Is(err, ErrTruncatedStream) {
+	if _, err := consumer.finish(); !errors.Is(err, ErrTruncatedStream) {
 		t.Fatalf("err=%v", err)
 	}
 }
 
-func TestEndOfTrackPartRejected(t *testing.T) {
+func TestEndOfTrackPartRejectedWithoutPrerequisites(t *testing.T) {
 	assembler := newTrackAssembler(FormatID{Itag: 137}, 10000, nil, 1024)
-	err := assembler.consumePart(Part{Type: PartEndOfTrack, Payload: nil})
-	if !errors.Is(err, ErrUnsupportedDirective) {
+	consumer := newStreamConsumer(assembler)
+	err := consumer.consumePart(Part{Type: PartEndOfTrack, Payload: nil})
+	if !errors.Is(err, ErrInvalidMediaState) {
 		t.Fatalf("err=%v", err)
 	}
 }

@@ -60,3 +60,46 @@ func FuzzProtobufWire(f *testing.F) {
 		}
 	})
 }
+
+func FuzzNextRequestPolicy(f *testing.F) {
+	f.Add([]byte{0x20, 0x05})
+	f.Add([]byte{0x3A, 0x03, 0x08, 0x01})
+	f.Fuzz(func(t *testing.T, body []byte) {
+		if len(body) > MaxPlaybackCookieBytes+64 {
+			return
+		}
+		_, _, _, err := parseNextRequestPolicy(body)
+		if err != nil && !errors.Is(err, ErrInvalidProtobuf) && !errors.Is(err, ErrTruncatedStream) &&
+			!errors.Is(err, ErrNonCanonicalVarint) && !errors.Is(err, ErrVarintOverflow) &&
+			!errors.Is(err, ErrInvalidMediaState) && !errors.Is(err, ErrExcessivePolicyBackoff) {
+			t.Fatalf("unexpected err=%v", err)
+		}
+		_ = validatePlaybackCookie(body)
+	})
+}
+
+func FuzzMixedUMPStream(f *testing.F) {
+	f.Add([]byte{0x23, 0x02, 0x20, 0x00})
+	f.Add([]byte{0x3E, 0x00})
+	f.Fuzz(func(t *testing.T, body []byte) {
+		if len(body) > MaxRoundBytes {
+			return
+		}
+		assembler := newTrackAssembler(FormatID{Itag: 137}, 10000, nil, 1024)
+		consumer := newStreamConsumer(assembler)
+		reader := NewReader(newByteReader(body), int64(len(body)))
+		for {
+			part, ok, err := reader.ReadPart()
+			if err != nil {
+				return
+			}
+			if !ok {
+				_, _ = consumer.finish()
+				return
+			}
+			if err := consumer.consumePart(part); err != nil {
+				return
+			}
+		}
+	})
+}

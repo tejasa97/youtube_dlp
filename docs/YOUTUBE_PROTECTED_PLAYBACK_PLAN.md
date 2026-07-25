@@ -25,7 +25,7 @@ Implementation status: complete.
 
 ## Wave 2 — direct SABR/UMP
 
-Implementation status: partial — bounded finite non-live VOD slice with credential-isolated POST transport, multiplexed UMP reconstruction (selected track only), buffered-range progression, strict duration-based completion (no `END_OF_TRACK`, no below-duration tolerance), safe filesystem publish, PO-token resolution at download time (not in extraction JSON or `playback_cookie`), and product dispatch. Live, resume, redirect/context policy loops, server `playback_cookie`, and full client parity remain unsupported.
+Implementation status: partial — bounded finite non-live VOD slice with credential-isolated POST transport, multiplexed UMP reconstruction (selected track only), buffered-range progression, `NEXT_REQUEST_POLICY` playback-cookie propagation with bounded cancellation-safe backoff, `END_OF_TRACK` or strict duration-based completion, safe filesystem publish, PO-token resolution at download time (not in extraction JSON or `playback_cookie`), and product dispatch. Live, resume, redirect/context policy loops, and full client parity remain unsupported.
 
 ## Wave 3 — captions and authenticated clients
 

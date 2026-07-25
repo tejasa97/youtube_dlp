@@ -19,4 +19,8 @@ const (
 	MaxProtobufFieldBytes = 16 << 20
 	// MaxProtobufFields bounds fields decoded from one message.
 	MaxProtobufFields = 256
+	// MaxPlaybackCookieBytes bounds one validated playback cookie payload.
+	MaxPlaybackCookieBytes = 4096
+	// MaxPolicyBackoffMs bounds NEXT_REQUEST_POLICY backoff_time_ms.
+	MaxPolicyBackoffMs = 30_000
 )

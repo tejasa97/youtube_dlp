@@ -40,6 +40,9 @@ func retryDelay(config Config, attempt int) time.Duration {
 	return base
 }
 
+// policyBackoffWait is the cancellation-safe seam used for NEXT_REQUEST_POLICY backoff.
+var policyBackoffWait = sleep
+
 func sleep(ctx context.Context, delay time.Duration) error {
 	if delay <= 0 {
 		return nil
