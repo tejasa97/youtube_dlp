@@ -33,8 +33,10 @@ fetch, and exposes an operation-scoped `Episode` extension hook for forced-refre
 budgets (≤1 attributable `ErrTokenRejected` bypass per rejection episode; ≤2
 forced refreshes per operation). Bypass/forced generation uses a separate
 single-flight key so it never joins a normal in-flight fetch that may return a
-rejected token. Provider work runs under `context.WithoutCancel` so a canceled
-leader cannot poison compatible waiters; canceled waiters still return promptly.
+rejected token. Shared provider work runs in a dedicated goroutine under its
+own cancelable context: every caller waits with their own context and returns
+promptly on cancellation; when the last waiter leaves, shared work is canceled
+(ejs solver waiters/abandon pattern).
 - Providers are trusted in-process Go code and must honor context cancellation;
   Go cannot forcibly terminate a blocked provider goroutine.
 - Go strings cannot guarantee zeroization. Tokens are therefore kept out of

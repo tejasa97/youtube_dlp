@@ -238,6 +238,7 @@ func TestDirectorCancelledLeaderDoesNotPoisonWaiters(t *testing.T) {
 		t.Fatal(err)
 	}
 	request := validRequestFixture(ContextGVS)
+	fkey := flightMapKey(cacheKey(request), false)
 	leaderCtx, cancelLeader := context.WithCancel(context.Background())
 	leaderErr := make(chan error, 1)
 	go func() {
@@ -245,10 +246,8 @@ func TestDirectorCancelledLeaderDoesNotPoisonWaiters(t *testing.T) {
 		leaderErr <- err
 	}()
 	<-started
-	waiterStarted := make(chan struct{})
 	waiterResult := make(chan string, 1)
 	go func() {
-		close(waiterStarted)
 		token, ok, err := director.Resolve(context.Background(), request, true)
 		if err != nil || !ok {
 			t.Errorf("waiter err=%v ok=%v", err, ok)
@@ -257,17 +256,97 @@ func TestDirectorCancelledLeaderDoesNotPoisonWaiters(t *testing.T) {
 		}
 		waiterResult <- token
 	}()
-	<-waiterStarted
+	waitForFlightWaiters(t, director, fkey, 2)
+	cancelStart := time.Now()
 	cancelLeader()
-	close(release)
 	if err := <-leaderErr; !errors.Is(err, context.Canceled) {
 		t.Fatalf("leader err=%v", err)
 	}
+	if time.Since(cancelStart) > time.Second {
+		t.Fatal("canceled creator did not return promptly")
+	}
+	close(release)
 	if token := <-waiterResult; token != "Zm9v" {
 		t.Fatalf("waiter token=%q", token)
 	}
 	if calls.Load() != 1 {
 		t.Fatalf("provider calls=%d", calls.Load())
+	}
+}
+
+func TestDirectorAllCallersCancelAbandonsFlight(t *testing.T) {
+	started := make(chan struct{})
+	providerCanceled := make(chan struct{})
+	var calls atomic.Int32
+	director, err := New(Config{Policy: FetchAlways, Providers: []Provider{ProviderFunc{
+		ProviderName: "fixture",
+		Function: func(ctx context.Context, _ Request) (Response, error) {
+			calls.Add(1)
+			close(started)
+			<-ctx.Done()
+			close(providerCanceled)
+			return Response{}, ctx.Err()
+		},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := validRequestFixture(ContextGVS)
+	fkey := flightMapKey(cacheKey(request), false)
+	ctx1, cancel1 := context.WithCancel(context.Background())
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	err1 := make(chan error, 1)
+	err2 := make(chan error, 1)
+	go func() { _, _, err := director.Resolve(ctx1, request, true); err1 <- err }()
+	<-started
+	go func() { _, _, err := director.Resolve(ctx2, request, true); err2 <- err }()
+	waitForFlightWaiters(t, director, fkey, 2)
+	cancel1()
+	cancel2()
+	if !errors.Is(<-err1, context.Canceled) || !errors.Is(<-err2, context.Canceled) {
+		t.Fatal("expected both callers canceled")
+	}
+	select {
+	case <-providerCanceled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("provider did not observe abandonment cancel")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		director.mu.Lock()
+		_, present := director.inflight[fkey]
+		director.mu.Unlock()
+		if !present {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("abandoned flight leaked in map")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("provider calls=%d", calls.Load())
+	}
+}
+
+func waitForFlightWaiters(t *testing.T, director *Director, fkey string, want int32) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		director.mu.Lock()
+		flight := director.inflight[fkey]
+		var got int32
+		if flight != nil {
+			got = flight.waiters
+		}
+		director.mu.Unlock()
+		if got >= want {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("waiters=%d want >= %d", got, want)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 
