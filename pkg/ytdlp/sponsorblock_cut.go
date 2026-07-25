@@ -26,22 +26,28 @@ type sponsorBlockCutJob struct {
 
 // applySponsorBlockRemove cuts downloaded media with ffmpeg and remaps
 // supported subtitle sidecars with deterministic cue editing. It is a no-op
-// under Simulate/SkipDownload and when Remove is unset.
+// for media mutation under Simulate/SkipDownload and when Remove is unset.
 //
-// Metadata (duration/chapters) is validated and prepared before any file
-// commit, then applied only after the transactional file commit succeeds.
-// cutApplied is true when media/subtitle files were replaced.
+// When Mark+Remove are both enabled, chapters are arranged once via the pinned
+// ModifyChapters heap algorithm. Remove-only retimes ordinary chapters through
+// the same arrangement. Mark+Remove with no resulting cuts still commits the
+// arranged marked chapters (pinned ModifyChapters assigns chapters before its
+// no-cuts return). Under Simulate/SkipDownload, media is never cut, but Mark
+// metadata is still applied when requested so deferred marking is not lost.
+// When media is cut, metadata commits only after a successful media/subtitle
+// cut commit.
 func (operation *operation) applySponsorBlockRemove(ctx context.Context, info *value.Info, mediaPath string, artifacts []Artifact, sink events.Sink) (string, []Artifact, bool, error) {
 	if !operation.request.SponsorBlock.Enabled || !operation.request.SponsorBlock.Remove {
-		return mediaPath, artifacts, false, nil
-	}
-	if operation.request.Simulate || operation.request.SkipDownload {
 		return mediaPath, artifacts, false, nil
 	}
 	if info == nil {
 		return mediaPath, artifacts, false, &Error{Category: ErrorInternal, Op: "sponsorblock remove", Err: errors.New("missing metadata")}
 	}
-	if strings.TrimSpace(mediaPath) == "" {
+	skipMediaCut := operation.request.Simulate || operation.request.SkipDownload
+	if skipMediaCut && !operation.request.SponsorBlock.Mark {
+		return mediaPath, artifacts, false, nil
+	}
+	if !skipMediaCut && strings.TrimSpace(mediaPath) == "" {
 		return mediaPath, artifacts, false, &Error{Category: ErrorInternal, Op: "sponsorblock remove", Err: errors.New("missing media")}
 	}
 	duration := 0.0
@@ -63,19 +69,54 @@ func (operation *operation) applySponsorBlockRemove(ctx context.Context, info *v
 	} else {
 		removeCategories = sponsorblock.FilterRemovableCategories(removeCategories)
 	}
-	plan, err := sponsorblock.PlanCuts(chapters, removeCategories, duration)
+	normal, originals, err := ordinarySponsorBlockChapters(info)
+	if err != nil {
+		return mediaPath, artifacts, false, mapSponsorBlockError(err)
+	}
+	title, _ := info.Lookup("title").StringValue()
+	// Under Simulate/SkipDownload the media stays uncut, so arrange with mark
+	// overlays only (no remove flags) to avoid post-cut timestamps on uncut media.
+	mark := operation.request.SponsorBlock.Mark
+	arrangeRemove := removeCategories
+	if skipMediaCut {
+		arrangeRemove = nil
+	}
+	arranged, err := arrangeSponsorBlockRemove(normal, chapters, arrangeRemove, duration, title, mark)
+	if err != nil {
+		return mediaPath, artifacts, false, mapSponsorBlockError(err)
+	}
+	if skipMediaCut {
+		if mark {
+			info.Set("chapters", renderArrangedChapters(arranged.Chapters, originals))
+		}
+		return mediaPath, artifacts, false, nil
+	}
+	if len(arranged.Cuts) == 0 {
+		// Pinned ModifyChapters assigns arranged chapters before returning when
+		// there are no cuts; keep mark overlays without inventing a media cut.
+		if mark {
+			info.Set("chapters", renderArrangedChapters(arranged.Chapters, originals))
+		}
+		return mediaPath, artifacts, false, nil
+	}
+	// Empty post-arrange chapters means the keep timeline vanished (pinned
+	// ModifyChapters refuses to remove the entire video).
+	if len(arranged.Chapters) == 0 {
+		return mediaPath, artifacts, false, mapSponsorBlockError(fmt.Errorf("%w: entire media removed", sponsorblock.ErrInvalidInput))
+	}
+	plan, err := cutPlanFromArrange(arranged.Cuts, duration)
 	if err != nil {
 		return mediaPath, artifacts, false, mapSponsorBlockError(err)
 	}
 	if len(plan.Cuts) == 0 {
+		if mark {
+			info.Set("chapters", renderArrangedChapters(arranged.Chapters, originals))
+		}
 		return mediaPath, artifacts, false, nil
 	}
 
-	// Prepare and validate rewritten metadata before mutating any files.
-	preparedChapters, hasChapters, err := prepareRewrittenChapters(info, plan.Cuts)
-	if err != nil {
-		return mediaPath, artifacts, false, mapSponsorBlockError(err)
-	}
+	preparedChapters := renderArrangedChapters(arranged.Chapters, originals)
+	hasChapters := len(arranged.Chapters) > 0 || len(originals) > 0 || mark
 
 	ranges := make([]ffmpeg.ConcatRange, 0, len(plan.Keep))
 	for _, segment := range plan.Keep {
@@ -136,6 +177,88 @@ func (operation *operation) applySponsorBlockRemove(ctx context.Context, info *v
 		info.Set("chapters", preparedChapters)
 	}
 	return mediaPath, artifacts, true, nil
+}
+
+func arrangeSponsorBlockRemove(normal []sponsorblock.NormalChapter, sponsors []sponsorblock.Chapter, removeCategories []string, duration float64, videoTitle string, mark bool) (sponsorblock.ArrangeResult, error) {
+	removeSet := make(map[string]struct{}, len(removeCategories))
+	for _, category := range removeCategories {
+		removeSet[category] = struct{}{}
+	}
+	input := make([]sponsorblock.ArrangeChapter, 0, len(normal)+len(sponsors)+1)
+	if len(normal) == 0 {
+		input = append(input, sponsorblock.ArrangeChapter{
+			StartTime: 0, EndTime: duration, Title: videoTitle, Source: -1,
+		})
+	} else {
+		for _, chapter := range normal {
+			input = append(input, sponsorblock.ArrangeChapter{
+				StartTime: chapter.StartTime, EndTime: chapter.EndTime,
+				Title: chapter.Title, Source: chapter.Source,
+			})
+		}
+	}
+	for _, chapter := range sponsors {
+		_, remove := removeSet[chapter.Category]
+		if chapter.Type == string(sponsorblock.ActionPOI) || chapter.Type == string(sponsorblock.ActionChapter) {
+			remove = false
+		}
+		if !sponsorblock.IsRemovableCategory(chapter.Category) {
+			remove = false
+		}
+		if !mark && !remove {
+			continue
+		}
+		input = append(input, sponsorblock.ArrangeChapter{
+			StartTime: chapter.StartTime, EndTime: chapter.EndTime,
+			Title: chapter.Title, Remove: remove, Source: -1,
+			Categories: []sponsorblock.CategorySpan{{
+				Category: chapter.Category, Start: chapter.StartTime, End: chapter.EndTime, Title: chapter.Title,
+			}},
+		})
+	}
+	return sponsorblock.Arrange(input)
+}
+
+func cutPlanFromArrange(cuts []sponsorblock.Range, duration float64) (sponsorblock.CutPlan, error) {
+	if len(cuts) == 0 {
+		return sponsorblock.CutPlan{Keep: []sponsorblock.ConcatSegment{{}}, Duration: duration}, nil
+	}
+	// Reuse PlanCuts validation bounds by synthesizing removable chapters.
+	synthetic := make([]sponsorblock.Chapter, 0, len(cuts))
+	for _, cut := range cuts {
+		synthetic = append(synthetic, sponsorblock.Chapter{
+			StartTime: cut.Start, EndTime: cut.End, Category: "sponsor", Type: "skip",
+		})
+	}
+	return sponsorblock.PlanCuts(synthetic, []string{"sponsor"}, duration)
+}
+
+func renderArrangedChapters(chapters []sponsorblock.ArrangeChapter, originals []value.Value) value.Value {
+	marked := make([]sponsorblock.MarkedChapter, 0, len(chapters))
+	for _, chapter := range chapters {
+		item := sponsorblock.MarkedChapter{
+			StartTime: chapter.StartTime, EndTime: chapter.EndTime,
+			Title: chapter.Title, Source: chapter.Source,
+			Sponsor:  chapter.Sponsor || len(chapter.Categories) > 0 || chapter.Category != "",
+			Category: chapter.Category, Categories: chapter.CategoryList,
+			Name: chapter.Name, CategoryNames: chapter.CategoryNames,
+		}
+		if item.Sponsor && item.Category == "" && len(chapter.Categories) > 0 {
+			item.Category = chapter.Categories[0].Category
+		}
+		if item.Sponsor && len(item.Categories) == 0 && len(chapter.Categories) > 0 {
+			cats := make([]string, 0, len(chapter.Categories))
+			names := make([]string, 0, len(chapter.Categories))
+			for _, span := range chapter.Categories {
+				cats = append(cats, span.Category)
+				names = append(names, span.Title)
+			}
+			item.Categories = cats
+			item.CategoryNames = names
+		}
+		marked = append(marked, item)
+	}
+	return value.List(renderMarkedChapters(marked, originals)...)
 }
 
 func stageSponsorBlockSubtitle(original, staged string, cuts []sponsorblock.Range) error {

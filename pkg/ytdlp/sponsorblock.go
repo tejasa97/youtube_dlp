@@ -12,14 +12,19 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
+const sponsorBlockDurationMismatchWarning = "Some SponsorBlock segments are from a video of different duration, maybe from an old version of this video"
+
 // enrichWithSponsorBlock performs the optional SponsorBlock metadata
 // fetch and writes the normalized chapters onto the given info. The
 // function is called only when the public Request explicitly opts in.
 //
 // Marking may rewrite chapter metadata without mutating media bytes.
-// Media cutting is applied later by applySponsorBlockRemove after a
-// real download. CLI exposes mark/API metadata paths; remove/cut wiring
-// remains API-only for now.
+// When Mark+Remove are both enabled and a real download may still cut,
+// arrangement is deferred to applySponsorBlockRemove so chapters are
+// produced once on the post-cut timeline. Under Simulate or SkipDownload
+// the remove path never runs, so requested Mark overlays are applied here
+// without inventing media cuts. Media cutting remains applySponsorBlockRemove's
+// responsibility after a real download.
 //
 // The function never panics. All errors are categorized and surface
 // through the existing pkg/ytdlp Error mechanism. A valid empty
@@ -54,9 +59,15 @@ func (operation *operation) enrichWithSponsorBlock(ctx context.Context, extracto
 			duration = d
 		}
 	}
+	// Defer Mark+Remove arrangement only when the remove path can still run.
+	deferMarkRemove := operation.request.SponsorBlock.Mark &&
+		operation.request.SponsorBlock.Remove &&
+		!operation.request.Simulate &&
+		!operation.request.SkipDownload
+	markNow := operation.request.SponsorBlock.Mark && !deferMarkRemove
 	var normal []sponsorblock.NormalChapter
 	var originals []value.Value
-	if operation.request.SponsorBlock.Mark {
+	if markNow {
 		if duration <= 0 {
 			return mapSponsorBlockError(fmt.Errorf("%w: mark duration", sponsorblock.ErrInvalidInput))
 		}
@@ -75,12 +86,23 @@ func (operation *operation) enrichWithSponsorBlock(ctx context.Context, extracto
 	if err != nil {
 		return mapSponsorBlockError(err)
 	}
+	if result.DurationMismatchFiltered {
+		if operation.client == nil {
+			return &Error{Category: ErrorInternal, Op: "sponsorblock duration warning", Err: errors.New("missing event client")}
+		}
+		if err := operation.client.emit(ctx, Event{
+			Kind:    EventMetadataWarning,
+			Message: sponsorBlockDurationMismatchWarning,
+		}); err != nil {
+			return &Error{Category: ErrorInternal, Op: "sponsorblock duration warning", Err: err}
+		}
+	}
 	sponsorValues := make([]value.Value, 0, len(result.Chapters))
 	for _, chapter := range result.Chapters {
 		sponsorValues = append(sponsorValues, chapterValue(chapter))
 	}
 	var markedValues []value.Value
-	if operation.request.SponsorBlock.Mark {
+	if markNow {
 		title, _ := info.Lookup("title").StringValue()
 		marked, err := sponsorblock.MarkChapters(normal, result.Chapters, duration, title)
 		if err != nil {
@@ -88,9 +110,10 @@ func (operation *operation) enrichWithSponsorBlock(ctx context.Context, extracto
 		}
 		markedValues = renderMarkedChapters(marked, originals)
 	}
-	// Commit metadata only after fetch, parsing, and arrangement all succeed.
+	// Commit metadata only after fetch, parsing, warning emission, and
+	// optional mark arrangement all succeed.
 	info.Set("sponsorblock_chapters", value.List(sponsorValues...))
-	if operation.request.SponsorBlock.Mark {
+	if markNow {
 		info.Set("chapters", value.List(markedValues...))
 	}
 	return nil

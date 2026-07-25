@@ -10,9 +10,9 @@ derived from the pinned yt-dlp reference checkout
 helpers in `yt_dlp/postprocessor/ffmpeg.py`). The reference is a
 read-only behavioral mirror and is not executed or imported by the
 Go port; the fixtures replicate its hash prefix, envelope shape,
-per-segment normalization policy, and cut-planning expectations so the
-Go implementation can be regression-tested without contacting the
-public SponsorBlock service.
+per-segment normalization policy, duration-mismatch warning signal,
+and cut/arrange expectations so the Go implementation can be
+regression-tested without contacting the public SponsorBlock service.
 
 The deterministic mark-only cases cover normal and synthesized backgrounds,
 overlapping category order, chapter descriptions, exact boundaries,
@@ -28,6 +28,19 @@ leading/trailing edge chunks, entire-media rejection, concat
 timeline invariants. FFmpeg force-keyframes and concat-range execution are
 covered by package tests under `internal/media/ffmpeg` and product wiring
 under `pkg/ytdlp`.
+
+The deterministic arrange cases
+(`sample_arrange_mark_remove.json`) cover mixed Mark+Remove heap
+arrangement: ordinary chapter retiming around merged cuts, surviving
+non-remove sponsor overlays on the post-cut timeline, and attributed
+chapter titles/categories. Exhaustive overlap, tiny-chapter, coalesce,
+immutability, and fuzz/property coverage live in
+`internal/sponsorblock` package tests (`Arrange` / `FuzzArrange`).
+
+The duration-mismatch fixture (`sample_duration_mismatch.json`) asserts
+that the pinned warning signal is raised only when the videoDuration
+filter drops otherwise-valid segments, not for whole-video `(0,0)` or
+invalid category entries alone.
 
 `sample_response.json` is a hand-authored single-group envelope for
 video ID `fixture0001` with three segments: a sponsor entry, a
