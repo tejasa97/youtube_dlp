@@ -259,7 +259,7 @@ func breadthProgramPlaylists(t *testing.T) []breadthPlaylistSpec {
 		}},
 		{ID: "simplecast_podcast", Key: "simplecast_podcast", Run: func(t *testing.T) {
 			transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
-				"https://api.simplecast.com/podcasts/search": {body: familyFixture(t, "simplecast_podcast", "search.json")},
+				"https://api.simplecast.com/sites/search": {body: familyFixture(t, "simplecast_podcast", "search.json")},
 				"https://api.simplecast.com/podcasts/e23df0da-bae4-4531-8bbf-71364a88dc13/episodes": {
 					body: familyFixture(t, "simplecast_podcast", "episodes.json"),
 				},

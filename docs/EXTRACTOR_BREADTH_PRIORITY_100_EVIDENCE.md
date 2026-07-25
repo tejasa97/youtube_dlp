@@ -34,6 +34,13 @@ Aliases (`www`/identical-host mirrors), optional query order, and result cardina
 
 **Podcast feeder family (11):** `acast`, `acast_channel`, `simplecast`, `simplecast_episode`, `simplecast_podcast`, `megaphone`, `art19`, `art19_show`, `libsyn`, `spreaker`, `spreaker_show`
 
+Podcast media normalization uses one Python-free implementation of the pinned
+`clean_podcast_url` tracking-prefix and double-scheme corpus. Acast and
+Simplecast fixtures exercise nested analytics prefixes; final URLs are then
+subject to the port's strict public-host URL policy. Simplecast podcast pages
+use the attributable `sites/search` response envelope before the bounded
+podcast episode list request.
+
 **Additional families (7):** `nowness`, `nowness_playlist`, `nowness_series`, `dacast`, `dacast_playlist`, `panopto`, `panopto_playlist`
 
 **Second-review honest restorations (12):** `teachingchannel`, `nowcanal`, `democracynow`, `buzzfeed`, `mediastream`, `winsports`, `abcotvs`, `abcotvs_clips`, `vidsio`, `laracasts`, `laracasts_series` (+ existing-route expansions: NOWNESS `/category/`, Panopto playlist `Embed.aspx?pid=`, AZ Medien telem1/tvo-online hosts)
