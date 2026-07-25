@@ -63,11 +63,13 @@ decode DATERANGE SCTE-35 payloads.
 Recognition rules:
 
 - the raw playlist line must begin at byte zero with exact `#EXT-X-DATERANGE:`;
-- leading whitespace before `#` is a rejected pseudo-tag and is ignored;
+- leading whitespace before `#` is a rejected pseudo-tag and is ignored (the line
+  does not participate in SCTE-35 processing);
 - trailing ASCII spaces or tabs on an otherwise exact line are ignored;
 - attribute lists use the strict HLS parser with duplicate-attribute rejection;
 - a non-empty bounded `ID` is required when `SCTE35-OUT`, `SCTE35-IN`, or
-  `SCTE35-CMD` is present;
+  `SCTE35-CMD` is present; an explicitly present but empty directional value
+  fails closed;
 - only exact uppercase `SCTE35-OUT`, `SCTE35-IN`, and `SCTE35-CMD` names are
   inspected; ordinary dateranges without those attributes remain ignored.
 
@@ -86,6 +88,7 @@ within an explicit decoded-size bound. Each value decodes to one complete
   packets, invalid CRC, or oversized payloads fail closed as invalid playlists.
 
 Fixture hex payloads are generated deterministically from explicit SCTE-35 bit
-layouts (program-splice and component-splice `splice_insert`, timed
-`splice_insert`, `time_signal`, and negative cases) with MPEG-2 CRC-32. No
-network capture or Python runtime is used.
+layouts (program-splice and component-splice `splice_insert` with global
+`splice_immediate_flag`, timed `splice_insert`, component `break_duration`,
+`time_signal`, and negative cases) with MPEG-2 CRC-32. No network capture or
+Python runtime is used.

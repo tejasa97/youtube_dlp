@@ -22,8 +22,14 @@ func TestValidateSCTE35DirectionSpliceInsertAndTimeSignal(t *testing.T) {
 	if _, err := validateSCTE35Direction(testSCTE35OutWithDuration, scte35DirectionOut); err != nil {
 		t.Fatalf("OUT duration splice_insert: %v", err)
 	}
-	if _, err := validateSCTE35Direction(testSCTE35ComponentSplice, scte35DirectionOut); err != nil {
-		t.Fatalf("component splice_insert: %v", err)
+	if _, err := validateSCTE35Direction(testSCTE35ComponentImmediate, scte35DirectionOut); err != nil {
+		t.Fatalf("component immediate splice_insert: %v", err)
+	}
+	if _, err := validateSCTE35Direction(testSCTE35ComponentTimed, scte35DirectionOut); err != nil {
+		t.Fatalf("component timed splice_insert: %v", err)
+	}
+	if _, err := validateSCTE35Direction(testSCTE35ComponentDuration, scte35DirectionOut); err != nil {
+		t.Fatalf("component duration splice_insert: %v", err)
 	}
 	if _, err := validateSCTE35Direction(testSCTE35TimeSignal, scte35DirectionOut); err != nil {
 		t.Fatalf("time_signal OUT: %v", err)
@@ -63,6 +69,10 @@ func TestValidateSCTE35RejectsMalformedPayloads(t *testing.T) {
 		{"out_payload_in_network", testSCTE35InImmediate, scte35DirectionOut},
 		{"in_payload_out_network", testSCTE35OutImmediate, scte35DirectionIn},
 		{"oversized_payload", oversized, scte35DirectionOut},
+		{"missing_descriptor_loop", testSCTE35MissingDescriptorLoop, scte35DirectionOut},
+		{"bad_section_syntax", testSCTE35BadSectionSyntax, scte35DirectionOut},
+		{"bad_private_indicator", testSCTE35BadPrivateIndicator, scte35DirectionOut},
+		{"bad_section_reserved", testSCTE35BadSectionReserved, scte35DirectionOut},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
@@ -101,6 +111,16 @@ func TestApplyDaterangeSCTE35GrammarAndAmbiguity(t *testing.T) {
 	_, _, handled, err = applyDaterangeSCTE35("#EXT-X-DATERANGE:ID=ad1,scte35-out=" + testSCTE35OutImmediate)
 	if err != nil || !handled {
 		t.Fatalf("lowercase attribute ignored without error: err=%v handled=%v", err, handled)
+	}
+	for _, line := range []string{
+		"#EXT-X-DATERANGE:ID=ad1,SCTE35-OUT=",
+		"#EXT-X-DATERANGE:ID=ad1,SCTE35-IN=",
+		"#EXT-X-DATERANGE:ID=ad1,SCTE35-CMD=",
+	} {
+		_, _, handled, err = applyDaterangeSCTE35(line)
+		if err == nil || !handled {
+			t.Fatalf("empty directional attribute %q err=%v handled=%v", line, err, handled)
+		}
 	}
 }
 
@@ -150,6 +170,7 @@ func TestParseDaterangeSCTE35RejectsInvalidLines(t *testing.T) {
 		"#EXTM3U\n#EXT-X-DATERANGE:ID=x,SCTE35-OUT=" + testSCTE35OutImmediate + ",SCTE35-IN=" + testSCTE35InImmediate + "\n#EXTINF:1,\nseg\n",
 		"#EXTM3U\n#EXT-X-DATERANGE:ID=x,SCTE35-CMD=" + testSCTE35TimeSignal + "\n#EXTINF:1,\nseg\n",
 		"#EXTM3U\n#EXT-X-DATERANGE:ID=x,SCTE35-OUT=" + testSCTE35InImmediate + "\n#EXTINF:1,\nseg\n",
+		"#EXTM3U\n#EXT-X-DATERANGE:ID=x,SCTE35-OUT=\n#EXTINF:1,\nseg\n",
 	}
 	for index, input := range invalid {
 		if _, err := Parse("https://example.invalid/bad.m3u8", []byte(input)); !errors.Is(err, ErrInvalidPlaylist) {
