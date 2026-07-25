@@ -29,7 +29,6 @@ var (
 	brightcoveDigitsID   = regexp.MustCompile(`^[0-9]{1,32}$`)
 	brightcoveRefOrDigit = regexp.MustCompile(`^(?:[0-9]{1,32}|ref:[A-Za-z0-9_.-]{1,256})$`)
 	pgaTourVideoPath     = regexp.MustCompile(`(?i)^/video/[A-Za-z0-9_-]{1,128}/(T)?([0-9]{1,32})(?:/[A-Za-z0-9_-]{1,256})?/?$`)
-	pgaTourSlug          = regexp.MustCompile(`^[A-Za-z0-9_-]{1,256}$`)
 	nineNewsPath         = regexp.MustCompile(`(?i)^/(?:[A-Za-z0-9_-]+/){2,3}([A-Za-z0-9_-]{1,256})/?$`)
 	nineNowPath          = regexp.MustCompile(`(?i)^/(?:[^/]+/){2}((clip|episode)-[A-Za-z0-9_-]{1,256})/?$`)
 	netAppUUIDPath       = regexp.MustCompile(`(?i)^/video-detail/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:/.*)?$`)
