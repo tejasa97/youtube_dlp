@@ -22,6 +22,71 @@ func TestEntryObjectMatchesURLResultShape(t *testing.T) {
 	}
 }
 
+func TestEntryObjectOptionalMetadataPresenceAndZeros(t *testing.T) {
+	t.Parallel()
+	base := Entry{URL: "https://example.test/video", ExtractorKey: "Example", ID: "one", Title: "One", Transparent: true}
+	baseJSON, err := value.ObjectValue(base.Object()).MarshalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantBase := `{"_type":"url_transparent","url":"https://example.test/video","ie_key":"Example","id":"one","title":"One"}`
+	if string(baseJSON) != wantBase {
+		t.Fatalf("absent soft fields changed base shape: %s", baseJSON)
+	}
+
+	withZeros := base
+	withZeros.Thumbnail = "https://static-cdn.example.test/thumb.jpg"
+	withZeros.Duration = 0
+	withZeros.HasDuration = true
+	withZeros.Timestamp = 0
+	withZeros.HasTimestamp = true
+	withZeros.ViewCount = 0
+	withZeros.HasViewCount = true
+	withZeros.Language = "en"
+	zeroJSON, err := value.ObjectValue(withZeros.Object()).MarshalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantZeros := `{"_type":"url_transparent","url":"https://example.test/video","ie_key":"Example","id":"one","title":"One","thumbnail":"https://static-cdn.example.test/thumb.jpg","duration":0,"timestamp":0,"view_count":0,"language":"en"}`
+	if string(zeroJSON) != wantZeros {
+		t.Fatalf("zero metadata JSON = %s", zeroJSON)
+	}
+
+	partial := base
+	partial.HasDuration = true
+	partial.Duration = 12.5
+	partialJSON, err := value.ObjectValue(partial.Object()).MarshalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPartial := `{"_type":"url_transparent","url":"https://example.test/video","ie_key":"Example","id":"one","title":"One","duration":12.5}`
+	if string(partialJSON) != wantPartial {
+		t.Fatalf("partial metadata JSON = %s", partialJSON)
+	}
+
+	object := withZeros.Object()
+	if _, ok := object.Lookup("thumbnail").StringValue(); !ok {
+		t.Fatal("missing thumbnail")
+	}
+	if duration, ok := object.Lookup("duration").Float(); !ok || duration != 0 {
+		t.Fatalf("duration = %v, %t", duration, ok)
+	}
+	if timestamp, ok := object.Lookup("timestamp").Int(); !ok || timestamp != 0 {
+		t.Fatalf("timestamp = %v, %t", timestamp, ok)
+	}
+	if views, ok := object.Lookup("view_count").Int(); !ok || views != 0 {
+		t.Fatalf("view_count = %v, %t", views, ok)
+	}
+	if language, ok := object.Lookup("language").StringValue(); !ok || language != "en" {
+		t.Fatalf("language = %q, %t", language, ok)
+	}
+	if !base.Object().Lookup("duration").IsMissing() || !base.Object().Lookup("timestamp").IsMissing() ||
+		!base.Object().Lookup("view_count").IsMissing() || !base.Object().Lookup("thumbnail").IsMissing() ||
+		!base.Object().Lookup("language").IsMissing() {
+		t.Fatal("absent fields were serialized")
+	}
+}
+
 func TestURLResultRetainsLazyHandoff(t *testing.T) {
 	entry := Entry{URL: "https://example.test/video", ExtractorKey: "Example", Transparent: true}
 	result, err := URLResult(entry)
