@@ -41,6 +41,20 @@ func RequestJSONWithoutCookies(ctx context.Context, transport Transport, method,
 	return requestJSON(ctx, isolated.DoWithoutCookies, method, rawURL, body, headers, target)
 }
 
+// RequestJSONWithScopedAuthorizationNoRedirect performs a bounded JSON request
+// with an extractor-generated Authorization header and no ambient credentials,
+// cookies, cookie persistence, or redirects.
+func RequestJSONWithScopedAuthorizationNoRedirect(ctx context.Context, transport Transport, method, rawURL string, body []byte, headers http.Header, target any) error {
+	if transport == nil {
+		return errors.New("invalid JSON request")
+	}
+	isolated, ok := transport.(ScopedAuthorizationNoRedirectTransport)
+	if !ok {
+		return ErrTransportIsolation
+	}
+	return requestJSON(ctx, isolated.DoWithScopedAuthorizationNoRedirect, method, rawURL, body, headers, target)
+}
+
 func requestJSON(ctx context.Context, execute func(context.Context, *http.Request) (*http.Response, error), method, rawURL string, body []byte, headers http.Header, target any) error {
 	if execute == nil || target == nil {
 		return errors.New("invalid JSON request")

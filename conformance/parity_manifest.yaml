@@ -1472,7 +1472,7 @@ capabilities:
   - id: extractor.vimeo_pilot
     name: Vimeo manifest-heavy extraction pilot
     phase: 1
-    compatibility_target: Extract Vimeo progressive, HLS, DASH, and public player-config text tracks from numeric and contextual channel/group/album/showcase child-video URLs, plus bounded public channel, user, and group playlists, through protected webpage flows without Python.
+    compatibility_target: Extract Vimeo progressive, HLS, DASH, and public player-config text tracks from numeric and contextual channel/group/album/showcase child-video URLs, plus bounded public channel, user, group, and numeric album/showcase playlists, through protected flows without Python.
     status: compatible
     evidence:
       - internal/extractor.TestVimeoExtractsProgressiveHLSAndDASHWithProfile
@@ -1490,22 +1490,35 @@ capabilities:
       - internal/extractor.TestVimeoPlaylistBoundsCancellationAndSecretSafeErrors
       - internal/extractor.TestVimeoContextualVideoRoutesPreservePageAndReferer
       - internal/extractor.TestVimeoContextualVideoRoutingRejectsUnsafeAndAmbiguousInputs
+      - internal/extractor.TestVimeoAlbumRoutesAndUnsafeRejection
+      - internal/extractor.TestVimeoAlbumPlaylistIsLazyReusableAndFiltersHostileRows
+      - internal/extractor.TestVimeoAlbumMultiPageOrderDedupeAndHTTP400End
+      - internal/extractor.TestVimeoAlbumRefreshesJWTForDelayedReusableIteration
+      - internal/extractor.TestVimeoAlbumRefreshesJWTOnceAfterAuthorizationRejection
+      - internal/extractor.TestVimeoAlbumFailuresCapabilityAndCancellation
+      - internal/network.TestDoWithScopedAuthorizationNoRedirectKeepsOnlyExplicitAuthorization
+      - internal/network.TestDoWithScopedAuthorizationNoRedirectDoesNotAdoptDefaultAuthorization
+      - internal/network.TestDoWithScopedAuthorizationNoRedirectRefusesRedirects
+      - internal/network.TestDoWithScopedAuthorizationNoRedirectRedactsErrorsAndCancellation
       - internal/extractor.FuzzParseVimeoConfig
       - internal/extractor.FuzzNormalizeVimeoTextTrackURL
       - internal/extractor.FuzzNormalizeVimeoConfigURL
       - internal/extractor.FuzzParseVimeoPlaylistPage
       - internal/extractor.FuzzClassifyVimeoPlaylistURL
       - internal/extractor.FuzzClassifyVimeoContextVideoURL
+      - internal/extractor.FuzzClassifyVimeoAlbumURL
+      - internal/extractor.FuzzVimeoAlbumVideoEntry
       - conformance/extractors/vimeo/PROVENANCE.md
       - docs/VIMEO_SUBTITLES_EVIDENCE.md
       - docs/VIMEO_CHANNEL_PLAYLISTS_EVIDENCE.md
       - docs/VIMEO_CONTEXTUAL_VIDEOS_EVIDENCE.md
+      - docs/VIMEO_ALBUM_PLAYLISTS_EVIDENCE.md
     owner: extractors
     depends_on:
       - network.impersonation
       - protocol.hls
       - protocol.dash
-    known_deviation: Compatibility is scoped to the pinned public-video/player-config corpus, including exact channel/group/album/showcase child-video routes and manual VTT text tracks on the exact HTTPS player origin, plus public HTML channel/user/group playlist roots. Contextual child-video pages and player-config requests preserve a canonical token-free contextual Referer; playlist pages use credential-isolated no-redirect Chrome-profile reads and locally constructed pagination URLs. Password submission, showcase/album enumeration, likes/watch-later, unlisted hashes, DRM, texttracks API and manifest subtitle fallbacks, arbitrary contextual subpaths, and live archive variants remain broader Vimeo work.
+    known_deviation: Compatibility is scoped to the pinned public-video/player-config corpus, including exact channel/group/album/showcase child-video routes and manual VTT text tracks on the exact HTTPS player origin, public HTML channel/user/group playlist roots, and anonymous positive-numeric public album/showcase roots. Contextual child-video pages and player-config requests preserve a canonical token-free contextual Referer; HTML playlist pages use credential-isolated no-redirect Chrome-profile reads; album API pages use an ephemeral scoped application JWT with no ambient credentials or redirects. Password submission, non-numeric showcase slugs, embed/referrer album forms, likes/watch-later, unlisted hashes, DRM, texttracks API and manifest subtitle fallbacks, arbitrary contextual subpaths, and live archive variants remain broader Vimeo work. Live album API compatibility is not claimed from synthetic fixtures alone.
 
   - id: extractor.tiktok_pilot
     name: TikTok impersonation and anti-bot pilot
