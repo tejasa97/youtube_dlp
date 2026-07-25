@@ -1,0 +1,23 @@
+[
+  {
+    "data": {
+      "user": {
+        "id": "",
+        "clips": {
+          "edges": [
+            {
+              "__typename": "ClipEdge",
+              "cursor": "decoy",
+              "node": {
+                "__typename": "Clip",
+                "id": "4999999999",
+                "url": "https://clips.twitch.tv/DecoyFixtureSlug",
+                "title": "Decoy clip"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]
