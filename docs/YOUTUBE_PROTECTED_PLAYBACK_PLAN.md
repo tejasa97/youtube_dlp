@@ -5,8 +5,9 @@ Wave 3, including bounded sidecar conversion, are implemented and locally
 verified. Wave 2 finite-VOD SABR resume/recovery/refresh is implemented; live
 SABR and STREAM_PROTECTION recovery remain fail-closed
 (`docs/YOUTUBE_PROTOCOL_BLOCKERS.md`). Wave 3 now includes bounded anonymous
-`web_safari`/`ios`/`mweb` recovery plus authenticated `tv_downgraded` and
-premium-gated `web_creator` profiles with exact identity isolation. Wave 4 now
+`web_safari`/`ios`/`mweb` recovery plus authenticated `tv_downgraded`,
+`web_safari`, and `web_creator` profiles (auth-required; Premium only changes
+GVS PO-token requirements) with exact identity isolation. Wave 4 now
 includes a shared browse/search renderer walker, channel-advertised custom
 tabs, channel-local search, broader general and Music search result families,
 show renderers, availability badges, playlist pre-fetch counts, a dedicated
@@ -39,7 +40,8 @@ Implementation status: caption extraction, translation, protected-token
 placement, native sidecar selection/download, bounded CLI listing,
 post-download conversion to SRT, ASS, or WebVTT, bounded multi-track embedding,
 and authenticated WEB player format recovery are complete. Broader
-authenticated Innertube profiles (`tv_downgraded`, premium-gated `web_creator`)
+authenticated Innertube profiles (`tv_downgraded`, auth `web_safari`,
+`web_creator` with GVS premium exception only — not Premium eligibility gating)
 and anonymous `web_safari`/`ios`/`mweb` recovery are implemented with exact
 identity isolation.
 

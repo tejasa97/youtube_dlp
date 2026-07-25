@@ -14,9 +14,13 @@ ordering and repeated occurrences. Hashtag tiles emit registered
 
 Video URL results may carry attributable `availability` labels
 (`public`/`private`/`premium`/`subscriber_only`/`unlisted`) from badge
-style/icon/label evidence. Playlist and channel/hashtag playlist Info may carry
-pre-fetch `playlist_count` / `view_count` when sidebar/header count text is
-parseable.
+style/icon/label evidence with order-independent precedence
+(`private > premium > subscriber_only > unlisted > public`). Unknown badges
+are ignored; badge walk / parser-limit errors omit availability rather than
+emitting a partial positive claim. Playlist and channel/hashtag playlist Info
+may carry pre-fetch `playlist_count` / `view_count` when sidebar/header count
+text is a single attributable integer or `k`/`m`/`b`/`kk` token (junk-separated
+digits, bare decimals, and overflow fail closed).
 
 ## Custom tabs and channel search
 

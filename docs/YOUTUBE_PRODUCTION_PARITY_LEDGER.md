@@ -40,10 +40,10 @@ Music browse success; live canary network execution.
 | Component | Behavior | Budgets | Failure |
 |-----------|----------|---------|---------|
 | Anonymous client rotator | android → android_vr → web_safari → ios → mweb | ≤8 | typed; cancel aborts |
-| Authenticated client rotator | WEB → tv_downgraded → premium web_creator | ≤8 | no anon downgrade |
+| Authenticated client rotator | WEB → (premium: tv_downgraded→web_creator; else tv_downgraded→web_safari→web_creator); GVS fail-closed | ≤8 | no anon downgrade; no Premium eligibility gate |
 | Renderer show/hashtag | shared walker + `youtube_hashtag` | existing depth/entry limits | omit hostile |
-| Playlist counts | sidebar/header parse into Info | bounded text | omit if unparseable |
-| Availability badges | Entry.availability from badges | badge walk bound | omit unknown |
+| Playlist counts | sidebar/header parse into Info | bounded deterministic token | omit if unparseable |
+| Availability badges | Entry.availability order-independent precedence | badge walk bound | omit unknown/limit errors |
 | STREAM_PROTECTION / live SABR | fail-closed | n/a | unsupported |
 
 ## Shared-file policy

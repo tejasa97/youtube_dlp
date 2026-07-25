@@ -3,6 +3,7 @@ package extractor
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/url"
 	"strconv"
 	"strings"
@@ -133,20 +134,23 @@ func rendererTextValue(item value.Value) string {
 }
 
 // youtubeRendererAvailability maps attributable badge styles/labels onto
-// yt-dlp availability strings. Unknown badges are omitted.
+// yt-dlp-style availability strings with order-independent precedence:
+// private > premium > subscriber_only > unlisted > public.
+// Unknown badges are ignored. Parser-limit / traversal errors omit availability
+// rather than emitting a partial positive claim.
 func youtubeRendererAvailability(renderer *value.Object) string {
 	badges, ok := renderer.Lookup("badges").ListValue()
 	if !ok {
 		return ""
 	}
-	availability := ""
+	var private, premium, subscriber, unlisted, public bool
 	for _, item := range badges {
 		object, ok := item.Object()
 		if !ok {
 			continue
 		}
 		nodes := 0
-		_ = walkOrderedJSON(value.ObjectValue(object), 0, &nodes, func(key string, badge *value.Object) {
+		err := walkOrderedJSON(value.ObjectValue(object), 0, &nodes, func(key string, badge *value.Object) {
 			if !strings.HasSuffix(key, "BadgeRenderer") && key != "metadataBadgeRenderer" {
 				return
 			}
@@ -155,27 +159,43 @@ func youtubeRendererAvailability(renderer *value.Object) string {
 			icon := objectString(badge, "icon", "iconType")
 			switch {
 			case icon == "PRIVACY_PUBLIC" || label == "public":
-				if availability == "" {
-					availability = "public"
-				}
+				public = true
 			case icon == "PRIVACY_PRIVATE" || label == "private" || style == "BADGE_STYLE_TYPE_PRIVATE":
-				availability = "private"
+				private = true
 			case icon == "PRIVACY_UNLISTED" || label == "unlisted":
-				if availability != "private" && availability != "premium" && availability != "subscriber_only" {
-					availability = "unlisted"
-				}
+				unlisted = true
 			case style == "BADGE_STYLE_TYPE_PREMIUM" || label == "premium":
-				availability = "premium"
+				premium = true
 			case style == "BADGE_STYLE_TYPE_MEMBERS_ONLY" || label == "members only" || label == "members-only":
-				availability = "subscriber_only"
+				subscriber = true
 			}
 		})
+		if err != nil {
+			return ""
+		}
 	}
-	return availability
+	switch {
+	case private:
+		return "private"
+	case premium:
+		return "premium"
+	case subscriber:
+		return "subscriber_only"
+	case unlisted:
+		return "unlisted"
+	case public:
+		return "public"
+	default:
+		return ""
+	}
 }
 
 const youtubeMaxCountTextBytes = 64
 
+// youtubeParseCountText parses a single attributable view/video count token.
+// It accepts plain integers (with grouping commas) or one decimal with an
+// exact k/m/b/kk suffix, rejects junk-separated digits and bare decimals, and
+// fails closed on multiplication/decimal overflow.
 func youtubeParseCountText(raw string) (int64, bool) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || len(raw) > youtubeMaxCountTextBytes || strings.ContainsRune(raw, 0) {
@@ -185,47 +205,114 @@ func youtubeParseCountText(raw string) (int64, bool) {
 	if strings.Contains(lower, "no views") || strings.Contains(lower, "no videos") {
 		return 0, true
 	}
-	var letters []rune
-	for _, r := range lower {
-		switch {
-		case r >= '0' && r <= '9':
-			letters = append(letters, r)
-		case r == ',' || r == ' ' || r == '\u00a0':
-			continue
-		case r == '.' || r == 'k' || r == 'm' || r == 'b':
-			letters = append(letters, r)
-		default:
-			if len(letters) > 0 {
-				break
-			}
-		}
+	runes := []rune(lower)
+	start := 0
+	for start < len(runes) && (runes[start] < '0' || runes[start] > '9') {
+		start++
 	}
-	if len(letters) == 0 {
+	if start == len(runes) {
 		return 0, false
 	}
-	token := string(letters)
-	multiplier := int64(1)
-	switch {
-	case strings.HasSuffix(token, "k"):
-		multiplier, token = 1_000, strings.TrimSuffix(token, "k")
-	case strings.HasSuffix(token, "m"):
-		multiplier, token = 1_000_000, strings.TrimSuffix(token, "m")
-	case strings.HasSuffix(token, "b"):
-		multiplier, token = 1_000_000_000, strings.TrimSuffix(token, "b")
+	// yt-dlp parse_count strips a leading non-digit run only when followed by
+	// whitespace before the first digit (`^[^\d]+\s`).
+	if start > 0 {
+		if runes[start-1] != ' ' && runes[start-1] != '\t' && runes[start-1] != '\u00a0' {
+			return 0, false
+		}
 	}
-	if strings.Contains(token, ".") {
-		parts := strings.SplitN(token, ".", 2)
-		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+	i := start
+	var intDigits []rune
+	var fracDigits []rune
+	sawDot := false
+	for i < len(runes) {
+		r := runes[i]
+		switch {
+		case r >= '0' && r <= '9':
+			if sawDot {
+				if len(fracDigits) >= 3 {
+					return 0, false
+				}
+				fracDigits = append(fracDigits, r)
+			} else {
+				if len(intDigits) >= 18 {
+					return 0, false
+				}
+				intDigits = append(intDigits, r)
+			}
+			i++
+		case r == ',':
+			if sawDot || len(intDigits) == 0 {
+				return 0, false
+			}
+			i++
+		case r == '.':
+			if sawDot || len(intDigits) == 0 {
+				return 0, false
+			}
+			sawDot = true
+			i++
+		default:
+			goto afterNumber
+		}
+	}
+afterNumber:
+	if len(intDigits) == 0 || (sawDot && len(fracDigits) == 0) {
+		return 0, false
+	}
+	for i < len(runes) && (runes[i] == ' ' || runes[i] == '\t' || runes[i] == '\u00a0') {
+		i++
+	}
+	multiplier := int64(1)
+	if i < len(runes) {
+		switch {
+		case i+1 < len(runes) && runes[i] == 'k' && runes[i+1] == 'k':
+			multiplier = 1_000_000
+			i += 2
+		case runes[i] == 'k':
+			multiplier = 1_000
+			i++
+		case runes[i] == 'm':
+			multiplier = 1_000_000
+			i++
+		case runes[i] == 'b':
+			multiplier = 1_000_000_000
+			i++
+		default:
+			if sawDot {
+				return 0, false
+			}
+		}
+		if multiplier != 1 {
+			if i < len(runes) {
+				r := runes[i]
+				if r >= 'a' && r <= 'z' {
+					return 0, false
+				}
+			}
+		}
+	} else if sawDot {
+		return 0, false
+	}
+	for i < len(runes) && (runes[i] == ' ' || runes[i] == '\t' || runes[i] == '\u00a0') {
+		i++
+	}
+	for i < len(runes) {
+		r := runes[i]
+		if r >= '0' && r <= '9' {
 			return 0, false
 		}
-		whole, err := strconv.ParseInt(parts[0], 10, 64)
-		if err != nil || whole < 0 {
-			return 0, false
+		if r >= 'a' && r <= 'z' {
+			i++
+			continue
 		}
-		frac := parts[1]
-		if len(frac) > 3 {
-			frac = frac[:3]
-		}
+		return 0, false
+	}
+	whole, err := strconv.ParseInt(string(intDigits), 10, 64)
+	if err != nil || whole < 0 {
+		return 0, false
+	}
+	if sawDot {
+		frac := string(fracDigits)
 		for len(frac) < 3 {
 			frac += "0"
 		}
@@ -233,25 +320,25 @@ func youtubeParseCountText(raw string) (int64, bool) {
 		if err != nil {
 			return 0, false
 		}
-		base := whole*1000 + fraction
-		if multiplier == 1 {
-			return whole, true
-		}
-		value := base * (multiplier / 1000)
-		if value < 0 {
+		if whole > (math.MaxInt64-fraction)/1000 {
 			return 0, false
 		}
-		return value, true
+		base := whole*1000 + fraction
+		scale := multiplier / 1000
+		if scale <= 0 {
+			return 0, false
+		}
+		if base > math.MaxInt64/scale {
+			return 0, false
+		}
+		return base * scale, true
 	}
-	whole, err := strconv.ParseInt(token, 10, 64)
-	if err != nil || whole < 0 {
-		return 0, false
+	if multiplier != 1 {
+		if whole > math.MaxInt64/multiplier {
+			return 0, false
+		}
 	}
-	value := whole * multiplier
-	if value < 0 {
-		return 0, false
-	}
-	return value, true
+	return whole * multiplier, true
 }
 
 func youtubeRendererVideoEntry(renderer *value.Object) (Entry, bool) {

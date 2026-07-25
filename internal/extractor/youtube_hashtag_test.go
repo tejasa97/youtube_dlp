@@ -3,12 +3,15 @@ package extractor
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
 func TestYouTubeShowRendererEmitsPlaylist(t *testing.T) {
@@ -30,13 +33,14 @@ func TestYouTubeRendererAvailabilityBadges(t *testing.T) {
 		{"videoRenderer":{"videoId":"aaaaaaaaaaa","badges":[{"metadataBadgeRenderer":{"style":"BADGE_STYLE_TYPE_MEMBERS_ONLY","label":{"simpleText":"Members only"}}}]}},
 		{"videoRenderer":{"videoId":"bbbbbbbbbbb","badges":[{"metadataBadgeRenderer":{"icon":{"iconType":"PRIVACY_PRIVATE"}}}]}},
 		{"videoRenderer":{"videoId":"ccccccccccc","badges":[{"metadataBadgeRenderer":{"style":"BADGE_STYLE_TYPE_PREMIUM"}}]}},
-		{"videoRenderer":{"videoId":"ddddddddddd","badges":[{"metadataBadgeRenderer":{"icon":{"iconType":"PRIVACY_UNLISTED"}}}]}}
+		{"videoRenderer":{"videoId":"ddddddddddd","badges":[{"metadataBadgeRenderer":{"icon":{"iconType":"PRIVACY_UNLISTED"}}}]}},
+		{"videoRenderer":{"videoId":"eeeeeeeeeee","badges":[{"metadataBadgeRenderer":{"icon":{"iconType":"PRIVACY_PUBLIC"}}}]}}
 	]}}]}}}}]}}}`)
 	page, err := parseYouTubeRendererData(data, youtubeRendererPolicy{kinds: youtubeRendererVideo})
-	if err != nil || len(page.entries) != 4 {
+	if err != nil || len(page.entries) != 5 {
 		t.Fatalf("page=%#v err=%v", page, err)
 	}
-	want := []string{"subscriber_only", "private", "premium", "unlisted"}
+	want := []string{"subscriber_only", "private", "premium", "unlisted", "public"}
 	for i, availability := range want {
 		if page.entries[i].Availability != availability {
 			t.Fatalf("entry[%d].Availability=%q want %q", i, page.entries[i].Availability, availability)
@@ -45,6 +49,75 @@ func TestYouTubeRendererAvailabilityBadges(t *testing.T) {
 		if got, _ := object.Lookup("availability").StringValue(); got != availability {
 			t.Fatalf("object availability=%q", got)
 		}
+	}
+}
+
+func TestYouTubeRendererAvailabilityPrecedenceIsOrderIndependent(t *testing.T) {
+	cases := []struct {
+		name   string
+		badges string
+		want   string
+	}{
+		{
+			name:   "public then private",
+			badges: `[{"metadataBadgeRenderer":{"icon":{"iconType":"PRIVACY_PUBLIC"}}},{"metadataBadgeRenderer":{"icon":{"iconType":"PRIVACY_PRIVATE"}}}]`,
+			want:   "private",
+		},
+		{
+			name:   "private then public",
+			badges: `[{"metadataBadgeRenderer":{"icon":{"iconType":"PRIVACY_PRIVATE"}}},{"metadataBadgeRenderer":{"icon":{"iconType":"PRIVACY_PUBLIC"}}}]`,
+			want:   "private",
+		},
+		{
+			name:   "unlisted then premium then subscriber",
+			badges: `[{"metadataBadgeRenderer":{"icon":{"iconType":"PRIVACY_UNLISTED"}}},{"metadataBadgeRenderer":{"style":"BADGE_STYLE_TYPE_PREMIUM"}},{"metadataBadgeRenderer":{"style":"BADGE_STYLE_TYPE_MEMBERS_ONLY"}}]`,
+			want:   "premium",
+		},
+		{
+			name:   "subscriber then unlisted",
+			badges: `[{"metadataBadgeRenderer":{"style":"BADGE_STYLE_TYPE_MEMBERS_ONLY"}},{"metadataBadgeRenderer":{"icon":{"iconType":"PRIVACY_UNLISTED"}}}]`,
+			want:   "subscriber_only",
+		},
+		{
+			name:   "unknown ignored with unlisted",
+			badges: `[{"metadataBadgeRenderer":{"style":"BADGE_STYLE_TYPE_UNKNOWN","label":{"simpleText":"New"}}},{"metadataBadgeRenderer":{"icon":{"iconType":"PRIVACY_UNLISTED"}}}]`,
+			want:   "unlisted",
+		},
+		{
+			name:   "conflicting private wins over premium",
+			badges: `[{"metadataBadgeRenderer":{"style":"BADGE_STYLE_TYPE_PREMIUM"}},{"metadataBadgeRenderer":{"label":{"simpleText":"private"}}}]`,
+			want:   "private",
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			data := []byte(`{"contents":{"twoColumnBrowseResultsRenderer":{"tabs":[{"tabRenderer":{"selected":true,"content":{"sectionListRenderer":{"contents":[{"itemSectionRenderer":{"contents":[
+		{"videoRenderer":{"videoId":"aaaaaaaaaaa","badges":` + test.badges + `}}
+	]}}]}}}}]}}}`)
+			page, err := parseYouTubeRendererData(data, youtubeRendererPolicy{kinds: youtubeRendererVideo})
+			if err != nil || len(page.entries) != 1 {
+				t.Fatalf("page=%#v err=%v", page, err)
+			}
+			if page.entries[0].Availability != test.want {
+				t.Fatalf("Availability=%q want %q", page.entries[0].Availability, test.want)
+			}
+		})
+	}
+}
+
+func TestYouTubeRendererAvailabilityOmitsOnParserLimit(t *testing.T) {
+	deep := strings.Repeat(`{"nested":`, youtubeMaxJSONDepth+2) + `{"metadataBadgeRenderer":{"icon":{"iconType":"PRIVACY_PRIVATE"}}}` + strings.Repeat(`}`, youtubeMaxJSONDepth+2)
+	raw := []byte(`{"videoId":"aaaaaaaaaaa","badges":[` + deep + `]}`)
+	var root value.Value
+	if err := json.Unmarshal(raw, &root); err != nil {
+		t.Fatal(err)
+	}
+	object, ok := root.Object()
+	if !ok {
+		t.Fatal("expected object")
+	}
+	if got := youtubeRendererAvailability(object); got != "" {
+		t.Fatalf("parser-limit must not yield positive availability, got %q", got)
 	}
 }
 
@@ -77,9 +150,21 @@ func TestYouTubeParseCountText(t *testing.T) {
 		{"42 videos", 42, true},
 		{"1,234 views", 1234, true},
 		{"1.5K views", 1500, true},
+		{"1.5M", 1_500_000, true},
+		{"2kk", 2_000_000, true},
 		{"no views", 0, true},
+		{"Views: 99", 99, true},
 		{"", 0, false},
 		{strings.Repeat("9", 80), 0, false},
+		{"1 foo 2", 0, false},
+		{"1.5", 0, false},
+		{"1.5x", 0, false},
+		{"12kfoo", 0, false},
+		{"1.5B views", 1_500_000_000, true},
+		{"١٢٣", 0, false},
+		{"1 000", 0, false},
+		{"9223372036855B", 0, false},
+		{"9.999B", 9_999_000_000, true},
 	}
 	for _, test := range cases {
 		got, ok := youtubeParseCountText(test.raw)
@@ -87,6 +172,24 @@ func TestYouTubeParseCountText(t *testing.T) {
 			t.Fatalf("%q => %d,%t want %d,%t", test.raw, got, ok, test.want, test.ok)
 		}
 	}
+}
+
+func FuzzYouTubeParseCountText(f *testing.F) {
+	for _, seed := range []string{
+		"42 videos", "1.5K views", "1 foo 2", "1.5", "١٢٣", "9.999B",
+		"no views", strings.Repeat("9", 40) + "k", "1m\x00", "Views: 1,234",
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, raw string) {
+		got, ok := youtubeParseCountText(raw)
+		if !ok {
+			return
+		}
+		if got < 0 {
+			t.Fatalf("negative count %d for %q", got, raw)
+		}
+	})
 }
 
 func TestYouTubeHashtagExtractsLazyPlaylist(t *testing.T) {

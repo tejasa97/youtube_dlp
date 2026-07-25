@@ -197,18 +197,21 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 				player.ResponseContext.VisitorData,
 				player.ResponseContext.MainAppWebResponseContext.DataSyncID,
 				premium,
+				request.YouTubePOT,
 				time.Now,
 			)
 			if authErr != nil {
 				return Extraction{}, authErr
 			}
-			formatPlayers = append(formatPlayers, recovered...)
-			for _, recoveredPlayer := range recovered {
-				if playerPath == "" {
-					playerPath = recoveredPlayer.Assets.JS
+			// Selected authenticated candidates only — do not merge with the
+			// failed webpage player formats/SABR inventory.
+			formatPlayers = recovered
+			for i := range formatPlayers {
+				if formatPlayers[i].VideoDetails.Title == "" && player.VideoDetails.Title != "" {
+					formatPlayers[i].VideoDetails.Title = player.VideoDetails.Title
 				}
-				if player.VideoDetails.Title == "" {
-					player.VideoDetails = recoveredPlayer.VideoDetails
+				if playerPath == "" {
+					playerPath = formatPlayers[i].Assets.JS
 				}
 			}
 		} else {

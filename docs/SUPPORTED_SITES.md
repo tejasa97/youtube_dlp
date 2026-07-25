@@ -169,7 +169,9 @@ protected-playback workstream. The following are supported:
   retries, pinned duplicate handling, and explicit
   total/parent/reply/per-thread/depth limits;
 - adaptive video and audio formats recovered from the WEB player response and
-  the Android / Android VR format-recovery clients;
+  bounded anonymous Innertube clients (`android`, `android_vr`, `web_safari`,
+  `ios`, `mweb`) plus authenticated `tv_downgraded` / `web_safari` /
+  `web_creator` rotation (Premium changes GVS PO-token requirements only);
 - bounded finite reconstruction of retained post-live adaptive audio/video
   sequences, followed by the normal ffmpeg merge path; and
 - opt-in bounded active `--live-from-start` reconstruction with signed-URL
@@ -193,18 +195,20 @@ The following limitations are intentional and remain:
   Music pages, WEB client identity on Music browse, missing cookie isolation,
   album identity pivots, and albums without a canonical Music playlist identity
   fail closed;
-- hashtag tiles are validated and omitted until a dedicated hashtag extractor
-  exists, so default playlist expansion cannot fail on `/hashtag` routes;
-  shelf URL results remain emitted for flat listing without a dedicated route;
+- hashtag URL results are emitted through the registered `youtube_hashtag`
+  extractor for validated `/hashtag/<tag>` routes; shelf URL results remain
+  emitted for flat listing without a dedicated shelf route;
 - live-from-start and finite `post_live` DVR reconstruction use the documented
   segment/poll bounds and do not support external-downloader delegation or
   process-restart resume;
-- authenticated Innertube coverage remains limited: a logged-in watch page can
-  recover URL-bearing formats through one exact-origin WEB player request when
-  valid YouTube SID cookies and bounded WEB configuration are present. Opt-in
+- authenticated Innertube coverage is bounded: a logged-in watch page can
+  recover URL-bearing formats through the webpage WEB player and then
+  `tv_downgraded` / authenticated `web_safari` / `web_creator` (exact
+  `www.youtube.com` origin + SID; no anonymous downgrade; first successful
+  candidate wins; `web_creator` GVS tokens required unless Premium). Opt-in
   comments and browse/search continuations use the same account-bound,
-  redirect-disabled WEB session. Broader player-client rotation and direct
-  SABR/UMP are not supported;
+  redirect-disabled WEB session. Live/post-live SABR and
+  `STREAM_PROTECTION_STATUS` remain fail-closed;
 - comment extraction does not synthesize estimated timestamps or expose
   YouTube's approximate count before retrieval, and supports only the
   explicitly tested legacy and modern renderer families;

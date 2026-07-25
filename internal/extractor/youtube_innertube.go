@@ -30,7 +30,6 @@ type youtubeClientProfile struct {
 	UserAgent       string
 	Origin          string // empty => https://www.youtube.com
 	RequireAuth     bool
-	RequirePremium  bool
 	SupportsCookies bool
 	Context         map[string]any
 	GVSPolicy       youtubePOTPolicy
@@ -76,9 +75,6 @@ func (profile youtubeClientProfile) valid() bool {
 	}
 	if !youtubeSafeHeaderValue(profile.ClientName) || !youtubeSafeHeaderValue(profile.ClientID) ||
 		!youtubeSafeHeaderValue(profile.ClientVersion) || !youtubeSafeHeaderValue(profile.UserAgent) {
-		return false
-	}
-	if profile.RequirePremium && !profile.RequireAuth {
 		return false
 	}
 	clientID, err := strconv.ParseInt(profile.ClientID, 10, 32)
@@ -148,27 +144,58 @@ var youtubeAnonymousFormatRecoveryClients = []youtubeClientProfile{
 	},
 }
 
-// Authenticated format-recovery clients used after the webpage WEB retry.
-// Never mixed with anonymous recovery and never include WEB_REMIX.
-var youtubeAuthenticatedFormatRecoveryClients = []youtubeClientProfile{
-	{
+// Pinned authenticated Innertube profiles (aefce1ee INNERTUBE_CLIENTS).
+// web_creator has REQUIRE_AUTH only; Premium affects GVS PO-token policy, not
+// client eligibility. web_safari is used on the authenticated path with an
+// exact SID boundary (deliberate hardening vs cookie-only SUPPORTS_COOKIES).
+var (
+	youtubeTVDowngradedClient = youtubeClientProfile{
 		Name: "tv_downgraded", ClientName: "TVHTML5", ClientID: "7",
 		ClientVersion:   "5.20260707",
 		UserAgent:       "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version",
 		RequireAuth:     true,
 		SupportsCookies: true,
-	},
-	{
-		Name: "web_creator", ClientName: "WEB_CREATOR", ClientID: "62",
-		ClientVersion:   "1.20260708.06.00",
-		UserAgent:       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+	}
+	youtubeAuthenticatedWebSafariClient = youtubeClientProfile{
+		Name: "web_safari", ClientName: "WEB", ClientID: "1",
+		ClientVersion: "2.20260708.00.00",
+		UserAgent:     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.5 Safari/605.1.15,gzip(gfe)",
+		Context: map[string]any{
+			"userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.5 Safari/605.1.15,gzip(gfe)",
+		},
 		RequireAuth:     true,
-		RequirePremium:  true,
 		SupportsCookies: true,
 		GVSPolicy: youtubePOTPolicy{
 			Required: true, Recommended: true, NotRequiredForPremium: true,
 		},
-	},
+	}
+	youtubeWebCreatorClient = youtubeClientProfile{
+		Name: "web_creator", ClientName: "WEB_CREATOR", ClientID: "62",
+		ClientVersion:   "1.20260708.06.00",
+		UserAgent:       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+		RequireAuth:     true,
+		SupportsCookies: true,
+		GVSPolicy: youtubePOTPolicy{
+			Required: true, Recommended: true, NotRequiredForPremium: true,
+		},
+	}
+)
+
+// youtubeAuthenticatedFormatRecoveryClients returns the Innertube clients tried
+// after the webpage WEB player. Order reproduces yt-dlp defaults:
+//   - Premium: _DEFAULT_PREMIUM_CLIENTS = tv_downgraded, web_creator
+//   - Auth:    _DEFAULT_AUTHED_CLIENTS  = tv_downgraded, web_safari
+//     plus web_creator for age-verification / login-gated recovery (REQUIRE_AUTH,
+//     never silent Premium exclusion).
+func youtubeAuthenticatedFormatRecoveryClients(premium bool) []youtubeClientProfile {
+	if premium {
+		return []youtubeClientProfile{youtubeTVDowngradedClient, youtubeWebCreatorClient}
+	}
+	return []youtubeClientProfile{
+		youtubeTVDowngradedClient,
+		youtubeAuthenticatedWebSafariClient,
+		youtubeWebCreatorClient,
+	}
 }
 
 // Compatibility alias for older call sites/tests that referenced the anonymous list.
@@ -288,9 +315,6 @@ func recoverYouTubeFormatsWithProfiles(ctx context.Context, transport Transport,
 		if !profile.valid() || profile.RequireAuth {
 			continue
 		}
-		if profile.RequirePremium && !premium {
-			continue
-		}
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -360,8 +384,8 @@ func recoverYouTubeFormatsWithProfiles(ctx context.Context, transport Transport,
 
 // recoverAuthenticatedYouTubeFormats tries the webpage WEB player, then bounded
 // authenticated profiles. It never falls back to anonymous clients. The first
-// successful format-bearing candidate wins (deterministic selection).
-func recoverAuthenticatedYouTubeFormats(ctx context.Context, transport Transport, videoID string, pageConfig youtubePageConfig, responseVisitor, responseDataSync string, premium bool, now func() time.Time) ([]youtubePlayerResponse, error) {
+// successful format-bearing candidate wins (deterministic selection; no merge).
+func recoverAuthenticatedYouTubeFormats(ctx context.Context, transport Transport, videoID string, pageConfig youtubePageConfig, responseVisitor, responseDataSync string, premium bool, tokens *youtubepot.Director, now func() time.Time) ([]youtubePlayerResponse, error) {
 	if now == nil {
 		return nil, ErrAuthentication
 	}
@@ -387,14 +411,11 @@ func recoverAuthenticatedYouTubeFormats(ctx context.Context, transport Transport
 
 	attempts := 1 // webpage WEB counts toward the budget
 	session := youtubeAuthSessionFromWEB(webAuth)
-	for _, profile := range youtubeAuthenticatedFormatRecoveryClients {
+	for _, profile := range youtubeAuthenticatedFormatRecoveryClients(premium) {
 		if attempts >= MaxYouTubeClientAttempts {
 			break
 		}
 		if !profile.valid() || !profile.RequireAuth {
-			continue
-		}
-		if profile.RequirePremium && !premium {
 			continue
 		}
 		if err := ctx.Err(); err != nil {
@@ -417,6 +438,18 @@ func recoverAuthenticatedYouTubeFormats(ctx context.Context, transport Transport
 			}
 			continue
 		}
+		if !hasYouTubeFormatCandidates(player) {
+			continue
+		}
+		if err := applyAuthenticatedYouTubeGVSPolicy(ctx, &player, profile, premium, session.VisitorData, videoID, tokens); err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil, err
+			}
+			// GVS fail-closed is authoritative for this candidate; do not
+			// leave a earlier LOGIN_REQUIRED playability error as the only signal.
+			firstErr = err
+			continue
+		}
 		if hasYouTubeFormatCandidates(player) {
 			return []youtubePlayerResponse{player}, nil
 		}
@@ -425,6 +458,43 @@ func recoverAuthenticatedYouTubeFormats(ctx context.Context, transport Transport
 		return nil, firstErr
 	}
 	return nil, fmt.Errorf("%w: authenticated clients returned no URL-bearing formats", ErrUnavailable)
+}
+
+// applyAuthenticatedYouTubeGVSPolicy enforces the profile GVS PO-token policy.
+// When a token is required (including web_creator for non-Premium), missing or
+// rejected tokens fail the candidate closed rather than silently stripping GVS
+// formats. Premium subscribers skip the requirement when NotRequiredForPremium.
+func applyAuthenticatedYouTubeGVSPolicy(ctx context.Context, player *youtubePlayerResponse, profile youtubeClientProfile, premium bool, visitorData, videoID string, tokens *youtubepot.Director) error {
+	required := profile.GVSPolicy.required(player.playerTokenProvided, premium) && youtubePlayerHasGVSRequiredFormats(*player)
+	if !required && !profile.GVSPolicy.Recommended {
+		return nil
+	}
+	if tokens == nil {
+		if required {
+			return fmt.Errorf("%w: GVS PO token required for %s", ErrUnavailable, profile.Name)
+		}
+		return nil
+	}
+	token, ok, tokenErr := tokens.ResolvePolicy(ctx, youtubepot.Request{
+		Context: youtubepot.ContextGVS, Client: profile.ClientName, VisitorData: visitorData,
+		VideoID: videoID,
+	}, required, profile.GVSPolicy.Recommended)
+	if tokenErr != nil {
+		if errors.Is(tokenErr, context.Canceled) || errors.Is(tokenErr, context.DeadlineExceeded) {
+			return tokenErr
+		}
+		if required {
+			return fmt.Errorf("%w: GVS PO token required for %s", ErrUnavailable, profile.Name)
+		}
+		return nil
+	}
+	if required && !ok {
+		return fmt.Errorf("%w: GVS PO token required for %s", ErrUnavailable, profile.Name)
+	}
+	if ok {
+		applyYouTubeGVSToken(player, token)
+	}
+	return nil
 }
 
 func youtubePlayerHasGVSRequiredFormats(player youtubePlayerResponse) bool {

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ytdlp-go/ytdlp/internal/youtubepot"
 )
 
 func TestYouTubeAnonymousClientProfilesAreExactAndIsolated(t *testing.T) {
@@ -18,8 +20,8 @@ func TestYouTubeAnonymousClientProfilesAreExactAndIsolated(t *testing.T) {
 		if !profile.valid() {
 			t.Fatalf("invalid anonymous profile %#v", profile)
 		}
-		if profile.RequireAuth || profile.RequirePremium {
-			t.Fatalf("anonymous profile %s must not require auth/premium", profile.Name)
+		if profile.RequireAuth {
+			t.Fatalf("anonymous profile %s must not require auth", profile.Name)
 		}
 		if profile.ClientName == "WEB_REMIX" {
 			t.Fatal("WEB_REMIX must not appear in anonymous video recovery")
@@ -36,16 +38,21 @@ func TestYouTubeAnonymousClientProfilesAreExactAndIsolated(t *testing.T) {
 }
 
 func TestYouTubeAuthenticatedClientProfilesRequireExactAuthBoundary(t *testing.T) {
-	for _, profile := range youtubeAuthenticatedFormatRecoveryClients {
-		if !profile.valid() || !profile.RequireAuth || !profile.SupportsCookies {
-			t.Fatalf("authenticated profile %#v", profile)
+	for _, premium := range []bool{false, true} {
+		for _, profile := range youtubeAuthenticatedFormatRecoveryClients(premium) {
+			if !profile.valid() || !profile.RequireAuth || !profile.SupportsCookies {
+				t.Fatalf("authenticated profile %#v", profile)
+			}
+			if profile.ClientName == "WEB_REMIX" || profile.ClientName == "ANDROID" {
+				t.Fatalf("incompatible auth profile %s", profile.Name)
+			}
+			if profile.origin() != youtubeAuthOrigin {
+				t.Fatalf("origin=%q", profile.origin())
+			}
 		}
-		if profile.ClientName == "WEB_REMIX" || profile.ClientName == "ANDROID" {
-			t.Fatalf("incompatible auth profile %s", profile.Name)
-		}
-		if profile.origin() != youtubeAuthOrigin {
-			t.Fatalf("origin=%q", profile.origin())
-		}
+	}
+	if youtubeWebCreatorClient.GVSPolicy.Required != true || !youtubeWebCreatorClient.GVSPolicy.NotRequiredForPremium {
+		t.Fatal("web_creator must require GVS with premium exception only")
 	}
 }
 
@@ -59,10 +66,24 @@ func TestYouTubeClientRotationOrderIsDeterministic(t *testing.T) {
 			t.Fatalf("anon[%d]=%s want %s", i, youtubeAnonymousFormatRecoveryClients[i].Name, name)
 		}
 	}
-	wantAuth := []string{"tv_downgraded", "web_creator"}
+	wantAuth := []string{"tv_downgraded", "web_safari", "web_creator"}
+	gotAuth := youtubeAuthenticatedFormatRecoveryClients(false)
+	if len(gotAuth) != len(wantAuth) {
+		t.Fatalf("auth len=%d", len(gotAuth))
+	}
 	for i, name := range wantAuth {
-		if youtubeAuthenticatedFormatRecoveryClients[i].Name != name {
-			t.Fatalf("auth[%d]=%s want %s", i, youtubeAuthenticatedFormatRecoveryClients[i].Name, name)
+		if gotAuth[i].Name != name {
+			t.Fatalf("auth[%d]=%s want %s", i, gotAuth[i].Name, name)
+		}
+	}
+	wantPremium := []string{"tv_downgraded", "web_creator"}
+	gotPremium := youtubeAuthenticatedFormatRecoveryClients(true)
+	if len(gotPremium) != len(wantPremium) {
+		t.Fatalf("premium len=%d", len(gotPremium))
+	}
+	for i, name := range wantPremium {
+		if gotPremium[i].Name != name {
+			t.Fatalf("premium[%d]=%s want %s", i, gotPremium[i].Name, name)
 		}
 	}
 }
@@ -123,17 +144,8 @@ func TestYouTubeAnonymousRecoveryCancelsBetweenAttempts(t *testing.T) {
 	}
 }
 
-func TestYouTubeAuthenticatedRecoveryFallsBackToTVWithoutAnonymous(t *testing.T) {
-	webFail := []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED","reason":"fixture"},"videoDetails":{"videoId":"dQw4w9WgXcQ"}}`)
-	tvOK := []byte(`{"playabilityStatus":{"status":"OK"},"videoDetails":{"videoId":"dQw4w9WgXcQ","title":"tv"},"streamingData":{"formats":[{"itag":18,"url":"https://example.test/tv","mimeType":"video/mp4"}]}}`)
-	transport := &youtubeAuthRotationTransport{
-		cookies: youtubeAuthCookies(),
-		byClient: map[string][]byte{
-			"1": webFail,
-			"7": tvOK,
-		},
-	}
-	page := []byte(`ytcfg.set({
+func youtubeAuthRecoveryPage() []byte {
+	return []byte(`ytcfg.set({
 		"INNERTUBE_API_KEY":"fixture-key",
 		"INNERTUBE_CONTEXT_CLIENT_NAME":1,
 		"INNERTUBE_CLIENT_VERSION":"2.fixture",
@@ -144,8 +156,20 @@ func TestYouTubeAuthenticatedRecoveryFallsBackToTVWithoutAnonymous(t *testing.T)
 		"SESSION_INDEX":0,
 		"USER_SESSION_ID":"user-session"
 	});`)
-	config := discoverYouTubePageConfig(page)
-	recovered, err := recoverAuthenticatedYouTubeFormats(context.Background(), transport, "dQw4w9WgXcQ", config, "auth-visitor", "page-id||user-session", false, func() time.Time {
+}
+
+func TestYouTubeAuthenticatedRecoveryFallsBackToTVWithoutAnonymous(t *testing.T) {
+	webFail := []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED","reason":"fixture"},"videoDetails":{"videoId":"dQw4w9WgXcQ"}}`)
+	tvOK := []byte(`{"playabilityStatus":{"status":"OK"},"videoDetails":{"videoId":"dQw4w9WgXcQ","title":"tv"},"streamingData":{"formats":[{"itag":18,"url":"https://example.test/tv","mimeType":"video/mp4"}]}}`)
+	transport := &youtubeAuthRotationTransport{
+		cookies: youtubeAuthCookies(),
+		byClient: map[string][]byte{
+			"1": webFail,
+			"7": tvOK,
+		},
+	}
+	config := discoverYouTubePageConfig(youtubeAuthRecoveryPage())
+	recovered, err := recoverAuthenticatedYouTubeFormats(context.Background(), transport, "dQw4w9WgXcQ", config, "auth-visitor", "page-id||user-session", false, nil, func() time.Time {
 		return time.Unix(1_700_000_000, 0)
 	})
 	if err != nil {
@@ -173,30 +197,190 @@ func TestYouTubeAuthenticatedRecoveryFallsBackToTVWithoutAnonymous(t *testing.T)
 	}
 }
 
-func TestYouTubeAuthenticatedRecoveryRejectsPremiumClientWithoutSignal(t *testing.T) {
+func TestYouTubeAuthenticatedNonPremiumAllowsWebCreatorForAgeLogin(t *testing.T) {
+	fail := []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"},"videoDetails":{"videoId":"dQw4w9WgXcQ"}}`)
+	creatorOK := []byte(`{"playabilityStatus":{"status":"OK"},"videoDetails":{"videoId":"dQw4w9WgXcQ","title":"creator"},"streamingData":{"formats":[{"itag":18,"url":"https://example.test/c","mimeType":"video/mp4"}]}}`)
 	transport := &youtubeAuthRotationTransport{
 		cookies: youtubeAuthCookies(),
 		byClient: map[string][]byte{
-			"1":  []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"},"videoDetails":{"videoId":"dQw4w9WgXcQ"}}`),
-			"7":  []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"},"videoDetails":{"videoId":"dQw4w9WgXcQ"}}`),
-			"62": []byte(`{"playabilityStatus":{"status":"OK"},"videoDetails":{"videoId":"dQw4w9WgXcQ","title":"creator"},"streamingData":{"formats":[{"itag":18,"url":"https://example.test/c","mimeType":"video/mp4"}]}}`),
+			"1":  fail,
+			"7":  fail,
+			"62": creatorOK,
 		},
 	}
-	page := []byte(`ytcfg.set({
-		"INNERTUBE_CONTEXT_CLIENT_NAME":1,"INNERTUBE_CLIENT_VERSION":"2.fixture","VISITOR_DATA":"auth-visitor","LOGGED_IN":true,
-		"INNERTUBE_CONTEXT":{"client":{"clientName":"WEB","clientVersion":"2.fixture","visitorData":"auth-visitor","userAgent":"fixture-agent"}},
-		"DELEGATED_SESSION_ID":"page-id","SESSION_INDEX":0,"USER_SESSION_ID":"user-session"
-	});`)
-	_, err := recoverAuthenticatedYouTubeFormats(context.Background(), transport, "dQw4w9WgXcQ", discoverYouTubePageConfig(page), "auth-visitor", "page-id||user-session", false, func() time.Time {
+	recovered, err := recoverAuthenticatedYouTubeFormats(context.Background(), transport, "dQw4w9WgXcQ", discoverYouTubePageConfig(youtubeAuthRecoveryPage()), "auth-visitor", "page-id||user-session", false, nil, func() time.Time {
+		return time.Unix(1_700_000_000, 0)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recovered) != 1 || recovered[0].clientName != "WEB_CREATOR" || recovered[0].clientID != 62 {
+		t.Fatalf("recovered=%+v", recovered)
+	}
+	if len(transport.clientIDs) < 4 ||
+		transport.clientIDs[0] != "1" ||
+		transport.clientIDs[1] != "7" ||
+		transport.clientIDs[2] != "1" ||
+		transport.clientIDs[3] != "62" {
+		t.Fatalf("client order=%v want WEB,tv,web_safari,web_creator", transport.clientIDs)
+	}
+	var sawCreator bool
+	for _, id := range transport.clientIDs {
+		if id == "62" {
+			sawCreator = true
+		}
+	}
+	if !sawCreator {
+		t.Fatal("web_creator must run for authenticated non-Premium age/login recovery")
+	}
+}
+
+func TestYouTubeAuthenticatedPremiumWebCreatorSkipsGVSToken(t *testing.T) {
+	fail := []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"},"videoDetails":{"videoId":"dQw4w9WgXcQ"}}`)
+	creatorGVS := []byte(`{"playabilityStatus":{"status":"OK"},"videoDetails":{"videoId":"dQw4w9WgXcQ","title":"creator"},"streamingData":{"adaptiveFormats":[{"itag":137,"url":"https://example.test/v","mimeType":"video/mp4"}]}}`)
+	director, err := youtubepot.New(youtubepot.Config{
+		Policy: youtubepot.FetchAlways,
+		Providers: []youtubepot.Provider{youtubepot.ProviderFunc{ProviderName: "reject", Function: func(context.Context, youtubepot.Request) (youtubepot.Response, error) {
+			return youtubepot.Response{}, youtubepot.ErrRejected
+		}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := &youtubeAuthRotationTransport{
+		cookies: youtubeAuthCookies(),
+		byClient: map[string][]byte{
+			"1":  fail,
+			"7":  fail,
+			"62": creatorGVS,
+		},
+	}
+	recovered, err := recoverAuthenticatedYouTubeFormats(context.Background(), transport, "dQw4w9WgXcQ", discoverYouTubePageConfig(youtubeAuthRecoveryPage()), "auth-visitor", "page-id||user-session", true, director, func() time.Time {
+		return time.Unix(1_700_000_000, 0)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recovered) != 1 || recovered[0].clientName != "WEB_CREATOR" {
+		t.Fatalf("recovered=%+v", recovered)
+	}
+	if len(transport.clientIDs) != 3 || transport.clientIDs[2] != "62" {
+		t.Fatalf("premium order=%v want WEB,tv,web_creator", transport.clientIDs)
+	}
+}
+
+func TestYouTubeAuthenticatedWebCreatorFailsClosedWithoutRequiredGVSToken(t *testing.T) {
+	fail := []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"},"videoDetails":{"videoId":"dQw4w9WgXcQ"}}`)
+	creatorGVS := []byte(`{"playabilityStatus":{"status":"OK"},"videoDetails":{"videoId":"dQw4w9WgXcQ","title":"creator"},"streamingData":{"adaptiveFormats":[{"itag":137,"url":"https://example.test/v","mimeType":"video/mp4"}]}}`)
+	director, err := youtubepot.New(youtubepot.Config{
+		Policy: youtubepot.FetchAlways,
+		Providers: []youtubepot.Provider{youtubepot.ProviderFunc{ProviderName: "reject", Function: func(context.Context, youtubepot.Request) (youtubepot.Response, error) {
+			return youtubepot.Response{}, youtubepot.ErrRejected
+		}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := &youtubeAuthRotationTransport{
+		cookies: youtubeAuthCookies(),
+		byClient: map[string][]byte{
+			"1":  fail,
+			"7":  fail,
+			"62": creatorGVS,
+		},
+	}
+	_, err = recoverAuthenticatedYouTubeFormats(context.Background(), transport, "dQw4w9WgXcQ", discoverYouTubePageConfig(youtubeAuthRecoveryPage()), "auth-visitor", "page-id||user-session", false, director, func() time.Time {
+		return time.Unix(1_700_000_000, 0)
+	})
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("err=%v", err)
+	}
+	if !strings.Contains(err.Error(), "GVS PO token required for web_creator") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestYouTubeAuthenticatedRecoveryCancelsBetweenAttempts(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	transport := &youtubeAuthRotationTransport{
+		cookies: youtubeAuthCookies(),
+		byClient: map[string][]byte{
+			"1": []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"},"videoDetails":{"videoId":"dQw4w9WgXcQ"}}`),
+		},
+	}
+	cancel()
+	_, err := recoverAuthenticatedYouTubeFormats(ctx, transport, "dQw4w9WgXcQ", discoverYouTubePageConfig(youtubeAuthRecoveryPage()), "auth-visitor", "page-id||user-session", false, nil, func() time.Time {
+		return time.Unix(1_700_000_000, 0)
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestYouTubeAuthenticatedContradictoryIdentityRejected(t *testing.T) {
+	fail := []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"},"videoDetails":{"videoId":"dQw4w9WgXcQ"}}`)
+	transport := &youtubeAuthRotationTransport{
+		cookies: youtubeAuthCookies(),
+		byClient: map[string][]byte{
+			"1":  fail,
+			"7":  []byte(`{"playabilityStatus":{"status":"OK"},"videoDetails":{"videoId":"other0000001","title":"tv"},"streamingData":{"formats":[{"itag":18,"url":"https://example.test/tv","mimeType":"video/mp4"}]}}`),
+			"62": fail,
+		},
+	}
+	_, err := recoverAuthenticatedYouTubeFormats(context.Background(), transport, "dQw4w9WgXcQ", discoverYouTubePageConfig(youtubeAuthRecoveryPage()), "auth-visitor", "page-id||user-session", false, nil, func() time.Time {
 		return time.Unix(1_700_000_000, 0)
 	})
 	if !errors.Is(err, ErrAuthentication) && !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("err=%v", err)
 	}
-	for _, id := range transport.clientIDs {
-		if id == "62" {
-			t.Fatal("web_creator must not run without premium signal")
-		}
+}
+
+func TestYouTubeAuthenticatedSelectedClientSABRMetadata(t *testing.T) {
+	fail := []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"},"videoDetails":{"videoId":"dQw4w9WgXcQ"}}`)
+	tvOK := []byte(`{"playabilityStatus":{"status":"OK"},"videoDetails":{"videoId":"dQw4w9WgXcQ","title":"tv","lengthSeconds":"42"},"streamingData":{"formats":[{"itag":18,"url":"https://example.test/tv","mimeType":"video/mp4"}]}}`)
+	transport := &youtubeAuthRotationTransport{
+		cookies: youtubeAuthCookies(),
+		byClient: map[string][]byte{
+			"1": fail,
+			"7": tvOK,
+		},
+	}
+	recovered, err := recoverAuthenticatedYouTubeFormats(context.Background(), transport, "dQw4w9WgXcQ", discoverYouTubePageConfig(youtubeAuthRecoveryPage()), "auth-visitor", "page-id||user-session", false, nil, func() time.Time {
+		return time.Unix(1_700_000_000, 0)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recovered) != 1 || recovered[0].clientName != "TVHTML5" || recovered[0].clientID != 7 || recovered[0].clientVersion != "5.20260707" {
+		t.Fatalf("recovered=%+v", recovered)
+	}
+	selected := recovered[0]
+	selected.StreamingData.Formats = nil
+	selected.StreamingData.ServerABRURL = "https://rr1---sn-fixture.googlevideo.com/videoplayback/sabr?sig=fixture"
+	selected.StreamingData.AdaptiveFormats = []youtubeFormat{{
+		Itag: 137, MimeType: `video/mp4; codecs="avc1.640028"`, Bitrate: 1000,
+		Width: 1920, Height: 1080, LastModified: "1",
+	}}
+	selected.PlayerConfig.MediaCommonConfig.MediaUstreamerRequestConfig.VideoPlaybackUstreamerConfig = "dGVzdA=="
+	values, err := buildYouTubeSABRFormats(context.Background(), []youtubePlayerResponse{selected}, "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "dQw4w9WgXcQ", 42, true, "not_live")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(values) == 0 {
+		t.Fatal("expected SABR formats from selected client")
+	}
+	object, _ := values[0].Object()
+	if client, _ := object.Lookup("_youtube_client").StringValue(); client != "TVHTML5" {
+		t.Fatalf("client=%q", client)
+	}
+	if id, _ := object.Lookup("_youtube_sabr_client_id").Int(); id != 7 {
+		t.Fatalf("client_id=%d", id)
+	}
+	if ver, _ := object.Lookup("_youtube_sabr_client_version").StringValue(); ver != "5.20260707" {
+		t.Fatalf("version=%q", ver)
+	}
+	if ua, _ := object.Lookup("_youtube_sabr_user_agent").StringValue(); ua != youtubeTVDowngradedClient.UserAgent {
+		t.Fatalf("ua=%q", ua)
 	}
 }
 
@@ -228,7 +412,7 @@ func TestYouTubeRejectsWEBRemixProfileInVideoRecovery(t *testing.T) {
 }
 
 func TestYouTubeAuthenticatedPlayerRejectsRemixOrigin(t *testing.T) {
-	profile := youtubeAuthenticatedFormatRecoveryClients[0]
+	profile := youtubeTVDowngradedClient
 	profile.Origin = "https://music.youtube.com"
 	_, err := requestAuthenticatedYouTubePlayer(context.Background(), &youtubeAuthRotationTransport{cookies: youtubeAuthCookies()}, "dQw4w9WgXcQ", profile, youtubeAuthSession{LoggedIn: true, UserSessionID: "user-session"}, time.Now)
 	if !errors.Is(err, ErrAuthentication) {
