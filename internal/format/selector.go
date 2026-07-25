@@ -21,26 +21,33 @@ const (
 	maxTermFilters   = 32
 )
 
+// Selector holds a parsed format selector AST. Legacy Alternatives may still be
+// set by in-repo constructors; evaluation always normalizes to the AST.
 type Selector struct {
+	root         *astNode
 	Alternatives []Choice
 }
 
+// Choice is the legacy slash-alternative merge group representation.
 type Choice struct {
 	Terms []Term
 }
 
+// Term is the legacy merge-term representation.
 type Term struct {
 	Name    string
+	Atom    Atom
 	Filters []Filter
 }
 
+// Filter is a bounded [field op value] selector predicate.
 type Filter struct {
 	Field    string
 	Operator string
 	Value    string
 }
 
-// SyntaxError identifies the exact byte range rejected by the pilot parser.
+// SyntaxError identifies the exact byte range rejected by the parser.
 type SyntaxError struct {
 	Start   int
 	End     int
@@ -53,109 +60,43 @@ func (err *SyntaxError) Error() string {
 
 func (err *SyntaxError) Unwrap() error { return ErrInvalidSelector }
 
-type selectorSegment struct {
-	text       string
-	start, end int
+func (selector Selector) rootNode() (*astNode, error) {
+	if selector.root != nil {
+		return selector.root, nil
+	}
+	if len(selector.Alternatives) == 0 {
+		return nil, selectorSyntax(0, 0, "selector is empty")
+	}
+	return legacyAlternativesToAST(selector.Alternatives)
 }
 
+// ParseSelector parses a bounded yt-dlp format selector expression.
 func ParseSelector(input string) (Selector, error) {
-	if len(input) > maxSelectorBytes {
-		return Selector{}, selectorSyntax(0, len(input), "selector exceeds size limit")
-	}
-	root := trimSelectorSegment(selectorSegment{text: input, start: 0, end: len(input)})
-	if root.text == "" {
-		return Selector{}, selectorSyntax(root.start, root.end, "selector is empty")
-	}
-	alternatives, err := splitTopLevel(root, '/')
+	root, err := parseSelectorAST(input)
 	if err != nil {
 		return Selector{}, err
 	}
-	if len(alternatives) > maxAlternatives {
-		return Selector{}, selectorSyntax(root.start, root.end, "too many fallback alternatives")
-	}
-	selector := Selector{}
-	for _, alternative := range alternatives {
-		parts, err := splitTopLevel(alternative, '+')
-		if err != nil {
-			return Selector{}, err
-		}
-		if len(parts) > maxMergeTerms {
-			return Selector{}, selectorSyntax(alternative.start, alternative.end, "too many merge terms")
-		}
-		choice := Choice{}
-		for _, part := range parts {
-			term, err := parseTerm(trimSelectorSegment(part))
-			if err != nil {
-				return Selector{}, err
-			}
-			choice.Terms = append(choice.Terms, term)
-		}
-		selector.Alternatives = append(selector.Alternatives, choice)
-	}
-	return selector, nil
+	return Selector{root: root}, nil
 }
 
 func Select(info value.Info, selector Selector) ([]Selection, error) {
 	return SelectWithOptions(info, selector, Options{})
 }
 
-// SelectWithOptions applies an explicit deterministic preference policy before
-// evaluating a selector. It never mutates extractor metadata.
+// SelectWithOptions evaluates a selector into flat tracks for one output plan.
+// It returns ErrMultiOutput when the selector requests multiple independent
+// comma/all outputs that cannot be represented as a single merge.
 func SelectWithOptions(info value.Info, selector Selector, options Options) ([]Selection, error) {
-	formats, ok := info.Formats()
-	if !ok {
-		return nil, ErrNoFormats
-	}
-	if err := options.validate(); err != nil {
+	plans, err := PlanSelectWithOptions(info, selector, options)
+	if err != nil {
 		return nil, err
 	}
-	objects := make([]*value.Object, 0, len(formats))
-	for _, item := range formats {
-		if object, ok := item.Object(); ok {
-			if !options.AllowDRM && isDRM(object) {
-				continue
-			}
-			objects = append(objects, object)
-		}
+	if len(plans) != 1 {
+		return nil, ErrMultiOutput
 	}
-	objects = orderFormats(objects, options)
-	for _, alternative := range selector.Alternatives {
-		var selected []Selection
-		matched := true
-		for _, term := range alternative.Terms {
-			if term.Name == "all" {
-				count := 0
-				for _, candidate := range objects {
-					if matchesFilters(candidate, term.Filters) {
-						selected = append(selected, objectSelection(candidate))
-						count++
-					}
-				}
-				if count == 0 {
-					matched = false
-				}
-				continue
-			}
-			selection, ok := selectTermWithOptions(objects, term, options)
-			if !ok {
-				matched = false
-				break
-			}
-			selected = append(selected, selection)
-		}
-		if matched {
-			if err := attachHeaders(info, selected, objects); err != nil {
-				return nil, err
-			}
-			return selected, nil
-		}
-	}
-	return nil, ErrNoMatch
+	return plans[0].Tracks, nil
 }
 
-// attachHeaders gives selector results the same download-header semantics as
-// Best: video-level headers are inherited and per-format values override them.
-// Selections carry their own header maps so callers may safely mutate one.
 func attachHeaders(info value.Info, selections []Selection, formats []*value.Object) error {
 	for index := range selections {
 		object := selectedObject(selections[index], formats)
@@ -204,14 +145,10 @@ func parseTerm(segment selectorSegment) (Term, error) {
 		name, remaining = segment.text[:open], segment.text[open:]
 		remainingStart = segment.start + open
 	}
-	switch name {
-	case "best", "worst", "bestvideo", "worstvideo", "bestaudio", "worstaudio", "all":
-	default:
-		if !formatIDPattern.MatchString(name) {
-			return Term{}, selectorSyntax(segment.start, segment.start+len(name), fmt.Sprintf("unknown term %q", name))
-		}
+	term, err := parseLegacyTermName(name, segment.start)
+	if err != nil {
+		return Term{}, err
 	}
-	term := Term{Name: name}
 	for remaining != "" {
 		if remaining[0] != '[' {
 			return Term{}, selectorSyntax(remainingStart, segment.end, fmt.Sprintf("unexpected text %q", remaining))
@@ -232,6 +169,24 @@ func parseTerm(segment selectorSegment) (Term, error) {
 		remainingStart += close + 1
 	}
 	return term, nil
+}
+
+func parseLegacyTermName(name string, absStart int) (Term, error) {
+	if name == "all" || name == "mergeall" {
+		return Term{Name: name}, nil
+	}
+	if atom, err := parseAtomToken(name, absStart); err != nil {
+		return Term{}, err
+	} else if atom.OK {
+		return Term{Name: atom.Canonical(), Atom: atom}, nil
+	}
+	if kind, ok := classifyExtensionToken(name); ok && kind != atomDirectID {
+		return Term{Name: name}, nil
+	}
+	if !formatIDPattern.MatchString(name) {
+		return Term{}, selectorSyntax(absStart, absStart+len(name), fmt.Sprintf("unknown term %q", name))
+	}
+	return Term{Name: name}, nil
 }
 
 var (
@@ -267,8 +222,14 @@ func parseFilter(input string, start int) (Filter, error) {
 	return Filter{}, selectorSyntax(start, start+len(input), fmt.Sprintf("filter %q has no operator", input))
 }
 
+type selectorSegment struct {
+	text       string
+	start, end int
+}
+
 func splitTopLevel(input selectorSegment, separator byte) ([]selectorSegment, error) {
 	depth := 0
+	parenDepth := 0
 	start := 0
 	lastOpen := -1
 	var result []selectorSegment
@@ -282,8 +243,15 @@ func splitTopLevel(input selectorSegment, separator byte) ([]selectorSegment, er
 			if depth < 0 {
 				return nil, selectorSyntax(input.start+index, input.start+index+1, "unexpected ]")
 			}
+		case '(':
+			parenDepth++
+		case ')':
+			parenDepth--
+			if parenDepth < 0 {
+				return nil, selectorSyntax(input.start+index, input.start+index+1, "unexpected )")
+			}
 		default:
-			if input.text[index] == separator && depth == 0 {
+			if input.text[index] == separator && depth == 0 && parenDepth == 0 {
 				result = append(result, selectorSegment{text: input.text[start:index], start: input.start + start, end: input.start + index})
 				start = index + 1
 			}
@@ -291,6 +259,9 @@ func splitTopLevel(input selectorSegment, separator byte) ([]selectorSegment, er
 	}
 	if depth != 0 {
 		return nil, selectorSyntax(input.start+lastOpen, input.end, "unclosed filter")
+	}
+	if parenDepth != 0 {
+		return nil, selectorSyntax(input.start, input.end, "unclosed group")
 	}
 	result = append(result, selectorSegment{text: input.text[start:], start: input.start + start, end: input.end})
 	return result, nil
@@ -309,116 +280,11 @@ func selectorSyntax(start, end int, message string) error {
 	return &SyntaxError{Start: start, End: end, Message: message}
 }
 
-func selectTerm(formats []*value.Object, term Term) (Selection, bool) {
-	if term.Name != "best" && term.Name != "worst" && !strings.HasPrefix(term.Name, "best") && !strings.HasPrefix(term.Name, "worst") {
-		for _, candidate := range formats {
-			id, _ := candidate.Lookup("format_id").StringValue()
-			if id == term.Name && matchesFilters(candidate, term.Filters) {
-				return objectSelection(candidate), true
-			}
-		}
-		return Selection{}, false
-	}
-	wantBest := strings.HasPrefix(term.Name, "best")
-	wantVideo := strings.HasSuffix(term.Name, "video")
-	wantAudio := strings.HasSuffix(term.Name, "audio")
-	var selected *value.Object
-	var selectedScore float64
-	var selectedPreference float64
-	for _, candidate := range formats {
-		hasVideo, hasAudio := candidateMediaKinds(candidate)
-		if wantVideo && (!hasVideo || hasAudio) || wantAudio && (!hasAudio || hasVideo) {
-			continue
-		}
-		if !matchesFilters(candidate, term.Filters) {
-			continue
-		}
-		score := formatScore(candidate, wantVideo, wantAudio)
-		preference := extractorPreference(candidate)
-		if selected == nil ||
-			wantBest && (preference > selectedPreference || preference == selectedPreference && score > selectedScore) ||
-			!wantBest && (preference < selectedPreference || preference == selectedPreference && score < selectedScore) {
-			selected, selectedScore, selectedPreference = candidate, score, preference
-		}
-	}
-	if selected == nil {
-		return Selection{}, false
-	}
-	return objectSelection(selected), true
-}
-
-func selectTermWithOptions(formats []*value.Object, term Term, options Options) (Selection, bool) {
-	if len(options.Sort) == 0 && len(options.PreferExtensions) == 0 && !options.PreferFreeFormats {
-		return selectTerm(formats, term)
-	}
-	if term.Name != "best" && term.Name != "worst" && !strings.HasPrefix(term.Name, "best") && !strings.HasPrefix(term.Name, "worst") {
-		return selectTerm(formats, term)
-	}
-	wantVideo := strings.HasSuffix(term.Name, "video")
-	wantAudio := strings.HasSuffix(term.Name, "audio")
-	wantWorst := strings.HasPrefix(term.Name, "worst")
-	if len(options.Sort) == 0 {
-		return selectTermWithPreferenceTiebreak(formats, term, options, wantVideo, wantAudio, wantWorst)
-	}
-	if wantWorst {
-		for index := len(formats) - 1; index >= 0; index-- {
-			if candidateMatchesKind(formats[index], wantVideo, wantAudio, term.Filters) {
-				return objectSelection(formats[index]), true
-			}
-		}
-		return Selection{}, false
-	}
-	for _, candidate := range formats {
-		if candidateMatchesKind(candidate, wantVideo, wantAudio, term.Filters) {
-			return objectSelection(candidate), true
-		}
-	}
-	return Selection{}, false
-}
-
-// User extension/free preferences only break equal quality scores. This keeps
-// yt-dlp's quality-first selection semantics while making the preference
-// policy visible and deterministic when formats are otherwise equivalent.
-func selectTermWithPreferenceTiebreak(formats []*value.Object, term Term, options Options, wantVideo, wantAudio, wantWorst bool) (Selection, bool) {
-	var selected *value.Object
-	selectedScore := float64(0)
-	selectedPreference := float64(0)
-	for _, candidate := range formats {
-		if !candidateMatchesKind(candidate, wantVideo, wantAudio, term.Filters) {
-			continue
-		}
-		score := formatScore(candidate, wantVideo, wantAudio)
-		preference := extractorPreference(candidate)
-		samePreference := preference == selectedPreference
-		if selected == nil ||
-			wantWorst && (preference < selectedPreference || samePreference && score < selectedScore) ||
-			!wantWorst && (preference > selectedPreference || samePreference && score > selectedScore) ||
-			samePreference && score == selectedScore && preferenceRank(candidate, options) > preferenceRank(selected, options) {
-			selected, selectedScore, selectedPreference = candidate, score, preference
-		}
-	}
-	if selected == nil {
-		return Selection{}, false
-	}
-	return objectSelection(selected), true
-}
-
-func preferenceRank(object *value.Object, options Options) int {
-	rank := extensionRank(object, options.PreferExtensions) * 2
-	if options.PreferFreeFormats {
-		rank += freeRank(object)
-	}
-	return rank
-}
-
 func candidateMatchesKind(candidate *value.Object, wantVideo, wantAudio bool, filters []Filter) bool {
 	hasVideo, hasAudio := candidateMediaKinds(candidate)
 	return (!wantVideo || hasVideo && !hasAudio) && (!wantAudio || hasAudio && !hasVideo) && matchesFilters(candidate, filters)
 }
 
-// An explicit absent side is enough to classify a track even when an
-// extractor cannot name the present codec. This matches yt-dlp's bestvideo and
-// bestaudio treatment of acodec=none and vcodec=none respectively.
 func candidateMediaKinds(candidate *value.Object) (hasVideo, hasAudio bool) {
 	vcodec, _ := candidate.Lookup("vcodec").StringValue()
 	acodec, _ := candidate.Lookup("acodec").StringValue()
@@ -526,3 +392,14 @@ func objectSelection(object *value.Object) Selection {
 	}
 	return selection
 }
+
+func preferenceRank(object *value.Object, options Options) int {
+	rank := extensionRank(object, options.PreferExtensions) * 2
+	if options.PreferFreeFormats {
+		rank += freeRank(object)
+	}
+	return rank
+}
+
+// Ensure compile-time interface sanity for error categories.
+var _ = errors.New

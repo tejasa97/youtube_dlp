@@ -59,10 +59,10 @@ type Selection struct {
 // audio-only pair, then a single combined format. Explicit user selectors
 // remain authoritative.
 func Default(info value.Info, options Options) ([]Selection, error) {
-	selector := Selector{Alternatives: []Choice{
-		{Terms: []Term{{Name: "bestvideo"}, {Name: "bestaudio"}}},
-		{Terms: []Term{{Name: "best"}}},
-	}}
+	selector, err := ParseSelector("bestvideo+bestaudio/best")
+	if err != nil {
+		return nil, err
+	}
 	return SelectWithOptions(info, selector, options)
 }
 
