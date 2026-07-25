@@ -1138,12 +1138,14 @@ capabilities:
   - id: extractor.soundcloud_pilot
     name: SoundCloud API and playlist pilot
     phase: 1
-    compatibility_target: Extract SoundCloud tracks, sets, and lazy user-track pages through bounded public API discovery without Python.
+    compatibility_target: Extract SoundCloud tracks, sets, lazy user-track and user-likes pages through bounded public API discovery without Python.
     status: compatible
     evidence:
       - internal/extractor.TestSoundCloudSuitableGuards
       - internal/extractor.TestSoundCloudTrackMetadataAndTranscodingResolution
       - internal/extractor.TestSoundCloudUserTrackPagesAreLazyOrderedAndReusable
+      - internal/extractor.TestSoundCloudUserLikesPagesAreLazyOrderedReusableAndMixed
+      - internal/extractor.TestSoundCloudUserLikesFailuresCancellationAndBounds
       - internal/extractor.TestSoundCloudSetEntriesRemainOrderedTransparentURLs
       - internal/extractor.TestSoundCloudCancellationInterruptsLazyPage
       - internal/extractor.TestSoundCloudCategorizedFailuresAndSecretRedaction
@@ -1169,7 +1171,7 @@ capabilities:
       - extractor.playlists
       - protocol.hls
       - network.shared_transport
-    known_deviation: Compatibility is scoped to the pinned public track, static-set, lazy user-tracks, stations/related-media, and bounded public track-search corpus. Search supports `scsearch`, counts through 200, a 200-result `scsearchall` cap, and a narrow canonical web URL; it uses cookie-isolated API requests and at most four pages. OAuth/private media, premium originals, comments, non-track search/profile tabs, and private-set batch hydration remain broader SoundCloud work.
+    known_deviation: Compatibility is scoped to the pinned public track, static-set, lazy user-tracks, lazy user-likes, stations/related-media, and bounded public track-search corpus. Search supports `scsearch`, counts through 200, a 200-result `scsearchall` cap, and a narrow canonical web URL; it uses cookie-isolated API requests and at most four pages. OAuth/private media, premium originals, comments, remaining profile tabs (albums/sets/reposts/spotlight), and private-set batch hydration remain broader SoundCloud work.
 
   - id: extractor.streamable_public
     name: Streamable shared-hosting extraction

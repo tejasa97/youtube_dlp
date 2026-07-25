@@ -77,8 +77,8 @@ func (extractor *SoundCloud) Extract(ctx context.Context, request Request) (Extr
 		return extractor.extractTrack(ctx, request.Transport, target)
 	case soundCloudSetTarget, soundCloudAPIPlaylistTarget:
 		return extractor.extractSet(ctx, request.Transport, target)
-	case soundCloudUserTracksTarget:
-		return extractor.extractUserTracks(ctx, request.Transport, target)
+	case soundCloudUserTabTarget:
+		return extractor.extractUserTab(ctx, request.Transport, target)
 	case soundCloudStationTarget:
 		return extractor.extractStation(ctx, request.Transport, target)
 	case soundCloudRelatedTarget:
@@ -94,10 +94,21 @@ const (
 	soundCloudTrackTarget soundCloudTargetKind = iota + 1
 	soundCloudSetTarget
 	soundCloudAPIPlaylistTarget
-	soundCloudUserTracksTarget
+	soundCloudUserTabTarget
 	soundCloudStationTarget
 	soundCloudRelatedTarget
 )
+
+// soundCloudUserTabs maps supported profile tab path segments to API suffixes
+// and playlist title labels, matching SoundcloudUserIE._BASE_URL_MAP for the
+// tabs this port implements. Additional tabs remain out of scope per PR.
+var soundCloudUserTabs = map[string]struct {
+	apiSuffix string
+	label     string
+}{
+	"tracks": {apiSuffix: "tracks", label: "Tracks"},
+	"likes":  {apiSuffix: "likes", label: "Likes"},
+}
 
 type soundCloudTarget struct {
 	kind         soundCloudTargetKind
@@ -136,8 +147,14 @@ func classifySoundCloudURL(parsed *url.URL) (soundCloudTarget, bool) {
 		if len(segments) == 4 && segments[0] == "stations" && segments[1] == "track" && soundCloudSlugPattern.MatchString(segments[2]) && soundCloudSlugPattern.MatchString(segments[3]) {
 			return soundCloudTarget{kind: soundCloudStationTarget, canonical: soundCloudWebBase + strings.Join(segments, "/")}, true
 		}
-		if len(segments) == 2 && soundCloudSlugPattern.MatchString(segments[0]) && segments[1] == "tracks" {
-			return soundCloudTarget{kind: soundCloudUserTracksTarget, canonical: soundCloudWebBase + segments[0] + "/tracks"}, true
+		if len(segments) == 2 && soundCloudSlugPattern.MatchString(segments[0]) {
+			if tab, ok := soundCloudUserTabs[segments[1]]; ok {
+				return soundCloudTarget{
+					kind:      soundCloudUserTabTarget,
+					relation:  segments[1],
+					canonical: soundCloudWebBase + segments[0] + "/" + tab.apiSuffix,
+				}, true
+			}
 		}
 		if (len(segments) == 3 || len(segments) == 4) && soundCloudSlugPattern.MatchString(segments[0]) && segments[1] == "sets" && soundCloudSetSlugPattern.MatchString(segments[2]) {
 			if len(segments) == 4 {
@@ -245,16 +262,27 @@ func (extractor *SoundCloud) extractSet(ctx context.Context, transport Transport
 	return Playlist(info, StaticEntries(entries...))
 }
 
-func (extractor *SoundCloud) extractUserTracks(ctx context.Context, transport Transport, target soundCloudTarget) (Extraction, error) {
+func (extractor *SoundCloud) extractUserTab(ctx context.Context, transport Transport, target soundCloudTarget) (Extraction, error) {
+	tab, ok := soundCloudUserTabs[target.relation]
+	if !ok || target.relation == "" {
+		return Extraction{}, ErrUnsupported
+	}
+	path := strings.Trim(strings.TrimPrefix(target.canonical, soundCloudWebBase), "/")
+	parts := strings.Split(path, "/")
+	if len(parts) < 2 || !soundCloudSlugPattern.MatchString(parts[0]) {
+		return Extraction{}, ErrUnsupported
+	}
+	username := parts[0]
 	var user soundCloudUser
-	endpoint := soundCloudAPIBase + "resolve?url=" + url.QueryEscape(target.canonical)
+	// Match SoundcloudUserIE: resolve the user profile URL, then page the tab API.
+	endpoint := soundCloudAPIBase + "resolve?url=" + url.QueryEscape(soundCloudWebBase+username)
 	if err := extractor.requestJSON(ctx, transport, endpoint, &user); err != nil {
 		return Extraction{}, err
 	}
 	if !validSoundCloudJSONID(user.ID) || strings.TrimSpace(user.Username) == "" {
 		return Extraction{}, fmt.Errorf("%w: malformed SoundCloud user", ErrInvalidMetadata)
 	}
-	apiPath := "users/" + user.ID.String() + "/tracks"
+	apiPath := "users/" + user.ID.String() + "/" + tab.apiSuffix
 	firstURL := soundCloudAPIBase + apiPath + "?linked_partitioning=1&limit=200"
 	policy := soundCloudContinuationPolicy{allowedPath: "/" + apiPath}
 	sequence, err := ContinuationEntries(nil, firstURL, func(ctx context.Context, cursor string) ([]Entry, string, error) {
@@ -265,7 +293,7 @@ func (extractor *SoundCloud) extractUserTracks(ctx context.Context, transport Tr
 	}
 	info := value.NewObject(
 		value.Field{Key: "id", Value: value.String(user.ID.String())},
-		value.Field{Key: "title", Value: value.String(user.Username + " (Tracks)")},
+		value.Field{Key: "title", Value: value.String(user.Username + " (" + tab.label + ")")},
 		value.Field{Key: "uploader", Value: value.String(user.Username)},
 		value.Field{Key: "webpage_url", Value: value.String(target.canonical)},
 	)
