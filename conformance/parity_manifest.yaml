@@ -504,15 +504,17 @@ capabilities:
       - internal/protocol/dash.FuzzDynamicSIDXAccumulatorMerge
       - internal/protocol/dash.TestAlignLiveWindowPrefixEvictionAndAppend
       - internal/protocol/dash.TestAlignLiveWindowRejectsRewindMutationAndReorder
+      - internal/protocol/dash.TestAlignLiveWindowRejectsDisjointNonEmptyWindows
       - internal/protocol/dash.TestSegmentAccumulatorRollingWindowAppendsOnce
       - internal/protocol/dash.TestSegmentAccumulatorRejectsReplayAfterEviction
       - internal/protocol/dash.TestSegmentAccumulatorRejectsDuplicateWindowIdentity
-      - internal/protocol/dash.TestSegmentAccumulatorFullWindowReplacementWithoutSharedIdentity
+      - internal/protocol/dash.TestSegmentAccumulatorRejectsUnanchoredFullWindowReplacement
       - internal/protocol/dash.TestDownloadDynamicSIDXRollingWindowEvictAndAppend
       - internal/protocol/dash.TestDownloadDynamicSIDXRollingWindowPureEvictionKeepsHistory
       - internal/protocol/dash.TestDownloadDynamicSIDXRollingWindowToStaticTransition
       - internal/protocol/dash.TestDownloadDynamicSIDXRollingWindowRelocationRejected
       - internal/protocol/dash.TestDownloadDynamicSIDXRollingWindowRewindRejected
+      - internal/protocol/dash.TestDownloadDynamicSIDXRollingWindowCompleteDiscontinuityRejected
       - internal/protocol/dash.TestDownloadDynamicSIDXRollingWindowRetainedMutationRejected
       - internal/protocol/dash.TestDownloadDynamicSIDXRollingWindowReplayRejected
       - internal/protocol/dash.TestDownloadDynamicSIDXRollingWindowExceedsMaxSegmentsRejected
@@ -547,7 +549,7 @@ capabilities:
       - docs/DASH_DYNAMIC_SIDX_EVIDENCE.md
       - docs/DASH_MULTI_PERIOD_EVIDENCE.md
     owner: io
-    known_deviation: Product dispatch, inherited addressing, live negative-repeat timelines, dynamic SegmentTemplate/List polling, bounded single-period dynamic SegmentBase indexRange/SIDX refresh with append-only accumulation and bounded live-window prefix eviction (including bounded hierarchical reference_type=1 recursive expansion within a single representation's media URL), and compatible contiguous static fragmented multi-period composition are implemented. Multi-period timing must be derivable and gap-free; dynamic output MaxSegments applies to unique accumulated media leaves with an effective ceiling of min(configured MaxSegments, 10,000-initCount) enforced before download, while parser/index budgets apply cumulatively across a complete polling session. Leaf identity compares URL/range metadata only and does not detect remote byte mutation behind unchanged ranges; polling still completes before media download so evicted historical ranges must remain fetchable. Mixed selected addressing across representations, dynamic multi-period, unfragmented, timing-ambiguous, or format-incompatible multi-period composition remain unsupported; initialization/media overlap is rejected rather than trimmed, and index retrieval is single-attempt while media fragments use normal retry policy.
+    known_deviation: Product dispatch, inherited addressing, live negative-repeat timelines, dynamic SegmentTemplate/List polling, bounded single-period dynamic SegmentBase indexRange/SIDX refresh with append-only accumulation and bounded live-window prefix eviction that requires at least one stable retained leaf identity after the first non-empty window (including bounded hierarchical reference_type=1 recursive expansion within a single representation's media URL), and compatible contiguous static fragmented multi-period composition are implemented. Multi-period timing must be derivable and gap-free; dynamic output MaxSegments applies to unique accumulated media leaves with an effective ceiling of min(configured MaxSegments, 10,000-initCount) enforced before download, while parser/index budgets apply cumulatively across a complete polling session. Leaf identity compares URL/range metadata only and does not detect remote byte mutation behind unchanged ranges; polling still completes before media download so evicted historical ranges must remain fetchable. Completely disjoint live-window replacement, mixed selected addressing across representations, dynamic multi-period, unfragmented, timing-ambiguous, or format-incompatible multi-period composition remain unsupported; initialization/media overlap is rejected rather than trimmed, and index retrieval is single-attempt while media fragments use normal retry policy.
 
   - id: postprocess.ffmpeg
     name: ffmpeg and ffprobe orchestration
