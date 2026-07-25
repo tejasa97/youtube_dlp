@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta property="og:image" content="https://is1-ssl.mzstatic.example.test/image/thumb/Podcasts/v4/fixture.jpg/1200x1200bb.jpg">
+  <title>Fixture Episode</title>
+</head>
+<body>
+<script id="serialized-server-data" type="application/json">
+{
+  "data": [
+    {
+      "data": {
+        "headerButtonItems": [
+          {
+            "$kind": "chrome",
+            "modelType": "Other",
+            "model": {"ignored": true}
+          },
+          {
+            "$kind": "share",
+            "modelType": "ShowLockup",
+            "model": {"title": "Wrong model type"}
+          },
+          {
+            "$kind": "share",
+            "modelType": "EpisodeLockup",
+            "model": {
+              "title": "207 - Whitney Webb Returns",
+              "summary": "<p>Episode description with &amp; entities and <b>markup</b>.</p>",
+              "releaseDate": "2020-07-05T07:00:00Z",
+              "duration": 5369,
+              "episodeNumber": 207,
+              "showTitle": "The Tim Dillon Show",
+              "playAction": {
+                "episodeOffer": {
+                              "streamUrl": "https://www.podtrac.com/pts/redirect.mp3/chtbl.com/track/5899E/traffic.megaphone.fm/fixture207.mp3"
+                }
+              }
+            }
+          },
+          {
+            "$kind": "share",
+            "modelType": "EpisodeLockup",
+            "model": {
+              "title": "Should not be selected",
+              "playAction": {"episodeOffer": {"streamUrl": "https://cdn.example.test/other.mp3"}}
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
+</script>
+</body>
+</html>

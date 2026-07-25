@@ -1,6 +1,6 @@
 # Supported extractors
 
-ytdlp-go currently registers 31 representative native extractors. This is a
+ytdlp-go currently registers 42 representative native extractors. This is a
 conformance catalog, not a claim of the thousands of sites supported by
 upstream yt-dlp.
 
@@ -21,6 +21,7 @@ service response.
 | vimeo | vimeo.com videos with bounded public text tracks | manifest-heavy |
 | twitch | twitch.tv channels, VODs, clips, collections, channel videos/profile, channel collections, and channel clips playlists | live, playlist/API, manifest-heavy |
 | soundcloud | soundcloud.com tracks, sets, user `/tracks` and `/likes` pages, and bounded public search | playlist/API |
+| applepodcasts | podcasts.apple.com public episode pages with an explicit numeric episode query ID | simple/direct |
 | streamable | streamable.com public, embed, and short-link URLs | shared backend, simple/direct |
 | peertube | conservative PeerTube instance routes and peertube: opaque URLs | shared backend, live, manifest-heavy |
 | internetarchive | archive.org item pages | playlist/API |
