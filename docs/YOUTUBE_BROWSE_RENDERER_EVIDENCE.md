@@ -6,11 +6,23 @@ Pinned reference: yt-dlp `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`
 ## Shared renderer walker
 
 Deterministic fixtures and unit tests cover video, grid-video, Shorts/reel,
-playlist, channel, lockup, Shorts lockup, shelf, and Music list renderers in
-initial and continuation payloads, including mixed ordering and repeated
-occurrences. Hashtag tiles are validated but omitted until a registered
-hashtag consumer exists. Malformed/deep nesting is exercised by
+playlist, show/grid-show, channel, lockup, Shorts lockup, shelf, hashtag, and
+Music list renderers in initial and continuation payloads, including mixed
+ordering and repeated occurrences. Hashtag tiles emit registered
+`youtube_hashtag` URL results. Malformed/deep nesting is exercised by
 `FuzzParseYouTubeRendererData`.
+
+Video URL results may carry attributable `availability` labels
+(`public`/`private`/`premium`/`subscriber_only`/`unlisted`) from badge
+style/icon/label evidence with order-independent precedence
+(`private > premium > subscriber_only > unlisted > public`). Unknown badges
+are ignored; badge walk / parser-limit errors omit availability rather than
+emitting a partial positive claim. Playlist and channel/hashtag playlist Info
+may carry pre-fetch `playlist_count` / `view_count` when sidebar/header count
+text is a single attributable integer (canonical thousands commas) or
+`k`/`m`/`b`/`kk` token plus an allowlisted trailing noun (`views`/`videos`).
+Malformed commas, arbitrary trailing words, bare decimals, Unicode separators,
+and overflow fail closed. Generic localized count grammars are not claimed.
 
 ## Custom tabs and channel search
 
@@ -27,11 +39,12 @@ identity.
 ## Search / Music / auth
 
 General search emits broader URL-result families under supported `sp` values
-(normalized after `url.ParseQuery` decoding). Music search covers pinned
+(normalized after `url.ParseQuery` decoding), including registered hashtag
+results. Music search covers pinned
 upstream sections and emits watch/playlist/channel URL results plus registered
 Music browse families (`MPRE` albums, `MPSP` podcasts, `VL` playlists, and
 `UC`/`MPLA` artists) that `youtube_music_browse` consumes. Unregistered Music
-browse prefixes and hashtag tiles remain omitted so default playlist expansion
+browse prefixes remain omitted so default playlist expansion
 cannot fail. WEB_REMIX Music browse/search continuations are cookie-isolated
 and never inherit WEB SID state; Music browse requires isolation before any
 network call, including the initial page GET. Authenticated WEB browse/search

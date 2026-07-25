@@ -61,6 +61,9 @@ type Entry struct {
 	ID           string
 	Title        string
 	Transparent  bool
+	// Availability is an optional yt-dlp-compatible availability label
+	// (public/private/premium/subscriber_only/unlisted). Empty means unknown.
+	Availability string
 }
 
 func (entry Entry) Object() *value.Object {
@@ -80,6 +83,9 @@ func (entry Entry) Object() *value.Object {
 	}
 	if entry.Title != "" {
 		object.Set("title", value.String(entry.Title))
+	}
+	if entry.Availability != "" {
+		object.Set("availability", value.String(entry.Availability))
 	}
 	return object
 }

@@ -335,6 +335,7 @@ func (client *Client) productRegistry() *extractor.Registry {
 		extractor.NewYouTubeMusicSearch(),
 		extractor.NewYouTubeMusicBrowse(),
 		extractor.NewYouTubeSearch(),
+		extractor.NewYouTubeHashtag(),
 		extractor.NewYouTubeAliasTab(),
 		extractor.NewYouTubeHandleTab(),
 		extractor.NewYouTubeChannelTab(),
