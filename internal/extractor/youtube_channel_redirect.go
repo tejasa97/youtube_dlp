@@ -20,7 +20,9 @@ const (
 // families owned by the product registry, and the caller's explicit tab is
 // appended only after validating that the response supplied a bare root.
 func youtubeConditionalChannelRedirect(data []byte, sourceCanonical, requestedTab string) (Entry, bool, error) {
-	if requestedTab != "" && youtubePublicTabType(requestedTab) == youtubeTabUnsupported {
+	// Conditional redirects may append only built-in public tabs or channel
+	// search. Arbitrary custom tabs are never rewritten through this path.
+	if requestedTab != "" && youtubePublicTabType(requestedTab) == youtubeTabUnsupported && requestedTab != "search" {
 		return Entry{}, false, fmt.Errorf("%w: unsupported YouTube conditional redirect tab", ErrInvalidMetadata)
 	}
 	if !utf8.Valid(data) {

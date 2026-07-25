@@ -2,7 +2,6 @@ package extractor
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -31,8 +30,15 @@ func NewYouTubeChannelTab() YouTubeChannelTab { return YouTubeChannelTab{} }
 func (YouTubeChannelTab) Name() string        { return "youtube_channel_tab" }
 
 func (YouTubeChannelTab) Suitable(parsed *url.URL) bool {
-	_, _, ok := youtubeChannelTabTarget(parsed)
-	return ok
+	channelID, tab, ok := youtubeChannelTabTarget(parsed)
+	if !ok {
+		return false
+	}
+	if tab == "search" {
+		return youtubeChannelSearchQuery(parsed) != ""
+	}
+	_ = channelID
+	return true
 }
 
 func (YouTubeChannelTab) Extract(ctx context.Context, request Request) (Extraction, error) {
@@ -58,7 +64,29 @@ func (YouTubeChannelTab) Extract(ctx context.Context, request Request) (Extracti
 			},
 		})
 	}
+	if tab == "search" {
+		query := youtubeChannelSearchQuery(parsed)
+		return extractYouTubeChannelTabWithQuery(ctx, request.Transport, channelID, tab, query)
+	}
 	return extractYouTubeChannelTab(ctx, request.Transport, channelID, tab)
+}
+
+func youtubeChannelSearchQuery(parsed *url.URL) string {
+	if parsed == nil {
+		return ""
+	}
+	values, err := url.ParseQuery(parsed.RawQuery)
+	if err != nil {
+		return ""
+	}
+	query := values.Get("query")
+	if query == "" {
+		query = values.Get("q")
+	}
+	if !validYouTubeSearchQuery(query) {
+		return ""
+	}
+	return query
 }
 
 // youtubeChannelTabTarget is the one strict route policy used by Suitable and
@@ -91,14 +119,25 @@ func youtubeChannelTabTarget(parsed *url.URL) (channelID, tab string, ok bool) {
 	if len(parts) == 3 {
 		return parts[2], "", true
 	}
-	if youtubePublicTabType(parts[3]) != youtubeTabUnsupported {
-		return parts[2], parts[3], true
+	tab = parts[3]
+	if youtubePublicTabType(tab) != youtubeTabUnsupported || tab == "search" || validYouTubeCustomTabSegment(tab) {
+		return parts[2], tab, true
 	}
 	return "", "", false
 }
 
 func extractYouTubeChannelTab(ctx context.Context, transport Transport, channelID, tab string) (Extraction, error) {
+	return extractYouTubeChannelTabWithQuery(ctx, transport, channelID, tab, "")
+}
+
+func extractYouTubeChannelTabWithQuery(ctx context.Context, transport Transport, channelID, tab, query string) (Extraction, error) {
 	canonical := "https://www.youtube.com/channel/" + channelID + "/" + tab
+	if tab == "search" {
+		if !validYouTubeSearchQuery(query) {
+			return Extraction{}, fmt.Errorf("%w: unsupported YouTube channel search", ErrUnsupported)
+		}
+		canonical = "https://www.youtube.com/channel/" + channelID + "/search?" + url.Values{"query": {query}}.Encode()
+	}
 	page, _, err := transport.ReadPage(ctx, canonical)
 	if err != nil {
 		return Extraction{}, categorizeYouTubeChannelError(err)
@@ -110,10 +149,19 @@ func extractYouTubeChannelTab(ctx context.Context, transport Transport, channelI
 	if redirect, ok, err := youtubeConditionalRedirectResult(raw, canonical, tab); err != nil || ok {
 		return redirect, err
 	}
-	if err := validateYouTubeSelectedTab(raw, tab); err != nil {
+	identity := youtubeChannelIdentity{ChannelID: channelID}
+	if youtubePublicTabType(tab) == youtubeTabUnsupported && tab != "search" {
+		if err := youtubeCustomTabSelectedAndBound(raw, tab, identity); err != nil {
+			return Extraction{}, err
+		}
+	} else if err := validateYouTubeSelectedTab(raw, tab); err != nil {
 		return Extraction{}, err
 	}
-	parsed, err := parseYouTubeChannelTabData(raw, tab)
+	policy := youtubeRendererPolicyForTab(tab)
+	if tab == "search" {
+		policy = youtubeRendererPolicy{kinds: youtubeRendererVideo | youtubeRendererPlaylist | youtubeRendererChannel}
+	}
+	parsed, err := parseYouTubeRendererData(raw, policy)
 	if err != nil {
 		return Extraction{}, err
 	}
@@ -128,123 +176,24 @@ func extractYouTubeChannelTab(ctx context.Context, transport Transport, channelI
 	if visitorData == "" {
 		visitorData = config.VisitorData
 	}
+	auth := youtubeBrowseAuthFromPage(page, transport)
 	entries, err := StatefulContinuationEntries(parsed.entries, parsed.continuation, visitorData, func(ctx context.Context, token, visitorData string) ([]Entry, string, string, error) {
-		return fetchYouTubeChannelContinuation(ctx, transport, token, visitorData, config, tab)
+		return fetchYouTubeBrowseContinuation(ctx, transport, token, visitorData, config, policy, "channel", categorizeYouTubeChannelError, auth)
 	})
 	if err != nil {
 		return Extraction{}, err
 	}
-	return Playlist(value.NewInfo(value.NewObject(
-		value.Field{Key: "id", Value: value.String(channelID)},
-		value.Field{Key: "title", Value: value.String(parsed.title)},
-		value.Field{Key: "webpage_url", Value: value.String(canonical)},
-	)), entries)
+	title := parsed.title
+	if tab == "search" && query != "" {
+		title = parsed.title + " - Search - " + query
+	}
+	return Playlist(youtubeRendererPlaylistInfo(channelID, title, canonical, parsed.tabs), entries)
 }
 
-type youtubeChannelTabPage struct {
-	entries                    []Entry
-	continuation, title, alert string
-	visitorData                string
-}
-
-func parseYouTubeChannelTabData(data []byte, tab string) (youtubeChannelTabPage, error) {
-	var root value.Value
-	if err := json.Unmarshal(data, &root); err != nil {
-		return youtubeChannelTabPage{}, fmt.Errorf("%w: decode YouTube channel tab data", ErrInvalidMetadata)
-	}
-	rootObject, ok := root.Object()
-	if !ok {
-		return youtubeChannelTabPage{}, fmt.Errorf("%w: YouTube channel tab root", ErrInvalidMetadata)
-	}
-	var page youtubeChannelTabPage
-	var suppressed map[string]int
-	if tab == "community" {
-		suppressed = make(map[string]int)
-	}
-	appendEntry := func(entry Entry, ok bool) {
-		if !ok {
-			return
-		}
-		key := youtubeTabEntryKey(entry)
-		if suppressed[key] > 0 {
-			suppressed[key]--
-			return
-		}
-		appendYouTubeTabEntry(&page.entries, entry, true)
-	}
-	nodes := 0
-	err := walkOrderedJSON(youtubePlaylistContentScope(rootObject), 0, &nodes, func(key string, object *value.Object) {
-		switch key {
-		case "videoRenderer", "gridVideoRenderer", "reelItemRenderer":
-			if youtubeTabAllowsVideos(tab) {
-				entry, ok := youtubeHandleTabVideoEntry(object)
-				appendEntry(entry, ok)
-			}
-		case "playlistRenderer", "gridPlaylistRenderer":
-			if youtubeTabAllowsPlaylists(tab) {
-				entry, ok := youtubeTabPlaylistEntry(object)
-				appendEntry(entry, ok)
-			}
-		case "lockupViewModel":
-			if youtubeTabAllowsPlaylists(tab) {
-				entry, ok := youtubeTabPlaylistLockupEntry(object)
-				appendEntry(entry, ok)
-			}
-			if youtubeTabAllowsVideos(tab) {
-				entry, ok := youtubePlaylistLockupEntry(object)
-				appendEntry(entry, ok)
-			}
-		case "backstagePostRenderer":
-			if tab == "community" {
-				for _, entry := range youtubeCommunityPostEntries(object) {
-					appendYouTubeTabEntry(&page.entries, entry, true)
-				}
-				for _, entry := range youtubeCommunityAttachmentEntries(object) {
-					suppressed[youtubeTabEntryKey(entry)]++
-				}
-			}
-		}
-		if token := youtubeContinuationToken(key, object); token != "" {
-			page.continuation = token
-		}
-	})
-	if err != nil {
-		return youtubeChannelTabPage{}, err
-	}
-	continuationNodes := 0
-	if err := walkOrderedJSON(rootObject.Lookup("continuationContents"), 0, &continuationNodes, func(key string, object *value.Object) {
-		if token := youtubeContinuationToken(key, object); token != "" {
-			page.continuation = token
-		}
-	}); err != nil {
-		return youtubeChannelTabPage{}, err
-	}
-	metadataNodes := 0
-	if err := walkOrderedJSON(rootObject.Lookup("metadata"), 0, &metadataNodes, func(key string, object *value.Object) {
-		if key == "channelMetadataRenderer" && page.title == "" {
-			page.title = objectString(object, "title")
-		}
-	}); err != nil {
-		return youtubeChannelTabPage{}, err
-	}
-	headerNodes := 0
-	if err := walkOrderedJSON(rootObject.Lookup("header"), 0, &headerNodes, func(key string, object *value.Object) {
-		if key == "c4TabbedHeaderRenderer" && page.title == "" {
-			page.title = rendererText(object.Lookup("title"))
-		}
-	}); err != nil {
-		return youtubeChannelTabPage{}, err
-	}
-	alertNodes := 0
-	if err := walkOrderedJSON(rootObject.Lookup("alerts"), 0, &alertNodes, func(key string, object *value.Object) {
-		if key == "alertRenderer" && page.alert == "" {
-			page.alert = rendererText(object.Lookup("text"))
-		}
-	}); err != nil {
-		return youtubeChannelTabPage{}, err
-	}
-	page.visitorData = objectString(rootObject, "responseContext", "visitorData")
-	return page, nil
+// parseYouTubeChannelTabData keeps the historical test helper name while
+// routing through the shared renderer walker.
+func parseYouTubeChannelTabData(data []byte, tab string) (youtubeRendererPage, error) {
+	return parseYouTubeRendererData(data, youtubeRendererPolicyForTab(tab))
 }
 
 func youtubeTabPlaylistEntry(renderer *value.Object) (Entry, bool) {
@@ -280,45 +229,7 @@ func youtubeTabPlaylistResult(playlistID, title string) Entry {
 }
 
 func fetchYouTubeChannelContinuation(ctx context.Context, transport Transport, token, visitorData string, config youtubePlaylistConfig, tab string) ([]Entry, string, string, error) {
-	if token = validYouTubeContinuationToken(token); token == "" {
-		return nil, "", visitorData, fmt.Errorf("%w: invalid YouTube continuation", ErrInvalidPlaylist)
-	}
-	version := config.ClientVersion
-	if version == "" {
-		version = youtubeDefaultClientVersion
-	}
-	payload := map[string]any{"context": map[string]any{"client": map[string]any{"clientName": "WEB", "clientVersion": version, "hl": "en", "timeZone": "UTC", "utcOffsetMinutes": 0, "visitorData": visitorData}}, "continuation": token}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return nil, "", visitorData, fmt.Errorf("%w: encode YouTube continuation", ErrInvalidMetadata)
-	}
-	endpoint, _ := url.Parse(youtubePlaylistContinuationURL)
-	query := endpoint.Query()
-	query.Set("prettyPrint", "false")
-	if config.APIKey != "" {
-		query.Set("key", config.APIKey)
-	}
-	endpoint.RawQuery = query.Encode()
-	headers := make(http.Header)
-	headers.Set("Content-Type", "application/json")
-	headers.Set("Origin", "https://www.youtube.com")
-	headers.Set("X-Youtube-Client-Name", "1")
-	headers.Set("X-Youtube-Client-Version", version)
-	var response json.RawMessage
-	if err := RequestJSON(ctx, transport, http.MethodPost, endpoint.String(), body, headers, &response); err != nil {
-		return nil, "", visitorData, categorizeYouTubeChannelError(err)
-	}
-	parsed, err := parseYouTubeChannelTabData(response, tab)
-	if err != nil {
-		return nil, "", visitorData, err
-	}
-	if parsed.alert != "" && len(parsed.entries) == 0 {
-		return nil, "", visitorData, youtubeChannelTabAlertError(parsed.alert)
-	}
-	if parsed.visitorData == "" {
-		parsed.visitorData = visitorData
-	}
-	return parsed.entries, parsed.continuation, parsed.visitorData, nil
+	return fetchYouTubeBrowseContinuation(ctx, transport, token, visitorData, config, youtubeRendererPolicyForTab(tab), "channel", categorizeYouTubeChannelError, nil)
 }
 
 func youtubeChannelTabAlertError(alert string) error {

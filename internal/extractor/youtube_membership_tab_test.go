@@ -23,7 +23,7 @@ func TestYouTubeMembershipTabVideoOnlyRenderersAndContinuation(t *testing.T) {
 	want := []string{
 		"membVID0001:https://www.youtube.com/watch?v=membVID0001:Membership grid video",
 		"membVID0002:https://www.youtube.com/watch?v=membVID0002:Grid video",
-		"membSHORT01:https://www.youtube.com/shorts/membSHORT01:",
+		"membSHORT01:https://www.youtube.com/shorts/membSHORT01:Member short",
 		"membVID0003:https://www.youtube.com/watch?v=membVID0003:Lockup video",
 		"membVID0004:https://www.youtube.com/watch?v=membVID0004:Continued direct video",
 		"membVID0005:https://www.youtube.com/watch?v=membVID0005:Continued grid video",
