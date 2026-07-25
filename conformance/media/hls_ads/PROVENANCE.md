@@ -52,3 +52,40 @@ the Go parser retains the physical HLS media sequence and part identity for
 advertisements and media alike. Filtering occurs only when building the
 download plan. This keeps live/delta deduplication and implicit AES-128 IVs
 standards-correct while producing the same ad-suppressed media output.
+
+## EXT-X-DATERANGE SCTE-35 (Go extension beyond pinned reference)
+
+`mixed-daterange-vod.m3u8` and `delta-daterange-midbreak.m3u8` exercise
+validated `EXT-X-DATERANGE` SCTE-35 advertisement boundaries. The pinned
+reference at commit `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8` does **not**
+decode DATERANGE SCTE-35 payloads.
+
+Recognition rules:
+
+- the raw playlist line must begin at byte zero with exact `#EXT-X-DATERANGE:`;
+- leading whitespace before `#` is a rejected pseudo-tag and is ignored;
+- trailing ASCII spaces or tabs on an otherwise exact line are ignored;
+- attribute lists use the strict HLS parser with duplicate-attribute rejection;
+- a non-empty bounded `ID` is required when `SCTE35-OUT`, `SCTE35-IN`, or
+  `SCTE35-CMD` is present;
+- only exact uppercase `SCTE35-OUT`, `SCTE35-IN`, and `SCTE35-CMD` names are
+  inspected; ordinary dateranges without those attributes remain ignored.
+
+Accepted SCTE-35 values must be even-length `0x`-prefixed hexadecimal strings
+within an explicit decoded-size bound. Each value decodes to one complete
+`splice_info_section` with `table_id` `0xFC`, a consistent 12-bit
+`section_length`, valid CRC-32/MPEG-2, `encrypted_packet` cleared, and bounded
+`splice_insert` or `time_signal` command fields:
+
+- `SCTE35-OUT` / `SCTE35-IN` accept structurally valid `splice_insert` or
+  `time_signal` commands and derive direction from the attribute name;
+- `SCTE35-CMD` accepts only structurally valid `splice_insert` commands and
+  derives direction from `out_of_network_indicator`;
+- ambiguous lines with more than one directional attribute, malformed or
+  duplicate attributes, conflicting direction, unsupported commands, encrypted
+  packets, invalid CRC, or oversized payloads fail closed as invalid playlists.
+
+Fixture hex payloads are generated deterministically from explicit SCTE-35 bit
+layouts (program-splice and component-splice `splice_insert`, timed
+`splice_insert`, `time_signal`, and negative cases) with MPEG-2 CRC-32. No
+network capture or Python runtime is used.
