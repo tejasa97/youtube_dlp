@@ -122,15 +122,26 @@ Shared helpers for HTTPS media URL policy, episode metadata bounds, and show pla
 | `nowness_series` | NOWNESS series API | yes (lazy) |
 | `dacast` | Dacast VOD HLS | no |
 | `dacast_playlist` | Dacast playlist → VOD URLResults | yes (lazy) |
+| `panopto` | PanoptoIE — DeliveryInfo → HTTPS/HLS formats | no |
+| `panopto_playlist` | PanoptoPlaylistIE — Playlists API → SessionLists API → same-tenant `panopto` entries | yes (lazy) |
+| `teachingchannel` | TeachingChannelIE → `jwplatform:` | no |
+| `nowcanal` | NowCanalIE → Brightcove | no |
+| `democracynow` | DemocracynowIE page JSON media | no |
+| `buzzfeed` | BuzzFeedIE video-bucket playlist | yes (lazy) |
+| `mediastream` | MediaStreamIE `/embed` + `/live-stream` | no |
+| `winsports` | WinSportsVideoIE → mediastream | no |
+| `abcotvs` | ABCOTVSIE exact station hosts | no |
+| `abcotvs_clips` | ABCOTVSClipsIE | no |
+| `vidsio` | VidsIoIE → sproutvideo | no |
+| `laracasts` | LaracastsIE → vimeo | no |
+| `laracasts_series` | LaracastsPlaylistIE | yes (lazy) |
 
 ### Batch F — Still deferred (if time / evidence supports; no dishonest counting)
 
 | Key | Family | Notes |
 |-----|--------|-------|
-| `vidsio` | SproutVideo | VidsIoIE host adapter |
-| `panopto` / `panopto_list` | Panopto | new shared family if parsers stay bounded |
-| `mediastream` | Mediastream | exact embed hosts only |
 | Additional Anvato/ThePlatform/NBC adapters | existing | only with reference + fixtures |
+| CBC listen / gem | CBC | complex auth/geo surface |
 
 ## Explicit exclusions
 

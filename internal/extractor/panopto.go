@@ -44,13 +44,30 @@ func panoptoPagePath(parsed *url.URL) bool {
 	return panoptoPageAspx.MatchString(parsed.EscapedPath())
 }
 
+// panoptoUniqueQuery returns a query value only when the key is present and
+// every repeated value is identical. Conflicting duplicates (id=a&id=b) are
+// rejected at the routing boundary.
+func panoptoUniqueQuery(query url.Values, key string) (string, bool) {
+	vals := query[key]
+	if len(vals) == 0 {
+		return "", false
+	}
+	first := strings.TrimSpace(vals[0])
+	for _, v := range vals[1:] {
+		if strings.TrimSpace(v) != first {
+			return "", false
+		}
+	}
+	return first, true
+}
+
 func parsePanoptoPlaylistURL(parsed *url.URL) (host, pid string, ok bool) {
 	host, hostOK := panoptoBaseHost(parsed)
 	if !hostOK || !panoptoPagePath(parsed) {
 		return "", "", false
 	}
-	pid = parsed.Query().Get("pid")
-	if !podcastUUID.MatchString(pid) {
+	pid, pidOK := panoptoUniqueQuery(parsed.Query(), "pid")
+	if !pidOK || !podcastUUID.MatchString(pid) {
 		return "", "", false
 	}
 	return host, strings.ToLower(pid), true
@@ -64,14 +81,54 @@ func parsePanoptoVideoURL(parsed *url.URL) (host, id string, ok bool) {
 		return "", "", false
 	}
 	query := parsed.Query()
-	if podcastUUID.MatchString(query.Get("pid")) {
+	if pid, pidOK := panoptoUniqueQuery(query, "pid"); pidOK && podcastUUID.MatchString(pid) {
 		return "", "", false
 	}
-	id = query.Get("id")
-	if !podcastUUID.MatchString(id) {
+	// Conflicting pid values still fail closed even when no valid playlist
+	// pid is present (do not fall through to video routing).
+	if vals := query["pid"]; len(vals) > 1 {
+		first := strings.TrimSpace(vals[0])
+		for _, v := range vals[1:] {
+			if strings.TrimSpace(v) != first {
+				return "", "", false
+			}
+		}
+	}
+	id, idOK := panoptoUniqueQuery(query, "id")
+	if !idOK || !podcastUUID.MatchString(id) {
 		return "", "", false
 	}
 	return host, strings.ToLower(id), true
+}
+
+// panoptoBoundViewerEntry rebuilds a same-tenant Viewer URL. When ViewerUri is
+// present it must already target the original exact tenant host, a Viewer/Embed
+// path, and the matching session id (no cross-tenant or id-mismatch handoff).
+func panoptoBoundViewerEntry(tenantHost, itemID, viewerURI, title string) (Entry, bool) {
+	id := strings.ToLower(strings.TrimSpace(itemID))
+	if !podcastUUID.MatchString(id) || tenantHost == "" {
+		return Entry{}, false
+	}
+	if strings.TrimSpace(viewerURI) != "" {
+		viewerURL, err := url.Parse(viewerURI)
+		if err != nil {
+			return Entry{}, false
+		}
+		viewerHost, viewerHostOK := panoptoBaseHost(viewerURL)
+		if !viewerHostOK || viewerHost != tenantHost || !panoptoPagePath(viewerURL) {
+			return Entry{}, false
+		}
+		viewerID, viewerIDOK := panoptoUniqueQuery(viewerURL.Query(), "id")
+		if !viewerIDOK || strings.ToLower(viewerID) != id {
+			return Entry{}, false
+		}
+	}
+	return Entry{
+		URL:          "https://" + tenantHost + "/Panopto/Pages/Viewer.aspx?id=" + id,
+		ExtractorKey: "panopto",
+		ID:           id,
+		Title:        title,
+	}, true
 }
 
 func panoptoAPIError(code *int) error {
@@ -269,27 +326,15 @@ func (PanoptoPlaylist) Extract(ctx context.Context, request Request) (Extraction
 				continue
 			}
 			id := strings.ToLower(strings.TrimSpace(item.Id))
-			if !podcastUUID.MatchString(id) || seen[id] {
+			if seen[id] {
 				continue
 			}
-			// Re-derive the entry URL from a validated same-family host rather
-			// than trusting the server-supplied ViewerUri string verbatim;
-			// this rejects hostile redirects to unrelated hosts.
-			viewerURL, err := url.Parse(item.ViewerUri)
-			if err != nil {
-				continue
-			}
-			viewerHost, viewerHostOK := panoptoBaseHost(viewerURL)
-			if !viewerHostOK {
+			entry, ok := panoptoBoundViewerEntry(host, id, item.ViewerUri, item.Name)
+			if !ok {
 				continue
 			}
 			seen[id] = true
-			entries = append(entries, Entry{
-				URL:          "https://" + viewerHost + "/Panopto/Pages/Viewer.aspx?id=" + id,
-				ExtractorKey: "panopto",
-				ID:           id,
-				Title:        item.Name,
-			})
+			entries = append(entries, entry)
 		}
 		if len(entries) == 0 {
 			return nil, fmt.Errorf("%w: empty Panopto playlist", ErrInvalidMetadata)

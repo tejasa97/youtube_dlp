@@ -19,7 +19,9 @@ Current automated floors:
 | Success URL shapes (Extract / URLResult re-entry / playlist CollectEntries) | **≥100** | `breadthMinSuccessShapes` |
 | Playlist/feed behaviors added by this program since baseline | **≥20** | `breadthMinPlaylists` |
 
-Aliases (`www`/identical-host mirrors) are not double-counted as distinct shapes. Suitable-only routing is never counted.
+Shape entries carry a **canonical identity** (`key|route-syntax`). Duplicate IDs, fixture cardinality (`-single`/`-multi` on the same path), hostname aliases with identical behavior, and payload-only variants are rejected by the ledger.
+
+Aliases (`www`/identical-host mirrors), optional query order, and result cardinality are not counted as distinct shapes. Suitable-only routing is never counted.
 
 ## Keys added on this branch (beyond wave 1)
 
@@ -32,6 +34,8 @@ Aliases (`www`/identical-host mirrors) are not double-counted as distinct shapes
 **Podcast feeder family (11):** `acast`, `acast_channel`, `simplecast`, `simplecast_episode`, `simplecast_podcast`, `megaphone`, `art19`, `art19_show`, `libsyn`, `spreaker`, `spreaker_show`
 
 **Additional families (7):** `nowness`, `nowness_playlist`, `nowness_series`, `dacast`, `dacast_playlist`, `panopto`, `panopto_playlist`
+
+**Second-review honest restorations (12):** `teachingchannel`, `nowcanal`, `democracynow`, `buzzfeed`, `mediastream`, `winsports`, `abcotvs`, `abcotvs_clips`, `vidsio`, `laracasts`, `laracasts_series` (+ existing-route expansions: NOWNESS `/category/`, Panopto playlist `Embed.aspx?pid=`, AZ Medien telem1/tvo-online hosts)
 
 ## Playlist contract
 
@@ -47,7 +51,7 @@ Every program playlist in the automated inventory uses `LazyFirstPageEntries` or
 ## Families (≥8)
 
 Wave 1 families remain: Cloudflare Stream, Arc Publishing, Anvato, ThePlatform, plus pre-existing Brightcove/Kaltura/JW/Wistia/SproutVideo backends.
-This PR adds **Podcast / feeder APIs**, **NOWNESS**, and **Dacast**.
+This PR adds **Podcast / feeder APIs**, **NOWNESS**, **Dacast**, **Panopto**, and **MediaStream**.
 
 ## Compatibility claims
 

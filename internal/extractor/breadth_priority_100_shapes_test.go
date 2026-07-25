@@ -9,12 +9,12 @@ import (
 func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 	t.Helper()
 	out := make([]breadthShapeSpec, 0, 128)
-	add := func(id, key, kind string, run func(*testing.T)) {
-		out = append(out, breadthShapeSpec{ID: id, Key: key, Kind: kind, Run: run})
+	add := func(id, canonical, key, kind string, run func(*testing.T)) {
+		out = append(out, breadthShapeSpec{ID: id, Canonical: canonical, Key: key, Kind: kind, Run: run})
 	}
 
 	// --- Wave 1 ---
-	add("cfstream-watch-hex", "cloudflarestream", "media", func(t *testing.T) {
+	add("cfstream-watch-hex", "cloudflarestream|watch.cloudflarestream.com/{hex}", "cloudflarestream", "media", func(t *testing.T) {
 		result, err := NewCloudflareStream().Extract(context.Background(), Request{URL: "https://watch.cloudflarestream.com/9df17203414fd1db3e3ed74abbe936c1"})
 		if err != nil {
 			t.Fatal(err)
@@ -23,7 +23,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("missing formats")
 		}
 	})
-	add("cfstream-jwt", "cloudflarestream", "media", func(t *testing.T) {
+	add("cfstream-jwt", "cloudflarestream|watch.cloudflarestream.com/{jwt}", "cloudflarestream", "media", func(t *testing.T) {
 		const fixedJWT = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI4OGQ0MTA4YTM2NDIwNzNlYWJhYWY4N2RhMTgyZDI2MyJ9.signature"
 		result, err := NewCloudflareStream().Extract(context.Background(), Request{URL: "https://watch.cloudflarestream.com/" + fixedJWT})
 		if err != nil {
@@ -33,7 +33,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatalf("id=%q", id)
 		}
 	})
-	add("cfstream-videodelivery", "cloudflarestream", "media", func(t *testing.T) {
+	add("cfstream-videodelivery", "cloudflarestream|videodelivery.net/{id}", "cloudflarestream", "media", func(t *testing.T) {
 		result, err := NewCloudflareStream().Extract(context.Background(), Request{URL: "https://videodelivery.net/9df17203414fd1db3e3ed74abbe936c1"})
 		if err != nil {
 			t.Fatal(err)
@@ -42,7 +42,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("missing formats")
 		}
 	})
-	add("cfstream-customer", "cloudflarestream", "media", func(t *testing.T) {
+	add("cfstream-customer", "cloudflarestream|customer-*.cloudflarestream.com/{id}", "cloudflarestream", "media", func(t *testing.T) {
 		result, err := NewCloudflareStream().Extract(context.Background(), Request{URL: "https://customer-aw5py76sw8wyqzmh.cloudflarestream.com/2463f6d3e06fa29710a337f5f5389fd8"})
 		if err != nil {
 			t.Fatal(err)
@@ -51,7 +51,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("missing formats")
 		}
 	})
-	add("cfstream-bytehighway", "cloudflarestream", "media", func(t *testing.T) {
+	add("cfstream-bytehighway", "cloudflarestream|bytehighway.net/{id}", "cloudflarestream", "media", func(t *testing.T) {
 		result, err := NewCloudflareStream().Extract(context.Background(), Request{URL: "https://bytehighway.net/9df17203414fd1db3e3ed74abbe936c1"})
 		if err != nil {
 			t.Fatal(err)
@@ -60,7 +60,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("missing formats")
 		}
 	})
-	add("hytale-news", "hytale", "playlist", func(t *testing.T) {
+	add("hytale-news", "hytale|/news/{yyyy}/{mm}/{slug}", "hytale", "playlist", func(t *testing.T) {
 		transport := &sharedFixtureTransport{pages: map[string][]byte{
 			"https://hytale.com/news/2021/07/summer-2021-development-update": familyFixture(t, "hytale", "news.html"),
 		}}
@@ -72,7 +72,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 		}
 		assertLazyPlaylist(t, result, transport, hytaleMaxStreamIDs, "cloudflarestream", 1)
 	})
-	add("arc-scheme", "arcpublishing", "media", func(t *testing.T) {
+	add("arc-scheme", "arcpublishing|arcpublishing:{org}:{uuid}", "arcpublishing", "media", func(t *testing.T) {
 		result, err := NewArcPublishing().Extract(context.Background(), Request{
 			URL:       "arcpublishing:adn:8c99cb6e-b29c-4bc9-9173-7bf9979225ab",
 			Transport: breadthArcTransport("adn", "8c99cb6e-b29c-4bc9-9173-7bf9979225ab"),
@@ -84,7 +84,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("missing formats")
 		}
 	})
-	add("wapo-video", "washingtonpost", "url_result", func(t *testing.T) {
+	add("wapo-video", "washingtonpost|/video/c/video/{uuid}", "washingtonpost", "url_result", func(t *testing.T) {
 		result, err := NewWashingtonPost().Extract(context.Background(), Request{
 			URL: "https://www.washingtonpost.com/video/c/video/480ba4ee-1ec7-11e6-82c2-a7dcb313287d",
 		})
@@ -94,7 +94,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 		assertURLResultReentry(t, result, "arcpublishing", NewArcPublishing(), breadthArcTransport("wapo", "480ba4ee-1ec7-11e6-82c2-a7dcb313287d"))
 	})
 
-	add("adn-single", "adn", "playlist", func(t *testing.T) {
+	add("adn", "adn|exact-host powa page", "adn", "playlist", func(t *testing.T) {
 		transport := &sharedFixtureTransport{pages: map[string][]byte{
 			"https://adn.com/politics/2020/11/02/video-senate-candidates/": familyFixture(t, "adn", "powa.html"),
 		}}
@@ -114,17 +114,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("re-entry formats")
 		}
 	})
-	add("adn-multi", "adn", "playlist", func(t *testing.T) {
-		transport := &sharedFixtureTransport{pages: map[string][]byte{
-			"https://adn.com/politics/2020/11/02/video-senate-candidates/": arcMultiPowaHTML("adn", "8c99cb6e-b29c-4bc9-9173-7bf9979225ab", "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
-		}}
-		result, err := NewADN().Extract(context.Background(), Request{URL: "https://www.adn.com/politics/2020/11/02/video-senate-candidates/", Transport: transport})
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertLazyPlaylist(t, result, transport, arcMaxOrgs, "arcpublishing", 2)
-	})
-	add("bostonglobe-single", "bostonglobe", "playlist", func(t *testing.T) {
+	add("bostonglobe", "bostonglobe|exact-host powa page", "bostonglobe", "playlist", func(t *testing.T) {
 		transport := &sharedFixtureTransport{pages: map[string][]byte{
 			"https://bostonglobe.com/video/2020/12/30/metro/example/": familyFixture(t, "bostonglobe", "powa.html"),
 		}}
@@ -144,17 +134,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("re-entry formats")
 		}
 	})
-	add("bostonglobe-multi", "bostonglobe", "playlist", func(t *testing.T) {
-		transport := &sharedFixtureTransport{pages: map[string][]byte{
-			"https://bostonglobe.com/video/2020/12/30/metro/example/": arcMultiPowaHTML("bostonglobe", "232b7ae6-7d73-432d-bc0a-85dbf0119ab1", "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
-		}}
-		result, err := NewBostonGlobe().Extract(context.Background(), Request{URL: "https://www.bostonglobe.com/video/2020/12/30/metro/example/", Transport: transport})
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertLazyPlaylist(t, result, transport, arcMaxOrgs, "arcpublishing", 2)
-	})
-	add("gray-single", "gray", "playlist", func(t *testing.T) {
+	add("gray", "gray|exact-host powa page", "gray", "playlist", func(t *testing.T) {
 		transport := &sharedFixtureTransport{pages: map[string][]byte{
 			"https://wabi.tv/video/2020/12/30/example/": familyFixture(t, "gray", "powa.html"),
 		}}
@@ -174,17 +154,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("re-entry formats")
 		}
 	})
-	add("gray-multi", "gray", "playlist", func(t *testing.T) {
-		transport := &sharedFixtureTransport{pages: map[string][]byte{
-			"https://wabi.tv/video/2020/12/30/example/": arcMultiPowaHTML("gray", "0b0ba30e-032a-4598-8810-901d70e6033e", "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
-		}}
-		result, err := NewGray().Extract(context.Background(), Request{URL: "https://www.wabi.tv/video/2020/12/30/example/", Transport: transport})
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertLazyPlaylist(t, result, transport, arcMaxOrgs, "arcpublishing", 2)
-	})
-	add("clickondetroit-single", "clickondetroit", "playlist", func(t *testing.T) {
+	add("clickondetroit", "clickondetroit|exact-host powa page", "clickondetroit", "playlist", func(t *testing.T) {
 		transport := &sharedFixtureTransport{pages: map[string][]byte{
 			"https://clickondetroit.com/video/community/2020/05/15/example/": familyFixture(t, "clickondetroit", "powa.html"),
 		}}
@@ -204,17 +174,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("re-entry formats")
 		}
 	})
-	add("clickondetroit-multi", "clickondetroit", "playlist", func(t *testing.T) {
-		transport := &sharedFixtureTransport{pages: map[string][]byte{
-			"https://clickondetroit.com/video/community/2020/05/15/example/": arcMultiPowaHTML("gmg", "c8793fb2-8d44-4242-881e-2db31da2d9fe", "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
-		}}
-		result, err := NewClickOnDetroit().Extract(context.Background(), Request{URL: "https://www.clickondetroit.com/video/community/2020/05/15/example/", Transport: transport})
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertLazyPlaylist(t, result, transport, arcMaxOrgs, "arcpublishing", 2)
-	})
-	add("actionnewsjax-single", "actionnewsjax", "playlist", func(t *testing.T) {
+	add("actionnewsjax", "actionnewsjax|exact-host powa page", "actionnewsjax", "playlist", func(t *testing.T) {
 		transport := &sharedFixtureTransport{pages: map[string][]byte{
 			"https://actionnewsjax.com/video/live-stream/": familyFixture(t, "actionnewsjax", "powa.html"),
 		}}
@@ -234,17 +194,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("re-entry formats")
 		}
 	})
-	add("actionnewsjax-multi", "actionnewsjax", "playlist", func(t *testing.T) {
-		transport := &sharedFixtureTransport{pages: map[string][]byte{
-			"https://actionnewsjax.com/video/live-stream/": arcMultiPowaHTML("cmg", "cfb1cf1b-3ab5-4d1b-86c5-a5515d311f2a", "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
-		}}
-		result, err := NewActionNewsJax().Extract(context.Background(), Request{URL: "https://www.actionnewsjax.com/video/live-stream/", Transport: transport})
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertLazyPlaylist(t, result, transport, arcMaxOrgs, "arcpublishing", 2)
-	})
-	add("elcomercio-single", "elcomercio", "playlist", func(t *testing.T) {
+	add("elcomercio", "elcomercio|exact-host powa page", "elcomercio", "playlist", func(t *testing.T) {
 		transport := &sharedFixtureTransport{pages: map[string][]byte{
 			"https://elcomercio.pe/videos/deportes/example/": familyFixture(t, "elcomercio", "powa.html"),
 		}}
@@ -264,17 +214,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("re-entry formats")
 		}
 	})
-	add("elcomercio-multi", "elcomercio", "playlist", func(t *testing.T) {
-		transport := &sharedFixtureTransport{pages: map[string][]byte{
-			"https://elcomercio.pe/videos/deportes/example/": arcMultiPowaHTML("elcomercio", "27a7e1f8-2ec7-4177-874f-a4feed2885b3", "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
-		}}
-		result, err := NewElComercio().Extract(context.Background(), Request{URL: "https://www.elcomercio.pe/videos/deportes/example/", Transport: transport})
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertLazyPlaylist(t, result, transport, arcMaxOrgs, "arcpublishing", 2)
-	})
-	add("lateja-single", "lateja", "playlist", func(t *testing.T) {
+	add("lateja", "lateja|exact-host powa page", "lateja", "playlist", func(t *testing.T) {
 		transport := &sharedFixtureTransport{pages: map[string][]byte{
 			"https://lateja.cr/el-mundo/video-china/dfcbfa57-527f-45ff-a69b-35fe71054143/video/": familyFixture(t, "lateja", "powa.html"),
 		}}
@@ -294,17 +234,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("re-entry formats")
 		}
 	})
-	add("lateja-multi", "lateja", "playlist", func(t *testing.T) {
-		transport := &sharedFixtureTransport{pages: map[string][]byte{
-			"https://lateja.cr/el-mundo/video-china/dfcbfa57-527f-45ff-a69b-35fe71054143/video/": arcMultiPowaHTML("gruponacion", "dfcbfa57-527f-45ff-a69b-35fe71054143", "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
-		}}
-		result, err := NewLateja().Extract(context.Background(), Request{URL: "https://www.lateja.cr/el-mundo/video-china/dfcbfa57-527f-45ff-a69b-35fe71054143/video/", Transport: transport})
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertLazyPlaylist(t, result, transport, arcMaxOrgs, "arcpublishing", 2)
-	})
-	add("fifthdomain-single", "fifthdomain", "playlist", func(t *testing.T) {
+	add("fifthdomain", "fifthdomain|exact-host powa page", "fifthdomain", "playlist", func(t *testing.T) {
 		transport := &sharedFixtureTransport{pages: map[string][]byte{
 			"https://fifthdomain.com/video/2018/03/09/example/": familyFixture(t, "fifthdomain", "powa.html"),
 		}}
@@ -324,17 +254,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("re-entry formats")
 		}
 	})
-	add("fifthdomain-multi", "fifthdomain", "playlist", func(t *testing.T) {
-		transport := &sharedFixtureTransport{pages: map[string][]byte{
-			"https://fifthdomain.com/video/2018/03/09/example/": arcMultiPowaHTML("mco", "aa0ca6fe-1127-46d4-b32c-be0d6fdb8055", "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
-		}}
-		result, err := NewFifthDomain().Extract(context.Background(), Request{URL: "https://www.fifthdomain.com/video/2018/03/09/example/", Transport: transport})
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertLazyPlaylist(t, result, transport, arcMaxOrgs, "arcpublishing", 2)
-	})
-	add("vlno-single", "vlno", "playlist", func(t *testing.T) {
+	add("vlno", "vlno|exact-host powa page", "vlno", "playlist", func(t *testing.T) {
 		transport := &sharedFixtureTransport{pages: map[string][]byte{
 			"https://vl.no/kultur/2020/12/09/example-article/": familyFixture(t, "vlno", "powa.html"),
 		}}
@@ -354,17 +274,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("re-entry formats")
 		}
 	})
-	add("vlno-multi", "vlno", "playlist", func(t *testing.T) {
-		transport := &sharedFixtureTransport{pages: map[string][]byte{
-			"https://vl.no/kultur/2020/12/09/example-article/": arcMultiPowaHTML("mentormedier", "47a12084-650b-4011-bfd0-3699b6947b2d", "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
-		}}
-		result, err := NewVLNO().Extract(context.Background(), Request{URL: "https://www.vl.no/kultur/2020/12/09/example-article/", Transport: transport})
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertLazyPlaylist(t, result, transport, arcMaxOrgs, "arcpublishing", 2)
-	})
-	add("fourteennews-single", "fourteennews", "playlist", func(t *testing.T) {
+	add("fourteennews", "fourteennews|exact-host powa page", "fourteennews", "playlist", func(t *testing.T) {
 		transport := &sharedFixtureTransport{pages: map[string][]byte{
 			"https://14news.com/2020/12/30/whiskey-theft/": familyFixture(t, "fourteennews", "powa.html"),
 		}}
@@ -384,17 +294,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("re-entry formats")
 		}
 	})
-	add("fourteennews-multi", "fourteennews", "playlist", func(t *testing.T) {
-		transport := &sharedFixtureTransport{pages: map[string][]byte{
-			"https://14news.com/2020/12/30/whiskey-theft/": arcMultiPowaHTML("raycom", "b89f61f8-79fa-4c09-8255-e64237119bf7", "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
-		}}
-		result, err := NewFourteenNews().Extract(context.Background(), Request{URL: "https://www.14news.com/2020/12/30/whiskey-theft/", Transport: transport})
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertLazyPlaylist(t, result, transport, arcMaxOrgs, "arcpublishing", 2)
-	})
-	add("globeandmail-single", "globeandmail", "playlist", func(t *testing.T) {
+	add("globeandmail", "globeandmail|exact-host powa page", "globeandmail", "playlist", func(t *testing.T) {
 		transport := &sharedFixtureTransport{pages: map[string][]byte{
 			"https://theglobeandmail.com/world/video-ethiopian-woman/": familyFixture(t, "globeandmail", "powa.html"),
 		}}
@@ -414,17 +314,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("re-entry formats")
 		}
 	})
-	add("globeandmail-multi", "globeandmail", "playlist", func(t *testing.T) {
-		transport := &sharedFixtureTransport{pages: map[string][]byte{
-			"https://theglobeandmail.com/world/video-ethiopian-woman/": arcMultiPowaHTML("tgam", "411b34c1-8701-4036-9831-26964711664b", "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
-		}}
-		result, err := NewGlobeAndMail().Extract(context.Background(), Request{URL: "https://www.theglobeandmail.com/world/video-ethiopian-woman/", Transport: transport})
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertLazyPlaylist(t, result, transport, arcMaxOrgs, "arcpublishing", 2)
-	})
-	add("pilotonline-single", "pilotonline", "playlist", func(t *testing.T) {
+	add("pilotonline", "pilotonline|exact-host powa page", "pilotonline", "playlist", func(t *testing.T) {
 		transport := &sharedFixtureTransport{pages: map[string][]byte{
 			"https://pilotonline.com/news/460f2931-8130-4719-8ea1-ffcb2d7cb685-132.html": familyFixture(t, "pilotonline", "powa.html"),
 		}}
@@ -444,17 +334,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("re-entry formats")
 		}
 	})
-	add("pilotonline-multi", "pilotonline", "playlist", func(t *testing.T) {
-		transport := &sharedFixtureTransport{pages: map[string][]byte{
-			"https://pilotonline.com/news/460f2931-8130-4719-8ea1-ffcb2d7cb685-132.html": arcMultiPowaHTML("tronc", "460f2931-8130-4719-8ea1-ffcb2d7cb685", "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
-		}}
-		result, err := NewPilotOnline().Extract(context.Background(), Request{URL: "https://www.pilotonline.com/news/460f2931-8130-4719-8ea1-ffcb2d7cb685-132.html", Transport: transport})
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertLazyPlaylist(t, result, transport, arcMaxOrgs, "arcpublishing", 2)
-	})
-	add("uppermichigansource-single", "uppermichigansource", "playlist", func(t *testing.T) {
+	add("uppermichigansource", "uppermichigansource|exact-host powa page", "uppermichigansource", "playlist", func(t *testing.T) {
 		transport := &sharedFixtureTransport{pages: map[string][]byte{
 			"https://uppermichigansource.com/2025/07/18/scattered-showers/": familyFixture(t, "uppermichigansource", "powa.html"),
 		}}
@@ -474,18 +354,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("re-entry formats")
 		}
 	})
-	add("uppermichigansource-multi", "uppermichigansource", "playlist", func(t *testing.T) {
-		transport := &sharedFixtureTransport{pages: map[string][]byte{
-			"https://uppermichigansource.com/2025/07/18/scattered-showers/": arcMultiPowaHTML("gray", "508116f7-e999-48db-b7c2-60a04842679b", "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
-		}}
-		result, err := NewUpperMichiganSource().Extract(context.Background(), Request{URL: "https://www.uppermichigansource.com/2025/07/18/scattered-showers/", Transport: transport})
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertLazyPlaylist(t, result, transport, arcMaxOrgs, "arcpublishing", 2)
-	})
-
-	add("anvato-scheme", "anvato", "media", func(t *testing.T) {
+	add("anvato-scheme", "anvato|anvato:{access}:{mcp}", "anvato", "media", func(t *testing.T) {
 		result, err := NewAnvato().Extract(context.Background(), Request{
 			URL: "anvato:" + fox9AnvatoAccessKey + ":8032455", Transport: breadthAnvatoTransport(),
 		})
@@ -496,14 +365,14 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("missing formats")
 		}
 	})
-	add("fox9-video", "fox9", "url_result", func(t *testing.T) {
+	add("fox9-video", "fox9|/video/{slug}", "fox9", "url_result", func(t *testing.T) {
 		result, err := NewFOX9().Extract(context.Background(), Request{URL: "https://www.fox9.com/video/8032455"})
 		if err != nil {
 			t.Fatal(err)
 		}
 		assertURLResultReentry(t, result, "anvato", NewAnvato(), breadthAnvatoTransport())
 	})
-	add("fox9-news", "fox9_news", "url_result", func(t *testing.T) {
+	add("fox9-news", "fox9_news|/news/{slug}", "fox9_news", "url_result", func(t *testing.T) {
 		transport := &sharedFixtureTransport{pages: map[string][]byte{
 			"https://www.fox9.com/news/bear-climbs-tree": familyFixture(t, "fox9", "news.html"),
 		}}
@@ -535,7 +404,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("missing formats")
 		}
 	})
-	add("theplatform-link", "theplatform", "media", func(t *testing.T) {
+	add("theplatform-link", "theplatform|link.theplatform.com/s/...", "theplatform", "media", func(t *testing.T) {
 		rawURL := "https://link.theplatform.com/s/kYEXFC/22d_qsQ6MIRT"
 		smilURL := "https://link.theplatform.com/s/kYEXFC/22d_qsQ6MIRT?mbr=true&format=SMIL"
 		metaURL := "https://link.theplatform.com/s/kYEXFC/22d_qsQ6MIRT?format=preview"
@@ -551,7 +420,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("missing formats")
 		}
 	})
-	add("theplatform-feed-byguid", "theplatform_feed", "media", func(t *testing.T) {
+	add("theplatform-feed-byguid", "theplatform_feed|feed byGuid=", "theplatform_feed", "media", func(t *testing.T) {
 		feedURL := "https://feed.theplatform.com/f/7wvmTC/msnbc_video-p-test?byGuid=n_hardball_5biden_140207"
 		feedEndpoint := "https://feed.theplatform.com/f/7wvmTC/msnbc_video-p-test?form=json&byGuid=n_hardball_5biden_140207"
 		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
@@ -565,7 +434,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("missing formats")
 		}
 	})
-	add("weathercom-video", "weathercom", "media", func(t *testing.T) {
+	add("weathercom-video", "weathercom|/video/{id}", "weathercom", "media", func(t *testing.T) {
 		weatherURL := "https://weather.com/storms/hurricane/video/invest-95l-fixture"
 		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
 			"https://weather.com/api/v1/p/redux-dal": {body: familyFixture(t, "weathercom", "redux.json")},
@@ -578,7 +447,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("missing formats")
 		}
 	})
-	add("panopto-video", "panopto", "media", func(t *testing.T) {
+	add("panopto-video", "panopto|Viewer.aspx?id=", "panopto", "media", func(t *testing.T) {
 		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
 			"https://demo.hosted.panopto.com/Panopto/Pages/Viewer/DeliveryInfo.aspx?deliveryId=26b3ae9e-4a48-4dcc-96ba-0befba08a0fb&responseType=json": {
 				body: familyFixture(t, "panopto", "deliveryinfo.json"),
@@ -594,7 +463,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("missing formats")
 		}
 	})
-	add("panopto-embed", "panopto", "media", func(t *testing.T) {
+	add("panopto-embed", "panopto|Embed.aspx?id=", "panopto", "media", func(t *testing.T) {
 		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
 			"https://demo.hosted.panopto.com/Panopto/Pages/Viewer/DeliveryInfo.aspx?deliveryId=26b3ae9e-4a48-4dcc-96ba-0befba08a0fb&responseType=json": {
 				body: familyFixture(t, "panopto", "deliveryinfo.json"),
@@ -610,7 +479,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("missing formats")
 		}
 	})
-	add("nbcolympics-player", "nbcolympics", "url_result", func(t *testing.T) {
+	add("nbcolympics-player", "nbcolympics|vplayer.nbcolympics.com", "nbcolympics", "url_result", func(t *testing.T) {
 		result, err := NewNBCOlympics().Extract(context.Background(), Request{
 			URL: "https://vplayer.nbcolympics.com/p/NnzsPC/widget/select/media/4Y0TlYUr_ZT7",
 		})
@@ -623,21 +492,21 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 	})
 
 	// --- Brightcove adapters ---
-	add("pgatour-features", "pgatour", "url_result", func(t *testing.T) {
+	add("pgatour-features", "pgatour|/video/features/{id}", "pgatour", "url_result", func(t *testing.T) {
 		result, err := NewPGATour().Extract(context.Background(), Request{URL: "https://www.pgatour.com/video/features/6322506425112/follow-the-players-trophy"})
 		if err != nil {
 			t.Fatal(err)
 		}
 		assertURLResultReentry(t, result, "brightcove", NewBrightcove(), brightcoveFixtureTransport(t, pgaTourFeaturesAccount, pgaTourFeaturesPlayer, "6322506425112"))
 	})
-	add("pgatour-competition", "pgatour", "url_result", func(t *testing.T) {
+	add("pgatour-competition", "pgatour|/video/{id} competition path", "pgatour", "url_result", func(t *testing.T) {
 		result, err := NewPGATour().Extract(context.Background(), Request{URL: "https://www.pgatour.com/video/competition/T6322447785112/adam-hadwin"})
 		if err != nil {
 			t.Fatal(err)
 		}
 		assertURLResultReentry(t, result, "brightcove", NewBrightcove(), brightcoveFixtureTransport(t, pgaTourCloudcastAccount, pgaTourCloudcastPlayer, "6322447785112"))
 	})
-	add("ninenews-videos", "ninenews", "url_result", func(t *testing.T) {
+	add("ninenews-videos", "ninenews|9news.com.au videos path", "ninenews", "url_result", func(t *testing.T) {
 		pageURL := "https://www.9news.com.au/videos/national/fair-trading/clqgc7dvj000y0jnvfism0w5m"
 		transport := &sharedFixtureTransport{pages: map[string][]byte{pageURL: familyFixture(t, "ninenews", "page.html")}}
 		result, err := NewNineNews().Extract(context.Background(), Request{URL: pageURL, Transport: transport})
@@ -648,7 +517,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatalf("%#v", result)
 		}
 	})
-	add("ninenow-clip", "ninenow", "url_result", func(t *testing.T) {
+	add("ninenow-clip", "ninenow|9now clip/episode path", "ninenow", "url_result", func(t *testing.T) {
 		pageURL := "https://www.9now.com.au/today/season-2025/clip-cm8hw9h5z00080hquqa5hszq7"
 		transport := &sharedFixtureTransport{pages: map[string][]byte{pageURL: familyFixture(t, "ninenow", "page.html")}}
 		result, err := NewNineNow().Extract(context.Background(), Request{URL: pageURL, Transport: transport})
@@ -656,7 +525,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatalf("%#v %v", result, err)
 		}
 	})
-	add("netapp-detail", "netapp", "url_result", func(t *testing.T) {
+	add("netapp-detail", "netapp|/video-detail/{uuid}", "netapp", "url_result", func(t *testing.T) {
 		uuid := "da25fc01-82ad-5284-95bc-26920200a222"
 		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
 			"https://api.media.netapp.com/client/detail/" + uuid: {body: familyFixture(t, "netapp", "detail.json")},
@@ -667,7 +536,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 		}
 		assertURLResultReentry(t, result, "brightcove", NewBrightcove(), brightcoveFixtureTransport(t, netAppBrightcoveAccount, "default", "123"))
 	})
-	add("netapp-collection", "netapp_collection", "playlist", func(t *testing.T) {
+	add("netapp-collection", "netapp_collection|/collection/{uuid}", "netapp_collection", "playlist", func(t *testing.T) {
 		uuid := "9820e190-f2a6-47ac-9c0a-98e5e64234a4"
 		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
 			"https://api.media.netapp.com/client/collection/" + uuid: {body: familyFixture(t, "netapp_collection", "collection.json")},
@@ -678,7 +547,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 		}
 		assertLazyPlaylist(t, result, transport, brightcoveAdapterMaxEntries, "brightcove", 2)
 	})
-	add("amcnetworks-amc", "amcnetworks", "url_result", func(t *testing.T) {
+	add("amcnetworks-amc", "amcnetworks|host=amc.com", "amcnetworks", "url_result", func(t *testing.T) {
 		transport := &sharedFixtureTransport{pages: map[string][]byte{
 			"https://www.amc.com/shows/dark-winds/videos/dark-winds-a-look-at-season-3--1072027": familyFixture(t, "amcnetworks", "page.html"),
 		}}
@@ -687,7 +556,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatalf("%#v %v", result, err)
 		}
 	})
-	add("amcnetworks-bbcamerica", "amcnetworks", "url_result", func(t *testing.T) {
+	add("amcnetworks-bbcamerica", "amcnetworks|host=bbcamerica.com", "amcnetworks", "url_result", func(t *testing.T) {
 		transport := &sharedFixtureTransport{pages: map[string][]byte{
 			"https://www.bbcamerica.com/shows/dark-winds/videos/dark-winds-a-look-at-season-3--1072027": familyFixture(t, "amcnetworks", "page.html"),
 		}}
@@ -696,7 +565,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatalf("%#v %v", result, err)
 		}
 	})
-	add("amcnetworks-ifc", "amcnetworks", "url_result", func(t *testing.T) {
+	add("amcnetworks-ifc", "amcnetworks|host=ifc.com", "amcnetworks", "url_result", func(t *testing.T) {
 		transport := &sharedFixtureTransport{pages: map[string][]byte{
 			"https://www.ifc.com/shows/dark-winds/videos/dark-winds-a-look-at-season-3--1072027": familyFixture(t, "amcnetworks", "page.html"),
 		}}
@@ -705,7 +574,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatalf("%#v %v", result, err)
 		}
 	})
-	add("amcnetworks-wetv", "amcnetworks", "url_result", func(t *testing.T) {
+	add("amcnetworks-wetv", "amcnetworks|host=wetv.com", "amcnetworks", "url_result", func(t *testing.T) {
 		transport := &sharedFixtureTransport{pages: map[string][]byte{
 			"https://www.wetv.com/shows/dark-winds/videos/dark-winds-a-look-at-season-3--1072027": familyFixture(t, "amcnetworks", "page.html"),
 		}}
@@ -714,7 +583,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatalf("%#v %v", result, err)
 		}
 	})
-	add("amcnetworks-sundancetv", "amcnetworks", "url_result", func(t *testing.T) {
+	add("amcnetworks-sundancetv", "amcnetworks|host=sundancetv.com", "amcnetworks", "url_result", func(t *testing.T) {
 		transport := &sharedFixtureTransport{pages: map[string][]byte{
 			"https://www.sundancetv.com/shows/dark-winds/videos/dark-winds-a-look-at-season-3--1072027": familyFixture(t, "amcnetworks", "page.html"),
 		}}
@@ -724,7 +593,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 		}
 	})
 
-	add("craftsy-class", "craftsy", "playlist", func(t *testing.T) {
+	add("craftsy-class", "craftsy|/class/{slug}", "craftsy", "playlist", func(t *testing.T) {
 		transport := &sharedFixtureTransport{pages: map[string][]byte{
 			"https://www.craftsy.com/class/the-midnight-quilt-show-season-5/": familyFixture(t, "craftsy", "page.html"),
 		}}
@@ -734,7 +603,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 		}
 		assertLazyPlaylist(t, result, transport, brightcoveAdapterMaxEntries, "brightcove", 2)
 	})
-	add("tvo-video", "tvo", "url_result", func(t *testing.T) {
+	add("tvo-video", "tvo|/video/{slug}", "tvo", "url_result", func(t *testing.T) {
 		pageURL := "https://www.tvo.org/video/how-can-ontario-survive-the-trade-war"
 		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
 			"https://hmy0rc1bo2.execute-api.ca-central-1.amazonaws.com/graphql": {body: familyFixture(t, "tvo", "graphql.json")},
@@ -744,7 +613,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatalf("%#v %v", result, err)
 		}
 	})
-	add("tva-plus", "tva", "url_result", func(t *testing.T) {
+	add("tva-plus", "tva|tvaplus.ca ...-{id}", "tva", "url_result", func(t *testing.T) {
 		pageURL := "https://www.tvaplus.ca/tva/alerte-amber/saison-1/episode-01-1000036619"
 		transport := &sharedFixtureTransport{pages: map[string][]byte{
 			"https://www.tvaplus.ca/tva/alerte-amber/saison-1/episode-01-1000036619": familyFixture(t, "tva", "page.html"),
@@ -754,14 +623,14 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatalf("%#v %v", result, err)
 		}
 	})
-	add("tvanouvelles-videos", "tvanouvelles", "url_result", func(t *testing.T) {
+	add("tvanouvelles-videos", "tvanouvelles|/videos/{id}", "tvanouvelles", "url_result", func(t *testing.T) {
 		result, err := NewTVANouvelles().Extract(context.Background(), Request{URL: "https://www.tvanouvelles.ca/videos/5117035533001"})
 		if err != nil {
 			t.Fatal(err)
 		}
 		assertURLResultReentry(t, result, "brightcove", NewBrightcove(), brightcoveFixtureTransport(t, tvaNouvellesAccount, "default", "5117035533001"))
 	})
-	add("tvanouvelles-article", "tvanouvelles_article", "playlist", func(t *testing.T) {
+	add("tvanouvelles-article", "tvanouvelles_article|article page data-video-id", "tvanouvelles_article", "playlist", func(t *testing.T) {
 		pageURL := "https://www.tvanouvelles.ca/2016/11/17/des-policiers-qui-ont-la-meche-un-peu-courte"
 		transport := &sharedFixtureTransport{pages: map[string][]byte{pageURL: familyFixture(t, "tvanouvelles_article", "page.html")}}
 		result, err := NewTVANouvellesArticle().Extract(context.Background(), Request{URL: pageURL, Transport: transport})
@@ -771,7 +640,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 		assertLazyPlaylist(t, result, transport, brightcoveAdapterMaxEntries, "tvanouvelles", 2)
 	})
 
-	add("unwebtv-asset", "unitednationswebtv", "url_result", func(t *testing.T) {
+	add("unwebtv-asset", "unitednationswebtv|/lang/asset/.../{id}", "unitednationswebtv", "url_result", func(t *testing.T) {
 		pageURL := "https://webtv.un.org/en/asset/k1o/k1o7stmi6p"
 		transport := &sharedFixtureTransport{pages: map[string][]byte{pageURL: familyFixture(t, "unitednationswebtv", "page.html")}}
 		result, err := NewUnitedNationsWebTV().Extract(context.Background(), Request{URL: pageURL, Transport: transport})
@@ -779,13 +648,13 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatalf("%#v %v", result, err)
 		}
 	})
-	add("azmedien-fragment", "azmedien", "url_result", func(t *testing.T) {
+	add("azmedien-fragment", "azmedien|#video= fragment", "azmedien", "url_result", func(t *testing.T) {
 		result, err := NewAZMedien().Extract(context.Background(), Request{URL: "https://www.telebaern.tv/telebaern-news/montag-1-oktober-2018-ganze-sendung-133531189#video=0_7xjo9lf1"})
 		if err != nil || result.Redirect.URL != "kaltura:1719221:0_7xjo9lf1" {
 			t.Fatalf("%#v %v", result, err)
 		}
 	})
-	add("azmedien-telezueri", "azmedien", "url_result", func(t *testing.T) {
+	add("azmedien-telezueri", "azmedien|host=telezueri.ch page", "azmedien", "url_result", func(t *testing.T) {
 		rawURL := "https://tv.telezueri.ch/sonntalk/bundesrats-vakanzen-eu-rahmenabkommen-133214569"
 		transport := &sharedFixtureTransport{pages: map[string][]byte{rawURL: familyFixture(t, "azmedien", "page.html")}}
 		result, err := NewAZMedien().Extract(context.Background(), Request{URL: rawURL, Transport: transport})
@@ -793,7 +662,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatalf("%#v %v", result, err)
 		}
 	})
-	add("azmedien-telebaern-page", "azmedien", "url_result", func(t *testing.T) {
+	add("azmedien-telebaern-page", "azmedien|host=telebaern.tv page", "azmedien", "url_result", func(t *testing.T) {
 		rawURL := "https://www.telebaern.tv/telebaern-news/fixture-page-133214569"
 		transport := &sharedFixtureTransport{pages: map[string][]byte{rawURL: familyFixture(t, "azmedien", "page.html")}}
 		result, err := NewAZMedien().Extract(context.Background(), Request{URL: rawURL, Transport: transport})
@@ -801,7 +670,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatalf("%#v %v", result, err)
 		}
 	})
-	add("inc-article", "inc", "url_result", func(t *testing.T) {
+	add("inc-article", "inc|inc.com article.html", "inc", "url_result", func(t *testing.T) {
 		rawURL := "https://www.inc.com/tip-sheet/bill-gates-says-these-5-books-will-make-you-smarter.html"
 		transport := &sharedFixtureTransport{pages: map[string][]byte{rawURL: familyFixture(t, "inc", "page.html")}}
 		result, err := NewInc().Extract(context.Background(), Request{URL: rawURL, Transport: transport})
@@ -809,7 +678,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatalf("%#v %v", result, err)
 		}
 	})
-	add("heise-video", "heise", "url_result", func(t *testing.T) {
+	add("heise-video", "heise|heise.de video article", "heise", "url_result", func(t *testing.T) {
 		rawURL := "https://www.heise.de/video/artikel/Podcast-c-t-uplink-3-3-Owncloud-2404147.html"
 		transport := &sharedFixtureTransport{pages: map[string][]byte{rawURL: familyFixture(t, "heise", "page.html")}}
 		result, err := NewHeise().Extract(context.Background(), Request{URL: rawURL, Transport: transport})
@@ -817,7 +686,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatalf("%#v %v", result, err)
 		}
 	})
-	add("spiegel-video", "spiegel", "url_result", func(t *testing.T) {
+	add("spiegel-video", "spiegel|spiegel.de", "spiegel", "url_result", func(t *testing.T) {
 		rawURL := "https://www.spiegel.de/video/vulkan-tungurahua-in-ecuador-ist-wieder-aktiv-video-1259285.html"
 		transport := &sharedFixtureTransport{pages: map[string][]byte{rawURL: familyFixture(t, "spiegel", "page.html")}}
 		result, err := NewSpiegel().Extract(context.Background(), Request{URL: rawURL, Transport: transport})
@@ -825,7 +694,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatalf("%#v %v", result, err)
 		}
 	})
-	add("spiegel-manager", "spiegel", "url_result", func(t *testing.T) {
+	add("spiegel-manager", "spiegel|manager-magazin.de", "spiegel", "url_result", func(t *testing.T) {
 		rawURL := "https://www.manager-magazin.de/unternehmen/video-aae8df48-43c1-4c61-867d-23f0a2d254b7"
 		transport := &sharedFixtureTransport{pages: map[string][]byte{rawURL: familyFixture(t, "spiegel", "page.html")}}
 		result, err := NewSpiegel().Extract(context.Background(), Request{URL: rawURL, Transport: transport})
@@ -833,7 +702,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatalf("%#v %v", result, err)
 		}
 	})
-	add("onefootball-video", "onefootball", "url_result", func(t *testing.T) {
+	add("onefootball-video", "onefootball|/{lang}/video/...-{id}", "onefootball", "url_result", func(t *testing.T) {
 		rawURL := "https://onefootball.com/en/video/highlights-fc-zuerich-3-3-fc-basel-34012334"
 		transport := &sharedFixtureTransport{pages: map[string][]byte{rawURL: familyFixture(t, "onefootball", "page.html")}}
 		result, err := NewOneFootball().Extract(context.Background(), Request{URL: rawURL, Transport: transport})
@@ -843,7 +712,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 	})
 
 	// Podcasts
-	add("acast-shows", "acast", "media", func(t *testing.T) {
+	add("acast-shows", "acast|shows.acast.com/{show}/episodes/{ep}", "acast", "media", func(t *testing.T) {
 		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
 			"https://feeder.acast.com/api/v1/shows/sparpodcast/episodes/2.raggarmordet-rosterurdetforflutna?showInfo=true": {body: familyFixture(t, "acast", "episode.json")},
 		}}
@@ -855,7 +724,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("missing formats")
 		}
 	})
-	add("acast-play", "acast", "media", func(t *testing.T) {
+	add("acast-play", "acast|play.acast.com/s/{show}/{ep}", "acast", "media", func(t *testing.T) {
 		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
 			"https://feeder.acast.com/api/v1/shows/sparpodcast/episodes/2a92b283-1a75-4ad8-8396-499c641de0d9?showInfo=true": {body: familyFixture(t, "acast", "episode.json")},
 		}}
@@ -867,19 +736,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("missing formats")
 		}
 	})
-	add("acast-www", "acast", "media", func(t *testing.T) {
-		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
-			"https://feeder.acast.com/api/v1/shows/sparpodcast/episodes/2.raggarmordet-rosterurdetforflutna?showInfo=true": {body: familyFixture(t, "acast", "episode.json")},
-		}}
-		result, err := NewACast().Extract(context.Background(), Request{URL: "https://www.acast.com/sparpodcast/2.raggarmordet-rosterurdetforflutna", Transport: transport})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if formats, ok := result.Info.Formats(); !ok || len(formats) == 0 {
-			t.Fatal("missing formats")
-		}
-	})
-	add("acast-channel-www", "acast_channel", "playlist", func(t *testing.T) {
+	add("acast-channel", "acast_channel|acast.com/{show}", "acast_channel", "playlist", func(t *testing.T) {
 		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
 			"https://feeder.acast.com/api/v1/shows/todayinfocus": {body: familyFixture(t, "acast_channel", "show.json")},
 		}}
@@ -889,17 +746,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 		}
 		assertLazyPlaylist(t, result, transport, podcastMaxEpisodes, "acast", 2)
 	})
-	add("acast-channel-shows", "acast_channel", "playlist", func(t *testing.T) {
-		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
-			"https://feeder.acast.com/api/v1/shows/todayinfocus": {body: familyFixture(t, "acast_channel", "show.json")},
-		}}
-		result, err := NewACastChannel().Extract(context.Background(), Request{URL: "https://shows.acast.com/todayinfocus", Transport: transport})
-		if err != nil {
-			t.Fatal(err)
-		}
-		assertLazyPlaylist(t, result, transport, podcastMaxEpisodes, "acast", 2)
-	})
-	add("simplecast-player", "simplecast", "media", func(t *testing.T) {
+	add("simplecast-player", "simplecast|player.simplecast.com/{uuid}", "simplecast", "media", func(t *testing.T) {
 		id := "b6dc49a2-9404-4853-9aa9-9cfc097be876"
 		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
 			"https://api.simplecast.com/episodes/" + id: {body: familyFixture(t, "simplecast", "episode.json")},
@@ -912,7 +759,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("missing formats")
 		}
 	})
-	add("simplecast-api", "simplecast", "media", func(t *testing.T) {
+	add("simplecast-api", "simplecast|api.simplecast.com/episodes/{uuid}", "simplecast", "media", func(t *testing.T) {
 		id := "b6dc49a2-9404-4853-9aa9-9cfc097be876"
 		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
 			"https://api.simplecast.com/episodes/" + id: {body: familyFixture(t, "simplecast", "episode.json")},
@@ -925,7 +772,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("missing formats")
 		}
 	})
-	add("simplecast-episode", "simplecast_episode", "url_result", func(t *testing.T) {
+	add("simplecast-episode", "simplecast_episode|*.simplecast.com/episodes/{slug}", "simplecast_episode", "url_result", func(t *testing.T) {
 		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
 			"https://api.simplecast.com/episodes/search": {body: familyFixture(t, "simplecast_episode", "search.json")},
 		}}
@@ -934,7 +781,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatalf("%#v %v", result, err)
 		}
 	})
-	add("simplecast-podcast", "simplecast_podcast", "playlist", func(t *testing.T) {
+	add("simplecast-podcast", "simplecast_podcast|*.simplecast.com/", "simplecast_podcast", "playlist", func(t *testing.T) {
 		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
 			"https://api.simplecast.com/podcasts/search":                                        {body: familyFixture(t, "simplecast_podcast", "search.json")},
 			"https://api.simplecast.com/podcasts/e23df0da-bae4-4531-8bbf-71364a88dc13/episodes": {body: familyFixture(t, "simplecast_podcast", "episodes.json")},
@@ -945,7 +792,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 		}
 		assertLazyPlaylist(t, result, transport, podcastMaxEpisodes, "simplecast", 1)
 	})
-	add("megaphone-player", "megaphone", "media", func(t *testing.T) {
+	add("megaphone-player", "megaphone|player.megaphone.fm/{id}", "megaphone", "media", func(t *testing.T) {
 		transport := &sharedFixtureTransport{pages: map[string][]byte{
 			"https://player.megaphone.fm/GLT9749789991": familyFixture(t, "megaphone", "page.html"),
 		}}
@@ -957,7 +804,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("missing formats")
 		}
 	})
-	add("art19-rss", "art19", "media", func(t *testing.T) {
+	add("art19-rss", "art19|rss.art19.com/episodes/{uuid}.mp3", "art19", "media", func(t *testing.T) {
 		id := "5ba1413c-48b8-472b-9cc3-cfd952340bdb"
 		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
 			"https://art19.com/episodes/" + id: {body: familyFixture(t, "art19", "episode.json")},
@@ -970,7 +817,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("missing formats")
 		}
 	})
-	add("art19-show-episode", "art19", "media", func(t *testing.T) {
+	add("art19-show-episode", "art19|/shows/{show}/episodes/{uuid}", "art19", "media", func(t *testing.T) {
 		id := "5ba1413c-48b8-472b-9cc3-cfd952340bdb"
 		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
 			"https://art19.com/episodes/" + id: {body: familyFixture(t, "art19", "episode.json")},
@@ -983,7 +830,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("missing formats")
 		}
 	})
-	add("art19-show", "art19_show", "playlist", func(t *testing.T) {
+	add("art19-show", "art19_show|/shows/{show}", "art19_show", "playlist", func(t *testing.T) {
 		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
 			"https://art19.com/shows/scamfluencers": {body: familyFixture(t, "art19_show", "show.json")},
 		}}
@@ -993,7 +840,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 		}
 		assertLazyPlaylist(t, result, transport, podcastMaxEpisodes, "art19", 1)
 	})
-	add("libsyn-embed", "libsyn", "media", func(t *testing.T) {
+	add("libsyn-embed", "libsyn|html5-player.libsyn.com/embed/episode/id/{id}", "libsyn", "media", func(t *testing.T) {
 		transport := &sharedFixtureTransport{pages: map[string][]byte{
 			"https://html5-player.libsyn.com/embed/episode/id/6385796": familyFixture(t, "libsyn", "page.html"),
 		}}
@@ -1005,7 +852,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("missing formats")
 		}
 	})
-	add("spreaker-api", "spreaker", "media", func(t *testing.T) {
+	add("spreaker-api", "spreaker|api.spreaker.com/episode/{id}", "spreaker", "media", func(t *testing.T) {
 		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
 			"https://api.spreaker.com/v2/episodes/12534508": {body: familyFixture(t, "spreaker", "episode.json")},
 		}}
@@ -1017,7 +864,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("missing formats")
 		}
 	})
-	add("spreaker-www", "spreaker", "media", func(t *testing.T) {
+	add("spreaker-www", "spreaker|www.spreaker.com/episode/{id}", "spreaker", "media", func(t *testing.T) {
 		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
 			"https://api.spreaker.com/v2/episodes/60269615": {body: familyFixture(t, "spreaker", "episode.json")},
 		}}
@@ -1029,7 +876,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("missing formats")
 		}
 	})
-	add("spreaker-show-api", "spreaker_show", "playlist", func(t *testing.T) {
+	add("spreaker-show-api", "spreaker_show|api.spreaker.com/show/{id}", "spreaker_show", "playlist", func(t *testing.T) {
 		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
 			"https://api.spreaker.com/show/4652058/episodes?page=1&max_per_page=100": {body: familyFixture(t, "spreaker_show", "episodes.json")},
 		}}
@@ -1039,7 +886,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 		}
 		assertLazyPlaylist(t, result, transport, podcastMaxEpisodes, "spreaker", 1)
 	})
-	add("spreaker-show-www", "spreaker_show", "playlist", func(t *testing.T) {
+	add("spreaker-show-www", "spreaker_show|www.spreaker.com/podcast/{slug}--{id}", "spreaker_show", "playlist", func(t *testing.T) {
 		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
 			"https://api.spreaker.com/show/5918323/episodes?page=1&max_per_page=100": {body: familyFixture(t, "spreaker_show", "episodes.json")},
 		}}
@@ -1050,7 +897,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 		assertLazyPlaylist(t, result, transport, podcastMaxEpisodes, "spreaker", 1)
 	})
 
-	add("nowness-story", "nowness", "url_result", func(t *testing.T) {
+	add("nowness-story", "nowness|/story/{slug}", "nowness", "url_result", func(t *testing.T) {
 		transport := &sharedFixtureTransport{
 			responses: map[string]fixtureHTTP{"https://api.nowness.com/api/post/getBySlug/candor-the-art-of-gesticulation": {body: familyFixture(t, "nowness", "post.json")}},
 			pages:     map[string][]byte{"https://www.nowness.com/iframe?id=2520295746001": familyFixture(t, "nowness", "iframe.html")},
@@ -1061,7 +908,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 		}
 		assertURLResultReentry(t, result, "brightcove", NewBrightcove(), brightcoveFixtureTransport(t, "2385340575001", "default", "2520295746001"))
 	})
-	add("nowness-series-story", "nowness", "url_result", func(t *testing.T) {
+	add("nowness-series-story", "nowness|/series/{series}/{slug}", "nowness", "url_result", func(t *testing.T) {
 		transport := &sharedFixtureTransport{
 			responses: map[string]fixtureHTTP{"https://api.nowness.com/api/post/getBySlug/jean-luc-godard-supercut": {body: familyFixture(t, "nowness", "post.json")}},
 			pages:     map[string][]byte{"https://www.nowness.com/iframe?id=2520295746001": familyFixture(t, "nowness", "iframe.html")},
@@ -1074,17 +921,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatalf("%#v", result)
 		}
 	})
-	add("nowness-cn-story", "nowness", "url_result", func(t *testing.T) {
-		transport := &sharedFixtureTransport{
-			responses: map[string]fixtureHTTP{"https://api.nowness.com/api/post/getBySlug/candor-the-art-of-gesticulation": {body: familyFixture(t, "nowness", "post.json")}},
-			pages:     map[string][]byte{"https://www.nowness.com/iframe?id=2520295746001": familyFixture(t, "nowness", "iframe.html")},
-		}
-		result, err := NewNowness().Extract(context.Background(), Request{URL: "https://cn.nowness.com/story/candor-the-art-of-gesticulation", Transport: transport})
-		if err != nil || !result.IsURL() {
-			t.Fatalf("%#v %v", result, err)
-		}
-	})
-	add("nowness-playlist", "nowness_playlist", "playlist", func(t *testing.T) {
+	add("nowness-playlist", "nowness_playlist|/playlist/{id}/{slug?}", "nowness_playlist", "playlist", func(t *testing.T) {
 		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
 			"https://api.nowness.com/api/post?PlaylistId=3286": {body: familyFixture(t, "nowness_playlist", "playlist.json")},
 		}}
@@ -1094,7 +931,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 		}
 		assertLazyPlaylist(t, result, transport, nownessMaxEntries, "nowness", 2)
 	})
-	add("nowness-series", "nowness_series", "playlist", func(t *testing.T) {
+	add("nowness-series", "nowness_series|/series/{slug}", "nowness_series", "playlist", func(t *testing.T) {
 		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
 			"https://api.nowness.com/api/series/getBySlug/60-seconds": {body: familyFixture(t, "nowness_series", "series.json")},
 		}}
@@ -1104,7 +941,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 		}
 		assertLazyPlaylist(t, result, transport, nownessMaxPosts, "nowness", 2)
 	})
-	add("dacast-vod", "dacast", "media", func(t *testing.T) {
+	add("dacast-vod", "dacast|/vod/{user}/{id}", "dacast", "media", func(t *testing.T) {
 		user := "acae82153ef4d7a7344ae4eaa86af534"
 		vid := "1c6143e3-5a06-371d-8695-19b96ea49090"
 		contentID := user + "-vod-" + vid
@@ -1120,7 +957,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("missing formats")
 		}
 	})
-	add("dacast-playlist", "dacast_playlist", "playlist", func(t *testing.T) {
+	add("dacast-playlist", "dacast_playlist|/playlist/{user}/{id}", "dacast_playlist", "playlist", func(t *testing.T) {
 		plUser := "943bb1ab3c03695ba85330d92d6d226e"
 		plID := "b632eb053cac17a9c9a02bcfc827f2d8"
 		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
@@ -1132,24 +969,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 		}
 		assertLazyPlaylist(t, result, transport, dacastMaxPlaylistEntries, "dacast", 2)
 	})
-	add("panopto-viewer", "panopto", "media", func(t *testing.T) {
-		vid := "26b3ae9e-4a48-4dcc-96ba-0befba08a0fb"
-		host := "demo.hosted.panopto.com"
-		endpoint := "https://" + host + "/Panopto/Pages/Viewer/DeliveryInfo.aspx?deliveryId=" + vid + "&responseType=json"
-		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
-			endpoint: {body: familyFixture(t, "panopto", "deliveryinfo.json")},
-		}}
-		result, err := NewPanopto().Extract(context.Background(), Request{
-			URL: "https://" + host + "/Panopto/Pages/Viewer.aspx?id=" + vid, Transport: transport,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if formats, ok := result.Info.Formats(); !ok || len(formats) == 0 {
-			t.Fatal("missing formats")
-		}
-	})
-	add("panopto-playlist", "panopto_playlist", "playlist", func(t *testing.T) {
+	add("panopto-playlist", "panopto_playlist|Viewer.aspx?pid=", "panopto_playlist", "playlist", func(t *testing.T) {
 		host := "demo.hosted.panopto.com"
 		pid := "f3b39fcf-882f-4849-93d6-a9f401236d36"
 		slist := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
@@ -1168,7 +988,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 		assertLazyPlaylist(t, result, transport, panoptoMaxEntries, "panopto", 2)
 	})
 
-	add("theplatform-feed-byid", "theplatform_feed", "media", func(t *testing.T) {
+	add("theplatform-feed-byid", "theplatform_feed|feed byId=", "theplatform_feed", "media", func(t *testing.T) {
 		feedURL := "https://feed.theplatform.com/f/7wvmTC/msnbc_video-p-test?byId=n_hardball_5biden_140207"
 		feedEndpoint := "https://feed.theplatform.com/f/7wvmTC/msnbc_video-p-test?form=json&byId=n_hardball_5biden_140207"
 		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
@@ -1182,16 +1002,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("missing formats")
 		}
 	})
-	add("cfstream-cloudflarestream-com", "cloudflarestream", "media", func(t *testing.T) {
-		result, err := NewCloudflareStream().Extract(context.Background(), Request{URL: "https://cloudflarestream.com/9df17203414fd1db3e3ed74abbe936c1"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if formats, ok := result.Info.Formats(); !ok || len(formats) == 0 {
-			t.Fatal("missing formats")
-		}
-	})
-	add("cfstream-embed-js", "cloudflarestream", "media", func(t *testing.T) {
+	add("cfstream-embed-js", "cloudflarestream|embed iframe js?video=", "cloudflarestream", "media", func(t *testing.T) {
 		result, err := NewCloudflareStream().Extract(context.Background(), Request{URL: "https://embed.cloudflarestream.com/embed/we4g.fla9.latest.js?video=31c9291ab41fac05471db4e73aa11717"})
 		if err != nil {
 			t.Fatal(err)
@@ -1200,19 +1011,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("missing formats")
 		}
 	})
-	add("acast-embed", "acast", "media", func(t *testing.T) {
-		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
-			"https://feeder.acast.com/api/v1/shows/sparpodcast/episodes/2.raggarmordet-rosterurdetforflutna?showInfo=true": {body: familyFixture(t, "acast", "episode.json")},
-		}}
-		result, err := NewACast().Extract(context.Background(), Request{URL: "https://embed.acast.com/sparpodcast/episodes/2.raggarmordet-rosterurdetforflutna", Transport: transport})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if formats, ok := result.Info.Formats(); !ok || len(formats) == 0 {
-			t.Fatal("missing formats")
-		}
-	})
-	add("tvo-documentaries", "tvo", "url_result", func(t *testing.T) {
+	add("tvo-documentaries", "tvo|/video/documentaries/{slug}", "tvo", "url_result", func(t *testing.T) {
 		pageURL := "https://www.tvo.org/video/documentaries/how-can-ontario-survive-the-trade-war"
 		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
 			"https://hmy0rc1bo2.execute-api.ca-central-1.amazonaws.com/graphql": {body: familyFixture(t, "tvo", "graphql.json")},
@@ -1222,7 +1021,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatalf("%#v %v", result, err)
 		}
 	})
-	add("spreaker-v2", "spreaker", "media", func(t *testing.T) {
+	add("spreaker-v2", "spreaker|api.spreaker.com/v2/episodes/{id}", "spreaker", "media", func(t *testing.T) {
 		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
 			"https://api.spreaker.com/v2/episodes/12534508": {body: familyFixture(t, "spreaker", "episode.json")},
 		}}
@@ -1234,25 +1033,91 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("missing formats")
 		}
 	})
-	add("nowness-playlist-bare", "nowness_playlist", "playlist", func(t *testing.T) {
-		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
-			"https://api.nowness.com/api/post?PlaylistId=3286": {body: familyFixture(t, "nowness_playlist", "playlist.json")},
-		}}
-		result, err := NewNownessPlaylist().Extract(context.Background(), Request{URL: "https://www.nowness.com/playlist/3286", Transport: transport})
+
+	add("nowness-category", "nowness|/category/{category}/{slug}", "nowness", "url_result", func(t *testing.T) {
+		transport := &sharedFixtureTransport{
+			responses: map[string]fixtureHTTP{
+				"https://api.nowness.com/api/post/getBySlug/example-category-story": {body: familyFixture(t, "nowness", "post.json")},
+			},
+			pages: map[string][]byte{"https://www.nowness.com/iframe?id=2520295746001": familyFixture(t, "nowness", "iframe.html")},
+		}
+		result, err := NewNowness().Extract(context.Background(), Request{
+			URL: "https://www.nowness.com/category/fashion/example-category-story", Transport: transport,
+		})
 		if err != nil {
 			t.Fatal(err)
 		}
-		assertLazyPlaylist(t, result, transport, nownessMaxEntries, "nowness", 2)
+		if !result.IsURL() {
+			t.Fatalf("%#v", result)
+		}
 	})
-	add("dacast-vod-alt", "dacast", "media", func(t *testing.T) {
-		user := "f9823fc6-faba-b98f-0d00-4a7b50a58c5b"
-		vid := "348c5c84-b6af-4859-bb9d-1d01009c795b"
-		contentID := user + "-vod-" + vid
+	add("panopto-playlist-embed", "panopto_playlist|Embed.aspx?pid=", "panopto_playlist", "playlist", func(t *testing.T) {
 		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
-			"https://playback.dacast.com/content/info?contentId=" + contentID + "&provider=universe":   {body: familyFixture(t, "dacast", "info.json")},
-			"https://playback.dacast.com/content/access?contentId=" + contentID + "&provider=universe": {body: familyFixture(t, "dacast", "access.json")},
+			"https://" + panoptoTestHost + "/Panopto/Api/Playlists/" + panoptoTestPID:                                                                 {body: familyFixture(t, "panopto_playlist", "playlist.json")},
+			"https://" + panoptoTestHost + "/Panopto/Api/SessionLists/" + panoptoTestSList + "?collections[0].maxCount=500&collections[0].name=items": {body: familyFixture(t, "panopto_playlist", "sessionlist.json")},
 		}}
-		result, err := NewDacast().Extract(context.Background(), Request{URL: "https://iframe.dacast.com/vod/" + user + "/" + vid, Transport: transport})
+		result, err := NewPanoptoPlaylist().Extract(context.Background(), Request{
+			URL: "https://" + panoptoTestHost + "/Panopto/Pages/Embed.aspx?pid=" + panoptoTestPID, Transport: transport,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertLazyPlaylist(t, result, transport, panoptoMaxEntries, "panopto", 2)
+	})
+	add("azmedien-telem1", "azmedien|host=telem1.ch page", "azmedien", "url_result", func(t *testing.T) {
+		rawURL := "https://www.telem1.ch/telebar/example-sendung-133214569"
+		transport := &sharedFixtureTransport{pages: map[string][]byte{
+			"https://www.telem1.ch/telebar/example-sendung-133214569": familyFixture(t, "azmedien", "page.html"),
+		}}
+		result, err := NewAZMedien().Extract(context.Background(), Request{URL: rawURL, Transport: transport})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertURLResultReentry(t, result, "kaltura", NewKaltura(), &sharedFixtureTransport{responses: map[string]fixtureHTTP{
+			"https://cdnapi.kaltura.com/api_v3/service/multirequest": {body: sharedFixture(t, "kaltura.json")},
+		}})
+	})
+	add("azmedien-tvo-online", "azmedien|host=tvo-online.ch page", "azmedien", "url_result", func(t *testing.T) {
+		rawURL := "https://www.tvo-online.ch/region/example-sendung-133214569"
+		transport := &sharedFixtureTransport{pages: map[string][]byte{
+			"https://www.tvo-online.ch/region/example-sendung-133214569": familyFixture(t, "azmedien", "page.html"),
+		}}
+		result, err := NewAZMedien().Extract(context.Background(), Request{URL: rawURL, Transport: transport})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertURLResultReentry(t, result, "kaltura", NewKaltura(), &sharedFixtureTransport{responses: map[string]fixtureHTTP{
+			"https://cdnapi.kaltura.com/api_v3/service/multirequest": {body: sharedFixture(t, "kaltura.json")},
+		}})
+	})
+	add("teachingchannel-video", "teachingchannel|/videos/{slug}", "teachingchannel", "url_result", func(t *testing.T) {
+		u := "https://www.teachingchannel.org/videos/teacher-teaming-evolution"
+		transport := &sharedFixtureTransport{pages: map[string][]byte{
+			"https://www.teachingchannel.org/videos/teacher-teaming-evolution": familyFixture(t, "teachingchannel", "page.html"),
+		}}
+		result, err := NewTeachingChannel().Extract(context.Background(), Request{URL: u, Transport: transport})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertURLResultReentry(t, result, "jwplatform", NewJWPlatform(), &sharedFixtureTransport{responses: map[string]fixtureHTTP{
+			"https://cdn.jwplayer.com/v2/media/AbCd1234": {body: sharedFixture(t, "jwplatform.json")},
+		}})
+	})
+	add("nowcanal-detalhe", "nowcanal|/{sections}/detalhe/{slug}", "nowcanal", "url_result", func(t *testing.T) {
+		u := "https://www.nowcanal.pt/ultimas/detalhe/pedro-sousa-hjulmand"
+		transport := &sharedFixtureTransport{pages: map[string][]byte{u: familyFixture(t, "nowcanal", "page.html")}}
+		result, err := NewNowCanal().Extract(context.Background(), Request{URL: u, Transport: transport})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertURLResultReentry(t, result, "brightcove", NewBrightcove(), brightcoveFixtureTransport(t, nowCanalBrightcoveAccount, nowCanalBrightcovePlayer, "6376598467112"))
+	})
+	add("democracynow-show", "democracynow|/{path}", "democracynow", "media", func(t *testing.T) {
+		u := "https://www.democracynow.org/shows/2015/7/3"
+		transport := &sharedFixtureTransport{pages: map[string][]byte{
+			"https://www.democracynow.org/shows/2015/7/3": familyFixture(t, "democracynow", "page.html"),
+		}}
+		result, err := NewDemocracyNow().Extract(context.Background(), Request{URL: u, Transport: transport})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1260,23 +1125,135 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("missing formats")
 		}
 	})
-	add("nbcolympics-reentry", "nbcolympics", "url_result", func(t *testing.T) {
-		nbc := "https://vplayer.nbcolympics.com/p/NnzsPC/widget/select/media/4Y0TlYUr_ZT7"
-		result, err := NewNBCOlympics().Extract(context.Background(), Request{URL: nbc})
-		if err != nil || !result.IsURL() {
-			t.Fatalf("%#v %v", result, err)
-		}
-		smilURL := "https://link.theplatform.com/s/NnzsPC/media/4Y0TlYUr_ZT7?mbr=true&format=SMIL"
-		metaURL := "https://link.theplatform.com/s/NnzsPC/media/4Y0TlYUr_ZT7?format=preview"
-		tpTransport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
-			smilURL: {body: familyFixture(t, "theplatform", "media.smil")},
-			metaURL: {body: familyFixture(t, "theplatform", "preview.json")},
-		}}
-		media, err := NewThePlatform().Extract(context.Background(), Request{URL: result.Redirect.URL, Transport: tpTransport})
+	add("buzzfeed-article", "buzzfeed|/{author}/{slug}", "buzzfeed", "playlist", func(t *testing.T) {
+		u := "https://www.buzzfeed.com/abagg/this-angry-ram-destroys-a-punching-bag-like-a-boss"
+		transport := &sharedFixtureTransport{pages: map[string][]byte{u: familyFixture(t, "buzzfeed", "page.html")}}
+		result, err := NewBuzzFeed().Extract(context.Background(), Request{URL: u, Transport: transport})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if formats, ok := media.Info.Formats(); !ok || len(formats) == 0 {
+		assertLazyPlaylist(t, result, transport, breadthAdapterMaxEntries, "youtube", 2)
+	})
+	add("mediastream-embed", "mediastream|/embed/{id}", "mediastream", "media", func(t *testing.T) {
+		u := "https://mdstrm.com/embed/6318e3f1d1d316083ae48831"
+		transport := &sharedFixtureTransport{pages: map[string][]byte{u: familyFixture(t, "mediastream", "embed.html")}}
+		result, err := NewMediaStream().Extract(context.Background(), Request{URL: u, Transport: transport})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if formats, ok := result.Info.Formats(); !ok || len(formats) == 0 {
+			t.Fatal("missing formats")
+		}
+	})
+	add("mediastream-live", "mediastream|/live-stream/{id}", "mediastream", "media", func(t *testing.T) {
+		u := "https://mdstrm.com/live-stream/5a7b1e63a8da282c34d65445"
+		transport := &sharedFixtureTransport{pages: map[string][]byte{u: familyFixture(t, "mediastream", "live.html")}}
+		result, err := NewMediaStream().Extract(context.Background(), Request{URL: u, Transport: transport})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if formats, ok := result.Info.Formats(); !ok || len(formats) == 0 {
+			t.Fatal("missing formats")
+		}
+	})
+	add("winsports-video", "winsports|/videos/{slug}", "winsports", "url_result", func(t *testing.T) {
+		u := "https://www.winsports.co/videos/siempre-castellanos-60536"
+		transport := &sharedFixtureTransport{pages: map[string][]byte{
+			"https://www.winsports.co/videos/siempre-castellanos-60536": familyFixture(t, "winsports", "page.html"),
+		}}
+		result, err := NewWinSports().Extract(context.Background(), Request{URL: u, Transport: transport})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertURLResultReentry(t, result, "mediastream", NewMediaStream(), &sharedFixtureTransport{pages: map[string][]byte{
+			"https://mdstrm.com/embed/62dc8357162c4b0821fcfb3c": familyFixture(t, "mediastream", "embed.html"),
+		}})
+	})
+	add("abcotvs-abc7news", "abcotvs|host=abc7news.com /{slug}/{id}", "abcotvs", "media", func(t *testing.T) {
+		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
+			"https://api.abcotvs.com/v2/content?id=472581&key=otv.web.kgo.story&station=kgo": {body: familyFixture(t, "abcotvs", "story.json")},
+		}}
+		result, err := NewABCOTVS().Extract(context.Background(), Request{
+			URL: "https://abc7news.com/entertainment/east-bay-museum/472581/", Transport: transport,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if formats, ok := result.Info.Formats(); !ok || len(formats) == 0 {
+			t.Fatal("missing formats")
+		}
+	})
+	add("abcotvs-6abc", "abcotvs|host=6abc.com /{slug}/{id}", "abcotvs", "media", func(t *testing.T) {
+		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
+			"https://api.abcotvs.com/v2/content?id=5725182&key=otv.web.wpvi.story&station=wpvi": {body: familyFixture(t, "abcotvs", "story.json")},
+		}}
+		result, err := NewABCOTVS().Extract(context.Background(), Request{
+			URL: "https://6abc.com/man-75-killed/5725182/", Transport: transport,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if formats, ok := result.Info.Formats(); !ok || len(formats) == 0 {
+			t.Fatal("missing formats")
+		}
+	})
+	add("abcotvs-clips", "abcotvs_clips|clips.abcotvs.com/.../video/{id}", "abcotvs_clips", "media", func(t *testing.T) {
+		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
+			"https://clips.abcotvs.com/vogo/video/getByIds?ids=214814": {body: familyFixture(t, "abcotvs_clips", "clip.json")},
+		}}
+		result, err := NewABCOTVSClips().Extract(context.Background(), Request{
+			URL: "https://clips.abcotvs.com/kabc/video/214814", Transport: transport,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if formats, ok := result.Info.Formats(); !ok || len(formats) == 0 {
+			t.Fatal("missing formats")
+		}
+	})
+	add("vidsio-video", "vidsio|{account}.vids.io/videos/{id}/{slug}", "vidsio", "url_result", func(t *testing.T) {
+		u := "https://how-to-video.vids.io/videos/799cd8b11c10efc1f0/how-to-video-live-streaming"
+		transport := &sharedFixtureTransport{pages: map[string][]byte{u: familyFixture(t, "vidsio", "page.html")}}
+		result, err := NewVidsIo().Extract(context.Background(), Request{URL: u, Transport: transport})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.IsURL() || result.Redirect.ExtractorKey != "sproutvideo" {
+			t.Fatalf("%#v", result)
+		}
+	})
+	add("laracasts-episode", "laracasts|/series/{series}/episodes/{n}", "laracasts", "url_result", func(t *testing.T) {
+		u := "https://laracasts.com/series/30-days-to-learn-laravel-11/episodes/1"
+		transport := &sharedFixtureTransport{pages: map[string][]byte{u: familyFixture(t, "laracasts", "page.html")}}
+		result, err := NewLaracasts().Extract(context.Background(), Request{URL: u, Transport: transport})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.IsURL() || result.Redirect.ExtractorKey != "vimeo" {
+			t.Fatalf("%#v", result)
+		}
+	})
+	add("laracasts-series", "laracasts_series|/series/{slug}", "laracasts_series", "playlist", func(t *testing.T) {
+		u := "https://laracasts.com/series/30-days-to-learn-laravel-11"
+		transport := &sharedFixtureTransport{pages: map[string][]byte{u: familyFixture(t, "laracasts_series", "page.html")}}
+		result, err := NewLaracastsSeries().Extract(context.Background(), Request{URL: u, Transport: transport})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertLazyPlaylist(t, result, transport, breadthAdapterMaxEntries, "vimeo", 2)
+	})
+
+	add("abcotvs-abc7ny", "abcotvs|host=abc7ny.com /{slug}/{id}", "abcotvs", "media", func(t *testing.T) {
+		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
+			"https://api.abcotvs.com/v2/content?id=1001&key=otv.web.wabc.story&station=wabc": {body: familyFixture(t, "abcotvs", "story.json")},
+		}}
+		result, err := NewABCOTVS().Extract(context.Background(), Request{
+			URL: "https://abc7ny.com/example-story/1001/", Transport: transport,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if formats, ok := result.Info.Formats(); !ok || len(formats) == 0 {
 			t.Fatal("missing formats")
 		}
 	})

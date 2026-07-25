@@ -67,7 +67,12 @@ evidence. Counts and host policies are recorded in
 | podcast feeders | Acast, Simplecast, Megaphone, Art19, Libsyn, Spreaker episode/show URLs | shared backend, playlist/API |
 | nowness (+ playlist/series) | nowness.com / cn.nowness.com story, playlist, series | playlist/API, Brightcove/Vimeo handoff |
 | dacast (+ playlist) | iframe.dacast.com vod/playlist embeds | shared backend, playlist/API, HLS |
-| panopto (+ playlist) | `*.panopto.com` / `*.panopto.eu` Viewer/Embed `id`/`pid` | shared backend, playlist/API |
+| panopto (+ playlist) | `*.panopto.com` / `*.panopto.eu` Viewer/Embed `id`/`pid` (same-tenant playlist binding) | shared backend, playlist/API |
+| teachingchannel / nowcanal / democracynow / buzzfeed | JW / Brightcove / page-JSON / bucket playlist | shared backend, playlist/API |
+| mediastream (+ winsports) | mdstrm.com embed/live-stream; winsports.co → mediastream | shared backend, live |
+| abcotvs (+ clips) | ABC OTV station hosts + clips.abcotvs.com | shared backend |
+| vidsio | `*.vids.io/videos/...` → sproutvideo | shared backend |
+| laracasts (+ series) | laracasts.com series episode/series → vimeo | shared backend, playlist/API |
 
 These entries are deterministic-corpus compatible only. They do not claim live
 service coverage beyond synthetic fixtures and documented handoff behavior.

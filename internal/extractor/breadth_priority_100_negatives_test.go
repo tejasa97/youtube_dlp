@@ -395,6 +395,61 @@ func TestBreadthPriority100NegativeSecurityMatrix(t *testing.T) {
 			stealURL:  "https://demo.hosted.panopto.com/Panopto/Pages/Viewer.aspx?id=26b3ae9e-4a48-4dcc-96ba-0befba08a0fb",
 			cancelURL: "https://demo.hosted.panopto.com/Panopto/Pages/Viewer.aspx?pid=f3b39fcf-882f-4849-93d6-a9f401236d36",
 		},
+		{
+			key: "teachingchannel", okURL: "https://www.teachingchannel.org/videos/teacher-teaming-evolution",
+			stealURL:  "https://cdn.jwplayer.com/players/AbCd1234.js",
+			cancelURL: "https://www.teachingchannel.org/videos/teacher-teaming-evolution",
+		},
+		{
+			key: "nowcanal", okURL: "https://www.nowcanal.pt/ultimas/detalhe/pedro-sousa-hjulmand",
+			stealURL:  "https://players.brightcove.net/1/default_default/index.html?videoId=1",
+			cancelURL: "https://www.nowcanal.pt/ultimas/detalhe/pedro-sousa-hjulmand",
+		},
+		{
+			key: "democracynow", okURL: "https://www.democracynow.org/shows/2015/7/3",
+			stealURL:  "https://www.buzzfeed.com/abagg/x",
+			cancelURL: "https://www.democracynow.org/shows/2015/7/3",
+		},
+		{
+			key: "buzzfeed", okURL: "https://www.buzzfeed.com/abagg/this-angry-ram-destroys-a-punching-bag-like-a-boss",
+			stealURL:  "https://www.democracynow.org/shows/2015/7/3",
+			cancelURL: "https://www.buzzfeed.com/abagg/this-angry-ram-destroys-a-punching-bag-like-a-boss",
+		},
+		{
+			key: "mediastream", okURL: "https://mdstrm.com/embed/6318e3f1d1d316083ae48831",
+			stealURL:  "https://www.winsports.co/videos/x",
+			cancelURL: "https://mdstrm.com/embed/6318e3f1d1d316083ae48831",
+		},
+		{
+			key: "winsports", okURL: "https://www.winsports.co/videos/siempre-castellanos-60536",
+			stealURL:  "https://mdstrm.com/embed/6318e3f1d1d316083ae48831",
+			cancelURL: "https://www.winsports.co/videos/siempre-castellanos-60536",
+		},
+		{
+			key: "abcotvs", okURL: "https://abc7news.com/entertainment/east-bay-museum/472581/",
+			stealURL:  "https://clips.abcotvs.com/kabc/video/214814",
+			cancelURL: "https://abc7news.com/entertainment/east-bay-museum/472581/",
+		},
+		{
+			key: "abcotvs_clips", okURL: "https://clips.abcotvs.com/kabc/video/214814",
+			stealURL:  "https://abc7news.com/entertainment/east-bay-museum/472581/",
+			cancelURL: "https://clips.abcotvs.com/kabc/video/214814",
+		},
+		{
+			key: "vidsio", okURL: "https://how-to-video.vids.io/videos/799cd8b11c10efc1f0/how-to-video-live-streaming",
+			stealURL:  "https://videos.sproutvideo.com/embed/aabbcc/ddeeff",
+			cancelURL: "https://how-to-video.vids.io/videos/799cd8b11c10efc1f0/how-to-video-live-streaming",
+		},
+		{
+			key: "laracasts", okURL: "https://laracasts.com/series/30-days-to-learn-laravel-11/episodes/1",
+			stealURL:  "https://laracasts.com/series/30-days-to-learn-laravel-11",
+			cancelURL: "https://laracasts.com/series/30-days-to-learn-laravel-11/episodes/1",
+		},
+		{
+			key: "laracasts_series", okURL: "https://laracasts.com/series/30-days-to-learn-laravel-11",
+			stealURL:  "https://laracasts.com/series/30-days-to-learn-laravel-11/episodes/1",
+			cancelURL: "https://laracasts.com/series/30-days-to-learn-laravel-11",
+		},
 	}
 
 	ctors := map[string]Extractor{
@@ -413,6 +468,10 @@ func TestBreadthPriority100NegativeSecurityMatrix(t *testing.T) {
 		"nowness_playlist": NewNownessPlaylist(), "nowness_series": NewNownessSeries(),
 		"dacast": NewDacast(), "dacast_playlist": NewDacastPlaylist(),
 		"panopto": NewPanopto(), "panopto_playlist": NewPanoptoPlaylist(),
+		"teachingchannel": NewTeachingChannel(), "nowcanal": NewNowCanal(), "democracynow": NewDemocracyNow(),
+		"buzzfeed": NewBuzzFeed(), "mediastream": NewMediaStream(), "winsports": NewWinSports(),
+		"abcotvs": NewABCOTVS(), "abcotvs_clips": NewABCOTVSClips(), "vidsio": NewVidsIo(),
+		"laracasts": NewLaracasts(), "laracasts_series": NewLaracastsSeries(),
 	}
 
 	if len(cases) != len(ctors) {

@@ -22,10 +22,11 @@ const (
 )
 
 type breadthShapeSpec struct {
-	ID   string
-	Key  string
-	Kind string // media | url_result | playlist
-	Run  func(t *testing.T)
+	ID        string
+	Canonical string // stable shape identity: key|route-syntax (not fixture cardinality)
+	Key       string
+	Kind      string // media | url_result | playlist
+	Run       func(t *testing.T)
 }
 
 type breadthPlaylistSpec struct {
@@ -47,14 +48,19 @@ func TestBreadthPriority100AuditableInventory(t *testing.T) {
 	}
 
 	seenShape := map[string]bool{}
+	seenCanonical := map[string]bool{}
 	for _, shape := range shapes {
-		if shape.ID == "" || shape.Key == "" || shape.Run == nil {
+		if shape.ID == "" || shape.Canonical == "" || shape.Key == "" || shape.Run == nil {
 			t.Fatalf("invalid shape %#v", shape)
 		}
 		if seenShape[shape.ID] {
 			t.Fatalf("duplicate shape id %q", shape.ID)
 		}
+		if seenCanonical[shape.Canonical] {
+			t.Fatalf("duplicate canonical shape identity %q (id %q)", shape.Canonical, shape.ID)
+		}
 		seenShape[shape.ID] = true
+		seenCanonical[shape.Canonical] = true
 		t.Run("shape/"+shape.ID, shape.Run)
 	}
 
@@ -357,6 +363,24 @@ func breadthProgramPlaylists(t *testing.T) []breadthPlaylistSpec {
 				t.Fatal(err)
 			}
 			assertLazyPlaylist(t, result, transport, dacastMaxPlaylistEntries, "dacast", 2)
+		}},
+		{ID: "buzzfeed", Key: "buzzfeed", Run: func(t *testing.T) {
+			u := "https://www.buzzfeed.com/abagg/this-angry-ram-destroys-a-punching-bag-like-a-boss"
+			transport := &sharedFixtureTransport{pages: map[string][]byte{u: familyFixture(t, "buzzfeed", "page.html")}}
+			result, err := NewBuzzFeed().Extract(context.Background(), Request{URL: u, Transport: transport})
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertLazyPlaylist(t, result, transport, breadthAdapterMaxEntries, "youtube", 2)
+		}},
+		{ID: "laracasts_series", Key: "laracasts_series", Run: func(t *testing.T) {
+			u := "https://laracasts.com/series/30-days-to-learn-laravel-11"
+			transport := &sharedFixtureTransport{pages: map[string][]byte{u: familyFixture(t, "laracasts_series", "page.html")}}
+			result, err := NewLaracastsSeries().Extract(context.Background(), Request{URL: u, Transport: transport})
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertLazyPlaylist(t, result, transport, breadthAdapterMaxEntries, "vimeo", 2)
 		}},
 	}
 }
