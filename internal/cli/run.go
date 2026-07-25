@@ -2,6 +2,7 @@
 package cli
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -23,14 +25,20 @@ import (
 var Version = "0.0.0-dev"
 
 func Run(args []string, stdout, stderr io.Writer) int {
-	return RunContext(context.Background(), args, stdout, stderr)
+	return RunContextIO(context.Background(), args, os.Stdin, stdout, stderr)
 }
 
 func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	return RunContextIO(ctx, args, os.Stdin, stdout, stderr)
+}
+
+// RunContextIO exposes the CLI input boundary for deterministic embedding and
+// tests. The production command passes os.Stdin through RunContext.
+func RunContextIO(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	environment := compatconfig.RuntimeEnvironment()
 	environment.HomeConfigDir = homePathFromArgs(args)
 	loaded, err := compatconfig.Load(ctx, compatconfig.Request{
-		Environment: environment, CommandLine: args, IncludeDefaults: true,
+		Environment: environment, CommandLine: args, IncludeDefaults: true, Stdin: stdin,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
@@ -179,7 +187,7 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	preferFreeFormats := flags.Bool("prefer-free-formats", false, "prefer free containers when otherwise equivalent")
 	allowUnplayable := flags.Bool("allow-unplayable-formats", false, "include DRM-marked formats in selection")
 	progressTemplate := flags.String("progress-template", "", "render download events with a bounded progress template")
-	flags.Var(&matchFilters, "match-filter", "metadata filter expression (repeatable OR)")
+	flags.Var(&matchFilters, "match-filter", `metadata filter expression, or "-" to prompt (repeatable OR)`)
 	flags.Var(&matchFilters, "match-filters", "alias for --match-filter")
 	flags.BoolFunc("no-match-filter", "clear inherited metadata filters", func(string) error {
 		matchFilters = nil
@@ -189,7 +197,7 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		matchFilters = nil
 		return nil
 	})
-	flags.Var(&breakMatchFilters, "break-match-filter", "metadata filter expression that stops playlist processing when rejected (repeatable OR)")
+	flags.Var(&breakMatchFilters, "break-match-filter", `stopping metadata filter expression, or "-" to prompt (repeatable OR)`)
 	flags.Var(&breakMatchFilters, "break-match-filters", "alias for --break-match-filter")
 	flags.BoolFunc("no-break-match-filter", "clear inherited breaking metadata filters", func(string) error {
 		breakMatchFilters = nil
@@ -350,6 +358,20 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		printRules, *getURL, *getTitle, *getID, *getThumbnail, *getDescription,
 		*getDuration, *getFilename, *getFormat,
 	)
+	interactiveFilterRequested := hasInteractiveMatchFilter(matchFilters) ||
+		hasInteractiveMatchFilter(breakMatchFilters)
+	suppressInteractivePrompt := *listSubtitles && !simulateSet &&
+		!*dumpJSON && !*dumpSingleJSON && !legacyGetting && len(printRules) == 0
+	if *progressJSON && interactiveFilterRequested && !suppressInteractivePrompt {
+		fmt.Fprintln(stderr, `ytdlp-go: --progress-json cannot be combined with interactive match filtering`)
+		return 2
+	}
+	requestMatchFilters := append([]string(nil), matchFilters...)
+	requestBreakMatchFilters := append([]string(nil), breakMatchFilters...)
+	if suppressInteractivePrompt {
+		requestMatchFilters = withoutInteractiveMatchFilter(requestMatchFilters)
+		requestBreakMatchFilters = withoutInteractiveMatchFilter(requestBreakMatchFilters)
+	}
 	if (*dumpJSON || *dumpSingleJSON || hasConsolePrintRules(printRules)) && !quietSet {
 		quiet = true
 	}
@@ -437,15 +459,20 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		ConvertFormat: subtitleConvertFormat,
 		Languages:     subtitleLanguageRules(subtitleLanguages, *allSubtitles), Format: *subtitleFormat,
 	}
+	var interactiveMatchFilter ytdlp.InteractiveMatchFilterFunc
+	if interactiveFilterRequested && !suppressInteractivePrompt {
+		interactiveMatchFilter = newInteractiveMatchFilterPrompt(stdin, stderr)
+	}
 	result, err := client.Run(ctx, ytdlp.Request{
 		URL: flags.Arg(0), OutputTemplate: *output, OutputDir: *outputDir, Proxy: *proxy, ImpersonationProfile: *impersonationProfile,
 		CookieFile: *cookieFile, CookiesFromBrowser: *cookiesFromBrowser, UseNetRC: *useNetRC, NetRCLocation: *netRCLocation, DownloadArchive: *downloadArchive, CacheDir: *cacheDir,
 		Timeout: *timeout, Overwrite: *overwrite, Simulate: requestSimulate, SkipDownload: *skipDownload, LiveFromStart: *liveFromStart,
 		Format: *format, FormatSort: append([]string(nil), formatSort...),
 		PreferFreeFormats: *preferFreeFormats, AllowUnplayableFormats: *allowUnplayable,
-		ProgressTemplate: *progressTemplate, MatchFilters: append([]string(nil), matchFilters...),
-		BreakMatchFilters: append([]string(nil), breakMatchFilters...),
-		ParseMetadata:     append([]string(nil), parseMetadata...), ReplaceMetadata: append([]string(nil), replaceMetadata...),
+		ProgressTemplate: *progressTemplate, MatchFilters: requestMatchFilters,
+		InteractiveMatchFilter: interactiveMatchFilter,
+		BreakMatchFilters:      requestBreakMatchFilters,
+		ParseMetadata:          append([]string(nil), parseMetadata...), ReplaceMetadata: append([]string(nil), replaceMetadata...),
 		Subtitles: requestSubtitles,
 		RelatedFiles: ytdlp.RelatedFileOptions{
 			WriteInfoJSON: *writeInfoJSON, WriteDescription: *writeDescription,
@@ -500,6 +527,82 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		_, _ = fmt.Fprintln(stdout)
 	}
 	return 0
+}
+
+func hasInteractiveMatchFilter(filters []string) bool {
+	for _, filter := range filters {
+		if filter == "-" {
+			return true
+		}
+	}
+	return false
+}
+
+func withoutInteractiveMatchFilter(filters []string) []string {
+	result := filters[:0]
+	for _, filter := range filters {
+		if filter != "-" {
+			result = append(result, filter)
+		}
+	}
+	return result
+}
+
+func newInteractiveMatchFilterPrompt(input io.Reader, output io.Writer) ytdlp.InteractiveMatchFilterFunc {
+	if input == nil {
+		input = strings.NewReader("")
+	}
+	scanner := bufio.NewScanner(input)
+	scanner.Buffer(make([]byte, 1024), 4096)
+	return func(ctx context.Context, prompt ytdlp.InteractiveMatchFilterPrompt) (bool, error) {
+		for {
+			if err := ctx.Err(); err != nil {
+				return false, err
+			}
+			if _, err := fmt.Fprintf(output, "Download %s? (Y/n): ", strconv.Quote(prompt.Filename)); err != nil {
+				return false, err
+			}
+			type scanResult struct {
+				text string
+				ok   bool
+				err  error
+			}
+			scanned := make(chan scanResult, 1)
+			go func() {
+				if scanner.Scan() {
+					scanned <- scanResult{text: scanner.Text(), ok: true}
+					return
+				}
+				scanned <- scanResult{err: scanner.Err()}
+			}()
+			var result scanResult
+			select {
+			case <-ctx.Done():
+				return false, ctx.Err()
+			case result = <-scanned:
+			}
+			if !result.ok {
+				if result.err != nil {
+					return false, fmt.Errorf("%w: %v", ytdlp.ErrInteractiveInput, result.err)
+				}
+				return false, context.Canceled
+			}
+			if accepted, valid := parseInteractiveMatchFilterResponse(result.text); valid {
+				return accepted, nil
+			}
+		}
+	}
+}
+
+func parseInteractiveMatchFilterResponse(input string) (accepted, valid bool) {
+	switch strings.ToLower(strings.TrimSpace(input)) {
+	case "", "y":
+		return true, true
+	case "n":
+		return false, true
+	default:
+		return false, false
+	}
 }
 
 func writeVideoJSONLines(ctx context.Context, result ytdlp.Result, writer io.Writer) error {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -16,6 +17,17 @@ import (
 )
 
 var errUnsafePrintFile = errors.New("unsafe print-to-file destination")
+
+var selectedFormatFieldNames = []string{
+	"url", "manifest_url", "manifest_stream_number", "ext", "format", "format_id", "format_note", "available_at",
+	"width", "height", "aspect_ratio", "resolution", "dynamic_range", "tbr", "abr", "acodec", "asr", "audio_channels",
+	"vbr", "fps", "vcodec", "container", "filesize", "filesize_approx", "rows", "columns", "hls_media_playlist_data",
+	"player_url", "protocol", "fragment_base_url", "fragments", "is_from_start", "is_dash_periods", "request_data",
+	"preference", "language", "language_preference", "quality", "source_preference", "cookies",
+	"http_headers", "stretched_ratio", "no_resume", "has_drm", "extra_param_to_segment_url", "extra_param_to_key_url",
+	"hls_aes", "downloader_options", "impersonate", "page_url", "app", "play_path", "tc_url", "flash_version",
+	"rtmp_live", "rtmp_conn", "rtmp_protocol", "rtmp_real_time",
+}
 
 func validPrintStage(stage PrintStage) bool {
 	switch stage {
@@ -273,33 +285,285 @@ func addPrintFields(info *value.Info, selections []mediaformat.Selection, filena
 		}
 	}
 	if len(selections) > 0 {
-		urls := make([]string, 0, len(selections))
-		ids := make([]string, 0, len(selections))
-		for _, selection := range selections {
-			if selection.URL != "" {
-				urls = append(urls, selection.URL)
+		selected := selectedFormatInfo(*info, selections)
+		*info = selected
+		if includeFilepath && filename != "" {
+			if extension := strings.TrimPrefix(filepath.Ext(filename), "."); extension != "" {
+				info.Set("ext", value.String(extension))
 			}
-			if selection.ID != "" {
-				ids = append(ids, selection.ID)
-			}
-		}
-		if len(urls) > 0 {
-			info.Set("urls", value.String(strings.Join(urls, "\n")))
-			info.Set("url", value.String(urls[0]))
-		}
-		if len(ids) > 0 {
-			format := strings.Join(ids, "+")
-			info.Set("format", value.String(format))
-			info.Set("format_id", value.String(format))
-		}
-		if !includeFilepath || filename == "" {
-			info.Set("ext", value.String(mergedOutputExtension(selections)))
 		}
 	}
 	if duration, ok := numericPrintValue(info.Lookup("duration")); ok && duration >= 0 {
 		info.Set("duration_string", value.String(formatPrintDuration(duration)))
 	}
 	return addPrintTableFields(info)
+}
+
+func addSelectedFormatFields(info *value.Info, selections []mediaformat.Selection) {
+	urls := make([]string, 0, len(selections))
+	ids := make([]string, 0, len(selections))
+	protocols := make([]string, 0, len(selections))
+	var filesize, height int64
+	var tbr float64
+	var vcodec, acodec, fallbackVCodec, fallbackACodec string
+	for _, selection := range selections {
+		if selection.URL != "" {
+			urls = append(urls, selection.URL)
+		}
+		if selection.ID != "" {
+			ids = append(ids, selection.ID)
+		}
+		if selection.Protocol != "" && !containsString(protocols, selection.Protocol) {
+			protocols = append(protocols, selection.Protocol)
+		}
+		if selection.Filesize > 0 {
+			filesize += selection.Filesize
+		}
+		if selection.Height > height {
+			height = selection.Height
+		}
+		if selection.TBR > 0 {
+			tbr += selection.TBR
+		}
+		if vcodec == "" && selection.VCodec != "" && selection.VCodec != "none" {
+			vcodec = selection.VCodec
+		}
+		if fallbackVCodec == "" && selection.VCodec != "" {
+			fallbackVCodec = selection.VCodec
+		}
+		if acodec == "" && selection.ACodec != "" && selection.ACodec != "none" {
+			acodec = selection.ACodec
+		}
+		if fallbackACodec == "" && selection.ACodec != "" {
+			fallbackACodec = selection.ACodec
+		}
+	}
+	if len(urls) > 0 {
+		info.Set("urls", value.String(strings.Join(urls, "\n")))
+		info.Set("url", value.String(urls[0]))
+	}
+	if len(ids) > 0 {
+		format := strings.Join(ids, "+")
+		info.Set("format", value.String(format))
+		info.Set("format_id", value.String(format))
+	}
+	info.Set("ext", value.String(mergedOutputExtension(selections)))
+	if filesize > 0 {
+		info.Set("filesize", value.Int(filesize))
+	}
+	if height > 0 {
+		info.Set("height", value.Int(height))
+	}
+	if tbr > 0 {
+		info.Set("tbr", value.Float(tbr))
+	}
+	if vcodec == "" {
+		vcodec = fallbackVCodec
+	}
+	if acodec == "" {
+		acodec = fallbackACodec
+	}
+	if vcodec != "" {
+		info.Set("vcodec", value.String(vcodec))
+	}
+	if acodec != "" {
+		info.Set("acodec", value.String(acodec))
+	}
+	if len(protocols) > 0 {
+		info.Set("protocol", value.String(strings.Join(protocols, "+")))
+	}
+}
+
+func selectedFormatInfo(info value.Info, selections []mediaformat.Selection) value.Info {
+	selected := value.NewInfo(info.Fields().Clone())
+	if len(selections) == 0 {
+		return selected
+	}
+	for _, key := range selectedFormatFieldNames {
+		selected.Fields().Delete(key)
+	}
+	formats, _ := info.Formats()
+	objects := make([]*value.Object, len(selections))
+	for index, selection := range selections {
+		objects[index] = findSelectedFormatObject(formats, selection)
+	}
+	if len(selections) == 1 {
+		if objects[0] != nil {
+			selected.Fields().Merge(objects[0], false)
+		}
+		descriptiveFormat, hasDescriptiveFormat := selected.Lookup("format").StringValue()
+		normalized := append([]mediaformat.Selection(nil), selections...)
+		normalized[0].Protocol = selectedFormatProtocol(selected, normalized[0], objects[0])
+		addSelectedFormatFields(&selected, normalized)
+		if hasDescriptiveFormat {
+			selected.Set("format", value.String(descriptiveFormat))
+		}
+		return selected
+	}
+	addMergedSelectedFormatFields(&selected, selections, objects)
+	return selected
+}
+
+func findSelectedFormatObject(formats []value.Value, selection mediaformat.Selection) *value.Object {
+	for _, candidate := range formats {
+		object, ok := candidate.Object()
+		if !ok {
+			continue
+		}
+		id, _ := object.Lookup("format_id").StringValue()
+		rawURL, _ := object.Lookup("url").StringValue()
+		if id == selection.ID && (selection.URL == "" || rawURL == selection.URL) {
+			return object
+		}
+	}
+	return nil
+}
+
+func addMergedSelectedFormatFields(
+	info *value.Info,
+	selections []mediaformat.Selection,
+	objects []*value.Object,
+) {
+	ids, formats, protocols := make([]string, 0, len(selections)), make([]string, 0, len(selections)), make([]string, 0, len(selections))
+	languages, notes := make([]string, 0, len(selections)), make([]string, 0, len(selections))
+	urls := make([]string, 0, len(selections))
+	var filesizeApprox, tbr float64
+	var videoIndex, audioIndex = -1, -1
+	videoCount, audioCount := 0, 0
+	for index, selection := range selections {
+		if selection.ID != "" {
+			ids = append(ids, selection.ID)
+		}
+		if selection.URL != "" {
+			urls = append(urls, selection.URL)
+		}
+		if protocol := selectedFormatProtocol(*info, selection, objects[index]); protocol != "" {
+			protocols = append(protocols, protocol)
+		}
+		if selection.VCodec != "" && selection.VCodec != "none" {
+			videoCount++
+			videoIndex = index
+		}
+		if selection.ACodec != "" && selection.ACodec != "none" {
+			audioCount++
+			audioIndex = index
+		}
+		if objects[index] == nil {
+			continue
+		}
+		if text, ok := objects[index].Lookup("format").StringValue(); ok && text != "" {
+			formats = append(formats, text)
+		}
+		appendUniqueObjectString(&languages, objects[index], "language")
+		appendUniqueObjectString(&notes, objects[index], "format_note")
+		if number, ok := firstObjectNumber(objects[index], "filesize", "filesize_approx"); ok {
+			filesizeApprox += number
+		}
+		if number, ok := firstObjectNumber(objects[index], "tbr", "vbr", "abr"); ok {
+			tbr += number
+		}
+	}
+	if len(formats) == 0 {
+		formats = append(formats, ids...)
+	}
+	setJoinedField(info, "format", formats)
+	setJoinedField(info, "format_id", ids)
+	info.Set("ext", value.String(mergedOutputExtension(selections)))
+	setJoinedField(info, "protocol", protocols)
+	setJoinedField(info, "language", languages)
+	setJoinedField(info, "format_note", notes)
+	if filesizeApprox > 0 {
+		info.Set("filesize_approx", value.Float(filesizeApprox))
+	}
+	if tbr > 0 {
+		info.Set("tbr", value.Float(tbr))
+	}
+	if len(urls) > 0 {
+		info.Set("urls", value.String(strings.Join(urls, "\n")))
+		info.Set("url", value.String(urls[0]))
+	}
+	if videoCount == 1 && objects[videoIndex] != nil {
+		copyObjectFields(info, objects[videoIndex],
+			"width", "height", "resolution", "fps", "dynamic_range",
+			"vcodec", "vbr", "stretched_ratio", "aspect_ratio")
+		if info.Lookup("resolution").IsMissing() || info.Lookup("resolution").IsNull() {
+			if resolution := formatTableResolution(objects[videoIndex]); resolution != "" {
+				info.Set("resolution", value.String(resolution))
+			}
+		}
+	}
+	if audioCount == 1 && objects[audioIndex] != nil {
+		copyObjectFields(info, objects[audioIndex], "acodec", "abr", "asr", "audio_channels")
+	}
+}
+
+func selectedFormatProtocol(info value.Info, selection mediaformat.Selection, object *value.Object) string {
+	if selection.Protocol != "" {
+		return selection.Protocol
+	}
+	if object != nil {
+		if protocol, ok := object.Lookup("protocol").StringValue(); ok && protocol != "" {
+			return protocol
+		}
+	}
+	parsed, err := url.Parse(selection.URL)
+	if err != nil {
+		return ""
+	}
+	if strings.HasPrefix(parsed.Scheme, "rtmp") {
+		return "rtmp"
+	}
+	switch strings.ToLower(strings.TrimPrefix(filepath.Ext(parsed.Path), ".")) {
+	case "m3u8":
+		if live, _ := info.Lookup("is_live").Bool(); live {
+			return "m3u8"
+		}
+		return "m3u8_native"
+	case "f4m":
+		return "f4m"
+	default:
+		return parsed.Scheme
+	}
+}
+
+func appendUniqueObjectString(result *[]string, object *value.Object, key string) {
+	text, ok := object.Lookup(key).StringValue()
+	if ok && text != "" && !containsString(*result, text) {
+		*result = append(*result, text)
+	}
+}
+
+func firstObjectNumber(object *value.Object, keys ...string) (float64, bool) {
+	for _, key := range keys {
+		if number, ok := numericPrintValue(object.Lookup(key)); ok {
+			return number, true
+		}
+	}
+	return 0, false
+}
+
+func setJoinedField(info *value.Info, key string, values []string) {
+	if len(values) > 0 {
+		info.Set(key, value.String(strings.Join(values, "+")))
+	}
+}
+
+func copyObjectFields(info *value.Info, object *value.Object, keys ...string) {
+	for _, key := range keys {
+		candidate := object.Lookup(key)
+		if !candidate.IsMissing() && !candidate.IsNull() {
+			info.Set(key, candidate)
+		}
+	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, candidate := range values {
+		if candidate == want {
+			return true
+		}
+	}
+	return false
 }
 
 func numericPrintValue(input value.Value) (float64, bool) {
@@ -327,10 +591,7 @@ func (operation *operation) printFilename(info value.Info, selections []mediafor
 	if pattern == "" {
 		pattern = "%(title)s.%(ext)s"
 	}
-	outputInfo := value.NewInfo(info.Fields().Clone())
-	if len(selections) > 0 {
-		outputInfo.Set("ext", value.String(mergedOutputExtension(selections)))
-	}
+	outputInfo := selectedFormatInfo(info, selections)
 	outputDir := operation.request.OutputDir
 	if outputDir == "" {
 		outputDir = "."

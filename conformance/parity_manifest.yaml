@@ -1693,13 +1693,27 @@ capabilities:
       - pkg/ytdlp.TestClientAppliesMetadataBeforeMatchFilter
       - pkg/ytdlp.TestClientCategorizesMatchFilterEvaluationFailure
       - pkg/ytdlp.TestClientBreakMatchFilterStopsSingleMedia
+      - pkg/ytdlp.TestClientInteractiveMatchFilterAcceptRejectAndOrdering
+      - pkg/ytdlp.TestClientInteractiveMatchFilterDoesNotPromptForArchiveMatch
+      - pkg/ytdlp.TestClientInteractiveMatchFilterUsesSelectedFormatFilename
+      - pkg/ytdlp.TestClientInteractiveBreakingFilterReevaluatesSelectedFormat
+      - pkg/ytdlp.TestClientInteractiveMatchFilterDoesNotPromptWithoutFormats
+      - pkg/ytdlp.TestClientInteractiveMatchFilterRejectsMultiOutput
+      - pkg/ytdlp.TestClientInteractiveMatchFilterCallbackErrorsAreCategorized
+      - pkg/ytdlp.TestOperationFlatPlaylistDoesNotPromptForInteractiveMatchFilter
+      - pkg/ytdlp.TestOperationHydratedPlaylistPromptsOnceForInteractiveMatchFilter
       - pkg/ytdlp.TestOperationBreakMatchFilterStopsFlatPlaylistBeforeRejectedEntry
       - pkg/ytdlp.TestOperationBreakMatchFilterStopsHydratedPlaylistBeforeNextEntry
       - pkg/ytdlp.TestClientRendersProgressTemplateIntoEvents
+      - internal/cli.TestRunInteractiveMatchFilterPrompt
+      - internal/cli.TestRunInteractiveMatchFilterInputFailures
+      - internal/cli.TestInteractiveMatchFilterPromptHonorsCancellationWhileReading
+      - internal/cli.TestRunInteractiveMatchFilterListingAndOutputChannels
+      - internal/cli.FuzzInteractiveMatchFilterResponse
       - internal/cli.TestRunWaveTwoCompatibilityFlags
       - conformance/compatibility/phase2/PROVENANCE.md
     owner: core
-    known_deviation: Compatibility is scoped to the bounded Phase 2 corpus. Match filters support the documented boolean, string, numeric, none-inclusive, filesize, and duration grammar with explicit evaluation bounds; break-match filters reuse that grammar and stop playlist expansion before the rejected entry. Interactive prompting and Python regular-expression semantics remain unsupported. Template arithmetic and Unicode conversions are limited to the bounded corpus; arbitrary template code evaluation, the full selector grammar, and product download of arbitrary all-format sets remain explicitly unsupported.
+    known_deviation: Compatibility is scoped to the bounded Phase 2 corpus. Match filters support the documented boolean, string, numeric, none-inclusive, filesize, and duration grammar with explicit evaluation bounds; break-match filters reuse that grammar and stop playlist expansion before the rejected entry. Exact `-` marker prompting is supported on ordinary and breaking filters for complete, non-archived entries; flat/incomplete entries, no-format entries, and automatic subtitle-only listing do not prompt, explicit simulation and combined metadata-output modes do, and breaking-prompt acceptance preserves the pinned ordinary-filter bypass. Prompts use the selected single-output format filename, format-dependent conditions are reevaluated against that selection, and merged A/V fields follow the pinned merge policy. Interactive multi-output plans are explicitly unsupported because per-output prompting is not yet represented. Interactive filtering is intentionally rejected with `--progress-json` to preserve its machine-readable stderr contract. Python regular-expression semantics remain unsupported. Template arithmetic and Unicode conversions are limited to the bounded corpus; arbitrary template code evaluation, the full selector grammar, and product download of arbitrary all-format sets remain explicitly unsupported.
 
   - id: downloader.protocol_matrix
     name: Alpha downloader and protocol matrix

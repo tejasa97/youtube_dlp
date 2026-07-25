@@ -204,6 +204,91 @@ func TestOperationFlatPlaylistAppliesMetadataBeforeIncompleteMatchFilter(t *test
 	}
 }
 
+func TestOperationFlatPlaylistDoesNotPromptForInteractiveMatchFilter(t *testing.T) {
+	server, requests := selectionMediaServer(t)
+	defer server.Close()
+	transport, err := network.New(network.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var prompts atomic.Int32
+	request := Request{
+		Playlist:     PlaylistOptions{Items: "2", Flat: true},
+		MatchFilters: []string{"-"},
+		InteractiveMatchFilter: func(context.Context, InteractiveMatchFilterPrompt) (bool, error) {
+			prompts.Add(1)
+			return false, nil
+		},
+	}
+	compatibility, err := prepareCompatibility(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pages atomic.Int32
+	operation := &operation{
+		client: NewClient(), request: request, compatibility: compatibility, transport: transport,
+		registry: extractor.NewRegistry(
+			&selectionFixtureExtractor{pageFetches: &pages}, extractor.NewGeneric(),
+		),
+	}
+	result, err := operation.process(context.Background(), server.URL+"/selection", "", nil, make(map[string]bool), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := requests(); len(got) != 0 {
+		t.Fatalf("flat playlist made child requests: %v", got)
+	}
+	if prompts.Load() != 0 {
+		t.Fatalf("interactive prompts = %d, want 0 for incomplete flat entries", prompts.Load())
+	}
+	if len(result.Entries) != 1 || result.Entries[0].Skipped {
+		t.Fatalf("flat result = %#v", result)
+	}
+}
+
+func TestOperationHydratedPlaylistPromptsOnceForInteractiveMatchFilter(t *testing.T) {
+	server, requests := selectionMediaServer(t)
+	defer server.Close()
+	transport, err := network.New(network.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var prompts atomic.Int32
+	request := Request{
+		SkipDownload: true,
+		Playlist:     PlaylistOptions{Items: "2"},
+		MatchFilters: []string{"-"},
+		InteractiveMatchFilter: func(context.Context, InteractiveMatchFilterPrompt) (bool, error) {
+			prompts.Add(1)
+			return true, nil
+		},
+	}
+	compatibility, err := prepareCompatibility(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pages atomic.Int32
+	operation := &operation{
+		client: NewClient(), request: request, compatibility: compatibility, transport: transport,
+		registry: extractor.NewRegistry(
+			&selectionFixtureExtractor{pageFetches: &pages}, extractor.NewGeneric(),
+		),
+	}
+	result, err := operation.process(context.Background(), server.URL+"/selection", "", nil, make(map[string]bool), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prompts.Load() != 1 {
+		t.Fatalf("interactive prompts = %d, want 1 for the hydrated entry", prompts.Load())
+	}
+	if got := requests(); !reflect.DeepEqual(got, []string{"/media2.mp4"}) {
+		t.Fatalf("media requests = %v", got)
+	}
+	if len(result.Entries) != 1 || result.Entries[0].Skipped {
+		t.Fatalf("hydrated result = %#v", result)
+	}
+}
+
 func TestOperationBreakMatchFilterStopsFlatPlaylistBeforeRejectedEntry(t *testing.T) {
 	server, requests := selectionMediaServer(t)
 	defer server.Close()

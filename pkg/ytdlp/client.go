@@ -117,6 +117,9 @@ type Request struct {
 	Playlist                  PlaylistOptions
 	ProgressTemplate          string
 	MatchFilters              []string
+	// InteractiveMatchFilter is required when MatchFilters or BreakMatchFilters
+	// contains "-". It is called only for complete, non-archived entries.
+	InteractiveMatchFilter InteractiveMatchFilterFunc
 	// BreakMatchFilters use the same OR/AND language as MatchFilters, but a
 	// rejection stops playlist expansion before the rejected entry is retained.
 	BreakMatchFilters []string
@@ -128,6 +131,21 @@ type Request struct {
 	// are never considered by automatic URL routing.
 	PluginID string
 }
+
+// InteractiveMatchFilterPrompt describes one interactive download decision.
+type InteractiveMatchFilterPrompt struct {
+	ID       string
+	Title    string
+	Filename string
+}
+
+// InteractiveMatchFilterFunc returns true to retain a media entry and false
+// to skip it. Implementations must honor context cancellation where possible.
+type InteractiveMatchFilterFunc func(context.Context, InteractiveMatchFilterPrompt) (bool, error)
+
+// ErrInteractiveInput identifies a missing or failed interactive prompt
+// boundary. Context cancellation remains discoverable through errors.Is.
+var ErrInteractiveInput = errors.New("interactive match filter input unavailable")
 
 type Result struct {
 	InfoJSON   json.RawMessage
@@ -612,7 +630,7 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 		}
 		if operation.request.Playlist.Flat {
 			entryInfo := flatPlaylistEntryInfo(entry, selected.SourceIndex, playlistID, playlistTitle)
-			child, _, terminal, err := operation.prepareMediaResult(ctx, &entryInfo, entry.ExtractorKey, true)
+			child, _, _, terminal, err := operation.prepareMediaResult(ctx, &entryInfo, entry.ExtractorKey, true)
 			if err != nil {
 				return Result{}, fmt.Errorf("flat playlist entry %d: %w", selected.SourceIndex, err)
 			}
@@ -833,64 +851,80 @@ func (operation *operation) prepareMediaResult(
 	info *value.Info,
 	extractorName string,
 	incomplete bool,
-) (Result, archive.Identity, bool, error) {
+) (Result, archive.Identity, compatibilityDecision, bool, error) {
 	decision, err := operation.applyCompatibility(ctx, info, incomplete)
 	if err != nil {
-		return Result{}, archive.Identity{}, false, err
+		return Result{}, archive.Identity{}, compatibilityDecision{}, false, err
 	}
 	encoded, err := encodeInfo(*info)
 	if err != nil {
-		return Result{}, archive.Identity{}, false, err
+		return Result{}, archive.Identity{}, compatibilityDecision{}, false, err
 	}
 	result := Result{InfoJSON: encoded, Extractor: extractorName}
 	if !decision.Pass {
-		result.Skipped, result.SkipReason = true, decision.Reason
-		if operation.breakMatchTriggered {
-			result.Stopped, result.StopReason = true, operation.breakMatchReason
+		terminal, err := operation.finishMatchFilterDecision(ctx, &result, extractorName, decision.Decision)
+		if err != nil {
+			return Result{}, archive.Identity{}, compatibilityDecision{}, false, err
 		}
-		if err := operation.client.emit(ctx, Event{
-			Kind: EventMatchFilterSkipped, Extractor: extractorName, Message: decision.Reason,
-		}); err != nil {
-			return Result{}, archive.Identity{}, false, &Error{
-				Category: ErrorInternal, Op: "emit match-filter skip", Err: err,
-			}
-		}
-		return result, archive.Identity{}, true, nil
+		return result, archive.Identity{}, compatibilityDecision{}, terminal, nil
 	}
 	if operation.archive == nil {
-		return result, archive.Identity{}, false, nil
+		return result, archive.Identity{}, decision, false, nil
 	}
 	id, hasID := info.ID()
 	if !hasID || extractorName == "" {
 		if incomplete {
-			return result, archive.Identity{}, false, nil
+			return result, archive.Identity{}, compatibilityDecision{}, false, nil
 		}
-		return Result{}, archive.Identity{}, false, categorized("build archive identity", archive.ErrInvalidIdentity)
+		return Result{}, archive.Identity{}, compatibilityDecision{}, false, categorized("build archive identity", archive.ErrInvalidIdentity)
 	}
 	archiveIdentity, err := archive.NewIdentity(extractorName, id)
 	if err != nil {
-		return Result{}, archive.Identity{}, false, categorized("build archive identity", err)
+		return Result{}, archive.Identity{}, compatibilityDecision{}, false, categorized("build archive identity", err)
 	}
 	legacyIDs, err := oldArchiveIDs(*info)
 	if err != nil {
-		return Result{}, archive.Identity{}, false, categorized("read legacy archive identities", err)
+		return Result{}, archive.Identity{}, compatibilityDecision{}, false, categorized("read legacy archive identities", err)
 	}
 	matched, found, err := operation.archive.Match(ctx, archiveIdentity, legacyIDs)
 	if err != nil {
-		return Result{}, archive.Identity{}, false, categorized("match download archive", err)
+		return Result{}, archive.Identity{}, compatibilityDecision{}, false, categorized("match download archive", err)
 	}
 	if !found {
-		return result, archiveIdentity, false, nil
+		return result, archiveIdentity, decision, false, nil
 	}
 	result.Archived = true
 	if err := operation.client.emit(ctx, Event{
 		Kind: EventArchiveMatch, Extractor: extractorName, Message: matched,
 	}); err != nil {
-		return Result{}, archive.Identity{}, false, &Error{
+		return Result{}, archive.Identity{}, compatibilityDecision{}, false, &Error{
 			Category: ErrorInternal, Op: "emit archive event", Err: err,
 		}
 	}
-	return result, archiveIdentity, true, nil
+	return result, archiveIdentity, compatibilityDecision{}, true, nil
+}
+
+func (operation *operation) finishMatchFilterDecision(
+	ctx context.Context,
+	result *Result,
+	extractorName string,
+	decision matchfilter.Decision,
+) (bool, error) {
+	if decision.Pass {
+		return false, nil
+	}
+	result.Skipped, result.SkipReason = true, decision.Reason
+	if operation.breakMatchTriggered {
+		result.Stopped, result.StopReason = true, operation.breakMatchReason
+	}
+	if err := operation.client.emit(ctx, Event{
+		Kind: EventMatchFilterSkipped, Extractor: extractorName, Message: decision.Reason,
+	}); err != nil {
+		return false, &Error{
+			Category: ErrorInternal, Op: "emit match-filter skip", Err: err,
+		}
+	}
+	return true, nil
 }
 
 func (operation *operation) processMedia(ctx context.Context, extracted extractor.Extraction, extractorName string) (Result, error) {
@@ -903,7 +937,7 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	if err != nil {
 		return Result{}, categorized("write pre-process print file", err)
 	}
-	result, archiveIdentity, terminal, err := operation.prepareMediaResult(ctx, &info, extractorName, false)
+	result, archiveIdentity, interactiveDecision, terminal, err := operation.prepareMediaResult(ctx, &info, extractorName, false)
 	if err != nil {
 		return Result{}, err
 	}
@@ -959,7 +993,9 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	}
 	var selectedFormats []mediaformat.Selection
 	var outputPlans []mediaformat.OutputPlan
-	if (!operation.request.SkipDownload && !operation.request.Simulate) || operation.hasPrintStageAtOrAfter(PrintVideo) {
+	needsInteractiveFormat := interactiveDecision.interactive != interactiveMatchFilterNone
+	if (!operation.request.SkipDownload && !operation.request.Simulate) ||
+		operation.hasPrintStageAtOrAfter(PrintVideo) || needsInteractiveFormat {
 		outputPlans, err = operation.planFormats(info)
 		if err != nil {
 			return Result{}, categorized("select format", err)
@@ -973,12 +1009,37 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		if err := validateOutputPlans(outputPlans); err != nil {
 			return Result{}, categorized("select format", err)
 		}
+		if needsInteractiveFormat && len(outputPlans) > 1 {
+			return Result{}, categorized(
+				"select format",
+				fmt.Errorf("%w: interactive match filtering with multi-output selectors", mediaformat.ErrMultiOutput),
+			)
+		}
 	}
 	var destination string
 	if len(selectedFormats) > 0 || operation.hasPrintStageAtOrAfter(PrintVideo) {
 		destination, err = operation.printFilename(info, selectedFormats)
 		if err != nil {
 			return Result{}, categorized("render output template", err)
+		}
+	}
+	if needsInteractiveFormat {
+		if destination == "" {
+			return Result{}, categorized("select format", mediaformat.ErrNoFormats)
+		}
+		interactiveInfo := selectedFormatInfo(info, selectedFormats)
+		resolved, resolveErr := operation.resolveInteractiveCompatibility(
+			ctx, interactiveInfo, interactiveDecision, destination,
+		)
+		if resolveErr != nil {
+			return Result{}, resolveErr
+		}
+		terminal, finishErr := operation.finishMatchFilterDecision(ctx, &result, extractorName, resolved)
+		if finishErr != nil {
+			return Result{}, finishErr
+		}
+		if terminal {
+			return result, nil
 		}
 	}
 	if err := operation.validatePrintRules(ctx, info, selectedFormats, destination, false); err != nil {
@@ -1235,6 +1296,7 @@ func categorized(op string, err error) error {
 		category = ErrorUnsupported
 	case errors.Is(err, outputtemplate.ErrInvalidTemplate), errors.Is(err, outputtemplate.ErrUnsafePath),
 		errors.Is(err, errInvalidRequestOptions),
+		errors.Is(err, ErrInteractiveInput),
 		errors.Is(err, matchfilter.ErrInvalidFilter), errors.Is(err, matchfilter.ErrEvaluation),
 		errors.Is(err, matchfilter.ErrEvaluationLimit), errors.Is(err, compatmetadata.ErrInvalidAction),
 		errors.Is(err, progress.ErrInvalidProgress), errors.Is(err, mediaformat.ErrInvalidSelector),
