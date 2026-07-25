@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -382,6 +383,7 @@ func TestClientRejectsInvalidWaveTwoOptionsBeforeNetwork(t *testing.T) {
 		{YouTubeComments: YouTubeCommentOptions{MaxComments: 10_001}},
 		{YouTubeComments: YouTubeCommentOptions{MaxDepth: 9}},
 		{BreakMatchFilters: []string{"-"}},
+		{MatchFilters: []string{"-"}},
 	}
 	for index, request := range tests {
 		request.URL = server.URL + "/media.mp4"
@@ -439,6 +441,33 @@ func (numericMetadataExtractor) Extract(context.Context, extractor.Request) (ext
 		value.Field{Key: "title", Value: value.String("Fixture")},
 		value.Field{Key: "duration", Value: value.Int(4)},
 	))), nil
+}
+
+type interactiveFormatExtractor struct{}
+
+func (interactiveFormatExtractor) Name() string           { return "interactive-format" }
+func (interactiveFormatExtractor) Suitable(*url.URL) bool { return true }
+func (interactiveFormatExtractor) Extract(context.Context, extractor.Request) (extractor.Extraction, error) {
+	info := formatSelectorInfo()
+	info.Set("id", value.String("fixture"))
+	info.Set("title", value.String("Fixture"))
+	info.Set("duration", value.Int(4))
+	if formats, ok := info.Formats(); ok {
+		for _, candidate := range formats {
+			object, objectOK := candidate.Object()
+			if !objectOK {
+				continue
+			}
+			formatID, _ := object.Lookup("format_id").StringValue()
+			if formatID != "a128" {
+				continue
+			}
+			object.Set("abr", value.Int(128))
+			object.Set("language", value.String("en"))
+			object.Set("container", value.String("m4a_dash"))
+		}
+	}
+	return extractor.Media(info), nil
 }
 
 type deferredMetadataExtractor struct {
@@ -595,6 +624,247 @@ func TestClientOrdinaryFilterRejectionDoesNotBecomeBreakStop(t *testing.T) {
 	}
 	if !result.Skipped || result.Stopped || result.StopReason != "" {
 		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestClientInteractiveMatchFilterAcceptRejectAndOrdering(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		filters      []string
+		breakFilters []string
+		accept       bool
+		wantCalls    int
+		wantSkipped  bool
+		wantStopped  bool
+	}{
+		{name: "accept", filters: []string{"-"}, accept: true, wantCalls: 1},
+		{
+			name: "merged selected fields pass",
+			filters: []string{
+				"-",
+				"height=1080 & resolution=1080p & abr=128 & language=en & protocol=https+https",
+			},
+			accept: true, wantCalls: 1,
+		},
+		{name: "reject", filters: []string{"-"}, wantCalls: 1, wantSkipped: true},
+		{name: "ordinary filter rejects before prompt", filters: []string{"-", "title=other"}, accept: true, wantSkipped: true},
+		{name: "missing non-format field rejects before prompt", filters: []string{"-", "uploader=alice"}, accept: true, wantSkipped: true},
+		{
+			name: "breaking accept bypasses selected-format rejection", filters: []string{"format_id=other"},
+			breakFilters: []string{"-"}, accept: true, wantCalls: 1,
+		},
+		{
+			name: "breaking reject stops", breakFilters: []string{"-"},
+			wantCalls: 1, wantSkipped: true, wantStopped: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			calls := 0
+			request := Request{
+				URL: "https://fixture.invalid/video", SkipDownload: true,
+				OutputDir: t.TempDir(), OutputTemplate: "%(title)s.out",
+				MatchFilters: test.filters, BreakMatchFilters: test.breakFilters,
+				InteractiveMatchFilter: func(_ context.Context, prompt InteractiveMatchFilterPrompt) (bool, error) {
+					calls++
+					if prompt.ID != "fixture" || prompt.Title != "Fixture" ||
+						filepath.Base(prompt.Filename) != "Fixture.out" {
+						t.Fatalf("prompt = %#v", prompt)
+					}
+					return test.accept, nil
+				},
+			}
+			plan, err := prepareCompatibility(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			operation := &operation{
+				client: NewClient(), request: request, registry: extractor.NewRegistry(interactiveFormatExtractor{}),
+				compatibility: plan,
+			}
+			result, err := operation.process(context.Background(), request.URL, "", nil, make(map[string]bool), 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if calls != test.wantCalls || result.Skipped != test.wantSkipped || result.Stopped != test.wantStopped {
+				t.Fatalf("calls=%d result=%#v", calls, result)
+			}
+			if test.wantSkipped && calls == 1 && result.SkipReason != "Skipping Fixture" {
+				t.Fatalf("skip reason = %q", result.SkipReason)
+			}
+		})
+	}
+}
+
+func TestClientInteractiveMatchFilterDoesNotPromptForArchiveMatch(t *testing.T) {
+	archivePath := filepath.Join(t.TempDir(), "archive.txt")
+	if err := os.WriteFile(archivePath, []byte("numeric-metadata fixture\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := archive.Open(context.Background(), archivePath, archive.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	request := Request{
+		URL: "https://fixture.invalid/video", SkipDownload: true, MatchFilters: []string{"-"},
+		InteractiveMatchFilter: func(context.Context, InteractiveMatchFilterPrompt) (bool, error) {
+			calls++
+			return false, nil
+		},
+	}
+	plan, err := prepareCompatibility(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := &operation{
+		client: NewClient(), request: request, registry: extractor.NewRegistry(numericMetadataExtractor{}),
+		compatibility: plan, archive: store,
+	}
+	result, err := operation.process(context.Background(), request.URL, "", nil, make(map[string]bool), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 0 || !result.Archived || result.Skipped {
+		t.Fatalf("calls=%d result=%#v", calls, result)
+	}
+}
+
+func TestClientInteractiveMatchFilterUsesSelectedFormatFilename(t *testing.T) {
+	calls := 0
+	request := Request{
+		URL: "https://fixture.invalid/video", SkipDownload: true,
+		Format: "bestaudio", OutputDir: t.TempDir(), OutputTemplate: "%(format_id)s-%(vcodec)s-%(acodec)s.%(ext)s",
+		MatchFilters: []string{
+			"-",
+			"format_id=a128 & vcodec=none & acodec=aac & height=0 & abr=128 & language=en & container=m4a_dash & protocol=https",
+		},
+		InteractiveMatchFilter: func(_ context.Context, prompt InteractiveMatchFilterPrompt) (bool, error) {
+			calls++
+			if filepath.Base(prompt.Filename) != "a128-none-aac.m4a" {
+				t.Fatalf("prompt filename = %q", prompt.Filename)
+			}
+			return true, nil
+		},
+	}
+	plan, err := prepareCompatibility(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := &operation{
+		client: NewClient(), request: request, registry: extractor.NewRegistry(interactiveFormatExtractor{}),
+		compatibility: plan,
+	}
+	result, err := operation.process(context.Background(), request.URL, "", nil, make(map[string]bool), 0)
+	if err != nil || calls != 1 || result.Skipped {
+		t.Fatalf("calls=%d result=%#v error=%v", calls, result, err)
+	}
+}
+
+func TestClientInteractiveBreakingFilterReevaluatesSelectedFormat(t *testing.T) {
+	calls := 0
+	request := Request{
+		URL: "https://fixture.invalid/video", SkipDownload: true, Format: "bestaudio",
+		BreakMatchFilters: []string{"-", "format_id=wrong"},
+		InteractiveMatchFilter: func(context.Context, InteractiveMatchFilterPrompt) (bool, error) {
+			calls++
+			return true, nil
+		},
+	}
+	plan, err := prepareCompatibility(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := &operation{
+		client: NewClient(), request: request, registry: extractor.NewRegistry(interactiveFormatExtractor{}),
+		compatibility: plan,
+	}
+	result, err := operation.process(context.Background(), request.URL, "", nil, make(map[string]bool), 0)
+	if err != nil || calls != 0 || !result.Skipped || !result.Stopped {
+		t.Fatalf("calls=%d result=%#v error=%v", calls, result, err)
+	}
+}
+
+func TestClientInteractiveMatchFilterDoesNotPromptWithoutFormats(t *testing.T) {
+	calls := 0
+	request := Request{
+		URL: "https://fixture.invalid/video", SkipDownload: true, MatchFilters: []string{"-"},
+		InteractiveMatchFilter: func(context.Context, InteractiveMatchFilterPrompt) (bool, error) {
+			calls++
+			return true, nil
+		},
+	}
+	plan, err := prepareCompatibility(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := &operation{
+		client: NewClient(), request: request, registry: extractor.NewRegistry(numericMetadataExtractor{}),
+		compatibility: plan,
+	}
+	_, err = operation.process(context.Background(), request.URL, "", nil, make(map[string]bool), 0)
+	if !errors.Is(err, mediaformat.ErrNoFormats) || calls != 0 {
+		t.Fatalf("calls=%d error=%v", calls, err)
+	}
+}
+
+func TestClientInteractiveMatchFilterRejectsMultiOutput(t *testing.T) {
+	calls := 0
+	request := Request{
+		URL: "https://fixture.invalid/video", SkipDownload: true,
+		Format: "bestvideo,bestaudio", MatchFilters: []string{"-"},
+		InteractiveMatchFilter: func(context.Context, InteractiveMatchFilterPrompt) (bool, error) {
+			calls++
+			return true, nil
+		},
+	}
+	plan, err := prepareCompatibility(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := &operation{
+		client: NewClient(), request: request, registry: extractor.NewRegistry(interactiveFormatExtractor{}),
+		compatibility: plan,
+	}
+	_, err = operation.process(context.Background(), request.URL, "", nil, make(map[string]bool), 0)
+	if !IsCategory(err, ErrorUnsupported) || !errors.Is(err, mediaformat.ErrMultiOutput) || calls != 0 {
+		t.Fatalf("calls=%d error=%v", calls, err)
+	}
+}
+
+func TestClientInteractiveMatchFilterCallbackErrorsAreCategorized(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		callback  error
+		category  ErrorCategory
+		wantInput bool
+	}{
+		{
+			name: "input", callback: fmt.Errorf("%w: %v", ErrInteractiveInput, io.EOF),
+			category: ErrorInvalidInput, wantInput: true,
+		},
+		{name: "cancelled", callback: context.Canceled, category: ErrorCancelled},
+		{name: "unexpected callback failure", callback: io.ErrUnexpectedEOF, category: ErrorInternal},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := Request{
+				URL: "https://fixture.invalid/video", SkipDownload: true, MatchFilters: []string{"-"},
+				InteractiveMatchFilter: func(context.Context, InteractiveMatchFilterPrompt) (bool, error) {
+					return false, test.callback
+				},
+			}
+			plan, err := prepareCompatibility(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			operation := &operation{
+				client: NewClient(), request: request, registry: extractor.NewRegistry(interactiveFormatExtractor{}),
+				compatibility: plan,
+			}
+			_, err = operation.process(context.Background(), request.URL, "", nil, make(map[string]bool), 0)
+			if !IsCategory(err, test.category) || errors.Is(err, ErrInteractiveInput) != test.wantInput {
+				t.Fatalf("error = %v", err)
+			}
+		})
 	}
 }
 
