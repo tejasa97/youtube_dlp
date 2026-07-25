@@ -31,8 +31,14 @@ func NewYouTubeAliasTab() YouTubeAliasTab { return YouTubeAliasTab{} }
 func (YouTubeAliasTab) Name() string      { return "youtube_alias_tab" }
 
 func (YouTubeAliasTab) Suitable(parsed *url.URL) bool {
-	_, _, _, ok := youtubeAliasTabTarget(parsed)
-	return ok
+	_, _, tab, ok := youtubeAliasTabTarget(parsed)
+	if !ok {
+		return false
+	}
+	if tab == "search" {
+		return youtubeChannelSearchQuery(parsed) != ""
+	}
+	return true
 }
 
 func (YouTubeAliasTab) Extract(ctx context.Context, request Request) (Extraction, error) {
@@ -57,11 +63,15 @@ func (YouTubeAliasTab) Extract(ctx context.Context, request Request) (Extraction
 			fallbackID: kind + ":" + alias, subject: "alias",
 			categorize: categorizeYouTubeAliasTabError,
 			extractTab: func(ctx context.Context, transport Transport, tab string) (Extraction, error) {
-				return extractYouTubeAliasTab(ctx, transport, kind, alias, tab)
+				return extractYouTubeAliasTab(ctx, transport, kind, alias, tab, "")
 			},
 		})
 	}
-	return extractYouTubeAliasTab(ctx, request.Transport, kind, alias, tab)
+	query := ""
+	if tab == "search" {
+		query = youtubeChannelSearchQuery(parsed)
+	}
+	return extractYouTubeAliasTab(ctx, request.Transport, kind, alias, tab, query)
 }
 
 func youtubeAliasTabTarget(parsed *url.URL) (kind, alias, tab string, ok bool) {
@@ -105,14 +115,21 @@ func youtubeAliasTabTarget(parsed *url.URL) (kind, alias, tab string, ok bool) {
 	if len(parts) == 3 {
 		return parts[1], alias, "", true
 	}
-	if youtubePublicTabType(parts[3]) != youtubeTabUnsupported {
-		return parts[1], alias, parts[3], true
+	tab = parts[3]
+	if youtubePublicTabType(tab) != youtubeTabUnsupported || tab == "search" || validYouTubeCustomTabSegment(tab) {
+		return parts[1], alias, tab, true
 	}
 	return "", "", "", false
 }
 
-func extractYouTubeAliasTab(ctx context.Context, transport Transport, kind, alias, tab string) (Extraction, error) {
+func extractYouTubeAliasTab(ctx context.Context, transport Transport, kind, alias, tab, query string) (Extraction, error) {
 	canonical := youtubeAliasTabCanonicalURL(kind, alias, tab)
+	if tab == "search" {
+		if !validYouTubeSearchQuery(query) {
+			return Extraction{}, fmt.Errorf("%w: unsupported YouTube alias search", ErrUnsupported)
+		}
+		canonical = youtubeAliasTabCanonicalURL(kind, alias, "search") + "?" + url.Values{"query": {query}}.Encode()
+	}
 	page, _, err := transport.ReadPage(ctx, canonical)
 	if err != nil {
 		return Extraction{}, categorizeYouTubeAliasTabError(err)
@@ -124,11 +141,23 @@ func extractYouTubeAliasTab(ctx context.Context, transport Transport, kind, alia
 	if redirect, ok, err := youtubeConditionalRedirectResult(raw, canonical, tab); err != nil || ok {
 		return redirect, err
 	}
-	if err := validateYouTubeSelectedTab(raw, tab); err != nil {
+	identity := youtubeChannelIdentity{AliasKind: kind, Alias: alias}
+	policy := youtubeRendererPolicyForTab(tab)
+	if tab == "search" {
+		policy = youtubeRendererPolicy{kinds: youtubeRendererVideo | youtubeRendererPlaylist | youtubeRendererChannel}
+	}
+	parsed, err := parseYouTubeRendererData(raw, policy)
+	if err != nil {
 		return Extraction{}, err
 	}
-	parsed, err := parseYouTubeHandleTabData(raw, tab)
-	if err != nil {
+	if youtubeChannelIDPattern.MatchString(parsed.channelID) {
+		identity.ChannelID = parsed.channelID
+	}
+	if youtubePublicTabType(tab) == youtubeTabUnsupported && tab != "search" {
+		if err := youtubeCustomTabSelectedAndBound(raw, tab, identity); err != nil {
+			return Extraction{}, err
+		}
+	} else if err := validateYouTubeSelectedTab(raw, tab); err != nil {
 		return Extraction{}, err
 	}
 	if parsed.alert != "" && len(parsed.entries) == 0 {
@@ -136,6 +165,11 @@ func extractYouTubeAliasTab(ctx context.Context, transport Transport, kind, alia
 	}
 	if parsed.title == "" {
 		return Extraction{}, fmt.Errorf("%w: missing YouTube alias tab metadata", ErrInvalidMetadata)
+	}
+	if bound, err := youtubeBindAdvertisedTabs(raw, identity); err != nil {
+		return Extraction{}, err
+	} else {
+		parsed.tabs = bound
 	}
 	id := kind + ":" + alias
 	if youtubeChannelIDPattern.MatchString(parsed.channelID) {
@@ -146,17 +180,21 @@ func extractYouTubeAliasTab(ctx context.Context, transport Transport, kind, alia
 	if visitorData == "" {
 		visitorData = config.VisitorData
 	}
+	auth, err := youtubeBrowseAuthFromPage(page, transport)
+	if err != nil {
+		return Extraction{}, categorizeYouTubeAliasTabError(err)
+	}
 	entries, err := StatefulContinuationEntries(parsed.entries, parsed.continuation, visitorData, func(ctx context.Context, token, visitorData string) ([]Entry, string, string, error) {
-		return fetchYouTubeTabContinuation(ctx, transport, token, visitorData, config, tab, "alias", categorizeYouTubeAliasTabError)
+		return fetchYouTubeBrowseContinuation(ctx, transport, token, visitorData, config, policy, "alias", categorizeYouTubeAliasTabError, auth)
 	})
 	if err != nil {
 		return Extraction{}, err
 	}
-	return Playlist(value.NewInfo(value.NewObject(
-		value.Field{Key: "id", Value: value.String(id)},
-		value.Field{Key: "title", Value: value.String(parsed.title)},
-		value.Field{Key: "webpage_url", Value: value.String(canonical)},
-	)), entries)
+	title := parsed.title
+	if tab == "search" && query != "" {
+		title = parsed.title + " - Search - " + query
+	}
+	return Playlist(youtubeRendererPlaylistInfo(id, title, canonical, parsed.tabs), entries)
 }
 
 func youtubeAliasTabCanonicalURL(kind, alias, tab string) string {
@@ -247,7 +285,16 @@ func youtubeSelectedTabIdentities(renderer *value.Object) []string {
 		}
 		identities = append(identities, identity)
 	}
-	appendIdentity(normalizedYouTubeTabIdentity(objectString(renderer, "tabIdentifier")))
+	appendTabIdentity := func(raw string) {
+		if identity := normalizedYouTubeTabIdentity(raw); identity != "" {
+			appendIdentity(identity)
+			return
+		}
+		if validYouTubeCustomTabSegment(raw) {
+			appendIdentity(raw)
+		}
+	}
+	appendTabIdentity(objectString(renderer, "tabIdentifier"))
 	for _, candidate := range []string{
 		objectString(renderer, "endpoint", "browseEndpoint", "canonicalBaseUrl"),
 		objectString(renderer, "endpoint", "commandMetadata", "webCommandMetadata", "url"),
@@ -255,7 +302,7 @@ func youtubeSelectedTabIdentities(renderer *value.Object) []string {
 		if parsed, err := url.Parse(candidate); err == nil {
 			parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
 			if len(parts) != 0 {
-				appendIdentity(normalizedYouTubeTabIdentity(parts[len(parts)-1]))
+				appendTabIdentity(parts[len(parts)-1])
 			}
 		}
 	}
@@ -291,6 +338,8 @@ func youtubeSelectedTabIdentities(renderer *value.Object) []string {
 		appendIdentity("podcasts")
 	case "membership":
 		appendIdentity("membership")
+	case "search":
+		appendIdentity("search")
 	}
 	return identities
 }

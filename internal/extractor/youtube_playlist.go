@@ -300,7 +300,7 @@ func youtubePlaylistContentScope(root *value.Object) value.Value {
 	if _, ok := contentsValue.ListValue(); ok {
 		return contentsValue
 	}
-	for _, key := range []string{"onResponseReceivedActions", "onResponseReceivedEndpoints"} {
+	for _, key := range []string{"onResponseReceivedActions", "onResponseReceivedEndpoints", "onResponseReceivedCommands"} {
 		items, ok := root.Lookup(key).ListValue()
 		if !ok {
 			continue

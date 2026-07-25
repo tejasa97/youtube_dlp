@@ -94,8 +94,14 @@ func TestYouTubeMusicSearchLazyReusableAndCancellation(t *testing.T) {
 	}
 }
 func TestYouTubeMusicSearchTargetPolicy(t *testing.T) {
-	good := []string{"https://music.youtube.com/search?q=x", "http://music.youtube.com/search?search_query=x#videos"}
-	bad := []string{"https://www.music.youtube.com/search?q=x", "https://music.youtube.com:443/search?q=x", "https://u@music.youtube.com/search?q=x", "https://music.youtube.com/search?q=x#albums", "https://music.youtube.com/search%2fno?q=x", "https://music.youtube.com/search?q=a%2fb", "https://music.youtube.com/search?q=x&sp=unsupported"}
+	good := []string{
+		"https://music.youtube.com/search?q=x",
+		"http://music.youtube.com/search?search_query=x#videos",
+		"https://music.youtube.com/search?q=x#albums",
+		"https://music.youtube.com/search?q=x#artists",
+		"https://music.youtube.com/search?q=x#community+playlists",
+	}
+	bad := []string{"https://www.music.youtube.com/search?q=x", "https://music.youtube.com:443/search?q=x", "https://u@music.youtube.com/search?q=x", "https://music.youtube.com/search?q=x#podcasts", "https://music.youtube.com/search%2fno?q=x", "https://music.youtube.com/search?q=a%2fb", "https://music.youtube.com/search?q=x&sp=unsupported"}
 	for _, raw := range good {
 		u, _ := url.Parse(raw)
 		if !NewYouTubeMusicSearch().Suitable(u) {
@@ -144,7 +150,7 @@ func FuzzParseYouTubeMusicSearchData(f *testing.F) {
 	f.Add([]byte(`{"contents":{}}`))
 	f.Add([]byte(`{"continuationContents":{"continuationItemRenderer":{"continuationEndpoint":{"continuationCommand":{"token":"next"}}}}}`))
 	f.Fuzz(func(t *testing.T, b []byte) {
-		p, e := parseYouTubeMusicSearchData(b)
+		p, e := parseYouTubeMusicSearchData(b, "songs")
 		if e != nil {
 			return
 		}
@@ -152,8 +158,11 @@ func FuzzParseYouTubeMusicSearchData(f *testing.F) {
 			t.Fatalf("unsafe continuation %q", p.continuation)
 		}
 		for _, x := range p.entries {
-			if !youtubeIDPattern.MatchString(x.ID) || x.ExtractorKey != "youtube" || x.URL != "https://www.youtube.com/watch?v="+x.ID {
+			if x.URL == "" || strings.ContainsAny(x.URL, "\x00\r\n") {
 				t.Fatalf("unsafe entry %#v", x)
+			}
+			if x.ExtractorKey == "youtube" && (!youtubeIDPattern.MatchString(x.ID) || !strings.HasPrefix(x.URL, "https://www.youtube.com/")) {
+				t.Fatalf("unsafe video entry %#v", x)
 			}
 		}
 	})

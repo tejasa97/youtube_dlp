@@ -111,6 +111,12 @@ protected-playback workstream. The following are supported:
 - explicit public channel tabs at
   `/channel/<UCID>/{videos,shorts,streams,playlists,home,featured,community,releases,podcasts,membership}`,
   including bounded lazy continuation paging;
+- channel-advertised custom tabs under the same channel/handle/alias identity
+  when YouTube lists a securely bound `tabRenderer`/`expandableTabRenderer`
+  endpoint (cross-host, identity-swap, and encoded-separator endpoints are
+  rejected), with stable tab id/title/approx-count metadata when present;
+- channel-local search at `/channel/<UCID>/search?query=...`,
+  `/@handle/search?query=...`, and legacy `/user`/`/c` equivalents;
 - explicit public Unicode-aware handle tabs at
   `/@handle/{videos,shorts,streams,playlists,home,featured,community,releases,podcasts,membership}`,
   including bounded lazy continuation;
@@ -120,10 +126,22 @@ protected-playback workstream. The following are supported:
 - bare `/channel/<UCID>`, `/@handle`, `/user/<alias>`, and `/c/<alias>` roots,
   aggregated lazily in videos, streams, then Shorts order without including
   home-page shelves, including bounded conditional regional-channel routing;
-- bounded public video searches using `ytsearch:`, `ytsearchN:`,
-  `ytsearchall:` (capped at 50), and exact `/results` or `/search` URLs;
-- bounded playable YouTube Music searches at `music.youtube.com/search`,
-  including pinned `#songs` and `#videos` sections;
+- bounded public searches using `ytsearch:` / `ytsearchN:` / `ytsearchall:`
+  (capped at 50; video-filtered) and exact `/results` or `/search` URLs that
+  emit video, Shorts, playlist, channel, and shelf URL results plus supported
+  filter/sort `sp` values (accepted after `ParseQuery` decoding; unknown or
+  double-encoded `sp` values are rejected);
+- bounded YouTube Music searches at `music.youtube.com/search`, including
+  pinned `#songs`, `#videos`, `#albums`, `#artists`, `#community+playlists`,
+  and `#featured+playlists` sections with songs/videos as watch URLs and
+  albums/artists/playlists/podcasts as typed URL results when they resolve to
+  registered playlist or channel routes (Music `MPRE...` browse IDs are omitted
+  until a Music browse extractor exists);
+- authenticated exact-origin WEB browse/search continuations when a logged-in
+  page and redirect-disabled cookie transport are present (no anonymous
+  fallback after authenticated state; incomplete logged-in config fails closed;
+  browse visitor rotation across continuation pages; search reuses the initial
+  visitor; WEB and WEB_REMIX identities stay isolated);
 - channel live aliases (`@handle/live`, `/channel/<id>/live`, `/user/<name>/live`,
   `/c/<name>/live`) routed into the resolved live video;
 - manual and automatic captions exposed as `subtitles` and
@@ -156,26 +174,27 @@ protected-playback workstream. The following are supported:
 
 The following limitations are intentional and remain:
 
-- no general channel discovery or arbitrary tab enumeration beyond the
-  explicit tabs and bounded bare-root upload aggregation above;
 - membership tab extraction is bounded to the explicit `/membership` routes
   above and returns member videos only when the supplied transport/session is
   already authorized; it does not add authentication flags, purchase flows, or
   entitlement acquisition;
-- general search does not cover channel/playlist/hashtag results,
-  authenticated search, or arbitrary filter/sort parity; Music search excludes
-  albums, artists, playlists, podcasts, arbitrary filters, and
-  authenticated/premium success;
+- custom tabs are accepted only when advertised by the requested channel page
+  and securely bound to that channel identity; arbitrary YouTube endpoints and
+  cross-channel pivots are rejected;
+- Music search does not claim authenticated/premium WEB_REMIX success, and
+  invented section filters beyond the pinned upstream section map are rejected;
+- hashtag tiles are validated and omitted until a dedicated hashtag extractor
+  exists, so default playlist expansion cannot fail on `/hashtag` routes;
+  shelf URL results remain emitted for flat listing without a dedicated route;
 - live-from-start and finite `post_live` DVR reconstruction use the documented
   segment/poll bounds and do not support external-downloader delegation or
   process-restart resume;
 - authenticated Innertube coverage remains limited: a logged-in watch page can
   recover URL-bearing formats through one exact-origin WEB player request when
   valid YouTube SID cookies and bounded WEB configuration are present. Opt-in
-  comments use the same account-bound, redirect-disabled WEB session for every
-  root, reply, sort, and retry continuation. Authenticated browse/search/Music
-  clients, broader player-client rotation, and direct SABR/UMP are not
-  supported;
+  comments and browse/search continuations use the same account-bound,
+  redirect-disabled WEB session. Broader player-client rotation and direct
+  SABR/UMP are not supported;
 - comment extraction does not synthesize estimated timestamps or expose
   YouTube's approximate count before retrieval, and supports only the
   explicitly tested legacy and modern renderer families;
@@ -192,7 +211,9 @@ limited to the deterministic corpus checked into
 `conformance/extractors/youtube_handle_tab/`,
 `conformance/extractors/youtube_alias_tab/`,
 `conformance/extractors/youtube_search/`,
-`conformance/extractors/youtube_music_search/`, and the bounded evidence listed in
+`conformance/extractors/youtube_music_search/`,
+`conformance/extractors/youtube_renderer/`,
+`conformance/extractors/youtube_channel_search/`, and the bounded evidence listed in
 `conformance/parity_manifest.yaml`.
 
 ## Protocol coverage
