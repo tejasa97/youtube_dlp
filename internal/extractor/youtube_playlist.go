@@ -317,7 +317,10 @@ func youtubePlaylistContentScope(root *value.Object) value.Value {
 		}
 	}
 	if continuations, ok := root.Lookup("continuationContents").Object(); ok {
-		for _, key := range []string{"playlistVideoListContinuation", "sectionListContinuation", "gridContinuation", "itemSectionContinuation"} {
+		for _, key := range []string{
+			"playlistVideoListContinuation", "sectionListContinuation", "gridContinuation",
+			"itemSectionContinuation", "musicPlaylistShelfContinuation", "musicShelfContinuation",
+		} {
 			container, ok := continuations.Lookup(key).Object()
 			if !ok {
 				continue

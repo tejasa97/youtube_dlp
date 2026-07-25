@@ -140,6 +140,7 @@ func TestProductRegistryIncludesIntegratedExtractors(t *testing.T) {
 		{"https://www.youtube.com/c/СинтетическийКанал", "youtube_alias_tab"},
 		{"ytsearch5:fixture query", "youtube_search"},
 		{"https://music.youtube.com/search?q=fixture#songs", "youtube_music_search"},
+		{"https://music.youtube.com/browse/MPREbfixture0001", "youtube_music_browse"},
 		{"https://vimeo.com/123456789", "vimeo"},
 		{"https://www.tiktok.com/@fixture/video/1234567890123456789", "tiktok"},
 		{"https://players.brightcove.net/12345/default_default/index.html?videoId=123", "brightcove"},

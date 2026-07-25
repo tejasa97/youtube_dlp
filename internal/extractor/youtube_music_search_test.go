@@ -20,6 +20,7 @@ type musicTransport struct {
 	body, raw, method  string
 	path, query        string
 	headers            http.Header
+	isolated           bool
 }
 
 func readYouTubeMusicFixture(t *testing.T, name string) []byte {
@@ -38,7 +39,17 @@ func (m *musicTransport) ReadPage(_ context.Context, raw string) ([]byte, http.H
 	return m.page, make(http.Header), nil
 }
 func (m *musicTransport) Do(_ context.Context, r *http.Request) (*http.Response, error) {
+	return m.do(r, false)
+}
+func (m *musicTransport) DoWithoutCookies(_ context.Context, r *http.Request) (*http.Response, error) {
+	if r.Header.Get("Cookie") != "" {
+		return nil, errors.New("cookie-isolated Music request contains Cookie header")
+	}
+	return m.do(r, true)
+}
+func (m *musicTransport) do(r *http.Request, isolated bool) (*http.Response, error) {
 	m.calls++
+	m.isolated = isolated
 	m.method, m.path, m.query = r.Method, r.URL.Path, r.URL.RawQuery
 	m.headers = r.Header.Clone()
 	b, _ := io.ReadAll(r.Body)
@@ -63,8 +74,8 @@ func TestYouTubeMusicSearchSectionsPagingAndRequest(t *testing.T) {
 	if err != nil || len(got) != 3 || got[0].ID != "aaaaaaaaaaa" || got[1].ID != "ccccccccccc" || got[2].ID != "bbbbbbbbbbb" {
 		t.Fatalf("entries=%#v err=%v", got, err)
 	}
-	if !strings.Contains(m.raw, "sp=EgWKAQII") || m.calls != 1 || m.method != http.MethodPost || m.path != "/youtubei/v1/search" || !strings.Contains(m.query, "key=fixture-key") || !strings.Contains(m.body, `"clientName":"WEB_REMIX"`) || !strings.Contains(m.body, `"clientVersion":"fixture-version"`) || !strings.Contains(m.body, `"visitorData":"fixture-visitor"`) || m.headers.Get("Origin") != "https://music.youtube.com" || m.headers.Get("X-Youtube-Client-Name") != "67" || m.headers.Get("X-Youtube-Client-Version") != "fixture-version" {
-		t.Fatalf("raw=%s method=%s path=%s query=%s calls=%d body=%s headers=%v", m.raw, m.method, m.path, m.query, m.calls, m.body, m.headers)
+	if !strings.Contains(m.raw, "sp=EgWKAQII") || m.calls != 1 || !m.isolated || m.method != http.MethodPost || m.path != "/youtubei/v1/search" || !strings.Contains(m.query, "key=fixture-key") || !strings.Contains(m.body, `"clientName":"WEB_REMIX"`) || !strings.Contains(m.body, `"clientVersion":"fixture-version"`) || !strings.Contains(m.body, `"visitorData":"fixture-visitor"`) || m.headers.Get("Origin") != "https://music.youtube.com" || m.headers.Get("X-Youtube-Client-Name") != "67" || m.headers.Get("X-Youtube-Client-Version") != "fixture-version" {
+		t.Fatalf("raw=%s method=%s path=%s query=%s calls=%d isolated=%v body=%s headers=%v", m.raw, m.method, m.path, m.query, m.calls, m.isolated, m.body, m.headers)
 	}
 }
 func TestYouTubeMusicSearchLazyReusableAndCancellation(t *testing.T) {

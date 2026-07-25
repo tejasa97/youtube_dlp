@@ -7,4 +7,7 @@ handled by yt-dlp at `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`:
 They contain fabricated IDs, titles, tokens, API configuration and no user
 data.  They exercise only playable song/video results and continuation parsing.
 
-Expanded to cover albums/artists/playlist sections and podcast lockups via the shared Music renderer policy. WEB_REMIX credentials remain isolated from WEB.
+Expanded to cover albums/artists/playlist sections and podcast lockups via the
+shared Music renderer policy. Registered Music browse families are emitted as
+`youtube_music_browse` URL results; WEB_REMIX credentials remain cookie-isolated
+from WEB.

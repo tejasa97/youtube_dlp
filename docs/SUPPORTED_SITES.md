@@ -134,9 +134,13 @@ protected-playback workstream. The following are supported:
 - bounded YouTube Music searches at `music.youtube.com/search`, including
   pinned `#songs`, `#videos`, `#albums`, `#artists`, `#community+playlists`,
   and `#featured+playlists` sections with songs/videos as watch URLs and
-  albums/artists/playlists/podcasts as typed URL results when they resolve to
-  registered playlist or channel routes (Music `MPRE...` browse IDs are omitted
-  until a Music browse extractor exists);
+  albums/artists/playlists/podcasts as typed URL results for registered
+  playlist, channel, and Music browse routes;
+- bounded YouTube Music browse at exact `music.youtube.com/browse/{id}` for
+  registered album (`MPRE`), artist (`UC` / `MPLA`+UCID), playlist (`VL`), and
+  podcast (`MPSP`) families via cookie-isolated WEB_REMIX pages/continuations
+  (anonymous public success; logged-in/premium/WEB-identity pages fail closed;
+  album playlist identity from microformat or WEB_REMIX resolve when present);
 - authenticated exact-origin WEB browse/search continuations when a logged-in
   page and redirect-disabled cookie transport are present (no anonymous
   fallback after authenticated state; incomplete logged-in config fails closed;
@@ -183,6 +187,9 @@ The following limitations are intentional and remain:
   cross-channel pivots are rejected;
 - Music search does not claim authenticated/premium WEB_REMIX success, and
   invented section filters beyond the pinned upstream section map are rejected;
+- Music browse does not claim authenticated/premium WEB_REMIX success; logged-in
+  Music pages, WEB client identity on Music browse, and missing cookie isolation
+  fail closed;
 - hashtag tiles are validated and omitted until a dedicated hashtag extractor
   exists, so default playlist expansion cannot fail on `/hashtag` routes;
   shelf URL results remain emitted for flat listing without a dedicated route;
