@@ -218,6 +218,94 @@ func TestWeatherComAndNBCNegatives(t *testing.T) {
 	}
 }
 
+func buildThePlatformSMIL(videos, captions int) []byte {
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0"?><smil><body><switch>`)
+	for i := 0; i < videos; i++ {
+		b.WriteString(`<video src="https://media.example.invalid/tp/v`)
+		b.WriteByte(byte('0' + (i/100)%10))
+		b.WriteByte(byte('0' + (i/10)%10))
+		b.WriteByte(byte('0' + i%10))
+		b.WriteString(`.mp4"/>`)
+	}
+	for i := 0; i < captions; i++ {
+		b.WriteString(`<textstream src="https://media.example.invalid/tp/c`)
+		b.WriteByte(byte('0' + (i/100)%10))
+		b.WriteByte(byte('0' + (i/10)%10))
+		b.WriteByte(byte('0' + i%10))
+		b.WriteString(`.vtt" lang="en"/>`)
+	}
+	b.WriteString(`</switch></body></smil>`)
+	return []byte(b.String())
+}
+
+func TestThePlatformCardinalityFailClosed(t *testing.T) {
+	t.Parallel()
+
+	formats, subs, err := parseThePlatformSMIL(buildThePlatformSMIL(thePlatformMaxFormats, 0))
+	if err != nil || len(formats) != thePlatformMaxFormats || subs != nil {
+		t.Fatalf("boundary formats: n=%d err=%v subs=%v", len(formats), err, subs)
+	}
+	if _, _, err := parseThePlatformSMIL(buildThePlatformSMIL(thePlatformMaxFormats+1, 0)); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("format overflow=%v", err)
+	}
+
+	formats, subs, err = parseThePlatformSMIL(buildThePlatformSMIL(1, thePlatformMaxCaptions))
+	if err != nil || len(formats) != 1 || subs == nil {
+		t.Fatalf("boundary captions: formats=%d err=%v", len(formats), err)
+	}
+	if _, _, err := parseThePlatformSMIL(buildThePlatformSMIL(1, thePlatformMaxCaptions+1)); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("caption overflow=%v", err)
+	}
+
+	// Feed: two SMIL expansions that together exceed the global format cap.
+	half := thePlatformMaxFormats/2 + 1
+	smilA := "https://link.theplatform.com/s/kYEXFC/feedA"
+	smilB := "https://link.theplatform.com/s/kYEXFC/feedB"
+	feedURL := "https://feed.theplatform.com/f/7wvmTC/msnbc_video-p-test?byGuid=n_hardball_5biden_140207"
+	feedEndpoint := "https://feed.theplatform.com/f/7wvmTC/msnbc_video-p-test?form=json&byGuid=n_hardball_5biden_140207"
+	feedTransport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
+		feedEndpoint:                    {body: []byte(`{"entries":[{"title":"Feed Overflow","guid":"n_hardball_5biden_140207","media$content":[{"plfile$url":"` + smilA + `"},{"plfile$url":"` + smilB + `"}]}]}`)},
+		smilA + "?mbr=true&format=SMIL": {body: buildThePlatformSMIL(half, 0)},
+		smilB + "?mbr=true&format=SMIL": {body: buildThePlatformSMIL(half, 0)},
+	}}
+	if _, err := NewThePlatformFeed().Extract(context.Background(), Request{URL: feedURL, Transport: feedTransport}); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("feed format overflow=%v", err)
+	}
+
+	// Feed content entry cardinality fail-closed.
+	var content strings.Builder
+	content.WriteString(`{"entries":[{"title":"Too Many","guid":"n_hardball_5biden_140207","media$content":[`)
+	for i := 0; i <= thePlatformMaxFeedContent; i++ {
+		if i > 0 {
+			content.WriteByte(',')
+		}
+		content.WriteString(`{"plfile$url":"https://media.example.invalid/tp/direct`)
+		content.WriteByte(byte('0' + (i/100)%10))
+		content.WriteByte(byte('0' + (i/10)%10))
+		content.WriteByte(byte('0' + i%10))
+		content.WriteString(`.mp4"}`)
+	}
+	content.WriteString(`]}]}`)
+	contentTransport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
+		feedEndpoint: {body: []byte(content.String())},
+	}}
+	if _, err := NewThePlatformFeed().Extract(context.Background(), Request{URL: feedURL, Transport: contentTransport}); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("feed content overflow=%v", err)
+	}
+
+	// WeatherCom: one ThePlatform SMIL variant expands past the global format cap.
+	weatherURL := "https://weather.com/storms/hurricane/video/invest-95l-fixture"
+	tpRelease := "https://link.theplatform.com/s/kYEXFC/22d_qsQ6MIRT"
+	weatherTransport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
+		"https://weather.com/api/v1/p/redux-dal": {body: []byte(`{"dal":{"getCMSAssetsUrlConfig":{"asset":{"data":[{"id":"81acef2d-ee8c-4545-ba83-bff3cc80db97","title":"x","variants":{"tp":"` + tpRelease + `"}}]}}}}`)},
+		tpRelease + "?mbr=true&format=SMIL":      {body: buildThePlatformSMIL(thePlatformMaxFormats+1, 0)},
+	}}
+	if _, err := NewWeatherCom().Extract(context.Background(), Request{URL: weatherURL, Transport: weatherTransport}); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("weather format overflow=%v", err)
+	}
+}
+
 func FuzzParseThePlatformURL(f *testing.F) {
 	f.Add("https://link.theplatform.com/s/kYEXFC/22d_qsQ6MIRT")
 	f.Add("https://player.theplatform.com/p/NnzsPC/widget/select/media/4Y0TlYUr_ZT7")

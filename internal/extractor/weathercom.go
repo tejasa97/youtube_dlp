@@ -145,6 +145,13 @@ func normalizeWeatherCom(ctx context.Context, transport Transport, response map[
 	}
 	formats := make([]value.Value, 0, len(variants))
 	seen := make(map[string]struct{}, len(variants))
+	appendFormats := func(extra ...value.Value) error {
+		if len(formats)+len(extra) > thePlatformMaxFormats {
+			return fmt.Errorf("%w: Weather.com format limit", ErrInvalidMetadata)
+		}
+		formats = append(formats, extra...)
+		return nil
+	}
 	for variantID, raw := range variants {
 		rawURL, _ := raw.(string)
 		rawURL = strings.TrimSpace(rawURL)
@@ -172,12 +179,16 @@ func normalizeWeatherCom(ctx context.Context, transport Transport, response map[
 			if err != nil {
 				return Extraction{}, err
 			}
-			formats = append(formats, tpFormats...)
+			if err := appendFormats(tpFormats...); err != nil {
+				return Extraction{}, err
+			}
 			continue
 		}
 		format, ok := strictHostedURLFormat(variantID, rawURL)
 		if ok {
-			formats = append(formats, value.ObjectValue(format))
+			if err := appendFormats(value.ObjectValue(format)); err != nil {
+				return Extraction{}, err
+			}
 		}
 	}
 	if len(formats) == 0 {

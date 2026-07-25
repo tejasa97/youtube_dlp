@@ -60,14 +60,19 @@ func validHostedHTTPURL(rawURL string) bool {
 }
 
 // strictValidHostedHTTPURL is the wave-1 family policy: HTTPS/HTTP with no
-// userinfo, no explicit port, and no IP-literal hosts. Existing Brightcove /
+// userinfo, no explicit port, no IP-literal/localhost-like hosts, no fragments,
+// and no non-canonical/dot-segment/backslash path tricks. Existing Brightcove /
 // Kaltura / JW / Wistia / SproutVideo backends keep validHostedHTTPURL.
+// Signed query strings remain allowed.
 func strictValidHostedHTTPURL(rawURL string) bool {
 	if !validHostedHTTPURL(rawURL) {
 		return false
 	}
-	parsed, _ := url.Parse(rawURL)
-	return parsed.Port() == "" && !looksLikeIPLiteralHost(strings.ToLower(parsed.Hostname()))
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	return !strictURLPolicyRejects(parsed)
 }
 
 func looksLikeIPLiteralHost(host string) bool {
@@ -97,19 +102,80 @@ func looksLikeIPLiteralHost(host string) bool {
 	return true
 }
 
+func looksLikeLocalOrInternalHost(host string) bool {
+	host = strings.ToLower(strings.TrimSuffix(strings.TrimSpace(host), "."))
+	if host == "" || host == "localhost" {
+		return true
+	}
+	for _, suffix := range []string{".localhost", ".local", ".internal", ".lan", ".home", ".corp"} {
+		if strings.HasSuffix(host, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+// hostedRejectUnsafeURL rejects request URLs for wave-1 routing/adapters under
+// the strict URL policy. Legacy shared-hosting backends do not use this helper.
 func hostedRejectUnsafeURL(parsed *url.URL) bool {
 	if parsed == nil || len(parsed.String()) > sharedHostingMaxURLBytes {
+		return true
+	}
+	return strictURLPolicyRejects(parsed)
+}
+
+func strictURLPolicyRejects(parsed *url.URL) bool {
+	if parsed == nil {
 		return true
 	}
 	if (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil || parsed.Port() != "" {
 		return true
 	}
-	host := strings.ToLower(parsed.Hostname())
-	if host == "" || strings.ContainsAny(host, " \x00\r\n\t/") || looksLikeIPLiteralHost(host) {
+	if parsed.Fragment != "" || parsed.RawFragment != "" {
 		return true
 	}
-	escaped := strings.ToLower(parsed.EscapedPath())
-	return strings.Contains(escaped, "%00") || strings.Contains(escaped, "%2f") || strings.Contains(escaped, "%5c")
+	host := strings.ToLower(parsed.Hostname())
+	if host == "" || strings.ContainsAny(host, " \x00\r\n\t/") || looksLikeIPLiteralHost(host) || looksLikeLocalOrInternalHost(host) {
+		return true
+	}
+	return strictPathUnsafe(parsed.EscapedPath())
+}
+
+func strictPathUnsafe(escapedPath string) bool {
+	if escapedPath == "" {
+		escapedPath = "/"
+	}
+	lower := strings.ToLower(escapedPath)
+	if strings.ContainsAny(escapedPath, "\\\x00") {
+		return true
+	}
+	for _, banned := range []string{"%00", "%2f", "%5c", "%2e", "%252e", "%252f", "%255c"} {
+		if strings.Contains(lower, banned) {
+			return true
+		}
+	}
+	decoded, err := url.PathUnescape(escapedPath)
+	if err != nil || strings.ContainsAny(decoded, "\\\x00") {
+		return true
+	}
+	cleaned := path.Clean(decoded)
+	trimDecoded := decoded
+	trimCleaned := cleaned
+	if trimDecoded != "/" {
+		trimDecoded = strings.TrimSuffix(trimDecoded, "/")
+	}
+	if trimCleaned != "/" {
+		trimCleaned = strings.TrimSuffix(trimCleaned, "/")
+	}
+	if trimDecoded != trimCleaned {
+		return true
+	}
+	for _, segment := range strings.Split(strings.Trim(decoded, "/"), "/") {
+		if segment == "." || segment == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 func hostedURLFormat(formatID, rawURL string) (*value.Object, bool) {

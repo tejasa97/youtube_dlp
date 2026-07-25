@@ -33,9 +33,11 @@ playlists use ordered `StaticEntries` (not a lazy reusable source).
 
 ## Deliberate hardening vs pinned reference
 
-- Wave-1 families use `strictValidHostedHTTPURL` / `strictHostedURLFormat`
-  (no ports/IP literals). Legacy Brightcove/Kaltura/JW/Wistia/SproutVideo keep
-  the prior `validHostedHTTPURL` semantics.
+- Wave-1 families use `strictValidHostedHTTPURL` / `strictHostedURLFormat` /
+  `hostedRejectUnsafeURL`: no ports, IP literals, localhost-like hosts,
+  fragments, backslash/separator tricks, literal or escaped dot segments, or
+  non-canonical paths. Signed query strings remain allowed. Legacy Brightcove /
+  Kaltura / JW / Wistia / SproutVideo keep prior `validHostedHTTPURL` semantics.
 - Cloudflare Stream keeps the signed JWT in delivery URLs and only replaces
   metadata `id`/`title` with JWT `sub`, matching the pinned reference.
 - Anvato `X-Anvato-Adst-Auth` reproduces the pinned short-key XOR behavior from
@@ -43,8 +45,24 @@ playlists use ordered `StaticEntries` (not a lazy reusable source).
   `APVytK5DkP4=` for `server_time=1700000000` / FOX9 access key / video `8032455`.
 - ThePlatform SMIL parsing is strict and rejects trailing XML. Feed SMIL
   content URLs are expanded, never advertised as direct downloads.
+- ThePlatform / WeatherCom enforce global output cardinality
+  (`thePlatformMaxFormats` / captions / feed content) and return
+  `ErrInvalidMetadata` on overflow instead of silent truncation.
 - WeatherCom fails closed on ThePlatform/security/metadata errors.
 - Provider errors never include bodies, tokens, cookies, or signed queries.
+
+## Negative / resource-limit evidence (test-backed)
+
+| Area | Covered by |
+|------|------------|
+| Strict URL route/media rejects (dot segments, escapes, fragments, localhost, non-canonical paths) | `TestWave1StrictURLPolicyMediaAndRoutes` |
+| Legacy URL semantics unchanged | `TestStrictHostedURLPolicyDoesNotChangeLegacySemantics` |
+| SMIL format boundary + overflow → `ErrInvalidMetadata` | `TestThePlatformCardinalityFailClosed` |
+| SMIL caption boundary + overflow → `ErrInvalidMetadata` | `TestThePlatformCardinalityFailClosed` |
+| Feed SMIL expansion overflow → `ErrInvalidMetadata` | `TestThePlatformCardinalityFailClosed` |
+| Feed content-entry overflow → `ErrInvalidMetadata` | `TestThePlatformCardinalityFailClosed` |
+| WeatherCom SMIL-expanded format overflow → `ErrInvalidMetadata` | `TestThePlatformCardinalityFailClosed` |
+| Per-family cancel/auth/malformed/truncated/oversized/secret-safe | family `*Negative*` tests |
 
 ## Provenance
 
