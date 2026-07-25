@@ -17,6 +17,8 @@ type musicBrowseTransport struct {
 	page, continuation []byte
 	resolve, browse    []byte
 	getErr             error
+	nilResponse        bool
+	nilBody            bool
 	status, getStatus  int
 	calls              int
 	readPageCalls      int
@@ -75,13 +77,26 @@ func (m *musicBrowseTransport) do(r *http.Request, isolated bool) (*http.Respons
 		b, _ := io.ReadAll(r.Body)
 		m.body = string(b)
 	}
+	if r.Method == http.MethodGet {
+		if m.getErr != nil {
+			return nil, m.getErr
+		}
+		if m.nilResponse {
+			return nil, nil
+		}
+		if m.nilBody {
+			status := m.getStatus
+			if status == 0 {
+				status = http.StatusOK
+			}
+			m.raw = r.URL.String()
+			return &http.Response{StatusCode: status, Header: make(http.Header), Body: nil}, nil
+		}
+	}
 	payload := m.continuation
 	status := m.status
 	switch {
 	case r.Method == http.MethodGet:
-		if m.getErr != nil {
-			return nil, m.getErr
-		}
 		payload = m.page
 		if m.getStatus != 0 {
 			status = m.getStatus
@@ -354,6 +369,100 @@ func TestYouTubeMusicBrowseAlbumResolveFallback(t *testing.T) {
 	}
 	if !strings.Contains(m.body, `"clientName":"WEB_REMIX"`) || !strings.Contains(m.body, `"params":"wgYCCAA="`) {
 		t.Fatalf("body=%s", m.body)
+	}
+}
+
+func TestYouTubeMusicBrowseAlbumHydratesEmptyPageWithCanonicalID(t *testing.T) {
+	page := []byte(`ytcfg.set({"INNERTUBE_API_KEY":"fixture-key","INNERTUBE_CLIENT_VERSION":"fixture-music-version","VISITOR_DATA":"fixture-visitor","LOGGED_IN":false,"INNERTUBE_CONTEXT":{"client":{"clientName":"WEB_REMIX"}}});ytInitialData={"microformat":{"microformatDataRenderer":{"urlCanonical":"https://music.youtube.com/playlist?list=OLAK5uy_fixtureAlbum01","title":"Empty Shell"}},"contents":{"sectionListRenderer":{"contents":[]}},"continuationContents":{"continuationItemRenderer":{"continuationEndpoint":{"continuationCommand":{"token":"stale-initial"}}}}};`)
+	resolve := []byte(`{"endpoint":{"browseEndpoint":{"browseId":"MPREbfixture0001"}}}`)
+	browse := []byte(`{"microformat":{"microformatDataRenderer":{"urlCanonical":"https://music.youtube.com/playlist?list=OLAK5uy_fixtureAlbum01","title":"Hydrated Album"}},"contents":{"sectionListRenderer":{"contents":[{"musicShelfRenderer":{"contents":[{"musicResponsiveListItemRenderer":{"playlistItemData":{"videoId":"aaaaaaaaaaa"},"flexColumns":[{"musicResponsiveListItemFlexColumnRenderer":{"text":{"simpleText":"hydrated"}}}]}}]}}]}},"continuationContents":{"continuationItemRenderer":{"continuationEndpoint":{"continuationCommand":{"token":"resolved-next"}}}},"responseContext":{"visitorData":"fixture-visitor-resolved"}}`)
+	continuation := []byte(`{"continuationContents":{"musicPlaylistShelfContinuation":{"contents":[{"musicResponsiveListItemRenderer":{"playlistItemData":{"videoId":"bbbbbbbbbbb"},"flexColumns":[{"musicResponsiveListItemFlexColumnRenderer":{"text":{"simpleText":"page two"}}}]}}]}},"responseContext":{"visitorData":"fixture-visitor-rotated"}}`)
+	m := &musicBrowseTransport{page: page, resolve: resolve, browse: browse, continuation: continuation}
+	out, err := NewYouTubeMusicBrowse().Extract(context.Background(), Request{
+		URL: "https://music.youtube.com/browse/MPREbfixture0001", Transport: m,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	infoID, _ := out.Info.Lookup("id").StringValue()
+	title, _ := out.Info.Lookup("title").StringValue()
+	if infoID != "OLAK5uy_fixtureAlbum01" || title != "Empty Shell" {
+		t.Fatalf("id=%q title=%q", infoID, title)
+	}
+	got, err := CollectEntries(context.Background(), out.Entries, 3)
+	if err != nil || len(got) != 2 || got[0].ID != "aaaaaaaaaaa" || got[1].ID != "bbbbbbbbbbb" {
+		t.Fatalf("entries=%#v err=%v", got, err)
+	}
+	if m.calls != 4 || m.paths[1] != "/youtubei/v1/navigation/resolve_url" || m.paths[2] != "/youtubei/v1/browse" {
+		t.Fatalf("calls=%d paths=%v", m.calls, m.paths)
+	}
+	if !strings.Contains(m.body, `"continuation":"resolved-next"`) || strings.Contains(m.body, "stale-initial") {
+		t.Fatalf("used mismatched continuation body=%s", m.body)
+	}
+}
+
+func TestYouTubeMusicBrowseAlbumCanonicalIDMismatchFailsClosed(t *testing.T) {
+	page := []byte(`ytcfg.set({"INNERTUBE_API_KEY":"fixture-key","INNERTUBE_CLIENT_VERSION":"fixture-music-version","VISITOR_DATA":"fixture-visitor","LOGGED_IN":false,"INNERTUBE_CONTEXT":{"client":{"clientName":"WEB_REMIX"}}});ytInitialData={"microformat":{"microformatDataRenderer":{"urlCanonical":"https://music.youtube.com/playlist?list=OLAK5uy_fixtureAlbum01","title":"Mismatch"}},"contents":{"sectionListRenderer":{"contents":[]}}};`)
+	resolve := []byte(`{"endpoint":{"browseEndpoint":{"browseId":"MPREbfixture0001"}}}`)
+	browse := []byte(`{"microformat":{"microformatDataRenderer":{"urlCanonical":"https://music.youtube.com/playlist?list=OLAK5uy_otherAlbum0001","title":"Other"}},"contents":{"sectionListRenderer":{"contents":[{"musicShelfRenderer":{"contents":[{"musicResponsiveListItemRenderer":{"playlistItemData":{"videoId":"aaaaaaaaaaa"}}}]}}]}}}`)
+	m := &musicBrowseTransport{page: page, resolve: resolve, browse: browse}
+	_, err := NewYouTubeMusicBrowse().Extract(context.Background(), Request{
+		URL: "https://music.youtube.com/browse/MPREbfixture0001", Transport: m,
+	})
+	if !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestYouTubeMusicBrowseAlbumIdentityWithoutSplicingContinuation(t *testing.T) {
+	page := []byte(`ytcfg.set({"INNERTUBE_API_KEY":"fixture-key","INNERTUBE_CLIENT_VERSION":"fixture-music-version","VISITOR_DATA":"fixture-visitor","LOGGED_IN":false,"INNERTUBE_CONTEXT":{"client":{"clientName":"WEB_REMIX"}}});ytInitialData={"header":{"musicDetailHeaderRenderer":{"title":{"simpleText":"Tracks First"}}},"contents":{"sectionListRenderer":{"contents":[{"musicShelfRenderer":{"contents":[{"musicResponsiveListItemRenderer":{"playlistItemData":{"videoId":"aaaaaaaaaaa"},"flexColumns":[{"musicResponsiveListItemFlexColumnRenderer":{"text":{"simpleText":"initial"}}}]}}]}}]}},"continuationContents":{"continuationItemRenderer":{"continuationEndpoint":{"continuationCommand":{"token":"initial-next"}}}},"responseContext":{"visitorData":"fixture-visitor"}}`)
+	resolve := []byte(`{"endpoint":{"browseEndpoint":{"browseId":"MPREbfixture0001"}}}`)
+	browse := []byte(`{"microformat":{"microformatDataRenderer":{"urlCanonical":"https://music.youtube.com/playlist?list=OLAK5uy_fixtureAlbum01","title":"Resolved Title"}},"contents":{"sectionListRenderer":{"contents":[{"musicShelfRenderer":{"contents":[{"musicResponsiveListItemRenderer":{"playlistItemData":{"videoId":"zzzzzzzzzzz"},"flexColumns":[{"musicResponsiveListItemFlexColumnRenderer":{"text":{"simpleText":"resolved duplicate"}}}]}}]}}]}},"continuationContents":{"continuationItemRenderer":{"continuationEndpoint":{"continuationCommand":{"token":"resolved-next"}}}},"responseContext":{"visitorData":"fixture-visitor-resolved"}}`)
+	continuation := []byte(`{"continuationContents":{"musicPlaylistShelfContinuation":{"contents":[{"musicResponsiveListItemRenderer":{"playlistItemData":{"videoId":"bbbbbbbbbbb"},"flexColumns":[{"musicResponsiveListItemFlexColumnRenderer":{"text":{"simpleText":"initial page two"}}}]}}]}},"responseContext":{"visitorData":"fixture-visitor-rotated"}}`)
+	m := &musicBrowseTransport{page: page, resolve: resolve, browse: browse, continuation: continuation}
+	out, err := NewYouTubeMusicBrowse().Extract(context.Background(), Request{
+		URL: "https://music.youtube.com/browse/MPREbfixture0001", Transport: m,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	infoID, _ := out.Info.Lookup("id").StringValue()
+	title, _ := out.Info.Lookup("title").StringValue()
+	if infoID != "OLAK5uy_fixtureAlbum01" || title != "Tracks First" {
+		t.Fatalf("id=%q title=%q", infoID, title)
+	}
+	got, err := CollectEntries(context.Background(), out.Entries, 3)
+	if err != nil || len(got) != 2 || got[0].ID != "aaaaaaaaaaa" || got[1].ID != "bbbbbbbbbbb" {
+		t.Fatalf("entries=%#v err=%v", got, err)
+	}
+	for _, entry := range got {
+		if entry.ID == "zzzzzzzzzzz" {
+			t.Fatalf("spliced resolved entries into non-empty initial page %#v", got)
+		}
+	}
+	if !strings.Contains(m.body, `"continuation":"initial-next"`) || strings.Contains(m.body, "resolved-next") {
+		t.Fatalf("continuation mismatch body=%s", m.body)
+	}
+}
+
+func TestYouTubeMusicBrowsePageRejectsNilResponseAndBody(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		cfg  musicBrowseTransport
+	}{
+		{"nil-response", musicBrowseTransport{nilResponse: true}},
+		{"nil-body", musicBrowseTransport{nilBody: true}},
+	} {
+		m := test.cfg
+		_, err := NewYouTubeMusicBrowse().Extract(context.Background(), Request{
+			URL: "https://music.youtube.com/browse/MPREbfixture0001", Transport: &m,
+		})
+		if !errors.Is(err, ErrYouTubeMusicBrowseNetwork) {
+			t.Fatalf("%s err=%v", test.name, err)
+		}
+		if strings.Contains(err.Error(), "panic") || m.readPageCalls != 0 {
+			t.Fatalf("%s unsafe err=%v readPage=%d", test.name, err, m.readPageCalls)
+		}
 	}
 }
 

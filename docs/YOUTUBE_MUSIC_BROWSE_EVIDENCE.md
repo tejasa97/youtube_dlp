@@ -21,14 +21,18 @@ registered families:
 Anonymous public pages succeed through cookie-isolated WEB_REMIX GET/page and
 JSON requests. Cookie isolation is required before any Music browse network
 call; missing isolation fails closed with no request. Initial HTML is fetched
-with `DoWithoutCookies` (bounded body, categorized status handling) and never
-falls back to jar-backed `ReadPage`. Continuations, resolve, and browse posts
-use the same isolation boundary, stay on `music.youtube.com`, advertise
-WEB_REMIX only, bound to 100 entries, and rotate visitor data. Resolve browse
-endpoint identity must match the requested album id; oversized/malformed params
-and hostile canonical playlist URLs fail closed. Logged-in pages, WEB client
-identity on a Music page, and premium/sign-in alerts fail closed. Authenticated
-or premium Music success is not claimed.
+with `DoWithoutCookies` (bounded body, categorized status handling, nil
+response/body fail closed) and never falls back to jar-backed `ReadPage`.
+Continuations, resolve, and browse posts use the same isolation boundary, stay
+on `music.youtube.com`, advertise WEB_REMIX only, bound to 100 entries, and
+rotate visitor data. Albums call WEB_REMIX resolve+browse when the webpage has
+no tracks or lacks playlist identity; when both webpage and resolve advertise
+playlist IDs they must match. Empty initial pages are replaced wholesale by the
+resolved page state. Resolve browse endpoint identity must match the requested
+album id; oversized/malformed params and hostile canonical playlist URLs fail
+closed. Logged-in pages, WEB client identity on a Music page, and
+premium/sign-in alerts fail closed. Authenticated or premium Music success is
+not claimed.
 
 Music search restores browse URL emission only for these registered families
 so default playlist expansion selects `youtube_music_browse` instead of the
