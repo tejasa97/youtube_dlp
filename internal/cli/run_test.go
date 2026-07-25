@@ -1119,6 +1119,189 @@ func TestRunWaveTwoCompatibilityFlags(t *testing.T) {
 	}
 }
 
+func TestRunInteractiveMatchFilterPrompt(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	for _, test := range []struct {
+		name        string
+		input       string
+		filters     []string
+		breakFilter string
+		wantCode    int
+		wantPrompts int
+	}{
+		{name: "default accept", input: "\n", filters: []string{"-"}, wantPrompts: 1},
+		{name: "explicit accept after retry", input: "maybe\ny\n", filters: []string{"-"}, wantPrompts: 2},
+		{name: "reject", input: "n\n", filters: []string{"-"}, wantPrompts: 1},
+		{name: "duplicate marker prompts once", input: "y\n", filters: []string{"-", "-"}, wantPrompts: 1},
+		{name: "ordinary rejection precedes prompt", input: "y\n", filters: []string{"-", "title=other"}},
+		{name: "break rejection precedes prompt", input: "y\n", filters: []string{"-"}, breakFilter: "title=other"},
+		{name: "breaking interactive accepts", input: "y\n", breakFilter: "-", wantPrompts: 1},
+		{name: "breaking interactive rejects", input: "n\n", breakFilter: "-", wantPrompts: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			arguments := []string{"--skip-download"}
+			for _, filter := range test.filters {
+				arguments = append(arguments, "--match-filter", filter)
+			}
+			if test.breakFilter != "" {
+				arguments = append(arguments, "--break-match-filter", test.breakFilter)
+			}
+			arguments = append(arguments, server.URL+"/page")
+			var stdout, stderr bytes.Buffer
+			code := RunContextIO(
+				context.Background(), arguments, strings.NewReader(test.input), &stdout, &stderr,
+			)
+			if code != test.wantCode {
+				t.Fatalf("code=%d want=%d stdout=%q stderr=%q", code, test.wantCode, stdout.String(), stderr.String())
+			}
+			if prompts := strings.Count(stderr.String(), `Deterministic Fixture.bin"? (Y/n): `); prompts != test.wantPrompts {
+				t.Fatalf("prompts=%d want=%d stderr=%q", prompts, test.wantPrompts, stderr.String())
+			}
+		})
+	}
+}
+
+func TestRunInteractiveMatchFilterInputFailures(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	for _, test := range []struct {
+		name     string
+		input    string
+		wantCode int
+	}{
+		{name: "end of input", wantCode: 130},
+		{name: "oversized response", input: strings.Repeat("x", 4097) + "\n", wantCode: 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := RunContextIO(context.Background(), []string{
+				"--skip-download", "--match-filter", "-", server.URL + "/page",
+			}, strings.NewReader(test.input), &stdout, &stderr)
+			if code != test.wantCode || !strings.Contains(stderr.String(), "interactive match filter") {
+				t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+			}
+		})
+	}
+}
+
+type blockingInteractiveReader struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (reader *blockingInteractiveReader) Read([]byte) (int, error) {
+	select {
+	case reader.started <- struct{}{}:
+	default:
+	}
+	<-reader.release
+	return 0, io.EOF
+}
+
+func TestInteractiveMatchFilterPromptHonorsCancellationWhileReading(t *testing.T) {
+	reader := &blockingInteractiveReader{
+		started: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+	var output bytes.Buffer
+	prompt := newInteractiveMatchFilterPrompt(reader, &output)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := prompt(ctx, ytdlp.InteractiveMatchFilterPrompt{Filename: "fixture.bin"})
+		done <- err
+	}()
+	<-reader.started
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("prompt did not return after cancellation")
+	}
+	close(reader.release)
+}
+
+func TestRunInteractiveMatchFilterListingAndOutputChannels(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	code := RunContextIO(context.Background(), []string{
+		"--list-subs", "--match-filter", "-", server.URL + "/page",
+	}, strings.NewReader(""), &stdout, &stderr)
+	if code != 0 || strings.Contains(stderr.String(), "? (Y/n):") {
+		t.Fatalf("list-subs code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = RunContextIO(context.Background(), []string{
+		"--list-subs", "--break-match-filter", "-", "--match-filter", "title=other",
+		server.URL + "/page",
+	}, strings.NewReader(""), &stdout, &stderr)
+	if code != 0 || strings.Contains(stderr.String(), "? (Y/n):") {
+		t.Fatalf("list-only filters code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = RunContextIO(context.Background(), []string{
+		"--list-subs", "--dump-json", "--match-filter", "-", server.URL + "/page",
+	}, strings.NewReader("y\n"), &stdout, &stderr)
+	if code != 0 || !strings.Contains(stderr.String(), "? (Y/n):") {
+		t.Fatalf("list-subs dump-json code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = RunContextIO(context.Background(), []string{
+		"--simulate", "--list-subs", "--match-filter", "-", server.URL + "/page",
+	}, strings.NewReader("y\n"), &stdout, &stderr)
+	if code != 0 || !strings.Contains(stderr.String(), "? (Y/n):") {
+		t.Fatalf("explicit simulate code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = RunContextIO(context.Background(), []string{
+		"--skip-download", "--print-json", "--match-filter", "-", server.URL + "/page",
+	}, strings.NewReader("y\n"), &stdout, &stderr)
+	if code != 0 || !json.Valid(bytes.TrimSpace(stdout.Bytes())) ||
+		!strings.Contains(stderr.String(), "? (Y/n):") {
+		t.Fatalf("print-json code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = RunContextIO(context.Background(), []string{
+		"--progress-json", "--match-filter", "-", "https://example.invalid/video",
+	}, strings.NewReader("y\n"), &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), "--progress-json cannot be combined") {
+		t.Fatalf("progress-json code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func FuzzInteractiveMatchFilterResponse(f *testing.F) {
+	for _, seed := range []string{"", "y", "Y", "n", "N", " maybe ", "\x00", "變態"} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, input string) {
+		accepted, valid := parseInteractiveMatchFilterResponse(input)
+		normalized := strings.ToLower(strings.TrimSpace(input))
+		wantValid := normalized == "" || normalized == "y" || normalized == "n"
+		if valid != wantValid {
+			t.Fatalf("input=%q accepted=%v valid=%v", input, accepted, valid)
+		}
+		if valid && accepted != (normalized == "" || normalized == "y") {
+			t.Fatalf("input=%q accepted=%v", input, accepted)
+		}
+	})
+}
+
 func TestRunRejectsInvalidWaveTwoLimits(t *testing.T) {
 	for _, arguments := range [][]string{
 		{"--limit-rate", "invalid", "https://example.invalid/video"},

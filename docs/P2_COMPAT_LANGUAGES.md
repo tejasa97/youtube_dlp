@@ -28,8 +28,19 @@ Intentional unsupported syntax is explicit rather than silently approximated:
   and numeric comparisons, none-inclusive `?` comparisons, string negation,
   incomplete-field handling, yt-dlp-compatible integer, filesize, and
   duration coercion for the documented corpus, and product-level
-  `--break-match-filter(s)` queue stopping. Interactive `-` prompting, Python
-  regular-expression semantics, and unbounded expressions remain unsupported.
+  `--break-match-filter(s)` queue stopping. Exact `-` markers on ordinary or
+  breaking filters prompt only for complete, non-archived entries; empty or
+  `y` accepts, `n` skips or stops, and other input reprompts. The prompt uses
+  the selected single-output format filename, and format-dependent filter
+  fields are reevaluated after selection. Entries without a downloadable
+  format fail before prompting. Merged A/V fields follow the pinned merge
+  policy. Interactive filtering with multi-output selectors is rejected
+  explicitly rather than approximated.
+  Automatic subtitle-only listing does not prompt, while explicit simulation
+  and combined metadata-output modes do.
+  Interactive filtering is rejected with `--progress-json` so its stderr
+  stream stays valid JSON. Python regular-expression semantics and unbounded
+  expressions remain unsupported.
 - Format filters do not implement every yt-dlp selector atom, codec/container
   preference alias, filesize approximation, or advanced sort field conversion.
   Plain `best`/`worst` without a media type keep the port's historical
@@ -52,7 +63,9 @@ Intentional unsupported syntax is explicit rather than silently approximated:
   `Result.Artifacts`, and keep `Result.Filename` on the first output. Multi-output downloads reject any
   non-empty `Request.Postprocessors`, SponsorBlock remove, and subtitle
   embedding with `ErrMultiOutput` before media download; only the
-  no-postprocessor path is executed. After-download print stages render only
+  no-postprocessor path is executed. Interactive match filtering also rejects
+  multi-output plans because per-output prompting is not yet represented.
+  After-download print stages render only
   the first plan's selections and primary path. `mergeall` and >2-track merges
   remain explicit unsupported at download time.
 - `ErrSelectorLimit` is returned for syntactically valid selectors that exceed
