@@ -65,6 +65,196 @@ func TestDownloadMasterByteRangeMapAndAES128(t *testing.T) {
 	}
 }
 
+func TestDownloadDecryptsAES128MapWithDeclarationKey(t *testing.T) {
+	mapKey := []byte("map-key-16-bytes")
+	mediaKey := []byte("media-key-16byte")
+	mapIV := []byte("map-iv-16-bytes!")
+	mediaIV := []byte("media-iv-16-byte")
+	encryptedMap := encryptSegment(t, []byte("init-"), mapKey, mapIV)
+	encryptedMedia := encryptSegment(t, []byte("media"), mediaKey, mediaIV)
+	var mapHits, mapKeyHits, mediaKeyHits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/media.m3u8":
+			_, _ = fmt.Fprintf(writer, `#EXTM3U
+#EXT-X-KEY:METHOD=AES-128,URI="map.key",IV=0x%x
+#EXT-X-MAP:URI="init.mp4"
+#EXT-X-KEY:METHOD=AES-128,URI="media.key",IV=0x%x
+#EXTINF:1,
+one.mp4
+#EXTINF:1,
+two.mp4
+#EXT-X-ENDLIST
+`, mapIV, mediaIV)
+		case "/map.key":
+			mapKeyHits.Add(1)
+			_, _ = writer.Write(mapKey)
+		case "/media.key":
+			mediaKeyHits.Add(1)
+			_, _ = writer.Write(mediaKey)
+		case "/init.mp4":
+			mapHits.Add(1)
+			_, _ = writer.Write(encryptedMap)
+		case "/one.mp4", "/two.mp4":
+			_, _ = writer.Write(encryptedMedia)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "encrypted-map.bin")
+	_, err := NewDownloader(transport, Config{}).Download(
+		context.Background(), server.URL+"/media.m3u8", root, destination, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(destination)
+	if err != nil || string(contents) != "init-mediamedia" {
+		t.Fatalf("contents=%q err=%v", contents, err)
+	}
+	if mapHits.Load() != 1 || mapKeyHits.Load() != 1 || mediaKeyHits.Load() != 1 {
+		t.Fatalf("map=%d map key=%d media key=%d", mapHits.Load(), mapKeyHits.Load(), mediaKeyHits.Load())
+	}
+}
+
+func TestDownloadReemitsInitializationMapAfterABARotation(t *testing.T) {
+	var mapAHits, mapBHits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/media.m3u8":
+			_, _ = fmt.Fprint(writer, `#EXTM3U
+#EXT-X-MAP:URI="a.init"
+#EXTINF:1,
+one.m4s
+#EXT-X-MAP:URI="b.init"
+#EXTINF:1,
+two.m4s
+#EXT-X-MAP:URI="a.init"
+#EXTINF:1,
+three.m4s
+#EXT-X-ENDLIST
+`)
+		case "/a.init":
+			mapAHits.Add(1)
+			_, _ = writer.Write([]byte("A-"))
+		case "/b.init":
+			mapBHits.Add(1)
+			_, _ = writer.Write([]byte("B-"))
+		case "/one.m4s":
+			_, _ = writer.Write([]byte("one-"))
+		case "/two.m4s":
+			_, _ = writer.Write([]byte("two-"))
+		case "/three.m4s":
+			_, _ = writer.Write([]byte("three"))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "map-rotation.bin")
+	_, err := NewDownloader(transport, Config{}).Download(
+		context.Background(), server.URL+"/media.m3u8", root, destination, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(destination)
+	if err != nil || string(contents) != "A-one-B-two-A-three" {
+		t.Fatalf("contents=%q err=%v", contents, err)
+	}
+	if mapAHits.Load() != 2 || mapBHits.Load() != 1 {
+		t.Fatalf("map A=%d map B=%d", mapAHits.Load(), mapBHits.Load())
+	}
+}
+
+func TestDownloadReemitsInitializationMapAfterDiscontinuity(t *testing.T) {
+	var mapHits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/media.m3u8":
+			_, _ = fmt.Fprint(writer, `#EXTM3U
+#EXT-X-MAP:URI="init"
+#EXTINF:1,
+one
+#EXT-X-DISCONTINUITY
+#EXT-X-MAP:URI="init"
+#EXTINF:1,
+two
+#EXT-X-ENDLIST
+`)
+		case "/init":
+			mapHits.Add(1)
+			_, _ = writer.Write([]byte("I-"))
+		case "/one":
+			_, _ = writer.Write([]byte("one-"))
+		case "/two":
+			_, _ = writer.Write([]byte("two"))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "map-discontinuity.bin")
+	_, err := NewDownloader(transport, Config{}).Download(
+		context.Background(), server.URL+"/media.m3u8", root, destination, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(destination)
+	if err != nil || string(contents) != "I-one-I-two" || mapHits.Load() != 2 {
+		t.Fatalf("contents=%q map hits=%d err=%v", contents, mapHits.Load(), err)
+	}
+}
+
+func TestDownloadLivePreservesInitializationMapRotations(t *testing.T) {
+	var polls, mapAHits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/live.m3u8":
+			switch polls.Add(1) {
+			case 1:
+				_, _ = fmt.Fprint(writer, "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:10\n#EXT-X-MAP:URI=\"a.init\"\n#EXTINF:1,\n10.m4s\n")
+			case 2:
+				_, _ = fmt.Fprint(writer, "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:11\n#EXTINF:1,\n11.m4s\n")
+			default:
+				_, _ = fmt.Fprint(writer, "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:12\n#EXT-X-MAP:URI=\"a.init\"\n#EXTINF:1,\n12.m4s\n#EXT-X-ENDLIST\n")
+			}
+		case "/a.init":
+			mapAHits.Add(1)
+			_, _ = writer.Write([]byte("A-"))
+		case "/10.m4s":
+			_, _ = writer.Write([]byte("ten-"))
+		case "/11.m4s":
+			_, _ = writer.Write([]byte("eleven-"))
+		case "/12.m4s":
+			_, _ = writer.Write([]byte("twelve"))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "live-map-rotation.bin")
+	_, err := NewDownloader(transport, Config{PollInterval: time.Millisecond, MaxPolls: 4}).Download(
+		context.Background(), server.URL+"/live.m3u8", root, destination, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(destination)
+	if err != nil || string(contents) != "A-ten-eleven-A-twelve" {
+		t.Fatalf("contents=%q err=%v", contents, err)
+	}
+	if polls.Load() != 3 || mapAHits.Load() != 2 {
+		t.Fatalf("polls=%d map A=%d", polls.Load(), mapAHits.Load())
+	}
+}
+
 func TestDownloadLivePollDeduplicatesSegments(t *testing.T) {
 	var polls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -323,6 +513,7 @@ func TestDownloadAdvertisementKeysMapsAndPhysicalAESIV(t *testing.T) {
 #EXTINF:1,
 ad-5.bin
 #ANVATO-SEGMENT-INFO:type=master
+#EXT-X-KEY:METHOD=NONE
 #EXT-X-MAP:URI="media-init.bin"
 #EXT-X-KEY:METHOD=AES-128,URI="media-key.bin"
 #EXTINF:1,
@@ -518,6 +709,7 @@ func TestDownloadCueAdvertisementKeysMapsAndPhysicalAESIV(t *testing.T) {
 #EXTINF:1,
 ad-7.bin
 #EXT-X-CUE-IN
+#EXT-X-KEY:METHOD=NONE
 #EXT-X-MAP:URI="media-init.bin"
 #EXT-X-KEY:METHOD=AES-128,URI="media-key.bin"
 #EXTINF:1,
@@ -672,6 +864,7 @@ func TestDownloadDaterangeAdvertisementKeysMapsAndPhysicalAESIV(t *testing.T) {
 #EXTINF:1,
 ad-8.bin
 #EXT-X-DATERANGE:ID="enc-break",SCTE35-IN=0xFC301B007E000000000000000A0500000001005F0000000000003774D8DA
+#EXT-X-KEY:METHOD=NONE
 #EXT-X-MAP:URI="media-init.bin"
 #EXT-X-KEY:METHOD=AES-128,URI="media-key.bin"
 #EXTINF:1,
