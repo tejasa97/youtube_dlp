@@ -1,0 +1,19 @@
+{
+  "title": "ThePlatform Fixture Video",
+  "description": "Synthetic ThePlatform preview metadata",
+  "defaultThumbnailUrl": "https://media.example.invalid/tp/thumb.jpg",
+  "duration": 247000,
+  "pubDate": 1383239700000,
+  "billingCode": "CBSI-NEW",
+  "captions": [
+    {
+      "src": "https://media.example.invalid/tp/meta-captions.vtt",
+      "lang": "en",
+      "type": "text/vtt"
+    }
+  ],
+  "chapters": [
+    { "startTime": 0, "endTime": 60000 },
+    { "startTime": 60000, "endTime": 120000 }
+  ]
+}
