@@ -332,13 +332,13 @@ func parseSpliceTime(reader *bitReader) error {
 	if err != nil {
 		return err
 	}
-	if err := reader.skipBits(6); err != nil { // reserved
-		return err
-	}
 	if timeSpecified != 0 {
+		if err := reader.skipBits(6); err != nil { // reserved
+			return err
+		}
 		return reader.skipBits(33) // pts_time
 	}
-	return reader.skipBits(7)
+	return reader.skipBits(7) // reserved
 }
 
 func parseBreakDuration(reader *bitReader) error {

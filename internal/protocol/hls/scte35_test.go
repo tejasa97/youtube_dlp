@@ -19,6 +19,9 @@ func TestValidateSCTE35DirectionSpliceInsertAndTimeSignal(t *testing.T) {
 	if _, err := validateSCTE35Direction(testSCTE35OutWithTime, scte35DirectionOut); err != nil {
 		t.Fatalf("OUT timed splice_insert: %v", err)
 	}
+	if _, err := validateSCTE35Direction(testSCTE35OutWithTimeUnspecified, scte35DirectionOut); err != nil {
+		t.Fatalf("OUT unspecified splice_time splice_insert: %v", err)
+	}
 	if _, err := validateSCTE35Direction(testSCTE35OutWithDuration, scte35DirectionOut); err != nil {
 		t.Fatalf("OUT duration splice_insert: %v", err)
 	}
@@ -27,6 +30,9 @@ func TestValidateSCTE35DirectionSpliceInsertAndTimeSignal(t *testing.T) {
 	}
 	if _, err := validateSCTE35Direction(testSCTE35ComponentTimed, scte35DirectionOut); err != nil {
 		t.Fatalf("component timed splice_insert: %v", err)
+	}
+	if _, err := validateSCTE35Direction(testSCTE35ComponentTimedUnspecified, scte35DirectionOut); err != nil {
+		t.Fatalf("component unspecified splice_time splice_insert: %v", err)
 	}
 	if _, err := validateSCTE35Direction(testSCTE35ComponentDuration, scte35DirectionOut); err != nil {
 		t.Fatalf("component duration splice_insert: %v", err)
@@ -37,6 +43,9 @@ func TestValidateSCTE35DirectionSpliceInsertAndTimeSignal(t *testing.T) {
 	if _, err := validateSCTE35Direction(testSCTE35TimeSignal, scte35DirectionIn); err != nil {
 		t.Fatalf("time_signal IN: %v", err)
 	}
+	if _, err := validateSCTE35Direction(testSCTE35TimeSignalUnspecified, scte35DirectionOut); err != nil {
+		t.Fatalf("unspecified time_signal: %v", err)
+	}
 
 	cmdOut, err := validateSCTE35Direction(testSCTE35OutImmediate, scte35DirectionFromCommand)
 	if err != nil || !cmdOut {
@@ -45,6 +54,41 @@ func TestValidateSCTE35DirectionSpliceInsertAndTimeSignal(t *testing.T) {
 	cmdIn, err := validateSCTE35Direction(testSCTE35InImmediate, scte35DirectionFromCommand)
 	if err != nil || cmdIn {
 		t.Fatalf("CMD IN = %v err=%v", cmdIn, err)
+	}
+}
+
+func TestParseSpliceTimeSpecifiedAndUnspecifiedBranches(t *testing.T) {
+	unspecified := []byte{0x00}
+	reader := newBitReader(unspecified)
+	if err := parseSpliceTime(reader); err != nil {
+		t.Fatalf("unspecified splice_time: %v", err)
+	}
+	if reader.remaining() != 0 {
+		t.Fatalf("unspecified splice_time consumed %d bits, want 8", 8-reader.remaining())
+	}
+
+	withTrailing := &bitReader{data: []byte{0x00, 0x3F}, bits: 14}
+	if err := parseSpliceTime(withTrailing); err != nil {
+		t.Fatalf("unspecified splice_time with trailing: %v", err)
+	}
+	if withTrailing.remaining() != 6 {
+		t.Fatalf("trailing bits = %d, want 6", withTrailing.remaining())
+	}
+
+	specified := []byte{0xFE, 0x00, 0x01, 0x23, 0x45}
+	reader = newBitReader(specified)
+	if err := parseSpliceTime(reader); err != nil {
+		t.Fatalf("specified splice_time: %v", err)
+	}
+	if reader.remaining() != 0 {
+		t.Fatalf("specified splice_time trailing bits = %d", reader.remaining())
+	}
+
+	if _, err := validateSCTE35Direction(testSCTE35TimeSignal, scte35DirectionOut); err != nil {
+		t.Fatalf("specified time_signal section: %v", err)
+	}
+	if _, err := validateSCTE35Direction(testSCTE35MalformedFalseSpliceTime, scte35DirectionOut); err == nil {
+		t.Fatal("expected malformed 14-bit false splice_time encoding to be rejected")
 	}
 }
 
@@ -73,6 +117,7 @@ func TestValidateSCTE35RejectsMalformedPayloads(t *testing.T) {
 		{"bad_section_syntax", testSCTE35BadSectionSyntax, scte35DirectionOut},
 		{"bad_private_indicator", testSCTE35BadPrivateIndicator, scte35DirectionOut},
 		{"bad_section_reserved", testSCTE35BadSectionReserved, scte35DirectionOut},
+		{"malformed_false_splice_time", testSCTE35MalformedFalseSpliceTime, scte35DirectionOut},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
