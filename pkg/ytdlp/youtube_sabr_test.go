@@ -244,7 +244,7 @@ func TestYouTubeSABRAsymmetricTrackResume(t *testing.T) {
 			return os.WriteFile(dest, append(append([]byte(nil), videoBytes...), audioBytes...), 0o600)
 		},
 	}
-	if _, err := downloadYouTubeSABRSelection(context.Background(), operation, audioSel, root, audioDest, nil, true); err != nil {
+	if _, err := downloadYouTubeSABRSelection(context.Background(), operation, audioSel, root, audioDest, nil, true, nil); err != nil {
 		t.Fatal(err)
 	}
 	identity, err := sabrResumeIdentity(audioSel)
@@ -266,7 +266,7 @@ func TestYouTubeSABRAsymmetricTrackResume(t *testing.T) {
 		}
 		return nil
 	})
-	_, err = downloadYouTubeSABRSelection(cancelCtx, operation, videoSel, root, videoDest, sink, true)
+	_, err = downloadYouTubeSABRSelection(cancelCtx, operation, videoSel, root, videoDest, sink, true, nil)
 	if err == nil || !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected video cancel, got %v", err)
 	}

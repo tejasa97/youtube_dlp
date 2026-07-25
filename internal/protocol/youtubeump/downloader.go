@@ -258,14 +258,20 @@ func (downloader *Downloader) Download(ctx context.Context, outputRoot, destinat
 			}
 			material, refreshErr := config.Refresh(ctx)
 			if refreshErr != nil {
-				return Result{}, redactError(refreshErr)
+				if errors.Is(refreshErr, context.Canceled) || errors.Is(refreshErr, context.DeadlineExceeded) {
+					return Result{}, refreshErr
+				}
+				// Best-effort: keep the caller-supplied inventory when offline
+				// re-extraction is unavailable. RELOAD remains hard-fail.
+			} else if err := applyRefreshMaterial(&config, material, &redirects); err != nil {
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					return Result{}, err
+				}
+			} else {
+				serverURL = config.ServerURL
+				refreshes++
+				eventURL = redactURL(serverURL)
 			}
-			if err := applyRefreshMaterial(&config, material, &redirects); err != nil {
-				return Result{}, redactError(err)
-			}
-			serverURL = config.ServerURL
-			refreshes++
-			eventURL = redactURL(serverURL)
 		}
 	}
 
@@ -282,7 +288,9 @@ func (downloader *Downloader) Download(ctx context.Context, outputRoot, destinat
 			if tokenErr != nil {
 				return Result{}, redactError(tokenErr)
 			}
-			config.POToken = bytes.Clone(token)
+			if token != nil {
+				config.POToken = bytes.Clone(token)
+			}
 		}
 		body, err := playbackRequest{
 			Format:          config.Format,

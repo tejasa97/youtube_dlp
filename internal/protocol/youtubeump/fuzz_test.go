@@ -159,6 +159,35 @@ func FuzzReloadPlayerResponse(f *testing.F) {
 	})
 }
 
+func FuzzRefreshMaterialValidation(f *testing.F) {
+	f.Add("https://rr1---sn-fixture.googlevideo.com/videoplayback?sig=x", "fixture0001", int64(137), int64(10))
+	f.Add("https://evil.example/x", "fixture0001", int64(137), int64(10))
+	f.Add("https://rr1---sn-fixture.googlevideo.com/videoplayback?sig=x", "other0000000", int64(140), int64(11))
+	f.Fuzz(func(t *testing.T, serverURL, videoID string, itag, duration int64) {
+		config := testConfig("https://rr1---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=fixture")
+		material := RefreshMaterial{
+			ServerURL:       serverURL,
+			UstreamerConfig: []byte("ustreamer"),
+			Format:          FormatID{Itag: int32(itag)},
+			ClientInfo:      config.ClientInfo,
+			VideoID:         videoID,
+			DurationSec:     duration,
+		}
+		err := material.validate(config)
+		if err != nil && !errors.Is(err, ErrRefreshRejected) && !errors.Is(err, ErrUnsupportedURL) {
+			t.Fatalf("unexpected err=%v", err)
+		}
+		if err == nil {
+			if _, validateErr := ValidateSABRURL(material.ServerURL); validateErr != nil {
+				t.Fatalf("accepted untrusted url: %v", validateErr)
+			}
+			if material.VideoID != config.VideoID || material.Format.Itag != config.Format.Itag {
+				t.Fatalf("accepted mismatched identity")
+			}
+		}
+	})
+}
+
 func FuzzMixedUMPStream(f *testing.F) {
 	f.Add([]byte{0x23, 0x02, 0x20, 0x00})
 	f.Add([]byte{0x3E, 0x00})
