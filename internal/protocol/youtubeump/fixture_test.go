@@ -87,9 +87,65 @@ func appendEndOfTrackPart(body []byte) []byte {
 	return append(body, encodePart(PartEndOfTrack, nil)...)
 }
 
+func encodeSabrRedirect(url string) []byte {
+	return appendProtobufBytes(nil, fSabrRedirectURL, []byte(url))
+}
+
+func appendRedirectPart(body []byte, url string) []byte {
+	return append(body, encodePart(PartSABRRedirect, encodeSabrRedirect(url))...)
+}
+
+func encodeSabrContextUpdate(typ, scope, writePolicy int32, value []byte, sendByDefault bool) []byte {
+	var buf []byte
+	buf = appendProtobufVarint(buf, fSabrContextType, uint64(typ))
+	if scope != 0 {
+		buf = appendProtobufVarint(buf, fSabrContextScope, uint64(scope))
+	}
+	buf = appendProtobufBytes(buf, fSabrContextValue, value)
+	if sendByDefault {
+		buf = appendProtobufVarint(buf, fSabrContextSendByDefault, 1)
+	}
+	if writePolicy != 0 {
+		buf = appendProtobufVarint(buf, fSabrContextWritePolicy, uint64(writePolicy))
+	}
+	return buf
+}
+
+func appendContextUpdatePart(body []byte, typ, scope, writePolicy int32, value []byte, sendByDefault bool) []byte {
+	return append(body, encodePart(PartSABRContextUpdate, encodeSabrContextUpdate(typ, scope, writePolicy, value, sendByDefault))...)
+}
+
+func encodeSabrSendingPolicy(start, stop, discard []int32, packed bool) []byte {
+	var buf []byte
+	appendField := func(field uint64, values []int32) {
+		if len(values) == 0 {
+			return
+		}
+		if packed {
+			buf = appendProtobufPackedInt32(buf, field, values)
+			return
+		}
+		for _, value := range values {
+			buf = appendProtobufVarint(buf, field, uint64(uint32(value)))
+		}
+	}
+	appendField(fSabrSendingPolicyStart, start)
+	appendField(fSabrSendingPolicyStop, stop)
+	appendField(fSabrSendingPolicyDiscard, discard)
+	return buf
+}
+
+func appendSendingPolicyPart(body []byte, start, stop, discard []int32, packed bool) []byte {
+	return append(body, encodePart(PartSABRContextSendingPolicy, encodeSabrSendingPolicy(start, stop, discard, packed))...)
+}
+
 func validTestCookie() []byte {
 	return encodePlaybackCookie(
 		appendProtobufVarint(nil, fPlaybackCookieField1, 1),
 		appendProtobufVarint(nil, fPlaybackCookieField2, 2),
 	)
+}
+
+func fixtureRedirectURL(hostSuffix string) string {
+	return "https://rr" + hostSuffix + "---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=fixture%2Btoken"
 }

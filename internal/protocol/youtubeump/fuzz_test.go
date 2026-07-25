@@ -78,9 +78,59 @@ func FuzzNextRequestPolicy(f *testing.F) {
 	})
 }
 
+func FuzzSabrRedirect(f *testing.F) {
+	f.Add([]byte{0x0A, 0x04, 'h', 't', 't', 'p'})
+	f.Add(encodeSabrRedirect("https://rr1---sn-fixture.googlevideo.com/videoplayback?sig=x"))
+	f.Fuzz(func(t *testing.T, body []byte) {
+		if len(body) > MaxRedirectURLBytes+64 {
+			return
+		}
+		_, err := parseSabrRedirect(body)
+		if err != nil && !errors.Is(err, ErrInvalidProtobuf) && !errors.Is(err, ErrTruncatedStream) &&
+			!errors.Is(err, ErrNonCanonicalVarint) && !errors.Is(err, ErrVarintOverflow) &&
+			!errors.Is(err, ErrUnsafeRedirect) && !errors.Is(err, ErrUnsupportedURL) {
+			t.Fatalf("unexpected err=%v", err)
+		}
+	})
+}
+
+func FuzzSabrContextUpdate(f *testing.F) {
+	f.Add(encodeSabrContextUpdate(1, 1, 1, []byte("x"), true))
+	f.Add([]byte{0x08, 0x01, 0x1A, 0x01, 'x'})
+	f.Fuzz(func(t *testing.T, body []byte) {
+		if len(body) > MaxSabrContextValueBytes+64 {
+			return
+		}
+		_, err := parseSabrContextUpdate(body)
+		if err != nil && !errors.Is(err, ErrInvalidProtobuf) && !errors.Is(err, ErrTruncatedStream) &&
+			!errors.Is(err, ErrNonCanonicalVarint) && !errors.Is(err, ErrVarintOverflow) &&
+			!errors.Is(err, ErrInvalidContextState) {
+			t.Fatalf("unexpected err=%v", err)
+		}
+	})
+}
+
+func FuzzSabrContextSendingPolicy(f *testing.F) {
+	f.Add(encodeSabrSendingPolicy([]int32{1, 2}, []int32{3}, []int32{4}, true))
+	f.Add(encodeSabrSendingPolicy([]int32{1}, nil, nil, false))
+	f.Fuzz(func(t *testing.T, body []byte) {
+		if len(body) > 4096 {
+			return
+		}
+		_, err := parseSabrContextSendingPolicy(body, nil)
+		if err != nil && !errors.Is(err, ErrInvalidProtobuf) && !errors.Is(err, ErrTruncatedStream) &&
+			!errors.Is(err, ErrNonCanonicalVarint) && !errors.Is(err, ErrVarintOverflow) &&
+			!errors.Is(err, ErrInvalidContextState) {
+			t.Fatalf("unexpected err=%v", err)
+		}
+	})
+}
+
 func FuzzMixedUMPStream(f *testing.F) {
 	f.Add([]byte{0x23, 0x02, 0x20, 0x00})
 	f.Add([]byte{0x3E, 0x00})
+	f.Add(encodePart(PartSABRRedirect, encodeSabrRedirect("https://rr1---sn-fixture.googlevideo.com/x")))
+	f.Add(encodePart(PartSABRContextUpdate, encodeSabrContextUpdate(1, 1, 1, []byte("v"), true)))
 	f.Fuzz(func(t *testing.T, body []byte) {
 		if len(body) > MaxRoundBytes {
 			return

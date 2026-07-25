@@ -98,7 +98,7 @@ func TestConsumeStreamDeterministicMedia(t *testing.T) {
 }
 
 func TestConsumeStreamRejectsCriticalDirective(t *testing.T) {
-	body := encodePart(PartSABRRedirect, []byte{0x0A, 0x04, 'h', 't', 't', 'p'})
+	body := encodePart(PartSABRError, []byte{0x0A, 0x04, 'h', 't', 't', 'p'})
 	file, err := os.CreateTemp(t.TempDir(), "sabr-")
 	if err != nil {
 		t.Fatal(err)

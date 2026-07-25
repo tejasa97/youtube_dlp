@@ -153,7 +153,7 @@ func TestDownloaderCleansUpOnFailure(t *testing.T) {
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Header:     http.Header{"Content-Type": {"application/vnd.yt-ump"}},
-			Body:       io.NopCloser(bytes.NewReader(encodePart(PartSABRRedirect, []byte{0x0A, 0x01, 'x'}))),
+			Body:       io.NopCloser(bytes.NewReader(encodePart(PartSABRError, []byte{0x0A, 0x01, 'x'}))),
 			Request:    request,
 		}, nil
 	})

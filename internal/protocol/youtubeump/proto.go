@@ -25,10 +25,11 @@ const (
 	fClientInfoOSVersion      uint64 = 19
 	fClientInfoAcceptLanguage uint64 = 21
 
-	fStreamerCtxClientInfo     uint64 = 1
-	fStreamerCtxPOToken        uint64 = 2
-	fStreamerCtxPlaybackCookie uint64 = 3
-	fStreamerCtxSabrContexts   uint64 = 5
+	fStreamerCtxClientInfo         uint64 = 1
+	fStreamerCtxPOToken            uint64 = 2
+	fStreamerCtxPlaybackCookie     uint64 = 3
+	fStreamerCtxSabrContexts       uint64 = 5
+	fStreamerCtxUnsentSabrContexts uint64 = 6
 
 	fAbrClientState           uint64 = 1
 	fAbrSelectedFormats       uint64 = 2
@@ -441,6 +442,7 @@ type playbackRequest struct {
 	DrcEnabled      bool
 	AudioTrackID    string
 	PlaybackCookie  []byte
+	Contexts        *sabrContextState
 }
 
 func (request playbackRequest) marshal() ([]byte, error) {
@@ -481,6 +483,7 @@ func (request playbackRequest) marshal() ([]byte, error) {
 	if len(request.PlaybackCookie) > 0 {
 		streamer = appendProtobufBytes(streamer, fStreamerCtxPlaybackCookie, request.PlaybackCookie)
 	}
+	streamer = request.Contexts.appendToStreamer(streamer)
 
 	var body []byte
 	body = appendProtobufBytes(body, fAbrClientState, clientState)
