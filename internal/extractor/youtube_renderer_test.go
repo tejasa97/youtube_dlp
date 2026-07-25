@@ -556,13 +556,16 @@ func TestYouTubeCustomTabBrowseIDBoundToResolvedUCID(t *testing.T) {
 	if err := youtubeCustomTabSelectedAndBound(aliasMatching, "letsplay", aliasIdentity); err != nil {
 		t.Fatalf("alias match: %v", err)
 	}
-	mismatch := []byte(`{"contents":{"twoColumnBrowseResultsRenderer":{"tabs":[
+	handleMismatch := []byte(`{"contents":{"twoColumnBrowseResultsRenderer":{"tabs":[
 		{"tabRenderer":{"selected":true,"title":"Let's Play","endpoint":{"commandMetadata":{"webCommandMetadata":{"url":"/@FixtureChannel/letsplay"}},"browseEndpoint":{"browseId":"UCzzzzzzzzzzzzzzzzzzzzzz","canonicalBaseUrl":"/@FixtureChannel/letsplay"}}}}
 	]}},"metadata":{"channelMetadataRenderer":{"title":"Fixture","externalId":"UCabcdefghijklmnopqrstuv"}}}`)
-	if err := youtubeCustomTabSelectedAndBound(mismatch, "letsplay", handleIdentity); !errors.Is(err, ErrInvalidMetadata) {
+	if err := youtubeCustomTabSelectedAndBound(handleMismatch, "letsplay", handleIdentity); !errors.Is(err, ErrInvalidMetadata) {
 		t.Fatalf("handle browseId mismatch: %v", err)
 	}
-	if err := youtubeCustomTabSelectedAndBound(mismatch, "letsplay", aliasIdentity); !errors.Is(err, ErrInvalidMetadata) {
+	aliasMismatch := []byte(`{"contents":{"twoColumnBrowseResultsRenderer":{"tabs":[
+		{"tabRenderer":{"selected":true,"title":"Let's Play","endpoint":{"commandMetadata":{"webCommandMetadata":{"url":"/c/FixtureAlias/letsplay"}},"browseEndpoint":{"browseId":"UCzzzzzzzzzzzzzzzzzzzzzz","canonicalBaseUrl":"/c/FixtureAlias/letsplay"}}}}
+	]}},"metadata":{"channelMetadataRenderer":{"title":"Fixture","externalId":"UCabcdefghijklmnopqrstuv"}}}`)
+	if err := youtubeCustomTabSelectedAndBound(aliasMismatch, "letsplay", aliasIdentity); !errors.Is(err, ErrInvalidMetadata) {
 		t.Fatalf("alias browseId mismatch: %v", err)
 	}
 	unresolved := youtubeChannelIdentity{Handle: "@FixtureChannel"}
@@ -582,7 +585,7 @@ func TestYouTubeCustomTabBrowseIDBoundToResolvedUCID(t *testing.T) {
 	if err != nil || len(got) != 1 || got[0].ID != "aaaaaaaaaaa" {
 		t.Fatalf("got=%#v err=%v", got, err)
 	}
-	hostilePage := []byte(`ytcfg.set({"INNERTUBE_CLIENT_VERSION":"2.fixture","VISITOR_DATA":"vis"});ytInitialData=` + string(mismatch) + `;`)
+	hostilePage := []byte(`ytcfg.set({"INNERTUBE_CLIENT_VERSION":"2.fixture","VISITOR_DATA":"vis"});ytInitialData=` + string(handleMismatch) + `;`)
 	hostile := &channelFixtureTransport{page: hostilePage, pageURL: "https://www.youtube.com/@FixtureChannel/letsplay"}
 	if _, err := NewYouTubeHandleTab().Extract(context.Background(), Request{
 		URL: "https://www.youtube.com/@FixtureChannel/letsplay", Transport: hostile,
@@ -596,7 +599,7 @@ func TestYouTubeCustomTabBrowseIDBoundToResolvedUCID(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("alias extract: %v", err)
 	}
-	aliasHostile := []byte(`ytcfg.set({"INNERTUBE_CLIENT_VERSION":"2.fixture","VISITOR_DATA":"vis"});ytInitialData=` + string(mismatch) + `;`)
+	aliasHostile := []byte(`ytcfg.set({"INNERTUBE_CLIENT_VERSION":"2.fixture","VISITOR_DATA":"vis"});ytInitialData=` + string(aliasMismatch) + `;`)
 	aliasHostileTransport := &channelFixtureTransport{page: aliasHostile, pageURL: "https://www.youtube.com/c/FixtureAlias/letsplay"}
 	if _, err := NewYouTubeAliasTab().Extract(context.Background(), Request{
 		URL: "https://www.youtube.com/c/FixtureAlias/letsplay", Transport: aliasHostileTransport,
@@ -636,10 +639,12 @@ func TestYouTubeCustomTabRequiresAttributableEndpoint(t *testing.T) {
 func TestYouTubeAdvertisedTabsIdentityBoundAcrossURLForms(t *testing.T) {
 	rootJSON := []byte(`{"contents":{"twoColumnBrowseResultsRenderer":{"tabs":[
 		{"tabRenderer":{"title":"Videos","endpoint":{"commandMetadata":{"webCommandMetadata":{"url":"/channel/UCabcdefghijklmnopqrstuv/videos"}}}}},
-		{"tabRenderer":{"title":"Let's Play","endpoint":{"commandMetadata":{"webCommandMetadata":{"url":"/channel/UCabcdefghijklmnopqrstuv/letsplay"}}}}},
-		{"tabRenderer":{"title":"Other","endpoint":{"commandMetadata":{"webCommandMetadata":{"url":"/channel/UCzzzzzzzzzzzzzzzzzzzzzz/videos"}}}}},
-		{"tabRenderer":{"title":"Handle Custom","endpoint":{"commandMetadata":{"webCommandMetadata":{"url":"/@FixtureChannel/letsplay"}}}}},
-		{"tabRenderer":{"title":"Alias Custom","endpoint":{"commandMetadata":{"webCommandMetadata":{"url":"/c/FixtureAlias/letsplay"}}}}},
+		{"tabRenderer":{"title":"UC Custom","endpoint":{"commandMetadata":{"webCommandMetadata":{"url":"/channel/UCabcdefghijklmnopqrstuv/uccustom"}}}}},
+		{"tabRenderer":{"title":"Handle Custom","endpoint":{"commandMetadata":{"webCommandMetadata":{"url":"/@FixtureChannel/handlecustom"}}}}},
+		{"tabRenderer":{"title":"Alias Custom","endpoint":{"commandMetadata":{"webCommandMetadata":{"url":"/c/FixtureAlias/aliascustom"}}}}},
+		{"tabRenderer":{"title":"Other Channel","endpoint":{"commandMetadata":{"webCommandMetadata":{"url":"/channel/UCzzzzzzzzzzzzzzzzzzzzzz/videos"}}}}},
+		{"tabRenderer":{"title":"Other Handle","endpoint":{"commandMetadata":{"webCommandMetadata":{"url":"/@OtherHandle/otherhandle"}}}}},
+		{"tabRenderer":{"title":"Other Alias","endpoint":{"commandMetadata":{"webCommandMetadata":{"url":"/c/OtherAlias/otheralias"}}}}},
 		{"tabRenderer":{"selected":true,"tabIdentifier":"orphan"}}
 	]}}}`)
 	var root value.Value
@@ -647,30 +652,31 @@ func TestYouTubeAdvertisedTabsIdentityBoundAcrossURLForms(t *testing.T) {
 		t.Fatal(err)
 	}
 	object, _ := root.Object()
-	ucid := youtubeDiscoverAdvertisedTabs(object, youtubeChannelIdentity{ChannelID: "UCabcdefghijklmnopqrstuv"})
-	if len(ucid) != 2 || ucid[0].ID != "videos" || ucid[1].ID != "letsplay" {
+	tabIDs := func(tabs []youtubeAdvertisedTab) map[string]string {
+		out := make(map[string]string, len(tabs))
+		for _, tab := range tabs {
+			out[tab.ID] = tab.URL
+		}
+		return out
+	}
+	ucid := tabIDs(youtubeDiscoverAdvertisedTabs(object, youtubeChannelIdentity{ChannelID: "UCabcdefghijklmnopqrstuv"}))
+	if len(ucid) != 2 || ucid["videos"] == "" || ucid["uccustom"] == "" ||
+		ucid["handlecustom"] != "" || ucid["aliascustom"] != "" ||
+		ucid["otherhandle"] != "" || ucid["otheralias"] != "" || ucid["orphan"] != "" {
 		t.Fatalf("ucid tabs=%#v", ucid)
 	}
-	handle := youtubeDiscoverAdvertisedTabs(object, youtubeChannelIdentity{
+	handle := tabIDs(youtubeDiscoverAdvertisedTabs(object, youtubeChannelIdentity{
 		Handle: "@FixtureChannel", ChannelID: "UCabcdefghijklmnopqrstuv",
-	})
-	ids := map[string]bool{}
-	for _, tab := range handle {
-		ids[tab.ID] = true
-	}
-	if len(handle) != 2 || !ids["videos"] || !ids["letsplay"] || ids["orphan"] {
+	}))
+	if len(handle) != 3 || handle["videos"] == "" || handle["uccustom"] == "" || handle["handlecustom"] == "" ||
+		handle["aliascustom"] != "" || handle["otherhandle"] != "" || handle["otheralias"] != "" || handle["orphan"] != "" {
 		t.Fatalf("handle tabs=%#v", handle)
 	}
-	alias := youtubeDiscoverAdvertisedTabs(object, youtubeChannelIdentity{
+	alias := tabIDs(youtubeDiscoverAdvertisedTabs(object, youtubeChannelIdentity{
 		AliasKind: "c", Alias: "FixtureAlias", ChannelID: "UCabcdefghijklmnopqrstuv",
-	})
-	ids = map[string]bool{}
-	for _, tab := range alias {
-		ids[tab.ID] = true
-	}
-	// UCID and alias-path custom tabs share id "letsplay" and dedupe; cross-channel
-	// and URL-less custom orphans are omitted.
-	if len(alias) != 2 || !ids["videos"] || !ids["letsplay"] {
+	}))
+	if len(alias) != 3 || alias["videos"] == "" || alias["uccustom"] == "" || alias["aliascustom"] == "" ||
+		alias["handlecustom"] != "" || alias["otherhandle"] != "" || alias["otheralias"] != "" || alias["orphan"] != "" {
 		t.Fatalf("alias tabs=%#v", alias)
 	}
 }
