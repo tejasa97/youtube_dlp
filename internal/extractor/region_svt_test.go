@@ -289,6 +289,84 @@ func TestRegionSVTSeriesPlaylistLazyReentry(t *testing.T) {
 	}
 }
 
+func TestRegionSVTSeriesSkipsNoisyUnrelatedSeasons(t *testing.T) {
+	transport := &svtFixtureTransport{series: svtNoisySeasonsFixture(t)}
+	result, err := NewRegionSVT().Extract(context.Background(), Request{
+		URL: "https://www.svtplay.se/rederiet", Transport: transport,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertSVTSeriesNoisyExpected(t, result, false)
+}
+
+func TestRegionSVTSeriesSelectedSeasonIgnoresNoisySeasons(t *testing.T) {
+	transport := &svtFixtureTransport{series: svtNoisySeasonsFixture(t)}
+	result, err := NewRegionSVT().Extract(context.Background(), Request{
+		URL: "https://www.svtplay.se/rederiet?tab=season-2-jpmQYgn", Transport: transport,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertSVTSeriesNoisyExpected(t, result, true)
+}
+
+func TestRegionSVTSeriesTransportErrorsAreSecretSafe(t *testing.T) {
+	transport := &svtSecretNetworkTransport{}
+	_, err := NewRegionSVT().Extract(context.Background(), Request{
+		URL: "https://www.svtplay.se/rederiet", Transport: transport,
+	})
+	if !errors.Is(err, ErrSVTSeriesNetwork) {
+		t.Fatalf("error = %v, want ErrSVTSeriesNetwork", err)
+	}
+	if strings.Contains(err.Error(), "svt-private-network-token") {
+		t.Fatalf("secret leaked: %v", err)
+	}
+}
+
+func svtNoisySeasonsFixture(t testing.TB) []byte {
+	t.Helper()
+	body := svtFixture(t, "series-noisy-seasons.json")
+	oversized := strings.Repeat("x", svtMaxSeriesMetadataNameLength+1)
+	return bytes.Replace(body, []byte("OVERSIZED_NAME_PLACEHOLDER"), []byte(oversized), 1)
+}
+
+type svtSecretNetworkTransport struct {
+	svtFixtureTransport
+}
+
+func (transport *svtSecretNetworkTransport) DoWithoutCredentialsNoRedirect(context.Context, *http.Request) (*http.Response, error) {
+	transport.credentialIsolatedCalls++
+	return nil, errors.New("svt-private-network-token leak attempt")
+}
+
+func assertSVTSeriesNoisyExpected(t *testing.T, result Extraction, seasonTab bool) {
+	t.Helper()
+	var expected struct {
+		AllEpisodeIDs    []string `json:"all_episode_ids"`
+		SeasonEpisodeIDs []string `json:"season_episode_ids"`
+	}
+	if err := json.Unmarshal(svtFixture(t, "series-noisy-expected.json"), &expected); err != nil {
+		t.Fatal(err)
+	}
+	wantIDs := expected.AllEpisodeIDs
+	if seasonTab {
+		wantIDs = expected.SeasonEpisodeIDs
+	}
+	entries, err := CollectEntries(context.Background(), result.Entries, len(wantIDs)+1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != len(wantIDs) {
+		t.Fatalf("entries = %#v", entries)
+	}
+	for index, want := range wantIDs {
+		if entries[index].ID != want {
+			t.Fatalf("entry %d id = %q, want %q", index, entries[index].ID, want)
+		}
+	}
+}
+
 func TestRegionSVTSeriesRejectedURLsMakeNoRequests(t *testing.T) {
 	transport := &svtFixtureTransport{series: svtFixture(t, "series.json"), video: svtFixture(t, "video.json")}
 	for _, rawURL := range []string{
@@ -662,7 +740,7 @@ func FuzzParseSVTSeriesResponse(f *testing.F) {
 		}
 		switch {
 		case errors.Is(err, ErrInvalidMetadata), errors.Is(err, ErrUnavailable),
-			errors.Is(err, ErrPlaylistLimit), errors.Is(err, context.Canceled):
+			errors.Is(err, ErrPlaylistLimit), errors.Is(err, context.Canceled), errors.Is(err, ErrSVTSeriesNetwork):
 		case err == nil:
 		default:
 			if seasonTab != "" && !svtSeasonTabPattern.MatchString(seasonTab) {

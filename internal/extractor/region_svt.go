@@ -41,6 +41,11 @@ var (
 	svtSeriesPath              = regexp.MustCompile(`^/([^/?#]+)/?$`)
 )
 
+// ErrSVTSeriesNetwork is returned for opaque SVT series GraphQL transport
+// failures after stable categories such as cancellation, isolation, HTTP status,
+// and JSON bounds have been ruled out.
+var ErrSVTSeriesNetwork = errors.New("SVT series network failure")
+
 // RegionSVT is the bounded SVT Play regional pilot. It implements the public
 // single-video JSON flow, bounded series/season playlists, and Sweden-only
 // availability signal.
@@ -333,6 +338,17 @@ func requestSVTSeriesJSON(ctx context.Context, transport Transport, apiURL strin
 }
 
 func categorizeSVTSeriesTransportError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	if errors.Is(err, ErrTransportIsolation) || errors.Is(err, ErrInvalidMetadata) ||
+		errors.Is(err, ErrJSONResponseTooLarge) || errors.Is(err, ErrUnavailable) ||
+		errors.Is(err, ErrRegionRestricted) {
+		return err
+	}
 	var status *HTTPStatusError
 	if errors.As(err, &status) {
 		switch status.Code {
@@ -342,7 +358,7 @@ func categorizeSVTSeriesTransportError(err error) error {
 			return ErrUnavailable
 		}
 	}
-	return err
+	return ErrSVTSeriesNetwork
 }
 
 func parseSVTSeriesResponse(ctx context.Context, envelope svtSeriesGraphQLResponse, seasonTab string) (svtSeriesPlaylist, error) {
@@ -378,21 +394,24 @@ func parseSVTSeriesResponse(ctx context.Context, envelope svtSeriesGraphQLRespon
 		if err := ctx.Err(); err != nil {
 			return svtSeriesPlaylist{}, err
 		}
-		if err := validateSVTSeriesMetadataID(season.ID, "season id"); err != nil {
-			return svtSeriesPlaylist{}, err
-		}
-		if err := validateSVTSeriesMetadataName(season.Name, "season name"); err != nil {
-			return svtSeriesPlaylist{}, err
-		}
 		if seasonRequested && season.ID != seasonTab {
 			continue
 		}
-		if seasonRequested {
-			matchedSeasonID = season.ID
-			matchedSeasonName = season.Name
+		if season.Items == nil {
+			continue
 		}
 		if len(season.Items) > svtMaxSeriesItemsPerSeason {
 			return svtSeriesPlaylist{}, fmt.Errorf("%w: SVT series item bound exceeded", ErrPlaylistLimit)
+		}
+		if seasonRequested {
+			if err := validateSVTSeriesMetadataID(season.ID, "season id"); err != nil {
+				return svtSeriesPlaylist{}, err
+			}
+			if err := validateSVTSeriesMetadataName(season.Name, "season name"); err != nil {
+				return svtSeriesPlaylist{}, err
+			}
+			matchedSeasonID = season.ID
+			matchedSeasonName = season.Name
 		}
 		for _, item := range season.Items {
 			if err := ctx.Err(); err != nil {

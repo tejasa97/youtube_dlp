@@ -28,3 +28,7 @@ and tests use an injected offline transport.
 `series.json` models `SVTSeriesIE._real_extract` against
 `https://api.svt.se/contento/graphql`. See `docs/SVT_SERIES_PLAYLISTS.md` for
 field mapping, Go hardening, and deliberate deviations from the reference.
+
+`series-noisy-seasons.json` adds unrelated null-id, oversized-name, and null-item
+season containers to prove all-series extraction skips unusable seasons without
+breaking valid episode ordering.
