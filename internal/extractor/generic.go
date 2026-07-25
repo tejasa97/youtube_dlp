@@ -419,6 +419,12 @@ func canonicalGenericEmbed(pageURL *url.URL, rawURL string) (Entry, bool) {
 	if id, canonical, ok := parseSproutVideoURL(resolved); ok {
 		return genericTransparentEntry(canonical, "sproutvideo", id), true
 	}
+	if target, ok := parseCloudflareStreamURL(resolved); ok {
+		return genericTransparentEntry(target.canonical, "cloudflarestream", target.videoID), true
+	}
+	if target, ok := parseThePlatformURL(resolved); ok {
+		return genericTransparentEntry(target.canonical, "theplatform", target.videoID), true
+	}
 	if genericDailymotionEmbedURL(resolved) {
 		id := dailymotionVideoID(resolved)
 		return genericTransparentEntry("https://www.dailymotion.com/video/"+id, "dailymotion", id), true

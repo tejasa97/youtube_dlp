@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<smil xmlns="http://www.w3.org/2005/SMIL21/Language">
+  <body>
+    <switch>
+      <video src="https://media.example.invalid/tp/master.m3u8" type="application/x-mpegURL"/>
+      <video src="https://media.example.invalid/tp/video.mp4" width="1280" height="720"/>
+      <textstream src="https://media.example.invalid/tp/captions.vtt" lang="en" type="text/vtt"/>
+    </switch>
+  </body>
+</smil>
