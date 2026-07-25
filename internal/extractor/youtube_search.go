@@ -90,7 +90,10 @@ func (YouTubeSearch) Extract(ctx context.Context, request Request) (Extraction, 
 		return Extraction{}, youtubeSearchAlertError(first.alert)
 	}
 	config := extractYouTubePlaylistConfig(page)
-	auth := youtubeBrowseAuthFromPage(page, request.Transport)
+	auth, err := youtubeBrowseAuthFromPage(page, request.Transport)
+	if err != nil {
+		return Extraction{}, categorizeYouTubeSearchError(err)
+	}
 	entries, err := youtubeSearchEntries(first.entries, first.continuation, count, func(ctx context.Context, token string) ([]Entry, string, error) {
 		return fetchYouTubeSearchContinuationAuth(ctx, request.Transport, token, config, auth)
 	})
@@ -219,6 +222,11 @@ func (iterator *limitedEntryIterator) Next(ctx context.Context) (Entry, bool, er
 
 func categorizeYouTubeSearchError(err error) error {
 	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	if errors.Is(err, ErrInvalidMetadata) || errors.Is(err, ErrJSONResponseTooLarge) ||
+		errors.Is(err, ErrInvalidPlaylist) || errors.Is(err, ErrAuthentication) ||
+		errors.Is(err, ErrUnavailable) || errors.Is(err, ErrUnsupported) {
 		return err
 	}
 	var status *HTTPStatusError

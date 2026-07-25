@@ -52,11 +52,14 @@ implemented for video-only renderer extraction when the supplied session is
 already authorized. A shared browse/search renderer walker covers video,
 Shorts/reel, playlist, channel, lockup, hashtag, shelf, and Music list
 renderers with consistent continuation handling. Dynamically advertised custom
-tabs are accepted only when securely bound to the requested channel identity.
+tabs are accepted only when securely bound to the requested channel identity,
+including resolved-UCID browseId checks and attributable selected endpoints.
 Channel-local search, broader general search results, and broader YouTube Music
 section search are implemented. Authenticated exact-origin WEB browse/search
 continuations reuse the SID no-redirect boundary without anonymous fallback or
-WEB↔WEB_REMIX identity crossing. Bounded public and opt-in authenticated-WEB
+WEB↔WEB_REMIX identity crossing; incomplete logged-in config fails closed.
+Browse continuations rotate visitor data; general search reuses the initial
+visitor. Bounded public and opt-in authenticated-WEB
 comment slices cover top/new sorting, legacy and modern fields, click-tracked
 reply continuations, nested subthreads, bounded retries, pinned duplicate
 handling, visitor rotation, exact-origin signed continuations, and explicit

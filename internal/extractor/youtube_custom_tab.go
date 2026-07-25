@@ -39,19 +39,42 @@ type youtubeChannelIdentity struct {
 }
 
 func (identity youtubeChannelIdentity) basePath() string {
-	switch {
-	case youtubeChannelIDPattern.MatchString(identity.ChannelID):
-		return "/channel/" + identity.ChannelID
-	case identity.Handle != "":
-		return "/" + identity.Handle
-	case (identity.AliasKind == "user" || identity.AliasKind == "c") && identity.Alias != "":
-		return "/" + identity.AliasKind + "/" + identity.Alias
-	default:
+	paths := identity.attributablePaths()
+	if len(paths) == 0 {
 		return ""
 	}
+	return paths[0]
 }
 
-func youtubeDiscoverAdvertisedTabs(root *value.Object) []youtubeAdvertisedTab {
+// attributablePaths returns every channel URL prefix this identity may own.
+// Handle/alias pages often advertise UCID-form endpoints after resolution, and
+// either form must remain attributable to the requested identity.
+func (identity youtubeChannelIdentity) attributablePaths() []string {
+	var paths []string
+	seen := make(map[string]struct{})
+	add := func(path string) {
+		if path == "" {
+			return
+		}
+		if _, ok := seen[path]; ok {
+			return
+		}
+		seen[path] = struct{}{}
+		paths = append(paths, path)
+	}
+	if youtubeChannelIDPattern.MatchString(identity.ChannelID) {
+		add("/channel/" + identity.ChannelID)
+	}
+	if identity.Handle != "" {
+		add("/" + identity.Handle)
+	}
+	if (identity.AliasKind == "user" || identity.AliasKind == "c") && identity.Alias != "" {
+		add("/" + identity.AliasKind + "/" + identity.Alias)
+	}
+	return paths
+}
+
+func youtubeDiscoverAdvertisedTabs(root *value.Object, identity youtubeChannelIdentity) []youtubeAdvertisedTab {
 	if root == nil {
 		return nil
 	}
@@ -79,7 +102,7 @@ func youtubeDiscoverAdvertisedTabs(root *value.Object) []youtubeAdvertisedTab {
 			if !ok {
 				continue
 			}
-			tab, ok := youtubeAdvertisedTabFromRenderer(renderer)
+			tab, ok := youtubeAdvertisedTabFromRenderer(renderer, identity)
 			if !ok {
 				continue
 			}
@@ -93,7 +116,7 @@ func youtubeDiscoverAdvertisedTabs(root *value.Object) []youtubeAdvertisedTab {
 	return result
 }
 
-func youtubeAdvertisedTabFromRenderer(renderer *value.Object) (youtubeAdvertisedTab, bool) {
+func youtubeAdvertisedTabFromRenderer(renderer *value.Object, identity youtubeChannelIdentity) (youtubeAdvertisedTab, bool) {
 	if renderer == nil {
 		return youtubeAdvertisedTab{}, false
 	}
@@ -105,13 +128,24 @@ func youtubeAdvertisedTabFromRenderer(renderer *value.Object) (youtubeAdvertised
 	if !ok {
 		// Fall back to tabIdentifier / title for built-in tabs that omit URLs
 		// in synthetic fixtures.
-		for _, identity := range youtubeSelectedTabIdentities(renderer) {
-			if youtubePublicTabType(identity) != youtubeTabUnsupported || validYouTubeCustomTabSegment(identity) {
-				tabID = identity
+		for _, candidate := range youtubeSelectedTabIdentities(renderer) {
+			if youtubePublicTabType(candidate) != youtubeTabUnsupported || candidate == "search" {
+				tabID = candidate
 				break
 			}
 		}
 		if tabID == "" {
+			return youtubeAdvertisedTab{}, false
+		}
+	}
+	if len(identity.attributablePaths()) > 0 {
+		if tabURL == "" {
+			// Custom tabs without an attributable endpoint must not surface in
+			// channel_tabs metadata; built-in/search fixtures may omit URLs.
+			if youtubePublicTabType(tabID) == youtubeTabUnsupported && tabID != "search" {
+				return youtubeAdvertisedTab{}, false
+			}
+		} else if err := youtubeValidateCustomTabEndpoint(tabURL, identity); err != nil {
 			return youtubeAdvertisedTab{}, false
 		}
 	}
@@ -248,15 +282,22 @@ func youtubeValidateCustomTabEndpoint(raw string, identity youtubeChannelIdentit
 	if strings.Contains(lowQuery, "%2f") || strings.Contains(lowQuery, "%5c") || strings.Contains(lowQuery, "%00") {
 		return fmt.Errorf("%w: hostile custom tab query", ErrInvalidMetadata)
 	}
-	base := identity.basePath()
-	if base == "" {
+	bases := identity.attributablePaths()
+	if len(bases) == 0 {
 		return fmt.Errorf("%w: missing channel identity for custom tab", ErrInvalidMetadata)
 	}
 	path := strings.TrimSuffix(resolved.Path, "/")
-	if path != base && !strings.HasPrefix(path, base+"/") {
+	var matchedBase string
+	for _, base := range bases {
+		if path == base || strings.HasPrefix(path, base+"/") {
+			matchedBase = base
+			break
+		}
+	}
+	if matchedBase == "" {
 		return fmt.Errorf("%w: custom tab endpoint escapes channel identity", ErrInvalidMetadata)
 	}
-	remainder := strings.TrimPrefix(path, base)
+	remainder := strings.TrimPrefix(path, matchedBase)
 	remainder = strings.TrimPrefix(remainder, "/")
 	if remainder == "" {
 		return nil
@@ -265,16 +306,6 @@ func youtubeValidateCustomTabEndpoint(raw string, identity youtubeChannelIdentit
 	if len(parts) != 1 || !validYouTubeCustomTabSegment(parts[0]) {
 		return fmt.Errorf("%w: hostile custom tab path", ErrInvalidMetadata)
 	}
-	browseID := ""
-	// Browse IDs in the endpoint, when present, must match the exact UCID.
-	if browse := reference; browse != nil {
-		_ = browse
-	}
-	if youtubeChannelIDPattern.MatchString(identity.ChannelID) {
-		// Endpoint JSON browseId is checked by callers that have the renderer;
-		// URL-only validation above already binds the path.
-		_ = browseID
-	}
 	return nil
 }
 
@@ -282,13 +313,11 @@ func youtubeValidateCustomTabBrowseID(browseID string, identity youtubeChannelId
 	if browseID == "" {
 		return nil
 	}
+	if !youtubeChannelIDPattern.MatchString(browseID) {
+		return fmt.Errorf("%w: hostile custom tab browse id", ErrInvalidMetadata)
+	}
 	if !youtubeChannelIDPattern.MatchString(identity.ChannelID) {
-		// Handle/alias routes may advertise the resolved UCID; accept only when
-		// it is a well-formed channel id (attribution happens via path bind).
-		if !youtubeChannelIDPattern.MatchString(browseID) {
-			return fmt.Errorf("%w: hostile custom tab browse id", ErrInvalidMetadata)
-		}
-		return nil
+		return fmt.Errorf("%w: custom tab browse id without resolved channel identity", ErrInvalidMetadata)
 	}
 	if browseID != identity.ChannelID {
 		return fmt.Errorf("%w: custom tab browse id identity mismatch", ErrInvalidMetadata)
@@ -310,15 +339,15 @@ func youtubeCustomTabSelectedAndBound(data []byte, requested string, identity yo
 	}
 	contents, ok := rootObject.Lookup("contents").Object()
 	if !ok {
-		return nil
+		return fmt.Errorf("%w: missing custom tab contents", ErrInvalidMetadata)
 	}
 	browse, ok := contents.Lookup("twoColumnBrowseResultsRenderer").Object()
 	if !ok {
-		return nil
+		return fmt.Errorf("%w: missing custom tab browse renderer", ErrInvalidMetadata)
 	}
 	tabs, ok := browse.Lookup("tabs").ListValue()
-	if !ok {
-		return nil
+	if !ok || len(tabs) == 0 {
+		return fmt.Errorf("%w: missing custom tab list", ErrInvalidMetadata)
 	}
 	for _, item := range tabs {
 		itemObject, ok := item.Object()
@@ -338,10 +367,11 @@ func youtubeCustomTabSelectedAndBound(data []byte, requested string, identity yo
 			if rawURL == "" {
 				rawURL = objectString(renderer, "endpoint", "browseEndpoint", "canonicalBaseUrl")
 			}
-			if rawURL != "" {
-				if err := youtubeValidateCustomTabEndpoint(rawURL, identity); err != nil {
-					return err
-				}
+			if rawURL == "" {
+				return fmt.Errorf("%w: custom tab missing attributable endpoint", ErrInvalidMetadata)
+			}
+			if err := youtubeValidateCustomTabEndpoint(rawURL, identity); err != nil {
+				return err
 			}
 			browseID := objectString(renderer, "endpoint", "browseEndpoint", "browseId")
 			if err := youtubeValidateCustomTabBrowseID(browseID, identity); err != nil {
@@ -354,5 +384,5 @@ func youtubeCustomTabSelectedAndBound(data []byte, requested string, identity yo
 			return nil
 		}
 	}
-	return nil
+	return fmt.Errorf("%w: missing selected custom tab", ErrInvalidMetadata)
 }

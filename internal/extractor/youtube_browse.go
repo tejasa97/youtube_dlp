@@ -24,23 +24,29 @@ type youtubeBrowseAuth struct {
 	now    func() time.Time
 }
 
-func youtubeBrowseAuthFromPage(page []byte, transport Transport) *youtubeBrowseAuth {
+// youtubeBrowseAuthFromPage engages authenticated browse/search continuations
+// only for genuinely anonymous pages or complete logged-in WEB sessions with a
+// redirect-disabled cookie transport. A page that declares LOGGED_IN without a
+// usable auth boundary fails closed instead of falling back to anonymous Do.
+func youtubeBrowseAuthFromPage(page []byte, transport Transport) (*youtubeBrowseAuth, error) {
 	pageConfig := discoverYouTubePageConfig(page)
+	loggedIn := pageConfig.LoggedIn != nil && *pageConfig.LoggedIn
+	if !loggedIn {
+		return nil, nil
+	}
 	auth := pageConfig.webAuthConfig("", "")
 	if !auth.LoggedIn || !auth.valid() {
-		return nil
+		return nil, fmt.Errorf("%w: incomplete authenticated WEB browse config", ErrAuthentication)
 	}
-	// Only engage authenticated continuations when the transport can honor the
-	// no-redirect cookie boundary. Otherwise remain anonymous.
 	if _, ok := transport.(youtubeAuthenticatedTransport); !ok {
-		return nil
+		return nil, fmt.Errorf("%w: authenticated browse requires redirect-disabled cookie transport", ErrAuthentication)
 	}
 	apiKey := pageConfig.APIKey
 	if !validYouTubeWEBAPIKey(apiKey) {
 		apiKey = ""
 	}
 	cloned := auth
-	return &youtubeBrowseAuth{config: &cloned, apiKey: apiKey, now: time.Now}
+	return &youtubeBrowseAuth{config: &cloned, apiKey: apiKey, now: time.Now}, nil
 }
 
 func youtubeRendererPlaylistInfo(id, title, webpageURL string, tabs []youtubeAdvertisedTab) value.Info {
@@ -106,8 +112,10 @@ func fetchYouTubeBrowseContinuation(
 		}
 		version = auth.config.ClientVersion
 	}
+	// Prefer the iterator's rotated visitor; fall back to the initial auth
+	// visitor only when the continuation state has not yet rotated.
 	requestVisitor := visitorData
-	if auth != nil && auth.config.VisitorData != "" {
+	if requestVisitor == "" && auth != nil {
 		requestVisitor = auth.config.VisitorData
 	}
 	payload := map[string]any{
@@ -290,13 +298,15 @@ func fetchYouTubeSearchContinuationAuth(
 	if version == "" {
 		version = youtubeDefaultClientVersion
 	}
+	// Search continuations reuse the initial page/config visitor (no rotation
+	// claim). Auth visitor is only a fallback when config omits one.
 	visitorData := config.VisitorData
 	if auth != nil {
 		if auth.config == nil || !auth.config.LoggedIn {
 			return nil, "", ErrAuthentication
 		}
 		version = auth.config.ClientVersion
-		if auth.config.VisitorData != "" {
+		if visitorData == "" {
 			visitorData = auth.config.VisitorData
 		}
 	}

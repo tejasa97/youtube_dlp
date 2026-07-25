@@ -136,8 +136,9 @@ protected-playback workstream. The following are supported:
   albums/artists/playlists/podcasts as typed URL results;
 - authenticated exact-origin WEB browse/search continuations when a logged-in
   page and redirect-disabled cookie transport are present (no anonymous
-  fallback after authenticated state; WEB and WEB_REMIX identities stay
-  isolated);
+  fallback after authenticated state; incomplete logged-in config fails closed;
+  browse visitor rotation across continuation pages; search reuses the initial
+  visitor; WEB and WEB_REMIX identities stay isolated);
 - channel live aliases (`@handle/live`, `/channel/<id>/live`, `/user/<name>/live`,
   `/c/<name>/live`) routed into the resolved live video;
 - manual and automatic captions exposed as `subtitles` and

@@ -178,6 +178,20 @@ func parseYouTubeRendererData(data []byte, policy youtubeRendererPolicy) (youtub
 	if err := youtubeRendererFillMetadata(rootObject, &page); err != nil {
 		return youtubeRendererPage{}, err
 	}
-	page.tabs = youtubeDiscoverAdvertisedTabs(rootObject)
+	page.tabs = youtubeDiscoverAdvertisedTabs(rootObject, youtubeChannelIdentity{})
 	return page, nil
+}
+
+// youtubeBindAdvertisedTabs re-discovers channel_tabs under a resolved identity
+// so cross-channel advertised endpoints are omitted from playlist metadata.
+func youtubeBindAdvertisedTabs(data []byte, identity youtubeChannelIdentity) ([]youtubeAdvertisedTab, error) {
+	var root value.Value
+	if err := json.Unmarshal(data, &root); err != nil {
+		return nil, fmt.Errorf("%w: decode advertised tabs", ErrInvalidMetadata)
+	}
+	rootObject, ok := root.Object()
+	if !ok {
+		return nil, fmt.Errorf("%w: advertised tabs root", ErrInvalidMetadata)
+	}
+	return youtubeDiscoverAdvertisedTabs(rootObject, identity), nil
 }
