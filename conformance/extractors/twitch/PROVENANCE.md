@@ -114,3 +114,32 @@ Fixtures:
 
 All values are synthetic. Clips enumeration, subscriber entitlements, chat, and
 arbitrary Twitch routes remain outside this lane.
+
+## Channel clips playlist fixtures
+
+The channel clips playlist fixtures added on 2026-07-26 are attributable to the
+same pinned source, specifically:
+
+- `TwitchBaseIE._OPERATION_HASHES['ClipsCards__User']`, line 46
+  (`1cd671bfa12cec480499c087319f26d21925e9695d1f80225aae6a4354f23088`);
+- `TwitchPlaylistBaseIE._entries`, lines 649–697 (cursor advancement from the
+  last valid emitted edge, empty-edge stop, and `user.id == ""`
+  channel-not-found guard);
+- `TwitchVideosClipsIE`, lines 823–893 (`ClipsCards__User`, `_PAGE_LIMIT = 20`,
+  `ClipEdge`/`Clip` typenames, route grammar for `/clips` and
+  `/videos?...filter=clips`, range mapping `24hr`→`LAST_DAY`/`Top 24H`,
+  `7d`/omitted/unknown→`LAST_WEEK`/`Top 7D`, `30d`→`LAST_MONTH`/`Top 30D`,
+  `all`→`ALL_TIME`/`Top All`, variables `login` + `criteria.filter`, and
+  transparent clip URL entries via `_extract_entry`).
+
+Fixtures:
+
+- `clips_page1.json` / `clips_page2.json`: synthetic initial and continuation
+  GraphQL pages with mixed valid/invalid edges for deterministic skipping;
+- `clips_empty.json`: present channel with an empty edge list;
+- `clips_not_found.json`: `user.id` exact empty string with decoy edges;
+- `clips_malformed.json`: non-array GraphQL envelope.
+
+All identifiers, titles, counts, timestamps, languages, and `.example.test`
+thumbnail hosts are synthetic. No Twitch response or user data was captured.
+Python and the reference checkout are not used at build or runtime.

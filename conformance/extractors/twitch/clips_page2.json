@@ -1,0 +1,28 @@
+[
+  {
+    "data": {
+      "user": {
+        "id": "9001",
+        "clips": {
+          "edges": [
+            {
+              "__typename": "ClipEdge",
+              "cursor": "",
+              "node": {
+                "__typename": "Clip",
+                "id": "4123456791",
+                "url": "https://clips.twitch.tv/ConfidentBraveHumanChefFrank",
+                "title": "Synthetic clip three",
+                "thumbnailURL": "https://static-cdn.example.test/clip3-320x180.jpg",
+                "durationSeconds": 24,
+                "createdAt": "2024-03-01T00:00:00Z",
+                "viewCount": 303,
+                "language": "en"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]

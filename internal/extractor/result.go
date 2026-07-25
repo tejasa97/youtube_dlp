@@ -64,6 +64,17 @@ type Entry struct {
 	// Availability is an optional yt-dlp-compatible availability label
 	// (public/private/premium/subscriber_only/unlisted). Empty means unknown.
 	Availability string
+
+	// Optional soft metadata for url_transparent playlist cards. Values plus
+	// Has* flags keep valid zero numerics distinct from absent fields.
+	Thumbnail    string
+	Language     string
+	Duration     float64
+	HasDuration  bool
+	Timestamp    int64
+	HasTimestamp bool
+	ViewCount    int64
+	HasViewCount bool
 }
 
 func (entry Entry) Object() *value.Object {
@@ -86,6 +97,21 @@ func (entry Entry) Object() *value.Object {
 	}
 	if entry.Availability != "" {
 		object.Set("availability", value.String(entry.Availability))
+	}
+	if entry.Thumbnail != "" {
+		object.Set("thumbnail", value.String(entry.Thumbnail))
+	}
+	if entry.HasDuration {
+		object.Set("duration", value.Float(entry.Duration))
+	}
+	if entry.HasTimestamp {
+		object.Set("timestamp", value.Int(entry.Timestamp))
+	}
+	if entry.HasViewCount {
+		object.Set("view_count", value.Int(entry.ViewCount))
+	}
+	if entry.Language != "" {
+		object.Set("language", value.String(entry.Language))
 	}
 	return object
 }

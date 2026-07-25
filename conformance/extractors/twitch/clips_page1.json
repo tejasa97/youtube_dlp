@@ -1,0 +1,73 @@
+[
+  {
+    "data": {
+      "user": {
+        "id": "9001",
+        "clips": {
+          "edges": [
+            {
+              "__typename": "ClipEdge",
+              "cursor": "cursor-clips-page1-a",
+              "node": {
+                "__typename": "Clip",
+                "id": "4123456789",
+                "url": "https://clips.twitch.tv/CulturedFixtureSlug-abc_123",
+                "title": "Synthetic clip one",
+                "thumbnailURL": "https://static-cdn.example.test/clip1-320x180.jpg",
+                "durationSeconds": 32.5,
+                "createdAt": "2024-01-15T12:00:00Z",
+                "viewCount": 101,
+                "language": "en"
+              }
+            },
+            {
+              "__typename": "NotClipEdge",
+              "cursor": "skip-bad-edge",
+              "node": {
+                "__typename": "Clip",
+                "id": "4999999999",
+                "url": "https://clips.twitch.tv/SkippedBadEdgeSlug",
+                "title": "Skipped bad edge"
+              }
+            },
+            {
+              "__typename": "ClipEdge",
+              "cursor": "skip-bad-node",
+              "node": {
+                "__typename": "Video",
+                "id": "1000000001",
+                "url": "https://www.twitch.tv/videos/1000000001",
+                "title": "Skipped bad node type"
+              }
+            },
+            {
+              "__typename": "ClipEdge",
+              "cursor": "skip-hostile-url",
+              "node": {
+                "__typename": "Clip",
+                "id": "4888888888",
+                "url": "https://evil.example/not-a-clip",
+                "title": "Skipped hostile url"
+              }
+            },
+            {
+              "__typename": "ClipEdge",
+              "cursor": "cursor-clips-page1-final",
+              "node": {
+                "__typename": "Clip",
+                "id": "4123456790",
+                "url": "https://www.twitch.tv/fixture_channel/clip/StormyThankfulSproutFutureMan",
+                "title": "Synthetic clip two",
+                "thumbnailURL": "https://static-cdn.example.test/clip2-320x180.jpg",
+                "durationSeconds": 18,
+                "createdAt": "2024-02-01T08:30:00Z",
+                "viewCount": 202,
+                "language": "en"
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+]
