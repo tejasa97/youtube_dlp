@@ -50,10 +50,20 @@ func youtubeBrowseAuthFromPage(page []byte, transport Transport) (*youtubeBrowse
 }
 
 func youtubeRendererPlaylistInfo(id, title, webpageURL string, tabs []youtubeAdvertisedTab) value.Info {
+	return youtubeRendererPlaylistInfoWithCounts(id, title, webpageURL, tabs, 0, false, 0, false)
+}
+
+func youtubeRendererPlaylistInfoWithCounts(id, title, webpageURL string, tabs []youtubeAdvertisedTab, playlistCount int64, hasCount bool, viewCount int64, hasViews bool) value.Info {
 	fields := []value.Field{
 		{Key: "id", Value: value.String(id)},
 		{Key: "title", Value: value.String(title)},
 		{Key: "webpage_url", Value: value.String(webpageURL)},
+	}
+	if hasCount && playlistCount >= 0 {
+		fields = append(fields, value.Field{Key: "playlist_count", Value: value.Int(playlistCount)})
+	}
+	if hasViews && viewCount >= 0 {
+		fields = append(fields, value.Field{Key: "view_count", Value: value.Int(viewCount)})
 	}
 	if len(tabs) > 0 {
 		tabValues := make([]value.Value, 0, len(tabs))

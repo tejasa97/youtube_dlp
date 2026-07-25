@@ -195,7 +195,7 @@ func extractYouTubeChannelTabWithQuery(ctx context.Context, transport Transport,
 	if tab == "search" && query != "" {
 		title = parsed.title + " - Search - " + query
 	}
-	return Playlist(youtubeRendererPlaylistInfo(channelID, title, canonical, parsed.tabs), entries)
+	return Playlist(youtubeRendererPlaylistInfoWithCounts(channelID, title, canonical, parsed.tabs, parsed.playlistCount, parsed.hasCount, parsed.viewCount, parsed.hasViewCount), entries)
 }
 
 // parseYouTubeChannelTabData keeps the historical test helper name while

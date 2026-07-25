@@ -327,3 +327,172 @@ func validYouTubeWEBAPIKey(value string) bool {
 	// control-character bound only; their format is controlled by YouTube.
 	return value != "" && len(value) <= 512 && !strings.ContainsAny(value, "\r\n\x00")
 }
+
+// youtubeAuthSession carries exact-origin SID session material shared across
+// authenticated Innertube client profiles without copying client identity.
+type youtubeAuthSession struct {
+	VisitorData        string
+	DelegatedSessionID string
+	UserSessionID      string
+	SessionIndex       string
+	LoggedIn           bool
+}
+
+func youtubeAuthSessionFromWEB(config youtubeWEBAuthConfig) youtubeAuthSession {
+	return youtubeAuthSession{
+		VisitorData:        config.VisitorData,
+		DelegatedSessionID: config.DelegatedSessionID,
+		UserSessionID:      config.UserSessionID,
+		SessionIndex:       config.SessionIndex,
+		LoggedIn:           config.LoggedIn,
+	}
+}
+
+func (session youtubeAuthSession) valid() bool {
+	if !session.LoggedIn {
+		return false
+	}
+	for _, value := range []string{session.VisitorData, session.DelegatedSessionID, session.UserSessionID, session.SessionIndex} {
+		if value != "" && !youtubeSafeHeaderValue(value) {
+			return false
+		}
+	}
+	if session.SessionIndex != "" {
+		if _, err := strconv.ParseUint(session.SessionIndex, 10, 32); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+// requestAuthenticatedYouTubePlayer issues one authenticated /player request
+// for an exact RequireAuth profile. Cookies stay on www.youtube.com via the
+// no-redirect transport; client identity comes only from the profile.
+func requestAuthenticatedYouTubePlayer(ctx context.Context, transport Transport, videoID string, profile youtubeClientProfile, session youtubeAuthSession, now func() time.Time) (youtubePlayerResponse, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if !youtubeIDPattern.MatchString(videoID) || !profile.valid() || !profile.RequireAuth || !session.valid() || now == nil {
+		return youtubePlayerResponse{}, ErrAuthentication
+	}
+	if profile.ClientName == "WEB_REMIX" || profile.origin() != youtubeAuthOrigin {
+		return youtubePlayerResponse{}, ErrAuthentication
+	}
+	authTransport, ok := transport.(youtubeAuthenticatedTransport)
+	if !ok {
+		return youtubePlayerResponse{}, ErrAuthentication
+	}
+	endpoint, err := url.Parse(youtubeAuthenticatedWEBPlayerURL)
+	if err != nil || endpoint.Scheme != "https" || endpoint.Host != "www.youtube.com" || endpoint.User != nil || endpoint.Port() != "" {
+		return youtubePlayerResponse{}, ErrAuthentication
+	}
+	cookies, err := authTransport.Cookies(youtubeAuthOrigin)
+	if err != nil {
+		return youtubePlayerResponse{}, ErrAuthentication
+	}
+	authorization, err := youtubeSIDAuthorization(cookies, session.UserSessionID, now())
+	if err != nil {
+		return youtubePlayerResponse{}, ErrAuthentication
+	}
+	config := youtubeWEBAuthConfig{
+		ClientName:         profile.ClientName,
+		ClientID:           profile.ClientID,
+		ClientVersion:      profile.ClientVersion,
+		VisitorData:        session.VisitorData,
+		UserAgent:          profile.UserAgent,
+		DelegatedSessionID: session.DelegatedSessionID,
+		UserSessionID:      session.UserSessionID,
+		SessionIndex:       session.SessionIndex,
+		LoggedIn:           true,
+	}
+	// Bypass WEB-only valid() by building headers from the exact profile.
+	headers, err := youtubeAuthenticatedPlayerHeaders(config, authorization)
+	if err != nil {
+		return youtubePlayerResponse{}, err
+	}
+	clientContext := map[string]any{
+		"clientName": profile.ClientName, "clientVersion": profile.ClientVersion,
+		"hl": "en", "timeZone": "UTC", "utcOffsetMinutes": 0,
+	}
+	for key, item := range profile.Context {
+		clientContext[key] = item
+	}
+	if session.VisitorData != "" {
+		clientContext["visitorData"] = session.VisitorData
+	}
+	payload, err := json.Marshal(map[string]any{
+		"context": map[string]any{"client": clientContext},
+		"videoId": videoID,
+		"playbackContext": map[string]any{
+			"contentPlaybackContext": map[string]any{"html5Preference": "HTML5_PREF_WANTS"},
+		},
+		"contentCheckOk": true,
+		"racyCheckOk":    true,
+	})
+	if err != nil {
+		return youtubePlayerResponse{}, fmt.Errorf("%w: encode authenticated player request", ErrAuthentication)
+	}
+	var player youtubePlayerResponse
+	err = requestJSON(ctx, authTransport.DoNoRedirect, http.MethodPost, endpoint.String(), payload, headers, &player)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return youtubePlayerResponse{}, err
+		}
+		var status *HTTPStatusError
+		if errors.As(err, &status) && (status.Code >= 300 && status.Code < 400 || status.Code == http.StatusUnauthorized || status.Code == http.StatusForbidden) {
+			return youtubePlayerResponse{}, ErrAuthentication
+		}
+		if errors.Is(err, ErrInvalidMetadata) || errors.Is(err, ErrJSONResponseTooLarge) {
+			return youtubePlayerResponse{}, ErrAuthentication
+		}
+		return youtubePlayerResponse{}, fmt.Errorf("%w: authenticated player request failed", ErrAuthentication)
+	}
+	if player.VideoDetails.VideoID == "" || player.VideoDetails.VideoID != videoID {
+		return youtubePlayerResponse{}, ErrAuthentication
+	}
+	if player.PlayabilityStatus.Status == "" {
+		return youtubePlayerResponse{}, ErrAuthentication
+	}
+	return bindYouTubePlayerIdentity(player, profile, session.VisitorData, "", false)
+}
+
+func youtubeAuthenticatedPlayerHeaders(config youtubeWEBAuthConfig, authorization string) (http.Header, error) {
+	if authorization == "" || !youtubeSafeHeaderValue(authorization) {
+		return nil, ErrAuthentication
+	}
+	if config.ClientName == "" || config.ClientID == "" || config.ClientVersion == "" ||
+		!youtubeSafeHeaderValue(config.ClientName) || !youtubeSafeHeaderValue(config.ClientID) ||
+		!youtubeSafeHeaderValue(config.ClientVersion) || !youtubeSafeHeaderValue(config.UserAgent) ||
+		!youtubeSafeHeaderValue(config.VisitorData) || !youtubeSafeHeaderValue(config.DelegatedSessionID) ||
+		!youtubeSafeHeaderValue(config.UserSessionID) || !youtubeSafeHeaderValue(config.SessionIndex) {
+		return nil, ErrAuthentication
+	}
+	if config.ClientName == "WEB_REMIX" {
+		return nil, ErrAuthentication
+	}
+	headers := make(http.Header)
+	headers.Set("Content-Type", "application/json")
+	if config.UserAgent != "" {
+		headers.Set("User-Agent", config.UserAgent)
+	}
+	headers.Set("X-Youtube-Client-Name", config.ClientID)
+	headers.Set("X-Youtube-Client-Version", config.ClientVersion)
+	headers.Set("Origin", youtubeAuthOrigin)
+	headers.Set("X-Origin", youtubeAuthOrigin)
+	headers.Set("Authorization", authorization)
+	if config.VisitorData != "" {
+		headers.Set("X-Goog-Visitor-Id", config.VisitorData)
+	}
+	if config.DelegatedSessionID != "" {
+		headers.Set("X-Goog-PageId", config.DelegatedSessionID)
+	}
+	if config.SessionIndex != "" {
+		headers.Set("X-Goog-AuthUser", config.SessionIndex)
+	} else if config.DelegatedSessionID != "" {
+		headers.Set("X-Goog-AuthUser", "0")
+	}
+	if config.LoggedIn {
+		headers.Set("X-Youtube-Bootstrap-Logged-In", "true")
+	}
+	return headers, nil
+}

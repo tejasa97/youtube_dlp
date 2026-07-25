@@ -808,6 +808,7 @@ func TestYouTubePageConfigBuildsBoundedWEBAuthContext(t *testing.T) {
 }
 
 func TestYouTubeRecoversURLBearingFormatsFromNativeClient(t *testing.T) {
+	unavailable := []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"}}`)
 	transport := &youtubeFallbackTransport{
 		memoryTransport: &memoryTransport{pages: map[string][]byte{
 			youtubeFixtureURL: readYouTubeFixture(t, "sabr-watch.html"),
@@ -815,6 +816,7 @@ func TestYouTubeRecoversURLBearingFormatsFromNativeClient(t *testing.T) {
 		responses: map[string][]byte{
 			"3":  readYouTubeFixture(t, "android-player.json"),
 			"28": readYouTubeFixture(t, "android-vr-player.json"),
+			"1":  unavailable, "5": unavailable, "2": unavailable,
 		},
 	}
 	result, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport})
@@ -832,7 +834,7 @@ func TestYouTubeRecoversURLBearingFormatsFromNativeClient(t *testing.T) {
 	if rawURL, _ := format.Lookup("url").StringValue(); rawURL != "https://media.example/android-video.mp4" {
 		t.Fatalf("format = %#v", format)
 	}
-	if len(transport.requests) != 2 {
+	if len(transport.requests) != 5 {
 		t.Fatalf("requests = %d", len(transport.requests))
 	}
 	request := transport.requests[0]
@@ -890,20 +892,27 @@ func TestYouTubeAppliesPlayerAndGVSTokensToIsolatedRecovery(t *testing.T) {
 			youtubeFixtureURL: readYouTubeFixture(t, "sabr-watch.html"),
 		}},
 		responses: map[string][]byte{
-			"3": readYouTubeFixture(t, "android-player.json"), "28": readYouTubeFixture(t, "android-vr-player.json"),
+			"3":  readYouTubeFixture(t, "android-player.json"),
+			"28": readYouTubeFixture(t, "android-vr-player.json"),
+			"1":  []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"}}`),
+			"5":  []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"}}`),
+			"2":  []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"}}`),
 		},
 	}
 	result, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport, YouTubePOT: director})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(transport.bodies) != 2 {
+	if len(transport.bodies) != 5 {
 		t.Fatalf("request bodies = %d", len(transport.bodies))
 	}
-	for _, body := range transport.bodies {
-		if !bytes.Contains(body, []byte(`"serviceIntegrityDimensions":{"poToken":"cGxheWVy"}`)) {
-			t.Fatalf("player token missing from request: %s", body)
-		}
+	androidBody := transport.bodies[0]
+	if !bytes.Contains(androidBody, []byte(`"serviceIntegrityDimensions":{"poToken":"cGxheWVy"}`)) {
+		t.Fatalf("player token missing from android request: %s", androidBody)
+	}
+	iosBody := transport.bodies[3]
+	if !bytes.Contains(iosBody, []byte(`"serviceIntegrityDimensions":{"poToken":"cGxheWVy"}`)) {
+		t.Fatalf("player token missing from ios request: %s", iosBody)
 	}
 	formats, _ := result.Info.Formats()
 	if len(formats) == 0 {
@@ -1247,7 +1256,11 @@ func TestYouTubeRecoveryContinuesAfterOneClientFails(t *testing.T) {
 			youtubeFixtureURL: readYouTubeFixture(t, "sabr-watch.html"),
 		}},
 		responses: map[string][]byte{
-			"3": []byte(`{"playabilityStatus":`), "28": readYouTubeFixture(t, "android-vr-player.json"),
+			"3":  []byte(`{"playabilityStatus":`),
+			"28": readYouTubeFixture(t, "android-vr-player.json"),
+			"1":  []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"}}`),
+			"5":  []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"}}`),
+			"2":  []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"}}`),
 		},
 	}
 	result, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport})
@@ -1255,7 +1268,7 @@ func TestYouTubeRecoveryContinuesAfterOneClientFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	formats, _ := result.Info.Formats()
-	if len(formats) != 2 || len(transport.requests) != 2 {
+	if len(formats) != 2 || len(transport.requests) != 5 {
 		t.Fatalf("formats=%d requests=%d", len(formats), len(transport.requests))
 	}
 }
@@ -1266,10 +1279,12 @@ func TestYouTubeSABRFallbackFailureIsCategorizedAndCancelable(t *testing.T) {
 		memoryTransport: &memoryTransport{pages: map[string][]byte{
 			youtubeFixtureURL: readYouTubeFixture(t, "sabr-watch.html"),
 		}},
-		responses: map[string][]byte{"3": unavailable, "28": unavailable},
+		responses: map[string][]byte{
+			"3": unavailable, "28": unavailable, "1": unavailable, "5": unavailable, "2": unavailable,
+		},
 	}
 	_, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport})
-	if !errors.Is(err, ErrInvalidMetadata) || len(transport.requests) != 2 {
+	if !errors.Is(err, ErrInvalidMetadata) || len(transport.requests) != 5 {
 		t.Fatalf("error=%v requests=%d", err, len(transport.requests))
 	}
 

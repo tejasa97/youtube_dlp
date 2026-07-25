@@ -78,6 +78,12 @@ func extractYouTubePlaylist(ctx context.Context, request Request, playlistID str
 		value.Field{Key: "description", Value: value.String(parsed.description)},
 		value.Field{Key: "webpage_url", Value: value.String(canonical)},
 	))
+	if parsed.hasCount {
+		info.Set("playlist_count", value.Int(parsed.playlistCount))
+	}
+	if parsed.hasViewCount {
+		info.Set("view_count", value.Int(parsed.viewCount))
+	}
 	return Playlist(info, sequence)
 }
 
@@ -162,12 +168,16 @@ func extractYouTubePlaylistConfig(page []byte) youtubePlaylistConfig {
 }
 
 type youtubePlaylistPage struct {
-	entries      []Entry
-	continuation string
-	title        string
-	description  string
-	alert        string
-	visitorData  string
+	entries       []Entry
+	continuation  string
+	title         string
+	description   string
+	alert         string
+	visitorData   string
+	playlistCount int64
+	viewCount     int64
+	hasCount      bool
+	hasViewCount  bool
 }
 
 func parseYouTubePlaylistData(data []byte) (youtubePlaylistPage, error) {
@@ -222,9 +232,46 @@ func parseYouTubePlaylistData(data []byte) (youtubePlaylistPage, error) {
 	}
 	headerNodes := 0
 	if err := walkOrderedJSON(rootObject.Lookup("header"), 0, &headerNodes, func(key string, object *value.Object) {
-		if key == "playlistHeaderRenderer" && page.title == "" {
-			page.title = rendererText(object.Lookup("title"))
-			page.description = rendererText(object.Lookup("descriptionText"))
+		if key == "playlistHeaderRenderer" {
+			if page.title == "" {
+				page.title = rendererText(object.Lookup("title"))
+				page.description = rendererText(object.Lookup("descriptionText"))
+			}
+			if !page.hasViewCount {
+				if count, ok := youtubeParseCountText(rendererText(object.Lookup("viewCountText"))); ok {
+					page.viewCount, page.hasViewCount = count, true
+				}
+			}
+			if !page.hasCount {
+				if count, ok := youtubePlaylistHeaderCount(object); ok {
+					page.playlistCount, page.hasCount = count, true
+				}
+			}
+		}
+	}); err != nil {
+		return youtubePlaylistPage{}, err
+	}
+	sidebarNodes := 0
+	if err := walkOrderedJSON(rootObject.Lookup("sidebar"), 0, &sidebarNodes, func(key string, object *value.Object) {
+		if key != "playlistSidebarPrimaryInfoRenderer" {
+			return
+		}
+		stats, ok := object.Lookup("stats").ListValue()
+		if !ok {
+			stats, ok = object.Lookup("briefStats").ListValue()
+		}
+		if !ok {
+			return
+		}
+		if !page.hasCount && len(stats) > 0 {
+			if count, parsed := youtubeParseCountText(rendererTextValue(stats[0])); parsed {
+				page.playlistCount, page.hasCount = count, true
+			}
+		}
+		if !page.hasViewCount && len(stats) > 1 {
+			if count, parsed := youtubeParseCountText(rendererTextValue(stats[1])); parsed {
+				page.viewCount, page.hasViewCount = count, true
+			}
 		}
 	}); err != nil {
 		return youtubePlaylistPage{}, err

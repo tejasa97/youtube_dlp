@@ -194,7 +194,7 @@ func extractYouTubeAliasTab(ctx context.Context, transport Transport, kind, alia
 	if tab == "search" && query != "" {
 		title = parsed.title + " - Search - " + query
 	}
-	return Playlist(youtubeRendererPlaylistInfo(id, title, canonical, parsed.tabs), entries)
+	return Playlist(youtubeRendererPlaylistInfoWithCounts(id, title, canonical, parsed.tabs, parsed.playlistCount, parsed.hasCount, parsed.viewCount, parsed.hasViewCount), entries)
 }
 
 func youtubeAliasTabCanonicalURL(kind, alias, tab string) string {

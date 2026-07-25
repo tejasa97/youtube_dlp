@@ -187,31 +187,34 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 	formatPlayers := []youtubePlayerResponse{player}
 	if !initialHasFormats {
 		if pageConfig.LoggedIn != nil && *pageConfig.LoggedIn {
-			recovered, authErr := requestAuthenticatedYouTubeWEBPlayer(
+			initialData, _ := extractJSONObject(page, youtubeInitialDataMarker)
+			premium := youtubePremiumSubscriber(initialData)
+			ageGated := youtubePlayabilityAgeGated(player.PlayabilityStatus)
+			recovered, authErr := recoverAuthenticatedYouTubeFormats(
 				ctx,
 				request.Transport,
 				videoID,
-				pageConfig.webAuthConfig(
-					player.ResponseContext.VisitorData,
-					player.ResponseContext.MainAppWebResponseContext.DataSyncID,
-				),
+				pageConfig,
+				player.ResponseContext.VisitorData,
+				player.ResponseContext.MainAppWebResponseContext.DataSyncID,
+				premium,
+				ageGated,
+				request.YouTubePOT,
 				time.Now,
 			)
 			if authErr != nil {
 				return Extraction{}, authErr
 			}
-			if authErr := checkYouTubeAvailability(recovered.PlayabilityStatus); authErr != nil {
-				return Extraction{}, authErr
-			}
-			if !hasYouTubeFormatCandidates(recovered) {
-				return Extraction{}, fmt.Errorf("%w: authenticated WEB player returned no URL-bearing formats", ErrUnavailable)
-			}
-			formatPlayers = append(formatPlayers, recovered)
-			if playerPath == "" {
-				playerPath = recovered.Assets.JS
-			}
-			if player.VideoDetails.Title == "" {
-				player.VideoDetails = recovered.VideoDetails
+			// Selected authenticated candidates only — do not merge with the
+			// failed webpage player formats/SABR inventory.
+			formatPlayers = recovered
+			for i := range formatPlayers {
+				if formatPlayers[i].VideoDetails.Title == "" && player.VideoDetails.Title != "" {
+					formatPlayers[i].VideoDetails.Title = player.VideoDetails.Title
+				}
+				if playerPath == "" {
+					playerPath = formatPlayers[i].Assets.JS
+				}
 			}
 		} else {
 			visitorData := pageConfig.visitorData(player.ResponseContext.VisitorData)
@@ -1074,8 +1077,9 @@ func parseYouTubeLiveTimestamp(raw string) (int64, bool) {
 }
 
 type youtubePlayabilityStatus struct {
-	Status string `json:"status"`
-	Reason string `json:"reason"`
+	Status                     string          `json:"status"`
+	Reason                     string          `json:"reason"`
+	DesktopLegacyAgeGateReason json.RawMessage `json:"desktopLegacyAgeGateReason"`
 }
 
 type youtubeFormat struct {

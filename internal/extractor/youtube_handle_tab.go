@@ -199,7 +199,7 @@ func extractYouTubeHandleTab(ctx context.Context, transport Transport, handle, t
 	if tab == "search" && query != "" {
 		title = parsed.title + " - Search - " + query
 	}
-	return Playlist(youtubeRendererPlaylistInfo(id, title, canonical, parsed.tabs), entries)
+	return Playlist(youtubeRendererPlaylistInfoWithCounts(id, title, canonical, parsed.tabs, parsed.playlistCount, parsed.hasCount, parsed.viewCount, parsed.hasViewCount), entries)
 }
 
 // parseYouTubeHandleTabData keeps the historical helper name while routing

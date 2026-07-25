@@ -75,13 +75,17 @@ func (policy youtubeRendererPolicy) allows(kind youtubeRendererKind) bool {
 
 // youtubeRendererPage is the normalized product of one browse/search payload.
 type youtubeRendererPage struct {
-	entries      []Entry
-	continuation string
-	title        string
-	channelID    string
-	alert        string
-	visitorData  string
-	tabs         []youtubeAdvertisedTab
+	entries       []Entry
+	continuation  string
+	title         string
+	channelID     string
+	alert         string
+	visitorData   string
+	tabs          []youtubeAdvertisedTab
+	playlistCount int64
+	viewCount     int64
+	hasCount      bool
+	hasViewCount  bool
 }
 
 // parseYouTubeRendererData walks a browse or search JSON payload under the
@@ -124,7 +128,7 @@ func parseYouTubeRendererData(data []byte, policy youtubeRendererPolicy) (youtub
 			if policy.allows(youtubeRendererVideo) {
 				appendEntry(youtubeShortsLockupEntry(object))
 			}
-		case "playlistRenderer", "gridPlaylistRenderer":
+		case "playlistRenderer", "gridPlaylistRenderer", "showRenderer", "gridShowRenderer":
 			if policy.allows(youtubeRendererPlaylist) {
 				appendEntry(youtubeTabPlaylistEntry(object))
 			}
