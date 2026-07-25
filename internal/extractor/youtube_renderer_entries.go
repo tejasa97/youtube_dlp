@@ -156,20 +156,17 @@ func youtubeRendererLockupEntry(viewModel *value.Object, policy youtubeRendererP
 }
 
 func youtubeHashtagTileEntry(renderer *value.Object) (Entry, bool) {
+	// Hashtag pages are not registered. Still validate the endpoint shape so
+	// hostile tiles are rejected, but never emit an entry that default playlist
+	// expansion would hand to the generic YouTube extractor.
 	raw := objectString(renderer, "onTapCommand", "commandMetadata", "webCommandMetadata", "url")
 	if raw == "" {
 		return Entry{}, false
 	}
-	canonical, ok := youtubeSafeHashtagURL(raw)
-	if !ok {
+	if _, ok := youtubeSafeHashtagURL(raw); !ok {
 		return Entry{}, false
 	}
-	title := rendererText(renderer.Lookup("hashtag"))
-	if len(title) > youtubeMaxTabEntryTitleBytes || strings.ContainsRune(title, 0) {
-		title = ""
-	}
-	id := strings.TrimPrefix(canonical.Path, "/hashtag/")
-	return Entry{URL: canonical.String(), ID: id, Title: title}, true
+	return Entry{}, false
 }
 
 func youtubeSafeHashtagURL(raw string) (*url.URL, bool) {
@@ -300,12 +297,14 @@ func youtubeMusicRendererEntry(renderer *value.Object, policy youtubeRendererPol
 		}
 		return youtubeTabPlaylistResult(browseID[2:], title), true
 	}
-	if !policy.allows(youtubeRendererMusicBrowse) || !validYouTubeMusicBrowseID(browseID) {
+	// Music browse IDs (MPRE..., etc.) have no registered consumer. Emitting
+	// them would make default playlist expansion select the generic YouTube
+	// extractor and fail on the reserved /browse route. Omit until a bounded
+	// Music browse extractor exists.
+	if policy.allows(youtubeRendererMusicBrowse) && validYouTubeMusicBrowseID(browseID) {
 		return Entry{}, false
 	}
-	return Entry{
-		URL: "https://music.youtube.com/browse/" + browseID, ID: browseID, Title: title,
-	}, true
+	return Entry{}, false
 }
 
 func musicFlexTitle(o *value.Object) string {

@@ -40,7 +40,7 @@ func TestYouTubeRendererWalksSupportedFamilies(t *testing.T) {
 	if page.title != "Fixture Channel" || page.channelID != "UCabcdefghijklmnopqrstuv" || page.visitorData != "visitor-1" {
 		t.Fatalf("metadata=%#v", page)
 	}
-	if len(page.entries) != 9 {
+	if len(page.entries) != 8 {
 		t.Fatalf("entries=%d %#v", len(page.entries), page.entries)
 	}
 	checks := []struct{ id, key, url string }{
@@ -48,7 +48,6 @@ func TestYouTubeRendererWalksSupportedFamilies(t *testing.T) {
 		{"bbbbbbbbbbb", "youtube", "https://www.youtube.com/shorts/bbbbbbbbbbb"},
 		{"PLfixture0001", "youtube", "https://www.youtube.com/playlist?list=PLfixture0001"},
 		{"UCabcdefghijklmnopqrstuv", "youtube_channel_tab", "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv"},
-		{"cats", "", "https://www.youtube.com/hashtag/cats"},
 		{"", "", "https://www.youtube.com/feed/trending"},
 		{"ccccccccccc", "youtube", "https://www.youtube.com/watch?v=ccccccccccc"},
 		{"PLpodcast0001", "youtube", "https://www.youtube.com/playlist?list=PLpodcast0001"},
@@ -678,6 +677,80 @@ func TestYouTubeAdvertisedTabsIdentityBoundAcrossURLForms(t *testing.T) {
 	if len(alias) != 3 || alias["videos"] == "" || alias["uccustom"] == "" || alias["aliascustom"] == "" ||
 		alias["handlecustom"] != "" || alias["otherhandle"] != "" || alias["otheralias"] != "" || alias["orphan"] != "" {
 		t.Fatalf("alias tabs=%#v", alias)
+	}
+}
+
+func TestYouTubeOmitsUnconsumableMusicBrowseAndHashtagEntries(t *testing.T) {
+	musicPayload, err := json.Marshal(map[string]any{
+		"contents": map[string]any{"sectionListRenderer": map[string]any{"contents": []any{
+			map[string]any{"musicShelfRenderer": map[string]any{"contents": []any{
+				map[string]any{"musicResponsiveListItemRenderer": map[string]any{
+					"navigationEndpoint": map[string]any{"browseEndpoint": map[string]any{"browseId": "MPREbfixture0001"}},
+					"flexColumns":        []any{map[string]any{"musicResponsiveListItemFlexColumnRenderer": map[string]any{"text": map[string]any{"simpleText": "album"}}}},
+				}},
+				map[string]any{"musicResponsiveListItemRenderer": map[string]any{
+					"navigationEndpoint": map[string]any{"browseEndpoint": map[string]any{"browseId": "VLPLFixtureAlbum1"}},
+					"flexColumns":        []any{map[string]any{"musicResponsiveListItemFlexColumnRenderer": map[string]any{"text": map[string]any{"simpleText": "vl"}}}},
+				}},
+				map[string]any{"musicResponsiveListItemRenderer": map[string]any{
+					"navigationEndpoint": map[string]any{"browseEndpoint": map[string]any{"browseId": "UCabcdefghijklmnopqrstuv"}},
+					"flexColumns":        []any{map[string]any{"musicResponsiveListItemFlexColumnRenderer": map[string]any{"text": map[string]any{"simpleText": "artist"}}}},
+				}},
+				map[string]any{"musicResponsiveListItemRenderer": map[string]any{
+					"playlistItemData": map[string]any{"videoId": "aaaaaaaaaaa"},
+					"flexColumns":      []any{map[string]any{"musicResponsiveListItemFlexColumnRenderer": map[string]any{"text": map[string]any{"simpleText": "song"}}}},
+				}},
+			}}},
+		}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := parseYouTubeRendererData(musicPayload, youtubeRendererPolicy{kinds: youtubeRendererMusicAll})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.entries) != 3 {
+		t.Fatalf("music entries=%#v", page.entries)
+	}
+	for _, entry := range page.entries {
+		if strings.Contains(entry.URL, "/browse/") || strings.HasPrefix(entry.ID, "MPRE") {
+			t.Fatalf("emitted unconsumable music browse entry %#v", entry)
+		}
+	}
+	if page.entries[0].ID != "PLFixtureAlbum1" || page.entries[1].ID != "UCabcdefghijklmnopqrstuv" || page.entries[2].ID != "aaaaaaaaaaa" {
+		t.Fatalf("music entries=%#v", page.entries)
+	}
+
+	hashtagPayload, err := json.Marshal(map[string]any{
+		"contents": map[string]any{"twoColumnSearchResultsRenderer": map[string]any{"primaryContents": map[string]any{
+			"sectionListRenderer": map[string]any{"contents": []any{
+				map[string]any{"itemSectionRenderer": map[string]any{"contents": []any{
+					map[string]any{"hashtagTileRenderer": map[string]any{
+						"hashtag":      map[string]any{"simpleText": "#cats"},
+						"onTapCommand": map[string]any{"commandMetadata": map[string]any{"webCommandMetadata": map[string]any{"url": "/hashtag/cats"}}},
+					}},
+					map[string]any{"videoRenderer": map[string]any{"videoId": "aaaaaaaaaaa", "title": map[string]any{"simpleText": "vid"}}},
+				}}},
+			}},
+		}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	searchPage, err := parseYouTubeRendererData(hashtagPayload, youtubeRendererPolicy{kinds: youtubeRendererSearchAll})
+	if err != nil || len(searchPage.entries) != 1 || searchPage.entries[0].ID != "aaaaaaaaaaa" {
+		t.Fatalf("search page=%#v err=%v", searchPage, err)
+	}
+	registry := NewRegistry(NewYouTubeMusicSearch(), NewYouTubeSearch(), NewYouTubeChannelTab(), NewYouTube())
+	for _, entry := range append(append([]Entry(nil), page.entries...), searchPage.entries...) {
+		selected, err := registry.SelectFor(entry.URL, entry.ExtractorKey)
+		if err != nil {
+			t.Fatalf("default expansion select %#v: %v", entry, err)
+		}
+		if selected.Name() == "youtube" && (strings.Contains(entry.URL, "/hashtag/") || strings.Contains(entry.URL, "music.youtube.com/browse/")) {
+			t.Fatalf("generic youtube selected for unconsumable %#v", entry)
+		}
 	}
 }
 

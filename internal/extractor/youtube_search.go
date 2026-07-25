@@ -27,15 +27,16 @@ const (
 )
 
 // Supported filter/sort params mirrored from documented upstream sp values.
+// Keys are the decoded forms that url.ParseQuery returns (and that callers
+// should store after normalizing percent-encoding).
 var youtubeSearchSupportedParams = map[string]struct{}{
 	"":                        {},
-	youtubeSearchVideosParams: {},
+	youtubeSearchVideosParams: {}, // EgIQAfABAQ==
 	"EgIQAg==":                {}, // channels
 	"EgIQAw==":                {}, // playlists
-	"EgIQAQ%3D%3D":            {}, // videos (URL-encoded form rejected; we normalize)
+	"EgIQAQ==":                {}, // videos (decoded from EgIQAQ%3D%3D)
 	"EgQQARgB":                {}, // live
 	"EgQQASAB":                {}, // short
-	"CAI%3D":                  {}, // sort upload date (encoded)
 	"CAI=":                    {}, // sort upload date
 	"CAM=":                    {}, // sort view count
 	"CAE=":                    {}, // sort rating
@@ -163,17 +164,24 @@ func youtubeSearchTarget(parsed *url.URL) (query string, count int, canonical st
 		return "", 0, "", false
 	}
 	if sp := values.Get("sp"); sp != "" {
-		decoded, err := url.QueryUnescape(sp)
-		if err != nil {
-			decoded = sp
-		}
-		if _, supported := youtubeSearchSupportedParams[sp]; !supported {
-			if _, supported = youtubeSearchSupportedParams[decoded]; !supported {
-				return "", 0, "", false
-			}
+		if !youtubeSearchSPSupported(sp) {
+			return "", 0, "", false
 		}
 	}
 	return query, youtubeSearchMaxCount, (&url.URL{Scheme: "https", Host: "www.youtube.com", Path: parsed.Path, RawQuery: parsed.RawQuery}).String(), true
+}
+
+// youtubeSearchSPSupported accepts only decoded sp values that appear in the
+// supported map. Callers must pass the value already returned by ParseQuery
+// (or an equivalent decode); remaining percent-escapes are treated as unknown.
+func youtubeSearchSPSupported(sp string) bool {
+	if sp == "" {
+		return true
+	}
+	if _, supported := youtubeSearchSupportedParams[sp]; supported {
+		return true
+	}
+	return false
 }
 
 func validYouTubeSearchQuery(query string) bool {

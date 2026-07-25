@@ -55,7 +55,10 @@ renderers with consistent continuation handling. Dynamically advertised custom
 tabs are accepted only when securely bound to the requested channel identity,
 including resolved-UCID browseId checks and attributable selected endpoints.
 Channel-local search, broader general search results, and broader YouTube Music
-section search are implemented. Authenticated exact-origin WEB browse/search
+section search are implemented; Music browse IDs and hashtag tiles without a
+registered consumer are omitted so default playlist expansion cannot fail.
+Conditional `/search` redirects preserve the validated query. Authenticated
+exact-origin WEB browse/search
 continuations reuse the SID no-redirect boundary without anonymous fallback or
 WEB↔WEB_REMIX identity crossing; incomplete logged-in config fails closed.
 Browse continuations rotate visitor data; general search reuses the initial
