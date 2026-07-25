@@ -16,7 +16,9 @@ requests never touch the network.
 
 When `Remove` is also set, matching skip ranges are cut from the
 downloaded media after postprocessors run and before subtitle
-embedding. `Simulate` and `SkipDownload` never invent media cuts.
+embedding. `Simulate` and `SkipDownload` never invent media cuts; when
+`Mark` is also enabled they still apply mark overlays on the uncut
+timeline so mark metadata is not discarded.
 
 The implementation derives its behavior from the pinned yt-dlp
 reference at commit
@@ -55,12 +57,19 @@ the overlay are eligible for the pinned sub-second merge behavior; originally
 tiny chapters remain intact.
 
 `Remove` requires `Enabled`. After a real download it plans cut ranges from
-`sponsorblock_chapters`, optionally force-keyframes around boundaries, and
+SponsorBlock chapters, optionally force-keyframes around boundaries, and
 concatenates keep segments with the ffmpeg concat demuxer
 (`inpoint`/`outpoint`), matching
-`ModifyChaptersPP._make_concat_opts` / `remove_chapters`. Mark and Remove may
-both be set: marking rewrites chapter metadata; removing mutates media and then
-remaps marked chapter timestamps onto the post-cut timeline.
+`ModifyChaptersPP._make_concat_opts` / `remove_chapters`. When Mark and Remove
+are both set and a real download may still cut, chapter overlays are deferred
+during metadata enrich and produced once by the pinned ModifyChapters heap
+arrangement (`_remove_marked_arrange_sponsors` / `_remove_tiny_rename_sponsors`)
+on the post-cut timeline. When that arrangement yields no cuts, arranged marked
+chapters are still committed (matching pinned ModifyChapters). Under `Simulate`
+or `SkipDownload`, media is never cut, but requested Mark overlays are still
+applied during enrich so mark metadata is not discarded merely because Remove is
+also enabled. Remove-only uses the same arrangement to retime ordinary chapters
+around cuts without introducing mark overlays for non-remove categories.
 
 `Categories` is the requested non-empty set of SponsorBlock category
 identifiers used for the API fetch (and for Mark). The list is treated as
@@ -203,13 +212,42 @@ The rules are:
    `videoDuration` differs from the known duration by more than
    one second, or by more than five seconds when the relative
    difference is at least five percent. The filter guards
-   against divide-by-zero hazards.
+   against divide-by-zero hazards. When one or more otherwise-valid
+   segments are dropped solely by that filter, the product emits the
+   pinned warning exactly once:
+   `Some SponsorBlock segments are from a video of different duration, maybe from an old version of this video`.
+   Whole-video `(0, 0)` markers, invalid category/action values, and
+   unrelated malformed entries do not trigger that warning on their own.
+   Warning observer failures are categorized as internal errors and leave
+   metadata uncommitted.
 6. Output chapters are sorted deterministically by
    `(start, end, source order)`.
 
 The function is also exercised by a fuzz target so the
 normalization is verified against random segment shapes and
 response bodies.
+
+## Mixed Mark+Remove chapter arrangement
+
+Pure arrangement lives in `internal/sponsorblock.Arrange`, a bounded port of
+yt-dlp `ModifyChaptersPP._remove_marked_arrange_sponsors` and
+`_remove_tiny_rename_sponsors`:
+
+1. Heap ordering by start time with deterministic index tie-breakers.
+2. All eight cut/sponsor/normal overlap cases, including adjacent/overlapping
+   cut merges and contained-cut excess duration.
+3. Sponsor category splitting across cuts, shortest-category naming, tiny
+   chapter merge policy, and identically titled sponsor coalescing.
+4. Inputs and category slices are never mutated.
+
+Product Remove feeds ordinary chapters plus remove-flagged (and, when Mark is
+set, remaining) SponsorBlock chapters into Arrange once, then plans ffmpeg cuts
+from the returned ranges. When Mark is set and Arrange yields no cuts, the
+arranged chapter list is still written without inventing a media cut. Metadata
+duration updates and cut-time chapter commits happen only after the
+transactional media/subtitle cut commit succeeds. `Simulate` / `SkipDownload`
+never cut media; with Mark+Remove they still apply mark overlays on the uncut
+timeline during enrich (the remove path does not run on those modes).
 
 ## Cutting and keyframes
 
@@ -330,9 +368,10 @@ error and the operation stops.
 
 ## Conformance fixtures
 
-`conformance/sponsorblock/` contains three deterministic JSON
-fixtures (`sample_response.json`, `sample_collision.json`,
-`sample_malformed.json`) and a `PROVENANCE.md` file that names
+`conformance/sponsorblock/` contains deterministic JSON fixtures
+(`sample_response.json`, `sample_collision.json`,
+`sample_malformed.json`, `sample_arrange_mark_remove.json`,
+`sample_duration_mismatch.json`) and a `PROVENANCE.md` file that names
 the local pinned reference checkout and commit plus the source
 files (`sponsorblock.py`, `modify_chapters.py`). The fixtures contain no
 real cookies, tokens, video IDs, or captured production
@@ -346,15 +385,10 @@ remain unimplemented or intentionally different in this release:
 
 - SponsorBlock metadata for services other than YouTube
   (PeerTube, Vimeo, etc.).
-- The reference's user-facing `report_warning` call when some
-  segments are filtered by duration mismatch.
 - Regex-based ordinary chapter removal (`--remove-chapters`) and
   manual `--remove-ranges` outside SponsorBlock categories.
 - yt-dlp's warn-and-continue policy for unsupported external
   subtitle formats during remove (this port fails closed instead).
-- The full ModifyChapters sponsor/normal heap arrangement when
-  mixing remove markers with simultaneous mark overlays beyond the
-  post-cut timestamp remap implemented here.
 
 These are documented in the capability manifest's
 `known_deviation` and are not a regression of any prior claim.

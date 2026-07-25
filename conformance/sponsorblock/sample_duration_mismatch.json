@@ -1,0 +1,40 @@
+{
+  "videoID": "fixture0001",
+  "duration": 120.0,
+  "segments": [
+    {
+      "UUID": "ok-duration",
+      "segment": [10.0, 20.0],
+      "category": "sponsor",
+      "actionType": "skip",
+      "videoDuration": 120.0,
+      "description": ""
+    },
+    {
+      "UUID": "mismatch-duration",
+      "segment": [30.0, 40.0],
+      "category": "sponsor",
+      "actionType": "skip",
+      "videoDuration": 200.0,
+      "description": ""
+    },
+    {
+      "UUID": "whole-video-marker",
+      "segment": [0.0, 0.0],
+      "category": "sponsor",
+      "actionType": "skip",
+      "videoDuration": 200.0,
+      "description": ""
+    },
+    {
+      "UUID": "invalid-category",
+      "segment": [50.0, 60.0],
+      "category": "not-a-real-category",
+      "actionType": "skip",
+      "videoDuration": 200.0,
+      "description": ""
+    }
+  ],
+  "expect_duration_mismatch_warning": true,
+  "expected_chapter_count": 1
+}

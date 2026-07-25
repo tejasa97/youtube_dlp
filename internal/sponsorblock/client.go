@@ -25,10 +25,12 @@ type cookieIsolated interface {
 
 // FetchResult is the bounded output of a single SponsorBlock lookup.
 // Chapters is sorted, deterministic, and may be empty (a 404 or a
-// no-match response).
+// no-match response). DurationMismatchFiltered is true when one or more
+// otherwise-valid segments were dropped by the pinned videoDuration filter.
 type FetchResult struct {
-	Prefix   string
-	Chapters []Chapter
+	Prefix                   string
+	Chapters                 []Chapter
+	DurationMismatchFiltered bool
 }
 
 // Fetch performs the canonical SponsorBlock lookup for one video and
@@ -87,8 +89,12 @@ func Fetch(ctx context.Context, transport Transport, options Options, service, v
 					segments = append(segments, segment)
 				}
 			}
-			chapters := Normalize(segments, videoDuration)
-			return FetchResult{Prefix: prefix, Chapters: chapters}, nil
+			normalized := NormalizeDetailed(segments, videoDuration)
+			return FetchResult{
+				Prefix:                   prefix,
+				Chapters:                 normalized.Chapters,
+				DurationMismatchFiltered: normalized.DurationMismatchFiltered,
+			}, nil
 		}
 	}
 	return FetchResult{Prefix: prefix, Chapters: []Chapter{}}, nil
