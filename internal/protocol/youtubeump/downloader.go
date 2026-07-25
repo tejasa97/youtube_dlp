@@ -303,19 +303,25 @@ func (downloader *Downloader) Download(ctx context.Context, outputRoot, destinat
 	if err := output.syncClose(); err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrDownloadFailed, err)
 	}
-	if err := publishOutput(output.path, destination, overwrite); err != nil {
-		return Result{}, fmt.Errorf("%w: publish output: %v", ErrDownloadFailed, err)
-	}
-	output.published = true
-	removeCheckpoint(statePath)
 	total := assembler.totalWritten
 	if config.RetainCompletionMarker {
-		if err := writeCompletionMarker(destination, IdentityFromConfig(config), total); err != nil {
-			_ = os.Remove(destination)
-			removeCompletionMarker(destination)
+		// Crash-atomic sidecar completion: durable identity-bound marker first,
+		// while .part + checkpoint still exist. Never delete recoverable media
+		// on marker failure. Only then publish and drop the checkpoint.
+		if err := writeCompletionMarker(output.path, destination, IdentityFromConfig(config), total); err != nil {
 			return Result{}, err
 		}
+		if err := publishOutput(output.path, destination, overwrite); err != nil {
+			return Result{}, fmt.Errorf("%w: publish output: %v", ErrDownloadFailed, err)
+		}
+		output.published = true
+		removeCheckpoint(statePath)
 	} else {
+		if err := publishOutput(output.path, destination, overwrite); err != nil {
+			return Result{}, fmt.Errorf("%w: publish output: %v", ErrDownloadFailed, err)
+		}
+		output.published = true
+		removeCheckpoint(statePath)
 		// Standalone final outputs must not leave internal markers beside media.
 		removeCompletionMarker(destination)
 	}

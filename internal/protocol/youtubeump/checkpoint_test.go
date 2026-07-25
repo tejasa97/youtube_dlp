@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -931,5 +932,249 @@ func TestCompletionMarkerLifecycleStandaloneVsRetained(t *testing.T) {
 	)))
 	if err != nil || !ok || size != int64(len("INITdata")) {
 		t.Fatalf("completed track ok=%v size=%d err=%v", ok, size, err)
+	}
+}
+
+func TestCompletionMarkerFailurePreservesRecoverableState(t *testing.T) {
+	body := buildTestUMP(
+		137,
+		testSegment{headerID: 1, init: true, payload: []byte("INIT")},
+		testSegment{headerID: 2, sequence: 0, duration: 10000, payload: []byte("data")},
+	)
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return umpResponse(body, request), nil
+	})
+	root, destination := testRoot(t, "pair.bin")
+	partPath, statePath := checkpointPaths(destination)
+	markerPath := CompletionMarkerPath(destination)
+
+	old := completionMarkerWriter
+	t.Cleanup(func() { completionMarkerWriter = old })
+	var writes atomic.Int32
+	completionMarkerWriter = func(mediaPath, dest string, identity ResumeIdentity, totalBytes int64) error {
+		writes.Add(1)
+		return fmt.Errorf("%w: injected marker failure", ErrDownloadFailed)
+	}
+
+	_, err := NewDownloader(transport, testConfig(
+		"https://rr1---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=fixture",
+		func(config *Config) { config.RetainCompletionMarker = true },
+	)).Download(context.Background(), root, destination, true, events.Nop())
+	if err == nil {
+		t.Fatal("expected marker failure")
+	}
+	if _, err := os.Stat(destination); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("destination published despite marker failure")
+	}
+	if _, err := os.Stat(partPath); err != nil {
+		t.Fatalf("part deleted after marker failure: %v", err)
+	}
+	if _, err := os.Stat(statePath); err != nil {
+		t.Fatalf("checkpoint deleted after marker failure: %v", err)
+	}
+	if _, err := os.Stat(markerPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("partial marker left after failure")
+	}
+
+	completionMarkerWriter = old
+	result, err := NewDownloader(transport, testConfig(
+		"https://rr1---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=fixture",
+		func(config *Config) { config.RetainCompletionMarker = true },
+	)).Download(context.Background(), root, destination, true, events.Nop())
+	if err != nil {
+		t.Fatalf("retry after marker failure: %v", err)
+	}
+	if !result.Resumed {
+		t.Fatal("expected resume from preserved part/checkpoint")
+	}
+	if _, err := os.Stat(destination); err != nil {
+		t.Fatalf("destination missing after retry: %v", err)
+	}
+	if _, err := os.Stat(markerPath); err != nil {
+		t.Fatalf("marker missing after retry: %v", err)
+	}
+	if _, err := os.Stat(partPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("part remains after successful retry")
+	}
+	if _, err := os.Stat(statePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("checkpoint remains after successful retry")
+	}
+}
+
+func TestCompletionMarkerCrashAfterDurableMarkerBeforePublish(t *testing.T) {
+	body := buildTestUMP(
+		137,
+		testSegment{headerID: 1, init: true, payload: []byte("INIT")},
+		testSegment{headerID: 2, sequence: 0, duration: 10000, payload: []byte("data")},
+	)
+	var posts atomic.Int32
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		posts.Add(1)
+		return umpResponse(body, request), nil
+	})
+	root, destination := testRoot(t, "crash.bin")
+	partPath, statePath := checkpointPaths(destination)
+	markerPath := CompletionMarkerPath(destination)
+
+	old := completionMarkerWriter
+	t.Cleanup(func() { completionMarkerWriter = old })
+	completionMarkerWriter = func(mediaPath, dest string, identity ResumeIdentity, totalBytes int64) error {
+		if err := writeCompletionMarkerDurable(mediaPath, dest, identity, totalBytes); err != nil {
+			return err
+		}
+		return fmt.Errorf("%w: injected crash after durable marker", ErrDownloadFailed)
+	}
+
+	_, err := NewDownloader(transport, testConfig(
+		"https://rr1---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=fixture",
+		func(config *Config) { config.RetainCompletionMarker = true },
+	)).Download(context.Background(), root, destination, true, events.Nop())
+	if err == nil {
+		t.Fatal("expected post-marker crash")
+	}
+	if _, err := os.Stat(destination); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("destination published despite post-marker crash")
+	}
+	if _, err := os.Stat(partPath); err != nil {
+		t.Fatalf("part missing after post-marker crash: %v", err)
+	}
+	if _, err := os.Stat(statePath); err != nil {
+		t.Fatalf("checkpoint missing after post-marker crash: %v", err)
+	}
+	if _, err := os.Stat(markerPath); err != nil {
+		t.Fatalf("durable marker missing after crash: %v", err)
+	}
+	before := posts.Load()
+
+	completionMarkerWriter = old
+	result, err := NewDownloader(transport, testConfig(
+		"https://rr1---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=fixture",
+		func(config *Config) { config.RetainCompletionMarker = true },
+	)).Download(context.Background(), root, destination, true, events.Nop())
+	if err != nil {
+		t.Fatalf("retry after post-marker crash: %v", err)
+	}
+	if !result.Resumed {
+		t.Fatal("expected resume without re-download")
+	}
+	if posts.Load() != before {
+		t.Fatalf("retry issued POST: before=%d after=%d", before, posts.Load())
+	}
+	size, ok, err := ValidateCompletedTrack(destination, IdentityFromConfig(testConfig(
+		"https://rr1---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=fixture",
+		func(config *Config) { config.RetainCompletionMarker = true },
+	)))
+	if err != nil || !ok || size != int64(len("INITdata")) {
+		t.Fatalf("completed ok=%v size=%d err=%v", ok, size, err)
+	}
+	if _, err := os.Stat(partPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("part remains after publish")
+	}
+	if _, err := os.Stat(statePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("checkpoint remains after publish")
+	}
+}
+
+func TestCompletionLeftoverCheckpointAfterPublishIsComplete(t *testing.T) {
+	_, destination := testRoot(t, "leftover.bin")
+	payload := []byte("INITdata")
+	if err := os.WriteFile(destination, payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	identity := IdentityFromConfig(testConfig(
+		"https://rr1---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=fixture",
+		func(config *Config) { config.RetainCompletionMarker = true },
+	))
+	if err := WriteCompletionMarker(destination, identity, int64(len(payload))); err != nil {
+		t.Fatal(err)
+	}
+	_, statePath := checkpointPaths(destination)
+	state := identityFromConfig(testConfig(
+		"https://rr1---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=fixture",
+	)).baseCheckpoint()
+	state.InitWritten = true
+	state.InitDigest = encodeDigest(hashSegment([]byte("INIT")))
+	state.InitLength = 4
+	state.FormatVerified = true
+	state.EndOfTrack = true
+	state.HasSequence = true
+	state.NextSequence = 1
+	state.CumulativeMs = 10000
+	state.TotalWritten = int64(len(payload))
+	state.Segments = []sabrCheckpointSegment{{
+		Sequence: 0, Digest: encodeDigest(hashSegment([]byte("data"))),
+		DurationMs: 10000, StartTimeMs: 0, Length: int64(len("data")),
+	}}
+	if err := saveCheckpoint(statePath, state); err != nil {
+		t.Fatal(err)
+	}
+	size, ok, err := ValidateCompletedTrack(destination, identity)
+	if err != nil || !ok || size != int64(len(payload)) {
+		t.Fatalf("ok=%v size=%d err=%v", ok, size, err)
+	}
+	if _, err := os.Stat(statePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("leftover checkpoint not cleaned after durable marker validation")
+	}
+}
+
+func TestStrictJSONRejectsTrailingValues(t *testing.T) {
+	validCheckpoint := []byte(`{"v":1,"video_id":"fixture0001","client_name":1,"client_version":"fixture","track_kind":"video","itag":137,"duration_sec":10,"ustreamer_sha256":"` + hashUstreamerConfig([]byte("fixture-ustreamer")) + `","init_written":false,"format_verified":false,"next_sequence":0,"has_sequence":false,"cumulative_ms":0,"total_written":0,"segments":[]}`)
+	var state sabrCheckpoint
+	if err := decodeStrictJSON(append(append([]byte(nil), validCheckpoint...), '\n', ' '), &state); err != nil {
+		t.Fatalf("whitespace after object should be accepted: %v", err)
+	}
+	if err := decodeStrictJSON(append(append([]byte(nil), validCheckpoint...), []byte(`{"x":1}`)...), &state); err == nil || !errors.Is(err, ErrCheckpointInvalid) {
+		t.Fatalf("trailing object: %v", err)
+	}
+	if err := decodeStrictJSON(append(append([]byte(nil), validCheckpoint...), []byte(` null`)...), &state); err == nil || !errors.Is(err, ErrCheckpointInvalid) {
+		t.Fatalf("trailing null: %v", err)
+	}
+
+	root, destination := testRoot(t, "trail.bin")
+	_, statePath := checkpointPaths(destination)
+	if err := os.WriteFile(statePath, append(append([]byte(nil), validCheckpoint...), []byte("\n{}")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	partPath, _ := checkpointPaths(destination)
+	if err := os.WriteFile(partPath, []byte("INIT"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	body := buildTestUMP(
+		137,
+		testSegment{headerID: 1, init: true, payload: []byte("INIT")},
+		testSegment{headerID: 2, sequence: 0, duration: 10000, payload: []byte("fresh")},
+	)
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return umpResponse(body, request), nil
+	})
+	result, err := NewDownloader(transport, testConfig(
+		"https://rr1---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=fixture",
+	)).Download(context.Background(), root, destination, true, events.Nop())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Resumed {
+		t.Fatal("trailing JSON checkpoint must not resume")
+	}
+
+	if err := os.WriteFile(destination, []byte("INITdata"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	identity := IdentityFromConfig(testConfig(
+		"https://rr1---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=fixture",
+	))
+	if err := WriteCompletionMarker(destination, identity, int64(len("INITdata"))); err != nil {
+		t.Fatal(err)
+	}
+	markerPath := CompletionMarkerPath(destination)
+	raw, err := os.ReadFile(markerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(markerPath, append(append([]byte(nil), raw...), []byte("\n1")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := ValidateCompletedTrack(destination, identity); err != nil || ok {
+		t.Fatalf("trailing marker JSON accepted ok=%v err=%v", ok, err)
 	}
 }

@@ -1,8 +1,6 @@
 package youtubeump
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"testing"
 )
@@ -167,9 +165,7 @@ func FuzzSabrCheckpoint(f *testing.F) {
 			return
 		}
 		var state sabrCheckpoint
-		decoder := json.NewDecoder(bytes.NewReader(body))
-		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&state); err != nil {
+		if err := decodeStrictJSON(body, &state); err != nil {
 			return
 		}
 		_ = validateCheckpoint(state)

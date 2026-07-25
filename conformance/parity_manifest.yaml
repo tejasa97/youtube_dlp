@@ -837,6 +837,42 @@ capabilities:
       - pkg/ytdlp.TestYouTubeSABRRequestFailurePreservesCause
       - pkg/ytdlp.TestYouTubeSABRRejectedProviderDoesNotBlockDownload
       - pkg/ytdlp.TestYouTubeSABRExtractionJSONOmitsPOTToken
+      - pkg/ytdlp.TestYouTubeSABRPOTResolvedAtDownloadWithoutMetadataLeak
+      - pkg/ytdlp.TestYouTubeSABRTrackDestinationDeterministic
+      - pkg/ytdlp.TestYouTubeSABRAsymmetricTrackResume
+      - pkg/ytdlp.TestYouTubeSABRMergeRetryPreservesCompletedTracks
+      - pkg/ytdlp.TestYouTubeSABRStaleSidecarIdentityRejected
+      - pkg/ytdlp.TestYouTubeSABRPairConcurrentCancellationPreservesPeer
+      - pkg/ytdlp.TestYouTubeSABRResumeIdentityRequired
+      - pkg/ytdlp.TestYouTubeSABRStandaloneClearsCompletionMarker
+      - internal/protocol/youtubeump.TestResumeVideoIDRequired
+      - internal/protocol/youtubeump.TestEmptyCheckpointVideoIDNeverResumes
+      - internal/protocol/youtubeump.TestCompletionMarkerLifecycleStandaloneVsRetained
+      - internal/protocol/youtubeump.TestCompletionMarkerFailurePreservesRecoverableState
+      - internal/protocol/youtubeump.TestCompletionMarkerCrashAfterDurableMarkerBeforePublish
+      - internal/protocol/youtubeump.TestCompletionLeftoverCheckpointAfterPublishIsComplete
+      - internal/protocol/youtubeump.TestStrictJSONRejectsTrailingValues
+      - internal/protocol/youtubeump.TestVerifyCheckpointRejectsTamperedInit
+      - internal/protocol/youtubeump.TestVerifyCheckpointRejectsTamperedMedia
+      - internal/protocol/youtubeump.TestVerifyCheckpointRejectsTruncatedPart
+      - internal/protocol/youtubeump.TestVerifyCheckpointTruncatesOversizedTail
+      - internal/protocol/youtubeump.TestResumeAcceptsIdenticalInitReplay
+      - internal/protocol/youtubeump.TestResumeRejectsChangedInitReplay
+      - internal/protocol/youtubeump.TestCheckpointRejectsNonContiguousSequences
+      - internal/protocol/youtubeump.TestResumeAcrossDownloaderInstances
+      - internal/protocol/youtubeump.TestResumeRejectsChangedSegmentBytes
+      - internal/protocol/youtubeump.TestResumeAcceptsIdenticalReplay
+      - internal/protocol/youtubeump.TestCheckpointCorruptAndMismatchedStartFresh
+      - internal/protocol/youtubeump.TestCheckpointIdentityMismatchStartsFresh
+      - internal/protocol/youtubeump.TestCheckpointSymlinkRejected
+      - internal/protocol/youtubeump.TestCheckpointOversizedRejected
+      - internal/protocol/youtubeump.TestCheckpointForbiddenContentRejected
+      - internal/protocol/youtubeump.TestTruncateUncommittedTailOnResume
+      - internal/protocol/youtubeump.TestCheckpointWriteFailureLeavesConsistentState
+      - internal/protocol/youtubeump.TestResumeEndOfTrackFromCheckpoint
+      - internal/protocol/youtubeump.TestResumeRaceConcurrentLoadSave
+      - internal/protocol/youtubeump.TestCheckpointPathsWindowsSafe
+      - internal/protocol/youtubeump.FuzzSabrCheckpoint
       - internal/extractor.TestYouTubeAppliesPlayerAndGVSTokensToIsolatedRecovery
       - internal/extractor.TestYouTubeGVSTokenPlacement
       - internal/extractor.TestYouTubeExtractsManualAutomaticTranslatedAndProtectedCaptions
