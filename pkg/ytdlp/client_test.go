@@ -381,6 +381,7 @@ func TestClientRejectsInvalidWaveTwoOptionsBeforeNetwork(t *testing.T) {
 		{YouTubeComments: YouTubeCommentOptions{Sort: "popular"}},
 		{YouTubeComments: YouTubeCommentOptions{MaxComments: 10_001}},
 		{YouTubeComments: YouTubeCommentOptions{MaxDepth: 9}},
+		{BreakMatchFilters: []string{"-"}},
 	}
 	for index, request := range tests {
 		request.URL = server.URL + "/media.mp4"
@@ -549,6 +550,51 @@ func TestClientCategorizesMatchFilterEvaluationFailure(t *testing.T) {
 	}
 	if !errors.Is(err, matchfilter.ErrEvaluation) {
 		t.Fatalf("process() error = %v, want matchfilter.ErrEvaluation", err)
+	}
+}
+
+func TestClientBreakMatchFilterStopsSingleMedia(t *testing.T) {
+	request := Request{
+		URL: "https://fixture.invalid/video", SkipDownload: true,
+		BreakMatchFilters: []string{"title=other"},
+	}
+	plan, err := prepareCompatibility(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := &operation{
+		client: NewClient(), request: request, registry: extractor.NewRegistry(numericMetadataExtractor{}),
+		compatibility: plan,
+	}
+	result, err := operation.process(context.Background(), request.URL, "", nil, make(map[string]bool), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Skipped || !result.Stopped || result.SkipReason == "" || result.StopReason != result.SkipReason {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestClientOrdinaryFilterRejectionDoesNotBecomeBreakStop(t *testing.T) {
+	request := Request{
+		URL: "https://fixture.invalid/video", SkipDownload: true,
+		BreakMatchFilters: []string{"title=Fixture"},
+		MatchFilters:      []string{"title=other"},
+	}
+	plan, err := prepareCompatibility(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := &operation{
+		client: NewClient(), request: request, registry: extractor.NewRegistry(numericMetadataExtractor{}),
+		compatibility: plan,
+	}
+	result, err := operation.process(context.Background(), request.URL, "", nil, make(map[string]bool), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Skipped || result.Stopped || result.StopReason != "" {
+		t.Fatalf("result = %#v", result)
 	}
 }
 

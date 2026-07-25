@@ -18,6 +18,7 @@ type compatibilityPlan struct {
 	selector         *mediaformat.Selector
 	formatOptions    mediaformat.Options
 	matchFilter      matchfilter.Program
+	breakMatchFilter matchfilter.Program
 	metadataActions  []compatmetadata.Action
 	progressTemplate string
 }
@@ -43,6 +44,10 @@ func prepareCompatibility(request Request) (compatibilityPlan, error) {
 	plan.matchFilter, err = matchfilter.Parse(request.MatchFilters)
 	if err != nil {
 		return compatibilityPlan{}, categorized("parse match filter", err)
+	}
+	plan.breakMatchFilter, err = matchfilter.Parse(request.BreakMatchFilters)
+	if err != nil {
+		return compatibilityPlan{}, categorized("parse break match filter", err)
 	}
 	for _, specification := range request.ParseMetadata {
 		action, parseErr := compatmetadata.ParseFromField(specification)
@@ -76,10 +81,24 @@ func (operation *operation) applyCompatibility(ctx context.Context, ctxInfo *val
 			return matchfilter.Decision{}, &Error{Category: ErrorInternal, Op: "emit metadata warning", Err: err}
 		}
 	}
+	options := matchfilter.EvaluationOptions{IncompleteAll: incomplete}
+	breakDecision, err := operation.compatibility.breakMatchFilter.EvaluateContext(
+		ctx,
+		*ctxInfo,
+		options,
+	)
+	if err != nil {
+		return matchfilter.Decision{}, categorized("evaluate break match filter", err)
+	}
+	if !breakDecision.Pass {
+		operation.breakMatchTriggered = true
+		operation.breakMatchReason = breakDecision.Reason
+		return breakDecision, nil
+	}
 	decision, err := operation.compatibility.matchFilter.EvaluateContext(
 		ctx,
 		*ctxInfo,
-		matchfilter.EvaluationOptions{IncompleteAll: incomplete},
+		options,
 	)
 	if err != nil {
 		return matchfilter.Decision{}, categorized("evaluate match filter", err)

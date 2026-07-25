@@ -204,6 +204,98 @@ func TestOperationFlatPlaylistAppliesMetadataBeforeIncompleteMatchFilter(t *test
 	}
 }
 
+func TestOperationBreakMatchFilterStopsFlatPlaylistBeforeRejectedEntry(t *testing.T) {
+	server, requests := selectionMediaServer(t)
+	defer server.Close()
+	transport, err := network.New(network.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := Request{
+		Playlist:          PlaylistOptions{Flat: true},
+		BreakMatchFilters: []string{`title != "Item 3"`},
+	}
+	compatibility, err := prepareCompatibility(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pages atomic.Int32
+	var events []Event
+	operation := &operation{
+		client: NewClient(WithEventHandler(func(_ context.Context, event Event) error {
+			events = append(events, event)
+			return nil
+		})),
+		request: request, compatibility: compatibility, transport: transport,
+		registry: extractor.NewRegistry(
+			&selectionFixtureExtractor{pageFetches: &pages}, extractor.NewGeneric(),
+		),
+	}
+	result, err := operation.process(context.Background(), server.URL+"/selection", "", nil, make(map[string]bool), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := requests(); len(got) != 0 {
+		t.Fatalf("flat playlist made child requests: %v", got)
+	}
+	if !result.Stopped || !strings.Contains(result.StopReason, "Item 3") {
+		t.Fatalf("stop result = %#v", result)
+	}
+	if len(result.Entries) != 2 {
+		t.Fatalf("entries = %d, want 2 completed entries", len(result.Entries))
+	}
+	var parent map[string]any
+	if err := json.Unmarshal(result.InfoJSON, &parent); err != nil {
+		t.Fatal(err)
+	}
+	if entries, ok := parent["entries"].([]any); !ok || len(entries) != 2 {
+		t.Fatalf("parent entries = %#v", parent["entries"])
+	}
+	var skipped int
+	for _, event := range events {
+		if event.Kind == EventMatchFilterSkipped {
+			skipped++
+		}
+	}
+	if skipped != 1 {
+		t.Fatalf("match-filter skipped events = %d, want 1", skipped)
+	}
+}
+
+func TestOperationBreakMatchFilterStopsHydratedPlaylistBeforeNextEntry(t *testing.T) {
+	server, requests := selectionMediaServer(t)
+	defer server.Close()
+	transport, err := network.New(network.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := Request{
+		SkipDownload:      true,
+		BreakMatchFilters: []string{`title != "Item 3"`},
+	}
+	compatibility, err := prepareCompatibility(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pages atomic.Int32
+	operation := &operation{
+		client: NewClient(), request: request, compatibility: compatibility, transport: transport,
+		registry: extractor.NewRegistry(
+			&selectionFixtureExtractor{pageFetches: &pages}, extractor.NewGeneric(),
+		),
+	}
+	result, err := operation.process(context.Background(), server.URL+"/selection", "", nil, make(map[string]bool), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Stopped || len(result.Entries) != 2 {
+		t.Fatalf("result = %#v", result)
+	}
+	if got := requests(); !reflect.DeepEqual(got, []string{"/media1.mp4", "/media2.mp4", "/media3.mp4"}) {
+		t.Fatalf("media requests = %v", got)
+	}
+}
+
 func TestOperationFlatPlaylistChecksArchiveWithoutRecording(t *testing.T) {
 	server, requests := selectionMediaServer(t)
 	defer server.Close()

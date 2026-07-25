@@ -1685,11 +1685,14 @@ capabilities:
       - pkg/ytdlp.TestOperationUsesRequestedFormatSelection
       - pkg/ytdlp.TestClientAppliesMetadataBeforeMatchFilter
       - pkg/ytdlp.TestClientCategorizesMatchFilterEvaluationFailure
+      - pkg/ytdlp.TestClientBreakMatchFilterStopsSingleMedia
+      - pkg/ytdlp.TestOperationBreakMatchFilterStopsFlatPlaylistBeforeRejectedEntry
+      - pkg/ytdlp.TestOperationBreakMatchFilterStopsHydratedPlaylistBeforeNextEntry
       - pkg/ytdlp.TestClientRendersProgressTemplateIntoEvents
       - internal/cli.TestRunWaveTwoCompatibilityFlags
       - conformance/compatibility/phase2/PROVENANCE.md
     owner: core
-    known_deviation: Compatibility is scoped to the bounded Phase 2 corpus. Match filters support the documented boolean, string, numeric, none-inclusive, filesize, and duration grammar with explicit evaluation bounds; interactive/break filters and Python regular-expression semantics remain unsupported. Template arithmetic and Unicode conversions are limited to the bounded corpus; arbitrary template code evaluation, the full selector grammar, and product download of arbitrary all-format sets remain explicitly unsupported.
+    known_deviation: Compatibility is scoped to the bounded Phase 2 corpus. Match filters support the documented boolean, string, numeric, none-inclusive, filesize, and duration grammar with explicit evaluation bounds; break-match filters reuse that grammar and stop playlist expansion before the rejected entry. Interactive prompting and Python regular-expression semantics remain unsupported. Template arithmetic and Unicode conversions are limited to the bounded corpus; arbitrary template code evaluation, the full selector grammar, and product download of arbitrary all-format sets remain explicitly unsupported.
 
   - id: downloader.protocol_matrix
     name: Alpha downloader and protocol matrix

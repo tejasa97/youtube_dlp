@@ -173,7 +173,7 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	})
 	format := flags.String("format", "", "format selector expression")
 	flags.StringVar(format, "f", "", "alias for --format")
-	var formatSort, matchFilters, parseMetadata, replaceMetadata stringListFlag
+	var formatSort, matchFilters, breakMatchFilters, parseMetadata, replaceMetadata stringListFlag
 	flags.Var(&formatSort, "format-sort", "format sort field (repeatable)")
 	flags.Var(&formatSort, "S", "alias for --format-sort")
 	preferFreeFormats := flags.Bool("prefer-free-formats", false, "prefer free containers when otherwise equivalent")
@@ -187,6 +187,16 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	})
 	flags.BoolFunc("no-match-filters", "alias for --no-match-filter", func(string) error {
 		matchFilters = nil
+		return nil
+	})
+	flags.Var(&breakMatchFilters, "break-match-filter", "metadata filter expression that stops playlist processing when rejected (repeatable OR)")
+	flags.Var(&breakMatchFilters, "break-match-filters", "alias for --break-match-filter")
+	flags.BoolFunc("no-break-match-filter", "clear inherited breaking metadata filters", func(string) error {
+		breakMatchFilters = nil
+		return nil
+	})
+	flags.BoolFunc("no-break-match-filters", "alias for --no-break-match-filter", func(string) error {
+		breakMatchFilters = nil
 		return nil
 	})
 	flags.Var(&parseMetadata, "parse-metadata", "bounded FROM:TO metadata action")
@@ -434,7 +444,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		Format: *format, FormatSort: append([]string(nil), formatSort...),
 		PreferFreeFormats: *preferFreeFormats, AllowUnplayableFormats: *allowUnplayable,
 		ProgressTemplate: *progressTemplate, MatchFilters: append([]string(nil), matchFilters...),
-		ParseMetadata: append([]string(nil), parseMetadata...), ReplaceMetadata: append([]string(nil), replaceMetadata...),
+		BreakMatchFilters: append([]string(nil), breakMatchFilters...),
+		ParseMetadata:     append([]string(nil), parseMetadata...), ReplaceMetadata: append([]string(nil), replaceMetadata...),
 		Subtitles: requestSubtitles,
 		RelatedFiles: ytdlp.RelatedFileOptions{
 			WriteInfoJSON: *writeInfoJSON, WriteDescription: *writeDescription,
