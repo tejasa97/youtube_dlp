@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/ytdlp-go/ytdlp/internal/compat/chapterremove"
 	"github.com/ytdlp-go/ytdlp/internal/compat/matchfilter"
 	compatmetadata "github.com/ytdlp-go/ytdlp/internal/compat/metadata"
 	"github.com/ytdlp-go/ytdlp/internal/compat/progress"
@@ -22,6 +23,7 @@ type compatibilityPlan struct {
 	breakMatchFilter matchfilter.Program
 	interactive      interactiveMatchFilterKind
 	metadataActions  []compatmetadata.Action
+	chapterRemoval   chapterremove.Program
 	progressTemplate string
 }
 
@@ -93,6 +95,10 @@ func prepareCompatibility(request Request) (compatibilityPlan, error) {
 	plan.breakMatchFilter, err = matchfilter.Parse(breakFilters)
 	if err != nil {
 		return compatibilityPlan{}, categorized("parse break match filter", err)
+	}
+	plan.chapterRemoval, err = chapterremove.Parse(request.RemoveChapters)
+	if err != nil {
+		return compatibilityPlan{}, categorized("parse remove chapters", err)
 	}
 	for _, specification := range request.ParseMetadata {
 		action, parseErr := compatmetadata.ParseFromField(specification)
@@ -269,6 +275,9 @@ func validateMultiOutputProduct(request Request, planCount int) error {
 	}
 	if request.SponsorBlock.Enabled && request.SponsorBlock.Remove {
 		return fmt.Errorf("%w: SponsorBlock remove with multi-output selectors", mediaformat.ErrMultiOutput)
+	}
+	if len(request.RemoveChapters) > 0 {
+		return fmt.Errorf("%w: chapter removal with multi-output selectors", mediaformat.ErrMultiOutput)
 	}
 	if request.Subtitles.Embed {
 		return fmt.Errorf("%w: subtitle embedding with multi-output selectors", mediaformat.ErrMultiOutput)

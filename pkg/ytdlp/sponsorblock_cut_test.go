@@ -36,24 +36,24 @@ func TestSponsorBlockRemoveSkippedUnderSimulateAndSkipDownload(t *testing.T) {
 }
 
 func TestSponsorBlockMarkPlusRemoveNoCutsCommitsMarkedChapters(t *testing.T) {
-	root := t.TempDir()
-	media := filepath.Join(root, "media.mp4")
-	if err := os.WriteFile(media, []byte("media-original"), 0o600); err != nil {
+	media := generateChapterRemovalMedia(t, 6)
+	beforeMedia, err := os.ReadFile(media)
+	if err != nil {
 		t.Fatal(err)
 	}
 	original := value.ObjectValue(value.NewObject(
 		value.Field{Key: "start_time", Value: value.Float(0)},
-		value.Field{Key: "end_time", Value: value.Float(100)},
+		value.Field{Key: "end_time", Value: value.Float(6)},
 		value.Field{Key: "title", Value: value.String("Video")},
 		value.Field{Key: "custom", Value: value.String("preserved")},
 	))
 	info := value.Info{}
-	info.Set("duration", value.Float(100))
+	info.Set("duration", value.Float(6))
 	info.Set("title", value.String("Video"))
 	info.Set("chapters", value.List(original))
 	info.Set("sponsorblock_chapters", value.List(
-		chapterValue(sponsorblock.Chapter{StartTime: 10, EndTime: 20, Category: "sponsor", Title: "Sponsor", Type: "skip"}),
-		chapterValue(sponsorblock.Chapter{StartTime: 40, EndTime: 50, Category: "selfpromo", Title: "Unpaid/Self Promotion", Type: "skip"}),
+		chapterValue(sponsorblock.Chapter{StartTime: 1, EndTime: 2, Category: "sponsor", Title: "Sponsor", Type: "skip"}),
+		chapterValue(sponsorblock.Chapter{StartTime: 3, EndTime: 4, Category: "selfpromo", Title: "Unpaid/Self Promotion", Type: "skip"}),
 	))
 	operation := &operation{request: Request{SponsorBlock: SponsorBlockOptions{
 		Enabled: true, Mark: true, Remove: true,
@@ -67,10 +67,10 @@ func TestSponsorBlockMarkPlusRemoveNoCutsCommitsMarkedChapters(t *testing.T) {
 		t.Fatalf("path=%q cut=%v", path, cut)
 	}
 	body, err := os.ReadFile(media)
-	if err != nil || string(body) != "media-original" {
-		t.Fatalf("media mutated: %v %q", err, body)
+	if err != nil || string(body) != string(beforeMedia) {
+		t.Fatalf("media mutated: %v", err)
 	}
-	if duration, _ := sponsorblockNumber(info.Lookup("duration")); duration != 100 {
+	if duration, _ := sponsorblockNumber(info.Lookup("duration")); duration != 6 {
 		t.Fatalf("duration changed to %v", duration)
 	}
 	chapters, ok := info.Lookup("chapters").ListValue()
@@ -214,18 +214,19 @@ func TestSponsorBlockFetchCategoriesUnionsRemoveSet(t *testing.T) {
 
 func TestSponsorBlockUnsupportedSubtitleFailsClosedWithoutMutatingMedia(t *testing.T) {
 	root := t.TempDir()
-	media := filepath.Join(root, "media.mp4")
+	media := generateChapterRemovalMedia(t, 4)
 	sub := filepath.Join(root, "track.json3")
-	if err := os.WriteFile(media, []byte("media-original"), 0o600); err != nil {
+	beforeMedia, err := os.ReadFile(media)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(sub, []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	info := value.Info{}
-	info.Set("duration", value.Float(100))
+	info.Set("duration", value.Float(4))
 	info.Set("sponsorblock_chapters", value.List(chapterValue(sponsorblock.Chapter{
-		StartTime: 10, EndTime: 20, Category: "sponsor", Title: "Sponsor", Type: "skip",
+		StartTime: 1, EndTime: 2, Category: "sponsor", Title: "Sponsor", Type: "skip",
 	})))
 	operation := &operation{request: Request{SponsorBlock: SponsorBlockOptions{
 		Enabled: true, Remove: true, Categories: []string{"sponsor"},
@@ -235,8 +236,8 @@ func TestSponsorBlockUnsupportedSubtitleFailsClosedWithoutMutatingMedia(t *testi
 		t.Fatalf("error = %v cut=%v", err, cut)
 	}
 	body, readErr := os.ReadFile(media)
-	if readErr != nil || string(body) != "media-original" {
-		t.Fatalf("media mutated despite prevalidation failure: %v %q", readErr, body)
+	if readErr != nil || string(body) != string(beforeMedia) {
+		t.Fatalf("media mutated despite prevalidation failure: %v", readErr)
 	}
 	subBody, readErr := os.ReadFile(sub)
 	if readErr != nil || string(subBody) != "{}" {

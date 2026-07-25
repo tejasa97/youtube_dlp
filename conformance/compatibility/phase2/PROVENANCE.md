@@ -13,6 +13,13 @@ Reference loci:
   cover filesize parsing, duration parsing, the match-filter grammar, and the
   interactive marker;
 - `yt_dlp/options.py` lines 742-767 describe the match-filter CLI contract;
+- `yt_dlp/options.py` lines 1817-1828, `yt_dlp/__init__.py` lines 350-392,
+  and `yt_dlp/postprocessor/modify_chapters.py` lines 14-108 describe
+  repeatable ordinary chapter regex and manual time-range removal;
+- `yt_dlp/postprocessor/ffmpeg.py` lines 298-317 describe real-duration
+  probing and final open-chapter repair;
+- `test/test_postprocessors.py` lines 143-629 provide the attributable
+  chapter/cut arrangement matrix;
 - `yt_dlp/utils/_utils.py` lines 3331-3351 and `yt_dlp/YoutubeDL.py` lines
   1641-1672 describe breaking-filter ordering and queue cancellation;
 - `test/test_YoutubeDL.py` lines 908-991 provide the attributable
@@ -26,6 +33,13 @@ presence checks, OR/AND composition, none-inclusive and incomplete-field
 semantics, escaped ampersands, Unicode quoted values, negated string
 operators, and bounded filesize/duration coercion. It does not copy upstream
 fixtures.
+
+`chapter_removal.yaml` version 1 records hand-authored expectations for
+regular-expression search, open and finite time ranges, duration parsing, and
+media-end resolution. The Go product combines those removals with SponsorBlock
+ranges before invoking the existing transactional media/subtitle cut path.
+It intentionally rejects infinite starts and non-positive ranges at parse time
+and fails closed on material metadata/real-duration mismatches.
 
 The Go product layer evaluates breaking filters before ordinary filters and
 stops playlist expansion before retaining the rejected entry. Exact

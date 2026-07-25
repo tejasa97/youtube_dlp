@@ -296,6 +296,11 @@ func validateRequestOptions(request Request) error {
 	if err := validateSponsorBlockOptions(request.SponsorBlock); err != nil {
 		return fmt.Errorf("%w: %v", errInvalidRequestOptions, err)
 	}
+	if request.ForceKeyframesAtCuts &&
+		len(request.RemoveChapters) == 0 &&
+		!(request.SponsorBlock.Enabled && request.SponsorBlock.Remove) {
+		return fmt.Errorf("%w: force keyframes requires chapter or SponsorBlock removal", errInvalidRequestOptions)
+	}
 	for index, postprocessor := range request.Postprocessors {
 		if countPostprocessorChoices(postprocessor) != 1 {
 			return fmt.Errorf("%w: postprocessors[%d] must select exactly one operation", errInvalidRequestOptions, index)

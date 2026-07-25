@@ -43,6 +43,13 @@ type SponsorBlockOptions struct {
     ForceKeyframes   bool
     APIBase          string
 }
+
+type Request struct {
+    // Other request fields omitted.
+    SponsorBlock         SponsorBlockOptions
+    RemoveChapters       []string
+    ForceKeyframesAtCuts bool
+}
 ```
 
 `Enabled` is the only field that gates the metadata stage. When false, no
@@ -88,6 +95,9 @@ validation. The fetch set is the first-seen union of `Categories` and
 `ForceKeyframes` requires `Remove`. When true, media is re-encoded with
 `-force_key_frames` at cut boundaries before concat (yt-dlp
 `--force-keyframes-at-cuts`). Subtitle sidecars are never force-keyframed.
+`ForceKeyframesAtCuts` is the extractor-independent request equivalent; it
+requires either `RemoveChapters` or SponsorBlock removal and applies to their
+combined cut boundaries.
 
 `APIBase` is the API origin. When empty, the implementation uses
 `https://sponsor.ajay.app`. Custom bases are intended for
@@ -105,7 +115,9 @@ yt-dlp-familiar names:
 | `--sponsorblock-mark CATEGORIES` | Sets `Enabled=true`, `Mark=true`, and accumulates mark categories into `Categories` |
 | `--sponsorblock-remove CATEGORIES` | Sets `Enabled=true`, `Remove=true`, and accumulates the resolved remove set into `RemoveCategories` (and the fetch union) |
 | `--sponsorblock-api URL` | Sets `APIBase` (kept even when mark/remove are later disabled) |
-| `--force-keyframes-at-cuts` | Sets `ForceKeyframes=true` when removal is enabled |
+| `--remove-chapters REGEX` | Appends a title-search expression, or a comma-separated manual range list when the value starts with `*` |
+| `--no-remove-chapters` | Clears inherited title and manual range removals |
+| `--force-keyframes-at-cuts` | Enables force-keyframes for any chapter, manual range, or SponsorBlock removal |
 | `--no-force-keyframes-at-cuts` | Sets `ForceKeyframes=false` (last occurrence wins with the positive form) |
 | `--no-sponsorblock` | Clears mark and remove enablement; does not clear `--sponsorblock-api` or reset a stored API base |
 
@@ -129,11 +141,12 @@ deterministic union of both sets.
 `--no-sponsorblock` is applied after option parsing (matching pinned
 yt-dlp `opts.no_sponsorblock`), so it clears both mark and remove
 regardless of whether those flags appear before or after it in config or
-on the command line, while preserving `--sponsorblock-api` and leaving
-`ForceKeyframes` false. Unknown identifiers, explicit empty values such as
-`--sponsorblock-mark=`, and `--force-keyframes-at-cuts` without any remove
-categories are rejected at CLI parse time (exit status `2`) before any
-network work.
+on the command line while preserving `--sponsorblock-api`. It does not clear
+independent `--remove-chapters` rules or their force-keyframes setting.
+Unknown identifiers, explicit empty values such as `--sponsorblock-mark=`,
+and `--force-keyframes-at-cuts` without any chapter, range, or SponsorBlock
+removal are rejected at CLI parse time (exit status `2`) before any network
+work.
 
 Example (mark):
 
@@ -147,6 +160,13 @@ Example (remove):
 ```sh
 ./bin/ytdlp-go --sponsorblock-remove default --force-keyframes-at-cuts \
   'https://www.youtube.com/watch?v=VIDEO_ID'
+```
+
+Example (ordinary chapter plus manual range removal):
+
+```sh
+./bin/ytdlp-go --remove-chapters '(?i)^(intro|credits)$' \
+  --remove-chapters '*1:30-2:00,5:00-' --force-keyframes-at-cuts URL
 ```
 
 ## Supported extractor
@@ -240,11 +260,19 @@ yt-dlp `ModifyChaptersPP._remove_marked_arrange_sponsors` and
    chapter merge policy, and identically titled sponsor coalescing.
 4. Inputs and category slices are never mutated.
 
-Product Remove feeds ordinary chapters plus remove-flagged (and, when Mark is
-set, remaining) SponsorBlock chapters into Arrange once, then plans ffmpeg cuts
-from the returned ranges. When Mark is set and Arrange yields no cuts, the
-arranged chapter list is still written without inventing a media cut. Metadata
-duration updates and cut-time chapter commits happen only after the
+Product removal feeds ordinary chapters, manual time ranges, and
+remove-flagged (and, when Mark is set, remaining) SponsorBlock chapters into
+Arrange once, then plans ffmpeg cuts from the returned ranges. Ordinary
+chapters can be selected by repeatable `--remove-chapters REGEX` values;
+values beginning with `*` contain comma-separated `START-END` ranges with
+open bounds and `inf`/`infinite`. When Mark is set and Arrange yields no cuts,
+the arranged chapter list is still written without inventing a media cut.
+Infinite starts and equal/inverted ranges are rejected as non-positive cuts,
+although upstream accepts those degenerate values during initial option
+parsing. The downloaded media is probed before a cut; its duration completes
+an open final chapter, and a greater-than-one-second mismatch with extracted
+duration fails closed without changing media or metadata.
+Metadata duration updates and cut-time chapter commits happen only after the
 transactional media/subtitle cut commit succeeds. `Simulate` / `SkipDownload`
 never cut media; with Mark+Remove they still apply mark overlays on the uncut
 timeline during enrich (the remove path does not run on those modes).
@@ -262,7 +290,7 @@ Pure cut planning lives in `internal/sponsorblock.PlanCuts`:
 5. Removing the entire media fails closed.
 
 Typed ffmpeg operations in `internal/media/ffmpeg` perform optional
-force-keyframes re-encode and concat-range finalize. Product Remove
+force-keyframes re-encode and concat-range finalize. Product removal
 orchestrates a transactional multi-artifact cut: every media and
 supported subtitle path is prevalidated, every output is staged into a
 private temporary directory, and originals are replaced only after all
@@ -362,6 +390,8 @@ SponsorBlock request:
 - Maximum remove cut ranges after merge: 256 (512 ÷ 2 force-keyframe slots).
 - Maximum keep segments after planning: 128 (ffmpeg concat-range limit).
 - Maximum unique force-keyframe timestamps: 512.
+- Maximum chapter-removal specifications: 64.
+- Maximum bytes per chapter-removal specification: 4096 (64 KiB total).
 
 Exceeding any bound produces a categorized invalid metadata
 error and the operation stops.
@@ -385,8 +415,9 @@ remain unimplemented or intentionally different in this release:
 
 - SponsorBlock metadata for services other than YouTube
   (PeerTube, Vimeo, etc.).
-- Regex-based ordinary chapter removal (`--remove-chapters`) and
-  manual `--remove-ranges` outside SponsorBlock categories.
+- Python-only regular-expression constructs for ordinary chapter removal;
+  the native implementation uses bounded Go RE2 syntax.
+- Custom `--sponsorblock-chapter-title` templates.
 - yt-dlp's warn-and-continue policy for unsupported external
   subtitle formats during remove (this port fails closed instead).
 

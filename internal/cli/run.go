@@ -270,6 +270,7 @@ func RunContextIO(ctx context.Context, args []string, stdin io.Reader, stdout, s
 	youtubeMaxComments := flags.String("youtube-max-comments", "", "bounded YouTube limits TOTAL[,PARENTS[,REPLIES[,PER_THREAD[,DEPTH]]]]")
 	youtubeCommentSort := flags.String("youtube-comment-sort", "new", "YouTube comment order: new or top")
 	var sponsorBlockMark, sponsorBlockRemove []string
+	var removeChapters stringListFlag
 	var sponsorBlockForceKeyframes bool
 	setSponsorBlockForceKeyframes := func(enabled bool) func(string) error {
 		return func(input string) error {
@@ -299,8 +300,19 @@ func RunContextIO(ctx context.Context, args []string, stdin io.Reader, stdout, s
 		return nil
 	})
 	sponsorBlockAPI := flags.String("sponsorblock-api", "", "SponsorBlock API origin (default https://sponsor.ajay.app)")
-	flags.BoolFunc("force-keyframes-at-cuts", "force keyframes at SponsorBlock cut boundaries (requires --sponsorblock-remove)", setSponsorBlockForceKeyframes(true))
-	flags.BoolFunc("no-force-keyframes-at-cuts", "disable forced keyframes at SponsorBlock cut boundaries", setSponsorBlockForceKeyframes(false))
+	flags.Var(&removeChapters, "remove-chapters", "remove chapters matching REGEX or manual *START-END ranges (repeatable)")
+	flags.BoolFunc("no-remove-chapters", "clear inherited chapter and manual range removal", func(input string) error {
+		enabled, err := strconv.ParseBool(input)
+		if err != nil {
+			return err
+		}
+		if enabled {
+			removeChapters = nil
+		}
+		return nil
+	})
+	flags.BoolFunc("force-keyframes-at-cuts", "force keyframes at chapter, range, or SponsorBlock cut boundaries", setSponsorBlockForceKeyframes(true))
+	flags.BoolFunc("no-force-keyframes-at-cuts", "disable forced keyframes at chapter, range, or SponsorBlock cut boundaries", setSponsorBlockForceKeyframes(false))
 	// Match pinned yt-dlp: record --no-sponsorblock during parse, then clear
 	// mark/remove after all options (config + CLI) are applied so order cannot
 	// re-enable them. --sponsorblock-api is preserved.
@@ -424,9 +436,20 @@ func RunContextIO(ctx context.Context, args []string, stdin io.Reader, stdout, s
 	if noSponsorBlock {
 		sponsorBlockMark = nil
 		sponsorBlockRemove = nil
-		sponsorBlockForceKeyframes = false
+		if len(removeChapters) == 0 {
+			sponsorBlockForceKeyframes = false
+		}
 	}
-	sponsorBlockOptions, err := buildSponsorBlockOptions(sponsorBlockMark, sponsorBlockRemove, *sponsorBlockAPI, sponsorBlockForceKeyframes)
+	if sponsorBlockForceKeyframes && len(sponsorBlockRemove) == 0 && len(removeChapters) == 0 {
+		fmt.Fprintln(stderr, "ytdlp-go: force-keyframes-at-cuts requires --remove-chapters or --sponsorblock-remove")
+		return 2
+	}
+	sponsorBlockOptions, err := buildSponsorBlockOptions(
+		sponsorBlockMark,
+		sponsorBlockRemove,
+		*sponsorBlockAPI,
+		sponsorBlockForceKeyframes && len(sponsorBlockRemove) > 0,
+	)
 	if err != nil {
 		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
 		return 2
@@ -480,9 +503,11 @@ func RunContextIO(ctx context.Context, args []string, stdin io.Reader, stdout, s
 			WriteWeblocLink: *writeWeblocLink, WriteDesktopLink: *writeDesktopLink,
 			NoPlaylist: *noPlaylistMetafiles,
 		},
-		PrintRules:      printRules,
-		YouTubeComments: commentLimits,
-		SponsorBlock:    sponsorBlockOptions,
+		PrintRules:           printRules,
+		YouTubeComments:      commentLimits,
+		SponsorBlock:         sponsorBlockOptions,
+		RemoveChapters:       append([]string(nil), removeChapters...),
+		ForceKeyframesAtCuts: sponsorBlockForceKeyframes,
 		Playlist: ytdlp.PlaylistOptions{
 			Start: *playlistStart, End: *playlistEnd, Reverse: *playlistReverse, Items: *playlistItems, Flat: *flatPlaylist,
 		},

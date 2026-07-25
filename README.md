@@ -218,12 +218,23 @@ marking and removal on the post-cut timeline.
   --sponsorblock-remove "sponsor,selfpromo" \
   --force-keyframes-at-cuts \
   "https://www.youtube.com/watch?v=VIDEO_ID"
+
+# Remove ordinary chapters by title and a manual time range
+./bin/ytdlp-go \
+  --remove-chapters "(?i)^(intro|credits)$" \
+  --remove-chapters "*1:30-2:00" \
+  URL
 ```
 
 `--sponsorblock-api URL` selects a compatible mirror.
 `--no-sponsorblock` disables inherited mark and remove options without clearing
 the API base. Categories are repeatable, comma-separated, and support
 `all`/`default` plus `-category` exclusions.
+`--remove-chapters` is repeatable: regular expressions use title-search
+semantics, while values beginning with `*` contain comma-separated
+`START-END` ranges with open bounds. `--no-remove-chapters` clears inherited
+rules. Ordinary, manual, and SponsorBlock cuts share one transactional ffmpeg
+and subtitle-retiming pass.
 
 ### YouTube comments and live-from-start
 
