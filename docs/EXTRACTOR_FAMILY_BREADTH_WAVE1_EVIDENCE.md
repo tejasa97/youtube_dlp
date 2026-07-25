@@ -1,6 +1,6 @@
 # Extractor family breadth wave 1
 
-Baseline: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`  
+Baseline: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`
 Go base: `origin/main` at `1cf4e80524d2f7dfed1db64cd3436dca2fd0e221`
 
 This wave adds reusable extractor families that do not overlap the existing
