@@ -43,10 +43,13 @@ Intentional unsupported syntax is explicit rather than silently approximated:
 - Metadata actions do not execute postprocessor code; they accept only bounded
   regular-expression interpretation and replacement.
 - A selector result containing more than one video and one audio stream is
-  rejected explicitly when tracks cannot be merged. Comma/`all` multi-output
-  downloads use deterministic `.f<N>_<ID>` destination suffixes (stable
-  one-based ordinals plus sanitized IDs), populate `Result.Artifacts`, and keep
-  `Result.Filename` on the first output. Multi-output downloads reject any
+  rejected explicitly when tracks cannot be merged. Merge operands are retained
+  in evaluation order with only exact duplicate `(format_id, url)` pairs removed;
+  unsupported multi-track plans fail before media download. Comma/`all`
+  multi-output downloads use per-plan container extensions (single-track `Ext`
+  or deterministic video+audio merge rules) and deterministic `.f<N>_<ID>`
+  destination suffixes (stable one-based ordinals plus sanitized IDs), populate
+  `Result.Artifacts`, and keep `Result.Filename` on the first output. Multi-output downloads reject any
   non-empty `Request.Postprocessors`, SponsorBlock remove, and subtitle
   embedding with `ErrMultiOutput` before media download; only the
   no-postprocessor path is executed. After-download print stages render only

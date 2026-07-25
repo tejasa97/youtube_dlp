@@ -163,6 +163,27 @@ func boundedFormatsInfo(count int) value.Info {
 	return value.NewInfo(value.NewObject(value.Field{Key: "formats", Value: value.List(formats...)}))
 }
 
+func TestAdvancedSelectorMergeRetainsDistinctSameKindTracks(t *testing.T) {
+	info := advancedSelectorInfo()
+	selector, err := ParseSelector("bestvideo+bestvideo.2+bestaudio")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plans, err := PlanSelect(info, selector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plans) != 1 || len(plans[0].Tracks) != 3 {
+		t.Fatalf("plans = %#v", plans)
+	}
+	want := []string{"720", "360", "audio-high"}
+	for index, id := range want {
+		if plans[0].Tracks[index].ID != id {
+			t.Fatalf("track[%d] = %q, want %q", index, plans[0].Tracks[index].ID, id)
+		}
+	}
+}
+
 func TestAdvancedSelectorDeterminismConcurrent(t *testing.T) {
 	info := advancedSelectorInfo()
 	selector, err := ParseSelector("bestvideo+bestaudio")

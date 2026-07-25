@@ -854,6 +854,9 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		if err := validateMultiOutputProduct(operation.request, len(outputPlans)); err != nil {
 			return Result{}, categorized("select format", err)
 		}
+		if err := validateOutputPlans(outputPlans); err != nil {
+			return Result{}, categorized("select format", err)
+		}
 	}
 	var destination string
 	if len(selectedFormats) > 0 || operation.hasPrintStageAtOrAfter(PrintVideo) {
@@ -947,7 +950,11 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	mediaArtifactStart := len(result.Artifacts)
 	planDestinations := make([]string, len(outputPlans))
 	for index, plan := range outputPlans {
-		planDestinations[index] = outputPlanDestination(destination, index, plan, multiOutput)
+		planDestination, destErr := outputPlanDestination(destination, index, plan, multiOutput)
+		if destErr != nil {
+			return Result{}, categorized("render output template", destErr)
+		}
+		planDestinations[index] = planDestination
 	}
 	tracker := newPublishedMediaTracker(planDestinations...)
 	for planIndex, plan := range outputPlans {

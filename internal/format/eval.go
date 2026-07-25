@@ -199,34 +199,6 @@ func dedupeMergeTracks(tracks []*value.Object) []*value.Object {
 		seen[key] = len(result)
 		result = append(result, object)
 	}
-	return enforceSingleStreamPerKind(result)
-}
-
-func enforceSingleStreamPerKind(tracks []*value.Object) []*value.Object {
-	gotVideo, gotAudio := false, false
-	result := make([]*value.Object, 0, len(tracks))
-	for _, object := range tracks {
-		hasVideo, hasAudio := candidateMediaKinds(object)
-		if hasVideo && hasAudio {
-			result = append(result, object)
-			continue
-		}
-		if hasVideo {
-			if gotVideo {
-				continue
-			}
-			gotVideo = true
-		}
-		if hasAudio {
-			if gotAudio {
-				continue
-			}
-			gotAudio = true
-		}
-		if hasVideo || hasAudio {
-			result = append(result, object)
-		}
-	}
 	return result
 }
 

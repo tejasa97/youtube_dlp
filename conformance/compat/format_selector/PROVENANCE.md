@@ -29,9 +29,11 @@
    spans for malformed `.N` / `*` tails.
 5. Evaluator limits (`all`, `mergeall`, final plan count, merge track count) are
    enforced during evaluation with `ErrSelectorLimit`.
-6. Multi-output destinations use stable one-based ordinals plus sanitized IDs.
-   Non-empty `Request.Postprocessors`, SponsorBlock remove, and subtitle
-   embedding fail closed before media download when multiple independent
-   outputs are selected.
+6. Multi-output destinations use stable one-based ordinals plus sanitized IDs
+   and per-plan container extensions derived from each `OutputPlan`. Merge
+   evaluation retains distinct same-kind operands; only exact duplicates are
+   removed. Non-empty `Request.Postprocessors`, SponsorBlock remove, and
+   subtitle embedding fail closed before media download when multiple
+   independent outputs are selected.
 7. `ErrSelectorLimit` is a distinct evaluation sentinel categorized as
    `invalid_input` by the product API.

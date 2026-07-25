@@ -25,14 +25,37 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/youtubepot"
 )
 
-func outputPlanDestination(base string, planIndex int, plan mediaformat.OutputPlan, multi bool) string {
+func outputPlanDestination(base string, planIndex int, plan mediaformat.OutputPlan, multi bool) (string, error) {
 	if !multi {
-		return base
+		return base, nil
 	}
-	extension := filepath.Ext(base)
-	stem := strings.TrimSuffix(filepath.Base(base), extension)
+	extension, err := planDestinationExtension(plan.Tracks)
+	if err != nil {
+		return "", err
+	}
+	baseExtension := filepath.Ext(base)
+	stem := strings.TrimSuffix(filepath.Base(base), baseExtension)
 	suffix := plan.DestinationSuffix(planIndex + 1)
-	return filepath.Join(filepath.Dir(base), stem+".f"+suffix+extension)
+	return filepath.Join(filepath.Dir(base), stem+".f"+suffix+"."+extension), nil
+}
+
+func planDestinationExtension(tracks []mediaformat.Selection) (string, error) {
+	if len(tracks) == 1 {
+		return safeExtension(tracks[0].Ext), nil
+	}
+	if len(tracks) != 2 || !mergeableSelections(tracks) {
+		return "", fmt.Errorf("%w: output plan with %d tracks is not a video/audio merge", extractor.ErrUnsupported, len(tracks))
+	}
+	return mergedOutputExtension(tracks), nil
+}
+
+func validateOutputPlans(plans []mediaformat.OutputPlan) error {
+	for index, plan := range plans {
+		if _, err := planDestinationExtension(plan.Tracks); err != nil {
+			return fmt.Errorf("output plan[%d]: %w", index, err)
+		}
+	}
+	return nil
 }
 
 type publishedMediaTracker struct {

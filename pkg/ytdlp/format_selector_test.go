@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ytdlp-go/ytdlp/internal/extractor"
 	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
 	"github.com/ytdlp-go/ytdlp/internal/network"
 	"github.com/ytdlp-go/ytdlp/internal/value"
@@ -140,12 +141,15 @@ func TestFormatSelectorCommaNeverMergesInDownload(t *testing.T) {
 	base := filepath.Join(operation.request.OutputDir, "comma.mp4")
 	var artifacts []Artifact
 	for index, plan := range plans {
-		path, _, downloadErr := operation.downloadSelections(context.Background(), plan.Tracks, operation.request.OutputDir, outputPlanDestination(base, index, plan, true), nil)
+		path, _, downloadErr := operation.downloadSelections(context.Background(), plan.Tracks, operation.request.OutputDir, mustOutputPlanDestination(t, base, index, plan, true), nil)
 		if downloadErr != nil {
 			t.Fatal(downloadErr)
 		}
 		artifacts = append(artifacts, Artifact{Path: path, Kind: "media"})
-		if index == 0 && !strings.Contains(path, ".f1_video") {
+		if index == 0 && !strings.Contains(path, ".f1_video.mp4") {
+			t.Fatalf("path = %q", path)
+		}
+		if index == 1 && !strings.Contains(path, ".f2_audio.m4a") {
 			t.Fatalf("path = %q", path)
 		}
 	}
@@ -259,11 +263,11 @@ func TestFormatSelectorProductRollbackOnFailure(t *testing.T) {
 		{Tracks: []mediaformat.Selection{{ID: "bad", URL: "://missing-scheme", Ext: "mp4", VCodec: "avc1", ACodec: "aac"}}},
 	}
 	tracker := newPublishedMediaTracker(
-		outputPlanDestination(destination, 0, plans[0], true),
-		outputPlanDestination(destination, 1, plans[1], true),
+		mustOutputPlanDestination(t, destination, 0, plans[0], true),
+		mustOutputPlanDestination(t, destination, 1, plans[1], true),
 	)
 	for index, plan := range plans {
-		path, _, downloadErr := operation.downloadSelections(context.Background(), plan.Tracks, root, outputPlanDestination(destination, index, plan, true), nil)
+		path, _, downloadErr := operation.downloadSelections(context.Background(), plan.Tracks, root, mustOutputPlanDestination(t, destination, index, plan, true), nil)
 		if downloadErr != nil {
 			tracker.removeCreated()
 			if index == 0 {
@@ -362,9 +366,16 @@ func TestMultiOutputProductRejectsDefaultDestinationPostprocessors(t *testing.T)
 }
 
 func TestOutputPlanDestinationUniqueWithDuplicateIDs(t *testing.T) {
-	plan := mediaformat.OutputPlan{Tracks: []mediaformat.Selection{{ID: "same"}, {ID: "same"}}}
-	first := outputPlanDestination("/tmp/out/video.mp4", 0, plan, true)
-	second := outputPlanDestination("/tmp/out/video.mp4", 1, plan, true)
+	firstPlan := mediaformat.OutputPlan{Tracks: []mediaformat.Selection{{ID: "same", Ext: "mp4"}}}
+	secondPlan := mediaformat.OutputPlan{Tracks: []mediaformat.Selection{{ID: "same", Ext: "m4a"}}}
+	first, err := outputPlanDestination("/tmp/out/video.mp4", 0, firstPlan, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := outputPlanDestination("/tmp/out/video.mp4", 1, secondPlan, true)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if first == second {
 		t.Fatalf("paths collide: %q", first)
 	}
@@ -374,8 +385,11 @@ func TestOutputPlanDestinationUniqueWithDuplicateIDs(t *testing.T) {
 }
 
 func TestOutputPlanDestinationWindowsSafe(t *testing.T) {
-	plan := mediaformat.OutputPlan{Tracks: []mediaformat.Selection{{ID: `weird:id|name`}}}
-	path := outputPlanDestination(`C:\downloads\clip.mp4`, 2, plan, true)
+	plan := mediaformat.OutputPlan{Tracks: []mediaformat.Selection{{ID: `weird:id|name`, Ext: "mp4"}}}
+	path, err := outputPlanDestination(`C:\downloads\clip.mp4`, 2, plan, true)
+	if err != nil {
+		t.Fatal(err)
+	}
 	base := filepath.Base(strings.ReplaceAll(path, `\`, `/`))
 	if strings.ContainsAny(base, `<>:"|?*`) {
 		t.Fatalf("unsafe windows basename: %q", base)
@@ -411,7 +425,7 @@ func TestMultiOutputMediaByteAccounting(t *testing.T) {
 	base := filepath.Join(root, "sizes.mp4")
 	var artifacts []Artifact
 	for index, plan := range plans {
-		path, _, err := operation.downloadSelections(context.Background(), plan.Tracks, root, outputPlanDestination(base, index, plan, true), nil)
+		path, _, err := operation.downloadSelections(context.Background(), plan.Tracks, root, mustOutputPlanDestination(t, base, index, plan, true), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -500,5 +514,153 @@ func TestErrSelectorLimitCategorizedInvalidInput(t *testing.T) {
 	}
 	if !errors.Is(err, mediaformat.ErrSelectorLimit) {
 		t.Fatalf("errors.Is = %v", err)
+	}
+}
+
+func mustOutputPlanDestination(t *testing.T, base string, planIndex int, plan mediaformat.OutputPlan, multi bool) string {
+	t.Helper()
+	path, err := outputPlanDestination(base, planIndex, plan, multi)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestPlanDestinationExtensionFallbacks(t *testing.T) {
+	tests := []struct {
+		name   string
+		tracks []mediaformat.Selection
+		want   string
+	}{
+		{"empty", []mediaformat.Selection{{Ext: ""}}, "bin"},
+		{"unsafe", []mediaformat.Selection{{Ext: "../../../etc"}}, "bin"},
+		{"single", []mediaformat.Selection{{Ext: "m4a"}}, "m4a"},
+		{"merge-mp4", []mediaformat.Selection{
+			{Ext: "mp4", VCodec: "avc1", ACodec: "none"},
+			{Ext: "m4a", VCodec: "none", ACodec: "aac"},
+		}, "mp4"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := planDestinationExtension(test.tracks)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != test.want {
+				t.Fatalf("extension = %q, want %q", got, test.want)
+			}
+		})
+	}
+	if _, err := planDestinationExtension([]mediaformat.Selection{
+		{Ext: "mp4", VCodec: "avc1", ACodec: "none"},
+		{Ext: "mp4", VCodec: "avc1", ACodec: "none"},
+		{Ext: "m4a", VCodec: "none", ACodec: "aac"},
+	}); !errors.Is(err, extractor.ErrUnsupported) {
+		t.Fatalf("unsupported merge = %v", err)
+	}
+}
+
+func TestMultiOutputPreservesPerPlanExtensions(t *testing.T) {
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/page":
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(writer, `{
+				"id":"ext","title":"Ext","ext":"mp4",
+				"formats":[
+					{"format_id":"video","url":%q,"ext":"mp4","vcodec":"avc1","acodec":"none","height":1080},
+					{"format_id":"audio","url":%q,"ext":"m4a","vcodec":"none","acodec":"aac"}
+				]
+			}`, server.URL+"/video", server.URL+"/audio")
+		case "/video":
+			_, _ = writer.Write([]byte("VID!"))
+		case "/audio":
+			_, _ = writer.Write([]byte("AUDIODATA"))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	root := t.TempDir()
+	result, err := NewClient().Run(context.Background(), Request{
+		URL: server.URL + "/page", OutputDir: root, Format: "video,audio",
+		OutputTemplate: "%(title)s.%(ext)s", Overwrite: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result.Filename, ".f1_video.mp4") {
+		t.Fatalf("Filename = %q", result.Filename)
+	}
+	if result.Filename != result.Artifacts[0].Path {
+		t.Fatalf("Filename = %q, first artifact = %q", result.Filename, result.Artifacts[0].Path)
+	}
+	if len(result.Artifacts) != 2 {
+		t.Fatalf("artifacts = %#v", result.Artifacts)
+	}
+	if !strings.HasSuffix(result.Artifacts[0].Path, ".f1_video.mp4") {
+		t.Fatalf("video artifact = %q", result.Artifacts[0].Path)
+	}
+	if !strings.HasSuffix(result.Artifacts[1].Path, ".f2_audio.m4a") {
+		t.Fatalf("audio artifact = %q", result.Artifacts[1].Path)
+	}
+	videoBody, err := os.ReadFile(result.Artifacts[0].Path)
+	if err != nil || string(videoBody) != "VID!" {
+		t.Fatalf("video bytes = %q, %v", videoBody, err)
+	}
+	audioBody, err := os.ReadFile(result.Artifacts[1].Path)
+	if err != nil || string(audioBody) != "AUDIODATA" {
+		t.Fatalf("audio bytes = %q, %v", audioBody, err)
+	}
+	mediaBytes, err := mediaArtifactBytes(result.Artifacts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mediaBytes != result.Bytes {
+		t.Fatalf("media bytes = %d, result bytes = %d", mediaBytes, result.Bytes)
+	}
+	if mediaBytes != int64(len(videoBody)+len(audioBody)) {
+		t.Fatalf("media bytes = %d, want %d", mediaBytes, len(videoBody)+len(audioBody))
+	}
+}
+
+func TestProductRejectsUnsupportedMergeBeforeDownload(t *testing.T) {
+	mediaHits := 0
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/page":
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(writer, `{
+				"id":"merge","title":"Merge","ext":"mp4",
+				"formats":[
+					{"format_id":"v1080","url":%q,"ext":"mp4","vcodec":"avc1","acodec":"none","height":1080},
+					{"format_id":"v720","url":%q,"ext":"mp4","vcodec":"avc1","acodec":"none","height":720},
+					{"format_id":"a128","url":%q,"ext":"m4a","vcodec":"none","acodec":"aac","abr":128},
+					{"format_id":"a64","url":%q,"ext":"m4a","vcodec":"none","acodec":"aac","abr":64}
+				]
+			}`, server.URL+"/v1080", server.URL+"/v720", server.URL+"/a128", server.URL+"/a64")
+		case "/v1080", "/v720", "/a128", "/a64":
+			if request.Method != http.MethodHead {
+				mediaHits++
+				_, _ = writer.Write([]byte("media"))
+			}
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	_, err := NewClient().Run(context.Background(), Request{
+		URL: server.URL + "/page", OutputDir: t.TempDir(),
+		Format: "bestvideo+bestvideo.2+bestaudio", Overwrite: true,
+	})
+	if !IsCategory(err, ErrorUnsupported) {
+		t.Fatalf("Run() = %v", err)
+	}
+	if mediaHits != 0 {
+		t.Fatalf("media downloads = %d, want 0", mediaHits)
 	}
 }
