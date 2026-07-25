@@ -44,6 +44,10 @@ type RefreshFunc func(context.Context) (RefreshMaterial, error)
 // POTokenSource resolves a mid-session PO token without exposing it to events.
 type POTokenSource func(context.Context) ([]byte, error)
 
+func (material RefreshMaterial) Validate(config Config) error {
+	return material.validate(config)
+}
+
 func (material RefreshMaterial) validate(config Config) error {
 	if material.VideoID == "" {
 		material.VideoID = config.VideoID

@@ -1189,7 +1189,9 @@ func categorized(op string, err error) error {
 		errors.Is(err, youtubeump.ErrTooManyAttempts), errors.Is(err, youtubeump.ErrCheckpointInvalid):
 		category = ErrorInvalidInput
 	case errors.Is(err, youtubeump.ErrUnsupportedDirective), errors.Is(err, youtubeump.ErrLiveUnsupported),
-		errors.Is(err, youtubeump.ErrResumeUnsupported):
+		errors.Is(err, youtubeump.ErrResumeUnsupported), errors.Is(err, youtubeump.ErrSabrRecoveryBudget),
+		errors.Is(err, youtubeump.ErrReloadBudget), errors.Is(err, youtubeump.ErrRefreshBudget),
+		errors.Is(err, youtubeump.ErrReloadRejected), errors.Is(err, youtubeump.ErrRefreshRejected):
 		category = ErrorUnsupported
 	case errors.Is(err, youtubeump.ErrRedirect), errors.Is(err, youtubeump.ErrResponseTooLarge),
 		errors.Is(err, youtubeump.ErrInvalidMediaState), errors.Is(err, youtubeump.ErrInvalidProtobuf),
@@ -1197,7 +1199,11 @@ func categorized(op string, err error) error {
 		errors.Is(err, youtubeump.ErrNonCanonicalVarint), errors.Is(err, youtubeump.ErrVarintOverflow),
 		errors.Is(err, youtubeump.ErrInvalidContentType), errors.Is(err, youtubeump.ErrOversizedPart),
 		errors.Is(err, youtubeump.ErrTooManyParts), errors.Is(err, youtubeump.ErrTooManyActiveHeaders),
-		errors.Is(err, youtubeump.ErrDownloadFailed), errors.Is(err, youtubeump.ErrRoundsExhausted):
+		errors.Is(err, youtubeump.ErrDownloadFailed), errors.Is(err, youtubeump.ErrRoundsExhausted),
+		errors.Is(err, youtubeump.ErrSabrError), errors.Is(err, youtubeump.ErrReloadPlayerResponse),
+		errors.Is(err, youtubeump.ErrUnsafeRedirect), errors.Is(err, youtubeump.ErrRedirectLoop),
+		errors.Is(err, youtubeump.ErrRedirectBudget), errors.Is(err, youtubeump.ErrInvalidContextState),
+		errors.Is(err, youtubeump.ErrExcessivePolicyBackoff):
 		category = ErrorNetwork
 	case errors.Is(err, youtubeump.ErrEventSink):
 		category = ErrorInternal
