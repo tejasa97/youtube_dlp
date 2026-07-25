@@ -122,6 +122,15 @@ func validateSCTE35Direction(payload string, mode scte35Direction) (bool, error)
 	if section[0] != scte35TableID {
 		return false, errors.New("SCTE-35 table_id must be 0xFC")
 	}
+	if section[1]&0x80 != 0 {
+		return false, errors.New("SCTE-35 section_syntax_indicator must be 0")
+	}
+	if section[1]&0x40 != 0 {
+		return false, errors.New("SCTE-35 private_indicator must be 0")
+	}
+	if section[1]&0x30 != 0x30 {
+		return false, errors.New("SCTE-35 section reserved bits must be 0x3")
+	}
 	sectionLength := int(section[1]&0x0F)<<8 | int(section[2])
 	if sectionLength < 4 || 3+sectionLength != len(section) {
 		return false, errors.New("SCTE-35 section_length is inconsistent")
@@ -182,22 +191,20 @@ func validateSCTE35Direction(payload string, mode scte35Direction) (bool, error)
 		return false, errors.New("SCTE-35 splice command exceeds section")
 	}
 	command := body[commandStart:commandEnd]
-	if commandEnd < len(body) {
-		descriptorReader := newBitReader(body[commandEnd:])
-		descriptorLength64, err := descriptorReader.readBits(16)
-		if err != nil {
-			return false, err
-		}
-		descriptorLength := int(descriptorLength64)
-		if descriptorLength > descriptorReader.remaining()/8 {
-			return false, errors.New("SCTE-35 descriptor loop exceeds section")
-		}
-		if err := descriptorReader.skipBits(descriptorLength * 8); err != nil {
-			return false, err
-		}
-		if descriptorReader.remaining() != 0 {
-			return false, errors.New("trailing bytes in SCTE-35 section")
-		}
+	descriptorReader := newBitReader(body[commandEnd:])
+	descriptorLength64, err := descriptorReader.readBits(16)
+	if err != nil {
+		return false, errors.New("SCTE-35 descriptor_loop_length is missing")
+	}
+	descriptorLength := int(descriptorLength64)
+	if descriptorLength > descriptorReader.remaining()/8 {
+		return false, errors.New("SCTE-35 descriptor loop exceeds section")
+	}
+	if err := descriptorReader.skipBits(descriptorLength * 8); err != nil {
+		return false, err
+	}
+	if descriptorReader.remaining() != 0 {
+		return false, errors.New("trailing bytes in SCTE-35 section")
 	}
 
 	switch mode {
@@ -275,11 +282,6 @@ func parseSpliceInsertOutOfNetwork(command []byte) (bool, error) {
 				return false, err
 			}
 		}
-		if durationFlag != 0 {
-			if err := parseBreakDuration(reader); err != nil {
-				return false, err
-			}
-		}
 	} else {
 		componentCount64, err := reader.readBits(8)
 		if err != nil {
@@ -293,18 +295,16 @@ func parseSpliceInsertOutOfNetwork(command []byte) (bool, error) {
 			if err := reader.skipBits(8); err != nil { // component_tag
 				return false, err
 			}
-			if err := reader.skipBits(7); err != nil { // reserved
-				return false, err
-			}
-			componentImmediate, err := reader.readBits(1)
-			if err != nil {
-				return false, err
-			}
-			if componentImmediate == 0 {
+			if immediateFlag == 0 {
 				if err := parseSpliceTime(reader); err != nil {
 					return false, err
 				}
 			}
+		}
+	}
+	if durationFlag != 0 {
+		if err := parseBreakDuration(reader); err != nil {
+			return false, err
 		}
 	}
 	if err := reader.skipBits(16 + 8 + 8); err != nil { // unique_program_id, avail_num, avails_expected
@@ -351,15 +351,16 @@ func parseBreakDuration(reader *bitReader) error {
 	return reader.skipBits(33) // duration
 }
 
-func parseAttributesNoDuplicates(input string) (map[string]string, error) {
+func parseAttributesNoDuplicates(input string) (map[string]string, map[string]bool, error) {
 	result := make(map[string]string)
+	present := make(map[string]bool)
 	for index := 0; index < len(input); {
 		start := index
 		for index < len(input) && input[index] != '=' {
 			index++
 		}
 		if index == len(input) {
-			return nil, fmt.Errorf("attribute %q has no value", input[start:])
+			return nil, nil, fmt.Errorf("attribute %q has no value", input[start:])
 		}
 		key := strings.TrimSpace(input[start:index])
 		index++
@@ -371,7 +372,7 @@ func parseAttributesNoDuplicates(input string) (map[string]string, error) {
 				index++
 			}
 			if index == len(input) {
-				return nil, errors.New("unterminated quoted attribute")
+				return nil, nil, errors.New("unterminated quoted attribute")
 			}
 			value = input[start:index]
 			index++
@@ -383,20 +384,21 @@ func parseAttributesNoDuplicates(input string) (map[string]string, error) {
 			value = strings.TrimSpace(input[start:index])
 		}
 		if key == "" {
-			return nil, errors.New("empty attribute name")
+			return nil, nil, errors.New("empty attribute name")
 		}
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("duplicate attribute %q", key)
+		if present[key] {
+			return nil, nil, fmt.Errorf("duplicate attribute %q", key)
 		}
+		present[key] = true
 		result[key] = value
 		if index < len(input) {
 			if input[index] != ',' {
-				return nil, fmt.Errorf("unexpected attribute character %q", input[index])
+				return nil, nil, fmt.Errorf("unexpected attribute character %q", input[index])
 			}
 			index++
 		}
 	}
-	return result, nil
+	return result, present, nil
 }
 
 const daterangeTagPrefix = "#EXT-X-DATERANGE:"
@@ -410,14 +412,14 @@ func applyDaterangeSCTE35(rawLine string) (start, end, handled bool, err error) 
 		return false, false, false, nil
 	}
 	handled = true
-	attributes, err := parseAttributesNoDuplicates(line[len(daterangeTagPrefix):])
+	attributes, present, err := parseAttributesNoDuplicates(line[len(daterangeTagPrefix):])
 	if err != nil {
 		return false, false, true, err
 	}
 
-	hasOut := attributes["SCTE35-OUT"] != ""
-	hasIn := attributes["SCTE35-IN"] != ""
-	hasCMD := attributes["SCTE35-CMD"] != ""
+	hasOut := present["SCTE35-OUT"]
+	hasIn := present["SCTE35-IN"]
+	hasCMD := present["SCTE35-CMD"]
 	directional := 0
 	if hasOut {
 		directional++
@@ -453,7 +455,9 @@ func applyDaterangeSCTE35(rawLine string) (start, end, handled bool, err error) 
 		payload = attributes["SCTE35-CMD"]
 		mode = scte35DirectionFromCommand
 	}
-
+	if payload == "" {
+		return false, false, true, errors.New("SCTE-35 directional attribute value is empty")
+	}
 	out, err := validateSCTE35Direction(payload, mode)
 	if err != nil {
 		return false, false, true, err

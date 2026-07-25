@@ -154,6 +154,7 @@ func Parse(rawURL string, input []byte) (Playlist, error) {
 		}
 
 		// EXT-X-DATERANGE SCTE-35 attributes require the raw tag at byte zero.
+		// Leading whitespace is a rejected pseudo-tag and does not change state.
 		// Invalid directional payloads fail closed; ordinary dateranges are ignored.
 		if daterangeStart, daterangeEnd, handled, daterangeErr := applyDaterangeSCTE35(rawLine); daterangeErr != nil {
 			return Playlist{}, fmt.Errorf("%w at line %d: %w", ErrInvalidPlaylist, lineNumber, daterangeErr)

@@ -29,16 +29,19 @@ line begins at byte zero with exact `#EXT-X-DATERANGE:`:
 - `SCTE35-CMD` accepts only structurally valid `splice_insert` commands and
   derives direction from `out_of_network_indicator`
 - ordinary dateranges without those exact uppercase attributes remain ignored
-- malformed, ambiguous, encrypted, CRC-invalid, or oversized SCTE-35 payloads
-  fail closed as invalid playlists rather than silently changing ad state
+- explicitly present but empty `SCTE35-OUT` / `SCTE35-IN` / `SCTE35-CMD` values
+  fail closed
+- malformed, ambiguous, encrypted, CRC-invalid, oversized, or structurally
+  incomplete SCTE-35 section payloads fail closed as invalid playlists rather
+  than silently changing ad state
 
 Anvato and Uplynk markers match the pinned reference after each playlist line
 is trimmed. Cue tags are matched against the raw line and must begin at byte
-zero: a leading space or tab before `#EXT-X-CUE-*` is ignored as a pseudo-tag
+zero: a leading space or tab before `#EXT-X-CUE-*` is a rejected pseudo-tag
 and does not change advertisement state. Trailing ASCII spaces or tabs on an
 otherwise exact cue line are ignored consistently. DATERANGE SCTE-35 tags use
-the same byte-zero rule; leading whitespace is invalid and ignored, while
-trailing ASCII spaces or tabs are ignored. Start wins when one Anvato line
+the same byte-zero rule: leading whitespace is a rejected pseudo-tag and is
+ignored, while trailing ASCII spaces or tabs are ignored. Start wins when one Anvato line
 contains both tokens. Cue lookalikes that only share a prefix without an
 immediate `:` (for example `#EXT-X-CUE-OUTING`) are rejected;
 `#EXT-X-CUE-OUT-CONT` is not treated as `#EXT-X-CUE-OUT`. The state is Boolean
