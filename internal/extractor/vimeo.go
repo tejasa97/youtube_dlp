@@ -101,16 +101,19 @@ func (Vimeo) Extract(ctx context.Context, request Request) (Extraction, error) {
 	case vimeoRouteChannel, vimeoRouteUserVideos, vimeoRouteGroup:
 		return extractVimeoPlaylist(ctx, request.Transport, target)
 	case vimeoRouteVideo:
-		return extractVimeoVideo(ctx, request, target.id)
+		return extractVimeoVideo(ctx, request, target.id, target.canonical)
 	default:
 		return Extraction{}, ErrUnsupported
 	}
 }
 
-func extractVimeoVideo(ctx context.Context, request Request, videoID string) (Extraction, error) {
+func extractVimeoVideo(ctx context.Context, request Request, videoID, contextualURL string) (Extraction, error) {
 	// Never reflect caller query credentials into the webpage request or the
-	// config Referer. The numeric identity is all this bounded route needs.
-	webpageURL := "https://vimeo.com/" + videoID
+	// config Referer. Contextual routes preserve only their validated path.
+	webpageURL := contextualURL
+	if webpageURL == "" {
+		webpageURL = "https://vimeo.com/" + videoID
+	}
 	page, _, err := ReadPageWithProfile(ctx, request.Transport, webpageURL, vimeoImpersonationProfile)
 	if err != nil {
 		return Extraction{}, err
@@ -139,10 +142,61 @@ func classifyVimeoURL(parsed *url.URL) (vimeoRouteKind, vimeoPlaylistTarget) {
 	if match := vimeoURLPattern.FindStringSubmatch(parsed.Path); len(match) == 2 {
 		return vimeoRouteVideo, vimeoPlaylistTarget{kind: vimeoRouteVideo, id: match[1]}
 	}
+	if target, ok := classifyVimeoContextVideoURL(parsed); ok {
+		return vimeoRouteVideo, target
+	}
 	if target, ok := classifyVimeoPlaylistURL(parsed); ok {
 		return target.kind, target
 	}
 	return vimeoRouteNone, vimeoPlaylistTarget{}
+}
+
+func classifyVimeoContextVideoURL(parsed *url.URL) (vimeoPlaylistTarget, bool) {
+	if parsed == nil || parsed.Scheme != "https" || parsed.User != nil || parsed.Port() != "" ||
+		parsed.Fragment != "" || parsed.RawQuery != "" || parsed.ForceQuery ||
+		!vimeoPlaylistPathOK(parsed) || strings.Contains(parsed.String(), "\x00") {
+		return vimeoPlaylistTarget{}, false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host != "vimeo.com" && host != "www.vimeo.com" {
+		return vimeoPlaylistTarget{}, false
+	}
+	parts := splitVimeoPath(parsed.Path)
+	var contextPath, videoID string
+	switch {
+	case len(parts) == 3 && parts[0] == "channels":
+		slug, ok := validVimeoSlug(parts[1], false)
+		if !ok {
+			return vimeoPlaylistTarget{}, false
+		}
+		contextPath, videoID = "channels/"+slug, parts[2]
+	case len(parts) == 4 && parts[0] == "groups" && parts[2] == "videos":
+		slug, ok := validVimeoSlug(parts[1], false)
+		if !ok {
+			return vimeoPlaylistTarget{}, false
+		}
+		contextPath, videoID = "groups/"+slug+"/videos", parts[3]
+	case len(parts) == 4 && (parts[0] == "album" || parts[0] == "showcase") && parts[2] == "video":
+		collectionID, ok := validVimeoSlug(parts[1], false)
+		if !ok {
+			return vimeoPlaylistTarget{}, false
+		}
+		contextPath, videoID = parts[0]+"/"+collectionID+"/video", parts[3]
+	default:
+		return vimeoPlaylistTarget{}, false
+	}
+	if !validVimeoNumericVideoID(videoID) {
+		return vimeoPlaylistTarget{}, false
+	}
+	return vimeoPlaylistTarget{
+		kind:      vimeoRouteVideo,
+		id:        videoID,
+		canonical: "https://vimeo.com/" + contextPath + "/" + videoID,
+	}, true
+}
+
+func validVimeoNumericVideoID(videoID string) bool {
+	return videoID != "" && len(videoID) <= vimeoMaxNumericVideoIDLen && vimeoNumericPattern.MatchString(videoID)
 }
 
 func classifyVimeoPlaylistURL(parsed *url.URL) (vimeoPlaylistTarget, bool) {

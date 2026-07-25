@@ -19,6 +19,9 @@ Accepted routes:
 - `https://vimeo.com/groups/{safe-group}` with optional trailing slash
 
 Existing numeric video and `player.vimeo.com/video/{id}` routes are unchanged.
+Exact channel, group, album, and showcase child-video routes are owned by the
+video extractor and preserve their canonical contextual page URL and config
+Referer; they are not playlist routes.
 Caller query and fragment are rejected by playlist suitability. Playlist page
 fetches use `ReadPageWithProfileWithoutCredentialsNoRedirect` with the existing
 `chrome-133` profile and only the locally constructed HTTPS pagination URL.
@@ -54,10 +57,10 @@ and page/entry bound categories are preserved.
 
 ## Go hardening and deliberate deviations
 
-- No showcases/albums, likes, watch-later, password submission, or
+- No showcase/album enumeration, likes, watch-later, password submission, or
   authenticated/private media.
-- Nested group video and arbitrary group subpaths remain owned by video or
-  unsupported routes rather than being claimed as playlists.
+- Exact nested group video routes are owned by the video extractor; arbitrary
+  group subpaths remain unsupported rather than being claimed as playlists.
 - Page-declared next URLs are never followed; only a bounded `rel=next`
   presence indicator advances a locally constructed page number.
 - Hostile, cross-origin, mismatched, credentialed, ported, fragmented, or
