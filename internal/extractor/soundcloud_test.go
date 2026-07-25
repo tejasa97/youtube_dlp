@@ -181,6 +181,9 @@ func soundCloudResolveIsUserProfile(resolved string) bool {
 	if err != nil {
 		return false
 	}
+	if target, ok := classifySoundCloudURL(parsed); ok && target.kind == soundCloudAPIUserTarget {
+		return true
+	}
 	host := strings.ToLower(parsed.Hostname())
 	if host != "soundcloud.com" && host != "www.soundcloud.com" && host != "m.soundcloud.com" {
 		return false
@@ -221,6 +224,7 @@ func TestSoundCloudSuitableGuards(t *testing.T) {
 		{"https://soundcloud.com/fixture-artist/related-signal/albums", true},
 		{"https://soundcloud.com/fixture-artist/related-signal/sets", true},
 		{"https://api.soundcloud.com/tracks/4242", true},
+		{"https://api.soundcloud.com/users/7", true},
 		{"https://api.soundcloud.com/tracks/0", false},
 		{"https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A4242", true},
 		{"https://api-v2.soundcloud.com/playlists/soundcloud:playlists:55", true},
@@ -700,6 +704,7 @@ func FuzzSoundCloudURLClassification(f *testing.F) {
 	f.Add("https://soundcloud.com/artist/spotlight")
 	f.Add("https://soundcloud.com/artist/comments")
 	f.Add("https://api.soundcloud.com/tracks/4242")
+	f.Add("https://api.soundcloud.com/users/7")
 	f.Fuzz(func(t *testing.T, rawURL string) {
 		if len(rawURL) > 16<<10 {
 			t.Skip()
@@ -715,6 +720,12 @@ func FuzzSoundCloudURLClassification(f *testing.F) {
 		}
 		if firstOK && (first.canonical == "" && first.id == "") {
 			t.Fatalf("accepted target has no identity: %#v", first)
+		}
+		if firstOK && first.kind == soundCloudAPIUserTarget {
+			if first.canonical != "https://api.soundcloud.com/users/"+first.id ||
+				soundCloudNumericID(first.id) != first.id || first.secretToken != "" {
+				t.Fatalf("unsafe API user target: %#v", first)
+			}
 		}
 	})
 }

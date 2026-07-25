@@ -10,6 +10,11 @@ The shared registry and parity manifest remain owned by the primary integrator.
   and the pinned `/tracks`, `/albums`, `/sets`, `/reposts`, `/likes`,
   `/spotlight`, and `/comments` profile collections. Other profile resources
   and non-SoundCloud hosts are not claimed.
+- The pinned legacy API user permalink
+  `https://api.soundcloud.com/users/<positive-numeric-id>` resolves that exact
+  canonical URL, requires the resolved identity to match, and lazily enumerates
+  `users/<id>/tracks`. Its playlist ID is the resolved numeric ID and its title
+  is the resolved username without a profile-tab suffix.
 - Track stations: `soundcloud.com/stations/track/<artist>/<track>` resolved
   through the v2 resolve endpoint. The opaque station identifier
   `soundcloud:track-stations:<positive-numeric-id>` is validated before any API
@@ -78,6 +83,11 @@ The shared registry and parity manifest remain owned by the primary integrator.
 - `internal/extractor.TestSoundCloudUserTrackPagesAreLazyOrderedAndReusable`
 - `internal/extractor.TestSoundCloudAllProfileTabsUsePinnedEndpoints`
 - `internal/extractor.TestSoundCloudProfileTabContinuationCannotPivot`
+- `internal/extractor.TestSoundCloudAPIUserPermalinkIsLazyOrderedAndReusable`
+- `internal/extractor.TestSoundCloudAPIUserPermalinkRejectsUnsafeRoutesWithoutRequests`
+- `internal/extractor.TestSoundCloudAPIUserPermalinkRejectsMismatchedResolve`
+- `internal/extractor.TestSoundCloudAPIUserPermalinkComparesNumericIdentity`
+- `internal/extractor.TestSoundCloudAPIUserPermalinkCancellationAndContinuationIsolation`
 - `internal/extractor.TestSoundCloudSetEntriesRemainOrderedTransparentURLs`
 - `internal/extractor.TestSoundCloudCancellationInterruptsLazyPage`
 - `internal/extractor.TestSoundCloudCategorizedFailuresAndSecretRedaction`
