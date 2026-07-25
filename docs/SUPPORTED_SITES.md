@@ -23,7 +23,7 @@ service response.
 | soundcloud | soundcloud.com tracks, sets, bare profiles, all pinned public profile tabs, and bounded public search | playlist/API |
 | applepodcasts | podcasts.apple.com public episode pages with an explicit numeric episode query ID | simple/direct |
 | streamable | streamable.com public, embed, and short-link URLs | shared backend, simple/direct |
-| peertube | conservative PeerTube instance routes and peertube: opaque URLs | shared backend, live, manifest-heavy |
+| peertube (+ account/channel/playlist) | conservative PeerTube instance routes and peertube: opaque video URLs | shared backend, playlist/API, live, manifest-heavy |
 | internetarchive | archive.org item pages | playlist/API |
 | tiktok | tiktok.com public video pages, vm/vt/t short links, and bounded webpage captions | anti-bot/impersonated |
 | synthetic_auth | auth-fixture.invalid deterministic test service | authenticated behavior only; not a public service |

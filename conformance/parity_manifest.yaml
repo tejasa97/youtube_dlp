@@ -1235,14 +1235,19 @@ capabilities:
   - id: extractor.peertube_shared
     name: PeerTube federated shared-hosting extraction
     phase: 3
-    compatibility_target: Extract public PeerTube videos from conservative instance routes with direct and HLS formats, captions, metadata, and live state.
+    compatibility_target: Extract public PeerTube videos and lazily enumerate account, channel, and explicit video-playlist routes on conservative instances, with direct and HLS formats, captions, metadata, and live state.
     status: compatible
     evidence:
       - internal/extractor.TestPeerTubeExtractsFederatedMetadataFormatsCaptionsAndLiveState
       - internal/extractor.TestPeerTubeRoutingIsConservativeAndFederationExplicit
       - internal/extractor.TestPeerTubeErrorsAreCategorizedAndSecretSafe
       - internal/extractor.TestPeerTubeCancellationOptionalCaptionsAndAssetTrust
+      - internal/extractor.TestPeerTubePlaylistRoutingAndRegistrySeparation
+      - internal/extractor.TestPeerTubePlaylistMetadataLazyPaginationOrderingAndReuse
+      - internal/extractor.TestPeerTubePlaylistRouteAPIsAndNonFatalMetadata
+      - internal/extractor.TestPeerTubePlaylistFailuresBoundsAndCancellation
       - internal/extractor.FuzzPeerTubeRouting
+      - internal/extractor.FuzzPeerTubePlaylistRouting
       - internal/extractor.FuzzPeerTubeMetadata
       - pkg/ytdlp.TestRepresentativeExtractorCatalogCountRoutingAndRiskCoverage
       - conformance/extractors/shared/peertube/PROVENANCE.md
@@ -1251,7 +1256,7 @@ capabilities:
     depends_on:
       - protocol.hls
       - network.shared_transport
-    known_deviation: Arbitrary instances require the explicit peertube scheme; HTTP routing uses a conservative established-instance set. Generic page discovery, account/channel playlists, and password-protected success are not claimed.
+    known_deviation: Arbitrary instances require the explicit peertube scheme for single videos; HTTP routing and account/channel/playlist enumeration use a conservative established-instance set. Playlist identifiers use a bounded ASCII route-safe subset and malformed video rows fail closed. Generic page discovery, playlist enumeration on unrecognized instances, and password-protected success are not claimed.
 
   - id: extractor.bluesky
     name: Bluesky public post and AT URI extraction
