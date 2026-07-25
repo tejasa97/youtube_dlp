@@ -20,11 +20,14 @@ const (
 
 // roundControl is committed only after consumeStream finishes without error.
 // Media assembler state may advance during a failed response; that replay/dedup
-// behavior is separate from transactional cookie/backoff/end control.
+// behavior is separate from transactional cookie/backoff/end/redirect/context control.
 type roundControl struct {
 	backoff      time.Duration
 	cookie       []byte
 	updateCookie bool
+	redirectURL  string
+	hasRedirect  bool
+	contexts     *sabrContextState
 }
 
 type responseControl struct {
@@ -34,15 +37,31 @@ type responseControl struct {
 	hasCookie     bool
 	sawEndOfTrack bool
 	frozen        bool
+	hasRedirect   bool
+	redirectURL   string
+	policyOps     int
+	contexts      *sabrContextState
 }
 
 type streamConsumer struct {
 	assembler *trackAssembler
 	control   responseControl
+	redirects *redirectTracker
 }
 
 func newStreamConsumer(assembler *trackAssembler) *streamConsumer {
-	return &streamConsumer{assembler: assembler}
+	return newStreamConsumerState(assembler, newSabrContextState(), newRedirectTracker(""))
+}
+
+func newStreamConsumerState(assembler *trackAssembler, contexts *sabrContextState, redirects *redirectTracker) *streamConsumer {
+	if contexts == nil {
+		contexts = newSabrContextState()
+	}
+	return &streamConsumer{
+		assembler: assembler,
+		control:   responseControl{contexts: contexts.clone()},
+		redirects: redirects,
+	}
 }
 
 func (consumer *streamConsumer) consumePart(part Part) error {
@@ -58,6 +77,12 @@ func (consumer *streamConsumer) consumePart(part Part) error {
 		}
 		consumer.control.frozen = true
 		return nil
+	case PartSABRRedirect:
+		return consumer.control.consumeRedirect(part.Payload)
+	case PartSABRContextUpdate:
+		return consumer.control.consumeContextUpdate(part.Payload)
+	case PartSABRContextSendingPolicy:
+		return consumer.control.consumeSendingPolicy(part.Payload)
 	default:
 		return consumer.assembler.consumePart(part)
 	}
@@ -67,12 +92,16 @@ func (consumer *streamConsumer) finish() (roundControl, error) {
 	if err := consumer.assembler.finishResponse(); err != nil {
 		return roundControl{}, err
 	}
+	ctrl, err := consumer.control.commit(consumer.redirects)
+	if err != nil {
+		return roundControl{}, err
+	}
 	if consumer.control.sawEndOfTrack {
 		if err := consumer.assembler.applyEndOfTrackCompletion(); err != nil {
 			return roundControl{}, err
 		}
 	}
-	return consumer.control.commit(), nil
+	return ctrl, nil
 }
 
 func (control *responseControl) consumePolicy(payload []byte) error {
@@ -109,7 +138,36 @@ func (control *responseControl) consumeEndOfTrack(payload []byte, assembler *tra
 	return nil
 }
 
-func (control *responseControl) commit() roundControl {
+func (control *responseControl) consumeRedirect(payload []byte) error {
+	if control.hasRedirect {
+		return fmt.Errorf("%w: duplicate sabr redirect", ErrInvalidMediaState)
+	}
+	directive, err := parseSabrRedirect(payload)
+	if err != nil {
+		return err
+	}
+	control.hasRedirect = true
+	control.redirectURL = directive.URL
+	return nil
+}
+
+func (control *responseControl) consumeContextUpdate(payload []byte) error {
+	directive, err := parseSabrContextUpdate(payload)
+	if err != nil {
+		return err
+	}
+	return control.contexts.applyUpdate(directive)
+}
+
+func (control *responseControl) consumeSendingPolicy(payload []byte) error {
+	directive, err := parseSabrContextSendingPolicy(payload, &control.policyOps)
+	if err != nil {
+		return err
+	}
+	return control.contexts.applySendingPolicy(directive)
+}
+
+func (control *responseControl) commit(redirects *redirectTracker) (roundControl, error) {
 	var result roundControl
 	if control.hasPolicy {
 		result.backoff = time.Duration(control.backoffMs) * time.Millisecond
@@ -118,7 +176,15 @@ func (control *responseControl) commit() roundControl {
 			result.cookie = bytes.Clone(control.cookie)
 		}
 	}
-	return result
+	if control.hasRedirect {
+		if err := redirects.validate(control.redirectURL); err != nil {
+			return roundControl{}, err
+		}
+		result.hasRedirect = true
+		result.redirectURL = control.redirectURL
+	}
+	result.contexts = control.contexts.clone()
+	return result, nil
 }
 
 func parseNextRequestPolicy(payload []byte) (backoffMs int64, cookie []byte, hasCookie bool, err error) {

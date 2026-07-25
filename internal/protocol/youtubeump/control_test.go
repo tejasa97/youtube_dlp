@@ -408,13 +408,10 @@ func TestUnsupportedDirectivesRemainUnsupported(t *testing.T) {
 		name string
 		id   int
 	}{
-		{"redirect", PartSABRRedirect},
 		{"error", PartSABRError},
 		{"reload", PartReloadPlayerResponse},
 		{"live", PartLiveMetadata},
-		{"context_update", PartSABRContextUpdate},
 		{"protection", PartStreamProtectionStatus},
-		{"sending_policy", PartSABRContextSendingPolicy},
 	} {
 		t.Run(partType.name, func(t *testing.T) {
 			body := append(bytes.Clone(base), encodePart(partType.id, []byte{0x0A, 0x01, 'x'})...)
@@ -615,7 +612,7 @@ func TestConsumeStreamDoesNotCommitControlOnLateFailure(t *testing.T) {
 		testSegment{headerID: 1, init: true, payload: []byte("INIT")},
 		testSegment{headerID: 2, sequence: 0, duration: 1000, payload: []byte("seg")},
 	), 5000, cookie)
-	body = append(body, encodePart(PartSABRRedirect, []byte{0x0A, 0x01, 'x'})...)
+	body = append(body, encodePart(PartSABRError, []byte{0x0A, 0x01, 'x'})...)
 	file, err := os.CreateTemp(t.TempDir(), "txn-")
 	if err != nil {
 		t.Fatal(err)
@@ -661,5 +658,7 @@ func TestConsumeStreamDoesNotCommitControlOnTruncatedStream(t *testing.T) {
 }
 
 func roundControlIsZero(ctrl roundControl) bool {
-	return ctrl.backoff == 0 && !ctrl.updateCookie && len(ctrl.cookie) == 0
+	return ctrl.backoff == 0 && !ctrl.updateCookie && len(ctrl.cookie) == 0 &&
+		!ctrl.hasRedirect && ctrl.redirectURL == "" &&
+		(ctrl.contexts == nil || (len(ctrl.contexts.entries) == 0 && len(ctrl.contexts.active) == 0))
 }
