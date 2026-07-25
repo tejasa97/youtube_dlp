@@ -23,11 +23,12 @@ while using a canonical token-free Vimeo Referer.
 
 ## Playlist fixtures
 
-Channel and explicit user-videos playlist pages model
+Channel, explicit and bare user, and public group playlist pages model
 `VimeoChannelIE._title_and_entries` / `_page_url` and `VimeoUserIE` at the same
-pinned commit (`yt_dlp/extractor/vimeo.py`, classes starting near lines 1474 and
-1536). Pagination URLs are constructed locally as
-`/channels/{slug}/videos/page:{N}/` and `/{user}/videos/page:{N}/`. The
+pinned commit (`yt_dlp/extractor/vimeo.py`, classes starting near lines 1474,
+1536, and 1688). Pagination URLs are constructed locally as
+`/channels/{slug}/videos/page:{N}/`, `/{user}/videos/page:{N}/`, and
+`/groups/{group}/videos/page:{N}/`. The
 `rel="next"` marker is only an existence indicator; page-declared next hrefs
 are never fetched.
 
@@ -35,6 +36,7 @@ are never fetched.
 | --- | --- |
 | `channel-page1.html` / `channel-page2.html` | Multi-page channel order, titles, in-page duplicate, and missing next on page 2 |
 | `user-videos-page1.html` / `user-videos-page2.html` | Explicit `/{user}/videos` multi-page user list |
+| `group-page1.html` / `group-page2.html` | Public group title, multi-page order, and cross-page duplicate suppression |
 | `channel-fallback.html` | Conservative `clip_ID` marker fallback when no candidate anchors exist |
 | `channel-hostile.html` | Hostile/mismatched hrefs skipped; only agreeing clip retained |
 | `channel-all-invalid-anchors.html` | All-invalid anchors do not fall back to bare clip IDs |

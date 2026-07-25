@@ -105,6 +105,10 @@ func TestVimeoSuitableAndPlayerConfig(t *testing.T) {
 		"https://vimeo.com/channels/fixturetributes/",
 		"https://vimeo.com/fixtureuser/videos",
 		"https://vimeo.com/fixtureuser/videos/",
+		"https://vimeo.com/fixtureuser",
+		"https://vimeo.com/fixtureuser/",
+		"https://vimeo.com/groups/fixturegroup",
+		"https://vimeo.com/groups/fixturegroup/",
 	} {
 		parsed, _ := url.Parse(rawURL)
 		if !NewVimeo().Suitable(parsed) {
@@ -545,6 +549,84 @@ func TestVimeoUserVideosPlaylist(t *testing.T) {
 	}
 }
 
+func TestVimeoBareUserPlaylistMatchesExplicitVideos(t *testing.T) {
+	pages := map[string][]byte{
+		"https://vimeo.com/fixtureuser/videos/page:1/": readVimeoFixture(t, "user-videos-page1.html"),
+		"https://vimeo.com/fixtureuser/videos/page:2/": readVimeoFixture(t, "user-videos-page2.html"),
+	}
+	var want []Entry
+	for _, rawURL := range []string{"https://vimeo.com/fixtureuser", "https://vimeo.com/fixtureuser/videos"} {
+		transport := &vimeoPlaylistFixtureTransport{pages: pages}
+		result, err := NewVimeo().Extract(context.Background(), Request{URL: rawURL, Transport: transport})
+		if err != nil {
+			t.Fatal(err)
+		}
+		entries, err := CollectEntries(context.Background(), result.Entries, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if title, _ := result.Info.Title(); title != "Fixture User Studio" {
+			t.Fatalf("%s title = %q", rawURL, title)
+		}
+		if len(transport.reads) != 2 ||
+			transport.reads[0] != "https://vimeo.com/fixtureuser/videos/page:1/" ||
+			transport.reads[1] != "https://vimeo.com/fixtureuser/videos/page:2/" {
+			t.Fatalf("%s reads = %#v", rawURL, transport.reads)
+		}
+		if want == nil {
+			want = entries
+			continue
+		}
+		if !reflect.DeepEqual(entries, want) {
+			t.Fatalf("bare/explicit mismatch:\nwant %#v\ngot  %#v", want, entries)
+		}
+	}
+}
+
+func TestVimeoGroupPlaylistIsLazyOrderedReusableAndTitled(t *testing.T) {
+	transport := &vimeoPlaylistFixtureTransport{pages: map[string][]byte{
+		"https://vimeo.com/groups/fixturegroup/videos/page:1/": readVimeoFixture(t, "group-page1.html"),
+		"https://vimeo.com/groups/fixturegroup/videos/page:2/": readVimeoFixture(t, "group-page2.html"),
+	}}
+	result, err := NewVimeo().Extract(context.Background(), Request{
+		URL: "https://vimeo.com/groups/fixturegroup/", Transport: transport,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsPlaylist() || transport.pageReads != 1 || transport.profile != vimeoImpersonationProfile {
+		t.Fatalf("playlist=%v reads=%d profile=%q", result.IsPlaylist(), transport.pageReads, transport.profile)
+	}
+	if id, _ := result.Info.ID(); id != "fixturegroup" {
+		t.Fatalf("id = %q", id)
+	}
+	if title, _ := result.Info.Title(); title != "Fixture Vimeo Group" {
+		t.Fatalf("title = %q", title)
+	}
+	if webpage, _ := result.Info.Lookup("webpage_url").StringValue(); webpage != "https://vimeo.com/groups/fixturegroup" {
+		t.Fatalf("webpage_url = %q", webpage)
+	}
+	for iteration := 0; iteration < 2; iteration++ {
+		entries, err := CollectEntries(context.Background(), result.Entries, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []string{"6001", "6002", "6003"}
+		if len(entries) != len(want) {
+			t.Fatalf("iteration %d entries = %#v", iteration, entries)
+		}
+		for index, id := range want {
+			if entries[index].ID != id || entries[index].URL != "https://vimeo.com/"+id ||
+				entries[index].ExtractorKey != "vimeo" || !entries[index].Transparent {
+				t.Fatalf("iteration %d entry %d = %#v", iteration, index, entries[index])
+			}
+		}
+	}
+	if transport.pageReads != 3 {
+		t.Fatalf("page reads = %d, want initial plus two page-2 reads", transport.pageReads)
+	}
+}
+
 func TestVimeoPlaylistFallbackClipMarkers(t *testing.T) {
 	transport := &vimeoPlaylistFixtureTransport{pages: map[string][]byte{
 		"https://vimeo.com/channels/fallbackchannel/videos/page:1/": readVimeoFixture(t, "channel-fallback.html"),
@@ -629,8 +711,6 @@ func TestVimeoPlaylistSuitabilityRejectsHostileInputs(t *testing.T) {
 		"https://vimeo.com.evil.example/channels/fixturetributes",
 		"https://evil.example/channels/fixturetributes",
 		"https://player.vimeo.com/channels/fixturetributes",
-		"https://vimeo.com/fixtureuser",
-		"https://vimeo.com/fixtureuser/",
 		"https://vimeo.com/123456789/videos",
 		"https://vimeo.com/watchlater/videos",
 		"https://vimeo.com/channels/fixturetributes/extra",
@@ -641,7 +721,12 @@ func TestVimeoPlaylistSuitabilityRejectsHostileInputs(t *testing.T) {
 		"https://vimeo.com/channels/fixture%2ftributes",
 		"https://vimeo.com/album/1",
 		"https://vimeo.com/showcase/1",
-		"https://vimeo.com/groups/1",
+		"https://vimeo.com/groups/fixturegroup/videos/123456789",
+		"https://vimeo.com/groups/fixturegroup/extra",
+		"https://vimeo.com/groups/",
+		"https://vimeo.com/groups/fixture%2fgroup",
+		"https://vimeo.com/groups/fixturegroup?x=1",
+		"https://vimeo.com/groups/fixturegroup#x",
 		"https://vimeo.com/channels/",
 		"https://vimeo.com//videos",
 	}
@@ -849,4 +934,54 @@ func FuzzParseVimeoPlaylistPage(f *testing.F) {
 			}
 		}
 	})
+}
+
+func FuzzClassifyVimeoPlaylistURL(f *testing.F) {
+	for _, seed := range []string{
+		"https://vimeo.com/fixtureuser",
+		"https://vimeo.com/fixtureuser/videos",
+		"https://vimeo.com/channels/fixturechannel",
+		"https://vimeo.com/groups/fixturegroup",
+		"https://vimeo.com/123456789",
+		"https://vimeo.com/groups/fixture%2fgroup",
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, rawURL string) {
+		if len(rawURL) > 1<<20 {
+			t.Skip()
+		}
+		parsed, err := url.Parse(rawURL)
+		if err != nil {
+			return
+		}
+		target, ok := classifyVimeoPlaylistURL(parsed)
+		if !ok {
+			return
+		}
+		if target.id == "" || !vimeoSlugPattern.MatchString(target.id) ||
+			target.kind != vimeoRouteChannel && target.kind != vimeoRouteUserVideos && target.kind != vimeoRouteGroup {
+			t.Fatalf("unsafe target: %#v", target)
+		}
+		for _, raw := range []string{target.canonical, target.baseURL} {
+			canonical, err := url.Parse(raw)
+			if err != nil || canonical.Scheme != "https" || canonical.Hostname() != "vimeo.com" ||
+				canonical.User != nil || canonical.Port() != "" || canonical.RawQuery != "" || canonical.Fragment != "" {
+				t.Fatalf("unsafe canonical %q for %#v: %v", raw, target, err)
+			}
+		}
+		roundTrip, ok := classifyVimeoPlaylistURL(mustParseURL(t, target.canonical))
+		if !ok || roundTrip != target {
+			t.Fatalf("round trip = %#v, %v; want %#v", roundTrip, ok, target)
+		}
+	})
+}
+
+func mustParseURL(t testing.TB, rawURL string) *url.URL {
+	t.Helper()
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return parsed
 }

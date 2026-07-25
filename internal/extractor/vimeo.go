@@ -50,6 +50,7 @@ const (
 	vimeoRouteVideo
 	vimeoRouteChannel
 	vimeoRouteUserVideos
+	vimeoRouteGroup
 )
 
 var (
@@ -97,7 +98,7 @@ func (Vimeo) Extract(ctx context.Context, request Request) (Extraction, error) {
 	}
 	kind, target := classifyVimeoURL(parsed)
 	switch kind {
-	case vimeoRouteChannel, vimeoRouteUserVideos:
+	case vimeoRouteChannel, vimeoRouteUserVideos, vimeoRouteGroup:
 		return extractVimeoPlaylist(ctx, request.Transport, target)
 	case vimeoRouteVideo:
 		return extractVimeoVideo(ctx, request, target.id)
@@ -156,6 +157,17 @@ func classifyVimeoPlaylistURL(parsed *url.URL) (vimeoPlaylistTarget, bool) {
 	}
 	parts := splitVimeoPath(parsed.Path)
 	switch {
+	case len(parts) == 1:
+		slug, ok := validVimeoSlug(parts[0], true)
+		if !ok {
+			return vimeoPlaylistTarget{}, false
+		}
+		return vimeoPlaylistTarget{
+			kind:      vimeoRouteUserVideos,
+			id:        slug,
+			canonical: "https://vimeo.com/" + slug,
+			baseURL:   "https://vimeo.com/" + slug,
+		}, true
 	case len(parts) == 2 && parts[0] == "channels":
 		slug, ok := validVimeoSlug(parts[1], false)
 		if !ok {
@@ -177,6 +189,17 @@ func classifyVimeoPlaylistURL(parsed *url.URL) (vimeoPlaylistTarget, bool) {
 			id:        slug,
 			canonical: "https://vimeo.com/" + slug + "/videos",
 			baseURL:   "https://vimeo.com/" + slug,
+		}, true
+	case len(parts) == 2 && parts[0] == "groups":
+		slug, ok := validVimeoSlug(parts[1], false)
+		if !ok {
+			return vimeoPlaylistTarget{}, false
+		}
+		return vimeoPlaylistTarget{
+			kind:      vimeoRouteGroup,
+			id:        slug,
+			canonical: "https://vimeo.com/groups/" + slug,
+			baseURL:   "https://vimeo.com/groups/" + slug,
 		}, true
 	default:
 		return vimeoPlaylistTarget{}, false
@@ -818,7 +841,7 @@ func vimeoPlaylistEntry(id, href, title string) (Entry, bool) {
 
 func extractVimeoPlaylistTitle(page []byte, kind vimeoRouteKind) string {
 	switch kind {
-	case vimeoRouteChannel:
+	case vimeoRouteChannel, vimeoRouteGroup:
 		return extractVimeoChannelListTitle(page)
 	case vimeoRouteUserVideos:
 		return extractVimeoUserListTitle(page)
@@ -920,6 +943,8 @@ func vimeoPlaylistFallbackTitle(target vimeoPlaylistTarget) string {
 		return "Vimeo channel " + target.id
 	case vimeoRouteUserVideos:
 		return "Vimeo user " + target.id
+	case vimeoRouteGroup:
+		return "Vimeo group " + target.id
 	default:
 		return "Vimeo playlist " + target.id
 	}
