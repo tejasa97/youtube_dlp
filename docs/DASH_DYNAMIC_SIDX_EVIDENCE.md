@@ -3,8 +3,8 @@
 ## Scope
 
 Bounded single-period dynamic MPD refresh, SegmentBase `indexRange` / SIDX
-expansion, append-only accumulation, and download for the native Go DASH
-downloader.
+expansion, append-only accumulation with bounded live-window prefix eviction,
+and download for the native Go DASH downloader.
 
 Status: implemented and locally verified.
 
@@ -22,10 +22,10 @@ Observations from that commit:
   `SegmentBase@indexRange` examples only; no dynamic SIDX polling behavior is
   implemented in Python at this commit.
 
-This Go implementation therefore extends the product with bounded append-only
-dynamic SIDX polling while using the reference only to confirm that static
-indexRange fixtures exist and that live DASH remains out of scope for yt-dlp
-itself.
+This Go implementation therefore extends the product with bounded dynamic SIDX
+polling (including rolling live windows) while using the reference only to
+confirm that static indexRange fixtures exist and that live DASH remains out of
+scope for yt-dlp itself.
 
 ## Behavior implemented
 
@@ -47,17 +47,32 @@ itself.
    - Re-fetch and expand the snapshot SIDX (including hierarchical references).
    - Never attach an index to a different media URL or representation.
 
-4. **Append-only accumulation contract**: Because all MPD/SIDX snapshots are
-   polled before any media download, each refreshed snapshot's media leaf
-   sequence must preserve the entire prior snapshot as an exact ordered prefix
-   (same URL, range start, range length metadata). Snapshots may append new
-   suffix leaves or remain unchanged. Dropped prefixes, reordering, insertion
-   before the end, exact-range reuse in a different position, shrink, and
-   rolling-window evolution all fail closed with `ErrUnsupportedAddressing`
-   before publication. Rolling windows are a known unsupported deviation.
-   Append-only identity compares URL/range metadata only; it does not verify
-   remote byte content behind an unchanged URL/range between polling and later
-   media download.
+4. **Leaf identity and live-window contract**:
+   - Stable leaf identity is `URL + absolute RangeStart + RangeLength` metadata.
+   - The accumulator keeps two sequences: the last accepted **live window** and
+     the **append-only download plan**.
+   - Snapshots may append new suffix leaves, remain unchanged, or **evict a
+     prefix** of the prior live window when the retained suffix is an exact
+     ordered identity prefix of the new window.
+   - Each newly observed media leaf is appended to the download plan exactly
+     once. Eviction removes leaves from the live window only; previously seen
+     leaves remain scheduled for download.
+   - Shared identities that cannot form that suffix/prefix relationship fail
+     closed as unanchored live-window evolution (mutation of a retained leaf,
+     reorder without a retained suffix/prefix anchor, insertion before the live
+     edge, rewind/shrink of the live edge, or a completely disjoint window).
+   - After the first non-empty window, at least one stable retained leaf is
+     required. A live window that rolls completely between polls (no retained
+     suffix/prefix identity anchor) fails closed; unanchored full-window
+     replacement is not accepted.
+   - Replaying an already-accumulated leaf identity after eviction/reorder fails
+     closed. Overlapping byte ranges on the same media URL fail closed.
+     Duplicate identities inside one window fail closed.
+   - Identity compares URL/range metadata only; it does not verify remote byte
+     content behind an unchanged URL/range between polling and later media
+     download. Equal-sized rebuilds that reuse the same absolute ranges are
+     indistinguishable from an unchanged window under URL/range identity and are
+     not treated as content mutation.
 
 5. **Homogeneous addressing**: When dynamic SIDX mode is entered because any
    selected representation has an `IndexRange` marker, every selected
@@ -75,10 +90,11 @@ itself.
 
 8. **Cumulative budgets** across the full polling session:
    - **Output leaves**: `MaxSegments` applies to unique accumulated media leaves
-     only; unchanged snapshots do not re-consume this budget. The effective media
-     leaf ceiling is `min(configured MaxSegments, 10_000 - initCount)` so the
-     shared fragment engine hard total-fragment cap (10,000 including init) is
-     never exceeded. Violations fail during polling or final validation with
+     only; unchanged snapshots and pure prefix eviction do not re-consume this
+     budget. The effective media leaf ceiling is
+     `min(configured MaxSegments, 10_000 - initCount)` so the shared fragment
+     engine hard total-fragment cap (10,000 including init) is never exceeded.
+     Violations fail during polling or final validation with
      `ErrTooManySegments`, not at fragment download.
    - **Parser work** (separate): index bytes transferred 16 MiB
      (`maxCumulativeIndexBytes`), parsed SIDX boxes 256
@@ -89,18 +105,22 @@ itself.
 
 9. **Stop conditions**: Transition to static MPD includes the final snapshot and
    stops polling. Remaining dynamic after the snapshot budget downloads the
-   accumulated bounded window.
+   accumulated bounded window (including leaves already rolled out of the live
+   SIDX window).
 
 10. **Rejections**: Representation disappearance, ambiguous duplicate keys,
-    identity/codec/media-URL mutation, non-prefix evolution, overlapping
+    identity/codec/media-URL mutation, unanchored live-window evolution (including
+    complete discontinuity between polls), replay after eviction, overlapping
     byte-range suffixes, malformed `Content-Range`, cyclic nested SIDX, changed
     initialization, mixed addressing, invalid marker sets, and budget exhaustion
-    remain fail-closed with `ErrUnsupportedAddressing` (or categorized fragment
-    errors for media).
+    remain fail-closed with `ErrUnsupportedAddressing`
+    (or categorized fragment errors for media).
 
 11. **Atomic publication**: Manifest polling and SIDX expansion complete before
     any final media write; existing fragment-engine cleanup on later failure is
-    unchanged.
+    unchanged. Historical leaf ranges that have left the live window must still
+    be fetchable at download time; CDN purge of evicted bytes before download
+    surfaces as a fragment fetch failure rather than silent omission.
 
 12. **Unchanged paths**: Static SegmentBase/SIDX, hierarchical SIDX,
     SegmentTemplate/List dynamic polling, static multi-period, headers, retry,
@@ -148,6 +168,26 @@ itself.
 - `TestSegmentAccumulatorMergeFuzzIdentity`
 - `FuzzDynamicSIDXAccumulatorMerge`
 - `TestDownloadSIDXDynamicSingleSnapshot` (replaces former rejection test)
+- `TestAlignLiveWindowPrefixEvictionAndAppend`
+- `TestAlignLiveWindowRejectsRewindMutationAndReorder`
+- `TestAlignLiveWindowRejectsDisjointNonEmptyWindows`
+- `TestSegmentAccumulatorRollingWindowAppendsOnce`
+- `TestSegmentAccumulatorRejectsReplayAfterEviction`
+- `TestSegmentAccumulatorRejectsDuplicateWindowIdentity`
+- `TestSegmentAccumulatorRejectsUnanchoredFullWindowReplacement`
+- `TestDownloadDynamicSIDXRollingWindowEvictAndAppend`
+- `TestDownloadDynamicSIDXRollingWindowPureEvictionKeepsHistory`
+- `TestDownloadDynamicSIDXRollingWindowToStaticTransition`
+- `TestDownloadDynamicSIDXRollingWindowRelocationRejected`
+- `TestDownloadDynamicSIDXRollingWindowRewindRejected`
+- `TestDownloadDynamicSIDXRollingWindowCompleteDiscontinuityRejected`
+- `TestDownloadDynamicSIDXRollingWindowRetainedMutationRejected`
+- `TestDownloadDynamicSIDXRollingWindowReplayRejected`
+- `TestDownloadDynamicSIDXRollingWindowExceedsMaxSegmentsRejected`
+- `TestDownloadDynamicSIDXRollingWindowNoDestinationOnFailure`
+- `TestDownloadDynamicSIDXRollingWindowDeterministicRaceOutput`
+- `TestDownloadDynamicSIDXRollingWindowCancellationDuringWait`
+- `FuzzDynamicSIDXRollingWindowMerge`
 
 ### Product (`pkg/ytdlp`)
 
@@ -156,22 +196,26 @@ itself.
 ## Remaining deviations
 
 - Dynamic multi-period SegmentBase/SIDX remains unsupported.
-- Rolling-window SIDX evolution (dropping prior prefix leaves) is unsupported
-  because media ranges are not downloaded until after polling completes.
-- Append-only prefix checks compare URL/range metadata only; remote byte mutation
-  behind an unchanged URL/range between polling and media download is not
-  detected.
 - Mixed selected addressing across representations (SIDX plus
   SegmentTemplate/List) is unsupported in dynamic SIDX mode.
 - yt-dlp reference at the pinned commit does not implement dynamic SIDX polling;
-  parity is defined by this bounded append-only Go contract and tests, not Python
-  behavior.
+  parity is defined by this bounded Go contract and tests, not Python behavior.
 - Index fetches remain single-attempt; media fragments use the fragment engine
   retry policy.
 - Remote/cross-resource nested indexes are not followed.
+- Polling still completes before media download. Leaves that roll out of the
+  live SIDX window remain on the download plan and must still be HTTP-fetchable;
+  early CDN purge is not compensated by mid-poll media writes.
+- Leaf identity does not hash remote bytes; equal-sized absolute-range reuse can
+  hide hostile content swaps behind unchanged URL/range metadata.
+- A live window that rolls completely between polls (no retained leaf identity)
+  fails closed; publishers with window size 1 must keep at least one leaf
+  continuous across successive snapshots or polling will reject the evolution.
 
 ## Known uncertainties
 
 - Real-world dynamic SIDX manifests that relocate existing leaf byte ranges (not
-  just append at new offsets) are rejected as overlapping evolution; this is
+  just append at new offsets or evict a stable-offset prefix) are rejected as
+  overlapping or unanchored live-window evolution when the relocated ranges no
+  longer share a retained suffix/prefix identity with the prior window; this is
   intentional but may exclude some hostile or malformed publishers.

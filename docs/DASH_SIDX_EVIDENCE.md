@@ -61,18 +61,20 @@ Status: implemented and locally verified.
    fetched index interval is explicitly rejected. This ensures index bytes
    never enter assembled media output.
 
-8. **Dynamic manifests**: Dynamic SegmentBase/SIDX is explicitly rejected
-   with `ErrUnsupportedAddressing`. Rationale: stale SIDX data cannot be
-   safely applied to a resource that may have changed between polls. This is
-   the smaller provably-correct behavior versus re-fetching on each poll.
+8. **Dynamic manifests**: Bounded single-period dynamic SegmentBase/SIDX
+   polling is supported as a Go-native extension (append-only growth and
+   live-window prefix eviction). See `docs/DASH_DYNAMIC_SIDX_EVIDENCE.md`.
+   Dynamic multi-period SegmentBase/SIDX remains rejected.
 
 9. **Multi-period**: Static compatible SIDX representations retain period
    boundaries and participate in the supervised multi-period concat path.
-   Dynamic SegmentBase/SIDX remains rejected.
+   Dynamic SegmentBase/SIDX multi-period remains rejected.
 
 ## Remaining deviations
 
-- Dynamic SegmentBase/SIDX is rejected (not re-fetched per poll).
+- Dynamic multi-period SegmentBase/SIDX and mixed selected addressing remain
+  unsupported; see `docs/DASH_DYNAMIC_SIDX_EVIDENCE.md` for the single-period
+  dynamic contract.
 - Multi-period composition requires compatible fragmented signatures across
   every static period; dynamic and unfragmented multi-period sets are rejected.
 - Initialization/media range overlap is rejected (not trimmed).
@@ -209,17 +211,12 @@ by the primary agent:
 
 ## Design decision: dynamic SIDX
 
-Dynamic manifests with SegmentBase/SIDX are **explicitly rejected** rather than
-re-fetching the index on each poll. Rationale:
-
-1. A dynamic MPD's media resource may grow or be rewritten between polls.
-2. SIDX byte offsets are absolute; applying stale offsets to a changed resource
-   produces corrupt output silently.
-3. Re-fetching and re-expanding on each poll requires tracking which segments
-   are new vs. already downloaded, adding complexity without clear correctness
-   guarantees for SegmentBase (unlike SegmentTemplate which uses time/number
-   addressing).
-4. The explicit rejection is provably safe: no stale data is ever applied.
+Bounded single-period dynamic SegmentBase/SIDX polling is implemented as a
+Go-native extension with append-only leaf accumulation and bounded live-window
+prefix eviction. The contract, ceilings, and remaining unsupported cases
+(dynamic multi-period, mixed addressing) are documented in
+`docs/DASH_DYNAMIC_SIDX_EVIDENCE.md`. Static SIDX paths in this document remain
+unchanged.
 
 ## Design decision: initialization/media overlap
 
@@ -283,8 +280,8 @@ task brief:
   fails closed),
 - invalid or mismatched Content-Range responses (preserved from the
   flat SIDX path),
-- dynamic SegmentBase/SIDX manifests (explicitly rejected at
-  `expandSIDXSegments`),
+- dynamic multi-period SegmentBase/SIDX and mixed selected addressing
+  (see `docs/DASH_DYNAMIC_SIDX_EVIDENCE.md`),
 - initialization/media overlap (preserved from the flat SIDX path).
 
 ### Deviation

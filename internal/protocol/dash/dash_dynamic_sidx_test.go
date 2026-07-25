@@ -77,7 +77,7 @@ func TestDownloadDynamicSIDXPrefixDropRejected(t *testing.T) {
 	leaf2 := []byte("PREFIX_DROP_LEAF_TWO__")
 	fixture1 := buildDynamicSIDXResource(leaf1, leaf2)
 	fixture2 := buildDynamicSIDXResource(leaf1)
-	assertDynamicSIDXEvolutionRejected(t, fixture1, fixture2, "non-prefix segment evolution")
+	assertDynamicSIDXEvolutionRejected(t, fixture1, fixture2, "unanchored live-window evolution")
 }
 
 func TestDownloadDynamicSIDXPrefixReorderRejected(t *testing.T) {
@@ -85,7 +85,7 @@ func TestDownloadDynamicSIDXPrefixReorderRejected(t *testing.T) {
 	leaf2 := []byte("PREFIX_REORDER_LEAF_TWO__")
 	fixture1 := buildDynamicSIDXResource(leaf1, leaf2)
 	fixture2 := buildDynamicSIDXResource(leaf2, leaf1)
-	assertDynamicSIDXEvolutionRejected(t, fixture1, fixture2, "non-prefix segment evolution")
+	assertDynamicSIDXEvolutionRejected(t, fixture1, fixture2, "unanchored live-window evolution")
 }
 
 func TestDownloadDynamicSIDXPrefixInsertionRejected(t *testing.T) {
@@ -93,7 +93,7 @@ func TestDownloadDynamicSIDXPrefixInsertionRejected(t *testing.T) {
 	leaf2 := []byte("PREFIX_INSERT_LEAF_TWO___")
 	fixture1 := buildDynamicSIDXResource(leaf1)
 	fixture2 := buildDynamicSIDXResource(leaf2, leaf1)
-	assertDynamicSIDXEvolutionRejected(t, fixture1, fixture2, "non-prefix segment evolution")
+	assertDynamicSIDXEvolutionRejected(t, fixture1, fixture2, "unanchored live-window evolution")
 }
 
 func TestDownloadDynamicSIDXPrefixShrinkRejected(t *testing.T) {
@@ -101,7 +101,7 @@ func TestDownloadDynamicSIDXPrefixShrinkRejected(t *testing.T) {
 	leaf2 := []byte("PREFIX_SHRINK_LEAF_TWO__")
 	fixture1 := buildDynamicSIDXResource(leaf1, leaf2)
 	fixture2 := buildDynamicSIDXResource(leaf1)
-	assertDynamicSIDXEvolutionRejected(t, fixture1, fixture2, "non-prefix segment evolution")
+	assertDynamicSIDXEvolutionRejected(t, fixture1, fixture2, "unanchored live-window evolution")
 }
 
 func assertDynamicSIDXEvolutionRejected(t *testing.T, first, second dynamicSIDXFixture, want string) {
@@ -277,19 +277,36 @@ func (fixture dynamicSIDXFixture) resourceWithSIDX() []byte {
 }
 
 func buildDynamicSIDXResource(leaves ...[]byte) dynamicSIDXFixture {
+	return buildDynamicSIDXWindow(leaves, 0, len(leaves))
+}
+
+// buildDynamicSIDXWindow builds a SegmentBase resource whose media payload
+// contains allLeaves in order at stable absolute offsets, while the SIDX
+// references only allLeaves[windowStart:windowStart+windowCount]. Historical
+// leaf bytes remain present so post-poll downloads can still fetch ranges that
+// have already rolled out of the live window.
+func buildDynamicSIDXWindow(allLeaves [][]byte, windowStart, windowCount int) dynamicSIDXFixture {
+	if windowStart < 0 || windowCount < 0 || windowStart+windowCount > len(allLeaves) {
+		panic("invalid rolling SIDX window")
+	}
 	init := make([]byte, testDynamicSIDXInitSize)
 	for i := range init {
 		init[i] = 'I'
 	}
-	refs := make([]SIDXReference, len(leaves))
-	for i, leaf := range leaves {
+	window := allLeaves[windowStart : windowStart+windowCount]
+	refs := make([]SIDXReference, len(window))
+	for i, leaf := range window {
 		refs[i] = SIDXReference{
 			ReferencedSize: uint32(len(leaf)), SubsegmentDuration: 48000,
 			StartsWithSAP: true, SAPType: 1,
 		}
 	}
 	probe := buildTestSIDXBox(0, 1, 48000, 0, 0, refs)
-	firstOffset := uint64(testDynamicSIDXMediaStart - (testDynamicSIDXIndexStart + len(probe)))
+	absStart := testDynamicSIDXMediaStart
+	for i := 0; i < windowStart; i++ {
+		absStart += len(allLeaves[i])
+	}
+	firstOffset := uint64(absStart - (testDynamicSIDXIndexStart + len(probe)))
 	sidxBox := buildTestSIDXBox(0, 1, 48000, 0, firstOffset, refs)
 	if len(sidxBox) > testDynamicSIDXIndexSlotLen {
 		panic("dynamic SIDX fixture exceeds fixed index slot")
@@ -299,12 +316,12 @@ func buildDynamicSIDXResource(leaves ...[]byte) dynamicSIDXFixture {
 
 	resource := append([]byte(nil), init...)
 	resource = append(resource, indexSlot...)
-	for _, leaf := range leaves {
+	for _, leaf := range allLeaves {
 		resource = append(resource, leaf...)
 	}
 
 	indexRange := fmt.Sprintf("%d-%d", testDynamicSIDXIndexStart, testDynamicSIDXIndexStart+testDynamicSIDXIndexSlotLen-1)
-	return dynamicSIDXFixture{resource: resource, indexRange: indexRange, initRange: "0-99"}
+	return dynamicSIDXFixture{resource: resource, indexRange: indexRange, initRange: "0-99", indexSlot: indexSlot}
 }
 
 func dynamicSIDXExpectedOutput(leaves ...[]byte) string {
@@ -870,7 +887,7 @@ func TestDownloadDynamicSIDXOverlappingEvolutionRejected(t *testing.T) {
 	transport, _ := network.New(network.Config{})
 	root := t.TempDir()
 	_, err := NewDownloader(transport, Config{DynamicPolls: 2, PollInterval: time.Millisecond}).Download(context.Background(), server.URL+"/live.mpd", root, filepath.Join(root, "out.mp4"), false, nil)
-	if err == nil || (!strings.Contains(err.Error(), "overlapping byte-range evolution") && !strings.Contains(err.Error(), "non-prefix segment evolution")) {
+	if err == nil || (!strings.Contains(err.Error(), "overlapping byte-range evolution") && !strings.Contains(err.Error(), "unanchored live-window evolution")) {
 		t.Fatalf("err = %v", err)
 	}
 }
