@@ -35,6 +35,9 @@ production media URLs.
   HTTP(S) stream URL.
 - Audio-only format metadata (`vcodec=none`) with protocol derived from the
   validated stream scheme and safe extension inference (no invented `acodec`).
+- The pinned tracking-prefix/double-scheme cleanup is implemented once in the
+  shared podcast URL helper and reused by Apple Podcasts, Acast, Simplecast,
+  and the other feeder-backed podcast extractors.
 - Explicit JSON nesting-depth validation before decoding root and model
   payloads; `<script>` open tags require a tag-name boundary (reject
   `scripture`/`scriptx` prefixes).

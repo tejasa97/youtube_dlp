@@ -37,22 +37,6 @@ var (
 	applePodcastsOGImage          = regexp.MustCompile(`(?is)<meta\b[^>]*\bproperty\s*=\s*["']og:image["'][^>]*\bcontent\s*=\s*["']([^"']+)["']`)
 	applePodcastsOGImageAlt       = regexp.MustCompile(`(?is)<meta\b[^>]*\bcontent\s*=\s*["']([^"']+)["'][^>]*\bproperty\s*=\s*["']og:image["']`)
 	applePodcastsHTMLTag          = regexp.MustCompile(`(?s)<[^>]*>`)
-	applePodcastsTrackingPrefix   = regexp.MustCompile(`(?i)` +
-		`(?:` +
-		`(?:` +
-		`chtbl\.com/track|` +
-		`media\.blubrry\.com|` +
-		`play\.podtrac\.com|` +
-		`chrt\.fm/track|` +
-		`mgln\.ai/e` +
-		`)(?:/[^/.]+)?|` +
-		`(?:dts|www)\.podtrac\.com/(?:pts/)?redirect\.[0-9a-z]{3,4}|` +
-		`flex\.acast\.com|` +
-		`pd(?:cn\.co|st\.fm)/e|` +
-		`[0-9]\.gum\.fm|` +
-		`pscrb\.fm/rss/p` +
-		`)/`)
-	applePodcastsDoubleScheme = regexp.MustCompile(`(?i)^[a-z][a-z0-9+.-]*://([a-z][a-z0-9+.-]*://)`)
 )
 
 type applePodcastsTarget struct {
@@ -525,51 +509,7 @@ func applePodcastsScriptHasID(openTag []byte, want string) bool {
 }
 
 func cleanApplePodcastsURL(raw string) (string, bool) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" || len(raw) > applePodcastsMaxURLBytes {
-		return "", false
-	}
-	for _, r := range raw {
-		if r < 0x20 || r == 0x7f {
-			return "", false
-		}
-	}
-	cleaned := applePodcastsTrackingPrefix.ReplaceAllString(raw, "")
-	cleaned = applePodcastsDoubleScheme.ReplaceAllString(cleaned, "$1")
-	cleaned = strings.TrimSpace(cleaned)
-	if cleaned == "" || len(cleaned) > applePodcastsMaxURLBytes {
-		return "", false
-	}
-	parsed, err := url.Parse(cleaned)
-	if err != nil {
-		return "", false
-	}
-	if parsed.User != nil {
-		return "", false
-	}
-	scheme := strings.ToLower(parsed.Scheme)
-	if scheme != "http" && scheme != "https" {
-		return "", false
-	}
-	host := strings.ToLower(parsed.Hostname())
-	if host == "" || strings.ContainsAny(host, " \x00\r\n\t/") ||
-		looksLikeIPLiteralHost(host) || looksLikeLocalOrInternalHost(host) {
-		return "", false
-	}
-	if parsed.Port() != "" {
-		return "", false
-	}
-	if strictPathUnsafe(parsed.EscapedPath()) {
-		return "", false
-	}
-	// Drop fragment transport artifacts; keep signed query strings.
-	parsed.Fragment = ""
-	parsed.RawFragment = ""
-	out := parsed.String()
-	if len(out) == 0 || len(out) > sharedHostingMaxURLBytes {
-		return "", false
-	}
-	return out, true
+	return cleanPodcastMediaURL(raw, applePodcastsMaxURLBytes)
 }
 
 func applePodcastsOGThumbnail(page []byte) (string, bool) {
