@@ -1,6 +1,8 @@
 package youtubeump
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"testing"
 )
@@ -151,5 +153,25 @@ func FuzzMixedUMPStream(f *testing.F) {
 				return
 			}
 		}
+	})
+}
+
+func FuzzSabrCheckpoint(f *testing.F) {
+	f.Add([]byte(`{"v":1}`))
+	f.Add([]byte(`{"v":1,"client_name":1,"client_version":"x","track_kind":"video","itag":137,"duration_sec":10,"ustreamer_sha256":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","init_written":false,"format_verified":false,"segments":[]}`))
+	f.Fuzz(func(t *testing.T, body []byte) {
+		if len(body) > MaxCheckpointBytes {
+			return
+		}
+		if containsForbiddenCheckpointBytes(body) {
+			return
+		}
+		var state sabrCheckpoint
+		decoder := json.NewDecoder(bytes.NewReader(body))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&state); err != nil {
+			return
+		}
+		_ = validateCheckpoint(state)
 	})
 }

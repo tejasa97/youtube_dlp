@@ -31,6 +31,7 @@ func testConfig(serverURL string, extra ...func(*Config)) Config {
 		ClientInfo:      ClientInfo{ClientName: 1, ClientVersion: "fixture"},
 		UserAgent:       "fixture-agent",
 		DurationSec:     10,
+		VideoID:         "fixture0001",
 	}
 	for _, apply := range extra {
 		apply(&config)
