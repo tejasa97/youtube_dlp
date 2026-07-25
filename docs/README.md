@@ -56,6 +56,7 @@ The executable help is the authoritative CLI option list:
 - [YouTube playlist-tab evidence](YOUTUBE_PLAYLIST_TABS_EVIDENCE.md)
 - [YouTube search evidence](YOUTUBE_SEARCH_EVIDENCE.md)
 - [YouTube Music search evidence](YOUTUBE_MUSIC_SEARCH_EVIDENCE.md)
+- [YouTube Music browse evidence](YOUTUBE_MUSIC_BROWSE_EVIDENCE.md)
 - [YouTube comments evidence](YOUTUBE_COMMENTS_EVIDENCE.md)
 - [YouTube post-live DVR evidence](YOUTUBE_POST_LIVE_DVR_EVIDENCE.md)
 - [YouTube live-from-start evidence](YOUTUBE_LIVE_FROM_START_EVIDENCE.md)

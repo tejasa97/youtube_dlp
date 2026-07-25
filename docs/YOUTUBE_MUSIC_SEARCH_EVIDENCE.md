@@ -6,9 +6,10 @@ Behavior is scoped to the public URL extractor in yt-dlp reference commit
 
 Supported routes are exact HTTP(S) `music.youtube.com/search` URLs with `q` or
 `search_query`. `#songs` and `#videos` use the reference's pinned `sp` values.
-The implementation uses WEB_REMIX continuation requests and returns only
-recognized video IDs as normal YouTube watch entries. It is bounded to 50
-entries and shared continuation machinery prevents cursor loops.
+The implementation uses cookie-isolated WEB_REMIX continuation requests and
+returns recognized video IDs as normal YouTube watch entries plus playlist,
+channel, and registered Music browse URL results. It is bounded to 50 entries
+and shared continuation machinery prevents cursor loops.
 
-Excluded: albums, artists, playlists, podcasts, arbitrary `sp`, authenticated
-or premium success, full Music metadata, and live-specific compatibility.
+Excluded: arbitrary `sp`, authenticated or premium Music success, full Music
+metadata beyond typed URL results, and live-specific compatibility.

@@ -680,7 +680,7 @@ func TestYouTubeAdvertisedTabsIdentityBoundAcrossURLForms(t *testing.T) {
 	}
 }
 
-func TestYouTubeOmitsUnconsumableMusicBrowseAndHashtagEntries(t *testing.T) {
+func TestYouTubeEmitsConsumableMusicBrowseAndOmitsUnregistered(t *testing.T) {
 	musicPayload, err := json.Marshal(map[string]any{
 		"contents": map[string]any{"sectionListRenderer": map[string]any{"contents": []any{
 			map[string]any{"musicShelfRenderer": map[string]any{"contents": []any{
@@ -689,12 +689,20 @@ func TestYouTubeOmitsUnconsumableMusicBrowseAndHashtagEntries(t *testing.T) {
 					"flexColumns":        []any{map[string]any{"musicResponsiveListItemFlexColumnRenderer": map[string]any{"text": map[string]any{"simpleText": "album"}}}},
 				}},
 				map[string]any{"musicResponsiveListItemRenderer": map[string]any{
+					"navigationEndpoint": map[string]any{"browseEndpoint": map[string]any{"browseId": "MPSPpodcast00001"}},
+					"flexColumns":        []any{map[string]any{"musicResponsiveListItemFlexColumnRenderer": map[string]any{"text": map[string]any{"simpleText": "podcast"}}}},
+				}},
+				map[string]any{"musicResponsiveListItemRenderer": map[string]any{
 					"navigationEndpoint": map[string]any{"browseEndpoint": map[string]any{"browseId": "VLPLFixtureAlbum1"}},
 					"flexColumns":        []any{map[string]any{"musicResponsiveListItemFlexColumnRenderer": map[string]any{"text": map[string]any{"simpleText": "vl"}}}},
 				}},
 				map[string]any{"musicResponsiveListItemRenderer": map[string]any{
 					"navigationEndpoint": map[string]any{"browseEndpoint": map[string]any{"browseId": "UCabcdefghijklmnopqrstuv"}},
 					"flexColumns":        []any{map[string]any{"musicResponsiveListItemFlexColumnRenderer": map[string]any{"text": map[string]any{"simpleText": "artist"}}}},
+				}},
+				map[string]any{"musicResponsiveListItemRenderer": map[string]any{
+					"navigationEndpoint": map[string]any{"browseEndpoint": map[string]any{"browseId": "MPADnotregistered1"}},
+					"flexColumns":        []any{map[string]any{"musicResponsiveListItemFlexColumnRenderer": map[string]any{"text": map[string]any{"simpleText": "discography"}}}},
 				}},
 				map[string]any{"musicResponsiveListItemRenderer": map[string]any{
 					"playlistItemData": map[string]any{"videoId": "aaaaaaaaaaa"},
@@ -710,16 +718,22 @@ func TestYouTubeOmitsUnconsumableMusicBrowseAndHashtagEntries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(page.entries) != 3 {
+	if len(page.entries) != 5 {
 		t.Fatalf("music entries=%#v", page.entries)
 	}
-	for _, entry := range page.entries {
-		if strings.Contains(entry.URL, "/browse/") || strings.HasPrefix(entry.ID, "MPRE") {
-			t.Fatalf("emitted unconsumable music browse entry %#v", entry)
+	want := []struct {
+		id, key, url string
+	}{
+		{"MPREbfixture0001", "youtube_music_browse", "https://music.youtube.com/browse/MPREbfixture0001"},
+		{"MPSPpodcast00001", "youtube_music_browse", "https://music.youtube.com/browse/MPSPpodcast00001"},
+		{"PLFixtureAlbum1", "youtube", "https://www.youtube.com/playlist?list=PLFixtureAlbum1"},
+		{"UCabcdefghijklmnopqrstuv", "youtube_channel_tab", "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv"},
+		{"aaaaaaaaaaa", "youtube", "https://www.youtube.com/watch?v=aaaaaaaaaaa"},
+	}
+	for i, entry := range page.entries {
+		if entry.ID != want[i].id || entry.ExtractorKey != want[i].key || entry.URL != want[i].url {
+			t.Fatalf("entry[%d]=%#v want %#v", i, entry, want[i])
 		}
-	}
-	if page.entries[0].ID != "PLFixtureAlbum1" || page.entries[1].ID != "UCabcdefghijklmnopqrstuv" || page.entries[2].ID != "aaaaaaaaaaa" {
-		t.Fatalf("music entries=%#v", page.entries)
 	}
 
 	hashtagPayload, err := json.Marshal(map[string]any{
@@ -742,14 +756,17 @@ func TestYouTubeOmitsUnconsumableMusicBrowseAndHashtagEntries(t *testing.T) {
 	if err != nil || len(searchPage.entries) != 1 || searchPage.entries[0].ID != "aaaaaaaaaaa" {
 		t.Fatalf("search page=%#v err=%v", searchPage, err)
 	}
-	registry := NewRegistry(NewYouTubeMusicSearch(), NewYouTubeSearch(), NewYouTubeChannelTab(), NewYouTube())
+	registry := NewRegistry(NewYouTubeMusicSearch(), NewYouTubeMusicBrowse(), NewYouTubeSearch(), NewYouTubeChannelTab(), NewYouTube())
 	for _, entry := range append(append([]Entry(nil), page.entries...), searchPage.entries...) {
 		selected, err := registry.SelectFor(entry.URL, entry.ExtractorKey)
 		if err != nil {
 			t.Fatalf("default expansion select %#v: %v", entry, err)
 		}
 		if selected.Name() == "youtube" && (strings.Contains(entry.URL, "/hashtag/") || strings.Contains(entry.URL, "music.youtube.com/browse/")) {
-			t.Fatalf("generic youtube selected for unconsumable %#v", entry)
+			t.Fatalf("generic youtube selected for %#v", entry)
+		}
+		if strings.Contains(entry.URL, "music.youtube.com/browse/") && selected.Name() != "youtube_music_browse" {
+			t.Fatalf("music browse selected %s for %#v", selected.Name(), entry)
 		}
 	}
 }
