@@ -83,7 +83,10 @@ func TestArcPublishingNegativeMatrix(t *testing.T) {
 func TestArcAdaptersExactRoutingHandoffAndEvidence(t *testing.T) {
 	t.Parallel()
 	registry := NewRegistry(
-		NewWashingtonPost(), NewADN(), NewBostonGlobe(), NewGray(), NewClickOnDetroit(), NewArcPublishing(),
+		NewWashingtonPost(), NewADN(), NewBostonGlobe(), NewGray(), NewClickOnDetroit(),
+		NewActionNewsJax(), NewElComercio(), NewLateja(), NewFifthDomain(), NewVLNO(),
+		NewFourteenNews(), NewGlobeAndMail(), NewPilotOnline(), NewUpperMichiganSource(),
+		NewArcPublishing(),
 	)
 	arcTransport := func(org, uuid string) *sharedFixtureTransport {
 		return &sharedFixtureTransport{responses: map[string]fixtureHTTP{
@@ -116,30 +119,50 @@ func TestArcAdaptersExactRoutingHandoffAndEvidence(t *testing.T) {
 		{"bostonglobe", "https://www.bostonglobe.com/video/2020/12/30/metro/example/", "https://bostonglobe.com/video/2020/12/30/metro/example/", "bostonglobe", "232b7ae6-7d73-432d-bc0a-85dbf0119ab1", "bostonglobe", NewBostonGlobe()},
 		{"gray", "https://www.wabi.tv/video/2020/12/30/example/", "https://wabi.tv/video/2020/12/30/example/", "gray", "0b0ba30e-032a-4598-8810-901d70e6033e", "gray", NewGray()},
 		{"clickondetroit", "https://www.clickondetroit.com/video/community/2020/05/15/example/", "https://clickondetroit.com/video/community/2020/05/15/example/", "gmg", "c8793fb2-8d44-4242-881e-2db31da2d9fe", "clickondetroit", NewClickOnDetroit()},
+		{"actionnewsjax", "https://www.actionnewsjax.com/video/live-stream/", "https://actionnewsjax.com/video/live-stream/", "cmg", "cfb1cf1b-3ab5-4d1b-86c5-a5515d311f2a", "actionnewsjax", NewActionNewsJax()},
+		{"elcomercio", "https://www.elcomercio.pe/videos/deportes/example/", "https://elcomercio.pe/videos/deportes/example/", "elcomercio", "27a7e1f8-2ec7-4177-874f-a4feed2885b3", "elcomercio", NewElComercio()},
+		{"lateja", "https://www.lateja.cr/el-mundo/video-china/dfcbfa57-527f-45ff-a69b-35fe71054143/video/", "https://lateja.cr/el-mundo/video-china/dfcbfa57-527f-45ff-a69b-35fe71054143/video/", "gruponacion", "dfcbfa57-527f-45ff-a69b-35fe71054143", "lateja", NewLateja()},
+		{"fifthdomain", "https://www.fifthdomain.com/video/2018/03/09/example/", "https://fifthdomain.com/video/2018/03/09/example/", "mco", "aa0ca6fe-1127-46d4-b32c-be0d6fdb8055", "fifthdomain", NewFifthDomain()},
+		{"vlno", "https://www.vl.no/kultur/2020/12/09/example-article/", "https://vl.no/kultur/2020/12/09/example-article/", "mentormedier", "47a12084-650b-4011-bfd0-3699b6947b2d", "vlno", NewVLNO()},
+		{"fourteennews", "https://www.14news.com/2020/12/30/whiskey-theft/", "https://14news.com/2020/12/30/whiskey-theft/", "raycom", "b89f61f8-79fa-4c09-8255-e64237119bf7", "fourteennews", NewFourteenNews()},
+		{"globeandmail", "https://www.theglobeandmail.com/world/video-ethiopian-woman/", "https://theglobeandmail.com/world/video-ethiopian-woman/", "tgam", "411b34c1-8701-4036-9831-26964711664b", "globeandmail", NewGlobeAndMail()},
+		{"pilotonline", "https://www.pilotonline.com/news/460f2931-8130-4719-8ea1-ffcb2d7cb685-132.html", "https://pilotonline.com/news/460f2931-8130-4719-8ea1-ffcb2d7cb685-132.html", "tronc", "460f2931-8130-4719-8ea1-ffcb2d7cb685", "pilotonline", NewPilotOnline()},
+		{"uppermichigansource", "https://www.uppermichigansource.com/2025/07/18/scattered-showers/", "https://uppermichigansource.com/2025/07/18/scattered-showers/", "gray", "508116f7-e999-48db-b7c2-60a04842679b", "uppermichigansource", NewUpperMichiganSource()},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			page := familyFixture(t, test.fixtureDir, "powa.html")
 			transport := &sharedFixtureTransport{pages: map[string][]byte{test.hostPath: page}}
 			result, err := test.ctor.Extract(context.Background(), Request{URL: test.pageURL, Transport: transport})
-			if err != nil || !result.IsURL() || result.Redirect.ExtractorKey != "arcpublishing" {
+			if err != nil || !result.IsPlaylist() {
 				t.Fatalf("adapter=%#v err=%v", result, err)
 			}
-			wantURL := "arcpublishing:" + test.org + ":" + test.uuid
-			if result.Redirect.URL != wantURL {
-				t.Fatalf("redirect=%q want %q", result.Redirect.URL, wantURL)
+			if transport.requestCount() != 0 {
+				t.Fatalf("lazy playlist fetched before iteration: %d", transport.requestCount())
 			}
-			selected, err := registry.SelectFor(result.Redirect.URL, result.Redirect.ExtractorKey)
+			entries, err := CollectEntries(context.Background(), result.Entries, arcMaxOrgs)
+			if err != nil || len(entries) != 1 || entries[0].ExtractorKey != "arcpublishing" {
+				t.Fatalf("entries=%v err=%v", entries, err)
+			}
+			wantURL := "arcpublishing:" + test.org + ":" + test.uuid
+			if entries[0].URL != wantURL {
+				t.Fatalf("redirect=%q want %q", entries[0].URL, wantURL)
+			}
+			selected, err := registry.SelectFor(entries[0].URL, entries[0].ExtractorKey)
 			if err != nil || selected.Name() != "arcpublishing" {
 				t.Fatalf("SelectFor=%v err=%v", selected, err)
 			}
 			media, err := selected.Extract(context.Background(), Request{
-				URL: result.Redirect.URL, Transport: arcTransport(test.org, test.uuid),
+				URL: entries[0].URL, Transport: arcTransport(test.org, test.uuid),
 			})
 			if err != nil {
 				t.Fatal(err)
 			}
 			if formats, ok := media.Info.Formats(); !ok || len(formats) == 0 {
 				t.Fatal("missing formats after re-entry")
+			}
+			again, err := CollectEntries(context.Background(), result.Entries, arcMaxOrgs)
+			if err != nil || len(again) != 1 || again[0].URL != wantURL {
+				t.Fatalf("reusable iteration failed: %v err=%v", again, err)
 			}
 		})
 	}
@@ -180,17 +203,25 @@ func TestArcAdapterNegatives(t *testing.T) {
 	auth := &sharedFixtureTransport{pages: map[string][]byte{
 		"https://adn.com/politics/2020/11/02/video-senate-candidates/": []byte(`<html>please sign in</html>`),
 	}}
-	if _, err := NewADN().Extract(context.Background(), Request{
+	authResult, err := NewADN().Extract(context.Background(), Request{
 		URL: "https://www.adn.com/politics/2020/11/02/video-senate-candidates/", Transport: auth,
-	}); !errors.Is(err, ErrAuthentication) {
-		t.Fatalf("adn auth=%v", err)
+	})
+	if err != nil || !authResult.IsPlaylist() {
+		t.Fatalf("adn auth extract=%v %#v", err, authResult)
+	}
+	if _, err := CollectEntries(context.Background(), authResult.Entries, arcMaxOrgs); !errors.Is(err, ErrAuthentication) {
+		t.Fatalf("adn auth collect=%v", err)
 	}
 	hostile := &sharedFixtureTransport{pages: map[string][]byte{
 		"https://adn.com/politics/2020/11/02/video-senate-candidates/": []byte(`<html><div class="powa" data-org="evil" data-uuid="8c99cb6e-b29c-4bc9-9173-7bf9979225ab"></div></html>`),
 	}}
-	if _, err := NewADN().Extract(context.Background(), Request{
+	hostileResult, err := NewADN().Extract(context.Background(), Request{
 		URL: "https://www.adn.com/politics/2020/11/02/video-senate-candidates/", Transport: hostile,
-	}); !errors.Is(err, ErrInvalidMetadata) {
+	})
+	if err != nil || !hostileResult.IsPlaylist() {
+		t.Fatalf("hostile extract=%v %#v", err, hostileResult)
+	}
+	if _, err := CollectEntries(context.Background(), hostileResult.Entries, arcMaxOrgs); !errors.Is(err, ErrInvalidMetadata) {
 		t.Fatalf("hostile org=%v", err)
 	}
 }
