@@ -252,26 +252,25 @@ func (downloader *Downloader) Download(ctx context.Context, outputRoot, destinat
 	}
 	if resumed {
 		playerTimeMs, bufferedRanges, selectedFormat = assembler.playbackState()
+		// Resume refresh is fail-closed when a Refresh callback is configured:
+		// a failed or identity-rejected refresh must not fall back to stale
+		// supplied inventory. The only safe continue-with-caller-material cases
+		// are (1) Refresh is nil / not wired, or (2) context cancellation/
+		// deadline (returned as-is without using stale inventory for success).
 		if config.Refresh != nil {
 			if refreshes >= maxRefreshes {
 				return Result{}, ErrRefreshBudget
 			}
 			material, refreshErr := config.Refresh(ctx)
 			if refreshErr != nil {
-				if errors.Is(refreshErr, context.Canceled) || errors.Is(refreshErr, context.DeadlineExceeded) {
-					return Result{}, refreshErr
-				}
-				// Best-effort: keep the caller-supplied inventory when offline
-				// re-extraction is unavailable. RELOAD remains hard-fail.
-			} else if err := applyRefreshMaterial(&config, material, &redirects); err != nil {
-				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-					return Result{}, err
-				}
-			} else {
-				serverURL = config.ServerURL
-				refreshes++
-				eventURL = redactURL(serverURL)
+				return Result{}, redactError(refreshErr)
 			}
+			if err := applyRefreshMaterial(&config, material, &redirects); err != nil {
+				return Result{}, redactError(err)
+			}
+			serverURL = config.ServerURL
+			refreshes++
+			eventURL = redactURL(serverURL)
 		}
 	}
 

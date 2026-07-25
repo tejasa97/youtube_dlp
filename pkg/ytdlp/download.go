@@ -648,9 +648,14 @@ func downloadYouTubeSABRSelection(ctx context.Context, operation *operation, sel
 		RetryMaxDelay:          options.RetryMaxDelay,
 		ClientInfo:             clientInfo,
 		RetainCompletionMarker: retainCompletionMarker,
-		Reload:                 coordinator.reloadFunc(selected),
-		Refresh:                coordinator.refreshFunc(selected),
 		POTokenSource:          coordinator.poTokenSource(selected),
+	}
+	// Refresh/Reload require an extract-capable operation. When unavailable,
+	// leave callbacks nil so resume may continue with caller-supplied material
+	// (documented safe case). When wired, failures are fail-closed.
+	if operation != nil && operation.client != nil && operation.transport != nil {
+		config.Reload = coordinator.reloadFunc(selected)
+		config.Refresh = coordinator.refreshFunc(selected)
 	}
 	return youtubeump.NewDownloader(operation.transport, config).Download(ctx, outputRoot, destination, operation.request.Overwrite, sink)
 }

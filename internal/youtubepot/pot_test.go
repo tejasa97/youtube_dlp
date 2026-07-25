@@ -217,6 +217,133 @@ func TestDirectorCancelledWaiterDoesNotBreakFlight(t *testing.T) {
 	}
 }
 
+func TestDirectorCancelledLeaderDoesNotPoisonWaiters(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var calls atomic.Int32
+	director, err := New(Config{Policy: FetchAlways, Providers: []Provider{ProviderFunc{
+		ProviderName: "fixture",
+		Function: func(ctx context.Context, _ Request) (Response, error) {
+			calls.Add(1)
+			close(started)
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return Response{}, ctx.Err()
+			}
+			return Response{Token: "Zm9v"}, nil
+		},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := validRequestFixture(ContextGVS)
+	leaderCtx, cancelLeader := context.WithCancel(context.Background())
+	leaderErr := make(chan error, 1)
+	go func() {
+		_, _, err := director.Resolve(leaderCtx, request, true)
+		leaderErr <- err
+	}()
+	<-started
+	waiterStarted := make(chan struct{})
+	waiterResult := make(chan string, 1)
+	go func() {
+		close(waiterStarted)
+		token, ok, err := director.Resolve(context.Background(), request, true)
+		if err != nil || !ok {
+			t.Errorf("waiter err=%v ok=%v", err, ok)
+			waiterResult <- ""
+			return
+		}
+		waiterResult <- token
+	}()
+	<-waiterStarted
+	cancelLeader()
+	close(release)
+	if err := <-leaderErr; !errors.Is(err, context.Canceled) {
+		t.Fatalf("leader err=%v", err)
+	}
+	if token := <-waiterResult; token != "Zm9v" {
+		t.Fatalf("waiter token=%q", token)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("provider calls=%d", calls.Load())
+	}
+}
+
+func TestDirectorBypassDoesNotJoinNormalFlight(t *testing.T) {
+	normalStarted := make(chan struct{})
+	normalRelease := make(chan struct{})
+	var normalCalls, bypassCalls atomic.Int32
+	director, err := New(Config{Policy: FetchAlways, Providers: []Provider{ProviderFunc{
+		ProviderName: "fixture",
+		Function: func(_ context.Context, request Request) (Response, error) {
+			if request.BypassCache {
+				bypassCalls.Add(1)
+				return Response{Token: base64Token('B')}, nil
+			}
+			normalCalls.Add(1)
+			close(normalStarted)
+			<-normalRelease
+			return Response{Token: base64Token('A')}, nil
+		},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := validRequestFixture(ContextGVS)
+	normalDone := make(chan struct{})
+	go func() {
+		defer close(normalDone)
+		_, _, _ = director.Resolve(context.Background(), request, true)
+	}()
+	<-normalStarted
+	bypass := request
+	bypass.BypassCache = true
+	token, ok, err := director.Resolve(context.Background(), bypass, true)
+	if err != nil || !ok || token != base64Token('B') {
+		t.Fatalf("bypass resolve=%q ok=%v err=%v", token, ok, err)
+	}
+	if bypassCalls.Load() != 1 || normalCalls.Load() != 1 {
+		t.Fatalf("normalCalls=%d bypassCalls=%d", normalCalls.Load(), bypassCalls.Load())
+	}
+	close(normalRelease)
+	<-normalDone
+}
+
+func TestDirectorCacheExpiryAndBoundedRetry(t *testing.T) {
+	clock := &fixedClock{now: time.Unix(1_700_000_000, 0)}
+	var calls atomic.Int32
+	director, err := New(Config{Policy: FetchAlways, Clock: clock, RefreshSkew: time.Second, Providers: []Provider{ProviderFunc{
+		ProviderName: "fixture",
+		Function: func(context.Context, Request) (Response, error) {
+			n := calls.Add(1)
+			if n == 1 {
+				return Response{}, errors.New("transient")
+			}
+			return Response{Token: base64Token(byte('A' + byte(n-2))), ExpiresAt: clock.now.Add(time.Minute)}, nil
+		},
+	}, ProviderFunc{
+		ProviderName: "fallback",
+		Function: func(context.Context, Request) (Response, error) {
+			n := calls.Add(1)
+			return Response{Token: base64Token(byte('A' + byte(n-1))), ExpiresAt: clock.now.Add(time.Minute)}, nil
+		},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := validRequestFixture(ContextGVS)
+	token, ok, err := director.Resolve(context.Background(), request, true)
+	if err != nil || !ok || token == "" || calls.Load() != 2 {
+		t.Fatalf("bounded retry token=%q ok=%v calls=%d err=%v", token, ok, calls.Load(), err)
+	}
+	clock.now = clock.now.Add(2 * time.Minute)
+	if _, _, err := director.Resolve(context.Background(), request, true); err != nil || calls.Load() < 3 {
+		t.Fatalf("expiry refresh calls=%d err=%v", calls.Load(), err)
+	}
+}
+
 func TestEpisodeForcedRefreshCapsAndCompatibleShare(t *testing.T) {
 	clock := &fixedClock{now: time.Unix(1_700_000_000, 0)}
 	var calls atomic.Int32
