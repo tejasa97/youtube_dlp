@@ -72,4 +72,6 @@ Python or reads the reference checkout.
   120-hour sequence count for short target durations.
 - Generated sequences cannot be delegated to an external downloader.
 - There is no process-restart resume contract for this generated protocol.
-- Direct SABR/UMP and authenticated Innertube clients remain pending.
+- SABR/UMP is a separate retained experimental extension and is outside this
+  capability and the project roadmap. Broader authenticated Innertube client
+  coverage remains a separate compatibility gap.

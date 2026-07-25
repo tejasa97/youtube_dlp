@@ -1,7 +1,9 @@
 # YouTube finite-VOD SABR recovery architecture
 
-Status: frozen design for the transport-recovery slice. Extends PR #84
-crash-safe resume; does not redesign checkpoints or open live SABR.
+Status: frozen design for a retained experimental extension. This architecture
+is excluded from parity goals, roadmap deliverables, release gates, and
+remaining-work estimates. It extends PR #84 crash-safe resume; it does not
+redesign checkpoints or open any further SABR work.
 
 ## Architecture table
 
@@ -26,7 +28,7 @@ crash-safe resume; does not redesign checkpoints or open live SABR.
 | `youtubepot.ErrTokenRejected` | Extension hook: arms ≤1 forced cache bypass on an operation `Episode` | Embedding callers only; SABR_ERROR alone does not invent POT rejection. Product SABR path does not call `SignalRejection`. |
 | Resume with configured `Refresh` callback | Fail closed on callback/identity failure | Must not fall back to stale supplied inventory. Absence of `Refresh` may continue with caller-supplied material. |
 
-## Explicit unsupported variants
+## Explicit unsupported variants (non-goals)
 
 - Live / post-live SABR recovery
 - Code-specific SABR_ERROR recovery beyond generic retry
@@ -34,6 +36,9 @@ crash-safe resume; does not redesign checkpoints or open live SABR.
 - davidzeng0 alternate `ReloadPlayerResponse` nesting (unnamed field wrappers) — not the pinned LuanRT shape
 - Generic media URL refresh outside SABR/signed extraction identity
 - Checkpoint schema redesign; CLI flags; new Innertube client profiles
+
+These variants are not planned follow-up work. They remain documented only to
+define the safe boundary of the retained implementation.
 
 ## Secret hygiene
 
