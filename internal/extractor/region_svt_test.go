@@ -19,16 +19,17 @@ import (
 const svtFixtureRoot = "../../conformance/extractors/region-svt"
 
 type svtFixtureTransport struct {
-	mu            sync.Mutex
-	page          []byte
-	video         []byte
-	series        []byte
-	status        int
-	seriesStatus  int
-	apiCalls      []string
-	graphqlCalls  []string
-	isolatedCalls int
-	wait          bool
+	mu                        sync.Mutex
+	page                      []byte
+	video                     []byte
+	series                    []byte
+	status                    int
+	seriesStatus              int
+	apiCalls                  []string
+	graphqlCalls              []string
+	credentialIsolatedCalls   int
+	lastCredentialIsolatedReq *http.Request
+	wait                      bool
 }
 
 func (transport *svtFixtureTransport) Do(ctx context.Context, request *http.Request) (*http.Response, error) {
@@ -58,7 +59,7 @@ func (transport *svtFixtureTransport) Do(ctx context.Context, request *http.Requ
 	}, nil
 }
 
-func (transport *svtFixtureTransport) DoWithoutCookies(ctx context.Context, request *http.Request) (*http.Response, error) {
+func (transport *svtFixtureTransport) DoWithoutCredentialsNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
 	if transport.wait {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -67,8 +68,10 @@ func (transport *svtFixtureTransport) DoWithoutCookies(ctx context.Context, requ
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if request.Header.Get("Cookie") != "" {
-		return nil, errors.New("cookie reached isolated SVT request")
+	for _, header := range []string{"Cookie", "Authorization", "Proxy-Authorization"} {
+		if request.Header.Get(header) != "" {
+			return nil, fmt.Errorf("%s reached isolated SVT request", header)
+		}
 	}
 	if request.Method != http.MethodGet {
 		return nil, fmt.Errorf("unexpected SVT GraphQL method %s", request.Method)
@@ -77,8 +80,9 @@ func (transport *svtFixtureTransport) DoWithoutCookies(ctx context.Context, requ
 		return nil, fmt.Errorf("unexpected SVT GraphQL URL %s", request.URL.Redacted())
 	}
 	transport.mu.Lock()
-	transport.isolatedCalls++
+	transport.credentialIsolatedCalls++
 	transport.graphqlCalls = append(transport.graphqlCalls, request.URL.String())
+	transport.lastCredentialIsolatedReq = request.Clone(ctx)
 	transport.mu.Unlock()
 	status := transport.seriesStatus
 	if status == 0 {
@@ -126,6 +130,16 @@ func TestRegionSVTSuitable(t *testing.T) {
 		{"https://www.svtplay.se/rederiet?tab=season-2-jpmQYgn", true},
 		{"svt:svt-fixture-001", true},
 		{"https://www.svtplay.se/rederiet/extra", false},
+		{"http://www.svtplay.se/rederiet", false},
+		{"https://www.svtplay.se/rederiet#season", false},
+		{"https://www.svtplay.se/rederiet?tab=", false},
+		{"https://www.svtplay.se/rederiet?tab=season-2-jpmQYgn&tab=season-1-jpmQYgn", false},
+		{"https://www.svtplay.se/rederiet?secret=token", false},
+		{"https://www.svtplay.se/%72ederiet", false},
+		{"svt://www.svtplay.se/svt-fixture-001", false},
+		{"svt:/svt-fixture-001", false},
+		{"svt:svt-fixture-001?modalId=x", false},
+		{"svt:svt-fixture-001#frag", false},
 		{"https://www.svtplay.se/", false},
 		{"https://www.oppetarkiv.se/rederiet", false},
 		{"https://evil.svtplay.se.evil/rederiet", false},
@@ -195,8 +209,22 @@ func TestRegionSVTSeriesPlaylistAllSeasons(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertSVTSeriesExpected(t, result, false)
-	if len(transport.graphqlCalls) != 1 || transport.isolatedCalls != 1 {
-		t.Fatalf("graphql calls = %#v isolated=%d", transport.graphqlCalls, transport.isolatedCalls)
+	if len(transport.graphqlCalls) != 1 || transport.credentialIsolatedCalls != 1 {
+		t.Fatalf("graphql calls = %#v isolated=%d", transport.graphqlCalls, transport.credentialIsolatedCalls)
+	}
+	if webpage, _ := result.Info.Lookup("webpage_url").StringValue(); webpage != "https://www.svtplay.se/rederiet" {
+		t.Fatalf("webpage_url = %q", webpage)
+	}
+	transport.mu.Lock()
+	lastRequest := transport.lastCredentialIsolatedReq
+	transport.mu.Unlock()
+	if lastRequest == nil {
+		t.Fatal("missing credential-isolated request")
+	}
+	for _, header := range []string{"Cookie", "Authorization", "Proxy-Authorization"} {
+		if lastRequest.Header.Get(header) != "" {
+			t.Fatalf("%s header present on GraphQL request", header)
+		}
 	}
 	parsed, err := url.Parse(transport.graphqlCalls[0])
 	if err != nil {
@@ -223,6 +251,9 @@ func TestRegionSVTSeriesPlaylistSeasonTab(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertSVTSeriesExpected(t, result, true)
+	if webpage, _ := result.Info.Lookup("webpage_url").StringValue(); webpage != "https://www.svtplay.se/rederiet?tab=season-2-jpmQYgn" {
+		t.Fatalf("webpage_url = %q", webpage)
+	}
 }
 
 func TestRegionSVTSeriesPlaylistLazyReentry(t *testing.T) {
@@ -255,6 +286,31 @@ func TestRegionSVTSeriesPlaylistLazyReentry(t *testing.T) {
 	}
 	if len(transport.apiCalls) != 1 {
 		t.Fatalf("video API calls after re-entry = %#v", transport.apiCalls)
+	}
+}
+
+func TestRegionSVTSeriesRejectedURLsMakeNoRequests(t *testing.T) {
+	transport := &svtFixtureTransport{series: svtFixture(t, "series.json"), video: svtFixture(t, "video.json")}
+	for _, rawURL := range []string{
+		"http://www.svtplay.se/rederiet",
+		"https://www.svtplay.se/rederiet?secret=token",
+		"https://www.svtplay.se/rederiet?tab=season-2-jpmQYgn&tab=season-1-jpmQYgn",
+		"https://www.svtplay.se/rederiet#season",
+		"https://www.svtplay.se/rederiet?tab=",
+		"https://www.svtplay.se/%72ederiet",
+		"svt://host/svt-fixture-001",
+		"svt:/svt-fixture-001",
+	} {
+		transport.apiCalls = nil
+		transport.graphqlCalls = nil
+		transport.credentialIsolatedCalls = 0
+		_, err := NewRegionSVT().Extract(context.Background(), Request{URL: rawURL, Transport: transport})
+		if !errors.Is(err, ErrUnsupported) {
+			t.Fatalf("Extract(%q) error = %v, want ErrUnsupported", rawURL, err)
+		}
+		if len(transport.apiCalls) != 0 || len(transport.graphqlCalls) != 0 || transport.credentialIsolatedCalls != 0 {
+			t.Fatalf("Extract(%q) made requests: api=%#v graphql=%#v isolated=%d", rawURL, transport.apiCalls, transport.graphqlCalls, transport.credentialIsolatedCalls)
+		}
 	}
 }
 
@@ -335,14 +391,38 @@ func TestRegionSVTSeriesBoundsAndCancellation(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation error = %v", err)
 	}
+
+	longName := strings.Repeat("x", svtMaxSeriesMetadataNameLength+1)
+	metadataBody, _ := json.Marshal(map[string]any{
+		"data": map[string]any{"listablesBySlug": []any{map[string]any{
+			"id": "jpmQYgn", "name": longName, "associatedContent": []any{},
+		}}},
+	})
+	_, err = NewRegionSVT().Extract(context.Background(), Request{
+		URL: "https://www.svtplay.se/rederiet", Transport: &svtFixtureTransport{series: metadataBody},
+	})
+	if !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("metadata bound error = %v", err)
+	}
 }
 
-func TestRegionSVTSeriesRequiresCookieIsolation(t *testing.T) {
+func TestRegionSVTSeriesRequiresCredentialIsolation(t *testing.T) {
 	_, err := NewRegionSVT().Extract(context.Background(), Request{
 		URL: "https://www.svtplay.se/rederiet", Transport: svtNonIsolatedTransport{},
 	})
 	if !errors.Is(err, ErrTransportIsolation) {
-		t.Fatalf("isolation error = %v", err)
+		t.Fatalf("non-isolated transport error = %v", err)
+	}
+
+	cookiesOnly := &svtCookiesOnlyTransport{}
+	_, err = NewRegionSVT().Extract(context.Background(), Request{
+		URL: "https://www.svtplay.se/rederiet", Transport: cookiesOnly,
+	})
+	if !errors.Is(err, ErrTransportIsolation) {
+		t.Fatalf("cookies-only transport error = %v", err)
+	}
+	if cookiesOnly.calls != 0 {
+		t.Fatalf("cookies-only transport calls = %d", cookiesOnly.calls)
 	}
 }
 
@@ -354,6 +434,23 @@ func (svtNonIsolatedTransport) Do(context.Context, *http.Request) (*http.Respons
 
 func (svtNonIsolatedTransport) ReadPage(context.Context, string) ([]byte, http.Header, error) {
 	return nil, nil, errors.New("unexpected page read")
+}
+
+type svtCookiesOnlyTransport struct {
+	calls int
+}
+
+func (transport *svtCookiesOnlyTransport) Do(context.Context, *http.Request) (*http.Response, error) {
+	return nil, errors.New("unexpected request")
+}
+
+func (transport *svtCookiesOnlyTransport) ReadPage(context.Context, string) ([]byte, http.Header, error) {
+	return nil, nil, errors.New("unexpected page read")
+}
+
+func (transport *svtCookiesOnlyTransport) DoWithoutCookies(context.Context, *http.Request) (*http.Response, error) {
+	transport.calls++
+	return nil, errors.New("cookies-only transport used")
 }
 
 func TestRegionSVTLiveUsesLiveHLSProtocol(t *testing.T) {
@@ -485,9 +582,11 @@ func assertSVTSeriesExpected(t *testing.T, result Extraction, seasonTab bool) {
 		SeriesID          string   `json:"series_id"`
 		SeriesTitle       string   `json:"series_title"`
 		SeriesDescription string   `json:"series_description"`
+		SeriesWebpageURL  string   `json:"series_webpage_url"`
 		AllEpisodeIDs     []string `json:"all_episode_ids"`
 		SeasonID          string   `json:"season_id"`
 		SeasonTitle       string   `json:"season_title"`
+		SeasonWebpageURL  string   `json:"season_webpage_url"`
 		SeasonEpisodeIDs  []string `json:"season_episode_ids"`
 	}
 	if err := json.Unmarshal(svtFixture(t, "series-expected.json"), &expected); err != nil {
@@ -496,16 +595,21 @@ func assertSVTSeriesExpected(t *testing.T, result Extraction, seasonTab bool) {
 	wantIDs := expected.AllEpisodeIDs
 	wantID := expected.SeriesID
 	wantTitle := expected.SeriesTitle
+	wantWebpage := expected.SeriesWebpageURL
 	if seasonTab {
 		wantIDs = expected.SeasonEpisodeIDs
 		wantID = expected.SeasonID
 		wantTitle = expected.SeasonTitle
+		wantWebpage = expected.SeasonWebpageURL
 	}
 	if id, _ := result.Info.ID(); id != wantID {
 		t.Fatalf("playlist id = %q, want %q", id, wantID)
 	}
 	if title, _ := result.Info.Lookup("title").StringValue(); title != wantTitle {
 		t.Fatalf("playlist title = %q, want %q", title, wantTitle)
+	}
+	if webpage, _ := result.Info.Lookup("webpage_url").StringValue(); webpage != wantWebpage {
+		t.Fatalf("webpage_url = %q, want %q", webpage, wantWebpage)
 	}
 	if description, _ := result.Info.Lookup("description").StringValue(); description != expected.SeriesDescription {
 		t.Fatalf("description = %q", description)

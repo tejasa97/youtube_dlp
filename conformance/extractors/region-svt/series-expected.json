@@ -2,6 +2,7 @@
   "series_id": "jpmQYgn",
   "series_title": "Rederiet",
   "series_description": "Synthetic long description for the Rederiet fixture series.",
+  "series_webpage_url": "https://www.svtplay.se/rederiet",
   "all_episode_ids": [
     "svt-fixture-s01e01",
     "svt-fixture-s01e02",
@@ -10,6 +11,7 @@
   ],
   "season_id": "season-2-jpmQYgn",
   "season_title": "Rederiet - Säsong 2",
+  "season_webpage_url": "https://www.svtplay.se/rederiet?tab=season-2-jpmQYgn",
   "season_episode_ids": [
     "svt-fixture-s02e01",
     "svt-fixture-s02e02"

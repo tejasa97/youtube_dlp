@@ -34,8 +34,9 @@ place it before the generic extractor.
 Known deviations from the pinned reference are explicit:
 
 - SVT article/page playlists (`SVTPageIE`) are not implemented;
-- series playlists are bounded, cookie-isolated, and limited to `svtplay.se`
-  roots with optional `tab` season selection;
+- series playlists are bounded, HTTPS-only roots with optional `tab` season
+  selection, credential-isolated no-redirect GraphQL requests, and canonical
+  playlist `webpage_url` reconstruction;
 - URQL discovery is a bounded `videoSvtId` search rather than full JavaScript
   object transformation and traversal;
 - manifests are returned for the existing media pipeline to expand rather than

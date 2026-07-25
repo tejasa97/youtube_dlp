@@ -18,18 +18,21 @@ inputs; the Go extractor filters them deterministically.
 
 ## Go hardening and deliberate deviations
 
-- Series roots are accepted only on `svtplay.se` / `www.svtplay.se`. Öppet arkiv
-  series URLs remain unsupported because the reference series extractor targets
-  SVT Play only.
-- Slugs, season tab ids, season counts, per-season item counts, and total
-  playlist entries are bounded with named constants. Oversized responses fail
-  closed with `ErrPlaylistLimit`.
+- Series roots are accepted only on `https://www.svtplay.se/{slug}` and
+  `https://svtplay.se/{slug}` with an optional single `tab` query value. HTTP is
+  retained for legacy video paths only. Playlist `webpage_url` values are
+  reconstructed canonically from the validated slug and tab.
+- Slugs, season tab ids, season counts, per-season item counts, response
+  metadata field lengths, and total playlist entries are bounded with named
+  constants. Oversized responses fail closed with `ErrPlaylistLimit` or
+  `ErrInvalidMetadata`.
 - The GraphQL slug is embedded via `json.Marshal` rather than raw string
   interpolation to prevent query injection.
-- Series GraphQL requests use `RequestJSONWithoutCookies` so caller cookies and
-  authorization are not forwarded.
+- Series GraphQL requests require `CredentialIsolatedNoRedirectTransport` and
+  execute through `DoWithoutCredentialsNoRedirect`, so caller cookies,
+  authorization headers, and redirect following are not used.
 - Unknown `tab` season ids return `ErrUnavailable` instead of an empty playlist.
-- Playlist entries use validated `svt:<video-id>` pseudo URLs with
+- Playlist entries use validated `svt:<video-id>` opaque pseudo URLs with
   `ie_key=region_svt`, matching the reference handoff to `SVTPlayIE` while
   keeping re-entry inside this extractor.
 - SVT article/page playlists (`SVTPageIE`) remain outside this pilot.

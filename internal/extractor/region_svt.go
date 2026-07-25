@@ -19,21 +19,26 @@ import (
 const (
 	svtVideoAPIBase          = "https://api.svt.se/videoplayer-api/video/"
 	svtSeriesGraphQLEndpoint = "https://api.svt.se/contento/graphql"
+	svtSeriesWebpageBase     = "https://www.svtplay.se/"
 
-	svtMaxSeriesSlugLength      = 128
-	svtMaxSeasonTabLength       = 256
-	svtMaxSeriesSeasons         = 64
-	svtMaxSeriesItemsPerSeason  = 500
-	svtMaxSeriesPlaylistEntries = 5_000
+	svtMaxSeriesSlugLength         = 128
+	svtMaxSeasonTabLength          = 256
+	svtMaxSeriesSeasons            = 64
+	svtMaxSeriesItemsPerSeason     = 500
+	svtMaxSeriesPlaylistEntries    = 5_000
+	svtMaxSeriesMetadataIDLength   = 256
+	svtMaxSeriesMetadataNameLength = 256
+	svtMaxSeriesDescriptionLength  = 4_096
 )
 
 var (
-	svtPlayPath          = regexp.MustCompile(`^/(?:video|klipp|kanaler)/[^/?#]+(?:/[^?#]*)?/?$`)
-	svtIDPattern         = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
-	svtPageVideoID       = regexp.MustCompile(`(?i)["']videoSvtId["']\s*:\s*["']([A-Za-z0-9_-]{1,128})["']`)
-	svtSeriesSlugPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
-	svtSeasonTabPattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,255}$`)
-	svtSeriesPath        = regexp.MustCompile(`^/([^/?#]+)/?$`)
+	svtPlayPath                = regexp.MustCompile(`^/(?:video|klipp|kanaler)/[^/?#]+(?:/[^?#]*)?/?$`)
+	svtIDPattern               = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
+	svtPageVideoID             = regexp.MustCompile(`(?i)["']videoSvtId["']\s*:\s*["']([A-Za-z0-9_-]{1,128})["']`)
+	svtSeriesSlugPattern       = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
+	svtSeasonTabPattern        = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,255}$`)
+	svtSeriesMetadataIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,255}$`)
+	svtSeriesPath              = regexp.MustCompile(`^/([^/?#]+)/?$`)
 )
 
 // RegionSVT is the bounded SVT Play regional pilot. It implements the public
@@ -64,7 +69,7 @@ func (RegionSVT) Extract(ctx context.Context, request Request) (Extraction, erro
 	}
 	switch target.kind {
 	case "series":
-		return extractSVTSeriesPlaylist(ctx, request, target.seriesSlug, target.seasonTab, request.URL)
+		return extractSVTSeriesPlaylist(ctx, request, target.seriesSlug, target.seasonTab)
 	default:
 		return extractSVTVideo(ctx, request, parsed, target.videoID)
 	}
@@ -81,15 +86,8 @@ func classifySVTURL(parsed *url.URL) (svtTarget, bool) {
 	if parsed == nil {
 		return svtTarget{}, false
 	}
-	if parsed.Scheme == "svt" {
-		videoID := strings.Trim(parsed.Opaque, "/")
-		if videoID == "" {
-			videoID = strings.Trim(parsed.Path, "/")
-		}
-		if svtIDPattern.MatchString(videoID) {
-			return svtTarget{kind: "pseudo", videoID: videoID}, true
-		}
-		return svtTarget{}, false
+	if videoID, ok := classifySVTPseudoURL(parsed); ok {
+		return svtTarget{kind: "pseudo", videoID: videoID}, true
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return svtTarget{}, false
@@ -103,15 +101,10 @@ func classifySVTURL(parsed *url.URL) (svtTarget, bool) {
 		if svtPlayPath.MatchString(parsed.Path) {
 			return svtTarget{kind: "video"}, true
 		}
-		if slug, ok := svtSeriesSlugFromPath(parsed.Path); ok {
-			seasonTab := parsed.Query().Get("tab")
-			if seasonTab != "" && !svtSeasonTabPattern.MatchString(seasonTab) {
-				return svtTarget{}, false
+		if parsed.Scheme == "https" {
+			if slug, seasonTab, ok := classifySVTSeriesURL(parsed); ok {
+				return svtTarget{kind: "series", seriesSlug: slug, seasonTab: seasonTab}, true
 			}
-			if len(seasonTab) > svtMaxSeasonTabLength {
-				return svtTarget{}, false
-			}
-			return svtTarget{kind: "series", seriesSlug: slug, seasonTab: seasonTab}, true
 		}
 		return svtTarget{}, false
 	case "oppetarkiv.se", "www.oppetarkiv.se":
@@ -122,6 +115,60 @@ func classifySVTURL(parsed *url.URL) (svtTarget, bool) {
 	default:
 		return svtTarget{}, false
 	}
+}
+
+func classifySVTPseudoURL(parsed *url.URL) (string, bool) {
+	if parsed.Scheme != "svt" || parsed.Host != "" || parsed.User != nil ||
+		parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.ForceQuery {
+		return "", false
+	}
+	videoID := parsed.Opaque
+	if !svtIDPattern.MatchString(videoID) {
+		return "", false
+	}
+	return videoID, true
+}
+
+func classifySVTSeriesURL(parsed *url.URL) (slug, seasonTab string, ok bool) {
+	if parsed.Fragment != "" || parsed.ForceQuery {
+		return "", "", false
+	}
+	if strings.Contains(parsed.EscapedPath(), "%") {
+		return "", "", false
+	}
+	slug, ok = svtSeriesSlugFromPath(parsed.Path)
+	if !ok {
+		return "", "", false
+	}
+	seasonTab, ok = svtSeriesTabQuery(parsed)
+	if !ok {
+		return "", "", false
+	}
+	return slug, seasonTab, true
+}
+
+func svtSeriesTabQuery(parsed *url.URL) (string, bool) {
+	values := parsed.Query()
+	if len(values) == 0 {
+		return "", true
+	}
+	for key := range values {
+		if key != "tab" {
+			return "", false
+		}
+	}
+	tabs := values["tab"]
+	if len(tabs) == 0 {
+		return "", true
+	}
+	if len(tabs) != 1 {
+		return "", false
+	}
+	tab := tabs[0]
+	if tab == "" || !svtSeasonTabPattern.MatchString(tab) || len(tab) > svtMaxSeasonTabLength {
+		return "", false
+	}
+	return tab, true
 }
 
 func svtSeriesSlugFromPath(rawPath string) (string, bool) {
@@ -137,6 +184,14 @@ func svtSeriesSlugFromPath(rawPath string) (string, bool) {
 		return "", false
 	}
 	return slug, true
+}
+
+func svtCanonicalSeriesURL(slug, seasonTab string) string {
+	raw := svtSeriesWebpageBase + slug
+	if seasonTab == "" {
+		return raw
+	}
+	return raw + "?tab=" + url.QueryEscape(seasonTab)
 }
 
 func extractSVTVideo(ctx context.Context, request Request, parsed *url.URL, explicitID string) (Extraction, error) {
@@ -241,14 +296,14 @@ type svtSeriesPlaylist struct {
 	entries     []Entry
 }
 
-func extractSVTSeriesPlaylist(ctx context.Context, request Request, slug, seasonTab, webpageURL string) (Extraction, error) {
+func extractSVTSeriesPlaylist(ctx context.Context, request Request, slug, seasonTab string) (Extraction, error) {
 	query, err := buildSVTSeriesGraphQLQuery(slug)
 	if err != nil {
 		return Extraction{}, err
 	}
 	apiURL := svtSeriesGraphQLEndpoint + "?query=" + url.QueryEscape(query)
 	var envelope svtSeriesGraphQLResponse
-	if err := RequestJSONWithoutCookies(ctx, request.Transport, http.MethodGet, apiURL, nil, make(http.Header), &envelope); err != nil {
+	if err := requestSVTSeriesJSON(ctx, request.Transport, apiURL, &envelope); err != nil {
 		return Extraction{}, categorizeSVTSeriesTransportError(err)
 	}
 	playlist, err := parseSVTSeriesResponse(ctx, envelope, seasonTab)
@@ -258,12 +313,23 @@ func extractSVTSeriesPlaylist(ctx context.Context, request Request, slug, season
 	info := value.NewObject(
 		value.Field{Key: "id", Value: value.String(playlist.playlistID)},
 		value.Field{Key: "title", Value: value.String(playlist.title)},
-		value.Field{Key: "webpage_url", Value: value.String(webpageURL)},
+		value.Field{Key: "webpage_url", Value: value.String(svtCanonicalSeriesURL(slug, seasonTab))},
 	)
 	if playlist.description != "" {
 		info.Set("description", value.String(playlist.description))
 	}
 	return Playlist(value.NewInfo(info), StaticEntries(playlist.entries...))
+}
+
+func requestSVTSeriesJSON(ctx context.Context, transport Transport, apiURL string, target any) error {
+	if transport == nil {
+		return errors.New("invalid JSON request")
+	}
+	isolated, ok := transport.(CredentialIsolatedNoRedirectTransport)
+	if !ok {
+		return ErrTransportIsolation
+	}
+	return requestJSON(ctx, isolated.DoWithoutCredentialsNoRedirect, http.MethodGet, apiURL, nil, make(http.Header), target)
 }
 
 func categorizeSVTSeriesTransportError(err error) error {
@@ -287,16 +353,19 @@ func parseSVTSeriesResponse(ctx context.Context, envelope svtSeriesGraphQLRespon
 		return svtSeriesPlaylist{}, ErrUnavailable
 	}
 	series := envelope.Data.ListablesBySlug[0]
-	if series.ID == "" {
-		return svtSeriesPlaylist{}, fmt.Errorf("%w: missing SVT series id", ErrInvalidMetadata)
+	if err := validateSVTSeriesMetadataID(series.ID, "series id"); err != nil {
+		return svtSeriesPlaylist{}, err
+	}
+	if err := validateSVTSeriesMetadataName(series.Name, "series name"); err != nil {
+		return svtSeriesPlaylist{}, err
 	}
 	if len(series.AssociatedContent) > svtMaxSeriesSeasons {
 		return svtSeriesPlaylist{}, fmt.Errorf("%w: SVT series season bound exceeded", ErrPlaylistLimit)
 	}
 
-	description := series.LongDescription
-	if description == "" {
-		description = series.ShortDescription
+	description, err := svtSeriesDescription(series.LongDescription, series.ShortDescription)
+	if err != nil {
+		return svtSeriesPlaylist{}, err
 	}
 
 	seen := make(map[string]struct{})
@@ -307,6 +376,12 @@ func parseSVTSeriesResponse(ctx context.Context, envelope svtSeriesGraphQLRespon
 
 	for _, season := range series.AssociatedContent {
 		if err := ctx.Err(); err != nil {
+			return svtSeriesPlaylist{}, err
+		}
+		if err := validateSVTSeriesMetadataID(season.ID, "season id"); err != nil {
+			return svtSeriesPlaylist{}, err
+		}
+		if err := validateSVTSeriesMetadataName(season.Name, "season name"); err != nil {
 			return svtSeriesPlaylist{}, err
 		}
 		if seasonRequested && season.ID != seasonTab {
@@ -359,7 +434,7 @@ func parseSVTSeriesResponse(ctx context.Context, envelope svtSeriesGraphQLRespon
 	}
 
 	title := svtSeriesPlaylistTitle(series.Name, seasonLabel, seasonTab)
-	if title == "" {
+	if title == "" || len(title) > svtMaxSeriesMetadataNameLength+svtMaxSeriesMetadataNameLength+3 {
 		return svtSeriesPlaylist{}, fmt.Errorf("%w: missing SVT series title", ErrInvalidMetadata)
 	}
 
@@ -369,6 +444,37 @@ func parseSVTSeriesResponse(ctx context.Context, envelope svtSeriesGraphQLRespon
 		description: description,
 		entries:     entries,
 	}, nil
+}
+
+func validateSVTSeriesMetadataID(id, label string) error {
+	if id == "" {
+		return fmt.Errorf("%w: missing SVT %s", ErrInvalidMetadata, label)
+	}
+	if !svtSeriesMetadataIDPattern.MatchString(id) || len(id) > svtMaxSeriesMetadataIDLength {
+		return fmt.Errorf("%w: invalid SVT %s", ErrInvalidMetadata, label)
+	}
+	return nil
+}
+
+func validateSVTSeriesMetadataName(name, label string) error {
+	if name == "" {
+		return nil
+	}
+	if len(name) > svtMaxSeriesMetadataNameLength {
+		return fmt.Errorf("%w: SVT %s bound exceeded", ErrInvalidMetadata, label)
+	}
+	return nil
+}
+
+func svtSeriesDescription(longDescription, shortDescription string) (string, error) {
+	description := longDescription
+	if description == "" {
+		description = shortDescription
+	}
+	if len(description) > svtMaxSeriesDescriptionLength {
+		return "", fmt.Errorf("%w: SVT series description bound exceeded", ErrInvalidMetadata)
+	}
+	return description, nil
 }
 
 func svtSeriesPlaylistTitle(seriesName, seasonName, seasonTab string) string {
