@@ -46,6 +46,18 @@ type Config struct {
 	// publish. Pair A/V sidecars set this so interrupted merge can resume;
 	// standalone final downloads leave only the published media.
 	RetainCompletionMarker bool
+	// Reload recovers RELOAD_PLAYER_RESPONSE via bounded extraction refresh.
+	Reload ReloadFunc
+	// Refresh re-acquires signed SABR material for the same identity.
+	Refresh RefreshFunc
+	// POTokenSource optionally refreshes PO tokens mid-session (expiry skew).
+	POTokenSource POTokenSource
+	// MaxSabrErrorRecoveries overrides MaxSabrErrorRecoveries when > 0.
+	MaxSabrErrorRecoveries int
+	// MaxReloadAttempts overrides MaxReloadAttempts when > 0.
+	MaxReloadAttempts int
+	// MaxRefreshAttempts overrides MaxSabrRefreshAttempts when > 0.
+	MaxRefreshAttempts int
 }
 
 // Result is a completed finite-VOD SABR artifact.
@@ -222,9 +234,39 @@ func (downloader *Downloader) Download(ctx context.Context, outputRoot, destinat
 		serverURL      = config.ServerURL
 		contexts       = newSabrContextState()
 		redirects      = newRedirectTracker(config.ServerURL)
+		sabrErrors     int
+		reloads        int
+		refreshes      int
 	)
+	maxSabrErrors := config.MaxSabrErrorRecoveries
+	if maxSabrErrors <= 0 || maxSabrErrors > MaxSabrErrorRecoveries {
+		maxSabrErrors = MaxSabrErrorRecoveries
+	}
+	maxReloads := config.MaxReloadAttempts
+	if maxReloads <= 0 || maxReloads > MaxReloadAttempts {
+		maxReloads = MaxReloadAttempts
+	}
+	maxRefreshes := config.MaxRefreshAttempts
+	if maxRefreshes <= 0 || maxRefreshes > MaxSabrRefreshAttempts {
+		maxRefreshes = MaxSabrRefreshAttempts
+	}
 	if resumed {
 		playerTimeMs, bufferedRanges, selectedFormat = assembler.playbackState()
+		if config.Refresh != nil {
+			if refreshes >= maxRefreshes {
+				return Result{}, ErrRefreshBudget
+			}
+			material, refreshErr := config.Refresh(ctx)
+			if refreshErr != nil {
+				return Result{}, redactError(refreshErr)
+			}
+			if err := applyRefreshMaterial(&config, material, &redirects); err != nil {
+				return Result{}, redactError(err)
+			}
+			serverURL = config.ServerURL
+			refreshes++
+			eventURL = redactURL(serverURL)
+		}
 	}
 
 	for round := 0; round < maxRounds; round++ {
@@ -234,6 +276,13 @@ func (downloader *Downloader) Download(ctx context.Context, outputRoot, destinat
 		if err := ctx.Err(); err != nil {
 			_ = sink.Emit(context.Background(), events.Event{Kind: events.KindCancelled, URL: eventURL, Path: destination, Message: err.Error(), Resuming: resumed})
 			return Result{}, err
+		}
+		if config.POTokenSource != nil {
+			token, tokenErr := config.POTokenSource(ctx)
+			if tokenErr != nil {
+				return Result{}, redactError(tokenErr)
+			}
+			config.POToken = bytes.Clone(token)
 		}
 		body, err := playbackRequest{
 			Format:          config.Format,
@@ -258,7 +307,56 @@ func (downloader *Downloader) Download(ctx context.Context, outputRoot, destinat
 			if ctx.Err() != nil {
 				return Result{}, ctx.Err()
 			}
-			return Result{}, redactError(err)
+			var sabrErr *SabrErrorSignal
+			var reloadErr *ReloadPlayerSignal
+			switch {
+			case errors.As(err, &sabrErr):
+				sabrErrors++
+				if sabrErrors > maxSabrErrors {
+					return Result{}, fmt.Errorf("%w: %w", ErrSabrRecoveryBudget, redactError(err))
+				}
+				if sleepErr := sleep(ctx, recoveryBackoff(config, sabrErrors)); sleepErr != nil {
+					return Result{}, sleepErr
+				}
+				// Retry same committed state; failed response did not commit.
+				round--
+				continue
+			case errors.As(err, &reloadErr):
+				reloads++
+				if reloads > maxReloads {
+					return Result{}, fmt.Errorf("%w: %w", ErrReloadBudget, redactError(err))
+				}
+				if config.Reload == nil {
+					return Result{}, redactError(err)
+				}
+				material, reloadCallErr := config.Reload(ctx, ReloadRequest{
+					VideoID:     config.VideoID,
+					ClientName:  config.ClientInfo.ClientName,
+					ClientVer:   config.ClientInfo.ClientVersion,
+					VisitorData: config.VisitorData,
+					TrackKind:   config.TrackKind,
+					Format:      config.Format,
+					Token:       reloadErr.ReloadToken(),
+				})
+				if reloadCallErr != nil {
+					return Result{}, redactError(reloadCallErr)
+				}
+				if applyErr := applyRefreshMaterial(&config, material, &redirects); applyErr != nil {
+					return Result{}, fmt.Errorf("%w: %v", ErrReloadRejected, applyErr)
+				}
+				serverURL = config.ServerURL
+				eventURL = redactURL(serverURL)
+				playbackCookie = nil
+				contexts = newSabrContextState()
+				requestNumber = 0
+				if sleepErr := sleep(ctx, recoveryBackoff(config, reloads)); sleepErr != nil {
+					return Result{}, sleepErr
+				}
+				round--
+				continue
+			default:
+				return Result{}, redactError(err)
+			}
 		}
 		if roundCtrl.updateCookie {
 			playbackCookie = bytes.Clone(roundCtrl.cookie)
