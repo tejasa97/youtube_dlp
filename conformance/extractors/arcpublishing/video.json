@@ -1,0 +1,36 @@
+[
+  {
+    "headlines": { "basic": "Arc Publishing Fixture Video" },
+    "subheadlines": { "basic": "Synthetic ANS video payload" },
+    "promo_image": { "url": "https://media.example.invalid/arc/thumb.jpg" },
+    "duration": 201600,
+    "created_date": "2020-11-02T18:30:00Z",
+    "status": "published",
+    "streams": [
+      {
+        "url": "https://media.example.invalid/arc/master.m3u8",
+        "stream_type": "hls",
+        "bitrate": 2500,
+        "width": 1280,
+        "height": 720
+      },
+      {
+        "url": "https://media.example.invalid/arc/video.mp4",
+        "stream_type": "mp4",
+        "bitrate": 1800,
+        "width": 1280,
+        "height": 720,
+        "filesize": 12345678
+      },
+      {
+        "url": "https://media.example.invalid/arc/legacy.smil",
+        "stream_type": "smil"
+      }
+    ],
+    "subtitles": {
+      "urls": [
+        { "url": "https://media.example.invalid/arc/captions.vtt" }
+      ]
+    }
+  }
+]
