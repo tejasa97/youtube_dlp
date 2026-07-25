@@ -1,0 +1,14 @@
+{
+  "all_episode_ids": [
+    "svt-fixture-noisy-001",
+    "svt-fixture-noisy-002",
+    "svt-fixture-s01e01",
+    "svt-fixture-s01e02",
+    "svt-fixture-s02e01",
+    "svt-fixture-s02e02"
+  ],
+  "season_episode_ids": [
+    "svt-fixture-s02e01",
+    "svt-fixture-s02e02"
+  ]
+}
