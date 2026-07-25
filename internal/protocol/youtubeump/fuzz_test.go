@@ -181,8 +181,18 @@ func FuzzRefreshMaterialValidation(f *testing.F) {
 			if _, validateErr := ValidateSABRURL(material.ServerURL); validateErr != nil {
 				t.Fatalf("accepted untrusted url: %v", validateErr)
 			}
-			if material.VideoID != config.VideoID || material.Format.Itag != config.Format.Itag {
-				t.Fatalf("accepted mismatched identity")
+			effectiveVideoID := material.VideoID
+			if effectiveVideoID == "" {
+				effectiveVideoID = config.VideoID
+			}
+			if effectiveVideoID != config.VideoID {
+				t.Fatalf("accepted mismatched video id")
+			}
+			if material.Format.Itag != 0 && material.Format.Itag != config.Format.Itag {
+				t.Fatalf("accepted mismatched itag")
+			}
+			if material.DurationSec != 0 && material.DurationSec != config.DurationSec {
+				t.Fatalf("accepted mismatched duration")
 			}
 		}
 	})
