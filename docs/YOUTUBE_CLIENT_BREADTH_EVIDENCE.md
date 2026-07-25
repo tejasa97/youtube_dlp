@@ -24,13 +24,15 @@ cross-player format/SABR merge):
 1. Webpage WEB (ytcfg-bound) — **deliberate hardening:** prefer the already
    fetched account-bound WEB `/player` before additional Innertube clients
    when logged-in ytcfg + SID cookies are valid.
-2. Then, matching reference defaults:
+2. Then, matching reference defaults exactly:
    - Premium (`_DEFAULT_PREMIUM_CLIENTS`): `tv_downgraded`, `web_creator`
    - Authenticated non-Premium (`_DEFAULT_AUTHED_CLIENTS`): `tv_downgraded`,
-     `web_safari`, plus `web_creator` for age-verification / login-gated
-     recovery (`_video.py` appends `web_creator` when authenticated and
-     age-gated / embedding-disabled). `web_creator` is **never** skipped
-     merely for lacking Premium.
+     `web_safari`
+   - `web_creator` is appended on the non-Premium path **only** when an
+     attributable age-gate / age-verification playability signal is present
+     (`desktopLegacyAgeGateReason` or status/reason markers matching
+     yt-dlp `_is_agegated`). Ordinary authenticated no-format /
+     `LOGIN_REQUIRED` responses do **not** add `web_creator`.
 3. Exact pinned identities:
    - `tv_downgraded` — TVHTML5 / 7 / 5.20260707 (`REQUIRE_AUTH`)
    - `web_safari` (auth path) — WEB / 1 / 2.20260708.00.00 with SID boundary

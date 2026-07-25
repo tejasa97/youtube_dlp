@@ -189,6 +189,7 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 		if pageConfig.LoggedIn != nil && *pageConfig.LoggedIn {
 			initialData, _ := extractJSONObject(page, youtubeInitialDataMarker)
 			premium := youtubePremiumSubscriber(initialData)
+			ageGated := youtubePlayabilityAgeGated(player.PlayabilityStatus)
 			recovered, authErr := recoverAuthenticatedYouTubeFormats(
 				ctx,
 				request.Transport,
@@ -197,6 +198,7 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 				player.ResponseContext.VisitorData,
 				player.ResponseContext.MainAppWebResponseContext.DataSyncID,
 				premium,
+				ageGated,
 				request.YouTubePOT,
 				time.Now,
 			)
@@ -1075,8 +1077,9 @@ func parseYouTubeLiveTimestamp(raw string) (int64, bool) {
 }
 
 type youtubePlayabilityStatus struct {
-	Status string `json:"status"`
-	Reason string `json:"reason"`
+	Status                     string          `json:"status"`
+	Reason                     string          `json:"reason"`
+	DesktopLegacyAgeGateReason json.RawMessage `json:"desktopLegacyAgeGateReason"`
 }
 
 type youtubeFormat struct {

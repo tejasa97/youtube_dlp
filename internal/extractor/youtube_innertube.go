@@ -1,6 +1,7 @@
 package extractor
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -182,20 +183,21 @@ var (
 )
 
 // youtubeAuthenticatedFormatRecoveryClients returns the Innertube clients tried
-// after the webpage WEB player. Order reproduces yt-dlp defaults:
+// after the webpage WEB player. Order reproduces yt-dlp defaults exactly:
 //   - Premium: _DEFAULT_PREMIUM_CLIENTS = tv_downgraded, web_creator
 //   - Auth:    _DEFAULT_AUTHED_CLIENTS  = tv_downgraded, web_safari
-//     plus web_creator for age-verification / login-gated recovery (REQUIRE_AUTH,
-//     never silent Premium exclusion).
-func youtubeAuthenticatedFormatRecoveryClients(premium bool) []youtubeClientProfile {
+//
+// web_creator is appended on the non-Premium path only when an attributable
+// age/login-gate signal is present (yt-dlp _video.py append_client('web_creator')).
+func youtubeAuthenticatedFormatRecoveryClients(premium, ageGated bool) []youtubeClientProfile {
 	if premium {
 		return []youtubeClientProfile{youtubeTVDowngradedClient, youtubeWebCreatorClient}
 	}
-	return []youtubeClientProfile{
-		youtubeTVDowngradedClient,
-		youtubeAuthenticatedWebSafariClient,
-		youtubeWebCreatorClient,
+	clients := []youtubeClientProfile{youtubeTVDowngradedClient, youtubeAuthenticatedWebSafariClient}
+	if ageGated {
+		clients = append(clients, youtubeWebCreatorClient)
 	}
+	return clients
 }
 
 // Compatibility alias for older call sites/tests that referenced the anonymous list.
@@ -385,7 +387,8 @@ func recoverYouTubeFormatsWithProfiles(ctx context.Context, transport Transport,
 // recoverAuthenticatedYouTubeFormats tries the webpage WEB player, then bounded
 // authenticated profiles. It never falls back to anonymous clients. The first
 // successful format-bearing candidate wins (deterministic selection; no merge).
-func recoverAuthenticatedYouTubeFormats(ctx context.Context, transport Transport, videoID string, pageConfig youtubePageConfig, responseVisitor, responseDataSync string, premium bool, tokens *youtubepot.Director, now func() time.Time) ([]youtubePlayerResponse, error) {
+// ageGated must be attributable from playability evidence (initial and/or WEB).
+func recoverAuthenticatedYouTubeFormats(ctx context.Context, transport Transport, videoID string, pageConfig youtubePageConfig, responseVisitor, responseDataSync string, premium, ageGated bool, tokens *youtubepot.Director, now func() time.Time) ([]youtubePlayerResponse, error) {
 	if now == nil {
 		return nil, ErrAuthentication
 	}
@@ -398,12 +401,17 @@ func recoverAuthenticatedYouTubeFormats(ctx context.Context, transport Transport
 				return nil, err
 			}
 			firstErr = err
-		} else if avail := checkYouTubeAvailability(player.PlayabilityStatus); avail != nil {
-			firstErr = avail
-		} else if hasYouTubeFormatCandidates(player) {
-			return []youtubePlayerResponse{player}, nil
-		} else if firstErr == nil {
-			firstErr = fmt.Errorf("%w: authenticated WEB player returned no URL-bearing formats", ErrUnavailable)
+		} else {
+			if youtubePlayabilityAgeGated(player.PlayabilityStatus) {
+				ageGated = true
+			}
+			if avail := checkYouTubeAvailability(player.PlayabilityStatus); avail != nil {
+				firstErr = avail
+			} else if hasYouTubeFormatCandidates(player) {
+				return []youtubePlayerResponse{player}, nil
+			} else if firstErr == nil {
+				firstErr = fmt.Errorf("%w: authenticated WEB player returned no URL-bearing formats", ErrUnavailable)
+			}
 		}
 	} else if firstErr == nil {
 		firstErr = ErrAuthentication
@@ -411,7 +419,9 @@ func recoverAuthenticatedYouTubeFormats(ctx context.Context, transport Transport
 
 	attempts := 1 // webpage WEB counts toward the budget
 	session := youtubeAuthSessionFromWEB(webAuth)
-	for _, profile := range youtubeAuthenticatedFormatRecoveryClients(premium) {
+	clients := youtubeAuthenticatedFormatRecoveryClients(premium, ageGated)
+	for i := 0; i < len(clients); i++ {
+		profile := clients[i]
 		if attempts >= MaxYouTubeClientAttempts {
 			break
 		}
@@ -431,6 +441,12 @@ func recoverAuthenticatedYouTubeFormats(ctx context.Context, transport Transport
 				firstErr = err
 			}
 			continue
+		}
+		if youtubePlayabilityAgeGated(player.PlayabilityStatus) {
+			ageGated = true
+			if !premium {
+				clients = youtubeAuthenticatedFormatRecoveryClients(false, true)
+			}
 		}
 		if avail := checkYouTubeAvailability(player.PlayabilityStatus); avail != nil {
 			if firstErr == nil {
@@ -458,6 +474,45 @@ func recoverAuthenticatedYouTubeFormats(ctx context.Context, transport Transport
 		return nil, firstErr
 	}
 	return nil, fmt.Errorf("%w: authenticated clients returned no URL-bearing formats", ErrUnavailable)
+}
+
+// youtubePlayabilityAgeGated reports attributable age-gate / age-verification
+// signals from playabilityStatus, matching yt-dlp YoutubeIE._is_agegated.
+func youtubePlayabilityAgeGated(status youtubePlayabilityStatus) bool {
+	if youtubeTruthfulJSON(status.DesktopLegacyAgeGateReason) {
+		return true
+	}
+	haystacks := []string{strings.ToLower(status.Status), strings.ToLower(status.Reason)}
+	for _, haystack := range haystacks {
+		if haystack == "" {
+			continue
+		}
+		for _, marker := range []string{
+			"confirm your age",
+			"age-restricted",
+			"inappropriate",
+			"age_verification_required",
+			"age_check_required",
+		} {
+			if strings.Contains(haystack, marker) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func youtubeTruthfulJSON(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	trimmed := bytes.TrimSpace(raw)
+	switch string(trimmed) {
+	case "", "null", "false", "0", `""`:
+		return false
+	default:
+		return true
+	}
 }
 
 // applyAuthenticatedYouTubeGVSPolicy enforces the profile GVS PO-token policy.

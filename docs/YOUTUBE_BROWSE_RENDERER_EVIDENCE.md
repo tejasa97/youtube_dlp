@@ -19,8 +19,10 @@ style/icon/label evidence with order-independent precedence
 are ignored; badge walk / parser-limit errors omit availability rather than
 emitting a partial positive claim. Playlist and channel/hashtag playlist Info
 may carry pre-fetch `playlist_count` / `view_count` when sidebar/header count
-text is a single attributable integer or `k`/`m`/`b`/`kk` token (junk-separated
-digits, bare decimals, and overflow fail closed).
+text is a single attributable integer (canonical thousands commas) or
+`k`/`m`/`b`/`kk` token plus an allowlisted trailing noun (`views`/`videos`).
+Malformed commas, arbitrary trailing words, bare decimals, Unicode separators,
+and overflow fail closed. Generic localized count grammars are not claimed.
 
 ## Custom tabs and channel search
 

@@ -40,7 +40,7 @@ Music browse success; live canary network execution.
 | Component | Behavior | Budgets | Failure |
 |-----------|----------|---------|---------|
 | Anonymous client rotator | android → android_vr → web_safari → ios → mweb | ≤8 | typed; cancel aborts |
-| Authenticated client rotator | WEB → (premium: tv_downgraded→web_creator; else tv_downgraded→web_safari→web_creator); GVS fail-closed | ≤8 | no anon downgrade; no Premium eligibility gate |
+| Authenticated client rotator | WEB → premium tv→web_creator; else tv→web_safari (+web_creator only if age-gated); GVS fail-closed | ≤8 | no anon downgrade; age-gate attributable |
 | Renderer show/hashtag | shared walker + `youtube_hashtag` | existing depth/entry limits | omit hostile |
 | Playlist counts | sidebar/header parse into Info | bounded deterministic token | omit if unparseable |
 | Availability badges | Entry.availability order-independent precedence | badge walk bound | omit unknown/limit errors |

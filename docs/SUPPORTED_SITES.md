@@ -170,8 +170,10 @@ protected-playback workstream. The following are supported:
   total/parent/reply/per-thread/depth limits;
 - adaptive video and audio formats recovered from the WEB player response and
   bounded anonymous Innertube clients (`android`, `android_vr`, `web_safari`,
-  `ios`, `mweb`) plus authenticated `tv_downgraded` / `web_safari` /
-  `web_creator` rotation (Premium changes GVS PO-token requirements only);
+  `ios`, `mweb`) plus authenticated `tv_downgraded` / `web_safari`
+  defaults and premium `tv_downgraded` / `web_creator` (non-Premium
+  `web_creator` only when age-gated; Premium changes GVS PO-token
+  requirements only);
 - bounded finite reconstruction of retained post-live adaptive audio/video
   sequences, followed by the normal ffmpeg merge path; and
 - opt-in bounded active `--live-from-start` reconstruction with signed-URL
@@ -203,9 +205,10 @@ The following limitations are intentional and remain:
   process-restart resume;
 - authenticated Innertube coverage is bounded: a logged-in watch page can
   recover URL-bearing formats through the webpage WEB player and then
-  `tv_downgraded` / authenticated `web_safari` / `web_creator` (exact
-  `www.youtube.com` origin + SID; no anonymous downgrade; first successful
-  candidate wins; `web_creator` GVS tokens required unless Premium). Opt-in
+  `tv_downgraded` / authenticated `web_safari` (exact `www.youtube.com`
+  origin + SID; no anonymous downgrade; first successful candidate wins),
+  with `web_creator` on Premium defaults or when age-gated playability is
+  attributable (`web_creator` GVS tokens required unless Premium). Opt-in
   comments and browse/search continuations use the same account-bound,
   redirect-disabled WEB session. Live/post-live SABR and
   `STREAM_PROTECTION_STATUS` remain fail-closed;

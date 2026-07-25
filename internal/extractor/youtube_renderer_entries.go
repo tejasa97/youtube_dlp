@@ -193,9 +193,11 @@ func youtubeRendererAvailability(renderer *value.Object) string {
 const youtubeMaxCountTextBytes = 64
 
 // youtubeParseCountText parses a single attributable view/video count token.
-// It accepts plain integers (with grouping commas) or one decimal with an
-// exact k/m/b/kk suffix, rejects junk-separated digits and bare decimals, and
-// fails closed on multiplication/decimal overflow.
+// It accepts plain integers with canonical thousands commas, or one decimal
+// with an exact k/m/b/kk suffix, then at most one allowlisted trailing noun
+// (views/videos). It rejects malformed commas, arbitrary trailing words, and
+// multiplication/decimal overflow. Generic localized count grammars are not
+// claimed beyond this allowlist and the "no views"/"no videos" fixtures.
 func youtubeParseCountText(raw string) (int64, bool) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || len(raw) > youtubeMaxCountTextBytes || strings.ContainsRune(raw, 0) {
@@ -221,9 +223,19 @@ func youtubeParseCountText(raw string) (int64, bool) {
 		}
 	}
 	i := start
-	var intDigits []rune
-	var fracDigits []rune
+	var groups []string
+	current := make([]rune, 0, 3)
+	sawComma := false
 	sawDot := false
+	var fracDigits []rune
+	flushGroup := func() bool {
+		if len(current) == 0 {
+			return false
+		}
+		groups = append(groups, string(current))
+		current = current[:0]
+		return true
+	}
 	for i < len(runes) {
 		r := runes[i]
 		switch {
@@ -234,29 +246,64 @@ func youtubeParseCountText(raw string) (int64, bool) {
 				}
 				fracDigits = append(fracDigits, r)
 			} else {
-				if len(intDigits) >= 18 {
+				if len(current) >= 18 {
 					return 0, false
 				}
-				intDigits = append(intDigits, r)
+				current = append(current, r)
 			}
 			i++
 		case r == ',':
-			if sawDot || len(intDigits) == 0 {
+			if sawDot || len(current) == 0 {
+				return 0, false
+			}
+			sawComma = true
+			if !flushGroup() {
 				return 0, false
 			}
 			i++
 		case r == '.':
-			if sawDot || len(intDigits) == 0 {
+			if sawDot || sawComma || len(current) == 0 {
 				return 0, false
 			}
 			sawDot = true
+			if !flushGroup() {
+				return 0, false
+			}
 			i++
 		default:
 			goto afterNumber
 		}
 	}
 afterNumber:
-	if len(intDigits) == 0 || (sawDot && len(fracDigits) == 0) {
+	if sawDot {
+		if len(groups) != 1 || len(fracDigits) == 0 {
+			return 0, false
+		}
+	} else {
+		if len(current) == 0 {
+			return 0, false
+		}
+		if !flushGroup() {
+			return 0, false
+		}
+		if sawComma {
+			if len(groups) < 2 || len(groups[0]) == 0 || len(groups[0]) > 3 {
+				return 0, false
+			}
+			for _, group := range groups[1:] {
+				if len(group) != 3 {
+					return 0, false
+				}
+			}
+		} else if len(groups) != 1 {
+			return 0, false
+		}
+	}
+	digitCount := 0
+	for _, group := range groups {
+		digitCount += len(group)
+	}
+	if digitCount == 0 || digitCount > 18 {
 		return 0, false
 	}
 	for i < len(runes) && (runes[i] == ' ' || runes[i] == '\t' || runes[i] == '\u00a0') {
@@ -285,7 +332,7 @@ afterNumber:
 		if multiplier != 1 {
 			if i < len(runes) {
 				r := runes[i]
-				if r >= 'a' && r <= 'z' {
+				if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
 					return 0, false
 				}
 			}
@@ -296,18 +343,21 @@ afterNumber:
 	for i < len(runes) && (runes[i] == ' ' || runes[i] == '\t' || runes[i] == '\u00a0') {
 		i++
 	}
-	for i < len(runes) {
-		r := runes[i]
-		if r >= '0' && r <= '9' {
+	if i < len(runes) {
+		nounStart := i
+		for i < len(runes) && runes[i] >= 'a' && runes[i] <= 'z' {
+			i++
+		}
+		if i != len(runes) {
 			return 0, false
 		}
-		if r >= 'a' && r <= 'z' {
-			i++
-			continue
+		noun := string(runes[nounStart:i])
+		if !youtubeCountTrailingNounAllowed(noun) {
+			return 0, false
 		}
-		return 0, false
 	}
-	whole, err := strconv.ParseInt(string(intDigits), 10, 64)
+	intDigits := strings.Join(groups, "")
+	whole, err := strconv.ParseInt(intDigits, 10, 64)
 	if err != nil || whole < 0 {
 		return 0, false
 	}
@@ -339,6 +389,15 @@ afterNumber:
 		}
 	}
 	return whole * multiplier, true
+}
+
+func youtubeCountTrailingNounAllowed(noun string) bool {
+	switch noun {
+	case "view", "views", "video", "videos":
+		return true
+	default:
+		return false
+	}
 }
 
 func youtubeRendererVideoEntry(renderer *value.Object) (Entry, bool) {
