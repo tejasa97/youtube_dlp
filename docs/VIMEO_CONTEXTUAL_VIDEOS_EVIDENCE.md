@@ -41,6 +41,7 @@ synthetic and deterministic.
 
 ## Deliberate limits
 
-This increment does not add showcase or album enumeration, password submission,
-unlisted-hash handling, authenticated/private media, events/live archives, or
-arbitrary contextual subpaths.
+Numeric public showcase and album enumeration is covered separately. This
+increment does not add slug/embed/password forms, unlisted-hash handling,
+authenticated/private media, events/live archives, or arbitrary contextual
+subpaths.

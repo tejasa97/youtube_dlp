@@ -797,8 +797,6 @@ func TestVimeoPlaylistSuitabilityRejectsHostileInputs(t *testing.T) {
 		"https://vimeo.com/channels/fixturetributes#x",
 		"https://vimeo.com/channels/fix/tribute",
 		"https://vimeo.com/channels/fixture%2ftributes",
-		"https://vimeo.com/album/1",
-		"https://vimeo.com/showcase/1",
 		"https://vimeo.com/groups/fixturegroup/extra",
 		"https://vimeo.com/groups/",
 		"https://vimeo.com/groups/fixture%2fgroup",

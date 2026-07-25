@@ -1,0 +1,8 @@
+{
+  "data": [
+    {"link": "https://vimeo.com/123456789", "uri": "/videos/123456789"},
+    {"link": "https://vimeo.com/234567890", "uri": "/videos/234567890"},
+    {"link": "https://evil.example/345678901", "uri": "/videos/345678901"},
+    {"link": "https://vimeo.com/456789012", "uri": "/videos/999999999"}
+  ]
+}
