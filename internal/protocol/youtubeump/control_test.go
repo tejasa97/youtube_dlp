@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -248,16 +249,15 @@ func TestCancellationDuringPolicyBackoffCleansUp(t *testing.T) {
 		return umpResponse(roundOne, request), nil
 	})
 	ctx, cancel := context.WithCancel(context.Background())
-	origWait := policyBackoffWait
-	policyBackoffWait = func(waitCtx context.Context, delay time.Duration) error {
-		cancel()
-		return origWait(waitCtx, delay)
-	}
-	t.Cleanup(func() { policyBackoffWait = origWait })
-	root, destination := testRoot(t, "out.bin")
-	_, err := NewDownloader(transport, testConfig(
+	downloader := NewDownloader(transport, testConfig(
 		"https://rr1---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=fixture",
-	)).Download(ctx, root, destination, true, events.Nop())
+	))
+	downloader.policyBackoffWait = func(waitCtx context.Context, delay time.Duration) error {
+		cancel()
+		return sleep(waitCtx, delay)
+	}
+	root, destination := testRoot(t, "out.bin")
+	_, err := downloader.Download(ctx, root, destination, true, events.Nop())
 	if err == nil {
 		t.Fatal("expected cancellation")
 	}
@@ -267,13 +267,6 @@ func TestCancellationDuringPolicyBackoffCleansUp(t *testing.T) {
 func TestPolicyBackoffZeroAndMaximumAccepted(t *testing.T) {
 	cookie := validTestCookie()
 	var waits []time.Duration
-	origWait := policyBackoffWait
-	policyBackoffWait = func(ctx context.Context, delay time.Duration) error {
-		waits = append(waits, delay)
-		return origWait(ctx, 0)
-	}
-	t.Cleanup(func() { policyBackoffWait = origWait })
-
 	roundOne := appendPolicyPart(buildTestUMP(
 		137,
 		testSegment{headerID: 1, init: true, payload: []byte("INIT")},
@@ -301,10 +294,15 @@ func TestPolicyBackoffZeroAndMaximumAccepted(t *testing.T) {
 			return nil, nil
 		}
 	})
-	root, destination := testRoot(t, "out.bin")
-	_, err := NewDownloader(transport, testConfig(
+	downloader := NewDownloader(transport, testConfig(
 		"https://rr1---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=fixture",
-	)).Download(context.Background(), root, destination, true, events.Nop())
+	))
+	downloader.policyBackoffWait = func(ctx context.Context, delay time.Duration) error {
+		waits = append(waits, delay)
+		return sleep(ctx, 0)
+	}
+	root, destination := testRoot(t, "out.bin")
+	_, err := downloader.Download(context.Background(), root, destination, true, events.Nop())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -504,4 +502,164 @@ func TestConsumeStreamMixedControlAndMedia(t *testing.T) {
 	if ctrl.backoff != 5*time.Millisecond || !ctrl.updateCookie || !bytes.Equal(ctrl.cookie, cookie) {
 		t.Fatalf("ctrl=%+v", ctrl)
 	}
+}
+
+func TestDownloaderPolicyBackoffWaitIsolated(t *testing.T) {
+	cookie := validTestCookie()
+	makeRound := func(seg string) []byte {
+		return appendPolicyPart(buildTestUMP(
+			137,
+			testSegment{headerID: 1, init: true, payload: []byte("INIT")},
+			testSegment{headerID: 2, sequence: 0, duration: 4000, payload: []byte(seg)},
+		), 1000, cookie)
+	}
+	roundTwo := buildTestUMP(
+		137,
+		testSegment{headerID: 3, sequence: 1, duration: 3000, payload: []byte("tail")},
+		testSegment{headerID: 4, sequence: 2, duration: 3000, payload: []byte("done")},
+	)
+	var (
+		waitsA []time.Duration
+		waitsB []time.Duration
+		mu     sync.Mutex
+		callsA atomic.Int32
+		callsB atomic.Int32
+	)
+	transportA := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if callsA.Add(1) == 1 {
+			return umpResponse(makeRound("a0"), request), nil
+		}
+		return umpResponse(roundTwo, request), nil
+	})
+	transportB := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if callsB.Add(1) == 1 {
+			return umpResponse(makeRound("b0"), request), nil
+		}
+		return umpResponse(roundTwo, request), nil
+	})
+	downloaderA := NewDownloader(transportA, testConfig(
+		"https://rr1---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=a",
+	))
+	downloaderA.policyBackoffWait = func(_ context.Context, delay time.Duration) error {
+		mu.Lock()
+		waitsA = append(waitsA, delay)
+		mu.Unlock()
+		return nil
+	}
+	downloaderB := NewDownloader(transportB, testConfig(
+		"https://rr1---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=b",
+	))
+	downloaderB.policyBackoffWait = func(_ context.Context, delay time.Duration) error {
+		mu.Lock()
+		waitsB = append(waitsB, delay*2)
+		mu.Unlock()
+		return nil
+	}
+	rootA, destA := testRoot(t, "a.bin")
+	rootB, destB := testRoot(t, "b.bin")
+	errCh := make(chan error, 2)
+	go func() {
+		_, err := downloaderA.Download(context.Background(), rootA, destA, true, events.Nop())
+		errCh <- err
+	}()
+	go func() {
+		_, err := downloaderB.Download(context.Background(), rootB, destB, true, events.Nop())
+		errCh <- err
+	}()
+	for range 2 {
+		if err := <-errCh; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(waitsA) != 1 || waitsA[0] != time.Second {
+		t.Fatalf("waitsA=%v", waitsA)
+	}
+	if len(waitsB) != 1 || waitsB[0] != 2*time.Second {
+		t.Fatalf("waitsB=%v", waitsB)
+	}
+}
+
+func TestPlaybackCookieEmbeddedFormatIDValidation(t *testing.T) {
+	valid := appendProtobufBytes(nil, fPlaybackCookieFormatID, FormatID{Itag: 137}.marshal())
+	if err := validatePlaybackCookie(valid); err != nil {
+		t.Fatalf("valid cookie err=%v", err)
+	}
+	wrongWire := appendProtobufVarint(nil, fPlaybackCookieFormatID, 137)
+	if err := validatePlaybackCookie(wrongWire); !errors.Is(err, ErrInvalidProtobuf) {
+		t.Fatalf("wrong wire err=%v", err)
+	}
+	duplicate := append(
+		appendProtobufBytes(nil, fPlaybackCookieFormatID, FormatID{Itag: 137}.marshal()),
+		appendProtobufBytes(nil, fPlaybackCookieFormatID, FormatID{Itag: 140}.marshal())...,
+	)
+	if err := validatePlaybackCookie(duplicate); !errors.Is(err, ErrInvalidProtobuf) {
+		t.Fatalf("duplicate err=%v", err)
+	}
+	nestedWrongWire := appendProtobufBytes(nil, fPlaybackCookieFormatID, appendProtobufBytes(nil, fFormatItag, []byte("x")))
+	if err := validatePlaybackCookie(nestedWrongWire); !errors.Is(err, ErrInvalidProtobuf) {
+		t.Fatalf("nested wrong wire err=%v", err)
+	}
+	nestedDuplicate := appendProtobufBytes(nil, fPlaybackCookieFormatID, append(
+		appendProtobufVarint(nil, fFormatItag, 137),
+		appendProtobufVarint(nil, fFormatItag, 140)...,
+	))
+	if err := validatePlaybackCookie(nestedDuplicate); !errors.Is(err, ErrInvalidProtobuf) {
+		t.Fatalf("nested duplicate err=%v", err)
+	}
+}
+
+func TestConsumeStreamDoesNotCommitControlOnLateFailure(t *testing.T) {
+	cookie := validTestCookie()
+	body := appendPolicyPart(buildTestUMP(
+		137,
+		testSegment{headerID: 1, init: true, payload: []byte("INIT")},
+		testSegment{headerID: 2, sequence: 0, duration: 1000, payload: []byte("seg")},
+	), 5000, cookie)
+	body = append(body, encodePart(PartSABRRedirect, []byte{0x0A, 0x01, 'x'})...)
+	file, err := os.CreateTemp(t.TempDir(), "txn-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	assembler := newTrackAssembler(FormatID{Itag: 137}, 10000, file, 1024)
+	ctrl, err := consumeStream(context.Background(), bytes.NewReader(body), assembler)
+	if !errors.Is(err, ErrUnsupportedDirective) {
+		t.Fatalf("err=%v", err)
+	}
+	if !roundControlIsZero(ctrl) {
+		t.Fatalf("committed control on failure: %+v", ctrl)
+	}
+	if !assembler.initWritten {
+		t.Fatal("expected media assembler to retain progress before failure")
+	}
+	if assembler.endOfTrackDone {
+		t.Fatal("end marker must not be committed on failure")
+	}
+}
+
+func TestConsumeStreamDoesNotCommitControlOnTruncatedStream(t *testing.T) {
+	cookie := validTestCookie()
+	body := appendPolicyPart(buildTestUMP(
+		137,
+		testSegment{headerID: 1, init: true, payload: []byte("INIT")},
+	), 2500, cookie)
+	body = append(body,
+		encodePart(PartMediaHeader, marshalMediaHeader(MediaHeader{HeaderID: 2, Itag: 137, SequenceNumber: 0, DurationMs: 1000, ContentLength: 3}))...)
+	file, err := os.CreateTemp(t.TempDir(), "txn-trunc-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	assembler := newTrackAssembler(FormatID{Itag: 137}, 10000, file, 1024)
+	ctrl, err := consumeStream(context.Background(), bytes.NewReader(body), assembler)
+	if !errors.Is(err, ErrTruncatedStream) {
+		t.Fatalf("err=%v", err)
+	}
+	if !roundControlIsZero(ctrl) {
+		t.Fatalf("committed control on truncated stream: %+v", ctrl)
+	}
+}
+
+func roundControlIsZero(ctrl roundControl) bool {
+	return ctrl.backoff == 0 && !ctrl.updateCookie && len(ctrl.cookie) == 0
 }

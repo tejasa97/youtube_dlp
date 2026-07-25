@@ -18,7 +18,9 @@ const (
 	fPlaybackCookieAltFmtID uint64 = 8
 )
 
-// roundControl is committed only after a full successful HTTP response.
+// roundControl is committed only after consumeStream finishes without error.
+// Media assembler state may advance during a failed response; that replay/dedup
+// behavior is separate from transactional cookie/backoff/end control.
 type roundControl struct {
 	backoff      time.Duration
 	cookie       []byte
@@ -227,7 +229,7 @@ func validatePlaybackCookie(data []byte) error {
 				return fmt.Errorf("%w: duplicate playback cookie field 7", ErrInvalidProtobuf)
 			}
 			seenField7 = true
-			if _, err := unmarshalFormatID(reader.bytes()); err != nil {
+			if err := validateEmbeddedFormatID(reader.bytes()); err != nil {
 				return err
 			}
 		case num == fPlaybackCookieAltFmtID:
@@ -238,9 +240,59 @@ func validatePlaybackCookie(data []byte) error {
 				return fmt.Errorf("%w: duplicate playback cookie field 8", ErrInvalidProtobuf)
 			}
 			seenField8 = true
-			if _, err := unmarshalFormatID(reader.bytes()); err != nil {
+			if err := validateEmbeddedFormatID(reader.bytes()); err != nil {
 				return err
 			}
+		default:
+			reader.skip(num, wireType)
+		}
+	}
+	if reader.err != nil {
+		return reader.err
+	}
+	return nil
+}
+
+func validateEmbeddedFormatID(data []byte) error {
+	var (
+		seenItag         bool
+		seenLastModified bool
+		seenXTags        bool
+	)
+	reader := fieldReader{data: data}
+	for {
+		num, wireType, ok := reader.next()
+		if !ok {
+			break
+		}
+		switch {
+		case num == fFormatItag:
+			if wireType != wireVarint {
+				return fmt.Errorf("%w: wrong wire type %d for format itag", ErrInvalidProtobuf, wireType)
+			}
+			if seenItag {
+				return fmt.Errorf("%w: duplicate format itag", ErrInvalidProtobuf)
+			}
+			seenItag = true
+			_ = reader.varint()
+		case num == fFormatLastModified:
+			if wireType != wireVarint {
+				return fmt.Errorf("%w: wrong wire type %d for format lastModified", ErrInvalidProtobuf, wireType)
+			}
+			if seenLastModified {
+				return fmt.Errorf("%w: duplicate format lastModified", ErrInvalidProtobuf)
+			}
+			seenLastModified = true
+			_ = reader.varint()
+		case num == fFormatXTags:
+			if wireType != wireBytes {
+				return fmt.Errorf("%w: wrong wire type %d for format xtags", ErrInvalidProtobuf, wireType)
+			}
+			if seenXTags {
+				return fmt.Errorf("%w: duplicate format xtags", ErrInvalidProtobuf)
+			}
+			seenXTags = true
+			_ = reader.bytes()
 		default:
 			reader.skip(num, wireType)
 		}

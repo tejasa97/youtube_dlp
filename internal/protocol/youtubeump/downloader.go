@@ -50,13 +50,18 @@ type Result struct {
 }
 
 type Downloader struct {
-	transport IsolatedTransport
-	config    Config
+	transport         IsolatedTransport
+	config            Config
+	policyBackoffWait func(context.Context, time.Duration) error
 }
 
 func NewDownloader(transport IsolatedTransport, config Config) *Downloader {
 	config.Headers = config.Headers.Clone()
-	return &Downloader{transport: transport, config: config}
+	return &Downloader{
+		transport:         transport,
+		config:            config,
+		policyBackoffWait: sleep,
+	}
 }
 
 func (downloader *Downloader) Download(ctx context.Context, outputRoot, destination string, overwrite bool, sink events.Sink) (Result, error) {
@@ -187,7 +192,7 @@ func (downloader *Downloader) Download(ctx context.Context, outputRoot, destinat
 			break
 		}
 		if roundCtrl.backoff > 0 {
-			if err := policyBackoffWait(ctx, roundCtrl.backoff); err != nil {
+			if err := downloader.policyBackoffWait(ctx, roundCtrl.backoff); err != nil {
 				_ = sink.Emit(context.Background(), events.Event{Kind: events.KindCancelled, URL: eventURL, Path: destination, Message: err.Error()})
 				return Result{}, err
 			}
