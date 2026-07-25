@@ -99,6 +99,12 @@ func hashUstreamerConfig(config []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// HashUstreamerConfig exposes the checkpoint-compatible SHA-256 hex digest for
+// identity equality checks outside the youtubeump package.
+func HashUstreamerConfig(config []byte) string {
+	return hashUstreamerConfig(config)
+}
+
 func validateResumeVideoID(videoID string) error {
 	if videoID == "" {
 		return fmt.Errorf("%w: missing SABR video id", ErrMissingConfig)

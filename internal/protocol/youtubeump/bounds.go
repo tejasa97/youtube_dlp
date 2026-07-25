@@ -36,4 +36,14 @@ const (
 	MaxRedirectURLBytes = 4096
 	// MaxDirectiveRedirects bounds committed UMP SABR_REDIRECT hops.
 	MaxDirectiveRedirects = 8
+	// MaxSabrErrorTypeBytes bounds SABR_ERROR.type (field 1).
+	MaxSabrErrorTypeBytes = 256
+	// MaxReloadTokenBytes bounds RELOAD_PLAYER_RESPONSE reload token.
+	MaxReloadTokenBytes = 4096
+	// MaxSabrErrorRecoveries bounds SABR_ERROR recovery attempts per download.
+	MaxSabrErrorRecoveries = 3
+	// MaxReloadAttempts bounds RELOAD_PLAYER_RESPONSE recoveries per download.
+	MaxReloadAttempts = 2
+	// MaxSabrRefreshAttempts bounds signed extraction refresh callbacks.
+	MaxSabrRefreshAttempts = 2
 )

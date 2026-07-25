@@ -1,6 +1,10 @@
 package ytdlp
 
-import "github.com/ytdlp-go/ytdlp/internal/youtubepot"
+import (
+	"time"
+
+	"github.com/ytdlp-go/ytdlp/internal/youtubepot"
+)
 
 type YouTubePOTContext = youtubepot.Context
 type YouTubePOTRequest = youtubepot.Request
@@ -23,16 +27,17 @@ const (
 // bounded binding metadata and return base64url tokens. Token values remain in
 // the process-local bounded cache and are excluded from errors and events.
 type YouTubePOTConfig struct {
-	Policy    YouTubePOTFetchPolicy
-	CacheSize int
-	Providers []YouTubePOTProvider
+	Policy      YouTubePOTFetchPolicy
+	CacheSize   int
+	RefreshSkew time.Duration
+	Providers   []YouTubePOTProvider
 }
 
 func WithYouTubePOTProviders(config YouTubePOTConfig) Option {
 	return func(client *Client) {
 		providers := append([]youtubepot.Provider(nil), config.Providers...)
 		client.youtubePOT, client.youtubePOTErr = youtubepot.New(youtubepot.Config{
-			Policy: config.Policy, CacheSize: config.CacheSize, Providers: providers,
+			Policy: config.Policy, CacheSize: config.CacheSize, RefreshSkew: config.RefreshSkew, Providers: providers,
 		})
 	}
 }
