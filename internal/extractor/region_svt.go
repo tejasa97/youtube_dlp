@@ -75,6 +75,8 @@ func (RegionSVT) Extract(ctx context.Context, request Request) (Extraction, erro
 	switch target.kind {
 	case "series":
 		return extractSVTSeriesPlaylist(ctx, request, target.seriesSlug, target.seasonTab)
+	case "page":
+		return extractSVTPagePlaylist(ctx, request, target.page)
 	default:
 		return extractSVTVideo(ctx, request, parsed, target.videoID)
 	}
@@ -85,6 +87,7 @@ type svtTarget struct {
 	videoID    string
 	seriesSlug string
 	seasonTab  string
+	page       svtPageTarget
 }
 
 func classifySVTURL(parsed *url.URL) (svtTarget, bool) {
@@ -102,6 +105,11 @@ func classifySVTURL(parsed *url.URL) (svtTarget, bool) {
 	}
 	host := strings.ToLower(parsed.Hostname())
 	switch host {
+	case "svt.se", "www.svt.se":
+		if target, ok := classifySVTPageURL(parsed); ok {
+			return svtTarget{kind: "page", page: target}, true
+		}
+		return svtTarget{}, false
 	case "svtplay.se", "www.svtplay.se":
 		if svtPlayPath.MatchString(parsed.Path) {
 			return svtTarget{kind: "video"}, true
