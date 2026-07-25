@@ -52,9 +52,11 @@ ISO-BMFF specifications:
   reference_type=0 (leaf) entries. Expected absolute leaf ranges are recorded
   in the companion `.expected.json`.
 - The rolling-window fixtures document the Go-native live-window eviction and
-  append-once contract. Executable evidence is the deterministic protocol tests
-  listed in `docs/DASH_DYNAMIC_SIDX_EVIDENCE.md`; the pinned yt-dlp commit does
-  not implement dynamic SIDX polling.
+  append-once contract. After the first non-empty window, at least one stable
+  retained leaf identity is required; completely disjoint window replacement
+  fails closed. Executable evidence is the deterministic protocol tests listed
+  in `docs/DASH_DYNAMIC_SIDX_EVIDENCE.md`; the pinned yt-dlp commit does not
+  implement dynamic SIDX polling.
 - The MPD fixtures use `example.test` domain URLs that cannot resolve.
 
 ## Implementation notes
@@ -67,8 +69,10 @@ guessing an infinite sequence.
 
 Bounded single-period dynamic SegmentBase/SIDX polling is supported as a
 Go-native extension, including append-only growth and live-window prefix
-eviction with append-once leaf accumulation. Dynamic multi-period SegmentBase
-and mixed addressing remain fail-closed. Details are documented in
+eviction with append-once leaf accumulation. At least one stable retained leaf
+identity is required after the first non-empty window; completely disjoint
+window replacement fails closed. Dynamic multi-period SegmentBase and mixed
+addressing remain fail-closed. Details are documented in
 `docs/DASH_DYNAMIC_SIDX_EVIDENCE.md` and `docs/DASH_SIDX_EVIDENCE.md`.
 
 Hierarchical SIDX expansion (reference_type=1) is bounded by explicit safety

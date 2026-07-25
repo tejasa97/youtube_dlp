@@ -77,7 +77,7 @@ func TestDownloadDynamicSIDXPrefixDropRejected(t *testing.T) {
 	leaf2 := []byte("PREFIX_DROP_LEAF_TWO__")
 	fixture1 := buildDynamicSIDXResource(leaf1, leaf2)
 	fixture2 := buildDynamicSIDXResource(leaf1)
-	assertDynamicSIDXEvolutionRejected(t, fixture1, fixture2, "non-prefix segment evolution")
+	assertDynamicSIDXEvolutionRejected(t, fixture1, fixture2, "unanchored live-window evolution")
 }
 
 func TestDownloadDynamicSIDXPrefixReorderRejected(t *testing.T) {
@@ -85,7 +85,7 @@ func TestDownloadDynamicSIDXPrefixReorderRejected(t *testing.T) {
 	leaf2 := []byte("PREFIX_REORDER_LEAF_TWO__")
 	fixture1 := buildDynamicSIDXResource(leaf1, leaf2)
 	fixture2 := buildDynamicSIDXResource(leaf2, leaf1)
-	assertDynamicSIDXEvolutionRejected(t, fixture1, fixture2, "overlapping byte-range evolution")
+	assertDynamicSIDXEvolutionRejected(t, fixture1, fixture2, "unanchored live-window evolution")
 }
 
 func TestDownloadDynamicSIDXPrefixInsertionRejected(t *testing.T) {
@@ -93,7 +93,7 @@ func TestDownloadDynamicSIDXPrefixInsertionRejected(t *testing.T) {
 	leaf2 := []byte("PREFIX_INSERT_LEAF_TWO___")
 	fixture1 := buildDynamicSIDXResource(leaf1)
 	fixture2 := buildDynamicSIDXResource(leaf2, leaf1)
-	assertDynamicSIDXEvolutionRejected(t, fixture1, fixture2, "overlapping byte-range evolution")
+	assertDynamicSIDXEvolutionRejected(t, fixture1, fixture2, "unanchored live-window evolution")
 }
 
 func TestDownloadDynamicSIDXPrefixShrinkRejected(t *testing.T) {
@@ -101,7 +101,7 @@ func TestDownloadDynamicSIDXPrefixShrinkRejected(t *testing.T) {
 	leaf2 := []byte("PREFIX_SHRINK_LEAF_TWO__")
 	fixture1 := buildDynamicSIDXResource(leaf1, leaf2)
 	fixture2 := buildDynamicSIDXResource(leaf1)
-	assertDynamicSIDXEvolutionRejected(t, fixture1, fixture2, "non-prefix segment evolution")
+	assertDynamicSIDXEvolutionRejected(t, fixture1, fixture2, "unanchored live-window evolution")
 }
 
 func assertDynamicSIDXEvolutionRejected(t *testing.T, first, second dynamicSIDXFixture, want string) {
@@ -887,7 +887,7 @@ func TestDownloadDynamicSIDXOverlappingEvolutionRejected(t *testing.T) {
 	transport, _ := network.New(network.Config{})
 	root := t.TempDir()
 	_, err := NewDownloader(transport, Config{DynamicPolls: 2, PollInterval: time.Millisecond}).Download(context.Background(), server.URL+"/live.mpd", root, filepath.Join(root, "out.mp4"), false, nil)
-	if err == nil || (!strings.Contains(err.Error(), "overlapping byte-range evolution") && !strings.Contains(err.Error(), "non-prefix segment evolution")) {
+	if err == nil || (!strings.Contains(err.Error(), "overlapping byte-range evolution") && !strings.Contains(err.Error(), "unanchored live-window evolution")) {
 		t.Fatalf("err = %v", err)
 	}
 }

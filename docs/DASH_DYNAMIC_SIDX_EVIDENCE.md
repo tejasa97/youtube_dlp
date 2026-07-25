@@ -58,19 +58,21 @@ scope for yt-dlp itself.
      once. Eviction removes leaves from the live window only; previously seen
      leaves remain scheduled for download.
    - Shared identities that cannot form that suffix/prefix relationship fail
-     closed as non-prefix evolution (mutation of a retained leaf, reorder,
-     insertion before the live edge, or rewind/shrink of the live edge).
+     closed as unanchored live-window evolution (mutation of a retained leaf,
+     reorder without a retained suffix/prefix anchor, insertion before the live
+     edge, rewind/shrink of the live edge, or a completely disjoint window).
+   - After the first non-empty window, at least one stable retained leaf is
+     required. A live window that rolls completely between polls (no retained
+     suffix/prefix identity anchor) fails closed; unanchored full-window
+     replacement is not accepted.
    - Replaying an already-accumulated leaf identity after eviction/reorder fails
      closed. Overlapping byte ranges on the same media URL fail closed.
      Duplicate identities inside one window fail closed.
-   - When no identities are shared, the prior window may be fully replaced by
-     novel non-overlapping leaves (extreme live-window roll). Equal-sized
-     rebuilds that reuse the same absolute ranges are indistinguishable from an
-     unchanged window under URL/range identity and are not treated as content
-     mutation.
    - Identity compares URL/range metadata only; it does not verify remote byte
      content behind an unchanged URL/range between polling and later media
-     download.
+     download. Equal-sized rebuilds that reuse the same absolute ranges are
+     indistinguishable from an unchanged window under URL/range identity and are
+     not treated as content mutation.
 
 5. **Homogeneous addressing**: When dynamic SIDX mode is entered because any
    selected representation has an `IndexRange` marker, every selected
@@ -107,10 +109,11 @@ scope for yt-dlp itself.
    SIDX window).
 
 10. **Rejections**: Representation disappearance, ambiguous duplicate keys,
-    identity/codec/media-URL mutation, non-prefix evolution, replay after
-    eviction, overlapping byte-range suffixes, malformed `Content-Range`, cyclic
-    nested SIDX, changed initialization, mixed addressing, invalid marker sets,
-    and budget exhaustion remain fail-closed with `ErrUnsupportedAddressing`
+    identity/codec/media-URL mutation, unanchored live-window evolution (including
+    complete discontinuity between polls), replay after eviction, overlapping
+    byte-range suffixes, malformed `Content-Range`, cyclic nested SIDX, changed
+    initialization, mixed addressing, invalid marker sets, and budget exhaustion
+    remain fail-closed with `ErrUnsupportedAddressing`
     (or categorized fragment errors for media).
 
 11. **Atomic publication**: Manifest polling and SIDX expansion complete before
@@ -167,15 +170,17 @@ scope for yt-dlp itself.
 - `TestDownloadSIDXDynamicSingleSnapshot` (replaces former rejection test)
 - `TestAlignLiveWindowPrefixEvictionAndAppend`
 - `TestAlignLiveWindowRejectsRewindMutationAndReorder`
+- `TestAlignLiveWindowRejectsDisjointNonEmptyWindows`
 - `TestSegmentAccumulatorRollingWindowAppendsOnce`
 - `TestSegmentAccumulatorRejectsReplayAfterEviction`
 - `TestSegmentAccumulatorRejectsDuplicateWindowIdentity`
-- `TestSegmentAccumulatorFullWindowReplacementWithoutSharedIdentity`
+- `TestSegmentAccumulatorRejectsUnanchoredFullWindowReplacement`
 - `TestDownloadDynamicSIDXRollingWindowEvictAndAppend`
 - `TestDownloadDynamicSIDXRollingWindowPureEvictionKeepsHistory`
 - `TestDownloadDynamicSIDXRollingWindowToStaticTransition`
 - `TestDownloadDynamicSIDXRollingWindowRelocationRejected`
 - `TestDownloadDynamicSIDXRollingWindowRewindRejected`
+- `TestDownloadDynamicSIDXRollingWindowCompleteDiscontinuityRejected`
 - `TestDownloadDynamicSIDXRollingWindowRetainedMutationRejected`
 - `TestDownloadDynamicSIDXRollingWindowReplayRejected`
 - `TestDownloadDynamicSIDXRollingWindowExceedsMaxSegmentsRejected`
@@ -203,15 +208,14 @@ scope for yt-dlp itself.
   early CDN purge is not compensated by mid-poll media writes.
 - Leaf identity does not hash remote bytes; equal-sized absolute-range reuse can
   hide hostile content swaps behind unchanged URL/range metadata.
+- A live window that rolls completely between polls (no retained leaf identity)
+  fails closed; publishers with window size 1 must keep at least one leaf
+  continuous across successive snapshots or polling will reject the evolution.
 
 ## Known uncertainties
 
 - Real-world dynamic SIDX manifests that relocate existing leaf byte ranges (not
   just append at new offsets or evict a stable-offset prefix) are rejected as
-  overlapping or non-prefix evolution when the relocated ranges collide with
-  accumulated history; this is intentional but may exclude some hostile or
-  malformed publishers.
-- Extreme full-window replacement with entirely novel non-overlapping ranges is
-  accepted when no identities are shared. Publishers that rewrite the media
-  resource between polls without retaining at least one leaf identity therefore
-  rely on the overlap/replay ceilings rather than suffix continuity.
+  overlapping or unanchored live-window evolution when the relocated ranges no
+  longer share a retained suffix/prefix identity with the prior window; this is
+  intentional but may exclude some hostile or malformed publishers.

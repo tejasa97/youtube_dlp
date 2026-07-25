@@ -166,10 +166,9 @@ func (accumulator *segmentAccumulator) mergeMediaWindow(updated []Segment) error
 
 // alignLiveWindow finds the smallest prefix-eviction count such that the
 // retained suffix of prior is an exact ordered identity prefix of updated.
-// Shared identities that cannot form that suffix/prefix relationship fail as
-// non-prefix evolution (mutation, reorder, insertion, or rewind). When no
-// identities are shared, the prior window may be fully replaced by novel
-// leaves (extreme live-window roll).
+// After the first non-empty window, at least one stable retained leaf is
+// required as a suffix/prefix anchor. Completely disjoint non-empty evolution
+// (full window replacement without a retained identity) fails closed.
 func alignLiveWindow(prior, updated []Segment) (int, error) {
 	if len(prior) == 0 {
 		return 0, nil
@@ -190,26 +189,7 @@ func alignLiveWindow(prior, updated []Segment) (int, error) {
 			return drop, nil
 		}
 	}
-	if liveWindowKeysIntersect(prior, updated) {
-		return 0, fmt.Errorf("%w: non-prefix segment evolution", ErrUnsupportedAddressing)
-	}
-	return len(prior), nil
-}
-
-func liveWindowKeysIntersect(left, right []Segment) bool {
-	if len(left) == 0 || len(right) == 0 {
-		return false
-	}
-	seen := make(map[string]struct{}, len(left))
-	for _, segment := range left {
-		seen[segmentKey(segment)] = struct{}{}
-	}
-	for _, segment := range right {
-		if _, exists := seen[segmentKey(segment)]; exists {
-			return true
-		}
-	}
-	return false
+	return 0, fmt.Errorf("%w: unanchored live-window evolution", ErrUnsupportedAddressing)
 }
 
 func validateLiveWindowLeaves(leaves []Segment) error {

@@ -1,6 +1,7 @@
 {
   "description": "Deterministic rolling live-window SegmentBase/SIDX evolution contract for bounded dynamic polling.",
   "identity": "url+rangeStart+rangeLength",
+  "anchor_requirement": "After the first non-empty window, at least one stable retained leaf must form an exact prior-suffix / updated-prefix identity anchor.",
   "snapshots": [
     {
       "id": 1,
@@ -11,18 +12,21 @@
       "id": 2,
       "window_leaf_ids": ["L1", "L2", "L3"],
       "evicted_prefix": ["L0"],
+      "retained_anchor": ["L1", "L2"],
       "appended": ["L3"],
       "accumulated_leaf_ids": ["L0", "L1", "L2", "L3"]
     }
   ],
   "accepted": [
     "stable-offset prefix eviction with retained suffix identity match",
-    "pure prefix eviction with empty append set",
+    "pure prefix eviction with empty append set and non-empty retained anchor",
     "pure append with drop=0",
     "unchanged window",
-    "final dynamic-to-static snapshot that includes a rolling window"
+    "final dynamic-to-static snapshot that includes an anchored rolling window"
   ],
   "rejected": [
+    "completely disjoint non-empty prior->updated windows (unanchored full-window replacement)",
+    "a live window that rolls completely between polls with no retained leaf",
     "live-edge rewind/shrink that retains a leading identity while dropping a trailing retained leaf",
     "retained-leaf range mutation",
     "reorder or insertion that cannot form a retained suffix/prefix alignment",
@@ -37,6 +41,7 @@
     "polling completes before media download; evicted historical ranges must remain HTTP-fetchable",
     "identity does not hash remote bytes behind an unchanged URL/range",
     "equal-sized absolute-range reuse can alias an unchanged window under URL/range identity",
+    "window size 1 must retain that leaf across polls or evolution fails closed",
     "pinned yt-dlp does not implement dynamic SIDX polling; contract is Go-native"
   ]
 }

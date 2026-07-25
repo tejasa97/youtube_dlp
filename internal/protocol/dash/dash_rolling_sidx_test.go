@@ -2,6 +2,7 @@ package dash
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -52,10 +53,10 @@ func TestAlignLiveWindowRejectsRewindMutationAndReorder(t *testing.T) {
 	c := Segment{URL: "http://example/media", RangeStart: 120, RangeLength: 10}
 	bMut := Segment{URL: "http://example/media", RangeStart: 110, RangeLength: 11}
 
-	if _, err := alignLiveWindow([]Segment{a, b, c}, []Segment{a, b}); err == nil || !strings.Contains(err.Error(), "non-prefix segment evolution") {
+	if _, err := alignLiveWindow([]Segment{a, b, c}, []Segment{a, b}); err == nil || !strings.Contains(err.Error(), "unanchored live-window evolution") {
 		t.Fatalf("rewind err = %v", err)
 	}
-	if _, err := alignLiveWindow([]Segment{a, b, c}, []Segment{a, bMut, c}); err == nil || !strings.Contains(err.Error(), "non-prefix segment evolution") {
+	if _, err := alignLiveWindow([]Segment{a, b, c}, []Segment{a, bMut, c}); err == nil || !strings.Contains(err.Error(), "unanchored live-window evolution") {
 		t.Fatalf("mutation err = %v", err)
 	}
 	drop, err := alignLiveWindow([]Segment{a, b}, []Segment{b, a})
@@ -64,6 +65,30 @@ func TestAlignLiveWindowRejectsRewindMutationAndReorder(t *testing.T) {
 	}
 	if drop != 1 {
 		t.Fatalf("reorder drop = %d, want 1", drop)
+	}
+}
+
+func TestAlignLiveWindowRejectsDisjointNonEmptyWindows(t *testing.T) {
+	a := Segment{URL: "http://example/media", RangeStart: 100, RangeLength: 10}
+	b := Segment{URL: "http://example/media", RangeStart: 200, RangeLength: 10}
+	c := Segment{URL: "http://example/media", RangeStart: 300, RangeLength: 10}
+
+	_, err := alignLiveWindow([]Segment{a, b}, []Segment{c})
+	if err == nil || !strings.Contains(err.Error(), "unanchored live-window evolution") {
+		t.Fatalf("err = %v", err)
+	}
+	if !errors.Is(err, ErrUnsupportedAddressing) {
+		t.Fatalf("err = %v, want ErrUnsupportedAddressing", err)
+	}
+
+	_, err = alignLiveWindow([]Segment{a}, []Segment{b, c})
+	if err == nil || !errors.Is(err, ErrUnsupportedAddressing) {
+		t.Fatalf("single-to-novel err = %v", err)
+	}
+
+	_, err = alignLiveWindow([]Segment{a, b}, nil)
+	if err == nil || !errors.Is(err, ErrUnsupportedAddressing) {
+		t.Fatalf("empty updated err = %v", err)
 	}
 }
 
@@ -115,18 +140,22 @@ func TestSegmentAccumulatorRejectsDuplicateWindowIdentity(t *testing.T) {
 	}
 }
 
-func TestSegmentAccumulatorFullWindowReplacementWithoutSharedIdentity(t *testing.T) {
+func TestSegmentAccumulatorRejectsUnanchoredFullWindowReplacement(t *testing.T) {
 	accumulator := newSegmentAccumulator(10)
 	a := Segment{URL: "http://example/media", RangeStart: 100, RangeLength: 10}
 	b := Segment{URL: "http://example/media", RangeStart: 200, RangeLength: 10}
 	if err := accumulator.merge([]Segment{a}); err != nil {
 		t.Fatal(err)
 	}
-	if err := accumulator.merge([]Segment{b}); err != nil {
-		t.Fatal(err)
+	err := accumulator.merge([]Segment{b})
+	if err == nil || !strings.Contains(err.Error(), "unanchored live-window evolution") {
+		t.Fatalf("err = %v", err)
 	}
-	if accumulator.uniqueLeafCount != 2 {
-		t.Fatalf("uniqueLeafCount = %d, want 2", accumulator.uniqueLeafCount)
+	if !errors.Is(err, ErrUnsupportedAddressing) {
+		t.Fatalf("err = %v, want ErrUnsupportedAddressing", err)
+	}
+	if accumulator.uniqueLeafCount != 1 {
+		t.Fatalf("uniqueLeafCount = %d, want 1 after rejected replacement", accumulator.uniqueLeafCount)
 	}
 }
 
@@ -259,7 +288,7 @@ func TestDownloadDynamicSIDXRollingWindowRelocationRejected(t *testing.T) {
 	leaf3 := []byte("RELOC_THREE")
 	fixture1 := buildDynamicSIDXResource(leaf1, leaf2)
 	fixture2 := buildDynamicSIDXResource(leaf2, leaf3)
-	assertDynamicSIDXEvolutionRejected(t, fixture1, fixture2, "overlapping byte-range evolution")
+	assertDynamicSIDXEvolutionRejected(t, fixture1, fixture2, "unanchored live-window evolution")
 }
 
 func TestDownloadDynamicSIDXRollingWindowRewindRejected(t *testing.T) {
@@ -270,7 +299,19 @@ func TestDownloadDynamicSIDXRollingWindowRewindRejected(t *testing.T) {
 	}
 	fixture1 := buildDynamicSIDXWindow(leaves, 0, 3)
 	fixture2 := buildDynamicSIDXWindow(leaves[:2], 0, 2)
-	assertDynamicSIDXEvolutionRejected(t, fixture1, fixture2, "non-prefix segment evolution")
+	assertDynamicSIDXEvolutionRejected(t, fixture1, fixture2, "unanchored live-window evolution")
+}
+
+func TestDownloadDynamicSIDXRollingWindowCompleteDiscontinuityRejected(t *testing.T) {
+	leafA := []byte("DISCONTIG_LEAF_A______")
+	leafB := []byte("DISCONTIG_LEAF_B______")
+	leafC := []byte("DISCONTIG_LEAF_C______")
+	// Snapshot 1 window [A,B]; snapshot 2 jumps to a disjoint novel window [C]
+	// with no retained suffix/prefix anchor.
+	fixture1 := buildDynamicSIDXResource(leafA, leafB)
+	all := [][]byte{leafA, leafB, leafC}
+	fixture2 := buildDynamicSIDXWindow(all, 2, 1)
+	assertDynamicSIDXEvolutionRejected(t, fixture1, fixture2, "unanchored live-window evolution")
 }
 
 func TestDownloadDynamicSIDXRollingWindowRetainedMutationRejected(t *testing.T) {
@@ -278,11 +319,10 @@ func TestDownloadDynamicSIDXRollingWindowRetainedMutationRejected(t *testing.T) 
 	leaf2 := []byte("MUT_ROLL_LEAF_TWO_____")
 	leaf2Mut := []byte("MUT_ROLL_LEAF_TWO_EXTRA")
 	fixture1 := buildDynamicSIDXWindow([][]byte{leaf1, leaf2}, 0, 2)
-	// Evict leaf1 and publish a length-mutated leaf at leaf2's absolute start.
-	// Shared identities are absent, so alignment treats this as a full window
-	// replacement; the mutated range still overlaps the accumulated leaf2.
+	// Evict leaf1 and publish a length-mutated leaf at leaf2's absolute start
+	// with no retained identity anchor.
 	fixture2 := buildDynamicSIDXWindow([][]byte{leaf1, leaf2Mut}, 1, 1)
-	assertDynamicSIDXEvolutionRejected(t, fixture1, fixture2, "overlapping byte-range evolution")
+	assertDynamicSIDXEvolutionRejected(t, fixture1, fixture2, "unanchored live-window evolution")
 }
 
 func TestDownloadDynamicSIDXRollingWindowReplayRejected(t *testing.T) {
@@ -292,7 +332,7 @@ func TestDownloadDynamicSIDXRollingWindowReplayRejected(t *testing.T) {
 	// Rebuild in reverse order with unequal sizes so ranges cannot silently
 	// alias the prior window identities.
 	fixture2 := buildDynamicSIDXResource(leaf2, leaf1)
-	assertDynamicSIDXEvolutionRejected(t, fixture1, fixture2, "overlapping byte-range evolution")
+	assertDynamicSIDXEvolutionRejected(t, fixture1, fixture2, "unanchored live-window evolution")
 }
 
 func TestDownloadDynamicSIDXRollingWindowExceedsMaxSegmentsRejected(t *testing.T) {
@@ -438,6 +478,7 @@ func TestDownloadDynamicSIDXRollingWindowCancellationDuringWait(t *testing.T) {
 func FuzzDynamicSIDXRollingWindowMerge(f *testing.F) {
 	f.Add(uint8(1), uint8(1), int64(100), int64(10), int64(10), int64(10))
 	f.Add(uint8(2), uint8(0), int64(50), int64(5), int64(7), int64(9))
+	f.Add(uint8(3), uint8(1), int64(10), int64(3), int64(4), int64(5))
 	f.Fuzz(func(t *testing.T, dropSeed, appendSeed uint8, start, lenA, lenB, lenC int64) {
 		if start < 0 || lenA <= 0 || lenB <= 0 || lenC <= 0 {
 			return
@@ -452,15 +493,21 @@ func FuzzDynamicSIDXRollingWindowMerge(f *testing.F) {
 		if err := accumulator.merge([]Segment{a, b}); err != nil {
 			return
 		}
+		// Anchored evolutions: prefix eviction and optional append of c.
 		updated := []Segment{a, b}
-		drop := int(dropSeed % 3)
-		if drop > len(updated) {
-			drop = len(updated)
-		}
+		drop := int(dropSeed % 2) // 0 or 1 retains at least one leaf from [a,b]
 		updated = updated[drop:]
 		if appendSeed%2 == 1 {
 			updated = append(updated, c)
 		}
-		_ = accumulator.merge(updated)
+		if err := accumulator.merge(updated); err != nil {
+			t.Fatalf("anchored merge: %v", err)
+		}
+		// Completely disjoint non-empty evolution must fail closed.
+		novel := Segment{URL: "http://example/media", RangeStart: start + lenA + lenB + lenC + 1, RangeLength: 1}
+		err := accumulator.merge([]Segment{novel})
+		if err == nil || !errors.Is(err, ErrUnsupportedAddressing) {
+			t.Fatalf("disjoint merge err = %v, want ErrUnsupportedAddressing", err)
+		}
 	})
 }
