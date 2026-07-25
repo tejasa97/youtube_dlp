@@ -341,6 +341,8 @@ func (client *Client) productRegistry() *extractor.Registry {
 		extractor.NewYouTube(),
 		extractor.NewVimeo(),
 		extractor.NewTikTok(),
+		extractor.NewHytale(),
+		extractor.NewCloudflareStream(),
 		extractor.NewBrightcove(),
 		extractor.NewKaltura(),
 		extractor.NewJWPlatform(),
