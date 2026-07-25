@@ -101,6 +101,7 @@ func TestParseSabrErrorValidation(t *testing.T) {
 func TestParseReloadPlayerResponseValidation(t *testing.T) {
 	const token = "reload-token-fixture"
 	ok := encodeReloadPlayerResponse(token)
+	invalidUTF8 := []byte{0xff, 0xfe, 't', 'o', 'k', 'e', 'n'}
 	tests := []struct {
 		name    string
 		payload []byte
@@ -118,6 +119,7 @@ func TestParseReloadPlayerResponseValidation(t *testing.T) {
 		{"wrong_wire_params", appendProtobufVarint(nil, fReloadPlaybackContextParams, 1), ErrInvalidProtobuf},
 		{"wrong_wire_token", appendProtobufBytes(nil, fReloadPlaybackContextParams, appendProtobufVarint(nil, fReloadPlaybackParamsToken, 1)), ErrInvalidProtobuf},
 		{"oversize_token", encodeReloadPlayerResponse(strings.Repeat("t", MaxReloadTokenBytes+1)), ErrInvalidProtobuf},
+		{"invalid_utf8_token", encodeReloadPlayerResponseBytes(invalidUTF8), ErrInvalidProtobuf},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -136,6 +138,11 @@ func TestParseReloadPlayerResponseValidation(t *testing.T) {
 			}
 			if strings.Contains(err.Error(), token) || strings.Contains(err.Error(), "reload-token") {
 				t.Fatalf("reload token leaked: %v", err)
+			}
+			if test.name == "invalid_utf8_token" {
+				if strings.Contains(err.Error(), string(invalidUTF8)) || strings.Contains(err.Error(), "\xff") {
+					t.Fatalf("invalid UTF-8 token leaked: %v", err)
+				}
 			}
 		})
 	}

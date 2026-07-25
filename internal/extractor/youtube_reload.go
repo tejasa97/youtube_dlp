@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/ytdlp-go/ytdlp/internal/value"
 	"github.com/ytdlp-go/ytdlp/internal/youtubepot"
@@ -32,6 +33,19 @@ type YouTubeReloadRequest struct {
 func (YouTubeReloadRequest) String() string   { return "[redacted YouTube reload request]" }
 func (YouTubeReloadRequest) GoString() string { return "extractor.YouTubeReloadRequest{[redacted]}" }
 
+// validateYouTubeReloadToken enforces nonempty, bounded, trim-stable UTF-8
+// tokens before they are JSON-marshaled into Innertube player requests.
+// Invalid UTF-8 must fail closed: encoding/json would otherwise silently
+// replace bytes and mutate an opaque server token. Token contents are never
+// included in the returned error.
+func validateYouTubeReloadToken(token string) error {
+	if token == "" || len(token) > youtubeMaxReloadTokenBytes ||
+		strings.TrimSpace(token) != token || !utf8.ValidString(token) {
+		return fmt.Errorf("%w: invalid reload token", ErrInvalidMetadata)
+	}
+	return nil
+}
+
 // ReloadYouTubePlayer re-requests /player with playbackContext.reloadPlaybackContext
 // .reloadPlaybackParams.token. Provenance: LuanRT/googlevideo
 // examples/sabr-shaka-example/src/main.ts at d2fa40d761034a286cf60ee033653307a1295b0c.
@@ -46,8 +60,8 @@ func ReloadYouTubePlayer(ctx context.Context, transport Transport, req YouTubeRe
 		req.ClientVersion == "" || req.UserAgent == "" {
 		return Extraction{}, fmt.Errorf("%w: incomplete reload identity", ErrInvalidMetadata)
 	}
-	if len(req.ReloadToken) > youtubeMaxReloadTokenBytes || strings.TrimSpace(req.ReloadToken) != req.ReloadToken {
-		return Extraction{}, fmt.Errorf("%w: invalid reload token", ErrInvalidMetadata)
+	if err := validateYouTubeReloadToken(req.ReloadToken); err != nil {
+		return Extraction{}, err
 	}
 	profile := youtubeClientProfile{
 		Name:          strings.ToLower(req.ClientName),

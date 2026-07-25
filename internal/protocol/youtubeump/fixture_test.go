@@ -151,7 +151,11 @@ func appendSabrErrorPart(body []byte, errorType string, code int32) []byte {
 }
 
 func encodeReloadPlayerResponse(token string) []byte {
-	params := appendProtobufBytes(nil, fReloadPlaybackParamsToken, []byte(token))
+	return encodeReloadPlayerResponseBytes([]byte(token))
+}
+
+func encodeReloadPlayerResponseBytes(token []byte) []byte {
+	params := appendProtobufBytes(nil, fReloadPlaybackParamsToken, token)
 	return appendProtobufBytes(nil, fReloadPlaybackContextParams, params)
 }
 
