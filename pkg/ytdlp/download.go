@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/ytdlp-go/ytdlp/internal/downloader"
@@ -23,6 +24,21 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/protocol/youtubeump"
 	"github.com/ytdlp-go/ytdlp/internal/youtubepot"
 )
+
+func outputPlanDestination(base string, plan mediaformat.OutputPlan, multi bool) string {
+	if !multi {
+		return base
+	}
+	extension := filepath.Ext(base)
+	stem := strings.TrimSuffix(base, extension)
+	return stem + ".f" + plan.PlanID() + extension
+}
+
+func removePublishedPaths(paths []string) {
+	for _, path := range paths {
+		_ = os.Remove(path)
+	}
+}
 
 func (operation *operation) downloadSelections(ctx context.Context, selections []mediaformat.Selection, outputRoot, destination string, sink events.Sink) (string, int64, error) {
 	if len(selections) == 1 {

@@ -87,17 +87,28 @@ func (operation *operation) applyCompatibility(ctx context.Context, ctxInfo *val
 }
 
 func (operation *operation) selectFormats(info value.Info) ([]mediaformat.Selection, error) {
-	if operation.compatibility.selector == nil {
-		return mediaformat.Default(info, operation.compatibility.formatOptions)
-	}
-	selected, err := mediaformat.SelectWithOptions(info, *operation.compatibility.selector, operation.compatibility.formatOptions)
+	plans, err := operation.planFormats(info)
 	if err != nil {
 		return nil, err
 	}
-	if len(selected) == 0 {
+	if len(plans) != 1 {
+		return nil, fmt.Errorf("%w: selector yields %d independent outputs", mediaformat.ErrMultiOutput, len(plans))
+	}
+	if len(plans[0].Tracks) == 0 {
 		return nil, fmt.Errorf("%w: selector returned no formats", mediaformat.ErrNoFormats)
 	}
-	return selected, nil
+	return plans[0].Tracks, nil
+}
+
+func (operation *operation) planFormats(info value.Info) ([]mediaformat.OutputPlan, error) {
+	if operation.compatibility.selector == nil {
+		selected, err := mediaformat.Default(info, operation.compatibility.formatOptions)
+		if err != nil {
+			return nil, err
+		}
+		return []mediaformat.OutputPlan{{Tracks: selected}}, nil
+	}
+	return mediaformat.PlanSelectWithOptions(info, *operation.compatibility.selector, operation.compatibility.formatOptions)
 }
 
 func (operation *operation) eventSink() events.Sink {

@@ -842,10 +842,14 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		return Result{}, err
 	}
 	var selectedFormats []mediaformat.Selection
+	var outputPlans []mediaformat.OutputPlan
 	if (!operation.request.SkipDownload && !operation.request.Simulate) || operation.hasPrintStageAtOrAfter(PrintVideo) {
-		selectedFormats, err = operation.selectFormats(info)
+		outputPlans, err = operation.planFormats(info)
 		if err != nil {
 			return Result{}, categorized("select format", err)
+		}
+		if len(outputPlans) > 0 {
+			selectedFormats = outputPlans[0].Tracks
 		}
 	}
 	var destination string
@@ -935,16 +939,32 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	}
 
 	sink := operation.eventSink()
-	downloadedPath, downloadedBytes, err := operation.downloadSelections(ctx, selectedFormats, outputDir, destination, sink)
-	if err != nil {
-		return Result{}, categorized("download selected formats", err)
+	multiOutput := len(outputPlans) > 1
+	var downloadedPath string
+	var downloadedBytes int64
+	var publishedPaths []string
+	for planIndex, plan := range outputPlans {
+		planDestination := outputPlanDestination(destination, plan, multiOutput)
+		path, bytes, downloadErr := operation.downloadSelections(ctx, plan.Tracks, outputDir, planDestination, sink)
+		if downloadErr != nil {
+			removePublishedPaths(publishedPaths)
+			return Result{}, categorized("download selected formats", downloadErr)
+		}
+		var mediaArtifacts []Artifact
+		path, mediaArtifacts, downloadErr = operation.applyPostprocessors(ctx, outputDir, path, sink)
+		if downloadErr != nil {
+			removePublishedPaths(publishedPaths)
+			return Result{}, categorized("run postprocessors", downloadErr)
+		}
+		publishedPaths = append(publishedPaths, path)
+		result.Artifacts = append(result.Artifacts, mediaArtifacts...)
+		if planIndex == 0 {
+			downloadedPath = path
+			downloadedBytes = bytes
+		} else {
+			downloadedBytes += bytes
+		}
 	}
-	var mediaArtifacts []Artifact
-	downloadedPath, mediaArtifacts, err = operation.applyPostprocessors(ctx, outputDir, downloadedPath, sink)
-	if err != nil {
-		return Result{}, categorized("run postprocessors", err)
-	}
-	result.Artifacts = append(result.Artifacts, mediaArtifacts...)
 	var cutApplied bool
 	downloadedPath, result.Artifacts, cutApplied, err = operation.applySponsorBlockRemove(ctx, &info, downloadedPath, result.Artifacts, sink)
 	if err != nil {
@@ -1032,7 +1052,7 @@ func categorized(op string, err error) error {
 	switch {
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		category = ErrorCancelled
-	case errors.Is(err, extractor.ErrUnsupported):
+	case errors.Is(err, extractor.ErrUnsupported), errors.Is(err, mediaformat.ErrMultiOutput):
 		category = ErrorUnsupported
 	case errors.Is(err, extractor.ErrAuthentication):
 		category = ErrorAuthentication
