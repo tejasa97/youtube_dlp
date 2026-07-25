@@ -22,7 +22,8 @@ and extra path components beyond `/videos`, `/videos/all`, and `/profile`.
 Direct collection routes reject fragments, encoded separators, malformed or
 oversized collection IDs, and extra path components. Channel collections routes
 reject fragments, duplicate filter or sort keys, and malformed query
-escaping while permitting benign unrelated query keys. Clip
+escaping while permitting benign unrelated query keys. Both collection GraphQL
+responses are fail-closed at 100 edges per page. Clip
 media URLs must be bounded HTTPS assets on Twitch CDN domains (reserved
 `.example.test` is accepted only for deterministic fixtures), without
 credentials, ports, IP hosts, fragments, or local/internal suffixes. Format,

@@ -1697,6 +1697,86 @@ func TestTwitchDirectCollectionEmptyUnavailableMalformed(t *testing.T) {
 	})
 }
 
+func TestTwitchDirectCollectionFailuresCancellationAndBounds(t *testing.T) {
+	t.Run("http categories", func(t *testing.T) {
+		cases := []struct {
+			status int
+			want   error
+		}{
+			{http.StatusUnauthorized, ErrAuthentication},
+			{http.StatusForbidden, ErrAuthentication},
+			{http.StatusNotFound, ErrUnavailable},
+			{http.StatusGone, ErrUnavailable},
+			{http.StatusTooManyRequests, ErrTwitchRateLimited},
+			{http.StatusBadGateway, ErrTwitchNetwork},
+		}
+		for _, test := range cases {
+			transport := &twitchFixtureTransport{graphQLFixtures: []twitchGraphQLFixture{{status: test.status, body: []byte(`[]`)}}}
+			_, err := NewTwitch().Extract(context.Background(), Request{
+				URL: "https://www.twitch.tv/collections/FixtureCollection01", Transport: transport,
+			})
+			if !errors.Is(err, test.want) {
+				t.Fatalf("status %d err=%v want %v", test.status, err, test.want)
+			}
+		}
+	})
+	t.Run("secret safe errors", func(t *testing.T) {
+		const secret = "fixture-collection-direct-secret-token"
+		transport := &twitchFixtureTransport{graphQLFixtures: []twitchGraphQLFixture{
+			{body: []byte(`[{"data":{"collection":{"title":"Synthetic","items":{"edges":[]}}},"errors":[{"message":"` + secret + `"}]}]`)},
+		}}
+		_, err := NewTwitch().Extract(context.Background(), Request{
+			URL: "https://www.twitch.tv/collections/FixtureCollection01", Transport: transport,
+		})
+		if !errors.Is(err, ErrInvalidMetadata) {
+			t.Fatalf("err=%v", err)
+		}
+		if strings.Contains(err.Error(), secret) {
+			t.Fatalf("error exposed secret: %v", err)
+		}
+	})
+	t.Run("cancellation before fetch", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		transport := &twitchFixtureTransport{graphQLFixtures: []twitchGraphQLFixture{{body: twitchFixture(t, "collection_direct.json")}}}
+		_, err := NewTwitch().Extract(ctx, Request{
+			URL: "https://www.twitch.tv/collections/FixtureCollection01", Transport: transport,
+		})
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("err=%v", err)
+		}
+		if len(transport.graphQLRequests) != 0 {
+			t.Fatal("canceled extract still fetched")
+		}
+	})
+	t.Run("edge bound", func(t *testing.T) {
+		var builder strings.Builder
+		builder.WriteString(`[`)
+		for i := 0; i < twitchCollectionsMaxEdges+1; i++ {
+			if i > 0 {
+				builder.WriteByte(',')
+			}
+			builder.WriteString(`{"node":{"__typename":"Video","id":"`)
+			builder.WriteString(strconv.Itoa(1000000000 + i))
+			builder.WriteString(`","title":"VOD"}}`)
+		}
+		builder.WriteString(`]`)
+		_, _, err := parseTwitchCollection([]twitchCollectionResponse{{
+			Data: struct {
+				Collection *twitchCollectionData `json:"collection"`
+			}{Collection: &twitchCollectionData{
+				Title: "Oversized",
+				Items: struct {
+					Edges json.RawMessage `json:"edges"`
+				}{Edges: json.RawMessage(builder.String())},
+			}},
+		}})
+		if !errors.Is(err, ErrInvalidPlaylist) {
+			t.Fatalf("edge-bound err=%v", err)
+		}
+	})
+}
+
 func TestTwitchChannelCollectionsLazyContinuationReusableAndContract(t *testing.T) {
 	transport := &twitchFixtureTransport{collectionsPages: map[string][]byte{
 		"":                               twitchFixture(t, "collections_page1.json"),
