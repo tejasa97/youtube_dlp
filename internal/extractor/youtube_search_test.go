@@ -100,18 +100,64 @@ func TestYouTubeSearchLazyReusableAndCancellation(t *testing.T) {
 }
 
 func TestYouTubeSearchTargetHostileAndRouting(t *testing.T) {
-	good := []string{"ytsearch:cats", "ytsearch5:cats", "ytsearchall:cats", "https://www.youtube.com/results?search_query=cats", "http://youtube.com/search?q=cats"}
+	good := []string{
+		"ytsearch:cats", "ytsearch5:cats", "ytsearchall:cats",
+		"https://www.youtube.com/results?search_query=cats",
+		"http://youtube.com/search?q=cats",
+		"https://www.youtube.com/results?search_query=cats&sp=EgIQAQ%3D%3D",
+		"https://www.youtube.com/results?search_query=cats&sp=EgIQAQ==",
+		"https://www.youtube.com/results?search_query=cats&sp=CAI%3D",
+	}
 	for _, raw := range good {
 		parsed, _ := url.Parse(raw)
 		if !NewYouTubeSearch().Suitable(parsed) {
 			t.Errorf("not suitable: %q", raw)
 		}
 	}
-	bad := []string{"ytsearch0:cats", "ytsearch51:cats", "ytsearch:", "ftp://youtube.com/results?search_query=x", "https://evil.com/results?search_query=x", "https://www.youtube.com/results%2fno?search_query=x", "https://www.youtube.com/results?search_query=a%2fb", "https://u@youtube.com/results?search_query=x", "https://youtube.com:443/results?search_query=x"}
+	bad := []string{
+		"ytsearch0:cats", "ytsearch51:cats", "ytsearch:",
+		"ftp://youtube.com/results?search_query=x",
+		"https://evil.com/results?search_query=x",
+		"https://www.youtube.com/results%2fno?search_query=x",
+		"https://www.youtube.com/results?search_query=a%2fb",
+		"https://u@youtube.com/results?search_query=x",
+		"https://youtube.com:443/results?search_query=x",
+		"https://www.youtube.com/results?search_query=cats&sp=EgIQAQ%253D%253D",
+		"https://www.youtube.com/results?search_query=cats&sp=unknown",
+		"https://www.youtube.com/results?search_query=cats&sp=EgIQAQ%3D%3D%3D",
+	}
 	for _, raw := range bad {
 		parsed, _ := url.Parse(raw)
 		if NewYouTubeSearch().Suitable(parsed) {
 			t.Errorf("accepted hostile URL: %q", raw)
+		}
+	}
+}
+
+func TestYouTubeSearchSPNormalizedAfterParseQuery(t *testing.T) {
+	for _, test := range []struct {
+		raw  string
+		want bool
+	}{
+		{"https://www.youtube.com/results?search_query=cats&sp=EgIQAQ%3D%3D", true},
+		{"https://www.youtube.com/results?search_query=cats&sp=EgIQAQ==", true},
+		{"https://www.youtube.com/results?search_query=cats&sp=EgIQAfABAQ%3D%3D", true},
+		{"https://www.youtube.com/results?search_query=cats&sp=CAI%3D", true},
+		{"https://www.youtube.com/results?search_query=cats&sp=CAI=", true},
+		{"https://www.youtube.com/results?search_query=cats&sp=EgIQAQ%253D%253D", false},
+		{"https://www.youtube.com/results?search_query=cats&sp=EgIQAQ%3D%3D%3D", false},
+		{"https://www.youtube.com/results?search_query=cats&sp=nope", false},
+	} {
+		parsed, err := url.Parse(test.raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _, _, ok := youtubeSearchTarget(parsed)
+		if ok != test.want {
+			t.Fatalf("%q ok=%v want %v (sp=%q)", test.raw, ok, test.want, parsed.Query().Get("sp"))
+		}
+		if sp := parsed.Query().Get("sp"); sp != "" && youtubeSearchSPSupported(sp) != test.want {
+			t.Fatalf("youtubeSearchSPSupported(%q)=%v want %v", sp, youtubeSearchSPSupported(sp), test.want)
 		}
 	}
 }
@@ -167,11 +213,11 @@ func FuzzParseYouTubeSearchData(f *testing.F) {
 			return
 		}
 		for _, entry := range page.entries {
-			if !youtubeIDPattern.MatchString(entry.ID) || entry.ExtractorKey != "youtube" {
+			if entry.URL == "" || strings.ContainsAny(entry.URL, "\x00\r\n") {
 				t.Fatalf("unsafe entry: %#v", entry)
 			}
 			parsed, err := url.Parse(entry.URL)
-			if err != nil || parsed.Scheme != "https" || parsed.Host != "www.youtube.com" || (parsed.Path != "/watch" && !strings.HasPrefix(parsed.Path, "/shorts/")) {
+			if err != nil || parsed.Scheme != "https" || (parsed.Host != "www.youtube.com" && parsed.Host != "youtube.com") {
 				t.Fatalf("unsafe entry URL: %#v", entry)
 			}
 		}

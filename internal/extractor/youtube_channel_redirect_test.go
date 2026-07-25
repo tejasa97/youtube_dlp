@@ -3,6 +3,7 @@ package extractor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -175,12 +176,68 @@ func TestYouTubeConditionalChannelRedirectRejectsHostileAmbiguousAndSelfTargets(
 		{"unsupported route", redirectJSON("/watch?v=dQw4w9WgXcQ"), "https://www.youtube.com/source", ""},
 		{"control", redirectJSON("/channel/UCabcdefghijklmnopqrstuv\n"), "https://www.youtube.com/source", ""},
 		{"overlong", redirectJSON("/channel/" + strings.Repeat("a", youtubeMaxConditionalRedirectURLBytes)), "https://www.youtube.com/source", ""},
-		{"unsupported requested tab", valid, "https://www.youtube.com/source", "store"},
 		{"self", valid, "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv", ""},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			if _, ok, err := youtubeConditionalChannelRedirect([]byte(test.data), test.source, test.tab); ok || !errors.Is(err, ErrInvalidMetadata) {
+				t.Fatalf("ok=%v err=%v", ok, err)
+			}
+		})
+	}
+	// Custom tabs are not rewritten here; the extract path binds them separately.
+	if entry, ok, err := youtubeConditionalChannelRedirect([]byte(valid), "https://www.youtube.com/source", "store"); ok || err != nil || entry.URL != "" {
+		t.Fatalf("custom tab redirect skip: ok=%v err=%v entry=%#v", ok, err, entry)
+	}
+}
+
+func TestYouTubeConditionalChannelRedirectPreservesSearchQuery(t *testing.T) {
+	const payload = `{"onResponseReceivedActions":[{"navigateAction":{"endpoint":{"commandMetadata":{"webCommandMetadata":{"url":"%s"}}}}}]}`
+	tests := []struct {
+		name, source, target, wantURL, wantKey string
+	}{
+		{
+			name: "ucid", source: "https://www.youtube.com/channel/UC1234567890abcdefghijkl/search?query=linear+algebra",
+			target: "/channel/UCabcdefghijklmnopqrstuv", wantKey: "youtube_channel_tab",
+			wantURL: "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/search?query=linear+algebra",
+		},
+		{
+			name: "handle", source: "https://www.youtube.com/@Global.Handle/search?query=cats",
+			target: "/@Regional.Handle", wantKey: "youtube_handle_tab",
+			wantURL: "https://www.youtube.com/@Regional.Handle/search?query=cats",
+		},
+		{
+			name: "alias", source: "https://www.youtube.com/c/GlobalAlias/search?q=dogs",
+			target: "/c/RegionalAlias", wantKey: "youtube_alias_tab",
+			wantURL: "https://www.youtube.com/c/RegionalAlias/search?query=dogs",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			entry, ok, err := youtubeConditionalChannelRedirect([]byte(fmt.Sprintf(payload, test.target)), test.source, "search")
+			if err != nil || !ok {
+				t.Fatalf("ok=%v err=%v", ok, err)
+			}
+			if entry.URL != test.wantURL || entry.ExtractorKey != test.wantKey {
+				t.Fatalf("entry=%#v", entry)
+			}
+			registry := NewRegistry(NewYouTubeChannelTab(), NewYouTubeHandleTab(), NewYouTubeAliasTab())
+			selected, err := registry.SelectFor(entry.URL, entry.ExtractorKey)
+			if err != nil || selected.Name() != test.wantKey {
+				t.Fatalf("registry selected=%v err=%v", selected, err)
+			}
+		})
+	}
+	for _, test := range []struct {
+		name, source string
+	}{
+		{"missing query", "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/search"},
+		{"empty query", "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/search?query="},
+		{"hostile query", "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/search?query=bad%00"},
+		{"control query", "https://www.youtube.com/@Handle/search?query=two%0aline"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, ok, err := youtubeConditionalChannelRedirect([]byte(fmt.Sprintf(payload, "/channel/UCabcdefghijklmnopqrstuv")), test.source, "search"); ok || !errors.Is(err, ErrInvalidMetadata) {
 				t.Fatalf("ok=%v err=%v", ok, err)
 			}
 		})
