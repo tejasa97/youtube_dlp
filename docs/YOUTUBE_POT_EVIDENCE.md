@@ -29,9 +29,12 @@ propagated when a provider returns it.
 are not implemented. The Director applies a configurable refresh skew (default
 30s, max 5m) so near-expiry entries are refreshed before hard expiry, runs
 per-cache-key single-flight so compatible A/V identities share one provider
-fetch, and exposes operation-scoped `Episode` forced-refresh budgets (≤1
-attributable `ErrTokenRejected` bypass per rejection episode; ≤2 forced
-refreshes per operation).
+fetch, and exposes an operation-scoped `Episode` extension hook for forced-refresh
+budgets (≤1 attributable `ErrTokenRejected` bypass per rejection episode; ≤2
+forced refreshes per operation). Bypass/forced generation uses a separate
+single-flight key so it never joins a normal in-flight fetch that may return a
+rejected token. Provider work runs under `context.WithoutCancel` so a canceled
+leader cannot poison compatible waiters; canceled waiters still return promptly.
 - Providers are trusted in-process Go code and must honor context cancellation;
   Go cannot forcibly terminate a blocked provider goroutine.
 - Go strings cannot guarantee zeroization. Tokens are therefore kept out of

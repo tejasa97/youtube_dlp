@@ -102,7 +102,7 @@ func TestReloadPlayerRecoveryReplacesInventory(t *testing.T) {
 			}
 			return RefreshMaterial{
 				ServerURL:       refreshed,
-				UstreamerConfig: []byte("fresh-ustreamer"),
+				UstreamerConfig: []byte("fixture-ustreamer"),
 				Format:          FormatID{Itag: 137},
 				ClientInfo:      ClientInfo{ClientName: 1, ClientVersion: "fixture"},
 				VideoID:         "fixture0001",
@@ -244,7 +244,7 @@ func TestRefreshMaterialValidation(t *testing.T) {
 	config.VisitorData = "visitor"
 	ok := RefreshMaterial{
 		ServerURL:       config.ServerURL,
-		UstreamerConfig: []byte("ustreamer"),
+		UstreamerConfig: []byte("fixture-ustreamer"),
 		Format:          FormatID{Itag: 137},
 		ClientInfo:      config.ClientInfo,
 		VisitorData:     "visitor",
@@ -263,6 +263,69 @@ func TestRefreshMaterialValidation(t *testing.T) {
 	badID.VideoID = "other000000"
 	if err := badID.validate(config); !errors.Is(err, ErrRefreshRejected) {
 		t.Fatalf("err=%v", err)
+	}
+	missingVisitor := ok
+	missingVisitor.VisitorData = ""
+	if err := missingVisitor.validate(config); !errors.Is(err, ErrRefreshRejected) {
+		t.Fatalf("missing visitor err=%v", err)
+	}
+	changedUstreamer := ok
+	changedUstreamer.UstreamerConfig = []byte("other-ustreamer")
+	if err := changedUstreamer.validate(config); !errors.Is(err, ErrRefreshRejected) {
+		t.Fatalf("ustreamer err=%v", err)
+	}
+	missingVersion := ok
+	missingVersion.ClientInfo.ClientVersion = ""
+	if err := missingVersion.validate(config); !errors.Is(err, ErrRefreshRejected) {
+		t.Fatalf("missing client version err=%v", err)
+	}
+	missingDuration := ok
+	missingDuration.DurationSec = 0
+	if err := missingDuration.validate(config); !errors.Is(err, ErrRefreshRejected) {
+		t.Fatalf("missing duration err=%v", err)
+	}
+}
+
+func TestResumeRefreshFailsClosedOnCallbackError(t *testing.T) {
+	roundOne := buildTestUMP(
+		137,
+		testSegment{headerID: 1, init: true, payload: []byte("INIT")},
+		testSegment{headerID: 2, sequence: 0, duration: 4000, payload: []byte("seg0")},
+	)
+	root, destination := testRoot(t, "out.bin")
+	cancelCtx, cancelFirst := context.WithCancel(context.Background())
+	var posts atomic.Int32
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		posts.Add(1)
+		return umpResponse(roundOne, request), nil
+	})
+	sink := events.SinkFunc(func(_ context.Context, event events.Event) error {
+		if event.Kind == events.KindProgress && event.Bytes >= int64(len("INITseg0")) {
+			cancelFirst()
+		}
+		return nil
+	})
+	_, err := NewDownloader(transport, testConfig(
+		"https://rr1---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=old",
+		func(config *Config) { config.MaxRounds = 4 },
+	)).Download(cancelCtx, root, destination, true, sink)
+	if err == nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("first err=%v", err)
+	}
+	_, err = NewDownloader(transport, testConfig(
+		"https://rr1---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=stale%2Btoken",
+		func(config *Config) {
+			config.MaxRounds = 4
+			config.Refresh = func(context.Context) (RefreshMaterial, error) {
+				return RefreshMaterial{}, errors.New("offline re-extract unavailable")
+			}
+		},
+	)).Download(context.Background(), root, destination, true, events.Nop())
+	if err == nil {
+		t.Fatal("expected fail-closed resume refresh")
+	}
+	if posts.Load() != 1 {
+		t.Fatalf("stale inventory must not be used after refresh failure; posts=%d", posts.Load())
 	}
 }
 

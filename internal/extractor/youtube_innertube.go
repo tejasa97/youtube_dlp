@@ -70,6 +70,19 @@ var youtubeFormatRecoveryClients = []youtubeClientProfile{
 }
 
 func requestYouTubePlayer(ctx context.Context, transport Transport, videoID, visitorData, playerURL string, profile youtubeClientProfile, tokens *youtubepot.Director) (youtubePlayerResponse, error) {
+	return requestYouTubePlayerReload(ctx, transport, videoID, visitorData, playerURL, profile, tokens, "")
+}
+
+// requestYouTubePlayerReload issues /player with an optional attributable
+// reloadPlaybackContext. Placement is playbackContext.reloadPlaybackContext
+// .reloadPlaybackParams.token per LuanRT/googlevideo examples/sabr-shaka-example
+// at commit d2fa40d761034a286cf60ee033653307a1295b0c.
+func requestYouTubePlayerReload(ctx context.Context, transport Transport, videoID, visitorData, playerURL string, profile youtubeClientProfile, tokens *youtubepot.Director, reloadToken string) (youtubePlayerResponse, error) {
+	if reloadToken != "" {
+		if len(reloadToken) > youtubeMaxReloadTokenBytes || strings.TrimSpace(reloadToken) != reloadToken {
+			return youtubePlayerResponse{}, fmt.Errorf("%w: invalid reload token", ErrInvalidMetadata)
+		}
+	}
 	clientContext := make(map[string]any, len(profile.Context)+3)
 	for key, item := range profile.Context {
 		clientContext[key] = item
@@ -79,13 +92,20 @@ func requestYouTubePlayer(ctx context.Context, transport Transport, videoID, vis
 	if visitorData != "" {
 		clientContext["visitorData"] = visitorData
 	}
+	playbackContext := map[string]any{
+		"contentPlaybackContext": map[string]any{"html5Preference": "HTML5_PREF_WANTS"},
+	}
+	if reloadToken != "" {
+		playbackContext["reloadPlaybackContext"] = map[string]any{
+			"reloadPlaybackParams": map[string]any{"token": reloadToken},
+		}
+	}
 	payload := map[string]any{
-		"context": map[string]any{"client": clientContext},
-		"videoId": videoID,
-		"playbackContext": map[string]any{
-			"contentPlaybackContext": map[string]any{"html5Preference": "HTML5_PREF_WANTS"},
-		},
-		"contentCheckOk": true, "racyCheckOk": true,
+		"context":         map[string]any{"client": clientContext},
+		"videoId":         videoID,
+		"playbackContext": playbackContext,
+		"contentCheckOk":  true,
+		"racyCheckOk":     true,
 	}
 	playerTokenProvided := false
 	if tokens != nil {

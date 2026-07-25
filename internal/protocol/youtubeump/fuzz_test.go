@@ -167,7 +167,7 @@ func FuzzRefreshMaterialValidation(f *testing.F) {
 		config := testConfig("https://rr1---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=fixture")
 		material := RefreshMaterial{
 			ServerURL:       serverURL,
-			UstreamerConfig: []byte("ustreamer"),
+			UstreamerConfig: []byte("fixture-ustreamer"),
 			Format:          FormatID{Itag: int32(itag)},
 			ClientInfo:      config.ClientInfo,
 			VideoID:         videoID,
@@ -181,18 +181,17 @@ func FuzzRefreshMaterialValidation(f *testing.F) {
 			if _, validateErr := ValidateSABRURL(material.ServerURL); validateErr != nil {
 				t.Fatalf("accepted untrusted url: %v", validateErr)
 			}
-			effectiveVideoID := material.VideoID
-			if effectiveVideoID == "" {
-				effectiveVideoID = config.VideoID
+			if material.VideoID == "" || material.VideoID != config.VideoID {
+				t.Fatalf("accepted mismatched or missing video id")
 			}
-			if effectiveVideoID != config.VideoID {
-				t.Fatalf("accepted mismatched video id")
+			if material.Format.Itag == 0 || material.Format.Itag != config.Format.Itag {
+				t.Fatalf("accepted mismatched or missing itag")
 			}
-			if material.Format.Itag != 0 && material.Format.Itag != config.Format.Itag {
-				t.Fatalf("accepted mismatched itag")
+			if material.DurationSec == 0 || material.DurationSec != config.DurationSec {
+				t.Fatalf("accepted mismatched or missing duration")
 			}
-			if material.DurationSec != 0 && material.DurationSec != config.DurationSec {
-				t.Fatalf("accepted mismatched duration")
+			if hashUstreamerConfig(material.UstreamerConfig) != hashUstreamerConfig(config.UstreamerConfig) {
+				t.Fatalf("accepted mismatched ustreamer")
 			}
 		}
 	})

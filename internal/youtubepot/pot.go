@@ -123,6 +123,10 @@ type flight struct {
 // Episode bounds forced cache-bypass refreshes for one download/operation.
 // Compatible A/V identities that share a Director cache key also share the
 // Director's single-flight; this Episode only gates BypassCache storms.
+//
+// Extension hook: SignalRejection is for embedding callers that observe an
+// attributable typed ErrTokenRejected. The product SABR path does not invent
+// PO rejection from SABR_ERROR or other untyped failures.
 type Episode struct {
 	mu            sync.Mutex
 	forcedTotal   int
@@ -141,6 +145,7 @@ func NewEpisode(maxForced int) *Episode {
 
 // SignalRejection arms at most one forced bypass for this rejection episode.
 // Only ErrTokenRejected (via errors.Is) is accepted as an attributable signal.
+// This is an extension hook, not a product-integrated SABR recovery signal.
 func (episode *Episode) SignalRejection(err error) error {
 	if episode == nil {
 		return ErrInvalidRequest
@@ -302,7 +307,15 @@ func (director *Director) ResolveEpisode(ctx context.Context, request Request, r
 	return director.resolveFlight(ctx, key, request, required)
 }
 
+func flightMapKey(cacheKey string, bypass bool) string {
+	if bypass {
+		return cacheKey + "\x00bypass"
+	}
+	return cacheKey
+}
+
 func (director *Director) resolveFlight(ctx context.Context, key string, request Request, required bool) (string, bool, error) {
+	fkey := flightMapKey(key, request.BypassCache)
 	director.mu.Lock()
 	if !request.BypassCache {
 		if item, ok := director.entries[key]; ok && item.response.ExpiresAt.After(director.clock.Now().UTC().Add(director.skew)) {
@@ -313,21 +326,27 @@ func (director *Director) resolveFlight(ctx context.Context, key string, request
 			return item.response.Token, true, nil
 		}
 	}
-	if existing := director.inflight[key]; existing != nil {
+	if existing := director.inflight[fkey]; existing != nil {
 		flight := existing
 		director.mu.Unlock()
 		return waitFlight(ctx, flight, required)
 	}
 	flight := &flight{done: make(chan struct{})}
-	director.inflight[key] = flight
+	director.inflight[fkey] = flight
 	director.mu.Unlock()
 
-	token, ok, err := director.fetchProviders(ctx, request)
+	// Provider work must outlive a canceled leader so compatible waiters are
+	// not poisoned. Callers still observe their own context via waitFlight /
+	// the post-flight check below.
+	token, ok, err := director.fetchProviders(context.WithoutCancel(ctx), request)
 	director.mu.Lock()
 	flight.token, flight.ok, flight.err = token, ok, err
-	delete(director.inflight, key)
+	delete(director.inflight, fkey)
 	close(flight.done)
 	director.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return "", false, err
+	}
 	if err != nil {
 		return "", false, err
 	}
