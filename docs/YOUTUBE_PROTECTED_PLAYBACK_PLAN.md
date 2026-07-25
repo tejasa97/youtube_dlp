@@ -56,7 +56,8 @@ tabs are accepted only when securely bound to the requested channel identity,
 including resolved-UCID browseId checks and attributable selected endpoints.
 Channel-local search, broader general search results, and broader YouTube Music
 section search are implemented; registered Music browse families are consumed by
-`youtube_music_browse`, while unregistered Music browse prefixes and hashtag
+cookie-isolated `youtube_music_browse` (albums require a canonical Music
+playlist identity), while unregistered Music browse prefixes and hashtag
 tiles without a registered consumer are omitted so default playlist expansion
 cannot fail. Conditional `/search` redirects preserve the validated query.
 Authenticated exact-origin WEB browse/search

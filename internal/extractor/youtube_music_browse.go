@@ -1,16 +1,18 @@
 package extractor
 
 // Bounded WEB_REMIX Music browse for registered album, artist, playlist, and
-// podcast families at music.youtube.com/browse/{id}. Continuations stay on
-// WEB_REMIX with cookie isolation; WEB SID state never crosses. Anonymous
-// public pages succeed; logged-in or premium Music pages fail closed until a
-// secure WEB_REMIX auth boundary exists.
+// podcast families at music.youtube.com/browse/{id}. Every Music browse network
+// request requires cookie isolation and uses WEB_REMIX only; WEB SID state never
+// crosses. Anonymous public pages succeed; logged-in or premium Music pages fail
+// closed until a secure WEB_REMIX auth boundary exists. Albums require a
+// canonical playlist identity or fail closed.
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -19,11 +21,13 @@ import (
 )
 
 const (
-	youtubeMusicBrowseMaxCount    = 100
-	youtubeMusicBrowseMaxURLBytes = 4096
-	youtubeMusicBrowseAPIURL      = "https://music.youtube.com/youtubei/v1/browse"
-	youtubeMusicBrowseResolveURL  = "https://music.youtube.com/youtubei/v1/navigation/resolve_url"
-	youtubeMusicDefaultVersion    = "1.20260707.12.00"
+	youtubeMusicBrowseMaxCount       = 100
+	youtubeMusicBrowseMaxURLBytes    = 4096
+	youtubeMusicBrowseMaxPageBytes   = 16 << 20
+	youtubeMusicBrowseMaxParamsBytes = 4096
+	youtubeMusicBrowseAPIURL         = "https://music.youtube.com/youtubei/v1/browse"
+	youtubeMusicBrowseResolveURL     = "https://music.youtube.com/youtubei/v1/navigation/resolve_url"
+	youtubeMusicDefaultVersion       = "1.20260707.12.00"
 )
 
 var (
@@ -57,7 +61,11 @@ func (YouTubeMusicBrowse) Extract(ctx context.Context, request Request) (Extract
 	if !ok {
 		return Extraction{}, fmt.Errorf("%w: unsupported YouTube Music browse", ErrUnsupported)
 	}
-	page, _, err := request.Transport.ReadPage(ctx, canonical)
+	// Require cookie isolation before any Music browse network request.
+	if _, ok := request.Transport.(CookieIsolatedTransport); !ok {
+		return Extraction{}, ErrTransportIsolation
+	}
+	page, err := readYouTubeMusicBrowsePage(ctx, request.Transport, canonical)
 	if err != nil {
 		return Extraction{}, categorizeYouTubeMusicBrowseError(err)
 	}
@@ -84,21 +92,16 @@ func (YouTubeMusicBrowse) Extract(ctx context.Context, request Request) (Extract
 		return Extraction{}, youtubeMusicBrowseAlertError(parsed.alert)
 	}
 	meta := youtubeMusicBrowseInfo(raw, parsed)
-	// Albums may need WEB_REMIX resolve+browse when the webpage lacks tracks or
-	// playlist identity, matching the pinned YoutubeTabIE MP* resolution path.
-	if family == "album" && (len(parsed.entries) == 0 || meta.playlistID == "") {
-		resolved, resolveErr := resolveYouTubeMusicAlbum(ctx, request.Transport, canonical, browseID, config)
-		if resolveErr != nil {
-			if len(parsed.entries) == 0 {
+	if family == "album" {
+		if meta.playlistID == "" {
+			resolved, resolveErr := resolveYouTubeMusicAlbum(ctx, request.Transport, canonical, browseID, config)
+			if resolveErr != nil {
 				return Extraction{}, resolveErr
 			}
-		} else {
 			if len(parsed.entries) == 0 {
 				parsed = resolved.page
 			}
-			if meta.playlistID == "" {
-				meta.playlistID = resolved.playlistID
-			}
+			meta.playlistID = resolved.playlistID
 			if meta.title == "" {
 				meta.title = resolved.title
 			}
@@ -111,6 +114,9 @@ func (YouTubeMusicBrowse) Extract(ctx context.Context, request Request) (Extract
 			if parsed.continuation == "" {
 				parsed.continuation = resolved.page.continuation
 			}
+		}
+		if meta.playlistID == "" {
+			return Extraction{}, fmt.Errorf("%w: album missing canonical playlist identity", ErrUnavailable)
 		}
 	}
 	if parsed.alert != "" && len(parsed.entries) == 0 {
@@ -130,7 +136,7 @@ func (YouTubeMusicBrowse) Extract(ctx context.Context, request Request) (Extract
 		return Extraction{}, err
 	}
 	id := browseID
-	if meta.playlistID != "" {
+	if family == "album" {
 		id = meta.playlistID
 	} else if family == "playlist" && strings.HasPrefix(browseID, "VL") {
 		id = browseID[2:]
@@ -173,7 +179,7 @@ func youtubeMusicBrowseInfo(data []byte, page youtubeRendererPage) youtubeMusicB
 			meta.title = objectString(object, "title")
 		}
 		if canonicalURL := objectString(object, "urlCanonical"); canonicalURL != "" {
-			if id, ok := youtubeMusicPlaylistIDFromURL(canonicalURL); ok {
+			if id, ok := youtubeMusicAlbumPlaylistIDFromCanonical(canonicalURL); ok {
 				meta.playlistID = id
 			}
 		}
@@ -190,18 +196,37 @@ func youtubeMusicBrowseInfo(data []byte, page youtubeRendererPage) youtubeMusicB
 	return meta
 }
 
-func youtubeMusicPlaylistIDFromURL(raw string) (string, bool) {
+// youtubeMusicAlbumPlaylistIDFromCanonical accepts only exact Music playlist
+// canonical URLs. Hostile hosts, ports, userinfo, and non-playlist paths fail.
+func youtubeMusicAlbumPlaylistIDFromCanonical(raw string) (string, bool) {
+	if raw == "" || len(raw) > youtubeMusicBrowseMaxURLBytes || strings.ContainsAny(raw, "\x00\r\n") {
+		return "", false
+	}
 	parsed, err := url.Parse(raw)
 	if err != nil {
 		return "", false
 	}
-	host := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
-	if host != "music.youtube.com" && host != "www.youtube.com" && host != "youtube.com" {
+	if parsed.Scheme != "https" || parsed.User != nil || parsed.Fragment != "" || parsed.RawPath != "" {
 		return "", false
 	}
-	id := parsed.Query().Get("list")
-	if !youtubePlaylistIDPattern.MatchString(id) {
+	if strings.ToLower(strings.TrimSuffix(parsed.Hostname(), ".")) != "music.youtube.com" || parsed.Port() != "" {
 		return "", false
+	}
+	if parsed.Path != "/playlist" {
+		return "", false
+	}
+	values, err := url.ParseQuery(parsed.RawQuery)
+	if err != nil || len(values) == 0 {
+		return "", false
+	}
+	id := values.Get("list")
+	if !youtubePlaylistIDPattern.MatchString(id) || strings.ContainsAny(id, "\x00\r\n/\\?#") {
+		return "", false
+	}
+	for key := range values {
+		if key != "list" {
+			return "", false
+		}
 	}
 	return id, true
 }
@@ -337,27 +362,10 @@ func resolveYouTubeMusicAlbum(ctx context.Context, transport Transport, pageURL,
 	if err != nil {
 		return youtubeMusicAlbumResolve{}, categorizeYouTubeMusicBrowseError(err)
 	}
-	var resolveRoot value.Value
-	if err := json.Unmarshal(resolveRaw, &resolveRoot); err != nil {
-		return youtubeMusicAlbumResolve{}, fmt.Errorf("%w: decode Music album resolve", ErrInvalidMetadata)
+	browseQueryID, params, err := youtubeMusicAlbumResolveEndpoint(resolveRaw, browseID)
+	if err != nil {
+		return youtubeMusicAlbumResolve{}, err
 	}
-	resolveObject, ok := resolveRoot.Object()
-	if !ok {
-		return youtubeMusicAlbumResolve{}, fmt.Errorf("%w: Music album resolve root", ErrInvalidMetadata)
-	}
-	endpoint, ok := resolveObject.Lookup("endpoint").Object()
-	if !ok {
-		return youtubeMusicAlbumResolve{}, fmt.Errorf("%w: failed to resolve album to playlist", ErrUnavailable)
-	}
-	browseEndpoint, ok := endpoint.Lookup("browseEndpoint").Object()
-	if !ok {
-		return youtubeMusicAlbumResolve{}, fmt.Errorf("%w: failed to resolve album to playlist", ErrUnavailable)
-	}
-	browseQueryID := objectString(browseEndpoint, "browseId")
-	if browseQueryID == "" {
-		browseQueryID = browseID
-	}
-	params := objectString(browseEndpoint, "params")
 	browsePayload := map[string]any{
 		"context": map[string]any{"client": map[string]any{
 			"clientName": "WEB_REMIX", "clientVersion": version, "hl": "en",
@@ -380,8 +388,11 @@ func resolveYouTubeMusicAlbum(ctx context.Context, transport Transport, pageURL,
 	if err != nil {
 		return youtubeMusicAlbumResolve{}, err
 	}
+	if page.alert != "" && len(page.entries) == 0 {
+		return youtubeMusicAlbumResolve{}, youtubeMusicBrowseAlertError(page.alert)
+	}
 	meta := youtubeMusicBrowseInfo(browseRaw, page)
-	if meta.playlistID == "" && len(page.entries) == 0 {
+	if meta.playlistID == "" {
 		return youtubeMusicAlbumResolve{}, fmt.Errorf("%w: failed to resolve album to playlist", ErrUnavailable)
 	}
 	title := meta.title
@@ -391,10 +402,91 @@ func resolveYouTubeMusicAlbum(ctx context.Context, transport Transport, pageURL,
 	return youtubeMusicAlbumResolve{page: page, playlistID: meta.playlistID, title: title}, nil
 }
 
+func youtubeMusicAlbumResolveEndpoint(resolveRaw []byte, expectedBrowseID string) (browseID, params string, err error) {
+	var resolveRoot value.Value
+	if err := json.Unmarshal(resolveRaw, &resolveRoot); err != nil {
+		return "", "", fmt.Errorf("%w: decode Music album resolve", ErrInvalidMetadata)
+	}
+	resolveObject, ok := resolveRoot.Object()
+	if !ok {
+		return "", "", fmt.Errorf("%w: Music album resolve root", ErrInvalidMetadata)
+	}
+	endpoint, ok := resolveObject.Lookup("endpoint").Object()
+	if !ok {
+		return "", "", fmt.Errorf("%w: failed to resolve album to playlist", ErrUnavailable)
+	}
+	browseEndpoint, ok := endpoint.Lookup("browseEndpoint").Object()
+	if !ok {
+		return "", "", fmt.Errorf("%w: failed to resolve album to playlist", ErrUnavailable)
+	}
+	browseID = objectString(browseEndpoint, "browseId")
+	if browseID == "" || !validYouTubeMusicBrowseID(browseID) {
+		return "", "", fmt.Errorf("%w: invalid Music album resolve browseId", ErrInvalidMetadata)
+	}
+	family, ok := youtubeMusicBrowseFamily(browseID)
+	if !ok || family != "album" || browseID != expectedBrowseID {
+		return "", "", fmt.Errorf("%w: Music album resolve identity pivot", ErrInvalidMetadata)
+	}
+	params = objectString(browseEndpoint, "params")
+	if !validYouTubeMusicBrowseParams(params) {
+		return "", "", fmt.Errorf("%w: invalid Music album resolve params", ErrInvalidMetadata)
+	}
+	return browseID, params, nil
+}
+
+func validYouTubeMusicBrowseParams(params string) bool {
+	if params == "" {
+		return true
+	}
+	if len(params) > youtubeMusicBrowseMaxParamsBytes || strings.ContainsAny(params, "\x00\r\n") {
+		return false
+	}
+	return true
+}
+
+func readYouTubeMusicBrowsePage(ctx context.Context, transport Transport, rawURL string) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	isolated, ok := transport.(CookieIsolatedTransport)
+	if !ok {
+		return nil, ErrTransportIsolation
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid Music browse page request", ErrInvalidMetadata)
+	}
+	request.Header = make(http.Header)
+	request.Header.Set("Origin", "https://music.youtube.com")
+	response, err := isolated.DoWithoutCookies(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, &HTTPStatusError{Code: response.StatusCode}
+	}
+	reader := &io.LimitedReader{R: response.Body, N: youtubeMusicBrowseMaxPageBytes + 1}
+	body, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("%w: read Music browse page", ErrYouTubeMusicBrowseNetwork)
+	}
+	if int64(len(body)) > youtubeMusicBrowseMaxPageBytes {
+		return nil, ErrJSONResponseTooLarge
+	}
+	return body, nil
+}
+
 func postYouTubeMusicRemixJSON(ctx context.Context, transport Transport, endpoint string, body []byte, version, apiKey string) (json.RawMessage, error) {
+	if _, ok := transport.(CookieIsolatedTransport); !ok {
+		return nil, ErrTransportIsolation
+	}
 	parsed, err := url.Parse(endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid Music API endpoint", ErrInvalidMetadata)
+	}
+	if strings.ToLower(strings.TrimSuffix(parsed.Hostname(), ".")) != "music.youtube.com" || parsed.Scheme != "https" {
+		return nil, fmt.Errorf("%w: hostile Music API endpoint", ErrInvalidMetadata)
 	}
 	values := parsed.Query()
 	values.Set("prettyPrint", "false")
@@ -408,7 +500,6 @@ func postYouTubeMusicRemixJSON(ctx context.Context, transport Transport, endpoin
 	headers.Set("X-Youtube-Client-Name", "67")
 	headers.Set("X-Youtube-Client-Version", version)
 	var response json.RawMessage
-	// Cookie-isolated WEB_REMIX requests never inherit WEB jar SID state.
 	if err := RequestJSONWithoutCookies(ctx, transport, http.MethodPost, parsed.String(), body, headers, &response); err != nil {
 		return nil, err
 	}
@@ -420,7 +511,6 @@ func youtubeMusicBrowseRejectAuthenticatedPage(page []byte) error {
 	if config.LoggedIn != nil && *config.LoggedIn {
 		return fmt.Errorf("%w: authenticated Music browse is not securely supported", ErrAuthentication)
 	}
-	// Refuse pages that advertise a WEB client identity for Music browse work.
 	if name := strings.ToUpper(config.InnertubeContext.Client.ClientName); name == "WEB" {
 		return fmt.Errorf("%w: WEB identity on Music browse page", ErrAuthentication)
 	}

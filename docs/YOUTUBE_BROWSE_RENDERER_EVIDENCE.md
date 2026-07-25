@@ -32,10 +32,12 @@ upstream sections and emits watch/playlist/channel URL results plus registered
 Music browse families (`MPRE` albums, `MPSP` podcasts, `VL` playlists, and
 `UC`/`MPLA` artists) that `youtube_music_browse` consumes. Unregistered Music
 browse prefixes and hashtag tiles remain omitted so default playlist expansion
-cannot fail. WEB_REMIX continuations are cookie-isolated and never inherit WEB
-SID state. Authenticated WEB browse/search continuations require the
-redirect-disabled cookie transport and refuse anonymous fallback after
-authenticated state is engaged. Browse continuations rotate visitor data across
-pages; general search continuations reuse the initial page/config visitor
-without a rotation claim. Authenticated or premium Music browse/search success
-is not claimed and fails closed.
+cannot fail. WEB_REMIX Music browse/search continuations are cookie-isolated
+and never inherit WEB SID state; Music browse requires isolation before any
+network call, including the initial page GET. Authenticated WEB browse/search
+continuations require the redirect-disabled cookie transport and refuse
+anonymous fallback after authenticated state is engaged. Browse continuations
+rotate visitor data across pages; general search continuations reuse the
+initial page/config visitor without a rotation claim. Authenticated or premium
+Music browse/search success is not claimed and fails closed. Albums must
+resolve to a canonical Music playlist identity or fail closed.
