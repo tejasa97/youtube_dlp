@@ -32,4 +32,44 @@ var (
 	ErrTooManyAttempts        = errors.New("SABR retry attempts exceed limit")
 	ErrRoundsExhausted        = errors.New("SABR round limit exhausted")
 	ErrExcessivePolicyBackoff = errors.New("SABR policy backoff exceeds bound")
+	ErrSabrError              = errors.New("SABR error directive")
+	ErrReloadPlayerResponse   = errors.New("SABR reload player response")
+	ErrSabrRecoveryBudget     = errors.New("SABR recovery budget exhausted")
+	ErrReloadBudget           = errors.New("SABR reload budget exhausted")
+	ErrRefreshBudget          = errors.New("SABR refresh budget exhausted")
+	ErrReloadRejected         = errors.New("SABR reload inventory rejected")
+	ErrRefreshRejected        = errors.New("SABR signed refresh rejected")
 )
+
+// SabrErrorSignal is a typed, retryable SABR_ERROR decision. Diagnostics never
+// include remote body bytes; type/code are protocol fields only.
+type SabrErrorSignal struct {
+	Type string
+	Code int32
+}
+
+func (err *SabrErrorSignal) Error() string {
+	if err == nil {
+		return ErrSabrError.Error()
+	}
+	return ErrSabrError.Error()
+}
+
+func (err *SabrErrorSignal) Unwrap() error { return ErrSabrError }
+
+// ReloadPlayerSignal carries a redacted reload request. The reload token is
+// available only through ReloadToken and never via Error/formatting.
+type ReloadPlayerSignal struct {
+	token string
+}
+
+func (err *ReloadPlayerSignal) Error() string { return ErrReloadPlayerResponse.Error() }
+func (err *ReloadPlayerSignal) Unwrap() error { return ErrReloadPlayerResponse }
+func (err *ReloadPlayerSignal) ReloadToken() string {
+	if err == nil {
+		return ""
+	}
+	return err.token
+}
+func (err *ReloadPlayerSignal) String() string   { return "[redacted SABR reload signal]" }
+func (err *ReloadPlayerSignal) GoString() string { return "youtubeump.ReloadPlayerSignal{[redacted]}" }

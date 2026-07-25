@@ -41,6 +41,8 @@ type responseControl struct {
 	redirectURL   string
 	policyOps     int
 	contexts      *sabrContextState
+	hasSabrError  bool
+	hasReload     bool
 }
 
 type streamConsumer struct {
@@ -83,6 +85,10 @@ func (consumer *streamConsumer) consumePart(part Part) error {
 		return consumer.control.consumeContextUpdate(part.Payload)
 	case PartSABRContextSendingPolicy:
 		return consumer.control.consumeSendingPolicy(part.Payload)
+	case PartSABRError:
+		return consumer.control.consumeSabrError(part.Payload)
+	case PartReloadPlayerResponse:
+		return consumer.control.consumeReloadPlayer(part.Payload)
 	default:
 		return consumer.assembler.consumePart(part)
 	}
@@ -165,6 +171,32 @@ func (control *responseControl) consumeSendingPolicy(payload []byte) error {
 		return err
 	}
 	return control.contexts.applySendingPolicy(directive)
+}
+
+func (control *responseControl) consumeSabrError(payload []byte) error {
+	if control.hasSabrError || control.hasReload {
+		return fmt.Errorf("%w: duplicate recovery directive", ErrInvalidMediaState)
+	}
+	directive, err := parseSabrError(payload)
+	if err != nil {
+		return err
+	}
+	control.hasSabrError = true
+	// Returning a typed signal aborts finish()/commit so cookie/redirect/context
+	// state from this response is never applied.
+	return &SabrErrorSignal{Type: directive.Type, Code: directive.Code}
+}
+
+func (control *responseControl) consumeReloadPlayer(payload []byte) error {
+	if control.hasSabrError || control.hasReload {
+		return fmt.Errorf("%w: duplicate recovery directive", ErrInvalidMediaState)
+	}
+	directive, err := parseReloadPlayerResponse(payload)
+	if err != nil {
+		return err
+	}
+	control.hasReload = true
+	return &ReloadPlayerSignal{token: directive.Token}
 }
 
 func (control *responseControl) commit(redirects *redirectTracker) (roundControl, error) {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -54,6 +55,143 @@ func TestParseSabrRedirectValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestParseSabrErrorValidation(t *testing.T) {
+	ok := encodeSabrError("sabr.no_audio_selected", 2)
+	tests := []struct {
+		name    string
+		payload []byte
+		want    error
+		code    int32
+		typ     string
+	}{
+		{"ok", ok, nil, 2, "sabr.no_audio_selected"},
+		{"missing_type", appendProtobufVarint(nil, fSabrErrorCode, 2), ErrInvalidProtobuf, 0, ""},
+		{"missing_code", appendProtobufBytes(nil, fSabrErrorType, []byte("sabr.x")), ErrInvalidProtobuf, 0, ""},
+		{"empty_type", append(appendProtobufBytes(nil, fSabrErrorType, nil), appendProtobufVarint(nil, fSabrErrorCode, 1)...), ErrInvalidProtobuf, 0, ""},
+		{"duplicate_type", append(ok, appendProtobufBytes(nil, fSabrErrorType, []byte("other"))...), ErrInvalidProtobuf, 0, ""},
+		{"duplicate_code", append(ok, appendProtobufVarint(nil, fSabrErrorCode, 3)...), ErrInvalidProtobuf, 0, ""},
+		{"wrong_wire_type", appendProtobufVarint(nil, fSabrErrorType, 1), ErrInvalidProtobuf, 0, ""},
+		{"wrong_wire_code", appendProtobufBytes(nil, fSabrErrorCode, []byte("x")), ErrInvalidProtobuf, 0, ""},
+		{"oversize_type", append(
+			appendProtobufBytes(nil, fSabrErrorType, bytes.Repeat([]byte{'a'}, MaxSabrErrorTypeBytes+1)),
+			appendProtobufVarint(nil, fSabrErrorCode, 1)...,
+		), ErrInvalidProtobuf, 0, ""},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := parseSabrError(test.payload)
+			if test.want == nil {
+				if err != nil {
+					t.Fatalf("err=%v", err)
+				}
+				if got.Type != test.typ || got.Code != test.code {
+					t.Fatalf("got=%+v", got)
+				}
+				return
+			}
+			if !errors.Is(err, test.want) {
+				t.Fatalf("err=%v want=%v", err, test.want)
+			}
+		})
+	}
+}
+
+func TestParseReloadPlayerResponseValidation(t *testing.T) {
+	const token = "reload-token-fixture"
+	ok := encodeReloadPlayerResponse(token)
+	tests := []struct {
+		name    string
+		payload []byte
+		want    error
+	}{
+		{"ok", ok, nil},
+		{"missing", nil, ErrInvalidProtobuf},
+		{"empty_params", appendProtobufBytes(nil, fReloadPlaybackContextParams, nil), ErrInvalidProtobuf},
+		{"empty_token", appendProtobufBytes(nil, fReloadPlaybackContextParams, appendProtobufBytes(nil, fReloadPlaybackParamsToken, nil)), ErrInvalidProtobuf},
+		{"duplicate_params", append(ok, encodeReloadPlayerResponse("other")...), ErrInvalidProtobuf},
+		{"duplicate_token", appendProtobufBytes(nil, fReloadPlaybackContextParams, append(
+			appendProtobufBytes(nil, fReloadPlaybackParamsToken, []byte(token)),
+			appendProtobufBytes(nil, fReloadPlaybackParamsToken, []byte("other"))...,
+		)), ErrInvalidProtobuf},
+		{"wrong_wire_params", appendProtobufVarint(nil, fReloadPlaybackContextParams, 1), ErrInvalidProtobuf},
+		{"wrong_wire_token", appendProtobufBytes(nil, fReloadPlaybackContextParams, appendProtobufVarint(nil, fReloadPlaybackParamsToken, 1)), ErrInvalidProtobuf},
+		{"oversize_token", encodeReloadPlayerResponse(strings.Repeat("t", MaxReloadTokenBytes+1)), ErrInvalidProtobuf},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := parseReloadPlayerResponse(test.payload)
+			if test.want == nil {
+				if err != nil {
+					t.Fatalf("err=%v", err)
+				}
+				if got.Token != token {
+					t.Fatalf("token mismatch")
+				}
+				return
+			}
+			if !errors.Is(err, test.want) {
+				t.Fatalf("err=%v want=%v", err, test.want)
+			}
+			if strings.Contains(err.Error(), token) || strings.Contains(err.Error(), "reload-token") {
+				t.Fatalf("reload token leaked: %v", err)
+			}
+		})
+	}
+}
+
+func TestSabrErrorAndReloadSignalsTransactional(t *testing.T) {
+	cookie := validTestCookie()
+	file, err := os.CreateTemp(t.TempDir(), "sig-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+
+	t.Run("sabr_error", func(t *testing.T) {
+		body := appendPolicyPart(buildTestUMP(
+			137,
+			testSegment{headerID: 1, init: true, payload: []byte("INIT")},
+			testSegment{headerID: 2, sequence: 0, duration: 1000, payload: []byte("seg")},
+		), 1000, cookie)
+		body = appendSabrErrorPart(body, "sabr.no_audio_selected", 2)
+		assembler := newTrackAssembler(FormatID{Itag: 137}, 10000, file, 1024)
+		contexts := newSabrContextState()
+		redirects := newRedirectTracker(fixtureRedirectURL("1"))
+		ctrl, err := consumeStreamState(context.Background(), bytes.NewReader(body), assembler, contexts, redirects)
+		var signal *SabrErrorSignal
+		if !errors.As(err, &signal) || signal.Type != "sabr.no_audio_selected" || signal.Code != 2 {
+			t.Fatalf("err=%v", err)
+		}
+		if !roundControlIsZero(ctrl) {
+			t.Fatalf("ctrl=%+v", ctrl)
+		}
+	})
+
+	t.Run("reload", func(t *testing.T) {
+		const secret = "secret-reload-token-value"
+		body := appendPolicyPart(buildTestUMP(
+			137,
+			testSegment{headerID: 1, init: true, payload: []byte("INIT")},
+			testSegment{headerID: 2, sequence: 0, duration: 1000, payload: []byte("seg")},
+		), 1000, cookie)
+		body = appendReloadPlayerPart(body, secret)
+		assembler := newTrackAssembler(FormatID{Itag: 137}, 10000, file, 1024)
+		contexts := newSabrContextState()
+		redirects := newRedirectTracker(fixtureRedirectURL("1"))
+		ctrl, err := consumeStreamState(context.Background(), bytes.NewReader(body), assembler, contexts, redirects)
+		var signal *ReloadPlayerSignal
+		if !errors.As(err, &signal) || signal.ReloadToken() != secret {
+			t.Fatalf("err=%v", err)
+		}
+		if !roundControlIsZero(ctrl) {
+			t.Fatalf("ctrl=%+v", ctrl)
+		}
+		if strings.Contains(err.Error(), secret) || strings.Contains(fmt.Sprintf("%v %#v", signal, signal), secret) {
+			t.Fatalf("reload token leaked through formatting")
+		}
+	})
 }
 
 func TestParseSabrContextUpdateValidation(t *testing.T) {
@@ -500,7 +638,7 @@ func TestDirectiveTransactionRollbackAndRetry(t *testing.T) {
 	_, err := NewDownloader(transport, testConfig(initial, func(config *Config) {
 		config.Attempts = 3
 	})).Download(context.Background(), root, destination, true, events.Nop())
-	if !errors.Is(err, ErrUnsupportedDirective) {
+	if !errors.Is(err, ErrInvalidProtobuf) {
 		t.Fatalf("err=%v", err)
 	}
 	assertNoPublishedArtifact(t, root, destination)
@@ -884,7 +1022,7 @@ func TestLateFailureAfterMultiplePoliciesAndRedirectRollsBack(t *testing.T) {
 	body = appendRedirectPart(body, fixtureRedirectURL("2"))
 	body = append(body, encodePart(PartSABRError, []byte{0x0A, 0x01, 'x'})...)
 	ctrl, err := consumeStreamState(context.Background(), bytes.NewReader(body), assembler, contexts, redirects)
-	if !errors.Is(err, ErrUnsupportedDirective) {
+	if !errors.Is(err, ErrInvalidProtobuf) {
 		t.Fatalf("err=%v", err)
 	}
 	if !roundControlIsZero(ctrl) {
