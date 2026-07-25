@@ -153,6 +153,19 @@ func Parse(rawURL string, input []byte) (Playlist, error) {
 			continue
 		}
 
+		// EXT-X-DATERANGE SCTE-35 attributes require the raw tag at byte zero.
+		// Invalid directional payloads fail closed; ordinary dateranges are ignored.
+		if daterangeStart, daterangeEnd, handled, daterangeErr := applyDaterangeSCTE35(rawLine); daterangeErr != nil {
+			return Playlist{}, fmt.Errorf("%w at line %d: %w", ErrInvalidPlaylist, lineNumber, daterangeErr)
+		} else if handled {
+			if daterangeStart {
+				advertisement = true
+			} else if daterangeEnd {
+				advertisement = false
+			}
+			continue
+		}
+
 		// Provider markers use the trimmed line (pinned yt-dlp grammar).
 		// Cue tags require the raw line to begin with the tag at byte zero.
 		// Start is intentionally tested before end so an Anvato line containing
