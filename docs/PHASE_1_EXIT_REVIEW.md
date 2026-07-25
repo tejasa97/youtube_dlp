@@ -24,7 +24,7 @@ change.
 | Package | Result | Principal evidence |
 | --- | --- | --- |
 | P1-01 differential runner | complete | `internal/differential`, pilot policy fixture, and `P1_DIFFERENTIAL_REVIEW.md` |
-| P1-02 HLS core | complete | bounded/fuzzed parser; byte-range, map, AES-128, retry/resume, VOD/live polling and cancellation tests; product dispatch |
+| P1-02 HLS core | complete | bounded/fuzzed parser; byte-range, plain/encrypted map, AES-128, retry/resume, VOD/live polling and cancellation tests; product dispatch |
 | P1-03 DASH core | complete | inherited static/dynamic addressing, timelines including negative repeat, polling/de-duplication/cancellation, separate-track download and product merge tests |
 | P1-04 ffmpeg/ffprobe | complete | discovery, probe, merge, remux, bounded/redacted diagnostics, process cancellation, atomic cleanup, generated-media end-to-end tests |
 | P1-05 parser prototypes | complete | pinned format-selector/output-template corpus, exact syntax failures, deterministic resolution, and fuzz targets |

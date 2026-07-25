@@ -62,6 +62,7 @@ type Map struct {
 	URL         string
 	RangeStart  int64
 	RangeLength int64
+	Key         *Key
 }
 
 type Key struct {
@@ -249,7 +250,7 @@ func Parse(rawURL string, input []byte) (Playlist, error) {
 			var attributes map[string]string
 			attributes, err = parseAttributes(strings.TrimPrefix(line, "#EXT-X-MAP:"))
 			if err == nil {
-				currentMap, err = parseMap(base, attributes)
+				currentMap, err = parseMap(base, attributes, currentKey)
 			}
 		case strings.HasPrefix(line, "#EXT-X-KEY:"):
 			var attributes map[string]string
@@ -381,7 +382,7 @@ func parseAttributes(input string) (map[string]string, error) {
 	return result, nil
 }
 
-func parseMap(base *url.URL, attributes map[string]string) (*Map, error) {
+func parseMap(base *url.URL, attributes map[string]string, currentKey *Key) (*Map, error) {
 	rawURI := attributes["URI"]
 	if rawURI == "" {
 		return nil, errors.New("map URI is missing")
@@ -390,7 +391,10 @@ func parseMap(base *url.URL, attributes map[string]string) (*Map, error) {
 	if err != nil {
 		return nil, err
 	}
-	result := &Map{URL: resolved}
+	result := &Map{URL: resolved, Key: cloneKey(currentKey)}
+	if result.Key != nil && len(result.Key.IV) == 0 {
+		return nil, errors.New("AES-128 map encryption requires an explicit IV")
+	}
 	if rawRange := attributes["BYTERANGE"]; rawRange != "" {
 		parts := strings.SplitN(rawRange, "@", 2)
 		result.RangeLength, err = strconv.ParseInt(parts[0], 10, 64)
@@ -443,6 +447,9 @@ func parseKey(base *url.URL, attributes map[string]string) (*Key, error) {
 	if method != "AES-128" {
 		return nil, fmt.Errorf("%w: method %q", ErrUnsupportedEncryption, method)
 	}
+	if keyFormat := attributes["KEYFORMAT"]; keyFormat != "" && keyFormat != "identity" {
+		return nil, fmt.Errorf("%w: key format %q", ErrUnsupportedEncryption, keyFormat)
+	}
 	resolved, err := resolveURL(base, attributes["URI"])
 	if err != nil {
 		return nil, err
@@ -475,6 +482,7 @@ func cloneMap(input *Map) *Map {
 		return nil
 	}
 	copy := *input
+	copy.Key = cloneKey(input.Key)
 	return &copy
 }
 

@@ -3,6 +3,7 @@ package hls
 import (
 	"context"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -116,40 +117,71 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 		return keys[left].part < keys[right].part
 	})
 	keyCache := make(map[string][]byte)
-	seenMaps := make(map[string]struct{})
+	type mapIdentity struct {
+		url, keyURL, iv         string
+		rangeStart, rangeLength int64
+	}
+	var lastMap *mapIdentity
+	loadEncryption := func(key *Key, sequence int64) (*fragment.AES128, error) {
+		if key == nil {
+			return nil, nil
+		}
+		keyBytes := keyCache[key.URL]
+		if keyBytes == nil {
+			body, _, err := downloader.readPage(ctx, key.URL)
+			if err != nil {
+				return nil, err
+			}
+			if len(body) != 16 {
+				return nil, fmt.Errorf("AES-128 key length = %d, want 16", len(body))
+			}
+			keyBytes = append([]byte(nil), body...)
+			keyCache[key.URL] = keyBytes
+		}
+		iv := append([]byte(nil), key.IV...)
+		if len(iv) == 0 {
+			iv = make([]byte, 16)
+			binary.BigEndian.PutUint64(iv[8:], uint64(sequence))
+		}
+		return &fragment.AES128{Key: keyBytes, IV: iv}, nil
+	}
 	var plan []fragment.Segment
 	for _, key := range keys {
 		segment := segments[key]
 		if segment.Advertisement {
 			continue
 		}
-		if segment.Map != nil {
-			mapKey := fmt.Sprintf("%s:%d:%d", segment.Map.URL, segment.Map.RangeStart, segment.Map.RangeLength)
-			if _, exists := seenMaps[mapKey]; !exists {
-				plan = append(plan, fragment.Segment{URL: segment.Map.URL, RangeStart: segment.Map.RangeStart, RangeLength: segment.Map.RangeLength})
-				seenMaps[mapKey] = struct{}{}
+		if segment.Map == nil {
+			lastMap = nil
+		} else {
+			var mapIV []byte
+			if segment.Map.Key != nil {
+				mapIV = segment.Map.Key.IV
 			}
-		}
-		planned := fragment.Segment{URL: segment.URL, RangeStart: segment.RangeStart, RangeLength: segment.RangeLength}
-		if segment.Key != nil {
-			key := keyCache[segment.Key.URL]
-			if key == nil {
-				body, _, err := downloader.readPage(ctx, segment.Key.URL)
+			identity := mapIdentity{
+				url: segment.Map.URL, rangeStart: segment.Map.RangeStart, rangeLength: segment.Map.RangeLength,
+				iv: hex.EncodeToString(mapIV),
+			}
+			if segment.Map.Key != nil {
+				identity.keyURL = segment.Map.Key.URL
+			}
+			if segment.Discontinuity || lastMap == nil || *lastMap != identity {
+				encryption, err := loadEncryption(segment.Map.Key, segment.Sequence)
 				if err != nil {
 					return fragment.Result{}, err
 				}
-				if len(body) != 16 {
-					return fragment.Result{}, fmt.Errorf("AES-128 key length = %d, want 16", len(body))
-				}
-				key = append([]byte(nil), body...)
-				keyCache[segment.Key.URL] = key
+				plan = append(plan, fragment.Segment{
+					URL: segment.Map.URL, RangeStart: segment.Map.RangeStart,
+					RangeLength: segment.Map.RangeLength, AES128: encryption,
+				})
+				identityCopy := identity
+				lastMap = &identityCopy
 			}
-			iv := append([]byte(nil), segment.Key.IV...)
-			if len(iv) == 0 {
-				iv = make([]byte, 16)
-				binary.BigEndian.PutUint64(iv[8:], uint64(segment.Sequence))
-			}
-			planned.AES128 = &fragment.AES128{Key: key, IV: iv}
+		}
+		planned := fragment.Segment{URL: segment.URL, RangeStart: segment.RangeStart, RangeLength: segment.RangeLength}
+		planned.AES128, err = loadEncryption(segment.Key, segment.Sequence)
+		if err != nil {
+			return fragment.Result{}, err
 		}
 		plan = append(plan, planned)
 	}

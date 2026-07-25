@@ -45,6 +45,28 @@ blob.bin
 	}
 }
 
+func TestParseMapCapturesEncryptionAtDeclaration(t *testing.T) {
+	playlist, err := Parse("https://example.invalid/media.m3u8", []byte(`#EXTM3U
+#EXT-X-KEY:METHOD=AES-128,URI="map.key",IV=0x1,KEYFORMAT="identity"
+#EXT-X-MAP:URI="init.mp4"
+#EXT-X-KEY:METHOD=AES-128,URI="media.key",IV=0x2
+#EXTINF:1,
+media.mp4
+#EXT-X-ENDLIST
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	segment := playlist.Media.Segments[0]
+	if segment.Map == nil || segment.Map.Key == nil ||
+		segment.Map.Key.URL != "https://example.invalid/map.key" || segment.Map.Key.IV[15] != 1 {
+		t.Fatalf("map key = %#v", segment.Map)
+	}
+	if segment.Key == nil || segment.Key.URL != "https://example.invalid/media.key" || segment.Key.IV[15] != 2 {
+		t.Fatalf("media key = %#v", segment.Key)
+	}
+}
+
 func TestParseBoundsInputAndEntryCount(t *testing.T) {
 	if _, err := Parse("https://example.invalid/media.m3u8", make([]byte, maxPlaylistBytes+1)); !errors.Is(err, ErrInvalidPlaylist) {
 		t.Fatalf("oversized playlist error = %v", err)
@@ -142,6 +164,9 @@ func assertPlaylistInvariants(t *testing.T, playlist Playlist) {
 		assertSafeResolvedURL(t, segment.URL)
 		if segment.Map != nil {
 			assertSafeResolvedURL(t, segment.Map.URL)
+			if segment.Map.Key != nil {
+				assertSafeResolvedURL(t, segment.Map.Key.URL)
+			}
 		}
 		if segment.Key != nil && segment.Key.URL != "" {
 			assertSafeResolvedURL(t, segment.Key.URL)
@@ -182,8 +207,21 @@ func assertSafeResolvedURL(t *testing.T, raw string) {
 }
 
 func TestParseRejectsUnsupportedEncryption(t *testing.T) {
-	_, err := Parse("https://example.invalid/media.m3u8", []byte("#EXTM3U\n#EXT-X-KEY:METHOD=SAMPLE-AES,URI=key\n#EXTINF:1,\nseg\n"))
-	if !errors.Is(err, ErrUnsupportedEncryption) {
+	for _, input := range []string{
+		"#EXTM3U\n#EXT-X-KEY:METHOD=SAMPLE-AES,URI=key\n#EXTINF:1,\nseg\n",
+		"#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=key,KEYFORMAT=\"com.apple.streamingkeydelivery\"\n#EXTINF:1,\nseg\n",
+	} {
+		_, err := Parse("https://example.invalid/media.m3u8", []byte(input))
+		if !errors.Is(err, ErrUnsupportedEncryption) {
+			t.Fatalf("Parse() error = %v", err)
+		}
+	}
+}
+
+func TestParseRejectsEncryptedMapWithoutExplicitIV(t *testing.T) {
+	_, err := Parse("https://example.invalid/media.m3u8", []byte(
+		"#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=key\n#EXT-X-MAP:URI=init\n#EXTINF:1,\nseg\n"))
+	if !errors.Is(err, ErrInvalidPlaylist) || !strings.Contains(err.Error(), "explicit IV") {
 		t.Fatalf("Parse() error = %v", err)
 	}
 }
@@ -462,6 +500,7 @@ func TestParseCueAdvertisementMapKeyDiscontinuityAndAdOnly(t *testing.T) {
 #EXTINF:1,
 ad-5.bin
 #EXT-X-CUE-IN
+#EXT-X-KEY:METHOD=NONE
 #EXT-X-MAP:URI="media-init.mp4"
 #EXT-X-KEY:METHOD=AES-128,URI="media-key.bin",IV=0x2
 #EXTINF:1,
