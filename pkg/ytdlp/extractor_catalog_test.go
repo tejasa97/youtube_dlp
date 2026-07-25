@@ -29,6 +29,7 @@ var representativeExtractorCatalog = []representativeExtractor{
 	{"vimeo", "https://vimeo.com/123456789", []extractorRiskClass{riskManifestHeavy}},
 	{"twitch", "https://www.twitch.tv/fixture_channel", []extractorRiskClass{riskLive, riskManifestHeavy}},
 	{"soundcloud", "https://soundcloud.com/fixture-artist/synthetic-signal", []extractorRiskClass{riskPlaylistAPI}},
+	{"applepodcasts", "https://podcasts.apple.com/us/podcast/fixture/id123?i=456", []extractorRiskClass{riskSimpleDirect}},
 	{"streamable", "https://streamable.com/e/fixture_1", []extractorRiskClass{riskSharedBackend, riskSimpleDirect}},
 	{"peertube", "peertube:peertube.example:00000000-0000-4000-8000-000000000001", []extractorRiskClass{riskSharedBackend, riskLive, riskManifestHeavy}},
 	{"internetarchive", "https://archive.org/details/fixture_concert", []extractorRiskClass{riskPlaylistAPI}},
