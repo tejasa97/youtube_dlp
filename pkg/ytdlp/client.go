@@ -405,6 +405,7 @@ type operation struct {
 	playlistItemsRangeWarningEmitted bool
 	removeFile                       func(string) error
 	youtubeLiveRefresh               func(mediaformat.Selection) youtubelive.LiveRefreshFunc
+	sabrMerge                        func(ctx context.Context, video, audio, destination string, overwrite bool, sink events.Sink) error
 }
 
 func (operation *operation) process(ctx context.Context, rawURL, extractorKey string, overlay *extractor.Entry, ancestors map[string]bool, depth int) (Result, error) {
@@ -1170,7 +1171,7 @@ func categorized(op string, err error) error {
 		category = ErrorInternal
 	case errors.Is(err, youtubeump.ErrMissingConfig), errors.Is(err, youtubeump.ErrUnsupportedURL),
 		errors.Is(err, youtubeump.ErrUnsafeDestination), errors.Is(err, youtubeump.ErrDestinationExists),
-		errors.Is(err, youtubeump.ErrTooManyAttempts):
+		errors.Is(err, youtubeump.ErrTooManyAttempts), errors.Is(err, youtubeump.ErrCheckpointInvalid):
 		category = ErrorInvalidInput
 	case errors.Is(err, youtubeump.ErrUnsupportedDirective), errors.Is(err, youtubeump.ErrLiveUnsupported),
 		errors.Is(err, youtubeump.ErrResumeUnsupported):

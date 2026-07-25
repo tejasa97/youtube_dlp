@@ -32,8 +32,11 @@ type trackAssembler struct {
 	expectedDurationMs int64
 	file               *os.File
 	remaining          int64
+	onCommit           func() error
 
 	initWritten      bool
+	initDigest       segmentDigest
+	initLength       int64
 	formatVerified   bool
 	nextSequence     uint64
 	hasSequence      bool
@@ -41,6 +44,7 @@ type trackAssembler struct {
 	bufferedRanges   []BufferedRange
 	active           map[uint32]*segmentBuilder
 	writtenSequences map[uint64]segmentDigest
+	segmentLengths   map[uint64]int64
 	totalWritten     int64
 	endOfTrackDone   bool
 }
@@ -53,6 +57,7 @@ func newTrackAssembler(format FormatID, expectedDurationMs int64, file *os.File,
 		remaining:          remaining,
 		active:             make(map[uint32]*segmentBuilder),
 		writtenSequences:   make(map[uint64]segmentDigest),
+		segmentLengths:     make(map[uint64]int64),
 	}
 }
 
@@ -187,6 +192,26 @@ func (assembler *trackAssembler) finalizeSegment(payload []byte) error {
 		}
 	}
 	digest := hashSegment(segment.data)
+	if header.IsInitSeg {
+		if assembler.initWritten {
+			if digest == assembler.initDigest && int64(len(segment.data)) == assembler.initLength {
+				delete(assembler.active, headerID)
+				return nil
+			}
+			return fmt.Errorf("%w: init segment changed on replay", ErrInvalidMediaState)
+		}
+		if assembler.remaining < int64(len(segment.data)) {
+			return ErrResponseTooLarge
+		}
+		if err := assembler.writeBytes(segment.data); err != nil {
+			return err
+		}
+		assembler.initWritten = true
+		assembler.initDigest = digest
+		assembler.initLength = int64(len(segment.data))
+		delete(assembler.active, headerID)
+		return assembler.commitProgress()
+	}
 	if prior, ok := assembler.writtenSequences[header.SequenceNumber]; ok {
 		if prior != digest {
 			return fmt.Errorf("%w: replay sequence %d with different bytes", ErrInvalidMediaState, header.SequenceNumber)
@@ -197,41 +222,44 @@ func (assembler *trackAssembler) finalizeSegment(payload []byte) error {
 	if assembler.remaining < int64(len(segment.data)) {
 		return ErrResponseTooLarge
 	}
-	if header.IsInitSeg {
-		if assembler.initWritten {
-			return fmt.Errorf("%w: duplicate init segment", ErrInvalidMediaState)
-		}
-		if err := assembler.writeBytes(segment.data); err != nil {
-			return err
-		}
-		assembler.initWritten = true
-	} else {
-		if !assembler.initWritten {
-			return fmt.Errorf("%w: media before init segment", ErrInvalidMediaState)
-		}
-		if err := assembler.writeBytes(segment.data); err != nil {
-			return err
-		}
-		duration := header.effectiveDurationMs()
-		startSegmentIndex, err := int32SegmentIndex(header.SequenceNumber)
-		if err != nil {
-			return err
-		}
-		assembler.cumulativeMs += duration
-		assembler.bufferedRanges = append(assembler.bufferedRanges, BufferedRange{
-			FormatID:          assembler.format,
-			StartTimeMs:       assembler.cumulativeMs - duration,
-			DurationMs:        duration,
-			StartSegmentIndex: startSegmentIndex,
-			EndSegmentIndex:   startSegmentIndex,
-			TimeRange:         header.TimeRange,
-		})
-		assembler.writtenSequences[header.SequenceNumber] = digest
-		assembler.nextSequence = header.SequenceNumber + 1
-		assembler.hasSequence = true
+	if !assembler.initWritten {
+		return fmt.Errorf("%w: media before init segment", ErrInvalidMediaState)
 	}
+	if err := assembler.writeBytes(segment.data); err != nil {
+		return err
+	}
+	duration := header.effectiveDurationMs()
+	startSegmentIndex, err := int32SegmentIndex(header.SequenceNumber)
+	if err != nil {
+		return err
+	}
+	assembler.cumulativeMs += duration
+	assembler.bufferedRanges = append(assembler.bufferedRanges, BufferedRange{
+		FormatID:          assembler.format,
+		StartTimeMs:       assembler.cumulativeMs - duration,
+		DurationMs:        duration,
+		StartSegmentIndex: startSegmentIndex,
+		EndSegmentIndex:   startSegmentIndex,
+		TimeRange:         header.TimeRange,
+	})
+	assembler.writtenSequences[header.SequenceNumber] = digest
+	assembler.segmentLengths[header.SequenceNumber] = int64(len(segment.data))
+	assembler.nextSequence = header.SequenceNumber + 1
+	assembler.hasSequence = true
 	delete(assembler.active, headerID)
-	return nil
+	return assembler.commitProgress()
+}
+
+func (assembler *trackAssembler) commitProgress() error {
+	if assembler.onCommit == nil {
+		return nil
+	}
+	if assembler.file != nil {
+		if err := assembler.file.Sync(); err != nil {
+			return fmt.Errorf("%w: sync committed segment: %v", ErrDownloadFailed, err)
+		}
+	}
+	return assembler.onCommit()
 }
 
 func (assembler *trackAssembler) writeBytes(data []byte) error {
@@ -273,7 +301,7 @@ func (assembler *trackAssembler) applyEndOfTrackCompletion() error {
 		return fmt.Errorf("%w: premature end of track", ErrInvalidMediaState)
 	}
 	assembler.endOfTrackDone = true
-	return nil
+	return assembler.commitProgress()
 }
 
 func (assembler *trackAssembler) isSelectedHeader(header *MediaHeader) bool {
