@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"net"
 	"net/http"
@@ -47,11 +48,27 @@ const (
 	twitchCollectionsMaxString         = 16 << 10
 	twitchCollectionsStartToken        = "__twitch_collections_start__"
 	twitchCollectionsMaxEdgeArrayBytes = twitchCollectionsMaxEdges*(twitchMaxURL+1) + 2
+
+	twitchClipsOperation         = "ClipsCards__User"
+	twitchClipsPageLimit         = 20
+	twitchClipsMaxEdges          = 20
+	twitchClipsMaxCursor         = 4 << 10
+	twitchClipsMaxString         = 16 << 10
+	twitchClipsMaxLanguage       = 64
+	twitchClipsMaxNumericText    = 64
+	twitchClipsMaxTimestampText  = 128
+	twitchClipsStartToken        = "__twitch_clips_start__"
+	twitchClipsMaxEdgeArrayBytes = twitchClipsMaxEdges*(twitchMaxURL+1) + 2
 )
 
 type twitchVideosBroadcast struct {
 	Type  string
 	Label string
+}
+
+type twitchClipsRange struct {
+	Filter string
+	Label  string
 }
 
 var (
@@ -80,6 +97,7 @@ var twitchOperationHashes = map[string]string{
 	twitchVideosOperation:                  "67004f7881e65c297936f32c75246470629557a393788fb5a69d6d9a25a8fd5f",
 	twitchCollectionDirectOperation:        "016e1e4ccee0eb4698eb3bf1a04dc1c077fb746c78c82bac9a8f0289658fbd1a",
 	twitchCollectionsOperation:             "5247910a19b1cd2b760939bf4cba4dcbd3d13bdf8c266decd16956f6ef814077",
+	twitchClipsOperation:                   "1cd671bfa12cec480499c087319f26d21925e9695d1f80225aae6a4354f23088",
 }
 
 var twitchVideosDefaultBroadcast = twitchVideosBroadcast{Type: "", Label: "All Videos"}
@@ -95,6 +113,15 @@ var twitchVideosBroadcasts = map[string]twitchVideosBroadcast{
 var twitchVideosSortLabels = map[string]string{
 	"time":  twitchVideosDefaultSort,
 	"views": "Popular",
+}
+
+var twitchClipsDefaultRange = twitchClipsRange{Filter: "LAST_WEEK", Label: "Top 7D"}
+
+var twitchClipsRanges = map[string]twitchClipsRange{
+	"24hr": {Filter: "LAST_DAY", Label: "Top 24H"},
+	"7d":   twitchClipsDefaultRange,
+	"30d":  {Filter: "LAST_MONTH", Label: "Top 30D"},
+	"all":  {Filter: "ALL_TIME", Label: "Top All"},
 }
 
 var (
@@ -136,6 +163,8 @@ func (Twitch) Extract(ctx context.Context, request Request) (Extraction, error) 
 		return extractTwitchCollection(ctx, request.Transport, target)
 	case twitchKindChannelCollections:
 		return extractTwitchChannelCollections(ctx, request.Transport, target)
+	case twitchKindChannelClips:
+		return extractTwitchChannelClips(ctx, request.Transport, target)
 	default:
 		return extractTwitchLive(ctx, request.Transport, target.id)
 	}
@@ -150,6 +179,7 @@ const (
 	twitchKindVideos
 	twitchKindCollection
 	twitchKindChannelCollections
+	twitchKindChannelClips
 )
 
 type twitchVideosQuery struct {
@@ -159,10 +189,16 @@ type twitchVideosQuery struct {
 	sortLabel      string
 }
 
+type twitchClipsQuery struct {
+	filter string
+	label  string
+}
+
 type twitchTarget struct {
 	kind   twitchKind
 	id     string
 	videos twitchVideosQuery
+	clips  twitchClipsQuery
 }
 
 func classifyTwitchURL(parsed *url.URL) (twitchTarget, bool) {
@@ -252,6 +288,9 @@ func classifyTwitchURL(parsed *url.URL) (twitchTarget, bool) {
 		return twitchTarget{}, false
 	}
 	if target, ok := classifyTwitchChannelCollectionsURL(parsed, parts, decode); ok {
+		return target, true
+	}
+	if target, ok := classifyTwitchChannelClipsURL(parsed, parts, decode); ok {
 		return target, true
 	}
 	if target, ok := classifyTwitchVideosURL(parsed, parts, decode); ok {
@@ -358,6 +397,41 @@ func classifyTwitchChannelCollectionsURL(parsed *url.URL, parts []string, decode
 	return twitchTarget{kind: twitchKindChannelCollections, id: strings.ToLower(channel)}, true
 }
 
+func classifyTwitchChannelClipsURL(parsed *url.URL, parts []string, decode func(string, *regexp.Regexp) (string, bool)) (twitchTarget, bool) {
+	if parsed == nil || parsed.Fragment != "" {
+		return twitchTarget{}, false
+	}
+	if len(parts) != 2 || (parts[1] != "clips" && parts[1] != "videos") {
+		return twitchTarget{}, false
+	}
+	channel, ok := decode(parts[0], twitchChannelPattern)
+	if !ok {
+		return twitchTarget{}, false
+	}
+	if _, reserved := twitchReservedPaths[strings.ToLower(channel)]; reserved {
+		return twitchTarget{}, false
+	}
+	query, err := url.ParseQuery(parsed.RawQuery)
+	if err != nil {
+		return twitchTarget{}, false
+	}
+	if !twitchQueryValuesSafe(query) {
+		return twitchTarget{}, false
+	}
+	if parts[1] == "videos" {
+		if !twitchChannelClipsVideosQueryOK(query) {
+			return twitchTarget{}, false
+		}
+	} else if !twitchChannelClipsPathQueryOK(query) {
+		return twitchTarget{}, false
+	}
+	clips, ok := twitchClipsQueryFromValues(query)
+	if !ok {
+		return twitchTarget{}, false
+	}
+	return twitchTarget{kind: twitchKindChannelClips, id: strings.ToLower(channel), clips: clips}, true
+}
+
 func twitchRouteQuerySafe(parsed *url.URL) bool {
 	if parsed == nil {
 		return false
@@ -397,6 +471,51 @@ func twitchChannelCollectionsQueryOK(query url.Values) bool {
 		}
 	}
 	return true
+}
+
+func twitchChannelClipsVideosQueryOK(query url.Values) bool {
+	filterValues, present := query["filter"]
+	if !present || len(filterValues) != 1 || !twitchVideosQueryValueOK(filterValues[0]) || filterValues[0] != "clips" {
+		return false
+	}
+	if rangeValues, present := query["range"]; present {
+		if len(rangeValues) != 1 || !twitchVideosQueryValueOK(rangeValues[0]) {
+			return false
+		}
+	}
+	return true
+}
+
+func twitchChannelClipsPathQueryOK(query url.Values) bool {
+	if filterValues, present := query["filter"]; present {
+		if len(filterValues) != 1 || !twitchVideosQueryValueOK(filterValues[0]) {
+			return false
+		}
+	}
+	if rangeValues, present := query["range"]; present {
+		if len(rangeValues) != 1 || !twitchVideosQueryValueOK(rangeValues[0]) {
+			return false
+		}
+	}
+	return true
+}
+
+func twitchClipsQueryFromValues(query url.Values) (twitchClipsQuery, bool) {
+	rangeKey := "7d"
+	if values, present := query["range"]; present {
+		if len(values) != 1 || !twitchVideosQueryValueOK(values[0]) {
+			return twitchClipsQuery{}, false
+		}
+		// Pinned parse_qs drops blank values, so range= falls back to 7d/LAST_WEEK.
+		if values[0] != "" {
+			rangeKey = values[0]
+		}
+	}
+	selected, found := twitchClipsRanges[rangeKey]
+	if !found {
+		selected = twitchClipsDefaultRange
+	}
+	return twitchClipsQuery{filter: selected.Filter, label: selected.Label}, true
 }
 
 func twitchVideosQueryValueOK(value string) bool {
@@ -1713,4 +1832,411 @@ func twitchChannelCollectionEntry(raw json.RawMessage) (Entry, bool) {
 		Title:        title,
 		Transparent:  true,
 	}, true
+}
+
+func extractTwitchChannelClips(ctx context.Context, transport Transport, target twitchTarget) (Extraction, error) {
+	if err := contextError(ctx); err != nil {
+		return Extraction{}, err
+	}
+	if transport == nil || target.kind != twitchKindChannelClips || target.id == "" {
+		return Extraction{}, ErrUnsupported
+	}
+	channel := target.id
+	query := target.clips
+	sequence, err := ContinuationEntries(nil, twitchClipsStartToken, func(ctx context.Context, cursor string) ([]Entry, string, error) {
+		return fetchTwitchChannelClipsPage(ctx, transport, channel, query, cursor)
+	})
+	if err != nil {
+		return Extraction{}, err
+	}
+	title := channel + " - Clips " + query.label
+	info := value.NewObject(
+		value.Field{Key: "id", Value: value.String(channel)},
+		value.Field{Key: "title", Value: value.String(title)},
+		value.Field{Key: "uploader_id", Value: value.String(channel)},
+		value.Field{Key: "webpage_url", Value: value.String("https://www.twitch.tv/" + channel + "/clips")},
+	)
+	return Playlist(value.NewInfo(info), sequence)
+}
+
+func fetchTwitchChannelClipsPage(ctx context.Context, transport Transport, channel string, query twitchClipsQuery, cursor string) ([]Entry, string, error) {
+	if err := contextError(ctx); err != nil {
+		return nil, "", err
+	}
+	requestCursor := ""
+	if cursor != twitchClipsStartToken {
+		if cursor == "" || len(cursor) > twitchClipsMaxCursor {
+			return nil, "", fmt.Errorf("%w: Twitch clips cursor", ErrInvalidPlaylist)
+		}
+		requestCursor = cursor
+	}
+	body, err := marshalTwitchChannelClipsRequest(channel, query, requestCursor)
+	if err != nil {
+		return nil, "", err
+	}
+	var response []twitchChannelClipsPageResponse
+	if err := RequestJSON(ctx, transport, http.MethodPost, twitchGraphQLURL, body, twitchHeaders(), &response); err != nil {
+		return nil, "", categorizeTwitchHTTP(err)
+	}
+	return parseTwitchChannelClipsPage(response)
+}
+
+func marshalTwitchChannelClipsRequest(channel string, query twitchClipsQuery, cursor string) ([]byte, error) {
+	if !twitchChannelPattern.MatchString(channel) || query.filter == "" || len(query.filter) > twitchClipsMaxString {
+		return nil, fmt.Errorf("%w: Twitch clips request", ErrInvalidMetadata)
+	}
+	variables := map[string]any{
+		"login": channel,
+		"criteria": map[string]any{
+			"filter": query.filter,
+		},
+		"limit": twitchClipsPageLimit,
+	}
+	if cursor != "" {
+		variables["cursor"] = cursor
+	}
+	hash := twitchOperationHashes[twitchClipsOperation]
+	if hash == "" {
+		return nil, fmt.Errorf("%w: Twitch clips operation hash", ErrInvalidMetadata)
+	}
+	payload := []map[string]any{{
+		"operationName": twitchClipsOperation,
+		"variables":     variables,
+		"extensions": map[string]any{
+			"persistedQuery": map[string]any{
+				"version":    1,
+				"sha256Hash": hash,
+			},
+		},
+	}}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("%w: Twitch clips request", ErrInvalidMetadata)
+	}
+	return body, nil
+}
+
+type twitchChannelClipsPageResponse struct {
+	Data struct {
+		User *twitchChannelClipsUser `json:"user"`
+	} `json:"data"`
+	Errors []json.RawMessage `json:"errors"`
+}
+
+type twitchChannelClipsUser struct {
+	ID    json.RawMessage `json:"id"`
+	Clips *struct {
+		Edges json.RawMessage `json:"edges"`
+	} `json:"clips"`
+}
+
+type twitchClipsItemEdge struct {
+	Typename string          `json:"__typename"`
+	Cursor   string          `json:"cursor"`
+	Node     json.RawMessage `json:"node"`
+}
+
+type twitchClipPlaylistNode struct {
+	Typename        string          `json:"__typename"`
+	ID              string          `json:"id"`
+	URL             string          `json:"url"`
+	Title           string          `json:"title"`
+	ThumbnailURL    string          `json:"thumbnailURL"`
+	DurationSeconds json.RawMessage `json:"durationSeconds"`
+	CreatedAt       json.RawMessage `json:"createdAt"`
+	ViewCount       json.RawMessage `json:"viewCount"`
+	Language        json.RawMessage `json:"language"`
+}
+
+func parseTwitchChannelClipsPage(response []twitchChannelClipsPageResponse) ([]Entry, string, error) {
+	if len(response) != 1 {
+		return nil, "", fmt.Errorf("%w: Twitch clips response", ErrInvalidMetadata)
+	}
+	page := response[0]
+	if len(page.Errors) != 0 {
+		return nil, "", fmt.Errorf("%w: Twitch clips response", ErrInvalidMetadata)
+	}
+	user := page.Data.User
+	if user != nil && twitchVideosUserIDEmpty(user.ID) {
+		return nil, "", ErrUnavailable
+	}
+	if user == nil || user.Clips == nil {
+		return nil, "", nil
+	}
+	edges, err := twitchBoundedJSONArray(user.Clips.Edges, twitchClipsMaxEdges)
+	if err != nil {
+		return nil, "", err
+	}
+	if edges == nil {
+		return nil, "", nil
+	}
+	entries := make([]Entry, 0, len(edges))
+	seenIDs := make(map[string]struct{}, len(edges))
+	seenURLs := make(map[string]struct{}, len(edges))
+	nextCursor := ""
+	for _, rawEdge := range edges {
+		if len(rawEdge) > twitchMaxURL {
+			continue
+		}
+		var edge twitchClipsItemEdge
+		if err := json.Unmarshal(rawEdge, &edge); err != nil {
+			continue
+		}
+		if edge.Typename != "ClipEdge" || len(edge.Node) == 0 {
+			continue
+		}
+		entry, ok := twitchChannelClipEntry(edge.Node)
+		if !ok {
+			continue
+		}
+		if edge.Cursor != "" && len(edge.Cursor) <= twitchClipsMaxCursor {
+			nextCursor = edge.Cursor
+		} else {
+			nextCursor = ""
+		}
+		if _, exists := seenIDs[entry.ID]; exists {
+			continue
+		}
+		if _, exists := seenURLs[entry.URL]; exists {
+			continue
+		}
+		seenIDs[entry.ID] = struct{}{}
+		seenURLs[entry.URL] = struct{}{}
+		entries = append(entries, entry)
+	}
+	return entries, nextCursor, nil
+}
+
+func twitchChannelClipEntry(raw json.RawMessage) (Entry, bool) {
+	if len(raw) == 0 || len(raw) > twitchMaxURL {
+		return Entry{}, false
+	}
+	var node twitchClipPlaylistNode
+	if err := json.Unmarshal(raw, &node); err != nil {
+		return Entry{}, false
+	}
+	if node.Typename != "Clip" {
+		return Entry{}, false
+	}
+	title := strings.TrimSpace(node.Title)
+	if len(title) > twitchClipsMaxString {
+		return Entry{}, false
+	}
+	clipURL := strings.TrimSpace(node.URL)
+	if len(clipURL) == 0 || len(clipURL) > twitchMaxURL {
+		return Entry{}, false
+	}
+	parsed, err := url.Parse(clipURL)
+	if err != nil {
+		return Entry{}, false
+	}
+	target, ok := classifyTwitchURL(parsed)
+	if !ok || target.kind != twitchKindClip || target.id == "" {
+		return Entry{}, false
+	}
+	id := node.ID
+	if !twitchClipPattern.MatchString(id) {
+		id = target.id
+	}
+	if !twitchClipPattern.MatchString(id) {
+		return Entry{}, false
+	}
+	entry := Entry{
+		URL:          clipURL,
+		ExtractorKey: "twitch",
+		ID:           id,
+		Title:        title,
+		Transparent:  true,
+	}
+	if thumb := strings.TrimSpace(node.ThumbnailURL); validTwitchAssetURL(thumb) {
+		entry.Thumbnail = thumb
+	}
+	if duration, present := twitchOptionalFloat(node.DurationSeconds, float64(30*24*60*60)); present {
+		entry.Duration = duration
+		entry.HasDuration = true
+	}
+	if timestamp, present := twitchOptionalRFC3339Timestamp(node.CreatedAt); present {
+		entry.Timestamp = timestamp
+		entry.HasTimestamp = true
+	}
+	if views, present := twitchOptionalInt(node.ViewCount, math.MaxInt64); present {
+		entry.ViewCount = views
+		entry.HasViewCount = true
+	}
+	if language, present := twitchOptionalLanguage(node.Language); present {
+		entry.Language = language
+	}
+	return entry, true
+}
+
+func twitchOptionalFloat(raw json.RawMessage, max float64) (float64, bool) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return 0, false
+	}
+	var number float64
+	if err := json.Unmarshal(raw, &number); err == nil {
+		return twitchBoundedFloat(number, max)
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err != nil || text == "" || len(text) > twitchClipsMaxNumericText {
+		return 0, false
+	}
+	parsed, err := strconv.ParseFloat(text, 64)
+	if err != nil {
+		return 0, false
+	}
+	return twitchBoundedFloat(parsed, max)
+}
+
+func twitchBoundedFloat(number float64, max float64) (float64, bool) {
+	if math.IsNaN(number) || math.IsInf(number, 0) || number < 0 || number > max {
+		return 0, false
+	}
+	return number, true
+}
+
+func twitchOptionalInt(raw json.RawMessage, max int64) (int64, bool) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return 0, false
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return 0, false
+	}
+	if trimmed[0] == '"' {
+		var text string
+		if err := json.Unmarshal(trimmed, &text); err != nil || text == "" || len(text) > twitchClipsMaxNumericText {
+			return 0, false
+		}
+		return twitchParseBoundedIntText(text, max)
+	}
+	if len(trimmed) > twitchClipsMaxNumericText {
+		return 0, false
+	}
+	return twitchParseBoundedIntText(string(trimmed), max)
+}
+
+// twitchParseBoundedIntText implements overflow-safe int_or_none semantics for
+// JSON number tokens and numeric strings without float64 round-trip hazards.
+func twitchParseBoundedIntText(text string, max int64) (int64, bool) {
+	text = strings.TrimSpace(text)
+	if text == "" || len(text) > twitchClipsMaxNumericText || max < 0 {
+		return 0, false
+	}
+	lower := strings.ToLower(text)
+	switch lower {
+	case "nan", "inf", "+inf", "-inf", "infinity", "+infinity", "-infinity":
+		return 0, false
+	}
+
+	digits := text
+	switch {
+	case digits[0] == '-':
+		return 0, false
+	case digits[0] == '+':
+		digits = digits[1:]
+		if digits == "" {
+			return 0, false
+		}
+	}
+	if twitchDecimalDigits(digits) {
+		number := new(big.Int)
+		if _, ok := number.SetString(digits, 10); !ok {
+			return 0, false
+		}
+		if number.Sign() < 0 || number.Cmp(big.NewInt(max)) > 0 || !number.IsInt64() {
+			return 0, false
+		}
+		value := number.Int64()
+		if value < 0 || value > max {
+			return 0, false
+		}
+		return value, true
+	}
+
+	if strings.Contains(text, ".") && !strings.ContainsAny(lower, "e") {
+		ratio := new(big.Rat)
+		if _, ok := ratio.SetString(text); !ok || !ratio.IsInt() {
+			return 0, false
+		}
+		number := ratio.Num()
+		if number.Sign() < 0 || number.Cmp(big.NewInt(max)) > 0 || !number.IsInt64() {
+			return 0, false
+		}
+		value := number.Int64()
+		if value < 0 || value > max {
+			return 0, false
+		}
+		return value, true
+	}
+
+	// Scientific notation and other float tokens: only accept values that are
+	// exactly representable as integers within the float64 mantissa.
+	parsed, err := strconv.ParseFloat(text, 64)
+	if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) || parsed < 0 {
+		return 0, false
+	}
+	if parsed != math.Trunc(parsed) {
+		return 0, false
+	}
+	const maxExactFloatInt = 1 << 53
+	if parsed > float64(maxExactFloatInt) {
+		return 0, false
+	}
+	value := int64(parsed)
+	if value < 0 || value > max {
+		return 0, false
+	}
+	return value, true
+}
+
+func twitchDecimalDigits(text string) bool {
+	if text == "" {
+		return false
+	}
+	for _, character := range text {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func twitchOptionalRFC3339Timestamp(raw json.RawMessage) (int64, bool) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return 0, false
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err != nil {
+		return 0, false
+	}
+	text = strings.TrimSpace(text)
+	if text == "" || len(text) > twitchClipsMaxTimestampText {
+		return 0, false
+	}
+	parsed, err := time.Parse(time.RFC3339, text)
+	if err != nil {
+		return 0, false
+	}
+	return parsed.Unix(), true
+}
+
+func twitchOptionalLanguage(raw json.RawMessage) (string, bool) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", false
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err != nil {
+		return "", false
+	}
+	text = strings.TrimSpace(text)
+	if text == "" || len(text) > twitchClipsMaxLanguage || !utf8.ValidString(text) {
+		return "", false
+	}
+	for _, character := range text {
+		if character == 0 || unicode.IsControl(character) {
+			return "", false
+		}
+	}
+	return text, true
 }
