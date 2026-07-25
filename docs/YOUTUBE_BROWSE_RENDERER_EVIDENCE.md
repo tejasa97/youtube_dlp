@@ -30,4 +30,3 @@ the redirect-disabled cookie transport and refuse anonymous fallback after
 authenticated state is engaged. Browse continuations rotate visitor data across
 pages; general search continuations reuse the initial page/config visitor
 without a rotation claim.
-EOF
