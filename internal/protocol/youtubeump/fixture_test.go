@@ -59,3 +59,37 @@ func mustTestVarint(value uint64) []byte {
 	encoded, _ := encodeUMPVarint(value)
 	return encoded
 }
+
+func encodePlaybackCookie(fields ...[]byte) []byte {
+	var buf []byte
+	for _, field := range fields {
+		buf = append(buf, field...)
+	}
+	return buf
+}
+
+func encodeNextRequestPolicy(backoffMs int64, cookie []byte) []byte {
+	var buf []byte
+	if backoffMs != 0 {
+		buf = appendProtobufVarint(buf, fPolicyBackoffTimeMs, uint64(backoffMs))
+	}
+	if len(cookie) > 0 {
+		buf = appendProtobufBytes(buf, fPolicyPlaybackCookie, cookie)
+	}
+	return buf
+}
+
+func appendPolicyPart(body []byte, backoffMs int64, cookie []byte) []byte {
+	return append(body, encodePart(PartNextRequestPolicy, encodeNextRequestPolicy(backoffMs, cookie))...)
+}
+
+func appendEndOfTrackPart(body []byte) []byte {
+	return append(body, encodePart(PartEndOfTrack, nil)...)
+}
+
+func validTestCookie() []byte {
+	return encodePlaybackCookie(
+		appendProtobufVarint(nil, fPlaybackCookieField1, 1),
+		appendProtobufVarint(nil, fPlaybackCookieField2, 2),
+	)
+}
