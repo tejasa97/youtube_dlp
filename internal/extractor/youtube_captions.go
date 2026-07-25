@@ -215,7 +215,7 @@ func collectYouTubeCaptionCandidates(players []youtubePlayerResponse) ([]youtube
 				visitorData: player.visitorData, playerURL: player.playerURL,
 				subsPolicy: player.subsPolicy, playerToken: player.playerTokenProvided,
 			}
-			candidate.requiresToken = youtubeCaptionURLRequiresToken(base) || candidate.subsPolicy.required(candidate.playerToken)
+			candidate.requiresToken = youtubeCaptionURLRequiresToken(base) || candidate.subsPolicy.required(candidate.playerToken, false)
 			candidates = append(candidates, candidate)
 		}
 	}

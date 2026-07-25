@@ -187,31 +187,29 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 	formatPlayers := []youtubePlayerResponse{player}
 	if !initialHasFormats {
 		if pageConfig.LoggedIn != nil && *pageConfig.LoggedIn {
-			recovered, authErr := requestAuthenticatedYouTubeWEBPlayer(
+			initialData, _ := extractJSONObject(page, youtubeInitialDataMarker)
+			premium := youtubePremiumSubscriber(initialData)
+			recovered, authErr := recoverAuthenticatedYouTubeFormats(
 				ctx,
 				request.Transport,
 				videoID,
-				pageConfig.webAuthConfig(
-					player.ResponseContext.VisitorData,
-					player.ResponseContext.MainAppWebResponseContext.DataSyncID,
-				),
+				pageConfig,
+				player.ResponseContext.VisitorData,
+				player.ResponseContext.MainAppWebResponseContext.DataSyncID,
+				premium,
 				time.Now,
 			)
 			if authErr != nil {
 				return Extraction{}, authErr
 			}
-			if authErr := checkYouTubeAvailability(recovered.PlayabilityStatus); authErr != nil {
-				return Extraction{}, authErr
-			}
-			if !hasYouTubeFormatCandidates(recovered) {
-				return Extraction{}, fmt.Errorf("%w: authenticated WEB player returned no URL-bearing formats", ErrUnavailable)
-			}
-			formatPlayers = append(formatPlayers, recovered)
-			if playerPath == "" {
-				playerPath = recovered.Assets.JS
-			}
-			if player.VideoDetails.Title == "" {
-				player.VideoDetails = recovered.VideoDetails
+			formatPlayers = append(formatPlayers, recovered...)
+			for _, recoveredPlayer := range recovered {
+				if playerPath == "" {
+					playerPath = recoveredPlayer.Assets.JS
+				}
+				if player.VideoDetails.Title == "" {
+					player.VideoDetails = recoveredPlayer.VideoDetails
+				}
 			}
 		} else {
 			visitorData := pageConfig.visitorData(player.ResponseContext.VisitorData)
