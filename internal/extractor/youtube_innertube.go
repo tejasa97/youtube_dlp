@@ -79,8 +79,8 @@ func requestYouTubePlayer(ctx context.Context, transport Transport, videoID, vis
 // at commit d2fa40d761034a286cf60ee033653307a1295b0c.
 func requestYouTubePlayerReload(ctx context.Context, transport Transport, videoID, visitorData, playerURL string, profile youtubeClientProfile, tokens *youtubepot.Director, reloadToken string) (youtubePlayerResponse, error) {
 	if reloadToken != "" {
-		if len(reloadToken) > youtubeMaxReloadTokenBytes || strings.TrimSpace(reloadToken) != reloadToken {
-			return youtubePlayerResponse{}, fmt.Errorf("%w: invalid reload token", ErrInvalidMetadata)
+		if err := validateYouTubeReloadToken(reloadToken); err != nil {
+			return youtubePlayerResponse{}, err
 		}
 	}
 	clientContext := make(map[string]any, len(profile.Context)+3)

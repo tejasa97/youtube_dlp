@@ -2,6 +2,7 @@ package youtubeump
 
 import (
 	"fmt"
+	"unicode/utf8"
 )
 
 // Field numbers from LuanRT/googlevideo sabr_redirect.proto,
@@ -424,6 +425,12 @@ func parseReloadPlaybackParams(payload []byte) (string, error) {
 			}
 			if len(raw) > MaxReloadTokenBytes {
 				return "", fmt.Errorf("%w: reload token exceeds bound", ErrInvalidProtobuf)
+			}
+			// Opaque tokens are later JSON-marshaled into Innertube requests.
+			// encoding/json silently replaces invalid UTF-8, which would mutate
+			// the server token — fail closed instead.
+			if !utf8.Valid(raw) {
+				return "", fmt.Errorf("%w: reload token is not valid UTF-8", ErrInvalidProtobuf)
 			}
 			token = string(raw)
 		default:

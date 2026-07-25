@@ -3,6 +3,7 @@ package youtubeump
 import (
 	"errors"
 	"testing"
+	"unicode/utf8"
 )
 
 func FuzzUMPVarint(f *testing.F) {
@@ -144,6 +145,7 @@ func FuzzSabrError(f *testing.F) {
 func FuzzReloadPlayerResponse(f *testing.F) {
 	f.Add(encodeReloadPlayerResponse("token"))
 	f.Add([]byte{0x0A, 0x04, 0x0A, 0x02, 'a', 'b'})
+	f.Add(encodeReloadPlayerResponseBytes([]byte{0xff, 0xfe, 'x'}))
 	f.Fuzz(func(t *testing.T, body []byte) {
 		if len(body) > MaxReloadTokenBytes+64 {
 			return
@@ -153,8 +155,10 @@ func FuzzReloadPlayerResponse(f *testing.F) {
 			!errors.Is(err, ErrNonCanonicalVarint) && !errors.Is(err, ErrVarintOverflow) {
 			t.Fatalf("unexpected err=%v", err)
 		}
-		if err == nil && (got.Token == "" || len(got.Token) > MaxReloadTokenBytes) {
-			t.Fatalf("unsafe token length %d", len(got.Token))
+		if err == nil {
+			if got.Token == "" || len(got.Token) > MaxReloadTokenBytes || !utf8.ValidString(got.Token) {
+				t.Fatalf("unsafe accepted reload token")
+			}
 		}
 	})
 }

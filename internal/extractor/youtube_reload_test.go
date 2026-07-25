@@ -3,6 +3,7 @@ package extractor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -73,5 +74,46 @@ func TestReloadYouTubePlayerRejectsEmptyToken(t *testing.T) {
 	}
 	if len(transport.bodies) != 0 {
 		t.Fatal("must not issue player request without reload token")
+	}
+}
+
+func TestReloadYouTubePlayerRejectsInvalidUTF8Token(t *testing.T) {
+	invalid := string([]byte{0xff, 0xfe, 's', 'e', 'c', 'r', 'e', 't'})
+	transport := &youtubeFallbackTransport{
+		memoryTransport: &memoryTransport{pages: map[string][]byte{}},
+		responses:       map[string][]byte{"1": []byte(`{}`)},
+	}
+	_, err := ReloadYouTubePlayer(context.Background(), transport, YouTubeReloadRequest{
+		VideoID: "fixture0001", ReloadToken: invalid, ClientName: "WEB", ClientID: "1",
+		ClientVersion: "fixture", UserAgent: "fixture-agent", VisitorData: "visitor",
+	})
+	if !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("err=%v", err)
+	}
+	if len(transport.bodies) != 0 || len(transport.requests) != 0 {
+		t.Fatal("must not issue player request for invalid UTF-8 reload token")
+	}
+	if strings.Contains(err.Error(), invalid) || strings.Contains(err.Error(), "\xff") || strings.Contains(err.Error(), "secret") {
+		t.Fatalf("reload token leaked: %v", err)
+	}
+}
+
+func TestRequestYouTubePlayerReloadRejectsInvalidUTF8Token(t *testing.T) {
+	invalid := string([]byte{0xff, 0xfe, 't', 'o', 'k'})
+	transport := &youtubeFallbackTransport{
+		memoryTransport: &memoryTransport{pages: map[string][]byte{}},
+		responses:       map[string][]byte{"1": []byte(`{}`)},
+	}
+	_, err := requestYouTubePlayerReload(context.Background(), transport, "fixture0001", "visitor", "", youtubeClientProfile{
+		Name: "web", ClientName: "WEB", ClientID: "1", ClientVersion: "fixture", UserAgent: "ua",
+	}, nil, invalid)
+	if !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("err=%v", err)
+	}
+	if len(transport.bodies) != 0 || len(transport.requests) != 0 {
+		t.Fatal("must not issue player request for invalid UTF-8 reload token")
+	}
+	if strings.Contains(err.Error(), invalid) || strings.Contains(err.Error(), "\xff") {
+		t.Fatalf("reload token leaked: %v", err)
 	}
 }
