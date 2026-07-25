@@ -157,7 +157,7 @@ func TestYouTubeAdvertisedTabsExposeStableMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	object, _ := root.Object()
-	tabs := youtubeDiscoverAdvertisedTabs(object)
+	tabs := youtubeDiscoverAdvertisedTabs(object, youtubeChannelIdentity{ChannelID: "UCabcdefghijklmnopqrstuv"})
 	if len(tabs) != 3 || tabs[0].ID != "videos" || tabs[0].Count != 123 || tabs[1].ID != "search" || tabs[2].ID != "letsplay" {
 		t.Fatalf("tabs=%#v", tabs)
 	}
@@ -367,6 +367,312 @@ func (t *channelSearchTransport) Do(_ context.Context, request *http.Request) (*
 		return nil, errors.New("bad path")
 	}
 	return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(t.continuation))}, nil
+}
+
+type authBrowseScriptedTransport struct {
+	cookies     []*http.Cookie
+	page        []byte
+	responses   [][]byte
+	calls       int
+	visitors    []string
+	anonymousDo bool
+	mu          sync.Mutex
+}
+
+func (t *authBrowseScriptedTransport) ReadPage(context.Context, string) ([]byte, http.Header, error) {
+	return t.page, make(http.Header), nil
+}
+func (t *authBrowseScriptedTransport) Cookies(string) ([]*http.Cookie, error) { return t.cookies, nil }
+func (t *authBrowseScriptedTransport) Do(context.Context, *http.Request) (*http.Response, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.anonymousDo = true
+	return nil, errors.New("authenticated browse must not use anonymous Do")
+}
+func (t *authBrowseScriptedTransport) DoNoRedirect(_ context.Context, request *http.Request) (*http.Response, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if request.Header.Get("Authorization") == "" || request.Header.Get("Origin") != "https://www.youtube.com" {
+		return nil, errors.New("missing auth headers")
+	}
+	body, _ := io.ReadAll(request.Body)
+	if start := strings.Index(string(body), `"visitorData":"`); start >= 0 {
+		start += len(`"visitorData":"`)
+		end := strings.Index(string(body)[start:], `"`)
+		t.visitors = append(t.visitors, string(body)[start:start+end])
+	}
+	if t.calls >= len(t.responses) {
+		return nil, errors.New("unexpected continuation")
+	}
+	response := t.responses[t.calls]
+	t.calls++
+	return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(response))}, nil
+}
+
+func youtubeLoggedInBrowsePage(channelPath, tab, visitor string) []byte {
+	return []byte(`ytcfg.set({
+		"INNERTUBE_API_KEY":"fixture-api-key",
+		"INNERTUBE_CONTEXT_CLIENT_NAME":1,
+		"INNERTUBE_CLIENT_VERSION":"2.fixture",
+		"DATASYNC_ID":"delegated||user",
+		"LOGGED_IN":true,
+		"INNERTUBE_CONTEXT":{"client":{"clientName":"WEB","clientVersion":"2.fixture","visitorData":"` + visitor + `","userAgent":"fixture-agent"}}
+	});ytInitialData={"contents":{"twoColumnBrowseResultsRenderer":{"tabs":[{"tabRenderer":{"selected":true,"title":"` + tab + `","endpoint":{"commandMetadata":{"webCommandMetadata":{"url":"` + channelPath + `/` + tab + `"}},"browseEndpoint":{"browseId":"UCabcdefghijklmnopqrstuv","canonicalBaseUrl":"` + channelPath + `/` + tab + `"}},"content":{"sectionListRenderer":{"contents":[{"itemSectionRenderer":{"contents":[
+		{"videoRenderer":{"videoId":"aaaaaaaaaaa","title":{"simpleText":"one"}}},
+		{"continuationItemRenderer":{"continuationEndpoint":{"continuationCommand":{"token":"token-1"}}}}
+	]}}]}}}}]}},"metadata":{"channelMetadataRenderer":{"title":"Fixture","externalId":"UCabcdefghijklmnopqrstuv"}},"responseContext":{"visitorData":"` + visitor + `"}};`)
+}
+
+func TestYouTubeBrowseAuthFailClosedWithoutAnonymousFallback(t *testing.T) {
+	incomplete := []byte(`ytcfg.set({"LOGGED_IN":true,"INNERTUBE_CONTEXT":{"client":{"clientName":"WEB"}}});ytInitialData={"contents":{"twoColumnBrowseResultsRenderer":{"tabs":[{"tabRenderer":{"selected":true,"title":"Videos","endpoint":{"commandMetadata":{"webCommandMetadata":{"url":"/channel/UCabcdefghijklmnopqrstuv/videos"}}},"content":{"sectionListRenderer":{"contents":[{"itemSectionRenderer":{"contents":[{"videoRenderer":{"videoId":"aaaaaaaaaaa"}}]}}]}}}}]}},"metadata":{"channelMetadataRenderer":{"title":"Fixture","externalId":"UCabcdefghijklmnopqrstuv"}}};`)
+	anonTransport := &channelFixtureTransport{page: incomplete, pageURL: channelFixtureURL}
+	_, err := NewYouTubeChannelTab().Extract(context.Background(), Request{URL: channelFixtureURL, Transport: anonTransport})
+	if !errors.Is(err, ErrAuthentication) {
+		t.Fatalf("incomplete logged-in config: %v", err)
+	}
+	if anonTransport.requests != 0 {
+		t.Fatalf("anonymous Do calls=%d", anonTransport.requests)
+	}
+
+	completePage := youtubeLoggedInBrowsePage("/channel/UCabcdefghijklmnopqrstuv", "videos", "auth-visitor")
+	plain := &channelFixtureTransport{page: completePage, pageURL: channelFixtureURL}
+	_, err = NewYouTubeChannelTab().Extract(context.Background(), Request{URL: channelFixtureURL, Transport: plain})
+	if !errors.Is(err, ErrAuthentication) {
+		t.Fatalf("logged-in without auth transport: %v", err)
+	}
+	if plain.requests != 0 {
+		t.Fatalf("anonymous Do calls=%d", plain.requests)
+	}
+
+	for _, test := range []struct {
+		name string
+		url  string
+		page []byte
+		run  func(Transport) error
+	}{
+		{
+			name: "channel",
+			url:  channelFixtureURL,
+			page: youtubeLoggedInBrowsePage("/channel/UCabcdefghijklmnopqrstuv", "videos", "auth-visitor"),
+			run: func(tr Transport) error {
+				_, err := NewYouTubeChannelTab().Extract(context.Background(), Request{URL: channelFixtureURL, Transport: tr})
+				return err
+			},
+		},
+		{
+			name: "handle",
+			url:  "https://www.youtube.com/@FixtureChannel/videos",
+			page: youtubeLoggedInBrowsePage("/@FixtureChannel", "videos", "auth-visitor"),
+			run: func(tr Transport) error {
+				_, err := NewYouTubeHandleTab().Extract(context.Background(), Request{URL: "https://www.youtube.com/@FixtureChannel/videos", Transport: tr})
+				return err
+			},
+		},
+		{
+			name: "alias",
+			url:  "https://www.youtube.com/c/FixtureAlias/videos",
+			page: youtubeLoggedInBrowsePage("/c/FixtureAlias", "videos", "auth-visitor"),
+			run: func(tr Transport) error {
+				_, err := NewYouTubeAliasTab().Extract(context.Background(), Request{URL: "https://www.youtube.com/c/FixtureAlias/videos", Transport: tr})
+				return err
+			},
+		},
+		{
+			name: "search",
+			url:  "https://www.youtube.com/results?search_query=linear&sp=EgIQAfABAQ%3D%3D",
+			page: []byte(`ytcfg.set({
+				"INNERTUBE_API_KEY":"fixture-api-key",
+				"INNERTUBE_CONTEXT_CLIENT_NAME":1,
+				"INNERTUBE_CLIENT_VERSION":"2.fixture",
+				"DATASYNC_ID":"delegated||user",
+				"LOGGED_IN":true,
+				"INNERTUBE_CONTEXT":{"client":{"clientName":"WEB","clientVersion":"2.fixture","visitorData":"auth-visitor","userAgent":"fixture-agent"}}
+			});ytInitialData={"contents":{"twoColumnSearchResultsRenderer":{"primaryContents":{"sectionListRenderer":{"contents":[{"itemSectionRenderer":{"contents":[
+				{"videoRenderer":{"videoId":"aaaaaaaaaaa"}},
+				{"continuationItemRenderer":{"continuationEndpoint":{"continuationCommand":{"token":"token-1"}}}}
+			]}}]}}}}};`),
+			run: func(tr Transport) error {
+				_, err := NewYouTubeSearch().Extract(context.Background(), Request{URL: "ytsearch2:linear", Transport: tr})
+				return err
+			},
+		},
+	} {
+		t.Run(test.name+"-no-auth-transport", func(t *testing.T) {
+			tr := &channelFixtureTransport{page: test.page, pageURL: test.url}
+			err := test.run(tr)
+			if !errors.Is(err, ErrAuthentication) {
+				t.Fatalf("err=%v", err)
+			}
+			if tr.requests != 0 {
+				t.Fatalf("anonymous Do calls=%d", tr.requests)
+			}
+		})
+	}
+}
+
+func TestYouTubeBrowseAuthenticatedVisitorRotationAcrossPages(t *testing.T) {
+	page := youtubeLoggedInBrowsePage("/channel/UCabcdefghijklmnopqrstuv", "videos", "visitor-initial")
+	transport := &authBrowseScriptedTransport{
+		cookies: youtubeAuthCookies(),
+		page:    page,
+		responses: [][]byte{
+			[]byte(`{"responseContext":{"visitorData":"visitor-rotated"},"onResponseReceivedActions":[{"appendContinuationItemsAction":{"continuationItems":[
+				{"videoRenderer":{"videoId":"bbbbbbbbbbb"}},
+				{"continuationItemRenderer":{"continuationEndpoint":{"continuationCommand":{"token":"token-2"}}}}
+			]}}]}`),
+			[]byte(`{"responseContext":{"visitorData":"visitor-final"},"onResponseReceivedActions":[{"appendContinuationItemsAction":{"continuationItems":[
+				{"videoRenderer":{"videoId":"ccccccccccc"}}
+			]}}]}`),
+		},
+	}
+	result, err := NewYouTubeChannelTab().Extract(context.Background(), Request{URL: channelFixtureURL, Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := CollectEntries(context.Background(), result.Entries, 10)
+	if err != nil || len(got) != 3 {
+		t.Fatalf("got=%#v err=%v", got, err)
+	}
+	if transport.anonymousDo {
+		t.Fatal("anonymous Do was called after authenticated state")
+	}
+	if len(transport.visitors) != 2 || transport.visitors[0] != "visitor-initial" || transport.visitors[1] != "visitor-rotated" {
+		t.Fatalf("visitor rotation=%v", transport.visitors)
+	}
+}
+
+func TestYouTubeCustomTabBrowseIDBoundToResolvedUCID(t *testing.T) {
+	matching := []byte(`{"contents":{"twoColumnBrowseResultsRenderer":{"tabs":[
+		{"tabRenderer":{"selected":true,"title":"Let's Play","endpoint":{"commandMetadata":{"webCommandMetadata":{"url":"/@FixtureChannel/letsplay"}},"browseEndpoint":{"browseId":"UCabcdefghijklmnopqrstuv","canonicalBaseUrl":"/@FixtureChannel/letsplay"}},"content":{"sectionListRenderer":{"contents":[{"itemSectionRenderer":{"contents":[{"videoRenderer":{"videoId":"aaaaaaaaaaa"}}]}}]}}}}
+	]}},"metadata":{"channelMetadataRenderer":{"title":"Fixture","externalId":"UCabcdefghijklmnopqrstuv"}}}`)
+	handleIdentity := youtubeChannelIdentity{Handle: "@FixtureChannel", ChannelID: "UCabcdefghijklmnopqrstuv"}
+	if err := youtubeCustomTabSelectedAndBound(matching, "letsplay", handleIdentity); err != nil {
+		t.Fatalf("handle match: %v", err)
+	}
+	aliasIdentity := youtubeChannelIdentity{AliasKind: "c", Alias: "FixtureAlias", ChannelID: "UCabcdefghijklmnopqrstuv"}
+	aliasMatching := []byte(`{"contents":{"twoColumnBrowseResultsRenderer":{"tabs":[
+		{"tabRenderer":{"selected":true,"title":"Let's Play","endpoint":{"commandMetadata":{"webCommandMetadata":{"url":"/c/FixtureAlias/letsplay"}},"browseEndpoint":{"browseId":"UCabcdefghijklmnopqrstuv","canonicalBaseUrl":"/c/FixtureAlias/letsplay"}}}}
+	]}},"metadata":{"channelMetadataRenderer":{"title":"Fixture","externalId":"UCabcdefghijklmnopqrstuv"}}}`)
+	if err := youtubeCustomTabSelectedAndBound(aliasMatching, "letsplay", aliasIdentity); err != nil {
+		t.Fatalf("alias match: %v", err)
+	}
+	mismatch := []byte(`{"contents":{"twoColumnBrowseResultsRenderer":{"tabs":[
+		{"tabRenderer":{"selected":true,"title":"Let's Play","endpoint":{"commandMetadata":{"webCommandMetadata":{"url":"/@FixtureChannel/letsplay"}},"browseEndpoint":{"browseId":"UCzzzzzzzzzzzzzzzzzzzzzz","canonicalBaseUrl":"/@FixtureChannel/letsplay"}}}}
+	]}},"metadata":{"channelMetadataRenderer":{"title":"Fixture","externalId":"UCabcdefghijklmnopqrstuv"}}}`)
+	if err := youtubeCustomTabSelectedAndBound(mismatch, "letsplay", handleIdentity); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("handle browseId mismatch: %v", err)
+	}
+	if err := youtubeCustomTabSelectedAndBound(mismatch, "letsplay", aliasIdentity); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("alias browseId mismatch: %v", err)
+	}
+	unresolved := youtubeChannelIdentity{Handle: "@FixtureChannel"}
+	if err := youtubeValidateCustomTabBrowseID("UCabcdefghijklmnopqrstuv", unresolved); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("unresolved browseId: %v", err)
+	}
+
+	page := []byte(`ytcfg.set({"INNERTUBE_CLIENT_VERSION":"2.fixture","VISITOR_DATA":"vis"});ytInitialData=` + string(matching) + `;`)
+	transport := &channelFixtureTransport{page: page, pageURL: "https://www.youtube.com/@FixtureChannel/letsplay"}
+	result, err := NewYouTubeHandleTab().Extract(context.Background(), Request{
+		URL: "https://www.youtube.com/@FixtureChannel/letsplay", Transport: transport,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := CollectEntries(context.Background(), result.Entries, 5)
+	if err != nil || len(got) != 1 || got[0].ID != "aaaaaaaaaaa" {
+		t.Fatalf("got=%#v err=%v", got, err)
+	}
+	hostilePage := []byte(`ytcfg.set({"INNERTUBE_CLIENT_VERSION":"2.fixture","VISITOR_DATA":"vis"});ytInitialData=` + string(mismatch) + `;`)
+	hostile := &channelFixtureTransport{page: hostilePage, pageURL: "https://www.youtube.com/@FixtureChannel/letsplay"}
+	if _, err := NewYouTubeHandleTab().Extract(context.Background(), Request{
+		URL: "https://www.youtube.com/@FixtureChannel/letsplay", Transport: hostile,
+	}); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("extract mismatch: %v", err)
+	}
+	aliasPage := []byte(`ytcfg.set({"INNERTUBE_CLIENT_VERSION":"2.fixture","VISITOR_DATA":"vis"});ytInitialData=` + string(aliasMatching) + `;`)
+	aliasTransport := &channelFixtureTransport{page: aliasPage, pageURL: "https://www.youtube.com/c/FixtureAlias/letsplay"}
+	if _, err := NewYouTubeAliasTab().Extract(context.Background(), Request{
+		URL: "https://www.youtube.com/c/FixtureAlias/letsplay", Transport: aliasTransport,
+	}); err != nil {
+		t.Fatalf("alias extract: %v", err)
+	}
+	aliasHostile := []byte(`ytcfg.set({"INNERTUBE_CLIENT_VERSION":"2.fixture","VISITOR_DATA":"vis"});ytInitialData=` + string(mismatch) + `;`)
+	aliasHostileTransport := &channelFixtureTransport{page: aliasHostile, pageURL: "https://www.youtube.com/c/FixtureAlias/letsplay"}
+	if _, err := NewYouTubeAliasTab().Extract(context.Background(), Request{
+		URL: "https://www.youtube.com/c/FixtureAlias/letsplay", Transport: aliasHostileTransport,
+	}); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("alias extract mismatch: %v", err)
+	}
+}
+
+func TestYouTubeCustomTabRequiresAttributableEndpoint(t *testing.T) {
+	identity := youtubeChannelIdentity{ChannelID: "UCabcdefghijklmnopqrstuv"}
+	titleOnly := []byte(`{"contents":{"twoColumnBrowseResultsRenderer":{"tabs":[
+		{"tabRenderer":{"selected":true,"tabIdentifier":"letsplay","title":"Let's Play"}}
+	]}}}`)
+	if err := youtubeCustomTabSelectedAndBound(titleOnly, "letsplay", identity); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("title-only: %v", err)
+	}
+	missingContents := []byte(`{"metadata":{"channelMetadataRenderer":{"title":"Fixture","externalId":"UCabcdefghijklmnopqrstuv"}}}`)
+	if err := youtubeCustomTabSelectedAndBound(missingContents, "letsplay", identity); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("missing contents: %v", err)
+	}
+	missingBrowse := []byte(`{"contents":{"somethingElse":{}}}`)
+	if err := youtubeCustomTabSelectedAndBound(missingBrowse, "letsplay", identity); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("missing browse: %v", err)
+	}
+	// Built-in tabs remain lenient when the initial payload omits the tabs array.
+	if err := validateYouTubeSelectedTab(missingContents, "videos"); err != nil {
+		t.Fatalf("built-in missing container: %v", err)
+	}
+	builtIn := []byte(`{"contents":{"twoColumnBrowseResultsRenderer":{"tabs":[
+		{"tabRenderer":{"selected":true,"title":"Videos","endpoint":{"commandMetadata":{"webCommandMetadata":{"url":"/channel/UCabcdefghijklmnopqrstuv/videos"}}}}}
+	]}}}`)
+	if err := validateYouTubeSelectedTab(builtIn, "videos"); err != nil {
+		t.Fatalf("built-in selected: %v", err)
+	}
+}
+
+func TestYouTubeAdvertisedTabsIdentityBoundAcrossURLForms(t *testing.T) {
+	rootJSON := []byte(`{"contents":{"twoColumnBrowseResultsRenderer":{"tabs":[
+		{"tabRenderer":{"title":"Videos","endpoint":{"commandMetadata":{"webCommandMetadata":{"url":"/channel/UCabcdefghijklmnopqrstuv/videos"}}}}},
+		{"tabRenderer":{"title":"Let's Play","endpoint":{"commandMetadata":{"webCommandMetadata":{"url":"/channel/UCabcdefghijklmnopqrstuv/letsplay"}}}}},
+		{"tabRenderer":{"title":"Other","endpoint":{"commandMetadata":{"webCommandMetadata":{"url":"/channel/UCzzzzzzzzzzzzzzzzzzzzzz/videos"}}}}},
+		{"tabRenderer":{"title":"Handle Custom","endpoint":{"commandMetadata":{"webCommandMetadata":{"url":"/@FixtureChannel/letsplay"}}}}},
+		{"tabRenderer":{"title":"Alias Custom","endpoint":{"commandMetadata":{"webCommandMetadata":{"url":"/c/FixtureAlias/letsplay"}}}}},
+		{"tabRenderer":{"selected":true,"tabIdentifier":"orphan"}}
+	]}}}`)
+	var root value.Value
+	if err := json.Unmarshal(rootJSON, &root); err != nil {
+		t.Fatal(err)
+	}
+	object, _ := root.Object()
+	ucid := youtubeDiscoverAdvertisedTabs(object, youtubeChannelIdentity{ChannelID: "UCabcdefghijklmnopqrstuv"})
+	if len(ucid) != 2 || ucid[0].ID != "videos" || ucid[1].ID != "letsplay" {
+		t.Fatalf("ucid tabs=%#v", ucid)
+	}
+	handle := youtubeDiscoverAdvertisedTabs(object, youtubeChannelIdentity{
+		Handle: "@FixtureChannel", ChannelID: "UCabcdefghijklmnopqrstuv",
+	})
+	ids := map[string]bool{}
+	for _, tab := range handle {
+		ids[tab.ID] = true
+	}
+	if len(handle) != 2 || !ids["videos"] || !ids["letsplay"] || ids["orphan"] {
+		t.Fatalf("handle tabs=%#v", handle)
+	}
+	alias := youtubeDiscoverAdvertisedTabs(object, youtubeChannelIdentity{
+		AliasKind: "c", Alias: "FixtureAlias", ChannelID: "UCabcdefghijklmnopqrstuv",
+	})
+	ids = map[string]bool{}
+	for _, tab := range alias {
+		ids[tab.ID] = true
+	}
+	// UCID and alias-path custom tabs share id "letsplay" and dedupe; cross-channel
+	// and URL-less custom orphans are omitted.
+	if len(alias) != 2 || !ids["videos"] || !ids["letsplay"] {
+		t.Fatalf("alias tabs=%#v", alias)
+	}
 }
 
 func FuzzParseYouTubeRendererData(f *testing.F) {

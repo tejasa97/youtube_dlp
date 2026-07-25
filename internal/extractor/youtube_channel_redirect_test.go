@@ -175,7 +175,6 @@ func TestYouTubeConditionalChannelRedirectRejectsHostileAmbiguousAndSelfTargets(
 		{"unsupported route", redirectJSON("/watch?v=dQw4w9WgXcQ"), "https://www.youtube.com/source", ""},
 		{"control", redirectJSON("/channel/UCabcdefghijklmnopqrstuv\n"), "https://www.youtube.com/source", ""},
 		{"overlong", redirectJSON("/channel/" + strings.Repeat("a", youtubeMaxConditionalRedirectURLBytes)), "https://www.youtube.com/source", ""},
-		{"unsupported requested tab", valid, "https://www.youtube.com/source", "store"},
 		{"self", valid, "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv", ""},
 	}
 	for _, test := range tests {
@@ -184,6 +183,10 @@ func TestYouTubeConditionalChannelRedirectRejectsHostileAmbiguousAndSelfTargets(
 				t.Fatalf("ok=%v err=%v", ok, err)
 			}
 		})
+	}
+	// Custom tabs are not rewritten here; the extract path binds them separately.
+	if entry, ok, err := youtubeConditionalChannelRedirect([]byte(valid), "https://www.youtube.com/source", "store"); ok || err != nil || entry.URL != "" {
+		t.Fatalf("custom tab redirect skip: ok=%v err=%v entry=%#v", ok, err, entry)
 	}
 }
 

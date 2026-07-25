@@ -150,13 +150,6 @@ func extractYouTubeChannelTabWithQuery(ctx context.Context, transport Transport,
 		return redirect, err
 	}
 	identity := youtubeChannelIdentity{ChannelID: channelID}
-	if youtubePublicTabType(tab) == youtubeTabUnsupported && tab != "search" {
-		if err := youtubeCustomTabSelectedAndBound(raw, tab, identity); err != nil {
-			return Extraction{}, err
-		}
-	} else if err := validateYouTubeSelectedTab(raw, tab); err != nil {
-		return Extraction{}, err
-	}
 	policy := youtubeRendererPolicyForTab(tab)
 	if tab == "search" {
 		policy = youtubeRendererPolicy{kinds: youtubeRendererVideo | youtubeRendererPlaylist | youtubeRendererChannel}
@@ -165,18 +158,33 @@ func extractYouTubeChannelTabWithQuery(ctx context.Context, transport Transport,
 	if err != nil {
 		return Extraction{}, err
 	}
+	if youtubePublicTabType(tab) == youtubeTabUnsupported && tab != "search" {
+		if err := youtubeCustomTabSelectedAndBound(raw, tab, identity); err != nil {
+			return Extraction{}, err
+		}
+	} else if err := validateYouTubeSelectedTab(raw, tab); err != nil {
+		return Extraction{}, err
+	}
 	if parsed.alert != "" && len(parsed.entries) == 0 {
 		return Extraction{}, youtubeChannelTabAlertError(parsed.alert)
 	}
 	if parsed.title == "" {
 		return Extraction{}, fmt.Errorf("%w: missing YouTube channel metadata", ErrInvalidMetadata)
 	}
+	if bound, err := youtubeBindAdvertisedTabs(raw, identity); err != nil {
+		return Extraction{}, err
+	} else {
+		parsed.tabs = bound
+	}
 	config := extractYouTubePlaylistConfig(page)
 	visitorData := parsed.visitorData
 	if visitorData == "" {
 		visitorData = config.VisitorData
 	}
-	auth := youtubeBrowseAuthFromPage(page, transport)
+	auth, err := youtubeBrowseAuthFromPage(page, transport)
+	if err != nil {
+		return Extraction{}, categorizeYouTubeChannelError(err)
+	}
 	entries, err := StatefulContinuationEntries(parsed.entries, parsed.continuation, visitorData, func(ctx context.Context, token, visitorData string) ([]Entry, string, string, error) {
 		return fetchYouTubeBrowseContinuation(ctx, transport, token, visitorData, config, policy, "channel", categorizeYouTubeChannelError, auth)
 	})
