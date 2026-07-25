@@ -6,8 +6,8 @@ The shared registry and parity manifest remain owned by the primary integrator.
 ## Supported pilot behavior
 
 - Strict matching for public SoundCloud track URLs, private `s-*` track links,
-  public set URLs, direct API track/playlist IDs, and public user `/tracks`
-  collections. Ambiguous profile resources and non-SoundCloud hosts are not
+  public set URLs, direct API track/playlist IDs, and public user `/tracks` and
+  `/likes` collections. Other profile tabs and non-SoundCloud hosts are not
   claimed.
 - Track stations: `soundcloud.com/stations/track/<artist>/<track>` resolved
   through the v2 resolve endpoint. The opaque station identifier
@@ -42,8 +42,8 @@ The shared registry and parity manifest remain owned by the primary integrator.
   and audio-only formats.
 - Ordered transparent URL entries for sets/API playlists. Missing permalink
   URLs fall back to direct v2 track URLs and preserve a private set token.
-- Lazy, independently reusable linked-partition iterators for public user tracks,
-  track stations, and related-resource pages.
+- Lazy, independently reusable linked-partition iterators for public user
+  `/tracks` and `/likes` pages, track stations, and related-resource pages.
 - Route-aware continuation policy: every `next_href` must use HTTPS, the exact
   `api-v2.soundcloud.com` host, no userinfo, no explicit port, no fragment, no
   encoded separators (`%2f`, `%5c`, `%00`) or NULs, no literal `.` or `..` path
@@ -117,10 +117,10 @@ registry evidence and the complete test suite passes.
 ## Known deviations
 
 The pilot does not yet implement OAuth/cookie login, original downloadable-file
-resolution, premium subscription formats, comments, search, arbitrary user
-resource tabs, offset pagination compatibility, full artwork-size expansion, or
-batch hydration of incomplete private-set tracks. SoundCloud embed support,
-general SoundCloud search pseudo-URLs, and arbitrary user tabs are also out of
+resolution, premium subscription formats, comments, albums/sets/reposts/spotlight
+user tabs beyond `/tracks` and `/likes`, offset pagination compatibility, full
+artwork-size expansion, or batch hydration of incomplete private-set tracks.
+SoundCloud embed support and arbitrary remaining user tabs are also out of
 scope. Only the declared synthetic corpus is compatibility evidence. SoundCloud
 can change its web client-ID layout; failure remains explicit and bounded rather
 than relying on a pinned runtime credential.
