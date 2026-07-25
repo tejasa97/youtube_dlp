@@ -402,9 +402,7 @@ func loadCheckpoint(statePath string, identity checkpointIdentity) (sabrCheckpoi
 		return sabrCheckpoint{}, false, fmt.Errorf("%w: forbidden checkpoint content", ErrCheckpointInvalid)
 	}
 	var state sabrCheckpoint
-	decoder := json.NewDecoder(bytes.NewReader(encoded))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&state); err != nil {
+	if err := decodeStrictJSON(encoded, &state); err != nil {
 		return sabrCheckpoint{}, false, nil
 	}
 	if err := validateCheckpoint(state); err != nil {
@@ -414,6 +412,22 @@ func loadCheckpoint(statePath string, identity checkpointIdentity) (sabrCheckpoi
 		return sabrCheckpoint{}, false, nil
 	}
 	return state, true, nil
+}
+
+func decodeStrictJSON(data []byte, dest any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(dest); err != nil {
+		return err
+	}
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("%w: trailing JSON value", ErrCheckpointInvalid)
+		}
+		return fmt.Errorf("%w: trailing JSON garbage", ErrCheckpointInvalid)
+	}
+	return nil
 }
 
 func containsForbiddenCheckpointBytes(encoded []byte) bool {
@@ -687,14 +701,22 @@ func (identity ResumeIdentity) matchesCompletion(marker sabrCompletionMarker) bo
 
 // WriteCompletionMarker persists identity-bound completion metadata for a published track.
 func WriteCompletionMarker(destination string, identity ResumeIdentity, totalBytes int64) error {
-	return writeCompletionMarker(destination, identity, totalBytes)
+	return writeCompletionMarker(destination, destination, identity, totalBytes)
 }
 
-func writeCompletionMarker(destination string, identity ResumeIdentity, totalBytes int64) error {
+// completionMarkerWriter is the durable marker writer. Tests may replace it to
+// inject deterministic marker-write / post-marker crash boundaries.
+var completionMarkerWriter = writeCompletionMarkerDurable
+
+func writeCompletionMarker(mediaPath, destination string, identity ResumeIdentity, totalBytes int64) error {
+	return completionMarkerWriter(mediaPath, destination, identity, totalBytes)
+}
+
+func writeCompletionMarkerDurable(mediaPath, destination string, identity ResumeIdentity, totalBytes int64) error {
 	if totalBytes <= 0 {
 		return fmt.Errorf("%w: empty completion", ErrCheckpointInvalid)
 	}
-	contentHash, err := hashFileSHA256(destination)
+	contentHash, err := hashFileSHA256(mediaPath)
 	if err != nil {
 		return err
 	}
@@ -807,17 +829,6 @@ func ValidateCompletedTrack(destination string, identity ResumeIdentity) (int64,
 	if !info.Mode().IsRegular() {
 		return 0, false, ErrUnsafeDestination
 	}
-	partPath, statePath := checkpointPaths(destination)
-	if _, err := os.Lstat(partPath); err == nil {
-		return 0, false, nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return 0, false, err
-	}
-	if _, err := os.Lstat(statePath); err == nil {
-		return 0, false, nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return 0, false, err
-	}
 	if info.Size() <= 0 {
 		return 0, false, nil
 	}
@@ -836,9 +847,7 @@ func ValidateCompletedTrack(destination string, identity ResumeIdentity) (int64,
 		return 0, false, fmt.Errorf("%w: invalid completion marker", ErrCheckpointInvalid)
 	}
 	var marker sabrCompletionMarker
-	decoder := json.NewDecoder(bytes.NewReader(encoded))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&marker); err != nil {
+	if err := decodeStrictJSON(encoded, &marker); err != nil {
 		return 0, false, nil
 	}
 	if err := validateCompletionMarker(marker); err != nil {
@@ -857,6 +866,9 @@ func ValidateCompletedTrack(destination string, identity ResumeIdentity) (int64,
 	if got != marker.ContentSHA256 {
 		return 0, false, fmt.Errorf("%w: completed track content mismatch", ErrCheckpointInvalid)
 	}
+	// Durable marker wins: leftover resume artifacts after publish are stale.
+	partPath, statePath := checkpointPaths(destination)
+	clearResumeArtifacts(partPath, statePath)
 	return marker.TotalBytes, true, nil
 }
 
