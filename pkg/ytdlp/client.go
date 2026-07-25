@@ -117,10 +117,13 @@ type Request struct {
 	Playlist                  PlaylistOptions
 	ProgressTemplate          string
 	MatchFilters              []string
-	ParseMetadata             []string
-	ReplaceMetadata           []string
-	Downloader                DownloaderOptions
-	Postprocessors            []Postprocessor
+	// BreakMatchFilters use the same OR/AND language as MatchFilters, but a
+	// rejection stops playlist expansion before the rejected entry is retained.
+	BreakMatchFilters []string
+	ParseMetadata     []string
+	ReplaceMetadata   []string
+	Downloader        DownloaderOptions
+	Postprocessors    []Postprocessor
 	// PluginID explicitly selects an installed signed plugin extractor. Plugins
 	// are never considered by automatic URL routing.
 	PluginID string
@@ -133,6 +136,9 @@ type Result struct {
 	Archived   bool
 	Skipped    bool
 	SkipReason string
+	// Stopped reports that a breaking match filter ended this result's queue.
+	Stopped    bool
+	StopReason string
 	Filename   string
 	Bytes      int64
 	Entries    []Result
@@ -475,6 +481,8 @@ type operation struct {
 	compatibility                    compatibilityPlan
 	rootExtractor                    *string
 	playlistItemsRangeWarningEmitted bool
+	breakMatchTriggered              bool
+	breakMatchReason                 string
 	removeFile                       func(string) error
 	youtubeLiveRefresh               func(mediaformat.Selection) youtubelive.LiveRefreshFunc
 	sabrMerge                        func(ctx context.Context, video, audio, destination string, overwrite bool, sink events.Sink) error
@@ -596,38 +604,7 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 			}
 		}
 		if !ok {
-			info := value.NewInfo(extracted.Info.Fields().Clone())
-			info.Set("entries", value.List(entryValues...))
-			encoded, err := encodeInfo(info)
-			if err != nil {
-				return Result{}, err
-			}
-			result := Result{InfoJSON: encoded, Extractor: extractorName, Entries: children}
-			for _, child := range children {
-				result.Bytes += child.Bytes
-				result.Downloaded = result.Downloaded || child.Downloaded
-				result.Archived = result.Archived || child.Archived
-			}
-			if !operation.request.Simulate && !operation.request.RelatedFiles.NoPlaylist {
-				artifacts, artifactBytes, err := operation.writeRelatedFiles(ctx, info, true)
-				if err != nil {
-					return Result{}, categorized("write playlist related files", err)
-				}
-				result.Artifacts = append(result.Artifacts, artifacts...)
-				result.Bytes += artifactBytes
-				result.Downloaded = result.Downloaded || len(artifacts) > 0
-			}
-			printArtifacts, printBytes, err := operation.writePrintFiles(ctx, PrintPlaylist, info, nil, "")
-			if err != nil {
-				return Result{}, categorized("write playlist print file", err)
-			}
-			addPrintFileArtifacts(&result, printArtifacts, printBytes)
-			prints, err := operation.capturePrints(ctx, PrintPlaylist, info, nil, "")
-			if err != nil {
-				return Result{}, categorized("render playlist print", err)
-			}
-			result.Prints = append(result.Prints, prints...)
-			return result, nil
+			return operation.finishPlaylistResult(ctx, extracted.Info, extractorName, children, entryValues)
 		}
 		entry := selected.Entry
 		if entry.URL == "" {
@@ -638,6 +615,9 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 			child, _, terminal, err := operation.prepareMediaResult(ctx, &entryInfo, entry.ExtractorKey, true)
 			if err != nil {
 				return Result{}, fmt.Errorf("flat playlist entry %d: %w", selected.SourceIndex, err)
+			}
+			if child.Stopped {
+				return operation.finishPlaylistResult(ctx, extracted.Info, extractorName, children, entryValues)
 			}
 			if !terminal {
 				prints, err := operation.capturePrints(ctx, PrintVideo, entryInfo, nil, "")
@@ -659,6 +639,21 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 		if err != nil {
 			return Result{}, fmt.Errorf("playlist entry %d: %w", selected.SourceIndex, err)
 		}
+		if child.Stopped {
+			if !child.Skipped {
+				entryValue, err := playlistEntryValue(child.InfoJSON, selected.SourceIndex, playlistID, playlistTitle)
+				if err != nil {
+					return Result{}, err
+				}
+				child.InfoJSON, err = entryValue.MarshalJSON()
+				if err != nil {
+					return Result{}, &Error{Category: ErrorInternal, Op: "encode playlist entry metadata", Err: err}
+				}
+				children = append(children, child)
+				entryValues = append(entryValues, entryValue)
+			}
+			return operation.finishPlaylistResult(ctx, extracted.Info, extractorName, children, entryValues)
+		}
 		entryValue, err := playlistEntryValue(child.InfoJSON, selected.SourceIndex, playlistID, playlistTitle)
 		if err != nil {
 			return Result{}, err
@@ -670,6 +665,50 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 		children = append(children, child)
 		entryValues = append(entryValues, entryValue)
 	}
+}
+
+func (operation *operation) finishPlaylistResult(
+	ctx context.Context,
+	playlistInfo value.Info,
+	extractorName string,
+	children []Result,
+	entryValues []value.Value,
+) (Result, error) {
+	info := value.NewInfo(playlistInfo.Fields().Clone())
+	info.Set("entries", value.List(entryValues...))
+	encoded, err := encodeInfo(info)
+	if err != nil {
+		return Result{}, err
+	}
+	result := Result{
+		InfoJSON: encoded, Extractor: extractorName, Entries: children,
+		Stopped: operation.breakMatchTriggered, StopReason: operation.breakMatchReason,
+	}
+	for _, child := range children {
+		result.Bytes += child.Bytes
+		result.Downloaded = result.Downloaded || child.Downloaded
+		result.Archived = result.Archived || child.Archived
+	}
+	if !operation.request.Simulate && !operation.request.RelatedFiles.NoPlaylist {
+		artifacts, artifactBytes, err := operation.writeRelatedFiles(ctx, info, true)
+		if err != nil {
+			return Result{}, categorized("write playlist related files", err)
+		}
+		result.Artifacts = append(result.Artifacts, artifacts...)
+		result.Bytes += artifactBytes
+		result.Downloaded = result.Downloaded || len(artifacts) > 0
+	}
+	printArtifacts, printBytes, err := operation.writePrintFiles(ctx, PrintPlaylist, info, nil, "")
+	if err != nil {
+		return Result{}, categorized("write playlist print file", err)
+	}
+	addPrintFileArtifacts(&result, printArtifacts, printBytes)
+	prints, err := operation.capturePrints(ctx, PrintPlaylist, info, nil, "")
+	if err != nil {
+		return Result{}, categorized("render playlist print", err)
+	}
+	result.Prints = append(result.Prints, prints...)
+	return result, nil
 }
 
 func flatPlaylistEntryInfo(entry extractor.Entry, index int, playlistID, playlistTitle string) value.Info {
@@ -806,6 +845,9 @@ func (operation *operation) prepareMediaResult(
 	result := Result{InfoJSON: encoded, Extractor: extractorName}
 	if !decision.Pass {
 		result.Skipped, result.SkipReason = true, decision.Reason
+		if operation.breakMatchTriggered {
+			result.Stopped, result.StopReason = true, operation.breakMatchReason
+		}
 		if err := operation.client.emit(ctx, Event{
 			Kind: EventMatchFilterSkipped, Extractor: extractorName, Message: decision.Reason,
 		}); err != nil {

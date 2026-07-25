@@ -26,10 +26,10 @@ Intentional unsupported syntax is explicit rather than silently approximated:
 
 - Match filters implement bounded boolean composition, presence checks, string
   and numeric comparisons, none-inclusive `?` comparisons, string negation,
-  incomplete-field handling, and yt-dlp-compatible integer, filesize, and
-  duration coercion for the documented corpus. Interactive/break filters,
-  Python regular-expression semantics, and unbounded expressions remain
-  unsupported.
+  incomplete-field handling, yt-dlp-compatible integer, filesize, and
+  duration coercion for the documented corpus, and product-level
+  `--break-match-filter(s)` queue stopping. Interactive `-` prompting, Python
+  regular-expression semantics, and unbounded expressions remain unsupported.
 - Format filters do not implement every yt-dlp selector atom, codec/container
   preference alias, filesize approximation, or advanced sort field conversion.
   Plain `best`/`worst` without a media type keep the port's historical

@@ -73,4 +73,5 @@ notes:
   - These are attributable, hand-authored expectations; no upstream test data is copied.
   - Repeated filters are ORed; unescaped ampersands join conditions within one filter.
   - Regular expressions use bounded Go RE2 syntax. Python-only constructs are rejected.
-  - Interactive "-" and break-match-filter control flow are intentionally outside this core grammar.
+  - Interactive "-" remains outside this core grammar.
+  - Break-match-filter reuses this grammar in the product layer, evaluates before ordinary filters, and stops before retaining the rejected playlist entry.
