@@ -105,6 +105,7 @@ func FuzzParse(f *testing.F) {
 	f.Add("https://example.invalid/master.m3u8", []byte("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nmedia.m3u8\n"))
 	f.Add("https://example.invalid/ads.m3u8", []byte("#EXTM3U\n#UPLYNK-SEGMENT,ad\n#EXT-X-PART:DURATION=0.5,URI=ad-part.ts\n#UPLYNK-SEGMENT,segment\n#EXTINF:1,\nmedia.ts\n"))
 	f.Add("https://example.invalid/cue.m3u8", []byte("#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:9\n#EXT-X-CUE-OUT:DURATION=2\n#EXT-X-PART:DURATION=0.5,URI=ad.0.ts\n#EXT-X-CUE-IN\n#EXTINF:1,\nmedia.ts\n#EXT-X-ENDLIST\n"))
+	f.Add("https://example.invalid/daterange.m3u8", []byte("#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:1\n#EXT-X-DATERANGE:ID=x,SCTE35-OUT=0xFC301B007E000000000000000A050000000100DF0000000000001AA436BF\n#EXTINF:1,\nad.ts\n#EXT-X-DATERANGE:ID=x,SCTE35-IN=0xFC301B007E000000000000000A0500000001005F0000000000003774D8DA\n#EXTINF:1,\nmedia.ts\n"))
 	f.Add("https://example.invalid/cue-cont.m3u8", []byte("#EXTM3U\n#EXT-X-SKIP:SKIPPED-SEGMENTS=1\n#EXT-X-CUE-OUT-CONT:ElapsedTime=1\n#EXTINF:1,\nad.ts\n#EXT-X-CUE-IN\n#EXTINF:1,\nmedia.ts\n"))
 	f.Fuzz(func(t *testing.T, rawURL string, input []byte) {
 		if len(rawURL) > 4096 || len(input) > 1<<20 {
@@ -521,6 +522,26 @@ still-ad.bin
 	}
 	if delta.Media.Segments[3].Advertisement || delta.Media.Segments[3].Sequence != 203 || delta.Media.Segments[3].Partial {
 		t.Fatalf("delta retained=%#v", delta.Media.Segments[3])
+	}
+
+	daterangeFixture, err := os.ReadFile("../../../conformance/media/hls_ads/delta-daterange-midbreak.m3u8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	daterangeDelta, err := Parse("https://example.invalid/delta-daterange-midbreak.m3u8", daterangeFixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(daterangeDelta.Media.Segments) != 4 {
+		t.Fatalf("daterange delta segments=%#v", daterangeDelta.Media.Segments)
+	}
+	for index, segment := range daterangeDelta.Media.Segments[:3] {
+		if !segment.Advertisement || segment.Sequence != 202 {
+			t.Fatalf("daterange delta ad[%d]=%#v", index, segment)
+		}
+	}
+	if daterangeDelta.Media.Segments[3].Advertisement || daterangeDelta.Media.Segments[3].Sequence != 203 || !daterangeDelta.Media.Segments[3].Partial {
+		t.Fatalf("daterange delta retained=%#v", daterangeDelta.Media.Segments[3])
 	}
 }
 

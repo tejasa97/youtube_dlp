@@ -555,6 +555,210 @@ media-8.bin
 	}
 }
 
+func TestDownloadSuppressesDaterangeVODAdvertisements(t *testing.T) {
+	fixture, err := os.ReadFile("../../../conformance/media/hls_ads/mixed-daterange-vod.m3u8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var advertisementHits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/mixed-daterange-vod.m3u8":
+			_, _ = writer.Write(fixture)
+		case "/media-60.bin":
+			_, _ = writer.Write([]byte("sixty-"))
+		case "/media-63.bin":
+			_, _ = writer.Write([]byte("sixty-three"))
+		case "/daterange-ad-61.bin", "/daterange-ad-62.bin":
+			advertisementHits.Add(1)
+			_, _ = writer.Write([]byte("ADVERTISEMENT"))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "daterange-suppressed.bin")
+	result, err := NewDownloader(transport, Config{MaxSegments: 2}).Download(
+		context.Background(), server.URL+"/mixed-daterange-vod.m3u8", root, destination, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(destination)
+	if err != nil || string(contents) != "sixty-sixty-three" {
+		t.Fatalf("contents=%q err=%v", contents, err)
+	}
+	if advertisementHits.Load() != 0 || result.Downloaded != 2 {
+		t.Fatalf("ad hits=%d result=%#v", advertisementHits.Load(), result)
+	}
+}
+
+func TestDownloadDaterangeLiveReclassificationAndDelta(t *testing.T) {
+	var polls atomic.Int32
+	var advertisementHits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/live.m3u8":
+			switch polls.Add(1) {
+			case 1:
+				_, _ = fmt.Fprint(writer, `#EXTM3U
+#EXT-X-MEDIA-SEQUENCE:10
+#EXT-X-DATERANGE:ID="live-break",SCTE35-OUT=0xFC301B007E000000000000000A050000000100DF0000000000001AA436BF
+#EXTINF:1,
+ad-10.bin
+#EXT-X-PART:DURATION=0.5,URI="ad-11.0.bin"
+#EXT-X-PART:DURATION=0.5,URI="ad-11.1.bin"
+`)
+			case 2:
+				_, _ = fmt.Fprint(writer, `#EXTM3U
+#EXT-X-MEDIA-SEQUENCE:10
+#EXT-X-SKIP:SKIPPED-SEGMENTS=1
+#EXT-X-DATERANGE:ID="live-break",SCTE35-OUT=0xFC301B007E000000000000000A050000000100DF0000000000001AA436BF
+#EXT-X-PART:DURATION=0.5,URI="ad-new-11.0.bin"
+#EXT-X-PART:DURATION=0.5,URI="ad-new-11.1.bin"
+`)
+			default:
+				_, _ = fmt.Fprint(writer, `#EXTM3U
+#EXT-X-MEDIA-SEQUENCE:10
+#EXT-X-SKIP:SKIPPED-SEGMENTS=1
+#EXT-X-DATERANGE:ID="live-break",SCTE35-IN=0xFC301B007E000000000000000A0500000001005F0000000000003774D8DA
+#EXTINF:1,
+media-11.bin
+#EXT-X-ENDLIST
+`)
+			}
+		case "/media-11.bin":
+			_, _ = writer.Write([]byte("eleven"))
+		case "/ad-10.bin", "/ad-11.0.bin", "/ad-11.1.bin", "/ad-new-11.0.bin", "/ad-new-11.1.bin":
+			advertisementHits.Add(1)
+			_, _ = writer.Write([]byte("ADVERTISEMENT"))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "daterange-live.bin")
+	_, err := NewDownloader(transport, Config{PollInterval: time.Millisecond, MaxPolls: 4}).Download(
+		context.Background(), server.URL+"/live.m3u8", root, destination, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(destination)
+	if err != nil || string(contents) != "eleven" {
+		t.Fatalf("contents=%q err=%v", contents, err)
+	}
+	if polls.Load() != 3 || advertisementHits.Load() != 0 {
+		t.Fatalf("polls=%d ad hits=%d", polls.Load(), advertisementHits.Load())
+	}
+}
+
+func TestDownloadDaterangeAdvertisementKeysMapsAndPhysicalAESIV(t *testing.T) {
+	key := []byte("0123456789abcdef")
+	iv := make([]byte, aes.BlockSize)
+	iv[len(iv)-1] = 9
+	encrypted := encryptSegment(t, []byte("daterange-secret"), key, iv)
+	var adResourceHits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/media.m3u8":
+			_, _ = fmt.Fprint(writer, `#EXTM3U
+#EXT-X-MEDIA-SEQUENCE:8
+#EXT-X-DATERANGE:ID="enc-break",SCTE35-OUT=0xFC301B007E000000000000000A050000000100DF0000000000001AA436BF
+#EXT-X-MAP:URI="ad-init.bin"
+#EXT-X-KEY:METHOD=AES-128,URI="ad-key.bin"
+#EXTINF:1,
+ad-8.bin
+#EXT-X-DATERANGE:ID="enc-break",SCTE35-IN=0xFC301B007E000000000000000A0500000001005F0000000000003774D8DA
+#EXT-X-MAP:URI="media-init.bin"
+#EXT-X-KEY:METHOD=AES-128,URI="media-key.bin"
+#EXTINF:1,
+media-9.bin
+#EXT-X-ENDLIST
+`)
+		case "/ad-init.bin", "/ad-key.bin", "/ad-8.bin":
+			adResourceHits.Add(1)
+			_, _ = writer.Write([]byte("must-not-be-requested"))
+		case "/media-init.bin":
+			_, _ = writer.Write([]byte("init-"))
+		case "/media-key.bin":
+			_, _ = writer.Write(key)
+		case "/media-9.bin":
+			_, _ = writer.Write(encrypted)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "daterange-encrypted.bin")
+	_, err := NewDownloader(transport, Config{}).Download(
+		context.Background(), server.URL+"/media.m3u8", root, destination, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(destination)
+	if err != nil || string(contents) != "init-daterange-secret" {
+		t.Fatalf("contents=%q err=%v", contents, err)
+	}
+	if adResourceHits.Load() != 0 {
+		t.Fatalf("ad resource hits=%d", adResourceHits.Load())
+	}
+}
+
+func TestDownloadDaterangeAllAdvertisementsAndCancellation(t *testing.T) {
+	var resourceHits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/ads.m3u8":
+			_, _ = fmt.Fprint(writer, `#EXTM3U
+#EXT-X-DATERANGE:ID="only-ads",SCTE35-OUT=0xFC301B007E000000000000000A050000000100DF0000000000001AA436BF
+#EXT-X-MAP:URI="ad-init.bin"
+#EXT-X-KEY:METHOD=AES-128,URI="ad-key.bin"
+#EXT-X-PART:DURATION=0.5,URI="ad-part.bin"
+#EXTINF:1,
+ad.bin
+#EXT-X-ENDLIST
+`)
+		case "/live.m3u8":
+			_, _ = fmt.Fprint(writer, `#EXTM3U
+#EXT-X-DATERANGE:ID="live-ad",SCTE35-OUT=0xFC301B007E000000000000000A050000000100DF0000000000001AA436BF
+#EXTINF:1,
+ad-live.bin
+`)
+		default:
+			resourceHits.Add(1)
+			_, _ = writer.Write([]byte("must-not-be-requested"))
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "daterange-ads.bin")
+	_, err := NewDownloader(transport, Config{}).Download(
+		context.Background(), server.URL+"/ads.m3u8", root, destination, false, nil)
+	if !errors.Is(err, fragment.ErrNoSegments) {
+		t.Fatalf("ad-only error=%v", err)
+	}
+	if resourceHits.Load() != 0 {
+		t.Fatalf("ad resource hits=%d", resourceHits.Load())
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Millisecond)
+	defer cancel()
+	_, err = NewDownloader(transport, Config{PollInterval: time.Second}).Download(
+		ctx, server.URL+"/live.m3u8", root, filepath.Join(root, "daterange-cancel.bin"), false, nil)
+	if err == nil || ctx.Err() == nil {
+		t.Fatalf("Download() error = %v, context = %v", err, ctx.Err())
+	}
+	if resourceHits.Load() != 0 {
+		t.Fatalf("cancelled daterange live fetched ad media: hits=%d", resourceHits.Load())
+	}
+}
+
 func TestDownloadCueAllAdvertisementsAndCancellation(t *testing.T) {
 	var resourceHits atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
