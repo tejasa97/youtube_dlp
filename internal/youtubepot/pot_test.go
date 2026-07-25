@@ -2,6 +2,7 @@ package youtubepot
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"strings"
@@ -29,7 +30,7 @@ func (*panickingNameProvider) Provide(context.Context, Request) (Response, error
 func TestDirectorProviderFallbackCacheExpiryAndBypass(t *testing.T) {
 	clock := &fixedClock{now: time.Unix(1_700_000_000, 0)}
 	var calls atomic.Int32
-	director, err := New(Config{Policy: FetchAlways, CacheSize: 2, Clock: clock, Providers: []Provider{
+	director, err := New(Config{Policy: FetchAlways, CacheSize: 2, Clock: clock, RefreshSkew: time.Second, Providers: []Provider{
 		ProviderFunc{ProviderName: "reject", Function: func(context.Context, Request) (Response, error) { return Response{}, ErrRejected }},
 		ProviderFunc{ProviderName: "fixture", Function: func(context.Context, Request) (Response, error) {
 			calls.Add(1)
@@ -60,6 +61,212 @@ func TestDirectorProviderFallbackCacheExpiryAndBypass(t *testing.T) {
 	}
 }
 
+func TestDirectorExpirySkewRefreshesBeforeHardExpiry(t *testing.T) {
+	clock := &fixedClock{now: time.Unix(1_700_000_000, 0)}
+	var calls atomic.Int32
+	director, err := New(Config{
+		Policy: FetchAlways, Clock: clock, RefreshSkew: 30 * time.Second,
+		Providers: []Provider{ProviderFunc{ProviderName: "fixture", Function: func(context.Context, Request) (Response, error) {
+			calls.Add(1)
+			return Response{Token: "Zm9v", ExpiresAt: clock.now.Add(40 * time.Second)}, nil
+		}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := validRequestFixture(ContextGVS)
+	if _, _, err := director.Resolve(context.Background(), request, true); err != nil || calls.Load() != 1 {
+		t.Fatalf("initial resolve calls=%d err=%v", calls.Load(), err)
+	}
+	clock.now = clock.now.Add(15 * time.Second)
+	if _, _, err := director.Resolve(context.Background(), request, true); err != nil || calls.Load() != 2 {
+		t.Fatalf("skew refresh calls=%d err=%v", calls.Load(), err)
+	}
+}
+
+func TestDirectorRejectsInvalidRefreshSkew(t *testing.T) {
+	if _, err := New(Config{RefreshSkew: MaxRefreshSkew + time.Second}); !errors.Is(err, ErrLimit) {
+		t.Fatalf("oversize skew err=%v", err)
+	}
+	if _, err := New(Config{RefreshSkew: -time.Second}); !errors.Is(err, ErrLimit) {
+		t.Fatalf("negative skew err=%v", err)
+	}
+}
+
+func TestDirectorSingleFlightSharesCompatibleIdentity(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var calls atomic.Int32
+	director, err := New(Config{Policy: FetchAlways, Providers: []Provider{ProviderFunc{
+		ProviderName: "fixture",
+		Function: func(ctx context.Context, _ Request) (Response, error) {
+			calls.Add(1)
+			close(started)
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return Response{}, ctx.Err()
+			}
+			return Response{Token: "Zm9v"}, nil
+		},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := validRequestFixture(ContextGVS)
+	var wait sync.WaitGroup
+	results := make(chan string, 2)
+	for index := 0; index < 2; index++ {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			token, ok, err := director.Resolve(context.Background(), request, true)
+			if err != nil || !ok {
+				t.Errorf("resolve err=%v ok=%v", err, ok)
+				return
+			}
+			results <- token
+		}()
+	}
+	<-started
+	close(release)
+	wait.Wait()
+	close(results)
+	if calls.Load() != 1 {
+		t.Fatalf("provider calls=%d want 1", calls.Load())
+	}
+	for token := range results {
+		if token != "Zm9v" {
+			t.Fatalf("token=%q", token)
+		}
+	}
+}
+
+func TestDirectorSingleFlightIncompatibleIdentitiesDoNotShare(t *testing.T) {
+	var calls atomic.Int32
+	director, err := New(Config{Policy: FetchAlways, Providers: []Provider{ProviderFunc{
+		ProviderName: "fixture",
+		Function: func(context.Context, Request) (Response, error) {
+			calls.Add(1)
+			time.Sleep(20 * time.Millisecond)
+			return Response{Token: "Zm9v"}, nil
+		},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	audio := validRequestFixture(ContextGVS)
+	video := validRequestFixture(ContextGVS)
+	video.Client = "WEB"
+	if CacheKey(audio) == CacheKey(video) {
+		t.Fatal("expected incompatible cache keys")
+	}
+	var wait sync.WaitGroup
+	wait.Add(2)
+	go func() { defer wait.Done(); _, _, _ = director.Resolve(context.Background(), audio, true) }()
+	go func() { defer wait.Done(); _, _, _ = director.Resolve(context.Background(), video, true) }()
+	wait.Wait()
+	if calls.Load() != 2 {
+		t.Fatalf("provider calls=%d want 2", calls.Load())
+	}
+}
+
+func TestDirectorCancelledWaiterDoesNotBreakFlight(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var calls atomic.Int32
+	director, err := New(Config{Policy: FetchAlways, Providers: []Provider{ProviderFunc{
+		ProviderName: "fixture",
+		Function: func(ctx context.Context, _ Request) (Response, error) {
+			calls.Add(1)
+			close(started)
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return Response{}, ctx.Err()
+			}
+			return Response{Token: "Zm9v"}, nil
+		},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := validRequestFixture(ContextGVS)
+	leaderDone := make(chan struct{})
+	go func() {
+		defer close(leaderDone)
+		token, ok, err := director.Resolve(context.Background(), request, true)
+		if err != nil || !ok || token != "Zm9v" {
+			t.Errorf("leader resolve=%q ok=%v err=%v", token, ok, err)
+		}
+	}()
+	<-started
+	cancelCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, _, err := director.Resolve(cancelCtx, request, true); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled waiter err=%v", err)
+	}
+	close(release)
+	<-leaderDone
+	token, ok, err := director.Resolve(context.Background(), request, true)
+	if err != nil || !ok || token != "Zm9v" {
+		t.Fatalf("follow-up resolve=%q ok=%v err=%v", token, ok, err)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("provider calls=%d", calls.Load())
+	}
+}
+
+func TestEpisodeForcedRefreshCapsAndCompatibleShare(t *testing.T) {
+	clock := &fixedClock{now: time.Unix(1_700_000_000, 0)}
+	var calls atomic.Int32
+	director, err := New(Config{Policy: FetchAlways, Clock: clock, Providers: []Provider{ProviderFunc{
+		ProviderName: "fixture",
+		Function: func(context.Context, Request) (Response, error) {
+			n := calls.Add(1)
+			return Response{Token: base64Token(byte('A' + byte(n-1))), ExpiresAt: clock.now.Add(time.Hour)}, nil
+		},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	episode := NewEpisode(2)
+	request := validRequestFixture(ContextGVS)
+	first, _, err := director.ResolveEpisode(context.Background(), request, true, false, episode)
+	if err != nil || first == "" {
+		t.Fatalf("first=%q err=%v", first, err)
+	}
+	if err := episode.SignalRejection(ErrTokenRejected); err != nil {
+		t.Fatal(err)
+	}
+	second, _, err := director.ResolveEpisode(context.Background(), request, true, false, episode)
+	if err != nil || second == first || calls.Load() != 2 {
+		t.Fatalf("forced second=%q first=%q calls=%d err=%v", second, first, calls.Load(), err)
+	}
+	audio := request
+	video := request
+	if CacheKey(audio) != CacheKey(video) {
+		t.Fatal("compatible A/V must share identity")
+	}
+	third, _, err := director.ResolveEpisode(context.Background(), video, true, false, episode)
+	if err != nil || third != second || calls.Load() != 2 {
+		t.Fatalf("shared cache third=%q calls=%d err=%v", third, calls.Load(), err)
+	}
+	if err := episode.SignalRejection(ErrTokenRejected); err != nil {
+		t.Fatal(err)
+	}
+	fourth, _, err := director.ResolveEpisode(context.Background(), request, true, false, episode)
+	if err != nil || fourth == second || calls.Load() != 3 {
+		t.Fatalf("second forced fourth=%q calls=%d err=%v", fourth, calls.Load(), err)
+	}
+	if err := episode.SignalRejection(ErrTokenRejected); !errors.Is(err, ErrForcedRefreshBudget) {
+		t.Fatalf("budget err=%v", err)
+	}
+	if err := episode.SignalRejection(errors.New("untyped")); !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("untyped rejection err=%v", err)
+	}
+}
+
 func TestDirectorPolicyRequiredCancellationPanicAndRedaction(t *testing.T) {
 	auto, err := New(Config{Providers: []Provider{ProviderFunc{ProviderName: "panic", Function: func(context.Context, Request) (Response, error) { panic("secret-token") }}}})
 	if err != nil {
@@ -79,6 +286,27 @@ func TestDirectorPolicyRequiredCancellationPanicAndRedaction(t *testing.T) {
 	}
 	if text := fmt.Sprintf("%v %#v %v %#v", request, request, Response{Token: "secret-token"}, Response{Token: "secret-token"}); strings.Contains(text, "secret-token") || strings.Contains(text, "visitor") {
 		t.Fatalf("secret leaked through formatting: %s", text)
+	}
+}
+
+func TestDirectorMalformedProviderOutputRecovered(t *testing.T) {
+	var calls atomic.Int32
+	director, err := New(Config{Policy: FetchAlways, Providers: []Provider{
+		ProviderFunc{ProviderName: "bad", Function: func(context.Context, Request) (Response, error) {
+			calls.Add(1)
+			return Response{Token: "not base64!!"}, nil
+		}},
+		ProviderFunc{ProviderName: "good", Function: func(context.Context, Request) (Response, error) {
+			calls.Add(1)
+			return Response{Token: "Zm9v"}, nil
+		}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, ok, err := director.Resolve(context.Background(), validRequestFixture(ContextGVS), true)
+	if err != nil || !ok || token != "Zm9v" || calls.Load() != 2 {
+		t.Fatalf("token=%q ok=%v calls=%d err=%v", token, ok, calls.Load(), err)
 	}
 }
 
@@ -222,4 +450,12 @@ func FuzzNormalizeToken(f *testing.F) {
 			}
 		}
 	})
+}
+
+func base64Token(b byte) string {
+	token, err := NormalizeToken(base64.RawURLEncoding.EncodeToString([]byte{b}))
+	if err != nil {
+		panic(err)
+	}
+	return token
 }
