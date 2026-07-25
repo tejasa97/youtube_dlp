@@ -99,36 +99,40 @@ func (site arcPowaSite) Extract(ctx context.Context, request Request) (Extractio
 	if len(canonical) > sharedHostingMaxURLBytes {
 		return Extraction{}, fmt.Errorf("%w: Arc site URL too long", ErrInvalidMetadata)
 	}
-	page, _, err := request.Transport.ReadPage(ctx, canonical)
-	if err != nil {
-		return Extraction{}, err
-	}
-	if err := ctx.Err(); err != nil {
-		return Extraction{}, err
-	}
-	entries, err := extractArcPowaEntries(page, site.org)
-	if err != nil {
-		return Extraction{}, err
-	}
-	if len(entries) == 0 {
-		lower := strings.ToLower(string(page))
-		if strings.Contains(lower, "sign in") || strings.Contains(lower, "log in") {
-			return Extraction{}, ErrAuthentication
-		}
-		if strings.Contains(lower, "not found") {
-			return Extraction{}, ErrUnavailable
-		}
-		return Extraction{}, fmt.Errorf("%w: missing Arc POWA embeds", ErrInvalidMetadata)
-	}
-	if len(entries) == 1 {
-		return URLResult(entries[0])
-	}
 	info := value.NewInfo(value.NewObject(
-		value.Field{Key: "id", Value: value.String(site.key + "-" + entries[0].ID)},
+		value.Field{Key: "id", Value: value.String(site.key)},
 		value.Field{Key: "title", Value: value.String(site.key + " playlist")},
 		value.Field{Key: "webpage_url", Value: value.String(canonical)},
 	))
-	return Playlist(info, StaticEntries(entries...))
+	sequence, err := LazyFirstPageEntries(arcMaxOrgs, func(ctx context.Context) ([]Entry, error) {
+		page, _, err := request.Transport.ReadPage(ctx, canonical)
+		if err != nil {
+			return nil, err
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		entries, err := extractArcPowaEntries(page, site.org)
+		if err != nil {
+			return nil, err
+		}
+		if len(entries) == 0 {
+			lower := strings.ToLower(string(page))
+			if strings.Contains(lower, "sign in") || strings.Contains(lower, "log in") {
+				return nil, ErrAuthentication
+			}
+			if strings.Contains(lower, "not found") {
+				return nil, ErrUnavailable
+			}
+			return nil, fmt.Errorf("%w: missing Arc POWA embeds", ErrInvalidMetadata)
+		}
+		return entries, nil
+	})
+	if err != nil {
+		return Extraction{}, err
+	}
+	// Single-embed pages still iterate one lazy entry; callers may CollectEntries(limit=1).
+	return Playlist(info, sequence)
 }
 
 func arcSiteHostOK(parsed *url.URL, host string) bool {

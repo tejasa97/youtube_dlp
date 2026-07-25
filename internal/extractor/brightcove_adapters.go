@@ -188,52 +188,55 @@ func (TVANouvellesArticle) Extract(ctx context.Context, request Request) (Extrac
 	if len(canonical) > sharedHostingMaxURLBytes {
 		return Extraction{}, fmt.Errorf("%w: TVA Nouvelles article URL too long", ErrInvalidMetadata)
 	}
-	page, _, err := request.Transport.ReadPage(ctx, canonical)
-	if err != nil {
-		return Extraction{}, err
-	}
-	if err := ctx.Err(); err != nil {
-		return Extraction{}, err
-	}
-	if int64(len(page)) > maxExtractorJSONBytes {
-		return Extraction{}, fmt.Errorf("%w: TVA Nouvelles article too large", ErrInvalidMetadata)
-	}
-	matches := tvaNouvellesVideoID.FindAllSubmatch(page, brightcoveAdapterMaxEntries+1)
-	if len(matches) == 0 {
-		return Extraction{}, classifyMissingMediaPage(page, "TVA Nouvelles video embeds")
-	}
-	if len(matches) > brightcoveAdapterMaxEntries {
-		return Extraction{}, fmt.Errorf("%w: TVA Nouvelles article entry overflow", ErrInvalidMetadata)
-	}
-	seen := make(map[string]bool, len(matches))
-	entries := make([]Entry, 0, len(matches))
-	for _, match := range matches {
-		if len(match) != 2 {
-			continue
-		}
-		id := string(match[1])
-		if seen[id] {
-			continue
-		}
-		seen[id] = true
-		entries = append(entries, Entry{
-			URL:          "https://www.tvanouvelles.ca/videos/" + id,
-			ExtractorKey: "tvanouvelles",
-			ID:           id,
-		})
-	}
-	if len(entries) == 0 {
-		return Extraction{}, fmt.Errorf("%w: missing TVA Nouvelles video embeds", ErrInvalidMetadata)
-	}
-	if len(entries) == 1 {
-		return URLResult(entries[0])
-	}
 	info := value.NewInfo(value.NewObject(
 		value.Field{Key: "id", Value: value.String(slug)},
 		value.Field{Key: "title", Value: value.String(slug)},
 		value.Field{Key: "webpage_url", Value: value.String(canonical)},
 	))
-	return Playlist(info, StaticEntries(entries...))
+	sequence, err := LazyFirstPageEntries(brightcoveAdapterMaxEntries, func(ctx context.Context) ([]Entry, error) {
+		page, _, err := request.Transport.ReadPage(ctx, canonical)
+		if err != nil {
+			return nil, err
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if int64(len(page)) > maxExtractorJSONBytes {
+			return nil, fmt.Errorf("%w: TVA Nouvelles article too large", ErrInvalidMetadata)
+		}
+		matches := tvaNouvellesVideoID.FindAllSubmatch(page, brightcoveAdapterMaxEntries+1)
+		if len(matches) == 0 {
+			return nil, classifyMissingMediaPage(page, "TVA Nouvelles video embeds")
+		}
+		if len(matches) > brightcoveAdapterMaxEntries {
+			return nil, fmt.Errorf("%w: TVA Nouvelles article entry overflow", ErrInvalidMetadata)
+		}
+		seen := make(map[string]bool, len(matches))
+		entries := make([]Entry, 0, len(matches))
+		for _, match := range matches {
+			if len(match) != 2 {
+				continue
+			}
+			id := string(match[1])
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+			entries = append(entries, Entry{
+				URL:          "https://www.tvanouvelles.ca/videos/" + id,
+				ExtractorKey: "tvanouvelles",
+				ID:           id,
+			})
+		}
+		if len(entries) == 0 {
+			return nil, fmt.Errorf("%w: missing TVA Nouvelles video embeds", ErrInvalidMetadata)
+		}
+		return entries, nil
+	})
+	if err != nil {
+		return Extraction{}, err
+	}
+	return Playlist(info, sequence)
 }
 
 func parseTVANouvellesArticleURL(parsed *url.URL) (string, bool) {
@@ -338,48 +341,54 @@ func (NetAppCollection) Extract(ctx context.Context, request Request) (Extractio
 		return Extraction{}, ErrUnsupported
 	}
 	endpoint := "https://api.media.netapp.com/client/collection/" + uuid
-	var payload struct {
-		Name  string `json:"name"`
-		Items []struct {
-			BrightcoveVideoID string `json:"brightcoveVideoId"`
-			Name              string `json:"name"`
-		} `json:"items"`
-	}
-	if err := hostedRequestJSON(ctx, request.Transport, http.MethodGet, endpoint, nil, make(http.Header), &payload); err != nil {
-		return Extraction{}, err
-	}
-	if len(payload.Items) > brightcoveAdapterMaxEntries {
-		return Extraction{}, fmt.Errorf("%w: NetApp collection overflow", ErrInvalidMetadata)
-	}
-	entries := make([]Entry, 0, len(payload.Items))
-	seen := make(map[string]bool)
-	for _, item := range payload.Items {
-		id := strings.TrimSpace(item.BrightcoveVideoID)
-		if !brightcoveDigitsID.MatchString(id) || seen[id] {
-			continue
-		}
-		seen[id] = true
-		entries = append(entries, Entry{
-			URL:          brightcovePlayerURL(netAppBrightcoveAccount, "default", id),
-			ExtractorKey: "brightcove",
-			ID:           id,
-			Title:        item.Name,
-			Transparent:  true,
-		})
-	}
-	if len(entries) == 0 {
-		return Extraction{}, fmt.Errorf("%w: empty NetApp collection", ErrInvalidMetadata)
-	}
-	title := payload.Name
-	if title == "" {
-		title = uuid
-	}
+	canonical := "https://media.netapp.com/collection/" + uuid
 	info := value.NewInfo(value.NewObject(
 		value.Field{Key: "id", Value: value.String(uuid)},
-		value.Field{Key: "title", Value: value.String(title)},
-		value.Field{Key: "webpage_url", Value: value.String("https://media.netapp.com/collection/" + uuid)},
+		value.Field{Key: "title", Value: value.String(uuid)},
+		value.Field{Key: "webpage_url", Value: value.String(canonical)},
 	))
-	return Playlist(info, StaticEntries(entries...))
+	sequence, err := LazyFirstPageEntries(brightcoveAdapterMaxEntries, func(ctx context.Context) ([]Entry, error) {
+		var payload struct {
+			Name  string `json:"name"`
+			Items []struct {
+				BrightcoveVideoID string `json:"brightcoveVideoId"`
+				Name              string `json:"name"`
+			} `json:"items"`
+		}
+		if err := hostedRequestJSON(ctx, request.Transport, http.MethodGet, endpoint, nil, make(http.Header), &payload); err != nil {
+			return nil, err
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if len(payload.Items) > brightcoveAdapterMaxEntries {
+			return nil, fmt.Errorf("%w: NetApp collection overflow", ErrInvalidMetadata)
+		}
+		entries := make([]Entry, 0, len(payload.Items))
+		seen := make(map[string]bool)
+		for _, item := range payload.Items {
+			id := strings.TrimSpace(item.BrightcoveVideoID)
+			if !brightcoveDigitsID.MatchString(id) || seen[id] {
+				continue
+			}
+			seen[id] = true
+			entries = append(entries, Entry{
+				URL:          brightcovePlayerURL(netAppBrightcoveAccount, "default", id),
+				ExtractorKey: "brightcove",
+				ID:           id,
+				Title:        item.Name,
+				Transparent:  true,
+			})
+		}
+		if len(entries) == 0 {
+			return nil, fmt.Errorf("%w: empty NetApp collection", ErrInvalidMetadata)
+		}
+		return entries, nil
+	})
+	if err != nil {
+		return Extraction{}, err
+	}
+	return Playlist(info, sequence)
 }
 
 func parseNetAppCollectionURL(parsed *url.URL) (string, bool) {
@@ -613,36 +622,45 @@ func (Craftsy) Extract(ctx context.Context, request Request) (Extraction, error)
 		return Extraction{}, ErrUnsupported
 	}
 	canonical := "https://www.craftsy.com/class/" + slug
-	page, _, err := request.Transport.ReadPage(ctx, canonical+"/")
-	if err != nil {
-		return Extraction{}, err
-	}
-	if err := ctx.Err(); err != nil {
-		return Extraction{}, err
-	}
-	if int64(len(page)) > maxExtractorJSONBytes {
-		return Extraction{}, fmt.Errorf("%w: Craftsy page too large", ErrInvalidMetadata)
-	}
-	accountID, lessons, err := parseCraftsyLessons(page)
-	if err != nil {
-		return Extraction{}, err
-	}
-	entries := make([]Entry, 0, len(lessons))
-	for _, lesson := range lessons {
-		entries = append(entries, Entry{
-			URL:          brightcovePlayerURL(accountID, "default", lesson.id),
-			ExtractorKey: "brightcove",
-			ID:           lesson.id,
-			Title:        lesson.title,
-			Transparent:  true,
-		})
-	}
 	info := value.NewInfo(value.NewObject(
 		value.Field{Key: "id", Value: value.String(slug)},
 		value.Field{Key: "title", Value: value.String(slug)},
 		value.Field{Key: "webpage_url", Value: value.String(canonical)},
 	))
-	return Playlist(info, StaticEntries(entries...))
+	sequence, err := LazyFirstPageEntries(brightcoveAdapterMaxEntries, func(ctx context.Context) ([]Entry, error) {
+		page, _, err := request.Transport.ReadPage(ctx, canonical+"/")
+		if err != nil {
+			return nil, err
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if int64(len(page)) > maxExtractorJSONBytes {
+			return nil, fmt.Errorf("%w: Craftsy page too large", ErrInvalidMetadata)
+		}
+		accountID, lessons, err := parseCraftsyLessons(page)
+		if err != nil {
+			return nil, err
+		}
+		entries := make([]Entry, 0, len(lessons))
+		for _, lesson := range lessons {
+			entries = append(entries, Entry{
+				URL:          brightcovePlayerURL(accountID, "default", lesson.id),
+				ExtractorKey: "brightcove",
+				ID:           lesson.id,
+				Title:        lesson.title,
+				Transparent:  true,
+			})
+		}
+		if len(entries) == 0 {
+			return nil, fmt.Errorf("%w: empty Craftsy class", ErrInvalidMetadata)
+		}
+		return entries, nil
+	})
+	if err != nil {
+		return Extraction{}, err
+	}
+	return Playlist(info, sequence)
 }
 
 type craftsyLesson struct {

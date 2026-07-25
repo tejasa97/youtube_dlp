@@ -90,6 +90,13 @@ func TestPodcastFamilySuccessAndPlaylists(t *testing.T) {
 		if err != nil || !result.IsPlaylist() {
 			t.Fatalf("%#v %v", result, err)
 		}
+		if transport.requestCount() != 0 {
+			t.Fatalf("lazy fetch before iterate: %d", transport.requestCount())
+		}
+		entries, err := CollectEntries(context.Background(), result.Entries, podcastMaxEpisodes)
+		if err != nil || len(entries) == 0 || entries[0].ExtractorKey != "simplecast" {
+			t.Fatalf("entries=%v err=%v", entries, err)
+		}
 	})
 
 	t.Run("megaphone", func(t *testing.T) {
@@ -132,6 +139,13 @@ func TestPodcastFamilySuccessAndPlaylists(t *testing.T) {
 		})
 		if err != nil || !result.IsPlaylist() {
 			t.Fatalf("%#v %v", result, err)
+		}
+		if transport.requestCount() != 0 {
+			t.Fatalf("lazy fetch before iterate: %d", transport.requestCount())
+		}
+		entries, err := CollectEntries(context.Background(), result.Entries, podcastMaxEpisodes)
+		if err != nil || len(entries) == 0 {
+			t.Fatalf("entries=%v err=%v", entries, err)
 		}
 	})
 
@@ -176,6 +190,17 @@ func TestPodcastFamilySuccessAndPlaylists(t *testing.T) {
 		})
 		if err != nil || !result.IsPlaylist() {
 			t.Fatalf("%#v %v", result, err)
+		}
+		if transport.requestCount() != 0 {
+			t.Fatalf("lazy fetch before iterate: %d", transport.requestCount())
+		}
+		entries, err := CollectEntries(context.Background(), result.Entries, podcastMaxEpisodes)
+		if err != nil || len(entries) == 0 {
+			t.Fatalf("entries=%v err=%v", entries, err)
+		}
+		again, err := CollectEntries(context.Background(), result.Entries, podcastMaxEpisodes)
+		if err != nil || len(again) != len(entries) {
+			t.Fatalf("reusable=%v err=%v", again, err)
 		}
 	})
 

@@ -197,57 +197,58 @@ func (ACastChannel) Extract(ctx context.Context, request Request) (Extraction, e
 		return Extraction{}, ErrUnsupported
 	}
 	endpoint := "https://feeder.acast.com/api/v1/shows/" + url.PathEscape(slug)
-	var payload struct {
-		ID          string `json:"id"`
-		Title       string `json:"title"`
-		Description string `json:"description"`
-		Episodes    []struct {
-			ID         string `json:"id"`
-			Title      string `json:"title"`
-			URL        string `json:"url"`
-			EpisodeURL string `json:"episodeUrl"`
-		} `json:"episodes"`
-	}
-	if err := hostedRequestJSON(ctx, request.Transport, http.MethodGet, endpoint, nil, make(http.Header), &payload); err != nil {
+	canonical := "https://shows.acast.com/" + slug
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String(slug)},
+		value.Field{Key: "title", Value: value.String(slug)},
+		value.Field{Key: "webpage_url", Value: value.String(canonical)},
+	))
+	sequence, err := LazyFirstPageEntries(podcastMaxEpisodes, func(ctx context.Context) ([]Entry, error) {
+		var payload struct {
+			ID          string `json:"id"`
+			Title       string `json:"title"`
+			Description string `json:"description"`
+			Episodes    []struct {
+				ID         string `json:"id"`
+				Title      string `json:"title"`
+				URL        string `json:"url"`
+				EpisodeURL string `json:"episodeUrl"`
+			} `json:"episodes"`
+		}
+		if err := hostedRequestJSON(ctx, request.Transport, http.MethodGet, endpoint, nil, make(http.Header), &payload); err != nil {
+			return nil, err
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if len(payload.Episodes) > podcastMaxEpisodes {
+			return nil, fmt.Errorf("%w: Acast channel overflow", ErrInvalidMetadata)
+		}
+		entries := make([]Entry, 0, len(payload.Episodes))
+		for _, ep := range payload.Episodes {
+			display := ep.EpisodeURL
+			if display == "" {
+				display = ep.ID
+			}
+			if !podcastSlug.MatchString(display) && !podcastUUID.MatchString(display) {
+				continue
+			}
+			entries = append(entries, Entry{
+				URL:          "https://shows.acast.com/" + slug + "/episodes/" + display,
+				ExtractorKey: "acast",
+				ID:           firstNonEmpty(ep.ID, display),
+				Title:        ep.Title,
+			})
+		}
+		if len(entries) == 0 {
+			return nil, fmt.Errorf("%w: empty Acast channel", ErrInvalidMetadata)
+		}
+		return entries, nil
+	})
+	if err != nil {
 		return Extraction{}, err
 	}
-	if len(payload.Episodes) > podcastMaxEpisodes {
-		return Extraction{}, fmt.Errorf("%w: Acast channel overflow", ErrInvalidMetadata)
-	}
-	entries := make([]Entry, 0, len(payload.Episodes))
-	for _, ep := range payload.Episodes {
-		display := ep.EpisodeURL
-		if display == "" {
-			display = ep.ID
-		}
-		if !podcastSlug.MatchString(display) && !podcastUUID.MatchString(display) {
-			continue
-		}
-		entries = append(entries, Entry{
-			URL:          "https://shows.acast.com/" + slug + "/episodes/" + display,
-			ExtractorKey: "acast",
-			ID:           firstNonEmpty(ep.ID, display),
-			Title:        ep.Title,
-		})
-	}
-	if len(entries) == 0 {
-		return Extraction{}, fmt.Errorf("%w: empty Acast channel", ErrInvalidMetadata)
-	}
-	id := payload.ID
-	if id == "" {
-		id = slug
-	}
-	title := payload.Title
-	if title == "" {
-		title = slug
-	}
-	info := value.NewInfo(value.NewObject(
-		value.Field{Key: "id", Value: value.String(id)},
-		value.Field{Key: "title", Value: value.String(title)},
-		value.Field{Key: "description", Value: value.String(payload.Description)},
-		value.Field{Key: "webpage_url", Value: value.String("https://shows.acast.com/" + slug)},
-	))
-	return Playlist(info, StaticEntries(entries...))
+	return Playlist(info, sequence)
 }
 
 func parseACastChannelURL(parsed *url.URL) (string, bool) {
@@ -444,58 +445,66 @@ func (SimplecastPodcast) Extract(ctx context.Context, request Request) (Extracti
 		return Extraction{}, ErrUnsupported
 	}
 	canonical := "https://" + host + "/"
-	body := []byte("url=" + url.QueryEscape(canonical))
-	headers := make(http.Header)
-	headers.Set("Content-Type", "application/x-www-form-urlencoded")
-	var podcast struct {
-		ID    string `json:"id"`
-		Title string `json:"title"`
-	}
-	if err := hostedRequestJSON(ctx, request.Transport, http.MethodPost, "https://api.simplecast.com/podcasts/search", body, headers, &podcast); err != nil {
-		return Extraction{}, err
-	}
-	if !podcastUUID.MatchString(podcast.ID) {
-		return Extraction{}, fmt.Errorf("%w: missing Simplecast podcast id", ErrInvalidMetadata)
-	}
-	var episodes struct {
-		Collection []struct {
-			ID    string `json:"id"`
-			Title string `json:"title"`
-		} `json:"collection"`
-	}
-	listURL := "https://api.simplecast.com/podcasts/" + strings.ToLower(podcast.ID) + "/episodes"
-	if err := hostedRequestJSON(ctx, request.Transport, http.MethodGet, listURL, nil, make(http.Header), &episodes); err != nil {
-		return Extraction{}, err
-	}
-	if len(episodes.Collection) > podcastMaxEpisodes {
-		return Extraction{}, fmt.Errorf("%w: Simplecast podcast overflow", ErrInvalidMetadata)
-	}
-	entries := make([]Entry, 0, len(episodes.Collection))
-	for _, ep := range episodes.Collection {
-		if !podcastUUID.MatchString(ep.ID) {
-			continue
-		}
-		id := strings.ToLower(ep.ID)
-		entries = append(entries, Entry{
-			URL:          "https://player.simplecast.com/" + id,
-			ExtractorKey: "simplecast",
-			ID:           id,
-			Title:        ep.Title,
-		})
-	}
-	if len(entries) == 0 {
-		return Extraction{}, fmt.Errorf("%w: empty Simplecast podcast", ErrInvalidMetadata)
-	}
-	title := podcast.Title
-	if title == "" {
-		title = host
-	}
 	info := value.NewInfo(value.NewObject(
-		value.Field{Key: "id", Value: value.String(strings.ToLower(podcast.ID))},
-		value.Field{Key: "title", Value: value.String(title)},
+		value.Field{Key: "id", Value: value.String(host)},
+		value.Field{Key: "title", Value: value.String(host)},
 		value.Field{Key: "webpage_url", Value: value.String(canonical)},
 	))
-	return Playlist(info, StaticEntries(entries...))
+	sequence, err := LazyFirstPageEntries(podcastMaxEpisodes, func(ctx context.Context) ([]Entry, error) {
+		body := []byte("url=" + url.QueryEscape(canonical))
+		headers := make(http.Header)
+		headers.Set("Content-Type", "application/x-www-form-urlencoded")
+		var podcast struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		}
+		if err := hostedRequestJSON(ctx, request.Transport, http.MethodPost, "https://api.simplecast.com/podcasts/search", body, headers, &podcast); err != nil {
+			return nil, err
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if !podcastUUID.MatchString(podcast.ID) {
+			return nil, fmt.Errorf("%w: missing Simplecast podcast id", ErrInvalidMetadata)
+		}
+		var episodes struct {
+			Collection []struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+			} `json:"collection"`
+		}
+		listURL := "https://api.simplecast.com/podcasts/" + strings.ToLower(podcast.ID) + "/episodes"
+		if err := hostedRequestJSON(ctx, request.Transport, http.MethodGet, listURL, nil, make(http.Header), &episodes); err != nil {
+			return nil, err
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if len(episodes.Collection) > podcastMaxEpisodes {
+			return nil, fmt.Errorf("%w: Simplecast podcast overflow", ErrInvalidMetadata)
+		}
+		entries := make([]Entry, 0, len(episodes.Collection))
+		for _, ep := range episodes.Collection {
+			if !podcastUUID.MatchString(ep.ID) {
+				continue
+			}
+			id := strings.ToLower(ep.ID)
+			entries = append(entries, Entry{
+				URL:          "https://player.simplecast.com/" + id,
+				ExtractorKey: "simplecast",
+				ID:           id,
+				Title:        ep.Title,
+			})
+		}
+		if len(entries) == 0 {
+			return nil, fmt.Errorf("%w: empty Simplecast podcast", ErrInvalidMetadata)
+		}
+		return entries, nil
+	})
+	if err != nil {
+		return Extraction{}, err
+	}
+	return Playlist(info, sequence)
 }
 
 func parseSimplecastPodcastURL(parsed *url.URL) (string, bool) {
@@ -698,44 +707,53 @@ func (Art19Show) Extract(ctx context.Context, request Request) (Extraction, erro
 		return Extraction{}, ErrUnsupported
 	}
 	endpoint := "https://art19.com/shows/" + slug
-	headers := make(http.Header)
-	headers.Set("Accept", "application/json")
-	var payload struct {
-		ID       string `json:"id"`
-		Title    string `json:"title"`
-		Episodes []struct {
-			ID    string `json:"id"`
-			Title string `json:"title"`
-		} `json:"episodes"`
-	}
-	if err := hostedRequestJSON(ctx, request.Transport, http.MethodGet, endpoint, nil, headers, &payload); err != nil {
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String(slug)},
+		value.Field{Key: "title", Value: value.String(slug)},
+		value.Field{Key: "webpage_url", Value: value.String(endpoint)},
+	))
+	sequence, err := LazyFirstPageEntries(podcastMaxEpisodes, func(ctx context.Context) ([]Entry, error) {
+		headers := make(http.Header)
+		headers.Set("Accept", "application/json")
+		var payload struct {
+			ID       string `json:"id"`
+			Title    string `json:"title"`
+			Episodes []struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+			} `json:"episodes"`
+		}
+		if err := hostedRequestJSON(ctx, request.Transport, http.MethodGet, endpoint, nil, headers, &payload); err != nil {
+			return nil, err
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if len(payload.Episodes) > podcastMaxEpisodes {
+			return nil, fmt.Errorf("%w: Art19 show overflow", ErrInvalidMetadata)
+		}
+		entries := make([]Entry, 0, len(payload.Episodes))
+		for _, ep := range payload.Episodes {
+			if !podcastUUID.MatchString(ep.ID) {
+				continue
+			}
+			id := strings.ToLower(ep.ID)
+			entries = append(entries, Entry{
+				URL:          "https://rss.art19.com/episodes/" + id + ".mp3",
+				ExtractorKey: "art19",
+				ID:           id,
+				Title:        ep.Title,
+			})
+		}
+		if len(entries) == 0 {
+			return nil, fmt.Errorf("%w: empty Art19 show", ErrInvalidMetadata)
+		}
+		return entries, nil
+	})
+	if err != nil {
 		return Extraction{}, err
 	}
-	if len(payload.Episodes) > podcastMaxEpisodes {
-		return Extraction{}, fmt.Errorf("%w: Art19 show overflow", ErrInvalidMetadata)
-	}
-	entries := make([]Entry, 0, len(payload.Episodes))
-	for _, ep := range payload.Episodes {
-		if !podcastUUID.MatchString(ep.ID) {
-			continue
-		}
-		id := strings.ToLower(ep.ID)
-		entries = append(entries, Entry{
-			URL:          "https://rss.art19.com/episodes/" + id + ".mp3",
-			ExtractorKey: "art19",
-			ID:           id,
-			Title:        ep.Title,
-		})
-	}
-	if len(entries) == 0 {
-		return Extraction{}, fmt.Errorf("%w: empty Art19 show", ErrInvalidMetadata)
-	}
-	info := value.NewInfo(value.NewObject(
-		value.Field{Key: "id", Value: value.String(firstNonEmpty(payload.ID, slug))},
-		value.Field{Key: "title", Value: value.String(firstNonEmpty(payload.Title, slug))},
-		value.Field{Key: "webpage_url", Value: value.String("https://art19.com/shows/" + slug)},
-	))
-	return Playlist(info, StaticEntries(entries...))
+	return Playlist(info, sequence)
 }
 
 func parseArt19ShowURL(parsed *url.URL) (string, bool) {
@@ -926,46 +944,65 @@ func (SpreakerShow) Extract(ctx context.Context, request Request) (Extraction, e
 	if !ok {
 		return Extraction{}, ErrUnsupported
 	}
-	endpoint := "https://api.spreaker.com/show/" + id + "/episodes?page=1&max_per_page=100"
-	var payload struct {
-		Response struct {
-			Items []struct {
-				EpisodeID hostingNumber `json:"episode_id"`
-				Title     string        `json:"title"`
-			} `json:"items"`
-			Show struct {
-				Title string `json:"title"`
-			} `json:"show"`
-		} `json:"response"`
-	}
-	if err := hostedRequestJSON(ctx, request.Transport, http.MethodGet, endpoint, nil, make(http.Header), &payload); err != nil {
-		return Extraction{}, err
-	}
-	if len(payload.Response.Items) > podcastMaxEpisodes {
-		return Extraction{}, fmt.Errorf("%w: Spreaker show overflow", ErrInvalidMetadata)
-	}
-	entries := make([]Entry, 0, len(payload.Response.Items))
-	for _, item := range payload.Response.Items {
-		epID := item.EpisodeID.string()
-		if !podcastDigits.MatchString(epID) {
-			continue
-		}
-		entries = append(entries, Entry{
-			URL:          "https://api.spreaker.com/v2/episodes/" + epID,
-			ExtractorKey: "spreaker",
-			ID:           epID,
-			Title:        item.Title,
-		})
-	}
-	if len(entries) == 0 {
-		return Extraction{}, fmt.Errorf("%w: empty Spreaker show", ErrInvalidMetadata)
-	}
 	info := value.NewInfo(value.NewObject(
 		value.Field{Key: "id", Value: value.String(id)},
-		value.Field{Key: "title", Value: value.String(firstNonEmpty(payload.Response.Show.Title, id))},
+		value.Field{Key: "title", Value: value.String(id)},
 		value.Field{Key: "webpage_url", Value: value.String("https://api.spreaker.com/show/" + id)},
 	))
-	return Playlist(info, StaticEntries(entries...))
+	const pageSize = 100
+	sequence, err := OnDemandEntries(pageSize, func(ctx context.Context, page int) ([]Entry, error) {
+		if page < 0 || page >= defaultMaxPlaylistPages {
+			return nil, fmt.Errorf("%w: Spreaker page out of bounds", ErrInvalidPlaylist)
+		}
+		endpoint := fmt.Sprintf("https://api.spreaker.com/show/%s/episodes?page=%d&max_per_page=%d", id, page+1, pageSize)
+		var payload struct {
+			Response struct {
+				Items []struct {
+					EpisodeID hostingNumber `json:"episode_id"`
+					Title     string        `json:"title"`
+				} `json:"items"`
+				NextURL string `json:"next_url"`
+			} `json:"response"`
+		}
+		if err := hostedRequestJSON(ctx, request.Transport, http.MethodGet, endpoint, nil, make(http.Header), &payload); err != nil {
+			return nil, err
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if payload.Response.NextURL != "" {
+			next, err := url.Parse(payload.Response.NextURL)
+			if err != nil || hostedRejectUnsafeURL(next) || strings.ToLower(next.Hostname()) != "api.spreaker.com" {
+				return nil, fmt.Errorf("%w: hostile Spreaker continuation", ErrInvalidPlaylist)
+			}
+		}
+		if len(payload.Response.Items) > pageSize {
+			return nil, fmt.Errorf("%w: Spreaker show page overflow", ErrInvalidMetadata)
+		}
+		entries := make([]Entry, 0, len(payload.Response.Items))
+		seen := make(map[string]bool, len(payload.Response.Items))
+		for _, item := range payload.Response.Items {
+			epID := item.EpisodeID.string()
+			if !podcastDigits.MatchString(epID) || seen[epID] {
+				continue
+			}
+			seen[epID] = true
+			entries = append(entries, Entry{
+				URL:          "https://api.spreaker.com/v2/episodes/" + epID,
+				ExtractorKey: "spreaker",
+				ID:           epID,
+				Title:        item.Title,
+			})
+		}
+		if page == 0 && len(entries) == 0 {
+			return nil, fmt.Errorf("%w: empty Spreaker show", ErrInvalidMetadata)
+		}
+		return entries, nil
+	})
+	if err != nil {
+		return Extraction{}, err
+	}
+	return Playlist(info, sequence)
 }
 
 func parseSpreakerShowURL(parsed *url.URL) (string, bool) {

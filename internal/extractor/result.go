@@ -146,6 +146,31 @@ func OnDemandEntries(pageSize int, fetch PageFetcher) (EntrySequence, error) {
 	return pagedEntries{pageSize: pageSize, maxPages: defaultMaxPlaylistPages, fetch: fetch}, nil
 }
 
+// LazyFirstPageEntries defers a single bounded fetch until the first Next call.
+// Independent iterators each invoke fetch once. Use this for APIs that return
+// one page of entries rather than eager StaticEntries materialization.
+func LazyFirstPageEntries(maxEntries int, fetch func(context.Context) ([]Entry, error)) (EntrySequence, error) {
+	if maxEntries <= 0 || fetch == nil {
+		return nil, fmt.Errorf("%w: invalid lazy page source", ErrInvalidPlaylist)
+	}
+	return OnDemandEntries(maxEntries+1, func(ctx context.Context, page int) ([]Entry, error) {
+		if page > 0 {
+			return nil, nil
+		}
+		if err := contextError(ctx); err != nil {
+			return nil, err
+		}
+		entries, err := fetch(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if len(entries) > maxEntries {
+			return nil, fmt.Errorf("%w: playlist entry overflow", ErrInvalidPlaylist)
+		}
+		return entries, nil
+	})
+}
+
 func (entries pagedEntries) Iterator() EntryIterator {
 	return &pagedEntryIterator{source: entries}
 }

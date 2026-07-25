@@ -133,25 +133,36 @@ func TestArcAdaptersExactRoutingHandoffAndEvidence(t *testing.T) {
 			page := familyFixture(t, test.fixtureDir, "powa.html")
 			transport := &sharedFixtureTransport{pages: map[string][]byte{test.hostPath: page}}
 			result, err := test.ctor.Extract(context.Background(), Request{URL: test.pageURL, Transport: transport})
-			if err != nil || !result.IsURL() || result.Redirect.ExtractorKey != "arcpublishing" {
+			if err != nil || !result.IsPlaylist() {
 				t.Fatalf("adapter=%#v err=%v", result, err)
 			}
-			wantURL := "arcpublishing:" + test.org + ":" + test.uuid
-			if result.Redirect.URL != wantURL {
-				t.Fatalf("redirect=%q want %q", result.Redirect.URL, wantURL)
+			if transport.requestCount() != 0 {
+				t.Fatalf("lazy playlist fetched before iteration: %d", transport.requestCount())
 			}
-			selected, err := registry.SelectFor(result.Redirect.URL, result.Redirect.ExtractorKey)
+			entries, err := CollectEntries(context.Background(), result.Entries, arcMaxOrgs)
+			if err != nil || len(entries) != 1 || entries[0].ExtractorKey != "arcpublishing" {
+				t.Fatalf("entries=%v err=%v", entries, err)
+			}
+			wantURL := "arcpublishing:" + test.org + ":" + test.uuid
+			if entries[0].URL != wantURL {
+				t.Fatalf("redirect=%q want %q", entries[0].URL, wantURL)
+			}
+			selected, err := registry.SelectFor(entries[0].URL, entries[0].ExtractorKey)
 			if err != nil || selected.Name() != "arcpublishing" {
 				t.Fatalf("SelectFor=%v err=%v", selected, err)
 			}
 			media, err := selected.Extract(context.Background(), Request{
-				URL: result.Redirect.URL, Transport: arcTransport(test.org, test.uuid),
+				URL: entries[0].URL, Transport: arcTransport(test.org, test.uuid),
 			})
 			if err != nil {
 				t.Fatal(err)
 			}
 			if formats, ok := media.Info.Formats(); !ok || len(formats) == 0 {
 				t.Fatal("missing formats after re-entry")
+			}
+			again, err := CollectEntries(context.Background(), result.Entries, arcMaxOrgs)
+			if err != nil || len(again) != 1 || again[0].URL != wantURL {
+				t.Fatalf("reusable iteration failed: %v err=%v", again, err)
 			}
 		})
 	}
@@ -192,17 +203,25 @@ func TestArcAdapterNegatives(t *testing.T) {
 	auth := &sharedFixtureTransport{pages: map[string][]byte{
 		"https://adn.com/politics/2020/11/02/video-senate-candidates/": []byte(`<html>please sign in</html>`),
 	}}
-	if _, err := NewADN().Extract(context.Background(), Request{
+	authResult, err := NewADN().Extract(context.Background(), Request{
 		URL: "https://www.adn.com/politics/2020/11/02/video-senate-candidates/", Transport: auth,
-	}); !errors.Is(err, ErrAuthentication) {
-		t.Fatalf("adn auth=%v", err)
+	})
+	if err != nil || !authResult.IsPlaylist() {
+		t.Fatalf("adn auth extract=%v %#v", err, authResult)
+	}
+	if _, err := CollectEntries(context.Background(), authResult.Entries, arcMaxOrgs); !errors.Is(err, ErrAuthentication) {
+		t.Fatalf("adn auth collect=%v", err)
 	}
 	hostile := &sharedFixtureTransport{pages: map[string][]byte{
 		"https://adn.com/politics/2020/11/02/video-senate-candidates/": []byte(`<html><div class="powa" data-org="evil" data-uuid="8c99cb6e-b29c-4bc9-9173-7bf9979225ab"></div></html>`),
 	}}
-	if _, err := NewADN().Extract(context.Background(), Request{
+	hostileResult, err := NewADN().Extract(context.Background(), Request{
 		URL: "https://www.adn.com/politics/2020/11/02/video-senate-candidates/", Transport: hostile,
-	}); !errors.Is(err, ErrInvalidMetadata) {
+	})
+	if err != nil || !hostileResult.IsPlaylist() {
+		t.Fatalf("hostile extract=%v %#v", err, hostileResult)
+	}
+	if _, err := CollectEntries(context.Background(), hostileResult.Entries, arcMaxOrgs); !errors.Is(err, ErrInvalidMetadata) {
 		t.Fatalf("hostile org=%v", err)
 	}
 }

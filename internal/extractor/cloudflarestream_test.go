@@ -153,6 +153,9 @@ func TestHytaleAdapterPlaylistAndHandoff(t *testing.T) {
 	if err != nil || !result.IsPlaylist() {
 		t.Fatalf("result=%#v err=%v", result, err)
 	}
+	if transport.requestCount() != 0 {
+		t.Fatalf("lazy playlist fetched before iteration: %d", transport.requestCount())
+	}
 	iterator := result.Entries.Iterator()
 	entry, ok, err := iterator.Next(context.Background())
 	if err != nil || !ok || entry.ExtractorKey != "cloudflarestream" || entry.ID != "ed51a2609d21bad6e14145c37c334999" {
@@ -174,6 +177,10 @@ func TestHytaleAdapterPlaylistAndHandoff(t *testing.T) {
 	if !ok || len(formats) == 0 {
 		t.Fatal("missing formats after re-entry")
 	}
+	again, err := CollectEntries(context.Background(), result.Entries, hytaleMaxStreamIDs)
+	if err != nil || len(again) == 0 || again[0].ID != entry.ID {
+		t.Fatalf("reusable iteration failed: %v err=%v", again, err)
+	}
 }
 
 func TestHytaleNegativeMatrix(t *testing.T) {
@@ -186,36 +193,52 @@ func TestHytaleNegativeMatrix(t *testing.T) {
 		t.Fatalf("cancel=%v", err)
 	}
 	authPage := []byte(`<html>sign in password required</html>`)
-	transport := &sharedFixtureTransport{pages: map[string][]byte{
+	authTransport := &sharedFixtureTransport{pages: map[string][]byte{
 		"https://hytale.com/news/2021/07/summer-2021-development-update": authPage,
 	}}
-	if _, err := NewHytale().Extract(context.Background(), Request{
-		URL: "https://hytale.com/news/2021/07/summer-2021-development-update", Transport: transport,
-	}); !errors.Is(err, ErrAuthentication) {
+	authResult, err := NewHytale().Extract(context.Background(), Request{
+		URL: "https://hytale.com/news/2021/07/summer-2021-development-update", Transport: authTransport,
+	})
+	if err != nil || !authResult.IsPlaylist() {
+		t.Fatalf("auth extract=%v %#v", err, authResult)
+	}
+	if _, err := CollectEntries(context.Background(), authResult.Entries, hytaleMaxStreamIDs); !errors.Is(err, ErrAuthentication) {
 		t.Fatalf("auth=%v", err)
 	}
 	missing := &sharedFixtureTransport{pages: map[string][]byte{
 		"https://hytale.com/news/2021/07/summer-2021-development-update": []byte(`<html>not found</html>`),
 	}}
-	if _, err := NewHytale().Extract(context.Background(), Request{
+	missingResult, err := NewHytale().Extract(context.Background(), Request{
 		URL: "https://hytale.com/news/2021/07/summer-2021-development-update", Transport: missing,
-	}); !errors.Is(err, ErrUnavailable) {
+	})
+	if err != nil || !missingResult.IsPlaylist() {
+		t.Fatalf("unavailable extract=%v %#v", err, missingResult)
+	}
+	if _, err := CollectEntries(context.Background(), missingResult.Entries, hytaleMaxStreamIDs); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("unavailable=%v", err)
 	}
 	hostile := &sharedFixtureTransport{pages: map[string][]byte{
 		"https://hytale.com/news/2021/07/summer-2021-development-update": []byte(`<html><a href="https://evil.example/">x</a></html>`),
 	}}
-	if _, err := NewHytale().Extract(context.Background(), Request{
+	hostileResult, err := NewHytale().Extract(context.Background(), Request{
 		URL: "https://hytale.com/news/2021/07/summer-2021-development-update", Transport: hostile,
-	}); !errors.Is(err, ErrInvalidMetadata) {
+	})
+	if err != nil || !hostileResult.IsPlaylist() {
+		t.Fatalf("hostile extract=%v %#v", err, hostileResult)
+	}
+	if _, err := CollectEntries(context.Background(), hostileResult.Entries, hytaleMaxStreamIDs); !errors.Is(err, ErrInvalidMetadata) {
 		t.Fatalf("hostile=%v", err)
 	}
 	oversized := &sharedFixtureTransport{pages: map[string][]byte{
 		"https://hytale.com/news/2021/07/summer-2021-development-update": bytesRepeat(hytaleMaxPageBytes + 1),
 	}}
-	if _, err := NewHytale().Extract(context.Background(), Request{
+	oversizedResult, err := NewHytale().Extract(context.Background(), Request{
 		URL: "https://hytale.com/news/2021/07/summer-2021-development-update", Transport: oversized,
-	}); !errors.Is(err, ErrInvalidMetadata) {
+	})
+	if err != nil || !oversizedResult.IsPlaylist() {
+		t.Fatalf("oversized extract=%v %#v", err, oversizedResult)
+	}
+	if _, err := CollectEntries(context.Background(), oversizedResult.Entries, hytaleMaxStreamIDs); !errors.Is(err, ErrInvalidMetadata) {
 		t.Fatalf("oversized=%v", err)
 	}
 }
