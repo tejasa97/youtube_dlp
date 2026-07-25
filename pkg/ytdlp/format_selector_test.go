@@ -3,6 +3,7 @@ package ytdlp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -257,7 +258,10 @@ func TestFormatSelectorProductRollbackOnFailure(t *testing.T) {
 		{Tracks: []mediaformat.Selection{{ID: "ok", URL: server.URL + "/ok", Ext: "mp4", VCodec: "avc1", ACodec: "aac"}}},
 		{Tracks: []mediaformat.Selection{{ID: "bad", URL: "://missing-scheme", Ext: "mp4", VCodec: "avc1", ACodec: "aac"}}},
 	}
-	tracker := newPublishedMediaTracker(root, outputPlanDestination(destination, 0, plans[0], true))
+	tracker := newPublishedMediaTracker(
+		outputPlanDestination(destination, 0, plans[0], true),
+		outputPlanDestination(destination, 1, plans[1], true),
+	)
 	for index, plan := range plans {
 		path, _, downloadErr := operation.downloadSelections(context.Background(), plan.Tracks, root, outputPlanDestination(destination, index, plan, true), nil)
 		if downloadErr != nil {
@@ -278,69 +282,83 @@ func TestFormatSelectorProductRollbackOnFailure(t *testing.T) {
 	t.Fatal("expected second download to fail")
 }
 
-func TestFormatSelectorProductRollbackOnPostprocessFailure(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		_, _ = writer.Write([]byte("ok-bytes"))
+func multiOutputSelectorFixture(t *testing.T, onMedia func()) (pageURL string) {
+	t.Helper()
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/page":
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(writer, `{
+				"id":"multi","title":"Multi","ext":"mp4",
+				"formats":[
+					{"format_id":"video","url":%q,"ext":"mp4","vcodec":"avc1","acodec":"none"},
+					{"format_id":"audio","url":%q,"ext":"m4a","vcodec":"none","acodec":"aac"}
+				]
+			}`, server.URL+"/video", server.URL+"/audio")
+		case "/video", "/audio":
+			if request.Method != http.MethodHead {
+				if onMedia != nil {
+					onMedia()
+				}
+				_, _ = writer.Write([]byte("media-bytes"))
+			}
+		default:
+			http.NotFound(writer, request)
+		}
 	}))
-	defer server.Close()
+	t.Cleanup(server.Close)
+	return server.URL + "/page"
+}
 
+func TestMultiOutputProductRejectsMoveBeforeDownload(t *testing.T) {
+	mediaHits := 0
+	pageURL := multiOutputSelectorFixture(t, func() { mediaHits++ })
 	root := t.TempDir()
-	preexisting := filepath.Join(root, "rollback_existing.mp4")
-	if err := os.WriteFile(preexisting, []byte("keep-me"), 0o644); err != nil {
+	sharedDest := filepath.Join(root, "shared.mp4")
+	if err := os.WriteFile(sharedDest, []byte("keep-me"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	destination := filepath.Join(root, "rollback.mp4")
-	transport, err := network.New(network.Config{})
-	if err != nil {
-		t.Fatal(err)
+	_, err := NewClient().Run(context.Background(), Request{
+		URL: pageURL, OutputDir: root, Format: "video,audio", Overwrite: true,
+		Postprocessors: []Postprocessor{{Move: &MovePostprocessor{Destination: sharedDest}}},
+	})
+	if !errors.Is(err, mediaformat.ErrMultiOutput) {
+		t.Fatalf("Run() = %v", err)
 	}
-	operation := &operation{
-		transport: transport,
-		request:   Request{OutputDir: root, Overwrite: true},
+	if mediaHits != 0 {
+		t.Fatalf("media downloads = %d, want 0", mediaHits)
 	}
-	plans := []mediaformat.OutputPlan{
-		{Tracks: []mediaformat.Selection{{ID: "ok", URL: server.URL + "/ok", Ext: "mp4", VCodec: "avc1", ACodec: "aac"}}},
-		{Tracks: []mediaformat.Selection{{ID: "bad", URL: server.URL + "/bad", Ext: "mp4", VCodec: "avc1", ACodec: "aac"}}},
+	if body, readErr := os.ReadFile(sharedDest); readErr != nil || string(body) != "keep-me" {
+		t.Fatalf("shared destination changed: %q %v", body, readErr)
 	}
-	planDestinations := make([]string, len(plans))
-	for index, plan := range plans {
-		planDestinations[index] = outputPlanDestination(destination, index, plan, true)
+}
+
+func TestMultiOutputProductRejectsDefaultDestinationPostprocessors(t *testing.T) {
+	tests := []struct {
+		name string
+		post Postprocessor
+	}{
+		{"remux", Postprocessor{Remux: &RemuxPostprocessor{Format: "mkv"}}},
+		{"extract-audio", Postprocessor{ExtractAudio: &ExtractAudioPostprocessor{Codec: "mp3"}}},
 	}
-	tracker := newPublishedMediaTracker(root, planDestinations...)
-	for planIndex, plan := range plans {
-		planDestination := planDestinations[planIndex]
-		path, _, downloadErr := operation.downloadSelections(context.Background(), plan.Tracks, root, planDestination, nil)
-		if downloadErr != nil {
-			t.Fatalf("plan %d download: %v", planIndex, downloadErr)
-		}
-		tracker.add(path)
-		if planIndex == 1 {
-			operation.request.Postprocessors = []Postprocessor{
-				{Move: &MovePostprocessor{Destination: filepath.Join(root, "..", "escaped.mp4")}},
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			mediaHits := 0
+			pageURL := multiOutputSelectorFixture(t, func() { mediaHits++ })
+			root := t.TempDir()
+			_, err := NewClient().Run(context.Background(), Request{
+				URL: pageURL, OutputDir: root, Format: "video,audio", Overwrite: true,
+				Postprocessors: []Postprocessor{test.post},
+			})
+			if !errors.Is(err, mediaformat.ErrMultiOutput) {
+				t.Fatalf("Run() = %v", err)
 			}
-		}
-		_, mediaArtifacts, postErr := operation.applyPostprocessors(context.Background(), root, path, nil)
-		if postErr != nil {
-			tracker.removeCreated()
-			if planIndex != 1 {
-				t.Fatalf("unexpected postprocess failure on plan %d: %v", planIndex, postErr)
+			if mediaHits != 0 {
+				t.Fatalf("media downloads = %d, want 0", mediaHits)
 			}
-			if _, statErr := os.Stat(planDestinations[0]); statErr == nil {
-				t.Fatal("first output was not rolled back")
-			}
-			if _, statErr := os.Stat(planDestinations[1]); statErr == nil {
-				t.Fatal("second partial output was not rolled back")
-			}
-			if body, readErr := os.ReadFile(preexisting); readErr != nil || string(body) != "keep-me" {
-				t.Fatalf("preexisting file changed: %q %v", body, readErr)
-			}
-			return
-		}
-		for _, artifact := range mediaArtifacts {
-			tracker.add(artifact.Path)
-		}
+		})
 	}
-	t.Fatal("expected second plan postprocessing to fail")
 }
 
 func TestOutputPlanDestinationUniqueWithDuplicateIDs(t *testing.T) {
@@ -397,11 +415,7 @@ func TestMultiOutputMediaByteAccounting(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		path, mediaArtifacts, err := operation.applyPostprocessors(context.Background(), root, path, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		artifacts = append(artifacts, mediaArtifacts...)
+		artifacts = append(artifacts, Artifact{Path: path, Kind: "media"})
 	}
 	bytes, err := mediaArtifactBytes(artifacts)
 	if err != nil {
@@ -409,6 +423,24 @@ func TestMultiOutputMediaByteAccounting(t *testing.T) {
 	}
 	if bytes != 12 {
 		t.Fatalf("media bytes = %d, want 12", bytes)
+	}
+}
+
+func TestMultiOutputProductRejectsPostprocessors(t *testing.T) {
+	tests := []struct {
+		name string
+		post Postprocessor
+	}{
+		{"move", Postprocessor{Move: &MovePostprocessor{Destination: "out.mp4"}}},
+		{"remux", Postprocessor{Remux: &RemuxPostprocessor{Format: "mkv"}}},
+		{"extract-audio", Postprocessor{ExtractAudio: &ExtractAudioPostprocessor{Codec: "mp3"}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validateMultiOutputProduct(Request{Postprocessors: []Postprocessor{test.post}}, 2); !errors.Is(err, mediaformat.ErrMultiOutput) {
+				t.Fatalf("validate = %v", err)
+			}
+		})
 	}
 }
 
@@ -444,7 +476,7 @@ func TestPublishedMediaTrackerPreservesPreexisting(t *testing.T) {
 	if err := os.WriteFile(existing, []byte("stay"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	tracker := newPublishedMediaTracker(root)
+	tracker := newPublishedMediaTracker(existing)
 	tracker.add(existing)
 	tracker.removeCreated()
 	if body, readErr := os.ReadFile(existing); readErr != nil || string(body) != "stay" {
@@ -458,5 +490,15 @@ func TestPublishedMediaTrackerPreservesPreexisting(t *testing.T) {
 	tracker.removeCreated()
 	if _, err := os.Stat(created); err == nil {
 		t.Fatal("created file still present")
+	}
+}
+
+func TestErrSelectorLimitCategorizedInvalidInput(t *testing.T) {
+	err := categorized("select format", fmt.Errorf("%w: too many independent outputs", mediaformat.ErrSelectorLimit))
+	if !IsCategory(err, ErrorInvalidInput) {
+		t.Fatalf("category = %v, want %v", err, ErrorInvalidInput)
+	}
+	if !errors.Is(err, mediaformat.ErrSelectorLimit) {
+		t.Fatalf("errors.Is = %v", err)
 	}
 }

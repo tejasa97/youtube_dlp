@@ -12,7 +12,9 @@ var (
 	// ErrMultiOutput indicates the selector yields multiple independent outputs
 	// that the legacy flat []Selection API cannot represent.
 	ErrMultiOutput = errors.New("selector yields multiple independent outputs")
-	// ErrSelectorLimit indicates a bounded selector limit was exceeded during evaluation.
+	// ErrSelectorLimit indicates a syntactically valid selector exceeded a
+	// bounded evaluation limit. Product callers categorize this as invalid_input
+	// while still using errors.Is(err, ErrSelectorLimit) for the sentinel.
 	ErrSelectorLimit = errors.New("format selector exceeds limit")
 )
 

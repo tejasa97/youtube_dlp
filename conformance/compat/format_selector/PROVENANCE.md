@@ -30,5 +30,8 @@
 5. Evaluator limits (`all`, `mergeall`, final plan count, merge track count) are
    enforced during evaluation with `ErrSelectorLimit`.
 6. Multi-output destinations use stable one-based ordinals plus sanitized IDs.
-   SponsorBlock remove and subtitle embedding fail closed before download when
-   multiple independent outputs are selected.
+   Non-empty `Request.Postprocessors`, SponsorBlock remove, and subtitle
+   embedding fail closed before media download when multiple independent
+   outputs are selected.
+7. `ErrSelectorLimit` is a distinct evaluation sentinel categorized as
+   `invalid_input` by the product API.

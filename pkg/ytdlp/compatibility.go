@@ -113,11 +113,15 @@ func (operation *operation) planFormats(info value.Info) ([]mediaformat.OutputPl
 }
 
 // validateMultiOutputProduct rejects multi-plan downloads when requested
-// product stages cannot be applied safely to every output. After-download print
-// stages intentionally render only the first plan's selections and primary path.
+// product stages cannot be applied safely to every output. Multi-output
+// execution supports only the no-postprocessor download path. After-download
+// print stages intentionally render only the first plan's selections and primary path.
 func validateMultiOutputProduct(request Request, planCount int) error {
 	if planCount <= 1 {
 		return nil
+	}
+	if len(request.Postprocessors) > 0 {
+		return fmt.Errorf("%w: postprocessors with multi-output selectors", mediaformat.ErrMultiOutput)
 	}
 	if request.SponsorBlock.Enabled && request.SponsorBlock.Remove {
 		return fmt.Errorf("%w: SponsorBlock remove with multi-output selectors", mediaformat.ErrMultiOutput)

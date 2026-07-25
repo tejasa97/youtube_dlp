@@ -40,7 +40,7 @@ type publishedMediaTracker struct {
 	created     []string
 }
 
-func newPublishedMediaTracker(outputRoot string, destinations ...string) publishedMediaTracker {
+func newPublishedMediaTracker(destinations ...string) publishedMediaTracker {
 	tracker := publishedMediaTracker{preexisting: make(map[string]struct{})}
 	for _, destination := range destinations {
 		destination = filepath.Clean(destination)
@@ -49,17 +49,6 @@ func newPublishedMediaTracker(outputRoot string, destinations ...string) publish
 		}
 		if _, err := os.Stat(destination); err == nil {
 			tracker.preexisting[destination] = struct{}{}
-		}
-	}
-	if outputRoot != "" {
-		entries, err := os.ReadDir(outputRoot)
-		if err == nil {
-			for _, entry := range entries {
-				if entry.IsDir() {
-					continue
-				}
-				tracker.preexisting[filepath.Join(outputRoot, entry.Name())] = struct{}{}
-			}
 		}
 	}
 	return tracker
@@ -86,12 +75,6 @@ func (tracker *publishedMediaTracker) removeCreated() {
 		_ = os.Remove(path)
 	}
 	tracker.created = nil
-}
-
-func removePublishedPaths(paths []string) {
-	for _, path := range paths {
-		_ = os.Remove(path)
-	}
 }
 
 func (operation *operation) downloadSelections(ctx context.Context, selections []mediaformat.Selection, outputRoot, destination string, sink events.Sink) (string, int64, error) {

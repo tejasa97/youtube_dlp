@@ -949,7 +949,7 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	for index, plan := range outputPlans {
 		planDestinations[index] = outputPlanDestination(destination, index, plan, multiOutput)
 	}
-	tracker := newPublishedMediaTracker(outputDir, planDestinations...)
+	tracker := newPublishedMediaTracker(planDestinations...)
 	for planIndex, plan := range outputPlans {
 		planDestination := planDestinations[planIndex]
 		path, _, downloadErr := operation.downloadSelections(ctx, plan.Tracks, outputDir, planDestination, sink)
@@ -958,6 +958,13 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 			return Result{}, categorized("download selected formats", downloadErr)
 		}
 		tracker.add(path)
+		if multiOutput {
+			result.Artifacts = append(result.Artifacts, Artifact{Path: path, Kind: "media"})
+			if planIndex == 0 {
+				downloadedPath = path
+			}
+			continue
+		}
 		var mediaArtifacts []Artifact
 		path, mediaArtifacts, downloadErr = operation.applyPostprocessors(ctx, outputDir, path, sink)
 		if downloadErr != nil {

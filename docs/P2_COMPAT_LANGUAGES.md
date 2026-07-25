@@ -46,8 +46,13 @@ Intentional unsupported syntax is explicit rather than silently approximated:
   rejected explicitly when tracks cannot be merged. Comma/`all` multi-output
   downloads use deterministic `.f<N>_<ID>` destination suffixes (stable
   one-based ordinals plus sanitized IDs), populate `Result.Artifacts`, and keep
-  `Result.Filename` on the first output. SponsorBlock remove and subtitle
-  embedding fail closed before download when multiple independent outputs are
-  selected. After-download print stages render only the first plan's
-  selections and primary path. `mergeall` and >2-track merges remain explicit
-  unsupported at download time.
+  `Result.Filename` on the first output. Multi-output downloads reject any
+  non-empty `Request.Postprocessors`, SponsorBlock remove, and subtitle
+  embedding with `ErrMultiOutput` before media download; only the
+  no-postprocessor path is executed. After-download print stages render only
+  the first plan's selections and primary path. `mergeall` and >2-track merges
+  remain explicit unsupported at download time.
+- `ErrSelectorLimit` is returned for syntactically valid selectors that exceed
+  bounded evaluation limits (`all`, `mergeall`, comma output count, merge
+  track count). Product callers should use `errors.Is(err, format.ErrSelectorLimit)`
+  and expect `ytdlp.ErrorInvalidInput` categorization.
