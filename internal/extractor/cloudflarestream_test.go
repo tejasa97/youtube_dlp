@@ -244,6 +244,91 @@ func TestStrictHostedURLPolicyDoesNotChangeLegacySemantics(t *testing.T) {
 	}
 }
 
+func TestWave1StrictURLPolicyMediaAndRoutes(t *testing.T) {
+	t.Parallel()
+	uuid := "12345678-1234-1234-1234-1234567890ab"
+	hexID := "9df17203414fd1db3e3ed74abbe936c1"
+	mediaCases := []struct {
+		raw  string
+		want bool
+	}{
+		{"https://cdn.example/video.mp4?Policy=eyJ&Signature=sig&Key-Pair-Id=APKA", true},
+		{"https://cdn.example/a/../b.mp4", false},
+		{"https://cdn.example/a/%2e%2e/b.mp4", false},
+		{"https://cdn.example/a/%2e/b.mp4", false},
+		{"https://cdn.example/a/%252e%252e/b.mp4", false},
+		{"https://cdn.example/a/./b.mp4", false},
+		{"https://cdn.example/a//b.mp4", false},
+		{"https://cdn.example/a\\b.mp4", false},
+		{"https://cdn.example/a%5cb.mp4", false},
+		{"https://cdn.example/video.mp4#frag", false},
+		{"https://localhost/video.mp4", false},
+		{"https://media.localhost/video.mp4", false},
+		{"https://cdn.example.local/video.mp4", false},
+		{"https://127.0.0.1/video.mp4", false},
+		{"https://[::1]/video.mp4", false},
+		{"https://cdn.example:8443/video.mp4", false},
+		{"https://user:pass@cdn.example/video.mp4", false},
+	}
+	for _, test := range mediaCases {
+		if got := strictValidHostedHTTPURL(test.raw); got != test.want {
+			t.Errorf("strictValidHostedHTTPURL(%q)=%t want %t", test.raw, got, test.want)
+		}
+	}
+
+	routeCases := []struct {
+		name      string
+		extractor Extractor
+		rawURL    string
+		want      bool
+	}{
+		{"tp-link-ok", NewThePlatform(), "https://link.theplatform.com/s/kYEXFC/22d_qsQ6MIRT", true},
+		{"tp-link-signed-query", NewThePlatform(), "https://link.theplatform.com/s/kYEXFC/22d_qsQ6MIRT?sig=abc&format=SMIL", true},
+		{"tp-link-dotdot", NewThePlatform(), "https://link.theplatform.com/s/kYEXFC/../secret", false},
+		{"tp-link-escaped-dotdot", NewThePlatform(), "https://link.theplatform.com/s/kYEXFC/%2e%2e/secret", false},
+		{"tp-link-fragment", NewThePlatform(), "https://link.theplatform.com/s/kYEXFC/22d_qsQ6MIRT#x", false},
+		{"tp-link-localhost", NewThePlatform(), "https://localhost/s/kYEXFC/22d_qsQ6MIRT", false},
+		{"tp-player-ok", NewThePlatform(), "https://player.theplatform.com/p/NnzsPC/widget/select/media/4Y0TlYUr_ZT7", true},
+		{"tp-player-dotdot", NewThePlatform(), "https://player.theplatform.com/p/NnzsPC/../media/4Y0TlYUr_ZT7", false},
+		{"tp-feed-ok", NewThePlatformFeed(), "https://feed.theplatform.com/f/7wvmTC/msnbc_video-p-test?byGuid=n_hardball_5biden_140207", true},
+		{"tp-feed-dotdot", NewThePlatformFeed(), "https://feed.theplatform.com/f/7wvmTC/../secret?byGuid=x", false},
+		{"tp-feed-backslash", NewThePlatformFeed(), "https://feed.theplatform.com/f/7wvmTC/msnbc%5cvideo?byGuid=x", false},
+		{"weather-ok", NewWeatherCom(), "https://weather.com/storms/hurricane/video/invest-95l-fixture", true},
+		{"weather-dotdot", NewWeatherCom(), "https://weather.com/storms/../video/invest-95l-fixture", false},
+		{"nbc-ok", NewNBCOlympics(), "https://vplayer.nbcolympics.com/p/NnzsPC/widget/select/media/4Y0TlYUr_ZT7", true},
+		{"nbc-escaped-dot", NewNBCOlympics(), "https://vplayer.nbcolympics.com/p/NnzsPC/%2e%2e/media/4Y0TlYUr_ZT7", false},
+		{"cf-ok", NewCloudflareStream(), "https://watch.cloudflarestream.com/" + hexID, true},
+		{"cf-dotdot", NewCloudflareStream(), "https://watch.cloudflarestream.com/../" + hexID, false},
+		{"hytale-ok", NewHytale(), "https://hytale.com/news/2024/01/fixture-slug", true},
+		{"hytale-dotdot", NewHytale(), "https://hytale.com/news/2024/../01/fixture-slug", false},
+		{"fox9-ok", NewFOX9(), "https://www.fox9.com/video/8032455", true},
+		{"fox9-fragment", NewFOX9(), "https://www.fox9.com/video/8032455#clip", false},
+		{"fox9-news-ok", NewFOX9News(), "https://www.fox9.com/news/bear-climbs-tree", true},
+		{"fox9-news-localhost", NewFOX9News(), "https://fox9.localhost/news/bear-climbs-tree", false},
+		{"wapo-ok", NewWashingtonPost(), "https://www.washingtonpost.com/video/test/" + uuid, true},
+		{"wapo-dotdot", NewWashingtonPost(), "https://www.washingtonpost.com/video/../secret/" + uuid, false},
+		{"adn-ok", NewADN(), "https://www.adn.com/video/fixture/", true},
+		{"adn-escaped-slash", NewADN(), "https://www.adn.com/video%2f../fixture/", false},
+		{"bg-ok", NewBostonGlobe(), "https://www.bostonglobe.com/video/fixture/", true},
+		{"bg-dot", NewBostonGlobe(), "https://www.bostonglobe.com/./video/fixture/", false},
+		{"gray-ok", NewGray(), "https://www.wabi.tv/video/fixture/", true},
+		{"gray-internal", NewGray(), "https://wabi.tv.internal/video/fixture/", false},
+		{"cod-ok", NewClickOnDetroit(), "https://www.clickondetroit.com/video/fixture/", true},
+		{"cod-backslash", NewClickOnDetroit(), "https://www.clickondetroit.com/video\\fixture/", false},
+	}
+	for _, test := range routeCases {
+		t.Run(test.name, func(t *testing.T) {
+			parsed, err := url.Parse(test.rawURL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := test.extractor.Suitable(parsed); got != test.want {
+				t.Fatalf("Suitable(%q)=%t want %t", test.rawURL, got, test.want)
+			}
+		})
+	}
+}
+
 func FuzzParseCloudflareStreamURL(f *testing.F) {
 	f.Add("https://watch.cloudflarestream.com/9df17203414fd1db3e3ed74abbe936c1")
 	f.Add("https://embed.cloudflarestream.com/embed/x.js?video=31c9291ab41fac05471db4e73aa11717")

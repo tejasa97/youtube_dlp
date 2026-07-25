@@ -65,17 +65,11 @@ type hytaleTarget struct {
 }
 
 func parseHytaleURL(parsed *url.URL) (hytaleTarget, bool) {
-	if parsed == nil || len(parsed.String()) > sharedHostingMaxURLBytes {
-		return hytaleTarget{}, false
-	}
-	if (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil || parsed.Port() != "" {
+	if parsed == nil || len(parsed.String()) > sharedHostingMaxURLBytes || hostedRejectUnsafeURL(parsed) {
 		return hytaleTarget{}, false
 	}
 	host := strings.ToLower(parsed.Hostname())
 	if host != "hytale.com" && host != "www.hytale.com" {
-		return hytaleTarget{}, false
-	}
-	if escaped := strings.ToLower(parsed.EscapedPath()); strings.Contains(escaped, "%00") || strings.Contains(escaped, "%2f") || strings.Contains(escaped, "%5c") {
 		return hytaleTarget{}, false
 	}
 	segments := strings.Split(strings.Trim(parsed.Path, "/"), "/")

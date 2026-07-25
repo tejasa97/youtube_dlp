@@ -16,10 +16,11 @@ import (
 )
 
 const (
-	thePlatformMaxSMILBytes = 2 << 20
-	thePlatformMaxFormats   = 128
-	thePlatformMaxCaptions  = 64
-	thePlatformMaxChapters  = 256
+	thePlatformMaxSMILBytes   = 2 << 20
+	thePlatformMaxFormats     = 128
+	thePlatformMaxCaptions    = 64
+	thePlatformMaxChapters    = 256
+	thePlatformMaxFeedContent = 32
 )
 
 var (
@@ -294,16 +295,20 @@ func parseThePlatformSMIL(data []byte) ([]value.Value, *value.Object, error) {
 		}
 	}
 	formats := make([]value.Value, 0, 8)
-	add := func(formatID, rawURL string) {
-		if len(formats) >= thePlatformMaxFormats || !strictValidHostedHTTPURL(rawURL) {
-			return
+	index := 0
+	appendFormat := func(formatID, rawURL string) error {
+		if !strictValidHostedHTTPURL(rawURL) {
+			return nil
+		}
+		if len(formats) >= thePlatformMaxFormats {
+			return fmt.Errorf("%w: ThePlatform format limit", ErrInvalidMetadata)
 		}
 		format, ok := strictHostedURLFormat(formatID, rawURL)
 		if ok {
 			formats = append(formats, value.ObjectValue(format))
 		}
+		return nil
 	}
-	index := 0
 	for _, sw := range doc.Body.Switch {
 		for _, video := range sw.Video {
 			formatID := fmt.Sprintf("http-%d", index)
@@ -311,16 +316,22 @@ func parseThePlatformSMIL(data []byte) ([]value.Value, *value.Object, error) {
 			if strings.Contains(lowerURL, ".m3u8") {
 				formatID = fmt.Sprintf("hls-%d", index)
 			}
-			add(formatID, video.Src)
+			if err := appendFormat(formatID, video.Src); err != nil {
+				return nil, nil, err
+			}
 			index++
 		}
 		for _, audio := range sw.Audio {
-			add(fmt.Sprintf("audio-%d", index), audio.Src)
+			if err := appendFormat(fmt.Sprintf("audio-%d", index), audio.Src); err != nil {
+				return nil, nil, err
+			}
 			index++
 		}
 	}
 	for _, video := range doc.Body.Video {
-		add(fmt.Sprintf("http-%d", index), video.Src)
+		if err := appendFormat(fmt.Sprintf("http-%d", index), video.Src); err != nil {
+			return nil, nil, err
+		}
 		index++
 	}
 	if len(formats) == 0 {
@@ -331,8 +342,11 @@ func parseThePlatformSMIL(data []byte) ([]value.Value, *value.Object, error) {
 	captionCount := 0
 	for _, sw := range doc.Body.Switch {
 		for _, text := range sw.TextStream {
-			if captionCount >= thePlatformMaxCaptions || !strictValidHostedHTTPURL(text.Src) {
+			if !strictValidHostedHTTPURL(text.Src) {
 				continue
+			}
+			if captionCount >= thePlatformMaxCaptions {
+				return nil, nil, fmt.Errorf("%w: ThePlatform caption limit", ErrInvalidMetadata)
 			}
 			lang := strings.TrimSpace(text.Lang)
 			if lang == "" {
@@ -507,10 +521,17 @@ func (ThePlatformFeed) Extract(ctx context.Context, request Request) (Extraction
 		videoID = entry.GUID
 	}
 	formats := make([]value.Value, 0, 4)
-	for index, content := range entry.Content {
-		if index >= thePlatformMaxFormats {
-			return Extraction{}, fmt.Errorf("%w: ThePlatform feed format limit", ErrInvalidMetadata)
+	appendFormats := func(extra ...value.Value) error {
+		if len(formats)+len(extra) > thePlatformMaxFormats {
+			return fmt.Errorf("%w: ThePlatform feed format limit", ErrInvalidMetadata)
 		}
+		formats = append(formats, extra...)
+		return nil
+	}
+	if len(entry.Content) > thePlatformMaxFeedContent {
+		return Extraction{}, fmt.Errorf("%w: ThePlatform feed content limit", ErrInvalidMetadata)
+	}
+	for index, content := range entry.Content {
 		rawURL := strings.TrimSpace(content.URL)
 		if !strictValidHostedHTTPURL(rawURL) {
 			continue
@@ -528,7 +549,9 @@ func (ThePlatformFeed) Extract(ctx context.Context, request Request) (Extraction
 			if err != nil {
 				return Extraction{}, err
 			}
-			formats = append(formats, smilFormats...)
+			if err := appendFormats(smilFormats...); err != nil {
+				return Extraction{}, err
+			}
 			continue
 		}
 		formatID := fmt.Sprintf("content-%d", index)
@@ -536,12 +559,16 @@ func (ThePlatformFeed) Extract(ctx context.Context, request Request) (Extraction
 			formatID = fmt.Sprintf("hls-%d", index)
 		}
 		if format, ok := strictHostedURLFormat(formatID, rawURL); ok {
-			formats = append(formats, value.ObjectValue(format))
+			if err := appendFormats(value.ObjectValue(format)); err != nil {
+				return Extraction{}, err
+			}
 		}
 	}
 	if len(formats) == 0 && strictValidHostedHTTPURL(entry.PublicURL) && !thePlatformLooksLikeSMILURL(entry.PublicURL) {
 		if format, ok := strictHostedURLFormat("public", entry.PublicURL); ok {
-			formats = append(formats, value.ObjectValue(format))
+			if err := appendFormats(value.ObjectValue(format)); err != nil {
+				return Extraction{}, err
+			}
 		}
 	}
 	if len(formats) == 0 {
