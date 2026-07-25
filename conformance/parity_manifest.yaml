@@ -2040,6 +2040,26 @@ capabilities:
     owner: extractors
     known_deviation: Compatibility is limited to the documented deterministic corpus. Legacy provider APIs, volatile authenticated bootstrap flows, general article/embed matrices, and some password/SSO/CDN fallbacks remain explicit per-family provenance deviations; no extractor silently invokes Python or an unregistered fallback.
 
+  - id: extractor.family_breadth_priority_100
+    name: Extractor family breadth priority-100
+    phase: 2
+    compatibility_target: Cumulatively register at least 50 distinct non-YouTube family/adapter extractor keys with fixture-backed success or adapter→backend re-entry evidence, at least 8 shared backends, and at least 100 attributable success URL shapes since baseline 172a718c.
+    status: compatible
+    evidence:
+      - docs/EXTRACTOR_BREADTH_PRIORITY_100_LEDGER.md
+      - docs/EXTRACTOR_BREADTH_PRIORITY_100_EVIDENCE.md
+      - docs/EXTRACTOR_FAMILY_BREADTH_WAVE1_EVIDENCE.md
+      - internal/extractor.TestBrightcoveAdaptersSuitableAndHandoff
+      - internal/extractor.TestKalturaJWAdaptersHandoff
+      - internal/extractor.TestArcAdaptersExactRoutingHandoffAndEvidence
+      - internal/extractor.TestPodcastFamilySuccessAndPlaylists
+      - internal/extractor.TestCloudflareStreamSuccessAndSignedJWTRetention
+      - internal/extractor.TestAnvatoFixedAuthVectorAndSuccess
+      - internal/extractor.TestSharedHostingSuccessFixtures
+      - pkg/ytdlp.TestProductRegistryIncludesIntegratedExtractors
+    owner: extractors
+    known_deviation: Stretch target of 75 keys is not claimed. Live-service compatibility is not asserted from synthetic fixtures alone. Heise YouTube-only pages and Craftsy cookie-gated full-class catalogs remain unsupported/fail-closed.
+
   - id: verification.g2_security
     name: Gate G2 security and fallback audit
     phase: 2
