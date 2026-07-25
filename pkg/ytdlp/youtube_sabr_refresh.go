@@ -32,9 +32,15 @@ type youtubeSABRRefreshCoordinator struct {
 	reloadPlayer func(context.Context, mediaformat.Selection, string) (extractor.Extraction, error)
 }
 
+// sabrExtractionFlight owns shared extraction work independent of any single
+// caller's context. Waiters select between completion and their own cancel.
+// When the last waiter leaves, shared work is canceled.
 type sabrExtractionFlight struct {
-	done chan struct{}
-	err  error
+	done      chan struct{}
+	cancel    context.CancelFunc
+	waiters   int32
+	abandoned bool
+	err       error
 }
 
 func newYouTubeSABRRefreshCoordinator(operation *operation) *youtubeSABRRefreshCoordinator {
@@ -113,49 +119,45 @@ func (coordinator *youtubeSABRRefreshCoordinator) runFlight(
 		return cloneRefreshMaterial(material), nil
 	}
 	if existing := coordinator.flights[group]; existing != nil {
-		flight := existing
-		coordinator.mu.Unlock()
-		return coordinator.waitFlight(ctx, flight, identity)
+		if existing.abandoned {
+			delete(coordinator.flights, group)
+		} else {
+			existing.waiters++
+			coordinator.mu.Unlock()
+			return coordinator.waitFlight(ctx, existing, identity)
+		}
 	}
 	if coordinator.attempts >= youtubeump.MaxSabrRefreshAttempts {
 		coordinator.mu.Unlock()
 		return youtubeump.RefreshMaterial{}, youtubeump.ErrRefreshBudget
 	}
 	coordinator.attempts++
-	flight := &sabrExtractionFlight{done: make(chan struct{})}
+	workCtx, cancel := context.WithCancel(context.Background())
+	flight := &sabrExtractionFlight{done: make(chan struct{}), cancel: cancel, waiters: 1}
 	coordinator.flights[group] = flight
 	coordinator.mu.Unlock()
 
-	extracted, err := lead(context.WithoutCancel(ctx))
-	if err == nil {
-		err = coordinator.storeExtraction(context.WithoutCancel(ctx), selection, extracted)
-	} else if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-		err = youtubeump.ErrRefreshRejected
-	}
+	go func() {
+		extracted, err := lead(workCtx)
+		if err == nil {
+			err = coordinator.storeExtraction(workCtx, selection, extracted)
+		} else if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+			err = youtubeump.ErrRefreshRejected
+		}
+		flight.err = err
+		coordinator.mu.Lock()
+		if coordinator.flights[group] == flight {
+			delete(coordinator.flights, group)
+		}
+		coordinator.mu.Unlock()
+		close(flight.done)
+	}()
 
-	coordinator.mu.Lock()
-	flight.err = err
-	delete(coordinator.flights, group)
-	close(flight.done)
-	material, ok := coordinator.materials[identity]
-	coordinator.mu.Unlock()
-
-	if err := ctx.Err(); err != nil {
-		return youtubeump.RefreshMaterial{}, err
-	}
-	if flight.err != nil {
-		return youtubeump.RefreshMaterial{}, flight.err
-	}
-	if !ok {
-		return youtubeump.RefreshMaterial{}, youtubeump.ErrRefreshRejected
-	}
-	return cloneRefreshMaterial(material), nil
+	return coordinator.waitFlight(ctx, flight, identity)
 }
 
 func (coordinator *youtubeSABRRefreshCoordinator) waitFlight(ctx context.Context, flight *sabrExtractionFlight, identity string) (youtubeump.RefreshMaterial, error) {
 	select {
-	case <-ctx.Done():
-		return youtubeump.RefreshMaterial{}, ctx.Err()
 	case <-flight.done:
 		if flight.err != nil {
 			return youtubeump.RefreshMaterial{}, flight.err
@@ -167,6 +169,15 @@ func (coordinator *youtubeSABRRefreshCoordinator) waitFlight(ctx context.Context
 			return youtubeump.RefreshMaterial{}, youtubeump.ErrRefreshRejected
 		}
 		return cloneRefreshMaterial(material), nil
+	case <-ctx.Done():
+		coordinator.mu.Lock()
+		flight.waiters--
+		if flight.waiters == 0 {
+			flight.abandoned = true
+			flight.cancel()
+		}
+		coordinator.mu.Unlock()
+		return youtubeump.RefreshMaterial{}, ctx.Err()
 	}
 }
 
@@ -196,18 +207,11 @@ func (coordinator *youtubeSABRRefreshCoordinator) storeExtraction(ctx context.Co
 			YouTubeSABRDurationSec:     material.DurationSec,
 			YouTubeSABRDrc:             material.DrcEnabled,
 			YouTubeSABRAudioTrackID:    material.AudioTrackID,
-			YouTubeSABRUstreamerConfig: selection.YouTubeSABRUstreamerConfig,
+			YouTubeSABRUstreamerConfig: base64.StdEncoding.EncodeToString(material.UstreamerConfig),
 		}
 		key := youtubeSABRRefreshIdentity(peer)
 		if key == "" {
 			continue
-		}
-		// Bound ustreamer equality against the requesting selection when present.
-		if selection.YouTubeSABRUstreamerConfig != "" {
-			want, err := base64.StdEncoding.DecodeString(selection.YouTubeSABRUstreamerConfig)
-			if err != nil || !ustreamerEqual(want, material.UstreamerConfig) {
-				continue
-			}
 		}
 		stored[key] = material
 	}
@@ -217,13 +221,6 @@ func (coordinator *youtubeSABRRefreshCoordinator) storeExtraction(ctx context.Co
 		coordinator.materials[key] = material
 	}
 	return nil
-}
-
-func ustreamerEqual(want, got []byte) bool {
-	if len(want) == 0 || len(got) == 0 {
-		return false
-	}
-	return youtubeump.HashUstreamerConfig(want) == youtubeump.HashUstreamerConfig(got)
 }
 
 func sabrMaterialFromObject(ctx context.Context, operation *operation, selection mediaformat.Selection, object *value.Object, episode *youtubepot.Episode) (youtubeump.RefreshMaterial, bool, error) {
@@ -250,13 +247,13 @@ func sabrMaterialFromObject(ctx context.Context, operation *operation, selection
 	if visitor != selection.YouTubeSABRVisitorData {
 		return youtubeump.RefreshMaterial{}, false, nil
 	}
-	if selection.YouTubeSABRClientID != 0 && clientID != selection.YouTubeSABRClientID {
+	if selection.YouTubeSABRClientID <= 0 || clientID != selection.YouTubeSABRClientID {
 		return youtubeump.RefreshMaterial{}, false, nil
 	}
-	if selection.YouTubeSABRClientVersion != "" && clientVersion != selection.YouTubeSABRClientVersion {
+	if selection.YouTubeSABRClientVersion == "" || clientVersion != selection.YouTubeSABRClientVersion {
 		return youtubeump.RefreshMaterial{}, false, nil
 	}
-	if duration == 0 || (selection.YouTubeSABRDurationSec != 0 && duration != selection.YouTubeSABRDurationSec) {
+	if duration == 0 || duration != selection.YouTubeSABRDurationSec {
 		return youtubeump.RefreshMaterial{}, false, nil
 	}
 	serverURL, _ := object.Lookup("_youtube_sabr_server_url").StringValue()
@@ -344,13 +341,22 @@ func (coordinator *youtubeSABRRefreshCoordinator) reloadSource(ctx context.Conte
 	})
 }
 
+// youtubeSABRRefreshIdentity binds cached refresh material to exact selection
+// identity, including the decoded ustreamer-config SHA-256. Invalid expected
+// ustreamer base64 and missing required client/format dimensions fail closed
+// (empty key). Visitor/audio-track may be empty when the architecture permits.
 func youtubeSABRRefreshIdentity(selection mediaformat.Selection) string {
 	if selection.YouTubeSABRVideoID == "" || selection.YouTubeSABRClientName == "" ||
+		selection.YouTubeSABRClientID <= 0 || selection.YouTubeSABRClientVersion == "" ||
 		selection.YouTubeSABRItag <= 0 || selection.YouTubeSABRTrack == "" ||
-		selection.YouTubeSABRDurationSec <= 0 {
+		selection.YouTubeSABRDurationSec <= 0 || selection.YouTubeSABRUstreamerConfig == "" {
 		return ""
 	}
-	return fmt.Sprintf("%s\x00%s\x00%d\x00%s\x00%s\x00%d\x00%s\x00%d\x00%t\x00%s",
+	ustreamer, err := base64.StdEncoding.DecodeString(selection.YouTubeSABRUstreamerConfig)
+	if err != nil || len(ustreamer) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s\x00%s\x00%d\x00%s\x00%s\x00%d\x00%s\x00%d\x00%t\x00%s\x00%s",
 		selection.YouTubeSABRVideoID,
 		selection.YouTubeSABRClientName,
 		selection.YouTubeSABRClientID,
@@ -361,11 +367,13 @@ func youtubeSABRRefreshIdentity(selection mediaformat.Selection) string {
 		selection.YouTubeSABRDurationSec,
 		selection.YouTubeSABRDrc,
 		selection.YouTubeSABRAudioTrackID,
+		youtubeump.HashUstreamerConfig(ustreamer),
 	)
 }
 
 func youtubeSABRExtractionGroup(selection mediaformat.Selection) string {
-	if selection.YouTubeSABRVideoID == "" || selection.YouTubeSABRClientName == "" {
+	if selection.YouTubeSABRVideoID == "" || selection.YouTubeSABRClientName == "" ||
+		selection.YouTubeSABRClientID <= 0 || selection.YouTubeSABRClientVersion == "" {
 		return ""
 	}
 	return fmt.Sprintf("%s\x00%s\x00%d\x00%s\x00%s",

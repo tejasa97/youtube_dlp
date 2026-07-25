@@ -114,10 +114,13 @@ type cacheItem struct {
 }
 
 type flight struct {
-	done  chan struct{}
-	token string
-	ok    bool
-	err   error
+	done      chan struct{}
+	cancel    context.CancelFunc
+	waiters   int32
+	abandoned bool
+	token     string
+	ok        bool
+	err       error
 }
 
 // Episode bounds forced cache-bypass refreshes for one download/operation.
@@ -314,6 +317,12 @@ func flightMapKey(cacheKey string, bypass bool) string {
 	return cacheKey
 }
 
+// resolveFlight coalesces compatible fetches with a flight-owned lifecycle.
+// Provider work runs in a dedicated goroutine under its own cancelable
+// context. Every caller (including the creator) waits on that flight with
+// their own context and returns promptly on cancellation. When the last
+// waiter leaves, shared work is canceled. Bypass and normal flights use
+// distinct map keys and never join each other.
 func (director *Director) resolveFlight(ctx context.Context, key string, request Request, required bool) (string, bool, error) {
 	fkey := flightMapKey(key, request.BypassCache)
 	director.mu.Lock()
@@ -327,39 +336,35 @@ func (director *Director) resolveFlight(ctx context.Context, key string, request
 		}
 	}
 	if existing := director.inflight[fkey]; existing != nil {
-		flight := existing
-		director.mu.Unlock()
-		return waitFlight(ctx, flight, required)
+		if existing.abandoned {
+			delete(director.inflight, fkey)
+		} else {
+			existing.waiters++
+			director.mu.Unlock()
+			return director.waitFlight(ctx, existing, required)
+		}
 	}
-	flight := &flight{done: make(chan struct{})}
+	workCtx, cancel := context.WithCancel(context.Background())
+	flight := &flight{done: make(chan struct{}), cancel: cancel, waiters: 1}
 	director.inflight[fkey] = flight
 	director.mu.Unlock()
 
-	// Provider work must outlive a canceled leader so compatible waiters are
-	// not poisoned. Callers still observe their own context via waitFlight /
-	// the post-flight check below.
-	token, ok, err := director.fetchProviders(context.WithoutCancel(ctx), request)
-	director.mu.Lock()
-	flight.token, flight.ok, flight.err = token, ok, err
-	delete(director.inflight, fkey)
-	close(flight.done)
-	director.mu.Unlock()
-	if err := ctx.Err(); err != nil {
-		return "", false, err
-	}
-	if err != nil {
-		return "", false, err
-	}
-	if !ok && required {
-		return "", false, ErrUnavailable
-	}
-	return token, ok, nil
+	go func() {
+		token, ok, err := director.fetchProviders(workCtx, request)
+		flight.token, flight.ok, flight.err = token, ok, err
+		director.mu.Lock()
+		if director.inflight[fkey] == flight {
+			delete(director.inflight, fkey)
+		}
+		director.mu.Unlock()
+		close(flight.done)
+	}()
+
+	return director.waitFlight(ctx, flight, required)
 }
 
-func waitFlight(ctx context.Context, flight *flight, required bool) (string, bool, error) {
+func (director *Director) waitFlight(ctx context.Context, flight *flight, required bool) (string, bool, error) {
 	select {
-	case <-ctx.Done():
-		return "", false, ctx.Err()
 	case <-flight.done:
 		if flight.err != nil {
 			return "", false, flight.err
@@ -368,6 +373,15 @@ func waitFlight(ctx context.Context, flight *flight, required bool) (string, boo
 			return "", false, ErrUnavailable
 		}
 		return flight.token, flight.ok, nil
+	case <-ctx.Done():
+		director.mu.Lock()
+		flight.waiters--
+		if flight.waiters == 0 {
+			flight.abandoned = true
+			flight.cancel()
+		}
+		director.mu.Unlock()
+		return "", false, ctx.Err()
 	}
 }
 
