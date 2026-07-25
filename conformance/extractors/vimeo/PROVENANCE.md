@@ -21,6 +21,23 @@ The config fixture's `player.vimeo.com` endpoint is likewise deliberate: the
 extractor requests only that HTTPS origin and retains its synthetic query token
 while using a canonical token-free Vimeo Referer.
 
+## Contextual video routes
+
+The exact channel, group, album, and showcase child-video shapes model the
+context-bearing alternatives in `VimeoIE._VALID_URL` at the pinned reference
+(`yt_dlp/extractor/vimeo.py`, lines 558-588), including its group, album, and
+showcase cases near lines 842-848 and channel case near line 923:
+
+- `/channels/{safe-slug}/{numeric-id}`
+- `/groups/{safe-slug}/videos/{numeric-id}`
+- `/album/{safe-id}/video/{numeric-id}`
+- `/showcase/{safe-id}/video/{numeric-id}`
+
+The existing synthetic `page.html` and `config.json` fixtures are reused. Tests
+assert that the exact canonical contextual page is fetched and retained as the
+token-free config Referer; no live Vimeo response or private identifier is
+copied into the corpus.
+
 ## Playlist fixtures
 
 Channel, explicit and bare user, and public group playlist pages model
