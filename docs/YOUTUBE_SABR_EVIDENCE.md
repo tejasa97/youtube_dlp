@@ -8,9 +8,9 @@ Status: partial — bounded finite-VOD slice only. Synthetic fixtures only; no c
 - Response parts handled: `FORMAT_INITIALIZATION_METADATA` (42), `MEDIA_HEADER` (20), `MEDIA` (21), `MEDIA_END` (22), `NEXT_REQUEST_POLICY` (35), `SABR_REDIRECT` (43), `SABR_CONTEXT_UPDATE` (57), `SABR_CONTEXT_SENDING_POLICY` (59), `END_OF_TRACK` (62).
 - Multiplexed responses: unselected itag headers are consumed, length-validated, and discarded without writing; selected format initialization metadata is required.
 - `NEXT_REQUEST_POLICY`: canonical protobuf validation for `backoff_time_ms` (field 4, max 30s) and embedded `PlaybackCookie` (field 7, max 4096 bytes, known fields 1/2 varints and 7/8 `FormatID`). At most one policy per response; cookie replaces prior state on success; policy without cookie preserves prior cookie. Backoff is applied cancellation-safely before the next POST when the track is not yet complete.
-- `SABR_REDIRECT` (43): exactly one nonempty field-1 URL (≤4096 bytes), validated with `ValidateSABRURL` (HTTPS, trusted googlevideo host, no userinfo/port/fragment/encoded separators). At most one redirect per response. No HTTP redirect following. Committed UMP redirects are capped at 8 and loop-checked with an exact URL key that includes the initial endpoint. The redirected URL becomes the next-round POST target only after a successful response commit; signed query bytes are preserved except normal `rn` progression.
-- `SABR_CONTEXT_UPDATE` (57): `type` (positive int32), `scope` (0..4), nonempty `value` (≤16KiB), `send_by_default`, `write_policy` (0 unspecified / 1 overwrite / 2 keep-existing). Keep-existing skips updates when the type is already stored (including send_by_default). Stored contexts are capped at 64 entries and 256KiB cumulative value bytes.
-- `SABR_CONTEXT_SENDING_POLICY` (59): repeated `start`/`stop`/`discard` int32 lists, accepting unpacked varints and packed length-delimited encodings evidenced by generated protobuf code. At most one policy part per response and ≤192 total operations. Application order matches pinned GoogleVideo behavior: start, then stop, then discard. Discard removes stored values only; orphaned active marks are inert because request marshalling iterates stored entries only.
+- `SABR_REDIRECT` (43): exactly one nonempty field-1 URL (≤4096 bytes), validated with `ValidateSABRURL` (HTTPS, trusted googlevideo host, no userinfo/port/fragment/encoded separators). At most one redirect per response. No HTTP redirect following. POSTs always use the exact original signed URL bytes (plus normal `rn` progression). Loop detection uses a separate canonical key derived only after validation: lowercase scheme/host and trailing-dot host equivalence, with signed path/query bytes preserved exactly (no reordering or decoding). The initial endpoint is seeded with the same canonicalizer. Committed UMP redirects are capped at 8; the 9th redirect fails before commit. The redirected URL becomes the next-round POST target only after a successful response commit.
+- `SABR_CONTEXT_UPDATE` (57): `type` (positive int32), `scope` (0..4), nonempty `value` (≤16KiB), `send_by_default`, `write_policy` (0 unspecified / 1 overwrite / 2 keep-existing). Keep-existing skips updates when the type is already stored (including send_by_default). Stored context entries and the active/orphan ID set are each capped at 64; cumulative stored values are capped at 256KiB. Bound violations reject transactionally without mutating caller state.
+- `SABR_CONTEXT_SENDING_POLICY` (59): repeated `start`/`stop`/`discard` int32 lists, accepting unpacked varints and packed length-delimited encodings evidenced by generated protobuf code. Multiple policy parts in one response are applied in arrival order (matching pinned `SabrStream.handleSabrContextSendingPolicy`), with one response-wide operation budget of ≤192 start/stop/discard values. Within each part, application order is start, then stop, then discard. Discard removes stored values only; orphaned active marks are inert because request marshalling iterates stored entries only.
 - Active contexts marshal into `StreamerContext` field 5 (`type`/`value`) in ascending type order; inactive stored types marshal into packed field 6 in ascending order.
 - Context-only and redirect-only responses may continue immediately to the next round without media, still counting toward `MaxRounds`, redirect/context budgets, and cancellation.
 - `END_OF_TRACK` (62): empty payload only, once per response, with no active media headers and after init plus at least one finalized selected segment. Authoritative finite-VOD completion even below declared duration. Duration-based completion remains the fallback when `END_OF_TRACK` is absent. When `END_OF_TRACK` completes the track, no further POST is issued for redirect or backoff.
@@ -32,7 +32,7 @@ Status: partial — bounded finite-VOD slice only. Synthetic fixtures only; no c
 | ColeSpringer/WaxTap v2.0.1 | `5d4b07dbfad5c2831c35ea7b95006b576e08f694` | Request marshaling shape cross-check (not a dependency) |
 | yt-dlp reference | `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8` | SABR-only detection only; no direct transport |
 
-Synthetic fixtures: `conformance/extractors/youtube/sabr-only-watch.html`, `conformance/media/youtube_sabr_directives/**`, and deterministic UMP bytes in `internal/protocol/youtubeump/*_test.go`.
+Synthetic fixtures: `conformance/extractors/youtube/sabr-only-watch.html`, `conformance/media/youtube_sabr_directives/**` (byte-identical rebuilds asserted by `TestDirectiveFixturesByteIdenticalAndSynthetic`), and deterministic UMP bytes in `internal/protocol/youtubeump/*_test.go`.
 
 ## Measured bounds
 
@@ -43,10 +43,10 @@ Synthetic fixtures: `conformance/extractors/youtube/sabr-only-watch.html`, `conf
 - `MaxRounds` = 64 POST rounds for finite VOD
 - `MaxPlaybackCookieBytes` = 4096 per validated cookie
 - `MaxPolicyBackoffMs` = 30,000 per `NEXT_REQUEST_POLICY`
-- `MaxSabrContexts` = 64 stored context entries
+- `MaxSabrContexts` = 64 stored context entries and 64 active/orphan IDs
 - `MaxSabrContextValueBytes` = 16 KiB per value
 - `MaxSabrContextValueBytesTotal` = 256 KiB cumulative
-- `MaxSabrContextPolicyOps` = 192 start/stop/discard operations per policy
+- `MaxSabrContextPolicyOps` = 192 start/stop/discard operations across all sending-policy parts in one response
 - `MaxRedirectURLBytes` = 4096
 - `MaxDirectiveRedirects` = 8 committed UMP redirects
 - HTTP `Location` redirects remain rejected (fail-closed)

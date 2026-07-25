@@ -29,7 +29,8 @@ const (
 	MaxSabrContextValueBytes = 16 << 10
 	// MaxSabrContextValueBytesTotal bounds cumulative stored context values.
 	MaxSabrContextValueBytesTotal = 256 << 10
-	// MaxSabrContextPolicyOps bounds start+stop+discard entries in one policy.
+	// MaxSabrContextPolicyOps bounds start+stop+discard entries across all
+	// SABR_CONTEXT_SENDING_POLICY parts in one response.
 	MaxSabrContextPolicyOps = 192
 	// MaxRedirectURLBytes bounds one SABR_REDIRECT url field.
 	MaxRedirectURLBytes = 4096

@@ -117,7 +117,7 @@ func FuzzSabrContextSendingPolicy(f *testing.F) {
 		if len(body) > 4096 {
 			return
 		}
-		_, err := parseSabrContextSendingPolicy(body)
+		_, err := parseSabrContextSendingPolicy(body, nil)
 		if err != nil && !errors.Is(err, ErrInvalidProtobuf) && !errors.Is(err, ErrTruncatedStream) &&
 			!errors.Is(err, ErrNonCanonicalVarint) && !errors.Is(err, ErrVarintOverflow) &&
 			!errors.Is(err, ErrInvalidContextState) {

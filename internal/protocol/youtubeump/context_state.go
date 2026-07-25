@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // sabrContextEntry is one stored SABR context value.
@@ -17,9 +18,12 @@ type sabrContextEntry struct {
 //
 // Policy ordering matches LuanRT/googlevideo SabrStream.handleSabrContextSendingPolicy
 // at commit d2fa40d761034a286cf60ee033653307a1295b0c: start, then stop, then discard.
+// Multiple SABR_CONTEXT_SENDING_POLICY parts in one response are applied in arrival
+// order with one response-wide operation budget (MaxSabrContextPolicyOps).
 // Contradictory start+stop of the same type in one policy is therefore resolved by that
 // order (net inactive). Discard removes the stored value only; an orphaned active mark
 // is inert because marshalling iterates stored entries exclusively.
+// Both entries and active maps are bounded by MaxSabrContexts.
 type sabrContextState struct {
 	entries map[int32]sabrContextEntry
 	active  map[int32]struct{}
@@ -66,16 +70,26 @@ func (state *sabrContextState) applyUpdate(update sabrContextUpdateDirective) er
 		if update.WritePolicy == SabrContextWriteKeepExisting {
 			return nil
 		}
+		if update.SendByDefault {
+			if err := state.ensureActiveCapacity(update.Type); err != nil {
+				return err
+			}
+		}
 		if err := state.replaceEntry(existing, update); err != nil {
 			return err
 		}
 	} else {
+		if update.SendByDefault {
+			if err := state.ensureActiveCapacity(update.Type); err != nil {
+				return err
+			}
+		}
 		if err := state.insertEntry(update); err != nil {
 			return err
 		}
 	}
 	if update.SendByDefault {
-		state.active[update.Type] = struct{}{}
+		return state.activate(update.Type)
 	}
 	return nil
 }
@@ -118,7 +132,9 @@ func (state *sabrContextState) applySendingPolicy(policy sabrContextSendingPolic
 		if typ <= 0 {
 			return fmt.Errorf("%w: policy type must be positive", ErrInvalidContextState)
 		}
-		state.active[typ] = struct{}{}
+		if err := state.activate(typ); err != nil {
+			return err
+		}
 	}
 	for _, typ := range policy.Stop {
 		if typ <= 0 {
@@ -135,6 +151,24 @@ func (state *sabrContextState) applySendingPolicy(policy sabrContextSendingPolic
 			delete(state.entries, typ)
 		}
 	}
+	return nil
+}
+
+func (state *sabrContextState) ensureActiveCapacity(typ int32) error {
+	if _, ok := state.active[typ]; ok {
+		return nil
+	}
+	if len(state.active) >= MaxSabrContexts {
+		return fmt.Errorf("%w: active context bound exceeded", ErrInvalidContextState)
+	}
+	return nil
+}
+
+func (state *sabrContextState) activate(typ int32) error {
+	if err := state.ensureActiveCapacity(typ); err != nil {
+		return err
+	}
+	state.active[typ] = struct{}{}
 	return nil
 }
 
@@ -185,7 +219,40 @@ func appendProtobufPackedInt32(buf []byte, field uint64, values []int32) []byte 
 	return appendProtobufBytes(buf, field, packed)
 }
 
-// redirectTracker records committed SABR endpoints for loop/budget detection.
+// sabrRedirectLoopKey builds a canonical loop-detection key after ValidateSABRURL.
+// Scheme/host case and trailing-dot host forms collapse; signed path/query bytes are
+// preserved exactly from the original URL (no reordering or decoding). The raw URL
+// string used for POSTs remains separate from this key.
+func sabrRedirectLoopKey(raw string) (string, error) {
+	if _, err := ValidateSABRURL(raw); err != nil {
+		return "", fmt.Errorf("%w: %v", ErrUnsafeRedirect, err)
+	}
+	schemeSep := strings.Index(raw, "://")
+	if schemeSep < 0 {
+		return "", fmt.Errorf("%w: missing URL scheme separator", ErrUnsafeRedirect)
+	}
+	scheme := strings.ToLower(raw[:schemeSep])
+	afterScheme := raw[schemeSep+3:]
+	authEnd := len(afterScheme)
+	for i := 0; i < len(afterScheme); i++ {
+		switch afterScheme[i] {
+		case '/', '?':
+			authEnd = i
+			goto split
+		}
+	}
+split:
+	authority := afterScheme[:authEnd]
+	remainder := afterScheme[authEnd:]
+	host := strings.ToLower(strings.TrimRight(authority, "."))
+	if host == "" {
+		return "", fmt.Errorf("%w: empty redirect host", ErrUnsafeRedirect)
+	}
+	return scheme + "://" + host + remainder, nil
+}
+
+// redirectTracker records committed SABR endpoint loop keys for loop/budget detection.
+// POSTs always use the exact original signed URL bytes, not the canonical key.
 type redirectTracker struct {
 	seen  map[string]struct{}
 	count int
@@ -193,17 +260,26 @@ type redirectTracker struct {
 
 func newRedirectTracker(initialURL string) *redirectTracker {
 	tracker := &redirectTracker{seen: make(map[string]struct{}, 8)}
-	if initialURL != "" {
-		tracker.seen[initialURL] = struct{}{}
+	if initialURL == "" {
+		return tracker
 	}
+	key, err := sabrRedirectLoopKey(initialURL)
+	if err != nil {
+		return tracker
+	}
+	tracker.seen[key] = struct{}{}
 	return tracker
 }
 
-func (tracker *redirectTracker) validate(url string) error {
+func (tracker *redirectTracker) validate(rawURL string) error {
 	if tracker == nil {
 		return nil
 	}
-	if _, ok := tracker.seen[url]; ok {
+	key, err := sabrRedirectLoopKey(rawURL)
+	if err != nil {
+		return err
+	}
+	if _, ok := tracker.seen[key]; ok {
 		return ErrRedirectLoop
 	}
 	if tracker.count >= MaxDirectiveRedirects {
@@ -212,10 +288,14 @@ func (tracker *redirectTracker) validate(url string) error {
 	return nil
 }
 
-func (tracker *redirectTracker) record(url string) {
-	if tracker == nil || url == "" {
+func (tracker *redirectTracker) record(rawURL string) {
+	if tracker == nil || rawURL == "" {
 		return
 	}
-	tracker.seen[url] = struct{}{}
+	key, err := sabrRedirectLoopKey(rawURL)
+	if err != nil {
+		return
+	}
+	tracker.seen[key] = struct{}{}
 	tracker.count++
 }

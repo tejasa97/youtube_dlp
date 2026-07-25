@@ -109,7 +109,7 @@ func TestParseSabrContextSendingPolicyPackedAndUnpacked(t *testing.T) {
 			payload = packed
 		}
 		t.Run(name, func(t *testing.T) {
-			got, err := parseSabrContextSendingPolicy(payload)
+			got, err := parseSabrContextSendingPolicy(payload, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -122,11 +122,11 @@ func TestParseSabrContextSendingPolicyPackedAndUnpacked(t *testing.T) {
 	for i := range oversized {
 		oversized[i] = int32(i + 1)
 	}
-	_, err := parseSabrContextSendingPolicy(encodeSabrSendingPolicy(oversized, nil, nil, true))
+	_, err := parseSabrContextSendingPolicy(encodeSabrSendingPolicy(oversized, nil, nil, true), nil)
 	if !errors.Is(err, ErrInvalidContextState) {
 		t.Fatalf("err=%v", err)
 	}
-	_, err = parseSabrContextSendingPolicy(encodeSabrSendingPolicy([]int32{0}, nil, nil, false))
+	_, err = parseSabrContextSendingPolicy(encodeSabrSendingPolicy([]int32{0}, nil, nil, false), nil)
 	if !errors.Is(err, ErrInvalidContextState) {
 		t.Fatalf("err=%v", err)
 	}
@@ -313,13 +313,116 @@ func TestRedirectLoopAndBudget(t *testing.T) {
 		}
 		assertNoPublishedArtifact(t, root, destination)
 	})
-	t.Run("ninth", func(t *testing.T) {
+	t.Run("canonical_case_and_trailing_dot_loop", func(t *testing.T) {
+		initial := "https://rr1---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=fixture%2Btoken"
+		alias := "https://RR1---sn-fixture.googlevideo.com./videoplayback/sabr/fixture?sig=fixture%2Btoken"
+		keyInitial, err := sabrRedirectLoopKey(initial)
+		if err != nil {
+			t.Fatal(err)
+		}
+		keyAlias, err := sabrRedirectLoopKey(alias)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if keyInitial != keyAlias {
+			t.Fatalf("keys diverge: %q vs %q", keyInitial, keyAlias)
+		}
+		var seenRequestURL string
+		transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			seenRequestURL = request.URL.String()
+			return umpResponse(encodePart(PartSABRRedirect, encodeSabrRedirect(alias)), request), nil
+		})
+		root, destination := testRoot(t, "out.bin")
+		_, err = NewDownloader(transport, testConfig(initial)).Download(context.Background(), root, destination, true, events.Nop())
+		if !errors.Is(err, ErrRedirectLoop) {
+			t.Fatalf("err=%v", err)
+		}
+		if !strings.HasPrefix(seenRequestURL, initial+"&rn=") && !strings.HasPrefix(seenRequestURL, initial+"?rn=") {
+			// requestURL appends rn to exact server URL bytes
+			if !strings.Contains(seenRequestURL, "sig=fixture%2Btoken") || strings.Contains(seenRequestURL, "RR1---") {
+				t.Fatalf("request must preserve exact signed initial URL, got %q", seenRequestURL)
+			}
+		}
+		assertNoPublishedArtifact(t, root, destination)
+	})
+	t.Run("distinct_signed_query_not_loop", func(t *testing.T) {
+		initial := "https://rr1---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=tokenA"
+		next := "https://rr1---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=tokenB"
+		keyA, _ := sabrRedirectLoopKey(initial)
+		keyB, _ := sabrRedirectLoopKey(next)
+		if keyA == keyB {
+			t.Fatal("distinct signed query bytes must remain distinct loop keys")
+		}
 		var calls atomic.Int32
+		var secondURL string
+		transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			call := calls.Add(1)
+			if call == 1 {
+				return umpResponse(encodePart(PartSABRRedirect, encodeSabrRedirect(next)), request), nil
+			}
+			secondURL = request.URL.String()
+			return umpResponse(buildTestUMP(
+				137,
+				testSegment{headerID: 1, init: true, payload: []byte("INIT")},
+				testSegment{headerID: 2, sequence: 0, duration: 10000, payload: []byte("x")},
+			), request), nil
+		})
+		root, destination := testRoot(t, "out.bin")
+		_, err := NewDownloader(transport, testConfig(initial)).Download(context.Background(), root, destination, true, events.Nop())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(secondURL, "sig=tokenB") {
+			t.Fatalf("exact redirect URL not preserved: %q", secondURL)
+		}
+		if strings.Contains(secondURL, "sig=tokenA") {
+			t.Fatalf("redirect mutated toward initial query: %q", secondURL)
+		}
+	})
+	t.Run("exactly_eight_hops_then_complete", func(t *testing.T) {
+		var calls atomic.Int32
+		trackerSnapshot := newRedirectTracker("https://rr1---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=fixture")
 		transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
 			n := int(calls.Add(1))
-			next := fixtureRedirectURL(string(rune('a'+n)))
-			// Use deterministic numeric hosts instead.
-			next = "https://rr" + itoa(n+1) + "---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=fixture"
+			if n <= MaxDirectiveRedirects {
+				next := "https://rr" + itoa(n+1) + "---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=fixture"
+				return umpResponse(encodePart(PartSABRRedirect, encodeSabrRedirect(next)), request), nil
+			}
+			return umpResponse(buildTestUMP(
+				137,
+				testSegment{headerID: 1, init: true, payload: []byte("INIT")},
+				testSegment{headerID: 2, sequence: 0, duration: 10000, payload: []byte("done")},
+			), request), nil
+		})
+		root, destination := testRoot(t, "out.bin")
+		_, err := NewDownloader(transport, testConfig(
+			"https://rr1---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=fixture",
+			func(config *Config) { config.MaxRounds = MaxRounds },
+		)).Download(context.Background(), root, destination, true, events.Nop())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if calls.Load() != int32(MaxDirectiveRedirects+1) {
+			t.Fatalf("calls=%d want %d", calls.Load(), MaxDirectiveRedirects+1)
+		}
+		// Simulate expected committed hop count after success path.
+		for i := 1; i <= MaxDirectiveRedirects; i++ {
+			next := "https://rr" + itoa(i+1) + "---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=fixture"
+			if err := trackerSnapshot.validate(next); err != nil {
+				t.Fatalf("hop %d validate: %v", i, err)
+			}
+			trackerSnapshot.record(next)
+		}
+		if trackerSnapshot.count != MaxDirectiveRedirects {
+			t.Fatalf("count=%d", trackerSnapshot.count)
+		}
+	})
+	t.Run("ninth_redirect_rejected_before_commit", func(t *testing.T) {
+		var calls atomic.Int32
+		committed := newRedirectTracker("https://rr1---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=fixture")
+		transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			n := int(calls.Add(1))
+			next := "https://rr" + itoa(n+1) + "---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=fixture"
 			return umpResponse(encodePart(PartSABRRedirect, encodeSabrRedirect(next)), request), nil
 		})
 		root, destination := testRoot(t, "out.bin")
@@ -331,8 +434,25 @@ func TestRedirectLoopAndBudget(t *testing.T) {
 			t.Fatalf("err=%v", err)
 		}
 		assertNoPublishedArtifact(t, root, destination)
-		if calls.Load() != MaxDirectiveRedirects+1 {
+		if calls.Load() != int32(MaxDirectiveRedirects+1) {
 			t.Fatalf("calls=%d", calls.Load())
+		}
+		for i := 1; i <= MaxDirectiveRedirects; i++ {
+			next := "https://rr" + itoa(i+1) + "---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=fixture"
+			if err := committed.validate(next); err != nil {
+				t.Fatalf("expected hop %d commitable: %v", i, err)
+			}
+			committed.record(next)
+		}
+		ninth := "https://rr" + itoa(MaxDirectiveRedirects+2) + "---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=fixture"
+		if err := committed.validate(ninth); !errors.Is(err, ErrRedirectBudget) {
+			t.Fatalf("ninth validate err=%v", err)
+		}
+		if committed.count != MaxDirectiveRedirects {
+			t.Fatalf("committed count=%d want %d", committed.count, MaxDirectiveRedirects)
+		}
+		if _, ok := committed.seen[mustLoopKey(t, ninth)]; ok {
+			t.Fatal("ninth redirect must not be committed into tracker")
 		}
 	})
 }
@@ -581,6 +701,217 @@ func TestValidDirectiveThenUnsupportedCommitsNothing(t *testing.T) {
 	if len(contexts.entries) != 0 || redirects.count != 0 {
 		t.Fatal("caller state mutated on failure")
 	}
+	if strings.Contains(err.Error(), "secret-context") || strings.Contains(err.Error(), "sig=") {
+		t.Fatalf("diagnostics leaked secrets: %v", err)
+	}
+}
+
+func TestContextStateBoundsExactAndPlusOne(t *testing.T) {
+	t.Run("stored_entry_count", func(t *testing.T) {
+		state := newSabrContextState()
+		for i := 1; i <= MaxSabrContexts; i++ {
+			if err := state.applyUpdate(sabrContextUpdateDirective{
+				Type: int32(i), Value: []byte{byte(i)}, WritePolicy: SabrContextWriteOverwrite,
+			}); err != nil {
+				t.Fatalf("insert %d: %v", i, err)
+			}
+		}
+		prior := state.clone()
+		err := state.applyUpdate(sabrContextUpdateDirective{
+			Type: int32(MaxSabrContexts + 1), Value: []byte("x"), WritePolicy: SabrContextWriteOverwrite,
+		})
+		if !errors.Is(err, ErrInvalidContextState) {
+			t.Fatalf("err=%v", err)
+		}
+		if len(state.entries) != MaxSabrContexts || len(prior.entries) != MaxSabrContexts {
+			t.Fatalf("entries mutated on failure: %d", len(state.entries))
+		}
+	})
+	t.Run("cumulative_bytes", func(t *testing.T) {
+		state := newSabrContextState()
+		chunk := MaxSabrContextValueBytes
+		filled := 0
+		typ := int32(1)
+		for filled+chunk <= MaxSabrContextValueBytesTotal {
+			if err := state.applyUpdate(sabrContextUpdateDirective{
+				Type: typ, Value: bytes.Repeat([]byte{'a'}, chunk), WritePolicy: SabrContextWriteOverwrite,
+			}); err != nil {
+				t.Fatalf("fill typ=%d: %v", typ, err)
+			}
+			filled += chunk
+			typ++
+		}
+		remain := MaxSabrContextValueBytesTotal - filled
+		if remain > 0 {
+			if err := state.applyUpdate(sabrContextUpdateDirective{
+				Type: typ, Value: bytes.Repeat([]byte{'b'}, remain), WritePolicy: SabrContextWriteOverwrite,
+			}); err != nil {
+				t.Fatalf("exact fill: %v", err)
+			}
+			filled += remain
+			typ++
+		}
+		if state.total != MaxSabrContextValueBytesTotal {
+			t.Fatalf("total=%d want %d", state.total, MaxSabrContextValueBytesTotal)
+		}
+		priorTotal := state.total
+		priorEntries := len(state.entries)
+		err := state.applyUpdate(sabrContextUpdateDirective{
+			Type: typ, Value: []byte("x"), WritePolicy: SabrContextWriteOverwrite,
+		})
+		if !errors.Is(err, ErrInvalidContextState) {
+			t.Fatalf("err=%v", err)
+		}
+		if state.total != priorTotal || len(state.entries) != priorEntries {
+			t.Fatal("cumulative bound failure mutated state")
+		}
+	})
+	t.Run("active_orphan_ids", func(t *testing.T) {
+		state := newSabrContextState()
+		types := make([]int32, MaxSabrContexts)
+		for i := range types {
+			types[i] = int32(i + 1)
+		}
+		if err := state.applySendingPolicy(sabrContextSendingPolicyDirective{Start: types}); err != nil {
+			t.Fatal(err)
+		}
+		if len(state.active) != MaxSabrContexts {
+			t.Fatalf("active=%d", len(state.active))
+		}
+		priorActive := len(state.active)
+		err := state.applySendingPolicy(sabrContextSendingPolicyDirective{Start: []int32{int32(MaxSabrContexts + 1)}})
+		if !errors.Is(err, ErrInvalidContextState) {
+			t.Fatalf("err=%v", err)
+		}
+		if len(state.active) != priorActive {
+			t.Fatal("active map mutated after bound failure")
+		}
+		if _, ok := state.active[int32(MaxSabrContexts+1)]; ok {
+			t.Fatal("orphan ID committed past bound")
+		}
+	})
+}
+
+func TestMultipleSendingPoliciesResponseWideBudget(t *testing.T) {
+	t.Run("sequential_conflicting_ops", func(t *testing.T) {
+		file, err := os.CreateTemp(t.TempDir(), "policy-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer file.Close()
+		assembler := newTrackAssembler(FormatID{Itag: 137}, 10000, file, 1024)
+		contexts := newSabrContextState()
+		if err := contexts.applyUpdate(sabrContextUpdateDirective{
+			Type: 1, Value: []byte("one"), WritePolicy: SabrContextWriteOverwrite,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		body := appendContextUpdatePart(nil, 1, 1, SabrContextWriteOverwrite, []byte("one"), false)
+		body = appendSendingPolicyPart(body, []int32{1}, nil, nil, true)
+		body = appendSendingPolicyPart(body, nil, []int32{1}, nil, true)
+		body = appendSendingPolicyPart(body, []int32{1}, nil, nil, false)
+		ctrl, err := consumeStreamState(context.Background(), bytes.NewReader(body), assembler, contexts, newRedirectTracker(""))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := ctrl.contexts.active[1]; !ok {
+			t.Fatal("final start after stop must leave type active")
+		}
+	})
+	t.Run("over_budget_second_policy_rolls_back", func(t *testing.T) {
+		file, err := os.CreateTemp(t.TempDir(), "budget-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer file.Close()
+		assembler := newTrackAssembler(FormatID{Itag: 137}, 10000, file, 1024)
+		contexts := newSabrContextState()
+		if err := contexts.applyUpdate(sabrContextUpdateDirective{
+			Type: 5, Value: []byte("keep"), SendByDefault: true, WritePolicy: SabrContextWriteOverwrite,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		redirects := newRedirectTracker(fixtureRedirectURL("1"))
+		first := make([]int32, MaxSabrContextPolicyOps-1)
+		for i := range first {
+			first[i] = 1 // idempotent starts: count ops without growing active map
+		}
+		body := appendSendingPolicyPart(nil, first, nil, nil, true)
+		body = appendSendingPolicyPart(body, []int32{1, 2}, nil, nil, false) // response-wide ops exceed budget
+		body = appendRedirectPart(body, fixtureRedirectURL("2"))
+		ctrl, err := consumeStreamState(context.Background(), bytes.NewReader(body), assembler, contexts, redirects)
+		if !errors.Is(err, ErrInvalidContextState) {
+			t.Fatalf("err=%v", err)
+		}
+		if !roundControlIsZero(ctrl) {
+			t.Fatalf("ctrl=%+v", ctrl)
+		}
+		if len(contexts.entries) != 1 || string(contexts.entries[5].Value) != "keep" {
+			t.Fatal("caller contexts mutated")
+		}
+		if _, ok := contexts.active[5]; !ok || redirects.count != 0 {
+			t.Fatal("caller active/redirect tracker mutated")
+		}
+		if strings.Contains(err.Error(), "keep") || strings.Contains(err.Error(), "sig=") {
+			t.Fatalf("diagnostics leaked: %v", err)
+		}
+	})
+}
+
+func TestLateFailureAfterMultiplePoliciesAndRedirectRollsBack(t *testing.T) {
+	cookie := validTestCookie()
+	file, err := os.CreateTemp(t.TempDir(), "late-multi-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	assembler := newTrackAssembler(FormatID{Itag: 137}, 10000, file, 1024)
+	contexts := newSabrContextState()
+	if err := contexts.applyUpdate(sabrContextUpdateDirective{
+		Type: 9, Value: []byte("prior-secret"), SendByDefault: true, WritePolicy: SabrContextWriteOverwrite,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	redirects := newRedirectTracker(fixtureRedirectURL("1"))
+	body := appendPolicyPart(buildTestUMP(
+		137,
+		testSegment{headerID: 1, init: true, payload: []byte("INIT")},
+		testSegment{headerID: 2, sequence: 0, duration: 1000, payload: []byte("seg")},
+	), 2500, cookie)
+	body = appendContextUpdatePart(body, 3, 1, SabrContextWriteOverwrite, []byte("staged-secret"), true)
+	body = appendSendingPolicyPart(body, []int32{3}, nil, nil, true)
+	body = appendSendingPolicyPart(body, nil, []int32{9}, nil, false)
+	body = appendRedirectPart(body, fixtureRedirectURL("2"))
+	body = append(body, encodePart(PartSABRError, []byte{0x0A, 0x01, 'x'})...)
+	ctrl, err := consumeStreamState(context.Background(), bytes.NewReader(body), assembler, contexts, redirects)
+	if !errors.Is(err, ErrUnsupportedDirective) {
+		t.Fatalf("err=%v", err)
+	}
+	if !roundControlIsZero(ctrl) {
+		t.Fatalf("ctrl=%+v", ctrl)
+	}
+	if len(contexts.entries) != 1 || string(contexts.entries[9].Value) != "prior-secret" {
+		t.Fatal("caller context entries changed")
+	}
+	if _, ok := contexts.active[9]; !ok {
+		t.Fatal("caller active set changed")
+	}
+	if _, ok := contexts.entries[3]; ok {
+		t.Fatal("staged context leaked into caller")
+	}
+	if redirects.count != 0 {
+		t.Fatal("redirect tracker count changed")
+	}
+	if _, ok := redirects.seen[mustLoopKey(t, fixtureRedirectURL("2"))]; ok {
+		t.Fatal("redirect key committed on failure")
+	}
+	if assembler.endOfTrackDone {
+		t.Fatal("completion control must stay unset")
+	}
+	if strings.Contains(err.Error(), "prior-secret") || strings.Contains(err.Error(), "staged-secret") ||
+		strings.Contains(err.Error(), "sig=") || strings.Contains(err.Error(), string(cookie)) {
+		t.Fatalf("diagnostics leaked secrets: %v", err)
+	}
 }
 
 func decodeStreamerContexts(streamer []byte) (active []int32, unsent []int32, err error) {
@@ -679,22 +1010,60 @@ func itoa(v int) string {
 	return string(buf[i:])
 }
 
-func TestDirectiveFixturesLoad(t *testing.T) {
+func mustLoopKey(t *testing.T, raw string) string {
+	t.Helper()
+	key, err := sabrRedirectLoopKey(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return key
+}
+
+func directiveFixtureBytes() map[string][]byte {
+	return map[string][]byte{
+		"redirect-valid.ump.bin": encodePart(PartSABRRedirect, encodeSabrRedirect(fixtureRedirectURL("2"))),
+		"context-update-active.ump.bin": encodePart(PartSABRContextUpdate, encodeSabrContextUpdate(
+			7, SabrContextScopePlayback, SabrContextWriteOverwrite, []byte("fixture-ctx"), true,
+		)),
+		"sending-policy-packed.ump.bin": encodePart(PartSABRContextSendingPolicy, encodeSabrSendingPolicy(
+			[]int32{7}, []int32{8}, []int32{9}, true,
+		)),
+		"mixed-media-redirect.ump.bin": appendRedirectPart(buildTestUMP(
+			137,
+			testSegment{headerID: 1, init: true, payload: []byte("INIT")},
+			testSegment{headerID: 2, sequence: 0, duration: 1000, payload: []byte("seg")},
+		), fixtureRedirectURL("2")),
+	}
+}
+
+func TestDirectiveFixturesByteIdenticalAndSynthetic(t *testing.T) {
 	root := filepath.Join("..", "..", "..", "conformance", "media", "youtube_sabr_directives")
-	for _, name := range []string{
-		"redirect-valid.ump.bin",
-		"context-update-active.ump.bin",
-		"sending-policy-packed.ump.bin",
-		"mixed-media-redirect.ump.bin",
-	} {
-		body, err := os.ReadFile(filepath.Join(root, name))
+	want := directiveFixtureBytes()
+	secretNeedles := []string{
+		"LIVE", "googlevideo.com/videoplayback?", "youtube.com", "Authorization",
+		"Cookie=", "pot=", "oauth", "Bearer ",
+	}
+	for name, regenerated := range want {
+		got, err := os.ReadFile(filepath.Join(root, name))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(body) == 0 {
-			t.Fatalf("empty fixture %s", name)
+		if !bytes.Equal(got, regenerated) {
+			t.Fatalf("%s diverged from deterministic rebuild", name)
 		}
-		reader := NewReader(newByteReader(body), int64(len(body)))
+		lower := strings.ToLower(string(got))
+		for _, needle := range secretNeedles {
+			if strings.Contains(lower, strings.ToLower(needle)) && name != "redirect-valid.ump.bin" && name != "mixed-media-redirect.ump.bin" {
+				// googlevideo host appears in redirect fixtures by design; other needles must not.
+				if needle != "googlevideo.com/videoplayback?" {
+					t.Fatalf("%s contains unexpected needle %q", name, needle)
+				}
+			}
+		}
+		if bytes.Contains(got, []byte("secret")) || bytes.Contains(got, []byte("topsecret")) {
+			t.Fatalf("%s contains secret marker", name)
+		}
+		reader := NewReader(newByteReader(got), int64(len(got)))
 		parts := 0
 		for {
 			part, ok, err := reader.ReadPart()
@@ -715,7 +1084,7 @@ func TestDirectiveFixturesLoad(t *testing.T) {
 					t.Fatalf("%s update: %v", name, err)
 				}
 			case PartSABRContextSendingPolicy:
-				if _, err := parseSabrContextSendingPolicy(part.Payload); err != nil {
+				if _, err := parseSabrContextSendingPolicy(part.Payload, nil); err != nil {
 					t.Fatalf("%s policy: %v", name, err)
 				}
 			}

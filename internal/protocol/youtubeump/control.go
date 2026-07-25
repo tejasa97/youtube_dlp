@@ -39,7 +39,7 @@ type responseControl struct {
 	frozen        bool
 	hasRedirect   bool
 	redirectURL   string
-	hasSending    bool
+	policyOps     int
 	contexts      *sabrContextState
 }
 
@@ -160,14 +160,10 @@ func (control *responseControl) consumeContextUpdate(payload []byte) error {
 }
 
 func (control *responseControl) consumeSendingPolicy(payload []byte) error {
-	if control.hasSending {
-		return fmt.Errorf("%w: duplicate sabr context sending policy", ErrInvalidMediaState)
-	}
-	directive, err := parseSabrContextSendingPolicy(payload)
+	directive, err := parseSabrContextSendingPolicy(payload, &control.policyOps)
 	if err != nil {
 		return err
 	}
-	control.hasSending = true
 	return control.contexts.applySendingPolicy(directive)
 }
 

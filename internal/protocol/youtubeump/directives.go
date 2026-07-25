@@ -222,11 +222,11 @@ func parseSabrContextUpdate(payload []byte) (sabrContextUpdateDirective, error) 
 	return directive, nil
 }
 
-func parseSabrContextSendingPolicy(payload []byte) (sabrContextSendingPolicyDirective, error) {
-	var (
-		directive sabrContextSendingPolicyDirective
-		ops       int
-	)
+func parseSabrContextSendingPolicy(payload []byte, ops *int) (sabrContextSendingPolicyDirective, error) {
+	if ops == nil {
+		ops = new(int)
+	}
+	var directive sabrContextSendingPolicyDirective
 	reader := fieldReader{data: payload}
 	for {
 		num, wireType, ok := reader.next()
@@ -235,19 +235,19 @@ func parseSabrContextSendingPolicy(payload []byte) (sabrContextSendingPolicyDire
 		}
 		switch {
 		case num == fSabrSendingPolicyStart:
-			values, err := readRepeatedProtoInt32(&reader, wireType, &ops)
+			values, err := readRepeatedProtoInt32(&reader, wireType, ops)
 			if err != nil {
 				return sabrContextSendingPolicyDirective{}, err
 			}
 			directive.Start = append(directive.Start, values...)
 		case num == fSabrSendingPolicyStop:
-			values, err := readRepeatedProtoInt32(&reader, wireType, &ops)
+			values, err := readRepeatedProtoInt32(&reader, wireType, ops)
 			if err != nil {
 				return sabrContextSendingPolicyDirective{}, err
 			}
 			directive.Stop = append(directive.Stop, values...)
 		case num == fSabrSendingPolicyDiscard:
-			values, err := readRepeatedProtoInt32(&reader, wireType, &ops)
+			values, err := readRepeatedProtoInt32(&reader, wireType, ops)
 			if err != nil {
 				return sabrContextSendingPolicyDirective{}, err
 			}
