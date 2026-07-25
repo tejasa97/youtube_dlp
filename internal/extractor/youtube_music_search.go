@@ -1,8 +1,9 @@
 package extractor
 
-// A deliberately small, public WEB_REMIX search route.  Music result pages
-// contain many non-playable renderers; only entries with an actual video id are
-// returned so downstream extraction always targets the normal YouTube watch IE.
+// Bounded WEB_REMIX Music search. Songs/videos remain playable watch URLs;
+// albums, artists, playlists, and podcasts are emitted as typed URL results
+// without hydrating nested children. WEB and WEB_REMIX credentials never mix.
+
 import (
 	"context"
 	"encoding/json"
@@ -18,20 +19,26 @@ import (
 const (
 	youtubeMusicSearchMaxCount    = 50
 	youtubeMusicSearchMaxURLBytes = 4096
-	youtubeMusicSongsParams       = "EgWKAQIIAWoKEAoQAxAEEAkQBQ=="
-	youtubeMusicVideosParams      = "EgWKAQIQAWoKEAoQAxAEEAkQBQ=="
 	youtubeMusicSearchAPIURL      = "https://music.youtube.com/youtubei/v1/search"
 )
+
+// Pinned upstream YoutubeMusicSearchURLIE section params.
+var youtubeMusicSearchSections = map[string]string{
+	"songs":               "EgWKAQIIAWoKEAoQAxAEEAkQBQ==",
+	"videos":              "EgWKAQIQAWoKEAoQAxAEEAkQBQ==",
+	"albums":              "EgWKAQIYAWoKEAoQAxAEEAkQBQ==",
+	"artists":             "EgWKAQIgAWoKEAoQAxAEEAkQBQ==",
+	"community playlists": "EgeKAQQoAEABagoQChADEAQQCRAF",
+	"featured playlists":  "EgeKAQQoADgBagwQAxAJEAQQDhAKEAU==",
+}
 
 var (
 	ErrYouTubeMusicSearchRateLimited = errors.New("YouTube Music search rate limited")
 	ErrYouTubeMusicSearchNetwork     = errors.New("YouTube Music search network failure")
 )
 
-// YouTubeMusicSearch accepts only public music.youtube.com/search URLs.  The
-// #songs and #videos sections are pinned to yt-dlp's corresponding upstream
-// parameters.  Albums, artists, playlists, podcasts and authenticated Music
-// flows are intentionally not represented.
+// YouTubeMusicSearch accepts only public music.youtube.com/search URLs with the
+// supported filter sections above.
 type YouTubeMusicSearch struct{}
 
 func NewYouTubeMusicSearch() YouTubeMusicSearch { return YouTubeMusicSearch{} }
@@ -64,7 +71,7 @@ func (YouTubeMusicSearch) Extract(ctx context.Context, request Request) (Extract
 	if err != nil {
 		return Extraction{}, fmt.Errorf("%w: YouTube Music search initial data", ErrInvalidMetadata)
 	}
-	first, err := parseYouTubeMusicSearchData(raw)
+	first, err := parseYouTubeMusicSearchData(raw, section)
 	if err != nil {
 		return Extraction{}, err
 	}
@@ -72,8 +79,9 @@ func (YouTubeMusicSearch) Extract(ctx context.Context, request Request) (Extract
 		return Extraction{}, youtubeMusicSearchAlertError(first.alert)
 	}
 	config := extractYouTubePlaylistConfig(page)
+	// Music continuations stay on WEB_REMIX and never inherit WEB SID state.
 	entries, err := youtubeMusicSearchEntries(first.entries, first.continuation, count, func(ctx context.Context, token string) ([]Entry, string, error) {
-		return fetchYouTubeMusicSearchContinuation(ctx, request.Transport, token, config)
+		return fetchYouTubeMusicSearchContinuation(ctx, request.Transport, token, config, section)
 	})
 	if err != nil {
 		return Extraction{}, err
@@ -82,12 +90,22 @@ func (YouTubeMusicSearch) Extract(ctx context.Context, request Request) (Extract
 	if section != "" {
 		title += " - " + section
 	}
-	return Playlist(value.NewInfo(value.NewObject(value.Field{Key: "id", Value: value.String(title)}, value.Field{Key: "title", Value: value.String(title)}, value.Field{Key: "webpage_url", Value: value.String(canonical)})), entries)
+	return Playlist(value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String(title)},
+		value.Field{Key: "title", Value: value.String(title)},
+		value.Field{Key: "webpage_url", Value: value.String(canonical)},
+	)), entries)
 }
 
 func youtubeMusicSearchTarget(u *url.URL) (query string, count int, canonical, section string, ok bool) {
-	if u == nil || len(u.String()) > youtubeMusicSearchMaxURLBytes || u.Fragment != "" && u.Fragment != "songs" && u.Fragment != "videos" {
+	if u == nil || len(u.String()) > youtubeMusicSearchMaxURLBytes {
 		return
+	}
+	fragment := strings.ToLower(strings.ReplaceAll(u.Fragment, "+", " "))
+	if fragment != "" {
+		if _, known := youtubeMusicSearchSections[fragment]; !known {
+			return
+		}
 	}
 	if _, _, err := validateYouTubeURLPolicy(u); err != nil {
 		return
@@ -110,20 +128,20 @@ func youtubeMusicSearchTarget(u *url.URL) (query string, count int, canonical, s
 	if !validYouTubeSearchQuery(query) {
 		return "", 0, "", "", false
 	}
-	section = u.Fragment
+	section = fragment
 	params := values.Get("sp")
-	// Do not silently claim compatibility with the rest of Music's filter matrix.
-	// Only the two pinned upstream values are accepted when sp is supplied.
-	if section == "songs" {
-		params = youtubeMusicSongsParams
-	} else if section == "videos" {
-		params = youtubeMusicVideosParams
-	} else if params == youtubeMusicSongsParams {
-		section = "songs"
-	} else if params == youtubeMusicVideosParams {
-		section = "videos"
+	if section != "" {
+		params = youtubeMusicSearchSections[section]
 	} else if params != "" {
-		return "", 0, "", "", false
+		for name, value := range youtubeMusicSearchSections {
+			if params == value {
+				section = name
+				break
+			}
+		}
+		if section == "" {
+			return "", 0, "", "", false
+		}
 	}
 	canonicalValues := url.Values{"search_query": {query}}
 	if params != "" {
@@ -132,88 +150,23 @@ func youtubeMusicSearchTarget(u *url.URL) (query string, count int, canonical, s
 	return query, youtubeMusicSearchMaxCount, "https://music.youtube.com/search?" + canonicalValues.Encode(), section, true
 }
 
-type youtubeMusicSearchPage struct {
-	entries             []Entry
-	continuation, alert string
+func youtubeMusicRendererPolicy(section string) youtubeRendererPolicy {
+	switch section {
+	case "songs", "videos":
+		return youtubeRendererPolicy{kinds: youtubeRendererVideo}
+	case "albums", "community playlists", "featured playlists":
+		return youtubeRendererPolicy{kinds: youtubeRendererPlaylist | youtubeRendererMusicBrowse}
+	case "artists":
+		return youtubeRendererPolicy{kinds: youtubeRendererChannel | youtubeRendererMusicBrowse}
+	default:
+		return youtubeRendererPolicy{kinds: youtubeRendererMusicAll}
+	}
 }
 
-func parseYouTubeMusicSearchData(data []byte) (youtubeMusicSearchPage, error) {
-	var root value.Value
-	if err := json.Unmarshal(data, &root); err != nil {
-		return youtubeMusicSearchPage{}, fmt.Errorf("%w: decode YouTube Music search data", ErrInvalidMetadata)
-	}
-	if _, ok := root.Object(); !ok {
-		return youtubeMusicSearchPage{}, fmt.Errorf("%w: YouTube Music search root", ErrInvalidMetadata)
-	}
-	var page youtubeMusicSearchPage
-	nodes := 0
-	err := walkOrderedJSON(root, 0, &nodes, func(key string, o *value.Object) {
-		switch key {
-		case "musicResponsiveListItemRenderer", "musicTwoRowItemRenderer", "videoRenderer", "reelItemRenderer":
-			if e, ok := youtubeMusicSearchEntry(o); ok {
-				page.entries = append(page.entries, e)
-			}
-		case "lockupViewModel":
-			// Lockups can also represent albums, artists and playlists.  Reuse the
-			// strict video-only policy used by the YouTube playlist parser.
-			if e, ok := youtubePlaylistLockupEntry(o); ok {
-				page.entries = append(page.entries, e)
-			}
-		case "continuationItemRenderer":
-			page.continuation = firstMusicContinuation(page.continuation, objectString(o, "continuationEndpoint", "continuationCommand", "token"))
-		case "continuationItemViewModel":
-			page.continuation = firstMusicContinuation(page.continuation, youtubeContinuationViewModelToken(o))
-		case "nextContinuationData":
-			page.continuation = firstMusicContinuation(page.continuation, objectString(o, "continuation"))
-		case "alertRenderer":
-			if page.alert == "" {
-				page.alert = rendererText(o.Lookup("text"))
-			}
-		}
-	})
-	if err != nil {
-		return youtubeMusicSearchPage{}, err
-	}
-	return page, nil
+func parseYouTubeMusicSearchData(data []byte, section string) (youtubeRendererPage, error) {
+	return parseYouTubeRendererData(data, youtubeMusicRendererPolicy(section))
 }
-func firstMusicContinuation(old, token string) string {
-	if old != "" {
-		return old
-	}
-	return validYouTubeContinuationToken(token)
-}
-func youtubeMusicSearchEntry(o *value.Object) (Entry, bool) {
-	id := objectString(o, "videoId")
-	if id == "" {
-		id = objectString(o, "navigationEndpoint", "watchEndpoint", "videoId")
-	}
-	if id == "" {
-		id = objectString(o, "playlistItemData", "videoId")
-	}
-	if !youtubeIDPattern.MatchString(id) {
-		return Entry{}, false
-	}
-	title := rendererText(o.Lookup("title"))
-	if title == "" {
-		title = musicFlexTitle(o)
-	}
-	return Entry{URL: "https://www.youtube.com/watch?v=" + id, ExtractorKey: "youtube", ID: id, Title: title}, true
-}
-func musicFlexTitle(o *value.Object) string {
-	columns, _ := o.Lookup("flexColumns").ListValue()
-	if len(columns) == 0 {
-		return ""
-	}
-	c, ok := columns[0].Object()
-	if !ok {
-		return ""
-	}
-	flex, ok := c.Lookup("musicResponsiveListItemFlexColumnRenderer").Object()
-	if !ok {
-		return ""
-	}
-	return rendererText(flex.Lookup("text"))
-}
+
 func youtubeMusicSearchEntries(first []Entry, token string, count int, fetch ContinuationFetcher) (EntrySequence, error) {
 	if count < 1 || count > youtubeMusicSearchMaxCount {
 		return nil, fmt.Errorf("%w: invalid YouTube Music search count", ErrInvalidPlaylist)
@@ -224,7 +177,8 @@ func youtubeMusicSearchEntries(first []Entry, token string, count int, fetch Con
 	}
 	return limitedEntries{source: base, limit: count}, nil
 }
-func fetchYouTubeMusicSearchContinuation(ctx context.Context, transport Transport, token string, config youtubePlaylistConfig) ([]Entry, string, error) {
+
+func fetchYouTubeMusicSearchContinuation(ctx context.Context, transport Transport, token string, config youtubePlaylistConfig, section string) ([]Entry, string, error) {
 	if token = validYouTubeContinuationToken(token); token == "" {
 		return nil, "", fmt.Errorf("%w: invalid YouTube Music search continuation", ErrInvalidPlaylist)
 	}
@@ -232,7 +186,10 @@ func fetchYouTubeMusicSearchContinuation(ctx context.Context, transport Transpor
 	if version == "" {
 		version = youtubeDefaultClientVersion
 	}
-	body, err := json.Marshal(map[string]any{"context": map[string]any{"client": map[string]any{"clientName": "WEB_REMIX", "clientVersion": version, "hl": "en", "timeZone": "UTC", "utcOffsetMinutes": 0, "visitorData": config.VisitorData}}, "continuation": token})
+	body, err := json.Marshal(map[string]any{"context": map[string]any{"client": map[string]any{
+		"clientName": "WEB_REMIX", "clientVersion": version, "hl": "en",
+		"timeZone": "UTC", "utcOffsetMinutes": 0, "visitorData": config.VisitorData,
+	}}, "continuation": token})
 	if err != nil {
 		return nil, "", fmt.Errorf("%w: encode YouTube Music search continuation", ErrInvalidMetadata)
 	}
@@ -252,7 +209,7 @@ func fetchYouTubeMusicSearchContinuation(ctx context.Context, transport Transpor
 	if err := RequestJSON(ctx, transport, http.MethodPost, endpoint.String(), body, headers, &response); err != nil {
 		return nil, "", categorizeYouTubeMusicSearchError(err)
 	}
-	page, err := parseYouTubeMusicSearchData(response)
+	page, err := parseYouTubeMusicSearchData(response, section)
 	if err != nil {
 		return nil, "", err
 	}
@@ -261,6 +218,7 @@ func fetchYouTubeMusicSearchContinuation(ctx context.Context, transport Transpor
 	}
 	return page.entries, page.continuation, nil
 }
+
 func categorizeYouTubeMusicSearchError(err error) error {
 	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return err
@@ -278,6 +236,7 @@ func categorizeYouTubeMusicSearchError(err error) error {
 	}
 	return fmt.Errorf("%w: request failed", ErrYouTubeMusicSearchNetwork)
 }
+
 func youtubeMusicSearchAlertError(alert string) error {
 	lower := strings.ToLower(alert)
 	if strings.Contains(lower, "sign in") || strings.Contains(lower, "login") {
