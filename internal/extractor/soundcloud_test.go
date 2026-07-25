@@ -41,6 +41,7 @@ func newSoundCloudFixtureTransport(t *testing.T) *soundCloudFixtureTransport {
 		"related_track.json", "recommended_page1.json", "albums_page1.json",
 		"sets_page1.json", "mixed_page1.json",
 		"likes_page1.json", "likes_page2.json",
+		"profile_tab_page.json",
 	} {
 		data, err := os.ReadFile(filepath.Join("..", "..", "conformance", "extractors", "soundcloud", name))
 		if err != nil {
@@ -204,8 +205,14 @@ func TestSoundCloudSuitableGuards(t *testing.T) {
 		{"https://soundcloud.com/artist/track", true},
 		{"https://m.soundcloud.com/artist/track/s-private", true},
 		{"https://soundcloud.com/artist/sets/album", true},
+		{"https://soundcloud.com/artist", true},
 		{"https://soundcloud.com/artist/tracks", true},
+		{"https://soundcloud.com/artist/albums", true},
+		{"https://soundcloud.com/artist/sets", true},
+		{"https://soundcloud.com/artist/reposts", true},
 		{"https://soundcloud.com/artist/likes", true},
+		{"https://soundcloud.com/artist/spotlight", true},
+		{"https://soundcloud.com/artist/comments", true},
 		{"https://m.soundcloud.com/artist/likes/", true},
 		{"https://soundcloud.com/stations/track/fixture-artist/synthetic-signal", true},
 		{"https://www.soundcloud.com/stations/track/fixture-artist/synthetic-signal", true},
@@ -217,7 +224,6 @@ func TestSoundCloudSuitableGuards(t *testing.T) {
 		{"https://api.soundcloud.com/tracks/0", false},
 		{"https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A4242", true},
 		{"https://api-v2.soundcloud.com/playlists/soundcloud:playlists:55", true},
-		{"https://soundcloud.com/artist/reposts", false},
 		{"https://soundcloud.com/artist/track/recommended", true},
 		{"https://soundcloud.com/discover/sets/charts", true},
 		{"https://soundcloud.com:444/artist/track", false},
@@ -688,13 +694,28 @@ func TestSoundCloudRejectsUntrustedContinuationAndAsset(t *testing.T) {
 
 func FuzzSoundCloudURLClassification(f *testing.F) {
 	f.Add("https://soundcloud.com/artist/track")
+	f.Add("https://soundcloud.com/artist")
+	f.Add("https://soundcloud.com/artist/albums")
+	f.Add("https://soundcloud.com/artist/reposts")
+	f.Add("https://soundcloud.com/artist/spotlight")
+	f.Add("https://soundcloud.com/artist/comments")
 	f.Add("https://api.soundcloud.com/tracks/4242")
 	f.Fuzz(func(t *testing.T, rawURL string) {
 		if len(rawURL) > 16<<10 {
 			t.Skip()
 		}
 		parsed, _ := url.Parse(rawURL)
-		_, _ = classifySoundCloudURL(parsed)
+		first, firstOK := classifySoundCloudURL(parsed)
+		second, secondOK := classifySoundCloudURL(parsed)
+		if firstOK != secondOK || first != second {
+			t.Fatalf("non-deterministic classification: %#v/%v %#v/%v", first, firstOK, second, secondOK)
+		}
+		if NewSoundCloud().Suitable(parsed) != firstOK {
+			t.Fatal("Suitable diverged from shared classifier")
+		}
+		if firstOK && (first.canonical == "" && first.id == "") {
+			t.Fatalf("accepted target has no identity: %#v", first)
+		}
 	})
 }
 

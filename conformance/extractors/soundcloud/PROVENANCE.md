@@ -15,9 +15,10 @@ Behavioral expectations were derived from the pinned yt-dlp checkout at commit
 - `SoundcloudPlaylistBaseIE._extract_set` for ordered transparent set entries;
 - `SoundcloudPagedPlaylistBaseIE._entries` for linked partitioning,
   `next_href`, nested track candidates, and lazy ordering;
-- `SoundcloudUserIE` for profile-tab routing (`tracks`, `likes`), resolving the
-  user profile URL then paging `users/<id>/tracks` or `users/<id>/likes` with
-  `{username} (Tracks|Likes)` playlist titles;
+- `SoundcloudUserIE` for bare-profile and profile-tab routing (`tracks`,
+  `albums`, `sets`, `reposts`, `likes`, `spotlight`, and `comments`), resolving
+  the user profile URL and using the pinned `_BASE_URL_MAP` API path with
+  `{username} (<Resource>)` playlist titles;
 - `SoundcloudTrackStationIE._real_extract` for station URL resolution, opaque
   `soundcloud:track-stations:<id>` identifier validation, station tracks API
   routing, and `Track station: <title>` playlist metadata;
@@ -60,5 +61,7 @@ Deliberate Go hardening beyond the pinned reference:
 
 The fixture client ID, IDs, timestamps, titles, cursors, URLs, counts, and
 response bodies were independently authored for this Go conformance corpus.
+`profile_tab_page.json` is a synthetic mixed-wrapper page reused across the
+pinned profile resources; it contains no captured user or service data.
 The production implementation neither reads this directory nor depends on the
 reference checkout.
