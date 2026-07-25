@@ -3,6 +3,7 @@ package ytdlp
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/ytdlp-go/ytdlp/internal/compat/matchfilter"
 	compatmetadata "github.com/ytdlp-go/ytdlp/internal/compat/metadata"
@@ -87,17 +88,63 @@ func (operation *operation) applyCompatibility(ctx context.Context, ctxInfo *val
 }
 
 func (operation *operation) selectFormats(info value.Info) ([]mediaformat.Selection, error) {
-	if operation.compatibility.selector == nil {
-		return mediaformat.Default(info, operation.compatibility.formatOptions)
-	}
-	selected, err := mediaformat.SelectWithOptions(info, *operation.compatibility.selector, operation.compatibility.formatOptions)
+	plans, err := operation.planFormats(info)
 	if err != nil {
 		return nil, err
 	}
-	if len(selected) == 0 {
+	if len(plans) != 1 {
+		return nil, fmt.Errorf("%w: selector yields %d independent outputs", mediaformat.ErrMultiOutput, len(plans))
+	}
+	if len(plans[0].Tracks) == 0 {
 		return nil, fmt.Errorf("%w: selector returned no formats", mediaformat.ErrNoFormats)
 	}
-	return selected, nil
+	return plans[0].Tracks, nil
+}
+
+func (operation *operation) planFormats(info value.Info) ([]mediaformat.OutputPlan, error) {
+	if operation.compatibility.selector == nil {
+		selected, err := mediaformat.Default(info, operation.compatibility.formatOptions)
+		if err != nil {
+			return nil, err
+		}
+		return []mediaformat.OutputPlan{{Tracks: selected}}, nil
+	}
+	return mediaformat.PlanSelectWithOptions(info, *operation.compatibility.selector, operation.compatibility.formatOptions)
+}
+
+// validateMultiOutputProduct rejects multi-plan downloads when requested
+// product stages cannot be applied safely to every output. Multi-output
+// execution supports only the no-postprocessor download path. After-download
+// print stages intentionally render only the first plan's selections and primary path.
+func validateMultiOutputProduct(request Request, planCount int) error {
+	if planCount <= 1 {
+		return nil
+	}
+	if len(request.Postprocessors) > 0 {
+		return fmt.Errorf("%w: postprocessors with multi-output selectors", mediaformat.ErrMultiOutput)
+	}
+	if request.SponsorBlock.Enabled && request.SponsorBlock.Remove {
+		return fmt.Errorf("%w: SponsorBlock remove with multi-output selectors", mediaformat.ErrMultiOutput)
+	}
+	if request.Subtitles.Embed {
+		return fmt.Errorf("%w: subtitle embedding with multi-output selectors", mediaformat.ErrMultiOutput)
+	}
+	return nil
+}
+
+func mediaArtifactBytes(artifacts []Artifact) (int64, error) {
+	var total int64
+	for _, artifact := range artifacts {
+		if artifact.Kind != "media" {
+			continue
+		}
+		info, err := os.Stat(artifact.Path)
+		if err != nil {
+			return 0, err
+		}
+		total += info.Size()
+	}
+	return total, nil
 }
 
 func (operation *operation) eventSink() events.Sink {

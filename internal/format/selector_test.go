@@ -206,9 +206,9 @@ func TestSelectorDirectIDAllAndPreferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	selected, err = Select(info, all)
-	if err != nil || len(selected) != 2 || selected[0].ID != "audio-low" {
-		t.Fatalf("all = %#v, %v", selected, err)
+	plans, err := PlanSelect(info, all)
+	if err != nil || len(plans) != 2 || plans[0].Tracks[0].ID != "audio-low" || plans[1].Tracks[0].ID != "audio-high" {
+		t.Fatalf("all = %#v, %v", plans, err)
 	}
 }
 

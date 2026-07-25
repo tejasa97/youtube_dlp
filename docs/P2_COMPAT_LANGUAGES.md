@@ -3,8 +3,11 @@
 This lane implements bounded, Python-free compatibility primitives for a Go
 product layer to wire into its request/CLI contract.
 
-- `internal/format`: selector alternatives and merges, direct IDs, `all`,
-  filters, format preferences, DRM policy, and deterministic ordering.
+- `internal/format`: bounded AST selector (`ParseSelector`, `PlanSelect`,
+  `OutputPlan`), comma/slash/plus/group operators, pinned atoms and extension
+  selectors, filters, preferences, DRM policy, and deterministic ordering.
+  Legacy `Select`/`SelectWithOptions` remain for single-output merges but return
+  `ErrMultiOutput` when a comma/`all` plan cannot be flattened.
 - `internal/compat/template`: output templates, traversal, defaults,
   replacements, bounded arithmetic, date and Unicode conversion, numeric
   formatting, JSON conversion, and output-root confinement.
@@ -29,6 +32,9 @@ Intentional unsupported syntax is explicit rather than silently approximated:
   unsupported.
 - Format filters do not implement every yt-dlp selector atom, codec/container
   preference alias, filesize approximation, or advanced sort field conversion.
+  Plain `best`/`worst` without a media type keep the port's historical
+  quality-first playable selection for pinned compatibility fixtures; typed
+  `bestvideo`/`bestaudio`/star atoms follow yt-dlp predicates.
 - Templates implement bounded arithmetic and Unicode `U` conversions
   (including `#`/`+` flags), but do not implement object slicing, arbitrary
   traversal operators, the wider Python format mini-language, or arbitrary
@@ -37,5 +43,19 @@ Intentional unsupported syntax is explicit rather than silently approximated:
 - Metadata actions do not execute postprocessor code; they accept only bounded
   regular-expression interpretation and replacement.
 - A selector result containing more than one video and one audio stream is
-  rejected explicitly; arbitrary `all`-format archival layouts are not yet a
-  product download mode.
+  rejected explicitly when tracks cannot be merged. Merge operands are retained
+  in evaluation order with only exact duplicate `(format_id, url)` pairs removed;
+  unsupported multi-track plans fail before media download. Comma/`all`
+  multi-output downloads use per-plan container extensions (single-track `Ext`
+  or deterministic video+audio merge rules) and deterministic `.f<N>_<ID>`
+  destination suffixes (stable one-based ordinals plus sanitized IDs), populate
+  `Result.Artifacts`, and keep `Result.Filename` on the first output. Multi-output downloads reject any
+  non-empty `Request.Postprocessors`, SponsorBlock remove, and subtitle
+  embedding with `ErrMultiOutput` before media download; only the
+  no-postprocessor path is executed. After-download print stages render only
+  the first plan's selections and primary path. `mergeall` and >2-track merges
+  remain explicit unsupported at download time.
+- `ErrSelectorLimit` is returned for syntactically valid selectors that exceed
+  bounded evaluation limits (`all`, `mergeall`, comma output count, merge
+  track count). Product callers should use `errors.Is(err, format.ErrSelectorLimit)`
+  and expect `ytdlp.ErrorInvalidInput` categorization.

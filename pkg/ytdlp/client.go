@@ -842,9 +842,19 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		return Result{}, err
 	}
 	var selectedFormats []mediaformat.Selection
+	var outputPlans []mediaformat.OutputPlan
 	if (!operation.request.SkipDownload && !operation.request.Simulate) || operation.hasPrintStageAtOrAfter(PrintVideo) {
-		selectedFormats, err = operation.selectFormats(info)
+		outputPlans, err = operation.planFormats(info)
 		if err != nil {
+			return Result{}, categorized("select format", err)
+		}
+		if len(outputPlans) > 0 {
+			selectedFormats = outputPlans[0].Tracks
+		}
+		if err := validateMultiOutputProduct(operation.request, len(outputPlans)); err != nil {
+			return Result{}, categorized("select format", err)
+		}
+		if err := validateOutputPlans(outputPlans); err != nil {
 			return Result{}, categorized("select format", err)
 		}
 	}
@@ -935,48 +945,90 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	}
 
 	sink := operation.eventSink()
-	downloadedPath, downloadedBytes, err := operation.downloadSelections(ctx, selectedFormats, outputDir, destination, sink)
-	if err != nil {
-		return Result{}, categorized("download selected formats", err)
+	multiOutput := len(outputPlans) > 1
+	var downloadedPath string
+	mediaArtifactStart := len(result.Artifacts)
+	planDestinations := make([]string, len(outputPlans))
+	for index, plan := range outputPlans {
+		planDestination, destErr := outputPlanDestination(destination, index, plan, multiOutput)
+		if destErr != nil {
+			return Result{}, categorized("render output template", destErr)
+		}
+		planDestinations[index] = planDestination
 	}
-	var mediaArtifacts []Artifact
-	downloadedPath, mediaArtifacts, err = operation.applyPostprocessors(ctx, outputDir, downloadedPath, sink)
-	if err != nil {
-		return Result{}, categorized("run postprocessors", err)
+	tracker := newPublishedMediaTracker(planDestinations...)
+	for planIndex, plan := range outputPlans {
+		planDestination := planDestinations[planIndex]
+		path, _, downloadErr := operation.downloadSelections(ctx, plan.Tracks, outputDir, planDestination, sink)
+		if downloadErr != nil {
+			tracker.removeCreated()
+			return Result{}, categorized("download selected formats", downloadErr)
+		}
+		tracker.add(path)
+		if multiOutput {
+			result.Artifacts = append(result.Artifacts, Artifact{Path: path, Kind: "media"})
+			if planIndex == 0 {
+				downloadedPath = path
+			}
+			continue
+		}
+		var mediaArtifacts []Artifact
+		path, mediaArtifacts, downloadErr = operation.applyPostprocessors(ctx, outputDir, path, sink)
+		if downloadErr != nil {
+			tracker.removeCreated()
+			return Result{}, categorized("run postprocessors", downloadErr)
+		}
+		for _, artifact := range mediaArtifacts {
+			tracker.add(artifact.Path)
+		}
+		result.Artifacts = append(result.Artifacts, mediaArtifacts...)
+		if planIndex == 0 {
+			downloadedPath = path
+		}
 	}
-	result.Artifacts = append(result.Artifacts, mediaArtifacts...)
 	var cutApplied bool
-	downloadedPath, result.Artifacts, cutApplied, err = operation.applySponsorBlockRemove(ctx, &info, downloadedPath, result.Artifacts, sink)
-	if err != nil {
-		return Result{}, err
-	}
-	result.InfoJSON, err = encodeInfo(info)
-	if err != nil {
-		return Result{}, err
+	if !multiOutput {
+		downloadedPath, result.Artifacts, cutApplied, err = operation.applySponsorBlockRemove(ctx, &info, downloadedPath, result.Artifacts, sink)
+		if err != nil {
+			tracker.removeCreated()
+			return Result{}, err
+		}
+		result.InfoJSON, err = encodeInfo(info)
+		if err != nil {
+			tracker.removeCreated()
+			return Result{}, err
+		}
 	}
 	var embeddedSubtitles bool
-	result.Artifacts, embeddedSubtitles, err = operation.embedSelectedSubtitles(
-		ctx, &info, downloadedPath, selectedSubtitles, result.Artifacts, sink,
-	)
-	if err != nil {
-		return Result{}, categorized("embed subtitles", err)
-	}
-	if info, statErr := os.Stat(downloadedPath); statErr == nil {
-		downloadedBytes = info.Size()
+	if !multiOutput {
+		result.Artifacts, embeddedSubtitles, err = operation.embedSelectedSubtitles(
+			ctx, &info, downloadedPath, selectedSubtitles, result.Artifacts, sink,
+		)
+		if err != nil {
+			tracker.removeCreated()
+			return Result{}, categorized("embed subtitles", err)
+		}
 	}
 	result.Downloaded = true
 	result.Filename = downloadedPath
 	if cutApplied || embeddedSubtitles {
 		result.Bytes, err = artifactBytes(result.Artifacts)
 		if err != nil {
+			tracker.removeCreated()
 			return Result{}, categorized("account post-cut artifacts", err)
 		}
 		result.InfoJSON, err = encodeInfo(info)
 		if err != nil {
+			tracker.removeCreated()
 			return Result{}, err
 		}
 	} else {
-		result.Bytes += downloadedBytes
+		mediaBytes, err := mediaArtifactBytes(result.Artifacts[mediaArtifactStart:])
+		if err != nil {
+			tracker.removeCreated()
+			return Result{}, categorized("account media artifacts", err)
+		}
+		result.Bytes += mediaBytes
 	}
 	for _, stage := range []PrintStage{PrintPostProcess, PrintAfterMove, PrintAfterVideo} {
 		prints, err = operation.capturePrints(ctx, stage, info, selectedFormats, downloadedPath)
@@ -1032,7 +1084,7 @@ func categorized(op string, err error) error {
 	switch {
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		category = ErrorCancelled
-	case errors.Is(err, extractor.ErrUnsupported):
+	case errors.Is(err, extractor.ErrUnsupported), errors.Is(err, mediaformat.ErrMultiOutput):
 		category = ErrorUnsupported
 	case errors.Is(err, extractor.ErrAuthentication):
 		category = ErrorAuthentication
@@ -1072,6 +1124,7 @@ func categorized(op string, err error) error {
 		errors.Is(err, progress.ErrInvalidProgress), errors.Is(err, mediaformat.ErrInvalidSelector),
 		errors.Is(err, mediaformat.ErrNoMatch),
 		errors.Is(err, mediaformat.ErrInvalidPreference), errors.Is(err, mediaformat.ErrInvalidHeaders),
+		errors.Is(err, mediaformat.ErrSelectorLimit),
 		errors.Is(err, downloader.ErrDestinationExists), errors.Is(err, downloader.ErrUnsafeDestination),
 		errors.Is(err, downloader.ErrTooManyAttempts), errors.Is(err, downloader.ErrInvalidLimits),
 		errors.Is(err, downloader.ErrUnsafeExternalArg), errors.Is(err, downloader.ErrUnsafeExternalTool),
