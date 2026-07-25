@@ -143,6 +143,8 @@ func TestProductRegistryIncludesIntegratedExtractors(t *testing.T) {
 		{"https://music.youtube.com/browse/MPREbfixture0001", "youtube_music_browse"},
 		{"https://vimeo.com/123456789", "vimeo"},
 		{"https://www.tiktok.com/@fixture/video/1234567890123456789", "tiktok"},
+		{"https://hytale.com/news/2021/07/summer-2021-development-update", "hytale"},
+		{"https://watch.cloudflarestream.com/9df17203414fd1db3e3ed74abbe936c1", "cloudflarestream"},
 		{"https://players.brightcove.net/12345/default_default/index.html?videoId=123", "brightcove"},
 		{"kaltura:123:1_abcd1234", "kaltura"},
 		{"https://cdn.jwplayer.com/players/AbCd1234-ABCDEFGHI.js", "jwplatform"},

@@ -33,6 +33,8 @@ var representativeExtractorCatalog = []representativeExtractor{
 	{"peertube", "peertube:peertube.example:00000000-0000-4000-8000-000000000001", []extractorRiskClass{riskSharedBackend, riskLive, riskManifestHeavy}},
 	{"internetarchive", "https://archive.org/details/fixture_concert", []extractorRiskClass{riskPlaylistAPI}},
 	{"tiktok", "https://www.tiktok.com/@fixture/video/1234567890123456789", []extractorRiskClass{riskAntiBot}},
+	{"hytale", "https://hytale.com/news/2021/07/summer-2021-development-update", []extractorRiskClass{riskSharedBackend, riskPlaylistAPI}},
+	{"cloudflarestream", "https://watch.cloudflarestream.com/9df17203414fd1db3e3ed74abbe936c1", []extractorRiskClass{riskSharedBackend, riskManifestHeavy}},
 	{"synthetic_auth", "https://auth-fixture.invalid/watch/fixture123", []extractorRiskClass{riskAuthenticated}},
 	{"region_svt", "https://www.svtplay.se/video/fixture-program?modalId=fixture123", []extractorRiskClass{riskRegional, riskLive}},
 	{"brightcove", "https://players.brightcove.net/12345/default_default/index.html?videoId=123", []extractorRiskClass{riskSharedBackend, riskManifestHeavy}},

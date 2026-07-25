@@ -56,7 +56,50 @@ func validHostedHTTPURL(rawURL string) bool {
 		return false
 	}
 	parsed, err := url.Parse(rawURL)
-	return err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != "" && parsed.User == nil
+	return err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != "" && parsed.User == nil &&
+		parsed.Port() == "" && !looksLikeIPLiteralHost(strings.ToLower(parsed.Hostname()))
+}
+
+func looksLikeIPLiteralHost(host string) bool {
+	if host == "" {
+		return false
+	}
+	if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+		return true
+	}
+	if strings.Count(host, ":") >= 2 {
+		return true
+	}
+	parts := strings.Split(host, ".")
+	if len(parts) != 4 {
+		return false
+	}
+	for _, part := range parts {
+		if part == "" || len(part) > 3 {
+			return false
+		}
+		for _, r := range part {
+			if r < '0' || r > '9' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func hostedRejectUnsafeURL(parsed *url.URL) bool {
+	if parsed == nil || len(parsed.String()) > sharedHostingMaxURLBytes {
+		return true
+	}
+	if (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil || parsed.Port() != "" {
+		return true
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host == "" || strings.ContainsAny(host, " \x00\r\n\t/") || looksLikeIPLiteralHost(host) {
+		return true
+	}
+	escaped := strings.ToLower(parsed.EscapedPath())
+	return strings.Contains(escaped, "%00") || strings.Contains(escaped, "%2f") || strings.Contains(escaped, "%5c")
 }
 
 func hostedURLFormat(formatID, rawURL string) (*value.Object, bool) {
