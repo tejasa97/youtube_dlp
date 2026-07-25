@@ -69,6 +69,12 @@ func (transport *sharedFixtureTransport) Do(ctx context.Context, request *http.R
 	return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(response.body)), Request: request}, nil
 }
 
+func (transport *sharedFixtureTransport) requestCount() int {
+	transport.mu.Lock()
+	defer transport.mu.Unlock()
+	return len(transport.requests)
+}
+
 func TestSharedHostingRoutes(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

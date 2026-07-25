@@ -48,6 +48,35 @@ service response.
 | imgur | imgur.com and i.imgur.com public videos, animated images, galleries, and albums | simple/direct, playlist/API |
 | flickr | flickr.com public video pages | simple/direct, playlist/API |
 
+## Shared-family breadth (Wave 1 + priority-100)
+
+In addition to the representative catalog above, the product registry
+registers shared-backend families and exact-host adapters with fixture-backed
+evidence. Counts and host policies are recorded in
+`docs/EXTRACTOR_FAMILY_BREADTH_WAVE1_EVIDENCE.md` and
+`docs/EXTRACTOR_BREADTH_PRIORITY_100_EVIDENCE.md`.
+
+| Family / key group | Representative URL family | Principal risk coverage |
+| --- | --- | --- |
+| cloudflarestream (+ hytale) | Cloudflare Stream / videodelivery / customer-* embeds; hytale.com news | shared backend, manifest-heavy |
+| arcpublishing (+ newsroom adapters) | `arcpublishing:org:uuid` and exact POWA hosts | shared backend, manifest-heavy |
+| anvato (+ fox9) | `anvato:` MCP URLs; fox9.com video/news | shared backend, authenticated |
+| theplatform (+ weathercom / nbcolympics) | link/player/feed.theplatform.com; weather.com; vplayer.nbcolympics.com | shared backend, playlist/API, manifest-heavy |
+| brightcove adapters | pgatour, 9news/9now, NetApp, AMC Networks, Craftsy, TVO, TVA+, TVA Nouvelles | shared backend |
+| kaltura / jwplatform adapters | UN WebTV, AZ Medien, Inc, Heise; Spiegel, OneFootball | shared backend |
+| podcast feeders | Acast, Simplecast, Megaphone, Art19, Libsyn, Spreaker episode/show URLs | shared backend, playlist/API |
+| nowness (+ playlist/series) | nowness.com / cn.nowness.com story, playlist, series | playlist/API, Brightcove/Vimeo handoff |
+| dacast (+ playlist) | iframe.dacast.com vod/playlist embeds | shared backend, playlist/API, HLS |
+| panopto (+ playlist) | `*.panopto.com` / `*.panopto.eu` Viewer/Embed `id`/`pid` (same-tenant playlist binding) | shared backend, playlist/API |
+| teachingchannel / nowcanal / democracynow / buzzfeed | JW / Brightcove / page-JSON / bucket playlist | shared backend, playlist/API |
+| mediastream (+ winsports) | mdstrm.com embed/live-stream; winsports.co → mediastream | shared backend, live |
+| abcotvs (+ clips) | ABC OTV station hosts + clips.abcotvs.com | shared backend |
+| vidsio | `*.vids.io/videos/...` → sproutvideo | shared backend |
+| laracasts (+ series) | laracasts.com series episode/series → vimeo | shared backend, playlist/API |
+
+These entries are deterministic-corpus compatible only. They do not claim live
+service coverage beyond synthetic fixtures and documented handoff behavior.
+
 ## Bluesky support boundaries
 
 The Bluesky/AT Protocol extractor is intentionally scoped to the
