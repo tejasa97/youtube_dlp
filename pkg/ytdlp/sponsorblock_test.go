@@ -539,6 +539,51 @@ func TestSponsorBlockMarkPlusRemoveDefersMarkDuringEnrich(t *testing.T) {
 	}
 }
 
+func TestSponsorBlockMarkPlusOrdinaryRemovalDefersMarkDuringEnrich(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, `[{"videoID":"abc","segments":[
+			{"segment":[10,20],"category":"sponsor","actionType":"skip","videoDuration":100}
+		]}]`)
+	}))
+	defer server.Close()
+	transport, err := network.New(network.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer transport.CloseIdleConnections()
+	original := value.List(value.ObjectValue(value.NewObject(
+		value.Field{Key: "start_time", Value: value.Float(0)},
+		value.Field{Key: "end_time", Value: value.Float(100)},
+		value.Field{Key: "title", Value: value.String("Intro")},
+	)))
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("abc")},
+		value.Field{Key: "title", Value: value.String("Video")},
+		value.Field{Key: "duration", Value: value.Int(100)},
+		value.Field{Key: "chapters", Value: original},
+	))
+	operation := &operation{
+		client: NewClient(), transport: transport,
+		request: Request{
+			RemoveChapters: []string{"^Intro$"},
+			SponsorBlock: SponsorBlockOptions{
+				Enabled: true, Mark: true, Categories: []string{"sponsor"}, APIBase: server.URL,
+			},
+		},
+	}
+	if err := operation.enrichWithSponsorBlock(context.Background(), "youtube", &info); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(info.Lookup("chapters"), original) {
+		t.Fatalf("mark+ordinary removal mutated chapters during enrich: %#v", info.Lookup("chapters"))
+	}
+	sponsors, _ := info.Lookup("sponsorblock_chapters").ListValue()
+	if len(sponsors) != 1 {
+		t.Fatalf("sponsorblock_chapters = %#v", sponsors)
+	}
+}
+
 func TestSponsorBlockMarkPlusRemoveSimulateEnrichAppliesMarks(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")

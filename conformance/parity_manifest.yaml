@@ -1771,7 +1771,44 @@ capabilities:
       - conformance/media/postprocess/PROVENANCE.md
       - docs/YOUTUBE_SUBTITLE_EMBEDDING_EVIDENCE.md
     owner: media
-    known_deviation: SponsorBlock/chapter mutation is not implemented. Windows refuses unsafe atomic overwrite and currently terminates only the direct child process; Unix process-group cancellation is covered. The CLI exposes audio extraction, remuxing, and bounded multi-track subtitle embedding while the Go API exposes every typed operation.
+    known_deviation: SponsorBlock, ordinary chapter-regex, and manual range mutation use the separate transactional chapter-removal capability. Windows refuses unsafe atomic overwrite and currently terminates only the direct child process; Unix process-group cancellation is covered. The CLI exposes audio extraction, remuxing, and bounded multi-track subtitle embedding while the Go API exposes every typed operation.
+
+  - id: postprocess.chapter_removal
+    name: Ordinary chapter and manual range removal
+    phase: 2
+    compatibility_target: Parse repeatable --remove-chapters title expressions and non-negative *start-end ranges, combine them with optional SponsorBlock removals, and transactionally cut media plus supported subtitle sidecars without Python.
+    status: compatible
+    evidence:
+      - internal/compat/chapterremove.TestParseMatchesTitlesWithSearchSemantics
+      - internal/compat/chapterremove.TestParseManualRangesAndResolve
+      - internal/compat/chapterremove.TestParsePinnedDurationForms
+      - internal/compat/chapterremove.TestParseRejectsMalformedNegativeAndInvertedRanges
+      - internal/compat/chapterremove.TestParseRejectsInvalidRegexAndBounds
+      - internal/compat/chapterremove.TestMatchTitleHonorsCancellationAndProgramIsImmutable
+      - internal/compat/chapterremove.TestResolveRangesDropsOutsideMediaAndRejectsDuration
+      - internal/compat/chapterremove.TestPinnedChapterRemovalCorpus
+      - internal/compat/chapterremove.FuzzParse
+      - pkg/ytdlp.TestArrangeChapterRemovalCombinesOrdinaryManualAndSponsorCuts
+      - pkg/ytdlp.TestChapterRemovalWarningsAndSimulationDoNotMutateMetadata
+      - pkg/ytdlp.TestChapterRemovalNoMatchWarningAndCancellation
+      - pkg/ytdlp.TestChapterRemovalInvalidRequestsFailBeforeNetwork
+      - pkg/ytdlp.TestChapterRemovalRejectsMultiOutputBeforeDownload
+      - pkg/ytdlp.TestChapterRemovalProbesDurationAndFixesOpenFinalChapter
+      - pkg/ytdlp.TestChapterRemovalUsesRealDurationForMissingMetadataAndOpenRange
+      - pkg/ytdlp.TestChapterRemovalSafetyFailuresLeaveMediaAndMetadataUnchanged
+      - pkg/ytdlp.TestChapterRemovalCombinesSponsorBlockOrdinaryAndManualCuts
+      - pkg/ytdlp.TestProductRemovesChapterAndRetimesSubtitle
+      - internal/cli.TestRunChapterRemovalValidationAndResetOrdering
+      - internal/cli.TestRunForceKeyframesAcceptsChapterRemovalAndRejectsNoCuts
+      - internal/cli.TestRunNoSponsorBlockPreservesIndependentChapterCutForceFlag
+      - internal/cli.TestRunChapterRemovalConfigAndCommandLineResetPrecedence
+      - conformance/compatibility/phase2/chapter_removal.yaml
+      - conformance/compatibility/phase2/PROVENANCE.md
+      - docs/SPONSORBLOCK_METADATA.md
+    owner: media
+    depends_on:
+      - postprocess.core_operations
+    known_deviation: Title expressions use bounded Go RE2 search semantics; Python-only look-around and backreferences remain unsupported. The Go parser rejects infinite starts and equal/inverted ranges that upstream accepts initially but cannot turn into a positive cut. Removing the entire media and a greater-than-one-second metadata/real-duration mismatch fail closed without mutation. Unsupported external subtitle formats fail closed instead of yt-dlp's warn-and-continue policy. Manual ranges are intentionally exposed through upstream's *start-end --remove-chapters grammar rather than a separate --remove-ranges flag.
 
   - id: compat.format_selector_pilot
     name: Format-selector parser pilot
@@ -2270,4 +2307,4 @@ capabilities:
       - conformance/sponsorblock/sample_duration_mismatch.json
       - docs/SPONSORBLOCK_METADATA.md
     owner: core
-    known_deviation: This capability covers metadata fetch, normalization, duration-mismatch warnings, opt-in mark-only and mixed Mark+Remove chapter arrangement, CLI exposure of --sponsorblock-mark/--sponsorblock-remove/--sponsorblock-api/--no-sponsorblock/--force-keyframes-at-cuts with yt-dlp-compatible orderedSet_from_options accumulation/exclusion (including remove-only default/all semantics and non-removable rejection), and API-driven FFmpeg media cutting with force-keyframes and subtitle sync for supported sidecars. Arbitrary-service (Vimeo, PeerTube, etc.) metadata remains unimplemented. Regex ordinary-chapter removal and manual remove-ranges outside SponsorBlock categories are not implemented. Unsupported external subtitle formats fail closed during remove instead of yt-dlp's warn-and-continue. Subtitle sync uses deterministic cue remapping for srt/vtt/ass/lrc rather than ffmpeg concat. Network retries follow the existing network.Client; the reference's own retry behavior is not duplicated.
+    known_deviation: This capability covers metadata fetch, normalization, duration-mismatch warnings, opt-in mark-only and mixed Mark+Remove chapter arrangement, CLI exposure of --sponsorblock-mark/--sponsorblock-remove/--sponsorblock-api/--no-sponsorblock/--force-keyframes-at-cuts with yt-dlp-compatible orderedSet_from_options accumulation/exclusion (including remove-only default/all semantics and non-removable rejection), and API-driven FFmpeg media cutting with force-keyframes and subtitle sync for supported sidecars. Ordinary chapter expressions and manual ranges are implemented by postprocess.chapter_removal and share the same transaction. Arbitrary-service (Vimeo, PeerTube, etc.) metadata and custom --sponsorblock-chapter-title templates remain unimplemented. Unsupported external subtitle formats fail closed during remove instead of yt-dlp's warn-and-continue. Subtitle sync uses deterministic cue remapping for srt/vtt/ass/lrc rather than ffmpeg concat. Network retries follow the existing network.Client; the reference's own retry behavior is not duplicated.

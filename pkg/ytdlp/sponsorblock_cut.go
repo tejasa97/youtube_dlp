@@ -5,11 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
+	"github.com/ytdlp-go/ytdlp/internal/compat/chapterremove"
 	"github.com/ytdlp-go/ytdlp/internal/events"
 	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
 	"github.com/ytdlp-go/ytdlp/internal/media/postprocess"
@@ -24,9 +27,16 @@ type sponsorBlockCutJob struct {
 	backup   string
 }
 
-// applySponsorBlockRemove cuts downloaded media with ffmpeg and remaps
-// supported subtitle sidecars with deterministic cue editing. It is a no-op
-// for media mutation under Simulate/SkipDownload and when Remove is unset.
+// applySponsorBlockRemove retains the historical internal test seam. Product
+// execution calls applyChapterCuts, which combines SponsorBlock, ordinary
+// chapter-title, and manual range removals into one transaction.
+func (operation *operation) applySponsorBlockRemove(ctx context.Context, info *value.Info, mediaPath string, artifacts []Artifact, sink events.Sink) (string, []Artifact, bool, error) {
+	return operation.applyChapterCuts(ctx, info, mediaPath, artifacts, sink)
+}
+
+// applyChapterCuts cuts downloaded media with ffmpeg and remaps supported
+// subtitle sidecars with deterministic cue editing. It is a no-op for media
+// mutation under Simulate/SkipDownload.
 //
 // When Mark+Remove are both enabled, chapters are arranged once via the pinned
 // ModifyChapters heap algorithm. Remove-only retimes ordinary chapters through
@@ -36,42 +46,117 @@ type sponsorBlockCutJob struct {
 // metadata is still applied when requested so deferred marking is not lost.
 // When media is cut, metadata commits only after a successful media/subtitle
 // cut commit.
-func (operation *operation) applySponsorBlockRemove(ctx context.Context, info *value.Info, mediaPath string, artifacts []Artifact, sink events.Sink) (string, []Artifact, bool, error) {
-	if !operation.request.SponsorBlock.Enabled || !operation.request.SponsorBlock.Remove {
+func (operation *operation) applyChapterCuts(ctx context.Context, info *value.Info, mediaPath string, artifacts []Artifact, sink events.Sink) (string, []Artifact, bool, error) {
+	sponsorRemove := operation.request.SponsorBlock.Enabled && operation.request.SponsorBlock.Remove
+	chapterRemoval := operation.compatibility.chapterRemoval
+	if !sponsorRemove && chapterRemoval.Empty() {
 		return mediaPath, artifacts, false, nil
 	}
+	cutOp := "sponsorblock remove"
+	if !chapterRemoval.Empty() {
+		cutOp = "remove chapters"
+	}
 	if info == nil {
-		return mediaPath, artifacts, false, &Error{Category: ErrorInternal, Op: "sponsorblock remove", Err: errors.New("missing metadata")}
+		return mediaPath, artifacts, false, &Error{Category: ErrorInternal, Op: cutOp, Err: errors.New("missing metadata")}
 	}
 	skipMediaCut := operation.request.Simulate || operation.request.SkipDownload
 	if skipMediaCut && !operation.request.SponsorBlock.Mark {
 		return mediaPath, artifacts, false, nil
 	}
-	if !skipMediaCut && strings.TrimSpace(mediaPath) == "" {
-		return mediaPath, artifacts, false, &Error{Category: ErrorInternal, Op: "sponsorblock remove", Err: errors.New("missing media")}
-	}
-	duration := 0.0
+	metadataDuration := 0.0
 	if raw := info.Lookup("duration"); !raw.IsMissing() {
 		if d, ok := sponsorblockDuration(raw); ok {
-			duration = d
+			metadataDuration = d
+		}
+	}
+	normal, originals, err := ordinarySponsorBlockChapters(info, metadataDuration, true)
+	if err != nil {
+		return mediaPath, artifacts, false, mapChapterCutError(cutOp, err)
+	}
+	ordinaryRemove := make(map[int]struct{})
+	if chapterRemoval.HasPatterns() {
+		if len(normal) == 0 {
+			if err := operation.emitChapterRemovalWarning(ctx, "Chapter information is unavailable"); err != nil {
+				return mediaPath, artifacts, false, err
+			}
+		} else {
+			for _, chapter := range normal {
+				match, matchErr := chapterRemoval.MatchTitle(ctx, chapter.Title)
+				if matchErr != nil {
+					return mediaPath, artifacts, false, mapChapterCutError(cutOp, matchErr)
+				}
+				if match {
+					ordinaryRemove[chapter.Source] = struct{}{}
+				}
+			}
+			if len(ordinaryRemove) == 0 {
+				if err := operation.emitChapterRemovalWarning(ctx, "There are no chapters matching the regex"); err != nil {
+					return mediaPath, artifacts, false, err
+				}
+			}
+		}
+	}
+	deferredMark := operation.request.SponsorBlock.Enabled && operation.request.SponsorBlock.Mark
+	duration := metadataDuration
+	var tools *ffmpeg.Toolset
+	var chapters []sponsorblock.Chapter
+	if sponsorRemove || deferredMark {
+		chapters, err = sponsorblockChaptersFromInfo(info)
+		if err != nil {
+			return mediaPath, artifacts, false, mapChapterCutError(cutOp, err)
+		}
+	}
+	var removeCategories []string
+	if sponsorRemove {
+		removeCategories = operation.request.SponsorBlock.RemoveCategories
+		if len(removeCategories) == 0 {
+			removeCategories = sponsorblock.FilterRemovableCategories(operation.request.SponsorBlock.Categories)
+		} else {
+			removeCategories = sponsorblock.FilterRemovableCategories(removeCategories)
+		}
+	}
+	sponsorRemoval := false
+	if sponsorRemove {
+		removeSet := make(map[string]struct{}, len(removeCategories))
+		for _, category := range removeCategories {
+			removeSet[category] = struct{}{}
+		}
+		for _, chapter := range chapters {
+			if _, ok := removeSet[chapter.Category]; ok {
+				sponsorRemoval = true
+				break
+			}
+		}
+	}
+	needsPostprocess := len(ordinaryRemove) > 0 || chapterRemoval.HasRanges() || sponsorRemoval || deferredMark
+	if !skipMediaCut && !needsPostprocess {
+		return mediaPath, artifacts, false, nil
+	}
+	if !skipMediaCut {
+		if strings.TrimSpace(mediaPath) == "" {
+			return mediaPath, artifacts, false, &Error{Category: ErrorInternal, Op: cutOp, Err: errors.New("missing media")}
+		}
+		tools, duration, err = probeChapterCutDuration(ctx, mediaPath)
+		if err != nil {
+			return mediaPath, artifacts, false, mapChapterCutMediaError(cutOp, err)
+		}
+		if metadataDuration > 0 && math.Abs(duration-metadataDuration) > 1 {
+			return mediaPath, artifacts, false, mapChapterCutError(cutOp, fmt.Errorf("%w: media duration mismatch", sponsorblock.ErrInvalidInput))
+		}
+		normal, originals, err = ordinarySponsorBlockChapters(info, duration, false)
+		if err != nil {
+			return mediaPath, artifacts, false, mapChapterCutError(cutOp, err)
 		}
 	}
 	if duration <= 0 {
-		return mediaPath, artifacts, false, mapSponsorBlockError(fmt.Errorf("%w: remove duration", sponsorblock.ErrInvalidInput))
+		return mediaPath, artifacts, false, mapChapterCutError(cutOp, fmt.Errorf("%w: remove duration", sponsorblock.ErrInvalidInput))
 	}
-	chapters, err := sponsorblockChaptersFromInfo(info)
-	if err != nil {
-		return mediaPath, artifacts, false, mapSponsorBlockError(err)
+	manualRanges, err := chapterRemoval.ResolveRanges(duration)
+	if err != nil && chapterRemoval.HasRanges() {
+		return mediaPath, artifacts, false, mapChapterCutError(cutOp, err)
 	}
-	removeCategories := operation.request.SponsorBlock.RemoveCategories
-	if len(removeCategories) == 0 {
-		removeCategories = sponsorblock.FilterRemovableCategories(operation.request.SponsorBlock.Categories)
-	} else {
-		removeCategories = sponsorblock.FilterRemovableCategories(removeCategories)
-	}
-	normal, originals, err := ordinarySponsorBlockChapters(info)
-	if err != nil {
-		return mediaPath, artifacts, false, mapSponsorBlockError(err)
+	if !chapterRemoval.HasRanges() {
+		manualRanges = nil
 	}
 	title, _ := info.Lookup("title").StringValue()
 	// Under Simulate/SkipDownload the media stays uncut, so arrange with mark
@@ -80,10 +165,12 @@ func (operation *operation) applySponsorBlockRemove(ctx context.Context, info *v
 	arrangeRemove := removeCategories
 	if skipMediaCut {
 		arrangeRemove = nil
+		ordinaryRemove = nil
+		manualRanges = nil
 	}
-	arranged, err := arrangeSponsorBlockRemove(normal, chapters, arrangeRemove, duration, title, mark)
+	arranged, err := arrangeChapterRemove(normal, chapters, arrangeRemove, ordinaryRemove, manualRanges, duration, title, mark)
 	if err != nil {
-		return mediaPath, artifacts, false, mapSponsorBlockError(err)
+		return mediaPath, artifacts, false, mapChapterCutError(cutOp, err)
 	}
 	if skipMediaCut {
 		if mark {
@@ -99,14 +186,22 @@ func (operation *operation) applySponsorBlockRemove(ctx context.Context, info *v
 		}
 		return mediaPath, artifacts, false, nil
 	}
+	jobs, err := operation.prepareSponsorBlockCutJobs(cutOp, mediaPath, artifacts)
+	if err != nil {
+		return mediaPath, artifacts, false, err
+	}
+
+	if tools == nil {
+		return mediaPath, artifacts, false, &Error{Category: ErrorInternal, Op: cutOp, Err: errors.New("internal failure")}
+	}
 	// Empty post-arrange chapters means the keep timeline vanished (pinned
 	// ModifyChapters refuses to remove the entire video).
 	if len(arranged.Chapters) == 0 {
-		return mediaPath, artifacts, false, mapSponsorBlockError(fmt.Errorf("%w: entire media removed", sponsorblock.ErrInvalidInput))
+		return mediaPath, artifacts, false, mapChapterCutError(cutOp, fmt.Errorf("%w: entire media removed", sponsorblock.ErrInvalidInput))
 	}
 	plan, err := cutPlanFromArrange(arranged.Cuts, duration)
 	if err != nil {
-		return mediaPath, artifacts, false, mapSponsorBlockError(err)
+		return mediaPath, artifacts, false, mapChapterCutError(cutOp, err)
 	}
 	if len(plan.Cuts) == 0 {
 		if mark {
@@ -134,19 +229,9 @@ func (operation *operation) applySponsorBlockRemove(ctx context.Context, info *v
 		boundaries = append(boundaries, cut.Start, cut.End)
 	}
 
-	jobs, err := operation.prepareSponsorBlockCutJobs(mediaPath, artifacts)
+	stagingDir, err := os.MkdirTemp(filepath.Dir(mediaPath), ".ytdlp-chapter-cut-tx-")
 	if err != nil {
-		return mediaPath, artifacts, false, err
-	}
-
-	tools, err := ffmpeg.Discover(ffmpeg.Config{})
-	if err != nil {
-		return mediaPath, artifacts, false, &Error{Category: ErrorInternal, Op: "sponsorblock remove", Err: errors.New("internal failure")}
-	}
-
-	stagingDir, err := os.MkdirTemp(filepath.Dir(mediaPath), ".ytdlp-sponsorblock-tx-")
-	if err != nil {
-		return mediaPath, artifacts, false, &Error{Category: ErrorInternal, Op: "sponsorblock remove", Err: errors.New("internal failure")}
+		return mediaPath, artifacts, false, &Error{Category: ErrorInternal, Op: cutOp, Err: errors.New("internal failure")}
 	}
 	defer os.RemoveAll(stagingDir)
 
@@ -155,20 +240,21 @@ func (operation *operation) applySponsorBlockRemove(ctx context.Context, info *v
 		jobs[index].backup = filepath.Join(stagingDir, fmt.Sprintf("backup-%d%s", index, filepath.Ext(jobs[index].original)))
 		switch jobs[index].kind {
 		case postprocess.ArtifactMedia:
-			if err := tools.CutOutRanges(ctx, jobs[index].original, jobs[index].staged, ranges, boundaries, operation.request.SponsorBlock.ForceKeyframes, false, sink); err != nil {
-				return mediaPath, artifacts, false, mapSponsorBlockMediaError(err)
+			forceKeyframes := operation.request.ForceKeyframesAtCuts || operation.request.SponsorBlock.ForceKeyframes
+			if err := tools.CutOutRanges(ctx, jobs[index].original, jobs[index].staged, ranges, boundaries, forceKeyframes, false, sink); err != nil {
+				return mediaPath, artifacts, false, mapChapterCutMediaError(cutOp, err)
 			}
 		case postprocess.ArtifactSubtitle:
 			if err := stageSponsorBlockSubtitle(jobs[index].original, jobs[index].staged, plan.Cuts); err != nil {
-				return mediaPath, artifacts, false, mapSponsorBlockMediaError(err)
+				return mediaPath, artifacts, false, mapChapterCutMediaError(cutOp, err)
 			}
 		default:
-			return mediaPath, artifacts, false, &Error{Category: ErrorInternal, Op: "sponsorblock remove", Err: errors.New("internal failure")}
+			return mediaPath, artifacts, false, &Error{Category: ErrorInternal, Op: cutOp, Err: errors.New("internal failure")}
 		}
 	}
 
 	if err := commitSponsorBlockCutJobs(ctx, jobs); err != nil {
-		return mediaPath, artifacts, false, mapSponsorBlockMediaError(err)
+		return mediaPath, artifacts, false, mapChapterCutMediaError(cutOp, err)
 	}
 
 	// Apply prepared metadata only after file commit succeeds.
@@ -179,21 +265,44 @@ func (operation *operation) applySponsorBlockRemove(ctx context.Context, info *v
 	return mediaPath, artifacts, true, nil
 }
 
+func probeChapterCutDuration(ctx context.Context, mediaPath string) (*ffmpeg.Toolset, float64, error) {
+	tools, err := ffmpeg.Discover(ffmpeg.Config{})
+	if err != nil {
+		return nil, 0, err
+	}
+	probe, err := tools.Probe(ctx, mediaPath)
+	if err != nil {
+		return nil, 0, err
+	}
+	duration, err := strconv.ParseFloat(strings.TrimSpace(probe.Format.Duration), 64)
+	if err != nil || duration <= 0 || math.IsNaN(duration) || math.IsInf(duration, 0) {
+		return nil, 0, fmt.Errorf("%w: invalid probed duration", ffmpeg.ErrMediaFailure)
+	}
+	return tools, duration, nil
+}
+
 func arrangeSponsorBlockRemove(normal []sponsorblock.NormalChapter, sponsors []sponsorblock.Chapter, removeCategories []string, duration float64, videoTitle string, mark bool) (sponsorblock.ArrangeResult, error) {
+	return arrangeChapterRemove(normal, sponsors, removeCategories, nil, nil, duration, videoTitle, mark)
+}
+
+func arrangeChapterRemove(normal []sponsorblock.NormalChapter, sponsors []sponsorblock.Chapter, removeCategories []string, ordinaryRemove map[int]struct{}, manualRanges []chapterremove.Range, duration float64, videoTitle string, mark bool) (sponsorblock.ArrangeResult, error) {
 	removeSet := make(map[string]struct{}, len(removeCategories))
 	for _, category := range removeCategories {
 		removeSet[category] = struct{}{}
 	}
-	input := make([]sponsorblock.ArrangeChapter, 0, len(normal)+len(sponsors)+1)
+	input := make([]sponsorblock.ArrangeChapter, 0, len(normal)+len(sponsors)+len(manualRanges)+1)
 	if len(normal) == 0 {
-		input = append(input, sponsorblock.ArrangeChapter{
-			StartTime: 0, EndTime: duration, Title: videoTitle, Source: -1,
-		})
+		if len(sponsors) > 0 || len(manualRanges) > 0 {
+			input = append(input, sponsorblock.ArrangeChapter{
+				StartTime: 0, EndTime: duration, Title: videoTitle, Source: -1,
+			})
+		}
 	} else {
 		for _, chapter := range normal {
+			_, remove := ordinaryRemove[chapter.Source]
 			input = append(input, sponsorblock.ArrangeChapter{
 				StartTime: chapter.StartTime, EndTime: chapter.EndTime,
-				Title: chapter.Title, Source: chapter.Source,
+				Title: chapter.Title, Source: chapter.Source, Remove: remove,
 			})
 		}
 	}
@@ -216,7 +325,25 @@ func arrangeSponsorBlockRemove(normal []sponsorblock.NormalChapter, sponsors []s
 			}},
 		})
 	}
+	for _, interval := range manualRanges {
+		if interval.End == nil {
+			return sponsorblock.ArrangeResult{}, fmt.Errorf("%w: unresolved manual range", sponsorblock.ErrInvalidInput)
+		}
+		input = append(input, sponsorblock.ArrangeChapter{
+			StartTime: interval.Start,
+			EndTime:   *interval.End,
+			Remove:    true,
+			Source:    -1,
+		})
+	}
 	return sponsorblock.Arrange(input)
+}
+
+func (operation *operation) emitChapterRemovalWarning(ctx context.Context, message string) error {
+	if err := operation.client.emit(ctx, Event{Kind: EventMetadataWarning, Message: message}); err != nil {
+		return &Error{Category: ErrorInternal, Op: "emit chapter removal warning", Err: err}
+	}
+	return nil
 }
 
 func cutPlanFromArrange(cuts []sponsorblock.Range, duration float64) (sponsorblock.CutPlan, error) {
@@ -274,9 +401,9 @@ func stageSponsorBlockSubtitle(original, staged string, cuts []sponsorblock.Rang
 	return os.WriteFile(staged, rewritten, 0o600)
 }
 
-func (operation *operation) prepareSponsorBlockCutJobs(mediaPath string, artifacts []Artifact) ([]sponsorBlockCutJob, error) {
+func (operation *operation) prepareSponsorBlockCutJobs(op, mediaPath string, artifacts []Artifact) ([]sponsorBlockCutJob, error) {
 	if err := validateSponsorBlockCutPath(mediaPath); err != nil {
-		return nil, &Error{Category: ErrorInternal, Op: "sponsorblock remove", Err: errors.New("internal failure")}
+		return nil, &Error{Category: ErrorInternal, Op: op, Err: errors.New("internal failure")}
 	}
 	jobs := []sponsorBlockCutJob{{kind: postprocess.ArtifactMedia, original: mediaPath}}
 	for _, artifact := range artifacts {
@@ -287,7 +414,7 @@ func (operation *operation) prepareSponsorBlockCutJobs(mediaPath string, artifac
 		if !sponsorblock.SupportedSubtitleExt(extension) {
 			return nil, &Error{
 				Category: ErrorUnsupported,
-				Op:       "sponsorblock remove subtitle",
+				Op:       op + " subtitle",
 				Err:      errors.New("unsupported"),
 			}
 		}
@@ -295,7 +422,7 @@ func (operation *operation) prepareSponsorBlockCutJobs(mediaPath string, artifac
 			if errors.Is(err, os.ErrNotExist) {
 				continue
 			}
-			return nil, &Error{Category: ErrorInternal, Op: "sponsorblock remove subtitle", Err: errors.New("internal failure")}
+			return nil, &Error{Category: ErrorInternal, Op: op + " subtitle", Err: errors.New("internal failure")}
 		}
 		jobs = append(jobs, sponsorBlockCutJob{kind: postprocess.ArtifactSubtitle, original: artifact.Path})
 	}
@@ -489,22 +616,41 @@ func rewriteChaptersAfterCuts(info *value.Info, cuts []sponsorblock.Range) error
 }
 
 func mapSponsorBlockMediaError(err error) error {
+	return mapChapterCutMediaError("sponsorblock remove", err)
+}
+
+func mapChapterCutError(op string, err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return &Error{Category: ErrorCancelled, Op: op, Err: err}
+	}
+	if errors.Is(err, sponsorblock.ErrInvalidInput) ||
+		errors.Is(err, chapterremove.ErrInvalidSpecification) ||
+		errors.Is(err, chapterremove.ErrLimit) {
+		return &Error{Category: ErrorInvalidInput, Op: op, Err: errors.New("invalid input")}
+	}
+	return &Error{Category: ErrorInternal, Op: op, Err: errors.New("internal failure")}
+}
+
+func mapChapterCutMediaError(op string, err error) error {
 	if err == nil {
 		return nil
 	}
 	switch {
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
-		return &Error{Category: ErrorCancelled, Op: "sponsorblock remove", Err: err}
+		return &Error{Category: ErrorCancelled, Op: op, Err: err}
 	case errors.Is(err, ffmpeg.ErrFFmpegUnavailable), errors.Is(err, ffmpeg.ErrFFprobeUnavailable):
-		return &Error{Category: ErrorInternal, Op: "sponsorblock remove", Err: errors.New("internal failure")}
+		return &Error{Category: ErrorInternal, Op: op, Err: errors.New("internal failure")}
 	case errors.Is(err, sponsorblock.ErrUnsupported):
-		return &Error{Category: ErrorUnsupported, Op: "sponsorblock remove subtitle", Err: errors.New("unsupported")}
+		return &Error{Category: ErrorUnsupported, Op: op + " subtitle", Err: errors.New("unsupported")}
 	case errors.Is(err, sponsorblock.ErrInvalidInput), errors.Is(err, ffmpeg.ErrInvalidOperation), errors.Is(err, postprocess.ErrInvalidGraph), errors.Is(err, postprocess.ErrUnsafePath):
-		return &Error{Category: ErrorInvalidInput, Op: "sponsorblock remove", Err: errors.New("invalid input")}
+		return &Error{Category: ErrorInvalidInput, Op: op, Err: errors.New("invalid input")}
 	case errors.Is(err, ffmpeg.ErrDestinationExists):
-		return &Error{Category: ErrorInvalidInput, Op: "sponsorblock remove", Err: errors.New("invalid input")}
+		return &Error{Category: ErrorInvalidInput, Op: op, Err: errors.New("invalid input")}
 	default:
-		return &Error{Category: ErrorInternal, Op: "sponsorblock remove", Err: errors.New("internal failure")}
+		return &Error{Category: ErrorInternal, Op: op, Err: errors.New("internal failure")}
 	}
 }
 

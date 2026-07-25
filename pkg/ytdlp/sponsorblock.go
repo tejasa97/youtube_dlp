@@ -19,12 +19,11 @@ const sponsorBlockDurationMismatchWarning = "Some SponsorBlock segments are from
 // function is called only when the public Request explicitly opts in.
 //
 // Marking may rewrite chapter metadata without mutating media bytes.
-// When Mark+Remove are both enabled and a real download may still cut,
-// arrangement is deferred to applySponsorBlockRemove so chapters are
-// produced once on the post-cut timeline. Under Simulate or SkipDownload
-// the remove path never runs, so requested Mark overlays are applied here
-// without inventing media cuts. Media cutting remains applySponsorBlockRemove's
-// responsibility after a real download.
+// When Mark is combined with SponsorBlock, ordinary chapter, or manual range
+// removal and a real download may still cut, arrangement is deferred to
+// applyChapterCuts so chapters are produced once on the post-cut timeline.
+// Under Simulate or SkipDownload the remove path never runs, so requested Mark
+// overlays are applied here without inventing media cuts.
 //
 // The function never panics. All errors are categorized and surface
 // through the existing pkg/ytdlp Error mechanism. A valid empty
@@ -59,9 +58,10 @@ func (operation *operation) enrichWithSponsorBlock(ctx context.Context, extracto
 			duration = d
 		}
 	}
-	// Defer Mark+Remove arrangement only when the remove path can still run.
+	// Defer marking whenever the shared remove path can still run. This keeps
+	// title expressions from matching synthesized SponsorBlock chapter titles.
 	deferMarkRemove := operation.request.SponsorBlock.Mark &&
-		operation.request.SponsorBlock.Remove &&
+		(operation.request.SponsorBlock.Remove || len(operation.request.RemoveChapters) > 0) &&
 		!operation.request.Simulate &&
 		!operation.request.SkipDownload
 	markNow := operation.request.SponsorBlock.Mark && !deferMarkRemove
@@ -72,7 +72,7 @@ func (operation *operation) enrichWithSponsorBlock(ctx context.Context, extracto
 			return mapSponsorBlockError(fmt.Errorf("%w: mark duration", sponsorblock.ErrInvalidInput))
 		}
 		var err error
-		normal, originals, err = ordinarySponsorBlockChapters(info)
+		normal, originals, err = ordinarySponsorBlockChapters(info, duration, false)
 		if err != nil {
 			return mapSponsorBlockError(err)
 		}
@@ -119,7 +119,7 @@ func (operation *operation) enrichWithSponsorBlock(ctx context.Context, extracto
 	return nil
 }
 
-func ordinarySponsorBlockChapters(info *value.Info) ([]sponsorblock.NormalChapter, []value.Value, error) {
+func ordinarySponsorBlockChapters(info *value.Info, finalEnd float64, allowOpenFinal bool) ([]sponsorblock.NormalChapter, []value.Value, error) {
 	raw := info.Lookup("chapters")
 	if raw.IsMissing() || raw.IsNull() {
 		return nil, nil, nil
@@ -139,8 +139,18 @@ func ordinarySponsorBlockChapters(info *value.Info) ([]sponsorblock.NormalChapte
 			return nil, nil, fmt.Errorf("%w: ordinary chapter start", sponsorblock.ErrInvalidInput)
 		}
 		end, ok := sponsorblockNumber(object.Lookup("end_time"))
-		if !ok {
-			return nil, nil, fmt.Errorf("%w: ordinary chapter end", sponsorblock.ErrInvalidInput)
+		if !ok || (index == len(originals)-1 && end == 0) {
+			if index != len(originals)-1 {
+				return nil, nil, fmt.Errorf("%w: ordinary chapter end", sponsorblock.ErrInvalidInput)
+			}
+			switch {
+			case finalEnd > start:
+				end = finalEnd
+			case allowOpenFinal:
+				end = start
+			default:
+				return nil, nil, fmt.Errorf("%w: ordinary chapter end", sponsorblock.ErrInvalidInput)
+			}
 		}
 		title := ""
 		if titleValue := object.Lookup("title"); !titleValue.IsMissing() && !titleValue.IsNull() {
