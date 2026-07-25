@@ -51,6 +51,7 @@ const (
 	vimeoRouteChannel
 	vimeoRouteUserVideos
 	vimeoRouteGroup
+	vimeoRouteAlbum
 )
 
 var (
@@ -100,6 +101,8 @@ func (Vimeo) Extract(ctx context.Context, request Request) (Extraction, error) {
 	switch kind {
 	case vimeoRouteChannel, vimeoRouteUserVideos, vimeoRouteGroup:
 		return extractVimeoPlaylist(ctx, request.Transport, target)
+	case vimeoRouteAlbum:
+		return extractVimeoAlbumPlaylist(ctx, request.Transport, target)
 	case vimeoRouteVideo:
 		return extractVimeoVideo(ctx, request, target.id, target.canonical)
 	default:
@@ -144,6 +147,9 @@ func classifyVimeoURL(parsed *url.URL) (vimeoRouteKind, vimeoPlaylistTarget) {
 	}
 	if target, ok := classifyVimeoContextVideoURL(parsed); ok {
 		return vimeoRouteVideo, target
+	}
+	if target, ok := classifyVimeoAlbumURL(parsed); ok {
+		return vimeoRouteAlbum, target
 	}
 	if target, ok := classifyVimeoPlaylistURL(parsed); ok {
 		return target.kind, target

@@ -57,8 +57,9 @@ and page/entry bound categories are preserved.
 
 ## Go hardening and deliberate deviations
 
-- No showcase/album enumeration, likes, watch-later, password submission, or
-  authenticated/private media.
+- Numeric public showcase/album enumeration is owned by the API playlist
+  implementation; slug/embed/password forms, likes, watch-later, and
+  authenticated/private media remain outside this HTML playlist scope.
 - Exact nested group video routes are owned by the video extractor; arbitrary
   group subpaths remain unsupported rather than being claimed as playlists.
 - Page-declared next URLs are never followed; only a bounded `rel=next`
