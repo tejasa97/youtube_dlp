@@ -72,13 +72,15 @@ Key evidence:
 - `internal/protocol/dash.FuzzParse`
 - `conformance/media/dash/PROVENANCE.md`
 
-Remaining deviations: dynamic SegmentBase/SIDX manifests fail closed with
-`ErrUnsupportedAddressing`; initialization/media overlap is rejected instead of
-trimmed, and index retrieval is single-attempt. Dynamic, unfragmented, or
-format-incompatible multi-period sets fail closed. Bounded hierarchical
-`reference_type=1` SIDX expansion is supported within a single representation's
-trusted SegmentBase media URL. See `docs/DASH_SIDX_EVIDENCE.md` and
-`docs/DASH_MULTI_PERIOD_EVIDENCE.md` for the extensions and evidence.
+Remaining deviations: mixed selected addressing and dynamic multi-period
+SegmentBase/SIDX remain fail-closed with `ErrUnsupportedAddressing`;
+initialization/media overlap is rejected instead of trimmed, and index
+retrieval is single-attempt. Dynamic, unfragmented, or format-incompatible
+multi-period sets fail closed. Bounded hierarchical `reference_type=1` SIDX
+expansion is supported within a single representation's trusted SegmentBase
+media URL. Bounded single-period dynamic SIDX polling with live-window prefix
+eviction is documented in `docs/DASH_DYNAMIC_SIDX_EVIDENCE.md`. See also
+`docs/DASH_SIDX_EVIDENCE.md` and `docs/DASH_MULTI_PERIOD_EVIDENCE.md`.
 
 ## P1-04: ffmpeg and ffprobe supervision
 
