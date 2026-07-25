@@ -79,6 +79,8 @@ func (extractor *SoundCloud) Extract(ctx context.Context, request Request) (Extr
 		return extractor.extractSet(ctx, request.Transport, target)
 	case soundCloudUserTabTarget:
 		return extractor.extractUserTab(ctx, request.Transport, target)
+	case soundCloudAPIUserTarget:
+		return extractor.extractAPIUser(ctx, request.Transport, target)
 	case soundCloudStationTarget:
 		return extractor.extractStation(ctx, request.Transport, target)
 	case soundCloudRelatedTarget:
@@ -97,6 +99,7 @@ const (
 	soundCloudUserTabTarget
 	soundCloudStationTarget
 	soundCloudRelatedTarget
+	soundCloudAPIUserTarget
 )
 
 // soundCloudUserTabs matches the pinned SoundcloudUserIE._BASE_URL_MAP. The
@@ -209,6 +212,18 @@ func classifySoundCloudURL(parsed *url.URL) (soundCloudTarget, bool) {
 			return soundCloudTarget{kind: soundCloudTrackTarget, id: identifier, secretToken: secret}, true
 		case "playlists":
 			return soundCloudTarget{kind: soundCloudAPIPlaylistTarget, id: identifier, secretToken: secret}, true
+		case "users":
+			// SoundcloudUserPermalinkIE is an exact legacy API route. Keep it
+			// narrower than direct track/playlist compatibility so caller
+			// queries, fragments, aliases, and encoded IDs cannot become part
+			// of user resolution or pagination identity.
+			canonical := "https://api.soundcloud.com/users/" + identifier
+			if host != "api.soundcloud.com" || parsed.Scheme != "https" ||
+				parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" ||
+				parsed.EscapedPath() != "/users/"+identifier || segments[1] != identifier {
+				return soundCloudTarget{}, false
+			}
+			return soundCloudTarget{kind: soundCloudAPIUserTarget, id: identifier, canonical: canonical}, true
 		}
 	}
 	return soundCloudTarget{}, false
@@ -296,6 +311,33 @@ func (extractor *SoundCloud) extractUserTab(ctx context.Context, transport Trans
 		return Extraction{}, fmt.Errorf("%w: malformed SoundCloud user", ErrInvalidMetadata)
 	}
 	apiPath := fmt.Sprintf(tab.apiPath, user.ID.String())
+	return extractor.soundCloudUserPlaylist(ctx, transport, target.canonical, user, apiPath, user.Username+" ("+tab.label+")")
+}
+
+func (extractor *SoundCloud) extractAPIUser(ctx context.Context, transport Transport, target soundCloudTarget) (Extraction, error) {
+	endpoint := soundCloudAPIBase + "resolve?url=" + url.QueryEscape(target.canonical)
+	var user soundCloudUser
+	if err := extractor.requestJSON(ctx, transport, endpoint, &user); err != nil {
+		return Extraction{}, err
+	}
+	requestedID, requestedErr := strconv.ParseUint(target.id, 10, 64)
+	resolvedID, resolvedErr := strconv.ParseUint(user.ID.String(), 10, 64)
+	if !validSoundCloudJSONID(user.ID) || requestedErr != nil || resolvedErr != nil ||
+		requestedID != resolvedID || strings.TrimSpace(user.Username) == "" {
+		return Extraction{}, fmt.Errorf("%w: malformed SoundCloud API user", ErrInvalidMetadata)
+	}
+	return extractor.soundCloudUserPlaylist(
+		ctx, transport, target.canonical, user, "users/"+user.ID.String()+"/tracks", user.Username)
+}
+
+func (extractor *SoundCloud) soundCloudUserPlaylist(
+	ctx context.Context,
+	transport Transport,
+	webpageURL string,
+	user soundCloudUser,
+	apiPath string,
+	title string,
+) (Extraction, error) {
 	firstURL := soundCloudAPIBase + apiPath + "?linked_partitioning=1&limit=200"
 	policy := soundCloudContinuationPolicy{allowedPath: "/" + apiPath}
 	sequence, err := ContinuationEntries(nil, firstURL, func(ctx context.Context, cursor string) ([]Entry, string, error) {
@@ -306,9 +348,9 @@ func (extractor *SoundCloud) extractUserTab(ctx context.Context, transport Trans
 	}
 	info := value.NewObject(
 		value.Field{Key: "id", Value: value.String(user.ID.String())},
-		value.Field{Key: "title", Value: value.String(user.Username + " (" + tab.label + ")")},
+		value.Field{Key: "title", Value: value.String(title)},
 		value.Field{Key: "uploader", Value: value.String(user.Username)},
-		value.Field{Key: "webpage_url", Value: value.String(target.canonical)},
+		value.Field{Key: "webpage_url", Value: value.String(webpageURL)},
 	)
 	return Playlist(value.NewInfo(info), sequence)
 }

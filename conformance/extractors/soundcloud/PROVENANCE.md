@@ -19,6 +19,10 @@ Behavioral expectations were derived from the pinned yt-dlp checkout at commit
   `albums`, `sets`, `reposts`, `likes`, `spotlight`, and `comments`), resolving
   the user profile URL and using the pinned `_BASE_URL_MAP` API path with
   `{username} (<Resource>)` playlist titles;
+- `SoundcloudUserPermalinkIE` for exact legacy
+  `https://api.soundcloud.com/users/{positive-numeric-id}` routing, resolving
+  that API URL and lazily enumerating the resolved user's v2 tracks collection
+  with the username alone as playlist title;
 - `SoundcloudTrackStationIE._real_extract` for station URL resolution, opaque
   `soundcloud:track-stations:<id>` identifier validation, station tracks API
   routing, and `Track station: <title>` playlist metadata;
@@ -35,6 +39,9 @@ Deliberate Go hardening beyond the pinned reference:
   separators (`%2f`, `%5c`, `%00`) are all rejected fail-closed;
 - Cross-station, cross-track, cross-user, and cross-relation continuation
   rejection via exact allowedPath comparison;
+- Legacy API user routes require exact HTTPS `api.soundcloud.com` identity,
+  reject caller query/fragment data and encoded IDs before I/O, and require the
+  resolved user ID to equal the requested numeric ID;
 - Bounded query parameter count and per-value length on continuations;
 - `stations` and `recommended` added to the reserved-segment set to prevent
   ambiguous profile misclassification;
