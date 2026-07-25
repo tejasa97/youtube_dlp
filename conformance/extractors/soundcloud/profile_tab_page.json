@@ -1,0 +1,13 @@
+{
+  "collection": [
+    {
+      "track": {
+        "kind": "track",
+        "id": 100,
+        "title": "Profile item",
+        "permalink_url": "https://soundcloud.com/fixture-artist/profile-item"
+      }
+    }
+  ],
+  "next_href": null
+}
