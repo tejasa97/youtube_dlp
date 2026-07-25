@@ -39,4 +39,5 @@ inputs; the Go extractor filters them deterministically.
 - Playlist entries use validated `svt:<video-id>` opaque pseudo URLs with
   `ie_key=region_svt`, matching the reference handoff to `SVTPlayIE` while
   keeping re-entry inside this extractor.
-- SVT article/page playlists (`SVTPageIE`) remain outside this pilot.
+- SVT article/page playlists are implemented separately through the same
+  `region_svt` extractor; see `docs/SVT_PAGE_PLAYLISTS.md`.

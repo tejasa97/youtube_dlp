@@ -145,7 +145,7 @@ func TestRegionSVTSuitable(t *testing.T) {
 		{"https://evil.svtplay.se.evil/rederiet", false},
 		{"https://user@www.svtplay.se/rederiet", false},
 		{"https://www.svtplay.se:8443/rederiet", false},
-		{"https://www.svt.se/news/article", false},
+		{"https://www.svt.se/news/article", true},
 		{"ftp://www.svtplay.se/video/id", false},
 		{"https://www.svtplay.se/rederiet?tab=bad/id", false},
 	}

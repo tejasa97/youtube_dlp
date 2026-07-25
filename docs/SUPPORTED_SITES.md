@@ -27,7 +27,7 @@ service response.
 | internetarchive | archive.org item pages | playlist/API |
 | tiktok | tiktok.com public video pages, vm/vt/t short links, and bounded webpage captions | anti-bot/impersonated |
 | synthetic_auth | auth-fixture.invalid deterministic test service | authenticated behavior only; not a public service |
-| region_svt | svtplay.se video pages | regional, live |
+| region_svt | svtplay.se videos/series and svt.se article playlists | playlist/API, regional, live |
 | brightcove | players.brightcove.net embeds | shared backend, manifest-heavy |
 | kaltura | kaltura: opaque URLs | shared backend |
 | jwplatform | cdn.jwplayer.com players | shared backend |
