@@ -18,7 +18,7 @@ service response.
 | --- | --- | --- |
 | generic | Direct HTTP/HTTPS media, bounded native-provider embeds, and JSON-LD/Twitter/OpenGraph media | simple/direct, shared backend |
 | youtube | youtube.com/watch and youtu.be, /embed, /shorts, /playlist, and channel live alias URLs | playlist/API, manifest-heavy, JavaScript challenge |
-| vimeo | vimeo.com videos with bounded public text tracks | manifest-heavy |
+| vimeo | vimeo.com videos with bounded public text tracks, channels, user profiles, and groups | playlist/API, manifest-heavy |
 | twitch | twitch.tv channels, VODs, clips, collections, channel videos/profile, channel collections, and channel clips playlists | live, playlist/API, manifest-heavy |
 | soundcloud | soundcloud.com tracks, sets, bare profiles, all pinned public profile tabs, and bounded public search | playlist/API |
 | applepodcasts | podcasts.apple.com public episode pages with an explicit numeric episode query ID | simple/direct |

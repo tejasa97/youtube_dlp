@@ -1,10 +1,11 @@
-# Vimeo channel and user-videos playlist evidence
+# Vimeo public HTML playlist evidence
 
-Status: compatible for bounded anonymous public Vimeo channel roots and
-explicit `/{user}/videos` playlists only.
+Status: compatible for bounded anonymous public Vimeo channel roots, explicit
+and bare user playlists, and public group roots.
 
 Pinned behavioral reference: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`,
-`yt_dlp/extractor/vimeo.py` classes `VimeoChannelIE` and `VimeoUserIE`
+`yt_dlp/extractor/vimeo.py` classes `VimeoChannelIE`, `VimeoUserIE`, and
+`VimeoGroupsIE`
 (`_page_url`, `_title_and_entries`, `_MORE_PAGES_INDICATOR`, channel
 `_TITLE_RE`, user `_TITLE_RE`).
 
@@ -14,6 +15,8 @@ Accepted routes:
 
 - `https://vimeo.com/channels/{safe-slug}` with optional trailing slash
 - `https://vimeo.com/{safe-user}/videos` with optional trailing slash
+- `https://vimeo.com/{safe-user}` with optional trailing slash
+- `https://vimeo.com/groups/{safe-group}` with optional trailing slash
 
 Existing numeric video and `player.vimeo.com/video/{id}` routes are unchanged.
 Caller query and fragment are rejected by playlist suitability. Playlist page
@@ -51,10 +54,10 @@ and page/entry bound categories are preserved.
 
 ## Go hardening and deliberate deviations
 
-- Public channel plus explicit `/videos` only. Bare user roots are rejected
-  (upstream `VimeoUserIE` also matches bare `/{user}/`).
-- No showcases/albums, groups, likes, watch-later, password submission, or
+- No showcases/albums, likes, watch-later, password submission, or
   authenticated/private media.
+- Nested group video and arbitrary group subpaths remain owned by video or
+  unsupported routes rather than being claimed as playlists.
 - Page-declared next URLs are never followed; only a bounded `rel=next`
   presence indicator advances a locally constructed page number.
 - Hostile, cross-origin, mismatched, credentialed, ported, fragmented, or
@@ -68,13 +71,16 @@ and page/entry bound categories are preserved.
 ## Fixtures and tests
 
 Corpus and provenance: `conformance/extractors/vimeo/` (`PROVENANCE.md`,
-`channel-page*.html`, `user-videos-page*.html`, `channel-fallback.html`,
+`channel-page*.html`, `user-videos-page*.html`, `group-page*.html`,
+`channel-fallback.html`,
 `channel-hostile.html`, `channel-all-invalid-anchors.html`).
 
 | Requirement | Evidence |
 | --- | --- |
 | Channel multi-page order/title, duplicate suppression, lazy URL results | `TestVimeoChannelPlaylistIsLazyOrderedAndTitled` |
 | Explicit user videos | `TestVimeoUserVideosPlaylist` |
+| Bare user equivalence | `TestVimeoBareUserPlaylistMatchesExplicitVideos` |
+| Group title/order/laziness/reuse/dedupe | `TestVimeoGroupPlaylistIsLazyOrderedReusableAndTitled` |
 | Marker-only fallback | `TestVimeoPlaylistFallbackClipMarkers` |
 | All-invalid anchors do not fallback | `TestVimeoPlaylistAllInvalidAnchorsDoNotFallback` |
 | Isolated profile capability required | `TestVimeoPlaylistRequiresCredentialIsolatedProfileCapability` |
@@ -86,6 +92,7 @@ Corpus and provenance: `conformance/extractors/vimeo/` (`PROVENANCE.md`,
 | Impersonation no-redirect config | `TestDisableRedirectReturnsFirstResponse` |
 | Numeric video non-regression | existing `TestVimeo*` video/config/subtitle tests |
 | Parser fuzz URL/ID/bound/no-fallback invariants | `FuzzParseVimeoPlaylistPage` |
+| Route fuzz canonicalization and kind invariants | `FuzzClassifyVimeoPlaylistURL` |
 
 ## Primary integration checklist
 
