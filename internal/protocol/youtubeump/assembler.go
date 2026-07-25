@@ -42,6 +42,7 @@ type trackAssembler struct {
 	active           map[uint32]*segmentBuilder
 	writtenSequences map[uint64]segmentDigest
 	totalWritten     int64
+	endOfTrackDone   bool
 }
 
 func newTrackAssembler(format FormatID, expectedDurationMs int64, file *os.File, remaining int64) *trackAssembler {
@@ -250,12 +251,29 @@ func (assembler *trackAssembler) writeBytes(data []byte) error {
 }
 
 func (assembler *trackAssembler) trackComplete() bool {
+	if assembler.endOfTrackDone {
+		return true
+	}
 	if assembler.expectedDurationMs <= 0 {
 		return false
 	}
 	return assembler.initWritten &&
 		len(assembler.writtenSequences) > 0 &&
 		assembler.cumulativeMs >= assembler.expectedDurationMs
+}
+
+func (assembler *trackAssembler) canCompleteByEndOfTrack() bool {
+	return assembler.formatVerified &&
+		assembler.initWritten &&
+		len(assembler.writtenSequences) > 0
+}
+
+func (assembler *trackAssembler) applyEndOfTrackCompletion() error {
+	if !assembler.canCompleteByEndOfTrack() {
+		return fmt.Errorf("%w: premature end of track", ErrInvalidMediaState)
+	}
+	assembler.endOfTrackDone = true
+	return nil
 }
 
 func (assembler *trackAssembler) isSelectedHeader(header *MediaHeader) bool {

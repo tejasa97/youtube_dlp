@@ -353,14 +353,7 @@ func TestPrematureMediaEndDoesNotComplete(t *testing.T) {
 }
 
 func TestEndOfTrackRejected(t *testing.T) {
-	body := bytes.Join([][]byte{
-		buildTestUMP(
-			137,
-			testSegment{headerID: 1, init: true, payload: []byte("INIT")},
-			testSegment{headerID: 2, sequence: 0, duration: 10000, payload: []byte("only")},
-		),
-		encodePart(PartEndOfTrack, nil),
-	}, nil)
+	body := encodePart(PartEndOfTrack, nil)
 	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		return umpResponse(body, request), nil
 	})
@@ -368,10 +361,33 @@ func TestEndOfTrackRejected(t *testing.T) {
 	_, err := NewDownloader(transport, testConfig(
 		"https://rr1---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=fixture",
 	)).Download(context.Background(), root, destination, true, events.Nop())
-	if !errors.Is(err, ErrUnsupportedDirective) {
+	if !errors.Is(err, ErrInvalidMediaState) {
 		t.Fatalf("err=%v", err)
 	}
 	assertNoPublishedArtifact(t, root, destination)
+}
+
+func TestEndOfTrackCompletesBelowDuration(t *testing.T) {
+	body := buildTestUMP(
+		137,
+		testSegment{headerID: 1, init: true, payload: []byte("INIT")},
+		testSegment{headerID: 2, sequence: 0, duration: 1000, payload: []byte("short")},
+	)
+	body = appendEndOfTrackPart(body)
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return umpResponse(body, request), nil
+	})
+	root, destination := testRoot(t, "out.bin")
+	_, err := NewDownloader(transport, testConfig(
+		"https://rr1---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=fixture",
+	)).Download(context.Background(), root, destination, true, events.Nop())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(destination)
+	if string(got) != "INITshort" {
+		t.Fatalf("got=%q", got)
+	}
 }
 
 func TestMaxRoundsExhaustedWithoutPublish(t *testing.T) {
