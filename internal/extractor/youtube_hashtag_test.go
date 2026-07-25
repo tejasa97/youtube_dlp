@@ -154,7 +154,12 @@ func TestYouTubeParseCountText(t *testing.T) {
 		{"1.5M", 1_500_000, true},
 		{"2kk", 2_000_000, true},
 		{"no views", 0, true},
+		{"no videos", 0, true},
+		{"No Views", 0, true},
 		{"Views: 99", 99, true},
+		{"not no views really", 0, false},
+		{"token=no views", 0, false},
+		{"no views extra", 0, false},
 		{"", 0, false},
 		{strings.Repeat("9", 80), 0, false},
 		{"1 foo 2", 0, false},
@@ -186,7 +191,8 @@ func FuzzYouTubeParseCountText(f *testing.F) {
 	for _, seed := range []string{
 		"42 videos", "1.5K views", "1 foo 2", "1.5", "١٢٣", "9.999B",
 		"1,2", "12,34", "123foobar", "1kfoo", "1,,234", "1\u202f000",
-		"no views", strings.Repeat("9", 40) + "k", "1m\x00", "Views: 1,234",
+		"no views", "not no views really", "token=no views", "no views extra",
+		strings.Repeat("9", 40) + "k", "1m\x00", "Views: 1,234",
 	} {
 		f.Add(seed)
 	}

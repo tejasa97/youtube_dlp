@@ -286,6 +286,40 @@ func TestYouTubePlayabilityAgeGatedSignals(t *testing.T) {
 	}
 }
 
+func TestYouTubeTruthfulJSONMatchesPythonTruthyShapes(t *testing.T) {
+	cases := []struct {
+		raw  string
+		want bool
+	}{
+		{"", false},
+		{"   ", false},
+		{"null", false},
+		{"false", false},
+		{"true", true},
+		{"0", false},
+		{"0.0", false},
+		{"1", true},
+		{`""`, false},
+		{`"0"`, true},
+		{`"false"`, true},
+		{`"age"`, true},
+		{"{}", false},
+		{`{"x":1}`, true},
+		{"[]", false},
+		{"[0]", true},
+		{"[null]", true},
+		{"{", false},    // malformed
+		{"[1,]", false}, // malformed
+		{strings.Repeat("1", youtubeMaxTruthfulJSONBytes+1), false},
+	}
+	for _, test := range cases {
+		got := youtubeTruthfulJSON(json.RawMessage(test.raw))
+		if got != test.want {
+			t.Fatalf("%q => %t want %t", test.raw, got, test.want)
+		}
+	}
+}
+
 func TestYouTubeAuthenticatedPremiumWebCreatorSkipsGVSToken(t *testing.T) {
 	fail := []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"},"videoDetails":{"videoId":"dQw4w9WgXcQ"}}`)
 	creatorGVS := []byte(`{"playabilityStatus":{"status":"OK"},"videoDetails":{"videoId":"dQw4w9WgXcQ","title":"creator"},"streamingData":{"adaptiveFormats":[{"itag":137,"url":"https://example.test/v","mimeType":"video/mp4"}]}}`)

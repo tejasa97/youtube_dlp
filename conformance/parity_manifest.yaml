@@ -963,6 +963,7 @@ capabilities:
       - internal/extractor.TestYouTubeAuthenticatedNonPremiumOmitsWebCreatorWithoutAgeGate
       - internal/extractor.TestYouTubeAuthenticatedNonPremiumAllowsWebCreatorForAgeGate
       - internal/extractor.TestYouTubePlayabilityAgeGatedSignals
+      - internal/extractor.TestYouTubeTruthfulJSONMatchesPythonTruthyShapes
       - internal/extractor.TestYouTubeAuthenticatedPremiumWebCreatorSkipsGVSToken
       - internal/extractor.TestYouTubeAuthenticatedWebCreatorFailsClosedWithoutRequiredGVSToken
       - internal/extractor.TestYouTubeAuthenticatedRecoveryCancelsBetweenAttempts

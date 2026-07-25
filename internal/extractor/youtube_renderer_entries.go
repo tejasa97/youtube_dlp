@@ -197,14 +197,14 @@ const youtubeMaxCountTextBytes = 64
 // with an exact k/m/b/kk suffix, then at most one allowlisted trailing noun
 // (views/videos). It rejects malformed commas, arbitrary trailing words, and
 // multiplication/decimal overflow. Generic localized count grammars are not
-// claimed beyond this allowlist and the "no views"/"no videos" fixtures.
+// claimed beyond this allowlist and the exact "no views"/"no videos" phrases.
 func youtubeParseCountText(raw string) (int64, bool) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || len(raw) > youtubeMaxCountTextBytes || strings.ContainsRune(raw, 0) {
 		return 0, false
 	}
 	lower := strings.ToLower(raw)
-	if strings.Contains(lower, "no views") || strings.Contains(lower, "no videos") {
+	if lower == "no views" || lower == "no videos" {
 		return 0, true
 	}
 	runes := []rune(lower)

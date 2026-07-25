@@ -502,16 +502,41 @@ func youtubePlayabilityAgeGated(status youtubePlayabilityStatus) bool {
 	return false
 }
 
+const youtubeMaxTruthfulJSONBytes = 256
+
 func youtubeTruthfulJSON(raw json.RawMessage) bool {
-	if len(raw) == 0 {
+	if len(raw) == 0 || len(raw) > youtubeMaxTruthfulJSONBytes {
 		return false
 	}
 	trimmed := bytes.TrimSpace(raw)
-	switch string(trimmed) {
-	case "", "null", "false", "0", `""`:
+	if len(trimmed) == 0 {
 		return false
+	}
+	var decoded any
+	if err := json.Unmarshal(trimmed, &decoded); err != nil {
+		return false
+	}
+	return youtubeJSONValueTruthy(decoded)
+}
+
+// youtubeJSONValueTruthy mirrors Python truthiness used by yt-dlp traverse_obj:
+// None/false/0/""/{}/[] are false; nonempty containers and nonzero values are true.
+func youtubeJSONValueTruthy(decoded any) bool {
+	switch value := decoded.(type) {
+	case nil:
+		return false
+	case bool:
+		return value
+	case float64:
+		return value != 0
+	case string:
+		return value != ""
+	case map[string]any:
+		return len(value) > 0
+	case []any:
+		return len(value) > 0
 	default:
-		return true
+		return false
 	}
 }
 
