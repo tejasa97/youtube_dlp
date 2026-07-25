@@ -153,3 +153,21 @@ func FuzzMixedUMPStream(f *testing.F) {
 		}
 	})
 }
+
+func FuzzSabrCheckpoint(f *testing.F) {
+	f.Add([]byte(`{"v":1}`))
+	f.Add([]byte(`{"v":1,"client_name":1,"client_version":"x","track_kind":"video","itag":137,"duration_sec":10,"ustreamer_sha256":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","init_written":false,"format_verified":false,"segments":[]}`))
+	f.Fuzz(func(t *testing.T, body []byte) {
+		if len(body) > MaxCheckpointBytes {
+			return
+		}
+		if containsForbiddenCheckpointBytes(body) {
+			return
+		}
+		var state sabrCheckpoint
+		if err := decodeStrictJSON(body, &state); err != nil {
+			return
+		}
+		_ = validateCheckpoint(state)
+	})
+}

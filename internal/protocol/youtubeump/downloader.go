@@ -31,6 +31,7 @@ type Config struct {
 	Format          FormatID
 	TrackKind       TrackKind
 	ClientInfo      ClientInfo
+	VideoID         string
 	VisitorData     string
 	POToken         []byte
 	DrcEnabled      bool
@@ -41,12 +42,17 @@ type Config struct {
 	Attempts        int
 	RetryBaseDelay  time.Duration
 	RetryMaxDelay   time.Duration
+	// RetainCompletionMarker keeps destination.sabr.json after a successful
+	// publish. Pair A/V sidecars set this so interrupted merge can resume;
+	// standalone final downloads leave only the published media.
+	RetainCompletionMarker bool
 }
 
 // Result is a completed finite-VOD SABR artifact.
 type Result struct {
-	Path  string
-	Bytes int64
+	Path    string
+	Bytes   int64
+	Resumed bool
 }
 
 type Downloader struct {
@@ -78,6 +84,9 @@ func (downloader *Downloader) Download(ctx context.Context, outputRoot, destinat
 	if config.DurationSec <= 0 {
 		return Result{}, fmt.Errorf("%w: finite VOD duration is required", ErrMissingConfig)
 	}
+	if err := validateResumeVideoID(config.VideoID); err != nil {
+		return Result{}, err
+	}
 	if _, err := ValidateSABRURL(config.ServerURL); err != nil {
 		return Result{}, err
 	}
@@ -107,12 +116,6 @@ func (downloader *Downloader) Download(ctx context.Context, outputRoot, destinat
 		sink = events.Nop()
 	}
 
-	output, err := openOutputTemp(destination)
-	if err != nil {
-		return Result{}, fmt.Errorf("%w: %v", ErrDownloadFailed, err)
-	}
-	defer output.closeAndRemove()
-
 	maxBytes := config.MaxBytes
 	if maxBytes <= 0 || maxBytes > MaxMediaBytes {
 		maxBytes = MaxMediaBytes
@@ -134,8 +137,80 @@ func (downloader *Downloader) Download(ctx context.Context, outputRoot, destinat
 		return Result{}, err
 	}
 	eventURL := redactURL(config.ServerURL)
-	if err := sink.Emit(ctx, events.Event{Kind: events.KindStarting, URL: eventURL, Path: destination}); err != nil {
+	identity := identityFromConfig(config)
+	partPath, statePath := checkpointPaths(destination)
+	if err := validateDestination(outputRoot, partPath); err != nil {
+		return Result{}, err
+	}
+	if err := validateDestination(outputRoot, statePath); err != nil {
+		return Result{}, err
+	}
+	if err := regularOrAbsent(partPath); err != nil {
+		return Result{}, err
+	}
+	if err := regularOrAbsent(statePath); err != nil {
+		return Result{}, err
+	}
+
+	checkpoint, resumed, err := loadCheckpoint(statePath, identity)
+	if err != nil {
+		return Result{}, err
+	}
+	resumeOffset := int64(0)
+	if resumed {
+		if verifyErr := verifyCheckpointPartBytes(partPath, checkpoint); verifyErr != nil {
+			clearResumeArtifacts(partPath, statePath)
+			resumed = false
+			checkpoint = sabrCheckpoint{}
+		} else {
+			resumeOffset = checkpoint.TotalWritten
+		}
+	}
+	if !resumed {
+		clearResumeArtifacts(partPath, statePath)
+		checkpoint = sabrCheckpoint{}
+	}
+
+	output, err := openResumePart(partPath, resumeOffset)
+	if err != nil {
+		if resumed && errors.Is(err, ErrCheckpointInvalid) {
+			clearResumeArtifacts(partPath, statePath)
+			resumed = false
+			checkpoint = sabrCheckpoint{}
+			output, err = openResumePart(partPath, 0)
+		}
+		if err != nil {
+			return Result{}, fmt.Errorf("%w: %v", ErrDownloadFailed, err)
+		}
+	}
+	defer output.closeAndRemove()
+
+	if err := sink.Emit(ctx, events.Event{Kind: events.KindStarting, URL: eventURL, Path: destination, Resuming: resumed}); err != nil {
 		return Result{}, errors.Join(ErrEventSink, err)
+	}
+
+	assembler := newTrackAssembler(config.Format, expectedDurationMs, output.file, maxBytes)
+	if resumed {
+		if restoreErr := assembler.restoreCheckpoint(checkpoint, maxBytes); restoreErr != nil {
+			clearResumeArtifacts(partPath, statePath)
+			if reopenErr := reopenPartFresh(output, partPath); reopenErr != nil {
+				return Result{}, fmt.Errorf("%w: %v", ErrDownloadFailed, reopenErr)
+			}
+			assembler = newTrackAssembler(config.Format, expectedDurationMs, output.file, maxBytes)
+			resumed = false
+		} else if err := sink.Emit(ctx, events.Event{
+			Kind: events.KindProgress, URL: eventURL, Path: destination,
+			Bytes: assembler.totalWritten, Resuming: true,
+		}); err != nil {
+			return Result{}, errors.Join(ErrEventSink, err)
+		}
+	}
+	assembler.onCommit = func() error {
+		state, snapErr := assembler.snapshotCheckpoint(identity)
+		if snapErr != nil {
+			return snapErr
+		}
+		return saveCheckpoint(statePath, state)
 	}
 
 	var (
@@ -148,14 +223,16 @@ func (downloader *Downloader) Download(ctx context.Context, outputRoot, destinat
 		contexts       = newSabrContextState()
 		redirects      = newRedirectTracker(config.ServerURL)
 	)
-	assembler := newTrackAssembler(config.Format, expectedDurationMs, output.file, maxBytes)
+	if resumed {
+		playerTimeMs, bufferedRanges, selectedFormat = assembler.playbackState()
+	}
 
 	for round := 0; round < maxRounds; round++ {
 		if assembler.trackComplete() {
 			break
 		}
 		if err := ctx.Err(); err != nil {
-			_ = sink.Emit(context.Background(), events.Event{Kind: events.KindCancelled, URL: eventURL, Path: destination, Message: err.Error()})
+			_ = sink.Emit(context.Background(), events.Event{Kind: events.KindCancelled, URL: eventURL, Path: destination, Message: err.Error(), Resuming: resumed})
 			return Result{}, err
 		}
 		body, err := playbackRequest{
@@ -195,6 +272,14 @@ func (downloader *Downloader) Download(ctx context.Context, outputRoot, destinat
 		if selected {
 			selectedFormat = true
 		}
+		if assembler.totalWritten > 0 {
+			if emitErr := sink.Emit(ctx, events.Event{
+				Kind: events.KindProgress, URL: eventURL, Path: destination,
+				Bytes: assembler.totalWritten, Resuming: resumed,
+			}); emitErr != nil {
+				return Result{}, errors.Join(ErrEventSink, emitErr)
+			}
+		}
 		if assembler.trackComplete() {
 			// END_OF_TRACK is authoritative: do not POST again for redirect/backoff.
 			break
@@ -206,7 +291,7 @@ func (downloader *Downloader) Download(ctx context.Context, outputRoot, destinat
 		}
 		if roundCtrl.backoff > 0 {
 			if err := downloader.policyBackoffWait(ctx, roundCtrl.backoff); err != nil {
-				_ = sink.Emit(context.Background(), events.Event{Kind: events.KindCancelled, URL: eventURL, Path: destination, Message: err.Error()})
+				_ = sink.Emit(context.Background(), events.Event{Kind: events.KindCancelled, URL: eventURL, Path: destination, Message: err.Error(), Resuming: resumed})
 				return Result{}, err
 			}
 		}
@@ -218,13 +303,30 @@ func (downloader *Downloader) Download(ctx context.Context, outputRoot, destinat
 	if err := output.syncClose(); err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrDownloadFailed, err)
 	}
-	if err := publishOutput(output.path, destination, overwrite); err != nil {
-		return Result{}, fmt.Errorf("%w: publish output: %v", ErrDownloadFailed, err)
-	}
-	output.published = true
 	total := assembler.totalWritten
-	_ = sink.Emit(ctx, events.Event{Kind: events.KindCompleted, URL: eventURL, Path: destination, Bytes: total})
-	return Result{Path: destination, Bytes: total}, nil
+	if config.RetainCompletionMarker {
+		// Crash-atomic sidecar completion: durable identity-bound marker first,
+		// while .part + checkpoint still exist. Never delete recoverable media
+		// on marker failure. Only then publish and drop the checkpoint.
+		if err := writeCompletionMarker(output.path, destination, IdentityFromConfig(config), total); err != nil {
+			return Result{}, err
+		}
+		if err := publishOutput(output.path, destination, overwrite); err != nil {
+			return Result{}, fmt.Errorf("%w: publish output: %v", ErrDownloadFailed, err)
+		}
+		output.published = true
+		removeCheckpoint(statePath)
+	} else {
+		if err := publishOutput(output.path, destination, overwrite); err != nil {
+			return Result{}, fmt.Errorf("%w: publish output: %v", ErrDownloadFailed, err)
+		}
+		output.published = true
+		removeCheckpoint(statePath)
+		// Standalone final outputs must not leave internal markers beside media.
+		removeCompletionMarker(destination)
+	}
+	_ = sink.Emit(ctx, events.Event{Kind: events.KindCompleted, URL: eventURL, Path: destination, Bytes: total, Total: total, Resuming: resumed})
+	return Result{Path: destination, Bytes: total, Resumed: resumed}, nil
 }
 
 const maxSABRAttempts = 100

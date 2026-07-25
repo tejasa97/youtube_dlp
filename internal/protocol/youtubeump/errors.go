@@ -20,6 +20,7 @@ var (
 	ErrResponseTooLarge       = errors.New("SABR response exceeds byte bound")
 	ErrLiveUnsupported        = errors.New("live SABR playback is unsupported")
 	ErrResumeUnsupported      = errors.New("SABR resume is unsupported")
+	ErrCheckpointInvalid      = errors.New("invalid SABR checkpoint")
 	ErrMissingConfig          = errors.New("missing SABR playback configuration")
 	ErrDownloadFailed         = errors.New("SABR download failed")
 	ErrRedirect               = errors.New("SABR HTTP redirect rejected")

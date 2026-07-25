@@ -22,6 +22,7 @@ Status: partial — bounded finite-VOD slice only. Synthetic fixtures only; no c
 - SABR format metadata keeps `url` empty; download dispatch uses `_youtube_sabr` / `_youtube_sabr_server_url` markers. Format selection binds to one player candidate inventory without cross-player merging.
 - WEB SABR transport identity requires attributable `ytcfg` evidence: `INNERTUBE_CONTEXT_CLIENT_NAME`, matching `clientName`, `clientVersion`, and `userAgent`.
 - Completion requires init segment, at least one selected media segment, and either cumulative selected media duration ≥ declared finite `duration_sec` or a valid `END_OF_TRACK`. Active media headers at response EOF are rejected as truncated state. Transactional control state (cookie, policy backoff, redirect URL, SABR contexts, `END_OF_TRACK` completion flag) is committed only when `consumeStream` returns without error; failed responses leave prior committed control unchanged and return zero `roundControl`. HTTP retries reuse one immutable request body with the pre-commit endpoint/cookie/context. Media bytes written before a failed response may remain in the assembler and are handled by existing sequence replay/dedup on later successful rounds, not rolled back. Post-publish `completed` events are best-effort and do not fail an already published artifact.
+- Crash-safe finite-VOD resume: committed init/media segments persist under deterministic output-confined `destination.part` + `destination.part.json` checkpoints. Checkpoints bind a required non-empty bounded video id, client name/version, track kind, format identity, duration, DRC/audio-track id, and a SHA-256 of the ustreamer config. They never store PO tokens, playback cookies, visitor data, SABR contexts, authorization/cookie headers, or signed CDN URLs. Segment bytes are synced before an atomic checkpoint replace; recovery verifies every recorded init/segment digest by streaming the partial file, truncates uncommitted tail bytes, restores buffered ranges / player time / sequence digests, and starts a fresh SABR session (`rn=0`) with newly extracted signed URLs and PO tokens. Sequences in checkpoints must start at zero and increase contiguously. Identical server replays of media and init segments are accepted; changed bytes fail closed. Checkpoint and completion-marker JSON must decode as a single object (EOF after optional whitespace; trailing values/garbage fail closed). Resumable downloads reject empty or oversized video ids (`ErrMissingConfig` / invalid input). Pair A/V sidecar completion is crash-atomic: an identity-bound `destination.sabr.json` marker is made durable while `.part` + checkpoint still exist, then media is published and only then is the checkpoint removed; marker-write failure never deletes recoverable media. Standalone finals leave only published media. Product A/V merges download tracks concurrently into deterministic sidecars (`destination.sabr.{audio|video}.{itag}.{ext}`) with shared cancellation and a serialized event sink so completed audio + partial video (and the reverse) and interrupted merge retries resume independently without deleting valid committed peer progress.
 
 ## Provenance
 
@@ -49,11 +50,13 @@ Synthetic fixtures: `conformance/extractors/youtube/sabr-only-watch.html`, `conf
 - `MaxSabrContextPolicyOps` = 192 start/stop/discard operations across all sending-policy parts in one response
 - `MaxRedirectURLBytes` = 4096
 - `MaxDirectiveRedirects` = 8 committed UMP redirects
+- `MaxCheckpointSegments` = 8192 committed media segments per checkpoint
+- `MaxCheckpointBytes` = 1 MiB per checkpoint JSON file
 - HTTP `Location` redirects remain rejected (fail-closed)
 
 ## Remaining deviations
 
-- Live/post-live, resume, PO-token refresh, and full client parity remain unsupported.
+- Live/post-live SABR, mid-session PO-token refresh, `RELOAD_PLAYER_RESPONSE` recovery, and full client parity remain unsupported.
 - No claim of parity with WaxTap/GoogleVideo full clients or yt-dlp transport.
 - Authenticated WEB SABR-only pages outside the synthetic fixture are not evidenced here.
 - PO tokens are resolved at download time through the public provider boundary; they are not exported in extraction JSON.
@@ -61,4 +64,4 @@ Synthetic fixtures: `conformance/extractors/youtube/sabr-only-watch.html`, `conf
 ## Tests
 
 - `go test ./internal/protocol/youtubeump ./internal/extractor ./internal/format ./internal/network ./pkg/ytdlp`
-- Fuzz: `FuzzUMPVarint`, `FuzzUMPStream`, `FuzzProtobufWire`, `FuzzNextRequestPolicy`, `FuzzSabrRedirect`, `FuzzSabrContextUpdate`, `FuzzSabrContextSendingPolicy`, `FuzzMixedUMPStream` in `internal/protocol/youtubeump`
+- Fuzz: `FuzzUMPVarint`, `FuzzUMPStream`, `FuzzProtobufWire`, `FuzzNextRequestPolicy`, `FuzzSabrRedirect`, `FuzzSabrContextUpdate`, `FuzzSabrContextSendingPolicy`, `FuzzMixedUMPStream`, `FuzzSabrCheckpoint` in `internal/protocol/youtubeump`
