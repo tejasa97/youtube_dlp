@@ -167,11 +167,11 @@ func FuzzParseYouTubeSearchData(f *testing.F) {
 			return
 		}
 		for _, entry := range page.entries {
-			if !youtubeIDPattern.MatchString(entry.ID) || entry.ExtractorKey != "youtube" {
+			if entry.URL == "" || strings.ContainsAny(entry.URL, "\x00\r\n") {
 				t.Fatalf("unsafe entry: %#v", entry)
 			}
 			parsed, err := url.Parse(entry.URL)
-			if err != nil || parsed.Scheme != "https" || parsed.Host != "www.youtube.com" || (parsed.Path != "/watch" && !strings.HasPrefix(parsed.Path, "/shorts/")) {
+			if err != nil || parsed.Scheme != "https" || (parsed.Host != "www.youtube.com" && parsed.Host != "youtube.com") {
 				t.Fatalf("unsafe entry URL: %#v", entry)
 			}
 		}

@@ -1,12 +1,11 @@
 package extractor
 
-// This file deliberately implements the small, public-video subset of
-// yt-dlp's YouTube search extractors.  Registration is owned by the client
-// package so this extractor can remain a narrowly auditable route.
+// This file deliberately implements the bounded public subset of yt-dlp's
+// YouTube search extractors. Registration is owned by the client package so
+// this extractor can remain a narrowly auditable route.
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -23,9 +22,24 @@ const (
 	youtubeSearchMaxCount      = 50 // bounded to avoid unbounded remote paging
 	youtubeSearchMaxQueryBytes = 500
 	youtubeSearchMaxURLBytes   = 4096
-	youtubeSearchParams        = "EgIQAfABAQ==" // upstream YoutubeSearchIE: videos only
+	youtubeSearchVideosParams  = "EgIQAfABAQ==" // upstream YoutubeSearchIE: videos only
 	youtubeSearchAPIURL        = "https://www.youtube.com/youtubei/v1/search"
 )
+
+// Supported filter/sort params mirrored from documented upstream sp values.
+var youtubeSearchSupportedParams = map[string]struct{}{
+	"":                        {},
+	youtubeSearchVideosParams: {},
+	"EgIQAg==":                {}, // channels
+	"EgIQAw==":                {}, // playlists
+	"EgIQAQ%3D%3D":            {}, // videos (URL-encoded form rejected; we normalize)
+	"EgQQARgB":                {}, // live
+	"EgQQASAB":                {}, // short
+	"CAI%3D":                  {}, // sort upload date (encoded)
+	"CAI=":                    {}, // sort upload date
+	"CAM=":                    {}, // sort view count
+	"CAE=":                    {}, // sort rating
+}
 
 var youtubeSearchScheme = regexp.MustCompile(`^ytsearch([0-9]*|all)$`)
 
@@ -36,8 +50,6 @@ var (
 
 // YouTubeSearch accepts ytsearch[N]:query, ytsearchall:query (locally capped
 // at 50), and exact public /results or /search URLs with search_query or q.
-// It intentionally does not model Music, channel, playlist, hashtag, sorting,
-// or authenticated search.
 type YouTubeSearch struct{}
 
 func NewYouTubeSearch() YouTubeSearch { return YouTubeSearch{} }
@@ -78,8 +90,9 @@ func (YouTubeSearch) Extract(ctx context.Context, request Request) (Extraction, 
 		return Extraction{}, youtubeSearchAlertError(first.alert)
 	}
 	config := extractYouTubePlaylistConfig(page)
+	auth := youtubeBrowseAuthFromPage(page, request.Transport)
 	entries, err := youtubeSearchEntries(first.entries, first.continuation, count, func(ctx context.Context, token string) ([]Entry, string, error) {
-		return fetchYouTubeSearchContinuation(ctx, request.Transport, token, config)
+		return fetchYouTubeSearchContinuationAuth(ctx, request.Transport, token, config, auth)
 	})
 	if err != nil {
 		return Extraction{}, err
@@ -115,7 +128,8 @@ func youtubeSearchTarget(parsed *url.URL) (query string, count int, canonical st
 		if !validYouTubeSearchQuery(query) {
 			return "", 0, "", false
 		}
-		return query, count, "https://www.youtube.com/results?" + url.Values{"search_query": {query}, "sp": {youtubeSearchParams}}.Encode(), true
+		// ytsearch: remains video-filtered for parity with YoutubeSearchIE.
+		return query, count, "https://www.youtube.com/results?" + url.Values{"search_query": {query}, "sp": {youtubeSearchVideosParams}}.Encode(), true
 	}
 	if len(parsed.String()) > youtubeSearchMaxURLBytes || parsed.Fragment != "" {
 		return "", 0, "", false
@@ -145,72 +159,26 @@ func youtubeSearchTarget(parsed *url.URL) (query string, count int, canonical st
 	if !validYouTubeSearchQuery(query) {
 		return "", 0, "", false
 	}
-	return query, youtubeSearchDefaultCount, (&url.URL{Scheme: "https", Host: "www.youtube.com", Path: parsed.Path, RawQuery: parsed.RawQuery}).String(), true
+	if sp := values.Get("sp"); sp != "" {
+		decoded, err := url.QueryUnescape(sp)
+		if err != nil {
+			decoded = sp
+		}
+		if _, supported := youtubeSearchSupportedParams[sp]; !supported {
+			if _, supported = youtubeSearchSupportedParams[decoded]; !supported {
+				return "", 0, "", false
+			}
+		}
+	}
+	return query, youtubeSearchMaxCount, (&url.URL{Scheme: "https", Host: "www.youtube.com", Path: parsed.Path, RawQuery: parsed.RawQuery}).String(), true
 }
 
 func validYouTubeSearchQuery(query string) bool {
 	return query != "" && len(query) <= youtubeSearchMaxQueryBytes && !strings.ContainsAny(query, "\x00\r\n")
 }
 
-type youtubeSearchPage struct {
-	entries             []Entry
-	continuation, alert string
-}
-
-func parseYouTubeSearchData(data []byte) (youtubeSearchPage, error) {
-	var root value.Value
-	if err := json.Unmarshal(data, &root); err != nil {
-		return youtubeSearchPage{}, fmt.Errorf("%w: decode YouTube search data", ErrInvalidMetadata)
-	}
-	if _, ok := root.Object(); !ok {
-		return youtubeSearchPage{}, fmt.Errorf("%w: YouTube search root", ErrInvalidMetadata)
-	}
-	var page youtubeSearchPage
-	nodes := 0
-	err := walkOrderedJSON(root, 0, &nodes, func(key string, object *value.Object) {
-		switch key {
-		case "videoRenderer", "reelItemRenderer":
-			if entry, ok := youtubeSearchVideoEntry(object); ok {
-				page.entries = append(page.entries, entry)
-			}
-		case "lockupViewModel":
-			if entry, ok := youtubePlaylistLockupEntry(object); ok {
-				page.entries = append(page.entries, entry)
-			}
-		case "continuationItemRenderer":
-			if token := validYouTubeContinuationToken(objectString(object, "continuationEndpoint", "continuationCommand", "token")); token != "" {
-				page.continuation = token
-			}
-		case "continuationItemViewModel":
-			if token := youtubeContinuationViewModelToken(object); token != "" {
-				page.continuation = token
-			}
-		case "nextContinuationData":
-			if token := validYouTubeContinuationToken(objectString(object, "continuation")); token != "" {
-				page.continuation = token
-			}
-		case "alertRenderer":
-			if page.alert == "" {
-				page.alert = rendererText(object.Lookup("text"))
-			}
-		}
-	})
-	if err != nil {
-		return youtubeSearchPage{}, err
-	}
-	return page, nil
-}
-
-func youtubeSearchVideoEntry(renderer *value.Object) (Entry, bool) {
-	videoID := objectString(renderer, "videoId")
-	if !youtubeIDPattern.MatchString(videoID) {
-		return Entry{}, false
-	}
-	path := "/watch?v="
-	if objectString(renderer, "navigationEndpoint", "reelWatchEndpoint", "videoId") == videoID || objectString(renderer, "videoType") == "SHORT" {
-		path = "/shorts/"
-	}
-	return Entry{URL: "https://www.youtube.com" + path + videoID, ExtractorKey: "youtube", ID: videoID, Title: rendererText(renderer.Lookup("title"))}, true
+func parseYouTubeSearchData(data []byte) (youtubeRendererPage, error) {
+	return parseYouTubeRendererData(data, youtubeRendererPolicy{kinds: youtubeRendererSearchAll})
 }
 
 func youtubeSearchEntries(first []Entry, token string, count int, fetch ContinuationFetcher) (EntrySequence, error) {
@@ -247,45 +215,6 @@ func (iterator *limitedEntryIterator) Next(ctx context.Context) (Entry, bool, er
 		iterator.left--
 	}
 	return entry, ok, err
-}
-
-func fetchYouTubeSearchContinuation(ctx context.Context, transport Transport, token string, config youtubePlaylistConfig) ([]Entry, string, error) {
-	if token = validYouTubeContinuationToken(token); token == "" {
-		return nil, "", fmt.Errorf("%w: invalid YouTube search continuation", ErrInvalidPlaylist)
-	}
-	version := config.ClientVersion
-	if version == "" {
-		version = youtubeDefaultClientVersion
-	}
-	payload := map[string]any{"context": map[string]any{"client": map[string]any{"clientName": "WEB", "clientVersion": version, "hl": "en", "timeZone": "UTC", "utcOffsetMinutes": 0, "visitorData": config.VisitorData}}, "continuation": token}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return nil, "", fmt.Errorf("%w: encode YouTube search continuation", ErrInvalidMetadata)
-	}
-	endpoint, _ := url.Parse(youtubeSearchAPIURL)
-	values := endpoint.Query()
-	values.Set("prettyPrint", "false")
-	if config.APIKey != "" {
-		values.Set("key", config.APIKey)
-	}
-	endpoint.RawQuery = values.Encode()
-	headers := make(http.Header)
-	headers.Set("Content-Type", "application/json")
-	headers.Set("Origin", "https://www.youtube.com")
-	headers.Set("X-Youtube-Client-Name", "1")
-	headers.Set("X-Youtube-Client-Version", version)
-	var response json.RawMessage
-	if err := RequestJSON(ctx, transport, http.MethodPost, endpoint.String(), body, headers, &response); err != nil {
-		return nil, "", categorizeYouTubeSearchError(err)
-	}
-	page, err := parseYouTubeSearchData(response)
-	if err != nil {
-		return nil, "", err
-	}
-	if page.alert != "" && len(page.entries) == 0 {
-		return nil, "", youtubeSearchAlertError(page.alert)
-	}
-	return page.entries, page.continuation, nil
 }
 
 func categorizeYouTubeSearchError(err error) error {
