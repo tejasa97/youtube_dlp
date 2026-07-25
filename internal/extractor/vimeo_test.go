@@ -383,7 +383,11 @@ func (*vimeoPlaylistFixtureTransport) ReadPage(context.Context, string) ([]byte,
 	return nil, nil, errors.New("unexpected native page request")
 }
 
-func (transport *vimeoPlaylistFixtureTransport) ReadPageProfile(_ context.Context, rawURL, profile string) ([]byte, http.Header, error) {
+func (*vimeoPlaylistFixtureTransport) ReadPageProfile(context.Context, string, string) ([]byte, http.Header, error) {
+	return nil, nil, errors.New("unexpected credentialed profile page request")
+}
+
+func (transport *vimeoPlaylistFixtureTransport) ReadPageProfileWithoutCredentialsNoRedirect(_ context.Context, rawURL, profile string) ([]byte, http.Header, error) {
 	transport.profile = profile
 	transport.pageReads++
 	transport.reads = append(transport.reads, rawURL)
@@ -403,6 +407,37 @@ func (transport *vimeoPlaylistFixtureTransport) Do(context.Context, *http.Reques
 }
 
 func (transport *vimeoPlaylistFixtureTransport) DoProfile(ctx context.Context, request *http.Request, profile string) (*http.Response, error) {
+	transport.profile = profile
+	return transport.Do(ctx, request)
+}
+
+type vimeoPlaylistProfileOnlyTransport struct {
+	pages     map[string][]byte
+	profile   string
+	pageReads int
+	reads     []string
+}
+
+func (*vimeoPlaylistProfileOnlyTransport) ReadPage(context.Context, string) ([]byte, http.Header, error) {
+	return nil, nil, errors.New("unexpected native page request")
+}
+
+func (transport *vimeoPlaylistProfileOnlyTransport) ReadPageProfile(_ context.Context, rawURL, profile string) ([]byte, http.Header, error) {
+	transport.profile = profile
+	transport.pageReads++
+	transport.reads = append(transport.reads, "profile:"+rawURL)
+	page, ok := transport.pages[rawURL]
+	if !ok {
+		return nil, nil, fmt.Errorf("unexpected playlist URL %q", rawURL)
+	}
+	return append([]byte(nil), page...), make(http.Header), nil
+}
+
+func (transport *vimeoPlaylistProfileOnlyTransport) Do(context.Context, *http.Request) (*http.Response, error) {
+	return nil, errors.New("unexpected Do during playlist extraction")
+}
+
+func (transport *vimeoPlaylistProfileOnlyTransport) DoProfile(ctx context.Context, request *http.Request, profile string) (*http.Response, error) {
 	transport.profile = profile
 	return transport.Do(ctx, request)
 }
@@ -547,6 +582,45 @@ func TestVimeoPlaylistSkipsHostileAndMismatchedHrefs(t *testing.T) {
 	}
 }
 
+func TestVimeoPlaylistAllInvalidAnchorsDoNotFallback(t *testing.T) {
+	page := readVimeoFixture(t, "channel-all-invalid-anchors.html")
+	parsed, err := parseVimeoPlaylistPage(context.Background(), page)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed.entries) != 0 {
+		t.Fatalf("all-invalid anchors must not emit entries: %#v", parsed.entries)
+	}
+	transport := &vimeoPlaylistFixtureTransport{pages: map[string][]byte{
+		"https://vimeo.com/channels/allinvalid/videos/page:1/": page,
+	}}
+	_, err = NewVimeo().Extract(context.Background(), Request{
+		URL:       "https://vimeo.com/channels/allinvalid",
+		Transport: transport,
+	})
+	if !errors.Is(err, ErrInvalidPlaylist) {
+		t.Fatalf("all-invalid extract error=%v", err)
+	}
+	for _, leaked := range []string{"evil.example", "javascript", "secret", "9999"} {
+		if strings.Contains(fmt.Sprint(err), leaked) {
+			t.Fatalf("error leaked %q: %v", leaked, err)
+		}
+	}
+}
+
+func TestVimeoPlaylistRequiresCredentialIsolatedProfileCapability(t *testing.T) {
+	profileOnly := &vimeoPlaylistProfileOnlyTransport{pages: map[string][]byte{
+		"https://vimeo.com/channels/fixturetributes/videos/page:1/": readVimeoFixture(t, "channel-page1.html"),
+	}}
+	_, err := NewVimeo().Extract(context.Background(), Request{
+		URL:       "https://vimeo.com/channels/fixturetributes",
+		Transport: profileOnly,
+	})
+	if !errors.Is(err, ErrTransportIsolation) || profileOnly.pageReads != 0 {
+		t.Fatalf("profile-only transport error=%v reads=%d", err, profileOnly.pageReads)
+	}
+}
+
 func TestVimeoPlaylistSuitabilityRejectsHostileInputs(t *testing.T) {
 	negatives := []string{
 		"http://vimeo.com/channels/fixturetributes",
@@ -682,7 +756,7 @@ func TestVimeoPlaylistBoundsCancellationAndSecretSafeErrors(t *testing.T) {
 			},
 		}
 		_, err := NewVimeo().Extract(context.Background(), Request{URL: "https://vimeo.com/channels/netfail", Transport: transport})
-		if err == nil || strings.Contains(err.Error(), "fixture-token") || strings.Contains(err.Error(), "secret") {
+		if !errors.Is(err, ErrVimeoPlaylistNetwork) || strings.Contains(err.Error(), "fixture-token") || strings.Contains(err.Error(), "secret") {
 			t.Fatalf("transport error leaked secret: %v", err)
 		}
 	})
@@ -691,8 +765,8 @@ func TestVimeoPlaylistBoundsCancellationAndSecretSafeErrors(t *testing.T) {
 			"https://vimeo.com/channels/noprofile/videos/page:1/": readVimeoFixture(t, "channel-page1.html"),
 		}}
 		_, err := NewVimeo().Extract(context.Background(), Request{URL: "https://vimeo.com/channels/noprofile", Transport: plain})
-		if !errors.Is(err, ErrTransportProfile) {
-			t.Fatalf("profile error=%v", err)
+		if !errors.Is(err, ErrTransportIsolation) {
+			t.Fatalf("isolation error=%v", err)
 		}
 	})
 	t.Run("fallback title", func(t *testing.T) {
@@ -715,6 +789,7 @@ func FuzzParseVimeoPlaylistPage(f *testing.F) {
 	f.Add(readVimeoFixture(f, "user-videos-page1.html"))
 	f.Add(readVimeoFixture(f, "channel-fallback.html"))
 	f.Add(readVimeoFixture(f, "channel-hostile.html"))
+	f.Add(readVimeoFixture(f, "channel-all-invalid-anchors.html"))
 	f.Add([]byte(`<div id="clip_1"><a href="/1" title="x">`))
 	f.Add([]byte(`id="clip_1"`))
 	f.Fuzz(func(t *testing.T, data []byte) {
@@ -730,6 +805,10 @@ func FuzzParseVimeoPlaylistPage(f *testing.F) {
 		}
 		if len(parsed.entries) > vimeoMaxClipsPerPage {
 			t.Fatalf("entry bound escaped: %d", len(parsed.entries))
+		}
+		_, sawCandidate, err := parseVimeoPlaylistClipAnchors(context.Background(), data)
+		if err != nil {
+			t.Fatalf("anchor probe error: %v", err)
 		}
 		seen := make(map[string]struct{}, len(parsed.entries))
 		for _, entry := range parsed.entries {
@@ -749,8 +828,24 @@ func FuzzParseVimeoPlaylistPage(f *testing.F) {
 				t.Fatalf("duplicate id %q", entry.ID)
 			}
 			seen[entry.ID] = struct{}{}
-			if parsed, err := url.Parse(entry.URL); err != nil || parsed.Scheme != "https" || parsed.Host != "vimeo.com" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+			if parsedURL, err := url.Parse(entry.URL); err != nil || parsedURL.Scheme != "https" || parsedURL.Host != "vimeo.com" || parsedURL.User != nil || parsedURL.RawQuery != "" || parsedURL.Fragment != "" {
 				t.Fatalf("unsafe accepted entry URL %q", entry.URL)
+			}
+			if sawCandidate {
+				// When candidate anchors exist, every emitted ID must have had an
+				// agreeing href; bare marker fallback is forbidden.
+				window := data
+				if idx := bytes.Index(data, []byte("clip_"+entry.ID)); idx >= 0 {
+					start := idx + len("clip_"+entry.ID)
+					end := start + vimeoClipLookaheadBytes
+					if end > len(data) {
+						end = len(data)
+					}
+					window = data[start:end]
+				}
+				if _, _, ok := findVimeoClipAnchor(window, entry.ID); !ok {
+					t.Fatalf("fallback reintroduced id %q despite candidate anchors", entry.ID)
+				}
 			}
 		}
 	})

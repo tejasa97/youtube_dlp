@@ -43,6 +43,14 @@ type CredentialIsolatedNoRedirectTransport interface {
 	DoWithoutCredentialsNoRedirect(context.Context, *http.Request) (*http.Response, error)
 }
 
+// CredentialIsolatedProfilePageTransport is an optional capability for bounded
+// browser-profile page reads that must not inherit operation-jar cookies,
+// explicit/default Authorization/Proxy-Authorization/Cookie headers, or follow
+// redirects. Extractors that claim anonymous public profile fetches require it.
+type CredentialIsolatedProfilePageTransport interface {
+	ReadPageProfileWithoutCredentialsNoRedirect(context.Context, string, string) ([]byte, http.Header, error)
+}
+
 // ProfileTransport is an optional capability implemented by request directors
 // that can execute an explicitly named browser transport profile.
 type ProfileTransport interface {
@@ -70,6 +78,20 @@ func ReadPageWithProfile(ctx context.Context, transport Transport, rawURL, profi
 		return nil, nil, fmt.Errorf("%w: %s", ErrTransportProfile, profile)
 	}
 	return profiled.ReadPageProfile(ctx, rawURL, profile)
+}
+
+// ReadPageWithProfileWithoutCredentialsNoRedirect performs a bounded profile
+// page read without credentials and without redirects. Transports that only
+// implement ProfileTransport fail closed before any network access.
+func ReadPageWithProfileWithoutCredentialsNoRedirect(ctx context.Context, transport Transport, rawURL, profile string) ([]byte, http.Header, error) {
+	if profile == "" {
+		return nil, nil, fmt.Errorf("%w: missing profile", ErrTransportProfile)
+	}
+	isolated, ok := transport.(CredentialIsolatedProfilePageTransport)
+	if !ok {
+		return nil, nil, fmt.Errorf("%w: %s", ErrTransportIsolation, profile)
+	}
+	return isolated.ReadPageProfileWithoutCredentialsNoRedirect(ctx, rawURL, profile)
 }
 
 type Request struct {

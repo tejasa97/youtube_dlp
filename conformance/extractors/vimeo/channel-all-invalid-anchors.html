@@ -1,0 +1,14 @@
+<!doctype html>
+<html>
+<head>
+<link rel="alternate" title="All Invalid Anchors" href="https://vimeo.com/channels/allinvalid/videos/rss">
+</head>
+<body>
+<div id="clip_5001"><a href="https://evil.example/5001" title="Cross Origin">Bad</a></div>
+<div id="clip_5002"><a href="javascript:alert(1)" title="Script">Nope</a></div>
+<div id="clip_5003"><a href="/channels/allinvalid/9999" title="Mismatch">Mismatch</a></div>
+<div id="clip_5004"><a href="https://user:secret@vimeo.com/5004" title="Credentialed">Cred</a></div>
+<div id="clip_5005"><a href="https://vimeo.com:8443/5005" title="Ported">Port</a></div>
+<div id="clip_5006"><a href="/channels/allinvalid/%2e%2e/5006" title="Encoded">Encoded</a></div>
+</body>
+</html>

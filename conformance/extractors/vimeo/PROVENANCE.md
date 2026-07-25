@@ -35,8 +35,9 @@ are never fetched.
 | --- | --- |
 | `channel-page1.html` / `channel-page2.html` | Multi-page channel order, titles, in-page duplicate, and missing next on page 2 |
 | `user-videos-page1.html` / `user-videos-page2.html` | Explicit `/{user}/videos` multi-page user list |
-| `channel-fallback.html` | Conservative `clip_ID` marker fallback when no agreeing href exists |
+| `channel-fallback.html` | Conservative `clip_ID` marker fallback when no candidate anchors exist |
 | `channel-hostile.html` | Hostile/mismatched hrefs skipped; only agreeing clip retained |
+| `channel-all-invalid-anchors.html` | All-invalid anchors do not fall back to bare clip IDs |
 
 All playlist identifiers, titles, and hrefs are invented. No live Vimeo HTML
 was captured into this corpus.

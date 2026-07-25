@@ -48,14 +48,15 @@ type Config struct {
 
 // Client owns cookies and shared HTTP behavior for one operation.
 type Client struct {
-	httpClient     *http.Client
-	jar            http.CookieJar
-	defaultHeaders http.Header
-	maxPageSize    int64
-	defaultProfile string
-	profileConfig  impersonate.Config
-	profileMu      sync.Mutex
-	profiles       map[string]*impersonate.Client
+	httpClient       *http.Client
+	jar              http.CookieJar
+	defaultHeaders   http.Header
+	maxPageSize      int64
+	defaultProfile   string
+	profileConfig    impersonate.Config
+	profileMu        sync.Mutex
+	profiles         map[string]*impersonate.Client
+	isolatedProfiles map[string]*impersonate.Client
 }
 
 func New(config Config) (*Client, error) {
@@ -115,7 +116,8 @@ func New(config Config) (*Client, error) {
 		profileConfig: impersonate.Config{
 			Proxy: config.Proxy, Timeout: timeout, Jar: jar, RootCAs: config.RootCAs,
 		},
-		profiles: make(map[string]*impersonate.Client),
+		profiles:         make(map[string]*impersonate.Client),
+		isolatedProfiles: make(map[string]*impersonate.Client),
 	}
 	return client, nil
 }
@@ -261,12 +263,41 @@ func (client *Client) profileClient(name string) (*impersonate.Client, error) {
 	return created, nil
 }
 
+// isolatedProfileClient returns a cached browser-profile client that never
+// consults the operation cookie jar and never follows redirects. It is distinct
+// from profileClient so credentialed/redirecting profile traffic cannot leak
+// into anonymous page reads.
+func (client *Client) isolatedProfileClient(name string) (*impersonate.Client, error) {
+	profile, err := impersonate.Lookup(name)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrImpersonationUnavailable, name)
+	}
+	client.profileMu.Lock()
+	defer client.profileMu.Unlock()
+	if existing := client.isolatedProfiles[name]; existing != nil {
+		return existing, nil
+	}
+	config := client.profileConfig
+	config.Profile = profile
+	config.Jar = nil
+	config.DisableRedirect = true
+	created, err := impersonate.New(config)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrImpersonationUnavailable, name)
+	}
+	client.isolatedProfiles[name] = created
+	return created, nil
+}
+
 // CloseIdleConnections releases pooled native and impersonated connections.
 func (client *Client) CloseIdleConnections() {
 	client.httpClient.CloseIdleConnections()
 	client.profileMu.Lock()
 	defer client.profileMu.Unlock()
 	for _, profile := range client.profiles {
+		profile.CloseIdleConnections()
+	}
+	for _, profile := range client.isolatedProfiles {
 		profile.CloseIdleConnections()
 	}
 }
@@ -282,6 +313,50 @@ func (client *Client) ReadPageProfile(ctx context.Context, rawURL, profileName s
 		return client.ReadPage(ctx, rawURL)
 	}
 	return client.readPage(ctx, rawURL, profileName)
+}
+
+// ReadPageProfileWithoutCredentialsNoRedirect performs a bounded profile page
+// read without operation-jar cookies, without Authorization/Proxy-Authorization/
+// Cookie defaults or explicit headers, without persisting Set-Cookie, and
+// without following redirects. An empty or unavailable profile fails closed and
+// never falls back to the native transport.
+func (client *Client) ReadPageProfileWithoutCredentialsNoRedirect(ctx context.Context, rawURL, profileName string) ([]byte, http.Header, error) {
+	if profileName == "" {
+		return nil, nil, fmt.Errorf("%w: missing profile", ErrImpersonationUnavailable)
+	}
+	request, err := http.NewRequest(http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, nil, errors.New("create page request failed")
+	}
+	cloned := client.prepareRequest(ctx, request, false, false)
+	for _, key := range []string{"Authorization", "Cookie", "Proxy-Authorization"} {
+		cloned.Header.Del(key)
+	}
+	profileClient, err := client.isolatedProfileClient(profileName)
+	if err != nil {
+		return nil, nil, err
+	}
+	response, err := profileClient.Do(cloned)
+	if err != nil {
+		return nil, nil, &RequestError{Method: cloned.Method, URL: RedactURL(cloned.URL), Err: err}
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		requestURL := cloned.URL
+		if response.Request != nil && response.Request.URL != nil {
+			requestURL = response.Request.URL
+		}
+		return nil, response.Header.Clone(), &StatusError{Code: response.StatusCode, URL: RedactURL(requestURL)}
+	}
+	reader := io.LimitReader(response.Body, client.maxPageSize+1)
+	body, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, response.Header.Clone(), errors.New("read page response failed")
+	}
+	if int64(len(body)) > client.maxPageSize {
+		return nil, response.Header.Clone(), fmt.Errorf("%w: limit is %d bytes", ErrPageTooLarge, client.maxPageSize)
+	}
+	return body, response.Header.Clone(), nil
 }
 
 func (client *Client) readPage(ctx context.Context, rawURL, profileName string) ([]byte, http.Header, error) {

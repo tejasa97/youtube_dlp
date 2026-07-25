@@ -17,10 +17,13 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/ytdlp-go/ytdlp/internal/network"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
 const vimeoImpersonationProfile = "chrome-133"
+
+var ErrVimeoPlaylistNetwork = errors.New("Vimeo playlist network failure")
 
 const (
 	vimeoMaxTextTracks = 128
@@ -381,7 +384,7 @@ func fetchVimeoPlaylistPage(ctx context.Context, transport Transport, target vim
 		return nil, fmt.Errorf("%w: Vimeo playlist page bound", ErrPlaylistLimit)
 	}
 	pageURL := fmt.Sprintf("%s/videos/page:%d/", target.baseURL, pageNum)
-	page, _, err := ReadPageWithProfile(ctx, transport, pageURL, vimeoImpersonationProfile)
+	page, _, err := ReadPageWithProfileWithoutCredentialsNoRedirect(ctx, transport, pageURL, vimeoImpersonationProfile)
 	if err != nil {
 		return nil, categorizeVimeoPlaylistTransportError(err)
 	}
@@ -398,22 +401,43 @@ func categorizeVimeoPlaylistTransportError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if errors.Is(err, ErrTransportProfile) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
+	if errors.Is(err, ErrTransportProfile) || errors.Is(err, ErrTransportIsolation) ||
+		errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
 		errors.Is(err, ErrJSONResponseTooLarge) || errors.Is(err, ErrInvalidPlaylist) || errors.Is(err, ErrPlaylistLimit) ||
-		errors.Is(err, ErrAuthentication) || errors.Is(err, ErrUnavailable) || errors.Is(err, ErrRegionRestricted) {
+		errors.Is(err, ErrAuthentication) || errors.Is(err, ErrUnavailable) || errors.Is(err, ErrRegionRestricted) ||
+		errors.Is(err, ErrVimeoPlaylistNetwork) {
 		return err
 	}
-	var status *HTTPStatusError
-	if errors.As(err, &status) {
-		switch status.Code {
+	if errors.Is(err, network.ErrPageTooLarge) {
+		return fmt.Errorf("%w: Vimeo playlist page", ErrJSONResponseTooLarge)
+	}
+	if errors.Is(err, network.ErrImpersonationUnavailable) {
+		return fmt.Errorf("%w: %s", ErrTransportProfile, vimeoImpersonationProfile)
+	}
+	var httpStatus *HTTPStatusError
+	if errors.As(err, &httpStatus) {
+		switch httpStatus.Code {
 		case http.StatusUnauthorized, http.StatusForbidden:
 			return ErrAuthentication
 		case http.StatusNotFound, http.StatusGone:
 			return ErrUnavailable
+		default:
+			return ErrVimeoPlaylistNetwork
 		}
 	}
-	// Opaque: transport messages may include tokens, caller URLs, or page scraps.
-	return errors.New("Vimeo playlist page request failed")
+	var networkStatus *network.StatusError
+	if errors.As(err, &networkStatus) {
+		switch networkStatus.Code {
+		case http.StatusUnauthorized, http.StatusForbidden:
+			return ErrAuthentication
+		case http.StatusNotFound, http.StatusGone:
+			return ErrUnavailable
+		default:
+			return ErrVimeoPlaylistNetwork
+		}
+	}
+	// Opaque sentinel: never echo transport/body/URL details that may carry tokens.
+	return ErrVimeoPlaylistNetwork
 }
 
 type vimeoPlaylistPage struct {
@@ -480,25 +504,29 @@ func vimeoRelNextInsideAnchor(page []byte, relIdx int) bool {
 }
 
 func parseVimeoPlaylistClips(ctx context.Context, page []byte) ([]Entry, error) {
-	primary, err := parseVimeoPlaylistClipAnchors(ctx, page)
+	entries, sawCandidateAnchor, err := parseVimeoPlaylistClipAnchors(ctx, page)
 	if err != nil {
 		return nil, err
 	}
-	if len(primary) > 0 {
-		return primary, nil
+	// Marker fallback is only for pages that declare clip_IDs without any
+	// candidate anchors. Hostile/mismatched/cross-origin anchors must not be
+	// reintroduced by bare ID emission.
+	if sawCandidateAnchor {
+		return entries, nil
 	}
 	return parseVimeoPlaylistClipMarkers(ctx, page)
 }
 
-func parseVimeoPlaylistClipAnchors(ctx context.Context, page []byte) ([]Entry, error) {
+func parseVimeoPlaylistClipAnchors(ctx context.Context, page []byte) ([]Entry, bool, error) {
 	entries := make([]Entry, 0)
 	seen := make(map[string]struct{})
+	sawCandidateAnchor := false
 	offset := 0
 	steps := 0
 	for offset < len(page) {
 		if steps%32 == 0 {
 			if err := contextError(ctx); err != nil {
-				return nil, err
+				return nil, false, err
 			}
 		}
 		steps++
@@ -514,7 +542,11 @@ func parseVimeoPlaylistClipAnchors(ctx context.Context, page []byte) ([]Entry, e
 		if windowEnd > len(page) {
 			windowEnd = len(page)
 		}
-		href, title, found := findVimeoClipAnchor(page[idEnd:windowEnd], id)
+		window := page[idEnd:windowEnd]
+		if _, _, found := findVimeoClipCandidateAnchor(window); found {
+			sawCandidateAnchor = true
+		}
+		href, title, found := findVimeoClipAnchor(window, id)
 		if !found {
 			continue
 		}
@@ -523,12 +555,12 @@ func parseVimeoPlaylistClipAnchors(ctx context.Context, page []byte) ([]Entry, e
 			continue
 		}
 		if len(entries) >= vimeoMaxClipsPerPage {
-			return nil, fmt.Errorf("%w: Vimeo playlist page clip bound", ErrInvalidPlaylist)
+			return nil, false, fmt.Errorf("%w: Vimeo playlist page clip bound", ErrInvalidPlaylist)
 		}
 		seen[id] = struct{}{}
 		entries = append(entries, entry)
 	}
-	return entries, nil
+	return entries, sawCandidateAnchor, nil
 }
 
 func parseVimeoPlaylistClipMarkers(ctx context.Context, page []byte) ([]Entry, error) {
@@ -617,7 +649,7 @@ func findVimeoClipID(page []byte, offset int) (id string, idEnd, next int, ok bo
 	return "", 0, len(page), false
 }
 
-func findVimeoClipAnchor(window []byte, clipID string) (href, title string, ok bool) {
+func findVimeoClipCandidateAnchor(window []byte) (href, title string, ok bool) {
 	search := window
 	for len(search) > 0 {
 		idx := indexVimeoAnchorStart(search)
@@ -630,12 +662,32 @@ func findVimeoClipAnchor(window []byte, clipID string) (href, title string, ok b
 		}
 		tag := search[idx : idx+tagEndRel]
 		hrefVal, hasHref := vimeoHTMLAttr(tag, "href")
-		if !hasHref || !vimeoHrefAgreesWithClipID(hrefVal, clipID) {
+		if !hasHref {
 			search = search[idx+2:]
 			continue
 		}
 		titleVal, _ := vimeoHTMLAttr(tag, "title")
 		return hrefVal, titleVal, true
+	}
+	return "", "", false
+}
+
+func findVimeoClipAnchor(window []byte, clipID string) (href, title string, ok bool) {
+	search := window
+	for len(search) > 0 {
+		hrefVal, titleVal, found := findVimeoClipCandidateAnchor(search)
+		if !found {
+			return "", "", false
+		}
+		if vimeoHrefAgreesWithClipID(hrefVal, clipID) {
+			return hrefVal, titleVal, true
+		}
+		// Advance past this candidate and keep looking for an agreeing href.
+		idx := indexVimeoAnchorStart(search)
+		if idx < 0 {
+			return "", "", false
+		}
+		search = search[idx+2:]
 	}
 	return "", "", false
 }
@@ -729,6 +781,15 @@ func vimeoHrefAgreesWithClipID(rawHref, clipID string) bool {
 			return false
 		}
 	} else if parsed.Host != "" {
+		return false
+	}
+	if parsed.Path == "" || path.Clean(parsed.Path) != parsed.Path {
+		return false
+	}
+	escaped := strings.ToLower(parsed.EscapedPath())
+	if strings.Contains(escaped, "%2f") || strings.Contains(escaped, "%5c") ||
+		strings.Contains(escaped, "%00") || strings.Contains(escaped, "%2e") ||
+		strings.Contains(escaped, "%25") {
 		return false
 	}
 	parts := splitVimeoPath(parsed.Path)
