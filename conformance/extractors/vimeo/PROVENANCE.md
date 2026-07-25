@@ -20,3 +20,24 @@ track data and query tokens are synthetic.
 The config fixture's `player.vimeo.com` endpoint is likewise deliberate: the
 extractor requests only that HTTPS origin and retains its synthetic query token
 while using a canonical token-free Vimeo Referer.
+
+## Playlist fixtures
+
+Channel and explicit user-videos playlist pages model
+`VimeoChannelIE._title_and_entries` / `_page_url` and `VimeoUserIE` at the same
+pinned commit (`yt_dlp/extractor/vimeo.py`, classes starting near lines 1474 and
+1536). Pagination URLs are constructed locally as
+`/channels/{slug}/videos/page:{N}/` and `/{user}/videos/page:{N}/`. The
+`rel="next"` marker is only an existence indicator; page-declared next hrefs
+are never fetched.
+
+| Fixture | Role |
+| --- | --- |
+| `channel-page1.html` / `channel-page2.html` | Multi-page channel order, titles, in-page duplicate, and missing next on page 2 |
+| `user-videos-page1.html` / `user-videos-page2.html` | Explicit `/{user}/videos` multi-page user list |
+| `channel-fallback.html` | Conservative `clip_ID` marker fallback when no candidate anchors exist |
+| `channel-hostile.html` | Hostile/mismatched hrefs skipped; only agreeing clip retained |
+| `channel-all-invalid-anchors.html` | All-invalid anchors do not fall back to bare clip IDs |
+
+All playlist identifiers, titles, and hrefs are invented. No live Vimeo HTML
+was captured into this corpus.
