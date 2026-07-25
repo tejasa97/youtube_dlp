@@ -90,6 +90,10 @@ reference. The deterministic resolver reuses the synthetic `live-watch.html`
 player response and resolves only a validated video ID through the existing
 video extractor. It does not retain a production channel page or redirect.
 
+The SABR fixture records below support maintenance of a retained experimental
+extension. SABR is excluded from project parity targets, roadmap deliverables,
+release gates, and remaining-work estimates.
+
 `sabr-watch.html`, `android-player.json`, and `android-vr-player.json` are synthetic regression fixtures
 for URL-less `serverAbrStreamingUrl` webpage responses and native-client format
 recovery. Their response fields and client-request expectations are derived

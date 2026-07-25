@@ -1,6 +1,9 @@
 # YouTube SABR/UMP evidence
 
-Status: partial — bounded finite-VOD slice only. Synthetic fixtures only; no claim of full SABR parity.
+Status: retained bounded finite-VOD experimental extension. Synthetic fixtures
+only; excluded from project parity targets, roadmap deliverables, release
+gates, and remaining-work estimates. No expansion toward full SABR parity is
+planned.
 
 ## Supported wire subset
 
@@ -62,7 +65,7 @@ Synthetic fixtures: `conformance/extractors/youtube/sabr-only-watch.html`, `conf
 - `MaxCheckpointBytes` = 1 MiB per checkpoint JSON file
 - HTTP `Location` redirects remain rejected (fail-closed)
 
-## Remaining deviations
+## Unsupported boundaries (non-goals)
 
 - Live/post-live SABR and full client parity remain unsupported.
 - `STREAM_PROTECTION_STATUS` attestation mint/retry remains fail-closed.
@@ -72,7 +75,12 @@ Synthetic fixtures: `conformance/extractors/youtube/sabr-only-watch.html`, `conf
 - Authenticated WEB SABR-only pages outside the synthetic fixture are not evidenced here.
 - PO tokens are resolved at download time through the public provider boundary; they are not exported in extraction JSON.
 
-See also `docs/YOUTUBE_SABR_RECOVERY_ARCHITECTURE.md` for the frozen architecture table.
+These boundaries are recorded for safe maintenance of the retained
+implementation. They are not project backlog items or parity blockers.
+
+See `docs/YOUTUBE_SABR_RECOVERY_ARCHITECTURE.md` for the frozen architecture
+table and `docs/YOUTUBE_SABR_BOUNDARIES.md` for the non-goal maintenance
+boundary.
 
 ## Tests
 

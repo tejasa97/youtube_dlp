@@ -2,7 +2,9 @@ Synthetic deterministic UMP payloads for bounded SABR_REDIRECT,
 SABR_CONTEXT_UPDATE, SABR_CONTEXT_SENDING_POLICY, SABR_ERROR, and
 RELOAD_PLAYER_RESPONSE coverage.
 
-No live network capture. No claim of full SABR client parity.
+These fixtures are retained for regression maintenance of an experimental
+extension. SABR is excluded from project parity targets and roadmap
+deliverables. No live network capture. No claim of full SABR client parity.
 
 ## Provenance
 

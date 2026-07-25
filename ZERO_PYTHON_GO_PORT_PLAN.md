@@ -3,7 +3,7 @@
 - Status: Active program; Phases 0–3 repository implementation complete, with
   external gate evidence and full capability parity still open
 - Date: 2026-07-17
-- Last reconciled: 2026-07-22
+- Last reconciled: 2026-07-25
 - Related assessment: [GO_PORT_EVALUATION.md](./GO_PORT_EVALUATION.md)
 - Initial reference: [`yt-dlp/yt-dlp@aefce1ee`](https://github.com/yt-dlp/yt-dlp/tree/aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8)
 
@@ -88,6 +88,12 @@ During migration, Python may run only in a quarantined conformance environment a
 - Preserving the Python import API.
 - Loading arbitrary legacy Python plugins in the final product.
 - Bypassing DRM or expanding beyond the reference project's legal and safety boundaries.
+- Expanding or completing YouTube SABR/UMP support. The existing bounded
+  finite-VOD implementation is retained as an experimental extension, but it
+  is excluded from parity targets, roadmap deliverables, release gates, and
+  remaining-work estimates. Maintenance is limited to security and correctness
+  regressions in the retained behavior unless the project explicitly
+  re-scopes it.
 - Guaranteeing that externally changing websites are always functional; parity is measured against the same reference conditions.
 - Optimizing every subsystem before parity is established.
 
