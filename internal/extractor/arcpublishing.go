@@ -145,7 +145,7 @@ func normalizeArcPublishing(video arcVideo, target arcTarget) (Extraction, error
 		if rawURL == "" {
 			continue
 		}
-		if !validHostedHTTPURL(rawURL) {
+		if !strictValidHostedHTTPURL(rawURL) {
 			continue
 		}
 		if _, exists := seen[rawURL]; exists {
@@ -158,7 +158,7 @@ func normalizeArcPublishing(video arcVideo, target arcTarget) (Extraction, error
 			// Legacy SMIL/RTMP delivery is intentionally unsupported.
 			continue
 		case "ts", "hls":
-			format, ok := hostedURLFormat(fmt.Sprintf("hls-%d", index), rawURL)
+			format, ok := strictHostedURLFormat(fmt.Sprintf("hls-%d", index), rawURL)
 			if !ok {
 				continue
 			}
@@ -176,7 +176,7 @@ func normalizeArcPublishing(video arcVideo, target arcTarget) (Extraction, error
 			if formatID == "" {
 				formatID = fmt.Sprintf("http-%d", index)
 			}
-			format, ok := hostedURLFormat(formatID, rawURL)
+			format, ok := strictHostedURLFormat(formatID, rawURL)
 			if !ok {
 				continue
 			}
@@ -201,7 +201,7 @@ func normalizeArcPublishing(video arcVideo, target arcTarget) (Extraction, error
 		value.Field{Key: "formats", Value: value.List(formats...)},
 	)
 	hostedSetString(info, "description", video.Subheadlines.Basic)
-	if video.PromoImage != nil && validHostedHTTPURL(video.PromoImage.URL) {
+	if video.PromoImage != nil && strictValidHostedHTTPURL(video.PromoImage.URL) {
 		hostedSetString(info, "thumbnail", video.PromoImage.URL)
 	}
 	if duration := video.Duration.int64(); duration > 0 {
@@ -221,7 +221,7 @@ func normalizeArcPublishing(video arcVideo, target arcTarget) (Extraction, error
 			if index >= arcMaxSubtitles {
 				return Extraction{}, fmt.Errorf("%w: Arc Publishing subtitle limit", ErrInvalidMetadata)
 			}
-			if !validHostedHTTPURL(sub.URL) {
+			if !strictValidHostedHTTPURL(sub.URL) {
 				continue
 			}
 			subs = append(subs, value.ObjectValue(value.NewObject(

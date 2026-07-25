@@ -147,17 +147,7 @@ func anvatoServerTime(ctx context.Context, transport Transport, accessKey, video
 
 func anvatoVideoJSON(ctx context.Context, transport Transport, accessKey, videoID string, serverTime int64, token string) (anvatoVideo, error) {
 	videoURL := anvatoAPIBase + "/mcp/video/" + url.PathEscape(videoID) + "?anvack=" + url.QueryEscape(accessKey)
-	input := fmt.Sprintf("%d~%x~%x", serverTime, md5.Sum([]byte(videoURL)), md5.Sum([]byte(strconv.FormatInt(serverTime, 10))))
-	if len(input) > 64 {
-		input = input[:64]
-	}
-	auth := make([]byte, len(anvatoAuthKey))
-	for i := range anvatoAuthKey {
-		if i >= len(input) {
-			break
-		}
-		auth[i] = input[i] ^ anvatoAuthKey[i]
-	}
+	auth := anvatoAdstAuth(videoURL, serverTime)
 	anvrid := fmt.Sprintf("%x", md5.Sum([]byte(strconv.FormatInt(serverTime, 10))))[:30]
 	api := map[string]any{
 		"anvrid": anvrid,
@@ -176,7 +166,7 @@ func anvatoVideoJSON(ctx context.Context, transport Transport, accessKey, videoI
 	}
 	query := url.Values{}
 	query.Set("anvack", accessKey)
-	query.Set("X-Anvato-Adst-Auth", base64.StdEncoding.EncodeToString(auth))
+	query.Set("X-Anvato-Adst-Auth", auth)
 	query.Set("rtyp", "fp")
 	endpoint := anvatoAPIBase + "/mcp/video/" + url.PathEscape(videoID) + "?" + query.Encode()
 	headers := make(http.Header)
@@ -186,6 +176,27 @@ func anvatoVideoJSON(ctx context.Context, transport Transport, accessKey, videoI
 		return anvatoVideo{}, err
 	}
 	return payload, nil
+}
+
+// anvatoAdstAuth reproduces the pinned reference AnvatoIE._get_video_json
+// X-Anvato-Adst-Auth value. The reference calls yt_dlp.aes.aes_encrypt with the
+// 8-byte AUTH_KEY from anvplayer.min.js. Because that key is shorter than one
+// AES block, aes_encrypt's round count becomes -1 and the operation reduces to
+// XOR of the first 8 bytes of the truncated input. This short-key XOR behavior
+// is intentional compatibility with the pinned extractor, not a full AES port.
+func anvatoAdstAuth(videoDataURL string, serverTime int64) string {
+	input := fmt.Sprintf("%d~%x~%x", serverTime, md5.Sum([]byte(videoDataURL)), md5.Sum([]byte(strconv.FormatInt(serverTime, 10))))
+	if len(input) > 64 {
+		input = input[:64]
+	}
+	auth := make([]byte, len(anvatoAuthKey))
+	for i := range anvatoAuthKey {
+		if i >= len(input) {
+			break
+		}
+		auth[i] = input[i] ^ anvatoAuthKey[i]
+	}
+	return base64.StdEncoding.EncodeToString(auth)
 }
 
 type anvatoVideo struct {
@@ -229,7 +240,7 @@ func normalizeAnvato(video anvatoVideo, target anvatoTarget) (Extraction, error)
 	formats := make([]value.Value, 0, len(video.PublishedURLs))
 	for index, published := range video.PublishedURLs {
 		rawURL := strings.TrimSpace(published.EmbedURL)
-		if rawURL == "" || !validHostedHTTPURL(rawURL) {
+		if rawURL == "" || !strictValidHostedHTTPURL(rawURL) {
 			continue
 		}
 		formatName := strings.ToLower(strings.TrimSpace(published.Format))
@@ -241,7 +252,7 @@ func normalizeAnvato(video anvatoVideo, target anvatoTarget) (Extraction, error)
 			if tbr := published.KBPS.int64(); tbr > 0 {
 				formatID = fmt.Sprintf("hls-%d", tbr)
 			}
-			format, ok := hostedURLFormat(formatID, rawURL)
+			format, ok := strictHostedURLFormat(formatID, rawURL)
 			if !ok {
 				continue
 			}
@@ -255,7 +266,7 @@ func normalizeAnvato(video anvatoVideo, target anvatoTarget) (Extraction, error)
 			} else {
 				formatID = fmt.Sprintf("http-%d", index)
 			}
-			format, ok := hostedURLFormat(formatID, rawURL)
+			format, ok := strictHostedURLFormat(formatID, rawURL)
 			if !ok {
 				continue
 			}
@@ -314,7 +325,7 @@ func normalizeAnvato(video anvatoVideo, target anvatoTarget) (Extraction, error)
 	subtitles := value.NewObject()
 	hasSubs := false
 	for _, caption := range video.Captions {
-		if !validHostedHTTPURL(caption.URL) {
+		if !strictValidHostedHTTPURL(caption.URL) {
 			continue
 		}
 		lang := strings.TrimSpace(caption.Language)
@@ -341,7 +352,7 @@ func normalizeAnvato(video anvatoVideo, target anvatoTarget) (Extraction, error)
 
 func firstValidHostedURL(inputs ...string) string {
 	for _, input := range inputs {
-		if validHostedHTTPURL(input) {
+		if strictValidHostedHTTPURL(input) {
 			return input
 		}
 	}
