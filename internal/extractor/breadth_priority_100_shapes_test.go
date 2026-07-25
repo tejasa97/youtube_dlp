@@ -786,7 +786,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 	})
 	add("simplecast-podcast", "simplecast_podcast|*.simplecast.com/", "simplecast_podcast", "playlist", func(t *testing.T) {
 		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
-			"https://api.simplecast.com/podcasts/search":                                        {body: familyFixture(t, "simplecast_podcast", "search.json")},
+			"https://api.simplecast.com/sites/search":                                           {body: familyFixture(t, "simplecast_podcast", "search.json")},
 			"https://api.simplecast.com/podcasts/e23df0da-bae4-4531-8bbf-71364a88dc13/episodes": {body: familyFixture(t, "simplecast_podcast", "episodes.json")},
 		}}
 		result, err := NewSimplecastPodcast().Extract(context.Background(), Request{URL: "https://the-re-bind-io-podcast.simplecast.com/", Transport: transport})

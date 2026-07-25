@@ -30,6 +30,22 @@ func TestPodcastFamilySuccessAndPlaylists(t *testing.T) {
 		}
 		if formats, ok := result.Info.Formats(); !ok || len(formats) == 0 {
 			t.Fatal("missing formats")
+		} else {
+			format, _ := formats[0].Object()
+			if mediaURL, _ := format.Lookup("url").StringValue(); mediaURL != "https://media.example.invalid/acast/episode.mp3" {
+				t.Fatalf("cleaned Acast URL = %q", mediaURL)
+			}
+		}
+		for key, want := range map[string]int64{
+			"duration": 120, "timestamp": 1580990400, "filesize": 12345,
+			"season_number": 4, "episode_number": 2,
+		} {
+			if got, ok := result.Info.Lookup(key).Int(); !ok || got != want {
+				t.Fatalf("Acast %s = %d, %v; want %d", key, got, ok, want)
+			}
+		}
+		if creator, _ := result.Info.Lookup("creator").StringValue(); creator != "Author" {
+			t.Fatalf("Acast creator = %q", creator)
 		}
 	})
 
@@ -62,6 +78,25 @@ func TestPodcastFamilySuccessAndPlaylists(t *testing.T) {
 		}
 		if formats, ok := result.Info.Formats(); !ok || len(formats) == 0 {
 			t.Fatal("missing formats")
+		} else {
+			format, _ := formats[0].Object()
+			if mediaURL, _ := format.Lookup("url").StringValue(); mediaURL != "https://media.example.invalid/sc.mp3?updated=1" {
+				t.Fatalf("cleaned Simplecast URL = %q", mediaURL)
+			}
+		}
+		for key, want := range map[string]int64{
+			"duration": 100, "timestamp": 1580990400, "filesize": 23456,
+			"season_number": 1, "episode_number": 1,
+		} {
+			if got, ok := result.Info.Lookup(key).Int(); !ok || got != want {
+				t.Fatalf("Simplecast %s = %d, %v; want %d", key, got, ok, want)
+			}
+		}
+		if seasonID, _ := result.Info.Lookup("season_id").StringValue(); seasonID != "e23df0da-bae4-4531-8bbf-71364a88dc13" {
+			t.Fatalf("Simplecast season_id = %q", seasonID)
+		}
+		if webpage, _ := result.Info.Lookup("webpage_url").StringValue(); webpage != "https://the-re-bind-io-podcast.simplecast.com/episodes/errant-signal" {
+			t.Fatalf("Simplecast webpage_url = %q", webpage)
 		}
 	})
 
@@ -79,7 +114,7 @@ func TestPodcastFamilySuccessAndPlaylists(t *testing.T) {
 
 	t.Run("simplecast_podcast", func(t *testing.T) {
 		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
-			"https://api.simplecast.com/podcasts/search": {body: familyFixture(t, "simplecast_podcast", "search.json")},
+			"https://api.simplecast.com/sites/search": {body: familyFixture(t, "simplecast_podcast", "search.json")},
 			"https://api.simplecast.com/podcasts/e23df0da-bae4-4531-8bbf-71364a88dc13/episodes": {
 				body: familyFixture(t, "simplecast_podcast", "episodes.json"),
 			},
@@ -214,6 +249,7 @@ func TestPodcastFamilySuccessAndPlaylists(t *testing.T) {
 		{"https://api.simplecast.com/episodes/b6dc49a2-9404-4853-9aa9-9cfc097be876", "simplecast"},
 		{"https://the-re-bind-io-podcast.simplecast.com/episodes/errant-signal", "simplecast_episode"},
 		{"https://the-re-bind-io-podcast.simplecast.com/", "simplecast_podcast"},
+		{"https://the-re-bind-io-podcast.simplecast.com/episodes", "simplecast_podcast"},
 		{"https://player.megaphone.fm/GLT9749789991", "megaphone"},
 		{"https://rss.art19.com/episodes/5ba1413c-48b8-472b-9cc3-cfd952340bdb.mp3", "art19"},
 		{"https://art19.com/shows/scamfluencers/episodes/8319b776-4153-4d22-8630-631f204a03dd", "art19"},

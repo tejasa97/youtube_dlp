@@ -10,7 +10,8 @@ Pinned reference: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`
 | Go entry | `internal/extractor` constructors `New*` for key `simplecast_podcast` |
 
 ## Derived facts (copied from reference behavior)
-- POST podcasts/search then GET /podcasts/{id}/episodes
+- POST sites/search, read the nested podcast identity, then GET
+  /podcasts/{id}/episodes
 
 ## Fixture construction
 - Synthetic, license-safe, secret-free: `search.json + episodes.json`
