@@ -93,26 +93,31 @@ func (YouTubeMusicBrowse) Extract(ctx context.Context, request Request) (Extract
 	}
 	meta := youtubeMusicBrowseInfo(raw, parsed)
 	if family == "album" {
-		if meta.playlistID == "" {
+		// Hydrate via WEB_REMIX resolve+browse when tracks are missing or the
+		// webpage lacks a canonical playlist identity (pinned YoutubeTabIE path).
+		if len(parsed.entries) == 0 || meta.playlistID == "" {
 			resolved, resolveErr := resolveYouTubeMusicAlbum(ctx, request.Transport, canonical, browseID, config)
 			if resolveErr != nil {
 				return Extraction{}, resolveErr
 			}
-			if len(parsed.entries) == 0 {
-				parsed = resolved.page
+			if meta.playlistID != "" && resolved.playlistID != "" && meta.playlistID != resolved.playlistID {
+				return Extraction{}, fmt.Errorf("%w: album playlist identity mismatch", ErrInvalidMetadata)
 			}
-			meta.playlistID = resolved.playlistID
+			if meta.playlistID == "" {
+				meta.playlistID = resolved.playlistID
+			}
 			if meta.title == "" {
 				meta.title = resolved.title
 			}
 			if meta.title == "" {
 				meta.title = resolved.page.title
 			}
-			if parsed.visitorData == "" {
-				parsed.visitorData = resolved.page.visitorData
-			}
-			if parsed.continuation == "" {
-				parsed.continuation = resolved.page.continuation
+			// Empty initial content is replaced wholesale by the resolved page so
+			// entries, continuation, and visitor stay coherent. Non-empty initial
+			// pages keep their own continuation state when resolve only supplies
+			// playlist identity.
+			if len(parsed.entries) == 0 {
+				parsed = resolved.page
 			}
 		}
 		if meta.playlistID == "" {
@@ -461,6 +466,12 @@ func readYouTubeMusicBrowsePage(ctx context.Context, transport Transport, rawURL
 	response, err := isolated.DoWithoutCookies(ctx, request)
 	if err != nil {
 		return nil, err
+	}
+	if response == nil {
+		return nil, fmt.Errorf("%w: empty Music browse page response", ErrYouTubeMusicBrowseNetwork)
+	}
+	if response.Body == nil {
+		return nil, fmt.Errorf("%w: empty Music browse page body", ErrYouTubeMusicBrowseNetwork)
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
