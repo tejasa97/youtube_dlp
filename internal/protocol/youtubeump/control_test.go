@@ -408,13 +408,11 @@ func TestUnsupportedDirectivesRemainUnsupported(t *testing.T) {
 		name string
 		id   int
 	}{
-		{"error", PartSABRError},
-		{"reload", PartReloadPlayerResponse},
 		{"live", PartLiveMetadata},
 		{"protection", PartStreamProtectionStatus},
 	} {
 		t.Run(partType.name, func(t *testing.T) {
-			body := append(bytes.Clone(base), encodePart(partType.id, []byte{0x0A, 0x01, 'x'})...)
+			body := append(bytes.Clone(base), encodePart(partType.id, []byte{0x08, 0x01})...)
 			transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
 				return umpResponse(body, request), nil
 			})
@@ -620,7 +618,7 @@ func TestConsumeStreamDoesNotCommitControlOnLateFailure(t *testing.T) {
 	defer file.Close()
 	assembler := newTrackAssembler(FormatID{Itag: 137}, 10000, file, 1024)
 	ctrl, err := consumeStream(context.Background(), bytes.NewReader(body), assembler)
-	if !errors.Is(err, ErrUnsupportedDirective) {
+	if !errors.Is(err, ErrInvalidProtobuf) {
 		t.Fatalf("err=%v", err)
 	}
 	if !roundControlIsZero(ctrl) {

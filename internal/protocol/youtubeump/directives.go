@@ -5,7 +5,8 @@ import (
 )
 
 // Field numbers from LuanRT/googlevideo sabr_redirect.proto,
-// sabr_context_update.proto, and sabr_context_sending_policy.proto at commit
+// sabr_context_update.proto, sabr_context_sending_policy.proto,
+// sabr_error.proto, and reload_player_response.proto at commit
 // d2fa40d761034a286cf60ee033653307a1295b0c.
 const (
 	fSabrRedirectURL uint64 = 1
@@ -22,6 +23,12 @@ const (
 
 	fStreamerSabrContextType  uint64 = 1
 	fStreamerSabrContextValue uint64 = 2
+
+	fSabrErrorType uint64 = 1
+	fSabrErrorCode uint64 = 2
+
+	fReloadPlaybackContextParams uint64 = 1
+	fReloadPlaybackParamsToken   uint64 = 1
 )
 
 // SabrContextScope values from sabr_context_update.proto.
@@ -56,6 +63,15 @@ type sabrContextSendingPolicyDirective struct {
 	Start   []int32
 	Stop    []int32
 	Discard []int32
+}
+
+type sabrErrorDirective struct {
+	Type string
+	Code int32
+}
+
+type reloadPlayerDirective struct {
+	Token string
 }
 
 func parseSabrRedirect(payload []byte) (sabrRedirectDirective, error) {
@@ -267,6 +283,160 @@ func parseSabrContextSendingPolicy(payload []byte, ops *int) (sabrContextSending
 		}
 	}
 	return directive, nil
+}
+
+// parseSabrError decodes SabrError from sabr_error.proto. Both type and code
+// are required for a typed recovery decision; missing either fails closed.
+func parseSabrError(payload []byte) (sabrErrorDirective, error) {
+	var (
+		directive sabrErrorDirective
+		seenType  bool
+		seenCode  bool
+	)
+	reader := fieldReader{data: payload}
+	for {
+		num, wireType, ok := reader.next()
+		if !ok {
+			break
+		}
+		switch {
+		case num == fSabrErrorType:
+			if wireType != wireBytes {
+				return sabrErrorDirective{}, fmt.Errorf("%w: wrong wire type %d for sabr error type", ErrInvalidProtobuf, wireType)
+			}
+			if seenType {
+				return sabrErrorDirective{}, fmt.Errorf("%w: duplicate sabr error type", ErrInvalidProtobuf)
+			}
+			seenType = true
+			raw := reader.bytes()
+			if reader.err != nil {
+				return sabrErrorDirective{}, reader.err
+			}
+			if len(raw) == 0 {
+				return sabrErrorDirective{}, fmt.Errorf("%w: empty sabr error type", ErrInvalidProtobuf)
+			}
+			if len(raw) > MaxSabrErrorTypeBytes {
+				return sabrErrorDirective{}, fmt.Errorf("%w: sabr error type exceeds bound", ErrInvalidProtobuf)
+			}
+			directive.Type = string(raw)
+		case num == fSabrErrorCode:
+			if wireType != wireVarint {
+				return sabrErrorDirective{}, fmt.Errorf("%w: wrong wire type %d for sabr error code", ErrInvalidProtobuf, wireType)
+			}
+			if seenCode {
+				return sabrErrorDirective{}, fmt.Errorf("%w: duplicate sabr error code", ErrInvalidProtobuf)
+			}
+			seenCode = true
+			raw := reader.varint()
+			if reader.err != nil {
+				return sabrErrorDirective{}, reader.err
+			}
+			value, err := protoInt32FromVarint(raw)
+			if err != nil {
+				return sabrErrorDirective{}, err
+			}
+			directive.Code = value
+		default:
+			// Unknown fields are non-critical and skipped. Code-specific
+			// recovery beyond generic retry is unsupported.
+			reader.skip(num, wireType)
+		}
+	}
+	if reader.err != nil {
+		return sabrErrorDirective{}, reader.err
+	}
+	if !seenType || !seenCode {
+		return sabrErrorDirective{}, fmt.Errorf("%w: sabr error requires type and code", ErrInvalidProtobuf)
+	}
+	return directive, nil
+}
+
+// parseReloadPlayerResponse decodes ReloadPlaybackContext from
+// reload_player_response.proto. The nested reload token is required and bounded.
+func parseReloadPlayerResponse(payload []byte) (reloadPlayerDirective, error) {
+	var (
+		result     reloadPlayerDirective
+		seenParams bool
+	)
+	reader := fieldReader{data: payload}
+	for {
+		num, wireType, ok := reader.next()
+		if !ok {
+			break
+		}
+		switch {
+		case num == fReloadPlaybackContextParams:
+			if wireType != wireBytes {
+				return reloadPlayerDirective{}, fmt.Errorf("%w: wrong wire type %d for reload params", ErrInvalidProtobuf, wireType)
+			}
+			if seenParams {
+				return reloadPlayerDirective{}, fmt.Errorf("%w: duplicate reload params", ErrInvalidProtobuf)
+			}
+			seenParams = true
+			raw := reader.bytes()
+			if reader.err != nil {
+				return reloadPlayerDirective{}, reader.err
+			}
+			token, err := parseReloadPlaybackParams(raw)
+			if err != nil {
+				return reloadPlayerDirective{}, err
+			}
+			result.Token = token
+		default:
+			reader.skip(num, wireType)
+		}
+	}
+	if reader.err != nil {
+		return reloadPlayerDirective{}, reader.err
+	}
+	if !seenParams || result.Token == "" {
+		return reloadPlayerDirective{}, fmt.Errorf("%w: missing reload token", ErrInvalidProtobuf)
+	}
+	return result, nil
+}
+
+func parseReloadPlaybackParams(payload []byte) (string, error) {
+	var (
+		token     string
+		seenToken bool
+	)
+	reader := fieldReader{data: payload}
+	for {
+		num, wireType, ok := reader.next()
+		if !ok {
+			break
+		}
+		switch {
+		case num == fReloadPlaybackParamsToken:
+			if wireType != wireBytes {
+				return "", fmt.Errorf("%w: wrong wire type %d for reload token", ErrInvalidProtobuf, wireType)
+			}
+			if seenToken {
+				return "", fmt.Errorf("%w: duplicate reload token", ErrInvalidProtobuf)
+			}
+			seenToken = true
+			raw := reader.bytes()
+			if reader.err != nil {
+				return "", reader.err
+			}
+			if len(raw) == 0 {
+				return "", fmt.Errorf("%w: empty reload token", ErrInvalidProtobuf)
+			}
+			if len(raw) > MaxReloadTokenBytes {
+				return "", fmt.Errorf("%w: reload token exceeds bound", ErrInvalidProtobuf)
+			}
+			token = string(raw)
+		default:
+			reader.skip(num, wireType)
+		}
+	}
+	if reader.err != nil {
+		return "", reader.err
+	}
+	if !seenToken || token == "" {
+		return "", fmt.Errorf("%w: missing reload token", ErrInvalidProtobuf)
+	}
+	return token, nil
 }
 
 func readRepeatedProtoInt32(reader *fieldReader, wireType int, ops *int) ([]int32, error) {

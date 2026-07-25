@@ -126,6 +126,39 @@ func FuzzSabrContextSendingPolicy(f *testing.F) {
 	})
 }
 
+func FuzzSabrError(f *testing.F) {
+	f.Add(encodeSabrError("sabr.no_audio_selected", 2))
+	f.Add([]byte{0x0A, 0x01, 'x', 0x10, 0x01})
+	f.Fuzz(func(t *testing.T, body []byte) {
+		if len(body) > MaxSabrErrorTypeBytes+64 {
+			return
+		}
+		_, err := parseSabrError(body)
+		if err != nil && !errors.Is(err, ErrInvalidProtobuf) && !errors.Is(err, ErrTruncatedStream) &&
+			!errors.Is(err, ErrNonCanonicalVarint) && !errors.Is(err, ErrVarintOverflow) {
+			t.Fatalf("unexpected err=%v", err)
+		}
+	})
+}
+
+func FuzzReloadPlayerResponse(f *testing.F) {
+	f.Add(encodeReloadPlayerResponse("token"))
+	f.Add([]byte{0x0A, 0x04, 0x0A, 0x02, 'a', 'b'})
+	f.Fuzz(func(t *testing.T, body []byte) {
+		if len(body) > MaxReloadTokenBytes+64 {
+			return
+		}
+		got, err := parseReloadPlayerResponse(body)
+		if err != nil && !errors.Is(err, ErrInvalidProtobuf) && !errors.Is(err, ErrTruncatedStream) &&
+			!errors.Is(err, ErrNonCanonicalVarint) && !errors.Is(err, ErrVarintOverflow) {
+			t.Fatalf("unexpected err=%v", err)
+		}
+		if err == nil && (got.Token == "" || len(got.Token) > MaxReloadTokenBytes) {
+			t.Fatalf("unsafe token length %d", len(got.Token))
+		}
+	})
+}
+
 func FuzzMixedUMPStream(f *testing.F) {
 	f.Add([]byte{0x23, 0x02, 0x20, 0x00})
 	f.Add([]byte{0x3E, 0x00})
