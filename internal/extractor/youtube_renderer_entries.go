@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/ytdlp-go/ytdlp/internal/value"
@@ -24,6 +25,11 @@ func youtubeRendererFillMetadata(root *value.Object, page *youtubeRendererPage) 
 				page.channelID = objectString(object, "externalId")
 			}
 		}
+		if key == "playlistMetadataRenderer" {
+			if page.title == "" {
+				page.title = objectString(object, "title")
+			}
+		}
 	}); err != nil {
 		return err
 	}
@@ -40,6 +46,50 @@ func youtubeRendererFillMetadata(root *value.Object, page *youtubeRendererPage) 
 			if page.channelID == "" {
 				page.channelID = objectString(object, "channelId")
 			}
+		case "playlistHeaderRenderer":
+			if page.title == "" {
+				page.title = rendererText(object.Lookup("title"))
+			}
+			if !page.hasViewCount {
+				if count, ok := youtubeParseCountText(rendererText(object.Lookup("viewCountText"))); ok {
+					page.viewCount, page.hasViewCount = count, true
+				}
+			}
+			if !page.hasCount {
+				if count, ok := youtubePlaylistHeaderCount(object); ok {
+					page.playlistCount, page.hasCount = count, true
+				}
+			}
+		case "hashtagHeaderRenderer":
+			if page.title == "" {
+				page.title = rendererText(object.Lookup("hashtag"))
+			}
+		}
+	}); err != nil {
+		return err
+	}
+	sidebarNodes := 0
+	if err := walkOrderedJSON(root.Lookup("sidebar"), 0, &sidebarNodes, func(key string, object *value.Object) {
+		if key != "playlistSidebarPrimaryInfoRenderer" {
+			return
+		}
+		if !page.hasCount || !page.hasViewCount {
+			stats, ok := object.Lookup("stats").ListValue()
+			if !ok {
+				stats, ok = object.Lookup("briefStats").ListValue()
+			}
+			if ok {
+				if !page.hasCount && len(stats) > 0 {
+					if count, parsed := youtubeParseCountText(rendererTextValue(stats[0])); parsed {
+						page.playlistCount, page.hasCount = count, true
+					}
+				}
+				if !page.hasViewCount && len(stats) > 1 {
+					if count, parsed := youtubeParseCountText(rendererTextValue(stats[1])); parsed {
+						page.viewCount, page.hasViewCount = count, true
+					}
+				}
+			}
 		}
 	}); err != nil {
 		return err
@@ -54,6 +104,154 @@ func youtubeRendererFillMetadata(root *value.Object, page *youtubeRendererPage) 
 	}
 	page.visitorData = objectString(root, "responseContext", "visitorData")
 	return nil
+}
+
+func youtubePlaylistHeaderCount(header *value.Object) (int64, bool) {
+	bylines, ok := header.Lookup("byline").ListValue()
+	if !ok || len(bylines) == 0 {
+		return 0, false
+	}
+	first, ok := bylines[0].Object()
+	if !ok {
+		return 0, false
+	}
+	byline, ok := first.Lookup("playlistBylineRenderer").Object()
+	if !ok {
+		return 0, false
+	}
+	return youtubeParseCountText(rendererText(byline.Lookup("text")))
+}
+
+func rendererTextValue(item value.Value) string {
+	if object, ok := item.Object(); ok {
+		return rendererText(value.ObjectValue(object))
+	}
+	if text, ok := item.StringValue(); ok {
+		return text
+	}
+	return ""
+}
+
+// youtubeRendererAvailability maps attributable badge styles/labels onto
+// yt-dlp availability strings. Unknown badges are omitted.
+func youtubeRendererAvailability(renderer *value.Object) string {
+	badges, ok := renderer.Lookup("badges").ListValue()
+	if !ok {
+		return ""
+	}
+	availability := ""
+	for _, item := range badges {
+		object, ok := item.Object()
+		if !ok {
+			continue
+		}
+		nodes := 0
+		_ = walkOrderedJSON(value.ObjectValue(object), 0, &nodes, func(key string, badge *value.Object) {
+			if !strings.HasSuffix(key, "BadgeRenderer") && key != "metadataBadgeRenderer" {
+				return
+			}
+			label := strings.ToLower(strings.TrimSpace(rendererText(badge.Lookup("label"))))
+			style := objectString(badge, "style")
+			icon := objectString(badge, "icon", "iconType")
+			switch {
+			case icon == "PRIVACY_PUBLIC" || label == "public":
+				if availability == "" {
+					availability = "public"
+				}
+			case icon == "PRIVACY_PRIVATE" || label == "private" || style == "BADGE_STYLE_TYPE_PRIVATE":
+				availability = "private"
+			case icon == "PRIVACY_UNLISTED" || label == "unlisted":
+				if availability != "private" && availability != "premium" && availability != "subscriber_only" {
+					availability = "unlisted"
+				}
+			case style == "BADGE_STYLE_TYPE_PREMIUM" || label == "premium":
+				availability = "premium"
+			case style == "BADGE_STYLE_TYPE_MEMBERS_ONLY" || label == "members only" || label == "members-only":
+				availability = "subscriber_only"
+			}
+		})
+	}
+	return availability
+}
+
+const youtubeMaxCountTextBytes = 64
+
+func youtubeParseCountText(raw string) (int64, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || len(raw) > youtubeMaxCountTextBytes || strings.ContainsRune(raw, 0) {
+		return 0, false
+	}
+	lower := strings.ToLower(raw)
+	if strings.Contains(lower, "no views") || strings.Contains(lower, "no videos") {
+		return 0, true
+	}
+	var letters []rune
+	for _, r := range lower {
+		switch {
+		case r >= '0' && r <= '9':
+			letters = append(letters, r)
+		case r == ',' || r == ' ' || r == '\u00a0':
+			continue
+		case r == '.' || r == 'k' || r == 'm' || r == 'b':
+			letters = append(letters, r)
+		default:
+			if len(letters) > 0 {
+				break
+			}
+		}
+	}
+	if len(letters) == 0 {
+		return 0, false
+	}
+	token := string(letters)
+	multiplier := int64(1)
+	switch {
+	case strings.HasSuffix(token, "k"):
+		multiplier, token = 1_000, strings.TrimSuffix(token, "k")
+	case strings.HasSuffix(token, "m"):
+		multiplier, token = 1_000_000, strings.TrimSuffix(token, "m")
+	case strings.HasSuffix(token, "b"):
+		multiplier, token = 1_000_000_000, strings.TrimSuffix(token, "b")
+	}
+	if strings.Contains(token, ".") {
+		parts := strings.SplitN(token, ".", 2)
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return 0, false
+		}
+		whole, err := strconv.ParseInt(parts[0], 10, 64)
+		if err != nil || whole < 0 {
+			return 0, false
+		}
+		frac := parts[1]
+		if len(frac) > 3 {
+			frac = frac[:3]
+		}
+		for len(frac) < 3 {
+			frac += "0"
+		}
+		fraction, err := strconv.ParseInt(frac, 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		base := whole*1000 + fraction
+		if multiplier == 1 {
+			return whole, true
+		}
+		value := base * (multiplier / 1000)
+		if value < 0 {
+			return 0, false
+		}
+		return value, true
+	}
+	whole, err := strconv.ParseInt(token, 10, 64)
+	if err != nil || whole < 0 {
+		return 0, false
+	}
+	value := whole * multiplier
+	if value < 0 {
+		return 0, false
+	}
+	return value, true
 }
 
 func youtubeRendererVideoEntry(renderer *value.Object) (Entry, bool) {
@@ -78,7 +276,7 @@ func youtubeRendererVideoEntry(renderer *value.Object) (Entry, bool) {
 	}
 	return Entry{
 		URL: "https://www.youtube.com" + path + videoID, ExtractorKey: "youtube",
-		ID: videoID, Title: title,
+		ID: videoID, Title: title, Availability: youtubeRendererAvailability(renderer),
 	}, true
 }
 
@@ -156,17 +354,23 @@ func youtubeRendererLockupEntry(viewModel *value.Object, policy youtubeRendererP
 }
 
 func youtubeHashtagTileEntry(renderer *value.Object) (Entry, bool) {
-	// Hashtag pages are not registered. Still validate the endpoint shape so
-	// hostile tiles are rejected, but never emit an entry that default playlist
-	// expansion would hand to the generic YouTube extractor.
 	raw := objectString(renderer, "onTapCommand", "commandMetadata", "webCommandMetadata", "url")
 	if raw == "" {
 		return Entry{}, false
 	}
-	if _, ok := youtubeSafeHashtagURL(raw); !ok {
+	canonical, ok := youtubeSafeHashtagURL(raw)
+	if !ok {
 		return Entry{}, false
 	}
-	return Entry{}, false
+	title := rendererText(renderer.Lookup("hashtag"))
+	if len(title) > youtubeMaxTabEntryTitleBytes || strings.ContainsRune(title, 0) {
+		title = ""
+	}
+	tag := strings.TrimPrefix(canonical.Path, "/hashtag/")
+	return Entry{
+		URL: canonical.String(), ExtractorKey: "youtube_hashtag",
+		ID: tag, Title: title,
+	}, true
 }
 
 func youtubeSafeHashtagURL(raw string) (*url.URL, bool) {

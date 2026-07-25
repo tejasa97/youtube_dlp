@@ -40,7 +40,7 @@ func TestYouTubeRendererWalksSupportedFamilies(t *testing.T) {
 	if page.title != "Fixture Channel" || page.channelID != "UCabcdefghijklmnopqrstuv" || page.visitorData != "visitor-1" {
 		t.Fatalf("metadata=%#v", page)
 	}
-	if len(page.entries) != 8 {
+	if len(page.entries) != 9 {
 		t.Fatalf("entries=%d %#v", len(page.entries), page.entries)
 	}
 	checks := []struct{ id, key, url string }{
@@ -48,6 +48,7 @@ func TestYouTubeRendererWalksSupportedFamilies(t *testing.T) {
 		{"bbbbbbbbbbb", "youtube", "https://www.youtube.com/shorts/bbbbbbbbbbb"},
 		{"PLfixture0001", "youtube", "https://www.youtube.com/playlist?list=PLfixture0001"},
 		{"UCabcdefghijklmnopqrstuv", "youtube_channel_tab", "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv"},
+		{"cats", "youtube_hashtag", "https://www.youtube.com/hashtag/cats"},
 		{"", "", "https://www.youtube.com/feed/trending"},
 		{"ccccccccccc", "youtube", "https://www.youtube.com/watch?v=ccccccccccc"},
 		{"PLpodcast0001", "youtube", "https://www.youtube.com/playlist?list=PLpodcast0001"},
@@ -753,10 +754,10 @@ func TestYouTubeEmitsConsumableMusicBrowseAndOmitsUnregistered(t *testing.T) {
 		t.Fatal(err)
 	}
 	searchPage, err := parseYouTubeRendererData(hashtagPayload, youtubeRendererPolicy{kinds: youtubeRendererSearchAll})
-	if err != nil || len(searchPage.entries) != 1 || searchPage.entries[0].ID != "aaaaaaaaaaa" {
+	if err != nil || len(searchPage.entries) != 2 || searchPage.entries[0].ExtractorKey != "youtube_hashtag" || searchPage.entries[1].ID != "aaaaaaaaaaa" {
 		t.Fatalf("search page=%#v err=%v", searchPage, err)
 	}
-	registry := NewRegistry(NewYouTubeMusicSearch(), NewYouTubeMusicBrowse(), NewYouTubeSearch(), NewYouTubeChannelTab(), NewYouTube())
+	registry := NewRegistry(NewYouTubeMusicSearch(), NewYouTubeMusicBrowse(), NewYouTubeSearch(), NewYouTubeHashtag(), NewYouTubeChannelTab(), NewYouTube())
 	for _, entry := range append(append([]Entry(nil), page.entries...), searchPage.entries...) {
 		selected, err := registry.SelectFor(entry.URL, entry.ExtractorKey)
 		if err != nil {
@@ -764,6 +765,9 @@ func TestYouTubeEmitsConsumableMusicBrowseAndOmitsUnregistered(t *testing.T) {
 		}
 		if selected.Name() == "youtube" && (strings.Contains(entry.URL, "/hashtag/") || strings.Contains(entry.URL, "music.youtube.com/browse/")) {
 			t.Fatalf("generic youtube selected for %#v", entry)
+		}
+		if strings.Contains(entry.URL, "/hashtag/") && selected.Name() != "youtube_hashtag" {
+			t.Fatalf("hashtag selected %s for %#v", selected.Name(), entry)
 		}
 		if strings.Contains(entry.URL, "music.youtube.com/browse/") && selected.Name() != "youtube_music_browse" {
 			t.Fatalf("music browse selected %s for %#v", selected.Name(), entry)
