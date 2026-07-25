@@ -393,48 +393,6 @@ func objectSelection(object *value.Object) Selection {
 	return selection
 }
 
-// LegacyParseSelector parses slash/plus-only selectors for transitional callers.
-func LegacyParseSelector(input string) (Selector, error) {
-	if len(input) > maxSelectorBytes {
-		return Selector{}, selectorSyntax(0, len(input), "selector exceeds size limit")
-	}
-	root := trimSelectorSegment(selectorSegment{text: input, start: 0, end: len(input)})
-	if root.text == "" {
-		return Selector{}, selectorSyntax(root.start, root.end, "selector is empty")
-	}
-	alternatives, err := splitTopLevel(root, '/')
-	if err != nil {
-		return Selector{}, err
-	}
-	if len(alternatives) > maxAlternatives {
-		return Selector{}, selectorSyntax(root.start, root.end, "too many fallback alternatives")
-	}
-	selector := Selector{}
-	for _, alternative := range alternatives {
-		parts, err := splitTopLevel(alternative, '+')
-		if err != nil {
-			return Selector{}, err
-		}
-		if len(parts) > maxMergeTerms {
-			return Selector{}, selectorSyntax(alternative.start, alternative.end, "too many merge terms")
-		}
-		choice := Choice{}
-		for _, part := range parts {
-			term, err := parseTerm(trimSelectorSegment(part))
-			if err != nil {
-				return Selector{}, err
-			}
-			choice.Terms = append(choice.Terms, term)
-		}
-		selector.Alternatives = append(selector.Alternatives, choice)
-	}
-	return selector, nil
-}
-
-// IsLegacyOnly reports whether the selector uses only slash/plus syntax without
-// comma, grouping, or advanced atoms beyond the legacy corpus.
-func (selector Selector) IsLegacyOnly() bool { return selector.root == nil }
-
 func preferenceRank(object *value.Object, options Options) int {
 	rank := extensionRank(object, options.PreferExtensions) * 2
 	if options.PreferFreeFormats {

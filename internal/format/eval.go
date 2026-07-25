@@ -2,6 +2,7 @@ package format
 
 import (
 	"errors"
+	"fmt"
 	"sort"
 
 	"github.com/ytdlp-go/ytdlp/internal/value"
@@ -11,6 +12,8 @@ var (
 	// ErrMultiOutput indicates the selector yields multiple independent outputs
 	// that the legacy flat []Selection API cannot represent.
 	ErrMultiOutput = errors.New("selector yields multiple independent outputs")
+	// ErrSelectorLimit indicates a bounded selector limit was exceeded during evaluation.
+	ErrSelectorLimit = errors.New("format selector exceeds limit")
 )
 
 type evalContext struct {
@@ -64,6 +67,9 @@ func PlanSelectWithOptions(info value.Info, selector Selector, options Options) 
 	}
 	plans := make([]OutputPlan, 0, len(trackGroups))
 	for _, tracks := range trackGroups {
+		if len(tracks) > maxMergeTerms {
+			return nil, selectorLimit(0, 0, "too many merge tracks in one output")
+		}
 		selections := make([]Selection, 0, len(tracks))
 		for _, object := range tracks {
 			selections = append(selections, objectSelection(object))
@@ -72,6 +78,9 @@ func PlanSelectWithOptions(info value.Info, selector Selector, options Options) 
 			return nil, err
 		}
 		plans = append(plans, OutputPlan{Tracks: selections})
+	}
+	if len(plans) > maxCommaOutputs {
+		return nil, selectorLimit(0, 0, "too many independent outputs")
 	}
 	return plans, nil
 }
@@ -89,8 +98,8 @@ func evaluateNode(ctx *evalContext, node *astNode) ([][]*value.Object, error) {
 				return nil, err
 			}
 			combined = append(combined, branch...)
-			if len(combined) > maxCommaOutputs {
-				return nil, selectorSyntax(node.span.start, node.span.end, "too many comma-separated outputs")
+			if err := enforceOutputCount(len(combined), node.span); err != nil {
+				return nil, err
 			}
 		}
 		return combined, nil
@@ -161,7 +170,10 @@ func mergeTrackGroups(ctx *evalContext, left, right [][]*value.Object) ([][]*val
 			merged = append(merged, combined)
 			ctx.mergeCandidates++
 			if ctx.mergeCandidates > maxCartesianCandidates {
-				return nil, selectorSyntax(0, 0, "merge cartesian product exceeds limit")
+				return nil, selectorLimit(0, 0, "merge cartesian product exceeds limit")
+			}
+			if err := enforceMergeTrackCount(len(combined), span{}); err != nil {
+				return nil, err
 			}
 		}
 	}
@@ -224,7 +236,7 @@ func evaluateAtom(ctx *evalContext, node *astNode) ([][]*value.Object, error) {
 	}
 	switch spec.kind {
 	case atomAll:
-		return atomAllMatches(ctx.formats, node.filters), nil
+		return atomAllMatches(ctx.formats, node.filters, node.span)
 	case atomMergeAll:
 		var tracks []*value.Object
 		for index := len(ctx.formats) - 1; index >= 0; index-- {
@@ -232,6 +244,9 @@ func evaluateAtom(ctx *evalContext, node *astNode) ([][]*value.Object, error) {
 			if matchesFilters(object, node.filters) &&
 				(codecNotNone(object, "vcodec") || codecNotNone(object, "acodec")) {
 				tracks = append(tracks, object)
+				if len(tracks) > maxMergeTerms {
+					return nil, selectorLimit(node.span.start, node.span.end, "too many mergeall tracks")
+				}
 			}
 		}
 		if len(tracks) == 0 {
@@ -263,14 +278,38 @@ func evaluateAtom(ctx *evalContext, node *astNode) ([][]*value.Object, error) {
 	}
 }
 
-func atomAllMatches(formats []*value.Object, filters []Filter) [][]*value.Object {
+func atomAllMatches(formats []*value.Object, filters []Filter, span span) ([][]*value.Object, error) {
 	var outputs [][]*value.Object
 	for _, candidate := range formats {
 		if matchesFilters(candidate, filters) {
 			outputs = append(outputs, []*value.Object{candidate})
+			if len(outputs) > maxCommaOutputs {
+				return nil, selectorLimit(span.start, span.end, "too many all outputs")
+			}
 		}
 	}
-	return outputs
+	return outputs, nil
+}
+
+func enforceOutputCount(count int, span span) error {
+	if count > maxCommaOutputs {
+		return selectorLimit(span.start, span.end, "too many independent outputs")
+	}
+	return nil
+}
+
+func enforceMergeTrackCount(count int, span span) error {
+	if count > maxMergeTerms {
+		return selectorLimit(span.start, span.end, "too many merge tracks in one output")
+	}
+	return nil
+}
+
+func selectorLimit(start, end int, message string) error {
+	if end < start {
+		end = start
+	}
+	return fmt.Errorf("%w: %s", ErrSelectorLimit, (&SyntaxError{Start: start, End: end, Message: message}).Error())
 }
 
 func extensionMatches(ctx *evalContext, ext string, filters []Filter) []*value.Object {

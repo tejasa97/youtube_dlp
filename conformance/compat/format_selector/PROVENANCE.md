@@ -27,3 +27,8 @@
    video+audio pair.
 4. Atom indexes are capped at `1000` with bounded digit width and precise syntax
    spans for malformed `.N` / `*` tails.
+5. Evaluator limits (`all`, `mergeall`, final plan count, merge track count) are
+   enforced during evaluation with `ErrSelectorLimit`.
+6. Multi-output destinations use stable one-based ordinals plus sanitized IDs.
+   SponsorBlock remove and subtitle embedding fail closed before download when
+   multiple independent outputs are selected.

@@ -3,6 +3,7 @@ package ytdlp
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/ytdlp-go/ytdlp/internal/compat/matchfilter"
 	compatmetadata "github.com/ytdlp-go/ytdlp/internal/compat/metadata"
@@ -109,6 +110,37 @@ func (operation *operation) planFormats(info value.Info) ([]mediaformat.OutputPl
 		return []mediaformat.OutputPlan{{Tracks: selected}}, nil
 	}
 	return mediaformat.PlanSelectWithOptions(info, *operation.compatibility.selector, operation.compatibility.formatOptions)
+}
+
+// validateMultiOutputProduct rejects multi-plan downloads when requested
+// product stages cannot be applied safely to every output. After-download print
+// stages intentionally render only the first plan's selections and primary path.
+func validateMultiOutputProduct(request Request, planCount int) error {
+	if planCount <= 1 {
+		return nil
+	}
+	if request.SponsorBlock.Enabled && request.SponsorBlock.Remove {
+		return fmt.Errorf("%w: SponsorBlock remove with multi-output selectors", mediaformat.ErrMultiOutput)
+	}
+	if request.Subtitles.Embed {
+		return fmt.Errorf("%w: subtitle embedding with multi-output selectors", mediaformat.ErrMultiOutput)
+	}
+	return nil
+}
+
+func mediaArtifactBytes(artifacts []Artifact) (int64, error) {
+	var total int64
+	for _, artifact := range artifacts {
+		if artifact.Kind != "media" {
+			continue
+		}
+		info, err := os.Stat(artifact.Path)
+		if err != nil {
+			return 0, err
+		}
+		total += info.Size()
+	}
+	return total, nil
 }
 
 func (operation *operation) eventSink() events.Sink {

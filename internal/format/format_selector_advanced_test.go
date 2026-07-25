@@ -2,6 +2,7 @@ package format
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -109,6 +110,57 @@ func TestAdvancedSelectorAdversarialBounds(t *testing.T) {
 	if _, err := ParseSelector(merge + "+best"); !errors.Is(err, ErrInvalidSelector) {
 		t.Fatalf("merge overflow = %v", err)
 	}
+	separate := merge + "," + merge
+	if _, err := ParseSelector(separate); err != nil {
+		t.Fatalf("separate merge budgets = %v", err)
+	}
+}
+
+func TestAdvancedSelectorEvaluatorOutputBounds(t *testing.T) {
+	within := boundedFormatsInfo(maxCommaOutputs)
+	selector, err := ParseSelector("all")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plans, err := PlanSelect(within, selector)
+	if err != nil || len(plans) != maxCommaOutputs {
+		t.Fatalf("all within limit = %#v, %v", plans, err)
+	}
+	over := boundedFormatsInfo(maxCommaOutputs + 1)
+	if _, err := PlanSelect(over, selector); !errors.Is(err, ErrSelectorLimit) {
+		t.Fatalf("all over limit = %v", err)
+	}
+}
+
+func TestAdvancedSelectorMergeAllTrackBounds(t *testing.T) {
+	within := boundedFormatsInfo(maxMergeTerms)
+	selector, err := ParseSelector("mergeall")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plans, err := PlanSelect(within, selector)
+	if err != nil || len(plans) != 1 || len(plans[0].Tracks) != maxMergeTerms {
+		t.Fatalf("mergeall within limit = %#v, %v", plans, err)
+	}
+	over := boundedFormatsInfo(maxMergeTerms + 1)
+	if _, err := PlanSelect(over, selector); !errors.Is(err, ErrSelectorLimit) {
+		t.Fatalf("mergeall over limit = %v", err)
+	}
+}
+
+func boundedFormatsInfo(count int) value.Info {
+	formats := make([]value.Value, 0, count)
+	for index := 0; index < count; index++ {
+		id := fmt.Sprintf("f%03d", index)
+		formats = append(formats, value.ObjectValue(value.NewObject(
+			value.Field{Key: "format_id", Value: value.String(id)},
+			value.Field{Key: "url", Value: value.String("https://example.invalid/" + id)},
+			value.Field{Key: "ext", Value: value.String("mp4")},
+			value.Field{Key: "vcodec", Value: value.String("avc1")},
+			value.Field{Key: "acodec", Value: value.String("aac")},
+		)))
+	}
+	return value.NewInfo(value.NewObject(value.Field{Key: "formats", Value: value.List(formats...)}))
 }
 
 func TestAdvancedSelectorDeterminismConcurrent(t *testing.T) {
@@ -170,6 +222,20 @@ func FuzzEvaluateSelector(f *testing.F) {
 		if err != nil {
 			return
 		}
-		_, _ = PlanSelect(advancedSelectorInfo(), selector)
+		plans, err := PlanSelect(advancedSelectorInfo(), selector)
+		if err != nil {
+			if errors.Is(err, ErrSelectorLimit) || errors.Is(err, ErrNoMatch) || errors.Is(err, ErrNoFormats) {
+				return
+			}
+			t.Fatalf("PlanSelect(%q) = %v", input, err)
+		}
+		if len(plans) > maxCommaOutputs {
+			t.Fatalf("plans = %d", len(plans))
+		}
+		for _, plan := range plans {
+			if len(plan.Tracks) > maxMergeTerms {
+				t.Fatalf("tracks = %d", len(plan.Tracks))
+			}
+		}
 	})
 }

@@ -139,12 +139,12 @@ func TestFormatSelectorCommaNeverMergesInDownload(t *testing.T) {
 	base := filepath.Join(operation.request.OutputDir, "comma.mp4")
 	var artifacts []Artifact
 	for index, plan := range plans {
-		path, _, downloadErr := operation.downloadSelections(context.Background(), plan.Tracks, operation.request.OutputDir, outputPlanDestination(base, plan, true), nil)
+		path, _, downloadErr := operation.downloadSelections(context.Background(), plan.Tracks, operation.request.OutputDir, outputPlanDestination(base, index, plan, true), nil)
 		if downloadErr != nil {
 			t.Fatal(downloadErr)
 		}
 		artifacts = append(artifacts, Artifact{Path: path, Kind: "media"})
-		if index == 0 && !strings.Contains(path, ".fvideo") {
+		if index == 0 && !strings.Contains(path, ".f1_video") {
 			t.Fatalf("path = %q", path)
 		}
 	}
@@ -240,6 +240,10 @@ func TestFormatSelectorProductRollbackOnFailure(t *testing.T) {
 	defer server.Close()
 
 	root := t.TempDir()
+	preexisting := filepath.Join(root, "rollback_existing.mp4")
+	if err := os.WriteFile(preexisting, []byte("keep-me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	destination := filepath.Join(root, "rollback.mp4")
 	transport, err := network.New(network.Config{})
 	if err != nil {
@@ -253,20 +257,206 @@ func TestFormatSelectorProductRollbackOnFailure(t *testing.T) {
 		{Tracks: []mediaformat.Selection{{ID: "ok", URL: server.URL + "/ok", Ext: "mp4", VCodec: "avc1", ACodec: "aac"}}},
 		{Tracks: []mediaformat.Selection{{ID: "bad", URL: "://missing-scheme", Ext: "mp4", VCodec: "avc1", ACodec: "aac"}}},
 	}
-	var published []string
+	tracker := newPublishedMediaTracker(root, outputPlanDestination(destination, 0, plans[0], true))
 	for index, plan := range plans {
-		path, _, err := operation.downloadSelections(context.Background(), plan.Tracks, root, outputPlanDestination(destination, plan, true), nil)
-		if err != nil {
-			removePublishedPaths(published)
+		path, _, downloadErr := operation.downloadSelections(context.Background(), plan.Tracks, root, outputPlanDestination(destination, index, plan, true), nil)
+		if downloadErr != nil {
+			tracker.removeCreated()
 			if index == 0 {
-				t.Fatalf("first download should succeed: %v", err)
+				t.Fatalf("first download should succeed: %v", downloadErr)
 			}
-			if _, statErr := os.Stat(filepath.Join(root, "rollback.fok.mp4")); statErr == nil {
+			if _, statErr := os.Stat(filepath.Join(root, "rollback.f1_ok.mp4")); statErr == nil {
 				t.Fatal("partial first output was not rolled back")
+			}
+			if body, readErr := os.ReadFile(preexisting); readErr != nil || string(body) != "keep-me" {
+				t.Fatalf("preexisting file changed: %q %v", body, readErr)
 			}
 			return
 		}
-		published = append(published, path)
+		tracker.add(path)
 	}
 	t.Fatal("expected second download to fail")
+}
+
+func TestFormatSelectorProductRollbackOnPostprocessFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = writer.Write([]byte("ok-bytes"))
+	}))
+	defer server.Close()
+
+	root := t.TempDir()
+	preexisting := filepath.Join(root, "rollback_existing.mp4")
+	if err := os.WriteFile(preexisting, []byte("keep-me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(root, "rollback.mp4")
+	transport, err := network.New(network.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := &operation{
+		transport: transport,
+		request:   Request{OutputDir: root, Overwrite: true},
+	}
+	plans := []mediaformat.OutputPlan{
+		{Tracks: []mediaformat.Selection{{ID: "ok", URL: server.URL + "/ok", Ext: "mp4", VCodec: "avc1", ACodec: "aac"}}},
+		{Tracks: []mediaformat.Selection{{ID: "bad", URL: server.URL + "/bad", Ext: "mp4", VCodec: "avc1", ACodec: "aac"}}},
+	}
+	planDestinations := make([]string, len(plans))
+	for index, plan := range plans {
+		planDestinations[index] = outputPlanDestination(destination, index, plan, true)
+	}
+	tracker := newPublishedMediaTracker(root, planDestinations...)
+	for planIndex, plan := range plans {
+		planDestination := planDestinations[planIndex]
+		path, _, downloadErr := operation.downloadSelections(context.Background(), plan.Tracks, root, planDestination, nil)
+		if downloadErr != nil {
+			t.Fatalf("plan %d download: %v", planIndex, downloadErr)
+		}
+		tracker.add(path)
+		if planIndex == 1 {
+			operation.request.Postprocessors = []Postprocessor{
+				{Move: &MovePostprocessor{Destination: filepath.Join(root, "..", "escaped.mp4")}},
+			}
+		}
+		_, mediaArtifacts, postErr := operation.applyPostprocessors(context.Background(), root, path, nil)
+		if postErr != nil {
+			tracker.removeCreated()
+			if planIndex != 1 {
+				t.Fatalf("unexpected postprocess failure on plan %d: %v", planIndex, postErr)
+			}
+			if _, statErr := os.Stat(planDestinations[0]); statErr == nil {
+				t.Fatal("first output was not rolled back")
+			}
+			if _, statErr := os.Stat(planDestinations[1]); statErr == nil {
+				t.Fatal("second partial output was not rolled back")
+			}
+			if body, readErr := os.ReadFile(preexisting); readErr != nil || string(body) != "keep-me" {
+				t.Fatalf("preexisting file changed: %q %v", body, readErr)
+			}
+			return
+		}
+		for _, artifact := range mediaArtifacts {
+			tracker.add(artifact.Path)
+		}
+	}
+	t.Fatal("expected second plan postprocessing to fail")
+}
+
+func TestOutputPlanDestinationUniqueWithDuplicateIDs(t *testing.T) {
+	plan := mediaformat.OutputPlan{Tracks: []mediaformat.Selection{{ID: "same"}, {ID: "same"}}}
+	first := outputPlanDestination("/tmp/out/video.mp4", 0, plan, true)
+	second := outputPlanDestination("/tmp/out/video.mp4", 1, plan, true)
+	if first == second {
+		t.Fatalf("paths collide: %q", first)
+	}
+	if filepath.Base(first) == filepath.Base(second) {
+		t.Fatalf("basename collision: %q %q", first, second)
+	}
+}
+
+func TestOutputPlanDestinationWindowsSafe(t *testing.T) {
+	plan := mediaformat.OutputPlan{Tracks: []mediaformat.Selection{{ID: `weird:id|name`}}}
+	path := outputPlanDestination(`C:\downloads\clip.mp4`, 2, plan, true)
+	base := filepath.Base(strings.ReplaceAll(path, `\`, `/`))
+	if strings.ContainsAny(base, `<>:"|?*`) {
+		t.Fatalf("unsafe windows basename: %q", base)
+	}
+	if !strings.Contains(base, ".f3_") {
+		t.Fatalf("ordinal missing: %q", base)
+	}
+}
+
+func TestMultiOutputMediaByteAccounting(t *testing.T) {
+	serverA := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = writer.Write([]byte("aaaa"))
+	}))
+	defer serverA.Close()
+	serverB := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = writer.Write([]byte("bbbbbbbb"))
+	}))
+	defer serverB.Close()
+
+	root := t.TempDir()
+	transport, err := network.New(network.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := &operation{
+		transport: transport,
+		request:   Request{OutputDir: root, Overwrite: true},
+	}
+	plans := []mediaformat.OutputPlan{
+		{Tracks: []mediaformat.Selection{{ID: "a", URL: serverA.URL, Ext: "mp4", VCodec: "avc1", ACodec: "aac"}}},
+		{Tracks: []mediaformat.Selection{{ID: "b", URL: serverB.URL, Ext: "mp4", VCodec: "avc1", ACodec: "aac"}}},
+	}
+	base := filepath.Join(root, "sizes.mp4")
+	var artifacts []Artifact
+	for index, plan := range plans {
+		path, _, err := operation.downloadSelections(context.Background(), plan.Tracks, root, outputPlanDestination(base, index, plan, true), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		path, mediaArtifacts, err := operation.applyPostprocessors(context.Background(), root, path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		artifacts = append(artifacts, mediaArtifacts...)
+	}
+	bytes, err := mediaArtifactBytes(artifacts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes != 12 {
+		t.Fatalf("media bytes = %d, want 12", bytes)
+	}
+}
+
+func TestMultiOutputProductRejectsSponsorBlockRemove(t *testing.T) {
+	operation := &operation{
+		request: Request{
+			Format: "bestvideo,bestaudio",
+			SponsorBlock: SponsorBlockOptions{
+				Enabled: true, Remove: true, Categories: []string{"sponsor"},
+			},
+		},
+	}
+	if err := validateMultiOutputProduct(operation.request, 2); !errors.Is(err, mediaformat.ErrMultiOutput) {
+		t.Fatalf("validate = %v", err)
+	}
+}
+
+func TestMultiOutputProductRejectsSubtitleEmbed(t *testing.T) {
+	operation := &operation{
+		request: Request{
+			Format:    "bestvideo,bestaudio",
+			Subtitles: SubtitleOptions{Embed: true},
+		},
+	}
+	if err := validateMultiOutputProduct(operation.request, 2); !errors.Is(err, mediaformat.ErrMultiOutput) {
+		t.Fatalf("validate = %v", err)
+	}
+}
+
+func TestPublishedMediaTrackerPreservesPreexisting(t *testing.T) {
+	root := t.TempDir()
+	existing := filepath.Join(root, "keep.mp4")
+	if err := os.WriteFile(existing, []byte("stay"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tracker := newPublishedMediaTracker(root)
+	tracker.add(existing)
+	tracker.removeCreated()
+	if body, readErr := os.ReadFile(existing); readErr != nil || string(body) != "stay" {
+		t.Fatalf("preexisting removed: %q %v", body, readErr)
+	}
+	created := filepath.Join(root, "new.mp4")
+	if err := os.WriteFile(created, []byte("gone"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tracker.add(created)
+	tracker.removeCreated()
+	if _, err := os.Stat(created); err == nil {
+		t.Fatal("created file still present")
+	}
 }

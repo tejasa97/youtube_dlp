@@ -14,11 +14,10 @@ const (
 )
 
 type selectorParser struct {
-	input      string
-	pos        int
-	nodeCount  int
-	depth      int
-	mergeTerms int
+	input     string
+	pos       int
+	nodeCount int
+	depth     int
 }
 
 func parseSelectorAST(input string) (*astNode, error) {
@@ -98,10 +97,6 @@ func (parser *selectorParser) parseSelection(insideMerge, insideChoice, insideGr
 			if current == nil {
 				return nil, selectorSyntax(parser.pos, parser.pos+1, `unexpected "+"`)
 			}
-			parser.mergeTerms++
-			if parser.mergeTerms >= maxMergeTerms {
-				return nil, selectorSyntax(parser.pos, parser.pos+1, "too many merge terms")
-			}
 			parser.pos++
 			right, err := parser.parseSelection(true, false, false)
 			if err != nil {
@@ -113,6 +108,9 @@ func (parser *selectorParser) parseSelection(insideMerge, insideChoice, insideGr
 			merged, err := parser.mergeNodes(astMerge, *current, *right)
 			if err != nil {
 				return nil, err
+			}
+			if countMergeOperands(*merged) > maxMergeTerms {
+				return nil, selectorSyntax(parser.pos, parser.pos, "too many merge terms")
 			}
 			current = merged
 		case '(':
@@ -318,4 +316,11 @@ func (parser *selectorParser) skipSpace() {
 	for parser.pos < len(parser.input) && unicode.IsSpace(rune(parser.input[parser.pos])) {
 		parser.pos++
 	}
+}
+
+func countMergeOperands(node astNode) int {
+	if node.kind != astMerge || len(node.children) != 2 {
+		return 1
+	}
+	return countMergeOperands(node.children[0]) + countMergeOperands(node.children[1])
 }

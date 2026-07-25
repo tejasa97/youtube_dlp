@@ -25,13 +25,67 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/youtubepot"
 )
 
-func outputPlanDestination(base string, plan mediaformat.OutputPlan, multi bool) string {
+func outputPlanDestination(base string, planIndex int, plan mediaformat.OutputPlan, multi bool) string {
 	if !multi {
 		return base
 	}
 	extension := filepath.Ext(base)
-	stem := strings.TrimSuffix(base, extension)
-	return stem + ".f" + plan.PlanID() + extension
+	stem := strings.TrimSuffix(filepath.Base(base), extension)
+	suffix := plan.DestinationSuffix(planIndex + 1)
+	return filepath.Join(filepath.Dir(base), stem+".f"+suffix+extension)
+}
+
+type publishedMediaTracker struct {
+	preexisting map[string]struct{}
+	created     []string
+}
+
+func newPublishedMediaTracker(outputRoot string, destinations ...string) publishedMediaTracker {
+	tracker := publishedMediaTracker{preexisting: make(map[string]struct{})}
+	for _, destination := range destinations {
+		destination = filepath.Clean(destination)
+		if destination == "" {
+			continue
+		}
+		if _, err := os.Stat(destination); err == nil {
+			tracker.preexisting[destination] = struct{}{}
+		}
+	}
+	if outputRoot != "" {
+		entries, err := os.ReadDir(outputRoot)
+		if err == nil {
+			for _, entry := range entries {
+				if entry.IsDir() {
+					continue
+				}
+				tracker.preexisting[filepath.Join(outputRoot, entry.Name())] = struct{}{}
+			}
+		}
+	}
+	return tracker
+}
+
+func (tracker *publishedMediaTracker) add(path string) {
+	path = filepath.Clean(path)
+	if path == "" {
+		return
+	}
+	if _, exists := tracker.preexisting[path]; exists {
+		return
+	}
+	for _, existing := range tracker.created {
+		if existing == path {
+			return
+		}
+	}
+	tracker.created = append(tracker.created, path)
+}
+
+func (tracker *publishedMediaTracker) removeCreated() {
+	for _, path := range tracker.created {
+		_ = os.Remove(path)
+	}
+	tracker.created = nil
 }
 
 func removePublishedPaths(paths []string) {

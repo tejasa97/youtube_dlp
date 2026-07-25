@@ -851,6 +851,9 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		if len(outputPlans) > 0 {
 			selectedFormats = outputPlans[0].Tracks
 		}
+		if err := validateMultiOutputProduct(operation.request, len(outputPlans)); err != nil {
+			return Result{}, categorized("select format", err)
+		}
 	}
 	var destination string
 	if len(selectedFormats) > 0 || operation.hasPrintStageAtOrAfter(PrintVideo) {
@@ -941,62 +944,77 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	sink := operation.eventSink()
 	multiOutput := len(outputPlans) > 1
 	var downloadedPath string
-	var downloadedBytes int64
-	var publishedPaths []string
+	mediaArtifactStart := len(result.Artifacts)
+	planDestinations := make([]string, len(outputPlans))
+	for index, plan := range outputPlans {
+		planDestinations[index] = outputPlanDestination(destination, index, plan, multiOutput)
+	}
+	tracker := newPublishedMediaTracker(outputDir, planDestinations...)
 	for planIndex, plan := range outputPlans {
-		planDestination := outputPlanDestination(destination, plan, multiOutput)
-		path, bytes, downloadErr := operation.downloadSelections(ctx, plan.Tracks, outputDir, planDestination, sink)
+		planDestination := planDestinations[planIndex]
+		path, _, downloadErr := operation.downloadSelections(ctx, plan.Tracks, outputDir, planDestination, sink)
 		if downloadErr != nil {
-			removePublishedPaths(publishedPaths)
+			tracker.removeCreated()
 			return Result{}, categorized("download selected formats", downloadErr)
 		}
+		tracker.add(path)
 		var mediaArtifacts []Artifact
 		path, mediaArtifacts, downloadErr = operation.applyPostprocessors(ctx, outputDir, path, sink)
 		if downloadErr != nil {
-			removePublishedPaths(publishedPaths)
+			tracker.removeCreated()
 			return Result{}, categorized("run postprocessors", downloadErr)
 		}
-		publishedPaths = append(publishedPaths, path)
+		for _, artifact := range mediaArtifacts {
+			tracker.add(artifact.Path)
+		}
 		result.Artifacts = append(result.Artifacts, mediaArtifacts...)
 		if planIndex == 0 {
 			downloadedPath = path
-			downloadedBytes = bytes
-		} else {
-			downloadedBytes += bytes
 		}
 	}
 	var cutApplied bool
-	downloadedPath, result.Artifacts, cutApplied, err = operation.applySponsorBlockRemove(ctx, &info, downloadedPath, result.Artifacts, sink)
-	if err != nil {
-		return Result{}, err
-	}
-	result.InfoJSON, err = encodeInfo(info)
-	if err != nil {
-		return Result{}, err
+	if !multiOutput {
+		downloadedPath, result.Artifacts, cutApplied, err = operation.applySponsorBlockRemove(ctx, &info, downloadedPath, result.Artifacts, sink)
+		if err != nil {
+			tracker.removeCreated()
+			return Result{}, err
+		}
+		result.InfoJSON, err = encodeInfo(info)
+		if err != nil {
+			tracker.removeCreated()
+			return Result{}, err
+		}
 	}
 	var embeddedSubtitles bool
-	result.Artifacts, embeddedSubtitles, err = operation.embedSelectedSubtitles(
-		ctx, &info, downloadedPath, selectedSubtitles, result.Artifacts, sink,
-	)
-	if err != nil {
-		return Result{}, categorized("embed subtitles", err)
-	}
-	if info, statErr := os.Stat(downloadedPath); statErr == nil {
-		downloadedBytes = info.Size()
+	if !multiOutput {
+		result.Artifacts, embeddedSubtitles, err = operation.embedSelectedSubtitles(
+			ctx, &info, downloadedPath, selectedSubtitles, result.Artifacts, sink,
+		)
+		if err != nil {
+			tracker.removeCreated()
+			return Result{}, categorized("embed subtitles", err)
+		}
 	}
 	result.Downloaded = true
 	result.Filename = downloadedPath
 	if cutApplied || embeddedSubtitles {
 		result.Bytes, err = artifactBytes(result.Artifacts)
 		if err != nil {
+			tracker.removeCreated()
 			return Result{}, categorized("account post-cut artifacts", err)
 		}
 		result.InfoJSON, err = encodeInfo(info)
 		if err != nil {
+			tracker.removeCreated()
 			return Result{}, err
 		}
 	} else {
-		result.Bytes += downloadedBytes
+		mediaBytes, err := mediaArtifactBytes(result.Artifacts[mediaArtifactStart:])
+		if err != nil {
+			tracker.removeCreated()
+			return Result{}, categorized("account media artifacts", err)
+		}
+		result.Bytes += mediaBytes
 	}
 	for _, stage := range []PrintStage{PrintPostProcess, PrintAfterMove, PrintAfterVideo} {
 		prints, err = operation.capturePrints(ctx, stage, info, selectedFormats, downloadedPath)
@@ -1092,6 +1110,7 @@ func categorized(op string, err error) error {
 		errors.Is(err, progress.ErrInvalidProgress), errors.Is(err, mediaformat.ErrInvalidSelector),
 		errors.Is(err, mediaformat.ErrNoMatch),
 		errors.Is(err, mediaformat.ErrInvalidPreference), errors.Is(err, mediaformat.ErrInvalidHeaders),
+		errors.Is(err, mediaformat.ErrSelectorLimit),
 		errors.Is(err, downloader.ErrDestinationExists), errors.Is(err, downloader.ErrUnsafeDestination),
 		errors.Is(err, downloader.ErrTooManyAttempts), errors.Is(err, downloader.ErrInvalidLimits),
 		errors.Is(err, downloader.ErrUnsafeExternalArg), errors.Is(err, downloader.ErrUnsafeExternalTool),

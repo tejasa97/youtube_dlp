@@ -43,7 +43,11 @@ Intentional unsupported syntax is explicit rather than silently approximated:
 - Metadata actions do not execute postprocessor code; they accept only bounded
   regular-expression interpretation and replacement.
 - A selector result containing more than one video and one audio stream is
-  rejected explicitly when tracks cannot be merged; comma/`all` multi-output
-  downloads use deterministic `.f<ID>` destination suffixes and populate
-  `Result.Artifacts` while keeping `Result.Filename` on the first output.
-  `mergeall` and >2-track merges remain explicit unsupported at download time.
+  rejected explicitly when tracks cannot be merged. Comma/`all` multi-output
+  downloads use deterministic `.f<N>_<ID>` destination suffixes (stable
+  one-based ordinals plus sanitized IDs), populate `Result.Artifacts`, and keep
+  `Result.Filename` on the first output. SponsorBlock remove and subtitle
+  embedding fail closed before download when multiple independent outputs are
+  selected. After-download print stages render only the first plan's
+  selections and primary path. `mergeall` and >2-track merges remain explicit
+  unsupported at download time.

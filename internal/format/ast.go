@@ -1,6 +1,9 @@
 package format
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // astKind identifies selector AST node operators.
 type astKind uint8
@@ -53,7 +56,7 @@ type OutputPlan struct {
 	Tracks []Selection
 }
 
-// PlanID returns a bounded collision-resistant label for multi-output paths.
+// PlanID returns a bounded label derived from the selected track IDs.
 func (plan OutputPlan) PlanID() string {
 	if len(plan.Tracks) == 0 {
 		return "0"
@@ -66,6 +69,15 @@ func (plan OutputPlan) PlanID() string {
 		parts[index] = sanitizePlanID(track.ID)
 	}
 	return sanitizePlanID(strings.Join(parts, "+"))
+}
+
+// DestinationSuffix returns a bounded, collision-resistant multi-output label.
+// planIndex is the stable one-based output ordinal within the selector result.
+func (plan OutputPlan) DestinationSuffix(planIndex int) string {
+	if planIndex < 1 {
+		planIndex = 1
+	}
+	return fmt.Sprintf("%d_%s", planIndex, plan.PlanID())
 }
 
 func sanitizePlanID(id string) string {
