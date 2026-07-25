@@ -440,6 +440,7 @@ type playbackRequest struct {
 	SelectedFormat  bool
 	DrcEnabled      bool
 	AudioTrackID    string
+	PlaybackCookie  []byte
 }
 
 func (request playbackRequest) marshal() ([]byte, error) {
@@ -476,6 +477,9 @@ func (request playbackRequest) marshal() ([]byte, error) {
 	streamer = appendProtobufBytes(streamer, fStreamerCtxClientInfo, request.ClientInfo.marshal())
 	if len(request.POToken) > 0 {
 		streamer = appendProtobufBytes(streamer, fStreamerCtxPOToken, request.POToken)
+	}
+	if len(request.PlaybackCookie) > 0 {
+		streamer = appendProtobufBytes(streamer, fStreamerCtxPlaybackCookie, request.PlaybackCookie)
 	}
 
 	var body []byte

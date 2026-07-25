@@ -1,6 +1,7 @@
 package youtubeump
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -49,13 +50,18 @@ type Result struct {
 }
 
 type Downloader struct {
-	transport IsolatedTransport
-	config    Config
+	transport         IsolatedTransport
+	config            Config
+	policyBackoffWait func(context.Context, time.Duration) error
 }
 
 func NewDownloader(transport IsolatedTransport, config Config) *Downloader {
 	config.Headers = config.Headers.Clone()
-	return &Downloader{transport: transport, config: config}
+	return &Downloader{
+		transport:         transport,
+		config:            config,
+		policyBackoffWait: sleep,
+	}
 }
 
 func (downloader *Downloader) Download(ctx context.Context, outputRoot, destination string, overwrite bool, sink events.Sink) (Result, error) {
@@ -137,6 +143,7 @@ func (downloader *Downloader) Download(ctx context.Context, outputRoot, destinat
 		playerTimeMs   int64
 		selectedFormat bool
 		bufferedRanges []BufferedRange
+		playbackCookie []byte
 	)
 	assembler := newTrackAssembler(config.Format, expectedDurationMs, output.file, maxBytes)
 
@@ -154,6 +161,7 @@ func (downloader *Downloader) Download(ctx context.Context, outputRoot, destinat
 			UstreamerConfig: config.UstreamerConfig,
 			ClientInfo:      config.ClientInfo,
 			POToken:         config.POToken,
+			PlaybackCookie:  bytes.Clone(playbackCookie),
 			BufferedRanges:  bufferedRanges,
 			RequestNumber:   requestNumber,
 			PlayerTimeMs:    playerTimeMs,
@@ -164,11 +172,15 @@ func (downloader *Downloader) Download(ctx context.Context, outputRoot, destinat
 		if err != nil {
 			return Result{}, err
 		}
-		if err := downloader.postRound(ctx, config, requestNumber, body, assembler, sink, destination, eventURL); err != nil {
+		roundCtrl, err := downloader.postRound(ctx, config, requestNumber, body, assembler, sink, destination, eventURL)
+		if err != nil {
 			if ctx.Err() != nil {
 				return Result{}, ctx.Err()
 			}
 			return Result{}, redactError(err)
+		}
+		if roundCtrl.updateCookie {
+			playbackCookie = bytes.Clone(roundCtrl.cookie)
 		}
 		advance, ranges, selected := assembler.playbackState()
 		playerTimeMs = advance
@@ -178,6 +190,12 @@ func (downloader *Downloader) Download(ctx context.Context, outputRoot, destinat
 		}
 		if assembler.trackComplete() {
 			break
+		}
+		if roundCtrl.backoff > 0 {
+			if err := downloader.policyBackoffWait(ctx, roundCtrl.backoff); err != nil {
+				_ = sink.Emit(context.Background(), events.Event{Kind: events.KindCancelled, URL: eventURL, Path: destination, Message: err.Error()})
+				return Result{}, err
+			}
 		}
 		requestNumber++
 	}
@@ -198,43 +216,45 @@ func (downloader *Downloader) Download(ctx context.Context, outputRoot, destinat
 
 const maxSABRAttempts = 100
 
-func (downloader *Downloader) postRound(ctx context.Context, config Config, requestNumber int, body []byte, assembler *trackAssembler, sink events.Sink, destination, eventURL string) error {
+func (downloader *Downloader) postRound(ctx context.Context, config Config, requestNumber int, body []byte, assembler *trackAssembler, sink events.Sink, destination, eventURL string) (roundControl, error) {
+	var zero roundControl
 	attempts := config.Attempts
 	if attempts <= 0 {
 		attempts = 3
 	}
 	var lastErr error
 	for attempt := 1; attempt <= attempts; attempt++ {
-		err := downloader.postOnce(ctx, config, requestNumber, body, assembler)
+		ctrl, err := downloader.postOnce(ctx, config, requestNumber, body, assembler)
 		if err == nil {
-			return nil
+			return ctrl, nil
 		}
 		lastErr = err
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return zero, ctx.Err()
 		}
 		if !isRetryable(err) {
-			return err
+			return zero, err
 		}
 		if attempt < attempts {
 			if emitErr := sink.Emit(ctx, events.Event{
 				Kind: events.KindRetry, URL: eventURL, Path: destination,
 				Attempt: attempt + 1, Message: redactMessage(err.Error()),
 			}); emitErr != nil {
-				return errors.Join(ErrEventSink, emitErr)
+				return zero, errors.Join(ErrEventSink, emitErr)
 			}
 			if sleepErr := sleep(ctx, retryDelay(config, attempt)); sleepErr != nil {
-				return sleepErr
+				return zero, sleepErr
 			}
 		}
 	}
-	return lastErr
+	return zero, lastErr
 }
 
-func (downloader *Downloader) postOnce(ctx context.Context, config Config, requestNumber int, body []byte, assembler *trackAssembler) error {
+func (downloader *Downloader) postOnce(ctx context.Context, config Config, requestNumber int, body []byte, assembler *trackAssembler) (roundControl, error) {
+	var zero roundControl
 	request, err := newSABRRequest(ctx, config.ServerURL, requestNumber, body, config.UserAgent, config.AcceptLanguage)
 	if err != nil {
-		return err
+		return zero, err
 	}
 	for _, key := range []string{"Authorization", "Cookie", "Proxy-Authorization"} {
 		request.Header.Del(key)
@@ -243,40 +263,42 @@ func (downloader *Downloader) postOnce(ctx context.Context, config Config, reque
 	response, err := downloader.transport.DoWithoutCredentialsNoRedirect(ctx, request)
 	if err != nil {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return zero, ctx.Err()
 		}
-		return retryableError{requestFailure(err, config.ServerURL)}
+		return zero, retryableError{requestFailure(err, config.ServerURL)}
 	}
 	defer response.Body.Close()
 	if isRedirectResponse(response) {
-		return redirectFailure(config.ServerURL)
+		return zero, redirectFailure(config.ServerURL)
 	}
 	if response.StatusCode != http.StatusOK {
-		return responseFailure(response.StatusCode, config.ServerURL)
+		return zero, responseFailure(response.StatusCode, config.ServerURL)
 	}
 	if err := validateResponseContentType(response.Header.Get("Content-Type")); err != nil {
-		return err
+		return zero, err
 	}
 	return consumeStream(ctx, response.Body, assembler)
 }
 
 func consumeStream(ctx context.Context, body interface {
 	Read([]byte) (int, error)
-}, assembler *trackAssembler) error {
+}, assembler *trackAssembler) (roundControl, error) {
+	var zero roundControl
+	consumer := newStreamConsumer(assembler)
 	reader := NewReader(body, MaxRoundBytes)
 	for {
 		if err := ctx.Err(); err != nil {
-			return err
+			return zero, err
 		}
 		part, ok, err := reader.ReadPart()
 		if err != nil {
-			return err
+			return zero, err
 		}
 		if !ok {
-			return assembler.finishResponse()
+			return consumer.finish()
 		}
-		if err := assembler.consumePart(part); err != nil {
-			return err
+		if err := consumer.consumePart(part); err != nil {
+			return zero, err
 		}
 	}
 }

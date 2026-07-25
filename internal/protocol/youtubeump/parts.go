@@ -21,7 +21,8 @@ const (
 
 func isHandledPart(partType int) bool {
 	switch partType {
-	case PartMediaHeader, PartMedia, PartMediaEnd, PartFormatInitializationMetadata:
+	case PartMediaHeader, PartMedia, PartMediaEnd, PartFormatInitializationMetadata,
+		PartNextRequestPolicy, PartEndOfTrack:
 		return true
 	default:
 		return isBenignSkippedPart(partType)
@@ -38,9 +39,9 @@ func isBenignSkippedPart(partType int) bool {
 
 func isCriticalUnsupportedPart(partType int) bool {
 	switch partType {
-	case PartNextRequestPolicy, PartSABRRedirect, PartSABRError, PartReloadPlayerResponse,
+	case PartSABRRedirect, PartSABRError, PartReloadPlayerResponse,
 		PartLiveMetadata, PartSABRContextUpdate, PartStreamProtectionStatus,
-		PartSABRContextSendingPolicy, PartEndOfTrack:
+		PartSABRContextSendingPolicy:
 		return true
 	default:
 		return !isHandledPart(partType)

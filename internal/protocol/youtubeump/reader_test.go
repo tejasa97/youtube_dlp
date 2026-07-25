@@ -89,10 +89,7 @@ func TestConsumeStreamDeterministicMedia(t *testing.T) {
 		Header:     http.Header{"Content-Type": {"application/vnd.yt-ump"}},
 		Body:       io.NopCloser(bytes.NewReader(body)),
 	}
-	if err := consumeStream(context.Background(), response.Body, assembler); err != nil {
-		t.Fatal(err)
-	}
-	if err := assembler.finishResponse(); err != nil {
+	if _, err := consumeStream(context.Background(), response.Body, assembler); err != nil {
 		t.Fatal(err)
 	}
 	if !assembler.trackComplete() || assembler.totalWritten != int64(len("INIThello world")) {
@@ -113,7 +110,7 @@ func TestConsumeStreamRejectsCriticalDirective(t *testing.T) {
 		Header:     http.Header{"Content-Type": {"application/vnd.yt-ump"}},
 		Body:       io.NopCloser(bytes.NewReader(body)),
 	}
-	err = consumeStream(context.Background(), response.Body, assembler)
+	_, err = consumeStream(context.Background(), response.Body, assembler)
 	if err == nil || !errors.Is(err, ErrUnsupportedDirective) {
 		t.Fatalf("err=%v", err)
 	}
