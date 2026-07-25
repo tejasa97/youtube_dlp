@@ -6,3 +6,5 @@ derived from the search traversal behavior in pinned yt-dlp reference commit
 `yt_dlp/extractor/youtube/_search.py` and `_tab.py::_search_results`.
 They contain invented IDs, titles, continuation tokens, and client values; no
 live response or credential is recorded.
+
+Expanded to cover playlist/channel/hashtag/shelf and lockup result shapes under the shared renderer walker.
