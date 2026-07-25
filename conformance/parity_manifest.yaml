@@ -2080,7 +2080,7 @@ capabilities:
   - id: metadata.sponsorblock_metadata
     name: SponsorBlock metadata fetch, marking, and FFmpeg cutting
     phase: 4
-    compatibility_target: When explicitly enabled in ytdlp.Request, query the SponsorBlock API for a YouTube video, expose deterministic sponsorblock_chapters, optionally overlay marked ranges onto ordinary chapters, and optionally cut matching skip ranges from downloaded media with force-keyframes and subtitle sync for supported sidecars.
+    compatibility_target: When explicitly enabled in ytdlp.Request, query the SponsorBlock API for a YouTube video, expose deterministic sponsorblock_chapters, optionally overlay marked ranges onto ordinary chapters, arrange mixed Mark+Remove chapters on the post-cut timeline, surface duration-mismatch warnings, and optionally cut matching skip ranges from downloaded media with force-keyframes and subtitle sync for supported sidecars.
     status: partial
     evidence:
       - internal/sponsorblock.TestCategoriesAndTitles
@@ -2096,6 +2096,17 @@ capabilities:
       - internal/sponsorblock.TestNormalizePointPOIAndEmptyChapterTitle
       - internal/sponsorblock.TestNormalizeRejectsMalformed
       - internal/sponsorblock.TestNormalizeChapterTitleUsesDescription
+      - internal/sponsorblock.TestNormalizeDetailedDurationMismatchWarningSignal
+      - internal/sponsorblock.TestArrangeEightOverlapCases
+      - internal/sponsorblock.TestArrangeNestedAdjacentCutsAndCategorySplit
+      - internal/sponsorblock.TestArrangeStableEqualStarts
+      - internal/sponsorblock.TestArrangeLaterSponsorAfterPartUsesCurrentIndexTieBreak
+      - internal/sponsorblock.TestArrangeTinyPolicyAndNoMatch
+      - internal/sponsorblock.TestArrangeCompleteRemovalImmutabilityAndDeterminism
+      - internal/sponsorblock.TestArrangeRemoveOnlyRetimesOrdinaryAndMarkRemoveMix
+      - internal/sponsorblock.TestArrangeIdenticalSponsorCoalesce
+      - internal/sponsorblock.TestArrangeValidation
+      - internal/sponsorblock.FuzzArrange
       - internal/sponsorblock.TestFetchDisabledProducesNoRequests
       - internal/sponsorblock.TestFetchCanonicalRequestAndMatchingGroup
       - internal/sponsorblock.TestFetchCookieIsolationRequired
@@ -2174,6 +2185,13 @@ capabilities:
       - internal/cli.FuzzParseSponsorBlockMarkCategories
       - internal/cli.FuzzParseSponsorBlockRemoveCategories
       - pkg/ytdlp.TestSponsorBlockRemoveSkippedUnderSimulateAndSkipDownload
+      - pkg/ytdlp.TestSponsorBlockDurationMismatchWarnsOnceAndLeavesMetadataUncommittedOnEmitFailure
+      - pkg/ytdlp.TestSponsorBlockNoDurationMismatchWarningForWholeVideoOrInvalid
+      - pkg/ytdlp.TestSponsorBlockMarkPlusRemoveDefersMarkDuringEnrich
+      - pkg/ytdlp.TestSponsorBlockMarkPlusRemoveSimulateEnrichAppliesMarks
+      - pkg/ytdlp.TestSponsorBlockMarkPlusRemoveSkipDownloadEnrichAppliesMarks
+      - pkg/ytdlp.TestSponsorBlockMarkPlusRemoveNoCutsCommitsMarkedChapters
+      - pkg/ytdlp.TestSponsorBlockArrangeRemoveOnlyAndMarkRemove
       - pkg/ytdlp.TestSponsorBlockRemoveNoopWithoutCuts
       - pkg/ytdlp.TestSponsorBlockFetchCategoriesUnionsRemoveSet
       - pkg/ytdlp.TestSponsorBlockUnsupportedSubtitleFailsClosedWithoutMutatingMedia
@@ -2182,11 +2200,14 @@ capabilities:
       - pkg/ytdlp.TestSponsorBlockCutCommitIsTransactional
       - pkg/ytdlp.TestSponsorBlockCutCommitReportsRollbackFailure
       - pkg/ytdlp.TestSponsorBlockCutCommitReplacesAfterAllStaging
+      - pkg/ytdlp.TestSponsorBlockCutCommitCancellationLeavesFilesUnchanged
       - pkg/ytdlp.TestSponsorBlockStageSubtitleDeterministic
       - pkg/ytdlp.TestSponsorBlockPlanningLimitsAlignWithFFmpeg
       - pkg/ytdlp.TestArtifactBytesRecountsAfterCut
       - internal/network.TestDoWithoutCredentialsDropsExplicitAndDefaultSecrets
       - conformance/sponsorblock/PROVENANCE.md
+      - conformance/sponsorblock/sample_arrange_mark_remove.json
+      - conformance/sponsorblock/sample_duration_mismatch.json
       - docs/SPONSORBLOCK_METADATA.md
     owner: core
-    known_deviation: This capability covers metadata fetch, normalization, opt-in mark-only chapter overlay, CLI exposure of --sponsorblock-mark/--sponsorblock-remove/--sponsorblock-api/--no-sponsorblock/--force-keyframes-at-cuts with yt-dlp-compatible orderedSet_from_options accumulation/exclusion (including remove-only default/all semantics and non-removable rejection), and API-driven FFmpeg media cutting with force-keyframes and subtitle sync for supported sidecars. Arbitrary-service (Vimeo, PeerTube, etc.) metadata remains unimplemented. The reference's warning when duration-mismatched segments are filtered is not yet surfaced. Regex ordinary-chapter removal and manual remove-ranges outside SponsorBlock categories are not implemented. Unsupported external subtitle formats fail closed during remove instead of yt-dlp's warn-and-continue. Subtitle sync uses deterministic cue remapping for srt/vtt/ass/lrc rather than ffmpeg concat. The full ModifyChapters heap arrangement for mixed remove/mark overlays is approximated by post-cut timestamp remapping. Network retries follow the existing network.Client; the reference's own retry behavior is not duplicated.
+    known_deviation: This capability covers metadata fetch, normalization, duration-mismatch warnings, opt-in mark-only and mixed Mark+Remove chapter arrangement, CLI exposure of --sponsorblock-mark/--sponsorblock-remove/--sponsorblock-api/--no-sponsorblock/--force-keyframes-at-cuts with yt-dlp-compatible orderedSet_from_options accumulation/exclusion (including remove-only default/all semantics and non-removable rejection), and API-driven FFmpeg media cutting with force-keyframes and subtitle sync for supported sidecars. Arbitrary-service (Vimeo, PeerTube, etc.) metadata remains unimplemented. Regex ordinary-chapter removal and manual remove-ranges outside SponsorBlock categories are not implemented. Unsupported external subtitle formats fail closed during remove instead of yt-dlp's warn-and-continue. Subtitle sync uses deterministic cue remapping for srt/vtt/ass/lrc rather than ffmpeg concat. Network retries follow the existing network.Client; the reference's own retry behavior is not duplicated.
