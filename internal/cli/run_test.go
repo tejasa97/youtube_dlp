@@ -1102,6 +1102,9 @@ func TestRunWaveTwoCompatibilityFlags(t *testing.T) {
 		"--match-filter", "title=discarded",
 		"--no-match-filters",
 		"--match-filters", "title~=Native",
+		"--break-match-filter", "title=discarded",
+		"--no-break-match-filters",
+		"--break-match-filters", "title~=Native",
 		server.URL + "/page",
 	}, &stdout, &stderr)
 	if code != 0 {
