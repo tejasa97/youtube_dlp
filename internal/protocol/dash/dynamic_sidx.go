@@ -25,12 +25,17 @@ type segmentAccumulator struct {
 	segments        []Segment
 	initKey         string
 	mediaLeaves     []Segment
+	window          []Segment
+	seenKeys        map[string]struct{}
 	uniqueLeafCount int
 	maxLeafCount    int
 }
 
 func newSegmentAccumulator(maxLeafCount int) *segmentAccumulator {
-	return &segmentAccumulator{maxLeafCount: maxLeafCount}
+	return &segmentAccumulator{
+		maxLeafCount: maxLeafCount,
+		seenKeys:     make(map[string]struct{}),
+	}
 }
 
 // effectiveDynamicSIDXMediaLeafLimit returns the maximum unique media leaves a
@@ -117,21 +122,28 @@ func (accumulator *segmentAccumulator) merge(expanded []Segment) error {
 			return fmt.Errorf("%w: initialization identity changed during dynamic session", ErrUnsupportedAddressing)
 		}
 	}
-	return accumulator.mergeMediaPrefix(media)
+	return accumulator.mergeMediaWindow(media)
 }
 
-func (accumulator *segmentAccumulator) mergeMediaPrefix(updated []Segment) error {
-	prior := accumulator.mediaLeaves
-	if len(updated) < len(prior) {
-		return fmt.Errorf("%w: non-prefix segment evolution: dropped prior leaves", ErrUnsupportedAddressing)
+// mergeMediaWindow accepts append-only growth and bounded live-window prefix
+// eviction. Leaf identity is URL + absolute byte range. Each newly observed
+// media leaf is appended to the download plan exactly once; eviction removes
+// leaves from the live window only and never from the accumulated plan.
+func (accumulator *segmentAccumulator) mergeMediaWindow(updated []Segment) error {
+	if err := validateLiveWindowLeaves(updated); err != nil {
+		return err
 	}
-	for index := range prior {
-		if segmentKey(prior[index]) != segmentKey(updated[index]) {
-			return fmt.Errorf("%w: non-prefix segment evolution", ErrUnsupportedAddressing)
-		}
+	drop, err := alignLiveWindow(accumulator.window, updated)
+	if err != nil {
+		return err
 	}
-	for index := len(prior); index < len(updated); index++ {
+	retained := len(accumulator.window) - drop
+	for index := retained; index < len(updated); index++ {
 		segment := updated[index]
+		key := segmentKey(segment)
+		if _, exists := accumulator.seenKeys[key]; exists {
+			return fmt.Errorf("%w: replayed media leaf after live-window evolution", ErrUnsupportedAddressing)
+		}
 		for _, existing := range accumulator.mediaLeaves {
 			if existing.URL != segment.URL {
 				continue
@@ -142,9 +154,79 @@ func (accumulator *segmentAccumulator) mergeMediaPrefix(updated []Segment) error
 		}
 		accumulator.mediaLeaves = append(accumulator.mediaLeaves, segment)
 		accumulator.segments = append(accumulator.segments, segment)
+		accumulator.seenKeys[key] = struct{}{}
 		accumulator.uniqueLeafCount++
 		if accumulator.maxLeafCount >= 0 && accumulator.uniqueLeafCount > accumulator.maxLeafCount {
 			return fmt.Errorf("%w: got %d, limit %d", fragment.ErrTooManySegments, accumulator.uniqueLeafCount, accumulator.maxLeafCount)
+		}
+	}
+	accumulator.window = append([]Segment(nil), updated...)
+	return nil
+}
+
+// alignLiveWindow finds the smallest prefix-eviction count such that the
+// retained suffix of prior is an exact ordered identity prefix of updated.
+// Shared identities that cannot form that suffix/prefix relationship fail as
+// non-prefix evolution (mutation, reorder, insertion, or rewind). When no
+// identities are shared, the prior window may be fully replaced by novel
+// leaves (extreme live-window roll).
+func alignLiveWindow(prior, updated []Segment) (int, error) {
+	if len(prior) == 0 {
+		return 0, nil
+	}
+	for drop := 0; drop < len(prior); drop++ {
+		retained := len(prior) - drop
+		if retained > len(updated) {
+			continue
+		}
+		matched := true
+		for index := 0; index < retained; index++ {
+			if segmentKey(prior[drop+index]) != segmentKey(updated[index]) {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return drop, nil
+		}
+	}
+	if liveWindowKeysIntersect(prior, updated) {
+		return 0, fmt.Errorf("%w: non-prefix segment evolution", ErrUnsupportedAddressing)
+	}
+	return len(prior), nil
+}
+
+func liveWindowKeysIntersect(left, right []Segment) bool {
+	if len(left) == 0 || len(right) == 0 {
+		return false
+	}
+	seen := make(map[string]struct{}, len(left))
+	for _, segment := range left {
+		seen[segmentKey(segment)] = struct{}{}
+	}
+	for _, segment := range right {
+		if _, exists := seen[segmentKey(segment)]; exists {
+			return true
+		}
+	}
+	return false
+}
+
+func validateLiveWindowLeaves(leaves []Segment) error {
+	seen := make(map[string]struct{}, len(leaves))
+	for index, segment := range leaves {
+		key := segmentKey(segment)
+		if _, exists := seen[key]; exists {
+			return fmt.Errorf("%w: duplicate media leaf identity in live window", ErrUnsupportedAddressing)
+		}
+		seen[key] = struct{}{}
+		for prior := 0; prior < index; prior++ {
+			if leaves[prior].URL != segment.URL {
+				continue
+			}
+			if segmentsOverlap(leaves[prior], segment) {
+				return fmt.Errorf("%w: overlapping byte-range evolution", ErrUnsupportedAddressing)
+			}
 		}
 	}
 	return nil
