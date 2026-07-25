@@ -89,6 +89,7 @@ within an explicit decoded-size bound. Each value decodes to one complete
 
 Fixture hex payloads are generated deterministically from explicit SCTE-35 bit
 layouts (program-splice and component-splice `splice_insert` with global
-`splice_immediate_flag`, timed `splice_insert`, component `break_duration`,
-`time_signal`, and negative cases) with MPEG-2 CRC-32. No network capture or
-Python runtime is used.
+`splice_immediate_flag`, specified and unspecified `splice_time` branches,
+timed `splice_insert`, component `break_duration`, `time_signal`, and negative
+cases including legacy 14-bit false `splice_time` encodings) with MPEG-2
+CRC-32. No network capture or Python runtime is used.
