@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+<head><meta content="Fixture &amp; SVT article" property="og:title"></head>
+<body>
+<script>
+window.urqlState = {"decoy":{"data":"not-json"}};
+window.urqlState = {
+  "unrelated-query": {
+    "data": "{\"not_page\":{\"message\":\"ignore me\"}}"
+  },
+  "malformed-query": {
+    "data": "{\"page\":"
+  },
+  "fixture-query": {
+    "data": "{\"page\":{\"topMedia\":{\"svtId\":\"svt-page-top-001\"},\"body\":[{\"paragraph\":{\"video\":{\"svtId\":\"svt-page-body-002\"}}},{\"nested\":[{\"video\":{\"svtId\":\"svt-page-top-001\"}},{\"video\":{\"svtId\":\"svt-page-body-003\"}}]}]}}"
+  }
+};
+</script>
+</body>
+</html>

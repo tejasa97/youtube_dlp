@@ -26,17 +26,19 @@ country label.
 The pilot supports SVT Play and Öppet arkiv single-video/clip/channel URLs,
 explicit `modalId`/`id` selection, basic page ID discovery, bounded SVT Play
 series and season tab playlists via the public `contento/graphql` endpoint,
-validated `svt:<video-id>` lazy playlist handoff, HLS/DASH/direct references,
-Swedish and forced subtitles, localized episode fields, child suitability, live
-state, and geo/unavailable/error categorization. Registry integration should
-place it before the generic extractor.
+bounded `svt.se` article playlists from `urqlState`, validated
+`svt:<video-id>` playlist handoff, HLS/DASH/direct references, Swedish and
+forced subtitles, localized episode fields, child suitability, live state, and
+geo/unavailable/error categorization. Registry integration should place it
+before the generic extractor.
 
 Known deviations from the pinned reference are explicit:
 
-- SVT article/page playlists (`SVTPageIE`) are not implemented;
 - series playlists are bounded, HTTPS-only roots with optional `tab` season
   selection, credential-isolated no-redirect GraphQL requests, and canonical
   playlist `webpage_url` reconstruction;
+- article pages are HTTPS-only, credential-isolated no-redirect requests with
+  bounded OpenGraph and `urqlState` parsing;
 - URQL discovery is a bounded `videoSvtId` search rather than full JavaScript
   object transformation and traversal;
 - manifests are returned for the existing media pipeline to expand rather than

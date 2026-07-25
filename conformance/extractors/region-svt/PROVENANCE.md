@@ -32,3 +32,12 @@ field mapping, Go hardening, and deliberate deviations from the reference.
 `series-noisy-seasons.json` adds unrelated null-id, oversized-name, and null-item
 season containers to prove all-series extraction skips unusable seasons without
 breaking valid episode ordering.
+
+## SVT article pages
+
+`article-page.html` models `SVTPageIE._real_extract` at pinned source lines
+363–420. It contains a hand-authored `urqlState` envelope whose JSON-string
+`data.page` value covers `topMedia.svtId`, nested
+`body...video.svtId`, duplicate suppression, and an OpenGraph title. The
+fixture is synthetic, contains no captured SVT content, and emits only invented
+`svt:` identifiers.
