@@ -59,15 +59,22 @@ func parseWashingtonPostURL(parsed *url.URL) (string, bool) {
 }
 
 type arcPowaSite struct {
-	key  string
-	org  string
-	host string
+	key     string
+	org     string
+	host    string
+	anyPath bool
 }
 
 func (site arcPowaSite) Name() string { return site.key }
 
 func (site arcPowaSite) Suitable(parsed *url.URL) bool {
-	return arcSiteHostOK(parsed, site.host) && arcSitePathOK(parsed)
+	if !arcSiteHostOK(parsed, site.host) {
+		return false
+	}
+	if site.anyPath {
+		return arcSiteAnyPathOK(parsed)
+	}
+	return arcSitePathOK(parsed)
 }
 
 func (site arcPowaSite) Extract(ctx context.Context, request Request) (Extraction, error) {
@@ -75,7 +82,14 @@ func (site arcPowaSite) Extract(ctx context.Context, request Request) (Extractio
 		return Extraction{}, err
 	}
 	parsed, err := url.Parse(request.URL)
-	if err != nil || request.Transport == nil || !arcSiteHostOK(parsed, site.host) || !arcSitePathOK(parsed) {
+	if err != nil || request.Transport == nil || !arcSiteHostOK(parsed, site.host) {
+		return Extraction{}, ErrUnsupported
+	}
+	if site.anyPath {
+		if !arcSiteAnyPathOK(parsed) {
+			return Extraction{}, ErrUnsupported
+		}
+	} else if !arcSitePathOK(parsed) {
 		return Extraction{}, ErrUnsupported
 	}
 	canonical := "https://" + site.host + parsed.EscapedPath()
@@ -135,11 +149,23 @@ func arcSitePathOK(parsed *url.URL) bool {
 		return false
 	}
 	for _, segment := range segments {
-		if segment == "video" || strings.HasPrefix(segment, "video-") || strings.Contains(segment, "-video-") || strings.HasSuffix(segment, "-video") {
+		base := strings.TrimSuffix(segment, ".html")
+		if segment == "video" || segment == "videos" || strings.HasPrefix(segment, "video-") ||
+			strings.Contains(segment, "-video-") || strings.HasSuffix(segment, "-video") ||
+			arcUUIDPattern.MatchString(base) {
 			return true
 		}
 	}
 	return false
+}
+
+func arcSiteAnyPathOK(parsed *url.URL) bool {
+	path := strings.ToLower(parsed.EscapedPath())
+	if path == "" || path == "/" {
+		return false
+	}
+	segments := strings.Split(strings.Trim(path, "/"), "/")
+	return len(segments) >= 2
 }
 
 // ADN extracts Arc POWA embeds from adn.com article/video pages.
@@ -168,4 +194,67 @@ type ClickOnDetroit struct{ arcPowaSite }
 
 func NewClickOnDetroit() ClickOnDetroit {
 	return ClickOnDetroit{arcPowaSite{key: "clickondetroit", org: "gmg", host: "clickondetroit.com"}}
+}
+
+// ActionNewsJax extracts Arc POWA embeds from actionnewsjax.com (CMG).
+type ActionNewsJax struct{ arcPowaSite }
+
+func NewActionNewsJax() ActionNewsJax {
+	return ActionNewsJax{arcPowaSite{key: "actionnewsjax", org: "cmg", host: "actionnewsjax.com"}}
+}
+
+// ElComercio extracts Arc POWA embeds from elcomercio.pe.
+type ElComercio struct{ arcPowaSite }
+
+func NewElComercio() ElComercio {
+	return ElComercio{arcPowaSite{key: "elcomercio", org: "elcomercio", host: "elcomercio.pe"}}
+}
+
+// Lateja extracts Arc POWA embeds from lateja.cr.
+type Lateja struct{ arcPowaSite }
+
+func NewLateja() Lateja {
+	return Lateja{arcPowaSite{key: "lateja", org: "gruponacion", host: "lateja.cr"}}
+}
+
+// FifthDomain extracts Arc POWA embeds from fifthdomain.com.
+type FifthDomain struct{ arcPowaSite }
+
+func NewFifthDomain() FifthDomain {
+	return FifthDomain{arcPowaSite{key: "fifthdomain", org: "mco", host: "fifthdomain.com"}}
+}
+
+// VLNO extracts Arc POWA embeds from vl.no.
+type VLNO struct{ arcPowaSite }
+
+func NewVLNO() VLNO {
+	return VLNO{arcPowaSite{key: "vlno", org: "mentormedier", host: "vl.no", anyPath: true}}
+}
+
+// FourteenNews extracts Arc POWA embeds from 14news.com.
+type FourteenNews struct{ arcPowaSite }
+
+func NewFourteenNews() FourteenNews {
+	return FourteenNews{arcPowaSite{key: "fourteennews", org: "raycom", host: "14news.com", anyPath: true}}
+}
+
+// GlobeAndMail extracts Arc POWA embeds from theglobeandmail.com.
+type GlobeAndMail struct{ arcPowaSite }
+
+func NewGlobeAndMail() GlobeAndMail {
+	return GlobeAndMail{arcPowaSite{key: "globeandmail", org: "tgam", host: "theglobeandmail.com"}}
+}
+
+// PilotOnline extracts Arc POWA embeds from pilotonline.com.
+type PilotOnline struct{ arcPowaSite }
+
+func NewPilotOnline() PilotOnline {
+	return PilotOnline{arcPowaSite{key: "pilotonline", org: "tronc", host: "pilotonline.com", anyPath: true}}
+}
+
+// UpperMichiganSource extracts Arc POWA embeds from uppermichigansource.com.
+type UpperMichiganSource struct{ arcPowaSite }
+
+func NewUpperMichiganSource() UpperMichiganSource {
+	return UpperMichiganSource{arcPowaSite{key: "uppermichigansource", org: "gray", host: "uppermichigansource.com", anyPath: true}}
 }
