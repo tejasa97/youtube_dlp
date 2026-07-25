@@ -2,8 +2,8 @@
 
 Frozen before bulk implementation on branch `codex/extractor-breadth-priority-100`.
 
-**Program baseline:** `172a718c5f7ab660836ef52967858ac2f817c5e9`  
-**Current main:** `848f96492e9814cd7d9b2ee9c3e911342b25e38e` (includes PR #87 Wave 1)  
+**Program baseline:** `172a718c5f7ab660836ef52967858ac2f817c5e9`
+**Current main (rebase base):** `73f992c489f7e964e3324af32953da182ee64aa1` (includes PR #87 Wave 1 and later main through YouTube production-parity #90)
 **Reference pin:** `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`
 
 ## Attributable new keys already merged since baseline
@@ -19,35 +19,35 @@ Wave 1 (`#87`) — **15 counted keys** (aliases / generic embeds excluded):
 
 No other non-YouTube extractor *keys* were added between baseline and current main (Bluesky/Flickr/Imgur and shared Brightcove/Kaltura/JW/Wistia/SproutVideo backends were already present at baseline).
 
-**Cumulative counted keys entering this PR: 15.**  
+**Cumulative counted keys entering this PR: 15.**
 **Gap to minimum 50: ≥35.** Stretch 75: ≥60.
 
 ## Cumulative reusable families (real shared backends)
 
 Already present (count toward ≥8):
 
-1. Brightcove  
-2. Kaltura  
-3. JW Platform  
-4. Wistia  
-5. SproutVideo  
-6. Cloudflare Stream (Wave 1)  
-7. Arc Publishing (Wave 1)  
-8. Anvato (Wave 1)  
+1. Brightcove
+2. Kaltura
+3. JW Platform
+4. Wistia
+5. SproutVideo
+6. Cloudflare Stream (Wave 1)
+7. Arc Publishing (Wave 1)
+8. Anvato (Wave 1)
 9. ThePlatform (Wave 1)
 
 **Family target ≥8 is already met.** This PR adds a 10th: **Podcast / feeder APIs** (shared episode/show normalization used by Acast/Simplecast/Megaphone/Art19/Libsyn/Spreaker).
 
 ## Wave-1 attributable success URL shapes (approximate inventory)
 
-Conservative distinct success shapes already evidenced in Wave 1 tests/fixtures: **≈28**  
+Conservative distinct success shapes already evidenced in Wave 1 tests/fixtures: **≈28**
 (CF hex + JWT + embed hosts; Arc `arcpublishing:` + WaPo UUID + 4 POWA hosts; Anvato scheme + FOX9 video/news; ThePlatform link/player/feed + WeatherCom + NBC Olympics).
 
 **Gap to ≥100 shapes: ≈72+** to be covered by this PR’s Suitable/success matrices.
 
 ## Playlist / feed behaviors
 
-Wave 1 contributed limited playlist evidence (Hytale StaticEntries, Arc multi-POWA, ThePlatform feed).  
+Wave 1 contributed limited playlist evidence (Hytale StaticEntries, Arc multi-POWA, ThePlatform feed).
 This PR must add lazy/ordered playlist or feed behaviors on podcast channels/shows, NetApp collections, TVA Nouvelles articles, and Simplecast/Spreaker/Art19 shows toward **≥20 cumulative** where services support them.
 
 ## Frozen remaining scope (this PR)
@@ -145,12 +145,12 @@ Shared helpers for HTTPS media URL policy, episode metadata bounds, and show pla
 
 ## Explicit exclusions
 
-- YouTube / youtubeump / youtubepot files  
-- Hostname aliases counted as distinct keys (`www`, mobile, embed-only aliases)  
-- Routing-only stubs without success/re-entry evidence  
-- DRM / login-gated Brightcove paths advertised as success  
-- Arbitrary-domain generic podcast RSS without exact host policy  
-- Concurrent README / SUPPORTED_SITES / parity_manifest edits until code stable  
+- YouTube / youtubeump / youtubepot files
+- Hostname aliases counted as distinct keys (`www`, mobile, embed-only aliases)
+- Routing-only stubs without success/re-entry evidence
+- DRM / login-gated Brightcove paths advertised as success
+- Arbitrary-domain generic podcast RSS without exact host policy
+- Concurrent README / SUPPORTED_SITES / parity_manifest edits until code stable
 
 ## Count plan (honest)
 

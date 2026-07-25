@@ -385,6 +385,179 @@ func FuzzBreadthPriority100AdapterParsers(f *testing.F) {
 	})
 }
 
+func TestBreadthAdaptersOversizeInputs(t *testing.T) {
+	t.Parallel()
+	oversizedPage := bytes.Repeat([]byte("a"), int(maxExtractorJSONBytes)+32)
+	oversizedJSON := bytes.Repeat([]byte("b"), int(maxExtractorJSONBytes)+32)
+
+	type caseSpec struct {
+		name      string
+		run       func(*testing.T) error
+		want      error
+		exercised string // page | api
+	}
+
+	cases := []caseSpec{
+		{
+			name: "teachingchannel page", want: ErrInvalidMetadata, exercised: "page",
+			run: func(t *testing.T) error {
+				u := "https://www.teachingchannel.org/videos/teacher-teaming-evolution"
+				_, err := NewTeachingChannel().Extract(context.Background(), Request{
+					URL: u, Transport: &sharedFixtureTransport{pages: map[string][]byte{u: oversizedPage}},
+				})
+				return err
+			},
+		},
+		{
+			name: "nowcanal page", want: ErrInvalidMetadata, exercised: "page",
+			run: func(t *testing.T) error {
+				u := "https://www.nowcanal.pt/ultimas/detalhe/pedro-sousa-hjulmand"
+				_, err := NewNowCanal().Extract(context.Background(), Request{
+					URL: u, Transport: &sharedFixtureTransport{pages: map[string][]byte{u: oversizedPage}},
+				})
+				return err
+			},
+		},
+		{
+			name: "democracynow page", want: ErrInvalidMetadata, exercised: "page",
+			run: func(t *testing.T) error {
+				u := "https://www.democracynow.org/shows/2015/7/3"
+				_, err := NewDemocracyNow().Extract(context.Background(), Request{
+					URL: u, Transport: &sharedFixtureTransport{pages: map[string][]byte{
+						"https://www.democracynow.org/shows/2015/7/3": oversizedPage,
+					}},
+				})
+				return err
+			},
+		},
+		{
+			name: "buzzfeed page", want: ErrInvalidMetadata, exercised: "page",
+			run: func(t *testing.T) error {
+				u := "https://www.buzzfeed.com/abagg/oversize"
+				result, err := NewBuzzFeed().Extract(context.Background(), Request{
+					URL: u, Transport: &sharedFixtureTransport{pages: map[string][]byte{u: oversizedPage}},
+				})
+				if err != nil {
+					return err
+				}
+				_, err = CollectEntries(context.Background(), result.Entries, breadthAdapterMaxEntries)
+				return err
+			},
+		},
+		{
+			name: "mediastream page", want: ErrInvalidMetadata, exercised: "page",
+			run: func(t *testing.T) error {
+				u := "https://mdstrm.com/embed/6318e3f1d1d316083ae48831"
+				_, err := NewMediaStream().Extract(context.Background(), Request{
+					URL: u, Transport: &sharedFixtureTransport{pages: map[string][]byte{u: oversizedPage}},
+				})
+				return err
+			},
+		},
+		{
+			name: "winsports page", want: ErrInvalidMetadata, exercised: "page",
+			run: func(t *testing.T) error {
+				u := "https://www.winsports.co/videos/oversize-clip"
+				_, err := NewWinSports().Extract(context.Background(), Request{
+					URL: u, Transport: &sharedFixtureTransport{pages: map[string][]byte{
+						"https://www.winsports.co/videos/oversize-clip": oversizedPage,
+					}},
+				})
+				return err
+			},
+		},
+		{
+			name: "vidsio page", want: ErrInvalidMetadata, exercised: "page",
+			run: func(t *testing.T) error {
+				u := "https://how-to-video.vids.io/videos/799cd8b11c10efc1f0/how-to-video-live-streaming"
+				_, err := NewVidsIo().Extract(context.Background(), Request{
+					URL: u, Transport: &sharedFixtureTransport{pages: map[string][]byte{u: oversizedPage}},
+				})
+				return err
+			},
+		},
+		{
+			name: "laracasts page", want: ErrInvalidMetadata, exercised: "page",
+			run: func(t *testing.T) error {
+				u := "https://laracasts.com/series/30-days-to-learn-laravel-11/episodes/1"
+				_, err := NewLaracasts().Extract(context.Background(), Request{
+					URL: u, Transport: &sharedFixtureTransport{pages: map[string][]byte{u: oversizedPage}},
+				})
+				return err
+			},
+		},
+		{
+			name: "laracasts_series page", want: ErrInvalidMetadata, exercised: "page",
+			run: func(t *testing.T) error {
+				u := "https://laracasts.com/series/30-days-to-learn-laravel-11"
+				result, err := NewLaracastsSeries().Extract(context.Background(), Request{
+					URL: u, Transport: &sharedFixtureTransport{pages: map[string][]byte{u: oversizedPage}},
+				})
+				if err != nil {
+					return err
+				}
+				_, err = CollectEntries(context.Background(), result.Entries, breadthAdapterMaxEntries)
+				return err
+			},
+		},
+		{
+			name: "abcotvs api", want: ErrJSONResponseTooLarge, exercised: "api",
+			run: func(t *testing.T) error {
+				_, err := NewABCOTVS().Extract(context.Background(), Request{
+					URL: "https://abc7news.com/entertainment/east-bay-museum/472581/",
+					Transport: &sharedFixtureTransport{responses: map[string]fixtureHTTP{
+						"https://api.abcotvs.com/v2/content?id=472581&key=otv.web.kgo.story&station=kgo": {body: oversizedJSON},
+					}},
+				})
+				return err
+			},
+		},
+		{
+			name: "abcotvs_clips api", want: ErrJSONResponseTooLarge, exercised: "api",
+			run: func(t *testing.T) error {
+				_, err := NewABCOTVSClips().Extract(context.Background(), Request{
+					URL: "https://clips.abcotvs.com/kabc/video/214814",
+					Transport: &sharedFixtureTransport{responses: map[string]fixtureHTTP{
+						"https://clips.abcotvs.com/vogo/video/getByIds?ids=214814": {body: oversizedJSON},
+					}},
+				})
+				return err
+			},
+		},
+	}
+
+	for _, spec := range cases {
+		spec := spec
+		t.Run(spec.name, func(t *testing.T) {
+			t.Parallel()
+			err := spec.run(t)
+			if !errors.Is(err, spec.want) {
+				t.Fatalf("exercised=%s err=%v want %v", spec.exercised, err, spec.want)
+			}
+		})
+	}
+}
+
+func TestBuzzFeedProvenanceFixtureDistinctChildren(t *testing.T) {
+	t.Parallel()
+	u := "https://www.buzzfeed.com/abagg/this-angry-ram-destroys-a-punching-bag-like-a-boss"
+	transport := &sharedFixtureTransport{pages: map[string][]byte{u: familyFixture(t, "buzzfeed", "page.html")}}
+	result, err := NewBuzzFeed().Extract(context.Background(), Request{URL: u, Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := CollectEntries(context.Background(), result.Entries, breadthAdapterMaxEntries)
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("entries=%v err=%v want 2 distinct children", entries, err)
+	}
+	if entries[0].ExtractorKey != "youtube" || entries[0].URL != "https://www.youtube.com/watch?v=fixture0001" {
+		t.Fatalf("youtube entry=%#v", entries[0])
+	}
+	if entries[1].ExtractorKey != "" || !strings.Contains(entries[1].URL, "facebook.com") {
+		t.Fatalf("facebook bare entry=%#v", entries[1])
+	}
+}
+
 func TestABCOTVSMalformedEmptyFormats(t *testing.T) {
 	t.Parallel()
 	transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{

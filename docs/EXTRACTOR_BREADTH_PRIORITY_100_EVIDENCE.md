@@ -2,6 +2,7 @@
 
 Baseline program start: `172a718c5f7ab660836ef52967858ac2f817c5e9`
 Pinned reference: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`
+Rebase base / current `origin/main`: `73f992c489f7e964e3324af32953da182ee64aa1` (Wave 1 `#87` plus later main, including YouTube production-parity `#90`).
 This PR continues the same program after wave 1 (`#87`).
 
 ## Automated inventories (authoritative)
@@ -61,4 +62,6 @@ Manifest/`SUPPORTED_SITES` entries for these keys claim **deterministic-corpus /
 
 - **Laracasts → Vimeo referrer:** Upstream smuggles a `laracasts.com` Referer onto the Vimeo player URL. This implementation emits `https://player.vimeo.com/video/{id}` and the registered Vimeo extractor fetches `https://vimeo.com/{id}` with Vimeo's own profile/Referer policy. Subscriber-gated Vimeo responses that require the Laracasts referrer are out of scope.
 - **ABCOTVS `publishedKey`:** Reference may fall back to `publishedKey` when selecting the media id. This adapter uses the story/video `id` from the OTV API payload (and the URL id as fallback) and does not implement `publishedKey` selection or full metadata parity (timestamps, thumbnails, captions).
-- **BuzzFeed Facebook embeds:** Facebook bucket URLs are retained as bare playlist entries with an empty `ExtractorKey`. There is no registered Facebook extractor, so an explicit `facebook` key is never emitted (would invent a guaranteed-bad `SelectFor` route). YouTube bucket URLs keep `ExtractorKey=youtube` with verified fixture re-entry.
+- **BuzzFeed Facebook embeds:** Facebook bucket URLs are retained as bare playlist entries with an empty `ExtractorKey`. There is no registered Facebook extractor, so an explicit `facebook` key is never emitted (would invent a guaranteed-bad `SelectFor` route). YouTube bucket URLs keep `ExtractorKey=youtube` with verified fixture re-entry. The BuzzFeed provenance fixture includes one YouTube child and one bare Facebook child (distinct URLs; no same-URL dedupe collapse).
+
+- **Oversized inputs:** Page-backed new adapters reject pages `> maxExtractorJSONBytes` as `ErrInvalidMetadata`. API-backed `abcotvs` / `abcotvs_clips` reject bounded JSON overflow as `ErrJSONResponseTooLarge` via `hostedRequestJSON`.
