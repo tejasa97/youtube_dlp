@@ -20,7 +20,9 @@ the canonical `https://vimeo.com/<id>` URL and never contains caller tokens.
 
 Deliberate deviations: this does not fetch Vimeo's texttracks API, parse
 manifest subtitles, support authenticated/password videos, DRM, live archives,
-showcases/channels, or arbitrary Vimeo API hosts. Invalid individual tracks are
+showcases, or arbitrary Vimeo API hosts. Public channel and explicit
+`/{user}/videos` playlist breadth is a separate bounded increment documented in
+`docs/VIMEO_CHANNEL_PLAYLISTS_EVIDENCE.md`. Invalid individual tracks are
 ignored; a too-large track list is invalid metadata.
 
 Primary integration checklist: retain this extractor's existing Vimeo route;

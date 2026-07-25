@@ -205,6 +205,42 @@ func TestNewRejectsMissingProfileAndInvalidProxy(t *testing.T) {
 	}
 }
 
+func TestDisableRedirectReturnsFirstResponse(t *testing.T) {
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests++
+		if request.URL.Path == "/" {
+			http.Redirect(writer, request, "/final", http.StatusFound)
+			return
+		}
+		_, _ = io.WriteString(writer, "followed")
+	}))
+	defer server.Close()
+	profile, _ := Lookup(Chrome133Name)
+	client, err := New(Config{Profile: profile, DisableRedirect: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusFound || requests != 1 {
+		t.Fatalf("status=%d requests=%d", response.StatusCode, requests)
+	}
+	if response.Header.Get("User-Agent") != "" && request.Header.Get("User-Agent") != "" {
+		t.Fatal("caller request mutated")
+	}
+	if got := response.Request.Header.Get("User-Agent"); got != profile.UserAgent {
+		t.Fatalf("profile ua on response request = %q", got)
+	}
+}
+
 func TestCompatibleTimeoutRetainsMillisecondBoundary(t *testing.T) {
 	for _, test := range []struct {
 		input time.Duration

@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -529,5 +530,140 @@ func TestRedaction(t *testing.T) {
 	headers := RedactHeaders(http.Header{"Authorization": []string{"secret"}, "X-Safe": []string{"yes"}})
 	if headers.Get("Authorization") != "REDACTED" || headers.Get("X-Safe") != "yes" {
 		t.Fatalf("RedactHeaders() = %v", headers)
+	}
+}
+
+func TestReadPageProfileWithoutCredentialsNoRedirectDropsSecretsAndJar(t *testing.T) {
+	var seen http.Header
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests++
+		seen = request.Header.Clone()
+		http.SetCookie(writer, &http.Cookie{Name: "isolated_set", Value: "nope", Path: "/"})
+		_, _ = io.WriteString(writer, "isolated-page")
+	}))
+	defer server.Close()
+
+	client, err := New(Config{
+		DefaultHeaders: http.Header{
+			"Authorization":       {"Bearer default-secret"},
+			"Cookie":              {"default=1"},
+			"Proxy-Authorization": {"Basic proxy-secret"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, _ := url.Parse(server.URL)
+	client.jar.SetCookies(target, []*http.Cookie{{Name: "jar", Value: "secret", Path: "/"}})
+
+	body, _, err := client.ReadPageProfileWithoutCredentialsNoRedirect(context.Background(), server.URL+"?token=secret", impersonate.Chrome133Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "isolated-page" || requests != 1 {
+		t.Fatalf("body=%q requests=%d", body, requests)
+	}
+	for _, key := range []string{"Authorization", "Cookie", "Proxy-Authorization"} {
+		if seen.Get(key) != "" {
+			t.Fatalf("credential header %s leaked: %q", key, seen.Get(key))
+		}
+	}
+	profile, _ := impersonate.Lookup(impersonate.Chrome133Name)
+	if seen.Get("User-Agent") != profile.UserAgent {
+		t.Fatalf("profile identity missing: ua=%q", seen.Get("User-Agent"))
+	}
+	cookies, err := client.Cookies(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, cookie := range cookies {
+		if cookie.Name == "isolated_set" {
+			t.Fatalf("Set-Cookie persisted into operation jar: %#v", cookies)
+		}
+	}
+}
+
+func TestReadPageProfileWithoutCredentialsNoRedirectRefusesRedirects(t *testing.T) {
+	t.Run("same-origin", func(t *testing.T) {
+		var requests int
+		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			requests++
+			if request.URL.Path == "/" {
+				http.Redirect(writer, request, "/final", http.StatusFound)
+				return
+			}
+			_, _ = io.WriteString(writer, "followed")
+		}))
+		defer server.Close()
+		client, err := New(Config{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _, err = client.ReadPageProfileWithoutCredentialsNoRedirect(context.Background(), server.URL, impersonate.Chrome133Name)
+		var status *StatusError
+		if !errors.As(err, &status) || status.Code != http.StatusFound || requests != 1 {
+			t.Fatalf("same-origin redirect error=%v requests=%d", err, requests)
+		}
+	})
+	t.Run("cross-origin", func(t *testing.T) {
+		final := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			_, _ = io.WriteString(writer, "cross")
+		}))
+		defer final.Close()
+		var requests int
+		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			requests++
+			http.Redirect(writer, request, final.URL, http.StatusFound)
+		}))
+		defer server.Close()
+		client, err := New(Config{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _, err = client.ReadPageProfileWithoutCredentialsNoRedirect(context.Background(), server.URL, impersonate.Chrome133Name)
+		var status *StatusError
+		if !errors.As(err, &status) || status.Code != http.StatusFound || requests != 1 {
+			t.Fatalf("cross-origin redirect error=%v requests=%d", err, requests)
+		}
+	})
+}
+
+func TestReadPageProfileWithoutCredentialsNoRedirectBoundsCancellationAndNoNativeFallback(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/large":
+			_, _ = io.WriteString(writer, strings.Repeat("a", 64))
+		case "/slow":
+			time.Sleep(200 * time.Millisecond)
+			_, _ = io.WriteString(writer, "slow")
+		default:
+			_, _ = io.WriteString(writer, "ok")
+		}
+	}))
+	defer server.Close()
+
+	bounded, err := New(Config{MaxPageSize: 8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := bounded.ReadPageProfileWithoutCredentialsNoRedirect(context.Background(), server.URL+"/large", impersonate.Chrome133Name); !errors.Is(err, ErrPageTooLarge) {
+		t.Fatalf("page bound error=%v", err)
+	}
+
+	client, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if _, _, err := client.ReadPageProfileWithoutCredentialsNoRedirect(ctx, server.URL+"/slow", impersonate.Chrome133Name); err == nil || (!errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled)) {
+		t.Fatalf("cancellation error=%v", err)
+	}
+	if _, _, err := client.ReadPageProfileWithoutCredentialsNoRedirect(context.Background(), server.URL, ""); !errors.Is(err, ErrImpersonationUnavailable) {
+		t.Fatalf("empty profile fallback error=%v", err)
+	}
+	if _, _, err := client.ReadPageProfileWithoutCredentialsNoRedirect(context.Background(), server.URL+"?token=secret", "unknown-profile"); !errors.Is(err, ErrImpersonationUnavailable) || strings.Contains(fmt.Sprint(err), "secret") {
+		t.Fatalf("unknown profile error=%v", err)
 	}
 }

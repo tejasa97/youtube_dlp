@@ -13,11 +13,12 @@ import (
 )
 
 type Config struct {
-	Profile Profile
-	Proxy   string
-	Timeout time.Duration
-	Jar     http.CookieJar
-	RootCAs *x509.CertPool
+	Profile         Profile
+	Proxy           string
+	Timeout         time.Duration
+	Jar             http.CookieJar
+	RootCAs         *x509.CertPool
+	DisableRedirect bool
 }
 
 // Client exposes a browser-fingerprinted transport through the repository's
@@ -61,6 +62,9 @@ func New(config Config) (*Client, error) {
 		client.SetDial(dialContext)
 	}
 	client.SetCookieJar(config.Jar)
+	if config.DisableRedirect {
+		client.SetRedirectPolicy(req.NoRedirectPolicy())
+	}
 	return &Client{profile: config.Profile, client: client}, nil
 }
 
