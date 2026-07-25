@@ -3,9 +3,9 @@
 Status: Wave 1 and the caption and bounded WEB format-recovery portions of
 Wave 3, including bounded sidecar conversion, are implemented and locally
 verified. Wave 2 and broader authenticated clients remain open. Wave 4 now
-includes a bounded public video-search slice;
-bounded public YouTube Music search, playlist tabs, and an opt-in public
-comments slice; its other renderer breadth remains open.
+includes a shared browse/search renderer walker, channel-advertised custom
+tabs, channel-local search, broader general and Music search result families,
+and authenticated exact-origin WEB browse/search continuations.
 
 This is post-review compatibility work while Gate G3 remains blocked by the
 external observations listed in `PHASE_3_EXIT_REVIEW.md`. It does not open
@@ -49,24 +49,27 @@ bounded legacy `/user` and `/c` alias video/Shorts/streams/playlist plus
 home/featured/community/releases/podcasts tabs are implemented. Bounded public
 `/membership` tab routes for exact channel, handle, and legacy alias URLs are
 implemented for video-only renderer extraction when the supplied session is
-already authorized. Bounded public
-and playable YouTube Music search plus bounded, opt-in
-public and authenticated-WEB comment slices cover
-top/new sorting, legacy and modern fields, click-tracked reply continuations,
-nested subthreads, bounded retries, pinned duplicate handling, visitor
-rotation, exact-origin signed continuations, and explicit resource limits.
-Bare channel/handle/legacy-alias upload aggregation is implemented. Estimated
-pre-fetch counts, arbitrary custom tabs, and
-non-playable search result breadth remain pending.
+already authorized. A shared browse/search renderer walker covers video,
+Shorts/reel, playlist, channel, lockup, hashtag, shelf, and Music list
+renderers with consistent continuation handling. Dynamically advertised custom
+tabs are accepted only when securely bound to the requested channel identity.
+Channel-local search, broader general search results, and broader YouTube Music
+section search are implemented. Authenticated exact-origin WEB browse/search
+continuations reuse the SID no-redirect boundary without anonymous fallback or
+WEB↔WEB_REMIX identity crossing. Bounded public and opt-in authenticated-WEB
+comment slices cover top/new sorting, legacy and modern fields, click-tracked
+reply continuations, nested subthreads, bounded retries, pinned duplicate
+handling, visitor rotation, exact-origin signed continuations, and explicit
+resource limits. Bare channel/handle/legacy-alias upload aggregation is
+implemented. Estimated pre-fetch counts before retrieval remain pending.
 
 The finite post-live DVR and opt-in active live-from-start paths are complete:
 eligible adaptive tracks use bounded `X-Head-Seqnum`/`sq` reconstruction,
 signed-URL refresh, concurrent A/V transfer, and normal merging.
 
-- expand remaining channel, tab, search, and comments renderers;
-- derive attributable synthetic fixtures from the pinned reference;
 - keep every compatibility claim tied to deterministic success and failure
-  evidence in the parity manifest.
+  evidence in the parity manifest;
+- derive attributable synthetic fixtures from the pinned reference.
 
 All waves remain build-time and runtime Python-free. The pinned Python checkout
 is a read-only behavioral reference and is never part of the product graph.
