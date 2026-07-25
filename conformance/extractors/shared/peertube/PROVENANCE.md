@@ -13,11 +13,19 @@ Relevant reference locations in `yt_dlp/extractor/peertube.py` at that commit:
 - lines 1564–1644: video metadata, direct files, streaming playlists, full
   description fallback, uploader/channel fields, thumbnail, counts, tags,
   category, language, licence, and live state.
+- lines 1671–1758: account (`/a/{id}/videos`), channel
+  (`/c/{id}/videos`), and explicit playlist (`/w/p/{id}`) routing; resource
+  metadata; lazy 30-entry newest-first API pagination; and direct or nested
+  `shortUUID` playlist result shapes.
 
 No upstream response body or user media metadata was copied. Hosts use reserved
 `.test` names, identifiers and counts are synthetic, and media assets are never
 requested by tests. The expected fixture records a native Go normalization
 contract rather than byte-for-byte Python output.
+
+`playlist_info.json` and `playlist_page.json` are hand-authored synthetic
+responses covering the attributable metadata fields and both documented video
+result shapes. They contain no captured service data.
 
 Known deliberate differences are documented in `docs/P3_PEERTUBE_EVIDENCE.md`.
 The fixtures require no network access, Python interpreter, or reference

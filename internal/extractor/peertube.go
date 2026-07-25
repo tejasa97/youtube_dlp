@@ -16,9 +16,10 @@ import (
 )
 
 const (
-	peerTubeMaxFiles    = 4096
-	peerTubeMaxCaptions = 256
-	peerTubeMaxTags     = 1024
+	peerTubeMaxFiles         = 4096
+	peerTubeMaxCaptions      = 256
+	peerTubeMaxTags          = 1024
+	peerTubePlaylistPageSize = 30
 )
 
 var (
@@ -26,6 +27,7 @@ var (
 
 	peerTubeShortID  = regexp.MustCompile(`^[0-9A-Za-z]{22}$`)
 	peerTubeUUID     = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+	peerTubeListID   = regexp.MustCompile(`^[0-9A-Za-z._~@-]{1,256}$`)
 	peerTubeDNSLabel = regexp.MustCompile(`(?i)^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
 	peerTubeHeight   = regexp.MustCompile(`^([0-9]{1,5})p$`)
 )
@@ -144,6 +146,192 @@ func parsePeerTubeURL(parsed *url.URL) (peerTubeTarget, bool) {
 		return peerTubeTarget{}, false
 	}
 	return peerTubeTarget{host: host, id: id}, true
+}
+
+type peerTubePlaylistTarget struct {
+	host     string
+	pathType string
+	resource string
+	id       string
+}
+
+type peerTubePlaylistMetadata struct {
+	ID            hostingNumber `json:"id"`
+	DisplayName   string        `json:"displayName"`
+	Description   string        `json:"description"`
+	CreatedAt     string        `json:"createdAt"`
+	ThumbnailPath string        `json:"thumbnailPath"`
+	OwnerAccount  struct {
+		ID   hostingNumber `json:"id"`
+		Name string        `json:"name"`
+	} `json:"ownerAccount"`
+}
+
+func (target peerTubePlaylistTarget) metadataURL() string {
+	return "https://" + target.host + "/api/v1/" + target.resource + "/" + url.PathEscape(target.id)
+}
+
+func (target peerTubePlaylistTarget) webpageURL() string {
+	switch target.pathType {
+	case "a", "c":
+		return "https://" + target.host + "/" + target.pathType + "/" + target.id + "/videos"
+	default:
+		return "https://" + target.host + "/w/p/" + target.id
+	}
+}
+
+func parsePeerTubePlaylistURL(parsed *url.URL) (peerTubePlaylistTarget, bool) {
+	if parsed == nil || len(parsed.String()) == 0 || len(parsed.String()) > sharedHostingMaxURLBytes ||
+		(parsed.Scheme != "http" && parsed.Scheme != "https") ||
+		parsed.User != nil || parsed.Port() != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return peerTubePlaylistTarget{}, false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if !validPeerTubeHost(host) || !recognizedPeerTubeHost(host) {
+		return peerTubePlaylistTarget{}, false
+	}
+	escapedPath := parsed.EscapedPath()
+	if !strings.HasPrefix(escapedPath, "/") || strings.HasPrefix(escapedPath, "//") || strings.HasSuffix(escapedPath, "/") {
+		return peerTubePlaylistTarget{}, false
+	}
+	escaped := strings.TrimPrefix(escapedPath, "/")
+	decoded, err := url.PathUnescape(escaped)
+	if err != nil || decoded != escaped {
+		return peerTubePlaylistTarget{}, false
+	}
+	parts := strings.Split(escaped, "/")
+	target := peerTubePlaylistTarget{host: host}
+	switch {
+	case len(parts) == 3 && (parts[0] == "a" || parts[0] == "c") && parts[2] == "videos":
+		target.pathType = parts[0]
+		target.id = parts[1]
+		if parts[0] == "a" {
+			target.resource = "accounts"
+		} else {
+			target.resource = "video-channels"
+		}
+	case len(parts) == 3 && parts[0] == "w" && parts[1] == "p":
+		target.pathType = "w/p"
+		target.resource = "video-playlists"
+		target.id = parts[2]
+	default:
+		return peerTubePlaylistTarget{}, false
+	}
+	if !peerTubeListID.MatchString(target.id) {
+		return peerTubePlaylistTarget{}, false
+	}
+	return target, true
+}
+
+// PeerTubePlaylist extracts account, channel, and explicit video-playlist
+// listings from recognized PeerTube instances.
+type PeerTubePlaylist struct{}
+
+func NewPeerTubePlaylist() PeerTubePlaylist { return PeerTubePlaylist{} }
+func (PeerTubePlaylist) Name() string       { return "peertube_playlist" }
+
+func (PeerTubePlaylist) Suitable(parsed *url.URL) bool {
+	_, ok := parsePeerTubePlaylistURL(parsed)
+	return ok
+}
+
+func (PeerTubePlaylist) Extract(ctx context.Context, request Request) (Extraction, error) {
+	if err := contextError(ctx); err != nil {
+		return Extraction{}, err
+	}
+	parsed, err := url.Parse(request.URL)
+	if err != nil || request.Transport == nil {
+		return Extraction{}, ErrUnsupported
+	}
+	target, ok := parsePeerTubePlaylistURL(parsed)
+	if !ok {
+		return Extraction{}, ErrUnsupported
+	}
+
+	var metadata peerTubePlaylistMetadata
+	if err := requestPeerTubeJSON(ctx, request.Transport, target.metadataURL(), &metadata); err != nil {
+		if contextError(ctx) != nil {
+			return Extraction{}, contextError(ctx)
+		}
+		// The pinned metadata request is non-fatal; entries remain useful when
+		// an instance withholds or omits the descriptive resource.
+		metadata = peerTubePlaylistMetadata{}
+	}
+
+	title := strings.TrimSpace(metadata.DisplayName)
+	if title == "" {
+		title = target.id
+	}
+	info := value.NewObject(
+		value.Field{Key: "id", Value: value.String(target.id)},
+		value.Field{Key: "title", Value: value.String(title)},
+		value.Field{Key: "webpage_url", Value: value.String(target.webpageURL())},
+	)
+	hostedSetString(info, "description", metadata.Description)
+	hostedSetInt(info, "timestamp", hostedUnixTimestamp(metadata.CreatedAt))
+	channel := strings.TrimSpace(metadata.OwnerAccount.Name)
+	if channel == "" {
+		channel = strings.TrimSpace(metadata.DisplayName)
+	}
+	hostedSetString(info, "channel", channel)
+	channelID := metadata.OwnerAccount.ID.string()
+	if channelID == "" {
+		channelID = metadata.ID.string()
+	}
+	hostedSetString(info, "channel_id", channelID)
+	hostedSetString(info, "thumbnail", peerTubeAssetURL(target.host, metadata.ThumbnailPath))
+
+	sequence, err := OnDemandEntries(peerTubePlaylistPageSize, func(ctx context.Context, page int) ([]Entry, error) {
+		if page < 0 || page >= defaultMaxPlaylistPages {
+			return nil, ErrPlaylistLimit
+		}
+		endpoint := fmt.Sprintf(
+			"%s/videos?sort=-createdAt&start=%d&count=%d&nsfw=both",
+			target.metadataURL(), page*peerTubePlaylistPageSize, peerTubePlaylistPageSize,
+		)
+		var payload struct {
+			Data []struct {
+				ShortUUID string `json:"shortUUID"`
+				Name      string `json:"name"`
+				Video     *struct {
+					ShortUUID string `json:"shortUUID"`
+					Name      string `json:"name"`
+				} `json:"video"`
+			} `json:"data"`
+		}
+		if err := requestPeerTubeJSON(ctx, request.Transport, endpoint, &payload); err != nil {
+			return nil, err
+		}
+		if len(payload.Data) > peerTubePlaylistPageSize {
+			return nil, fmt.Errorf("%w: PeerTube playlist page overflow", ErrInvalidMetadata)
+		}
+		entries := make([]Entry, 0, len(payload.Data))
+		for _, item := range payload.Data {
+			id, itemTitle := item.ShortUUID, item.Name
+			if item.Video != nil {
+				if id == "" {
+					id = item.Video.ShortUUID
+				}
+				if itemTitle == "" {
+					itemTitle = item.Video.Name
+				}
+			}
+			if !peerTubeShortID.MatchString(id) {
+				return nil, fmt.Errorf("%w: invalid PeerTube playlist video id", ErrInvalidMetadata)
+			}
+			entries = append(entries, Entry{
+				URL:          "https://" + target.host + "/w/" + id,
+				ExtractorKey: "peertube",
+				ID:           id,
+				Title:        itemTitle,
+			})
+		}
+		return entries, nil
+	})
+	if err != nil {
+		return Extraction{}, err
+	}
+	return Playlist(value.NewInfo(info), sequence)
 }
 
 func validPeerTubeID(id string) bool {
