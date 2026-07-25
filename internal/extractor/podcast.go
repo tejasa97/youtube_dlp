@@ -43,21 +43,21 @@ var (
 )
 
 func podcastHTTPMedia(formatID, rawURL string) (*value.Object, bool) {
-	if !strictValidHostedHTTPURL(rawURL) {
+	cleaned, ok := cleanPodcastMediaURL(rawURL, sharedHostingMaxURLBytes)
+	if !ok {
 		return nil, false
 	}
-	parsed, _ := url.Parse(rawURL)
+	parsed, _ := url.Parse(cleaned)
 	ext := strings.ToLower(strings.TrimPrefix(pathExt(parsed.Path), "."))
 	if ext == "" {
 		ext = "mp3"
 	}
 	obj := value.NewObject(
 		value.Field{Key: "format_id", Value: value.String(formatID)},
-		value.Field{Key: "url", Value: value.String(rawURL)},
+		value.Field{Key: "url", Value: value.String(cleaned)},
 		value.Field{Key: "ext", Value: value.String(ext)},
-		value.Field{Key: "protocol", Value: value.String("http")},
+		value.Field{Key: "protocol", Value: value.String(strings.ToLower(parsed.Scheme))},
 		value.Field{Key: "vcodec", Value: value.String("none")},
-		value.Field{Key: "acodec", Value: value.String(ext)},
 	)
 	return obj, true
 }
@@ -73,11 +73,12 @@ func podcastMediaInfo(id, title, webpageURL, mediaURL string, extra ...value.Fie
 	if len(title) > podcastMaxTitle {
 		title = title[:podcastMaxTitle]
 	}
+	ext, _ := format.Lookup("ext").StringValue()
 	fields := []value.Field{
 		{Key: "id", Value: value.String(id)},
 		{Key: "title", Value: value.String(title)},
 		{Key: "webpage_url", Value: value.String(webpageURL)},
-		{Key: "ext", Value: value.String("mp3")},
+		{Key: "ext", Value: value.String(ext)},
 		{Key: "formats", Value: value.List(value.ObjectValue(format))},
 	}
 	fields = append(fields, extra...)
@@ -111,10 +112,16 @@ func (ACast) Extract(ctx context.Context, request Request) (Extraction, error) {
 	var payload struct {
 		ID          string        `json:"id"`
 		Title       string        `json:"title"`
+		EpisodeURL  string        `json:"episodeUrl"`
 		URL         string        `json:"url"`
 		Description string        `json:"description"`
+		Summary     string        `json:"summary"`
 		Image       string        `json:"image"`
+		PublishDate string        `json:"publishDate"`
 		Duration    hostingNumber `json:"duration"`
+		ContentSize hostingNumber `json:"contentLength"`
+		Season      hostingNumber `json:"season"`
+		Episode     hostingNumber `json:"episode"`
 		Show        struct {
 			Title  string `json:"title"`
 			Author string `json:"author"`
@@ -133,15 +140,34 @@ func (ACast) Extract(ctx context.Context, request Request) (Extraction, error) {
 	}
 	if payload.Show.Author != "" {
 		extra = append(extra, value.Field{Key: "uploader", Value: value.String(payload.Show.Author)})
+		extra = append(extra, value.Field{Key: "creator", Value: value.String(payload.Show.Author)})
 	}
-	if payload.Description != "" {
-		extra = append(extra, value.Field{Key: "description", Value: value.String(payload.Description)})
+	if description := firstNonEmpty(payload.Description, payload.Summary); description != "" {
+		extra = append(extra, value.Field{Key: "description", Value: value.String(description)})
 	}
 	if payload.Image != "" && strictValidHostedHTTPURL(payload.Image) {
 		extra = append(extra, value.Field{Key: "thumbnail", Value: value.String(payload.Image)})
 	}
 	if d := payload.Duration.int64(); d > 0 {
 		extra = append(extra, value.Field{Key: "duration", Value: value.Int(d)})
+	}
+	if timestamp := hostedUnixTimestamp(payload.PublishDate); timestamp > 0 {
+		extra = append(extra, value.Field{Key: "timestamp", Value: value.Int(timestamp)})
+	}
+	if size := payload.ContentSize.int64(); size > 0 {
+		extra = append(extra, value.Field{Key: "filesize", Value: value.Int(size)})
+	}
+	if season := payload.Season.int64(); season > 0 {
+		extra = append(extra, value.Field{Key: "season_number", Value: value.Int(season)})
+	}
+	if episodeNumber := payload.Episode.int64(); episodeNumber > 0 {
+		extra = append(extra, value.Field{Key: "episode_number", Value: value.Int(episodeNumber)})
+	}
+	if payload.EpisodeURL != "" {
+		extra = append(extra, value.Field{Key: "display_id", Value: value.String(payload.EpisodeURL)})
+	}
+	if payload.Title != "" {
+		extra = append(extra, value.Field{Key: "episode", Value: value.String(payload.Title)})
 	}
 	return podcastMediaInfo(id, payload.Title, "https://shows.acast.com/"+channel+"/episodes/"+episode, payload.URL, extra...)
 }
@@ -327,14 +353,24 @@ func extractSimplecastEpisode(ctx context.Context, transport Transport, id, webp
 	var payload struct {
 		ID           string        `json:"id"`
 		Title        string        `json:"title"`
+		Slug         string        `json:"slug"`
 		Description  string        `json:"description"`
 		Duration     hostingNumber `json:"duration"`
+		PublishedAt  string        `json:"published_at"`
+		Number       hostingNumber `json:"number"`
+		EpisodeURL   string        `json:"episode_url"`
 		ImageURL     string        `json:"image_url"`
 		EnclosureURL string        `json:"enclosure_url"`
 		AudioFileURL string        `json:"audio_file_url"`
 		AudioFile    struct {
-			URL string `json:"url"`
+			URL  string        `json:"url"`
+			Size hostingNumber `json:"size"`
 		} `json:"audio_file"`
+		AudioFileSize hostingNumber `json:"audio_file_size"`
+		Season        struct {
+			Number hostingNumber `json:"number"`
+			Href   string        `json:"href"`
+		} `json:"season"`
 		Podcast struct {
 			Title string `json:"title"`
 		} `json:"podcast"`
@@ -356,7 +392,62 @@ func extractSimplecastEpisode(ctx context.Context, transport Transport, id, webp
 	if d := payload.Duration.int64(); d > 0 {
 		extra = append(extra, value.Field{Key: "duration", Value: value.Int(d)})
 	}
-	return podcastMediaInfo(firstNonEmpty(payload.ID, id), payload.Title, webpageURL, mediaURL, extra...)
+	if payload.Slug != "" {
+		extra = append(extra, value.Field{Key: "display_id", Value: value.String(payload.Slug)})
+	}
+	if payload.Title != "" {
+		extra = append(extra, value.Field{Key: "episode", Value: value.String(payload.Title)})
+	}
+	if timestamp := hostedUnixTimestamp(payload.PublishedAt); timestamp > 0 {
+		extra = append(extra, value.Field{Key: "timestamp", Value: value.Int(timestamp)})
+	}
+	if number := payload.Number.int64(); number > 0 {
+		extra = append(extra, value.Field{Key: "episode_number", Value: value.Int(number)})
+	}
+	if number := payload.Season.Number.int64(); number > 0 {
+		extra = append(extra, value.Field{Key: "season_number", Value: value.Int(number)})
+	}
+	if seasonID := simplecastSeasonID(payload.Season.Href); seasonID != "" {
+		extra = append(extra, value.Field{Key: "season_id", Value: value.String(seasonID)})
+	}
+	size := payload.AudioFile.Size.int64()
+	if size <= 0 {
+		size = payload.AudioFileSize.int64()
+	}
+	if size > 0 {
+		extra = append(extra, value.Field{Key: "filesize", Value: value.Int(size)})
+	}
+	if canonical, channelURL, ok := simplecastEpisodeWebpage(payload.EpisodeURL); ok {
+		webpageURL = canonical
+		extra = append(extra, value.Field{Key: "channel_url", Value: value.String(channelURL)})
+	}
+	return podcastMediaInfo(firstNonEmpty(payload.ID, id), strings.TrimSpace(payload.Title), webpageURL, mediaURL, extra...)
+}
+
+func simplecastSeasonID(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "https" || strings.ToLower(parsed.Hostname()) != "api.simplecast.com" ||
+		parsed.User != nil || parsed.Port() != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return ""
+	}
+	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+	if len(parts) != 2 || parts[0] != "seasons" || !podcastUUID.MatchString(parts[1]) {
+		return ""
+	}
+	return strings.ToLower(parts[1])
+}
+
+func simplecastEpisodeWebpage(raw string) (canonical, channelURL string, ok bool) {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "", "", false
+	}
+	host, slug, ok := parseSimplecastEpisodeURL(parsed)
+	if !ok {
+		return "", "", false
+	}
+	channelURL = "https://" + host
+	return channelURL + "/episodes/" + slug, channelURL, true
 }
 
 // SimplecastEpisode resolves customer subdomain episode pages via search API.
@@ -454,26 +545,26 @@ func (SimplecastPodcast) Extract(ctx context.Context, request Request) (Extracti
 		body := []byte("url=" + url.QueryEscape(canonical))
 		headers := make(http.Header)
 		headers.Set("Content-Type", "application/x-www-form-urlencoded")
-		var podcast struct {
-			ID    string `json:"id"`
-			Title string `json:"title"`
+		var site struct {
+			Podcast struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+			} `json:"podcast"`
 		}
-		if err := hostedRequestJSON(ctx, request.Transport, http.MethodPost, "https://api.simplecast.com/podcasts/search", body, headers, &podcast); err != nil {
+		if err := hostedRequestJSON(ctx, request.Transport, http.MethodPost, "https://api.simplecast.com/sites/search", body, headers, &site); err != nil {
 			return nil, err
 		}
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		if !podcastUUID.MatchString(podcast.ID) {
+		if !podcastUUID.MatchString(site.Podcast.ID) {
 			return nil, fmt.Errorf("%w: missing Simplecast podcast id", ErrInvalidMetadata)
 		}
+		podcastID := strings.ToLower(site.Podcast.ID)
 		var episodes struct {
 			Collection []struct {
 				ID    string `json:"id"`
 				Title string `json:"title"`
 			} `json:"collection"`
 		}
-		listURL := "https://api.simplecast.com/podcasts/" + strings.ToLower(podcast.ID) + "/episodes"
+		listURL := "https://api.simplecast.com/podcasts/" + podcastID + "/episodes"
 		if err := hostedRequestJSON(ctx, request.Transport, http.MethodGet, listURL, nil, make(http.Header), &episodes); err != nil {
 			return nil, err
 		}
@@ -523,7 +614,7 @@ func parseSimplecastPodcastURL(parsed *url.URL) (string, bool) {
 		return "", false
 	}
 	path := strings.Trim(parsed.EscapedPath(), "/")
-	return host, path == ""
+	return host, path == "" || strings.EqualFold(path, "episodes")
 }
 
 // Megaphone extracts player.megaphone.fm episode JSON.

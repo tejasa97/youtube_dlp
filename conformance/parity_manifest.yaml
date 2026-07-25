@@ -1968,6 +1968,11 @@ capabilities:
       - internal/extractor.TestARDRoutingItemFormatsAndLiveState
       - internal/extractor.TestNRKRoutingProgrammeFormatsAndLive
       - internal/extractor.TestRiskFormatsIntegrateWithHLS_DASHAndDirectDownloaders
+      - internal/extractor.TestPodcastFamilySuccessAndPlaylists
+      - internal/extractor.TestCleanPodcastMediaURLPinnedCorpus
+      - internal/extractor.TestPodcastHTTPMediaReportsContainerAndProtocolHonestly
+      - internal/extractor.TestSimplecastMetadataURLGuards
+      - internal/extractor.FuzzCleanPodcastMediaURL
       - conformance/extractors/shared/PROVENANCE.md
       - conformance/extractors/public/PROVENANCE.md
       - conformance/extractors/risk/instagram/PROVENANCE.md
