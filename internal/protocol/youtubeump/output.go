@@ -72,9 +72,10 @@ func regularOrAbsent(path string) error {
 }
 
 type outputFile struct {
-	path      string
-	file      *os.File
-	published bool
+	path             string
+	file             *os.File
+	published        bool
+	persistOnFailure bool
 }
 
 func openOutputTemp(destination string) (*outputFile, error) {
@@ -93,7 +94,7 @@ func (output *outputFile) closeAndRemove() {
 		_ = output.file.Close()
 		output.file = nil
 	}
-	if !output.published {
+	if !output.published && !output.persistOnFailure {
 		_ = os.Remove(output.path)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -107,6 +108,9 @@ func (operation *operation) downloadSelections(ctx context.Context, selections [
 	if len(selections) != 2 || !mergeableSelections(selections) {
 		return "", 0, fmt.Errorf("%w: selected format set is not a video/audio merge", extractor.ErrUnsupported)
 	}
+	if sabrPairSelections(selections) {
+		return operation.downloadYouTubeSABRPair(ctx, selections, outputRoot, destination, sink)
+	}
 	temporaryRoot, err := os.MkdirTemp(outputRoot, ".ytdlp-formats-")
 	if err != nil {
 		return "", 0, fmt.Errorf("create selected-format workspace: %w", err)
@@ -141,6 +145,171 @@ func (operation *operation) downloadSelections(ctx context.Context, selections [
 		bytes = info.Size()
 	}
 	return destination, bytes, nil
+}
+
+func sabrPairSelections(selections []mediaformat.Selection) bool {
+	if len(selections) != 2 {
+		return false
+	}
+	for _, selection := range selections {
+		if !selection.YouTubeSABR && selection.Protocol != "youtube_sabr_ump" {
+			return false
+		}
+	}
+	return true
+}
+
+func sabrTrackDestination(finalDestination string, selection mediaformat.Selection) string {
+	track := selection.YouTubeSABRTrack
+	switch track {
+	case "audio", "video":
+	default:
+		track = "track"
+	}
+	itag := selection.YouTubeSABRItag
+	if itag < 0 {
+		itag = 0
+	}
+	return finalDestination + ".sabr." + track + "." + strconv.FormatInt(itag, 10) + "." + safeExtension(selection.Ext)
+}
+
+func (operation *operation) downloadYouTubeSABRPair(ctx context.Context, selections []mediaformat.Selection, outputRoot, destination string, sink events.Sink) (string, int64, error) {
+	if sink == nil {
+		sink = events.Nop()
+	}
+	serializedSink := &lockedEventSink{sink: sink}
+	childCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	type outcome struct {
+		index int
+		path  string
+		bytes int64
+		err   error
+	}
+	outcomes := make(chan outcome, len(selections))
+	for index, selection := range selections {
+		go func(index int, selection mediaformat.Selection) {
+			trackDestination := sabrTrackDestination(destination, selection)
+			if err := validateSABRArtifactPath(outputRoot, trackDestination); err != nil {
+				outcomes <- outcome{index: index, err: err}
+				return
+			}
+			identity, err := sabrResumeIdentity(selection)
+			if err != nil {
+				outcomes <- outcome{index: index, err: err}
+				return
+			}
+			if complete, size, err := sabrTrackComplete(trackDestination, identity); err != nil {
+				outcomes <- outcome{index: index, err: err}
+				return
+			} else if complete {
+				outcomes <- outcome{index: index, path: trackDestination, bytes: size}
+				return
+			}
+			result, downloadErr := downloadYouTubeSABRSelection(childCtx, operation, selection, outputRoot, trackDestination, serializedSink, true)
+			outcomes <- outcome{index: index, path: result.Path, bytes: result.Bytes, err: downloadErr}
+		}(index, selection)
+	}
+
+	paths := make([]string, len(selections))
+	var bytes int64
+	var firstErr error
+	for range selections {
+		result := <-outcomes
+		if result.err != nil && firstErr == nil {
+			firstErr = result.err
+			cancel()
+		}
+		if result.err == nil {
+			paths[result.index] = result.path
+			bytes += result.bytes
+		}
+	}
+	if firstErr != nil {
+		return "", 0, firstErr
+	}
+	video, audio := paths[0], paths[1]
+	if selections[1].VCodec != "" && selections[1].VCodec != "none" {
+		video, audio = paths[1], paths[0]
+	}
+	merge := operation.sabrMerge
+	if merge == nil {
+		merge = mergeSABRTracks
+	}
+	if err := merge(ctx, video, audio, destination, operation.request.Overwrite, serializedSink); err != nil {
+		return "", 0, err
+	}
+	cleanupSABRTrackArtifacts(paths...)
+	if info, err := os.Stat(destination); err == nil {
+		bytes = info.Size()
+	}
+	return destination, bytes, nil
+}
+
+func mergeSABRTracks(ctx context.Context, video, audio, destination string, overwrite bool, sink events.Sink) error {
+	tools, err := ffmpeg.Discover(ffmpeg.Config{})
+	if err != nil {
+		return err
+	}
+	return tools.Merge(ctx, video, audio, destination, overwrite, sink)
+}
+
+func sabrResumeIdentity(selection mediaformat.Selection) (youtubeump.ResumeIdentity, error) {
+	if err := youtubeump.ValidateResumeVideoID(selection.YouTubeSABRVideoID); err != nil {
+		return youtubeump.ResumeIdentity{}, err
+	}
+	ustreamer, err := base64.StdEncoding.DecodeString(selection.YouTubeSABRUstreamerConfig)
+	if err != nil {
+		return youtubeump.ResumeIdentity{}, fmt.Errorf("%w: invalid SABR ustreamer config", extractor.ErrInvalidMetadata)
+	}
+	trackKind := youtubeump.TrackKind(selection.YouTubeSABRTrack)
+	if trackKind != youtubeump.TrackAudio && trackKind != youtubeump.TrackVideo {
+		return youtubeump.ResumeIdentity{}, fmt.Errorf("%w: unknown SABR track", extractor.ErrInvalidMetadata)
+	}
+	format, err := youtubeump.FormatIDFromItag(selection.YouTubeSABRItag, selection.YouTubeSABRLastModified, selection.YouTubeSABRXTags)
+	if err != nil {
+		return youtubeump.ResumeIdentity{}, err
+	}
+	clientInfo, err := youtubeump.ClientInfoFromID(selection.YouTubeSABRClientID, selection.YouTubeSABRClientVersion)
+	if err != nil {
+		return youtubeump.ResumeIdentity{}, err
+	}
+	return youtubeump.IdentityFromConfig(youtubeump.Config{
+		UstreamerConfig: ustreamer,
+		Format:          format,
+		TrackKind:       trackKind,
+		ClientInfo:      clientInfo,
+		VideoID:         selection.YouTubeSABRVideoID,
+		DrcEnabled:      selection.YouTubeSABRDrc,
+		AudioTrackID:    selection.YouTubeSABRAudioTrackID,
+		DurationSec:     selection.YouTubeSABRDurationSec,
+	}), nil
+}
+
+func validateSABRArtifactPath(outputRoot, destination string) error {
+	partPath, statePath := youtubeump.CheckpointPaths(destination)
+	markerPath := youtubeump.CompletionMarkerPath(destination)
+	for _, path := range []string{destination, partPath, statePath, markerPath} {
+		if err := youtubeump.ValidateOutputPath(outputRoot, path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func sabrTrackComplete(destination string, identity youtubeump.ResumeIdentity) (bool, int64, error) {
+	size, ok, err := youtubeump.ValidateCompletedTrack(destination, identity)
+	return ok, size, err
+}
+
+func cleanupSABRTrackArtifacts(paths ...string) {
+	for _, path := range paths {
+		_ = os.Remove(path)
+		_ = os.Remove(path + ".part")
+		_ = os.Remove(path + ".part.json")
+		_ = os.Remove(youtubeump.CompletionMarkerPath(path))
+	}
 }
 
 func (operation *operation) downloadSelection(ctx context.Context, selected mediaformat.Selection, outputRoot, destination string, sink events.Sink) (string, int64, error) {
@@ -201,7 +370,7 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 		if options.External != nil {
 			return "", 0, fmt.Errorf("%w: external downloaders cannot consume generated YouTube SABR streams", extractor.ErrUnsupported)
 		}
-		result, err := downloadYouTubeSABRSelection(ctx, operation, selected, outputRoot, destination, sink)
+		result, err := downloadYouTubeSABRSelection(ctx, operation, selected, outputRoot, destination, sink, false)
 		if err != nil {
 			return "", 0, err
 		}
@@ -433,7 +602,7 @@ func safeExtension(extension string) string {
 	return extension
 }
 
-func downloadYouTubeSABRSelection(ctx context.Context, operation *operation, selected mediaformat.Selection, outputRoot, destination string, sink events.Sink) (youtubeump.Result, error) {
+func downloadYouTubeSABRSelection(ctx context.Context, operation *operation, selected mediaformat.Selection, outputRoot, destination string, sink events.Sink, retainCompletionMarker bool) (youtubeump.Result, error) {
 	ustreamer, err := base64.StdEncoding.DecodeString(selected.YouTubeSABRUstreamerConfig)
 	if err != nil {
 		return youtubeump.Result{}, fmt.Errorf("%w: invalid SABR ustreamer config", extractor.ErrInvalidMetadata)
@@ -456,23 +625,25 @@ func downloadYouTubeSABRSelection(ctx context.Context, operation *operation, sel
 	}
 	options := operation.request.Downloader
 	config := youtubeump.Config{
-		Headers:         selected.Headers,
-		UserAgent:       selected.YouTubeSABRUserAgent,
-		ServerURL:       selected.YouTubeSABRServerURL,
-		UstreamerConfig: ustreamer,
-		Format:          format,
-		TrackKind:       trackKind,
-		DrcEnabled:      selected.YouTubeSABRDrc,
-		AudioTrackID:    selected.YouTubeSABRAudioTrackID,
-		VisitorData:     selected.YouTubeSABRVisitorData,
-		POToken:         poToken,
-		DurationSec:     selected.YouTubeSABRDurationSec,
-		MaxBytes:        options.MaxBytes,
-		MaxRounds:       youtubeump.MaxRounds,
-		Attempts:        options.Attempts,
-		RetryBaseDelay:  options.RetryBaseDelay,
-		RetryMaxDelay:   options.RetryMaxDelay,
-		ClientInfo:      clientInfo,
+		Headers:                selected.Headers,
+		UserAgent:              selected.YouTubeSABRUserAgent,
+		ServerURL:              selected.YouTubeSABRServerURL,
+		UstreamerConfig:        ustreamer,
+		Format:                 format,
+		TrackKind:              trackKind,
+		DrcEnabled:             selected.YouTubeSABRDrc,
+		AudioTrackID:           selected.YouTubeSABRAudioTrackID,
+		VideoID:                selected.YouTubeSABRVideoID,
+		VisitorData:            selected.YouTubeSABRVisitorData,
+		POToken:                poToken,
+		DurationSec:            selected.YouTubeSABRDurationSec,
+		MaxBytes:               options.MaxBytes,
+		MaxRounds:              youtubeump.MaxRounds,
+		Attempts:               options.Attempts,
+		RetryBaseDelay:         options.RetryBaseDelay,
+		RetryMaxDelay:          options.RetryMaxDelay,
+		ClientInfo:             clientInfo,
+		RetainCompletionMarker: retainCompletionMarker,
 	}
 	return youtubeump.NewDownloader(operation.transport, config).Download(ctx, outputRoot, destination, operation.request.Overwrite, sink)
 }
