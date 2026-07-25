@@ -1,13 +1,16 @@
-# YouTube production-parity protocol blockers (C/G)
+# Retained YouTube SABR protocol boundaries
 
-Status: explicit fail-closed documentation for conditional/remaining protocol
-work after PR #88.
+Scope decision: 2026-07-25.
+
+Status: non-goal boundary record for the retained finite-VOD SABR
+implementation after PR #88. Nothing in this document is an active
+production-parity blocker or roadmap workstream.
 
 Pinned wire provenance remains LuanRT/googlevideo @
 `d2fa40d761034a286cf60ee033653307a1295b0c` and davidzeng0 `ump.md` notes already
 recorded in `docs/YOUTUBE_SABR_EVIDENCE.md`.
 
-## STREAM_PROTECTION_STATUS (Workstream C remainder)
+## STREAM_PROTECTION_STATUS
 
 | Item | Decision |
 |------|----------|
@@ -18,8 +21,9 @@ recorded in `docs/YOUTUBE_SABR_EVIDENCE.md`.
 | Forbidden claim | Retry, attestation mint, or silent skip |
 
 Do not invent fixtures that mark STREAM_PROTECTION recovery as compatible.
+Recovery remains an unsupported non-goal.
 
-## Live / post-live SABR (Workstream G)
+## Live / post-live SABR
 
 | Item | Decision |
 |------|----------|
@@ -28,10 +32,12 @@ Do not invent fixtures that mark STREAM_PROTECTION recovery as compatible.
 | Why live SABR not implemented | Request lifecycle, sequence windowing, missed-window recovery, and completion semantics for active live / post-live SABR are not justified from the pinned primary evidence set used for finite VOD. |
 | Adjacent non-SABR paths | Bounded live-from-start and finite post-live DVR remain separate product paths and are not SABR claims |
 
-Preserve fail-closed behavior. Synthetic live SABR framing alone must not flip compatibility.
+Preserve fail-closed behavior. Synthetic live SABR framing alone must not flip
+compatibility. Live/post-live SABR is not planned follow-up work.
 
 ## Evidence hygiene
 
 - Observed wire facts stay in `YOUTUBE_SABR_EVIDENCE.md`.
 - Deliberate Go hardening (identity binding, budgets, redaction) stays labeled as such.
-- This blocker file is the attributable stop-line for C/G until new pinned primary evidence is added.
+- This file records maintenance boundaries only. New evidence does not reopen
+  SABR scope without an explicit project decision.

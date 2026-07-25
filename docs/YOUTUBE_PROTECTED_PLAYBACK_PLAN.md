@@ -2,9 +2,10 @@
 
 Status: Wave 1 and the caption and bounded WEB format-recovery portions of
 Wave 3, including bounded sidecar conversion, are implemented and locally
-verified. Wave 2 finite-VOD SABR resume/recovery/refresh is implemented; live
-SABR and STREAM_PROTECTION recovery remain fail-closed
-(`docs/YOUTUBE_PROTOCOL_BLOCKERS.md`). Wave 3 now includes bounded anonymous
+verified. The former Wave 2 finite-VOD SABR implementation is retained as an
+experimental extension but is no longer a parity goal or roadmap workstream.
+No live, post-live, full-client, or STREAM_PROTECTION SABR expansion is
+planned. Wave 3 now includes bounded anonymous
 `web_safari`/`ios`/`mweb` recovery plus authenticated `tv_downgraded`,
 `web_safari`, and age-gated/premium `web_creator` profiles (auth-required;
 Premium only changes GVS PO-token requirements) with exact identity isolation. Wave 4 now
@@ -30,9 +31,20 @@ Implementation status: complete.
   recovered media URLs and manifests;
 - retain the existing no-provider behavior and make provider use explicit.
 
-## Wave 2 — direct SABR/UMP
+## Retained extension — direct SABR/UMP
 
-Implementation status: partial — bounded finite non-live VOD slice with credential-isolated POST transport, multiplexed UMP reconstruction (selected track only), buffered-range progression, transactional `NEXT_REQUEST_POLICY` playback-cookie propagation with per-downloader cancellation-safe backoff, transactional server-driven `SABR_REDIRECT` / `SABR_CONTEXT_UPDATE` / `SABR_CONTEXT_SENDING_POLICY` loops (canonical loop key separate from exact signed POST URL, ≤8 redirects, response-wide sending-policy op budget, bounded active/orphan IDs, sorted StreamerContext field 5/6 marshalling, response-transactional commit with retry-body isolation), attributable `SABR_ERROR` recovery (≤3) and `RELOAD_PLAYER_RESPONSE` reload callback (≤2) with identity-bound signed extraction refresh, `END_OF_TRACK` or strict duration-based completion (media replay/dedup on failed rounds is separate from control commit), crash-safe resumable `.part`/checkpoint persistence for committed segments (required bounded video id; strict single-object JSON; no signed URLs/credentials in checkpoints; fresh extraction URL/PO-token reacquisition on restart; pair sidecar completion is marker-then-publish-then-drop-checkpoint while standalone finals leave only media), safe filesystem publish, PO-token resolution at download time with expiry-skew/single-flight/forced-episode budgets (not in extraction JSON or `playback_cookie`), and product dispatch. Live SABR, `STREAM_PROTECTION_STATUS` recovery, and full client parity remain unsupported.
+The former Wave 2 delivered a bounded finite non-live VOD implementation with
+credential-isolated transport, UMP reconstruction, transactional control
+directives, bounded recovery, crash-safe resume, signed extraction refresh,
+and product dispatch. Its implementation, tests, fixtures, and technical
+evidence remain in the repository.
+
+SABR is not part of the practical yt-dlp parity target. It does not contribute
+to roadmap completion, release gates, capability estimates, or planned
+follow-up work. Live/post-live SABR, `STREAM_PROTECTION_STATUS` recovery, and
+full client parity remain fail-closed non-goals. Maintenance of the retained
+finite-VOD slice is limited to security and correctness regressions. The
+unsupported boundary is recorded in `docs/YOUTUBE_SABR_BOUNDARIES.md`.
 
 ## Wave 3 — captions and authenticated clients
 

@@ -69,4 +69,6 @@ and do not depend on the reference checkout.
   not have a process-restart resume contract.
 - Audio and video tracks download concurrently, but segments within one track
   are fetched serially.
-- Direct SABR/UMP and broad authenticated Innertube coverage remain pending.
+- SABR/UMP is a separate retained experimental extension and is outside this
+  capability and the project roadmap. Broader authenticated Innertube coverage
+  remains a separate compatibility gap.

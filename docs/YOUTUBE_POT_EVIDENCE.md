@@ -42,9 +42,10 @@ promptly on cancellation; when the last waiter leaves, shared work is canceled
 - Go strings cannot guarantee zeroization. Tokens are therefore kept out of
   errors and events, but exist in provider responses, request URLs, and cache
   entries as required for playback.
-- Direct SABR/UMP, authenticated Innertube breadth, and renderer breadth remain
-  later waves. The `subs` context is now consumed by the bounded caption
-  renderer documented in `YOUTUBE_CAPTIONS_EVIDENCE.md`.
+- SABR/UMP is a retained experimental extension outside the parity target and
+  roadmap. Authenticated Innertube and renderer breadth remain separate
+  compatibility work. The `subs` context is now consumed by the bounded
+  caption renderer documented in `YOUTUBE_CAPTIONS_EVIDENCE.md`.
 
 Deterministic fixtures use inert synthetic tokens and `.example` media URLs.
 No live token, credential, visitor identity, or captured production response is

@@ -239,8 +239,10 @@ The following limitations are intentional and remain:
   with `web_creator` on Premium defaults or when age-gated playability is
   attributable (`web_creator` GVS tokens required unless Premium). Opt-in
   comments and browse/search continuations use the same account-bound,
-  redirect-disabled WEB session. Live/post-live SABR and
-  `STREAM_PROTECTION_STATUS` remain fail-closed;
+  redirect-disabled WEB session. The retained bounded finite-VOD SABR
+  implementation is experimental and outside the supported compatibility
+  corpus and roadmap; live/post-live SABR and `STREAM_PROTECTION_STATUS`
+  remain fail-closed non-goals;
 - comment extraction does not synthesize estimated timestamps or expose
   YouTube's approximate count before retrieval, and supports only the
   explicitly tested legacy and modern renderer families;
