@@ -297,12 +297,13 @@ func youtubeMusicRendererEntry(renderer *value.Object, policy youtubeRendererPol
 		}
 		return youtubeTabPlaylistResult(browseID[2:], title), true
 	}
-	// Music browse IDs (MPRE..., etc.) have no registered consumer. Emitting
-	// them would make default playlist expansion select the generic YouTube
-	// extractor and fail on the reserved /browse route. Omit until a bounded
-	// Music browse extractor exists.
-	if policy.allows(youtubeRendererMusicBrowse) && validYouTubeMusicBrowseID(browseID) {
-		return Entry{}, false
+	// Emit only registered Music browse families that youtube_music_browse
+	// consumes. Unregistered prefixes stay omitted so default playlist
+	// expansion cannot select the generic YouTube extractor.
+	if policy.allows(youtubeRendererMusicBrowse) {
+		if _, ok := youtubeMusicBrowseFamily(browseID); ok {
+			return youtubeMusicBrowseResult(browseID, title), true
+		}
 	}
 	return Entry{}, false
 }

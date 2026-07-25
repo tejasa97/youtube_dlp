@@ -2,7 +2,8 @@ package extractor
 
 // Bounded WEB_REMIX Music search. Songs/videos remain playable watch URLs;
 // albums, artists, playlists, and podcasts are emitted as typed URL results
-// without hydrating nested children. WEB and WEB_REMIX credentials never mix.
+// for registered consumers without hydrating nested children. WEB and
+// WEB_REMIX credentials never mix; Music continuations are cookie-isolated.
 
 import (
 	"context"
@@ -206,7 +207,7 @@ func fetchYouTubeMusicSearchContinuation(ctx context.Context, transport Transpor
 	headers.Set("X-Youtube-Client-Name", "67")
 	headers.Set("X-Youtube-Client-Version", version)
 	var response json.RawMessage
-	if err := RequestJSON(ctx, transport, http.MethodPost, endpoint.String(), body, headers, &response); err != nil {
+	if err := RequestJSONWithoutCookies(ctx, transport, http.MethodPost, endpoint.String(), body, headers, &response); err != nil {
 		return nil, "", categorizeYouTubeMusicSearchError(err)
 	}
 	page, err := parseYouTubeMusicSearchData(response, section)
@@ -221,6 +222,9 @@ func fetchYouTubeMusicSearchContinuation(ctx context.Context, transport Transpor
 
 func categorizeYouTubeMusicSearchError(err error) error {
 	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	if errors.Is(err, ErrTransportIsolation) {
 		return err
 	}
 	var s *HTTPStatusError
