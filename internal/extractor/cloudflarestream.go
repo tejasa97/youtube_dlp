@@ -20,8 +20,9 @@ var (
 )
 
 // CloudflareStream extracts public Stream watch, iframe, embed-script, and
-// manifest URLs. Signed JWT media IDs are reduced to the JWT subject before
-// constructing HLS/DASH manifests. DRM and account APIs are out of scope.
+// manifest URLs. Signed JWT delivery tokens stay in manifest/thumbnail URLs;
+// only the returned metadata id is reduced to the JWT subject. DRM and account
+// APIs are out of scope.
 type CloudflareStream struct{}
 
 func NewCloudflareStream() CloudflareStream { return CloudflareStream{} }
@@ -51,6 +52,9 @@ func (CloudflareStream) Extract(ctx context.Context, request Request) (Extractio
 }
 
 type cloudflareStreamTarget struct {
+	// deliveryID is the raw hex id or signed JWT used in Stream media URLs.
+	deliveryID string
+	// videoID is the public metadata id (JWT sub when deliveryID is signed).
 	videoID   string
 	domain    string
 	canonical string
@@ -65,7 +69,7 @@ func parseCloudflareStreamURL(parsed *url.URL) (cloudflareStreamTarget, bool) {
 	if !ok {
 		return cloudflareStreamTarget{}, false
 	}
-	videoID, ok := cloudflareStreamVideoID(parsed)
+	deliveryID, videoID, ok := cloudflareStreamIDs(parsed)
 	if !ok {
 		return cloudflareStreamTarget{}, false
 	}
@@ -74,9 +78,10 @@ func parseCloudflareStreamURL(parsed *url.URL) (cloudflareStreamTarget, bool) {
 		canonicalDomain = "cloudflarestream.com"
 	}
 	return cloudflareStreamTarget{
-		videoID:   videoID,
-		domain:    canonicalDomain,
-		canonical: "https://" + canonicalDomain + "/" + videoID,
+		deliveryID: deliveryID,
+		videoID:    videoID,
+		domain:     canonicalDomain,
+		canonical:  "https://" + canonicalDomain + "/" + deliveryID,
 	}, true
 }
 
@@ -95,56 +100,58 @@ func cloudflareStreamDomain(host string) (string, bool) {
 	return "", false
 }
 
-func cloudflareStreamVideoID(parsed *url.URL) (string, bool) {
+func cloudflareStreamIDs(parsed *url.URL) (deliveryID, videoID string, ok bool) {
 	if queryID := strings.TrimSpace(parsed.Query().Get("video")); queryID != "" {
 		return normalizeCloudflareStreamID(queryID)
 	}
 	segments := strings.Split(strings.Trim(parsed.Path, "/"), "/")
 	if len(segments) == 0 || segments[0] == "" || segments[0] == "embed" || segments[0] == "manifest" {
-		return "", false
+		return "", "", false
 	}
 	return normalizeCloudflareStreamID(segments[0])
 }
 
-func normalizeCloudflareStreamID(raw string) (string, bool) {
+func normalizeCloudflareStreamID(raw string) (deliveryID, videoID string, ok bool) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || len(raw) > cloudflareStreamMaxIDBytes || strings.ContainsAny(raw, " \x00\r\n\t/?#") {
-		return "", false
+		return "", "", false
 	}
 	if cloudflareStreamHexID.MatchString(raw) {
-		return raw, true
+		return raw, raw, true
 	}
 	if !cloudflareStreamJWT.MatchString(raw) {
-		return "", false
+		return "", "", false
 	}
 	parts := strings.Split(raw, ".")
 	if len(parts) != 3 {
-		return "", false
+		return "", "", false
 	}
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil || len(payload) == 0 || int64(len(payload)) > maxExtractorJSONBytes {
-		return "", false
+		return "", "", false
 	}
 	var claims struct {
 		Sub string `json:"sub"`
 	}
 	if err := json.Unmarshal(payload, &claims); err != nil {
-		return "", false
+		return "", "", false
 	}
 	sub := strings.TrimSpace(claims.Sub)
 	if !cloudflareStreamHexID.MatchString(sub) {
-		return "", false
+		return "", "", false
 	}
-	return sub, true
+	return raw, sub, true
 }
 
 func normalizeCloudflareStream(target cloudflareStreamTarget) (Extraction, error) {
-	base := "https://" + target.domain + "/" + target.videoID + "/"
+	// Match the pinned reference: media URLs keep the original delivery token;
+	// only metadata id/title use the public subject id.
+	base := "https://" + target.domain + "/" + target.deliveryID + "/"
 	formats := make([]value.Value, 0, 2)
-	if format, ok := hostedURLFormat("hls", base+"manifest/video.m3u8"); ok {
+	if format, ok := strictHostedURLFormat("hls", base+"manifest/video.m3u8"); ok {
 		formats = append(formats, value.ObjectValue(format))
 	}
-	if format, ok := hostedURLFormat("dash", base+"manifest/video.mpd"); ok {
+	if format, ok := strictHostedURLFormat("dash", base+"manifest/video.mpd"); ok {
 		formats = append(formats, value.ObjectValue(format))
 	}
 	if len(formats) == 0 {

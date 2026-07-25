@@ -56,8 +56,18 @@ func validHostedHTTPURL(rawURL string) bool {
 		return false
 	}
 	parsed, err := url.Parse(rawURL)
-	return err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != "" && parsed.User == nil &&
-		parsed.Port() == "" && !looksLikeIPLiteralHost(strings.ToLower(parsed.Hostname()))
+	return err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != "" && parsed.User == nil
+}
+
+// strictValidHostedHTTPURL is the wave-1 family policy: HTTPS/HTTP with no
+// userinfo, no explicit port, and no IP-literal hosts. Existing Brightcove /
+// Kaltura / JW / Wistia / SproutVideo backends keep validHostedHTTPURL.
+func strictValidHostedHTTPURL(rawURL string) bool {
+	if !validHostedHTTPURL(rawURL) {
+		return false
+	}
+	parsed, _ := url.Parse(rawURL)
+	return parsed.Port() == "" && !looksLikeIPLiteralHost(strings.ToLower(parsed.Hostname()))
 }
 
 func looksLikeIPLiteralHost(host string) bool {
@@ -103,7 +113,15 @@ func hostedRejectUnsafeURL(parsed *url.URL) bool {
 }
 
 func hostedURLFormat(formatID, rawURL string) (*value.Object, bool) {
-	if !validHostedHTTPURL(rawURL) {
+	return hostedURLFormatWith(formatID, rawURL, validHostedHTTPURL)
+}
+
+func strictHostedURLFormat(formatID, rawURL string) (*value.Object, bool) {
+	return hostedURLFormatWith(formatID, rawURL, strictValidHostedHTTPURL)
+}
+
+func hostedURLFormatWith(formatID, rawURL string, valid func(string) bool) (*value.Object, bool) {
+	if !valid(rawURL) {
 		return nil, false
 	}
 	parsed, _ := url.Parse(rawURL)

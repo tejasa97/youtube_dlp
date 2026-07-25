@@ -148,7 +148,7 @@ func normalizeWeatherCom(ctx context.Context, transport Transport, response map[
 	for variantID, raw := range variants {
 		rawURL, _ := raw.(string)
 		rawURL = strings.TrimSpace(rawURL)
-		if rawURL == "" || !validHostedHTTPURL(rawURL) {
+		if rawURL == "" || !strictValidHostedHTTPURL(rawURL) {
 			continue
 		}
 		if _, exists := seen[rawURL]; exists {
@@ -166,19 +166,16 @@ func normalizeWeatherCom(ctx context.Context, transport Transport, response map[
 		if NewThePlatform().Suitable(parsed) {
 			targetTP, ok := parseThePlatformURL(parsed)
 			if !ok {
-				continue
+				return Extraction{}, fmt.Errorf("%w: invalid Weather.com ThePlatform variant", ErrInvalidMetadata)
 			}
 			tpFormats, _, err := extractThePlatformSMIL(ctx, transport, targetTP)
 			if err != nil {
-				if err == ErrRegionRestricted || err == ErrAuthentication || err == ErrUnavailable {
-					return Extraction{}, err
-				}
-				continue
+				return Extraction{}, err
 			}
 			formats = append(formats, tpFormats...)
 			continue
 		}
-		format, ok := hostedURLFormat(variantID, rawURL)
+		format, ok := strictHostedURLFormat(variantID, rawURL)
 		if ok {
 			formats = append(formats, value.ObjectValue(format))
 		}
@@ -200,7 +197,7 @@ func normalizeWeatherCom(ctx context.Context, transport Transport, response map[
 	if provider, ok := asset["providername"].(string); ok {
 		hostedSetString(info, "uploader", provider)
 	}
-	if cc, ok := asset["cc_url"].(string); ok && validHostedHTTPURL(cc) {
+	if cc, ok := asset["cc_url"].(string); ok && strictValidHostedHTTPURL(cc) {
 		info.Set("subtitles", value.ObjectValue(value.NewObject(
 			value.Field{Key: target.locale[:2], Value: value.List(value.ObjectValue(value.NewObject(
 				value.Field{Key: "url", Value: value.String(cc)},

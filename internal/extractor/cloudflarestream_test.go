@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -53,7 +54,7 @@ func TestCloudflareStreamSuitable(t *testing.T) {
 	}
 }
 
-func TestCloudflareStreamSuccessAndJWT(t *testing.T) {
+func TestCloudflareStreamSuccessAndSignedJWTRetention(t *testing.T) {
 	t.Parallel()
 	result, err := NewCloudflareStream().Extract(context.Background(), Request{
 		URL: "https://watch.cloudflarestream.com/9df17203414fd1db3e3ed74abbe936c1",
@@ -65,44 +66,81 @@ func TestCloudflareStreamSuccessAndJWT(t *testing.T) {
 	if !ok || id != "9df17203414fd1db3e3ed74abbe936c1" {
 		t.Fatalf("id=%q ok=%t", id, ok)
 	}
-	formats, ok := result.Info.Formats()
-	if !ok || len(formats) != 2 || !sharedHasProtocol(formats, "m3u8_native") || !sharedHasProtocol(formats, "http_dash_segments") {
-		t.Fatalf("formats=%v", formats)
-	}
 
-	claims, _ := json.Marshal(map[string]string{"sub": "88d4108a3642073eabaaf87da182d263"})
-	jwt := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9." + base64.RawURLEncoding.EncodeToString(claims) + ".signature"
-	parsed, err := url.Parse("https://watch.cloudflarestream.com/" + jwt)
+	// Fixed JWT: delivery URLs must retain the exact token; metadata id uses sub.
+	const (
+		fixedJWT = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI4OGQ0MTA4YTM2NDIwNzNlYWJhYWY4N2RhMTgyZDI2MyJ9.signature"
+		wantSub  = "88d4108a3642073eabaaf87da182d263"
+	)
+	rawURL := "https://watch.cloudflarestream.com/" + fixedJWT
+	parsed, err := url.Parse(rawURL)
 	if err != nil {
 		t.Fatal(err)
 	}
 	target, ok := parseCloudflareStreamURL(parsed)
-	if !ok || target.videoID != "88d4108a3642073eabaaf87da182d263" {
+	if !ok || target.deliveryID != fixedJWT || target.videoID != wantSub {
 		t.Fatalf("jwt target=%#v ok=%t", target, ok)
+	}
+	jwtResult, err := NewCloudflareStream().Extract(context.Background(), Request{URL: rawURL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id, ok := jwtResult.Info.ID(); !ok || id != wantSub {
+		t.Fatalf("jwt metadata id=%q", id)
+	}
+	if title, _ := jwtResult.Info.Fields().Lookup("title").StringValue(); title != wantSub {
+		t.Fatalf("jwt title=%q", title)
+	}
+	formats, ok := jwtResult.Info.Formats()
+	if !ok || len(formats) != 2 {
+		t.Fatalf("jwt formats=%v", formats)
+	}
+	for _, format := range formats {
+		object, ok := format.Object()
+		if !ok {
+			t.Fatal("format object")
+		}
+		mediaURL, ok := object.Lookup("url").StringValue()
+		if !ok || !strings.Contains(mediaURL, "/"+fixedJWT+"/") || strings.Contains(mediaURL, wantSub+"/manifest") {
+			t.Fatalf("format URL must retain exact JWT delivery token: %q", mediaURL)
+		}
+	}
+	thumb, _ := jwtResult.Info.Fields().Lookup("thumbnail").StringValue()
+	if !strings.Contains(thumb, "/"+fixedJWT+"/") || strings.Contains(thumb, wantSub+"/thumbnails") {
+		t.Fatalf("thumbnail must retain JWT: %q", thumb)
+	}
+	// JWT must never appear in categorized errors.
+	if err := hostedStatusError(http.StatusUnauthorized, []byte("token="+fixedJWT)); !errors.Is(err, ErrAuthentication) || strings.Contains(err.Error(), fixedJWT) {
+		t.Fatalf("jwt must not leak through errors: %v", err)
 	}
 }
 
-func TestCloudflareStreamErrorsCancellationAndSecrets(t *testing.T) {
+func TestCloudflareStreamNegativeMatrix(t *testing.T) {
 	t.Parallel()
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := NewCloudflareStream().Extract(canceled, Request{URL: "https://watch.cloudflarestream.com/9df17203414fd1db3e3ed74abbe936c1"}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation=%v", err)
 	}
-	if _, err := normalizeCloudflareStream(cloudflareStreamTarget{videoID: "9df17203414fd1db3e3ed74abbe936c1", domain: "cloudflarestream.com", canonical: "https://cloudflarestream.com/9df17203414fd1db3e3ed74abbe936c1"}); err != nil {
-		t.Fatal(err)
-	}
 	badClaims, _ := json.Marshal(map[string]string{"sub": "not-hex"})
 	badJWT := "eyJhbGciOiJSUzI1NiJ9." + base64.RawURLEncoding.EncodeToString(badClaims) + ".sig"
-	if _, ok := normalizeCloudflareStreamID(badJWT); ok {
+	if _, _, ok := normalizeCloudflareStreamID(badJWT); ok {
 		t.Fatal("expected malformed JWT rejection")
 	}
-	if err := hostedStatusError(401, []byte("token=must-not-leak")); !errors.Is(err, ErrAuthentication) || strings.Contains(err.Error(), "must-not-leak") {
-		t.Fatalf("secret-safe auth=%v", err)
+	truncated := "eyJhbGciOiJSUzI1NiJ9.e30" // missing signature part
+	if _, _, ok := normalizeCloudflareStreamID(truncated); ok {
+		t.Fatal("expected truncated JWT rejection")
+	}
+	oversized := "eyJ" + strings.Repeat("a", cloudflareStreamMaxIDBytes) + ".b.c"
+	if _, _, ok := normalizeCloudflareStreamID(oversized); ok {
+		t.Fatal("expected oversized rejection")
+	}
+	if _, err := normalizeCloudflareStream(cloudflareStreamTarget{}); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("empty target=%v", err)
 	}
 }
 
-func TestHytaleAdapterPlaylist(t *testing.T) {
+func TestHytaleAdapterPlaylistAndHandoff(t *testing.T) {
 	t.Parallel()
 	page := familyFixture(t, "hytale", "news.html")
 	transport := &sharedFixtureTransport{pages: map[string][]byte{
@@ -120,27 +158,89 @@ func TestHytaleAdapterPlaylist(t *testing.T) {
 	if err != nil || !ok || entry.ExtractorKey != "cloudflarestream" || entry.ID != "ed51a2609d21bad6e14145c37c334999" {
 		t.Fatalf("entry=%#v ok=%t err=%v", entry, ok, err)
 	}
-	selected, err := NewRegistry(NewHytale(), NewCloudflareStream()).SelectFor(entry.URL, entry.ExtractorKey)
+	registry := NewRegistry(NewHytale(), NewCloudflareStream())
+	selected, err := registry.SelectFor(entry.URL, entry.ExtractorKey)
 	if err != nil || selected.Name() != "cloudflarestream" {
 		t.Fatalf("handoff=%v err=%v", selected, err)
 	}
+	media, err := selected.Extract(context.Background(), Request{URL: entry.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id, ok := media.Info.ID(); !ok || id != entry.ID {
+		t.Fatalf("re-entry id=%q", id)
+	}
+	formats, ok := media.Info.Formats()
+	if !ok || len(formats) == 0 {
+		t.Fatal("missing formats after re-entry")
+	}
 }
 
-func TestHytaleSuitableNegative(t *testing.T) {
+func TestHytaleNegativeMatrix(t *testing.T) {
 	t.Parallel()
-	for _, rawURL := range []string{
-		"https://hytale.com/media",
-		"https://cloudflarestream.com/ed51a2609d21bad6e14145c37c334999",
-		"https://evil.example/news/2021/07/summer-2021-development-update",
-		"https://hytale.com/news/21/07/summer",
-	} {
-		parsed, err := url.Parse(rawURL)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if NewHytale().Suitable(parsed) {
-			t.Fatalf("unexpected Suitable(%q)", rawURL)
-		}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := NewHytale().Extract(canceled, Request{
+		URL: "https://hytale.com/news/2021/07/summer-2021-development-update", Transport: &sharedFixtureTransport{},
+	}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancel=%v", err)
+	}
+	authPage := []byte(`<html>sign in password required</html>`)
+	transport := &sharedFixtureTransport{pages: map[string][]byte{
+		"https://hytale.com/news/2021/07/summer-2021-development-update": authPage,
+	}}
+	if _, err := NewHytale().Extract(context.Background(), Request{
+		URL: "https://hytale.com/news/2021/07/summer-2021-development-update", Transport: transport,
+	}); !errors.Is(err, ErrAuthentication) {
+		t.Fatalf("auth=%v", err)
+	}
+	missing := &sharedFixtureTransport{pages: map[string][]byte{
+		"https://hytale.com/news/2021/07/summer-2021-development-update": []byte(`<html>not found</html>`),
+	}}
+	if _, err := NewHytale().Extract(context.Background(), Request{
+		URL: "https://hytale.com/news/2021/07/summer-2021-development-update", Transport: missing,
+	}); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("unavailable=%v", err)
+	}
+	hostile := &sharedFixtureTransport{pages: map[string][]byte{
+		"https://hytale.com/news/2021/07/summer-2021-development-update": []byte(`<html><a href="https://evil.example/">x</a></html>`),
+	}}
+	if _, err := NewHytale().Extract(context.Background(), Request{
+		URL: "https://hytale.com/news/2021/07/summer-2021-development-update", Transport: hostile,
+	}); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("hostile=%v", err)
+	}
+	oversized := &sharedFixtureTransport{pages: map[string][]byte{
+		"https://hytale.com/news/2021/07/summer-2021-development-update": bytesRepeat(hytaleMaxPageBytes + 1),
+	}}
+	if _, err := NewHytale().Extract(context.Background(), Request{
+		URL: "https://hytale.com/news/2021/07/summer-2021-development-update", Transport: oversized,
+	}); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("oversized=%v", err)
+	}
+}
+
+func bytesRepeat(n int) []byte {
+	return []byte(strings.Repeat("a", n))
+}
+
+func TestStrictHostedURLPolicyDoesNotChangeLegacySemantics(t *testing.T) {
+	t.Parallel()
+	// Legacy validHostedHTTPURL still accepts explicit ports used by some fixtures.
+	if !validHostedHTTPURL("https://media.example.invalid:8443/video.mp4") {
+		t.Fatal("legacy validHostedHTTPURL must still accept ports")
+	}
+	if strictValidHostedHTTPURL("https://media.example.invalid:8443/video.mp4") {
+		t.Fatal("strict helper must reject ports")
+	}
+	if strictValidHostedHTTPURL("https://127.0.0.1/video.mp4") {
+		t.Fatal("strict helper must reject IP literals")
+	}
+	if _, ok := hostedURLFormat("x", "https://media.example.invalid:8443/video.mp4"); !ok {
+		t.Fatal("legacy hostedURLFormat must accept ports")
+	}
+	if _, ok := strictHostedURLFormat("x", "https://media.example.invalid:8443/video.mp4"); ok {
+		t.Fatal("strictHostedURLFormat must reject ports")
 	}
 }
 

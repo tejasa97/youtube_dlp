@@ -26,8 +26,8 @@ var (
 )
 
 // Hytale is a thin Cloudflare Stream adapter for documented Hytale news URLs.
-// It emits ordered lazy URL results to the Cloudflare Stream backend and never
-// claims arbitrary cloudflarestream.com hosts itself.
+// It emits ordered StaticEntries URL results to the Cloudflare Stream backend
+// and never claims arbitrary cloudflarestream.com hosts itself.
 type Hytale struct{}
 
 func NewHytale() Hytale     { return Hytale{} }

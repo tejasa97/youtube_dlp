@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path"
 	"regexp"
 	"strings"
 
@@ -230,14 +231,8 @@ type thePlatformSMIL struct {
 			Video []struct {
 				Src    string `xml:"src,attr"`
 				Type   string `xml:"type,attr"`
-				System struct {
-					Bitrate string `xml:"bitrate,attr"`
-					Width   string `xml:"width,attr"`
-					Height  string `xml:"height,attr"`
-				} `xml:"system-bitrate"` // ignored; attrs live on video
-				Bitrate string `xml:"systemBitrate,attr"`
-				Width   string `xml:"width,attr"`
-				Height  string `xml:"height,attr"`
+				Width  string `xml:"width,attr"`
+				Height string `xml:"height,attr"`
 			} `xml:"video"`
 			Audio []struct {
 				Src string `xml:"src,attr"`
@@ -271,9 +266,22 @@ func parseThePlatformSMIL(data []byte) ([]value.Value, *value.Object, error) {
 	}
 	var doc thePlatformSMIL
 	decoder := xml.NewDecoder(bytes.NewReader(data))
-	decoder.Strict = false
+	decoder.Strict = true
 	if err := decoder.Decode(&doc); err != nil {
 		return nil, nil, fmt.Errorf("%w: invalid ThePlatform SMIL", ErrInvalidMetadata)
+	}
+	for {
+		tok, err := decoder.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, nil, fmt.Errorf("%w: invalid ThePlatform SMIL", ErrInvalidMetadata)
+		}
+		if cd, ok := tok.(xml.CharData); ok && len(bytes.TrimSpace(cd)) == 0 {
+			continue
+		}
+		return nil, nil, fmt.Errorf("%w: trailing ThePlatform SMIL", ErrInvalidMetadata)
 	}
 	for _, ref := range doc.Body.Ref {
 		if strings.Contains(strings.ToLower(ref.Src), "errorfiles/unavailable") {
@@ -287,10 +295,10 @@ func parseThePlatformSMIL(data []byte) ([]value.Value, *value.Object, error) {
 	}
 	formats := make([]value.Value, 0, 8)
 	add := func(formatID, rawURL string) {
-		if len(formats) >= thePlatformMaxFormats || !validHostedHTTPURL(rawURL) {
+		if len(formats) >= thePlatformMaxFormats || !strictValidHostedHTTPURL(rawURL) {
 			return
 		}
-		format, ok := hostedURLFormat(formatID, rawURL)
+		format, ok := strictHostedURLFormat(formatID, rawURL)
 		if ok {
 			formats = append(formats, value.ObjectValue(format))
 		}
@@ -323,7 +331,7 @@ func parseThePlatformSMIL(data []byte) ([]value.Value, *value.Object, error) {
 	captionCount := 0
 	for _, sw := range doc.Body.Switch {
 		for _, text := range sw.TextStream {
-			if captionCount >= thePlatformMaxCaptions || !validHostedHTTPURL(text.Src) {
+			if captionCount >= thePlatformMaxCaptions || !strictValidHostedHTTPURL(text.Src) {
 				continue
 			}
 			lang := strings.TrimSpace(text.Lang)
@@ -387,7 +395,7 @@ func normalizeThePlatform(target thePlatformTarget, formats []value.Value, smilS
 	)
 	hostedSetString(info, "description", meta.Description)
 	hostedSetString(info, "uploader", meta.BillingCode)
-	if validHostedHTTPURL(meta.DefaultThumbnailURL) {
+	if strictValidHostedHTTPURL(meta.DefaultThumbnailURL) {
 		hostedSetString(info, "thumbnail", meta.DefaultThumbnailURL)
 	}
 	if meta.Duration > 0 {
@@ -406,7 +414,7 @@ func normalizeThePlatform(target thePlatformTarget, formats []value.Value, smilS
 		return Extraction{}, fmt.Errorf("%w: ThePlatform caption limit", ErrInvalidMetadata)
 	}
 	for _, caption := range meta.Captions {
-		if !validHostedHTTPURL(caption.Src) {
+		if !strictValidHostedHTTPURL(caption.Src) {
 			continue
 		}
 		lang := strings.TrimSpace(caption.Lang)
@@ -504,20 +512,35 @@ func (ThePlatformFeed) Extract(ctx context.Context, request Request) (Extraction
 			return Extraction{}, fmt.Errorf("%w: ThePlatform feed format limit", ErrInvalidMetadata)
 		}
 		rawURL := strings.TrimSpace(content.URL)
-		if !validHostedHTTPURL(rawURL) {
+		if !strictValidHostedHTTPURL(rawURL) {
 			continue
 		}
-		// Feed content URLs are SMIL endpoints; expose as redirect-ready media URLs when already direct.
+		if thePlatformLooksLikeSMILURL(rawURL) {
+			parsedSMIL, err := url.Parse(rawURL)
+			if err != nil {
+				return Extraction{}, fmt.Errorf("%w: invalid ThePlatform feed SMIL URL", ErrInvalidMetadata)
+			}
+			smilTarget, ok := parseThePlatformURL(parsedSMIL)
+			if !ok {
+				return Extraction{}, fmt.Errorf("%w: unsupported ThePlatform feed SMIL URL", ErrInvalidMetadata)
+			}
+			smilFormats, _, err := extractThePlatformSMIL(ctx, request.Transport, smilTarget)
+			if err != nil {
+				return Extraction{}, err
+			}
+			formats = append(formats, smilFormats...)
+			continue
+		}
 		formatID := fmt.Sprintf("content-%d", index)
 		if strings.Contains(strings.ToLower(rawURL), ".m3u8") {
 			formatID = fmt.Sprintf("hls-%d", index)
 		}
-		if format, ok := hostedURLFormat(formatID, rawURL); ok {
+		if format, ok := strictHostedURLFormat(formatID, rawURL); ok {
 			formats = append(formats, value.ObjectValue(format))
 		}
 	}
-	if len(formats) == 0 && validHostedHTTPURL(entry.PublicURL) {
-		if format, ok := hostedURLFormat("public", entry.PublicURL); ok {
+	if len(formats) == 0 && strictValidHostedHTTPURL(entry.PublicURL) && !thePlatformLooksLikeSMILURL(entry.PublicURL) {
+		if format, ok := strictHostedURLFormat("public", entry.PublicURL); ok {
 			formats = append(formats, value.ObjectValue(format))
 		}
 	}
@@ -542,7 +565,7 @@ func (ThePlatformFeed) Extract(ctx context.Context, request Request) (Extraction
 	if entry.Available > 0 {
 		hostedSetInt(info, "timestamp", int64(entry.Available/1000))
 	}
-	if len(entry.Thumbnails) > 0 && validHostedHTTPURL(entry.Thumbnails[0].URL) {
+	if len(entry.Thumbnails) > 0 && strictValidHostedHTTPURL(entry.Thumbnails[0].URL) {
 		hostedSetString(info, "thumbnail", entry.Thumbnails[0].URL)
 	}
 	return Media(value.NewInfo(info)), nil
@@ -577,4 +600,20 @@ func parseThePlatformFeedURL(parsed *url.URL) (thePlatformFeedTarget, bool) {
 		provider: segments[1], feedID: segments[2], videoID: videoID, filter: filter,
 		canonical: "https://feed.theplatform.com/f/" + segments[1] + "/" + segments[2] + "?" + filter,
 	}, true
+}
+
+func thePlatformLooksLikeSMILURL(rawURL string) bool {
+	lower := strings.ToLower(rawURL)
+	if strings.Contains(lower, ".smil") || strings.Contains(lower, "format=smil") {
+		return true
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil || hostedRejectUnsafeURL(parsed) {
+		return false
+	}
+	if strings.ToLower(parsed.Hostname()) != "link.theplatform.com" {
+		return false
+	}
+	ext := strings.ToLower(path.Ext(parsed.Path))
+	return ext == "" || ext == ".smil"
 }
