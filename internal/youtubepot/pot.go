@@ -18,19 +18,24 @@ import (
 )
 
 const (
-	MaxProviders  = 16
-	MaxCacheItems = 256
-	MaxTokenBytes = 16 << 10
-	MaxTTL        = 7 * 24 * time.Hour
-	DefaultTTL    = 5 * time.Minute
+	MaxProviders                 = 16
+	MaxCacheItems                = 256
+	MaxTokenBytes                = 16 << 10
+	MaxTTL                       = 7 * 24 * time.Hour
+	DefaultTTL                   = 5 * time.Minute
+	MaxRefreshSkew               = 5 * time.Minute
+	DefaultRefreshSkew           = 30 * time.Second
+	MaxForcedRefreshPerOperation = 2
 )
 
 var (
-	ErrInvalidRequest = errors.New("invalid YouTube PO-token request")
-	ErrInvalidToken   = errors.New("invalid YouTube PO token")
-	ErrRejected       = errors.New("YouTube PO-token provider rejected request")
-	ErrUnavailable    = errors.New("YouTube PO token unavailable")
-	ErrLimit          = errors.New("YouTube PO-token resource limit exceeded")
+	ErrInvalidRequest      = errors.New("invalid YouTube PO-token request")
+	ErrInvalidToken        = errors.New("invalid YouTube PO token")
+	ErrRejected            = errors.New("YouTube PO-token provider rejected request")
+	ErrUnavailable         = errors.New("YouTube PO token unavailable")
+	ErrLimit               = errors.New("YouTube PO-token resource limit exceeded")
+	ErrTokenRejected       = errors.New("YouTube PO-token rejected")
+	ErrForcedRefreshBudget = errors.New("YouTube PO-token forced refresh budget exhausted")
 )
 
 type Context string
@@ -96,10 +101,11 @@ type realClock struct{}
 func (realClock) Now() time.Time { return time.Now() }
 
 type Config struct {
-	Providers []Provider
-	Policy    FetchPolicy
-	CacheSize int
-	Clock     Clock
+	Providers   []Provider
+	Policy      FetchPolicy
+	CacheSize   int
+	Clock       Clock
+	RefreshSkew time.Duration
 }
 
 type cacheItem struct {
@@ -107,18 +113,93 @@ type cacheItem struct {
 	used     uint64
 }
 
-// Director serializes no provider work and is safe for concurrent operations.
-// Its in-memory cache stores token values only for the configured process
-// lifetime; keys are hashes of bounded binding fields.
+type flight struct {
+	done      chan struct{}
+	cancel    context.CancelFunc
+	waiters   int32
+	abandoned bool
+	token     string
+	ok        bool
+	err       error
+}
+
+// Episode bounds forced cache-bypass refreshes for one download/operation.
+// Compatible A/V identities that share a Director cache key also share the
+// Director's single-flight; this Episode only gates BypassCache storms.
+//
+// Extension hook: SignalRejection is for embedding callers that observe an
+// attributable typed ErrTokenRejected. The product SABR path does not invent
+// PO rejection from SABR_ERROR or other untyped failures.
+type Episode struct {
+	mu            sync.Mutex
+	forcedTotal   int
+	maxForced     int
+	pendingBypass bool
+}
+
+// NewEpisode constructs an operation-scoped forced-refresh budget.
+// maxForced <= 0 selects MaxForcedRefreshPerOperation.
+func NewEpisode(maxForced int) *Episode {
+	if maxForced <= 0 || maxForced > MaxForcedRefreshPerOperation {
+		maxForced = MaxForcedRefreshPerOperation
+	}
+	return &Episode{maxForced: maxForced}
+}
+
+// SignalRejection arms at most one forced bypass for this rejection episode.
+// Only ErrTokenRejected (via errors.Is) is accepted as an attributable signal.
+// This is an extension hook, not a product-integrated SABR recovery signal.
+func (episode *Episode) SignalRejection(err error) error {
+	if episode == nil {
+		return ErrInvalidRequest
+	}
+	if !errors.Is(err, ErrTokenRejected) {
+		return ErrInvalidRequest
+	}
+	episode.mu.Lock()
+	defer episode.mu.Unlock()
+	if episode.forcedTotal >= episode.maxForced {
+		return ErrForcedRefreshBudget
+	}
+	if episode.pendingBypass {
+		return nil
+	}
+	episode.pendingBypass = true
+	return nil
+}
+
+func (episode *Episode) consumeBypass() bool {
+	if episode == nil {
+		return false
+	}
+	episode.mu.Lock()
+	defer episode.mu.Unlock()
+	if !episode.pendingBypass {
+		return false
+	}
+	if episode.forcedTotal >= episode.maxForced {
+		episode.pendingBypass = false
+		return false
+	}
+	episode.pendingBypass = false
+	episode.forcedTotal++
+	return true
+}
+
+// Director serializes provider work per cache identity and is safe for
+// concurrent operations. Its in-memory cache stores token values only for the
+// configured process lifetime; keys are hashes of bounded binding fields.
 type Director struct {
 	providers []Provider
 	policy    FetchPolicy
 	maximum   int
 	clock     Clock
+	skew      time.Duration
 
-	mu      sync.Mutex
-	serial  uint64
-	entries map[string]cacheItem
+	mu       sync.Mutex
+	serial   uint64
+	entries  map[string]cacheItem
+	inflight map[string]*flight
 }
 
 var providerNamePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$`)
@@ -144,6 +225,13 @@ func New(config Config) (*Director, error) {
 	if config.Clock == nil {
 		config.Clock = realClock{}
 	}
+	skew := config.RefreshSkew
+	if skew == 0 {
+		skew = DefaultRefreshSkew
+	}
+	if skew < 0 || skew > MaxRefreshSkew {
+		return nil, ErrLimit
+	}
 	providers := append([]Provider(nil), config.Providers...)
 	seen := make(map[string]bool, len(providers))
 	for _, provider := range providers {
@@ -153,7 +241,15 @@ func New(config Config) (*Director, error) {
 		}
 		seen[name] = true
 	}
-	return &Director{providers: providers, policy: config.Policy, maximum: config.CacheSize, clock: config.Clock, entries: make(map[string]cacheItem)}, nil
+	return &Director{
+		providers: providers,
+		policy:    config.Policy,
+		maximum:   config.CacheSize,
+		clock:     config.Clock,
+		skew:      skew,
+		entries:   make(map[string]cacheItem),
+		inflight:  make(map[string]*flight),
+	}, nil
 }
 
 func safeProviderName(provider Provider) (name string, ok bool) {
@@ -180,6 +276,13 @@ func (director *Director) Resolve(ctx context.Context, request Request, required
 // non-fatal. This keeps the decision to fetch separate from the decision to
 // fail when no token is available.
 func (director *Director) ResolvePolicy(ctx context.Context, request Request, required, recommended bool) (string, bool, error) {
+	return director.ResolveEpisode(ctx, request, required, recommended, nil)
+}
+
+// ResolveEpisode is ResolvePolicy with an optional operation-scoped Episode.
+// When the episode has a pending attributable rejection bypass, the cache is
+// skipped once and counted against the episode's forced-refresh budget.
+func (director *Director) ResolveEpisode(ctx context.Context, request Request, required, recommended bool, episode *Episode) (string, bool, error) {
 	if director == nil || ctx == nil || !validRequest(request) {
 		return "", false, ErrInvalidRequest
 	}
@@ -195,12 +298,94 @@ func (director *Director) ResolvePolicy(ctx context.Context, request Request, re
 	if director.policy == FetchAuto && !required && !recommended {
 		return "", false, nil
 	}
+	if episode != nil && episode.consumeBypass() {
+		request.BypassCache = true
+	}
 	key := cacheKey(request)
 	if !request.BypassCache {
 		if response, ok := director.cached(key); ok {
 			return response.Token, true, nil
 		}
 	}
+	return director.resolveFlight(ctx, key, request, required)
+}
+
+func flightMapKey(cacheKey string, bypass bool) string {
+	if bypass {
+		return cacheKey + "\x00bypass"
+	}
+	return cacheKey
+}
+
+// resolveFlight coalesces compatible fetches with a flight-owned lifecycle.
+// Provider work runs in a dedicated goroutine under its own cancelable
+// context. Every caller (including the creator) waits on that flight with
+// their own context and returns promptly on cancellation. When the last
+// waiter leaves, shared work is canceled. Bypass and normal flights use
+// distinct map keys and never join each other.
+func (director *Director) resolveFlight(ctx context.Context, key string, request Request, required bool) (string, bool, error) {
+	fkey := flightMapKey(key, request.BypassCache)
+	director.mu.Lock()
+	if !request.BypassCache {
+		if item, ok := director.entries[key]; ok && item.response.ExpiresAt.After(director.clock.Now().UTC().Add(director.skew)) {
+			director.serial++
+			item.used = director.serial
+			director.entries[key] = item
+			director.mu.Unlock()
+			return item.response.Token, true, nil
+		}
+	}
+	if existing := director.inflight[fkey]; existing != nil {
+		if existing.abandoned {
+			delete(director.inflight, fkey)
+		} else {
+			existing.waiters++
+			director.mu.Unlock()
+			return director.waitFlight(ctx, existing, required)
+		}
+	}
+	workCtx, cancel := context.WithCancel(context.Background())
+	flight := &flight{done: make(chan struct{}), cancel: cancel, waiters: 1}
+	director.inflight[fkey] = flight
+	director.mu.Unlock()
+
+	go func() {
+		token, ok, err := director.fetchProviders(workCtx, request)
+		flight.token, flight.ok, flight.err = token, ok, err
+		director.mu.Lock()
+		if director.inflight[fkey] == flight {
+			delete(director.inflight, fkey)
+		}
+		director.mu.Unlock()
+		close(flight.done)
+	}()
+
+	return director.waitFlight(ctx, flight, required)
+}
+
+func (director *Director) waitFlight(ctx context.Context, flight *flight, required bool) (string, bool, error) {
+	select {
+	case <-flight.done:
+		if flight.err != nil {
+			return "", false, flight.err
+		}
+		if !flight.ok && required {
+			return "", false, ErrUnavailable
+		}
+		return flight.token, flight.ok, nil
+	case <-ctx.Done():
+		director.mu.Lock()
+		flight.waiters--
+		if flight.waiters == 0 {
+			flight.abandoned = true
+			flight.cancel()
+		}
+		director.mu.Unlock()
+		return "", false, ctx.Err()
+	}
+}
+
+func (director *Director) fetchProviders(ctx context.Context, request Request) (string, bool, error) {
 	for _, provider := range director.providers {
 		response, err := callProvider(ctx, provider, request)
 		if err != nil {
@@ -213,11 +398,8 @@ func (director *Director) ResolvePolicy(ctx context.Context, request Request, re
 		if err != nil {
 			continue
 		}
-		director.store(key, normalized)
+		director.store(cacheKey(request), normalized)
 		return normalized.Token, true, nil
-	}
-	if required {
-		return "", false, ErrUnavailable
 	}
 	return "", false, nil
 }
@@ -290,6 +472,15 @@ func cacheKey(request Request) string {
 	return hex.EncodeToString(digest[:])
 }
 
+// CacheKey exposes the binding identity hash for tests and compatible A/V
+// coordination without revealing request fields.
+func CacheKey(request Request) string {
+	if !validRequest(request) {
+		return ""
+	}
+	return cacheKey(request)
+}
+
 func (director *Director) cached(key string) (Response, bool) {
 	director.mu.Lock()
 	defer director.mu.Unlock()
@@ -297,7 +488,8 @@ func (director *Director) cached(key string) (Response, bool) {
 	if !ok {
 		return Response{}, false
 	}
-	if !item.response.ExpiresAt.After(director.clock.Now().UTC()) {
+	deadline := director.clock.Now().UTC().Add(director.skew)
+	if !item.response.ExpiresAt.After(deadline) {
 		delete(director.entries, key)
 		return Response{}, false
 	}

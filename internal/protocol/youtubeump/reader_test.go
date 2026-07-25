@@ -97,7 +97,7 @@ func TestConsumeStreamDeterministicMedia(t *testing.T) {
 	}
 }
 
-func TestConsumeStreamRejectsCriticalDirective(t *testing.T) {
+func TestConsumeStreamRejectsMalformedSabrError(t *testing.T) {
 	body := encodePart(PartSABRError, []byte{0x0A, 0x04, 'h', 't', 't', 'p'})
 	file, err := os.CreateTemp(t.TempDir(), "sabr-")
 	if err != nil {
@@ -111,7 +111,7 @@ func TestConsumeStreamRejectsCriticalDirective(t *testing.T) {
 		Body:       io.NopCloser(bytes.NewReader(body)),
 	}
 	_, err = consumeStream(context.Background(), response.Body, assembler)
-	if err == nil || !errors.Is(err, ErrUnsupportedDirective) {
+	if err == nil || !errors.Is(err, ErrInvalidProtobuf) {
 		t.Fatalf("err=%v", err)
 	}
 }

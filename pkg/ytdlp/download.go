@@ -180,6 +180,7 @@ func (operation *operation) downloadYouTubeSABRPair(ctx context.Context, selecti
 	serializedSink := &lockedEventSink{sink: sink}
 	childCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	coordinator := newYouTubeSABRRefreshCoordinator(operation)
 
 	type outcome struct {
 		index int
@@ -207,7 +208,7 @@ func (operation *operation) downloadYouTubeSABRPair(ctx context.Context, selecti
 				outcomes <- outcome{index: index, path: trackDestination, bytes: size}
 				return
 			}
-			result, downloadErr := downloadYouTubeSABRSelection(childCtx, operation, selection, outputRoot, trackDestination, serializedSink, true)
+			result, downloadErr := downloadYouTubeSABRSelection(childCtx, operation, selection, outputRoot, trackDestination, serializedSink, true, coordinator)
 			outcomes <- outcome{index: index, path: result.Path, bytes: result.Bytes, err: downloadErr}
 		}(index, selection)
 	}
@@ -370,7 +371,7 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 		if options.External != nil {
 			return "", 0, fmt.Errorf("%w: external downloaders cannot consume generated YouTube SABR streams", extractor.ErrUnsupported)
 		}
-		result, err := downloadYouTubeSABRSelection(ctx, operation, selected, outputRoot, destination, sink, false)
+		result, err := downloadYouTubeSABRSelection(ctx, operation, selected, outputRoot, destination, sink, false, nil)
 		if err != nil {
 			return "", 0, err
 		}
@@ -602,7 +603,7 @@ func safeExtension(extension string) string {
 	return extension
 }
 
-func downloadYouTubeSABRSelection(ctx context.Context, operation *operation, selected mediaformat.Selection, outputRoot, destination string, sink events.Sink, retainCompletionMarker bool) (youtubeump.Result, error) {
+func downloadYouTubeSABRSelection(ctx context.Context, operation *operation, selected mediaformat.Selection, outputRoot, destination string, sink events.Sink, retainCompletionMarker bool, coordinator *youtubeSABRRefreshCoordinator) (youtubeump.Result, error) {
 	ustreamer, err := base64.StdEncoding.DecodeString(selected.YouTubeSABRUstreamerConfig)
 	if err != nil {
 		return youtubeump.Result{}, fmt.Errorf("%w: invalid SABR ustreamer config", extractor.ErrInvalidMetadata)
@@ -611,7 +612,10 @@ func downloadYouTubeSABRSelection(ctx context.Context, operation *operation, sel
 	if trackKind != youtubeump.TrackAudio && trackKind != youtubeump.TrackVideo {
 		return youtubeump.Result{}, fmt.Errorf("%w: unknown SABR track", extractor.ErrInvalidMetadata)
 	}
-	poToken, err := resolveYouTubeSABRPOToken(ctx, operation, selected)
+	if coordinator == nil {
+		coordinator = newYouTubeSABRRefreshCoordinator(operation)
+	}
+	poToken, err := resolveYouTubeSABRPOTokenEpisode(ctx, operation, selected, coordinator.episode)
 	if err != nil {
 		return youtubeump.Result{}, err
 	}
@@ -644,6 +648,14 @@ func downloadYouTubeSABRSelection(ctx context.Context, operation *operation, sel
 		RetryMaxDelay:          options.RetryMaxDelay,
 		ClientInfo:             clientInfo,
 		RetainCompletionMarker: retainCompletionMarker,
+		POTokenSource:          coordinator.poTokenSource(selected),
+	}
+	// Refresh/Reload require an extract-capable operation. When unavailable,
+	// leave callbacks nil so resume may continue with caller-supplied material
+	// (documented safe case). When wired, failures are fail-closed.
+	if operation != nil && operation.client != nil && operation.transport != nil {
+		config.Reload = coordinator.reloadFunc(selected)
+		config.Refresh = coordinator.refreshFunc(selected)
 	}
 	return youtubeump.NewDownloader(operation.transport, config).Download(ctx, outputRoot, destination, operation.request.Overwrite, sink)
 }

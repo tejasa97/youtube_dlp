@@ -139,6 +139,30 @@ func appendSendingPolicyPart(body []byte, start, stop, discard []int32, packed b
 	return append(body, encodePart(PartSABRContextSendingPolicy, encodeSabrSendingPolicy(start, stop, discard, packed))...)
 }
 
+func encodeSabrError(errorType string, code int32) []byte {
+	var buf []byte
+	buf = appendProtobufBytes(buf, fSabrErrorType, []byte(errorType))
+	buf = appendProtobufVarint(buf, fSabrErrorCode, uint64(uint32(code)))
+	return buf
+}
+
+func appendSabrErrorPart(body []byte, errorType string, code int32) []byte {
+	return append(body, encodePart(PartSABRError, encodeSabrError(errorType, code))...)
+}
+
+func encodeReloadPlayerResponse(token string) []byte {
+	return encodeReloadPlayerResponseBytes([]byte(token))
+}
+
+func encodeReloadPlayerResponseBytes(token []byte) []byte {
+	params := appendProtobufBytes(nil, fReloadPlaybackParamsToken, token)
+	return appendProtobufBytes(nil, fReloadPlaybackContextParams, params)
+}
+
+func appendReloadPlayerPart(body []byte, token string) []byte {
+	return append(body, encodePart(PartReloadPlayerResponse, encodeReloadPlayerResponse(token))...)
+}
+
 func validTestCookie() []byte {
 	return encodePlaybackCookie(
 		appendProtobufVarint(nil, fPlaybackCookieField1, 1),

@@ -26,7 +26,17 @@ propagated when a provider returns it.
 - There is no built-in WebPO generator, implicit network endpoint, executable,
   or upstream external-provider protocol.
 - The cache is process-local; persistent provider caches and provider scoring
-  are not implemented.
+are not implemented. The Director applies a configurable refresh skew (default
+30s, max 5m) so near-expiry entries are refreshed before hard expiry, runs
+per-cache-key single-flight so compatible A/V identities share one provider
+fetch, and exposes an operation-scoped `Episode` extension hook for forced-refresh
+budgets (≤1 attributable `ErrTokenRejected` bypass per rejection episode; ≤2
+forced refreshes per operation). Bypass/forced generation uses a separate
+single-flight key so it never joins a normal in-flight fetch that may return a
+rejected token. Shared provider work runs in a dedicated goroutine under its
+own cancelable context: every caller waits with their own context and returns
+promptly on cancellation; when the last waiter leaves, shared work is canceled
+(ejs solver waiters/abandon pattern).
 - Providers are trusted in-process Go code and must honor context cancellation;
   Go cannot forcibly terminate a blocked provider goroutine.
 - Go strings cannot guarantee zeroization. Tokens are therefore kept out of

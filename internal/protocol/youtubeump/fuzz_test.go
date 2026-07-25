@@ -3,6 +3,7 @@ package youtubeump
 import (
 	"errors"
 	"testing"
+	"unicode/utf8"
 )
 
 func FuzzUMPVarint(f *testing.F) {
@@ -122,6 +123,80 @@ func FuzzSabrContextSendingPolicy(f *testing.F) {
 			!errors.Is(err, ErrNonCanonicalVarint) && !errors.Is(err, ErrVarintOverflow) &&
 			!errors.Is(err, ErrInvalidContextState) {
 			t.Fatalf("unexpected err=%v", err)
+		}
+	})
+}
+
+func FuzzSabrError(f *testing.F) {
+	f.Add(encodeSabrError("sabr.no_audio_selected", 2))
+	f.Add([]byte{0x0A, 0x01, 'x', 0x10, 0x01})
+	f.Fuzz(func(t *testing.T, body []byte) {
+		if len(body) > MaxSabrErrorTypeBytes+64 {
+			return
+		}
+		_, err := parseSabrError(body)
+		if err != nil && !errors.Is(err, ErrInvalidProtobuf) && !errors.Is(err, ErrTruncatedStream) &&
+			!errors.Is(err, ErrNonCanonicalVarint) && !errors.Is(err, ErrVarintOverflow) {
+			t.Fatalf("unexpected err=%v", err)
+		}
+	})
+}
+
+func FuzzReloadPlayerResponse(f *testing.F) {
+	f.Add(encodeReloadPlayerResponse("token"))
+	f.Add([]byte{0x0A, 0x04, 0x0A, 0x02, 'a', 'b'})
+	f.Add(encodeReloadPlayerResponseBytes([]byte{0xff, 0xfe, 'x'}))
+	f.Fuzz(func(t *testing.T, body []byte) {
+		if len(body) > MaxReloadTokenBytes+64 {
+			return
+		}
+		got, err := parseReloadPlayerResponse(body)
+		if err != nil && !errors.Is(err, ErrInvalidProtobuf) && !errors.Is(err, ErrTruncatedStream) &&
+			!errors.Is(err, ErrNonCanonicalVarint) && !errors.Is(err, ErrVarintOverflow) {
+			t.Fatalf("unexpected err=%v", err)
+		}
+		if err == nil {
+			if got.Token == "" || len(got.Token) > MaxReloadTokenBytes || !utf8.ValidString(got.Token) {
+				t.Fatalf("unsafe accepted reload token")
+			}
+		}
+	})
+}
+
+func FuzzRefreshMaterialValidation(f *testing.F) {
+	f.Add("https://rr1---sn-fixture.googlevideo.com/videoplayback?sig=x", "fixture0001", int64(137), int64(10))
+	f.Add("https://evil.example/x", "fixture0001", int64(137), int64(10))
+	f.Add("https://rr1---sn-fixture.googlevideo.com/videoplayback?sig=x", "other0000000", int64(140), int64(11))
+	f.Fuzz(func(t *testing.T, serverURL, videoID string, itag, duration int64) {
+		config := testConfig("https://rr1---sn-fixture.googlevideo.com/videoplayback/sabr/fixture?sig=fixture")
+		material := RefreshMaterial{
+			ServerURL:       serverURL,
+			UstreamerConfig: []byte("fixture-ustreamer"),
+			Format:          FormatID{Itag: int32(itag)},
+			ClientInfo:      config.ClientInfo,
+			VideoID:         videoID,
+			DurationSec:     duration,
+		}
+		err := material.validate(config)
+		if err != nil && !errors.Is(err, ErrRefreshRejected) && !errors.Is(err, ErrUnsupportedURL) {
+			t.Fatalf("unexpected err=%v", err)
+		}
+		if err == nil {
+			if _, validateErr := ValidateSABRURL(material.ServerURL); validateErr != nil {
+				t.Fatalf("accepted untrusted url: %v", validateErr)
+			}
+			if material.VideoID == "" || material.VideoID != config.VideoID {
+				t.Fatalf("accepted mismatched or missing video id")
+			}
+			if material.Format.Itag == 0 || material.Format.Itag != config.Format.Itag {
+				t.Fatalf("accepted mismatched or missing itag")
+			}
+			if material.DurationSec == 0 || material.DurationSec != config.DurationSec {
+				t.Fatalf("accepted mismatched or missing duration")
+			}
+			if hashUstreamerConfig(material.UstreamerConfig) != hashUstreamerConfig(config.UstreamerConfig) {
+				t.Fatalf("accepted mismatched ustreamer")
+			}
 		}
 	})
 }
