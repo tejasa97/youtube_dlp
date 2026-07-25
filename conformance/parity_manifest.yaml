@@ -1467,7 +1467,7 @@ capabilities:
   - id: extractor.vimeo_pilot
     name: Vimeo manifest-heavy extraction pilot
     phase: 1
-    compatibility_target: Extract Vimeo progressive, HLS, DASH, and public player-config text tracks through the protected webpage flow without Python.
+    compatibility_target: Extract Vimeo progressive, HLS, DASH, and public player-config text tracks, plus bounded public channel, user, and group playlists, through protected webpage flows without Python.
     status: compatible
     evidence:
       - internal/extractor.TestVimeoExtractsProgressiveHLSAndDASHWithProfile
@@ -1476,17 +1476,27 @@ capabilities:
       - internal/extractor.TestVimeoConfigURLFailsClosedWithoutRequests
       - internal/extractor.TestVimeoTextTracksAreBoundedAndFailClosed
       - internal/extractor.TestNormalizeVimeoTextTrackURLRejectsHostileInputs
+      - internal/extractor.TestVimeoChannelPlaylistIsLazyOrderedAndTitled
+      - internal/extractor.TestVimeoUserVideosPlaylist
+      - internal/extractor.TestVimeoBareUserPlaylistMatchesExplicitVideos
+      - internal/extractor.TestVimeoGroupPlaylistIsLazyOrderedReusableAndTitled
+      - internal/extractor.TestVimeoPlaylistRequiresCredentialIsolatedProfileCapability
+      - internal/extractor.TestVimeoPlaylistSuitabilityRejectsHostileInputs
+      - internal/extractor.TestVimeoPlaylistBoundsCancellationAndSecretSafeErrors
       - internal/extractor.FuzzParseVimeoConfig
       - internal/extractor.FuzzNormalizeVimeoTextTrackURL
       - internal/extractor.FuzzNormalizeVimeoConfigURL
+      - internal/extractor.FuzzParseVimeoPlaylistPage
+      - internal/extractor.FuzzClassifyVimeoPlaylistURL
       - conformance/extractors/vimeo/PROVENANCE.md
       - docs/VIMEO_SUBTITLES_EVIDENCE.md
+      - docs/VIMEO_CHANNEL_PLAYLISTS_EVIDENCE.md
     owner: extractors
     depends_on:
       - network.impersonation
       - protocol.hls
       - protocol.dash
-    known_deviation: Compatibility is scoped to the pinned public-video/player-config corpus, including manual VTT text tracks on the exact HTTPS player origin. Player-config requests use a canonical token-free Referer and fail closed for untrusted config origins. Password submission, showcases/channels, unlisted hashes, DRM, texttracks API and manifest subtitle fallbacks, and live archive variants remain broader Vimeo work.
+    known_deviation: Compatibility is scoped to the pinned public-video/player-config and public HTML channel/user/group playlist corpus, including manual VTT text tracks on the exact HTTPS player origin. Player-config requests use a canonical token-free Referer; playlist pages use credential-isolated no-redirect Chrome-profile reads and locally constructed pagination URLs. Password submission, showcases/albums, likes/watch-later, unlisted hashes, DRM, texttracks API and manifest subtitle fallbacks, nested group-video routing, and live archive variants remain broader Vimeo work.
 
   - id: extractor.tiktok_pilot
     name: TikTok impersonation and anti-bot pilot
