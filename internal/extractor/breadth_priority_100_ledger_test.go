@@ -366,12 +366,19 @@ func breadthProgramPlaylists(t *testing.T) []breadthPlaylistSpec {
 		}},
 		{ID: "buzzfeed", Key: "buzzfeed", Run: func(t *testing.T) {
 			u := "https://www.buzzfeed.com/abagg/this-angry-ram-destroys-a-punching-bag-like-a-boss"
-			transport := &sharedFixtureTransport{pages: map[string][]byte{u: familyFixture(t, "buzzfeed", "page.html")}}
+			page := []byte(`<html>
+<div class="video-embed" rel:bf_bucket_data='{"video":{"id":"fixture0001","url":"https://www.youtube.com/watch?v=fixture0001"}}'></div>
+<div class="video-embed" rel:bf_bucket_data='{"video":{"id":"fb1","url":"https://www.facebook.com/watch/?v=971793786185728"}}'></div>
+</html>`)
+			transport := &sharedFixtureTransport{pages: map[string][]byte{u: page}}
 			result, err := NewBuzzFeed().Extract(context.Background(), Request{URL: u, Transport: transport})
 			if err != nil {
 				t.Fatal(err)
 			}
-			assertLazyPlaylist(t, result, transport, breadthAdapterMaxEntries, "youtube", 2)
+			entries := assertLazyPlaylist(t, result, transport, breadthAdapterMaxEntries, "youtube", 2)
+			if entries[1].ExtractorKey != "" {
+				t.Fatalf("facebook entry key=%q", entries[1].ExtractorKey)
+			}
 		}},
 		{ID: "laracasts_series", Key: "laracasts_series", Run: func(t *testing.T) {
 			u := "https://laracasts.com/series/30-days-to-learn-laravel-11"
@@ -380,7 +387,17 @@ func breadthProgramPlaylists(t *testing.T) []breadthPlaylistSpec {
 			if err != nil {
 				t.Fatal(err)
 			}
-			assertLazyPlaylist(t, result, transport, breadthAdapterMaxEntries, "vimeo", 2)
+			entries := assertLazyPlaylist(t, result, transport, breadthAdapterMaxEntries, "vimeo", 2)
+			child := breadthVimeoReentryTransport(t)
+			for _, entry := range entries {
+				media, err := NewVimeo().Extract(context.Background(), Request{URL: entry.URL, Transport: child})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if formats, ok := media.Info.Formats(); !ok || len(formats) == 0 {
+					t.Fatalf("vimeo re-entry missing formats for %q", entry.URL)
+				}
+			}
 		}},
 	}
 }

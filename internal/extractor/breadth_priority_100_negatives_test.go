@@ -399,56 +399,148 @@ func TestBreadthPriority100NegativeSecurityMatrix(t *testing.T) {
 			key: "teachingchannel", okURL: "https://www.teachingchannel.org/videos/teacher-teaming-evolution",
 			stealURL:  "https://cdn.jwplayer.com/players/AbCd1234.js",
 			cancelURL: "https://www.teachingchannel.org/videos/teacher-teaming-evolution",
+			malformed: func(t *testing.T) (Extractor, Request, error) {
+				u := "https://www.teachingchannel.org/videos/teacher-teaming-evolution"
+				_, err := NewTeachingChannel().Extract(context.Background(), Request{URL: u, Transport: &sharedFixtureTransport{pages: map[string][]byte{u: []byte(`<html></html>`)}}})
+				return NewTeachingChannel(), Request{}, err
+			},
+			secretSafe: func(t *testing.T) (Extractor, Request, string) {
+				u := "https://www.teachingchannel.org/videos/teacher-teaming-evolution"
+				return NewTeachingChannel(), Request{URL: u, Transport: &sharedFixtureTransport{pages: map[string][]byte{u: append([]byte(`<html>sign in `), secretBody...)}}}, "must-not-leak"
+			},
 		},
 		{
 			key: "nowcanal", okURL: "https://www.nowcanal.pt/ultimas/detalhe/pedro-sousa-hjulmand",
 			stealURL:  "https://players.brightcove.net/1/default_default/index.html?videoId=1",
 			cancelURL: "https://www.nowcanal.pt/ultimas/detalhe/pedro-sousa-hjulmand",
+			malformed: func(t *testing.T) (Extractor, Request, error) {
+				u := "https://www.nowcanal.pt/ultimas/detalhe/pedro-sousa-hjulmand"
+				_, err := NewNowCanal().Extract(context.Background(), Request{URL: u, Transport: &sharedFixtureTransport{pages: map[string][]byte{u: []byte(`<html></html>`)}}})
+				return NewNowCanal(), Request{}, err
+			},
 		},
 		{
 			key: "democracynow", okURL: "https://www.democracynow.org/shows/2015/7/3",
 			stealURL:  "https://www.buzzfeed.com/abagg/x",
 			cancelURL: "https://www.democracynow.org/shows/2015/7/3",
+			malformed: func(t *testing.T) (Extractor, Request, error) {
+				u := "https://www.democracynow.org/shows/2015/7/3"
+				_, err := NewDemocracyNow().Extract(context.Background(), Request{URL: u, Transport: &sharedFixtureTransport{pages: map[string][]byte{
+					"https://www.democracynow.org/shows/2015/7/3": []byte(`<html></html>`),
+				}}})
+				return NewDemocracyNow(), Request{}, err
+			},
 		},
 		{
 			key: "buzzfeed", okURL: "https://www.buzzfeed.com/abagg/this-angry-ram-destroys-a-punching-bag-like-a-boss",
 			stealURL:  "https://www.democracynow.org/shows/2015/7/3",
 			cancelURL: "https://www.buzzfeed.com/abagg/this-angry-ram-destroys-a-punching-bag-like-a-boss",
+			malformed: func(t *testing.T) (Extractor, Request, error) {
+				u := "https://www.buzzfeed.com/abagg/x"
+				result, err := NewBuzzFeed().Extract(context.Background(), Request{URL: u, Transport: &sharedFixtureTransport{pages: map[string][]byte{u: []byte(`<html></html>`)}}})
+				if err != nil {
+					return NewBuzzFeed(), Request{}, err
+				}
+				_, err = CollectEntries(context.Background(), result.Entries, breadthAdapterMaxEntries)
+				return NewBuzzFeed(), Request{}, err
+			},
 		},
 		{
 			key: "mediastream", okURL: "https://mdstrm.com/embed/6318e3f1d1d316083ae48831",
 			stealURL:  "https://www.winsports.co/videos/x",
 			cancelURL: "https://mdstrm.com/embed/6318e3f1d1d316083ae48831",
+			malformed: func(t *testing.T) (Extractor, Request, error) {
+				u := "https://mdstrm.com/embed/6318e3f1d1d316083ae48831"
+				_, err := NewMediaStream().Extract(context.Background(), Request{URL: u, Transport: &sharedFixtureTransport{pages: map[string][]byte{u: []byte(`<html></html>`)}}})
+				return NewMediaStream(), Request{}, err
+			},
 		},
 		{
 			key: "winsports", okURL: "https://www.winsports.co/videos/siempre-castellanos-60536",
 			stealURL:  "https://mdstrm.com/embed/6318e3f1d1d316083ae48831",
 			cancelURL: "https://www.winsports.co/videos/siempre-castellanos-60536",
+			malformed: func(t *testing.T) (Extractor, Request, error) {
+				u := "https://www.winsports.co/videos/siempre-castellanos-60536"
+				canonical := "https://www.winsports.co/videos/siempre-castellanos-60536"
+				_, err := NewWinSports().Extract(context.Background(), Request{URL: u, Transport: &sharedFixtureTransport{pages: map[string][]byte{canonical: []byte(`<html></html>`)}}})
+				return NewWinSports(), Request{}, err
+			},
 		},
 		{
 			key: "abcotvs", okURL: "https://abc7news.com/entertainment/east-bay-museum/472581/",
 			stealURL:  "https://clips.abcotvs.com/kabc/video/214814",
 			cancelURL: "https://abc7news.com/entertainment/east-bay-museum/472581/",
+			malformed: func(t *testing.T) (Extractor, Request, error) {
+				_, err := NewABCOTVS().Extract(context.Background(), Request{
+					URL: "https://abc7news.com/entertainment/east-bay-museum/472581/",
+					Transport: &sharedFixtureTransport{responses: map[string]fixtureHTTP{
+						"https://api.abcotvs.com/v2/content?id=472581&key=otv.web.kgo.story&station=kgo": {
+							body: []byte(`{"data":{"featuredMedia":{"video":{"id":1,"title":"x"}}}}`),
+						},
+					}},
+				})
+				return NewABCOTVS(), Request{}, err
+			},
+			secretSafe: func(t *testing.T) (Extractor, Request, string) {
+				return NewABCOTVS(), Request{
+					URL: "https://abc7news.com/entertainment/east-bay-museum/472581/",
+					Transport: &sharedFixtureTransport{responses: map[string]fixtureHTTP{
+						"https://api.abcotvs.com/v2/content?id=472581&key=otv.web.kgo.story&station=kgo": {
+							status: http.StatusUnauthorized, body: secretBody,
+						},
+					}},
+				}, "must-not-leak"
+			},
 		},
 		{
 			key: "abcotvs_clips", okURL: "https://clips.abcotvs.com/kabc/video/214814",
 			stealURL:  "https://abc7news.com/entertainment/east-bay-museum/472581/",
 			cancelURL: "https://clips.abcotvs.com/kabc/video/214814",
+			malformed: func(t *testing.T) (Extractor, Request, error) {
+				_, err := NewABCOTVSClips().Extract(context.Background(), Request{
+					URL: "https://clips.abcotvs.com/kabc/video/214814",
+					Transport: &sharedFixtureTransport{responses: map[string]fixtureHTTP{
+						"https://clips.abcotvs.com/vogo/video/getByIds?ids=214814": {body: []byte(`{"results":[]}`)},
+					}},
+				})
+				return NewABCOTVSClips(), Request{}, err
+			},
 		},
 		{
 			key: "vidsio", okURL: "https://how-to-video.vids.io/videos/799cd8b11c10efc1f0/how-to-video-live-streaming",
-			stealURL:  "https://videos.sproutvideo.com/embed/aabbcc/ddeeff",
+			stealURL:  "https://videos.sproutvideo.com/embed/4abcdef1234567890a/0abcdef1234567890",
 			cancelURL: "https://how-to-video.vids.io/videos/799cd8b11c10efc1f0/how-to-video-live-streaming",
+			malformed: func(t *testing.T) (Extractor, Request, error) {
+				u := "https://how-to-video.vids.io/videos/799cd8b11c10efc1f0/how-to-video-live-streaming"
+				_, err := NewVidsIo().Extract(context.Background(), Request{URL: u, Transport: &sharedFixtureTransport{pages: map[string][]byte{u: []byte(`<html></html>`)}}})
+				return NewVidsIo(), Request{}, err
+			},
 		},
 		{
 			key: "laracasts", okURL: "https://laracasts.com/series/30-days-to-learn-laravel-11/episodes/1",
 			stealURL:  "https://laracasts.com/series/30-days-to-learn-laravel-11",
 			cancelURL: "https://laracasts.com/series/30-days-to-learn-laravel-11/episodes/1",
+			malformed: func(t *testing.T) (Extractor, Request, error) {
+				u := "https://laracasts.com/series/30-days-to-learn-laravel-11/episodes/1"
+				_, err := NewLaracasts().Extract(context.Background(), Request{URL: u, Transport: &sharedFixtureTransport{pages: map[string][]byte{u: []byte(`<html></html>`)}}})
+				return NewLaracasts(), Request{}, err
+			},
 		},
 		{
 			key: "laracasts_series", okURL: "https://laracasts.com/series/30-days-to-learn-laravel-11",
 			stealURL:  "https://laracasts.com/series/30-days-to-learn-laravel-11/episodes/1",
 			cancelURL: "https://laracasts.com/series/30-days-to-learn-laravel-11",
+			malformed: func(t *testing.T) (Extractor, Request, error) {
+				u := "https://laracasts.com/series/30-days-to-learn-laravel-11"
+				result, err := NewLaracastsSeries().Extract(context.Background(), Request{URL: u, Transport: &sharedFixtureTransport{pages: map[string][]byte{
+					u: []byte(`<html><div id="app" data-page='{"props":{"series":{"chapters":[]}}}'></div></html>`),
+				}}})
+				if err != nil {
+					return NewLaracastsSeries(), Request{}, err
+				}
+				_, err = CollectEntries(context.Background(), result.Entries, breadthAdapterMaxEntries)
+				return NewLaracastsSeries(), Request{}, err
+			},
 		},
 	}
 

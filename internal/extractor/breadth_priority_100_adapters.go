@@ -8,9 +8,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"net/http"
 	"net/url"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/ytdlp-go/ytdlp/internal/value"
@@ -344,14 +346,17 @@ func (BuzzFeed) Extract(ctx context.Context, request Request) (Extraction, error
 			if entryID == "" {
 				entryID = id
 			}
+			// Only emit an explicit ExtractorKey when a registered backend can
+			// hydrate the child. Facebook embeds are kept as bare URLs because
+			// no Facebook extractor is registered (bounded downstream-hydration
+			// deviation). YouTube URLs keep the youtube key for verified re-entry.
 			key := ""
 			if u, err := url.Parse(video.URL); err == nil {
 				host := strings.ToLower(u.Hostname())
 				switch {
-				case strings.Contains(host, "youtube.com"), host == "youtu.be":
+				case host == "youtu.be", host == "youtube.com", host == "www.youtube.com",
+					host == "m.youtube.com", host == "youtube-nocookie.com", host == "www.youtube-nocookie.com":
 					key = "youtube"
-				case strings.Contains(host, "facebook.com"):
-					key = "facebook"
 				}
 			}
 			entries = append(entries, Entry{URL: video.URL, ExtractorKey: key, ID: entryID})
@@ -438,7 +443,13 @@ func (MediaStream) Extract(ctx context.Context, request Request) (Extraction, er
 		return Extraction{}, fmt.Errorf("%w: invalid MediaStream options", ErrInvalidMetadata)
 	}
 	formats := make([]value.Value, 0, len(options.Src))
-	for key, rawURL := range options.Src {
+	keys := make([]string, 0, len(options.Src))
+	for key := range options.Src {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		rawURL := options.Src[key]
 		format, ok := strictHostedURLFormat(key, rawURL)
 		if !ok {
 			continue
@@ -942,9 +953,15 @@ func laracastsProps(ctx context.Context, request Request, displayID string) (map
 	if len(raw) == 0 {
 		return nil, classifyMissingMediaPage(page, "Laracasts data-page")
 	}
-	decoded, err := url.QueryUnescape(string(raw))
-	if err != nil {
-		decoded = string(raw)
+	return laracastsDecodeDataPage(raw)
+}
+
+func laracastsDecodeDataPage(raw []byte) (map[string]any, error) {
+	// Match upstream attribute decoding: HTML entities only. Do not use
+	// url.QueryUnescape — that would turn literal '+' into spaces.
+	decoded := html.UnescapeString(string(raw))
+	if int64(len(decoded)) > maxExtractorJSONBytes {
+		return nil, fmt.Errorf("%w: Laracasts props too large", ErrInvalidMetadata)
 	}
 	var envelope struct {
 		Props map[string]any `json:"props"`

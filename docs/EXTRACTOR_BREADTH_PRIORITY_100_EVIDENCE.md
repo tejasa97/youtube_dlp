@@ -56,3 +56,9 @@ This PR adds **Podcast / feeder APIs**, **NOWNESS**, **Dacast**, **Panopto**, an
 ## Compatibility claims
 
 Manifest/`SUPPORTED_SITES` entries for these keys claim **deterministic-corpus / fixture-backed** behavior only. Live-service compatibility is not claimed from synthetic fixtures. Routing-only wrappers are not counted unless URLResult re-entry succeeds in the inventory.
+
+## Explicit deviations (do not overclaim)
+
+- **Laracasts → Vimeo referrer:** Upstream smuggles a `laracasts.com` Referer onto the Vimeo player URL. This implementation emits `https://player.vimeo.com/video/{id}` and the registered Vimeo extractor fetches `https://vimeo.com/{id}` with Vimeo's own profile/Referer policy. Subscriber-gated Vimeo responses that require the Laracasts referrer are out of scope.
+- **ABCOTVS `publishedKey`:** Reference may fall back to `publishedKey` when selecting the media id. This adapter uses the story/video `id` from the OTV API payload (and the URL id as fallback) and does not implement `publishedKey` selection or full metadata parity (timestamps, thumbnails, captions).
+- **BuzzFeed Facebook embeds:** Facebook bucket URLs are retained as bare playlist entries with an empty `ExtractorKey`. There is no registered Facebook extractor, so an explicit `facebook` key is never emitted (would invent a guaranteed-bad `SelectFor` route). YouTube bucket URLs keep `ExtractorKey=youtube` with verified fixture re-entry.

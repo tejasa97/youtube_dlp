@@ -4,6 +4,9 @@ import (
 	"context"
 	"net/url"
 	"testing"
+
+	"github.com/ytdlp-go/ytdlp/internal/javascript/ejs"
+	"github.com/ytdlp-go/ytdlp/internal/javascript/engine"
 )
 
 func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
@@ -1127,12 +1130,38 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 	})
 	add("buzzfeed-article", "buzzfeed|/{author}/{slug}", "buzzfeed", "playlist", func(t *testing.T) {
 		u := "https://www.buzzfeed.com/abagg/this-angry-ram-destroys-a-punching-bag-like-a-boss"
-		transport := &sharedFixtureTransport{pages: map[string][]byte{u: familyFixture(t, "buzzfeed", "page.html")}}
+		page := []byte(`<html>
+<div class="video-embed" rel:bf_bucket_data='{"video":{"id":"fixture0001","url":"https://www.youtube.com/watch?v=fixture0001"}}'></div>
+<div class="video-embed" rel:bf_bucket_data='{"video":{"id":"fb1","url":"https://www.facebook.com/watch/?v=971793786185728"}}'></div>
+</html>`)
+		transport := &sharedFixtureTransport{pages: map[string][]byte{u: page}}
 		result, err := NewBuzzFeed().Extract(context.Background(), Request{URL: u, Transport: transport})
 		if err != nil {
 			t.Fatal(err)
 		}
-		assertLazyPlaylist(t, result, transport, breadthAdapterMaxEntries, "youtube", 2)
+		entries := assertLazyPlaylist(t, result, transport, breadthAdapterMaxEntries, "youtube", 2)
+		if entries[1].ExtractorKey != "" {
+			t.Fatalf("facebook entry must not set explicit key, got %q", entries[1].ExtractorKey)
+		}
+		solver, err := ejs.New(engine.New(4))
+		if err != nil {
+			t.Fatal(err)
+		}
+		watch := readYouTubeFixture(t, "watch.html")
+		player := readYouTubeFixture(t, "../../javascript/ejs-0.8.0/synthetic-player.js")
+		ytTransport := &memoryTransport{pages: map[string][]byte{
+			youtubeFixtureURL: watch,
+			youtubePlayerURL:  player,
+		}}
+		media, err := NewYouTube().Extract(context.Background(), Request{
+			URL: entries[0].URL, Transport: ytTransport, ChallengeSolver: solver,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if formats, ok := media.Info.Formats(); !ok || len(formats) == 0 {
+			t.Fatal("youtube re-entry missing formats")
+		}
 	})
 	add("mediastream-embed", "mediastream|/embed/{id}", "mediastream", "media", func(t *testing.T) {
 		u := "https://mdstrm.com/embed/6318e3f1d1d316083ae48831"
@@ -1218,9 +1247,9 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !result.IsURL() || result.Redirect.ExtractorKey != "sproutvideo" {
-			t.Fatalf("%#v", result)
-		}
+		assertURLResultReentry(t, result, "sproutvideo", NewSproutVideo(), &sharedFixtureTransport{pages: map[string][]byte{
+			"https://videos.sproutvideo.com/embed/4abcdef1234567890a/0abcdef1234567890": sharedFixture(t, "sproutvideo.html"),
+		}})
 	})
 	add("laracasts-episode", "laracasts|/series/{series}/episodes/{n}", "laracasts", "url_result", func(t *testing.T) {
 		u := "https://laracasts.com/series/30-days-to-learn-laravel-11/episodes/1"
@@ -1229,9 +1258,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !result.IsURL() || result.Redirect.ExtractorKey != "vimeo" {
-			t.Fatalf("%#v", result)
-		}
+		assertURLResultReentry(t, result, "vimeo", NewVimeo(), breadthVimeoReentryTransport(t))
 	})
 	add("laracasts-series", "laracasts_series|/series/{slug}", "laracasts_series", "playlist", func(t *testing.T) {
 		u := "https://laracasts.com/series/30-days-to-learn-laravel-11"
@@ -1240,7 +1267,17 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 		if err != nil {
 			t.Fatal(err)
 		}
-		assertLazyPlaylist(t, result, transport, breadthAdapterMaxEntries, "vimeo", 2)
+		entries := assertLazyPlaylist(t, result, transport, breadthAdapterMaxEntries, "vimeo", 2)
+		child := breadthVimeoReentryTransport(t)
+		for _, entry := range entries {
+			media, err := NewVimeo().Extract(context.Background(), Request{URL: entry.URL, Transport: child})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if formats, ok := media.Info.Formats(); !ok || len(formats) == 0 {
+				t.Fatalf("vimeo re-entry missing formats for %q", entry.URL)
+			}
+		}
 	})
 
 	add("abcotvs-abc7ny", "abcotvs|host=abc7ny.com /{slug}/{id}", "abcotvs", "media", func(t *testing.T) {
