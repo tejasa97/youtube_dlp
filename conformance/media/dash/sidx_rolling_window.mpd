@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Synthetic single-period dynamic SegmentBase/SIDX manifest illustrating a
+  rolling live window. Companion expectations live in
+  sidx_rolling_window.expected.json. This MPD is documentation/fixture evidence
+  only; executable coverage is in internal/protocol/dash rolling-window tests.
+-->
+<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="dynamic" minimumUpdatePeriod="PT1S" availabilityStartTime="1970-01-01T00:00:00Z">
+  <Period id="p0">
+    <AdaptationSet contentType="video" mimeType="video/mp4">
+      <Representation id="v" bandwidth="1000">
+        <BaseURL>https://example.test/roll.mp4</BaseURL>
+        <SegmentBase indexRange="100-199">
+          <Initialization range="0-99"/>
+        </SegmentBase>
+      </Representation>
+    </AdaptationSet>
+  </Period>
+</MPD>

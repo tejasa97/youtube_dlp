@@ -36,6 +36,8 @@ ISO-BMFF specifications:
 | `sidx_v0_two_refs.hex` | Synthetic SIDX v0 binary box with 2 references |
 | `sidx_hierarchical_v0.hex` | Synthetic hierarchical SIDX: root index ref → nested SIDX with 2 leaf refs |
 | `sidx_hierarchical_v0.expected.json` | Expected absolute leaf ranges and expansion order for the above |
+| `sidx_rolling_window.mpd` | Synthetic single-period dynamic SegmentBase rolling-window manifest shell |
+| `sidx_rolling_window.expected.json` | Accepted/rejected live-window evolution contract for dynamic SIDX polling |
 
 ## Synthetic data attestation
 
@@ -49,6 +51,10 @@ ISO-BMFF specifications:
   reference_type=1 (index) entry pointing to a nested SIDX with two
   reference_type=0 (leaf) entries. Expected absolute leaf ranges are recorded
   in the companion `.expected.json`.
+- The rolling-window fixtures document the Go-native live-window eviction and
+  append-once contract. Executable evidence is the deterministic protocol tests
+  listed in `docs/DASH_DYNAMIC_SIDX_EVIDENCE.md`; the pinned yt-dlp commit does
+  not implement dynamic SIDX polling.
 - The MPD fixtures use `example.test` domain URLs that cannot resolve.
 
 ## Implementation notes
@@ -59,9 +65,11 @@ next explicit `S@t`, or to a known period/publish boundary. A final unbounded
 negative repeat remains a categorized unsupported-timeline error rather than
 guessing an infinite sequence.
 
-Dynamic manifests with SegmentBase/SIDX are explicitly rejected
-(`ErrUnsupportedAddressing`) rather than risking stale SIDX data applied to a
-changed resource. This is documented in `docs/DASH_SIDX_EVIDENCE.md`.
+Bounded single-period dynamic SegmentBase/SIDX polling is supported as a
+Go-native extension, including append-only growth and live-window prefix
+eviction with append-once leaf accumulation. Dynamic multi-period SegmentBase
+and mixed addressing remain fail-closed. Details are documented in
+`docs/DASH_DYNAMIC_SIDX_EVIDENCE.md` and `docs/DASH_SIDX_EVIDENCE.md`.
 
 Hierarchical SIDX expansion (reference_type=1) is bounded by explicit safety
 limits: max depth 8, max 256 parsed boxes per representation, max 16 MiB

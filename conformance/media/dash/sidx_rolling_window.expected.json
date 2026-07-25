@@ -1,0 +1,42 @@
+{
+  "description": "Deterministic rolling live-window SegmentBase/SIDX evolution contract for bounded dynamic polling.",
+  "identity": "url+rangeStart+rangeLength",
+  "snapshots": [
+    {
+      "id": 1,
+      "window_leaf_ids": ["L0", "L1", "L2"],
+      "accumulated_leaf_ids": ["L0", "L1", "L2"]
+    },
+    {
+      "id": 2,
+      "window_leaf_ids": ["L1", "L2", "L3"],
+      "evicted_prefix": ["L0"],
+      "appended": ["L3"],
+      "accumulated_leaf_ids": ["L0", "L1", "L2", "L3"]
+    }
+  ],
+  "accepted": [
+    "stable-offset prefix eviction with retained suffix identity match",
+    "pure prefix eviction with empty append set",
+    "pure append with drop=0",
+    "unchanged window",
+    "final dynamic-to-static snapshot that includes a rolling window"
+  ],
+  "rejected": [
+    "live-edge rewind/shrink that retains a leading identity while dropping a trailing retained leaf",
+    "retained-leaf range mutation",
+    "reorder or insertion that cannot form a retained suffix/prefix alignment",
+    "replay of an already-accumulated leaf identity after eviction",
+    "overlapping absolute byte ranges on the same media URL",
+    "duplicate leaf identities inside one window",
+    "representation track-property or media-URL drift",
+    "dynamic multi-period SegmentBase/SIDX",
+    "mixed SegmentBase/SIDX and SegmentTemplate/List selection"
+  ],
+  "honest_limitations": [
+    "polling completes before media download; evicted historical ranges must remain HTTP-fetchable",
+    "identity does not hash remote bytes behind an unchanged URL/range",
+    "equal-sized absolute-range reuse can alias an unchanged window under URL/range identity",
+    "pinned yt-dlp does not implement dynamic SIDX polling; contract is Go-native"
+  ]
+}
