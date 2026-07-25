@@ -65,6 +65,9 @@ evidence. Counts and host policies are recorded in
 | brightcove adapters | pgatour, 9news/9now, NetApp, AMC Networks, Craftsy, TVO, TVA+, TVA Nouvelles | shared backend |
 | kaltura / jwplatform adapters | UN WebTV, AZ Medien, Inc, Heise; Spiegel, OneFootball | shared backend |
 | podcast feeders | Acast, Simplecast, Megaphone, Art19, Libsyn, Spreaker episode/show URLs | shared backend, playlist/API |
+| nowness (+ playlist/series) | nowness.com / cn.nowness.com story, playlist, series | playlist/API, Brightcove/Vimeo handoff |
+| dacast (+ playlist) | iframe.dacast.com vod/playlist embeds | shared backend, playlist/API, HLS |
+| panopto (+ playlist) | `*.panopto.com` / `*.panopto.eu` Viewer/Embed `id`/`pid` | shared backend, playlist/API |
 
 These entries are deterministic-corpus compatible only. They do not claim live
 service coverage beyond synthetic fixtures and documented handoff behavior.

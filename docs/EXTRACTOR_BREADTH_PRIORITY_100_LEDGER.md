@@ -113,14 +113,23 @@ Shared helpers for HTTPS media URL policy, episode metadata bounds, and show pla
 | `spreaker` | SpreakerIE | no |
 | `spreaker_show` | SpreakerShowIE | yes |
 
-### Batch E — Stretch (if time / evidence supports; no dishonest counting)
+### Batch E — Completed expansions (reference-backed)
+
+| Key | Family | Playlist |
+|-----|--------|----------|
+| `nowness` | NOWNESS story → Brightcove/Vimeo | no |
+| `nowness_playlist` | NOWNESS playlist API | yes (lazy) |
+| `nowness_series` | NOWNESS series API | yes (lazy) |
+| `dacast` | Dacast VOD HLS | no |
+| `dacast_playlist` | Dacast playlist → VOD URLResults | yes (lazy) |
+
+### Batch F — Still deferred (if time / evidence supports; no dishonest counting)
 
 | Key | Family | Notes |
 |-----|--------|-------|
 | `vidsio` | SproutVideo | VidsIoIE host adapter |
 | `panopto` / `panopto_list` | Panopto | new shared family if parsers stay bounded |
 | `mediastream` | Mediastream | exact embed hosts only |
-| `dacast` | Dacast | exact player hosts only |
 | Additional Anvato/ThePlatform/NBC adapters | existing | only with reference + fixtures |
 
 ## Explicit exclusions
@@ -134,11 +143,11 @@ Shared helpers for HTTPS media URL policy, episode metadata bounds, and show pla
 
 ## Count plan (honest)
 
-| Metric | Entering | This PR target | Cumulative target |
-|--------|----------|----------------|-------------------|
-| Distinct keys | 15 | ≥35 (stretch ≥60) | ≥50 (stretch 75) |
-| Success URL shapes | ≈28 | ≥72 | ≥100 |
-| Shared families | 9 | +1 podcast | ≥8 (met) |
-| Playlist/feed behaviors | few | add podcast/NetApp/TVA/Arc | ≥20 cumulative |
+| Metric | Entering (wave 1) | This PR | Cumulative (automated) |
+|--------|-------------------|---------|------------------------|
+| Distinct keys | 15 | +37 podcast/Arc/BC/JW +5 nowness/dacast | ≥50 (stretch 75 not claimed) |
+| Success URL shapes | enumerated in inventory | enumerated in inventory | **≥100** via `TestBreadthPriority100AuditableInventory` |
+| Shared families | 9 | +podcast, nowness, dacast | ≥8 (met) |
+| Playlist/feed behaviors | wave-1 Arc/Hytale + this PR lazy playlists | see inventory playlist list | **≥20** via same test |
 
-Any shortfall after verification will be reported explicitly rather than padded with aliases or untested keys.
+Authoritative inventories are the automated tests, not this table.

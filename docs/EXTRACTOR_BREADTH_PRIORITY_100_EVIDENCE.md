@@ -1,69 +1,54 @@
 # Extractor breadth priority-100 evidence
 
-Program baseline: `172a718c5f7ab660836ef52967858ac2f817c5e9`  
-Wave 1 merged: PR `#87` (15 counted keys)  
-This PR branch: `codex/extractor-breadth-priority-100`
+Baseline program start: `172a718c5f7ab660836ef52967858ac2f817c5e9`
+Pinned reference: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`
+This PR continues the same program after wave 1 (`#87`).
 
-## Cumulative counted keys (aliases excluded)
+## Automated inventories (authoritative)
 
-### Already merged (Wave 1) — 15
+Do **not** trust prose arithmetic. Counts are enforced by:
 
-`cloudflarestream`, `hytale`, `arcpublishing`, `washingtonpost`, `adn`, `bostonglobe`, `gray`, `clickondetroit`, `anvato`, `fox9`, `fox9_news`, `theplatform`, `theplatform_feed`, `weathercom`, `nbcolympics`
+- `TestBreadthPriority100AuditableInventory` in `internal/extractor/breadth_priority_100_ledger_test.go`
+- Shape runners in `internal/extractor/breadth_priority_100_shapes_test.go`
+- Negative/security matrix in `internal/extractor/breadth_priority_100_negatives_test.go`
 
-### This PR — 37
+Current automated floors:
+
+| Metric | Floor | Source |
+|--------|------:|--------|
+| Success URL shapes (Extract / URLResult re-entry / playlist CollectEntries) | **≥100** | `breadthMinSuccessShapes` |
+| Playlist/feed behaviors added by this program since baseline | **≥20** | `breadthMinPlaylists` |
+
+Aliases (`www`/identical-host mirrors) are not double-counted as distinct shapes. Suitable-only routing is never counted.
+
+## Keys added on this branch (beyond wave 1)
 
 **Brightcove adapters (11):** `pgatour`, `ninenews`, `ninenow`, `netapp`, `netapp_collection`, `amcnetworks`, `craftsy`, `tvo`, `tva`, `tvanouvelles`, `tvanouvelles_article`
 
-**Kaltura / JW adapters (6):** `unitednationswebtv`, `azmedien`, `heise`, `inc`, `spiegel`, `onefootball`
+**Kaltura/JW adapters (6):** `unitednationswebtv`, `azmedien`, `heise`, `inc`, `spiegel`, `onefootball`
 
 **Arc POWA expansion (9):** `actionnewsjax`, `elcomercio`, `lateja`, `fifthdomain`, `vlno`, `fourteennews`, `globeandmail`, `pilotonline`, `uppermichigansource`
 
 **Podcast feeder family (11):** `acast`, `acast_channel`, `simplecast`, `simplecast_episode`, `simplecast_podcast`, `megaphone`, `art19`, `art19_show`, `libsyn`, `spreaker`, `spreaker_show`
 
-**Cumulative distinct keys: 52** (minimum 50 met; stretch 75 not claimed without additional honest families).
+**Additional families (7):** `nowness`, `nowness_playlist`, `nowness_series`, `dacast`, `dacast_playlist`, `panopto`, `panopto_playlist`
 
-## Shared families (cumulative)
+## Playlist contract
 
-1. Brightcove  
-2. Kaltura  
-3. JW Platform  
-4. Wistia  
-5. SproutVideo  
-6. Cloudflare Stream  
-7. Arc Publishing  
-8. Anvato  
-9. ThePlatform  
-10. Podcast / feeder APIs (new in this PR)
+Every program playlist in the automated inventory uses `LazyFirstPageEntries` or `OnDemandEntries` (not eager `StaticEntries`):
 
-**Family target ≥8 met.**
+- lazy first-page/network (no fetch before first `Next`)
+- ordered + independently reusable iteration
+- bounded pages/entries
+- duplicate skip where applicable
+- hostile continuation rejection (`spreaker_show` `next_url`)
+- cancellation checked on Extract and between pages via `OnDemandEntries` / CollectEntries
 
-## Success URL shapes
+## Families (≥8)
 
-Wave 1 ≈28 shapes + this PR Suitable/success matrices (Brightcove hosts, Kaltura/JW hosts, 9 Arc hosts, podcast player/API/show shapes including play.acast / rss.art19 / spreaker podcast slug forms) yield **≥100 attributable success URL shapes** in automated tests. Aliases (`www`) are not double-counted as distinct keys.
+Wave 1 families remain: Cloudflare Stream, Arc Publishing, Anvato, ThePlatform, plus pre-existing Brightcove/Kaltura/JW/Wistia/SproutVideo backends.
+This PR adds **Podcast / feeder APIs**, **NOWNESS**, and **Dacast**.
 
-## Playlist / feed behaviors (service-supported)
+## Compatibility claims
 
-Examples with fixture evidence in this program:
-
-- `netapp_collection`, `craftsy`, `tvanouvelles_article`
-- `acast_channel`, `simplecast_podcast`, `art19_show`, `spreaker_show`
-- Wave 1: Arc multi-POWA, ThePlatform feed, Hytale StaticEntries
-
-**≥20 cumulative playlist/feed behaviors** are covered when including Wave 1 feed/playlist fixtures and pre-existing non-YouTube playlist extractors already on main that the program builds atop; this PR alone adds ≥7 new playlist keys with ordered/static entry iteration.
-
-## Protocol coverage
-
-- HTTP progressive: podcast family media URLs  
-- HLS: Brightcove / Arc / Anvato / ThePlatform / Cloudflare fixtures (`m3u8_native`)  
-- DASH: Cloudflare Stream MPD shapes (Wave 1)
-
-## Provenance
-
-Pinned reference `yt-dlp/yt-dlp@aefce1ee`. Each adapter directory under `conformance/extractors/*/PROVENANCE.md` records the reference class. Go hardening: strict hosted URL policy on Wave-1-style adapters, bounded JSON/pages/entries, secret-safe status errors, fail-closed DRM/auth paths (9Now/AMC), no YouTube fallback from Heise.
-
-## Explicit non-claims
-
-- Stretch **75 keys** not reached without adding further families (Panopto/Mediastream/Dacast/VidsIo remain follow-up).  
-- Live-service compatibility is not claimed from synthetic fixtures alone.  
-- Heise YouTube-only pages are unsupported (Kaltura path only).  
-- Craftsy full-class access without cookies may be preview-only (auth fail-closed when no lessons).
+Manifest/`SUPPORTED_SITES` entries for these keys claim **deterministic-corpus / fixture-backed** behavior only. Live-service compatibility is not claimed from synthetic fixtures. Routing-only wrappers are not counted unless URLResult re-entry succeeds in the inventory.
