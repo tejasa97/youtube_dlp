@@ -306,30 +306,37 @@ afterNumber:
 	if digitCount == 0 || digitCount > 18 {
 		return 0, false
 	}
+	sepBeforeToken := 0
 	for i < len(runes) && (runes[i] == ' ' || runes[i] == '\t' || runes[i] == '\u00a0') {
+		sepBeforeToken++
 		i++
 	}
 	multiplier := int64(1)
+	suffixFound := false
 	if i < len(runes) {
 		switch {
 		case i+1 < len(runes) && runes[i] == 'k' && runes[i+1] == 'k':
 			multiplier = 1_000_000
 			i += 2
+			suffixFound = true
 		case runes[i] == 'k':
 			multiplier = 1_000
 			i++
+			suffixFound = true
 		case runes[i] == 'm':
 			multiplier = 1_000_000
 			i++
+			suffixFound = true
 		case runes[i] == 'b':
 			multiplier = 1_000_000_000
 			i++
+			suffixFound = true
 		default:
 			if sawDot {
 				return 0, false
 			}
 		}
-		if multiplier != 1 {
+		if suffixFound {
 			if i < len(runes) {
 				r := runes[i]
 				if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
@@ -340,10 +347,21 @@ afterNumber:
 	} else if sawDot {
 		return 0, false
 	}
-	for i < len(runes) && (runes[i] == ' ' || runes[i] == '\t' || runes[i] == '\u00a0') {
-		i++
+	nounSep := 0
+	if suffixFound {
+		for i < len(runes) && (runes[i] == ' ' || runes[i] == '\t' || runes[i] == '\u00a0') {
+			nounSep++
+			i++
+		}
+	} else {
+		nounSep = sepBeforeToken
 	}
 	if i < len(runes) {
+		// Trailing nouns require an actual supported whitespace separator
+		// (ASCII space/tab or NBSP). Attached forms like "42videos" fail closed.
+		if nounSep == 0 {
+			return 0, false
+		}
 		nounStart := i
 		for i < len(runes) && runes[i] >= 'a' && runes[i] <= 'z' {
 			i++
