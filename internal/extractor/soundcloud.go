@@ -99,15 +99,20 @@ const (
 	soundCloudRelatedTarget
 )
 
-// soundCloudUserTabs maps supported profile tab path segments to API suffixes
-// and playlist title labels, matching SoundcloudUserIE._BASE_URL_MAP for the
-// tabs this port implements. Additional tabs remain out of scope per PR.
+// soundCloudUserTabs matches the pinned SoundcloudUserIE._BASE_URL_MAP. The
+// empty URL resource is represented as "all" after classification.
 var soundCloudUserTabs = map[string]struct {
-	apiSuffix string
-	label     string
+	apiPath string
+	label   string
 }{
-	"tracks": {apiSuffix: "tracks", label: "Tracks"},
-	"likes":  {apiSuffix: "likes", label: "Likes"},
+	"all":       {apiPath: "stream/users/%s", label: "All"},
+	"tracks":    {apiPath: "users/%s/tracks", label: "Tracks"},
+	"albums":    {apiPath: "users/%s/albums", label: "Albums"},
+	"sets":      {apiPath: "users/%s/playlists", label: "Sets"},
+	"reposts":   {apiPath: "stream/users/%s/reposts", label: "Reposts"},
+	"likes":     {apiPath: "users/%s/likes", label: "Likes"},
+	"spotlight": {apiPath: "users/%s/spotlight", label: "Spotlight"},
+	"comments":  {apiPath: "users/%s/comments", label: "Comments"},
 }
 
 type soundCloudTarget struct {
@@ -144,15 +149,23 @@ func classifySoundCloudURL(parsed *url.URL) (soundCloudTarget, bool) {
 	}
 	switch host {
 	case "soundcloud.com", "www.soundcloud.com", "m.soundcloud.com":
+		if len(segments) == 1 && soundCloudSlugPattern.MatchString(segments[0]) &&
+			!soundCloudTrackReserved[segments[0]] {
+			return soundCloudTarget{
+				kind:      soundCloudUserTabTarget,
+				relation:  "all",
+				canonical: soundCloudWebBase + segments[0],
+			}, true
+		}
 		if len(segments) == 4 && segments[0] == "stations" && segments[1] == "track" && soundCloudSlugPattern.MatchString(segments[2]) && soundCloudSlugPattern.MatchString(segments[3]) {
 			return soundCloudTarget{kind: soundCloudStationTarget, canonical: soundCloudWebBase + strings.Join(segments, "/")}, true
 		}
 		if len(segments) == 2 && soundCloudSlugPattern.MatchString(segments[0]) {
-			if tab, ok := soundCloudUserTabs[segments[1]]; ok {
+			if _, ok := soundCloudUserTabs[segments[1]]; ok {
 				return soundCloudTarget{
 					kind:      soundCloudUserTabTarget,
 					relation:  segments[1],
-					canonical: soundCloudWebBase + segments[0] + "/" + tab.apiSuffix,
+					canonical: soundCloudWebBase + segments[0] + "/" + segments[1],
 				}, true
 			}
 		}
@@ -269,7 +282,7 @@ func (extractor *SoundCloud) extractUserTab(ctx context.Context, transport Trans
 	}
 	path := strings.Trim(strings.TrimPrefix(target.canonical, soundCloudWebBase), "/")
 	parts := strings.Split(path, "/")
-	if len(parts) < 2 || !soundCloudSlugPattern.MatchString(parts[0]) {
+	if len(parts) < 1 || !soundCloudSlugPattern.MatchString(parts[0]) {
 		return Extraction{}, ErrUnsupported
 	}
 	username := parts[0]
@@ -282,7 +295,7 @@ func (extractor *SoundCloud) extractUserTab(ctx context.Context, transport Trans
 	if !validSoundCloudJSONID(user.ID) || strings.TrimSpace(user.Username) == "" {
 		return Extraction{}, fmt.Errorf("%w: malformed SoundCloud user", ErrInvalidMetadata)
 	}
-	apiPath := "users/" + user.ID.String() + "/" + tab.apiSuffix
+	apiPath := fmt.Sprintf(tab.apiPath, user.ID.String())
 	firstURL := soundCloudAPIBase + apiPath + "?linked_partitioning=1&limit=200"
 	policy := soundCloudContinuationPolicy{allowedPath: "/" + apiPath}
 	sequence, err := ContinuationEntries(nil, firstURL, func(ctx context.Context, cursor string) ([]Entry, string, error) {
