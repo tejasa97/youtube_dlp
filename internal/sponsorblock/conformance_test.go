@@ -3,6 +3,7 @@ package sponsorblock
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -105,5 +106,100 @@ func TestConformancePrefixIsSHA256FirstFour(t *testing.T) {
 	}
 	if got != want {
 		t.Fatalf("prefix = %q, want %q", got, want)
+	}
+}
+
+func TestConformanceArrangeMarkRemoveFixture(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("testdata", "arrange_mark_remove.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		Ordinary []struct {
+			StartTime float64 `json:"start_time"`
+			EndTime   float64 `json:"end_time"`
+			Title     string  `json:"title"`
+		} `json:"ordinary_chapters"`
+		Sponsors []struct {
+			StartTime float64 `json:"start_time"`
+			EndTime   float64 `json:"end_time"`
+			Category  string  `json:"category"`
+			Title     string  `json:"title"`
+			Remove    bool    `json:"remove"`
+		} `json:"sponsor_chapters"`
+		ExpectedCuts []struct {
+			Start float64 `json:"start"`
+			End   float64 `json:"end"`
+		} `json:"expected_cuts"`
+		ExpectedChapters []struct {
+			StartTime float64 `json:"start_time"`
+			EndTime   float64 `json:"end_time"`
+			Title     string  `json:"title"`
+			Sponsor   bool    `json:"sponsor"`
+			Category  string  `json:"category"`
+		} `json:"expected_chapters"`
+	}
+	if err := json.Unmarshal(body, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	input := make([]ArrangeChapter, 0, len(fixture.Ordinary)+len(fixture.Sponsors))
+	for i, chapter := range fixture.Ordinary {
+		input = append(input, ArrangeChapter{
+			StartTime: chapter.StartTime, EndTime: chapter.EndTime, Title: chapter.Title, Source: i,
+		})
+	}
+	for _, chapter := range fixture.Sponsors {
+		input = append(input, ArrangeChapter{
+			StartTime: chapter.StartTime, EndTime: chapter.EndTime, Title: chapter.Title,
+			Remove: chapter.Remove, Source: -1,
+			Categories: []CategorySpan{{
+				Category: chapter.Category, Start: chapter.StartTime, End: chapter.EndTime, Title: chapter.Title,
+			}},
+		})
+	}
+	got, err := Arrange(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Cuts) != len(fixture.ExpectedCuts) {
+		t.Fatalf("cuts=%#v", got.Cuts)
+	}
+	for i, cut := range fixture.ExpectedCuts {
+		if got.Cuts[i].Start != cut.Start || got.Cuts[i].End != cut.End {
+			t.Fatalf("cut[%d]=%#v want %#v", i, got.Cuts[i], cut)
+		}
+	}
+	if len(got.Chapters) != len(fixture.ExpectedChapters) {
+		t.Fatalf("chapters=%#v", got.Chapters)
+	}
+	for i, want := range fixture.ExpectedChapters {
+		chapter := got.Chapters[i]
+		if chapter.StartTime != want.StartTime || chapter.EndTime != want.EndTime ||
+			chapter.Title != want.Title || chapter.Sponsor != want.Sponsor || chapter.Category != want.Category {
+			t.Fatalf("chapter[%d]=%#v want %#v", i, chapter, want)
+		}
+	}
+}
+
+func TestConformanceDurationMismatchWarningFixture(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("testdata", "duration_mismatch.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		Duration                      float64      `json:"duration"`
+		Segments                      []RawSegment `json:"segments"`
+		ExpectDurationMismatchWarning bool         `json:"expect_duration_mismatch_warning"`
+		ExpectedChapterCount          int          `json:"expected_chapter_count"`
+	}
+	if err := json.Unmarshal(body, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	got := NormalizeDetailed(fixture.Segments, fixture.Duration)
+	if got.DurationMismatchFiltered != fixture.ExpectDurationMismatchWarning {
+		t.Fatalf("mismatch=%v want %v", got.DurationMismatchFiltered, fixture.ExpectDurationMismatchWarning)
+	}
+	if len(got.Chapters) != fixture.ExpectedChapterCount {
+		t.Fatalf("chapters=%d want %d", len(got.Chapters), fixture.ExpectedChapterCount)
 	}
 }

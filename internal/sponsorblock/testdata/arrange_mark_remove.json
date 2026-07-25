@@ -1,0 +1,39 @@
+{
+  "duration": 100.0,
+  "video_title": "Fixture Video",
+  "ordinary_chapters": [
+    {"start_time": 0.0, "end_time": 40.0, "title": "Intro"},
+    {"start_time": 40.0, "end_time": 100.0, "title": "Main"}
+  ],
+  "sponsor_chapters": [
+    {
+      "start_time": 10.0,
+      "end_time": 20.0,
+      "category": "sponsor",
+      "title": "Sponsor",
+      "type": "skip",
+      "remove": true
+    },
+    {
+      "start_time": 55.0,
+      "end_time": 65.0,
+      "category": "selfpromo",
+      "title": "Unpaid/Self Promotion",
+      "type": "skip",
+      "remove": false
+    }
+  ],
+  "expected_cuts": [{"start": 10.0, "end": 20.0}],
+  "expected_chapters": [
+    {"start_time": 0.0, "end_time": 30.0, "title": "Intro", "sponsor": false},
+    {"start_time": 30.0, "end_time": 45.0, "title": "Main", "sponsor": false},
+    {
+      "start_time": 45.0,
+      "end_time": 55.0,
+      "title": "[SponsorBlock]: Unpaid/Self Promotion",
+      "sponsor": true,
+      "category": "selfpromo"
+    },
+    {"start_time": 55.0, "end_time": 90.0, "title": "Main", "sponsor": false}
+  ]
+}

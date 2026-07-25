@@ -3,24 +3,32 @@ package sponsorblock
 import "math"
 
 // normalizeSegment applies the per-segment pinned rules and reports
-// whether the segment survives the duration-mismatch filter.
+// whether the segment survives filtering.
 func normalizeSegment(segment RawSegment, knownDuration bool, duration float64) (RawSegment, bool) {
+	normalized, ok, _ := normalizeSegmentDetailed(segment, knownDuration, duration)
+	return normalized, ok
+}
+
+// normalizeSegmentDetailed also reports whether the segment was rejected
+// solely by the pinned videoDuration mismatch policy (not (0,0), invalid
+// category/action, or other malformed cases).
+func normalizeSegmentDetailed(segment RawSegment, knownDuration bool, duration float64) (RawSegment, bool, bool) {
 	if !IsValidCategory(segment.Category) || !IsValidAction(segment.ActionType) {
-		return segment, false
+		return segment, false, false
 	}
 	if math.IsNaN(segment.Segment[0]) || math.IsInf(segment.Segment[0], 0) ||
 		math.IsNaN(segment.Segment[1]) || math.IsInf(segment.Segment[1], 0) {
-		return segment, false
+		return segment, false, false
 	}
 	if segment.Segment[0] < 0 || segment.Segment[1] < 0 {
-		return segment, false
+		return segment, false, false
 	}
 	if segment.Segment[0] > maxAllowedTimestamp || segment.Segment[1] > maxAllowedTimestamp {
-		return segment, false
+		return segment, false, false
 	}
 	// Whole-video marker.
 	if segment.Segment[0] == 0 && segment.Segment[1] == 0 {
-		return segment, false
+		return segment, false, false
 	}
 	category := Category(segment.Category)
 	// Ignore milliseconds difference at the start.
@@ -34,7 +42,7 @@ func normalizeSegment(segment RawSegment, knownDuration bool, duration float64) 
 		end += 1
 	}
 	if start >= end {
-		return segment, false
+		return segment, false, false
 	}
 	// Snap end to the known duration when within one second, never
 	// exceed the duration.
@@ -42,21 +50,21 @@ func normalizeSegment(segment RawSegment, knownDuration bool, duration float64) 
 		end = duration
 	}
 	if end <= start {
-		return segment, false
+		return segment, false, false
 	}
 	if knownDuration && end > duration {
 		end = duration
 	}
 	if end <= start {
-		return segment, false
+		return segment, false, false
 	}
 	// Duration mismatch filter.
 	if knownDuration && !matchesDuration(segment.VideoDuration, duration, start, end) {
-		return segment, false
+		return segment, false, true
 	}
 	segment.Segment[0] = start
 	segment.Segment[1] = end
-	return segment, true
+	return segment, true, false
 }
 
 // matchesDuration implements the pinned <1s or <5s and <5% policy

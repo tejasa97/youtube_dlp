@@ -42,31 +42,41 @@ const maxAllowedTimestamp = 10 * 365 * 24 * 60 * 60
 // duration disables the duration-snap and duration-mismatch filters:
 // entries are normalized by category rules only and are sorted
 // deterministically.
-//
-// The implementation follows the pinned yt-dlp reference: discard
-// (0,0) whole-video markers, snap starts <=1s to zero, extend
-// poi_highlight by one second, snap ends within one second of the
-// known duration to the duration, and filter duration-mismatched
-// segments using the <1s or <5s and <5% policy without divide-by-zero
-// hazards.
 func Normalize(segments []RawSegment, duration float64) []Chapter {
+	return NormalizeDetailed(segments, duration).Chapters
+}
+
+// NormalizeResult is the chapter list plus whether any otherwise-valid
+// segment was dropped solely by the pinned videoDuration mismatch filter.
+type NormalizeResult struct {
+	Chapters                 []Chapter
+	DurationMismatchFiltered bool
+}
+
+// NormalizeDetailed is Normalize with an explicit duration-mismatch signal
+// for the pinned SponsorBlock warning.
+func NormalizeDetailed(segments []RawSegment, duration float64) NormalizeResult {
 	if len(segments) == 0 {
-		return []Chapter{}
+		return NormalizeResult{Chapters: []Chapter{}}
 	}
 	if len(segments) > MaxSegmentCount {
 		segments = segments[:MaxSegmentCount]
 	}
 	knownDuration := duration > 0 && !math.IsNaN(duration) && !math.IsInf(duration, 0)
 	filtered := make([]RawSegment, 0, len(segments))
+	mismatchFiltered := false
 	for _, segment := range segments {
-		normalized, ok := normalizeSegment(segment, knownDuration, duration)
+		normalized, ok, mismatch := normalizeSegmentDetailed(segment, knownDuration, duration)
+		if mismatch {
+			mismatchFiltered = true
+		}
 		if !ok {
 			continue
 		}
 		filtered = append(filtered, normalized)
 	}
 	if len(filtered) == 0 {
-		return []Chapter{}
+		return NormalizeResult{Chapters: []Chapter{}, DurationMismatchFiltered: mismatchFiltered}
 	}
 	sort.SliceStable(filtered, func(i, j int) bool {
 		a, b := filtered[i].Segment, filtered[j].Segment
@@ -89,7 +99,7 @@ func Normalize(segments []RawSegment, duration float64) []Chapter {
 			Type:      segment.ActionType,
 		})
 	}
-	return chapters
+	return NormalizeResult{Chapters: chapters, DurationMismatchFiltered: mismatchFiltered}
 }
 
 // canonicalChapterTitle returns the chapter's title per the pinned
