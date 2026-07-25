@@ -4,10 +4,26 @@ import (
 	"testing"
 )
 
-func TestNormalizeEmptyInput(t *testing.T) {
-	got := Normalize(nil, 60)
-	if len(got) != 0 {
-		t.Fatalf("empty input produced %d chapters, want 0", len(got))
+func TestNormalizeDetailedDurationMismatchWarningSignal(t *testing.T) {
+	got := NormalizeDetailed([]RawSegment{
+		{Segment: [2]float64{0, 0}, Category: "sponsor", ActionType: "skip", VideoDuration: 60},
+		{Segment: [2]float64{5, 9}, Category: "sponsor", ActionType: "skip", VideoDuration: 67},
+		{Segment: [2]float64{5, 9}, Category: "not-a-category", ActionType: "skip", VideoDuration: 60},
+		{Segment: [2]float64{5, 9}, Category: "sponsor", ActionType: "skip", VideoDuration: 60},
+	}, 60)
+	if !got.DurationMismatchFiltered {
+		t.Fatal("expected duration-mismatch signal")
+	}
+	if len(got.Chapters) != 1 {
+		t.Fatalf("chapters = %#v", got.Chapters)
+	}
+	noWarn := NormalizeDetailed([]RawSegment{
+		{Segment: [2]float64{0, 0}, Category: "sponsor", ActionType: "skip", VideoDuration: 60},
+		{Segment: [2]float64{5, 9}, Category: "bad", ActionType: "skip", VideoDuration: 999},
+		{Segment: [2]float64{5, 9}, Category: "sponsor", ActionType: "skip", VideoDuration: 0},
+	}, 60)
+	if noWarn.DurationMismatchFiltered {
+		t.Fatal("did not expect warning for (0,0)/invalid/absent duration")
 	}
 }
 

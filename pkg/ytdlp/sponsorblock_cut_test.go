@@ -35,6 +35,142 @@ func TestSponsorBlockRemoveSkippedUnderSimulateAndSkipDownload(t *testing.T) {
 	}
 }
 
+func TestSponsorBlockMarkPlusRemoveNoCutsCommitsMarkedChapters(t *testing.T) {
+	root := t.TempDir()
+	media := filepath.Join(root, "media.mp4")
+	if err := os.WriteFile(media, []byte("media-original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	original := value.ObjectValue(value.NewObject(
+		value.Field{Key: "start_time", Value: value.Float(0)},
+		value.Field{Key: "end_time", Value: value.Float(100)},
+		value.Field{Key: "title", Value: value.String("Video")},
+		value.Field{Key: "custom", Value: value.String("preserved")},
+	))
+	info := value.Info{}
+	info.Set("duration", value.Float(100))
+	info.Set("title", value.String("Video"))
+	info.Set("chapters", value.List(original))
+	info.Set("sponsorblock_chapters", value.List(
+		chapterValue(sponsorblock.Chapter{StartTime: 10, EndTime: 20, Category: "sponsor", Title: "Sponsor", Type: "skip"}),
+		chapterValue(sponsorblock.Chapter{StartTime: 40, EndTime: 50, Category: "selfpromo", Title: "Unpaid/Self Promotion", Type: "skip"}),
+	))
+	operation := &operation{request: Request{SponsorBlock: SponsorBlockOptions{
+		Enabled: true, Mark: true, Remove: true,
+		Categories: []string{"sponsor", "selfpromo"}, RemoveCategories: []string{"intro"},
+	}}}
+	path, _, cut, err := operation.applySponsorBlockRemove(context.Background(), &info, media, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cut || path != media {
+		t.Fatalf("path=%q cut=%v", path, cut)
+	}
+	body, err := os.ReadFile(media)
+	if err != nil || string(body) != "media-original" {
+		t.Fatalf("media mutated: %v %q", err, body)
+	}
+	if duration, _ := sponsorblockNumber(info.Lookup("duration")); duration != 100 {
+		t.Fatalf("duration changed to %v", duration)
+	}
+	chapters, ok := info.Lookup("chapters").ListValue()
+	if !ok || len(chapters) < 2 {
+		t.Fatalf("chapters = %#v", info.Lookup("chapters"))
+	}
+	sponsors := 0
+	for _, item := range chapters {
+		object, ok := item.Object()
+		if !ok {
+			t.Fatalf("chapter = %#v", item)
+		}
+		if category, ok := object.Lookup("category").StringValue(); ok && category != "" {
+			sponsors++
+		}
+	}
+	if sponsors == 0 {
+		t.Fatalf("expected marked sponsors in chapters: %#v", chapters)
+	}
+	first, _ := chapters[0].Object()
+	if custom, _ := first.Lookup("custom").StringValue(); custom != "preserved" {
+		t.Fatalf("ordinary fields not preserved: %#v", first)
+	}
+}
+
+func TestSponsorBlockMarkPlusRemoveSimulateAppliesMarksWithoutCutting(t *testing.T) {
+	info := value.Info{}
+	info.Set("duration", value.Float(100))
+	info.Set("title", value.String("Video"))
+	info.Set("chapters", value.List(value.ObjectValue(value.NewObject(
+		value.Field{Key: "start_time", Value: value.Float(0)},
+		value.Field{Key: "end_time", Value: value.Float(100)},
+		value.Field{Key: "title", Value: value.String("Video")},
+		value.Field{Key: "custom", Value: value.String("preserved")},
+	))))
+	info.Set("sponsorblock_chapters", value.List(chapterValue(sponsorblock.Chapter{
+		StartTime: 10, EndTime: 20, Category: "sponsor", Title: "Sponsor", Type: "skip",
+	})))
+	operation := &operation{request: Request{
+		Simulate: true,
+		SponsorBlock: SponsorBlockOptions{
+			Enabled: true, Mark: true, Remove: true, Categories: []string{"sponsor"},
+		},
+	}}
+	path, _, cut, err := operation.applySponsorBlockRemove(context.Background(), &info, "missing.mp4", nil, nil)
+	if err != nil || cut || path != "missing.mp4" {
+		t.Fatalf("path=%q cut=%v err=%v", path, cut, err)
+	}
+	chapters, _ := info.Lookup("chapters").ListValue()
+	sponsors := 0
+	for _, item := range chapters {
+		object, _ := item.Object()
+		if category, ok := object.Lookup("category").StringValue(); ok && category != "" {
+			sponsors++
+		}
+	}
+	if sponsors != 1 {
+		t.Fatalf("simulate mark+remove chapters = %#v", chapters)
+	}
+	first, _ := chapters[0].Object()
+	if custom, _ := first.Lookup("custom").StringValue(); custom != "preserved" {
+		t.Fatalf("ordinary fields not preserved: %#v", first)
+	}
+}
+
+func TestSponsorBlockMarkPlusRemoveSkipDownloadAppliesMarksWithoutCutting(t *testing.T) {
+	info := value.Info{}
+	info.Set("duration", value.Float(100))
+	info.Set("title", value.String("Video"))
+	info.Set("chapters", value.List(value.ObjectValue(value.NewObject(
+		value.Field{Key: "start_time", Value: value.Float(0)},
+		value.Field{Key: "end_time", Value: value.Float(100)},
+		value.Field{Key: "title", Value: value.String("Video")},
+	))))
+	info.Set("sponsorblock_chapters", value.List(chapterValue(sponsorblock.Chapter{
+		StartTime: 10, EndTime: 20, Category: "sponsor", Title: "Sponsor", Type: "skip",
+	})))
+	operation := &operation{request: Request{
+		SkipDownload: true,
+		SponsorBlock: SponsorBlockOptions{
+			Enabled: true, Mark: true, Remove: true, Categories: []string{"sponsor"},
+		},
+	}}
+	path, _, cut, err := operation.applySponsorBlockRemove(context.Background(), &info, "missing.mp4", nil, nil)
+	if err != nil || cut || path != "missing.mp4" {
+		t.Fatalf("path=%q cut=%v err=%v", path, cut, err)
+	}
+	chapters, _ := info.Lookup("chapters").ListValue()
+	sponsors := 0
+	for _, item := range chapters {
+		object, _ := item.Object()
+		if category, ok := object.Lookup("category").StringValue(); ok && category != "" {
+			sponsors++
+		}
+	}
+	if sponsors != 1 {
+		t.Fatalf("skip-download mark+remove chapters = %#v", chapters)
+	}
+}
+
 func TestSponsorBlockRemoveNoopWithoutCuts(t *testing.T) {
 	root := t.TempDir()
 	media := filepath.Join(root, "media.mp4")
@@ -321,6 +457,45 @@ func TestSponsorBlockCutCommitReplacesAfterAllStaging(t *testing.T) {
 	}
 	subBody, err := os.ReadFile(sub)
 	if err != nil || string(subBody) != "sub-staged" {
+		t.Fatalf("subtitle = %v %q", err, subBody)
+	}
+}
+
+func TestSponsorBlockCutCommitCancellationLeavesFilesUnchanged(t *testing.T) {
+	root := t.TempDir()
+	media := filepath.Join(root, "media.mp4")
+	sub := filepath.Join(root, "track.vtt")
+	if err := os.WriteFile(media, []byte("media-original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sub, []byte("sub-original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	staging := filepath.Join(root, "staging")
+	if err := os.MkdirAll(staging, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	jobs := []sponsorBlockCutJob{
+		{kind: postprocess.ArtifactMedia, original: media, staged: filepath.Join(staging, "0.mp4"), backup: filepath.Join(staging, "backup-0.mp4")},
+		{kind: postprocess.ArtifactSubtitle, original: sub, staged: filepath.Join(staging, "1.vtt"), backup: filepath.Join(staging, "backup-1.vtt")},
+	}
+	if err := os.WriteFile(jobs[0].staged, []byte("media-staged"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(jobs[1].staged, []byte("sub-staged"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := commitSponsorBlockCutJobs(ctx, jobs); err == nil {
+		t.Fatal("expected cancellation")
+	}
+	mediaBody, err := os.ReadFile(media)
+	if err != nil || string(mediaBody) != "media-original" {
+		t.Fatalf("media = %v %q", err, mediaBody)
+	}
+	subBody, err := os.ReadFile(sub)
+	if err != nil || string(subBody) != "sub-original" {
 		t.Fatalf("subtitle = %v %q", err, subBody)
 	}
 }
