@@ -948,7 +948,11 @@ capabilities:
       - internal/extractor.TestYouTubeRendererRejectsHostileHashtagAndShelf
       - internal/extractor.TestYouTubeShowRendererEmitsPlaylist
       - internal/extractor.TestYouTubeRendererAvailabilityBadges
+      - internal/extractor.TestYouTubeRendererAvailabilityPrecedenceIsOrderIndependent
+      - internal/extractor.TestYouTubeRendererAvailabilityOmitsOnParserLimit
       - internal/extractor.TestYouTubePlaylistCountMetadata
+      - internal/extractor.TestYouTubeParseCountText
+      - internal/extractor.FuzzYouTubeParseCountText
       - internal/extractor.TestYouTubeHashtagExtractsLazyPlaylist
       - internal/extractor.TestYouTubeHashtagRejectsHostileURLs
       - internal/extractor.TestYouTubeAnonymousClientProfilesAreExactAndIsolated
@@ -956,7 +960,12 @@ capabilities:
       - internal/extractor.TestYouTubeClientRotationOrderIsDeterministic
       - internal/extractor.TestYouTubeAnonymousRecoveryRotatesExactClientIdentities
       - internal/extractor.TestYouTubeAuthenticatedRecoveryFallsBackToTVWithoutAnonymous
-      - internal/extractor.TestYouTubeAuthenticatedRecoveryRejectsPremiumClientWithoutSignal
+      - internal/extractor.TestYouTubeAuthenticatedNonPremiumAllowsWebCreatorForAgeLogin
+      - internal/extractor.TestYouTubeAuthenticatedPremiumWebCreatorSkipsGVSToken
+      - internal/extractor.TestYouTubeAuthenticatedWebCreatorFailsClosedWithoutRequiredGVSToken
+      - internal/extractor.TestYouTubeAuthenticatedRecoveryCancelsBetweenAttempts
+      - internal/extractor.TestYouTubeAuthenticatedContradictoryIdentityRejected
+      - internal/extractor.TestYouTubeAuthenticatedSelectedClientSABRMetadata
       - internal/youtubecanary.TestYouTubeCanaryDisabledByDefault
       - internal/youtubecanary.TestYouTubeCanaryValidateAndRedact
       - internal/extractor.TestYouTubeCustomTabIdentityAttacks
