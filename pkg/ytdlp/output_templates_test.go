@@ -33,7 +33,7 @@ func TestOutputTemplateTypePrecedenceAndValidation(t *testing.T) {
 		t.Fatalf("built-in default = %q", got)
 	}
 	for _, invalid := range []Request{
-		{OutputTemplates: OutputTemplates{"thumbnail": "%(id)s.%(ext)s"}},
+		{OutputTemplates: OutputTemplates{"annotation": "%(id)s.%(ext)s"}},
 		{OutputTemplates: OutputTemplates{OutputTemplateSubtitle: ""}},
 		{OutputTemplates: OutputTemplates{OutputTemplateInfoJSON: "%(id"}},
 		{OutputTemplate: "%(id"},
@@ -52,7 +52,7 @@ func TestOutputTemplateTypePrecedenceAndValidation(t *testing.T) {
 	}
 	if _, err := NewClient().Run(context.Background(), Request{
 		URL:             "not-a-url",
-		OutputTemplates: OutputTemplates{"thumbnail": "%(id)s.%(ext)s"},
+		OutputTemplates: OutputTemplates{"annotation": "%(id)s.%(ext)s"},
 	}); !IsCategory(err, ErrorInvalidInput) {
 		t.Fatalf("unsupported type category = %v", err)
 	}
