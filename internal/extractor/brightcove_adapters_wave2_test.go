@@ -1,14 +1,17 @@
 package extractor
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 const wave2FixtureRoot = "testdata/brightcove_adapters_wave2"
@@ -31,6 +34,54 @@ func wave2BrightcoveConfig(t testing.TB, account, player, video string) map[stri
 			body: []byte(`{"id":"` + video + `","name":"Brightcove Fixture","duration":12000,"sources":[{"src":"https://media.example/bc/master.m3u8","type":"application/x-mpegURL"},{"src":"https://media.example/bc/video.mp4","height":720,"avg_bitrate":1500000}]}`),
 		},
 	}
+}
+
+type wave2APIFixtureTransport struct {
+	t             testing.TB
+	pages         map[string][]byte
+	responses     map[string]fixtureHTTP
+	ambientCalls  int
+	isolatedCalls int
+}
+
+func (transport *wave2APIFixtureTransport) ReadPage(ctx context.Context, rawURL string) ([]byte, http.Header, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	if page, ok := transport.pages[rawURL]; ok {
+		return append([]byte(nil), page...), make(http.Header), nil
+	}
+	return nil, nil, errors.New("unexpected fixture page")
+}
+
+func (transport *wave2APIFixtureTransport) Do(context.Context, *http.Request) (*http.Response, error) {
+	transport.ambientCalls++
+	return nil, errors.New("ambient transport must not be used for wave2 API calls")
+}
+
+func (transport *wave2APIFixtureTransport) DoWithoutCredentialsNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	transport.isolatedCalls++
+	if request.Header.Get("Cookie") != "" || request.Header.Get("Authorization") != "" || request.Header.Get("Proxy-Authorization") != "" {
+		transport.t.Fatalf("isolated request forwarded credentials: Cookie=%q Authorization=%q Proxy-Authorization=%q",
+			request.Header.Get("Cookie"), request.Header.Get("Authorization"), request.Header.Get("Proxy-Authorization"))
+	}
+	response, ok := transport.responses[request.URL.String()]
+	if !ok {
+		return nil, errors.New("unexpected fixture request")
+	}
+	status := response.status
+	if status == 0 {
+		status = http.StatusOK
+	}
+	return &http.Response{
+		StatusCode: status,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(bytes.NewReader(response.body)),
+		Request:    request,
+	}, nil
 }
 
 func TestBrightcoveAdaptersWave2SuitableAndHandoff(t *testing.T) {
@@ -134,12 +185,16 @@ func TestBrightcoveAdaptersWave2SuitableAndHandoff(t *testing.T) {
 	t.Run("wimbledon", func(t *testing.T) {
 		rawURL := "https://www.wimbledon.com/en_GB/video/media/6330247525112.html"
 		endpoint := "https://www.wimbledon.com/relatedcontent/rest/v2/wim_v1/en/content/wim_v1_6330247525112_en"
-		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
-			endpoint: {body: wave2Fixture(t, "wimbledon_metadata.json")},
-		}}
+		transport := &wave2APIFixtureTransport{
+			t:         t,
+			responses: map[string]fixtureHTTP{endpoint: {body: wave2Fixture(t, "wimbledon_metadata.json")}},
+		}
 		result, err := NewWimbledon().Extract(context.Background(), Request{URL: rawURL, Transport: transport})
 		if err != nil || result.Redirect.Title != "Coco Gauff | My Wimbledon Inspiration" || !result.Redirect.HasDuration {
 			t.Fatalf("%#v %v", result, err)
+		}
+		if transport.ambientCalls != 0 || transport.isolatedCalls != 1 {
+			t.Fatalf("ambient=%d isolated=%d", transport.ambientCalls, transport.isolatedCalls)
 		}
 	})
 
@@ -157,13 +212,17 @@ func TestBrightcoveAdaptersWave2SuitableAndHandoff(t *testing.T) {
 		rawURL := "https://www.skynews.com.au/world-news/united-states/incredible-vision/video/0f4c6243d6903502c01251f228b91a71"
 		canonical := "https://www.skynews.com.au/world-news/united-states/incredible-vision/video/0f4c6243d6903502c01251f228b91a71"
 		apiURL := "https://content.api.news/v3/videos/brightcove/5348771529001-6277184925001?api_key=" + skyNewsAUAPIKey
-		transport := &sharedFixtureTransport{
+		transport := &wave2APIFixtureTransport{
+			t:         t,
 			pages:     map[string][]byte{canonical: wave2Fixture(t, "skynewsau_page.html")},
 			responses: map[string]fixtureHTTP{apiURL: {body: wave2Fixture(t, "skynewsau_api.json")}},
 		}
 		result, err := NewSkyNewsAU().Extract(context.Background(), Request{URL: rawURL, Transport: transport})
 		if err != nil || result.Redirect.ID != "0f4c6243d6903502c01251f228b91a71" || result.Redirect.Title == "" || !result.Redirect.HasTimestamp {
 			t.Fatalf("%#v %v", result, err)
+		}
+		if transport.ambientCalls != 0 || transport.isolatedCalls != 1 {
+			t.Fatalf("ambient=%d isolated=%d", transport.ambientCalls, transport.isolatedCalls)
 		}
 	})
 
@@ -286,18 +345,22 @@ func TestBrightcoveAdaptersWave2Negatives(t *testing.T) {
 		t.Fatalf("oversized=%v", err)
 	}
 
-	secret := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
-		"https://www.wimbledon.com/relatedcontent/rest/v2/wim_v1/en/content/wim_v1_6330247525112_en": {
-			status: http.StatusUnauthorized, body: []byte("api_key=must-not-leak"),
+	secret := &wave2APIFixtureTransport{
+		t: t,
+		responses: map[string]fixtureHTTP{
+			"https://www.wimbledon.com/relatedcontent/rest/v2/wim_v1/en/content/wim_v1_6330247525112_en": {
+				status: http.StatusUnauthorized, body: []byte("api_key=must-not-leak"),
+			},
 		},
-	}}
+	}
 	if _, err := NewWimbledon().Extract(context.Background(), Request{
 		URL: "https://www.wimbledon.com/en_GB/video/media/6330247525112.html", Transport: secret,
 	}); !errors.Is(err, ErrAuthentication) || strings.Contains(err.Error(), "must-not-leak") {
 		t.Fatalf("secret=%v", err)
 	}
 
-	skySecret := &sharedFixtureTransport{
+	skySecret := &wave2APIFixtureTransport{
+		t: t,
 		pages: map[string][]byte{
 			"https://www.skynews.com.au/world-news/united-states/incredible-vision/video/0f4c6243d6903502c01251f228b91a71": wave2Fixture(t, "skynewsau_page.html"),
 		},
@@ -328,4 +391,84 @@ func wave2BytesRepeat(ch byte, count int) []byte {
 		out[i] = ch
 	}
 	return out
+}
+
+func TestBrightcoveAdaptersWave2APITransportIsolation(t *testing.T) {
+	t.Parallel()
+	wimbledonURL := "https://www.wimbledon.com/en_GB/video/media/6330247525112.html"
+	wimbledonEndpoint := "https://www.wimbledon.com/relatedcontent/rest/v2/wim_v1/en/content/wim_v1_6330247525112_en"
+	skyURL := "https://www.skynews.com.au/world-news/united-states/incredible-vision/video/0f4c6243d6903502c01251f228b91a71"
+	skyAPI := "https://content.api.news/v3/videos/brightcove/5348771529001-6277184925001?api_key=" + skyNewsAUAPIKey
+
+	if _, err := NewWimbledon().Extract(context.Background(), Request{
+		URL: wimbledonURL, Transport: &sharedFixtureTransport{},
+	}); !errors.Is(err, ErrTransportIsolation) {
+		t.Fatalf("wimbledon isolation=%v", err)
+	}
+	if _, err := NewSkyNewsAU().Extract(context.Background(), Request{
+		URL: skyURL, Transport: &sharedFixtureTransport{pages: map[string][]byte{skyURL: wave2Fixture(t, "skynewsau_page.html")}},
+	}); !errors.Is(err, ErrTransportIsolation) {
+		t.Fatalf("skynewsau isolation=%v", err)
+	}
+
+	wimbledonTransport := &wave2APIFixtureTransport{
+		t:         t,
+		responses: map[string]fixtureHTTP{wimbledonEndpoint: {body: wave2Fixture(t, "wimbledon_metadata.json")}},
+	}
+	if _, err := NewWimbledon().Extract(context.Background(), Request{URL: wimbledonURL, Transport: wimbledonTransport}); err != nil {
+		t.Fatal(err)
+	}
+	if wimbledonTransport.ambientCalls != 0 || wimbledonTransport.isolatedCalls != 1 {
+		t.Fatalf("wimbledon ambient=%d isolated=%d", wimbledonTransport.ambientCalls, wimbledonTransport.isolatedCalls)
+	}
+
+	skyTransport := &wave2APIFixtureTransport{
+		t:         t,
+		pages:     map[string][]byte{skyURL: wave2Fixture(t, "skynewsau_page.html")},
+		responses: map[string]fixtureHTTP{skyAPI: {body: wave2Fixture(t, "skynewsau_api.json")}},
+	}
+	if _, err := NewSkyNewsAU().Extract(context.Background(), Request{URL: skyURL, Transport: skyTransport}); err != nil {
+		t.Fatal(err)
+	}
+	if skyTransport.ambientCalls != 0 || skyTransport.isolatedCalls != 1 {
+		t.Fatalf("skynewsau ambient=%d isolated=%d", skyTransport.ambientCalls, skyTransport.isolatedCalls)
+	}
+}
+
+func TestWave2BoundStringUTF8Safe(t *testing.T) {
+	t.Parallel()
+	emoji := strings.Repeat("é", 200)
+	got := wave2BoundString(emoji, 10)
+	if got == "" || !utf8.ValidString(got) || len(got) > 10 {
+		t.Fatalf("bound=%q len=%d valid=%t", got, len(got), utf8.ValidString(got))
+	}
+	if wave2BoundString("not-valid-\xff\xfe", 16) != "" {
+		t.Fatal("invalid UTF-8 should be rejected")
+	}
+}
+
+func FuzzParseBrightcoveAdaptersWave2URL(f *testing.F) {
+	f.Add("https://www.formula1.com/en/latest/video.slug.6060988138001.html")
+	f.Add("https://www.europeantour.com/dpworld-tour/news/video/the-best-shots/")
+	f.Add("https://www.maoritelevision.com/shows/korero-mai/S01E054/episode")
+	f.Add("https://www.thestar.com/life/2016/02/01/article.html")
+	f.Add("https://www.thesun.co.uk/tvandshowbiz/2261604/slug")
+	f.Add("https://www.wimbledon.com/en_GB/video/media/6330247525112.html")
+	f.Add("https://www.usatoday.com/story/tech/science/2018/08/21/yellowstone/")
+	f.Add("https://www.skynews.com.au/a/b/c/video/abc123def456")
+	f.Add("http://user:pass@www.formula1.com/en/latest/video.slug.123.html")
+	f.Fuzz(func(t *testing.T, raw string) {
+		parsed, err := url.Parse(raw)
+		if err != nil {
+			return
+		}
+		_, _ = parseFormula1URL(parsed)
+		_, _ = parseEuropeanTourURL(parsed)
+		_, _ = parseMaoriTVURL(parsed)
+		_, _ = parseTheStarURL(parsed)
+		_, _ = parseTheSunURL(parsed)
+		_, _ = parseWimbledonURL(parsed)
+		_, _ = parseUSATodayURL(parsed)
+		_, _ = parseSkyNewsAUURL(parsed)
+	})
 }

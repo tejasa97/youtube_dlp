@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
@@ -400,7 +401,7 @@ func (Wimbledon) Extract(ctx context.Context, request Request) (Extraction, erro
 			Duration hostingNumber `json:"duration"`
 		} `json:"metadata"`
 	}
-	if err := hostedRequestJSON(ctx, request.Transport, http.MethodGet, endpoint, nil, make(http.Header), &metadata); err != nil {
+	if err := hostedRequestJSONWithoutCredentialsNoRedirect(ctx, request.Transport, http.MethodGet, endpoint, nil, make(http.Header), &metadata); err != nil {
 		return Extraction{}, err
 	}
 	entry := Entry{
@@ -602,7 +603,7 @@ func (SkyNewsAU) Extract(ctx context.Context, request Request) (Extraction, erro
 			} `json:"date"`
 		} `json:"content"`
 	}
-	if err := hostedRequestJSON(ctx, request.Transport, http.MethodGet, endpoint, nil, make(http.Header), &payload); err != nil {
+	if err := hostedRequestJSONWithoutCredentialsNoRedirect(ctx, request.Transport, http.MethodGet, endpoint, nil, make(http.Header), &payload); err != nil {
 		return Extraction{}, err
 	}
 	entry := Entry{
@@ -673,10 +674,19 @@ func wave2BoundString(input string, maxBytes int) string {
 	if input == "" || maxBytes <= 0 {
 		return ""
 	}
-	if len(input) > maxBytes {
-		return input[:maxBytes]
+	if !utf8.ValidString(input) {
+		return ""
 	}
-	return input
+	if len(input) <= maxBytes {
+		return input
+	}
+	for maxBytes > 0 && !utf8.RuneStart(input[maxBytes]) {
+		maxBytes--
+	}
+	if maxBytes == 0 {
+		return ""
+	}
+	return input[:maxBytes]
 }
 
 func wave2ParseDuration(raw string) (float64, bool) {
