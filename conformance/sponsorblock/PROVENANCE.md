@@ -21,6 +21,15 @@ an overlay, adjacent identical markers, validation, immutability, and fuzzed
 timeline invariants. They are derived expectations rather than copied upstream
 fixtures.
 
+`sample_chapter_titles.json` records a hand-authored expectation for the
+pinned `--sponsorblock-chapter-title` fields and output-template list joining
+behavior. It is derived from `yt_dlp/options.py` lines 1887-1893,
+`yt_dlp/postprocessor/modify_chapters.py` lines 297-307, and the documented
+output-template field table at the pinned commit. It verifies arranged
+start/end times, shortest-span singular category/name selection, first-seen
+ordered category/name lists, and bounded template rendering. All
+names, ranges, and expected text are synthetic.
+
 The deterministic cut-planning cases cover removable-category filtering
 (excluding `poi_highlight` / `chapter`), adjacent and overlapping merge,
 leading/trailing edge chunks, entire-media rejection, concat

@@ -227,8 +227,12 @@ marking and removal on the post-cut timeline.
 ```
 
 `--sponsorblock-api URL` selects a compatible mirror.
+`--sponsorblock-chapter-title TEMPLATE` customizes marked chapter titles with
+the bounded shared output-template syntax; the pinned default is
+`[SponsorBlock]: %(category_names)l`.
 `--no-sponsorblock` disables inherited mark and remove options without clearing
-the API base. Categories are repeatable, comma-separated, and support
+the API base or stored chapter-title template. Categories are repeatable,
+comma-separated, and support
 `all`/`default` plus `-category` exclusions.
 `--remove-chapters` is repeatable: regular expressions use title-search
 semantics, while values beginning with `*` contain comma-separated
