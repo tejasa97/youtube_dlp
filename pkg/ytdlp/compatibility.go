@@ -282,6 +282,9 @@ func validateMultiOutputProduct(request Request, planCount int) error {
 	if request.Subtitles.Embed {
 		return fmt.Errorf("%w: subtitle embedding with multi-output selectors", mediaformat.ErrMultiOutput)
 	}
+	if request.Thumbnails.Embed {
+		return fmt.Errorf("%w: thumbnail embedding with multi-output selectors", mediaformat.ErrMultiOutput)
+	}
 	return nil
 }
 

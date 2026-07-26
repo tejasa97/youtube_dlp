@@ -80,9 +80,9 @@ capabilities:
     known_deviation: Related files use the port's deterministic normalized metadata schema. Implemented artifact types have per-type output templates; annotation sidecars and non-atomic Windows replacement where the platform cannot provide it remain outside this claim.
 
   - id: cli.thumbnail_sidecars
-    name: Thumbnail sidecars, conversion, and listing
+    name: Thumbnail sidecars, conversion, embedding, and listing
     phase: 3
-    compatibility_target: List or write the best or all bounded entry and playlist thumbnails through confined per-type templates without downloading media, with ordered jpg/png/webp conversion mappings.
+    compatibility_target: List or write the best or all bounded entry and playlist thumbnails through confined per-type templates, apply ordered jpg/png/webp conversion mappings, and automatically embed the best image into supported media containers.
     status: compatible
     evidence:
       - pkg/ytdlp.TestSelectThumbnailsNormalizesSortsAndBoundsMetadata
@@ -100,6 +100,11 @@ capabilities:
       - pkg/ytdlp.TestThumbnailConversionCollisionPrecedesDownload
       - pkg/ytdlp.TestThumbnailConversionRejectsContentInducedCollision
       - pkg/ytdlp.TestThumbnailConversionRejectsDownloadOverCommittedCorrectedPath
+      - pkg/ytdlp.TestEmbedSelectedThumbnailConversionAndOwnership
+      - pkg/ytdlp.TestEmbedSelectedThumbnailExplicitRetentionAndCleanupFailure
+      - pkg/ytdlp.TestEmbedSelectedThumbnailFailureCancellationAndWarnings
+      - pkg/ytdlp.TestProductEmbedsMislabeledWebPThumbnailAndAppliesRetention
+      - pkg/ytdlp.TestValidateMultiOutputRejectsThumbnailEmbedding
       - pkg/ytdlp.FuzzThumbnailPathAndURL
       - pkg/ytdlp.FuzzThumbnailConversionMapping
       - internal/cli.TestThumbnailModeFlagPrecedence
@@ -109,6 +114,10 @@ capabilities:
       - internal/cli.TestRunConvertsThumbnail
       - internal/cli.TestRunThumbnailConversionConfigPrecedenceAndReset
       - internal/cli.TestRunRejectsInvalidThumbnailConversionBeforeNetwork
+      - internal/cli.TestRunEmbedsThumbnailAndHonorsRetention
+      - internal/cli.TestRunNoEmbedThumbnailOverridesConfiguration
+      - internal/media/ffmpeg.TestEmbedThumbnailSupportedContainers
+      - internal/media/ffmpeg.TestEmbedThumbnailValidatesInputsAndContainers
       - conformance/thumbnails/PROVENANCE.md
       - docs/THUMBNAIL_SIDECARS_EVIDENCE.md
     owner: core
@@ -117,7 +126,7 @@ capabilities:
       - compat.output_template_minimal
       - network.shared_transport
       - postprocess.ffmpeg
-    known_deviation: Existing thumbnail files fail closed unless overwrite is enabled. Media-container thumbnail embedding remains separate postprocessor work.
+    known_deviation: Existing thumbnail files fail closed unless overwrite is enabled. Automatic embedding supports MP3, MP4/M4A/M4V/MOV, and MKV/MKA; Ogg/Opus/FLAC metadata-block pictures, WebM-to-Matroska promotion, and replacement of a pre-existing cover remain outside this claim.
 
   - id: cli.staged_print
     name: Staged template, file, and legacy field printing

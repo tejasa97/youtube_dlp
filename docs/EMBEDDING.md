@@ -108,9 +108,9 @@ ordered staged print captures. Unknown ordered metadata is preserved in the
 normalized envelope.
 
 Postprocessor is a tagged union. Exactly one operation must be selected per
-step. The CLI exposes audio extraction and remuxing; the Go API additionally
-exposes subtitle/thumbnail conversion, metadata/chapters/thumbnail/subtitle
-embedding, fixups, concat, and safe moves.
+step. The CLI exposes audio extraction, remuxing, automatic thumbnail
+conversion/embedding, and subtitle embedding; the Go API additionally exposes
+typed metadata/chapter embedding, fixups, concat, and safe moves.
 
 ## JavaScript and plugins
 

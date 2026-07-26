@@ -65,13 +65,14 @@ type ProbeChapter struct {
 }
 
 type Stream struct {
-	Index     int      `json:"index"`
-	CodecName string   `json:"codec_name"`
-	CodecType string   `json:"codec_type"`
-	Width     int      `json:"width,omitempty"`
-	Height    int      `json:"height,omitempty"`
-	Duration  string   `json:"duration,omitempty"`
-	Tags      Metadata `json:"tags,omitempty"`
+	Index       int            `json:"index"`
+	CodecName   string         `json:"codec_name"`
+	CodecType   string         `json:"codec_type"`
+	Width       int            `json:"width,omitempty"`
+	Height      int            `json:"height,omitempty"`
+	Duration    string         `json:"duration,omitempty"`
+	Tags        Metadata       `json:"tags,omitempty"`
+	Disposition map[string]int `json:"disposition,omitempty"`
 }
 
 type Format struct {
@@ -275,9 +276,96 @@ func (tools *Toolset) EmbedChapters(ctx context.Context, inputPath, destination 
 // EmbedThumbnail attaches an image as an attached picture without exposing a
 // command-string surface.
 func (tools *Toolset) EmbedThumbnail(ctx context.Context, inputPath, imagePath, destination string, overwrite bool, sink events.Sink) error {
+	if err := regularMediaInput(inputPath); err != nil {
+		return err
+	}
+	if err := regularMediaInput(imagePath); err != nil {
+		return err
+	}
+	container := strings.TrimPrefix(strings.ToLower(filepath.Ext(destination)), ".")
+	imageExtension := strings.TrimPrefix(strings.ToLower(filepath.Ext(imagePath)), ".")
+	if imageExtension == "jpeg" {
+		imageExtension = "jpg"
+	}
+	var args []string
+	switch container {
+	case "mp3":
+		if imageExtension != "jpg" && imageExtension != "png" {
+			return fmt.Errorf("%w: mp3 thumbnail must be jpg or png", ErrInvalidOperation)
+		}
+		args = []string{
+			"-i", inputPath, "-i", imagePath,
+			"-map", "0:a:0", "-map", "1:v:0", "-c", "copy",
+			"-write_id3v1", "1", "-id3v2_version", "3",
+			"-metadata:s:v:0", "title=Album cover",
+			"-metadata:s:v:0", "comment=Cover (front)",
+		}
+	case "mkv", "mka":
+		mime := thumbnailMIME(imageExtension)
+		if mime == "" {
+			return fmt.Errorf("%w: unsupported Matroska thumbnail format", ErrInvalidOperation)
+		}
+		probe, err := tools.Probe(ctx, inputPath)
+		if err != nil {
+			return err
+		}
+		attachments := thumbnailAttachmentCount(probe.Streams)
+		args = []string{
+			"-i", inputPath, "-map", "0", "-c", "copy", "-attach", imagePath,
+			fmt.Sprintf("-metadata:s:t:%d", attachments), "mimetype=" + mime,
+			fmt.Sprintf("-metadata:s:t:%d", attachments), "filename=cover." + imageExtension,
+		}
+	case "m4a", "mp4", "m4v", "mov":
+		if imageExtension != "jpg" && imageExtension != "png" {
+			return fmt.Errorf("%w: MP4 thumbnail must be jpg or png", ErrInvalidOperation)
+		}
+		probe, err := tools.Probe(ctx, inputPath)
+		if err != nil {
+			return err
+		}
+		videoStreams := streamCount(probe.Streams, "video")
+		args = []string{
+			"-i", inputPath, "-i", imagePath,
+			"-map", "0", "-map", "1:v:0", "-c", "copy",
+			fmt.Sprintf("-disposition:v:%d", videoStreams), "attached_pic",
+		}
+	default:
+		return fmt.Errorf("%w: unsupported thumbnail container %q", ErrInvalidOperation, container)
+	}
 	return tools.runAtomic(ctx, destination, overwrite, sink, func(temporary string) []string {
-		return []string{"-i", inputPath, "-i", imagePath, "-map", "0", "-map", "1:v:0", "-c", "copy", "-disposition:v:1", "attached_pic", "-progress", "pipe:1", "-nostats", temporary}
+		return append(args, "-progress", "pipe:1", "-nostats", temporary)
 	})
+}
+
+func streamCount(streams []Stream, kind string) int {
+	count := 0
+	for _, stream := range streams {
+		if stream.CodecType == kind {
+			count++
+		}
+	}
+	return count
+}
+
+func thumbnailAttachmentCount(streams []Stream) int {
+	count := 0
+	for _, stream := range streams {
+		if stream.CodecType == "attachment" || stream.Disposition["attached_pic"] == 1 {
+			count++
+		}
+	}
+	return count
+}
+
+func thumbnailMIME(extension string) string {
+	switch extension {
+	case "jpg":
+		return "image/jpeg"
+	case "png", "webp", "avif", "gif", "heic", "heif":
+		return "image/" + extension
+	default:
+		return ""
+	}
 }
 
 // EmbedSubtitles is the backwards-compatible single-track embedding entry
