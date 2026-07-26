@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -23,6 +24,47 @@ type prxTransport struct {
 	statuses []int
 	requests []string
 	calls    int
+}
+
+type prxBoundTransport struct {
+	over  bool
+	calls int
+}
+
+func (t *prxBoundTransport) Do(ctx context.Context, r *http.Request) (*http.Response, error) {
+	return t.DoWithoutCredentialsNoRedirect(ctx, r)
+}
+func (t *prxBoundTransport) ReadPage(context.Context, string) ([]byte, http.Header, error) {
+	return nil, nil, errors.New("unused")
+}
+func (t *prxBoundTransport) DoWithoutCredentialsNoRedirect(_ context.Context, r *http.Request) (*http.Response, error) {
+	t.calls++
+	if r.URL.Path == "/api/v1/accounts/5" {
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"id":"5","name":"A"}`))}, nil
+	}
+	p, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	total := 5000
+	if t.over {
+		total = 5001
+	}
+	if p < 1 || p > (total+99)/100 {
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"count":0,"total":0,"_embedded":{"prx:items":[]}}`))}, nil
+	}
+	start := (p - 1) * 100
+	n := 100
+	if total-start < n {
+		n = total - start
+	}
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf(`{"count":%d,"total":%d,"_embedded":{"prx:items":[`, n, total))
+	for j := 0; j < n; j++ {
+		if j > 0 {
+			b.WriteByte(',')
+		}
+		fmt.Fprintf(&b, `{"id":"%d"}`, start+j+1)
+	}
+	b.WriteString(`]}}`)
+	return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(b.String()))}, nil
 }
 
 func newPrxTransport(status int, body string) *prxTransport {
@@ -357,6 +399,33 @@ func TestPRXPaginationRejectsZeroCountWithItems(t *testing.T) {
 	_, _, err := it.Next(context.Background())
 	if !errors.Is(err, ErrInvalidMetadata) {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestPRXAccountGlobalEntryLimit(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		over bool
+		want int
+		fail bool
+	}{{"exact", false, prxMaxEntries, false}, {"overflow", true, 0, true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			tx := &prxBoundTransport{over: tc.over}
+			r, err := NewPRXAccount().Extract(context.Background(), Request{URL: "https://prx.org/accounts/5", Transport: tx})
+			if err != nil {
+				t.Fatal(err)
+			}
+			entries, err := CollectEntries(context.Background(), r.Entries, prxMaxEntries+1)
+			if tc.fail {
+				if !errors.Is(err, ErrInvalidMetadata) {
+					t.Fatalf("err=%v", err)
+				}
+				return
+			}
+			if err != nil || len(entries) != tc.want {
+				t.Fatalf("entries=%d err=%v", len(entries), err)
+			}
+		})
 	}
 }
 
