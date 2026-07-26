@@ -1,4 +1,4 @@
-# HLS AES-128 initialization-map provenance
+# HLS AES encryption provenance
 
 The encrypted initialization-map playlists and media bytes embedded in
 `internal/protocol/hls` tests are deterministic and synthetic. Keys, IVs,
@@ -13,6 +13,9 @@ Behavior is derived from the read-only yt-dlp reference checkout at commit
   initialization fragment when that tag is encountered; and
 - `yt_dlp/downloader/fragment.py` applies the attached AES-128 key and IV while
   downloading the fragment.
+- `yt_dlp/downloader/hls.py`, `HlsFD.can_download` and `real_download`, reject
+  non-AES-128 methods from the native fragment engine, distinguish recognized
+  DRM, and delegate remaining playable encryption to `FFmpegFD`.
 
 The Go parser likewise snapshots the active key when an `EXT-X-MAP` is
 declared, so a later key rotation affects media segments without retroactively
@@ -23,4 +26,15 @@ retained media and are cached by URI within one download. In accordance with
 HLS map semantics, AES-128 initialization maps require an explicit IV; ordinary
 media segments continue to support sequence-derived implicit IVs.
 
-SAMPLE-AES, DRM key formats, and non-AES-128 encryption remain unsupported.
+The Go product likewise delegates only clear-key `SAMPLE-AES` with an absent
+or `identity` key format. Synthetic manifests exercise media-key fallback,
+session-key DRM classification, selected-variant propagation, unknown methods,
+FairPlay, PlayReady, Adobe
+FAXS, malformed key delivery, cancellation, unavailable ffmpeg, and
+secret-safe errors. A generated license-free MPEG-TS fixture verifies the
+typed ffmpeg HLS boundary and selected-header forwarding without Python.
+
+`SAMPLE-AES-CTR`, DRM key delivery, authenticated headers that would be
+process-visible, and native SAMPLE-AES decryption remain unsupported. The
+delegated manifest URL has the same-user process-list visibility as an
+explicit ffmpeg invocation; it is never included in errors or events.

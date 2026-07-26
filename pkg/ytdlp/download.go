@@ -3,8 +3,10 @@ package ytdlp
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"math"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,6 +18,7 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/events"
 	"github.com/ytdlp-go/ytdlp/internal/extractor"
 	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
+	"github.com/ytdlp-go/ytdlp/internal/fragment"
 	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
 	"github.com/ytdlp-go/ytdlp/internal/media/pipeline"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/dash"
@@ -401,7 +404,44 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 			RetryBaseDelay: options.RetryBaseDelay, RetryMaxDelay: options.RetryMaxDelay,
 		}).Download(ctx, selected.URL, outputRoot, destination, operation.request.Overwrite, sink)
 		if err != nil {
-			return "", 0, err
+			var encryption *hls.EncryptionError
+			if !errors.As(err, &encryption) || !encryption.FFmpegEligible {
+				return "", 0, err
+			}
+			fallbackURL := encryption.MediaURL
+			if fallbackURL == "" {
+				fallbackURL = selected.URL
+			}
+			fallback := operation.hlsFallback
+			if fallback == nil {
+				tools, discoverErr := ffmpeg.DiscoverFFmpeg(ffmpeg.Config{})
+				if discoverErr != nil {
+					return "", 0, errors.Join(err, discoverErr)
+				}
+				fallback = func(
+					ctx context.Context,
+					manifestURL, _, destination string,
+					headers http.Header,
+					overwrite bool,
+					sink events.Sink,
+				) (fragment.Result, error) {
+					if fallbackErr := tools.DownloadHLS(ctx, manifestURL, destination, headers, overwrite, sink); fallbackErr != nil {
+						return fragment.Result{}, fallbackErr
+					}
+					info, statErr := os.Stat(destination)
+					if statErr != nil {
+						return fragment.Result{}, statErr
+					}
+					return fragment.Result{Path: destination, Bytes: info.Size()}, nil
+				}
+			}
+			result, err = fallback(
+				ctx, fallbackURL, outputRoot, destination, selected.Headers,
+				operation.request.Overwrite, sink,
+			)
+			if err != nil {
+				return "", 0, err
+			}
 		}
 		return result.Path, result.Bytes, nil
 	case "http_dash_segments":

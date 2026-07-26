@@ -19,6 +19,28 @@ var (
 	ErrLivePollLimit         = errors.New("HLS live poll limit reached")
 )
 
+// EncryptionError describes an HLS encryption mode that the native
+// downloader cannot consume. FFmpegEligible is deliberately narrow: callers
+// may delegate only clear-key SAMPLE-AES with identity key delivery.
+type EncryptionError struct {
+	Method         string
+	KeyFormat      string
+	MediaURL       string
+	FFmpegEligible bool
+}
+
+func (err *EncryptionError) Error() string {
+	if err.FFmpegEligible {
+		return ErrUnsupportedEncryption.Error() + ": clear-key SAMPLE-AES requires ffmpeg"
+	}
+	if err.KeyFormat != "" {
+		return ErrUnsupportedEncryption.Error() + ": unsupported key delivery"
+	}
+	return ErrUnsupportedEncryption.Error() + ": unsupported method"
+}
+
+func (err *EncryptionError) Unwrap() error { return ErrUnsupportedEncryption }
+
 const (
 	maxPlaylistBytes   = 16 << 20
 	maxPlaylistEntries = 100_000
@@ -258,6 +280,14 @@ func Parse(rawURL string, input []byte) (Playlist, error) {
 			if err == nil {
 				currentKey, err = parseKey(base, attributes)
 			}
+		case strings.HasPrefix(line, "#EXT-X-SESSION-KEY:"):
+			var attributes map[string]string
+			attributes, err = parseAttributes(strings.TrimPrefix(line, "#EXT-X-SESSION-KEY:"))
+			if err == nil {
+				err = validateSessionKey(base, attributes)
+			}
+		case strings.HasPrefix(line, "#EXT-X-FAXS-CM:"):
+			err = &EncryptionError{Method: "ADOBE-FAXS"}
 		case line == "#EXT-X-DISCONTINUITY":
 			discontinuity = true
 		case line == "#EXT-X-ENDLIST":
@@ -444,11 +474,32 @@ func parseKey(base *url.URL, attributes map[string]string) (*Key, error) {
 	if method == "NONE" {
 		return nil, nil
 	}
-	if method != "AES-128" {
-		return nil, fmt.Errorf("%w: method %q", ErrUnsupportedEncryption, method)
+	keyFormat := attributes["KEYFORMAT"]
+	if keyURI, _ := url.Parse(attributes["URI"]); keyURI != nil && strings.EqualFold(keyURI.Scheme, "skd") {
+		return nil, &EncryptionError{Method: method, KeyFormat: keyFormat}
 	}
-	if keyFormat := attributes["KEYFORMAT"]; keyFormat != "" && keyFormat != "identity" {
-		return nil, fmt.Errorf("%w: key format %q", ErrUnsupportedEncryption, keyFormat)
+	if method == "SAMPLE-AES" {
+		eligible := keyFormat == "" || keyFormat == "identity"
+		if eligible {
+			keyURL, err := resolveURL(base, attributes["URI"])
+			if err != nil {
+				return nil, err
+			}
+			parsed, err := url.Parse(keyURL)
+			if err != nil || parsed.User != nil || parsed.Hostname() == "" ||
+				(parsed.Scheme != "http" && parsed.Scheme != "https") {
+				eligible = false
+			}
+		}
+		return nil, &EncryptionError{
+			Method: method, KeyFormat: keyFormat, FFmpegEligible: eligible,
+		}
+	}
+	if method != "AES-128" {
+		return nil, &EncryptionError{Method: method, KeyFormat: keyFormat}
+	}
+	if keyFormat != "" && keyFormat != "identity" {
+		return nil, &EncryptionError{Method: method, KeyFormat: keyFormat}
 	}
 	resolved, err := resolveURL(base, attributes["URI"])
 	if err != nil {
@@ -464,6 +515,37 @@ func parseKey(base *url.URL, attributes map[string]string) (*Key, error) {
 		key.IV, err = hex.DecodeString(rawIV)
 	}
 	return key, err
+}
+
+func validateSessionKey(base *url.URL, attributes map[string]string) error {
+	method := attributes["METHOD"]
+	keyFormat := attributes["KEYFORMAT"]
+	if method == "NONE" {
+		return errors.New("session key method NONE is invalid")
+	}
+	rawURI := attributes["URI"]
+	resolved, err := resolveURL(base, rawURI)
+	if err != nil {
+		return err
+	}
+	keyURI, err := url.Parse(resolved)
+	if err != nil {
+		return err
+	}
+	if strings.EqualFold(keyURI.Scheme, "skd") ||
+		(keyFormat != "" && keyFormat != "identity") {
+		return &EncryptionError{Method: method, KeyFormat: keyFormat}
+	}
+	if keyURI.User != nil || keyURI.Hostname() == "" ||
+		(keyURI.Scheme != "http" && keyURI.Scheme != "https") {
+		return &EncryptionError{Method: method, KeyFormat: keyFormat}
+	}
+	switch method {
+	case "AES-128", "SAMPLE-AES":
+		return nil
+	default:
+		return &EncryptionError{Method: method, KeyFormat: keyFormat}
+	}
 }
 
 func resolveURL(base *url.URL, raw string) (string, error) {

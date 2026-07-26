@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,6 +31,7 @@ var (
 	ErrMediaFailure       = errors.New("ffmpeg media processing failed")
 	ErrDestinationExists  = errors.New("postprocessor destination exists")
 	ErrInvalidOperation   = errors.New("invalid media operation")
+	ErrUnsafeHLSHeaders   = errors.New("HLS headers cannot be passed safely to ffmpeg")
 )
 
 var sensitiveDiagnosticPattern = regexp.MustCompile(`(?i)(authorization|password|signature|token|sig|key)=([^&[:space:]]+)`)
@@ -136,11 +139,22 @@ const (
 )
 
 func Discover(config Config) (*Toolset, error) {
-	ffmpegPath, err := discover(config.FFmpegPath, "ffmpeg", ErrFFmpegUnavailable)
+	tools, err := DiscoverFFmpeg(config)
 	if err != nil {
 		return nil, err
 	}
 	ffprobePath, err := discover(config.FFprobePath, "ffprobe", ErrFFprobeUnavailable)
+	if err != nil {
+		return nil, err
+	}
+	tools.ffprobe = ffprobePath
+	return tools, nil
+}
+
+// DiscoverFFmpeg locates only ffmpeg for operations, such as delegated HLS
+// download, that do not require probing.
+func DiscoverFFmpeg(config Config) (*Toolset, error) {
+	ffmpegPath, err := discover(config.FFmpegPath, "ffmpeg", ErrFFmpegUnavailable)
 	if err != nil {
 		return nil, err
 	}
@@ -152,7 +166,7 @@ func Discover(config Config) (*Toolset, error) {
 	if environment == nil {
 		environment = []string{"PATH=" + os.Getenv("PATH"), "LANG=C", "LC_ALL=C"}
 	}
-	return &Toolset{ffmpeg: ffmpegPath, ffprobe: ffprobePath, maxOutput: maxOutput, environment: environment}, nil
+	return &Toolset{ffmpeg: ffmpegPath, maxOutput: maxOutput, environment: environment}, nil
 }
 
 func (tools *Toolset) Versions(ctx context.Context) (Version, error) {
@@ -504,6 +518,95 @@ func safeSubtitleMetadata(value string, maximum int, restricted bool) bool {
 		return false
 	}
 	return true
+}
+
+// DownloadHLS delegates an HLS manifest to ffmpeg through a typed, shell-free
+// boundary. Sensitive request headers are rejected because ffmpeg accepts
+// headers only through process arguments, which may be visible to other local
+// processes owned by the same user.
+func (tools *Toolset) DownloadHLS(
+	ctx context.Context,
+	manifestURL, destination string,
+	headers http.Header,
+	overwrite bool,
+	sink events.Sink,
+) error {
+	parsed, err := url.Parse(manifestURL)
+	if err != nil || parsed.User != nil || parsed.Hostname() == "" ||
+		(parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return fmt.Errorf("%w: invalid HLS manifest URL", ErrInvalidOperation)
+	}
+	headerBlock, err := ffmpegHLSHeaders(headers)
+	if err != nil {
+		return err
+	}
+	err = tools.runAtomic(ctx, destination, overwrite, sink, func(temporary string) []string {
+		args := []string{
+			"-protocol_whitelist", "http,https,tcp,tls,crypto",
+		}
+		if headerBlock != "" {
+			args = append(args, "-headers", headerBlock)
+		}
+		args = append(args,
+			"-i", manifestURL,
+			"-c", "copy",
+			"-progress", "pipe:1", "-nostats", temporary,
+		)
+		return args
+	})
+	if errors.Is(err, ErrMediaFailure) {
+		return fmt.Errorf("%w: delegated HLS download failed", ErrMediaFailure)
+	}
+	return err
+}
+
+func ffmpegHLSHeaders(headers http.Header) (string, error) {
+	if len(headers) > 64 {
+		return "", fmt.Errorf("%w: too many HLS headers", ErrInvalidOperation)
+	}
+	keys := make([]string, 0, len(headers))
+	for key := range headers {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	var block strings.Builder
+	for _, key := range keys {
+		canonical := http.CanonicalHeaderKey(key)
+		if !safeFFmpegHLSHeader(canonical) {
+			return "", ErrUnsafeHLSHeaders
+		}
+		for _, value := range headers[key] {
+			if len(value) > 8192 || strings.ContainsAny(value, "\x00\r\n") {
+				return "", ErrUnsafeHLSHeaders
+			}
+			if (canonical == "Origin" || canonical == "Referer") && !safeHTTPOrigin(value) {
+				return "", ErrUnsafeHLSHeaders
+			}
+			block.WriteString(canonical)
+			block.WriteString(": ")
+			block.WriteString(value)
+			block.WriteString("\r\n")
+			if block.Len() > 32<<10 {
+				return "", fmt.Errorf("%w: HLS headers exceed size limit", ErrInvalidOperation)
+			}
+		}
+	}
+	return block.String(), nil
+}
+
+func safeFFmpegHLSHeader(name string) bool {
+	switch name {
+	case "Accept", "Accept-Language", "Origin", "Referer", "User-Agent":
+		return true
+	default:
+		return false
+	}
+}
+
+func safeHTTPOrigin(raw string) bool {
+	parsed, err := url.Parse(raw)
+	return err == nil && parsed.User == nil && parsed.Hostname() != "" &&
+		(parsed.Scheme == "http" || parsed.Scheme == "https")
 }
 
 // ApplyFixup performs compatibility-oriented container adjustments.

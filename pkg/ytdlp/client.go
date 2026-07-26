@@ -524,6 +524,7 @@ type operation struct {
 	removeFile                       func(string) error
 	thumbnailConvert                 thumbnailConvertFunc
 	thumbnailEmbed                   thumbnailEmbedFunc
+	hlsFallback                      func(context.Context, string, string, string, http.Header, bool, events.Sink) (fragment.Result, error)
 	youtubeLiveRefresh               func(mediaformat.Selection) youtubelive.LiveRefreshFunc
 	sabrMerge                        func(ctx context.Context, video, audio, destination string, overwrite bool, sink events.Sink) error
 }
@@ -1352,7 +1353,8 @@ func categorized(op string, err error) error {
 	case errors.Is(err, extractor.ErrUnavailable), errors.Is(err, extractor.ErrRegionRestricted), errors.Is(err, extractor.ErrChallengeSolver),
 		errors.Is(err, extractor.ErrTransportProfile), errors.Is(err, extractor.ErrTransportIsolation), errors.Is(err, network.ErrImpersonationUnavailable):
 		category = ErrorUnsupported
-	case errors.Is(err, ffmpeg.ErrFFmpegUnavailable), errors.Is(err, ffmpeg.ErrFFprobeUnavailable):
+	case errors.Is(err, ffmpeg.ErrFFmpegUnavailable), errors.Is(err, ffmpeg.ErrFFprobeUnavailable),
+		errors.Is(err, ffmpeg.ErrUnsafeHLSHeaders):
 		category = ErrorUnsupported
 	case errors.Is(err, downloader.ErrExternalUnavailable), errors.Is(err, hls.ErrUnsupportedEncryption),
 		errors.Is(err, dash.ErrUnsupportedTimeline), errors.Is(err, dash.ErrUnsupportedAddressing):
