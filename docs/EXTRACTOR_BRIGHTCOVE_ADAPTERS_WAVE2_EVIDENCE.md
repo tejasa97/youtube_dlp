@@ -33,6 +33,7 @@ cancellation, bounds, and secret-safe failure tests in
 - The Sun rejects non-digit `data-video-id-pending` values instead of emitting unsafe entries.
 - USA Today uses bracket-balanced `ui-video-data` JSON extraction instead of naive regex.
 - Sky News AU validates `embedcode` as `account-video` before API fetch; API key is never returned in errors.
+- Wimbledon and Sky News AU metadata API calls use `hostedRequestJSONWithoutCredentialsNoRedirect`; ambient `Do` is never used for those endpoints.
 - Description metadata from Wimbledon/USA Today is not copied because `Entry` does not support it.
 
 ## Checklist promotion

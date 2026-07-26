@@ -2276,6 +2276,9 @@ capabilities:
       - internal/extractor.TestBrightcoveAdaptersWave2SuitableAndHandoff
       - internal/extractor.TestBrightcoveAdaptersWave2SuitableMatrix
       - internal/extractor.TestBrightcoveAdaptersWave2Negatives
+      - internal/extractor.TestBrightcoveAdaptersWave2APITransportIsolation
+      - internal/extractor.TestWave2BoundStringUTF8Safe
+      - internal/extractor.FuzzParseBrightcoveAdaptersWave2URL
       - internal/extractor.TestKalturaJWAdaptersHandoff
       - internal/extractor.TestArcAdaptersExactRoutingHandoffAndEvidence
       - internal/extractor.TestPodcastFamilySuccessAndPlaylists
