@@ -9,16 +9,67 @@ import (
 	"strings"
 
 	"github.com/ytdlp-go/ytdlp/internal/events"
+	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
 	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
 var thumbnailEmbeddingContainers = map[string]bool{
 	"mp3": true, "m4a": true, "mp4": true, "m4v": true, "mov": true,
-	"mka": true, "mkv": true,
+	"mka": true, "mkv": true, "flac": true, "ogg": true, "opus": true,
 }
 
 type thumbnailEmbedFunc func(context.Context, string, string, events.Sink) error
+
+func thumbnailEmbeddingOutputExtension(request Request, selections []mediaformat.Selection) string {
+	extension := mergedOutputExtension(selections)
+	if request.Thumbnails.Embed && len(selections) == 2 && extension == "webm" &&
+		mergeableSelections(selections) {
+		return "mkv"
+	}
+	return extension
+}
+
+func thumbnailEmbeddingDestination(
+	request Request, selections []mediaformat.Selection, destination string, hasThumbnail bool,
+) string {
+	if !hasThumbnail {
+		return destination
+	}
+	oldExtension := mergedOutputExtension(selections)
+	newExtension := thumbnailEmbeddingOutputExtension(request, selections)
+	if oldExtension == newExtension || destination == "-" {
+		return destination
+	}
+	realExtension := strings.TrimPrefix(filepath.Ext(destination), ".")
+	if realExtension == oldExtension || realExtension == newExtension {
+		destination = strings.TrimSuffix(destination, filepath.Ext(destination))
+	}
+	return destination + "." + newExtension
+}
+
+func hasThumbnailForEmbedding(info value.Info) bool {
+	if thumbnails, ok := info.Lookup("thumbnails").ListValue(); ok && len(thumbnails) > 0 {
+		return true
+	}
+	thumbnail, ok := info.Lookup("thumbnail").StringValue()
+	return ok && strings.TrimSpace(thumbnail) != ""
+}
+
+func (operation *operation) applyThumbnailEmbeddingOutputExtension(
+	info *value.Info, selections []mediaformat.Selection,
+) {
+	if info == nil || len(selections) == 0 {
+		return
+	}
+	if !hasThumbnailForEmbedding(*info) {
+		return
+	}
+	extension := thumbnailEmbeddingOutputExtension(operation.request, selections)
+	if extension != mergedOutputExtension(selections) {
+		info.Set("ext", value.String(extension))
+	}
+}
 
 func (operation *operation) embedSelectedThumbnail(
 	ctx context.Context,

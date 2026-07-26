@@ -33,8 +33,12 @@ failures, cancellation-safe ownership, and fuzzed mapping/path confinement. No
 production URL, account, cookie, credential, Python runtime, or reference
 runtime is used.
 
-Generated license-free media verifies attached-picture output for MP3,
-MP4-family, and Matroska containers. Product and CLI fixtures cover mislabeled
-WebP correction, implicit and explicit ownership, temporary conversion, flag/configuration reset,
+Generated license-free media verifies attached-picture output and replacement
+for MP3, MP4-family, Matroska, FLAC, Ogg, and Opus containers. Product and CLI
+fixtures cover mislabeled WebP correction, merged-WebM promotion, implicit and
+explicit ownership, temporary conversion, flag/configuration reset,
 missing/unsupported inputs, cancellation, cleanup warnings, multi-output
-rejection, metadata mutation, and exact artifact/byte accounting.
+rejection, metadata mutation, mtime retention, and exact artifact/byte
+accounting. Xiph picture serialization is derived from the FLAC metadata block
+picture format used by the pinned `EmbedThumbnailPP`; fixtures are generated
+locally and require no Python or reference runtime.
