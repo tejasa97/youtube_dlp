@@ -26,9 +26,14 @@ const (
 	prxAPI        = "https://cms.prx.org/api/v1/"
 	prxMaxPages   = 1000
 	prxMaxEntries = 10000
+	prxMaxPieces  = 100
+	prxMaxTags    = 100
 )
 
-var prxRoute = regexp.MustCompile(`^/(stories|series|accounts)/([0-9]{1,16})/?$`)
+var (
+	prxRoute = regexp.MustCompile(`^/(stories|series|accounts)/([0-9]{1,16})/?$`)
+	prxRowID = regexp.MustCompile(`^[0-9]{1,16}$`)
+)
 
 type PRXStory struct{}
 type PRXSeries struct{}
@@ -145,6 +150,9 @@ type prxPiece struct {
 type prxID string
 
 func (id *prxID) UnmarshalJSON(data []byte) error {
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return fmt.Errorf("invalid PRX id")
+	}
 	var s string
 	if err := json.Unmarshal(data, &s); err == nil {
 		*id = prxID(s)
@@ -260,6 +268,9 @@ func prxInfo(r prxResource, kind string) (*value.Info, error) {
 	if v, ok := prxNumber(r.Season); ok {
 		o.Set("season_number", value.Int(v))
 	}
+	if len(r.Tags) > prxMaxTags {
+		return nil, fmt.Errorf("%w: too many PRX tags", ErrInvalidMetadata)
+	}
 	if len(r.Tags) > 0 {
 		a := make([]value.Value, 0, len(r.Tags))
 		for _, s := range r.Tags {
@@ -343,6 +354,9 @@ func (x PRXStory) Extract(ctx context.Context, req Request) (Extraction, error) 
 	if pieces == nil || len(pieces.Embedded.Items) == 0 {
 		return Extraction{}, fmt.Errorf("%w: missing PRX audio", ErrUnavailable)
 	}
+	if len(pieces.Embedded.Items) > prxMaxPieces {
+		return Extraction{}, fmt.Errorf("%w: too many PRX audio parts", ErrInvalidMetadata)
+	}
 	ps := append([]prxPiece(nil), pieces.Embedded.Items...)
 	sort.SliceStable(ps, func(i, j int) bool {
 		a, _ := prxNumber(ps[i].Position)
@@ -351,7 +365,8 @@ func (x PRXStory) Extract(ctx context.Context, req Request) (Extraction, error) 
 	})
 	formats := make([]value.Value, 0, len(ps))
 	for _, p := range ps {
-		if p.ID == "" || !prxURL(p.Links.Enclosure.Href) {
+		ext := prxExt(p.ContentType)
+		if p.ID == "" || ext == "" || !prxURL(p.Links.Enclosure.Href) {
 			return Extraction{}, fmt.Errorf("%w: invalid PRX audio", ErrInvalidMetadata)
 		}
 		f := value.NewObject(value.Field{Key: "format_id", Value: value.String(string(p.ID))}, value.Field{Key: "format_note", Value: value.String(p.Label)}, value.Field{Key: "url", Value: value.String(p.Links.Enclosure.Href)}, value.Field{Key: "vcodec", Value: value.String("none")})
@@ -367,7 +382,7 @@ func (x PRXStory) Extract(ctx context.Context, req Request) (Extraction, error) 
 		if v, ok := prxNumber(p.Frequency); ok {
 			f.Set("asr", value.Int(v/1000))
 		}
-		f.Set("ext", value.String(prxExt(p.ContentType)))
+		f.Set("ext", value.String(ext))
 		formats = append(formats, value.ObjectValue(f))
 	}
 	part := prxPart(parsed)
@@ -399,17 +414,22 @@ func partIndex(part int) int {
 }
 func mustPRXURL(s string) *url.URL { u, _ := url.Parse(s); return u }
 func prxExt(m string) string {
-	m = strings.ToLower(m)
-	if strings.Contains(m, "mpeg") {
+	switch strings.ToLower(strings.TrimSpace(strings.Split(m, ";")[0])) {
+	case "audio/mpeg", "audio/mp3":
 		return "mp3"
-	}
-	if strings.Contains(m, "aac") {
+	case "audio/aac":
 		return "aac"
-	}
-	if strings.Contains(m, "ogg") {
+	case "audio/mp4", "audio/x-m4a":
+		return "m4a"
+	case "audio/flac", "audio/x-flac":
+		return "flac"
+	case "audio/ogg", "application/ogg":
 		return "ogg"
+	case "audio/wav", "audio/x-wav":
+		return "wav"
+	default:
+		return ""
 	}
-	return "mp3"
 }
 
 func (x PRXSeries) Extract(ctx context.Context, req Request) (Extraction, error) {
@@ -449,10 +469,10 @@ type prxEntries struct {
 func (s prxEntries) Iterator() EntryIterator { return &prxIterator{s: s, page: 1} }
 
 type prxIterator struct {
-	s                            prxEntries
-	endpoint, page, index, total int
-	items                        []prxResource
-	itemEndpoint                 string
+	s                                            prxEntries
+	endpoint, page, index, total, emitted, pages int
+	items                                        []prxResource
+	itemEndpoint                                 string
 }
 
 func (i *prxIterator) Next(ctx context.Context) (Entry, bool, error) {
@@ -463,7 +483,7 @@ func (i *prxIterator) Next(ctx context.Context) (Entry, bool, error) {
 		if i.index < len(i.items) {
 			r := i.items[i.index]
 			i.index++
-			if r.ID == "" {
+			if r.ID == "" || !prxRowID.MatchString(string(r.ID)) {
 				continue
 			}
 			kind := "stories"
@@ -482,7 +502,7 @@ func (i *prxIterator) Next(ctx context.Context) (Entry, bool, error) {
 		if i.endpoint >= len(i.s.endpoints) {
 			return Entry{}, false, nil
 		}
-		if i.page > prxMaxPages || i.total > prxMaxEntries {
+		if i.page > prxMaxPages || i.pages >= prxMaxPages || i.emitted >= prxMaxEntries {
 			return Entry{}, false, fmt.Errorf("%w: PRX pagination overflow", ErrInvalidPlaylist)
 		}
 		var r prxResource
@@ -497,9 +517,11 @@ func (i *prxIterator) Next(ctx context.Context) (Entry, bool, error) {
 		}
 		count, ok := prxNumber(r.Count)
 		total, ok2 := prxNumber(r.Total)
-		if !ok || !ok2 || count > 100 || count > total {
+		if !ok || !ok2 || count > 100 || count > total || int(count) != len(r.Embedded.Items) || i.emitted+int(count) > prxMaxEntries {
 			return Entry{}, false, fmt.Errorf("%w: invalid PRX pagination", ErrInvalidMetadata)
 		}
+		i.pages++
+		i.emitted += int(count)
 		i.items = r.Embedded.Items
 		i.itemEndpoint = i.s.endpoints[i.endpoint]
 		i.index = 0
