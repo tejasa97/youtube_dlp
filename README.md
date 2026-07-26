@@ -150,13 +150,19 @@ revision; repository test keys are not production updater trust.
   --write-info-json \
   --write-description \
   --write-link \
+  --output "default:media/%(title)s.%(ext)s" \
+  --output "subtitle:captions/%(title)s.%(ext)s" \
+  --output "infojson:metadata/%(title)s.%(ext)s" \
   URL
 ```
 
 `--simulate` creates no media, subtitle, archive, or postprocessor artifacts.
 `--skip-download` skips media transfer but still permits explicitly requested
 metadata and subtitle sidecars. Add `--no-simulate` to listing commands when
-you also want the normal download.
+you also want the normal download. Repeat `--output` to give `default`,
+`subtitle`, `description`, `infojson`, `link`, `pl_description`, or
+`pl_infojson` its own confined template; unspecified types fall back to
+`default`.
 
 ### Playlists
 

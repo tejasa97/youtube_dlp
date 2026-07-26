@@ -66,8 +66,9 @@ func RunContextIO(ctx context.Context, args []string, stdin io.Reader, stdout, s
 	}
 
 	showVersion := flags.Bool("version", false, "print the version and exit")
-	output := flags.String("output", "%(title)s.%(ext)s", "output filename template")
-	flags.StringVar(output, "o", *output, "alias for --output")
+	var outputTemplates outputTemplateFlag
+	flags.Var(&outputTemplates, "output", "output filename template, optionally TYPES:TEMPLATE (repeatable)")
+	flags.Var(&outputTemplates, "o", "alias for --output")
 	outputDir := flags.String("output-dir", ".", "directory that confines output files")
 	paths := &homePathFlag{target: outputDir}
 	flags.Var(paths, "paths", "set a home output/config path (home:PATH)")
@@ -499,7 +500,7 @@ func RunContextIO(ctx context.Context, args []string, stdin io.Reader, stdout, s
 		interactiveMatchFilter = newInteractiveMatchFilterPrompt(stdin, stderr)
 	}
 	result, err := client.Run(ctx, ytdlp.Request{
-		URL: flags.Arg(0), OutputTemplate: *output, OutputDir: *outputDir, Proxy: *proxy, ImpersonationProfile: *impersonationProfile,
+		URL: flags.Arg(0), OutputTemplates: outputTemplates.clone(), OutputDir: *outputDir, Proxy: *proxy, ImpersonationProfile: *impersonationProfile,
 		CookieFile: *cookieFile, CookiesFromBrowser: *cookiesFromBrowser, UseNetRC: *useNetRC, NetRCLocation: *netRCLocation, DownloadArchive: *downloadArchive, CacheDir: *cacheDir,
 		Timeout: *timeout, Overwrite: *overwrite, Simulate: requestSimulate, SkipDownload: *skipDownload, LiveFromStart: *liveFromStart,
 		Format: *format, FormatSort: append([]string(nil), formatSort...),
@@ -722,6 +723,118 @@ func (values *stringListFlag) String() string { return strings.Join(*values, ","
 func (values *stringListFlag) Set(value string) error {
 	*values = append(*values, value)
 	return nil
+}
+
+type outputTemplateFlag struct {
+	values ytdlp.OutputTemplates
+}
+
+func (output *outputTemplateFlag) String() string {
+	if output == nil || len(output.values) == 0 {
+		return ""
+	}
+	ordered := []ytdlp.OutputTemplateType{
+		ytdlp.OutputTemplateDefault, ytdlp.OutputTemplateSubtitle,
+		ytdlp.OutputTemplateDescription, ytdlp.OutputTemplateInfoJSON,
+		ytdlp.OutputTemplateLink, ytdlp.OutputTemplatePLDescription,
+		ytdlp.OutputTemplatePLInfoJSON,
+	}
+	parts := make([]string, 0, len(output.values))
+	for _, templateType := range ordered {
+		if pattern, ok := output.values[templateType]; ok {
+			parts = append(parts, string(templateType)+":"+pattern)
+		}
+	}
+	return strings.Join(parts, ",")
+}
+
+func (output *outputTemplateFlag) Set(specification string) error {
+	types, pattern, err := parseOutputTemplateSpecification(specification)
+	if err != nil {
+		return err
+	}
+	if output.values == nil {
+		output.values = make(ytdlp.OutputTemplates)
+	}
+	for _, templateType := range types {
+		output.values[templateType] = pattern
+	}
+	return nil
+}
+
+func (output *outputTemplateFlag) clone() ytdlp.OutputTemplates {
+	if output == nil || len(output.values) == 0 {
+		return nil
+	}
+	clone := make(ytdlp.OutputTemplates, len(output.values))
+	for templateType, pattern := range output.values {
+		clone[templateType] = pattern
+	}
+	return clone
+}
+
+func parseOutputTemplateSpecification(specification string) ([]ytdlp.OutputTemplateType, string, error) {
+	if specification == "" || strings.ContainsRune(specification, 0) {
+		return nil, "", errors.New("output template must not be empty")
+	}
+	prefix, pattern, separated := strings.Cut(specification, ":")
+	if !separated {
+		return []ytdlp.OutputTemplateType{ytdlp.OutputTemplateDefault}, specification, nil
+	}
+	parts := strings.Split(prefix, ",")
+	types := make([]ytdlp.OutputTemplateType, 0, len(parts))
+	unimplemented := make([]string, 0)
+	hasUnknown := false
+	for _, part := range parts {
+		templateType := ytdlp.OutputTemplateType(strings.ToLower(part))
+		if !supportedCLIOutputTemplateType(templateType) {
+			if recognizedUnimplementedOutputTemplateType(templateType) {
+				unimplemented = append(unimplemented, part)
+			} else {
+				hasUnknown = true
+			}
+			continue
+		}
+		types = append(types, templateType)
+	}
+	if hasUnknown {
+		return []ytdlp.OutputTemplateType{ytdlp.OutputTemplateDefault}, specification, nil
+	}
+	if len(unimplemented) > 0 {
+		return nil, "", fmt.Errorf("unsupported output template type %q", unimplemented[0])
+	}
+	seen := make(map[ytdlp.OutputTemplateType]bool)
+	for _, templateType := range types {
+		if seen[templateType] {
+			return nil, "", fmt.Errorf("duplicate output template type %q", templateType)
+		}
+		seen[templateType] = true
+	}
+	if pattern == "" {
+		return nil, "", errors.New("typed output template must not be empty")
+	}
+	return types, pattern, nil
+}
+
+func recognizedUnimplementedOutputTemplateType(templateType ytdlp.OutputTemplateType) bool {
+	switch templateType {
+	case "chapter", "thumbnail", "annotation", "pl_video", "pl_thumbnail":
+		return true
+	default:
+		return false
+	}
+}
+
+func supportedCLIOutputTemplateType(templateType ytdlp.OutputTemplateType) bool {
+	switch templateType {
+	case ytdlp.OutputTemplateDefault, ytdlp.OutputTemplateSubtitle,
+		ytdlp.OutputTemplateDescription, ytdlp.OutputTemplateInfoJSON,
+		ytdlp.OutputTemplateLink, ytdlp.OutputTemplatePLDescription,
+		ytdlp.OutputTemplatePLInfoJSON:
+		return true
+	default:
+		return false
+	}
 }
 
 func splitCommaList(values []string) []string {

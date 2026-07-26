@@ -5,11 +5,15 @@ without downloading media. The public Go request uses `RelatedFileOptions`; the
 CLI exposes `--write-info-json`, `--write-description`, `--write-link`,
 `--write-url-link`, `--write-webloc-link`, and `--write-desktop-link`.
 
-Related files use the normal confined output template and are reported as
-artifacts. `--skip-download` permits explicitly requested files, while
-simulation suppresses them. Existing regular files are retained unless
-`--force-overwrites` is set. Temporary files are written beside the destination
-and published atomically; symlink and non-regular destinations fail closed.
+Related files are reported as artifacts. The public API accepts
+`OutputTemplates`, and repeatable `--output TYPE:TEMPLATE` values configure
+`description`, `infojson`, `link`, `pl_description`, and `pl_infojson`
+independently. An exact type falls back to `default`, then the legacy Go
+`OutputTemplate`, then the built-in template. `--skip-download` permits
+explicitly requested files, while simulation suppresses them. Existing regular
+files are retained unless `--force-overwrites` is set. Temporary files are
+written beside the destination and published atomically; symlink and
+non-regular destinations fail closed.
 
 The implementation follows the pinned upstream ordering and file formats for
 video metadata, descriptions, and `.url`, `.webloc`, and `.desktop` shortcuts.
@@ -26,8 +30,8 @@ Known deviations:
 
 - the Go metadata JSON is the port's deterministic normalized schema rather
   than every private Python `YoutubeDL` field;
-- per-type output-template dictionaries are not yet exposed, so related files
-  derive from the single configured output template;
+- thumbnail, annotation, chapter, and other upstream output-template types are
+  rejected until their corresponding artifact producers exist;
 - Windows replacement of an existing related file follows Go's native rename
   guarantees and may fail closed where atomic replacement is unavailable;
 - thumbnail, annotation, and comment-specific sidecars are separate roadmap

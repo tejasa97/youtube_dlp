@@ -572,6 +572,140 @@ func TestRunWritesMetadataAndShortcutSidecarsWithoutMedia(t *testing.T) {
 	assertPathExists(t, filepath.Join(root, "Deterministic Fixture.bin"), false)
 }
 
+func TestOutputTemplateFlagParsesTypedAndDefaultTemplates(t *testing.T) {
+	t.Parallel()
+	var output outputTemplateFlag
+	for _, specification := range []string{
+		"%(title)s.%(ext)s",
+		"subtitle:captions/%(id)s.%(ext)s",
+		"description,infojson:metadata/%(id)s.%(ext)s",
+		"default:media/%(id)s.%(ext)s",
+	} {
+		if err := output.Set(specification); err != nil {
+			t.Fatalf("Set(%q): %v", specification, err)
+		}
+	}
+	for _, specification := range []string{
+		"archive:%(title)s.%(ext)s",
+		"%(title)s:%(ext)s",
+		"unknown,subtitle:%(id)s.%(ext)s",
+		"unknown,thumbnail:%(id)s.%(ext)s",
+		"thumbnail,unknown:%(id)s.%(ext)s",
+		"subtitle,subtitle,unknown:%(id)s.%(ext)s",
+	} {
+		var legacy outputTemplateFlag
+		if err := legacy.Set(specification); err != nil {
+			t.Fatalf("legacy Set(%q): %v", specification, err)
+		}
+		if got := legacy.clone()[ytdlp.OutputTemplateDefault]; got != specification {
+			t.Errorf("legacy Set(%q) = %q", specification, got)
+		}
+	}
+	got := output.clone()
+	expected := ytdlp.OutputTemplates{
+		ytdlp.OutputTemplateDefault:     "media/%(id)s.%(ext)s",
+		ytdlp.OutputTemplateSubtitle:    "captions/%(id)s.%(ext)s",
+		ytdlp.OutputTemplateDescription: "metadata/%(id)s.%(ext)s",
+		ytdlp.OutputTemplateInfoJSON:    "metadata/%(id)s.%(ext)s",
+	}
+	for templateType, want := range expected {
+		if got[templateType] != want {
+			t.Errorf("%s = %q, want %q", templateType, got[templateType], want)
+		}
+	}
+	for _, specification := range []string{
+		"",
+		"thumbnail:%(id)s.%(ext)s",
+		"subtitle:",
+		"subtitle,subtitle:%(id)s.%(ext)s",
+	} {
+		var invalid outputTemplateFlag
+		if err := invalid.Set(specification); err == nil {
+			t.Errorf("Set(%q) succeeded", specification)
+		}
+	}
+}
+
+func TestRunUsesTypedOutputTemplatesForArtifacts(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"--skip-download", "--write-subs", "--write-description", "--write-info-json", "--write-url-link",
+		"--output-dir", root,
+		"--output", "default:media/%(id)s.%(ext)s",
+		"--output", "subtitle:captions/%(id)s.%(ext)s",
+		"--output", "description:metadata/%(id)s-desc.%(ext)s",
+		"--output", "infojson:metadata/%(id)s-info.%(ext)s",
+		"--output", "link:links/%(id)s.%(ext)s",
+		server.URL + "/page",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	var written []string
+	_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err == nil && !entry.IsDir() {
+			relative, _ := filepath.Rel(root, path)
+			written = append(written, filepath.ToSlash(relative))
+		}
+		return nil
+	})
+	for _, relative := range []string{
+		"captions/fixture-direct.en.vtt",
+		"metadata/fixture-direct-info.info.json",
+		"links/fixture-direct.url",
+	} {
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(relative))); err != nil {
+			t.Errorf("%s: %v; written=%v", relative, err, written)
+		}
+	}
+	assertPathExists(t, filepath.Join(root, "media", "fixture-direct.bin"), false)
+}
+
+func TestRunTypedOutputTemplateCommandLineOverridesConfig(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "yt-dlp.conf")
+	if err := os.WriteFile(configPath, []byte("--skip-download\n--write-subs\n--output subtitle:configured/%(id)s.%(ext)s\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"--config-location", configPath,
+		"--output-dir", root,
+		"--output", "subtitle:command/%(id)s.%(ext)s",
+		server.URL + "/page",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	assertPathExists(t, filepath.Join(root, "command", "fixture-direct.en.vtt"), true)
+	assertPathExists(t, filepath.Join(root, "configured", "fixture-direct.en.vtt"), false)
+}
+
+func FuzzParseOutputTemplateSpecification(f *testing.F) {
+	f.Add("subtitle:%(id)s.%(ext)s")
+	f.Add("thumbnail:../escape")
+	f.Add("%(title)s:%(ext)s")
+	f.Fuzz(func(t *testing.T, specification string) {
+		types, pattern, err := parseOutputTemplateSpecification(specification)
+		if err != nil {
+			return
+		}
+		if len(types) == 0 || pattern == "" {
+			t.Fatalf("accepted empty result: %#v %q", types, pattern)
+		}
+		for _, templateType := range types {
+			if !supportedCLIOutputTemplateType(templateType) {
+				t.Fatalf("accepted unsupported type %q", templateType)
+			}
+		}
+	})
+}
+
 func TestRunDumpJSONExplicitNoQuietAndCombinedModes(t *testing.T) {
 	server := testserver.New()
 	defer server.Close()

@@ -64,15 +64,20 @@ capabilities:
       - pkg/ytdlp.TestOperationWritesFinalPlaylistAndEntryMetadataSidecars
       - pkg/ytdlp.FuzzSafeLinkURL
       - internal/cli.TestRunWritesMetadataAndShortcutSidecarsWithoutMedia
+      - internal/cli.TestRunUsesTypedOutputTemplatesForArtifacts
+      - internal/cli.TestRunTypedOutputTemplateCommandLineOverridesConfig
       - internal/cli.TestRunDumpJSONSimulationSuppressesRelatedFiles
+      - pkg/ytdlp.TestTypedRelatedFileTemplatesDistinguishEntryAndPlaylist
+      - pkg/ytdlp.TestTypedOutputTemplatesPreserveSafetyAndSimulation
       - conformance/related_files/PROVENANCE.md
+      - conformance/output_templates/PROVENANCE.md
       - docs/METADATA_SIDECARS_EVIDENCE.md
     owner: core
     depends_on:
       - cli.simulation
       - compat.output_template_minimal
       - metadata.deterministic_json
-    known_deviation: Related files use the port's deterministic normalized metadata schema and one shared output template. Per-type output templates, thumbnail and annotation sidecars, and non-atomic Windows replacement where the platform cannot provide it remain outside this claim.
+    known_deviation: Related files use the port's deterministic normalized metadata schema. Implemented artifact types have per-type output templates; thumbnail and annotation sidecars, their corresponding template types, and non-atomic Windows replacement where the platform cannot provide it remain outside this claim.
 
   - id: cli.staged_print
     name: Staged template, file, and legacy field printing
@@ -301,6 +306,12 @@ capabilities:
       - internal/compat/template.TestResolveRejectsTraversalAndAbsolutePaths
       - internal/compat/template.TestReservedFilename
       - internal/compat/template.FuzzResolve
+      - pkg/ytdlp.TestOutputTemplateTypePrecedenceAndValidation
+      - pkg/ytdlp.TestTypedSubtitleAndDefaultMediaTemplates
+      - pkg/ytdlp.FuzzOutputTemplateTypeSelection
+      - internal/cli.TestOutputTemplateFlagParsesTypedAndDefaultTemplates
+      - internal/cli.FuzzParseOutputTemplateSpecification
+      - conformance/output_templates/PROVENANCE.md
     owner: core
     depends_on:
       - metadata.ordered_values
@@ -1927,7 +1938,7 @@ capabilities:
       - internal/compat.TestPinnedCompatibilityCorpus
       - conformance/compatibility/PROVENANCE.md
     owner: core
-    known_deviation: Compatibility is claimed only for the checked-in Phase 1 syntax corpus; the complete output-template mini-language remains a later phase.
+    known_deviation: Compatibility is claimed only for the checked-in Phase 1 syntax corpus and the output types currently produced by the port. Thumbnail, annotation, chapter, per-path, and other unimplemented artifact types remain outside this claim.
 
   - id: conformance.differential_runner
     name: Differential conformance runner
