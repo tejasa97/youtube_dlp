@@ -269,6 +269,8 @@ func RunContextIO(ctx context.Context, args []string, stdin io.Reader, stdout, s
 	})
 	youtubeMaxComments := flags.String("youtube-max-comments", "", "bounded YouTube limits TOTAL[,PARENTS[,REPLIES[,PER_THREAD[,DEPTH]]]]")
 	youtubeCommentSort := flags.String("youtube-comment-sort", "new", "YouTube comment order: new or top")
+	soundCloudMaxComments := flags.Int("soundcloud-max-comments", 0, "maximum SoundCloud track comments (default 100)")
+	soundCloudCommentSort := flags.String("soundcloud-comment-sort", "newest", "SoundCloud comment order: newest, oldest, or track-timestamp")
 	var sponsorBlockMark, sponsorBlockRemove []string
 	var removeChapters stringListFlag
 	var sponsorBlockForceKeyframes bool
@@ -439,6 +441,9 @@ func RunContextIO(ctx context.Context, args []string, stdin io.Reader, stdout, s
 	}
 	commentLimits.Enabled = *writeComments
 	commentLimits.Sort = *youtubeCommentSort
+	soundCloudComments := ytdlp.SoundCloudCommentOptions{
+		Enabled: *writeComments, Sort: *soundCloudCommentSort, MaxComments: *soundCloudMaxComments,
+	}
 	if noSponsorBlock {
 		sponsorBlockMark = nil
 		sponsorBlockRemove = nil
@@ -512,6 +517,7 @@ func RunContextIO(ctx context.Context, args []string, stdin io.Reader, stdout, s
 		},
 		PrintRules:           printRules,
 		YouTubeComments:      commentLimits,
+		SoundCloudComments:   soundCloudComments,
 		SponsorBlock:         sponsorBlockOptions,
 		RemoveChapters:       append([]string(nil), removeChapters...),
 		ForceKeyframesAtCuts: sponsorBlockForceKeyframes,

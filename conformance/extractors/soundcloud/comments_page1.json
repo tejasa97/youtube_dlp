@@ -1,0 +1,31 @@
+{
+  "collection": [
+    {
+      "id": 9001,
+      "body": "First synthetic comment",
+      "created_at": "2024/02/03 04:05:06 +0000",
+      "timestamp": 12500,
+      "user": {
+        "id": 71,
+        "username": "Listener One",
+        "avatar_url": "https://i1.sndcdn.com/avatars-comment-one.jpg",
+        "permalink_url": "https://soundcloud.com/listener-one",
+        "verified": true
+      }
+    },
+    {
+      "id": 9002,
+      "body": "Second synthetic comment",
+      "created_at": "2024-02-04T05:06:07Z",
+      "timestamp": 25000,
+      "user": {
+        "id": 72,
+        "username": "Listener Two",
+        "avatar_url": "https://i1.sndcdn.com/avatars-comment-two.jpg",
+        "permalink_url": "https://soundcloud.com/listener-two",
+        "verified": false
+      }
+    }
+  ],
+  "next_href": "https://api-v2.soundcloud.com/tracks/4242/comments?client_id=stale-fixture&limit=20&offset=20&sort=newest&threaded=1"
+}

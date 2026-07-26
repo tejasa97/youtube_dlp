@@ -51,6 +51,12 @@ The shared registry and parity manifest remain owned by the primary integrator.
 - Deterministic normalized track metadata for identifiers, title/track,
   uploader, duration, timestamps, counts, license, genre, artwork, webpage URL,
   and audio-only formats.
+- Opt-in public track-comment retrieval through `--get-comments` or
+  `--write-comments`, with `--soundcloud-comment-sort` and
+  `--soundcloud-max-comments` controls. Retrieval remains deferred until media
+  enrichment, preserves API order, normalizes author and time metadata, uses a
+  bounded exact-track continuation policy, and requires credential-isolated,
+  no-redirect requests.
 - Ordered transparent URL entries for sets/API playlists. Missing permalink
   URLs fall back to direct v2 track URLs and preserve a private set token.
 - Lazy, independently reusable linked-partition iterators for bare public user
@@ -127,8 +133,16 @@ The shared registry and parity manifest remain owned by the primary integrator.
 - `internal/extractor.TestSoundCloudEmbedRejectsUnsafeAndAmbiguousURLs`
 - `internal/extractor.TestGenericSoundCloudEmbedDiscoveryAndDeduplication`
 - `internal/extractor.FuzzParseSoundCloudEmbedURL`
+- `internal/extractor.TestSoundCloudTrackCommentsAreDeferredOrderedAndNormalized`
+- `internal/extractor.TestSoundCloudTrackCommentSortLimitsAndDisabled`
+- `internal/extractor.TestSoundCloudCommentIsolationFailuresAndCancellation`
+- `internal/extractor.TestSoundCloudCommentContinuationPolicy`
+- `internal/extractor.FuzzSoundCloudCommentContinuationPolicy`
+- `internal/extractor.FuzzNormalizeSoundCloudComment`
 - `pkg/ytdlp.TestProductRegistryReentersSoundCloudEmbedIntoMedia`
+- `pkg/ytdlp.TestProductSoundCloudCommentOptionsPropagateAndEnrich`
 - `conformance/extractors/soundcloud/PROVENANCE.md`
+- `conformance/extractors/soundcloud/comments/PROVENANCE.md`
 - `conformance/extractors/soundcloud_embed/PROVENANCE.md`
 
 ## Integration hook
@@ -145,10 +159,10 @@ registry evidence and the complete test suite passes.
 The pilot does not yet implement OAuth/cookie login, original downloadable-file
 resolution, premium subscription formats, offset pagination compatibility,
 full artwork-size expansion, or batch hydration of incomplete private-set
-tracks. The `/comments` user tab enumerates attributable media entries; it does
-not download or expose comment bodies. Arbitrary script-based player discovery
-and future user tabs remain out of scope. Only the declared synthetic corpus
-is compatibility evidence. SoundCloud
+tracks. Track comments are supported, while the distinct `/comments` user tab
+continues to enumerate attributable media entries rather than comment bodies.
+Arbitrary script-based player discovery and future user tabs remain out of
+scope. Only the declared synthetic corpus is compatibility evidence. SoundCloud
 can change its web client-ID layout; failure remains explicit and bounded rather
 than relying on a pinned runtime credential.
 

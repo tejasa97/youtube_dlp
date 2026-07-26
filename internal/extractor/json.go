@@ -64,6 +64,9 @@ func requestJSON(ctx context.Context, execute func(context.Context, *http.Reques
 		return errors.New("invalid JSON request")
 	}
 	request.Header = headers.Clone()
+	if request.Header == nil {
+		request.Header = make(http.Header)
+	}
 	response, err := execute(ctx, request)
 	if err != nil {
 		return err
