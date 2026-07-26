@@ -1319,6 +1319,7 @@ type vimeoSubtitleCandidate struct {
 	name     string
 	ext      string
 	primary  bool
+	isolated bool
 }
 
 func mergeVimeoSubtitles(ctx context.Context, transport Transport, videoID string, config vimeoConfig, files vimeoFiles) (*value.Object, error) {
@@ -1435,6 +1436,7 @@ func vimeoSubtitleCandidatesFromAPI(ctx context.Context, transport Transport, vi
 			url:      trackURL,
 			name:     boundedVimeoText(track.DisplayLanguage, vimeoMaxTextName),
 			ext:      vimeoSubtitleExtension(trackURL),
+			isolated: true,
 		})
 	}
 	return out, nil
@@ -1476,6 +1478,7 @@ func vimeoSubtitleCandidatesFromManifests(ctx context.Context, transport Transpo
 				url:      trackURL,
 				name:     boundedVimeoText(rendition.Name, vimeoMaxTextName),
 				ext:      "vtt",
+				isolated: true,
 			})
 		}
 	}
@@ -1510,6 +1513,7 @@ func vimeoSubtitleCandidatesFromManifests(ctx context.Context, transport Transpo
 				url:      trackURL,
 				name:     boundedVimeoText(representation.Name, vimeoMaxTextName),
 				ext:      vimeoSubtitleExtension(trackURL),
+				isolated: true,
 			})
 		}
 	}
@@ -1566,6 +1570,9 @@ func vimeoSubtitlesFromCandidates(candidates []vimeoSubtitleCandidate) (*value.O
 		)
 		if candidate.name != "" {
 			entry.Set("name", value.String(candidate.name))
+		}
+		if candidate.isolated {
+			entry.Set("_credential_isolated", value.Bool(true))
 		}
 		grouped[candidate.language] = append(grouped[candidate.language], value.ObjectValue(entry))
 	}

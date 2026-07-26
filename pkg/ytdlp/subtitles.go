@@ -20,31 +20,29 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
-// isolatedSubtitleTransport wraps a network.Client to ensure subtitle
-// downloads never forward ambient cookies, Authorization, or
-// Proxy-Authorization.  Only explicit per-track headers (for example a
-// cookie or authorization required by the subtitle CDN) are preserved.
-// Redirects are never followed and the ambient cookie jar is unused.
-type isolatedSubtitleTransport struct {
-	ambient      *network.Client
-	trackHeaders http.Header
+// credentialIsolatedSubtitleTransport delegates to DoWithoutCredentialsNoRedirect
+// after stripping ambient Referer. The network client removes cookies,
+// Authorization, Proxy-Authorization, redirect following, and the cookie jar;
+// explicit credential headers are not forwarded to isolated CDN origins.
+type credentialIsolatedSubtitleTransport struct {
+	ambient *network.Client
 }
 
-func (t *isolatedSubtitleTransport) DoWithoutCredentialsNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
+func (transport *credentialIsolatedSubtitleTransport) DoWithoutCredentialsNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
 	cloned := request.Clone(ctx)
-	for _, key := range []string{"Authorization", "Cookie", "Proxy-Authorization"} {
+	for _, key := range []string{"Authorization", "Cookie", "Proxy-Authorization", "Referer"} {
 		cloned.Header.Del(key)
 	}
-	for key, values := range t.trackHeaders {
-		for _, v := range values {
-			cloned.Header.Set(key, v)
-		}
-	}
-	return t.ambient.DoWithoutCredentialsNoRedirect(ctx, cloned)
+	return transport.ambient.DoWithoutCredentialsNoRedirect(ctx, cloned)
 }
 
-func (t *isolatedSubtitleTransport) Do(ctx context.Context, request *http.Request) (*http.Response, error) {
-	return t.DoWithoutCredentialsNoRedirect(ctx, request)
+func (transport *credentialIsolatedSubtitleTransport) Do(ctx context.Context, request *http.Request) (*http.Response, error) {
+	return transport.DoWithoutCredentialsNoRedirect(ctx, request)
+}
+
+func subtitleCredentialIsolated(metadata *value.Object) bool {
+	isolated, ok := metadata.Lookup("_credential_isolated").Bool()
+	return ok && isolated
 }
 
 const (
@@ -404,10 +402,16 @@ func (operation *operation) downloadSubtitles(ctx context.Context, info value.In
 		if options.MaxBytes <= 0 || options.MaxBytes > maxSubtitleBytes {
 			options.MaxBytes = maxSubtitleBytes
 		}
-		transport := &isolatedSubtitleTransport{ambient: operation.transport, trackHeaders: track.headers}
+		isolated := subtitleCredentialIsolated(track.metadata)
 		var result downloader.Result
 		if hlsSubtitlePlaylistURL(track.rawURL) {
-			assembled, err := hls.AssembleWebVTT(ctx, transport, track.rawURL, options.MaxBytes)
+			var assembled []byte
+			var err error
+			if isolated {
+				assembled, err = hls.AssembleWebVTT(ctx, &credentialIsolatedSubtitleTransport{ambient: operation.transport}, track.rawURL, options.MaxBytes)
+			} else {
+				assembled, err = hls.AssembleWebVTTRedirecting(ctx, operation.transport, track.rawURL, track.headers, options.MaxBytes)
+			}
 			if err != nil {
 				return artifacts, total, err
 			}
@@ -419,9 +423,22 @@ func (operation *operation) downloadSubtitles(ctx context.Context, info value.In
 			if err != nil {
 				return artifacts, total, err
 			}
+		} else if isolated {
+			var err error
+			result, err = downloader.New(&credentialIsolatedSubtitleTransport{ambient: operation.transport}).Download(ctx, downloader.Job{
+				URL: track.rawURL, OutputRoot: operation.request.outputRoot(OutputPathHome), Destination: destination,
+				Overwrite: operation.request.Overwrite, Attempts: options.Attempts,
+				RetryBaseDelay: options.RetryBaseDelay, RetryMaxDelay: options.RetryMaxDelay,
+				RateLimit: options.RateLimit, MaxBytes: options.MaxBytes,
+				ThrottleRate: options.ThrottleRate, ThrottleWindow: options.ThrottleWindow,
+				ThrottleRestarts: options.ThrottleRestarts, FileAttempts: options.FileAttempts,
+			}, sink)
+			if err != nil {
+				return artifacts, total, err
+			}
 		} else {
 			var err error
-			result, err = downloader.New(transport).Download(ctx, downloader.Job{
+			result, err = downloader.New(operation.transport).Download(ctx, downloader.Job{
 				URL: track.rawURL, Headers: track.headers, OutputRoot: operation.request.outputRoot(OutputPathHome), Destination: destination,
 				Overwrite: operation.request.Overwrite, Attempts: options.Attempts,
 				RetryBaseDelay: options.RetryBaseDelay, RetryMaxDelay: options.RetryMaxDelay,

@@ -28,9 +28,15 @@ type SubtitleRendition struct {
 }
 
 // CredentialIsolatedSubtitleTransport fetches subtitle playlists and segments
-// without ambient credentials, cookies, or redirects.
+// without ambient credentials, cookies, referer, or redirects.
 type CredentialIsolatedSubtitleTransport interface {
 	DoWithoutCredentialsNoRedirect(context.Context, *http.Request) (*http.Response, error)
+}
+
+// RedirectingSubtitleTransport fetches subtitle playlists and segments with the
+// ambient operation transport, including redirects and caller headers.
+type RedirectingSubtitleTransport interface {
+	Do(context.Context, *http.Request) (*http.Response, error)
 }
 
 // ParseMasterSubtitles extracts TYPE=SUBTITLES EXT-X-MEDIA renditions from a
@@ -101,10 +107,36 @@ func AssembleWebVTT(ctx context.Context, transport CredentialIsolatedSubtitleTra
 	if transport == nil {
 		return nil, fmt.Errorf("%w: missing subtitle transport", ErrInvalidPlaylist)
 	}
+	return assembleWebVTT(ctx, func(ctx context.Context, request *http.Request) (*http.Response, error) {
+		return transport.DoWithoutCredentialsNoRedirect(ctx, request)
+	}, manifestURL, maxBytes)
+}
+
+// AssembleWebVTTRedirecting downloads a bounded VOD HLS subtitle media playlist
+// through the ambient redirecting transport and optional per-track headers.
+func AssembleWebVTTRedirecting(ctx context.Context, transport RedirectingSubtitleTransport, manifestURL string, headers http.Header, maxBytes int64) ([]byte, error) {
+	if transport == nil {
+		return nil, fmt.Errorf("%w: missing subtitle transport", ErrInvalidPlaylist)
+	}
+	return assembleWebVTT(ctx, func(ctx context.Context, request *http.Request) (*http.Response, error) {
+		cloned := request.Clone(ctx)
+		for key, values := range headers {
+			for _, value := range values {
+				cloned.Header.Add(key, value)
+			}
+		}
+		return transport.Do(ctx, cloned)
+	}, manifestURL, maxBytes)
+}
+
+func assembleWebVTT(ctx context.Context, fetch func(context.Context, *http.Request) (*http.Response, error), manifestURL string, maxBytes int64) ([]byte, error) {
+	if fetch == nil {
+		return nil, fmt.Errorf("%w: missing subtitle transport", ErrInvalidPlaylist)
+	}
 	if maxBytes <= 0 || maxBytes > maxAssembledSubtitleBytes {
 		maxBytes = maxAssembledSubtitleBytes
 	}
-	body, err := readSubtitlePage(ctx, transport, manifestURL, maxPlaylistBytes)
+	body, err := readSubtitlePage(ctx, fetch, manifestURL, maxPlaylistBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +149,7 @@ func AssembleWebVTT(ctx context.Context, transport CredentialIsolatedSubtitleTra
 		if len(playlist.Variants) == 0 {
 			return nil, fmt.Errorf("%w: subtitle playlist has no media", ErrInvalidPlaylist)
 		}
-		body, err = readSubtitlePage(ctx, transport, playlist.Variants[0].URL, maxPlaylistBytes)
+		body, err = readSubtitlePage(ctx, fetch, playlist.Variants[0].URL, maxPlaylistBytes)
 		if err != nil {
 			return nil, err
 		}
@@ -142,7 +174,7 @@ func AssembleWebVTT(ctx context.Context, transport CredentialIsolatedSubtitleTra
 		if err := validateSubtitleSegment(segment); err != nil {
 			return nil, err
 		}
-		payload, err := readSubtitlePage(ctx, transport, segment.URL, maxSubtitleSegmentBytes)
+		payload, err := readSubtitlePage(ctx, fetch, segment.URL, maxSubtitleSegmentBytes)
 		if err != nil {
 			return nil, err
 		}
@@ -213,12 +245,12 @@ func validateSubtitleSegment(segment Segment) error {
 	return nil
 }
 
-func readSubtitlePage(ctx context.Context, transport CredentialIsolatedSubtitleTransport, rawURL string, limit int64) ([]byte, error) {
+func readSubtitlePage(ctx context.Context, fetch func(context.Context, *http.Request) (*http.Response, error), rawURL string, limit int64) ([]byte, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidPlaylist, err)
 	}
-	response, err := transport.DoWithoutCredentialsNoRedirect(ctx, request)
+	response, err := fetch(ctx, request)
 	if err != nil {
 		return nil, err
 	}
