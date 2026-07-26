@@ -587,10 +587,7 @@ func formatPrintDuration(seconds float64) string {
 }
 
 func (operation *operation) printFilename(info value.Info, selections []mediaformat.Selection) (string, error) {
-	pattern := operation.request.OutputTemplate
-	if pattern == "" {
-		pattern = "%(title)s.%(ext)s"
-	}
+	pattern := operation.request.outputTemplate(OutputTemplateDefault)
 	outputInfo := selectedFormatInfo(info, selections)
 	outputDir := operation.request.OutputDir
 	if outputDir == "" {

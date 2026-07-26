@@ -356,10 +356,7 @@ func (operation *operation) downloadSubtitles(ctx context.Context, info value.In
 	if outputRoot == "" {
 		outputRoot = "."
 	}
-	pattern := operation.request.OutputTemplate
-	if pattern == "" {
-		pattern = "%(title)s.%(ext)s"
-	}
+	pattern := operation.request.outputTemplate(OutputTemplateSubtitle)
 	artifacts := make([]Artifact, 0, len(tracks))
 	var total int64
 	for _, track := range tracks {

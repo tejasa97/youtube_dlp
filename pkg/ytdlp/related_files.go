@@ -80,16 +80,14 @@ func (operation *operation) writeRelatedFiles(ctx context.Context, info value.In
 	if outputRoot == "" {
 		outputRoot = "."
 	}
-	pattern := operation.request.OutputTemplate
-	if pattern == "" {
-		pattern = "%(title)s.%(ext)s"
-	}
 	artifacts := make([]Artifact, 0, len(files))
 	var total int64
 	for _, file := range files {
 		if err := ctx.Err(); err != nil {
 			return artifacts, total, err
 		}
+		templateType := outputTemplateTypeForRelatedFile(file.kind, playlist)
+		pattern := operation.request.outputTemplate(templateType)
 		destination, err := relatedFilePath(outputRoot, pattern, info, file.extension)
 		if err != nil {
 			return artifacts, total, err
@@ -112,6 +110,25 @@ func (operation *operation) writeRelatedFiles(ctx context.Context, info value.In
 		total += size
 	}
 	return artifacts, total, nil
+}
+
+func outputTemplateTypeForRelatedFile(kind string, playlist bool) OutputTemplateType {
+	switch kind {
+	case "description":
+		if playlist {
+			return OutputTemplatePLDescription
+		}
+		return OutputTemplateDescription
+	case "infojson":
+		if playlist {
+			return OutputTemplatePLInfoJSON
+		}
+		return OutputTemplateInfoJSON
+	case "link":
+		return OutputTemplateLink
+	default:
+		return OutputTemplateDefault
+	}
 }
 
 func selectedLinkTypes(options RelatedFileOptions) []string {

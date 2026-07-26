@@ -87,6 +87,7 @@ func IsCategory(err error, category ErrorCategory) bool {
 type Request struct {
 	URL                  string
 	OutputTemplate       string
+	OutputTemplates      OutputTemplates
 	OutputDir            string
 	Proxy                string
 	ImpersonationProfile string
@@ -269,6 +270,7 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 		chapterTitle := *request.SponsorBlock.ChapterTitle
 		request.SponsorBlock.ChapterTitle = &chapterTitle
 	}
+	request.OutputTemplates = cloneOutputTemplates(request.OutputTemplates)
 	if err := validateRequestOptions(request); err != nil {
 		return Result{}, categorized("validate request options", err)
 	}
