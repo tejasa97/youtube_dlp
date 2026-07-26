@@ -122,6 +122,7 @@ type Request struct {
 	// SponsorBlock cuts. It is invalid when no removal is requested.
 	ForceKeyframesAtCuts bool
 	Subtitles            SubtitleOptions
+	Thumbnails           ThumbnailOptions
 	RelatedFiles         RelatedFileOptions
 	PrintRules           []PrintRule
 	Playlist             PlaylistOptions
@@ -716,6 +717,20 @@ func (operation *operation) finishPlaylistResult(
 ) (Result, error) {
 	info := value.NewInfo(playlistInfo.Fields().Clone())
 	info.Set("entries", value.List(entryValues...))
+	if operation.request.Thumbnails.List {
+		if _, err := selectThumbnails(&info); err != nil {
+			return Result{}, categorized("normalize playlist thumbnails", err)
+		}
+	}
+	var thumbnailArtifacts []Artifact
+	var thumbnailBytes int64
+	if !operation.request.Simulate && !operation.request.RelatedFiles.NoPlaylist {
+		var err error
+		thumbnailArtifacts, thumbnailBytes, err = operation.writeThumbnails(ctx, &info, true)
+		if err != nil {
+			return Result{}, categorized("write playlist thumbnails", err)
+		}
+	}
 	encoded, err := encodeInfo(info)
 	if err != nil {
 		return Result{}, err
@@ -724,6 +739,9 @@ func (operation *operation) finishPlaylistResult(
 		InfoJSON: encoded, Extractor: extractorName, Entries: children,
 		Stopped: operation.breakMatchTriggered, StopReason: operation.breakMatchReason,
 	}
+	result.Artifacts = append(result.Artifacts, thumbnailArtifacts...)
+	result.Bytes += thumbnailBytes
+	result.Downloaded = len(thumbnailArtifacts) > 0
 	for _, child := range children {
 		result.Bytes += child.Bytes
 		result.Downloaded = result.Downloaded || child.Downloaded
@@ -951,6 +969,11 @@ func (operation *operation) finishMatchFilterDecision(
 
 func (operation *operation) processMedia(ctx context.Context, extracted extractor.Extraction, extractorName string) (Result, error) {
 	info := extracted.Info
+	if operation.request.Thumbnails.List {
+		if _, err := selectThumbnails(&info); err != nil {
+			return Result{}, categorized("normalize thumbnails", err)
+		}
+	}
 	preProcessPrints, err := operation.capturePrints(ctx, PrintPreProcess, info, nil, "")
 	if err != nil {
 		return Result{}, categorized("render pre-process print", err)
@@ -1080,6 +1103,12 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	if operation.request.Simulate {
 		return result, nil
 	}
+	thumbnailArtifacts, thumbnailBytes, err := operation.writeThumbnails(ctx, &info, false)
+	if err != nil {
+		return Result{}, categorized("write thumbnails", err)
+	}
+	result.Artifacts = append(result.Artifacts, thumbnailArtifacts...)
+	result.Bytes += thumbnailBytes
 	relatedArtifacts, relatedBytes, err := operation.writeRelatedFiles(ctx, info, false)
 	if err != nil {
 		return Result{}, categorized("write related files", err)
@@ -1290,6 +1319,8 @@ func categorized(op string, err error) error {
 	case errors.Is(err, credentialnetrc.ErrUnsafeFile):
 		category = ErrorSecurity
 	case errors.Is(err, errUnsafePrintFile):
+		category = ErrorSecurity
+	case errors.Is(err, errUnsafeThumbnailRedirect):
 		category = ErrorSecurity
 	case errors.Is(err, credentialnetrc.ErrIO):
 		category = ErrorAuthentication

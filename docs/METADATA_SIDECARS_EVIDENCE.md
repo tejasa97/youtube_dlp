@@ -7,7 +7,8 @@ CLI exposes `--write-info-json`, `--write-description`, `--write-link`,
 
 Related files are reported as artifacts. The public API accepts
 `OutputTemplates`, and repeatable `--output TYPE:TEMPLATE` values configure
-`description`, `infojson`, `link`, `pl_description`, and `pl_infojson`
+`thumbnail`, `description`, `infojson`, `link`, `pl_thumbnail`,
+`pl_description`, and `pl_infojson`
 independently. An exact type falls back to `default`, then the legacy Go
 `OutputTemplate`, then the built-in template. `--skip-download` permits
 explicitly requested files, while simulation suppresses them. Existing regular
@@ -30,9 +31,9 @@ Known deviations:
 
 - the Go metadata JSON is the port's deterministic normalized schema rather
   than every private Python `YoutubeDL` field;
-- thumbnail, annotation, chapter, and other upstream output-template types are
+- annotation, chapter, and other upstream output-template types are
   rejected until their corresponding artifact producers exist;
 - Windows replacement of an existing related file follows Go's native rename
   guarantees and may fail closed where atomic replacement is unavailable;
-- thumbnail, annotation, and comment-specific sidecars are separate roadmap
+- annotation and comment-specific sidecars are separate roadmap
   work.

@@ -11,8 +11,8 @@ commit `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`:
   the language or shortcut extension.
 
 The Go port exposes only artifact types it can currently produce:
-`default`, `subtitle`, `description`, `infojson`, `link`,
-`pl_description`, and `pl_infojson`. Recognized upstream types whose artifact
+`default`, `subtitle`, `thumbnail`, `description`, `infojson`, `link`,
+`pl_description`, `pl_infojson`, and `pl_thumbnail`. Recognized upstream types whose artifact
 producer is not implemented fail before extraction; an unmatched colon prefix
 remains an untyped default template, preserving upstream and legacy behavior.
 The compatibility fallback adds the pre-existing singular Go

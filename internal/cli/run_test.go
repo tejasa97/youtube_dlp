@@ -579,6 +579,7 @@ func TestOutputTemplateFlagParsesTypedAndDefaultTemplates(t *testing.T) {
 		"%(title)s.%(ext)s",
 		"subtitle:captions/%(id)s.%(ext)s",
 		"description,infojson:metadata/%(id)s.%(ext)s",
+		"thumbnail,pl_thumbnail:images/%(id)s.%(ext)s",
 		"default:media/%(id)s.%(ext)s",
 	} {
 		if err := output.Set(specification); err != nil {
@@ -607,6 +608,8 @@ func TestOutputTemplateFlagParsesTypedAndDefaultTemplates(t *testing.T) {
 		ytdlp.OutputTemplateSubtitle:    "captions/%(id)s.%(ext)s",
 		ytdlp.OutputTemplateDescription: "metadata/%(id)s.%(ext)s",
 		ytdlp.OutputTemplateInfoJSON:    "metadata/%(id)s.%(ext)s",
+		ytdlp.OutputTemplateThumbnail:   "images/%(id)s.%(ext)s",
+		ytdlp.OutputTemplatePLThumbnail: "images/%(id)s.%(ext)s",
 	}
 	for templateType, want := range expected {
 		if got[templateType] != want {
@@ -615,7 +618,7 @@ func TestOutputTemplateFlagParsesTypedAndDefaultTemplates(t *testing.T) {
 	}
 	for _, specification := range []string{
 		"",
-		"thumbnail:%(id)s.%(ext)s",
+		"annotation:%(id)s.%(ext)s",
 		"subtitle:",
 		"subtitle,subtitle:%(id)s.%(ext)s",
 	} {

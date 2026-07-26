@@ -77,7 +77,33 @@ capabilities:
       - cli.simulation
       - compat.output_template_minimal
       - metadata.deterministic_json
-    known_deviation: Related files use the port's deterministic normalized metadata schema. Implemented artifact types have per-type output templates; thumbnail and annotation sidecars, their corresponding template types, and non-atomic Windows replacement where the platform cannot provide it remain outside this claim.
+    known_deviation: Related files use the port's deterministic normalized metadata schema. Implemented artifact types have per-type output templates; annotation sidecars and non-atomic Windows replacement where the platform cannot provide it remain outside this claim.
+
+  - id: cli.thumbnail_sidecars
+    name: Thumbnail sidecars and listing
+    phase: 3
+    compatibility_target: List or write the best or all bounded entry and playlist thumbnails through confined per-type templates without downloading media.
+    status: compatible
+    evidence:
+      - pkg/ytdlp.TestSelectThumbnailsNormalizesSortsAndBoundsMetadata
+      - pkg/ytdlp.TestWriteThumbnailsBestFallbackAllPlaylistAndSafety
+      - pkg/ytdlp.TestClientWritesThumbnailWithSkipDownloadAndTypedTemplate
+      - pkg/ytdlp.TestWriteThumbnailsExistingDestination
+      - pkg/ytdlp.TestThumbnailRedirectPolicy
+      - pkg/ytdlp.TestThumbnailRemoteExhaustionWarnsAndContinues
+      - pkg/ytdlp.FuzzThumbnailPathAndURL
+      - internal/cli.TestThumbnailModeFlagPrecedence
+      - internal/cli.TestRenderThumbnailListing
+      - internal/cli.TestRunWritesAndListsThumbnailSidecars
+      - internal/cli.TestRunNoWriteThumbnailOverridesConfiguration
+      - conformance/thumbnails/PROVENANCE.md
+      - docs/THUMBNAIL_SIDECARS_EVIDENCE.md
+    owner: core
+    depends_on:
+      - cli.simulation
+      - compat.output_template_minimal
+      - network.shared_transport
+    known_deviation: Existing thumbnail files fail closed unless overwrite is enabled. Thumbnail conversion and media-container embedding remain separate postprocessor work.
 
   - id: cli.staged_print
     name: Staged template, file, and legacy field printing
@@ -1938,7 +1964,7 @@ capabilities:
       - internal/compat.TestPinnedCompatibilityCorpus
       - conformance/compatibility/PROVENANCE.md
     owner: core
-    known_deviation: Compatibility is claimed only for the checked-in Phase 1 syntax corpus and the output types currently produced by the port. Thumbnail, annotation, chapter, per-path, and other unimplemented artifact types remain outside this claim.
+    known_deviation: Compatibility is claimed only for the checked-in Phase 1 syntax corpus and the output types currently produced by the port. Annotation, chapter, per-path, and other unimplemented artifact types remain outside this claim.
 
   - id: conformance.differential_runner
     name: Differential conformance runner

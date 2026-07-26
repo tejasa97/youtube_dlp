@@ -32,8 +32,8 @@ Sources are applied from lowest to highest precedence:
 6. command-line arguments.
 
 `--output` is repeatable. A `TYPE:TEMPLATE` value configures `default`,
-`subtitle`, `description`, `infojson`, `link`, `pl_description`, or
-`pl_infojson`; comma-separated types may share one template. Later values
+`subtitle`, `thumbnail`, `description`, `infojson`, `link`,
+`pl_description`, `pl_infojson`, or `pl_thumbnail`; comma-separated types may share one template. Later values
 replace earlier values for the same type, so command-line typed templates
 override configuration-file values without clearing unrelated types.
 
