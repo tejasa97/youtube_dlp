@@ -84,8 +84,12 @@ func extractBalancedJSObject(page []byte, start int) ([]byte, error) {
 	return nil, fmt.Errorf("unterminated object")
 }
 
-// jwWave1JSToJSON applies the pinned upstream js_to_json non-strict semantics
-// without executing page JavaScript.
+// jwWave1JSToJSON converts a bounded JS object literal subset used by Iltalehti
+// app state into JSON without executing page JavaScript. Supported syntax
+// includes unquoted keys, single/double-quoted strings, trailing commas, line
+// and block comments, undefined/void 0 → null, and pinned process_escape
+// string handling. Template literals, variable substitution, new Map/Array, and
+// other full js_to_json transforms are intentionally unsupported.
 func jwWave1JSToJSON(src []byte) ([]byte, error) {
 	if int64(len(src)) > maxExtractorJSONBytes {
 		return nil, fmt.Errorf("%w: js object too large", ErrInvalidMetadata)
@@ -247,7 +251,7 @@ func writeJSStringLiteral(src []byte, index *int, quote byte, out *bytes.Buffer)
 	return fmt.Errorf("%w: unterminated js string", ErrInvalidMetadata)
 }
 
-// writeJSEscapeSequence mirrors pinned js_to_json process_escape without executing JS.
+// writeJSEscapeSequence mirrors the pinned js_to_json process_escape subset.
 func writeJSEscapeSequence(src []byte, index *int, out *bytes.Buffer) error {
 	if *index >= len(src) {
 		return fmt.Errorf("%w: malformed js escape", ErrInvalidMetadata)
