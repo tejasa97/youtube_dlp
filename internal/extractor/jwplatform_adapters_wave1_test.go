@@ -383,19 +383,117 @@ func FuzzParseJWPlatformAdaptersWave1URL(f *testing.F) {
 	f.Add("http://www.outsidetv.com/home/play/ZjQYboH6/1/10/Hdg0jukV/4")
 	f.Add("https://theintercept.com/fieldofvision/slug/")
 	f.Add("http://user:pass@www.bundesliga.com/en/bundesliga/videos?vid=bhhHkKyN")
+	f.Add("https://evil-bundesliga.com/en/bundesliga/videos?vid=bhhHkKyN")
+	f.Add("https://www.bundesliga.com.evil/en/bundesliga/videos?vid=bhhHkKyN")
+	f.Add("https://www.bundesliga.com:443/en/bundesliga/videos?vid=bhhHkKyN")
+	f.Add("https://www.bundesliga.com/en/bundesliga/videos?vid=bhhHkKyN#frag")
+	f.Add("https://www.bundesliga.com/en/%2ebundesliga/videos?vid=bhhHkKyN")
 	f.Fuzz(func(t *testing.T, raw string) {
+		if len(raw) > sharedHostingMaxURLBytes {
+			t.Skip()
+		}
 		parsed, err := url.Parse(raw)
 		if err != nil {
 			return
 		}
-		_, _ = parseBundesligaURL(parsed)
-		_, _ = parseBusinessInsiderURL(parsed)
-		_, _ = parseDBTVURL(parsed)
-		_, _ = parseHollywoodReporterURL(parsed)
-		_, _ = parseIltalehtiURL(parsed)
-		_, _ = parseLeFigaroVideoEmbedURL(parsed)
-		_, _ = parseMirrorCoUKURL(parsed)
-		_, _ = parseOutsideTVURL(parsed)
-		_, _ = parseTheInterceptURL(parsed)
+		unsafe := hostedRejectUnsafeURL(parsed)
+
+		if videoID, ok := parseBundesligaURL(parsed); ok {
+			jwWave1FuzzAssertAcceptedURL(t, parsed, unsafe, "bundesliga.com", "www.bundesliga.com")
+			if !jwPlatformID.MatchString(videoID) {
+				t.Fatalf("bundesliga accepted invalid id %q", videoID)
+			}
+		}
+
+		if displayID, ok := parseBusinessInsiderURL(parsed); ok {
+			jwWave1FuzzAssertAcceptedURL(t, parsed, unsafe, "businessinsider.com", "businessinsider.nl")
+			if displayID == "" || len(displayID) > 128 {
+				t.Fatalf("businessinsider accepted invalid slug %q", displayID)
+			}
+		}
+
+		if videoID, ok := parseDBTVURL(parsed); ok {
+			jwWave1FuzzAssertAcceptedURL(t, parsed, unsafe, "dagbladet.no", "www.dagbladet.no")
+			if len(videoID) != 8 && len(videoID) != 11 {
+				t.Fatalf("dbtv accepted invalid id length %q", videoID)
+			}
+			if len(videoID) == 8 && !jwPlatformID.MatchString(videoID) {
+				t.Fatalf("dbtv accepted invalid jw id %q", videoID)
+			}
+			if len(videoID) == 11 && !jwWave1YouTubeID.MatchString(videoID) {
+				t.Fatalf("dbtv accepted invalid youtube id %q", videoID)
+			}
+		}
+
+		if slug, ok := parseHollywoodReporterURL(parsed); ok {
+			jwWave1FuzzAssertAcceptedURL(t, parsed, unsafe, "hollywoodreporter.com", "www.hollywoodreporter.com")
+			if slug == "" || len(slug) > 128 {
+				t.Fatalf("hollywoodreporter accepted invalid slug %q", slug)
+			}
+		}
+
+		if articleID, ok := parseIltalehtiURL(parsed); ok {
+			jwWave1FuzzAssertAcceptedURL(t, parsed, unsafe, "iltalehti.fi", "www.iltalehti.fi")
+			if articleID == "" || len(articleID) > 64 {
+				t.Fatalf("iltalehti accepted invalid article id %q", articleID)
+			}
+		}
+
+		if slug, ok := parseLeFigaroVideoEmbedURL(parsed); ok {
+			jwWave1FuzzAssertAcceptedURL(t, parsed, unsafe, "video.lefigaro.fr")
+			if strings.ToLower(parsed.Hostname()) != "video.lefigaro.fr" {
+				t.Fatalf("lefigaro accepted lookalike host %q", parsed.Hostname())
+			}
+			if slug == "" || len(slug) > 128 {
+				t.Fatalf("lefigaro accepted invalid slug %q", slug)
+			}
+		}
+
+		if displayID, ok := parseMirrorCoUKURL(parsed); ok {
+			jwWave1FuzzAssertAcceptedURL(t, parsed, unsafe, "mirror.co.uk", "www.mirror.co.uk")
+			if displayID == "" || len(displayID) > 16 {
+				t.Fatalf("mirror accepted invalid display id %q", displayID)
+			}
+		}
+
+		if mediaID, ok := parseOutsideTVURL(parsed); ok {
+			jwWave1FuzzAssertAcceptedURL(t, parsed, unsafe, "outsidetv.com", "www.outsidetv.com")
+			if !jwPlatformID.MatchString(mediaID) {
+				t.Fatalf("outsidetv accepted invalid media id %q", mediaID)
+			}
+		}
+
+		if slug, ok := parseTheInterceptURL(parsed); ok {
+			jwWave1FuzzAssertAcceptedURL(t, parsed, unsafe, "theintercept.com")
+			if strings.ToLower(parsed.Hostname()) != "theintercept.com" {
+				t.Fatalf("theintercept accepted lookalike host %q", parsed.Hostname())
+			}
+			if slug == "" || len(slug) > 128 || strings.ContainsAny(slug, "/?#") {
+				t.Fatalf("theintercept accepted invalid slug %q", slug)
+			}
+		}
 	})
+}
+
+func jwWave1FuzzAssertAcceptedURL(t *testing.T, parsed *url.URL, unsafe bool, allowedHosts ...string) {
+	t.Helper()
+	if unsafe {
+		t.Fatalf("accepted unsafe URL %q", parsed)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		t.Fatalf("accepted non-http(s) scheme %q", parsed.Scheme)
+	}
+	if parsed.User != nil || parsed.Port() != "" || parsed.Fragment != "" || parsed.RawFragment != "" {
+		t.Fatalf("accepted unsafe URL parts in %q", parsed)
+	}
+	host := strings.ToLower(parsed.Hostname())
+	for _, allowed := range allowedHosts {
+		if host == allowed || host == "www."+allowed {
+			return
+		}
+		if businessInsiderHost(host) && (allowed == "businessinsider.com" || allowed == "businessinsider.nl") {
+			return
+		}
+	}
+	t.Fatalf("accepted lookalike host %q not in %v", host, allowedHosts)
 }
