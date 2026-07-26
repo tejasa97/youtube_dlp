@@ -1,5 +1,20 @@
 version: 1
 capabilities:
+  - id: extractor.rai
+    name: Rai public ecosystem
+    phase: 1
+    compatibility_target: Extract the bounded public RaiPlay, RaiPlay Sound, legacy Rai, Rai News, Rai Cultura, and Rai Südtirol route families through a shared relinker backend.
+    status: partial
+    evidence:
+      - internal/extractor.TestRaiRoutingMatrixAndHostHardening
+      - internal/extractor.TestRaiPlayRelinkerMetadataAndAudioCodec
+      - internal/extractor.TestRaiRelinkerGeoDRMAndMalformed
+      - internal/extractor.FuzzRaiURLClassification
+      - internal/extractor.FuzzRaiRelinkerXML
+      - conformance/extractors/rai/PROVENANCE.md
+      - docs/EXTRACTOR_RAI_ECOSYSTEM_EVIDENCE.md
+    owner: core
+    known_deviation: F4M/HDS is not represented because the native Go downloader has no HDS protocol implementation. Direct HLS manifests are delegated to the existing HLS pipeline; complex current-site HTML state and authenticated paths remain outside this public fixture-backed scope.
   - id: extractor.prx
     name: PRX CMS stories, series, and accounts
     phase: 1
