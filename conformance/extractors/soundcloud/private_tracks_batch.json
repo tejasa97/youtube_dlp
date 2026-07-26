@@ -1,0 +1,16 @@
+[
+  {
+    "id": 101,
+    "title": "Hydrated One",
+    "permalink_url": "https://soundcloud.com/fixture-artist/hydrated-one"
+  },
+  {
+    "id": 100,
+    "title": "Hydrated Public",
+    "permalink_url": "https://soundcloud.com/fixture-artist/hydrated-public"
+  },
+  {
+    "id": 102,
+    "title": "Hydrated Private Without Permalink"
+  }
+]

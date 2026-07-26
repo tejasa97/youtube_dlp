@@ -329,7 +329,8 @@ channel videos, channel collections, and channel clip playlists.
 
 SoundCloud coverage includes tracks, sets, bare profiles, the pinned public
 `tracks`, `albums`, `sets`, `reposts`, `likes`, `spotlight`, and `comments`
-profile tabs, stations, related resources, and bounded public track search.
+profile tabs, tokenized private-set hydration, stations, related resources,
+and bounded public track search.
 
 The full URL matrix and per-extractor boundaries live in
 [Supported sites](docs/SUPPORTED_SITES.md). A listed extractor means its
