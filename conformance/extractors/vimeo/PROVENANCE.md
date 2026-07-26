@@ -63,16 +63,20 @@ was captured into this corpus.
 
 ## Album and showcase API fixtures
 
-`album-viewer.json`, `album-metadata.json`, and
-`album-videos-page1.json` model the anonymous numeric-ID subset of pinned
+`album-slug-auth.json`, `album-viewer.json`, `album-metadata.json`, and
+`album-videos-page1.json` model the anonymous public album subset of pinned
 `VimeoAlbumIE` (`yt_dlp/extractor/vimeo.py`, lines 1554-1687):
 
+- `GET https://vimeo.com/showcase/{slug}/auth` with
+  `X-Requested-With: XMLHttpRequest` resolves a safe public slug through
+  `metadata.id`; pinned 200/401/403 JSON behavior is represented;
 - `GET https://vimeo.com/_next/viewer` supplies a short-lived application JWT;
 - `GET https://api.vimeo.com/albums/{id}` supplies name, description, and
   public privacy metadata;
 - bounded `/albums/{id}/videos` pages supply `link`/`uri` identity pairs.
 
-The JWT-like value is synthetic, nonfunctional, and used only to verify scoped
-header placement. Album ID 7, all video IDs, metadata, links, and response bytes
-are invented. The hostile rows deliberately cover cross-origin links and
-link/URI identity disagreement.
+The slug `synthetic-showcase` and its resolver response are invented. The
+JWT-like value is synthetic, nonfunctional, and used only to verify scoped
+header placement. Album ID 7, all video IDs, metadata, links, and response
+bytes are invented. The hostile rows deliberately cover cross-origin links
+and link/URI identity disagreement.

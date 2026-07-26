@@ -23,6 +23,7 @@ type vimeoAlbumFixtureTransport struct {
 
 	viewer   []byte
 	viewers  [][]byte
+	slugAuth []byte
 	metadata []byte
 	pages    map[int][]byte
 	status   map[string]int
@@ -30,8 +31,11 @@ type vimeoAlbumFixtureTransport struct {
 	tokens   map[string]bool
 
 	blockPage   int
+	blockSlug   bool
 	pageStarted chan struct{}
+	slugStarted chan struct{}
 	startOnce   sync.Once
+	slugOnce    sync.Once
 }
 
 func newVimeoAlbumFixtureTransport(t *testing.T) *vimeoAlbumFixtureTransport {
@@ -45,6 +49,7 @@ func newVimeoAlbumFixtureTransport(t *testing.T) *vimeoAlbumFixtureTransport {
 	}
 	return &vimeoAlbumFixtureTransport{
 		viewer:   read("album-viewer.json"),
+		slugAuth: read("album-slug-auth.json"),
 		metadata: read("album-metadata.json"),
 		pages:    map[int][]byte{1: read("album-videos-page1.json")},
 		status:   make(map[string]int),
@@ -52,6 +57,7 @@ func newVimeoAlbumFixtureTransport(t *testing.T) *vimeoAlbumFixtureTransport {
 			"eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjQxMDI0NDQ4MDB9.c3ludGhldGlj": true,
 		},
 		pageStarted: make(chan struct{}),
+		slugStarted: make(chan struct{}),
 	}
 }
 
@@ -63,14 +69,32 @@ func (*vimeoAlbumFixtureTransport) ReadPage(context.Context, string) ([]byte, ht
 	return nil, nil, errors.New("ambient page transport must not be used")
 }
 
-func (transport *vimeoAlbumFixtureTransport) DoWithoutCredentialsNoRedirect(_ context.Context, request *http.Request) (*http.Response, error) {
+func (transport *vimeoAlbumFixtureTransport) DoWithoutCredentialsNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
 	transport.record(request)
-	if request.Method != http.MethodGet || request.URL.String() != "https://vimeo.com/_next/viewer" ||
-		request.Header.Get("Accept") != "application/json" || request.Header.Get("Authorization") != "" ||
+	if request.Method != http.MethodGet || request.Header.Get("Accept") != "application/json" ||
+		request.Header.Get("Authorization") != "" ||
 		request.Header.Get("Cookie") != "" || request.Header.Get("Proxy-Authorization") != "" {
-		return nil, fmt.Errorf("unexpected viewer request: %s %s %#v", request.Method, request.URL, request.Header)
+		return nil, fmt.Errorf("unexpected isolated request: %s %s %#v", request.Method, request.URL, request.Header)
 	}
-	return vimeoAlbumResponse(transport.status["viewer"], transport.nextViewer()), nil
+	switch request.URL.String() {
+	case "https://vimeo.com/_next/viewer":
+		if request.Header.Get("X-Requested-With") != "" {
+			return nil, fmt.Errorf("unexpected viewer request headers: %#v", request.Header)
+		}
+		return vimeoAlbumResponse(transport.status["viewer"], transport.nextViewer()), nil
+	case "https://vimeo.com/showcase/synthetic-showcase/auth":
+		if request.Header.Get("X-Requested-With") != "XMLHttpRequest" {
+			return nil, fmt.Errorf("unexpected slug request headers: %#v", request.Header)
+		}
+		if transport.blockSlug {
+			transport.slugOnce.Do(func() { close(transport.slugStarted) })
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		return vimeoAlbumResponse(transport.status["slug"], transport.slugAuth), nil
+	default:
+		return nil, fmt.Errorf("unexpected isolated request: %s %s %#v", request.Method, request.URL, request.Header)
+	}
 }
 
 func (transport *vimeoAlbumFixtureTransport) DoWithScopedAuthorizationNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
@@ -162,6 +186,8 @@ func TestVimeoAlbumRoutesAndUnsafeRejection(t *testing.T) {
 	for _, rawURL := range []string{
 		"https://vimeo.com/album/7",
 		"https://www.vimeo.com/showcase/7",
+		"https://vimeo.com/album/synthetic-showcase",
+		"https://www.vimeo.com/showcase/synthetic-showcase",
 	} {
 		if !NewVimeo().Suitable(mustParseURL(t, rawURL)) {
 			t.Errorf("Suitable(%q) = false", rawURL)
@@ -173,7 +199,9 @@ func TestVimeoAlbumRoutesAndUnsafeRejection(t *testing.T) {
 		"https://vimeo.com:443/album/7",
 		"https://evil.example/album/7",
 		"https://vimeo.com/album/0",
-		"https://vimeo.com/album/not-numeric",
+		"https://vimeo.com/album/not.numeric",
+		"https://vimeo.com/album/18446744073709551616",
+		"https://vimeo.com/album/ümlaut",
 		"https://vimeo.com/album/7/",
 		"https://vimeo.com/album/%37",
 		"https://vimeo.com/album/7/extra",
@@ -197,6 +225,107 @@ func TestVimeoAlbumRoutesAndUnsafeRejection(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestVimeoAlbumSlugResolutionPreservesRequestedIdentity(t *testing.T) {
+	for _, rawURL := range []string{
+		"https://vimeo.com/album/synthetic-showcase",
+		"https://vimeo.com/showcase/synthetic-showcase",
+	} {
+		t.Run(rawURL, func(t *testing.T) {
+			transport := newVimeoAlbumFixtureTransport(t)
+			result, err := NewVimeo().Extract(context.Background(), Request{
+				URL: rawURL, Transport: transport,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for key, want := range map[string]string{
+				"id":          "7",
+				"title":       "Synthetic Public Showcase",
+				"webpage_url": rawURL,
+			} {
+				got, _ := result.Info.Lookup(key).StringValue()
+				if got != want {
+					t.Errorf("%s = %q, want %q", key, got, want)
+				}
+			}
+			if transport.countPath("/showcase/synthetic-showcase/auth") != 1 ||
+				transport.countPath("/albums/7/videos") != 0 {
+				t.Fatalf("calls before iteration = %v", transport.calls)
+			}
+			entries, err := CollectEntries(context.Background(), result.Entries, 10)
+			if err != nil || len(entries) != 2 {
+				t.Fatalf("entries=%#v error=%v", entries, err)
+			}
+		})
+	}
+}
+
+func TestVimeoAlbumSlugResolverAcceptedStatuses(t *testing.T) {
+	for _, status := range []int{http.StatusOK, http.StatusUnauthorized, http.StatusForbidden} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			transport := newVimeoAlbumFixtureTransport(t)
+			transport.status["slug"] = status
+			result, err := NewVimeo().Extract(context.Background(), Request{
+				URL: "https://vimeo.com/showcase/synthetic-showcase", Transport: transport,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			id, _ := result.Info.Lookup("id").StringValue()
+			if id != "7" {
+				t.Fatalf("id = %q", id)
+			}
+		})
+	}
+}
+
+func TestVimeoAlbumSlugResolverFailuresAreCategorized(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		body   string
+		want   error
+	}{
+		{name: "unauthorized without identity", status: http.StatusUnauthorized, body: `{}`, want: ErrAuthentication},
+		{name: "forbidden malformed", status: http.StatusForbidden, body: `{broken`, want: ErrAuthentication},
+		{name: "not found", status: http.StatusNotFound, body: `secret`, want: ErrUnavailable},
+		{name: "gone", status: http.StatusGone, body: `secret`, want: ErrUnavailable},
+		{name: "rate limited", status: http.StatusTooManyRequests, body: `secret`, want: ErrVimeoPlaylistNetwork},
+		{name: "server error", status: http.StatusBadGateway, body: `secret`, want: ErrVimeoPlaylistNetwork},
+		{name: "missing identity", body: `{}`, want: ErrInvalidMetadata},
+		{name: "string identity", body: `{"metadata":{"id":"7"}}`, want: ErrInvalidMetadata},
+		{name: "fractional identity", body: `{"metadata":{"id":7.5}}`, want: ErrInvalidMetadata},
+		{name: "boolean identity", body: `{"metadata":{"id":true}}`, want: ErrInvalidMetadata},
+		{name: "zero identity", body: `{"metadata":{"id":0}}`, want: ErrInvalidMetadata},
+		{name: "overflow identity", body: `{"metadata":{"id":18446744073709551616}}`, want: ErrInvalidMetadata},
+		{name: "trailing JSON", body: `{"metadata":{"id":7}} {}`, want: ErrInvalidMetadata},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			transport := newVimeoAlbumFixtureTransport(t)
+			transport.status["slug"] = test.status
+			transport.slugAuth = []byte(test.body)
+			_, err := NewVimeo().Extract(context.Background(), Request{
+				URL: "https://vimeo.com/showcase/synthetic-showcase", Transport: transport,
+			})
+			if !errors.Is(err, test.want) || strings.Contains(fmt.Sprint(err), "secret") {
+				t.Fatalf("error = %v, want %v", err, test.want)
+			}
+		})
+	}
+	t.Run("oversized", func(t *testing.T) {
+		transport := newVimeoAlbumFixtureTransport(t)
+		transport.slugAuth = []byte(`{"metadata":{"id":7},"padding":"` +
+			strings.Repeat("x", vimeoAlbumMaxSlugAuth) + `"}`)
+		_, err := NewVimeo().Extract(context.Background(), Request{
+			URL: "https://vimeo.com/showcase/synthetic-showcase", Transport: transport,
+		})
+		if !errors.Is(err, ErrJSONResponseTooLarge) {
+			t.Fatalf("error = %v", err)
+		}
+	})
 }
 
 func TestVimeoAlbumPlaylistIsLazyReusableAndFiltersHostileRows(t *testing.T) {
@@ -463,12 +592,39 @@ func TestVimeoAlbumFailuresCapabilityAndCancellation(t *testing.T) {
 			t.Fatal("page request did not cancel")
 		}
 	})
+	t.Run("slug cancellation", func(t *testing.T) {
+		transport := newVimeoAlbumFixtureTransport(t)
+		transport.blockSlug = true
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() {
+			_, err := NewVimeo().Extract(ctx, Request{
+				URL: "https://vimeo.com/showcase/synthetic-showcase", Transport: transport,
+			})
+			done <- err
+		}()
+		select {
+		case <-transport.slugStarted:
+			cancel()
+		case <-time.After(time.Second):
+			t.Fatal("slug request did not start")
+		}
+		select {
+		case err := <-done:
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("error = %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("slug request did not cancel")
+		}
+	})
 }
 
 func FuzzClassifyVimeoAlbumURL(f *testing.F) {
 	for _, seed := range []string{
 		"https://vimeo.com/album/7",
 		"https://vimeo.com/showcase/7",
+		"https://vimeo.com/showcase/synthetic-showcase",
 		"https://vimeo.com/album/%37",
 		"https://evil.example/album/7",
 	} {
@@ -486,8 +642,12 @@ func FuzzClassifyVimeoAlbumURL(f *testing.F) {
 		if !ok {
 			return
 		}
-		if target.kind != vimeoRouteAlbum || !validVimeoNumericVideoID(target.id) ||
-			target.canonical != "https://vimeo.com/"+target.baseURL+"/"+target.id {
+		routeID := target.id
+		if target.slug != "" {
+			routeID = target.slug
+		}
+		if target.kind != vimeoRouteAlbum || (target.id == "") == (target.slug == "") ||
+			target.canonical != "https://vimeo.com/"+target.baseURL+"/"+routeID {
 			t.Fatalf("unsafe target: %#v", target)
 		}
 		canonical, err := url.Parse(target.canonical)
@@ -501,6 +661,33 @@ func FuzzClassifyVimeoAlbumURL(f *testing.F) {
 		kind, routed := classifyVimeoURL(canonical)
 		if kind != vimeoRouteAlbum || routed != target {
 			t.Fatalf("top-level route = %v %#v", kind, routed)
+		}
+	})
+}
+
+func FuzzParseVimeoAlbumSlugID(f *testing.F) {
+	for _, seed := range []string{
+		`{"metadata":{"id":7}}`,
+		`{"metadata":{"id":"7"}}`,
+		`{"metadata":{"id":0}}`,
+		`{"metadata":{"id":18446744073709551616}}`,
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, payload string) {
+		if len(payload) > 1<<20 {
+			t.Skip()
+		}
+		id, err := parseVimeoAlbumSlugID([]byte(payload))
+		if err != nil {
+			return
+		}
+		if !validVimeoNumericVideoID(id) {
+			t.Fatalf("unsafe identity %q", id)
+		}
+		numeric, parseErr := strconv.ParseUint(id, 10, 64)
+		if parseErr != nil || numeric == 0 {
+			t.Fatalf("invalid identity %q", id)
 		}
 	})
 }

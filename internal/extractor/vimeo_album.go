@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -24,6 +25,7 @@ const (
 	vimeoAlbumMaxJWTBytes    = 8 << 10
 	vimeoAlbumMaxDescription = 8 << 10
 	vimeoAlbumMaxJWTPayload  = 4 << 10
+	vimeoAlbumMaxSlugAuth    = 1 << 20
 	vimeoAlbumJWTRefreshLead = 2 * time.Minute
 )
 
@@ -59,19 +61,28 @@ func classifyVimeoAlbumURL(parsed *url.URL) (vimeoPlaylistTarget, bool) {
 	}
 	parts := splitVimeoPath(parsed.Path)
 	if len(parts) != 2 || (parts[0] != "album" && parts[0] != "showcase") ||
-		parsed.Path != "/"+parts[0]+"/"+parts[1] || !validVimeoNumericVideoID(parts[1]) {
+		parsed.Path != "/"+parts[0]+"/"+parts[1] {
 		return vimeoPlaylistTarget{}, false
 	}
-	numericID, err := strconv.ParseUint(parts[1], 10, 64)
-	if err != nil || numericID == 0 {
-		return vimeoPlaylistTarget{}, false
-	}
-	return vimeoPlaylistTarget{
+	target := vimeoPlaylistTarget{
 		kind:      vimeoRouteAlbum,
-		id:        parts[1],
 		canonical: "https://vimeo.com/" + parts[0] + "/" + parts[1],
 		baseURL:   parts[0],
-	}, true
+	}
+	if validVimeoNumericVideoID(parts[1]) {
+		numericID, err := strconv.ParseUint(parts[1], 10, 64)
+		if err != nil || numericID == 0 {
+			return vimeoPlaylistTarget{}, false
+		}
+		target.id = parts[1]
+		return target, true
+	}
+	slug, ok := validVimeoSlug(parts[1], false)
+	if !ok || vimeoNumericPattern.MatchString(slug) {
+		return vimeoPlaylistTarget{}, false
+	}
+	target.slug = slug
+	return target, true
 }
 
 func extractVimeoAlbumPlaylist(ctx context.Context, transport Transport, target vimeoPlaylistTarget) (Extraction, error) {
@@ -83,8 +94,16 @@ func extractVimeoAlbumPlaylist(ctx context.Context, transport Transport, target 
 	if !viewerOK || !scopedOK {
 		return Extraction{}, ErrTransportIsolation
 	}
+	albumID := target.id
+	if target.slug != "" {
+		var err error
+		albumID, err = resolveVimeoAlbumSlug(ctx, viewerTransport, target.slug)
+		if err != nil {
+			return Extraction{}, categorizeVimeoAlbumError(err)
+		}
+	}
 	provider := &vimeoAlbumTokenProvider{transport: viewerTransport, now: time.Now}
-	metadata, err := fetchVimeoAlbumMetadata(ctx, transport, target.id, provider)
+	metadata, err := fetchVimeoAlbumMetadata(ctx, transport, albumID, provider)
 	if err != nil {
 		return Extraction{}, categorizeVimeoAlbumError(err)
 	}
@@ -100,7 +119,7 @@ func extractVimeoAlbumPlaylist(ctx context.Context, transport Transport, target 
 		return Extraction{}, fmt.Errorf("%w: unsupported Vimeo album privacy", ErrInvalidMetadata)
 	}
 	info := value.NewObject(
-		value.Field{Key: "id", Value: value.String(target.id)},
+		value.Field{Key: "id", Value: value.String(albumID)},
 		value.Field{Key: "title", Value: value.String(title)},
 		value.Field{Key: "webpage_url", Value: value.String(target.canonical)},
 	)
@@ -109,9 +128,82 @@ func extractVimeoAlbumPlaylist(ctx context.Context, transport Transport, target 
 	}
 	return Playlist(value.NewInfo(info), vimeoAlbumEntries{
 		transport: transport,
-		albumID:   target.id,
+		albumID:   albumID,
 		provider:  provider,
 	})
+}
+
+func resolveVimeoAlbumSlug(
+	ctx context.Context,
+	transport CredentialIsolatedNoRedirectTransport,
+	slug string,
+) (string, error) {
+	if err := contextError(ctx); err != nil {
+		return "", err
+	}
+	validSlug, ok := validVimeoSlug(slug, false)
+	if !ok || validSlug != slug || vimeoNumericPattern.MatchString(slug) {
+		return "", fmt.Errorf("%w: invalid Vimeo album slug", ErrInvalidMetadata)
+	}
+	endpoint := "https://vimeo.com/showcase/" + slug + "/auth"
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", fmt.Errorf("%w: invalid Vimeo album resolver request", ErrInvalidMetadata)
+	}
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("X-Requested-With", "XMLHttpRequest")
+	response, err := transport.DoWithoutCredentialsNoRedirect(ctx, request)
+	if err != nil {
+		return "", err
+	}
+	if response == nil || response.Body == nil {
+		return "", fmt.Errorf("%w: empty Vimeo album resolver response", ErrInvalidMetadata)
+	}
+	defer response.Body.Close()
+
+	status := response.StatusCode
+	switch status {
+	case http.StatusOK, http.StatusUnauthorized, http.StatusForbidden:
+	default:
+		return "", &HTTPStatusError{Code: status}
+	}
+	limited := io.LimitReader(response.Body, vimeoAlbumMaxSlugAuth+1)
+	payload, err := io.ReadAll(limited)
+	if err != nil {
+		return "", err
+	}
+	if len(payload) > vimeoAlbumMaxSlugAuth {
+		return "", fmt.Errorf("%w: Vimeo album resolver response too large", ErrJSONResponseTooLarge)
+	}
+	id, err := parseVimeoAlbumSlugID(payload)
+	if err != nil {
+		if status == http.StatusUnauthorized || status == http.StatusForbidden {
+			return "", ErrAuthentication
+		}
+		return "", err
+	}
+	return id, nil
+}
+
+func parseVimeoAlbumSlugID(payload []byte) (string, error) {
+	decoder := json.NewDecoder(strings.NewReader(string(payload)))
+	var response struct {
+		Metadata struct {
+			ID json.RawMessage `json:"id"`
+		} `json:"metadata"`
+	}
+	if err := decoder.Decode(&response); err != nil || ensureJSONEOF(decoder) != nil {
+		return "", fmt.Errorf("%w: malformed Vimeo album resolver response", ErrInvalidMetadata)
+	}
+	rawID := strings.TrimSpace(string(response.Metadata.ID))
+	if rawID == "" || len(rawID) > 20 || !vimeoNumericPattern.MatchString(rawID) {
+		return "", fmt.Errorf("%w: invalid Vimeo album resolver identity", ErrInvalidMetadata)
+	}
+	numericID, err := strconv.ParseUint(rawID, 10, 64)
+	if err != nil || numericID == 0 {
+		return "", fmt.Errorf("%w: invalid Vimeo album resolver identity", ErrInvalidMetadata)
+	}
+	return rawID, nil
 }
 
 type vimeoAlbumTokenProvider struct {
@@ -373,7 +465,8 @@ func categorizeVimeoAlbumError(err error) error {
 		return nil
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
-		errors.Is(err, ErrTransportIsolation) || errors.Is(err, ErrInvalidMetadata) ||
+		errors.Is(err, ErrTransportIsolation) || errors.Is(err, ErrAuthentication) ||
+		errors.Is(err, ErrInvalidMetadata) ||
 		errors.Is(err, ErrInvalidPlaylist) || errors.Is(err, ErrJSONResponseTooLarge) ||
 		errors.Is(err, ErrPlaylistLimit) {
 		return err
