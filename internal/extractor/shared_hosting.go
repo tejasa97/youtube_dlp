@@ -215,12 +215,30 @@ func hostedRequestJSON(ctx context.Context, transport Transport, method, rawURL 
 	if transport == nil || target == nil {
 		return errors.New("invalid hosted JSON request")
 	}
+	return hostedRequestJSONWithExecutor(ctx, transport.Do, method, rawURL, body, headers, target)
+}
+
+func hostedRequestJSONWithoutCredentialsNoRedirect(ctx context.Context, transport Transport, method, rawURL string, body []byte, headers http.Header, target any) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	isolated, ok := transport.(CredentialIsolatedNoRedirectTransport)
+	if !ok {
+		return ErrTransportIsolation
+	}
+	return hostedRequestJSONWithExecutor(ctx, isolated.DoWithoutCredentialsNoRedirect, method, rawURL, body, headers, target)
+}
+
+func hostedRequestJSONWithExecutor(ctx context.Context, execute func(context.Context, *http.Request) (*http.Response, error), method, rawURL string, body []byte, headers http.Header, target any) error {
+	if execute == nil || target == nil {
+		return errors.New("invalid hosted JSON request")
+	}
 	request, err := http.NewRequestWithContext(ctx, method, rawURL, bytes.NewReader(body))
 	if err != nil {
 		return errors.New("invalid hosted JSON request")
 	}
 	request.Header = headers.Clone()
-	response, err := transport.Do(ctx, request)
+	response, err := execute(ctx, request)
 	if err != nil {
 		return err
 	}

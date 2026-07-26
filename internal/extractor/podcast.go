@@ -313,6 +313,32 @@ type Simplecast struct{}
 func NewSimplecast() Simplecast { return Simplecast{} }
 func (Simplecast) Name() string { return "simplecast" }
 
+type simplecastEpisodePayload struct {
+	ID           string        `json:"id"`
+	Title        string        `json:"title"`
+	Slug         string        `json:"slug"`
+	Description  string        `json:"description"`
+	Duration     hostingNumber `json:"duration"`
+	PublishedAt  string        `json:"published_at"`
+	Number       hostingNumber `json:"number"`
+	EpisodeURL   string        `json:"episode_url"`
+	ImageURL     string        `json:"image_url"`
+	EnclosureURL string        `json:"enclosure_url"`
+	AudioFileURL string        `json:"audio_file_url"`
+	AudioFile    struct {
+		URL  string        `json:"url"`
+		Size hostingNumber `json:"size"`
+	} `json:"audio_file"`
+	AudioFileSize hostingNumber `json:"audio_file_size"`
+	Season        struct {
+		Number hostingNumber `json:"number"`
+		Href   string        `json:"href"`
+	} `json:"season"`
+	Podcast struct {
+		Title string `json:"title"`
+	} `json:"podcast"`
+}
+
 func (Simplecast) Suitable(parsed *url.URL) bool {
 	_, ok := parseSimplecastURL(parsed)
 	return ok
@@ -350,41 +376,32 @@ func parseSimplecastURL(parsed *url.URL) (string, bool) {
 
 func extractSimplecastEpisode(ctx context.Context, transport Transport, id, webpageURL string) (Extraction, error) {
 	endpoint := "https://api.simplecast.com/episodes/" + id
-	var payload struct {
-		ID           string        `json:"id"`
-		Title        string        `json:"title"`
-		Slug         string        `json:"slug"`
-		Description  string        `json:"description"`
-		Duration     hostingNumber `json:"duration"`
-		PublishedAt  string        `json:"published_at"`
-		Number       hostingNumber `json:"number"`
-		EpisodeURL   string        `json:"episode_url"`
-		ImageURL     string        `json:"image_url"`
-		EnclosureURL string        `json:"enclosure_url"`
-		AudioFileURL string        `json:"audio_file_url"`
-		AudioFile    struct {
-			URL  string        `json:"url"`
-			Size hostingNumber `json:"size"`
-		} `json:"audio_file"`
-		AudioFileSize hostingNumber `json:"audio_file_size"`
-		Season        struct {
-			Number hostingNumber `json:"number"`
-			Href   string        `json:"href"`
-		} `json:"season"`
-		Podcast struct {
-			Title string `json:"title"`
-		} `json:"podcast"`
-	}
+	var payload simplecastEpisodePayload
 	if err := hostedRequestJSON(ctx, transport, http.MethodGet, endpoint, nil, make(http.Header), &payload); err != nil {
 		return Extraction{}, err
+	}
+	return simplecastEpisodeExtraction(payload, id, webpageURL, false)
+}
+
+func simplecastEpisodeExtraction(payload simplecastEpisodePayload, expectedID, webpageURL string, bindWebpage bool) (Extraction, error) {
+	id := strings.ToLower(strings.TrimSpace(payload.ID))
+	if !podcastUUID.MatchString(id) || expectedID != "" && !strings.EqualFold(id, expectedID) {
+		return Extraction{}, fmt.Errorf("%w: invalid Simplecast episode id", ErrInvalidMetadata)
+	}
+	title := strings.TrimSpace(payload.Title)
+	if title == "" {
+		return Extraction{}, fmt.Errorf("%w: missing Simplecast episode title", ErrInvalidMetadata)
+	}
+	if len(title) > podcastMaxTitle {
+		title = title[:podcastMaxTitle]
 	}
 	mediaURL := firstNonEmpty(payload.AudioFile.URL, payload.AudioFileURL, payload.EnclosureURL)
 	extra := []value.Field{}
 	if payload.Podcast.Title != "" {
 		extra = append(extra, value.Field{Key: "series", Value: value.String(payload.Podcast.Title)})
 	}
-	if payload.Description != "" {
-		extra = append(extra, value.Field{Key: "description", Value: value.String(payload.Description)})
+	if description := strings.TrimSpace(payload.Description); description != "" {
+		extra = append(extra, value.Field{Key: "description", Value: value.String(description)})
 	}
 	if payload.ImageURL != "" && strictValidHostedHTTPURL(payload.ImageURL) {
 		extra = append(extra, value.Field{Key: "thumbnail", Value: value.String(payload.ImageURL)})
@@ -395,9 +412,7 @@ func extractSimplecastEpisode(ctx context.Context, transport Transport, id, webp
 	if payload.Slug != "" {
 		extra = append(extra, value.Field{Key: "display_id", Value: value.String(payload.Slug)})
 	}
-	if payload.Title != "" {
-		extra = append(extra, value.Field{Key: "episode", Value: value.String(payload.Title)})
-	}
+	extra = append(extra, value.Field{Key: "episode", Value: value.String(title)})
 	if timestamp := hostedUnixTimestamp(payload.PublishedAt); timestamp > 0 {
 		extra = append(extra, value.Field{Key: "timestamp", Value: value.Int(timestamp)})
 	}
@@ -417,11 +432,12 @@ func extractSimplecastEpisode(ctx context.Context, transport Transport, id, webp
 	if size > 0 {
 		extra = append(extra, value.Field{Key: "filesize", Value: value.Int(size)})
 	}
-	if canonical, channelURL, ok := simplecastEpisodeWebpage(payload.EpisodeURL); ok {
+	if canonical, channelURL, ok := simplecastEpisodeWebpage(payload.EpisodeURL); ok && (!bindWebpage || canonical == webpageURL) {
 		webpageURL = canonical
 		extra = append(extra, value.Field{Key: "channel_url", Value: value.String(channelURL)})
 	}
-	return podcastMediaInfo(firstNonEmpty(payload.ID, id), strings.TrimSpace(payload.Title), webpageURL, mediaURL, extra...)
+	extra = append(extra, value.Field{Key: "episode_id", Value: value.String(id)})
+	return podcastMediaInfo(id, title, webpageURL, mediaURL, extra...)
 }
 
 func simplecastSeasonID(raw string) string {
@@ -477,20 +493,11 @@ func (SimplecastEpisode) Extract(ctx context.Context, request Request) (Extracti
 	body := []byte("url=" + url.QueryEscape(canonical))
 	headers := make(http.Header)
 	headers.Set("Content-Type", "application/x-www-form-urlencoded")
-	var payload struct {
-		ID string `json:"id"`
-	}
-	if err := hostedRequestJSON(ctx, request.Transport, http.MethodPost, "https://api.simplecast.com/episodes/search", body, headers, &payload); err != nil {
+	var payload simplecastEpisodePayload
+	if err := hostedRequestJSONWithoutCredentialsNoRedirect(ctx, request.Transport, http.MethodPost, "https://api.simplecast.com/episodes/search", body, headers, &payload); err != nil {
 		return Extraction{}, err
 	}
-	if !podcastUUID.MatchString(payload.ID) {
-		return Extraction{}, fmt.Errorf("%w: missing Simplecast episode id", ErrInvalidMetadata)
-	}
-	return URLResult(Entry{
-		URL:          "https://player.simplecast.com/" + strings.ToLower(payload.ID),
-		ExtractorKey: "simplecast",
-		ID:           strings.ToLower(payload.ID),
-	})
+	return simplecastEpisodeExtraction(payload, "", canonical, true)
 }
 
 func parseSimplecastEpisodeURL(parsed *url.URL) (host, slug string, ok bool) {

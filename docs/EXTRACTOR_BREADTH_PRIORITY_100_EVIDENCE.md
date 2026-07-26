@@ -39,7 +39,9 @@ Podcast media normalization uses one Python-free implementation of the pinned
 Simplecast fixtures exercise nested analytics prefixes; final URLs are then
 subject to the port's strict public-host URL policy. Simplecast podcast pages
 use the attributable `sites/search` response envelope before the bounded
-podcast episode list request.
+podcast episode list request. Customer episode pages parse the complete
+`episodes/search` response inline, matching the pinned extractor without a
+redundant UUID request.
 
 **Additional families (7):** `nowness`, `nowness_playlist`, `nowness_series`, `dacast`, `dacast_playlist`, `panopto`, `panopto_playlist`
 
