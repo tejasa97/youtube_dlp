@@ -98,7 +98,9 @@ func jwWave1JSToJSON(src []byte) ([]byte, error) {
 		if int64(out.Len()) > maxExtractorJSONBytes {
 			return nil, fmt.Errorf("%w: js json output too large", ErrInvalidMetadata)
 		}
-		if skipJSNoise(src, &i) {
+		if skipped, err := skipJSNoise(src, &i); err != nil {
+			return nil, err
+		} else if skipped {
 			continue
 		}
 		if i >= len(src) {
@@ -197,7 +199,7 @@ func jwWave1JSToJSON(src []byte) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-func skipJSNoise(src []byte, index *int) bool {
+func skipJSNoise(src []byte, index *int) (bool, error) {
 	for *index < len(src) && isJSWhitespace(src[*index]) {
 		*index++
 	}
@@ -206,20 +208,20 @@ func skipJSNoise(src []byte, index *int) bool {
 		for *index < len(src) && src[*index] != '\n' {
 			*index++
 		}
-		return true
+		return true, nil
 	}
 	if *index+1 < len(src) && src[*index] == '/' && src[*index+1] == '*' {
 		*index += 2
 		for *index+1 < len(src) {
 			if src[*index] == '*' && src[*index+1] == '/' {
 				*index += 2
-				return true
+				return true, nil
 			}
 			*index++
 		}
-		return true
+		return false, fmt.Errorf("%w: unterminated js block comment", ErrInvalidMetadata)
 	}
-	return false
+	return false, nil
 }
 
 func writeJSStringLiteral(src []byte, index *int, quote byte, out *bytes.Buffer) error {
@@ -227,11 +229,11 @@ func writeJSStringLiteral(src []byte, index *int, quote byte, out *bytes.Buffer)
 	(*index)++
 	for *index < len(src) {
 		character := src[*index]
-		if character == '\\' && *index+1 < len(src) {
-			out.WriteByte('\\')
+		if character == '\\' {
 			(*index)++
-			writeJSONEscaped(out, src[*index])
-			(*index)++
+			if err := writeJSEscapeSequence(src, index, out); err != nil {
+				return err
+			}
 			continue
 		}
 		if character == quote {
@@ -243,6 +245,27 @@ func writeJSStringLiteral(src []byte, index *int, quote byte, out *bytes.Buffer)
 		(*index)++
 	}
 	return fmt.Errorf("%w: unterminated js string", ErrInvalidMetadata)
+}
+
+// writeJSEscapeSequence mirrors pinned js_to_json process_escape without executing JS.
+func writeJSEscapeSequence(src []byte, index *int, out *bytes.Buffer) error {
+	if *index >= len(src) {
+		return fmt.Errorf("%w: malformed js escape", ErrInvalidMetadata)
+	}
+	escape := src[*index]
+	(*index)++
+	switch escape {
+	case '"', '\\', 'b', 'f', 'n', 'r', 't', 'u':
+		out.WriteByte('\\')
+		out.WriteByte(escape)
+	case 'x':
+		out.WriteString(`\u00`)
+	case '\n':
+		// Line continuation removes the escaped newline.
+	default:
+		out.WriteByte(escape)
+	}
+	return nil
 }
 
 func writeJSONStringToken(out *bytes.Buffer, token []byte) {

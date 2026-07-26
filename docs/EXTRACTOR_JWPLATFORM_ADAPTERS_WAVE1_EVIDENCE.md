@@ -22,9 +22,10 @@ playback logic was duplicated.
 | `theintercept` | `TheInterceptIE` | `initialStoreTree` fixture → transparent JW re-entry with metadata |
 
 **Counted keys: 9.** Each key has Suitable coverage, adapter→JW Platform handoff,
-product registry selection before `jwplatform`/`generic`, negative routing,
-cancellation, bounds, and secret-safe failure tests in
-`internal/extractor/jwplatform_adapters_wave1_test.go`.
+product registry selection before `jwplatform`/`generic`, and negative routing in
+`internal/extractor/jwplatform_adapters_wave1_test.go`. Cancellation, bounds, and
+secret-safe failure coverage is family-level across the nine adapters in that
+same file (not duplicated per key).
 
 ## Deliberate hardening vs pinned reference
 
