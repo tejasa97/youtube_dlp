@@ -218,10 +218,7 @@ func postprocessInput(root, requested string) (string, error) {
 }
 
 func validatePostprocessorPaths(request Request) error {
-	root := request.OutputDir
-	if root == "" {
-		root = "."
-	}
+	root := request.outputRoot(OutputPathHome)
 	validateDestination := func(destination string) error {
 		if destination == "" {
 			return nil

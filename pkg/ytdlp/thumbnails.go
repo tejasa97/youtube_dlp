@@ -138,14 +138,11 @@ func (operation *operation) writeThumbnails(ctx context.Context, info *value.Inf
 	if err != nil || len(tracks) == 0 {
 		return nil, 0, err
 	}
-	outputRoot := operation.request.OutputDir
-	if outputRoot == "" {
-		outputRoot = "."
-	}
 	templateType := OutputTemplateThumbnail
 	if playlist {
 		templateType = OutputTemplatePLThumbnail
 	}
+	outputRoot := operation.request.outputRoot(outputPathTypeForTemplate(templateType))
 	pattern := operation.request.outputTemplate(templateType)
 	writeAll := options.WriteAll
 	multiple := writeAll && len(tracks) > 1
@@ -166,7 +163,7 @@ func (operation *operation) writeThumbnails(ctx context.Context, info *value.Inf
 			options.MaxBytes = maxThumbnailBytes
 		}
 		result, downloadErr := downloader.New(thumbnailRedirectTransport{client: operation.transport}).Download(ctx, downloader.Job{
-			URL: track.rawURL, Headers: track.headers, OutputRoot: outputRoot, Destination: destination,
+			URL: track.rawURL, Headers: track.headers, OutputRoot: operation.request.outputRoot(OutputPathHome), Destination: destination,
 			Overwrite: operation.request.Overwrite, Attempts: options.Attempts,
 			RetryBaseDelay: options.RetryBaseDelay, RetryMaxDelay: options.RetryMaxDelay,
 			RateLimit: options.RateLimit, MaxBytes: options.MaxBytes,
