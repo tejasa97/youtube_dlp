@@ -143,3 +143,28 @@ Fixtures:
 All identifiers, titles, counts, timestamps, languages, and `.example.test`
 thumbnail hosts are synthetic. No Twitch response or user data was captured.
 Python and the reference checkout are not used at build or runtime.
+
+## Clip historical archive IDs and preference scores
+
+The clip fixture revision of 2026-07-26 models the remaining clip metadata
+behavior of the same pinned source (repository `yt-dlp/yt-dlp`, commit
+`aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`), specifically
+`TwitchClipsIE._real_extract`, lines 1129–1322:
+
+- the historical download-archive rule
+  `self._search_regex(r'%7C(\d+)(?:-\d+)?.mp4', formats[-1]['url'], ...)`:
+  only the final emitted format URL is inspected, the encoded `%7C` marker is
+  matched without percent-decoding, the optional `-<digits>` suffix is
+  excluded, and only the first numeric component is captured;
+- `make_archive_id(TwitchClipsIE, old_id)` lowercases the extractor key so a
+  match emits exactly `_old_archive_ids: ["twitchclips <id>"]`; when nothing
+  matches, the field is omitted entirely;
+- portrait asset formats carry `quality: -2` while landscape formats carry no
+  quality penalty;
+- thumbnail preferences are `0` for the default asset thumbnail, `-1` for the
+  portrait asset thumbnail, and `-2` for the distinct clip-level `small`
+  thumbnail, which is suppressed when it duplicates the default asset URL.
+
+The portrait fixture source URL `portrait-%7C246810-12.mp4` and every derived
+value are synthetic and attributable to that rule alone. No live Twitch
+response, signed URL, token, or credential was captured.

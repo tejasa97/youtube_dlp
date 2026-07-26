@@ -9,6 +9,15 @@ This increment extends the existing native live-channel extractor with:
 - clip routes on `clips.twitch.tv` and channel clip paths;
 - signed landscape and portrait direct clip qualities, thumbnails, channel,
   curator, follower, verification, category, and timestamp metadata;
+- historical clip download-archive identities: the final accepted format URL is
+  matched, without percent-decoding and with the signed query excluded, against
+  the pinned `%7C<digits>(-<digits>)?.mp4` rule; a match emits exactly
+  `_old_archive_ids: ["twitchclips <first-digits>"]` and no match omits the
+  field entirely;
+- pinned clip preference scores: portrait formats carry `quality: -2`
+  (landscape formats carry no quality penalty), and clip thumbnails carry
+  `preference` 0 (`default`), -1 (`portrait`), and -2 (`small`), preserving the
+  default/portrait/small ordering and duplicate `small` suppression;
 - public channel videos/profile playlist routes with pinned filter/sort query
   mapping and bounded lazy `FilterableVideoTower_Videos` GraphQL pagination;
 - direct `/collections/{id}` routes and channel `/videos?filter=collections`
@@ -43,7 +52,6 @@ Known deviations from the pinned reference:
   is parsed under the bounded response contract;
 - subscriber-only playback is categorized as authentication-required, but the
   shared request contract does not yet carry an authenticated Twitch cookie;
-- clip historical archive IDs and format preference scores are not emitted;
 - chat and arbitrary Twitch routes remain outside this lane;
 - VOD HLS is represented as a signed replay manifest for the existing native
   HLS pipeline; manifest expansion occurs during product download as elsewhere

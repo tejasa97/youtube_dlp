@@ -394,6 +394,145 @@ func TestTwitchClipDirectLandscapePortraitAndMetadata(t *testing.T) {
 	if len(transport.graphQLRequests) != 1 || !bytes.Contains(transport.graphQLRequests[0].body, []byte(twitchOperationHashes["ShareClipRenderStatus"])) {
 		t.Fatalf("clip GraphQL request = %#v", transport.graphQLRequests)
 	}
+	for _, rawFormat := range formats {
+		format, _ := rawFormat.Object()
+		formatID, _ := format.Lookup("format_id").StringValue()
+		quality, ok := format.Lookup("quality").Int()
+		if strings.HasPrefix(formatID, "portrait") {
+			if !ok || quality != -2 {
+				t.Fatalf("portrait format %q quality = %d, %t; want -2", formatID, quality, ok)
+			}
+		} else if ok {
+			t.Fatalf("landscape format %q unexpectedly carries quality = %d", formatID, quality)
+		}
+	}
+	thumbnails, _ := result.Info.Lookup("thumbnails").ListValue()
+	wantThumbnails := []struct {
+		id         string
+		preference int64
+	}{{"default", 0}, {"portrait", -1}, {"small", -2}}
+	if len(thumbnails) != len(wantThumbnails) {
+		t.Fatalf("thumbnail count = %d, want %d", len(thumbnails), len(wantThumbnails))
+	}
+	for index, want := range wantThumbnails {
+		thumbnail, _ := thumbnails[index].Object()
+		id, _ := thumbnail.Lookup("id").StringValue()
+		preference, ok := thumbnail.Lookup("preference").Int()
+		if id != want.id || !ok || preference != want.preference {
+			t.Fatalf("thumbnail %d = (%q, %d, %t); want (%q, %d)", index, id, preference, ok, want.id, want.preference)
+		}
+	}
+	archiveIDs, ok := result.Info.Lookup("_old_archive_ids").ListValue()
+	if !ok || len(archiveIDs) != 1 {
+		t.Fatalf("_old_archive_ids = %#v, %t", archiveIDs, ok)
+	}
+	if got, _ := archiveIDs[0].StringValue(); got != "twitchclips 246810" {
+		t.Fatalf("_old_archive_ids[0] = %q, want %q", got, "twitchclips 246810")
+	}
+}
+
+func TestTwitchClipLegacyArchiveIDDerivation(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		finalURL string
+		want     string
+	}{
+		{"encoded-marker", "https://clips-media.example.test/portrait-%7C246810-12.mp4", "twitchclips 246810"},
+		{"no-suffix", "https://clips-media.example.test/portrait-%7C246810.mp4", "twitchclips 246810"},
+		{"signed-query-ignored", "https://clips-media.example.test/portrait-%7C246810.mp4?sig=secret&token=do-not-log", "twitchclips 246810"},
+		{"missing-marker", "https://clips-media.example.test/video-123456.mp4", ""},
+		{"nonnumeric-marker", "https://clips-media.example.test/%7Cabc.mp4", ""},
+		{"empty", "", ""},
+		{"not-decoded", "https://clips-media.example.test/portrait-|246810.mp4", ""},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			if got := twitchClipLegacyArchiveID(test.finalURL); got != test.want {
+				t.Fatalf("twitchClipLegacyArchiveID(%q) = %q, want %q", test.finalURL, got, test.want)
+			}
+		})
+	}
+}
+
+func TestTwitchClipDuplicateSmallThumbnailSuppressed(t *testing.T) {
+	var response []twitchClipResponse
+	if err := json.Unmarshal(twitchFixture(t, "clip_metadata.json"), &response); err != nil {
+		t.Fatal(err)
+	}
+	response[0].Data.Clip.ThumbnailURL = response[0].Data.Clip.Assets[0].ThumbnailURL
+	body, _ := json.Marshal(response)
+	transport := &twitchFixtureTransport{graphQLFixtures: []twitchGraphQLFixture{{body: body}}}
+	result, err := NewTwitch().Extract(context.Background(), Request{
+		URL: "https://www.twitch.tv/fixture/clip/CulturedFixtureSlug-abc_123", Transport: transport,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	thumbnails, _ := result.Info.Lookup("thumbnails").ListValue()
+	ids := make([]string, 0, len(thumbnails))
+	for _, rawThumbnail := range thumbnails {
+		thumbnail, _ := rawThumbnail.Object()
+		id, _ := thumbnail.Lookup("id").StringValue()
+		ids = append(ids, id)
+	}
+	if !reflect.DeepEqual(ids, []string{"default", "portrait"}) {
+		t.Fatalf("thumbnail ids = %#v; duplicate small thumbnail must be suppressed", ids)
+	}
+}
+
+func TestTwitchClipLegacyArchiveIDUsesFinalFormatAndRejectsUnsafe(t *testing.T) {
+	load := func() []twitchClipResponse {
+		var response []twitchClipResponse
+		if err := json.Unmarshal(twitchFixture(t, "clip_metadata.json"), &response); err != nil {
+			t.Fatal(err)
+		}
+		return response
+	}
+	extract := func(response []twitchClipResponse) (Extraction, error) {
+		body, _ := json.Marshal(response)
+		transport := &twitchFixtureTransport{graphQLFixtures: []twitchGraphQLFixture{{body: body}}}
+		return NewTwitch().Extract(context.Background(), Request{
+			URL: "https://www.twitch.tv/fixture/clip/CulturedFixtureSlug-abc_123", Transport: transport,
+		})
+	}
+	archiveID := func(result Extraction) (string, bool) {
+		items, ok := result.Info.Lookup("_old_archive_ids").ListValue()
+		if !ok || len(items) == 0 {
+			return "", false
+		}
+		id, _ := items[0].StringValue()
+		return id, true
+	}
+
+	// A matching earlier format followed by a nonmatching final format yields no ID.
+	response := load()
+	response[0].Data.Clip.Assets[0].VideoQualities[0].SourceURL = "https://clips-media.example.test/720-%7C111222.mp4"
+	response[0].Data.Clip.Assets[1].VideoQualities[0].SourceURL = "https://clips-media.example.test/portrait-plain.mp4"
+	if result, err := extract(response); err != nil {
+		t.Fatal(err)
+	} else if id, present := archiveID(result); present {
+		t.Fatalf("expected no archive id from nonmatching final format, got %q", id)
+	}
+
+	// Rejected/unsafe final source cannot create an archive ID.
+	response = load()
+	response[0].Data.Clip.Assets[1].VideoQualities[0].SourceURL = "https://127.0.0.1/portrait-%7C333444.mp4"
+	if result, err := extract(response); err != nil {
+		t.Fatal(err)
+	} else if id, present := archiveID(result); present {
+		t.Fatalf("expected no archive id from unsafe final format, got %q", id)
+	}
+
+	// No match means the field is absent, not an empty list.
+	response = load()
+	response[0].Data.Clip.Assets[0].VideoQualities[0].SourceURL = "https://clips-media.example.test/720.mp4"
+	response[0].Data.Clip.Assets[0].VideoQualities[1].SourceURL = "https://clips-media.example.test/480.mp4"
+	response[0].Data.Clip.Assets[1].VideoQualities[0].SourceURL = "https://clips-media.example.test/portrait-720.mp4"
+	if result, err := extract(response); err != nil {
+		t.Fatal(err)
+	} else if !result.Info.Lookup("_old_archive_ids").IsMissing() {
+		t.Fatalf("_old_archive_ids should be absent when no match exists")
+	}
 }
 
 func TestTwitchVODAndClipFailuresAreBoundedCategorizedAndRedacted(t *testing.T) {
