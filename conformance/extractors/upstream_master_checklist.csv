@@ -1044,11 +1044,11 @@ prankcast,PrankCastPostIE,PrankCastPost,requires_new_backend,,,,low,no exact Go 
 premiershiprugby,PremiershipRugbyIE,PremiershipRugby,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 presstv,PressTVIE,PressTV,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 projectveritas,ProjectVeritasIE,ProjectVeritas,obsolete_or_intentional_deviation,,,,high,upstream class explicitly declares _WORKING = False
-prx,PRXAccountIE,PRXAccount,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-prx,PRXSeriesIE,PRXSeries,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-prx,PRXSeriesSearchIE,PRXSeriesSearch,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-prx,PRXStoriesSearchIE,PRXStoriesSearch,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-prx,PRXStoryIE,PRXStory,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
+prx,PRXAccountIE,PRXAccount,already_supported,prx_account,,,high,normalized upstream key exactly matches a registered Go extractor
+prx,PRXSeriesIE,PRXSeries,already_supported,prx_series,,,high,normalized upstream key exactly matches a registered Go extractor
+prx,PRXSeriesSearchIE,PRXSeriesSearch,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
+prx,PRXStoriesSearchIE,PRXStoriesSearch,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
+prx,PRXStoryIE,PRXStory,already_supported,prx_story,,,high,normalized upstream key exactly matches a registered Go extractor
 puhutv,PuhuTVIE,PuhuTV,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 puhutv,PuhuTVSerieIE,PuhuTVSerie,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 pyvideo,PyvideoIE,Pyvideo,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
