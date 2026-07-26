@@ -12,6 +12,10 @@ Behavioral expectations were derived from the pinned yt-dlp checkout at commit
 - `SoundcloudIE._real_extract` and `_extract_info_dict` for resolve/direct-track
   requests, transcoding resolution, format identifiers, codecs, protocols, and
   normalized metadata;
+- `SoundcloudBaseIE._extract_thumbnails` for artwork-over-avatar selection, the
+  ordered `mini` through `original` size matrix, avatar-specific tiny size,
+  non-original JPEG URLs, original-image preference, and original-extension
+  probing;
 - `SoundcloudPlaylistBaseIE._extract_set` for ordered transparent set entries
   and tokenized private-set hydration through the v2 `/tracks` batch endpoint;
 - `SoundcloudPagedPlaylistBaseIE._entries` for linked partitioning,
@@ -72,7 +76,14 @@ Deliberate Go hardening beyond the pinned reference:
   source order (including repeated source IDs), and retains the original
   tokenized direct-track fallback when an API row is absent. The pinned
   reference sends all IDs in one request and consumes returned order without
-  these validation and recovery guards.
+  these validation and recovery guards;
+- Thumbnail expansion is limited to exact HTTPS `i1.sndcdn.com` and
+  `a1.sndcdn.com` sources with no userinfo, port, fragment, encoded separator,
+  NUL, or overlong URL. The optional original-extension HEAD uses the existing
+  credential-isolated, no-redirect transport capability. When that capability
+  is unavailable, the metadata-supplied original extension is retained rather
+  than issuing a weaker probe; ordinary isolated probe failures remain
+  nonfatal and select the alternate extension, matching the pinned fallback.
 
 The fixture client ID, IDs, timestamps, titles, cursors, URLs, counts, and
 response bodies were independently authored for this Go conformance corpus.

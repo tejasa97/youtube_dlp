@@ -299,6 +299,11 @@ func (extractor *SoundCloud) extractSet(ctx context.Context, transport Transport
 		}
 	}
 	info := soundCloudPlaylistInfo(playlist)
+	if err := addSoundCloudThumbnails(
+		ctx, transport, info.Fields(), playlist.ID.String(), playlist.ArtworkURL, playlist.User.AvatarURL,
+	); err != nil {
+		return Extraction{}, err
+	}
 	return Playlist(info, StaticEntries(entries...))
 }
 
@@ -725,12 +730,10 @@ func (extractor *SoundCloud) normalizeTrack(ctx context.Context, transport Trans
 	setSoundCloudCount(info, "like_count", likes)
 	setSoundCloudCount(info, "comment_count", track.CommentCount)
 	setSoundCloudCount(info, "repost_count", track.RepostsCount)
-	thumbnail := track.ArtworkURL
-	if thumbnail == "" {
-		thumbnail = track.User.AvatarURL
-	}
-	if validHTTPURL(thumbnail) {
-		info.Set("thumbnail", value.String(thumbnail))
+	if err := addSoundCloudThumbnails(
+		ctx, transport, info, trackID, track.ArtworkURL, track.User.AvatarURL,
+	); err != nil {
+		return Extraction{}, err
 	}
 	result := Media(value.NewInfo(info))
 	if comments.Enabled {
@@ -898,9 +901,6 @@ func soundCloudPlaylistInfo(playlist soundCloudPlaylist) value.Info {
 	}
 	if timestamp, ok := parseSoundCloudTime(playlist.CreatedAt); ok {
 		info.Set("timestamp", value.Int(timestamp))
-	}
-	if validHTTPURL(playlist.ArtworkURL) {
-		info.Set("thumbnail", value.String(playlist.ArtworkURL))
 	}
 	return value.NewInfo(info)
 }

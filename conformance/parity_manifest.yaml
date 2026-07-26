@@ -1258,7 +1258,7 @@ capabilities:
   - id: extractor.soundcloud_pilot
     name: SoundCloud API and playlist pilot
     phase: 1
-    compatibility_target: Extract SoundCloud tracks with original downloadable files and opt-in public comments, sets including tokenized private-set hydration, bare profiles, all pinned public user tabs, exact legacy API user permalinks, and public player/embed URLs through bounded native discovery without Python.
+    compatibility_target: Extract SoundCloud tracks with original downloadable files, opt-in public comments, and full artwork/avatar thumbnail matrices; sets including tokenized private-set hydration and thumbnail matrices; bare profiles; all pinned public user tabs; exact legacy API user permalinks; and public player/embed URLs through bounded native discovery without Python.
     status: compatible
     evidence:
       - internal/extractor.TestSoundCloudSuitableGuards
@@ -1280,6 +1280,12 @@ capabilities:
       - internal/extractor.TestSoundCloudPrivateSetRejectsMalformedSourceBeforeBatch
       - internal/extractor.TestSoundCloudPrivateSetBatchingOrderAndCancellation
       - internal/extractor.FuzzSoundCloudPrivateSetBatchPlan
+      - internal/extractor.TestSoundCloudArtworkThumbnailMatrix
+      - internal/extractor.TestSoundCloudArtworkOriginalFallbackAndAvatarDimensions
+      - internal/extractor.TestSoundCloudArtworkNonmatchingAndUnsafeSources
+      - internal/extractor.TestSoundCloudArtworkCancellation
+      - internal/extractor.TestSoundCloudArtworkTrackAndPlaylistIntegration
+      - internal/extractor.FuzzSoundCloudArtworkPlan
       - internal/extractor.TestSoundCloudCancellationInterruptsLazyPage
       - internal/extractor.TestSoundCloudCategorizedFailuresAndSecretRedaction
       - internal/extractor.TestSoundCloudRejectsUntrustedContinuationAndAsset
