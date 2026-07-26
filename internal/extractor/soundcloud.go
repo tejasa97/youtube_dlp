@@ -15,19 +15,22 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ytdlp-go/ytdlp/internal/network"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
 const (
-	soundCloudAPIBase         = "https://api-v2.soundcloud.com/"
-	soundCloudWebBase         = "https://soundcloud.com/"
-	soundCloudMaxAssetBytes   = int64(4 << 20)
-	soundCloudMaxTranscodings = 64
-	soundCloudMaxPageEntries  = 200
-	soundCloudMaxSetEntries   = 10_000
-	soundCloudMaxURLBytes     = 8 << 10
-	soundCloudMaxQueryParams  = 16
-	soundCloudMaxQueryValue   = 1024
+	soundCloudAPIBase                  = "https://api-v2.soundcloud.com/"
+	soundCloudWebBase                  = "https://soundcloud.com/"
+	soundCloudMaxAssetBytes            = int64(4 << 20)
+	soundCloudMaxTranscodings          = 64
+	soundCloudMaxPageEntries           = 200
+	soundCloudMaxSetEntries            = 10_000
+	soundCloudMaxURLBytes              = 8 << 10
+	soundCloudMaxQueryParams           = 16
+	soundCloudMaxQueryValue            = 1024
+	soundCloudCollectionProfile        = "chrome-133"
+	soundCloudCollection502MaxAttempts = 4
 )
 
 var (
@@ -386,7 +389,7 @@ func (extractor *SoundCloud) fetchCollectionPage(ctx context.Context, transport 
 		return nil, "", err
 	}
 	var page soundCloudPage
-	if err := extractor.requestJSON(ctx, transport, validated, &page); err != nil {
+	if err := extractor.requestCollectionJSON(ctx, transport, validated, &page); err != nil {
 		return nil, "", err
 	}
 	if page.Collection == nil || len(page.Collection) > soundCloudMaxPageEntries {
@@ -928,6 +931,63 @@ func (extractor *SoundCloud) requestJSON(ctx context.Context, transport Transpor
 		return categorizeSoundCloudError(err)
 	}
 	return ErrAuthentication
+}
+
+func (extractor *SoundCloud) requestCollectionJSON(ctx context.Context, transport Transport, endpoint string, target any) error {
+	execute := soundCloudCollectionExecute(transport)
+	for clientAttempt := 0; clientAttempt < 2; clientAttempt++ {
+		clientID, err := extractor.discoverClientID(ctx, transport, clientAttempt > 0)
+		if err != nil {
+			return err
+		}
+		requestURL := addSoundCloudQuery(endpoint, "client_id", clientID)
+		needClientRefresh := false
+		var lastErr error
+		for pageAttempt := 0; pageAttempt < soundCloudCollection502MaxAttempts; pageAttempt++ {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			lastErr = requestJSON(ctx, execute, http.MethodGet, requestURL, nil, nil, target)
+			if lastErr == nil {
+				return nil
+			}
+			if errors.Is(lastErr, context.Canceled) || errors.Is(lastErr, context.DeadlineExceeded) {
+				return lastErr
+			}
+			var status *HTTPStatusError
+			if errors.As(lastErr, &status) {
+				if status.Code == http.StatusBadGateway {
+					if pageAttempt+1 < soundCloudCollection502MaxAttempts {
+						continue
+					}
+					return categorizeSoundCloudError(lastErr)
+				}
+				if (status.Code == http.StatusUnauthorized || status.Code == http.StatusForbidden) && clientAttempt == 0 {
+					needClientRefresh = true
+					break
+				}
+			}
+			return categorizeSoundCloudError(lastErr)
+		}
+		if needClientRefresh {
+			continue
+		}
+	}
+	return ErrAuthentication
+}
+
+func soundCloudCollectionExecute(transport Transport) func(context.Context, *http.Request) (*http.Response, error) {
+	profiled, hasProfile := transport.(ProfileTransport)
+	return func(ctx context.Context, request *http.Request) (*http.Response, error) {
+		if !hasProfile {
+			return transport.Do(ctx, request)
+		}
+		response, err := profiled.DoProfile(ctx, request, soundCloudCollectionProfile)
+		if errors.Is(err, network.ErrImpersonationUnavailable) {
+			return transport.Do(ctx, request)
+		}
+		return response, err
+	}
 }
 
 func (extractor *SoundCloud) discoverClientID(ctx context.Context, transport Transport, refresh bool) (string, error) {

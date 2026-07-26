@@ -18,9 +18,12 @@ Behavioral expectations were derived from the pinned yt-dlp checkout at commit
   probing;
 - `SoundcloudPlaylistBaseIE._extract_set` for ordered transparent set entries
   and tokenized private-set hydration through the v2 `/tracks` batch endpoint;
+- `SoundcloudPagedPlaylistBaseIE._browser_impersonate_target` for Chrome 116+
+  minimum impersonation selection in the pinned reference;
 - `SoundcloudPagedPlaylistBaseIE._entries` for linked partitioning,
   the initial `offset=0` request, removal of the local offset after
-  `next_href`, nested track candidates, and lazy ordering;
+  `next_href`, Chrome-impersonated page downloads, bounded HTTP 502 retries,
+  nested track candidates, and lazy ordering;
 - `SoundcloudUserIE` for bare-profile and profile-tab routing (`tracks`,
   `albums`, `sets`, `reposts`, `likes`, `spotlight`, and `comments`), resolving
   the user profile URL and using the pinned `_BASE_URL_MAP` API path with
@@ -85,6 +88,14 @@ Deliberate Go hardening beyond the pinned reference:
   is unavailable, the metadata-supplied original extension is retained rather
   than issuing a weaker probe; ordinary isolated probe failures remain
   nonfatal and select the alternate extension, matching the pinned fallback.
+- Paged collection requests use the Go port's fixed `chrome-133` profile when
+  the transport implements `ProfileTransport`, fall back once to the native
+  transport when impersonation is unavailable, and otherwise keep the ordinary
+  API request identity. The pinned reference selects the newest available
+  Chrome target with a Chrome 116 minimum. Each collection page allows one
+  initial request plus three HTTP 502 retries (four total attempts). These
+  behaviors are evidenced only by the synthetic fixture corpus, not live
+  SoundCloud service compatibility.
 
 The fixture client ID, IDs, timestamps, titles, cursors, URLs, counts, and
 response bodies were independently authored for this Go conformance corpus.
