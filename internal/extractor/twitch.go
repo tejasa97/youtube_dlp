@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"math/big"
 	"net"
@@ -59,6 +60,11 @@ const (
 	twitchClipsMaxTimestampText  = 128
 	twitchClipsStartToken        = "__twitch_clips_start__"
 	twitchClipsMaxEdgeArrayBytes = twitchClipsMaxEdges*(twitchMaxURL+1) + 2
+
+	twitchStoryboardMaxJSONBytes = 1 << 20
+	twitchStoryboardMaxSpecs     = 16
+	twitchStoryboardMaxImages    = 1000
+	twitchStoryboardMaxDimension = 10_000
 )
 
 type twitchVideosBroadcast struct {
@@ -915,7 +921,7 @@ func extractTwitchVOD(ctx context.Context, transport Transport, target twitchTar
 		value.Field{Key: "title", Value: value.String(title)},
 		value.Field{Key: "webpage_url", Value: value.String("https://www.twitch.tv/videos/" + target.id)},
 		value.Field{Key: "ext", Value: value.String("mp4")},
-		value.Field{Key: "formats", Value: value.List(value.ObjectValue(manifestFormat("hls", twitchVODManifestURL(target.id, token), "m3u8_native")))},
+		value.Field{Key: "formats", Value: value.List()},
 		value.Field{Key: "is_live", Value: value.Bool(false)},
 		value.Field{Key: "was_live", Value: value.Bool(true)},
 		value.Field{Key: "live_status", Value: value.String("was_live")},
@@ -932,6 +938,13 @@ func extractTwitchVOD(ctx context.Context, transport Transport, target twitchTar
 	if chapters := twitchChapters(video.Moments.Edges, video.LengthSeconds); len(chapters) != 0 {
 		info.Set("chapters", value.List(chapters...))
 	}
+	formats := []value.Value{value.ObjectValue(manifestFormat("hls", twitchVODManifestURL(target.id, token), "m3u8_native"))}
+	if storyboards, err := extractTwitchStoryboardFormats(ctx, transport, video.SeekPreviewsURL, video.LengthSeconds); err != nil {
+		return Extraction{}, err
+	} else if len(storyboards) != 0 {
+		formats = append(formats, storyboards...)
+	}
+	info.Set("formats", value.List(formats...))
 	if start, ok := parseTwitchStartTime(parsed.Query().Get("t")); ok {
 		info.Set("start_time", value.Int(start))
 	}
@@ -1251,6 +1264,190 @@ func parseTwitchStartTime(input string) (int64, bool) {
 		seen = true
 	}
 	return total, seen && remaining == ""
+}
+
+type twitchStoryboardSpec struct {
+	Width  int64    `json:"width"`
+	Height int64    `json:"height"`
+	Count  int64    `json:"count"`
+	Rows   int64    `json:"rows"`
+	Cols   int64    `json:"cols"`
+	Images []string `json:"images"`
+}
+
+func extractTwitchStoryboardFormats(ctx context.Context, transport Transport, storyboardURL string, durationSeconds int64) ([]value.Value, error) {
+	if durationSeconds <= 0 || strings.TrimSpace(storyboardURL) == "" {
+		return nil, nil
+	}
+	if !validTwitchAssetURL(storyboardURL) {
+		return nil, nil
+	}
+	specs, err := fetchTwitchStoryboardSpecs(ctx, transport, storyboardURL)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err
+		}
+		return nil, nil
+	}
+	if len(specs) == 0 {
+		return nil, nil
+	}
+	sort.Slice(specs, func(i, j int) bool {
+		left := specs[i].Width
+		if left <= 0 {
+			left = 0
+		}
+		right := specs[j].Width
+		if right <= 0 {
+			right = 0
+		}
+		return left > right
+	})
+	base, err := url.Parse(storyboardURL)
+	if err != nil {
+		return nil, nil
+	}
+	duration := float64(durationSeconds)
+	formats := make([]value.Value, 0, len(specs))
+	for index, spec := range specs {
+		if err := contextError(ctx); err != nil {
+			return nil, err
+		}
+		if spec.Count <= 0 || len(spec.Images) == 0 || spec.Width <= 0 || spec.Height <= 0 ||
+			spec.Width > twitchStoryboardMaxDimension || spec.Height > twitchStoryboardMaxDimension ||
+			len(spec.Images) > twitchStoryboardMaxImages {
+			continue
+		}
+		fragmentDuration := duration / float64(len(spec.Images))
+		fragments := make([]value.Value, 0, len(spec.Images))
+		seen := make(map[string]struct{}, len(spec.Images))
+		for _, imagePath := range spec.Images {
+			imageURL := resolveTwitchStoryboardImageURL(base, imagePath)
+			if imageURL == "" {
+				continue
+			}
+			if _, duplicate := seen[imageURL]; duplicate {
+				continue
+			}
+			seen[imageURL] = struct{}{}
+			fragment := value.NewObject(
+				value.Field{Key: "url", Value: value.String(imageURL)},
+				value.Field{Key: "duration", Value: value.Float(fragmentDuration)},
+			)
+			fragments = append(fragments, value.ObjectValue(fragment))
+		}
+		if len(fragments) == 0 {
+			continue
+		}
+		firstURL, _ := fragments[0].Object()
+		first, _ := firstURL.Lookup("url").StringValue()
+		format := value.NewObject(
+			value.Field{Key: "format_id", Value: value.String(fmt.Sprintf("sb%d", index))},
+			value.Field{Key: "format_note", Value: value.String("storyboard")},
+			value.Field{Key: "ext", Value: value.String("mhtml")},
+			value.Field{Key: "protocol", Value: value.String("mhtml")},
+			value.Field{Key: "acodec", Value: value.String("none")},
+			value.Field{Key: "vcodec", Value: value.String("none")},
+			value.Field{Key: "url", Value: value.String(first)},
+			value.Field{Key: "width", Value: value.Int(spec.Width)},
+			value.Field{Key: "height", Value: value.Int(spec.Height)},
+			value.Field{Key: "fps", Value: value.Float(float64(spec.Count) / duration)},
+			value.Field{Key: "fragments", Value: value.List(fragments...)},
+		)
+		if spec.Rows > 0 {
+			format.Set("rows", value.Int(spec.Rows))
+		}
+		if spec.Cols > 0 {
+			format.Set("columns", value.Int(spec.Cols))
+		}
+		formats = append(formats, value.ObjectValue(format))
+	}
+	return formats, nil
+}
+
+func fetchTwitchStoryboardSpecs(ctx context.Context, transport Transport, storyboardURL string) ([]twitchStoryboardSpec, error) {
+	isolated, ok := transport.(CredentialIsolatedNoRedirectTransport)
+	if !ok {
+		return nil, ErrTransportIsolation
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, storyboardURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid Twitch storyboard request", ErrInvalidMetadata)
+	}
+	response, err := isolated.DoWithoutCredentialsNoRedirect(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	if response == nil || response.Body == nil {
+		return nil, fmt.Errorf("%w: empty Twitch storyboard response", ErrInvalidMetadata)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, &HTTPStatusError{Code: response.StatusCode}
+	}
+	if location := strings.TrimSpace(response.Header.Get("Location")); location != "" {
+		if !twitchStoryboardRedirectAllowed(storyboardURL, location) {
+			return nil, fmt.Errorf("%w: hostile Twitch storyboard redirect", ErrInvalidMetadata)
+		}
+	}
+	payload, err := io.ReadAll(io.LimitReader(response.Body, twitchStoryboardMaxJSONBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(payload)) > twitchStoryboardMaxJSONBytes {
+		return nil, fmt.Errorf("%w: Twitch storyboard response too large", ErrJSONResponseTooLarge)
+	}
+	return parseTwitchStoryboardSpecs(payload)
+}
+
+func parseTwitchStoryboardSpecs(payload []byte) ([]twitchStoryboardSpec, error) {
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	var specs []twitchStoryboardSpec
+	if err := decoder.Decode(&specs); err != nil || ensureJSONEOF(decoder) != nil {
+		return nil, fmt.Errorf("%w: malformed Twitch storyboard JSON", ErrInvalidMetadata)
+	}
+	if len(specs) > twitchStoryboardMaxSpecs {
+		return nil, fmt.Errorf("%w: Twitch storyboard specification limit", ErrInvalidMetadata)
+	}
+	for _, spec := range specs {
+		if len(spec.Images) > twitchStoryboardMaxImages {
+			return nil, fmt.Errorf("%w: Twitch storyboard image limit", ErrInvalidMetadata)
+		}
+	}
+	return specs, nil
+}
+
+func resolveTwitchStoryboardImageURL(base *url.URL, imagePath string) string {
+	if base == nil || imagePath == "" || len(imagePath) > twitchMaxURL || strings.ContainsAny(imagePath, "\\\x00\r\n") {
+		return ""
+	}
+	parsed, err := url.Parse(imagePath)
+	if err != nil {
+		return ""
+	}
+	resolved := base.ResolveReference(parsed).String()
+	if !validTwitchAssetURL(resolved) {
+		return ""
+	}
+	return resolved
+}
+
+func twitchStoryboardRedirectAllowed(originalURL, location string) bool {
+	original, err := url.Parse(originalURL)
+	if err != nil {
+		return false
+	}
+	target, err := url.Parse(location)
+	if err != nil {
+		return false
+	}
+	if target.Scheme == "" {
+		target = original.ResolveReference(target)
+	}
+	if !validTwitchAssetURL(target.String()) {
+		return false
+	}
+	return strings.EqualFold(original.Hostname(), target.Hostname()) && original.Scheme == target.Scheme
 }
 
 func validTwitchAssetURL(rawURL string) bool {

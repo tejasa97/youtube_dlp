@@ -48,8 +48,6 @@ failures are reduced to categorized, secret-safe errors.
 
 Known deviations from the pinned reference:
 
-- storyboard (`mhtml`) formats are not emitted yet, although the metadata URL
-  is parsed under the bounded response contract;
 - subscriber-only playback is categorized as authentication-required, but the
   shared request contract does not yet carry an authenticated Twitch cookie;
 - chat and arbitrary Twitch routes remain outside this lane;

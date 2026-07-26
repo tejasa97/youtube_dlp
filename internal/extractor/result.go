@@ -64,6 +64,9 @@ type Entry struct {
 	// Availability is an optional yt-dlp-compatible availability label
 	// (public/private/premium/subscriber_only/unlisted). Empty means unknown.
 	Availability string
+	// Referer is an optional validated HTTPS embedding page URL for child
+	// extraction. Only bounded product recursion may set it.
+	Referer string
 
 	// Optional soft metadata for url_transparent playlist cards. Values plus
 	// Has* flags keep valid zero numerics distinct from absent fields.

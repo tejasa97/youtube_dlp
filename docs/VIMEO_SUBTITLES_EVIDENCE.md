@@ -18,10 +18,19 @@ an HTTPS, clean-path `player.vimeo.com` config URL may be requested.
 Config query tokens are preserved for the request, while the Referer is always
 the canonical `https://vimeo.com/<id>` URL and never contains caller tokens.
 
-Deliberate deviations: this does not fetch Vimeo's texttracks API, parse
-manifest subtitles, support authenticated/password videos, DRM, live archives,
-showcases, or arbitrary Vimeo API hosts. Public channel, explicit/bare user, and
-group playlist breadth is a separate bounded increment documented in
+Deliberate deviations: manifest subtitle fallbacks use credential-isolated,
+no-redirect manifest reads and never forward Vimeo JWTs, cookies, Authorization,
+or Referer to subtitle/CDN origins. HLS subtitle renditions remain child `.m3u8`
+playlists at extraction time and are assembled into WebVTT by the product
+subtitle downloader through `DoWithoutCredentialsNoRedirect`, then written with
+the shared downloader's bounded atomic write path rather than being exposed as
+direct VTT downloads.
+The anonymous viewer-JWT texttracks API path
+is attempted through the same `_next/viewer` mechanism used for album access;
+when Vimeo rejects that call, extraction continues with player-config and
+manifest fallbacks only. Password submission, DRM, live archives, and arbitrary
+Vimeo API hosts remain out of scope. Public channel, explicit/bare user, and
+group playlist breadth is documented separately in
 `docs/VIMEO_CHANNEL_PLAYLISTS_EVIDENCE.md`. Invalid individual tracks are
 ignored; a too-large track list is invalid metadata.
 
@@ -37,5 +46,8 @@ existing normalized `subtitles` object and do not log track URLs with tokens.
 | Relative/protocol-relative URLs, labels, mixed invalid data and no tracks | `text_tracks_mixed.json`, `text_tracks_empty.json`, `TestVimeoTextTracksAreBoundedAndFailClosed` |
 | Request, response bound, network/config failure and profile contract | `TestVimeoExtractsProgressiveHLSAndDASHWithProfile`, `TestVimeoFailuresAreCategorized` |
 | Config-origin trust boundary and secret-safe failure | `TestVimeoConfigURLFailsClosedWithoutRequests`, `FuzzNormalizeVimeoConfigURL` |
-| Limits, cancellation and hostile URL policy | `TestVimeoTextTracksAreBoundedAndFailClosed`, `TestNormalizeVimeoTextTrackURLRejectsHostileInputs` |
-| Parser and normalizer semantic fuzz invariants | `FuzzParseVimeoConfig`, `FuzzNormalizeVimeoTextTrackURL` |
+| Limits, cancellation and hostile URL policy | `TestVimeoTextTracksAreBoundedAndFailClosed`, `TestNormalizeVimeoTextTrackURLRejectsHostileInputs`, `TestValidVimeoRefererRejectsHostileInputs` |
+| Manifest subtitle fallback merge | `TestVimeoSubtitleManifestFallbackMergesHLSAndDASH`, `internal/protocol/hls.TestParseMasterSubtitles`, `internal/protocol/hls.TestAssembleWebVTTConcatenatesSegments`, `internal/protocol/hls.TestAssembleWebVTTRejectsEncryptedSegments`, `internal/protocol/dash.TestParseTextRepresentations`, `internal/downloader.TestWriteFinalizesPayloadAtomically`, `pkg/ytdlp.TestSubtitleDownloaderAssemblesHLSSubtitlePlaylists`, `pkg/ytdlp.TestSubtitleHLSDownloadRejectsEncryptedPlaylists` |
+| Viewer-JWT texttracks API and credential isolation | `TestVimeoViewerJWTTexttracksAPIUsesScopedAuthorization`, `TestVimeoTexttracksAPI401And403AreNonfatal`, `TestVimeoSubtitleManifestFetchesWithoutCredentials` |
+| Text-track bounds | `TestVimeoSubtitleLimitsRejectOversizedSourcesAndAggregate` |
+| Parser and normalizer semantic fuzz invariants | `FuzzParseVimeoConfig`, `FuzzNormalizeVimeoTextTrackURL`, `FuzzParseMasterSubtitles`, `FuzzParseTextRepresentations` |
