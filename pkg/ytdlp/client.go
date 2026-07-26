@@ -541,6 +541,10 @@ type operation struct {
 }
 
 func (operation *operation) process(ctx context.Context, rawURL, extractorKey string, overlay *extractor.Entry, ancestors map[string]bool, depth int) (Result, error) {
+	referer := ""
+	if overlay != nil {
+		referer = overlay.Referer
+	}
 	if err := ctx.Err(); err != nil {
 		return Result{}, categorized("process extraction", err)
 	}
@@ -562,7 +566,7 @@ func (operation *operation) process(ctx context.Context, rawURL, extractorKey st
 		return Result{}, &Error{Category: ErrorInternal, Op: "emit extracting event", Err: err}
 	}
 	extracted, err := selected.Extract(ctx, extractor.Request{
-		URL: rawURL, Transport: operation.transport, ChallengeSolver: operation.solver, Credentials: operation.credentials,
+		URL: rawURL, Referer: referer, Transport: operation.transport, ChallengeSolver: operation.solver, Credentials: operation.credentials,
 		YouTubePOT: operation.client.youtubePOT, YouTubeTranslatedCaptions: operation.request.YouTubeTranslatedCaptions,
 		YouTubeLiveFromStart: operation.request.LiveFromStart,
 		YouTubeComments: extractor.YouTubeCommentOptions{

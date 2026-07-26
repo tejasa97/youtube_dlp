@@ -13,6 +13,8 @@ Pinned behavioral reference:
 - `https://vimeo.com/showcase/{positive-numeric-id}`
 - `https://vimeo.com/album/{safe-public-slug}`
 - `https://vimeo.com/showcase/{safe-public-slug}`
+- `https://vimeo.com/album/{id}/embed` and `/embed2`
+- `https://vimeo.com/showcase/{id}/embed` and `/embed2`
 
 Safe slugs are first resolved through Vimeo's exact anonymous showcase
 resolver endpoint. Extraction then obtains an anonymous viewer application
@@ -54,7 +56,9 @@ unlisted albums fail as authentication-required.
 
 Routes reject HTTP, credentials, ports, queries, fragments, trailing or extra
 paths, encoded identifiers/separators, lookalike hosts, zero/overflow numeric
-IDs, unsafe/non-ASCII/oversized slugs, and embed forms before I/O.
+IDs, unsafe/non-ASCII/oversized slugs, and hostile embed/query forms before I/O.
+Supported `/embed` and `/embed2` suffixes are accepted when the base album or
+showcase identity is otherwise valid.
 
 ## Evidence
 
@@ -69,6 +73,7 @@ IDs, unsafe/non-ASCII/oversized slugs, and embed forms before I/O.
 | Expiry-aware JWT refresh across delayed/reused iteration | `TestVimeoAlbumRefreshesJWTForDelayedReusableIteration` |
 | One-shot JWT refresh after authorization rejection | `TestVimeoAlbumRefreshesJWTOnceAfterAuthorizationRejection` |
 | Capability, privacy, token, status, cancellation | `TestVimeoAlbumFailuresCapabilityAndCancellation` |
+| Embed routes, referrer propagation, hostile referer rejection | `TestVimeoAlbumEmbedRoutesAccepted`, `TestVimeoAlbumEmbedPropagatesRefererToPlayerEntries`, `TestVimeoAlbumEmbedRejectsHostileReferer` |
 | Classifier round-trip and dispatch invariants | `FuzzClassifyVimeoAlbumURL` |
 | Resolved numeric identity invariants | `FuzzParseVimeoAlbumSlugID` |
 | Video row URL/URI identity invariants | `FuzzVimeoAlbumVideoEntry` |
@@ -79,8 +84,8 @@ Fixture provenance is recorded in
 ## Deliberate limits
 
 Vimeo slugs outside the deliberately narrow ASCII letter/digit/underscore/
-hyphen grammar, embeds, referrer propagation, password submission,
-authenticated/private/unlisted albums, and live-service compatibility claims
-remain out of scope. The fixture corpus establishes deterministic conformance;
-the volatile resolver/viewer/API flow still requires an opt-in live canary
-before a live compatibility claim.
+hyphen grammar, password submission, authenticated/private/unlisted albums, and
+live-service compatibility claims remain out of scope. Embed albums that require
+a validated embedding-page Referer fail closed when none is supplied. The fixture
+corpus establishes deterministic conformance; the volatile resolver/viewer/API
+flow still requires an opt-in live canary before a live compatibility claim.

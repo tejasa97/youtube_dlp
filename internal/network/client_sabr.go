@@ -8,15 +8,16 @@ import (
 
 // DoWithoutCredentialsNoRedirect executes a native request without operation-jar
 // cookies, without credential-bearing default or explicit headers, without
-// persisting response cookies, and without following redirects. It is the
-// combined boundary required for SABR POSTs to googlevideo endpoints and for
-// hop-by-hop short-link Location validation (for example TikTok vm/vt/t).
+// ambient or explicit Referer, without persisting response cookies, and without
+// following redirects. It is the combined boundary required for SABR POSTs to
+// googlevideo endpoints, hop-by-hop short-link Location validation (for example
+// TikTok vm/vt/t), and credential-isolated subtitle/CDN fetches.
 func (client *Client) DoWithoutCredentialsNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
 	if request == nil {
 		return nil, errors.New("HTTP request must not be nil")
 	}
 	cloned := client.prepareRequest(ctx, request, false, true)
-	for _, key := range []string{"Authorization", "Cookie", "Proxy-Authorization"} {
+	for _, key := range []string{"Authorization", "Cookie", "Proxy-Authorization", "Referer"} {
 		cloned.Header.Del(key)
 	}
 	isolated := *client.httpClient

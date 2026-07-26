@@ -2248,3 +2248,71 @@ func TestClientConcurrentRunAndClose(t *testing.T) {
 		client.Close()
 	}
 }
+
+type refererCaptureExtractor struct {
+	referers []string
+}
+
+func (capture *refererCaptureExtractor) Name() string { return "referer-capture" }
+
+func (capture *refererCaptureExtractor) Suitable(parsed *url.URL) bool {
+	return parsed.Path == "/child"
+}
+
+func (capture *refererCaptureExtractor) Extract(_ context.Context, request extractor.Request) (extractor.Extraction, error) {
+	capture.referers = append(capture.referers, request.Referer)
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("child")},
+		value.Field{Key: "title", Value: value.String("Child")},
+		value.Field{Key: "ext", Value: value.String("mp4")},
+		value.Field{Key: "url", Value: value.String(request.URL)},
+	))
+	return extractor.Media(info), nil
+}
+
+type refererPlaylistExtractor struct{}
+
+func (refererPlaylistExtractor) Name() string { return "referer-playlist" }
+
+func (refererPlaylistExtractor) Suitable(parsed *url.URL) bool {
+	return parsed.Path == "/referer-list"
+}
+
+func (refererPlaylistExtractor) Extract(_ context.Context, request extractor.Request) (extractor.Extraction, error) {
+	parsed, _ := url.Parse(request.URL)
+	base := parsed.Scheme + "://" + parsed.Host
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("referer-list")},
+		value.Field{Key: "title", Value: value.String("Referer Playlist")},
+	))
+	return extractor.Playlist(info, extractor.StaticEntries(
+		extractor.Entry{URL: base + "/child", ExtractorKey: "referer-capture", Referer: "https://publisher.example/embed"},
+		extractor.Entry{URL: base + "/child", ExtractorKey: "referer-capture"},
+	))
+}
+
+func TestOperationPropagatesRefererThroughPlaylistRecursion(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		http.NotFound(writer, request)
+	}))
+	defer server.Close()
+	transport, err := network.New(network.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	child := &refererCaptureExtractor{}
+	operation := &operation{
+		client: NewClient(), request: Request{SkipDownload: true}, transport: transport,
+		registry: extractor.NewRegistry(refererPlaylistExtractor{}, child),
+	}
+	result, err := operation.process(context.Background(), server.URL+"/referer-list", "", nil, make(map[string]bool), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Entries) != 2 || len(child.referers) != 2 {
+		t.Fatalf("entries=%d referers=%#v", len(result.Entries), child.referers)
+	}
+	if child.referers[0] != "https://publisher.example/embed" || child.referers[1] != "" {
+		t.Fatalf("referers = %#v", child.referers)
+	}
+}

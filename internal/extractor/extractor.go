@@ -103,7 +103,11 @@ func ReadPageWithProfileWithoutCredentialsNoRedirect(ctx context.Context, transp
 }
 
 type Request struct {
-	URL                       string
+	URL string
+	// Referer is an optional validated HTTPS embedding page URL propagated from
+	// bounded playlist recursion. It must never carry cookies, Authorization, or
+	// arbitrary caller headers.
+	Referer                   string
 	Transport                 Transport
 	ChallengeSolver           YouTubeChallengeSolver
 	Credentials               CredentialProvider

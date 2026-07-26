@@ -15,8 +15,35 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/events"
 	"github.com/ytdlp-go/ytdlp/internal/extractor"
 	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
+	"github.com/ytdlp-go/ytdlp/internal/network"
+	"github.com/ytdlp-go/ytdlp/internal/protocol/hls"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
+
+// credentialIsolatedSubtitleTransport delegates to DoWithoutCredentialsNoRedirect
+// after stripping ambient Referer. The network client removes cookies,
+// Authorization, Proxy-Authorization, redirect following, and the cookie jar;
+// explicit credential headers are not forwarded to isolated CDN origins.
+type credentialIsolatedSubtitleTransport struct {
+	ambient *network.Client
+}
+
+func (transport *credentialIsolatedSubtitleTransport) DoWithoutCredentialsNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
+	cloned := request.Clone(ctx)
+	for _, key := range []string{"Authorization", "Cookie", "Proxy-Authorization", "Referer"} {
+		cloned.Header.Del(key)
+	}
+	return transport.ambient.DoWithoutCredentialsNoRedirect(ctx, cloned)
+}
+
+func (transport *credentialIsolatedSubtitleTransport) Do(ctx context.Context, request *http.Request) (*http.Response, error) {
+	return transport.DoWithoutCredentialsNoRedirect(ctx, request)
+}
+
+func subtitleCredentialIsolated(metadata *value.Object) bool {
+	isolated, ok := metadata.Lookup("_credential_isolated").Bool()
+	return ok && isolated
+}
 
 const (
 	maxSubtitleLanguages      = 256
@@ -375,16 +402,53 @@ func (operation *operation) downloadSubtitles(ctx context.Context, info value.In
 		if options.MaxBytes <= 0 || options.MaxBytes > maxSubtitleBytes {
 			options.MaxBytes = maxSubtitleBytes
 		}
-		result, err := downloader.New(operation.transport).Download(ctx, downloader.Job{
-			URL: track.rawURL, Headers: track.headers, OutputRoot: operation.request.outputRoot(OutputPathHome), Destination: destination,
-			Overwrite: operation.request.Overwrite, Attempts: options.Attempts,
-			RetryBaseDelay: options.RetryBaseDelay, RetryMaxDelay: options.RetryMaxDelay,
-			RateLimit: options.RateLimit, MaxBytes: options.MaxBytes,
-			ThrottleRate: options.ThrottleRate, ThrottleWindow: options.ThrottleWindow,
-			ThrottleRestarts: options.ThrottleRestarts, FileAttempts: options.FileAttempts,
-		}, sink)
-		if err != nil {
-			return artifacts, total, err
+		isolated := subtitleCredentialIsolated(track.metadata)
+		var result downloader.Result
+		if hlsSubtitlePlaylistURL(track.rawURL) {
+			var assembled []byte
+			var err error
+			if isolated {
+				assembled, err = hls.AssembleWebVTT(ctx, &credentialIsolatedSubtitleTransport{ambient: operation.transport}, track.rawURL, options.MaxBytes)
+			} else {
+				assembled, err = hls.AssembleWebVTTRedirecting(ctx, operation.transport, track.rawURL, track.headers, options.MaxBytes)
+			}
+			if err != nil {
+				return artifacts, total, err
+			}
+			result, err = downloader.New(operation.transport).Write(ctx, downloader.WriteJob{
+				OutputRoot: operation.request.outputRoot(OutputPathHome), Destination: destination,
+				Payload: assembled, Overwrite: operation.request.Overwrite,
+				MaxBytes: options.MaxBytes, FileAttempts: options.FileAttempts,
+			}, sink)
+			if err != nil {
+				return artifacts, total, err
+			}
+		} else if isolated {
+			var err error
+			result, err = downloader.New(&credentialIsolatedSubtitleTransport{ambient: operation.transport}).Download(ctx, downloader.Job{
+				URL: track.rawURL, OutputRoot: operation.request.outputRoot(OutputPathHome), Destination: destination,
+				Overwrite: operation.request.Overwrite, Attempts: options.Attempts,
+				RetryBaseDelay: options.RetryBaseDelay, RetryMaxDelay: options.RetryMaxDelay,
+				RateLimit: options.RateLimit, MaxBytes: options.MaxBytes,
+				ThrottleRate: options.ThrottleRate, ThrottleWindow: options.ThrottleWindow,
+				ThrottleRestarts: options.ThrottleRestarts, FileAttempts: options.FileAttempts,
+			}, sink)
+			if err != nil {
+				return artifacts, total, err
+			}
+		} else {
+			var err error
+			result, err = downloader.New(operation.transport).Download(ctx, downloader.Job{
+				URL: track.rawURL, Headers: track.headers, OutputRoot: operation.request.outputRoot(OutputPathHome), Destination: destination,
+				Overwrite: operation.request.Overwrite, Attempts: options.Attempts,
+				RetryBaseDelay: options.RetryBaseDelay, RetryMaxDelay: options.RetryMaxDelay,
+				RateLimit: options.RateLimit, MaxBytes: options.MaxBytes,
+				ThrottleRate: options.ThrottleRate, ThrottleWindow: options.ThrottleWindow,
+				ThrottleRestarts: options.ThrottleRestarts, FileAttempts: options.FileAttempts,
+			}, sink)
+			if err != nil {
+				return artifacts, total, err
+			}
 		}
 		track.metadata.Set("filepath", value.String(result.Path))
 		artifacts = append(artifacts, Artifact{Path: result.Path, Kind: "subtitle"})
@@ -399,4 +463,12 @@ func subtitleFilename(base, expectedExtension, language, extension string) strin
 		base = strings.TrimSuffix(base, suffix)
 	}
 	return base + "." + language + "." + extension
+}
+
+func hlsSubtitlePlaylistURL(rawURL string) bool {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(path.Ext(parsed.Path), ".m3u8")
 }
