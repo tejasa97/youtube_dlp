@@ -16,6 +16,11 @@ files are retained unless `--force-overwrites` is set. Temporary files are
 written beside the destination and published atomically; symlink and
 non-regular destinations fail closed.
 
+Repeatable `--paths` values and the public `OutputPaths` map independently
+route `description`, `infojson`, `link`, `pl_description`, and `pl_infojson`
+under the common home directory. A missing exact path falls back to home.
+Typed paths must remain relative and confined beneath home.
+
 The implementation follows the pinned upstream ordering and file formats for
 video metadata, descriptions, and `.url`, `.webloc`, and `.desktop` shortcuts.
 Shortcut URLs are limited to bounded HTTP(S) URLs without credentials or

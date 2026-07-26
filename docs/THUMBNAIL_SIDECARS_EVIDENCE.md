@@ -13,7 +13,9 @@ bounded thumbnail ID to each filename. Declared recognized image extensions
 take precedence over URL suffixes, with `jpg` as the conservative fallback.
 
 Entry and playlist images use the `thumbnail` and `pl_thumbnail` output
-template types. Paths retain output-root confinement, symlink rejection,
+template and output-path types. Repeatable `--paths` values or the public
+`OutputPaths` map route either type to a relative child beneath home, with
+home fallback. Paths retain output-root confinement, symlink rejection,
 resumable atomic publication, overwrite policy, cancellation, request retry
 limits, and a 16 MiB per-image ceiling. Redirects are bounded, loop checked,
 reject credential-bearing targets and HTTPS downgrade, and remove explicit

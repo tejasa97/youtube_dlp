@@ -89,6 +89,7 @@ type Request struct {
 	OutputTemplate       string
 	OutputTemplates      OutputTemplates
 	OutputDir            string
+	OutputPaths          OutputPaths
 	Proxy                string
 	ImpersonationProfile string
 	CookieFile           string
@@ -272,6 +273,7 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 		request.SponsorBlock.ChapterTitle = &chapterTitle
 	}
 	request.OutputTemplates = cloneOutputTemplates(request.OutputTemplates)
+	request.OutputPaths = cloneOutputPaths(request.OutputPaths)
 	if err := validateRequestOptions(request); err != nil {
 		return Result{}, categorized("validate request options", err)
 	}
@@ -1167,10 +1169,7 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		return result, nil
 	}
 
-	outputDir := operation.request.OutputDir
-	if outputDir == "" {
-		outputDir = "."
-	}
+	outputDir := operation.request.outputRoot(OutputPathHome)
 
 	sink := operation.eventSink()
 	multiOutput := len(outputPlans) > 1

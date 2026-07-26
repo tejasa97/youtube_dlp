@@ -9,9 +9,12 @@ instead of being silently ignored.
 
     # Lines beginning with # are comments
     --output-dir "~/Downloads"
+    --paths "subtitle:captions"
+    --paths "thumbnail:images"
+    --paths "infojson:metadata"
     --output "%(title)s.%(ext)s"
-    --output "subtitle:captions/%(title)s.%(ext)s"
-    --output "infojson:metadata/%(title)s.%(ext)s"
+    --output "subtitle:%(title)s.%(ext)s"
+    --output "infojson:%(title)s.%(ext)s"
     --format "bestvideo+bestaudio/best"
     --retries 3
     --concurrent-fragments 4
@@ -37,6 +40,15 @@ Sources are applied from lowest to highest precedence:
 replace earlier values for the same type, so command-line typed templates
 override configuration-file values without clearing unrelated types.
 
+`--paths` is also repeatable. An untyped value or `home:PATH` selects the
+common output root. The supported typed values are `subtitle`, `thumbnail`,
+`description`, `infojson`, `link`, `pl_description`, `pl_infojson`, and
+`pl_thumbnail`; comma-separated types may share one directory. Typed paths are
+relative children confined beneath `home`, and unspecified types fall back to
+`home`. Later values replace earlier values for the same type. The public Go
+API exposes the same mapping as `OutputPaths`. A later `TYPE:` or `TYPE:.`
+clears an inherited typed directory and restores home fallback.
+
 Only the first existing candidate in each default group is loaded. The user
 group follows the platform path convention:
 
@@ -61,7 +73,9 @@ that includes them. Duplicate canonical files are loaded once.
   containing yt-dlp.conf, or stdin when PATH is -.
 - --ignore-config and --no-config skip default discovery.
 - --no-config-locations clears inherited explicit locations.
-- --paths home:PATH selects the home configuration/output path used by the CLI.
+- --paths [TYPES:]PATH selects the home or a supported typed output path.
+  `temp`, `chapter`, `annotation`, and `pl_video` are rejected until their
+  corresponding artifact lifecycle exists.
 
 ## Encodings
 

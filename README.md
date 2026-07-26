@@ -151,10 +151,13 @@ revision; repository test keys are not production updater trust.
   --write-description \
   --write-thumbnail \
   --write-link \
+  --paths "subtitle:captions" \
+  --paths "thumbnail:images" \
+  --paths "infojson:metadata" \
   --output "default:media/%(title)s.%(ext)s" \
-  --output "subtitle:captions/%(title)s.%(ext)s" \
-  --output "thumbnail:images/%(title)s.%(ext)s" \
-  --output "infojson:metadata/%(title)s.%(ext)s" \
+  --output "subtitle:%(title)s.%(ext)s" \
+  --output "thumbnail:%(title)s.%(ext)s" \
+  --output "infojson:%(title)s.%(ext)s" \
   URL
 ```
 
@@ -165,6 +168,12 @@ you also want the normal download. Repeat `--output` to give `default`,
 `subtitle`, `thumbnail`, `description`, `infojson`, `link`,
 `pl_description`, `pl_infojson`, or `pl_thumbnail` its own confined template; unspecified types fall back to
 `default`.
+
+Repeat `--paths [TYPES:]PATH` to place those produced artifact types in
+separate directories beneath `home`. Supported types are `home`, `subtitle`,
+`thumbnail`, `description`, `infojson`, `link`, `pl_description`,
+`pl_infojson`, and `pl_thumbnail`. Untyped paths select `home`; later values
+for the same type win.
 
 ### Playlists
 

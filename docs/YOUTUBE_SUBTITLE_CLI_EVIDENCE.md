@@ -33,6 +33,9 @@ ceiling. A repeatable `--output subtitle:TEMPLATE` (or the public
 back to the default template when absent. `--skip-download` skips media while
 still writing requested subtitle sidecars. Public results expose subtitle artifacts and add the selected
 `_auto`, `filepath`, URL, and extension under `requested_subtitles`.
+Repeatable `--paths subtitle:PATH` values (or the public `OutputPaths` map)
+place subtitle artifacts in a relative child beneath the home output root
+without changing the subtitle filename template.
 
 URL-only subtitle entries produced by existing native extractors receive a
 bounded extension derived from MIME/type metadata, a recognized URL path or

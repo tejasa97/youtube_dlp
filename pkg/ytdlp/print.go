@@ -134,10 +134,7 @@ func (operation *operation) validatePrintRules(
 			return err
 		}
 		if rule.FileTemplate != "" {
-			outputRoot := operation.request.OutputDir
-			if outputRoot == "" {
-				outputRoot = "."
-			}
+			outputRoot := operation.request.outputRoot(OutputPathHome)
 			if _, err := outputtemplate.Resolve(outputRoot, rule.FileTemplate, printInfo); err != nil {
 				return err
 			}
@@ -156,10 +153,7 @@ func (operation *operation) writePrintFiles(
 	if operation.request.Simulate {
 		return nil, 0, nil
 	}
-	outputRoot := operation.request.OutputDir
-	if outputRoot == "" {
-		outputRoot = "."
-	}
+	outputRoot := operation.request.outputRoot(OutputPathHome)
 	artifacts := make([]Artifact, 0)
 	var total int64
 	for _, rule := range operation.request.PrintRules {
@@ -589,10 +583,7 @@ func formatPrintDuration(seconds float64) string {
 func (operation *operation) printFilename(info value.Info, selections []mediaformat.Selection) (string, error) {
 	pattern := operation.request.outputTemplate(OutputTemplateDefault)
 	outputInfo := selectedFormatInfo(info, selections)
-	outputDir := operation.request.OutputDir
-	if outputDir == "" {
-		outputDir = "."
-	}
+	outputDir := operation.request.outputRoot(OutputPathHome)
 	filename, err := outputtemplate.Resolve(outputDir, pattern, outputInfo)
 	if err != nil {
 		return "", err
