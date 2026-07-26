@@ -1,7 +1,7 @@
 # Vimeo public album and showcase evidence
 
-Status: compatible for bounded anonymous public numeric Vimeo album and
-showcase roots.
+Status: compatible for bounded anonymous public numeric and safe-slug Vimeo
+album and showcase roots.
 
 Pinned behavioral reference:
 `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`,
@@ -11,18 +11,25 @@ Pinned behavioral reference:
 
 - `https://vimeo.com/album/{positive-numeric-id}`
 - `https://vimeo.com/showcase/{positive-numeric-id}`
+- `https://vimeo.com/album/{safe-public-slug}`
+- `https://vimeo.com/showcase/{safe-public-slug}`
 
-Extraction obtains an anonymous viewer application JWT, requests public album
-metadata, and lazily pages the album videos API at 100 rows per page. Playlist
-ID, title, description, and original album/showcase webpage identity are
-preserved. Video entries are transparent canonical Vimeo URLs; malformed,
-cross-origin, or link/URI-disagreeing rows are skipped, and duplicates retain
-first occurrence order.
+Safe slugs are first resolved through Vimeo's exact anonymous showcase
+resolver endpoint. Extraction then obtains an anonymous viewer application
+JWT, requests public album metadata, and lazily pages the album videos API at
+100 rows per page. The resolved positive numeric ID, title, description, and
+original slug or numeric webpage identity are preserved. Video entries are
+transparent canonical Vimeo URLs; malformed, cross-origin, or
+link/URI-disagreeing rows are skipped, and duplicates retain first occurrence
+order.
 
 ## Credential boundary
 
-The viewer request requires credential-isolated, no-redirect transport. API
-requests use a dedicated scoped-authorization transport that:
+The slug resolver and viewer requests require credential-isolated, no-redirect
+transport. The resolver is an exact locally constructed HTTPS URL, sends
+`X-Requested-With: XMLHttpRequest`, and accepts a positive integer identity
+from bounded JSON on the pinned 200/401/403 statuses. API requests use a
+dedicated scoped-authorization transport that:
 
 - retains only the extractor-generated JWT Authorization header;
 - strips operation/default Authorization, Proxy-Authorization, and Cookie
@@ -46,8 +53,8 @@ unknown privacy, and exhausted bounds fail explicitly. Password/private/
 unlisted albums fail as authentication-required.
 
 Routes reject HTTP, credentials, ports, queries, fragments, trailing or extra
-paths, encoded identifiers/separators, lookalike hosts, zero/non-numeric IDs,
-and slug/embed forms before I/O.
+paths, encoded identifiers/separators, lookalike hosts, zero/overflow numeric
+IDs, unsafe/non-ASCII/oversized slugs, and embed forms before I/O.
 
 ## Evidence
 
@@ -55,12 +62,15 @@ and slug/embed forms before I/O.
 | --- | --- |
 | Scoped application authorization isolation | `TestDoWithScopedAuthorizationNoRedirect*` |
 | Exact route and no-I/O hostile rejection | `TestVimeoAlbumRoutesAndUnsafeRejection` |
+| Slug resolution and requested-identity preservation | `TestVimeoAlbumSlugResolutionPreservesRequestedIdentity` |
+| Resolver statuses, strict identity JSON, bounds, and categorization | `TestVimeoAlbumSlugResolverAcceptedStatuses`, `TestVimeoAlbumSlugResolverFailuresAreCategorized` |
 | Metadata, laziness, reuse, row validation | `TestVimeoAlbumPlaylistIsLazyReusableAndFiltersHostileRows` |
 | Pagination order, dedupe, short/400 ending | `TestVimeoAlbumMultiPageOrderDedupeAndHTTP400End` |
 | Expiry-aware JWT refresh across delayed/reused iteration | `TestVimeoAlbumRefreshesJWTForDelayedReusableIteration` |
 | One-shot JWT refresh after authorization rejection | `TestVimeoAlbumRefreshesJWTOnceAfterAuthorizationRejection` |
 | Capability, privacy, token, status, cancellation | `TestVimeoAlbumFailuresCapabilityAndCancellation` |
 | Classifier round-trip and dispatch invariants | `FuzzClassifyVimeoAlbumURL` |
+| Resolved numeric identity invariants | `FuzzParseVimeoAlbumSlugID` |
 | Video row URL/URI identity invariants | `FuzzVimeoAlbumVideoEntry` |
 
 Fixture provenance is recorded in
@@ -68,8 +78,9 @@ Fixture provenance is recorded in
 
 ## Deliberate limits
 
-Non-numeric showcase slugs, embeds, referrer propagation, password submission,
+Vimeo slugs outside the deliberately narrow ASCII letter/digit/underscore/
+hyphen grammar, embeds, referrer propagation, password submission,
 authenticated/private/unlisted albums, and live-service compatibility claims
 remain out of scope. The fixture corpus establishes deterministic conformance;
-the volatile viewer/API flow still requires an opt-in live canary before a live
-compatibility claim.
+the volatile resolver/viewer/API flow still requires an opt-in live canary
+before a live compatibility claim.
