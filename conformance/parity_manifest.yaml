@@ -1964,7 +1964,32 @@ capabilities:
       - internal/compat.TestPinnedCompatibilityCorpus
       - conformance/compatibility/PROVENANCE.md
     owner: core
-    known_deviation: Compatibility is claimed only for the checked-in Phase 1 syntax corpus and the output types currently produced by the port. Annotation, chapter, per-path, and other unimplemented artifact types remain outside this claim.
+    known_deviation: Compatibility is claimed only for the checked-in Phase 1 syntax corpus and the output types currently produced by the port. Annotation, chapter, and other unimplemented artifact types remain outside this claim.
+
+  - id: compat.output_paths
+    name: Per-type output paths
+    phase: 2
+    compatibility_target: Route each currently produced media, subtitle, thumbnail, metadata, and playlist artifact through a repeatable typed output path with deterministic precedence and home fallback.
+    status: compatible
+    evidence:
+      - pkg/ytdlp.TestOutputPathResolutionAndValidation
+      - pkg/ytdlp.TestClientRoutesMediaSubtitlesAndRelatedFilesByType
+      - pkg/ytdlp.TestPlaylistAndThumbnailOutputPaths
+      - pkg/ytdlp.TestClientRejectsUnsafeOutputPathsBeforeExtractionAndClonesMap
+      - pkg/ytdlp.TestTypedOutputRootsRejectSymlinkEscapesFromHome
+      - pkg/ytdlp.FuzzValidateOutputPaths
+      - internal/cli.TestParseOutputPathSpecification
+      - internal/cli.TestHomePathFromArgsUsesSharedTypedParser
+      - internal/cli.TestRunRoutesArtifactsThroughTypedOutputPaths
+      - internal/cli.TestRunOutputPathPrecedenceAcrossConfigAndOutputDir
+      - internal/cli.TestRunTypedOutputPathCanResetConfiguredValue
+      - internal/cli.FuzzParseOutputPathSpecification
+      - conformance/output-paths/PROVENANCE.md
+    owner: core
+    depends_on:
+      - compat.output_template_pilot
+      - compat.configuration
+    known_deviation: Compatibility covers home plus the artifact types currently produced by the port. Typed directories are deliberately required to be relative children beneath home rather than replacing it with an absolute path. The upstream temp, chapter, annotation, and pl_video path types remain outside this claim until their corresponding artifact lifecycles exist.
 
   - id: conformance.differential_runner
     name: Differential conformance runner

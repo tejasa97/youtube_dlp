@@ -41,10 +41,7 @@ func (operation *operation) convertSelectedSubtitles(
 			return nil, nil, false, fmt.Errorf("%w: subtitle source is not a regular file", ffmpeg.ErrInvalidOperation)
 		}
 		destination := strings.TrimSuffix(source, filepath.Ext(source)) + "." + extension
-		outputRoot := operation.request.OutputDir
-		if outputRoot == "" {
-			outputRoot = "."
-		}
+		outputRoot := operation.request.outputRoot(OutputPathHome)
 		destination, err = confinedPostprocessPath(outputRoot, destination)
 		if err != nil {
 			return nil, nil, false, err

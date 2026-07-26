@@ -248,6 +248,9 @@ func validateRequestOptions(request Request) error {
 	if err := validateOutputTemplates(request); err != nil {
 		return fmt.Errorf("%w: %v", errInvalidRequestOptions, err)
 	}
+	if err := validateOutputPaths(request); err != nil {
+		return fmt.Errorf("%w: %v", errInvalidRequestOptions, err)
+	}
 	options := request.Downloader
 	if options.Attempts < 0 || options.Attempts > 100 ||
 		options.RetryBaseDelay < 0 || options.RetryMaxDelay < 0 ||

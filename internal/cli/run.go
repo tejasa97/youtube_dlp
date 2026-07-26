@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -70,8 +71,8 @@ func RunContextIO(ctx context.Context, args []string, stdin io.Reader, stdout, s
 	flags.Var(&outputTemplates, "output", "output filename template, optionally TYPES:TEMPLATE (repeatable)")
 	flags.Var(&outputTemplates, "o", "alias for --output")
 	outputDir := flags.String("output-dir", ".", "directory that confines output files")
-	paths := &homePathFlag{target: outputDir}
-	flags.Var(paths, "paths", "set a home output/config path (home:PATH)")
+	paths := &outputPathFlag{home: outputDir}
+	flags.Var(paths, "paths", "set an output path, optionally TYPES:PATH (repeatable)")
 	flags.Var(paths, "P", "alias for --paths")
 	writeInfoJSON := flags.Bool("write-info-json", false, "write video metadata to a .info.json sidecar (may contain personal information)")
 	flags.BoolFunc("no-write-info-json", "disable writing metadata sidecars", func(string) error {
@@ -511,7 +512,7 @@ func RunContextIO(ctx context.Context, args []string, stdin io.Reader, stdout, s
 		interactiveMatchFilter = newInteractiveMatchFilterPrompt(stdin, stderr)
 	}
 	result, err := client.Run(ctx, ytdlp.Request{
-		URL: flags.Arg(0), OutputTemplates: outputTemplates.clone(), OutputDir: *outputDir, Proxy: *proxy, ImpersonationProfile: *impersonationProfile,
+		URL: flags.Arg(0), OutputTemplates: outputTemplates.clone(), OutputDir: *outputDir, OutputPaths: paths.clone(), Proxy: *proxy, ImpersonationProfile: *impersonationProfile,
 		CookieFile: *cookieFile, CookiesFromBrowser: *cookiesFromBrowser, UseNetRC: *useNetRC, NetRCLocation: *netRCLocation, DownloadArchive: *downloadArchive, CacheDir: *cacheDir,
 		Timeout: *timeout, Overwrite: *overwrite, Simulate: requestSimulate, SkipDownload: *skipDownload, LiveFromStart: *liveFromStart,
 		Format: *format, FormatSort: append([]string(nil), formatSort...),
@@ -1188,27 +1189,106 @@ func (value *byteSizeFlag) Set(input string) error {
 	return nil
 }
 
-type homePathFlag struct{ target *string }
-
-func (value *homePathFlag) String() string {
-	if value.target == nil {
-		return ""
-	}
-	return *value.target
+type outputPathFlag struct {
+	home   *string
+	values ytdlp.OutputPaths
 }
 
-func (value *homePathFlag) Set(input string) error {
-	kind, path, typed := strings.Cut(input, ":")
-	if !typed {
-		path = kind
-	} else if kind != "home" {
-		return fmt.Errorf("unsupported --paths type %q", kind)
+func (value *outputPathFlag) String() string {
+	if value == nil || value.home == nil {
+		return ""
 	}
-	if path == "" {
-		return errors.New("home path must not be empty")
+	return *value.home
+}
+
+func (value *outputPathFlag) Set(input string) error {
+	types, path, err := parseOutputPathSpecification(input)
+	if err != nil {
+		return err
 	}
-	*value.target = path
+	path = strings.TrimSpace(path)
+	for _, pathType := range types {
+		if pathType == ytdlp.OutputPathHome {
+			if path == "" {
+				path = "."
+			}
+			*value.home = path
+			continue
+		}
+		if value.values == nil {
+			value.values = make(ytdlp.OutputPaths)
+		}
+		if path == "" || filepath.Clean(path) == "." {
+			delete(value.values, pathType)
+		} else {
+			value.values[pathType] = path
+		}
+	}
 	return nil
+}
+
+func (value *outputPathFlag) clone() ytdlp.OutputPaths {
+	if value == nil || len(value.values) == 0 {
+		return nil
+	}
+	result := make(ytdlp.OutputPaths, len(value.values))
+	for pathType, path := range value.values {
+		result[pathType] = path
+	}
+	return result
+}
+
+func parseOutputPathSpecification(input string) ([]ytdlp.OutputPathType, string, error) {
+	if input == "" || strings.ContainsRune(input, 0) {
+		return nil, "", errors.New("output path must not be empty")
+	}
+	prefix, path, separated := strings.Cut(input, ":")
+	if !separated {
+		return []ytdlp.OutputPathType{ytdlp.OutputPathHome}, input, nil
+	}
+	parts := strings.Split(prefix, ",")
+	types := make([]ytdlp.OutputPathType, 0, len(parts))
+	hasUnknown := false
+	var unimplemented string
+	for _, part := range parts {
+		pathType := ytdlp.OutputPathType(strings.ToLower(part))
+		if supportedCLIOutputPathType(pathType) {
+			types = append(types, pathType)
+		} else if recognizedUnimplementedOutputPathType(pathType) {
+			if unimplemented == "" {
+				unimplemented = part
+			}
+		} else {
+			hasUnknown = true
+		}
+	}
+	if hasUnknown {
+		return []ytdlp.OutputPathType{ytdlp.OutputPathHome}, input, nil
+	}
+	if unimplemented != "" {
+		return nil, "", fmt.Errorf("unsupported output path type %q", unimplemented)
+	}
+	return types, path, nil
+}
+
+func supportedCLIOutputPathType(pathType ytdlp.OutputPathType) bool {
+	switch pathType {
+	case ytdlp.OutputPathHome, ytdlp.OutputPathSubtitle, ytdlp.OutputPathThumbnail,
+		ytdlp.OutputPathDescription, ytdlp.OutputPathInfoJSON, ytdlp.OutputPathLink,
+		ytdlp.OutputPathPLDescription, ytdlp.OutputPathPLInfoJSON, ytdlp.OutputPathPLThumbnail:
+		return true
+	default:
+		return false
+	}
+}
+
+func recognizedUnimplementedOutputPathType(pathType ytdlp.OutputPathType) bool {
+	switch pathType {
+	case "temp", "chapter", "annotation", "pl_video":
+		return true
+	default:
+		return false
+	}
 }
 
 func homePathFromArgs(args []string) string {
@@ -1228,11 +1308,15 @@ func homePathFromArgs(args []string) string {
 		default:
 			continue
 		}
-		kind, path, typed := strings.Cut(value, ":")
-		if !typed {
-			result = kind
-		} else if kind == "home" {
-			result = path
+		types, path, err := parseOutputPathSpecification(value)
+		if err != nil {
+			continue
+		}
+		for _, pathType := range types {
+			if pathType == ytdlp.OutputPathHome {
+				result = path
+				break
+			}
 		}
 	}
 	return result

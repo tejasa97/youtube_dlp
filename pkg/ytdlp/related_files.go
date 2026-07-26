@@ -76,10 +76,6 @@ func (operation *operation) writeRelatedFiles(ctx context.Context, info value.In
 		return nil, 0, nil
 	}
 
-	outputRoot := operation.request.OutputDir
-	if outputRoot == "" {
-		outputRoot = "."
-	}
 	artifacts := make([]Artifact, 0, len(files))
 	var total int64
 	for _, file := range files {
@@ -87,6 +83,7 @@ func (operation *operation) writeRelatedFiles(ctx context.Context, info value.In
 			return artifacts, total, err
 		}
 		templateType := outputTemplateTypeForRelatedFile(file.kind, playlist)
+		outputRoot := operation.request.outputRoot(outputPathTypeForTemplate(templateType))
 		pattern := operation.request.outputTemplate(templateType)
 		destination, err := relatedFilePath(outputRoot, pattern, info, file.extension)
 		if err != nil {
@@ -99,7 +96,7 @@ func (operation *operation) writeRelatedFiles(ctx context.Context, info value.In
 		if len(content) > maxRelatedFileBytes {
 			return artifacts, total, fmt.Errorf("%w: related file exceeds %d bytes", extractor.ErrInvalidMetadata, maxRelatedFileBytes)
 		}
-		if err := prepareRelatedDestination(outputRoot, destination); err != nil {
+		if err := prepareRelatedDestination(operation.request.outputRoot(OutputPathHome), destination); err != nil {
 			return artifacts, total, err
 		}
 		size, err := writeAtomicRelatedFile(ctx, destination, content, operation.request.Overwrite)

@@ -352,10 +352,7 @@ func (operation *operation) downloadSubtitles(ctx context.Context, info value.In
 	if len(tracks) == 0 {
 		return nil, 0, nil
 	}
-	outputRoot := operation.request.OutputDir
-	if outputRoot == "" {
-		outputRoot = "."
-	}
+	outputRoot := operation.request.outputRoot(OutputPathSubtitle)
 	pattern := operation.request.outputTemplate(OutputTemplateSubtitle)
 	artifacts := make([]Artifact, 0, len(tracks))
 	var total int64
@@ -379,7 +376,7 @@ func (operation *operation) downloadSubtitles(ctx context.Context, info value.In
 			options.MaxBytes = maxSubtitleBytes
 		}
 		result, err := downloader.New(operation.transport).Download(ctx, downloader.Job{
-			URL: track.rawURL, Headers: track.headers, OutputRoot: outputRoot, Destination: destination,
+			URL: track.rawURL, Headers: track.headers, OutputRoot: operation.request.outputRoot(OutputPathHome), Destination: destination,
 			Overwrite: operation.request.Overwrite, Attempts: options.Attempts,
 			RetryBaseDelay: options.RetryBaseDelay, RetryMaxDelay: options.RetryMaxDelay,
 			RateLimit: options.RateLimit, MaxBytes: options.MaxBytes,
