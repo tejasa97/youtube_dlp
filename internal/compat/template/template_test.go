@@ -40,6 +40,50 @@ func TestRenderSubset(t *testing.T) {
 	}
 }
 
+func TestValidateIsSyntaxOnly(t *testing.T) {
+	for _, pattern := range []string{
+		"%(start_time-2)D",
+		"%(missing)d",
+		"%(categories)l",
+		"",
+	} {
+		if err := Validate(pattern); err != nil {
+			t.Errorf("Validate(%q) = %v", pattern, err)
+		}
+	}
+	for _, pattern := range []string{
+		"%(field",
+		"%(field)999999s",
+		"%(field&)s",
+		"%(field+)d",
+	} {
+		if err := Validate(pattern); !errors.Is(err, ErrInvalidTemplate) {
+			t.Errorf("Validate(%q) = %v", pattern, err)
+		}
+	}
+}
+
+func FuzzValidate(f *testing.F) {
+	for _, seed := range []string{
+		"%(category_names)l",
+		"%(start_time-2)D",
+		"%(field",
+		"literal %% text",
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, pattern string) {
+		if len(pattern) > maxTemplateBytes+1 {
+			t.Skip()
+		}
+		first := Validate(pattern)
+		second := Validate(pattern)
+		if (first == nil) != (second == nil) {
+			t.Fatalf("nondeterministic validation: first=%v second=%v", first, second)
+		}
+	})
+}
+
 func TestRenderTraversalAlternativesDefaultsAndReplacement(t *testing.T) {
 	pattern := "%(missing,uploader|anonymous)s %(missing|anonymous)s %(uploader&by {}|unknown)s %(chapters.-1.title)s"
 	got, err := Render(pattern, fixtureInfo())

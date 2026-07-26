@@ -196,6 +196,36 @@ func TestSponsorBlockRemoveNoopWithoutCuts(t *testing.T) {
 	}
 }
 
+func TestSponsorBlockDeferredArrangementUsesCustomChapterTitle(t *testing.T) {
+	pattern := "%(start_time).0f-%(end_time).0f:%(category)s:%(categories)l:%(name)s:%(category_names)l"
+	arranged, err := arrangeChapterRemoveWithTitle(
+		[]sponsorblock.NormalChapter{{StartTime: 0, EndTime: 30, Title: "Video", Source: 0}},
+		[]sponsorblock.Chapter{
+			{StartTime: 2, EndTime: 5, Category: "intro", Title: "Intro", Type: "skip"},
+			{StartTime: 10, EndTime: 15, Category: "sponsor", Title: "Sponsor", Type: "skip"},
+		},
+		[]string{"intro"}, nil, nil, 30, "Video", true, sponsorBlockChapterTitleRenderer(&pattern))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(arranged.Cuts) != 1 || arranged.Cuts[0].Start != 2 || arranged.Cuts[0].End != 5 {
+		t.Fatalf("cuts = %#v", arranged.Cuts)
+	}
+	found := false
+	for _, chapter := range arranged.Chapters {
+		if chapter.Sponsor && chapter.Category == "sponsor" {
+			found = true
+			if chapter.StartTime != 7 || chapter.EndTime != 12 ||
+				chapter.Title != "7-12:sponsor:sponsor:Sponsor:Sponsor" {
+				t.Fatalf("retimed sponsor = %#v", chapter)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("arranged = %#v", arranged.Chapters)
+	}
+}
+
 func TestSponsorBlockFetchCategoriesUnionsRemoveSet(t *testing.T) {
 	got := sponsorBlockFetchCategories(SponsorBlockOptions{
 		Categories:       []string{"sponsor", "intro"},

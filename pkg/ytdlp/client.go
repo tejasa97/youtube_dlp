@@ -264,6 +264,10 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 			client.telemetry.observe(extractorName, outcome)
 		}()
 	}
+	if request.SponsorBlock.ChapterTitle != nil {
+		chapterTitle := *request.SponsorBlock.ChapterTitle
+		request.SponsorBlock.ChapterTitle = &chapterTitle
+	}
 	if err := validateRequestOptions(request); err != nil {
 		return Result{}, categorized("validate request options", err)
 	}

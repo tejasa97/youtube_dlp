@@ -3,7 +3,6 @@ package sponsorblock
 import (
 	"math"
 	"sort"
-	"strings"
 )
 
 const (
@@ -38,6 +37,18 @@ type MarkedChapter struct {
 // MarkChapters overlays normalized SponsorBlock chapters onto ordinary
 // chapters. It is pure and bounded and never mutates either input slice.
 func MarkChapters(normal []NormalChapter, sponsors []Chapter, duration float64, videoTitle string) ([]MarkedChapter, error) {
+	return MarkChaptersWithTitle(normal, sponsors, duration, videoTitle, nil)
+}
+
+// MarkChaptersWithTitle is MarkChapters with a caller-provided bounded title
+// renderer applied after tiny-fragment handling and before title coalescing.
+func MarkChaptersWithTitle(
+	normal []NormalChapter,
+	sponsors []Chapter,
+	duration float64,
+	videoTitle string,
+	renderer ChapterTitleRenderer,
+) ([]MarkedChapter, error) {
 	if !finite(duration) || duration <= 0 {
 		return nil, errorf(ErrInvalidInput, "mark duration")
 	}
@@ -116,6 +127,20 @@ func MarkChapters(normal []NormalChapter, sponsors []Chapter, duration float64, 
 		atomic = append(atomic, sponsorMarkedChapter(active, start, end))
 	}
 	atomic = mergeTinyMarked(atomic)
+	for index := range atomic {
+		if !atomic[index].Sponsor {
+			continue
+		}
+		title, err := renderChapterTitle(renderer, ChapterTitleFields{
+			StartTime: atomic[index].StartTime, EndTime: atomic[index].EndTime,
+			Category: atomic[index].Category, Categories: atomic[index].Categories,
+			Name: atomic[index].Name, CategoryNames: atomic[index].CategoryNames,
+		})
+		if err != nil {
+			return nil, err
+		}
+		atomic[index].Title = title
+	}
 	result := coalesceMarkedSponsors(atomic)
 	if len(result) > maxMarkedChapters {
 		return nil, errorf(ErrInvalidInput, "marked chapter limit")
@@ -175,7 +200,7 @@ func sponsorMarkedChapter(active []Chapter, start, end float64) MarkedChapter {
 		}
 	}
 	return MarkedChapter{
-		StartTime: start, EndTime: end, Title: "[SponsorBlock]: " + strings.Join(names, ", "),
+		StartTime: start, EndTime: end,
 		Source: -1, Sponsor: true, Category: active[shortest].Category,
 		Categories: categories, Name: active[shortest].Title, CategoryNames: names,
 		Type: active[shortest].Type, modified: true,

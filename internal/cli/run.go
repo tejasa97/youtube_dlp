@@ -300,6 +300,12 @@ func RunContextIO(ctx context.Context, args []string, stdin io.Reader, stdout, s
 		return nil
 	})
 	sponsorBlockAPI := flags.String("sponsorblock-api", "", "SponsorBlock API origin (default https://sponsor.ajay.app)")
+	var sponsorBlockChapterTitle *string
+	flags.Func("sponsorblock-chapter-title", "bounded output template for marked SponsorBlock chapter titles", func(input string) error {
+		value := input
+		sponsorBlockChapterTitle = &value
+		return nil
+	})
 	flags.Var(&removeChapters, "remove-chapters", "remove chapters matching REGEX or manual *START-END ranges (repeatable)")
 	flags.BoolFunc("no-remove-chapters", "clear inherited chapter and manual range removal", func(input string) error {
 		enabled, err := strconv.ParseBool(input)
@@ -444,11 +450,12 @@ func RunContextIO(ctx context.Context, args []string, stdin io.Reader, stdout, s
 		fmt.Fprintln(stderr, "ytdlp-go: force-keyframes-at-cuts requires --remove-chapters or --sponsorblock-remove")
 		return 2
 	}
-	sponsorBlockOptions, err := buildSponsorBlockOptions(
+	sponsorBlockOptions, err := buildSponsorBlockOptionsWithTitle(
 		sponsorBlockMark,
 		sponsorBlockRemove,
 		*sponsorBlockAPI,
 		sponsorBlockForceKeyframes && len(sponsorBlockRemove) > 0,
+		sponsorBlockChapterTitle,
 	)
 	if err != nil {
 		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
@@ -823,7 +830,15 @@ func defaultRemoveCategoryStrings() []string {
 }
 
 func buildSponsorBlockOptions(mark, remove []string, apiBase string, forceKeyframes bool) (ytdlp.SponsorBlockOptions, error) {
+	return buildSponsorBlockOptionsWithTitle(mark, remove, apiBase, forceKeyframes, nil)
+}
+
+func buildSponsorBlockOptionsWithTitle(mark, remove []string, apiBase string, forceKeyframes bool, chapterTitle *string) (ytdlp.SponsorBlockOptions, error) {
 	options := ytdlp.SponsorBlockOptions{APIBase: strings.TrimSpace(apiBase)}
+	if chapterTitle != nil {
+		title := *chapterTitle
+		options.ChapterTitle = &title
+	}
 	if options.APIBase != "" {
 		if err := validateSponsorBlockAPIBase(options.APIBase); err != nil {
 			return ytdlp.SponsorBlockOptions{}, err

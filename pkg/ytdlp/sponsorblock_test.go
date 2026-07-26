@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync/atomic"
@@ -20,12 +23,20 @@ import (
 )
 
 func TestSponsorBlockOptionsValidation(t *testing.T) {
+	emptyTitle := ""
+	customTitle := "%(category_names)l"
+	dataDependentTitle := "%(start_time-2)D"
+	invalidTitle := "%(category"
 	for _, tc := range []struct {
 		name    string
 		options SponsorBlockOptions
 		want    bool
 	}{
 		{"disabled", SponsorBlockOptions{Enabled: false}, true},
+		{"disabled explicit empty title", SponsorBlockOptions{ChapterTitle: &emptyTitle}, true},
+		{"disabled valid title", SponsorBlockOptions{ChapterTitle: &customTitle}, true},
+		{"disabled data-dependent title", SponsorBlockOptions{ChapterTitle: &dataDependentTitle}, true},
+		{"disabled invalid title", SponsorBlockOptions{ChapterTitle: &invalidTitle}, false},
 		{"mark while disabled", SponsorBlockOptions{Mark: true}, false},
 		{"remove while disabled", SponsorBlockOptions{Remove: true}, false},
 		{"force keyframes while disabled", SponsorBlockOptions{ForceKeyframes: true}, false},
@@ -53,6 +64,98 @@ func TestSponsorBlockOptionsValidation(t *testing.T) {
 				t.Fatal("validate = nil, want error")
 			}
 		})
+	}
+}
+
+func TestSponsorBlockCustomChapterTitleUsesPinnedFields(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, `[{"videoID":"abc","segments":[
+			{"segment":[10,30],"category":"sponsor","actionType":"skip","videoDuration":60},
+			{"segment":[20,25],"category":"selfpromo","actionType":"skip","videoDuration":60}
+		]}]`)
+	}))
+	defer server.Close()
+	transport, err := network.New(network.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer transport.CloseIdleConnections()
+	pattern := "%(start_time).0f-%(end_time).0f|%(category)s|%(categories)l|%(name)s|%(category_names)l"
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("abc")},
+		value.Field{Key: "title", Value: value.String("Video")},
+		value.Field{Key: "duration", Value: value.Int(60)},
+	))
+	operation := &operation{
+		request: Request{SponsorBlock: SponsorBlockOptions{
+			Enabled: true, Mark: true, Categories: []string{"sponsor", "selfpromo"},
+			APIBase: server.URL, ChapterTitle: &pattern,
+		}},
+		transport: transport,
+	}
+	if err := operation.enrichWithSponsorBlock(context.Background(), "youtube", &info); err != nil {
+		t.Fatal(err)
+	}
+	chapters, _ := info.Lookup("chapters").ListValue()
+	var overlap string
+	var details []string
+	for _, raw := range chapters {
+		object, _ := raw.Object()
+		start, _ := sponsorblockNumber(object.Lookup("start_time"))
+		end, _ := sponsorblockNumber(object.Lookup("end_time"))
+		title, _ := object.Lookup("title").StringValue()
+		details = append(details, fmt.Sprintf("%g-%g:%s", start, end, title))
+		if start == 20 && end == 25 {
+			overlap = title
+		}
+	}
+	want := "20-25|selfpromo|sponsor, selfpromo|Unpaid/Self Promotion|Sponsor, Unpaid/Self Promotion"
+	if overlap != want {
+		t.Fatalf("overlap title = %q, want %q; chapters=%#v", overlap, want, details)
+	}
+}
+
+func TestSponsorBlockExplicitEmptyChapterTitle(t *testing.T) {
+	empty := ""
+	renderer := sponsorBlockChapterTitleRenderer(&empty)
+	title, err := renderer(sponsorblock.ChapterTitleFields{
+		Category: "sponsor", Categories: []string{"sponsor"},
+		Name: "Sponsor", CategoryNames: []string{"Sponsor"},
+	})
+	if err != nil || title != "" {
+		t.Fatalf("title=%q error=%v", title, err)
+	}
+}
+
+func TestSponsorBlockChapterTitleConformanceFixture(t *testing.T) {
+	var fixture struct {
+		Template string `json:"template"`
+		Fields   struct {
+			StartTime     float64  `json:"start_time"`
+			EndTime       float64  `json:"end_time"`
+			Category      string   `json:"category"`
+			Categories    []string `json:"categories"`
+			Name          string   `json:"name"`
+			CategoryNames []string `json:"category_names"`
+		} `json:"fields"`
+		Expected string `json:"expected"`
+	}
+	data, err := os.ReadFile(filepath.Join("..", "..", "conformance", "sponsorblock", "sample_chapter_titles.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	renderer := sponsorBlockChapterTitleRenderer(&fixture.Template)
+	got, err := renderer(sponsorblock.ChapterTitleFields{
+		StartTime: fixture.Fields.StartTime, EndTime: fixture.Fields.EndTime,
+		Category: fixture.Fields.Category, Categories: fixture.Fields.Categories,
+		Name: fixture.Fields.Name, CategoryNames: fixture.Fields.CategoryNames,
+	})
+	if err != nil || got != fixture.Expected {
+		t.Fatalf("title=%q want=%q error=%v", got, fixture.Expected, err)
 	}
 }
 

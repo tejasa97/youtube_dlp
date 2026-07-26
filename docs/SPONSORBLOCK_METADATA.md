@@ -42,6 +42,7 @@ type SponsorBlockOptions struct {
     RemoveCategories []string
     ForceKeyframes   bool
     APIBase          string
+    ChapterTitle     *string
 }
 
 type Request struct {
@@ -105,6 +106,15 @@ deterministic tests and self-hosted deployments that implement
 the same API. Only `http` and `https` schemes with a non-empty
 host are accepted.
 
+`ChapterTitle` customizes marked SponsorBlock chapter titles. `nil` selects
+the pinned default `[SponsorBlock]: %(category_names)l`; a pointer to an empty
+string intentionally creates empty titles. Rendering happens after
+cut/tiny-fragment arrangement and before adjacent equal-title coalescing, so
+the template can affect coalescing where the reference does. Available fields
+are `start_time`, `end_time`, `category`, `categories`, `name`,
+and `category_names`. The shared bounded Go template engine is used
+without shell or path evaluation.
+
 ## CLI flags
 
 The CLI exposes SponsorBlock metadata, marking, and removal with
@@ -115,6 +125,7 @@ yt-dlp-familiar names:
 | `--sponsorblock-mark CATEGORIES` | Sets `Enabled=true`, `Mark=true`, and accumulates mark categories into `Categories` |
 | `--sponsorblock-remove CATEGORIES` | Sets `Enabled=true`, `Remove=true`, and accumulates the resolved remove set into `RemoveCategories` (and the fetch union) |
 | `--sponsorblock-api URL` | Sets `APIBase` (kept even when mark/remove are later disabled) |
+| `--sponsorblock-chapter-title TEMPLATE` | Sets the marked chapter title template; repeated/config values use scalar last-wins behavior and explicit empty is preserved |
 | `--remove-chapters REGEX` | Appends a title-search expression, or a comma-separated manual range list when the value starts with `*` |
 | `--no-remove-chapters` | Clears inherited title and manual range removals |
 | `--force-keyframes-at-cuts` | Enables force-keyframes for any chapter, manual range, or SponsorBlock removal |
@@ -141,7 +152,8 @@ deterministic union of both sets.
 `--no-sponsorblock` is applied after option parsing (matching pinned
 yt-dlp `opts.no_sponsorblock`), so it clears both mark and remove
 regardless of whether those flags appear before or after it in config or
-on the command line while preserving `--sponsorblock-api`. It does not clear
+on the command line while preserving `--sponsorblock-api` and
+`--sponsorblock-chapter-title`. It does not clear
 independent `--remove-chapters` rules or their force-keyframes setting.
 Unknown identifiers, explicit empty values such as `--sponsorblock-mark=`,
 and `--force-keyframes-at-cuts` without any chapter, range, or SponsorBlock
@@ -417,7 +429,6 @@ remain unimplemented or intentionally different in this release:
   (PeerTube, Vimeo, etc.).
 - Python-only regular-expression constructs for ordinary chapter removal;
   the native implementation uses bounded Go RE2 syntax.
-- Custom `--sponsorblock-chapter-title` templates.
 - yt-dlp's warn-and-continue policy for unsupported external
   subtitle formats during remove (this port fails closed instead).
 

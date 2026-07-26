@@ -2,7 +2,6 @@ package sponsorblock
 
 import (
 	"container/heap"
-	"strings"
 )
 
 const maxArrangeChapters = 4000
@@ -67,6 +66,11 @@ func (h *arrangeHeap) Pop() any {
 // Arrange faithfully ports yt-dlp's marked-chapter arrangement. It is pure:
 // neither the input chapters nor their category slices are mutated.
 func Arrange(chapters []ArrangeChapter) (ArrangeResult, error) {
+	return ArrangeWithTitle(chapters, nil)
+}
+
+// ArrangeWithTitle is Arrange with a caller-provided bounded title renderer.
+func ArrangeWithTitle(chapters []ArrangeChapter, renderer ChapterTitleRenderer) (ArrangeResult, error) {
 	if len(chapters) > maxArrangeChapters {
 		return ArrangeResult{}, errorf(ErrInvalidInput, "arrange chapter limit")
 	}
@@ -230,7 +234,11 @@ func Arrange(chapters []ArrangeChapter) (ArrangeResult, error) {
 		appendChapter(current)
 	}
 
-	return ArrangeResult{Chapters: removeTinyRenameSponsors(out), Cuts: cuts}, nil
+	arranged, err := removeTinyRenameSponsors(out, renderer)
+	if err != nil {
+		return ArrangeResult{}, err
+	}
+	return ArrangeResult{Chapters: arranged, Cuts: cuts}, nil
 }
 
 func validateArrangeChapter(chapter ArrangeChapter) error {
@@ -249,7 +257,7 @@ func validateArrangeChapter(chapter ArrangeChapter) error {
 	return nil
 }
 
-func removeTinyRenameSponsors(chapters []*arrangeWork) []ArrangeChapter {
+func removeTinyRenameSponsors(chapters []*arrangeWork, renderer ChapterTitleRenderer) ([]ArrangeChapter, error) {
 	out := make([]ArrangeChapter, 0, len(chapters))
 	for i, chapter := range chapters {
 		if (chapter.wasCut || len(chapter.Categories) > 0) &&
@@ -290,7 +298,15 @@ func removeTinyRenameSponsors(chapters []*arrangeWork) []ArrangeChapter {
 			chapter.Sponsor, chapter.Category = true, selected.Category
 			chapter.CategoryList, chapter.Name, chapter.CategoryNames = categoryList, selected.Title, names
 			chapter.Source = -1
-			chapter.Title = "[SponsorBlock]: " + strings.Join(names, ", ")
+			title, err := renderChapterTitle(renderer, ChapterTitleFields{
+				StartTime: chapter.StartTime, EndTime: chapter.EndTime,
+				Category: chapter.Category, Categories: chapter.CategoryList,
+				Name: chapter.Name, CategoryNames: chapter.CategoryNames,
+			})
+			if err != nil {
+				return nil, err
+			}
+			chapter.Title = title
 			if n := len(out); n > 0 && out[n-1].Sponsor && out[n-1].Title == chapter.Title {
 				out[n-1].EndTime = chapter.EndTime
 				continue
@@ -298,7 +314,7 @@ func removeTinyRenameSponsors(chapters []*arrangeWork) []ArrangeChapter {
 		}
 		out = append(out, cloneArrangeChapter(chapter.ArrangeChapter))
 	}
-	return out
+	return out, nil
 }
 
 func cloneWork(chapter *arrangeWork) *arrangeWork {

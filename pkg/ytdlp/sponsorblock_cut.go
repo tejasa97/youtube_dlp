@@ -168,7 +168,9 @@ func (operation *operation) applyChapterCuts(ctx context.Context, info *value.In
 		ordinaryRemove = nil
 		manualRanges = nil
 	}
-	arranged, err := arrangeChapterRemove(normal, chapters, arrangeRemove, ordinaryRemove, manualRanges, duration, title, mark)
+	arranged, err := arrangeChapterRemoveWithTitle(
+		normal, chapters, arrangeRemove, ordinaryRemove, manualRanges, duration, title, mark,
+		sponsorBlockChapterTitleRenderer(operation.request.SponsorBlock.ChapterTitle))
 	if err != nil {
 		return mediaPath, artifacts, false, mapChapterCutError(cutOp, err)
 	}
@@ -286,6 +288,11 @@ func arrangeSponsorBlockRemove(normal []sponsorblock.NormalChapter, sponsors []s
 }
 
 func arrangeChapterRemove(normal []sponsorblock.NormalChapter, sponsors []sponsorblock.Chapter, removeCategories []string, ordinaryRemove map[int]struct{}, manualRanges []chapterremove.Range, duration float64, videoTitle string, mark bool) (sponsorblock.ArrangeResult, error) {
+	return arrangeChapterRemoveWithTitle(
+		normal, sponsors, removeCategories, ordinaryRemove, manualRanges, duration, videoTitle, mark, nil)
+}
+
+func arrangeChapterRemoveWithTitle(normal []sponsorblock.NormalChapter, sponsors []sponsorblock.Chapter, removeCategories []string, ordinaryRemove map[int]struct{}, manualRanges []chapterremove.Range, duration float64, videoTitle string, mark bool, renderer sponsorblock.ChapterTitleRenderer) (sponsorblock.ArrangeResult, error) {
 	removeSet := make(map[string]struct{}, len(removeCategories))
 	for _, category := range removeCategories {
 		removeSet[category] = struct{}{}
@@ -321,7 +328,8 @@ func arrangeChapterRemove(normal []sponsorblock.NormalChapter, sponsors []sponso
 			StartTime: chapter.StartTime, EndTime: chapter.EndTime,
 			Title: chapter.Title, Remove: remove, Source: -1,
 			Categories: []sponsorblock.CategorySpan{{
-				Category: chapter.Category, Start: chapter.StartTime, End: chapter.EndTime, Title: chapter.Title,
+				Category: chapter.Category, Start: chapter.StartTime, End: chapter.EndTime,
+				Title: chapter.Title,
 			}},
 		})
 	}
@@ -336,7 +344,7 @@ func arrangeChapterRemove(normal []sponsorblock.NormalChapter, sponsors []sponso
 			Source:    -1,
 		})
 	}
-	return sponsorblock.Arrange(input)
+	return sponsorblock.ArrangeWithTitle(input, renderer)
 }
 
 func (operation *operation) emitChapterRemovalWarning(ctx context.Context, message string) error {

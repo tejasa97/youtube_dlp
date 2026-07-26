@@ -2231,7 +2231,7 @@ capabilities:
   - id: metadata.sponsorblock_metadata
     name: SponsorBlock metadata fetch, marking, and FFmpeg cutting
     phase: 4
-    compatibility_target: When explicitly enabled in ytdlp.Request, query the SponsorBlock API for a YouTube video, expose deterministic sponsorblock_chapters, optionally overlay marked ranges onto ordinary chapters, arrange mixed Mark+Remove chapters on the post-cut timeline, surface duration-mismatch warnings, and optionally cut matching skip ranges from downloaded media with force-keyframes and subtitle sync for supported sidecars.
+    compatibility_target: When explicitly enabled in ytdlp.Request, query the SponsorBlock API for a YouTube video, expose deterministic sponsorblock_chapters, optionally overlay marked ranges with bounded custom chapter-title templates onto ordinary chapters, arrange mixed Mark+Remove chapters on the post-cut timeline, surface duration-mismatch warnings, and optionally cut matching skip ranges from downloaded media with force-keyframes and subtitle sync for supported sidecars.
     status: partial
     evidence:
       - internal/sponsorblock.TestCategoriesAndTitles
@@ -2284,6 +2284,11 @@ capabilities:
       - internal/sponsorblock.TestMarkChaptersTinyCreatedFragmentsFollowPinnedMergePolicy
       - internal/sponsorblock.TestMarkChaptersAdjacentIdenticalSponsorMarkersCoalesce
       - internal/sponsorblock.TestMarkChaptersValidationDeterminismAndImmutability
+      - internal/sponsorblock.TestMarkChaptersCustomTitleReceivesArrangedFields
+      - internal/sponsorblock.TestCustomTitleControlsCoalescingAndAllowsEmpty
+      - internal/sponsorblock.TestChapterTitleRendererFailureAndBoundAreSecretSafe
+      - internal/sponsorblock.TestArrangeCustomTitleObservesTinyPrependBoundary
+      - internal/compat/template.FuzzValidate
       - internal/sponsorblock.FuzzMarkChapters
       - internal/sponsorblock.TestIsRemovableCategory
       - internal/sponsorblock.TestFilterRemovableCategories
@@ -2312,6 +2317,9 @@ capabilities:
       - internal/media/ffmpeg.TestNormalizeForceKeyframeTimestamps
       - internal/media/ffmpeg.TestForceKeyframeAndConcatRangeLimits
       - pkg/ytdlp.TestSponsorBlockOptionsValidation
+      - pkg/ytdlp.TestSponsorBlockCustomChapterTitleUsesPinnedFields
+      - pkg/ytdlp.TestSponsorBlockExplicitEmptyChapterTitle
+      - pkg/ytdlp.TestSponsorBlockChapterTitleConformanceFixture
       - pkg/ytdlp.TestSponsorBlockProcessMediaInfoJSONAndCredentialIsolation
       - pkg/ytdlp.TestSponsorBlockDisabledUnsupportedAndMissingID
       - pkg/ytdlp.TestSponsorBlockCancellationCategoryPreservesCause
@@ -2322,6 +2330,8 @@ capabilities:
       - pkg/ytdlp.TestSponsorBlockMapErrorCategorizes
       - pkg/ytdlp.TestSponsorBlockSecretSafeErrorMessages
       - internal/cli.TestBuildSponsorBlockOptionsMapping
+      - internal/cli.TestBuildSponsorBlockChapterTitlePreservesExplicitEmpty
+      - internal/cli.TestRunSponsorBlockChapterTitleScalarPrecedence
       - internal/cli.TestBuildSponsorBlockRemoveOptionsMapping
       - internal/cli.TestBuildSponsorBlockMarkRemoveUnionAndPrecedence
       - internal/cli.TestSponsorBlockCategorySlicesDoNotAliasAccumulators
@@ -2354,11 +2364,13 @@ capabilities:
       - pkg/ytdlp.TestSponsorBlockCutCommitCancellationLeavesFilesUnchanged
       - pkg/ytdlp.TestSponsorBlockStageSubtitleDeterministic
       - pkg/ytdlp.TestSponsorBlockPlanningLimitsAlignWithFFmpeg
+      - pkg/ytdlp.TestSponsorBlockDeferredArrangementUsesCustomChapterTitle
       - pkg/ytdlp.TestArtifactBytesRecountsAfterCut
       - internal/network.TestDoWithoutCredentialsDropsExplicitAndDefaultSecrets
       - conformance/sponsorblock/PROVENANCE.md
       - conformance/sponsorblock/sample_arrange_mark_remove.json
       - conformance/sponsorblock/sample_duration_mismatch.json
+      - conformance/sponsorblock/sample_chapter_titles.json
       - docs/SPONSORBLOCK_METADATA.md
     owner: core
-    known_deviation: This capability covers metadata fetch, normalization, duration-mismatch warnings, opt-in mark-only and mixed Mark+Remove chapter arrangement, CLI exposure of --sponsorblock-mark/--sponsorblock-remove/--sponsorblock-api/--no-sponsorblock/--force-keyframes-at-cuts with yt-dlp-compatible orderedSet_from_options accumulation/exclusion (including remove-only default/all semantics and non-removable rejection), and API-driven FFmpeg media cutting with force-keyframes and subtitle sync for supported sidecars. Ordinary chapter expressions and manual ranges are implemented by postprocess.chapter_removal and share the same transaction. Arbitrary-service (Vimeo, PeerTube, etc.) metadata and custom --sponsorblock-chapter-title templates remain unimplemented. Unsupported external subtitle formats fail closed during remove instead of yt-dlp's warn-and-continue. Subtitle sync uses deterministic cue remapping for srt/vtt/ass/lrc rather than ffmpeg concat. Network retries follow the existing network.Client; the reference's own retry behavior is not duplicated.
+    known_deviation: This capability covers metadata fetch, normalization, duration-mismatch warnings, opt-in mark-only and mixed Mark+Remove chapter arrangement, bounded shared-template custom chapter titles (including explicit empty, arranged fields, and title-driven coalescing), CLI exposure of --sponsorblock-mark/--sponsorblock-remove/--sponsorblock-chapter-title/--sponsorblock-api/--no-sponsorblock/--force-keyframes-at-cuts with yt-dlp-compatible orderedSet_from_options accumulation/exclusion (including remove-only default/all semantics and non-removable rejection), and API-driven FFmpeg media cutting with force-keyframes and subtitle sync for supported sidecars. The chapter-title engine intentionally exposes the repository's bounded shared output-template subset rather than every Python printf/output-template edge. Ordinary chapter expressions and manual ranges are implemented by postprocess.chapter_removal and share the same transaction. Arbitrary-service (Vimeo, PeerTube, etc.) metadata remains unimplemented. Unsupported external subtitle formats fail closed during remove instead of yt-dlp's warn-and-continue. Subtitle sync uses deterministic cue remapping for srt/vtt/ass/lrc rather than ffmpeg concat. Network retries follow the existing network.Client; the reference's own retry behavior is not duplicated.
