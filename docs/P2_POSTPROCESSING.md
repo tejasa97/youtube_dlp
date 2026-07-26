@@ -22,16 +22,17 @@ there is no command-string API.
 
 The public Go request contract exposes a tagged postprocessor union and returns
 typed output artifacts. The CLI exposes audio extraction, remuxing, automatic
-thumbnail conversion, and bounded multi-track subtitle embedding; embedders
-can request every typed operation. Operation count and path confinement are
+thumbnail conversion/embedding, and bounded multi-track subtitle embedding;
+embedders can request every typed operation. Operation count and path confinement are
 checked before network work begins, and product integration is covered by
 generated-media ffprobe verification.
 
 Known deviations: chapter writing uses explicit millisecond `ffmetadata`
 chapters and preserves supplied boundaries/titles; yt-dlp's more extensive
 chapter removal and sponsor-block mutation workflows are not part of this lane
-yet. Thumbnail embedding depends on ffmpeg/container support and reports the
-categorized media failure without altering the input.
+yet. Automatic thumbnail embedding is bounded to MP3, MP4-family, and
+Matroska outputs; Ogg/Opus/FLAC metadata-block pictures and WebM promotion
+remain outside the CLI lifecycle.
 
 Safe cross-device moves stream through an exclusive temporary file, honor context
 cancellation, sync before publish, and retain the source until publication. On

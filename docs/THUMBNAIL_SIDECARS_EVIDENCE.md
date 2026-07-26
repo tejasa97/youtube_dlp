@@ -1,7 +1,8 @@
 # Thumbnail sidecar evidence
 
 `ytdlp-go` exposes `--write-thumbnail`, `--write-all-thumbnails`,
-`--no-write-thumbnail`, `--list-thumbnails`, and `--convert-thumbnails`.
+`--no-write-thumbnail`, `--list-thumbnails`, `--convert-thumbnails`, and
+`--embed-thumbnail`/`--no-embed-thumbnail`.
 Listing implies simulation unless `--no-simulate` is explicit.
 `--skip-download` still permits requested thumbnail files. The public API uses
 `ThumbnailOptions`.
@@ -41,6 +42,17 @@ work. Content-corrected destinations are confined and collision-checked before
 move or conversion. ffmpeg is discovered lazily only when a downloaded image
 actually requires conversion.
 
+Embedding implicitly downloads the best thumbnail and runs only after media
+download, container-changing postprocessors, chapter cuts, and subtitle
+embedding. MP3, MP4/M4A/M4V/MOV, and Matroska MKV/MKA are supported. Images
+unsupported by MP3/MP4 containers are converted to a confined temporary PNG;
+Matroska attaches the recognized source image directly. Explicit
+`--write-thumbnail` or `--write-all-thumbnails` retains sidecars, while an
+implicitly downloaded image is removed only after the media replacement
+commits. Conversion/embedding failure or cancellation preserves the original
+media and image. Missing images warn and continue; unsupported media
+containers and multi-output format plans fail closed.
+
 The implementation follows the pinned reference's
 `YoutubeDL._write_thumbnails`, thumbnail options, and `OUTTMPL_TYPES` routing at
 commit `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`.
@@ -50,4 +62,5 @@ Known deviations:
 - existing files fail closed unless overwrite is enabled rather than being
   treated as an already-completed thumbnail;
 - only recognized image extensions are accepted;
-- media-container thumbnail embedding remains separate postprocessor work.
+- automatic embedding does not yet cover Ogg/Opus/FLAC metadata-block pictures,
+  WebM-to-Matroska output promotion, or replacement of a pre-existing cover.

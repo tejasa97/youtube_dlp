@@ -216,7 +216,7 @@ func selectThumbnails(info *value.Info) ([]thumbnailTrack, error) {
 
 func (operation *operation) writeThumbnails(ctx context.Context, info *value.Info, playlist bool) ([]Artifact, int64, error) {
 	options := operation.request.Thumbnails
-	if !options.Write && !options.WriteAll {
+	if !options.Write && !options.WriteAll && !options.Embed {
 		return nil, 0, nil
 	}
 	mapping, err := parseThumbnailConversionMapping(options.ConvertFormat)
@@ -284,17 +284,17 @@ func (operation *operation) writeThumbnails(ctx context.Context, info *value.Inf
 				return artifacts, total, fmt.Errorf("%w: duplicate thumbnail destination", extractor.ErrInvalidMetadata)
 			}
 		}
-		options := operation.request.Downloader
-		if options.MaxBytes <= 0 || options.MaxBytes > maxThumbnailBytes {
-			options.MaxBytes = maxThumbnailBytes
+		downloadOptions := operation.request.Downloader
+		if downloadOptions.MaxBytes <= 0 || downloadOptions.MaxBytes > maxThumbnailBytes {
+			downloadOptions.MaxBytes = maxThumbnailBytes
 		}
 		result, downloadErr := downloader.New(thumbnailRedirectTransport{client: operation.transport}).Download(ctx, downloader.Job{
 			URL: track.rawURL, Headers: track.headers, OutputRoot: operation.request.outputRoot(OutputPathHome), Destination: destination,
-			Overwrite: operation.request.Overwrite, Attempts: options.Attempts,
-			RetryBaseDelay: options.RetryBaseDelay, RetryMaxDelay: options.RetryMaxDelay,
-			RateLimit: options.RateLimit, MaxBytes: options.MaxBytes,
-			ThrottleRate: options.ThrottleRate, ThrottleWindow: options.ThrottleWindow,
-			ThrottleRestarts: options.ThrottleRestarts, FileAttempts: options.FileAttempts,
+			Overwrite: operation.request.Overwrite, Attempts: downloadOptions.Attempts,
+			RetryBaseDelay: downloadOptions.RetryBaseDelay, RetryMaxDelay: downloadOptions.RetryMaxDelay,
+			RateLimit: downloadOptions.RateLimit, MaxBytes: downloadOptions.MaxBytes,
+			ThrottleRate: downloadOptions.ThrottleRate, ThrottleWindow: downloadOptions.ThrottleWindow,
+			ThrottleRestarts: downloadOptions.ThrottleRestarts, FileAttempts: downloadOptions.FileAttempts,
 		}, operation.eventSink())
 		if downloadErr != nil {
 			if errors.Is(downloadErr, context.Canceled) || errors.Is(downloadErr, context.DeadlineExceeded) {
@@ -317,7 +317,7 @@ func (operation *operation) writeThumbnails(ctx context.Context, info *value.Inf
 		artifactPath := result.Path
 		artifactBytes := result.Bytes
 		corrected := false
-		if len(mapping) > 0 && !strings.EqualFold(track.extension, "webp") {
+		if (len(mapping) > 0 || options.Embed) && !strings.EqualFold(track.extension, "webp") {
 			webp, magicErr := thumbnailHasWebPMagic(result.Path)
 			if magicErr != nil {
 				return artifacts, total, magicErr
