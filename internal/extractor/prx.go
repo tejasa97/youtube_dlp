@@ -31,8 +31,10 @@ const (
 )
 
 var (
-	prxRoute = regexp.MustCompile(`^/(stories|series|accounts)/([0-9]{1,16})/?$`)
-	prxRowID = regexp.MustCompile(`^[0-9]{1,16}$`)
+	prxRoute          = regexp.MustCompile(`^/(stories|series|accounts)/([0-9]{1,16})/?$`)
+	prxRowID          = regexp.MustCompile(`^[0-9]{1,16}$`)
+	ErrPRXRateLimited = errors.New("PRX API rate limited")
+	ErrPRXNetwork     = errors.New("PRX API unavailable")
 )
 
 type PRXStory struct{}
@@ -203,10 +205,10 @@ func prxGet(ctx context.Context, t Transport, path string, out any) error {
 		return ErrUnavailable
 	}
 	if r.StatusCode == 429 {
-		return fmt.Errorf("PRX API rate limited")
+		return ErrPRXRateLimited
 	}
 	if r.StatusCode < 200 || r.StatusCode >= 300 {
-		return fmt.Errorf("PRX API unavailable")
+		return ErrPRXNetwork
 	}
 	d := json.NewDecoder(bytes.NewReader(data))
 	d.UseNumber()
