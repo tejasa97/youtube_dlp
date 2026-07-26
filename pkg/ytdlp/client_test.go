@@ -118,6 +118,7 @@ func TestExtractorFailuresAreCategorized(t *testing.T) {
 		{extractor.ErrYouTubeCommentsNetwork, ErrorNetwork},
 		{extractor.ErrSoundCloudCommentsRateLimited, ErrorNetwork},
 		{extractor.ErrSoundCloudCommentsNetwork, ErrorNetwork},
+		{extractor.ErrSoundCloudOriginalRateLimited, ErrorNetwork},
 	} {
 		if err := categorized("extract", test.err); !IsCategory(err, test.category) {
 			t.Fatalf("categorized(%v) = %v", test.err, err)
