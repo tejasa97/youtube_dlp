@@ -21,10 +21,11 @@ has been atomically finalized. Metadata and media-option values are validated;
 there is no command-string API.
 
 The public Go request contract exposes a tagged postprocessor union and returns
-typed output artifacts. The CLI exposes audio extraction, remuxing, and
-bounded multi-track subtitle embedding; embedders can request every typed operation. Operation
-count and path confinement are checked before network work begins, and product
-integration is covered by generated-media ffprobe verification.
+typed output artifacts. The CLI exposes audio extraction, remuxing, automatic
+thumbnail conversion, and bounded multi-track subtitle embedding; embedders
+can request every typed operation. Operation count and path confinement are
+checked before network work begins, and product integration is covered by
+generated-media ffprobe verification.
 
 Known deviations: chapter writing uses explicit millisecond `ffmetadata`
 chapters and preserves supplied boundaries/titles; yt-dlp's more extensive

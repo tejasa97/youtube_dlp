@@ -103,6 +103,7 @@ func RunContextIO(ctx context.Context, args []string, stdin io.Reader, stdout, s
 	flags.BoolFunc("no-write-thumbnail", "disable thumbnail sidecars (default)", func(input string) error {
 		return thumbnailMode.clear(input)
 	})
+	convertThumbnails := flags.String("convert-thumbnails", "none", "convert written thumbnails using jpg/png/webp mapping rules (none disables)")
 	listThumbnails := flags.Bool("list-thumbnails", false, "list available thumbnails (simulates unless --no-simulate)")
 	printJSON := flags.Bool("print-json", false, "print normalized metadata JSON to stdout")
 	dumpJSON := flags.Bool("dump-json", false, "quietly print one JSON object per video (simulates unless --no-simulate)")
@@ -523,7 +524,8 @@ func RunContextIO(ctx context.Context, args []string, stdin io.Reader, stdout, s
 		ParseMetadata:          append([]string(nil), parseMetadata...), ReplaceMetadata: append([]string(nil), replaceMetadata...),
 		Subtitles: requestSubtitles,
 		Thumbnails: ytdlp.ThumbnailOptions{
-			Write: thumbnailMode == thumbnailModeBest, WriteAll: thumbnailMode == thumbnailModeAll, List: *listThumbnails,
+			Write: thumbnailMode == thumbnailModeBest, WriteAll: thumbnailMode == thumbnailModeAll,
+			List: *listThumbnails, ConvertFormat: *convertThumbnails,
 		},
 		RelatedFiles: ytdlp.RelatedFileOptions{
 			WriteInfoJSON: *writeInfoJSON, WriteDescription: *writeDescription,
