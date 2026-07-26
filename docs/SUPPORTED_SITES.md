@@ -1,5 +1,12 @@
 # Supported extractors
 
+## PRX
+
+PRX supports exact HTTPS numeric `stories`, `series`, and `accounts` routes on
+`prx.org`, `beta.prx.org`, and `listen.prx.org`. Story audio, series story
+playlists, and account series-then-story playlists are backed by the PRX CMS
+API with bounded lazy pagination. PRX search routes are intentionally deferred.
+
 ytdlp-go currently registers 42 representative native extractors. This is a
 conformance catalog, not a claim of the thousands of sites supported by
 upstream yt-dlp.
