@@ -15,6 +15,7 @@ advance media sequence identity so sliding updates cannot collide with older
 segments.
 
 Preload hints and rendition reports are intentionally ignored rather than
-speculatively downloaded. SAMPLE-AES and other non-AES-128 encryption remain
-unsupported. No Python runtime, upstream response bytes, credentials, or
-copyrighted media are used.
+speculatively downloaded. Clear-key SAMPLE-AES is handled only by the bounded
+product ffmpeg delegation described in `../hls_aes/PROVENANCE.md`; other
+non-AES-128 encryption remains unsupported. No Python runtime, upstream
+response bytes, credentials, or copyrighted media are used.

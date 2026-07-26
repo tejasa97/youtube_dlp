@@ -201,6 +201,7 @@ func (downloader *Downloader) loadMedia(ctx context.Context, manifestURL string)
 	}
 	playlist, err := Parse(manifestURL, body)
 	if err != nil {
+		annotateEncryptionMediaURL(err, manifestURL)
 		return "", nil, err
 	}
 	if playlist.Media != nil {
@@ -221,9 +222,17 @@ func (downloader *Downloader) loadMedia(ctx context.Context, manifestURL string)
 	}
 	playlist, err = Parse(selected.URL, body)
 	if err != nil || playlist.Media == nil {
+		annotateEncryptionMediaURL(err, selected.URL)
 		return "", nil, errors.Join(err, ErrInvalidPlaylist)
 	}
 	return selected.URL, playlist.Media, nil
+}
+
+func annotateEncryptionMediaURL(err error, mediaURL string) {
+	var encryption *EncryptionError
+	if errors.As(err, &encryption) {
+		encryption.MediaURL = mediaURL
+	}
 }
 
 func (downloader *Downloader) readPage(ctx context.Context, rawURL string) ([]byte, http.Header, error) {

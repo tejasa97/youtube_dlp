@@ -28,6 +28,10 @@ fragments, Smooth Streaming (ISM), and opt-in external downloader tools.
   Anvato and Uplynk ad-marker state machine, and by exact-case
   `EXT-X-CUE-OUT` / `EXT-X-CUE-OUT-CONT` / `EXT-X-CUE-IN` cue tags, while
   preserving physical sequence identities for live and delta reconciliation.
+- Clear-key `SAMPLE-AES` with absent or `identity` key format is classified
+  separately from DRM and delegated atomically to ffmpeg, matching the pinned
+  native-downloader fallback boundary. The delegated path forwards bounded
+  non-sensitive selected-format headers without a shell.
 - ISM parses `SmoothStreamingMedia`, selects the best quality in each stream
   type, expands timeline repeats with a hard 10,000-segment cap, addresses fragment URLs, and
   uses the native fragment engine. Multi-track ISM output remains explicitly
@@ -51,6 +55,14 @@ fragments, Smooth Streaming (ISM), and opt-in external downloader tools.
   tool-specific HTTP-header flags. Callers that need protected media must pass
   the relevant tool's explicit header arguments themselves; native protocols
   remain the preferred header-aware path.
+- Automatic SAMPLE-AES delegation rejects cookies, authorization, proxy
+  credentials, userinfo URLs, unknown key methods/formats, Apple FairPlay,
+  Microsoft PlayReady, Adobe FAXS, and `SAMPLE-AES-CTR`. Authenticated
+  SAMPLE-AES therefore still requires an explicitly configured downloader or
+  a future credential-safe local proxy. Delegation also gives up native
+  fragment resume/concurrency and ad-suppression behavior. As with an explicit
+  ffmpeg downloader, the selected manifest URL is present in the child
+  process argument vector; errors and events always redact it.
 - ISM downloads fMP4 fragments and exposes track/merge requirements. Native
   PIFF header synthesis and final container merge belong to postprocessing,
   not the network downloader.

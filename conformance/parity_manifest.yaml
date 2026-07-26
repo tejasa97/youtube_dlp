@@ -418,7 +418,7 @@ capabilities:
   - id: protocol.hls
     name: HLS downloading
     phase: 1
-    compatibility_target: Download VOD and live HLS variants with yt-dlp-compatible selection and recovery behavior.
+    compatibility_target: Download VOD and live HLS variants with yt-dlp-compatible selection and recovery behavior, including guarded ffmpeg delegation for playable clear-key SAMPLE-AES.
     status: compatible
     evidence:
       - internal/fragment.TestEngineDownloadsRangesDecryptsAndAssemblesInOrder
@@ -452,17 +452,30 @@ capabilities:
       - internal/protocol/hls.TestDownloadCueAdvertisementKeysMapsAndPhysicalAESIV
       - internal/protocol/hls.TestDownloadAllAdvertisementsReturnsNoSegmentsWithoutScratch
       - internal/protocol/hls.TestDownloadCueAllAdvertisementsAndCancellation
+      - internal/protocol/hls.TestSampleAESEligibilityIsFailClosed
+      - internal/protocol/hls.TestSessionKeyAndFAXSAreClassified
+      - internal/protocol/hls.TestAES128IdentityStillParsesNatively
+      - internal/protocol/hls.TestSampleAESMissingURIIsNeverDelegated
+      - internal/protocol/hls.TestDownloaderReportsSelectedMediaForSampleAES
       - internal/protocol/hls.FuzzParse
       - internal/protocol/hls.FuzzAdvertisementMarkers
+      - internal/protocol/hls.FuzzSampleAESEligibility
+      - internal/media/ffmpeg.TestDownloadHLSCopiesMediaAndForwardsSafeHeaders
+      - internal/media/ffmpeg.TestDownloadHLSRejectsUnsafeInputsBeforeExecution
+      - internal/media/ffmpeg.TestDownloadHLSCancellationLeavesNoOutput
+      - internal/media/ffmpeg.TestDiscoverFFmpegDoesNotRequireFFprobe
       - pkg/ytdlp.TestClientHLSAndDASHDispatch
       - pkg/ytdlp.TestClientHLSSuppressesAttributedAdFragments
+      - pkg/ytdlp.TestHLSDelegatesEligibleSampleAESToFFmpegFallback
+      - pkg/ytdlp.TestHLSNeverDelegatesDRMOrUnknownEncryption
+      - pkg/ytdlp.TestHLSFallbackUnavailableAndCancellationAreCategorized
       - internal/cli.TestRunHLSProtocolDispatch
       - conformance/media/llhls/PROVENANCE.md
       - conformance/media/hls_aes/PROVENANCE.md
       - conformance/media/hls_ads/PROVENANCE.md
       - docs/HLS_AD_FRAGMENT_SUPPRESSION_EVIDENCE.md
     owner: io
-    known_deviation: Product format dispatch includes bounded low-latency parts, delta skips, AES-128 media and initialization-map decryption, exact attributed Anvato/Uplynk ad-fragment suppression, conservative exact-case EXT-X-CUE-{OUT,OUT-CONT,IN} marker state, and validated EXT-X-DATERANGE SCTE-35 directional payloads. Marker state restarts for each playlist snapshot unless a new snapshot carries OUT-CONT or a validated DATERANGE signal mid-break. Interstitial asset lists, URI heuristics, generic CLASS strings, and markerless server-side insertion are not guessed. Physical sequence identities are retained across ads for live/delta de-duplication and implicit media-segment AES IVs rather than reproducing the pinned native downloader's compact numbering; encrypted initialization maps require explicit IVs. Preload hints and rendition reports are ignored; SAMPLE-AES and non-AES-128 encryption remain explicitly unsupported.
+    known_deviation: Product format dispatch includes bounded low-latency parts, delta skips, AES-128 media and initialization-map decryption, guarded ffmpeg delegation for clear-key identity SAMPLE-AES, exact attributed Anvato/Uplynk ad-fragment suppression, conservative exact-case EXT-X-CUE-{OUT,OUT-CONT,IN} marker state, and validated EXT-X-DATERANGE SCTE-35 directional payloads. Marker state restarts for each playlist snapshot unless a new snapshot carries OUT-CONT or a validated DATERANGE signal mid-break. Interstitial asset lists, URI heuristics, generic CLASS strings, and markerless server-side insertion are not guessed. Physical sequence identities are retained across ads for live/delta de-duplication and implicit media-segment AES IVs rather than reproducing the pinned native downloader's compact numbering; encrypted initialization maps require explicit IVs. Preload hints and rendition reports are ignored. SAMPLE-AES-CTR, DRM/unknown key delivery, process-visible authenticated headers, and native SAMPLE-AES fragment resume/concurrency/ad suppression remain unsupported.
 
   - id: protocol.dash
     name: DASH downloading
