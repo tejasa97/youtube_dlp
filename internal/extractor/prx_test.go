@@ -321,6 +321,45 @@ func TestPRXThumbnailObjectParity(t *testing.T) {
 	}
 }
 
+func TestPRXPartSelectorBounds(t *testing.T) {
+	for _, tc := range []struct {
+		raw string
+		ok  bool
+	}{{"https://prx.org/stories/1?prx_part=100", true}, {"https://prx.org/stories/1?prx_part=101", false}} {
+		u, _ := url.Parse(tc.raw)
+		_, _, ok := prxTarget(u)
+		if ok != tc.ok {
+			t.Fatalf("%s: ok=%v", tc.raw, ok)
+		}
+	}
+}
+
+func TestPRXMetadataAndAudioBounds(t *testing.T) {
+	r := prxResource{ID: "1"}
+	r.Tags = make([]string, prxMaxTags+1)
+	if _, err := prxInfo(r, "stories"); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("tags err=%v", err)
+	}
+	items := make([]string, 0, prxMaxPieces+1)
+	for i := 0; i <= prxMaxPieces; i++ {
+		items = append(items, fmt.Sprintf(`{"id":%d,"position":%d,"contentType":"audio/mpeg","_links":{"enclosure":{"href":"https://media.example/a.mp3"}}}`, i+1, i+1))
+	}
+	tx := &prxTransport{status: 200, body: `{"id":"1","_embedded":{"prx:audio":{"_embedded":{"prx:items":[` + strings.Join(items, ",") + `]}}}}`}
+	_, err := NewPRXStory().Extract(context.Background(), Request{URL: "https://prx.org/stories/1", Transport: tx})
+	if !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("parts err=%v", err)
+	}
+}
+
+func TestPRXPaginationRejectsZeroCountWithItems(t *testing.T) {
+	tx := &prxTransport{status: 200, body: `{"count":0,"total":1,"_embedded":{"prx:items":[{"id":"1"}]}}`}
+	it := prxEntries{transport: tx, endpoints: []string{"series/1/stories"}}.Iterator()
+	_, _, err := it.Next(context.Background())
+	if !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("err=%v", err)
+	}
+}
+
 func TestPRXMultipartNoRecursion(t *testing.T) {
 	body := `{"id":"42","title":"Multi","_embedded":{"prx:audio":{"_embedded":{"prx:items":[
 {"id":"p1","position":1,"contentType":"audio/mpeg","_links":{"enclosure":{"href":"https://media.example/a.mp3"}}},
