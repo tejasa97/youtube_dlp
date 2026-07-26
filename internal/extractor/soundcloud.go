@@ -572,6 +572,8 @@ type soundCloudTrack struct {
 	CommentCount     *int64      `json:"comment_count"`
 	RepostsCount     *int64      `json:"reposts_count"`
 	Policy           string      `json:"policy"`
+	Downloadable     bool        `json:"downloadable"`
+	HasDownloadsLeft bool        `json:"has_downloads_left"`
 	Errors           []struct {
 		ErrorMessage string `json:"error_message"`
 	} `json:"errors"`
@@ -636,6 +638,17 @@ func (extractor *SoundCloud) normalizeTrack(ctx context.Context, transport Trans
 	formats := make([]value.Value, 0, len(track.Media.Transcodings))
 	seen := make(map[string]bool)
 	hasDRM := false
+	if track.Downloadable && track.HasDownloadsLeft {
+		original, err := extractor.resolveOriginalDownload(ctx, transport, trackID, secretToken)
+		if err != nil {
+			return Extraction{}, err
+		}
+		if original != nil {
+			originalURL, _ := original.Lookup("url").StringValue()
+			seen[originalURL] = true
+			formats = append(formats, value.ObjectValue(original))
+		}
+	}
 	for _, transcoding := range track.Media.Transcodings {
 		format, drm, err := extractor.resolveTranscoding(ctx, transport, transcoding, secretToken)
 		hasDRM = hasDRM || drm
@@ -665,8 +678,16 @@ func (extractor *SoundCloud) normalizeTrack(ctx context.Context, transport Trans
 		}
 		return Extraction{}, fmt.Errorf("%w: no SoundCloud formats", ErrInvalidMetadata)
 	}
-	firstFormat, _ := formats[0].Object()
-	extension, _ := firstFormat.Lookup("ext").StringValue()
+	extension := ""
+	for _, candidate := range formats {
+		format, ok := candidate.Object()
+		if !ok {
+			continue
+		}
+		if extension, _ = format.Lookup("ext").StringValue(); extension != "" {
+			break
+		}
+	}
 	info := value.NewObject(
 		value.Field{Key: "id", Value: value.String(trackID)},
 		value.Field{Key: "title", Value: value.String(track.Title)},
