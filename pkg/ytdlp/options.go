@@ -141,6 +141,10 @@ type SponsorBlockOptions struct {
 	// (yt-dlp --force-keyframes-at-cuts). It requires Remove.
 	ForceKeyframes bool
 	APIBase        string
+	// ChapterTitle is an optional bounded output template for marked
+	// SponsorBlock chapter titles. Nil selects the pinned default; a pointer to
+	// an empty string intentionally produces empty titles.
+	ChapterTitle *string
 }
 
 // PlaylistOptions selects an inclusive, one-based playlist range. Start zero
@@ -327,6 +331,9 @@ func normalizedPlaylistRange(options PlaylistOptions) (start, end int) {
 // SponsorBlock stage. A disabled option is a no-op. Enabled callers must supply a
 // bounded set of categories and a syntactically valid API base.
 func validateSponsorBlockOptions(options SponsorBlockOptions) error {
+	if err := validateSponsorBlockChapterTitle(options.ChapterTitle); err != nil {
+		return err
+	}
 	if !options.Enabled {
 		if options.Mark {
 			return fmt.Errorf("SponsorBlock marking requires enabled metadata")

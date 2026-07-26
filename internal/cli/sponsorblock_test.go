@@ -346,6 +346,11 @@ func TestRunRejectsInvalidSponsorBlockBeforeNetwork(t *testing.T) {
 			arguments: []string{"--sponsorblock-remove", "sponsor", "--sponsorblock-remove", "-all", "--force-keyframes-at-cuts", "https://example.invalid/watch"},
 			want:      "force-keyframes-at-cuts requires --remove-chapters or --sponsorblock-remove",
 		},
+		{
+			name:      "invalid chapter title while disabled",
+			arguments: []string{"--sponsorblock-chapter-title", "%(category", "--no-sponsorblock", "https://example.invalid/watch"},
+			want:      "SponsorBlock chapter title template invalid",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
@@ -355,6 +360,72 @@ func TestRunRejectsInvalidSponsorBlockBeforeNetwork(t *testing.T) {
 			}
 			if stdout.Len() != 0 {
 				t.Fatalf("stdout = %q", stdout.String())
+			}
+		})
+	}
+}
+
+func TestBuildSponsorBlockChapterTitlePreservesExplicitEmpty(t *testing.T) {
+	empty := ""
+	got, err := buildSponsorBlockOptionsWithTitle(nil, nil, "", false, &empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ChapterTitle == nil || *got.ChapterTitle != "" || got.Enabled {
+		t.Fatalf("options = %#v", got)
+	}
+	custom := "%(name)s"
+	got, err = buildSponsorBlockOptionsWithTitle([]string{"sponsor"}, nil, "", false, &custom)
+	if err != nil {
+		t.Fatal(err)
+	}
+	custom = "mutated"
+	if got.ChapterTitle == nil || *got.ChapterTitle != "%(name)s" {
+		t.Fatalf("options aliased title: %#v", got)
+	}
+}
+
+func TestRunSponsorBlockChapterTitleScalarPrecedence(t *testing.T) {
+	page := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(writer, `{"id":"cli-title","title":"CLI","ext":"mp4","duration":1,"formats":[{"format_id":"f","url":"https://media.invalid/f.mp4","ext":"mp4"}]}`)
+	}))
+	defer page.Close()
+	configPath := filepath.Join(t.TempDir(), "yt-dlp.conf")
+	if err := os.WriteFile(configPath, []byte("--sponsorblock-chapter-title %(broken\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name string
+		args []string
+		code int
+	}{
+		{
+			name: "CLI overrides invalid config",
+			args: []string{"--config-location", configPath, "--sponsorblock-chapter-title", "%(name)s",
+				"--no-sponsorblock", "--skip-download", page.URL + "/page"},
+		},
+		{
+			name: "repeated last valid wins",
+			args: []string{"--sponsorblock-chapter-title", "%(broken",
+				"--sponsorblock-chapter-title", "%(name)s", "--no-sponsorblock", "--skip-download", page.URL + "/page"},
+		},
+		{
+			name: "explicit empty accepted",
+			args: []string{"--sponsorblock-chapter-title=", "--no-sponsorblock", "--skip-download", page.URL + "/page"},
+		},
+		{
+			name: "repeated last invalid wins",
+			args: []string{"--sponsorblock-chapter-title", "%(name)s",
+				"--sponsorblock-chapter-title", "%(broken", "--no-sponsorblock", page.URL + "/page"},
+			code: 2,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			code := Run(test.args, &stdout, &stderr)
+			if code != test.code {
+				t.Fatalf("code=%d want=%d stderr=%q", code, test.code, stderr.String())
 			}
 		})
 	}

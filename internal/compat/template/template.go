@@ -99,7 +99,7 @@ func Render(pattern string, info value.Info) (string, error) {
 			return "", templateSyntax(closeIndex+1, len(pattern), "missing conversion type")
 		}
 		spec := pattern[closeIndex+1 : specEnd+1]
-		if !formatSpecPattern.MatchString(spec) {
+		if !validFormatSpec(spec) {
 			return "", templateSyntax(closeIndex+1, specEnd+1, fmt.Sprintf("invalid format spec %q", spec))
 		}
 		expression := pattern[index+2 : closeIndex]
@@ -117,6 +117,99 @@ func Render(pattern string, info value.Info) (string, error) {
 		index = specEnd + 1
 	}
 	return output.String(), nil
+}
+
+// Validate checks bounded output-template syntax without evaluating it against
+// fabricated field values. Data-dependent conversion failures remain Render
+// errors for the real metadata.
+func Validate(pattern string) error {
+	if len(pattern) > maxTemplateBytes {
+		return templateSyntax(0, len(pattern), "template exceeds size limit")
+	}
+	expressions := 0
+	for index := 0; index < len(pattern); {
+		if pattern[index] != '%' {
+			index++
+			continue
+		}
+		if index+1 < len(pattern) && pattern[index+1] == '%' {
+			index += 2
+			continue
+		}
+		if index+2 >= len(pattern) || pattern[index+1] != '(' {
+			return templateSyntax(index, min(index+2, len(pattern)), "expected % or %(field)s")
+		}
+		closeOffset := strings.IndexByte(pattern[index+2:], ')')
+		if closeOffset < 0 {
+			return templateSyntax(index, len(pattern), "unclosed field")
+		}
+		closeIndex := index + 2 + closeOffset
+		specEnd := closeIndex + 1
+		for specEnd < len(pattern) && !strings.ContainsRune("sdfjlhUDBcqSra", rune(pattern[specEnd])) {
+			specEnd++
+		}
+		if specEnd >= len(pattern) {
+			return templateSyntax(closeIndex+1, len(pattern), "missing conversion type")
+		}
+		spec := pattern[closeIndex+1 : specEnd+1]
+		if !validFormatSpec(spec) {
+			return templateSyntax(closeIndex+1, specEnd+1, fmt.Sprintf("invalid format spec %q", spec))
+		}
+		expression := pattern[index+2 : closeIndex]
+		expressions++
+		if expressions > maxExpressions {
+			return templateSyntax(index, closeIndex+1, "too many template expressions")
+		}
+		if err := validateExpressionSyntax(expression, spec); err != nil {
+			return templateSyntax(index+2, closeIndex, fmt.Sprintf("expression %q: %v", expression, err))
+		}
+		index = specEnd + 1
+	}
+	return nil
+}
+
+func validateExpressionSyntax(expression, spec string) error {
+	if expression == "" {
+		if spec[len(spec)-1] != 'j' {
+			return errors.New("empty expression requires JSON conversion")
+		}
+		return nil
+	}
+	source, _, _ := strings.Cut(expression, "|")
+	source, replacement, hasReplacement := strings.Cut(source, "&")
+	if hasReplacement && !strings.Contains(replacement, "{}") {
+		return errors.New("replacement must contain {}")
+	}
+	for _, alternative := range splitAlternatives(source) {
+		path, _, _ := strings.Cut(strings.TrimSpace(alternative), ">")
+		if err := validateCandidateSyntax(path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateCandidateSyntax(expression string) error {
+	operands, _, _, arithmetic, err := parseArithmetic(expression)
+	if err != nil {
+		return err
+	}
+	if !arithmetic {
+		_, err = parseTraversal(expression)
+		return err
+	}
+	for _, operand := range operands {
+		if _, ok, numberErr := parseArithmeticNumber(operand); ok || numberErr != nil {
+			if numberErr != nil {
+				return numberErr
+			}
+			continue
+		}
+		if _, err := parseTraversal(operand); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func appendBounded(output *strings.Builder, text string) error {

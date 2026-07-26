@@ -1,0 +1,12 @@
+{
+  "template": "%(start_time).0f-%(end_time).0f|%(category)s|%(categories)l|%(name)s|%(category_names)l",
+  "fields": {
+    "start_time": 20,
+    "end_time": 25,
+    "category": "selfpromo",
+    "categories": ["sponsor", "selfpromo"],
+    "name": "Unpaid/Self Promotion",
+    "category_names": ["Sponsor", "Unpaid/Self Promotion"]
+  },
+  "expected": "20-25|selfpromo|sponsor, selfpromo|Unpaid/Self Promotion|Sponsor, Unpaid/Self Promotion"
+}

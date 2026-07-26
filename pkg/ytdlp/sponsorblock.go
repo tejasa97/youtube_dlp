@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	compattemplate "github.com/ytdlp-go/ytdlp/internal/compat/template"
 	"github.com/ytdlp-go/ytdlp/internal/sponsorblock"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
@@ -104,7 +105,9 @@ func (operation *operation) enrichWithSponsorBlock(ctx context.Context, extracto
 	var markedValues []value.Value
 	if markNow {
 		title, _ := info.Lookup("title").StringValue()
-		marked, err := sponsorblock.MarkChapters(normal, result.Chapters, duration, title)
+		marked, err := sponsorblock.MarkChaptersWithTitle(
+			normal, result.Chapters, duration, title,
+			sponsorBlockChapterTitleRenderer(operation.request.SponsorBlock.ChapterTitle))
 		if err != nil {
 			return mapSponsorBlockError(err)
 		}
@@ -117,6 +120,45 @@ func (operation *operation) enrichWithSponsorBlock(ctx context.Context, extracto
 		info.Set("chapters", value.List(markedValues...))
 	}
 	return nil
+}
+
+func validateSponsorBlockChapterTitle(pattern *string) error {
+	if pattern == nil {
+		return nil
+	}
+	if err := compattemplate.Validate(*pattern); err != nil {
+		return errors.New("SponsorBlock chapter title template invalid")
+	}
+	return nil
+}
+
+func sponsorBlockChapterTitleRenderer(pattern *string) sponsorblock.ChapterTitleRenderer {
+	if pattern == nil {
+		return nil
+	}
+	template := *pattern
+	return func(fields sponsorblock.ChapterTitleFields) (string, error) {
+		return compattemplate.Render(template, sponsorBlockChapterTitleInfo(fields))
+	}
+}
+
+func sponsorBlockChapterTitleInfo(fields sponsorblock.ChapterTitleFields) value.Info {
+	categories := make([]value.Value, 0, len(fields.Categories))
+	for _, category := range fields.Categories {
+		categories = append(categories, value.String(category))
+	}
+	names := make([]value.Value, 0, len(fields.CategoryNames))
+	for _, name := range fields.CategoryNames {
+		names = append(names, value.String(name))
+	}
+	return value.NewInfo(value.NewObject(
+		value.Field{Key: "start_time", Value: value.Float(fields.StartTime)},
+		value.Field{Key: "end_time", Value: value.Float(fields.EndTime)},
+		value.Field{Key: "category", Value: value.String(fields.Category)},
+		value.Field{Key: "categories", Value: value.List(categories...)},
+		value.Field{Key: "name", Value: value.String(fields.Name)},
+		value.Field{Key: "category_names", Value: value.List(names...)},
+	))
 }
 
 func ordinarySponsorBlockChapters(info *value.Info, finalEnd float64, allowOpenFinal bool) ([]sponsorblock.NormalChapter, []value.Value, error) {
