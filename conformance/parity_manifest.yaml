@@ -1222,6 +1222,9 @@ capabilities:
       - internal/extractor.FuzzTwitchMetadataResponse
       - internal/extractor.TestTwitchVODMetadataReplayManifestChaptersAndStartOffset
       - internal/extractor.TestTwitchClipDirectLandscapePortraitAndMetadata
+      - internal/extractor.TestTwitchClipLegacyArchiveIDDerivation
+      - internal/extractor.TestTwitchClipLegacyArchiveIDUsesFinalFormatAndRejectsUnsafe
+      - internal/extractor.TestTwitchClipDuplicateSmallThumbnailSuppressed
       - internal/extractor.TestTwitchVODAndClipFailuresAreBoundedCategorizedAndRedacted
       - internal/extractor.TestTwitchVideosPlaylistLazyContinuationReusableAndContract
       - internal/extractor.TestTwitchVideosPlaylistRoutingFiltersSortsAndHostiles
@@ -1253,7 +1256,7 @@ capabilities:
       - protocol.hls
       - network.shared_transport
       - extractor.playlists
-    known_deviation: Compatibility covers pinned public live, VOD, clip, direct collection, channel collections, channel videos/profile, and channel clips playlist corpora. Direct CollectionSideBar and channel collections pages are capped at 100 edges per response; channel clips pages use the required 20-edge limit. Oversized payloads fail closed. Storyboard MHTML, subscriber-cookie success, historical clip archive IDs/preference scores, live-from-start fallback, and chat remain explicit deviations.
+    known_deviation: Compatibility covers pinned public live, VOD, clip, direct collection, channel collections, channel videos/profile, and channel clips playlist corpora, including historical clip archive IDs and portrait format/thumbnail preference scores on the pinned synthetic clip corpus. Direct CollectionSideBar and channel collections pages are capped at 100 edges per response; channel clips pages use the required 20-edge limit. Oversized payloads fail closed. Storyboard MHTML, subscriber-cookie success, live-from-start fallback, and chat remain explicit deviations.
 
   - id: extractor.soundcloud_pilot
     name: SoundCloud API and playlist pilot
