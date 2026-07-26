@@ -152,6 +152,9 @@ func classifySoundCloudURL(parsed *url.URL) (soundCloudTarget, bool) {
 	}
 	switch host {
 	case "soundcloud.com", "www.soundcloud.com", "m.soundcloud.com":
+		if segments[0] == "player" {
+			return soundCloudTarget{}, false
+		}
 		if len(segments) == 1 && soundCloudSlugPattern.MatchString(segments[0]) &&
 			!soundCloudTrackReserved[segments[0]] {
 			return soundCloudTarget{

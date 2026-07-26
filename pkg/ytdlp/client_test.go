@@ -146,6 +146,8 @@ func TestProductRegistryIncludesIntegratedExtractors(t *testing.T) {
 		{"https://www.tiktok.com/@fixture/video/1234567890123456789", "tiktok"},
 		{"https://podcasts.apple.com/us/podcast/fixture/id123?i=456", "applepodcasts"},
 		{"https://soundcloud.com/fixture-artist/reposts", "soundcloud"},
+		{"https://w.soundcloud.com/player/?url=https%3A%2F%2Fsoundcloud.com%2Ffixture-artist%2Fsynthetic-signal", "soundcloud_embed"},
+		{"https://soundcloud.com/player/?url=https%3A%2F%2Fsoundcloud.com%2Ffixture-artist%2Fsynthetic-signal", "soundcloud_embed"},
 		{"https://hytale.com/news/2021/07/summer-2021-development-update", "hytale"},
 		{"https://watch.cloudflarestream.com/9df17203414fd1db3e3ed74abbe936c1", "cloudflarestream"},
 		{"https://www.washingtonpost.com/video/c/video/480ba4ee-1ec7-11e6-82c2-a7dcb313287d", "washingtonpost"},
