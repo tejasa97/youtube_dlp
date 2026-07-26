@@ -62,8 +62,11 @@ The shared registry and parity manifest remain owned by the primary integrator.
   enrichment, preserves API order, normalizes author and time metadata, uses a
   bounded exact-track continuation policy, and requires credential-isolated,
   no-redirect requests.
-- Ordered transparent URL entries for sets/API playlists. Missing permalink
-  URLs fall back to direct v2 track URLs and preserve a private set token.
+- Ordered transparent URL entries for sets/API playlists. Tokenized sets with
+  incomplete rows are hydrated through bounded v2 `/tracks` batches before
+  entry construction. Returned rows are identity-validated and restored to
+  source order, repeated source IDs remain repeated, and missing rows retain a
+  direct v2 track fallback with the private-set token.
 - Lazy, independently reusable linked-partition iterators for bare public user
   profiles and every pinned user tab, track stations, and related-resource
   pages.
@@ -105,6 +108,12 @@ The shared registry and parity manifest remain owned by the primary integrator.
 - `internal/extractor.TestSoundCloudAPIUserPermalinkComparesNumericIdentity`
 - `internal/extractor.TestSoundCloudAPIUserPermalinkCancellationAndContinuationIsolation`
 - `internal/extractor.TestSoundCloudSetEntriesRemainOrderedTransparentURLs`
+- `internal/extractor.TestSoundCloudPrivateSetHydratesWebAndAPIURLs`
+- `internal/extractor.TestSoundCloudPrivateSetTriggerAndMissingRowFallback`
+- `internal/extractor.TestSoundCloudPrivateSetHydrationFailuresAreCategorizedAndSecretSafe`
+- `internal/extractor.TestSoundCloudPrivateSetRejectsMalformedSourceBeforeBatch`
+- `internal/extractor.TestSoundCloudPrivateSetBatchingOrderAndCancellation`
+- `internal/extractor.FuzzSoundCloudPrivateSetBatchPlan`
 - `internal/extractor.TestSoundCloudCancellationInterruptsLazyPage`
 - `internal/extractor.TestSoundCloudCategorizedFailuresAndSecretRedaction`
 - `internal/extractor.TestSoundCloudRejectsUntrustedContinuationAndAsset`
@@ -174,9 +183,8 @@ registry evidence and the complete test suite passes.
 ## Known deviations
 
 The pilot does not yet implement OAuth/cookie login,
-premium subscription formats, offset pagination compatibility,
-full artwork-size expansion, or batch hydration of incomplete private-set
-tracks. Track comments are supported, while the distinct `/comments` user tab
+premium subscription formats, offset pagination compatibility, or
+full artwork-size expansion. Track comments are supported, while the distinct `/comments` user tab
 continues to enumerate attributable media entries rather than comment bodies.
 Arbitrary script-based player discovery and future user tabs remain out of
 scope. Only the declared synthetic corpus is compatibility evidence. SoundCloud

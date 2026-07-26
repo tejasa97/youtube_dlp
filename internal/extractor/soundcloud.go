@@ -282,6 +282,15 @@ func (extractor *SoundCloud) extractSet(ctx context.Context, transport Transport
 	if !validSoundCloudJSONID(playlist.ID) || strings.TrimSpace(playlist.Title) == "" || playlist.Tracks == nil || len(playlist.Tracks) > soundCloudMaxSetEntries {
 		return Extraction{}, fmt.Errorf("%w: malformed SoundCloud playlist", ErrInvalidMetadata)
 	}
+	if soundCloudPrivateSetNeedsHydration(playlist.Tracks, target.secretToken) {
+		hydrated, err := extractor.hydrateSoundCloudPrivateSet(
+			ctx, transport, playlist.ID.String(), target.secretToken, playlist.Tracks,
+		)
+		if err != nil {
+			return Extraction{}, err
+		}
+		playlist.Tracks = hydrated
+	}
 	entries := make([]Entry, 0, len(playlist.Tracks))
 	for _, track := range playlist.Tracks {
 		entry, ok := soundCloudTrackEntry(track, target.secretToken)

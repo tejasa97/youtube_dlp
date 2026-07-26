@@ -1,0 +1,17 @@
+{
+  "id": 77,
+  "title": "Synthetic Private Set",
+  "description": "Deterministic placeholder hydration fixture",
+  "permalink_url": "https://soundcloud.com/fixture-artist/sets/private-set",
+  "user": {
+    "id": 7,
+    "username": "Fixture Artist",
+    "permalink_url": "https://soundcloud.com/fixture-artist"
+  },
+  "tracks": [
+    {"id": 102},
+    {"id": 100, "title": "Original public row", "permalink_url": "https://soundcloud.com/fixture-artist/original-public"},
+    {"id": 102},
+    {"id": 101}
+  ]
+}

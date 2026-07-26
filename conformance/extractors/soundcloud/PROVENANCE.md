@@ -12,7 +12,8 @@ Behavioral expectations were derived from the pinned yt-dlp checkout at commit
 - `SoundcloudIE._real_extract` and `_extract_info_dict` for resolve/direct-track
   requests, transcoding resolution, format identifiers, codecs, protocols, and
   normalized metadata;
-- `SoundcloudPlaylistBaseIE._extract_set` for ordered transparent set entries;
+- `SoundcloudPlaylistBaseIE._extract_set` for ordered transparent set entries
+  and tokenized private-set hydration through the v2 `/tracks` batch endpoint;
 - `SoundcloudPagedPlaylistBaseIE._entries` for linked partitioning,
   `next_href`, nested track candidates, and lazy ordering;
 - `SoundcloudUserIE` for bare-profile and profile-tab routing (`tracks`,
@@ -64,11 +65,21 @@ Deliberate Go hardening beyond the pinned reference:
   arbitrary server messages;
 - Slug fallback for missing related-track title: when `track.title` is blank,
   the playlist title falls back to the URL slug (`artist/track`), matching the
-  reference `track.get('title') or slug` behavior.
+  reference `track.get('title') or slug` behavior;
+- Private-set hydration validates canonical positive track IDs before I/O,
+  de-duplicates network IDs, splits requests at 200 IDs and the existing URL
+  bound, validates returned IDs against the current request, reconstructs
+  source order (including repeated source IDs), and retains the original
+  tokenized direct-track fallback when an API row is absent. The pinned
+  reference sends all IDs in one request and consumes returned order without
+  these validation and recovery guards.
 
 The fixture client ID, IDs, timestamps, titles, cursors, URLs, counts, and
 response bodies were independently authored for this Go conformance corpus.
 `profile_tab_page.json` is a synthetic mixed-wrapper page reused across the
-pinned profile resources; it contains no captured user or service data.
+pinned profile resources. `private_set.json` and
+`private_tracks_batch.json` independently model incomplete tokenized playlist
+rows, repeated IDs, reordered hydration rows, and an absent permalink. They
+contain no captured user or service data.
 The production implementation neither reads this directory nor depends on the
 reference checkout.
