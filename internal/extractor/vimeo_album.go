@@ -12,7 +12,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/ytdlp-go/ytdlp/internal/value"
@@ -60,14 +59,29 @@ func classifyVimeoAlbumURL(parsed *url.URL) (vimeoPlaylistTarget, bool) {
 		return vimeoPlaylistTarget{}, false
 	}
 	parts := splitVimeoPath(parsed.Path)
-	if len(parts) != 2 || (parts[0] != "album" && parts[0] != "showcase") ||
-		parsed.Path != "/"+parts[0]+"/"+parts[1] {
+	if len(parts) < 2 || len(parts) > 3 || (parts[0] != "album" && parts[0] != "showcase") {
+		return vimeoPlaylistTarget{}, false
+	}
+	embed := false
+	if len(parts) == 3 {
+		if parts[2] != "embed" && parts[2] != "embed2" {
+			return vimeoPlaylistTarget{}, false
+		}
+		embed = true
+		if parsed.Path != "/"+parts[0]+"/"+parts[1]+"/"+parts[2] {
+			return vimeoPlaylistTarget{}, false
+		}
+	} else if parsed.Path != "/"+parts[0]+"/"+parts[1] {
 		return vimeoPlaylistTarget{}, false
 	}
 	target := vimeoPlaylistTarget{
 		kind:      vimeoRouteAlbum,
 		canonical: "https://vimeo.com/" + parts[0] + "/" + parts[1],
 		baseURL:   parts[0],
+		embed:     embed,
+	}
+	if embed {
+		target.canonical += "/" + parts[2]
 	}
 	if validVimeoNumericVideoID(parts[1]) {
 		numericID, err := strconv.ParseUint(parts[1], 10, 64)
@@ -85,7 +99,8 @@ func classifyVimeoAlbumURL(parsed *url.URL) (vimeoPlaylistTarget, bool) {
 	return target, true
 }
 
-func extractVimeoAlbumPlaylist(ctx context.Context, transport Transport, target vimeoPlaylistTarget) (Extraction, error) {
+func extractVimeoAlbumPlaylist(ctx context.Context, request Request, target vimeoPlaylistTarget) (Extraction, error) {
+	transport := request.Transport
 	if err := contextError(ctx); err != nil {
 		return Extraction{}, err
 	}
@@ -93,6 +108,16 @@ func extractVimeoAlbumPlaylist(ctx context.Context, transport Transport, target 
 	_, scopedOK := transport.(ScopedAuthorizationNoRedirectTransport)
 	if !viewerOK || !scopedOK {
 		return Extraction{}, ErrTransportIsolation
+	}
+	referer := ""
+	if target.embed {
+		if request.Referer != "" {
+			validated, ok := validVimeoReferer(request.Referer)
+			if !ok {
+				return Extraction{}, fmt.Errorf("%w: invalid Vimeo embed referrer", ErrInvalidMetadata)
+			}
+			referer = validated
+		}
 	}
 	albumID := target.id
 	if target.slug != "" {
@@ -102,9 +127,15 @@ func extractVimeoAlbumPlaylist(ctx context.Context, transport Transport, target 
 			return Extraction{}, categorizeVimeoAlbumError(err)
 		}
 	}
-	provider := &vimeoAlbumTokenProvider{transport: viewerTransport, now: time.Now}
-	metadata, err := fetchVimeoAlbumMetadata(ctx, transport, albumID, provider)
+	provider := &vimeoViewerTokenProvider{transport: viewerTransport, now: time.Now}
+	metadata, err := fetchVimeoAlbumMetadata(ctx, transport, albumID, provider, target.embed, referer)
 	if err != nil {
+		if target.embed && referer == "" {
+			var status *HTTPStatusError
+			if errors.As(err, &status) && status.Code == http.StatusForbidden {
+				return Extraction{}, fmt.Errorf("%w: embed-only Vimeo album requires a validated Referer", ErrAuthentication)
+			}
+		}
 		return Extraction{}, categorizeVimeoAlbumError(err)
 	}
 	title := boundedVimeoPlaylistText(metadata.Name, vimeoMaxPlaylistTitle)
@@ -130,6 +161,8 @@ func extractVimeoAlbumPlaylist(ctx context.Context, transport Transport, target 
 		transport: transport,
 		albumID:   albumID,
 		provider:  provider,
+		embed:     target.embed,
+		referer:   referer,
 	})
 }
 
@@ -206,42 +239,41 @@ func parseVimeoAlbumSlugID(payload []byte) (string, error) {
 	return rawID, nil
 }
 
-type vimeoAlbumTokenProvider struct {
-	transport CredentialIsolatedNoRedirectTransport
-	now       func() time.Time
+type vimeoAlbumTokenProvider = vimeoViewerTokenProvider
 
-	mu      sync.Mutex
-	token   string
-	expires int64
+func vimeoAlbumEmbedQuery(isEmbed bool, referer string) url.Values {
+	query := url.Values{}
+	if isEmbed {
+		query.Set("is_embed", "true")
+		query.Set("referrer", vimeoReferrerHostname(referer))
+	} else {
+		query.Set("is_embed", "false")
+		query.Set("referrer", "")
+	}
+	return query
 }
 
-func (provider *vimeoAlbumTokenProvider) get(ctx context.Context) (string, error) {
-	provider.mu.Lock()
-	defer provider.mu.Unlock()
-	now := time.Now
-	if provider.now != nil {
-		now = provider.now
-	}
-	if provider.token != "" && provider.expires-now().Unix() >= int64(vimeoAlbumJWTRefreshLead/time.Second) {
-		return provider.token, nil
-	}
-	token, expires, err := fetchVimeoAlbumJWT(ctx, provider.transport)
-	if err != nil {
-		return "", err
-	}
-	if expires-now().Unix() < int64(vimeoAlbumJWTRefreshLead/time.Second) {
-		return "", ErrAuthentication
-	}
-	provider.token, provider.expires = token, expires
-	return token, nil
+func fetchVimeoAlbumMetadata(
+	ctx context.Context,
+	transport Transport,
+	albumID string,
+	provider *vimeoViewerTokenProvider,
+	isEmbed bool,
+	referer string,
+) (vimeoAlbumMetadata, error) {
+	var metadata vimeoAlbumMetadata
+	query := vimeoAlbumEmbedQuery(isEmbed, referer)
+	query.Set("fields", "description,name,privacy")
+	endpoint := "https://api.vimeo.com/albums/" + albumID + "?" + query.Encode()
+	err := withVimeoViewerToken(ctx, provider, func(jwt string) error {
+		return RequestJSONWithScopedAuthorizationNoRedirect(
+			ctx, transport, http.MethodGet, endpoint, nil, vimeoAPIHeaders(jwt), &metadata)
+	})
+	return metadata, err
 }
 
-func (provider *vimeoAlbumTokenProvider) invalidate(token string) {
-	provider.mu.Lock()
-	defer provider.mu.Unlock()
-	if provider.token == token {
-		provider.token, provider.expires = "", 0
-	}
+func withVimeoAlbumToken(ctx context.Context, provider *vimeoViewerTokenProvider, request func(string) error) error {
+	return withVimeoViewerToken(ctx, provider, request)
 }
 
 func fetchVimeoAlbumJWT(ctx context.Context, transport CredentialIsolatedNoRedirectTransport) (string, int64, error) {
@@ -276,58 +308,16 @@ func fetchVimeoAlbumJWT(ctx context.Context, transport CredentialIsolatedNoRedir
 	return viewer.JWT, expires, nil
 }
 
-func fetchVimeoAlbumMetadata(
-	ctx context.Context,
-	transport Transport,
-	albumID string,
-	provider *vimeoAlbumTokenProvider,
-) (vimeoAlbumMetadata, error) {
-	var metadata vimeoAlbumMetadata
-	query := url.Values{
-		"fields":   {"description,name,privacy"},
-		"is_embed": {"false"},
-		"referrer": {""},
-	}
-	endpoint := "https://api.vimeo.com/albums/" + albumID + "?" + query.Encode()
-	err := withVimeoAlbumToken(ctx, provider, func(jwt string) error {
-		return RequestJSONWithScopedAuthorizationNoRedirect(
-			ctx, transport, http.MethodGet, endpoint, nil, vimeoAlbumHeaders(jwt), &metadata)
-	})
-	return metadata, err
-}
-
-func withVimeoAlbumToken(ctx context.Context, provider *vimeoAlbumTokenProvider, request func(string) error) error {
-	if provider == nil || request == nil {
-		return fmt.Errorf("%w: missing Vimeo album token provider", ErrInvalidMetadata)
-	}
-	for attempt := 0; attempt < 2; attempt++ {
-		token, err := provider.get(ctx)
-		if err != nil {
-			return err
-		}
-		err = request(token)
-		var status *HTTPStatusError
-		if attempt == 0 && errors.As(err, &status) &&
-			(status.Code == http.StatusUnauthorized || status.Code == http.StatusForbidden) {
-			provider.invalidate(token)
-			continue
-		}
-		return err
-	}
-	return ErrAuthentication
-}
-
 func vimeoAlbumHeaders(jwt string) http.Header {
-	return http.Header{
-		"Accept":        {"application/json"},
-		"Authorization": {"jwt " + jwt},
-	}
+	return vimeoAPIHeaders(jwt)
 }
 
 type vimeoAlbumEntries struct {
 	transport Transport
 	albumID   string
-	provider  *vimeoAlbumTokenProvider
+	provider  *vimeoViewerTokenProvider
+	embed     bool
+	referer   string
 }
 
 func (entries vimeoAlbumEntries) Iterator() EntryIterator {
@@ -335,6 +325,8 @@ func (entries vimeoAlbumEntries) Iterator() EntryIterator {
 		transport: entries.transport,
 		albumID:   entries.albumID,
 		provider:  entries.provider,
+		embed:     entries.embed,
+		referer:   entries.referer,
 		seen:      make(map[string]struct{}),
 	}
 }
@@ -342,7 +334,9 @@ func (entries vimeoAlbumEntries) Iterator() EntryIterator {
 type vimeoAlbumIterator struct {
 	transport Transport
 	albumID   string
-	provider  *vimeoAlbumTokenProvider
+	provider  *vimeoViewerTokenProvider
+	embed     bool
+	referer   string
 	page      []Entry
 	pageIndex int
 	pageNum   int
@@ -363,7 +357,7 @@ func (iterator *vimeoAlbumIterator) Next(ctx context.Context) (Entry, bool, erro
 		}
 		iterator.pageNum++
 		page, short, err := fetchVimeoAlbumVideoPage(
-			ctx, iterator.transport, iterator.albumID, iterator.provider, iterator.pageNum)
+			ctx, iterator.transport, iterator.albumID, iterator.provider, iterator.pageNum, iterator.embed, iterator.referer)
 		if err != nil {
 			var status *HTTPStatusError
 			if iterator.pageNum > 1 && errors.As(err, &status) && status.Code == http.StatusBadRequest {
@@ -409,16 +403,15 @@ func fetchVimeoAlbumVideoPage(
 	ctx context.Context,
 	transport Transport,
 	albumID string,
-	provider *vimeoAlbumTokenProvider,
+	provider *vimeoViewerTokenProvider,
 	page int,
+	isEmbed bool,
+	referer string,
 ) ([]Entry, bool, error) {
-	query := url.Values{
-		"fields":   {"link,uri"},
-		"is_embed": {"false"},
-		"page":     {fmt.Sprintf("%d", page)},
-		"per_page": {fmt.Sprintf("%d", vimeoAlbumPageSize)},
-		"referrer": {""},
-	}
+	query := vimeoAlbumEmbedQuery(isEmbed, referer)
+	query.Set("fields", "link,uri")
+	query.Set("page", fmt.Sprintf("%d", page))
+	query.Set("per_page", fmt.Sprintf("%d", vimeoAlbumPageSize))
 	endpoint := "https://api.vimeo.com/albums/" + albumID + "/videos?" + query.Encode()
 	var payload vimeoAlbumVideoPage
 	if err := withVimeoAlbumToken(ctx, provider, func(jwt string) error {
@@ -432,19 +425,31 @@ func fetchVimeoAlbumVideoPage(
 	}
 	out := make([]Entry, 0, len(payload.Data))
 	for _, video := range payload.Data {
-		if entry, ok := vimeoAlbumVideoEntry(video.Link, video.URI); ok {
+		if entry, ok := vimeoAlbumVideoEntry(video.Link, video.URI, isEmbed, referer); ok {
 			out = append(out, entry)
 		}
 	}
 	return out, len(payload.Data) < vimeoAlbumPageSize, nil
 }
 
-func vimeoAlbumVideoEntry(link, uri string) (Entry, bool) {
+func vimeoAlbumVideoEntry(link, uri string, isEmbed bool, referer string) (Entry, bool) {
 	match := vimeoAlbumURI.FindStringSubmatch(uri)
 	if len(match) != 2 {
 		return Entry{}, false
 	}
 	id := match[1]
+	if isEmbed {
+		entry := Entry{
+			URL:          "https://player.vimeo.com/video/" + id,
+			ExtractorKey: "vimeo",
+			ID:           id,
+			Transparent:  true,
+		}
+		if referer != "" {
+			entry.Referer = referer
+		}
+		return entry, true
+	}
 	parsed, err := url.Parse(link)
 	if err != nil || parsed.Scheme != "https" || parsed.User != nil || parsed.Port() != "" ||
 		parsed.RawQuery != "" || parsed.Fragment != "" || parsed.RawPath != "" ||

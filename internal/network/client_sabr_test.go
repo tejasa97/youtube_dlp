@@ -21,6 +21,7 @@ func TestDoWithoutCredentialsNoRedirectDropsAllCredentialSources(t *testing.T) {
 			"Authorization":       {"default-auth"},
 			"Cookie":              {"default-cookie=1"},
 			"Proxy-Authorization": {"proxy-auth"},
+			"Referer":             {"https://default.example/watch"},
 		},
 	})
 	if err != nil {
@@ -33,6 +34,7 @@ func TestDoWithoutCredentialsNoRedirectDropsAllCredentialSources(t *testing.T) {
 	request.Header.Set("Authorization", "explicit-auth")
 	request.Header.Set("Cookie", "explicit-cookie=1")
 	request.Header.Set("Proxy-Authorization", "explicit-proxy")
+	request.Header.Set("Referer", "https://explicit.example/watch")
 	if err := client.AddCookies([]*http.Cookie{{Name: "jar", Value: "secret", Domain: "127.0.0.1", Path: "/"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +43,7 @@ func TestDoWithoutCredentialsNoRedirectDropsAllCredentialSources(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer response.Body.Close()
-	for _, key := range []string{"Authorization", "Cookie", "Proxy-Authorization"} {
+	for _, key := range []string{"Authorization", "Cookie", "Proxy-Authorization", "Referer"} {
 		if seen.Get(key) != "" {
 			t.Fatalf("credential header %s leaked: %q", key, seen.Get(key))
 		}

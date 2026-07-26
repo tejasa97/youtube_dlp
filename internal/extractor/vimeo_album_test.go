@@ -701,7 +701,7 @@ func FuzzVimeoAlbumVideoEntry(f *testing.F) {
 		if len(link) > 1<<20 || len(uri) > 1<<20 {
 			t.Skip()
 		}
-		entry, ok := vimeoAlbumVideoEntry(link, uri)
+		entry, ok := vimeoAlbumVideoEntry(link, uri, false, "")
 		if !ok {
 			return
 		}
@@ -718,4 +718,33 @@ func FuzzVimeoAlbumVideoEntry(f *testing.F) {
 			t.Fatalf("entry dispatch = %v %#v", kind, target)
 		}
 	})
+}
+
+func TestVimeoAlbumEmbedRoutesAccepted(t *testing.T) {
+	for _, rawURL := range []string{
+		"https://vimeo.com/showcase/7/embed",
+		"https://vimeo.com/album/7/embed2",
+	} {
+		target, ok := classifyVimeoAlbumURL(mustParseURL(t, rawURL))
+		if !ok || !target.embed || target.id != "7" {
+			t.Fatalf("target for %q = %#v, %v", rawURL, target, ok)
+		}
+	}
+}
+
+func TestVimeoAlbumEmbedPropagatesRefererToPlayerEntries(t *testing.T) {
+	entry, ok := vimeoAlbumVideoEntry("https://vimeo.com/42", "/videos/42", true, "https://publisher.example/embed")
+	if !ok || entry.URL != "https://player.vimeo.com/video/42" || entry.Referer != "https://publisher.example/embed" {
+		t.Fatalf("entry = %#v, %v", entry, ok)
+	}
+}
+
+func TestVimeoAlbumEmbedRejectsHostileReferer(t *testing.T) {
+	transport := newVimeoAlbumFixtureTransport(t)
+	_, err := NewVimeo().Extract(context.Background(), Request{
+		URL: "https://vimeo.com/showcase/7/embed", Referer: "https://127.0.0.1/", Transport: transport,
+	})
+	if !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("hostile referer error = %v", err)
+	}
 }

@@ -1,0 +1,24 @@
+[
+  {
+    "width": 320,
+    "height": 180,
+    "count": 360,
+    "rows": 5,
+    "cols": 10,
+    "images": [
+      "frame-0.jpg",
+      "frame-1.jpg"
+    ]
+  },
+  {
+    "width": 160,
+    "height": 90,
+    "count": 360,
+    "rows": 5,
+    "cols": 10,
+    "images": [
+      "frame-0.jpg",
+      "frame-1.jpg"
+    ]
+  }
+]
