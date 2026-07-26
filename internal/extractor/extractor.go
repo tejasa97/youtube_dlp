@@ -111,6 +111,7 @@ type Request struct {
 	YouTubeTranslatedCaptions bool
 	YouTubeLiveFromStart      bool
 	YouTubeComments           YouTubeCommentOptions
+	SoundCloudComments        SoundCloudCommentOptions
 }
 
 // YouTubeCommentOptions controls opt-in comment retrieval. Zero Max selects
@@ -123,6 +124,12 @@ type YouTubeCommentOptions struct {
 	MaxReplies          int
 	MaxRepliesPerThread int
 	MaxDepth            int
+}
+
+type SoundCloudCommentOptions struct {
+	Enabled     bool
+	Sort        string
+	MaxComments int
 }
 
 // Credential is an extractor-scoped authentication tuple. It must never be

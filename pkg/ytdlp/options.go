@@ -106,6 +106,15 @@ type YouTubeCommentOptions struct {
 	MaxDepth            int
 }
 
+// SoundCloudCommentOptions controls opt-in public track-comment retrieval.
+// Sort accepts newest, oldest, or track-timestamp. Zero MaxComments selects
+// the bounded default.
+type SoundCloudCommentOptions struct {
+	Enabled     bool
+	Sort        string
+	MaxComments int
+}
+
 // SponsorBlockOptions controls the optional SponsorBlock metadata and
 // media-cutting stages. When Enabled is false, both stages are skipped and
 // no network requests are issued. When Enabled is true, the configured
@@ -296,6 +305,12 @@ func validateRequestOptions(request Request) error {
 		comments.MaxDepth < 0 || comments.MaxDepth > 8 ||
 		(comments.Sort != "" && comments.Sort != "top" && comments.Sort != "new") {
 		return fmt.Errorf("%w: comment options", errInvalidRequestOptions)
+	}
+	soundCloudComments := request.SoundCloudComments
+	if soundCloudComments.MaxComments < 0 || soundCloudComments.MaxComments > 10_000 ||
+		(soundCloudComments.Sort != "" && soundCloudComments.Sort != "newest" &&
+			soundCloudComments.Sort != "oldest" && soundCloudComments.Sort != "track-timestamp") {
+		return fmt.Errorf("%w: SoundCloud comment options", errInvalidRequestOptions)
 	}
 	if err := validateSponsorBlockOptions(request.SponsorBlock); err != nil {
 		return fmt.Errorf("%w: %v", errInvalidRequestOptions, err)

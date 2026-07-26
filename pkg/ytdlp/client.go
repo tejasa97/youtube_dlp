@@ -111,6 +111,7 @@ type Request struct {
 	YouTubeTranslatedCaptions bool
 	LiveFromStart             bool
 	YouTubeComments           YouTubeCommentOptions
+	SoundCloudComments        SoundCloudCommentOptions
 	SponsorBlock              SponsorBlockOptions
 	// RemoveChapters contains repeatable yt-dlp --remove-chapters
 	// specifications. Values beginning with "*" are manual time ranges;
@@ -553,6 +554,11 @@ func (operation *operation) process(ctx context.Context, rawURL, extractorKey st
 			MaxReplies:          operation.request.YouTubeComments.MaxReplies,
 			MaxRepliesPerThread: operation.request.YouTubeComments.MaxRepliesPerThread,
 			MaxDepth:            operation.request.YouTubeComments.MaxDepth,
+		},
+		SoundCloudComments: extractor.SoundCloudCommentOptions{
+			Enabled:     operation.request.SoundCloudComments.Enabled,
+			Sort:        operation.request.SoundCloudComments.Sort,
+			MaxComments: operation.request.SoundCloudComments.MaxComments,
 		},
 	})
 	if err != nil {

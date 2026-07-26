@@ -1336,11 +1336,21 @@ func TestRunAcceptsYouTubeCommentAliasesAndClears(t *testing.T) {
 	defer server.Close()
 	for _, arguments := range [][]string{
 		{"--skip-download", "--get-comments", "--youtube-max-comments", "10,2,3,1,2", "--youtube-comment-sort", "top", server.URL + "/page"},
+		{"--skip-download", "--get-comments", "--soundcloud-max-comments", "25", "--soundcloud-comment-sort", "oldest", server.URL + "/page"},
 		{"--skip-download", "--write-comments", "--no-write-comments", server.URL + "/page"},
 		{"--skip-download", "--get-comments", "--no-get-comments", server.URL + "/page"},
 	} {
 		var stdout, stderr bytes.Buffer
 		if code := Run(arguments, &stdout, &stderr); code != 0 {
+			t.Fatalf("Run(%q) code=%d stderr=%q", arguments, code, stderr.String())
+		}
+	}
+	for _, arguments := range [][]string{
+		{"--get-comments", "--soundcloud-comment-sort", "bad", server.URL + "/page"},
+		{"--get-comments", "--soundcloud-max-comments", "10001", server.URL + "/page"},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := Run(arguments, &stdout, &stderr); code != 2 {
 			t.Fatalf("Run(%q) code=%d stderr=%q", arguments, code, stderr.String())
 		}
 	}

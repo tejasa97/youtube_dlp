@@ -24,7 +24,7 @@ type soundCloudEmbedProductTransport struct {
 func newSoundCloudEmbedProductTransport(t *testing.T) *soundCloudEmbedProductTransport {
 	t.Helper()
 	transport := &soundCloudEmbedProductTransport{t: t, fixtures: make(map[string][]byte)}
-	for _, name := range []string{"home.html", "client.js", "track.json", "progressive.json", "hls.json"} {
+	for _, name := range []string{"home.html", "client.js", "track.json", "progressive.json", "hls.json", "comments_page1.json", "comments_page2.json"} {
 		data, err := os.ReadFile(filepath.Join("..", "..", "conformance", "extractors", "soundcloud", name))
 		if err != nil {
 			t.Fatal(err)
@@ -60,6 +60,11 @@ func (transport *soundCloudEmbedProductTransport) Do(ctx context.Context, reques
 		fixture = "progressive.json"
 	case request.URL.Hostname() == "api-v2.soundcloud.com" && request.URL.Path == "/media/4242/hls":
 		fixture = "hls.json"
+	case request.URL.Hostname() == "api-v2.soundcloud.com" && request.URL.Path == "/tracks/4242/comments":
+		fixture = "comments_page1.json"
+		if request.URL.Query().Get("offset") == "20" {
+			fixture = "comments_page2.json"
+		}
 	default:
 		transport.t.Fatalf("unexpected request: %s", request.URL)
 	}

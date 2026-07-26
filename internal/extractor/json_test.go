@@ -17,6 +17,7 @@ type jsonTransport struct {
 
 func (transport *jsonTransport) Do(_ context.Context, request *http.Request) (*http.Response, error) {
 	transport.request = request
+	request.Header.Set("X-Transport-Test", "yes")
 	return &http.Response{
 		StatusCode: transport.status,
 		Body:       io.NopCloser(strings.NewReader(transport.response)),
