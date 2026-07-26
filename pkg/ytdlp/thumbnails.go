@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -15,8 +18,11 @@ import (
 
 	outputtemplate "github.com/ytdlp-go/ytdlp/internal/compat/template"
 	"github.com/ytdlp-go/ytdlp/internal/downloader"
+	"github.com/ytdlp-go/ytdlp/internal/events"
 	"github.com/ytdlp-go/ytdlp/internal/extractor"
 	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
+	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
+	"github.com/ytdlp-go/ytdlp/internal/media/postprocess"
 	"github.com/ytdlp-go/ytdlp/internal/network"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
@@ -25,6 +31,8 @@ const (
 	maxThumbnails        = 256
 	maxThumbnailURLBytes = 8 << 10
 	maxThumbnailBytes    = 16 << 20
+	maxThumbnailMapping  = 256
+	maxThumbnailRules    = 16
 )
 
 var thumbnailIdentifierPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
@@ -45,6 +53,83 @@ type thumbnailTrack struct {
 	height     float64
 	metadata   *value.Object
 	index      int
+}
+
+type thumbnailConversionRule struct {
+	source string
+	target string
+}
+
+type thumbnailConversionMapping []thumbnailConversionRule
+
+type thumbnailConvertFunc func(
+	context.Context, string, string, string, bool, events.Sink,
+) error
+
+func parseThumbnailConversionMapping(input string) (thumbnailConversionMapping, error) {
+	normalized := strings.ToLower(strings.TrimSpace(input))
+	if normalized == "" || normalized == "none" {
+		return nil, nil
+	}
+	if len(normalized) > maxThumbnailMapping || strings.ContainsAny(normalized, "\x00\r\n") {
+		return nil, fmt.Errorf("invalid thumbnail conversion mapping")
+	}
+	parts := strings.Split(normalized, "/")
+	if len(parts) > maxThumbnailRules {
+		return nil, fmt.Errorf("thumbnail conversion mapping exceeds %d rules", maxThumbnailRules)
+	}
+	rules := make(thumbnailConversionMapping, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		source, target, conditional := strings.Cut(part, ">")
+		if conditional {
+			source = strings.TrimSpace(source)
+			target = strings.TrimSpace(target)
+			if source == "" || strings.Contains(target, ">") || !thumbnailMappingSource(source) {
+				return nil, fmt.Errorf("invalid thumbnail conversion rule %q", part)
+			}
+		} else {
+			target = source
+			source = ""
+		}
+		switch target {
+		case "jpg", "png", "webp":
+		default:
+			return nil, fmt.Errorf("unsupported thumbnail conversion format %q", target)
+		}
+		rules = append(rules, thumbnailConversionRule{source: source, target: target})
+	}
+	return rules, nil
+}
+
+func thumbnailMappingSource(input string) bool {
+	if len(input) == 0 || len(input) > 32 {
+		return false
+	}
+	for _, character := range input {
+		if (character < 'a' || character > 'z') &&
+			(character < '0' || character > '9') && character != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+func (mapping thumbnailConversionMapping) resolve(source string) (string, bool) {
+	source = strings.ToLower(strings.TrimSpace(source))
+	if source == "jpeg" {
+		source = "jpg"
+	}
+	for _, rule := range mapping {
+		if rule.source != "" && rule.source != source {
+			continue
+		}
+		if rule.target == source {
+			return "", false
+		}
+		return rule.target, true
+	}
+	return "", false
 }
 
 func selectThumbnails(info *value.Info) ([]thumbnailTrack, error) {
@@ -134,6 +219,10 @@ func (operation *operation) writeThumbnails(ctx context.Context, info *value.Inf
 	if !options.Write && !options.WriteAll {
 		return nil, 0, nil
 	}
+	mapping, err := parseThumbnailConversionMapping(options.ConvertFormat)
+	if err != nil {
+		return nil, 0, err
+	}
 	tracks, err := selectThumbnails(info)
 	if err != nil || len(tracks) == 0 {
 		return nil, 0, err
@@ -146,8 +235,40 @@ func (operation *operation) writeThumbnails(ctx context.Context, info *value.Inf
 	pattern := operation.request.outputTemplate(templateType)
 	writeAll := options.WriteAll
 	multiple := writeAll && len(tracks) > 1
+	seen := make(map[string]struct{}, len(tracks))
+	for _, track := range tracks {
+		source, pathErr := thumbnailPath(outputRoot, pattern, *info, track, multiple)
+		if pathErr != nil {
+			return nil, 0, pathErr
+		}
+		final, pathErr := thumbnailConversionPath(operation.request.outputRoot(OutputPathHome), source, track.extension, mapping)
+		if pathErr != nil {
+			return nil, 0, pathErr
+		}
+		if writeAll {
+			if _, duplicate := seen[final]; duplicate {
+				return nil, 0, fmt.Errorf("%w: duplicate thumbnail destination", extractor.ErrInvalidMetadata)
+			}
+			seen[final] = struct{}{}
+		}
+	}
+	converter := operation.thumbnailConvert
+	var tools *ffmpeg.Toolset
+	if converter == nil {
+		converter = func(ctx context.Context, source, destination, format string, overwrite bool, sink events.Sink) error {
+			if tools == nil {
+				discovered, discoverErr := ffmpeg.Discover(ffmpeg.Config{})
+				if discoverErr != nil {
+					return discoverErr
+				}
+				tools = discovered
+			}
+			return tools.ConvertImage(ctx, source, destination, ffmpeg.ImageOptions{Format: format}, overwrite, sink)
+		}
+	}
 	artifacts := make([]Artifact, 0, len(tracks))
 	failed := make(map[*value.Object]bool)
+	committedPaths := make(map[string]struct{}, len(tracks))
 	var total int64
 	for index := len(tracks) - 1; index >= 0; index-- {
 		if err := ctx.Err(); err != nil {
@@ -157,6 +278,11 @@ func (operation *operation) writeThumbnails(ctx context.Context, info *value.Inf
 		destination, err := thumbnailPath(outputRoot, pattern, *info, track, multiple)
 		if err != nil {
 			return artifacts, total, err
+		}
+		if writeAll {
+			if _, duplicate := committedPaths[destination]; duplicate {
+				return artifacts, total, fmt.Errorf("%w: duplicate thumbnail destination", extractor.ErrInvalidMetadata)
+			}
 		}
 		options := operation.request.Downloader
 		if options.MaxBytes <= 0 || options.MaxBytes > maxThumbnailBytes {
@@ -188,9 +314,107 @@ func (operation *operation) writeThumbnails(ctx context.Context, info *value.Inf
 			}
 			continue
 		}
-		track.metadata.Set("filepath", value.String(result.Path))
-		artifacts = append(artifacts, Artifact{Path: result.Path, Kind: "thumbnail"})
-		total += result.Bytes
+		artifactPath := result.Path
+		artifactBytes := result.Bytes
+		corrected := false
+		if len(mapping) > 0 && !strings.EqualFold(track.extension, "webp") {
+			webp, magicErr := thumbnailHasWebPMagic(result.Path)
+			if magicErr != nil {
+				return artifacts, total, magicErr
+			}
+			if webp {
+				correctedPath, pathErr := convertedThumbnailPath(
+					operation.request.outputRoot(OutputPathHome), result.Path, "webp",
+				)
+				if pathErr != nil {
+					return artifacts, total, pathErr
+				}
+				artifactPath, corrected = correctedPath, true
+			}
+		}
+		actualExtension := track.extension
+		if corrected {
+			actualExtension = "webp"
+		}
+		target, convert := mapping.resolve(actualExtension)
+		finalPath := artifactPath
+		if convert {
+			finalPath, err = convertedThumbnailPath(
+				operation.request.outputRoot(OutputPathHome), artifactPath, target,
+			)
+			if err != nil {
+				return artifacts, total, err
+			}
+		}
+		if writeAll {
+			if _, duplicate := committedPaths[finalPath]; duplicate {
+				return artifacts, total, fmt.Errorf("%w: duplicate thumbnail destination", extractor.ErrInvalidMetadata)
+			}
+			if corrected && artifactPath != finalPath {
+				if _, duplicate := committedPaths[artifactPath]; duplicate {
+					return artifacts, total, fmt.Errorf("%w: duplicate thumbnail destination", extractor.ErrInvalidMetadata)
+				}
+			}
+		}
+		if corrected {
+			if err := postprocess.SafeMoveContext(
+				ctx, result.Path, artifactPath, operation.request.Overwrite,
+			); err != nil {
+				return artifacts, total, err
+			}
+			track.extension = actualExtension
+			track.metadata.Set("ext", value.String(actualExtension))
+		}
+		if convert {
+			conversionSource := artifactPath
+			sourceInfo, statErr := os.Lstat(conversionSource)
+			if statErr != nil || sourceInfo.Mode()&os.ModeSymlink != 0 || !sourceInfo.Mode().IsRegular() {
+				return artifacts, total, fmt.Errorf("%w: thumbnail source is not a regular file", ffmpeg.ErrInvalidOperation)
+			}
+			destination, pathErr := convertedThumbnailPath(
+				operation.request.outputRoot(OutputPathHome), conversionSource, target,
+			)
+			if pathErr != nil {
+				return artifacts, total, pathErr
+			}
+			if destination != finalPath {
+				return artifacts, total, fmt.Errorf("%w: unstable thumbnail conversion path", ffmpeg.ErrInvalidOperation)
+			}
+			if convertErr := converter(
+				ctx, conversionSource, destination, target, operation.request.Overwrite, operation.eventSink(),
+			); convertErr != nil {
+				return artifacts, total, convertErr
+			}
+			destinationInfo, statErr := os.Lstat(destination)
+			if statErr != nil || destinationInfo.Mode()&os.ModeSymlink != 0 || !destinationInfo.Mode().IsRegular() {
+				return artifacts, total, fmt.Errorf("%w: converted thumbnail is not a regular file", ffmpeg.ErrInvalidOperation)
+			}
+			artifactPath, artifactBytes = destination, destinationInfo.Size()
+			track.metadata.Set("ext", value.String(target))
+			retainedSource := false
+			removeErr := operation.removeLocalFile(conversionSource)
+			if removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+				operation.emitThumbnailCleanupWarning(ctx, conversionSource)
+				retainedSource = true
+			}
+			track.metadata.Set("filepath", value.String(artifactPath))
+			artifacts = append(artifacts, Artifact{Path: artifactPath, Kind: "thumbnail"})
+			total += artifactBytes
+			if retainedSource {
+				artifacts = append(artifacts, Artifact{Path: conversionSource, Kind: "thumbnail"})
+				total += result.Bytes
+				committedPaths[conversionSource] = struct{}{}
+			}
+			if !writeAll {
+				break
+			}
+			committedPaths[artifactPath] = struct{}{}
+			continue
+		}
+		track.metadata.Set("filepath", value.String(artifactPath))
+		artifacts = append(artifacts, Artifact{Path: artifactPath, Kind: "thumbnail"})
+		total += artifactBytes
+		committedPaths[artifactPath] = struct{}{}
 		if !writeAll {
 			break
 		}
@@ -205,6 +429,53 @@ func (operation *operation) writeThumbnails(ctx context.Context, info *value.Inf
 		info.Set("thumbnails", value.List(retained...))
 	}
 	return artifacts, total, nil
+}
+
+func thumbnailConversionPath(
+	home, source, sourceExtension string, mapping thumbnailConversionMapping,
+) (string, error) {
+	target, convert := mapping.resolve(sourceExtension)
+	if !convert {
+		return source, nil
+	}
+	return convertedThumbnailPath(home, source, target)
+}
+
+func convertedThumbnailPath(home, source, target string) (string, error) {
+	extension := filepath.Ext(source)
+	if extension == "" {
+		return "", fmt.Errorf("%w: thumbnail source has no extension", ffmpeg.ErrInvalidOperation)
+	}
+	destination := strings.TrimSuffix(source, extension) + "." + target
+	return confinedPostprocessPath(home, destination)
+}
+
+func thumbnailHasWebPMagic(filename string) (bool, error) {
+	file, err := os.Open(filename)
+	if err != nil {
+		return false, err
+	}
+	defer file.Close()
+	var header [12]byte
+	if _, err := io.ReadFull(file, header[:]); err != nil {
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+			return false, nil
+		}
+		return false, err
+	}
+	return string(header[0:4]) == "RIFF" && string(header[8:12]) == "WEBP", nil
+}
+
+func (operation *operation) emitThumbnailCleanupWarning(ctx context.Context, source string) {
+	if operation.client == nil {
+		return
+	}
+	// Conversion has already committed its replacement. Observer failures
+	// therefore cannot roll back the operation and are intentionally ignored.
+	_ = operation.client.emit(ctx, Event{
+		Kind: EventMetadataWarning, Path: source,
+		Message: "could not remove a superseded thumbnail sidecar; it remains in the result artifacts",
+	})
 }
 
 func thumbnailPath(outputRoot, pattern string, info value.Info, track thumbnailTrack, multiple bool) (string, error) {

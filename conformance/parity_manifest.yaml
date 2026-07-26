@@ -80,9 +80,9 @@ capabilities:
     known_deviation: Related files use the port's deterministic normalized metadata schema. Implemented artifact types have per-type output templates; annotation sidecars and non-atomic Windows replacement where the platform cannot provide it remain outside this claim.
 
   - id: cli.thumbnail_sidecars
-    name: Thumbnail sidecars and listing
+    name: Thumbnail sidecars, conversion, and listing
     phase: 3
-    compatibility_target: List or write the best or all bounded entry and playlist thumbnails through confined per-type templates without downloading media.
+    compatibility_target: List or write the best or all bounded entry and playlist thumbnails through confined per-type templates without downloading media, with ordered jpg/png/webp conversion mappings.
     status: compatible
     evidence:
       - pkg/ytdlp.TestSelectThumbnailsNormalizesSortsAndBoundsMetadata
@@ -91,11 +91,24 @@ capabilities:
       - pkg/ytdlp.TestWriteThumbnailsExistingDestination
       - pkg/ytdlp.TestThumbnailRedirectPolicy
       - pkg/ytdlp.TestThumbnailRemoteExhaustionWarnsAndContinues
+      - pkg/ytdlp.TestThumbnailConversionMapping
+      - pkg/ytdlp.TestWriteThumbnailsConvertsAllAndUpdatesMetadata
+      - pkg/ytdlp.TestThumbnailConversionFailureAndCleanupSafety
+      - pkg/ytdlp.TestThumbnailConversionCorrectsMislabeledWebP
+      - pkg/ytdlp.TestThumbnailConversionCancellationPreservesSource
+      - pkg/ytdlp.TestThumbnailConversionValidationPrecedesNetwork
+      - pkg/ytdlp.TestThumbnailConversionCollisionPrecedesDownload
+      - pkg/ytdlp.TestThumbnailConversionRejectsContentInducedCollision
+      - pkg/ytdlp.TestThumbnailConversionRejectsDownloadOverCommittedCorrectedPath
       - pkg/ytdlp.FuzzThumbnailPathAndURL
+      - pkg/ytdlp.FuzzThumbnailConversionMapping
       - internal/cli.TestThumbnailModeFlagPrecedence
       - internal/cli.TestRenderThumbnailListing
       - internal/cli.TestRunWritesAndListsThumbnailSidecars
       - internal/cli.TestRunNoWriteThumbnailOverridesConfiguration
+      - internal/cli.TestRunConvertsThumbnail
+      - internal/cli.TestRunThumbnailConversionConfigPrecedenceAndReset
+      - internal/cli.TestRunRejectsInvalidThumbnailConversionBeforeNetwork
       - conformance/thumbnails/PROVENANCE.md
       - docs/THUMBNAIL_SIDECARS_EVIDENCE.md
     owner: core
@@ -103,7 +116,8 @@ capabilities:
       - cli.simulation
       - compat.output_template_minimal
       - network.shared_transport
-    known_deviation: Existing thumbnail files fail closed unless overwrite is enabled. Thumbnail conversion and media-container embedding remain separate postprocessor work.
+      - postprocess.ffmpeg
+    known_deviation: Existing thumbnail files fail closed unless overwrite is enabled. Media-container thumbnail embedding remains separate postprocessor work.
 
   - id: cli.staged_print
     name: Staged template, file, and legacy field printing

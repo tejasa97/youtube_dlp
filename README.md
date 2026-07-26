@@ -150,6 +150,7 @@ revision; repository test keys are not production updater trust.
   --write-info-json \
   --write-description \
   --write-thumbnail \
+  --convert-thumbnails "webp>png/jpg" \
   --write-link \
   --paths "subtitle:captions" \
   --paths "thumbnail:images" \
@@ -168,6 +169,11 @@ you also want the normal download. Repeat `--output` to give `default`,
 `subtitle`, `thumbnail`, `description`, `infojson`, `link`,
 `pl_description`, `pl_infojson`, or `pl_thumbnail` its own confined template; unspecified types fall back to
 `default`.
+
+`--convert-thumbnails FORMAT` converts written images to `jpg`, `png`, or
+`webp`. Conditional mappings such as `webp>png/jpg` use the first matching
+rule and fall back to the first unconditional format; `none` disables
+conversion.
 
 Repeat `--paths [TYPES:]PATH` to place those produced artifact types in
 separate directories beneath `home`. Supported types are `home`, `subtitle`,
