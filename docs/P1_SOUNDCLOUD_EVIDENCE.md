@@ -75,7 +75,9 @@ The shared registry and parity manifest remain owned by the primary integrator.
   direct v2 track fallback with the private-set token.
 - Lazy, independently reusable linked-partition iterators for bare public user
   profiles and every pinned user tab, track stations, and related-resource
-  pages.
+  pages. Their initial collection request uses the pinned `limit=200`,
+  `linked_partitioning=1`, and `offset=0` contract; service-provided
+  continuations do not have the local offset reintroduced.
 - Route-aware continuation policy: every `next_href` must use HTTPS, the exact
   `api-v2.soundcloud.com` host, no userinfo, no explicit port, no fragment, no
   encoded separators (`%2f`, `%5c`, `%00`) or NULs, no literal `.` or `..` path
@@ -114,6 +116,10 @@ The shared registry and parity manifest remain owned by the primary integrator.
 - `internal/extractor.TestSoundCloudAPIUserPermalinkComparesNumericIdentity`
 - `internal/extractor.TestSoundCloudAPIUserPermalinkCancellationAndContinuationIsolation`
 - `internal/extractor.TestSoundCloudSetEntriesRemainOrderedTransparentURLs`
+- `internal/extractor.TestSoundCloudCollectionStartsWithPinnedOffsetContract`
+- `internal/extractor.TestSoundCloudCollectionContinuationDoesNotReintroduceOffset`
+- `internal/extractor.TestSoundCloudCollectionPreservesServerContinuationOffset`
+- `internal/extractor.TestSoundCloudCollectionStartURLIsDeterministicAndBounded`
 - `internal/extractor.TestSoundCloudPrivateSetHydratesWebAndAPIURLs`
 - `internal/extractor.TestSoundCloudPrivateSetTriggerAndMissingRowFallback`
 - `internal/extractor.TestSoundCloudPrivateSetHydrationFailuresAreCategorizedAndSecretSafe`
@@ -194,10 +200,12 @@ registry evidence and the complete test suite passes.
 
 ## Known deviations
 
-The pilot does not yet implement OAuth/cookie login,
-premium subscription formats, or offset pagination compatibility. Track
-comments are supported, while the distinct `/comments` user tab
+The pilot does not yet implement OAuth/cookie login or premium subscription
+formats. Track comments are supported, while the distinct `/comments` user tab
 continues to enumerate attributable media entries rather than comment bodies.
+Paged collections do not yet select the pinned Chrome 116+ impersonation
+profile or retry transient HTTP 502 responses; those are separate resilience
+gaps, not part of the completed offset contract.
 Arbitrary script-based player discovery and future user tabs remain out of
 scope. Only the declared synthetic corpus is compatibility evidence. SoundCloud
 can change its web client-ID layout; failure remains explicit and bounded rather
