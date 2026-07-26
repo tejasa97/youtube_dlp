@@ -25,7 +25,7 @@ import (
 const (
 	prxAPI        = "https://cms.prx.org/api/v1/"
 	prxMaxPages   = 1000
-	prxMaxEntries = 100000
+	prxMaxEntries = 10000
 )
 
 var prxRoute = regexp.MustCompile(`^/(stories|series|accounts)/([0-9]{1,16})/?$`)
@@ -45,7 +45,7 @@ func (PRXSeries) Suitable(u *url.URL) bool  { k, _, ok := prxTarget(u); return o
 func (PRXAccount) Suitable(u *url.URL) bool { k, _, ok := prxTarget(u); return ok && k == "accounts" }
 
 func prxTarget(u *url.URL) (string, string, bool) {
-	if u == nil || hostedRejectUnsafeURL(u) || u.Scheme != "https" || u.RawQuery != "" {
+	if u == nil || hostedRejectUnsafeURL(u) || u.Scheme != "https" || !prxPartQueryOK(u) {
 		return "", "", false
 	}
 	h := strings.ToLower(strings.TrimSuffix(u.Hostname(), "."))
@@ -59,8 +59,29 @@ func prxTarget(u *url.URL) (string, string, bool) {
 	return m[1], m[2], true
 }
 
+// prx_part is an internal, canonical URL-result selector. It is the only
+// accepted query, so public routing cannot turn this extractor into a proxy.
+func prxPartQueryOK(u *url.URL) bool {
+	if u.RawQuery == "" {
+		return true
+	}
+	v, err := url.ParseQuery(u.RawQuery)
+	if err != nil || len(v) != 1 || len(v["prx_part"]) != 1 {
+		return false
+	}
+	n, err := strconv.Atoi(v.Get("prx_part"))
+	return err == nil && n > 0 && n <= 100
+}
+func prxPart(u *url.URL) int {
+	if u == nil || u.RawQuery == "" {
+		return 0
+	}
+	n, _ := strconv.Atoi(u.Query().Get("prx_part"))
+	return n
+}
+
 type prxResource struct {
-	ID          string      `json:"id"`
+	ID          prxID       `json:"id"`
 	Title       string      `json:"title"`
 	Name        string      `json:"name"`
 	Description string      `json:"description"`
@@ -88,7 +109,7 @@ type prxResource struct {
 	Total json.Number `json:"total"`
 }
 type prxImage struct {
-	ID     string      `json:"id"`
+	ID     prxID       `json:"id"`
 	Size   json.Number `json:"size"`
 	Width  json.Number `json:"width"`
 	Height json.Number `json:"height"`
@@ -104,7 +125,7 @@ type prxAudio struct {
 	} `json:"_embedded"`
 }
 type prxPiece struct {
-	ID          string      `json:"id"`
+	ID          prxID       `json:"id"`
 	Label       string      `json:"label"`
 	Size        json.Number `json:"size"`
 	Duration    json.Number `json:"duration"`
@@ -119,6 +140,26 @@ type prxPiece struct {
 	} `json:"_links"`
 }
 
+// prxID mirrors yt-dlp's str_or_none: both JSON strings and JSON numbers are
+// accepted, while arrays, objects, booleans, and null are rejected.
+type prxID string
+
+func (id *prxID) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		*id = prxID(s)
+		return nil
+	}
+	var n json.Number
+	d := json.NewDecoder(bytes.NewReader(data))
+	d.UseNumber()
+	if err := d.Decode(&n); err == nil {
+		*id = prxID(n.String())
+		return nil
+	}
+	return fmt.Errorf("invalid PRX id")
+}
+
 func prxGet(ctx context.Context, t Transport, path string, out any) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -128,9 +169,16 @@ func prxGet(ctx context.Context, t Transport, path string, out any) error {
 	if err != nil {
 		return ErrInvalidMetadata
 	}
-	r, err := t.Do(ctx, req)
+	isolate, ok := t.(CredentialIsolatedNoRedirectTransport)
+	if !ok {
+		return ErrTransportIsolation
+	}
+	r, err := isolate.DoWithoutCredentialsNoRedirect(ctx, req)
 	if err != nil {
 		return err
+	}
+	if r == nil || r.Body == nil {
+		return fmt.Errorf("%w: empty PRX response", ErrInvalidMetadata)
 	}
 	defer r.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(r.Body, maxExtractorJSONBytes+1))
@@ -190,9 +238,9 @@ func prxInfo(r prxResource, kind string) (*value.Info, error) {
 		title = r.Name
 	}
 	if title == "" {
-		title = r.ID
+		title = string(r.ID)
 	}
-	o := value.NewObject(value.Field{Key: "id", Value: value.String(r.ID)}, value.Field{Key: "title", Value: value.String(title)})
+	o := value.NewObject(value.Field{Key: "id", Value: value.String(string(r.ID))}, value.Field{Key: "title", Value: value.String(title)})
 	if r.Description != "" {
 		o.Set("description", value.String(stripPRXHTML(r.Description)))
 	} else if r.Short != "" {
@@ -229,32 +277,32 @@ func prxInfo(r prxResource, kind string) (*value.Info, error) {
 		}
 	}
 	if kind == "accounts" {
-		o.Set("channel_id", value.String(r.ID))
-		o.Set("channel_url", value.String("https://beta.prx.org/accounts/"+r.ID))
+		o.Set("channel_id", value.String(string(r.ID)))
+		o.Set("channel_url", value.String("https://beta.prx.org/accounts/"+string(r.ID)))
 		o.Set("channel", value.String(title))
 	}
 	if kind == "series" {
-		o.Set("series_id", value.String(r.ID))
+		o.Set("series_id", value.String(string(r.ID)))
 		o.Set("series", value.String(title))
 		if a := r.Embedded.Account; a != nil && a.ID != "" {
 			n := a.Name
 			if n == "" {
 				n = a.Title
 			}
-			o.Set("channel_id", value.String(a.ID))
-			o.Set("channel_url", value.String("https://beta.prx.org/accounts/"+a.ID))
+			o.Set("channel_id", value.String(string(a.ID)))
+			o.Set("channel_url", value.String("https://beta.prx.org/accounts/"+string(a.ID)))
 			o.Set("channel", value.String(n))
 		}
 	}
 	if kind == "stories" {
 		if s := r.Embedded.Series; s != nil && s.ID != "" {
-			o.Set("series_id", value.String(s.ID))
-			o.Set("series", value.String(firstPRX(s.Title, s.ID)))
+			o.Set("series_id", value.String(string(s.ID)))
+			o.Set("series", value.String(firstPRX(s.Title, string(s.ID))))
 		}
 		if a := r.Embedded.Account; a != nil && a.ID != "" {
-			n := firstPRX(a.Name, a.Title, a.ID)
-			o.Set("channel_id", value.String(a.ID))
-			o.Set("channel_url", value.String("https://beta.prx.org/accounts/"+a.ID))
+			n := firstPRX(a.Name, a.Title, string(a.ID))
+			o.Set("channel_id", value.String(string(a.ID)))
+			o.Set("channel_url", value.String("https://beta.prx.org/accounts/"+string(a.ID)))
 			o.Set("channel", value.String(n))
 		}
 	}
@@ -275,7 +323,8 @@ var prxHTML = regexp.MustCompile(`<[^>]*>`)
 func stripPRXHTML(s string) string { return strings.TrimSpace(prxHTML.ReplaceAllString(s, "")) }
 
 func (x PRXStory) Extract(ctx context.Context, req Request) (Extraction, error) {
-	k, id, ok := prxTarget(mustPRXURL(req.URL))
+	parsed := mustPRXURL(req.URL)
+	k, id, ok := prxTarget(parsed)
 	if !ok || k != "stories" || req.Transport == nil {
 		return Extraction{}, ErrUnsupported
 	}
@@ -283,7 +332,7 @@ func (x PRXStory) Extract(ctx context.Context, req Request) (Extraction, error) 
 	if e := prxGet(ctx, req.Transport, "stories/"+id, &r); e != nil {
 		return Extraction{}, e
 	}
-	if r.ID != id {
+	if string(r.ID) != id {
 		return Extraction{}, fmt.Errorf("%w: PRX story identity mismatch", ErrInvalidMetadata)
 	}
 	info, e := prxInfo(r, "stories")
@@ -305,7 +354,7 @@ func (x PRXStory) Extract(ctx context.Context, req Request) (Extraction, error) 
 		if p.ID == "" || !prxURL(p.Links.Enclosure.Href) {
 			return Extraction{}, fmt.Errorf("%w: invalid PRX audio", ErrInvalidMetadata)
 		}
-		f := value.NewObject(value.Field{Key: "format_id", Value: value.String(p.ID)}, value.Field{Key: "format_note", Value: value.String(p.Label)}, value.Field{Key: "url", Value: value.String(p.Links.Enclosure.Href)}, value.Field{Key: "vcodec", Value: value.String("none")})
+		f := value.NewObject(value.Field{Key: "format_id", Value: value.String(string(p.ID))}, value.Field{Key: "format_note", Value: value.String(p.Label)}, value.Field{Key: "url", Value: value.String(p.Links.Enclosure.Href)}, value.Field{Key: "vcodec", Value: value.String("none")})
 		if v, ok := prxNumber(p.Size); ok {
 			f.Set("filesize", value.Int(v))
 		}
@@ -321,16 +370,32 @@ func (x PRXStory) Extract(ctx context.Context, req Request) (Extraction, error) 
 		f.Set("ext", value.String(prxExt(p.ContentType)))
 		formats = append(formats, value.ObjectValue(f))
 	}
-	if len(formats) == 1 {
+	part := prxPart(parsed)
+	if part > len(formats) {
+		return Extraction{}, fmt.Errorf("%w: invalid PRX part", ErrInvalidMetadata)
+	}
+	if len(formats) == 1 || part != 0 {
+		if part != 0 {
+			formats = formats[part-1 : part]
+		}
+		if part != 0 {
+			info.Set("id", value.String(fmt.Sprintf("%s_part%d", id, part)))
+		}
 		info.Set("formats", value.List(formats...))
-		info.Set("ext", value.String(prxExt(ps[0].ContentType)))
+		info.Set("ext", value.String(prxExt(ps[partIndex(part)].ContentType)))
 		return Media(*info), nil
 	}
 	entries := make([]Entry, len(ps))
 	for i := range ps {
-		entries[i] = Entry{URL: "https://beta.prx.org/stories/" + id, ExtractorKey: "prx_story", ID: fmt.Sprintf("%s_part%d", id, i+1), Title: firstPRX(r.Title, id)}
+		entries[i] = Entry{URL: fmt.Sprintf("https://beta.prx.org/stories/%s?prx_part=%d", id, i+1), ExtractorKey: "prx_story", ID: fmt.Sprintf("%s_part%d", id, i+1), Title: firstPRX(r.Title, id)}
 	}
 	return Playlist(*info, StaticEntries(entries...))
+}
+func partIndex(part int) int {
+	if part > 0 {
+		return part - 1
+	}
+	return 0
 }
 func mustPRXURL(s string) *url.URL { u, _ := url.Parse(s); return u }
 func prxExt(m string) string {
@@ -362,7 +427,7 @@ func prxCollection(ctx context.Context, req Request, kind string) (Extraction, e
 	if e := prxGet(ctx, req.Transport, kind+"/"+id, &r); e != nil {
 		return Extraction{}, e
 	}
-	if r.ID != id {
+	if string(r.ID) != id {
 		return Extraction{}, fmt.Errorf("%w: PRX identity mismatch", ErrInvalidMetadata)
 	}
 	info, e := prxInfo(r, kind)
@@ -387,6 +452,7 @@ type prxIterator struct {
 	s                            prxEntries
 	endpoint, page, index, total int
 	items                        []prxResource
+	itemEndpoint                 string
 }
 
 func (i *prxIterator) Next(ctx context.Context) (Entry, bool, error) {
@@ -402,11 +468,16 @@ func (i *prxIterator) Next(ctx context.Context) (Entry, bool, error) {
 			}
 			kind := "stories"
 			key := "prx_story"
-			if strings.Contains(i.s.endpoints[i.endpoint], "/series") {
+			if strings.Contains(i.itemEndpoint, "/series") {
 				kind = "series"
 				key = "prx_series"
 			}
-			return Entry{URL: "https://beta.prx.org/" + kind + "/" + r.ID, ExtractorKey: key, ID: r.ID, Title: firstPRX(r.Title, r.Name, r.ID)}, true, nil
+			return Entry{URL: "https://beta.prx.org/" + kind + "/" + string(r.ID), ExtractorKey: key, ID: string(r.ID), Title: firstPRX(r.Title, r.Name, string(r.ID))}, true, nil
+		}
+		if len(i.items) > 0 && i.index >= len(i.items) {
+			i.items = nil
+			i.itemEndpoint = ""
+			continue
 		}
 		if i.endpoint >= len(i.s.endpoints) {
 			return Entry{}, false, nil
@@ -430,6 +501,7 @@ func (i *prxIterator) Next(ctx context.Context) (Entry, bool, error) {
 			return Entry{}, false, fmt.Errorf("%w: invalid PRX pagination", ErrInvalidMetadata)
 		}
 		i.items = r.Embedded.Items
+		i.itemEndpoint = i.s.endpoints[i.endpoint]
 		i.index = 0
 		i.total += int(count)
 		i.page++
