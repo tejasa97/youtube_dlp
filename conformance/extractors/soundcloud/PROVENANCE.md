@@ -19,6 +19,7 @@ Behavioral expectations were derived from the pinned yt-dlp checkout at commit
 - `SoundcloudPlaylistBaseIE._extract_set` for ordered transparent set entries
   and tokenized private-set hydration through the v2 `/tracks` batch endpoint;
 - `SoundcloudPagedPlaylistBaseIE._entries` for linked partitioning,
+  the initial `offset=0` request, removal of the local offset after
   `next_href`, nested track candidates, and lazy ordering;
 - `SoundcloudUserIE` for bare-profile and profile-tab routing (`tracks`,
   `albums`, `sets`, `reposts`, `likes`, `spotlight`, and `comments`), resolving

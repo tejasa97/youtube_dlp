@@ -355,7 +355,7 @@ func (extractor *SoundCloud) soundCloudUserPlaylist(
 	apiPath string,
 	title string,
 ) (Extraction, error) {
-	firstURL := soundCloudAPIBase + apiPath + "?linked_partitioning=1&limit=200"
+	firstURL := soundCloudCollectionStartURL(apiPath)
 	policy := soundCloudContinuationPolicy{allowedPath: "/" + apiPath}
 	sequence, err := ContinuationEntries(nil, firstURL, func(ctx context.Context, cursor string) ([]Entry, string, error) {
 		return extractor.fetchCollectionPage(ctx, transport, cursor, policy)
@@ -370,6 +370,14 @@ func (extractor *SoundCloud) soundCloudUserPlaylist(
 		value.Field{Key: "webpage_url", Value: value.String(webpageURL)},
 	)
 	return Playlist(value.NewInfo(info), sequence)
+}
+
+func soundCloudCollectionStartURL(apiPath string) string {
+	query := make(url.Values, 3)
+	query.Set("limit", strconv.Itoa(soundCloudMaxPageEntries))
+	query.Set("linked_partitioning", "1")
+	query.Set("offset", "0")
+	return soundCloudAPIBase + apiPath + "?" + query.Encode()
 }
 
 func (extractor *SoundCloud) fetchCollectionPage(ctx context.Context, transport Transport, cursor string, policy soundCloudContinuationPolicy) ([]Entry, string, error) {
@@ -503,7 +511,7 @@ func (extractor *SoundCloud) extractStation(ctx context.Context, transport Trans
 		return Extraction{}, fmt.Errorf("%w: malformed SoundCloud station", ErrInvalidMetadata)
 	}
 	apiPath := "stations/" + station.ID + "/tracks"
-	firstURL := soundCloudAPIBase + apiPath + "?linked_partitioning=1&limit=200"
+	firstURL := soundCloudCollectionStartURL(apiPath)
 	policy := soundCloudContinuationPolicy{allowedPath: "/" + apiPath}
 	sequence, err := ContinuationEntries(nil, firstURL, func(ctx context.Context, cursor string) ([]Entry, string, error) {
 		return extractor.fetchCollectionPage(ctx, transport, cursor, policy)
@@ -553,7 +561,7 @@ func (extractor *SoundCloud) extractRelated(ctx context.Context, transport Trans
 	default:
 		return Extraction{}, ErrUnsupported
 	}
-	firstURL := soundCloudAPIBase + apiPath + "?linked_partitioning=1&limit=200"
+	firstURL := soundCloudCollectionStartURL(apiPath)
 	policy := soundCloudContinuationPolicy{allowedPath: "/" + apiPath}
 	sequence, err := ContinuationEntries(nil, firstURL, func(ctx context.Context, cursor string) ([]Entry, string, error) {
 		return extractor.fetchCollectionPage(ctx, transport, cursor, policy)
