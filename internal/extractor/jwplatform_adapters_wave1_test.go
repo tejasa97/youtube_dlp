@@ -372,6 +372,79 @@ func wave1BytesRepeat(ch byte, count int) []byte {
 	return out
 }
 
+func TestJWPlatformAdaptersWave1SlugBounds(t *testing.T) {
+	t.Parallel()
+	atLimit := strings.Repeat("a", jwWave1MaxSlugBytes)
+	overLimit := strings.Repeat("a", jwWave1MaxSlugBytes+1)
+
+	tests := []struct {
+		name string
+		ok   func(*url.URL) bool
+		raw  string
+		want bool
+	}{
+		{
+			name: "businessinsider-at-limit",
+			ok:   func(u *url.URL) bool { _, ok := parseBusinessInsiderURL(u); return ok },
+			raw:  "https://uk.businessinsider.com/" + atLimit,
+			want: true,
+		},
+		{
+			name: "businessinsider-over-limit",
+			ok:   func(u *url.URL) bool { _, ok := parseBusinessInsiderURL(u); return ok },
+			raw:  "https://uk.businessinsider.com/" + overLimit,
+			want: false,
+		},
+		{
+			name: "hollywoodreporter-at-limit",
+			ok:   func(u *url.URL) bool { _, ok := parseHollywoodReporterURL(u); return ok },
+			raw:  "https://www.hollywoodreporter.com/video/" + atLimit + "/",
+			want: true,
+		},
+		{
+			name: "hollywoodreporter-over-limit",
+			ok:   func(u *url.URL) bool { _, ok := parseHollywoodReporterURL(u); return ok },
+			raw:  "https://www.hollywoodreporter.com/video/" + overLimit + "/",
+			want: false,
+		},
+		{
+			name: "lefigaro-at-limit",
+			ok:   func(u *url.URL) bool { _, ok := parseLeFigaroVideoEmbedURL(u); return ok },
+			raw:  "https://video.lefigaro.fr/embed/figaro/video/" + atLimit + "/",
+			want: true,
+		},
+		{
+			name: "lefigaro-over-limit",
+			ok:   func(u *url.URL) bool { _, ok := parseLeFigaroVideoEmbedURL(u); return ok },
+			raw:  "https://video.lefigaro.fr/embed/figaro/video/" + overLimit + "/",
+			want: false,
+		},
+		{
+			name: "theintercept-at-limit",
+			ok:   func(u *url.URL) bool { _, ok := parseTheInterceptURL(u); return ok },
+			raw:  "https://theintercept.com/fieldofvision/" + atLimit + "/",
+			want: true,
+		},
+		{
+			name: "theintercept-over-limit",
+			ok:   func(u *url.URL) bool { _, ok := parseTheInterceptURL(u); return ok },
+			raw:  "https://theintercept.com/fieldofvision/" + overLimit + "/",
+			want: false,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			parsed, err := url.Parse(test.raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := test.ok(parsed); got != test.want {
+				t.Fatalf("parse(%q)=%t want %t", test.raw, got, test.want)
+			}
+		})
+	}
+}
+
 func FuzzParseJWPlatformAdaptersWave1URL(f *testing.F) {
 	f.Add("https://www.bundesliga.com/en/bundesliga/videos?vid=bhhHkKyN")
 	f.Add("https://uk.businessinsider.com/article-slug")
@@ -407,7 +480,7 @@ func FuzzParseJWPlatformAdaptersWave1URL(f *testing.F) {
 
 		if displayID, ok := parseBusinessInsiderURL(parsed); ok {
 			jwWave1FuzzAssertAcceptedURL(t, parsed, unsafe, "businessinsider.com", "businessinsider.nl")
-			if displayID == "" || len(displayID) > 128 {
+			if !jwWave1BoundedSlug(displayID) {
 				t.Fatalf("businessinsider accepted invalid slug %q", displayID)
 			}
 		}
@@ -427,7 +500,7 @@ func FuzzParseJWPlatformAdaptersWave1URL(f *testing.F) {
 
 		if slug, ok := parseHollywoodReporterURL(parsed); ok {
 			jwWave1FuzzAssertAcceptedURL(t, parsed, unsafe, "hollywoodreporter.com", "www.hollywoodreporter.com")
-			if slug == "" || len(slug) > 128 {
+			if !jwWave1BoundedSlug(slug) {
 				t.Fatalf("hollywoodreporter accepted invalid slug %q", slug)
 			}
 		}
@@ -444,7 +517,7 @@ func FuzzParseJWPlatformAdaptersWave1URL(f *testing.F) {
 			if strings.ToLower(parsed.Hostname()) != "video.lefigaro.fr" {
 				t.Fatalf("lefigaro accepted lookalike host %q", parsed.Hostname())
 			}
-			if slug == "" || len(slug) > 128 {
+			if !jwWave1BoundedSlug(slug) {
 				t.Fatalf("lefigaro accepted invalid slug %q", slug)
 			}
 		}
@@ -468,7 +541,7 @@ func FuzzParseJWPlatformAdaptersWave1URL(f *testing.F) {
 			if strings.ToLower(parsed.Hostname()) != "theintercept.com" {
 				t.Fatalf("theintercept accepted lookalike host %q", parsed.Hostname())
 			}
-			if slug == "" || len(slug) > 128 || strings.ContainsAny(slug, "/?#") {
+			if !jwWave1BoundedSlug(slug) {
 				t.Fatalf("theintercept accepted invalid slug %q", slug)
 			}
 		}

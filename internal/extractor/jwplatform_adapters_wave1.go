@@ -19,13 +19,14 @@ import (
 
 const (
 	jwWave1MaxEntries   = 128
+	jwWave1MaxSlugBytes = 128
 	jwWave1MaxTextBytes = 512
 )
 
 var (
 	bundesligaPath            = regexp.MustCompile(`^/[a-z]{2}/bundesliga/videos(?:/[^?#]*)?$`)
 	businessInsiderLabel      = regexp.MustCompile(`^[a-z0-9-]{1,63}$`)
-	businessInsiderPath       = regexp.MustCompile(`^/(?:[^/?#]+/)*([^/?#&]+)/?$`)
+	businessInsiderPath       = regexp.MustCompile(`^/(?:[^/?#]+/)*([^/?#&]{1,128})/?$`)
 	businessInsiderIDPatterns = []*regexp.Regexp{
 		regexp.MustCompile(`data-media-id=["']([a-zA-Z0-9]{8})`),
 		regexp.MustCompile(`id=["']jwplayer_([a-zA-Z0-9]{8})`),
@@ -33,16 +34,16 @@ var (
 		regexp.MustCompile(`(?:jwplatform\.com/players/|jwplayer_)([a-zA-Z0-9]{8})`),
 	}
 	dbtvPath              = regexp.MustCompile(`^/video/(?:([^/?#]+)/)?([0-9A-Za-z_-]{11}|[A-Za-z0-9]{8})/?$`)
-	hollywoodReporterPath = regexp.MustCompile(`^/video/([A-Za-z0-9_-]+)/?$`)
+	hollywoodReporterPath = regexp.MustCompile(`^/video/([A-Za-z0-9_-]{1,128})/?$`)
 	hollywoodReporterCard = regexp.MustCompile(`(?is)<a\b[^>]*class=["'][^"']*vlanding-video-card__link[^"']*["'][^>]*>`)
 	iltalehtiPath         = regexp.MustCompile(`^/[^/?#]+/a/([A-Za-z0-9][A-Za-z0-9-]{0,63})/?$`)
 	iltalehtiAppMarker    = regexp.MustCompile(`(?i)<script>\s*window\.App\s*=`)
-	leFigaroEmbedPath     = regexp.MustCompile(`^/embed/(?:[^/?#]+/)+([A-Za-z0-9_-]+)/?$`)
+	leFigaroEmbedPath     = regexp.MustCompile(`^/embed/(?:[^/?#]+/)+([A-Za-z0-9_-]{1,128})/?$`)
 	jwWave1NextData       = regexp.MustCompile(`(?is)<script[^>]+id=["']__NEXT_DATA__["'][^>]*>`)
 	mirrorCoUKPath        = regexp.MustCompile(`^/(?:[^/?#]+/)*[A-Za-z0-9_-]+-(\d{1,16})/?$`)
 	mirrorCoUKPlaceholder = regexp.MustCompile(`(?i)div\s+class="json-placeholder"\s+data-json="`)
 	outsideTVPath         = regexp.MustCompile(`^/(?:[^/?#]+/)*play/[A-Za-z0-9]{8}/\d{1,10}/\d{1,10}/([A-Za-z0-9]{8})(?:/\d{1,10})?/?$`)
-	theInterceptPath      = regexp.MustCompile(`^/fieldofvision/([^/?#]+)/?$`)
+	theInterceptPath      = regexp.MustCompile(`^/fieldofvision/([^/?#]{1,128})/?$`)
 	theInterceptStore     = regexp.MustCompile(`initialStoreTree\s*=`)
 	jwWave1YouTubeID      = regexp.MustCompile(`^[0-9A-Za-z_-]{11}$`)
 )
@@ -173,6 +174,10 @@ func (BusinessInsider) Extract(ctx context.Context, request Request) (Extraction
 	return Extraction{}, classifyMissingMediaPage(page, "Business Insider JW Platform id")
 }
 
+func jwWave1BoundedSlug(slug string) bool {
+	return slug != "" && len(slug) <= jwWave1MaxSlugBytes && !strings.ContainsAny(slug, "/?#\x00")
+}
+
 func parseBusinessInsiderURL(parsed *url.URL) (string, bool) {
 	if hostedRejectUnsafeURL(parsed) {
 		return "", false
@@ -181,7 +186,7 @@ func parseBusinessInsiderURL(parsed *url.URL) (string, bool) {
 		return "", false
 	}
 	match := businessInsiderPath.FindStringSubmatch(parsed.EscapedPath())
-	if len(match) != 2 {
+	if len(match) != 2 || !jwWave1BoundedSlug(match[1]) {
 		return "", false
 	}
 	return match[1], true
@@ -296,7 +301,7 @@ func parseHollywoodReporterURL(parsed *url.URL) (string, bool) {
 		return "", false
 	}
 	match := hollywoodReporterPath.FindStringSubmatch(parsed.EscapedPath())
-	if len(match) != 2 {
+	if len(match) != 2 || !jwWave1BoundedSlug(match[1]) {
 		return "", false
 	}
 	return match[1], true
@@ -352,9 +357,9 @@ func (Iltalehti) Extract(ctx context.Context, request Request) (Extraction, erro
 	return Playlist(value.NewInfo(info), StaticEntries(entries...))
 }
 
-// iltalehtiArticle walks the balanced window.App JS object using pinned
-// js_to_json semantics. Media ids stay in upstream order: per article,
-// main_media first and body items afterwards.
+// iltalehtiArticle walks the balanced window.App JS object using the bounded
+// jwWave1JSToJSON subset needed for Iltalehti app state. Media ids stay in
+// upstream order: per article, main_media first and body items afterwards.
 func iltalehtiArticle(page []byte) (string, []string, error) {
 	raw, err := extractJSObjectAfter(page, iltalehtiAppMarker)
 	if err != nil {
@@ -491,7 +496,7 @@ func parseLeFigaroVideoEmbedURL(parsed *url.URL) (string, bool) {
 		return "", false
 	}
 	match := leFigaroEmbedPath.FindStringSubmatch(parsed.EscapedPath())
-	if len(match) != 2 {
+	if len(match) != 2 || !jwWave1BoundedSlug(match[1]) {
 		return "", false
 	}
 	return match[1], true
@@ -735,7 +740,7 @@ func parseTheInterceptURL(parsed *url.URL) (string, bool) {
 		return "", false
 	}
 	match := theInterceptPath.FindStringSubmatch(parsed.EscapedPath())
-	if len(match) != 2 {
+	if len(match) != 2 || !jwWave1BoundedSlug(match[1]) {
 		return "", false
 	}
 	return match[1], true

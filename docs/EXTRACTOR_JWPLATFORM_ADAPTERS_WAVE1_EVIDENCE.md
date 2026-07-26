@@ -33,7 +33,7 @@ same file (not duplicated per key).
 - HTTPS canonical page URLs for fetched adapters.
 - Bundesliga, DBTV JW, and Outside TV perform no webpage request.
 - Hollywood Reporter never echoes unsupported showcase types in errors.
-- Iltalehti uses balanced `window.App` extraction with pinned `js_to_json` semantics (unquoted keys, single quotes, trailing commas, `undefined`/`void 0`) without executing page JavaScript.
+- Iltalehti uses balanced `window.App` extraction with the bounded `jwWave1JSToJSON` subset (unquoted keys, single/double quotes, trailing commas, comments, `undefined`/`void 0`, and pinned string escapes) without executing page JavaScript.
 - Mirror.co.uk omits `display_id` until Entry supports it; the JW Platform media id is preserved through handoff and product re-entry.
 - Le Figaro uses balanced `__NEXT_DATA__` extraction.
 - The Intercept matches posts by slug in sorted, bounded map iteration and rejects duplicate slugs.
