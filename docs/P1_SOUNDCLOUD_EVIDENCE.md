@@ -77,7 +77,14 @@ The shared registry and parity manifest remain owned by the primary integrator.
   profiles and every pinned user tab, track stations, and related-resource
   pages. Their initial collection request uses the pinned `limit=200`,
   `linked_partitioning=1`, and `offset=0` contract; service-provided
-  continuations do not have the local offset reintroduced.
+  continuations do not have the local offset reintroduced. Paged collection API
+  requests use the fixed `chrome-133` impersonation profile when the transport
+  supports `ProfileTransport`, fall back once to the native transport when
+  impersonation is unavailable, and retry only transient HTTP 502 responses
+  with one initial request plus three retries (four total page attempts per
+  collection page). Resolve, client-ID discovery, track metadata, transcoding,
+  original-download, comment, and search requests keep their existing native or
+  established transport policies.
 - Route-aware continuation policy: every `next_href` must use HTTPS, the exact
   `api-v2.soundcloud.com` host, no userinfo, no explicit port, no fragment, no
   encoded separators (`%2f`, `%5c`, `%00`) or NULs, no literal `.` or `..` path
@@ -158,6 +165,15 @@ The shared registry and parity manifest remain owned by the primary integrator.
 - `internal/extractor.TestSoundCloudContinuationMalformedQueryEscaping`
 - `internal/extractor.TestSoundCloudRelatedSlugFallback`
 - `internal/extractor.TestSoundCloudRelatedSlugFallbackAlbumsAndSets`
+- `internal/extractor.TestSoundCloudPagedCollectionProfileSelection`
+- `internal/extractor.TestSoundCloudPagedCollectionMissingProfileCapability`
+- `internal/extractor.TestSoundCloudPagedCollectionUnavailableProfileFallsBackOnce`
+- `internal/extractor.TestSoundCloudPagedCollection502Recovery`
+- `internal/extractor.TestSoundCloudPagedCollection502RetriesExhausted`
+- `internal/extractor.TestSoundCloudPagedCollectionNonRetryFailures`
+- `internal/extractor.TestSoundCloudPagedCollectionCancellation`
+- `internal/extractor.TestSoundCloudPagedCollectionIteratorSafety`
+- `internal/extractor.TestSoundCloudPagedCollectionRegression`
 - `internal/extractor.FuzzSoundCloudURLClassification`
 - `internal/extractor.FuzzSoundCloudPageEntries`
 - `internal/extractor.FuzzSoundCloudContinuationPolicy`
@@ -203,9 +219,6 @@ registry evidence and the complete test suite passes.
 The pilot does not yet implement OAuth/cookie login or premium subscription
 formats. Track comments are supported, while the distinct `/comments` user tab
 continues to enumerate attributable media entries rather than comment bodies.
-Paged collections do not yet select the pinned Chrome 116+ impersonation
-profile or retry transient HTTP 502 responses; those are separate resilience
-gaps, not part of the completed offset contract.
 Arbitrary script-based player discovery and future user tabs remain out of
 scope. Only the declared synthetic corpus is compatibility evidence. SoundCloud
 can change its web client-ID layout; failure remains explicit and bounded rather
