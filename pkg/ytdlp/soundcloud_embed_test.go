@@ -38,6 +38,18 @@ func (transport *soundCloudEmbedProductTransport) ReadPage(context.Context, stri
 	return nil, nil, errors.New("unexpected page request")
 }
 
+func (transport *soundCloudEmbedProductTransport) DoWithoutCredentialsNoRedirect(
+	ctx context.Context,
+	request *http.Request,
+) (*http.Response, error) {
+	for _, header := range []string{"Authorization", "Cookie", "Proxy-Authorization"} {
+		if request.Header.Get(header) != "" {
+			transport.t.Fatalf("isolated request leaked %s", header)
+		}
+	}
+	return transport.Do(ctx, request)
+}
+
 func (transport *soundCloudEmbedProductTransport) Do(ctx context.Context, request *http.Request) (*http.Response, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -65,6 +77,14 @@ func (transport *soundCloudEmbedProductTransport) Do(ctx context.Context, reques
 		if request.URL.Query().Get("offset") == "20" {
 			fixture = "comments_page2.json"
 		}
+	case request.Method == http.MethodHead && request.URL.Hostname() == "i1.sndcdn.com" &&
+		request.URL.Path == "/artworks-fixture-original.jpg":
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(bytes.NewReader(nil)),
+			Request:    request,
+		}, nil
 	default:
 		transport.t.Fatalf("unexpected request: %s", request.URL)
 	}
@@ -108,7 +128,10 @@ func TestProductRegistryReentersSoundCloudEmbedIntoMedia(t *testing.T) {
 	}
 	transport.mu.Lock()
 	defer transport.mu.Unlock()
-	if len(transport.requests) != 5 {
+	if len(transport.requests) != 6 {
 		t.Fatalf("downstream requests = %v", transport.requests)
+	}
+	if transport.requests[5] != "https://i1.sndcdn.com/artworks-fixture-original.jpg" {
+		t.Fatalf("thumbnail probe missing: %v", transport.requests)
 	}
 }
