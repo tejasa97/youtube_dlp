@@ -722,7 +722,7 @@ func TestSubtitleHLSAssemblyCancellation(t *testing.T) {
 	}
 }
 
-func TestSubtitleHLSLeakageNoCredentials(t *testing.T) {
+func TestSubtitleHLSIsolatedTrackSendsNoCredentials(t *testing.T) {
 	var mu sync.Mutex
 	var capturedHeaders []http.Header
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -743,8 +743,10 @@ func TestSubtitleHLSLeakageNoCredentials(t *testing.T) {
 	defer server.Close()
 	transport, err := network.New(network.Config{
 		DefaultHeaders: http.Header{
-			"Cookie":        {"ambient-session=secret"},
-			"Authorization": {"Bearer ambient-token"},
+			"Cookie":               {"ambient-session=secret"},
+			"Authorization":        {"Bearer ambient-token"},
+			"Proxy-Authorization":    {"Basic proxy-secret"},
+			"Referer":              {"https://vimeo.com/123456789"},
 		},
 	})
 	if err != nil {
@@ -760,6 +762,7 @@ func TestSubtitleHLSLeakageNoCredentials(t *testing.T) {
 		value.Field{Key: "en", Value: value.List(value.ObjectValue(value.NewObject(
 			value.Field{Key: "url", Value: value.String(server.URL + "/subs_en.m3u8")},
 			value.Field{Key: "ext", Value: value.String("vtt")},
+			value.Field{Key: "_credential_isolated", Value: value.Bool(true)},
 		)))},
 	)))
 	operation := &operation{
@@ -784,24 +787,254 @@ func TestSubtitleHLSLeakageNoCredentials(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	for i, header := range capturedHeaders {
-		if v := header.Get("Authorization"); v != "" {
-			t.Fatalf("request %d leaked Authorization: %s", i, v)
-		}
-		if v := header.Get("Cookie"); v != "" {
-			t.Fatalf("request %d leaked Cookie: %s", i, v)
-		}
-		if v := header.Get("Proxy-Authorization"); v != "" {
-			t.Fatalf("request %d leaked Proxy-Authorization: %s", i, v)
+		for _, key := range []string{"Authorization", "Cookie", "Proxy-Authorization", "Referer"} {
+			if v := header.Get(key); v != "" {
+				t.Fatalf("request %d leaked %s: %s", i, key, v)
+			}
 		}
 	}
 }
 
-func TestSubtitleDirectDownloadLeakageNoCredentials(t *testing.T) {
+func TestSubtitleHLSPreservesAmbientCredentialsAndRedirects(t *testing.T) {
 	var mu sync.Mutex
 	var capturedHeaders []http.Header
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		mu.Lock()
 		capturedHeaders = append(capturedHeaders, request.Header.Clone())
+		mu.Unlock()
+		switch request.URL.Path {
+		case "/subs_en.m3u8":
+			http.Redirect(writer, request, "/redirected/subs_en.m3u8", http.StatusFound)
+		case "/redirected/subs_en.m3u8":
+			writer.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+			_, _ = writer.Write([]byte("#EXTM3U\n#EXTINF:1,\nseg0.vtt\n#EXT-X-ENDLIST\n"))
+		case "/seg0.vtt":
+			writer.Header().Set("Content-Type", "text/vtt")
+			_, _ = writer.Write([]byte("WEBVTT\n\n00:00.000 --> 00:01.000\nok\n"))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	transport, err := network.New(network.Config{
+		DefaultHeaders: http.Header{
+			"Cookie":            {"ambient-session=secret"},
+			"Authorization":     {"Bearer ambient-token"},
+			"Proxy-Authorization": {"Basic proxy-secret"},
+			"Referer":           {"https://media.example/watch"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := transport.AddCookies([]*http.Cookie{{Name: "jar", Value: "jar-secret", Domain: "127.0.0.1", Path: "/"}}); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("fixture")},
+		value.Field{Key: "title", Value: value.String("Fixture")},
+		value.Field{Key: "ext", Value: value.String("mp4")},
+	))
+	info.Set("subtitles", value.ObjectValue(value.NewObject(
+		value.Field{Key: "en", Value: value.List(value.ObjectValue(value.NewObject(
+			value.Field{Key: "url", Value: value.String(server.URL + "/subs_en.m3u8")},
+			value.Field{Key: "ext", Value: value.String("vtt")},
+			value.Field{Key: "http_headers", Value: value.ObjectValue(value.NewObject(
+				value.Field{Key: "X-Track", Value: value.String("track-token")},
+			))},
+		)))},
+	)))
+	operation := &operation{
+		client: NewClient(),
+		request: Request{
+			OutputDir: root, SkipDownload: true,
+			Subtitles: SubtitleOptions{WriteManual: true, Languages: []string{"en"}},
+		},
+		transport: transport,
+	}
+	tracks, _, err := selectSubtitles(info, operation.request.Subtitles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifacts, _, err := operation.downloadSubtitles(context.Background(), info, tracks, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts) != 1 {
+		t.Fatalf("artifacts = %#v", artifacts)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(capturedHeaders) < 2 {
+		t.Fatalf("expected redirect follow-up requests, got %d", len(capturedHeaders))
+	}
+	last := capturedHeaders[len(capturedHeaders)-1]
+	for _, key := range []string{"Authorization", "Cookie", "Proxy-Authorization", "Referer"} {
+		if v := last.Get(key); v == "" {
+			t.Fatalf("ambient %s missing on redirected HLS request: %#v", key, last)
+		}
+	}
+	if v := last.Get("X-Track"); v != "track-token" {
+		t.Fatalf("explicit track header = %q", v)
+	}
+}
+
+func TestSubtitleDirectDownloadPreservesAmbientCredentialsAndRedirects(t *testing.T) {
+	var mu sync.Mutex
+	var capturedHeaders []http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		mu.Lock()
+		capturedHeaders = append(capturedHeaders, request.Header.Clone())
+		mu.Unlock()
+		switch request.URL.Path {
+		case "/sub.vtt":
+			http.Redirect(writer, request, "/final/sub.vtt", http.StatusFound)
+		case "/final/sub.vtt":
+			_, _ = writer.Write([]byte("WEBVTT\n\n00:00.000 --> 00:01.000\nok\n"))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	transport, err := network.New(network.Config{
+		DefaultHeaders: http.Header{
+			"Cookie":            {"ambient-session=secret"},
+			"Authorization":     {"Bearer ambient-token"},
+			"Proxy-Authorization": {"Basic proxy-secret"},
+			"Referer":           {"https://media.example/watch"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := transport.AddCookies([]*http.Cookie{{Name: "jar", Value: "jar-secret", Domain: "127.0.0.1", Path: "/"}}); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("fixture")},
+		value.Field{Key: "title", Value: value.String("Fixture")},
+		value.Field{Key: "ext", Value: value.String("mp4")},
+	))
+	info.Set("subtitles", value.ObjectValue(value.NewObject(
+		value.Field{Key: "en", Value: value.List(value.ObjectValue(value.NewObject(
+			value.Field{Key: "url", Value: value.String(server.URL + "/sub.vtt")},
+			value.Field{Key: "ext", Value: value.String("vtt")},
+			value.Field{Key: "http_headers", Value: value.ObjectValue(value.NewObject(
+				value.Field{Key: "X-Track", Value: value.String("track-token")},
+			))},
+		)))},
+	)))
+	operation := &operation{
+		client: NewClient(),
+		request: Request{
+			OutputDir: root, SkipDownload: true,
+			Subtitles: SubtitleOptions{WriteManual: true, Languages: []string{"en"}},
+		},
+		transport: transport,
+	}
+	tracks, _, err := selectSubtitles(info, operation.request.Subtitles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifacts, _, err := operation.downloadSubtitles(context.Background(), info, tracks, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts) != 1 {
+		t.Fatalf("artifacts = %#v", artifacts)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(capturedHeaders) < 2 {
+		t.Fatalf("expected redirect follow-up requests, got %d", len(capturedHeaders))
+	}
+	last := capturedHeaders[len(capturedHeaders)-1]
+	for _, key := range []string{"Authorization", "Cookie", "Proxy-Authorization", "Referer"} {
+		if v := last.Get(key); v == "" {
+			t.Fatalf("ambient %s missing on redirected direct subtitle request: %#v", key, last)
+		}
+	}
+	if v := last.Get("X-Track"); v != "track-token" {
+		t.Fatalf("explicit track header = %q", v)
+	}
+}
+
+func TestSubtitleDASHDownloadPreservesAmbientCredentials(t *testing.T) {
+	var mu sync.Mutex
+	var capturedHeader http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		mu.Lock()
+		capturedHeader = request.Header.Clone()
+		mu.Unlock()
+		if request.URL.Path == "/subs_fr.vtt" {
+			_, _ = writer.Write([]byte("WEBVTT\n\n00:00.000 --> 00:01.000\nmanifest french\n"))
+			return
+		}
+		http.NotFound(writer, request)
+	}))
+	defer server.Close()
+	transport, err := network.New(network.Config{
+		DefaultHeaders: http.Header{
+			"Cookie":            {"ambient-session=secret"},
+			"Authorization":     {"Bearer ambient-token"},
+			"Proxy-Authorization": {"Basic proxy-secret"},
+			"Referer":           {"https://media.example/watch"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := transport.AddCookies([]*http.Cookie{{Name: "jar", Value: "jar-secret", Domain: "127.0.0.1", Path: "/"}}); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("fixture")},
+		value.Field{Key: "title", Value: value.String("Fixture")},
+		value.Field{Key: "ext", Value: value.String("mp4")},
+	))
+	info.Set("subtitles", value.ObjectValue(value.NewObject(
+		value.Field{Key: "fr", Value: value.List(value.ObjectValue(value.NewObject(
+			value.Field{Key: "url", Value: value.String(server.URL + "/subs_fr.vtt")},
+			value.Field{Key: "ext", Value: value.String("vtt")},
+		)))},
+	)))
+	operation := &operation{
+		client: NewClient(),
+		request: Request{
+			OutputDir: root, SkipDownload: true,
+			Subtitles: SubtitleOptions{WriteManual: true, Languages: []string{"fr"}},
+		},
+		transport: transport,
+	}
+	tracks, _, err := selectSubtitles(info, operation.request.Subtitles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifacts, _, err := operation.downloadSubtitles(context.Background(), info, tracks, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts) != 1 {
+		t.Fatalf("artifacts = %#v", artifacts)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	for _, key := range []string{"Authorization", "Cookie", "Proxy-Authorization", "Referer"} {
+		if v := capturedHeader.Get(key); v == "" {
+			t.Fatalf("ambient %s missing on DASH subtitle request: %#v", key, capturedHeader)
+		}
+	}
+}
+
+func TestSubtitleIsolatedDirectDownloadSendsNoCredentials(t *testing.T) {
+	var mu sync.Mutex
+	var capturedHeader http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		mu.Lock()
+		capturedHeader = request.Header.Clone()
 		mu.Unlock()
 		if request.URL.Path == "/sub.vtt" {
 			_, _ = writer.Write([]byte("WEBVTT\n\n00:00.000 --> 00:01.000\nok\n"))
@@ -812,8 +1045,10 @@ func TestSubtitleDirectDownloadLeakageNoCredentials(t *testing.T) {
 	defer server.Close()
 	transport, err := network.New(network.Config{
 		DefaultHeaders: http.Header{
-			"Cookie":        {"ambient-session=secret"},
-			"Authorization": {"Bearer ambient-token"},
+			"Cookie":            {"ambient-session=secret"},
+			"Authorization":     {"Bearer ambient-token"},
+			"Proxy-Authorization": {"Basic proxy-secret"},
+			"Referer":           {"https://vimeo.com/123456789"},
 		},
 	})
 	if err != nil {
@@ -829,6 +1064,11 @@ func TestSubtitleDirectDownloadLeakageNoCredentials(t *testing.T) {
 		value.Field{Key: "en", Value: value.List(value.ObjectValue(value.NewObject(
 			value.Field{Key: "url", Value: value.String(server.URL + "/sub.vtt")},
 			value.Field{Key: "ext", Value: value.String("vtt")},
+			value.Field{Key: "_credential_isolated", Value: value.Bool(true)},
+			value.Field{Key: "http_headers", Value: value.ObjectValue(value.NewObject(
+				value.Field{Key: "Authorization", Value: value.String("Bearer must-not-forward")},
+				value.Field{Key: "Cookie", Value: value.String("must-not-forward=1")},
+			))},
 		)))},
 	)))
 	operation := &operation{
@@ -852,15 +1092,9 @@ func TestSubtitleDirectDownloadLeakageNoCredentials(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	for i, header := range capturedHeaders {
-		if v := header.Get("Authorization"); v != "" {
-			t.Fatalf("request %d leaked Authorization: %s", i, v)
-		}
-		if v := header.Get("Cookie"); v != "" {
-			t.Fatalf("request %d leaked Cookie: %s", i, v)
-		}
-		if v := header.Get("Proxy-Authorization"); v != "" {
-			t.Fatalf("request %d leaked Proxy-Authorization: %s", i, v)
+	for _, key := range []string{"Authorization", "Cookie", "Proxy-Authorization", "Referer"} {
+		if v := capturedHeader.Get(key); v != "" {
+			t.Fatalf("isolated request leaked %s: %s", key, v)
 		}
 	}
 }
@@ -928,7 +1162,7 @@ func TestSubtitleDirectDownloadPreservesExplicitHeaders(t *testing.T) {
 	}
 }
 
-func TestIsolatedSubtitleTransportStripsAmbientCredentials(t *testing.T) {
+func TestCredentialIsolatedSubtitleTransportStripsAmbientCredentials(t *testing.T) {
 	var mu sync.Mutex
 	var capturedHeader http.Header
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -940,34 +1174,27 @@ func TestIsolatedSubtitleTransportStripsAmbientCredentials(t *testing.T) {
 	defer server.Close()
 	ambient, err := network.New(network.Config{
 		DefaultHeaders: http.Header{
-			"Cookie":        {"ambient-session=secret"},
-			"Authorization": {"Bearer ambient-token"},
+			"Cookie":            {"ambient-session=secret"},
+			"Authorization":     {"Bearer ambient-token"},
+			"Proxy-Authorization": {"Basic proxy-secret"},
+			"Referer":           {"https://vimeo.com/123456789"},
 		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	isolated := &isolatedSubtitleTransport{
-		ambient:      ambient,
-		trackHeaders: http.Header{"X-Explicit": {"val"}},
-	}
+	isolated := &credentialIsolatedSubtitleTransport{ambient: ambient}
 	req, _ := http.NewRequest("GET", server.URL+"/sub.vtt", nil)
 	req.Header.Set("Authorization", "should-be-stripped")
 	req.Header.Set("Cookie", "should-be-stripped")
 	req.Header.Set("Proxy-Authorization", "should-be-stripped")
+	req.Header.Set("Referer", "should-be-stripped")
 	_, _ = isolated.DoWithoutCredentialsNoRedirect(context.Background(), req)
 	mu.Lock()
 	defer mu.Unlock()
-	if v := capturedHeader.Get("Authorization"); v != "" {
-		t.Fatalf("Authorization leaked: %s", v)
-	}
-	if v := capturedHeader.Get("Cookie"); v != "" {
-		t.Fatalf("Cookie leaked: %s", v)
-	}
-	if v := capturedHeader.Get("Proxy-Authorization"); v != "" {
-		t.Fatalf("Proxy-Authorization leaked: %s", v)
-	}
-	if v := capturedHeader.Get("X-Explicit"); v != "val" {
-		t.Fatalf("explicit header lost: %q", v)
+	for _, key := range []string{"Authorization", "Cookie", "Proxy-Authorization", "Referer"} {
+		if v := capturedHeader.Get(key); v != "" {
+			t.Fatalf("%s leaked: %s", key, v)
+		}
 	}
 }

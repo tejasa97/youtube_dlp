@@ -1165,6 +1165,25 @@ func TestVimeoSubtitleManifestFallbackMergesHLSAndDASH(t *testing.T) {
 	if candidates[0].url != "https://cdn.example.test/subs_en.m3u8" || candidates[0].ext != "vtt" {
 		t.Fatalf("hls candidate = %#v", candidates[0])
 	}
+	if !candidates[0].isolated || !candidates[1].isolated {
+		t.Fatalf("manifest candidates must be credential-isolated: %#v", candidates)
+	}
+	subtitles, err := vimeoSubtitlesFromCandidates(candidates)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, ok := subtitles.Lookup("en").ListValue()
+	if !ok || len(entries) != 1 {
+		t.Fatalf("english subtitles = %#v", subtitles)
+	}
+	entry, ok := entries[0].Object()
+	if !ok {
+		t.Fatal("expected object subtitle entry")
+	}
+	isolated, ok := entry.Lookup("_credential_isolated").Bool()
+	if !ok || !isolated {
+		t.Fatalf("entry = %#v", entry)
+	}
 }
 
 type vimeoTexttracksTransport struct {

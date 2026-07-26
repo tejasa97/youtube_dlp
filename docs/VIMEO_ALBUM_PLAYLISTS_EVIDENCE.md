@@ -56,7 +56,9 @@ unlisted albums fail as authentication-required.
 
 Routes reject HTTP, credentials, ports, queries, fragments, trailing or extra
 paths, encoded identifiers/separators, lookalike hosts, zero/overflow numeric
-IDs, unsafe/non-ASCII/oversized slugs, and embed forms before I/O.
+IDs, unsafe/non-ASCII/oversized slugs, and hostile embed/query forms before I/O.
+Supported `/embed` and `/embed2` suffixes are accepted when the base album or
+showcase identity is otherwise valid.
 
 ## Evidence
 
