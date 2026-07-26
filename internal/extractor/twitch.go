@@ -78,6 +78,7 @@ var (
 	twitchCollectionPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 	twitchPreviewSize       = regexp.MustCompile(`\d+x\d+(\.[A-Za-z0-9]+)$`)
 	twitchQualityHeight     = regexp.MustCompile(`^([0-9]{2,5})p?$`)
+	twitchClipLegacyID      = regexp.MustCompile(`%7C(\d+)(?:-\d+)?\.mp4`)
 	twitchReservedPaths     = map[string]struct{}{
 		"activate": {}, "bits": {}, "collections": {}, "directory": {}, "downloads": {},
 		"drops": {}, "inventory": {}, "jobs": {}, "login": {}, "p": {}, "payments": {},
@@ -1023,6 +1024,7 @@ func extractTwitchClip(ctx context.Context, transport Transport, target twitchTa
 	thumbnails := make([]value.Value, 0, len(clip.Assets)+1)
 	seen := make(map[string]bool)
 	qualityCount := 0
+	finalFormatURL := ""
 	for assetIndex, asset := range clip.Assets {
 		qualityCount += len(asset.VideoQualities)
 		if qualityCount > twitchMaxAssets {
@@ -1059,16 +1061,23 @@ func extractTwitchClip(ctx context.Context, transport Transport, target twitchTa
 			if asset.AspectRatio > 0 && asset.AspectRatio <= 100 {
 				format.Set("aspect_ratio", value.Float(asset.AspectRatio))
 			}
+			if portrait {
+				format.Set("quality", value.Int(-2))
+			}
 			formats = append(formats, value.ObjectValue(format))
+			finalFormatURL = signedURL
 		}
 		if validTwitchAssetURL(asset.ThumbnailURL) {
 			thumbnailID := "default"
+			preference := int64(0)
 			if portrait {
 				thumbnailID = "portrait"
+				preference = -1
 			}
 			thumbnails = append(thumbnails, value.ObjectValue(value.NewObject(
 				value.Field{Key: "id", Value: value.String(thumbnailID)},
 				value.Field{Key: "url", Value: value.String(asset.ThumbnailURL)},
+				value.Field{Key: "preference", Value: value.Int(preference)},
 			)))
 		}
 	}
@@ -1079,6 +1088,7 @@ func extractTwitchClip(ctx context.Context, transport Transport, target twitchTa
 		thumbnails = append(thumbnails, value.ObjectValue(value.NewObject(
 			value.Field{Key: "id", Value: value.String("small")},
 			value.Field{Key: "url", Value: value.String(clip.ThumbnailURL)},
+			value.Field{Key: "preference", Value: value.Int(-2)},
 		)))
 	}
 	title := strings.TrimSpace(clip.Title)
@@ -1098,6 +1108,9 @@ func extractTwitchClip(ctx context.Context, transport Transport, target twitchTa
 		value.Field{Key: "formats", Value: value.List(formats...)},
 		value.Field{Key: "is_live", Value: value.Bool(false)},
 	)
+	if legacyID := twitchClipLegacyArchiveID(finalFormatURL); legacyID != "" {
+		info.Set("_old_archive_ids", value.List(value.String(legacyID)))
+	}
 	twitchSetPositiveInt(info, "duration", clip.DurationSeconds)
 	twitchSetPositiveInt(info, "view_count", clip.ViewCount)
 	twitchSetPositiveInt(info, "timestamp", twitchTimestamp(clip.CreatedAt))
@@ -1267,6 +1280,26 @@ func twitchSignedAssetURL(rawURL string, token twitchAccessToken) string {
 	query.Set("token", token.Value)
 	parsed.RawQuery = query.Encode()
 	return parsed.String()
+}
+
+// twitchClipLegacyArchiveID derives the historical TwitchClipsIE download-archive
+// identity from the final accepted format URL, mirroring the pinned reference
+// rule `%7C(\d+)(?:-\d+)?.mp4` applied to formats[-1]. Only the encoded URL
+// before the signed query is inspected, without percent-decoding, so signed
+// query parameters can never influence the captured numeric ID.
+func twitchClipLegacyArchiveID(finalFormatURL string) string {
+	candidate := finalFormatURL
+	if index := strings.IndexByte(candidate, '?'); index >= 0 {
+		candidate = candidate[:index]
+	}
+	if candidate == "" || len(candidate) > twitchMaxURL {
+		return ""
+	}
+	match := twitchClipLegacyID.FindStringSubmatch(candidate)
+	if len(match) != 2 {
+		return ""
+	}
+	return "twitchclips " + match[1]
 }
 
 func seenTwitchThumbnail(thumbnails []value.Value, rawURL string) bool {
