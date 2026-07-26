@@ -66,6 +66,14 @@ type RelatedFileOptions struct {
 	NoPlaylist       bool
 }
 
+// ThumbnailOptions controls image sidecars. WriteAll takes precedence over
+// Write and retains every valid thumbnail; Write keeps only the best one.
+type ThumbnailOptions struct {
+	Write    bool
+	WriteAll bool
+	List     bool
+}
+
 // PrintStage identifies a metadata lifecycle point for a print rule.
 type PrintStage string
 

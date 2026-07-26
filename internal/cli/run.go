@@ -92,6 +92,17 @@ func RunContextIO(ctx context.Context, args []string, stdin io.Reader, stdout, s
 		*noPlaylistMetafiles = false
 		return nil
 	})
+	var thumbnailMode thumbnailModeFlag
+	flags.BoolFunc("write-thumbnail", "write the best thumbnail image", func(input string) error {
+		return thumbnailMode.setBest(input)
+	})
+	flags.BoolFunc("write-all-thumbnails", "write every available thumbnail image", func(input string) error {
+		return thumbnailMode.setAll(input)
+	})
+	flags.BoolFunc("no-write-thumbnail", "disable thumbnail sidecars (default)", func(input string) error {
+		return thumbnailMode.clear(input)
+	})
+	listThumbnails := flags.Bool("list-thumbnails", false, "list available thumbnails (simulates unless --no-simulate)")
 	printJSON := flags.Bool("print-json", false, "print normalized metadata JSON to stdout")
 	dumpJSON := flags.Bool("dump-json", false, "quietly print one JSON object per video (simulates unless --no-simulate)")
 	flags.BoolVar(dumpJSON, "j", false, "alias for --dump-json")
@@ -488,7 +499,7 @@ func RunContextIO(ctx context.Context, args []string, stdin io.Reader, stdout, s
 	// yt-dlp's listing flags imply simulation only when the user has not made
 	// the tri-state simulation choice explicit.
 	requestSimulate := simulate || !simulateSet &&
-		(*listSubtitles || *dumpJSON || *dumpSingleJSON || legacyGetting || printRulesImplySimulation(printRules))
+		(*listSubtitles || *listThumbnails || *dumpJSON || *dumpSingleJSON || legacyGetting || printRulesImplySimulation(printRules))
 	requestSubtitles := ytdlp.SubtitleOptions{
 		WriteManual: *writeSubtitles, WriteAutomatic: *writeAutomaticSubtitles,
 		Embed: *embedSubtitles, KeepFiles: *embedSubtitles && *writeSubtitles,
@@ -510,6 +521,9 @@ func RunContextIO(ctx context.Context, args []string, stdin io.Reader, stdout, s
 		BreakMatchFilters:      requestBreakMatchFilters,
 		ParseMetadata:          append([]string(nil), parseMetadata...), ReplaceMetadata: append([]string(nil), replaceMetadata...),
 		Subtitles: requestSubtitles,
+		Thumbnails: ytdlp.ThumbnailOptions{
+			Write: thumbnailMode == thumbnailModeBest, WriteAll: thumbnailMode == thumbnailModeAll, List: *listThumbnails,
+		},
 		RelatedFiles: ytdlp.RelatedFileOptions{
 			WriteInfoJSON: *writeInfoJSON, WriteDescription: *writeDescription,
 			WriteLink: *writeLink, WriteURLLink: *writeURLLink,
@@ -545,6 +559,12 @@ func RunContextIO(ctx context.Context, args []string, stdin io.Reader, stdout, s
 	}
 	if *listSubtitles {
 		if err := writeSubtitleListings(ctx, result, stdout, stderr); err != nil {
+			fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
+			return exitCode(err)
+		}
+	}
+	if *listThumbnails {
+		if err := writeThumbnailListings(ctx, result, stdout, stderr); err != nil {
 			fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
 			return exitCode(err)
 		}
@@ -725,6 +745,51 @@ func (values *stringListFlag) Set(value string) error {
 	return nil
 }
 
+type thumbnailModeFlag uint8
+
+const (
+	thumbnailModeNone thumbnailModeFlag = iota
+	thumbnailModeBest
+	thumbnailModeAll
+)
+
+func (mode *thumbnailModeFlag) setBest(input string) error {
+	enabled, err := strconv.ParseBool(input)
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		*mode = thumbnailModeNone
+	} else if *mode == thumbnailModeNone {
+		*mode = thumbnailModeBest
+	}
+	return nil
+}
+
+func (mode *thumbnailModeFlag) setAll(input string) error {
+	enabled, err := strconv.ParseBool(input)
+	if err != nil {
+		return err
+	}
+	if enabled {
+		*mode = thumbnailModeAll
+	} else {
+		*mode = thumbnailModeNone
+	}
+	return nil
+}
+
+func (mode *thumbnailModeFlag) clear(input string) error {
+	enabled, err := strconv.ParseBool(input)
+	if err != nil {
+		return err
+	}
+	if enabled {
+		*mode = thumbnailModeNone
+	}
+	return nil
+}
+
 type outputTemplateFlag struct {
 	values ytdlp.OutputTemplates
 }
@@ -735,9 +800,9 @@ func (output *outputTemplateFlag) String() string {
 	}
 	ordered := []ytdlp.OutputTemplateType{
 		ytdlp.OutputTemplateDefault, ytdlp.OutputTemplateSubtitle,
-		ytdlp.OutputTemplateDescription, ytdlp.OutputTemplateInfoJSON,
+		ytdlp.OutputTemplateThumbnail, ytdlp.OutputTemplateDescription, ytdlp.OutputTemplateInfoJSON,
 		ytdlp.OutputTemplateLink, ytdlp.OutputTemplatePLDescription,
-		ytdlp.OutputTemplatePLInfoJSON,
+		ytdlp.OutputTemplatePLInfoJSON, ytdlp.OutputTemplatePLThumbnail,
 	}
 	parts := make([]string, 0, len(output.values))
 	for _, templateType := range ordered {
@@ -818,7 +883,7 @@ func parseOutputTemplateSpecification(specification string) ([]ytdlp.OutputTempl
 
 func recognizedUnimplementedOutputTemplateType(templateType ytdlp.OutputTemplateType) bool {
 	switch templateType {
-	case "chapter", "thumbnail", "annotation", "pl_video", "pl_thumbnail":
+	case "chapter", "annotation", "pl_video":
 		return true
 	default:
 		return false
@@ -828,9 +893,9 @@ func recognizedUnimplementedOutputTemplateType(templateType ytdlp.OutputTemplate
 func supportedCLIOutputTemplateType(templateType ytdlp.OutputTemplateType) bool {
 	switch templateType {
 	case ytdlp.OutputTemplateDefault, ytdlp.OutputTemplateSubtitle,
-		ytdlp.OutputTemplateDescription, ytdlp.OutputTemplateInfoJSON,
+		ytdlp.OutputTemplateThumbnail, ytdlp.OutputTemplateDescription, ytdlp.OutputTemplateInfoJSON,
 		ytdlp.OutputTemplateLink, ytdlp.OutputTemplatePLDescription,
-		ytdlp.OutputTemplatePLInfoJSON:
+		ytdlp.OutputTemplatePLInfoJSON, ytdlp.OutputTemplatePLThumbnail:
 		return true
 	default:
 		return false

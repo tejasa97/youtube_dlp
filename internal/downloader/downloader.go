@@ -28,6 +28,14 @@ var (
 	ErrInvalidLimits     = errors.New("invalid download resource limits")
 )
 
+// HTTPStatusError identifies a non-success response rejected by the direct
+// downloader without exposing its potentially sensitive URL.
+type HTTPStatusError struct{ Code int }
+
+func (err *HTTPStatusError) Error() string {
+	return fmt.Sprintf("download HTTP status %d", err.Code)
+}
+
 const (
 	maxDirectBytes       = 8 << 30
 	maxDirectAttempts    = 100
@@ -231,7 +239,7 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, part
 		return Result{Bytes: offset, Resumed: true}, nil
 	}
 	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusPartialContent {
-		err := fmt.Errorf("download HTTP status %d", response.StatusCode)
+		err := &HTTPStatusError{Code: response.StatusCode}
 		if network.RetryableStatus(response.StatusCode) {
 			return Result{}, retryableError{err}
 		}

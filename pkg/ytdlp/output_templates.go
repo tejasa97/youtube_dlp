@@ -16,23 +16,25 @@ type OutputTemplateType string
 const (
 	OutputTemplateDefault       OutputTemplateType = "default"
 	OutputTemplateSubtitle      OutputTemplateType = "subtitle"
+	OutputTemplateThumbnail     OutputTemplateType = "thumbnail"
 	OutputTemplateDescription   OutputTemplateType = "description"
 	OutputTemplateInfoJSON      OutputTemplateType = "infojson"
 	OutputTemplateLink          OutputTemplateType = "link"
 	OutputTemplatePLDescription OutputTemplateType = "pl_description"
 	OutputTemplatePLInfoJSON    OutputTemplateType = "pl_infojson"
+	OutputTemplatePLThumbnail   OutputTemplateType = "pl_thumbnail"
 )
 
 var orderedOutputTemplateTypes = []OutputTemplateType{
-	OutputTemplateDefault, OutputTemplateSubtitle, OutputTemplateDescription,
+	OutputTemplateDefault, OutputTemplateSubtitle, OutputTemplateThumbnail, OutputTemplateDescription,
 	OutputTemplateInfoJSON, OutputTemplateLink, OutputTemplatePLDescription,
-	OutputTemplatePLInfoJSON,
+	OutputTemplatePLInfoJSON, OutputTemplatePLThumbnail,
 }
 
 var supportedOutputTemplateTypes = map[OutputTemplateType]struct{}{
-	OutputTemplateDefault: {}, OutputTemplateSubtitle: {}, OutputTemplateDescription: {},
+	OutputTemplateDefault: {}, OutputTemplateSubtitle: {}, OutputTemplateThumbnail: {}, OutputTemplateDescription: {},
 	OutputTemplateInfoJSON: {}, OutputTemplateLink: {}, OutputTemplatePLDescription: {},
-	OutputTemplatePLInfoJSON: {},
+	OutputTemplatePLInfoJSON: {}, OutputTemplatePLThumbnail: {},
 }
 
 // OutputTemplates maps an artifact type to its filename template. A missing
