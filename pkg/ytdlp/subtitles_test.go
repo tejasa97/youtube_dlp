@@ -721,3 +721,253 @@ func TestSubtitleHLSAssemblyCancellation(t *testing.T) {
 		t.Fatal("expected error from cancelled context")
 	}
 }
+
+func TestSubtitleHLSLeakageNoCredentials(t *testing.T) {
+	var mu sync.Mutex
+	var capturedHeaders []http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		mu.Lock()
+		capturedHeaders = append(capturedHeaders, request.Header.Clone())
+		mu.Unlock()
+		switch request.URL.Path {
+		case "/subs_en.m3u8":
+			writer.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+			_, _ = writer.Write([]byte("#EXTM3U\n#EXTINF:1,\nseg0.vtt\n#EXT-X-ENDLIST\n"))
+		case "/seg0.vtt":
+			writer.Header().Set("Content-Type", "text/vtt")
+			_, _ = writer.Write([]byte("WEBVTT\n\n00:00.000 --> 00:01.000\nok\n"))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	transport, err := network.New(network.Config{
+		DefaultHeaders: http.Header{
+			"Cookie":        {"ambient-session=secret"},
+			"Authorization": {"Bearer ambient-token"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("fixture")},
+		value.Field{Key: "title", Value: value.String("Fixture")},
+		value.Field{Key: "ext", Value: value.String("mp4")},
+	))
+	info.Set("subtitles", value.ObjectValue(value.NewObject(
+		value.Field{Key: "en", Value: value.List(value.ObjectValue(value.NewObject(
+			value.Field{Key: "url", Value: value.String(server.URL + "/subs_en.m3u8")},
+			value.Field{Key: "ext", Value: value.String("vtt")},
+		)))},
+	)))
+	operation := &operation{
+		client: NewClient(),
+		request: Request{
+			OutputDir: root, SkipDownload: true,
+			Subtitles: SubtitleOptions{WriteManual: true, Languages: []string{"en"}},
+		},
+		transport: transport,
+	}
+	tracks, _, err := selectSubtitles(info, operation.request.Subtitles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifacts, _, err := operation.downloadSubtitles(context.Background(), info, tracks, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts) != 1 {
+		t.Fatalf("artifacts = %#v", artifacts)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	for i, header := range capturedHeaders {
+		if v := header.Get("Authorization"); v != "" {
+			t.Fatalf("request %d leaked Authorization: %s", i, v)
+		}
+		if v := header.Get("Cookie"); v != "" {
+			t.Fatalf("request %d leaked Cookie: %s", i, v)
+		}
+		if v := header.Get("Proxy-Authorization"); v != "" {
+			t.Fatalf("request %d leaked Proxy-Authorization: %s", i, v)
+		}
+	}
+}
+
+func TestSubtitleDirectDownloadLeakageNoCredentials(t *testing.T) {
+	var mu sync.Mutex
+	var capturedHeaders []http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		mu.Lock()
+		capturedHeaders = append(capturedHeaders, request.Header.Clone())
+		mu.Unlock()
+		if request.URL.Path == "/sub.vtt" {
+			_, _ = writer.Write([]byte("WEBVTT\n\n00:00.000 --> 00:01.000\nok\n"))
+			return
+		}
+		http.NotFound(writer, request)
+	}))
+	defer server.Close()
+	transport, err := network.New(network.Config{
+		DefaultHeaders: http.Header{
+			"Cookie":        {"ambient-session=secret"},
+			"Authorization": {"Bearer ambient-token"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("fixture")},
+		value.Field{Key: "title", Value: value.String("Fixture")},
+		value.Field{Key: "ext", Value: value.String("mp4")},
+	))
+	info.Set("subtitles", value.ObjectValue(value.NewObject(
+		value.Field{Key: "en", Value: value.List(value.ObjectValue(value.NewObject(
+			value.Field{Key: "url", Value: value.String(server.URL + "/sub.vtt")},
+			value.Field{Key: "ext", Value: value.String("vtt")},
+		)))},
+	)))
+	operation := &operation{
+		client: NewClient(),
+		request: Request{
+			OutputDir: root, SkipDownload: true,
+			Subtitles: SubtitleOptions{WriteManual: true, Languages: []string{"en"}},
+		},
+		transport: transport,
+	}
+	tracks, _, err := selectSubtitles(info, operation.request.Subtitles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifacts, _, err := operation.downloadSubtitles(context.Background(), info, tracks, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts) != 1 {
+		t.Fatalf("artifacts = %#v", artifacts)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	for i, header := range capturedHeaders {
+		if v := header.Get("Authorization"); v != "" {
+			t.Fatalf("request %d leaked Authorization: %s", i, v)
+		}
+		if v := header.Get("Cookie"); v != "" {
+			t.Fatalf("request %d leaked Cookie: %s", i, v)
+		}
+		if v := header.Get("Proxy-Authorization"); v != "" {
+			t.Fatalf("request %d leaked Proxy-Authorization: %s", i, v)
+		}
+	}
+}
+
+func TestSubtitleDirectDownloadPreservesExplicitHeaders(t *testing.T) {
+	var mu sync.Mutex
+	var capturedHeaders []http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		mu.Lock()
+		capturedHeaders = append(capturedHeaders, request.Header.Clone())
+		mu.Unlock()
+		if request.URL.Path == "/sub.vtt" {
+			_, _ = writer.Write([]byte("WEBVTT\n\n00:00.000 --> 00:01.000\nok\n"))
+			return
+		}
+		http.NotFound(writer, request)
+	}))
+	defer server.Close()
+	transport, err := network.New(network.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("fixture")},
+		value.Field{Key: "title", Value: value.String("Fixture")},
+		value.Field{Key: "ext", Value: value.String("mp4")},
+	))
+	info.Set("subtitles", value.ObjectValue(value.NewObject(
+		value.Field{Key: "en", Value: value.List(value.ObjectValue(value.NewObject(
+			value.Field{Key: "url", Value: value.String(server.URL + "/sub.vtt")},
+			value.Field{Key: "ext", Value: value.String("vtt")},
+			value.Field{Key: "http_headers", Value: value.ObjectValue(value.NewObject(
+				value.Field{Key: "X-Custom-Auth", Value: value.String("track-token-123")},
+			))},
+		)))},
+	)))
+	operation := &operation{
+		client: NewClient(),
+		request: Request{
+			OutputDir: root, SkipDownload: true,
+			Subtitles: SubtitleOptions{WriteManual: true, Languages: []string{"en"}},
+		},
+		transport: transport,
+	}
+	tracks, _, err := selectSubtitles(info, operation.request.Subtitles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifacts, _, err := operation.downloadSubtitles(context.Background(), info, tracks, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts) != 1 {
+		t.Fatalf("artifacts = %#v", artifacts)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(capturedHeaders) == 0 {
+		t.Fatal("no requests captured")
+	}
+	last := capturedHeaders[len(capturedHeaders)-1]
+	if v := last.Get("X-Custom-Auth"); v != "track-token-123" {
+		t.Fatalf("explicit header not preserved: got %q", v)
+	}
+}
+
+func TestIsolatedSubtitleTransportStripsAmbientCredentials(t *testing.T) {
+	var mu sync.Mutex
+	var capturedHeader http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		mu.Lock()
+		capturedHeader = request.Header.Clone()
+		mu.Unlock()
+		_, _ = writer.Write([]byte("ok"))
+	}))
+	defer server.Close()
+	ambient, err := network.New(network.Config{
+		DefaultHeaders: http.Header{
+			"Cookie":        {"ambient-session=secret"},
+			"Authorization": {"Bearer ambient-token"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	isolated := &isolatedSubtitleTransport{
+		ambient:      ambient,
+		trackHeaders: http.Header{"X-Explicit": {"val"}},
+	}
+	req, _ := http.NewRequest("GET", server.URL+"/sub.vtt", nil)
+	req.Header.Set("Authorization", "should-be-stripped")
+	req.Header.Set("Cookie", "should-be-stripped")
+	req.Header.Set("Proxy-Authorization", "should-be-stripped")
+	_, _ = isolated.DoWithoutCredentialsNoRedirect(context.Background(), req)
+	mu.Lock()
+	defer mu.Unlock()
+	if v := capturedHeader.Get("Authorization"); v != "" {
+		t.Fatalf("Authorization leaked: %s", v)
+	}
+	if v := capturedHeader.Get("Cookie"); v != "" {
+		t.Fatalf("Cookie leaked: %s", v)
+	}
+	if v := capturedHeader.Get("Proxy-Authorization"); v != "" {
+		t.Fatalf("Proxy-Authorization leaked: %s", v)
+	}
+	if v := capturedHeader.Get("X-Explicit"); v != "val" {
+		t.Fatalf("explicit header lost: %q", v)
+	}
+}
