@@ -1472,7 +1472,7 @@ capabilities:
   - id: extractor.vimeo_pilot
     name: Vimeo manifest-heavy extraction pilot
     phase: 1
-    compatibility_target: Extract Vimeo progressive, HLS, DASH, and public player-config text tracks from numeric and contextual channel/group/album/showcase child-video URLs, plus bounded public channel, user, group, and numeric album/showcase playlists, through protected flows without Python.
+    compatibility_target: Extract Vimeo progressive, HLS, DASH, and public player-config text tracks from numeric and contextual channel/group/album/showcase child-video URLs, plus bounded public channel, user, group, and numeric or safe-slug album/showcase playlists, through protected flows without Python.
     status: compatible
     evidence:
       - internal/extractor.TestVimeoExtractsProgressiveHLSAndDASHWithProfile
@@ -1491,6 +1491,9 @@ capabilities:
       - internal/extractor.TestVimeoContextualVideoRoutesPreservePageAndReferer
       - internal/extractor.TestVimeoContextualVideoRoutingRejectsUnsafeAndAmbiguousInputs
       - internal/extractor.TestVimeoAlbumRoutesAndUnsafeRejection
+      - internal/extractor.TestVimeoAlbumSlugResolutionPreservesRequestedIdentity
+      - internal/extractor.TestVimeoAlbumSlugResolverAcceptedStatuses
+      - internal/extractor.TestVimeoAlbumSlugResolverFailuresAreCategorized
       - internal/extractor.TestVimeoAlbumPlaylistIsLazyReusableAndFiltersHostileRows
       - internal/extractor.TestVimeoAlbumMultiPageOrderDedupeAndHTTP400End
       - internal/extractor.TestVimeoAlbumRefreshesJWTForDelayedReusableIteration
@@ -1507,6 +1510,7 @@ capabilities:
       - internal/extractor.FuzzClassifyVimeoPlaylistURL
       - internal/extractor.FuzzClassifyVimeoContextVideoURL
       - internal/extractor.FuzzClassifyVimeoAlbumURL
+      - internal/extractor.FuzzParseVimeoAlbumSlugID
       - internal/extractor.FuzzVimeoAlbumVideoEntry
       - conformance/extractors/vimeo/PROVENANCE.md
       - docs/VIMEO_SUBTITLES_EVIDENCE.md
@@ -1518,7 +1522,7 @@ capabilities:
       - network.impersonation
       - protocol.hls
       - protocol.dash
-    known_deviation: Compatibility is scoped to the pinned public-video/player-config corpus, including exact channel/group/album/showcase child-video routes and manual VTT text tracks on the exact HTTPS player origin, public HTML channel/user/group playlist roots, and anonymous positive-numeric public album/showcase roots. Contextual child-video pages and player-config requests preserve a canonical token-free contextual Referer; HTML playlist pages use credential-isolated no-redirect Chrome-profile reads; album API pages use an ephemeral scoped application JWT with no ambient credentials or redirects. Password submission, non-numeric showcase slugs, embed/referrer album forms, likes/watch-later, unlisted hashes, DRM, texttracks API and manifest subtitle fallbacks, arbitrary contextual subpaths, and live archive variants remain broader Vimeo work. Live album API compatibility is not claimed from synthetic fixtures alone.
+    known_deviation: Compatibility is scoped to the pinned public-video/player-config corpus, including exact channel/group/album/showcase child-video routes and manual VTT text tracks on the exact HTTPS player origin, public HTML channel/user/group playlist roots, and anonymous positive-numeric or narrowly validated ASCII-slug public album/showcase roots. Contextual child-video pages and player-config requests preserve a canonical token-free contextual Referer; HTML playlist pages and slug resolution use credential-isolated no-redirect requests; album API pages use an ephemeral scoped application JWT with no ambient credentials or redirects. Password submission, broader upstream slug syntax, embed/referrer album forms, likes/watch-later, unlisted hashes, DRM, texttracks API and manifest subtitle fallbacks, arbitrary contextual subpaths, and live archive variants remain broader Vimeo work. Live resolver/album API compatibility is not claimed from synthetic fixtures alone.
 
   - id: extractor.tiktok_pilot
     name: TikTok impersonation and anti-bot pilot

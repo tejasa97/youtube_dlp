@@ -77,6 +77,7 @@ var vimeoReservedUserSlugs = map[string]struct{}{
 type vimeoPlaylistTarget struct {
 	kind      vimeoRouteKind
 	id        string
+	slug      string
 	canonical string
 	baseURL   string
 }
