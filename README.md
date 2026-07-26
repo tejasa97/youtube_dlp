@@ -373,8 +373,9 @@ archive state, and nested playlist extraction stay within that operation.
 
 The main downloader does not require Python.
 
-- `ffmpeg` and `ffprobe` are required only for adaptive track merging or
-  requested post-processing.
+- `ffmpeg` is required for adaptive track merging, requested post-processing,
+  and automatic clear-key HLS SAMPLE-AES delegation. `ffprobe` is required
+  only for operations that inspect media streams.
 - `ytdlp-js-helper` is required only for supported YouTube flows that need a
   JavaScript challenge. It is a separate pure-Go executable with bounded IPC.
 - Browser credential services are consulted only after explicit cookie-import
