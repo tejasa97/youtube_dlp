@@ -17,7 +17,7 @@ playback logic was duplicated.
 | `hollywoodreporter` | `HollywoodReporterIE` | Showcase card fixture → JW or YouTube re-entry |
 | `iltalehti` | `IltalehtiIE` | Ordered playlist fixture + canonical title |
 | `lefigarovideoembed` | `LeFigaroVideoEmbedIE` | `__NEXT_DATA__` fixture → JW re-entry with title/poster |
-| `mirrorcouk` | `MirrorCoUKIE` | `json-placeholder` fixture → transparent JW re-entry |
+| `mirrorcouk` | `MirrorCoUKIE` | `json-placeholder` fixture → JW re-entry preserving media id |
 | `outsidetv` | `OutsideTVIE` | Play URL segment → JW re-entry; zero network |
 | `theintercept` | `TheInterceptIE` | `initialStoreTree` fixture → transparent JW re-entry with metadata |
 
@@ -32,9 +32,10 @@ cancellation, bounds, and secret-safe failure tests in
 - HTTPS canonical page URLs for fetched adapters.
 - Bundesliga, DBTV JW, and Outside TV perform no webpage request.
 - Hollywood Reporter never echoes unsupported showcase types in errors.
-- Iltalehti uses balanced `window.App` JSON extraction and caps playlist size.
+- Iltalehti uses balanced `window.App` extraction with pinned `js_to_json` semantics (unquoted keys, single quotes, trailing commas, `undefined`/`void 0`) without executing page JavaScript.
+- Mirror.co.uk omits `display_id` until Entry supports it; the JW Platform media id is preserved through handoff and product re-entry.
 - Le Figaro uses balanced `__NEXT_DATA__` extraction.
-- Mirror.co.uk unescapes and parses balanced `json-placeholder` JSON.
+- The Intercept matches posts by slug in sorted, bounded map iteration and rejects duplicate slugs.
 - The Intercept matches the bare `theintercept.com` host only.
 
 ## Checklist promotion
@@ -44,12 +45,15 @@ cancellation, bounds, and secret-safe failure tests in
 - `bundesliga`, `businessinsider`, `dbtv`, `hollywoodreporter`, `iltalehti`,
   `lefigarovideoembed`, `mirrorcouk`, `outsidetv`, `theintercept`
 
+Post-wave inventory counts: `already_supported=106`, `uses_existing_shared_backend=52`.
+
 ## Verification commands
 
 ```sh
-gofmt -w internal/extractor/jwplatform_adapters_wave1.go internal/extractor/jwplatform_adapters_wave1_test.go pkg/ytdlp/client.go
-go test ./internal/extractor -run 'JWPlatformAdaptersWave1' -count=1
-go test -race ./internal/extractor -run 'JWPlatformAdaptersWave1' -count=1
+gofmt -w internal/extractor/jwplatform_adapters_wave1.go internal/extractor/jwplatform_adapters_wave1_relaxed.go internal/extractor/jwplatform_adapters_wave1_test.go internal/extractor/jwplatform_adapters_wave1_relaxed_test.go pkg/ytdlp/client.go pkg/ytdlp/client_test.go pkg/ytdlp/jwplatform_adapters_wave1_test.go
+go test ./internal/extractor -run 'JWPlatformAdaptersWave1|JWWave1' -count=1
+go test ./pkg/ytdlp -run 'JWPlatformAdaptersWave1|ProductRegistryIncludesIntegratedExtractors' -count=1
+go test -race ./internal/extractor -run 'JWPlatformAdaptersWave1|JWWave1' -count=1
 go test -p 4 ./... -count=1
 go vet ./...
 go run ./cmd/paritycheck

@@ -115,7 +115,7 @@ func TestJWPlatformAdaptersWave1SuitableAndHandoff(t *testing.T) {
 	t.Run("iltalehti", func(t *testing.T) {
 		rawURL := "https://www.iltalehti.fi/ulkomaat/a/9fbd067f-94e4-46cd-8748-9d958eb4dae2"
 		canonical := "https://www.iltalehti.fi/ulkomaat/a/9fbd067f-94e4-46cd-8748-9d958eb4dae2"
-		transport := &sharedFixtureTransport{pages: map[string][]byte{canonical: jwWave1Fixture(t, "iltalehti_page.html")}}
+		transport := &sharedFixtureTransport{pages: map[string][]byte{canonical: jwWave1Fixture(t, "iltalehti_relaxed_page.html")}}
 		result, err := NewIltalehti().Extract(context.Background(), Request{URL: rawURL, Transport: transport})
 		if err != nil || !result.IsPlaylist() {
 			t.Fatalf("%#v %v", result, err)
@@ -160,7 +160,7 @@ func TestJWPlatformAdaptersWave1SuitableAndHandoff(t *testing.T) {
 		canonical := "https://www.mirror.co.uk/tv/tv-news/love-island-fans-baffled-after-27163139"
 		transport := &sharedFixtureTransport{pages: map[string][]byte{canonical: jwWave1Fixture(t, "mirror_page.html")}}
 		result, err := NewMirrorCoUK().Extract(context.Background(), Request{URL: rawURL, Transport: transport})
-		if err != nil || result.Redirect.URL != "jwplatform:voyyS7SV" || result.Redirect.ID != "27163139" {
+		if err != nil || result.Redirect.URL != "jwplatform:voyyS7SV" || result.Redirect.ID != "voyyS7SV" {
 			t.Fatalf("%#v %v", result, err)
 		}
 	})
@@ -302,12 +302,39 @@ func TestJWPlatformAdaptersWave1Negatives(t *testing.T) {
 	}
 
 	malformed := &sharedFixtureTransport{pages: map[string][]byte{
-		"https://www.iltalehti.fi/ulkomaat/a/uuid": []byte(`<script>window.App = {not-json</script>`),
+		"https://www.iltalehti.fi/ulkomaat/a/uuid": []byte(`<script>window.App = {title: 'broken</script>`),
 	}}
 	if _, err := NewIltalehti().Extract(context.Background(), Request{
 		URL: "https://www.iltalehti.fi/ulkomaat/a/uuid", Transport: malformed,
 	}); !errors.Is(err, ErrInvalidMetadata) {
 		t.Fatalf("malformed=%v", err)
+	}
+
+	duplicateIntercept := &sharedFixtureTransport{pages: map[string][]byte{
+		"https://theintercept.com/fieldofvision/thisisacoup-episode-four-surrender-or-die/": jwWave1Fixture(t, "theintercept_duplicate_page.html"),
+	}}
+	if _, err := NewTheIntercept().Extract(context.Background(), Request{
+		URL: "https://theintercept.com/fieldofvision/thisisacoup-episode-four-surrender-or-die/", Transport: duplicateIntercept,
+	}); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("duplicate slug=%v", err)
+	}
+
+	oversizedIntercept := &sharedFixtureTransport{pages: map[string][]byte{
+		"https://theintercept.com/fieldofvision/slug/": []byte(`<script>initialStoreTree = {"resources":{"posts":{` + strings.Repeat(`"k":{"ID":1,"slug":"slug","fov_videoid":"AbCd1234"},`, jwWave1MaxEntries+1) + `"z":{"ID":2,"slug":"slug","fov_videoid":"EfGh5678"}}}}</script>`),
+	}}
+	if _, err := NewTheIntercept().Extract(context.Background(), Request{
+		URL: "https://theintercept.com/fieldofvision/slug/", Transport: oversizedIntercept,
+	}); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("oversized intercept=%v", err)
+	}
+
+	malformedIltalehti := &sharedFixtureTransport{pages: map[string][]byte{
+		"https://www.iltalehti.fi/ulkomaat/a/uuid": []byte(`<script>window.App = {not-json</script>`),
+	}}
+	if _, err := NewIltalehti().Extract(context.Background(), Request{
+		URL: "https://www.iltalehti.fi/ulkomaat/a/uuid", Transport: malformedIltalehti,
+	}); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("malformed iltalehti=%v", err)
 	}
 
 	oversized := &sharedFixtureTransport{pages: map[string][]byte{

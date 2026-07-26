@@ -2366,6 +2366,7 @@ capabilities:
       - internal/extractor.FuzzParseSimplecastEpisodeURL
       - conformance/extractors/shared/PROVENANCE.md
       - conformance/extractors/shared/brightcove-adapters-wave2/PROVENANCE.md
+      - conformance/extractors/shared/jwplatform-adapters-wave1/PROVENANCE.md
       - conformance/extractors/public/PROVENANCE.md
       - conformance/extractors/risk/instagram/PROVENANCE.md
       - conformance/extractors/risk/kick/PROVENANCE.md
@@ -2385,6 +2386,7 @@ capabilities:
       - docs/EXTRACTOR_BREADTH_PRIORITY_100_EVIDENCE.md
       - docs/EXTRACTOR_FAMILY_BREADTH_WAVE1_EVIDENCE.md
       - docs/EXTRACTOR_BRIGHTCOVE_ADAPTERS_WAVE2_EVIDENCE.md
+      - docs/EXTRACTOR_JWPLATFORM_ADAPTERS_WAVE1_EVIDENCE.md
       - internal/extractor.TestBrightcoveAdaptersSuitableAndHandoff
       - internal/extractor.TestBrightcoveAdaptersWave2SuitableAndHandoff
       - internal/extractor.TestBrightcoveAdaptersWave2SuitableMatrix
@@ -2392,6 +2394,12 @@ capabilities:
       - internal/extractor.TestBrightcoveAdaptersWave2APITransportIsolation
       - internal/extractor.TestWave2BoundStringUTF8Safe
       - internal/extractor.FuzzParseBrightcoveAdaptersWave2URL
+      - internal/extractor.TestJWPlatformAdaptersWave1SuitableAndHandoff
+      - internal/extractor.TestJWPlatformAdaptersWave1Negatives
+      - internal/extractor.TestJWWave1JSToJSONSemantics
+      - internal/extractor.FuzzParseJWPlatformAdaptersWave1URL
+      - pkg/ytdlp.TestProductRegistryJWPlatformAdaptersWave1Routing
+      - pkg/ytdlp.TestProductMirrorCoUKReentersJWPlatformMediaID
       - internal/extractor.TestKalturaJWAdaptersHandoff
       - internal/extractor.TestArcAdaptersExactRoutingHandoffAndEvidence
       - internal/extractor.TestPodcastFamilySuccessAndPlaylists
