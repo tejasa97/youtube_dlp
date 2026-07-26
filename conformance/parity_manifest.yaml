@@ -1178,7 +1178,7 @@ capabilities:
   - id: extractor.soundcloud_pilot
     name: SoundCloud API and playlist pilot
     phase: 1
-    compatibility_target: Extract SoundCloud tracks with opt-in public comments, sets, bare profiles, all pinned public user tabs, exact legacy API user permalinks, and public player/embed URLs through bounded native discovery without Python.
+    compatibility_target: Extract SoundCloud tracks with original downloadable files and opt-in public comments, sets, bare profiles, all pinned public user tabs, exact legacy API user permalinks, and public player/embed URLs through bounded native discovery without Python.
     status: compatible
     evidence:
       - internal/extractor.TestSoundCloudSuitableGuards
@@ -1219,11 +1219,23 @@ capabilities:
       - internal/extractor.TestSoundCloudCommentContinuationPolicy
       - internal/extractor.FuzzSoundCloudCommentContinuationPolicy
       - internal/extractor.FuzzNormalizeSoundCloudComment
+      - internal/extractor.TestSoundCloudOriginalDownloadIsFirstAndBounded
+      - internal/extractor.TestSoundCloudOriginalDownloadFlagsAndDeduplication
+      - internal/extractor.TestSoundCloudOriginalDownloadAPIFailures
+      - internal/extractor.TestSoundCloudOriginalRedirectSecurityAndFailures
+      - internal/extractor.TestSoundCloudOriginalExtensionPrecedence
+      - internal/extractor.TestSoundCloudOriginalOptionalHeadFailuresKeepStreamingFormats
+      - internal/extractor.TestSoundCloudOriginalUnknownExtensionIsRetained
+      - internal/extractor.TestSoundCloudOriginalRelativeMultiHopRedirect
+      - internal/extractor.TestSoundCloudOriginalPreservesSignedPathEncoding
+      - internal/extractor.FuzzSoundCloudOriginalURL
+      - internal/extractor.FuzzSoundCloudOriginalExtension
       - pkg/ytdlp.TestProductRegistryIncludesIntegratedExtractors
       - pkg/ytdlp.TestProductRegistryReentersSoundCloudEmbedIntoMedia
       - pkg/ytdlp.TestProductSoundCloudCommentOptionsPropagateAndEnrich
       - conformance/extractors/soundcloud/PROVENANCE.md
       - conformance/extractors/soundcloud/comments/PROVENANCE.md
+      - conformance/extractors/soundcloud/download/PROVENANCE.md
       - conformance/extractors/soundcloud_embed/PROVENANCE.md
       - conformance/extractors/soundcloud_search/PROVENANCE.md
       - docs/P1_SOUNDCLOUD_EVIDENCE.md
@@ -1233,7 +1245,7 @@ capabilities:
       - extractor.playlists
       - protocol.hls
       - network.shared_transport
-    known_deviation: Compatibility is scoped to the pinned public track and opt-in track-comment corpus, static-set, bare-profile, lazy profile-tab (`tracks`, `albums`, `sets`, `reposts`, `likes`, `spotlight`, `comments`), exact legacy API user permalink, stations/related-media, public player/embed, and bounded public track-search corpus. Search supports `scsearch`, counts through 200, a 200-result `scsearchall` cap, and a narrow canonical web URL; it uses cookie-isolated API requests and at most four pages. Player discovery covers declared HTML attributes, Twitter player metadata, and JSON-LD embedUrl through the bounded generic extractor rather than arbitrary scripts. The profile `/comments` tab enumerates media entries and is distinct from track-comment bodies. OAuth/private media, premium originals, arbitrary future profile resources, and private-set batch hydration remain broader SoundCloud work.
+    known_deviation: Compatibility is scoped to the pinned public track, original-download and opt-in track-comment corpus, static-set, bare-profile, lazy profile-tab (`tracks`, `albums`, `sets`, `reposts`, `likes`, `spotlight`, `comments`), exact legacy API user permalink, stations/related-media, public player/embed, and bounded public track-search corpus. Search supports `scsearch`, counts through 200, a 200-result `scsearchall` cap, and a narrow canonical web URL; it uses cookie-isolated API requests and at most four pages. Player discovery covers declared HTML attributes, Twitter player metadata, and JSON-LD embedUrl through the bounded generic extractor rather than arbitrary scripts. The profile `/comments` tab enumerates media entries and is distinct from track-comment bodies. OAuth/private media, premium subscription formats, arbitrary future profile resources, and private-set batch hydration remain broader SoundCloud work.
 
   - id: extractor.streamable_public
     name: Streamable shared-hosting extraction

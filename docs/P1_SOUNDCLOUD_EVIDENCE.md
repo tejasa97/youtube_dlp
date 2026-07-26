@@ -45,6 +45,11 @@ The shared registry and parity manifest remain owned by the primary integrator.
   progressive HTTP, native HLS, encrypted-HLS labeling, codec/extension/bitrate
   normalization, preview labeling, URL de-duplication, broken ABR rejection,
   and explicit DRM/block handling.
+- Original downloadable files for tracks marked `downloadable` with downloads
+  remaining. The optional API response preserves private tokens, 401/403 falls
+  back to streaming formats, 429 propagates as a rate-limited network error,
+  and a bounded
+  credential-isolated HEAD chain validates the final URL, extension, and size.
 - Response cardinalities are capped at 64 transcodings, 200 linked-partition
   entries per page, and 10,000 set entries; URLs, slugs, tokens, assets, and
   JSON bodies also have explicit limits.
@@ -139,10 +144,22 @@ The shared registry and parity manifest remain owned by the primary integrator.
 - `internal/extractor.TestSoundCloudCommentContinuationPolicy`
 - `internal/extractor.FuzzSoundCloudCommentContinuationPolicy`
 - `internal/extractor.FuzzNormalizeSoundCloudComment`
+- `internal/extractor.TestSoundCloudOriginalDownloadIsFirstAndBounded`
+- `internal/extractor.TestSoundCloudOriginalDownloadFlagsAndDeduplication`
+- `internal/extractor.TestSoundCloudOriginalDownloadAPIFailures`
+- `internal/extractor.TestSoundCloudOriginalRedirectSecurityAndFailures`
+- `internal/extractor.TestSoundCloudOriginalExtensionPrecedence`
+- `internal/extractor.TestSoundCloudOriginalOptionalHeadFailuresKeepStreamingFormats`
+- `internal/extractor.TestSoundCloudOriginalUnknownExtensionIsRetained`
+- `internal/extractor.TestSoundCloudOriginalRelativeMultiHopRedirect`
+- `internal/extractor.TestSoundCloudOriginalPreservesSignedPathEncoding`
+- `internal/extractor.FuzzSoundCloudOriginalURL`
+- `internal/extractor.FuzzSoundCloudOriginalExtension`
 - `pkg/ytdlp.TestProductRegistryReentersSoundCloudEmbedIntoMedia`
 - `pkg/ytdlp.TestProductSoundCloudCommentOptionsPropagateAndEnrich`
 - `conformance/extractors/soundcloud/PROVENANCE.md`
 - `conformance/extractors/soundcloud/comments/PROVENANCE.md`
+- `conformance/extractors/soundcloud/download/PROVENANCE.md`
 - `conformance/extractors/soundcloud_embed/PROVENANCE.md`
 
 ## Integration hook
@@ -156,8 +173,8 @@ registry evidence and the complete test suite passes.
 
 ## Known deviations
 
-The pilot does not yet implement OAuth/cookie login, original downloadable-file
-resolution, premium subscription formats, offset pagination compatibility,
+The pilot does not yet implement OAuth/cookie login,
+premium subscription formats, offset pagination compatibility,
 full artwork-size expansion, or batch hydration of incomplete private-set
 tracks. Track comments are supported, while the distinct `/comments` user tab
 continues to enumerate attributable media entries rather than comment bodies.
