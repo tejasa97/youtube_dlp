@@ -523,6 +523,7 @@ type operation struct {
 	breakMatchReason                 string
 	removeFile                       func(string) error
 	thumbnailConvert                 thumbnailConvertFunc
+	thumbnailEmbed                   thumbnailEmbedFunc
 	youtubeLiveRefresh               func(mediaformat.Selection) youtubelive.LiveRefreshFunc
 	sabrMerge                        func(ctx context.Context, video, audio, destination string, overwrite bool, sink events.Sink) error
 }
@@ -1237,9 +1238,18 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 			return Result{}, categorized("embed subtitles", err)
 		}
 	}
+	var embeddedThumbnail bool
+	if !multiOutput {
+		result.Artifacts, embeddedThumbnail, err = operation.embedSelectedThumbnail(
+			ctx, &info, downloadedPath, result.Artifacts, sink,
+		)
+		if err != nil {
+			return Result{}, categorized("embed thumbnail", err)
+		}
+	}
 	result.Downloaded = true
 	result.Filename = downloadedPath
-	if cutApplied || embeddedSubtitles {
+	if cutApplied || embeddedSubtitles || embeddedThumbnail {
 		result.Bytes, err = artifactBytes(result.Artifacts)
 		if err != nil {
 			tracker.removeCreated()

@@ -151,6 +151,7 @@ revision; repository test keys are not production updater trust.
   --write-description \
   --write-thumbnail \
   --convert-thumbnails "webp>png/jpg" \
+  --embed-thumbnail \
   --write-link \
   --paths "subtitle:captions" \
   --paths "thumbnail:images" \
@@ -174,6 +175,9 @@ you also want the normal download. Repeat `--output` to give `default`,
 `webp`. Conditional mappings such as `webp>png/jpg` use the first matching
 rule and fall back to the first unconditional format; `none` disables
 conversion.
+`--embed-thumbnail` downloads the best image when needed and embeds it as
+cover art in MP3, MP4-family, or Matroska media. Add `--write-thumbnail` when
+the standalone image should be retained too.
 
 Repeat `--paths [TYPES:]PATH` to place those produced artifact types in
 separate directories beneath `home`. Supported types are `home`, `subtitle`,

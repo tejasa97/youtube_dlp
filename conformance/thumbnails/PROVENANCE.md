@@ -12,6 +12,12 @@ Behavior is derived from the pinned read-only yt-dlp reference at commit
 - `yt_dlp/postprocessor/ffmpeg.py`, `FFmpegThumbnailsConvertorPP`, defines
   `jpeg` normalization, first-match resolution, same-format skipping, metadata
   updates, and source cleanup after successful conversion;
+- `yt_dlp/options.py` and `yt_dlp/__init__.py` define
+  `--embed-thumbnail`/`--no-embed-thumbnail`, implicit best-image writing,
+  and explicit sidecar retention;
+- `yt_dlp/postprocessor/embedthumbnail.py`, `EmbedThumbnailPP`, defines best
+  on-disk selection, format correction, supported container families, and
+  cleanup only after successful embedding;
 - `yt_dlp/utils/_utils.py`, `OUTTMPL_TYPES`, attributes `thumbnail` and
   `pl_thumbnail` templates.
 
@@ -26,3 +32,9 @@ content-aware WebP correction, correction collisions, conversion and cleanup
 failures, cancellation-safe ownership, and fuzzed mapping/path confinement. No
 production URL, account, cookie, credential, Python runtime, or reference
 runtime is used.
+
+Generated license-free media verifies attached-picture output for MP3,
+MP4-family, and Matroska containers. Product and CLI fixtures cover mislabeled
+WebP correction, implicit and explicit ownership, temporary conversion, flag/configuration reset,
+missing/unsupported inputs, cancellation, cleanup warnings, multi-output
+rejection, metadata mutation, and exact artifact/byte accounting.

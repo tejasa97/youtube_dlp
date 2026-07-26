@@ -72,6 +72,10 @@ type ThumbnailOptions struct {
 	Write    bool
 	WriteAll bool
 	List     bool
+	// Embed adds the best downloaded thumbnail to a supported media container.
+	// KeepFiles retains the source thumbnail after successful embedding.
+	Embed     bool
+	KeepFiles bool
 	// ConvertFormat accepts jpg, png, webp, none, or ordered mappings such
 	// as webp>png/jpg.
 	ConvertFormat string
