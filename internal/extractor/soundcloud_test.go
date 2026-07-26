@@ -42,6 +42,7 @@ func newSoundCloudFixtureTransport(t *testing.T) *soundCloudFixtureTransport {
 		"sets_page1.json", "mixed_page1.json",
 		"likes_page1.json", "likes_page2.json",
 		"profile_tab_page.json",
+		"private_set.json", "private_tracks_batch.json",
 	} {
 		data, err := os.ReadFile(filepath.Join("..", "..", "conformance", "extractors", "soundcloud", name))
 		if err != nil {
@@ -78,6 +79,8 @@ func (transport *soundCloudFixtureTransport) Do(ctx context.Context, request *ht
 	case "/resolve":
 		resolved := request.URL.Query().Get("url")
 		switch {
+		case strings.Contains(resolved, "/sets/private-set"):
+			return soundCloudResponse(http.StatusOK, transport.fixture["private_set.json"]), nil
 		case strings.Contains(resolved, "/stations/track/"):
 			return soundCloudResponse(http.StatusOK, transport.fixture["station_resolve.json"]), nil
 		case strings.Contains(resolved, "/sets/"):
@@ -93,6 +96,13 @@ func (transport *soundCloudFixtureTransport) Do(ctx context.Context, request *ht
 		return soundCloudResponse(http.StatusOK, transport.fixture["track.json"]), nil
 	case "/playlists/55":
 		return soundCloudResponse(http.StatusOK, transport.fixture["playlist.json"]), nil
+	case "/playlists/77":
+		return soundCloudResponse(http.StatusOK, transport.fixture["private_set.json"]), nil
+	case "/tracks":
+		if request.URL.Query().Get("playlistId") == "77" {
+			return soundCloudResponse(http.StatusOK, transport.fixture["private_tracks_batch.json"]), nil
+		}
+		return soundCloudResponse(http.StatusNotFound, nil), nil
 	case "/media/4242/progressive":
 		return soundCloudResponse(http.StatusOK, transport.fixture["progressive.json"]), nil
 	case "/media/4242/hls":
