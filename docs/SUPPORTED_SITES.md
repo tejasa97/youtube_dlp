@@ -63,7 +63,7 @@ evidence. Counts and host policies are recorded in
 | arcpublishing (+ newsroom adapters) | `arcpublishing:org:uuid` and exact POWA hosts | shared backend, manifest-heavy |
 | anvato (+ fox9) | `anvato:` MCP URLs; fox9.com video/news | shared backend, authenticated |
 | theplatform (+ weathercom / nbcolympics) | link/player/feed.theplatform.com; weather.com; vplayer.nbcolympics.com | shared backend, playlist/API, manifest-heavy |
-| brightcove adapters | pgatour, 9news/9now, NetApp, AMC Networks, Craftsy, TVO, TVA+, TVA Nouvelles | shared backend |
+| brightcove adapters | pgatour, 9news/9now, NetApp, AMC Networks, Craftsy, TVO, TVA+, TVA Nouvelles; Formula 1, European Tour, MaoriTV, The Star, The Sun, Wimbledon, USA Today, Sky News AU | shared backend |
 | kaltura / jwplatform adapters | UN WebTV, AZ Medien, Inc, Heise; Spiegel, OneFootball | shared backend |
 | podcast feeders | Acast, Simplecast, Megaphone, Art19, Libsyn, Spreaker episode/show URLs | shared backend, playlist/API |
 | nowness (+ playlist/series) | nowness.com / cn.nowness.com story, playlist, series | playlist/API, Brightcove/Vimeo handoff |
