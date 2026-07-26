@@ -180,10 +180,10 @@ brightcove,BrightcoveNewIE,BrightcoveNew,partially_supported,,brightcove,authent
 brilliantpala,BrilliantpalaClassesIE,BrilliantpalaClasses,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 brilliantpala,BrilliantpalaElearnIE,BrilliantpalaElearn,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 btvplus,BTVPlusIE,BTVPlus,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-bundesliga,BundesligaIE,Bundesliga,uses_existing_shared_backend,,jwplatform,,medium,upstream class references a media backend already implemented in Go
+bundesliga,BundesligaIE,Bundesliga,already_supported,bundesliga,jwplatform,,high,normalized upstream key exactly matches a registered Go extractor
 bundestag,BundestagIE,Bundestag,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 bunnycdn,BunnyCdnIE,BunnyCdn,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-businessinsider,BusinessInsiderIE,BusinessInsider,uses_existing_shared_backend,,jwplatform,,medium,upstream class references a media backend already implemented in Go
+businessinsider,BusinessInsiderIE,BusinessInsider,already_supported,businessinsider,jwplatform,,high,normalized upstream key exactly matches a registered Go extractor
 buzzfeed,BuzzFeedIE,BuzzFeed,already_supported,buzzfeed,,,high,normalized upstream key exactly matches a registered Go extractor
 byutv,BYUtvIE,BYUtv,obsolete_or_intentional_deviation,,,,high,upstream class explicitly declares _WORKING = False
 c56,C56IE,C56,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
@@ -300,7 +300,7 @@ daum,DaumIE,Daum,requires_new_backend,,,,low,no exact Go mapping or existing sha
 daum,DaumPlaylistIE,DaumPlaylist,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 daum,DaumUserIE,DaumUser,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 daystar,DaystarClipIE,DaystarClip,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-dbtv,DBTVIE,DBTV,uses_existing_shared_backend,,jwplatform,,medium,upstream class references a media backend already implemented in Go
+dbtv,DBTVIE,DBTV,already_supported,dbtv,jwplatform,,high,normalized upstream key exactly matches a registered Go extractor
 dctp,DctpTvIE,DctpTv,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 democracynow,DemocracynowIE,Democracynow,already_supported,democracynow,,,high,normalized upstream key exactly matches a registered Go extractor
 detik,DetikEmbedIE,DetikEmbed,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
@@ -513,7 +513,7 @@ hgtv,HGTVComShowIE,HGTVComShow,requires_new_backend,,,,low,no exact Go mapping o
 hidive,HiDiveIE,HiDive,requires_authentication_or_antibot,,,login,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"
 historicfilms,HistoricFilmsIE,HistoricFilms,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 hitrecord,HitRecordIE,HitRecord,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-hollywoodreporter,HollywoodReporterIE,HollywoodReporter,uses_existing_shared_backend,,jwplatform,,medium,upstream class references a media backend already implemented in Go
+hollywoodreporter,HollywoodReporterIE,HollywoodReporter,already_supported,hollywoodreporter,jwplatform,,high,normalized upstream key exactly matches a registered Go extractor
 hollywoodreporter,HollywoodReporterPlaylistIE,HollywoodReporterPlaylist,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 holodex,HolodexIE,Holodex,uses_existing_shared_backend,,youtube,,medium,upstream class references a media backend already implemented in Go
 hotnewhiphop,HotNewHipHopIE,HotNewHipHop,obsolete_or_intentional_deviation,,,,high,upstream class explicitly declares _WORKING = False
@@ -551,7 +551,7 @@ ign,IGNVideoIE,IGNVideo,requires_new_backend,,,,low,no exact Go mapping or exist
 iheart,IHeartRadioIE,IHeartRadio,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 iheart,IHeartRadioPodcastIE,IHeartRadioPodcast,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 ilpost,IlPostIE,IlPost,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-iltalehti,IltalehtiIE,Iltalehti,uses_existing_shared_backend,,jwplatform,,medium,upstream class references a media backend already implemented in Go
+iltalehti,IltalehtiIE,Iltalehti,already_supported,iltalehti,jwplatform,,high,normalized upstream key exactly matches a registered Go extractor
 imdb,ImdbIE,Imdb,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 imdb,ImdbListIE,ImdbList,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 imgur,ImgurAlbumIE,ImgurAlbum,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
@@ -658,7 +658,7 @@ lecturio,LecturioDeCourseIE,LecturioDeCourse,requires_new_backend,,,,low,no exac
 lecturio,LecturioIE,Lecturio,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 leeco,LeIE,Le,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 leeco,LePlaylistIE,LePlaylist,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-lefigaro,LeFigaroVideoEmbedIE,LeFigaroVideoEmbed,uses_existing_shared_backend,,jwplatform,,medium,upstream class references a media backend already implemented in Go
+lefigaro,LeFigaroVideoEmbedIE,LeFigaroVideoEmbed,already_supported,lefigarovideoembed,jwplatform,,high,normalized upstream key exactly matches a registered Go extractor
 lefigaro,LeFigaroVideoSectionIE,LeFigaroVideoSection,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 lego,LEGOIE,LEGO,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 lemonde,LemondeIE,Lemonde,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
@@ -745,7 +745,7 @@ minds,MindsIE,Minds,requires_new_backend,,,,low,no exact Go mapping or existing 
 mir24tv,Mir24TvIE,Mir24Tv,requires_authentication_or_antibot,,,impersonation,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"
 mirrativ,MirrativIE,Mirrativ,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 mirrativ,MirrativUserIE,MirrativUser,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-mirrorcouk,MirrorCoUKIE,MirrorCoUK,uses_existing_shared_backend,,jwplatform,,medium,upstream class references a media backend already implemented in Go
+mirrorcouk,MirrorCoUKIE,MirrorCoUK,already_supported,mirrorcouk,jwplatform,,high,normalized upstream key exactly matches a registered Go extractor
 mit,OCWMITIE,OCWMIT,uses_existing_shared_backend,,youtube,,medium,upstream class references a media backend already implemented in Go
 mit,TechTVMITIE,TechTVMIT,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 mixch,MixchArchiveIE,MixchArchive,requires_authentication_or_antibot,,,login,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"
@@ -961,7 +961,7 @@ orf,ORFIPTVIE,ORFIPTV,requires_new_backend,,,,low,no exact Go mapping or existin
 orf,ORFONIE,ORFON,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 orf,ORFPodcastIE,ORFPodcast,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 orf,ORFRadioIE,ORFRadio,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-outsidetv,OutsideTVIE,OutsideTV,uses_existing_shared_backend,,jwplatform,,medium,upstream class references a media backend already implemented in Go
+outsidetv,OutsideTVIE,OutsideTV,already_supported,outsidetv,jwplatform,,high,normalized upstream key exactly matches a registered Go extractor
 owncloud,OwnCloudIE,OwnCloud,requires_authentication_or_antibot,,,password,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"
 packtpub,PacktPubCourseIE,PacktPubCourse,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 packtpub,PacktPubIE,PacktPub,requires_authentication_or_antibot,,,authentication;login,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"
@@ -1370,7 +1370,7 @@ thechosen,TheChosenIE,TheChosen,requires_new_backend,,,,low,no exact Go mapping 
 theguardian,TheGuardianPodcastIE,TheGuardianPodcast,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 theguardian,TheGuardianPodcastPlaylistIE,TheGuardianPodcastPlaylist,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 thehighwire,TheHighWireIE,TheHighWire,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-theintercept,TheInterceptIE,TheIntercept,uses_existing_shared_backend,,jwplatform,,medium,upstream class references a media backend already implemented in Go
+theintercept,TheInterceptIE,TheIntercept,already_supported,theintercept,jwplatform,,high,normalized upstream key exactly matches a registered Go extractor
 theplatform,ThePlatformFeedIE,ThePlatformFeed,already_supported,theplatform_feed,theplatform,,high,normalized upstream key exactly matches a registered Go extractor
 theplatform,ThePlatformIE,ThePlatform,already_supported,theplatform,theplatform,,high,normalized upstream key exactly matches a registered Go extractor
 thestar,TheStarIE,TheStar,already_supported,thestar,brightcove,,high,normalized upstream key exactly matches a registered Go extractor
