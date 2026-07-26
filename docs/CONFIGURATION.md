@@ -12,6 +12,8 @@ instead of being silently ignored.
     --paths "subtitle:captions"
     --paths "thumbnail:images"
     --paths "infojson:metadata"
+    --write-thumbnail
+    --convert-thumbnails "webp>png/jpg"
     --output "%(title)s.%(ext)s"
     --output "subtitle:%(title)s.%(ext)s"
     --output "infojson:%(title)s.%(ext)s"
@@ -39,6 +41,10 @@ Sources are applied from lowest to highest precedence:
 `pl_description`, `pl_infojson`, or `pl_thumbnail`; comma-separated types may share one template. Later values
 replace earlier values for the same type, so command-line typed templates
 override configuration-file values without clearing unrelated types.
+
+`--convert-thumbnails` accepts `jpg`, `png`, `webp`, or an ordered mapping such
+as `webp>png/jpg`. A later command-line value replaces the configured mapping;
+`--convert-thumbnails none` restores the no-conversion default.
 
 `--paths` is also repeatable. An untyped value or `home:PATH` selects the
 common output root. The supported typed values are `subtitle`, `thumbnail`,

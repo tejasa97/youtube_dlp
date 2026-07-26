@@ -72,6 +72,9 @@ type ThumbnailOptions struct {
 	Write    bool
 	WriteAll bool
 	List     bool
+	// ConvertFormat accepts jpg, png, webp, none, or ordered mappings such
+	// as webp>png/jpg.
+	ConvertFormat string
 }
 
 // PrintStage identifies a metadata lifecycle point for a print rule.
@@ -309,6 +312,9 @@ func validateRequestOptions(request Request) error {
 		}
 	}
 	if err := validateSubtitleOptions(request.Subtitles); err != nil {
+		return fmt.Errorf("%w: %v", errInvalidRequestOptions, err)
+	}
+	if _, err := parseThumbnailConversionMapping(request.Thumbnails.ConvertFormat); err != nil {
 		return fmt.Errorf("%w: %v", errInvalidRequestOptions, err)
 	}
 	comments := request.YouTubeComments

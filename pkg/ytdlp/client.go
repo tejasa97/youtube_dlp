@@ -522,6 +522,7 @@ type operation struct {
 	breakMatchTriggered              bool
 	breakMatchReason                 string
 	removeFile                       func(string) error
+	thumbnailConvert                 thumbnailConvertFunc
 	youtubeLiveRefresh               func(mediaformat.Selection) youtubelive.LiveRefreshFunc
 	sabrMerge                        func(ctx context.Context, video, audio, destination string, overwrite bool, sink events.Sink) error
 }
