@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -1470,8 +1471,8 @@ func FuzzPRXExt(f *testing.F) {
 	f.Add("video/mp4")
 	f.Fuzz(func(t *testing.T, ct string) {
 		r := prxExt(ct)
-		if r == "" {
-			t.Fatal("prxExt returned empty string")
+		if r != "" && !regexp.MustCompile(`^[a-z0-9]+$`).MatchString(r) {
+			t.Fatalf("unsafe extension %q", r)
 		}
 	})
 }
