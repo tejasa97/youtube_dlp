@@ -176,8 +176,9 @@ you also want the normal download. Repeat `--output` to give `default`,
 rule and fall back to the first unconditional format; `none` disables
 conversion.
 `--embed-thumbnail` downloads the best image when needed and embeds it as
-cover art in MP3, MP4-family, or Matroska media. Add `--write-thumbnail` when
-the standalone image should be retained too.
+cover art in MP3, MP4-family, Matroska, FLAC, Ogg, or Opus media. A merged
+WebM audio/video pair is published as Matroska when cover art is requested.
+Add `--write-thumbnail` when the standalone image should be retained too.
 
 Repeat `--paths [TYPES:]PATH` to place those produced artifact types in
 separate directories beneath `home`. Supported types are `home`, `subtitle`,

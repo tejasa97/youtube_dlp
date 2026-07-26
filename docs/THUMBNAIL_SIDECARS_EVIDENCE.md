@@ -44,9 +44,16 @@ actually requires conversion.
 
 Embedding implicitly downloads the best thumbnail and runs only after media
 download, container-changing postprocessors, chapter cuts, and subtitle
-embedding. MP3, MP4/M4A/M4V/MOV, and Matroska MKV/MKA are supported. Images
-unsupported by MP3/MP4 containers are converted to a confined temporary PNG;
-Matroska attaches the recognized source image directly. Explicit
+embedding. MP3, MP4/M4A/M4V/MOV, Matroska MKV/MKA, FLAC, Ogg, and Opus are
+supported. Images unsupported by MP3/MP4/Xiph containers are converted to a
+confined temporary PNG; Matroska attaches the recognized source image directly.
+Ogg and Opus receive a bounded native FLAC-picture block through a private
+ffmetadata file, avoiding Python, mutagen, shell interpolation, and large
+process arguments. FLAC uses the muxer's native picture stream. Existing
+same-type cover art is removed before the replacement is added, metadata and
+audio packets are stream-copied, source mtime is retained, and a merged WebM
+audio/video selection is planned and published as MKV before download.
+Explicit
 `--write-thumbnail` or `--write-all-thumbnails` retains sidecars, while an
 implicitly downloaded image is removed only after the media replacement
 commits. Conversion/embedding failure or cancellation preserves the original
@@ -61,6 +68,4 @@ Known deviations:
 
 - existing files fail closed unless overwrite is enabled rather than being
   treated as an already-completed thumbnail;
-- only recognized image extensions are accepted;
-- automatic embedding does not yet cover Ogg/Opus/FLAC metadata-block pictures,
-  WebM-to-Matroska output promotion, or replacement of a pre-existing cover.
+- only recognized image extensions are accepted.

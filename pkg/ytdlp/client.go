@@ -1066,6 +1066,7 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 			)
 		}
 	}
+	operation.applyThumbnailEmbeddingOutputExtension(&info, selectedFormats)
 	var destination string
 	if len(selectedFormats) > 0 || operation.hasPrintStageAtOrAfter(PrintVideo) {
 		destination, err = operation.printFilename(info, selectedFormats)
@@ -1078,6 +1079,7 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 			return Result{}, categorized("select format", mediaformat.ErrNoFormats)
 		}
 		interactiveInfo := selectedFormatInfo(info, selectedFormats)
+		operation.applyThumbnailEmbeddingOutputExtension(&interactiveInfo, selectedFormats)
 		resolved, resolveErr := operation.resolveInteractiveCompatibility(
 			ctx, interactiveInfo, interactiveDecision, destination,
 		)
