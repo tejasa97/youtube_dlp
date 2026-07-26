@@ -25,7 +25,7 @@ type representativeExtractor struct {
 
 var representativeExtractorCatalog = []representativeExtractor{
 	{"generic", "https://media.example.invalid/video.mp4", []extractorRiskClass{riskSimpleDirect}},
-	{"youtube", "https://www.youtube.com/watch?v=dQw4w9WgXcQ", []extractorRiskClass{riskPlaylistAPI, riskManifestHeavy, riskJavaScript}},
+	{"youtube", "https://www.youtube.com/watch?v=fixture0001", []extractorRiskClass{riskPlaylistAPI, riskManifestHeavy, riskJavaScript}},
 	{"vimeo", "https://vimeo.com/123456789", []extractorRiskClass{riskManifestHeavy}},
 	{"twitch", "https://www.twitch.tv/fixture_channel", []extractorRiskClass{riskLive, riskManifestHeavy}},
 	{"soundcloud", "https://soundcloud.com/fixture-artist/synthetic-signal", []extractorRiskClass{riskPlaylistAPI}},

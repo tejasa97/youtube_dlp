@@ -501,7 +501,7 @@ func TestGenericJSONLDEmbedURLBoundsAndCancellation(t *testing.T) {
 }
 
 func TestGenericProviderEmbedsPrecedeMetadataMedia(t *testing.T) {
-	page := []byte(`<html><head><meta property="og:video" content="/fallback.mp4"></head><body><iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ"></iframe></body></html>`)
+	page := []byte(`<html><head><meta property="og:video" content="/fallback.mp4"></head><body><iframe src="https://www.youtube.com/embed/fixture0001"></iframe></body></html>`)
 	result, err := NewGeneric().Extract(context.Background(), genericHTMLRequest(page))
 	if err != nil {
 		t.Fatal(err)

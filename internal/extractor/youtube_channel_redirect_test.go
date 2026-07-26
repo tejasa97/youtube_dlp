@@ -173,7 +173,7 @@ func TestYouTubeConditionalChannelRedirectRejectsHostileAmbiguousAndSelfTargets(
 		{"fragment", redirectJSON("/channel/UCabcdefghijklmnopqrstuv#x"), "https://www.youtube.com/source", ""},
 		{"encoded separator", redirectJSON("/channel%2fUCabcdefghijklmnopqrstuv"), "https://www.youtube.com/source", ""},
 		{"already tabbed", redirectJSON("/channel/UCabcdefghijklmnopqrstuv/videos"), "https://www.youtube.com/source", ""},
-		{"unsupported route", redirectJSON("/watch?v=dQw4w9WgXcQ"), "https://www.youtube.com/source", ""},
+		{"unsupported route", redirectJSON("/watch?v=fixture0001"), "https://www.youtube.com/source", ""},
 		{"control", redirectJSON("/channel/UCabcdefghijklmnopqrstuv\n"), "https://www.youtube.com/source", ""},
 		{"overlong", redirectJSON("/channel/" + strings.Repeat("a", youtubeMaxConditionalRedirectURLBytes)), "https://www.youtube.com/source", ""},
 		{"self", valid, "https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv", ""},
