@@ -1,6 +1,7 @@
 package ytdlp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -43,6 +44,16 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/testserver"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
+
+type prxProductRoundTripper struct {
+	body  []byte
+	calls int
+}
+
+func (t *prxProductRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
+	t.calls++
+	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(t.body)), Request: r}, nil
+}
 
 func TestIsCategory(t *testing.T) {
 	err := &Error{Category: ErrorNetwork, Op: "fetch", Err: errors.New("offline")}
@@ -276,6 +287,43 @@ func TestProductCategorizesPRXNetworkFailures(t *testing.T) {
 		}
 		if !IsCategory(categorized("prx", err), ErrorNetwork) {
 			t.Fatalf("PRX error %v was not categorized as network", err)
+		}
+	}
+}
+
+func TestProductPRXMultipartReentryTerminates(t *testing.T) {
+	body := []byte(`{"id":"1","title":"Story","_embedded":{"prx:audio":{"_embedded":{"prx:items":[{"id":"11","position":1,"contentType":"audio/mpeg","_links":{"enclosure":{"href":"https://media.example/one.mp3"}}},{"id":"12","position":2,"contentType":"audio/mpeg","_links":{"enclosure":{"href":"https://media.example/two.mp3"}}}]}}}}`)
+	rt := &prxProductRoundTripper{body: body}
+	transport, err := network.New(network.Config{RoundTripper: rt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := Request{URL: "https://prx.org/stories/1", SkipDownload: true}
+	plan, err := prepareCompatibility(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := ""
+	op := &operation{client: NewClient(), request: request, transport: transport, registry: extractor.NewRegistry(extractor.NewPRXStory()), compatibility: plan, rootExtractor: &root}
+	result, err := op.process(context.Background(), request.URL, "", nil, make(map[string]bool), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root != "prx_story" || rt.calls != 3 {
+		t.Fatalf("root=%q calls=%d", root, rt.calls)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(result.InfoJSON, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	entries, ok := decoded["entries"].([]any)
+	if !ok || len(entries) != 2 {
+		t.Fatalf("entries=%#v", decoded["entries"])
+	}
+	for n, raw := range entries {
+		item := raw.(map[string]any)
+		if item["id"] != fmt.Sprintf("1_part%d", n+1) {
+			t.Fatalf("item=%#v", item)
 		}
 	}
 }
