@@ -688,22 +688,28 @@ func TestPRXAccountEmptyNameFallsBackToTitle(t *testing.T) {
 // --- account endpoints fetch both series and stories -------------------------
 
 func TestPRXAccountFetchesSeriesAndStories(t *testing.T) {
-	seriesResp := `{"id":"1","title":"Acme Podcasts","_embedded":{"prx:items":[{"id":"11","title":"Show A"}]}}`
-	storiesResp := `{"id":"11","title":"Show A","_embedded":{"prx:items":[{"id":"12","title":"Ep 1"}]}}`
 	tx := newPrxTransportSequence(
 		[]int{200, 200, 200},
 		[]string{
 			`{"id":"5","name":"Acme"}`,
-			seriesResp,
-			`{"id":"5","name":"Acme"}`,
+			`{"count":1,"total":1,"_embedded":{"prx:items":[{"id":"11","title":"Show A"}]}}`,
+			`{"count":1,"total":1,"_embedded":{"prx:items":[{"id":"12","title":"Ep 1"}]}}`,
 		},
 	)
-	_ = tx
-	_ = seriesResp
-	_ = storiesResp
-	// Account endpoint list = ["accounts/5/series", "accounts/5/stories"]
-	// The first fetch (accounts/5) returns the account resource
-	// Then it paginates through series endpoint, then stories endpoint
+	r, err := NewPRXAccount().Extract(context.Background(), Request{URL: "https://prx.org/accounts/5", Transport: tx})
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := CollectEntries(context.Background(), r.Entries, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 || entries[0].ID != "11" || entries[0].ExtractorKey != "prx_series" || entries[1].ID != "12" || entries[1].ExtractorKey != "prx_story" {
+		t.Fatalf("unexpected account entries: %#v", entries)
+	}
+	if len(tx.requests) != 3 || !strings.Contains(tx.requests[1], "/accounts/5/series") || !strings.Contains(tx.requests[2], "/accounts/5/stories") {
+		t.Fatalf("wrong request order: %v", tx.requests)
+	}
 }
 
 // --- series multipage pagination ---------------------------------------------
