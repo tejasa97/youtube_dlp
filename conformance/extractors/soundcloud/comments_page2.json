@@ -1,0 +1,22 @@
+{
+  "collection": [
+    {
+      "id": 0,
+      "body": "Skipped invalid identifier",
+      "user": {"id": 73, "username": "Skipped"}
+    },
+    {
+      "id": 9003,
+      "body": "Third synthetic comment",
+      "created_at": "2024/02/05 06:07:08 +0000",
+      "timestamp": 37500,
+      "user": {
+        "id": 73,
+        "username": "Listener Three",
+        "avatar_url": "file:///unsafe",
+        "permalink_url": "https://soundcloud.com/listener-three"
+      }
+    }
+  ],
+  "next_href": null
+}

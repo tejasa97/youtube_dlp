@@ -74,7 +74,7 @@ func (extractor *SoundCloud) Extract(ctx context.Context, request Request) (Extr
 	}
 	switch target.kind {
 	case soundCloudTrackTarget:
-		return extractor.extractTrack(ctx, request.Transport, target)
+		return extractor.extractTrack(ctx, request.Transport, target, request.SoundCloudComments)
 	case soundCloudSetTarget, soundCloudAPIPlaylistTarget:
 		return extractor.extractSet(ctx, request.Transport, target)
 	case soundCloudUserTabTarget:
@@ -256,7 +256,7 @@ func soundCloudNumericID(input string) string {
 	return input
 }
 
-func (extractor *SoundCloud) extractTrack(ctx context.Context, transport Transport, target soundCloudTarget) (Extraction, error) {
+func (extractor *SoundCloud) extractTrack(ctx context.Context, transport Transport, target soundCloudTarget, comments SoundCloudCommentOptions) (Extraction, error) {
 	endpoint := soundCloudAPIBase + "resolve?url=" + url.QueryEscape(target.canonical)
 	if target.id != "" {
 		endpoint = soundCloudAPIBase + "tracks/" + target.id
@@ -266,7 +266,7 @@ func (extractor *SoundCloud) extractTrack(ctx context.Context, transport Transpo
 	if err := extractor.requestJSON(ctx, transport, endpoint, &track); err != nil {
 		return Extraction{}, err
 	}
-	return extractor.normalizeTrack(ctx, transport, track, target.secretToken)
+	return extractor.normalizeTrack(ctx, transport, track, target.secretToken, comments)
 }
 
 func (extractor *SoundCloud) extractSet(ctx context.Context, transport Transport, target soundCloudTarget) (Extraction, error) {
@@ -628,7 +628,7 @@ type soundCloudPage struct {
 	NextHref   string                     `json:"next_href"`
 }
 
-func (extractor *SoundCloud) normalizeTrack(ctx context.Context, transport Transport, track soundCloudTrack, secretToken string) (Extraction, error) {
+func (extractor *SoundCloud) normalizeTrack(ctx context.Context, transport Transport, track soundCloudTrack, secretToken string, comments SoundCloudCommentOptions) (Extraction, error) {
 	trackID := track.ID.String()
 	if !validSoundCloudJSONID(track.ID) || strings.TrimSpace(track.Title) == "" || track.Media.Transcodings == nil || len(track.Media.Transcodings) > soundCloudMaxTranscodings {
 		return Extraction{}, fmt.Errorf("%w: malformed SoundCloud track", ErrInvalidMetadata)
@@ -702,7 +702,23 @@ func (extractor *SoundCloud) normalizeTrack(ctx context.Context, transport Trans
 	if validHTTPURL(thumbnail) {
 		info.Set("thumbnail", value.String(thumbnail))
 	}
-	return Media(value.NewInfo(info)), nil
+	result := Media(value.NewInfo(info))
+	if comments.Enabled {
+		options, err := normalizeSoundCloudCommentOptions(comments)
+		if err != nil {
+			return Extraction{}, err
+		}
+		result.Enrich = func(ctx context.Context, info *value.Info) error {
+			extracted, err := extractor.extractTrackComments(ctx, transport, trackID, options)
+			if err != nil {
+				return err
+			}
+			info.Set("comments", value.List(extracted...))
+			info.Set("comment_count", value.Int(int64(len(extracted))))
+			return nil
+		}
+	}
+	return result, nil
 }
 
 func (extractor *SoundCloud) resolveTranscoding(ctx context.Context, transport Transport, transcoding soundCloudTranscoding, secretToken string) (*value.Object, bool, error) {
@@ -907,11 +923,19 @@ func (extractor *SoundCloud) discoverClientID(ctx context.Context, transport Tra
 }
 
 func readSoundCloudAsset(ctx context.Context, transport Transport, rawURL string) ([]byte, error) {
+	return readSoundCloudAssetWith(ctx, transport.Do, rawURL)
+}
+
+func readSoundCloudAssetWith(
+	ctx context.Context,
+	execute func(context.Context, *http.Request) (*http.Response, error),
+	rawURL string,
+) ([]byte, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid SoundCloud asset request", ErrInvalidMetadata)
 	}
-	response, err := transport.Do(ctx, request)
+	response, err := execute(ctx, request)
 	if err != nil {
 		return nil, err
 	}

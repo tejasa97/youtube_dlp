@@ -116,9 +116,35 @@ func TestExtractorFailuresAreCategorized(t *testing.T) {
 		{extractor.ErrYouTubeMusicSearchNetwork, ErrorNetwork},
 		{extractor.ErrYouTubeCommentsRateLimited, ErrorNetwork},
 		{extractor.ErrYouTubeCommentsNetwork, ErrorNetwork},
+		{extractor.ErrSoundCloudCommentsRateLimited, ErrorNetwork},
+		{extractor.ErrSoundCloudCommentsNetwork, ErrorNetwork},
 	} {
 		if err := categorized("extract", test.err); !IsCategory(err, test.category) {
 			t.Fatalf("categorized(%v) = %v", test.err, err)
+		}
+	}
+}
+
+func TestSoundCloudCommentOptionsValidation(t *testing.T) {
+	t.Parallel()
+	for _, options := range []SoundCloudCommentOptions{
+		{},
+		{Enabled: true},
+		{Enabled: true, Sort: "newest", MaxComments: 1},
+		{Enabled: true, Sort: "oldest", MaxComments: 100},
+		{Enabled: true, Sort: "track-timestamp", MaxComments: 10_000},
+	} {
+		if err := validateRequestOptions(Request{SoundCloudComments: options}); err != nil {
+			t.Errorf("validateRequestOptions(%+v): %v", options, err)
+		}
+	}
+	for _, options := range []SoundCloudCommentOptions{
+		{Enabled: true, Sort: "invalid"},
+		{Enabled: true, MaxComments: -1},
+		{Enabled: true, MaxComments: 10_001},
+	} {
+		if err := validateRequestOptions(Request{SoundCloudComments: options}); err == nil {
+			t.Errorf("validateRequestOptions(%+v) succeeded", options)
 		}
 	}
 }
