@@ -191,7 +191,7 @@ func prxGet(ctx context.Context, t Transport, path string, out any) error {
 	if r.StatusCode == 401 || r.StatusCode == 403 {
 		return ErrAuthentication
 	}
-	if r.StatusCode == 404 {
+	if r.StatusCode == 404 || r.StatusCode == 410 {
 		return ErrUnavailable
 	}
 	if r.StatusCode == 429 {
