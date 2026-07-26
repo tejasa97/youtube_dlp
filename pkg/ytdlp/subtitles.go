@@ -15,9 +15,37 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/events"
 	"github.com/ytdlp-go/ytdlp/internal/extractor"
 	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
+	"github.com/ytdlp-go/ytdlp/internal/network"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/hls"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
+
+// isolatedSubtitleTransport wraps a network.Client to ensure subtitle
+// downloads never forward ambient cookies, Authorization, or
+// Proxy-Authorization.  Only explicit per-track headers (for example a
+// cookie or authorization required by the subtitle CDN) are preserved.
+// Redirects are never followed and the ambient cookie jar is unused.
+type isolatedSubtitleTransport struct {
+	ambient      *network.Client
+	trackHeaders http.Header
+}
+
+func (t *isolatedSubtitleTransport) DoWithoutCredentialsNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
+	cloned := request.Clone(ctx)
+	for _, key := range []string{"Authorization", "Cookie", "Proxy-Authorization"} {
+		cloned.Header.Del(key)
+	}
+	for key, values := range t.trackHeaders {
+		for _, v := range values {
+			cloned.Header.Set(key, v)
+		}
+	}
+	return t.ambient.DoWithoutCredentialsNoRedirect(ctx, cloned)
+}
+
+func (t *isolatedSubtitleTransport) Do(ctx context.Context, request *http.Request) (*http.Response, error) {
+	return t.DoWithoutCredentialsNoRedirect(ctx, request)
+}
 
 const (
 	maxSubtitleLanguages      = 256
@@ -376,9 +404,10 @@ func (operation *operation) downloadSubtitles(ctx context.Context, info value.In
 		if options.MaxBytes <= 0 || options.MaxBytes > maxSubtitleBytes {
 			options.MaxBytes = maxSubtitleBytes
 		}
+		transport := &isolatedSubtitleTransport{ambient: operation.transport, trackHeaders: track.headers}
 		var result downloader.Result
 		if hlsSubtitlePlaylistURL(track.rawURL) {
-			assembled, err := hls.AssembleWebVTT(ctx, operation.transport, track.rawURL, options.MaxBytes)
+			assembled, err := hls.AssembleWebVTT(ctx, transport, track.rawURL, options.MaxBytes)
 			if err != nil {
 				return artifacts, total, err
 			}
@@ -392,7 +421,7 @@ func (operation *operation) downloadSubtitles(ctx context.Context, info value.In
 			}
 		} else {
 			var err error
-			result, err = downloader.New(operation.transport).Download(ctx, downloader.Job{
+			result, err = downloader.New(transport).Download(ctx, downloader.Job{
 				URL: track.rawURL, Headers: track.headers, OutputRoot: operation.request.outputRoot(OutputPathHome), Destination: destination,
 				Overwrite: operation.request.Overwrite, Attempts: options.Attempts,
 				RetryBaseDelay: options.RetryBaseDelay, RetryMaxDelay: options.RetryMaxDelay,
