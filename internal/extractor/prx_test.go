@@ -688,8 +688,8 @@ func TestPRXAccountEmptyNameFallsBackToTitle(t *testing.T) {
 // --- account endpoints fetch both series and stories -------------------------
 
 func TestPRXAccountFetchesSeriesAndStories(t *testing.T) {
-	seriesResp := `{"id":"1","title":"Acme Podcasts","_embedded":{"prx:items":[{"id":"s1","title":"Show A"}]}}`
-	storiesResp := `{"id":"s1","title":"Show A","_embedded":{"prx:items":[{"id":"ep1","title":"Ep 1"}]}}`
+	seriesResp := `{"id":"1","title":"Acme Podcasts","_embedded":{"prx:items":[{"id":"11","title":"Show A"}]}}`
+	storiesResp := `{"id":"11","title":"Show A","_embedded":{"prx:items":[{"id":"12","title":"Ep 1"}]}}`
 	tx := newPrxTransportSequence(
 		[]int{200, 200, 200},
 		[]string{
@@ -709,8 +709,8 @@ func TestPRXAccountFetchesSeriesAndStories(t *testing.T) {
 // --- series multipage pagination ---------------------------------------------
 
 func TestPRXSeriesPagination(t *testing.T) {
-	page1 := `{"id":"10","title":"Series","count":2,"total":3,"_embedded":{"prx:items":[{"id":"e1","title":"Ep1"},{"id":"e2","title":"Ep2"}]}}`
-	page2 := `{"id":"10","title":"Series","count":1,"total":3,"_embedded":{"prx:items":[{"id":"e3","title":"Ep3"}]}}`
+	page1 := `{"id":"10","title":"Series","count":2,"total":3,"_embedded":{"prx:items":[{"id":"101","title":"Ep1"},{"id":"102","title":"Ep2"}]}}`
+	page2 := `{"id":"10","title":"Series","count":1,"total":3,"_embedded":{"prx:items":[{"id":"103","title":"Ep3"}]}}`
 
 	tx := newPrxTransportSequence(
 		[]int{200, 200, 200},
@@ -731,7 +731,7 @@ func TestPRXSeriesPagination(t *testing.T) {
 	if len(entries) != 3 {
 		t.Fatalf("expected 3 entries, got %d", len(entries))
 	}
-	if entries[0].ID != "e1" || entries[1].ID != "e2" || entries[2].ID != "e3" {
+	if entries[0].ID != "101" || entries[1].ID != "102" || entries[2].ID != "103" {
 		t.Fatalf("unexpected entry IDs: %v", []string{entries[0].ID, entries[1].ID, entries[2].ID})
 	}
 }
@@ -764,8 +764,8 @@ func TestPRXAccountPagination(t *testing.T) {
 		[]int{200, 200, 200},
 		[]string{
 			`{"id":"5","name":"Acme"}`,
-			`{"id":"5","name":"Acme","count":1,"total":1,"_embedded":{"prx:items":[{"id":"s1","title":"Series1"}]}}`,
-			`{"id":"5","name":"Acme","count":1,"total":1,"_embedded":{"prx:items":[{"id":"ep1","title":"Ep1"}]}}`,
+			`{"id":"5","name":"Acme","count":1,"total":1,"_embedded":{"prx:items":[{"id":"51","title":"Series1"}]}}`,
+			`{"id":"5","name":"Acme","count":1,"total":1,"_embedded":{"prx:items":[{"id":"52","title":"Ep1"}]}}`,
 		},
 	)
 	r, err := NewPRXAccount().Extract(context.Background(), Request{URL: "https://prx.org/accounts/5", Transport: tx})
@@ -793,7 +793,7 @@ func TestPRXAccountEndpointTransition(t *testing.T) {
 		[]string{
 			`{"id":"5","name":"Acme"}`,
 			`{"id":"5","count":0,"total":0}`,
-			`{"id":"5","count":1,"total":1,"_embedded":{"prx:items":[{"id":"ep1","title":"Ep1"}]}}`,
+			`{"id":"5","count":1,"total":1,"_embedded":{"prx:items":[{"id":"52","title":"Ep1"}]}}`,
 		},
 	)
 	r, err := NewPRXAccount().Extract(context.Background(), Request{URL: "https://prx.org/accounts/5", Transport: tx})
@@ -816,7 +816,7 @@ func TestPRXFinalPageBoundary(t *testing.T) {
 		[]int{200, 200},
 		[]string{
 			`{"id":"10","title":"Series"}`,
-			`{"id":"10","count":2,"total":2,"_embedded":{"prx:items":[{"id":"e1","title":"E1"},{"id":"e2","title":"E2"}]}}`,
+			`{"id":"10","count":2,"total":2,"_embedded":{"prx:items":[{"id":"101","title":"E1"},{"id":"102","title":"E2"}]}}`,
 		},
 	)
 	r, err := NewPRXSeries().Extract(context.Background(), Request{URL: "https://prx.org/series/10", Transport: tx})
@@ -838,7 +838,7 @@ func TestPRXFinalPageBoundary(t *testing.T) {
 // --- iterator reuse ----------------------------------------------------------
 
 func TestPRXIteratorReuse(t *testing.T) {
-	body := `{"id":"10","count":1,"total":1,"_embedded":{"prx:items":[{"id":"e1","title":"E1"}]}}`
+	body := `{"id":"10","count":1,"total":1,"_embedded":{"prx:items":[{"id":"101","title":"E1"}]}}`
 	tx := newPrxTransport(200, body)
 
 	entries := prxEntries{transport: tx, endpoints: []string{"series/10/stories"}}
@@ -947,7 +947,7 @@ func TestPRXSkipsEmptyIDsInIterator(t *testing.T) {
 		[]int{200, 200},
 		[]string{
 			`{"id":"10","title":"Series"}`,
-			`{"id":"10","count":2,"total":2,"_embedded":{"prx:items":[{"id":"","title":"Skip"},{"id":"e1","title":"Keep"}]}}`,
+			`{"id":"10","count":2,"total":2,"_embedded":{"prx:items":[{"id":"","title":"Skip"},{"id":"101","title":"Keep"}]}}`,
 		},
 	)
 	r, err := NewPRXSeries().Extract(context.Background(), Request{URL: "https://prx.org/series/10", Transport: tx})
@@ -958,7 +958,7 @@ func TestPRXSkipsEmptyIDsInIterator(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 || entries[0].ID != "e1" {
+	if len(entries) != 1 || entries[0].ID != "101" {
 		t.Fatalf("expected only entry e1, got %v", entries)
 	}
 }
@@ -1069,9 +1069,9 @@ func TestPRXExtCoverage(t *testing.T) {
 		{"audio/mpeg", "mp3"},
 		{"audio/aac", "aac"},
 		{"audio/ogg", "ogg"},
-		{"audio/flac", "mp3"},
-		{"audio/x-m4a", "mp3"},
-		{"", "mp3"},
+		{"audio/flac", "flac"},
+		{"audio/x-m4a", "m4a"},
+		{"", ""},
 	} {
 		got := prxExt(tc.ct)
 		if got != tc.want {
@@ -1198,7 +1198,7 @@ func TestPRXSeriesEntryTitles(t *testing.T) {
 		[]int{200, 200},
 		[]string{
 			`{"id":"10","title":"MySeries"}`,
-			`{"id":"10","count":1,"total":1,"_embedded":{"prx:items":[{"id":"e1","title":"Episode One"}]}}`,
+			`{"id":"10","count":1,"total":1,"_embedded":{"prx:items":[{"id":"101","title":"Episode One"}]}}`,
 		},
 	)
 	r, err := NewPRXSeries().Extract(context.Background(), Request{URL: "https://prx.org/series/10", Transport: tx})
@@ -1215,7 +1215,7 @@ func TestPRXSeriesEntryTitles(t *testing.T) {
 	if entries[0].Title != "Episode One" {
 		t.Fatalf("expected title 'Episode One', got %q", entries[0].Title)
 	}
-	if entries[0].URL != "https://beta.prx.org/stories/e1" {
+	if entries[0].URL != "https://beta.prx.org/stories/101" {
 		t.Fatalf("unexpected URL: %s", entries[0].URL)
 	}
 }
@@ -1494,7 +1494,7 @@ func TestPRXSeriesWithEmbeddedItems(t *testing.T) {
 		[]int{200, 200},
 		[]string{
 			`{"id":"10","title":"Series"}`,
-			`{"id":"10","count":1,"total":1,"_embedded":{"prx:items":[{"id":"e1","title":"Ep1"}]}}`,
+			`{"id":"10","count":1,"total":1,"_embedded":{"prx:items":[{"id":"101","title":"Ep1"}]}}`,
 		},
 	)
 	r, err := NewPRXSeries().Extract(context.Background(), Request{URL: "https://prx.org/series/10", Transport: tx})
@@ -1508,7 +1508,7 @@ func TestPRXSeriesWithEmbeddedItems(t *testing.T) {
 	if len(entries) != 1 {
 		t.Fatalf("expected 1 entry, got %d", len(entries))
 	}
-	if entries[0].ID != "e1" || entries[0].Title != "Ep1" {
+	if entries[0].ID != "101" || entries[0].Title != "Ep1" {
 		t.Fatalf("unexpected entry: %+v", entries[0])
 	}
 }
@@ -1520,7 +1520,7 @@ func TestPRXAccountSeriesEntriesKey(t *testing.T) {
 		[]int{200, 200, 200},
 		[]string{
 			`{"id":"5","name":"Acme"}`,
-			`{"id":"5","count":1,"total":1,"_embedded":{"prx:items":[{"id":"s1","title":"Show","name":"Show"}]}}`,
+			`{"id":"5","count":1,"total":1,"_embedded":{"prx:items":[{"id":"51","title":"Show","name":"Show"}]}}`,
 			`{"id":"5","count":0,"total":0}`,
 		},
 	)
@@ -1538,7 +1538,7 @@ func TestPRXAccountSeriesEntriesKey(t *testing.T) {
 	if entries[0].ExtractorKey != "prx_series" {
 		t.Fatalf("expected prx_series key, got %q", entries[0].ExtractorKey)
 	}
-	if entries[0].URL != "https://beta.prx.org/series/s1" {
+	if entries[0].URL != "https://beta.prx.org/series/51" {
 		t.Fatalf("unexpected URL: %s", entries[0].URL)
 	}
 }
