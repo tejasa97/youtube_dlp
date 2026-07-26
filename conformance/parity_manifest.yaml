@@ -1261,6 +1261,11 @@ capabilities:
       - internal/extractor.FuzzTwitchChannelCollectionsPageResponse
       - internal/extractor.FuzzTwitchChannelClipsPageResponse
       - internal/extractor.FuzzTwitchClipsRangeQuery
+      - internal/extractor.TestTwitchVODStoryboardFormatsAreEmitted
+      - internal/extractor.TestTwitchStoryboardFailuresAreNonfatal
+      - internal/extractor.FuzzParseTwitchStoryboardSpecs
+      - internal/extractor.FuzzResolveTwitchStoryboardImageURL
+      - conformance/extractors/twitch/storyboard_spec.json
       - conformance/extractors/twitch/PROVENANCE.md
       - docs/P3_TWITCH_BREADTH.md
     owner: extractors
@@ -1268,7 +1273,7 @@ capabilities:
       - protocol.hls
       - network.shared_transport
       - extractor.playlists
-    known_deviation: Compatibility covers pinned public live, VOD, clip, direct collection, channel collections, channel videos/profile, and channel clips playlist corpora, including historical clip archive IDs and portrait format/thumbnail preference scores on the pinned synthetic clip corpus. Direct CollectionSideBar and channel collections pages are capped at 100 edges per response; channel clips pages use the required 20-edge limit. Oversized payloads fail closed. Storyboard MHTML, subscriber-cookie success, live-from-start fallback, and chat remain explicit deviations.
+    known_deviation: Compatibility covers pinned public live, VOD, clip, direct collection, channel collections, channel videos/profile, and channel clips playlist corpora, including historical clip archive IDs, portrait format/thumbnail preference scores on the pinned synthetic clip corpus, and bounded VOD storyboard MHTML formats from seekPreviewsURL. Direct CollectionSideBar and channel collections pages are capped at 100 edges per response; channel clips pages use the required 20-edge limit. Oversized payloads fail closed. Subscriber-cookie success, live-from-start fallback, and chat remain explicit deviations.
 
   - id: extractor.soundcloud_pilot
     name: SoundCloud API and playlist pilot
@@ -1646,6 +1651,16 @@ capabilities:
       - internal/extractor.TestVimeoAlbumRefreshesJWTForDelayedReusableIteration
       - internal/extractor.TestVimeoAlbumRefreshesJWTOnceAfterAuthorizationRejection
       - internal/extractor.TestVimeoAlbumFailuresCapabilityAndCancellation
+      - internal/extractor.TestValidVimeoRefererRejectsHostileInputs
+      - internal/extractor.TestMergeVimeoSubtitlesPrefersPlayerConfigDuplicates
+      - internal/extractor.TestVimeoSubtitleManifestFallbackMergesHLSAndDASH
+      - internal/extractor.TestVimeoAlbumEmbedRoutesAccepted
+      - internal/extractor.TestVimeoAlbumEmbedPropagatesRefererToPlayerEntries
+      - internal/extractor.TestVimeoAlbumEmbedRejectsHostileReferer
+      - internal/protocol/hls.TestParseMasterSubtitles
+      - internal/protocol/dash.TestParseTextRepresentations
+      - internal/protocol/hls.FuzzParseMasterSubtitles
+      - internal/protocol/dash.FuzzParseTextRepresentations
       - internal/network.TestDoWithScopedAuthorizationNoRedirectKeepsOnlyExplicitAuthorization
       - internal/network.TestDoWithScopedAuthorizationNoRedirectDoesNotAdoptDefaultAuthorization
       - internal/network.TestDoWithScopedAuthorizationNoRedirectRefusesRedirects
@@ -1669,7 +1684,7 @@ capabilities:
       - network.impersonation
       - protocol.hls
       - protocol.dash
-    known_deviation: Compatibility is scoped to the pinned public-video/player-config corpus, including exact channel/group/album/showcase child-video routes and manual VTT text tracks on the exact HTTPS player origin, public HTML channel/user/group playlist roots, and anonymous positive-numeric or narrowly validated ASCII-slug public album/showcase roots. Contextual child-video pages and player-config requests preserve a canonical token-free contextual Referer; HTML playlist pages and slug resolution use credential-isolated no-redirect requests; album API pages use an ephemeral scoped application JWT with no ambient credentials or redirects. Password submission, broader upstream slug syntax, embed/referrer album forms, likes/watch-later, unlisted hashes, DRM, texttracks API and manifest subtitle fallbacks, arbitrary contextual subpaths, and live archive variants remain broader Vimeo work. Live resolver/album API compatibility is not claimed from synthetic fixtures alone.
+    known_deviation: Compatibility is scoped to the pinned public-video/player-config corpus, including exact channel/group/album/showcase child-video routes and manual VTT text tracks on the exact HTTPS player origin, public HTML channel/user/group playlist roots, anonymous positive-numeric or narrowly validated ASCII-slug public album/showcase roots, bounded album/showcase embed and embed2 forms with validated Referer propagation to player child URLs, and credential-isolated HLS/DASH manifest subtitle fallbacks. Contextual child-video pages and player-config requests preserve a canonical token-free contextual Referer unless a validated playlist Referer is propagated; HTML playlist pages and slug resolution use credential-isolated no-redirect requests; album and texttracks API pages use an ephemeral scoped application JWT with no ambient credentials or redirects. The anonymous viewer-JWT texttracks API is attempted but may still be rejected by Vimeo for some corpora; player-config and manifest fallbacks remain authoritative in that case. Password submission, broader upstream slug syntax, likes/watch-later, unlisted hashes, DRM, arbitrary contextual subpaths, and live archive variants remain broader Vimeo work. Live resolver/album API compatibility is not claimed from synthetic fixtures alone.
 
   - id: extractor.tiktok_pilot
     name: TikTok impersonation and anti-bot pilot

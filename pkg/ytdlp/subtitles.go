@@ -15,6 +15,7 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/events"
 	"github.com/ytdlp-go/ytdlp/internal/extractor"
 	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
+	"github.com/ytdlp-go/ytdlp/internal/protocol/hls"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
@@ -375,16 +376,33 @@ func (operation *operation) downloadSubtitles(ctx context.Context, info value.In
 		if options.MaxBytes <= 0 || options.MaxBytes > maxSubtitleBytes {
 			options.MaxBytes = maxSubtitleBytes
 		}
-		result, err := downloader.New(operation.transport).Download(ctx, downloader.Job{
-			URL: track.rawURL, Headers: track.headers, OutputRoot: operation.request.outputRoot(OutputPathHome), Destination: destination,
-			Overwrite: operation.request.Overwrite, Attempts: options.Attempts,
-			RetryBaseDelay: options.RetryBaseDelay, RetryMaxDelay: options.RetryMaxDelay,
-			RateLimit: options.RateLimit, MaxBytes: options.MaxBytes,
-			ThrottleRate: options.ThrottleRate, ThrottleWindow: options.ThrottleWindow,
-			ThrottleRestarts: options.ThrottleRestarts, FileAttempts: options.FileAttempts,
-		}, sink)
-		if err != nil {
-			return artifacts, total, err
+		var result downloader.Result
+		if hlsSubtitlePlaylistURL(track.rawURL) {
+			assembled, err := hls.AssembleWebVTT(ctx, operation.transport, track.rawURL, options.MaxBytes)
+			if err != nil {
+				return artifacts, total, err
+			}
+			result, err = downloader.New(operation.transport).Write(ctx, downloader.WriteJob{
+				OutputRoot: operation.request.outputRoot(OutputPathHome), Destination: destination,
+				Payload: assembled, Overwrite: operation.request.Overwrite,
+				MaxBytes: options.MaxBytes, FileAttempts: options.FileAttempts,
+			}, sink)
+			if err != nil {
+				return artifacts, total, err
+			}
+		} else {
+			var err error
+			result, err = downloader.New(operation.transport).Download(ctx, downloader.Job{
+				URL: track.rawURL, Headers: track.headers, OutputRoot: operation.request.outputRoot(OutputPathHome), Destination: destination,
+				Overwrite: operation.request.Overwrite, Attempts: options.Attempts,
+				RetryBaseDelay: options.RetryBaseDelay, RetryMaxDelay: options.RetryMaxDelay,
+				RateLimit: options.RateLimit, MaxBytes: options.MaxBytes,
+				ThrottleRate: options.ThrottleRate, ThrottleWindow: options.ThrottleWindow,
+				ThrottleRestarts: options.ThrottleRestarts, FileAttempts: options.FileAttempts,
+			}, sink)
+			if err != nil {
+				return artifacts, total, err
+			}
 		}
 		track.metadata.Set("filepath", value.String(result.Path))
 		artifacts = append(artifacts, Artifact{Path: result.Path, Kind: "subtitle"})
@@ -399,4 +417,12 @@ func subtitleFilename(base, expectedExtension, language, extension string) strin
 		base = strings.TrimSuffix(base, suffix)
 	}
 	return base + "." + language + "." + extension
+}
+
+func hlsSubtitlePlaylistURL(rawURL string) bool {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(path.Ext(parsed.Path), ".m3u8")
 }

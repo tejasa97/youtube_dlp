@@ -168,3 +168,12 @@ behavior of the same pinned source (repository `yt-dlp/yt-dlp`, commit
 The portrait fixture source URL `portrait-%7C246810-12.mp4` and every derived
 value are synthetic and attributable to that rule alone. No live Twitch
 response, signed URL, token, or credential was captured.
+
+## VOD storyboard fixtures
+
+`storyboard_spec.json` models the pinned `TwitchVodIE._extract_storyboard`
+contract (same repository and commit), including width-descending `sb0`/`sb1`
+ordering, `mhtml` protocol metadata, `count / duration` fps, and per-image
+fragment durations. The seek-preview URL in `vod_metadata.json` and the
+storyboard image hosts use the repository's reserved `.example.test` fixture
+origin only. No live Twitch storyboard response was captured.

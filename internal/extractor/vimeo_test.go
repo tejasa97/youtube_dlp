@@ -313,7 +313,7 @@ func TestVimeoTextTracksAreBoundedAndFailClosed(t *testing.T) {
 	}
 	cancelled, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := parseVimeoConfigContext(cancelled, mixed, "1", "https://vimeo.com/1"); !errors.Is(err, context.Canceled) {
+	if _, err := parseVimeoConfigContext(cancelled, nil, mixed, "1", "https://vimeo.com/1", ""); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled parse error = %v", err)
 	}
 	large := mixed
@@ -321,7 +321,7 @@ func TestVimeoTextTracksAreBoundedAndFailClosed(t *testing.T) {
 		large.Request.TextTracks = append(large.Request.TextTracks, mixed.Request.TextTracks[0])
 	}
 	interrupt := &vimeoCancelAfterContext{cancelAt: 5}
-	if _, err := parseVimeoConfigContext(interrupt, large, "1", "https://vimeo.com/1"); !errors.Is(err, context.Canceled) || interrupt.calls < interrupt.cancelAt {
+	if _, err := parseVimeoConfigContext(interrupt, nil, large, "1", "https://vimeo.com/1", ""); !errors.Is(err, context.Canceled) || interrupt.calls < interrupt.cancelAt {
 		t.Fatalf("large-list cancellation calls=%d err=%v", interrupt.calls, err)
 	}
 }
@@ -1103,4 +1103,312 @@ func mustParseURL(t testing.TB, rawURL string) *url.URL {
 		t.Fatal(err)
 	}
 	return parsed
+}
+
+func TestValidVimeoRefererRejectsHostileInputs(t *testing.T) {
+	for _, raw := range []string{
+		"http://publisher.example/", "https://user:secret@publisher.example/",
+		"https://publisher.example:443/", "https://127.0.0.1/", "https://publisher.example/path#frag",
+		"https://publisher.example/\x00", strings.Repeat("a", vimeoMaxReferer+1),
+	} {
+		if _, ok := validVimeoReferer(raw); ok {
+			t.Fatalf("accepted hostile referer %q", raw)
+		}
+	}
+	if got, ok := validVimeoReferer("https://publisher.example/show"); !ok || got != "https://publisher.example/show" {
+		t.Fatalf("valid referer = %q, %v", got, ok)
+	}
+}
+
+func TestMergeVimeoSubtitlesPrefersPlayerConfigDuplicates(t *testing.T) {
+	var config vimeoConfig
+	if err := json.Unmarshal(readVimeoFixture(t, "text_tracks_mixed.json"), &config); err != nil {
+		t.Fatal(err)
+	}
+	config.Request.TextTracks = append(config.Request.TextTracks, vimeoTextTrack{
+		URL: "/texttrack/api-fallback.vtt", Language: "fr", Kind: "subtitles",
+	})
+	subtitles, err := mergeVimeoSubtitles(context.Background(), nil, "1", config, vimeoFiles{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if subtitles.Len() != 2 || subtitles.Lookup("fr").IsMissing() {
+		t.Fatalf("subtitles = %#v", subtitles)
+	}
+}
+
+func TestVimeoSubtitleManifestFallbackMergesHLSAndDASH(t *testing.T) {
+	transport := &vimeoManifestSubtitleTransport{}
+	files := vimeoFiles{
+		HLS: struct {
+			CDNs map[string]struct {
+				URL string `json:"url"`
+			} `json:"cdns"`
+		}{CDNs: map[string]struct {
+			URL string `json:"url"`
+		}{"fixture": {URL: "https://cdn.example.test/master.m3u8"}}},
+		DASH: struct {
+			CDNs map[string]struct {
+				URL string `json:"url"`
+			} `json:"cdns"`
+		}{CDNs: map[string]struct {
+			URL string `json:"url"`
+		}{"fixture": {URL: "https://cdn.example.test/master.json"}}},
+	}
+	candidates, err := vimeoSubtitleCandidatesFromManifests(context.Background(), transport, files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 2 || candidates[0].language != "en" || candidates[1].language != "fr" {
+		t.Fatalf("candidates = %#v", candidates)
+	}
+	if candidates[0].url != "https://cdn.example.test/subs_en.m3u8" || candidates[0].ext != "vtt" {
+		t.Fatalf("hls candidate = %#v", candidates[0])
+	}
+}
+
+type vimeoTexttracksTransport struct {
+	vimeoAlbumFixtureTransport
+	texttracksStatus int
+	texttracksBody   []byte
+	manifestRequests []string
+}
+
+func newVimeoTexttracksTransport(t *testing.T) *vimeoTexttracksTransport {
+	return &vimeoTexttracksTransport{vimeoAlbumFixtureTransport: *newVimeoAlbumFixtureTransport(t)}
+}
+
+func (transport *vimeoTexttracksTransport) DoWithoutCredentialsNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
+	transport.manifestRequests = append(transport.manifestRequests, request.URL.String())
+	if request.Header.Get("Authorization") != "" || request.Header.Get("Cookie") != "" {
+		return nil, fmt.Errorf("credential leakage to manifest origin: %#v", request.Header)
+	}
+	switch request.URL.Host {
+	case "cdn.example.test":
+		return (&vimeoManifestSubtitleTransport{}).DoWithoutCredentialsNoRedirect(ctx, request)
+	default:
+		return transport.vimeoAlbumFixtureTransport.DoWithoutCredentialsNoRedirect(ctx, request)
+	}
+}
+
+func (transport *vimeoTexttracksTransport) DoWithScopedAuthorizationNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
+	if request.URL.Host == "api.vimeo.com" && strings.HasSuffix(request.URL.Path, "/texttracks") {
+		if request.Header.Get("Authorization") == "" {
+			return nil, fmt.Errorf("missing scoped authorization: %#v", request.Header)
+		}
+		if request.Header.Get("Cookie") != "" {
+			return nil, fmt.Errorf("credential leakage to texttracks API: %#v", request.Header)
+		}
+		status := transport.texttracksStatus
+		if status == 0 {
+			status = http.StatusOK
+		}
+		body := transport.texttracksBody
+		if len(body) == 0 {
+			body = []byte(`{"data":[{"language":"de","link":"https://cdn.example.test/api-fallback.vtt","display_language":"German"}]}`)
+		}
+		return vimeoAlbumResponse(status, body), nil
+	}
+	return transport.vimeoAlbumFixtureTransport.DoWithScopedAuthorizationNoRedirect(ctx, request)
+}
+
+func TestVimeoViewerJWTTexttracksAPIUsesScopedAuthorization(t *testing.T) {
+	transport := newVimeoTexttracksTransport(t)
+	candidates, err := vimeoSubtitleCandidatesFromAPI(context.Background(), transport, "123456789")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 1 || candidates[0].language != "de" || candidates[0].url != "https://cdn.example.test/api-fallback.vtt" {
+		t.Fatalf("candidates = %#v", candidates)
+	}
+	if transport.countPath("/_next/viewer") != 1 {
+		t.Fatalf("viewer calls = %d", transport.countPath("/_next/viewer"))
+	}
+}
+
+func TestVimeoTexttracksAPI401And403AreNonfatal(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+		t.Run(fmt.Sprintf("status-%d", status), func(t *testing.T) {
+			transport := newVimeoTexttracksTransport(t)
+			transport.texttracksStatus = status
+			var config vimeoConfig
+			config.Request.TextTracks = []vimeoTextTrack{{URL: "/texttrack/player.vtt", Language: "en", Kind: "subtitles"}}
+			subtitles, err := mergeVimeoSubtitles(context.Background(), transport, "1", config, vimeoFiles{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if subtitles.Len() != 1 || subtitles.Lookup("en").IsMissing() {
+				t.Fatalf("subtitles = %#v", subtitles)
+			}
+		})
+	}
+}
+
+func TestVimeoSubtitleManifestFetchesWithoutCredentials(t *testing.T) {
+	transport := newVimeoTexttracksTransport(t)
+	files := vimeoFiles{
+		HLS: struct {
+			CDNs map[string]struct {
+				URL string `json:"url"`
+			} `json:"cdns"`
+		}{CDNs: map[string]struct {
+			URL string `json:"url"`
+		}{"fixture": {URL: "https://cdn.example.test/master.m3u8"}}},
+	}
+	if _, err := vimeoSubtitleCandidatesFromManifests(context.Background(), transport, files); err != nil {
+		t.Fatal(err)
+	}
+	if len(transport.manifestRequests) == 0 {
+		t.Fatal("expected manifest requests")
+	}
+}
+
+func TestVimeoSubtitleLimitsRejectOversizedSourcesAndAggregate(t *testing.T) {
+	oversized := make([]vimeoTextTrack, vimeoMaxTextTracks+1)
+	_, err := vimeoSubtitleCandidatesFromTracks(context.Background(), oversized, true)
+	if !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("track source error = %v", err)
+	}
+	apiPayload := struct {
+		Data []struct {
+			Language string `json:"language"`
+			Link     string `json:"link"`
+		} `json:"data"`
+	}{}
+	for index := 0; index < vimeoMaxTextTracks+1; index++ {
+		apiPayload.Data = append(apiPayload.Data, struct {
+			Language string `json:"language"`
+			Link     string `json:"link"`
+		}{Language: "en", Link: fmt.Sprintf("https://cdn.example.test/%d.vtt", index)})
+	}
+	body, err := json.Marshal(apiPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := newVimeoTexttracksTransport(t)
+	transport.texttracksBody = body
+	if _, err := vimeoSubtitleCandidatesFromAPI(context.Background(), transport, "1"); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("api source error = %v", err)
+	}
+	primary := make([]vimeoSubtitleCandidate, vimeoMaxTextTracks)
+	for index := range primary {
+		primary[index] = vimeoSubtitleCandidate{language: fmt.Sprintf("l%d", index), url: fmt.Sprintf("https://cdn.example.test/%d.vtt", index), ext: "vtt", primary: true}
+	}
+	if _, err := appendBoundedVimeoSubtitleCandidates(nil, primary); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := appendBoundedVimeoSubtitleCandidates(primary, []vimeoSubtitleCandidate{{language: "overflow", url: "https://cdn.example.test/overflow.vtt", ext: "vtt"}}); err != nil {
+		t.Fatalf("aggregate append error = %v", err)
+	}
+	merged := append(primary, vimeoSubtitleCandidate{language: "overflow", url: "https://cdn.example.test/overflow.vtt", ext: "vtt"})
+	if _, err := vimeoSubtitlesFromCandidates(merged); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("aggregate result error = %v", err)
+	}
+}
+
+type vimeoManifestSubtitleTransport struct{}
+
+func (transport *vimeoManifestSubtitleTransport) Do(context.Context, *http.Request) (*http.Response, error) {
+	return nil, errors.New("ambient transport must not be used")
+}
+
+func (transport *vimeoManifestSubtitleTransport) ReadPage(context.Context, string) ([]byte, http.Header, error) {
+	return nil, nil, errors.New("ambient page transport must not be used")
+}
+
+func (transport *vimeoManifestSubtitleTransport) DoWithoutCredentialsNoRedirect(_ context.Context, request *http.Request) (*http.Response, error) {
+	switch request.URL.String() {
+	case "https://cdn.example.test/master.m3u8":
+		body := "#EXTM3U\n#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"subs\",NAME=\"English\",LANGUAGE=\"en\",URI=\"subs_en.m3u8\"\n"
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	case "https://cdn.example.test/subs_en.m3u8":
+		body := "#EXTM3U\n#EXTINF:1,\nseg0.vtt\n#EXT-X-ENDLIST\n"
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	case "https://cdn.example.test/seg0.vtt":
+		body := "WEBVTT\n\n00:00.000 --> 00:01.000\nmanifest english\n"
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	case "https://cdn.example.test/master.mpd":
+		body := `<?xml version="1.0"?><MPD><Period><AdaptationSet contentType="text" lang="fr"><BaseURL>subs_fr.vtt</BaseURL></AdaptationSet></Period></MPD>`
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	default:
+		return nil, fmt.Errorf("unexpected manifest %s", request.URL)
+	}
+}
+
+func TestVimeoSubtitleManifestCredentialIsolation(t *testing.T) {
+	transport := &vimeoManifestSubtitleTransport{}
+	files := vimeoFiles{
+		HLS: struct {
+			CDNs map[string]struct {
+				URL string `json:"url"`
+			} `json:"cdns"`
+		}{CDNs: map[string]struct {
+			URL string `json:"url"`
+		}{"fixture": {URL: "https://cdn.example.test/master.m3u8"}}},
+	}
+	candidates, err := vimeoSubtitleCandidatesFromManifests(context.Background(), transport, files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 1 || candidates[0].language != "en" {
+		t.Fatalf("candidates = %#v", candidates)
+	}
+}
+
+func TestVimeoSubtitleManifestContextCancellation(t *testing.T) {
+	transport := &vimeoManifestSubtitleTransport{}
+	files := vimeoFiles{
+		HLS: struct {
+			CDNs map[string]struct {
+				URL string `json:"url"`
+			} `json:"cdns"`
+		}{CDNs: map[string]struct {
+			URL string `json:"url"`
+		}{"fixture": {URL: "https://cdn.example.test/master.m3u8"}}},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := vimeoSubtitleCandidatesFromManifests(ctx, transport, files); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled error = %v", err)
+	}
+}
+
+func TestVimeoSubtitleManifestRejectsNonIsolatedTransport(t *testing.T) {
+	plain := &memoryTransport{pages: map[string][]byte{}}
+	files := vimeoFiles{
+		HLS: struct {
+			CDNs map[string]struct {
+				URL string `json:"url"`
+			} `json:"cdns"`
+		}{CDNs: map[string]struct {
+			URL string `json:"url"`
+		}{"fixture": {URL: "https://cdn.example.test/master.m3u8"}}},
+	}
+	candidates, err := vimeoSubtitleCandidatesFromManifests(context.Background(), plain, files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 0 {
+		t.Fatalf("expected no candidates from non-isolated transport, got %d", len(candidates))
+	}
+}
+
+func TestVimeoSubtitleManifestRejectsOversized(t *testing.T) {
+	oversizedHLS := vimeoFiles{
+		HLS: struct {
+			CDNs map[string]struct {
+				URL string `json:"url"`
+			} `json:"cdns"`
+		}{CDNs: map[string]struct {
+			URL string `json:"url"`
+		}{"fixture": {URL: "http://evil.example/test.m3u8"}}},
+	}
+	transport := &vimeoManifestSubtitleTransport{}
+	candidates, err := vimeoSubtitleCandidatesFromManifests(context.Background(), transport, oversizedHLS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 0 {
+		t.Fatalf("expected no candidates from non-HTTPS URL, got %d", len(candidates))
+	}
 }

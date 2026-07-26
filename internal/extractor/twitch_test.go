@@ -33,17 +33,20 @@ type twitchRecordedRequest struct {
 }
 
 type twitchFixtureTransport struct {
-	mu               sync.Mutex
-	metadata         []byte
-	token            []byte
-	metadataStatus   int
-	tokenStatus      int
-	graphQLRequests  []twitchRecordedRequest
-	graphQLFixtures  []twitchGraphQLFixture
-	videosPages      map[string][]byte
-	collectionsPages map[string][]byte
-	clipsPages       map[string][]byte
-	mediaPolls       int
+	mu                        sync.Mutex
+	metadata                  []byte
+	token                     []byte
+	metadataStatus            int
+	tokenStatus               int
+	graphQLRequests           []twitchRecordedRequest
+	graphQLFixtures           []twitchGraphQLFixture
+	videosPages               map[string][]byte
+	collectionsPages          map[string][]byte
+	clipsPages                map[string][]byte
+	storyboard                []byte
+	storyboardStatus          int
+	storyboardHostileRedirect bool
+	mediaPolls                int
 }
 
 type twitchGraphQLFixture struct {
@@ -125,6 +128,35 @@ func (transport *twitchFixtureTransport) Do(ctx context.Context, request *http.R
 	default:
 		return twitchHTTPResponse(http.StatusNotFound, nil), nil
 	}
+}
+
+func (transport *twitchFixtureTransport) DoWithoutCredentialsNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if request.URL.Host == "static-cdn.example.test" && request.URL.Path == "/storyboards/spec.json" {
+		if transport.storyboardHostileRedirect {
+			return &http.Response{
+				StatusCode: http.StatusFound,
+				Header:     http.Header{"Location": []string{"https://evil.example.test/storyboards/spec.json"}},
+				Body:       http.NoBody,
+			}, nil
+		}
+		status := transport.storyboardStatus
+		if status == 0 {
+			status = http.StatusOK
+		}
+		body := transport.storyboard
+		if len(body) == 0 {
+			var err error
+			body, err = os.ReadFile(filepath.Join(twitchFixtureRoot, "storyboard_spec.json"))
+			if err != nil {
+				return nil, err
+			}
+		}
+		return twitchHTTPResponse(status, body), nil
+	}
+	return nil, fmt.Errorf("unexpected isolated request: %s", request.URL)
 }
 
 func (transport *twitchFixtureTransport) ReadPage(ctx context.Context, rawURL string) ([]byte, http.Header, error) {
@@ -3353,4 +3385,145 @@ func assertTwitchChannelClipsGraphQLRequest(t *testing.T, request twitchRecorded
 	} else if got, _ := variables["cursor"].(string); got != cursor {
 		t.Fatalf("cursor = %#v", variables["cursor"])
 	}
+}
+
+func TestTwitchVODStoryboardFormatsAreEmitted(t *testing.T) {
+	transport := &twitchFixtureTransport{graphQLFixtures: []twitchGraphQLFixture{
+		{body: twitchFixture(t, "vod_metadata.json")},
+		{body: twitchFixture(t, "vod_access_token.json")},
+	}}
+	result, err := NewTwitch().Extract(context.Background(), Request{
+		URL: "https://www.twitch.tv/videos/1234567890", Transport: transport,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	formats, _ := result.Info.Formats()
+	if len(formats) != 3 {
+		t.Fatalf("formats = %d", len(formats))
+	}
+	storyboard, _ := formats[1].Object()
+	for key, want := range map[string]string{
+		"format_id": "sb0", "format_note": "storyboard", "ext": "mhtml", "protocol": "mhtml", "acodec": "none", "vcodec": "none",
+	} {
+		if got, _ := storyboard.Lookup(key).StringValue(); got != want {
+			t.Fatalf("%s = %q", key, got)
+		}
+	}
+	if width, ok := storyboard.Lookup("width").Int(); !ok || width != 320 {
+		t.Fatalf("width = %d, %t", width, ok)
+	}
+	fragments, _ := storyboard.Lookup("fragments").ListValue()
+	if len(fragments) != 2 {
+		t.Fatalf("fragments = %d", len(fragments))
+	}
+}
+
+func TestTwitchStoryboardFailuresAreNonfatal(t *testing.T) {
+	transport := &twitchFixtureTransport{
+		graphQLFixtures: []twitchGraphQLFixture{
+			{body: twitchFixture(t, "vod_metadata.json")},
+			{body: twitchFixture(t, "vod_access_token.json")},
+		},
+		storyboardStatus:          http.StatusInternalServerError,
+		storyboardHostileRedirect: true,
+	}
+	result, err := NewTwitch().Extract(context.Background(), Request{
+		URL: "https://www.twitch.tv/videos/1234567890", Transport: transport,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	formats, _ := result.Info.Formats()
+	if len(formats) != 1 {
+		t.Fatalf("formats = %d", len(formats))
+	}
+}
+
+func TestParseTwitchStoryboardSpecsRejectsMalformedAndOversized(t *testing.T) {
+	if _, err := parseTwitchStoryboardSpecs([]byte(`{`)); err == nil {
+		t.Fatal("expected malformed rejection")
+	}
+	oversized := make([]twitchStoryboardSpec, twitchStoryboardMaxSpecs+1)
+	payload, err := json.Marshal(oversized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parseTwitchStoryboardSpecs(payload); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("oversized specs error = %v", err)
+	}
+}
+
+func TestParseTwitchStoryboardSpecsRejectsOversizedImageList(t *testing.T) {
+	images := make([]string, twitchStoryboardMaxImages+1)
+	for index := range images {
+		images[index] = fmt.Sprintf("frame-%d.jpg", index)
+	}
+	payload, err := json.Marshal([]twitchStoryboardSpec{{
+		Width: 320, Height: 180, Count: 360, Rows: 5, Cols: 10, Images: images,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parseTwitchStoryboardSpecs(payload); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("oversized images error = %v", err)
+	}
+}
+
+func TestResolveTwitchStoryboardImageURLRejectsUnsafe(t *testing.T) {
+	base, _ := url.Parse("https://static-cdn.example.test/storyboards/spec.json")
+	for _, image := range []string{"https://evil.example/a.jpg", "https://localhost/a.jpg", "javascript:alert(1)"} {
+		if got := resolveTwitchStoryboardImageURL(base, image); got != "" {
+			t.Fatalf("accepted unsafe image %q as %q", image, got)
+		}
+	}
+}
+
+func TestExtractTwitchStoryboardFormatsCancellation(t *testing.T) {
+	transport := &twitchFixtureTransport{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := extractTwitchStoryboardFormats(ctx, transport, "https://static-cdn.example.test/storyboards/spec.json", 120); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancel error = %v", err)
+	}
+}
+
+func FuzzParseTwitchStoryboardSpecs(f *testing.F) {
+	f.Add(twitchFixture(f, "storyboard_spec.json"))
+	f.Add([]byte(`[{"width":1,"height":1,"count":1,"images":["a.jpg"]}]`))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > twitchStoryboardMaxJSONBytes {
+			t.Skip()
+		}
+		specs, err := parseTwitchStoryboardSpecs(data)
+		if err != nil {
+			return
+		}
+		if len(specs) > twitchStoryboardMaxSpecs {
+			t.Fatalf("spec overflow: %d", len(specs))
+		}
+		for _, spec := range specs {
+			if len(spec.Images) > twitchStoryboardMaxImages {
+				t.Fatalf("image overflow: %d", len(spec.Images))
+			}
+		}
+	})
+}
+
+func FuzzResolveTwitchStoryboardImageURL(f *testing.F) {
+	f.Add("https://static-cdn.example.test/storyboards/spec.json", "frame-0.jpg")
+	f.Add("https://static-cdn.example.test/storyboards/spec.json", "//evil.example.test/a.jpg")
+	f.Fuzz(func(t *testing.T, baseURL, image string) {
+		base, err := url.Parse(baseURL)
+		if err != nil {
+			t.Skip()
+		}
+		got := resolveTwitchStoryboardImageURL(base, image)
+		if got == "" {
+			return
+		}
+		if !validTwitchAssetURL(got) {
+			t.Fatalf("unsafe accepted URL %q", got)
+		}
+	})
 }

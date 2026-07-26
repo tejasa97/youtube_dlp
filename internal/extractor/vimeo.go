@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"io"
 	"net/http"
 	"net/url"
 	"path"
@@ -14,10 +15,14 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/ytdlp-go/ytdlp/internal/network"
+	"github.com/ytdlp-go/ytdlp/internal/protocol/dash"
+	"github.com/ytdlp-go/ytdlp/internal/protocol/hls"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
@@ -31,6 +36,8 @@ const (
 	vimeoMaxTextLang   = 64
 	vimeoMaxTextName   = 256
 	vimeoMaxConfigURL  = 8192
+	vimeoMaxReferer    = 2048
+	vimeoMaxManifest   = 4 << 20
 
 	vimeoMaxSlugBytes         = 64
 	vimeoMaxPlaylistTitle     = 512
@@ -80,6 +87,7 @@ type vimeoPlaylistTarget struct {
 	slug      string
 	canonical string
 	baseURL   string
+	embed     bool
 }
 
 type Vimeo struct{}
@@ -103,7 +111,7 @@ func (Vimeo) Extract(ctx context.Context, request Request) (Extraction, error) {
 	case vimeoRouteChannel, vimeoRouteUserVideos, vimeoRouteGroup:
 		return extractVimeoPlaylist(ctx, request.Transport, target)
 	case vimeoRouteAlbum:
-		return extractVimeoAlbumPlaylist(ctx, request.Transport, target)
+		return extractVimeoAlbumPlaylist(ctx, request, target)
 	case vimeoRouteVideo:
 		return extractVimeoVideo(ctx, request, target.id, target.canonical)
 	default:
@@ -122,11 +130,18 @@ func extractVimeoVideo(ctx context.Context, request Request, videoID, contextual
 	if err != nil {
 		return Extraction{}, err
 	}
-	config, err := extractVimeoConfig(ctx, request.Transport, webpageURL, page)
+	config, err := extractVimeoConfig(ctx, request.Transport, configRefererURL(webpageURL, request.Referer), page)
 	if err != nil {
 		return Extraction{}, err
 	}
-	return parseVimeoConfigContext(ctx, config, videoID, webpageURL)
+	return parseVimeoConfigContext(ctx, request.Transport, config, videoID, webpageURL, request.Referer)
+}
+
+func configRefererURL(webpageURL, referer string) string {
+	if validated, ok := validVimeoReferer(referer); ok {
+		return validated
+	}
+	return webpageURL
 }
 
 func classifyVimeoURL(parsed *url.URL) (vimeoRouteKind, vimeoPlaylistTarget) {
@@ -1177,10 +1192,10 @@ type vimeoFiles struct {
 }
 
 func parseVimeoConfig(config vimeoConfig, videoID, webpageURL string) (Extraction, error) {
-	return parseVimeoConfigContext(context.Background(), config, videoID, webpageURL)
+	return parseVimeoConfigContext(context.Background(), nil, config, videoID, webpageURL, "")
 }
 
-func parseVimeoConfigContext(ctx context.Context, config vimeoConfig, videoID, webpageURL string) (Extraction, error) {
+func parseVimeoConfigContext(ctx context.Context, transport Transport, config vimeoConfig, videoID, webpageURL, referer string) (Extraction, error) {
 	if err := contextError(ctx); err != nil {
 		return Extraction{}, err
 	}
@@ -1264,12 +1279,400 @@ func parseVimeoConfigContext(ctx context.Context, config vimeoConfig, videoID, w
 	if liveStatus != "" {
 		info.Set("live_status", value.String(liveStatus))
 	}
-	if subtitles, err := vimeoSubtitles(ctx, config.Request.TextTracks); err != nil {
+	if subtitles, err := mergeVimeoSubtitles(ctx, transport, videoID, config, files); err != nil {
 		return Extraction{}, err
 	} else if subtitles.Len() != 0 {
 		info.Set("subtitles", value.ObjectValue(subtitles))
 	}
 	return Media(value.NewInfo(info)), nil
+}
+
+func validVimeoReferer(rawReferer string) (string, bool) {
+	rawReferer = strings.TrimSpace(rawReferer)
+	if rawReferer == "" || len(rawReferer) > vimeoMaxReferer || strings.ContainsAny(rawReferer, "\x00\r\n") {
+		return "", false
+	}
+	parsed, err := url.Parse(rawReferer)
+	if err != nil || parsed.Scheme != "https" || parsed.User != nil || parsed.Port() != "" || parsed.Fragment != "" || parsed.RawFragment != "" {
+		return "", false
+	}
+	if strictURLPolicyRejects(parsed) || parsed.Hostname() == "" {
+		return "", false
+	}
+	parsed.Scheme = "https"
+	parsed.Host = parsed.Hostname()
+	return parsed.String(), true
+}
+
+func vimeoReferrerHostname(referer string) string {
+	validated, ok := validVimeoReferer(referer)
+	if !ok {
+		return ""
+	}
+	parsed, _ := url.Parse(validated)
+	return parsed.Hostname()
+}
+
+type vimeoSubtitleCandidate struct {
+	language string
+	url      string
+	name     string
+	ext      string
+	primary  bool
+}
+
+func mergeVimeoSubtitles(ctx context.Context, transport Transport, videoID string, config vimeoConfig, files vimeoFiles) (*value.Object, error) {
+	candidates := make([]vimeoSubtitleCandidate, 0, vimeoMaxTextTracks)
+	if primary, err := vimeoSubtitleCandidatesFromTracks(ctx, config.Request.TextTracks, true); err != nil {
+		return nil, err
+	} else if candidates, err = appendBoundedVimeoSubtitleCandidates(candidates, primary); err != nil {
+		return nil, err
+	}
+	if transport != nil {
+		if apiTracks, err := vimeoSubtitleCandidatesFromAPI(ctx, transport, videoID); err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil, err
+			}
+		} else if candidates, err = appendBoundedVimeoSubtitleCandidates(candidates, apiTracks); err != nil {
+			return nil, err
+		}
+		if manifestTracks, err := vimeoSubtitleCandidatesFromManifests(ctx, transport, files); err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil, err
+			}
+		} else if candidates, err = appendBoundedVimeoSubtitleCandidates(candidates, manifestTracks); err != nil {
+			return nil, err
+		}
+	}
+	return vimeoSubtitlesFromCandidates(candidates)
+}
+
+func appendBoundedVimeoSubtitleCandidates(existing, incoming []vimeoSubtitleCandidate) ([]vimeoSubtitleCandidate, error) {
+	if len(incoming) > vimeoMaxTextTracks {
+		return nil, fmt.Errorf("%w: Vimeo text-track limit", ErrInvalidMetadata)
+	}
+	remaining := vimeoMaxTextTracks - len(existing)
+	if remaining <= 0 {
+		return existing, nil
+	}
+	if len(incoming) > remaining {
+		incoming = incoming[:remaining]
+	}
+	return append(existing, incoming...), nil
+}
+
+func vimeoSubtitleCandidatesFromTracks(ctx context.Context, tracks []vimeoTextTrack, primary bool) ([]vimeoSubtitleCandidate, error) {
+	if len(tracks) > vimeoMaxTextTracks {
+		return nil, fmt.Errorf("%w: Vimeo text-track limit", ErrInvalidMetadata)
+	}
+	out := make([]vimeoSubtitleCandidate, 0, len(tracks))
+	for _, track := range tracks {
+		if err := contextError(ctx); err != nil {
+			return nil, err
+		}
+		language := boundedVimeoText(track.Language, vimeoMaxTextLang)
+		if !validVimeoLanguage(language) || !validVimeoTextKind(track.Kind) {
+			continue
+		}
+		trackURL := normalizeVimeoTextTrackURL(track.URL)
+		if trackURL == "" {
+			continue
+		}
+		name := boundedVimeoText(track.Label, vimeoMaxTextName)
+		if name == "" {
+			name = boundedVimeoText(track.Name, vimeoMaxTextName)
+		}
+		out = append(out, vimeoSubtitleCandidate{language: language, url: trackURL, name: name, ext: "vtt", primary: primary})
+	}
+	return out, nil
+}
+
+func vimeoSubtitleCandidatesFromAPI(ctx context.Context, transport Transport, videoID string) ([]vimeoSubtitleCandidate, error) {
+	viewerTransport, viewerOK := transport.(CredentialIsolatedNoRedirectTransport)
+	_, scopedOK := transport.(ScopedAuthorizationNoRedirectTransport)
+	if !viewerOK || !scopedOK {
+		return nil, nil
+	}
+	provider := &vimeoViewerTokenProvider{transport: viewerTransport, now: time.Now}
+	var payload struct {
+		Data []struct {
+			Language        string `json:"language"`
+			Link            string `json:"link"`
+			DisplayLanguage string `json:"display_language"`
+		} `json:"data"`
+	}
+	query := url.Values{
+		"include_transcript": {"true"},
+		"fields":             {"active,display_language,id,language,link,name,type,uri"},
+	}
+	endpoint := "https://api.vimeo.com/videos/" + videoID + "/texttracks?" + query.Encode()
+	err := withVimeoViewerToken(ctx, provider, func(jwt string) error {
+		return RequestJSONWithScopedAuthorizationNoRedirect(
+			ctx, transport, http.MethodGet, endpoint, nil, vimeoAPIHeaders(jwt), &payload)
+	})
+	if err != nil {
+		var status *HTTPStatusError
+		if errors.As(err, &status) && (status.Code == http.StatusUnauthorized || status.Code == http.StatusForbidden || status.Code == http.StatusNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if len(payload.Data) > vimeoMaxTextTracks {
+		return nil, fmt.Errorf("%w: Vimeo text-track limit", ErrInvalidMetadata)
+	}
+	out := make([]vimeoSubtitleCandidate, 0, len(payload.Data))
+	for _, track := range payload.Data {
+		if err := contextError(ctx); err != nil {
+			return nil, err
+		}
+		language := boundedVimeoText(track.Language, vimeoMaxTextLang)
+		trackURL := normalizeVimeoManifestSubtitleURL(track.Link)
+		if !validVimeoLanguage(language) || trackURL == "" {
+			continue
+		}
+		out = append(out, vimeoSubtitleCandidate{
+			language: language,
+			url:      trackURL,
+			name:     boundedVimeoText(track.DisplayLanguage, vimeoMaxTextName),
+			ext:      vimeoSubtitleExtension(trackURL),
+		})
+	}
+	return out, nil
+}
+
+func vimeoSubtitleCandidatesFromManifests(ctx context.Context, transport Transport, files vimeoFiles) ([]vimeoSubtitleCandidate, error) {
+	isolated, ok := transport.(CredentialIsolatedNoRedirectTransport)
+	if !ok {
+		return nil, nil
+	}
+	out := make([]vimeoSubtitleCandidate, 0, 8)
+	for _, name := range sortedVimeoCDNs(files.HLS.CDNs) {
+		if err := contextError(ctx); err != nil {
+			return nil, err
+		}
+		cdn := files.HLS.CDNs[name]
+		if !validHTTPURL(cdn.URL) {
+			continue
+		}
+		payload, err := fetchVimeoManifestWithoutCredentials(ctx, isolated, cdn.URL)
+		if err != nil || len(payload) == 0 || int64(len(payload)) > vimeoMaxManifest {
+			continue
+		}
+		renditions, err := hls.ParseMasterSubtitles(cdn.URL, payload)
+		if err != nil {
+			continue
+		}
+		for _, rendition := range renditions {
+			trackURL := normalizeVimeoManifestSubtitleURL(rendition.URL)
+			language := boundedVimeoText(rendition.Language, vimeoMaxTextLang)
+			if trackURL == "" || !validVimeoLanguage(language) || !vimeoHLSSubtitlePlaylistURL(trackURL) {
+				continue
+			}
+			if len(out) >= vimeoMaxTextTracks {
+				break
+			}
+			out = append(out, vimeoSubtitleCandidate{
+				language: language,
+				url:      trackURL,
+				name:     boundedVimeoText(rendition.Name, vimeoMaxTextName),
+				ext:      "vtt",
+			})
+		}
+	}
+	for _, name := range sortedVimeoCDNs(files.DASH.CDNs) {
+		if err := contextError(ctx); err != nil {
+			return nil, err
+		}
+		cdn := files.DASH.CDNs[name]
+		if !validHTTPURL(cdn.URL) {
+			continue
+		}
+		manifestURL := strings.Replace(cdn.URL, "/master.json", "/master.mpd", 1)
+		payload, err := fetchVimeoManifestWithoutCredentials(ctx, isolated, manifestURL)
+		if err != nil || len(payload) == 0 || int64(len(payload)) > vimeoMaxManifest {
+			continue
+		}
+		representations, err := dash.ParseTextRepresentations(manifestURL, payload)
+		if err != nil {
+			continue
+		}
+		for _, representation := range representations {
+			trackURL := normalizeVimeoManifestSubtitleURL(representation.URL)
+			language := boundedVimeoText(representation.Language, vimeoMaxTextLang)
+			if trackURL == "" || !validVimeoLanguage(language) {
+				continue
+			}
+			if len(out) >= vimeoMaxTextTracks {
+				break
+			}
+			out = append(out, vimeoSubtitleCandidate{
+				language: language,
+				url:      trackURL,
+				name:     boundedVimeoText(representation.Name, vimeoMaxTextName),
+				ext:      vimeoSubtitleExtension(trackURL),
+			})
+		}
+	}
+	return out, nil
+}
+
+func fetchVimeoManifestWithoutCredentials(ctx context.Context, transport CredentialIsolatedNoRedirectTransport, rawURL string) ([]byte, error) {
+	if !strictValidHostedHTTPURL(rawURL) {
+		return nil, nil
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, nil
+	}
+	response, err := transport.DoWithoutCredentialsNoRedirect(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+	if response == nil || response.Body == nil {
+		return nil, nil
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, nil
+	}
+	return io.ReadAll(io.LimitReader(response.Body, vimeoMaxManifest+1))
+}
+
+func vimeoSubtitlesFromCandidates(candidates []vimeoSubtitleCandidate) (*value.Object, error) {
+	if len(candidates) > vimeoMaxTextTracks {
+		return nil, fmt.Errorf("%w: Vimeo text-track limit", ErrInvalidMetadata)
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].primary == candidates[j].primary {
+			return false
+		}
+		return candidates[i].primary
+	})
+	grouped := make(map[string][]value.Value)
+	order := make([]string, 0, len(candidates))
+	seen := make(map[string]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		key := strings.ToLower(candidate.language) + "\x00" + candidate.url
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+		seen[key] = struct{}{}
+		if _, exists := grouped[candidate.language]; !exists {
+			order = append(order, candidate.language)
+		}
+		entry := value.NewObject(
+			value.Field{Key: "url", Value: value.String(candidate.url)},
+			value.Field{Key: "ext", Value: value.String(candidate.ext)},
+		)
+		if candidate.name != "" {
+			entry.Set("name", value.String(candidate.name))
+		}
+		grouped[candidate.language] = append(grouped[candidate.language], value.ObjectValue(entry))
+	}
+	result := value.NewObject()
+	for _, language := range order {
+		result.Set(language, value.List(grouped[language]...))
+	}
+	return result, nil
+}
+
+func normalizeVimeoManifestSubtitleURL(rawURL string) string {
+	if len(rawURL) == 0 || len(rawURL) > vimeoMaxTextURL || strings.ContainsAny(rawURL, "\\\x00\r\n") {
+		return ""
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil || strictURLPolicyRejects(parsed) || parsed.Scheme != "https" {
+		return ""
+	}
+	return parsed.String()
+}
+
+func vimeoSubtitleExtension(rawURL string) string {
+	extension := strings.TrimPrefix(path.Ext(mustURLPath(rawURL)), ".")
+	switch strings.ToLower(extension) {
+	case "m3u8":
+		return "vtt"
+	case "vtt", "srt", "ttml", "dfxp", "srv1", "srv2", "srv3":
+		if strings.EqualFold(extension, "dfxp") {
+			return "ttml"
+		}
+		return strings.ToLower(extension)
+	default:
+		return "vtt"
+	}
+}
+
+func vimeoHLSSubtitlePlaylistURL(rawURL string) bool {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(path.Ext(parsed.Path), ".m3u8")
+}
+
+type vimeoViewerTokenProvider struct {
+	transport CredentialIsolatedNoRedirectTransport
+	now       func() time.Time
+	mu        sync.Mutex
+	token     string
+	expires   int64
+}
+
+func (provider *vimeoViewerTokenProvider) get(ctx context.Context) (string, error) {
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	now := time.Now
+	if provider.now != nil {
+		now = provider.now
+	}
+	if provider.token != "" && provider.expires-now().Unix() >= int64(vimeoAlbumJWTRefreshLead/time.Second) {
+		return provider.token, nil
+	}
+	token, expires, err := fetchVimeoAlbumJWT(ctx, provider.transport)
+	if err != nil {
+		return "", err
+	}
+	if expires-now().Unix() < int64(vimeoAlbumJWTRefreshLead/time.Second) {
+		return "", ErrAuthentication
+	}
+	provider.token, provider.expires = token, expires
+	return token, nil
+}
+
+func (provider *vimeoViewerTokenProvider) invalidate(token string) {
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	if provider.token == token {
+		provider.token, provider.expires = "", 0
+	}
+}
+
+func withVimeoViewerToken(ctx context.Context, provider *vimeoViewerTokenProvider, request func(string) error) error {
+	if provider == nil || request == nil {
+		return fmt.Errorf("%w: missing Vimeo viewer token provider", ErrInvalidMetadata)
+	}
+	for attempt := 0; attempt < 2; attempt++ {
+		token, err := provider.get(ctx)
+		if err != nil {
+			return err
+		}
+		err = request(token)
+		var status *HTTPStatusError
+		if attempt == 0 && errors.As(err, &status) &&
+			(status.Code == http.StatusUnauthorized || status.Code == http.StatusForbidden) {
+			provider.invalidate(token)
+			continue
+		}
+		return err
+	}
+	return ErrAuthentication
+}
+
+func vimeoAPIHeaders(jwt string) http.Header {
+	return http.Header{
+		"Accept":        {"application/json"},
+		"Authorization": {"jwt " + jwt},
+	}
 }
 
 func vimeoSubtitles(ctx context.Context, tracks []vimeoTextTrack) (*value.Object, error) {
