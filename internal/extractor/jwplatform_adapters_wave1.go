@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/ytdlp-go/ytdlp/internal/value"
@@ -351,12 +352,17 @@ func (Iltalehti) Extract(ctx context.Context, request Request) (Extraction, erro
 	return Playlist(value.NewInfo(info), StaticEntries(entries...))
 }
 
-// iltalehtiArticle walks the balanced window.App JSON. Media ids stay in
-// upstream order: per article, main_media first and body items afterwards.
+// iltalehtiArticle walks the balanced window.App JS object using pinned
+// js_to_json semantics. Media ids stay in upstream order: per article,
+// main_media first and body items afterwards.
 func iltalehtiArticle(page []byte) (string, []string, error) {
-	raw, err := extractJSONObjectAfter(page, iltalehtiAppMarker)
+	raw, err := extractJSObjectAfter(page, iltalehtiAppMarker)
 	if err != nil {
 		return "", nil, classifyMissingMediaPage(page, "Iltalehti app state")
+	}
+	jsonBytes, err := jwWave1JSToJSON(raw)
+	if err != nil {
+		return "", nil, fmt.Errorf("%w: invalid Iltalehti app state", ErrInvalidMetadata)
 	}
 	var app struct {
 		State struct {
@@ -369,7 +375,7 @@ func iltalehtiArticle(page []byte) (string, []string, error) {
 			} `json:"articles"`
 		} `json:"state"`
 	}
-	if err := json.Unmarshal(raw, &app); err != nil {
+	if err := json.Unmarshal(jsonBytes, &app); err != nil {
 		return "", nil, fmt.Errorf("%w: invalid Iltalehti app state", ErrInvalidMetadata)
 	}
 	title := ""
@@ -492,7 +498,8 @@ func parseLeFigaroVideoEmbedURL(parsed *url.URL) (string, bool) {
 }
 
 // MirrorCoUK routes mirror.co.uk articles via the HTML-escaped, balanced
-// json-placeholder payload.
+// json-placeholder payload. display_id is omitted until Entry supports it;
+// the JW Platform media id is preserved as the handoff id.
 type MirrorCoUK struct{}
 
 func NewMirrorCoUK() MirrorCoUK { return MirrorCoUK{} }
@@ -515,6 +522,7 @@ func (MirrorCoUK) Extract(ctx context.Context, request Request) (Extraction, err
 	if !ok {
 		return Extraction{}, ErrUnsupported
 	}
+	_ = displayID
 	canonical := "https://www.mirror.co.uk" + parsed.EscapedPath()
 	page, err := jwWave1ReadBoundedPage(ctx, request, canonical, "Mirror")
 	if err != nil {
@@ -524,7 +532,7 @@ func (MirrorCoUK) Extract(ctx context.Context, request Request) (Extraction, err
 	if err != nil {
 		return Extraction{}, err
 	}
-	return jwPlatformURLResult(mediaID, displayID)
+	return jwWave1Handoff(mediaID, Entry{ID: mediaID})
 }
 
 // mirrorCoUKVideoID unescapes the json-placeholder attribute and parses the
@@ -655,21 +663,67 @@ func (TheIntercept) Extract(ctx context.Context, request Request) (Extraction, e
 	if err := json.Unmarshal(raw, &store); err != nil {
 		return Extraction{}, fmt.Errorf("%w: invalid The Intercept store tree", ErrInvalidMetadata)
 	}
-	for _, post := range store.Resources.Posts {
-		if post.Slug != displayID {
+	post, err := theInterceptPost(store.Resources.Posts, displayID)
+	if err != nil {
+		return Extraction{}, err
+	}
+	entry := Entry{
+		ID:          post.id.String(),
+		Title:       wave2BoundString(post.title, jwWave1MaxTextBytes),
+		Transparent: true,
+	}
+	if timestamp := hostedUnixTimestamp(post.date); timestamp > 0 {
+		entry.Timestamp, entry.HasTimestamp = timestamp, true
+	}
+	return jwWave1Handoff(post.videoID, entry)
+}
+
+type theInterceptPostData struct {
+	id      json.Number
+	slug    string
+	title   string
+	date    string
+	videoID string
+}
+
+func theInterceptPost(posts map[string]struct {
+	ID         json.Number `json:"ID"`
+	Slug       string      `json:"slug"`
+	Title      string      `json:"title"`
+	Date       string      `json:"date"`
+	FOVVideoID string      `json:"fov_videoid"`
+}, slug string) (theInterceptPostData, error) {
+	if len(posts) > jwWave1MaxEntries {
+		return theInterceptPostData{}, fmt.Errorf("%w: too many The Intercept posts", ErrInvalidMetadata)
+	}
+	keys := make([]string, 0, len(posts))
+	for key := range posts {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	var match theInterceptPostData
+	found := false
+	for _, key := range keys {
+		candidate := posts[key]
+		if candidate.Slug != slug {
 			continue
 		}
-		entry := Entry{
-			ID:          post.ID.String(),
-			Title:       wave2BoundString(post.Title, jwWave1MaxTextBytes),
-			Transparent: true,
+		if found {
+			return theInterceptPostData{}, fmt.Errorf("%w: duplicate The Intercept post slug", ErrInvalidMetadata)
 		}
-		if timestamp := hostedUnixTimestamp(post.Date); timestamp > 0 {
-			entry.Timestamp, entry.HasTimestamp = timestamp, true
+		match = theInterceptPostData{
+			id:      candidate.ID,
+			slug:    candidate.Slug,
+			title:   candidate.Title,
+			date:    candidate.Date,
+			videoID: candidate.FOVVideoID,
 		}
-		return jwWave1Handoff(post.FOVVideoID, entry)
+		found = true
 	}
-	return Extraction{}, fmt.Errorf("%w: missing The Intercept post", ErrInvalidMetadata)
+	if !found {
+		return theInterceptPostData{}, fmt.Errorf("%w: missing The Intercept post", ErrInvalidMetadata)
+	}
+	return match, nil
 }
 
 func parseTheInterceptURL(parsed *url.URL) (string, bool) {
