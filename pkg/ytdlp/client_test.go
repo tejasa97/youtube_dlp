@@ -46,13 +46,20 @@ import (
 )
 
 type prxProductRoundTripper struct {
-	body  []byte
-	calls int
+	body   []byte
+	bodies map[string][]byte
+	calls  int
+	paths  []string
 }
 
 func (t *prxProductRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	t.calls++
-	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(t.body)), Request: r}, nil
+	t.paths = append(t.paths, r.URL.Path)
+	body := t.body
+	if t.bodies != nil {
+		body = t.bodies[r.URL.Path]
+	}
+	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(body)), Request: r}, nil
 }
 
 func TestIsCategory(t *testing.T) {
@@ -325,6 +332,31 @@ func TestProductPRXMultipartReentryTerminates(t *testing.T) {
 		if item["id"] != fmt.Sprintf("1_part%d", n+1) {
 			t.Fatalf("item=%#v", item)
 		}
+	}
+}
+
+func TestProductPRXAccountReentryOrder(t *testing.T) {
+	media := func(id string) []byte {
+		return []byte(`{"id":"` + id + `","_embedded":{"prx:audio":{"_embedded":{"prx:items":[{"id":"1","position":1,"contentType":"audio/mpeg","_links":{"enclosure":{"href":"https://media.example/a.mp3"}}}]}}}}`)
+	}
+	rt := &prxProductRoundTripper{bodies: map[string][]byte{
+		"/api/v1/accounts/5": []byte(`{"id":"5","name":"A"}`), "/api/v1/accounts/5/series": []byte(`{"count":1,"total":1,"_embedded":{"prx:items":[{"id":"11"}]}}`), "/api/v1/series/11": []byte(`{"id":"11"}`), "/api/v1/series/11/stories": []byte(`{"count":1,"total":1,"_embedded":{"prx:items":[{"id":"12"}]}}`), "/api/v1/stories/12": media("12"), "/api/v1/accounts/5/stories": []byte(`{"count":1,"total":1,"_embedded":{"prx:items":[{"id":"13"}]}}`), "/api/v1/stories/13": media("13")}}
+	transport, err := network.New(network.Config{RoundTripper: rt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := Request{URL: "https://prx.org/accounts/5", SkipDownload: true}
+	plan, err := prepareCompatibility(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	op := &operation{client: NewClient(), request: req, transport: transport, registry: extractor.NewRegistry(extractor.NewPRXAccount(), extractor.NewPRXSeries(), extractor.NewPRXStory()), compatibility: plan}
+	if _, err = op.process(context.Background(), req.URL, "", nil, map[string]bool{}, 0); err != nil {
+		t.Fatal(err)
+	}
+	want := "/api/v1/accounts/5,/api/v1/accounts/5/series,/api/v1/series/11,/api/v1/series/11/stories,/api/v1/stories/12,/api/v1/accounts/5/stories,/api/v1/stories/13"
+	if rt.calls != 7 || strings.Join(rt.paths, ",") != want {
+		t.Fatalf("paths=%v", rt.paths)
 	}
 }
 
