@@ -10,6 +10,8 @@ instead of being silently ignored.
     # Lines beginning with # are comments
     --output-dir "~/Downloads"
     --output "%(title)s.%(ext)s"
+    --output "subtitle:captions/%(title)s.%(ext)s"
+    --output "infojson:metadata/%(title)s.%(ext)s"
     --format "bestvideo+bestaudio/best"
     --retries 3
     --concurrent-fragments 4
@@ -28,6 +30,12 @@ Sources are applied from lowest to highest precedence:
 4. portable yt-dlp.conf beside the executable;
 5. explicitly loaded configuration locations;
 6. command-line arguments.
+
+`--output` is repeatable. A `TYPE:TEMPLATE` value configures `default`,
+`subtitle`, `description`, `infojson`, `link`, `pl_description`, or
+`pl_infojson`; comma-separated types may share one template. Later values
+replace earlier values for the same type, so command-line typed templates
+override configuration-file values without clearing unrelated types.
 
 Only the first existing candidate in each default group is loaded. The user
 group follows the platform path convention:

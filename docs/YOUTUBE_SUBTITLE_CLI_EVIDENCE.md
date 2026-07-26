@@ -28,8 +28,10 @@ Sidecars use the confined output template and the conventional
 `NAME.LANGUAGE.EXTENSION` filename. They are downloaded atomically through the
 native downloader with validated global/per-track HTTP headers, retries, rate
 limits, cancellation, overwrite policy, URL redaction, and a 16 MiB hard
-ceiling. `--skip-download` skips media while still writing requested subtitle
-sidecars. Public results expose subtitle artifacts and add the selected
+ceiling. A repeatable `--output subtitle:TEMPLATE` (or the public
+`OutputTemplates` map) gives subtitles a distinct confined base path and falls
+back to the default template when absent. `--skip-download` skips media while
+still writing requested subtitle sidecars. Public results expose subtitle artifacts and add the selected
 `_auto`, `filepath`, URL, and extension under `requested_subtitles`.
 
 URL-only subtitle entries produced by existing native extractors receive a
