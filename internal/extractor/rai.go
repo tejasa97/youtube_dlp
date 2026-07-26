@@ -11,6 +11,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"net"
 	"net/http"
@@ -408,10 +409,13 @@ func raiRelinker(ctx context.Context, transport Transport, raw, id string, audio
 	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, raiMaxXML+1))
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return raiRelinkerInfo{}, ctxErr
+		}
 		return raiRelinkerInfo{}, errors.New("read Rai relinker response failed")
 	}
 	if len(data) > raiMaxXML {
-		return raiRelinkerInfo{}, ErrJSONResponseTooLarge
+		return raiRelinkerInfo{}, fmt.Errorf("%w: Rai relinker XML response too large", ErrInvalidMetadata)
 	}
 	fields, err := raiXML(data)
 	if err != nil {
@@ -537,14 +541,34 @@ func raiPlaylist(ctx context.Context, request Request, target raiTarget) (Extrac
 		return Extraction{}, err
 	}
 	title := raiFirst(raiString(p["name"]), raiString(p["title"]), target.id)
-	if target.extra != "" {
-		title = raiJoin(title, strings.ReplaceAll(target.extra, "/", " - "))
+	playlistID := target.id
+	if target.kind == raiSoundPlaylist && target.extra != "" {
+		pathID := ""
+		for _, filter := range raiSlice(p["filters"]) {
+			filter := raiMap(filter)
+			if strings.Contains(strings.Trim(raiString(filter["weblink"]), "/"), strings.Trim(target.extra, "/")) {
+				pathID = raiString(filter["path_id"])
+				break
+			}
+		}
+		if pathID == "" {
+			return Extraction{}, fmt.Errorf("%w: Rai Sound playlist selector not found", ErrInvalidPlaylist)
+		}
+		selected, ok := raiRelativeEndpoint(target.base, pathID)
+		if !ok {
+			return Extraction{}, fmt.Errorf("%w: unsafe Rai Sound selector", ErrInvalidMetadata)
+		}
+		if err := raiJSON(ctx, request.Transport, selected, &p); err != nil {
+			return Extraction{}, err
+		}
+		playlistID += "_" + strings.ReplaceAll(strings.Trim(target.extra, "/"), "/", "_")
+		title = raiFirst(raiString(p["title"]), title)
 	}
-	seq, err := raiPlaylistEntries(request.Transport, target, p)
+	seq, title, err := raiPlaylistEntries(request.Transport, target, p, title)
 	if err != nil {
 		return Extraction{}, err
 	}
-	info := value.NewObject(value.Field{Key: "id", Value: value.String(target.id)}, value.Field{Key: "title", Value: value.String(title)}, value.Field{Key: "webpage_url", Value: value.String(request.URL)})
+	info := value.NewObject(value.Field{Key: "id", Value: value.String(playlistID)}, value.Field{Key: "title", Value: value.String(title)}, value.Field{Key: "webpage_url", Value: value.String(request.URL)})
 	raiSetString(info, "description", raiStringPath(p, "program_info", "description"))
 	return Playlist(value.NewInfo(info), seq)
 }
@@ -556,14 +580,20 @@ type raiEntries struct {
 	cards     []string
 }
 
-func raiPlaylistEntries(t Transport, target raiTarget, p map[string]any) (EntrySequence, error) {
+func raiPlaylistEntries(t Transport, target raiTarget, p map[string]any, title string) (EntrySequence, string, error) {
 	r := raiEntries{transport: t, target: target}
 	if target.kind == raiPlayPlaylist {
+		selector := strings.ToUpper(strings.Trim(target.extra, "/"))
 		for _, block := range raiSlice(p["blocks"]) {
+			blockMap := raiMap(block)
 			for _, set := range raiSlice(raiMap(block)["sets"]) {
 				setMap := raiMap(set)
-				if target.extra != "" && !strings.Contains(strings.ToUpper(raiString(setMap["name"])), strings.ToUpper(strings.Trim(target.extra, "/"))) {
+				setPath := strings.ToUpper(strings.ReplaceAll(raiJoinPath(raiString(blockMap["name"]), raiString(setMap["name"])), " ", "-"))
+				if selector != "" && setPath != selector {
 					continue
+				}
+				if selector != "" {
+					title = raiJoin(title, raiString(setMap["name"]))
 				}
 				if id := raiString(setMap["id"]); raiSafeID(id) {
 					r.sets = append(r.sets, id)
@@ -579,9 +609,9 @@ func raiPlaylistEntries(t Transport, target raiTarget, p map[string]any) (EntryS
 		}
 	}
 	if len(r.sets) > raiMaxEntries || len(r.cards) > raiMaxEntries {
-		return nil, fmt.Errorf("%w: Rai playlist overflow", ErrInvalidPlaylist)
+		return nil, "", fmt.Errorf("%w: Rai playlist overflow", ErrInvalidPlaylist)
 	}
-	return r, nil
+	return r, title, nil
 }
 func (r raiEntries) Iterator() EntryIterator { return &raiEntriesIterator{source: r} }
 
@@ -590,6 +620,7 @@ type raiEntriesIterator struct {
 	set, index int
 	seen       map[string]bool
 	pending    []Entry
+	emitted    int
 }
 
 func (it *raiEntriesIterator) Next(ctx context.Context) (Entry, bool, error) {
@@ -604,7 +635,11 @@ func (it *raiEntriesIterator) Next(ctx context.Context) (Entry, bool, error) {
 			e := it.pending[0]
 			it.pending = it.pending[1:]
 			if !it.seen[e.URL] {
+				if it.emitted >= raiMaxEntries {
+					return Entry{}, false, fmt.Errorf("%w: Rai playlist entry overflow", ErrInvalidPlaylist)
+				}
 				it.seen[e.URL] = true
+				it.emitted++
 				return e, true, nil
 			}
 			continue
@@ -630,12 +665,39 @@ func (it *raiEntriesIterator) Next(ctx context.Context) (Entry, bool, error) {
 		if err := raiJSON(ctx, it.source.transport, it.source.target.base+"/"+url.PathEscape(sid)+".json", &page); err != nil {
 			return Entry{}, false, err
 		}
-		for _, m := range raiSlice(page["items"]) {
+		items := raiSlice(page["items"])
+		if len(items) > raiMaxEntries-it.emitted-len(it.pending) {
+			return Entry{}, false, fmt.Errorf("%w: Rai playlist entry overflow", ErrInvalidPlaylist)
+		}
+		for _, m := range items {
 			if e, ok := raiEntry(it.source.target.base, raiString(raiMap(m)["path_id"]), "raiplay"); ok {
 				it.pending = append(it.pending, e)
 			}
 		}
 	}
+}
+
+func raiJoinPath(parts ...string) string {
+	clean := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part = strings.Trim(part, "/"); part != "" {
+			clean = append(clean, part)
+		}
+	}
+	return strings.Join(clean, "/")
+}
+
+func raiRelativeEndpoint(base, raw string) (string, bool) {
+	relative, err := url.Parse(raw)
+	if err != nil || relative.IsAbs() || relative.Host != "" || relative.User != nil || relative.Fragment != "" {
+		return "", false
+	}
+	origin, err := url.Parse(base)
+	if err != nil {
+		return "", false
+	}
+	endpoint := origin.ResolveReference(relative).String()
+	return endpoint, raiEndpoint(endpoint)
 }
 func raiEntry(base, p, key string) (Entry, bool) {
 	u, err := url.Parse(p)
@@ -689,10 +751,14 @@ func raiNewsExtract(ctx context.Context, r Request, t raiTarget) (Extraction, er
 		return raiLegacyExtract(ctx, r, raiTarget{kind: raiLegacy, id: t.id})
 	}
 	var data map[string]any
-	if err := json.Unmarshal(bytes.ReplaceAll(match[1], []byte("&quot;"), []byte("\"")), &data); err != nil {
+	if err := json.Unmarshal([]byte(html.UnescapeString(string(match[1]))), &data); err != nil {
 		return Extraction{}, fmt.Errorf("%w: invalid Rai player data", ErrInvalidMetadata)
 	}
-	link := raiStringPath(data, "mediapolis", "content_url")
+	link := raiFirst(
+		raiString(data["content_url"]),
+		raiString(data["mediapolis"]),
+		raiStringPath(data, "mediapolis", "content_url"),
+	)
 	if link == "" {
 		return raiLegacyExtract(ctx, r, raiTarget{kind: raiLegacy, id: t.id})
 	}
@@ -904,7 +970,7 @@ func raiSubtitles(base string, v map[string]any) *value.Object {
 			b, _ := url.Parse(base)
 			u = b.ResolveReference(u)
 		}
-		if !raiPublicURL(u.String()) || seen[u.String()] || o.Len() >= raiMaxSubs {
+		if !raiPublicURL(u.String()) || seen[u.String()] || raiSubtitleCount(o) >= raiMaxSubs {
 			continue
 		}
 		seen[u.String()] = true
@@ -913,7 +979,33 @@ func raiSubtitles(base string, v map[string]any) *value.Object {
 		if ext == "" {
 			ext = "srt"
 		}
-		o.Set(lang, value.List(value.ObjectValue(value.NewObject(value.Field{Key: "url", Value: value.String(u.String())}, value.Field{Key: "ext", Value: value.String(ext)}))))
+		raiAppendSubtitle(o, lang, u.String(), ext)
+		if ext == "stl" {
+			srt := strings.TrimSuffix(u.String(), ".stl") + ".srt"
+			if !seen[srt] && raiPublicURL(srt) && raiSubtitleCount(o) < raiMaxSubs {
+				seen[srt] = true
+				raiAppendSubtitle(o, lang, srt, "srt")
+			}
+		}
 	}
 	return o
+}
+
+func raiAppendSubtitle(subtitles *value.Object, language, rawURL, ext string) {
+	entry := value.ObjectValue(value.NewObject(value.Field{Key: "url", Value: value.String(rawURL)}, value.Field{Key: "ext", Value: value.String(ext)}))
+	if existing, ok := subtitles.Lookup(language).ListValue(); ok {
+		subtitles.Set(language, value.List(append(existing, entry)...))
+		return
+	}
+	subtitles.Set(language, value.List(entry))
+}
+
+func raiSubtitleCount(subtitles *value.Object) int {
+	count := 0
+	for _, field := range subtitles.Fields() {
+		if entries, ok := field.Value.ListValue(); ok {
+			count += len(entries)
+		}
+	}
+	return count
 }
