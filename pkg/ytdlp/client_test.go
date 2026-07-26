@@ -1,6 +1,7 @@
 package ytdlp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -43,6 +44,23 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/testserver"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
+
+type prxProductRoundTripper struct {
+	body   []byte
+	bodies map[string][]byte
+	calls  int
+	paths  []string
+}
+
+func (t *prxProductRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
+	t.calls++
+	t.paths = append(t.paths, r.URL.Path)
+	body := t.body
+	if t.bodies != nil {
+		body = t.bodies[r.URL.Path]
+	}
+	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(body)), Request: r}, nil
+}
 
 func TestIsCategory(t *testing.T) {
 	err := &Error{Category: ErrorNetwork, Op: "fetch", Err: errors.New("offline")}
@@ -266,6 +284,79 @@ func TestProductRegistryIncludesIntegratedExtractors(t *testing.T) {
 		if selected.Name() != test.name {
 			t.Errorf("Select(%q) = %q, want %q", test.rawURL, selected.Name(), test.name)
 		}
+	}
+}
+
+func TestProductCategorizesPRXNetworkFailures(t *testing.T) {
+	for _, err := range []error{extractor.ErrPRXRateLimited, extractor.ErrPRXNetwork} {
+		if !errors.Is(err, err) {
+			t.Fatalf("sentinel does not match itself: %v", err)
+		}
+		if !IsCategory(categorized("prx", err), ErrorNetwork) {
+			t.Fatalf("PRX error %v was not categorized as network", err)
+		}
+	}
+}
+
+func TestProductPRXMultipartReentryTerminates(t *testing.T) {
+	body := []byte(`{"id":"1","title":"Story","_embedded":{"prx:audio":{"_embedded":{"prx:items":[{"id":"11","position":1,"contentType":"audio/mpeg","_links":{"enclosure":{"href":"https://media.example/one.mp3"}}},{"id":"12","position":2,"contentType":"audio/mpeg","_links":{"enclosure":{"href":"https://media.example/two.mp3"}}}]}}}}`)
+	rt := &prxProductRoundTripper{body: body}
+	transport, err := network.New(network.Config{RoundTripper: rt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := Request{URL: "https://prx.org/stories/1", SkipDownload: true}
+	plan, err := prepareCompatibility(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := ""
+	op := &operation{client: NewClient(), request: request, transport: transport, registry: extractor.NewRegistry(extractor.NewPRXStory()), compatibility: plan, rootExtractor: &root}
+	result, err := op.process(context.Background(), request.URL, "", nil, make(map[string]bool), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if root != "prx_story" || rt.calls != 3 {
+		t.Fatalf("root=%q calls=%d", root, rt.calls)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(result.InfoJSON, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	entries, ok := decoded["entries"].([]any)
+	if !ok || len(entries) != 2 {
+		t.Fatalf("entries=%#v", decoded["entries"])
+	}
+	for n, raw := range entries {
+		item := raw.(map[string]any)
+		if item["id"] != fmt.Sprintf("1_part%d", n+1) {
+			t.Fatalf("item=%#v", item)
+		}
+	}
+}
+
+func TestProductPRXAccountReentryOrder(t *testing.T) {
+	media := func(id string) []byte {
+		return []byte(`{"id":"` + id + `","_embedded":{"prx:audio":{"_embedded":{"prx:items":[{"id":"1","position":1,"contentType":"audio/mpeg","_links":{"enclosure":{"href":"https://media.example/a.mp3"}}}]}}}}`)
+	}
+	rt := &prxProductRoundTripper{bodies: map[string][]byte{
+		"/api/v1/accounts/5": []byte(`{"id":"5","name":"A"}`), "/api/v1/accounts/5/series": []byte(`{"count":1,"total":1,"_embedded":{"prx:items":[{"id":"11"}]}}`), "/api/v1/series/11": []byte(`{"id":"11"}`), "/api/v1/series/11/stories": []byte(`{"count":1,"total":1,"_embedded":{"prx:items":[{"id":"12"}]}}`), "/api/v1/stories/12": media("12"), "/api/v1/accounts/5/stories": []byte(`{"count":1,"total":1,"_embedded":{"prx:items":[{"id":"13"}]}}`), "/api/v1/stories/13": media("13")}}
+	transport, err := network.New(network.Config{RoundTripper: rt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := Request{URL: "https://prx.org/accounts/5", SkipDownload: true}
+	plan, err := prepareCompatibility(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	op := &operation{client: NewClient(), request: req, transport: transport, registry: extractor.NewRegistry(extractor.NewPRXAccount(), extractor.NewPRXSeries(), extractor.NewPRXStory()), compatibility: plan}
+	if _, err = op.process(context.Background(), req.URL, "", nil, map[string]bool{}, 0); err != nil {
+		t.Fatal(err)
+	}
+	want := "/api/v1/accounts/5,/api/v1/accounts/5/series,/api/v1/series/11,/api/v1/series/11/stories,/api/v1/stories/12,/api/v1/accounts/5/stories,/api/v1/stories/13"
+	if rt.calls != 7 || strings.Join(rt.paths, ",") != want {
+		t.Fatalf("paths=%v", rt.paths)
 	}
 }
 
