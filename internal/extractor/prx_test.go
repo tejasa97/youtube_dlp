@@ -296,6 +296,31 @@ func TestPRXMultipartPartReentryAndNumericIDs(t *testing.T) {
 	}
 }
 
+func TestPRXThumbnailObjectParity(t *testing.T) {
+	var resource prxResource
+	if err := json.Unmarshal([]byte(`{"id":"1","_embedded":{"prx:image":{"id":2,"size":3,"width":4,"height":5,"_links":{"enclosure":{"href":"https://media.example/image.jpg"}}}}}`), &resource); err != nil {
+		t.Fatal(err)
+	}
+	info, err := prxInfo(resource, "stories")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if thumb, _ := info.Lookup("thumbnail").StringValue(); thumb != "https://media.example/image.jpg" {
+		t.Fatalf("thumbnail=%q", thumb)
+	}
+	thumbs, ok := info.Lookup("thumbnails").ListValue()
+	if !ok || len(thumbs) != 1 {
+		t.Fatalf("thumbnails=%v", thumbs)
+	}
+	obj, ok := thumbs[0].Object()
+	if !ok {
+		t.Fatal("thumbnail object missing")
+	}
+	if u, _ := obj.Lookup("url").StringValue(); u != "https://media.example/image.jpg" {
+		t.Fatalf("url=%q", u)
+	}
+}
+
 func TestPRXMultipartNoRecursion(t *testing.T) {
 	body := `{"id":"42","title":"Multi","_embedded":{"prx:audio":{"_embedded":{"prx:items":[
 {"id":"p1","position":1,"contentType":"audio/mpeg","_links":{"enclosure":{"href":"https://media.example/a.mp3"}}},

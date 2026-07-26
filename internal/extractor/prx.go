@@ -287,6 +287,20 @@ func prxInfo(r prxResource, kind string) (*value.Info, error) {
 		}
 		if im.Links.Enclosure.Href != "" {
 			o.Set("thumbnail", value.String(im.Links.Enclosure.Href))
+			thumb := value.NewObject(value.Field{Key: "url", Value: value.String(im.Links.Enclosure.Href)})
+			if im.ID != "" {
+				thumb.Set("id", value.String(string(im.ID)))
+			}
+			if n, ok := prxNumber(im.Size); ok {
+				thumb.Set("filesize", value.Int(n))
+			}
+			if n, ok := prxNumber(im.Width); ok {
+				thumb.Set("width", value.Int(n))
+			}
+			if n, ok := prxNumber(im.Height); ok {
+				thumb.Set("height", value.Int(n))
+			}
+			o.Set("thumbnails", value.List(value.ObjectValue(thumb)))
 		}
 	}
 	if kind == "accounts" {
