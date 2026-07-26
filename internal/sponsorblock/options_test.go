@@ -9,7 +9,7 @@ import (
 )
 
 func TestHashPrefixMatchesSHA256(t *testing.T) {
-	const videoID = "dQw4w9WgXcQ"
+	const videoID = "fixture0001"
 	sum := sha256.Sum256([]byte(videoID))
 	want := hex.EncodeToString(sum[:])[:4]
 	got, err := hashPrefix(videoID)
