@@ -10,6 +10,11 @@ The shared registry and parity manifest remain owned by the primary integrator.
   and the pinned `/tracks`, `/albums`, `/sets`, `/reposts`, `/likes`,
   `/spotlight`, and `/comments` profile collections. Other profile resources
   and non-SoundCloud hosts are not claimed.
+- Public `w.soundcloud.com`, `player.soundcloud.com`, `p.soundcloud.com`, and
+  exact apex `soundcloud.com/player` URLs unwrap to a canonical native
+  SoundCloud target without a network request. Declared iframe/embed/object,
+  Twitter player, and JSON-LD `embedUrl` candidates use the same bounded
+  parser; an outer `s-*` token overrides the inner token.
 - The pinned legacy API user permalink
   `https://api.soundcloud.com/users/<positive-numeric-id>` resolves that exact
   canonical URL, requires the resolved identity to match, and lazily enumerates
@@ -118,13 +123,20 @@ The shared registry and parity manifest remain owned by the primary integrator.
 - `internal/extractor.FuzzSoundCloudURLClassification`
 - `internal/extractor.FuzzSoundCloudPageEntries`
 - `internal/extractor.FuzzSoundCloudContinuationPolicy`
+- `internal/extractor.TestSoundCloudEmbedRoutesAndCanonicalization`
+- `internal/extractor.TestSoundCloudEmbedRejectsUnsafeAndAmbiguousURLs`
+- `internal/extractor.TestGenericSoundCloudEmbedDiscoveryAndDeduplication`
+- `internal/extractor.FuzzParseSoundCloudEmbedURL`
+- `pkg/ytdlp.TestProductRegistryReentersSoundCloudEmbedIntoMedia`
 - `conformance/extractors/soundcloud/PROVENANCE.md`
+- `conformance/extractors/soundcloud_embed/PROVENANCE.md`
 
 ## Integration hook
 
-Register `extractor.NewSoundCloud()` before `extractor.NewGeneric()` in the
-product registry. It can follow the other platform-specific extractors; its
-strict URL guards avoid overlap with YouTube, Vimeo, Twitch, and fixture URLs.
+Register `extractor.NewSoundCloudEmbed()` and `extractor.NewSoundCloud()` before
+`extractor.NewGeneric()` in the product registry. They can follow the other
+platform-specific extractors; strict URL guards avoid overlap with YouTube,
+Vimeo, Twitch, and fixture URLs.
 Capability status should be raised only after the primary integrator adds this
 registry evidence and the complete test suite passes.
 
@@ -134,9 +146,9 @@ The pilot does not yet implement OAuth/cookie login, original downloadable-file
 resolution, premium subscription formats, offset pagination compatibility,
 full artwork-size expansion, or batch hydration of incomplete private-set
 tracks. The `/comments` user tab enumerates attributable media entries; it does
-not download or expose comment bodies. SoundCloud embed support and arbitrary
-future user tabs are also out of scope. Only the declared synthetic corpus is
-compatibility evidence. SoundCloud
+not download or expose comment bodies. Arbitrary script-based player discovery
+and future user tabs remain out of scope. Only the declared synthetic corpus
+is compatibility evidence. SoundCloud
 can change its web client-ID layout; failure remains explicit and bounded rather
 than relying on a pinned runtime credential.
 

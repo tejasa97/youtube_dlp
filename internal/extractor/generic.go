@@ -399,6 +399,9 @@ func canonicalGenericEmbed(pageURL *url.URL, rawURL string) (Entry, bool) {
 	if target, ok := canonicalGenericYouTubeEmbed(resolved); ok {
 		return target, true
 	}
+	if canonical, target, ok := parseSoundCloudEmbedURL(resolved); ok {
+		return genericTransparentEntry(canonical, "soundcloud", target.id), true
+	}
 	if host == "player.vimeo.com" {
 		if match := vimeoURLPattern.FindStringSubmatch(resolved.Path); len(match) == 2 && strings.HasPrefix(resolved.Path, "/video/") {
 			return genericTransparentEntry("https://vimeo.com/"+match[1], "vimeo", match[1]), true
