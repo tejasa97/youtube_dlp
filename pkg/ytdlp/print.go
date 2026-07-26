@@ -91,8 +91,12 @@ func (operation *operation) capturePrints(
 			return outputs, err
 		}
 		printInfo := value.NewInfo(info.Fields().Clone())
-		if err := addPrintFields(&printInfo, selections, filename, printStageRank(stage) >= printStageRank(PrintPostProcess)); err != nil {
+		includeFilepath := printStageRank(stage) >= printStageRank(PrintPostProcess)
+		if err := addPrintFields(&printInfo, selections, filename, includeFilepath); err != nil {
 			return outputs, err
+		}
+		if !includeFilepath {
+			operation.applyThumbnailEmbeddingOutputExtension(&printInfo, selections)
 		}
 		if rule.OmitIfMissing != "" {
 			candidate := printInfo.Lookup(rule.OmitIfMissing)
@@ -124,11 +128,12 @@ func (operation *operation) validatePrintRules(
 			return err
 		}
 		printInfo := value.NewInfo(info.Fields().Clone())
-		if err := addPrintFields(
-			&printInfo, selections, filename,
-			printStageRank(rule.Stage) >= printStageRank(PrintPostProcess),
-		); err != nil {
+		includeFilepath := printStageRank(rule.Stage) >= printStageRank(PrintPostProcess)
+		if err := addPrintFields(&printInfo, selections, filename, includeFilepath); err != nil {
 			return err
+		}
+		if !includeFilepath {
+			operation.applyThumbnailEmbeddingOutputExtension(&printInfo, selections)
 		}
 		if _, err := outputtemplate.Render(rule.Template, printInfo); err != nil {
 			return err
@@ -164,8 +169,12 @@ func (operation *operation) writePrintFiles(
 			return artifacts, total, err
 		}
 		printInfo := value.NewInfo(info.Fields().Clone())
-		if err := addPrintFields(&printInfo, selections, filename, printStageRank(stage) >= printStageRank(PrintPostProcess)); err != nil {
+		includeFilepath := printStageRank(stage) >= printStageRank(PrintPostProcess)
+		if err := addPrintFields(&printInfo, selections, filename, includeFilepath); err != nil {
 			return artifacts, total, err
+		}
+		if !includeFilepath {
+			operation.applyThumbnailEmbeddingOutputExtension(&printInfo, selections)
 		}
 		if rule.OmitIfMissing != "" {
 			candidate := printInfo.Lookup(rule.OmitIfMissing)
@@ -583,10 +592,13 @@ func formatPrintDuration(seconds float64) string {
 func (operation *operation) printFilename(info value.Info, selections []mediaformat.Selection) (string, error) {
 	pattern := operation.request.outputTemplate(OutputTemplateDefault)
 	outputInfo := selectedFormatInfo(info, selections)
+	operation.applyThumbnailEmbeddingOutputExtension(&outputInfo, selections)
 	outputDir := operation.request.outputRoot(OutputPathHome)
 	filename, err := outputtemplate.Resolve(outputDir, pattern, outputInfo)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Clean(filename), nil
+	return filepath.Clean(thumbnailEmbeddingDestination(
+		operation.request, selections, filename, hasThumbnailForEmbedding(outputInfo),
+	)), nil
 }

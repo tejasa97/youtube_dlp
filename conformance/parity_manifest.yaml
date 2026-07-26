@@ -104,6 +104,9 @@ capabilities:
       - pkg/ytdlp.TestEmbedSelectedThumbnailExplicitRetentionAndCleanupFailure
       - pkg/ytdlp.TestEmbedSelectedThumbnailFailureCancellationAndWarnings
       - pkg/ytdlp.TestProductEmbedsMislabeledWebPThumbnailAndAppliesRetention
+      - pkg/ytdlp.TestProductEmbedsThumbnailIntoXiphContainers
+      - pkg/ytdlp.TestProductPromotesMergedWebMToMatroskaForThumbnail
+      - pkg/ytdlp.TestThumbnailEmbeddingPromotesOnlyMergedWebM
       - pkg/ytdlp.TestValidateMultiOutputRejectsThumbnailEmbedding
       - pkg/ytdlp.FuzzThumbnailPathAndURL
       - pkg/ytdlp.FuzzThumbnailConversionMapping
@@ -118,6 +121,10 @@ capabilities:
       - internal/cli.TestRunNoEmbedThumbnailOverridesConfiguration
       - internal/media/ffmpeg.TestEmbedThumbnailSupportedContainers
       - internal/media/ffmpeg.TestEmbedThumbnailValidatesInputsAndContainers
+      - internal/media/ffmpeg.TestEmbedThumbnailMatroskaCrossMIMEAndUnrelatedAttachment
+      - internal/media/ffmpeg.TestEncodeFLACPictureBoundsAndType
+      - internal/media/ffmpeg.TestXiphThumbnailCancellationAndTemporaryCleanup
+      - internal/media/ffmpeg.FuzzEncodeFLACPicture
       - conformance/thumbnails/PROVENANCE.md
       - docs/THUMBNAIL_SIDECARS_EVIDENCE.md
     owner: core
@@ -126,7 +133,7 @@ capabilities:
       - compat.output_template_minimal
       - network.shared_transport
       - postprocess.ffmpeg
-    known_deviation: Existing thumbnail files fail closed unless overwrite is enabled. Automatic embedding supports MP3, MP4/M4A/M4V/MOV, and MKV/MKA; Ogg/Opus/FLAC metadata-block pictures, WebM-to-Matroska promotion, and replacement of a pre-existing cover remain outside this claim.
+    known_deviation: Existing thumbnail files fail closed unless overwrite is enabled. Automatic embedding accepts only recognized image types and replaces the pinned reference's compatible existing-cover families rather than guessing at unknown attachment semantics.
 
   - id: cli.staged_print
     name: Staged template, file, and legacy field printing

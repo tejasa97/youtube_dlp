@@ -188,6 +188,43 @@ func TestValidateMultiOutputRejectsThumbnailEmbedding(t *testing.T) {
 	}
 }
 
+func TestThumbnailEmbeddingPromotesOnlyMergedWebM(t *testing.T) {
+	pair := []mediaformat.Selection{
+		{Ext: "webm", VCodec: "vp9", ACodec: "none"},
+		{Ext: "webm", VCodec: "none", ACodec: "opus"},
+	}
+	if got := thumbnailEmbeddingOutputExtension(Request{
+		Thumbnails: ThumbnailOptions{Embed: true},
+	}, pair); got != "mkv" {
+		t.Fatalf("embedded WebM pair extension=%q", got)
+	}
+	if got := thumbnailEmbeddingOutputExtension(Request{}, pair); got != "webm" {
+		t.Fatalf("plain WebM pair extension=%q", got)
+	}
+	if got := thumbnailEmbeddingOutputExtension(Request{
+		Thumbnails: ThumbnailOptions{Embed: true},
+	}, pair[:1]); got != "webm" {
+		t.Fatalf("single WebM extension=%q", got)
+	}
+	request := Request{Thumbnails: ThumbnailOptions{Embed: true}}
+	for input, want := range map[string]string{
+		"/tmp/fixed.webm":  "/tmp/fixed.mkv",
+		"/tmp/fixed.mkv":   "/tmp/fixed.mkv",
+		"/tmp/fixed":       "/tmp/fixed.mkv",
+		"/tmp/fixed.other": "/tmp/fixed.other.mkv",
+	} {
+		if got := thumbnailEmbeddingDestination(request, pair, input, true); got != want {
+			t.Fatalf("destination(%q)=%q want=%q", input, got, want)
+		}
+	}
+	if got := thumbnailEmbeddingDestination(Request{}, pair, "/tmp/fixed.webm", true); got != "/tmp/fixed.webm" {
+		t.Fatalf("plain destination=%q", got)
+	}
+	if got := thumbnailEmbeddingDestination(request, pair, "/tmp/fixed.webm", false); got != "/tmp/fixed.webm" {
+		t.Fatalf("no-thumbnail destination=%q", got)
+	}
+}
+
 func thumbnailEmbedInfo(paths ...string) value.Info {
 	thumbnails := make([]value.Value, 0, len(paths))
 	for index, path := range paths {

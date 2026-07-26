@@ -28,11 +28,11 @@ checked before network work begins, and product integration is covered by
 generated-media ffprobe verification.
 
 Known deviations: chapter writing uses explicit millisecond `ffmetadata`
-chapters and preserves supplied boundaries/titles; yt-dlp's more extensive
-chapter removal and sponsor-block mutation workflows are not part of this lane
-yet. Automatic thumbnail embedding is bounded to MP3, MP4-family, and
-Matroska outputs; Ogg/Opus/FLAC metadata-block pictures and WebM promotion
-remain outside the CLI lifecycle.
+chapters and preserves supplied boundaries/titles. Automatic thumbnail
+embedding covers MP3, MP4-family, Matroska, Ogg, Opus, and FLAC outputs,
+replaces existing compatible cover art, and promotes merged WebM outputs to
+Matroska. Xiph picture blocks are produced natively in Go and passed through a
+private metadata file; no Python or mutagen runtime is used.
 
 Safe cross-device moves stream through an exclusive temporary file, honor context
 cancellation, sync before publish, and retain the source until publication. On

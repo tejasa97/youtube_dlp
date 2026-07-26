@@ -296,12 +296,22 @@ func (tools *Toolset) EmbedThumbnail(ctx context.Context, inputPath, imagePath, 
 	if err := regularMediaInput(imagePath); err != nil {
 		return err
 	}
+	inputInfo, err := os.Stat(inputPath)
+	if err != nil {
+		return fmt.Errorf("%w: inspect thumbnail media input: %v", ErrInvalidOperation, err)
+	}
 	container := strings.TrimPrefix(strings.ToLower(filepath.Ext(destination)), ".")
 	imageExtension := strings.TrimPrefix(strings.ToLower(filepath.Ext(imagePath)), ".")
 	if imageExtension == "jpeg" {
 		imageExtension = "jpg"
 	}
 	var args []string
+	var cleanupPath string
+	defer func() {
+		if cleanupPath != "" {
+			_ = os.Remove(cleanupPath)
+		}
+	}()
 	switch container {
 	case "mp3":
 		if imageExtension != "jpg" && imageExtension != "png" {
@@ -323,12 +333,16 @@ func (tools *Toolset) EmbedThumbnail(ctx context.Context, inputPath, imagePath, 
 		if err != nil {
 			return err
 		}
-		attachments := thumbnailAttachmentCount(probe.Streams)
-		args = []string{
-			"-i", inputPath, "-map", "0", "-c", "copy", "-attach", imagePath,
-			fmt.Sprintf("-metadata:s:t:%d", attachments), "mimetype=" + mime,
-			fmt.Sprintf("-metadata:s:t:%d", attachments), "filename=cover." + imageExtension,
+		newStreamIndex, removed := thumbnailAttachmentPlan(probe.Streams, mime)
+		args = []string{"-i", inputPath, "-map", "0"}
+		for _, index := range removed {
+			args = append(args, "-map", fmt.Sprintf("-0:%d", index))
 		}
+		args = append(args,
+			"-c", "copy", "-attach", imagePath,
+			fmt.Sprintf("-metadata:s:%d", newStreamIndex), "mimetype="+mime,
+			fmt.Sprintf("-metadata:s:%d", newStreamIndex), "filename=cover."+imageExtension,
+		)
 	case "m4a", "mp4", "m4v", "mov":
 		if imageExtension != "jpg" && imageExtension != "png" {
 			return fmt.Errorf("%w: MP4 thumbnail must be jpg or png", ErrInvalidOperation)
@@ -337,38 +351,97 @@ func (tools *Toolset) EmbedThumbnail(ctx context.Context, inputPath, imagePath, 
 		if err != nil {
 			return err
 		}
-		videoStreams := streamCount(probe.Streams, "video")
+		videoStreams, removed := thumbnailVideoPlan(probe.Streams)
+		args = []string{"-i", inputPath, "-i", imagePath, "-map", "0"}
+		for _, index := range removed {
+			args = append(args, "-map", fmt.Sprintf("-0:%d", index))
+		}
+		args = append(args,
+			"-map", "1:v:0", "-c", "copy",
+			fmt.Sprintf("-disposition:v:%d", videoStreams), "attached_pic",
+		)
+	case "flac":
+		if imageExtension != "jpg" && imageExtension != "png" {
+			return fmt.Errorf("%w: FLAC thumbnail must be jpg or png", ErrInvalidOperation)
+		}
 		args = []string{
 			"-i", inputPath, "-i", imagePath,
-			"-map", "0", "-map", "1:v:0", "-c", "copy",
-			fmt.Sprintf("-disposition:v:%d", videoStreams), "attached_pic",
+			"-map", "0:a:0", "-map", "1:v:0", "-map_metadata", "0", "-c", "copy",
+			"-disposition:v:0", "attached_pic",
+			"-metadata:s:v:0", "comment=Cover (front)",
+		}
+	case "ogg", "opus":
+		metadataPath, err := tools.writeXiphThumbnailMetadata(ctx, inputPath, imagePath, destination)
+		if err != nil {
+			return err
+		}
+		cleanupPath = metadataPath
+		args = []string{
+			"-i", inputPath, "-f", "ffmetadata", "-i", metadataPath,
+			"-map", "0:a:0", "-map_metadata", "1", "-c", "copy",
 		}
 	default:
 		return fmt.Errorf("%w: unsupported thumbnail container %q", ErrInvalidOperation, container)
 	}
-	return tools.runAtomic(ctx, destination, overwrite, sink, func(temporary string) []string {
+	return tools.runAtomicPrepared(ctx, destination, overwrite, sink, func(temporary string) error {
+		return os.Chtimes(temporary, inputInfo.ModTime(), inputInfo.ModTime())
+	}, func(temporary string) []string {
 		return append(args, "-progress", "pipe:1", "-nostats", temporary)
 	})
 }
 
-func streamCount(streams []Stream, kind string) int {
-	count := 0
+func thumbnailAttachmentPlan(streams []Stream, mime string) (int, []int) {
+	removed := make([]int, 0)
 	for _, stream := range streams {
-		if stream.CodecType == kind {
-			count++
+		if thumbnailMatroskaCover(stream, mime) {
+			removed = append(removed, stream.Index)
 		}
 	}
-	return count
+	// -attach appends a new global output stream after every mapped input
+	// stream. Negative maps remove matching covers, so the new stream's global
+	// index is the retained input stream count, not its attachment ordinal.
+	return len(streams) - len(removed), removed
 }
 
-func thumbnailAttachmentCount(streams []Stream) int {
-	count := 0
-	for _, stream := range streams {
-		if stream.CodecType == "attachment" || stream.Disposition["attached_pic"] == 1 {
-			count++
+func thumbnailMatroskaCover(stream Stream, mime string) bool {
+	if !strings.EqualFold(metadataValueFold(stream.Tags, "mimetype"), mime) {
+		return false
+	}
+	if stream.CodecType == "attachment" || stream.Disposition["attached_pic"] == 1 {
+		return true
+	}
+	// ffmpeg may expose a retained Matroska image attachment as a video stream
+	// without attached_pic after a cross-MIME remux. Recognize only the
+	// cover.<ext> attachment name that this boundary itself emits; never infer
+	// cover art from a MIME tag on an audio or ordinary video stream.
+	filename := strings.ToLower(metadataValueFold(stream.Tags, "filename"))
+	return stream.CodecType == "video" && strings.HasPrefix(filename, "cover.") &&
+		strings.EqualFold(thumbnailMIME(strings.TrimPrefix(filepath.Ext(filename), ".")), mime)
+}
+
+func metadataValueFold(metadata Metadata, key string) string {
+	for candidate, value := range metadata {
+		if strings.EqualFold(candidate, key) {
+			return value
 		}
 	}
-	return count
+	return ""
+}
+
+func thumbnailVideoPlan(streams []Stream) (int, []int) {
+	remaining := 0
+	removed := make([]int, 0)
+	for _, stream := range streams {
+		if stream.CodecType != "video" {
+			continue
+		}
+		if stream.Disposition["attached_pic"] == 1 {
+			removed = append(removed, stream.Index)
+			continue
+		}
+		remaining++
+	}
+	return remaining, removed
 }
 
 func thumbnailMIME(extension string) string {
@@ -648,6 +721,17 @@ func (tools *Toolset) Concat(ctx context.Context, inputs []string, destination s
 }
 
 func (tools *Toolset) runAtomic(ctx context.Context, destination string, overwrite bool, sink events.Sink, operation func(string) []string) error {
+	return tools.runAtomicPrepared(ctx, destination, overwrite, sink, nil, operation)
+}
+
+func (tools *Toolset) runAtomicPrepared(
+	ctx context.Context,
+	destination string,
+	overwrite bool,
+	sink events.Sink,
+	prepare func(string) error,
+	operation func(string) []string,
+) error {
 	if sink == nil {
 		sink = events.Nop()
 	}
@@ -718,6 +802,12 @@ func (tools *Toolset) runAtomic(ctx context.Context, destination string, overwri
 	if err := ctx.Err(); err != nil {
 		_ = os.Remove(temporary)
 		return err
+	}
+	if prepare != nil {
+		if err := prepare(temporary); err != nil {
+			_ = os.Remove(temporary)
+			return fmt.Errorf("%w: prepare output: %v", ErrMediaFailure, err)
+		}
 	}
 	if err := replace(temporary, destination, overwrite); err != nil {
 		_ = os.Remove(temporary)
