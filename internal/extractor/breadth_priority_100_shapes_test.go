@@ -775,12 +775,10 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 			t.Fatal("missing formats")
 		}
 	})
-	add("simplecast-episode", "simplecast_episode|*.simplecast.com/episodes/{slug}", "simplecast_episode", "url_result", func(t *testing.T) {
-		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
-			"https://api.simplecast.com/episodes/search": {body: familyFixture(t, "simplecast_episode", "search.json")},
-		}}
+	add("simplecast-episode", "simplecast_episode|*.simplecast.com/episodes/{slug}", "simplecast_episode", "media", func(t *testing.T) {
+		transport := &simplecastSearchTransport{t: t, body: familyFixture(t, "simplecast_episode", "search.json")}
 		result, err := NewSimplecastEpisode().Extract(context.Background(), Request{URL: "https://the-re-bind-io-podcast.simplecast.com/episodes/errant-signal", Transport: transport})
-		if err != nil || result.Redirect.ExtractorKey != "simplecast" {
+		if err != nil || result.IsURL() || result.IsPlaylist() {
 			t.Fatalf("%#v %v", result, err)
 		}
 	})

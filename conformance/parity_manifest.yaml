@@ -2087,7 +2087,10 @@ capabilities:
       - internal/extractor.TestCleanPodcastMediaURLPinnedCorpus
       - internal/extractor.TestPodcastHTTPMediaReportsContainerAndProtocolHonestly
       - internal/extractor.TestSimplecastMetadataURLGuards
+      - internal/extractor.TestSimplecastEpisodeInlineHydrationValidation
+      - internal/extractor.TestSimplecastEpisodeSearchTransportAndFailures
       - internal/extractor.FuzzCleanPodcastMediaURL
+      - internal/extractor.FuzzParseSimplecastEpisodeURL
       - conformance/extractors/shared/PROVENANCE.md
       - conformance/extractors/public/PROVENANCE.md
       - conformance/extractors/risk/instagram/PROVENANCE.md

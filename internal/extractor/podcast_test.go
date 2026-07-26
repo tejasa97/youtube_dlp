@@ -1,13 +1,70 @@
 package extractor
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"testing"
 )
+
+type simplecastSearchTransport struct {
+	t             *testing.T
+	body          []byte
+	status        int
+	header        http.Header
+	ambientCalls  int
+	isolatedCalls int
+}
+
+func (transport *simplecastSearchTransport) ReadPage(context.Context, string) ([]byte, http.Header, error) {
+	transport.t.Fatal("unexpected page request")
+	return nil, nil, errors.New("unexpected page request")
+}
+
+func (transport *simplecastSearchTransport) Do(ctx context.Context, request *http.Request) (*http.Response, error) {
+	transport.ambientCalls++
+	return nil, errors.New("ambient transport must not be used")
+}
+
+func (transport *simplecastSearchTransport) DoWithoutCredentialsNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
+	transport.t.Helper()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	transport.isolatedCalls++
+	if request.Method != http.MethodPost || request.URL.String() != "https://api.simplecast.com/episodes/search" {
+		transport.t.Fatalf("request = %s %s", request.Method, request.URL)
+	}
+	if got := request.Header.Get("Content-Type"); got != "application/x-www-form-urlencoded" {
+		transport.t.Fatalf("Content-Type = %q", got)
+	}
+	body, err := io.ReadAll(request.Body)
+	if err != nil {
+		transport.t.Fatal(err)
+	}
+	const want = "url=https%3A%2F%2Fthe-re-bind-io-podcast.simplecast.com%2Fepisodes%2Ferrant-signal"
+	if string(body) != want {
+		transport.t.Fatalf("body = %q; want %q", body, want)
+	}
+	status := transport.status
+	if status == 0 {
+		status = http.StatusOK
+	}
+	header := transport.header
+	if header == nil {
+		header = make(http.Header)
+	}
+	return &http.Response{
+		StatusCode: status,
+		Header:     header,
+		Body:       io.NopCloser(bytes.NewReader(transport.body)),
+		Request:    request,
+	}, nil
+}
 
 func TestPodcastFamilySuccessAndPlaylists(t *testing.T) {
 	t.Parallel()
@@ -101,14 +158,35 @@ func TestPodcastFamilySuccessAndPlaylists(t *testing.T) {
 	})
 
 	t.Run("simplecast_episode", func(t *testing.T) {
-		transport := &sharedFixtureTransport{responses: map[string]fixtureHTTP{
-			"https://api.simplecast.com/episodes/search": {body: familyFixture(t, "simplecast_episode", "search.json")},
-		}}
+		transport := &simplecastSearchTransport{t: t, body: familyFixture(t, "simplecast_episode", "search.json")}
 		result, err := NewSimplecastEpisode().Extract(context.Background(), Request{
 			URL: "https://the-re-bind-io-podcast.simplecast.com/episodes/errant-signal", Transport: transport,
 		})
-		if err != nil || result.Redirect.ExtractorKey != "simplecast" {
+		if err != nil || result.IsURL() || result.IsPlaylist() {
 			t.Fatalf("%#v %v", result, err)
+		}
+		if transport.ambientCalls != 0 || transport.isolatedCalls != 1 {
+			t.Fatalf("ambient=%d isolated=%d; want 0/1", transport.ambientCalls, transport.isolatedCalls)
+		}
+		if id, _ := result.Info.Lookup("id").StringValue(); id != "b6dc49a2-9404-4853-9aa9-9cfc097be876" {
+			t.Fatalf("id = %q", id)
+		}
+		if episodeID, _ := result.Info.Lookup("episode_id").StringValue(); episodeID != "b6dc49a2-9404-4853-9aa9-9cfc097be876" {
+			t.Fatalf("episode_id = %q", episodeID)
+		}
+		if formats, ok := result.Info.Formats(); !ok || len(formats) != 1 {
+			t.Fatal("missing inline format")
+		} else {
+			format, _ := formats[0].Object()
+			if mediaURL, _ := format.Lookup("url").StringValue(); mediaURL != "https://media.example.invalid/sc.mp3?updated=1" {
+				t.Fatalf("cleaned media URL = %q", mediaURL)
+			}
+		}
+		if series, _ := result.Info.Lookup("series").StringValue(); series != "RE:BIND" {
+			t.Fatalf("series = %q", series)
+		}
+		if duration, ok := result.Info.Lookup("duration").Int(); !ok || duration != 100 {
+			t.Fatalf("duration = %d, %v", duration, ok)
 		}
 	})
 
@@ -292,6 +370,146 @@ func TestPodcastFamilyNegatives(t *testing.T) {
 	}
 }
 
+func TestSimplecastEpisodeInlineHydrationValidation(t *testing.T) {
+	t.Parallel()
+	const (
+		id        = "b6dc49a2-9404-4853-9aa9-9cfc097be876"
+		canonical = "https://the-re-bind-io-podcast.simplecast.com/episodes/errant-signal"
+	)
+	valid := simplecastEpisodePayload{
+		ID:           id,
+		Title:        "  Errant Signal  ",
+		EnclosureURL: "https://media.example.invalid/episode.mp3",
+		EpisodeURL:   canonical,
+		Description:  "  description  ",
+	}
+	result, err := simplecastEpisodeExtraction(valid, "", canonical, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if title, _ := result.Info.Lookup("title").StringValue(); title != "Errant Signal" {
+		t.Fatalf("title = %q", title)
+	}
+	if episode, _ := result.Info.Lookup("episode").StringValue(); episode != "Errant Signal" {
+		t.Fatalf("episode = %q", episode)
+	}
+	if description, _ := result.Info.Lookup("description").StringValue(); description != "description" {
+		t.Fatalf("description = %q", description)
+	}
+
+	tests := []struct {
+		name     string
+		mutate   func(*simplecastEpisodePayload)
+		expected string
+	}{
+		{"missing id", func(payload *simplecastEpisodePayload) { payload.ID = "" }, ""},
+		{"invalid id", func(payload *simplecastEpisodePayload) { payload.ID = "not-a-uuid" }, ""},
+		{"blank title", func(payload *simplecastEpisodePayload) { payload.Title = " \t" }, ""},
+		{"missing media", func(payload *simplecastEpisodePayload) { payload.EnclosureURL = "" }, ""},
+		{"unsafe media", func(payload *simplecastEpisodePayload) { payload.EnclosureURL = "file:///secret" }, ""},
+		{"mismatched requested id", func(*simplecastEpisodePayload) {}, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			payload := valid
+			test.mutate(&payload)
+			if _, err := simplecastEpisodeExtraction(payload, test.expected, canonical, true); !errors.Is(err, ErrInvalidMetadata) {
+				t.Fatalf("error = %v; want invalid metadata", err)
+			}
+		})
+	}
+
+	hostile := valid
+	hostile.EpisodeURL = "https://other.simplecast.com/episodes/different"
+	result, err = simplecastEpisodeExtraction(hostile, "", canonical, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if webpage, _ := result.Info.Lookup("webpage_url").StringValue(); webpage != canonical {
+		t.Fatalf("identity-swapped webpage URL accepted: %q", webpage)
+	}
+	if _, ok := result.Info.Lookup("channel_url").StringValue(); ok {
+		t.Fatal("identity-swapped channel URL accepted")
+	}
+
+	longTitle := valid
+	longTitle.Title = strings.Repeat("x", podcastMaxTitle+100)
+	result, err = simplecastEpisodeExtraction(longTitle, "", canonical, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"title", "episode"} {
+		got, _ := result.Info.Lookup(key).StringValue()
+		if len(got) != podcastMaxTitle {
+			t.Fatalf("%s length = %d; want %d", key, len(got), podcastMaxTitle)
+		}
+	}
+}
+
+func TestSimplecastEpisodeSearchTransportAndFailures(t *testing.T) {
+	t.Parallel()
+	const canonical = "https://the-re-bind-io-podcast.simplecast.com/episodes/errant-signal"
+	extract := func(transport Transport) error {
+		_, err := NewSimplecastEpisode().Extract(context.Background(), Request{URL: canonical, Transport: transport})
+		return err
+	}
+	if err := extract(&sharedFixtureTransport{}); !errors.Is(err, ErrTransportIsolation) {
+		t.Fatalf("missing isolation error = %v", err)
+	}
+	for _, test := range []struct {
+		name   string
+		status int
+		body   []byte
+		want   error
+	}{
+		{"unauthorized", http.StatusUnauthorized, []byte("token=must-not-leak"), ErrAuthentication},
+		{"forbidden", http.StatusForbidden, []byte("secret=must-not-leak"), ErrAuthentication},
+		{"geo forbidden", http.StatusForbidden, []byte(`{"reason":"geo","token":"must-not-leak"}`), ErrRegionRestricted},
+		{"not found", http.StatusNotFound, nil, ErrUnavailable},
+		{"gone", http.StatusGone, nil, ErrUnavailable},
+		{"legal", http.StatusUnavailableForLegalReasons, nil, ErrRegionRestricted},
+		{"redirect", http.StatusFound, []byte("signed=must-not-leak"), nil},
+		{"malformed", http.StatusOK, []byte(`{"id":`), ErrInvalidMetadata},
+		{"trailing", http.StatusOK, []byte(`{} {}`), ErrInvalidMetadata},
+		{"oversize", http.StatusOK, bytes.Repeat([]byte("x"), int(maxExtractorJSONBytes)+1), ErrJSONResponseTooLarge},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			transport := &simplecastSearchTransport{
+				t:      t,
+				status: test.status,
+				body:   test.body,
+				header: http.Header{"Location": []string{"https://evil.example/?token=must-not-leak"}},
+			}
+			err := extract(transport)
+			if test.name == "redirect" {
+				var statusErr string
+				if err != nil {
+					statusErr = err.Error()
+				}
+				if err == nil || !strings.Contains(statusErr, "HTTP status 302") {
+					t.Fatalf("redirect error = %v", err)
+				}
+			} else if !errors.Is(err, test.want) {
+				t.Fatalf("error = %v; want %v", err, test.want)
+			}
+			if transport.ambientCalls != 0 || transport.isolatedCalls != 1 {
+				t.Fatalf("ambient=%d isolated=%d", transport.ambientCalls, transport.isolatedCalls)
+			}
+			if err != nil && strings.Contains(err.Error(), "must-not-leak") {
+				t.Fatalf("secret leaked: %v", err)
+			}
+		})
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	transport := &simplecastSearchTransport{t: t}
+	_, err := NewSimplecastEpisode().Extract(ctx, Request{URL: canonical, Transport: transport})
+	if !errors.Is(err, context.Canceled) || transport.isolatedCalls != 0 || transport.ambientCalls != 0 {
+		t.Fatalf("cancellation error=%v ambient=%d isolated=%d", err, transport.ambientCalls, transport.isolatedCalls)
+	}
+}
+
 func FuzzParseACastEpisodeURL(f *testing.F) {
 	f.Add("https://shows.acast.com/sparpodcast/episodes/2.raggarmordet")
 	f.Add("https://play.acast.com/s/rattegangspodden/s04e09")
@@ -301,5 +519,37 @@ func FuzzParseACastEpisodeURL(f *testing.F) {
 			return
 		}
 		_, _, _ = parseACastEpisodeURL(parsed)
+	})
+}
+
+func FuzzParseSimplecastEpisodeURL(f *testing.F) {
+	f.Add("https://the-re-bind-io-podcast.simplecast.com/episodes/errant-signal")
+	f.Add("https://api.simplecast.com/episodes/b6dc49a2-9404-4853-9aa9-9cfc097be876")
+	f.Add("https://evil.example/simplecast.com/episodes/x")
+	f.Fuzz(func(t *testing.T, raw string) {
+		parsed, err := url.Parse(raw)
+		if err != nil {
+			return
+		}
+		host, slug, ok := parseSimplecastEpisodeURL(parsed)
+		if !ok {
+			return
+		}
+		switch host {
+		case "api.simplecast.com", "player.simplecast.com", "cdn.simplecast.com", "embed.simplecast.com", "feeds.simplecast.com":
+			t.Fatalf("reserved host accepted: %q", host)
+		}
+		if !strings.HasSuffix(host, ".simplecast.com") || !podcastSlug.MatchString(slug) ||
+			parsed.User != nil || parsed.Port() != "" {
+			t.Fatalf("unsafe accepted route: host=%q slug=%q", host, slug)
+		}
+		roundTrip, err := url.Parse("https://" + host + "/episodes/" + slug)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gotHost, gotSlug, gotOK := parseSimplecastEpisodeURL(roundTrip)
+		if !gotOK || gotHost != host || gotSlug != slug {
+			t.Fatalf("round trip = %q/%q/%v; want %q/%q/true", gotHost, gotSlug, gotOK, host, slug)
+		}
 	})
 }
