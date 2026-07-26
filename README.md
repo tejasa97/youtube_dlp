@@ -548,7 +548,9 @@ exit reviews remain available as engineering evidence, not as the current
 near-term roadmap.
 
 The authoritative backlog is the set of known deviations in the
-[capability manifest](conformance/parity_manifest.yaml).
+[capability manifest](conformance/parity_manifest.yaml). Extractor breadth is
+tracked separately against every registered class in the pinned reference by
+the [extractor master checklist](docs/EXTRACTOR_MASTER_CHECKLIST.md).
 
 ## Development and verification
 
