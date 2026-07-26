@@ -626,6 +626,8 @@ func TestCanonicalGenericEmbedSupportedProviderRoutes(t *testing.T) {
 		raw, wantURL, wantKey string
 	}{
 		{"https://www.youtube.com/embed/ABCDEFGHIJK", "https://www.youtube.com/watch?v=ABCDEFGHIJK", "youtube"},
+		{"https://w.soundcloud.com/player/?url=https%3A%2F%2Fsoundcloud.com%2Fartist%2Ftrack", "https://soundcloud.com/artist/track", "soundcloud"},
+		{"https://soundcloud.com/player/?url=https%3A%2F%2Fsoundcloud.com%2Fapex%2Ftrack", "https://soundcloud.com/apex/track", "soundcloud"},
 		{"https://player.vimeo.com/video/123456789", "https://vimeo.com/123456789", "vimeo"},
 		{"https://players.brightcove.net/123/default_default/index.html?videoId=456", "https://players.brightcove.net/123/default_default/index.html?videoId=456", "brightcove"},
 		{"https://cdnapisec.kaltura.com/p/123/sp/12300/embedIframeJs?entry_id=1_abcd1234&partner_id=123", "kaltura:123:1_abcd1234:html5", "kaltura"},
@@ -647,6 +649,36 @@ func TestCanonicalGenericEmbedSupportedProviderRoutes(t *testing.T) {
 				t.Fatalf("entry = %#v", entry)
 			}
 		})
+	}
+}
+
+func TestGenericSoundCloudEmbedDiscoveryAndDeduplication(t *testing.T) {
+	t.Parallel()
+	const widget = "https://w.soundcloud.com/player/?url=https%3A%2F%2Fsoundcloud.com%2Fartist%2Ftrack"
+	page := []byte(`<iframe src="` + widget + `"></iframe>
+		<embed src="//w.soundcloud.com/player/?visual=true&amp;url=https%3A%2F%2Fsoundcloud.com%2Fartist%2Ftrack">
+		<object data="https://player.soundcloud.com/player?url=https%3A%2F%2Fsoundcloud.com%2Fsecond%2Ftrack"></object>`)
+	result, err := NewGeneric().Extract(context.Background(), genericHTMLRequest(page))
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := CollectEntries(context.Background(), result.Entries, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 ||
+		entries[0].URL != "https://soundcloud.com/artist/track" || entries[0].ExtractorKey != "soundcloud" ||
+		entries[1].URL != "https://soundcloud.com/second/track" || entries[1].ExtractorKey != "soundcloud" {
+		t.Fatalf("entries = %#v", entries)
+	}
+
+	jsonLD := []byte(`<script type="application/ld+json">{
+		"@context":"https://schema.org","@type":"AudioObject",
+		"embedUrl":"https://player.soundcloud.com/player?url=https%3A%2F%2Fsoundcloud.com%2Fjsonld%2Ftrack"
+	}</script>`)
+	result, err = NewGeneric().Extract(context.Background(), genericHTMLRequest(jsonLD))
+	if err != nil || !result.IsURL() || result.Redirect.URL != "https://soundcloud.com/jsonld/track" {
+		t.Fatalf("JSON-LD result = %#v, %v", result, err)
 	}
 }
 
@@ -739,6 +771,7 @@ func TestCanonicalGenericEmbedRejectsUnsafeAndNonEmbedURLs(t *testing.T) {
 		"https://player.vimeo.com.evil.invalid/video/123",
 		"https://vimeo.com/123",
 		"https://www.youtube.com/watch?v=ABCDEFGHIJK",
+		"https://w.soundcloud.com/player/?url=https%3A%2F%2Fevil.invalid%2Ftrack",
 		"https://streamable.com/Ab_C12",
 		"https://rumble.com/vabc123-title.html",
 		"//evil.invalid/embed/ABCDEFGHIJK",
