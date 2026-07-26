@@ -269,6 +269,17 @@ func TestProductRegistryIncludesIntegratedExtractors(t *testing.T) {
 	}
 }
 
+func TestProductCategorizesPRXNetworkFailures(t *testing.T) {
+	for _, err := range []error{extractor.ErrPRXRateLimited, extractor.ErrPRXNetwork} {
+		if !errors.Is(err, err) {
+			t.Fatalf("sentinel does not match itself: %v", err)
+		}
+		if !IsCategory(categorized("prx", err), ErrorNetwork) {
+			t.Fatalf("PRX error %v was not categorized as network", err)
+		}
+	}
+}
+
 func TestMediaFailuresAreCategorized(t *testing.T) {
 	for _, test := range []struct {
 		err      error
