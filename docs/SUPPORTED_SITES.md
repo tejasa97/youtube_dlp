@@ -20,7 +20,7 @@ service response.
 | youtube | youtube.com/watch and youtu.be, /embed, /shorts, /playlist, and channel live alias URLs | playlist/API, manifest-heavy, JavaScript challenge |
 | vimeo | vimeo.com videos and contextual child URLs with bounded public text tracks, channels, user profiles, groups, and numeric or safe-slug public album/showcase playlists | playlist/API, manifest-heavy |
 | twitch | twitch.tv channels, VODs, clips, collections, channel videos/profile, channel collections, and channel clips playlists | live, playlist/API, manifest-heavy |
-| soundcloud | soundcloud.com tracks with original downloads and opt-in public comments, sets with tokenized private-set hydration, bare profiles, all pinned public profile tabs, legacy API user playlists, player/embed URLs, and bounded public search | playlist/API |
+| soundcloud | soundcloud.com tracks with original downloads, opt-in public comments, and artwork/avatar thumbnail matrices; sets with tokenized private-set hydration; bare profiles; all pinned public profile tabs; legacy API user playlists; player/embed URLs; and bounded public search | playlist/API |
 | applepodcasts | podcasts.apple.com public episode pages with an explicit numeric episode query ID | simple/direct |
 | streamable | streamable.com public, embed, and short-link URLs | shared backend, simple/direct |
 | peertube (+ account/channel/playlist) | conservative PeerTube instance routes and peertube: opaque video URLs | shared backend, playlist/API, live, manifest-heavy |

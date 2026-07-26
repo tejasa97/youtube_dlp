@@ -56,6 +56,12 @@ The shared registry and parity manifest remain owned by the primary integrator.
 - Deterministic normalized track metadata for identifiers, title/track,
   uploader, duration, timestamps, counts, license, genre, artwork, webpage URL,
   and audio-only formats.
+- Ordered artwork/avatar thumbnail matrices for tracks and sets: `mini`,
+  `tiny`, `small`, `badge`, `t67x67`, `large`, `t300x300`, `crop`,
+  `t500x500`, and preferred `original`. Artwork wins over avatar; avatar
+  `tiny` is 18x18; all non-original variants use JPEG. Original-extension
+  checks are optional, credential-isolated, redirect-disabled, and nonfatal;
+  the singular thumbnail resolves to the final preferred variant.
 - Opt-in public track-comment retrieval through `--get-comments` or
   `--write-comments`, with `--soundcloud-comment-sort` and
   `--soundcloud-max-comments` controls. Retrieval remains deferred until media
@@ -114,6 +120,12 @@ The shared registry and parity manifest remain owned by the primary integrator.
 - `internal/extractor.TestSoundCloudPrivateSetRejectsMalformedSourceBeforeBatch`
 - `internal/extractor.TestSoundCloudPrivateSetBatchingOrderAndCancellation`
 - `internal/extractor.FuzzSoundCloudPrivateSetBatchPlan`
+- `internal/extractor.TestSoundCloudArtworkThumbnailMatrix`
+- `internal/extractor.TestSoundCloudArtworkOriginalFallbackAndAvatarDimensions`
+- `internal/extractor.TestSoundCloudArtworkNonmatchingAndUnsafeSources`
+- `internal/extractor.TestSoundCloudArtworkCancellation`
+- `internal/extractor.TestSoundCloudArtworkTrackAndPlaylistIntegration`
+- `internal/extractor.FuzzSoundCloudArtworkPlan`
 - `internal/extractor.TestSoundCloudCancellationInterruptsLazyPage`
 - `internal/extractor.TestSoundCloudCategorizedFailuresAndSecretRedaction`
 - `internal/extractor.TestSoundCloudRejectsUntrustedContinuationAndAsset`
@@ -183,8 +195,8 @@ registry evidence and the complete test suite passes.
 ## Known deviations
 
 The pilot does not yet implement OAuth/cookie login,
-premium subscription formats, offset pagination compatibility, or
-full artwork-size expansion. Track comments are supported, while the distinct `/comments` user tab
+premium subscription formats, or offset pagination compatibility. Track
+comments are supported, while the distinct `/comments` user tab
 continues to enumerate attributable media entries rather than comment bodies.
 Arbitrary script-based player discovery and future user tabs remain out of
 scope. Only the declared synthetic corpus is compatibility evidence. SoundCloud

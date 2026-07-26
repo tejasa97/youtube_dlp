@@ -63,6 +63,10 @@ func (transport *soundCloudDownloadFixtureTransport) DoWithoutCredentialsNoRedir
 			transport.testingT.Fatalf("credential header %s forwarded", key)
 		}
 	}
+	if request.Method == http.MethodHead &&
+		(request.URL.Hostname() == "i1.sndcdn.com" || request.URL.Hostname() == "a1.sndcdn.com") {
+		return soundCloudResponse(http.StatusOK, nil), nil
+	}
 	transport.mu.Lock()
 	transport.headURLs = append(transport.headURLs, request.URL.String())
 	transport.mu.Unlock()

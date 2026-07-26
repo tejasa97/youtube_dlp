@@ -35,6 +35,15 @@ func (transport *soundCloudCommentFixtureTransport) DoWithoutCredentialsNoRedire
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	for _, key := range []string{"Authorization", "Cookie", "Proxy-Authorization"} {
+		if request.Header.Get(key) != "" {
+			transport.testingT.Fatalf("credential header %s forwarded", key)
+		}
+	}
+	if request.Method == http.MethodHead &&
+		(request.URL.Hostname() == "i1.sndcdn.com" || request.URL.Hostname() == "a1.sndcdn.com") {
+		return transport.soundCloudFixtureTransport.Do(ctx, request)
+	}
 	transport.muComment.Lock()
 	transport.calls = append(transport.calls, request.Clone(ctx))
 	transport.muComment.Unlock()
@@ -43,11 +52,6 @@ func (transport *soundCloudCommentFixtureTransport) DoWithoutCredentialsNoRedire
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		case <-transport.block:
-		}
-	}
-	for _, key := range []string{"Authorization", "Cookie", "Proxy-Authorization"} {
-		if request.Header.Get(key) != "" {
-			transport.testingT.Fatalf("credential header %s forwarded", key)
 		}
 	}
 	if request.URL.Hostname() != "api-v2.soundcloud.com" || !strings.HasSuffix(request.URL.Path, "/comments") {
