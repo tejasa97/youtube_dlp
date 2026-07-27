@@ -7,7 +7,18 @@ PRX supports exact HTTPS numeric `stories`, `series`, and `accounts` routes on
 playlists, and account series-then-story playlists are backed by the PRX CMS
 API with bounded lazy pagination. PRX search routes are intentionally deferred.
 
-ytdlp-go currently registers 43 representative native extractors. This is a
+## Amara
+
+Amara supports public `amara.org` video pages with optional language prefixes
+and trailing `/info` path components with safe slug segments only. Metadata,
+published subtitles (with aggregate and per-language bounds), direct HTTP(S)
+media, and transparent YouTube/Vimeo handoffs are obtained from the bounded
+`https://amara.org/api/videos/<id>/?format=json` endpoint. Transparent
+handoffs preserve Amara title, description, thumbnail, duration, timestamp,
+subtitles, and webpage metadata while keeping the downstream YouTube/Vimeo
+video ID in the final result.
+
+ytdlp-go currently registers 44 representative native extractors. This is a
 conformance catalog, not a claim of the thousands of sites supported by
 upstream yt-dlp.
 
@@ -31,6 +42,7 @@ service response.
 | applepodcasts | podcasts.apple.com public episode pages with an explicit numeric episode query ID | simple/direct |
 | streamable | streamable.com public, embed, and short-link URLs | shared backend, simple/direct |
 | aeonco | exact HTTPS aeon.co and www.aeon.co `/videos/{slug}` pages with bounded JSON-LD Vimeo or YouTube handoffs | shared backend |
+| amara | amara.org public video pages with optional language prefix | shared backend, playlist/API |
 | peertube (+ account/channel/playlist) | conservative PeerTube instance routes and peertube: opaque video URLs | shared backend, playlist/API, live, manifest-heavy |
 | internetarchive | archive.org item pages | playlist/API |
 | tiktok | tiktok.com public video pages, vm/vt/t short links, and bounded webpage captions | anti-bot/impersonated |

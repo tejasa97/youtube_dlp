@@ -1594,6 +1594,37 @@ capabilities:
       - network.shared_transport
     known_deviation: Public episode pages with an explicit numeric `i` query only. Show catalogs, Apple account state, private feeds, arbitrary path suffixes, and unbounded serialized data are not claimed; tracking-prefix cleanup follows the pinned upstream helper corpus and final media URLs are subject to the repository's stricter public-host URL policy.
 
+  - id: extractor.amara
+    name: Amara public video API extraction
+    phase: 3
+    compatibility_target: Extract public amara.org video pages through the bounded JSON API with metadata, published subtitles, direct media, and transparent YouTube/Vimeo handoffs.
+    status: compatible
+    evidence:
+      - internal/extractor.TestAmaraRouting
+      - internal/extractor.TestAmaraYouTubeHandoffAndReentry
+      - internal/extractor.TestAmaraVimeoHandoffAndReentry
+      - internal/extractor.TestAmaraDirectMediaExtraction
+      - internal/extractor.TestAmaraRejectsUnsafeHostedMediaURLs
+      - internal/extractor.TestAmaraPublishedSubtitleLanguages
+      - internal/extractor.TestAmaraExcessiveSubtitleEntries
+      - internal/extractor.TestAmaraAggregateSubtitleOverflow
+      - internal/extractor.TestAmaraHTTPStatusCategorization
+      - internal/extractor.TestAmaraSecretSafeErrors
+      - internal/extractor.TestAmaraCancellation
+      - internal/extractor.FuzzParseAmaraURL
+      - internal/extractor.FuzzDecodeAmaraVideoResponse
+      - pkg/ytdlp.TestOperationMergesTransparentParentInfoFromURLResult
+      - pkg/ytdlp.TestOperationAmaraHandoffsAreConcurrentSafe
+      - pkg/ytdlp.TestOperationAmaraParentMetadataDoesNotLeakIntoPlaylistEntries
+      - pkg/ytdlp.TestRepresentativeExtractorCatalogCountRoutingAndRiskCoverage
+      - pkg/ytdlp.TestProductRegistryIncludesIntegratedExtractors
+      - conformance/extractors/shared/amara/PROVENANCE.md
+      - docs/EXTRACTOR_AMARA_EVIDENCE.md
+    owner: extractors
+    depends_on:
+      - network.shared_transport
+    known_deviation: Only public video routes with optional language prefixes and trailing info-page suffixes are claimed. Account workflows, uploads, and non-video Amara pages are deferred. Parent metadata is carried through bounded Go product re-entry rather than Python url_transparent in-process merge.
+
   - id: extractor.internetarchive_public
     name: Internet Archive public API and playlist extraction
     phase: 3
