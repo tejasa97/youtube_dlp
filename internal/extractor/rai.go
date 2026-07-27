@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"path"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -31,6 +32,7 @@ const (
 	raiMaxXML       = 2 << 20
 	raiMaxFormats   = 64
 	raiMaxSubs      = 32
+	raiMaxThumbs    = 32
 	raiMaxEntries   = 10000
 )
 
@@ -182,11 +184,11 @@ func raiClassify(u *url.URL) raiTarget {
 			return raiTarget{raiSoundLive, parts[0], base, ""}
 		}
 	case "rainews.it", "www.rainews.it":
-		if lastUUID != "" && !strings.Contains(u.Path, "/articoli") {
+		if lastUUID != "" && !raiFirstPathComponentIs(parts, "articoli") {
 			return raiTarget{raiNews, lastUUID, u.String(), ""}
 		}
 	case "raicultura.it", "www.raicultura.it":
-		if lastUUID != "" && !strings.Contains(u.Path, "/articoli") {
+		if lastUUID != "" && !raiFirstPathComponentIs(parts, "articoli") {
 			return raiTarget{raiCultura, lastUUID, u.String(), ""}
 		}
 	case "raibz.rai.it", "raisudtirol.rai.it":
@@ -196,6 +198,9 @@ func raiClassify(u *url.URL) raiTarget {
 			}
 		}
 		id := u.Query().Get("media")
+		if strings.EqualFold(path.Ext(id), ".smil") {
+			id = id[:len(id)-len(path.Ext(id))]
+		}
 		if raiSafeID(id) {
 			return raiTarget{raiSudtirol, id, u.String(), ""}
 		}
@@ -207,6 +212,10 @@ func raiClassify(u *url.URL) raiTarget {
 		}
 	}
 	return raiTarget{}
+}
+
+func raiFirstPathComponentIs(parts []string, want string) bool {
+	return len(parts) != 0 && strings.EqualFold(parts[0], want)
 }
 
 func raiSafePageURL(u *url.URL) bool {
@@ -303,23 +312,43 @@ func raiJSONItem(ctx context.Context, request Request, target raiTarget) (Extrac
 	}
 	relinkers := []string{raiString(video["content_url"])}
 	if target.kind == raiSoundVOD || target.kind == raiSoundLive {
-		relinkers = []string{raiString(media["downloadable_audio"]), raiStringPath(media, "audio", "url"), raiStringPath(media, "live", "url"), raiStringPath(media, "live", "cards", "0", "audio", "url")}
+		relinkers = []string{
+			raiString(media["downloadable_audio"]),
+			raiStringPath(media, "downloadable_audio", "url"),
+			raiStringPath(media, "audio", "url"),
+			raiStringPath(media, "live", "url"),
+			raiStringPath(media, "live", "cards", "0", "audio", "url"),
+		}
 		if r := raiString(video["content_url"]); r != "" {
 			relinkers = append(relinkers, r)
 		}
 	}
 	formats := []value.Value{}
+	seenRelinkers := make(map[string]bool)
+	seenFormats := make(map[string]bool)
 	live := false
 	duration := raiDuration(video["duration"])
 	for _, relinker := range relinkers {
-		if relinker == "" {
+		if relinker == "" || seenRelinkers[relinker] {
 			continue
 		}
+		seenRelinkers[relinker] = true
 		info, err := raiRelinker(ctx, request.Transport, relinker, target.id, target.kind == raiSoundVOD || target.kind == raiSoundLive)
 		if err != nil {
 			return Extraction{}, err
 		}
-		formats = append(formats, info.formats...)
+		for _, format := range info.formats {
+			formatObject, ok := format.Object()
+			if !ok {
+				continue
+			}
+			formatURL, ok := formatObject.Lookup("url").StringValue()
+			if !ok || seenFormats[formatURL] {
+				continue
+			}
+			seenFormats[formatURL] = true
+			formats = append(formats, format)
+		}
 		live = live || info.live
 		if duration == 0 {
 			duration = info.duration
@@ -328,11 +357,8 @@ func raiJSONItem(ctx context.Context, request Request, target raiTarget) (Extrac
 	if len(formats) == 0 {
 		return Extraction{}, ErrUnavailable
 	}
-	id := strings.TrimPrefix(strings.TrimPrefix(raiString(media["id"]), "ContentItem-"), "Page-")
-	if id == "" {
-		id = target.id
-	}
-	if !raiSafeIdentity(id, target.id) {
+	id := raiContentIdentity(media, target)
+	if id == "" || !raiValidContentIdentity(id, target) {
 		return Extraction{}, fmt.Errorf("%w: Rai content identity mismatch", ErrInvalidMetadata)
 	}
 	title := raiFirst(raiString(media["name"]), raiString(media["title"]), raiString(media["episode_title"]))
@@ -373,6 +399,9 @@ type raiRelinkerInfo struct {
 }
 
 func raiRelinker(ctx context.Context, transport Transport, raw, id string, audioOnly bool) (raiRelinkerInfo, error) {
+	if err := ctx.Err(); err != nil {
+		return raiRelinkerInfo{}, err
+	}
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme == "" {
 		return raiRelinkerInfo{}, fmt.Errorf("%w: invalid relinker", ErrInvalidMetadata)
@@ -823,8 +852,32 @@ func raiPublicURL(raw string) bool {
 	}
 	return !strings.Contains(strings.ToLower(u.EscapedPath()), "%00")
 }
-func raiSafeIdentity(id, want string) bool {
-	return id == want || strings.HasSuffix(strings.ToLower(id), strings.ToLower(want))
+func raiContentIdentity(media map[string]any, target raiTarget) string {
+	if target.kind == raiSoundVOD || target.kind == raiSoundLive {
+		if identity := raiTrimContentPrefix(raiString(media["uniquename"])); identity != "" {
+			return identity
+		}
+	}
+	return raiTrimContentPrefix(raiString(media["id"]))
+}
+
+func raiTrimContentPrefix(identity string) string {
+	identity = strings.TrimPrefix(strings.TrimPrefix(identity, "ContentItem-"), "Page-")
+	return identity
+}
+
+func raiValidContentIdentity(identity string, target raiTarget) bool {
+	if !raiUUID.MatchString(identity) {
+		return false
+	}
+	switch target.kind {
+	case raiPlayVOD, raiSoundVOD:
+		return strings.EqualFold(identity, target.id)
+	case raiPlayLive, raiSoundLive:
+		return true
+	default:
+		return strings.EqualFold(identity, target.id)
+	}
 }
 func raiMap(v any) map[string]any { m, _ := v.(map[string]any); return m }
 func raiSlice(v any) []any        { x, _ := v.([]any); return x }
@@ -931,14 +984,25 @@ func raiSetInt(o *value.Object, k string, n int64) {
 	}
 }
 func raiAddImages(o *value.Object, base string, images map[string]any) {
-	vals := []value.Value{}
-	for _, v := range images {
+	keys := make([]string, 0, len(images))
+	for key := range images {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	vals := make([]value.Value, 0, min(len(keys), raiMaxThumbs))
+	seen := make(map[string]bool)
+	for _, key := range keys {
+		if len(vals) >= raiMaxThumbs {
+			break
+		}
+		v := images[key]
 		u, err := url.Parse(raiString(v))
 		if err == nil && !u.IsAbs() {
 			b, _ := url.Parse(base)
 			u = b.ResolveReference(u)
 		}
-		if u != nil && raiPublicURL(u.String()) {
+		if u != nil && raiPublicURL(u.String()) && !seen[u.String()] {
+			seen[u.String()] = true
 			vals = append(vals, value.ObjectValue(value.NewObject(value.Field{Key: "url", Value: value.String(u.String())})))
 		}
 	}

@@ -4,8 +4,8 @@ Reference: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`,
 `yt_dlp/extractor/rai.py`.
 
 The synthetic tests in `internal/extractor/rai_test.go` derive URL families,
-Rai JSON fields, `Rai` relinker User-Agent, XML `output=64` handling, HLS
-audio/video rendition correction, geo placeholder detection, and explicit
+Rai JSON fields, `Rai` relinker User-Agent, XML `output=64` handling, tested
+audio-only HLS normalization, geo placeholder detection, and explicit
 RaiPlay/RaiPlaySound playlist re-entry from `RaiBaseIE`, `RaiPlayIE`,
 `RaiPlaySoundIE`, their live/playlist forms, and the legacy Rai classes.
 Fixtures contain no copied webpages, cookies, signed URLs, or production

@@ -370,6 +370,30 @@ func TestProductRegistryIncludesIntegratedExtractors(t *testing.T) {
 	}
 }
 
+func TestProductRegistryRoutesRaiAndPlaylistReentry(t *testing.T) {
+	registry := productRegistry()
+	for _, test := range []struct{ rawURL, want string }{
+		{"https://www.raiplay.it/programmi/report", "raiplay_playlist"},
+		{"https://www.raiplay.it/dirette/rainews24", "raiplay_live"},
+		{"https://www.raiplaysound.it/programmi/report", "raiplaysound_playlist"},
+		{"https://www.raicultura.it/letteratura/articoli/2018/12/Alberto-Asor-Rosa-Letteratura-e-potere-05ba8775-82b5-45c5-a89d-dd955fbde1fb.html", "raicultura"},
+	} {
+		selected, err := registry.Select(test.rawURL)
+		if err != nil || selected.Name() != test.want {
+			t.Fatalf("Select(%q) = %v, %v", test.rawURL, selected, err)
+		}
+	}
+	for _, test := range []struct{ rawURL, key string }{
+		{"https://www.raiplay.it/video/x-cb27157f-9dd0-4aee-b788-b1f67643a391.html", "raiplay"},
+		{"https://www.raiplaysound.it/audio/x-cb27157f-9dd0-4aee-b788-b1f67643a391.html", "raiplaysound"},
+	} {
+		selected, err := registry.SelectFor(test.rawURL, test.key)
+		if err != nil || selected.Name() != test.key {
+			t.Fatalf("SelectFor(%q, %q) = %v, %v", test.rawURL, test.key, selected, err)
+		}
+	}
+}
+
 func TestProductCategorizesPRXNetworkFailures(t *testing.T) {
 	for _, err := range []error{extractor.ErrPRXRateLimited, extractor.ErrPRXNetwork} {
 		if !errors.Is(err, err) {

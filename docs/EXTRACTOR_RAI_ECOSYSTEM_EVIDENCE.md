@@ -12,11 +12,18 @@ isolation, subtitles, and audio-only HLS normalization.
 DRM-license, malformed XML, private-media, and HTTP-status paths.
 `TestRaiFilteredPlaylists` covers the two upstream selector forms, while
 `TestRaiNewsAndCulturaEscapedPlayerData` covers HTML-escaped current-player
-data. The two Rai fuzz targets preserve route and media-URL safety invariants.
+data. `TestRaiLiveAndSoundIdentityFlows`, `TestRaiSudtirolSMILIdentityAndHLS`,
+`TestRaiIdentityCancellationAndSecretSafety`, and
+`TestRaiThumbnailsAreStableAndBounded` cover the named route-specific identity,
+cancellation, secret-safety, and output-ordering contracts.
+`pkg/ytdlp.TestProductRegistryRoutesRaiAndPlaylistReentry` exercises product
+registry selection and typed playlist re-entry. The two Rai fuzz targets
+preserve route and media-URL safety invariants.
 
 Relinker requests require a redirect-disabled, credential-isolated operation
-transport. URLs, JSON/XML bodies, nested
-XML, formats, subtitles, and playlist entries are bounded. Geo placeholder
-media is categorized as region restricted; non-empty DRM licenses are not
-treated as playable. F4M/HDS remains unsupported and is intentionally not
-advertised as a download format.
+transport. URLs, JSON/XML bodies, nested XML, formats, subtitles, thumbnails,
+and playlist entries are bounded. Geo placeholder media is categorized as
+region restricted; non-empty DRM licenses are not treated as playable.
+F4M/HDS remains unsupported and is intentionally not advertised as a download
+format. This evidence does not claim support for untested authenticated or
+dynamic-page variants.

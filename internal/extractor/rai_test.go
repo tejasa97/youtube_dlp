@@ -7,8 +7,11 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
 type raiTestTransport struct {
@@ -161,6 +164,7 @@ func TestRaiRoutingMatrixAndHostHardening(t *testing.T) {
 		{"https://www.rai.it/dl/a/x-" + id + ".html", "rai"},
 		{"https://www.rainews.it/video/x-" + id + ".html", "rainews"},
 		{"https://www.raicultura.it/video/x-" + id + ".html", "raicultura"},
+		{"https://www.raicultura.it/letteratura/articoli/2018/12/Alberto-Asor-Rosa-Letteratura-e-potere-05ba8775-82b5-45c5-a89d-dd955fbde1fb.html", "raicultura"},
 		{"https://raisudtirol.rai.it/la/index.php?media=Ptv1619729460", "raisudtirol"},
 	}
 	registry := NewRegistry(NewRaiPlayPlaylist(), NewRaiPlayLive(), NewRaiPlay(), NewRaiPlaySoundPlaylist(), NewRaiPlaySoundLive(), NewRaiPlaySound(), NewRaiNews(), NewRaiCultura(), NewRaiSudtirol(), NewRai())
@@ -176,6 +180,132 @@ func TestRaiRoutingMatrixAndHostHardening(t *testing.T) {
 		if _, err := registry.Select(raw); !errors.Is(err, ErrUnsupported) {
 			t.Fatalf("unsafe URL accepted: %q (%v)", raw, err)
 		}
+	}
+}
+
+func TestRaiLiveAndSoundIdentityFlows(t *testing.T) {
+	vodID := "cb27157f-9dd0-4aee-b788-b1f67643a391"
+	liveID := "d784ad40-e0ae-4a69-aa76-37519d238a9c"
+	tests := []struct {
+		name, raw, endpoint, body, wantID string
+		live                              bool
+		extractor                         Extractor
+	}{
+		{
+			name: "RaiPlay live resolves a channel slug to a content UUID", raw: "https://www.raiplay.it/dirette/rainews24", endpoint: "https://www.raiplay.it/dirette/rainews24.json",
+			body: `{"id":"ContentItem-` + liveID + `","name":"Live","video":{"content_url":"https://relinker.rai.it/rel"}}`, wantID: liveID, live: true, extractor: NewRaiPlayLive(),
+		},
+		{
+			name: "RaiPlay Sound live resolves a channel slug", raw: "https://www.raiplaysound.it/radio2", endpoint: "https://www.raiplaysound.it/radio2.json",
+			body: `{"id":"ContentItem-` + liveID + `","title":"Radio","live":{"url":"https://relinker.rai.it/rel"}}`, wantID: liveID, live: true, extractor: NewRaiPlaySoundLive(),
+		},
+		{
+			name: "RaiPlay Sound VOD uses downloadable_audio.url and uniquename", raw: "https://www.raiplaysound.it/audio/x-" + vodID + ".html", endpoint: "https://www.raiplaysound.it/audio/x-" + vodID + ".json",
+			body: `{"uniquename":"ContentItem-` + vodID + `","title":"Audio","downloadable_audio":{"url":"https://relinker.rai.it/rel"}}`, wantID: vodID, extractor: NewRaiPlaySound(),
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			transport := &raiTestTransport{json: map[string]string{tc.endpoint: tc.body}, page: map[string]string{}}
+			if tc.live {
+				transport.relinker = `<root><url type="content">https://cdn.example.test/live.m3u8</url><is_live>Y</is_live></root>`
+			}
+			result, err := tc.extractor.Extract(context.Background(), Request{URL: tc.raw, Transport: transport})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, _ := result.Info.ID(); got != tc.wantID {
+				t.Fatalf("id = %q, want %q", got, tc.wantID)
+			}
+			if isLive, _ := result.Info.Lookup("is_live").Bool(); isLive != tc.live {
+				t.Fatalf("is_live = %t, want %t", isLive, tc.live)
+			}
+		})
+	}
+}
+
+func TestRaiSudtirolSMILIdentityAndHLS(t *testing.T) {
+	raw := "https://raisudtirol.rai.it/it/kidsplayer.php?lang=it&media=GUGGUG_P1.smil"
+	transport := &raiTestTransport{json: map[string]string{}, page: map[string]string{raw: `<source src="https://cdn.example.test/stream/master.m3u8" type="application/x-mpegURL">`}}
+	result, err := NewRaiSudtirol().Extract(context.Background(), Request{URL: raw, Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id, _ := result.Info.ID(); id != "GUGGUG_P1" {
+		t.Fatalf("id = %q", id)
+	}
+	formats, ok := result.Info.Formats()
+	if !ok || len(formats) != 1 {
+		t.Fatalf("formats = %#v", formats)
+	}
+	format, _ := formats[0].Object()
+	if protocol, _ := format.Lookup("protocol").StringValue(); protocol != "m3u8_native" {
+		t.Fatalf("protocol = %q", protocol)
+	}
+}
+
+func TestRaiSoundRelinkersAndFormatsAreDeduplicated(t *testing.T) {
+	id := "cb27157f-9dd0-4aee-b788-b1f67643a391"
+	page := "https://www.raiplaysound.it/audio/x-" + id
+	transport := &raiTestTransport{json: map[string]string{
+		page + ".json": `{"uniquename":"ContentItem-` + id + `","downloadable_audio":{"url":"https://relinker.rai.it/rel"},"audio":{"url":"https://relinker.rai.it/rel"}}`,
+	}, page: map[string]string{}}
+	result, err := NewRaiPlaySound().Extract(context.Background(), Request{URL: page + ".html", Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	formats, ok := result.Info.Formats()
+	if !ok || len(formats) != 1 {
+		t.Fatalf("formats = %#v", formats)
+	}
+	if transport.calls != 2 {
+		t.Fatalf("duplicate relinker requests = %d", transport.calls)
+	}
+}
+
+func TestRaiIdentityCancellationAndSecretSafety(t *testing.T) {
+	vodID := "cb27157f-9dd0-4aee-b788-b1f67643a391"
+	differentID := "d784ad40-e0ae-4a69-aa76-37519d238a9c"
+	page := "https://www.raiplay.it/video/x-" + vodID
+	transport := &raiTestTransport{json: map[string]string{page + ".json": `{"id":"ContentItem-` + differentID + `","video":{"content_url":"https://relinker.rai.it/rel"}}`}, page: map[string]string{}}
+	if _, err := NewRaiPlay().Extract(context.Background(), Request{URL: page + ".html", Transport: transport}); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("VOD mismatch = %v", err)
+	}
+
+	badLive := &raiTestTransport{json: map[string]string{"https://www.raiplay.it/dirette/radio.json": `{"id":"ContentItem-not-a-uuid","video":{"content_url":"https://relinker.rai.it/rel"}}`}, page: map[string]string{}}
+	if _, err := NewRaiPlayLive().Extract(context.Background(), Request{URL: "https://www.raiplay.it/dirette/radio", Transport: badLive}); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("malformed live id = %v", err)
+	}
+
+	secret := "signed-secret-value"
+	unsafeBody := strings.ReplaceAll(`{"id":"ContentItem-VOD","video":{"content_url":"https://evil.example.test/rel?token=TOKEN"}}`, "VOD", vodID)
+	unsafeBody = strings.ReplaceAll(unsafeBody, "TOKEN", secret)
+	unsafe := &raiTestTransport{json: map[string]string{page + ".json": unsafeBody}, page: map[string]string{}}
+	if _, err := NewRaiPlay().Extract(context.Background(), Request{URL: page + ".html", Transport: unsafe}); err == nil || strings.Contains(err.Error(), secret) {
+		t.Fatalf("unsafe relinker error leaked secret: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := raiRelinker(ctx, &raiTestTransport{json: map[string]string{}, page: map[string]string{}}, "https://relinker.rai.it/rel", vodID, false); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancellation = %v", err)
+	}
+}
+
+func TestRaiThumbnailsAreStableAndBounded(t *testing.T) {
+	images := map[string]any{"z": "/z.jpg", "a": "/a.jpg", "m": "/m.jpg"}
+	for index := 0; index < raiMaxThumbs+10; index++ {
+		images["extra"+strconv.Itoa(index)] = "/" + strconv.Itoa(index) + ".jpg"
+	}
+	info := value.NewObject()
+	raiAddImages(info, "https://www.raiplay.it/video/x.html", images)
+	thumbs, ok := info.Lookup("thumbnails").ListValue()
+	if !ok || len(thumbs) != raiMaxThumbs {
+		t.Fatalf("thumbnail count = %d", len(thumbs))
+	}
+	first, _ := thumbs[0].Object()
+	if raw, _ := first.Lookup("url").StringValue(); raw != "https://www.raiplay.it/a.jpg" {
+		t.Fatalf("first thumbnail = %q", raw)
 	}
 }
 
@@ -243,7 +373,7 @@ func TestRaiNewsAndCulturaEscapedPlayerData(t *testing.T) {
 		extractor Extractor
 	}{
 		{"https://www.rainews.it/video/x-" + id + ".html", "news", NewRaiNews()},
-		{"https://www.raicultura.it/video/x-" + id + ".html", "cultura", NewRaiCultura()},
+		{"https://www.raicultura.it/letteratura/articoli/2018/12/Alberto-Asor-Rosa-Letteratura-e-potere-" + id + ".html", "cultura", NewRaiCultura()},
 	} {
 		page := `<rai` + tc.tag + `-player data='{&quot;title&quot;:&quot;Fixture&quot;,&quot;mediapolis&quot;:&quot;https://relinker.rai.it/rel?x&#x3D;1&quot;}'></rai` + tc.tag + `-player>`
 		transport := &raiTestTransport{json: map[string]string{}, page: map[string]string{tc.raw: page}}
