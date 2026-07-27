@@ -1,0 +1,11 @@
+{
+  "title": "Overlong extension fallback",
+  "description": "Invalid extension must fall back safely.",
+  "thumbnail": "https://cdn.amara.org/media/thumbs/overlong.jpg",
+  "duration": "30",
+  "created": "2012-03-03T03:03:03Z",
+  "all_urls": [
+    "https://cdn.amara.org/media/cachedfiles/direct/overlong.aaaaaaaaaaaaaaaaaaaaaaaa.mp4"
+  ],
+  "languages": []
+}

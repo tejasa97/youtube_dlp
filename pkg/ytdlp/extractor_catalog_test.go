@@ -31,6 +31,7 @@ var representativeExtractorCatalog = []representativeExtractor{
 	{"soundcloud", "https://soundcloud.com/fixture-artist/synthetic-signal", []extractorRiskClass{riskPlaylistAPI}},
 	{"applepodcasts", "https://podcasts.apple.com/us/podcast/fixture/id123?i=456", []extractorRiskClass{riskSimpleDirect}},
 	{"streamable", "https://streamable.com/e/fixture_1", []extractorRiskClass{riskSharedBackend, riskSimpleDirect}},
+	{"amara", "https://amara.org/en/videos/jVx79ZKGK1ky/info/why-jury-trials/", []extractorRiskClass{riskSharedBackend, riskPlaylistAPI}},
 	{"peertube_playlist", "https://peertube.example/a/fixture/videos", []extractorRiskClass{riskSharedBackend, riskPlaylistAPI}},
 	{"peertube", "peertube:peertube.example:00000000-0000-4000-8000-000000000001", []extractorRiskClass{riskSharedBackend, riskLive, riskManifestHeavy}},
 	{"internetarchive", "https://archive.org/details/fixture_concert", []extractorRiskClass{riskPlaylistAPI}},

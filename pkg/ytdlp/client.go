@@ -514,6 +514,7 @@ func (client *Client) productRegistry() *extractor.Registry {
 		}
 	}
 	registered = append(registered,
+		extractor.NewAmara(),
 		extractor.NewFixture(),
 		extractor.NewGeneric(),
 	)
@@ -552,6 +553,10 @@ type operation struct {
 }
 
 func (operation *operation) process(ctx context.Context, rawURL, extractorKey string, overlay *extractor.Entry, ancestors map[string]bool, depth int) (Result, error) {
+	return operation.processWithTransparentParent(ctx, rawURL, extractorKey, overlay, ancestors, depth, value.Info{})
+}
+
+func (operation *operation) processWithTransparentParent(ctx context.Context, rawURL, extractorKey string, overlay *extractor.Entry, ancestors map[string]bool, depth int, transparentParent value.Info) (Result, error) {
 	referer := ""
 	if overlay != nil {
 		referer = overlay.Referer
@@ -600,11 +605,27 @@ func (operation *operation) process(ctx context.Context, rawURL, extractorKey st
 	}
 	if overlay != nil && overlay.Transparent {
 		info := value.NewInfo(extracted.Info.Fields().Clone())
+		childID, _ := info.Lookup("id").StringValue()
+		if transparentParent.Fields().Len() > 0 {
+			info.Fields().Merge(transparentParent.Fields(), true)
+			if childID != "" {
+				info.Set("id", value.String(childID))
+			}
+		}
 		if overlay.ID != "" {
 			info.Set("id", value.String(overlay.ID))
 		}
 		if overlay.Title != "" {
 			info.Set("title", value.String(overlay.Title))
+		}
+		if overlay.Thumbnail != "" {
+			info.Set("thumbnail", value.String(overlay.Thumbnail))
+		}
+		if overlay.HasDuration {
+			info.Set("duration", value.Float(overlay.Duration))
+		}
+		if overlay.HasTimestamp {
+			info.Set("timestamp", value.Int(overlay.Timestamp))
 		}
 		extracted.Info = info
 	}
@@ -622,7 +643,11 @@ func (operation *operation) process(ctx context.Context, rawURL, extractorKey st
 			}
 			entry.Transparent = true
 		}
-		return operation.process(ctx, entry.URL, entry.ExtractorKey, &entry, ancestors, depth+1)
+		nextParent := transparentParent
+		if extracted.Info.Fields().Len() > 0 {
+			nextParent = extracted.Info
+		}
+		return operation.processWithTransparentParent(ctx, entry.URL, entry.ExtractorKey, &entry, ancestors, depth+1, nextParent)
 	}
 	if extracted.IsPlaylist() {
 		return operation.processPlaylist(ctx, extracted, selected.Name(), ancestors, depth)

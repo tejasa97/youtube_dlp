@@ -47,7 +47,7 @@ altcensored,AltCensoredIE,AltCensored,requires_new_backend,,,,low,no exact Go ma
 alura,AluraCourseIE,AluraCourse,requires_authentication_or_antibot,,,login,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"
 alura,AluraIE,Alura,requires_authentication_or_antibot,,,login,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"
 amadeustv,AmadeusTVIE,AmadeusTV,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-amara,AmaraIE,Amara,uses_existing_shared_backend,,vimeo,,medium,upstream class references a media backend already implemented in Go
+amara,AmaraIE,Amara,already_supported,amara,,,high,normalized upstream key exactly matches a registered Go extractor
 amazon,AmazonReviewsIE,AmazonReviews,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 amazon,AmazonStoreIE,AmazonStore,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 amazonminitv,AmazonMiniTVIE,AmazonMiniTV,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required

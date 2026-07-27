@@ -355,6 +355,7 @@ func TestProductRegistryIncludesIntegratedExtractors(t *testing.T) {
 		{"https://archive.org/details/fixture_concert", "internetarchive"},
 		{"https://www.svtplay.se/video/fixture-program?modalId=fixture123", "region_svt"},
 		{"https://auth-fixture.invalid/watch/fixture123", "synthetic_auth"},
+		{"https://amara.org/en/videos/jVx79ZKGK1ky/info/why-jury-trials/", "amara"},
 		{"https://example.com/media.mp4", "generic"},
 	}
 	registry := productRegistry()
@@ -2221,6 +2222,444 @@ func TestOperationMergesTransparentEntryMetadata(t *testing.T) {
 	}
 	if metadata["id"] != "producer-id" || metadata["title"] != "Producer Title" {
 		t.Fatalf("transparent metadata = %#v", metadata)
+	}
+}
+
+func TestOperationMergesTransparentParentInfoFromURLResult(t *testing.T) {
+	server := playlistMediaServer(t)
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	operation := &operation{
+		client: NewClient(), request: Request{SkipDownload: true}, transport: transport,
+		registry: extractor.NewRegistry(transparentParentFixtureExtractor{}, extractor.NewGeneric()),
+	}
+	result, err := operation.process(context.Background(), server.URL+"/parent-handoff", "", nil, make(map[string]bool), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(result.InfoJSON, &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata["id"] != "parent-id" || metadata["title"] != "Parent Title" {
+		t.Fatalf("overlay metadata = %#v", metadata)
+	}
+	if metadata["description"] != "Parent description" {
+		t.Fatalf("parent description = %#v", metadata["description"])
+	}
+	subtitles, ok := metadata["subtitles"].(map[string]any)
+	if !ok || subtitles["en"] == nil {
+		t.Fatalf("parent subtitles = %#v", metadata["subtitles"])
+	}
+}
+
+type transparentParentFixtureExtractor struct{}
+
+func (transparentParentFixtureExtractor) Name() string { return "transparent-parent-fixture" }
+func (transparentParentFixtureExtractor) Suitable(parsed *url.URL) bool {
+	return parsed != nil && parsed.Path == "/parent-handoff"
+}
+func (transparentParentFixtureExtractor) Extract(_ context.Context, request extractor.Request) (extractor.Extraction, error) {
+	parsed, err := url.Parse(request.URL)
+	if err != nil {
+		return extractor.Extraction{}, err
+	}
+	parsed.Path = "/one.mp4"
+	parent := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("parent-id")},
+		value.Field{Key: "title", Value: value.String("Parent Title")},
+		value.Field{Key: "description", Value: value.String("Parent description")},
+		value.Field{Key: "subtitles", Value: value.ObjectValue(value.NewObject(
+			value.Field{Key: "en", Value: value.List(value.ObjectValue(value.NewObject(
+				value.Field{Key: "url", Value: value.String("https://amara.org/api/videos/parent/subtitles/en/?format=vtt")},
+				value.Field{Key: "ext", Value: value.String("vtt")},
+			)))},
+		))},
+	))
+	result, err := extractor.URLResult(extractor.Entry{
+		URL: parsed.String(), ExtractorKey: "generic", ID: "parent-id", Title: "Parent Title", Transparent: true,
+	})
+	if err != nil {
+		return extractor.Extraction{}, err
+	}
+	result.Info = parent
+	return result, nil
+}
+
+func TestProductCategorizesAmaraFailures(t *testing.T) {
+	for _, test := range []struct {
+		err      error
+		category ErrorCategory
+	}{
+		{extractor.ErrAmaraRateLimited, ErrorNetwork},
+		{extractor.ErrAmaraNetwork, ErrorNetwork},
+		{extractor.ErrInvalidMetadata, ErrorInternal},
+	} {
+		got := categorized("amara extraction", test.err)
+		if !IsCategory(got, test.category) {
+			t.Fatalf("category=%v err=%v", got, test.err)
+		}
+	}
+}
+
+type amaraProductFixtureTransport struct {
+	t        *testing.T
+	fixtures map[string][]byte
+}
+
+func newAmaraProductFixtureTransport(t *testing.T) *amaraProductFixtureTransport {
+	t.Helper()
+	transport := &amaraProductFixtureTransport{t: t, fixtures: make(map[string][]byte)}
+	for _, name := range []string{"youtube.json", "vimeo.json"} {
+		data, err := os.ReadFile(filepath.Join("..", "..", "internal", "extractor", "testdata", "amara", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		transport.fixtures[name] = data
+	}
+	return transport
+}
+
+func (transport *amaraProductFixtureTransport) response(request *http.Request) (*http.Response, error) {
+	if request.URL.Hostname() != "amara.org" || !strings.HasPrefix(request.URL.Path, "/api/videos/") {
+		transport.t.Fatalf("unexpected request: %s", request.URL)
+	}
+	parts := strings.Split(strings.Trim(request.URL.Path, "/"), "/")
+	if len(parts) < 3 {
+		transport.t.Fatalf("unexpected API path: %s", request.URL.Path)
+	}
+	var fixture string
+	switch parts[2] {
+	case "jVx79ZKGK1ky":
+		fixture = "youtube.json"
+	case "kYkK1VUTWW5I":
+		fixture = "vimeo.json"
+	default:
+		transport.t.Fatalf("unexpected video id: %s", parts[2])
+	}
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(bytes.NewReader(transport.fixtures[fixture])),
+		Request:    request,
+	}, nil
+}
+
+type amaraProductRoundTripper struct {
+	amara *amaraProductFixtureTransport
+}
+
+func (tripper amaraProductRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	if request.URL.Hostname() == "amara.org" {
+		return tripper.amara.response(request)
+	}
+	return http.DefaultTransport.RoundTrip(request)
+}
+
+func newAmaraProductNetworkClient(t *testing.T) *network.Client {
+	t.Helper()
+	client, err := network.New(network.Config{RoundTripper: amaraProductRoundTripper{amara: newAmaraProductFixtureTransport(t)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return client
+}
+
+type amaraProductYouTubeChild struct{}
+
+func (amaraProductYouTubeChild) Name() string { return "youtube" }
+func (amaraProductYouTubeChild) Suitable(parsed *url.URL) bool {
+	return parsed != nil && strings.Contains(parsed.Hostname(), "youtube.com")
+}
+func (amaraProductYouTubeChild) Extract(_ context.Context, request extractor.Request) (extractor.Extraction, error) {
+	parsed, err := url.Parse(request.URL)
+	if err != nil {
+		return extractor.Extraction{}, err
+	}
+	id := parsed.Query().Get("v")
+	if id == "" {
+		return extractor.Extraction{}, extractor.ErrUnsupported
+	}
+	return extractor.Media(value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String(id)},
+		value.Field{Key: "title", Value: value.String("YouTube child title")},
+		value.Field{Key: "ext", Value: value.String("mp4")},
+		value.Field{Key: "formats", Value: value.List(value.ObjectValue(value.NewObject(
+			value.Field{Key: "url", Value: value.String(request.URL)},
+			value.Field{Key: "ext", Value: value.String("mp4")},
+		)))},
+	))), nil
+}
+
+type amaraProductVimeoChild struct{}
+
+func (amaraProductVimeoChild) Name() string { return "vimeo" }
+func (amaraProductVimeoChild) Suitable(parsed *url.URL) bool {
+	return parsed != nil && strings.Contains(parsed.Hostname(), "vimeo.com")
+}
+func (amaraProductVimeoChild) Extract(_ context.Context, request extractor.Request) (extractor.Extraction, error) {
+	parsed, err := url.Parse(request.URL)
+	if err != nil {
+		return extractor.Extraction{}, err
+	}
+	id := strings.Trim(parsed.Path, "/")
+	if id == "" {
+		return extractor.Extraction{}, extractor.ErrUnsupported
+	}
+	return extractor.Media(value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String(id)},
+		value.Field{Key: "title", Value: value.String("Vimeo child title")},
+		value.Field{Key: "ext", Value: value.String("mp4")},
+		value.Field{Key: "formats", Value: value.List(value.ObjectValue(value.NewObject(
+			value.Field{Key: "url", Value: value.String(request.URL)},
+			value.Field{Key: "ext", Value: value.String("mp4")},
+		)))},
+	))), nil
+}
+
+func amaraProductOperation(t *testing.T, transport *network.Client, extra ...extractor.Extractor) *operation {
+	t.Helper()
+	extractors := []extractor.Extractor{extractor.NewAmara(), amaraProductYouTubeChild{}, amaraProductVimeoChild{}}
+	extractors = append(extractors, extra...)
+	extractors = append(extractors, extractor.NewGeneric())
+	return &operation{
+		client: NewClient(), request: Request{SkipDownload: true}, transport: transport,
+		registry: extractor.NewRegistry(extractors...),
+	}
+}
+
+func TestOperationReentersAmaraYouTubeHandoff(t *testing.T) {
+	t.Parallel()
+	transport := newAmaraProductNetworkClient(t)
+	operation := amaraProductOperation(t, transport)
+	result, err := operation.process(context.Background(), "https://amara.org/en/videos/jVx79ZKGK1ky/info/why-jury-trials/", "", nil, make(map[string]bool), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(result.InfoJSON, &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata["id"] != "h6ZuVdvYnfE" {
+		t.Fatalf("child id = %#v", metadata["id"])
+	}
+	if metadata["title"] != "Why jury trials are becoming less common" {
+		t.Fatalf("title = %#v", metadata["title"])
+	}
+	if metadata["description"] == "" || metadata["thumbnail"] == "" || metadata["webpage_url"] != "https://amara.org/en/videos/jVx79ZKGK1ky" {
+		t.Fatalf("metadata = %#v", metadata)
+	}
+	if metadata["duration"] != float64(312) || metadata["timestamp"] != float64(1471046400) {
+		t.Fatalf("timing metadata = %#v", metadata)
+	}
+	subtitles, ok := metadata["subtitles"].(map[string]any)
+	if !ok || subtitles["en"] == nil {
+		t.Fatalf("subtitles = %#v", metadata["subtitles"])
+	}
+}
+
+func TestOperationReentersAmaraVimeoHandoff(t *testing.T) {
+	t.Parallel()
+	transport := newAmaraProductNetworkClient(t)
+	operation := amaraProductOperation(t, transport)
+	result, err := operation.process(context.Background(), "https://amara.org/en/videos/kYkK1VUTWW5I/info/vimeo-at-ces-2011", "", nil, make(map[string]bool), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(result.InfoJSON, &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata["id"] != "18622084" {
+		t.Fatalf("child id = %#v", metadata["id"])
+	}
+	if metadata["title"] != "Vimeo at CES 2011!" {
+		t.Fatalf("title = %#v", metadata["title"])
+	}
+}
+
+func TestOperationAmaraHandoffDoesNotLeakMetadataBetweenCalls(t *testing.T) {
+	t.Parallel()
+	transport := newAmaraProductNetworkClient(t)
+	operation := amaraProductOperation(t, transport)
+	first, err := operation.process(context.Background(), "https://amara.org/en/videos/jVx79ZKGK1ky/info/why-jury-trials/", "", nil, make(map[string]bool), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := operation.process(context.Background(), "https://amara.org/en/videos/kYkK1VUTWW5I/info/vimeo-at-ces-2011", "", nil, make(map[string]bool), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var firstMeta, secondMeta map[string]any
+	if err := json.Unmarshal(first.InfoJSON, &firstMeta); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(second.InfoJSON, &secondMeta); err != nil {
+		t.Fatal(err)
+	}
+	if firstMeta["description"] == secondMeta["description"] || firstMeta["id"] == secondMeta["id"] {
+		t.Fatalf("metadata leaked across calls: %#v %#v", firstMeta, secondMeta)
+	}
+}
+
+func TestOperationAmaraHandoffsAreConcurrentSafe(t *testing.T) {
+	t.Parallel()
+	transport := newAmaraProductNetworkClient(t)
+	operation := amaraProductOperation(t, transport)
+	urls := []string{
+		"https://amara.org/en/videos/jVx79ZKGK1ky/info/why-jury-trials/",
+		"https://amara.org/en/videos/kYkK1VUTWW5I/info/vimeo-at-ces-2011",
+	}
+	type outcome struct {
+		url    string
+		result Result
+		err    error
+	}
+	outcomes := make(chan outcome, len(urls))
+	var wait sync.WaitGroup
+	for _, rawURL := range urls {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			result, err := operation.process(context.Background(), rawURL, "", nil, make(map[string]bool), 0)
+			outcomes <- outcome{url: rawURL, result: result, err: err}
+		}()
+	}
+	wait.Wait()
+	close(outcomes)
+	for outcome := range outcomes {
+		if outcome.err != nil {
+			t.Fatal(outcome.err)
+		}
+		var metadata map[string]any
+		if err := json.Unmarshal(outcome.result.InfoJSON, &metadata); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(outcome.url, "jVx79ZKGK1ky") {
+			if metadata["id"] != "h6ZuVdvYnfE" || metadata["title"] != "Why jury trials are becoming less common" {
+				t.Fatalf("youtube metadata = %#v", metadata)
+			}
+		} else if metadata["id"] != "18622084" || metadata["title"] != "Vimeo at CES 2011!" {
+			t.Fatalf("vimeo metadata = %#v", metadata)
+		}
+	}
+}
+
+type amaraPlaylistYouTubeChild struct {
+	mediaURL string
+}
+
+func (child amaraPlaylistYouTubeChild) Name() string { return "youtube" }
+func (child amaraPlaylistYouTubeChild) Suitable(parsed *url.URL) bool {
+	return parsed != nil && strings.Contains(parsed.Hostname(), "youtube.com")
+}
+func (child amaraPlaylistYouTubeChild) Extract(_ context.Context, request extractor.Request) (extractor.Extraction, error) {
+	parsed, err := url.Parse(request.URL)
+	if err != nil {
+		return extractor.Extraction{}, err
+	}
+	if parsed.Query().Get("v") == "" {
+		return extractor.Extraction{}, extractor.ErrUnsupported
+	}
+	return extractor.Playlist(value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("child-playlist")},
+		value.Field{Key: "title", Value: value.String("Child playlist")},
+	)), extractor.StaticEntries(extractor.Entry{
+		URL: child.mediaURL, ExtractorKey: "generic", Transparent: true, Title: "Playlist entry title",
+	}))
+}
+
+func TestOperationAmaraParentMetadataDoesNotLeakIntoPlaylistEntries(t *testing.T) {
+	t.Parallel()
+	server := playlistMediaServer(t)
+	defer server.Close()
+	transport := newAmaraProductNetworkClient(t)
+	operation := &operation{
+		client: NewClient(), request: Request{SkipDownload: true}, transport: transport,
+		registry: extractor.NewRegistry(
+			extractor.NewAmara(),
+			amaraPlaylistYouTubeChild{mediaURL: server.URL + "/one.mp4"},
+			extractor.NewGeneric(),
+		),
+	}
+	result, err := operation.process(context.Background(), "https://amara.org/en/videos/jVx79ZKGK1ky/info/why-jury-trials/", "", nil, make(map[string]bool), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Entries) != 1 {
+		t.Fatalf("entries=%d", len(result.Entries))
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(result.Entries[0].InfoJSON, &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata["description"] != nil || metadata["subtitles"] != nil || metadata["webpage_url"] == "https://amara.org/en/videos/jVx79ZKGK1ky" {
+		t.Fatalf("Amara parent metadata leaked into playlist entry: %#v", metadata)
+	}
+	if metadata["title"] != "Playlist entry title" {
+		t.Fatalf("playlist entry title = %#v", metadata["title"])
+	}
+}
+
+type amaraNestedYouTubeHandoffChild struct {
+	mediaURL string
+}
+
+func (child amaraNestedYouTubeHandoffChild) Name() string { return "youtube" }
+func (child amaraNestedYouTubeHandoffChild) Suitable(parsed *url.URL) bool {
+	return parsed != nil && strings.Contains(parsed.Hostname(), "youtube.com")
+}
+func (child amaraNestedYouTubeHandoffChild) Extract(_ context.Context, request extractor.Request) (extractor.Extraction, error) {
+	parsed, err := url.Parse(request.URL)
+	if err != nil {
+		return extractor.Extraction{}, err
+	}
+	if parsed.Query().Get("v") == "" {
+		return extractor.Extraction{}, extractor.ErrUnsupported
+	}
+	parent := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("nested-parent-id")},
+		value.Field{Key: "description", Value: value.String("nested parent description")},
+	))
+	result, err := extractor.URLResult(extractor.Entry{
+		URL: child.mediaURL, ExtractorKey: "generic", Transparent: true, Title: "Nested overlay title",
+	})
+	if err != nil {
+		return extractor.Extraction{}, err
+	}
+	result.Info = parent
+	return result, nil
+}
+
+func TestOperationAmaraNestedTransparentPreservesChildID(t *testing.T) {
+	t.Parallel()
+	server := playlistMediaServer(t)
+	defer server.Close()
+	transport := newAmaraProductNetworkClient(t)
+	operation := &operation{
+		client: NewClient(), request: Request{SkipDownload: true}, transport: transport,
+		registry: extractor.NewRegistry(
+			extractor.NewAmara(),
+			amaraNestedYouTubeHandoffChild{mediaURL: server.URL + "/one.mp4"},
+			extractor.NewGeneric(),
+		),
+	}
+	result, err := operation.process(context.Background(), "https://amara.org/en/videos/jVx79ZKGK1ky/info/why-jury-trials/", "", nil, make(map[string]bool), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(result.InfoJSON, &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata["id"] != "one" {
+		t.Fatalf("nested child id = %#v", metadata["id"])
+	}
+	if metadata["title"] != "Why jury trials are becoming less common" {
+		t.Fatalf("amara title lost: %#v", metadata["title"])
+	}
+	if metadata["description"] != "A PBS NewsHour segment on declining jury trials." {
+		t.Fatalf("amara description lost: %#v", metadata["description"])
 	}
 }
 
