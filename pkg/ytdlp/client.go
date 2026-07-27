@@ -650,12 +650,12 @@ func (operation *operation) processWithTransparentParent(ctx context.Context, ra
 		return operation.processWithTransparentParent(ctx, entry.URL, entry.ExtractorKey, &entry, ancestors, depth+1, nextParent)
 	}
 	if extracted.IsPlaylist() {
-		return operation.processPlaylist(ctx, extracted, selected.Name(), ancestors, depth, transparentParent)
+		return operation.processPlaylist(ctx, extracted, selected.Name(), ancestors, depth)
 	}
 	return operation.processMedia(ctx, extracted, selected.Name())
 }
 
-func (operation *operation) processPlaylist(ctx context.Context, extracted extractor.Extraction, extractorName string, ancestors map[string]bool, depth int, transparentParent value.Info) (Result, error) {
+func (operation *operation) processPlaylist(ctx context.Context, extracted extractor.Extraction, extractorName string, ancestors map[string]bool, depth int) (Result, error) {
 	if err := operation.validatePrintRules(ctx, extracted.Info, nil, "", true); err != nil {
 		return Result{}, categorized("validate playlist print", err)
 	}
@@ -732,7 +732,7 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 			entryValues = append(entryValues, value.ObjectValue(entryInfo.Fields()))
 			continue
 		}
-		child, err := operation.processWithTransparentParent(ctx, entry.URL, entry.ExtractorKey, &entry, ancestors, depth+1, transparentParent)
+		child, err := operation.process(ctx, entry.URL, entry.ExtractorKey, &entry, ancestors, depth+1)
 		if err != nil {
 			return Result{}, fmt.Errorf("playlist entry %d: %w", selected.SourceIndex, err)
 		}

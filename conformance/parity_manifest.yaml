@@ -1615,6 +1615,7 @@ capabilities:
       - internal/extractor.FuzzDecodeAmaraVideoResponse
       - pkg/ytdlp.TestOperationMergesTransparentParentInfoFromURLResult
       - pkg/ytdlp.TestOperationAmaraHandoffsAreConcurrentSafe
+      - pkg/ytdlp.TestOperationAmaraParentMetadataDoesNotLeakIntoPlaylistEntries
       - pkg/ytdlp.TestRepresentativeExtractorCatalogCountRoutingAndRiskCoverage
       - pkg/ytdlp.TestProductRegistryIncludesIntegratedExtractors
       - conformance/extractors/shared/amara/PROVENANCE.md

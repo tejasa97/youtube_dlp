@@ -13,8 +13,8 @@ Relevant reference locations in `yt_dlp/extractor/amara.py` at that commit:
   YouTube/Vimeo handoff.
 
 The checked-in copies live under `internal/extractor/testdata/amara/`. No
-upstream response body or user media metadata was copied. Hosts use reserved
-`.org` Amara domains with synthetic identifiers, and media assets are never
+upstream response body or user media metadata was copied. Fixtures use the
+public Amara host with synthetic identifiers, and media assets are never
 requested by tests. The expected normalization contract is native Go behavior
 rather than byte-for-byte Python output.
 
