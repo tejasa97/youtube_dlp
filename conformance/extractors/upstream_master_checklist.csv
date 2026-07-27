@@ -24,7 +24,7 @@ aenetworks,AENetworksShowIE,AENetworksShow,requires_new_backend,,,,low,no exact 
 aenetworks,BiographyIE,Biography,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 aenetworks,HistoryPlayerIE,HistoryPlayer,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 aenetworks,HistoryTopicIE,HistoryTopic,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-aeonco,AeonCoIE,AeonCo,already_supported,aeonco,,,high,normalized upstream key exactly matches a registered Go extractor
+aeonco,AeonCoIE,AeonCo,already_supported,aeonco,vimeo,,high,normalized upstream key exactly matches a registered Go extractor
 afreecatv,AfreecaTVCatchStoryIE,AfreecaTVCatchStory,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 afreecatv,AfreecaTVIE,AfreecaTV,requires_authentication_or_antibot,,,login,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"
 afreecatv,AfreecaTVLiveIE,AfreecaTVLive,requires_authentication_or_antibot,,,login,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"
@@ -47,7 +47,7 @@ altcensored,AltCensoredIE,AltCensored,requires_new_backend,,,,low,no exact Go ma
 alura,AluraCourseIE,AluraCourse,requires_authentication_or_antibot,,,login,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"
 alura,AluraIE,Alura,requires_authentication_or_antibot,,,login,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"
 amadeustv,AmadeusTVIE,AmadeusTV,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-amara,AmaraIE,Amara,already_supported,amara,,,high,normalized upstream key exactly matches a registered Go extractor
+amara,AmaraIE,Amara,already_supported,amara,vimeo,,high,normalized upstream key exactly matches a registered Go extractor
 amazon,AmazonReviewsIE,AmazonReviews,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 amazon,AmazonStoreIE,AmazonStore,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 amazonminitv,AmazonMiniTVIE,AmazonMiniTV,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
@@ -1081,16 +1081,16 @@ radiozet,RadioZetPodcastIE,RadioZetPodcast,requires_new_backend,,,,low,no exact 
 radlive,RadLiveChannelIE,RadLiveChannel,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 radlive,RadLiveIE,RadLive,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 radlive,RadLiveSeasonIE,RadLiveSeason,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-rai,RaiCulturaIE,RaiCultura,partially_supported,raicultura,rai,relinker|regional,high,fixture-backed Rai Cultura player discovery and relinker extraction; legacy fallback and HDS remain deliberately partial
-rai,RaiIE,Rai,partially_supported,rai,rai,relinker|regional,high,fixture-backed legacy Rai JSON and shared relinker extraction; HDS remains deliberately unsupported
-rai,RaiNewsIE,RaiNews,partially_supported,rainews,rai,relinker|regional,high,fixture-backed Rai News player discovery and legacy fallback; HDS remains deliberately unsupported
-rai,RaiPlayIE,RaiPlay,partially_supported,raiplay,rai,relinker|regional,high,fixture-backed RaiPlay VOD JSON and shared relinker extraction
-rai,RaiPlayLiveIE,RaiPlayLive,partially_supported,raiplay_live,rai,relinker|live|regional,high,fixture-backed RaiPlay live JSON and relinker extraction
-rai,RaiPlayPlaylistIE,RaiPlayPlaylist,partially_supported,raiplay_playlist,rai,playlist|relinker,high,bounded lazy RaiPlay program entries with explicit RaiPlay re-entry
-rai,RaiPlaySoundIE,RaiPlaySound,partially_supported,raiplaysound,rai,relinker|audio|regional,high,fixture-backed RaiPlay Sound episode extraction and audio relinker formats
-rai,RaiPlaySoundLiveIE,RaiPlaySoundLive,partially_supported,raiplaysound_live,rai,relinker|audio|live|regional,high,fixture-backed RaiPlay Sound live route and relinker extraction
-rai,RaiPlaySoundPlaylistIE,RaiPlaySoundPlaylist,partially_supported,raiplaysound_playlist,rai,playlist|audio,high,bounded lazy RaiPlay Sound card entries with explicit Sound re-entry
-rai,RaiSudtirolIE,RaiSudtirol,partially_supported,raisudtirol,rai,relinker|regional,high,fixture-backed Rai Südtirol direct MP4/HLS page discovery
+rai,RaiCulturaIE,RaiCultura,already_supported,raicultura,,,high,normalized upstream key exactly matches a registered Go extractor
+rai,RaiIE,Rai,already_supported,rai,,,high,normalized upstream key exactly matches a registered Go extractor
+rai,RaiNewsIE,RaiNews,already_supported,rainews,,,high,normalized upstream key exactly matches a registered Go extractor
+rai,RaiPlayIE,RaiPlay,already_supported,raiplay,,,high,normalized upstream key exactly matches a registered Go extractor
+rai,RaiPlayLiveIE,RaiPlayLive,already_supported,raiplay_live,,,high,normalized upstream key exactly matches a registered Go extractor
+rai,RaiPlayPlaylistIE,RaiPlayPlaylist,already_supported,raiplay_playlist,,,high,normalized upstream key exactly matches a registered Go extractor
+rai,RaiPlaySoundIE,RaiPlaySound,already_supported,raiplaysound,,,high,normalized upstream key exactly matches a registered Go extractor
+rai,RaiPlaySoundLiveIE,RaiPlaySoundLive,already_supported,raiplaysound_live,,,high,normalized upstream key exactly matches a registered Go extractor
+rai,RaiPlaySoundPlaylistIE,RaiPlaySoundPlaylist,already_supported,raiplaysound_playlist,,,high,normalized upstream key exactly matches a registered Go extractor
+rai,RaiSudtirolIE,RaiSudtirol,already_supported,raisudtirol,,,high,normalized upstream key exactly matches a registered Go extractor
 raywenderlich,RayWenderlichCourseIE,RayWenderlichCourse,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 raywenderlich,RayWenderlichIE,RayWenderlich,uses_existing_shared_backend,,vimeo,,medium,upstream class references a media backend already implemented in Go
 rbgtum,RbgTumCourseIE,RbgTumCourse,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required

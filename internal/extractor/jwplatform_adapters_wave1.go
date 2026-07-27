@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
-	"sort"
 	"strings"
 
 	"github.com/ytdlp-go/ytdlp/internal/value"
@@ -48,20 +47,9 @@ var (
 	jwWave1YouTubeID      = regexp.MustCompile(`^[0-9A-Za-z_-]{11}$`)
 )
 
-// jwWave1Handoff validates the discovered media id and finalizes a jwplatform
-// URL result. Adapter-provided Entry metadata is preserved.
-func jwWave1Handoff(mediaID string, entry Entry) (Extraction, error) {
-	if !jwPlatformID.MatchString(mediaID) {
-		return Extraction{}, fmt.Errorf("%w: invalid JW Platform handoff", ErrInvalidMetadata)
-	}
-	entry.URL = "jwplatform:" + mediaID
-	entry.ExtractorKey = "jwplatform"
-	if entry.ID == "" {
-		entry.ID = mediaID
-	}
-	return URLResult(entry)
-}
-
+// jwWave1YouTubeHandoff produces a transparent YouTube URL handoff using the
+// shared validated helper semantics. Transparent metadata from entry flows
+// through the next extractor.
 func jwWave1YouTubeHandoff(videoID string, entry Entry) (Extraction, error) {
 	if !jwWave1YouTubeID.MatchString(videoID) {
 		return Extraction{}, fmt.Errorf("%w: invalid YouTube handoff", ErrInvalidMetadata)
@@ -71,6 +59,7 @@ func jwWave1YouTubeHandoff(videoID string, entry Entry) (Extraction, error) {
 	if entry.ID == "" {
 		entry.ID = videoID
 	}
+	entry.Transparent = true
 	return URLResult(entry)
 }
 
@@ -117,7 +106,7 @@ func (Bundesliga) Extract(ctx context.Context, request Request) (Extraction, err
 	if !ok {
 		return Extraction{}, ErrUnsupported
 	}
-	return jwWave1Handoff(videoID, Entry{ID: videoID})
+	return jwPlatformURLEntry(videoID, Entry{ID: videoID})
 }
 
 func parseBundesligaURL(parsed *url.URL) (string, bool) {
@@ -168,7 +157,7 @@ func (BusinessInsider) Extract(ctx context.Context, request Request) (Extraction
 	}
 	for _, pattern := range businessInsiderIDPatterns {
 		if match := pattern.FindSubmatch(page); len(match) == 2 {
-			return jwWave1Handoff(string(match[1]), Entry{ID: displayID})
+			return jwPlatformURLEntry(string(match[1]), Entry{ID: displayID})
 		}
 	}
 	return Extraction{}, classifyMissingMediaPage(page, "Business Insider JW Platform id")
@@ -231,7 +220,7 @@ func (DBTV) Extract(ctx context.Context, request Request) (Extraction, error) {
 	if len(videoID) == 11 {
 		return jwWave1YouTubeHandoff(videoID, Entry{ID: videoID, Transparent: true})
 	}
-	return jwWave1Handoff(videoID, Entry{ID: videoID, Transparent: true})
+	return jwPlatformURLEntry(videoID, Entry{ID: videoID, Transparent: true})
 }
 
 func parseDBTVURL(parsed *url.URL) (string, bool) {
@@ -284,7 +273,7 @@ func (HollywoodReporter) Extract(ctx context.Context, request Request) (Extracti
 	videoID := attributes["data-video-showcase-trigger"]
 	switch attributes["data-video-showcase-type"] {
 	case "jwplayer":
-		return jwWave1Handoff(videoID, Entry{ID: videoID})
+		return jwPlatformURLEntry(videoID, Entry{ID: videoID})
 	case "youtube":
 		return jwWave1YouTubeHandoff(videoID, Entry{ID: videoID})
 	default:
@@ -345,7 +334,11 @@ func (Iltalehti) Extract(ctx context.Context, request Request) (Extraction, erro
 	}
 	entries := make([]Entry, 0, len(mediaIDs))
 	for _, mediaID := range mediaIDs {
-		entries = append(entries, Entry{URL: "jwplatform:" + mediaID, ExtractorKey: "jwplatform", ID: mediaID})
+		built, err := jwPlatformEntry(mediaID, Entry{})
+		if err != nil {
+			return Extraction{}, err
+		}
+		entries = append(entries, built)
 	}
 	info := value.NewObject(
 		value.Field{Key: "id", Value: value.String(articleID)},
@@ -482,10 +475,26 @@ func (LeFigaroVideoEmbed) Extract(ctx context.Context, request Request) (Extract
 	}
 	player := payload.Props.PageProps.InitialProps.PageData.PlayerData
 	entry := Entry{ID: player.VideoID, Title: wave2BoundString(player.Title, jwWave1MaxTextBytes)}
-	if strictValidHostedHTTPURL(player.Poster) {
+	if player.VideoID == "" {
+		return Extraction{}, fmt.Errorf("%w: missing Le Figaro video id", ErrInvalidMetadata)
+	}
+	if jwWave1HTTPPoster(player.Poster) {
 		entry.Thumbnail = player.Poster
 	}
-	return jwWave1Handoff(player.VideoID, entry)
+	return jwPlatformURLEntry(player.VideoID, entry)
+}
+
+// jwWave1HTTPPoster accepts only strict-validated HTTPS poster URLs so HTTP or
+// non-conforming posters are omitted without failing the extraction.
+func jwWave1HTTPPoster(rawURL string) bool {
+	if !strictValidHostedHTTPURL(rawURL) {
+		return false
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	return parsed.Scheme == "https"
 }
 
 func parseLeFigaroVideoEmbedURL(parsed *url.URL) (string, bool) {
@@ -537,7 +546,7 @@ func (MirrorCoUK) Extract(ctx context.Context, request Request) (Extraction, err
 	if err != nil {
 		return Extraction{}, err
 	}
-	return jwWave1Handoff(mediaID, Entry{ID: mediaID})
+	return jwPlatformURLEntry(mediaID, Entry{ID: mediaID})
 }
 
 // mirrorCoUKVideoID unescapes the json-placeholder attribute and parses the
@@ -604,7 +613,7 @@ func (OutsideTV) Extract(ctx context.Context, request Request) (Extraction, erro
 	if !ok {
 		return Extraction{}, ErrUnsupported
 	}
-	return jwWave1Handoff(mediaID, Entry{ID: mediaID})
+	return jwPlatformURLEntry(mediaID, Entry{ID: mediaID})
 }
 
 func parseOutsideTVURL(parsed *url.URL) (string, bool) {
@@ -680,7 +689,7 @@ func (TheIntercept) Extract(ctx context.Context, request Request) (Extraction, e
 	if timestamp := hostedUnixTimestamp(post.date); timestamp > 0 {
 		entry.Timestamp, entry.HasTimestamp = timestamp, true
 	}
-	return jwWave1Handoff(post.videoID, entry)
+	return jwPlatformURLEntry(post.videoID, entry)
 }
 
 type theInterceptPostData struct {
@@ -698,21 +707,15 @@ func theInterceptPost(posts map[string]struct {
 	Date       string      `json:"date"`
 	FOVVideoID string      `json:"fov_videoid"`
 }, slug string) (theInterceptPostData, error) {
-	if len(posts) > jwWave1MaxEntries {
-		return theInterceptPostData{}, fmt.Errorf("%w: too many The Intercept posts", ErrInvalidMetadata)
-	}
-	keys := make([]string, 0, len(posts))
-	for key := range posts {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
+	// Page and balanced-JSON byte caps already bound posts; we only enforce the
+	// known slug once.
 	var match theInterceptPostData
 	found := false
-	for _, key := range keys {
-		candidate := posts[key]
+	for key, candidate := range posts {
 		if candidate.Slug != slug {
 			continue
 		}
+		_ = key
 		if found {
 			return theInterceptPostData{}, fmt.Errorf("%w: duplicate The Intercept post slug", ErrInvalidMetadata)
 		}

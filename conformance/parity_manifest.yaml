@@ -2395,11 +2395,30 @@ capabilities:
       - internal/extractor.TestWave2BoundStringUTF8Safe
       - internal/extractor.FuzzParseBrightcoveAdaptersWave2URL
       - internal/extractor.TestJWPlatformAdaptersWave1SuitableAndHandoff
+      - internal/extractor.TestJWPlatformAdaptersWave1SuitableMatrix
+      - internal/extractor.TestJWPlatformAdaptersWave1SlugBounds
       - internal/extractor.TestJWPlatformAdaptersWave1Negatives
       - internal/extractor.TestJWWave1JSToJSONSemantics
+      - internal/extractor.TestJWWave1JSToJSONBounds
+      - internal/extractor.TestJWWave1JSToJSONCombinesCommentsWithTrailingCommas
+      - internal/extractor.TestJWWave1JSToJSONOutputBound
+      - internal/extractor.TestJWWave1JSToJSONEscapesNearCap
+      - internal/extractor.TestJWWave1BoundedWriterCapsInitialCapacity
+      - internal/extractor.TestIltalehtiRelaxedAppState
+      - internal/extractor.TestJWPlatformEntryConstructor
       - internal/extractor.FuzzParseJWPlatformAdaptersWave1URL
       - pkg/ytdlp.TestProductRegistryJWPlatformAdaptersWave1Routing
       - pkg/ytdlp.TestProductMirrorCoUKReentersJWPlatformMediaID
+      - pkg/ytdlp.TestProductBusinessInsiderArticleIDSurvivesJWReentry
+      - pkg/ytdlp.TestProductLeFigaroPosterAndTitleSurviveJWReentry
+      - pkg/ytdlp.TestProductTheInterceptProducerMetadataSurvivesJWReentry
+      - pkg/ytdlp.TestOperationMergesTransparentEntryMetadata
+      - pkg/ytdlp.TestOperationTransparentOverlayDoesNotEraseBackendMetadata
+      - pkg/ytdlp.TestOperationTransparentOverlayPreservesExplicitZeroNumerics
+      - pkg/ytdlp.TestOperationTransparentZeroNumericsSurviveURLResultHandoff
+      - pkg/ytdlp.TestOperationTransparentEntryAcrossTwoHopURLResults
+      - pkg/ytdlp.TestOperationMergesTransparentParentInfoFromURLResult
+      - pkg/ytdlp.TestOperationAmaraNestedTransparentPreservesChildID
       - internal/extractor.TestKalturaJWAdaptersHandoff
       - internal/extractor.TestArcAdaptersExactRoutingHandoffAndEvidence
       - internal/extractor.TestPodcastFamilySuccessAndPlaylists
@@ -2411,7 +2430,8 @@ capabilities:
       - internal/extractor.TestSharedHostingSuccessFixtures
       - pkg/ytdlp.TestProductRegistryIncludesIntegratedExtractors
     owner: extractors
-    known_deviation: Stretch target of 75 keys is not claimed. Live-service compatibility is not asserted from synthetic fixtures alone. Heise YouTube-only pages and Craftsy cookie-gated full-class catalogs remain unsupported/fail-closed. Shape inventory enforces canonical route identities (no Arc single/multi double-count, no hostname-alias padding). Laracasts does not smuggle a laracasts.com Vimeo Referer; ABCOTVS does not implement publishedKey selection; BuzzFeed Facebook embeds are bare URL entries without an explicit facebook ExtractorKey.
+    known_deviation: >-
+      Stretch target of 75 keys is not claimed. Live-service compatibility is not asserted from synthetic fixtures alone. Heise YouTube-only pages and Craftsy cookie-gated full-class catalogs remain unsupported/fail-closed. Shape inventory enforces canonical route identities (no Arc single/multi double-count, no hostname-alias padding). Laracasts does not smuggle a laracasts.com Vimeo Referer; ABCOTVS does not implement publishedKey selection; BuzzFeed Facebook embeds are bare URL entries without an explicit facebook ExtractorKey. Wave 1 JW Platform adapters (Bundesliga, Business Insider, DBTV, Hollywood Reporter, Iltalehti, Le Figaro Video Embed, Mirror.co.uk, Outside TV, The Intercept) deliberately omit upstream-only fields that `extractor.Entry` does not yet expose: DBTV, Mirror.co.uk, and The Intercept `display_id`; The Intercept `description` and `comment_count`; Le Figaro `description`. The Hollywood Reporter YouTube fixture uses the repository's synthetic `fixture0001` id rather than a real YouTube identifier.
 
   - id: verification.g2_security
     name: Gate G2 security and fallback audit

@@ -84,24 +84,98 @@ func extractBalancedJSObject(page []byte, start int) ([]byte, error) {
 	return nil, fmt.Errorf("unterminated object")
 }
 
+// jwWave1BoundedWriter is the single source of output-side capacity checks
+// for the relaxed JS-to-JSON converter. Every byte, run, and string write
+// routes through one of the methods on this type, each of which refuses to
+// allocate output that would push the buffer past maxExtractorJSONBytes.
+// Returning ErrInvalidMetadata before writing guarantees no oversized output
+// is ever returned to the caller.
+type jwWave1BoundedWriter struct {
+	buf bytes.Buffer
+}
+
+func newJWWave1BoundedWriter(initial int) *jwWave1BoundedWriter {
+	writer := &jwWave1BoundedWriter{}
+	if initial > 0 {
+		// bytes.Buffer.Grow preallocates the full requested slice; clamp the
+		// hint so an at-cap source does not allocate beyond the output cap
+		// before any bounded write has a chance to refuse.
+		if int64(initial) > maxExtractorJSONBytes {
+			initial = int(maxExtractorJSONBytes)
+		}
+		writer.buf.Grow(initial)
+	}
+	return writer
+}
+
+func (w *jwWave1BoundedWriter) reserve(additional int) error {
+	if int64(w.buf.Len()+additional) > maxExtractorJSONBytes {
+		return fmt.Errorf("%w: js json output too large", ErrInvalidMetadata)
+	}
+	return nil
+}
+
+func (w *jwWave1BoundedWriter) writeByte(character byte) error {
+	if err := w.reserve(1); err != nil {
+		return err
+	}
+	w.buf.WriteByte(character)
+	return nil
+}
+
+func (w *jwWave1BoundedWriter) writeBytes(data []byte) error {
+	if err := w.reserve(len(data)); err != nil {
+		return err
+	}
+	w.buf.Write(data)
+	return nil
+}
+
+func (w *jwWave1BoundedWriter) writeString(data string) error {
+	if err := w.reserve(len(data)); err != nil {
+		return err
+	}
+	w.buf.WriteString(data)
+	return nil
+}
+
+func (w *jwWave1BoundedWriter) writeEscaped(character byte) error {
+	switch character {
+	case '"', '\\':
+		if err := w.writeByte('\\'); err != nil {
+			return err
+		}
+		return w.writeByte(character)
+	case '\n':
+		return w.writeString(`\n`)
+	case '\r':
+		return w.writeString(`\r`)
+	case '\t':
+		return w.writeString(`\t`)
+	default:
+		return w.writeByte(character)
+	}
+}
+
+func (w *jwWave1BoundedWriter) bytes() []byte { return w.buf.Bytes() }
+
 // jwWave1JSToJSON converts a bounded JS object literal subset used by Iltalehti
 // app state into JSON without executing page JavaScript. Supported syntax
-// includes unquoted keys, single/double-quoted strings, trailing commas, line
-// and block comments, undefined/void 0 → null, and pinned process_escape
-// string handling. Template literals, variable substitution, new Map/Array, and
-// other full js_to_json transforms are intentionally unsupported.
+// includes unquoted keys, single/double-quoted strings, trailing commas
+// (including trailing commas separated from `}`/`]` by line or block
+// comments), undefined/void 0 → null, and pinned process_escape string
+// handling. Template literals, variable substitution, new Map/Array, and other
+// full js_to_json transforms are intentionally unsupported. Every output byte
+// flows through jwWave1BoundedWriter so an oversize output returns
+// ErrInvalidMetadata without producing an oversized buffer.
 func jwWave1JSToJSON(src []byte) ([]byte, error) {
 	if int64(len(src)) > maxExtractorJSONBytes {
 		return nil, fmt.Errorf("%w: js object too large", ErrInvalidMetadata)
 	}
-	var out bytes.Buffer
-	out.Grow(len(src) + 16)
+	out := newJWWave1BoundedWriter(len(src) + 16)
 	expectKey := false
 	i := 0
 	for i < len(src) {
-		if int64(out.Len()) > maxExtractorJSONBytes {
-			return nil, fmt.Errorf("%w: js json output too large", ErrInvalidMetadata)
-		}
 		if skipped, err := skipJSNoise(src, &i); err != nil {
 			return nil, err
 		} else if skipped {
@@ -113,39 +187,60 @@ func jwWave1JSToJSON(src []byte) ([]byte, error) {
 		character := src[i]
 		switch character {
 		case '{':
-			out.WriteByte('{')
+			if err := out.writeByte('{'); err != nil {
+				return nil, err
+			}
 			expectKey = true
 			i++
 		case '[':
-			out.WriteByte('[')
+			if err := out.writeByte('['); err != nil {
+				return nil, err
+			}
 			expectKey = false
 			i++
 		case '}':
-			out.WriteByte('}')
+			if err := out.writeByte('}'); err != nil {
+				return nil, err
+			}
 			expectKey = false
 			i++
 		case ']':
-			out.WriteByte(']')
+			if err := out.writeByte(']'); err != nil {
+				return nil, err
+			}
 			expectKey = false
 			i++
 		case ':':
-			out.WriteByte(':')
+			if err := out.writeByte(':'); err != nil {
+				return nil, err
+			}
 			expectKey = false
 			i++
 		case ',':
 			j := i + 1
-			for j < len(src) && isJSWhitespace(src[j]) {
-				j++
+			// Skip whitespace and comments as a single bounded step. A trailing
+			// comma is recognized when the comment/whitespace sequence advances
+			// directly into a closing delimiter.
+			for {
+				more, err := skipJSNoise(src, &j)
+				if err != nil {
+					return nil, err
+				}
+				if !more {
+					break
+				}
 			}
 			if j < len(src) && (src[j] == '}' || src[j] == ']') {
-				i++
+				i = j
 				continue
 			}
-			out.WriteByte(',')
+			if err := out.writeByte(','); err != nil {
+				return nil, err
+			}
 			expectKey = true
 			i++
 		case '"', '\'':
-			if err := writeJSStringLiteral(src, &i, character, &out); err != nil {
+			if err := writeJSStringLiteral(src, &i, character, out); err != nil {
 				return nil, err
 			}
 		default:
@@ -158,7 +253,9 @@ func jwWave1JSToJSON(src []byte) ([]byte, error) {
 				continue
 			}
 			if bytes.Equal(token, []byte("undefined")) {
-				out.WriteString("null")
+				if err := out.writeString("null"); err != nil {
+					return nil, err
+				}
 				continue
 			}
 			if bytes.Equal(token, []byte("void")) {
@@ -167,25 +264,35 @@ func jwWave1JSToJSON(src []byte) ([]byte, error) {
 					j++
 				}
 				if j < len(src) && src[j] == ':' {
-					writeJSONStringToken(&out, token)
+					if err := writeJSONStringToken(out, token); err != nil {
+						return nil, err
+					}
 					continue
 				}
 				if j < len(src) && src[j] == '0' {
 					i = j + 1
 				}
-				out.WriteString("null")
+				if err := out.writeString("null"); err != nil {
+					return nil, err
+				}
 				continue
 			}
 			if bytes.Equal(token, []byte("true")) || bytes.Equal(token, []byte("false")) || bytes.Equal(token, []byte("null")) {
-				out.Write(token)
+				if err := out.writeBytes(token); err != nil {
+					return nil, err
+				}
 				continue
 			}
 			if isJSNumberToken(token) {
-				out.Write(token)
+				if err := out.writeBytes(token); err != nil {
+					return nil, err
+				}
 				continue
 			}
 			if expectKey {
-				writeJSONStringToken(&out, token)
+				if err := writeJSONStringToken(out, token); err != nil {
+					return nil, err
+				}
 				expectKey = false
 				continue
 			}
@@ -194,13 +301,17 @@ func jwWave1JSToJSON(src []byte) ([]byte, error) {
 				j++
 			}
 			if j < len(src) && src[j] == ':' {
-				writeJSONStringToken(&out, token)
+				if err := writeJSONStringToken(out, token); err != nil {
+					return nil, err
+				}
 				continue
 			}
-			writeJSONStringToken(&out, token)
+			if err := writeJSONStringToken(out, token); err != nil {
+				return nil, err
+			}
 		}
 	}
-	return out.Bytes(), nil
+	return out.bytes(), nil
 }
 
 func skipJSNoise(src []byte, index *int) (bool, error) {
@@ -228,8 +339,10 @@ func skipJSNoise(src []byte, index *int) (bool, error) {
 	return false, nil
 }
 
-func writeJSStringLiteral(src []byte, index *int, quote byte, out *bytes.Buffer) error {
-	out.WriteByte('"')
+func writeJSStringLiteral(src []byte, index *int, quote byte, out *jwWave1BoundedWriter) error {
+	if err := out.writeByte('"'); err != nil {
+		return err
+	}
 	(*index)++
 	for *index < len(src) {
 		character := src[*index]
@@ -241,18 +354,22 @@ func writeJSStringLiteral(src []byte, index *int, quote byte, out *bytes.Buffer)
 			continue
 		}
 		if character == quote {
-			out.WriteByte('"')
+			if err := out.writeByte('"'); err != nil {
+				return err
+			}
 			(*index)++
 			return nil
 		}
-		writeJSONEscaped(out, character)
+		if err := out.writeEscaped(character); err != nil {
+			return err
+		}
 		(*index)++
 	}
 	return fmt.Errorf("%w: unterminated js string", ErrInvalidMetadata)
 }
 
 // writeJSEscapeSequence mirrors the pinned js_to_json process_escape subset.
-func writeJSEscapeSequence(src []byte, index *int, out *bytes.Buffer) error {
+func writeJSEscapeSequence(src []byte, index *int, out *jwWave1BoundedWriter) error {
 	if *index >= len(src) {
 		return fmt.Errorf("%w: malformed js escape", ErrInvalidMetadata)
 	}
@@ -260,24 +377,36 @@ func writeJSEscapeSequence(src []byte, index *int, out *bytes.Buffer) error {
 	(*index)++
 	switch escape {
 	case '"', '\\', 'b', 'f', 'n', 'r', 't', 'u':
-		out.WriteByte('\\')
-		out.WriteByte(escape)
+		if err := out.writeByte('\\'); err != nil {
+			return err
+		}
+		if err := out.writeByte(escape); err != nil {
+			return err
+		}
 	case 'x':
-		out.WriteString(`\u00`)
+		if err := out.writeString(`\u00`); err != nil {
+			return err
+		}
 	case '\n':
 		// Line continuation removes the escaped newline.
 	default:
-		out.WriteByte(escape)
+		if err := out.writeByte(escape); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-func writeJSONStringToken(out *bytes.Buffer, token []byte) {
-	out.WriteByte('"')
-	for _, character := range token {
-		writeJSONEscaped(out, character)
+func writeJSONStringToken(out *jwWave1BoundedWriter, token []byte) error {
+	if err := out.writeByte('"'); err != nil {
+		return err
 	}
-	out.WriteByte('"')
+	for _, character := range token {
+		if err := out.writeEscaped(character); err != nil {
+			return err
+		}
+	}
+	return out.writeByte('"')
 }
 
 func isJSWhitespace(ch byte) bool {
@@ -309,20 +438,4 @@ func isJSNumberToken(token []byte) bool {
 		}
 	}
 	return true
-}
-
-func writeJSONEscaped(out *bytes.Buffer, character byte) {
-	switch character {
-	case '"', '\\':
-		out.WriteByte('\\')
-		out.WriteByte(character)
-	case '\n':
-		out.WriteString(`\n`)
-	case '\r':
-		out.WriteString(`\r`)
-	case '\t':
-		out.WriteString(`\t`)
-	default:
-		out.WriteByte(character)
-	}
 }
