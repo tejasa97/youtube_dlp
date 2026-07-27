@@ -3210,6 +3210,110 @@ func TestProductDiscoveryHLSAndDASHDownloadDispatch(t *testing.T) {
 	}
 }
 
+func TestProductDiscoveryDownloadRefererScope(t *testing.T) {
+	for _, site := range []struct {
+		name, rawURL, referer string
+		legacy                bool
+	}{
+		{"DPlay", "https://www.dplay.no/videoer/show/episode", "dplay.no", true},
+		{"DiscoveryPlusIndia", "https://www.discoveryplus.in/videos/show/episode", "https://www.discoveryplus.in/", false},
+	} {
+		for _, media := range []struct {
+			name, kind, mediaURL, want string
+		}{
+			{"HLS", "hls", "https://cdn.example.invalid/master.m3u8", "one-two"},
+			{"Direct", "http", "https://cdn.example.invalid/video.mp4", "direct-media"},
+		} {
+			t.Run(site.name+"/"+media.name, func(t *testing.T) {
+				seen := make(map[string][]http.Header)
+				var seenMu sync.Mutex
+				roundTrip := roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+					body := ""
+					if request.URL.Host == "cdn.example.invalid" {
+						seenMu.Lock()
+						seen[request.URL.Path] = append(seen[request.URL.Path], request.Header.Clone())
+						seenMu.Unlock()
+						for _, key := range []string{"Authentication", "Authorization", "Cookie", "Proxy-Authorization"} {
+							if got := request.Header.Get(key); got != "" {
+								return nil, fmt.Errorf("%s leaked to Discovery CDN: %q", key, got)
+							}
+						}
+						switch request.URL.Path {
+						case "/master.m3u8":
+							body = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000\nmedia.m3u8\n"
+						case "/media.m3u8":
+							body = "#EXTM3U\n#EXTINF:1,\none.bin\n#EXTINF:1,\ntwo.bin\n#EXT-X-ENDLIST\n"
+						case "/one.bin":
+							body = "one-"
+						case "/two.bin":
+							body = "two"
+						case "/video.mp4":
+							body = "direct-media"
+						default:
+							return nil, fmt.Errorf("unexpected Discovery CDN request %s", request.URL.Redacted())
+						}
+					} else {
+						switch {
+						case strings.HasSuffix(request.URL.Path, "/token"):
+							body = `{"data":{"attributes":{"token":"api-bearer"}}}`
+						case strings.Contains(request.URL.Path, "/content/videos/"):
+							if request.Header.Get("Authorization") != "Bearer api-bearer" {
+								return nil, fmt.Errorf("content request bearer=%q", request.Header.Get("Authorization"))
+							}
+							body = `{"data":{"id":"video-1","attributes":{"name":"Referer fixture","videoDuration":2000}}}`
+						case strings.Contains(request.URL.Path, "videoPlaybackInfo"):
+							if request.Header.Get("Authorization") != "Bearer api-bearer" {
+								return nil, fmt.Errorf("playback request bearer=%q", request.Header.Get("Authorization"))
+							}
+							if site.legacy {
+								body = fmt.Sprintf(`{"data":{"attributes":{"streaming":{%q:{"url":%q}}}}}`, media.kind, media.mediaURL)
+							} else {
+								body = fmt.Sprintf(`{"data":{"attributes":{"streaming":[{"type":%q,"url":%q}]}}}`, media.kind, media.mediaURL)
+							}
+						default:
+							return nil, fmt.Errorf("unexpected Discovery API request %s", request.URL.Redacted())
+						}
+					}
+					headers := make(http.Header)
+					headers.Set("Content-Length", strconv.Itoa(len(body)))
+					return &http.Response{StatusCode: http.StatusOK, Header: headers, Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
+				})
+				transport, err := network.New(network.Config{RoundTripper: roundTrip})
+				if err != nil {
+					t.Fatal(err)
+				}
+				operation := &operation{
+					client: NewClient(), request: Request{OutputDir: t.TempDir()}, transport: transport,
+					registry: productRegistry(), rootExtractor: new(string),
+				}
+				result, err := operation.process(context.Background(), site.rawURL, "", nil, make(map[string]bool), 0)
+				if err != nil {
+					t.Fatal(err)
+				}
+				payload, err := os.ReadFile(result.Filename)
+				if err != nil || string(payload) != media.want {
+					t.Fatalf("payload=%q want=%q err=%v", payload, media.want, err)
+				}
+				requiredPaths := []string{"/video.mp4"}
+				if media.name == "HLS" {
+					requiredPaths = []string{"/media.m3u8", "/one.bin", "/two.bin"}
+				}
+				for _, path := range requiredPaths {
+					headers := seen[path]
+					if len(headers) == 0 {
+						t.Fatalf("%s was not requested; seen=%v", path, seen)
+					}
+					for _, header := range headers {
+						if got := header.Get("Referer"); got != site.referer {
+							t.Fatalf("%s Referer=%q want=%q", path, got, site.referer)
+						}
+					}
+				}
+			})
+		}
+	}
+}
+
 func TestProductCategorizesDiscoveryFailures(t *testing.T) {
 	for _, test := range []struct {
 		name   string

@@ -534,6 +534,15 @@ func TestDiscoveryJSONBoundsNilResponsesAndCancellation(t *testing.T) {
 			t.Fatalf("accepted malformed playback %q", payload)
 		}
 	}
+	for _, payload := range []string{
+		fmt.Sprintf(`{"data":{"attributes":{"streaming":[{"type":%q,"url":"https://cdn.example/x"}]}}}`, strings.Repeat("x", 257)),
+		fmt.Sprintf(`{"data":{"attributes":{"streaming":[{"type":"http","url":%q}]}}}`, "https://cdn.example/"+strings.Repeat("x", sharedHostingMaxURLBytes)),
+	} {
+		var playback discoveryPlaybackResponse
+		if err := json.Unmarshal([]byte(payload), &playback); err == nil {
+			t.Fatal("accepted oversized playback field")
+		}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if err := discoveryTokenJSON(ctx, contextErrorTransport{}, "https://api.example.invalid/token", &target); !errors.Is(err, context.Canceled) {
@@ -719,6 +728,9 @@ func TestDiscoveryMissingCapabilitiesConcurrencyAndSecretSafety(t *testing.T) {
 	if _, err := NewGoDiscovery().Extract(context.Background(), Request{URL: "https://go.discovery.com/video/a/b", Transport: basicDiscoveryTransport{}}); !errors.Is(err, ErrTransportIsolation) {
 		t.Fatalf("missing capability=%v", err)
 	}
+	if _, err := NewDiscoveryPlusIndiaShow().Extract(context.Background(), Request{URL: "https://discoveryplus.in/show/a", Transport: &discoveryFixtureTransport{st: "show-token"}}); !errors.Is(err, ErrTransportIsolation) {
+		t.Fatalf("show accepted Authorization-only capability=%v", err)
+	}
 	const workers = 16
 	var group sync.WaitGroup
 	errs := make(chan error, workers)
@@ -765,7 +777,7 @@ func TestDiscoveryShowPaginationSeasonsReuseAndFailures(t *testing.T) {
 		}
 	}
 	scoped := discoveryShowEntries{extractor: NewDiscoveryPlusIndiaShow(), transport: showFixtureTransport{mode: "cross-season"}, authentication: "Bearer fixture", plan: discoveryShowPlan{showID: "show-id", seasons: []string{"1", "2"}}}
-	if entries, err := CollectEntries(context.Background(), scoped, 10); err != nil || len(entries) != 1 {
+	if entries, err := CollectEntries(context.Background(), scoped, 10); err != nil || len(entries) != 2 || entries[0].URL != entries[1].URL {
 		t.Fatalf("season-scoped identity=%#v err=%v", entries, err)
 	}
 	repeated := discoveryShowEntries{extractor: NewDiscoveryPlusIndiaShow(), transport: showFixtureTransport{mode: "repeated"}, authentication: "Bearer fixture", plan: discoveryShowPlan{showID: "show-id", seasons: []string{"1"}}}
@@ -783,6 +795,19 @@ func TestDiscoveryShowPaginationSeasonsReuseAndFailures(t *testing.T) {
 	zeroTotal := discoveryShowEntries{extractor: NewDiscoveryPlusItalyShow(), transport: showFixtureTransport{mode: "zero-total"}, authentication: "Bearer fixture", plan: discoveryShowPlan{showID: "show-id", seasons: []string{"1"}}}
 	if entries, err := CollectEntries(context.Background(), zeroTotal, 10); err != nil || len(entries) != 0 {
 		t.Fatalf("zero-total=%#v err=%v", entries, err)
+	}
+	repeatedEmpty := discoveryShowEntries{extractor: NewDiscoveryPlusItalyShow(), transport: showFixtureTransport{mode: "repeated-empty"}, authentication: "Bearer fixture", plan: discoveryShowPlan{showID: "show-id", seasons: []string{"1"}}}
+	if entries, err := CollectEntries(context.Background(), repeatedEmpty, 10); err != nil || len(entries) != 0 {
+		t.Fatalf("repeated empty=%#v err=%v", entries, err)
+	}
+	missingID := discoveryShowEntries{extractor: NewDiscoveryPlusIndiaShow(), transport: showFixtureTransport{mode: "missing-id"}, authentication: "Bearer fixture", plan: discoveryShowPlan{showID: "show-id", seasons: []string{"1"}}}
+	entries, err := CollectEntries(context.Background(), missingID, 10)
+	if err != nil || len(entries) != 1 || entries[0].ID != "show/fallback" {
+		t.Fatalf("missing ID fallback=%#v err=%v", entries, err)
+	}
+	malformedID := discoveryShowEntries{extractor: NewDiscoveryPlusIndiaShow(), transport: showFixtureTransport{mode: "malformed-id"}, authentication: "Bearer fixture", plan: discoveryShowPlan{showID: "show-id", seasons: []string{"1"}}}
+	if _, err := CollectEntries(context.Background(), malformedID, 10); !errors.Is(err, ErrInvalidPlaylist) {
+		t.Fatalf("malformed ID=%v", err)
 	}
 	var options strings.Builder
 	options.WriteString(`{"included":[{"attributes":{"component":{"mandatoryParams":"show.id=show-id","filters":[{"options":[`)
@@ -827,7 +852,7 @@ func (showFixtureTransport) Do(context.Context, *http.Request) (*http.Response, 
 func (showFixtureTransport) ReadPage(context.Context, string) ([]byte, http.Header, error) {
 	return nil, nil, io.EOF
 }
-func (transport showFixtureTransport) DoWithScopedAuthorizationNoRedirect(_ context.Context, request *http.Request) (*http.Response, error) {
+func (transport showFixtureTransport) DoWithScopedAuthenticationNoRedirect(_ context.Context, request *http.Request) (*http.Response, error) {
 	query := request.URL.Query()
 	season, page := query.Get("filter[seasonNumber]"), query.Get("page[number]")
 	if season == "" {
@@ -851,8 +876,14 @@ func (transport showFixtureTransport) DoWithScopedAuthorizationNoRedirect(_ cont
 		return discoveryHTTP(200, `{"data":[],"meta":{"totalPages":1}}`), nil
 	case "zero-total":
 		return discoveryHTTP(200, `{"data":[],"meta":{"totalPages":0}}`), nil
+	case "repeated-empty":
+		return discoveryHTTP(200, `{"data":[],"meta":{"totalPages":3}}`), nil
 	case "cross-season":
 		return discoveryHTTP(200, `{"data":[{"id":"same","attributes":{"path":"show/same"}}],"meta":{"totalPages":1}}`), nil
+	case "missing-id":
+		return discoveryHTTP(200, `{"data":[{"attributes":{"path":"show/fallback"}}],"meta":{"totalPages":1}}`), nil
+	case "malformed-id":
+		return discoveryHTTP(200, `{"data":[{"id":"bad/id","attributes":{"path":"show/fallback"}}],"meta":{"totalPages":1}}`), nil
 	case "page-overflow":
 		var body strings.Builder
 		body.WriteString(`{"data":[`)
@@ -916,6 +947,9 @@ func (transport *discoveryRoutedTransport) DoWithScopedAuthorizationNoRedirect(_
 	}
 	return discoveryHTTP(200, string(transport.content)), nil
 }
+func (transport *discoveryRoutedTransport) DoWithScopedAuthenticationNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
+	return transport.DoWithScopedAuthorizationNoRedirect(ctx, request)
+}
 
 type fixtureBodyTransport struct {
 	status  int
@@ -933,6 +967,9 @@ func (f fixtureBodyTransport) DoWithoutCredentialsNoRedirect(context.Context, *h
 	return f.response(), nil
 }
 func (f fixtureBodyTransport) DoWithScopedAuthorizationNoRedirect(context.Context, *http.Request) (*http.Response, error) {
+	return f.response(), nil
+}
+func (f fixtureBodyTransport) DoWithScopedAuthenticationNoRedirect(context.Context, *http.Request) (*http.Response, error) {
 	return f.response(), nil
 }
 func (f fixtureBodyTransport) response() *http.Response {
@@ -1036,6 +1073,9 @@ func FuzzDiscoveryDPlayRouting(f *testing.F) {
 	}
 	f.Add("https://go.discovery.com/video/a%2fb")
 	f.Fuzz(func(t *testing.T, rawURL string) {
+		if len(rawURL) > sharedHostingMaxURLBytes {
+			return
+		}
 		parsed, err := url.Parse(rawURL)
 		if err != nil {
 			return
@@ -1061,6 +1101,9 @@ func FuzzDiscoveryPlaybackSchemas(f *testing.F) {
 	f.Add([]byte(`{"data":{"attributes":{"streaming":[{"type":"hls","url":"https://cdn.example.invalid/x.m3u8"}]}}}`))
 	f.Add([]byte(`{"data":{"attributes":{"streaming":{"hls":{"url":"https://cdn.example.invalid/x.m3u8"}}}}}`))
 	f.Fuzz(func(t *testing.T, payload []byte) {
+		if len(payload) > 1<<20 {
+			return
+		}
 		var playback discoveryPlaybackResponse
 		err := json.Unmarshal(payload, &playback)
 		if err == nil {
@@ -1068,7 +1111,7 @@ func FuzzDiscoveryPlaybackSchemas(f *testing.F) {
 				t.Fatalf("stream overflow %d", len(playback.Streaming))
 			}
 			for _, stream := range playback.Streaming {
-				if len(stream.Type) > len(payload) || len(stream.URL) > len(payload) {
+				if len(stream.Type) > 256 || len(stream.URL) > sharedHostingMaxURLBytes {
 					t.Fatal("unbounded stream")
 				}
 			}

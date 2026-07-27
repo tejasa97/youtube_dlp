@@ -446,6 +446,72 @@ func discoveryRequestJSON(ctx context.Context, transport Transport, method, rawU
 	return nil
 }
 
+func discoveryShowRequestJSON(ctx context.Context, transport Transport, method, rawURL string, headers http.Header, target any) error {
+	scoped, ok := transport.(ScopedAuthenticationNoRedirectTransport)
+	if !ok {
+		return ErrTransportIsolation
+	}
+	request, err := http.NewRequestWithContext(ctx, method, rawURL, nil)
+	if err != nil {
+		return ErrInvalidMetadata
+	}
+	request.Header = headers.Clone()
+	response, err := scoped.DoWithScopedAuthenticationNoRedirect(ctx, request)
+	if err != nil {
+		return err
+	}
+	if response == nil || response.Body == nil {
+		return fmt.Errorf("%w: nil Discovery show response", ErrInvalidMetadata)
+	}
+	defer response.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(response.Body, maxExtractorJSONBytes+1))
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return ErrDiscoveryNetwork
+	}
+	if int64(len(data)) > maxExtractorJSONBytes {
+		return ErrJSONResponseTooLarge
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		var failure struct {
+			Errors []struct {
+				Code string `json:"code"`
+			} `json:"errors"`
+		}
+		if response.StatusCode == http.StatusBadRequest {
+			decoder := json.NewDecoder(bytes.NewReader(data))
+			if err := decoder.Decode(&failure); err != nil {
+				return fmt.Errorf("%w: invalid Discovery show error JSON", ErrInvalidMetadata)
+			}
+			if err := ensureJSONEOF(decoder); err != nil {
+				return fmt.Errorf("%w: trailing Discovery show error JSON", ErrInvalidMetadata)
+			}
+		} else {
+			_ = json.Unmarshal(data, &failure)
+		}
+		if len(failure.Errors) > 0 {
+			switch failure.Errors[0].Code {
+			case "access.denied.geoblocked":
+				return ErrRegionRestricted
+			case "access.denied.missingpackage", "invalid.token":
+				return ErrAuthentication
+			}
+		}
+		return &HTTPStatusError{Code: response.StatusCode}
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(target); err != nil {
+		return fmt.Errorf("%w: invalid Discovery show JSON", ErrInvalidMetadata)
+	}
+	if err := ensureJSONEOF(decoder); err != nil {
+		return fmt.Errorf("%w: trailing Discovery show JSON", ErrInvalidMetadata)
+	}
+	return nil
+}
+
 func (extractor DiscoveryDPlay) authorization(ctx context.Context, transport Transport) (string, error) {
 	base := extractor.apiBase()
 	if cookies, ok := transport.(discoveryCookieTransport); ok {
@@ -691,6 +757,9 @@ func (response *discoveryPlaybackResponse) UnmarshalJSON(data []byte) error {
 		sort.Strings(kinds)
 		for _, kind := range kinds {
 			item := legacy[kind]
+			if len(kind) > 256 || len(item.URL) > sharedHostingMaxURLBytes {
+				return fmt.Errorf("streaming field overflow")
+			}
 			response.Streaming = append(response.Streaming, discoveryStream{Type: kind, URL: item.URL})
 		}
 		return nil
@@ -709,6 +778,9 @@ func (response *discoveryPlaybackResponse) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("streaming overflow")
 	}
 	for _, item := range v3 {
+		if len(item.Type) > 256 || len(item.URL) > sharedHostingMaxURLBytes {
+			return fmt.Errorf("streaming field overflow")
+		}
 		response.Streaming = append(response.Streaming, discoveryStream{Type: item.Type, URL: item.URL})
 	}
 	return nil
@@ -822,7 +894,21 @@ func (extractor DiscoveryDPlay) media(ctx context.Context, transport Transport, 
 	if len(subtitles) > 0 {
 		info.Set("subtitles", discoverySubtitleValue(subtitles))
 	}
+	if referer := extractor.downloadReferer(); referer != "" {
+		info.Set("http_headers", hostedHeadersValue(http.Header{"Referer": {referer}}))
+	}
 	return Media(info), nil
+}
+
+func (extractor DiscoveryDPlay) downloadReferer() string {
+	switch extractor.config.key {
+	case "dplay":
+		return strings.TrimPrefix(extractor.config.host, "www.")
+	case "discoveryplusindia":
+		return "https://www.discoveryplus.in/"
+	default:
+		return ""
+	}
 }
 
 const discoveryMaxFormats = 256
@@ -1113,7 +1199,7 @@ func (extractor DiscoveryDPlay) extractShow(ctx context.Context, request Request
 	headers := extractor.showHeaders(authentication)
 	var cms discoveryShowCMS
 	endpoint := extractor.apiBase() + "cms/routes/" + url.PathEscape(extractor.config.showPath) + "/" + url.PathEscape(target.displayID) + "?include=default"
-	if err := discoveryRequestJSON(ctx, request.Transport, http.MethodGet, endpoint, nil, headers, &cms); err != nil {
+	if err := discoveryShowRequestJSON(ctx, request.Transport, http.MethodGet, endpoint, headers, &cms); err != nil {
 		return Extraction{}, discoveryError(err)
 	}
 	plan, err := extractor.showPlan(cms, target.displayID)
@@ -1186,14 +1272,14 @@ type discoveryShowEntries struct {
 }
 
 func (entries discoveryShowEntries) Iterator() EntryIterator {
-	return &discoveryShowIterator{entries: entries, seen: make(map[string]bool), seenPages: make(map[string]bool)}
+	return &discoveryShowIterator{entries: entries, seenPages: make(map[string]bool)}
 }
 
 type discoveryShowIterator struct {
 	entries                                  discoveryShowEntries
 	season, page, total, pages, entriesTotal int
 	queued                                   []Entry
-	seen, seenPages                          map[string]bool
+	seenPages                                map[string]bool
 }
 
 func (iterator *discoveryShowIterator) Next(ctx context.Context) (Entry, bool, error) {
@@ -1215,11 +1301,13 @@ func (iterator *discoveryShowIterator) Next(ctx context.Context) (Entry, bool, e
 		if err != nil {
 			return Entry{}, false, err
 		}
-		fingerprint = iterator.entries.plan.seasons[iterator.season] + ":" + fingerprint
-		if iterator.seenPages[fingerprint] {
-			return Entry{}, false, fmt.Errorf("%w: repeated Discovery show response", ErrInvalidPlaylist)
+		if len(page.Data) > 0 {
+			fingerprint = iterator.entries.plan.seasons[iterator.season] + ":" + fingerprint
+			if iterator.seenPages[fingerprint] {
+				return Entry{}, false, fmt.Errorf("%w: repeated Discovery show response", ErrInvalidPlaylist)
+			}
+			iterator.seenPages[fingerprint] = true
 		}
-		iterator.seenPages[fingerprint] = true
 		iterator.page++
 		iterator.pages++
 		if iterator.total == 0 {
@@ -1238,19 +1326,22 @@ func (iterator *discoveryShowIterator) Next(ctx context.Context) (Entry, bool, e
 			if !discoveryShowVideoPath(path) {
 				return Entry{}, false, fmt.Errorf("%w: malformed Discovery episode path", ErrInvalidPlaylist)
 			}
-			if iterator.seen[path] {
-				continue
-			}
-			iterator.seen[path] = true
 			if iterator.entriesTotal >= defaultMaxPlaylistEntries {
 				return Entry{}, false, ErrPlaylistLimit
 			}
 			iterator.entriesTotal++
+			episodeID, present, err := discoveryShowEpisodeID(video.ID)
+			if err != nil {
+				return Entry{}, false, err
+			}
+			if !present {
+				episodeID = path
+			}
 			domain, key := iterator.entries.extractor.config.showBase+"videos/", "discoveryplusindia"
 			if iterator.entries.extractor.config.key == "discoveryplusitalyshow" {
 				key = "dplay"
 			}
-			iterator.queued = append(iterator.queued, Entry{URL: domain + path, ExtractorKey: key, ID: video.ID})
+			iterator.queued = append(iterator.queued, Entry{URL: domain + path, ExtractorKey: key, ID: episodeID})
 		}
 		if iterator.page >= iterator.total {
 			iterator.season++
@@ -1271,13 +1362,14 @@ func discoveryShowPageFingerprint(page discoveryShowPage) (string, error) {
 	builder.WriteByte('|')
 	for _, video := range page.Data {
 		path := strings.Trim(video.Attributes.Path, "/")
-		if !discoveryShowVideoPath(path) || !discoverySegment(video.ID) {
+		id, _, err := discoveryShowEpisodeID(video.ID)
+		if err != nil || !discoveryShowVideoPath(path) {
 			return "", fmt.Errorf("%w: malformed Discovery episode identity", ErrInvalidPlaylist)
 		}
-		if builder.Len()+len(video.ID)+len(path)+2 > 8192 {
+		if builder.Len()+len(id)+len(path)+2 > 8192 {
 			return "", fmt.Errorf("%w: Discovery show page identity overflow", ErrInvalidPlaylist)
 		}
-		builder.WriteString(video.ID)
+		builder.WriteString(id)
 		builder.WriteByte(':')
 		builder.WriteString(path)
 		builder.WriteByte('|')
@@ -1287,7 +1379,7 @@ func discoveryShowPageFingerprint(page discoveryShowPage) (string, error) {
 
 type discoveryShowPage struct {
 	Data []struct {
-		ID         string `json:"id"`
+		ID         json.RawMessage `json:"id"`
 		Attributes struct {
 			Path string `json:"path"`
 		} `json:"attributes"`
@@ -1297,11 +1389,22 @@ type discoveryShowPage struct {
 	} `json:"meta"`
 }
 
+func discoveryShowEpisodeID(raw json.RawMessage) (string, bool, error) {
+	if len(raw) == 0 {
+		return "", false, nil
+	}
+	var id string
+	if err := json.Unmarshal(raw, &id); err != nil || !discoverySegment(id) {
+		return "", true, fmt.Errorf("%w: malformed Discovery episode ID", ErrInvalidPlaylist)
+	}
+	return id, true, nil
+}
+
 func (iterator *discoveryShowIterator) fetch(ctx context.Context) (discoveryShowPage, error) {
 	var page discoveryShowPage
 	query := url.Values{"sort": {"episodeNumber"}, "filter[seasonNumber]": {iterator.entries.plan.seasons[iterator.season]}, "filter[show.id]": {iterator.entries.plan.showID}, "page[size]": {"100"}, "page[number]": {strconv.Itoa(iterator.page + 1)}}
 	headers := iterator.entries.extractor.showHeaders(iterator.entries.authentication)
-	err := discoveryRequestJSON(ctx, iterator.entries.transport, http.MethodGet, iterator.entries.extractor.apiBase()+"content/videos?"+query.Encode(), nil, headers, &page)
+	err := discoveryShowRequestJSON(ctx, iterator.entries.transport, http.MethodGet, iterator.entries.extractor.apiBase()+"content/videos?"+query.Encode(), headers, &page)
 	if err != nil {
 		return discoveryShowPage{}, discoveryError(err)
 	}
