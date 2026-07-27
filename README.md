@@ -34,7 +34,7 @@ remains explicit.
 
 > [!CAUTION]
 > **This is alpha software, not yet a drop-in replacement for yt-dlp.**
-> The repository currently has 42 representative native extractors and broad
+> The repository currently has 44 representative native extractors and broad
 > downloader infrastructure, but not yt-dlp's thousands of sites or complete
 > option language. Check the [supported-site catalog](docs/SUPPORTED_SITES.md)
 > and [capability manifest](conformance/parity_manifest.yaml) before relying on
@@ -49,7 +49,7 @@ identify compatibility targets only.
 | Area | Evidence-backed scope today |
 | --- | --- |
 | Runtime | Native Go binaries; no Python execution or interpreter fallback |
-| Extractors | 42 representative extractors across simple, shared-backend, playlist, live, authenticated, regional, anti-bot, manifest, and JavaScript-heavy families |
+| Extractors | 44 representative extractors across simple, shared-backend, playlist, live, authenticated, regional, anti-bot, manifest, and JavaScript-heavy families |
 | Media | Direct HTTP(S), HLS, DASH, and ISM/Smooth Streaming |
 | Playlists | Lazy reusable sequences, bounded continuations, item/range selection, reverse selection, and flat-playlist mode |
 | Formats | Bounded selector AST, sorting and filtering, video+audio merging, fallbacks, and multi-output plans |

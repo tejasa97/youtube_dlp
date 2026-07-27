@@ -1,0 +1,13 @@
+{
+  "title": "Skip invalid media URLs",
+  "description": "First invalid all_urls entry must be skipped.",
+  "thumbnail": "https://cdn.amara.org/media/thumbs/skip-invalid.jpg",
+  "duration": "60",
+  "created": "2011-06-01T12:00:00Z",
+  "all_urls": [
+    "ftp://evil.example/bad.mp4",
+    "javascript:alert(1)",
+    "https://cdn.amara.org/media/cachedfiles/direct/skip-invalid.webm"
+  ],
+  "languages": []
+}
