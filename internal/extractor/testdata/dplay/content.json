@@ -1,0 +1,1 @@
+{"data":{"id":"video-1","attributes":{"name":"Fixture episode","description":"Synthetic metadata","videoDuration":1200,"seasonNumber":1,"episodeNumber":2,"publishStart":"2020-01-01T00:00:00Z"}},"included":[{"type":"channel","attributes":{"name":"Fixture Channel"}},{"type":"show","attributes":{"name":"Fixture Show"}},{"type":"tag","attributes":{"name":"fixture"}}]}

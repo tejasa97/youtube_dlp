@@ -1,0 +1,1 @@
+<MPD mediaPresentationDuration="PT10S"><Period><AdaptationSet contentType="video"><Representation id="v1" bandwidth="1000000" width="1280" height="720"><BaseURL>video.mp4</BaseURL></Representation></AdaptationSet><AdaptationSet contentType="text" lang="en"><Representation id="s1" mimeType="text/vtt"><BaseURL>subs/en.vtt</BaseURL></Representation></AdaptationSet></Period></MPD>
