@@ -2545,6 +2545,62 @@ func TestOperationAmaraHandoffsAreConcurrentSafe(t *testing.T) {
 	}
 }
 
+type amaraPlaylistYouTubeChild struct {
+	mediaURL string
+}
+
+func (child amaraPlaylistYouTubeChild) Name() string { return "youtube" }
+func (child amaraPlaylistYouTubeChild) Suitable(parsed *url.URL) bool {
+	return parsed != nil && strings.Contains(parsed.Hostname(), "youtube.com")
+}
+func (child amaraPlaylistYouTubeChild) Extract(_ context.Context, request extractor.Request) (extractor.Extraction, error) {
+	parsed, err := url.Parse(request.URL)
+	if err != nil {
+		return extractor.Extraction{}, err
+	}
+	if parsed.Query().Get("v") == "" {
+		return extractor.Extraction{}, extractor.ErrUnsupported
+	}
+	return extractor.Playlist(value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("child-playlist")},
+		value.Field{Key: "title", Value: value.String("Child playlist")},
+	)), extractor.StaticEntries(extractor.Entry{
+		URL: child.mediaURL, ExtractorKey: "generic", Transparent: true, Title: "Playlist entry title",
+	}))
+}
+
+func TestOperationAmaraParentMetadataDoesNotLeakIntoPlaylistEntries(t *testing.T) {
+	t.Parallel()
+	server := playlistMediaServer(t)
+	defer server.Close()
+	transport := newAmaraProductNetworkClient(t)
+	operation := &operation{
+		client: NewClient(), request: Request{SkipDownload: true}, transport: transport,
+		registry: extractor.NewRegistry(
+			extractor.NewAmara(),
+			amaraPlaylistYouTubeChild{mediaURL: server.URL + "/one.mp4"},
+			extractor.NewGeneric(),
+		),
+	}
+	result, err := operation.process(context.Background(), "https://amara.org/en/videos/jVx79ZKGK1ky/info/why-jury-trials/", "", nil, make(map[string]bool), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Entries) != 1 {
+		t.Fatalf("entries=%d", len(result.Entries))
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(result.Entries[0].InfoJSON, &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata["description"] != nil || metadata["subtitles"] != nil || metadata["webpage_url"] == "https://amara.org/en/videos/jVx79ZKGK1ky" {
+		t.Fatalf("Amara parent metadata leaked into playlist entry: %#v", metadata)
+	}
+	if metadata["title"] != "Playlist entry title" {
+		t.Fatalf("playlist entry title = %#v", metadata["title"])
+	}
+}
+
 type amaraNestedYouTubeHandoffChild struct {
 	mediaURL string
 }
