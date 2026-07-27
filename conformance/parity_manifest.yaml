@@ -1990,6 +1990,7 @@ capabilities:
       - internal/extractor.TestNHKRadiruMissingHeadline
       - internal/extractor.TestNHKCredentialIsolationRequired
       - internal/extractor.TestNHKCredentialIsolatedFormatsMarked
+      - internal/extractor.TestNHKRedirectNotFollowedForMedia
       - internal/extractor.TestNHKHostileMediaURLRejected
       - internal/extractor.TestNHKJSONTrailingGarbageRejected
       - internal/extractor.TestNHKCancellation

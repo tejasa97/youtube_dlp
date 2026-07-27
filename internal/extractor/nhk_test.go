@@ -109,6 +109,46 @@ func (t *nhkBareTransport) ReadPage(ctx context.Context, rawURL string) ([]byte,
 	return data, resp.Header.Clone(), err
 }
 
+type nhkRedirectTransport struct {
+	bodies map[string]string
+}
+
+func (t *nhkRedirectTransport) Do(ctx context.Context, request *http.Request) (*http.Response, error) {
+	body, ok := t.bodies[request.URL.String()]
+	if !ok {
+		return nil, errors.New("missing fixture")
+	}
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(bytes.NewBufferString(body)),
+		Header:     make(http.Header),
+		Request:    request,
+	}, nil
+}
+
+func (t *nhkRedirectTransport) ReadPage(ctx context.Context, rawURL string) ([]byte, http.Header, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	resp, err := t.Do(ctx, req)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	return data, resp.Header.Clone(), err
+}
+
+func (t *nhkRedirectTransport) DoWithoutCredentialsNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
+	return &http.Response{
+		StatusCode: http.StatusFound,
+		Header:     http.Header{"Location": []string{"https://evil.example/redirected.m3u8"}},
+		Body:       io.NopCloser(strings.NewReader("")),
+		Request:    request,
+	}, nil
+}
+
 func nhkReadFixture(t *testing.T, rel string) string {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join("testdata", "nhk", rel))
@@ -768,6 +808,25 @@ func TestNHKJSONTrailingGarbageRejected(t *testing.T) {
 				t.Fatal("accepted trailing JSON")
 			}
 		})
+	}
+}
+
+func TestNHKRedirectNotFollowedForMedia(t *testing.T) {
+	episode := nhkReadFixture(t, "world/episode.json")
+	transport := &nhkRedirectTransport{
+		bodies: map[string]string{
+			"https://api.nhkworld.jp/showsapi/v1/en/video_episodes/2049165": episode,
+		},
+	}
+	_, err := NewNhkVodIE().Extract(context.Background(), Request{
+		URL:       "https://www3.nhk.or.jp/nhkworld/en/shows/2049165/",
+		Transport: transport,
+	})
+	if err == nil {
+		t.Fatal("expected redirect failure")
+	}
+	if strings.Contains(err.Error(), "evil.example") {
+		t.Fatalf("redirect target leaked: %v", err)
 	}
 }
 
