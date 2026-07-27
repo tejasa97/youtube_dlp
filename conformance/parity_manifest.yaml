@@ -1,5 +1,31 @@
 version: 1
 capabilities:
+  - id: extractor.rai
+    name: Rai public ecosystem
+    phase: 1
+    compatibility_target: Extract the bounded public RaiPlay, RaiPlay Sound, legacy Rai, Rai News, Rai Cultura, and Rai Südtirol route families through a shared relinker backend.
+    status: partial
+    evidence:
+      - internal/extractor.TestRaiRoutingMatrixAndHostHardening
+      - internal/extractor.TestRaiPlayRelinkerMetadataAndAudioCodec
+      - internal/extractor.TestRaiRelinkerGeoDRMAndMalformed
+      - internal/extractor.TestRaiLiveAndSoundIdentityFlows
+      - internal/extractor.TestRaiSudtirolSMILIdentityAndHLS
+      - internal/extractor.TestRaiIdentityCancellationAndSecretSafety
+      - internal/extractor.TestRaiIdentityFallbackAndTimestampPolicies
+      - internal/extractor.TestRaiSoundPodcastMetadata
+      - internal/extractor.TestRaiSoundUnfilteredPlaylistDescription
+      - internal/extractor.TestRaiPublicURLRejectsLocalAndIPLiteralVariants
+      - internal/extractor.TestRaiPlaylistSkipsBrokenOrUnavailableSets
+      - internal/extractor.TestRaiPlaylistPreservesCancellationAndMeaningfulSetFailures
+      - internal/extractor.TestRaiThumbnailsAreStableAndBounded
+      - internal/extractor.FuzzRaiURLClassification
+      - internal/extractor.FuzzRaiRelinkerXML
+      - pkg/ytdlp.TestProductRegistryRoutesRaiAndPlaylistReentry
+      - conformance/extractors/rai/PROVENANCE.md
+      - docs/EXTRACTOR_RAI_ECOSYSTEM_EVIDENCE.md
+    owner: core
+    known_deviation: F4M/HDS is not represented because the native Go downloader has no HDS protocol implementation. Tested current-player discovery covers bounded Rai News/Cultura player attributes only; authenticated, untested HTML state, and remote-schema variants remain outside this public fixture-backed scope.
   - id: extractor.prx
     name: PRX CMS stories, series, and accounts
     phase: 1

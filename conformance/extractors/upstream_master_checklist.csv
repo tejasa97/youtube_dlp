@@ -1081,16 +1081,16 @@ radiozet,RadioZetPodcastIE,RadioZetPodcast,requires_new_backend,,,,low,no exact 
 radlive,RadLiveChannelIE,RadLiveChannel,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 radlive,RadLiveIE,RadLive,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 radlive,RadLiveSeasonIE,RadLiveSeason,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-rai,RaiCulturaIE,RaiCultura,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-rai,RaiIE,Rai,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-rai,RaiNewsIE,RaiNews,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-rai,RaiPlayIE,RaiPlay,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-rai,RaiPlayLiveIE,RaiPlayLive,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-rai,RaiPlayPlaylistIE,RaiPlayPlaylist,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-rai,RaiPlaySoundIE,RaiPlaySound,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-rai,RaiPlaySoundLiveIE,RaiPlaySoundLive,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-rai,RaiPlaySoundPlaylistIE,RaiPlaySoundPlaylist,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-rai,RaiSudtirolIE,RaiSudtirol,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
+rai,RaiCulturaIE,RaiCultura,partially_supported,raicultura,rai,relinker|regional,high,fixture-backed Rai Cultura player discovery and relinker extraction; legacy fallback and HDS remain deliberately partial
+rai,RaiIE,Rai,partially_supported,rai,rai,relinker|regional,high,fixture-backed legacy Rai JSON and shared relinker extraction; HDS remains deliberately unsupported
+rai,RaiNewsIE,RaiNews,partially_supported,rainews,rai,relinker|regional,high,fixture-backed Rai News player discovery and legacy fallback; HDS remains deliberately unsupported
+rai,RaiPlayIE,RaiPlay,partially_supported,raiplay,rai,relinker|regional,high,fixture-backed RaiPlay VOD JSON and shared relinker extraction
+rai,RaiPlayLiveIE,RaiPlayLive,partially_supported,raiplay_live,rai,relinker|live|regional,high,fixture-backed RaiPlay live JSON and relinker extraction
+rai,RaiPlayPlaylistIE,RaiPlayPlaylist,partially_supported,raiplay_playlist,rai,playlist|relinker,high,bounded lazy RaiPlay program entries with explicit RaiPlay re-entry
+rai,RaiPlaySoundIE,RaiPlaySound,partially_supported,raiplaysound,rai,relinker|audio|regional,high,fixture-backed RaiPlay Sound episode extraction and audio relinker formats
+rai,RaiPlaySoundLiveIE,RaiPlaySoundLive,partially_supported,raiplaysound_live,rai,relinker|audio|live|regional,high,fixture-backed RaiPlay Sound live route and relinker extraction
+rai,RaiPlaySoundPlaylistIE,RaiPlaySoundPlaylist,partially_supported,raiplaysound_playlist,rai,playlist|audio,high,bounded lazy RaiPlay Sound card entries with explicit Sound re-entry
+rai,RaiSudtirolIE,RaiSudtirol,partially_supported,raisudtirol,rai,relinker|regional,high,fixture-backed Rai Südtirol direct MP4/HLS page discovery
 raywenderlich,RayWenderlichCourseIE,RayWenderlichCourse,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 raywenderlich,RayWenderlichIE,RayWenderlich,uses_existing_shared_backend,,vimeo,,medium,upstream class references a media backend already implemented in Go
 rbgtum,RbgTumCourseIE,RbgTumCourse,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
