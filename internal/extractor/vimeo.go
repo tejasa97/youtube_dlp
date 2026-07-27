@@ -28,6 +28,12 @@ import (
 
 const vimeoImpersonationProfile = "chrome-133"
 
+// maxVimeoViewerXSRFTBytes bounds the unexported xsrft token parsed from a
+// Vimeo _next/viewer payload. The value mirrors the public video-password
+// budget; extractors that consume the token enforce their own narrower
+// limits.
+const maxVimeoViewerXSRFTBytes = 4096
+
 var ErrVimeoPlaylistNetwork = errors.New("Vimeo playlist network failure")
 
 const (
@@ -1825,4 +1831,36 @@ func bestVimeoThumbnail(thumbs map[string]string) string {
 		}
 	}
 	return bestURL
+}
+
+// parseVimeoViewerXSRFT extracts a bounded token from exactly one Vimeo
+// _next/viewer JSON object. It is pure and all failures use one fixed message so
+// payload and token bytes cannot enter diagnostics.
+func parseVimeoViewerXSRFT(payload []byte) (string, error) {
+	invalid := func() (string, error) {
+		return "", fmt.Errorf("%w: invalid Vimeo viewer xsrft", ErrInvalidMetadata)
+	}
+	if len(payload) == 0 || int64(len(payload)) > maxExtractorJSONBytes {
+		return invalid()
+	}
+
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	var raw map[string]json.RawMessage
+	if err := decoder.Decode(&raw); err != nil || raw == nil {
+		return invalid()
+	}
+	if err := ensureJSONEOF(decoder); err != nil {
+		return invalid()
+	}
+	rawToken, ok := raw["xsrft"]
+	if !ok || !utf8.Valid(rawToken) {
+		return invalid()
+	}
+	var token string
+	if err := json.Unmarshal(rawToken, &token); err != nil || token == "" ||
+		len(token) > maxVimeoViewerXSRFTBytes || !utf8.ValidString(token) ||
+		strings.ContainsAny(token, "\x00\r\n") || strings.TrimSpace(token) != token {
+		return invalid()
+	}
+	return token, nil
 }

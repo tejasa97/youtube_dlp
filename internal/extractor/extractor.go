@@ -19,6 +19,7 @@ var (
 	ErrUnavailable        = errors.New("media unavailable")
 	ErrRegionRestricted   = errors.New("media region restricted")
 	ErrAuthentication     = errors.New("authentication required")
+	ErrWrongPassword      = errors.New("wrong video password")
 	ErrChallengeSolver    = errors.New("JavaScript challenge solver unavailable")
 	ErrTransportProfile   = errors.New("transport profile unavailable")
 	ErrTransportIsolation = errors.New("cookie-isolated transport unavailable")
@@ -107,16 +108,27 @@ type Request struct {
 	// Referer is an optional validated HTTPS embedding page URL propagated from
 	// bounded playlist recursion. It must never carry cookies, Authorization, or
 	// arbitrary caller headers.
-	Referer                   string
-	Transport                 Transport
-	ChallengeSolver           YouTubeChallengeSolver
+	Referer         string
+	Transport       Transport
+	ChallengeSolver YouTubeChallengeSolver
+	// Credentials resolves a stable extractor machine key. It must never be
+	// embedded in metadata, events, or diagnostic errors. The same is true of
+	// VideoPassword, which is consumed by extractors that gate media behind a
+	// per-video secret and is never echoed back by the formatter.
 	Credentials               CredentialProvider
+	VideoPassword             string
 	YouTubePOT                *youtubepot.Director
 	YouTubeTranslatedCaptions bool
 	YouTubeLiveFromStart      bool
 	YouTubeComments           YouTubeCommentOptions
 	SoundCloudComments        SoundCloudCommentOptions
 }
+
+// String and GoString deliberately render Request as a fixed opaque value so
+// diagnostic formatting cannot expose URL credentials, transports, providers,
+// or VideoPassword. Value receivers also cover *Request formatting.
+func (Request) String() string   { return "[redacted extractor request]" }
+func (Request) GoString() string { return "extractor.Request{[redacted]}" }
 
 // YouTubeCommentOptions controls opt-in comment retrieval. Zero Max selects
 // the extractor's bounded default. Sort accepts "top" or "new".
