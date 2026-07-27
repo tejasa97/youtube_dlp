@@ -101,7 +101,7 @@ func TestRaiPlaylistIsLazyAndUsesExplicitReentry(t *testing.T) {
 func TestRaiFilteredPlaylists(t *testing.T) {
 	playBase := "https://www.raiplay.it/programmi/report"
 	playTransport := &raiTestTransport{json: map[string]string{
-		playBase + ".json":         `{"name":"Report","blocks":[{"name":"episodi","sets":[{"name":"Stagione 2","id":"season2"}]}]}`,
+		playBase + ".json":         `{"name":"Report","program_info":{"description":"RaiPlay description"},"blocks":[{"name":"episodi","sets":[{"name":"Stagione 2","id":"season2"}]}]}`,
 		playBase + "/season2.json": `{"items":[{"path_id":"/video/x-cb27157f-9dd0-4aee-b788-b1f67643a391.html"}]}`,
 	}, page: map[string]string{}}
 	play, err := NewRaiPlayPlaylist().Extract(context.Background(), Request{URL: playBase + "/episodi/stagione-2", Transport: playTransport})
@@ -111,6 +111,9 @@ func TestRaiFilteredPlaylists(t *testing.T) {
 	if title, _ := play.Info.Title(); title != "Report - Stagione 2" {
 		t.Fatalf("RaiPlay selected title = %q", title)
 	}
+	if description, _ := play.Info.Lookup("description").StringValue(); description != "RaiPlay description" {
+		t.Fatalf("RaiPlay description = %q", description)
+	}
 	if _, ok, err := play.Entries.Iterator().Next(context.Background()); err != nil || !ok {
 		t.Fatalf("RaiPlay selected entries = %t, %v", ok, err)
 	}
@@ -118,7 +121,7 @@ func TestRaiFilteredPlaylists(t *testing.T) {
 	soundBase := "https://www.raiplaysound.it/programmi/report"
 	soundTransport := &raiTestTransport{json: map[string]string{
 		soundBase + ".json": `{"title":"Report","filters":[{"weblink":"/programmi/report/puntate/prima","path_id":"/programmi/report/puntate/prima.json"}]}`,
-		"https://www.raiplaysound.it/programmi/report/puntate/prima.json": `{"title":"Prima","cards":[{"path_id":"/audio/x-cb27157f-9dd0-4aee-b788-b1f67643a391.html"}]}`,
+		"https://www.raiplaysound.it/programmi/report/puntate/prima.json": `{"title":"Prima","podcast_info":{"description":"Filtered Sound description"},"cards":[{"path_id":"/audio/x-cb27157f-9dd0-4aee-b788-b1f67643a391.html"}]}`,
 	}, page: map[string]string{}}
 	sound, err := NewRaiPlaySoundPlaylist().Extract(context.Background(), Request{URL: soundBase + "/puntate/prima", Transport: soundTransport})
 	if err != nil {
@@ -130,8 +133,25 @@ func TestRaiFilteredPlaylists(t *testing.T) {
 	if title, _ := sound.Info.Title(); title != "Prima" {
 		t.Fatalf("RaiSound selected title = %q", title)
 	}
+	if description, _ := sound.Info.Lookup("description").StringValue(); description != "Filtered Sound description" {
+		t.Fatalf("RaiSound selected description = %q", description)
+	}
 	if entry, ok, err := sound.Entries.Iterator().Next(context.Background()); err != nil || !ok || entry.ExtractorKey != "raiplaysound" {
 		t.Fatalf("RaiSound selected entry = %#v, %t, %v", entry, ok, err)
+	}
+}
+
+func TestRaiSoundUnfilteredPlaylistDescription(t *testing.T) {
+	base := "https://www.raiplaysound.it/programmi/report"
+	transport := &raiTestTransport{json: map[string]string{
+		base + ".json": `{"title":"Report","podcast_info":{"description":"Unfiltered Sound description"},"cards":[{"path_id":"/audio/x-cb27157f-9dd0-4aee-b788-b1f67643a391.html"}]}`,
+	}, page: map[string]string{}}
+	result, err := NewRaiPlaySoundPlaylist().Extract(context.Background(), Request{URL: base, Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if description, _ := result.Info.Lookup("description").StringValue(); description != "Unfiltered Sound description" {
+		t.Fatalf("RaiSound unfiltered description = %q", description)
 	}
 }
 
@@ -202,7 +222,13 @@ func TestRaiIdentityFallbackAndTimestampPolicies(t *testing.T) {
 		extractor                         Extractor
 	}{
 		{"RaiPlay falls back to URL ID", "https://www.raiplay.it/video/x-" + vodID + ".html", "https://www.raiplay.it/video/x-" + vodID + ".json", `{"video":{"content_url":"https://relinker.rai.it/rel"}}`, vodID, NewRaiPlay()},
-		{"RaiSound falls back to URL ID", "https://www.raiplaysound.it/audio/x-" + vodID + ".html", "https://www.raiplaysound.it/audio/x-" + vodID + ".json", `{"downloadable_audio":{"url":"https://relinker.rai.it/rel"}}`, vodID, NewRaiPlaySound()},
+		{"RaiPlay null ID falls back to URL ID", "https://www.raiplay.it/video/x-" + vodID + ".html", "https://www.raiplay.it/video/x-" + vodID + ".json", `{"id":null,"video":{"content_url":"https://relinker.rai.it/rel"}}`, vodID, NewRaiPlay()},
+		{"RaiPlay empty ID falls back to URL ID", "https://www.raiplay.it/video/x-" + vodID + ".html", "https://www.raiplay.it/video/x-" + vodID + ".json", `{"id":"","video":{"content_url":"https://relinker.rai.it/rel"}}`, vodID, NewRaiPlay()},
+		{"RaiPlay empty prefixed ID falls back to URL ID", "https://www.raiplay.it/video/x-" + vodID + ".html", "https://www.raiplay.it/video/x-" + vodID + ".json", `{"id":"ContentItem-","video":{"content_url":"https://relinker.rai.it/rel"}}`, vodID, NewRaiPlay()},
+		{"RaiSound ignores media ID when uniquename is absent", "https://www.raiplaysound.it/audio/x-" + vodID + ".html", "https://www.raiplaysound.it/audio/x-" + vodID + ".json", `{"id":"ContentItem-not-a-uuid","downloadable_audio":{"url":"https://relinker.rai.it/rel"}}`, vodID, NewRaiPlaySound()},
+		{"RaiSound null uniquename falls back to URL ID", "https://www.raiplaysound.it/audio/x-" + vodID + ".html", "https://www.raiplaysound.it/audio/x-" + vodID + ".json", `{"uniquename":null,"downloadable_audio":{"url":"https://relinker.rai.it/rel"}}`, vodID, NewRaiPlaySound()},
+		{"RaiSound empty uniquename falls back to URL ID", "https://www.raiplaysound.it/audio/x-" + vodID + ".html", "https://www.raiplaysound.it/audio/x-" + vodID + ".json", `{"uniquename":"","downloadable_audio":{"url":"https://relinker.rai.it/rel"}}`, vodID, NewRaiPlaySound()},
+		{"RaiSound empty prefixed uniquename falls back to URL ID", "https://www.raiplaysound.it/audio/x-" + vodID + ".html", "https://www.raiplaysound.it/audio/x-" + vodID + ".json", `{"uniquename":"ContentItem-","downloadable_audio":{"url":"https://relinker.rai.it/rel"}}`, vodID, NewRaiPlaySound()},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			transport := &raiTestTransport{json: map[string]string{tc.endpoint: tc.body}, page: map[string]string{}}
@@ -263,10 +289,49 @@ func TestRaiRoutingMatrixAndHostHardening(t *testing.T) {
 	}
 	for _, raw := range []string{
 		"https://www.raiplay.it.evil.test/video/x-" + id + ".html", "https://user@www.raiplay.it/video/x-" + id + ".html", "https://www.raiplay.it:443/video/x-" + id + ".html", "https://www.raiplay.it/video/x-" + id + ".html#x", "https://www.raiplay.it/video/%2f" + id + ".html",
+		"https://www.rainews.it/video/x-" + id, "https://www.rainews.it/video/x-" + id + ".json", "https://www.rainews.it/assets/x-" + id + ".css", "https://www.rainews.it/assets/x-" + id + ".jpg", "https://www.rainews.it/metadata/" + id + ".html",
+		"https://www.rainews.it/articoli-test/x-" + id + ".html", "https://www.raicultura.it/video/x-" + id, "https://www.raicultura.it/video/x-" + id + ".json", "https://www.raicultura.it/assets/x-" + id + ".css", "https://www.raicultura.it/assets/x-" + id + ".jpg", "https://www.raicultura.it/metadata/" + id + ".html", "https://www.raicultura.it/articoli-test/x-" + id + ".html",
 	} {
 		if _, err := registry.Select(raw); !errors.Is(err, ErrUnsupported) {
 			t.Fatalf("unsafe URL accepted: %q (%v)", raw, err)
 		}
+	}
+}
+
+func TestRaiSoundPodcastMetadata(t *testing.T) {
+	vodID := "cb27157f-9dd0-4aee-b788-b1f67643a391"
+	liveID := "d784ad40-e0ae-4a69-aa76-37519d238a9c"
+	for _, tc := range []struct {
+		name, raw, endpoint, body, wantSeries, wantThumbnail string
+		extractor                                            Extractor
+	}{
+		{
+			name: "top-level podcast info", raw: "https://www.raiplaysound.it/audio/x-" + vodID + ".html", endpoint: "https://www.raiplaysound.it/audio/x-" + vodID + ".json",
+			body: `{"uniquename":"ContentItem-` + vodID + `","downloadable_audio":{"url":"https://relinker.rai.it/rel"},"podcast_info":{"title":"Top-level podcast","images":{"cover":"/top-level.jpg"}},"live":{"cards":[{"title":"Ignored card","images":{"cover":"/card.jpg"}}]}}`, wantSeries: "Top-level podcast", wantThumbnail: "https://www.raiplaysound.it/top-level.jpg", extractor: NewRaiPlaySound(),
+		},
+		{
+			name: "live card fallback", raw: "https://www.raiplaysound.it/radio2", endpoint: "https://www.raiplaysound.it/radio2.json",
+			body: `{"uniquename":"ContentItem-` + liveID + `","live":{"url":"https://relinker.rai.it/rel","cards":[{"title":"Live-card podcast","images":{"cover":"/live-card.jpg"}}]}}`, wantSeries: "Live-card podcast", wantThumbnail: "https://www.raiplaysound.it/live-card.jpg", extractor: NewRaiPlaySoundLive(),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			transport := &raiTestTransport{json: map[string]string{tc.endpoint: tc.body}, page: map[string]string{}}
+			result, err := tc.extractor.Extract(context.Background(), Request{URL: tc.raw, Transport: transport})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if series, _ := result.Info.Lookup("series").StringValue(); series != tc.wantSeries {
+				t.Fatalf("series = %q", series)
+			}
+			thumbnails, ok := result.Info.Lookup("thumbnails").ListValue()
+			if !ok || len(thumbnails) != 1 {
+				t.Fatalf("thumbnails = %#v", thumbnails)
+			}
+			thumbnail, _ := thumbnails[0].Object()
+			if raw, _ := thumbnail.Lookup("url").StringValue(); raw != tc.wantThumbnail {
+				t.Fatalf("thumbnail = %q", raw)
+			}
+		})
 	}
 }
 
@@ -284,7 +349,7 @@ func TestRaiLiveAndSoundIdentityFlows(t *testing.T) {
 		},
 		{
 			name: "RaiPlay Sound live resolves a channel slug", raw: "https://www.raiplaysound.it/radio2", endpoint: "https://www.raiplaysound.it/radio2.json",
-			body: `{"id":"ContentItem-` + liveID + `","title":"Radio","live":{"url":"https://relinker.rai.it/rel"}}`, wantID: liveID, live: true, extractor: NewRaiPlaySoundLive(),
+			body: `{"uniquename":"ContentItem-` + liveID + `","title":"Radio","live":{"url":"https://relinker.rai.it/rel"}}`, wantID: liveID, live: true, extractor: NewRaiPlaySoundLive(),
 		},
 		{
 			name: "RaiPlay Sound VOD uses downloadable_audio.url and uniquename", raw: "https://www.raiplaysound.it/audio/x-" + vodID + ".html", endpoint: "https://www.raiplaysound.it/audio/x-" + vodID + ".json",
@@ -366,6 +431,14 @@ func TestRaiIdentityCancellationAndSecretSafety(t *testing.T) {
 	badSound := &raiTestTransport{json: map[string]string{"https://www.raiplaysound.it/audio/x-" + vodID + ".json": `{"uniquename":"ContentItem-not-a-uuid","downloadable_audio":{"url":"https://relinker.rai.it/rel"}}`}, page: map[string]string{}}
 	if _, err := NewRaiPlaySound().Extract(context.Background(), Request{URL: "https://www.raiplaysound.it/audio/x-" + vodID + ".html", Transport: badSound}); !errors.Is(err, ErrInvalidMetadata) {
 		t.Fatalf("malformed Sound uniquename = %v", err)
+	}
+	mismatchedSound := &raiTestTransport{json: map[string]string{"https://www.raiplaysound.it/audio/x-" + vodID + ".json": `{"uniquename":"ContentItem-` + differentID + `","downloadable_audio":{"url":"https://relinker.rai.it/rel"}}`}, page: map[string]string{}}
+	if _, err := NewRaiPlaySound().Extract(context.Background(), Request{URL: "https://www.raiplaysound.it/audio/x-" + vodID + ".html", Transport: mismatchedSound}); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("mismatched Sound uniquename = %v", err)
+	}
+	nonStringID := &raiTestTransport{json: map[string]string{page + ".json": `{"id":42,"video":{"content_url":"https://relinker.rai.it/rel"}}`}, page: map[string]string{}}
+	if _, err := NewRaiPlay().Extract(context.Background(), Request{URL: page + ".html", Transport: nonStringID}); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("non-string RaiPlay ID = %v", err)
 	}
 
 	secret := "signed-secret-value"

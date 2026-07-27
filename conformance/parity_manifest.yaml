@@ -13,6 +13,8 @@ capabilities:
       - internal/extractor.TestRaiSudtirolSMILIdentityAndHLS
       - internal/extractor.TestRaiIdentityCancellationAndSecretSafety
       - internal/extractor.TestRaiIdentityFallbackAndTimestampPolicies
+      - internal/extractor.TestRaiSoundPodcastMetadata
+      - internal/extractor.TestRaiSoundUnfilteredPlaylistDescription
       - internal/extractor.TestRaiPublicURLRejectsLocalAndIPLiteralVariants
       - internal/extractor.TestRaiPlaylistSkipsBrokenOrUnavailableSets
       - internal/extractor.TestRaiPlaylistPreservesCancellationAndMeaningfulSetFailures

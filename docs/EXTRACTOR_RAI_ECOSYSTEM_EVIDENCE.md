@@ -10,12 +10,16 @@ Rai JSON, bounded relinker XML, the required `User-Agent: Rai`, credential
 isolation, subtitles, and audio-only HLS normalization.
 `TestRaiRelinkerGeoDRMAndMalformed` exercises `output=64`, geo placeholder,
 DRM-license, malformed XML, private-media, and HTTP-status paths.
-`TestRaiFilteredPlaylists` covers the two upstream selector forms, while
+`TestRaiFilteredPlaylists` and `TestRaiSoundUnfilteredPlaylistDescription`
+cover the RaiPlay and selected/unselected RaiPlay Sound playlist-description
+sources, while
 `TestRaiNewsAndCulturaEscapedPlayerData` covers HTML-escaped current-player
 data. `TestRaiLiveAndSoundIdentityFlows`, `TestRaiSudtirolSMILIdentityAndHLS`,
 `TestRaiIdentityCancellationAndSecretSafety`, and
 `TestRaiIdentityFallbackAndTimestampPolicies` cover route-specific identity,
 cancellation, secret-safety, URL-ID fallback, and timestamp contracts.
+`TestRaiSoundPodcastMetadata` covers top-level RaiPlay Sound podcast metadata
+and its live-card fallback for series and images.
 `TestRaiPlaylistSkipsBrokenOrUnavailableSets` and
 `TestRaiPlaylistPreservesCancellationAndMeaningfulSetFailures` cover the
 non-fatal set boundary. `TestRaiPublicURLRejectsLocalAndIPLiteralVariants` and

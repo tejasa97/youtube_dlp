@@ -37,8 +37,9 @@ const (
 )
 
 var (
-	raiUUID     = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
-	raiUUIDPath = regexp.MustCompile(`(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
+	raiUUID            = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+	raiUUIDPath        = regexp.MustCompile(`(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
+	raiNewsCulturaPath = regexp.MustCompile(`(?i)^/.*?-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:-[^/]+)?\.html$`)
 )
 
 // Concrete types are intentionally tiny.  Their keys match yt-dlp's public
@@ -184,12 +185,12 @@ func raiClassify(u *url.URL) raiTarget {
 			return raiTarget{raiSoundLive, parts[0], base, ""}
 		}
 	case "rainews.it", "www.rainews.it":
-		if lastUUID != "" && !raiFirstPathComponentIs(parts, "articoli") {
-			return raiTarget{raiNews, lastUUID, u.String(), ""}
+		if id, ok := raiNewsCulturaID(u.Path); ok {
+			return raiTarget{raiNews, id, u.String(), ""}
 		}
 	case "raicultura.it", "www.raicultura.it":
-		if lastUUID != "" && !raiFirstPathComponentIs(parts, "articoli") {
-			return raiTarget{raiCultura, lastUUID, u.String(), ""}
+		if id, ok := raiNewsCulturaID(u.Path); ok {
+			return raiTarget{raiCultura, id, u.String(), ""}
 		}
 	case "raibz.rai.it", "raisudtirol.rai.it":
 		for key := range u.Query() {
@@ -212,10 +213,6 @@ func raiClassify(u *url.URL) raiTarget {
 		}
 	}
 	return raiTarget{}
-}
-
-func raiFirstPathComponentIs(parts []string, want string) bool {
-	return len(parts) != 0 && strings.EqualFold(parts[0], want)
 }
 
 func raiSafePageURL(u *url.URL) bool {
@@ -379,7 +376,14 @@ func raiJSONItem(ctx context.Context, request Request, target raiTarget) (Extrac
 		info.Set("is_live", value.Bool(true))
 		info.Set("live_status", value.String("is_live"))
 	}
-	raiSetString(info, "series", raiFirst(raiStringPath(media, "program_info", "name"), raiStringPath(media, "podcast_info", "title")))
+	if target.kind == raiSoundVOD || target.kind == raiSoundLive {
+		podcast := raiSoundPodcastInfo(media)
+		raiSetString(info, "series", raiString(podcast["title"]))
+		raiAddImages(info, request.URL, raiMap(podcast["images"]))
+	} else {
+		raiSetString(info, "series", raiStringPath(media, "program_info", "name"))
+		raiAddImages(info, request.URL, raiMap(media["images"]))
+	}
 	raiSetString(info, "episode", raiString(media["episode_title"]))
 	raiSetInt(info, "season_number", raiInt(media["season"]))
 	raiSetInt(info, "episode_number", raiInt(media["episode"]))
@@ -388,7 +392,6 @@ func raiJSONItem(ctx context.Context, request Request, target raiTarget) (Extrac
 		info.Set("timestamp", value.Int(ts))
 		info.Set("upload_date", value.String(time.Unix(ts, 0).UTC().Format("20060102")))
 	}
-	raiAddImages(info, request.URL, raiMap(media["images"]))
 	if subs := raiSubtitles(request.URL, video); subs.Len() > 0 {
 		info.Set("subtitles", value.ObjectValue(subs))
 	}
@@ -601,7 +604,11 @@ func raiPlaylist(ctx context.Context, request Request, target raiTarget) (Extrac
 		return Extraction{}, err
 	}
 	info := value.NewObject(value.Field{Key: "id", Value: value.String(playlistID)}, value.Field{Key: "title", Value: value.String(title)}, value.Field{Key: "webpage_url", Value: value.String(request.URL)})
-	raiSetString(info, "description", raiStringPath(p, "program_info", "description"))
+	if target.kind == raiSoundPlaylist {
+		raiSetString(info, "description", raiStringPath(p, "podcast_info", "description"))
+	} else {
+		raiSetString(info, "description", raiStringPath(p, "program_info", "description"))
+	}
 	return Playlist(value.NewInfo(info), seq)
 }
 
@@ -891,24 +898,51 @@ func raiNumericIPLiteralVariant(host string) bool {
 }
 
 func raiContentIdentity(media map[string]any, target raiTarget) (string, bool) {
+	field := "id"
 	if target.kind == raiSoundVOD || target.kind == raiSoundLive {
-		if raw, present := media["uniquename"]; present {
-			identity, ok := raw.(string)
-			if !ok {
-				return "", true
-			}
-			return raiTrimContentPrefix(strings.TrimSpace(identity)), true
-		}
+		field = "uniquename"
 	}
-	raw, present := media["id"]
-	if !present {
+	raw, present := media[field]
+	if !present || raw == nil {
 		return "", false
 	}
 	identity, ok := raw.(string)
 	if !ok {
 		return "", true
 	}
-	return raiTrimContentPrefix(strings.TrimSpace(identity)), true
+	identity = strings.TrimSpace(identity)
+	if identity == "" {
+		return "", false
+	}
+	identity = raiTrimContentPrefix(identity)
+	if identity == "" {
+		return "", false
+	}
+	return identity, true
+}
+
+func raiNewsCulturaID(path string) (string, bool) {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) > 0 && strings.HasPrefix(strings.ToLower(parts[0]), "articoli") {
+		return "", false
+	}
+	match := raiNewsCulturaPath.FindStringSubmatch(path)
+	if len(match) != 2 {
+		return "", false
+	}
+	return strings.ToLower(match[1]), true
+}
+
+func raiSoundPodcastInfo(media map[string]any) map[string]any {
+	if podcast := raiMap(media["podcast_info"]); len(podcast) > 0 {
+		return podcast
+	}
+	live := raiMap(media["live"])
+	cards := raiSlice(live["cards"])
+	if len(cards) == 0 {
+		return nil
+	}
+	return raiMap(cards[0])
 }
 
 func raiTrimContentPrefix(identity string) string {
