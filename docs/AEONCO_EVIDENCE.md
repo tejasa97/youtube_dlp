@@ -8,12 +8,16 @@ The `aeonco` adapter accepts only exact HTTPS
 - reads a bounded page through the shared transport;
 - reuses the generic HTML tokenizer and JSON-LD decoder rather than parsing JSON
   with regular expressions or executing JavaScript;
-- chooses the first JSON-LD VideoObject candidate whose authoritative source is
-  an `embedUrl` routable to the existing Vimeo or YouTube extractor;
+- chooses the first JSON-LD `VideoObject` `embedUrl` routable to the existing
+  Vimeo or YouTube extractor, including when the same node also declares
+  `contentUrl` (matching pinned upstream Aeon behavior);
 - emits a transparent URL result; and
 - sets the bounded child-entry `Referer` to `https://aeon.co/` for Vimeo only.
   Product recursion passes that value through `extractor.Request.Referer`, and
   Vimeo validates it before using it for the player-config request.
+  `TestProductAeonCoPropagatesRefererThroughURLRecursion` exercises product
+  `operation.process` referer propagation with the real `aeonco` handoff; full
+  Vimeo config re-entry is covered by `TestAeonCoVimeoReentryUsesAeonReferer`.
 
 ## Routing and hostile-input policy
 
@@ -48,6 +52,7 @@ Errors use static context and never include an untrusted embed URL or page body.
 - `TestAeonCoCancellationAvoidsNetworkAccess`
 - `TestAeonCoPageBoundsAndMalformedPageErrors`
 - `TestAeonCoVimeoReentryUsesAeonReferer`
+- `TestProductAeonCoPropagatesRefererThroughURLRecursion`
 - `FuzzAeonCoRouting`
 - `FuzzAeonCoJSONLDHandoff`
 - `TestProductRegistryIncludesIntegratedExtractors`

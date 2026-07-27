@@ -17,7 +17,7 @@ copied into the fixtures.
 | --- | --- |
 | `vimeo_page.html` | `VideoObject.embedUrl` handoff to Vimeo with the Aeon referrer |
 | `youtube_page.html` | `VideoObject.embedUrl` handoff to YouTube without a referrer override |
-| `mixed_jsonld_page.html` | malformed JSON-LD, authoritative `contentUrl`, AudioObject exclusion, non-Aeon provider exclusion, and first-supported-video ordering |
+| `mixed_jsonld_page.html` | malformed JSON-LD, `contentUrl` plus `embedUrl` on the same VideoObject, AudioObject exclusion, non-Aeon provider exclusion, and first-supported-video ordering |
 | `no_embed_page.html` | a valid JSON-LD page without a VideoObject embed |
 | `hostile_embed_page.html` | JavaScript, userinfo-bearing, and unsupported-host embed rejection without reflecting hostile values |
 
