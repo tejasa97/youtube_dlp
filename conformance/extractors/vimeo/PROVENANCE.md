@@ -80,3 +80,26 @@ JWT-like value is synthetic, nonfunctional, and used only to verify scoped
 header placement. Album ID 7, all video IDs, metadata, links, and response
 bytes are invented. The hostile rows deliberately cover cross-origin links
 and link/URI identity disagreement.
+
+## Authenticated private/unlisted video fixtures
+
+`video-viewer.json`, `video-api-private.json`, `video-api-5460.json`,
+`video-config-private.json`, `video-source-privacy.json`, and
+`video-source-download.json` are attributable synthetic fixtures modeled from
+the pinned `VimeoIE._fetch_viewer_info`, `_call_videos_api`,
+`_extract_from_api`, and `_extract_original_format` request/response fields at
+`yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`.
+
+Every identifier, JWT segment, session marker, config token, timestamp, count,
+title, description, media URL, and response byte is invented and
+nonfunctional. The authenticated viewer fixture has an expiry of 2100-01-01
+and a literal synthetic signature. Tests use an in-memory no-redirect
+transport and make no request to Vimeo or a CDN.
+
+The corpus proves the exact credential boundaries: the synthetic `vimeo`
+cookie is available only to `https://vimeo.com/_next/viewer`, the resulting
+JWT is available only to exact `api.vimeo.com` video endpoints, and the player
+config plus emitted media/source URLs carry neither credential. It also proves
+API URI and player-config ID agreement, pinned authenticated metadata
+preservation, the logged-in `privacy`/`download` source-format path, and strict
+numeric `error_code` 5460 categorization.

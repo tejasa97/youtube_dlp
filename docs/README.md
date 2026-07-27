@@ -62,6 +62,7 @@ The executable help is the authoritative CLI option list:
 - [YouTube live-from-start evidence](YOUTUBE_LIVE_FROM_START_EVIDENCE.md)
 - [SoundCloud search evidence](SOUNDCLOUD_SEARCH_EVIDENCE.md)
 - [Vimeo subtitle evidence](VIMEO_SUBTITLES_EVIDENCE.md)
+- [Vimeo authenticated unlisted-video evidence](VIMEO_PRIVATE_VIDEO_EVIDENCE.md)
 - [TikTok caption evidence](TIKTOK_CAPTIONS_EVIDENCE.md)
 - [Privacy-safe telemetry](P3_TELEMETRY.md)
 - [Semantic review ledger](P3_SEMANTIC_REVIEW_LEDGER.md)

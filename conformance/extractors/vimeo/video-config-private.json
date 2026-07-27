@@ -1,0 +1,29 @@
+{
+  "video": {
+    "id": 123456789,
+    "title": "Synthetic Unlisted Title",
+    "description": "Synthetic player-config description",
+    "duration": 42,
+    "width": 1920,
+    "height": 1080,
+    "thumbs": {"1280": "https://images.example.test/vimeo/synthetic-thumb-1280.jpg"},
+    "owner": {"name": "Synthetic Uploader", "url": "https://vimeo.com/synthetic"},
+    "live_event": null,
+    "files": {
+      "progressive": [
+        {"url": "https://media.example.test/vimeo/synthetic-720p.mp4", "quality": "720p", "width": 1280, "height": 720, "fps": 30, "bitrate": 2000000}
+      ],
+      "hls": {"cdns": {"akfire_interconnect_quic": {"url": "https://media.example.test/vimeo/synthetic-720p.m3u8"}}},
+      "dash": {"cdns": {"akfire_interconnect_quic": {"url": "https://media.example.test/vimeo/synthetic-720p.json"}}}
+    }
+  },
+  "request": {
+    "files": {
+      "progressive": [],
+      "hls": {"cdns": {}},
+      "dash": {"cdns": {}}
+    },
+    "text_tracks": []
+  },
+  "view": 0
+}
