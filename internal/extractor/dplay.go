@@ -73,6 +73,9 @@ type DiscoveryDPlay struct {
 func newDiscoveryDPlay(config discoveryConfig) DiscoveryDPlay { return DiscoveryDPlay{config: config} }
 func (extractor DiscoveryDPlay) Name() string                 { return extractor.config.key }
 func (extractor DiscoveryDPlay) Suitable(parsed *url.URL) bool {
+	if parsed == nil {
+		return false
+	}
 	extractor.config = extractor.configFor(parsed)
 	_, ok := extractor.target(parsed)
 	return ok
@@ -1390,7 +1393,7 @@ type discoveryShowPage struct {
 }
 
 func discoveryShowEpisodeID(raw json.RawMessage) (string, bool, error) {
-	if len(raw) == 0 {
+	if trimmed := bytes.TrimSpace(raw); len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
 		return "", false, nil
 	}
 	var id string

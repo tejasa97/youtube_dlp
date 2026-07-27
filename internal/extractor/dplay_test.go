@@ -28,6 +28,9 @@ func readDiscoveryFixture(t *testing.T, name string) []byte {
 }
 
 func TestDiscoveryDPlayRoutesAllConcreteAdapters(t *testing.T) {
+	if NewDPlay().Suitable(nil) {
+		t.Fatal("nil URL was suitable")
+	}
 	tests := []struct {
 		extractor DiscoveryDPlay
 		rawURL    string
@@ -805,6 +808,11 @@ func TestDiscoveryShowPaginationSeasonsReuseAndFailures(t *testing.T) {
 	if err != nil || len(entries) != 1 || entries[0].ID != "show/fallback" {
 		t.Fatalf("missing ID fallback=%#v err=%v", entries, err)
 	}
+	nullID := discoveryShowEntries{extractor: NewDiscoveryPlusIndiaShow(), transport: showFixtureTransport{mode: "null-id"}, authentication: "Bearer fixture", plan: discoveryShowPlan{showID: "show-id", seasons: []string{"1"}}}
+	entries, err = CollectEntries(context.Background(), nullID, 10)
+	if err != nil || len(entries) != 1 || entries[0].ID != "show/fallback" {
+		t.Fatalf("null ID fallback=%#v err=%v", entries, err)
+	}
 	malformedID := discoveryShowEntries{extractor: NewDiscoveryPlusIndiaShow(), transport: showFixtureTransport{mode: "malformed-id"}, authentication: "Bearer fixture", plan: discoveryShowPlan{showID: "show-id", seasons: []string{"1"}}}
 	if _, err := CollectEntries(context.Background(), malformedID, 10); !errors.Is(err, ErrInvalidPlaylist) {
 		t.Fatalf("malformed ID=%v", err)
@@ -882,6 +890,8 @@ func (transport showFixtureTransport) DoWithScopedAuthenticationNoRedirect(_ con
 		return discoveryHTTP(200, `{"data":[{"id":"same","attributes":{"path":"show/same"}}],"meta":{"totalPages":1}}`), nil
 	case "missing-id":
 		return discoveryHTTP(200, `{"data":[{"attributes":{"path":"show/fallback"}}],"meta":{"totalPages":1}}`), nil
+	case "null-id":
+		return discoveryHTTP(200, `{"data":[{"id":null,"attributes":{"path":"show/fallback"}}],"meta":{"totalPages":1}}`), nil
 	case "malformed-id":
 		return discoveryHTTP(200, `{"data":[{"id":"bad/id","attributes":{"path":"show/fallback"}}],"meta":{"totalPages":1}}`), nil
 	case "page-overflow":
