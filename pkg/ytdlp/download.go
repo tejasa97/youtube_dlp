@@ -20,6 +20,7 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/fragment"
 	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
 	"github.com/ytdlp-go/ytdlp/internal/media/pipeline"
+	"github.com/ytdlp-go/ytdlp/internal/network"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/dash"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/hds"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/hls"
@@ -322,9 +323,11 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 		return result.Path, info.Size(), nil
 	}
 
+	mediaTransport := operation.mediaTransport(selected.CredentialIsolated)
+
 	switch selected.Protocol {
 	case "m3u8_native":
-		result, err := hls.NewDownloader(operation.transport, hls.Config{
+		result, err := hls.NewDownloader(mediaTransport.(hls.Transport), hls.Config{
 			Headers:             selected.Headers,
 			FragmentConcurrency: options.FragmentConcurrency, PerHostConcurrency: options.PerHostFragmentConcurrency,
 			MaxSegments: options.MaxSegments, MaxSegmentSize: options.MaxSegmentBytes, Attempts: options.Attempts,
@@ -372,7 +375,7 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 		}
 		return result.Path, result.Bytes, nil
 	case "http_dash_segments":
-		result, err := dash.NewDownloader(operation.transport, dash.Config{
+		result, err := dash.NewDownloader(mediaTransport.(dash.Transport), dash.Config{
 			Headers:             selected.Headers,
 			DynamicPolls:        options.LiveMaxPolls,
 			PollInterval:        options.LivePollInterval,
@@ -431,7 +434,7 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 		}
 		return out.Path, out.Bytes, nil
 	case "ism", "ismc", "mss":
-		result, err := ism.NewDownloader(operation.transport, ism.Config{
+		result, err := ism.NewDownloader(mediaTransport.(ism.Transport), ism.Config{
 			Headers:             selected.Headers,
 			FragmentConcurrency: options.FragmentConcurrency,
 			PerHostConcurrency:  options.PerHostFragmentConcurrency,
@@ -474,7 +477,7 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 		}
 		return destination, info.Size(), nil
 	default:
-		result, err := downloader.New(operation.transport).Download(ctx, downloader.Job{
+		result, err := downloader.New(mediaTransport.(network.Doer)).Download(ctx, downloader.Job{
 			URL: selected.URL, Headers: selected.Headers, OutputRoot: outputRoot, Destination: destination,
 			Overwrite: operation.request.Overwrite, Attempts: options.Attempts,
 			RetryBaseDelay: options.RetryBaseDelay, RetryMaxDelay: options.RetryMaxDelay,

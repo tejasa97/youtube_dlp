@@ -19,9 +19,10 @@ Pinned reference: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8` (`yt_
 
 - Exact hosts only (`www3.nhk.or.jp`, `www2.nhk.or.jp`, `www.nhk.or.jp`, `api.nhkworld.jp`)
 - Reject userinfo, ports, encoded separators (`%2f`, `%5c`, `%00`, `%2e`), hostname lookalikes, trailing path segments, `/radionews/extra`
-- Episode clips call `.../video_clips/{id}` without a doubled `/video_clips` suffix
+- Radiru series API uses `corner_site_id` and top-level `episodes[]` with numeric `id` values
+- Radiru extended program metadata uses `url_program_detail` and `aa_contents_id` (nonfatal on failure)
 - API/config origins validated before fetch; CDN/media URLs use `strictValidHostedHTTPURL`
-- API-derived manifest/media fetches require `CredentialIsolatedNoRedirectTransport`, fail closed with `ErrTransportIsolation`, and mark `_credential_isolated` on emitted formats
+- API-derived manifest/media fetches require `CredentialIsolatedNoRedirectTransport`, fail closed with `ErrTransportIsolation`, mark `_credential_isolated` on emitted formats, and product downloads honor the flag via isolated transport
 - School/Radiru JSON parsers reject trailing values after the first object (`ensureJSONEOF`)
 - Errors are categorized and secret-safe (`TestNHKSecretSafeErrors`)
 - Context cancellation honored before network work

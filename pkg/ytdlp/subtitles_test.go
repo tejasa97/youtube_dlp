@@ -1183,7 +1183,7 @@ func TestCredentialIsolatedSubtitleTransportStripsAmbientCredentials(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	isolated := &credentialIsolatedSubtitleTransport{ambient: ambient}
+	isolated := newCredentialIsolatedSubtitleTransport(ambient)
 	req, _ := http.NewRequest("GET", server.URL+"/sub.vtt", nil)
 	req.Header.Set("Authorization", "should-be-stripped")
 	req.Header.Set("Cookie", "should-be-stripped")

@@ -339,20 +339,17 @@ func extractNhkRadioOnDemand(ctx context.Context, request Request) (Extraction, 
 	if err := contextError(ctx); err != nil {
 		return Extraction{}, err
 	}
-	episodeURL := series.detailURL(episode.ID)
-	detail, err := nhkRadioFetchSeries(ctx, request.Transport, episodeURL, key.SiteID, key.Corner)
-	if err != nil {
-		// Extended metadata failure must be nonfatal; retain fallback
-		// metadata. The series still carries title, station, etc.
-		_ = err
-	} else if extended := nhkRadioMergeDetail(episode, detail, config); extended != nil {
-		episode = extended
+	if merged := nhkRadioTryExtendedMetadata(ctx, request.Transport, config, episode, series.identifier); merged != nil {
+		episode = merged
 	}
 	return nhkRadioRenderEpisode(ctx, request, series, episode)
 }
 
 func nhkRadioRenderPlaylist(series *nhkRadioSeries) (Extraction, error) {
 	info := series.seriesInfo()
+	if series.description != "" {
+		info.Set("description", value.String(series.description))
+	}
 	if len(series.episodes) == 0 {
 		return Extraction{}, fmt.Errorf("%w: NHK Radiru series has no items", ErrInvalidPlaylist)
 	}
@@ -481,9 +478,10 @@ type nhkRadioConfigLive struct {
 }
 
 type nhkRadioConfig struct {
-	Series   map[string]*nhkRadioConfigSeries
-	Programs map[string]nhkRadioProgramConfig
-	Live     nhkRadioConfigLive
+	ProgramDetailTmpl string
+	Series            map[string]*nhkRadioConfigSeries
+	Programs          map[string]nhkRadioProgramConfig
+	Live              nhkRadioConfigLive
 }
 
 type nhkRadioProgramConfig struct {
@@ -595,6 +593,9 @@ func nhkRadioParseConfigXML(data []byte) (*nhkRadioConfig, error) {
 			if name == "url_program_noa" && text != "" {
 				config.Live.NowOnAir = text
 			}
+			if name == "url_program_detail" && text != "" {
+				config.ProgramDetailTmpl = text
+			}
 			if len(stack) > 0 {
 				stack = stack[:len(stack)-1]
 			}
@@ -620,28 +621,31 @@ func nhkRadioAttributeValue(attributes []xml.Attr, name string) string {
 // --- Series and episode data ---
 
 type nhkRadioSeries struct {
-	identifier string
-	key        nhkRadioProgramKey
-	config     *nhkRadioConfigSeries
-	program    nhkRadioProgramConfig
-	episodes   []*nhkRadioEpisode
-	noEpisodes bool
+	identifier  string
+	key         nhkRadioProgramKey
+	config      *nhkRadioConfigSeries
+	program     nhkRadioProgramConfig
+	description string
+	episodes    []*nhkRadioEpisode
+	noEpisodes  bool
 }
 
 type nhkRadioEpisode struct {
-	ID          string
-	Title       string
-	Subtitle    string
-	Description string
-	Station     string
-	Series      string
-	StreamURL   string
-	ReleaseAt   string
-	UploadedAt  string
-	Thumbnails  []nhkRadioThumbnail
-	Categories  []string
-	Cast        []string
-	ExpiresAt   string
+	ID           string
+	Title        string
+	Subtitle     string
+	Description  string
+	Station      string
+	Series       string
+	StreamURL    string
+	ReleaseAt    string
+	UploadedAt   string
+	Thumbnails   []nhkRadioThumbnail
+	Categories   []string
+	Cast         []string
+	ExpiresAt    string
+	AAContentsID string
+	DurationSec  float64
 }
 
 type nhkRadioThumbnail struct {
@@ -675,13 +679,9 @@ func (e *nhkRadioEpisode) DurationSeconds() float64 {
 	if e == nil {
 		return 0
 	}
-	if e.Subtitle == "" {
-		return 0
+	if e.DurationSec > 0 {
+		return e.DurationSec
 	}
-	// Some Radiru payload embed duration in description metadata. The
-	// Go model intentionally does not surface the upstream duration
-	// parser beyond its presence in raw strings; durations in the model
-	// are derived from HLS playlist metadata only.
 	return 0
 }
 
@@ -789,24 +789,298 @@ func (s *nhkRadioSeries) selectEpisode(headline string) (*nhkRadioEpisode, error
 			return episode, nil
 		}
 	}
+	if numeric, err := strconv.ParseInt(headline, 10, 64); err == nil {
+		want := strconv.FormatInt(numeric, 10)
+		for _, episode := range s.episodes {
+			if episode.ID == want {
+				return episode, nil
+			}
+		}
+	}
 	return nil, fmt.Errorf("%w: NHK Radiru headline not found: %s", ErrUnavailable, headline)
 }
 
-func (s *nhkRadioSeries) detailURL(episodeID string) string {
-	if s.config != nil && s.config.ProgramDetail != "" {
-		// Replace any {id} placeholder; otherwise append the ID.
-		if strings.Contains(s.config.ProgramDetail, "{id}") {
-			return strings.ReplaceAll(s.config.ProgramDetail, "{id}", url.PathEscape(episodeID))
-		}
-		if strings.Contains(s.config.ProgramDetail, "%s") {
-			return strings.ReplaceAll(s.config.ProgramDetail, "%s", url.PathEscape(episodeID))
-		}
-		return strings.TrimSuffix(s.config.ProgramDetail, "/") + "/" + url.PathEscape(episodeID)
+func nhkRadioTryExtendedMetadata(ctx context.Context, transport Transport, config *nhkRadioConfig, episode *nhkRadioEpisode, programmeID string) *nhkRadioEpisode {
+	if config == nil || config.ProgramDetailTmpl == "" || episode == nil || episode.AAContentsID == "" {
+		return nil
 	}
-	if s.program.ProgramDetail != "" {
-		return strings.TrimSuffix(s.program.ProgramDetail, "/") + "/" + url.PathEscape(episodeID)
+	service, area, dateID, ok := nhkRadioParseAAVinfo(episode.AAContentsID)
+	if !ok {
+		return nil
+	}
+	eventID := nhkRadioJoinNonempty(service, area, dateID)
+	detailURL := nhkRadioFormatProgramDetailURL(config.ProgramDetailTmpl, eventID)
+	if detailURL == "" {
+		return nil
+	}
+	payload, err := nhkRadioFetchProgramDetail(ctx, transport, detailURL)
+	if err != nil || payload == nil {
+		return nil
+	}
+	return nhkRadioApplyExtendedMetadata(episode, payload)
+}
+
+func nhkRadioParseAAVinfo(raw string) (service, area, dateID string, ok bool) {
+	parts := strings.Split(raw, ";")
+	if len(parts) < 4 {
+		return "", "", "", false
+	}
+	service, area, _ = strings.Cut(parts[2], ",")
+	service = strings.TrimSpace(service)
+	area = strings.TrimSpace(area)
+	dateID = strings.TrimSpace(parts[3])
+	if service == "" || area == "" || dateID == "" {
+		return "", "", "", false
+	}
+	return service, area, dateID, true
+}
+
+func nhkRadioJoinNonempty(parts ...string) string {
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return strings.Join(out, "")
+}
+
+func nhkRadioFormatProgramDetailURL(template, broadcastEventID string) string {
+	if template == "" || broadcastEventID == "" {
+		return ""
+	}
+	raw := strings.ReplaceAll(template, "{broadcastEventId}", broadcastEventID)
+	if strings.HasPrefix(raw, "//") {
+		raw = "https:" + raw
+	}
+	if !nhkRadioAcceptsAPIURL(raw) {
+		return ""
+	}
+	return raw
+}
+
+func nhkRadioFetchProgramDetail(ctx context.Context, transport Transport, rawURL string) (map[string]any, error) {
+	if !nhkRadioAcceptsAPIURL(rawURL) {
+		return nil, fmt.Errorf("%w: unsafe NHK Radiru program detail URL", ErrInvalidMetadata)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid NHK Radiru program detail request", ErrInvalidMetadata)
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := transport.Do(ctx, req)
+	if err != nil {
+		return nil, nhkCategorizeError(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusBadRequest {
+		return nil, nil
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, nhkCategorizeStatus(resp.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, nhkRadioMaxDetailBytes+1))
+	if err != nil {
+		return nil, nhkCategorizeError(err)
+	}
+	if int64(len(data)) > nhkRadioMaxDetailBytes {
+		return nil, ErrJSONResponseTooLarge
+	}
+	var payload map[string]any
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	if err := dec.Decode(&payload); err != nil {
+		return nil, fmt.Errorf("%w: invalid NHK Radiru program detail JSON", ErrInvalidMetadata)
+	}
+	if err := ensureJSONEOF(dec); err != nil {
+		return nil, fmt.Errorf("%w: trailing NHK Radiru program detail JSON", ErrInvalidMetadata)
+	}
+	return payload, nil
+}
+
+func nhkRadioApplyExtendedMetadata(episode *nhkRadioEpisode, payload map[string]any) *nhkRadioEpisode {
+	if episode == nil || payload == nil {
+		return nil
+	}
+	merged := *episode
+	if title := nhkRadioFirstString(payload, "name"); title != "" {
+		merged.Title = title
+	}
+	if description := nhkRadioExtendedDescription(payload); description != "" {
+		merged.Description = description
+	}
+	if station := nhkRadioNestedString(payload, "publishedOn", "broadcastDisplayName"); station != "" {
+		merged.Station = station
+	}
+	if endAt := nhkRadioFirstString(payload, "endDate"); endAt != "" {
+		merged.UploadedAt = endAt
+	}
+	if startAt := nhkRadioFirstString(payload, "startDate"); startAt != "" {
+		merged.ReleaseAt = startAt
+	}
+	if duration, ok := nhkRadioDurationSeconds(payload["duration"]); ok {
+		merged.DurationSec = duration
+	}
+	if thumbs := nhkRadioExtendedThumbnails(payload); len(thumbs) > 0 {
+		merged.Thumbnails = thumbs
+	}
+	if categories := nhkRadioExtendedCategories(payload); len(categories) > 0 {
+		merged.Categories = categories
+	}
+	if cast := nhkRadioExtendedCast(payload); len(cast) > 0 {
+		merged.Cast = cast
+	}
+	if series := nhkRadioNestedString(payload, "identifierGroup", "radioSeriesName"); series != "" {
+		merged.Series = series
+	}
+	return &merged
+}
+
+func nhkRadioExtendedDescription(payload map[string]any) string {
+	detailed, _ := payload["detailedDescription"].(map[string]any)
+	if detailed == nil {
+		return ""
+	}
+	parts := make([]string, 0, 3)
+	for _, key := range []string{"epg80", "epg200"} {
+		if text := nhkRadioFirstString(detailed, key); text != "" {
+			parts = append(parts, text)
+		}
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func nhkRadioNestedString(payload map[string]any, keys ...string) string {
+	current := any(payload)
+	for _, key := range keys {
+		node, ok := current.(map[string]any)
+		if !ok {
+			return ""
+		}
+		current = node[key]
+	}
+	if text, ok := current.(string); ok {
+		return text
 	}
 	return ""
+}
+
+func nhkRadioExtendedThumbnails(payload map[string]any) []nhkRadioThumbnail {
+	about, _ := payload["about"].(map[string]any)
+	if about == nil {
+		return nil
+	}
+	thumbs := nhkRadioThumbnailsFromEyecatch(about["eyecatch"])
+	if list, ok := about["eyecatchList"].([]any); ok {
+		for _, raw := range list {
+			if node, ok := raw.(map[string]any); ok {
+				thumbs = append(thumbs, nhkRadioThumbnailsFromEyecatch(node)...)
+			}
+		}
+	}
+	if series, ok := about["partOfSeries"].(map[string]any); ok {
+		thumbs = append(thumbs, nhkRadioThumbnailsFromEyecatch(series["eyecatch"])...)
+	}
+	if len(thumbs) > nhkRadioMaxThumbnails {
+		thumbs = thumbs[:nhkRadioMaxThumbnails]
+	}
+	return thumbs
+}
+
+func nhkRadioThumbnailsFromEyecatch(raw any) []nhkRadioThumbnail {
+	node, ok := raw.(map[string]any)
+	if !ok {
+		return nil
+	}
+	out := make([]nhkRadioThumbnail, 0, 4)
+	for _, entry := range node {
+		object, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		urlValue := nhkRadioFirstString(object, "url")
+		if urlValue == "" || !nhkValidPublicURL(urlValue) {
+			continue
+		}
+		thumb := nhkRadioThumbnail{URL: urlValue}
+		if width, ok := nhkIntFromAny(object["width"]); ok {
+			thumb.Width = int(width)
+		}
+		if height, ok := nhkIntFromAny(object["height"]); ok {
+			thumb.Height = int(height)
+		}
+		out = append(out, thumb)
+	}
+	return out
+}
+
+func nhkRadioExtendedCategories(payload map[string]any) []string {
+	group, _ := payload["identifierGroup"].(map[string]any)
+	if group == nil {
+		return nil
+	}
+	genres, _ := group["genre"].([]any)
+	out := make([]string, 0, len(genres))
+	for _, raw := range genres {
+		node, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		for _, key := range []string{"name1", "name2"} {
+			if name := nhkRadioFirstString(node, key); name != "" {
+				out = append(out, name)
+			}
+		}
+		if len(out) >= nhkRadioMaxCategories {
+			break
+		}
+	}
+	return out
+}
+
+func nhkRadioExtendedCast(payload map[string]any) []string {
+	misc, _ := payload["misc"].(map[string]any)
+	if misc == nil {
+		return nil
+	}
+	actors, _ := misc["actList"].([]any)
+	out := make([]string, 0, len(actors))
+	for _, raw := range actors {
+		node, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if name := nhkRadioFirstString(node, "name"); name != "" {
+			out = append(out, name)
+		}
+		if len(out) >= nhkRadioMaxCast {
+			break
+		}
+	}
+	return out
+}
+
+func nhkRadioDurationSeconds(raw any) (float64, bool) {
+	switch value := raw.(type) {
+	case float64:
+		return value, value > 0
+	case int:
+		return float64(value), value > 0
+	case int64:
+		return float64(value), value > 0
+	case json.Number:
+		f, err := value.Float64()
+		return f, err == nil && f > 0
+	case string:
+		if value == "" {
+			return 0, false
+		}
+		if seconds, err := strconv.ParseFloat(value, 64); err == nil && seconds > 0 {
+			return seconds, true
+		}
+	}
+	return 0, false
 }
 
 // --- Network ---
@@ -821,7 +1095,7 @@ func nhkRadioFetchSeries(ctx context.Context, transport Transport, baseURL, site
 	}
 	endpoint := baseURL
 	if site != "" && corner != "" {
-		endpoint = fmt.Sprintf("%s?site_id=%s&corner_id=%s", baseURL, url.QueryEscape(site), url.QueryEscape(corner))
+		endpoint = fmt.Sprintf("%s?site_id=%s&corner_site_id=%s", baseURL, url.QueryEscape(site), url.QueryEscape(corner))
 	} else if site != "" {
 		endpoint = baseURL + "/" + url.PathEscape(site)
 	}
@@ -851,6 +1125,7 @@ func nhkRadioFetchSeries(ctx context.Context, transport Transport, baseURL, site
 	}
 	var payload map[string]any
 	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
 	if err := dec.Decode(&payload); err != nil {
 		return nil, fmt.Errorf("%w: invalid NHK Radiru JSON", ErrInvalidMetadata)
 	}
@@ -884,6 +1159,7 @@ func nhkRadioFetchNews(ctx context.Context, transport Transport) (map[string]any
 	}
 	var payload map[string]any
 	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
 	if err := dec.Decode(&payload); err != nil {
 		return nil, fmt.Errorf("%w: invalid NHK Radiru news JSON", ErrInvalidMetadata)
 	}
@@ -913,33 +1189,21 @@ func nhkRadioBuildSeries(config *nhkRadioConfig, payload map[string]any, siteID,
 	series := &nhkRadioSeries{
 		identifier: siteID + "_" + corner,
 		key:        nhkRadioProgramKey{SiteID: siteID, Corner: corner},
+		config:     &nhkRadioConfigSeries{SiteID: siteID},
 	}
-	if config != nil {
-		if entry, ok := config.Series[siteID]; ok && entry != nil {
-			series.config = entry
-		}
+	if config != nil && config.ProgramDetailTmpl != "" {
+		series.config.ProgramDetail = config.ProgramDetailTmpl
 	}
-	mainNode, _ := payload["main"].(map[string]any)
-	programNode, _ := mainNode["program"].(map[string]any)
-	if programNode != nil {
-		if title, ok := programNode["program_title"].(string); ok {
-			series.config = ensureConfigSeries(series.config, siteID, config)
-			series.config.Title = title
-		}
-		if station, ok := programNode["program_station"].(string); ok {
-			series.config = ensureConfigSeries(series.config, siteID, config)
-			series.config.Station = station
-		}
-		if detail, ok := programNode["program_detail"].(string); ok && nhkRadioValidDetailURL(detail) {
-			series.config = ensureConfigSeries(series.config, siteID, config)
-			series.config.ProgramDetail = detail
-		}
+	title := nhkRadioFirstString(payload, "title")
+	cornerName := nhkRadioFirstString(payload, "corner_name")
+	if joined := strings.TrimSpace(strings.Join([]string{title, cornerName}, " ")); joined != "" {
+		series.config.Title = joined
 	}
-	episodesRaw, _ := mainNode["episodes"].([]any)
-	if episodesRaw == nil {
-		// Fallback for news payload shape.
-		episodesRaw, _ = payload["data"].([]any)
+	if broadcast := nhkRadioFirstString(payload, "radio_broadcast"); broadcast != "" {
+		series.config.Station = "NHK " + broadcast
 	}
+	series.description = nhkRadioFirstString(payload, "series_description")
+	episodesRaw, _ := payload["episodes"].([]any)
 	if len(episodesRaw) > nhkRadioMaxSeriesEntries {
 		episodesRaw = episodesRaw[:nhkRadioMaxSeriesEntries]
 	}
@@ -1124,9 +1388,32 @@ func nhkRadioNewsEpisodePublicURL(series *nhkRadioSeries, episode *nhkRadioEpiso
 }
 
 func nhkRadioEpisodeIDFromNode(node map[string]any) string {
-	for _, key := range []string{"id", "episode_id", "onair_id"} {
+	if raw, ok := node["id"]; ok {
+		if id := nhkRadioIDString(raw); id != "" {
+			return id
+		}
+	}
+	for _, key := range []string{"episode_id", "onair_id", "headline_id"} {
 		if value, ok := node[key].(string); ok && value != "" {
 			return value
+		}
+	}
+	return ""
+}
+
+func nhkRadioIDString(raw any) string {
+	switch value := raw.(type) {
+	case string:
+		return strings.TrimSpace(value)
+	case float64:
+		return strconv.FormatInt(int64(value), 10)
+	case int:
+		return strconv.Itoa(value)
+	case int64:
+		return strconv.FormatInt(value, 10)
+	case json.Number:
+		if integer, err := value.Int64(); err == nil {
+			return strconv.FormatInt(integer, 10)
 		}
 	}
 	return ""
@@ -1135,12 +1422,16 @@ func nhkRadioEpisodeIDFromNode(node map[string]any) string {
 func nhkRadioEpisodeFromNode(node map[string]any) *nhkRadioEpisode {
 	episode := &nhkRadioEpisode{}
 	episode.ID = nhkRadioEpisodeIDFromNode(node)
-	episode.Title = nhkRadioFirstString(node, "title", "episode_title", "program_title")
-	episode.Subtitle = nhkRadioFirstString(node, "subtitle", "episode_subtitle")
+	episode.Title = nhkRadioFirstString(node, "program_title", "title", "episode_title")
+	episode.Subtitle = nhkRadioFirstString(node, "program_sub_title", "subtitle", "episode_subtitle")
 	episode.Description = nhkRadioFirstString(node, "description", "episode_description", "summary")
+	if episode.Description == "" {
+		episode.Description = episode.Subtitle
+	}
 	episode.Station = nhkRadioFirstString(node, "station", "program_station")
 	episode.Series = nhkRadioFirstString(node, "series", "program_title")
 	episode.StreamURL = nhkRadioFirstString(node, "stream_url", "audio_url", "media_url")
+	episode.AAContentsID = nhkRadioFirstString(node, "aa_contents_id")
 	episode.ReleaseAt = nhkRadioFirstString(node, "release_at", "onair_date", "publish_at")
 	episode.UploadedAt = nhkRadioFirstString(node, "uploaded_at", "onair_date", "publish_at")
 	episode.ExpiresAt = nhkRadioFirstString(node, "expire_at", "expired_at", "end_date")
@@ -1251,80 +1542,6 @@ func nhkRadioParseTimestamp(text string) int64 {
 		}
 	}
 	return 0
-}
-
-func ensureConfigSeries(existing *nhkRadioConfigSeries, siteID string, config *nhkRadioConfig) *nhkRadioConfigSeries {
-	if existing != nil {
-		return existing
-	}
-	if config == nil {
-		return &nhkRadioConfigSeries{SiteID: siteID}
-	}
-	entry := &nhkRadioConfigSeries{SiteID: siteID}
-	config.Series[siteID] = entry
-	return entry
-}
-
-func nhkRadioValidDetailURL(rawURL string) bool {
-	if len(rawURL) == 0 || len(rawURL) > 4096 {
-		return false
-	}
-	parsed, err := url.Parse(rawURL)
-	if err != nil || parsed.Scheme != "https" {
-		return false
-	}
-	if parsed.Host != "www.nhk.or.jp" {
-		return false
-	}
-	return true
-}
-
-func nhkRadioMergeDetail(episode *nhkRadioEpisode, detail map[string]any, _ *nhkRadioConfig) *nhkRadioEpisode {
-	main, _ := detail["main"].(map[string]any)
-	if main == nil {
-		main, _ = detail["data"].(map[string]any)
-	}
-	if main == nil {
-		return nil
-	}
-	extended := nhkRadioEpisodeFromNode(main)
-	if extended.ID == "" {
-		extended.ID = episode.ID
-	}
-	if extended.Title == "" {
-		extended.Title = episode.Title
-	}
-	if extended.Description == "" {
-		extended.Description = episode.Description
-	}
-	if extended.Station == "" {
-		extended.Station = episode.Station
-	}
-	if extended.Series == "" {
-		extended.Series = episode.Series
-	}
-	if extended.StreamURL == "" {
-		extended.StreamURL = episode.StreamURL
-	}
-	if extended.ReleaseAt == "" {
-		extended.ReleaseAt = episode.ReleaseAt
-	}
-	if extended.UploadedAt == "" {
-		extended.UploadedAt = episode.UploadedAt
-	}
-	if len(extended.Thumbnails) == 0 {
-		extended.Thumbnails = episode.Thumbnails
-	}
-	if len(extended.Categories) == 0 {
-		extended.Categories = episode.Categories
-	}
-	if len(extended.Cast) == 0 {
-		extended.Cast = episode.Cast
-	}
-	if extended.ExpiresAt == "" {
-		extended.ExpiresAt = episode.ExpiresAt
-	}
-	return extended
 }
 
 func nhkRadioHLSFormats(ctx context.Context, transport Transport, streamURL string) ([]value.Value, error) {
@@ -1584,6 +1801,7 @@ func nhkRadioFetchNOA(ctx context.Context, transport Transport, rawURL string) (
 	}
 	var payload map[string]any
 	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
 	if err := dec.Decode(&payload); err != nil {
 		return nil, fmt.Errorf("%w: invalid NHK Radiru now-on-air JSON", ErrInvalidMetadata)
 	}

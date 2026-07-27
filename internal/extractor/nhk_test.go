@@ -437,11 +437,15 @@ func TestNHKSchoolProgramListBeforeSubject(t *testing.T) {
 func TestNHKRadiruEpisodeAndPlaylist(t *testing.T) {
 	config := nhkReadFixture(t, "radio/config_web.xml")
 	series := nhkReadFixture(t, "radio/series.json")
+	extended := nhkReadFixture(t, "radio/extended_detail.json")
 	episodeM3U8 := nhkReadFixture(t, "radio/episode.m3u8")
+	seriesURL := "https://www.nhk.or.jp/radio-api/app/v1/web/ondemand/series?site_id=LG96ZW5KZ4&corner_site_id=01"
+	extendedURL := "https://www.nhk.or.jp/radio-api/app/v1/web/ondemand/program/R113020250707.json"
 	transport := &nhkFixtureTransport{bodies: map[string]string{
-		"https://www.nhk.or.jp/radio/config/config_web.xml":          config,
-		"https://www.nhk.or.jp/radio-api/app/v1/web/ondemand/series": series,
-		"https://radio-stream.nhk.jp/ondemand/4251382/index.m3u8":    episodeM3U8,
+		"https://www.nhk.or.jp/radio/config/config_web.xml": config,
+		seriesURL:   series,
+		extendedURL: extended,
+		"https://radio-stream.nhk.jp/ondemand/4251382/index.m3u8": episodeM3U8,
 	}}
 
 	episode, err := NewNhkRadiruIE().Extract(context.Background(), Request{
@@ -451,13 +455,33 @@ func TestNHKRadiruEpisodeAndPlaylist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	foundSeries := false
+	for _, call := range transport.calls {
+		if call == seriesURL {
+			foundSeries = true
+		}
+		if strings.Contains(call, "corner_id=") {
+			t.Fatalf("series API used corner_id: %q", call)
+		}
+	}
+	if !foundSeries {
+		t.Fatalf("missing series API call with corner_site_id, got %v", transport.calls)
+	}
 	id, _ := episode.Info.Lookup("id").StringValue()
 	if id != "LG96ZW5KZ4_01_4251382" {
 		t.Fatalf("id=%q", id)
 	}
 	title, _ := episode.Info.Lookup("title").StringValue()
-	if !strings.Contains(title, "クラシック") {
+	if title != "Extended Classic Feature" {
 		t.Fatalf("title=%q", title)
+	}
+	description, _ := episode.Info.Lookup("description").StringValue()
+	if !strings.Contains(description, "Extended Radiru description") {
+		t.Fatalf("description=%q", description)
+	}
+	cast, ok := episode.Info.Lookup("cast").ListValue()
+	if !ok || len(cast) == 0 {
+		t.Fatal("missing extended cast")
 	}
 
 	playlist, err := NewNhkRadiruIE().Extract(context.Background(), Request{
@@ -469,6 +493,56 @@ func TestNHKRadiruEpisodeAndPlaylist(t *testing.T) {
 	}
 	if !playlist.IsPlaylist() {
 		t.Fatal("expected playlist")
+	}
+	seriesTitle, _ := playlist.Info.Lookup("title").StringValue()
+	if !strings.Contains(seriesTitle, "ベストオブクラシック") {
+		t.Fatalf("series title=%q", seriesTitle)
+	}
+}
+
+func TestNHKRadiruNumericEpisodeID(t *testing.T) {
+	config := nhkReadFixture(t, "radio/config_web.xml")
+	series := nhkReadFixture(t, "radio/series.json")
+	episodeM3U8 := nhkReadFixture(t, "radio/episode.m3u8")
+	seriesURL := "https://www.nhk.or.jp/radio-api/app/v1/web/ondemand/series?site_id=LG96ZW5KZ4&corner_site_id=01"
+	transport := &nhkFixtureTransport{bodies: map[string]string{
+		"https://www.nhk.or.jp/radio/config/config_web.xml": config,
+		seriesURL: series,
+		"https://radio-stream.nhk.jp/ondemand/4251382/index.m3u8": episodeM3U8,
+	}}
+	_, err := NewNhkRadiruIE().Extract(context.Background(), Request{
+		URL:       "https://www.nhk.or.jp/radio/player/ondemand.html?p=LG96ZW5KZ4_01_4251382",
+		Transport: transport,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNHKRadiruExtendedMetadataFailureNonfatal(t *testing.T) {
+	config := nhkReadFixture(t, "radio/config_web.xml")
+	series := nhkReadFixture(t, "radio/series.json")
+	episodeM3U8 := nhkReadFixture(t, "radio/episode.m3u8")
+	seriesURL := "https://www.nhk.or.jp/radio-api/app/v1/web/ondemand/series?site_id=LG96ZW5KZ4&corner_site_id=01"
+	extendedURL := "https://www.nhk.or.jp/radio-api/app/v1/web/ondemand/program/R113020250707.json"
+	transport := &nhkFixtureTransport{
+		bodies: map[string]string{
+			"https://www.nhk.or.jp/radio/config/config_web.xml": config,
+			seriesURL: series,
+			"https://radio-stream.nhk.jp/ondemand/4251382/index.m3u8": episodeM3U8,
+		},
+		statuses: map[string]int{extendedURL: http.StatusBadRequest},
+	}
+	result, err := NewNhkRadiruIE().Extract(context.Background(), Request{
+		URL:       "https://www.nhk.or.jp/radio/player/ondemand.html?p=LG96ZW5KZ4_01_4251382",
+		Transport: transport,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	title, _ := result.Info.Lookup("title").StringValue()
+	if !strings.Contains(title, "クラシック") {
+		t.Fatalf("fallback title=%q", title)
 	}
 }
 

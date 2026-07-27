@@ -1980,6 +1980,8 @@ capabilities:
       - internal/extractor.TestNHKSchoolSubjectAllowlist
       - internal/extractor.TestNHKSchoolProgramListBeforeSubject
       - internal/extractor.TestNHKRadiruEpisodeAndPlaylist
+      - internal/extractor.TestNHKRadiruNumericEpisodeID
+      - internal/extractor.TestNHKRadiruExtendedMetadataFailureNonfatal
       - internal/extractor.TestNHKRadioNewsHandoff
       - internal/extractor.TestNHKRadiruNewsPlaylistAndHeadline
       - internal/extractor.TestNHKRadioNewsExtraPathRejected
@@ -2003,6 +2005,8 @@ capabilities:
       - internal/extractor.FuzzParseNHKConfigXML
       - pkg/ytdlp.TestNHKFamilyRegistryRouting
       - pkg/ytdlp.TestNHKOptionsValidation
+      - pkg/ytdlp.TestNHKCredentialIsolatedMediaDownloadStripsAmbientCredentials
+      - internal/format.TestObjectSelectionPropagatesCredentialIsolation
       - internal/cli.TestRunNHKAreaFlagRecognized
       - internal/cli.TestRunNHKAreaRejectsHostileValue
       - conformance/extractors/nhk/PROVENANCE.md

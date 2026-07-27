@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <root>
   <url_program_noa>//www.nhk.or.jp/radio/config/now_on_air/{area}.json</url_program_noa>
+  <url_program_detail>//www.nhk.or.jp/radio-api/app/v1/web/ondemand/program/{broadcastEventId}.json</url_program_detail>
   <data>
     <area>tokyo</area>
     <areakey>130</areakey>

@@ -19,7 +19,9 @@ Retained shapes:
 - NHK World clip API path `video_clips/{id}` (no doubled suffix)
 - School bangumi quoted `var` / `programObj` assignments, `chapterTime.push`, `cpTitle` HTML
 - School subject `subjectName` span and program.json `part[*].part-video-dasid`
-- Radiru series JSON `main.episodes[]`, news JSON `main.detail_list[]`, and `config_web.xml` `<data>/<area>/<areakey>/<r1hls|r2hls|fmhls>` plus `url_program_noa`
+- Radiru series JSON `episodes[]` at top level with numeric `id`, `aa_contents_id`, and `program_title`
+- Radiru `url_program_detail` template with `{broadcastEventId}` and extended program detail JSON
+- Radiru news JSON `main.detail_list[]` and `config_web.xml` `url_program_noa` / area HLS blocks
 
 Minimization / anonymization:
 
@@ -40,4 +42,4 @@ Known deviations:
 - Offline fixtures only; no live Japan geo canary
 - No DRM decryption path
 - Radiru extended program-detail metadata failure is nonfatal as in the reference, but description formatting helpers are intentionally simpler/bounded
-- Credential-isolated manifest/media transport is required for emitted formats; API metadata/config fetches remain on the ordinary transport
+- Credential-isolated manifest/media transport is required for emitted formats; product format selection propagates `_credential_isolated` into downloads (HLS/DASH/direct)
