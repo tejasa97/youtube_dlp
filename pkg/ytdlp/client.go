@@ -494,6 +494,7 @@ func (client *Client) productRegistry() *extractor.Registry {
 		extractor.NewBluesky(),
 		extractor.NewImgur(),
 		extractor.NewFlickr(),
+		extractor.NewAeonCo(),
 		extractor.NewRegionSVT(),
 		extractor.NewSyntheticAuth(),
 	}
