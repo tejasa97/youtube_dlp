@@ -96,9 +96,10 @@ func aeonCoFirstEmbedEntry(ctx context.Context, pageURL *url.URL, candidates []g
 				return Entry{}, err
 			}
 		}
-		// The shared parser marks AudioObject-only candidates as audio. A declared
-		// contentUrl remains authoritative, matching the generic JSON-LD policy.
-		if candidate.kind == "audio" || candidate.rawURL != "" || candidate.embedURL == "" {
+		// The shared parser marks AudioObject-only candidates as audio. Upstream
+		// Aeon selects the first VideoObject embedUrl even when contentUrl is also
+		// present; generic contentUrl precedence does not apply here.
+		if candidate.kind == "audio" || candidate.embedURL == "" {
 			continue
 		}
 		entry, ok := canonicalGenericEmbed(pageURL, candidate.embedURL)

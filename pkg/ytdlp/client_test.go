@@ -62,6 +62,84 @@ func (t *prxProductRoundTripper) RoundTrip(r *http.Request) (*http.Response, err
 	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(body)), Request: r}, nil
 }
 
+type aeonCoProductRoundTripper struct {
+	aeonPage []byte
+}
+
+func readProductConformanceFixture(t *testing.T, parts ...string) []byte {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join(append([]string{"..", "..", "conformance", "extractors"}, parts...)...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return body
+}
+
+func (rt *aeonCoProductRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	if request.URL.Hostname() == "aeon.co" && strings.HasPrefix(request.URL.Path, "/videos/") {
+		return &http.Response{
+			StatusCode: http.StatusOK, Header: make(http.Header),
+			Body: io.NopCloser(bytes.NewReader(rt.aeonPage)), Request: request,
+		}, nil
+	}
+	return &http.Response{StatusCode: http.StatusNotFound, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("")), Request: request}, nil
+}
+
+// productVimeoRefererRecorder is a stand-in child extractor selected by the
+// transparent URL handoff. It records only Request.Referer; Vimeo player-config
+// re-entry is covered by internal/extractor.TestAeonCoVimeoReentryUsesAeonReferer.
+type productVimeoRefererRecorder struct {
+	referer string
+}
+
+func (recorder *productVimeoRefererRecorder) Name() string { return "vimeo" }
+
+func (recorder *productVimeoRefererRecorder) Suitable(parsed *url.URL) bool {
+	return parsed != nil && strings.EqualFold(parsed.Hostname(), "vimeo.com")
+}
+
+func (recorder *productVimeoRefererRecorder) Extract(_ context.Context, request extractor.Request) (extractor.Extraction, error) {
+	recorder.referer = request.Referer
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("123456789")},
+		value.Field{Key: "title", Value: value.String("Referer recorder")},
+		value.Field{Key: "ext", Value: value.String("mp4")},
+		value.Field{Key: "url", Value: value.String(request.URL)},
+	))
+	return extractor.Media(info), nil
+}
+
+func TestProductAeonCoPropagatesRefererThroughURLRecursion(t *testing.T) {
+	rt := &aeonCoProductRoundTripper{
+		aeonPage: readProductConformanceFixture(t, "shared", "aeonco", "vimeo_page.html"),
+	}
+	transport, err := network.New(network.Config{RoundTripper: rt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := &productVimeoRefererRecorder{}
+	request := Request{URL: "https://aeon.co/videos/raw-solar-storm-footage", SkipDownload: true}
+	plan, err := prepareCompatibility(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := ""
+	op := &operation{
+		client: NewClient(), request: request, transport: transport,
+		registry:      extractor.NewRegistry(extractor.NewAeonCo(), recorder),
+		compatibility: plan, rootExtractor: &root,
+	}
+	if _, err := op.process(context.Background(), request.URL, "", nil, make(map[string]bool), 0); err != nil {
+		t.Fatal(err)
+	}
+	if root != "aeonco" {
+		t.Fatalf("root extractor = %q", root)
+	}
+	if recorder.referer != "https://aeon.co/" {
+		t.Fatalf("child referer = %q", recorder.referer)
+	}
+}
+
 func TestIsCategory(t *testing.T) {
 	err := &Error{Category: ErrorNetwork, Op: "fetch", Err: errors.New("offline")}
 	if !IsCategory(err, ErrorNetwork) {
@@ -272,6 +350,7 @@ func TestProductRegistryIncludesIntegratedExtractors(t *testing.T) {
 		{"https://soundcloud.com/fixture-artist/synthetic-signal", "soundcloud"},
 		{"https://streamable.com/e/fixture_1", "streamable"},
 		{"https://aeon.co/videos/raw-solar-storm-footage", "aeonco"},
+		{"https://www.aeon.co/videos/dazzling-timelapse-2", "aeonco"},
 		{"peertube:peertube.example:00000000-0000-4000-8000-000000000001", "peertube"},
 		{"https://archive.org/details/fixture_concert", "internetarchive"},
 		{"https://www.svtplay.se/video/fixture-program?modalId=fixture123", "region_svt"},

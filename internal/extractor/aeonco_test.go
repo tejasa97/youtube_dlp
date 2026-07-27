@@ -46,6 +46,22 @@ func TestAeonCoHandoffVimeoPreservesReferer(t *testing.T) {
 	}
 }
 
+func TestAeonCoWWWHostFetchesCanonicalPage(t *testing.T) {
+	requestURL := "https://www.aeon.co/videos/dazzling-timelapse-2"
+	canonicalPageURL := "https://aeon.co/videos/dazzling-timelapse-2"
+	result, err := NewAeonCo().Extract(context.Background(), Request{
+		URL:       requestURL,
+		Transport: aeonCoTransport(canonicalPageURL, readAeonCoFixture(t, "vimeo_page.html")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := *result.Redirect
+	if entry.URL != "https://vimeo.com/123456789" || entry.Referer != aeonCoReferer {
+		t.Fatalf("entry = %#v", entry)
+	}
+}
+
 func TestAeonCoHandoffYouTube(t *testing.T) {
 	pageURL := "https://aeon.co/videos/chew-over-the-prisoners-dilemma-and-see-if-you-can-find-the-rational-path-out"
 	result, err := NewAeonCo().Extract(context.Background(), Request{
@@ -75,8 +91,8 @@ func TestAeonCoMultipleMalformedJSONLDBlocksPickFirstSupportedVideoEmbed(t *test
 		t.Fatal(err)
 	}
 	entry := *result.Redirect
-	if entry.URL != "https://vimeo.com/759576926" || entry.ExtractorKey != "vimeo" || entry.ID != "759576926" ||
-		entry.Referer != aeonCoReferer {
+	if entry.URL != "https://www.youtube.com/watch?v=ABCDEFGHIJK" || entry.ExtractorKey != "youtube" ||
+		entry.ID != "ABCDEFGHIJK" || entry.Referer != "" {
 		t.Fatalf("entry = %#v", entry)
 	}
 }
