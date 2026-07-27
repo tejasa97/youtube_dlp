@@ -119,6 +119,9 @@ func TestExtractorFailuresAreCategorized(t *testing.T) {
 	}{
 		{extractor.ErrAuthentication, ErrorAuthentication},
 		{extractor.ErrUnavailable, ErrorUnsupported},
+		{extractor.ErrInvalidMetadata, ErrorInternal},
+		{extractor.ErrPlaylistLimit, ErrorInternal},
+		{context.Canceled, ErrorCancelled},
 		{extractor.ErrChallengeSolver, ErrorUnsupported},
 		{extractor.ErrTransportIsolation, ErrorUnsupported},
 		{extractor.ErrRegionRestricted, ErrorUnsupported},
@@ -268,6 +271,7 @@ func TestProductRegistryIncludesIntegratedExtractors(t *testing.T) {
 		{"scsearch3:fixture query", "soundcloud_search"},
 		{"https://soundcloud.com/fixture-artist/synthetic-signal", "soundcloud"},
 		{"https://streamable.com/e/fixture_1", "streamable"},
+		{"https://aeon.co/videos/raw-solar-storm-footage", "aeonco"},
 		{"peertube:peertube.example:00000000-0000-4000-8000-000000000001", "peertube"},
 		{"https://archive.org/details/fixture_concert", "internetarchive"},
 		{"https://www.svtplay.se/video/fixture-program?modalId=fixture123", "region_svt"},

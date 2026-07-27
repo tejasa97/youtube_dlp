@@ -1389,6 +1389,34 @@ capabilities:
       - network.shared_transport
     known_deviation: Compatibility is scoped to the pinned anonymous metadata corpus. Account uploads, private media, deletion, API authentication, and historical response variants outside the synthetic corpus are not claimed.
 
+  - id: extractor.aeonco
+    name: Aeon.co JSON-LD embed adapter
+    phase: 3
+    compatibility_target: Route exact HTTPS aeon.co and www.aeon.co /videos/{slug} pages, select the first bounded JSON-LD VideoObject embedUrl supported by Vimeo or YouTube, and preserve the Aeon Vimeo Referer through transparent product recursion.
+    status: compatible
+    evidence:
+      - internal/extractor.TestAeonCoHandoffVimeoPreservesReferer
+      - internal/extractor.TestAeonCoHandoffYouTube
+      - internal/extractor.TestAeonCoMultipleMalformedJSONLDBlocksPickFirstSupportedVideoEmbed
+      - internal/extractor.TestAeonCoMissingAndHostileEmbedsAreUnavailableAndSecretSafe
+      - internal/extractor.TestAeonCoRouting
+      - internal/extractor.TestAeonCoCancellationAvoidsNetworkAccess
+      - internal/extractor.TestAeonCoPageBoundsAndMalformedPageErrors
+      - internal/extractor.TestAeonCoVimeoReentryUsesAeonReferer
+      - internal/extractor.FuzzAeonCoRouting
+      - internal/extractor.FuzzAeonCoJSONLDHandoff
+      - pkg/ytdlp.TestProductRegistryIncludesIntegratedExtractors
+      - pkg/ytdlp.TestExtractorFailuresAreCategorized
+      - conformance/extractors/shared/aeonco/PROVENANCE.md
+      - docs/AEONCO_EVIDENCE.md
+    owner: extractors
+    depends_on:
+      - extractor.generic_embeds
+      - extractor.youtube_pilot
+      - extractor.vimeo_pilot
+      - network.shared_transport
+    known_deviation: Compatibility is limited to exact public HTTPS video-page routes and the pinned synthetic JSON-LD corpus. Only embedUrl-only VideoObject candidates routed to Vimeo or YouTube are handed off; article pages, contentUrl media, other providers, authentication, playlists, and live-service variants are outside this bounded adapter.
+
   - id: extractor.peertube_shared
     name: PeerTube federated shared-hosting extraction
     phase: 3

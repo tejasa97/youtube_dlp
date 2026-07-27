@@ -24,7 +24,7 @@ aenetworks,AENetworksShowIE,AENetworksShow,requires_new_backend,,,,low,no exact 
 aenetworks,BiographyIE,Biography,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 aenetworks,HistoryPlayerIE,HistoryPlayer,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 aenetworks,HistoryTopicIE,HistoryTopic,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-aeonco,AeonCoIE,AeonCo,uses_existing_shared_backend,,vimeo,,medium,upstream class references a media backend already implemented in Go
+aeonco,AeonCoIE,AeonCo,already_supported,aeonco,,,high,normalized upstream key exactly matches a registered Go extractor
 afreecatv,AfreecaTVCatchStoryIE,AfreecaTVCatchStory,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 afreecatv,AfreecaTVIE,AfreecaTV,requires_authentication_or_antibot,,,login,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"
 afreecatv,AfreecaTVLiveIE,AfreecaTVLive,requires_authentication_or_antibot,,,login,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"
