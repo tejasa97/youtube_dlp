@@ -1,0 +1,7 @@
+{
+  "id": "9999011",
+  "lang": "en",
+  "title": "Clip headline",
+  "video_program": {"title": "Clip series"},
+  "video": {"url": "https://vod-stream.nhk.jp/nhkworld/en/clips/9999011/index.m3u8", "duration": 120}
+}

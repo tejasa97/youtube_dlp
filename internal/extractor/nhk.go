@@ -5,6 +5,7 @@
 package extractor
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -187,20 +188,35 @@ func nhkVodMatch(parsed *url.URL) (string, nhkWorldKind, string, bool, bool) {
 	//   /nhkworld/{lang}/shows/audio/{audio-id}/
 	//   /nhkworld/{lang}/ondemand/audio/{audio-id}/
 	if len(parts) >= 5 && (parts[2] == "shows" || parts[2] == "ondemand") && parts[3] == "audio" {
+		if len(parts) != 5 {
+			return "", nhkWorldNone, "", false, false
+		}
 		return lang, nhkWorldVOD, parts[4], true, false
 	}
 	// Deprecated /ondemand/video/{id}/
 	if len(parts) >= 5 && parts[2] == "ondemand" && parts[3] == "video" {
+		if len(parts) != 5 {
+			return "", nhkWorldNone, "", false, false
+		}
 		id := parts[4]
 		return lang, nhkWorldVOD, id, false, len(id) >= 4 && id[:4] == "9999"
 	}
 	// /nhkworld/{lang}/shows/video/{id}/
 	if len(parts) >= 5 && parts[2] == "shows" && parts[3] == "video" {
+		if len(parts) != 5 {
+			return "", nhkWorldNone, "", false, false
+		}
 		id := parts[4]
 		return lang, nhkWorldVOD, id, false, len(id) >= 4 && id[:4] == "9999"
 	}
 	// /nhkworld/{lang}/shows/{id}/
 	if len(parts) >= 4 && parts[2] == "shows" {
+		if parts[3] == "video" || parts[3] == "audio" {
+			return "", nhkWorldNone, "", false, false
+		}
+		if len(parts) != 4 {
+			return "", nhkWorldNone, "", false, false
+		}
 		id := parts[3]
 		// Program-style slug (non-numeric) is not VOD.
 		if !nhkWorldIDPattern.MatchString(id) {
@@ -239,10 +255,16 @@ func nhkProgramSuitable(parsed *url.URL) bool {
 	}
 	// /nhkworld/{lang}/tv/{program}/
 	if len(parts) >= 4 && parts[2] == "tv" {
+		if len(parts) != 4 {
+			return false
+		}
 		return nhkProgramAcceptableID(parts[3])
 	}
 	// /nhkworld/{lang}/shows/audio/programs/{program}/
 	if len(parts) >= 6 && parts[2] == "shows" && parts[3] == "audio" && parts[4] == "programs" {
+		if len(parts) != 6 {
+			return false
+		}
 		return nhkProgramAcceptableID(parts[5])
 	}
 	// /nhkworld/{lang}/shows/{program}/ — but not video/audio episode paths
@@ -252,6 +274,9 @@ func nhkProgramSuitable(parsed *url.URL) bool {
 		}
 		// Reject numeric video IDs so VOD stays authoritative.
 		if nhkWorldIDPattern.MatchString(parts[3]) {
+			return false
+		}
+		if len(parts) != 4 {
 			return false
 		}
 		return nhkProgramAcceptableID(parts[3])
@@ -390,7 +415,6 @@ func nhkVodEpisode(ctx context.Context, request Request, target nhkWorldTarget) 
 		contentFormat = "audio"
 	} else if target.isClip {
 		pageType = "clips"
-		extraPage = "/" + contentFormat + "_" + pageType
 	}
 	apiURL := nhkVodAPIURL(target.lang, contentFormat, pageType, target.id, extraPage)
 	var payload map[string]any
@@ -641,21 +665,7 @@ func nhkResolveURL(baseURL, reference string) string {
 	return resolved
 }
 
-func nhkValidPublicURL(raw string) bool {
-	parsed, err := url.Parse(raw)
-	if err != nil {
-		return false
-	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return false
-	}
-	if parsed.User != nil || parsed.Host == "" {
-		return false
-	}
-	return true
-}
-
-// nhkStreamMedia handles both video and audio HLS streams. Video streams
+// nhkStreamMedia handles both video and audio HLS streams.
 // fetch the master playlist once for variants and subtitle renditions. Audio
 // streams transform the upstream `*.m4a` URL into the corresponding HLS
 // playlist under vod-stream.nhk.jp/index.m3u8 per the pinned reference.
@@ -750,25 +760,9 @@ func nhkAudioTransform(streamURL string) string {
 }
 
 func nhkFetchHLSPlaylist(ctx context.Context, transport Transport, rawURL string) (hls.Playlist, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	data, err := nhkFetchIsolatedBytes(ctx, transport, rawURL, nhkMaxSubtitleBytes)
 	if err != nil {
-		return hls.Playlist{}, fmt.Errorf("%w: invalid HLS request", ErrInvalidMetadata)
-	}
-	resp, err := transport.Do(ctx, req)
-	if err != nil {
-		return hls.Playlist{}, nhkCategorizeError(err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return hls.Playlist{}, nhkCategorizeStatus(resp.StatusCode)
-	}
-	reader := io.LimitReader(resp.Body, nhkMaxSubtitleBytes+1)
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		return hls.Playlist{}, nhkCategorizeError(err)
-	}
-	if int64(len(data)) > nhkMaxSubtitleBytes {
-		return hls.Playlist{}, fmt.Errorf("%w: NHK World HLS playlist too large", ErrInvalidMetadata)
+		return hls.Playlist{}, err
 	}
 	playlist, err := hls.Parse(rawURL, data)
 	if err != nil {
@@ -806,7 +800,7 @@ func nhkHLSToFormats(playlist hls.Playlist, formatID string) []value.Value {
 	if len(formats) == 0 && playlist.Media == nil {
 		return nil
 	}
-	return formats
+	return nhkCredentialIsolateFormats(formats)
 }
 
 func nhkHLSSubtitles(playlist hls.Playlist, masterURL string) *value.Object {
@@ -854,7 +848,7 @@ func nhkAudioFormats(playlist hls.Playlist, formatID, lang string) []value.Value
 	if len(formats) == 0 {
 		return nil
 	}
-	return formats
+	return nhkCredentialIsolateFormats(formats)
 }
 
 // nhkRequestJSON performs a bounded JSON fetch against the NHK World API
@@ -885,13 +879,13 @@ func nhkRequestJSON(ctx context.Context, transport Transport, rawURL, op string,
 	if int64(len(data)) > nhkMaxJSONBytes {
 		return ErrJSONResponseTooLarge
 	}
-	if err := json.Unmarshal(data, target); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	if err := dec.Decode(target); err != nil {
 		return fmt.Errorf("%w: invalid NHK World API JSON", ErrInvalidMetadata)
 	}
-	if err := ensureJSONEOF(json.NewDecoder(strings.NewReader(string(data)))); err != nil {
-		// EOF may already have been consumed by the unmarshal; ignore that
-		// invariant in this helper to keep error categorization compact.
-		_ = err
+	if err := ensureJSONEOF(dec); err != nil {
+		return fmt.Errorf("%w: trailing NHK World API JSON", ErrInvalidMetadata)
 	}
 	return nil
 }

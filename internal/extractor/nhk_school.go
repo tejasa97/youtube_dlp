@@ -543,7 +543,21 @@ func nhkSchoolSubjectSuitable(parsed *url.URL) bool {
 	return true
 }
 
-func nhkSchoolSubjectTitle(subject string) string {
+// nhkSchoolSubjectNamePattern extracts the human-readable subject title from the
+// bounded subjectName span. Hardcoded fallbacks are used only when parsing fails.
+var nhkSchoolSubjectNamePattern = regexp.MustCompile(`(?s)<span\s+class="subjectName">\s*<img\s*[^>]+>\s*([^<]+?)</span>`)
+
+func nhkSchoolSubjectTitleFromPage(page []byte, subject string) string {
+	if match := nhkSchoolSubjectNamePattern.FindSubmatch(page); len(match) > 1 {
+		title := strings.TrimSpace(nhkSchoolDecodeEntities(string(match[1])))
+		if title != "" {
+			return title
+		}
+	}
+	return nhkSchoolSubjectTitleFallback(subject)
+}
+
+func nhkSchoolSubjectTitleFallback(subject string) string {
 	titles := map[string]string{
 		"rika":     "理科",
 		"syakai":   "社会",
@@ -556,7 +570,7 @@ func nhkSchoolSubjectTitle(subject string) string {
 		"zukou":    "図工",
 		"gijutsu":  "技術",
 		"katei":    "家庭",
-		"sougou":   "総合",
+		"sougou":   "総合的な学習の時間",
 		"eigo":     "英語",
 		"tokkatsu": "特別活動",
 		"tokushi":  "特設",
@@ -604,7 +618,7 @@ func extractNhkSchoolSubject(ctx context.Context, request Request) (Extraction, 
 		return Extraction{}, fmt.Errorf("%w: NHK School subject has no programs", ErrInvalidPlaylist)
 	}
 	info := value.NewObject(value.Field{Key: "id", Value: value.String(subject)})
-	info.Set("title", value.String(nhkSchoolSubjectTitle(subject)))
+	info.Set("title", value.String(nhkSchoolSubjectTitleFromPage(page, subject)))
 	info.Set("webpage_url", value.String(pageURL))
 	info.Set("extractor", value.String("nhk_for_school_subject"))
 	info.Set("extractor_key", value.String("NhkForSchoolSubjectIE"))
@@ -849,7 +863,7 @@ func nhkSchoolParseProgramJSON(data []byte) (map[string]any, error) {
 	if err := dec.Decode(&payload); err != nil {
 		return nil, fmt.Errorf("%w: invalid NHK School program JSON", ErrInvalidMetadata)
 	}
-	if dec.More() {
+	if err := ensureJSONEOF(dec); err != nil {
 		return nil, fmt.Errorf("%w: trailing NHK School program JSON", ErrInvalidMetadata)
 	}
 	return payload, nil
@@ -934,6 +948,6 @@ func nhkSchoolProgramListBangumis(subject, program, scheme string, payload map[s
 
 // ensure that the canonical helpers compile in non-test builds even when
 // unused elsewhere (they are exercised via fixtures and tests).
-var _ = nhkSchoolSubjectTitle
+var _ = nhkSchoolSubjectTitleFallback
 var _ = bytes.HasPrefix
 var _ = errors.Is

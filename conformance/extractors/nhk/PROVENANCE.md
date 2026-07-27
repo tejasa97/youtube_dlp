@@ -16,9 +16,10 @@ Referenced classes / functions:
 Retained shapes:
 
 - NHK World showsapi v1 episode/program JSON (`id`, `title`, `video`/`audio.url`, categories/tags/images)
+- NHK World clip API path `video_clips/{id}` (no doubled suffix)
 - School bangumi quoted `var` / `programObj` assignments, `chapterTime.push`, `cpTitle` HTML
-- School subject allowlist and program.json `part[*].part-video-dasid`
-- Radiru series JSON `main.episodes[]` and `config_web.xml` `<data>/<area>/<areakey>/<r1hls|r2hls|fmhls>`
+- School subject `subjectName` span and program.json `part[*].part-video-dasid`
+- Radiru series JSON `main.episodes[]`, news JSON `main.detail_list[]`, and `config_web.xml` `<data>/<area>/<areakey>/<r1hls|r2hls|fmhls>` plus `url_program_noa`
 
 Minimization / anonymization:
 
@@ -31,7 +32,7 @@ Synthetic values:
 
 - Episode/program IDs and titles
 - HLS master playlists with synthetic CDN URLs
-- Radiru config areas `tokyo` / `sapporo` and HLS endpoints
+- Radiru config areas `tokyo` / `sapporo` / `fukuoka`, news `all.json`, and now-on-air JSON for area keys `130` / `010` / `800`
 
 Known deviations:
 
@@ -39,3 +40,4 @@ Known deviations:
 - Offline fixtures only; no live Japan geo canary
 - No DRM decryption path
 - Radiru extended program-detail metadata failure is nonfatal as in the reference, but description formatting helpers are intentionally simpler/bounded
+- Credential-isolated manifest/media transport is required for emitted formats; API metadata/config fetches remain on the ordinary transport

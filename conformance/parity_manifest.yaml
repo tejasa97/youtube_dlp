@@ -1968,19 +1968,30 @@ capabilities:
     status: compatible
     evidence:
       - internal/extractor.TestNHKWorldVODSuitable
+      - internal/extractor.TestNHKWorldVODClipAPIURL
+      - internal/extractor.TestNHKWorldVODTrailingPathRejected
       - internal/extractor.TestNHKWorldProgramDoesNotStealVOD
       - internal/extractor.TestNHKWorldVODExtract
       - internal/extractor.TestNHKWorldVODMissingStream
       - internal/extractor.TestNHKWorldProgramPlaylist
       - internal/extractor.TestNHKSchoolBangumiExtract
       - internal/extractor.TestNHKSchoolSubjectAndProgramList
+      - internal/extractor.TestNHKSchoolSougouSubjectTitle
       - internal/extractor.TestNHKSchoolSubjectAllowlist
       - internal/extractor.TestNHKSchoolProgramListBeforeSubject
       - internal/extractor.TestNHKRadiruEpisodeAndPlaylist
       - internal/extractor.TestNHKRadioNewsHandoff
+      - internal/extractor.TestNHKRadiruNewsPlaylistAndHeadline
+      - internal/extractor.TestNHKRadioNewsExtraPathRejected
       - internal/extractor.TestNHKRadiruLiveDefaultAndArea
+      - internal/extractor.TestNHKRadiruLiveR2NationalCrossArea
+      - internal/extractor.TestNHKRadiruLiveUnavailableMetadataFallback
       - internal/extractor.TestNHKRadiruLiveInvalidArea
       - internal/extractor.TestNHKRadiruMissingHeadline
+      - internal/extractor.TestNHKCredentialIsolationRequired
+      - internal/extractor.TestNHKCredentialIsolatedFormatsMarked
+      - internal/extractor.TestNHKHostileMediaURLRejected
+      - internal/extractor.TestNHKJSONTrailingGarbageRejected
       - internal/extractor.TestNHKCancellation
       - internal/extractor.TestNHKConcurrentExtract
       - internal/extractor.TestNHKSecretSafeErrors
@@ -1999,7 +2010,7 @@ capabilities:
     depends_on:
       - protocol.hls
       - network.shared_transport
-    known_deviation: Radiru area selection uses product option NHKOptions.RadiruArea / CLI --nhk-area rather than yt-dlp extractor_args nhkradirulive:area. DRM decryption is not claimed. Evidence is offline-fixture only; no live regional Japan canary is asserted.
+    known_deviation: Radiru area selection uses product option NHKOptions.RadiruArea / CLI --nhk-area rather than yt-dlp extractor_args nhkradirulive:area. DRM decryption is not claimed. Evidence is offline-fixture only; no live regional Japan canary is asserted. API-derived manifest/media URLs require credential-isolated no-redirect transport and mark emitted formats with _credential_isolated.
 
   - id: compat.configuration
     name: Configuration compatibility

@@ -231,7 +231,7 @@ func nhkRadioNewsPageSuitable(parsed *url.URL) bool {
 		strings.Contains(lowerPath, "%5c") {
 		return false
 	}
-	return strings.HasPrefix(lowerPath, nhkRadioNewsHandOffPath)
+	return lowerPath == "/radionews" || lowerPath == "/radionews/"
 }
 
 func (NhkRadioNewsPageIE) Extract(ctx context.Context, request Request) (Extraction, error) {
@@ -304,6 +304,9 @@ func extractNhkRadioOnDemand(ctx context.Context, request Request) (Extraction, 
 	}
 	rawKey := parsed.Query().Get("p")
 	key, _ := nhkRadioParseProgramKey(rawKey)
+	if key.SiteID == nhkRadioSpecialNewsSiteID {
+		return extractNhkRadioNewsCorner(ctx, request, key)
+	}
 	config, err := nhkRadioFetchConfig(ctx, request.Transport)
 	if err != nil {
 		return Extraction{}, err
@@ -421,12 +424,38 @@ func extractNhkRadioNewsPage(ctx context.Context, request Request) (Extraction, 
 	if !nhkRadioNewsPageSuitable(parsed) {
 		return Extraction{}, ErrUnsupported
 	}
-	// Transparent handoff: /radionews/ → 18439M2W42_01.
-	return extractNhkRadioOnDemand(ctx, Request{
-		URL:       "https://www.nhk.or.jp" + nhkRadioOnDemandHTMLPathA + "?p=" + url.QueryEscape(nhkRadioSpecialNewsSiteID+"_"+nhkRadioSpecialNewsCorner),
-		Transport: request.Transport,
-		NHK:       request.NHK,
+	return URLResult(Entry{
+		URL:          "https://www.nhk.or.jp" + nhkRadioOnDemandHTMLPathB + "?p=" + url.QueryEscape(nhkRadioSpecialNewsSiteID+"_"+nhkRadioSpecialNewsCorner),
+		ExtractorKey: "nhk_radiru",
 	})
+}
+
+func extractNhkRadioNewsCorner(ctx context.Context, request Request, key nhkRadioProgramKey) (Extraction, error) {
+	if err := contextError(ctx); err != nil {
+		return Extraction{}, err
+	}
+	newsPayload, err := nhkRadioFetchNews(ctx, request.Transport)
+	if err != nil {
+		return Extraction{}, err
+	}
+	if err := contextError(ctx); err != nil {
+		return Extraction{}, err
+	}
+	series, err := nhkRadioBuildNewsSeries(newsPayload, key.SiteID, key.Corner)
+	if err != nil {
+		return Extraction{}, err
+	}
+	if series.noEpisodes {
+		return Extraction{}, fmt.Errorf("%w: NHK Radiru news is empty", ErrInvalidMetadata)
+	}
+	if key.Playlist {
+		return nhkRadioRenderNewsPlaylist(series, newsPayload)
+	}
+	headline, err := series.selectNewsHeadline(key.Headline)
+	if err != nil {
+		return Extraction{}, err
+	}
+	return nhkRadioRenderNewsEpisode(ctx, request, series, headline)
 }
 
 // --- Config XML parsing ---
@@ -825,7 +854,7 @@ func nhkRadioFetchSeries(ctx context.Context, transport Transport, baseURL, site
 	if err := dec.Decode(&payload); err != nil {
 		return nil, fmt.Errorf("%w: invalid NHK Radiru JSON", ErrInvalidMetadata)
 	}
-	if dec.More() {
+	if err := ensureJSONEOF(dec); err != nil {
 		return nil, fmt.Errorf("%w: trailing NHK Radiru JSON", ErrInvalidMetadata)
 	}
 	return payload, nil
@@ -854,8 +883,12 @@ func nhkRadioFetchNews(ctx context.Context, transport Transport) (map[string]any
 		return nil, ErrJSONResponseTooLarge
 	}
 	var payload map[string]any
-	if err := json.Unmarshal(data, &payload); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	if err := dec.Decode(&payload); err != nil {
 		return nil, fmt.Errorf("%w: invalid NHK Radiru news JSON", ErrInvalidMetadata)
+	}
+	if err := ensureJSONEOF(dec); err != nil {
+		return nil, fmt.Errorf("%w: trailing NHK Radiru news JSON", ErrInvalidMetadata)
 	}
 	return payload, nil
 }
@@ -934,6 +967,160 @@ func nhkRadioBuildSeries(config *nhkRadioConfig, payload map[string]any, siteID,
 		series.noEpisodes = true
 	}
 	return series, nil
+}
+
+func nhkRadioBuildNewsSeries(payload map[string]any, siteID, corner string) (*nhkRadioSeries, error) {
+	mainNode, _ := payload["main"].(map[string]any)
+	if mainNode == nil {
+		return nil, fmt.Errorf("%w: NHK Radiru news payload missing main", ErrInvalidMetadata)
+	}
+	series := &nhkRadioSeries{
+		identifier: siteID + "_" + corner,
+		key: nhkRadioProgramKey{
+			SiteID:     siteID,
+			Corner:     corner,
+			Playlist:   true,
+			Identifier: siteID + "_" + corner,
+		},
+		config: &nhkRadioConfigSeries{
+			SiteID:  siteID,
+			Title:   nhkRadioFirstString(mainNode, "program_name"),
+			Station: nhkRadioFirstString(mainNode, "media_name"),
+		},
+	}
+	thumb := nhkRadioFirstString(mainNode, "thumbnail_c")
+	if thumb == "" {
+		thumb = nhkRadioFirstString(mainNode, "thumbnail_p")
+	}
+	if thumb != "" {
+		series.config.Title = strings.TrimSpace(series.config.Title)
+	}
+	detailList, _ := mainNode["detail_list"].([]any)
+	if len(detailList) > nhkRadioMaxNewsEntries {
+		detailList = detailList[:nhkRadioMaxNewsEntries]
+	}
+	seen := make(map[string]bool, len(detailList))
+	for _, raw := range detailList {
+		node, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		headlineID := nhkRadioFirstString(node, "headline_id")
+		if headlineID == "" || seen[headlineID] {
+			continue
+		}
+		seen[headlineID] = true
+		episode := nhkRadioEpisodeFromHeadline(node, thumb)
+		if episode.StreamURL == "" {
+			continue
+		}
+		series.episodes = append(series.episodes, episode)
+		if len(series.episodes) >= nhkRadioMaxEpisodes {
+			break
+		}
+	}
+	if len(series.episodes) == 0 {
+		series.noEpisodes = true
+	}
+	return series, nil
+}
+
+func nhkRadioEpisodeFromHeadline(node map[string]any, seriesThumb string) *nhkRadioEpisode {
+	headlineID := nhkRadioFirstString(node, "headline_id")
+	fileNode := nhkRadioFirstNewsFile(node)
+	episode := &nhkRadioEpisode{ID: headlineID}
+	if fileNode != nil {
+		episode.StreamURL = nhkRadioFirstString(fileNode, "file_name")
+		episode.Title = nhkRadioFirstString(fileNode, "file_title")
+		episode.Subtitle = nhkRadioFirstString(fileNode, "file_title_sub")
+		episode.UploadedAt = nhkRadioFirstString(fileNode, "open_time")
+		if release := nhkRadioFirstString(fileNode, "aa_vinfo4"); release != "" {
+			if idx := strings.Index(release, "_"); idx >= 0 {
+				release = release[:idx]
+			}
+			episode.ReleaseAt = release
+		}
+	}
+	if thumb := nhkRadioFirstString(node, "headline_image"); thumb != "" {
+		episode.Thumbnails = []nhkRadioThumbnail{{URL: thumb}}
+	} else if seriesThumb != "" {
+		episode.Thumbnails = []nhkRadioThumbnail{{URL: seriesThumb}}
+	}
+	return episode
+}
+
+func nhkRadioFirstNewsFile(node map[string]any) map[string]any {
+	raw, ok := node["file_list"].([]any)
+	if !ok || len(raw) == 0 {
+		return nil
+	}
+	fileNode, ok := raw[0].(map[string]any)
+	if !ok {
+		return nil
+	}
+	return fileNode
+}
+
+func (s *nhkRadioSeries) selectNewsHeadline(headline string) (*nhkRadioEpisode, error) {
+	for _, episode := range s.episodes {
+		if episode.ID == headline {
+			return episode, nil
+		}
+	}
+	return nil, fmt.Errorf("%w: NHK Radiru news headline not found: %s", ErrUnavailable, headline)
+}
+
+func nhkRadioRenderNewsPlaylist(series *nhkRadioSeries, payload map[string]any) (Extraction, error) {
+	info := series.seriesInfo()
+	if mainNode, ok := payload["main"].(map[string]any); ok {
+		if description := nhkRadioFirstString(mainNode, "site_detail"); description != "" {
+			info.Set("description", value.String(description))
+		}
+		if thumb := nhkRadioFirstString(mainNode, "thumbnail_c"); thumb != "" {
+			info.Set("thumbnail", value.String(thumb))
+		} else if thumb := nhkRadioFirstString(mainNode, "thumbnail_p"); thumb != "" {
+			info.Set("thumbnail", value.String(thumb))
+		}
+	}
+	entries := make([]Entry, 0, len(series.episodes))
+	for _, episode := range series.episodes {
+		entries = append(entries, Entry{
+			URL:          nhkRadioNewsEpisodePublicURL(series, episode),
+			ExtractorKey: "nhk_radiru",
+			ID:           nhkRadioEpisodeID(series, episode),
+			Title:        episode.Title,
+		})
+	}
+	sequence, err := nhkRadioStaticSequence(entries)
+	if err != nil {
+		return Extraction{}, err
+	}
+	return Playlist(value.NewInfo(info), sequence)
+}
+
+func nhkRadioRenderNewsEpisode(ctx context.Context, request Request, series *nhkRadioSeries, episode *nhkRadioEpisode) (Extraction, error) {
+	if episode.StreamURL == "" {
+		return Extraction{}, fmt.Errorf("%w: NHK Radiru news stream missing", ErrUnavailable)
+	}
+	formats, err := nhkRadioHLSFormats(ctx, request.Transport, episode.StreamURL)
+	if err != nil {
+		return Extraction{}, err
+	}
+	info := episode.episodeInfo(series)
+	if series.config != nil && series.config.Title != "" {
+		info.Set("series", value.String(series.config.Title))
+	}
+	info.Set("was_live", value.Bool(true))
+	info.Set("container", value.String("m4a_dash"))
+	if len(formats) == 0 {
+		return Extraction{}, fmt.Errorf("%w: NHK Radiru news stream not found", ErrUnavailable)
+	}
+	info.Set("formats", value.List(formats...))
+	return Media(value.NewInfo(info)), nil
+}
+
+func nhkRadioNewsEpisodePublicURL(series *nhkRadioSeries, episode *nhkRadioEpisode) string {
+	return "https://www.nhk.or.jp/radio/ondemand/detail.html?p=" + url.QueryEscape(series.identifier+"_"+episode.ID)
 }
 
 func nhkRadioEpisodeIDFromNode(node map[string]any) string {
@@ -1142,30 +1329,14 @@ func nhkRadioMergeDetail(episode *nhkRadioEpisode, detail map[string]any, _ *nhk
 
 func nhkRadioHLSFormats(ctx context.Context, transport Transport, streamURL string) ([]value.Value, error) {
 	if transport == nil {
-		return nil, fmt.Errorf("%w: NHK Radiru HLS request was constructed without a transport", ErrTransportIsolation)
+		return nil, ErrTransportIsolation
 	}
 	if !nhkValidPublicURL(streamURL) {
 		return nil, fmt.Errorf("%w: unsafe NHK Radiru stream URL", ErrInvalidMetadata)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, streamURL, nil)
+	data, err := nhkFetchIsolatedBytes(ctx, transport, streamURL, nhkRadioMaxPlaylistBytes)
 	if err != nil {
-		return nil, fmt.Errorf("%w: invalid NHK Radiru HLS request", ErrInvalidMetadata)
-	}
-	resp, err := transport.Do(ctx, req)
-	if err != nil {
-		return nil, nhkCategorizeError(err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, nhkCategorizeStatus(resp.StatusCode)
-	}
-	reader := io.LimitReader(resp.Body, nhkRadioMaxPlaylistBytes+1)
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, nhkCategorizeError(err)
-	}
-	if int64(len(data)) > nhkRadioMaxPlaylistBytes {
-		return nil, fmt.Errorf("%w: NHK Radiru playlist too large", ErrInvalidMetadata)
+		return nil, err
 	}
 	playlist, err := hls.Parse(streamURL, data)
 	if err != nil {
@@ -1228,10 +1399,22 @@ func extractNhkRadioLive(ctx context.Context, request Request) (Extraction, erro
 	}
 	formats := nhkRadioLiveHLSFormats(playlist)
 	title := nhkRadioChannelTitle(channel)
-	if areaConfig.Name != "" && channel != "r2" {
+	serviceID := "bs-" + nhkRadioChannelServiceID(channel) + "-" + areaConfig.Key
+	if channel == "r2" {
+		serviceID = "bs-r2-400"
+	}
+	broadcast := nhkRadioFetchLiveBroadcast(ctx, request.Transport, config, areaConfig, channel)
+	if broadcast != nil {
+		if broadcast.ID != "" && channel != "r2" {
+			serviceID = broadcast.ID
+		}
+		if broadcast.Title != "" {
+			title = broadcast.Title
+		}
+	}
+	if areaConfig.Name != "" && channel != "r2" && !strings.Contains(title, "・") {
 		title = title + "・" + areaConfig.Name
 	}
-	serviceID := "bs-" + nhkRadioChannelServiceID(channel) + "-" + areaConfig.Key
 	info := value.NewObject(value.Field{Key: "id", Value: value.String(serviceID)})
 	info.Set("title", value.String(title))
 	info.Set("extractor", value.String("nhk_radiru_live"))
@@ -1239,6 +1422,25 @@ func extractNhkRadioLive(ctx context.Context, request Request) (Extraction, erro
 	info.Set("is_live", value.Bool(true))
 	info.Set("live_status", value.String("is_live"))
 	info.Set("webpage_url", value.String("https://www.nhk.or.jp/radio/player/?ch="+channel))
+	if broadcast != nil && len(broadcast.Thumbnails) > 0 {
+		thumbs := make([]value.Value, 0, len(broadcast.Thumbnails))
+		for _, thumb := range broadcast.Thumbnails {
+			object := value.NewObject(value.Field{Key: "url", Value: value.String(thumb.URL)})
+			if thumb.Width > 0 {
+				object.Set("width", value.Int(int64(thumb.Width)))
+			}
+			if thumb.Height > 0 {
+				object.Set("height", value.Int(int64(thumb.Height)))
+			}
+			thumbs = append(thumbs, value.ObjectValue(object))
+		}
+		info.Set("thumbnails", value.List(thumbs...))
+		if first, ok := thumbs[0].Object(); ok {
+			if thumbURL, ok := first.Lookup("url").StringValue(); ok {
+				info.Set("thumbnail", value.String(thumbURL))
+			}
+		}
+	}
 	if len(formats) == 0 {
 		return Extraction{}, fmt.Errorf("%w: NHK Radiru live formats missing", ErrUnavailable)
 	}
@@ -1271,34 +1473,136 @@ func nhkRadioChannelServiceID(channel string) string {
 }
 
 func nhkRadioFetchLivePlaylistURL(ctx context.Context, transport Transport, streamURL string) (hls.Playlist, error) {
-	if !nhkValidPublicURL(streamURL) {
-		return hls.Playlist{}, fmt.Errorf("%w: unsafe NHK Radiru live URL", ErrInvalidMetadata)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, streamURL, nil)
+	data, err := nhkFetchIsolatedBytes(ctx, transport, streamURL, nhkRadioMaxPlaylistBytes)
 	if err != nil {
-		return hls.Playlist{}, fmt.Errorf("%w: invalid NHK Radiru live request", ErrInvalidMetadata)
-	}
-	resp, err := transport.Do(ctx, req)
-	if err != nil {
-		return hls.Playlist{}, nhkCategorizeError(err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return hls.Playlist{}, nhkCategorizeStatus(resp.StatusCode)
-	}
-	reader := io.LimitReader(resp.Body, nhkRadioMaxPlaylistBytes+1)
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		return hls.Playlist{}, nhkCategorizeError(err)
-	}
-	if int64(len(data)) > nhkRadioMaxPlaylistBytes {
-		return hls.Playlist{}, fmt.Errorf("%w: NHK Radiru live playlist too large", ErrInvalidMetadata)
+		return hls.Playlist{}, err
 	}
 	playlist, err := hls.Parse(streamURL, data)
 	if err != nil {
 		return hls.Playlist{}, fmt.Errorf("%w: %v", ErrInvalidMetadata, err)
 	}
 	return playlist, nil
+}
+
+type nhkRadioLiveBroadcast struct {
+	ID         string
+	Title      string
+	Thumbnails []nhkRadioThumbnail
+}
+
+func nhkRadioFetchLiveBroadcast(ctx context.Context, transport Transport, config *nhkRadioConfig, area nhkRadioConfigArea, channel string) *nhkRadioLiveBroadcast {
+	if transport == nil || config == nil || config.Live.NowOnAir == "" || area.Key == "" {
+		return nil
+	}
+	noaURL := nhkRadioFormatNOAURL(config.Live.NowOnAir, area.Key)
+	if noaURL == "" {
+		return nil
+	}
+	payload, err := nhkRadioFetchNOA(ctx, transport, noaURL)
+	if err != nil {
+		return nil
+	}
+	stationKey := nhkRadioNOAStationKey(channel)
+	if stationKey == "" {
+		return nil
+	}
+	stationNode, _ := payload[stationKey].(map[string]any)
+	if stationNode == nil {
+		return nil
+	}
+	published, _ := stationNode["publishedOn"].(map[string]any)
+	if published == nil {
+		return nil
+	}
+	broadcast := &nhkRadioLiveBroadcast{
+		ID:    nhkRadioFirstString(published, "id"),
+		Title: nhkRadioFirstString(published, "broadcastDisplayName"),
+	}
+	if logos, ok := published["logo"].([]any); ok {
+		for _, raw := range logos {
+			node, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			urlValue := nhkRadioFirstString(node, "url")
+			if urlValue == "" {
+				continue
+			}
+			thumb := nhkRadioThumbnail{URL: urlValue}
+			if width, ok := nhkIntFromAny(node["width"]); ok {
+				thumb.Width = int(width)
+			}
+			if height, ok := nhkIntFromAny(node["height"]); ok {
+				thumb.Height = int(height)
+			}
+			broadcast.Thumbnails = append(broadcast.Thumbnails, thumb)
+		}
+	}
+	if broadcast.ID == "" && broadcast.Title == "" && len(broadcast.Thumbnails) == 0 {
+		return nil
+	}
+	return broadcast
+}
+
+func nhkRadioFormatNOAURL(template, areaKey string) string {
+	if template == "" || areaKey == "" {
+		return ""
+	}
+	raw := strings.ReplaceAll(template, "{area}", areaKey)
+	if strings.HasPrefix(raw, "//") {
+		raw = "https:" + raw
+	}
+	if !nhkRadioAcceptsAPIURL(raw) {
+		return ""
+	}
+	return raw
+}
+
+func nhkRadioFetchNOA(ctx context.Context, transport Transport, rawURL string) (map[string]any, error) {
+	if !nhkRadioAcceptsAPIURL(rawURL) {
+		return nil, fmt.Errorf("%w: unsafe NHK Radiru now-on-air URL", ErrInvalidMetadata)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid NHK Radiru now-on-air request", ErrInvalidMetadata)
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := transport.Do(ctx, req)
+	if err != nil {
+		return nil, nhkCategorizeError(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, nhkCategorizeStatus(resp.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, nhkRadioMaxDetailBytes+1))
+	if err != nil {
+		return nil, nhkCategorizeError(err)
+	}
+	if int64(len(data)) > nhkRadioMaxDetailBytes {
+		return nil, ErrJSONResponseTooLarge
+	}
+	var payload map[string]any
+	dec := json.NewDecoder(bytes.NewReader(data))
+	if err := dec.Decode(&payload); err != nil {
+		return nil, fmt.Errorf("%w: invalid NHK Radiru now-on-air JSON", ErrInvalidMetadata)
+	}
+	if err := ensureJSONEOF(dec); err != nil {
+		return nil, fmt.Errorf("%w: trailing NHK Radiru now-on-air JSON", ErrInvalidMetadata)
+	}
+	return payload, nil
+}
+
+func nhkRadioNOAStationKey(channel string) string {
+	switch channel {
+	case "r1":
+		return "r1"
+	case "r2":
+		return "r2"
+	case "fm":
+		return "r3"
+	}
+	return ""
 }
 
 func nhkRadioValidArea(area string) bool {
@@ -1358,7 +1662,7 @@ func nhkRadioLiveHLSFormats(playlist hls.Playlist) []value.Value {
 	if len(formats) == 0 {
 		return nil
 	}
-	return formats
+	return nhkCredentialIsolateFormats(formats)
 }
 
 // ensure unused symbols remain referenced when wiring is finalized.

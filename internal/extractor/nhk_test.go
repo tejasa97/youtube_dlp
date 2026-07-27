@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -56,6 +57,10 @@ func (t *nhkFixtureTransport) Do(ctx context.Context, request *http.Request) (*h
 	}, nil
 }
 
+func (t *nhkFixtureTransport) DoWithoutCredentialsNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
+	return t.Do(ctx, request)
+}
+
 func (t *nhkFixtureTransport) ReadPage(ctx context.Context, rawURL string) ([]byte, http.Header, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
@@ -73,6 +78,37 @@ func (t *nhkFixtureTransport) ReadPage(ctx context.Context, rawURL string) ([]by
 	return data, resp.Header.Clone(), nil
 }
 
+type nhkBareTransport struct {
+	bodies map[string]string
+}
+
+func (t *nhkBareTransport) Do(ctx context.Context, request *http.Request) (*http.Response, error) {
+	body, ok := t.bodies[request.URL.String()]
+	if !ok {
+		return nil, errors.New("missing fixture")
+	}
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(bytes.NewBufferString(body)),
+		Header:     make(http.Header),
+		Request:    request,
+	}, nil
+}
+
+func (t *nhkBareTransport) ReadPage(ctx context.Context, rawURL string) ([]byte, http.Header, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	resp, err := t.Do(ctx, req)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	return data, resp.Header.Clone(), err
+}
+
 func nhkReadFixture(t *testing.T, rel string) string {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join("testdata", "nhk", rel))
@@ -80,6 +116,50 @@ func nhkReadFixture(t *testing.T, rel string) string {
 		t.Fatal(err)
 	}
 	return string(data)
+}
+
+func TestNHKWorldVODClipAPIURL(t *testing.T) {
+	clip := nhkReadFixture(t, "world/clip_episode.json")
+	master := nhkReadFixture(t, "world/master.m3u8")
+	transport := &nhkFixtureTransport{bodies: map[string]string{
+		"https://api.nhkworld.jp/showsapi/v1/en/video_clips/9999011":     clip,
+		"https://vod-stream.nhk.jp/nhkworld/en/clips/9999011/index.m3u8": master,
+	}}
+	result, err := NewNhkVodIE().Extract(context.Background(), Request{
+		URL:       "https://www3.nhk.or.jp/nhkworld/en/ondemand/video/9999011/",
+		Transport: transport,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantAPI := "https://api.nhkworld.jp/showsapi/v1/en/video_clips/9999011"
+	found := false
+	for _, call := range transport.calls {
+		if call == wantAPI {
+			found = true
+		}
+		if strings.Contains(call, "/video_clips/9999011/video_clips") {
+			t.Fatalf("doubled clip path in %q", call)
+		}
+	}
+	if !found {
+		t.Fatalf("missing clip API call, got %v", transport.calls)
+	}
+	id, _ := result.Info.Lookup("id").StringValue()
+	if id != "9999011-en" {
+		t.Fatalf("id=%q", id)
+	}
+}
+
+func TestNHKWorldVODTrailingPathRejected(t *testing.T) {
+	vodParsed, _ := url.Parse("https://www3.nhk.or.jp/nhkworld/en/shows/2049165/extra/")
+	if NewNhkVodIE().Suitable(vodParsed) {
+		t.Fatal("VOD accepted trailing path")
+	}
+	programParsed, _ := url.Parse("https://www3.nhk.or.jp/nhkworld/en/shows/sumo/extra/")
+	if NewNhkVodProgramIE().Suitable(programParsed) {
+		t.Fatal("program accepted trailing path")
+	}
 }
 
 func TestNHKWorldVODSuitable(t *testing.T) {
@@ -353,32 +433,91 @@ func TestNHKRadiruEpisodeAndPlaylist(t *testing.T) {
 }
 
 func TestNHKRadioNewsHandoff(t *testing.T) {
-	config := nhkReadFixture(t, "radio/config_web.xml")
-	series := nhkReadFixture(t, "radio/series.json")
-	transport := &nhkFixtureTransport{bodies: map[string]string{
-		"https://www.nhk.or.jp/radio/config/config_web.xml":          config,
-		"https://www.nhk.or.jp/radio-api/app/v1/web/ondemand/series": series,
-	}}
 	result, err := NewNhkRadioNewsPageIE().Extract(context.Background(), Request{
-		URL: "https://www.nhk.or.jp/radionews/", Transport: transport,
+		URL:       "https://www.nhk.or.jp/radionews/",
+		Transport: &nhkFixtureTransport{bodies: map[string]string{}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.IsPlaylist() {
-		t.Fatal("news handoff should produce playlist for corner without headline")
+	if !result.IsURL() {
+		t.Fatal("news page should return URL result")
 	}
-	id, _ := result.Info.Lookup("id").StringValue()
+	if result.Redirect == nil {
+		t.Fatal("missing redirect entry")
+	}
+	if result.Redirect.ExtractorKey != "nhk_radiru" {
+		t.Fatalf("ie_key=%q", result.Redirect.ExtractorKey)
+	}
+	want := "https://www.nhk.or.jp/radio/ondemand/detail.html?p=18439M2W42_01"
+	if result.Redirect.URL != want {
+		t.Fatalf("url=%q want %q", result.Redirect.URL, want)
+	}
+}
+
+func TestNHKRadiruNewsPlaylistAndHeadline(t *testing.T) {
+	news := nhkReadFixture(t, "radio/news.json")
+	episodeM3U8 := nhkReadFixture(t, "radio/episode.m3u8")
+	transport := &nhkFixtureTransport{bodies: map[string]string{
+		"https://www.nhk.or.jp/s-media/news/news-site/list/v1/all.json": news,
+		"https://radio-stream.nhk.jp/news/2025072701/index.m3u8":        episodeM3U8,
+	}}
+	playlist, err := NewNhkRadiruIE().Extract(context.Background(), Request{
+		URL:       "https://www.nhk.or.jp/radio/ondemand/detail.html?p=18439M2W42_01",
+		Transport: transport,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !playlist.IsPlaylist() {
+		t.Fatal("expected news playlist")
+	}
+	id, _ := playlist.Info.Lookup("id").StringValue()
 	if id != "18439M2W42_01" {
 		t.Fatalf("id=%q", id)
+	}
+	title, _ := playlist.Info.Lookup("title").StringValue()
+	if title != "NHKラジオニュース" {
+		t.Fatalf("title=%q", title)
+	}
+	for _, call := range transport.calls {
+		if strings.Contains(call, "/ondemand/series") {
+			t.Fatalf("news used ordinary series endpoint: %q", call)
+		}
+	}
+
+	headline, err := NewNhkRadiruIE().Extract(context.Background(), Request{
+		URL:       "https://www.nhk.or.jp/radio/ondemand/detail.html?p=18439M2W42_01_2025072701",
+		Transport: transport,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hid, _ := headline.Info.Lookup("id").StringValue()
+	if hid != "18439M2W42_01_2025072701" {
+		t.Fatalf("headline id=%q", hid)
+	}
+	htitle, _ := headline.Info.Lookup("title").StringValue()
+	if htitle != "正午のニュース" {
+		t.Fatalf("headline title=%q", htitle)
+	}
+}
+
+func TestNHKRadioNewsExtraPathRejected(t *testing.T) {
+	parsed, _ := url.Parse("https://www.nhk.or.jp/radionews/extra")
+	if NewNhkRadioNewsPageIE().Suitable(parsed) {
+		t.Fatal("accepted /radionews/extra")
 	}
 }
 
 func TestNHKRadiruLiveDefaultAndArea(t *testing.T) {
 	config := nhkReadFixture(t, "radio/config_web.xml")
 	live := nhkReadFixture(t, "radio/live.m3u8")
+	noa := nhkReadFixture(t, "radio/noa_tokyo.json")
 	transport := &nhkFixtureTransport{bodies: map[string]string{
 		"https://www.nhk.or.jp/radio/config/config_web.xml":           config,
+		"https://www.nhk.or.jp/radio/config/now_on_air/130.json":      noa,
+		"https://www.nhk.or.jp/radio/config/now_on_air/010.json":      noa,
 		"https://radio-stream.nhk.jp/hls/live/r1-tokyo/master.m3u8":   live,
 		"https://radio-stream.nhk.jp/hls/live/fm-sapporo/master.m3u8": live,
 	}}
@@ -391,6 +530,14 @@ func TestNHKRadiruLiveDefaultAndArea(t *testing.T) {
 	id, _ := tokyo.Info.Lookup("id").StringValue()
 	if id != "bs-r1-130" {
 		t.Fatalf("id=%q", id)
+	}
+	title, _ := tokyo.Info.Lookup("title").StringValue()
+	if !strings.Contains(title, "NHKラジオ第1・東京") {
+		t.Fatalf("title=%q", title)
+	}
+	thumb, _ := tokyo.Info.Lookup("thumbnail").StringValue()
+	if !strings.Contains(thumb, "r1-logo.svg") {
+		t.Fatalf("thumbnail=%q", thumb)
 	}
 	liveStatus, _ := tokyo.Info.Lookup("live_status").StringValue()
 	if liveStatus != "is_live" {
@@ -407,6 +554,53 @@ func TestNHKRadiruLiveDefaultAndArea(t *testing.T) {
 	sid, _ := sapporo.Info.Lookup("id").StringValue()
 	if sid != "bs-r3-010" {
 		t.Fatalf("sapporo id=%q", sid)
+	}
+}
+
+func TestNHKRadiruLiveR2NationalCrossArea(t *testing.T) {
+	config := nhkReadFixture(t, "radio/config_web.xml")
+	live := nhkReadFixture(t, "radio/live.m3u8")
+	noa := nhkReadFixture(t, "radio/noa_tokyo.json")
+	transport := &nhkFixtureTransport{bodies: map[string]string{
+		"https://www.nhk.or.jp/radio/config/config_web.xml":      config,
+		"https://www.nhk.or.jp/radio/config/now_on_air/800.json": noa,
+		"https://radio-stream.nhk.jp/hls/live/r2/master.m3u8":    live,
+	}}
+	result, err := NewNhkRadiruLiveIE().Extract(context.Background(), Request{
+		URL: "https://www.nhk.or.jp/radio/player/?ch=r2", Transport: transport,
+		NHK: NHKOptions{RadiruArea: "fukuoka"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _ := result.Info.Lookup("id").StringValue()
+	if id != "bs-r2-400" {
+		t.Fatalf("id=%q", id)
+	}
+	title, _ := result.Info.Lookup("title").StringValue()
+	if strings.Contains(title, "福岡") {
+		t.Fatalf("R2 title should remain national: %q", title)
+	}
+}
+
+func TestNHKRadiruLiveUnavailableMetadataFallback(t *testing.T) {
+	config := nhkReadFixture(t, "radio/config_web.xml")
+	live := nhkReadFixture(t, "radio/live.m3u8")
+	transport := &nhkFixtureTransport{bodies: map[string]string{
+		"https://www.nhk.or.jp/radio/config/config_web.xml":         config,
+		"https://radio-stream.nhk.jp/hls/live/r1-tokyo/master.m3u8": live,
+	}, statuses: map[string]int{
+		"https://www.nhk.or.jp/radio/config/now_on_air/130.json": http.StatusNotFound,
+	}}
+	result, err := NewNhkRadiruLiveIE().Extract(context.Background(), Request{
+		URL: "https://www.nhk.or.jp/radio/player/?ch=r1", Transport: transport,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _ := result.Info.Lookup("id").StringValue()
+	if id != "bs-r1-130" {
+		t.Fatalf("fallback id=%q", id)
 	}
 }
 
@@ -479,6 +673,101 @@ func TestNHKConcurrentExtract(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestNHKSchoolSougouSubjectTitle(t *testing.T) {
+	page := nhkReadFixture(t, "school/subject_sougou.html")
+	subjectURL := "https://www.nhk.or.jp/school/sougou/"
+	transport := &nhkFixtureTransport{bodies: map[string]string{subjectURL: page}}
+	result, err := NewNhkForSchoolSubjectIE().Extract(context.Background(), Request{
+		URL: subjectURL, Transport: transport,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	title, _ := result.Info.Lookup("title").StringValue()
+	if title != "総合的な学習の時間" {
+		t.Fatalf("title=%q", title)
+	}
+}
+
+func TestNHKCredentialIsolationRequired(t *testing.T) {
+	episode := nhkReadFixture(t, "world/episode.json")
+	transport := &nhkBareTransport{bodies: map[string]string{
+		"https://api.nhkworld.jp/showsapi/v1/en/video_episodes/2049165": episode,
+	}}
+	_, err := NewNhkVodIE().Extract(context.Background(), Request{
+		URL:       "https://www3.nhk.or.jp/nhkworld/en/shows/2049165/",
+		Transport: transport,
+	})
+	if !errors.Is(err, ErrTransportIsolation) {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestNHKCredentialIsolatedFormatsMarked(t *testing.T) {
+	episode := nhkReadFixture(t, "world/episode.json")
+	master := nhkReadFixture(t, "world/master.m3u8")
+	transport := &nhkFixtureTransport{bodies: map[string]string{
+		"https://api.nhkworld.jp/showsapi/v1/en/video_episodes/2049165":  episode,
+		"https://vod-stream.nhk.jp/nhkworld/en/shows/2049165/index.m3u8": master,
+	}}
+	result, err := NewNhkVodIE().Extract(context.Background(), Request{
+		URL:       "https://www3.nhk.or.jp/nhkworld/en/shows/2049165/",
+		Transport: transport,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	formats, ok := result.Info.Lookup("formats").ListValue()
+	if !ok || len(formats) == 0 {
+		t.Fatal("missing formats")
+	}
+	formatObj, ok := formats[0].Object()
+	if !ok {
+		t.Fatal("format not object")
+	}
+	isolated, ok := formatObj.Lookup("_credential_isolated").Bool()
+	if !ok || !isolated {
+		t.Fatal("format not credential-isolated")
+	}
+}
+
+func TestNHKHostileMediaURLRejected(t *testing.T) {
+	for _, raw := range []string{
+		"https://127.0.0.1/a.m3u8",
+		"https://localhost/a.m3u8",
+		"http://user:pass@radio-stream.nhk.jp/a.m3u8",
+		"https://radio-stream.nhk.jp:8443/a.m3u8",
+		"https://radio-stream.nhk.jp/a.m3u8#frag",
+	} {
+		if nhkValidPublicURL(raw) {
+			t.Fatalf("accepted hostile media URL %q", raw)
+		}
+	}
+}
+
+func TestNHKJSONTrailingGarbageRejected(t *testing.T) {
+	cases := []struct {
+		name string
+		fn   func([]byte) error
+	}{
+		{"school", func(data []byte) error {
+			_, err := nhkSchoolParseProgramJSON(data)
+			return err
+		}},
+		{"radiru", func(data []byte) error {
+			_, err := nhkRadioFetchSeriesJSON(data)
+			return err
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.fn([]byte(`{} {"x":1}`)); err == nil {
+				t.Fatal("accepted trailing JSON")
+			}
+		})
 	}
 }
 
@@ -611,8 +900,20 @@ func nhkTestDecodeJSON(data []byte, target any) error {
 	if err := dec.Decode(target); err != nil {
 		return err
 	}
-	if dec.More() {
-		return ErrInvalidMetadata
+	return ensureJSONEOF(dec)
+}
+
+func nhkRadioFetchSeriesJSON(data []byte) (map[string]any, error) {
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil, fmt.Errorf("%w: empty payload", ErrInvalidMetadata)
 	}
-	return nil
+	var payload map[string]any
+	dec := json.NewDecoder(bytes.NewReader(data))
+	if err := dec.Decode(&payload); err != nil {
+		return nil, err
+	}
+	if err := ensureJSONEOF(dec); err != nil {
+		return nil, err
+	}
+	return payload, nil
 }

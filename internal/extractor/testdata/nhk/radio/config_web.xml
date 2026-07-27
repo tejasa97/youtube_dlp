@@ -15,4 +15,11 @@
     <r2hls>https://radio-stream.nhk.jp/hls/live/r2/master.m3u8</r2hls>
     <fmhls>https://radio-stream.nhk.jp/hls/live/fm-sapporo/master.m3u8</fmhls>
   </data>
+  <data>
+    <area>fukuoka</area>
+    <areakey>800</areakey>
+    <r1hls>https://radio-stream.nhk.jp/hls/live/r1-fukuoka/master.m3u8</r1hls>
+    <r2hls>https://radio-stream.nhk.jp/hls/live/r2/master.m3u8</r2hls>
+    <fmhls>https://radio-stream.nhk.jp/hls/live/fm-fukuoka/master.m3u8</fmhls>
+  </data>
 </root>

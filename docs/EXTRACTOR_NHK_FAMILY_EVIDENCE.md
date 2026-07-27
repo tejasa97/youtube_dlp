@@ -6,20 +6,23 @@ Pinned reference: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8` (`yt_
 
 | Go name | Reference class | Evidence |
 | --- | --- | --- |
-| `nhk_vod` | `NhkVodIE` | `TestNHKWorldVODExtract`, missing-stream, suitable/hostile routing |
-| `nhk_vod_program` | `NhkVodProgramIE` | `TestNHKWorldProgramPlaylist`, precedence vs VOD |
+| `nhk_vod` | `NhkVodIE` | `TestNHKWorldVODExtract`, clip API URL (`TestNHKWorldVODClipAPIURL`), missing-stream, suitable/hostile routing |
+| `nhk_vod_program` | `NhkVodProgramIE` | `TestNHKWorldProgramPlaylist`, precedence vs VOD, trailing-path rejection |
 | `nhk_for_school_bangumi` | `NhkForSchoolBangumiIE` | version-ID replacement, chapters, Akamai HLS URL |
-| `nhk_for_school_subject` | `NhkForSchoolSubjectIE` | allowlist, hostile child rejection, program-list re-entry |
-| `nhk_for_school_program_list` | `NhkForSchoolProgramListIE` | program.json parts → bangumi re-entry |
-| `nhk_radiru` | `NhkRadiruIE` | episode + playlist modes, missing headline → unavailable |
-| `nhk_radio_news_page` | `NhkRadioNewsPageIE` | `/radionews/` → `18439M2W42_01` |
-| `nhk_radiru_live` | `NhkRadiruLiveIE` | default tokyo + `--nhk-area` / `NHKOptions.RadiruArea` |
+| `nhk_for_school_subject` | `NhkForSchoolSubjectIE` | allowlist, hostile child rejection, `subjectName` parsing (`TestNHKSchoolSougouSubjectTitle`) |
+| `nhk_for_school_program_list` | `NhkForSchoolProgramListIE` | program.json parts → bangumi re-entry, strict JSON EOF |
+| `nhk_radiru` | `NhkRadiruIE` | episode + playlist modes, news API (`TestNHKRadiruNewsPlaylistAndHeadline`), missing headline → unavailable |
+| `nhk_radio_news_page` | `NhkRadioNewsPageIE` | `/radionews/` → `URLResult` targeting `nhk_radiru` (`TestNHKRadioNewsHandoff`) |
+| `nhk_radiru_live` | `NhkRadiruLiveIE` | default/regional FM/R1, R2 national cross-area, unavailable NOA fallback, `--nhk-area` |
 
 ## Routing / transport / security
 
 - Exact hosts only (`www3.nhk.or.jp`, `www2.nhk.or.jp`, `www.nhk.or.jp`, `api.nhkworld.jp`)
-- Reject userinfo, ports, encoded separators (`%2f`, `%5c`, `%00`, `%2e`), hostname lookalikes
-- API/config origins validated before fetch; CDN/media URLs must be public HTTP(S)
+- Reject userinfo, ports, encoded separators (`%2f`, `%5c`, `%00`, `%2e`), hostname lookalikes, trailing path segments, `/radionews/extra`
+- Episode clips call `.../video_clips/{id}` without a doubled `/video_clips` suffix
+- API/config origins validated before fetch; CDN/media URLs use `strictValidHostedHTTPURL`
+- API-derived manifest/media fetches require `CredentialIsolatedNoRedirectTransport`, fail closed with `ErrTransportIsolation`, and mark `_credential_isolated` on emitted formats
+- School/Radiru JSON parsers reject trailing values after the first object (`ensureJSONEOF`)
 - Errors are categorized and secret-safe (`TestNHKSecretSafeErrors`)
 - Context cancellation honored before network work
 
