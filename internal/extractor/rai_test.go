@@ -19,6 +19,7 @@ type raiTestTransport struct {
 	page           map[string]string
 	relinker       string
 	relinkerStatus int
+	statuses       map[string]int
 	seen           http.Header
 	seenURL        *url.URL
 	isolated       bool
@@ -51,10 +52,16 @@ func (t *raiTestTransport) reply(_ context.Context, request *http.Request) (*htt
 	} else {
 		body = t.json[request.URL.String()]
 	}
+	status := t.relinkerStatus
+	if configured, ok := t.statuses[request.URL.String()]; ok {
+		status = configured
+		if body == "" {
+			body = `{}`
+		}
+	}
 	if body == "" {
 		return nil, errors.New("missing response fixture")
 	}
-	status := t.relinkerStatus
 	if status == 0 {
 		status = http.StatusOK
 	}
@@ -149,6 +156,86 @@ func TestRaiPlaylistEntryLimit(t *testing.T) {
 	}
 	if _, _, err := result.Entries.Iterator().Next(context.Background()); !errors.Is(err, ErrInvalidPlaylist) {
 		t.Fatalf("playlist overflow = %v", err)
+	}
+}
+
+func TestRaiPlaylistSkipsBrokenOrUnavailableSets(t *testing.T) {
+	base := "https://www.raiplay.it/programmi/report"
+	transport := &raiTestTransport{json: map[string]string{
+		base + ".json":         `{"name":"Report","blocks":[{"sets":[{"id":"broken"},{"id":"unavailable"},{"id":"working"}]}]}`,
+		base + "/broken.json":  `{not-json`,
+		base + "/working.json": `{"items":[{"path_id":"/video/x-cb27157f-9dd0-4aee-b788-b1f67643a391.html"}]}`,
+	}, statuses: map[string]int{base + "/unavailable.json": http.StatusNotFound}, page: map[string]string{}}
+	result, err := NewRaiPlayPlaylist().Extract(context.Background(), Request{URL: base, Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, ok, err := result.Entries.Iterator().Next(context.Background())
+	if err != nil || !ok || entry.ExtractorKey != "raiplay" {
+		t.Fatalf("entry = %#v, %t, %v", entry, ok, err)
+	}
+}
+
+func TestRaiPlaylistPreservesCancellationAndMeaningfulSetFailures(t *testing.T) {
+	base := "https://www.raiplay.it/programmi/report"
+	transport := &raiTestTransport{json: map[string]string{
+		base + ".json": `{"name":"Report","blocks":[{"sets":[{"id":"missing"}]}]}`,
+	}, page: map[string]string{}}
+	result, err := NewRaiPlayPlaylist().Extract(context.Background(), Request{URL: base, Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := result.Entries.Iterator().Next(context.Background()); err == nil || errors.Is(err, ErrUnavailable) || errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("meaningful set failure = %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, _, err := result.Entries.Iterator().Next(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("playlist cancellation = %v", err)
+	}
+}
+
+func TestRaiIdentityFallbackAndTimestampPolicies(t *testing.T) {
+	vodID := "cb27157f-9dd0-4aee-b788-b1f67643a391"
+	for _, tc := range []struct {
+		name, raw, endpoint, body, wantID string
+		extractor                         Extractor
+	}{
+		{"RaiPlay falls back to URL ID", "https://www.raiplay.it/video/x-" + vodID + ".html", "https://www.raiplay.it/video/x-" + vodID + ".json", `{"video":{"content_url":"https://relinker.rai.it/rel"}}`, vodID, NewRaiPlay()},
+		{"RaiSound falls back to URL ID", "https://www.raiplaysound.it/audio/x-" + vodID + ".html", "https://www.raiplaysound.it/audio/x-" + vodID + ".json", `{"downloadable_audio":{"url":"https://relinker.rai.it/rel"}}`, vodID, NewRaiPlaySound()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			transport := &raiTestTransport{json: map[string]string{tc.endpoint: tc.body}, page: map[string]string{}}
+			result, err := tc.extractor.Extract(context.Background(), Request{URL: tc.raw, Transport: transport})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, _ := result.Info.ID(); got != tc.wantID {
+				t.Fatalf("id = %q, want %q", got, tc.wantID)
+			}
+		})
+	}
+	if got := raiPublicationDateTime(map[string]any{"date_published": "2024-01-02", "time_published": "03:04:05", "create_date": "1999-01-01"}, raiTarget{kind: raiPlayVOD}); got != "2024-01-02 03:04:05" {
+		t.Fatalf("RaiPlay date = %q", got)
+	}
+	if got := raiPublicationDateTime(map[string]any{"create_date": "2024-02-03", "create_time": "04:05:06", "date_published": "1999-01-01"}, raiTarget{kind: raiSoundVOD}); got != "2024-02-03 04:05:06" {
+		t.Fatalf("Sound date = %q", got)
+	}
+	if got := raiPublicationDateTime(map[string]any{"create_time": "04:05:06", "live": map[string]any{"create_date": "2024-03-04"}}, raiTarget{kind: raiSoundLive}); got != "2024-03-04" {
+		t.Fatalf("Sound live fallback date = %q", got)
+	}
+}
+
+func TestRaiPublicURLRejectsLocalAndIPLiteralVariants(t *testing.T) {
+	for _, raw := range []string{
+		"https://localhost./a.mp4", "https://127.0.0.1/a.mp4", "https://127.1/a.mp4", "https://2130706433/a.mp4", "https://0x7f000001/a.mp4", "https://[::1]/a.mp4", "https://[fe80::1%25en0]/a.mp4", "https://media.local/a.mp4", "https://svc.internal/a.mp4", "https://host.lan/a.mp4",
+	} {
+		if raiPublicURL(raw) {
+			t.Fatalf("unsafe media URL accepted: %q", raw)
+		}
+	}
+	if !raiPublicURL("https://cdn.example.test/a.mp4") {
+		t.Fatal("public media URL rejected")
 	}
 }
 
@@ -275,6 +362,10 @@ func TestRaiIdentityCancellationAndSecretSafety(t *testing.T) {
 	badLive := &raiTestTransport{json: map[string]string{"https://www.raiplay.it/dirette/radio.json": `{"id":"ContentItem-not-a-uuid","video":{"content_url":"https://relinker.rai.it/rel"}}`}, page: map[string]string{}}
 	if _, err := NewRaiPlayLive().Extract(context.Background(), Request{URL: "https://www.raiplay.it/dirette/radio", Transport: badLive}); !errors.Is(err, ErrInvalidMetadata) {
 		t.Fatalf("malformed live id = %v", err)
+	}
+	badSound := &raiTestTransport{json: map[string]string{"https://www.raiplaysound.it/audio/x-" + vodID + ".json": `{"uniquename":"ContentItem-not-a-uuid","downloadable_audio":{"url":"https://relinker.rai.it/rel"}}`}, page: map[string]string{}}
+	if _, err := NewRaiPlaySound().Extract(context.Background(), Request{URL: "https://www.raiplaysound.it/audio/x-" + vodID + ".html", Transport: badSound}); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("malformed Sound uniquename = %v", err)
 	}
 
 	secret := "signed-secret-value"

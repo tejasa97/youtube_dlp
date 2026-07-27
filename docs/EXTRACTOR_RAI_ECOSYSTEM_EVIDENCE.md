@@ -14,8 +14,13 @@ DRM-license, malformed XML, private-media, and HTTP-status paths.
 `TestRaiNewsAndCulturaEscapedPlayerData` covers HTML-escaped current-player
 data. `TestRaiLiveAndSoundIdentityFlows`, `TestRaiSudtirolSMILIdentityAndHLS`,
 `TestRaiIdentityCancellationAndSecretSafety`, and
-`TestRaiThumbnailsAreStableAndBounded` cover the named route-specific identity,
-cancellation, secret-safety, and output-ordering contracts.
+`TestRaiIdentityFallbackAndTimestampPolicies` cover route-specific identity,
+cancellation, secret-safety, URL-ID fallback, and timestamp contracts.
+`TestRaiPlaylistSkipsBrokenOrUnavailableSets` and
+`TestRaiPlaylistPreservesCancellationAndMeaningfulSetFailures` cover the
+non-fatal set boundary. `TestRaiPublicURLRejectsLocalAndIPLiteralVariants` and
+`TestRaiThumbnailsAreStableAndBounded` cover media-host rejection and output
+ordering.
 `pkg/ytdlp.TestProductRegistryRoutesRaiAndPlaylistReentry` exercises product
 registry selection and typed playlist re-entry. The two Rai fuzz targets
 preserve route and media-URL safety invariants.

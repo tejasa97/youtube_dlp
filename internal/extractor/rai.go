@@ -357,8 +357,10 @@ func raiJSONItem(ctx context.Context, request Request, target raiTarget) (Extrac
 	if len(formats) == 0 {
 		return Extraction{}, ErrUnavailable
 	}
-	id := raiContentIdentity(media, target)
-	if id == "" || !raiValidContentIdentity(id, target) {
+	id, present := raiContentIdentity(media, target)
+	if !present {
+		id = target.id
+	} else if !raiValidContentIdentity(id, target) {
 		return Extraction{}, fmt.Errorf("%w: Rai content identity mismatch", ErrInvalidMetadata)
 	}
 	title := raiFirst(raiString(media["name"]), raiString(media["title"]), raiString(media["episode_title"]))
@@ -381,7 +383,8 @@ func raiJSONItem(ctx context.Context, request Request, target raiTarget) (Extrac
 	raiSetString(info, "episode", raiString(media["episode_title"]))
 	raiSetInt(info, "season_number", raiInt(media["season"]))
 	raiSetInt(info, "episode_number", raiInt(media["episode"]))
-	if ts := raiTimestamp(raiJoinSpace(raiString(media["date_published"]), raiString(media["time_published"]), raiString(media["create_date"]))); ts > 0 {
+	dateTime := raiPublicationDateTime(media, target)
+	if ts := raiTimestamp(dateTime); ts > 0 {
 		info.Set("timestamp", value.Int(ts))
 		info.Set("upload_date", value.String(time.Unix(ts, 0).UTC().Format("20060102")))
 	}
@@ -692,6 +695,12 @@ func (it *raiEntriesIterator) Next(ctx context.Context) (Entry, bool, error) {
 		it.set++
 		var page map[string]any
 		if err := raiJSON(ctx, it.source.transport, it.source.target.base+"/"+url.PathEscape(sid)+".json", &page); err != nil {
+			if ctx.Err() != nil {
+				return Entry{}, false, ctx.Err()
+			}
+			if raiSkippableSetError(err) {
+				continue
+			}
 			return Entry{}, false, err
 		}
 		items := raiSlice(page["items"])
@@ -844,21 +853,62 @@ func raiPublicURL(raw string) bool {
 		return false
 	}
 	h := strings.ToLower(u.Hostname())
-	if h == "localhost" || strings.HasSuffix(h, ".local") || strings.HasSuffix(h, ".internal") {
+	if looksLikeLocalOrInternalHost(h) || looksLikeIPLiteralHost(u.Host) || raiNumericIPLiteralVariant(h) {
 		return false
 	}
-	if ip := net.ParseIP(h); ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified()) {
+	if ip := net.ParseIP(h); ip != nil {
 		return false
 	}
 	return !strings.Contains(strings.ToLower(u.EscapedPath()), "%00")
 }
-func raiContentIdentity(media map[string]any, target raiTarget) string {
-	if target.kind == raiSoundVOD || target.kind == raiSoundLive {
-		if identity := raiTrimContentPrefix(raiString(media["uniquename"])); identity != "" {
-			return identity
+
+func raiNumericIPLiteralVariant(host string) bool {
+	if host == "" {
+		return false
+	}
+	for _, label := range strings.Split(host, ".") {
+		if label == "" {
+			return false
+		}
+		if strings.HasPrefix(strings.ToLower(label), "0x") {
+			if len(label) == 2 {
+				return false
+			}
+			for _, character := range label[2:] {
+				if !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f') || (character >= 'A' && character <= 'F')) {
+					return false
+				}
+			}
+			continue
+		}
+		for _, character := range label {
+			if character < '0' || character > '9' {
+				return false
+			}
 		}
 	}
-	return raiTrimContentPrefix(raiString(media["id"]))
+	return true
+}
+
+func raiContentIdentity(media map[string]any, target raiTarget) (string, bool) {
+	if target.kind == raiSoundVOD || target.kind == raiSoundLive {
+		if raw, present := media["uniquename"]; present {
+			identity, ok := raw.(string)
+			if !ok {
+				return "", true
+			}
+			return raiTrimContentPrefix(strings.TrimSpace(identity)), true
+		}
+	}
+	raw, present := media["id"]
+	if !present {
+		return "", false
+	}
+	identity, ok := raw.(string)
+	if !ok {
+		return "", true
+	}
+	return raiTrimContentPrefix(strings.TrimSpace(identity)), true
 }
 
 func raiTrimContentPrefix(identity string) string {
@@ -878,6 +928,20 @@ func raiValidContentIdentity(identity string, target raiTarget) bool {
 	default:
 		return strings.EqualFold(identity, target.id)
 	}
+}
+
+func raiPublicationDateTime(media map[string]any, target raiTarget) string {
+	if target.kind != raiSoundVOD && target.kind != raiSoundLive {
+		return raiJoinSpace(raiString(media["date_published"]), raiString(media["time_published"]))
+	}
+	if createDate := raiString(media["create_date"]); createDate != "" {
+		return raiJoinSpace(createDate, raiString(media["create_time"]))
+	}
+	return raiStringPath(media, "live", "create_date")
+}
+
+func raiSkippableSetError(err error) bool {
+	return errors.Is(err, ErrUnavailable) || errors.Is(err, ErrInvalidMetadata) || errors.Is(err, ErrJSONResponseTooLarge)
 }
 func raiMap(v any) map[string]any { m, _ := v.(map[string]any); return m }
 func raiSlice(v any) []any        { x, _ := v.([]any); return x }
