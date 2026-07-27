@@ -108,7 +108,10 @@ are supported. HLS master and playable media playlists, one honest DASH MPD
 format, manifest subtitles, direct HTTP formats, and product download dispatch
 have deterministic coverage. India and Italy show routes use reusable, lazy,
 multi-season pagination with response-identity, page, season, entry, and
-cancellation bounds.
+cancellation bounds. Empty pages advance normally, repeated non-empty responses
+fail closed, and ordered episode occurrences are preserved across season
+filters. DPlay and Discovery Plus India download Referers propagate to
+manifests, fragments, and direct media without API bearer headers.
 
 Tele5 Aurora CMS recursion keeps its validated public URL as both API Referer
 and final `webpage_url`; opaque child URLs never appear in returned metadata.

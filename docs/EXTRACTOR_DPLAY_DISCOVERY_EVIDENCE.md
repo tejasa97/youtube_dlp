@@ -36,10 +36,20 @@ Fixtures and tests use synthetic media/API hosts only. Token values, cookies, ac
 
 `DiscoveryDPlay` accepts only strict HTTP(S) public URLs: no userinfo, ports, fragments, encoded separators/NULs, traversal, or lookalike domains. API origins and realms come exclusively from adapter configuration. The `st` cookie is read only for the exact configured API origin; otherwise a bounded device ID and bounded token response are used.
 
-Discovery metadata and playback requests require `ScopedAuthorizationNoRedirectTransport`. This strips ambient cookies and credentials, keeps only the extraction-scoped bearer header, and refuses redirects. Media and thumbnail URLs are only returned as validated metadata; the bearer value is not placed in format headers or returned errors.
+Discovery video metadata and playback requests require
+`ScopedAuthorizationNoRedirectTransport`. Show CMS and episode requests require
+the distinct `ScopedAuthenticationNoRedirectTransport`, matching their pinned
+`Authentication` header while preserving only the explicit show Referer. Both
+paths strip ambient cookies and credentials, avoid response-cookie persistence,
+and refuse redirects. The API bearer is never placed in returned metadata or
+errors. DPlay and Discovery Plus India media metadata carries only its
+pinned, validated download Referer.
 
 `TestDiscoveryDPlayScopedCredentialsAndMetadata` asserts the cookie-token path
 and that the bearer is applied solely to the two configured API calls.
+`TestDoWithScopedAuthenticationNoRedirectUsesExplicitShowScope` exercises the
+real network client and proves credential stripping, explicit show scope,
+response-cookie isolation, and redirect refusal.
 `TestDiscoveryCredentialIsolationRequestsAreBare` proves token, public CMS, and
 manifest requests carry no Authorization, Proxy-Authorization, Cookie, or
 ambient Referer. Routing positives and adapter-specific negatives are covered
@@ -59,15 +69,19 @@ by `TestDiscoveryDPlayRoutesAllConcreteAdapters`,
   manifests. `FuzzDiscoveryManifestPolicy` preserves the format bounds.
 - `TestProductDiscoveryHLSAndDASHDownloadDispatch` downloads actual synthetic
   HLS fragments and DASH initialization/media segments through Discovery
-  extraction.
+  extraction. `TestProductDiscoveryDownloadRefererScope` proves that DPlay and
+  Discovery Plus India Referers reach HLS manifests, fragments, and direct
+  media without either API bearer header.
 - `TestDiscoveryTele5CMSOpaqueVideoIdentity` and
   `TestProductTele5CMSOpaqueReentryPreservesPublicIdentity` cover
   CMS-to-opaque-child-to-video recursion, public Referer, and webpage identity.
 - `TestDiscoveryGermanCMSSuccessAndFallback` covers Loma enrichment, genre
   categories, not-found fallback, and malformed UID rejection.
 - `TestDiscoveryShowPaginationSeasonsReuseAndFailures` covers both India and
-  Italy, multiple seasons, reusable iteration, repeated/empty pages,
-  inconsistent totals, season limits, and cancellation.
+  Italy, multiple seasons, reusable iteration, repeated non-empty responses,
+  advancing repeated empty pages, inconsistent totals, ordered duplicate
+  occurrences, missing-ID path fallback, malformed IDs, season limits, and
+  cancellation.
 - `TestDiscoveryStructuredErrorMatrix` covers HTTP 401/403/404/410/429/451/5xx,
   geo and missing-package codes, malformed/trailing JSON, and body-read
   failures. `TestDiscoveryJSONBoundsNilResponsesAndCancellation` covers nil

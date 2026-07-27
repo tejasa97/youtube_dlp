@@ -41,7 +41,7 @@ capabilities:
   - id: extractor.discovery_dplay
     name: Discovery and DPlay extractor family
     phase: 2
-    compatibility_target: Extract the pinned Discovery/DPlay single-video, India/Italy show, German CMS, and Tele5 CMS route corpus with bounded credential-isolated HLS/DASH playback and product download dispatch.
+    compatibility_target: Extract the pinned Discovery/DPlay single-video, India/Italy show, German CMS, and Tele5 CMS route corpus with bounded credential-isolated HLS/DASH playback, scoped show Authentication, and product download Referer dispatch.
     status: compatible
     evidence:
       - internal/extractor.TestDiscoveryDPlayRoutesAllConcreteAdapters
@@ -62,8 +62,11 @@ capabilities:
       - internal/extractor.FuzzDiscoveryManifestPolicy
       - internal/extractor.FuzzDiscoveryTokenContentAndErrorPolicy
       - internal/extractor.FuzzDiscoveryCMSPolicy
+      - internal/network.TestDoWithScopedAuthenticationNoRedirectUsesExplicitShowScope
+      - internal/network.TestDoWithScopedAuthenticationNoRedirectRejectsAmbientScope
       - pkg/ytdlp.TestProductRegistrySelectsDiscoveryDPlayConcreteKeys
       - pkg/ytdlp.TestProductDiscoveryHLSAndDASHDownloadDispatch
+      - pkg/ytdlp.TestProductDiscoveryDownloadRefererScope
       - pkg/ytdlp.TestProductCategorizesDiscoveryFailures
       - pkg/ytdlp.TestProductTele5CMSOpaqueReentryPreservesPublicIdentity
       - conformance/extractors/dplay/PROVENANCE.md
