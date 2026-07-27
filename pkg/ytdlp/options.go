@@ -172,6 +172,18 @@ type SoundCloudCommentOptions struct {
 // Categories is treated as caller-owned and is never mutated. An
 // empty slice is invalid when enabled. Unknown identifiers, oversized strings, and
 // empty enabled category sets are rejected by Request validation.
+// NHKOptions controls narrowly scoped extractor behaviour for the NHK
+// extractor family. The Radiru area is the only currently supported knob; it
+// is the documented product-level equivalent of yt-dlp's
+// `nhkradirulive:area` extractor argument. Empty Area defaults to `tokyo` at
+// extraction time without touching this struct.
+type NHKOptions struct {
+	// RadiruArea selects the NHK Radiru Live broadcast area. It must be a
+	// short ASCII identifier bounded by validateRequestOptions before any
+	// network call. The Go CLI exposes this knob through `--nhk-area`.
+	RadiruArea string
+}
+
 type SponsorBlockOptions struct {
 	Enabled bool
 	// Mark overlays fetched SponsorBlock ranges onto ordinary chapters without
@@ -410,6 +422,9 @@ func validateRequestOptions(request Request) error {
 	if err := validateSponsorBlockOptions(request.SponsorBlock); err != nil {
 		return fmt.Errorf("%w: %v", errInvalidRequestOptions, err)
 	}
+	if err := validateNHKOptions(request.NHK); err != nil {
+		return fmt.Errorf("%w: %v", errInvalidRequestOptions, err)
+	}
 	if request.ForceKeyframesAtCuts &&
 		len(request.RemoveChapters) == 0 &&
 		!(request.SponsorBlock.Enabled && request.SponsorBlock.Remove) {
@@ -550,4 +565,36 @@ func validSponsorBlockRemoveCategory(category string) bool {
 	default:
 		return validSponsorBlockCategory(category)
 	}
+}
+
+// validateNHKOptions enforces the public NHK request invariants before any
+// extractor or network call is performed. Empty values are valid (extractors
+// fall back to their declared defaults); non-empty values must be bounded
+// ASCII identifiers that cannot smuggle hostnames, paths, or fragments into
+// later URL construction.
+func validateNHKOptions(options NHKOptions) error {
+	if options.RadiruArea == "" {
+		return nil
+	}
+	if len(options.RadiruArea) > 32 {
+		return fmt.Errorf("NHK Radiru area too long")
+	}
+	for _, r := range options.RadiruArea {
+		if r >= 'A' && r <= 'Z' {
+			continue
+		}
+		if r >= 'a' && r <= 'z' {
+			continue
+		}
+		if r >= '0' && r <= '9' {
+			continue
+		}
+		switch r {
+		case '_', '-':
+			continue
+		default:
+			return fmt.Errorf("NHK Radiru area contains invalid characters")
+		}
+	}
+	return nil
 }

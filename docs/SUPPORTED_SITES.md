@@ -69,6 +69,7 @@ service response.
 | ard | ardmediathek.de player and collection pages | playlist/API, manifest-heavy, regional |
 | nrk | nrk.no pages and nrk: opaque URLs | playlist/API, manifest-heavy, regional |
 | rai family | RaiPlay/RaiPlay Sound VOD, live and program routes; legacy Rai, Rai News, Rai Cultura, and Rai Südtirol public pages | playlist/API, manifest-heavy, regional, live, audio; bounded unencrypted Rai F4M/HDS VOD |
+| nhk family | NHK World VOD/program; NHK for School bangumi/subject/program-list; Radiru on-demand/news/live (`--nhk-area`) | playlist/API, manifest-heavy, regional, live, audio |
 | bluesky | bsky.app, www.bsky.app, main.bsky.dev post URLs and at:// URIs (public posts only) | playlist/API, manifest-heavy, regional |
 | imgur | imgur.com and i.imgur.com public videos, animated images, galleries, and albums | simple/direct, playlist/API |
 | flickr | flickr.com public video pages | simple/direct, playlist/API |

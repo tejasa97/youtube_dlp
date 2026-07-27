@@ -528,6 +528,7 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 		sponsorBlockChapterTitle = &value
 		return nil
 	})
+	nhkArea := flags.String("nhk-area", "", "NHK Radiru Live broadcast area (short ASCII identifier; default tokyo)")
 	flags.Var(&removeChapters, "remove-chapters", "remove chapters matching REGEX or manual *START-END ranges (repeatable)")
 	flags.BoolFunc("no-remove-chapters", "clear inherited chapter and manual range removal", func(input string) error {
 		enabled, err := strconv.ParseBool(input)
@@ -772,6 +773,7 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 		YouTubeComments:      commentLimits,
 		SoundCloudComments:   soundCloudComments,
 		SponsorBlock:         sponsorBlockOptions,
+		NHK:                  ytdlp.NHKOptions{RadiruArea: *nhkArea},
 		RemoveChapters:       append([]string(nil), removeChapters...),
 		ForceKeyframesAtCuts: sponsorBlockForceKeyframes,
 		Playlist: ytdlp.PlaylistOptions{

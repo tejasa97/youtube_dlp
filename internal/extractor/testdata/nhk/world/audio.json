@@ -1,0 +1,11 @@
+{
+  "id": "livinginjapan-20240901-1",
+  "lang": "en",
+  "title": "Living in Japan Episode",
+  "description": "Synthetic NHK World audio episode.",
+  "audio_program": {"title": "Living in Japan"},
+  "audio": {
+    "url": "nhkworld/en/audio/livinginjapan-20240901-1.m4a",
+    "duration": 900
+  }
+}

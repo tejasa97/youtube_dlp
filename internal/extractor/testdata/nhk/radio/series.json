@@ -1,0 +1,27 @@
+{
+  "main": {
+    "program": {
+      "program_title": "ベストオブクラシック",
+      "program_station": "NHK FM"
+    },
+    "episodes": [
+      {
+        "id": "4251382",
+        "title": "クラシックの庭 特集",
+        "description": "Synthetic Radiru episode.",
+        "station": "NHK FM・東京",
+        "stream_url": "https://radio-stream.nhk.jp/ondemand/4251382/index.m3u8",
+        "onair_date": "2025-07-07T12:00:00Z",
+        "thumbnail": "https://www.nhk.jp/static/assets/images/radioseries/rs/thumb.jpg",
+        "categories": ["音楽"],
+        "cast": ["田添菜穂子"]
+      },
+      {
+        "id": "4251383",
+        "title": "クラシックの庭 続き",
+        "stream_url": "https://radio-stream.nhk.jp/ondemand/4251383/index.m3u8",
+        "onair_date": "2025-07-08T12:00:00Z"
+      }
+    ]
+  }
+}

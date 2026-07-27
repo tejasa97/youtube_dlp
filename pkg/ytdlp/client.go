@@ -135,6 +135,7 @@ type Request struct {
 	YouTubeComments           YouTubeCommentOptions
 	SoundCloudComments        SoundCloudCommentOptions
 	SponsorBlock              SponsorBlockOptions
+	NHK                       NHKOptions
 	// RemoveChapters contains repeatable yt-dlp --remove-chapters
 	// specifications. Values beginning with "*" are manual time ranges;
 	// all other values are chapter-title regular expressions.
@@ -634,6 +635,14 @@ func (client *Client) productRegistry() *extractor.Registry {
 		extractor.NewRai(),
 		extractor.NewARD(),
 		extractor.NewNRK(),
+		extractor.NewNhkVodIE(),
+		extractor.NewNhkVodProgramIE(),
+		extractor.NewNhkForSchoolProgramListIE(),
+		extractor.NewNhkForSchoolSubjectIE(),
+		extractor.NewNhkForSchoolBangumiIE(),
+		extractor.NewNhkRadiruLiveIE(),
+		extractor.NewNhkRadioNewsPageIE(),
+		extractor.NewNhkRadiruIE(),
 		extractor.NewTwitch(),
 		extractor.NewSoundCloudSearch(),
 		extractor.NewSoundCloudEmbed(),
@@ -745,6 +754,9 @@ func (operation *operation) processWithTransparentParent(ctx context.Context, ra
 			Enabled:     operation.request.SoundCloudComments.Enabled,
 			Sort:        operation.request.SoundCloudComments.Sort,
 			MaxComments: operation.request.SoundCloudComments.MaxComments,
+		},
+		NHK: extractor.NHKOptions{
+			RadiruArea: operation.request.NHK.RadiruArea,
 		},
 	})
 	if err != nil {

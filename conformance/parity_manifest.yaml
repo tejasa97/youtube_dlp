@@ -1961,6 +1961,46 @@ capabilities:
       - network.shared_transport
     known_deviation: Compatibility is scoped to the pinned SVT single-video, series/season, and article-page corpus. Article routes are exact HTTPS svt.se paths with credential-isolated no-redirect fetches and bounded JSON-only urqlState decoding; arbitrary JavaScript transformation and malformed video rows are not accepted. HDS, manifest pre-expansion, and geo-bypass header synthesis remain broader regional work.
 
+  - id: extractor.nhk_family
+    name: NHK World / School / Radiru family
+    phase: 1
+    compatibility_target: Extract NHK World VOD and program playlists, NHK for School bangumi/subject/program-list routes, and Radiru on-demand/news/live streams with bounded offline fixtures.
+    status: compatible
+    evidence:
+      - internal/extractor.TestNHKWorldVODSuitable
+      - internal/extractor.TestNHKWorldProgramDoesNotStealVOD
+      - internal/extractor.TestNHKWorldVODExtract
+      - internal/extractor.TestNHKWorldVODMissingStream
+      - internal/extractor.TestNHKWorldProgramPlaylist
+      - internal/extractor.TestNHKSchoolBangumiExtract
+      - internal/extractor.TestNHKSchoolSubjectAndProgramList
+      - internal/extractor.TestNHKSchoolSubjectAllowlist
+      - internal/extractor.TestNHKSchoolProgramListBeforeSubject
+      - internal/extractor.TestNHKRadiruEpisodeAndPlaylist
+      - internal/extractor.TestNHKRadioNewsHandoff
+      - internal/extractor.TestNHKRadiruLiveDefaultAndArea
+      - internal/extractor.TestNHKRadiruLiveInvalidArea
+      - internal/extractor.TestNHKRadiruMissingHeadline
+      - internal/extractor.TestNHKCancellation
+      - internal/extractor.TestNHKConcurrentExtract
+      - internal/extractor.TestNHKSecretSafeErrors
+      - internal/extractor.FuzzClassifyNHKURL
+      - internal/extractor.FuzzParseNHKWorldEpisode
+      - internal/extractor.FuzzParseNHKSchoolPage
+      - internal/extractor.FuzzParseNHKRadiruResponse
+      - internal/extractor.FuzzParseNHKConfigXML
+      - pkg/ytdlp.TestNHKFamilyRegistryRouting
+      - pkg/ytdlp.TestNHKOptionsValidation
+      - internal/cli.TestRunNHKAreaFlagRecognized
+      - internal/cli.TestRunNHKAreaRejectsHostileValue
+      - conformance/extractors/nhk/PROVENANCE.md
+      - docs/EXTRACTOR_NHK_FAMILY_EVIDENCE.md
+    owner: extractors
+    depends_on:
+      - protocol.hls
+      - network.shared_transport
+    known_deviation: Radiru area selection uses product option NHKOptions.RadiruArea / CLI --nhk-area rather than yt-dlp extractor_args nhkradirulive:area. DRM decryption is not claimed. Evidence is offline-fixture only; no live regional Japan canary is asserted.
+
   - id: compat.configuration
     name: Configuration compatibility
     phase: 2

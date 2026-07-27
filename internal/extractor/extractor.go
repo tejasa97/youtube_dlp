@@ -137,6 +137,15 @@ type Request struct {
 	YouTubeLiveFromStart      bool
 	YouTubeComments           YouTubeCommentOptions
 	SoundCloudComments        SoundCloudCommentOptions
+	NHK                       NHKOptions
+}
+
+// NHKOptions carries narrowly scoped NHK extractor state. The Radiru area
+// mirrors yt-dlp's `nhkradirulive:area` extractor argument and is the only
+// currently supported knob. Empty RadiruArea selects the extractor's
+// documented default at runtime.
+type NHKOptions struct {
+	RadiruArea string
 }
 
 // String and GoString deliberately render Request as a fixed opaque value so
