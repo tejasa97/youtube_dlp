@@ -470,6 +470,15 @@ func (client *Client) productRegistry() *extractor.Registry {
 		extractor.NewWimbledon(),
 		extractor.NewUSAToday(),
 		extractor.NewSkyNewsAU(),
+		extractor.NewBundesliga(),
+		extractor.NewBusinessInsider(),
+		extractor.NewDBTV(),
+		extractor.NewHollywoodReporter(),
+		extractor.NewIltalehti(),
+		extractor.NewLeFigaroVideoEmbed(),
+		extractor.NewMirrorCoUK(),
+		extractor.NewOutsideTV(),
+		extractor.NewTheIntercept(),
 		extractor.NewBrightcove(),
 		extractor.NewKaltura(),
 		extractor.NewJWPlatform(),
@@ -618,21 +627,7 @@ func (operation *operation) processWithTransparentParent(ctx context.Context, ra
 				info.Set("id", value.String(childID))
 			}
 		}
-		if overlay.ID != "" {
-			info.Set("id", value.String(overlay.ID))
-		}
-		if overlay.Title != "" {
-			info.Set("title", value.String(overlay.Title))
-		}
-		if overlay.Thumbnail != "" {
-			info.Set("thumbnail", value.String(overlay.Thumbnail))
-		}
-		if overlay.HasDuration {
-			info.Set("duration", value.Float(overlay.Duration))
-		}
-		if overlay.HasTimestamp {
-			info.Set("timestamp", value.Int(overlay.Timestamp))
-		}
+		applyTransparentOverlay(&info, overlay)
 		extracted.Info = info
 	}
 	if err := operation.client.emit(ctx, Event{Kind: string(events.KindExtracted), Extractor: selected.Name(), URL: eventURL}); err != nil {
@@ -641,12 +636,7 @@ func (operation *operation) processWithTransparentParent(ctx context.Context, ra
 	if extracted.IsURL() {
 		entry := *extracted.Redirect
 		if overlay != nil && overlay.Transparent {
-			if overlay.ID != "" {
-				entry.ID = overlay.ID
-			}
-			if overlay.Title != "" {
-				entry.Title = overlay.Title
-			}
+			overlayOntoEntry(&entry, overlay)
 			entry.Transparent = true
 		}
 		nextParent := transparentParent
@@ -659,6 +649,77 @@ func (operation *operation) processWithTransparentParent(ctx context.Context, ra
 		return operation.processPlaylist(ctx, extracted, selected.Name(), ancestors, depth)
 	}
 	return operation.processMedia(ctx, extracted, selected.Name())
+}
+
+// applyTransparentOverlay writes every supported producer-side metadata field
+// from a transparent overlay onto an info object. The producer's ID
+// overrides whatever the child supplied, producer values override every
+// other field when set, and Has* flags preserve explicit zero numeric
+// values across the recursion step.
+func applyTransparentOverlay(info *value.Info, overlay *extractor.Entry) {
+	if overlay == nil || info == nil {
+		return
+	}
+	if overlay.ID != "" {
+		info.Set("id", value.String(overlay.ID))
+	}
+	if overlay.Title != "" {
+		info.Set("title", value.String(overlay.Title))
+	}
+	if overlay.Thumbnail != "" {
+		info.Set("thumbnail", value.String(overlay.Thumbnail))
+	}
+	if overlay.HasDuration {
+		info.Set("duration", value.Float(overlay.Duration))
+	}
+	if overlay.HasTimestamp {
+		info.Set("timestamp", value.Int(overlay.Timestamp))
+	}
+	if overlay.Availability != "" {
+		info.Set("availability", value.String(overlay.Availability))
+	}
+	if overlay.HasViewCount {
+		info.Set("view_count", value.Int(overlay.ViewCount))
+	}
+	if overlay.Language != "" {
+		info.Set("language", value.String(overlay.Language))
+	}
+}
+
+// overlayOntoEntry transfers a transparent overlay's metadata onto an Entry
+// that will be the next URL result. Routing fields (URL, ExtractorKey,
+// Referer) are intentionally never overwritten.
+func overlayOntoEntry(entry *extractor.Entry, overlay *extractor.Entry) {
+	if entry == nil || overlay == nil {
+		return
+	}
+	if overlay.ID != "" {
+		entry.ID = overlay.ID
+	}
+	if overlay.Title != "" {
+		entry.Title = overlay.Title
+	}
+	if overlay.Thumbnail != "" {
+		entry.Thumbnail = overlay.Thumbnail
+	}
+	if overlay.HasDuration {
+		entry.Duration = overlay.Duration
+		entry.HasDuration = true
+	}
+	if overlay.HasTimestamp {
+		entry.Timestamp = overlay.Timestamp
+		entry.HasTimestamp = true
+	}
+	if overlay.Availability != "" {
+		entry.Availability = overlay.Availability
+	}
+	if overlay.HasViewCount {
+		entry.ViewCount = overlay.ViewCount
+		entry.HasViewCount = true
+	}
+	if overlay.Language != "" {
+		entry.Language = overlay.Language
+	}
 }
 
 func (operation *operation) processPlaylist(ctx context.Context, extracted extractor.Extraction, extractorName string, ancestors map[string]bool, depth int) (Result, error) {

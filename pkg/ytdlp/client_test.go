@@ -328,6 +328,15 @@ func TestProductRegistryIncludesIntegratedExtractors(t *testing.T) {
 		{"https://www.wimbledon.com/en_GB/video/media/6330247525112.html", "wimbledon"},
 		{"https://www.usatoday.com/story/tech/science/2018/08/21/yellowstone/", "usatoday"},
 		{"https://www.skynews.com.au/a/b/c/video/abc123def456", "skynewsau"},
+		{"https://www.bundesliga.com/en/bundesliga/videos?vid=AbCd1234", "bundesliga"},
+		{"https://uk.businessinsider.com/article-slug", "businessinsider"},
+		{"https://www.dagbladet.no/video/slug/PalfB2Cw", "dbtv"},
+		{"https://www.hollywoodreporter.com/video/slug/", "hollywoodreporter"},
+		{"https://www.iltalehti.fi/ulkomaat/a/9fbd067f-94e4-46cd-8748-9d958eb4dae2", "iltalehti"},
+		{"https://video.lefigaro.fr/embed/figaro/video/slug/", "lefigarovideoembed"},
+		{"https://www.mirror.co.uk/tv/tv-news/article-27163139", "mirrorcouk"},
+		{"http://www.outsidetv.com/home/play/ZjQYboH6/1/10/Hdg0jukV/4", "outsidetv"},
+		{"https://theintercept.com/fieldofvision/slug/", "theintercept"},
 		{"https://players.brightcove.net/12345/default_default/index.html?videoId=123", "brightcove"},
 		{"kaltura:123:1_abcd1234", "kaltura"},
 		{"https://cdn.jwplayer.com/players/AbCd1234-ABCDEFGHI.js", "jwplatform"},
@@ -2211,7 +2220,20 @@ func TestOperationMergesTransparentEntryMetadata(t *testing.T) {
 		client: NewClient(), request: Request{SkipDownload: true}, transport: transport,
 		registry: extractor.NewRegistry(extractor.NewGeneric()),
 	}
-	overlay := &extractor.Entry{ID: "producer-id", Title: "Producer Title", Transparent: true}
+	overlay := &extractor.Entry{
+		ID:           "producer-id",
+		Title:        "Producer Title",
+		Thumbnail:    "https://images.example/thumb.jpg",
+		Availability: "subscriber_only",
+		Language:     "fr",
+		Duration:     12.5,
+		HasDuration:  true,
+		Timestamp:    1730000000,
+		HasTimestamp: true,
+		ViewCount:    7,
+		HasViewCount: true,
+		Transparent:  true,
+	}
 	result, err := operation.process(context.Background(), server.URL+"/one.mp4", "generic", overlay, make(map[string]bool), 1)
 	if err != nil {
 		t.Fatal(err)
@@ -2223,6 +2245,255 @@ func TestOperationMergesTransparentEntryMetadata(t *testing.T) {
 	if metadata["id"] != "producer-id" || metadata["title"] != "Producer Title" {
 		t.Fatalf("transparent metadata = %#v", metadata)
 	}
+	if metadata["thumbnail"] != "https://images.example/thumb.jpg" {
+		t.Fatalf("thumbnail = %#v", metadata["thumbnail"])
+	}
+	if metadata["availability"] != "subscriber_only" {
+		t.Fatalf("availability = %#v", metadata["availability"])
+	}
+	if metadata["language"] != "fr" {
+		t.Fatalf("language = %#v", metadata["language"])
+	}
+	if metadata["duration"] != 12.5 {
+		t.Fatalf("duration = %#v", metadata["duration"])
+	}
+	if metadata["timestamp"] != float64(1730000000) {
+		t.Fatalf("timestamp = %#v", metadata["timestamp"])
+	}
+	if metadata["view_count"] != float64(7) {
+		t.Fatalf("view_count = %#v", metadata["view_count"])
+	}
+}
+
+// TestOperationTransparentOverlayPreservesExplicitZeroNumerics asserts that
+// HasDuration/HasTimestamp/HasViewCount with value 0 are propagated as the
+// numeric zero rather than erased or replaced by backend values.
+func TestOperationTransparentOverlayPreservesExplicitZeroNumerics(t *testing.T) {
+	server := playlistMediaServer(t)
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	operation := &operation{
+		client: NewClient(), request: Request{SkipDownload: true}, transport: transport,
+		registry: extractor.NewRegistry(extractor.NewGeneric()),
+	}
+	overlay := &extractor.Entry{
+		ID:           "zero-overlay",
+		Title:        "Zero Title",
+		Duration:     0,
+		HasDuration:  true,
+		Timestamp:    0,
+		HasTimestamp: true,
+		ViewCount:    0,
+		HasViewCount: true,
+		Transparent:  true,
+	}
+	result, err := operation.process(context.Background(), server.URL+"/one.mp4", "generic", overlay, make(map[string]bool), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(result.InfoJSON, &metadata); err != nil {
+		t.Fatal(err)
+	}
+	dur, ok := metadata["duration"].(float64)
+	if !ok {
+		t.Fatalf("duration missing or wrong type: %#v", metadata["duration"])
+	}
+	if dur != 0 {
+		t.Fatalf("duration=%v want 0", dur)
+	}
+	ts, ok := metadata["timestamp"].(float64)
+	if !ok {
+		t.Fatalf("timestamp missing or wrong type: %#v", metadata["timestamp"])
+	}
+	if ts != 0 {
+		t.Fatalf("timestamp=%v want 0", ts)
+	}
+	views, ok := metadata["view_count"].(float64)
+	if !ok {
+		t.Fatalf("view_count missing or wrong type: %#v", metadata["view_count"])
+	}
+	if views != 0 {
+		t.Fatalf("view_count=%v want 0", views)
+	}
+}
+
+// TestOperationTransparentZeroNumericsSurviveURLResultHandoff asserts
+// explicit-zero numeric overlays survive the URL-result handoff step
+// (overlayOntoEntry -> recursive processWithTransparentParent).
+func TestOperationTransparentZeroNumericsSurviveURLResultHandoff(t *testing.T) {
+	server := playlistMediaServer(t)
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	operation := &operation{
+		client: NewClient(), request: Request{SkipDownload: true}, transport: transport,
+		registry: extractor.NewRegistry(zeroNumericsHandoffParent{}, extractor.NewGeneric()),
+	}
+	result, err := operation.process(context.Background(), server.URL+"/zero-numerics-handoff", "", nil, make(map[string]bool), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(result.InfoJSON, &metadata); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"duration", "timestamp", "view_count"} {
+		value, ok := metadata[key].(float64)
+		if !ok {
+			t.Fatalf("%s missing or wrong type: %#v", key, metadata[key])
+		}
+		if value != 0 {
+			t.Fatalf("%s=%v want 0", key, value)
+		}
+	}
+	if metadata["id"] != "zero-parent-id" {
+		t.Fatalf("id=%#v", metadata["id"])
+	}
+}
+
+type zeroNumericsHandoffParent struct{}
+
+func (zeroNumericsHandoffParent) Name() string { return "zero-numerics-handoff-parent" }
+func (zeroNumericsHandoffParent) Suitable(parsed *url.URL) bool {
+	return parsed != nil && parsed.Path == "/zero-numerics-handoff"
+}
+func (ext zeroNumericsHandoffParent) Extract(_ context.Context, request extractor.Request) (extractor.Extraction, error) {
+	parentURL, err := url.Parse(request.URL)
+	if err != nil {
+		return extractor.Extraction{}, err
+	}
+	middle := *parentURL
+	middle.Path = "/one.mp4"
+	entry := extractor.Entry{
+		URL:          middle.String(),
+		ExtractorKey: "generic",
+		ID:           "zero-parent-id",
+		Title:        "Zero Title",
+		Duration:     0,
+		HasDuration:  true,
+		Timestamp:    0,
+		HasTimestamp: true,
+		ViewCount:    0,
+		HasViewCount: true,
+		Transparent:  true,
+	}
+	return extractor.URLResult(entry)
+}
+
+// TestOperationTransparentOverlayDoesNotEraseBackendMetadata confirms that an
+// overlay supplying only an ID and title never erases backend fields such as
+// duration or description.
+func TestOperationTransparentOverlayDoesNotEraseBackendMetadata(t *testing.T) {
+	server := playlistMediaServer(t)
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	operation := &operation{
+		client: NewClient(), request: Request{SkipDownload: true}, transport: transport,
+		registry: extractor.NewRegistry(extractor.NewGeneric()),
+	}
+	overlay := &extractor.Entry{ID: "Producer", Title: "Producer Title", Transparent: true}
+	result, err := operation.process(context.Background(), server.URL+"/one.mp4", "generic", overlay, make(map[string]bool), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(result.InfoJSON, &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata["id"] != "Producer" || metadata["title"] != "Producer Title" {
+		t.Fatalf("producer fields not applied: %#v", metadata)
+	}
+}
+
+// TestOperationTransparentEntryAcrossTwoHopURLResults verifies that provider
+// metadata is preserved across two consecutive URL-result handoffs without
+// erasing fields supplied by the intermediate parent.
+func TestOperationTransparentEntryAcrossTwoHopURLResults(t *testing.T) {
+	server := playlistMediaServer(t)
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	operation := &operation{
+		client: NewClient(), request: Request{SkipDownload: true}, transport: transport,
+		registry: extractor.NewRegistry(
+			twoHopParentExtractor{},
+			twoHopMiddleExtractor{},
+			extractor.NewGeneric(),
+		),
+	}
+	result, err := operation.process(context.Background(), server.URL+"/two-hop", "", nil, make(map[string]bool), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(result.InfoJSON, &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata["id"] != "parent-id" {
+		t.Fatalf("two-hop id = %#v", metadata["id"])
+	}
+	if metadata["title"] != "Parent Title" {
+		t.Fatalf("two-hop title = %#v", metadata["title"])
+	}
+	if metadata["description"] != "Middle description" {
+		t.Fatalf("two-hop description erased = %#v", metadata["description"])
+	}
+}
+
+type twoHopMiddleExtractor struct{}
+
+func (twoHopMiddleExtractor) Name() string { return "two-hop-middle" }
+func (twoHopMiddleExtractor) Suitable(parsed *url.URL) bool {
+	return parsed != nil && parsed.Path == "/middle"
+}
+func (twoHopMiddleExtractor) Extract(_ context.Context, request extractor.Request) (extractor.Extraction, error) {
+	parsed, err := url.Parse(request.URL)
+	if err != nil {
+		return extractor.Extraction{}, err
+	}
+	if parsed.Path != "/middle" {
+		return extractor.Extraction{}, extractor.ErrUnsupported
+	}
+	parsed.Path = "/one.mp4"
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("middle-id")},
+		value.Field{Key: "description", Value: value.String("Middle description")},
+	))
+	result, err := extractor.URLResult(extractor.Entry{
+		URL: parsed.String(), ExtractorKey: "generic", ID: "middle-id", Title: "Middle Title", Transparent: true,
+	})
+	if err != nil {
+		return extractor.Extraction{}, err
+	}
+	result.Info = info
+	return result, nil
+}
+
+type twoHopParentExtractor struct{}
+
+func (twoHopParentExtractor) Name() string { return "two-hop-parent" }
+func (twoHopParentExtractor) Suitable(parsed *url.URL) bool {
+	return parsed != nil && parsed.Path == "/two-hop"
+}
+func (ext twoHopParentExtractor) Extract(_ context.Context, request extractor.Request) (extractor.Extraction, error) {
+	parentURL, err := url.Parse(request.URL)
+	if err != nil {
+		return extractor.Extraction{}, err
+	}
+	// Preserve the test server's host but route through the middle extractor.
+	middle := *parentURL
+	middle.Path = "/middle"
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("parent-id")},
+		value.Field{Key: "title", Value: value.String("Parent Title")},
+	))
+	result, err := extractor.URLResult(extractor.Entry{
+		URL: middle.String(), ExtractorKey: "two-hop-middle", ID: "parent-id", Title: "Parent Title", Transparent: true,
+	})
+	if err != nil {
+		return extractor.Extraction{}, err
+	}
+	result.Info = info
+	return result, nil
 }
 
 func TestOperationMergesTransparentParentInfoFromURLResult(t *testing.T) {
