@@ -3,9 +3,11 @@ package extractor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/ytdlp-go/ytdlp/internal/network"
@@ -186,4 +188,74 @@ func TestGenericRecognizesSmoothStreamingManifest(t *testing.T) {
 	if got := protocolForMediaType("application/vnd.ms-sstr+xml"); got != "ism" {
 		t.Fatalf("protocol = %q, want ism", got)
 	}
+}
+
+// TestRequestStringerRedactsAllSensitiveFields proves that the internal
+// extractor.Request formatting surface cannot reveal the video password,
+// URL credentials, transport, or credential provider under %v, %+v, or %#v.
+func TestRequestStringerRedactsAllSensitiveFields(t *testing.T) {
+	const secret = "video-password-secret-AAAAA-12345"
+	transport := &recordingProfileTransport{
+		memoryTransport: &memoryTransport{pages: map[string][]byte{"https://example.test": []byte("native")}},
+	}
+	request := Request{
+		URL:           "https://user:hidden@host.invalid/path",
+		VideoPassword: secret,
+		Transport:     transport,
+		Credentials:   staticCredentialProvider{username: "alice", password: "bob-secret"},
+	}
+	surfaces := map[string]string{
+		"%v":  fmt.Sprintf("%v", request),
+		"%+v": fmt.Sprintf("%+v", request),
+		"%#v": fmt.Sprintf("%#v", request),
+	}
+	// Pointer form must also redact; the formatter must work for both value
+	// and pointer receivers.
+	surfaces["%v*"] = fmt.Sprintf("%v", &request)
+	surfaces["%+v*"] = fmt.Sprintf("%+v", &request)
+	surfaces["%#v*"] = fmt.Sprintf("%#v", &request)
+	// And it must hold when the Request is wrapped in another struct, which
+	// is how it would surface in operation errors.
+	type wrap struct{ Inner Request }
+	surfaces["wrapped%v"] = fmt.Sprintf("%v", wrap{Inner: request})
+	surfaces["wrapped%+v"] = fmt.Sprintf("%+v", wrap{Inner: request})
+
+	for label, got := range surfaces {
+		if strings.Contains(got, secret) {
+			t.Fatalf("%s leaked video password: %q", label, got)
+		}
+		if strings.Contains(got, "hidden") {
+			t.Fatalf("%s leaked URL userinfo: %q", label, got)
+		}
+		if strings.Contains(got, "bob-secret") {
+			t.Fatalf("%s leaked credential password: %q", label, got)
+		}
+		if strings.Contains(got, "memoryTransport") || strings.Contains(got, "recordingProfileTransport") {
+			t.Fatalf("%s leaked transport type: %q", label, got)
+		}
+	}
+}
+
+func TestErrWrongPasswordIsDistinctAndUnwrappable(t *testing.T) {
+	if errors.Is(ErrAuthentication, ErrWrongPassword) {
+		t.Fatal("ErrWrongPassword must not satisfy errors.Is(ErrAuthentication)")
+	}
+	if errors.Is(ErrWrongPassword, ErrAuthentication) {
+		t.Fatal("ErrAuthentication must not satisfy errors.Is(ErrWrongPassword)")
+	}
+	wrapped := fmt.Errorf("wrap: %w", ErrWrongPassword)
+	if !errors.Is(wrapped, ErrWrongPassword) {
+		t.Fatal("wrapped ErrWrongPassword does not unwrap via errors.Is")
+	}
+	if errors.Is(wrapped, ErrAuthentication) {
+		t.Fatal("wrapped ErrWrongPassword must not match ErrAuthentication")
+	}
+}
+
+type staticCredentialProvider struct {
+	username, password string
+}
+
+func (provider staticCredentialProvider) Lookup(_ context.Context, _ string) (Credential, bool, error) {
+	return Credential{Username: provider.username, Password: provider.password}, true, nil
 }
