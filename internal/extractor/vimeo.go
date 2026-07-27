@@ -54,6 +54,36 @@ const (
 	vimeoMaxPlaylistEntries   = 10_000
 	vimeoClipLookaheadBytes   = 2048
 	vimeoMaxNumericVideoIDLen = 20
+
+	// vimeoUnlistedHashLen is the fixed width of the unlisted-share suffix
+	// Vimeo renders on private video URLs. The route parser rejects any
+	// value that does not match this length exactly so callers cannot smuggle
+	// arbitrary path data through the unlisted route.
+	vimeoUnlistedHashLen = 10
+	// vimeoUnlistedAPIErrorCode is the exact numeric error_code Vimeo
+	// returns for hash-gated unlisted videos when the requested account
+	// is not authorized for the share. A quoted decimal is rejected here
+	// so the response cannot trick the parser into an integer-shaped
+	// string by mistake.
+	vimeoUnlistedAPIErrorCode = 5460
+)
+
+// vimeoUnlistedHashPattern validates the exact 10-character lowercase hex
+// suffix Vimeo appends to a private unlisted video URL. It anchors both ends
+// and forbids uppercase, variable width, or other charset drift.
+var vimeoUnlistedHashPattern = regexp.MustCompile(`^[0-9a-f]{10}$`)
+
+const (
+	// vimeoUnlistedAPIMaxBytes bounds the metadata JSON object returned by
+	// api.vimeo.com/videos/{id}:{hash}. The value matches the shared
+	// extractor JSON budget so the package-private helper can reuse the
+	// same dispatch it uses for every other Vimeo metadata fetch.
+	vimeoUnlistedAPIMaxBytes int64 = maxExtractorJSONBytes
+	// vimeoUnlistedAPIStatusReadBytes is the hard cap on a non-2xx body.
+	// It is intentionally far smaller than the 2xx budget; non-success
+	// bodies are only read for error_code categorization and are
+	// intentionally discarded after categorization.
+	vimeoUnlistedAPIStatusReadBytes int64 = 8 << 10
 )
 
 type vimeoRouteKind int
@@ -94,6 +124,12 @@ type vimeoPlaylistTarget struct {
 	canonical string
 	baseURL   string
 	embed     bool
+	// unlistedHash, when non-empty, is the validated 10-character lowercase
+	// hex suffix Vimeo appends to a private video URL. A non-empty value
+	// selects the authenticated metadata path; an empty value preserves the
+	// existing public page/config behavior. The classifier enforces the
+	// shape before this field is populated.
+	unlistedHash string
 }
 
 type Vimeo struct{}
@@ -119,6 +155,9 @@ func (Vimeo) Extract(ctx context.Context, request Request) (Extraction, error) {
 	case vimeoRouteAlbum:
 		return extractVimeoAlbumPlaylist(ctx, request, target)
 	case vimeoRouteVideo:
+		if target.unlistedHash != "" {
+			return extractVimeoUnlistedVideo(ctx, request, target.id, target.unlistedHash, target.canonical)
+		}
 		return extractVimeoVideo(ctx, request, target.id, target.canonical)
 	default:
 		return Extraction{}, ErrUnsupported
@@ -143,6 +182,478 @@ func extractVimeoVideo(ctx context.Context, request Request, videoID, contextual
 	return parseVimeoConfigContext(ctx, request.Transport, config, videoID, webpageURL, request.Referer)
 }
 
+// extractVimeoUnlistedVideo resolves a Vimeo private/unlisted share URL of
+// the canonical form https://vimeo.com/{numeric_id}/{10-lowercase-hex-hash}.
+// The helper consumes the merged authenticated viewer-token provider for the
+// scoped metadata and optional source-format API requests, follows the
+// returned config_url with the credential-isolated executor, and reuses the
+// existing config parser. It never reaches an anonymous fallback once the
+// authenticated path is taken, never submits the deferred password POST, and
+// surfaces all categorized metadata failures as established Vimeo sentinels.
+func extractVimeoUnlistedVideo(ctx context.Context, request Request, videoID, unlistedHash, webpageURL string) (Extraction, error) {
+	if err := contextError(ctx); err != nil {
+		return Extraction{}, err
+	}
+	provider, err := vimeoAuthenticatedViewerTokenProviderFromTransport(request.Transport, time.Now)
+	if err != nil {
+		return Extraction{}, err
+	}
+	apiResponse, err := fetchVimeoUnlistedAPI(ctx, provider, request.Transport, videoID, unlistedHash)
+	if err != nil {
+		return Extraction{}, err
+	}
+	if apiResponse.URI != "/videos/"+videoID {
+		return Extraction{}, fmt.Errorf("%w: Vimeo authenticated API video identity mismatch", ErrInvalidMetadata)
+	}
+	if apiResponse.ConfigURL == "" {
+		return Extraction{}, ErrUnavailable
+	}
+	normalized, ok := normalizeVimeoConfigURL(apiResponse.ConfigURL)
+	if !ok {
+		return Extraction{}, fmt.Errorf("%w: unsafe Vimeo authenticated config URL", ErrInvalidMetadata)
+	}
+	isolated, ok := request.Transport.(CredentialIsolatedNoRedirectTransport)
+	if !ok {
+		return Extraction{}, ErrTransportIsolation
+	}
+	config, err := fetchVimeoUnlistedConfig(ctx, isolated, normalized, webpageURL)
+	if err != nil {
+		return Extraction{}, err
+	}
+	if config.Video.ID.String() != videoID {
+		return Extraction{}, fmt.Errorf("%w: Vimeo player config video identity mismatch", ErrInvalidMetadata)
+	}
+	sourceFormat, err := extractVimeoAuthenticatedOriginalFormat(ctx, provider, request.Transport, videoID, unlistedHash)
+	if err != nil {
+		return Extraction{}, err
+	}
+	extraction, err := parseVimeoUnlistedConfigContext(ctx, request.Transport, config, videoID, webpageURL, request.Referer)
+	if err != nil {
+		return Extraction{}, err
+	}
+	applyVimeoAuthenticatedMetadata(&extraction.Info, apiResponse)
+	if sourceFormat.Kind() != value.KindMissing {
+		formats, ok := extraction.Info.Formats()
+		if !ok {
+			return Extraction{}, fmt.Errorf("%w: missing Vimeo formats", ErrInvalidMetadata)
+		}
+		extraction.Info.Set("formats", value.List(append(formats, sourceFormat)...))
+	}
+	return extraction, nil
+}
+
+// vimeoUnlistedAPIResponse is the bounded response shape consumed from
+// api.vimeo.com/videos/{id}:{hash}. Only fields the pinned web client
+// returns are decoded. URI is added to the pinned web field set solely to
+// bind the response identity before config fetch or media emission.
+type vimeoUnlistedAPIResponse struct {
+	URI         string `json:"uri"`
+	Description string `json:"description"`
+	License     string `json:"license"`
+	CreatedTime string `json:"created_time"`
+	ReleaseTime string `json:"release_time"`
+	ConfigURL   string `json:"config_url"`
+	Stats       struct {
+		Plays *int64 `json:"plays"`
+	} `json:"stats"`
+	Metadata struct {
+		Connections struct {
+			Comments struct {
+				Total *int64 `json:"total"`
+			} `json:"comments"`
+			Likes struct {
+				Total *int64 `json:"total"`
+			} `json:"likes"`
+		} `json:"connections"`
+	} `json:"metadata"`
+}
+
+// vimeoUnlistedAPIEndpoint joins the validated numeric ID and unlisted
+// hash into the canonical authenticated API path. Both components have
+// already passed strict validation; the function is a tiny seam so the
+// query string and origin stay under one control point.
+func vimeoUnlistedAPIEndpoint(numericID, unlistedHash string) string {
+	return vimeoAuthenticatedVideoAPIEndpoint(numericID, unlistedHash,
+		"config_url,uri,created_time,description,license,metadata.connections.comments.total,metadata.connections.likes.total,release_time,stats.plays")
+}
+
+func vimeoAuthenticatedVideoAPIEndpoint(numericID, unlistedHash, fields string) string {
+	values := url.Values{}
+	values.Set("fields", fields)
+	return "https://api.vimeo.com/videos/" + numericID + ":" + unlistedHash + "?" + values.Encode()
+}
+
+// fetchVimeoUnlistedAPI executes the single scoped authenticated API call
+// required for an unlisted Vimeo video. It uses the existing provider's
+// withVimeoAuthenticatedViewerToken helper for transport-level origin
+// isolation, JWT refresh on 401/403, and exactly-one retry semantics.
+// The 4xx body is read only for categorization; it is never echoed.
+func fetchVimeoUnlistedAPI(ctx context.Context, provider *vimeoAuthenticatedViewerTokenProvider, transport Transport, numericID, unlistedHash string) (vimeoUnlistedAPIResponse, error) {
+	if err := contextError(ctx); err != nil {
+		return vimeoUnlistedAPIResponse{}, err
+	}
+	scoped, ok := transport.(ScopedAuthorizationNoRedirectTransport)
+	if !ok {
+		return vimeoUnlistedAPIResponse{}, ErrTransportIsolation
+	}
+	endpoint := vimeoUnlistedAPIEndpoint(numericID, unlistedHash)
+	var response vimeoUnlistedAPIResponse
+	err := withVimeoAuthenticatedViewerToken(ctx, provider, func(jwt string) error {
+		if err := contextError(ctx); err != nil {
+			return err
+		}
+		req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if reqErr != nil {
+			return fmt.Errorf("%w: malformed Vimeo authenticated video request", ErrInvalidMetadata)
+		}
+		req.Header = vimeoUnlistedAPIHeaders(jwt)
+		httpResp, httpErr := scoped.DoWithScopedAuthorizationNoRedirect(ctx, req)
+		if httpErr != nil {
+			return httpErr
+		}
+		defer httpResp.Body.Close()
+		code := httpResp.StatusCode
+		if code >= http.StatusOK && code < http.StatusMultipleChoices {
+			reader := &io.LimitedReader{R: httpResp.Body, N: vimeoUnlistedAPIMaxBytes + 1}
+			data, readErr := io.ReadAll(reader)
+			if readErr != nil {
+				return fmt.Errorf("%w: Vimeo authenticated video response", ErrInvalidMetadata)
+			}
+			if int64(len(data)) > vimeoUnlistedAPIMaxBytes {
+				return ErrJSONResponseTooLarge
+			}
+			decoder := json.NewDecoder(bytes.NewReader(data))
+			if decodeErr := decoder.Decode(&response); decodeErr != nil {
+				return fmt.Errorf("%w: Vimeo authenticated video response", ErrInvalidMetadata)
+			}
+			if err := ensureJSONEOF(decoder); err != nil {
+				return fmt.Errorf("%w: Vimeo authenticated video response", ErrInvalidMetadata)
+			}
+			return nil
+		}
+		// Non-2xx: bounded body read for categorization only. The body bytes
+		// are never copied into the returned error string.
+		errorBody, _ := io.ReadAll(io.LimitReader(httpResp.Body, vimeoUnlistedAPIStatusReadBytes+1))
+		if int64(len(errorBody)) > vimeoUnlistedAPIStatusReadBytes {
+			errorBody = errorBody[:vimeoUnlistedAPIStatusReadBytes]
+		}
+		if code == http.StatusUnauthorized || code == http.StatusForbidden {
+			return &HTTPStatusError{Code: code}
+		}
+		if code == http.StatusNotFound || code == http.StatusGone {
+			if matchesVimeoUnlistedErrorCode(errorBody, vimeoUnlistedAPIErrorCode) {
+				return ErrAuthentication
+			}
+			return ErrUnavailable
+		}
+		if code == http.StatusBadRequest {
+			return ErrAuthentication
+		}
+		return &HTTPStatusError{Code: code}
+	})
+	if err != nil {
+		return vimeoUnlistedAPIResponse{}, err
+	}
+	return response, nil
+}
+
+// vimeoUnlistedAPIHeaders builds the scoped request headers for the
+// authenticated Vimeo API call. The viewer JWT is the only credential on
+// the wire; no cookie, Proxy-Authorization, or referer is set. The Accept
+// header mirrors the existing vimeoAPIHeaders helper so the two paths emit
+// the same wire signature on api.vimeo.com.
+func vimeoUnlistedAPIHeaders(jwt string) http.Header {
+	headers := http.Header{}
+	headers.Set("Accept", "application/json")
+	headers.Set("Authorization", "jwt "+jwt)
+	return headers
+}
+
+// matchesVimeoUnlistedErrorCode inspects a bounded non-2xx body for a
+// numeric error_code field. The raw JSON token must be the canonical base-10
+// integer spelling; quoted, floating, exponential, overflowing, trailing,
+// malformed, and oversized forms are rejected. The body bytes are never
+// copied into the result.
+func matchesVimeoUnlistedErrorCode(body []byte, want int64) bool {
+	if len(body) == 0 || int64(len(body)) > vimeoUnlistedAPIStatusReadBytes {
+		return false
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	var probe struct {
+		ErrorCode json.RawMessage `json:"error_code"`
+	}
+	if err := decoder.Decode(&probe); err != nil {
+		return false
+	}
+	if err := ensureJSONEOF(decoder); err != nil {
+		return false
+	}
+	rawCode := bytes.TrimSpace(probe.ErrorCode)
+	if len(rawCode) == 0 || string(rawCode) != strconv.FormatInt(want, 10) {
+		return false
+	}
+	value, err := strconv.ParseInt(string(rawCode), 10, 64)
+	if err != nil {
+		return false
+	}
+	return value == want
+}
+
+type vimeoAuthenticatedPrivacyResponse struct {
+	Privacy struct {
+		Download *bool `json:"download"`
+	} `json:"privacy"`
+}
+
+type vimeoAuthenticatedDownloadResponse struct {
+	Download []struct {
+		Link       string `json:"link"`
+		Quality    string `json:"quality"`
+		PublicName string `json:"public_name"`
+		Width      int64  `json:"width"`
+		Height     int64  `json:"height"`
+		FPS        int64  `json:"fps"`
+		Size       int64  `json:"size"`
+	} `json:"download"`
+}
+
+// extractVimeoAuthenticatedOriginalFormat implements the pinned web client's
+// logged-in source-format path without copying any embedded OAuth client
+// secret. Both capability checks use the authenticated viewer JWT on the
+// exact api.vimeo.com video resource; the resulting CDN URL is emitted as a
+// credential-free format.
+func extractVimeoAuthenticatedOriginalFormat(ctx context.Context, provider *vimeoAuthenticatedViewerTokenProvider, transport Transport, videoID, unlistedHash string) (value.Value, error) {
+	var privacy vimeoAuthenticatedPrivacyResponse
+	err := fetchVimeoAuthenticatedVideoFields(ctx, provider, transport, videoID, unlistedHash, "privacy", &privacy)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return value.Missing(), err
+		}
+		return value.Missing(), nil
+	}
+	if privacy.Privacy.Download == nil || !*privacy.Privacy.Download {
+		return value.Missing(), nil
+	}
+	var downloads vimeoAuthenticatedDownloadResponse
+	err = fetchVimeoAuthenticatedVideoFields(ctx, provider, transport, videoID, unlistedHash, "download", &downloads)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return value.Missing(), err
+		}
+		return value.Missing(), nil
+	}
+	for _, download := range downloads.Download {
+		if download.Quality != "source" || !validHTTPURL(download.Link) {
+			continue
+		}
+		formatID := strings.TrimSpace(download.PublicName)
+		if formatID == "" || len(formatID) > vimeoMaxTextName || strings.ContainsAny(formatID, "\r\n\x00") {
+			formatID = "Original"
+		}
+		extension := vimeoOriginalExtension(download.Link)
+		format := value.NewObject(
+			value.Field{Key: "url", Value: value.String(download.Link)},
+			value.Field{Key: "ext", Value: value.String(extension)},
+			value.Field{Key: "format_id", Value: value.String(formatID)},
+			value.Field{Key: "quality", Value: value.Int(1)},
+		)
+		setPositiveInt(format, "width", download.Width)
+		setPositiveInt(format, "height", download.Height)
+		setPositiveInt(format, "fps", download.FPS)
+		setPositiveInt(format, "filesize", download.Size)
+		return value.ObjectValue(format), nil
+	}
+	return value.Missing(), nil
+}
+
+func fetchVimeoAuthenticatedVideoFields(ctx context.Context, provider *vimeoAuthenticatedViewerTokenProvider, transport Transport, videoID, unlistedHash, fields string, target any) error {
+	scoped, ok := transport.(ScopedAuthorizationNoRedirectTransport)
+	if !ok {
+		return ErrTransportIsolation
+	}
+	endpoint := vimeoAuthenticatedVideoAPIEndpoint(videoID, unlistedHash, fields)
+	return withVimeoAuthenticatedViewerToken(ctx, provider, func(jwt string) error {
+		return requestJSON(ctx, scoped.DoWithScopedAuthorizationNoRedirect, http.MethodGet,
+			endpoint, nil, vimeoUnlistedAPIHeaders(jwt), target)
+	})
+}
+
+func vimeoOriginalExtension(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "unknown_video"
+	}
+	if filename := parsed.Query().Get("filename"); filename != "" {
+		if extension := strings.ToLower(strings.TrimPrefix(path.Ext(filename), ".")); extension != "" {
+			return extension
+		}
+	}
+	if extension := strings.ToLower(strings.TrimPrefix(path.Ext(parsed.Path), ".")); extension != "" {
+		return extension
+	}
+	return "unknown_video"
+}
+
+func applyVimeoAuthenticatedMetadata(info *value.Info, response vimeoUnlistedAPIResponse) {
+	if info == nil {
+		return
+	}
+	info.Set("description", value.String(response.Description))
+	if response.License != "" {
+		info.Set("license", value.String(response.License))
+	}
+	if timestamp := vimeoAPITimestamp(response.CreatedTime); timestamp > 0 {
+		info.Set("timestamp", value.Int(timestamp))
+	}
+	if timestamp := vimeoAPITimestamp(response.ReleaseTime); timestamp > 0 {
+		info.Set("release_timestamp", value.Int(timestamp))
+	}
+	setVimeoNonNegativeCount(info, "view_count", response.Stats.Plays)
+	setVimeoNonNegativeCount(info, "comment_count", response.Metadata.Connections.Comments.Total)
+	setVimeoNonNegativeCount(info, "like_count", response.Metadata.Connections.Likes.Total)
+}
+
+func vimeoAPITimestamp(raw string) int64 {
+	parsed, err := time.Parse(time.RFC3339Nano, raw)
+	if err != nil {
+		return 0
+	}
+	return parsed.Unix()
+}
+
+func setVimeoNonNegativeCount(info *value.Info, key string, count *int64) {
+	if info != nil && count != nil && *count >= 0 {
+		info.Set(key, value.Int(*count))
+	}
+}
+
+// fetchVimeoUnlistedConfig fetches the player config URL returned by the
+// authenticated API. It uses the credential-isolated, no-redirect executor
+// so neither the viewer cookie nor the API JWT can leak into the config
+// origin. On non-2xx the helper returns a secret-safe typed error so the
+// caller cannot be tricked into revealing the URL.
+func fetchVimeoUnlistedConfig(ctx context.Context, transport CredentialIsolatedNoRedirectTransport, normalizedConfigURL, webpageURL string) (vimeoConfig, error) {
+	if err := contextError(ctx); err != nil {
+		return vimeoConfig{}, err
+	}
+	var config vimeoConfig
+	headers := http.Header{}
+	headers.Set("Accept", "application/json")
+	headers.Set("Referer", configRefererURL(webpageURL, webpageURL))
+	if err := requestJSON(ctx, transport.DoWithoutCredentialsNoRedirect, http.MethodGet, normalizedConfigURL, nil, headers, &config); err != nil {
+		return vimeoConfig{}, err
+	}
+	return config, nil
+}
+
+// parseVimeoUnlistedConfigContext reuses parseVimeoConfigContext with the
+// authenticated path's options. The only behavioral change vs. the public
+// path is to disable the anonymous texttracks API fallback so the merged
+// JWT cannot be silently reattached at that boundary.
+func parseVimeoUnlistedConfigContext(ctx context.Context, transport Transport, config vimeoConfig, videoID, webpageURL, referer string) (Extraction, error) {
+	if err := contextError(ctx); err != nil {
+		return Extraction{}, err
+	}
+	files := config.Video.Files
+	if len(files.Progressive) == 0 && len(files.HLS.CDNs) == 0 && len(files.DASH.CDNs) == 0 {
+		files = config.Request.Files
+	}
+	formats, err := buildVimeoFormats(ctx, files)
+	if err != nil {
+		return Extraction{}, err
+	}
+	liveStatus := map[string]string{"pending": "is_upcoming", "active": "is_upcoming", "started": "is_live", "ended": "post_live"}[config.Video.LiveEvent.Status]
+	if len(formats) == 0 {
+		if liveStatus == "is_upcoming" {
+			return Extraction{}, ErrUnavailable
+		}
+		return Extraction{}, fmt.Errorf("%w: no Vimeo formats", ErrInvalidMetadata)
+	}
+	if config.View == 4 {
+		return Extraction{}, ErrAuthentication
+	}
+	if config.Video.Title == "" {
+		return Extraction{}, fmt.Errorf("%w: missing Vimeo title", ErrInvalidMetadata)
+	}
+	info := value.NewObject(
+		value.Field{Key: "id", Value: value.String(videoID)},
+		value.Field{Key: "title", Value: value.String(config.Video.Title)},
+		value.Field{Key: "description", Value: value.String(config.Video.Description)},
+		value.Field{Key: "uploader", Value: value.String(config.Video.Owner.Name)},
+		value.Field{Key: "uploader_url", Value: value.String(config.Video.Owner.URL)},
+		value.Field{Key: "webpage_url", Value: value.String(webpageURL)},
+		value.Field{Key: "ext", Value: value.String("mp4")},
+		value.Field{Key: "formats", Value: value.List(formats...)},
+	)
+	setPositiveInt(info, "duration", config.Video.Duration)
+	setPositiveInt(info, "width", config.Video.Width)
+	setPositiveInt(info, "height", config.Video.Height)
+	if thumbnail := bestVimeoThumbnail(config.Video.Thumbs); thumbnail != "" {
+		info.Set("thumbnail", value.String(thumbnail))
+	}
+	if liveStatus != "" {
+		info.Set("live_status", value.String(liveStatus))
+	}
+	if subtitles, err := mergeVimeoSubtitles(ctx, transport, videoID, config, files, vimeoSubtitleMergeOptions{skipAnonymousAPI: true}); err != nil {
+		return Extraction{}, err
+	} else if subtitles.Len() != 0 {
+		info.Set("subtitles", value.ObjectValue(subtitles))
+	}
+	return Media(value.NewInfo(info)), nil
+}
+
+// buildVimeoFormats is a small shared helper used by both the public and
+// authenticated config parsers to convert the vimeoFiles envelope into a
+// bounded list of value formats. Centralizing the construction keeps the
+// progressive/HLS/DASH output identical across routes.
+func buildVimeoFormats(ctx context.Context, files vimeoFiles) ([]value.Value, error) {
+	formats := make([]value.Value, 0, len(files.Progressive)+len(files.HLS.CDNs)+len(files.DASH.CDNs))
+	for _, format := range files.Progressive {
+		if err := contextError(ctx); err != nil {
+			return nil, err
+		}
+		if !validHTTPURL(format.URL) {
+			continue
+		}
+		extension := strings.TrimPrefix(path.Ext(mustURLPath(format.URL)), ".")
+		if extension == "" {
+			extension = "mp4"
+		}
+		object := value.NewObject(
+			value.Field{Key: "format_id", Value: value.String("http-" + format.Quality)},
+			value.Field{Key: "url", Value: value.String(format.URL)},
+			value.Field{Key: "ext", Value: value.String(extension)},
+		)
+		setPositiveInt(object, "width", format.Width)
+		setPositiveInt(object, "height", format.Height)
+		setPositiveInt(object, "fps", format.FPS)
+		if format.Bitrate > 0 {
+			object.Set("tbr", value.Float(float64(format.Bitrate)))
+		}
+		formats = append(formats, value.ObjectValue(object))
+	}
+	for _, name := range sortedVimeoCDNs(files.HLS.CDNs) {
+		if err := contextError(ctx); err != nil {
+			return nil, err
+		}
+		cdn := files.HLS.CDNs[name]
+		if validHTTPURL(cdn.URL) {
+			formats = append(formats, value.ObjectValue(manifestFormat("hls-"+name, cdn.URL, "m3u8_native")))
+		}
+	}
+	for _, name := range sortedVimeoCDNs(files.DASH.CDNs) {
+		if err := contextError(ctx); err != nil {
+			return nil, err
+		}
+		cdn := files.DASH.CDNs[name]
+		if validHTTPURL(cdn.URL) {
+			manifestURL := strings.Replace(cdn.URL, "/master.json", "/master.mpd", 1)
+			formats = append(formats, value.ObjectValue(manifestFormat("dash-"+name, manifestURL, "http_dash_segments")))
+		}
+	}
+	return formats, nil
+}
+
 func configRefererURL(webpageURL, referer string) string {
 	if validated, ok := validVimeoReferer(referer); ok {
 		return validated
@@ -164,6 +675,9 @@ func classifyVimeoURL(parsed *url.URL) (vimeoRouteKind, vimeoPlaylistTarget) {
 	if host != "vimeo.com" && host != "www.vimeo.com" {
 		return vimeoRouteNone, vimeoPlaylistTarget{}
 	}
+	if target, ok := classifyVimeoUnlistedURL(parsed); ok {
+		return vimeoRouteVideo, target
+	}
 	if match := vimeoURLPattern.FindStringSubmatch(parsed.Path); len(match) == 2 {
 		return vimeoRouteVideo, vimeoPlaylistTarget{kind: vimeoRouteVideo, id: match[1]}
 	}
@@ -177,6 +691,43 @@ func classifyVimeoURL(parsed *url.URL) (vimeoRouteKind, vimeoPlaylistTarget) {
 		return target.kind, target
 	}
 	return vimeoRouteNone, vimeoPlaylistTarget{}
+}
+
+// classifyVimeoUnlistedURL accepts only direct canonical Vimeo URLs of the
+// form https://vimeo.com/{numeric_id}/{unlisted_hash} where unlisted_hash is
+// exactly 10 lowercase hex bytes. Player URLs, contextual routes, embedded
+// share slugs, alternate host layouts, encoded variants, userinfo, ports,
+// and extra path segments are rejected before the parser returns. Upstream-
+// compatible query and fragment forms are accepted but deliberately stripped
+// from the canonical URL, so caller tokens can never reach the viewer, API,
+// config, or CDN credential boundaries. The returned target carries the
+// validated unlistedHash exactly as supplied on the URL line.
+func classifyVimeoUnlistedURL(parsed *url.URL) (vimeoPlaylistTarget, bool) {
+	if parsed == nil || parsed.Scheme != "https" || parsed.User != nil || parsed.Port() != "" ||
+		parsed.Opaque != "" || strings.Contains(parsed.String(), "\x00") {
+		return vimeoPlaylistTarget{}, false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host != "vimeo.com" && host != "www.vimeo.com" {
+		return vimeoPlaylistTarget{}, false
+	}
+	if parsed.RawPath != "" || vimeoUnsafePath(parsed) {
+		return vimeoPlaylistTarget{}, false
+	}
+	parts := splitVimeoPath(parsed.Path)
+	if len(parts) != 2 {
+		return vimeoPlaylistTarget{}, false
+	}
+	numericID, hash := parts[0], parts[1]
+	if !validVimeoNumericVideoID(numericID) || len(hash) != vimeoUnlistedHashLen || !vimeoUnlistedHashPattern.MatchString(hash) {
+		return vimeoPlaylistTarget{}, false
+	}
+	return vimeoPlaylistTarget{
+		kind:         vimeoRouteVideo,
+		id:           numericID,
+		canonical:    "https://vimeo.com/" + numericID + "/" + hash,
+		unlistedHash: hash,
+	}, true
 }
 
 func classifyVimeoContextVideoURL(parsed *url.URL) (vimeoPlaylistTarget, bool) {
@@ -1285,12 +1836,22 @@ func parseVimeoConfigContext(ctx context.Context, transport Transport, config vi
 	if liveStatus != "" {
 		info.Set("live_status", value.String(liveStatus))
 	}
-	if subtitles, err := mergeVimeoSubtitles(ctx, transport, videoID, config, files); err != nil {
+	if subtitles, err := mergeVimeoSubtitles(ctx, transport, videoID, config, files, vimeoSubtitleMergeOptions{}); err != nil {
 		return Extraction{}, err
 	} else if subtitles.Len() != 0 {
 		info.Set("subtitles", value.ObjectValue(subtitles))
 	}
 	return Media(value.NewInfo(info)), nil
+}
+
+// vimeoSubtitleMergeOptions bounds which subtitle sources participate in a
+// merge. The zero value matches the public extractor: primary config text
+// tracks, an anonymous API fallback when the transport supports it, and
+// the credential-isolated manifest fallback. The authenticated unlisted
+// path sets skipAnonymousAPI to forbid the anonymous JWT (texttracks) call
+// so the auth flow does not silently re-attach the leaked JWT.
+type vimeoSubtitleMergeOptions struct {
+	skipAnonymousAPI bool
 }
 
 func validVimeoReferer(rawReferer string) (string, bool) {
@@ -1328,14 +1889,14 @@ type vimeoSubtitleCandidate struct {
 	isolated bool
 }
 
-func mergeVimeoSubtitles(ctx context.Context, transport Transport, videoID string, config vimeoConfig, files vimeoFiles) (*value.Object, error) {
+func mergeVimeoSubtitles(ctx context.Context, transport Transport, videoID string, config vimeoConfig, files vimeoFiles, opts vimeoSubtitleMergeOptions) (*value.Object, error) {
 	candidates := make([]vimeoSubtitleCandidate, 0, vimeoMaxTextTracks)
 	if primary, err := vimeoSubtitleCandidatesFromTracks(ctx, config.Request.TextTracks, true); err != nil {
 		return nil, err
 	} else if candidates, err = appendBoundedVimeoSubtitleCandidates(candidates, primary); err != nil {
 		return nil, err
 	}
-	if transport != nil {
+	if transport != nil && !opts.skipAnonymousAPI {
 		if apiTracks, err := vimeoSubtitleCandidatesFromAPI(ctx, transport, videoID); err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil, err
@@ -1343,6 +1904,8 @@ func mergeVimeoSubtitles(ctx context.Context, transport Transport, videoID strin
 		} else if candidates, err = appendBoundedVimeoSubtitleCandidates(candidates, apiTracks); err != nil {
 			return nil, err
 		}
+	}
+	if transport != nil {
 		if manifestTracks, err := vimeoSubtitleCandidatesFromManifests(ctx, transport, files); err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil, err

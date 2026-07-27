@@ -134,10 +134,11 @@ func (provider *vimeoAuthenticatedViewerTokenProvider) invalidate(token string) 
 }
 
 // withVimeoAuthenticatedViewerToken runs callback exactly once with a fresh
-// JWT, and at most one extra time after a 401/403. The second attempt's
-// error is preserved verbatim, including ErrAuthentication from
-// authenticated-metadata failures. A nil provider or callback is rejected
-// up front so callers cannot accidentally short-circuit a refresh.
+// JWT, and at most one extra time after a 401/403. A terminal 401/403 after
+// that refresh is normalized to ErrAuthentication so callers never expose a
+// transport-level status for an exhausted authenticated session. A nil
+// provider or callback is rejected up front so callers cannot accidentally
+// short-circuit a refresh.
 func withVimeoAuthenticatedViewerToken(ctx context.Context, provider *vimeoAuthenticatedViewerTokenProvider, callback func(string) error) error {
 	if provider == nil || callback == nil {
 		return fmt.Errorf("%w: missing Vimeo authenticated viewer token provider", ErrInvalidMetadata)
@@ -154,12 +155,13 @@ func withVimeoAuthenticatedViewerToken(ctx context.Context, provider *vimeoAuthe
 			return err
 		}
 		err = callback(token)
-		if attempt == 0 {
-			var status *HTTPStatusError
-			if errors.As(err, &status) && (status.Code == http.StatusUnauthorized || status.Code == http.StatusForbidden) {
+		var status *HTTPStatusError
+		if errors.As(err, &status) && (status.Code == http.StatusUnauthorized || status.Code == http.StatusForbidden) {
+			if attempt == 0 {
 				provider.invalidate(token)
 				continue
 			}
+			return ErrAuthentication
 		}
 		return err
 	}

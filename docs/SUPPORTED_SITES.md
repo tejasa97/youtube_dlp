@@ -36,7 +36,7 @@ service response.
 | --- | --- | --- |
 | generic | Direct HTTP/HTTPS media, bounded native-provider embeds, and JSON-LD/Twitter/OpenGraph media | simple/direct, shared backend |
 | youtube | youtube.com/watch and youtu.be, /embed, /shorts, /playlist, and channel live alias URLs | playlist/API, manifest-heavy, JavaScript challenge |
-| vimeo | vimeo.com videos and contextual child URLs with bounded public text tracks, channels, user profiles, groups, and numeric or safe-slug public album/showcase playlists | playlist/API, manifest-heavy |
+| vimeo | vimeo.com public videos and contextual child URLs; authenticated direct unlisted-share URLs; bounded public text tracks, channels, user profiles, groups, and numeric or safe-slug public album/showcase playlists | authenticated, playlist/API, manifest-heavy |
 | twitch | twitch.tv channels, VODs, clips, collections, channel videos/profile, channel collections, and channel clips playlists | live, playlist/API, manifest-heavy |
 | soundcloud | soundcloud.com tracks with original downloads, opt-in public comments, and artwork/avatar thumbnail matrices; sets with tokenized private-set hydration; bare profiles; all pinned public profile tabs; legacy API user playlists; player/embed URLs; and bounded public search | playlist/API |
 | applepodcasts | podcasts.apple.com public episode pages with an explicit numeric episode query ID | simple/direct |
@@ -99,6 +99,17 @@ evidence. Counts and host policies are recorded in
 
 These entries are deterministic-corpus compatible only. They do not claim live
 service coverage beyond synthetic fixtures and documented handoff behavior.
+
+## Vimeo authenticated unlisted-video boundary
+
+Direct HTTPS `{numeric-id}/{10-lowercase-hex-hash}` share URLs use an existing
+`vimeo` session cookie to mint an authenticated viewer JWT and resolve
+metadata, player formats, and an available logged-in source/original format.
+Query strings and fragments are accepted but stripped before requests. The
+cookie is confined to the exact no-redirect viewer endpoint, the JWT to
+`api.vimeo.com`, and config/CDN hosts receive neither. Interactive login,
+password submission, non-share private URL discovery, DRM, and live archives
+remain outside this bounded support claim.
 
 ## Discovery / DPlay support boundaries
 
