@@ -12,16 +12,16 @@ are excluded.
 
 | Classification | Classes | Meaning |
 | --- | ---: | --- |
-| `already_supported` | 118 | An exact registered Go extractor mapping is known. Compatibility remains bounded by that extractor's manifest claim. |
+| `already_supported` | 139 | An exact registered Go extractor mapping is known. Compatibility remains bounded by that extractor's manifest claim. |
 | `partially_supported` | 117 | The site family exists in Go, but this upstream class does not have a proven exact mapping. |
 | `uses_existing_shared_backend` | 50 | The upstream class visibly hands off to a backend already implemented in Go. |
-| `requires_authentication_or_antibot` | 141 | The class contains explicit login, password, OAuth, authorization, or impersonation behavior. |
+| `requires_authentication_or_antibot` | 135 | The class contains explicit login, password, OAuth, authorization, or impersonation behavior. |
 | `obsolete_or_intentional_deviation` | 136 | The pinned upstream class explicitly declares `_WORKING = False`. |
-| `requires_new_backend` | 1,189 | No exact Go mapping or existing-backend handoff was detected; manual family review is required. |
+| `requires_new_backend` | 1,174 | No exact Go mapping or existing-backend handoff was detected; manual family review is required. |
 | **Total** | **1,751** | All registered concrete classes in the pinned reference. |
 
-Exact extractor-class coverage is therefore 118/1,751 (6.7%). Including partial
-site-family coverage gives 235/1,751 (13.4%), but partial rows must not be
+Exact extractor-class coverage is therefore 139/1,751 (7.9%). Including partial
+site-family coverage gives 256/1,751 (14.6%), but partial rows must not be
 treated as complete. These figures measure extractor-class breadth only, not
 the completion of downloaders, post-processing, the CLI, or the overall Go
 port.

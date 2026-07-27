@@ -69,6 +69,7 @@ service response.
 | bluesky | bsky.app, www.bsky.app, main.bsky.dev post URLs and at:// URIs (public posts only) | playlist/API, manifest-heavy, regional |
 | imgur | imgur.com and i.imgur.com public videos, animated images, galleries, and albums | simple/direct, playlist/API |
 | flickr | flickr.com public video pages | simple/direct, playlist/API |
+| Discovery / DPlay family | Discovery, DPlay, Discovery+, Discovery+ India/Italy shows, AHC, Animal Planet, Cooking Channel, Destination America, Discovery Life, Food Network, HGTV, Investigation Discovery, Science Channel, TLC, Travel Channel, Tele5, DMAX/TLC Germany | playlist/API, manifest-heavy, regional/authenticated API |
 
 ## Shared-family breadth (Wave 1 + priority-100)
 
@@ -98,6 +99,26 @@ evidence. Counts and host policies are recorded in
 
 These entries are deterministic-corpus compatible only. They do not claim live
 service coverage beyond synthetic fixtures and documented handoff behavior.
+
+## Discovery / DPlay support boundaries
+
+The Discovery family uses exact-host adapters over one bounded content,
+playback, and token backend. Both legacy keyed playback and v3 playback lists
+are supported. HLS master and playable media playlists, one honest DASH MPD
+format, manifest subtitles, direct HTTP formats, and product download dispatch
+have deterministic coverage. India and Italy show routes use reusable, lazy,
+multi-season pagination with response-identity, page, season, entry, and
+cancellation bounds. Empty pages advance normally, repeated non-empty responses
+fail closed, and ordered episode occurrences are preserved across season
+filters. DPlay and Discovery Plus India download Referers propagate to
+manifests, fragments, and direct media without API bearer headers.
+
+Tele5 Aurora CMS recursion keeps its validated public URL as both API Referer
+and final `webpage_url`; opaque child URLs never appear in returned metadata.
+German DMAX/TLC routes use bounded Loma CMS enrichment with a tested not-found
+fallback; HGTV Germany uses the direct Hyoga playback flow. Subscription
+entitlement, live account state, geo availability, and future service schema
+changes are not claimed by synthetic fixtures.
 
 ## Bluesky support boundaries
 

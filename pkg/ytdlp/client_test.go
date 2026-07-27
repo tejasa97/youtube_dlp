@@ -3133,3 +3133,266 @@ func TestOperationPropagatesRefererThroughPlaylistRecursion(t *testing.T) {
 		t.Fatalf("referers = %#v", child.referers)
 	}
 }
+
+func TestProductRegistrySelectsDiscoveryDPlayConcreteKeys(t *testing.T) {
+	registry := productRegistry()
+	tests := map[string]string{
+		"https://ahctv.com/video/a/b": "amhistorychannel", "https://animalplanet.com/video/a/b": "animalplanet", "https://watch.cookingchanneltv.com/video/a/b": "cookingchannel", "https://dplay.no/videoer/a/b": "dplay", "https://destinationamerica.com/video/a/b": "destinationamerica", "https://discoverylife.com/video/a/b": "discoverylife", "https://dmax.de/sendungen/a/b": "discoverynetworksde", "https://discoveryplus.com/gb/video/a/b": "discoveryplus", "https://discoveryplus.in/videos/a/b": "discoveryplusindia", "https://discoveryplus.in/show/a": "discoveryplusindiashow", "https://discoveryplus.com/it/video/a/b": "discoveryplusitaly", "https://discoveryplus.it/programmi/a": "discoveryplusitalyshow", "https://foodnetwork.com/video/a/b": "foodnetwork", "https://go.discovery.com/video/a/b": "godiscovery", "https://de.hgtv.com/sendungen/a/b": "hgtvde", "https://hgtv.com/video/a/b": "hgtvusa", "https://investigationdiscovery.com/video/a/b": "investigationdiscovery", "https://sciencechannel.com/video/a/b": "sciencechannel", "https://go.tlc.com/video/a/b": "tlc", "https://travelchannel.com/video/a/b": "travelchannel", "https://tele5.de/mediathek/a/b": "tele5",
+	}
+	for rawURL, want := range tests {
+		selected, err := registry.Select(rawURL)
+		if err != nil || selected.Name() != want {
+			t.Fatalf("Select(%q) = %v, %v; want %q", rawURL, selected, err, want)
+		}
+	}
+}
+
+func TestProductDiscoveryHLSAndDASHDownloadDispatch(t *testing.T) {
+	for _, test := range []struct {
+		name, kind, manifestPath, manifest, want string
+	}{
+		{"HLS", "hls", "/master.m3u8", "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000\nmedia.m3u8\n", "hls-one-hls-two"},
+		{"DASH", "dash", "/manifest.mpd", `<MPD type="static" mediaPresentationDuration="PT2S"><Period><AdaptationSet contentType="video" mimeType="video/mp4"><Representation id="fixture" bandwidth="1000"><SegmentTemplate duration="1" initialization="init.bin" media="$Number$.bin"/></Representation></AdaptationSet></Period></MPD>`, "dash-init-dash-one-dash-two"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			roundTrip := roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+				body := ""
+				if request.URL.Host == "cdn.example.invalid" {
+					for _, key := range []string{"Authorization", "Proxy-Authorization", "Cookie", "Referer"} {
+						if got := request.Header.Get(key); got != "" {
+							return nil, fmt.Errorf("%s leaked to Discovery CDN: %q", key, got)
+						}
+					}
+				}
+				switch {
+				case strings.HasSuffix(request.URL.Path, "/token"):
+					body = `{"data":{"attributes":{"token":"fixture-token"}}}`
+				case strings.Contains(request.URL.Path, "/content/videos/"):
+					body = `{"data":{"id":"video-1","attributes":{"name":"Discovery Dispatch","videoDuration":2000}}}`
+				case strings.Contains(request.URL.Path, "videoPlaybackInfo"):
+					body = fmt.Sprintf(`{"data":{"attributes":{"streaming":[{"type":%q,"url":%q}]}}}`, test.kind, "https://cdn.example.invalid"+test.manifestPath)
+				case request.URL.Path == test.manifestPath:
+					body = test.manifest
+				case request.URL.Path == "/media.m3u8":
+					body = "#EXTM3U\n#EXTINF:1,\none.bin\n#EXTINF:1,\ntwo.bin\n#EXT-X-ENDLIST\n"
+				case request.URL.Path == "/one.bin":
+					body = "hls-one-"
+				case request.URL.Path == "/two.bin":
+					body = "hls-two"
+				case request.URL.Path == "/init.bin":
+					body = "dash-init-"
+				case request.URL.Path == "/1.bin":
+					body = "dash-one-"
+				case request.URL.Path == "/2.bin":
+					body = "dash-two"
+				default:
+					return nil, fmt.Errorf("unexpected Discovery dispatch request %s", request.URL.Redacted())
+				}
+				header := make(http.Header)
+				header.Set("Content-Length", strconv.Itoa(len(body)))
+				return &http.Response{StatusCode: 200, Header: header, Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
+			})
+			transport, err := network.New(network.Config{RoundTripper: roundTrip})
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := Request{OutputDir: t.TempDir()}
+			operation := &operation{client: NewClient(), request: request, transport: transport, registry: productRegistry(), rootExtractor: new(string)}
+			result, err := operation.process(context.Background(), "https://go.discovery.com/video/show/episode", "", nil, make(map[string]bool), 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			payload, err := os.ReadFile(result.Filename)
+			if err != nil || string(payload) != test.want {
+				t.Fatalf("payload=%q want=%q err=%v", payload, test.want, err)
+			}
+		})
+	}
+}
+
+func TestProductDiscoveryDownloadRefererScope(t *testing.T) {
+	for _, site := range []struct {
+		name, rawURL, referer string
+		legacy                bool
+	}{
+		{"DPlay", "https://www.dplay.no/videoer/show/episode", "dplay.no", true},
+		{"DiscoveryPlusIndia", "https://www.discoveryplus.in/videos/show/episode", "https://www.discoveryplus.in/", false},
+	} {
+		for _, media := range []struct {
+			name, kind, mediaURL, want string
+		}{
+			{"HLS", "hls", "https://cdn.example.invalid/master.m3u8", "one-two"},
+			{"Direct", "http", "https://cdn.example.invalid/video.mp4", "direct-media"},
+		} {
+			t.Run(site.name+"/"+media.name, func(t *testing.T) {
+				seen := make(map[string][]http.Header)
+				var seenMu sync.Mutex
+				roundTrip := roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+					body := ""
+					if request.URL.Host == "cdn.example.invalid" {
+						seenMu.Lock()
+						seen[request.URL.Path] = append(seen[request.URL.Path], request.Header.Clone())
+						seenMu.Unlock()
+						for _, key := range []string{"Authentication", "Authorization", "Cookie", "Proxy-Authorization"} {
+							if got := request.Header.Get(key); got != "" {
+								return nil, fmt.Errorf("%s leaked to Discovery CDN: %q", key, got)
+							}
+						}
+						switch request.URL.Path {
+						case "/master.m3u8":
+							body = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000\nmedia.m3u8\n"
+						case "/media.m3u8":
+							body = "#EXTM3U\n#EXTINF:1,\none.bin\n#EXTINF:1,\ntwo.bin\n#EXT-X-ENDLIST\n"
+						case "/one.bin":
+							body = "one-"
+						case "/two.bin":
+							body = "two"
+						case "/video.mp4":
+							body = "direct-media"
+						default:
+							return nil, fmt.Errorf("unexpected Discovery CDN request %s", request.URL.Redacted())
+						}
+					} else {
+						switch {
+						case strings.HasSuffix(request.URL.Path, "/token"):
+							body = `{"data":{"attributes":{"token":"api-bearer"}}}`
+						case strings.Contains(request.URL.Path, "/content/videos/"):
+							if request.Header.Get("Authorization") != "Bearer api-bearer" {
+								return nil, fmt.Errorf("content request bearer=%q", request.Header.Get("Authorization"))
+							}
+							body = `{"data":{"id":"video-1","attributes":{"name":"Referer fixture","videoDuration":2000}}}`
+						case strings.Contains(request.URL.Path, "videoPlaybackInfo"):
+							if request.Header.Get("Authorization") != "Bearer api-bearer" {
+								return nil, fmt.Errorf("playback request bearer=%q", request.Header.Get("Authorization"))
+							}
+							if site.legacy {
+								body = fmt.Sprintf(`{"data":{"attributes":{"streaming":{%q:{"url":%q}}}}}`, media.kind, media.mediaURL)
+							} else {
+								body = fmt.Sprintf(`{"data":{"attributes":{"streaming":[{"type":%q,"url":%q}]}}}`, media.kind, media.mediaURL)
+							}
+						default:
+							return nil, fmt.Errorf("unexpected Discovery API request %s", request.URL.Redacted())
+						}
+					}
+					headers := make(http.Header)
+					headers.Set("Content-Length", strconv.Itoa(len(body)))
+					return &http.Response{StatusCode: http.StatusOK, Header: headers, Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
+				})
+				transport, err := network.New(network.Config{RoundTripper: roundTrip})
+				if err != nil {
+					t.Fatal(err)
+				}
+				operation := &operation{
+					client: NewClient(), request: Request{OutputDir: t.TempDir()}, transport: transport,
+					registry: productRegistry(), rootExtractor: new(string),
+				}
+				result, err := operation.process(context.Background(), site.rawURL, "", nil, make(map[string]bool), 0)
+				if err != nil {
+					t.Fatal(err)
+				}
+				payload, err := os.ReadFile(result.Filename)
+				if err != nil || string(payload) != media.want {
+					t.Fatalf("payload=%q want=%q err=%v", payload, media.want, err)
+				}
+				requiredPaths := []string{"/video.mp4"}
+				if media.name == "HLS" {
+					requiredPaths = []string{"/media.m3u8", "/one.bin", "/two.bin"}
+				}
+				for _, path := range requiredPaths {
+					headers := seen[path]
+					if len(headers) == 0 {
+						t.Fatalf("%s was not requested; seen=%v", path, seen)
+					}
+					for _, header := range headers {
+						if got := header.Get("Referer"); got != site.referer {
+							t.Fatalf("%s Referer=%q want=%q", path, got, site.referer)
+						}
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestProductCategorizesDiscoveryFailures(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		status int
+		body   string
+		want   ErrorCategory
+	}{
+		{"authentication", 401, `{}`, ErrorAuthentication},
+		{"unavailable", 404, `{}`, ErrorUnsupported},
+		{"rate-limit", 429, `{}`, ErrorNetwork},
+		{"service", 500, `{}`, ErrorNetwork},
+		{"region", 451, `{}`, ErrorUnsupported},
+		{"malformed", 200, `{`, ErrorInternal},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			roundTrip := roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+				status, body := test.status, test.body
+				if strings.HasSuffix(request.URL.Path, "/token") {
+					status, body = 200, `{"data":{"attributes":{"token":"fixture-token"}}}`
+				}
+				return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
+			})
+			transport, err := network.New(network.Config{RoundTripper: roundTrip})
+			if err != nil {
+				t.Fatal(err)
+			}
+			operation := &operation{client: NewClient(), request: Request{SkipDownload: true}, transport: transport, registry: productRegistry(), rootExtractor: new(string)}
+			_, err = operation.process(context.Background(), "https://go.discovery.com/video/show/episode", "", nil, make(map[string]bool), 0)
+			if !IsCategory(err, test.want) {
+				t.Fatalf("category error=%v want=%s", err, test.want)
+			}
+		})
+	}
+}
+
+func TestProductTele5CMSOpaqueReentryPreservesPublicIdentity(t *testing.T) {
+	publicURL := "https://tele5.de/mediathek/star-trek/vox-sola"
+	var contentReferer string
+	roundTrip := roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		var body string
+		if strings.Contains(request.URL.Host, "aurora.enhanced.live") || strings.HasSuffix(request.URL.Path, "/token") {
+			for _, key := range []string{"Authorization", "Proxy-Authorization", "Cookie", "Referer"} {
+				if got := request.Header.Get(key); got != "" {
+					return nil, fmt.Errorf("%s leaked to isolated Discovery request: %q", key, got)
+				}
+			}
+		}
+		switch {
+		case strings.Contains(request.URL.Host, "aurora.enhanced.live"):
+			body = `{"blocks":[{"videoId":"4140114"}]}`
+		case strings.HasSuffix(request.URL.Path, "/token"):
+			body = `{"data":{"attributes":{"token":"fixture-token"}}}`
+		case strings.Contains(request.URL.Path, "/content/videos/"):
+			contentReferer = request.Header.Get("Referer")
+			body = `{"data":{"id":"4140114","attributes":{"name":"Vox Sola","videoDuration":1000}}}`
+		case strings.Contains(request.URL.Path, "videoPlaybackInfo"):
+			body = `{"data":{"attributes":{"streaming":[{"type":"http","url":"https://cdn.example.invalid/video.mp4"}]}}}`
+		default:
+			return nil, fmt.Errorf("unexpected Discovery request %s", request.URL.Redacted())
+		}
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
+	})
+	transport, err := network.New(network.Config{RoundTripper: roundTrip})
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := &operation{client: NewClient(), request: Request{SkipDownload: true}, transport: transport, registry: productRegistry(), rootExtractor: new(string)}
+	result, err := operation.process(context.Background(), publicURL, "", nil, make(map[string]bool), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Entries) != 1 {
+		t.Fatalf("entries=%d", len(result.Entries))
+	}
+	jsonText := string(result.Entries[0].InfoJSON)
+	if !strings.Contains(jsonText, publicURL) || strings.Contains(jsonText, "discovery:tele5:") {
+		t.Fatalf("identity JSON=%s", jsonText)
+	}
+	if contentReferer != publicURL {
+		t.Fatalf("content Referer=%q", contentReferer)
+	}
+}

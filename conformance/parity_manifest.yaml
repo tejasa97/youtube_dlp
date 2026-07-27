@@ -38,6 +38,41 @@ capabilities:
       - conformance/extractors/prx/PROVENANCE.md
     owner: core
     known_deviation: PRX story and series search extractors are deferred; synthetic fixtures do not prove behavior against future live API schema changes.
+  - id: extractor.discovery_dplay
+    name: Discovery and DPlay extractor family
+    phase: 2
+    compatibility_target: Extract the pinned Discovery/DPlay single-video, India/Italy show, German CMS, and Tele5 CMS route corpus with bounded credential-isolated HLS/DASH playback, scoped show Authentication, and product download Referer dispatch.
+    status: compatible
+    evidence:
+      - internal/extractor.TestDiscoveryDPlayRoutesAllConcreteAdapters
+      - internal/extractor.TestDiscoveryEveryAdapterRejectsLookalikeHost
+      - internal/extractor.TestDiscoveryAllCommittedFixturesAreExercised
+      - internal/extractor.TestDiscoveryManifestBoundsErrorsAndCancellation
+      - internal/extractor.TestDiscoveryMixedPlaybackFormatsSubtitlesAndFallback
+      - internal/extractor.TestDiscoveryJSONBoundsNilResponsesAndCancellation
+      - internal/extractor.TestDiscoveryStructuredErrorMatrix
+      - internal/extractor.TestDiscoveryCredentialIsolationRequestsAreBare
+      - internal/extractor.TestDiscoveryTele5CMSOpaqueVideoIdentity
+      - internal/extractor.TestDiscoveryGermanCMSSuccessAndFallback
+      - internal/extractor.TestDiscoveryShowPaginationSeasonsReuseAndFailures
+      - internal/extractor.TestDiscoveryMissingCapabilitiesConcurrencyAndSecretSafety
+      - internal/extractor.FuzzDiscoveryDPlayRouting
+      - internal/extractor.FuzzDiscoveryPlaybackSchemas
+      - internal/extractor.FuzzDiscoveryShowPageIdentity
+      - internal/extractor.FuzzDiscoveryManifestPolicy
+      - internal/extractor.FuzzDiscoveryTokenContentAndErrorPolicy
+      - internal/extractor.FuzzDiscoveryCMSPolicy
+      - internal/network.TestDoWithScopedAuthenticationNoRedirectUsesExplicitShowScope
+      - internal/network.TestDoWithScopedAuthenticationNoRedirectRejectsAmbientScope
+      - pkg/ytdlp.TestProductRegistrySelectsDiscoveryDPlayConcreteKeys
+      - pkg/ytdlp.TestProductDiscoveryHLSAndDASHDownloadDispatch
+      - pkg/ytdlp.TestProductDiscoveryDownloadRefererScope
+      - pkg/ytdlp.TestProductCategorizesDiscoveryFailures
+      - pkg/ytdlp.TestProductTele5CMSOpaqueReentryPreservesPublicIdentity
+      - conformance/extractors/dplay/PROVENANCE.md
+      - docs/EXTRACTOR_DPLAY_DISCOVERY_EVIDENCE.md
+    owner: core
+    known_deviation: The claim is limited to the pinned synthetic corpus and does not prove live subscription entitlement, geo availability, account state, or future Discovery service schema changes. DASH is intentionally represented by one honest MPD format because representation selection occurs downstream.
   - id: foundation.cli
     name: Foundation CLI boundary
     phase: 0
