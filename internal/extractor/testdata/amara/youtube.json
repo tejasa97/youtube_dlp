@@ -1,0 +1,22 @@
+{
+  "title": "Why jury trials are becoming less common",
+  "description": "A PBS NewsHour segment on declining jury trials.",
+  "thumbnail": "https://i.ytimg.com/vi/h6ZuVdvYnfE/hqdefault.jpg",
+  "duration": "312",
+  "created": "2016-08-13T00:00:00Z",
+  "all_urls": [
+    "https://www.youtube.com/watch?v=h6ZuVdvYnfE"
+  ],
+  "languages": [
+    {
+      "code": "en",
+      "published": true,
+      "subtitles_uri": "https://amara.org/api/videos/jVx79ZKGK1ky/subtitles/en/"
+    },
+    {
+      "code": "es",
+      "published": false,
+      "subtitles_uri": "https://amara.org/api/videos/jVx79ZKGK1ky/subtitles/es/"
+    }
+  ]
+}

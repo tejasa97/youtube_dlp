@@ -1,0 +1,11 @@
+{
+  "title": "HTTP direct media fixture",
+  "description": "Direct media over plain HTTP.",
+  "thumbnail": "https://cdn.amara.org/media/thumbs/http-fixture.jpg",
+  "duration": "120",
+  "created": "2010-01-01T00:00:00Z",
+  "all_urls": [
+    "http://cdn.amara.org/media/cachedfiles/direct/http-fixture.mp4"
+  ],
+  "languages": []
+}

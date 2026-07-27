@@ -1,0 +1,22 @@
+{
+  "title": "The danger of a single story",
+  "description": "Chimamanda Ngozi Adichie warns that if we hear only a single story about another person or country, we risk a critical misunderstanding.",
+  "thumbnail": "https://cdn.amara.org/media/thumbs/s8KL7I3jLmh6.jpg",
+  "duration": "1176",
+  "created": "2009-10-07T12:28:31Z",
+  "all_urls": [
+    "https://cdn.amara.org/media/cachedfiles/direct/s8KL7I3jLmh6.mp4"
+  ],
+  "languages": [
+    {
+      "code": "en",
+      "published": true,
+      "subtitles_uri": "https://amara.org/api/videos/s8KL7I3jLmh6/subtitles/en/"
+    },
+    {
+      "code": "fr",
+      "published": true,
+      "subtitles_uri": "https://amara.org/api/videos/s8KL7I3jLmh6/subtitles/fr/"
+    }
+  ]
+}

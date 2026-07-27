@@ -1,0 +1,7 @@
+{
+  "title": "Fixture",
+  "all_urls": [
+    "javascript:alert(1)",
+    "https://user:pass@cdn.amara.org/media/video.mp4"
+  ]
+}

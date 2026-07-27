@@ -1,0 +1,17 @@
+{
+  "title": "Vimeo at CES 2011!",
+  "description": "",
+  "thumbnail": "https://i.vimeocdn.com/video/1234567_640.jpg",
+  "duration": 180,
+  "created": "2011-01-11T12:34:18+00:00",
+  "all_urls": [
+    "https://vimeo.com/18622084"
+  ],
+  "languages": [
+    {
+      "code": "en",
+      "published": true,
+      "subtitles_uri": "https://amara.org/api/videos/kYkK1VUTWW5I/subtitles/en/"
+    }
+  ]
+}
