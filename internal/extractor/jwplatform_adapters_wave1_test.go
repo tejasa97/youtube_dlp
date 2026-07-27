@@ -2,10 +2,12 @@ package extractor
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -107,7 +109,7 @@ func TestJWPlatformAdaptersWave1SuitableAndHandoff(t *testing.T) {
 		canonical := "https://www.hollywoodreporter.com/video/youtube-fixture/"
 		transport := &sharedFixtureTransport{pages: map[string][]byte{canonical: jwWave1Fixture(t, "hollywoodreporter_yt_page.html")}}
 		result, err := NewHollywoodReporter().Extract(context.Background(), Request{URL: rawURL, Transport: transport})
-		if err != nil || result.Redirect.URL != "https://www.youtube.com/watch?v=dQw4w9WgXcQ" || result.Redirect.ExtractorKey != "youtube" {
+		if err != nil || result.Redirect.URL != "https://www.youtube.com/watch?v=fixture0001" || result.Redirect.ExtractorKey != "youtube" {
 			t.Fatalf("%#v %v", result, err)
 		}
 	})
@@ -152,6 +154,27 @@ func TestJWPlatformAdaptersWave1SuitableAndHandoff(t *testing.T) {
 		result, err := NewLeFigaroVideoEmbed().Extract(context.Background(), Request{URL: rawURL, Transport: transport})
 		if err != nil || result.Redirect.URL != "jwplatform:g9j7Eovo" || result.Redirect.Title != "Le Figaro Fixture" {
 			t.Fatalf("%#v %v", result, err)
+		}
+		if !result.Redirect.Transparent {
+			t.Fatalf("lefigaro handoff is not transparent: %#v", result.Redirect)
+		}
+		if result.Redirect.Thumbnail != "https://images.example/lefigaro.jpg" {
+			t.Fatalf("lefigaro poster lost: %#v", result.Redirect)
+		}
+	})
+	t.Run("lefigaro_http_poster_omitted", func(t *testing.T) {
+		rawURL := "https://video.lefigaro.fr/embed/figaro/video/les-francais-ne-veulent-ils-plus-travailler/"
+		canonical := rawURL
+		page := []byte(`<html><body>
+<script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{"initialProps":{"pageData":{"playerData":{"videoId":"g9j7Eovo","title":"HTTP Poster","poster":"http://images.example/lefigaro-insecure.jpg"}}}}}}}</script>
+</body></html>`)
+		transport := &sharedFixtureTransport{pages: map[string][]byte{canonical: page}}
+		result, err := NewLeFigaroVideoEmbed().Extract(context.Background(), Request{URL: rawURL, Transport: transport})
+		if err != nil {
+			t.Fatalf("err=%v", err)
+		}
+		if result.Redirect.Thumbnail != "" {
+			t.Fatalf("lefigaro accepted http poster: %#v", result.Redirect)
 		}
 	})
 
@@ -319,13 +342,25 @@ func TestJWPlatformAdaptersWave1Negatives(t *testing.T) {
 		t.Fatalf("duplicate slug=%v", err)
 	}
 
-	oversizedIntercept := &sharedFixtureTransport{pages: map[string][]byte{
-		"https://theintercept.com/fieldofvision/slug/": []byte(`<script>initialStoreTree = {"resources":{"posts":{` + strings.Repeat(`"k":{"ID":1,"slug":"slug","fov_videoid":"AbCd1234"},`, jwWave1MaxEntries+1) + `"z":{"ID":2,"slug":"slug","fov_videoid":"EfGh5678"}}}}</script>`),
+	lotsOfNonmatchingPosts := &sharedFixtureTransport{pages: map[string][]byte{
+		"https://theintercept.com/fieldofvision/match-slug/": []byte(buildManyNonmatchingThenOneMatch(jwWave1MaxEntries+1, "match-slug", "AbCd1234")),
 	}}
-	if _, err := NewTheIntercept().Extract(context.Background(), Request{
-		URL: "https://theintercept.com/fieldofvision/slug/", Transport: oversizedIntercept,
-	}); !errors.Is(err, ErrInvalidMetadata) {
-		t.Fatalf("oversized intercept=%v", err)
+	bigResult, err := NewTheIntercept().Extract(context.Background(), Request{
+		URL: "https://theintercept.com/fieldofvision/match-slug/", Transport: lotsOfNonmatchingPosts,
+	})
+	if err != nil {
+		t.Fatalf("big post set err=%v", err)
+	}
+	if bigResult.Redirect.URL != "jwplatform:AbCd1234" {
+		t.Fatalf("big redirect=%#v", bigResult.Redirect)
+	}
+	// The generator must emit >128 unique keys. Re-decode the same page and
+	// verify the encoded key count actually exceeded the prior 128-entry cap;
+	// without this assertion the test would still pass if the generator
+	// accidentally collapsed entries onto a single repeated key.
+	decoded := jwWave1DecodePostsForBoundary(t, "https://theintercept.com/fieldofvision/match-slug/", lotsOfNonmatchingPosts)
+	if decoded <= jwWave1MaxEntries {
+		t.Fatalf("encoded post map should exceed %d entries, got %d", jwWave1MaxEntries, decoded)
 	}
 
 	malformedIltalehti := &sharedFixtureTransport{pages: map[string][]byte{
@@ -370,6 +405,60 @@ func wave1BytesRepeat(ch byte, count int) []byte {
 		out[i] = ch
 	}
 	return out
+}
+
+// jwWave1DecodePostsForBoundary decodes the The Intercept post map from a
+// generated page fixture and returns the number of unique posts. It proves
+// that buildManyNonmatchingThenOneMatch truly emitted the requested number of
+// unique keys instead of collapsing them.
+func jwWave1DecodePostsForBoundary(t testing.TB, pageURL string, transport *sharedFixtureTransport) int {
+	t.Helper()
+	page, ok := transport.pages[pageURL]
+	if !ok {
+		t.Fatalf("missing fixture page %q", pageURL)
+	}
+	raw, err := extractJSONObjectAfter(page, theInterceptStore)
+	if err != nil {
+		t.Fatalf("decode intercept store: %v", err)
+	}
+	var store struct {
+		Resources struct {
+			Posts map[string]struct {
+				ID         json.Number `json:"ID"`
+				Slug       string      `json:"slug"`
+				Title      string      `json:"title"`
+				Date       string      `json:"date"`
+				FOVVideoID string      `json:"fov_videoid"`
+			} `json:"posts"`
+		} `json:"resources"`
+	}
+	if err := json.Unmarshal(raw, &store); err != nil {
+		t.Fatalf("unmarshal intercept store: %v", err)
+	}
+	return len(store.Resources.Posts)
+}
+
+// buildManyNonmatchingThenOneMatch builds an initialStoreTree blob with
+// `count` non-matching posts and one matching post whose slug is the
+// requested matchSlug and fov_videoid is the requested media id. Each key is
+// uniquely generated via strconv so the decoded map genuinely exercises the
+// requested count boundary (repeating a fixed JSON key would collapse all
+// entries into one in the resulting object).
+func buildManyNonmatchingThenOneMatch(count int, matchSlug, mediaID string) string {
+	var nonmatching strings.Builder
+	nonmatching.Grow(count * 80)
+	for index := 0; index < count; index++ {
+		if index > 0 {
+			nonmatching.WriteByte(',')
+		}
+		nonmatching.WriteString(`"k`)
+		nonmatching.WriteString(strconv.Itoa(index))
+		nonmatching.WriteString(`":{"ID":`)
+		nonmatching.WriteString(strconv.Itoa(index + 1))
+		nonmatching.WriteString(`,"slug":"oops","fov_videoid":"AbCd1234"}`)
+	}
+	matching := `"match":{"ID":` + strconv.Itoa(count+1) + `,"slug":"` + matchSlug + `","fov_videoid":"` + mediaID + `"}`
+	return `<script>initialStoreTree = {"resources":{"posts":{` + nonmatching.String() + `,` + matching + `}}}</script>`
 }
 
 func TestJWPlatformAdaptersWave1SlugBounds(t *testing.T) {

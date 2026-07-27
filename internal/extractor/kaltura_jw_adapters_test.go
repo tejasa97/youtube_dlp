@@ -172,3 +172,49 @@ func FuzzParseSpiegelURL(f *testing.F) {
 		_, _ = parseSpiegelURL(parsed)
 	})
 }
+
+func TestJWPlatformEntryConstructor(t *testing.T) {
+	t.Parallel()
+	t.Run("valid id with fallback", func(t *testing.T) {
+		entry, err := jwPlatformEntry("AbCd1234", Entry{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if entry.URL != "jwplatform:AbCd1234" {
+			t.Fatalf("URL=%q", entry.URL)
+		}
+		if entry.ExtractorKey != "jwplatform" {
+			t.Fatalf("ExtractorKey=%q", entry.ExtractorKey)
+		}
+		if entry.ID != "AbCd1234" {
+			t.Fatalf("ID=%q", entry.ID)
+		}
+		if !entry.Transparent {
+			t.Fatal("not transparent")
+		}
+	})
+	t.Run("valid id with producer metadata preserved", func(t *testing.T) {
+		entry, err := jwPlatformEntry("AbCd1234", Entry{
+			ID:      "producer-id",
+			Title:   "Producer Title",
+			Referer: "https://example.invalid/article",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if entry.ID != "producer-id" {
+			t.Fatalf("producer ID overwritten: %q", entry.ID)
+		}
+		if entry.Title != "Producer Title" {
+			t.Fatalf("producer title overwritten: %q", entry.Title)
+		}
+		if entry.Referer != "https://example.invalid/article" {
+			t.Fatalf("referer overwritten: %q", entry.Referer)
+		}
+	})
+	t.Run("invalid media id rejected", func(t *testing.T) {
+		if _, err := jwPlatformEntry("short", Entry{}); !errors.Is(err, ErrInvalidMetadata) {
+			t.Fatalf("err=%v", err)
+		}
+	})
+}

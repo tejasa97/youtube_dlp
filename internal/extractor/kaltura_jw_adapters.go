@@ -52,20 +52,46 @@ func kalturaURLResult(partnerID, entryID string) (Extraction, error) {
 	})
 }
 
+// jwPlatformURLResult is the shared validated transparent handoff for any
+// JW-backed site adapter. Adapters pass an Entry whose optional fields are
+// preserved transparently across product recursion; missing IDs fall back to
+// the validated media id, while URL and ExtractorKey are always rewritten.
 func jwPlatformURLResult(mediaID, displayID string) (Extraction, error) {
+	entry, err := jwPlatformEntry(mediaID, Entry{ID: displayID})
+	if err != nil {
+		return Extraction{}, err
+	}
+	return URLResult(entry)
+}
+
+// jwPlatformURLEntry builds the same handoff when the caller already has an
+// Entry with producer metadata they want preserved across product recursion.
+// The transparent flag is always set so the next extractor inherits the
+// supplied metadata; routing fields (URL, ExtractorKey) are not honored.
+func jwPlatformURLEntry(mediaID string, entry Entry) (Extraction, error) {
+	built, err := jwPlatformEntry(mediaID, entry)
+	if err != nil {
+		return Extraction{}, err
+	}
+	return URLResult(built)
+}
+
+// jwPlatformEntry is the shared validated JW-backed Entry constructor used
+// by URLResult handoffs and playlist entry construction. It validates the
+// media id, rewrites URL and ExtractorKey, falls back to the media id when
+// the supplied Entry has none, and marks the Entry as transparent so
+// product recursion inherits producer metadata.
+func jwPlatformEntry(mediaID string, entry Entry) (Entry, error) {
 	if !jwPlatformID.MatchString(mediaID) {
-		return Extraction{}, fmt.Errorf("%w: invalid JW Platform handoff", ErrInvalidMetadata)
+		return Entry{}, fmt.Errorf("%w: invalid JW Platform handoff", ErrInvalidMetadata)
 	}
-	id := displayID
-	if id == "" {
-		id = mediaID
+	entry.URL = "jwplatform:" + mediaID
+	entry.ExtractorKey = "jwplatform"
+	if entry.ID == "" {
+		entry.ID = mediaID
 	}
-	return URLResult(Entry{
-		URL:          "jwplatform:" + mediaID,
-		ExtractorKey: "jwplatform",
-		ID:           id,
-		Transparent:  true,
-	})
+	entry.Transparent = true
+	return entry, nil
 }
 
 // UnitedNationsWebTV routes webtv.un.org assets to Kaltura.
