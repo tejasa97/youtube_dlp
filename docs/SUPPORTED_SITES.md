@@ -7,7 +7,7 @@ PRX supports exact HTTPS numeric `stories`, `series`, and `accounts` routes on
 playlists, and account series-then-story playlists are backed by the PRX CMS
 API with bounded lazy pagination. PRX search routes are intentionally deferred.
 
-ytdlp-go currently registers 42 representative native extractors. This is a
+ytdlp-go currently registers 43 representative native extractors. This is a
 conformance catalog, not a claim of the thousands of sites supported by
 upstream yt-dlp.
 
@@ -30,6 +30,7 @@ service response.
 | soundcloud | soundcloud.com tracks with original downloads, opt-in public comments, and artwork/avatar thumbnail matrices; sets with tokenized private-set hydration; bare profiles; all pinned public profile tabs; legacy API user playlists; player/embed URLs; and bounded public search | playlist/API |
 | applepodcasts | podcasts.apple.com public episode pages with an explicit numeric episode query ID | simple/direct |
 | streamable | streamable.com public, embed, and short-link URLs | shared backend, simple/direct |
+| aeonco | exact HTTPS aeon.co and www.aeon.co `/videos/{slug}` pages with bounded JSON-LD Vimeo or YouTube handoffs | shared backend |
 | peertube (+ account/channel/playlist) | conservative PeerTube instance routes and peertube: opaque video URLs | shared backend, playlist/API, live, manifest-heavy |
 | internetarchive | archive.org item pages | playlist/API |
 | tiktok | tiktok.com public video pages, vm/vt/t short links, and bounded webpage captions | anti-bot/impersonated |
