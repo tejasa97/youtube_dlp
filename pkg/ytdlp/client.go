@@ -96,10 +96,15 @@ type Request struct {
 	CookiesFromBrowser   string
 	UseNetRC             bool
 	NetRCLocation        string
-	DownloadArchive      string
-	CacheDir             string
-	Timeout              time.Duration
-	Overwrite            bool
+	// VideoPassword is the optional password used by extractors that gate
+	// media behind a per-video secret (for example Vimeo's password-protected
+	// player). Empty is valid; non-empty values are bounded, validated, and
+	// never echoed back in errors, events, or metadata.
+	VideoPassword   string
+	DownloadArchive string
+	CacheDir        string
+	Timeout         time.Duration
+	Overwrite       bool
 	// Simulate suppresses media, sidecar, archive, and postprocessor output
 	// while still performing extraction. Unlike SkipDownload, it does not
 	// permit related-file writes.
@@ -583,7 +588,8 @@ func (operation *operation) processWithTransparentParent(ctx context.Context, ra
 	}
 	extracted, err := selected.Extract(ctx, extractor.Request{
 		URL: rawURL, Referer: referer, Transport: operation.transport, ChallengeSolver: operation.solver, Credentials: operation.credentials,
-		YouTubePOT: operation.client.youtubePOT, YouTubeTranslatedCaptions: operation.request.YouTubeTranslatedCaptions,
+		VideoPassword: operation.request.VideoPassword,
+		YouTubePOT:    operation.client.youtubePOT, YouTubeTranslatedCaptions: operation.request.YouTubeTranslatedCaptions,
 		YouTubeLiveFromStart: operation.request.LiveFromStart,
 		YouTubeComments: extractor.YouTubeCommentOptions{
 			Enabled:             operation.request.YouTubeComments.Enabled,
@@ -1378,7 +1384,7 @@ func categorized(op string, err error) error {
 		category = ErrorCancelled
 	case errors.Is(err, extractor.ErrUnsupported), errors.Is(err, mediaformat.ErrMultiOutput):
 		category = ErrorUnsupported
-	case errors.Is(err, extractor.ErrAuthentication):
+	case errors.Is(err, extractor.ErrAuthentication), errors.Is(err, extractor.ErrWrongPassword):
 		category = ErrorAuthentication
 	case errors.Is(err, credentialnetrc.ErrUnsafeFile):
 		category = ErrorSecurity

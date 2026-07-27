@@ -6,9 +6,36 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 var errInvalidRequestOptions = errors.New("invalid request options")
+
+// maxVideoPasswordBytes bounds the public Request.VideoPassword. The value is
+// a generous upper bound; extractors that consume the password enforce their
+// own narrower limits.
+const maxVideoPasswordBytes = 4096
+
+// validateVideoPassword enforces the public video-password invariants. Empty
+// is valid; non-empty must be valid UTF-8, at most maxVideoPasswordBytes
+// bytes, and must not contain NUL. Other bytes are preserved exactly so
+// spaces and punctuation reach the extractor untouched. The password itself
+// is never included in the returned error.
+func validateVideoPassword(password string) error {
+	if password == "" {
+		return nil
+	}
+	if len(password) > maxVideoPasswordBytes {
+		return fmt.Errorf("%w: video password too large", errInvalidRequestOptions)
+	}
+	if strings.ContainsRune(password, 0) {
+		return fmt.Errorf("%w: video password contains NUL", errInvalidRequestOptions)
+	}
+	if !utf8.ValidString(password) {
+		return fmt.Errorf("%w: video password not valid UTF-8", errInvalidRequestOptions)
+	}
+	return nil
+}
 
 // DownloaderOptions controls bounded native transfer behavior. Zero values
 // select conservative defaults in the relevant downloader.
@@ -252,6 +279,9 @@ type ConcatPostprocessor struct {
 type MovePostprocessor struct{ Destination string }
 
 func validateRequestOptions(request Request) error {
+	if err := validateVideoPassword(request.VideoPassword); err != nil {
+		return err
+	}
 	if err := validateOutputTemplates(request); err != nil {
 		return fmt.Errorf("%w: %v", errInvalidRequestOptions, err)
 	}

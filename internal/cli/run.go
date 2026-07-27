@@ -174,6 +174,7 @@ func RunContextIO(ctx context.Context, args []string, stdin io.Reader, stdout, s
 	cookiesFromBrowser := flags.String("cookies-from-browser", "", "import cookies from Safari, Firefox, or a supported platform Chromium browser")
 	useNetRC := flags.Bool("netrc", false, "use credentials from a native .netrc file")
 	netRCLocation := flags.String("netrc-location", "", "path to .netrc or its containing directory")
+	videoPassword := flags.String("video-password", "", "per-video password for extractors that gate media behind a site secret; never echoed in errors, events, or metadata")
 	downloadArchive := flags.String("download-archive", "", "record and skip downloaded extractor IDs")
 	flags.BoolFunc("no-download-archive", "disable an inherited download archive", func(string) error {
 		*downloadArchive = ""
@@ -519,7 +520,9 @@ func RunContextIO(ctx context.Context, args []string, stdin io.Reader, stdout, s
 	}
 	result, err := client.Run(ctx, ytdlp.Request{
 		URL: flags.Arg(0), OutputTemplates: outputTemplates.clone(), OutputDir: *outputDir, OutputPaths: paths.clone(), Proxy: *proxy, ImpersonationProfile: *impersonationProfile,
-		CookieFile: *cookieFile, CookiesFromBrowser: *cookiesFromBrowser, UseNetRC: *useNetRC, NetRCLocation: *netRCLocation, DownloadArchive: *downloadArchive, CacheDir: *cacheDir,
+		CookieFile: *cookieFile, CookiesFromBrowser: *cookiesFromBrowser, UseNetRC: *useNetRC, NetRCLocation: *netRCLocation,
+		VideoPassword:   *videoPassword,
+		DownloadArchive: *downloadArchive, CacheDir: *cacheDir,
 		Timeout: *timeout, Overwrite: *overwrite, Simulate: requestSimulate, SkipDownload: *skipDownload, LiveFromStart: *liveFromStart,
 		Format: *format, FormatSort: append([]string(nil), formatSort...),
 		PreferFreeFormats: *preferFreeFormats, AllowUnplayableFormats: *allowUnplayable,
