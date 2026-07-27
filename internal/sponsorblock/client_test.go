@@ -26,7 +26,7 @@ func TestFetchDisabledProducesNoRequests(t *testing.T) {
 }
 
 func TestFetchCanonicalRequestAndMatchingGroup(t *testing.T) {
-	const videoID = "dQw4w9WgXcQ"
+	const videoID = "fixture0001"
 	sum := sha256.Sum256([]byte(videoID))
 	prefix := hex.EncodeToString(sum[:])[:4]
 	body := fmt.Sprintf(`[{"videoID":"other","segments":[{"segment":[0,5],"category":"sponsor","actionType":"skip","videoDuration":60}]},{"videoID":%q,"segments":[{"segment":[1,5],"category":"sponsor","actionType":"skip","videoDuration":60},{"segment":[10,20],"category":"intro","actionType":"skip","videoDuration":60}]}]`, videoID)

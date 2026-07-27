@@ -39,7 +39,7 @@ func (transport *youtubeAuthFixtureTransport) DoNoRedirect(_ context.Context, re
 		return nil, transport.err
 	}
 	if transport.response == nil {
-		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewBufferString(`{"playabilityStatus":{"status":"OK"},"videoDetails":{"videoId":"dQw4w9WgXcQ"}}`)), Header: make(http.Header)}, nil
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewBufferString(`{"playabilityStatus":{"status":"OK"},"videoDetails":{"videoId":"fixture0001"}}`)), Header: make(http.Header)}, nil
 	}
 	response := *transport.response
 	if response.Body == nil {
@@ -120,11 +120,11 @@ func TestYouTubeWEBAuthHeaders(t *testing.T) {
 
 func TestRequestAuthenticatedYouTubeWEBPlayer(t *testing.T) {
 	transport := &youtubeAuthFixtureTransport{cookies: youtubeAuthCookies()}
-	player, err := requestAuthenticatedYouTubeWEBPlayer(context.Background(), transport, "dQw4w9WgXcQ", youtubeAuthConfig(), func() time.Time { return time.Unix(1_700_000_000, 0) })
+	player, err := requestAuthenticatedYouTubeWEBPlayer(context.Background(), transport, "fixture0001", youtubeAuthConfig(), func() time.Time { return time.Unix(1_700_000_000, 0) })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if player.VideoDetails.VideoID != "dQw4w9WgXcQ" || transport.request == nil {
+	if player.VideoDetails.VideoID != "fixture0001" || transport.request == nil {
 		t.Fatalf("player = %#v request = %#v", player.VideoDetails, transport.request)
 	}
 	if transport.request.URL.String() != youtubeAuthenticatedWEBPlayerURL || transport.request.Method != http.MethodPost {
@@ -155,7 +155,7 @@ func TestRequestAuthenticatedYouTubeWEBPlayer(t *testing.T) {
 	if err := json.NewDecoder(transport.request.Body).Decode(&payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.VideoID != "dQw4w9WgXcQ" || !payload.ContentCheckOK || !payload.RacyCheckOK || payload.Context.Client.ClientName != "WEB" || payload.Context.Client.ClientVersion != "2.20250701.00.00" || payload.Context.Client.HL != "en" || payload.Context.Client.TimeZone != "UTC" || payload.Context.Client.UTCOffsetMinutes != 0 || payload.PlaybackContext.ContentPlaybackContext.HTML5Preference != "HTML5_PREF_WANTS" {
+	if payload.VideoID != "fixture0001" || !payload.ContentCheckOK || !payload.RacyCheckOK || payload.Context.Client.ClientName != "WEB" || payload.Context.Client.ClientVersion != "2.20250701.00.00" || payload.Context.Client.HL != "en" || payload.Context.Client.TimeZone != "UTC" || payload.Context.Client.UTCOffsetMinutes != 0 || payload.PlaybackContext.ContentPlaybackContext.HTML5Preference != "HTML5_PREF_WANTS" {
 		t.Fatalf("unexpected player payload: %#v", payload)
 	}
 }
@@ -179,10 +179,10 @@ func TestRequestAuthenticatedYouTubeWEBPlayerFailuresAreCategorizedAndSecretFree
 		{"malformed", newTransport(http.StatusOK, "{"), youtubeAuthConfig(), "", ErrAuthentication},
 		{"missing video id", newTransport(http.StatusOK, `{}`), youtubeAuthConfig(), "", ErrAuthentication},
 		{"mismatch", newTransport(http.StatusOK, `{"videoDetails":{"videoId":"aaaaaaaaaaa"}}`), youtubeAuthConfig(), "", ErrAuthentication},
-		{"missing playability", newTransport(http.StatusOK, `{"videoDetails":{"videoId":"dQw4w9WgXcQ"}}`), youtubeAuthConfig(), "", ErrAuthentication},
+		{"missing playability", newTransport(http.StatusOK, `{"videoDetails":{"videoId":"fixture0001"}}`), youtubeAuthConfig(), "", ErrAuthentication},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := requestAuthenticatedYouTubeWEBPlayer(context.Background(), test.transport, "dQw4w9WgXcQ", test.config, clock)
+			_, err := requestAuthenticatedYouTubeWEBPlayer(context.Background(), test.transport, "fixture0001", test.config, clock)
 			if !errors.Is(err, test.want) {
 				t.Fatalf("error = %v, want %v", err, test.want)
 			}
@@ -193,7 +193,7 @@ func TestRequestAuthenticatedYouTubeWEBPlayerFailuresAreCategorizedAndSecretFree
 	}
 	t.Run("oversized", func(t *testing.T) {
 		transport := newTransport(http.StatusOK, strings.Repeat(" ", int(maxExtractorJSONBytes)+1))
-		_, err := requestAuthenticatedYouTubeWEBPlayer(context.Background(), transport, "dQw4w9WgXcQ", youtubeAuthConfig(), clock)
+		_, err := requestAuthenticatedYouTubeWEBPlayer(context.Background(), transport, "fixture0001", youtubeAuthConfig(), clock)
 		if !errors.Is(err, ErrAuthentication) {
 			t.Fatalf("error = %v, want ErrAuthentication", err)
 		}
@@ -203,7 +203,7 @@ func TestRequestAuthenticatedYouTubeWEBPlayerFailuresAreCategorizedAndSecretFree
 func TestRequestAuthenticatedYouTubeWEBPlayerCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := requestAuthenticatedYouTubeWEBPlayer(ctx, &youtubeAuthFixtureTransport{cookies: youtubeAuthCookies(), err: context.Canceled}, "dQw4w9WgXcQ", youtubeAuthConfig(), time.Now)
+	_, err := requestAuthenticatedYouTubeWEBPlayer(ctx, &youtubeAuthFixtureTransport{cookies: youtubeAuthCookies(), err: context.Canceled}, "fixture0001", youtubeAuthConfig(), time.Now)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context.Canceled", err)
 	}

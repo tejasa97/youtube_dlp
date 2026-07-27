@@ -254,7 +254,7 @@ func TestProductRegistryIncludesIntegratedExtractors(t *testing.T) {
 		rawURL string
 		name   string
 	}{
-		{"https://www.youtube.com/watch?v=dQw4w9WgXcQ", "youtube"},
+		{"https://www.youtube.com/watch?v=fixture0001", "youtube"},
 		{"https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/videos", "youtube_channel_tab"},
 		{"https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv/releases", "youtube_channel_tab"},
 		{"https://www.youtube.com/channel/UCabcdefghijklmnopqrstuv", "youtube_channel_tab"},
