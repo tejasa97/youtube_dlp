@@ -320,26 +320,26 @@ dlive,DLiveStreamIE,DLiveStream,requires_new_backend,,,,low,no exact Go mapping 
 dlive,DLiveVODIE,DLiveVOD,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 douyutv,DouyuShowIE,DouyuShow,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 douyutv,DouyuTVIE,DouyuTV,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-dplay,AmHistoryChannelIE,AmHistoryChannel,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-dplay,AnimalPlanetIE,AnimalPlanet,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-dplay,CookingChannelIE,CookingChannel,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-dplay,DPlayIE,DPlay,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-dplay,DestinationAmericaIE,DestinationAmerica,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-dplay,DiscoveryLifeIE,DiscoveryLife,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-dplay,DiscoveryNetworksDeIE,DiscoveryNetworksDe,requires_authentication_or_antibot,,,authentication,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"
-dplay,DiscoveryPlusIE,DiscoveryPlus,requires_authentication_or_antibot,,,authentication,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"
-dplay,DiscoveryPlusIndiaIE,DiscoveryPlusIndia,requires_authentication_or_antibot,,,authentication,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"
-dplay,DiscoveryPlusIndiaShowIE,DiscoveryPlusIndiaShow,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-dplay,DiscoveryPlusItalyIE,DiscoveryPlusItaly,requires_authentication_or_antibot,,,authentication,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"
-dplay,DiscoveryPlusItalyShowIE,DiscoveryPlusItalyShow,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-dplay,FoodNetworkIE,FoodNetwork,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-dplay,GoDiscoveryIE,GoDiscovery,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-dplay,HGTVDeIE,HGTVDe,requires_authentication_or_antibot,,,authentication,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"
-dplay,HGTVUsaIE,HGTVUsa,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-dplay,InvestigationDiscoveryIE,InvestigationDiscovery,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-dplay,ScienceChannelIE,ScienceChannel,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-dplay,TLCIE,TLC,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-dplay,TravelChannelIE,TravelChannel,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
+dplay,AmHistoryChannelIE,AmHistoryChannel,already_supported,amhistorychannel,,,high,fixture-backed configuration-driven Discovery adapter with strict routing and product registry evidence
+dplay,AnimalPlanetIE,AnimalPlanet,already_supported,animalplanet,,,high,fixture-backed configuration-driven Discovery adapter with strict routing and product registry evidence
+dplay,CookingChannelIE,CookingChannel,already_supported,cookingchannel,,,high,fixture-backed configuration-driven Discovery adapter with strict routing and product registry evidence
+dplay,DPlayIE,DPlay,already_supported,dplay,,,high,fixture-backed legacy playback adapter with strict routing and product registry evidence
+dplay,DestinationAmericaIE,DestinationAmerica,already_supported,destinationamerica,,,high,fixture-backed configuration-driven Discovery adapter with strict routing and product registry evidence
+dplay,DiscoveryLifeIE,DiscoveryLife,already_supported,discoverylife,,,high,fixture-backed configuration-driven Discovery adapter with strict routing and product registry evidence
+dplay,DiscoveryNetworksDeIE,DiscoveryNetworksDe,already_supported,discoverynetworksde,,,high,fixture-backed Loma CMS and Hyoga playback adapter with fallback and product registry evidence
+dplay,DiscoveryPlusIE,DiscoveryPlus,already_supported,discoveryplus,,,high,fixture-backed Discovery Plus playback adapter with strict routing and product registry evidence
+dplay,DiscoveryPlusIndiaIE,DiscoveryPlusIndia,already_supported,discoveryplusindia,,,high,fixture-backed India playback adapter with strict routing and product registry evidence
+dplay,DiscoveryPlusIndiaShowIE,DiscoveryPlusIndiaShow,already_supported,discoveryplusindiashow,,,high,fixture-backed bounded multi-season show pagination and product registry evidence
+dplay,DiscoveryPlusItalyIE,DiscoveryPlusItaly,already_supported,discoveryplusitaly,,,high,fixture-backed Italy playback adapter with strict routing and product registry evidence
+dplay,DiscoveryPlusItalyShowIE,DiscoveryPlusItalyShow,already_supported,discoveryplusitalyshow,,,high,fixture-backed bounded multi-season show pagination and product registry evidence
+dplay,FoodNetworkIE,FoodNetwork,already_supported,foodnetwork,,,high,fixture-backed configuration-driven Discovery adapter with strict routing and product registry evidence
+dplay,GoDiscoveryIE,GoDiscovery,already_supported,godiscovery,,,high,fixture-backed configuration-driven Discovery adapter with strict routing and product registry evidence
+dplay,HGTVDeIE,HGTVDe,already_supported,hgtvde,,,high,fixture-backed Hyoga playback adapter restricted to the public sendungen route
+dplay,HGTVUsaIE,HGTVUsa,already_supported,hgtvusa,,,high,fixture-backed configuration-driven Discovery adapter with strict routing and product registry evidence
+dplay,InvestigationDiscoveryIE,InvestigationDiscovery,already_supported,investigationdiscovery,,,high,fixture-backed configuration-driven Discovery adapter with strict routing and product registry evidence
+dplay,ScienceChannelIE,ScienceChannel,already_supported,sciencechannel,,,high,fixture-backed configuration-driven Discovery adapter with strict routing and product registry evidence
+dplay,TLCIE,TLC,already_supported,tlc,,,high,fixture-backed configuration-driven Discovery adapter with strict routing and product registry evidence
+dplay,TravelChannelIE,TravelChannel,already_supported,travelchannel,,,high,fixture-backed configuration-driven Discovery adapter with strict routing and product registry evidence
 drbonanza,DRBonanzaIE,DRBonanza,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 dreisat,DreiSatIE,DreiSat,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 dropbox,DropboxIE,Dropbox,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
@@ -1338,7 +1338,7 @@ ted,TedPlaylistIE,TedPlaylist,requires_new_backend,,,,low,no exact Go mapping or
 ted,TedSeriesIE,TedSeries,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 ted,TedTalkIE,TedTalk,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 tele13,Tele13IE,Tele13,uses_existing_shared_backend,,youtube,,medium,upstream class references a media backend already implemented in Go
-tele5,Tele5IE,Tele5,requires_authentication_or_antibot,,,authentication,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"
+tele5,Tele5IE,Tele5,already_supported,tele5,,,high,fixture-backed Aurora CMS recursion preserves public Referer and webpage identity through product extraction
 telebruxelles,TeleBruxellesIE,TeleBruxelles,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 telecaribe,TelecaribePlayIE,TelecaribePlay,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 telecinco,TelecincoIE,Telecinco,requires_authentication_or_antibot,,,impersonation,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"

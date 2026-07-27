@@ -52,6 +52,14 @@ type ScopedAuthorizationNoRedirectTransport interface {
 	DoWithScopedAuthorizationNoRedirect(context.Context, *http.Request) (*http.Response, error)
 }
 
+// ScopedAuthenticationNoRedirectTransport executes a request with only the
+// caller-supplied Authentication and Referer headers while excluding operation
+// credentials, cookies, response-cookie persistence, and redirects. Discovery
+// show APIs use Authentication rather than the standard Authorization header.
+type ScopedAuthenticationNoRedirectTransport interface {
+	DoWithScopedAuthenticationNoRedirect(context.Context, *http.Request) (*http.Response, error)
+}
+
 // CredentialIsolatedProfilePageTransport is an optional capability for bounded
 // browser-profile page reads that must not inherit operation-jar cookies,
 // explicit/default Authorization/Proxy-Authorization/Cookie headers, or follow
