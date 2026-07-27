@@ -28,15 +28,39 @@ type vimeoAuthenticatedViewerFixtureTransport struct {
 	viewerStatus  int
 	viewers       [][]byte
 
-	cookieURLs  []string
-	requests    []*http.Request
-	cookies     []*http.Cookie
-	cookieErr   error
-	scopedURL   string
-	scopedBody  []byte
-	scopedToken string
-	scopedCalls int
-	viewerCalls int
+	cookieURLs     []string
+	requests       []*http.Request
+	cookies        []*http.Cookie
+	cookieErr      error
+	scopedURL      string
+	scopedBody     []byte
+	scopedToken    string
+	scopedCalls    int
+	viewerCalls    int
+	scopedRequests []*http.Request
+
+	// allowVideoAPI permits the scoped executor to serve URLs that start
+	// with the api.vimeo.com/videos/ prefix even when scopedURL is set to a
+	// different fixed value. Used by the authenticated unlisted video tests.
+	allowVideoAPI bool
+
+	// scopedStatuses queues the responses returned for /videos/... calls in
+	// order. When empty, the fixture defaults to 200 with scopedBody.
+	scopedStatuses []int
+	scopedBodies   [][]byte
+
+	// configBody is the JSON returned for credential-isolated player-config
+	// requests on player.vimeo.com and empty synthetic manifests on the reserved
+	// media.example.test CDN. Defaults to an empty config object.
+	configBody []byte
+
+	// credentialIsolatedCalls counts credential-isolated no-redirect calls.
+	credentialIsolatedCalls int
+
+	// isolatedRequestURLs records the request URLs that arrived on the
+	// credential-isolated executor for assertion.
+	isolatedRequestURLs []string
+	isolatedRequests    []*http.Request
 
 	// explicitRequests preserves the explicit headers as they arrived on each
 	// viewer request, before the fixture simulated the jar attaching cookies.
@@ -199,6 +223,53 @@ func (*vimeoAuthenticatedViewerFixtureTransport) ReadPage(context.Context, strin
 	return nil, nil, errors.New("authenticated viewer must not use ambient page transport")
 }
 
+// DoWithoutCredentialsNoRedirect implements CredentialIsolatedNoRedirectTransport
+// for the player-config URL handoff. The fixture serves the configured
+// configBody on player.vimeo.com and empty manifests on media.example.test;
+// every other host is rejected so a regression that attempts to fetch through
+// the cookie-bearing path will fail closed.
+func (transport *vimeoAuthenticatedViewerFixtureTransport) DoWithoutCredentialsNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	transport.mu.Lock()
+	defer transport.mu.Unlock()
+	transport.credentialIsolatedCalls++
+	transport.isolatedRequestURLs = append(transport.isolatedRequestURLs, request.URL.String())
+	transport.isolatedRequests = append(transport.isolatedRequests, request.Clone(request.Context()))
+	if request.URL.Scheme != "https" ||
+		(request.URL.Host != "player.vimeo.com" && request.URL.Host != "media.example.test") {
+		return nil, fmt.Errorf("unexpected credential-isolated request host")
+	}
+	if raw := request.Header.Values("Cookie"); len(raw) != 0 {
+		return nil, fmt.Errorf("Cookie header on config call forbidden")
+	}
+	if raw := request.Header.Values("Proxy-Authorization"); len(raw) != 0 {
+		return nil, fmt.Errorf("Proxy-Authorization on config call forbidden")
+	}
+	if raw := request.Header.Values("Authorization"); len(raw) != 0 {
+		return nil, fmt.Errorf("Authorization on config call forbidden")
+	}
+	var body []byte
+	switch {
+	case request.URL.Host == "media.example.test" && strings.HasSuffix(request.URL.Path, ".m3u8"):
+		body = []byte("#EXTM3U\n")
+	case request.URL.Host == "media.example.test" && strings.HasSuffix(request.URL.Path, ".mpd"):
+		body = []byte(`<MPD></MPD>`)
+	default:
+		body = transport.configBody
+		if body == nil {
+			body = []byte(`{}`)
+		}
+	}
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(bytes.NewReader(body)),
+		Request:    request,
+	}, nil
+}
+
 // DoWithScopedAuthorizationNoRedirect implements
 // ScopedAuthorizationNoRedirectTransport for api.vimeo.com calls. The fixture
 // only knows how to serve one URL at a time.
@@ -209,11 +280,16 @@ func (transport *vimeoAuthenticatedViewerFixtureTransport) DoWithScopedAuthoriza
 	transport.mu.Lock()
 	defer transport.mu.Unlock()
 	transport.scopedCalls++
+	transport.scopedRequests = append(transport.scopedRequests, request.Clone(request.Context()))
 	if request.Method != http.MethodGet || request.URL.Scheme != "https" || request.URL.Host != "api.vimeo.com" {
 		return nil, fmt.Errorf("unexpected scoped request")
 	}
 	if transport.scopedURL != "" && request.URL.String() != transport.scopedURL {
-		return nil, fmt.Errorf("unexpected scoped URL")
+		// Allow the unlisted authenticated path to also exercise a /videos/...
+		// endpoint when an explicit override is configured.
+		if !transport.allowVideoAPI {
+			return nil, fmt.Errorf("unexpected scoped URL")
+		}
 	}
 	authorization := request.Header.Get("Authorization")
 	if !strings.HasPrefix(authorization, "jwt ") {
@@ -230,6 +306,26 @@ func (transport *vimeoAuthenticatedViewerFixtureTransport) DoWithScopedAuthoriza
 	}
 	if request.Header.Get("Accept") != "application/json" {
 		return nil, fmt.Errorf("Accept must be application/json on API call")
+	}
+	// The unlisted authenticated path drives /videos/{id}:{hash} calls with
+	// scripted status/body sequences; honor those when configured so the
+	// taxonomy tests can deterministically trigger 401/403/404/5460 etc.
+	if transport.allowVideoAPI && strings.HasPrefix(request.URL.Path, "/videos/") {
+		if len(transport.scopedBodies) > 0 {
+			body := transport.scopedBodies[0]
+			transport.scopedBodies = transport.scopedBodies[1:]
+			status := http.StatusOK
+			if len(transport.scopedStatuses) > 0 {
+				status = transport.scopedStatuses[0]
+				transport.scopedStatuses = transport.scopedStatuses[1:]
+			}
+			return &http.Response{
+				StatusCode: status,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(string(body))),
+				Request:    request,
+			}, nil
+		}
 	}
 	body := transport.scopedBody
 	if body == nil {
@@ -285,6 +381,7 @@ var (
 	_ vimeoAuthenticatedTransport            = (*vimeoAuthenticatedViewerFixtureTransport)(nil)
 	_ ScopedAuthorizationNoRedirectTransport = (*vimeoAuthenticatedViewerFixtureTransport)(nil)
 	_ Transport                              = (*vimeoAuthenticatedViewerFixtureTransport)(nil)
+	_ CredentialIsolatedNoRedirectTransport  = (*vimeoAuthenticatedViewerFixtureTransport)(nil)
 )
 
 func TestVimeoAuthenticatedViewerConstructorRejectsMissingCapabilities(t *testing.T) {
@@ -644,7 +741,7 @@ func TestVimeoAuthenticatedViewerCallbackRefreshOn401And403(t *testing.T) {
 		}
 	})
 
-	t.Run("403 then second 401 no third attempt", func(t *testing.T) {
+	t.Run("403 then second 401 maps to authentication without third attempt", func(t *testing.T) {
 		transport := newVimeoAuthenticatedViewerFixtureTransport([]*http.Cookie{{Name: "vimeo", Value: "session"}})
 		transport.viewers = [][]byte{
 			[]byte(`{"jwt":"` + firstToken + `"}`),
@@ -673,9 +770,8 @@ func TestVimeoAuthenticatedViewerCallbackRefreshOn401And403(t *testing.T) {
 				return nil
 			}
 		})
-		var status *HTTPStatusError
-		if !errors.As(err, &status) || status.Code != http.StatusUnauthorized {
-			t.Fatalf("error = %v, want HTTP status 401", err)
+		if !errors.Is(err, ErrAuthentication) {
+			t.Fatalf("error = %v, want ErrAuthentication", err)
 		}
 		if attempts != 2 || transport.viewerCalls != 2 {
 			t.Fatalf("attempts=%d viewer calls=%d, want 2 both", attempts, transport.viewerCalls)

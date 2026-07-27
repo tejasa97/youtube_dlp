@@ -1128,7 +1128,7 @@ func TestMergeVimeoSubtitlesPrefersPlayerConfigDuplicates(t *testing.T) {
 	config.Request.TextTracks = append(config.Request.TextTracks, vimeoTextTrack{
 		URL: "/texttrack/api-fallback.vtt", Language: "fr", Kind: "subtitles",
 	})
-	subtitles, err := mergeVimeoSubtitles(context.Background(), nil, "1", config, vimeoFiles{})
+	subtitles, err := mergeVimeoSubtitles(context.Background(), nil, "1", config, vimeoFiles{}, vimeoSubtitleMergeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1252,7 +1252,7 @@ func TestVimeoTexttracksAPI401And403AreNonfatal(t *testing.T) {
 			transport.texttracksStatus = status
 			var config vimeoConfig
 			config.Request.TextTracks = []vimeoTextTrack{{URL: "/texttrack/player.vtt", Language: "en", Kind: "subtitles"}}
-			subtitles, err := mergeVimeoSubtitles(context.Background(), transport, "1", config, vimeoFiles{})
+			subtitles, err := mergeVimeoSubtitles(context.Background(), transport, "1", config, vimeoFiles{}, vimeoSubtitleMergeOptions{})
 			if err != nil {
 				t.Fatal(err)
 			}

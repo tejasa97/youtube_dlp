@@ -1,0 +1,13 @@
+{
+  "download": [
+    {
+      "link": "https://media.example.test/vimeo/source?filename=synthetic-original.MOV",
+      "quality": "source",
+      "public_name": "Original",
+      "width": 3840,
+      "height": 2160,
+      "fps": 60,
+      "size": 987654321
+    }
+  ]
+}
