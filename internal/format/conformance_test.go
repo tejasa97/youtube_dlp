@@ -66,8 +66,10 @@ type selectorCorpusOptions struct {
 }
 
 type selectorCorpusExpected struct {
-	Plans []expectedPlan `json:"plans,omitempty"`
-	Error string         `json:"error,omitempty"`
+	Plans      []expectedPlan `json:"plans,omitempty"`
+	Error      string         `json:"error,omitempty"`
+	ErrorStart *int           `json:"error_start,omitempty"`
+	ErrorEnd   *int           `json:"error_end,omitempty"`
 }
 
 type selectorCorpusParity struct {
@@ -148,6 +150,14 @@ func validateSelectorCorpus(t *testing.T, corpus selectorCorpus) {
 		if (len(c.Expected.Plans) == 0) == (c.Expected.Error == "") {
 			t.Fatalf("case %q must specify exactly plans or error", c.ID)
 		}
+		if (c.Expected.ErrorStart == nil) != (c.Expected.ErrorEnd == nil) {
+			t.Fatalf("case %q must specify both error span endpoints", c.ID)
+		}
+		if c.Expected.ErrorStart != nil {
+			if c.Expected.Error != "ErrInvalidSelector" || *c.Expected.ErrorStart < 0 || *c.Expected.ErrorStart > *c.Expected.ErrorEnd || *c.Expected.ErrorEnd > len(c.Selector) {
+				t.Fatalf("case %q has invalid syntax span %d:%d", c.ID, *c.Expected.ErrorStart, *c.Expected.ErrorEnd)
+			}
+		}
 		switch c.Parity.Status {
 		case "passing":
 			if c.Parity.Reason != "" || len(c.Parity.Reference) != 0 {
@@ -199,6 +209,15 @@ func TestSelectorConformanceCorpus(t *testing.T) {
 			}
 			if fixtureCase.Expected.Error != "" {
 				assertCorpusError(t, err, fixtureCase.Expected.Error)
+				if fixtureCase.Expected.ErrorStart != nil {
+					var syntaxError *SyntaxError
+					if !errors.As(err, &syntaxError) {
+						t.Fatalf("error = %v, want SyntaxError", err)
+					}
+					if syntaxError.Start != *fixtureCase.Expected.ErrorStart || syntaxError.End != *fixtureCase.Expected.ErrorEnd {
+						t.Fatalf("syntax span = %d:%d, want %d:%d", syntaxError.Start, syntaxError.End, *fixtureCase.Expected.ErrorStart, *fixtureCase.Expected.ErrorEnd)
+					}
+				}
 			} else if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}

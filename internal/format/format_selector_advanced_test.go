@@ -228,7 +228,11 @@ func TestAdvancedSelectorFilterOnlyImplicitBest(t *testing.T) {
 }
 
 func TestAdvancedSelectorEmptyGroupRejected(t *testing.T) {
-	if _, err := ParseSelector("()"); !errors.Is(err, ErrInvalidSelector) {
+	selector, err := ParseSelector("()")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PlanSelect(advancedSelectorInfo(), selector); !errors.Is(err, ErrNoMatch) {
 		t.Fatalf("empty group = %v", err)
 	}
 }

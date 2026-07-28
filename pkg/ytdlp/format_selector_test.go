@@ -170,10 +170,28 @@ func TestFormatSelectorMultiOutputLegacyAPIFailsClosed(t *testing.T) {
 }
 
 func TestFormatSelectorMalformedInputs(t *testing.T) {
-	for _, input := range []string{"", "bestvideo,,best", "+bestaudio", "bestvideo+", "/", "(best", "best)"} {
+	for _, input := range []string{"", "bestvideo,,best", "+bestaudio", "bestvideo+", "/", "(best", "best)", ",best", "(,best)", "(best,,)"} {
 		if _, err := mediaformat.ParseSelector(input); !errors.Is(err, mediaformat.ErrInvalidSelector) {
 			t.Fatalf("ParseSelector(%q) = %v", input, err)
 		}
+	}
+}
+
+func TestFormatSelectorInvalidSyntaxFailsBeforeExtraction(t *testing.T) {
+	hits := 0
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		hits++
+	}))
+	t.Cleanup(server.Close)
+
+	_, err := NewClient().Run(context.Background(), Request{
+		URL: server.URL, OutputDir: t.TempDir(), Format: "  bestvideo+?unknown",
+	})
+	if !errors.Is(err, mediaformat.ErrInvalidSelector) {
+		t.Fatalf("Run() = %v", err)
+	}
+	if hits != 0 {
+		t.Fatalf("network requests = %d, want 0", hits)
 	}
 }
 

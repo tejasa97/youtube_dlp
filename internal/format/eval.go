@@ -140,6 +140,9 @@ func evaluateNode(ctx *evalContext, node *astNode) ([][]*value.Object, error) {
 		}
 		return mergeTrackGroups(ctx, left, right)
 	case astGroup:
+		if len(node.children) == 0 {
+			return nil, nil
+		}
 		if len(node.children) != 1 {
 			return nil, selectorSyntax(node.span.start, node.span.end, "invalid group node")
 		}
@@ -336,6 +339,9 @@ func extensionMatches(ctx *evalContext, ext string, filters []Filter) []*value.O
 }
 
 func qualityMatches(ctx *evalContext, atom Atom, filters []Filter) []*value.Object {
+	if atom.indexTooLarge {
+		return nil
+	}
 	filtered := make([]*value.Object, 0, len(ctx.formats))
 	for _, candidate := range ctx.formats {
 		if matchesFilters(candidate, filters) {

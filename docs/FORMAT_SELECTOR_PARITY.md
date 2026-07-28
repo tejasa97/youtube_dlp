@@ -12,10 +12,42 @@ Normalization-specific invariants and concurrency coverage live in
 `internal/format/normalize_test.go`; the product rendering boundary is covered
 by `pkg/ytdlp/format_normalization_test.go`.
 
+## Parser contract
+
+Selector parsing is bounded to 16 KiB and produces a source-spanned AST before
+any extractor or network work begins. Error offsets are half-open byte ranges
+into the original selector; leading and trailing whitespace is not discarded
+before offsets are computed.
+
+The grammar precedence, from lowest to highest, is comma-separated outputs,
+slash fallbacks, plus merges, and atoms/groups with attached filters. Filter
+boundaries are quote- and backslash-aware. Direct IDs accept the punctuation
+surface emitted by the pinned tokenizer while reserving selector operators.
+NAME, NUMBER, and non-structural OP tokens are joined the same way as pinned
+`_remove_unused_ops`, including whitespace-separated forms (`best video` →
+`bestvideo`, `best . 2` → `best.2`) and multi-character OP tokens such as
+`//` (`best//` is a direct ID). Trailing commas and trailing slashes are
+accepted when they follow a selector (`best,`, `best/`, `(best/)`), while empty
+comma branches (`,best`, `best,,`, `(,best)`, `(best,,)`) and dangling plus
+(`best+`) remain syntax errors. Empty groups (`()`) parse and evaluate to no
+match. Positive `.N` atom indexes have no artificial 1,000 limit; indexes too
+large for the host integer are valid syntax and deterministically produce no
+match. Alias-looking strings that fail the exact quality-atom regex fall back
+to direct IDs (`best*foo`, `best.01`, `best.0`, `best.`).
+
+Direct IDs intentionally reject the ERRORTOKEN/comment/string punctuation
+(`!`, `$`, `?`, `#`, `\`, `'`, `"`, `` ` ``) that the pinned Python tokenizer
+silently discards. Discarding those bytes can rewrite a requested ID to a
+different one; the Go parser fails the selector instead. Extension-atom
+recognition uses the exact pinned `_format_selection_exts` set; tokens outside
+that set parse as direct IDs. Negated filter operators (`!^=`, `!$=`, `!*=`,
+`!~=`) parse but their evaluation is deferred to the filter-parity phase.
+
 ## Normalization contract
 
-The Go preparation stage deep-clones extractor metadata and follows the pinned
-pre-selection order:
+The Go preparation stage deep-clones extractor formats, applies the existing
+stable format order, then performs the pinned ID transformation before
+selection:
 
 1. Remove disallowed DRM formats and formats with missing or empty URLs.
 2. Coerce scalar `format_id` values and exact `_NUMERIC_FIELDS` entries via
@@ -34,9 +66,9 @@ format tables, prints, simulated and skipped results, and `InfoJSON`.
 
 The transformation intentionally remains one-pass, matching the pinned Python
 behavior. It can therefore leave collisions such as `x,x,x-0 -> x-0,x-1,x-0`
-or `mp4,fmp4 -> fmp4,fmp4`. Selection carries both the original extractor-list
-index and canonical-list index, so headers and descriptive metadata remain
-attached to the exact source format despite filtering, sorting, and collisions.
+or `mp4,fmp4 -> fmp4,fmp4`. Selection carries the original extractor-list
+index, so headers and descriptive metadata remain attached to the exact source
+format despite those collisions.
 
 Go deliberately differs from Python by never mutating extractor-owned metadata
 and by rejecting malformed or excessive collections with bounded sentinels.
@@ -49,13 +81,14 @@ ID bytes.
 |---|---|---|---|---|---|---|
 | `atom.plain-best-combined` | `best` / `worst` | Plain atoms require/score the pinned combined-format universe. | Historical playable-universe scoring remains. | `gap.plain-best-combined` | Known gap | Do not change selection algorithms in this PR. |
 | `operator.all-order` | `all` | Emits the ordered candidate list in reverse. | Preserves forward extractor order. | `gap.all-order` | Intentional deviation | Keep deterministic Go order until the selector algorithm parity phase. |
-| `filter.negated-string` | `!^=`, `!$=`, `!*=`, `!~=` | Parses and evaluates negated string operators. | Parser rejects these forms. | `gap.negated-prefix` | Open | Add as a later grammar extension. |
+| `filter.negated-string` | `!^=`, `!$=`, `!*=`, `!~=` | Parses and evaluates negated string operators. | Parser accepts the syntax; evaluation remains deferred. | `gap.negated-prefix` | Known gap (parser-only) | Implementation is the filter-parity phase's responsibility. |
 | `filter.none-inclusive` | `?` missing-value modifier | Includes missing metadata according to the operator. | Token shape may parse, but none-inclusive matching is not implemented. | `gap.none-inclusive` | Open | Add with explicit missing-value tests later. |
 | `filter.quoted-escapes` | Quoted filter values | Applies pinned escape processing. | Removes matching outer quotes only. | `gap.quoted-escape` | Open | Keep bounded parser unchanged here. |
 | `filter.field-syntax` | Filter field names | Accepts the broader upstream field syntax. | Accepts letters, digits, and underscores only. | `gap.field-syntax` | Open | Broaden only with a separate parser review. |
 | `filter.regex-engine` | `~=` | Uses Python regular expressions. | Uses bounded Go RE2; look-around and backreferences are unavailable. | Existing selector regex tests | Product constraint | Retain RE2 safety semantics. |
 | `sort.conversion` | Sort aliases and limits | Implements upstream codec/container aliases and conversion rules. | Compares the currently supported raw numeric/string fields; colon-limit behavior is incomplete. | `gap.sort-colon-limit` | Open | Address in a dedicated sort-parity PR. |
-| `extension.go-extra-atoms` | Bare extension atoms | Pinned common set is narrower. | Parser recognizes the repository's existing broader media-extension set. | Extension-tagged corpus cases | Known gap | Keep one shared Go extension map; do not fork normalization recognition. |
+| `extension.exact-recognition` | Bare extension atoms | Pinned `_format_selection_exts` per `yt_dlp/utils/_utils.py`. | Parser recognizes the exact pinned media-extension set. | `parser.extension-boundary-direct-id`, extension-tagged corpus cases | Passing parity | The Go extension map is now byte-for-byte the pinned selection set; tokens outside the set parse as direct IDs. |
+| `direct-id.discarded-punctuation` | Direct-format IDs containing `! $ ? # \ ' " \`` | Pinned Python silently discards those tokens, which can change the requested ID. | Parser rejects the token with a syntax error. | `parser.direct-id-discarded-punctuation` | Deliberate safety gap | Failing closed is preferred over silently selecting a different ID. |
 | `media.storyboard` | `mhtml` | Selects storyboard formats. | Supported and pinned in the corpus. | `extension.storyboard` | Closed | Guard against playable-universe regressions. |
 | `product.multistream-policy` | Same-kind merged tracks | Product defaults constrain multiple video/audio streams. | Evaluator retains distinct tracks; unsupported downloader layouts fail later. | `gap.multistream-product` | Product unsupported | Keep evaluator and product-policy responsibilities separate. |
 | `product.interactive-selector` | `-f -` | Prompts interactively per video. | `-` is not an interactive selector surface. | Provenance only | Product unsupported | Outside the library/fixture scope. |

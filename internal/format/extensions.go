@@ -9,8 +9,7 @@ var (
 	}
 	selectionVideoExts = map[string]struct{}{
 		"avi": {}, "flv": {}, "mkv": {}, "mov": {}, "mp4": {}, "webm": {},
-		"3g2": {}, "3gp": {}, "f4v": {}, "mk3d": {}, "divx": {}, "mpg": {},
-		"ogv": {}, "m4v": {}, "wmv": {},
+		"3gp": {},
 	}
 	selectionStoryboardExts = map[string]struct{}{
 		"mhtml": {},

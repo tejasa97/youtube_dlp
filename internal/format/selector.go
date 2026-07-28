@@ -47,7 +47,8 @@ type Filter struct {
 	Value    string
 }
 
-// SyntaxError identifies the exact byte range rejected by the parser.
+// SyntaxError identifies the exact half-open byte range [Start, End) rejected by
+// the parser in the original, untrimmed selector string.
 type SyntaxError struct {
 	Start   int
 	End     int
@@ -147,7 +148,7 @@ func parseLegacyTermName(name string, absStart int) (Term, error) {
 	if kind, ok := classifyExtensionToken(name); ok && kind != atomDirectID {
 		return Term{Name: name}, nil
 	}
-	if !formatIDPattern.MatchString(name) {
+	if !validDirectIDToken(name) {
 		return Term{}, selectorSyntax(absStart, absStart+len(name), fmt.Sprintf("unknown term %q", name))
 	}
 	return Term{Name: name}, nil
@@ -159,7 +160,7 @@ var (
 )
 
 func parseFilter(input string, start int) (Filter, error) {
-	for _, operator := range []string{"!=", ">=", "<=", "^=", "$=", "*=", "~=", "=", ">", "<"} {
+	for _, operator := range []string{"!^=", "!$=", "!*=", "!~=", "!=", ">=", "<=", "^=", "$=", "*=", "~=", "=", ">", "<"} {
 		if index := strings.Index(input, operator); index > 0 {
 			field := strings.TrimSpace(input[:index])
 			filterValue := strings.TrimSpace(input[index+len(operator):])
