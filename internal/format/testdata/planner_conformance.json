@@ -1,0 +1,3548 @@
+{
+  "_comment": "PR 5 planner conformance fixture.",
+  "cases": [
+    {
+      "formats": [
+        {
+          "acodec": "aac",
+          "ext": "mp4",
+          "format_id": "combined",
+          "height": 360,
+          "tbr": 1080,
+          "url": "https://example.invalid/combined",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-360",
+          "height": 360,
+          "tbr": 720,
+          "url": "https://example.invalid/video-360",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-720",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/video-720",
+          "vcodec": "vp9"
+        },
+        {
+          "abr": 64,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-low",
+          "tbr": 64,
+          "url": "https://example.invalid/audio-low",
+          "vcodec": "none"
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-high",
+          "tbr": 128,
+          "url": "https://example.invalid/audio-high",
+          "vcodec": "none"
+        }
+      ],
+      "id": "quality.basic-best",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": null,
+            "acodec": "aac",
+            "audio_ext": "none",
+            "ext": "mp4",
+            "format_id": "combined",
+            "height": 360,
+            "protocol": "https",
+            "tbr": 1080,
+            "url": "https://example.invalid/combined",
+            "vbr": null,
+            "vcodec": "avc1",
+            "video_ext": "mp4"
+          },
+          "tracks": [
+            {
+              "format_id": "combined"
+            }
+          ]
+        }
+      ],
+      "selector": "best"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "aac",
+          "ext": "mp4",
+          "format_id": "combined",
+          "height": 360,
+          "tbr": 1080,
+          "url": "https://example.invalid/combined",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-360",
+          "height": 360,
+          "tbr": 720,
+          "url": "https://example.invalid/video-360",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-720",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/video-720",
+          "vcodec": "vp9"
+        },
+        {
+          "abr": 64,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-low",
+          "tbr": 64,
+          "url": "https://example.invalid/audio-low",
+          "vcodec": "none"
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-high",
+          "tbr": 128,
+          "url": "https://example.invalid/audio-high",
+          "vcodec": "none"
+        }
+      ],
+      "id": "quality.basic-worst",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": null,
+            "acodec": "aac",
+            "audio_ext": "none",
+            "ext": "mp4",
+            "format_id": "combined",
+            "height": 360,
+            "protocol": "https",
+            "tbr": 1080,
+            "url": "https://example.invalid/combined",
+            "vbr": null,
+            "vcodec": "avc1",
+            "video_ext": "mp4"
+          },
+          "tracks": [
+            {
+              "format_id": "combined"
+            }
+          ]
+        }
+      ],
+      "selector": "worst"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "aac",
+          "ext": "mp4",
+          "format_id": "combined",
+          "height": 360,
+          "tbr": 1080,
+          "url": "https://example.invalid/combined",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-360",
+          "height": 360,
+          "tbr": 720,
+          "url": "https://example.invalid/video-360",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-720",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/video-720",
+          "vcodec": "vp9"
+        },
+        {
+          "abr": 64,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-low",
+          "tbr": 64,
+          "url": "https://example.invalid/audio-low",
+          "vcodec": "none"
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-high",
+          "tbr": 128,
+          "url": "https://example.invalid/audio-high",
+          "vcodec": "none"
+        }
+      ],
+      "id": "quality.basic-best.2",
+      "options": {},
+      "plans": [],
+      "selector": "best.2"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "aac",
+          "ext": "mp4",
+          "format_id": "combined",
+          "height": 360,
+          "tbr": 1080,
+          "url": "https://example.invalid/combined",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-360",
+          "height": 360,
+          "tbr": 720,
+          "url": "https://example.invalid/video-360",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-720",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/video-720",
+          "vcodec": "vp9"
+        },
+        {
+          "abr": 64,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-low",
+          "tbr": 64,
+          "url": "https://example.invalid/audio-low",
+          "vcodec": "none"
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-high",
+          "tbr": 128,
+          "url": "https://example.invalid/audio-high",
+          "vcodec": "none"
+        }
+      ],
+      "id": "quality.basic-worst.2",
+      "options": {},
+      "plans": [],
+      "selector": "worst.2"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "aac",
+          "ext": "mp4",
+          "format_id": "combined",
+          "height": 360,
+          "tbr": 1080,
+          "url": "https://example.invalid/combined",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-360",
+          "height": 360,
+          "tbr": 720,
+          "url": "https://example.invalid/video-360",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-720",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/video-720",
+          "vcodec": "vp9"
+        },
+        {
+          "abr": 64,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-low",
+          "tbr": 64,
+          "url": "https://example.invalid/audio-low",
+          "vcodec": "none"
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-high",
+          "tbr": 128,
+          "url": "https://example.invalid/audio-high",
+          "vcodec": "none"
+        }
+      ],
+      "id": "quality.basic-b",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": null,
+            "acodec": "aac",
+            "audio_ext": "none",
+            "ext": "mp4",
+            "format_id": "combined",
+            "height": 360,
+            "protocol": "https",
+            "tbr": 1080,
+            "url": "https://example.invalid/combined",
+            "vbr": null,
+            "vcodec": "avc1",
+            "video_ext": "mp4"
+          },
+          "tracks": [
+            {
+              "format_id": "combined"
+            }
+          ]
+        }
+      ],
+      "selector": "b"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "aac",
+          "ext": "mp4",
+          "format_id": "combined",
+          "height": 360,
+          "tbr": 1080,
+          "url": "https://example.invalid/combined",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-360",
+          "height": 360,
+          "tbr": 720,
+          "url": "https://example.invalid/video-360",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-720",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/video-720",
+          "vcodec": "vp9"
+        },
+        {
+          "abr": 64,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-low",
+          "tbr": 64,
+          "url": "https://example.invalid/audio-low",
+          "vcodec": "none"
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-high",
+          "tbr": 128,
+          "url": "https://example.invalid/audio-high",
+          "vcodec": "none"
+        }
+      ],
+      "id": "quality.basic-w",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": null,
+            "acodec": "aac",
+            "audio_ext": "none",
+            "ext": "mp4",
+            "format_id": "combined",
+            "height": 360,
+            "protocol": "https",
+            "tbr": 1080,
+            "url": "https://example.invalid/combined",
+            "vbr": null,
+            "vcodec": "avc1",
+            "video_ext": "mp4"
+          },
+          "tracks": [
+            {
+              "format_id": "combined"
+            }
+          ]
+        }
+      ],
+      "selector": "w"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "aac",
+          "ext": "mp4",
+          "format_id": "combined",
+          "height": 360,
+          "tbr": 1080,
+          "url": "https://example.invalid/combined",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-360",
+          "height": 360,
+          "tbr": 720,
+          "url": "https://example.invalid/video-360",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-720",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/video-720",
+          "vcodec": "vp9"
+        },
+        {
+          "abr": 64,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-low",
+          "tbr": 64,
+          "url": "https://example.invalid/audio-low",
+          "vcodec": "none"
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-high",
+          "tbr": 128,
+          "url": "https://example.invalid/audio-high",
+          "vcodec": "none"
+        }
+      ],
+      "id": "quality.basic-bv",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": 0,
+            "acodec": "none",
+            "audio_ext": "none",
+            "ext": "mp4",
+            "format_id": "video-720",
+            "height": 720,
+            "protocol": "https",
+            "tbr": 1440,
+            "url": "https://example.invalid/video-720",
+            "vbr": 1440,
+            "vcodec": "vp9",
+            "video_ext": "mp4"
+          },
+          "tracks": [
+            {
+              "format_id": "video-720"
+            }
+          ]
+        }
+      ],
+      "selector": "bv"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "aac",
+          "ext": "mp4",
+          "format_id": "combined",
+          "height": 360,
+          "tbr": 1080,
+          "url": "https://example.invalid/combined",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-360",
+          "height": 360,
+          "tbr": 720,
+          "url": "https://example.invalid/video-360",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-720",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/video-720",
+          "vcodec": "vp9"
+        },
+        {
+          "abr": 64,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-low",
+          "tbr": 64,
+          "url": "https://example.invalid/audio-low",
+          "vcodec": "none"
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-high",
+          "tbr": 128,
+          "url": "https://example.invalid/audio-high",
+          "vcodec": "none"
+        }
+      ],
+      "id": "quality.basic-ba",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": 128,
+            "acodec": "aac",
+            "audio_ext": "m4a",
+            "ext": "m4a",
+            "format_id": "audio-high",
+            "protocol": "https",
+            "tbr": 128,
+            "url": "https://example.invalid/audio-high",
+            "vbr": 0,
+            "vcodec": "none",
+            "video_ext": "none"
+          },
+          "tracks": [
+            {
+              "format_id": "audio-high"
+            }
+          ]
+        }
+      ],
+      "selector": "ba"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "aac",
+          "ext": "mp4",
+          "format_id": "combined",
+          "height": 360,
+          "tbr": 1080,
+          "url": "https://example.invalid/combined",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-360",
+          "height": 360,
+          "tbr": 720,
+          "url": "https://example.invalid/video-360",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-720",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/video-720",
+          "vcodec": "vp9"
+        },
+        {
+          "abr": 64,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-low",
+          "tbr": 64,
+          "url": "https://example.invalid/audio-low",
+          "vcodec": "none"
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-high",
+          "tbr": 128,
+          "url": "https://example.invalid/audio-high",
+          "vcodec": "none"
+        }
+      ],
+      "id": "quality.basic-wv",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": 0,
+            "acodec": "none",
+            "audio_ext": "none",
+            "ext": "mp4",
+            "format_id": "video-360",
+            "height": 360,
+            "protocol": "https",
+            "tbr": 720,
+            "url": "https://example.invalid/video-360",
+            "vbr": 720,
+            "vcodec": "avc1",
+            "video_ext": "mp4"
+          },
+          "tracks": [
+            {
+              "format_id": "video-360"
+            }
+          ]
+        }
+      ],
+      "selector": "wv"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "aac",
+          "ext": "mp4",
+          "format_id": "combined",
+          "height": 360,
+          "tbr": 1080,
+          "url": "https://example.invalid/combined",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-360",
+          "height": 360,
+          "tbr": 720,
+          "url": "https://example.invalid/video-360",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-720",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/video-720",
+          "vcodec": "vp9"
+        },
+        {
+          "abr": 64,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-low",
+          "tbr": 64,
+          "url": "https://example.invalid/audio-low",
+          "vcodec": "none"
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-high",
+          "tbr": 128,
+          "url": "https://example.invalid/audio-high",
+          "vcodec": "none"
+        }
+      ],
+      "id": "quality.basic-wa",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": 64,
+            "acodec": "aac",
+            "audio_ext": "m4a",
+            "ext": "m4a",
+            "format_id": "audio-low",
+            "protocol": "https",
+            "tbr": 64,
+            "url": "https://example.invalid/audio-low",
+            "vbr": 0,
+            "vcodec": "none",
+            "video_ext": "none"
+          },
+          "tracks": [
+            {
+              "format_id": "audio-low"
+            }
+          ]
+        }
+      ],
+      "selector": "wa"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "aac",
+          "ext": "mp4",
+          "format_id": "combined",
+          "height": 360,
+          "tbr": 1080,
+          "url": "https://example.invalid/combined",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-360",
+          "height": 360,
+          "tbr": 720,
+          "url": "https://example.invalid/video-360",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-720",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/video-720",
+          "vcodec": "vp9"
+        },
+        {
+          "abr": 64,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-low",
+          "tbr": 64,
+          "url": "https://example.invalid/audio-low",
+          "vcodec": "none"
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-high",
+          "tbr": 128,
+          "url": "https://example.invalid/audio-high",
+          "vcodec": "none"
+        }
+      ],
+      "id": "quality.basic-bv-star",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": 0,
+            "acodec": "none",
+            "audio_ext": "none",
+            "ext": "mp4",
+            "format_id": "video-720",
+            "height": 720,
+            "protocol": "https",
+            "tbr": 1440,
+            "url": "https://example.invalid/video-720",
+            "vbr": 1440,
+            "vcodec": "vp9",
+            "video_ext": "mp4"
+          },
+          "tracks": [
+            {
+              "format_id": "video-720"
+            }
+          ]
+        }
+      ],
+      "selector": "bv*"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "aac",
+          "ext": "mp4",
+          "format_id": "combined",
+          "height": 360,
+          "tbr": 1080,
+          "url": "https://example.invalid/combined",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-360",
+          "height": 360,
+          "tbr": 720,
+          "url": "https://example.invalid/video-360",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-720",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/video-720",
+          "vcodec": "vp9"
+        },
+        {
+          "abr": 64,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-low",
+          "tbr": 64,
+          "url": "https://example.invalid/audio-low",
+          "vcodec": "none"
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-high",
+          "tbr": 128,
+          "url": "https://example.invalid/audio-high",
+          "vcodec": "none"
+        }
+      ],
+      "id": "quality.basic-ba-star",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": null,
+            "acodec": "aac",
+            "audio_ext": "none",
+            "ext": "mp4",
+            "format_id": "combined",
+            "height": 360,
+            "protocol": "https",
+            "tbr": 1080,
+            "url": "https://example.invalid/combined",
+            "vbr": null,
+            "vcodec": "avc1",
+            "video_ext": "mp4"
+          },
+          "tracks": [
+            {
+              "format_id": "combined"
+            }
+          ]
+        }
+      ],
+      "selector": "ba*"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "aac",
+          "ext": "mp4",
+          "format_id": "combined",
+          "height": 360,
+          "tbr": 1080,
+          "url": "https://example.invalid/combined",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-360",
+          "height": 360,
+          "tbr": 720,
+          "url": "https://example.invalid/video-360",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-720",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/video-720",
+          "vcodec": "vp9"
+        },
+        {
+          "abr": 64,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-low",
+          "tbr": 64,
+          "url": "https://example.invalid/audio-low",
+          "vcodec": "none"
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-high",
+          "tbr": 128,
+          "url": "https://example.invalid/audio-high",
+          "vcodec": "none"
+        }
+      ],
+      "id": "quality.basic-b-star",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": 0,
+            "acodec": "none",
+            "audio_ext": "none",
+            "ext": "mp4",
+            "format_id": "video-720",
+            "height": 720,
+            "protocol": "https",
+            "tbr": 1440,
+            "url": "https://example.invalid/video-720",
+            "vbr": 1440,
+            "vcodec": "vp9",
+            "video_ext": "mp4"
+          },
+          "tracks": [
+            {
+              "format_id": "video-720"
+            }
+          ]
+        }
+      ],
+      "selector": "b*"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "none",
+          "ext": "mhtml",
+          "format_id": "board",
+          "url": "https://example.invalid/board",
+          "vcodec": "none"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/video",
+          "vcodec": "avc1"
+        }
+      ],
+      "id": "quality.storyboard-excluded-by-best",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": 0,
+            "acodec": "none",
+            "audio_ext": "none",
+            "ext": "mp4",
+            "format_id": "video",
+            "height": 720,
+            "protocol": "https",
+            "tbr": 1440,
+            "url": "https://example.invalid/video",
+            "vbr": 1440,
+            "vcodec": "avc1",
+            "video_ext": "mp4"
+          },
+          "tracks": [
+            {
+              "format_id": "video"
+            }
+          ]
+        }
+      ],
+      "selector": "best"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "v1",
+          "height": 360,
+          "tbr": 720,
+          "url": "https://example.invalid/v1",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "v2",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/v2",
+          "vcodec": "avc1"
+        }
+      ],
+      "id": "incomplete.video-only-best",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": 0,
+            "acodec": "none",
+            "audio_ext": "none",
+            "ext": "mp4",
+            "format_id": "v2",
+            "height": 720,
+            "protocol": "https",
+            "tbr": 1440,
+            "url": "https://example.invalid/v2",
+            "vbr": 1440,
+            "vcodec": "avc1",
+            "video_ext": "mp4"
+          },
+          "tracks": [
+            {
+              "format_id": "v2"
+            }
+          ]
+        }
+      ],
+      "selector": "best"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "v1",
+          "height": 360,
+          "tbr": 720,
+          "url": "https://example.invalid/v1",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "v2",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/v2",
+          "vcodec": "avc1"
+        }
+      ],
+      "id": "incomplete.video-only-best.2",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": 0,
+            "acodec": "none",
+            "audio_ext": "none",
+            "ext": "mp4",
+            "format_id": "v1",
+            "height": 360,
+            "protocol": "https",
+            "tbr": 720,
+            "url": "https://example.invalid/v1",
+            "vbr": 720,
+            "vcodec": "avc1",
+            "video_ext": "mp4"
+          },
+          "tracks": [
+            {
+              "format_id": "v1"
+            }
+          ]
+        }
+      ],
+      "selector": "best.2"
+    },
+    {
+      "formats": [
+        {
+          "abr": 64,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "a1",
+          "tbr": 64,
+          "url": "https://example.invalid/a1",
+          "vcodec": "none"
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "a2",
+          "tbr": 128,
+          "url": "https://example.invalid/a2",
+          "vcodec": "none"
+        }
+      ],
+      "id": "incomplete.audio-only-best",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": 128,
+            "acodec": "aac",
+            "audio_ext": "m4a",
+            "ext": "m4a",
+            "format_id": "a2",
+            "protocol": "https",
+            "tbr": 128,
+            "url": "https://example.invalid/a2",
+            "vbr": 0,
+            "vcodec": "none",
+            "video_ext": "none"
+          },
+          "tracks": [
+            {
+              "format_id": "a2"
+            }
+          ]
+        }
+      ],
+      "selector": "best"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "v1",
+          "height": 360,
+          "tbr": 720,
+          "url": "https://example.invalid/v1",
+          "vcodec": "avc1"
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "a1",
+          "tbr": 128,
+          "url": "https://example.invalid/a1",
+          "vcodec": "none"
+        }
+      ],
+      "id": "incomplete.mixed-best",
+      "options": {},
+      "plans": [],
+      "selector": "best"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "aac",
+          "ext": "mp4",
+          "format_id": "combined",
+          "height": 360,
+          "tbr": 1080,
+          "url": "https://example.invalid/combined",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-360",
+          "height": 360,
+          "tbr": 720,
+          "url": "https://example.invalid/video-360",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-720",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/video-720",
+          "vcodec": "vp9"
+        },
+        {
+          "abr": 64,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-low",
+          "tbr": 64,
+          "url": "https://example.invalid/audio-low",
+          "vcodec": "none"
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-high",
+          "tbr": 128,
+          "url": "https://example.invalid/audio-high",
+          "vcodec": "none"
+        }
+      ],
+      "id": "expression.all",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": 0,
+            "acodec": "none",
+            "audio_ext": "none",
+            "ext": "mp4",
+            "format_id": "video-720",
+            "height": 720,
+            "protocol": "https",
+            "tbr": 1440,
+            "url": "https://example.invalid/video-720",
+            "vbr": 1440,
+            "vcodec": "vp9",
+            "video_ext": "mp4"
+          },
+          "tracks": [
+            {
+              "format_id": "video-720"
+            }
+          ]
+        },
+        {
+          "merged": {
+            "abr": null,
+            "acodec": "aac",
+            "audio_ext": "none",
+            "ext": "mp4",
+            "format_id": "combined",
+            "height": 360,
+            "protocol": "https",
+            "tbr": 1080,
+            "url": "https://example.invalid/combined",
+            "vbr": null,
+            "vcodec": "avc1",
+            "video_ext": "mp4"
+          },
+          "tracks": [
+            {
+              "format_id": "combined"
+            }
+          ]
+        },
+        {
+          "merged": {
+            "abr": 0,
+            "acodec": "none",
+            "audio_ext": "none",
+            "ext": "mp4",
+            "format_id": "video-360",
+            "height": 360,
+            "protocol": "https",
+            "tbr": 720,
+            "url": "https://example.invalid/video-360",
+            "vbr": 720,
+            "vcodec": "avc1",
+            "video_ext": "mp4"
+          },
+          "tracks": [
+            {
+              "format_id": "video-360"
+            }
+          ]
+        },
+        {
+          "merged": {
+            "abr": 128,
+            "acodec": "aac",
+            "audio_ext": "m4a",
+            "ext": "m4a",
+            "format_id": "audio-high",
+            "protocol": "https",
+            "tbr": 128,
+            "url": "https://example.invalid/audio-high",
+            "vbr": 0,
+            "vcodec": "none",
+            "video_ext": "none"
+          },
+          "tracks": [
+            {
+              "format_id": "audio-high"
+            }
+          ]
+        },
+        {
+          "merged": {
+            "abr": 64,
+            "acodec": "aac",
+            "audio_ext": "m4a",
+            "ext": "m4a",
+            "format_id": "audio-low",
+            "protocol": "https",
+            "tbr": 64,
+            "url": "https://example.invalid/audio-low",
+            "vbr": 0,
+            "vcodec": "none",
+            "video_ext": "none"
+          },
+          "tracks": [
+            {
+              "format_id": "audio-low"
+            }
+          ]
+        }
+      ],
+      "selector": "all"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "aac",
+          "ext": "mp4",
+          "format_id": "combined",
+          "height": 360,
+          "tbr": 1080,
+          "url": "https://example.invalid/combined",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-360",
+          "height": 360,
+          "tbr": 720,
+          "url": "https://example.invalid/video-360",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-720",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/video-720",
+          "vcodec": "vp9"
+        },
+        {
+          "abr": 64,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-low",
+          "tbr": 64,
+          "url": "https://example.invalid/audio-low",
+          "vcodec": "none"
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-high",
+          "tbr": 128,
+          "url": "https://example.invalid/audio-high",
+          "vcodec": "none"
+        }
+      ],
+      "id": "expression.all-filtered",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": 0,
+            "acodec": "none",
+            "audio_ext": "none",
+            "ext": "mp4",
+            "format_id": "video-720",
+            "height": 720,
+            "protocol": "https",
+            "tbr": 1440,
+            "url": "https://example.invalid/video-720",
+            "vbr": 1440,
+            "vcodec": "vp9",
+            "video_ext": "mp4"
+          },
+          "tracks": [
+            {
+              "format_id": "video-720"
+            }
+          ]
+        },
+        {
+          "merged": {
+            "abr": null,
+            "acodec": "aac",
+            "audio_ext": "none",
+            "ext": "mp4",
+            "format_id": "combined",
+            "height": 360,
+            "protocol": "https",
+            "tbr": 1080,
+            "url": "https://example.invalid/combined",
+            "vbr": null,
+            "vcodec": "avc1",
+            "video_ext": "mp4"
+          },
+          "tracks": [
+            {
+              "format_id": "combined"
+            }
+          ]
+        },
+        {
+          "merged": {
+            "abr": 0,
+            "acodec": "none",
+            "audio_ext": "none",
+            "ext": "mp4",
+            "format_id": "video-360",
+            "height": 360,
+            "protocol": "https",
+            "tbr": 720,
+            "url": "https://example.invalid/video-360",
+            "vbr": 720,
+            "vcodec": "avc1",
+            "video_ext": "mp4"
+          },
+          "tracks": [
+            {
+              "format_id": "video-360"
+            }
+          ]
+        }
+      ],
+      "selector": "all[height<=720]"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "aac",
+          "ext": "mp4",
+          "format_id": "combined",
+          "height": 360,
+          "tbr": 1080,
+          "url": "https://example.invalid/combined",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-360",
+          "height": 360,
+          "tbr": 720,
+          "url": "https://example.invalid/video-360",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-720",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/video-720",
+          "vcodec": "vp9"
+        },
+        {
+          "abr": 64,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-low",
+          "tbr": 64,
+          "url": "https://example.invalid/audio-low",
+          "vcodec": "none"
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-high",
+          "tbr": 128,
+          "url": "https://example.invalid/audio-high",
+          "vcodec": "none"
+        }
+      ],
+      "id": "expression.mergeall",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": 128,
+            "acodec": "aac",
+            "aspect_ratio": null,
+            "asr": null,
+            "audio_channels": null,
+            "dynamic_range": null,
+            "ext": "mp4",
+            "filesize_approx": null,
+            "format": "",
+            "format_id": "video-720+audio-high",
+            "format_note": null,
+            "fps": null,
+            "height": 720,
+            "language": null,
+            "protocol": "https+https",
+            "requested_formats": [
+              {
+                "abr": 0,
+                "acodec": "none",
+                "audio_ext": "none",
+                "ext": "mp4",
+                "format_id": "video-720",
+                "height": 720,
+                "protocol": "https",
+                "tbr": 1440,
+                "url": "https://example.invalid/video-720",
+                "vbr": 1440,
+                "vcodec": "vp9",
+                "video_ext": "mp4"
+              },
+              {
+                "abr": 128,
+                "acodec": "aac",
+                "audio_ext": "m4a",
+                "ext": "m4a",
+                "format_id": "audio-high",
+                "protocol": "https",
+                "tbr": 128,
+                "url": "https://example.invalid/audio-high",
+                "vbr": 0,
+                "vcodec": "none",
+                "video_ext": "none"
+              }
+            ],
+            "resolution": "720p",
+            "stretched_ratio": null,
+            "tbr": 1568,
+            "vbr": 1440,
+            "vcodec": "vp9",
+            "width": null
+          },
+          "tracks": [
+            {
+              "format_id": "video-720"
+            },
+            {
+              "format_id": "audio-high"
+            }
+          ]
+        }
+      ],
+      "selector": "mergeall"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "aac",
+          "ext": "mp4",
+          "format_id": "combined",
+          "height": 360,
+          "tbr": 1080,
+          "url": "https://example.invalid/combined",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-360",
+          "height": 360,
+          "tbr": 720,
+          "url": "https://example.invalid/video-360",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-720",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/video-720",
+          "vcodec": "vp9"
+        },
+        {
+          "abr": 64,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-low",
+          "tbr": 64,
+          "url": "https://example.invalid/audio-low",
+          "vcodec": "none"
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-high",
+          "tbr": 128,
+          "url": "https://example.invalid/audio-high",
+          "vcodec": "none"
+        }
+      ],
+      "id": "expression.comma-three",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": 0,
+            "acodec": "none",
+            "audio_ext": "none",
+            "ext": "mp4",
+            "format_id": "video-720",
+            "height": 720,
+            "protocol": "https",
+            "tbr": 1440,
+            "url": "https://example.invalid/video-720",
+            "vbr": 1440,
+            "vcodec": "vp9",
+            "video_ext": "mp4"
+          },
+          "tracks": [
+            {
+              "format_id": "video-720"
+            }
+          ]
+        },
+        {
+          "merged": {
+            "abr": 128,
+            "acodec": "aac",
+            "audio_ext": "m4a",
+            "ext": "m4a",
+            "format_id": "audio-high",
+            "protocol": "https",
+            "tbr": 128,
+            "url": "https://example.invalid/audio-high",
+            "vbr": 0,
+            "vcodec": "none",
+            "video_ext": "none"
+          },
+          "tracks": [
+            {
+              "format_id": "audio-high"
+            }
+          ]
+        },
+        {
+          "merged": {
+            "abr": null,
+            "acodec": "aac",
+            "audio_ext": "none",
+            "ext": "mp4",
+            "format_id": "combined",
+            "height": 360,
+            "protocol": "https",
+            "tbr": 1080,
+            "url": "https://example.invalid/combined",
+            "vbr": null,
+            "vcodec": "avc1",
+            "video_ext": "mp4"
+          },
+          "tracks": [
+            {
+              "format_id": "combined"
+            }
+          ]
+        }
+      ],
+      "selector": "bv,ba,combined"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "aac",
+          "ext": "mp4",
+          "format_id": "combined",
+          "height": 360,
+          "tbr": 1080,
+          "url": "https://example.invalid/combined",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-360",
+          "height": 360,
+          "tbr": 720,
+          "url": "https://example.invalid/video-360",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-720",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/video-720",
+          "vcodec": "vp9"
+        },
+        {
+          "abr": 64,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-low",
+          "tbr": 64,
+          "url": "https://example.invalid/audio-low",
+          "vcodec": "none"
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-high",
+          "tbr": 128,
+          "url": "https://example.invalid/audio-high",
+          "vcodec": "none"
+        }
+      ],
+      "id": "expression.slash-first-wins",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": null,
+            "acodec": "aac",
+            "audio_ext": "none",
+            "ext": "mp4",
+            "format_id": "combined",
+            "height": 360,
+            "protocol": "https",
+            "tbr": 1080,
+            "url": "https://example.invalid/combined",
+            "vbr": null,
+            "vcodec": "avc1",
+            "video_ext": "mp4"
+          },
+          "tracks": [
+            {
+              "format_id": "combined"
+            }
+          ]
+        }
+      ],
+      "selector": "best/bv"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "v1",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/v1",
+          "vcodec": "avc1"
+        }
+      ],
+      "id": "expression.slash-second-wins",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": 0,
+            "acodec": "none",
+            "audio_ext": "none",
+            "ext": "mp4",
+            "format_id": "v1",
+            "height": 720,
+            "protocol": "https",
+            "tbr": 1440,
+            "url": "https://example.invalid/v1",
+            "vbr": 1440,
+            "vcodec": "avc1",
+            "video_ext": "mp4"
+          },
+          "tracks": [
+            {
+              "format_id": "v1"
+            }
+          ]
+        }
+      ],
+      "selector": "best/v1"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "v1",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/v1",
+          "vcodec": "avc1"
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "a1",
+          "tbr": 128,
+          "url": "https://example.invalid/a1",
+          "vcodec": "none"
+        }
+      ],
+      "id": "expression.plus-cartesian",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": 128,
+            "acodec": "aac",
+            "aspect_ratio": null,
+            "asr": null,
+            "audio_channels": null,
+            "dynamic_range": null,
+            "ext": "mp4",
+            "filesize_approx": null,
+            "format": "",
+            "format_id": "v1+a1",
+            "format_note": null,
+            "fps": null,
+            "height": 720,
+            "language": null,
+            "protocol": "https+https",
+            "requested_formats": [
+              {
+                "abr": 0,
+                "acodec": "none",
+                "audio_ext": "none",
+                "ext": "mp4",
+                "format_id": "v1",
+                "height": 720,
+                "protocol": "https",
+                "tbr": 1440,
+                "url": "https://example.invalid/v1",
+                "vbr": 1440,
+                "vcodec": "avc1",
+                "video_ext": "mp4"
+              },
+              {
+                "abr": 128,
+                "acodec": "aac",
+                "audio_ext": "m4a",
+                "ext": "m4a",
+                "format_id": "a1",
+                "protocol": "https",
+                "tbr": 128,
+                "url": "https://example.invalid/a1",
+                "vbr": 0,
+                "vcodec": "none",
+                "video_ext": "none"
+              }
+            ],
+            "resolution": "720p",
+            "stretched_ratio": null,
+            "tbr": 1568,
+            "vbr": 1440,
+            "vcodec": "avc1",
+            "width": null
+          },
+          "tracks": [
+            {
+              "format_id": "v1"
+            },
+            {
+              "format_id": "a1"
+            }
+          ]
+        }
+      ],
+      "selector": "bv+ba"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "aac",
+          "ext": "mp4",
+          "format_id": "combined",
+          "height": 360,
+          "tbr": 1080,
+          "url": "https://example.invalid/combined",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-360",
+          "height": 360,
+          "tbr": 720,
+          "url": "https://example.invalid/video-360",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-720",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/video-720",
+          "vcodec": "vp9"
+        },
+        {
+          "abr": 64,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-low",
+          "tbr": 64,
+          "url": "https://example.invalid/audio-low",
+          "vcodec": "none"
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-high",
+          "tbr": 128,
+          "url": "https://example.invalid/audio-high",
+          "vcodec": "none"
+        }
+      ],
+      "id": "expression.grouped",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": 0,
+            "acodec": "none",
+            "audio_ext": "none",
+            "ext": "mp4",
+            "format_id": "video-720",
+            "height": 720,
+            "protocol": "https",
+            "tbr": 1440,
+            "url": "https://example.invalid/video-720",
+            "vbr": 1440,
+            "vcodec": "vp9",
+            "video_ext": "mp4"
+          },
+          "tracks": [
+            {
+              "format_id": "video-720"
+            }
+          ]
+        },
+        {
+          "merged": {
+            "abr": 128,
+            "acodec": "aac",
+            "audio_ext": "m4a",
+            "ext": "m4a",
+            "format_id": "audio-high",
+            "protocol": "https",
+            "tbr": 128,
+            "url": "https://example.invalid/audio-high",
+            "vbr": 0,
+            "vcodec": "none",
+            "video_ext": "none"
+          },
+          "tracks": [
+            {
+              "format_id": "audio-high"
+            }
+          ]
+        }
+      ],
+      "selector": "(bv,ba)/best"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "none",
+          "ext": "mhtml",
+          "format_id": "board",
+          "url": "https://example.invalid/board",
+          "vcodec": "none"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/video",
+          "vcodec": "avc1"
+        }
+      ],
+      "id": "expression.all-includes-storyboard",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": 0,
+            "acodec": "none",
+            "audio_ext": "none",
+            "ext": "mp4",
+            "format_id": "video",
+            "height": 720,
+            "protocol": "https",
+            "tbr": 1440,
+            "url": "https://example.invalid/video",
+            "vbr": 1440,
+            "vcodec": "avc1",
+            "video_ext": "mp4"
+          },
+          "tracks": [
+            {
+              "format_id": "video"
+            }
+          ]
+        },
+        {
+          "merged": {
+            "abr": 0,
+            "acodec": "none",
+            "audio_ext": "none",
+            "ext": "mhtml",
+            "format_id": "board",
+            "protocol": "https",
+            "tbr": null,
+            "url": "https://example.invalid/board",
+            "vbr": 0,
+            "vcodec": "none",
+            "video_ext": "none"
+          },
+          "tracks": [
+            {
+              "format_id": "board"
+            }
+          ]
+        }
+      ],
+      "selector": "all"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "v1",
+          "height": 360,
+          "tbr": 720,
+          "url": "https://example.invalid/v1",
+          "vcodec": "avc1"
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "a1",
+          "tbr": 128,
+          "url": "https://example.invalid/a1",
+          "vcodec": "none"
+        }
+      ],
+      "id": "expression.group-filter-keeps-context-flags",
+      "options": {},
+      "plans": [],
+      "selector": "(best)[vcodec!=none]"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "mp3",
+          "ext": "mp3",
+          "format_id": "f",
+          "url": "https://example.invalid/f",
+          "vcodec": "none"
+        }
+      ],
+      "id": "extension.audio-mp3",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": null,
+            "acodec": "mp3",
+            "audio_ext": "mp3",
+            "ext": "mp3",
+            "format_id": "f",
+            "protocol": "https",
+            "tbr": null,
+            "url": "https://example.invalid/f",
+            "vbr": 0,
+            "vcodec": "none",
+            "video_ext": "none"
+          },
+          "tracks": [
+            {
+              "format_id": "f"
+            }
+          ]
+        }
+      ],
+      "selector": "mp3"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "aac",
+          "ext": "mp4",
+          "format_id": "c",
+          "height": 360,
+          "tbr": 1080,
+          "url": "https://example.invalid/c",
+          "vcodec": "avc1"
+        }
+      ],
+      "id": "extension.video-mp4",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": null,
+            "acodec": "aac",
+            "audio_ext": "none",
+            "ext": "mp4",
+            "format_id": "c",
+            "height": 360,
+            "protocol": "https",
+            "tbr": 1080,
+            "url": "https://example.invalid/c",
+            "vbr": null,
+            "vcodec": "avc1",
+            "video_ext": "mp4"
+          },
+          "tracks": [
+            {
+              "format_id": "c"
+            }
+          ]
+        }
+      ],
+      "selector": "mp4"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "none",
+          "ext": "mhtml",
+          "format_id": "board",
+          "url": "https://example.invalid/board",
+          "vcodec": "none"
+        }
+      ],
+      "id": "extension.storyboard-mhtml",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": 0,
+            "acodec": "none",
+            "audio_ext": "none",
+            "ext": "mhtml",
+            "format_id": "board",
+            "protocol": "https",
+            "tbr": null,
+            "url": "https://example.invalid/board",
+            "vbr": 0,
+            "vcodec": "none",
+            "video_ext": "none"
+          },
+          "tracks": [
+            {
+              "format_id": "board"
+            }
+          ]
+        }
+      ],
+      "selector": "mhtml"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "aac",
+          "ext": "mp4",
+          "format_id": "combined",
+          "height": 360,
+          "tbr": 1080,
+          "url": "https://example.invalid/combined",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-360",
+          "height": 360,
+          "tbr": 720,
+          "url": "https://example.invalid/video-360",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-720",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/video-720",
+          "vcodec": "vp9"
+        },
+        {
+          "abr": 64,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-low",
+          "tbr": 64,
+          "url": "https://example.invalid/audio-low",
+          "vcodec": "none"
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-high",
+          "tbr": 128,
+          "url": "https://example.invalid/audio-high",
+          "vcodec": "none"
+        }
+      ],
+      "id": "extension.direct-id",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": 0,
+            "acodec": "none",
+            "audio_ext": "none",
+            "ext": "mp4",
+            "format_id": "video-720",
+            "height": 720,
+            "protocol": "https",
+            "tbr": 1440,
+            "url": "https://example.invalid/video-720",
+            "vbr": 1440,
+            "vcodec": "vp9",
+            "video_ext": "mp4"
+          },
+          "tracks": [
+            {
+              "format_id": "video-720"
+            }
+          ]
+        }
+      ],
+      "selector": "video-720"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "v1",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/v1",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "v2",
+          "height": 1080,
+          "tbr": 2160,
+          "url": "https://example.invalid/v2",
+          "vcodec": "avc1"
+        },
+        {
+          "abr": 64,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "a1",
+          "tbr": 64,
+          "url": "https://example.invalid/a1",
+          "vcodec": "none"
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "a2",
+          "tbr": 128,
+          "url": "https://example.invalid/a2",
+          "vcodec": "none"
+        }
+      ],
+      "id": "multistream.default",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": 128,
+            "acodec": "aac",
+            "aspect_ratio": null,
+            "asr": null,
+            "audio_channels": null,
+            "dynamic_range": null,
+            "ext": "mp4",
+            "filesize_approx": null,
+            "format": "",
+            "format_id": "v2+a2",
+            "format_note": null,
+            "fps": null,
+            "height": 1080,
+            "language": null,
+            "protocol": "https+https",
+            "requested_formats": [
+              {
+                "abr": 0,
+                "acodec": "none",
+                "audio_ext": "none",
+                "ext": "mp4",
+                "format_id": "v2",
+                "height": 1080,
+                "protocol": "https",
+                "tbr": 2160,
+                "url": "https://example.invalid/v2",
+                "vbr": 2160,
+                "vcodec": "avc1",
+                "video_ext": "mp4"
+              },
+              {
+                "abr": 128,
+                "acodec": "aac",
+                "audio_ext": "m4a",
+                "ext": "m4a",
+                "format_id": "a2",
+                "protocol": "https",
+                "tbr": 128,
+                "url": "https://example.invalid/a2",
+                "vbr": 0,
+                "vcodec": "none",
+                "video_ext": "none"
+              }
+            ],
+            "resolution": "1080p",
+            "stretched_ratio": null,
+            "tbr": 2288,
+            "vbr": 2160,
+            "vcodec": "avc1",
+            "width": null
+          },
+          "tracks": [
+            {
+              "format_id": "v2"
+            },
+            {
+              "format_id": "a2"
+            }
+          ]
+        }
+      ],
+      "selector": "bv+wv+ba+wa"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "v1",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/v1",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "v2",
+          "height": 1080,
+          "tbr": 2160,
+          "url": "https://example.invalid/v2",
+          "vcodec": "avc1"
+        },
+        {
+          "abr": 64,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "a1",
+          "tbr": 64,
+          "url": "https://example.invalid/a1",
+          "vcodec": "none"
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "a2",
+          "tbr": 128,
+          "url": "https://example.invalid/a2",
+          "vcodec": "none"
+        }
+      ],
+      "id": "multistream.allow-video",
+      "options": {
+        "allow_multiple_video_streams": true
+      },
+      "plans": [
+        {
+          "merged": {
+            "abr": 128,
+            "acodec": "aac",
+            "asr": null,
+            "audio_channels": null,
+            "ext": "mkv",
+            "filesize_approx": null,
+            "format": "",
+            "format_id": "v2+v1+a2",
+            "format_note": null,
+            "language": null,
+            "protocol": "https+https+https",
+            "requested_formats": [
+              {
+                "abr": 0,
+                "acodec": "none",
+                "audio_ext": "none",
+                "ext": "mp4",
+                "format_id": "v2",
+                "height": 1080,
+                "protocol": "https",
+                "tbr": 2160,
+                "url": "https://example.invalid/v2",
+                "vbr": 2160,
+                "vcodec": "avc1",
+                "video_ext": "mp4"
+              },
+              {
+                "abr": 0,
+                "acodec": "none",
+                "audio_ext": "none",
+                "ext": "mp4",
+                "format_id": "v1",
+                "height": 720,
+                "protocol": "https",
+                "tbr": 1440,
+                "url": "https://example.invalid/v1",
+                "vbr": 1440,
+                "vcodec": "avc1",
+                "video_ext": "mp4"
+              },
+              {
+                "abr": 128,
+                "acodec": "aac",
+                "audio_ext": "m4a",
+                "ext": "m4a",
+                "format_id": "a2",
+                "protocol": "https",
+                "tbr": 128,
+                "url": "https://example.invalid/a2",
+                "vbr": 0,
+                "vcodec": "none",
+                "video_ext": "none"
+              }
+            ],
+            "tbr": 3728
+          },
+          "tracks": [
+            {
+              "format_id": "v2"
+            },
+            {
+              "format_id": "v1"
+            },
+            {
+              "format_id": "a2"
+            }
+          ]
+        }
+      ],
+      "selector": "bv+wv+ba+wa"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "v1",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/v1",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "v2",
+          "height": 1080,
+          "tbr": 2160,
+          "url": "https://example.invalid/v2",
+          "vcodec": "avc1"
+        },
+        {
+          "abr": 64,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "a1",
+          "tbr": 64,
+          "url": "https://example.invalid/a1",
+          "vcodec": "none"
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "a2",
+          "tbr": 128,
+          "url": "https://example.invalid/a2",
+          "vcodec": "none"
+        }
+      ],
+      "id": "multistream.allow-audio",
+      "options": {
+        "allow_multiple_audio_streams": true
+      },
+      "plans": [
+        {
+          "merged": {
+            "aspect_ratio": null,
+            "dynamic_range": null,
+            "ext": "mkv",
+            "filesize_approx": null,
+            "format": "",
+            "format_id": "v2+a2+a1",
+            "format_note": null,
+            "fps": null,
+            "height": 1080,
+            "language": null,
+            "protocol": "https+https+https",
+            "requested_formats": [
+              {
+                "abr": 0,
+                "acodec": "none",
+                "audio_ext": "none",
+                "ext": "mp4",
+                "format_id": "v2",
+                "height": 1080,
+                "protocol": "https",
+                "tbr": 2160,
+                "url": "https://example.invalid/v2",
+                "vbr": 2160,
+                "vcodec": "avc1",
+                "video_ext": "mp4"
+              },
+              {
+                "abr": 128,
+                "acodec": "aac",
+                "audio_ext": "m4a",
+                "ext": "m4a",
+                "format_id": "a2",
+                "protocol": "https",
+                "tbr": 128,
+                "url": "https://example.invalid/a2",
+                "vbr": 0,
+                "vcodec": "none",
+                "video_ext": "none"
+              },
+              {
+                "abr": 64,
+                "acodec": "aac",
+                "audio_ext": "m4a",
+                "ext": "m4a",
+                "format_id": "a1",
+                "protocol": "https",
+                "tbr": 64,
+                "url": "https://example.invalid/a1",
+                "vbr": 0,
+                "vcodec": "none",
+                "video_ext": "none"
+              }
+            ],
+            "resolution": "1080p",
+            "stretched_ratio": null,
+            "tbr": 2352,
+            "vbr": 2160,
+            "vcodec": "avc1",
+            "width": null
+          },
+          "tracks": [
+            {
+              "format_id": "v2"
+            },
+            {
+              "format_id": "a2"
+            },
+            {
+              "format_id": "a1"
+            }
+          ]
+        }
+      ],
+      "selector": "bv+wv+ba+wa"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "v1",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/v1",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "v2",
+          "height": 1080,
+          "tbr": 2160,
+          "url": "https://example.invalid/v2",
+          "vcodec": "avc1"
+        },
+        {
+          "abr": 64,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "a1",
+          "tbr": 64,
+          "url": "https://example.invalid/a1",
+          "vcodec": "none"
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "a2",
+          "tbr": 128,
+          "url": "https://example.invalid/a2",
+          "vcodec": "none"
+        }
+      ],
+      "id": "multistream.allow-both",
+      "options": {
+        "allow_multiple_audio_streams": true,
+        "allow_multiple_video_streams": true
+      },
+      "plans": [
+        {
+          "merged": {
+            "ext": "mkv",
+            "filesize_approx": null,
+            "format": "",
+            "format_id": "v2+v1+a2+a1",
+            "format_note": null,
+            "language": null,
+            "protocol": "https+https+https+https",
+            "requested_formats": [
+              {
+                "abr": 0,
+                "acodec": "none",
+                "audio_ext": "none",
+                "ext": "mp4",
+                "format_id": "v2",
+                "height": 1080,
+                "protocol": "https",
+                "tbr": 2160,
+                "url": "https://example.invalid/v2",
+                "vbr": 2160,
+                "vcodec": "avc1",
+                "video_ext": "mp4"
+              },
+              {
+                "abr": 0,
+                "acodec": "none",
+                "audio_ext": "none",
+                "ext": "mp4",
+                "format_id": "v1",
+                "height": 720,
+                "protocol": "https",
+                "tbr": 1440,
+                "url": "https://example.invalid/v1",
+                "vbr": 1440,
+                "vcodec": "avc1",
+                "video_ext": "mp4"
+              },
+              {
+                "abr": 128,
+                "acodec": "aac",
+                "audio_ext": "m4a",
+                "ext": "m4a",
+                "format_id": "a2",
+                "protocol": "https",
+                "tbr": 128,
+                "url": "https://example.invalid/a2",
+                "vbr": 0,
+                "vcodec": "none",
+                "video_ext": "none"
+              },
+              {
+                "abr": 64,
+                "acodec": "aac",
+                "audio_ext": "m4a",
+                "ext": "m4a",
+                "format_id": "a1",
+                "protocol": "https",
+                "tbr": 64,
+                "url": "https://example.invalid/a1",
+                "vbr": 0,
+                "vcodec": "none",
+                "video_ext": "none"
+              }
+            ],
+            "tbr": 3792
+          },
+          "tracks": [
+            {
+              "format_id": "v2"
+            },
+            {
+              "format_id": "v1"
+            },
+            {
+              "format_id": "a2"
+            },
+            {
+              "format_id": "a1"
+            }
+          ]
+        }
+      ],
+      "selector": "bv+wv+ba+wa"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "v1",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/v1",
+          "vcodec": "avc1"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "v2",
+          "height": 1080,
+          "tbr": 2160,
+          "url": "https://example.invalid/v2",
+          "vcodec": "avc1"
+        },
+        {
+          "abr": 64,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "a1",
+          "tbr": 64,
+          "url": "https://example.invalid/a1",
+          "vcodec": "none"
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "a2",
+          "tbr": 128,
+          "url": "https://example.invalid/a2",
+          "vcodec": "none"
+        }
+      ],
+      "id": "multistream.duplicate-preserved",
+      "options": {
+        "allow_multiple_video_streams": true
+      },
+      "plans": [
+        {
+          "merged": {
+            "ext": "mkv",
+            "filesize_approx": null,
+            "format": "",
+            "format_id": "v2+v2",
+            "format_note": null,
+            "language": null,
+            "protocol": "https+https",
+            "requested_formats": [
+              {
+                "abr": 0,
+                "acodec": "none",
+                "audio_ext": "none",
+                "ext": "mp4",
+                "format_id": "v2",
+                "height": 1080,
+                "protocol": "https",
+                "tbr": 2160,
+                "url": "https://example.invalid/v2",
+                "vbr": 2160,
+                "vcodec": "avc1",
+                "video_ext": "mp4"
+              },
+              {
+                "abr": 0,
+                "acodec": "none",
+                "audio_ext": "none",
+                "ext": "mp4",
+                "format_id": "v2",
+                "height": 1080,
+                "protocol": "https",
+                "tbr": 2160,
+                "url": "https://example.invalid/v2",
+                "vbr": 2160,
+                "vcodec": "avc1",
+                "video_ext": "mp4"
+              }
+            ],
+            "tbr": 4320
+          },
+          "tracks": [
+            {
+              "format_id": "v2"
+            },
+            {
+              "format_id": "v2"
+            }
+          ]
+        }
+      ],
+      "selector": "v2+v2"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "aac",
+          "ext": "mp4",
+          "format_id": "c",
+          "height": 360,
+          "tbr": 1080,
+          "url": "https://example.invalid/c",
+          "vcodec": "avc1"
+        },
+        {
+          "abr": 64,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "a1",
+          "tbr": 64,
+          "url": "https://example.invalid/a1",
+          "vcodec": "none"
+        }
+      ],
+      "id": "multistream.combined-uses-both-slots",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": null,
+            "acodec": "aac",
+            "audio_ext": "none",
+            "ext": "mp4",
+            "format_id": "c",
+            "height": 360,
+            "protocol": "https",
+            "tbr": 1080,
+            "url": "https://example.invalid/c",
+            "vbr": null,
+            "vcodec": "avc1",
+            "video_ext": "mp4"
+          },
+          "tracks": [
+            {
+              "format_id": "c"
+            }
+          ]
+        }
+      ],
+      "selector": "best+bestaudio"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "none",
+          "ext": "mhtml",
+          "format_id": "board",
+          "url": "https://example.invalid/board",
+          "vcodec": "none"
+        },
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "v1",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/v1",
+          "vcodec": "avc1"
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "a1",
+          "tbr": 128,
+          "url": "https://example.invalid/a1",
+          "vcodec": "none"
+        }
+      ],
+      "id": "multistream.storyboard-removed",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": 128,
+            "acodec": "aac",
+            "aspect_ratio": null,
+            "asr": null,
+            "audio_channels": null,
+            "dynamic_range": null,
+            "ext": "mp4",
+            "filesize_approx": null,
+            "format": "",
+            "format_id": "v1+a1",
+            "format_note": null,
+            "fps": null,
+            "height": 720,
+            "language": null,
+            "protocol": "https+https",
+            "requested_formats": [
+              {
+                "abr": 0,
+                "acodec": "none",
+                "audio_ext": "none",
+                "ext": "mp4",
+                "format_id": "v1",
+                "height": 720,
+                "protocol": "https",
+                "tbr": 1440,
+                "url": "https://example.invalid/v1",
+                "vbr": 1440,
+                "vcodec": "avc1",
+                "video_ext": "mp4"
+              },
+              {
+                "abr": 128,
+                "acodec": "aac",
+                "audio_ext": "m4a",
+                "ext": "m4a",
+                "format_id": "a1",
+                "protocol": "https",
+                "tbr": 128,
+                "url": "https://example.invalid/a1",
+                "vbr": 0,
+                "vcodec": "none",
+                "video_ext": "none"
+              }
+            ],
+            "resolution": "720p",
+            "stretched_ratio": null,
+            "tbr": 1568,
+            "vbr": 1440,
+            "vcodec": "avc1",
+            "width": null
+          },
+          "tracks": [
+            {
+              "format_id": "v1"
+            },
+            {
+              "format_id": "a1"
+            }
+          ]
+        }
+      ],
+      "selector": "bv+ba"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-720",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/video-720",
+          "vcodec": "avc1"
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-high",
+          "tbr": 128,
+          "url": "https://example.invalid/audio-high",
+          "vcodec": "none"
+        }
+      ],
+      "id": "metadata.two-track",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": 128,
+            "acodec": "aac",
+            "aspect_ratio": null,
+            "asr": null,
+            "audio_channels": null,
+            "dynamic_range": null,
+            "ext": "mp4",
+            "filesize_approx": null,
+            "format": "",
+            "format_id": "video-720+audio-high",
+            "format_note": null,
+            "fps": null,
+            "height": 720,
+            "language": null,
+            "protocol": "https+https",
+            "requested_formats": [
+              {
+                "abr": 0,
+                "acodec": "none",
+                "audio_ext": "none",
+                "ext": "mp4",
+                "format_id": "video-720",
+                "height": 720,
+                "protocol": "https",
+                "tbr": 1440,
+                "url": "https://example.invalid/video-720",
+                "vbr": 1440,
+                "vcodec": "avc1",
+                "video_ext": "mp4"
+              },
+              {
+                "abr": 128,
+                "acodec": "aac",
+                "audio_ext": "m4a",
+                "ext": "m4a",
+                "format_id": "audio-high",
+                "protocol": "https",
+                "tbr": 128,
+                "url": "https://example.invalid/audio-high",
+                "vbr": 0,
+                "vcodec": "none",
+                "video_ext": "none"
+              }
+            ],
+            "resolution": "720p",
+            "stretched_ratio": null,
+            "tbr": 1568,
+            "vbr": 1440,
+            "vcodec": "avc1",
+            "width": null
+          },
+          "tracks": [
+            {
+              "format_id": "video-720"
+            },
+            {
+              "format_id": "audio-high"
+            }
+          ]
+        }
+      ],
+      "selector": "bv+ba"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "video-720",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/video-720",
+          "vcodec": "avc1"
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "ext": "m4a",
+          "format_id": "audio-high",
+          "tbr": 128,
+          "url": "https://example.invalid/audio-high",
+          "vcodec": "none"
+        }
+      ],
+      "id": "metadata.single-track",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": 0,
+            "acodec": "none",
+            "audio_ext": "none",
+            "ext": "mp4",
+            "format_id": "video-720",
+            "height": 720,
+            "protocol": "https",
+            "tbr": 1440,
+            "url": "https://example.invalid/video-720",
+            "vbr": 1440,
+            "vcodec": "avc1",
+            "video_ext": "mp4"
+          },
+          "tracks": [
+            {
+              "format_id": "video-720"
+            }
+          ]
+        }
+      ],
+      "selector": "bv"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "none",
+          "ext": "mp4",
+          "format_id": "free-video",
+          "height": 720,
+          "tbr": 1440,
+          "url": "https://example.invalid/free-video",
+          "vcodec": "av1"
+        },
+        {
+          "abr": 128,
+          "acodec": "mp4a",
+          "ext": "m4a",
+          "format_id": "free-audio",
+          "tbr": 128,
+          "url": "https://example.invalid/free-audio",
+          "vcodec": "none"
+        }
+      ],
+      "id": "metadata.prefer-free-extension",
+      "options": {
+        "prefer_free_formats": true
+      },
+      "plans": [
+        {
+          "merged": {
+            "abr": 128,
+            "acodec": "mp4a",
+            "aspect_ratio": null,
+            "asr": null,
+            "audio_channels": null,
+            "dynamic_range": null,
+            "ext": "mkv",
+            "filesize_approx": null,
+            "format": "",
+            "format_id": "free-video+free-audio",
+            "format_note": null,
+            "fps": null,
+            "height": 720,
+            "language": null,
+            "protocol": "https+https",
+            "requested_formats": [
+              {
+                "abr": 0,
+                "acodec": "none",
+                "audio_ext": "none",
+                "ext": "mp4",
+                "format_id": "free-video",
+                "height": 720,
+                "protocol": "https",
+                "tbr": 1440,
+                "url": "https://example.invalid/free-video",
+                "vbr": 1440,
+                "vcodec": "av1",
+                "video_ext": "mp4"
+              },
+              {
+                "abr": 128,
+                "acodec": "mp4a",
+                "audio_ext": "m4a",
+                "ext": "m4a",
+                "format_id": "free-audio",
+                "protocol": "https",
+                "tbr": 128,
+                "url": "https://example.invalid/free-audio",
+                "vbr": 0,
+                "vcodec": "none",
+                "video_ext": "none"
+              }
+            ],
+            "resolution": "720p",
+            "stretched_ratio": null,
+            "tbr": 1568,
+            "vbr": 1440,
+            "vcodec": "av1",
+            "width": null
+          },
+          "tracks": [
+            {
+              "format_id": "free-video"
+            },
+            {
+              "format_id": "free-audio"
+            }
+          ]
+        }
+      ],
+      "selector": "bv+ba"
+    },
+    {
+      "formats": [
+        {
+          "acodec": "none",
+          "dynamic_range": "HDR10",
+          "ext": "mp4",
+          "filesize": 1000,
+          "format_id": "rich-video",
+          "format_note": "video",
+          "fps": 30,
+          "height": 720,
+          "language": "en",
+          "tbr": 1400,
+          "url": "https://example.invalid/rich-video",
+          "vbr": 1400,
+          "vcodec": "avc1",
+          "width": 1280
+        },
+        {
+          "abr": 128,
+          "acodec": "aac",
+          "asr": 48000,
+          "audio_channels": 2,
+          "ext": "m4a",
+          "filesize_approx": 500,
+          "format_id": "rich-audio",
+          "format_note": "audio",
+          "language": "en",
+          "tbr": 128,
+          "url": "https://example.invalid/rich-audio",
+          "vcodec": "none"
+        }
+      ],
+      "id": "metadata.rich-two-track",
+      "options": {},
+      "plans": [
+        {
+          "merged": {
+            "abr": 128,
+            "acodec": "aac",
+            "aspect_ratio": null,
+            "asr": 48000,
+            "audio_channels": 2,
+            "dynamic_range": "HDR10",
+            "ext": "mp4",
+            "filesize_approx": 1500,
+            "format": "",
+            "format_id": "rich-video+rich-audio",
+            "format_note": "video+audio",
+            "fps": 30,
+            "height": 720,
+            "language": "en",
+            "protocol": "https+https",
+            "requested_formats": [
+              {
+                "abr": 0,
+                "acodec": "none",
+                "audio_ext": "none",
+                "dynamic_range": "HDR10",
+                "ext": "mp4",
+                "filesize": 1000,
+                "format_id": "rich-video",
+                "format_note": "video",
+                "fps": 30,
+                "height": 720,
+                "language": "en",
+                "protocol": "https",
+                "tbr": 1400,
+                "url": "https://example.invalid/rich-video",
+                "vbr": 1400,
+                "vcodec": "avc1",
+                "video_ext": "mp4",
+                "width": 1280
+              },
+              {
+                "abr": 128,
+                "acodec": "aac",
+                "asr": 48000,
+                "audio_channels": 2,
+                "audio_ext": "m4a",
+                "ext": "m4a",
+                "filesize_approx": 500,
+                "format_id": "rich-audio",
+                "format_note": "audio",
+                "language": "en",
+                "protocol": "https",
+                "tbr": 128,
+                "url": "https://example.invalid/rich-audio",
+                "vbr": 0,
+                "vcodec": "none",
+                "video_ext": "none"
+              }
+            ],
+            "resolution": "1280x720",
+            "stretched_ratio": null,
+            "tbr": 1528,
+            "vbr": 1400,
+            "vcodec": "avc1",
+            "width": 1280
+          },
+          "tracks": [
+            {
+              "format_id": "rich-video"
+            },
+            {
+              "format_id": "rich-audio"
+            }
+          ]
+        }
+      ],
+      "selector": "bv+ba"
+    },
+    {
+      "cases": [
+        {
+          "acodecs": [
+            "mp4a.40.2"
+          ],
+          "aexts": [
+            "m4a"
+          ],
+          "expected": "mp4",
+          "id": "compatible.mp4-codecs",
+          "preferences": null,
+          "vcodecs": [
+            "avc1.640028"
+          ],
+          "vexts": [
+            "mp4"
+          ],
+          "want": "mp4"
+        },
+        {
+          "acodecs": [
+            "opus"
+          ],
+          "aexts": [
+            "weba"
+          ],
+          "expected": "webm",
+          "id": "compatible.webm-codecs",
+          "preferences": null,
+          "vcodecs": [
+            "vp9"
+          ],
+          "vexts": [
+            "webm"
+          ],
+          "want": "webm"
+        },
+        {
+          "acodecs": [
+            "opus"
+          ],
+          "aexts": [
+            "webm"
+          ],
+          "expected": "mkv",
+          "id": "compatible.incompatible-codecs",
+          "preferences": null,
+          "vcodecs": [
+            "avc1.640028"
+          ],
+          "vexts": [
+            "mp4"
+          ],
+          "want": "mkv"
+        },
+        {
+          "acodecs": [
+            "mp4a.40.2"
+          ],
+          "aexts": [
+            "m4a"
+          ],
+          "expected": "mkv",
+          "id": "compatible.multi-video",
+          "preferences": null,
+          "vcodecs": [
+            "avc1.640028",
+            "avc1.4d401e"
+          ],
+          "vexts": [
+            "mp4",
+            "mp4"
+          ],
+          "want": "mkv"
+        },
+        {
+          "acodecs": [
+            "mp4a.40.2",
+            "opus"
+          ],
+          "aexts": [
+            "m4a",
+            "webm"
+          ],
+          "expected": "mkv",
+          "id": "compatible.multi-audio",
+          "preferences": null,
+          "vcodecs": [
+            "avc1.640028"
+          ],
+          "vexts": [
+            "mp4"
+          ],
+          "want": "mkv"
+        },
+        {
+          "acodecs": [
+            "mp4a.40.2"
+          ],
+          "aexts": [
+            "m4a"
+          ],
+          "expected": "mp4",
+          "id": "compatible.homogeneous-mp4",
+          "preferences": null,
+          "vcodecs": [
+            "avc1.640028"
+          ],
+          "vexts": [
+            "mp4"
+          ],
+          "want": "mp4"
+        },
+        {
+          "acodecs": [
+            "opus"
+          ],
+          "aexts": [
+            "webm"
+          ],
+          "expected": "webm",
+          "id": "compatible.homogeneous-webm",
+          "preferences": null,
+          "vcodecs": [
+            "vp9"
+          ],
+          "vexts": [
+            "webm"
+          ],
+          "want": "webm"
+        },
+        {
+          "acodecs": [
+            "mp4a"
+          ],
+          "aexts": [
+            "m4a"
+          ],
+          "expected": "mp4",
+          "id": "compatible.family-mp4",
+          "preferences": null,
+          "vcodecs": [
+            "avc1"
+          ],
+          "vexts": [
+            "mp4"
+          ],
+          "want": "mp4"
+        },
+        {
+          "acodecs": [
+            "mp4a"
+          ],
+          "aexts": [
+            "m4a"
+          ],
+          "expected": "mkv",
+          "id": "compatible.preferences-mkv",
+          "preferences": [
+            "mkv"
+          ],
+          "vcodecs": [
+            "avc1"
+          ],
+          "vexts": [
+            "mp4"
+          ],
+          "want": "mkv"
+        },
+        {
+          "acodecs": [
+            "opus"
+          ],
+          "aexts": [
+            "weba"
+          ],
+          "expected": "webm",
+          "id": "compatible.preferences-excluding-mkv",
+          "preferences": [
+            "webm"
+          ],
+          "vcodecs": [
+            "vp9"
+          ],
+          "vexts": [
+            "webm"
+          ],
+          "want": "webm"
+        },
+        {
+          "acodecs": [
+            "opus"
+          ],
+          "aexts": [
+            "webm"
+          ],
+          "expected": "mov",
+          "id": "compatible.final-preference",
+          "preferences": [
+            "mov"
+          ],
+          "vcodecs": [
+            "avc1"
+          ],
+          "vexts": [
+            "mp4"
+          ],
+          "want": "mov"
+        },
+        {
+          "acodecs": [
+            "opus"
+          ],
+          "aexts": [
+            "webm"
+          ],
+          "expected": "MKV",
+          "id": "compatible.preference-case-sensitive",
+          "preferences": [
+            "MKV"
+          ],
+          "vcodecs": [
+            "avc1"
+          ],
+          "vexts": [
+            "mp4"
+          ],
+          "want": "MKV"
+        },
+        {
+          "acodecs": [
+            "mp4a"
+          ],
+          "aexts": [
+            "m4a"
+          ],
+          "expected": "mp4",
+          "id": "compatible.extension-case-sensitive",
+          "preferences": null,
+          "vcodecs": [
+            "avc1"
+          ],
+          "vexts": [
+            "MP4"
+          ],
+          "want": "mkv"
+        }
+      ],
+      "id": "compatible_extension.cases"
+    }
+  ],
+  "reference": {
+    "commit": "aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8",
+    "python_version": "CPython 3.12.13",
+    "repository": "https://github.com/yt-dlp/yt-dlp",
+    "sources": [
+      "yt_dlp/YoutubeDL.py:build_format_selector,_merge",
+      "yt_dlp/utils/_utils.py:get_compatible_ext"
+    ]
+  },
+  "schema_version": 1
+}

@@ -116,12 +116,17 @@ func Default(info value.Info, options Options) ([]Selection, error) {
 }
 
 // Default applies the default selector to the canonical prepared formats.
+// It preserves the historical contract: one output plan, fail with
+// ErrMultiOutput if multiple plans would be returned.
 func (prepared Prepared) Default() ([]Selection, error) {
-	selector, err := ParseSelector("bestvideo+bestaudio/best")
-	if err != nil {
-		return nil, err
-	}
-	plans, err := prepared.Plan(selector)
+	// Legacy compatibility: a planner capable of merging formats and not
+	// emitting to stdout picks the VOD default selector. The product
+	// layer can override via DefaultWithContext.
+	plans, err := prepared.DefaultWithContext(
+		PlannerCapabilities{CanMergeFormats: true, OutputToStdout: false},
+		DefaultSelectorContext{IsLive: false, LiveFromStart: false, LegacyFormatSpec: false},
+		EvaluationOptions{},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -129,6 +134,23 @@ func (prepared Prepared) Default() ([]Selection, error) {
 		return nil, ErrMultiOutput
 	}
 	return plans[0].Tracks, nil
+}
+
+// DefaultWithContext computes the default selector via DefaultSelectorSpec
+// and evaluates it. The selector depends on the injected runtime
+// capabilities (merge availability, stdout destination) and live context;
+// the function is pure with respect to those inputs.
+func (prepared Prepared) DefaultWithContext(
+	capabilities PlannerCapabilities,
+	context DefaultSelectorContext,
+	evaluationOptions EvaluationOptions,
+) ([]OutputPlan, error) {
+	selectorSpec := DefaultSelectorSpec(capabilities, context, prepared.options)
+	selector, err := ParseSelector(selectorSpec)
+	if err != nil {
+		return nil, err
+	}
+	return prepared.PlanWithOptions(selector, evaluationOptions)
 }
 
 // Best selects the first canonical format.

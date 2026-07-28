@@ -3,6 +3,8 @@ package format
 import (
 	"fmt"
 	"strings"
+
+	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
 // astKind identifies selector AST node operators.
@@ -52,8 +54,19 @@ type atomSpec struct {
 
 // OutputPlan is one independent download product output. Tracks within a plan
 // are merged when there is more than one.
+//
+// Metadata is the planner-owned clone of the output's merged-format
+// dictionary. It is independent of Prepared.Info() and the
+// extractor-owned input info: mutating it never reaches back into the
+// extractor or the planner. For a single-track output Metadata is a
+// defensive clone of the selected canonical format object; for a merged
+// output it follows the yt-dlp merged-format dictionary rules
+// (requested_formats, format, format_id, ext, protocol, language,
+// format_note, filesize_approx, tbr, single-video and single-audio
+// field promotion).
 type OutputPlan struct {
-	Tracks []Selection
+	Tracks   []Selection
+	Metadata value.Info
 }
 
 // PlanID returns a bounded label derived from the selected track IDs.

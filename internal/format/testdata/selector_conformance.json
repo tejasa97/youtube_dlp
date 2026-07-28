@@ -692,16 +692,7 @@
       "selector": "best",
       "options": {},
       "expected": {
-        "plans": [
-          {
-            "tracks": [
-              {
-                "source": 1,
-                "id": "720"
-              }
-            ]
-          }
-        ]
+        "error": "ErrNoMatch"
       },
       "parity": {
         "status": "passing"
@@ -718,16 +709,7 @@
       "selector": "b",
       "options": {},
       "expected": {
-        "plans": [
-          {
-            "tracks": [
-              {
-                "source": 1,
-                "id": "720"
-              }
-            ]
-          }
-        ]
+        "error": "ErrNoMatch"
       },
       "parity": {
         "status": "passing"
@@ -744,16 +726,7 @@
       "selector": "worst",
       "options": {},
       "expected": {
-        "plans": [
-          {
-            "tracks": [
-              {
-                "source": 2,
-                "id": "audio_low"
-              }
-            ]
-          }
-        ]
+        "error": "ErrNoMatch"
       },
       "parity": {
         "status": "passing"
@@ -770,16 +743,7 @@
       "selector": "w",
       "options": {},
       "expected": {
-        "plans": [
-          {
-            "tracks": [
-              {
-                "source": 2,
-                "id": "audio_low"
-              }
-            ]
-          }
-        ]
+        "error": "ErrNoMatch"
       },
       "parity": {
         "status": "passing"
@@ -1316,16 +1280,7 @@
       "selector": "best.2",
       "options": {},
       "expected": {
-        "plans": [
-          {
-            "tracks": [
-              {
-                "source": 0,
-                "id": "360"
-              }
-            ]
-          }
-        ]
+        "error": "ErrNoMatch"
       },
       "parity": {
         "status": "passing"
@@ -1726,16 +1681,8 @@
                 "source": 1
               },
               {
-                "id": "360",
-                "source": 0
-              },
-              {
                 "id": "audio_high",
                 "source": 3
-              },
-              {
-                "id": "audio_low",
-                "source": 2
               }
             ]
           }
@@ -1964,16 +1911,7 @@
       "selector": "b[ext*=ebm]",
       "options": {},
       "expected": {
-        "plans": [
-          {
-            "tracks": [
-              {
-                "source": 1,
-                "id": "720"
-              }
-            ]
-          }
-        ]
+        "error": "ErrNoMatch"
       },
       "parity": {
         "status": "passing"
@@ -1990,16 +1928,7 @@
       "selector": "b[ext~=\"webm|mp4\"]",
       "options": {},
       "expected": {
-        "plans": [
-          {
-            "tracks": [
-              {
-                "source": 1,
-                "id": "720"
-              }
-            ]
-          }
-        ]
+        "error": "ErrNoMatch"
       },
       "parity": {
         "status": "passing"
@@ -2016,16 +1945,7 @@
       "selector": "b[vcodec=\"vp9\"]",
       "options": {},
       "expected": {
-        "plans": [
-          {
-            "tracks": [
-              {
-                "source": 1,
-                "id": "720"
-              }
-            ]
-          }
-        ]
+        "error": "ErrNoMatch"
       },
       "parity": {
         "status": "passing"
@@ -2042,16 +1962,7 @@
       "selector": "b[vcodec='vp9']",
       "options": {},
       "expected": {
-        "plans": [
-          {
-            "tracks": [
-              {
-                "source": 1,
-                "id": "720"
-              }
-            ]
-          }
-        ]
+        "error": "ErrNoMatch"
       },
       "parity": {
         "status": "passing"
@@ -2068,16 +1979,7 @@
       "selector": "[format_id=audio_high]",
       "options": {},
       "expected": {
-        "plans": [
-          {
-            "tracks": [
-              {
-                "source": 3,
-                "id": "audio_high"
-              }
-            ]
-          }
-        ]
+        "error": "ErrNoMatch"
       },
       "parity": {
         "status": "passing"
@@ -2399,16 +2301,7 @@
       "selector": "best/",
       "options": {},
       "expected": {
-        "plans": [
-          {
-            "tracks": [
-              {
-                "source": 1,
-                "id": "720"
-              }
-            ]
-          }
-        ]
+        "error": "ErrNoMatch"
       },
       "parity": {
         "status": "passing"
@@ -2721,23 +2614,10 @@
       "selector": "best",
       "options": {},
       "expected": {
-        "plans": [
-          {
-            "tracks": [
-              {
-                "source": 1,
-                "id": "720"
-              }
-            ]
-          }
-        ]
+        "error": "ErrNoMatch"
       },
       "parity": {
-        "status": "known_gap",
-        "reason": "Go plain best currently chooses from the playable universe instead of requiring a muxed format.",
-        "reference_expected": {
-          "error": "no matching combined format"
-        }
+        "status": "passing"
       },
       "expected_normalized_set": "basic"
     },
@@ -2787,16 +2667,7 @@
         ]
       },
       "parity": {
-        "status": "known_gap",
-        "reason": "Go preserves forward extractor order while pinned Python iterates all in reverse.",
-        "reference_expected": {
-          "track_sources": [
-            3,
-            2,
-            1,
-            0
-          ]
-        }
+        "status": "passing"
       },
       "expected_normalized_set": "basic"
     },
@@ -2810,16 +2681,7 @@
       "selector": "best[ext!^=mp]",
       "options": {},
       "expected": {
-        "plans": [
-          {
-            "tracks": [
-              {
-                "source": 1,
-                "id": "720"
-              }
-            ]
-          }
-        ]
+        "error": "ErrNoMatch"
       },
       "parity": {
         "status": "passing"
@@ -2836,16 +2698,7 @@
       "selector": "best[height<=?720]",
       "options": {},
       "expected": {
-        "plans": [
-          {
-            "tracks": [
-              {
-                "source": 1,
-                "id": "720"
-              }
-            ]
-          }
-        ]
+        "error": "ErrNoMatch"
       },
       "parity": {
         "status": "passing"
@@ -2900,16 +2753,7 @@
         ]
       },
       "expected": {
-        "plans": [
-          {
-            "tracks": [
-              {
-                "id": "360",
-                "source": 0
-              }
-            ]
-          }
-        ]
+        "error": "ErrNoMatch"
       },
       "parity": {
         "status": "passing"
@@ -2919,9 +2763,8 @@
     {
       "id": "gap.multistream-product",
       "features": [
-        "gap",
         "multistream",
-        "product-policy"
+        "suppression"
       ],
       "format_set": "basic",
       "selector": "ba+wa",
@@ -2933,23 +2776,13 @@
               {
                 "source": 3,
                 "id": "audio_high"
-              },
-              {
-                "source": 2,
-                "id": "audio_low"
               }
             ]
           }
         ]
       },
       "parity": {
-        "status": "deliberate_safety_gap",
-        "reason": "The selector evaluator retains distinct same-kind tracks; product download policy rejects unsupported layouts later.",
-        "reference_expected": {
-          "tracks": [
-            3
-          ]
-        }
+        "status": "passing"
       },
       "expected_normalized_set": "basic"
     },
@@ -2991,16 +2824,7 @@
       "selector": "best . 2",
       "options": {},
       "expected": {
-        "plans": [
-          {
-            "tracks": [
-              {
-                "source": 0,
-                "id": "360"
-              }
-            ]
-          }
-        ]
+        "error": "ErrNoMatch"
       },
       "parity": {
         "status": "passing"
@@ -3034,16 +2858,7 @@
       "selector": "best,",
       "options": {},
       "expected": {
-        "plans": [
-          {
-            "tracks": [
-              {
-                "source": 1,
-                "id": "720"
-              }
-            ]
-          }
-        ]
+        "error": "ErrNoMatch"
       },
       "parity": {
         "status": "passing"
@@ -3077,16 +2892,7 @@
       "selector": "best/",
       "options": {},
       "expected": {
-        "plans": [
-          {
-            "tracks": [
-              {
-                "source": 1,
-                "id": "720"
-              }
-            ]
-          }
-        ]
+        "error": "ErrNoMatch"
       },
       "parity": {
         "status": "passing"
@@ -3104,16 +2910,7 @@
       "selector": "(best/)",
       "options": {},
       "expected": {
-        "plans": [
-          {
-            "tracks": [
-              {
-                "source": 1,
-                "id": "720"
-              }
-            ]
-          }
-        ]
+        "error": "ErrNoMatch"
       },
       "parity": {
         "status": "passing"
