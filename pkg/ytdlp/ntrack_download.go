@@ -19,15 +19,15 @@ func (operation *operation) mergeOutputPreferences() []string {
 	if operation == nil {
 		return nil
 	}
-	return mergeOutputPreferences(operation.request.MergeOutputFormat, operation.request.PreferFreeFormats)
+	return mergeOutputFormatPreferences(operation.request.MergeOutputFormat)
 }
 
 func selectionHasVideo(selection mediaformat.Selection) bool {
-	return selection.VCodec != "" && selection.VCodec != "none"
+	return selection.VCodec != "none"
 }
 
 func selectionHasAudio(selection mediaformat.Selection) bool {
-	return selection.ACodec != "" && selection.ACodec != "none"
+	return selection.ACodec != "none"
 }
 
 func mergeableTracks(selections []mediaformat.Selection) bool {

@@ -21,23 +21,25 @@ var thumbnailEmbeddingContainers = map[string]bool{
 
 type thumbnailEmbedFunc func(context.Context, string, string, events.Sink) error
 
-func thumbnailEmbeddingOutputExtension(request Request, selections []mediaformat.Selection) string {
-	extension := mergedOutputExtension(selections)
-	if request.Thumbnails.Embed && len(selections) == 2 && extension == "webm" &&
+func thumbnailEmbeddingOutputExtension(request Request, selections []mediaformat.Selection, base string) string {
+	if base == "" {
+		base = mergedOutputExtension(selections)
+	}
+	if request.Thumbnails.Embed && len(selections) == 2 && base == "webm" &&
 		mergeableSelections(selections) {
 		return "mkv"
 	}
-	return extension
+	return base
 }
 
 func thumbnailEmbeddingDestination(
-	request Request, selections []mediaformat.Selection, destination string, hasThumbnail bool,
+	request Request, selections []mediaformat.Selection, destination string, info value.Info,
 ) string {
-	if !hasThumbnail {
+	if !hasThumbnailForEmbedding(info) {
 		return destination
 	}
 	oldExtension := mergedOutputExtension(selections)
-	newExtension := thumbnailEmbeddingOutputExtension(request, selections)
+	newExtension := thumbnailEmbeddingOutputExtension(request, selections, oldExtension)
 	if oldExtension == newExtension || destination == "-" {
 		return destination
 	}
@@ -65,8 +67,12 @@ func (operation *operation) applyThumbnailEmbeddingOutputExtension(
 	if !hasThumbnailForEmbedding(*info) {
 		return
 	}
-	extension := thumbnailEmbeddingOutputExtension(operation.request, selections)
-	if extension != mergedOutputExtension(selections) {
+	base, _ := info.Lookup("ext").StringValue()
+	if base == "" {
+		base = mergedOutputExtension(selections)
+	}
+	extension := thumbnailEmbeddingOutputExtension(operation.request, selections, base)
+	if extension != base {
 		info.Set("ext", value.String(extension))
 	}
 }

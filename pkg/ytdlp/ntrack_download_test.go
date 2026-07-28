@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ytdlp-go/ytdlp/internal/downloader"
 	"github.com/ytdlp-go/ytdlp/internal/events"
 	"github.com/ytdlp-go/ytdlp/internal/extractor"
 	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
@@ -227,6 +228,10 @@ func TestNTrackSiblingCancellationPreservesRootError(t *testing.T) {
 	}, root, filepath.Join(root, "out.mkv"), events.Nop())
 	if err == nil {
 		t.Fatal("expected download failure")
+	}
+	var statusErr *downloader.HTTPStatusError
+	if !errors.As(err, &statusErr) || statusErr.Code != http.StatusInternalServerError {
+		t.Fatalf("error = %v, want HTTP 500 failure", err)
 	}
 	if matches, _ := filepath.Glob(filepath.Join(root, ".ytdlp-formats-*")); len(matches) != 0 {
 		t.Fatalf("workspace remains: %v", matches)
