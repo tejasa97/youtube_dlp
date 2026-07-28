@@ -129,8 +129,20 @@ func parseBoundedNumber(input string) (float64, error) {
 }
 
 func isDRM(object *value.Object) bool {
-	drm, ok := object.Lookup("has_drm").Bool()
-	return ok && drm
+	raw := object.Lookup("has_drm")
+	if drm, ok := raw.Bool(); ok {
+		return drm
+	}
+	if text, ok := raw.StringValue(); ok {
+		return text != "" && text != "maybe"
+	}
+	if integer, ok := raw.Int(); ok {
+		return integer != 0
+	}
+	if floating, ok := raw.Float(); ok {
+		return floating != 0
+	}
+	return false
 }
 
 func orderFormats(formats []*value.Object, options Options) []*value.Object {

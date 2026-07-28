@@ -1,0 +1,210 @@
+{
+  "schema_version": 1,
+  "reference": {
+    "repository": "https://github.com/yt-dlp/yt-dlp",
+    "commit": "aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8",
+    "source": "yt_dlp/utils/_utils.py:2029-2038 int_or_none",
+    "python_version": "CPython 3.12.13"
+  },
+  "cases": [
+    {
+      "id": "null",
+      "input": {
+        "type": "null"
+      },
+      "expected": null
+    },
+    {
+      "id": "bool_true",
+      "input": {
+        "type": "bool",
+        "bool": true
+      },
+      "expected": 1
+    },
+    {
+      "id": "bool_false",
+      "input": {
+        "type": "bool",
+        "bool": false
+      },
+      "expected": 0
+    },
+    {
+      "id": "int",
+      "input": {
+        "type": "int",
+        "value": 42
+      },
+      "expected": 42
+    },
+    {
+      "id": "neg",
+      "input": {
+        "type": "int",
+        "value": -7
+      },
+      "expected": -7
+    },
+    {
+      "id": "float_trunc",
+      "input": {
+        "type": "float",
+        "float": 3.9
+      },
+      "expected": 3
+    },
+    {
+      "id": "float_neg",
+      "input": {
+        "type": "float",
+        "float": -2.1
+      },
+      "expected": -2
+    },
+    {
+      "id": "str_plain",
+      "input": {
+        "type": "string",
+        "text": "42"
+      },
+      "expected": 42
+    },
+    {
+      "id": "str_spaces",
+      "input": {
+        "type": "string",
+        "text": "  42  "
+      },
+      "expected": 42
+    },
+    {
+      "id": "str_plus",
+      "input": {
+        "type": "string",
+        "text": "+5"
+      },
+      "expected": 5
+    },
+    {
+      "id": "str_minus",
+      "input": {
+        "type": "string",
+        "text": "-5"
+      },
+      "expected": -5
+    },
+    {
+      "id": "str_underscore",
+      "input": {
+        "type": "string",
+        "text": "1_000"
+      },
+      "expected": 1000
+    },
+    {
+      "id": "str_multi_underscore",
+      "input": {
+        "type": "string",
+        "text": "1_2_3"
+      },
+      "expected": 123
+    },
+    {
+      "id": "str_double_underscore",
+      "input": {
+        "type": "string",
+        "text": "1__0"
+      },
+      "expected": null
+    },
+    {
+      "id": "str_unicode_arabic",
+      "input": {
+        "type": "string",
+        "text": "١٢٣"
+      },
+      "expected": 123
+    },
+    {
+      "id": "str_unicode_fullwidth",
+      "input": {
+        "type": "string",
+        "text": "１２３"
+      },
+      "expected": 123
+    },
+    {
+      "id": "str_unicode_underscore",
+      "input": {
+        "type": "string",
+        "text": "١_٢"
+      },
+      "expected": 12
+    },
+    {
+      "id": "str_float",
+      "input": {
+        "type": "string",
+        "text": "42.5"
+      },
+      "expected": null
+    },
+    {
+      "id": "str_hex",
+      "input": {
+        "type": "string",
+        "text": "0x10"
+      },
+      "expected": null
+    },
+    {
+      "id": "str_empty",
+      "input": {
+        "type": "string",
+        "text": ""
+      },
+      "expected": null
+    },
+    {
+      "id": "str_bad",
+      "input": {
+        "type": "string",
+        "text": "nope"
+      },
+      "expected": null
+    },
+    {
+      "id": "int64_max",
+      "input": {
+        "type": "string",
+        "text": "9223372036854775807"
+      },
+      "expected": 9223372036854775807
+    },
+    {
+      "id": "int64_max_plus",
+      "input": {
+        "type": "string",
+        "text": "9223372036854775808"
+      },
+      "expected": null
+    },
+    {
+      "id": "int64_min",
+      "input": {
+        "type": "string",
+        "text": "-9223372036854775808"
+      },
+      "expected": -9223372036854775808
+    },
+    {
+      "id": "int64_min_minus",
+      "input": {
+        "type": "string",
+        "text": "-9223372036854775809"
+      },
+      "expected": null
+    }
+  ]
+}

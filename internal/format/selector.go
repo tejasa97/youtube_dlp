@@ -97,42 +97,6 @@ func SelectWithOptions(info value.Info, selector Selector, options Options) ([]S
 	return plans[0].Tracks, nil
 }
 
-func attachHeaders(info value.Info, selections []Selection, formats []*value.Object) error {
-	for index := range selections {
-		object := selectedObject(selections[index], formats)
-		if object == nil {
-			return fmt.Errorf("%w: selected format metadata is unavailable", ErrNoFormats)
-		}
-		headers, err := mergeHeaders(info.Lookup("http_headers"), object.Lookup("http_headers"))
-		if err != nil {
-			return err
-		}
-		selections[index].Headers = headers
-	}
-	return nil
-}
-
-func selectedObject(selection Selection, formats []*value.Object) *value.Object {
-	for _, candidate := range formats {
-		id, _ := candidate.Lookup("format_id").StringValue()
-		if id != selection.ID {
-			continue
-		}
-		if selection.YouTubeSABR {
-			sabr, _ := candidate.Lookup("_youtube_sabr").Bool()
-			if sabr {
-				return candidate
-			}
-			continue
-		}
-		url, _ := candidate.Lookup("url").StringValue()
-		if url == selection.URL {
-			return candidate
-		}
-	}
-	return nil
-}
-
 func parseTerm(segment selectorSegment) (Term, error) {
 	if segment.text == "" {
 		return Term{}, selectorSyntax(segment.start, segment.end, "empty term")

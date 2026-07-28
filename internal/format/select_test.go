@@ -9,7 +9,6 @@ import (
 
 func TestBestSelectsFirstDownloadableFormat(t *testing.T) {
 	info := value.NewInfo(value.NewObject(value.Field{Key: "formats", Value: value.List(
-		value.String("invalid"),
 		value.ObjectValue(value.NewObject(
 			value.Field{Key: "format_id", Value: value.String("best")},
 			value.Field{Key: "url", Value: value.String("https://example.invalid/media")},
@@ -74,6 +73,26 @@ func TestBestRejectsMalformedHTTPHeaders(t *testing.T) {
 		value.Field{Key: "formats", Value: value.List(value.ObjectValue(value.NewObject(value.Field{Key: "url", Value: value.String("https://cdn.example/media")})))},
 	))
 	if _, err := Best(info); !errors.Is(err, ErrInvalidHeaders) {
+		t.Fatalf("Best() error = %v", err)
+	}
+}
+
+func TestBestRejectsNonObjectMember(t *testing.T) {
+	info := value.NewInfo(value.NewObject(value.Field{Key: "formats", Value: value.List(
+		value.String("invalid"),
+		value.ObjectValue(value.NewObject(value.Field{Key: "url", Value: value.String("https://example.invalid/media")})),
+	)}))
+	if _, err := Best(info); !errors.Is(err, ErrInvalidFormats) {
+		t.Fatalf("Best() error = %v", err)
+	}
+}
+
+func TestBestRejectsMissingFormatMember(t *testing.T) {
+	info := value.NewInfo(value.NewObject(value.Field{Key: "formats", Value: value.List(
+		value.Missing(),
+		value.ObjectValue(value.NewObject(value.Field{Key: "url", Value: value.String("https://example.invalid/media")})),
+	)}))
+	if _, err := Best(info); !errors.Is(err, ErrInvalidFormats) {
 		t.Fatalf("Best() error = %v", err)
 	}
 }

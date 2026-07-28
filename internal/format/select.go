@@ -13,6 +13,13 @@ import (
 var (
 	ErrNoFormats      = errors.New("no downloadable formats")
 	ErrInvalidHeaders = errors.New("invalid format HTTP headers")
+	// ErrInvalidFormats indicates a formats list whose members violate the
+	// structural contracts of the selector pipeline: a non-list formats field,
+	// a non-object member, or a non-string/non-null format_id.
+	ErrInvalidFormats = errors.New("invalid format list")
+	// ErrFormatLimit indicates the format pipeline exceeded one of its bounded
+	// inputs (entry count, per-ID bytes, or total normalized bytes).
+	ErrFormatLimit = errors.New("format preparation exceeds limit")
 )
 
 type Selection struct {
@@ -53,37 +60,96 @@ type Selection struct {
 	YouTubeSABRDrc             bool
 	YouTubeSABRAudioTrackID    string
 	LiveStartTimestamp         int64
+
+	// sourceIndex records the original list index of the extractor-owned format
+	// this selection was prepared from. It is unexported because it is
+	// meaningful only in conjunction with the prepared clone's identity, not
+	// the original extractor-owned format list. Use SourceFormatIndex to query
+	// it.
+	sourceIndex     int
+	sourceKnown     bool
+	normalizedIndex int
+	normalizedKnown bool
+}
+
+// SourceFormatIndex returns the original list index of the extractor-owned
+// format this selection was prepared from. The second return value reports
+// whether the index is known; selection paths that bypass prepareFormats (for
+// example the legacy helper code) report false.
+func (selection Selection) SourceFormatIndex() (int, bool) {
+	return selection.sourceIndex, selection.sourceKnown
+}
+
+// setSourceFormatIndex records the original list index of the extractor-owned
+// format this selection was prepared from. Internal to the format package.
+func (selection *Selection) setSourceFormatIndex(index int) {
+	if selection == nil {
+		return
+	}
+	selection.sourceIndex = index
+	selection.sourceKnown = true
+}
+
+// NormalizedFormatIndex returns the selection's position in the canonical
+// filtered and sorted format list.
+func (selection Selection) NormalizedFormatIndex() (int, bool) {
+	return selection.normalizedIndex, selection.normalizedKnown
+}
+
+func (selection *Selection) setNormalizedFormatIndex(index int) {
+	if selection == nil {
+		return
+	}
+	selection.normalizedIndex = index
+	selection.normalizedKnown = true
 }
 
 // Default applies yt-dlp-style best-quality selection: prefer a video-only and
 // audio-only pair, then a single combined format. Explicit user selectors
 // remain authoritative.
 func Default(info value.Info, options Options) ([]Selection, error) {
+	prepared, err := Prepare(info, options)
+	if err != nil {
+		return nil, err
+	}
+	return prepared.Default()
+}
+
+// Default applies the default selector to the canonical prepared formats.
+func (prepared Prepared) Default() ([]Selection, error) {
 	selector, err := ParseSelector("bestvideo+bestaudio/best")
 	if err != nil {
 		return nil, err
 	}
-	return SelectWithOptions(info, selector, options)
+	plans, err := prepared.Plan(selector)
+	if err != nil {
+		return nil, err
+	}
+	if len(plans) != 1 {
+		return nil, ErrMultiOutput
+	}
+	return plans[0].Tracks, nil
 }
 
-// Best selects the first normalized format. Phase 0 extractors order their
-// formats best-first; richer selector syntax is intentionally deferred.
+// Best selects the first canonical format.
 func Best(info value.Info) (Selection, error) {
-	formats, ok := info.Formats()
-	if !ok || len(formats) == 0 {
-		return Selection{}, ErrNoFormats
+	prepared, err := Prepare(info, Options{})
+	if err != nil {
+		return Selection{}, err
 	}
-	for _, candidate := range formats {
-		object, ok := candidate.Object()
-		if !ok {
-			continue
-		}
+	return prepared.Best()
+}
+
+// Best selects the first playable canonical format.
+func (prepared Prepared) Best() (Selection, error) {
+	for _, candidate := range prepared.formats {
+		object := candidate.Object
 		rawURL, ok := object.Lookup("url").StringValue()
 		sabr, _ := object.Lookup("_youtube_sabr").Bool()
 		if !sabr && (!ok || rawURL == "") {
 			continue
 		}
-		headers, err := mergeHeaders(info.Lookup("http_headers"), object.Lookup("http_headers"))
+		headers, err := mergeHeaders(prepared.info.Lookup("http_headers"), object.Lookup("http_headers"))
 		if err != nil {
 			return Selection{}, err
 		}
@@ -122,6 +188,8 @@ func Best(info value.Info) (Selection, error) {
 		if selection.YouTubeSABR {
 			selection.Protocol = "youtube_sabr_ump"
 		}
+		selection.setSourceFormatIndex(candidate.Source)
+		selection.setNormalizedFormatIndex(candidate.Index)
 		return selection, nil
 	}
 	return Selection{}, fmt.Errorf("%w: formats contain no URL", ErrNoFormats)

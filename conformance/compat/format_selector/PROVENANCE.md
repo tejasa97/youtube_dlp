@@ -1,39 +1,137 @@
-# Format-selector advanced AST provenance
+# Format-selector and normalization provenance
 
 - Reference: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`
-- Recorded: 2026-07-25
-- Source: `yt_dlp/YoutubeDL.py` `build_format_selector` (parser, grouping, comma,
-  slash, plus, filters, SINGLE atoms, `all`, `mergeall`, extension selectors)
-  and `test/test_YoutubeDL.py` format-selection traps.
-- Capture method: operator grammar, atom alias table, extension sets from
-  `utils._utils.MEDIA_EXTENSIONS`, incomplete-format fallback rules, and
-  expected IDs were transcribed into synthetic Go table tests. No Python
-  runtime, public-site payloads, or credentials are included.
-- Sanitization: all format IDs, URLs, and codec strings use `example.invalid`.
-- Purpose: evidence for the bounded advanced selector slice (AST, evaluator,
-  OutputPlan, product multi-output naming). Interactive filters, unbounded
-  expressions, and full upstream parity beyond this corpus remain out of scope.
+- Fixture derivation interpreter: `CPython 3.12.13` (pinned checkout requires
+  Python `>=3.10`; do not claim an unsupported interpreter executed the oracle)
+- Recorded: 2026-07-25; normalization evidence corrected 2026-07-28
+- Corpus: `internal/format/testdata/selector_conformance.json` (schema version 1)
+- `int_or_none` oracle: `internal/format/testdata/int_or_none_oracle.json`
+- Tests: `internal/format.TestSelectorConformanceCorpus`,
+  `internal/format.TestIntOrNoneOracleFixture`
+- Gap ledger: `docs/FORMAT_SELECTOR_PARITY.md`
 
-## Deliberate bounded deviations
+## Fixture hashes
 
-1. Plain `best`/`worst` without a media type use the port's historical
-   quality-first playable-universe selection so the existing pinned
-   compatibility pilot (`best[ext~=webm|mp4]`) remains stable. Typed
-   `bestvideo`/`bestaudio`/star atoms follow yt-dlp predicates.
-2. `all` preserves extractor list order (forward) rather than Python's reversed
-   iteration; order is documented and deterministic in fixtures.
-3. Product `mergeall` and >2-track merges remain explicit unsupported at
-   download time when ffmpeg cannot represent the track set as a single
-   video+audio pair.
-4. Atom indexes are capped at `1000` with bounded digit width and precise syntax
-   spans for malformed `.N` / `*` tails.
-5. Evaluator limits (`all`, `mergeall`, final plan count, merge track count) are
-   enforced during evaluation with `ErrSelectorLimit`.
-6. Multi-output destinations use stable one-based ordinals plus sanitized IDs
-   and per-plan container extensions derived from each `OutputPlan`. Merge
-   evaluation retains distinct same-kind operands; only exact duplicates are
-   removed. Non-empty `Request.Postprocessors`, SponsorBlock remove, and
-   subtitle embedding fail closed before media download when multiple
-   independent outputs are selected.
-7. `ErrSelectorLimit` is a distinct evaluation sentinel categorized as
-   `invalid_input` by the product API.
+Computed over the committed UTF-8 file bytes:
+
+| Artifact | SHA-256 |
+|---|---|
+| `internal/format/testdata/selector_conformance.json` | `18098ce967d41f3d14da6c50d75669a89021578472f550db0ef57a0b70e641f7` |
+| `internal/format/testdata/int_or_none_oracle.json` | `a3f1af159f326f2d5f7e50825f3fa18eb061291a93da8d2f4f245abf389f3418` |
+
+## Maintainer-only capture
+
+Go tests, builds, Docker images, and production remain Python-free. Maintainers
+regenerate the `int_or_none` oracle with a supported interpreter against the
+pinned checkout:
+
+```bash
+python3 conformance/compat/format_selector/capture_oracle.py \
+  --reference /Users/tejas/projects/yt-dlp-reference \
+  --commit aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8 \
+  --write
+```
+
+The command records the reference SHA, interpreter version, derivation command,
+and SHA-256 digests. Re-run it after changing oracle inputs, then update this
+provenance table.
+
+## Upstream sources and exact order
+
+Expectations were transcribed from the pinned checkout at
+`/Users/tejas/projects/yt-dlp-reference`:
+
+- `yt_dlp/YoutubeDL.py:2577-2651`: selector construction/evaluation, atoms,
+  extension priority, filters, `all`, and merge behavior.
+- `yt_dlp/YoutubeDL.py:2923-3028`: collection filtering, coercion, sorting, ID
+  normalization, duplicate suffixing, and extension conflicts.
+- `yt_dlp/YoutubeDL.py:3067-3089`: selection after normalization.
+- `yt_dlp/YoutubeDL.py:600-609`: `_NUMERIC_FIELDS`.
+- `yt_dlp/utils/_utils.py:2029-2038`: `int_or_none` coercion.
+- `yt_dlp/utils/_utils.py:5367-5666`: `FormatSorter` conversion and ordering.
+- `yt_dlp/utils/_utils.py:5114-5122`: media-extension categories.
+- `test/test_YoutubeDL.py` `TestFormatSelection`: selector traps.
+
+The pinned pre-selection sequence is authoritative:
+
+1. remove disallowed DRM formats unless unplayable formats are allowed;
+2. remove formats whose URL is missing or empty;
+3. coerce `format_id` to a string and `_NUMERIC_FIELDS` values to numeric/null
+   (`preference`, `language_preference`, `quality`, and `source_preference` are
+   not sanitized here; sorter conversion is non-mutating);
+4. fill sorting fields and sort the surviving formats;
+5. assign missing IDs from indexes in that filtered, sorted list;
+6. replace exactly the characters matched by the pinned
+   `re.sub(r'[\s,/+\[\]()]', '_', ...)` rule, including U+001C–U+001F;
+   NUL and other non-whitespace control characters remain unchanged;
+7. suffix every member of a duplicate group with a zero-based ordinal;
+8. rewrite extension-selector conflicts, then select.
+
+The rewrite is one-pass and can leave final duplicate IDs. Original extractor
+list indexes are retained separately from canonical indexes so filtering and
+sorting do not lose source provenance.
+
+## Capture and sanitization
+
+The selector corpus is a manually reviewed synthetic transcription. The
+`int_or_none` oracle is generated by the maintainer capture command above using
+CPython 3.12.13. IDs, URLs, headers, codec strings, and metadata use
+`example.invalid` or non-secret placeholders. Fixtures contain no public-site
+payloads, identifiers, cookies, credentials, or tokens. Production and Go tests
+read committed JSON only; they never invoke Python, access the reference
+checkout, or use the network.
+
+Every selector case has a unique ID, feature tags, selector/options, expected
+canonical formats, expected plans or error, and a parity classification. Gaps
+contain a reason and explicit pinned expectation; there is no skip mechanism.
+
+## Canonical Go ownership model
+
+Go recursively clones the extractor `Info` and formats. The canonical clone is
+shared by selector evaluation, format tables, print templates, simulated and
+skipped results, related metadata output, and `InfoJSON`. For implicit
+top-level formats, the prepared format object shares `Info.Fields()` identity so
+post-prepare metadata mutations remain coherent with selection. After metadata
+actions or deferred enrichment, product selection rebinds prepared format
+objects to the current canonical `Info` without re-normalizing. Extractor-owned
+metadata remains unchanged.
+
+Filtering occurs before sorting and generated IDs. Fixtures `drm.*` and
+`url-filter.*` prove that rejected formats do not consume generated indexes and
+cannot be recovered through `all` or direct-ID selectors. Selection records both
+its original extractor index and canonical list index, keeping metadata and
+headers attached to the exact format even after filtering and residual ID
+collisions.
+
+Pinned scalar coercion covers non-string `format_id` values and
+`_NUMERIC_FIELDS` used by preparation. Numeric IDs are parity cases, not safety
+gaps. String `preference` values are retained rather than coerced. Structured
+values that cannot be represented by the bounded typed metadata contract still
+fail predictably. `int_or_none` accepts underscore-separated ASCII integers and
+Unicode decimal digits within int64 typed safety bounds.
+
+The Go boundary retains explicit resource limits:
+
+- 4,096 extractor-supplied entries before filtering;
+- 16 KiB per input or final `format_id`;
+- 4 MiB aggregate final ID bytes.
+
+`ErrInvalidFormats` and `ErrFormatLimit` are categorized as internal extractor
+metadata failures. These resource bounds and defensive ownership differ
+intentionally from pinned Python.
+
+Normalization uses the selector's existing Go extension maps. Final uniqueness
+is not strengthened: residual `x,x,x-0` and `mp4,fmp4` collisions remain pinned
+and are tested with exact source/header association.
+
+## Selector deviations left unchanged
+
+This PR does not change selector algorithms. The corpus and ledger retain plain
+`best`/`worst` semantics, forward `all` ordering, unsupported negated and
+none-inclusive filters, limited quoted escaping and field names, Go RE2 regexes,
+incomplete sort aliases/limits, separate product multistream policy, interactive
+`-f -` scope, multi-output post-processing constraints, and bounded parser and
+evaluator limits.
+
+Fixture or implementation updates must keep this provenance, corpus, ledger,
+and parity manifest synchronized against an explicit reference revision.
