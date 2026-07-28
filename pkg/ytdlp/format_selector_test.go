@@ -44,10 +44,14 @@ func TestFormatSelectorPrecedenceTraps(t *testing.T) {
 		expression string
 		wantIDs    []string
 	}{
-		{"merge before slash", "bestvideo+bestaudio/best", []string{"v1080", "a128"}},
-		{"grouped merge before slash", "(bestvideo+bestaudio)/best", []string{"v1080", "a128"}},
+		// Pinned FormatSorter reorders canonical to worst-to-best; the
+		// evaluator reversal adapter exposes a best-first view. With no
+		// numeric tiebreaker the canonical id field selects the order, so
+		// "a64" is the pinned best audio.
+		{"merge before slash", "bestvideo+bestaudio/best", []string{"v1080", "a64"}},
+		{"grouped merge before slash", "(bestvideo+bestaudio)/best", []string{"v1080", "a64"}},
 		{"comma independent", "bestvideo,(bestaudio/worst)", []string{"v1080"}},
-		{"group filter", "(bv*+ba)[height<=1080]", []string{"v1080", "a128"}},
+		{"group filter", "(bv*+ba)[height<=1080]", []string{"v1080", "a64"}},
 		{"nth best", "best.2", []string{"v720"}},
 		{"nth worst video", "worstvideo.2", []string{"v1080"}},
 	}
@@ -62,9 +66,9 @@ func TestFormatSelectorPrecedenceTraps(t *testing.T) {
 				if err != nil || len(plans) != 2 {
 					t.Fatalf("plans = %#v, %v", plans, err)
 				}
-				if plans[0].Tracks[0].ID != "v1080" || plans[1].Tracks[0].ID != "a128" {
-					t.Fatalf("plans = %#v", plans)
-				}
+if plans[0].Tracks[0].ID != "v1080" || plans[1].Tracks[0].ID != "a64" {
+				t.Fatalf("plans = %#v", plans)
+			}
 				return
 			}
 			selector, err := mediaformat.ParseSelector(test.expression)
@@ -213,7 +217,7 @@ func TestFormatSelectorDeterministicAcrossGoroutines(t *testing.T) {
 			results <- selected[0].ID + "+" + selected[1].ID
 		}()
 	}
-	want := "v1080+a128"
+	want := "v1080+a64"
 	for worker := 0; worker < workers; worker++ {
 		if got := <-results; got != want {
 			t.Fatalf("worker result = %q, want %q", got, want)

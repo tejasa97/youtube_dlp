@@ -245,297 +245,439 @@
   "normalized_sets": {
     "basic": [
       {
-        "source": 0,
         "format": {
-          "format_id": "360",
-          "url": "https://example.invalid/360",
-          "ext": "mp4",
-          "vcodec": "avc1",
-          "acodec": "none",
-          "height": 360,
-          "tbr": 500
-        }
-      },
-      {
-        "source": 1,
-        "format": {
-          "format_id": "720",
-          "url": "https://example.invalid/720",
-          "ext": "webm",
-          "vcodec": "vp9",
-          "acodec": "none",
-          "height": 720,
-          "tbr": 1500
-        }
-      },
-      {
-        "source": 2,
-        "format": {
+          "abr": 64,
+          "acodec": "aac",
+          "audio_ext": "m4a",
+          "ext": "m4a",
           "format_id": "audio_low",
+          "protocol": "https",
+          "tbr": 64,
           "url": "https://example.invalid/audio-low",
-          "ext": "m4a",
+          "vbr": 0,
           "vcodec": "none",
-          "acodec": "aac",
-          "tbr": 64
-        }
+          "video_ext": "none"
+        },
+        "source": 2
       },
       {
-        "source": 3,
         "format": {
+          "abr": 128,
+          "acodec": "aac",
+          "audio_ext": "m4a",
+          "ext": "m4a",
           "format_id": "audio_high",
+          "protocol": "https",
+          "tbr": 128,
           "url": "https://example.invalid/audio-high",
-          "ext": "m4a",
+          "vbr": 0,
           "vcodec": "none",
-          "acodec": "aac",
-          "tbr": 128
-        }
-      }
-    ],
-    "muxed": [
+          "video_ext": "none"
+        },
+        "source": 3
+      },
       {
-        "source": 0,
         "format": {
-          "format_id": "mux",
-          "url": "https://example.invalid/mux",
+          "abr": 0,
+          "acodec": "none",
+          "audio_ext": "none",
           "ext": "mp4",
+          "format_id": "360",
+          "height": 360,
+          "protocol": "https",
+          "tbr": 500,
+          "url": "https://example.invalid/360",
+          "vbr": 500,
           "vcodec": "avc1",
-          "acodec": "aac",
-          "height": 1080
-        }
-      }
-    ],
-    "storyboard": [
+          "video_ext": "mp4"
+        },
+        "source": 0
+      },
       {
-        "source": 0,
         "format": {
-          "format_id": "board",
-          "url": "https://example.invalid/board",
-          "ext": "mhtml",
-          "vcodec": "none",
-          "acodec": "none"
-        }
-      }
-    ],
-    "special": [
-      {
-        "source": 0,
-        "format": {
-          "url": "https://example.invalid/missing",
-          "ext": "webm",
-          "vcodec": "vp9",
+          "abr": 0,
           "acodec": "none",
-          "format_id": "0"
-        }
-      },
-      {
-        "source": 1,
-        "format": {
-          "format_id": "1",
-          "url": "https://example.invalid/null",
+          "audio_ext": "none",
           "ext": "webm",
+          "format_id": "720",
+          "height": 720,
+          "protocol": "https",
+          "tbr": 1500,
+          "url": "https://example.invalid/720",
+          "vbr": 1500,
           "vcodec": "vp9",
-          "acodec": "none"
-        }
-      },
-      {
-        "source": 2,
-        "format": {
-          "format_id": "2",
-          "url": "https://example.invalid/empty",
-          "ext": "webm",
-          "vcodec": "vp9",
-          "acodec": "none"
-        }
-      },
-      {
-        "source": 3,
-        "format": {
-          "format_id": "a_b_c_d_e_f__g__",
-          "url": "https://example.invalid/special",
-          "ext": "webm",
-          "vcodec": "vp9",
-          "acodec": "none",
-          "http_headers": {
-            "X-Track": "special"
-          }
-        }
-      },
-      {
-        "source": 4,
-        "format": {
-          "format_id": "x-0",
-          "url": "https://example.invalid/x0",
-          "ext": "webm",
-          "vcodec": "vp9",
-          "acodec": "none"
-        }
-      },
-      {
-        "source": 5,
-        "format": {
-          "format_id": "x-1",
-          "url": "https://example.invalid/x1",
-          "ext": "webm",
-          "vcodec": "vp9",
-          "acodec": "none"
-        }
-      },
-      {
-        "source": 6,
-        "format": {
-          "format_id": "x-0",
-          "url": "https://example.invalid/x2",
-          "ext": "webm",
-          "vcodec": "vp9",
-          "acodec": "none"
-        }
-      },
-      {
-        "source": 7,
-        "format": {
-          "format_id": "fmp4",
-          "url": "https://example.invalid/mp4",
-          "ext": "webm",
-          "vcodec": "vp9",
-          "acodec": "none",
-          "http_headers": {
-            "X-Track": "prefixed"
-          }
-        }
-      },
-      {
-        "source": 8,
-        "format": {
-          "format_id": "fmp4",
-          "url": "https://example.invalid/fmp4",
-          "ext": "webm",
-          "vcodec": "vp9",
-          "acodec": "none",
-          "http_headers": {
-            "X-Track": "original"
-          }
-        }
+          "video_ext": "webm"
+        },
+        "source": 1
       }
     ],
     "basic_height": [
       {
-        "source": 1,
         "format": {
-          "format_id": "720",
-          "url": "https://example.invalid/720",
-          "ext": "webm",
-          "vcodec": "vp9",
-          "acodec": "none",
-          "height": 720,
-          "tbr": 1500
-        }
-      },
-      {
-        "source": 0,
-        "format": {
-          "format_id": "360",
-          "url": "https://example.invalid/360",
-          "ext": "mp4",
-          "vcodec": "avc1",
-          "acodec": "none",
-          "height": 360,
-          "tbr": 500
-        }
-      },
-      {
-        "source": 2,
-        "format": {
+          "abr": 64,
+          "acodec": "aac",
+          "audio_ext": "m4a",
+          "ext": "m4a",
           "format_id": "audio_low",
+          "protocol": "https",
+          "tbr": 64,
           "url": "https://example.invalid/audio-low",
-          "ext": "m4a",
+          "vbr": 0,
           "vcodec": "none",
-          "acodec": "aac",
-          "tbr": 64
-        }
+          "video_ext": "none"
+        },
+        "source": 2
       },
       {
-        "source": 3,
         "format": {
+          "abr": 128,
+          "acodec": "aac",
+          "audio_ext": "m4a",
+          "ext": "m4a",
           "format_id": "audio_high",
+          "protocol": "https",
+          "tbr": 128,
           "url": "https://example.invalid/audio-high",
-          "ext": "m4a",
+          "vbr": 0,
           "vcodec": "none",
-          "acodec": "aac",
-          "tbr": 128
-        }
-      }
-    ],
-    "drm_default": [
-      {
-        "source": 1,
-        "format": {
-          "url": "https://example.invalid/clear",
-          "ext": "mp4",
-          "vcodec": "avc1",
-          "acodec": "aac",
-          "format_id": "0"
-        }
-      }
-    ],
-    "drm_allowed": [
-      {
-        "source": 0,
-        "format": {
-          "format_id": "drm",
-          "url": "https://example.invalid/drm",
-          "ext": "mp4",
-          "vcodec": "avc1",
-          "acodec": "aac",
-          "has_drm": true
-        }
+          "video_ext": "none"
+        },
+        "source": 3
       },
       {
-        "source": 1,
         "format": {
-          "url": "https://example.invalid/clear",
-          "ext": "mp4",
-          "vcodec": "avc1",
-          "acodec": "aac",
-          "format_id": "1"
-        }
-      }
-    ],
-    "malformed_urls": [
+          "abr": 0,
+          "acodec": "none",
+          "audio_ext": "none",
+          "ext": "webm",
+          "format_id": "720",
+          "height": 720,
+          "protocol": "https",
+          "tbr": 1500,
+          "url": "https://example.invalid/720",
+          "vbr": 1500,
+          "vcodec": "vp9",
+          "video_ext": "webm"
+        },
+        "source": 1
+      },
       {
-        "source": 2,
         "format": {
-          "url": "https://example.invalid/valid",
+          "abr": 0,
+          "acodec": "none",
+          "audio_ext": "none",
           "ext": "mp4",
+          "format_id": "360",
+          "height": 360,
+          "protocol": "https",
+          "tbr": 500,
+          "url": "https://example.invalid/360",
+          "vbr": 500,
           "vcodec": "avc1",
-          "acodec": "aac",
-          "format_id": "0"
-        }
+          "video_ext": "mp4"
+        },
+        "source": 0
       }
     ],
     "coercion": [
       {
-        "source": 0,
         "format": {
-          "format_id": "42",
-          "url": "https://example.invalid/low",
-          "ext": "mp4",
-          "vcodec": "avc1",
+          "abr": 0,
           "acodec": "none",
+          "audio_ext": "none",
+          "ext": "mp4",
+          "format_id": "42",
+          "height": 720,
           "preference": "1",
-          "height": 720
-        }
+          "protocol": "https",
+          "tbr": null,
+          "url": "https://example.invalid/low",
+          "vbr": null,
+          "vcodec": "avc1",
+          "video_ext": "mp4"
+        },
+        "source": 0
       },
       {
-        "source": 1,
         "format": {
-          "format_id": "True",
-          "url": "https://example.invalid/high",
-          "ext": "webm",
-          "vcodec": "vp9",
+          "abr": 0,
           "acodec": "none",
+          "audio_ext": "none",
+          "ext": "webm",
+          "format_id": "True",
+          "height": 1080,
           "preference": "2",
-          "height": 1080
-        }
+          "protocol": "https",
+          "tbr": null,
+          "url": "https://example.invalid/high",
+          "vbr": null,
+          "vcodec": "vp9",
+          "video_ext": "webm"
+        },
+        "source": 1
+      }
+    ],
+    "drm_allowed": [
+      {
+        "format": {
+          "abr": null,
+          "acodec": "aac",
+          "audio_ext": "none",
+          "ext": "mp4",
+          "format_id": "0",
+          "protocol": "https",
+          "tbr": null,
+          "url": "https://example.invalid/clear",
+          "vbr": null,
+          "vcodec": "avc1",
+          "video_ext": "mp4"
+        },
+        "source": 1
+      },
+      {
+        "format": {
+          "abr": null,
+          "acodec": "aac",
+          "audio_ext": "none",
+          "ext": "mp4",
+          "format_id": "drm",
+          "has_drm": true,
+          "protocol": "https",
+          "tbr": null,
+          "url": "https://example.invalid/drm",
+          "vbr": null,
+          "vcodec": "avc1",
+          "video_ext": "mp4"
+        },
+        "source": 0
+      }
+    ],
+    "drm_default": [
+      {
+        "format": {
+          "abr": null,
+          "acodec": "aac",
+          "audio_ext": "none",
+          "ext": "mp4",
+          "format_id": "0",
+          "protocol": "https",
+          "tbr": null,
+          "url": "https://example.invalid/clear",
+          "vbr": null,
+          "vcodec": "avc1",
+          "video_ext": "mp4"
+        },
+        "source": 1
+      }
+    ],
+    "malformed_urls": [
+      {
+        "format": {
+          "abr": null,
+          "acodec": "aac",
+          "audio_ext": "none",
+          "ext": "mp4",
+          "format_id": "0",
+          "protocol": "https",
+          "tbr": null,
+          "url": "https://example.invalid/valid",
+          "vbr": null,
+          "vcodec": "avc1",
+          "video_ext": "mp4"
+        },
+        "source": 2
+      }
+    ],
+    "muxed": [
+      {
+        "format": {
+          "abr": null,
+          "acodec": "aac",
+          "audio_ext": "none",
+          "ext": "mp4",
+          "format_id": "mux",
+          "height": 1080,
+          "protocol": "https",
+          "tbr": null,
+          "url": "https://example.invalid/mux",
+          "vbr": null,
+          "vcodec": "avc1",
+          "video_ext": "mp4"
+        },
+        "source": 0
+      }
+    ],
+    "special": [
+      {
+        "format": {
+          "abr": 0,
+          "acodec": "none",
+          "audio_ext": "none",
+          "ext": "webm",
+          "format_id": "0",
+          "protocol": "https",
+          "tbr": null,
+          "url": "https://example.invalid/missing",
+          "vbr": null,
+          "vcodec": "vp9",
+          "video_ext": "webm"
+        },
+        "source": 0
+      },
+      {
+        "format": {
+          "abr": 0,
+          "acodec": "none",
+          "audio_ext": "none",
+          "ext": "webm",
+          "format_id": "1",
+          "protocol": "https",
+          "tbr": null,
+          "url": "https://example.invalid/null",
+          "vbr": null,
+          "vcodec": "vp9",
+          "video_ext": "webm"
+        },
+        "source": 1
+      },
+      {
+        "format": {
+          "abr": 0,
+          "acodec": "none",
+          "audio_ext": "none",
+          "ext": "webm",
+          "format_id": "2",
+          "protocol": "https",
+          "tbr": null,
+          "url": "https://example.invalid/empty",
+          "vbr": null,
+          "vcodec": "vp9",
+          "video_ext": "webm"
+        },
+        "source": 2
+      },
+      {
+        "format": {
+          "abr": 0,
+          "acodec": "none",
+          "audio_ext": "none",
+          "ext": "webm",
+          "format_id": "a_b_c_d_e_f__g__",
+          "http_headers": {
+            "X-Track": "special"
+          },
+          "protocol": "https",
+          "tbr": null,
+          "url": "https://example.invalid/special",
+          "vbr": null,
+          "vcodec": "vp9",
+          "video_ext": "webm"
+        },
+        "source": 3
+      },
+      {
+        "format": {
+          "abr": 0,
+          "acodec": "none",
+          "audio_ext": "none",
+          "ext": "webm",
+          "format_id": "fmp4",
+          "http_headers": {
+            "X-Track": "original"
+          },
+          "protocol": "https",
+          "tbr": null,
+          "url": "https://example.invalid/fmp4",
+          "vbr": null,
+          "vcodec": "vp9",
+          "video_ext": "webm"
+        },
+        "source": 8
+      },
+      {
+        "format": {
+          "abr": 0,
+          "acodec": "none",
+          "audio_ext": "none",
+          "ext": "webm",
+          "format_id": "fmp4",
+          "http_headers": {
+            "X-Track": "prefixed"
+          },
+          "protocol": "https",
+          "tbr": null,
+          "url": "https://example.invalid/mp4",
+          "vbr": null,
+          "vcodec": "vp9",
+          "video_ext": "webm"
+        },
+        "source": 7
+      },
+      {
+        "format": {
+          "abr": 0,
+          "acodec": "none",
+          "audio_ext": "none",
+          "ext": "webm",
+          "format_id": "x-0",
+          "protocol": "https",
+          "tbr": null,
+          "url": "https://example.invalid/x0",
+          "vbr": null,
+          "vcodec": "vp9",
+          "video_ext": "webm"
+        },
+        "source": 4
+      },
+      {
+        "format": {
+          "abr": 0,
+          "acodec": "none",
+          "audio_ext": "none",
+          "ext": "webm",
+          "format_id": "x-1",
+          "protocol": "https",
+          "tbr": null,
+          "url": "https://example.invalid/x1",
+          "vbr": null,
+          "vcodec": "vp9",
+          "video_ext": "webm"
+        },
+        "source": 5
+      },
+      {
+        "format": {
+          "abr": 0,
+          "acodec": "none",
+          "audio_ext": "none",
+          "ext": "webm",
+          "format_id": "x-0",
+          "protocol": "https",
+          "tbr": null,
+          "url": "https://example.invalid/x2",
+          "vbr": null,
+          "vcodec": "vp9",
+          "video_ext": "webm"
+        },
+        "source": 6
+      }
+    ],
+    "storyboard": [
+      {
+        "format": {
+          "abr": 0,
+          "acodec": "none",
+          "audio_ext": "none",
+          "ext": "mhtml",
+          "format_id": "board",
+          "protocol": "https",
+          "tbr": null,
+          "url": "https://example.invalid/board",
+          "vbr": 0,
+          "vcodec": "none",
+          "video_ext": "none"
+        },
+        "source": 0
       }
     ]
   },
@@ -1530,32 +1672,32 @@
           {
             "tracks": [
               {
-                "source": 0,
-                "id": "360"
+                "id": "720",
+                "source": 1
               }
             ]
           },
           {
             "tracks": [
               {
-                "source": 1,
-                "id": "720"
+                "id": "360",
+                "source": 0
               }
             ]
           },
           {
             "tracks": [
               {
-                "source": 2,
-                "id": "audio_low"
+                "id": "audio_high",
+                "source": 3
               }
             ]
           },
           {
             "tracks": [
               {
-                "source": 3,
-                "id": "audio_high"
+                "id": "audio_low",
+                "source": 2
               }
             ]
           }
@@ -1580,20 +1722,20 @@
           {
             "tracks": [
               {
-                "source": 3,
-                "id": "audio_high"
+                "id": "720",
+                "source": 1
               },
               {
-                "source": 2,
-                "id": "audio_low"
+                "id": "360",
+                "source": 0
               },
               {
-                "source": 1,
-                "id": "720"
+                "id": "audio_high",
+                "source": 3
               },
               {
-                "source": 0,
-                "id": "360"
+                "id": "audio_low",
+                "source": 2
               }
             ]
           }
@@ -2030,67 +2172,32 @@
           {
             "tracks": [
               {
-                "source": 0,
-                "id": "0"
+                "id": "x-0",
+                "source": 6
               }
             ]
           },
           {
             "tracks": [
               {
-                "source": 1,
-                "id": "1"
+                "id": "x-1",
+                "source": 5
               }
             ]
           },
           {
             "tracks": [
               {
-                "source": 2,
-                "id": "2"
+                "id": "x-0",
+                "source": 4
               }
             ]
           },
           {
             "tracks": [
               {
-                "source": 3,
-                "id": "a_b_c_d_e_f__g__",
-                "headers": {
-                  "X-Track": "special"
-                }
-              }
-            ]
-          },
-          {
-            "tracks": [
-              {
-                "source": 4,
-                "id": "x-0"
-              }
-            ]
-          },
-          {
-            "tracks": [
-              {
-                "source": 5,
-                "id": "x-1"
-              }
-            ]
-          },
-          {
-            "tracks": [
-              {
-                "source": 6,
-                "id": "x-0"
-              }
-            ]
-          },
-          {
-            "tracks": [
-              {
-                "source": 7,
                 "id": "fmp4",
+                "source": 7,
                 "headers": {
                   "X-Track": "prefixed"
                 }
@@ -2100,11 +2207,46 @@
           {
             "tracks": [
               {
-                "source": 8,
                 "id": "fmp4",
+                "source": 8,
                 "headers": {
                   "X-Track": "original"
                 }
+              }
+            ]
+          },
+          {
+            "tracks": [
+              {
+                "id": "a_b_c_d_e_f__g__",
+                "source": 3,
+                "headers": {
+                  "X-Track": "special"
+                }
+              }
+            ]
+          },
+          {
+            "tracks": [
+              {
+                "id": "2",
+                "source": 2
+              }
+            ]
+          },
+          {
+            "tracks": [
+              {
+                "id": "1",
+                "source": 1
+              }
+            ]
+          },
+          {
+            "tracks": [
+              {
+                "id": "0",
+                "source": 0
               }
             ]
           }
@@ -2613,32 +2755,32 @@
           {
             "tracks": [
               {
-                "source": 0,
-                "id": "360"
+                "id": "720",
+                "source": 1
               }
             ]
           },
           {
             "tracks": [
               {
-                "source": 1,
-                "id": "720"
+                "id": "360",
+                "source": 0
               }
             ]
           },
           {
             "tracks": [
               {
-                "source": 2,
-                "id": "audio_low"
+                "id": "audio_high",
+                "source": 3
               }
             ]
           },
           {
             "tracks": [
               {
-                "source": 3,
-                "id": "audio_high"
+                "id": "audio_low",
+                "source": 2
               }
             ]
           }
@@ -2762,19 +2904,15 @@
           {
             "tracks": [
               {
-                "source": 1,
-                "id": "720"
+                "id": "360",
+                "source": 0
               }
             ]
           }
         ]
       },
       "parity": {
-        "status": "known_gap",
-        "reason": "Go records colon limits but does not apply the full pinned sort conversion model.",
-        "reference_expected": {
-          "outcome": "pinned sort conversion differs"
-        }
+        "status": "passing"
       },
       "expected_normalized_set": "basic_height"
     },
