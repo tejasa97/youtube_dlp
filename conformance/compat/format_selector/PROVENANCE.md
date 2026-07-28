@@ -3,11 +3,14 @@
 - Reference: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`
 - Fixture derivation interpreter: `CPython 3.12.13` (pinned checkout requires
   Python `>=3.10`; do not claim an unsupported interpreter executed the oracle)
-- Recorded: 2026-07-25; normalization evidence corrected 2026-07-28
+- Recorded: 2026-07-25; normalization evidence corrected 2026-07-28; parser
+  parity evidence expanded 2026-07-28
 - Corpus: `internal/format/testdata/selector_conformance.json` (schema version 1)
 - `int_or_none` oracle: `internal/format/testdata/int_or_none_oracle.json`
 - Tests: `internal/format.TestSelectorConformanceCorpus`,
-  `internal/format.TestIntOrNoneOracleFixture`
+  `internal/format.TestIntOrNoneOracleFixture`,
+  `internal/format.TestParserParity*`,
+  `pkg/ytdlp.TestFormatSelectorInvalidSyntaxFailsBeforeExtraction`
 - Gap ledger: `docs/FORMAT_SELECTOR_PARITY.md`
 
 ## Fixture hashes
@@ -16,7 +19,7 @@ Computed over the committed UTF-8 file bytes:
 
 | Artifact | SHA-256 |
 |---|---|
-| `internal/format/testdata/selector_conformance.json` | `18098ce967d41f3d14da6c50d75669a89021578472f550db0ef57a0b70e641f7` |
+| `internal/format/testdata/selector_conformance.json` | `0ec3f138632f4d2e956b7b574d47a6cd99b0aec7876f344aca136f7ee08cbfcc` |
 | `internal/format/testdata/int_or_none_oracle.json` | `a3f1af159f326f2d5f7e50825f3fa18eb061291a93da8d2f4f245abf389f3418` |
 
 ## Maintainer-only capture
@@ -38,19 +41,18 @@ provenance table.
 
 ## Upstream sources and exact order
 
-Expectations were transcribed from the pinned checkout at
+The committed expectations were transcribed from the pinned checkout at
 `/Users/tejas/projects/yt-dlp-reference`:
 
-- `yt_dlp/YoutubeDL.py:2577-2651`: selector construction/evaluation, atoms,
-  extension priority, filters, `all`, and merge behavior.
-- `yt_dlp/YoutubeDL.py:2923-3028`: collection filtering, coercion, sorting, ID
-  normalization, duplicate suffixing, and extension conflicts.
+- `yt_dlp/YoutubeDL.py:2577-2651`: selector construction/evaluation, atom
+  predicates, extension priority, filters, `all`, and merge behavior.
+- `yt_dlp/YoutubeDL.py:2923-3028`: format collection preparation, stable sorting,
+  generated IDs, unsafe-character replacement, duplicate suffixing, and
+  extension-selector conflict handling.
 - `yt_dlp/YoutubeDL.py:3067-3089`: selection after normalization.
-- `yt_dlp/YoutubeDL.py:600-609`: `_NUMERIC_FIELDS`.
-- `yt_dlp/utils/_utils.py:2029-2038`: `int_or_none` coercion.
-- `yt_dlp/utils/_utils.py:5367-5666`: `FormatSorter` conversion and ordering.
-- `yt_dlp/utils/_utils.py:5114-5122`: media-extension categories.
-- `test/test_YoutubeDL.py` `TestFormatSelection`: selector traps.
+- `yt_dlp/utils/_utils.py:5114-5122`: media-extension categories used to build
+  extension selector atoms.
+- `test/test_YoutubeDL.py` `TestFormatSelection`: selector and error traps.
 
 The pinned pre-selection sequence is authoritative:
 
@@ -82,10 +84,18 @@ read committed JSON only; they never invoke Python, access the reference
 checkout, or use the network.
 
 Every selector case has a unique ID, feature tags, selector/options, expected
-canonical formats, expected plans or error, and a parity classification. Gaps
-contain a reason and explicit pinned expectation; there is no skip mechanism.
+canonical formats, expected plans or error, and a parity classification.
+Parser-error cases may additionally record half-open byte offsets into the
+original, untrimmed selector. Gaps contain a reason and explicit pinned
+expectation; there is no skip mechanism.
 
-## Canonical Go ownership model
+The parser corpus also transcribes the selector grammar and examples documented
+in the pinned README: comma outputs bind least tightly, slash fallbacks bind
+above comma, plus merges bind above slash, parentheses group expressions, and
+bracket filters attach to the immediately preceding atom or group. Filter
+brackets are quote-aware; backslash escapes apply only inside quoted values so
+`]` inside a quoted string does not terminate the filter, while an unquoted
+`\]` does not suppress `]` and remains invalid upstream syntax.
 
 Go recursively clones the extractor `Info` and formats. The canonical clone is
 shared by selector evaluation, format tables, print templates, simulated and
@@ -96,12 +106,11 @@ actions or deferred enrichment, product selection rebinds prepared format
 objects to the current canonical `Info` without re-normalizing. Extractor-owned
 metadata remains unchanged.
 
-Filtering occurs before sorting and generated IDs. Fixtures `drm.*` and
-`url-filter.*` prove that rejected formats do not consume generated indexes and
-cannot be recovered through `all` or direct-ID selectors. Selection records both
-its original extractor index and canonical list index, keeping metadata and
-headers attached to the exact format even after filtering and residual ID
-collisions.
+Pinned Python processing mutates the supplied format dictionaries. The Go port
+instead recursively clones every accepted format before sorting or
+normalization. A private source association carries the original extractor-list
+index through selection so product rendering can merge descriptive metadata
+from the exact original object without relying on final ID uniqueness.
 
 Pinned scalar coercion covers non-string `format_id` values and
 `_NUMERIC_FIELDS` used by preparation. Numeric IDs are parity cases, not safety
@@ -110,28 +119,73 @@ values that cannot be represented by the bounded typed metadata contract still
 fail predictably. `int_or_none` accepts underscore-separated ASCII integers and
 Unicode decimal digits within int64 typed safety bounds.
 
-The Go boundary retains explicit resource limits:
+The Go boundary rejects malformed collections with `ErrInvalidFormats` and
+bounds extractor-controlled work with `ErrFormatLimit`:
 
-- 4,096 extractor-supplied entries before filtering;
+- 4,096 format entries;
 - 16 KiB per input or final `format_id`;
 - 4 MiB aggregate final ID bytes.
 
-`ErrInvalidFormats` and `ErrFormatLimit` are categorized as internal extractor
-metadata failures. These resource bounds and defensive ownership differ
-intentionally from pinned Python.
+These errors are categorized as internal extractor-metadata failures. They are
+intentional safety differences from the pinned implementation.
 
-Normalization uses the selector's existing Go extension maps. Final uniqueness
-is not strengthened: residual `x,x,x-0` and `mp4,fmp4` collisions remain pinned
-and are tested with exact source/header association.
+Normalization uses the selector's existing Go extension map rather than a
+second pinned-only list. The Go extension map is now the exact pinned
+`_format_selection_exts` set: `aiff`, `alac`, `flac`, `m4a`, `mka`, `mp3`,
+`ogg`, `opus`, `wav` for audio; `avi`, `flv`, `mkv`, `mov`, `mp4`, `webm`,
+`3gp` for video; and `mhtml` for storyboards. Tokens outside that set parse as
+direct IDs; bare extensions such as `wmv`, `m4v`, `f4v`, `mpg`, `divx`, or
+`3g2` therefore no longer collide with the extension map.
 
-## Selector deviations left unchanged
+## Parser-parity safety decisions
 
-This PR does not change selector algorithms. The corpus and ledger retain plain
-`best`/`worst` semantics, forward `all` ordering, unsupported negated and
-none-inclusive filters, limited quoted escaping and field names, Go RE2 regexes,
-incomplete sort aliases/limits, separate product multistream policy, interactive
-`-f -` scope, multi-output post-processing constraints, and bounded parser and
-evaluator limits.
+The PR 2 lexer and parser introduce deliberate deviations from the pinned
+Python tokenizer that fail closed rather than silently changing the requested
+selector:
 
-Fixture or implementation updates must keep this provenance, corpus, ledger,
-and parity manifest synchronized against an explicit reference revision.
+- Direct-format IDs that contain comment punctuation (`#`) are rejected. The
+  pinned Python tokenizer treats `#...` as a comment, which can rewrite the
+  requested ID (for example `id#variant` becomes `id`). The Go parser treats
+  the atom as a syntax error instead. String/line-continuation punctuation
+  (`\`, `'`, `"`) is also rejected for direct IDs; pinned tokenization raises
+  `TokenError` for those forms.
+- Single-character OP tokens `!`, `$`, `?`, and `` ` `` are retained in direct
+  IDs, matching `_remove_unused_ops` joins (`id!variant` selects that ID).
+- Unicode number characters outside ASCII digits (Nd/Nl/No, including `²` and
+  Roman numerals) are accepted in direct IDs as pinned NAME tokens.
+- Negated string filter operators (`!^=`, `!$=`, `!*=`, `!~=`) parse but their
+  evaluation is deferred to the filter-parity phase. `gap.negated-prefix`
+  records this as a known parser-only gap.
+- Host-integer overflow for positive `.N` atom indexes is retained as valid
+  syntax and evaluates to no match. The pinned implementation accepts arbitrary
+  digit runs; Go records overflow deterministically instead of wrapping.
+
+Token joining, dangling-branch acceptance (`best,`, `best/`, `()`, `best//` as
+a joined direct ID), and empty-comma rejection (`best,,`, `,best`) follow the
+pinned Python grammar exactly and are covered by `parser.*` corpus cases plus
+`internal/format/parser_parity_test.go`.
+
+Source-span endpoints reported by the parser are a Go-defined half-open
+contract: error offsets name the exact `[start, end)` byte range of the
+original, untrimmed selector that triggered the rejection. Upstream Python
+raises `SyntaxError` for some of the same cases but does not expose matching
+end offsets for every token shape, so the spans are recorded as Go-owned
+contract guarantees rather than byte-for-byte upstream comparisons.
+
+## Bounded selector deviations
+
+This normalization PR does not change selector algorithms. The executing corpus
+and `docs/FORMAT_SELECTOR_PARITY.md` retain the existing differences, including:
+
+1. plain `best`/`worst` playable-universe semantics;
+2. forward `all` ordering;
+3. partial negated string evaluation (syntax accepted, evaluation deferred);
+4. limited quoted-value escaping and field-name syntax;
+5. Go RE2 rather than Python-regex-only constructs;
+6. incomplete upstream sort aliases/conversions/limit semantics;
+7. separate evaluator versus product multistream policy;
+8. interactive `-f -` and broader multi-output post-processing outside scope;
+9. bounded selector and evaluator limits.
+
+Fixture or implementation updates must keep this provenance, the corpus, and the
+parity ledger synchronized against an explicit reference revision.

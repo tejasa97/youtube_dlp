@@ -201,6 +201,45 @@
         "preference": "2",
         "height": "1080"
       }
+    ],
+    "parser_tokens": [
+      {
+        "format_id": "codec:v1@cdn",
+        "url": "https://example.invalid/parser-token",
+        "ext": "mp4",
+        "vcodec": "avc1",
+        "acodec": "aac"
+      },
+      {
+        "format_id": "id!variant",
+        "url": "https://example.invalid/id-bang",
+        "ext": "mp4",
+        "vcodec": "avc1",
+        "acodec": "aac"
+      },
+      {
+        "format_id": "²",
+        "url": "https://example.invalid/id-sup2",
+        "ext": "mp4",
+        "vcodec": "avc1",
+        "acodec": "aac"
+      }
+    ],
+    "extension_boundary": [
+      {
+        "format_id": "wmv",
+        "url": "https://example.invalid/id-wmv",
+        "ext": "mp4",
+        "vcodec": "avc1",
+        "acodec": "aac"
+      },
+      {
+        "format_id": "actual-wmv",
+        "url": "https://example.invalid/ext-wmv",
+        "ext": "wmv",
+        "vcodec": "wmv3",
+        "acodec": "wma"
+      }
     ]
   },
   "normalized_sets": {
@@ -2211,13 +2250,23 @@
     {
       "id": "syntax.empty-branch",
       "features": [
-        "syntax-error"
+        "parser",
+        "dangling-branch"
       ],
       "format_set": "basic",
       "selector": "best/",
       "options": {},
       "expected": {
-        "error": "ErrInvalidSelector"
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720"
+              }
+            ]
+          }
+        ]
       },
       "parity": {
         "status": "passing"
@@ -2227,13 +2276,15 @@
     {
       "id": "syntax.bad-index",
       "features": [
-        "syntax-error"
+        "parser",
+        "direct-id",
+        "atom-fallback"
       ],
       "format_set": "basic",
       "selector": "best.0",
       "options": {},
       "expected": {
-        "error": "ErrInvalidSelector"
+        "error": "ErrNoMatch"
       },
       "parity": {
         "status": "passing"
@@ -2617,11 +2668,11 @@
       "selector": "best[ext!^=mp]",
       "options": {},
       "expected": {
-        "error": "ErrInvalidSelector"
+        "error": "ErrNoMatch"
       },
       "parity": {
         "status": "known_gap",
-        "reason": "Negated string filter operators are not parsed.",
+        "reason": "Negated operators now parse, but their evaluation is deferred to the filter parity phase.",
         "reference_expected": {
           "track_source": 1
         }
@@ -2759,6 +2810,574 @@
             3
           ]
         }
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "parser.whitespace-bestvideo",
+      "features": [
+        "parser",
+        "whitespace",
+        "token-join"
+      ],
+      "format_set": "basic",
+      "selector": "best video",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "parser.whitespace-index",
+      "features": [
+        "parser",
+        "whitespace",
+        "token-join"
+      ],
+      "format_set": "basic",
+      "selector": "best . 2",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 0,
+                "id": "360"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "parser.empty-group",
+      "features": [
+        "parser",
+        "empty-group"
+      ],
+      "format_set": "basic",
+      "selector": "()",
+      "options": {},
+      "expected": {
+        "error": "ErrNoMatch"
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "parser.trailing-comma",
+      "features": [
+        "parser",
+        "dangling-branch"
+      ],
+      "format_set": "basic",
+      "selector": "best,",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "parser.double-slash-direct-id",
+      "features": [
+        "parser",
+        "token-join",
+        "direct-id"
+      ],
+      "format_set": "parser_tokens",
+      "selector": "best//",
+      "options": {},
+      "expected": {
+        "error": "ErrNoMatch"
+      },
+      "parity": {
+        "status": "passing"
+      }
+    },
+    {
+      "id": "parser.trailing-slash",
+      "features": [
+        "parser",
+        "dangling-branch"
+      ],
+      "format_set": "basic",
+      "selector": "best/",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "parser.group-trailing-slash",
+      "features": [
+        "parser",
+        "dangling-branch",
+        "grouping"
+      ],
+      "format_set": "basic",
+      "selector": "(best/)",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "parser.reject-leading-comma",
+      "features": [
+        "parser",
+        "syntax-error",
+        "dangling-branch"
+      ],
+      "format_set": "basic",
+      "selector": ",best",
+      "options": {},
+      "expected": {
+        "error": "ErrInvalidSelector",
+        "error_start": 0,
+        "error_end": 1
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "parser.reject-empty-comma-branch",
+      "features": [
+        "parser",
+        "syntax-error",
+        "dangling-branch"
+      ],
+      "format_set": "basic",
+      "selector": "best,,",
+      "options": {},
+      "expected": {
+        "error": "ErrInvalidSelector",
+        "error_start": 5,
+        "error_end": 6
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "parser.reject-group-leading-comma",
+      "features": [
+        "parser",
+        "syntax-error",
+        "dangling-branch"
+      ],
+      "format_set": "basic",
+      "selector": "(,best)",
+      "options": {},
+      "expected": {
+        "error": "ErrInvalidSelector",
+        "error_start": 1,
+        "error_end": 2
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "parser.reject-group-empty-comma",
+      "features": [
+        "parser",
+        "syntax-error",
+        "dangling-branch"
+      ],
+      "format_set": "basic",
+      "selector": "(best,,)",
+      "options": {},
+      "expected": {
+        "error": "ErrInvalidSelector",
+        "error_start": 6,
+        "error_end": 7
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "parser.atom-fallback-star-suffix",
+      "features": [
+        "parser",
+        "direct-id",
+        "atom-fallback"
+      ],
+      "format_set": "parser_tokens",
+      "selector": "best*foo",
+      "options": {},
+      "expected": {
+        "error": "ErrNoMatch"
+      },
+      "parity": {
+        "status": "passing"
+      }
+    },
+    {
+      "id": "parser.atom-fallback-best-dot",
+      "features": [
+        "parser",
+        "direct-id",
+        "atom-fallback"
+      ],
+      "format_set": "parser_tokens",
+      "selector": "best.",
+      "options": {},
+      "expected": {
+        "error": "ErrNoMatch"
+      },
+      "parity": {
+        "status": "passing"
+      }
+    },
+    {
+      "id": "parser.atom-fallback-best-01",
+      "features": [
+        "parser",
+        "direct-id",
+        "atom-fallback"
+      ],
+      "format_set": "parser_tokens",
+      "selector": "best.01",
+      "options": {},
+      "expected": {
+        "error": "ErrNoMatch"
+      },
+      "parity": {
+        "status": "passing"
+      }
+    },
+    {
+      "id": "parser.direct-id-punctuation",
+      "features": [
+        "parser",
+        "direct-id",
+        "punctuation"
+      ],
+      "format_set": "basic",
+      "selector": "codec:v1@cdn",
+      "options": {},
+      "expected": {
+        "error": "ErrNoMatch"
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "parser.quoted-filter-bracket",
+      "features": [
+        "parser",
+        "filter",
+        "quoted-value"
+      ],
+      "format_set": "basic",
+      "selector": "best[format_id=\"a]b\"]",
+      "options": {},
+      "expected": {
+        "error": "ErrNoMatch"
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "parser.index-over-1000",
+      "features": [
+        "parser",
+        "atom-index"
+      ],
+      "format_set": "basic",
+      "selector": "best.1001",
+      "options": {},
+      "expected": {
+        "error": "ErrNoMatch"
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "parser.syntax-original-offset",
+      "features": [
+        "parser",
+        "syntax-error",
+        "source-span"
+      ],
+      "format_set": "basic",
+      "selector": "  bestvideo+\"unknown",
+      "options": {},
+      "expected": {
+        "error": "ErrInvalidSelector",
+        "error_start": 12,
+        "error_end": 20
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "parser.syntax-unclosed-quote",
+      "features": [
+        "parser",
+        "syntax-error",
+        "source-span",
+        "quoted-value"
+      ],
+      "format_set": "basic",
+      "selector": "best[format_id='unterminated]",
+      "options": {},
+      "expected": {
+        "error": "ErrInvalidSelector",
+        "error_start": 15,
+        "error_end": 29
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "parser.syntax-unexpected-close",
+      "features": [
+        "parser",
+        "syntax-error",
+        "source-span",
+        "grouping"
+      ],
+      "format_set": "basic",
+      "selector": "best)",
+      "options": {},
+      "expected": {
+        "error": "ErrInvalidSelector",
+        "error_start": 4,
+        "error_end": 5
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "parser.direct-id-token-punctuation",
+      "features": [
+        "parser",
+        "direct-id",
+        "punctuation"
+      ],
+      "format_set": "parser_tokens",
+      "selector": "codec:v1@cdn",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 0,
+                "id": "codec:v1@cdn"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      }
+    },
+    {
+      "id": "parser.direct-id-discarded-punctuation",
+      "features": [
+        "parser",
+        "direct-id",
+        "punctuation",
+        "safety"
+      ],
+      "format_set": "basic",
+      "selector": "id#variant",
+      "options": {},
+      "expected": {
+        "error": "ErrInvalidSelector",
+        "error_start": 0,
+        "error_end": 10
+      },
+      "parity": {
+        "status": "deliberate_safety_gap",
+        "reason": "Go rejects comment (`#`) and string/line-continuation punctuation that pinned Python comments away or token-errors; rejecting avoids silently selecting a different ID for `#`.",
+        "reference_expected": {
+          "plans": [
+            {
+              "tracks": [
+                {
+                  "id": "id"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "parser.extension-boundary-direct-id",
+      "features": [
+        "parser",
+        "extension",
+        "direct-id"
+      ],
+      "format_set": "extension_boundary",
+      "selector": "wmv",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 0,
+                "id": "wmv"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      }
+    },
+    {
+      "id": "parser.direct-id-bang-op",
+      "features": [
+        "parser",
+        "direct-id",
+        "punctuation"
+      ],
+      "format_set": "parser_tokens",
+      "selector": "id!variant",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "id!variant"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      }
+    },
+    {
+      "id": "parser.direct-id-unicode-number",
+      "features": [
+        "parser",
+        "direct-id",
+        "unicode"
+      ],
+      "format_set": "parser_tokens",
+      "selector": "²",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 2,
+                "id": "²"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      }
+    },
+    {
+      "id": "parser.unquoted-backslash-filter",
+      "features": [
+        "parser",
+        "syntax-error",
+        "filter"
+      ],
+      "format_set": "basic",
+      "selector": "best[format_id=a\\]b]",
+      "options": {},
+      "expected": {
+        "error": "ErrInvalidSelector"
+      },
+      "parity": {
+        "status": "passing"
       },
       "expected_normalized_set": "basic"
     }
