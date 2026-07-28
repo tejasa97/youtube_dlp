@@ -1,0 +1,1881 @@
+{
+  "cases": [
+    {
+      "expected": {
+        "derived_fields": {
+          "abr": 0,
+          "audio_ext": "none",
+          "protocol": "https",
+          "tbr": 500,
+          "vbr": 500,
+          "video_ext": "mp4"
+        },
+        "effective_fields": [
+          "hidden",
+          "aud_or_vid",
+          "hasvid",
+          "ie_pref",
+          "lang",
+          "quality",
+          "res",
+          "fps",
+          "hdr",
+          "vcodec",
+          "channels",
+          "acodec",
+          "size",
+          "br",
+          "asr",
+          "proto",
+          "vext",
+          "aext",
+          "hasaud",
+          "source",
+          "id"
+        ],
+        "worst_to_best_format_ids": [
+          "360"
+        ],
+        "worst_to_best_source_indexes": [
+          0
+        ]
+      },
+      "id": "zero-value-default",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "360",
+            "height": 360,
+            "tbr": 500,
+            "url": "https://example.invalid/360",
+            "vcodec": "avc1"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "worst_to_best_format_ids": [
+          "audio_low",
+          "audio_high",
+          "360",
+          "720"
+        ],
+        "worst_to_best_source_indexes": [
+          2,
+          3,
+          0,
+          1
+        ]
+      },
+      "id": "default-order-full",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "360",
+            "height": 360,
+            "tbr": 500,
+            "url": "https://example.invalid/360",
+            "vcodec": "avc1"
+          },
+          {
+            "acodec": "none",
+            "ext": "webm",
+            "format_id": "720",
+            "height": 720,
+            "tbr": 1500,
+            "url": "https://example.invalid/720",
+            "vcodec": "vp9"
+          },
+          {
+            "acodec": "aac",
+            "ext": "m4a",
+            "format_id": "audio_low",
+            "tbr": 64,
+            "url": "https://example.invalid/audio-low",
+            "vcodec": "none"
+          },
+          {
+            "acodec": "aac",
+            "ext": "m4a",
+            "format_id": "audio_high",
+            "tbr": 128,
+            "url": "https://example.invalid/audio-high",
+            "vcodec": "none"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "effective_fields": [
+          "hidden",
+          "aud_or_vid",
+          "+quality",
+          "hasvid",
+          "ie_pref",
+          "lang",
+          "res",
+          "fps",
+          "hdr",
+          "vcodec",
+          "channels",
+          "acodec",
+          "size",
+          "br",
+          "asr",
+          "proto",
+          "vext",
+          "aext",
+          "hasaud",
+          "source",
+          "id"
+        ],
+        "worst_to_best_format_ids": [
+          "audio_low",
+          "audio_high",
+          "360",
+          "720"
+        ],
+        "worst_to_best_source_indexes": [
+          2,
+          3,
+          0,
+          1
+        ]
+      },
+      "id": "forced-versus-non-forced-user",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "360",
+            "height": 360,
+            "tbr": 500,
+            "url": "https://example.invalid/360",
+            "vcodec": "avc1"
+          },
+          {
+            "acodec": "none",
+            "ext": "webm",
+            "format_id": "720",
+            "height": 720,
+            "tbr": 1500,
+            "url": "https://example.invalid/720",
+            "vcodec": "vp9"
+          },
+          {
+            "acodec": "aac",
+            "ext": "m4a",
+            "format_id": "audio_low",
+            "tbr": 64,
+            "url": "https://example.invalid/audio-low",
+            "vcodec": "none"
+          },
+          {
+            "acodec": "aac",
+            "ext": "m4a",
+            "format_id": "audio_high",
+            "tbr": 128,
+            "url": "https://example.invalid/audio-high",
+            "vcodec": "none"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [
+          "+quality"
+        ],
+        "sort_force": true
+      }
+    },
+    {
+      "expected": {
+        "effective_fields": [
+          "hidden",
+          "aud_or_vid",
+          "hasvid",
+          "ie_pref",
+          "+res",
+          "lang",
+          "quality",
+          "fps",
+          "hdr",
+          "vcodec",
+          "channels",
+          "acodec",
+          "size",
+          "br",
+          "asr",
+          "proto",
+          "vext",
+          "aext",
+          "hasaud",
+          "source",
+          "id"
+        ],
+        "worst_to_best_format_ids": [
+          "720"
+        ],
+        "worst_to_best_source_indexes": [
+          0
+        ]
+      },
+      "id": "user-before-extractor-precedence",
+      "info": {
+        "_format_sort_fields": [
+          "lang"
+        ],
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "webm",
+            "format_id": "720",
+            "height": 720,
+            "tbr": 1500,
+            "url": "https://example.invalid/720",
+            "vcodec": "vp9"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [
+          "+res"
+        ],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "effective_fields": [
+          "hidden",
+          "aud_or_vid",
+          "hasvid",
+          "ie_pref",
+          "quality",
+          "lang",
+          "res",
+          "fps",
+          "hdr",
+          "vcodec",
+          "channels",
+          "acodec",
+          "size",
+          "br",
+          "asr",
+          "proto",
+          "vext",
+          "aext",
+          "hasaud",
+          "source",
+          "id"
+        ],
+        "worst_to_best_format_ids": [
+          "x-0",
+          "x-1"
+        ],
+        "worst_to_best_source_indexes": [
+          0,
+          1
+        ]
+      },
+      "id": "duplicate-first-occurrence",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "webm",
+            "format_id": "x",
+            "url": "https://example.invalid/a",
+            "vcodec": "vp9"
+          },
+          {
+            "acodec": "none",
+            "ext": "webm",
+            "format_id": "x",
+            "url": "https://example.invalid/b",
+            "vcodec": "vp9"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [
+          "quality"
+        ],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "effective_fields": [
+          "hidden",
+          "aud_or_vid",
+          "hasvid",
+          "ie_pref",
+          "quality",
+          "tbr",
+          "lang",
+          "res",
+          "fps",
+          "hdr",
+          "vcodec",
+          "channels",
+          "acodec",
+          "size",
+          "br",
+          "asr",
+          "proto",
+          "vext",
+          "aext",
+          "hasaud",
+          "source",
+          "id"
+        ],
+        "worst_to_best_format_ids": [
+          "720"
+        ],
+        "worst_to_best_source_indexes": [
+          0
+        ]
+      },
+      "id": "_format_sort_fields",
+      "info": {
+        "_format_sort_fields": [
+          "quality",
+          "tbr"
+        ],
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "webm",
+            "format_id": "720",
+            "height": 720,
+            "tbr": 1500,
+            "url": "https://example.invalid/720",
+            "vcodec": "vp9"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "effective_fields": [
+          "hidden",
+          "aud_or_vid",
+          "hasvid",
+          "ie_pref",
+          "quality",
+          "res",
+          "lang",
+          "fps",
+          "hdr",
+          "vcodec",
+          "channels",
+          "acodec",
+          "size",
+          "br",
+          "asr",
+          "proto",
+          "vext",
+          "aext",
+          "hasaud",
+          "source",
+          "id"
+        ],
+        "worst_to_best_format_ids": [
+          "audio_low",
+          "audio_high",
+          "360",
+          "720"
+        ],
+        "worst_to_best_source_indexes": [
+          2,
+          3,
+          0,
+          1
+        ]
+      },
+      "id": "repeated-user-fields-options",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "360",
+            "height": 360,
+            "tbr": 500,
+            "url": "https://example.invalid/360",
+            "vcodec": "avc1"
+          },
+          {
+            "acodec": "none",
+            "ext": "webm",
+            "format_id": "720",
+            "height": 720,
+            "tbr": 1500,
+            "url": "https://example.invalid/720",
+            "vcodec": "vp9"
+          },
+          {
+            "acodec": "aac",
+            "ext": "m4a",
+            "format_id": "audio_low",
+            "tbr": 64,
+            "url": "https://example.invalid/audio-low",
+            "vcodec": "none"
+          },
+          {
+            "acodec": "aac",
+            "ext": "m4a",
+            "format_id": "audio_high",
+            "tbr": 128,
+            "url": "https://example.invalid/audio-high",
+            "vcodec": "none"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [
+          "quality",
+          "res",
+          "quality"
+        ],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "worst_to_best_format_ids": [
+          "avc",
+          "h264",
+          "vp9",
+          "vp9.2",
+          "av1"
+        ],
+        "worst_to_best_source_indexes": [
+          4,
+          3,
+          2,
+          1,
+          0
+        ]
+      },
+      "id": "default-codec-rankings",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "av1",
+            "url": "https://example.invalid/av1",
+            "vcodec": "av01.0.05M.08"
+          },
+          {
+            "acodec": "none",
+            "ext": "webm",
+            "format_id": "vp9.2",
+            "url": "https://example.invalid/vp92",
+            "vcodec": "vp09.02.10.08"
+          },
+          {
+            "acodec": "none",
+            "ext": "webm",
+            "format_id": "vp9",
+            "url": "https://example.invalid/vp9",
+            "vcodec": "vp9"
+          },
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "h264",
+            "url": "https://example.invalid/h264",
+            "vcodec": "h264"
+          },
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "avc",
+            "url": "https://example.invalid/avc",
+            "vcodec": "avc1"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "worst_to_best_format_ids": [
+          "unknown",
+          "known"
+        ],
+        "worst_to_best_source_indexes": [
+          1,
+          0
+        ]
+      },
+      "id": "unknown-codec",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "known",
+            "url": "https://example.invalid/avc",
+            "vcodec": "avc1"
+          },
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "unknown",
+            "url": "https://example.invalid/custom",
+            "vcodec": "zzz9"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "worst_to_best_format_ids": [
+          "missing",
+          "unknown"
+        ],
+        "worst_to_best_source_indexes": [
+          0,
+          1
+        ]
+      },
+      "id": "ordered-missing-codec",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "missing",
+            "url": "https://example.invalid/missing"
+          },
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "unknown",
+            "url": "https://example.invalid/unknown",
+            "vcodec": "zzz9"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "worst_to_best_format_ids": [
+          "embedded",
+          "avc"
+        ],
+        "worst_to_best_source_indexes": [
+          0,
+          1
+        ]
+      },
+      "id": "ordered-regex-prefix",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "embedded",
+            "url": "https://example.invalid/embedded",
+            "vcodec": "prefix-av1"
+          },
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "avc",
+            "url": "https://example.invalid/avc",
+            "vcodec": "avc1"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "worst_to_best_format_ids": [
+          "av1",
+          "avc",
+          "vp9"
+        ],
+        "worst_to_best_source_indexes": [
+          0,
+          2,
+          1
+        ]
+      },
+      "id": "textual-ordered-limit",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "av1",
+            "url": "https://example.invalid/av1",
+            "vcodec": "av1"
+          },
+          {
+            "acodec": "none",
+            "ext": "webm",
+            "format_id": "vp9",
+            "url": "https://example.invalid/vp9",
+            "vcodec": "vp9"
+          },
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "avc",
+            "url": "https://example.invalid/avc",
+            "vcodec": "avc1"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [
+          "vcodec:vp9"
+        ],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "worst_to_best_format_ids": [
+          "mp4",
+          "webm"
+        ],
+        "worst_to_best_source_indexes": [
+          0,
+          1
+        ]
+      },
+      "id": "normal-ext-order",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "mp4",
+            "url": "https://example.invalid/mp4",
+            "vcodec": "avc1"
+          },
+          {
+            "acodec": "none",
+            "ext": "webm",
+            "format_id": "webm",
+            "url": "https://example.invalid/webm",
+            "vcodec": "vp9"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "worst_to_best_format_ids": [
+          "mp4",
+          "webm"
+        ],
+        "worst_to_best_source_indexes": [
+          0,
+          1
+        ]
+      },
+      "id": "free-ext-order",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "mp4",
+            "url": "https://example.invalid/mp4",
+            "vcodec": "avc1"
+          },
+          {
+            "acodec": "none",
+            "ext": "webm",
+            "format_id": "webm",
+            "url": "https://example.invalid/webm",
+            "vcodec": "vp9"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": true,
+        "sort": [],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "worst_to_best_format_ids": [
+          "dv",
+          "sdr",
+          "hdr10",
+          "hdr10plus",
+          "hdr12"
+        ],
+        "worst_to_best_source_indexes": [
+          4,
+          0,
+          1,
+          2,
+          3
+        ]
+      },
+      "id": "hdr-order",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "dynamic_range": "SDR",
+            "ext": "mp4",
+            "format_id": "sdr",
+            "url": "https://example.invalid/sdr",
+            "vcodec": "avc1"
+          },
+          {
+            "acodec": "none",
+            "dynamic_range": "HDR10",
+            "ext": "mp4",
+            "format_id": "hdr10",
+            "url": "https://example.invalid/hdr10",
+            "vcodec": "avc1"
+          },
+          {
+            "acodec": "none",
+            "dynamic_range": "HDR10+",
+            "ext": "mp4",
+            "format_id": "hdr10plus",
+            "url": "https://example.invalid/hdr10p",
+            "vcodec": "avc1"
+          },
+          {
+            "acodec": "none",
+            "dynamic_range": "HDR12",
+            "ext": "mp4",
+            "format_id": "hdr12",
+            "url": "https://example.invalid/hdr12",
+            "vcodec": "avc1"
+          },
+          {
+            "acodec": "none",
+            "dynamic_range": "DV",
+            "ext": "mp4",
+            "format_id": "dv",
+            "url": "https://example.invalid/dv",
+            "vcodec": "avc1"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "worst_to_best_format_ids": [
+          "dash",
+          "m3u8",
+          "https"
+        ],
+        "worst_to_best_source_indexes": [
+          2,
+          1,
+          0
+        ]
+      },
+      "id": "protocol-order",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "https",
+            "protocol": "https",
+            "url": "https://example.invalid/https",
+            "vcodec": "avc1"
+          },
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "m3u8",
+            "protocol": "m3u8_native",
+            "url": "https://example.invalid/m3u8",
+            "vcodec": "avc1"
+          },
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "dash",
+            "protocol": "http_dash_segments",
+            "url": "https://example.invalid/dash",
+            "vcodec": "avc1"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "worst_to_best_format_ids": [
+          "es",
+          "en"
+        ],
+        "worst_to_best_source_indexes": [
+          1,
+          0
+        ]
+      },
+      "id": "language-preference",
+      "info": {
+        "formats": [
+          {
+            "acodec": "aac",
+            "ext": "mp4",
+            "format_id": "en",
+            "language_preference": 10,
+            "url": "https://example.invalid/en",
+            "vcodec": "none"
+          },
+          {
+            "acodec": "aac",
+            "ext": "mp4",
+            "format_id": "es",
+            "language_preference": -1,
+            "url": "https://example.invalid/es",
+            "vcodec": "none"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "worst_to_best_format_ids": [
+          "low",
+          "high"
+        ],
+        "worst_to_best_source_indexes": [
+          0,
+          1
+        ]
+      },
+      "id": "preference-hidden-behavior",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "low",
+            "preference": -10,
+            "url": "https://example.invalid/low",
+            "vcodec": "avc1"
+          },
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "high",
+            "url": "https://example.invalid/high",
+            "vcodec": "avc1"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "worst_to_best_format_ids": [
+          "low",
+          "high"
+        ],
+        "worst_to_best_source_indexes": [
+          0,
+          1
+        ]
+      },
+      "id": "quality-and-source-preference",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "low",
+            "quality": -1,
+            "source_preference": -1,
+            "url": "https://example.invalid/low",
+            "vcodec": "avc1"
+          },
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "high",
+            "quality": 5,
+            "source_preference": 10,
+            "url": "https://example.invalid/high",
+            "vcodec": "avc1"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "worst_to_best_format_ids": [
+          "small",
+          "large"
+        ],
+        "worst_to_best_source_indexes": [
+          0,
+          1
+        ]
+      },
+      "id": "resolution",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "small",
+            "height": 480,
+            "url": "https://example.invalid/small",
+            "vcodec": "avc1",
+            "width": 854
+          },
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "large",
+            "height": 1080,
+            "url": "https://example.invalid/large",
+            "vcodec": "avc1",
+            "width": 1920
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "worst_to_best_format_ids": [
+          "30",
+          "60"
+        ],
+        "worst_to_best_source_indexes": [
+          0,
+          1
+        ]
+      },
+      "id": "fps",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "30",
+            "fps": 30.0,
+            "url": "https://example.invalid/30",
+            "vcodec": "avc1"
+          },
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "60",
+            "fps": 60.0,
+            "url": "https://example.invalid/60",
+            "vcodec": "avc1"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "worst_to_best_format_ids": [
+          "2",
+          "6"
+        ],
+        "worst_to_best_source_indexes": [
+          0,
+          1
+        ]
+      },
+      "id": "channels",
+      "info": {
+        "formats": [
+          {
+            "acodec": "aac",
+            "audio_channels": 2,
+            "ext": "mp4",
+            "format_id": "2",
+            "url": "https://example.invalid/2",
+            "vcodec": "none"
+          },
+          {
+            "acodec": "aac",
+            "audio_channels": 6,
+            "ext": "mp4",
+            "format_id": "6",
+            "url": "https://example.invalid/6",
+            "vcodec": "none"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "worst_to_best_format_ids": [
+          "a",
+          "v",
+          "va"
+        ],
+        "worst_to_best_source_indexes": [
+          1,
+          0,
+          2
+        ]
+      },
+      "id": "codec-combined",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "v",
+            "url": "https://example.invalid/v",
+            "vcodec": "avc1"
+          },
+          {
+            "acodec": "aac",
+            "ext": "mp4",
+            "format_id": "a",
+            "url": "https://example.invalid/a",
+            "vcodec": "none"
+          },
+          {
+            "acodec": "aac",
+            "ext": "mp4",
+            "format_id": "va",
+            "url": "https://example.invalid/va",
+            "vcodec": "avc1"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [
+          "codec"
+        ],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "worst_to_best_format_ids": [
+          "a",
+          "v"
+        ],
+        "worst_to_best_source_indexes": [
+          1,
+          0
+        ]
+      },
+      "id": "ext-combined",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "v",
+            "url": "https://example.invalid/v",
+            "vcodec": "avc1"
+          },
+          {
+            "acodec": "aac",
+            "ext": "m4a",
+            "format_id": "a",
+            "url": "https://example.invalid/a",
+            "vcodec": "none"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [
+          "ext"
+        ],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "worst_to_best_format_ids": [
+          "tbr",
+          "small",
+          "approx"
+        ],
+        "worst_to_best_source_indexes": [
+          2,
+          0,
+          1
+        ]
+      },
+      "id": "size-and-bitrate-multiple",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "filesize": 1000,
+            "format_id": "small",
+            "url": "https://example.invalid/small",
+            "vcodec": "avc1"
+          },
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "filesize_approx": 2000,
+            "format_id": "approx",
+            "url": "https://example.invalid/approx",
+            "vcodec": "avc1"
+          },
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "tbr",
+            "tbr": 3000,
+            "url": "https://example.invalid/tbr",
+            "vcodec": "avc1"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "worst_to_best_format_ids": [
+          "large",
+          "small"
+        ],
+        "worst_to_best_source_indexes": [
+          1,
+          0
+        ]
+      },
+      "id": "exact-field-limit",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "small",
+            "height": 480,
+            "url": "https://example.invalid/small",
+            "vcodec": "avc1"
+          },
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "large",
+            "height": 1080,
+            "url": "https://example.invalid/large",
+            "vcodec": "avc1"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [
+          "height:720"
+        ],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "worst_to_best_format_ids": [
+          "large",
+          "small"
+        ],
+        "worst_to_best_source_indexes": [
+          1,
+          0
+        ]
+      },
+      "id": "closest-field-limit",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "small",
+            "height": 720,
+            "url": "https://example.invalid/small",
+            "vcodec": "avc1"
+          },
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "large",
+            "height": 1080,
+            "url": "https://example.invalid/large",
+            "vcodec": "avc1"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [
+          "height~800"
+        ],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "worst_to_best_format_ids": [
+          "a",
+          "v"
+        ],
+        "worst_to_best_source_indexes": [
+          1,
+          0
+        ]
+      },
+      "id": "combined-field-limits",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "v",
+            "url": "https://example.invalid/v",
+            "vcodec": "avc1"
+          },
+          {
+            "acodec": "aac",
+            "ext": "m4a",
+            "format_id": "a",
+            "url": "https://example.invalid/a",
+            "vcodec": "none"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [
+          "ext:mp4:m4a"
+        ],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "effective_fields": [
+          "hidden",
+          "aud_or_vid",
+          "hasvid",
+          "ie_pref",
+          "id",
+          "lang",
+          "quality",
+          "res",
+          "fps",
+          "hdr",
+          "vcodec",
+          "channels",
+          "acodec",
+          "size",
+          "br",
+          "asr",
+          "proto",
+          "vext",
+          "aext",
+          "hasaud",
+          "source"
+        ],
+        "worst_to_best_format_ids": [
+          "x"
+        ],
+        "worst_to_best_source_indexes": [
+          0
+        ]
+      },
+      "id": "alias-resolution",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "x",
+            "url": "https://example.invalid/a",
+            "vcodec": "avc1"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [
+          "format_id"
+        ],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "worst_to_best_format_ids": [
+          "a"
+        ],
+        "worst_to_best_source_indexes": [
+          0
+        ]
+      },
+      "id": "deprecated-alias",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "a",
+            "url": "https://example.invalid/a",
+            "vcodec": "avc1"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [
+          "dimension"
+        ],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "worst_to_best_format_ids": [
+          "a",
+          "b"
+        ],
+        "worst_to_best_source_indexes": [
+          0,
+          1
+        ]
+      },
+      "id": "missing-null-values",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "a",
+            "url": "https://example.invalid/a",
+            "vcodec": "avc1"
+          },
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "b",
+            "height": 720,
+            "url": "https://example.invalid/b",
+            "vcodec": "avc1"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "worst_to_best_format_ids": [
+          "s",
+          "n"
+        ],
+        "worst_to_best_source_indexes": [
+          1,
+          0
+        ]
+      },
+      "id": "numeric-string-mixed",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "n",
+            "quality": "5",
+            "url": "https://example.invalid/n",
+            "vcodec": "avc1"
+          },
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "s",
+            "quality": "high",
+            "url": "https://example.invalid/s",
+            "vcodec": "avc1"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "worst_to_best_format_ids": [
+          "a",
+          "b",
+          "c"
+        ],
+        "worst_to_best_source_indexes": [
+          0,
+          1,
+          2
+        ]
+      },
+      "id": "stable-complete-ties",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "a",
+            "height": 720,
+            "tbr": 1500,
+            "url": "https://example.invalid/a",
+            "vcodec": "avc1"
+          },
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "b",
+            "height": 720,
+            "tbr": 1500,
+            "url": "https://example.invalid/b",
+            "vcodec": "avc1"
+          },
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "c",
+            "height": 720,
+            "tbr": 1500,
+            "url": "https://example.invalid/c",
+            "vcodec": "avc1"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "derived_fields": {
+          "ext": "unknown_video",
+          "protocol": "https",
+          "video_ext": "unknown_video"
+        },
+        "worst_to_best_format_ids": [
+          "no-ext"
+        ],
+        "worst_to_best_source_indexes": [
+          0
+        ]
+      },
+      "id": "derived-protocol-and-ext",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "format_id": "no-ext",
+            "url": "https://example.invalid/track?token=1",
+            "vcodec": "avc1"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "derived_fields": {
+          "0_audio_ext": "none",
+          "0_video_ext": "mp4",
+          "1_audio_ext": "m4a",
+          "1_video_ext": "none"
+        },
+        "worst_to_best_format_ids": [
+          "a",
+          "v"
+        ],
+        "worst_to_best_source_indexes": [
+          1,
+          0
+        ]
+      },
+      "id": "derived-audio-video-extensions",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "v",
+            "url": "https://example.invalid/v",
+            "vcodec": "avc1"
+          },
+          {
+            "acodec": "aac",
+            "ext": "m4a",
+            "format_id": "a",
+            "url": "https://example.invalid/a",
+            "vcodec": "none"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "worst_to_best_format_ids": [
+          "b",
+          "c",
+          "a"
+        ],
+        "worst_to_best_source_indexes": [
+          1,
+          2,
+          0
+        ]
+      },
+      "id": "derived-bitrate-fields",
+      "info": {
+        "formats": [
+          {
+            "abr": 300,
+            "acodec": "aac",
+            "ext": "mp4",
+            "format_id": "a",
+            "tbr": 1000,
+            "url": "https://example.invalid/a",
+            "vbr": 700,
+            "vcodec": "avc1"
+          },
+          {
+            "abr": 200,
+            "acodec": "aac",
+            "ext": "mp4",
+            "format_id": "b",
+            "tbr": 500,
+            "url": "https://example.invalid/b",
+            "vcodec": "avc1"
+          },
+          {
+            "abr": 100,
+            "acodec": "aac",
+            "ext": "mp4",
+            "format_id": "c",
+            "url": "https://example.invalid/c",
+            "vbr": 400,
+            "vcodec": "avc1"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "derived_fields": {
+          "preference": -100
+        },
+        "worst_to_best_format_ids": [
+          "flv"
+        ],
+        "worst_to_best_source_indexes": [
+          0
+        ]
+      },
+      "id": "hevc-over-flv-preference",
+      "info": {
+        "formats": [
+          {
+            "acodec": "aac",
+            "ext": "flv",
+            "format_id": "flv",
+            "url": "https://example.invalid/flv",
+            "vcodec": "h265"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "worst_to_best_format_ids": [
+          "z",
+          "a"
+        ],
+        "worst_to_best_source_indexes": [
+          0,
+          1
+        ]
+      },
+      "id": "source-index-preservation",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "z",
+            "url": "https://example.invalid/z",
+            "vcodec": "avc1"
+          },
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "a",
+            "preference": 100,
+            "url": "https://example.invalid/a",
+            "vcodec": "avc1"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "canonical_formats": [
+          {
+            "format_id": "a",
+            "preference": -10
+          },
+          {
+            "format_id": "b",
+            "preference": null
+          },
+          {
+            "format_id": "c",
+            "preference": 100
+          }
+        ],
+        "worst_to_best_format_ids": [
+          "a",
+          "b",
+          "c"
+        ],
+        "worst_to_best_source_indexes": [
+          0,
+          1,
+          2
+        ]
+      },
+      "id": "canonical-infojson-order",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "a",
+            "preference": -10,
+            "url": "https://example.invalid/a",
+            "vcodec": "avc1"
+          },
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "b",
+            "url": "https://example.invalid/b",
+            "vcodec": "avc1"
+          },
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "c",
+            "preference": 100,
+            "url": "https://example.invalid/c",
+            "vcodec": "avc1"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "error": "ErrInvalidPreference",
+        "reason": "oversized sort field"
+      },
+      "id": "sort-bounds-oversized",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "a",
+            "url": "https://example.invalid/a",
+            "vcodec": "avc1"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [
+          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "error": "ErrInvalidPreference",
+        "reason": "non-string extractor sort field"
+      },
+      "id": "malformed-extractor-fields",
+      "info": {
+        "_format_sort_fields": [
+          42
+        ],
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "a",
+            "url": "https://example.invalid/a",
+            "vcodec": "avc1"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [],
+        "sort_force": false
+      }
+    }
+  ],
+  "reference": {
+    "commit": "aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8",
+    "python_version": "CPython 3.12.13",
+    "repository": "https://github.com/yt-dlp/yt-dlp",
+    "source": [
+      "yt_dlp/utils/_utils.py:5367-5666 FormatSorter",
+      "yt_dlp/utils/_utils.py:1769 lookup_unit_table (parse_bytes)",
+      "yt_dlp/utils/_utils.py:1311 determine_ext",
+      "yt_dlp/utils/_utils.py:3190 determine_protocol"
+    ]
+  },
+  "schema_version": 1
+}

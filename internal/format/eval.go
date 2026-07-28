@@ -41,6 +41,25 @@ func PlanSelectWithOptions(info value.Info, selector Selector, options Options) 
 	return prepared.Plan(selector)
 }
 
+// evaluationFormats returns a best-to-worst view over the canonical worst-
+// to-best Prepared.formats list. It allocates a new slice, iterates the
+// canonical list in reverse, and preserves the original object pointers so
+// source/index lookup remains exact. The canonical Prepared.formats is never
+// mutated. This is the narrow compatibility adapter required by PR 4; it
+// preserves the legacy evaluator's best-first contract without changing any
+// selector algorithms. PR 5 replaces this adapter when the evaluator
+// consumes canonical worst-to-best directly.
+func (prepared Prepared) evaluationFormats() []*value.Object {
+	if len(prepared.formats) == 0 {
+		return nil
+	}
+	out := make([]*value.Object, len(prepared.formats))
+	for destination, source := range prepared.formats {
+		out[len(prepared.formats)-1-destination] = source.Object
+	}
+	return out
+}
+
 // Plan evaluates selector against this canonical format view without preparing
 // or mutating the formats a second time.
 func (prepared Prepared) Plan(selector Selector) ([]OutputPlan, error) {
@@ -51,10 +70,9 @@ func (prepared Prepared) Plan(selector Selector) ([]OutputPlan, error) {
 	if err != nil {
 		return nil, err
 	}
-	objects := make([]*value.Object, len(prepared.formats))
+	objects := prepared.evaluationFormats()
 	byObject := make(map[*value.Object]normalizedFormat, len(prepared.formats))
-	for index, item := range prepared.formats {
-		objects[index] = item.Object
+	for _, item := range prepared.formats {
 		byObject[item.Object] = item
 	}
 	ctx := evalContext{
@@ -235,8 +253,9 @@ func evaluateAtom(ctx *evalContext, node *astNode) ([][]*value.Object, error) {
 		return atomAllMatches(ctx.formats, node.filters, node.span, ctx.regexBudget)
 	case atomMergeAll:
 		var tracks []*value.Object
-		for index := len(ctx.formats) - 1; index >= 0; index-- {
-			object := ctx.formats[index]
+		// The evaluator adapter already presents the pinned canonical list in
+		// best-to-worst order, so mergeall consumes it in forward order.
+		for _, object := range ctx.formats {
 			matched, err := matchesFilters(object, node.filters, ctx.regexBudget)
 			if err != nil {
 				return nil, err

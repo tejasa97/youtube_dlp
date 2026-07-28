@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -26,8 +25,20 @@ var ErrInvalidPreference = errors.New("invalid format preference")
 
 // Options controls deterministic preference ordering. The zero value retains
 // historical best/worst behaviour while rejecting confirmed DRM formats.
+//
+// Sort carries the final ordered user sort list after CLI/config accumulation
+// and reset processing. Repeated CLI -S flags append fields in occurrence
+// order; --format-sort-reset clears previously accumulated user fields. PR 9
+// exposes those CLI operations; PR 4 documents the boundary and tests that
+// Options.Sort order is preserved exactly.
+//
+// PreferExtensions is retained for Go API compatibility. It is applied as an
+// explicit final legacy extension tiebreaker only after the complete pinned
+// preference tuple compares equal. It must not alter the pinned oracle when
+// empty.
 type Options struct {
 	Sort              []SortField
+	SortForce         bool
 	PreferFreeFormats bool
 	PreferExtensions  []string
 	AllowDRM          bool
@@ -35,15 +46,23 @@ type Options struct {
 
 // SortField is compatible with common yt-dlp FIELD, +FIELD, FIELD:LIMIT, and
 // FIELD~LIMIT forms. Descending means lower values win; Closest selects the
-// value nearest Limit.
+// value nearest Limit. CombinedLimit captures multi-colon limit text (such
+// as `ext:mp4:m4a`) so the sorter can split it across subfields during
+// expansion. LimitText preserves a non-numeric ordered-field limit such as
+// `vcodec:vp9`; both are mutually exclusive with Limit.
 type SortField struct {
-	Field      string
-	Descending bool
-	Closest    bool
-	Limit      *float64
+	Field         string
+	Descending    bool
+	Closest       bool
+	Limit         *float64
+	LimitText     string
+	CombinedLimit string
 }
 
-// ParseSortField parses one bounded user preference token.
+// ParseSortField parses one bounded user preference token. Combined-field
+// limits (multiple colons such as `ext:mp4:m4a`) are accepted by storing
+// the raw limit text in CombinedLimit; the sorter expands them when it
+// expands the combined field.
 func ParseSortField(input string) (SortField, error) {
 	input = strings.TrimSpace(input)
 	if input == "" || len(input) > 256 {
@@ -56,9 +75,35 @@ func ParseSortField(input string) (SortField, error) {
 	separator := strings.IndexAny(input, ":~")
 	if separator >= 0 {
 		field.Closest = input[separator] == '~'
-		limit, err := parseBoundedNumber(input[separator+1:])
+		rawLimit := input[separator+1:]
+		field.Field = strings.ToLower(input[:separator])
+		if !fieldPattern.MatchString(field.Field) {
+			return SortField{}, fmt.Errorf("%w: invalid field %q", ErrInvalidPreference, field.Field)
+		}
+		if rawLimit == "" || len(rawLimit) > 64 {
+			return SortField{}, fmt.Errorf("%w: empty or oversized sort limit", ErrInvalidPreference)
+		}
+		if strings.ContainsAny(rawLimit, ":~") {
+			// Combined-field limit. Defer numeric parsing.
+			field.CombinedLimit = rawLimit
+			return field, nil
+		}
+		limit, err := parseBoundedNumber(rawLimit)
 		if err != nil {
-			return SortField{}, fmt.Errorf("%w: invalid sort limit: %v", ErrInvalidPreference, err)
+			setting, _, known := lookupFieldSetting(field.Field)
+			if known && setting.typ == fieldTypeCombined {
+				field.CombinedLimit = rawLimit
+				return field, nil
+			}
+			if !known {
+				field.LimitText = rawLimit
+				return field, nil
+			}
+			if setting.convert != "order" && setting.convert != "string" && setting.convert != "float_string" {
+				return SortField{}, fmt.Errorf("%w: invalid sort limit: %v", ErrInvalidPreference, err)
+			}
+			field.LimitText = rawLimit
+			return field, nil
 		}
 		field.Limit = &limit
 		input = input[:separator]
@@ -151,90 +196,6 @@ func isDRM(object *value.Object) bool {
 	return false
 }
 
-func orderFormats(formats []*value.Object, options Options) []*value.Object {
-	ordered := append([]*value.Object(nil), formats...)
-	sort.SliceStable(ordered, func(leftIndex, rightIndex int) bool {
-		left, right := ordered[leftIndex], ordered[rightIndex]
-		if l, r := extractorPreference(left), extractorPreference(right); l != r {
-			return l > r
-		}
-		for _, field := range options.Sort {
-			if cmp := compareSortField(left, right, field); cmp != 0 {
-				return cmp > 0
-			}
-		}
-		if len(options.PreferExtensions) > 0 {
-			l, r := extensionRank(left, options.PreferExtensions), extensionRank(right, options.PreferExtensions)
-			if l != r {
-				return l > r
-			}
-		}
-		if options.PreferFreeFormats {
-			l, r := freeRank(left), freeRank(right)
-			if l != r {
-				return l > r
-			}
-		}
-		return false
-	})
-	return ordered
-}
-
-func extractorPreference(object *value.Object) float64 {
-	preference, ok := numeric(object.Lookup("preference"))
-	if !ok || math.IsNaN(preference) || math.IsInf(preference, 0) {
-		return 0
-	}
-	return preference
-}
-
-func compareSortField(left, right *value.Object, field SortField) int {
-	l, lOK := numeric(left.Lookup(field.Field))
-	r, rOK := numeric(right.Lookup(field.Field))
-	if !lOK || !rOK {
-		ls, lsOK := left.Lookup(field.Field).StringValue()
-		rs, rsOK := right.Lookup(field.Field).StringValue()
-		if !lsOK || !rsOK {
-			if lsOK {
-				return 1
-			}
-			if rsOK {
-				return -1
-			}
-			return 0
-		}
-		if ls == rs {
-			return 0
-		}
-		if field.Descending {
-			if ls < rs {
-				return 1
-			}
-			return -1
-		}
-		if ls > rs {
-			return 1
-		}
-		return -1
-	}
-	if field.Closest && field.Limit != nil {
-		l, r = -math.Abs(l-*field.Limit), -math.Abs(r-*field.Limit)
-	}
-	if l == r {
-		return 0
-	}
-	if field.Descending {
-		if l < r {
-			return 1
-		}
-		return -1
-	}
-	if l > r {
-		return 1
-	}
-	return -1
-}
-
 func extensionRank(object *value.Object, preferences []string) int {
 	ext, _ := object.Lookup("ext").StringValue()
 	for index, preference := range preferences {
@@ -251,4 +212,16 @@ func freeRank(object *value.Object) int {
 		return 1
 	}
 	return 0
+}
+
+// extractorPreference is retained for the legacy atom-match scoring path used
+// by quality and extension selectors. PR 5 replaces this path; PR 4 leaves
+// it untouched. The pinned canonical sort path computes preference through
+// the new sorter.
+func extractorPreference(object *value.Object) float64 {
+	preference, ok := numeric(object.Lookup("preference"))
+	if !ok || math.IsNaN(preference) || math.IsInf(preference, 0) {
+		return 0
+	}
+	return preference
 }
