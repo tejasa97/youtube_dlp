@@ -108,12 +108,16 @@ type Request struct {
 	// Simulate suppresses media, sidecar, archive, and postprocessor output
 	// while still performing extraction. Unlike SkipDownload, it does not
 	// permit related-file writes.
-	Simulate               bool
-	SkipDownload           bool
-	Format                 string
-	FormatSort             []string
-	PreferredExtensions    []string
-	PreferFreeFormats      bool
+	Simulate            bool
+	SkipDownload        bool
+	Format              string
+	FormatSort          []string
+	PreferredExtensions []string
+	PreferFreeFormats   bool
+	// MergeOutputFormat is a slash-separated container preference order used
+	// when merging multiple format tracks (for example "mp4/mkv"). CLI
+	// exposure is added in a later PR; execution consumes the field now.
+	MergeOutputFormat      string
 	AllowUnplayableFormats bool
 	// AllowMultipleVideoStreams and AllowMultipleAudioStreams retain later
 	// same-kind tracks in merged format plans. Both default to false.
@@ -1216,7 +1220,7 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		if err := validateMultiOutputProduct(operation.request, len(outputPlans)); err != nil {
 			return Result{}, categorized("select format", err)
 		}
-		if err := validateOutputPlans(outputPlans); err != nil {
+		if err := validateOutputPlans(outputPlans, operation.mergeOutputPreferences()); err != nil {
 			return Result{}, categorized("select format", err)
 		}
 		if needsInteractiveFormat && len(outputPlans) > 1 {
@@ -1228,11 +1232,13 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	}
 	operation.applyThumbnailEmbeddingOutputExtension(&info, selectedFormats)
 	var destination string
-	if len(selectedFormats) > 0 || operation.hasPrintStageAtOrAfter(PrintVideo) {
+	if len(outputPlans) == 1 {
+		destination, err = operation.printFilenameForPlan(info, outputPlans[0])
+	} else if len(selectedFormats) > 0 || operation.hasPrintStageAtOrAfter(PrintVideo) {
 		destination, err = operation.printFilename(info, selectedFormats)
-		if err != nil {
-			return Result{}, categorized("render output template", err)
-		}
+	}
+	if err != nil {
+		return Result{}, categorized("render output template", err)
 	}
 	if needsInteractiveFormat {
 		if destination == "" {
@@ -1347,7 +1353,7 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	mediaArtifactStart := len(result.Artifacts)
 	planDestinations := make([]string, len(outputPlans))
 	for index, plan := range outputPlans {
-		planDestination, destErr := outputPlanDestination(destination, index, plan, multiOutput)
+		planDestination, destErr := outputPlanDestination(destination, index, plan, multiOutput, operation.mergeOutputPreferences())
 		if destErr != nil {
 			return Result{}, categorized("render output template", destErr)
 		}
