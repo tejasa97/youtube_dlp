@@ -28,7 +28,7 @@ Computed over the committed UTF-8 file bytes:
 | `internal/format/testdata/selector_conformance.json` | `5b933cf6a6380f2d71a26ed941cf5b38033548d4ea690100d03f0ac82de2e58d` |
 | `internal/format/testdata/int_or_none_oracle.json` | `a3f1af159f326f2d5f7e50825f3fa18eb061291a93da8d2f4f245abf389f3418` |
 | `internal/format/testdata/filter_oracle.json` | `5a3ea78f8825847adcb5798b023cff7f8b635f6c4cf1a3ed3163e6720468119a` |
-| `internal/format/testdata/python_regex_oracle.json` | `ef79503db52d84f43b0dc086732edd51a8da23dbb9e78af34ab7aadea7466fad` |
+| `internal/format/testdata/python_regex_oracle.json` | `7f2c2fb5016e3459f9ab7ac99ea3c6b71bef82e1cbae4a32f9d60962c0ddd51d` |
 | `internal/format/unicode_names.bin` | `0a76d5792d895a7054d63c8789f0fb79790b58608cbb0bc18426a236c84cf2de` |
 
 ## Maintainer-only capture

@@ -153,6 +153,30 @@
       "matched": true
     },
     {
+      "id": "class-range-right-hex-escape",
+      "pattern": "[a-\\x7a]",
+      "input": "z",
+      "matched": true
+    },
+    {
+      "id": "class-range-left-hex-escape",
+      "pattern": "[\\x61-z]",
+      "input": "m",
+      "matched": true
+    },
+    {
+      "id": "class-range-left-hex-ignorecase",
+      "pattern": "(?i)[\\x61-z]",
+      "input": "_",
+      "matched": false
+    },
+    {
+      "id": "class-range-right-hex-ignorecase",
+      "pattern": "(?i)[a-\\x7a]",
+      "input": "ı",
+      "matched": true
+    },
+    {
       "id": "flag-global-i",
       "pattern": "(?i)a",
       "input": "A",
@@ -733,6 +757,24 @@
       "pattern": "a{,3}+a",
       "input": "aaa",
       "matched": false
+    },
+    {
+      "id": "literal-braces-plus",
+      "pattern": "a{foo}+",
+      "input": "a{foo}}",
+      "matched": true
+    },
+    {
+      "id": "literal-invalid-repeat-plus",
+      "pattern": "a{1x}+",
+      "input": "a{1x}}",
+      "matched": true
+    },
+    {
+      "id": "literal-empty-braces-plus",
+      "pattern": "a{}+",
+      "input": "a{}}",
+      "matched": true
     },
     {
       "id": "atomic-group",

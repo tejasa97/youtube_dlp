@@ -164,7 +164,10 @@ func rewritePythonPossessiveQuantifiers(pattern string) (string, error) {
 				end := pos + close + 1
 				quantifier := pattern[pos:end]
 				inner := pattern[pos+1 : end-1]
-				if strings.HasPrefix(inner, ",") && isAllDigits(inner[1:]) || inner == "," {
+				if !isPythonRepeatBody(inner) {
+					break
+				}
+				if strings.HasPrefix(inner, ",") {
 					quantifier = "{0" + inner + "}"
 				}
 				if end < len(pattern) && pattern[end] == '+' && lastAtomStart >= 0 {
@@ -426,6 +429,12 @@ type classPart struct {
 	text string
 }
 
+type classAtom struct {
+	kind    string // "pos", "neg", "literal"
+	text    string
+	literal rune
+}
+
 func (tr *regexTranslator) writeClass() error {
 	tr.pos++ // [
 	negated := false
@@ -433,131 +442,47 @@ func (tr *regexTranslator) writeClass() error {
 		negated = true
 		tr.pos++
 	}
-	contentStart := tr.pos
 	var parts []classPart
 	first := true
 	closed := false
 	sawI, sawS, sawMu := false, false, false
 	for tr.pos < len(tr.src) {
-		ch := tr.src[tr.pos]
-		if ch == ']' && !first {
+		if tr.src[tr.pos] == ']' && !first {
 			tr.pos++
 			closed = true
 			break
 		}
 		first = false
-		if ch == '\\' && tr.pos+1 < len(tr.src) {
-			esc := tr.src[tr.pos+1]
-			switch esc {
-			case 'w':
-				if tr.classShorthandIsRangeEndpoint(contentStart) {
-					return fmt.Errorf("bad character range")
-				}
-				parts = append(parts, classPart{kind: "pos", text: tr.wordBody()})
-				tr.pos += 2
-				continue
-			case 'W':
-				if tr.classShorthandIsRangeEndpoint(contentStart) {
-					return fmt.Errorf("bad character range")
-				}
-				parts = append(parts, classPart{kind: "neg", text: tr.wordBody()})
-				tr.pos += 2
-				continue
-			case 's':
-				if tr.classShorthandIsRangeEndpoint(contentStart) {
-					return fmt.Errorf("bad character range")
-				}
-				parts = append(parts, classPart{kind: "pos", text: tr.spaceBody()})
-				tr.pos += 2
-				continue
-			case 'S':
-				if tr.classShorthandIsRangeEndpoint(contentStart) {
-					return fmt.Errorf("bad character range")
-				}
-				parts = append(parts, classPart{kind: "neg", text: tr.spaceBody()})
-				tr.pos += 2
-				continue
-			case 'd':
-				if tr.classShorthandIsRangeEndpoint(contentStart) {
-					return fmt.Errorf("bad character range")
-				}
-				parts = append(parts, classPart{kind: "pos", text: tr.digitBody()})
-				tr.pos += 2
-				continue
-			case 'D':
-				if tr.classShorthandIsRangeEndpoint(contentStart) {
-					return fmt.Errorf("bad character range")
-				}
-				parts = append(parts, classPart{kind: "neg", text: tr.digitBody()})
-				tr.pos += 2
-				continue
-			case 'N', 'U', 'u', 'x':
-				savedPos, savedOut := tr.pos, tr.out
-				tr.out = strings.Builder{}
-				var err error
-				switch esc {
-				case 'N':
-					err = tr.writeUnicodeNameEscape(true)
-				case 'U':
-					err = tr.writeLongUnicodeEscape(true)
-				case 'u':
-					err = tr.writeShortUnicodeEscape(true)
-				case 'x':
-					err = tr.writeHexEscape(true)
-				}
-				piece := tr.out.String()
-				tr.out = savedOut
-				if err != nil {
-					tr.pos = savedPos
-					return err
-				}
-				parts = append(parts, classPart{kind: "text", text: piece})
-				continue
-			case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
-				savedPos, savedOut := tr.pos, tr.out
-				tr.out = strings.Builder{}
-				if err := tr.writeDigitEscape(true); err != nil {
-					tr.pos = savedPos
-					tr.out = savedOut
-					return err
-				}
-				piece := tr.out.String()
-				tr.out = savedOut
-				parts = append(parts, classPart{kind: "text", text: piece})
-				continue
-			default:
-				if isASCIILetter(rune(esc)) && !strings.ContainsRune("abfnrtv", rune(esc)) {
-					return fmt.Errorf("unknown escape \\%c", esc)
-				}
-				parts = append(parts, classPart{kind: "text", text: tr.src[tr.pos : tr.pos+2]})
-				tr.pos += 2
-				continue
+		atom, err := tr.readClassAtom()
+		if err != nil {
+			return err
+		}
+		if atom.kind == "literal" && tr.pos+1 < len(tr.src) && tr.src[tr.pos] == '-' && tr.src[tr.pos+1] != ']' {
+			tr.pos++
+			end, err := tr.readClassAtom()
+			if err != nil {
+				return err
 			}
-		}
-		r, width := utf8.DecodeRuneInString(tr.src[tr.pos:])
-		if r == utf8.RuneError && width == 1 {
-			return fmt.Errorf("invalid UTF-8 in regular expression")
-		}
-		// Range: a-z when '-' is not last.
-		if tr.pos+width < len(tr.src) && tr.src[tr.pos+width] == '-' && tr.pos+width+1 < len(tr.src) && tr.src[tr.pos+width+1] != ']' {
-			end, endWidth := utf8.DecodeRuneInString(tr.src[tr.pos+width+1:])
-			text := tr.src[tr.pos : tr.pos+width+1+endWidth]
+			if end.kind != "literal" {
+				return fmt.Errorf("bad character range")
+			}
+			text := atom.text + "-" + end.text
 			if tr.ignoreCase && tr.ascii {
-				text = expandASCIIIgnoreCaseRange(r, end)
+				text = expandASCIIIgnoreCaseRange(atom.literal, end.literal)
 			} else {
-				notePythonIgnoreCaseRange(r, end, &sawI, &sawS, &sawMu)
+				notePythonIgnoreCaseRange(atom.literal, end.literal, &sawI, &sawS, &sawMu)
 			}
 			parts = append(parts, classPart{kind: "text", text: text})
-			tr.pos += width + 1 + endWidth
 			continue
 		}
-		if tr.ignoreCase && tr.ascii && isASCIILetter(r) {
-			parts = append(parts, classPart{kind: "text", text: string([]rune{unicode.ToLower(r), unicode.ToUpper(r)})})
-		} else {
-			notePythonIgnoreCaseExtras(r, &sawI, &sawS, &sawMu)
-			parts = append(parts, classPart{kind: "text", text: tr.src[tr.pos : tr.pos+width]})
+		if atom.kind != "literal" && tr.pos+1 < len(tr.src) && tr.src[tr.pos] == '-' && tr.src[tr.pos+1] != ']' {
+			return fmt.Errorf("bad character range")
 		}
-		tr.pos += width
+		if atom.kind == "literal" {
+			notePythonIgnoreCaseExtras(atom.literal, &sawI, &sawS, &sawMu)
+			atom.text = tr.classLiteralText(atom)
+		}
+		parts = append(parts, classPart{kind: atom.kind, text: atom.text})
 	}
 	if !closed || len(parts) == 0 {
 		return fmt.Errorf("unterminated character class")
@@ -645,6 +570,119 @@ func (tr *regexTranslator) writeClass() error {
 	return nil
 }
 
+func (tr *regexTranslator) readClassAtom() (classAtom, error) {
+	if tr.pos >= len(tr.src) {
+		return classAtom{}, fmt.Errorf("unterminated character class")
+	}
+	if tr.src[tr.pos] != '\\' {
+		r, width := utf8.DecodeRuneInString(tr.src[tr.pos:])
+		if r == utf8.RuneError && width == 1 {
+			return classAtom{}, fmt.Errorf("invalid UTF-8 in regular expression")
+		}
+		text := tr.src[tr.pos : tr.pos+width]
+		tr.pos += width
+		return classAtom{kind: "literal", text: text, literal: r}, nil
+	}
+	if tr.pos+1 >= len(tr.src) {
+		return classAtom{}, fmt.Errorf("trailing backslash")
+	}
+	esc := tr.src[tr.pos+1]
+	switch esc {
+	case 'w':
+		tr.pos += 2
+		return classAtom{kind: "pos", text: tr.wordBody()}, nil
+	case 'W':
+		tr.pos += 2
+		return classAtom{kind: "neg", text: tr.wordBody()}, nil
+	case 's':
+		tr.pos += 2
+		return classAtom{kind: "pos", text: tr.spaceBody()}, nil
+	case 'S':
+		tr.pos += 2
+		return classAtom{kind: "neg", text: tr.spaceBody()}, nil
+	case 'd':
+		tr.pos += 2
+		return classAtom{kind: "pos", text: tr.digitBody()}, nil
+	case 'D':
+		tr.pos += 2
+		return classAtom{kind: "neg", text: tr.digitBody()}, nil
+	case 'N':
+		if tr.pos+2 >= len(tr.src) || tr.src[tr.pos+2] != '{' {
+			return classAtom{}, fmt.Errorf("missing { in \\N escape")
+		}
+		start := tr.pos + 3
+		offset := strings.IndexByte(tr.src[start:], '}')
+		if offset < 0 {
+			return classAtom{}, fmt.Errorf("missing } in \\N escape")
+		}
+		r, ok := lookupPythonUnicodeName(tr.src[start : start+offset])
+		if !ok {
+			return classAtom{}, fmt.Errorf("unknown unicode name")
+		}
+		tr.pos = start + offset + 1
+		return classLiteralAtom(r), nil
+	case 'U':
+		return tr.readClassHexAtom(8, 'U')
+	case 'u':
+		return tr.readClassHexAtom(4, 'u')
+	case 'x':
+		return tr.readClassHexAtom(2, 'x')
+	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+		if esc > '7' {
+			return classAtom{}, fmt.Errorf("invalid group reference")
+		}
+		end := tr.pos + 1
+		for end < len(tr.src) && end < tr.pos+4 && tr.src[end] >= '0' && tr.src[end] <= '7' {
+			end++
+		}
+		value, err := strconv.ParseUint(tr.src[tr.pos+1:end], 8, 16)
+		if err != nil || value > 0o377 {
+			return classAtom{}, fmt.Errorf("invalid octal escape")
+		}
+		tr.pos = end
+		return classLiteralAtom(rune(value)), nil
+	default:
+		if isASCIILetter(rune(esc)) && !strings.ContainsRune("abfnrtv", rune(esc)) {
+			return classAtom{}, fmt.Errorf("unknown escape \\%c", esc)
+		}
+		values := map[byte]rune{'a': '\a', 'b': '\b', 'f': '\f', 'n': '\n', 'r': '\r', 't': '\t', 'v': '\v'}
+		r := rune(esc)
+		if value, ok := values[esc]; ok {
+			r = value
+		}
+		text := tr.src[tr.pos : tr.pos+2]
+		tr.pos += 2
+		return classAtom{kind: "literal", text: text, literal: r}, nil
+	}
+}
+
+func (tr *regexTranslator) readClassHexAtom(digits int, escape byte) (classAtom, error) {
+	end := tr.pos + 2 + digits
+	if end > len(tr.src) {
+		return classAtom{}, fmt.Errorf("incomplete \\%c escape", escape)
+	}
+	value, err := strconv.ParseUint(tr.src[tr.pos+2:end], 16, 32)
+	if err != nil || escape == 'U' && !utf8.ValidRune(rune(value)) {
+		return classAtom{}, fmt.Errorf("invalid \\%c escape", escape)
+	}
+	tr.pos = end
+	return classLiteralAtom(rune(value)), nil
+}
+
+func classLiteralAtom(r rune) classAtom {
+	return classAtom{kind: "literal", text: fmt.Sprintf(`\x{%X}`, uint32(r)), literal: r}
+}
+
+func (tr *regexTranslator) classLiteralText(atom classAtom) string {
+	if tr.ignoreCase && tr.ascii && isASCIILetter(atom.literal) {
+		return string([]rune{unicode.ToLower(atom.literal), unicode.ToUpper(atom.literal)})
+	}
+	if tr.ignoreCase && !tr.ascii && hasUnicodeCaseVariant(atom.literal) {
+		return pythonIgnoreCaseBody(atom.literal)
+	}
+	return atom.text
+}
+
 func notePythonIgnoreCaseRange(start, end rune, sawI, sawS, sawMu *bool) {
 	if start > end {
 		start, end = end, start
@@ -654,14 +692,6 @@ func notePythonIgnoreCaseRange(start, end rune, sawI, sawS, sawMu *bool) {
 			notePythonIgnoreCaseExtras(r, sawI, sawS, sawMu)
 		}
 	}
-}
-
-func (tr *regexTranslator) classShorthandIsRangeEndpoint(contentStart int) bool {
-	if tr.pos > contentStart && tr.src[tr.pos-1] == '-' && tr.pos-1 != contentStart {
-		return true
-	}
-	after := tr.pos + 2
-	return after+1 < len(tr.src) && tr.src[after] == '-' && tr.src[after+1] != ']'
 }
 
 func notePythonIgnoreCaseExtras(r rune, sawI, sawS, sawMu *bool) {
@@ -1702,4 +1732,16 @@ func isAllDigits(text string) bool {
 		}
 	}
 	return true
+}
+
+func isPythonRepeatBody(text string) bool {
+	if isAllDigits(text) {
+		return true
+	}
+	if strings.Count(text, ",") != 1 {
+		return false
+	}
+	parts := strings.SplitN(text, ",", 2)
+	return (parts[0] == "" || isAllDigits(parts[0])) &&
+		(parts[1] == "" || isAllDigits(parts[1]))
 }
