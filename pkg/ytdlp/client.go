@@ -1114,7 +1114,11 @@ func (operation *operation) finishMatchFilterDecision(
 }
 
 func (operation *operation) processMedia(ctx context.Context, extracted extractor.Extraction, extractorName string) (Result, error) {
-	info := extracted.Info
+	preparedFormats, err := mediaformat.Prepare(extracted.Info, operation.compatibility.formatOptions)
+	if err != nil {
+		return Result{}, categorized("normalize formats", err)
+	}
+	info := preparedFormats.Info()
 	if operation.request.Thumbnails.List {
 		if _, err := selectThumbnails(&info); err != nil {
 			return Result{}, categorized("normalize thumbnails", err)
@@ -1182,12 +1186,15 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	if err != nil {
 		return Result{}, err
 	}
+	// Metadata actions and deferred enrichment mutate the canonical Info after
+	// Prepare; rebind evaluation objects so selection matches InfoJSON.
+	preparedFormats = preparedFormats.SyncInfo(info)
 	var selectedFormats []mediaformat.Selection
 	var outputPlans []mediaformat.OutputPlan
 	needsInteractiveFormat := interactiveDecision.interactive != interactiveMatchFilterNone
 	if (!operation.request.SkipDownload && !operation.request.Simulate) ||
 		operation.hasPrintStageAtOrAfter(PrintVideo) || needsInteractiveFormat {
-		outputPlans, err = operation.planFormats(info)
+		outputPlans, err = operation.planPreparedFormats(preparedFormats)
 		if err != nil {
 			return Result{}, categorized("select format", err)
 		}
@@ -1542,7 +1549,7 @@ func categorized(op string, err error) error {
 		category = ErrorSecurity
 	case errors.Is(err, packcatalog.ErrInvalid), errors.Is(err, packcatalog.ErrLimit), errors.Is(err, packcatalog.ErrNotFound):
 		category = ErrorInvalidInput
-	case errors.Is(err, mediaformat.ErrNoFormats), errors.Is(err, extractor.ErrInvalidMetadata),
+	case errors.Is(err, mediaformat.ErrNoFormats), errors.Is(err, mediaformat.ErrInvalidFormats), errors.Is(err, mediaformat.ErrFormatLimit), errors.Is(err, extractor.ErrInvalidMetadata),
 		errors.Is(err, extractor.ErrInvalidPlaylist), errors.Is(err, extractor.ErrPlaylistLimit),
 		errors.Is(err, downloader.ErrExternalFailed), errors.Is(err, fragment.ErrNoSegments),
 		errors.Is(err, fragment.ErrInvalidEncryption), errors.Is(err, hls.ErrInvalidPlaylist),

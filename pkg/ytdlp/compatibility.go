@@ -238,7 +238,15 @@ func (operation *operation) promptInteractiveMatchFilter(
 }
 
 func (operation *operation) selectFormats(info value.Info) ([]mediaformat.Selection, error) {
-	plans, err := operation.planFormats(info)
+	prepared, err := mediaformat.Prepare(info, operation.compatibility.formatOptions)
+	if err != nil {
+		return nil, err
+	}
+	return operation.selectPreparedFormats(prepared)
+}
+
+func (operation *operation) selectPreparedFormats(prepared mediaformat.Prepared) ([]mediaformat.Selection, error) {
+	plans, err := operation.planPreparedFormats(prepared)
 	if err != nil {
 		return nil, err
 	}
@@ -252,14 +260,22 @@ func (operation *operation) selectFormats(info value.Info) ([]mediaformat.Select
 }
 
 func (operation *operation) planFormats(info value.Info) ([]mediaformat.OutputPlan, error) {
+	prepared, err := mediaformat.Prepare(info, operation.compatibility.formatOptions)
+	if err != nil {
+		return nil, err
+	}
+	return operation.planPreparedFormats(prepared)
+}
+
+func (operation *operation) planPreparedFormats(prepared mediaformat.Prepared) ([]mediaformat.OutputPlan, error) {
 	if operation.compatibility.selector == nil {
-		selected, err := mediaformat.Default(info, operation.compatibility.formatOptions)
+		selected, err := prepared.Default()
 		if err != nil {
 			return nil, err
 		}
 		return []mediaformat.OutputPlan{{Tracks: selected}}, nil
 	}
-	return mediaformat.PlanSelectWithOptions(info, *operation.compatibility.selector, operation.compatibility.formatOptions)
+	return prepared.Plan(*operation.compatibility.selector)
 }
 
 // validateMultiOutputProduct rejects multi-plan downloads when requested

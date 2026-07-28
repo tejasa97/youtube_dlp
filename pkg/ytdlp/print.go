@@ -408,18 +408,34 @@ func selectedFormatInfo(info value.Info, selections []mediaformat.Selection) val
 }
 
 func findSelectedFormatObject(formats []value.Value, selection mediaformat.Selection) *value.Object {
-	for _, candidate := range formats {
-		object, ok := candidate.Object()
-		if !ok {
-			continue
-		}
-		id, _ := object.Lookup("format_id").StringValue()
-		rawURL, _ := object.Lookup("url").StringValue()
-		if id == selection.ID && (selection.URL == "" || rawURL == selection.URL) {
+	if index, ok := selection.NormalizedFormatIndex(); ok && index >= 0 && index < len(formats) {
+		if object, ok := formats[index].Object(); ok && selectedFormatObjectMatches(object, selection) {
 			return object
 		}
 	}
+	for _, candidate := range formats {
+		object, ok := candidate.Object()
+		if ok && selectedFormatObjectMatches(object, selection) {
+			return object
+		}
+	}
+	if _, normalized := selection.NormalizedFormatIndex(); !normalized {
+		if source, ok := selection.SourceFormatIndex(); ok && source >= 0 && source < len(formats) {
+			if object, ok := formats[source].Object(); ok {
+				return object
+			}
+		}
+	}
 	return nil
+}
+
+func selectedFormatObjectMatches(object *value.Object, selection mediaformat.Selection) bool {
+	id, _ := object.Lookup("format_id").StringValue()
+	if id != selection.ID {
+		return false
+	}
+	rawURL, _ := object.Lookup("url").StringValue()
+	return selection.URL == "" || rawURL == selection.URL
 }
 
 func addMergedSelectedFormatFields(
