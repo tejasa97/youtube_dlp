@@ -35,11 +35,15 @@ func TestParserParityQuotedAndEscapedFilterBrackets(t *testing.T) {
 		`best[format_id="a]b"]`,
 		`best[format_id='a]b']`,
 		`best[format_id="a\"b]c"]`,
-		`best[format_id=a\]b]`,
+		`best[format_id="a\]b"]`,
 	} {
 		if _, err := ParseSelector(input); err != nil {
 			t.Fatalf("ParseSelector(%q) = %v", input, err)
 		}
+	}
+	// Unquoted backslash is not an escape in pinned CPython tokenization.
+	if _, err := ParseSelector(`best[format_id=a\]b]`); !errors.Is(err, ErrInvalidSelector) {
+		t.Fatalf("unquoted backslash filter = %v", err)
 	}
 }
 
@@ -50,6 +54,13 @@ func TestParserParityDirectIDPunctuation(t *testing.T) {
 		"id%2A;variant",
 		"stream{main}",
 		"track=primary",
+		"id!variant",
+		"id$variant",
+		"id?variant",
+		"id`variant",
+		"²",
+		"id²",
+		"Ⅳ",
 	} {
 		selector, err := ParseSelector(input)
 		if err != nil {
@@ -63,14 +74,10 @@ func TestParserParityDirectIDPunctuation(t *testing.T) {
 
 func TestParserParityRejectsDiscardedPythonTokenPunctuation(t *testing.T) {
 	for _, input := range []string{
-		"id!variant",
-		"id$variant",
-		"id?variant",
 		"id#variant",
 		`id\variant`,
 		`id"variant`,
 		"id'variant",
-		"id`variant",
 	} {
 		if _, err := ParseSelector(input); !errors.Is(err, ErrInvalidSelector) {
 			t.Fatalf("ParseSelector(%q) = %v", input, err)
@@ -152,12 +159,13 @@ func TestParserParitySyntaxSpansUseOriginalInput(t *testing.T) {
 		input      string
 		start, end int
 	}{
-		{"  bestvideo+?unknown  ", 12, 20},
+		{"  bestvideo+\"unknown  ", 12, 20},
 		{"best[format_id='unterminated]", 15, 29},
 		{"(bestvideo+bestaudio", 0, 20},
 		{"bestvideo,,", 10, 11},
 		{"bestvideo)", 9, 10},
 		{",best", 0, 1},
+		{`best[format_id=a\]b]`, 18, 19},
 	}
 	for _, test := range tests {
 		_, err := ParseSelector(test.input)
@@ -233,7 +241,8 @@ func FuzzParserParitySpans(f *testing.F) {
 		"bestvideo+bestaudio/best",
 		`best[format_id="a]b"]`,
 		"((bv*/b)+ba),best.1001",
-		"  bestvideo+?unknown",
+		`  bestvideo+"unknown`,
+		`best[format_id=a\]b]`,
 	} {
 		f.Add(seed)
 	}

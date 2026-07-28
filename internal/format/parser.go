@@ -313,17 +313,20 @@ func (parser *selectorParser) parseAttachedFilters() ([]Filter, error) {
 		closed := false
 		for parser.pos < len(parser.input) {
 			character := parser.input[parser.pos]
-			if escaped {
-				escaped = false
-				parser.pos++
-				continue
-			}
-			if character == '\\' {
-				escaped = true
-				parser.pos++
-				continue
-			}
+			// Backslash escapes apply only inside quoted filter values, matching
+			// pinned CPython string tokens. An unquoted '\' is ordinary text and
+			// does not suppress ']' (e.g. best[format_id=a\]b] is invalid).
 			if quote != 0 {
+				if escaped {
+					escaped = false
+					parser.pos++
+					continue
+				}
+				if character == '\\' {
+					escaped = true
+					parser.pos++
+					continue
+				}
 				if character == quote {
 					quote = 0
 				}

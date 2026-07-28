@@ -21,7 +21,8 @@ before offsets are computed.
 
 The grammar precedence, from lowest to highest, is comma-separated outputs,
 slash fallbacks, plus merges, and atoms/groups with attached filters. Filter
-boundaries are quote- and backslash-aware. Direct IDs accept the punctuation
+boundaries are quote-aware; backslash escapes apply only inside quoted filter
+values, matching pinned CPython string tokens. Direct IDs accept the punctuation
 surface emitted by the pinned tokenizer while reserving selector operators.
 NAME, NUMBER, and non-structural OP tokens are joined the same way as pinned
 `_remove_unused_ops`, including whitespace-separated forms (`best video` →
@@ -35,13 +36,16 @@ large for the host integer are valid syntax and deterministically produce no
 match. Alias-looking strings that fail the exact quality-atom regex fall back
 to direct IDs (`best*foo`, `best.01`, `best.0`, `best.`).
 
-Direct IDs intentionally reject the ERRORTOKEN/comment/string punctuation
-(`!`, `$`, `?`, `#`, `\`, `'`, `"`, `` ` ``) that the pinned Python tokenizer
-silently discards. Discarding those bytes can rewrite a requested ID to a
-different one; the Go parser fails the selector instead. Extension-atom
-recognition uses the exact pinned `_format_selection_exts` set; tokens outside
-that set parse as direct IDs. Negated filter operators (`!^=`, `!$=`, `!*=`,
-`!~=`) parse but their evaluation is deferred to the filter-parity phase.
+Direct IDs intentionally reject comment (`#`) and string/line-continuation
+punctuation (`\`, `'`, `"`) that the pinned Python tokenizer comments away or
+token-errors on. Comment discard can rewrite a requested ID; the Go parser fails
+the selector instead. Single-character OP tokens such as `!`, `$`, `?`, and
+`` ` `` are retained and joined into direct IDs. Unicode numbers outside ASCII
+digits (for example `²` and Roman numerals) are accepted as in pinned NAME
+tokens. Extension-atom recognition uses the exact pinned `_format_selection_exts`
+set; tokens outside that set parse as direct IDs. Negated filter operators
+(`!^=`, `!$=`, `!*=`, `!~=`) parse but their evaluation is deferred to the
+filter-parity phase.
 
 ## Normalization contract
 
@@ -88,7 +92,7 @@ ID bytes.
 | `filter.regex-engine` | `~=` | Uses Python regular expressions. | Uses bounded Go RE2; look-around and backreferences are unavailable. | Existing selector regex tests | Product constraint | Retain RE2 safety semantics. |
 | `sort.conversion` | Sort aliases and limits | Implements upstream codec/container aliases and conversion rules. | Compares the currently supported raw numeric/string fields; colon-limit behavior is incomplete. | `gap.sort-colon-limit` | Open | Address in a dedicated sort-parity PR. |
 | `extension.exact-recognition` | Bare extension atoms | Pinned `_format_selection_exts` per `yt_dlp/utils/_utils.py`. | Parser recognizes the exact pinned media-extension set. | `parser.extension-boundary-direct-id`, extension-tagged corpus cases | Passing parity | The Go extension map is now byte-for-byte the pinned selection set; tokens outside the set parse as direct IDs. |
-| `direct-id.discarded-punctuation` | Direct-format IDs containing `! $ ? # \ ' " \`` | Pinned Python silently discards those tokens, which can change the requested ID. | Parser rejects the token with a syntax error. | `parser.direct-id-discarded-punctuation` | Deliberate safety gap | Failing closed is preferred over silently selecting a different ID. |
+| `direct-id.discarded-punctuation` | Direct-format IDs containing `# \ ' "` | Pinned Python comments `#...` away or token-errors on `\ ' "`. | Parser rejects the token with a syntax error. | `parser.direct-id-discarded-punctuation` | Deliberate safety gap for `#`; parity rejection for `\ ' "` | Failing closed avoids silently selecting a different ID for comments. |
 | `media.storyboard` | `mhtml` | Selects storyboard formats. | Supported and pinned in the corpus. | `extension.storyboard` | Closed | Guard against playable-universe regressions. |
 | `product.multistream-policy` | Same-kind merged tracks | Product defaults constrain multiple video/audio streams. | Evaluator retains distinct tracks; unsupported downloader layouts fail later. | `gap.multistream-product` | Product unsupported | Keep evaluator and product-policy responsibilities separate. |
 | `product.interactive-selector` | `-f -` | Prompts interactively per video. | `-` is not an interactive selector surface. | Provenance only | Product unsupported | Outside the library/fixture scope. |

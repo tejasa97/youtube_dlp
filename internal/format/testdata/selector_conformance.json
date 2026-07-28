@@ -209,6 +209,20 @@
         "ext": "mp4",
         "vcodec": "avc1",
         "acodec": "aac"
+      },
+      {
+        "format_id": "id!variant",
+        "url": "https://example.invalid/id-bang",
+        "ext": "mp4",
+        "vcodec": "avc1",
+        "acodec": "aac"
+      },
+      {
+        "format_id": "²",
+        "url": "https://example.invalid/id-sup2",
+        "ext": "mp4",
+        "vcodec": "avc1",
+        "acodec": "aac"
       }
     ],
     "extension_boundary": [
@@ -3158,7 +3172,7 @@
         "source-span"
       ],
       "format_set": "basic",
-      "selector": "  bestvideo+?unknown",
+      "selector": "  bestvideo+\"unknown",
       "options": {},
       "expected": {
         "error": "ErrInvalidSelector",
@@ -3247,7 +3261,7 @@
         "safety"
       ],
       "format_set": "basic",
-      "selector": "id!variant",
+      "selector": "id#variant",
       "options": {},
       "expected": {
         "error": "ErrInvalidSelector",
@@ -3256,9 +3270,17 @@
       },
       "parity": {
         "status": "deliberate_safety_gap",
-        "reason": "Go rejects punctuation that pinned Python silently discards instead of changing the requested ID.",
+        "reason": "Go rejects comment (`#`) and string/line-continuation punctuation that pinned Python comments away or token-errors; rejecting avoids silently selecting a different ID for `#`.",
         "reference_expected": {
-          "error": "ErrNoMatch"
+          "plans": [
+            {
+              "tracks": [
+                {
+                  "id": "id"
+                }
+              ]
+            }
+          ]
         }
       },
       "expected_normalized_set": "basic"
@@ -3288,6 +3310,76 @@
       "parity": {
         "status": "passing"
       }
+    },
+    {
+      "id": "parser.direct-id-bang-op",
+      "features": [
+        "parser",
+        "direct-id",
+        "punctuation"
+      ],
+      "format_set": "parser_tokens",
+      "selector": "id!variant",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "id!variant"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      }
+    },
+    {
+      "id": "parser.direct-id-unicode-number",
+      "features": [
+        "parser",
+        "direct-id",
+        "unicode"
+      ],
+      "format_set": "parser_tokens",
+      "selector": "²",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 2,
+                "id": "²"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      }
+    },
+    {
+      "id": "parser.unquoted-backslash-filter",
+      "features": [
+        "parser",
+        "syntax-error",
+        "filter"
+      ],
+      "format_set": "basic",
+      "selector": "best[format_id=a\\]b]",
+      "options": {},
+      "expected": {
+        "error": "ErrInvalidSelector"
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
     }
   ]
 }

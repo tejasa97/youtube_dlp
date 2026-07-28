@@ -19,7 +19,7 @@ Computed over the committed UTF-8 file bytes:
 
 | Artifact | SHA-256 |
 |---|---|
-| `internal/format/testdata/selector_conformance.json` | `a1fa38f53e6e7907b3082d90f0b1f068a5c6a055ec86dbcd74c4166b23472387` |
+| `internal/format/testdata/selector_conformance.json` | `0ec3f138632f4d2e956b7b574d47a6cd99b0aec7876f344aca136f7ee08cbfcc` |
 | `internal/format/testdata/int_or_none_oracle.json` | `a3f1af159f326f2d5f7e50825f3fa18eb061291a93da8d2f4f245abf389f3418` |
 
 ## Maintainer-only capture
@@ -93,8 +93,9 @@ The parser corpus also transcribes the selector grammar and examples documented
 in the pinned README: comma outputs bind least tightly, slash fallbacks bind
 above comma, plus merges bind above slash, parentheses group expressions, and
 bracket filters attach to the immediately preceding atom or group. Filter
-brackets are scanned with quote and backslash awareness so `]` inside a quoted
-or escaped value does not terminate the filter.
+brackets are quote-aware; backslash escapes apply only inside quoted values so
+`]` inside a quoted string does not terminate the filter, while an unquoted
+`\]` does not suppress `]` and remains invalid upstream syntax.
 
 Go recursively clones the extractor `Info` and formats. The canonical clone is
 shared by selector evaluation, format tables, print templates, simulated and
@@ -142,11 +143,16 @@ The PR 2 lexer and parser introduce deliberate deviations from the pinned
 Python tokenizer that fail closed rather than silently changing the requested
 selector:
 
-- Direct-format IDs that contain ERRORTOKEN/comment/string punctuation
-  (`!`, `$`, `?`, `#`, `\`, `'`, `"`, `` ` ``) are rejected. The pinned Python
-  tokenizer discards those tokens during lexing, which can rewrite the
-  requested ID. The Go parser treats the atom as a syntax error instead, so
-  product callers do not silently download a different format.
+- Direct-format IDs that contain comment punctuation (`#`) are rejected. The
+  pinned Python tokenizer treats `#...` as a comment, which can rewrite the
+  requested ID (for example `id#variant` becomes `id`). The Go parser treats
+  the atom as a syntax error instead. String/line-continuation punctuation
+  (`\`, `'`, `"`) is also rejected for direct IDs; pinned tokenization raises
+  `TokenError` for those forms.
+- Single-character OP tokens `!`, `$`, `?`, and `` ` `` are retained in direct
+  IDs, matching `_remove_unused_ops` joins (`id!variant` selects that ID).
+- Unicode number characters outside ASCII digits (Nd/Nl/No, including `²` and
+  Roman numerals) are accepted in direct IDs as pinned NAME tokens.
 - Negated string filter operators (`!^=`, `!$=`, `!*=`, `!~=`) parse but their
   evaluation is deferred to the filter-parity phase. `gap.negated-prefix`
   records this as a known parser-only gap.

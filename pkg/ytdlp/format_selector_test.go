@@ -185,7 +185,7 @@ func TestFormatSelectorInvalidSyntaxFailsBeforeExtraction(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	_, err := NewClient().Run(context.Background(), Request{
-		URL: server.URL, OutputDir: t.TempDir(), Format: "  bestvideo+?unknown",
+		URL: server.URL, OutputDir: t.TempDir(), Format: `  bestvideo+"unknown`,
 	})
 	if !errors.Is(err, mediaformat.ErrInvalidSelector) {
 		t.Fatalf("Run() = %v", err)
