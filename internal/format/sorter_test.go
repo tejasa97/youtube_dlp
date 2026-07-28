@@ -440,6 +440,45 @@ func TestFormatSorterAliasesAndLimits(t *testing.T) {
 			t.Fatal("expected error for trailing junk")
 		}
 	})
+	t.Run("textual-ordered-limit", func(t *testing.T) {
+		fields, err := ParseSortFields([]string{"vcodec:vp9"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		sorter, err := newSorter(Options{Sort: fields}, value.NewInfo(value.NewObject()), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var token *sortToken
+		for index := range sorter.fields {
+			if sorter.fields[index].canonical == fieldVCodec {
+				token = &sorter.fields[index]
+				break
+			}
+		}
+		if token == nil || token.limit == nil {
+			t.Fatalf("ordered limit was not preserved: %+v", token)
+		}
+	})
+	t.Run("maximum-raw-lists-deduplicate-before-effective-bound", func(t *testing.T) {
+		user := make([]SortField, maxUserSortFields)
+		extractor := make([]string, maxExtractorSortFields)
+		for i := range user {
+			user[i] = SortField{Field: fieldQuality}
+			extractor[i] = fieldQuality
+		}
+		if _, err := newSorter(Options{Sort: user}, value.NewInfo(value.NewObject()), extractor); err != nil {
+			t.Fatalf("valid maximum lists rejected before deduplication: %v", err)
+		}
+	})
+	t.Run("ordered-regexes-use-prefix-match", func(t *testing.T) {
+		setting, _, _ := lookupFieldSetting(fieldVCodec)
+		unknown, _ := orderedRank(setting, "prefix-av1", false)
+		empty, _ := orderedRank(setting, "", false)
+		if unknown != empty {
+			t.Fatalf("ordered regex searched inside value: got %v, want unknown rank %v", unknown, empty)
+		}
+	})
 }
 
 func mustParseSortFields(t *testing.T, raw string) []SortField {
@@ -596,6 +635,30 @@ func TestFormatSorterDerivedFields(t *testing.T) {
 		}
 		if got, _ := prepared.formats[1].Object.Lookup("audio_ext").StringValue(); got != "none" {
 			t.Fatalf("video audio_ext = %q, want none", got)
+		}
+	})
+	t.Run("zero-bitrate-is-derived", func(t *testing.T) {
+		format := value.ObjectValue(value.NewObject(
+			value.Field{Key: "format_id", Value: value.String("zero")},
+			value.Field{Key: "url", Value: value.String("https://example.invalid/zero")},
+			value.Field{Key: "ext", Value: value.String("mp4")},
+			value.Field{Key: "vcodec", Value: value.String("avc1")},
+			value.Field{Key: "acodec", Value: value.String("aac")},
+			value.Field{Key: "tbr", Value: value.Int(1000)},
+			value.Field{Key: "vbr", Value: value.Int(0)},
+			value.Field{Key: "abr", Value: value.Int(200)},
+		))
+		prepared, err := Prepare(value.NewInfo(value.NewObject(value.Field{Key: "formats", Value: value.List(format)})), Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := prepared.formats[0].Object.Lookup("vbr").Float(); got != 800 {
+			t.Fatalf("vbr = %v, want 800", got)
+		}
+	})
+	t.Run("hevc-pattern-is-prefix-and-requires-h-or-x", func(t *testing.T) {
+		if !matchesHEVC("x265-main") || matchesHEVC("265-main") || matchesHEVC("prefix-h265") {
+			t.Fatal("HEVC preference pattern does not match pinned re.match semantics")
 		}
 	})
 }

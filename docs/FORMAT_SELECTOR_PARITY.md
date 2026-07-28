@@ -81,9 +81,9 @@ format tables, prints, simulated and skipped results, and `InfoJSON`.
 
 Canonical formats are sorted worst-to-best using the pinned `FormatSorter`
 from `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8` under CPython
-3.12.13. The dedicated 38-case fixture is
+3.12.13. The dedicated 41-case fixture is
 `internal/format/testdata/format_sorter_conformance.json` (SHA-256
-`20b24919c583ac7c0885ea2ad333ddebd4ce082537dc9816470aa745a8b56d5a`),
+`0d982bc538ae74e1baec5a19196a020255b54c7603a56d0e9e74ed21613d4656`),
 captured with:
 
 ```sh

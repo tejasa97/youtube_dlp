@@ -293,21 +293,23 @@ var pinnedDefaultOrder = []string{
 }
 
 var (
+	pythonNoneOrder = "\x00python-none"
+
 	// pinnedVideoCodecOrder is parsed once at package init. Each entry is a
 	// pinned regular expression evaluated with Go RE2 semantics. Unknown codecs
 	// receive the not-in-list rank derived from the empty-string position.
 	pinnedVideoCodecOrder = []string{
 		`av0?1`, `vp0?9\.0?2`, `vp0?9`, `[hx]265|he?vc?`, `[hx]264|avc`,
-		`vp0?8`, `mp4v|h263`, `theora`, ``, ``, `none`,
+		`vp0?8`, `mp4v|h263`, `theora`, ``, pythonNoneOrder, `none`,
 	}
 
 	pinnedAudioCodecOrder = []string{
 		`[af]lac`, `wav|aiff`, `opus`, `vorbis|ogg`, `aac`, `mp?4a?`,
-		`mp3`, `ac-?4`, `e-?a?c-?3`, `ac-?3`, `dts`, ``, ``, `none`,
+		`mp3`, `ac-?4`, `e-?a?c-?3`, `ac-?3`, `dts`, ``, pythonNoneOrder, `none`,
 	}
 
 	pinnedHDROrder = []string{
-		`dv`, `(hdr)?12`, `(hdr)?10\+`, `(hdr)?10`, `hlg`, ``, `sdr`, ``,
+		`dv`, `(hdr)?12`, `(hdr)?10\+`, `(hdr)?10`, `hlg`, ``, `sdr`, pythonNoneOrder,
 	}
 
 	pinnedProtocolOrder = []string{
@@ -323,14 +325,6 @@ var (
 )
 
 func init() {
-	// Pin ordered entries that mirror Python's default sentinel placement. The
-	// trailing "" tokens above correspond to None/null sentinels in Python and
-	// participate in the not-in-list rank computation. Replace them with the
-	// single empty-string sentinel the Go implementation reuses.
-	pinnedVideoCodecOrder = collapseOrderedSentinels(pinnedVideoCodecOrder, 8, "")
-	pinnedAudioCodecOrder = collapseOrderedSentinels(pinnedAudioCodecOrder, 11, "")
-	pinnedHDROrder = collapseOrderedSentinels(pinnedHDROrder, 5, "")
-	pinnedProtocolOrder = collapseOrderedSentinels(pinnedProtocolOrder, 6, "")
 	sorterFieldSettings[fieldVCodec].order = pinnedVideoCodecOrder
 	sorterFieldSettings[fieldACodec].order = pinnedAudioCodecOrder
 	sorterFieldSettings[fieldHDR].order = pinnedHDROrder
@@ -341,12 +335,6 @@ func init() {
 	sorterFieldSettings[fieldAExt].orderFree = pinnedAudioExtFree
 }
 
-func collapseOrderedSentinels(list []string, emptyIndex int, sentinel string) []string {
-	out := make([]string, len(list))
-	copy(out, list)
-	return out
-}
-
 // pinnedOrderedRegexes compiles the pinned ordered regular expressions once.
 // Unknown entries receive the not-in-list rank relative to the empty-string
 // position in the underlying order list.
@@ -355,10 +343,10 @@ var pinnedOrderedRegexes = map[string]*regexp.Regexp{}
 func init() {
 	compileOrdered := func(list []string) {
 		for _, pattern := range list {
-			if pattern == "" {
+			if pattern == "" || pattern == pythonNoneOrder {
 				continue
 			}
-			pinnedOrderedRegexes[pattern] = regexp.MustCompile("(?i)" + pattern)
+			pinnedOrderedRegexes[pattern] = regexp.MustCompile("(?i)^(?:" + pattern + ")")
 		}
 	}
 	compileOrdered(pinnedVideoCodecOrder)

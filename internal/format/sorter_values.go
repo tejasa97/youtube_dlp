@@ -255,7 +255,7 @@ func orderedRank(field *sorterFieldSetting, value string, useFreeOrder bool) (fl
 	}
 	if field.regex {
 		for index, pattern := range order {
-			if pattern == "" {
+			if pattern == "" || pattern == pythonNoneOrder {
 				continue
 			}
 			if regex, ok := pinnedOrderedRegexes[pattern]; ok && regex.MatchString(value) {
@@ -265,7 +265,7 @@ func orderedRank(field *sorterFieldSetting, value string, useFreeOrder bool) (fl
 		return emptyRank, true
 	}
 	for index, item := range order {
-		if item == "" {
+		if item == "" || item == pythonNoneOrder {
 			continue
 		}
 		if item == value {
@@ -273,6 +273,19 @@ func orderedRank(field *sorterFieldSetting, value string, useFreeOrder bool) (fl
 		}
 	}
 	return emptyRank, true
+}
+
+func orderedNoneRank(field *sorterFieldSetting, useFreeOrder bool) (float64, bool) {
+	order := field.order
+	if useFreeOrder && len(field.orderFree) > 0 {
+		order = field.orderFree
+	}
+	for index, item := range order {
+		if item == pythonNoneOrder {
+			return float64(len(order) - index), true
+		}
+	}
+	return orderedRank(field, "", useFreeOrder)
 }
 
 // deriveFieldValue computes the effective raw value for one canonical field
@@ -294,7 +307,7 @@ func deriveFieldValue(setting *sorterFieldSetting, format *value.Object) value.V
 		raw := format.Lookup(setting.field[0])
 		text, ok := raw.StringValue()
 		if !ok {
-			return value.Int(-1)
+			return value.Int(0)
 		}
 		if isMember(text, setting.notInList) {
 			return value.Int(-1)
@@ -565,14 +578,7 @@ func isZeroLikeNumber(raw value.Value) bool {
 }
 
 func isAbsentLikeNumber(raw value.Value) bool {
-	return raw.IsMissing() || raw.IsNull() || isZeroLikeString(raw)
-}
-
-func isZeroLikeString(raw value.Value) bool {
-	if text, ok := raw.StringValue(); ok {
-		return strings.TrimSpace(text) == ""
-	}
-	return false
+	return isZeroLikeNumber(raw)
 }
 
 func matchesHEVC(vcodec string) bool {
@@ -580,14 +586,8 @@ func matchesHEVC(vcodec string) bool {
 		return false
 	}
 	lower := strings.ToLower(vcodec)
-	patterns := []string{`h?265`, `he?vc?`}
-	for _, pattern := range patterns {
-		matched, err := regexp.MatchString(pattern, lower)
-		if err == nil && matched {
-			return true
-		}
-	}
-	return false
+	matched, err := regexp.MatchString(`^(?:[hx]265|he?vc?)`, lower)
+	return err == nil && matched
 }
 
 // determineProtocol mirrors yt_dlp.utils.determine_protocol with the
