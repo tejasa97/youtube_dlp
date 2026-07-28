@@ -3,7 +3,6 @@ package format
 import (
 	"errors"
 	"fmt"
-	"sort"
 
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
@@ -18,13 +17,19 @@ var (
 	ErrSelectorLimit = errors.New("format selector exceeds limit")
 )
 
+// evalContext carries the per-evaluation state. formats is the canonical
+// worst-to-best view owned by Prepared; the evaluator never reverses it.
+// availability caches per-object IsAvailable results so each canonical
+// object is checked at most once per planning call.
 type evalContext struct {
 	formats         []*value.Object
 	options         Options
+	evaluation      EvaluationOptions
 	incomplete      bool
 	hasMergedFormat bool
 	mergeCandidates int
 	regexBudget     *regexEvalBudget
+	availability    map[*value.Object]bool
 }
 
 // PlanSelect evaluates a selector into independent output plans.
@@ -34,35 +39,40 @@ func PlanSelect(info value.Info, selector Selector) ([]OutputPlan, error) {
 
 // PlanSelectWithOptions canonicalizes formats then evaluates the selector AST.
 func PlanSelectWithOptions(info value.Info, selector Selector, options Options) ([]OutputPlan, error) {
-	prepared, err := Prepare(info, options)
+	return PlanSelectWithEvaluationOptions(info, selector, options, EvaluationOptions{})
+}
+
+// PlanSelectWithEvaluationOptions is the canonical planner entry point. It
+// prepares the canonical view and evaluates the selector with the supplied
+// evaluator-only options (currently: availability injection).
+func PlanSelectWithEvaluationOptions(
+	info value.Info,
+	selector Selector,
+	formatOptions Options,
+	evaluationOptions EvaluationOptions,
+) ([]OutputPlan, error) {
+	prepared, err := Prepare(info, formatOptions)
 	if err != nil {
 		return nil, err
 	}
-	return prepared.Plan(selector)
+	return prepared.PlanWithOptions(selector, evaluationOptions)
 }
 
-// evaluationFormats returns a best-to-worst view over the canonical worst-
-// to-best Prepared.formats list. It allocates a new slice, iterates the
-// canonical list in reverse, and preserves the original object pointers so
-// source/index lookup remains exact. The canonical Prepared.formats is never
-// mutated. This is the narrow compatibility adapter required by PR 4; it
-// preserves the legacy evaluator's best-first contract without changing any
-// selector algorithms. PR 5 replaces this adapter when the evaluator
-// consumes canonical worst-to-best directly.
-func (prepared Prepared) evaluationFormats() []*value.Object {
-	if len(prepared.formats) == 0 {
-		return nil
-	}
-	out := make([]*value.Object, len(prepared.formats))
-	for destination, source := range prepared.formats {
-		out[len(prepared.formats)-1-destination] = source.Object
-	}
-	return out
-}
-
-// Plan evaluates selector against this canonical format view without preparing
-// or mutating the formats a second time.
+// Plan delegates to PlanWithOptions with the zero EvaluationOptions.
 func (prepared Prepared) Plan(selector Selector) ([]OutputPlan, error) {
+	return prepared.PlanWithOptions(selector, EvaluationOptions{})
+}
+
+// PlanWithOptions evaluates the selector against the canonical worst-to-best
+// format view, applying the supplied EvaluationOptions (availability). It is
+// the canonical planner entry point after Prepare; callers should prefer it
+// over PlanSelectWithEvaluationOptions when they already hold a Prepared.
+//
+// PlanWithOptions is pure: no filesystem access, no subprocess execution,
+// no FFmpeg probing, no network requests, no HTTP availability probes. The
+// availability interface is invoked at most once per canonical object per
+// call, and only for candidates that would otherwise be selected.
+func (prepared Prepared) PlanWithOptions(selector Selector, evalOptions EvaluationOptions) ([]OutputPlan, error) {
 	if len(prepared.formats) == 0 {
 		return nil, ErrNoFormats
 	}
@@ -70,17 +80,24 @@ func (prepared Prepared) Plan(selector Selector) ([]OutputPlan, error) {
 	if err != nil {
 		return nil, err
 	}
-	objects := prepared.evaluationFormats()
+	objects := make([]*value.Object, len(prepared.formats))
 	byObject := make(map[*value.Object]normalizedFormat, len(prepared.formats))
-	for _, item := range prepared.formats {
+	for index, item := range prepared.formats {
+		// Canonical ordering is worst-to-best; preserve it explicitly. The
+		// evaluator traverses from the correct end based on best/worst.
+		objects[index] = item.Object
 		byObject[item.Object] = item
 	}
 	ctx := evalContext{
 		formats:         objects,
 		options:         prepared.options,
+		evaluation:      evalOptions,
 		incomplete:      incompleteFormats(objects),
 		hasMergedFormat: hasMergedFormat(objects),
 		regexBudget:     newRegexEvalBudget(),
+	}
+	if evalOptions.Availability != nil {
+		ctx.availability = make(map[*value.Object]bool, len(objects))
 	}
 	trackGroups, err := evaluateNode(&ctx, root)
 	if err != nil {
@@ -108,7 +125,8 @@ func (prepared Prepared) Plan(selector Selector) ([]OutputPlan, error) {
 			selection.Headers = headers
 			selections = append(selections, selection)
 		}
-		plans = append(plans, OutputPlan{Tracks: selections})
+		metadata := planMetadataFor(tracks, prepared)
+		plans = append(plans, OutputPlan{Tracks: selections, Metadata: metadata})
 	}
 	if len(plans) > maxCommaOutputs {
 		return nil, selectorLimit(0, 0, "too many independent outputs")
@@ -172,6 +190,14 @@ func evaluateNode(ctx *evalContext, node *astNode) ([][]*value.Object, error) {
 			return nil, err
 		}
 		childCtx.formats = filtered
+		// yt-dlp filters only the formats list in the child context. The
+		// incomplete/merged flags describe the original selection context and
+		// intentionally remain unchanged after group-level filtering.
+		// Availability cache is per-call; share it with the child so we still
+		// observe the at-most-once-per-planning-call contract.
+		if ctx.availability != nil {
+			childCtx.availability = ctx.availability
+		}
 		return evaluateNode(&childCtx, &node.children[0])
 	case astAtom:
 		return evaluateAtom(ctx, node)
@@ -197,6 +223,30 @@ func filterFormats(formats []*value.Object, filters []Filter, budget *regexEvalB
 	return filtered, nil
 }
 
+// isAvailableCached returns the cached availability for the supplied object,
+// invoking the configured FormatAvailability callback on first reference. A
+// nil availability accepts every candidate.
+func (ctx *evalContext) isAvailableCached(object *value.Object) (bool, error) {
+	if ctx.evaluation.Availability == nil {
+		return true, nil
+	}
+	if cached, seen := ctx.availability[object]; seen {
+		return cached, nil
+	}
+	ok, err := ctx.evaluation.Availability.IsAvailable(object)
+	if err != nil {
+		return false, err
+	}
+	ctx.availability[object] = ok
+	return ok, nil
+}
+
+// mergeTrackGroups flattens the Cartesian product of left and right track
+// groups, applying Python-compatible multistream suppression and the
+// existing selector complexity limits. It explicitly drops the Go-only
+// (format_id, URL) deduplication: selectors that yield the same object
+// twice preserve both occurrences unless the stream suppression pass
+// removes a later same-kind track.
 func mergeTrackGroups(ctx *evalContext, left, right [][]*value.Object) ([][]*value.Object, error) {
 	if len(left) == 0 || len(right) == 0 {
 		return nil, nil
@@ -205,7 +255,7 @@ func mergeTrackGroups(ctx *evalContext, left, right [][]*value.Object) ([][]*val
 	for _, leftTracks := range left {
 		for _, rightTracks := range right {
 			combined := append(append([]*value.Object(nil), leftTracks...), rightTracks...)
-			combined = dedupeMergeTracks(combined)
+			combined = applyMultistreamSuppression(combined, ctx.options)
 			if len(combined) == 0 {
 				continue
 			}
@@ -222,24 +272,44 @@ func mergeTrackGroups(ctx *evalContext, left, right [][]*value.Object) ([][]*val
 	return merged, nil
 }
 
-func dedupeMergeTracks(tracks []*value.Object) []*value.Object {
+// applyMultistreamSuppression walks the tracks in original order and removes
+// storyboard tracks plus later same-kind tracks when the corresponding
+// multistream option is false. It is the PR 5 replacement for the deleted
+// dedupeMergeTracks helper; it never deduplicates by identity.
+func applyMultistreamSuppression(tracks []*value.Object, options Options) []*value.Object {
 	if len(tracks) <= 1 {
 		return tracks
 	}
-	seen := make(map[string]int, len(tracks))
-	result := make([]*value.Object, 0, len(tracks))
+	retained := make([]*value.Object, 0, len(tracks))
+	seenVideo := false
+	seenAudio := false
 	for _, object := range tracks {
-		id, _ := object.Lookup("format_id").StringValue()
-		url, _ := object.Lookup("url").StringValue()
-		key := id + "\x00" + url
-		if index, duplicate := seen[key]; duplicate {
-			result[index] = object
+		if object == nil {
 			continue
 		}
-		seen[key] = len(result)
-		result = append(result, object)
+		vcodec := readStringField(object, "vcodec")
+		acodec := readStringField(object, "acodec")
+		hasVideo := hasMediaKind(vcodec)
+		hasAudio := hasMediaKind(acodec)
+		if !hasVideo && !hasAudio {
+			// Storyboard / nonmedia track: drop entirely from a merge.
+			continue
+		}
+		if !options.AllowMultipleVideoStreams && hasVideo && seenVideo {
+			continue
+		}
+		if !options.AllowMultipleAudioStreams && hasAudio && seenAudio {
+			continue
+		}
+		if hasVideo {
+			seenVideo = true
+		}
+		if hasAudio {
+			seenAudio = true
+		}
+		retained = append(retained, object)
 	}
-	return result
+	return retained
 }
 
 func evaluateAtom(ctx *evalContext, node *astNode) ([][]*value.Object, error) {
@@ -250,80 +320,121 @@ func evaluateAtom(ctx *evalContext, node *astNode) ([][]*value.Object, error) {
 	}
 	switch spec.kind {
 	case atomAll:
-		return atomAllMatches(ctx.formats, node.filters, node.span, ctx.regexBudget)
+		return atomAllMatches(ctx, node)
 	case atomMergeAll:
-		var tracks []*value.Object
-		// The evaluator adapter already presents the pinned canonical list in
-		// best-to-worst order, so mergeall consumes it in forward order.
-		for _, object := range ctx.formats {
-			matched, err := matchesFilters(object, node.filters, ctx.regexBudget)
-			if err != nil {
-				return nil, err
-			}
-			if matched && (codecNotNone(object, "vcodec") || codecNotNone(object, "acodec")) {
-				tracks = append(tracks, object)
-				if len(tracks) > maxMergeTerms {
-					return nil, selectorLimit(node.span.start, node.span.end, "too many mergeall tracks")
-				}
-			}
-		}
-		if len(tracks) == 0 {
-			return nil, nil
-		}
-		return [][]*value.Object{tracks}, nil
+		return atomMergeAllMatches(ctx, node)
 	case atomDirectID:
-		for _, object := range ctx.formats {
-			id, _ := object.Lookup("format_id").StringValue()
-			if id != spec.text {
-				continue
-			}
-			matched, err := matchesFilters(object, node.filters, ctx.regexBudget)
-			if err != nil {
-				return nil, err
-			}
-			if matched {
-				return [][]*value.Object{{object}}, nil
-			}
-		}
-		return nil, nil
+		return atomDirectIDMatches(ctx, node, spec.text)
 	case atomExtension:
-		matches, err := extensionMatches(ctx, spec.text, node.filters)
-		if err != nil {
-			return nil, err
-		}
-		if len(matches) == 0 {
-			return nil, nil
-		}
-		return [][]*value.Object{{matches[0]}}, nil
+		return atomExtensionMatches(ctx, node, spec.text)
 	case atomQuality:
-		matches, err := qualityMatches(ctx, spec.quality, node.filters)
-		if err != nil {
-			return nil, err
-		}
-		if len(matches) == 0 {
-			return nil, nil
-		}
-		return [][]*value.Object{{matches[0]}}, nil
+		return atomQualityMatches(ctx, node, spec.quality)
 	default:
 		return nil, selectorSyntax(node.span.start, node.span.end, "unknown atom")
 	}
 }
 
-func atomAllMatches(formats []*value.Object, filters []Filter, span span, budget *regexEvalBudget) ([][]*value.Object, error) {
+// atomAllMatches emits one OutputPlan per available matching format in
+// best-to-worst order. The traversal is from the end of the canonical
+// worst-to-best list toward the beginning.
+func atomAllMatches(ctx *evalContext, node *astNode) ([][]*value.Object, error) {
 	var outputs [][]*value.Object
-	for _, candidate := range formats {
-		matched, err := matchesFilters(candidate, filters, budget)
+	for index := len(ctx.formats) - 1; index >= 0; index-- {
+		object := ctx.formats[index]
+		matched, err := matchesFilters(object, node.filters, ctx.regexBudget)
 		if err != nil {
 			return nil, err
 		}
-		if matched {
-			outputs = append(outputs, []*value.Object{candidate})
-			if len(outputs) > maxCommaOutputs {
-				return nil, selectorLimit(span.start, span.end, "too many all outputs")
-			}
+		if !matched {
+			continue
+		}
+		available, err := ctx.isAvailableCached(object)
+		if err != nil {
+			return nil, err
+		}
+		if !available {
+			continue
+		}
+		outputs = append(outputs, []*value.Object{object})
+		if len(outputs) > maxCommaOutputs {
+			return nil, selectorLimit(node.span.start, node.span.end, "too many all outputs")
 		}
 	}
 	return outputs, nil
+}
+
+// atomMergeAllMatches collects every playable matching format into one
+// merged track list in best-to-worst order. Multistream suppression is
+// applied before returning so the resulting track list matches what the
+// yt-dlp pinned merge produces.
+func atomMergeAllMatches(ctx *evalContext, node *astNode) ([][]*value.Object, error) {
+	// Python checks availability in canonical worst-to-best order, then
+	// constructs the merge in reverse so the best format is retained first.
+	var checked []*value.Object
+	for _, object := range ctx.formats {
+		matched, err := matchesFilters(object, node.filters, ctx.regexBudget)
+		if err != nil {
+			return nil, err
+		}
+		if !matched {
+			continue
+		}
+		if codecNotNone(object, "vcodec") || codecNotNone(object, "acodec") {
+			available, err := ctx.isAvailableCached(object)
+			if err != nil {
+				return nil, err
+			}
+			if !available {
+				continue
+			}
+			checked = append(checked, object)
+		}
+	}
+	if len(checked) == 0 {
+		return nil, nil
+	}
+	tracks := make([]*value.Object, len(checked))
+	for index := range checked {
+		tracks[len(checked)-1-index] = checked[index]
+	}
+	tracks = applyMultistreamSuppression(tracks, ctx.options)
+	if len(tracks) == 0 {
+		return nil, nil
+	}
+	if len(tracks) > maxMergeTerms {
+		return nil, selectorLimit(node.span.start, node.span.end, "too many mergeall tracks")
+	}
+	return [][]*value.Object{tracks}, nil
+}
+
+// atomDirectIDMatches selects the canonical format whose normalized
+// format_id exactly equals `id`, applying filters and availability. The
+// canonical search is best-to-worst, matching yt-dlp's LazyList.reverse
+// applied to the matches list.
+func atomDirectIDMatches(ctx *evalContext, node *astNode, id string) ([][]*value.Object, error) {
+	for index := len(ctx.formats) - 1; index >= 0; index-- {
+		object := ctx.formats[index]
+		actual, _ := object.Lookup("format_id").StringValue()
+		if actual != id {
+			continue
+		}
+		matched, err := matchesFilters(object, node.filters, ctx.regexBudget)
+		if err != nil {
+			return nil, err
+		}
+		if !matched {
+			continue
+		}
+		available, err := ctx.isAvailableCached(object)
+		if err != nil {
+			return nil, err
+		}
+		if !available {
+			continue
+		}
+		return [][]*value.Object{{object}}, nil
+	}
+	return nil, nil
 }
 
 func enforceOutputCount(count int, span span) error {
@@ -347,93 +458,148 @@ func selectorLimit(start, end int, message string) error {
 	return fmt.Errorf("%w: %s", ErrSelectorLimit, (&SyntaxError{Start: start, End: end, Message: message}).Error())
 }
 
-func extensionMatches(ctx *evalContext, ext string, filters []Filter) ([]*value.Object, error) {
+// atomExtensionMatches selects the first playable matching extension format
+// in canonical order. The canonical list is worst-to-best, so "first" means
+// "the last element in the list" — best wins.
+func atomExtensionMatches(ctx *evalContext, node *astNode, ext string) ([][]*value.Object, error) {
 	video, audio, storyboard := extensionMediaKind(ext)
-	var matches []*value.Object
-	for _, object := range ctx.formats {
+	for index := len(ctx.formats) - 1; index >= 0; index-- {
+		object := ctx.formats[index]
 		objectExt, _ := object.Lookup("ext").StringValue()
 		if objectExt != ext {
 			continue
 		}
-		matched, err := matchesFilters(object, filters, ctx.regexBudget)
+		matched, err := matchesFilters(object, node.filters, ctx.regexBudget)
 		if err != nil {
 			return nil, err
 		}
 		if !matched {
 			continue
 		}
-		switch {
-		case storyboard:
-			if codecExplicitlyNone(object, "acodec") && codecExplicitlyNone(object, "vcodec") {
-				matches = append(matches, object)
-			}
-		case audio:
-			if codecNotNone(object, "acodec") {
-				matches = append(matches, object)
-			}
-		case video:
-			if codecNotNone(object, "acodec") && codecNotNone(object, "vcodec") {
-				matches = append(matches, object)
-			}
+		if !extensionObjectMatches(object, video, audio, storyboard) {
+			continue
 		}
+		available, err := ctx.isAvailableCached(object)
+		if err != nil {
+			return nil, err
+		}
+		if !available {
+			continue
+		}
+		return [][]*value.Object{{object}}, nil
 	}
-	if len(matches) == 0 && video && !ctx.hasMergedFormat {
-		for _, object := range ctx.formats {
+	if video && !ctx.hasMergedFormat {
+		for index := len(ctx.formats) - 1; index >= 0; index-- {
+			object := ctx.formats[index]
 			objectExt, _ := object.Lookup("ext").StringValue()
 			if objectExt != ext {
 				continue
 			}
-			matched, err := matchesFilters(object, filters, ctx.regexBudget)
+			matched, err := matchesFilters(object, node.filters, ctx.regexBudget)
 			if err != nil {
 				return nil, err
 			}
 			if !matched {
 				continue
 			}
-			if codecNotNone(object, "vcodec") {
-				matches = append(matches, object)
+			if !codecNotNone(object, "vcodec") {
+				continue
 			}
+			available, err := ctx.isAvailableCached(object)
+			if err != nil {
+				return nil, err
+			}
+			if !available {
+				continue
+			}
+			return [][]*value.Object{{object}}, nil
 		}
 	}
-	if len(matches) == 0 {
-		return nil, nil
-	}
-	return orderAtomMatches(matches, Atom{OK: true, Best: true, Index: 1}, ctx.options), nil
+	return nil, nil
 }
 
-func qualityMatches(ctx *evalContext, atom Atom, filters []Filter) ([]*value.Object, error) {
+// extensionObjectMatches mirrors the pinned selector atom filter for a known
+// extension category. Storyboard requires both codecs == none. Audio requires
+// acodec != none. Video requires both codecs != none (unless the separate
+// fallback above kicks in).
+func extensionObjectMatches(object *value.Object, video, audio, storyboard bool) bool {
+	switch {
+	case storyboard:
+		return codecExplicitlyNone(object, "acodec") && codecExplicitlyNone(object, "vcodec")
+	case audio:
+		return codecNotNone(object, "acodec")
+	case video:
+		return codecNotNone(object, "acodec") && codecNotNone(object, "vcodec")
+	}
+	return false
+}
+
+// atomQualityMatches evaluates the best/worst selector. The canonical list is
+// worst-to-best, so best iterates from the end and worst from the beginning.
+// The `.N` index is one-based within available matching candidates.
+//
+// Ordering matches yt-dlp's pinned build_format_selector: no extra
+// re-sorting happens — the canonical worst-to-best list is taken as the
+// authoritative quality order, and LazyList.reverse makes the last
+// canonical match the "best" pick.
+func atomQualityMatches(ctx *evalContext, node *astNode, atom Atom) ([][]*value.Object, error) {
 	if atom.indexTooLarge {
 		return nil, nil
 	}
-	filtered := make([]*value.Object, 0, len(ctx.formats))
-	for _, candidate := range ctx.formats {
-		matched, err := matchesFilters(candidate, filters, ctx.regexBudget)
-		if err != nil {
-			return nil, err
-		}
-		if matched {
-			filtered = append(filtered, candidate)
-		}
-	}
-	matches := collectAtomMatches(filtered, atom)
-	if len(matches) == 0 && atomAllowsIncompleteFallback(atom) && ctx.incomplete {
-		matches = collectPlayable(filtered)
-	}
-	if len(matches) == 0 {
-		return nil, nil
-	}
-	ordered := orderAtomMatches(matches, atom, ctx.options)
 	index := atom.Index
 	if index < 1 {
 		index = 1
 	}
-	if index > len(ordered) {
+	find := func(fallback bool) (*value.Object, error) {
+		seen := 0
+		for step := 0; step < len(ctx.formats); step++ {
+			position := step
+			if atom.Best {
+				position = len(ctx.formats) - 1 - step
+			}
+			object := ctx.formats[position]
+			matched, err := matchesFilters(object, node.filters, ctx.regexBudget)
+			if err != nil {
+				return nil, err
+			}
+			if !matched {
+				continue
+			}
+			if fallback {
+				if !(codecNotNone(object, "vcodec") || codecNotNone(object, "acodec")) {
+					continue
+				}
+			} else if !atomMatches(object, atom) {
+				continue
+			}
+			ok, err := ctx.isAvailableCached(object)
+			if err != nil {
+				return nil, err
+			}
+			if !ok {
+				continue
+			}
+			seen++
+			if seen == index {
+				return object, nil
+			}
+		}
 		return nil, nil
 	}
-	if atom.Best {
-		return []*value.Object{ordered[index-1]}, nil
+	selected, err := find(false)
+	if err != nil {
+		return nil, err
 	}
-	return []*value.Object{ordered[len(ordered)-index]}, nil
+	if selected == nil && atomAllowsIncompleteFallback(atom) && ctx.incomplete {
+		selected, err = find(true)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if selected == nil {
+		return nil, nil
+	}
+	return [][]*value.Object{{selected}}, nil
 }
 
 func atomAllowsIncompleteFallback(atom Atom) bool {
@@ -469,44 +635,25 @@ func hasMergedFormat(formats []*value.Object) bool {
 	return false
 }
 
-func collectAtomMatches(formats []*value.Object, atom Atom) []*value.Object {
-	matches := make([]*value.Object, 0, len(formats))
-	for _, candidate := range formats {
-		if atomMatches(candidate, atom) {
-			matches = append(matches, candidate)
-		}
-	}
-	return matches
-}
-
-func collectPlayable(formats []*value.Object) []*value.Object {
-	matches := make([]*value.Object, 0, len(formats))
-	for _, candidate := range formats {
-		if codecNotNone(candidate, "vcodec") || codecNotNone(candidate, "acodec") {
-			matches = append(matches, candidate)
-		}
-	}
-	return matches
-}
-
 func atomMatches(candidate *value.Object, atom Atom) bool {
 	switch {
 	case atom.Media == AtomMediaCombined && !atom.Star:
-		// Plain best/worst keep the port's historical quality-first selection across
-		// playable formats so pinned compatibility fixtures remain stable.
-		return codecNotNone(candidate, "vcodec") || codecNotNone(candidate, "acodec")
+		// Plain best/worst match combined audio+video formats per PR 5 §7A.
+		return codecNotNone(candidate, "vcodec") && codecNotNone(candidate, "acodec")
 	case atom.Media == AtomMediaCombined && atom.Star:
 		return codecNotNone(candidate, "vcodec") || codecNotNone(candidate, "acodec")
 	case atom.Media == AtomMediaVideo && atom.Star:
-		hasVideo, _ := candidateMediaKinds(candidate)
-		return hasVideo && (codecNotNone(candidate, "vcodec") || codecNotNone(candidate, "acodec"))
+		return codecNotNone(candidate, "vcodec") &&
+			(codecNotNone(candidate, "vcodec") || codecNotNone(candidate, "acodec"))
 	case atom.Media == AtomMediaAudio && atom.Star:
-		_, hasAudio := candidateMediaKinds(candidate)
-		return hasAudio && (codecNotNone(candidate, "vcodec") || codecNotNone(candidate, "acodec"))
+		return codecNotNone(candidate, "acodec") &&
+			(codecNotNone(candidate, "vcodec") || codecNotNone(candidate, "acodec"))
 	case atom.Media == AtomMediaVideo:
-		return candidateMatchesKind(candidate, true, false, nil)
+		return codecExplicitlyNone(candidate, "acodec") &&
+			(codecNotNone(candidate, "vcodec") || codecNotNone(candidate, "acodec"))
 	case atom.Media == AtomMediaAudio:
-		return candidateMatchesKind(candidate, false, true, nil)
+		return codecExplicitlyNone(candidate, "vcodec") &&
+			(codecNotNone(candidate, "vcodec") || codecNotNone(candidate, "acodec"))
 	default:
 		return false
 	}
@@ -520,30 +667,6 @@ func codecNotNone(object *value.Object, key string) bool {
 func codecExplicitlyNone(object *value.Object, key string) bool {
 	text, ok := object.Lookup(key).StringValue()
 	return ok && text == "none"
-}
-
-func orderAtomMatches(matches []*value.Object, atom Atom, options Options) []*value.Object {
-	ordered := append([]*value.Object(nil), matches...)
-	if len(options.Sort) > 0 {
-		return ordered
-	}
-	wantVideo := atom.Media == AtomMediaVideo
-	wantAudio := atom.Media == AtomMediaAudio
-	sort.SliceStable(ordered, func(left, right int) bool {
-		l, r := ordered[left], ordered[right]
-		if lp, rp := extractorPreference(l), extractorPreference(r); lp != rp {
-			return lp > rp
-		}
-		ls, rs := formatScore(l, wantVideo, wantAudio), formatScore(r, wantVideo, wantAudio)
-		if ls != rs {
-			return ls > rs
-		}
-		if lr, rr := preferenceRank(l, options), preferenceRank(r, options); lr != rr {
-			return lr > rr
-		}
-		return false
-	})
-	return ordered
 }
 
 func legacyChoiceToAST(choice Choice) (*astNode, error) {

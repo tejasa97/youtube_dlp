@@ -131,14 +131,32 @@ and default composition with first occurrence winning after aliases and
 combined fields are expanded. Ordered codec, HDR, protocol, and extension
 rankings, limits, mixed scalar classes, free-format ordering, and observable
 derived sorting fields are covered by the fixture. `Prepared.formats` and
-`Prepared.Info().formats` retain canonical worst-to-best order; a fresh,
-pointer-preserving reversal adapter supplies the existing best-first evaluator
-without mutating canonical state.
+`Prepared.Info().formats` retain canonical worst-to-best order, which the
+planner consumes directly without mutating canonical state.
 
-`Options.PreferExtensions` remains a Go-only compatibility tiebreaker after
-otherwise equal pinned tuples. CLI format-sort reset wiring remains deferred to
-PR 9, and replacement of the evaluator/default-selector scoring path remains
-deferred to PR 5.
+`Options.PreferExtensions` remains a Go-only compatibility preference inserted
+at the extension position in the canonical tuple, after quality fields. CLI
+format-sort reset wiring remains deferred to PR 9.
+
+## Planner contract
+
+The evaluator consumes the canonical worst-to-best list directly and traverses
+it in the pinned direction for each atom. Plain `best`/`worst`, incomplete
+audio- or video-only fallback, `all`, `mergeall`, direct IDs, extensions,
+groups, and pick-first ordering match the pinned planner fixture. Merges retain
+track order, remove storyboard-only entries, apply Python multistream
+suppression, and do not perform the former Go-only ID/URL deduplication.
+
+Each `OutputPlan` owns a defensive merged metadata dictionary, including
+`requested_formats`, compatible extension, protocol, aggregate bitrate and
+size, and single-audio/video field promotion. Default selection is pure and
+uses injected FFmpeg/stdout/live capabilities. Format availability is also an
+injected evaluator boundary; the planner performs no filesystem, process, or
+network probing.
+
+The dedicated planner fixture is
+`internal/format/testdata/planner_conformance.json`; its derivation and hash are
+recorded in `conformance/format_planner/PROVENANCE.md`.
 
 The transformation intentionally remains one-pass, matching the pinned Python
 behavior. It can therefore leave collisions such as `x,x,x-0 -> x-0,x-1,x-0`
@@ -155,8 +173,8 @@ ID bytes.
 
 | ID | Surface | Pinned behavior | Go behavior | Fixture | Status | Decision |
 |---|---|---|---|---|---|---|
-| `atom.plain-best-combined` | `best` / `worst` | Plain atoms require/score the pinned combined-format universe. | Historical playable-universe scoring remains. | `gap.plain-best-combined` | Known gap | Do not change selection algorithms in this PR. |
-| `operator.all-order` | `all` | Emits the ordered candidate list in reverse. | Preserves forward extractor order. | `gap.all-order` | Intentional deviation | Keep deterministic Go order until the selector algorithm parity phase. |
+| `atom.plain-best-combined` | `best` / `worst` | Plain atoms require a combined format, with incomplete-format fallback only for audio-only or video-only sets. | Matches pinned candidate and fallback rules. | `gap.plain-best-combined`, planner oracle | Passing parity | Closed in the planner phase. |
+| `operator.all-order` | `all` | Emits the ordered candidate list in reverse. | Matches pinned best-to-worst output order. | `gap.all-order`, planner oracle | Passing parity | Closed in the planner phase. |
 | `filter.negated-string` | `!^=`, `!$=`, `!*=`, `!~=` | Parses and evaluates negated string operators. | Parses and evaluates with pinned missing/`?` semantics. | `filter.negated-prefix`, filter oracle | Passing parity | Closed in the filter-parity phase. |
 | `filter.none-inclusive` | `?` missing-value modifier | Includes missing metadata according to the operator. | Missing/null pass only when `?` is present. | `filter.none-inclusive`, filter oracle | Passing parity | Closed in the filter-parity phase. |
 | `filter.quoted-escapes` | Quoted filter values | Unescapes only `\\`, `\"`, and `\'` for non-regex values. | Matches pinned unescape rules; regex values keep capture escapes. | `filter.quoted-escape`, filter oracle | Passing parity | Closed in the filter-parity phase. |
@@ -166,7 +184,7 @@ ID bytes.
 | `extension.exact-recognition` | Bare extension atoms | Pinned `_format_selection_exts` per `yt_dlp/utils/_utils.py`. | Parser recognizes the exact pinned media-extension set. | `parser.extension-boundary-direct-id`, extension-tagged corpus cases | Passing parity | The Go extension map is now byte-for-byte the pinned selection set; tokens outside the set parse as direct IDs. |
 | `direct-id.discarded-punctuation` | Direct-format IDs containing `# \ ' "` | Pinned Python comments `#...` away or token-errors on `\ ' "`. | Parser rejects the token with a syntax error. | `parser.direct-id-discarded-punctuation` | Deliberate safety gap for `#`; parity rejection for `\ ' "` | Failing closed avoids silently selecting a different ID for comments. |
 | `media.storyboard` | `mhtml` | Selects storyboard formats. | Supported and pinned in the corpus. | `extension.storyboard` | Closed | Guard against playable-universe regressions. |
-| `product.multistream-policy` | Same-kind merged tracks | Product defaults constrain multiple video/audio streams. | Evaluator retains distinct tracks; unsupported downloader layouts fail later. | `gap.multistream-product` | Product unsupported | Keep evaluator and product-policy responsibilities separate. |
+| `product.multistream-policy` | Same-kind merged tracks | Suppresses later same-kind streams by default and retains them when the corresponding option is enabled. | Matches all four pinned multistream combinations and preserves duplicate tracks when enabled. | `gap.multistream-product`, planner oracle | Passing parity | Execution of arbitrary retained N-track plans remains PR 6. |
 | `product.interactive-selector` | `-f -` | Prompts interactively per video. | `-` is not an interactive selector surface. | Provenance only | Product unsupported | Outside the library/fixture scope. |
 | `product.multi-output-postprocess` | Multiple independent outputs | Upstream supports broader post-processing combinations. | Some postprocessors fail closed for multi-output plans. | Existing product tests | Product unsupported | Preserve explicit safety checks. |
 | `bounds.collection` | Extractor format collections | No explicit format-count or ID-size bounds. | Returns `ErrFormatLimit`. | `limit.format-count`, `limit.id-bytes`, `limit.aggregate-id-bytes` | Deliberate safety gap | Retain deterministic resource limits. |
@@ -180,8 +198,8 @@ ID bytes.
 
 ## Updating the baseline
 
-Changes to selector or normalization behavior must update the fixture,
-`conformance/compat/format_selector/PROVENANCE.md`, and this ledger together.
+Changes to selector, planner, or normalization behavior must update the
+applicable fixture, its provenance file, and this ledger together.
 Every fixture entry must execute and be classified; skipped or environment-
 dependent cases are not permitted. New expectations must be captured against an
 explicit upstream commit before being committed.

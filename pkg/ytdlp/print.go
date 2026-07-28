@@ -377,6 +377,28 @@ func addSelectedFormatFields(info *value.Info, selections []mediaformat.Selectio
 	}
 }
 
+// selectedPlanInfo is the plan-aware merged-metadata helper introduced in
+// PR 5. The canonical merged-format dictionary is owned by the format
+// planner, so when an OutputPlan is already available the product layer
+// should consume plan.Metadata instead of reconstructing merged fields
+// from []Selection. Use this helper wherever an OutputPlan is available.
+//
+// selectedPlanInfo clones the top-level video info, clears stale
+// selected-format fields using the existing field list, and merges the
+// planner-owned plan.Metadata into the clone. The returned Info never
+// shares mutable ownership with the supplied plan or info.
+func selectedPlanInfo(info value.Info, plan mediaformat.OutputPlan) value.Info {
+	selected := value.NewInfo(info.Fields().Clone())
+	for _, key := range selectedFormatFieldNames {
+		selected.Fields().Delete(key)
+	}
+	if plan.Metadata.Fields().Len() == 0 {
+		return selected
+	}
+	selected.Fields().Merge(plan.Metadata.Fields(), false)
+	return selected
+}
+
 func selectedFormatInfo(info value.Info, selections []mediaformat.Selection) value.Info {
 	selected := value.NewInfo(info.Fields().Clone())
 	if len(selections) == 0 {
