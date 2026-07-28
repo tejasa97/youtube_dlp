@@ -117,7 +117,7 @@ func loadSelectorCorpus(t *testing.T) selectorCorpus {
 
 func validateSelectorCorpus(t *testing.T, corpus selectorCorpus) {
 	t.Helper()
-	if corpus.SchemaVersion != 1 || corpus.Reference.Commit != selectorConformanceCommit || corpus.Reference.Repository == "" || corpus.Reference.PythonVersion != "CPython 3.9.6" || len(corpus.Reference.Sources) == 0 {
+	if corpus.SchemaVersion != 1 || corpus.Reference.Commit != selectorConformanceCommit || corpus.Reference.Repository == "" || corpus.Reference.PythonVersion != "CPython 3.12.13" || len(corpus.Reference.Sources) == 0 {
 		t.Fatalf("invalid corpus provenance: %+v", corpus.Reference)
 	}
 	if corpus.Limits != (selectorCorpusLimits{Formats: maxNormalizedEntries, IDBytes: maxNormalizedIDBytes, TotalBytes: maxNormalizedTotal}) {

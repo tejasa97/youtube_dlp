@@ -119,11 +119,62 @@ func TestPrepareFormatsCoercesPinnedScalarFieldsBeforeSorting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(prepared.formats) != 2 || prepared.formats[0].Source != 1 || prepared.formats[0].ID != "True" || prepared.formats[1].ID != "42" {
+	// preference is not in _NUMERIC_FIELDS, so string preferences stay strings and
+	// do not drive preparation ordering; height is coerced and stable order kept.
+	if len(prepared.formats) != 2 || prepared.formats[0].Source != 0 || prepared.formats[0].ID != "42" || prepared.formats[1].ID != "True" {
 		t.Fatalf("canonical formats = %+v", prepared.formats)
 	}
-	if height, ok := prepared.formats[0].Object.Lookup("height").Int(); !ok || height != 1080 {
+	if height, ok := prepared.formats[0].Object.Lookup("height").Int(); !ok || height != 720 {
 		t.Fatalf("coerced height = %v", prepared.formats[0].Object.Lookup("height"))
+	}
+	if height, ok := prepared.formats[1].Object.Lookup("height").Int(); !ok || height != 1080 {
+		t.Fatalf("coerced height = %v", prepared.formats[1].Object.Lookup("height"))
+	}
+	if pref, ok := prepared.formats[0].Object.Lookup("preference").StringValue(); !ok || pref != "1" {
+		t.Fatalf("preference mutated = %v", prepared.formats[0].Object.Lookup("preference"))
+	}
+	if pref, ok := prepared.formats[1].Object.Lookup("preference").StringValue(); !ok || pref != "2" {
+		t.Fatalf("preference mutated = %v", prepared.formats[1].Object.Lookup("preference"))
+	}
+}
+
+func TestPrepareFormatsImplicitSharesCanonicalIdentity(t *testing.T) {
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("clip")},
+		value.Field{Key: "url", Value: value.String("https://example.invalid/original")},
+		value.Field{Key: "ext", Value: value.String("mp4")},
+	))
+	prepared, err := prepareFormats(info, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prepared.formats) != 1 {
+		t.Fatalf("formats = %d", len(prepared.formats))
+	}
+	if prepared.formats[0].Object != prepared.Info().Fields() {
+		t.Fatal("implicit prepared format must share canonical Fields identity")
+	}
+	prepared.formats[0].Object.Set("url", value.String("https://example.invalid/replaced"))
+	if got, _ := prepared.Info().Lookup("url").StringValue(); got != "https://example.invalid/replaced" {
+		t.Fatalf("canonical Info url diverged = %q", got)
+	}
+}
+
+func TestSanitizeFormatIDMatchesPythonRegexWhitespace(t *testing.T) {
+	input := "a\x1cb\x1dc\x1ed\x1fe f,\t/+\n[]()"
+	want := "a_b_c_d_e_f_________"
+	if got := sanitizeFormatID(input); got != want {
+		t.Fatalf("sanitizeFormatID = %q, want %q", got, want)
+	}
+	// Boundary: U+001B is not Python \\s; U+001C is.
+	if got := sanitizeFormatID("x\x1by"); got != "x\x1by" {
+		t.Fatalf("U+001B changed: %q", got)
+	}
+	if got := sanitizeFormatID("x\x1cy"); got != "x_y" {
+		t.Fatalf("U+001C unchanged: %q", got)
+	}
+	if got := sanitizeFormatID("x\x1fy"); got != "x_y" {
+		t.Fatalf("U+001F unchanged: %q", got)
 	}
 }
 

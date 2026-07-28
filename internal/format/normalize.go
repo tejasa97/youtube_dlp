@@ -18,6 +18,9 @@ const (
 	maxNormalizedTotal   = 4 << 20
 )
 
+// formatNumericFields is the exact pinned YoutubeDL._NUMERIC_FIELDS set.
+// preference, language_preference, quality, and source_preference are sorter
+// inputs only and must not be mutated during preparation.
 var formatNumericFields = [...]string{
 	"width", "height", "asr", "audio_channels", "fps",
 	"tbr", "abr", "vbr", "filesize", "filesize_approx",
@@ -26,9 +29,6 @@ var formatNumericFields = [...]string{
 	"average_rating", "comment_count", "age_limit", "start_time", "end_time",
 	"chapter_number", "season_number", "episode_number", "track_number",
 	"disc_number", "release_year",
-	// The pinned sorter consumes these numeric extractor preferences before the
-	// user-visible sort fields even though they are not in YoutubeDL._NUMERIC_FIELDS.
-	"preference", "language_preference", "quality", "source_preference",
 }
 
 // normalizedFormat pairs a canonical cloned format with its original extractor
@@ -57,6 +57,36 @@ func Prepare(info value.Info, options Options) (Prepared, error) {
 // Info returns the canonical defensive metadata view owned by prepared.
 func (prepared Prepared) Info() value.Info { return prepared.info }
 
+// SyncInfo rebinds evaluation format objects to the current canonical Info after
+// post-prepare mutations (metadata replace/parse or deferred enrichment) without
+// re-running normalization.
+func (prepared Prepared) SyncInfo(info value.Info) Prepared {
+	prepared.info = info
+	prepared.formats = append([]normalizedFormat(nil), prepared.formats...)
+	formatsValue := info.Lookup("formats")
+	if formatsValue.IsMissing() || formatsValue.IsNull() {
+		if len(prepared.formats) == 1 {
+			prepared.formats[0].Object = info.Fields()
+		}
+		return prepared
+	}
+	list, ok := formatsValue.ListValue()
+	if !ok {
+		return prepared
+	}
+	for index := range prepared.formats {
+		if index >= len(list) {
+			break
+		}
+		object, ok := list[index].Object()
+		if !ok || object == nil {
+			continue
+		}
+		prepared.formats[index].Object = object
+	}
+	return prepared
+}
+
 func prepareFormats(info value.Info, options Options) (Prepared, error) {
 	if err := options.validate(); err != nil {
 		return Prepared{}, err
@@ -66,7 +96,9 @@ func prepareFormats(info value.Info, options Options) (Prepared, error) {
 	implicitFormat := formatsValue.IsMissing() || formatsValue.IsNull()
 	var rawFormats []value.Value
 	if implicitFormat {
-		rawFormats = []value.Value{value.ObjectValue(canonical.Fields().Clone())}
+		// Share identity with the canonical Info fields so later top-level
+		// mutations (ReplaceMetadata, Enrich) stay coherent with selection.
+		rawFormats = []value.Value{value.ObjectValue(canonical.Fields())}
 	} else {
 		var ok bool
 		rawFormats, ok = formatsValue.ListValue()
@@ -174,9 +206,7 @@ func prepareFormats(info value.Info, options Options) (Prepared, error) {
 		}
 		canonicalValues[index] = value.ObjectValue(ordered[index].Object)
 	}
-	if implicitFormat {
-		canonical.Fields().Merge(ordered[0].Object, true)
-	} else {
+	if !implicitFormat {
 		canonical.Set("formats", value.List(canonicalValues...))
 	}
 	return Prepared{info: canonical, formats: ordered, options: options}, nil
@@ -225,20 +255,104 @@ func coerceFormatFields(object *value.Object) error {
 		}
 		switch raw.Kind() {
 		case value.KindInt, value.KindFloat, value.KindBool:
+			// Bool is left untouched to match Python isinstance(..., (int, float)).
 			continue
-		case value.KindString:
-			text, _ := raw.StringValue()
-			integer, err := strconv.ParseInt(strings.TrimSpace(text), 10, 64)
-			if err != nil {
-				object.Set(field, value.Null())
-				continue
-			}
-			object.Set(field, value.Int(integer))
 		default:
-			object.Set(field, value.Null())
+			if integer, ok := intOrNone(raw); ok {
+				object.Set(field, value.Int(integer))
+			} else {
+				object.Set(field, value.Null())
+			}
 		}
 	}
 	return nil
+}
+
+// intOrNone mirrors pinned yt_dlp.utils.int_or_none for typed metadata values
+// representable by value.Value. Results outside int64 become absent (null).
+func intOrNone(raw value.Value) (int64, bool) {
+	switch raw.Kind() {
+	case value.KindNull, value.KindMissing:
+		return 0, false
+	case value.KindBool:
+		boolean, _ := raw.Bool()
+		if boolean {
+			return 1, true
+		}
+		return 0, true
+	case value.KindInt:
+		integer, _ := raw.Int()
+		return integer, true
+	case value.KindFloat:
+		floating, _ := raw.Float()
+		if math.IsNaN(floating) || math.IsInf(floating, 0) {
+			return 0, false
+		}
+		if floating >= float64(math.MaxInt64) || floating < float64(math.MinInt64) {
+			return 0, false
+		}
+		return int64(floating), true
+	case value.KindString:
+		text, _ := raw.StringValue()
+		return parsePythonInt(text)
+	default:
+		return 0, false
+	}
+}
+
+func parsePythonInt(text string) (int64, bool) {
+	trimmed := strings.TrimFunc(text, unicode.IsSpace)
+	if trimmed == "" {
+		return 0, false
+	}
+	sign := int64(1)
+	switch trimmed[0] {
+	case '+':
+		trimmed = trimmed[1:]
+	case '-':
+		sign = -1
+		trimmed = trimmed[1:]
+	}
+	if trimmed == "" {
+		return 0, false
+	}
+	var digits []byte
+	lastWasDigit := false
+	for _, r := range trimmed {
+		if r == '_' {
+			if !lastWasDigit {
+				return 0, false
+			}
+			lastWasDigit = false
+			continue
+		}
+		digit, ok := decimalDigit(r)
+		if !ok {
+			return 0, false
+		}
+		digits = append(digits, byte('0'+digit))
+		lastWasDigit = true
+	}
+	if !lastWasDigit || len(digits) == 0 {
+		return 0, false
+	}
+	magnitude, err := strconv.ParseUint(string(digits), 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	if sign > 0 {
+		if magnitude > uint64(math.MaxInt64) {
+			return 0, false
+		}
+		return int64(magnitude), true
+	}
+	if magnitude > uint64(math.MaxInt64)+1 {
+		return 0, false
+	}
+	if magnitude == uint64(math.MaxInt64)+1 {
+		return math.MinInt64, true
+	}
+	return -int64(magnitude), true
 }
 
 func pythonStringValue(raw value.Value) (string, error) {
@@ -315,10 +429,34 @@ func rawFormatIDText(raw value.Value) (string, bool, error) {
 	return text, true, nil
 }
 
+func decimalDigit(r rune) (int, bool) {
+	if r >= '0' && r <= '9' {
+		return int(r - '0'), true
+	}
+	if !unicode.Is(unicode.Nd, r) {
+		return 0, false
+	}
+	if r <= 0xffff {
+		for _, rng := range unicode.Nd.R16 {
+			if uint16(r) < rng.Lo || uint16(r) > rng.Hi || rng.Stride != 1 {
+				continue
+			}
+			return int(uint16(r)-rng.Lo) % 10, true
+		}
+	}
+	for _, rng := range unicode.Nd.R32 {
+		if uint32(r) < rng.Lo || uint32(r) > rng.Hi || rng.Stride != 1 {
+			continue
+		}
+		return int(uint32(r)-rng.Lo) % 10, true
+	}
+	return 0, false
+}
+
 func sanitizeFormatID(id string) string {
 	out := make([]rune, 0, len(id))
 	for _, r := range id {
-		if unicode.IsSpace(r) {
+		if isPythonRegexWhitespace(r) {
 			out = append(out, '_')
 			continue
 		}
@@ -330,6 +468,16 @@ func sanitizeFormatID(id string) string {
 		}
 	}
 	return string(out)
+}
+
+// isPythonRegexWhitespace matches Python 3 re \s (UNICODE), including the
+// ASCII file-separator controls U+001C through U+001F that unicode.IsSpace omits.
+func isPythonRegexWhitespace(r rune) bool {
+	switch r {
+	case '\t', '\n', '\v', '\f', '\r', ' ', '\x1c', '\x1d', '\x1e', '\x1f':
+		return true
+	}
+	return unicode.IsSpace(r)
 }
 
 func lookupExt(object *value.Object) string {
