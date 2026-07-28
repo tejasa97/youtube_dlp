@@ -9,7 +9,7 @@
       "yt_dlp/utils/_utils.py:5114-5122 MEDIA_EXTENSIONS",
       "test/test_YoutubeDL.py TestFormatSelection"
     ],
-    "python_version": "CPython 3.9.6"
+    "python_version": "CPython 3.12.13"
   },
   "limits": {
     "formats": 4096,
@@ -475,18 +475,6 @@
     ],
     "coercion": [
       {
-        "source": 1,
-        "format": {
-          "format_id": "True",
-          "url": "https://example.invalid/high",
-          "ext": "webm",
-          "vcodec": "vp9",
-          "acodec": "none",
-          "preference": 2,
-          "height": 1080
-        }
-      },
-      {
         "source": 0,
         "format": {
           "format_id": "42",
@@ -494,8 +482,20 @@
           "ext": "mp4",
           "vcodec": "avc1",
           "acodec": "none",
-          "preference": 1,
+          "preference": "1",
           "height": 720
+        }
+      },
+      {
+        "source": 1,
+        "format": {
+          "format_id": "True",
+          "url": "https://example.invalid/high",
+          "ext": "webm",
+          "vcodec": "vp9",
+          "acodec": "none",
+          "preference": "2",
+          "height": 1080
         }
       }
     ]

@@ -1186,6 +1186,9 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	if err != nil {
 		return Result{}, err
 	}
+	// Metadata actions and deferred enrichment mutate the canonical Info after
+	// Prepare; rebind evaluation objects so selection matches InfoJSON.
+	preparedFormats = preparedFormats.SyncInfo(info)
 	var selectedFormats []mediaformat.Selection
 	var outputPlans []mediaformat.OutputPlan
 	needsInteractiveFormat := interactiveDecision.interactive != interactiveMatchFilterNone

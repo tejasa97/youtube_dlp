@@ -18,10 +18,13 @@ The Go preparation stage deep-clones extractor metadata and follows the pinned
 pre-selection order:
 
 1. Remove disallowed DRM formats and formats with missing or empty URLs.
-2. Coerce scalar `format_id` values and applicable numeric sorting fields.
+2. Coerce scalar `format_id` values and exact `_NUMERIC_FIELDS` entries via
+   `int_or_none`-compatible conversion (int64-bounded). Sorter preference fields
+   are not mutated during preparation.
 3. Stable-sort the surviving formats.
 4. Assign missing, null, and empty IDs from the filtered post-sort index.
-5. Replace each Unicode whitespace code point and each `, / + [ ] ( )` with `_`.
+5. Replace each Python `re` `\s` whitespace code point (including U+001C–U+001F)
+   and each `, / + [ ] ( )` with `_`.
 6. Give every member of a duplicate group `-0`, `-1`, and so on.
 7. Prefix `f` when an ID conflicts with a recognized extension selector and its
    own extension differs.
@@ -61,7 +64,7 @@ ID bytes.
 | `bounds.selector-evaluation` | Large selector results | Broader/unbounded behavior. | Parser/evaluator cap AST depth, filters, merge terms, products, and outputs. | `limit.output-count` and parser-limit tests | Deliberate safety gap | Retain bounded evaluation. |
 | `metadata.mutation` | Processing ownership | Python mutates retained format dictionaries. | Go recursively clones formats and preserves the original `value.Info`. | Normalization and product tests | Deliberate safety gap | Nonmutation is a required API guarantee. |
 | `normalization.pre-filter` | DRM and malformed URLs | Removes disallowed DRM and missing/empty-URL formats before sorting and IDs. | Matches pinned order while retaining original source indexes. | `drm.*`, `url-filter.*` | Passing parity | Guard `all`, direct IDs, and generated indexes. |
-| `normalization.scalar-coercion` | `format_id` and numeric fields | Coerces non-string IDs and applicable numeric fields before sorting. | Bounded scalar coercion matches pinned cases. | `coercion.numeric-id` | Passing parity | Numeric IDs are not a safety gap. |
+| `normalization.scalar-coercion` | `format_id` and `_NUMERIC_FIELDS` | Coerces non-string IDs and `_NUMERIC_FIELDS` before sorting; preference fields stay untouched. | Bounded scalar coercion matches pinned cases; string `preference` is retained. | `coercion.numeric-id`, `int_or_none` oracle | Passing parity | Numeric IDs are not a safety gap; preference coercion is not claimed. |
 | `product.canonical-info` | Selection/listing/printing/results | All post-normalization consumers see the processed formats. | A single defensive prepared `Info` feeds selection, tables, prints, simulate/skip results, and `InfoJSON`. | `TestFormatNormalizationCanonicalAcrossProductSurfaces` | Closed | Do not independently normalize product surfaces. |
 | `metadata.malformed` | Invalid collection/member/structured-ID shapes | May fail later with a runtime exception or arbitrary stringification. | Invalid collections and unsupported structured IDs return `ErrInvalidFormats`. | `malformed.*` | Deliberate safety gap | Keep bounded typed validation while coercing pinned scalar IDs. |
 | `normalization.residual-collision` | Duplicate/extension rewrite | One pass can leave duplicate final IDs. | Matches the one-pass result while carrying source identity separately. | `normalize.duplicates`, `normalize.extension-conflict` | Passing parity | Preserve until the pinned baseline changes. |

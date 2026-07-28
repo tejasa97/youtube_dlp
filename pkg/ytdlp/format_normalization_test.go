@@ -224,6 +224,54 @@ func TestFormatNormalizationCanonicalAcrossProductSurfaces(t *testing.T) {
 	})
 }
 
+func TestFormatNormalizationReplaceMetadataURLCoherentWithSelection(t *testing.T) {
+	// Implicit top-level format: ReplaceMetadata mutates canonical url after
+	// Prepare. InfoJSON and selection must observe the same URL.
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("implicit")},
+		value.Field{Key: "title", Value: value.String("Implicit")},
+		value.Field{Key: "url", Value: value.String("https://example.invalid/original")},
+		value.Field{Key: "ext", Value: value.String("mp4")},
+		value.Field{Key: "vcodec", Value: value.String("avc1")},
+		value.Field{Key: "acodec", Value: value.String("aac")},
+	))
+	request := Request{
+		Simulate:        true,
+		Format:          "best",
+		ReplaceMetadata: []string{`url:original:replaced`},
+		PrintRules: []PrintRule{
+			{Stage: PrintVideo, Template: "%(url)s"},
+		},
+	}
+	compatibility, err := prepareCompatibility(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := &operation{client: NewClient(), request: request, compatibility: compatibility}
+	result, err := operation.processMedia(context.Background(), extractor.Media(info), "fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(result.InfoJSON, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded["url"] != "https://example.invalid/replaced" {
+		t.Fatalf("InfoJSON url = %#v", decoded["url"])
+	}
+	if len(result.Prints) == 0 || result.Prints[len(result.Prints)-1].Text != "https://example.invalid/replaced" {
+		t.Fatalf("selection/print url = %#v", result.Prints)
+	}
+	before, err := json.Marshal(info.Fields())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Extractor-owned info must remain unchanged.
+	if url, _ := info.Lookup("url").StringValue(); url != "https://example.invalid/original" {
+		t.Fatalf("extractor info mutated: %s", before)
+	}
+}
+
 func TestFormatNormalizationErrorsCategorizedInternal(t *testing.T) {
 	for _, sentinel := range []error{mediaformat.ErrInvalidFormats, mediaformat.ErrFormatLimit} {
 		wrapped := fmt.Errorf("context: %w", sentinel)
