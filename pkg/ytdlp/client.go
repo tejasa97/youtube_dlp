@@ -1516,7 +1516,7 @@ func categorized(op string, err error) error {
 		errors.Is(err, matchfilter.ErrInvalidFilter), errors.Is(err, matchfilter.ErrEvaluation),
 		errors.Is(err, matchfilter.ErrEvaluationLimit), errors.Is(err, compatmetadata.ErrInvalidAction),
 		errors.Is(err, progress.ErrInvalidProgress), errors.Is(err, mediaformat.ErrInvalidSelector),
-		errors.Is(err, mediaformat.ErrNoMatch),
+		errors.Is(err, mediaformat.ErrNoMatch), errors.Is(err, mediaformat.ErrFilterEvaluation),
 		errors.Is(err, mediaformat.ErrInvalidPreference), errors.Is(err, mediaformat.ErrInvalidHeaders),
 		errors.Is(err, mediaformat.ErrSelectorLimit),
 		errors.Is(err, downloader.ErrDestinationExists), errors.Is(err, downloader.ErrUnsafeDestination),

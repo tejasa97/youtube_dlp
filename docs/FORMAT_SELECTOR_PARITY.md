@@ -44,8 +44,17 @@ the selector instead. Single-character OP tokens such as `!`, `$`, `?`, and
 digits (for example `²` and Roman numerals) are accepted as in pinned NAME
 tokens. Extension-atom recognition uses the exact pinned `_format_selection_exts`
 set; tokens outside that set parse as direct IDs. Negated filter operators
-(`!^=`, `!$=`, `!*=`, `!~=`) parse but their evaluation is deferred to the
-filter-parity phase.
+(`!^=`, `!$=`, `!*=`, `!~=`) parse and evaluate with pinned none-inclusive and
+missing-field semantics. Regex filters use a bounded Python-`re` compatibility
+adapter over `regexp2` (search semantics, named groups/backrefs, look-around,
+conditionals, scoped/global flags, Python Unicode classes/names/case folding,
+atomic groups, and possessive quantifiers). The adapter caps source patterns at
+4 KiB, translated patterns at 16 KiB, capture groups and nesting at 64, regex
+predicates at 32 per selector AST, and input strings at 64 KiB. A selection plan
+also has aggregate attempt, inspected-byte, wall-time, and per-match timeout
+budgets. Resource exhaustion returns `ErrSelectorLimit`; it is never treated as
+a non-match. The complete Unicode 15.0.0 name/alias table is embedded at build
+time, so production and tests do not invoke Python or access the network.
 
 ## Normalization contract
 
@@ -85,11 +94,11 @@ ID bytes.
 |---|---|---|---|---|---|---|
 | `atom.plain-best-combined` | `best` / `worst` | Plain atoms require/score the pinned combined-format universe. | Historical playable-universe scoring remains. | `gap.plain-best-combined` | Known gap | Do not change selection algorithms in this PR. |
 | `operator.all-order` | `all` | Emits the ordered candidate list in reverse. | Preserves forward extractor order. | `gap.all-order` | Intentional deviation | Keep deterministic Go order until the selector algorithm parity phase. |
-| `filter.negated-string` | `!^=`, `!$=`, `!*=`, `!~=` | Parses and evaluates negated string operators. | Parser accepts the syntax; evaluation remains deferred. | `gap.negated-prefix` | Known gap (parser-only) | Implementation is the filter-parity phase's responsibility. |
-| `filter.none-inclusive` | `?` missing-value modifier | Includes missing metadata according to the operator. | Token shape may parse, but none-inclusive matching is not implemented. | `gap.none-inclusive` | Open | Add with explicit missing-value tests later. |
-| `filter.quoted-escapes` | Quoted filter values | Applies pinned escape processing. | Removes matching outer quotes only. | `gap.quoted-escape` | Open | Keep bounded parser unchanged here. |
-| `filter.field-syntax` | Filter field names | Accepts the broader upstream field syntax. | Accepts letters, digits, and underscores only. | `gap.field-syntax` | Open | Broaden only with a separate parser review. |
-| `filter.regex-engine` | `~=` | Uses Python regular expressions. | Uses bounded Go RE2; look-around and backreferences are unavailable. | Existing selector regex tests | Product constraint | Retain RE2 safety semantics. |
+| `filter.negated-string` | `!^=`, `!$=`, `!*=`, `!~=` | Parses and evaluates negated string operators. | Parses and evaluates with pinned missing/`?` semantics. | `filter.negated-prefix`, filter oracle | Passing parity | Closed in the filter-parity phase. |
+| `filter.none-inclusive` | `?` missing-value modifier | Includes missing metadata according to the operator. | Missing/null pass only when `?` is present. | `filter.none-inclusive`, filter oracle | Passing parity | Closed in the filter-parity phase. |
+| `filter.quoted-escapes` | Quoted filter values | Unescapes only `\\`, `\"`, and `\'` for non-regex values. | Matches pinned unescape rules; regex values keep capture escapes. | `filter.quoted-escape`, filter oracle | Passing parity | Closed in the filter-parity phase. |
+| `filter.field-syntax` | Filter field names | Numeric keys allow Unicode `\w` plus `.`/`-`; string keys are ASCII. | Matches pinned key grammars; grammar selection is from filter text. | `filter.field-syntax`, filter oracle | Passing parity | Closed in the filter-parity phase. |
+| `filter.regex-engine` | `~=` | Uses Python regular expressions (search semantics). | Bounded Python-`re` adapter over `regexp2` default mode with translation/validation and resource limits. | `filter.regex`, python regex oracle | Passing parity | Timeouts/budgets return `ErrSelectorLimit`, never silent false. |
 | `sort.conversion` | Sort aliases and limits | Implements upstream codec/container aliases and conversion rules. | Compares the currently supported raw numeric/string fields; colon-limit behavior is incomplete. | `gap.sort-colon-limit` | Open | Address in a dedicated sort-parity PR. |
 | `extension.exact-recognition` | Bare extension atoms | Pinned `_format_selection_exts` per `yt_dlp/utils/_utils.py`. | Parser recognizes the exact pinned media-extension set. | `parser.extension-boundary-direct-id`, extension-tagged corpus cases | Passing parity | The Go extension map is now byte-for-byte the pinned selection set; tokens outside the set parse as direct IDs. |
 | `direct-id.discarded-punctuation` | Direct-format IDs containing `# \ ' "` | Pinned Python comments `#...` away or token-errors on `\ ' "`. | Parser rejects the token with a syntax error. | `parser.direct-id-discarded-punctuation` | Deliberate safety gap for `#`; parity rejection for `\ ' "` | Failing closed avoids silently selecting a different ID for comments. |

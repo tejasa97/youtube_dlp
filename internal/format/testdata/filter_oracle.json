@@ -1,0 +1,2694 @@
+{
+  "schema_version": 1,
+  "reference": {
+    "repository": "https://github.com/yt-dlp/yt-dlp",
+    "commit": "aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8",
+    "python_version": "CPython 3.12.13",
+    "source": "yt_dlp/YoutubeDL.py:2205-2270 _build_format_filter",
+    "derivation": "CPython 3.12.13 conformance/compat/format_selector/capture_filter_oracle.py --reference <pinned-yt-dlp-checkout> --commit aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8 --write"
+  },
+  "objects": [
+    {
+      "id": "empty",
+      "fields": {}
+    },
+    {
+      "id": "null_missing",
+      "fields": {
+        "missing": null
+      }
+    },
+    {
+      "id": "missing_x",
+      "fields": {
+        "missing": "x"
+      }
+    },
+    {
+      "id": "missing_y",
+      "fields": {
+        "missing": "y"
+      }
+    },
+    {
+      "id": "fid_aa",
+      "fields": {
+        "format_id": "aa"
+      }
+    },
+    {
+      "id": "fid_dash",
+      "fields": {
+        "format_id": "dash-low"
+      }
+    },
+    {
+      "id": "fid_quote",
+      "fields": {
+        "format_id": "a\"b"
+      }
+    },
+    {
+      "id": "fid_slash",
+      "fields": {
+        "format_id": "a\\b"
+      }
+    },
+    {
+      "id": "size_1000",
+      "fields": {
+        "filesize": 1000
+      }
+    },
+    {
+      "id": "size_1024",
+      "fields": {
+        "filesize": 1024
+      }
+    },
+    {
+      "id": "size_1m",
+      "fields": {
+        "filesize": 1000000
+      }
+    },
+    {
+      "id": "size_1mi",
+      "fields": {
+        "filesize": 1048576
+      }
+    },
+    {
+      "id": "size_1500",
+      "fields": {
+        "filesize": 1500
+      }
+    },
+    {
+      "id": "size_2500",
+      "fields": {
+        "filesize": 2500
+      }
+    },
+    {
+      "id": "size_2p53_plus1",
+      "fields": {
+        "filesize": 9007199254740993
+      }
+    },
+    {
+      "id": "height_720",
+      "fields": {
+        "height": 720
+      }
+    },
+    {
+      "id": "height_str",
+      "fields": {
+        "height": "720"
+      }
+    },
+    {
+      "id": "dot_field",
+      "fields": {
+        "field.with-dot": "value"
+      }
+    }
+  ],
+  "cases": [
+    {
+      "id": "filter:filesize <= ? 3000",
+      "spec": "filesize <= ? 3000",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": true
+        },
+        {
+          "object_id": "null_missing",
+          "matched": true
+        },
+        {
+          "object_id": "missing_x",
+          "matched": true
+        },
+        {
+          "object_id": "missing_y",
+          "matched": true
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": true
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": true
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": true
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": true
+        },
+        {
+          "object_id": "size_1000",
+          "matched": true
+        },
+        {
+          "object_id": "size_1024",
+          "matched": true
+        },
+        {
+          "object_id": "size_1m",
+          "matched": false
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": false
+        },
+        {
+          "object_id": "size_1500",
+          "matched": true
+        },
+        {
+          "object_id": "size_2500",
+          "matched": true
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": false
+        },
+        {
+          "object_id": "height_720",
+          "matched": true
+        },
+        {
+          "object_id": "height_str",
+          "matched": true
+        },
+        {
+          "object_id": "dot_field",
+          "matched": true
+        }
+      ]
+    },
+    {
+      "id": "filter:filesize>?1",
+      "spec": "filesize>?1",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": true
+        },
+        {
+          "object_id": "null_missing",
+          "matched": true
+        },
+        {
+          "object_id": "missing_x",
+          "matched": true
+        },
+        {
+          "object_id": "missing_y",
+          "matched": true
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": true
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": true
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": true
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": true
+        },
+        {
+          "object_id": "size_1000",
+          "matched": true
+        },
+        {
+          "object_id": "size_1024",
+          "matched": true
+        },
+        {
+          "object_id": "size_1m",
+          "matched": true
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": true
+        },
+        {
+          "object_id": "size_1500",
+          "matched": true
+        },
+        {
+          "object_id": "size_2500",
+          "matched": true
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": true
+        },
+        {
+          "object_id": "height_720",
+          "matched": true
+        },
+        {
+          "object_id": "height_str",
+          "matched": true
+        },
+        {
+          "object_id": "dot_field",
+          "matched": true
+        }
+      ]
+    },
+    {
+      "id": "filter:filesize<1M",
+      "spec": "filesize<1M",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": false
+        },
+        {
+          "object_id": "null_missing",
+          "matched": false
+        },
+        {
+          "object_id": "missing_x",
+          "matched": false
+        },
+        {
+          "object_id": "missing_y",
+          "matched": false
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": false
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": false
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": false
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": false
+        },
+        {
+          "object_id": "size_1000",
+          "matched": true
+        },
+        {
+          "object_id": "size_1024",
+          "matched": true
+        },
+        {
+          "object_id": "size_1m",
+          "matched": false
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": false
+        },
+        {
+          "object_id": "size_1500",
+          "matched": true
+        },
+        {
+          "object_id": "size_2500",
+          "matched": true
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": false
+        },
+        {
+          "object_id": "height_720",
+          "matched": false
+        },
+        {
+          "object_id": "height_str",
+          "matched": false
+        },
+        {
+          "object_id": "dot_field",
+          "matched": false
+        }
+      ]
+    },
+    {
+      "id": "filter:filesize<1MiB",
+      "spec": "filesize<1MiB",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": false
+        },
+        {
+          "object_id": "null_missing",
+          "matched": false
+        },
+        {
+          "object_id": "missing_x",
+          "matched": false
+        },
+        {
+          "object_id": "missing_y",
+          "matched": false
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": false
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": false
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": false
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": false
+        },
+        {
+          "object_id": "size_1000",
+          "matched": true
+        },
+        {
+          "object_id": "size_1024",
+          "matched": true
+        },
+        {
+          "object_id": "size_1m",
+          "matched": true
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": false
+        },
+        {
+          "object_id": "size_1500",
+          "matched": true
+        },
+        {
+          "object_id": "size_2500",
+          "matched": true
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": false
+        },
+        {
+          "object_id": "height_720",
+          "matched": false
+        },
+        {
+          "object_id": "height_str",
+          "matched": false
+        },
+        {
+          "object_id": "dot_field",
+          "matched": false
+        }
+      ]
+    },
+    {
+      "id": "filter:filesize=1KB",
+      "spec": "filesize=1KB",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": false
+        },
+        {
+          "object_id": "null_missing",
+          "matched": false
+        },
+        {
+          "object_id": "missing_x",
+          "matched": false
+        },
+        {
+          "object_id": "missing_y",
+          "matched": false
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": false
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": false
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": false
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": false
+        },
+        {
+          "object_id": "size_1000",
+          "matched": true
+        },
+        {
+          "object_id": "size_1024",
+          "matched": false
+        },
+        {
+          "object_id": "size_1m",
+          "matched": false
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": false
+        },
+        {
+          "object_id": "size_1500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": false
+        },
+        {
+          "object_id": "height_720",
+          "matched": false
+        },
+        {
+          "object_id": "height_str",
+          "matched": false
+        },
+        {
+          "object_id": "dot_field",
+          "matched": false
+        }
+      ]
+    },
+    {
+      "id": "filter:filesize=1kB",
+      "spec": "filesize=1kB",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": false
+        },
+        {
+          "object_id": "null_missing",
+          "matched": false
+        },
+        {
+          "object_id": "missing_x",
+          "matched": false
+        },
+        {
+          "object_id": "missing_y",
+          "matched": false
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": false
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": false
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": false
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": false
+        },
+        {
+          "object_id": "size_1000",
+          "matched": false
+        },
+        {
+          "object_id": "size_1024",
+          "matched": true
+        },
+        {
+          "object_id": "size_1m",
+          "matched": false
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": false
+        },
+        {
+          "object_id": "size_1500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": false
+        },
+        {
+          "object_id": "height_720",
+          "matched": false
+        },
+        {
+          "object_id": "height_str",
+          "matched": false
+        },
+        {
+          "object_id": "dot_field",
+          "matched": false
+        }
+      ]
+    },
+    {
+      "id": "filter:filesize=1Kb",
+      "spec": "filesize=1Kb",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": false
+        },
+        {
+          "object_id": "null_missing",
+          "matched": false
+        },
+        {
+          "object_id": "missing_x",
+          "matched": false
+        },
+        {
+          "object_id": "missing_y",
+          "matched": false
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": false
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": false
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": false
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": false
+        },
+        {
+          "object_id": "size_1000",
+          "matched": true
+        },
+        {
+          "object_id": "size_1024",
+          "matched": false
+        },
+        {
+          "object_id": "size_1m",
+          "matched": false
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": false
+        },
+        {
+          "object_id": "size_1500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": false
+        },
+        {
+          "object_id": "height_720",
+          "matched": false
+        },
+        {
+          "object_id": "height_str",
+          "matched": false
+        },
+        {
+          "object_id": "dot_field",
+          "matched": false
+        }
+      ]
+    },
+    {
+      "id": "filter:filesize=1KiB",
+      "spec": "filesize=1KiB",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": false
+        },
+        {
+          "object_id": "null_missing",
+          "matched": false
+        },
+        {
+          "object_id": "missing_x",
+          "matched": false
+        },
+        {
+          "object_id": "missing_y",
+          "matched": false
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": false
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": false
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": false
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": false
+        },
+        {
+          "object_id": "size_1000",
+          "matched": false
+        },
+        {
+          "object_id": "size_1024",
+          "matched": true
+        },
+        {
+          "object_id": "size_1m",
+          "matched": false
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": false
+        },
+        {
+          "object_id": "size_1500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": false
+        },
+        {
+          "object_id": "height_720",
+          "matched": false
+        },
+        {
+          "object_id": "height_str",
+          "matched": false
+        },
+        {
+          "object_id": "dot_field",
+          "matched": false
+        }
+      ]
+    },
+    {
+      "id": "filter:filesize=1.5GiB",
+      "spec": "filesize=1.5GiB",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": false
+        },
+        {
+          "object_id": "null_missing",
+          "matched": false
+        },
+        {
+          "object_id": "missing_x",
+          "matched": false
+        },
+        {
+          "object_id": "missing_y",
+          "matched": false
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": false
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": false
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": false
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": false
+        },
+        {
+          "object_id": "size_1000",
+          "matched": false
+        },
+        {
+          "object_id": "size_1024",
+          "matched": false
+        },
+        {
+          "object_id": "size_1m",
+          "matched": false
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": false
+        },
+        {
+          "object_id": "size_1500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": false
+        },
+        {
+          "object_id": "height_720",
+          "matched": false
+        },
+        {
+          "object_id": "height_str",
+          "matched": false
+        },
+        {
+          "object_id": "dot_field",
+          "matched": false
+        }
+      ]
+    },
+    {
+      "id": "filter:filesize=1.5KB",
+      "spec": "filesize=1.5KB",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": false
+        },
+        {
+          "object_id": "null_missing",
+          "matched": false
+        },
+        {
+          "object_id": "missing_x",
+          "matched": false
+        },
+        {
+          "object_id": "missing_y",
+          "matched": false
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": false
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": false
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": false
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": false
+        },
+        {
+          "object_id": "size_1000",
+          "matched": false
+        },
+        {
+          "object_id": "size_1024",
+          "matched": false
+        },
+        {
+          "object_id": "size_1m",
+          "matched": false
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": false
+        },
+        {
+          "object_id": "size_1500",
+          "matched": true
+        },
+        {
+          "object_id": "size_2500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": false
+        },
+        {
+          "object_id": "height_720",
+          "matched": false
+        },
+        {
+          "object_id": "height_str",
+          "matched": false
+        },
+        {
+          "object_id": "dot_field",
+          "matched": false
+        }
+      ]
+    },
+    {
+      "id": "filter:filesize=2.5KB",
+      "spec": "filesize=2.5KB",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": false
+        },
+        {
+          "object_id": "null_missing",
+          "matched": false
+        },
+        {
+          "object_id": "missing_x",
+          "matched": false
+        },
+        {
+          "object_id": "missing_y",
+          "matched": false
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": false
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": false
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": false
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": false
+        },
+        {
+          "object_id": "size_1000",
+          "matched": false
+        },
+        {
+          "object_id": "size_1024",
+          "matched": false
+        },
+        {
+          "object_id": "size_1m",
+          "matched": false
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": false
+        },
+        {
+          "object_id": "size_1500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2500",
+          "matched": true
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": false
+        },
+        {
+          "object_id": "height_720",
+          "matched": false
+        },
+        {
+          "object_id": "height_str",
+          "matched": false
+        },
+        {
+          "object_id": "dot_field",
+          "matched": false
+        }
+      ]
+    },
+    {
+      "id": "filter:filesize=1M",
+      "spec": "filesize=1M",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": false
+        },
+        {
+          "object_id": "null_missing",
+          "matched": false
+        },
+        {
+          "object_id": "missing_x",
+          "matched": false
+        },
+        {
+          "object_id": "missing_y",
+          "matched": false
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": false
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": false
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": false
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": false
+        },
+        {
+          "object_id": "size_1000",
+          "matched": false
+        },
+        {
+          "object_id": "size_1024",
+          "matched": false
+        },
+        {
+          "object_id": "size_1m",
+          "matched": true
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": false
+        },
+        {
+          "object_id": "size_1500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": false
+        },
+        {
+          "object_id": "height_720",
+          "matched": false
+        },
+        {
+          "object_id": "height_str",
+          "matched": false
+        },
+        {
+          "object_id": "dot_field",
+          "matched": false
+        }
+      ]
+    },
+    {
+      "id": "filter:filesize=1Mi",
+      "spec": "filesize=1Mi",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": false
+        },
+        {
+          "object_id": "null_missing",
+          "matched": false
+        },
+        {
+          "object_id": "missing_x",
+          "matched": false
+        },
+        {
+          "object_id": "missing_y",
+          "matched": false
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": false
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": false
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": false
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": false
+        },
+        {
+          "object_id": "size_1000",
+          "matched": false
+        },
+        {
+          "object_id": "size_1024",
+          "matched": false
+        },
+        {
+          "object_id": "size_1m",
+          "matched": false
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": true
+        },
+        {
+          "object_id": "size_1500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": false
+        },
+        {
+          "object_id": "height_720",
+          "matched": false
+        },
+        {
+          "object_id": "height_str",
+          "matched": false
+        },
+        {
+          "object_id": "dot_field",
+          "matched": false
+        }
+      ]
+    },
+    {
+      "id": "filter:filesize=1YB",
+      "spec": "filesize=1YB",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": false
+        },
+        {
+          "object_id": "null_missing",
+          "matched": false
+        },
+        {
+          "object_id": "missing_x",
+          "matched": false
+        },
+        {
+          "object_id": "missing_y",
+          "matched": false
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": false
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": false
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": false
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": false
+        },
+        {
+          "object_id": "size_1000",
+          "matched": false
+        },
+        {
+          "object_id": "size_1024",
+          "matched": false
+        },
+        {
+          "object_id": "size_1m",
+          "matched": false
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": false
+        },
+        {
+          "object_id": "size_1500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": false
+        },
+        {
+          "object_id": "height_720",
+          "matched": false
+        },
+        {
+          "object_id": "height_str",
+          "matched": false
+        },
+        {
+          "object_id": "dot_field",
+          "matched": false
+        }
+      ]
+    },
+    {
+      "id": "filter:filesize=1YiB",
+      "spec": "filesize=1YiB",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": false
+        },
+        {
+          "object_id": "null_missing",
+          "matched": false
+        },
+        {
+          "object_id": "missing_x",
+          "matched": false
+        },
+        {
+          "object_id": "missing_y",
+          "matched": false
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": false
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": false
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": false
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": false
+        },
+        {
+          "object_id": "size_1000",
+          "matched": false
+        },
+        {
+          "object_id": "size_1024",
+          "matched": false
+        },
+        {
+          "object_id": "size_1m",
+          "matched": false
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": false
+        },
+        {
+          "object_id": "size_1500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": false
+        },
+        {
+          "object_id": "height_720",
+          "matched": false
+        },
+        {
+          "object_id": "height_str",
+          "matched": false
+        },
+        {
+          "object_id": "dot_field",
+          "matched": false
+        }
+      ]
+    },
+    {
+      "id": "filter:filesize=1ZiB",
+      "spec": "filesize=1ZiB",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": false
+        },
+        {
+          "object_id": "null_missing",
+          "matched": false
+        },
+        {
+          "object_id": "missing_x",
+          "matched": false
+        },
+        {
+          "object_id": "missing_y",
+          "matched": false
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": false
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": false
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": false
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": false
+        },
+        {
+          "object_id": "size_1000",
+          "matched": false
+        },
+        {
+          "object_id": "size_1024",
+          "matched": false
+        },
+        {
+          "object_id": "size_1m",
+          "matched": false
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": false
+        },
+        {
+          "object_id": "size_1500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": false
+        },
+        {
+          "object_id": "height_720",
+          "matched": false
+        },
+        {
+          "object_id": "height_str",
+          "matched": false
+        },
+        {
+          "object_id": "dot_field",
+          "matched": false
+        }
+      ]
+    },
+    {
+      "id": "filter:filesize=1e3",
+      "spec": "filesize=1e3",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": false
+        },
+        {
+          "object_id": "null_missing",
+          "matched": false
+        },
+        {
+          "object_id": "missing_x",
+          "matched": false
+        },
+        {
+          "object_id": "missing_y",
+          "matched": false
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": false
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": false
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": false
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": false
+        },
+        {
+          "object_id": "size_1000",
+          "matched": false
+        },
+        {
+          "object_id": "size_1024",
+          "matched": false
+        },
+        {
+          "object_id": "size_1m",
+          "matched": false
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": false
+        },
+        {
+          "object_id": "size_1500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": false
+        },
+        {
+          "object_id": "height_720",
+          "matched": false
+        },
+        {
+          "object_id": "height_str",
+          "matched": false
+        },
+        {
+          "object_id": "dot_field",
+          "matched": false
+        }
+      ]
+    },
+    {
+      "id": "filter:filesize=9007199254740993",
+      "spec": "filesize=9007199254740993",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": false
+        },
+        {
+          "object_id": "null_missing",
+          "matched": false
+        },
+        {
+          "object_id": "missing_x",
+          "matched": false
+        },
+        {
+          "object_id": "missing_y",
+          "matched": false
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": false
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": false
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": false
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": false
+        },
+        {
+          "object_id": "size_1000",
+          "matched": false
+        },
+        {
+          "object_id": "size_1024",
+          "matched": false
+        },
+        {
+          "object_id": "size_1m",
+          "matched": false
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": false
+        },
+        {
+          "object_id": "size_1500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": false
+        },
+        {
+          "object_id": "height_720",
+          "matched": false
+        },
+        {
+          "object_id": "height_str",
+          "matched": false
+        },
+        {
+          "object_id": "dot_field",
+          "matched": false
+        }
+      ]
+    },
+    {
+      "id": "filter:filesize=-1",
+      "spec": "filesize=-1",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": false
+        },
+        {
+          "object_id": "null_missing",
+          "matched": false
+        },
+        {
+          "object_id": "missing_x",
+          "matched": false
+        },
+        {
+          "object_id": "missing_y",
+          "matched": false
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": false
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": false
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": false
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": false
+        },
+        {
+          "object_id": "size_1000",
+          "matched": false
+        },
+        {
+          "object_id": "size_1024",
+          "matched": false
+        },
+        {
+          "object_id": "size_1m",
+          "matched": false
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": false
+        },
+        {
+          "object_id": "size_1500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": false
+        },
+        {
+          "object_id": "height_720",
+          "matched": false
+        },
+        {
+          "object_id": "height_str",
+          "matched": false
+        },
+        {
+          "object_id": "dot_field",
+          "matched": false
+        }
+      ]
+    },
+    {
+      "id": "filter:format_id!^=abc",
+      "spec": "format_id!^=abc",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": false
+        },
+        {
+          "object_id": "null_missing",
+          "matched": false
+        },
+        {
+          "object_id": "missing_x",
+          "matched": false
+        },
+        {
+          "object_id": "missing_y",
+          "matched": false
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": true
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": true
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": true
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": true
+        },
+        {
+          "object_id": "size_1000",
+          "matched": false
+        },
+        {
+          "object_id": "size_1024",
+          "matched": false
+        },
+        {
+          "object_id": "size_1m",
+          "matched": false
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": false
+        },
+        {
+          "object_id": "size_1500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": false
+        },
+        {
+          "object_id": "height_720",
+          "matched": false
+        },
+        {
+          "object_id": "height_str",
+          "matched": false
+        },
+        {
+          "object_id": "dot_field",
+          "matched": false
+        }
+      ]
+    },
+    {
+      "id": "filter:format_id=\"a\\\"b\"",
+      "spec": "format_id=\"a\\\"b\"",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": false
+        },
+        {
+          "object_id": "null_missing",
+          "matched": false
+        },
+        {
+          "object_id": "missing_x",
+          "matched": false
+        },
+        {
+          "object_id": "missing_y",
+          "matched": false
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": false
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": false
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": true
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": false
+        },
+        {
+          "object_id": "size_1000",
+          "matched": false
+        },
+        {
+          "object_id": "size_1024",
+          "matched": false
+        },
+        {
+          "object_id": "size_1m",
+          "matched": false
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": false
+        },
+        {
+          "object_id": "size_1500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": false
+        },
+        {
+          "object_id": "height_720",
+          "matched": false
+        },
+        {
+          "object_id": "height_str",
+          "matched": false
+        },
+        {
+          "object_id": "dot_field",
+          "matched": false
+        }
+      ]
+    },
+    {
+      "id": "filter:format_id=\"a\\\\b\"",
+      "spec": "format_id=\"a\\\\b\"",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": false
+        },
+        {
+          "object_id": "null_missing",
+          "matched": false
+        },
+        {
+          "object_id": "missing_x",
+          "matched": false
+        },
+        {
+          "object_id": "missing_y",
+          "matched": false
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": false
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": false
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": false
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": true
+        },
+        {
+          "object_id": "size_1000",
+          "matched": false
+        },
+        {
+          "object_id": "size_1024",
+          "matched": false
+        },
+        {
+          "object_id": "size_1m",
+          "matched": false
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": false
+        },
+        {
+          "object_id": "size_1500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": false
+        },
+        {
+          "object_id": "height_720",
+          "matched": false
+        },
+        {
+          "object_id": "height_str",
+          "matched": false
+        },
+        {
+          "object_id": "dot_field",
+          "matched": false
+        }
+      ]
+    },
+    {
+      "id": "filter:missing != x",
+      "spec": "missing != x",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": false
+        },
+        {
+          "object_id": "null_missing",
+          "matched": false
+        },
+        {
+          "object_id": "missing_x",
+          "matched": false
+        },
+        {
+          "object_id": "missing_y",
+          "matched": true
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": false
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": false
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": false
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": false
+        },
+        {
+          "object_id": "size_1000",
+          "matched": false
+        },
+        {
+          "object_id": "size_1024",
+          "matched": false
+        },
+        {
+          "object_id": "size_1m",
+          "matched": false
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": false
+        },
+        {
+          "object_id": "size_1500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": false
+        },
+        {
+          "object_id": "height_720",
+          "matched": false
+        },
+        {
+          "object_id": "height_str",
+          "matched": false
+        },
+        {
+          "object_id": "dot_field",
+          "matched": false
+        }
+      ]
+    },
+    {
+      "id": "filter:missing != ? x",
+      "spec": "missing != ? x",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": true
+        },
+        {
+          "object_id": "null_missing",
+          "matched": true
+        },
+        {
+          "object_id": "missing_x",
+          "matched": false
+        },
+        {
+          "object_id": "missing_y",
+          "matched": true
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": true
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": true
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": true
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": true
+        },
+        {
+          "object_id": "size_1000",
+          "matched": true
+        },
+        {
+          "object_id": "size_1024",
+          "matched": true
+        },
+        {
+          "object_id": "size_1m",
+          "matched": true
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": true
+        },
+        {
+          "object_id": "size_1500",
+          "matched": true
+        },
+        {
+          "object_id": "size_2500",
+          "matched": true
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": true
+        },
+        {
+          "object_id": "height_720",
+          "matched": true
+        },
+        {
+          "object_id": "height_str",
+          "matched": true
+        },
+        {
+          "object_id": "dot_field",
+          "matched": true
+        }
+      ]
+    },
+    {
+      "id": "filter:missing = ? x",
+      "spec": "missing = ? x",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": true
+        },
+        {
+          "object_id": "null_missing",
+          "matched": true
+        },
+        {
+          "object_id": "missing_x",
+          "matched": true
+        },
+        {
+          "object_id": "missing_y",
+          "matched": false
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": true
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": true
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": true
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": true
+        },
+        {
+          "object_id": "size_1000",
+          "matched": true
+        },
+        {
+          "object_id": "size_1024",
+          "matched": true
+        },
+        {
+          "object_id": "size_1m",
+          "matched": true
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": true
+        },
+        {
+          "object_id": "size_1500",
+          "matched": true
+        },
+        {
+          "object_id": "size_2500",
+          "matched": true
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": true
+        },
+        {
+          "object_id": "height_720",
+          "matched": true
+        },
+        {
+          "object_id": "height_str",
+          "matched": true
+        },
+        {
+          "object_id": "dot_field",
+          "matched": true
+        }
+      ]
+    },
+    {
+      "id": "filter:field.with-dot=value",
+      "spec": "field.with-dot=value",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": false
+        },
+        {
+          "object_id": "null_missing",
+          "matched": false
+        },
+        {
+          "object_id": "missing_x",
+          "matched": false
+        },
+        {
+          "object_id": "missing_y",
+          "matched": false
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": false
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": false
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": false
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": false
+        },
+        {
+          "object_id": "size_1000",
+          "matched": false
+        },
+        {
+          "object_id": "size_1024",
+          "matched": false
+        },
+        {
+          "object_id": "size_1m",
+          "matched": false
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": false
+        },
+        {
+          "object_id": "size_1500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": false
+        },
+        {
+          "object_id": "height_720",
+          "matched": false
+        },
+        {
+          "object_id": "height_str",
+          "matched": false
+        },
+        {
+          "object_id": "dot_field",
+          "matched": true
+        }
+      ]
+    },
+    {
+      "id": "filter:format_id=123",
+      "spec": "format_id=123",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": false
+        },
+        {
+          "object_id": "null_missing",
+          "matched": false
+        },
+        {
+          "object_id": "missing_x",
+          "matched": false
+        },
+        {
+          "object_id": "missing_y",
+          "matched": false
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": false
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": false
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": false
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": false
+        },
+        {
+          "object_id": "size_1000",
+          "matched": false
+        },
+        {
+          "object_id": "size_1024",
+          "matched": false
+        },
+        {
+          "object_id": "size_1m",
+          "matched": false
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": false
+        },
+        {
+          "object_id": "size_1500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": false
+        },
+        {
+          "object_id": "height_720",
+          "matched": false
+        },
+        {
+          "object_id": "height_str",
+          "matched": false
+        },
+        {
+          "object_id": "dot_field",
+          "matched": false
+        }
+      ]
+    },
+    {
+      "id": "filter:height=720",
+      "spec": "height=720",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": false
+        },
+        {
+          "object_id": "null_missing",
+          "matched": false
+        },
+        {
+          "object_id": "missing_x",
+          "matched": false
+        },
+        {
+          "object_id": "missing_y",
+          "matched": false
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": false
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": false
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": false
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": false
+        },
+        {
+          "object_id": "size_1000",
+          "matched": false
+        },
+        {
+          "object_id": "size_1024",
+          "matched": false
+        },
+        {
+          "object_id": "size_1m",
+          "matched": false
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": false
+        },
+        {
+          "object_id": "size_1500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": false
+        },
+        {
+          "object_id": "height_720",
+          "matched": true
+        },
+        {
+          "object_id": "height_str",
+          "matched": false
+        },
+        {
+          "object_id": "dot_field",
+          "matched": false
+        }
+      ]
+    },
+    {
+      "id": "filter:height>700",
+      "spec": "height>700",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": false
+        },
+        {
+          "object_id": "null_missing",
+          "matched": false
+        },
+        {
+          "object_id": "missing_x",
+          "matched": false
+        },
+        {
+          "object_id": "missing_y",
+          "matched": false
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": false
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": false
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": false
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": false
+        },
+        {
+          "object_id": "size_1000",
+          "matched": false
+        },
+        {
+          "object_id": "size_1024",
+          "matched": false
+        },
+        {
+          "object_id": "size_1m",
+          "matched": false
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": false
+        },
+        {
+          "object_id": "size_1500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": false
+        },
+        {
+          "object_id": "height_720",
+          "matched": true
+        },
+        {
+          "object_id": "height_str",
+          "error": "TypeError"
+        },
+        {
+          "object_id": "dot_field",
+          "matched": false
+        }
+      ]
+    },
+    {
+      "id": "filter:format_id~=\"^(?P<x>a)(?P=x)$\"",
+      "spec": "format_id~=\"^(?P<x>a)(?P=x)$\"",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": false
+        },
+        {
+          "object_id": "null_missing",
+          "matched": false
+        },
+        {
+          "object_id": "missing_x",
+          "matched": false
+        },
+        {
+          "object_id": "missing_y",
+          "matched": false
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": true
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": false
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": false
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": false
+        },
+        {
+          "object_id": "size_1000",
+          "matched": false
+        },
+        {
+          "object_id": "size_1024",
+          "matched": false
+        },
+        {
+          "object_id": "size_1m",
+          "matched": false
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": false
+        },
+        {
+          "object_id": "size_1500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": false
+        },
+        {
+          "object_id": "height_720",
+          "matched": false
+        },
+        {
+          "object_id": "height_str",
+          "matched": false
+        },
+        {
+          "object_id": "dot_field",
+          "matched": false
+        }
+      ]
+    },
+    {
+      "id": "filter:format_id!~=\"^(?!dash)\"",
+      "spec": "format_id!~=\"^(?!dash)\"",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": false
+        },
+        {
+          "object_id": "null_missing",
+          "matched": false
+        },
+        {
+          "object_id": "missing_x",
+          "matched": false
+        },
+        {
+          "object_id": "missing_y",
+          "matched": false
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": false
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": true
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": false
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": false
+        },
+        {
+          "object_id": "size_1000",
+          "matched": false
+        },
+        {
+          "object_id": "size_1024",
+          "matched": false
+        },
+        {
+          "object_id": "size_1m",
+          "matched": false
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": false
+        },
+        {
+          "object_id": "size_1500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": false
+        },
+        {
+          "object_id": "height_720",
+          "matched": false
+        },
+        {
+          "object_id": "height_str",
+          "matched": false
+        },
+        {
+          "object_id": "dot_field",
+          "matched": false
+        }
+      ]
+    },
+    {
+      "id": "filter:format_id~=\"(?<=dash)-low$\"",
+      "spec": "format_id~=\"(?<=dash)-low$\"",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": false
+        },
+        {
+          "object_id": "null_missing",
+          "matched": false
+        },
+        {
+          "object_id": "missing_x",
+          "matched": false
+        },
+        {
+          "object_id": "missing_y",
+          "matched": false
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": false
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": true
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": false
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": false
+        },
+        {
+          "object_id": "size_1000",
+          "matched": false
+        },
+        {
+          "object_id": "size_1024",
+          "matched": false
+        },
+        {
+          "object_id": "size_1m",
+          "matched": false
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": false
+        },
+        {
+          "object_id": "size_1500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": false
+        },
+        {
+          "object_id": "height_720",
+          "matched": false
+        },
+        {
+          "object_id": "height_str",
+          "matched": false
+        },
+        {
+          "object_id": "dot_field",
+          "matched": false
+        }
+      ]
+    },
+    {
+      "id": "filter:filesize=9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999",
+      "spec": "filesize=9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999",
+      "results": [
+        {
+          "object_id": "empty",
+          "matched": false
+        },
+        {
+          "object_id": "null_missing",
+          "matched": false
+        },
+        {
+          "object_id": "missing_x",
+          "matched": false
+        },
+        {
+          "object_id": "missing_y",
+          "matched": false
+        },
+        {
+          "object_id": "fid_aa",
+          "matched": false
+        },
+        {
+          "object_id": "fid_dash",
+          "matched": false
+        },
+        {
+          "object_id": "fid_quote",
+          "matched": false
+        },
+        {
+          "object_id": "fid_slash",
+          "matched": false
+        },
+        {
+          "object_id": "size_1000",
+          "matched": false
+        },
+        {
+          "object_id": "size_1024",
+          "matched": false
+        },
+        {
+          "object_id": "size_1m",
+          "matched": false
+        },
+        {
+          "object_id": "size_1mi",
+          "matched": false
+        },
+        {
+          "object_id": "size_1500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2500",
+          "matched": false
+        },
+        {
+          "object_id": "size_2p53_plus1",
+          "matched": false
+        },
+        {
+          "object_id": "height_720",
+          "matched": false
+        },
+        {
+          "object_id": "height_str",
+          "matched": false
+        },
+        {
+          "object_id": "dot_field",
+          "matched": false
+        }
+      ]
+    }
+  ]
+}

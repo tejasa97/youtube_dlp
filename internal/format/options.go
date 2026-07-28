@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,6 +15,11 @@ import (
 const (
 	maxSortFields = 32
 	maxRegexBytes = 4096
+)
+
+var (
+	fieldPattern    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	formatIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 )
 
 var ErrInvalidPreference = errors.New("invalid format preference")

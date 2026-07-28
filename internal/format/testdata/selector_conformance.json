@@ -1845,7 +1845,7 @@
         "regex"
       ],
       "format_set": "basic",
-      "selector": "b[ext~=webm|mp4]",
+      "selector": "b[ext~=\"webm|mp4\"]",
       "options": {},
       "expected": {
         "plans": [
@@ -2659,86 +2659,88 @@
       "expected_normalized_set": "basic"
     },
     {
-      "id": "gap.negated-prefix",
+      "id": "filter.negated-prefix",
       "features": [
-        "gap",
+        "filter",
         "negated-filter"
       ],
       "format_set": "basic",
       "selector": "best[ext!^=mp]",
       "options": {},
       "expected": {
-        "error": "ErrNoMatch"
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720"
+              }
+            ]
+          }
+        ]
       },
       "parity": {
-        "status": "known_gap",
-        "reason": "Negated operators now parse, but their evaluation is deferred to the filter parity phase.",
-        "reference_expected": {
-          "track_source": 1
-        }
+        "status": "passing"
       },
       "expected_normalized_set": "basic"
     },
     {
-      "id": "gap.none-inclusive",
+      "id": "filter.none-inclusive",
       "features": [
-        "gap",
+        "filter",
         "none-inclusive-filter"
       ],
       "format_set": "basic",
       "selector": "best[height<=?720]",
       "options": {},
       "expected": {
-        "error": "ErrNoMatch"
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720"
+              }
+            ]
+          }
+        ]
       },
       "parity": {
-        "status": "known_gap",
-        "reason": "None-inclusive ? filter syntax is not parsed.",
-        "reference_expected": {
-          "track_source": 1
-        }
+        "status": "passing"
       },
       "expected_normalized_set": "basic"
     },
     {
-      "id": "gap.quoted-escape",
+      "id": "filter.quoted-escape",
       "features": [
-        "gap",
+        "filter",
         "quoted-escape"
       ],
       "format_set": "basic",
-      "selector": "best[format_id=\"audio\\_high\"]",
+      "selector": "best[format_id=\"a\\\"b\"]",
       "options": {},
       "expected": {
         "error": "ErrNoMatch"
       },
       "parity": {
-        "status": "known_gap",
-        "reason": "Go strips outer quotes without implementing Python escape processing.",
-        "reference_expected": {
-          "track_source": 3
-        }
+        "status": "passing"
       },
       "expected_normalized_set": "basic"
     },
     {
-      "id": "gap.field-syntax",
+      "id": "filter.field-syntax",
       "features": [
-        "gap",
+        "filter",
         "filter-field"
       ],
       "format_set": "basic",
       "selector": "best[format.id=720]",
       "options": {},
       "expected": {
-        "error": "ErrInvalidSelector"
+        "error": "ErrNoMatch"
       },
       "parity": {
-        "status": "known_gap",
-        "reason": "Go filter field names do not accept dots or hyphens.",
-        "reference_expected": {
-          "track_source": 1
-        }
+        "status": "passing"
       },
       "expected_normalized_set": "basic"
     },
