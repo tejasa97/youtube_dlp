@@ -44,11 +44,14 @@ Intentional unsupported syntax is explicit rather than silently approximated:
   Interactive filtering is rejected with `--progress-json` so its stderr
   stream stays valid JSON. Python regular-expression semantics and unbounded
   expressions remain unsupported.
-- Format filters do not implement every yt-dlp selector atom, codec/container
-  preference alias, filesize approximation, or advanced sort field conversion.
-  Plain `best`/`worst` without a media type keep the port's historical
-  quality-first playable selection for pinned compatibility fixtures; typed
-  `bestvideo`/`bestaudio`/star atoms follow yt-dlp predicates.
+- Format filters implement the pinned numeric/string operators, none-inclusive
+  semantics, SI/IEC values, quoted escapes, and bounded Python-compatible regex
+  search. FormatSorter implements the pinned field composition, aliases,
+  codec/container/HDR/protocol/language rankings, exact and approximate
+  filesize, derived values, limits, and stable mixed-type ordering. Plain
+  `best`/`worst`, `all`, defaults, and multistream suppression still use the
+  pre-PR-5 evaluator behavior; product execution still rejects unsupported
+  track layouts before media transfer.
 - Templates implement bounded arithmetic and Unicode `U` conversions
   (including `#`/`+` flags), but do not implement object slicing, arbitrary
   traversal operators, the wider Python format mini-language, or arbitrary
