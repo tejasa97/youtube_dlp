@@ -1,0 +1,2766 @@
+{
+  "schema_version": 1,
+  "reference": {
+    "repository": "https://github.com/yt-dlp/yt-dlp",
+    "commit": "aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8",
+    "sources": [
+      "yt_dlp/YoutubeDL.py:2577-2651 build_format_selector",
+      "yt_dlp/YoutubeDL.py:2996-3028 format ordering and ID normalization",
+      "yt_dlp/utils/_utils.py:5114-5122 MEDIA_EXTENSIONS",
+      "test/test_YoutubeDL.py TestFormatSelection"
+    ],
+    "python_version": "CPython 3.9.6"
+  },
+  "limits": {
+    "formats": 4096,
+    "id_bytes": 16384,
+    "total_id_bytes": 4194304
+  },
+  "format_sets": {
+    "basic": [
+      {
+        "format_id": "360",
+        "url": "https://example.invalid/360",
+        "ext": "mp4",
+        "vcodec": "avc1",
+        "acodec": "none",
+        "height": 360,
+        "tbr": 500
+      },
+      {
+        "format_id": "720",
+        "url": "https://example.invalid/720",
+        "ext": "webm",
+        "vcodec": "vp9",
+        "acodec": "none",
+        "height": 720,
+        "tbr": 1500
+      },
+      {
+        "format_id": "audio_low",
+        "url": "https://example.invalid/audio-low",
+        "ext": "m4a",
+        "vcodec": "none",
+        "acodec": "aac",
+        "tbr": 64
+      },
+      {
+        "format_id": "audio_high",
+        "url": "https://example.invalid/audio-high",
+        "ext": "m4a",
+        "vcodec": "none",
+        "acodec": "aac",
+        "tbr": 128
+      }
+    ],
+    "muxed": [
+      {
+        "format_id": "mux",
+        "url": "https://example.invalid/mux",
+        "ext": "mp4",
+        "vcodec": "avc1",
+        "acodec": "aac",
+        "height": 1080
+      }
+    ],
+    "storyboard": [
+      {
+        "format_id": "board",
+        "url": "https://example.invalid/board",
+        "ext": "mhtml",
+        "vcodec": "none",
+        "acodec": "none"
+      }
+    ],
+    "drm": [
+      {
+        "format_id": "drm",
+        "url": "https://example.invalid/drm",
+        "ext": "mp4",
+        "vcodec": "avc1",
+        "acodec": "aac",
+        "has_drm": true
+      },
+      {
+        "url": "https://example.invalid/clear",
+        "ext": "mp4",
+        "vcodec": "avc1",
+        "acodec": "aac"
+      }
+    ],
+    "special": [
+      {
+        "url": "https://example.invalid/missing",
+        "ext": "webm",
+        "vcodec": "vp9",
+        "acodec": "none"
+      },
+      {
+        "format_id": null,
+        "url": "https://example.invalid/null",
+        "ext": "webm",
+        "vcodec": "vp9",
+        "acodec": "none"
+      },
+      {
+        "format_id": "",
+        "url": "https://example.invalid/empty",
+        "ext": "webm",
+        "vcodec": "vp9",
+        "acodec": "none"
+      },
+      {
+        "format_id": "a b/c,d+e[f](g)\t",
+        "url": "https://example.invalid/special",
+        "ext": "webm",
+        "vcodec": "vp9",
+        "acodec": "none",
+        "http_headers": {
+          "X-Track": "special"
+        }
+      },
+      {
+        "format_id": "x",
+        "url": "https://example.invalid/x0",
+        "ext": "webm",
+        "vcodec": "vp9",
+        "acodec": "none"
+      },
+      {
+        "format_id": "x",
+        "url": "https://example.invalid/x1",
+        "ext": "webm",
+        "vcodec": "vp9",
+        "acodec": "none"
+      },
+      {
+        "format_id": "x-0",
+        "url": "https://example.invalid/x2",
+        "ext": "webm",
+        "vcodec": "vp9",
+        "acodec": "none"
+      },
+      {
+        "format_id": "mp4",
+        "url": "https://example.invalid/mp4",
+        "ext": "webm",
+        "vcodec": "vp9",
+        "acodec": "none",
+        "http_headers": {
+          "X-Track": "prefixed"
+        }
+      },
+      {
+        "format_id": "fmp4",
+        "url": "https://example.invalid/fmp4",
+        "ext": "webm",
+        "vcodec": "vp9",
+        "acodec": "none",
+        "http_headers": {
+          "X-Track": "original"
+        }
+      }
+    ],
+    "malformed_urls": [
+      {
+        "format_id": "missing_url",
+        "ext": "mp4",
+        "vcodec": "avc1",
+        "acodec": "aac"
+      },
+      {
+        "format_id": "empty_url",
+        "url": "",
+        "ext": "mp4",
+        "vcodec": "avc1",
+        "acodec": "aac"
+      },
+      {
+        "url": "https://example.invalid/valid",
+        "ext": "mp4",
+        "vcodec": "avc1",
+        "acodec": "aac"
+      }
+    ],
+    "coercion": [
+      {
+        "format_id": 42,
+        "url": "https://example.invalid/low",
+        "ext": "mp4",
+        "vcodec": "avc1",
+        "acodec": "none",
+        "preference": "1",
+        "height": "720"
+      },
+      {
+        "format_id": true,
+        "url": "https://example.invalid/high",
+        "ext": "webm",
+        "vcodec": "vp9",
+        "acodec": "none",
+        "preference": "2",
+        "height": "1080"
+      }
+    ]
+  },
+  "normalized_sets": {
+    "basic": [
+      {
+        "source": 0,
+        "format": {
+          "format_id": "360",
+          "url": "https://example.invalid/360",
+          "ext": "mp4",
+          "vcodec": "avc1",
+          "acodec": "none",
+          "height": 360,
+          "tbr": 500
+        }
+      },
+      {
+        "source": 1,
+        "format": {
+          "format_id": "720",
+          "url": "https://example.invalid/720",
+          "ext": "webm",
+          "vcodec": "vp9",
+          "acodec": "none",
+          "height": 720,
+          "tbr": 1500
+        }
+      },
+      {
+        "source": 2,
+        "format": {
+          "format_id": "audio_low",
+          "url": "https://example.invalid/audio-low",
+          "ext": "m4a",
+          "vcodec": "none",
+          "acodec": "aac",
+          "tbr": 64
+        }
+      },
+      {
+        "source": 3,
+        "format": {
+          "format_id": "audio_high",
+          "url": "https://example.invalid/audio-high",
+          "ext": "m4a",
+          "vcodec": "none",
+          "acodec": "aac",
+          "tbr": 128
+        }
+      }
+    ],
+    "muxed": [
+      {
+        "source": 0,
+        "format": {
+          "format_id": "mux",
+          "url": "https://example.invalid/mux",
+          "ext": "mp4",
+          "vcodec": "avc1",
+          "acodec": "aac",
+          "height": 1080
+        }
+      }
+    ],
+    "storyboard": [
+      {
+        "source": 0,
+        "format": {
+          "format_id": "board",
+          "url": "https://example.invalid/board",
+          "ext": "mhtml",
+          "vcodec": "none",
+          "acodec": "none"
+        }
+      }
+    ],
+    "special": [
+      {
+        "source": 0,
+        "format": {
+          "url": "https://example.invalid/missing",
+          "ext": "webm",
+          "vcodec": "vp9",
+          "acodec": "none",
+          "format_id": "0"
+        }
+      },
+      {
+        "source": 1,
+        "format": {
+          "format_id": "1",
+          "url": "https://example.invalid/null",
+          "ext": "webm",
+          "vcodec": "vp9",
+          "acodec": "none"
+        }
+      },
+      {
+        "source": 2,
+        "format": {
+          "format_id": "2",
+          "url": "https://example.invalid/empty",
+          "ext": "webm",
+          "vcodec": "vp9",
+          "acodec": "none"
+        }
+      },
+      {
+        "source": 3,
+        "format": {
+          "format_id": "a_b_c_d_e_f__g__",
+          "url": "https://example.invalid/special",
+          "ext": "webm",
+          "vcodec": "vp9",
+          "acodec": "none",
+          "http_headers": {
+            "X-Track": "special"
+          }
+        }
+      },
+      {
+        "source": 4,
+        "format": {
+          "format_id": "x-0",
+          "url": "https://example.invalid/x0",
+          "ext": "webm",
+          "vcodec": "vp9",
+          "acodec": "none"
+        }
+      },
+      {
+        "source": 5,
+        "format": {
+          "format_id": "x-1",
+          "url": "https://example.invalid/x1",
+          "ext": "webm",
+          "vcodec": "vp9",
+          "acodec": "none"
+        }
+      },
+      {
+        "source": 6,
+        "format": {
+          "format_id": "x-0",
+          "url": "https://example.invalid/x2",
+          "ext": "webm",
+          "vcodec": "vp9",
+          "acodec": "none"
+        }
+      },
+      {
+        "source": 7,
+        "format": {
+          "format_id": "fmp4",
+          "url": "https://example.invalid/mp4",
+          "ext": "webm",
+          "vcodec": "vp9",
+          "acodec": "none",
+          "http_headers": {
+            "X-Track": "prefixed"
+          }
+        }
+      },
+      {
+        "source": 8,
+        "format": {
+          "format_id": "fmp4",
+          "url": "https://example.invalid/fmp4",
+          "ext": "webm",
+          "vcodec": "vp9",
+          "acodec": "none",
+          "http_headers": {
+            "X-Track": "original"
+          }
+        }
+      }
+    ],
+    "basic_height": [
+      {
+        "source": 1,
+        "format": {
+          "format_id": "720",
+          "url": "https://example.invalid/720",
+          "ext": "webm",
+          "vcodec": "vp9",
+          "acodec": "none",
+          "height": 720,
+          "tbr": 1500
+        }
+      },
+      {
+        "source": 0,
+        "format": {
+          "format_id": "360",
+          "url": "https://example.invalid/360",
+          "ext": "mp4",
+          "vcodec": "avc1",
+          "acodec": "none",
+          "height": 360,
+          "tbr": 500
+        }
+      },
+      {
+        "source": 2,
+        "format": {
+          "format_id": "audio_low",
+          "url": "https://example.invalid/audio-low",
+          "ext": "m4a",
+          "vcodec": "none",
+          "acodec": "aac",
+          "tbr": 64
+        }
+      },
+      {
+        "source": 3,
+        "format": {
+          "format_id": "audio_high",
+          "url": "https://example.invalid/audio-high",
+          "ext": "m4a",
+          "vcodec": "none",
+          "acodec": "aac",
+          "tbr": 128
+        }
+      }
+    ],
+    "drm_default": [
+      {
+        "source": 1,
+        "format": {
+          "url": "https://example.invalid/clear",
+          "ext": "mp4",
+          "vcodec": "avc1",
+          "acodec": "aac",
+          "format_id": "0"
+        }
+      }
+    ],
+    "drm_allowed": [
+      {
+        "source": 0,
+        "format": {
+          "format_id": "drm",
+          "url": "https://example.invalid/drm",
+          "ext": "mp4",
+          "vcodec": "avc1",
+          "acodec": "aac",
+          "has_drm": true
+        }
+      },
+      {
+        "source": 1,
+        "format": {
+          "url": "https://example.invalid/clear",
+          "ext": "mp4",
+          "vcodec": "avc1",
+          "acodec": "aac",
+          "format_id": "1"
+        }
+      }
+    ],
+    "malformed_urls": [
+      {
+        "source": 2,
+        "format": {
+          "url": "https://example.invalid/valid",
+          "ext": "mp4",
+          "vcodec": "avc1",
+          "acodec": "aac",
+          "format_id": "0"
+        }
+      }
+    ],
+    "coercion": [
+      {
+        "source": 1,
+        "format": {
+          "format_id": "True",
+          "url": "https://example.invalid/high",
+          "ext": "webm",
+          "vcodec": "vp9",
+          "acodec": "none",
+          "preference": 2,
+          "height": 1080
+        }
+      },
+      {
+        "source": 0,
+        "format": {
+          "format_id": "42",
+          "url": "https://example.invalid/low",
+          "ext": "mp4",
+          "vcodec": "avc1",
+          "acodec": "none",
+          "preference": 1,
+          "height": 720
+        }
+      }
+    ]
+  },
+  "cases": [
+    {
+      "id": "atom.best",
+      "features": [
+        "atom",
+        "best"
+      ],
+      "format_set": "basic",
+      "selector": "best",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "atom.b",
+      "features": [
+        "atom",
+        "b"
+      ],
+      "format_set": "basic",
+      "selector": "b",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "atom.worst",
+      "features": [
+        "atom",
+        "worst"
+      ],
+      "format_set": "basic",
+      "selector": "worst",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 2,
+                "id": "audio_low"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "atom.w",
+      "features": [
+        "atom",
+        "w"
+      ],
+      "format_set": "basic",
+      "selector": "w",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 2,
+                "id": "audio_low"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "atom.bestvideo",
+      "features": [
+        "atom",
+        "bestvideo"
+      ],
+      "format_set": "basic",
+      "selector": "bestvideo",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "atom.bv",
+      "features": [
+        "atom",
+        "bv"
+      ],
+      "format_set": "basic",
+      "selector": "bv",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "atom.worstvideo",
+      "features": [
+        "atom",
+        "worstvideo"
+      ],
+      "format_set": "basic",
+      "selector": "worstvideo",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 0,
+                "id": "360"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "atom.wv",
+      "features": [
+        "atom",
+        "wv"
+      ],
+      "format_set": "basic",
+      "selector": "wv",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 0,
+                "id": "360"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "atom.bestaudio",
+      "features": [
+        "atom",
+        "bestaudio"
+      ],
+      "format_set": "basic",
+      "selector": "bestaudio",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 3,
+                "id": "audio_high"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "atom.ba",
+      "features": [
+        "atom",
+        "ba"
+      ],
+      "format_set": "basic",
+      "selector": "ba",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 3,
+                "id": "audio_high"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "atom.worstaudio",
+      "features": [
+        "atom",
+        "worstaudio"
+      ],
+      "format_set": "basic",
+      "selector": "worstaudio",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 2,
+                "id": "audio_low"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "atom.wa",
+      "features": [
+        "atom",
+        "wa"
+      ],
+      "format_set": "basic",
+      "selector": "wa",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 2,
+                "id": "audio_low"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "atom.best_star",
+      "features": [
+        "atom",
+        "best*"
+      ],
+      "format_set": "basic",
+      "selector": "best*",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "atom.b_star",
+      "features": [
+        "atom",
+        "b*"
+      ],
+      "format_set": "basic",
+      "selector": "b*",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "atom.worst_star",
+      "features": [
+        "atom",
+        "worst*"
+      ],
+      "format_set": "basic",
+      "selector": "worst*",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 2,
+                "id": "audio_low"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "atom.w_star",
+      "features": [
+        "atom",
+        "w*"
+      ],
+      "format_set": "basic",
+      "selector": "w*",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 2,
+                "id": "audio_low"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "atom.bestvideo_star",
+      "features": [
+        "atom",
+        "bestvideo*"
+      ],
+      "format_set": "basic",
+      "selector": "bestvideo*",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "atom.bv_star",
+      "features": [
+        "atom",
+        "bv*"
+      ],
+      "format_set": "basic",
+      "selector": "bv*",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "atom.worstvideo_star",
+      "features": [
+        "atom",
+        "worstvideo*"
+      ],
+      "format_set": "basic",
+      "selector": "worstvideo*",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 0,
+                "id": "360"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "atom.wv_star",
+      "features": [
+        "atom",
+        "wv*"
+      ],
+      "format_set": "basic",
+      "selector": "wv*",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 0,
+                "id": "360"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "atom.bestaudio_star",
+      "features": [
+        "atom",
+        "bestaudio*"
+      ],
+      "format_set": "basic",
+      "selector": "bestaudio*",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 3,
+                "id": "audio_high"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "atom.ba_star",
+      "features": [
+        "atom",
+        "ba*"
+      ],
+      "format_set": "basic",
+      "selector": "ba*",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 3,
+                "id": "audio_high"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "atom.worstaudio_star",
+      "features": [
+        "atom",
+        "worstaudio*"
+      ],
+      "format_set": "basic",
+      "selector": "worstaudio*",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 2,
+                "id": "audio_low"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "atom.wa_star",
+      "features": [
+        "atom",
+        "wa*"
+      ],
+      "format_set": "basic",
+      "selector": "wa*",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 2,
+                "id": "audio_low"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "atom.best_dot2",
+      "features": [
+        "atom",
+        "best.2"
+      ],
+      "format_set": "basic",
+      "selector": "best.2",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 0,
+                "id": "360"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "atom.bv_dot2",
+      "features": [
+        "atom",
+        "bv.2"
+      ],
+      "format_set": "basic",
+      "selector": "bv.2",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 0,
+                "id": "360"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "atom.ba_dot2",
+      "features": [
+        "atom",
+        "ba.2"
+      ],
+      "format_set": "basic",
+      "selector": "ba.2",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 2,
+                "id": "audio_low"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "direct.id",
+      "features": [
+        "direct-id"
+      ],
+      "format_set": "basic",
+      "selector": "720",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720",
+                "url": "https://example.invalid/720",
+                "ext": "webm",
+                "vcodec": "vp9",
+                "acodec": "none"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "direct.unknown",
+      "features": [
+        "direct-id",
+        "no-match"
+      ],
+      "format_set": "basic",
+      "selector": "missing",
+      "options": {},
+      "expected": {
+        "error": "ErrNoMatch"
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "extension.video",
+      "features": [
+        "extension",
+        "video"
+      ],
+      "format_set": "basic",
+      "selector": "mp4",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 0,
+                "id": "360"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "extension.audio",
+      "features": [
+        "extension",
+        "audio"
+      ],
+      "format_set": "basic",
+      "selector": "m4a",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 3,
+                "id": "audio_high"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "extension.storyboard",
+      "features": [
+        "extension",
+        "storyboard"
+      ],
+      "format_set": "storyboard",
+      "selector": "mhtml",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 0,
+                "id": "board"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "storyboard"
+    },
+    {
+      "id": "operator.merge",
+      "features": [
+        "operator",
+        "merge"
+      ],
+      "format_set": "basic",
+      "selector": "bv+ba",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720"
+              },
+              {
+                "source": 3,
+                "id": "audio_high"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "operator.fallback",
+      "features": [
+        "operator",
+        "fallback"
+      ],
+      "format_set": "basic",
+      "selector": "bv[height>9000]/bv",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "operator.comma",
+      "features": [
+        "operator",
+        "comma"
+      ],
+      "format_set": "basic",
+      "selector": "bv,ba",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720"
+              }
+            ]
+          },
+          {
+            "tracks": [
+              {
+                "source": 3,
+                "id": "audio_high"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "operator.precedence",
+      "features": [
+        "operator",
+        "precedence"
+      ],
+      "format_set": "basic",
+      "selector": "bv+ba/b",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720"
+              },
+              {
+                "source": 3,
+                "id": "audio_high"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "operator.grouping",
+      "features": [
+        "operator",
+        "group"
+      ],
+      "format_set": "basic",
+      "selector": "(bv+ba)/b",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720"
+              },
+              {
+                "source": 3,
+                "id": "audio_high"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "operator.all",
+      "features": [
+        "atom",
+        "all"
+      ],
+      "format_set": "basic",
+      "selector": "all",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 0,
+                "id": "360"
+              }
+            ]
+          },
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720"
+              }
+            ]
+          },
+          {
+            "tracks": [
+              {
+                "source": 2,
+                "id": "audio_low"
+              }
+            ]
+          },
+          {
+            "tracks": [
+              {
+                "source": 3,
+                "id": "audio_high"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "operator.mergeall",
+      "features": [
+        "atom",
+        "mergeall"
+      ],
+      "format_set": "basic",
+      "selector": "mergeall",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 3,
+                "id": "audio_high"
+              },
+              {
+                "source": 2,
+                "id": "audio_low"
+              },
+              {
+                "source": 1,
+                "id": "720"
+              },
+              {
+                "source": 0,
+                "id": "360"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "filter.eq",
+      "features": [
+        "filter",
+        "eq"
+      ],
+      "format_set": "basic",
+      "selector": "bv[height=720]",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "filter.neq",
+      "features": [
+        "filter",
+        "neq"
+      ],
+      "format_set": "basic",
+      "selector": "bv[height!=720]",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 0,
+                "id": "360"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "filter.gt",
+      "features": [
+        "filter",
+        "gt"
+      ],
+      "format_set": "basic",
+      "selector": "bv[height>360]",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "filter.gte",
+      "features": [
+        "filter",
+        "gte"
+      ],
+      "format_set": "basic",
+      "selector": "bv[height>=720]",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "filter.lt",
+      "features": [
+        "filter",
+        "lt"
+      ],
+      "format_set": "basic",
+      "selector": "bv[height<720]",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 0,
+                "id": "360"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "filter.lte",
+      "features": [
+        "filter",
+        "lte"
+      ],
+      "format_set": "basic",
+      "selector": "bv[height<=720]",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "filter.prefix",
+      "features": [
+        "filter",
+        "prefix"
+      ],
+      "format_set": "basic",
+      "selector": "bv[vcodec^=av]",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 0,
+                "id": "360"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "filter.suffix",
+      "features": [
+        "filter",
+        "suffix"
+      ],
+      "format_set": "basic",
+      "selector": "ba[format_id$=high]",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 3,
+                "id": "audio_high"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "filter.contains",
+      "features": [
+        "filter",
+        "contains"
+      ],
+      "format_set": "basic",
+      "selector": "b[ext*=ebm]",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "filter.regex",
+      "features": [
+        "filter",
+        "regex"
+      ],
+      "format_set": "basic",
+      "selector": "b[ext~=webm|mp4]",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "filter.quoted-double",
+      "features": [
+        "filter",
+        "quoted-double"
+      ],
+      "format_set": "basic",
+      "selector": "b[vcodec=\"vp9\"]",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "filter.quoted-single",
+      "features": [
+        "filter",
+        "quoted-single"
+      ],
+      "format_set": "basic",
+      "selector": "b[vcodec='vp9']",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "filter.leading",
+      "features": [
+        "filter",
+        "leading"
+      ],
+      "format_set": "basic",
+      "selector": "[format_id=audio_high]",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 3,
+                "id": "audio_high"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "filter.chained",
+      "features": [
+        "filter",
+        "chained"
+      ],
+      "format_set": "basic",
+      "selector": "bv[ext=mp4][height>=720]",
+      "options": {},
+      "expected": {
+        "error": "ErrNoMatch"
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "normalize.generated-missing",
+      "features": [
+        "normalization",
+        "missing-id"
+      ],
+      "format_set": "special",
+      "selector": "0",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 0,
+                "id": "0"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "special"
+    },
+    {
+      "id": "normalize.sanitized",
+      "features": [
+        "normalization",
+        "unsafe-characters",
+        "unicode-whitespace"
+      ],
+      "format_set": "special",
+      "selector": "a_b_c_d_e_f__g__",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 3,
+                "id": "a_b_c_d_e_f__g__",
+                "headers": {
+                  "X-Track": "special"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "special"
+    },
+    {
+      "id": "normalize.duplicates",
+      "features": [
+        "normalization",
+        "duplicates",
+        "residual-collision"
+      ],
+      "format_set": "special",
+      "selector": "all",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 0,
+                "id": "0"
+              }
+            ]
+          },
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "1"
+              }
+            ]
+          },
+          {
+            "tracks": [
+              {
+                "source": 2,
+                "id": "2"
+              }
+            ]
+          },
+          {
+            "tracks": [
+              {
+                "source": 3,
+                "id": "a_b_c_d_e_f__g__",
+                "headers": {
+                  "X-Track": "special"
+                }
+              }
+            ]
+          },
+          {
+            "tracks": [
+              {
+                "source": 4,
+                "id": "x-0"
+              }
+            ]
+          },
+          {
+            "tracks": [
+              {
+                "source": 5,
+                "id": "x-1"
+              }
+            ]
+          },
+          {
+            "tracks": [
+              {
+                "source": 6,
+                "id": "x-0"
+              }
+            ]
+          },
+          {
+            "tracks": [
+              {
+                "source": 7,
+                "id": "fmp4",
+                "headers": {
+                  "X-Track": "prefixed"
+                }
+              }
+            ]
+          },
+          {
+            "tracks": [
+              {
+                "source": 8,
+                "id": "fmp4",
+                "headers": {
+                  "X-Track": "original"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "special"
+    },
+    {
+      "id": "normalize.extension-conflict",
+      "features": [
+        "normalization",
+        "extension-conflict"
+      ],
+      "format_set": "special",
+      "selector": "fmp4",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 7,
+                "id": "fmp4",
+                "headers": {
+                  "X-Track": "prefixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "special"
+    },
+    {
+      "id": "metadata.muxed",
+      "features": [
+        "media",
+        "muxed",
+        "metadata"
+      ],
+      "format_set": "muxed",
+      "selector": "best",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 0,
+                "id": "mux",
+                "url": "https://example.invalid/mux",
+                "ext": "mp4",
+                "vcodec": "avc1",
+                "acodec": "aac"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "muxed"
+    },
+    {
+      "id": "drm.default",
+      "features": [
+        "media",
+        "drm",
+        "normalization-order"
+      ],
+      "format_set": "drm",
+      "selector": "best",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "0"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "drm_default"
+    },
+    {
+      "id": "drm.allowed",
+      "features": [
+        "media",
+        "drm",
+        "allow"
+      ],
+      "format_set": "drm",
+      "selector": "best",
+      "options": {
+        "allow_drm": true
+      },
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 0,
+                "id": "drm"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "drm_allowed"
+    },
+    {
+      "id": "syntax.unclosed-filter",
+      "features": [
+        "syntax-error"
+      ],
+      "format_set": "basic",
+      "selector": "best[",
+      "options": {},
+      "expected": {
+        "error": "ErrInvalidSelector"
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "syntax.empty-branch",
+      "features": [
+        "syntax-error"
+      ],
+      "format_set": "basic",
+      "selector": "best/",
+      "options": {},
+      "expected": {
+        "error": "ErrInvalidSelector"
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "syntax.bad-index",
+      "features": [
+        "syntax-error"
+      ],
+      "format_set": "basic",
+      "selector": "best.0",
+      "options": {},
+      "expected": {
+        "error": "ErrInvalidSelector"
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "drm.all-excludes-disallowed",
+      "features": [
+        "drm",
+        "all",
+        "pre-id-filter"
+      ],
+      "format_set": "drm",
+      "selector": "all",
+      "options": {},
+      "expected_normalized_set": "drm_default",
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "0"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      }
+    },
+    {
+      "id": "drm.direct-id-excludes-disallowed",
+      "features": [
+        "drm",
+        "direct-id",
+        "pre-id-filter"
+      ],
+      "format_set": "drm",
+      "selector": "drm",
+      "options": {},
+      "expected_normalized_set": "drm_default",
+      "expected": {
+        "error": "ErrNoMatch"
+      },
+      "parity": {
+        "status": "passing"
+      }
+    },
+    {
+      "id": "url-filter.all",
+      "features": [
+        "malformed-url",
+        "all",
+        "pre-id-filter"
+      ],
+      "format_set": "malformed_urls",
+      "selector": "all",
+      "options": {},
+      "expected_normalized_set": "malformed_urls",
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 2,
+                "id": "0"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      }
+    },
+    {
+      "id": "url-filter.direct-missing",
+      "features": [
+        "malformed-url",
+        "direct-id"
+      ],
+      "format_set": "malformed_urls",
+      "selector": "missing_url",
+      "options": {},
+      "expected_normalized_set": "malformed_urls",
+      "expected": {
+        "error": "ErrNoMatch"
+      },
+      "parity": {
+        "status": "passing"
+      }
+    },
+    {
+      "id": "url-filter.direct-empty",
+      "features": [
+        "malformed-url",
+        "direct-id"
+      ],
+      "format_set": "malformed_urls",
+      "selector": "empty_url",
+      "options": {},
+      "expected_normalized_set": "malformed_urls",
+      "expected": {
+        "error": "ErrNoMatch"
+      },
+      "parity": {
+        "status": "passing"
+      }
+    },
+    {
+      "id": "malformed.non-list",
+      "features": [
+        "malformed",
+        "non-list"
+      ],
+      "input": {
+        "kind": "non_list",
+        "value": "bad"
+      },
+      "selector": "best",
+      "options": {},
+      "expected": {
+        "error": "ErrInvalidFormats"
+      },
+      "parity": {
+        "status": "deliberate_safety_gap",
+        "reason": "Go rejects malformed extractor collections predictably; pinned Python raises from later dictionary access.",
+        "reference_expected": {
+          "error": "runtime exception"
+        }
+      }
+    },
+    {
+      "id": "malformed.non-object",
+      "features": [
+        "malformed",
+        "non-object"
+      ],
+      "input": {
+        "kind": "raw_list",
+        "value": [
+          "bad"
+        ]
+      },
+      "selector": "best",
+      "options": {},
+      "expected": {
+        "error": "ErrInvalidFormats"
+      },
+      "parity": {
+        "status": "deliberate_safety_gap",
+        "reason": "Go validates every member before selection.",
+        "reference_expected": {
+          "error": "runtime exception"
+        }
+      }
+    },
+    {
+      "id": "coercion.numeric-id",
+      "features": [
+        "coercion",
+        "format-id",
+        "numeric-fields",
+        "pre-sort"
+      ],
+      "selector": "42",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 0,
+                "id": "42"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "passing"
+      },
+      "format_set": "coercion",
+      "expected_normalized_set": "coercion"
+    },
+    {
+      "id": "limit.format-count",
+      "features": [
+        "limit",
+        "format-count"
+      ],
+      "input": {
+        "kind": "generated",
+        "count": 4097,
+        "id_bytes": 1
+      },
+      "selector": "best",
+      "options": {},
+      "expected": {
+        "error": "ErrFormatLimit"
+      },
+      "parity": {
+        "status": "deliberate_safety_gap",
+        "reason": "Go bounds extractor-controlled format collections.",
+        "reference_expected": {
+          "outcome": "unbounded"
+        }
+      }
+    },
+    {
+      "id": "limit.id-bytes",
+      "features": [
+        "limit",
+        "id-bytes"
+      ],
+      "input": {
+        "kind": "generated",
+        "count": 1,
+        "id_bytes": 16385
+      },
+      "selector": "best",
+      "options": {},
+      "expected": {
+        "error": "ErrFormatLimit"
+      },
+      "parity": {
+        "status": "deliberate_safety_gap",
+        "reason": "Go bounds individual format IDs.",
+        "reference_expected": {
+          "outcome": "unbounded"
+        }
+      }
+    },
+    {
+      "id": "limit.aggregate-id-bytes",
+      "features": [
+        "limit",
+        "aggregate-id-bytes"
+      ],
+      "input": {
+        "kind": "generated",
+        "count": 257,
+        "id_bytes": 16379
+      },
+      "selector": "best",
+      "options": {},
+      "expected": {
+        "error": "ErrFormatLimit"
+      },
+      "parity": {
+        "status": "deliberate_safety_gap",
+        "reason": "Go bounds aggregate normalized ID storage.",
+        "reference_expected": {
+          "outcome": "unbounded"
+        }
+      }
+    },
+    {
+      "id": "limit.output-count",
+      "features": [
+        "limit",
+        "evaluator"
+      ],
+      "input": {
+        "kind": "generated",
+        "count": 65,
+        "id_bytes": 1
+      },
+      "selector": "all",
+      "options": {},
+      "expected": {
+        "error": "ErrSelectorLimit"
+      },
+      "parity": {
+        "status": "deliberate_safety_gap",
+        "reason": "Go caps independent output plans.",
+        "reference_expected": {
+          "plans": 65
+        }
+      }
+    },
+    {
+      "id": "gap.plain-best-combined",
+      "features": [
+        "gap",
+        "plain-best"
+      ],
+      "format_set": "basic",
+      "selector": "best",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "known_gap",
+        "reason": "Go plain best currently chooses from the playable universe instead of requiring a muxed format.",
+        "reference_expected": {
+          "error": "no matching combined format"
+        }
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "gap.all-order",
+      "features": [
+        "gap",
+        "all-order"
+      ],
+      "format_set": "basic",
+      "selector": "all",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 0,
+                "id": "360"
+              }
+            ]
+          },
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720"
+              }
+            ]
+          },
+          {
+            "tracks": [
+              {
+                "source": 2,
+                "id": "audio_low"
+              }
+            ]
+          },
+          {
+            "tracks": [
+              {
+                "source": 3,
+                "id": "audio_high"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "known_gap",
+        "reason": "Go preserves forward extractor order while pinned Python iterates all in reverse.",
+        "reference_expected": {
+          "track_sources": [
+            3,
+            2,
+            1,
+            0
+          ]
+        }
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "gap.negated-prefix",
+      "features": [
+        "gap",
+        "negated-filter"
+      ],
+      "format_set": "basic",
+      "selector": "best[ext!^=mp]",
+      "options": {},
+      "expected": {
+        "error": "ErrInvalidSelector"
+      },
+      "parity": {
+        "status": "known_gap",
+        "reason": "Negated string filter operators are not parsed.",
+        "reference_expected": {
+          "track_source": 1
+        }
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "gap.none-inclusive",
+      "features": [
+        "gap",
+        "none-inclusive-filter"
+      ],
+      "format_set": "basic",
+      "selector": "best[height<=?720]",
+      "options": {},
+      "expected": {
+        "error": "ErrNoMatch"
+      },
+      "parity": {
+        "status": "known_gap",
+        "reason": "None-inclusive ? filter syntax is not parsed.",
+        "reference_expected": {
+          "track_source": 1
+        }
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "gap.quoted-escape",
+      "features": [
+        "gap",
+        "quoted-escape"
+      ],
+      "format_set": "basic",
+      "selector": "best[format_id=\"audio\\_high\"]",
+      "options": {},
+      "expected": {
+        "error": "ErrNoMatch"
+      },
+      "parity": {
+        "status": "known_gap",
+        "reason": "Go strips outer quotes without implementing Python escape processing.",
+        "reference_expected": {
+          "track_source": 3
+        }
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "gap.field-syntax",
+      "features": [
+        "gap",
+        "filter-field"
+      ],
+      "format_set": "basic",
+      "selector": "best[format.id=720]",
+      "options": {},
+      "expected": {
+        "error": "ErrInvalidSelector"
+      },
+      "parity": {
+        "status": "known_gap",
+        "reason": "Go filter field names do not accept dots or hyphens.",
+        "reference_expected": {
+          "track_source": 1
+        }
+      },
+      "expected_normalized_set": "basic"
+    },
+    {
+      "id": "gap.sort-colon-limit",
+      "features": [
+        "gap",
+        "sort"
+      ],
+      "format_set": "basic",
+      "selector": "best",
+      "options": {
+        "sort": [
+          "height:480"
+        ]
+      },
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 1,
+                "id": "720"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "known_gap",
+        "reason": "Go records colon limits but does not apply the full pinned sort conversion model.",
+        "reference_expected": {
+          "outcome": "pinned sort conversion differs"
+        }
+      },
+      "expected_normalized_set": "basic_height"
+    },
+    {
+      "id": "gap.multistream-product",
+      "features": [
+        "gap",
+        "multistream",
+        "product-policy"
+      ],
+      "format_set": "basic",
+      "selector": "ba+wa",
+      "options": {},
+      "expected": {
+        "plans": [
+          {
+            "tracks": [
+              {
+                "source": 3,
+                "id": "audio_high"
+              },
+              {
+                "source": 2,
+                "id": "audio_low"
+              }
+            ]
+          }
+        ]
+      },
+      "parity": {
+        "status": "deliberate_safety_gap",
+        "reason": "The selector evaluator retains distinct same-kind tracks; product download policy rejects unsupported layouts later.",
+        "reference_expected": {
+          "tracks": [
+            3
+          ]
+        }
+      },
+      "expected_normalized_set": "basic"
+    }
+  ]
+}
