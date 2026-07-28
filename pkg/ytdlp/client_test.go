@@ -495,6 +495,7 @@ func TestMediaFailuresAreCategorized(t *testing.T) {
 		{dash.ErrInvalidMPD, ErrorInternal},
 		{ism.ErrInvalidManifest, ErrorInternal},
 		{mediaformat.ErrNoMatch, ErrorInvalidInput},
+		{mediaformat.ErrFilterEvaluation, ErrorInvalidInput},
 		{mediaformat.ErrNoFormats, ErrorInternal},
 	} {
 		if err := categorized("media", test.err); !IsCategory(err, test.category) {

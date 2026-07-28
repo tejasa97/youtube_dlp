@@ -24,6 +24,7 @@ type evalContext struct {
 	incomplete      bool
 	hasMergedFormat bool
 	mergeCandidates int
+	regexBudget     *regexEvalBudget
 }
 
 // PlanSelect evaluates a selector into independent output plans.
@@ -61,6 +62,7 @@ func (prepared Prepared) Plan(selector Selector) ([]OutputPlan, error) {
 		options:         prepared.options,
 		incomplete:      incompleteFormats(objects),
 		hasMergedFormat: hasMergedFormat(objects),
+		regexBudget:     newRegexEvalBudget(),
 	}
 	trackGroups, err := evaluateNode(&ctx, root)
 	if err != nil {
@@ -147,7 +149,11 @@ func evaluateNode(ctx *evalContext, node *astNode) ([][]*value.Object, error) {
 			return nil, selectorSyntax(node.span.start, node.span.end, "invalid group node")
 		}
 		childCtx := *ctx
-		childCtx.formats = filterFormats(ctx.formats, node.filters)
+		filtered, err := filterFormats(ctx.formats, node.filters, ctx.regexBudget)
+		if err != nil {
+			return nil, err
+		}
+		childCtx.formats = filtered
 		return evaluateNode(&childCtx, &node.children[0])
 	case astAtom:
 		return evaluateAtom(ctx, node)
@@ -156,17 +162,21 @@ func evaluateNode(ctx *evalContext, node *astNode) ([][]*value.Object, error) {
 	}
 }
 
-func filterFormats(formats []*value.Object, filters []Filter) []*value.Object {
+func filterFormats(formats []*value.Object, filters []Filter, budget *regexEvalBudget) ([]*value.Object, error) {
 	if len(filters) == 0 {
-		return formats
+		return formats, nil
 	}
 	filtered := make([]*value.Object, 0, len(formats))
 	for _, object := range formats {
-		if matchesFilters(object, filters) {
+		matched, err := matchesFilters(object, filters, budget)
+		if err != nil {
+			return nil, err
+		}
+		if matched {
 			filtered = append(filtered, object)
 		}
 	}
-	return filtered
+	return filtered, nil
 }
 
 func mergeTrackGroups(ctx *evalContext, left, right [][]*value.Object) ([][]*value.Object, error) {
@@ -222,13 +232,16 @@ func evaluateAtom(ctx *evalContext, node *astNode) ([][]*value.Object, error) {
 	}
 	switch spec.kind {
 	case atomAll:
-		return atomAllMatches(ctx.formats, node.filters, node.span)
+		return atomAllMatches(ctx.formats, node.filters, node.span, ctx.regexBudget)
 	case atomMergeAll:
 		var tracks []*value.Object
 		for index := len(ctx.formats) - 1; index >= 0; index-- {
 			object := ctx.formats[index]
-			if matchesFilters(object, node.filters) &&
-				(codecNotNone(object, "vcodec") || codecNotNone(object, "acodec")) {
+			matched, err := matchesFilters(object, node.filters, ctx.regexBudget)
+			if err != nil {
+				return nil, err
+			}
+			if matched && (codecNotNone(object, "vcodec") || codecNotNone(object, "acodec")) {
 				tracks = append(tracks, object)
 				if len(tracks) > maxMergeTerms {
 					return nil, selectorLimit(node.span.start, node.span.end, "too many mergeall tracks")
@@ -242,19 +255,32 @@ func evaluateAtom(ctx *evalContext, node *astNode) ([][]*value.Object, error) {
 	case atomDirectID:
 		for _, object := range ctx.formats {
 			id, _ := object.Lookup("format_id").StringValue()
-			if id == spec.text && matchesFilters(object, node.filters) {
+			if id != spec.text {
+				continue
+			}
+			matched, err := matchesFilters(object, node.filters, ctx.regexBudget)
+			if err != nil {
+				return nil, err
+			}
+			if matched {
 				return [][]*value.Object{{object}}, nil
 			}
 		}
 		return nil, nil
 	case atomExtension:
-		matches := extensionMatches(ctx, spec.text, node.filters)
+		matches, err := extensionMatches(ctx, spec.text, node.filters)
+		if err != nil {
+			return nil, err
+		}
 		if len(matches) == 0 {
 			return nil, nil
 		}
 		return [][]*value.Object{{matches[0]}}, nil
 	case atomQuality:
-		matches := qualityMatches(ctx, spec.quality, node.filters)
+		matches, err := qualityMatches(ctx, spec.quality, node.filters)
+		if err != nil {
+			return nil, err
+		}
 		if len(matches) == 0 {
 			return nil, nil
 		}
@@ -264,10 +290,14 @@ func evaluateAtom(ctx *evalContext, node *astNode) ([][]*value.Object, error) {
 	}
 }
 
-func atomAllMatches(formats []*value.Object, filters []Filter, span span) ([][]*value.Object, error) {
+func atomAllMatches(formats []*value.Object, filters []Filter, span span, budget *regexEvalBudget) ([][]*value.Object, error) {
 	var outputs [][]*value.Object
 	for _, candidate := range formats {
-		if matchesFilters(candidate, filters) {
+		matched, err := matchesFilters(candidate, filters, budget)
+		if err != nil {
+			return nil, err
+		}
+		if matched {
 			outputs = append(outputs, []*value.Object{candidate})
 			if len(outputs) > maxCommaOutputs {
 				return nil, selectorLimit(span.start, span.end, "too many all outputs")
@@ -298,12 +328,19 @@ func selectorLimit(start, end int, message string) error {
 	return fmt.Errorf("%w: %s", ErrSelectorLimit, (&SyntaxError{Start: start, End: end, Message: message}).Error())
 }
 
-func extensionMatches(ctx *evalContext, ext string, filters []Filter) []*value.Object {
+func extensionMatches(ctx *evalContext, ext string, filters []Filter) ([]*value.Object, error) {
 	video, audio, storyboard := extensionMediaKind(ext)
 	var matches []*value.Object
 	for _, object := range ctx.formats {
 		objectExt, _ := object.Lookup("ext").StringValue()
-		if objectExt != ext || !matchesFilters(object, filters) {
+		if objectExt != ext {
+			continue
+		}
+		matched, err := matchesFilters(object, filters, ctx.regexBudget)
+		if err != nil {
+			return nil, err
+		}
+		if !matched {
 			continue
 		}
 		switch {
@@ -324,7 +361,14 @@ func extensionMatches(ctx *evalContext, ext string, filters []Filter) []*value.O
 	if len(matches) == 0 && video && !ctx.hasMergedFormat {
 		for _, object := range ctx.formats {
 			objectExt, _ := object.Lookup("ext").StringValue()
-			if objectExt != ext || !matchesFilters(object, filters) {
+			if objectExt != ext {
+				continue
+			}
+			matched, err := matchesFilters(object, filters, ctx.regexBudget)
+			if err != nil {
+				return nil, err
+			}
+			if !matched {
 				continue
 			}
 			if codecNotNone(object, "vcodec") {
@@ -333,18 +377,22 @@ func extensionMatches(ctx *evalContext, ext string, filters []Filter) []*value.O
 		}
 	}
 	if len(matches) == 0 {
-		return nil
+		return nil, nil
 	}
-	return orderAtomMatches(matches, Atom{OK: true, Best: true, Index: 1}, ctx.options)
+	return orderAtomMatches(matches, Atom{OK: true, Best: true, Index: 1}, ctx.options), nil
 }
 
-func qualityMatches(ctx *evalContext, atom Atom, filters []Filter) []*value.Object {
+func qualityMatches(ctx *evalContext, atom Atom, filters []Filter) ([]*value.Object, error) {
 	if atom.indexTooLarge {
-		return nil
+		return nil, nil
 	}
 	filtered := make([]*value.Object, 0, len(ctx.formats))
 	for _, candidate := range ctx.formats {
-		if matchesFilters(candidate, filters) {
+		matched, err := matchesFilters(candidate, filters, ctx.regexBudget)
+		if err != nil {
+			return nil, err
+		}
+		if matched {
 			filtered = append(filtered, candidate)
 		}
 	}
@@ -353,7 +401,7 @@ func qualityMatches(ctx *evalContext, atom Atom, filters []Filter) []*value.Obje
 		matches = collectPlayable(filtered)
 	}
 	if len(matches) == 0 {
-		return nil
+		return nil, nil
 	}
 	ordered := orderAtomMatches(matches, atom, ctx.options)
 	index := atom.Index
@@ -361,12 +409,12 @@ func qualityMatches(ctx *evalContext, atom Atom, filters []Filter) []*value.Obje
 		index = 1
 	}
 	if index > len(ordered) {
-		return nil
+		return nil, nil
 	}
 	if atom.Best {
-		return []*value.Object{ordered[index-1]}
+		return []*value.Object{ordered[index-1]}, nil
 	}
-	return []*value.Object{ordered[len(ordered)-index]}
+	return []*value.Object{ordered[len(ordered)-index]}, nil
 }
 
 func atomAllowsIncompleteFallback(atom Atom) bool {
