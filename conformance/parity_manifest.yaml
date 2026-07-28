@@ -2156,23 +2156,26 @@ capabilities:
     known_deviation: Title expressions use bounded Go RE2 search semantics; Python-only look-around and backreferences remain unsupported. The Go parser rejects infinite starts and equal/inverted ranges that upstream accepts initially but cannot turn into a positive cut. Removing the entire media and a greater-than-one-second metadata/real-duration mismatch fail closed without mutation. Unsupported external subtitle formats fail closed instead of yt-dlp's warn-and-continue policy. Manual ranges are intentionally exposed through upstream's *start-end --remove-chapters grammar rather than a separate --remove-ranges flag.
 
   - id: compat.format_selector_pilot
-    name: Format-selector parser pilot
+    name: Format-selector normalization and conformance baseline
     phase: 1
-    compatibility_target: Parse and evaluate the selected fallback, merge, media-kind, and filter syntax corpus.
-    status: compatible
+    compatibility_target: Filter, coerce, sort, and normalize extractor formats in pinned order, then share one defensive canonical view across selectors, tables, prints, results, InfoJSON, errors, and safety-limit fixtures.
+    status: partial
     evidence:
-      - internal/format.TestSelectorFallbackMergeAndFilters
-      - internal/format.TestSelectorBestWorstAndStringFilters
-      - internal/format.TestDefaultPrefersAdaptivePairThenCombined
-      - internal/format.TestDefaultInfersAdaptiveKindsFromExplicitAbsentCodecSide
-      - pkg/ytdlp.TestMergedOutputExtensionFollowsSelectedTracks
-      - internal/format.TestSelectorRejectsInvalidSyntaxAndNoMatch
-      - internal/format.TestSelectorSyntaxErrorReportsSourceSpan
-      - internal/format.FuzzParseSelector
-      - internal/compat.TestPinnedCompatibilityCorpus
-      - conformance/compatibility/PROVENANCE.md
+      - internal/format.TestSelectorConformanceCorpus
+      - internal/format.TestPrepareFormatsNormalizesAfterStableOrdering
+      - internal/format.TestPrepareFormatsFiltersBeforeGeneratedIDs
+      - internal/format.TestPrepareFormatsCoercesPinnedScalarFieldsBeforeSorting
+      - internal/format.TestPrepareFormatsDeepCloneAndConcurrentDeterminism
+      - internal/format.TestPlanSelectUsesExactCloneForResidualCollisionHeaders
+      - internal/format.FuzzPrepareFormats
+      - pkg/ytdlp.TestFormatNormalizationPreservesOriginalSelectedMetadata
+      - pkg/ytdlp.TestFormatNormalizationCanonicalAcrossProductSurfaces
+      - pkg/ytdlp.TestFormatNormalizationErrorsCategorizedInternal
+      - internal/format/testdata/selector_conformance.json
+      - conformance/compat/format_selector/PROVENANCE.md
+      - docs/FORMAT_SELECTOR_PARITY.md
     owner: core
-    known_deviation: Compatibility is claimed only for the checked-in Phase 1 syntax corpus; broader yt-dlp grammar remains a later phase.
+    known_deviation: The corpus records open selector gaps for plain best/worst semantics, all ordering, negated and none-inclusive filters, quoted escaping, field syntax, and upstream sort conversion. Go also retains deliberate defensive-copy, malformed-metadata rejection, bounded collection/evaluation, and product multistream safety differences.
 
   - id: compat.output_template_pilot
     name: Output-template parser pilot

@@ -31,32 +31,34 @@ func PlanSelect(info value.Info, selector Selector) ([]OutputPlan, error) {
 	return PlanSelectWithOptions(info, selector, Options{})
 }
 
-// PlanSelectWithOptions applies preference policy then evaluates the selector AST.
+// PlanSelectWithOptions canonicalizes formats then evaluates the selector AST.
 func PlanSelectWithOptions(info value.Info, selector Selector, options Options) ([]OutputPlan, error) {
+	prepared, err := Prepare(info, options)
+	if err != nil {
+		return nil, err
+	}
+	return prepared.Plan(selector)
+}
+
+// Plan evaluates selector against this canonical format view without preparing
+// or mutating the formats a second time.
+func (prepared Prepared) Plan(selector Selector) ([]OutputPlan, error) {
+	if len(prepared.formats) == 0 {
+		return nil, ErrNoFormats
+	}
 	root, err := selector.rootNode()
 	if err != nil {
 		return nil, err
 	}
-	formats, ok := info.Formats()
-	if !ok {
-		return nil, ErrNoFormats
+	objects := make([]*value.Object, len(prepared.formats))
+	byObject := make(map[*value.Object]normalizedFormat, len(prepared.formats))
+	for index, item := range prepared.formats {
+		objects[index] = item.Object
+		byObject[item.Object] = item
 	}
-	if err := options.validate(); err != nil {
-		return nil, err
-	}
-	objects := make([]*value.Object, 0, len(formats))
-	for _, item := range formats {
-		if object, ok := item.Object(); ok {
-			if !options.AllowDRM && isDRM(object) {
-				continue
-			}
-			objects = append(objects, object)
-		}
-	}
-	objects = orderFormats(objects, options)
 	ctx := evalContext{
 		formats:         objects,
-		options:         options,
+		options:         prepared.options,
 		incomplete:      incompleteFormats(objects),
 		hasMergedFormat: hasMergedFormat(objects),
 	}
@@ -74,10 +76,17 @@ func PlanSelectWithOptions(info value.Info, selector Selector, options Options) 
 		}
 		selections := make([]Selection, 0, len(tracks))
 		for _, object := range tracks {
-			selections = append(selections, objectSelection(object))
-		}
-		if err := attachHeaders(info, selections, objects); err != nil {
-			return nil, err
+			selection := objectSelection(object)
+			if item, ok := byObject[object]; ok {
+				selection.setSourceFormatIndex(item.Source)
+				selection.setNormalizedFormatIndex(item.Index)
+			}
+			headers, headerErr := mergeHeaders(prepared.info.Lookup("http_headers"), object.Lookup("http_headers"))
+			if headerErr != nil {
+				return nil, headerErr
+			}
+			selection.Headers = headers
+			selections = append(selections, selection)
 		}
 		plans = append(plans, OutputPlan{Tracks: selections})
 	}

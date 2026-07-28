@@ -34,6 +34,7 @@ The executable help is the authoritative CLI option list:
 ## Media and compatibility behavior
 
 - [Compatibility languages](P2_COMPAT_LANGUAGES.md)
+- [Format selector parity](FORMAT_SELECTOR_PARITY.md)
 - [Downloader and protocols](P2_DOWNLOADER_PROTOCOLS.md)
 - [HLS attributed ad-fragment suppression evidence](HLS_AD_FRAGMENT_SUPPRESSION_EVIDENCE.md)
 - [Post-processing](P2_POSTPROCESSING.md)

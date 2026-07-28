@@ -48,3 +48,20 @@ func extensionMediaKind(text string) (video, audio, storyboard bool) {
 	}
 	return false, false, false
 }
+
+// isExtensionSelector reports whether text is a recognized extension selector
+// according to the existing extension maps. It is the shared predicate used by
+// the format preparation path to detect collisions between normalized IDs and
+// media extensions.
+func isExtensionSelector(text string) bool {
+	if _, ok := selectionAudioExts[text]; ok {
+		return true
+	}
+	if _, ok := selectionVideoExts[text]; ok {
+		return true
+	}
+	if _, ok := selectionStoryboardExts[text]; ok {
+		return true
+	}
+	return false
+}
