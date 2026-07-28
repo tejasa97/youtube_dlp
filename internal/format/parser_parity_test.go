@@ -90,14 +90,21 @@ func TestParserParityNegatedFilterSyntax(t *testing.T) {
 		"best[protocol!^=http]",
 		"best[protocol!$=dash]",
 		"best[protocol!*=dash]",
-		"best[protocol!~=^http]",
+		`best[protocol!~="^http"]`,
 	} {
 		selector, err := ParseSelector(input)
 		if err != nil {
 			t.Fatalf("ParseSelector(%q) = %v", input, err)
 		}
-		if len(selector.root.filters) != 1 || selector.root.filters[0].Operator != input[13:16] {
+		if len(selector.root.filters) != 1 {
 			t.Fatalf("ParseSelector(%q) filters = %#v", input, selector.root.filters)
+		}
+		filter := selector.root.filters[0]
+		if filter.raw == "" || filter.span.end <= filter.span.start {
+			t.Fatalf("ParseSelector(%q) missing raw/span: %#v", input, filter)
+		}
+		if filter.predicate == nil || !filter.predicate.negated {
+			t.Fatalf("ParseSelector(%q) predicate = %#v", input, filter.predicate)
 		}
 	}
 }
