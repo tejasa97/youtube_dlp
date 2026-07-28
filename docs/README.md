@@ -9,7 +9,7 @@ when evaluating a compatibility claim.
 - [Project overview and quick start](../README.md)
 - [Supported extractors](SUPPORTED_SITES.md)
 - [Configuration](CONFIGURATION.md)
-- [Chromium cookie import](CHROMIUM_COOKIE_IMPORT.md)
+- [Browser cookie import](CHROMIUM_COOKIE_IMPORT.md)
 - [Native netrc evidence](P3_NETRC_EVIDENCE.md)
 - [Impersonation profiles](P3_IMPERSONATION_PROFILES.md)
 - [Playlist model](PLAYLIST_MODEL.md)
@@ -77,6 +77,10 @@ The executable help is the authoritative CLI option list:
 - [Third-party notices](../THIRD_PARTY_NOTICES.md)
 
 ## Plans and exit reviews
+
+Current focused work:
+
+- [Format-selection parity implementation plan](FORMAT_SELECTOR_PARITY_IMPLEMENTATION_PLAN.md)
 
 | Phase | Plan | Exit or current evidence |
 | --- | --- | --- |

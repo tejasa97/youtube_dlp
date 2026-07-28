@@ -2,6 +2,7 @@ package conformance
 
 import (
 	"bytes"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -19,6 +20,35 @@ func TestRepositoryManifest(t *testing.T) {
 	}
 	if len(manifest.Capabilities) < 5 {
 		t.Fatalf("capability count = %d, want at least 5", len(manifest.Capabilities))
+	}
+}
+
+func TestREADMEStatusSummaryMatchesManifest(t *testing.T) {
+	root := filepath.Join("..", "..")
+	manifest, err := LoadFile(filepath.Join(root, "conformance", "parity_manifest.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	readme, err := os.ReadFile(filepath.Join(root, "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	counts := make(map[Status]int)
+	for _, capability := range manifest.Capabilities {
+		counts[capability.Status]++
+	}
+	deviationLabel := "deviation"
+	if counts[StatusIntentionalDeviation] != 1 {
+		deviationLabel += "s"
+	}
+	want := fmt.Sprintf(
+		"The capability manifest records **%d capabilities**: **%d compatible** within\n"+
+			"their declared corpora, **%d partial**, and **%d intentional %s**.",
+		len(manifest.Capabilities), counts[StatusCompatible], counts[StatusPartial],
+		counts[StatusIntentionalDeviation], deviationLabel,
+	)
+	if !bytes.Contains(readme, []byte(want)) {
+		t.Fatalf("README capability summary is stale; want:\n%s", want)
 	}
 }
 
