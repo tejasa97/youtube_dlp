@@ -165,7 +165,7 @@ func TestPreferenceRanksDefaultsButNotExplicitFormatIDs(t *testing.T) {
 }
 
 func TestSelectorRejectsInvalidSyntaxAndNoMatch(t *testing.T) {
-	for _, input := range []string{"", "?unknown", "best[height]", "best[height>10", "best+"} {
+	for _, input := range []string{"", "#unknown", "best[height]", "best[height>10", "best+", `best[format_id=a\]b]`} {
 		if _, err := ParseSelector(input); !errors.Is(err, ErrInvalidSelector) {
 			t.Fatalf("ParseSelector(%q) error = %v", input, err)
 		}
@@ -177,7 +177,7 @@ func TestSelectorRejectsInvalidSyntaxAndNoMatch(t *testing.T) {
 }
 
 func TestSelectorSyntaxErrorReportsSourceSpan(t *testing.T) {
-	_, err := ParseSelector("bestvideo+?unknown")
+	_, err := ParseSelector(`bestvideo+"unknown`)
 	var syntaxError *SyntaxError
 	if !errors.As(err, &syntaxError) {
 		t.Fatalf("ParseSelector() error = %v", err)
@@ -242,7 +242,7 @@ func TestSortFieldsRejectBounds(t *testing.T) {
 }
 
 func TestSelectorRejectsBoundedInvalidRegexAndStructure(t *testing.T) {
-	for _, input := range []string{"best[ext~=(]", strings.Repeat("best/", maxAlternatives), strings.Repeat("best+", maxMergeTerms)} {
+	for _, input := range []string{"best[ext~=(]", strings.Repeat("best/", maxAlternatives) + "best", strings.Repeat("best+", maxMergeTerms) + "best"} {
 		if _, err := ParseSelector(input); !errors.Is(err, ErrInvalidSelector) {
 			t.Fatalf("ParseSelector(%q) = %v", input[:min(len(input), 20)], err)
 		}

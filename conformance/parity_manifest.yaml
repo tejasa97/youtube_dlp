@@ -2162,6 +2162,9 @@ capabilities:
     status: partial
     evidence:
       - internal/format.TestSelectorConformanceCorpus
+      - internal/format.TestParserParityOfficialExamples
+      - internal/format.TestParserParityTokenJoinAndDanglingBranches
+      - pkg/ytdlp.TestFormatSelectorInvalidSyntaxFailsBeforeExtraction
       - internal/format.TestPrepareFormatsNormalizesAfterStableOrdering
       - internal/format.TestPrepareFormatsFiltersBeforeGeneratedIDs
       - internal/format.TestPrepareFormatsCoercesPinnedScalarFieldsBeforeSorting
@@ -2175,7 +2178,7 @@ capabilities:
       - conformance/compat/format_selector/PROVENANCE.md
       - docs/FORMAT_SELECTOR_PARITY.md
     owner: core
-    known_deviation: The corpus records open selector gaps for plain best/worst semantics, all ordering, negated and none-inclusive filters, quoted escaping, field syntax, and upstream sort conversion. Go also retains deliberate defensive-copy, malformed-metadata rejection, bounded collection/evaluation, and product multistream safety differences.
+    known_deviation: Parser syntax/token-join/dangling-branch surfaces match the pinned grammar in the corpus; open selector gaps remain for plain best/worst semantics, all ordering, negated-operator evaluation, none-inclusive filters, quoted escaping, field syntax, and upstream sort conversion. Go also retains deliberate defensive-copy, malformed-metadata rejection, discarded-punctuation rejection, bounded collection/evaluation, and product multistream safety differences.
 
   - id: compat.output_template_pilot
     name: Output-template parser pilot

@@ -1,15 +1,10 @@
 package format
 
 import (
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
-)
-
-const (
-	maxAtomIndex       = 1000
-	maxAtomIndexDigits = 4
+	"unicode"
 )
 
 // AtomMedia selects which media-bearing formats an atom may match.
@@ -24,11 +19,13 @@ const (
 
 // Atom is the typed best/worst selector form.
 type Atom struct {
-	OK    bool
-	Best  bool
-	Media AtomMedia
-	Star  bool
-	Index int // one-based; Canonical omits ".1"
+	OK            bool
+	Best          bool
+	Media         AtomMedia
+	Star          bool
+	Index         int // one-based; Canonical omits ".1"
+	indexText     string
+	indexTooLarge bool
 }
 
 // Canonical returns the long-form atom text. Index 1 is omitted.
@@ -51,53 +48,49 @@ func (atom Atom) Canonical() string {
 	if atom.Star {
 		builder.WriteByte('*')
 	}
-	if atom.Index > 1 {
+	if atom.indexText != "" && atom.indexText != "1" {
+		builder.WriteByte('.')
+		builder.WriteString(atom.indexText)
+	} else if atom.Index > 1 {
 		builder.WriteByte('.')
 		builder.WriteString(strconv.Itoa(atom.Index))
 	}
 	return builder.String()
 }
 
+// parseAtomToken matches the pinned quality-atom regex exactly:
+//
+//	(?P<bw>best|worst|b|w)(?P<type>video|audio|v|a)?(?P<mod>\*)?(?:\.(?P<n>[1-9]\d*))?$
+//
+// Strings that look alias-like but fail that regex return (!OK, nil) so the
+// caller can fall back to a direct format ID (best*foo, best.01, best.0, best.).
 func parseAtomToken(name string, absStart int) (Atom, error) {
-	atom, rest, stemEnd, ok := cutAtomStem(name)
+	_ = absStart
+	atom, rest, _, ok := cutAtomStem(name)
 	if !ok {
 		return Atom{}, nil
 	}
 	if rest == "" {
 		atom.OK = true
-		if atom.Index == 0 {
-			atom.Index = 1
-		}
 		return atom, nil
 	}
-	if rest[0] != '.' {
-		if atom.Star {
-			return Atom{}, selectorSyntax(absStart+stemEnd, absStart+len(name), fmt.Sprintf("unexpected atom suffix %q", rest))
+	if rest[0] != '.' || len(rest) == 1 {
+		return Atom{}, nil
+	}
+	digits := rest[1:]
+	if digits[0] < '1' || digits[0] > '9' {
+		return Atom{}, nil
+	}
+	for index := range digits {
+		if digits[index] < '0' || digits[index] > '9' {
+			return Atom{}, nil
 		}
-		return Atom{}, nil
 	}
-	indexStart := stemEnd
-	if len(rest) == 1 {
-		return Atom{}, selectorSyntax(absStart+indexStart, absStart+len(name), "missing atom index")
-	}
-	switch rest[1] {
-	case '+', '-':
-		return Atom{}, selectorSyntax(absStart+indexStart, absStart+len(name), "atom index must not have a sign")
-	case '0':
-		return Atom{}, selectorSyntax(absStart+indexStart, absStart+len(name), "atom index must be a positive integer without leading zeros")
-	}
-	if rest[1] < '1' || rest[1] > '9' {
-		return Atom{}, nil
-	}
-	index, consumed, err := parseAtomIndex(rest[1:])
-	if err != nil {
-		return Atom{}, selectorSyntax(absStart+indexStart, absStart+len(name), err.Error())
-	}
-	if 1+consumed != len(rest) {
-		return Atom{}, selectorSyntax(absStart+indexStart+1+consumed, absStart+len(name), fmt.Sprintf("unexpected atom suffix %q", rest[1+consumed:]))
-	}
+	index, tooLarge := parseAtomIndex(digits)
 	atom.OK = true
 	atom.Index = index
+	atom.indexText = digits
+	atom.indexTooLarge = tooLarge
 	return atom, nil
 }
 
@@ -153,39 +146,17 @@ func cutMediaPrefix(name string) (AtomMedia, int, bool) {
 	}
 }
 
-func parseAtomIndex(digits string) (int, int, error) {
-	if digits == "" {
-		return 0, 0, errors.New("missing atom index")
-	}
-	switch digits[0] {
-	case '+', '-':
-		return 0, 0, errors.New("atom index must not have a sign")
-	case '0':
-		return 0, 0, errors.New("atom index must be a positive integer without leading zeros")
-	}
-	if digits[0] < '1' || digits[0] > '9' {
-		return 0, 0, errors.New("atom index must be a positive integer")
-	}
+func parseAtomIndex(digits string) (int, bool) {
+	const maxInt = int(^uint(0) >> 1)
 	value := 0
-	consumed := 0
-	for consumed < len(digits) {
-		digit := digits[consumed]
-		if digit < '0' || digit > '9' {
-			break
+	for index := range digits {
+		digit := int(digits[index] - '0')
+		if value > (maxInt-digit)/10 {
+			return maxInt, true
 		}
-		consumed++
-		if consumed > maxAtomIndexDigits {
-			return 0, 0, errors.New("atom index has too many digits")
-		}
-		value = value*10 + int(digit-'0')
-		if value > maxAtomIndex {
-			return 0, 0, fmt.Errorf("atom index exceeds maximum %d", maxAtomIndex)
-		}
+		value = value*10 + digit
 	}
-	if consumed == 0 {
-		return 0, 0, errors.New("atom index must be a positive integer")
-	}
-	return value, consumed, nil
+	return value, false
 }
 
 func resolveLegacyAtomName(name string) (Atom, bool) {
@@ -226,8 +197,34 @@ func parseAtomSpec(text string, absStart int) (atomSpec, error) {
 	} else if atom.OK {
 		return atomSpec{kind: atomQuality, quality: atom}, nil
 	}
-	if !formatIDPattern.MatchString(text) {
+	if !validDirectIDToken(text) {
 		return atomSpec{}, selectorSyntax(absStart, absStart+len(text), fmt.Sprintf("unknown term %q", text))
 	}
 	return atomSpec{kind: atomDirectID, text: text}, nil
+}
+
+// validDirectIDToken mirrors NAME, NUMBER, and non-structural OP tokens retained
+// by the pinned Python tokenizer. Comment (`#`) and string/line-continuation
+// punctuation (`\`, `'`, `"`) are rejected instead of silently rewriting the ID.
+func validDirectIDToken(text string) bool {
+	if text == "" {
+		return false
+	}
+	for _, r := range text {
+		// IsNumber covers Nd/Nl/No (digits, Roman numerals, superscripts such as ²).
+		if unicode.IsLetter(r) || unicode.IsNumber(r) || unicode.IsMark(r) || r == '_' {
+			continue
+		}
+		switch r {
+		// Includes '/' so joined Python OP tokens such as "//" and "/=" can form
+		// direct IDs (best//). '+' appears only via joinable "+=". '!' / '$' / '?'
+		// / '`' are single-character OP tokens that _remove_unused_ops joins into
+		// the surrounding ID. Comment/string punctuation stays out.
+		case '-', '.', '*', '/', '+', '!', '$', '?', '`', ':', '%', '&', ';', '<', '=', '>', '@', '^', '|', '~', '{', '}':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
 }
