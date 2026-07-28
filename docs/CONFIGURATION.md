@@ -18,12 +18,21 @@ instead of being silently ignored.
     --output "subtitle:%(title)s.%(ext)s"
     --output "infojson:%(title)s.%(ext)s"
     --format "bestvideo+bestaudio/best"
+    --format-sort "res:1080"
+    --format-sort "fps"
+    --prefer-free-formats
     --retries 3
     --concurrent-fragments 4
 
 POSIX-style single quotes, double quotes, backslash escaping, comments, empty
 arguments, and line continuations are supported. Diagnostics retain source
 file, line, and column information.
+
+`--format-sort`/`-S` is repeatable and each occurrence supplies one sort field,
+alias, or limit. Format-sort reset semantics are not yet exposed; command-line
+values are appended after lower-precedence configuration values. See
+[format-selector behavior and limits](FORMAT_SELECTOR_PARITY.md) for selector,
+filter, regex, and sorting examples.
 
 ## Discovery and precedence
 

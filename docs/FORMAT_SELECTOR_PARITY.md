@@ -5,6 +5,39 @@ The authoritative selector and format-normalization baseline is
 `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`; production tests consume
 only the committed JSON and do not invoke Python or access the network.
 
+## CLI usage
+
+`-f`/`--format` accepts the bounded selector language documented below. Commas
+produce independent outputs, `/` selects the first non-empty fallback, `+`
+merges tracks, and parentheses group expressions. Filters attach directly to
+an atom or group:
+
+```sh
+ytdlp-go -f 'bestvideo[height<=1080][vcodec^=avc]+bestaudio/best' URL
+```
+
+Numeric operators are `<`, `<=`, `>`, `>=`, `=`, and `!=`. String operators
+are `=`, `^=`, `$=`, `*=`, and `~=` with `!`-prefixed negated forms. A `?`
+suffix includes missing/null fields. Regex filters use search semantics and the
+bounded Python-`re` compatibility adapter:
+
+```sh
+ytdlp-go -f 'best[format_id~="(?i)source|original"]' URL
+```
+
+`-S`/`--format-sort` is repeatable and accepts one field, alias, or limit per
+occurrence. User fields take precedence over extractor and default ordering:
+
+```sh
+ytdlp-go -S 'res:1080' -S 'fps' --prefer-free-formats URL
+```
+
+Format-sort reset wiring, interactive `-f -`, arbitrary N-track execution, and
+the complete multi-output lifecycle remain assigned to later PRs in the
+[implementation plan](FORMAT_SELECTOR_PARITY_IMPLEMENTATION_PLAN.md). The
+current product safely executes one track or a mergeable video/audio pair per
+output and rejects unsupported layouts before media transfer.
+
 `internal/format.TestSelectorConformanceCorpus` validates the fixture schema,
 provenance, unique case IDs, safety limits, parity classification, normalized
 format objects, output-plan order, source associations, headers, and errors.
@@ -87,9 +120,11 @@ from `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8` under CPython
 captured with:
 
 ```sh
-/Users/tejas/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 \
-  conformance/compat/format_sorter/capture_oracle.py --write
+python3 conformance/compat/format_sorter/capture_oracle.py --write
 ```
+
+Oracle regeneration requires CPython 3.12.13; ordinary Go builds and tests do
+not execute this maintainer-only command.
 
 The effective field order follows pinned forced, priority, user, extractor,
 and default composition with first occurrence winning after aliases and
