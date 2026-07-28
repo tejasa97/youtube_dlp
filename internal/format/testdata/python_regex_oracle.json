@@ -1,0 +1,792 @@
+{
+  "schema_version": 1,
+  "reference": {
+    "repository": "https://github.com/yt-dlp/yt-dlp",
+    "commit": "aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8",
+    "python_version": "CPython 3.12.13",
+    "source": "CPython re module search semantics",
+    "derivation": "CPython 3.12.13 conformance/compat/format_selector/capture_filter_oracle.py --reference <pinned-yt-dlp-checkout> --commit aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8 --write"
+  },
+  "cases": [
+    {
+      "id": "lookahead",
+      "pattern": "foo(?=bar)",
+      "input": "foobar",
+      "matched": true
+    },
+    {
+      "id": "negative-lookahead",
+      "pattern": "foo(?!bar)",
+      "input": "foobaz",
+      "matched": true
+    },
+    {
+      "id": "lookbehind",
+      "pattern": "(?<=foo)bar",
+      "input": "foobar",
+      "matched": true
+    },
+    {
+      "id": "numeric-backref",
+      "pattern": "^(a+)b\\1$",
+      "input": "aaabaaa",
+      "matched": true
+    },
+    {
+      "id": "python-named-group",
+      "pattern": "^(?P<word>\\w+)$",
+      "input": "héllo",
+      "matched": true
+    },
+    {
+      "id": "python-named-backref",
+      "pattern": "^(?P<word>\\w+)-(?P=word)$",
+      "input": "hé-hé",
+      "matched": true
+    },
+    {
+      "id": "python-named-group-nl",
+      "pattern": "^(?P<Ⅳ>a)(?P=Ⅳ)$",
+      "input": "aa",
+      "matched": true
+    },
+    {
+      "id": "python-named-group-combining",
+      "pattern": "^(?P<á>a)(?P=á)$",
+      "input": "aa",
+      "matched": true
+    },
+    {
+      "id": "python-named-group-other-continue",
+      "pattern": "^(?P<a·b>a)(?P=a·b)$",
+      "input": "aa",
+      "matched": true
+    },
+    {
+      "id": "python-Z-final-newline",
+      "pattern": "foo\\Z",
+      "input": "foo\n",
+      "matched": false
+    },
+    {
+      "id": "python-Z-exact",
+      "pattern": "foo\\Z",
+      "input": "foo",
+      "matched": true
+    },
+    {
+      "id": "unicode-word-combining",
+      "pattern": "^\\w+$",
+      "input": "á",
+      "matched": false
+    },
+    {
+      "id": "unicode-space-fs",
+      "pattern": "^\\s$",
+      "input": "\u001c",
+      "matched": true
+    },
+    {
+      "id": "dollar-final-newline",
+      "pattern": "foo$",
+      "input": "foo\n",
+      "matched": true
+    },
+    {
+      "id": "class-pos-word",
+      "pattern": "[a\\w]",
+      "input": "é",
+      "matched": true
+    },
+    {
+      "id": "class-pos-word-ascii",
+      "pattern": "(?a)[a\\w]",
+      "input": "é",
+      "matched": false
+    },
+    {
+      "id": "class-neg-word",
+      "pattern": "[a\\W]",
+      "input": "!",
+      "matched": true
+    },
+    {
+      "id": "class-neg-word-letter",
+      "pattern": "[a\\W]",
+      "input": "b",
+      "matched": false
+    },
+    {
+      "id": "class-negated-outer-neg-word",
+      "pattern": "[^a\\W]",
+      "input": "b",
+      "matched": true
+    },
+    {
+      "id": "class-negated-outer-neg-word-a",
+      "pattern": "[^a\\W]",
+      "input": "a",
+      "matched": false
+    },
+    {
+      "id": "class-negated-outer-neg-word-bang",
+      "pattern": "[^a\\W]",
+      "input": "!",
+      "matched": false
+    },
+    {
+      "id": "class-S-W",
+      "pattern": "[\\S\\W]",
+      "input": " ",
+      "matched": true
+    },
+    {
+      "id": "class-S-W-letter",
+      "pattern": "[\\S\\W]",
+      "input": "a",
+      "matched": true
+    },
+    {
+      "id": "class-w-W-all",
+      "pattern": "[\\w\\W]",
+      "input": "!",
+      "matched": true
+    },
+    {
+      "id": "flag-global-i",
+      "pattern": "(?i)a",
+      "input": "A",
+      "matched": true
+    },
+    {
+      "id": "flag-ai-ascii-word",
+      "pattern": "(?ai)^\\w+$",
+      "input": "é",
+      "matched": false
+    },
+    {
+      "id": "flag-iu",
+      "pattern": "(?iu)^\\w+$",
+      "input": "é",
+      "matched": true
+    },
+    {
+      "id": "flag-scoped-a",
+      "pattern": "(?a:\\w)",
+      "input": "é",
+      "matched": false
+    },
+    {
+      "id": "flag-scoped-i-off",
+      "pattern": "(?i:a)(?-i:a)",
+      "input": "Aa",
+      "matched": true
+    },
+    {
+      "id": "flag-scoped-i-off-no-match",
+      "pattern": "(?i:a)(?-i:a)",
+      "input": "AA",
+      "matched": false
+    },
+    {
+      "id": "flag-verbose",
+      "pattern": "(?x) a # comment\n b",
+      "input": "ab",
+      "matched": true
+    },
+    {
+      "id": "flag-global-not-start",
+      "pattern": "a(?i)b",
+      "input": "aB",
+      "compile_error": "error"
+    },
+    {
+      "id": "flag-au-incompatible",
+      "pattern": "(?au)a",
+      "input": "a",
+      "compile_error": "error"
+    },
+    {
+      "id": "flag-disable-a",
+      "pattern": "(?-a:a)",
+      "input": "a",
+      "compile_error": "error"
+    },
+    {
+      "id": "flag-global-disable",
+      "pattern": "(?i)(?-i)a",
+      "input": "A",
+      "compile_error": "error"
+    },
+    {
+      "id": "flag-enabled-disabled-same",
+      "pattern": "(?i-i:a)",
+      "input": "a",
+      "compile_error": "error"
+    },
+    {
+      "id": "flag-missing-after-dash",
+      "pattern": "(?-:a)",
+      "input": "a",
+      "compile_error": "error"
+    },
+    {
+      "id": "flag-scoped-u-overrides-a",
+      "pattern": "(?a:(?u:\\w))",
+      "input": "é",
+      "matched": true
+    },
+    {
+      "id": "flag-global-a-scoped-u",
+      "pattern": "(?a)(?u:\\w)",
+      "input": "é",
+      "matched": false
+    },
+    {
+      "id": "flag-global-a-then-u",
+      "pattern": "(?a)(?u)\\w",
+      "input": "é",
+      "compile_error": "ValueError"
+    },
+    {
+      "id": "multiline-caret",
+      "pattern": "(?m)^\\w+",
+      "input": "x\ny",
+      "matched": true
+    },
+    {
+      "id": "boundary-word",
+      "pattern": "\\ba\\b",
+      "input": " a ",
+      "matched": true
+    },
+    {
+      "id": "boundary-ascii",
+      "pattern": "(?a)\\b\\w\\b",
+      "input": "é",
+      "matched": false
+    },
+    {
+      "id": "nonboundary",
+      "pattern": "\\Ba\\B",
+      "input": "bac",
+      "matched": true
+    },
+    {
+      "id": "nonboundary-empty",
+      "pattern": "\\B",
+      "input": "",
+      "matched": false
+    },
+    {
+      "id": "nonboundary-nonword",
+      "pattern": "\\B",
+      "input": "!",
+      "matched": true
+    },
+    {
+      "id": "lookbehind-equal-alt",
+      "pattern": "(?<=a|b)c",
+      "input": "ac",
+      "matched": true
+    },
+    {
+      "id": "lookbehind-unequal-alt",
+      "pattern": "(?<=a|bc)c",
+      "input": "bcc",
+      "compile_error": "error"
+    },
+    {
+      "id": "lookbehind-nested-fixed",
+      "pattern": "(?<=a(?:b|c))d",
+      "input": "abd",
+      "matched": true
+    },
+    {
+      "id": "lookbehind-group-equal",
+      "pattern": "(?<=(ab|cd))e",
+      "input": "abe",
+      "matched": true
+    },
+    {
+      "id": "lookbehind-named-fixed",
+      "pattern": "(?<=(?P<x>ab))c",
+      "input": "abc",
+      "matched": true
+    },
+    {
+      "id": "lookbehind-variable",
+      "pattern": "(?<=a+)b",
+      "input": "aaab",
+      "compile_error": "error"
+    },
+    {
+      "id": "lookbehind-repeat-range",
+      "pattern": "(?<=a{2,3})b",
+      "input": "aaab",
+      "compile_error": "error"
+    },
+    {
+      "id": "lookbehind-exact-repeat",
+      "pattern": "(?<=a{2})b",
+      "input": "aab",
+      "matched": true
+    },
+    {
+      "id": "lookbehind-octal",
+      "pattern": "(?<=\\101)B",
+      "input": "AB",
+      "matched": true
+    },
+    {
+      "id": "lookbehind-group-repeat-alt",
+      "pattern": "(?<=(?:ab){2}|xxxx)c",
+      "input": "ababc",
+      "matched": true
+    },
+    {
+      "id": "lookbehind-variable-assertion",
+      "pattern": "(?<=(?=a+))a",
+      "input": "a",
+      "matched": true
+    },
+    {
+      "id": "lookbehind-variable-repeat-zero-assertion",
+      "pattern": "(?<=(?=a){1,2})a",
+      "input": "a",
+      "matched": true
+    },
+    {
+      "id": "lookbehind-fixed-backref",
+      "pattern": "(ab)(?<=\\1)c",
+      "input": "abc",
+      "matched": true
+    },
+    {
+      "id": "lookbehind-variable-backref",
+      "pattern": "(a+)(?<=\\1)b",
+      "input": "aab",
+      "compile_error": "error"
+    },
+    {
+      "id": "lookbehind-fixed-conditional",
+      "pattern": "(b)?(?<=(?(1)b|c))d",
+      "input": "bd",
+      "matched": true
+    },
+    {
+      "id": "lookbehind-conditional-without-else-variable",
+      "pattern": "(a)?(?<=(?(1)b))c",
+      "input": "abc",
+      "compile_error": "error"
+    },
+    {
+      "id": "ignorecase-i-dotless",
+      "pattern": "(?i)i",
+      "input": "ı",
+      "matched": true
+    },
+    {
+      "id": "ignorecase-i-dotted",
+      "pattern": "(?i)i",
+      "input": "İ",
+      "matched": true
+    },
+    {
+      "id": "ignorecase-long-s",
+      "pattern": "(?i)s",
+      "input": "ſ",
+      "matched": true
+    },
+    {
+      "id": "ignorecase-kelvin",
+      "pattern": "(?i)k",
+      "input": "K",
+      "matched": true
+    },
+    {
+      "id": "ignorecase-class-i",
+      "pattern": "(?i)[i]",
+      "input": "ı",
+      "matched": true
+    },
+    {
+      "id": "ignorecase-class-s",
+      "pattern": "(?i)[s]",
+      "input": "ſ",
+      "matched": true
+    },
+    {
+      "id": "ignorecase-ascii-i-no-dotless",
+      "pattern": "(?ai)i",
+      "input": "ı",
+      "matched": false
+    },
+    {
+      "id": "ignorecase-ascii-class-i",
+      "pattern": "(?ai)[i]",
+      "input": "ı",
+      "matched": false
+    },
+    {
+      "id": "ignorecase-neg-class-i",
+      "pattern": "(?i)[^i]",
+      "input": "ı",
+      "matched": false
+    },
+    {
+      "id": "ignorecase-ascii-letter-range-dotless",
+      "pattern": "(?i)[a-z]",
+      "input": "ı",
+      "matched": true
+    },
+    {
+      "id": "ignorecase-neg-ascii-letter-range-dotless",
+      "pattern": "(?i)[^a-z]",
+      "input": "ı",
+      "matched": false
+    },
+    {
+      "id": "ignorecase-range-micro",
+      "pattern": "(?i)[°-À]",
+      "input": "Μ",
+      "matched": true
+    },
+    {
+      "id": "ignorecase-sharp-s",
+      "pattern": "(?i)ß",
+      "input": "ẞ",
+      "matched": true
+    },
+    {
+      "id": "ignorecase-micro-sign",
+      "pattern": "(?i)µ",
+      "input": "Μ",
+      "matched": true
+    },
+    {
+      "id": "ignorecase-micro-sign-u-escape",
+      "pattern": "(?i)\\u00b5",
+      "input": "Μ",
+      "matched": true
+    },
+    {
+      "id": "ignorecase-micro-sign-name-escape",
+      "pattern": "(?i)\\N{MICRO SIGN}",
+      "input": "Μ",
+      "matched": true
+    },
+    {
+      "id": "ignorecase-micro-sign-class-escape",
+      "pattern": "(?i)[\\u00b5]",
+      "input": "Μ",
+      "matched": true
+    },
+    {
+      "id": "ignorecase-final-sigma",
+      "pattern": "(?i)σ",
+      "input": "ς",
+      "matched": true
+    },
+    {
+      "id": "unicode-name-alpha",
+      "pattern": "\\N{GREEK SMALL LETTER ALPHA}",
+      "input": "α",
+      "matched": true
+    },
+    {
+      "id": "unicode-name-grinning",
+      "pattern": "\\N{GRINNING FACE}",
+      "input": "😀",
+      "matched": true
+    },
+    {
+      "id": "unicode-name-cjk",
+      "pattern": "\\N{CJK UNIFIED IDEOGRAPH-4E2D}",
+      "input": "中",
+      "matched": true
+    },
+    {
+      "id": "unicode-name-bom-alias",
+      "pattern": "\\N{BOM}",
+      "input": "﻿",
+      "matched": true
+    },
+    {
+      "id": "unicode-name-bom-alt",
+      "pattern": "\\N{BYTE ORDER MARK}",
+      "input": "﻿",
+      "matched": true
+    },
+    {
+      "id": "unicode-name-zwj-alias",
+      "pattern": "\\N{ZWJ}",
+      "input": "‍",
+      "matched": true
+    },
+    {
+      "id": "unicode-name-zwj-canon",
+      "pattern": "\\N{ZERO WIDTH JOINER}",
+      "input": "‍",
+      "matched": true
+    },
+    {
+      "id": "unicode-name-lower",
+      "pattern": "\\N{latin small letter a}",
+      "input": "a",
+      "matched": true
+    },
+    {
+      "id": "unicode-name-extra-space",
+      "pattern": "\\N{LATIN  SMALL LETTER A}",
+      "input": "a",
+      "compile_error": "error"
+    },
+    {
+      "id": "unicode-name-pad-space",
+      "pattern": "\\N{  LATIN SMALL LETTER A  }",
+      "input": "a",
+      "compile_error": "error"
+    },
+    {
+      "id": "unicode-U-escape",
+      "pattern": "\\U00000061",
+      "input": "a",
+      "matched": true
+    },
+    {
+      "id": "unicode-name-escape",
+      "pattern": "\\N{LATIN SMALL LETTER A}",
+      "input": "a",
+      "matched": true
+    },
+    {
+      "id": "backref-forward-invalid",
+      "pattern": "\\1(a)",
+      "input": "aa",
+      "compile_error": "error"
+    },
+    {
+      "id": "backref-missing-group",
+      "pattern": "(a)\\2",
+      "input": "aa",
+      "compile_error": "error"
+    },
+    {
+      "id": "backref-open-group",
+      "pattern": "(a\\1)",
+      "input": "aa",
+      "compile_error": "error"
+    },
+    {
+      "id": "named-backref-forward",
+      "pattern": "(?P=a)(?P<a>.)",
+      "input": "aa",
+      "compile_error": "error"
+    },
+    {
+      "id": "named-group-redef",
+      "pattern": "(?P<a>.)(?P<a>.)",
+      "input": "ab",
+      "compile_error": "error"
+    },
+    {
+      "id": "named-backref-open-group",
+      "pattern": "(?P<a>a(?P=a))",
+      "input": "aa",
+      "compile_error": "error"
+    },
+    {
+      "id": "conditional-group",
+      "pattern": "(a)?(?(1)b|c)",
+      "input": "ab",
+      "matched": true
+    },
+    {
+      "id": "conditional-group-else",
+      "pattern": "(a)?(?(1)b|c)",
+      "input": "c",
+      "matched": true
+    },
+    {
+      "id": "conditional-named",
+      "pattern": "(?P<n>a)?(?(n)b|c)",
+      "input": "ab",
+      "matched": true
+    },
+    {
+      "id": "conditional-unknown",
+      "pattern": "(?(name)b|c)",
+      "input": "b",
+      "compile_error": "error"
+    },
+    {
+      "id": "conditional-assertion",
+      "pattern": "(?(?=a)b|c)",
+      "input": "b",
+      "compile_error": "error"
+    },
+    {
+      "id": "octal-101",
+      "pattern": "\\101",
+      "input": "A",
+      "matched": true
+    },
+    {
+      "id": "octal-1234",
+      "pattern": "\\1234",
+      "input": "S4",
+      "matched": true
+    },
+    {
+      "id": "octal-08",
+      "pattern": "\\08",
+      "input": "\u00008",
+      "matched": true
+    },
+    {
+      "id": "group-then-octal",
+      "pattern": "()\\07",
+      "input": "\u0007",
+      "matched": true
+    },
+    {
+      "id": "group-invalid-11",
+      "pattern": "()\\11",
+      "input": "\t",
+      "compile_error": "error"
+    },
+    {
+      "id": "dotnet-named",
+      "pattern": "(?<x>a)",
+      "input": "a",
+      "compile_error": "error"
+    },
+    {
+      "id": "dotnet-quote-named",
+      "pattern": "(?'x'a)",
+      "input": "a",
+      "compile_error": "error"
+    },
+    {
+      "id": "dotnet-k-ref",
+      "pattern": "(?<x>a)\\k<x>",
+      "input": "aa",
+      "compile_error": "error"
+    },
+    {
+      "id": "unicode-category",
+      "pattern": "\\p{L}",
+      "input": "a",
+      "compile_error": "error"
+    },
+    {
+      "id": "assertion-conditional",
+      "pattern": "(?(?=a)b|c)",
+      "input": "b",
+      "compile_error": "error"
+    },
+    {
+      "id": "flag-n",
+      "pattern": "(?n)a",
+      "input": "a",
+      "compile_error": "error"
+    },
+    {
+      "id": "flag-after-lookahead",
+      "pattern": "(?=a)(?i)b",
+      "input": "ab",
+      "compile_error": "error"
+    },
+    {
+      "id": "flag-after-empty-group",
+      "pattern": "(?:)(?i)a",
+      "input": "A",
+      "compile_error": "error"
+    },
+    {
+      "id": "flag-after-comment",
+      "pattern": "(?# comment)(?i)a",
+      "input": "A",
+      "matched": true
+    },
+    {
+      "id": "possessive-quantifier",
+      "pattern": "a++a",
+      "input": "aaa",
+      "matched": false
+    },
+    {
+      "id": "missing-lower-repeat",
+      "pattern": "a{,3}",
+      "input": "aa",
+      "matched": true
+    },
+    {
+      "id": "missing-lower-unbounded-repeat",
+      "pattern": "a{,}",
+      "input": "aa",
+      "matched": true
+    },
+    {
+      "id": "missing-lower-possessive-repeat",
+      "pattern": "a{,3}+a",
+      "input": "aaa",
+      "matched": false
+    },
+    {
+      "id": "atomic-group",
+      "pattern": "(?>a+)a",
+      "input": "aaa",
+      "matched": false
+    },
+    {
+      "id": "unknown-letter-escape-q",
+      "pattern": "\\q",
+      "input": "q",
+      "compile_error": "error"
+    },
+    {
+      "id": "unknown-letter-escape-c",
+      "pattern": "\\c",
+      "input": "c",
+      "compile_error": "error"
+    },
+    {
+      "id": "bad-class-range-shorthand",
+      "pattern": "[a-\\w]",
+      "input": "a",
+      "compile_error": "error"
+    },
+    {
+      "id": "bad-class-range-neg-shorthand-left",
+      "pattern": "[a-\\W]",
+      "input": "a",
+      "compile_error": "error"
+    },
+    {
+      "id": "bad-class-range-neg-shorthand-right",
+      "pattern": "[\\W-a]",
+      "input": "a",
+      "compile_error": "error"
+    },
+    {
+      "id": "bad-class-absolute-escape",
+      "pattern": "[\\A]",
+      "input": "A",
+      "compile_error": "error"
+    },
+    {
+      "id": "ascii-word-flag",
+      "pattern": "(?a)^\\w+$",
+      "input": "é",
+      "matched": false
+    },
+    {
+      "id": "variable-lookbehind",
+      "pattern": "(?<=a+)b",
+      "input": "aaab",
+      "compile_error": "error"
+    }
+  ]
+}

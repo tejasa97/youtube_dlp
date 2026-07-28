@@ -3,15 +3,15 @@ package format
 import (
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
 var (
-	ErrInvalidSelector = errors.New("invalid format selector")
-	ErrNoMatch         = errors.New("no format matches selector")
+	ErrInvalidSelector  = errors.New("invalid format selector")
+	ErrNoMatch          = errors.New("no format matches selector")
+	ErrFilterEvaluation = errors.New("format filter evaluation failed")
 )
 
 const (
@@ -41,10 +41,17 @@ type Term struct {
 }
 
 // Filter is a bounded [field op value] selector predicate.
+// Raw syntax ownership lives in unexported fields so PR 3 can compile the
+// original bracket body (including ?, quoting, and escapes) while retaining
+// the exported legacy Field/Operator/Value surface for in-repo constructors.
 type Filter struct {
 	Field    string
 	Operator string
 	Value    string
+
+	raw       string
+	span      span
+	predicate *compiledFilter
 }
 
 // SyntaxError identifies the exact half-open byte range [Start, End) rejected by
@@ -68,13 +75,29 @@ func (selector Selector) rootNode() (*astNode, error) {
 	if len(selector.Alternatives) == 0 {
 		return nil, selectorSyntax(0, 0, "selector is empty")
 	}
-	return legacyAlternativesToAST(selector.Alternatives)
+	root, err := legacyAlternativesToAST(selector.Alternatives)
+	if err != nil {
+		return nil, err
+	}
+	if err := compileNodeFilters(root); err != nil {
+		return nil, err
+	}
+	if err := enforceRegexPredicateLimit(root); err != nil {
+		return nil, err
+	}
+	return root, nil
 }
 
 // ParseSelector parses a bounded yt-dlp format selector expression.
 func ParseSelector(input string) (Selector, error) {
 	root, err := parseSelectorAST(input)
 	if err != nil {
+		return Selector{}, err
+	}
+	if err := compileNodeFilters(root); err != nil {
+		return Selector{}, err
+	}
+	if err := enforceRegexPredicateLimit(root); err != nil {
 		return Selector{}, err
 	}
 	return Selector{root: root}, nil
@@ -154,34 +177,30 @@ func parseLegacyTermName(name string, absStart int) (Term, error) {
 	return Term{Name: name}, nil
 }
 
-var (
-	fieldPattern    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-	formatIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
-)
-
 func parseFilter(input string, start int) (Filter, error) {
+	// Syntax-only extraction for legacy exported fields. Semantic validation and
+	// Python-regex compilation happen in compileFilter; do not use Go RE2 here.
 	for _, operator := range []string{"!^=", "!$=", "!*=", "!~=", "!=", ">=", "<=", "^=", "$=", "*=", "~=", "=", ">", "<"} {
 		if index := strings.Index(input, operator); index > 0 {
 			field := strings.TrimSpace(input[:index])
 			filterValue := strings.TrimSpace(input[index+len(operator):])
-			if !fieldPattern.MatchString(field) || filterValue == "" {
+			if field == "" || filterValue == "" {
 				return Filter{}, selectorSyntax(start, start+len(input), fmt.Sprintf("malformed filter %q", input))
 			}
-			if len(filterValue) >= 2 && ((filterValue[0] == '"' && filterValue[len(filterValue)-1] == '"') || (filterValue[0] == '\'' && filterValue[len(filterValue)-1] == '\'')) {
-				filterValue = filterValue[1 : len(filterValue)-1]
+			legacyValue := filterValue
+			if len(legacyValue) >= 2 && ((legacyValue[0] == '"' && legacyValue[len(legacyValue)-1] == '"') || (legacyValue[0] == '\'' && legacyValue[len(legacyValue)-1] == '\'')) {
+				legacyValue = legacyValue[1 : len(legacyValue)-1]
 			}
-			if len(filterValue) > maxSelectorBytes/2 {
+			if len(legacyValue) > maxSelectorBytes/2 {
 				return Filter{}, selectorSyntax(start+index+len(operator), start+len(input), "filter value exceeds size limit")
 			}
-			if operator == "~=" {
-				if len(filterValue) > maxRegexBytes {
-					return Filter{}, selectorSyntax(start+index+len(operator), start+len(input), "regular expression exceeds size limit")
-				}
-				if _, err := regexp.Compile(filterValue); err != nil {
-					return Filter{}, selectorSyntax(start+index+len(operator), start+len(input), "invalid regular expression")
-				}
-			}
-			return Filter{Field: field, Operator: operator, Value: filterValue}, nil
+			return Filter{
+				Field:    field,
+				Operator: operator,
+				Value:    legacyValue,
+				raw:      input,
+				span:     span{start: start, end: start + len(input)},
+			}, nil
 		}
 	}
 	return Filter{}, selectorSyntax(start, start+len(input), fmt.Sprintf("filter %q has no operator", input))
@@ -247,7 +266,8 @@ func selectorSyntax(start, end int, message string) error {
 
 func candidateMatchesKind(candidate *value.Object, wantVideo, wantAudio bool, filters []Filter) bool {
 	hasVideo, hasAudio := candidateMediaKinds(candidate)
-	return (!wantVideo || hasVideo && !hasAudio) && (!wantAudio || hasAudio && !hasVideo) && matchesFilters(candidate, filters)
+	matched, err := matchesFilters(candidate, filters, nil)
+	return err == nil && (!wantVideo || hasVideo && !hasAudio) && (!wantAudio || hasAudio && !hasVideo) && matched
 }
 
 func candidateMediaKinds(candidate *value.Object) (hasVideo, hasAudio bool) {
@@ -258,53 +278,17 @@ func candidateMediaKinds(candidate *value.Object) (hasVideo, hasAudio bool) {
 	return hasVideo, hasAudio
 }
 
-func matchesFilters(object *value.Object, filters []Filter) bool {
-	for _, filter := range filters {
-		input := object.Lookup(filter.Field)
-		stringValue, stringOK := input.StringValue()
-		numericValue, numericOK := numeric(input)
-		filterNumber, numberErr := parseBoundedNumber(filter.Value)
-		var matched bool
-		switch filter.Operator {
-		case "=":
-			matched = (stringOK && stringValue == filter.Value) || (numericOK && numberErr == nil && numericValue == filterNumber)
-		case "!=":
-			if numericOK && numberErr == nil {
-				matched = numericValue != filterNumber
-			} else {
-				matched = !stringOK || stringValue != filter.Value
-			}
-		case "^=":
-			matched = stringOK && strings.HasPrefix(stringValue, filter.Value)
-		case "$=":
-			matched = stringOK && strings.HasSuffix(stringValue, filter.Value)
-		case "*=":
-			matched = stringOK && strings.Contains(stringValue, filter.Value)
-		case "~=":
-			if len(filter.Value) > maxRegexBytes {
-				return false
-			}
-			expression, err := regexp.Compile(filter.Value)
-			matched = err == nil && stringOK && expression.MatchString(stringValue)
-		case ">", ">=", "<", "<=":
-			if numericOK && numberErr == nil {
-				switch filter.Operator {
-				case ">":
-					matched = numericValue > filterNumber
-				case ">=":
-					matched = numericValue >= filterNumber
-				case "<":
-					matched = numericValue < filterNumber
-				case "<=":
-					matched = numericValue <= filterNumber
-				}
-			}
+func matchesFilters(object *value.Object, filters []Filter, budget *regexEvalBudget) (bool, error) {
+	for index := range filters {
+		matched, err := filters[index].match(object, budget)
+		if err != nil {
+			return false, err
 		}
 		if !matched {
-			return false
+			return false, nil
 		}
 	}
-	return true
+	return true, nil
 }
 
 func formatScore(object *value.Object, video, audio bool) float64 {

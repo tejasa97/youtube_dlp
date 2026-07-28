@@ -50,7 +50,7 @@ func TestSelectorBestWorstAndStringFilters(t *testing.T) {
 		{"bestvideo[vcodec^=av]", "360"},
 		{"worstvideo", "360"},
 		{"bestaudio[format_id$=high]", "audio-high"},
-		{"best[ext~=webm|mp4]", "720"},
+		{`best[ext~="webm|mp4"]`, "720"},
 	}
 	for _, test := range tests {
 		selector, err := ParseSelector(test.expression)
@@ -250,18 +250,32 @@ func TestSelectorRejectsBoundedInvalidRegexAndStructure(t *testing.T) {
 }
 
 func TestSelectorNumericAndMissingInequality(t *testing.T) {
-	for _, expression := range []string{"bestvideo[height=720]", "bestvideo[missing!=x]"} {
-		selector, err := ParseSelector(expression)
-		if err != nil {
-			t.Fatal(err)
-		}
-		selected, err := Select(selectorInfo(), selector)
-		if err != nil || selected[0].ID != "720" {
-			t.Fatalf("Select(%q) = %#v, %v", expression, selected, err)
-		}
+	selector, err := ParseSelector("bestvideo[height=720]")
+	if err != nil {
+		t.Fatal(err)
 	}
-	selector, _ := ParseSelector("bestvideo[height!=720]")
 	selected, err := Select(selectorInfo(), selector)
+	if err != nil || selected[0].ID != "720" {
+		t.Fatalf("Select(height=720) = %#v, %v", selected, err)
+	}
+	// Missing fields fail every operator unless ? is present.
+	selector, err = ParseSelector("bestvideo[missing!=x]")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Select(selectorInfo(), selector); !errors.Is(err, ErrNoMatch) {
+		t.Fatalf("missing inequality = %v, want ErrNoMatch", err)
+	}
+	selector, err = ParseSelector("bestvideo[missing!=?x]")
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, err = Select(selectorInfo(), selector)
+	if err != nil || selected[0].ID != "720" {
+		t.Fatalf("none-inclusive missing inequality = %#v, %v", selected, err)
+	}
+	selector, _ = ParseSelector("bestvideo[height!=720]")
+	selected, err = Select(selectorInfo(), selector)
 	if err != nil || selected[0].ID != "360" {
 		t.Fatalf("numeric inequality = %#v, %v", selected, err)
 	}

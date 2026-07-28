@@ -1,15 +1,21 @@
 # Format-selector and normalization provenance
 
 - Reference: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`
-- Fixture derivation interpreter: `CPython 3.12.13` (pinned checkout requires
-  Python `>=3.10`; do not claim an unsupported interpreter executed the oracle)
+- Fixture derivation interpreter: `CPython 3.12.13`; the filter/regex and
+  Unicode-name generators require that exact version.
 - Recorded: 2026-07-25; normalization evidence corrected 2026-07-28; parser
-  parity evidence expanded 2026-07-28
+  parity evidence expanded 2026-07-28; filter/regex oracle captured 2026-07-28
 - Corpus: `internal/format/testdata/selector_conformance.json` (schema version 1)
 - `int_or_none` oracle: `internal/format/testdata/int_or_none_oracle.json`
+- Filter oracle: `internal/format/testdata/filter_oracle.json`
+- Python-regex oracle: `internal/format/testdata/python_regex_oracle.json`
 - Tests: `internal/format.TestSelectorConformanceCorpus`,
   `internal/format.TestIntOrNoneOracleFixture`,
+  `internal/format.TestFilterOracleFixture`,
+  `internal/format.TestPythonRegexOracleFixture`,
   `internal/format.TestParserParity*`,
+  `internal/format.TestFilter*`,
+  `internal/format.TestPythonRegex*`,
   `pkg/ytdlp.TestFormatSelectorInvalidSyntaxFailsBeforeExtraction`
 - Gap ledger: `docs/FORMAT_SELECTOR_PARITY.md`
 
@@ -19,25 +25,38 @@ Computed over the committed UTF-8 file bytes:
 
 | Artifact | SHA-256 |
 |---|---|
-| `internal/format/testdata/selector_conformance.json` | `0ec3f138632f4d2e956b7b574d47a6cd99b0aec7876f344aca136f7ee08cbfcc` |
+| `internal/format/testdata/selector_conformance.json` | `5b933cf6a6380f2d71a26ed941cf5b38033548d4ea690100d03f0ac82de2e58d` |
 | `internal/format/testdata/int_or_none_oracle.json` | `a3f1af159f326f2d5f7e50825f3fa18eb061291a93da8d2f4f245abf389f3418` |
+| `internal/format/testdata/filter_oracle.json` | `5a3ea78f8825847adcb5798b023cff7f8b635f6c4cf1a3ed3163e6720468119a` |
+| `internal/format/testdata/python_regex_oracle.json` | `ef79503db52d84f43b0dc086732edd51a8da23dbb9e78af34ab7aadea7466fad` |
+| `internal/format/unicode_names.bin` | `0a76d5792d895a7054d63c8789f0fb79790b58608cbb0bc18426a236c84cf2de` |
 
 ## Maintainer-only capture
 
 Go tests, builds, Docker images, and production remain Python-free. Maintainers
-regenerate the `int_or_none` oracle with a supported interpreter against the
-pinned checkout:
+regenerate oracles with a supported interpreter against the pinned checkout:
 
 ```bash
 python3 conformance/compat/format_selector/capture_oracle.py \
   --reference /Users/tejas/projects/yt-dlp-reference \
   --commit aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8 \
   --write
+
+python3 \
+  conformance/compat/format_selector/capture_filter_oracle.py \
+  --reference /path/to/pinned/yt-dlp \
+  --commit aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8 \
+  --write
+
+python3 conformance/compat/format_selector/generate_unicode_names.py \
+  --aliases /path/to/Unicode-15.0.0/NameAliases.txt \
+  --write
 ```
 
-The command records the reference SHA, interpreter version, derivation command,
-and SHA-256 digests. Re-run it after changing oracle inputs, then update this
-provenance table.
+The filter/regex and Unicode-name commands require CPython 3.12.13 with Unicode
+15.0.0. The Unicode generator verifies the pinned NameAliases.txt SHA-256 before
+writing the deterministic embedded artifact. Go tests and production do not
+invoke either script or read the network.
 
 ## Upstream sources and exact order
 
@@ -46,6 +65,14 @@ The committed expectations were transcribed from the pinned checkout at
 
 - `yt_dlp/YoutubeDL.py:2577-2651`: selector construction/evaluation, atom
   predicates, extension priority, filters, `all`, and merge behavior.
+- `yt_dlp/YoutubeDL.py:2208-2270`: exact numeric/string filter grammar,
+  missing-value handling, operators, quoting, and Python-regex compilation.
+- `yt_dlp/utils/_utils.py:1756-1848`: `lookup_unit_table` and complete SI/IEC
+  filesize units through YB/YiB, including float multiplication and
+  round-half-to-even.
+- CPython 3.12.13 `re` search/compile behavior supplies the regex oracle,
+  including Unicode 15.0.0 names and aliases, flags, classes, lookaround,
+  conditionals, backreferences, atomic groups, and possessive quantifiers.
 - `yt_dlp/YoutubeDL.py:2923-3028`: format collection preparation, stable sorting,
   generated IDs, unsafe-character replacement, duplicate suffixing, and
   extension-selector conflict handling.
@@ -153,9 +180,8 @@ selector:
   IDs, matching `_remove_unused_ops` joins (`id!variant` selects that ID).
 - Unicode number characters outside ASCII digits (Nd/Nl/No, including `²` and
   Roman numerals) are accepted in direct IDs as pinned NAME tokens.
-- Negated string filter operators (`!^=`, `!$=`, `!*=`, `!~=`) parse but their
-  evaluation is deferred to the filter-parity phase. `gap.negated-prefix`
-  records this as a known parser-only gap.
+- Negated string filter operators (`!^=`, `!$=`, `!*=`, `!~=`) parse and
+  evaluate with the pinned missing-field and none-inclusive semantics.
 - Host-integer overflow for positive `.N` atom indexes is retained as valid
   syntax and evaluates to no match. The pinned implementation accepts arbitrary
   digit runs; Go records overflow deterministically instead of wrapping.
@@ -174,18 +200,15 @@ contract guarantees rather than byte-for-byte upstream comparisons.
 
 ## Bounded selector deviations
 
-This normalization PR does not change selector algorithms. The executing corpus
-and `docs/FORMAT_SELECTOR_PARITY.md` retain the existing differences, including:
+The executing corpus and `docs/FORMAT_SELECTOR_PARITY.md` retain the remaining
+selector and product differences, including:
 
 1. plain `best`/`worst` playable-universe semantics;
 2. forward `all` ordering;
-3. partial negated string evaluation (syntax accepted, evaluation deferred);
-4. limited quoted-value escaping and field-name syntax;
-5. Go RE2 rather than Python-regex-only constructs;
-6. incomplete upstream sort aliases/conversions/limit semantics;
-7. separate evaluator versus product multistream policy;
-8. interactive `-f -` and broader multi-output post-processing outside scope;
-9. bounded selector and evaluator limits.
+3. incomplete upstream sort aliases/conversions/limit semantics;
+4. separate evaluator versus product multistream policy;
+5. interactive `-f -` and broader multi-output post-processing outside scope;
+6. bounded selector and evaluator limits.
 
 Fixture or implementation updates must keep this provenance, the corpus, and the
 parity ledger synchronized against an explicit reference revision.
