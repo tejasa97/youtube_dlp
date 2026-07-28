@@ -11,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ytdlp-go/ytdlp/internal/extractor"
 	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
 	"github.com/ytdlp-go/ytdlp/internal/network"
 	"github.com/ytdlp-go/ytdlp/internal/value"
@@ -447,11 +446,11 @@ func TestMultiOutputProductRejectsDefaultDestinationPostprocessors(t *testing.T)
 func TestOutputPlanDestinationUniqueWithDuplicateIDs(t *testing.T) {
 	firstPlan := mediaformat.OutputPlan{Tracks: []mediaformat.Selection{{ID: "same", Ext: "mp4"}}}
 	secondPlan := mediaformat.OutputPlan{Tracks: []mediaformat.Selection{{ID: "same", Ext: "m4a"}}}
-	first, err := outputPlanDestination("/tmp/out/video.mp4", 0, firstPlan, true)
+	first, err := outputPlanDestination("/tmp/out/video.mp4", 0, firstPlan, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := outputPlanDestination("/tmp/out/video.mp4", 1, secondPlan, true)
+	second, err := outputPlanDestination("/tmp/out/video.mp4", 1, secondPlan, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -465,7 +464,7 @@ func TestOutputPlanDestinationUniqueWithDuplicateIDs(t *testing.T) {
 
 func TestOutputPlanDestinationWindowsSafe(t *testing.T) {
 	plan := mediaformat.OutputPlan{Tracks: []mediaformat.Selection{{ID: `weird:id|name`, Ext: "mp4"}}}
-	path, err := outputPlanDestination(`C:\downloads\clip.mp4`, 2, plan, true)
+	path, err := outputPlanDestination(`C:\downloads\clip.mp4`, 2, plan, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -598,7 +597,7 @@ func TestErrSelectorLimitCategorizedInvalidInput(t *testing.T) {
 
 func mustOutputPlanDestination(t *testing.T, base string, planIndex int, plan mediaformat.OutputPlan, multi bool) string {
 	t.Helper()
-	path, err := outputPlanDestination(base, planIndex, plan, multi)
+	path, err := outputPlanDestination(base, planIndex, plan, multi, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -621,7 +620,7 @@ func TestPlanDestinationExtensionFallbacks(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := planDestinationExtension(test.tracks)
+			got, err := planDestinationExtension(mediaformat.OutputPlan{Tracks: test.tracks}, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -630,12 +629,33 @@ func TestPlanDestinationExtensionFallbacks(t *testing.T) {
 			}
 		})
 	}
-	if _, err := planDestinationExtension([]mediaformat.Selection{
+	got, err := planDestinationExtension(mediaformat.OutputPlan{Tracks: []mediaformat.Selection{
 		{Ext: "mp4", VCodec: "avc1", ACodec: "none"},
 		{Ext: "mp4", VCodec: "avc1", ACodec: "none"},
 		{Ext: "m4a", VCodec: "none", ACodec: "aac"},
-	}); !errors.Is(err, extractor.ErrUnsupported) {
-		t.Fatalf("unsupported merge = %v", err)
+	}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "mkv" {
+		t.Fatalf("3-track extension = %q, want mkv", got)
+	}
+}
+
+func TestPlanDestinationExtensionUsesPlannerMetadata(t *testing.T) {
+	plan := mediaformat.OutputPlan{
+		Tracks: []mediaformat.Selection{
+			{Ext: "mp4", VCodec: "avc1", ACodec: "none"},
+			{Ext: "m4a", VCodec: "none", ACodec: "aac"},
+		},
+		Metadata: value.NewInfo(value.NewObject(value.Field{Key: "ext", Value: value.String("mp4")})),
+	}
+	got, err := planDestinationExtension(plan, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "mp4" {
+		t.Fatalf("extension = %q, want planner metadata mp4", got)
 	}
 }
 
@@ -702,45 +722,5 @@ func TestMultiOutputPreservesPerPlanExtensions(t *testing.T) {
 	}
 	if mediaBytes != int64(len(videoBody)+len(audioBody)) {
 		t.Fatalf("media bytes = %d, want %d", mediaBytes, len(videoBody)+len(audioBody))
-	}
-}
-
-func TestProductRejectsUnsupportedMergeBeforeDownload(t *testing.T) {
-	mediaHits := 0
-	var server *httptest.Server
-	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		switch request.URL.Path {
-		case "/page":
-			writer.Header().Set("Content-Type", "application/json")
-			_, _ = fmt.Fprintf(writer, `{
-				"id":"merge","title":"Merge","ext":"mp4",
-				"formats":[
-					{"format_id":"v1080","url":%q,"ext":"mp4","vcodec":"avc1","acodec":"none","height":1080},
-					{"format_id":"v720","url":%q,"ext":"mp4","vcodec":"avc1","acodec":"none","height":720},
-					{"format_id":"a128","url":%q,"ext":"m4a","vcodec":"none","acodec":"aac","abr":128},
-					{"format_id":"a64","url":%q,"ext":"m4a","vcodec":"none","acodec":"aac","abr":64}
-				]
-			}`, server.URL+"/v1080", server.URL+"/v720", server.URL+"/a128", server.URL+"/a64")
-		case "/v1080", "/v720", "/a128", "/a64":
-			if request.Method != http.MethodHead {
-				mediaHits++
-				_, _ = writer.Write([]byte("media"))
-			}
-		default:
-			http.NotFound(writer, request)
-		}
-	}))
-	defer server.Close()
-
-	_, err := NewClient().Run(context.Background(), Request{
-		URL: server.URL + "/page", OutputDir: t.TempDir(),
-		Format: "bestvideo+bestvideo.2+bestaudio", Overwrite: true,
-		AllowMultipleVideoStreams: true,
-	})
-	if !IsCategory(err, ErrorUnsupported) {
-		t.Fatalf("Run() = %v", err)
-	}
-	if mediaHits != 0 {
-		t.Fatalf("media downloads = %d, want 0", mediaHits)
 	}
 }

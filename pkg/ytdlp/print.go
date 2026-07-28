@@ -628,8 +628,19 @@ func formatPrintDuration(seconds float64) string {
 }
 
 func (operation *operation) printFilename(info value.Info, selections []mediaformat.Selection) (string, error) {
+	return operation.renderFilename(selectedFormatInfo(info, selections), selections)
+}
+
+func (operation *operation) printFilenameForPlan(info value.Info, plan mediaformat.OutputPlan) (string, error) {
+	outputInfo := selectedPlanInfo(info, plan)
+	if prefs := operation.mergeOutputPreferences(); len(prefs) > 0 && len(plan.Tracks) > 1 {
+		outputInfo.Set("ext", value.String(plannedOutputExtension(plan, prefs)))
+	}
+	return operation.renderFilename(outputInfo, plan.Tracks)
+}
+
+func (operation *operation) renderFilename(outputInfo value.Info, selections []mediaformat.Selection) (string, error) {
 	pattern := operation.request.outputTemplate(OutputTemplateDefault)
-	outputInfo := selectedFormatInfo(info, selections)
 	operation.applyThumbnailEmbeddingOutputExtension(&outputInfo, selections)
 	outputDir := operation.request.outputRoot(OutputPathHome)
 	filename, err := outputtemplate.Resolve(outputDir, pattern, outputInfo)

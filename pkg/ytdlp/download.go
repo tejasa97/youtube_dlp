@@ -29,11 +29,11 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/youtubepot"
 )
 
-func outputPlanDestination(base string, planIndex int, plan mediaformat.OutputPlan, multi bool) (string, error) {
+func outputPlanDestination(base string, planIndex int, plan mediaformat.OutputPlan, multi bool, preferences []string) (string, error) {
 	if !multi {
 		return base, nil
 	}
-	extension, err := planDestinationExtension(plan.Tracks)
+	extension, err := planDestinationExtension(plan, preferences)
 	if err != nil {
 		return "", err
 	}
@@ -43,19 +43,36 @@ func outputPlanDestination(base string, planIndex int, plan mediaformat.OutputPl
 	return filepath.Join(filepath.Dir(base), stem+".f"+suffix+"."+extension), nil
 }
 
-func planDestinationExtension(tracks []mediaformat.Selection) (string, error) {
+func planDestinationExtension(plan mediaformat.OutputPlan, overridePreferences []string) (string, error) {
+	tracks := plan.Tracks
+	if len(tracks) == 0 {
+		return "", fmt.Errorf("%w: output plan has no tracks", extractor.ErrUnsupported)
+	}
 	if len(tracks) == 1 {
-		return safeExtension(tracks[0].Ext), nil
+		return plannedOutputExtension(plan, overridePreferences), nil
 	}
-	if len(tracks) != 2 || !mergeableSelections(tracks) {
-		return "", fmt.Errorf("%w: output plan with %d tracks is not a video/audio merge", extractor.ErrUnsupported, len(tracks))
+	if !mergeableTracks(tracks) {
+		return "", fmt.Errorf("%w: output plan with %d tracks is not mergeable", extractor.ErrUnsupported, len(tracks))
 	}
-	return mergedOutputExtension(tracks), nil
+	return plannedOutputExtension(plan, overridePreferences), nil
 }
 
-func validateOutputPlans(plans []mediaformat.OutputPlan) error {
+func plannedOutputExtension(plan mediaformat.OutputPlan, overridePreferences []string) string {
+	if len(overridePreferences) > 0 && len(plan.Tracks) > 1 {
+		return safeExtension(mediaformat.CompatibleExtensionForSelections(plan.Tracks, overridePreferences))
+	}
+	if ext, ok := plan.Metadata.Lookup("ext").StringValue(); ok && ext != "" {
+		return safeExtension(ext)
+	}
+	if len(plan.Tracks) == 1 {
+		return safeExtension(plan.Tracks[0].Ext)
+	}
+	return safeExtension(mediaformat.CompatibleExtensionForSelections(plan.Tracks, nil))
+}
+
+func validateOutputPlans(plans []mediaformat.OutputPlan, preferences []string) error {
 	for index, plan := range plans {
-		if _, err := planDestinationExtension(plan.Tracks); err != nil {
+		if _, err := planDestinationExtension(plan, preferences); err != nil {
 			return fmt.Errorf("output plan[%d]: %w", index, err)
 		}
 	}
@@ -108,46 +125,21 @@ func (operation *operation) downloadSelections(ctx context.Context, selections [
 	if len(selections) == 1 {
 		return operation.downloadSelection(ctx, selections[0], outputRoot, destination, sink)
 	}
-	if len(selections) != 2 || !mergeableSelections(selections) {
-		return "", 0, fmt.Errorf("%w: selected format set is not a video/audio merge", extractor.ErrUnsupported)
+	if !mergeableTracks(selections) {
+		return "", 0, fmt.Errorf("%w: selected format set is not mergeable", extractor.ErrUnsupported)
 	}
-	if sabrPairSelections(selections) {
+	if len(selections) == 2 && sabrPairSelections(selections) {
 		return operation.downloadYouTubeSABRPair(ctx, selections, outputRoot, destination, sink)
 	}
-	temporaryRoot, err := os.MkdirTemp(outputRoot, ".ytdlp-formats-")
-	if err != nil {
-		return "", 0, fmt.Errorf("create selected-format workspace: %w", err)
-	}
-	defer os.RemoveAll(temporaryRoot)
-
-	paths := make([]string, len(selections))
-	var bytes int64
-	if selections[0].YouTubeLiveFromStart && selections[1].YouTubeLiveFromStart {
+	if len(selections) == 2 && selections[0].YouTubeLiveFromStart && selections[1].YouTubeLiveFromStart {
+		temporaryRoot, err := os.MkdirTemp(outputRoot, ".ytdlp-formats-")
+		if err != nil {
+			return "", 0, fmt.Errorf("create selected-format workspace: %w", err)
+		}
+		defer os.RemoveAll(temporaryRoot)
 		return operation.downloadYouTubeLivePair(ctx, selections, outputRoot, destination, temporaryRoot, sink)
 	}
-	for index, selection := range selections {
-		track := filepath.Join(temporaryRoot, fmt.Sprintf("track-%d.%s", index, safeExtension(selection.Ext)))
-		path, count, downloadErr := operation.downloadSelection(ctx, selection, temporaryRoot, track, sink)
-		if downloadErr != nil {
-			return "", 0, downloadErr
-		}
-		paths[index], bytes = path, bytes+count
-	}
-	video, audio := paths[0], paths[1]
-	if selections[1].VCodec != "" && selections[1].VCodec != "none" {
-		video, audio = paths[1], paths[0]
-	}
-	tools, err := ffmpeg.Discover(ffmpeg.Config{})
-	if err != nil {
-		return "", 0, err
-	}
-	if err := tools.Merge(ctx, video, audio, destination, operation.request.Overwrite, sink); err != nil {
-		return "", 0, err
-	}
-	if info, err := os.Stat(destination); err == nil {
-		bytes = info.Size()
-	}
-	return destination, bytes, nil
+	return operation.downloadAndMergeTracks(ctx, selections, outputRoot, destination, sink)
 }
 
 func sabrPairSelections(selections []mediaformat.Selection) bool {
@@ -617,21 +609,24 @@ func mergedOutputExtension(selections []mediaformat.Selection) string {
 	if len(selections) == 1 {
 		return safeExtension(selections[0].Ext)
 	}
-	if len(selections) != 2 || !mergeableSelections(selections) {
-		return "mkv"
+	if len(selections) == 2 && mergeableSelections(selections) {
+		video, audio := selections[0], selections[1]
+		if audio.VCodec != "" && audio.VCodec != "none" {
+			video, audio = audio, video
+		}
+		switch {
+		case video.Ext == "webm" && audio.Ext == "webm":
+			return "webm"
+		case video.Ext == "mp4" && (audio.Ext == "m4a" || audio.Ext == "mp4"):
+			return "mp4"
+		default:
+			return "mkv"
+		}
 	}
-	video, audio := selections[0], selections[1]
-	if audio.VCodec != "" && audio.VCodec != "none" {
-		video, audio = audio, video
+	if mergeableTracks(selections) {
+		return safeExtension(mediaformat.CompatibleExtensionForSelections(selections, nil))
 	}
-	switch {
-	case video.Ext == "webm" && audio.Ext == "webm":
-		return "webm"
-	case video.Ext == "mp4" && (audio.Ext == "m4a" || audio.Ext == "mp4"):
-		return "mp4"
-	default:
-		return "mkv"
-	}
+	return "mkv"
 }
 
 var extensionPattern = regexp.MustCompile(`^[A-Za-z0-9]{1,16}$`)
