@@ -157,9 +157,6 @@ func prepareFormats(info value.Info, options Options) (Prepared, error) {
 		fillSortingFields(object)
 	}
 	orderedObjects = sorter.sortStable(orderedObjects)
-	if len(options.PreferExtensions) > 0 {
-		orderedObjects = applyExtensionTiebreaker(orderedObjects, options.PreferExtensions)
-	}
 	ordered := make([]normalizedFormat, len(orderedObjects))
 	for index, object := range orderedObjects {
 		item := byObject[object]

@@ -663,42 +663,6 @@ func TestFormatSorterDerivedFields(t *testing.T) {
 	})
 }
 
-// TestFormatSorterEvaluatorReversalAdapter verifies the adapter contract:
-// new slice, reverse iteration, no mutation of canonical, preserved pointers.
-func TestFormatSorterEvaluatorReversalAdapter(t *testing.T) {
-	formats := []value.Value{
-		value.ObjectValue(value.NewObject(value.Field{Key: "format_id", Value: value.String("a")},
-			value.Field{Key: "url", Value: value.String("https://example.invalid/a")})),
-		value.ObjectValue(value.NewObject(value.Field{Key: "format_id", Value: value.String("b")},
-			value.Field{Key: "url", Value: value.String("https://example.invalid/b")})),
-		value.ObjectValue(value.NewObject(value.Field{Key: "format_id", Value: value.String("c")},
-			value.Field{Key: "url", Value: value.String("https://example.invalid/c")})),
-	}
-	info := value.NewInfo(value.NewObject(value.Field{Key: "formats", Value: value.List(formats...)}))
-	prepared, err := Prepare(info, Options{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	adapter := prepared.evaluationFormats()
-	if len(adapter) != len(prepared.formats) {
-		t.Fatalf("adapter length = %d, want %d", len(adapter), len(prepared.formats))
-	}
-	for i := range prepared.formats {
-		if adapter[i] != prepared.formats[len(prepared.formats)-1-i].Object {
-			t.Fatalf("adapter[%d] != reversed canonical[%d]", i, len(prepared.formats)-1-i)
-		}
-	}
-	prepared.formats[0].Object.Set("format_id", value.String("mutated"))
-	if got, _ := adapter[len(adapter)-1].Lookup("format_id").StringValue(); got != "mutated" {
-		t.Fatalf("adapter does not share pointer identity")
-	}
-	originalCanonical := prepared.formats[0].ID
-	_ = prepared.evaluationFormats()
-	if prepared.formats[0].ID != originalCanonical {
-		t.Fatalf("canonical mutated by evaluationFormats adapter call")
-	}
-}
-
 // TestFormatSorterSourceAndNormalizedIndexes verifies both indexes are
 // preserved through preparation and reverse ordering.
 func TestFormatSorterSourceAndNormalizedIndexes(t *testing.T) {

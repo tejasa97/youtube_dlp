@@ -32,16 +32,22 @@ var ErrInvalidPreference = errors.New("invalid format preference")
 // exposes those CLI operations; PR 4 documents the boundary and tests that
 // Options.Sort order is preserved exactly.
 //
-// PreferExtensions is retained for Go API compatibility. It is applied as an
-// explicit final legacy extension tiebreaker only after the complete pinned
-// preference tuple compares equal. It must not alter the pinned oracle when
-// empty.
+// PreferExtensions is retained for Go API compatibility. It is inserted at
+// the extension position of the canonical tuple, after quality fields. It
+// must not alter the pinned oracle when empty.
+//
+// AllowMultipleVideoStreams and AllowMultipleAudioStreams mirror yt-dlp's
+// `--allow-multiple-video-streams` / `--allow-multiple-audio-streams` flags.
+// Both default to false, matching Python's pinned stream suppression
+// behaviour.
 type Options struct {
-	Sort              []SortField
-	SortForce         bool
-	PreferFreeFormats bool
-	PreferExtensions  []string
-	AllowDRM          bool
+	Sort                      []SortField
+	SortForce                 bool
+	PreferFreeFormats         bool
+	PreferExtensions          []string
+	AllowDRM                  bool
+	AllowMultipleVideoStreams bool
+	AllowMultipleAudioStreams bool
 }
 
 // SortField is compatible with common yt-dlp FIELD, +FIELD, FIELD:LIMIT, and

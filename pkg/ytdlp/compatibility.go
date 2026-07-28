@@ -63,8 +63,10 @@ func prepareCompatibility(request Request) (compatibilityPlan, error) {
 	}
 	plan.formatOptions = mediaformat.Options{
 		Sort: sortFields, PreferFreeFormats: request.PreferFreeFormats,
-		PreferExtensions: append([]string(nil), request.PreferredExtensions...),
-		AllowDRM:         request.AllowUnplayableFormats,
+		PreferExtensions:          append([]string(nil), request.PreferredExtensions...),
+		AllowDRM:                  request.AllowUnplayableFormats,
+		AllowMultipleVideoStreams: request.AllowMultipleVideoStreams,
+		AllowMultipleAudioStreams: request.AllowMultipleAudioStreams,
 	}
 	filters := make([]string, 0, len(request.MatchFilters))
 	for _, filter := range request.MatchFilters {
@@ -268,14 +270,20 @@ func (operation *operation) planFormats(info value.Info) ([]mediaformat.OutputPl
 }
 
 func (operation *operation) planPreparedFormats(prepared mediaformat.Prepared) ([]mediaformat.OutputPlan, error) {
+	evaluation := mediaformat.EvaluationOptions{Availability: operation.formatAvailability}
 	if operation.compatibility.selector == nil {
-		selected, err := prepared.Default()
-		if err != nil {
-			return nil, err
+		capabilities := mediaformat.PlannerCapabilities{CanMergeFormats: true}
+		if operation.plannerCapabilities != nil {
+			capabilities = *operation.plannerCapabilities
 		}
-		return []mediaformat.OutputPlan{{Tracks: selected}}, nil
+		isLive, _ := prepared.Info().Lookup("is_live").Bool()
+		return prepared.DefaultWithContext(
+			capabilities,
+			mediaformat.DefaultSelectorContext{IsLive: isLive, LiveFromStart: operation.request.LiveFromStart},
+			evaluation,
+		)
 	}
-	return prepared.Plan(*operation.compatibility.selector)
+	return prepared.PlanWithOptions(*operation.compatibility.selector, evaluation)
 }
 
 // validateMultiOutputProduct rejects multi-plan downloads when requested
