@@ -242,7 +242,7 @@ func TestSortFieldsRejectBounds(t *testing.T) {
 }
 
 func TestSelectorRejectsBoundedInvalidRegexAndStructure(t *testing.T) {
-	for _, input := range []string{"best[ext~=(]", strings.Repeat("best/", maxAlternatives), strings.Repeat("best+", maxMergeTerms)} {
+	for _, input := range []string{"best[ext~=(]", strings.Repeat("best/", maxAlternatives) + "best", strings.Repeat("best+", maxMergeTerms) + "best"} {
 		if _, err := ParseSelector(input); !errors.Is(err, ErrInvalidSelector) {
 			t.Fatalf("ParseSelector(%q) = %v", input[:min(len(input), 20)], err)
 		}
