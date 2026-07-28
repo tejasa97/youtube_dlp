@@ -196,13 +196,10 @@ func (tools *Toolset) Probe(ctx context.Context, path string) (Probe, error) {
 }
 
 func (tools *Toolset) Merge(ctx context.Context, videoPath, audioPath, destination string, overwrite bool, sink events.Sink) error {
-	return tools.runAtomic(ctx, destination, overwrite, sink, func(temporary string) []string {
-		return []string{
-			"-i", videoPath, "-i", audioPath,
-			"-map", "0:v:0?", "-map", "1:a:0?", "-c", "copy",
-			"-progress", "pipe:1", "-nostats", temporary,
-		}
-	})
+	return tools.MergeTracks(ctx, []MergeInput{
+		{Path: videoPath, HasVideo: true},
+		{Path: audioPath, HasAudio: true},
+	}, destination, overwrite, sink)
 }
 
 // Remux changes the media container without re-encoding streams. Output is
