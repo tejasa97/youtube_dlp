@@ -204,21 +204,23 @@ func parseAtomSpec(text string, absStart int) (atomSpec, error) {
 }
 
 // validDirectIDToken mirrors NAME, NUMBER, and non-structural OP tokens retained
-// by the pinned Python tokenizer. Error, comment, and string-token punctuation is
-// rejected instead of being silently discarded and changing the requested ID.
+// by the pinned Python tokenizer. Comment (`#`) and string/line-continuation
+// punctuation (`\`, `'`, `"`) are rejected instead of silently rewriting the ID.
 func validDirectIDToken(text string) bool {
 	if text == "" {
 		return false
 	}
 	for _, r := range text {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.IsMark(r) || r == '_' {
+		// IsNumber covers Nd/Nl/No (digits, Roman numerals, superscripts such as ²).
+		if unicode.IsLetter(r) || unicode.IsNumber(r) || unicode.IsMark(r) || r == '_' {
 			continue
 		}
 		switch r {
 		// Includes '/' so joined Python OP tokens such as "//" and "/=" can form
-		// direct IDs (best//). '+' appears only via joinable "+=" and is allowed
-		// for the same reason. ERRORTOKEN/comment/string punctuation stays out.
-		case '-', '.', '*', '/', '+', ':', '%', '&', ';', '<', '=', '>', '@', '^', '|', '~', '{', '}':
+		// direct IDs (best//). '+' appears only via joinable "+=". '!' / '$' / '?'
+		// / '`' are single-character OP tokens that _remove_unused_ops joins into
+		// the surrounding ID. Comment/string punctuation stays out.
+		case '-', '.', '*', '/', '+', '!', '$', '?', '`', ':', '%', '&', ';', '<', '=', '>', '@', '^', '|', '~', '{', '}':
 			continue
 		default:
 			return false
