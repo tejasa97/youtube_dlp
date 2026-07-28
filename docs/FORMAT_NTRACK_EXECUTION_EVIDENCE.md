@@ -52,7 +52,8 @@ Matches pinned `FFmpegMergerPP`:
 
 ## Cancellation and cleanup
 
-- First track failure cancels siblings; root error preserved.
+- First substantive track failure cancels siblings; the triggering HTTP error is
+  preserved rather than replacing it with `context.Canceled`.
 - Private workspace `.ytdlp-formats-*` removed on all paths.
 - No partial destination publication on failure or cancellation.
 
@@ -63,9 +64,9 @@ Matches pinned `FFmpegMergerPP`:
 
 ## Merge-output-format
 
-- `Request.MergeOutputFormat` (`mp4/mkv`) overrides planner metadata for
-  destination extension only.
-- `Request.PreferFreeFormats` remains planner-owned via `Metadata.ext`.
+- `Request.MergeOutputFormat` (`mp4/mkv`) overrides planner `Metadata.ext` for
+  destination extension when explicitly set.
+- `Request.PreferFreeFormats` remains planner-owned via `Metadata.ext` only.
 
 ## Platform verification
 

@@ -79,6 +79,7 @@ func (operation *operation) capturePrints(
 	ctx context.Context,
 	stage PrintStage,
 	info value.Info,
+	plan *mediaformat.OutputPlan,
 	selections []mediaformat.Selection,
 	filename string,
 ) ([]PrintOutput, error) {
@@ -92,7 +93,7 @@ func (operation *operation) capturePrints(
 		}
 		printInfo := value.NewInfo(info.Fields().Clone())
 		includeFilepath := printStageRank(stage) >= printStageRank(PrintPostProcess)
-		if err := addPrintFields(&printInfo, selections, filename, includeFilepath); err != nil {
+		if err := operation.addPrintFields(&printInfo, plan, selections, filename, includeFilepath); err != nil {
 			return outputs, err
 		}
 		if !includeFilepath {
@@ -116,6 +117,7 @@ func (operation *operation) capturePrints(
 func (operation *operation) validatePrintRules(
 	ctx context.Context,
 	info value.Info,
+	plan *mediaformat.OutputPlan,
 	selections []mediaformat.Selection,
 	filename string,
 	playlist bool,
@@ -129,7 +131,7 @@ func (operation *operation) validatePrintRules(
 		}
 		printInfo := value.NewInfo(info.Fields().Clone())
 		includeFilepath := printStageRank(rule.Stage) >= printStageRank(PrintPostProcess)
-		if err := addPrintFields(&printInfo, selections, filename, includeFilepath); err != nil {
+		if err := operation.addPrintFields(&printInfo, plan, selections, filename, includeFilepath); err != nil {
 			return err
 		}
 		if !includeFilepath {
@@ -152,6 +154,7 @@ func (operation *operation) writePrintFiles(
 	ctx context.Context,
 	stage PrintStage,
 	info value.Info,
+	plan *mediaformat.OutputPlan,
 	selections []mediaformat.Selection,
 	filename string,
 ) ([]Artifact, int64, error) {
@@ -170,7 +173,7 @@ func (operation *operation) writePrintFiles(
 		}
 		printInfo := value.NewInfo(info.Fields().Clone())
 		includeFilepath := printStageRank(stage) >= printStageRank(PrintPostProcess)
-		if err := addPrintFields(&printInfo, selections, filename, includeFilepath); err != nil {
+		if err := operation.addPrintFields(&printInfo, plan, selections, filename, includeFilepath); err != nil {
 			return artifacts, total, err
 		}
 		if !includeFilepath {
@@ -277,7 +280,13 @@ func addPrintFileArtifacts(result *Result, artifacts []Artifact, bytes int64) {
 	result.Downloaded = result.Downloaded || len(artifacts) > 0
 }
 
-func addPrintFields(info *value.Info, selections []mediaformat.Selection, filename string, includeFilepath bool) error {
+func (operation *operation) addPrintFields(
+	info *value.Info,
+	plan *mediaformat.OutputPlan,
+	selections []mediaformat.Selection,
+	filename string,
+	includeFilepath bool,
+) error {
 	if filename != "" {
 		info.Set("filename", value.String(filename))
 		if includeFilepath {
@@ -287,19 +296,30 @@ func addPrintFields(info *value.Info, selections []mediaformat.Selection, filena
 			}
 		}
 	}
-	if len(selections) > 0 {
-		selected := selectedFormatInfo(*info, selections)
-		*info = selected
-		if includeFilepath && filename != "" {
-			if extension := strings.TrimPrefix(filepath.Ext(filename), "."); extension != "" {
-				info.Set("ext", value.String(extension))
-			}
+	if plan != nil && len(plan.Tracks) > 0 {
+		operation.applyPrintSelectionFields(info, plan)
+	} else if len(selections) > 0 {
+		*info = selectedFormatInfo(*info, selections)
+	}
+	if includeFilepath && filename != "" {
+		if extension := strings.TrimPrefix(filepath.Ext(filename), "."); extension != "" {
+			info.Set("ext", value.String(extension))
 		}
 	}
 	if duration, ok := numericPrintValue(info.Lookup("duration")); ok && duration >= 0 {
 		info.Set("duration_string", value.String(formatPrintDuration(duration)))
 	}
 	return addPrintTableFields(info)
+}
+
+func (operation *operation) applyPrintSelectionFields(info *value.Info, plan *mediaformat.OutputPlan) {
+	if info == nil || plan == nil || len(plan.Tracks) == 0 {
+		return
+	}
+	*info = selectedPlanInfo(*info, *plan)
+	if prefs := operation.mergeOutputPreferences(); len(prefs) > 0 && len(plan.Tracks) > 1 {
+		info.Set("ext", value.String(plannedOutputExtension(*plan, prefs)))
+	}
 }
 
 func addSelectedFormatFields(info *value.Info, selections []mediaformat.Selection) {
@@ -648,6 +668,6 @@ func (operation *operation) renderFilename(outputInfo value.Info, selections []m
 		return "", err
 	}
 	return filepath.Clean(thumbnailEmbeddingDestination(
-		operation.request, selections, filename, hasThumbnailForEmbedding(outputInfo),
+		operation.request, selections, filename, outputInfo,
 	)), nil
 }

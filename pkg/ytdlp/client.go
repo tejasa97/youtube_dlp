@@ -762,7 +762,7 @@ func overlayOntoEntry(entry *extractor.Entry, overlay *extractor.Entry) {
 }
 
 func (operation *operation) processPlaylist(ctx context.Context, extracted extractor.Extraction, extractorName string, ancestors map[string]bool, depth int) (Result, error) {
-	if err := operation.validatePrintRules(ctx, extracted.Info, nil, "", true); err != nil {
+	if err := operation.validatePrintRules(ctx, extracted.Info, nil, nil, "", true); err != nil {
 		return Result{}, categorized("validate playlist print", err)
 	}
 	if err := operation.emitPlaylistItemsRangeWarning(ctx); err != nil {
@@ -823,12 +823,12 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 				return operation.finishPlaylistResult(ctx, extracted.Info, extractorName, children, entryValues)
 			}
 			if !terminal {
-				prints, err := operation.capturePrints(ctx, PrintVideo, entryInfo, nil, "")
+				prints, err := operation.capturePrints(ctx, PrintVideo, entryInfo, nil, nil, "")
 				if err != nil {
 					return Result{}, fmt.Errorf("flat playlist entry %d print: %w", selected.SourceIndex, err)
 				}
 				child.Prints = append(child.Prints, prints...)
-				printArtifacts, printBytes, err := operation.writePrintFiles(ctx, PrintVideo, entryInfo, nil, "")
+				printArtifacts, printBytes, err := operation.writePrintFiles(ctx, PrintVideo, entryInfo, nil, nil, "")
 				if err != nil {
 					return Result{}, fmt.Errorf("flat playlist entry %d print file: %w", selected.SourceIndex, err)
 				}
@@ -918,12 +918,12 @@ func (operation *operation) finishPlaylistResult(
 		result.Bytes += artifactBytes
 		result.Downloaded = result.Downloaded || len(artifacts) > 0
 	}
-	printArtifacts, printBytes, err := operation.writePrintFiles(ctx, PrintPlaylist, info, nil, "")
+	printArtifacts, printBytes, err := operation.writePrintFiles(ctx, PrintPlaylist, info, nil, nil, "")
 	if err != nil {
 		return Result{}, categorized("write playlist print file", err)
 	}
 	addPrintFileArtifacts(&result, printArtifacts, printBytes)
-	prints, err := operation.capturePrints(ctx, PrintPlaylist, info, nil, "")
+	prints, err := operation.capturePrints(ctx, PrintPlaylist, info, nil, nil, "")
 	if err != nil {
 		return Result{}, categorized("render playlist print", err)
 	}
@@ -1140,11 +1140,11 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 			return Result{}, categorized("normalize thumbnails", err)
 		}
 	}
-	preProcessPrints, err := operation.capturePrints(ctx, PrintPreProcess, info, nil, "")
+	preProcessPrints, err := operation.capturePrints(ctx, PrintPreProcess, info, nil, nil, "")
 	if err != nil {
 		return Result{}, categorized("render pre-process print", err)
 	}
-	preProcessArtifacts, preProcessBytes, err := operation.writePrintFiles(ctx, PrintPreProcess, info, nil, "")
+	preProcessArtifacts, preProcessBytes, err := operation.writePrintFiles(ctx, PrintPreProcess, info, nil, nil, "")
 	if err != nil {
 		return Result{}, categorized("write pre-process print file", err)
 	}
@@ -1156,12 +1156,12 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	addPrintFileArtifacts(&result, preProcessArtifacts, preProcessBytes)
 	if terminal {
 		if !result.Skipped {
-			prints, printErr := operation.capturePrints(ctx, PrintAfterFilter, info, nil, "")
+			prints, printErr := operation.capturePrints(ctx, PrintAfterFilter, info, nil, nil, "")
 			if printErr != nil {
 				return Result{}, categorized("render after-filter print", printErr)
 			}
 			result.Prints = append(result.Prints, prints...)
-			printArtifacts, printBytes, printErr := operation.writePrintFiles(ctx, PrintAfterFilter, info, nil, "")
+			printArtifacts, printBytes, printErr := operation.writePrintFiles(ctx, PrintAfterFilter, info, nil, nil, "")
 			if printErr != nil {
 				return Result{}, categorized("write after-filter print file", printErr)
 			}
@@ -1169,12 +1169,12 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		}
 		return result, nil
 	}
-	prints, err := operation.capturePrints(ctx, PrintAfterFilter, info, nil, "")
+	prints, err := operation.capturePrints(ctx, PrintAfterFilter, info, nil, nil, "")
 	if err != nil {
 		return Result{}, categorized("render after-filter print", err)
 	}
 	result.Prints = append(result.Prints, prints...)
-	printArtifacts, printBytes, err := operation.writePrintFiles(ctx, PrintAfterFilter, info, nil, "")
+	printArtifacts, printBytes, err := operation.writePrintFiles(ctx, PrintAfterFilter, info, nil, nil, "")
 	if err != nil {
 		return Result{}, categorized("write after-filter print file", err)
 	}
@@ -1230,6 +1230,10 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 			)
 		}
 	}
+	var singlePrintPlan *mediaformat.OutputPlan
+	if len(outputPlans) == 1 && len(outputPlans[0].Tracks) > 1 {
+		singlePrintPlan = &outputPlans[0]
+	}
 	operation.applyThumbnailEmbeddingOutputExtension(&info, selectedFormats)
 	var destination string
 	if len(outputPlans) == 1 {
@@ -1265,15 +1269,15 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 			return result, nil
 		}
 	}
-	if err := operation.validatePrintRules(ctx, info, selectedFormats, destination, false); err != nil {
+	if err := operation.validatePrintRules(ctx, info, singlePrintPlan, selectedFormats, destination, false); err != nil {
 		return Result{}, categorized("validate print rules", err)
 	}
-	prints, err = operation.capturePrints(ctx, PrintVideo, info, selectedFormats, destination)
+	prints, err = operation.capturePrints(ctx, PrintVideo, info, singlePrintPlan, selectedFormats, destination)
 	if err != nil {
 		return Result{}, categorized("render video print", err)
 	}
 	result.Prints = append(result.Prints, prints...)
-	printArtifacts, printBytes, err = operation.writePrintFiles(ctx, PrintVideo, info, selectedFormats, destination)
+	printArtifacts, printBytes, err = operation.writePrintFiles(ctx, PrintVideo, info, singlePrintPlan, selectedFormats, destination)
 	if err != nil {
 		return Result{}, categorized("write video print file", err)
 	}
@@ -1293,12 +1297,12 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	}
 	result.Artifacts = append(result.Artifacts, relatedArtifacts...)
 	result.Bytes += relatedBytes
-	prints, err = operation.capturePrints(ctx, PrintBeforeDL, info, selectedFormats, destination)
+	prints, err = operation.capturePrints(ctx, PrintBeforeDL, info, singlePrintPlan, selectedFormats, destination)
 	if err != nil {
 		return Result{}, categorized("render before-download print", err)
 	}
 	result.Prints = append(result.Prints, prints...)
-	printArtifacts, printBytes, err = operation.writePrintFiles(ctx, PrintBeforeDL, info, selectedFormats, destination)
+	printArtifacts, printBytes, err = operation.writePrintFiles(ctx, PrintBeforeDL, info, singlePrintPlan, selectedFormats, destination)
 	if err != nil {
 		return Result{}, categorized("write before-download print file", err)
 	}
@@ -1331,12 +1335,12 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	}
 	if operation.request.SkipDownload {
 		for _, stage := range []PrintStage{PrintPostProcess, PrintAfterMove, PrintAfterVideo} {
-			prints, err = operation.capturePrints(ctx, stage, info, selectedFormats, destination)
+			prints, err = operation.capturePrints(ctx, stage, info, singlePrintPlan, selectedFormats, destination)
 			if err != nil {
 				return Result{}, categorized("render "+string(stage)+" print", err)
 			}
 			result.Prints = append(result.Prints, prints...)
-			printArtifacts, printBytes, err = operation.writePrintFiles(ctx, stage, info, selectedFormats, destination)
+			printArtifacts, printBytes, err = operation.writePrintFiles(ctx, stage, info, singlePrintPlan, selectedFormats, destination)
 			if err != nil {
 				return Result{}, categorized("write "+string(stage)+" print file", err)
 			}
@@ -1443,12 +1447,12 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		result.Bytes += mediaBytes
 	}
 	for _, stage := range []PrintStage{PrintPostProcess, PrintAfterMove, PrintAfterVideo} {
-		prints, err = operation.capturePrints(ctx, stage, info, selectedFormats, downloadedPath)
+		prints, err = operation.capturePrints(ctx, stage, info, singlePrintPlan, selectedFormats, downloadedPath)
 		if err != nil {
 			return Result{}, categorized("render "+string(stage)+" print", err)
 		}
 		result.Prints = append(result.Prints, prints...)
-		printArtifacts, printBytes, err = operation.writePrintFiles(ctx, stage, info, selectedFormats, downloadedPath)
+		printArtifacts, printBytes, err = operation.writePrintFiles(ctx, stage, info, singlePrintPlan, selectedFormats, downloadedPath)
 		if err != nil {
 			return Result{}, categorized("write "+string(stage)+" print file", err)
 		}
