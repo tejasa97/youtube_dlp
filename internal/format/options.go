@@ -48,12 +48,14 @@ type Options struct {
 // FIELD~LIMIT forms. Descending means lower values win; Closest selects the
 // value nearest Limit. CombinedLimit captures multi-colon limit text (such
 // as `ext:mp4:m4a`) so the sorter can split it across subfields during
-// expansion; it is mutually exclusive with Limit.
+// expansion. LimitText preserves a non-numeric ordered-field limit such as
+// `vcodec:vp9`; both are mutually exclusive with Limit.
 type SortField struct {
 	Field         string
 	Descending    bool
 	Closest       bool
 	Limit         *float64
+	LimitText     string
 	CombinedLimit string
 }
 
@@ -74,18 +76,34 @@ func ParseSortField(input string) (SortField, error) {
 	if separator >= 0 {
 		field.Closest = input[separator] == '~'
 		rawLimit := input[separator+1:]
+		field.Field = strings.ToLower(input[:separator])
+		if !fieldPattern.MatchString(field.Field) {
+			return SortField{}, fmt.Errorf("%w: invalid field %q", ErrInvalidPreference, field.Field)
+		}
+		if rawLimit == "" || len(rawLimit) > 64 {
+			return SortField{}, fmt.Errorf("%w: empty or oversized sort limit", ErrInvalidPreference)
+		}
 		if strings.ContainsAny(rawLimit, ":~") {
 			// Combined-field limit. Defer numeric parsing.
 			field.CombinedLimit = rawLimit
-			field.Field = strings.ToLower(input[:separator])
-			if !fieldPattern.MatchString(field.Field) {
-				return SortField{}, fmt.Errorf("%w: invalid field %q", ErrInvalidPreference, field.Field)
-			}
 			return field, nil
 		}
 		limit, err := parseBoundedNumber(rawLimit)
 		if err != nil {
-			return SortField{}, fmt.Errorf("%w: invalid sort limit: %v", ErrInvalidPreference, err)
+			setting, _, known := lookupFieldSetting(field.Field)
+			if known && setting.typ == fieldTypeCombined {
+				field.CombinedLimit = rawLimit
+				return field, nil
+			}
+			if !known {
+				field.LimitText = rawLimit
+				return field, nil
+			}
+			if setting.convert != "order" && setting.convert != "string" && setting.convert != "float_string" {
+				return SortField{}, fmt.Errorf("%w: invalid sort limit: %v", ErrInvalidPreference, err)
+			}
+			field.LimitText = rawLimit
+			return field, nil
 		}
 		field.Limit = &limit
 		input = input[:separator]

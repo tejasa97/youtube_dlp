@@ -416,6 +416,60 @@ def case_unknown_codec():
     return case_record("unknown-codec", info, options, expected)
 
 
+def case_ordered_missing_codec():
+    formats = [
+        {"format_id": "missing", "url": "https://example.invalid/missing",
+         "ext": "mp4", "acodec": "none"},
+        {"format_id": "unknown", "url": "https://example.invalid/unknown",
+         "ext": "mp4", "vcodec": "zzz9", "acodec": "none"},
+    ]
+    info = {"formats": formats}
+    options = {"sort": [], "sort_force": False, "prefer_free_formats": False}
+    prepared = prepare_pinned(formats)
+    expected = {
+        "worst_to_best_source_indexes": [0, 1],
+        "worst_to_best_format_ids": [prepared[i]["format_id"] for i in range(2)],
+    }
+    return case_record("ordered-missing-codec", info, options, expected)
+
+
+def case_ordered_regex_prefix():
+    formats = [
+        {"format_id": "embedded", "url": "https://example.invalid/embedded",
+         "ext": "mp4", "vcodec": "prefix-av1", "acodec": "none"},
+        {"format_id": "avc", "url": "https://example.invalid/avc",
+         "ext": "mp4", "vcodec": "avc1", "acodec": "none"},
+    ]
+    info = {"formats": formats}
+    options = {"sort": [], "sort_force": False, "prefer_free_formats": False}
+    prepared = prepare_pinned(formats)
+    expected = {
+        "worst_to_best_source_indexes": [0, 1],
+        "worst_to_best_format_ids": [prepared[i]["format_id"] for i in range(2)],
+    }
+    return case_record("ordered-regex-prefix", info, options, expected)
+
+
+def case_textual_ordered_limit():
+    formats = [
+        {"format_id": "av1", "url": "https://example.invalid/av1",
+         "ext": "mp4", "vcodec": "av1", "acodec": "none"},
+        {"format_id": "vp9", "url": "https://example.invalid/vp9",
+         "ext": "webm", "vcodec": "vp9", "acodec": "none"},
+        {"format_id": "avc", "url": "https://example.invalid/avc",
+         "ext": "mp4", "vcodec": "avc1", "acodec": "none"},
+    ]
+    info = {"formats": formats}
+    options = {"sort": ["vcodec:vp9"], "sort_force": False,
+               "prefer_free_formats": False}
+    prepared = prepare_pinned(formats, sort_user=["vcodec:vp9"])
+    expected = {
+        "worst_to_best_source_indexes": [0, 2, 1],
+        "worst_to_best_format_ids": [prepared[i]["format_id"] for i in range(3)],
+    }
+    return case_record("textual-ordered-limit", info, options, expected)
+
+
 def case_normal_ext_order():
     formats = [
         {"format_id": "mp4", "url": "https://example.invalid/mp4", "ext": "mp4",
@@ -967,6 +1021,9 @@ def main():
         case_repeated_user_fields(),
         case_default_codec_rankings(),
         case_unknown_codec(),
+        case_ordered_missing_codec(),
+        case_ordered_regex_prefix(),
+        case_textual_ordered_limit(),
         case_normal_ext_order(),
         case_free_ext_order(),
         case_hdr_order(),

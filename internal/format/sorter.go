@@ -17,7 +17,6 @@ const (
 	maxExtractorSortFields = 32
 	maxEffectiveSortFields = 64
 	maxSortSpecBytes       = 256
-	maxSortListEntries     = maxEffectiveSortFields
 	maxSortSpecLength      = maxSortSpecBytes
 	maxCombinedLimitTokens = 8
 )
@@ -67,19 +66,18 @@ func parseSortSpecification(input string) (sortToken, error) {
 	if matches[3] == "~" {
 		token.closest = true
 	}
+	if matches[3] != "" && token.limitText == "" {
+		return sortToken{}, fmt.Errorf("%w: empty sort limit in %q", ErrInvalidPreference, input)
+	}
 	if token.limitText != "" {
 		if len(token.limitText) > 64 {
 			return sortToken{}, fmt.Errorf("%w: oversized sort limit in %q", ErrInvalidPreference, input)
 		}
-		if strings.Contains(token.limitText, ":") {
-			// Combined-field limits defer parsing until expansion.
-			return token, nil
+		if !strings.Contains(token.limitText, ":") {
+			if limit, err := parseBoundedNumber(token.limitText); err == nil {
+				token.limit = &limit
+			}
 		}
-		limit, err := parseBoundedNumber(token.limitText)
-		if err != nil {
-			return sortToken{}, fmt.Errorf("%w: invalid sort limit %q: %v", ErrInvalidPreference, token.limitText, err)
-		}
-		token.limit = &limit
 	}
 	setting, target, ok := lookupFieldSetting(token.canonical)
 	if !ok {
@@ -91,6 +89,10 @@ func parseSortSpecification(input string) (sortToken, error) {
 	}
 	token.canonical = target
 	token.deprecated = setting.deprecated
+	if token.limitText != "" && token.limit == nil && setting.typ != fieldTypeCombined &&
+		setting.convert != "order" && setting.convert != "string" && setting.convert != "float_string" {
+		return sortToken{}, fmt.Errorf("%w: invalid sort limit %q for %s", ErrInvalidPreference, token.limitText, token.canonical)
+	}
 	return token, nil
 }
 
@@ -111,6 +113,13 @@ func encodeSortFieldToken(field SortField) string {
 			builder.WriteByte(':')
 		}
 		builder.WriteString(field.CombinedLimit)
+	case field.LimitText != "":
+		if field.Closest {
+			builder.WriteByte('~')
+		} else {
+			builder.WriteByte(':')
+		}
+		builder.WriteString(field.LimitText)
 	case field.Limit != nil:
 		if field.Closest {
 			builder.WriteByte('~')
@@ -175,10 +184,6 @@ func newSorter(options Options, info value.Info, extractorFields []string) (*sor
 	rawList = append(rawList, extractorFields...)
 	rawList = append(rawList, pinnedDefaultOrder...)
 
-	if len(rawList) > maxSortListEntries {
-		return nil, fmt.Errorf("%w: more than %d expanded sort fields", ErrInvalidPreference, maxEffectiveSortFields)
-	}
-
 	tokens := make([]sortToken, 0, len(rawList))
 	settings := make([]*sorterFieldSetting, 0, len(rawList))
 	seen := make(map[string]struct{}, len(rawList))
@@ -205,6 +210,13 @@ func newSorter(options Options, info value.Info, extractorFields []string) (*sor
 				field:     []string{token.canonical},
 				convert:   "float_string",
 			}
+			if token.limitText != "" && token.limit == nil {
+				setting.convert = "string"
+			}
+		} else if setting.convert == "float_string" && token.limitText != "" && token.limit == nil {
+			copy := *setting
+			copy.convert = "string"
+			setting = &copy
 		}
 		resolveSortTokenLimit(&token, setting, options.PreferFreeFormats)
 		if setting.typ == fieldTypeCombined {
@@ -354,11 +366,16 @@ func preferenceForValue(setting *sorterFieldSetting, token sortToken, raw value.
 			return limitedNumericPreference(number, token)
 		}
 		if text, ok := raw.StringValue(); ok {
-			return stringPreference(strings.ToLower(text))
+			return stringPreference(text)
 		}
 		return missingPreference()
 	}
 	if raw.IsMissing() || raw.IsNull() {
+		if setting.convert == "order" {
+			if resolved, ok := orderedNoneRank(setting, useFreeOrder); ok {
+				return limitedNumericPreference(resolved, token)
+			}
+		}
 		if setting.hasDefault {
 			return limitedNumericPreference(setting.defaultVal, token)
 		}
@@ -366,6 +383,9 @@ func preferenceForValue(setting *sorterFieldSetting, token sortToken, raw value.
 	}
 	resolved, ok := resolveFieldValue(setting, raw, useFreeOrder)
 	if !ok {
+		if setting.hasDefault {
+			return limitedNumericPreference(setting.defaultVal, token)
+		}
 		return missingPreference()
 	}
 	return limitedNumericPreference(resolved, token)

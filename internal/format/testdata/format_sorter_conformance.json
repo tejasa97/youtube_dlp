@@ -569,6 +569,124 @@
     {
       "expected": {
         "worst_to_best_format_ids": [
+          "missing",
+          "unknown"
+        ],
+        "worst_to_best_source_indexes": [
+          0,
+          1
+        ]
+      },
+      "id": "ordered-missing-codec",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "missing",
+            "url": "https://example.invalid/missing"
+          },
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "unknown",
+            "url": "https://example.invalid/unknown",
+            "vcodec": "zzz9"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "worst_to_best_format_ids": [
+          "embedded",
+          "avc"
+        ],
+        "worst_to_best_source_indexes": [
+          0,
+          1
+        ]
+      },
+      "id": "ordered-regex-prefix",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "embedded",
+            "url": "https://example.invalid/embedded",
+            "vcodec": "prefix-av1"
+          },
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "avc",
+            "url": "https://example.invalid/avc",
+            "vcodec": "avc1"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "worst_to_best_format_ids": [
+          "av1",
+          "avc",
+          "vp9"
+        ],
+        "worst_to_best_source_indexes": [
+          0,
+          2,
+          1
+        ]
+      },
+      "id": "textual-ordered-limit",
+      "info": {
+        "formats": [
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "av1",
+            "url": "https://example.invalid/av1",
+            "vcodec": "av1"
+          },
+          {
+            "acodec": "none",
+            "ext": "webm",
+            "format_id": "vp9",
+            "url": "https://example.invalid/vp9",
+            "vcodec": "vp9"
+          },
+          {
+            "acodec": "none",
+            "ext": "mp4",
+            "format_id": "avc",
+            "url": "https://example.invalid/avc",
+            "vcodec": "avc1"
+          }
+        ]
+      },
+      "options": {
+        "prefer_free_formats": false,
+        "sort": [
+          "vcodec:vp9"
+        ],
+        "sort_force": false
+      }
+    },
+    {
+      "expected": {
+        "worst_to_best_format_ids": [
           "mp4",
           "webm"
         ],
