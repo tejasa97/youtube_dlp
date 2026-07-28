@@ -58,8 +58,8 @@ identify compatibility targets only.
 | Extensions | Versioned native RPC and constrained WASM plugins, signed packs, catalogs, and updater transactions |
 | Public API | Versioned v1alpha1 Go API with context cancellation, categorized errors, events, playlists, metadata, and artifacts |
 
-The capability manifest records **73 capabilities**: **70 compatible** within
-their declared corpora, **2 partial**, and **1 intentional deviation**.
+The capability manifest records **75 capabilities**: **71 compatible** within
+their declared corpora, **3 partial**, and **1 intentional deviation**.
 “Compatible” means the linked deterministic evidence passes; it does not mean
 unbounded equivalence with every upstream behavior.
 
@@ -123,6 +123,49 @@ Extract audio with ffmpeg:
 
 There are no endorsed public binary releases yet. Build from a reviewed source
 revision; repository test keys are not production updater trust.
+
+## Format selection and sorting
+
+Format selectors support bounded comma outputs, slash fallbacks, plus merges,
+groups, direct IDs, quality atoms, extensions, filters, and `.N` indexing. For
+example, prefer AVC video up to 1080p with a separate audio stream and fall
+back to the best combined format:
+
+```sh
+./bin/ytdlp-go \
+  -f 'bestvideo[height<=1080][vcodec^=avc]+bestaudio/best' \
+  URL
+```
+
+String filters support `=`, `^=`, `$=`, `*=`, `~=` and their negated forms;
+numeric filters support `<`, `<=`, `>`, `>=`, `=` and `!=`. Append `?` to an
+operator to include formats whose field is missing. `~=` uses bounded
+Python-compatible regular-expression search semantics:
+
+```sh
+./bin/ytdlp-go -f 'best[format_id~="(?i)source|original"]' URL
+```
+
+`-S`/`--format-sort` is repeatable. Each occurrence supplies one pinned
+FormatSorter field, alias, or limit:
+
+```sh
+./bin/ytdlp-go \
+  -S 'res:1080' \
+  -S 'fps' \
+  --prefer-free-formats \
+  URL
+```
+
+`--allow-unplayable-formats` permits DRM-marked formats to participate in
+selection; it does not decrypt DRM. Selector and regular-expression inputs are
+resource-bounded and fail explicitly when a limit is exceeded. Current product
+execution supports one media track or a mergeable video/audio pair per output;
+arbitrary N-track execution and broader multi-output lifecycle handling remain
+in the active parity plan.
+
+See [format-selector behavior and limits](docs/FORMAT_SELECTOR_PARITY.md) and
+the [active implementation plan](docs/FORMAT_SELECTOR_PARITY_IMPLEMENTATION_PLAN.md).
 
 ## Common workflows
 

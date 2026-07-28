@@ -25,6 +25,13 @@ The isolated JavaScript helper uses `github.com/dop251/goja`, an ECMAScript
 engine licensed under the MIT License. The exact module revision and transitive
 dependency versions are recorded in `go.mod` and `go.sum`.
 
+## regexp2
+
+Format-filter Python regular-expression compatibility uses
+`github.com/dlclark/regexp2` v1.11.4, licensed under the MIT License. Its
+complete license text is retained under `third_party/licenses/` and included in
+the repository's container and release notice bundles.
+
 ## yt-dlp-ejs 0.8.0 bundles
 
 The Go binary embeds the official `yt.solver.core.min.js` and
