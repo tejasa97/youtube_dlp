@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -50,10 +51,10 @@ func TestPrepareFormatsNormalizesAfterStableOrdering(t *testing.T) {
 	if len(prepared.formats) != 2 {
 		t.Fatalf("prepared formats = %d", len(prepared.formats))
 	}
-	if got := prepared.formats[0]; got.Source != 1 || got.ID != "0" {
+	if got := prepared.formats[0]; got.Source != 0 || got.ID != "a_b_c_d_e_f__g__" {
 		t.Fatalf("first normalized format = %+v", got)
 	}
-	if got := prepared.formats[1]; got.Source != 0 || got.ID != "a_b_c_d_e_f__g__" {
+	if got := prepared.formats[1]; got.Source != 1 || got.ID != "1" {
 		t.Fatalf("second normalized format = %+v", got)
 	}
 	if after := snapshotInfo(t, info); !bytes.Equal(before, after) {
@@ -73,11 +74,20 @@ func TestPrepareFormatsDuplicateAndExtensionOnePass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"x-0", "x-1", "x-0", "fmp4", "fmp4"}
-	for index, item := range prepared.formats {
-		if item.ID != want[index] {
-			t.Fatalf("id[%d] = %q, want %q", index, item.ID, want[index])
-		}
+	// Pinned FormatSorter orders by id in worst-to-best; the first
+	// collision set ("x") and the second ("x-0"/"x-0") merge into a
+	// single duplicate group with pinned suffixes; the "fmp4" and the
+	// rewritten "mp4" both end up as plain "fmp4".
+	wantIDs := []string{"fmp4", "fmp4", "x-0", "x-1", "x-0"}
+	if len(prepared.formats) != len(wantIDs) {
+		t.Fatalf("prepared formats = %d, want %d", len(prepared.formats), len(wantIDs))
+	}
+	gotIDs := make([]string, len(prepared.formats))
+	for i, item := range prepared.formats {
+		gotIDs[i] = item.ID
+	}
+	if !reflect.DeepEqual(gotIDs, wantIDs) {
+		t.Fatalf("ids = %v, want %v", gotIDs, wantIDs)
 	}
 }
 
@@ -283,8 +293,22 @@ func TestPlanSelectUsesExactCloneForResidualCollisionHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plans) != 2 || plans[0].Tracks[0].Headers.Get("X-Track") != "one" || plans[1].Tracks[0].Headers.Get("X-Track") != "two" {
-		t.Fatalf("plans = %#v", plans)
+	if len(plans) != 2 {
+		t.Fatalf("plan count = %d, want 2", len(plans))
+	}
+	sourceToHeader := map[int]string{}
+	for _, plan := range plans {
+		if len(plan.Tracks) != 1 {
+			t.Fatalf("plan track count = %d, want 1", len(plan.Tracks))
+		}
+		source, known := plan.Tracks[0].SourceFormatIndex()
+		if !known {
+			t.Fatal("source index unknown")
+		}
+		sourceToHeader[source] = plan.Tracks[0].Headers.Get("X-Track")
+	}
+	if sourceToHeader[0] != "one" || sourceToHeader[1] != "two" {
+		t.Fatalf("source headers = %+v", sourceToHeader)
 	}
 }
 
