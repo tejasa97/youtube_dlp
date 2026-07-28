@@ -207,7 +207,12 @@ func TestSelectorDirectIDAllAndPreferences(t *testing.T) {
 		t.Fatal(err)
 	}
 	plans, err := PlanSelect(info, all)
-	if err != nil || len(plans) != 2 || plans[0].Tracks[0].ID != "audio-low" || plans[1].Tracks[0].ID != "audio-high" {
+	if err != nil || len(plans) != 2 {
+		t.Fatalf("all plans = %#v, %v", plans, err)
+	}
+	// Pinned FormatSorter iterates the canonical best-to-worst adapter
+	// view, so audio-high (tbr=128) precedes audio-low (tbr=64).
+	if plans[0].Tracks[0].ID != "audio-high" || plans[1].Tracks[0].ID != "audio-low" {
 		t.Fatalf("all = %#v, %v", plans, err)
 	}
 }

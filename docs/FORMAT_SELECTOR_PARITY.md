@@ -77,6 +77,34 @@ selection:
 The resulting defensive `Info` is the single canonical view used by selection,
 format tables, prints, simulated and skipped results, and `InfoJSON`.
 
+## FormatSorter contract
+
+Canonical formats are sorted worst-to-best using the pinned `FormatSorter`
+from `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8` under CPython
+3.12.13. The dedicated 38-case fixture is
+`internal/format/testdata/format_sorter_conformance.json` (SHA-256
+`20b24919c583ac7c0885ea2ad333ddebd4ce082537dc9816470aa745a8b56d5a`),
+captured with:
+
+```sh
+/Users/tejas/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 \
+  conformance/compat/format_sorter/capture_oracle.py --write
+```
+
+The effective field order follows pinned forced, priority, user, extractor,
+and default composition with first occurrence winning after aliases and
+combined fields are expanded. Ordered codec, HDR, protocol, and extension
+rankings, limits, mixed scalar classes, free-format ordering, and observable
+derived sorting fields are covered by the fixture. `Prepared.formats` and
+`Prepared.Info().formats` retain canonical worst-to-best order; a fresh,
+pointer-preserving reversal adapter supplies the existing best-first evaluator
+without mutating canonical state.
+
+`Options.PreferExtensions` remains a Go-only compatibility tiebreaker after
+otherwise equal pinned tuples. CLI format-sort reset wiring remains deferred to
+PR 9, and replacement of the evaluator/default-selector scoring path remains
+deferred to PR 5.
+
 The transformation intentionally remains one-pass, matching the pinned Python
 behavior. It can therefore leave collisions such as `x,x,x-0 -> x-0,x-1,x-0`
 or `mp4,fmp4 -> fmp4,fmp4`. Selection carries the original extractor-list
@@ -99,7 +127,7 @@ ID bytes.
 | `filter.quoted-escapes` | Quoted filter values | Unescapes only `\\`, `\"`, and `\'` for non-regex values. | Matches pinned unescape rules; regex values keep capture escapes. | `filter.quoted-escape`, filter oracle | Passing parity | Closed in the filter-parity phase. |
 | `filter.field-syntax` | Filter field names | Numeric keys allow Unicode `\w` plus `.`/`-`; string keys are ASCII. | Matches pinned key grammars; grammar selection is from filter text. | `filter.field-syntax`, filter oracle | Passing parity | Closed in the filter-parity phase. |
 | `filter.regex-engine` | `~=` | Uses Python regular expressions (search semantics). | Bounded Python-`re` adapter over `regexp2` default mode with translation/validation and resource limits. | `filter.regex`, python regex oracle | Passing parity | Timeouts/budgets return `ErrSelectorLimit`, never silent false. |
-| `sort.conversion` | Sort aliases and limits | Implements upstream codec/container aliases and conversion rules. | Compares the currently supported raw numeric/string fields; colon-limit behavior is incomplete. | `gap.sort-colon-limit` | Open | Address in a dedicated sort-parity PR. |
+| `sort.conversion` | Sort aliases, combined fields, rankings, and limits | Implements pinned `FormatSorter` composition, conversion, ordered rankings, limits, and derived fields. | Matches the dedicated pinned sorter corpus; `PreferExtensions` remains a documented Go-only final tiebreaker. | `format_sorter_conformance.json`, `TestFormatSorterConformance` | Passing parity | Keep evaluator algorithm replacement and CLI reset wiring in their designated later PRs. |
 | `extension.exact-recognition` | Bare extension atoms | Pinned `_format_selection_exts` per `yt_dlp/utils/_utils.py`. | Parser recognizes the exact pinned media-extension set. | `parser.extension-boundary-direct-id`, extension-tagged corpus cases | Passing parity | The Go extension map is now byte-for-byte the pinned selection set; tokens outside the set parse as direct IDs. |
 | `direct-id.discarded-punctuation` | Direct-format IDs containing `# \ ' "` | Pinned Python comments `#...` away or token-errors on `\ ' "`. | Parser rejects the token with a syntax error. | `parser.direct-id-discarded-punctuation` | Deliberate safety gap for `#`; parity rejection for `\ ' "` | Failing closed avoids silently selecting a different ID for comments. |
 | `media.storyboard` | `mhtml` | Selects storyboard formats. | Supported and pinned in the corpus. | `extension.storyboard` | Closed | Guard against playable-universe regressions. |

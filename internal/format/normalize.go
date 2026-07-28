@@ -145,7 +145,21 @@ func prepareFormats(info value.Info, options Options) (Prepared, error) {
 		orderedObjects[index] = item.Object
 		byObject[item.Object] = item
 	}
-	orderedObjects = orderFormats(orderedObjects, options)
+	extractorFields, err := extractExtractorSortFields(canonical)
+	if err != nil {
+		return Prepared{}, err
+	}
+	sorter, err := newSorter(options, canonical, extractorFields)
+	if err != nil {
+		return Prepared{}, err
+	}
+	for _, object := range orderedObjects {
+		fillSortingFields(object)
+	}
+	orderedObjects = sorter.sortStable(orderedObjects)
+	if len(options.PreferExtensions) > 0 {
+		orderedObjects = applyExtensionTiebreaker(orderedObjects, options.PreferExtensions)
+	}
 	ordered := make([]normalizedFormat, len(orderedObjects))
 	for index, object := range orderedObjects {
 		item := byObject[object]
