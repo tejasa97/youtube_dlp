@@ -143,9 +143,10 @@ func formatLimitText(value float64) string {
 // per Prepare call and the resulting keys are precomputed per format before
 // the stable sort runs.
 type sorter struct {
-	fields       []sortToken
-	settings     []*sorterFieldSetting
-	useFreeOrder bool
+	fields               []sortToken
+	settings             []*sorterFieldSetting
+	useFreeOrder         bool
+	extensionPreferences []string
 }
 
 // newSorter composes the effective field-order using the pinned first-
@@ -254,9 +255,10 @@ func newSorter(options Options, info value.Info, extractorFields []string) (*sor
 	}
 
 	return &sorter{
-		fields:       tokens,
-		settings:     settings,
-		useFreeOrder: options.PreferFreeFormats,
+		fields:               tokens,
+		settings:             settings,
+		useFreeOrder:         options.PreferFreeFormats,
+		extensionPreferences: append([]string(nil), options.PreferExtensions...),
 	}, nil
 }
 
@@ -316,12 +318,20 @@ func (s *sorter) calculatePreference(format *value.Object) []sortFieldPreference
 	if s == nil {
 		return nil
 	}
-	key := make([]sortFieldPreference, len(s.fields))
+	key := make([]sortFieldPreference, 0, len(s.fields)+1)
+	legacyExtensionInserted := false
 	for index := range s.fields {
 		token := s.fields[index]
+		if !legacyExtensionInserted && len(s.extensionPreferences) > 0 &&
+			(token.canonical == fieldVExt || token.canonical == fieldAExt) {
+			// Preserve the legacy Go API override at the extension position in
+			// the canonical tuple. All quality fields still compare first.
+			key = append(key, numericPreference(float64(extensionRank(format, s.extensionPreferences)), 0))
+			legacyExtensionInserted = true
+		}
 		setting := s.settings[index]
 		preference := calculateFieldPreference(format, setting, token, s.useFreeOrder)
-		key[index] = preference
+		key = append(key, preference)
 	}
 	return key
 }
@@ -511,25 +521,6 @@ func mathAbs(value float64) float64 {
 		return -value
 	}
 	return value
-}
-
-// applyExtensionTiebreaker sorts a worst-to-best canonical list using the
-// supplied extension preference list. It is applied only after the pinned
-// preference tuple compares equal and only when the legacy Go option is set.
-// The Go option is documented as a deliberate legacy override; the pinned
-// oracle is unchanged when PreferExtensions is empty.
-func applyExtensionTiebreaker(formats []*value.Object, preferences []string) []*value.Object {
-	if len(preferences) == 0 || len(formats) <= 1 {
-		return formats
-	}
-	out := make([]*value.Object, len(formats))
-	copy(out, formats)
-	sort.SliceStable(out, func(leftIndex, rightIndex int) bool {
-		left := extensionRank(out[leftIndex], preferences)
-		right := extensionRank(out[rightIndex], preferences)
-		return left > right
-	})
-	return out
 }
 
 // extractExtractorSortFields returns the canonical sort fields from the

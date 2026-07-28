@@ -42,7 +42,7 @@ func TestAdvancedSelectorOperatorTable(t *testing.T) {
 		{"(bestvideo+bestaudio)/best", [][]string{{"720", "audio-high"}}, nil},
 		{"bestvideo,(worstaudio/worst)", [][]string{{"720"}, {"audio-low"}}, nil},
 		{"(bv*+ba)[height<=1080]", [][]string{{"720", "audio-high"}}, nil},
-		{"best.2", [][]string{{"360"}}, nil},
+		{"best.2", nil, ErrNoMatch},
 		{"worstvideo.2", [][]string{{"720"}}, nil},
 		{"mp4", [][]string{{"mux"}}, nil},
 		{"m4a", [][]string{{"audio-high"}}, nil},
@@ -138,12 +138,13 @@ func TestAdvancedSelectorMergeAllTrackBounds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plans, err := PlanSelect(within, selector)
+	multistream := Options{AllowMultipleVideoStreams: true, AllowMultipleAudioStreams: true}
+	plans, err := PlanSelectWithOptions(within, selector, multistream)
 	if err != nil || len(plans) != 1 || len(plans[0].Tracks) != maxMergeTerms {
 		t.Fatalf("mergeall within limit = %#v, %v", plans, err)
 	}
 	over := boundedFormatsInfo(maxMergeTerms + 1)
-	if _, err := PlanSelect(over, selector); !errors.Is(err, ErrSelectorLimit) {
+	if _, err := PlanSelectWithOptions(over, selector, multistream); !errors.Is(err, ErrSelectorLimit) {
 		t.Fatalf("mergeall over limit = %v", err)
 	}
 }
@@ -173,10 +174,14 @@ func TestAdvancedSelectorMergeRetainsDistinctSameKindTracks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plans) != 1 || len(plans[0].Tracks) != 3 {
+	if len(plans) != 1 || len(plans[0].Tracks) != 2 {
 		t.Fatalf("plans = %#v", plans)
 	}
-	want := []string{"720", "360", "audio-high"}
+	// PR 5 applies Python-compatible multistream suppression. With
+	// AllowMultipleVideoStreams=false the planner keeps the first
+	// video-bearing track and removes the later one; bestaudio is the
+	// only audio-bearing track and survives.
+	want := []string{"720", "audio-high"}
 	for index, id := range want {
 		if plans[0].Tracks[index].ID != id {
 			t.Fatalf("track[%d] = %q, want %q", index, plans[0].Tracks[index].ID, id)
@@ -217,12 +222,16 @@ func TestAdvancedSelectorDeterminismConcurrent(t *testing.T) {
 }
 
 func TestAdvancedSelectorFilterOnlyImplicitBest(t *testing.T) {
-	selector, err := ParseSelector("[format_id=audio-high]")
+	// PR 5 §7A: implicit best with no filter type/star requires both
+	// vcodec and acodec. The audio-high format is audio-only and so does
+	// not match — the test exercises the positive path through a
+	// combined format with a format_id filter.
+	selector, err := ParseSelector("[format_id=mux]")
 	if err != nil {
 		t.Fatal(err)
 	}
 	selected, err := Select(advancedSelectorInfo(), selector)
-	if err != nil || len(selected) != 1 || selected[0].ID != "audio-high" {
+	if err != nil || len(selected) != 1 || selected[0].ID != "mux" {
 		t.Fatalf("selected = %#v, %v", selected, err)
 	}
 }

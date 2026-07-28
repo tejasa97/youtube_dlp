@@ -2168,6 +2168,9 @@ capabilities:
       - internal/format.TestPythonRegexOracleFixture
       - internal/format.TestFilterNumericSuffixesAndIrregularCase
       - internal/format.TestPythonRegexTimeoutSanitized
+      - internal/format.TestPlannerConformanceCorpus
+      - internal/format.TestPlannerDefaultSelectorSpecMatchesPinnedPolicy
+      - internal/format.TestPlannerAvailabilityCacheScope
       - pkg/ytdlp.TestFormatSelectorInvalidSyntaxFailsBeforeExtraction
       - internal/format.TestPrepareFormatsNormalizesAfterStableOrdering
       - internal/format.TestPrepareFormatsFiltersBeforeGeneratedIDs
@@ -2181,15 +2184,17 @@ capabilities:
       - internal/format/testdata/selector_conformance.json
       - internal/format/testdata/filter_oracle.json
       - internal/format/testdata/python_regex_oracle.json
+      - internal/format/testdata/planner_conformance.json
       - conformance/compat/format_selector/PROVENANCE.md
+      - conformance/format_planner/PROVENANCE.md
       - docs/FORMAT_SELECTOR_PARITY.md
     owner: core
-    known_deviation: Parser, filter operators, none-inclusive ?, quoted escapes, field grammars, and bounded Python-regex filters match the pinned corpus. Open selector gaps remain for plain best/worst semantics and all ordering. Pinned sorter parity is tracked separately by compat.format_sorter. Go also retains deliberate defensive-copy, malformed-metadata rejection, discarded-punctuation rejection, bounded collection/evaluation, and product multistream safety differences.
+    known_deviation: Parser, filters, bounded Python-regex translation, evaluator ordering, defaults, multistream suppression, merged metadata, and injected availability match the pinned corpora. Pinned sorter parity is tracked separately by compat.format_sorter. Go retains deliberate defensive-copy, malformed-metadata rejection, discarded-punctuation rejection, and bounded collection/evaluation differences. Arbitrary retained N-track execution and broader multi-output lifecycle support remain in later format-parity PRs.
 
   - id: compat.format_sorter
     name: Pinned FormatSorter parity
     phase: 1
-    compatibility_target: Compose, derive, rank, and stably sort canonical formats worst-to-best using the pinned yt-dlp FormatSorter contract while preserving a narrow best-first evaluator adapter.
+    compatibility_target: Compose, derive, rank, and stably sort canonical formats worst-to-best using the pinned yt-dlp FormatSorter contract for direct planner consumption.
     status: compatible
     evidence:
       - internal/format.TestFormatSorterConformance
@@ -2197,7 +2202,6 @@ capabilities:
       - internal/format.TestFormatSorterAliasesAndLimits
       - internal/format.TestFormatSorterOrderingContract
       - internal/format.TestFormatSorterDerivedFields
-      - internal/format.TestFormatSorterEvaluatorReversalAdapter
       - internal/format.TestFormatSorterConcurrentDeterministic
       - internal/format/testdata/format_sorter_conformance.json
       - conformance/compat/format_sorter/capture_oracle.py
@@ -2206,7 +2210,7 @@ capabilities:
     owner: core
     depends_on:
       - compat.format_selector_pilot
-    known_deviation: Options.PreferExtensions is retained as a Go-only final tiebreaker after equal pinned tuples. CLI format-sort reset wiring is deferred to PR 9, and replacement of the best-first evaluator/default-selector scoring path is deferred to PR 5.
+    known_deviation: Options.PreferExtensions is retained as a Go-only preference at the extension position after quality fields. CLI format-sort reset wiring is deferred to PR 9. The planner now consumes canonical worst-to-best order directly.
 
   - id: compat.output_template_pilot
     name: Output-template parser pilot

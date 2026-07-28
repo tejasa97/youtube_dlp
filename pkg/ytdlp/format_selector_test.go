@@ -44,15 +44,14 @@ func TestFormatSelectorPrecedenceTraps(t *testing.T) {
 		expression string
 		wantIDs    []string
 	}{
-		// Pinned FormatSorter reorders canonical to worst-to-best; the
-		// evaluator reversal adapter exposes a best-first view. With no
-		// numeric tiebreaker the canonical id field selects the order, so
-		// "a64" is the pinned best audio.
+		// Pinned FormatSorter produces canonical worst-to-best order; quality
+		// atoms traverse it in their pinned direction. With no numeric
+		// tiebreaker the canonical id field makes "a64" the best audio.
 		{"merge before slash", "bestvideo+bestaudio/best", []string{"v1080", "a64"}},
 		{"grouped merge before slash", "(bestvideo+bestaudio)/best", []string{"v1080", "a64"}},
 		{"comma independent", "bestvideo,(bestaudio/worst)", []string{"v1080"}},
 		{"group filter", "(bv*+ba)[height<=1080]", []string{"v1080", "a64"}},
-		{"nth best", "best.2", []string{"v720"}},
+		{"nth best video", "bestvideo.2", []string{"v720"}},
 		{"nth worst video", "worstvideo.2", []string{"v1080"}},
 	}
 	for _, test := range tests {
@@ -66,9 +65,9 @@ func TestFormatSelectorPrecedenceTraps(t *testing.T) {
 				if err != nil || len(plans) != 2 {
 					t.Fatalf("plans = %#v, %v", plans, err)
 				}
-if plans[0].Tracks[0].ID != "v1080" || plans[1].Tracks[0].ID != "a64" {
-				t.Fatalf("plans = %#v", plans)
-			}
+				if plans[0].Tracks[0].ID != "v1080" || plans[1].Tracks[0].ID != "a64" {
+					t.Fatalf("plans = %#v", plans)
+				}
 				return
 			}
 			selector, err := mediaformat.ParseSelector(test.expression)
@@ -88,6 +87,64 @@ if plans[0].Tracks[0].ID != "v1080" || plans[1].Tracks[0].ID != "a64" {
 				}
 			}
 		})
+	}
+}
+
+func TestPlanPreparedFormatsUsesInjectedDefaultCapabilities(t *testing.T) {
+	info := formatSelectorInfo()
+	tests := []struct {
+		name          string
+		capabilities  mediaformat.PlannerCapabilities
+		live          bool
+		liveFromStart bool
+		want          []string
+	}{
+		{name: "merger", capabilities: mediaformat.PlannerCapabilities{CanMergeFormats: true}, want: []string{"v1080", "a64"}},
+		{name: "no merger", capabilities: mediaformat.PlannerCapabilities{}, want: []string{"mux"}},
+		{name: "stdout", capabilities: mediaformat.PlannerCapabilities{CanMergeFormats: true, OutputToStdout: true}, want: []string{"mux"}},
+		{name: "live", capabilities: mediaformat.PlannerCapabilities{CanMergeFormats: true}, live: true, want: []string{"mux"}},
+		{name: "live from start", capabilities: mediaformat.PlannerCapabilities{CanMergeFormats: true}, live: true, liveFromStart: true, want: []string{"v1080", "a64"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			currentInfo := value.NewInfo(info.Fields().Clone())
+			if test.live {
+				currentInfo.Set("is_live", value.Bool(true))
+			}
+			current, err := mediaformat.Prepare(currentInfo, mediaformat.Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			operation := &operation{
+				request:             Request{LiveFromStart: test.liveFromStart},
+				plannerCapabilities: &test.capabilities,
+			}
+			plans, err := operation.planPreparedFormats(current)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(plans) != 1 || len(plans[0].Tracks) != len(test.want) {
+				t.Fatalf("plans = %#v, want %v", plans, test.want)
+			}
+			for index, want := range test.want {
+				if plans[0].Tracks[index].ID != want {
+					t.Fatalf("track[%d] = %q, want %q", index, plans[0].Tracks[index].ID, want)
+				}
+			}
+		})
+	}
+}
+
+func TestPrepareCompatibilityWiresMultistreamOptions(t *testing.T) {
+	plan, err := prepareCompatibility(Request{
+		AllowMultipleVideoStreams: true,
+		AllowMultipleAudioStreams: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !plan.formatOptions.AllowMultipleVideoStreams || !plan.formatOptions.AllowMultipleAudioStreams {
+		t.Fatalf("format options = %+v", plan.formatOptions)
 	}
 }
 
@@ -678,6 +735,7 @@ func TestProductRejectsUnsupportedMergeBeforeDownload(t *testing.T) {
 	_, err := NewClient().Run(context.Background(), Request{
 		URL: server.URL + "/page", OutputDir: t.TempDir(),
 		Format: "bestvideo+bestvideo.2+bestaudio", Overwrite: true,
+		AllowMultipleVideoStreams: true,
 	})
 	if !IsCategory(err, ErrorUnsupported) {
 		t.Fatalf("Run() = %v", err)

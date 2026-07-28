@@ -334,7 +334,7 @@ func TestFormatSelectionEntryPointsDoNotMutateInfo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	best, err := ParseSelector("best")
+	best, err := ParseSelector("best*")
 	if err != nil {
 		t.Fatal(err)
 	}
