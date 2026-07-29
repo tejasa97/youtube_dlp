@@ -186,6 +186,31 @@ func TestRenderPinnedPrintfAndUTCDateConversions(t *testing.T) {
 	}
 }
 
+func TestRenderIntegerFormattingPreservesNativeInt64Precision(t *testing.T) {
+	info := fixtureInfo()
+	info.Set("safe_boundary", value.Int(1<<53))
+	info.Set("above_safe_boundary", value.Int(1<<53+1))
+	info.Set("int64_min", value.Int(math.MinInt64))
+	info.Set("int64_max", value.Int(math.MaxInt64))
+	for _, test := range []struct {
+		pattern string
+		want    string
+	}{
+		{"%(safe_boundary)d %(safe_boundary)#x", "9007199254740992 0x20000000000000"},
+		{"%(above_safe_boundary)d %(above_safe_boundary)#x", "9007199254740993 0x20000000000001"},
+		{"%(int64_min)d %(int64_max)d", "-9223372036854775808 9223372036854775807"},
+		{"%(int64_min)x %(int64_max)X", "-8000000000000000 7FFFFFFFFFFFFFFF"},
+	} {
+		got, err := Render(test.pattern, info)
+		if err != nil {
+			t.Fatalf("Render(%q): %v", test.pattern, err)
+		}
+		if got != test.want {
+			t.Fatalf("Render(%q) = %q, want %q", test.pattern, got, test.want)
+		}
+	}
+}
+
 func TestRenderContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

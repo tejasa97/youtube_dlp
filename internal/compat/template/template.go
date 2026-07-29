@@ -1200,9 +1200,28 @@ func numericFloat(input value.Value) (float64, error) {
 }
 
 func numericInt(input value.Value) (int64, error) {
-	floating, err := numericFloat(input)
-	if err != nil {
-		return 0, err
+	// Preserve native integers exactly. Routing an int64 through float64 rounds
+	// values above 2^53 before printf-style integer formatting.
+	if integer, ok := input.Int(); ok {
+		return integer, nil
+	}
+	var floating float64
+	if value, ok := input.Float(); ok {
+		floating = value
+	} else if text, ok := input.StringValue(); ok {
+		if len(text) > maxScalarBytes {
+			return 0, errors.New("numeric string exceeds size limit")
+		}
+		parsed, err := strconv.ParseFloat(text, 64)
+		if err != nil {
+			return 0, fmt.Errorf("kind %s is not numeric", input.Kind())
+		}
+		floating = parsed
+	} else {
+		return 0, fmt.Errorf("kind %s is not numeric", input.Kind())
+	}
+	if !isFinite(floating) {
+		return 0, fmt.Errorf("kind %s is not numeric", input.Kind())
 	}
 	limit := math.Ldexp(1, 63)
 	if floating < -limit || floating >= limit {
