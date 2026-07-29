@@ -111,12 +111,46 @@ func prepareCompatibility(request Request) (compatibilityPlan, error) {
 	if err != nil {
 		return compatibilityPlan{}, categorized("parse remove chapters", err)
 	}
-	for _, specification := range request.ParseMetadata {
+	appendParse := func(specification string) error {
 		action, parseErr := compatmetadata.ParseFromField(specification)
 		if parseErr != nil {
-			return compatibilityPlan{}, categorized("parse metadata action", parseErr)
+			return categorized("parse metadata action", parseErr)
 		}
 		plan.metadataActions = append(plan.metadataActions, action)
+		return nil
+	}
+	appendReplace := func(fields, search, replacement string) error {
+		actions, parseErr := compatmetadata.ParseReplaceFields(fields, search, replacement)
+		if parseErr != nil {
+			return categorized("parse metadata replacement", parseErr)
+		}
+		plan.metadataActions = append(plan.metadataActions, actions...)
+		return nil
+	}
+	for _, specification := range request.MetadataActions {
+		switch specification.Kind {
+		case MetadataActionParse:
+			if err := appendParse(specification.Parse); err != nil {
+				return compatibilityPlan{}, err
+			}
+		case MetadataActionReplace:
+			if specification.Fields == "" {
+				action, parseErr := compatmetadata.ParseReplace(specification.Parse)
+				if parseErr != nil {
+					return compatibilityPlan{}, categorized("parse metadata replacement", parseErr)
+				}
+				plan.metadataActions = append(plan.metadataActions, action)
+			} else if err := appendReplace(specification.Fields, specification.Search, specification.Replacement); err != nil {
+				return compatibilityPlan{}, err
+			}
+		default:
+			return compatibilityPlan{}, categorized("parse metadata action", fmt.Errorf("unknown metadata action"))
+		}
+	}
+	for _, specification := range request.ParseMetadata {
+		if err := appendParse(specification); err != nil {
+			return compatibilityPlan{}, err
+		}
 	}
 	for _, specification := range request.ReplaceMetadata {
 		action, parseErr := compatmetadata.ParseReplace(specification)
@@ -134,7 +168,7 @@ func prepareCompatibility(request Request) (compatibilityPlan, error) {
 }
 
 func (operation *operation) applyCompatibility(ctx context.Context, ctxInfo *value.Info, incomplete bool) (compatibilityDecision, error) {
-	result, err := compatmetadata.Apply(ctxInfo, operation.compatibility.metadataActions)
+	result, err := compatmetadata.ApplyContext(ctx, ctxInfo, operation.compatibility.metadataActions)
 	if err != nil {
 		return compatibilityDecision{}, categorized("apply metadata actions", err)
 	}
