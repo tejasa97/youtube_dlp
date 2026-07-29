@@ -175,6 +175,31 @@ func (manifest *Manifest) Validate() error {
 		}
 		byID[capability.ID] = capability
 	}
+	// The format-selector closure may retire the pilot name only when its
+	// committed closure runner and evidence document remain attached to the
+	// compatible claim. This makes an accidental marker removal fail the same
+	// Python-free paritycheck gate that validates the manifest.
+	if _, stalePilot := byID["compat.format_selector_pilot"]; stalePilot {
+		return errors.New("compat.format_selector_pilot is retired; use compat.format_selector with closure evidence")
+	}
+	if selector, ok := byID["compat.format_selector"]; ok {
+		if selector.Status != StatusCompatible {
+			return fmt.Errorf("compat.format_selector status = %q, want compatible after pilot retirement", selector.Status)
+		}
+		for _, required := range []string{
+			"internal/format.TestPinnedClosureMatrix",
+			"internal/format/testdata/pinned_closure_matrix.json",
+			"docs/FORMAT_SELECTOR_PINNED_CLOSURE_EVIDENCE.md",
+			"pkg/ytdlp.TestFormatCheckAllReusesProbeCacheDuringPlanning",
+			"internal/cli.TestRunInteractiveFormatUnavailableThenValid",
+			"pkg/ytdlp.TestNTrackMergeRealMediaTwoTrack",
+			"pkg/ytdlp.TestMultiOutputLifecycleSidecarsPrintsAndMetadataIsolation",
+		} {
+			if !containsEvidence(selector.Evidence, required) {
+				return fmt.Errorf("compat.format_selector is missing required closure evidence %q", required)
+			}
+		}
+	}
 
 	for _, capability := range manifest.Capabilities {
 		seen := make(map[string]struct{}, len(capability.DependsOn))
@@ -192,6 +217,15 @@ func (manifest *Manifest) Validate() error {
 		}
 	}
 	return nil
+}
+
+func containsEvidence(evidence []string, required string) bool {
+	for _, item := range evidence {
+		if item == required {
+			return true
+		}
+	}
+	return false
 }
 
 func validStatus(status Status) bool {
