@@ -340,14 +340,19 @@ func TestFormatSelectorProductRollbackOnFailure(t *testing.T) {
 		{Tracks: []mediaformat.Selection{{ID: "ok", URL: server.URL + "/ok", Ext: "mp4", VCodec: "avc1", ACodec: "aac"}}},
 		{Tracks: []mediaformat.Selection{{ID: "bad", URL: "://missing-scheme", Ext: "mp4", VCodec: "avc1", ACodec: "aac"}}},
 	}
-	tracker := newMediaTransaction([]string{
+	tracker, err := operation.beginMediaTransaction([]string{
 		mustOutputPlanDestination(t, destination, 0, plans[0], true),
 		mustOutputPlanDestination(t, destination, 1, plans[1], true),
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for index, plan := range plans {
 		path, _, downloadErr := operation.downloadSelections(context.Background(), plan.Tracks, root, mustOutputPlanDestination(t, destination, index, plan, true), nil)
 		if downloadErr != nil {
-			tracker.rollback()
+			if rollbackErr := tracker.rollback(); rollbackErr != nil {
+				t.Fatalf("rollback = %v", rollbackErr)
+			}
 			if index == 0 {
 				t.Fatalf("first download should succeed: %v", downloadErr)
 			}
@@ -359,7 +364,7 @@ func TestFormatSelectorProductRollbackOnFailure(t *testing.T) {
 			}
 			return
 		}
-		tracker.recordCreated(path)
+		tracker.markPublished(path)
 	}
 	t.Fatal("expected second download to fail")
 }
@@ -559,29 +564,6 @@ func TestMultiOutputProductRejectsSubtitleEmbed(t *testing.T) {
 	}
 	if err := validateMultiOutputProduct(operation.request, 2); !errors.Is(err, mediaformat.ErrMultiOutput) {
 		t.Fatalf("validate = %v", err)
-	}
-}
-
-func TestMediaTransactionPreservesPreexisting(t *testing.T) {
-	root := t.TempDir()
-	existing := filepath.Join(root, "keep.mp4")
-	if err := os.WriteFile(existing, []byte("stay"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	tracker := newMediaTransaction([]string{existing})
-	tracker.recordCreated(existing)
-	tracker.rollback()
-	if body, readErr := os.ReadFile(existing); readErr != nil || string(body) != "stay" {
-		t.Fatalf("preexisting removed: %q %v", body, readErr)
-	}
-	created := filepath.Join(root, "new.mp4")
-	if err := os.WriteFile(created, []byte("gone"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	tracker.recordCreated(created)
-	tracker.rollback()
-	if _, err := os.Stat(created); err == nil {
-		t.Fatal("created file still present")
 	}
 }
 
