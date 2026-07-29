@@ -1257,6 +1257,41 @@ func TestRunWaveTwoCompatibilityFlags(t *testing.T) {
 	}
 }
 
+func TestRunMetadataThreeArgumentGrammarAndOrdering(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	code := Run([]string{
+		"--skip-download", "--print-json",
+		"--parse-metadata", "title:%(artist)s Fixture",
+		"--replace-in-metadata", "artist", "Deterministic", "Native",
+		"--parse-metadata", "artist:%(album)s",
+		"--match-filter", "album=Native",
+		server.URL + "/page",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code = %d; stderr = %s", code, stderr.String())
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(stdout.Bytes()), &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata["artist"] != "Native" || metadata["album"] != "Native" {
+		t.Fatalf("metadata = %#v", metadata)
+	}
+}
+
+func TestExtractReplaceMetadataArgsStopsAtTerminator(t *testing.T) {
+	input := []string{"--", "--replace-in-metadata", "title", "x", "y"}
+	got, err := extractReplaceMetadataArgs(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, input) {
+		t.Fatalf("got %#v want %#v", got, input)
+	}
+}
+
 func TestRunInteractiveMatchFilterPrompt(t *testing.T) {
 	server := testserver.New()
 	defer server.Close()

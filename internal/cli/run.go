@@ -72,6 +72,11 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
 		return 2
 	}
+	args, err = extractReplaceMetadataArgs(args)
+	if err != nil {
+		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
+		return 2
+	}
 	flags := flag.NewFlagSet("ytdlp-go", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.Usage = func() {
@@ -220,7 +225,8 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	format := flags.String("format", "", "format selector expression")
 	flags.StringVar(format, "f", "", "alias for --format")
 	var formatSort formatSortFlag
-	var matchFilters, breakMatchFilters, parseMetadata, replaceMetadata stringListFlag
+	var matchFilters, breakMatchFilters stringListFlag
+	var metadataActions metadataActionFlag
 	flags.Var(&formatSort, "format-sort", "format sort field (repeatable)")
 	flags.Var(&formatSort, "S", "alias for --format-sort")
 	flags.BoolFunc("format-sort-reset", "disregard preceding format sort fields", func(input string) error {
@@ -332,8 +338,8 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 		breakMatchFilters = nil
 		return nil
 	})
-	flags.Var(&parseMetadata, "parse-metadata", "bounded FROM:TO metadata action")
-	flags.Var(&replaceMetadata, "replace-in-metadata", "bounded FIELD:REGEX:REPLACEMENT action")
+	flags.Var(metadataParseFlag{actions: &metadataActions}, "parse-metadata", "[WHEN:]FROM:TO metadata action")
+	flags.Var(metadataReplaceFlag{actions: &metadataActions}, "replace-in-metadata", "[WHEN:]FIELDS REGEX REPLACEMENT metadata action")
 	retries := flags.Int("retries", 0, "direct and fragment download attempts (maximum 100)")
 	retryBaseDelay := flags.Duration("retry-base-delay", 0, "deterministic initial retry delay")
 	retryMaxDelay := flags.Duration("retry-max-delay", 0, "maximum retry delay")
@@ -647,8 +653,8 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 		InteractiveMatchFilter: interactiveMatchFilter,
 		InteractiveFormat:      interactiveFormat,
 		BreakMatchFilters:      requestBreakMatchFilters,
-		ParseMetadata:          append([]string(nil), parseMetadata...), ReplaceMetadata: append([]string(nil), replaceMetadata...),
-		Subtitles: requestSubtitles,
+		MetadataActions:        append([]ytdlp.MetadataAction(nil), metadataActions...),
+		Subtitles:              requestSubtitles,
 		Thumbnails: ytdlp.ThumbnailOptions{
 			Write:    thumbnailMode == thumbnailModeBest || *embedThumbnail,
 			WriteAll: thumbnailMode == thumbnailModeAll, List: *listThumbnails,
@@ -966,6 +972,82 @@ func (values *stringListFlag) String() string { return strings.Join(*values, ","
 func (values *stringListFlag) Set(value string) error {
 	*values = append(*values, value)
 	return nil
+}
+
+// metadataActionFlag preserves the flag stream's interleaving. Standard flag
+// parsing has no nargs support, so extractReplaceMetadataArgs encodes the three
+// replace arguments in a private NUL-delimited transport before this point.
+type metadataActionFlag []ytdlp.MetadataAction
+
+type metadataParseFlag struct{ actions *metadataActionFlag }
+
+func (flag metadataParseFlag) String() string { return "" }
+func (flag metadataParseFlag) Set(input string) error {
+	*flag.actions = append(*flag.actions, ytdlp.MetadataAction{Kind: ytdlp.MetadataActionParse, Parse: input})
+	return nil
+}
+
+type metadataReplaceFlag struct{ actions *metadataActionFlag }
+
+func (flag metadataReplaceFlag) String() string { return "" }
+func (flag metadataReplaceFlag) Set(input string) error {
+	parts := strings.Split(input, "\x00")
+	if len(parts) == 3 {
+		*flag.actions = append(*flag.actions, ytdlp.MetadataAction{
+			Kind: ytdlp.MetadataActionReplace, Fields: parts[0], Search: parts[1], Replacement: parts[2],
+		})
+		return nil
+	}
+	// The old single-token colon form remains accepted for programmatic and
+	// pre-existing port CLI callers. It is deliberately not advertised.
+	*flag.actions = append(*flag.actions, ytdlp.MetadataAction{Kind: ytdlp.MetadataActionReplace, Parse: input})
+	return nil
+}
+
+func extractReplaceMetadataArgs(args []string) ([]string, error) {
+	output := make([]string, 0, len(args))
+	for index := 0; index < len(args); index++ {
+		if args[index] == "--" {
+			output = append(output, args[index:]...)
+			break
+		}
+		if args[index] != "--replace-in-metadata" {
+			output = append(output, args[index])
+			continue
+		}
+		// Preserve the old one-token form when the next argument is plainly the
+		// next option (or the URL). New three-argument invocations are otherwise
+		// consumed exactly as yt-dlp documents.
+		if index+1 < len(args) && isLegacyMetadataReplacement(args[index+1]) {
+			output = append(output, args[index], args[index+1])
+			index++
+			continue
+		}
+		if index+3 >= len(args) {
+			return nil, fmt.Errorf("--replace-in-metadata requires FIELDS REGEX REPLACEMENT")
+		}
+		output = append(output, "--replace-in-metadata="+strings.Join(args[index+1:index+4], "\x00"))
+		index += 3
+	}
+	return output, nil
+}
+
+func isLegacyMetadataReplacement(input string) bool {
+	separators, escaped := 0, false
+	for index := range input {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if input[index] == '\\' {
+			escaped = true
+			continue
+		}
+		if input[index] == ':' {
+			separators++
+		}
+	}
+	return separators >= 2
 }
 
 // formatSortFlag mirrors yt-dlp's orderedSet_from_options accumulation: each
