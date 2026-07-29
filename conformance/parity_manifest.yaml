@@ -746,6 +746,9 @@ capabilities:
       - internal/media/ffmpeg.TestEmbedSubtitleTracksRejectsInvalidInputsBeforeOutput
       - internal/media/ffmpeg.TestEmbedSubtitleTracksCancellationPreservesInputs
       - internal/media/ffmpeg.TestSubtitleEmbedArgsDropsDataAndUnknownStreams
+      - internal/media/ffmpeg.TestRecodeArgsIsDeterministicAndAllowlisted
+      - internal/media/ffmpeg.TestRecodeNoOpDoesNotInvokeToolset
+      - internal/media/ffmpeg.TestRecodeRejectsUnsupportedTarget
       - internal/media/ffmpeg.FuzzSubtitleEmbedMetadataValidation
       - internal/media/ffmpeg.FuzzRedactDiagnostic
       - internal/media/pipeline.TestDASHDownloadAndFFmpegMergeEndToEnd
@@ -761,7 +764,7 @@ capabilities:
       - docs/YOUTUBE_SUBTITLE_CONVERSION_EVIDENCE.md
       - docs/YOUTUBE_SUBTITLE_EMBEDDING_EVIDENCE.md
     owner: media
-    known_deviation: The operation set covers probe, separate-track merge, atomic container remux, bounded SRT/ASS/WebVTT sidecar conversion, and bounded multi-track subtitle embedding. Arbitrary media codec transcoding and broader metadata rewriting remain postprocessor work; embedding is limited to the documented text-track and container matrix.
+    known_deviation: The operation set covers probe, separate-track merge, atomic container remux, bounded target-mapped video recoding, bounded SRT/ASS/WebVTT sidecar conversion, bounded multi-track subtitle embedding, and canonical metadata/chapter embedding. Arbitrary ffmpeg arguments, caller-selected recode codecs, broad metadata rewriting, and containers outside the documented embedding matrices remain unsupported safety boundaries.
 
   - id: javascript.ejs
     name: Python-free EJS execution
@@ -2110,14 +2113,21 @@ capabilities:
       - internal/media/ffmpeg.TestTypedAudioMetadataConcatOperations
       - internal/media/ffmpeg.TestTypedSubtitleAndImageConversions
       - internal/media/ffmpeg.TestOperationValidationAndAtomicFailure
+      - internal/media/ffmpeg.TestRecodeArgsIsDeterministicAndAllowlisted
+      - internal/media/ffmpeg.TestRecodeNoOpDoesNotInvokeToolset
+      - internal/media/ffmpeg.TestRecodeRejectsUnsupportedTarget
       - internal/media/ffmpeg.TestCommandCancellation
       - internal/media/ffmpeg.TestCompletedEventCannotVetoCommittedOutput
       - internal/media/ffmpeg.TestSubtitleEmbedArgsDropsDataAndUnknownStreams
       - internal/media/postprocess.TestGraphValidationAndSafeMove
       - internal/media/postprocess.TestArtifactAndDestinationFailures
       - internal/media/postprocess.TestSubtitleEmbedFailurePreservesOwnedInputs
+      - internal/media/postprocess.TestRecodeNoOpGraphPreservesOwnedInputWithoutToolset
       - internal/media/postprocess.FuzzArtifactPaths
       - pkg/ytdlp.TestClientExtractAudioPostprocessorIntegration
+      - pkg/ytdlp.TestAutomaticMetadataEmbeddingWithRealFFmpeg
+      - pkg/ytdlp.TestCanonicalEmbeddedMetadataUsesPinnedPrecedenceAndBounds
+      - pkg/ytdlp.TestCanonicalEmbeddedChaptersValidatesTimeline
       - pkg/ytdlp.TestProductEmbedsSelectedSubtitleTracksAndAppliesRetention
       - pkg/ytdlp.TestProductSkipsUnsupportedEmbeddingContainerWithoutDeletingSidecar
       - pkg/ytdlp.TestProductSkipsUnsupportedWebMTrackWithoutDeletingSidecar
@@ -2128,12 +2138,14 @@ capabilities:
       - pkg/ytdlp.TestSubtitleEmbeddingTrackLimitFailsBeforeDownload
       - internal/cli.TestRunEmbedSubtitlesImplicitSelectionAndClear
       - internal/cli.TestRunEmbedsAutomaticSubtitleAndUsesPinnedRetentionRule
+      - internal/cli.TestRunRecodeWinsOverRemuxWithWarning
+      - internal/cli.TestRunMetadataAndChapterEmbeddingFlags
       - pkg/ytdlp.FuzzConfinedPostprocessPath
       - pkg/ytdlp.TestClientRejectsInvalidWaveTwoOptionsBeforeNetwork
       - conformance/media/postprocess/PROVENANCE.md
       - docs/YOUTUBE_SUBTITLE_EMBEDDING_EVIDENCE.md
     owner: media
-    known_deviation: SponsorBlock, ordinary chapter-regex, and manual range mutation use the separate transactional chapter-removal capability. Windows refuses unsafe atomic overwrite and currently terminates only the direct child process; Unix process-group cancellation is covered. The CLI exposes audio extraction, remuxing, and bounded multi-track subtitle embedding while the Go API exposes every typed operation.
+    known_deviation: SponsorBlock, ordinary chapter-regex, and manual range mutation use the separate transactional chapter-removal capability. Windows refuses unsafe atomic overwrite and currently terminates only the direct child process; Unix process-group cancellation is covered. Recode is intentionally limited to pinned target mappings with ffmpeg-selected codecs, and automatic metadata/chapter embedding is limited to canonical common fields and an explicit container matrix.
 
   - id: postprocess.chapter_removal
     name: Ordinary chapter and manual range removal

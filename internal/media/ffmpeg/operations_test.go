@@ -151,3 +151,126 @@ func FuzzOperationInputValidation(f *testing.F) {
 		_, _ = writeConcatList(t.TempDir()+"/out.mp4", []string{codec, rate})
 	})
 }
+
+// TestResolveRecodeMappingNoOps asserts that the pinned
+// FFmpegVideoConvertorPP.resolve_mapping semantics are honored: same-format
+// requests and mappings whose rules do not match the source must return a
+// non-empty skip reason, must NOT classify as errors, and must keep the
+// original source as the resolved target so callers can fall through to
+// their no-op branch.
+func TestResolveRecodeMappingNoOps(t *testing.T) {
+	cases := []struct {
+		name        string
+		source      string
+		mapping     string
+		wantSkip    string
+		wantTarget  string
+	}{
+		{name: "single rule same format", source: "mkv", mapping: "mkv", wantTarget: "mkv", wantSkip: "already is in target format mkv"},
+		{name: "pair rule same format", source: "mp4", mapping: "mp4>mp4", wantTarget: "mp4", wantSkip: "already is in target format mp4"},
+		{name: "no rule applies", source: "mkv", mapping: "mov>mp4", wantTarget: "mkv", wantSkip: "could not find a mapping for mkv"},
+		{name: "list with skip and apply", source: "mov", mapping: "webm>mkv/mov>mp4", wantTarget: "mp4"},
+		{name: "list with skip only", source: "mkv", mapping: "webm>mkv/mov>mp4", wantTarget: "mkv", wantSkip: "could not find a mapping for mkv"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			target, skip, err := ResolveRecodeMapping(tc.source, tc.mapping)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if target != tc.wantTarget {
+				t.Fatalf("target = %q, want %q", target, tc.wantTarget)
+			}
+			if skip != tc.wantSkip {
+				t.Fatalf("skip = %q, want %q", skip, tc.wantSkip)
+			}
+		})
+	}
+}
+
+// TestResolveRecodeMappingErrors asserts that malformed input (empty mapping,
+// empty source) and unsupported target extensions return errors so callers
+// fail loudly at preflight rather than at ffmpeg.
+func TestResolveRecodeMappingErrors(t *testing.T) {
+	if _, _, err := ResolveRecodeMapping("mkv", ""); err == nil {
+		t.Fatal("empty mapping should error")
+	}
+	if _, _, err := ResolveRecodeMapping("", "mp4"); err == nil {
+		t.Fatal("empty source should error")
+	}
+	if _, _, err := ResolveRecodeMapping("mkv", "jpg"); err == nil {
+		t.Fatal("non-media target should error")
+	}
+	if _, _, err := ResolveRecodeMapping("mkv", "mov>jpg"); err == nil {
+		t.Fatal("non-media target in pair should error")
+	}
+	for _, mapping := range []string{"m4v", ".mp4", ".mov>mp4"} {
+		if _, _, err := ResolveRecodeMapping("mkv", mapping); err == nil {
+			t.Fatalf("non-pinned mapping %q should error", mapping)
+		}
+	}
+}
+
+// TestRecodeArgsIsDeterministicAndAllowlisted asserts the wire surface that
+// Recode hands to ffmpeg. The argv must be the exact pinned
+// FFmpegVideoConvertorPP._options sequence, with the documented AVI
+// exception as the only codec flag, and must reject any caller that tries
+// to inject arbitrary ffmpeg options through this boundary.
+func TestRecodeArgsIsDeterministicAndAllowlisted(t *testing.T) {
+	if got, want := recodeVideoArgs("in.mp4", "mp4", "OUTPUT"), []string{"-i", "in.mp4", "-map", "0", "-dn", "-ignore_unknown", "-progress", "pipe:1", "-nostats", "OUTPUT"}; !equalSlice(got, want) {
+		t.Fatalf("non-AVI argv = %v, want %v", got, want)
+	}
+	if got, want := recodeVideoArgs("in.dat", "avi", "OUTPUT"), []string{"-i", "in.dat", "-map", "0", "-dn", "-ignore_unknown", "-c:v", "libxvid", "-vtag", "XVID", "-progress", "pipe:1", "-nostats", "OUTPUT"}; !equalSlice(got, want) {
+		t.Fatalf("AVI argv = %v, want %v", got, want)
+	}
+}
+
+func equalSlice(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// TestRecodeNoOpDoesNotInvokeToolset ensures that the no-op skip path
+// (target == source, or no mapping rule matches) never discovers or invokes
+// an ffmpeg toolset, mirroring the pinned FFmpegVideoConvertorPP.run
+// returning [filename], info without scheduling any external work.
+func TestRecodeNoOpDoesNotInvokeToolset(t *testing.T) {
+	root := t.TempDir()
+	input := root + "/in.mkv"
+	if err := os.WriteFile(input, []byte("placeholder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Passing a nil toolset makes any ffmpeg invocation panic with a nil
+	// dereference, which would fail this test if the skip path were not
+	// honored end-to-end.
+	var tools *Toolset
+	if err := tools.Recode(context.Background(), input, root+"/out.mkv", "mkv", "mkv", false, nil); err != nil {
+		t.Fatalf("same-format recode should be a no-op: %v", err)
+	}
+	if err := tools.Recode(context.Background(), input, root+"/out.mp4", "mkv", "mov>mp4", false, nil); err != nil {
+		t.Fatalf("unmatched-rule recode should be a no-op: %v", err)
+	}
+}
+
+// TestRecodeRejectsUnsupportedTarget asserts that the public surface
+// rejects targets outside the closed MEDIA_EXTENSIONS allowlist before any
+// argv is built.
+func TestRecodeRejectsUnsupportedTarget(t *testing.T) {
+	root := t.TempDir()
+	input := root + "/in.mkv"
+	if err := os.WriteFile(input, []byte("placeholder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tools := requireToolset(t)
+	if err := tools.Recode(context.Background(), input, root+"/out.jpg", "mkv", "jpg", false, nil); err == nil {
+		t.Fatal("expected unsupported target error")
+	}
+}

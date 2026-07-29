@@ -46,6 +46,30 @@ func TestGraphValidationAndSafeMove(t *testing.T) {
 	}
 }
 
+func TestRecodeNoOpGraphPreservesOwnedInputWithoutToolset(t *testing.T) {
+	root := t.TempDir()
+	input := filepath.Join(root, "input.mkv")
+	output := filepath.Join(root, "output.mkv")
+	if err := os.WriteFile(input, []byte("owned input"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	operation := Recode{
+		Input:     Artifact{Path: input, Kind: ArtifactMedia, Owned: true},
+		Output:    Artifact{Path: output, Kind: ArtifactMedia},
+		SourceExt: "mkv", Mapping: "mkv",
+	}
+	if err := (Graph{Operations: []Operation{operation}}).Run(context.Background(), nil, nil); err != nil {
+		t.Fatalf("no-op recode required a toolset: %v", err)
+	}
+	body, err := os.ReadFile(input)
+	if err != nil || string(body) != "owned input" {
+		t.Fatalf("owned input changed: %q, %v", body, err)
+	}
+	if _, err := os.Stat(output); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("no-op recode published output: %v", err)
+	}
+}
+
 func TestArtifactAndDestinationFailures(t *testing.T) {
 	root := t.TempDir()
 	missing := filepath.Join(root, "missing.mp4")

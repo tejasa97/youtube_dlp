@@ -79,9 +79,18 @@ func (graph Graph) Run(ctx context.Context, tools *ffmpeg.Toolset, sink events.S
 }
 
 func needsToolset(operation Operation) bool {
-	switch operation.(type) {
+	switch typed := operation.(type) {
 	case Move, *Move:
 		return false
+	case Recode:
+		_, skip, err := ffmpeg.ResolveRecodeMapping(typed.SourceExt, typed.Mapping)
+		return err != nil || skip == ""
+	case *Recode:
+		if typed == nil {
+			return true
+		}
+		_, skip, err := ffmpeg.ResolveRecodeMapping(typed.SourceExt, typed.Mapping)
+		return err != nil || skip == ""
 	default:
 		return true
 	}
@@ -91,6 +100,45 @@ type AudioExtract struct {
 	Input, Output Artifact
 	Options       ffmpeg.AudioOptions
 	Overwrite     bool
+}
+
+// Recode is the pinned FFmpegVideoConvertorPP surface: a destination
+// container derived from a single target mapping (e.g. "mp4", "mkv",
+// "mov>mp4/webm>mp4"). The operation is a typed no-op when the resolved
+// target matches the source format. Ffmpeg selects the codecs itself; only
+// the documented AVI special case adds explicit -c:v/-vtag flags.
+type Recode struct {
+	Input     Artifact
+	Output    Artifact
+	SourceExt string
+	Mapping   string
+	Overwrite bool
+}
+
+func (operation Recode) Name() string { return "recode-video" }
+func (operation Recode) Run(ctx context.Context, tools *ffmpeg.Toolset, sink events.Sink) error {
+	if strings.TrimSpace(operation.Mapping) == "" {
+		return fmt.Errorf("%w: recode mapping is required", ErrInvalidGraph)
+	}
+	_, skip, err := ffmpeg.ResolveRecodeMapping(operation.SourceExt, operation.Mapping)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidGraph, err)
+	}
+	if skip != "" {
+		// A pinned mapping no-op neither creates Output nor transfers ownership
+		// away from Input.
+		return validateArtifact(operation.Input, ArtifactMedia)
+	}
+	if err := validateTransform(operation.Input, operation.Output, ArtifactMedia, ArtifactMedia); err != nil {
+		return err
+	}
+	if tools == nil {
+		return fmt.Errorf("%w: ffmpeg toolset", ErrInvalidGraph)
+	}
+	if err := tools.Recode(ctx, operation.Input.Path, operation.Output.Path, operation.SourceExt, operation.Mapping, operation.Overwrite, sink); err != nil {
+		return err
+	}
+	return removeOwned(operation.Input, operation.Output)
 }
 
 func (operation AudioExtract) Name() string { return "extract-audio" }

@@ -1508,6 +1508,41 @@ func TestRunMergeOutputFormatPlumbing(t *testing.T) {
 	}
 }
 
+func TestRunMetadataAndChapterEmbeddingFlags(t *testing.T) {
+	request := captureCLIRequest(t, "--embed-metadata")
+	if !request.EmbedMetadata || request.EmbedChapters != nil {
+		t.Fatalf("metadata request=%+v", request)
+	}
+	request = captureCLIRequest(t, "--embed-metadata", "--no-embed-chapters")
+	if !request.EmbedMetadata || request.EmbedChapters == nil || *request.EmbedChapters {
+		t.Fatalf("explicit chapter disable request=%+v", request)
+	}
+	request = captureCLIRequest(t, "--add-chapters")
+	if request.EmbedChapters == nil || !*request.EmbedChapters {
+		t.Fatalf("chapter request=%+v", request)
+	}
+}
+
+func TestRunRecodeWinsOverRemuxWithWarning(t *testing.T) {
+	runner := &captureCLIRunner{}
+	var stdout, stderr bytes.Buffer
+	code := runContextIOWithDependencies(
+		context.Background(),
+		[]string{"--remux-video", "mkv", "--recode-video", "mp4", "https://fixture.invalid/video"},
+		strings.NewReader(""), &stdout, &stderr,
+		runDependencies{newRunner: func([]ytdlp.Option) cliRunner { return runner }},
+	)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	if len(runner.request.Postprocessors) != 1 || runner.request.Postprocessors[0].RecodeVideo == nil || runner.request.Postprocessors[0].Remux != nil {
+		t.Fatalf("postprocessors=%+v", runner.request.Postprocessors)
+	}
+	if !strings.Contains(stderr.String(), "--remux-video is ignored since --recode-video was given") {
+		t.Fatalf("missing conflict warning: %q", stderr.String())
+	}
+}
+
 func TestRunInteractiveFormatEmptyUsesDefault(t *testing.T) {
 	code, _, errout := runFormatFlagFixture(t, "\n", "-f", "-")
 	if code != 0 {
@@ -1678,5 +1713,46 @@ func TestSecurityErrorExitCode(t *testing.T) {
 	err := &ytdlp.Error{Category: ytdlp.ErrorSecurity, Op: "verify", Err: errors.New("rejected")}
 	if code := exitCode(err); code != 6 {
 		t.Fatalf("exitCode() = %d, want 6", code)
+	}
+}
+
+// TestRunRecodeVideoRejectsUnsupportedTargetBeforeNetwork confirms that
+// --recode-video with a target outside the closed allowlist is rejected at
+// preflight before any extraction work begins, matching the pinned
+// FFmpegVideoConvertorPP validation order.
+func TestRunRecodeVideoRejectsUnsupportedTargetBeforeNetwork(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{
+		"--output-dir", root, "--skip-download", "--recode-video", "jpg", server.URL + "/page",
+	}, &stdout, &stderr); code == 0 {
+		t.Fatalf("expected failure for unsupported recode target; stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
+// TestRunRecodeVideoSameFormatIsNoOp confirms that --recode-video with the
+// target equal to the source extension is a typed no-op: extraction still
+// completes successfully and no destination file is reserved for the
+// recode step, matching pinned FFmpegVideoConvertorPP.run semantics.
+func TestRunRecodeVideoSameFormatIsNoOp(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{
+		"--output-dir", root, "--skip-download", "--recode-video", "mp4", server.URL + "/page",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("same-format recode should be a no-op: code=%d stderr=%q", code, stderr.String())
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".postprocessed.mp4") {
+			t.Fatalf("a destination was reserved for the no-op path: %s", entry.Name())
+		}
 	}
 }

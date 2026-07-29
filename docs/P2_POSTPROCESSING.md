@@ -15,17 +15,33 @@ files only; it cannot turn a URL or protocol string into an ffmpeg input.
 
 `internal/media/postprocess` represents work as typed operations over typed
 artifacts. Supported operations are audio extraction, subtitle and thumbnail
-conversion, metadata and chapter embedding, thumbnail and subtitle embedding, compatibility fixups,
+conversion, bounded video recoding, metadata and chapter embedding, thumbnail and subtitle embedding, compatibility fixups,
 concat, and safe file moves. An owned input is removed only after its replacement
 has been atomically finalized. Metadata and media-option values are validated;
 there is no command-string API.
 
 The public Go request contract exposes a tagged postprocessor union and returns
-typed output artifacts. The CLI exposes audio extraction, remuxing, automatic
-thumbnail conversion/embedding, and bounded multi-track subtitle embedding;
+typed output artifacts. The CLI exposes audio extraction, remuxing, bounded
+`--recode-video` target mappings, automatic canonical `--embed-metadata` and
+`--embed-chapters`, thumbnail conversion/embedding, and bounded multi-track subtitle embedding;
 embedders can request every typed operation. Operation count and path confinement are
 checked before network work begins, and product integration is covered by
 generated-media ffprobe verification.
+
+Recode follows the pinned `FFmpegVideoConvertorPP` surface: callers select only
+an allowlisted target or ordered source-to-target mapping. ffmpeg selects the
+encoders, with the pinned Xvid AVI exception; arbitrary codec/argument injection
+is not exposed. A same-format target or unmatched mapping is a true no-op, and
+when both CLI conversion modes are supplied recode wins over remux with a
+warning.
+
+Automatic metadata embedding derives only the pinned common fields from the
+canonical `Info` envelope, validates per-field and aggregate bounds, and emits
+keys deterministically. Chapter embedding consumes the final post-cut chapter
+timeline. The product order is conversion/recode, subtitle embedding, chapter
+cuts, metadata/chapter embedding, thumbnail embedding, then staged prints.
+Supported automatic metadata/chapter containers are FLAC, M4A, Matroska,
+MOV/MP4, MP3, Ogg/Opus, and WebM; unsupported targets fail during preflight.
 
 Known deviations: chapter writing uses explicit millisecond `ffmetadata`
 chapters and preserves supplied boundaries/titles. Automatic thumbnail

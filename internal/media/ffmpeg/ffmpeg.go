@@ -243,6 +243,124 @@ func (tools *Toolset) ConvertSubtitle(ctx context.Context, inputPath, destinatio
 	})
 }
 
+// Recode is the pinned FFmpegVideoConvertorPP surface: callers choose a
+// target container mapping, the operation lets ffmpeg pick encoders by
+// default, and only the documented AVI exception (-c:v libxvid -vtag XVID)
+// adds an explicit codec. Unlike remuxing, stream_copy_opts(False) deliberately
+// omits "-c copy", so ffmpeg re-encodes streams using its defaults.
+//
+// The Format value follows the pinned "A>B/C>D/E" mapping syntax. A
+// request whose source already matches its target is a typed no-op, and a
+// mapping that contains no rule for the source is also a no-op; both
+// return nil and report the skip reason to the caller via ResolveRecodeMapping.
+func (tools *Toolset) Recode(ctx context.Context, inputPath, destination, sourceFormat, mapping string, overwrite bool, sink events.Sink) error {
+	target, skip, err := ResolveRecodeMapping(sourceFormat, mapping)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidOperation, err)
+	}
+	if skip != "" {
+		return nil
+	}
+	return tools.runAtomic(ctx, destination, overwrite, sink, func(temporary string) []string {
+		return recodeVideoArgs(inputPath, target, temporary)
+	})
+}
+
+// recodeVideoArgs mirrors FFmpegVideoConvertorPP._options(target_ext) at
+// pinned commit aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8: -map 0 -dn
+// -ignore_unknown (-c copy excluded by stream_copy_opts(False)) with the
+// documented AVI special case. The destination is fixed by the caller.
+func recodeVideoArgs(inputPath, target, temporary string) []string {
+	args := []string{"-i", inputPath, "-map", "0", "-dn", "-ignore_unknown"}
+	if target == "avi" {
+		args = append(args, "-c:v", "libxvid", "-vtag", "XVID")
+	}
+	return append(args, "-progress", "pipe:1", "-nostats", temporary)
+}
+
+// ResolveRecodeMapping implements the same A>B/C>D/E syntax as the pinned
+// yt-dlp resolve_mapping. Two outcomes are no-ops and reported via the
+// non-empty skip return value:
+//
+//   - The resolved target equals the source (e.g. mapping "mkv" on a .mkv
+//     input, or "mov>mkv" on a .mp4 input whose mapping rule's source
+//     does not match). The skip reason echoes the pinned to_screen text:
+//     "already is in target format <ext>".
+//   - No rule in the mapping applies to the source. The skip reason
+//     echoes the pinned text: "could not find a mapping for <ext>".
+//
+// The only error path is an unsupported target extension; that is a
+// precondition the caller must satisfy before scheduling ffmpeg.
+func ResolveRecodeMapping(source, mapping string) (target, skip string, err error) {
+	source = strings.ToLower(strings.TrimPrefix(strings.TrimSpace(source), "."))
+	mapping = strings.ToLower(strings.TrimSpace(mapping))
+	if err := ValidateRecodeMapping(mapping); err != nil {
+		return "", "", err
+	}
+	if source == "" {
+		return "", "", fmt.Errorf("source extension is required")
+	}
+	for _, pair := range strings.Split(mapping, "/") {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+		parts := strings.SplitN(pair, ">", 2)
+		targetExt := strings.TrimSpace(parts[len(parts)-1])
+		if !SupportedRecodeTarget(targetExt) {
+			return "", "", fmt.Errorf("unsupported target %q", targetExt)
+		}
+		if len(parts) == 1 {
+			if targetExt == source {
+				return source, fmt.Sprintf("already is in target format %s", source), nil
+			}
+			return targetExt, "", nil
+		}
+		if strings.TrimSpace(parts[0]) == source {
+			if targetExt == source {
+				return source, fmt.Sprintf("already is in target format %s", source), nil
+			}
+			return targetExt, "", nil
+		}
+	}
+	return source, fmt.Sprintf("could not find a mapping for %s", source), nil
+}
+
+// ValidateRecodeMapping validates the complete pinned A>B/C>D/E mapping
+// before extraction. ResolveRecodeMapping may return at the first matching or
+// fallback rule, so validation must inspect every rule independently.
+func ValidateRecodeMapping(mapping string) error {
+	mapping = strings.ToLower(strings.TrimSpace(mapping))
+	if mapping == "" {
+		return fmt.Errorf("mapping is required")
+	}
+	if len(mapping) > 4096 {
+		return fmt.Errorf("mapping exceeds byte limit")
+	}
+	pairs := strings.Split(mapping, "/")
+	if len(pairs) > 64 {
+		return fmt.Errorf("mapping exceeds rule limit")
+	}
+	for _, raw := range pairs {
+		pair := strings.TrimSpace(raw)
+		if pair == "" || strings.Count(pair, ">") > 1 {
+			return fmt.Errorf("invalid recode mapping rule")
+		}
+		parts := strings.SplitN(pair, ">", 2)
+		if len(parts) == 2 {
+			source := strings.TrimSpace(parts[0])
+			if strings.HasPrefix(source, ".") || !SupportedRecodeTarget(source) {
+				return fmt.Errorf("unsupported source %q", source)
+			}
+		}
+		target := strings.TrimSpace(parts[len(parts)-1])
+		if strings.HasPrefix(target, ".") || !SupportedRecodeTarget(target) {
+			return fmt.Errorf("unsupported target %q", target)
+		}
+	}
+	return nil
+}
+
 // ConvertImage creates a single still image. It is used for deterministic
 // thumbnail conversion rather than relying on a platform image utility.
 func (tools *Toolset) ConvertImage(ctx context.Context, inputPath, destination string, options ImageOptions, overwrite bool, sink events.Sink) error {
@@ -281,6 +399,34 @@ func (tools *Toolset) EmbedChapters(ctx context.Context, inputPath, destination 
 	defer os.Remove(metadataPath)
 	return tools.runAtomic(ctx, destination, overwrite, sink, func(temporary string) []string {
 		return []string{"-i", inputPath, "-i", metadataPath, "-map", "0", "-map_metadata", "1", "-c", "copy", "-progress", "pipe:1", "-nostats", temporary}
+	})
+}
+
+// EmbedMetadataAndChapters writes both products in one atomic ffmpeg
+// invocation. This avoids publishing chapter-only media if metadata argument
+// validation or ffmpeg execution fails later in the same logical stage.
+func (tools *Toolset) EmbedMetadataAndChapters(
+	ctx context.Context,
+	inputPath, destination string,
+	metadata Metadata,
+	chapters []Chapter,
+	overwrite bool,
+	sink events.Sink,
+) error {
+	if err := validateMetadata(metadata); err != nil {
+		return err
+	}
+	metadataPath, err := writeChapterMetadata(destination, chapters)
+	if err != nil {
+		return err
+	}
+	defer os.Remove(metadataPath)
+	return tools.runAtomic(ctx, destination, overwrite, sink, func(temporary string) []string {
+		args := []string{"-i", inputPath, "-i", metadataPath, "-map", "0", "-map_metadata", "1", "-c", "copy"}
+		for _, key := range sortedMetadataKeys(metadata) {
+			args = append(args, "-metadata", key+"="+metadata[key])
+		}
+		return append(args, "-progress", "pipe:1", "-nostats", temporary)
 	})
 }
 
@@ -902,6 +1048,22 @@ func safeRate(value string) bool {
 func safeSubtitleFormat(value string) bool {
 	switch value {
 	case "srt", "ass", "webvtt", "mov_text":
+		return true
+	default:
+		return false
+	}
+}
+
+// SupportedRecodeTarget reports whether the requested target extension is
+// in the closed allowlist derived from MEDIA_EXTENSIONS at pinned
+// aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8. The list deliberately excludes
+// manifest/storyboard/thumbnail extensions: Recode is for media containers
+// only and never for an m3u8/mpd manifest or a jpg/png sidecar.
+func SupportedRecodeTarget(target string) bool {
+	switch strings.ToLower(strings.TrimPrefix(strings.TrimSpace(target), ".")) {
+	case "avi", "flv", "mkv", "mov", "mp4", "webm",
+		"aiff", "alac", "flac", "m4a", "mka", "mp3", "ogg", "opus", "wav",
+		"aac", "vorbis", "gif":
 		return true
 	default:
 		return false

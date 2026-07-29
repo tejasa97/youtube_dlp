@@ -222,6 +222,7 @@ type Artifact struct {
 type Postprocessor struct {
 	ExtractAudio     *ExtractAudioPostprocessor
 	Remux            *RemuxPostprocessor
+	RecodeVideo      *RecodeVideoPostprocessor
 	ConvertSubtitle  *ConvertSubtitlePostprocessor
 	ConvertThumbnail *ConvertThumbnailPostprocessor
 	EmbedMetadata    *EmbedMetadataPostprocessor
@@ -241,6 +242,16 @@ type ExtractAudioPostprocessor struct {
 }
 
 type RemuxPostprocessor struct {
+	Destination string
+	Format      string
+}
+
+// RecodeVideoPostprocessor mirrors yt-dlp's FFmpegVideoConvertorPP surface:
+// the only caller-visible knob is the target container mapping string
+// ("mp4", "mkv", "mov>mp4/webm>mp4", ...). Codec selection is left to
+// ffmpeg per the pinned stream_copy_opts(False) baseline; only the
+// documented AVI exception is hard-coded.
+type RecodeVideoPostprocessor struct {
 	Destination string
 	Format      string
 }

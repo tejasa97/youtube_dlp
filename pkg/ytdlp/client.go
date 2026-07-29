@@ -164,8 +164,15 @@ type Request struct {
 	MetadataActions []MetadataAction
 	ParseMetadata   []string
 	ReplaceMetadata []string
-	Downloader      DownloaderOptions
-	Postprocessors  []Postprocessor
+	// EmbedMetadata writes a bounded set of canonical Info fields into the
+	// final media container after conversion, subtitle embedding, and chapter
+	// cuts. EmbedChapters is tri-state so nil can mirror yt-dlp's dependent
+	// default: chapters are embedded when metadata or SponsorBlock marking is
+	// enabled, while an explicit false disables that implication.
+	EmbedMetadata  bool
+	EmbedChapters  *bool
+	Downloader     DownloaderOptions
+	Postprocessors []Postprocessor
 	// PluginID explicitly selects an installed signed plugin extractor. Plugins
 	// are never considered by automatic URL routing.
 	PluginID string
@@ -346,6 +353,10 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 	if request.SponsorBlock.ChapterTitle != nil {
 		chapterTitle := *request.SponsorBlock.ChapterTitle
 		request.SponsorBlock.ChapterTitle = &chapterTitle
+	}
+	if request.EmbedChapters != nil {
+		embedChapters := *request.EmbedChapters
+		request.EmbedChapters = &embedChapters
 	}
 	request.OutputTemplates = cloneOutputTemplates(request.OutputTemplates)
 	request.OutputPaths = cloneOutputPaths(request.OutputPaths)
@@ -1561,6 +1572,15 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 			return Result{}, categorized("commit output transaction", commitErr)
 		}
 	}
+	var embeddedSubtitles bool
+	if !multiOutput {
+		result.Artifacts, embeddedSubtitles, err = operation.embedSelectedSubtitles(
+			ctx, &info, downloadedPath, selectedSubtitles, result.Artifacts, sink,
+		)
+		if err != nil {
+			return rollbackArtifactResult(mediaTx, categorized("embed subtitles", err))
+		}
+	}
 	var cutApplied bool
 	if !multiOutput {
 		downloadedPath, result.Artifacts, cutApplied, err = operation.applyChapterCuts(ctx, &info, downloadedPath, result.Artifacts, sink)
@@ -1572,13 +1592,11 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 			return rollbackArtifactResult(mediaTx, err)
 		}
 	}
-	var embeddedSubtitles bool
+	var embeddedMetadata bool
 	if !multiOutput {
-		result.Artifacts, embeddedSubtitles, err = operation.embedSelectedSubtitles(
-			ctx, &info, downloadedPath, selectedSubtitles, result.Artifacts, sink,
-		)
+		embeddedMetadata, err = operation.applyAutomaticMetadataEmbedding(ctx, info, downloadedPath, sink)
 		if err != nil {
-			return rollbackArtifactResult(mediaTx, categorized("embed subtitles", err))
+			return rollbackArtifactResult(mediaTx, categorized("embed metadata", err))
 		}
 	}
 	var embeddedThumbnail bool
@@ -1592,7 +1610,7 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	}
 	result.Downloaded = true
 	result.Filename = downloadedPath
-	if cutApplied || embeddedSubtitles || embeddedThumbnail {
+	if cutApplied || embeddedSubtitles || embeddedMetadata || embeddedThumbnail {
 		result.Bytes, err = artifactBytes(result.Artifacts)
 		if err != nil {
 			return rollbackArtifactResult(mediaTx, categorized("account post-cut artifacts", err))
