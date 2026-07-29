@@ -1281,6 +1281,17 @@ func TestRunMetadataThreeArgumentGrammarAndOrdering(t *testing.T) {
 	}
 }
 
+func TestExtractReplaceMetadataArgsStopsAtTerminator(t *testing.T) {
+	input := []string{"--", "--replace-in-metadata", "title", "x", "y"}
+	got, err := extractReplaceMetadataArgs(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, input) {
+		t.Fatalf("got %#v want %#v", got, input)
+	}
+}
+
 func TestRunInteractiveMatchFilterPrompt(t *testing.T) {
 	server := testserver.New()
 	defer server.Close()

@@ -1,8 +1,7 @@
 // Package metadata implements the bounded, Python-free subset of yt-dlp's
 // MetadataParser postprocessor used by --parse-metadata and
-// --replace-in-metadata. Regex compilation is deliberately isolated here: it
-// uses Go's linear-time RE2 engine and rejects Python-only syntax until the
-// shared compatibility adapter owns it.
+// --replace-in-metadata. Regex compilation is deliberately isolated here and
+// delegates Python syntax translation to the shared compatibility adapter.
 package metadata
 
 import (
@@ -10,24 +9,38 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 	"unicode"
+	"unicode/utf8"
 
+	"github.com/dlclark/regexp2"
+	"github.com/ytdlp-go/ytdlp/internal/compat/pyregex"
 	"github.com/ytdlp-go/ytdlp/internal/compat/template"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
 const (
-	maxActionBytes      = 8192
-	maxRenderedInput    = 256 << 10
-	maxReplacementBytes = 256 << 10
-	maxActions          = 128
+	maxActionBytes       = 8192
+	maxRenderedInput     = 256 << 10
+	maxReplacementBytes  = 256 << 10
+	maxActions           = 128
+	maxRegexBytes        = 8192
+	maxTranslatedBytes   = 16 << 10
+	maxRegexInputBytes   = 64 << 10
+	maxRegexAttempts     = 1024
+	maxRegexBytesScanned = 4 << 20
+	regexMatchTimeout    = 25 * time.Millisecond
+	regexWallBudget      = 250 * time.Millisecond
 )
 
 var (
 	ErrInvalidAction    = errors.New("invalid metadata action")
 	ErrUnsupportedStage = errors.New("unsupported metadata lifecycle stage")
 	ErrUnsupportedRegex = errors.New("unsupported metadata regex")
+	errRegexTimeout     = errors.New("metadata regular expression timed out")
+	errRegexBudget      = errors.New("metadata regular expression budget exhausted")
 )
 
 // SyntaxError carries a stable, source-local byte span for user diagnostics.
@@ -59,8 +72,19 @@ type Action struct {
 	Kind                                 Kind
 	Stage                                Stage
 	From, To, Field, Search, Replacement string
-	expression                           *regexp.Regexp
-	captures                             []string // capture name by regexp subexpression index
+	expression                           *regexp2.Regexp
+	captures                             []capture
+}
+
+type capture struct {
+	number int
+	field  string
+}
+
+type regexBudget struct {
+	attempts, inspectedBytes int
+	wall                     time.Duration
+	started                  time.Time
 }
 
 type Result struct{ Changed, Warnings []string }
@@ -122,7 +146,7 @@ func ParseReplaceFields(fields, search, replacement string) ([]Action, error) {
 	if err != nil {
 		return nil, err
 	}
-	goReplacement, err := translateReplacement(replacement)
+	goReplacement, err := translateReplacement(replacement, search)
 	if err != nil {
 		return nil, err
 	}
@@ -168,17 +192,21 @@ func ApplyContext(ctx context.Context, info *value.Info, actions []Action) (Resu
 			if len(rendered) > maxRenderedInput {
 				return result, fmt.Errorf("%w: rendered metadata input exceeds %d bytes", ErrInvalidAction, maxRenderedInput)
 			}
-			match := action.expression.FindStringSubmatchIndex(rendered)
+			match, err := findRegex(ctx, action.expression, rendered, newRegexBudget())
+			if err != nil {
+				return result, err
+			}
 			if match == nil {
 				result.Warnings = append(result.Warnings, fmt.Sprintf("could not interpret %q as %q", action.From, action.To))
 				continue
 			}
-			for index, field := range action.captures {
-				if index == 0 || field == "" || index*2+1 >= len(match) || match[index*2] < 0 {
+			for _, target := range action.captures {
+				group := match.GroupByNumber(target.number)
+				if group == nil || len(group.Captures) == 0 {
 					continue
 				}
-				info.Set(field, value.String(rendered[match[index*2]:match[index*2+1]]))
-				result.Changed = append(result.Changed, field)
+				info.Set(target.field, value.String(group.String()))
+				result.Changed = append(result.Changed, target.field)
 			}
 		case Replace:
 			if action.expression == nil || action.Field == "" || len(action.Search) > maxActionBytes || len(action.Replacement) > maxActionBytes {
@@ -197,7 +225,7 @@ func ApplyContext(ctx context.Context, info *value.Info, actions []Action) (Resu
 			if len(text) > maxRenderedInput {
 				return result, fmt.Errorf("%w: replacement source exceeds %d bytes", ErrInvalidAction, maxRenderedInput)
 			}
-			replaced, err := boundedReplace(action.expression, text, action.Replacement)
+			replaced, err := boundedReplace(ctx, action.expression, text, action.Replacement)
 			if err != nil {
 				return result, err
 			}
@@ -261,19 +289,20 @@ func isCaptureField(input string) bool {
 	return true
 }
 
-func compileFormat(format string) (*regexp.Regexp, []string, error) {
+func compileFormat(format string) (*regexp2.Regexp, []capture, error) {
 	if len(format) == 0 || len(format) > maxActionBytes {
 		return nil, nil, errors.New("empty or oversized output pattern")
 	}
 	if isCaptureField(format) {
 		re, err := compileRegex("(?s)(.+)")
-		return re, []string{"", format}, err
+		return re, []capture{{number: 1, field: format}}, err
 	}
-	var pattern strings.Builder
-	pattern.WriteString("(?s)")
-	captures := []string{""}
-	cursor, found := 0, false
-	for cursor < len(format) {
+	type placeholder struct {
+		start, end int
+		field      string
+	}
+	var placeholders []placeholder
+	for cursor := 0; cursor < len(format); {
 		start := strings.Index(format[cursor:], "%(")
 		if start < 0 {
 			break
@@ -289,40 +318,103 @@ func compileFormat(format string) (*regexp.Regexp, []string, error) {
 			cursor = start + 2
 			continue
 		}
-		pattern.WriteString(regexp.QuoteMeta(format[cursor:start]))
-		pattern.WriteString("(.+)")
-		captures = append(captures, field)
+		placeholders = append(placeholders, placeholder{start: start, end: end + 2, field: field})
 		cursor = end + 2
-		found = true
 	}
-	if !found {
+	if len(placeholders) == 0 {
 		re, err := compileRegex(format)
 		if err != nil {
 			return nil, nil, err
 		}
-		return re, re.SubexpNames(), nil
+		return re, namedCaptures(format), nil
+	}
+	var pattern strings.Builder
+	pattern.WriteString("(?s)")
+	captures := make([]capture, 0, len(placeholders))
+	cursor := 0
+	for index, item := range placeholders {
+		pattern.WriteString(regexp.QuoteMeta(format[cursor:item.start]))
+		if index+1 < len(placeholders) {
+			pattern.WriteString("(.+?)")
+		} else {
+			pattern.WriteString("(.+)")
+		}
+		captures = append(captures, capture{number: index + 1, field: item.field})
+		cursor = item.end
 	}
 	pattern.WriteString(regexp.QuoteMeta(format[cursor:]))
 	re, err := compileRegex(pattern.String())
 	return re, captures, err
 }
 
-// compileRegex is the metadata-only adapter boundary. It must be replaced by
-// the shared bounded Python-regex adapter when that Track 1 public API lands.
-func compileRegex(pattern string) (*regexp.Regexp, error) {
-	if strings.Contains(pattern, "(?=") || strings.Contains(pattern, "(?!") || strings.Contains(pattern, "(?<=") || strings.Contains(pattern, "(?<!") || regexp.MustCompile(`\\[1-9]`).MatchString(pattern) {
-		return nil, fmt.Errorf("%w: Python-only construct in %q", ErrUnsupportedRegex, pattern)
+// namedCaptures maps only Python named-group declarations to their ordinal
+// capture numbers. It does not translate regex syntax; pyregex owns that.
+func namedCaptures(pattern string) []capture {
+	var captures []capture
+	group, escaped, inClass := 0, false, false
+	for index := 0; index < len(pattern); index++ {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if pattern[index] == '\\' {
+			escaped = true
+			continue
+		}
+		if pattern[index] == '[' {
+			inClass = true
+			continue
+		}
+		if pattern[index] == ']' {
+			inClass = false
+			continue
+		}
+		if inClass || pattern[index] != '(' {
+			continue
+		}
+		if index+1 >= len(pattern) || pattern[index+1] != '?' {
+			group++
+			continue
+		}
+		if !strings.HasPrefix(pattern[index:], "(?P<") {
+			continue
+		}
+		end := strings.IndexByte(pattern[index+4:], '>')
+		if end < 0 {
+			continue
+		}
+		group++
+		captures = append(captures, capture{number: group, field: pattern[index+4 : index+4+end]})
 	}
-	re, err := regexp.Compile(pattern)
+	return captures
+}
+
+func compileRegex(pattern string) (*regexp2.Regexp, error) {
+	if len(pattern) == 0 || len(pattern) > maxRegexBytes {
+		return nil, fmt.Errorf("%w: pattern exceeds size limit", ErrUnsupportedRegex)
+	}
+	if !utf8.ValidString(pattern) {
+		return nil, fmt.Errorf("%w: pattern is not valid UTF-8", ErrUnsupportedRegex)
+	}
+	translated, err := pyregex.Translate(pattern)
+	if err != nil || len(translated) > maxTranslatedBytes {
+		return nil, fmt.Errorf("%w: invalid or oversized Python pattern", ErrUnsupportedRegex)
+	}
+	expression, err := regexp2.Compile(translated, regexp2.None)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrUnsupportedRegex, err)
+		return nil, fmt.Errorf("%w: invalid Python pattern", ErrUnsupportedRegex)
 	}
-	return re, nil
+	expression.MatchTimeout = regexMatchTimeout
+	return expression, nil
 }
 
 // translateReplacement converts the normal Python re.sub replacement grammar
 // needed by MetadataParserPP into regexp.ExpandString's syntax.
-func translateReplacement(replacement string) (string, error) {
+func translateReplacement(replacement, pattern string) (string, error) {
+	named := make(map[string]int)
+	for _, target := range namedCaptures(pattern) {
+		named[target.field] = target.number
+	}
 	var output strings.Builder
 	for i := 0; i < len(replacement); {
 		if replacement[i] == '$' {
@@ -354,7 +446,13 @@ func translateReplacement(replacement string) (string, error) {
 			if name == "" {
 				return "", fmt.Errorf("%w: empty replacement group", ErrInvalidAction)
 			}
-			output.WriteString("${" + name + "}")
+			if number, ok := named[name]; ok {
+				output.WriteString("${" + strconv.Itoa(number) + "}")
+			} else if _, err := strconv.Atoi(name); err == nil {
+				output.WriteString("${" + name + "}")
+			} else {
+				return "", fmt.Errorf("%w: unknown replacement group", ErrInvalidAction)
+			}
 			i += 4 + end
 		case next == 'n':
 			output.WriteByte('\n')
@@ -375,33 +473,171 @@ func translateReplacement(replacement string) (string, error) {
 	return output.String(), nil
 }
 
-func boundedReplace(expression *regexp.Regexp, source, replacement string) (string, error) {
-	matches := expression.FindAllStringSubmatchIndex(source, -1)
-	if len(matches) == 0 {
-		return source, nil
+func newRegexBudget() *regexBudget { return &regexBudget{started: time.Now()} }
+
+func chargeRegex(ctx context.Context, budget *regexBudget, input string) error {
+	if err := ctx.Err(); err != nil {
+		return err
 	}
+	if len(input) > maxRegexInputBytes {
+		return fmt.Errorf("%w: input exceeds size limit", ErrUnsupportedRegex)
+	}
+	if !utf8.ValidString(input) {
+		return fmt.Errorf("%w: input is not valid UTF-8", ErrUnsupportedRegex)
+	}
+	if budget == nil {
+		return nil
+	}
+	if budget.started.IsZero() {
+		budget.started = time.Now()
+	}
+	budget.attempts++
+	budget.inspectedBytes += len(input)
+	if budget.attempts > maxRegexAttempts || budget.inspectedBytes > maxRegexBytesScanned || time.Since(budget.started) > regexWallBudget {
+		return fmt.Errorf("%w: %w", ErrUnsupportedRegex, errRegexBudget)
+	}
+	return nil
+}
+
+func sanitizeRegexError(err error) error {
+	if err == nil {
+		return nil
+	}
+	message := strings.ToLower(err.Error())
+	if strings.Contains(message, "timeout") || strings.Contains(message, "timed out") {
+		return fmt.Errorf("%w: %w", ErrUnsupportedRegex, errRegexTimeout)
+	}
+	return fmt.Errorf("%w: %w", ErrUnsupportedRegex, errRegexBudget)
+}
+
+func findRegex(ctx context.Context, expression *regexp2.Regexp, input string, budget *regexBudget) (*regexp2.Match, error) {
+	if expression == nil {
+		return nil, fmt.Errorf("%w: missing expression", ErrUnsupportedRegex)
+	}
+	if err := chargeRegex(ctx, budget, input); err != nil {
+		return nil, err
+	}
+	started := time.Now()
+	match, err := expression.FindStringMatch(input)
+	if budget != nil {
+		budget.wall += time.Since(started)
+		if budget.wall > regexWallBudget {
+			return nil, fmt.Errorf("%w: %w", ErrUnsupportedRegex, errRegexBudget)
+		}
+	}
+	if err != nil {
+		return nil, sanitizeRegexError(err)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return match, nil
+}
+
+func nextRegex(ctx context.Context, expression *regexp2.Regexp, previous *regexp2.Match, input string, budget *regexBudget) (*regexp2.Match, error) {
+	if err := chargeRegex(ctx, budget, input); err != nil {
+		return nil, err
+	}
+	started := time.Now()
+	match, err := expression.FindNextMatch(previous)
+	if budget != nil {
+		budget.wall += time.Since(started)
+		if budget.wall > regexWallBudget {
+			return nil, fmt.Errorf("%w: %w", ErrUnsupportedRegex, errRegexBudget)
+		}
+	}
+	if err != nil {
+		return nil, sanitizeRegexError(err)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return match, nil
+}
+
+func boundedReplace(ctx context.Context, expression *regexp2.Regexp, source, replacement string) (string, error) {
+	budget := newRegexBudget()
+	match, err := findRegex(ctx, expression, source, budget)
+	if err != nil || match == nil {
+		return source, err
+	}
+	runes := []rune(source)
 	var output strings.Builder
 	output.Grow(min(len(source), maxReplacementBytes))
 	cursor := 0
-	for _, match := range matches {
-		if match[0] < cursor {
+	for match != nil {
+		if match.Index < cursor || match.Index+match.Length > len(runes) {
+			return "", fmt.Errorf("%w: invalid replacement match", ErrUnsupportedRegex)
+		}
+		if err := appendReplacement(&output, string(runes[cursor:match.Index])); err != nil {
+			return "", err
+		}
+		expanded, err := expandReplacement(replacement, match)
+		if err != nil {
+			return "", err
+		}
+		if err := appendReplacement(&output, expanded); err != nil {
+			return "", err
+		}
+		cursor = match.Index + match.Length
+		match, err = nextRegex(ctx, expression, match, source, budget)
+		if err != nil {
+			return "", err
+		}
+	}
+	if err := appendReplacement(&output, string(runes[cursor:])); err != nil {
+		return "", err
+	}
+	return output.String(), nil
+}
+
+func appendReplacement(output *strings.Builder, text string) error {
+	if len(text) > maxReplacementBytes-output.Len() {
+		return fmt.Errorf("%w: replacement output exceeds %d bytes", ErrInvalidAction, maxReplacementBytes)
+	}
+	output.WriteString(text)
+	return nil
+}
+
+func expandReplacement(replacement string, match *regexp2.Match) (string, error) {
+	var output strings.Builder
+	for index := 0; index < len(replacement); {
+		if replacement[index] != '$' {
+			output.WriteByte(replacement[index])
+			index++
 			continue
 		}
-		if output.Len()+match[0]-cursor > maxReplacementBytes {
-			return "", fmt.Errorf("%w: replacement output exceeds %d bytes", ErrInvalidAction, maxReplacementBytes)
+		if index+1 == len(replacement) {
+			output.WriteByte('$')
+			break
 		}
-		output.WriteString(source[cursor:match[0]])
-		expanded := expression.ExpandString(nil, replacement, source, match)
-		if len(expanded) > maxReplacementBytes-output.Len() {
-			return "", fmt.Errorf("%w: replacement output exceeds %d bytes", ErrInvalidAction, maxReplacementBytes)
+		next := replacement[index+1]
+		if next == '$' {
+			output.WriteByte('$')
+			index += 2
+			continue
 		}
-		output.Write(expanded)
-		cursor = match[1]
+		if next != '{' {
+			output.WriteByte('$')
+			index++
+			continue
+		}
+		end := strings.IndexByte(replacement[index+2:], '}')
+		if end < 0 {
+			return "", fmt.Errorf("%w: unclosed replacement group", ErrInvalidAction)
+		}
+		name := replacement[index+2 : index+2+end]
+		var group *regexp2.Group
+		if number, err := strconv.Atoi(name); err == nil {
+			group = match.GroupByNumber(number)
+		} else {
+			group = match.GroupByName(name)
+		}
+		if group != nil && len(group.Captures) != 0 {
+			output.WriteString(group.String())
+		}
+		index += end + 3
 	}
-	if len(source)-cursor > maxReplacementBytes-output.Len() {
-		return "", fmt.Errorf("%w: replacement output exceeds %d bytes", ErrInvalidAction, maxReplacementBytes)
-	}
-	output.WriteString(source[cursor:])
 	return output.String(), nil
 }
 func splitEscaped(input string, separator byte) []string {

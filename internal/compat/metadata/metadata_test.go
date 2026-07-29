@@ -131,6 +131,40 @@ func TestParseUsesFirstUnescapedDelimiterAndTemplateInput(t *testing.T) {
 	}
 }
 
+func TestParseEscapedColonParity(t *testing.T) {
+	for _, test := range []struct{ raw, want string }{
+		{raw: `a\:b:%(artist)s`, want: `a:b`},
+		{raw: `a\\:b:%(artist)s`, want: `a\:b`},
+	} {
+		t.Run(test.raw, func(t *testing.T) {
+			action, err := ParseFromField(test.raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if action.From != test.want {
+				t.Fatalf("from=%q want %q", action.From, test.want)
+			}
+		})
+	}
+}
+
+func TestInterpretIntermediateCaptureIsNonGreedy(t *testing.T) {
+	info := value.NewInfo(value.NewObject(value.Field{Key: "title", Value: value.String("A - B - Song")}))
+	action, err := ParseFromField("title:%(artist)s - %(track)s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(&info, []Action{action}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := info.Lookup("artist").StringValue(); got != "A" {
+		t.Fatalf("artist=%q", got)
+	}
+	if got, _ := info.Lookup("track").StringValue(); got != "B - Song" {
+		t.Fatalf("track=%q", got)
+	}
+}
+
 func TestReplaceFieldsPythonReplacementGrammar(t *testing.T) {
 	info := value.NewInfo(value.NewObject(value.Field{Key: "title", Value: value.String("a-12 b-34")}))
 	actions, err := ParseReplaceFields("title,missing", `(?P<letter>[a-z])-(?P<num>\d+)`, `\g<num>/\g<letter>/$`)
@@ -147,11 +181,65 @@ func TestReplaceFieldsPythonReplacementGrammar(t *testing.T) {
 	if len(result.Warnings) != 1 || result.Warnings[0] != "video does not have a missing" {
 		t.Fatalf("warnings = %#v", result.Warnings)
 	}
-	for _, raw := range []string{`title:(?=x):x`, `title:x:\\q`, `title:(:x`} {
+	for _, raw := range []string{`title:x:\\q`, `title:(:x`} {
 		if _, err := ParseReplace(raw); !errors.Is(err, ErrUnsupportedRegex) && !errors.Is(err, ErrInvalidAction) {
 			t.Fatalf("ParseReplace(%q) = %v", raw, err)
 		}
 	}
+}
+
+func TestPythonPatternParityAndBounds(t *testing.T) {
+	for _, test := range []struct{ name, pattern, input, want string }{
+		{name: "lookaround", pattern: `(?<=id=)\d+`, input: "id=42", want: "id=x"},
+		{name: "numeric_backreference", pattern: `([a-z])\1`, input: "aabb", want: "xx"},
+		{name: "named_backreference", pattern: `(?P<letter>[a-z])(?P=letter)`, input: "aabb", want: "xx"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			info := value.NewInfo(value.NewObject(value.Field{Key: "title", Value: value.String(test.input)}))
+			actions, err := ParseReplaceFields("title", test.pattern, "x")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Apply(&info, actions); err != nil {
+				t.Fatal(err)
+			}
+			if got, _ := info.Lookup("title").StringValue(); got != test.want {
+				t.Fatalf("title=%q want %q", got, test.want)
+			}
+		})
+	}
+	oversized := value.NewInfo(value.NewObject(value.Field{Key: "title", Value: value.String(strings.Repeat("x", maxRegexInputBytes+1))}))
+	actions, err := ParseReplaceFields("title", "x", "y")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(&oversized, actions); !errors.Is(err, ErrUnsupportedRegex) {
+		t.Fatalf("oversized input = %v", err)
+	}
+
+	secret := strings.Repeat("a", 16<<10) + "secret-suffix"
+	timed := value.NewInfo(value.NewObject(value.Field{Key: "title", Value: value.String(secret)}))
+	actions, err = ParseReplaceFields("title", `(a+)+$`, "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(&timed, actions); err == nil || !errors.Is(err, ErrUnsupportedRegex) || !errors.Is(err, errRegexTimeout) || strings.Contains(err.Error(), "secret-suffix") {
+		t.Fatalf("timeout diagnostic = %v", err)
+	}
+
+	limited := value.NewInfo(value.NewObject(value.Field{Key: "title", Value: value.String(strings.Repeat("x", maxRegexAttempts+1))}))
+	if _, err := Apply(&limited, actionsFor(t, "title", "x", "y")); !errors.Is(err, ErrUnsupportedRegex) {
+		t.Fatalf("attempt limit = %v", err)
+	}
+}
+
+func actionsFor(t *testing.T, fields, pattern, replacement string) []Action {
+	t.Helper()
+	actions, err := ParseReplaceFields(fields, pattern, replacement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return actions
 }
 
 func TestMissingNullTypeStageCancellationAndBounds(t *testing.T) {

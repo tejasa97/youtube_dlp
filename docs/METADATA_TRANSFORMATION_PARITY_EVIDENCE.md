@@ -36,11 +36,14 @@ reference checkout.
 
 ## Safety bounds and intentional limits
 
-The adapter compiles metadata patterns with bounded RE2. It supports normal
-capture substitution (`\\1`, `\\g<name>`), escaping, Unicode text, and literal
-`$` behavior, but rejects look-around and pattern backreferences rather than
-silently changing their meaning. Those Python-only pattern constructs are the
-single explicit wiring dependency on Track 1's shared bounded regex adapter.
+Metadata patterns use the shared `internal/compat/pyregex` translator and
+`regexp2`; this package does not copy the translator. It supports look-around,
+numeric and named pattern backreferences, normal capture substitution (`\\1`,
+`\\g<name>`), escaping, Unicode text, and literal `$` behavior. Metadata owns
+separate ceilings: an 8 KiB source pattern, 16 KiB translated pattern, 64 KiB
+input, 1,024 match attempts, 4 MiB inspected bytes, 25 ms per match, and a
+250 ms aggregate wall budget. Timeout failures are categorized without
+including the input text.
 
 Other upstream `WHEN` values (`after_filter`, `video`, `before_dl`,
 `post_process`, `after_move`, `after_video`, and `playlist`) are rejected with
@@ -62,7 +65,5 @@ metadata values, URLs, cookies, or request secrets.
 * `pkg/ytdlp/compatibility.go` — default pre-process execution before both
   filters and downstream selection/output work.
 
-Integrator follow-up: when Track 1 publishes its stable public regex adapter,
-replace only `compileRegex` in `internal/compat/metadata` and add the resulting
-look-around/pattern-backreference fixture cases. No template or match-filter
-internals should be changed by that wiring.
+The metadata adapter consumes only the shared translator's public `Translate`
+function. No template or match-filter internals are changed by this track.

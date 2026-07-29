@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -19,14 +18,12 @@ const (
 	maxRegexInspectedBytesPerPlan = 64 << 20
 	maxRegexAttemptsPerPlan       = 131072
 	regexMatchTimeout             = 25 * time.Millisecond
-	regexTimeoutClockPeriod       = 5 * time.Millisecond
 	regexAggregateWallBudget      = 250 * time.Millisecond
 )
 
 var (
-	regexTimeoutInit sync.Once
-	errRegexTimeout  = errors.New("regular expression match timed out")
-	errRegexBudget   = errors.New("regular expression budget exhausted")
+	errRegexTimeout = errors.New("regular expression match timed out")
+	errRegexBudget  = errors.New("regular expression budget exhausted")
 )
 
 type pythonRegex struct {
@@ -44,14 +41,11 @@ func newRegexEvalBudget() *regexEvalBudget {
 	return &regexEvalBudget{started: time.Now()}
 }
 
-func initRegexTimeoutClock() {
-	regexTimeoutInit.Do(func() {
-		regexp2.SetTimeoutCheckPeriod(regexTimeoutClockPeriod)
-	})
-}
+// initRegexTimeoutClock remains for focused compatibility tests. The shared
+// pyregex package configures the process-global clock during initialization.
+func initRegexTimeoutClock() {}
 
 func compilePythonRegex(pattern string, start, end int) (*pythonRegex, error) {
-	initRegexTimeoutClock()
 	if len(pattern) > maxRegexBytes {
 		return nil, selectorLimit(start, end, "regular expression exceeds size limit")
 	}

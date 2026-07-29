@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/dlclark/regexp2"
 )
 
 const (
@@ -19,6 +22,11 @@ const (
 	pythonASCIISpaceBody = `\t\n\r\f\v`
 	pythonASCIIDigitBody = `0-9`
 )
+
+// regexp2 exposes a process-global timeout clock period. Configure it during
+// package initialization, before any consumer can execute a match; lazily
+// changing it races with the timeout clock under -race.
+func init() { regexp2.SetTimeoutCheckPeriod(5 * time.Millisecond) }
 
 type regexTranslator struct {
 	src                  string

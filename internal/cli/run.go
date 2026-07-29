@@ -1007,6 +1007,10 @@ func (flag metadataReplaceFlag) Set(input string) error {
 func extractReplaceMetadataArgs(args []string) ([]string, error) {
 	output := make([]string, 0, len(args))
 	for index := 0; index < len(args); index++ {
+		if args[index] == "--" {
+			output = append(output, args[index:]...)
+			break
+		}
 		if args[index] != "--replace-in-metadata" {
 			output = append(output, args[index])
 			continue

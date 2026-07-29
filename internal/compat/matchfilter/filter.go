@@ -12,7 +12,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -36,7 +35,6 @@ const (
 	maxTranslatedRegexBytes = 16 << 10
 	regexMatchTimeout       = 25 * time.Millisecond
 	regexWallBudget         = 250 * time.Millisecond
-	regexTimeoutClockPeriod = 5 * time.Millisecond
 )
 
 var (
@@ -46,8 +44,6 @@ var (
 	errRegexTimeout    = errors.New("regular expression match timed out")
 	errRegexBudget     = errors.New("regular expression budget exhausted")
 )
-
-var regexTimeoutInit sync.Once
 
 // SyntaxError identifies the byte range rejected by the parser.
 type SyntaxError struct {
@@ -453,12 +449,7 @@ type regexEvaluationBudget struct {
 	started        time.Time
 }
 
-func initRegexTimeoutClock() {
-	regexTimeoutInit.Do(func() { regexp2.SetTimeoutCheckPeriod(regexTimeoutClockPeriod) })
-}
-
 func compilePythonRegex(pattern string) (*regexp2.Regexp, error) {
-	initRegexTimeoutClock()
 	if !utf8.ValidString(pattern) {
 		return nil, errors.New("regular expression is not valid UTF-8")
 	}
