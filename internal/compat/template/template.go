@@ -3,6 +3,7 @@ package template
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -54,7 +55,11 @@ const (
 )
 
 var formatSpecPattern = regexp.MustCompile(
-	`^[-+0 #]*[0-9]*(\.[0-9]+)?[sdfhlBUDqSrac]$` +
+	// Keep this deliberately to the printf conversions accepted by the pinned
+	// output-template regex plus yt-dlp's documented extensions.  In
+	// particular, this is not Go's fmt language and never admits verbs that
+	// could trigger arbitrary object formatting.
+	`^[-+0 #]*[0-9]*(\.[0-9]+)?[diouxXeEfFgGcrsahlBUDqS]$` +
 		`|^[#+]*j$`,
 )
 
@@ -62,12 +67,25 @@ var formatSpecPattern = regexp.MustCompile(
 // object projections, replacement templates, date conversion, and bounded
 // scalar and JSON format specs.
 func Render(pattern string, info value.Info) (string, error) {
+	return RenderContext(context.Background(), pattern, info)
+}
+
+// RenderContext is Render with an explicit cancellation boundary. Existing
+// rendering callers remain synchronous through Render; long untrusted input
+// paths can opt into prompt cancellation without changing their semantics.
+func RenderContext(ctx context.Context, pattern string, info value.Info) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	if len(pattern) > maxTemplateBytes {
 		return "", templateSyntax(0, len(pattern), "template exceeds size limit")
 	}
 	var output strings.Builder
 	expressions := 0
 	for index := 0; index < len(pattern); {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
 		if pattern[index] != '%' {
 			if err := appendBounded(&output, pattern[index:index+1]); err != nil {
 				return "", err
@@ -92,7 +110,7 @@ func Render(pattern string, info value.Info) (string, error) {
 		}
 		closeIndex := index + 2 + closeOffset
 		specEnd := closeIndex + 1
-		for specEnd < len(pattern) && !strings.ContainsRune("sdfjlhUDBcqSra", rune(pattern[specEnd])) {
+		for specEnd < len(pattern) && !strings.ContainsRune("diouxXeEfFgGcrsahlBUDqSj", rune(pattern[specEnd])) {
 			specEnd++
 		}
 		if specEnd >= len(pattern) {
@@ -145,7 +163,7 @@ func Validate(pattern string) error {
 		}
 		closeIndex := index + 2 + closeOffset
 		specEnd := closeIndex + 1
-		for specEnd < len(pattern) && !strings.ContainsRune("sdfjlhUDBcqSra", rune(pattern[specEnd])) {
+		for specEnd < len(pattern) && !strings.ContainsRune("diouxXeEfFgGcrsahlBUDqSj", rune(pattern[specEnd])) {
 			specEnd++
 		}
 		if specEnd >= len(pattern) {
@@ -177,8 +195,10 @@ func validateExpressionSyntax(expression, spec string) error {
 	}
 	source, _, _ := strings.Cut(expression, "|")
 	source, replacement, hasReplacement := strings.Cut(source, "&")
-	if hasReplacement && !strings.Contains(replacement, "{}") {
-		return errors.New("replacement must contain {}")
+	if hasReplacement {
+		if _, err := validateReplacement(replacement); err != nil {
+			return err
+		}
 	}
 	for _, alternative := range splitAlternatives(source) {
 		path, _, _ := strings.Cut(strings.TrimSpace(alternative), ">")
@@ -304,14 +324,11 @@ func renderExpression(expression, spec string, info value.Info) (string, error) 
 		selected = value.String(converted)
 	}
 	if hasReplacement {
-		if !strings.Contains(replacement, "{}") {
-			return "", errors.New("replacement must contain {}")
-		}
 		raw, err := scalarString(selected)
 		if err != nil {
 			return "", err
 		}
-		replaced, err := replaceBounded(replacement, raw)
+		replaced, err := formatReplacement(replacement, raw)
 		if err != nil {
 			return "", err
 		}
@@ -594,25 +611,142 @@ func splitAlternatives(source string) []string {
 	return append(alternatives, source[start:])
 }
 
-func replaceBounded(replacement, raw string) (string, error) {
+// formatReplacement implements the safe, useful subset of Python's
+// str.format mini-language used by yt-dlp output templates.  A replacement
+// may be literal ("has chapters"), contain escaped braces, or reference the
+// sole value with {} / {0} and an optional string alignment/width/precision.
+// Attribute, item, conversion and nested replacement fields are rejected:
+// accepting them would turn a filename template into an object-evaluation
+// surface that this package intentionally does not provide.
+func formatReplacement(replacement, raw string) (string, error) {
 	if len(raw) > maxScalarBytes {
 		return "", errors.New("replacement source exceeds size limit")
 	}
-	count := strings.Count(replacement, "{}")
-	if count == 0 {
-		return "", errors.New("replacement must contain {}")
-	}
-	length := len(replacement)
-	if len(raw) > 2 {
-		if count > (maxScalarBytes-length)/(len(raw)-2) {
-			return "", errors.New("replacement output exceeds size limit")
+	var output strings.Builder
+	for index := 0; index < len(replacement); {
+		switch replacement[index] {
+		case '{':
+			if index+1 < len(replacement) && replacement[index+1] == '{' {
+				if err := appendBounded(&output, "{"); err != nil {
+					return "", err
+				}
+				index += 2
+				continue
+			}
+			end := strings.IndexByte(replacement[index+1:], '}')
+			if end < 0 {
+				return "", errors.New("unclosed replacement field")
+			}
+			end += index + 1
+			field := replacement[index+1 : end]
+			formatted, err := formatReplacementField(field, raw)
+			if err != nil {
+				return "", err
+			}
+			if err := appendBounded(&output, formatted); err != nil {
+				return "", err
+			}
+			index = end + 1
+		case '}':
+			if index+1 >= len(replacement) || replacement[index+1] != '}' {
+				return "", errors.New("unmatched replacement brace")
+			}
+			if err := appendBounded(&output, "}"); err != nil {
+				return "", err
+			}
+			index += 2
+		default:
+			if err := appendBounded(&output, replacement[index:index+1]); err != nil {
+				return "", err
+			}
+			index++
 		}
-		length += count * (len(raw) - 2)
 	}
-	if length > maxScalarBytes {
-		return "", errors.New("replacement output exceeds size limit")
+	return boundedFormatted(output.String())
+}
+
+func validateReplacement(replacement string) (string, error) {
+	// Reuse the formatter with a tiny value so Validate and Render reject the
+	// same grammar without data-dependent allocation.
+	return formatReplacement(replacement, "x")
+}
+
+func formatReplacementField(field, raw string) (string, error) {
+	name, format, hasFormat := strings.Cut(field, ":")
+	if name != "" && name != "0" {
+		return "", errors.New("unsupported replacement field")
 	}
-	return strings.ReplaceAll(replacement, "{}", raw), nil
+	if !hasFormat {
+		return raw, nil
+	}
+	if strings.ContainsAny(format, "{}!.[") {
+		return "", errors.New("unsupported replacement format")
+	}
+	// Python strings permit [[fill]align][width][.precision][s]. Keep the
+	// bounded syntax small and Unicode-safe while covering README's {:>20}.
+	index := 0
+	fill, align := rune(' '), byte(0)
+	if len(format) >= 2 && strings.ContainsRune("<>=^", rune(format[1])) {
+		fill, align, index = rune(format[0]), format[1], 2
+	} else if len(format) >= 1 && strings.ContainsRune("<>=^", rune(format[0])) {
+		align, index = format[0], 1
+	}
+	widthStart := index
+	for index < len(format) && format[index] >= '0' && format[index] <= '9' {
+		index++
+	}
+	width := 0
+	if index > widthStart {
+		var err error
+		width, err = strconv.Atoi(format[widthStart:index])
+		if err != nil || width > maxFormatWidth {
+			return "", errors.New("replacement width exceeds limit")
+		}
+	}
+	precision := -1
+	if index < len(format) && format[index] == '.' {
+		index++
+		start := index
+		for index < len(format) && format[index] >= '0' && format[index] <= '9' {
+			index++
+		}
+		if start == index {
+			return "", errors.New("invalid replacement precision")
+		}
+		var err error
+		precision, err = strconv.Atoi(format[start:index])
+		if err != nil || precision > maxFormatPrecision {
+			return "", errors.New("replacement precision exceeds limit")
+		}
+	}
+	if index < len(format) && format[index] == 's' {
+		index++
+	}
+	if index != len(format) {
+		return "", errors.New("unsupported replacement format")
+	}
+	runes := []rune(raw)
+	if precision >= 0 && len(runes) > precision {
+		raw, runes = string(runes[:precision]), runes[:precision]
+	}
+	if width <= len(runes) {
+		return raw, nil
+	}
+	padding := width - len(runes)
+	if align == 0 {
+		align = '>'
+	}
+	switch align {
+	case '<':
+		return raw + strings.Repeat(string(fill), padding), nil
+	case '^':
+		left := padding / 2
+		return strings.Repeat(string(fill), left) + raw + strings.Repeat(string(fill), padding-left), nil
+	case '=', '>':
+		return strings.Repeat(string(fill), padding) + raw, nil
+	default:
+		return "", errors.New("unsupported replacement alignment")
+	}
 }
 
 func traverse(info value.Info, path string) (value.Value, error) {
@@ -983,30 +1117,20 @@ func formatValue(input value.Value, spec string) (string, error) {
 			return "", err
 		}
 		return boundedFormatted(fmt.Sprintf(format, raw))
-	case 'd':
-		integer, ok := input.Int()
-		if !ok {
-			if floating, floatOK := input.Float(); floatOK {
-				limit := math.Ldexp(1, 63)
-				if !isFinite(floating) || floating < -limit || floating >= limit {
-					return "", errors.New("float is outside int64 range")
-				}
-				integer, ok = int64(floating), true
-			}
+	case 'd', 'i', 'u', 'o', 'x', 'X':
+		integer, err := numericInt(input)
+		if err != nil {
+			return "", err
 		}
-		if !ok {
-			return "", fmt.Errorf("kind %s is not numeric", input.Kind())
+		// Python treats %i and %u as decimal aliases here. Go has no %i.
+		if conversion == 'i' || conversion == 'u' {
+			format = format[:len(format)-1] + "d"
 		}
 		return boundedFormatted(fmt.Sprintf(format, integer))
-	case 'f':
-		floating, ok := input.Float()
-		if !ok {
-			if integer, intOK := input.Int(); intOK {
-				floating, ok = float64(integer), true
-			}
-		}
-		if !ok {
-			return "", fmt.Errorf("kind %s is not numeric", input.Kind())
+	case 'e', 'E', 'f', 'F', 'g', 'G':
+		floating, err := numericFloat(input)
+		if err != nil {
+			return "", err
 		}
 		return boundedFormatted(fmt.Sprintf(format, floating))
 	case 'l':
@@ -1054,6 +1178,56 @@ func formatValue(input value.Value, spec string) (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported conversion %q", conversion)
 	}
+}
+
+func numericFloat(input value.Value) (float64, error) {
+	if floating, ok := input.Float(); ok && isFinite(floating) {
+		return floating, nil
+	}
+	if integer, ok := input.Int(); ok {
+		return float64(integer), nil
+	}
+	if text, ok := input.StringValue(); ok {
+		if len(text) > maxScalarBytes {
+			return 0, errors.New("numeric string exceeds size limit")
+		}
+		floating, err := strconv.ParseFloat(text, 64)
+		if err == nil && isFinite(floating) {
+			return floating, nil
+		}
+	}
+	return 0, fmt.Errorf("kind %s is not numeric", input.Kind())
+}
+
+func numericInt(input value.Value) (int64, error) {
+	// Preserve native integers exactly. Routing an int64 through float64 rounds
+	// values above 2^53 before printf-style integer formatting.
+	if integer, ok := input.Int(); ok {
+		return integer, nil
+	}
+	var floating float64
+	if value, ok := input.Float(); ok {
+		floating = value
+	} else if text, ok := input.StringValue(); ok {
+		if len(text) > maxScalarBytes {
+			return 0, errors.New("numeric string exceeds size limit")
+		}
+		parsed, err := strconv.ParseFloat(text, 64)
+		if err != nil {
+			return 0, fmt.Errorf("kind %s is not numeric", input.Kind())
+		}
+		floating = parsed
+	} else {
+		return 0, fmt.Errorf("kind %s is not numeric", input.Kind())
+	}
+	if !isFinite(floating) {
+		return 0, fmt.Errorf("kind %s is not numeric", input.Kind())
+	}
+	limit := math.Ldexp(1, 63)
+	if floating < -limit || floating >= limit {
+		return 0, errors.New("float is outside int64 range")
+	}
+	return int64(floating), nil
 }
 
 func validFormatSpec(spec string) bool {
@@ -2205,32 +2379,104 @@ func scalarString(input value.Value) (string, error) {
 }
 
 func renderDate(input value.Value, format string) (string, error) {
-	raw, ok := input.StringValue()
-	if !ok {
+	var parsed time.Time
+	if number, ok := input.Int(); ok {
+		parsed = time.Unix(number, 0).UTC()
+	} else if number, ok := input.Float(); ok && isFinite(number) {
+		seconds, fraction := math.Modf(number)
+		parsed = time.Unix(int64(seconds), int64(fraction*1e9)).UTC()
+	} else if raw, ok := input.StringValue(); ok {
+		var err error
+		parsed, err = time.ParseInLocation("20060102", raw, time.UTC)
+		if err != nil {
+			return "", fmt.Errorf("unsupported date %q", raw)
+		}
+	} else {
 		return "", fmt.Errorf("date value has kind %s", input.Kind())
 	}
-	var parsed time.Time
-	var err error
-	for _, layout := range []string{"20060102", "20060102150405", time.RFC3339} {
-		parsed, err = time.Parse(layout, raw)
-		if err == nil {
-			break
+	return formatStrftimeUTC(parsed, format)
+}
+
+// yt-dlp delegates to Python strftime.  Rendering uses UTC deliberately: the
+// Go renderer has no process-local timezone setting, and a deterministic UTC
+// result is safer for output paths than inheriting host timezone state.
+func formatStrftimeUTC(timestamp time.Time, format string) (string, error) {
+	var output strings.Builder
+	for index := 0; index < len(format); index++ {
+		if format[index] != '%' {
+			if err := appendBounded(&output, format[index:index+1]); err != nil {
+				return "", err
+			}
+			continue
+		}
+		if index+1 == len(format) {
+			return "", errors.New("dangling date format percent")
+		}
+		index++
+		var rendered string
+		switch format[index] {
+		case '%':
+			rendered = "%"
+		case 'Y':
+			rendered = timestamp.Format("2006")
+		case 'y':
+			rendered = timestamp.Format("06")
+		case 'm':
+			rendered = timestamp.Format("01")
+		case 'd':
+			rendered = timestamp.Format("02")
+		case 'e':
+			rendered = fmt.Sprintf("%2d", timestamp.Day())
+		case 'H':
+			rendered = timestamp.Format("15")
+		case 'I':
+			rendered = timestamp.Format("03")
+		case 'M':
+			rendered = timestamp.Format("04")
+		case 'S':
+			rendered = timestamp.Format("05")
+		case 'p':
+			rendered = timestamp.Format("PM")
+		case 'a':
+			rendered = timestamp.Format("Mon")
+		case 'A':
+			rendered = timestamp.Format("Monday")
+		case 'b':
+			rendered = timestamp.Format("Jan")
+		case 'B':
+			rendered = timestamp.Format("January")
+		case 'j':
+			rendered = timestamp.Format("002")
+		case 'w':
+			rendered = strconv.Itoa(int(timestamp.Weekday()))
+		case 'U':
+			rendered = fmt.Sprintf("%02d", (timestamp.YearDay()+6-int(timestamp.Weekday()))/7)
+		case 'W':
+			rendered = fmt.Sprintf("%02d", (timestamp.YearDay()+6-(int(timestamp.Weekday())+6)%7)/7)
+		case 'z':
+			rendered = "+0000"
+		case 'Z':
+			rendered = "UTC"
+		case 's':
+			rendered = strconv.FormatInt(timestamp.Unix(), 10)
+		case 'F':
+			rendered = timestamp.Format("2006-01-02")
+		case 'T', 'X':
+			rendered = timestamp.Format("15:04:05")
+		case 'R':
+			rendered = timestamp.Format("15:04")
+		case 'c':
+			rendered = timestamp.Format("Mon Jan _2 15:04:05 2006")
+		case 'x':
+			rendered = timestamp.Format("01/02/06")
+		default:
+			return "", fmt.Errorf("unsupported date format %%%c", format[index])
+		}
+		if err := appendBounded(&output, rendered); err != nil {
+			return "", err
 		}
 	}
-	if err != nil {
-		return "", fmt.Errorf("unsupported date %q", raw)
-	}
-	const escapedPercent = "\x00"
-	escaped := strings.ReplaceAll(format, "%%", escapedPercent)
-	replacer := strings.NewReplacer(
-		"%Y", "2006", "%m", "01", "%d", "02", "%H", "15", "%M", "04", "%S", "05",
-	)
-	converted := replacer.Replace(escaped)
-	if strings.Contains(converted, "%") {
-		return "", fmt.Errorf("unsupported date format %q", format)
-	}
-	converted = strings.ReplaceAll(converted, escapedPercent, "%")
-	return parsed.Format(converted), nil
+	return output.String(), nil
 }
 
 var windowsReserved = map[string]struct{}{
