@@ -38,7 +38,7 @@ Classification used below:
 | P3-03 plugin SDK v1.x | Pass for native RPC/SDK contract | Real framed RPC helper exchanges cover old v1.0 host/new v1.1-capable plugin and new v1.1 host/v1.0 plugin. Public SDK negotiation, cancellation, malformed input, bounds, and secret-safe failures pass. |
 | P3-03 signed pack upgrade | Partial | The signed v1.0/v1.1 compatibility matrix passes, but `internal/pack/upgrade` has no production caller and is not consumed by the existing pack verifier/installer. |
 | P3-09 pack distribution | Partial | Signed canonical offline catalogs, exact resolution, expiry, signer revocation, package revocation, and CLI/public verification pass. There is no catalog-to-artifact-to-v1.1-negotiation-to-install transaction. Artifact transport and production revocation delivery remain external. |
-| P3-09 sandbox maturity | Partial | Linux/macOS plan construction is tested, but `internal/sandbox` has no production call site or launcher. Windows is unsupported; macOS uses deprecated `sandbox-exec` and rejects requested quotas; Linux requires external `bwrap`/`prlimit`. |
+| P3-09 sandbox maturity | Partial | Linux plan construction with explicit `bwrap`/`prlimit` adapters and explicit `AllowExternalTools` policy is tested, and macOS fails closed with `ErrAdapterUnavailable` because the previously documented `sandbox-exec` path was removed. `internal/sandbox` is now invoked from the production plugin RPC exchange (`internal/plugin/rpc/client.go`, `sandbox.PrepareForOS`/`sandbox.Prepare` when a trusted package is configured with a `SandboxConfig`), so a Linux plugin plan can run under the host's `bwrap`/`prlimit` policy. Windows plugin RPC does not consult `internal/sandbox` at all (`PrepareForOS` rejects Windows with `ErrUnsupportedPlatform`); the Windows Job Object path in `internal/plugin/rpc/process_windows.go` is wired into the plugin RPC exchange and its start-before-Job race is closed by `CREATE_SUSPENDED` -> `SetInformationJobObject` -> `AssignProcessToJobObject` -> `resumeInitialThread`. |
 | P3-10 canary framework | Partial | Opt-in execution, bounded secret handles, redacted records, timeout/cancellation, panic reduction, and rolling counts pass. The plan's expiry, rate-limit, and deterministic replay-capture requirements are absent, and no public, authenticated, or regional deployment runner exists. |
 | P3-11 diagnosis/patch operations | Blocker | Local telemetry, differential, and operations report commands exist, but the committed drill is synthetic timestamp arithmetic with patch ref `deadbeef`; it did not diagnose, patch, commit, or verify a real representative regression. Operations summaries also discard failure-class aggregation. |
 | G3 criterion 4 | **Blocker** | No executed 24–48-hour regression repair drill exists. The state-machine fixture proves validation and SLO bucket math only. |
@@ -124,22 +124,53 @@ Severity: **High for hostile native plugin claims; explicit platform deviation**
 
 Scope: P3-09
 
-`internal/sandbox` has no non-test production caller. Tests prove deterministic
-argument/profile construction, path checks, permission-shaped network policy,
-and fail-closed adapter/limit errors; they do not launch a plugin under the
-resulting plan. Therefore the repository cannot claim that installed native
-plugins are actually executed through bubblewrap or `sandbox-exec`.
+`internal/sandbox` is invoked from the production plugin RPC exchange when a
+trusted package is configured with a `SandboxConfig`
+(`internal/plugin/rpc/client.go::exchange`, `sandbox.PrepareForOS` /
+`sandbox.Prepare`). Tests prove deterministic argument/profile construction,
+path checks, permission-shaped network policy, and fail-closed adapter/limit
+errors. On Linux the resulting plan can run the plugin through `bwrap` and,
+when host resource caps are set, `prlimit`. macOS has no production adapter and
+every macOS plan fails closed with `internal/sandbox.ErrAdapterUnavailable`.
+Windows plugin RPC does not consult `internal/sandbox`; the Windows Job Object
+path in `internal/plugin/rpc/process_windows.go` is wired into the plugin RPC
+exchange and closes the former start-before-Job race by spawning suspended,
+assigning the Job, and only then resuming the initial thread.
 
-Platform boundaries remain:
+Platform boundaries (post-#159) remain:
 
-- Windows: unsupported sandbox and secure pack install/rollback/remove.
-- macOS: deprecated `sandbox-exec`; requested CPU/memory/process/file quotas
-  are rejected rather than enforced.
-- Linux: isolation requires deployment-installed `bwrap`; quotas additionally
-  require `prlimit`. Missing adapters fail closed.
-- Native RPC still lacks portable CPU, memory, and process-count quotas, and
-  Windows health checking retains the documented start-to-Job-assignment race.
-- WASM has bounded memory/messages/time and no WASI/imports, but no fuel meter.
+- Windows: secure sandbox and pack install/rollback/remove still fail closed.
+  The plugin RPC Windows Job Object path is reachable and wired into the
+  plugin RPC exchange (`internal/plugin/rpc/client.go::exchange`,
+  `internal/plugin/rpc/process_windows.go::configureIsolation`,
+  `attachIsolation`, `resumeInitialThread`); its start-before-Job race is
+  closed by `CREATE_SUSPENDED` -> `SetInformationJobObject` ->
+  `AssignProcessToJobObject` -> `resumeInitialThread`. The generic product
+  sandbox does not run on Windows because `internal/sandbox.PrepareForOS`
+  rejects `GOOS=windows` with `internal/sandbox.ErrUnsupportedPlatform`. The
+  separate Windows updater health-check start-before-Job race remains
+  G2-S01 in `docs/audits/P3_SECURITY_PRIVACY_ISOLATION_AUDIT.md` and is not
+  addressed by the plugin RPC work.
+- macOS: there is no production adapter; the previously documented
+  `sandbox-exec` path was removed and every macOS native plan fails closed
+  with `internal/sandbox.ErrAdapterUnavailable`
+  (`internal/sandbox/sandbox.go::PrepareForOS`,
+  `internal/sandbox/sandbox_test.go::TestPrepareRejectsMissingAdapterAndUnsupportedPlatforms`).
+- Linux: isolation requires deployment-installed `bwrap`, and host resource
+  caps additionally require `prlimit`; both adapters are selected only when
+  `AllowExternalTools=true` and a missing adapter fails closed
+  (`internal/sandbox/sandbox.go::PrepareForOS`,
+  `internal/sandbox/sandbox_test.go::TestLinuxPlanRequiresExplicitExternalAdapterPolicy`).
+- Native RPC still does not implement a portable CPU, address-space, or
+  process-count quota in its own transport; the address-space, CPU-seconds,
+  process-count, and open-files caps live in `internal/sandbox.Limits` and
+  are honoured only when the Linux adapter is actually wired up.
+- WASM has bounded memory/messages/time and no WASI/imports. wazero v1.9 has
+  no stable instruction-fuel API, so a non-zero
+  `Limits.WASMInstructionBudget` is rejected with
+  `plugin.ErrIsolationUnavailable` rather than silently falling back to
+  wall-clock-only accounting (`internal/plugin/wasm/host.go`,
+  `internal/plugin/wasm/host_test.go::TestWASMInstructionBudgetFailsClosedWithoutFuelAPI`).
 
 Closure is either a maintained production launcher with native execution tests
 for each claimed platform, or a narrower compatibility statement that permits

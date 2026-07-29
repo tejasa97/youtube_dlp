@@ -41,8 +41,25 @@ Intentional unsupported syntax is explicit rather than silently approximated:
   Automatic subtitle-only listing does not prompt, while explicit simulation
   and combined metadata-output modes do.
   Interactive filtering is rejected with `--progress-json` so its stderr
-  stream stays valid JSON. Python regular-expression semantics and unbounded
-  expressions remain unsupported.
+  stream stays valid JSON. Match-filter regex uses the bounded
+  Python-compatible subset translated by `internal/compat/pyregex.Translate`
+  and compiled with `regexp2`
+  (`internal/compat/matchfilter/filter.go::compilePythonRegex`). Open
+  quantifiers compile; safety is enforced at execution time by source,
+  translated, and per-input byte limits (`maxRegexBytes=512`,
+  `maxTranslatedRegexBytes=16<<10`, `maxRegexInputBytes=64<<10`), per-match
+  attempts (`maxRegexAttempts=256`), aggregate inspected bytes
+  (`maxRegexInspectedBytes=4<<20`), per-match wall time
+  (`regexp2.MatchTimeout=regexMatchTimeout=25ms`), and aggregate wall time
+  (`regexWallBudget=250ms`, enforced in
+  `internal/compat/matchfilter/filter.go::searchPythonRegex`). Patterns that
+  exceed the source or translated byte budget, or that fail translation,
+  are rejected at parse/compile time; runtime-matched patterns are re-bounded
+  by the same per-input, per-match, and aggregate budgets. The supported
+  surface is the bounded Python-compatible subset translated by
+  `internal/compat/pyregex`: anchors, character classes, repetition,
+  alternation, lookahead and lookbehind, and bounded backreferences. Other
+  Python regular expression features remain unsupported.
 - Format filters implement the pinned numeric/string operators, none-inclusive
   semantics, SI/IEC values, quoted escapes, and bounded Python-compatible regex
   search. FormatSorter implements the pinned field composition, aliases,
@@ -61,9 +78,24 @@ Intentional unsupported syntax is explicit rather than silently approximated:
 - Chapter removal uses search semantics, repeatable expressions, open or
   finite non-negative ranges, `inf`/`infinite`, and the pinned duration forms.
   It merges ordinary, manual, and SponsorBlock removals before one ffmpeg cut;
-  `--no-remove-chapters` resets inherited rules. Expressions use Go's bounded
-  RE2 syntax, so Python-only look-around and backreferences remain explicit
-  unsupported syntax. Infinite starts and equal/inverted ranges are rejected
+  `--no-remove-chapters` resets inherited rules. Chapter-removal regex uses
+  the same `internal/compat/pyregex.Translate` adapter as match filters
+  (`internal/compat/chapterremove/program.go::Parse`).
+  Per-title matching is re-bounded at execution time by source and
+  translated byte limits (`MaxRegexSourceBytes=4096`,
+  `MaxRegexTranslatedBytes=16<<10`), per-input byte limit
+  (`MaxRegexInputBytes=64<<10`), per-match attempts and aggregate inspected
+  bytes (`MaxRegexAttempts=256`, `MaxRegexInspectedBytes=4<<20`),
+  per-match wall time (`regexp2.MatchTimeout=RegexMatchTimeout=25ms`), and
+  the chapter-remove program's own aggregate `EvaluationBudget.attempts`,
+  `inspectedBytes`, and `wall` (`RegexAggregateWallBudget=250ms`,
+  `internal/compat/chapterremove/program.go::MatchTitleWithBudget`).
+  Product code shares one `EvaluationBudget` across an entire media item's
+  chapters so the aggregate wall time applies to the whole item rather
+  than per title. References:
+  `internal/compat/chapterremove/program.go::Parse`,
+  `internal/compat/chapterremove/program.go::MatchTitleWithBudget`,
+  `internal/compat/chapterremove/program_test.go::TestMatchTitleBoundsInputAndAggregateWork`. Infinite starts and equal/inverted ranges are rejected
   up front; upstream accepts these degenerate forms initially even though they
   cannot produce a positive cut. Before mutation, the downloaded media is
   probed, an open final chapter is completed from its real duration, and a
