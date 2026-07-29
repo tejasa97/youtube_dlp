@@ -1,6 +1,6 @@
 # Format-selection parity implementation plan
 
-Status: PRs 1–4 merged; PRs 5–6 in progress; PRs 7–11 pending
+Status: PRs 1–9 merged; PR 10 in progress; PR 11 pending
 
 Last updated: 2026-07-29
 
@@ -14,12 +14,12 @@ Behavioral baseline: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`
 | 2 | Lexer and parser parity | Merged |
 | 3 | Filter and Python-regex compatibility | Merged |
 | 4 | Full FormatSorter | Merged |
-| 5 | Evaluator, defaults, and output metadata | In progress |
-| 6 | Arbitrary N-track execution | In progress ([draft PR #145](https://github.com/tejasa97/youtube_dlp/pull/145)) |
-| 7 | Multi-output transaction and public result model | Pending |
-| 8 | Complete per-output lifecycle | Pending |
-| 9 | CLI parity and format checking | Pending |
-| 10 | Pinned-baseline closure | Pending |
+| 5 | Evaluator, defaults, and output metadata | Merged |
+| 6 | Arbitrary N-track execution | Merged |
+| 7 | Multi-output transaction and public result model | Merged |
+| 8 | Complete per-output lifecycle | Merged |
+| 9 | CLI parity and format checking | Merged |
+| 10 | Pinned-baseline closure | In progress |
 | 11 | Current-upstream delta | Pending |
 
 ## Objective

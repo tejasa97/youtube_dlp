@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "reference": {
+    "repository": "https://github.com/yt-dlp/yt-dlp",
+    "commit": "aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8",
+    "python_version": "CPython 3.12.13",
+    "derivation": "Reviewable index over committed pinned-oracle fixtures; no Python is invoked by the runner."
+  },
+  "families": [
+    {
+      "id": "selector-atoms-operators-filters",
+      "selector_cases": ["atom.best", "atom.best_star", "atom.best_dot2", "operator.grouping", "operator.precedence", "operator.fallback", "operator.comma", "operator.merge", "operator.mergeall", "filter.chained", "filter.negated-prefix", "filter.none-inclusive", "filter.quoted-escape", "filter.regex", "filter.field-syntax"],
+      "planner_cases": ["expression.grouped", "expression.plus-cartesian", "expression.slash-first-wins", "expression.comma-three"]
+    },
+    {
+      "id": "sorter-normalization-stability",
+      "selector_cases": ["coercion.numeric-id", "normalize.generated-missing", "normalize.sanitized", "normalize.duplicates", "normalize.extension-conflict"],
+      "sorter_cases": ["default-order-full", "alias-resolution", "combined-field-limits", "numeric-string-mixed", "stable-complete-ties", "source-index-preservation", "sort-bounds-oversized"]
+    },
+    {
+      "id": "media-defaults-and-multistreams",
+      "selector_cases": ["drm.default", "drm.allowed", "extension.storyboard", "gap.plain-best-combined", "gap.all-order", "gap.multistream-product"],
+      "planner_cases": ["incomplete.audio-only-best", "incomplete.video-only-best", "incomplete.mixed-best", "expression.all-includes-storyboard", "multistream.default", "multistream.allow-video", "multistream.allow-audio", "multistream.allow-both", "multistream.duplicate-preserved"]
+    },
+    {
+      "id": "syntax-and-resource-contract",
+      "selector_cases": ["parser.quoted-filter-bracket", "parser.index-over-1000", "parser.reject-empty-comma-branch", "parser.syntax-original-offset", "limit.format-count", "limit.id-bytes", "limit.aggregate-id-bytes", "limit.output-count", "malformed.non-list", "malformed.non-object"]
+    },
+    {
+      "id": "readme-selector-examples",
+      "selector_cases": ["operator.merge", "filter.chained", "filter.regex"],
+      "planner_cases": ["quality.basic-best", "quality.basic-bv", "quality.basic-ba"]
+    }
+  ],
+  "allowed_deviations": [
+    "malformed.non-list",
+    "malformed.non-object",
+    "limit.format-count",
+    "limit.id-bytes",
+    "limit.aggregate-id-bytes",
+    "limit.output-count",
+    "parser.direct-id-discarded-punctuation"
+  ]
+}
