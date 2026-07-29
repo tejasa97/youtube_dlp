@@ -8,20 +8,21 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
+var pinnedOfficialSelectorExamples = []string{
+	"22,17,18",
+	"136/137/mp4/bestvideo,140/m4a/bestaudio",
+	"bestvideo+bestaudio",
+	"bv*+ba/b",
+	"bv*+mergeall[vcodec=none]",
+	"bv*+ba+ba.2",
+	"bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4] / bv*+ba/b",
+	"bv*[height<=480]+ba/b[height<=480] / wv*+ba/w",
+	"(bv*+ba/b)[protocol^=http][protocol!*=dash] / (bv*+ba/b)",
+	"((bv*[fps>30]/bv*)[height<=720]/(wv*[fps>30]/wv*)) + ba / (b[fps>30]/b)[height<=720]/(w[fps>30]/w)",
+}
+
 func TestParserParityOfficialExamples(t *testing.T) {
-	examples := []string{
-		"22,17,18",
-		"136/137/mp4/bestvideo,140/m4a/bestaudio",
-		"bestvideo+bestaudio",
-		"bv*+ba/b",
-		"bv*+mergeall[vcodec=none]",
-		"bv*+ba+ba.2",
-		"bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4] / bv*+ba/b",
-		"bv*[height<=480]+ba/b[height<=480] / wv*+ba/w",
-		"(bv*+ba/b)[protocol^=http][protocol!*=dash] / (bv*+ba/b)",
-		"((bv*[fps>30]/bv*)[height<=720]/(wv*[fps>30]/wv*)) + ba / (b[fps>30]/b)[height<=720]/(w[fps>30]/w)",
-	}
-	for _, example := range examples {
+	for _, example := range pinnedOfficialSelectorExamples {
 		t.Run(example, func(t *testing.T) {
 			if _, err := ParseSelector(example); err != nil {
 				t.Fatalf("ParseSelector(%q) = %v", example, err)

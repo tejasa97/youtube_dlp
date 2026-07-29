@@ -133,6 +133,36 @@ func TestValidateRequiresEvidenceForCompatibleClaim(t *testing.T) {
 	}
 }
 
+func TestValidateRequiresFormatSelectorClosureEvidenceAfterPilotRetirement(t *testing.T) {
+	manifest := Manifest{Version: 1, Capabilities: []Capability{{
+		ID: "compat.format_selector", Name: "Format selector", CompatibilityTarget: "Pinned corpus", Status: StatusCompatible, Owner: "core", Evidence: []string{"TestEvidence"},
+	}}}
+	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "required closure evidence") {
+		t.Fatalf("Validate() error = %v, want closure evidence error", err)
+	}
+	manifest.Capabilities[0].Evidence = []string{
+		"internal/format.TestPinnedClosureMatrix",
+		"internal/format/testdata/pinned_closure_matrix.json",
+		"docs/FORMAT_SELECTOR_PINNED_CLOSURE_EVIDENCE.md",
+		"pkg/ytdlp.TestFormatCheckAllReusesProbeCacheDuringPlanning",
+		"internal/cli.TestRunInteractiveFormatUnavailableThenValid",
+		"pkg/ytdlp.TestNTrackMergeRealMediaTwoTrack",
+		"pkg/ytdlp.TestMultiOutputLifecycleSidecarsPrintsAndMetadataIsolation",
+	}
+	if err := manifest.Validate(); err != nil {
+		t.Fatalf("Validate() with closure evidence = %v", err)
+	}
+}
+
+func TestValidateRejectsRetiredFormatSelectorPilot(t *testing.T) {
+	manifest := Manifest{Version: 1, Capabilities: []Capability{{
+		ID: "compat.format_selector_pilot", Name: "Format selector", CompatibilityTarget: "Pinned corpus", Status: StatusPartial, Owner: "core",
+	}}}
+	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "retired") {
+		t.Fatalf("Validate() error = %v, want retired-pilot error", err)
+	}
+}
+
 func TestValidateRejectsUnknownDependency(t *testing.T) {
 	manifest := Manifest{Version: 1, Capabilities: []Capability{{
 		ID:                  "test.capability",
