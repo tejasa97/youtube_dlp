@@ -213,7 +213,7 @@ func TestAssembleWebVTTSkipsAdvertisementSegments(t *testing.T) {
 
 func TestAssembleWebVTTResolvesVariantPlaylist(t *testing.T) {
 	transport := &subtitleAssemblyTransport{payloads: map[string][]byte{
-		"https://cdn.example.test/master.m3u8": []byte("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000\nvariant.m3u8\n"),
+		"https://cdn.example.test/master.m3u8":  []byte("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1000\nvariant.m3u8\n"),
 		"https://cdn.example.test/variant.m3u8": []byte("#EXTM3U\n#EXTINF:1,\nseg0.vtt\n#EXT-X-ENDLIST\n"),
 		"https://cdn.example.test/seg0.vtt":     []byte("WEBVTT\n\n00:00.000 --> 00:01.000\nvariant content\n"),
 	}}
