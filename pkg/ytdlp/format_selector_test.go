@@ -340,11 +340,11 @@ func TestFormatSelectorProductRollbackOnFailure(t *testing.T) {
 		{Tracks: []mediaformat.Selection{{ID: "ok", URL: server.URL + "/ok", Ext: "mp4", VCodec: "avc1", ACodec: "aac"}}},
 		{Tracks: []mediaformat.Selection{{ID: "bad", URL: "://missing-scheme", Ext: "mp4", VCodec: "avc1", ACodec: "aac"}}},
 	}
-	tracker, err := operation.beginMediaTransaction([]string{
+	tracker := newMediaTransaction()
+	if err := tracker.acquireDestinationBackups([]string{
 		mustOutputPlanDestination(t, destination, 0, plans[0], true),
 		mustOutputPlanDestination(t, destination, 1, plans[1], true),
-	})
-	if err != nil {
+	}, true); err != nil {
 		t.Fatal(err)
 	}
 	for index, plan := range plans {
