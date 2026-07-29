@@ -186,6 +186,23 @@ func (client *Client) DoNoRedirect(ctx context.Context, request *http.Request) (
 	return response, nil
 }
 
+// DoNoRedirectWithRequestCookies is the no-redirect variant for callers that
+// must honor extractor-provided per-request Cookie headers. The caller remains
+// responsible for stripping those headers before any cross-origin follow-up.
+func (client *Client) DoNoRedirectWithRequestCookies(ctx context.Context, request *http.Request) (*http.Response, error) {
+	if request == nil {
+		return nil, errors.New("HTTP request must not be nil")
+	}
+	cloned := client.prepareRequest(ctx, request, true, true)
+	noRedirect := *client.httpClient
+	noRedirect.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	response, err := noRedirect.Do(cloned)
+	if err != nil {
+		return nil, &RequestError{Method: cloned.Method, URL: RedactURL(cloned.URL), Err: err}
+	}
+	return response, nil
+}
+
 // DoProfile executes a request with an explicitly named browser profile. An
 // unknown or unavailable profile is an error; it never falls back to native
 // net/http behavior.

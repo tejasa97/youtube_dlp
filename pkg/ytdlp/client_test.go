@@ -691,6 +691,29 @@ func (numericMetadataExtractor) Extract(context.Context, extractor.Request) (ext
 
 type interactiveFormatExtractor struct{}
 
+func TestFormatCheckModePrecedenceOverAllowUnplayable(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		mode        FormatCheckMode
+		allow, want bool
+	}{
+		{"auto", FormatCheckAuto, false, true},
+		{"auto allow", FormatCheckAuto, true, false},
+		{"none", FormatCheckNone, false, false},
+		{"none allow", FormatCheckNone, true, false},
+		{"selected", FormatCheckSelected, false, true},
+		{"selected allow", FormatCheckSelected, true, true},
+		{"all", FormatCheckAll, false, true},
+		{"all allow", FormatCheckAll, true, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := shouldCheckFormats(test.mode, test.allow); got != test.want {
+				t.Fatalf("shouldCheckFormats(%d, %v)=%v want %v", test.mode, test.allow, got, test.want)
+			}
+		})
+	}
+}
+
 func (interactiveFormatExtractor) Name() string           { return "interactive-format" }
 func (interactiveFormatExtractor) Suitable(*url.URL) bool { return true }
 func (interactiveFormatExtractor) Extract(context.Context, extractor.Request) (extractor.Extraction, error) {
