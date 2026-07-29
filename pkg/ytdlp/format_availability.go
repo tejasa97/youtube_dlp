@@ -125,9 +125,28 @@ func requiresAutomaticFormatCheck(format *value.Object) bool {
 	if format == nil {
 		return false
 	}
-	needsTesting, _ := format.Lookup("__needs_testing").Bool()
-	hasDRM, _ := format.Lookup("has_drm").Bool()
-	return needsTesting || hasDRM
+	return availabilityTruthy(format.Lookup("__needs_testing"), false) ||
+		availabilityTruthy(format.Lookup("has_drm"), true)
+}
+
+// availabilityTruthy matches the format normalizer's conservative DRM
+// treatment without importing evaluator internals. Extractors commonly use
+// booleans, but pinned metadata may also carry a non-empty string or number.
+// The special "maybe" DRM state is intentionally not auto-probed.
+func availabilityTruthy(input value.Value, drm bool) bool {
+	if enabled, ok := input.Bool(); ok {
+		return enabled
+	}
+	if text, ok := input.StringValue(); ok {
+		return text != "" && (!drm || !strings.EqualFold(text, "maybe"))
+	}
+	if number, ok := input.Int(); ok {
+		return number != 0
+	}
+	if number, ok := input.Float(); ok {
+		return number != 0
+	}
+	return false
 }
 
 func (checker *formatAvailabilityChecker) headersFor(format *value.Object) (http.Header, error) {

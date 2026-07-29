@@ -1258,7 +1258,8 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	preparedFormats = preparedFormats.SyncInfo(info)
 	var selectedFormats []mediaformat.Selection
 	var outputPlans []mediaformat.OutputPlan
-	needsInteractiveFormat := interactiveDecision.interactive != interactiveMatchFilterNone
+	needsInteractiveFormat := interactiveDecision.interactive != interactiveMatchFilterNone ||
+		operation.compatibility.interactiveFormat
 	if (!operation.request.SkipDownload && !operation.request.Simulate) ||
 		operation.hasPrintStageAtOrAfter(PrintVideo) || needsInteractiveFormat {
 		outputPlans, err = operation.planPreparedFormatsContext(ctx, preparedFormats)

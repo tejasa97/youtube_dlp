@@ -43,5 +43,6 @@ stdin coordinator with interactive match filters. Prompts are written solely
 to stderr; `--progress-json` rejects either interactive mode so stdout JSON is
 not polluted.
 
-PR 8 remains the final integration gate for the multi-output lifecycle. This
-change deliberately does not alter PR 7 transaction/public-result behavior.
+PR 8's merged per-output lifecycle is consumed as-is. This change only feeds
+its finalized planner/N-track APIs; it does not recreate transaction or result
+lifecycle behavior.
