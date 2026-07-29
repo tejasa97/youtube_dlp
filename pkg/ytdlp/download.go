@@ -21,6 +21,7 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
 	"github.com/ytdlp-go/ytdlp/internal/media/pipeline"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/dash"
+	"github.com/ytdlp-go/ytdlp/internal/protocol/hds"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/hls"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/ism"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/youtubelive"
@@ -397,6 +398,38 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 			return destination, info.Size(), nil
 		}
 		return result.Tracks[0].Download.Path, result.Tracks[0].Download.Bytes, nil
+	case "f4m", "f4m_native":
+		// Map selected.TBR (float64) onto the bounded int64 the HDS layer
+		// expects. NaN and non-positive values fall through to "highest
+		// available" via zero; out-of-int64-range bitrates are clamped to
+		// MaxInt64 so the protocol can never panic on numeric conversion.
+		requestedBitrateBound := boundedFloatToInt64(selected.TBR)
+		// The HDS layer applies its own MaxFragmentSize and MaxOutputBytes
+		// caps; we forward options.MaxSegmentBytes as the fragment ceiling
+		// (already bounded by validateOptions) and derive MaxOutputBytes
+		// from options.MaxBytes so that product-level size caps reach the
+		// protocol. When MaxBytes is unset we leave the protocol default.
+		maxOutput := options.MaxBytes
+		if maxOutput <= 0 {
+			maxOutput = 8 << 30 // 8 GiB intentional output cap.
+		}
+		result, err := hds.NewDownloader(operation.transport, hds.Config{
+			Headers:          selected.Headers,
+			Attempts:         options.Attempts,
+			RetryBaseDelay:   options.RetryBaseDelay,
+			RetryMaxDelay:    options.RetryMaxDelay,
+			MaxFragmentSize:  options.MaxSegmentBytes,
+			MaxOutputBytes:   maxOutput,
+			RequestedBitrate: requestedBitrateBound,
+		})
+		if err != nil {
+			return "", 0, err
+		}
+		out, err := result.Download(ctx, selected.URL, outputRoot, destination, operation.request.Overwrite, sink)
+		if err != nil {
+			return "", 0, err
+		}
+		return out.Path, out.Bytes, nil
 	case "ism", "ismc", "mss":
 		result, err := ism.NewDownloader(operation.transport, ism.Config{
 			Headers:             selected.Headers,
@@ -652,4 +685,19 @@ func resolveYouTubeSABRPOToken(ctx context.Context, operation *operation, select
 		return decoded, nil
 	}
 	return nil, fmt.Errorf("%w: invalid SABR PO token encoding", errInvalidRequestOptions)
+}
+
+// boundedFloatToInt64 converts a non-negative finite float64 to int64,
+// clamping out-of-range values and treating NaN or negative inputs as "highest
+// available" by returning zero. This matches yt-dlp's f4m.py behavior where
+// the absence of an exact requested bitrate falls through to the
+// deterministic highest-bitrate selection. The helper cannot fail.
+func boundedFloatToInt64(value float64) int64 {
+	switch {
+	case value != value || value <= 0: // NaN or non-positive
+		return 0
+	case value > float64(math.MaxInt64):
+		return math.MaxInt64
+	}
+	return int64(value)
 }

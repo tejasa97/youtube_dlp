@@ -41,6 +41,7 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/network"
 	packcatalog "github.com/ytdlp-go/ytdlp/internal/pack/catalog"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/dash"
+	"github.com/ytdlp-go/ytdlp/internal/protocol/hds"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/hls"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/ism"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/youtubelive"
@@ -1723,7 +1724,9 @@ func categorized(op string, err error) error {
 		errors.Is(err, ffmpeg.ErrUnsafeHLSHeaders):
 		category = ErrorUnsupported
 	case errors.Is(err, downloader.ErrExternalUnavailable), errors.Is(err, hls.ErrUnsupportedEncryption),
-		errors.Is(err, dash.ErrUnsupportedTimeline), errors.Is(err, dash.ErrUnsupportedAddressing):
+		errors.Is(err, dash.ErrUnsupportedTimeline), errors.Is(err, dash.ErrUnsupportedAddressing),
+		errors.Is(err, hds.ErrUnsupportedLive), errors.Is(err, hds.ErrUnsupportedDRM),
+		errors.Is(err, hds.ErrUnsupportedEmpty):
 		category = ErrorUnsupported
 	case errors.Is(err, outputtemplate.ErrInvalidTemplate), errors.Is(err, outputtemplate.ErrUnsafePath),
 		errors.Is(err, errInvalidRequestOptions),
@@ -1742,6 +1745,10 @@ func categorized(op string, err error) error {
 		errors.Is(err, fragment.ErrTooManySegments), errors.Is(err, fragment.ErrTooManyAttempts),
 		errors.Is(err, fragment.ErrTooMuchConcurrency), errors.Is(err, fragment.ErrSegmentTooLarge),
 		errors.Is(err, fragment.ErrUnsafeDestination), errors.Is(err, ism.ErrInvalidConfig),
+		errors.Is(err, hds.ErrInvalidManifest), errors.Is(err, hds.ErrInvalidBootstrap),
+		errors.Is(err, hds.ErrInvalidMedia), errors.Is(err, hds.ErrInvalidConfig),
+		errors.Is(err, hds.ErrFragmentTooLarge), errors.Is(err, hds.ErrTooManySegments),
+		errors.Is(err, hds.ErrTooManyFragments), errors.Is(err, hds.ErrUnsafeDestination),
 		errors.Is(err, youtubelive.ErrInvalidBaseURL), errors.Is(err, youtubelive.ErrInvalidConfig),
 		errors.Is(err, youtubelive.ErrUnsafeOutput), errors.Is(err, youtubelive.ErrOutputExists),
 		errors.Is(err, youtubelive.ErrLiveInvalidConfig),
