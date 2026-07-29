@@ -105,7 +105,7 @@ func TestSyntheticPrintFieldsAreAvailableAtLifecycleStages(t *testing.T) {
 		{Stage: PrintVideo, Template: "%(subtitles_table)s"},
 		{Stage: PrintVideo, Template: "%(automatic_captions_table)s"},
 	}}}
-	prints, err := operation.capturePrints(t.Context(), PrintVideo, info, nil, "")
+	prints, err := operation.capturePrints(t.Context(), PrintVideo, info, nil, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}

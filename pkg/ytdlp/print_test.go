@@ -93,13 +93,13 @@ func TestPrintRuleValidationOptionalFieldsAndCancellation(t *testing.T) {
 	operation := operation{request: Request{PrintRules: []PrintRule{
 		{Stage: PrintVideo, Template: "%(description)s", OmitIfMissing: "description"},
 	}}}
-	prints, err := operation.capturePrints(context.Background(), PrintVideo, info, nil, "")
+	prints, err := operation.capturePrints(context.Background(), PrintVideo, info, nil, nil, "")
 	if err != nil || len(prints) != 0 {
 		t.Fatalf("optional prints=%#v error=%v", prints, err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := operation.capturePrints(ctx, PrintVideo, info, nil, ""); !errors.Is(err, context.Canceled) {
+	if _, err := operation.capturePrints(ctx, PrintVideo, info, nil, nil, ""); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation error=%v", err)
 	}
 }

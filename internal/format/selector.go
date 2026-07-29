@@ -17,7 +17,7 @@ var (
 const (
 	maxSelectorBytes = 16 << 10
 	maxAlternatives  = 64
-	maxMergeTerms    = 16
+	maxMergeTerms    = MaxMergeTracks
 	maxTermFilters   = 32
 )
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -280,6 +281,129 @@ func TestProductPromotesMergedWebMToMatroskaForThumbnail(t *testing.T) {
 			t.Fatalf("stage %s output=%q", output.Stage, output.Text)
 		}
 	}
+}
+
+func TestProductPreservesExplicitWebMForThumbnailEmbedding(t *testing.T) {
+	server, _, _, _ := newWebMPairThumbnailServer(t)
+	defer server.Close()
+	outputDir := t.TempDir()
+	_, err := NewClient().Run(context.Background(), Request{
+		URL: server.URL + "/page", OutputDir: outputDir,
+		OutputTemplate:    "fixed.webm",
+		MergeOutputFormat: "webm",
+		Thumbnails:        ThumbnailOptions{Embed: true},
+	})
+	if err == nil || !errors.Is(err, ffmpeg.ErrInvalidOperation) {
+		t.Fatalf("error = %v, want unsupported container", err)
+	}
+	merged := filepath.Join(outputDir, "fixed.webm")
+	if info, statErr := os.Stat(merged); statErr != nil || info.Size() == 0 {
+		t.Fatalf("merged webm missing: %v", statErr)
+	}
+	if matches, _ := filepath.Glob(filepath.Join(outputDir, "*.mkv")); len(matches) != 0 {
+		t.Fatalf("silent mkv rewrite created %v", matches)
+	}
+}
+
+func TestProductExplicitWebMMergeDestinationWithoutThumbnail(t *testing.T) {
+	server, _, _, _ := newWebMPairThumbnailServer(t)
+	defer server.Close()
+	result, err := NewClient().Run(context.Background(), Request{
+		URL: server.URL + "/page", OutputDir: t.TempDir(),
+		OutputTemplate:    "fixed.%(ext)s",
+		MergeOutputFormat: "webm",
+		PrintRules: []PrintRule{
+			{Stage: PrintVideo, Template: "%(ext)s|%(filename)s"},
+			{Stage: PrintBeforeDL, Template: "%(ext)s|%(filename)s"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Ext(result.Filename) != ".webm" {
+		t.Fatalf("filename = %q", result.Filename)
+	}
+	for _, output := range result.Prints {
+		if !strings.HasPrefix(output.Text, "webm|") || !strings.HasSuffix(output.Text, ".webm") {
+			t.Fatalf("stage %s output=%q", output.Stage, output.Text)
+		}
+	}
+}
+
+func TestProductExplicitMKVMergeFormatForThumbnail(t *testing.T) {
+	server, _, _, _ := newWebMPairThumbnailServer(t)
+	defer server.Close()
+	result, err := NewClient().Run(context.Background(), Request{
+		URL: server.URL + "/page", OutputDir: t.TempDir(),
+		OutputTemplate:    "fixed.%(ext)s",
+		MergeOutputFormat: "mkv",
+		Thumbnails:        ThumbnailOptions{Embed: true},
+		PrintRules: []PrintRule{
+			{Stage: PrintVideo, Template: "%(ext)s|%(filename)s"},
+			{Stage: PrintPostProcess, Template: "%(ext)s|%(filepath)s"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Ext(result.Filename) != ".mkv" {
+		t.Fatalf("filename = %q", result.Filename)
+	}
+	assertOneEmbeddedThumbnail(t, result.Filename)
+	for _, output := range result.Prints {
+		if !strings.HasPrefix(output.Text, "mkv|") {
+			t.Fatalf("stage %s output=%q", output.Stage, output.Text)
+		}
+	}
+}
+
+func newWebMPairThumbnailServer(t *testing.T) (*httptest.Server, []byte, []byte, []byte) {
+	t.Helper()
+	ffmpegPath, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg unavailable")
+	}
+	fixtureRoot := t.TempDir()
+	videoPath := filepath.Join(fixtureRoot, "video.webm")
+	audioPath := filepath.Join(fixtureRoot, "audio.webm")
+	imagePath := filepath.Join(fixtureRoot, "cover.png")
+	commands := [][]string{
+		{"-nostdin", "-y", "-f", "lavfi", "-i", "color=c=black:s=32x32:d=0.3", "-an", "-c:v", "libvpx-vp9", videoPath},
+		{"-nostdin", "-y", "-f", "lavfi", "-i", "sine=frequency=500:duration=0.3", "-vn", "-c:a", "libopus", audioPath},
+		{"-nostdin", "-y", "-f", "lavfi", "-i", "color=c=yellow:s=32x32:d=0.1", "-frames:v", "1", imagePath},
+	}
+	for _, args := range commands {
+		if output, err := exec.Command(ffmpegPath, args...).CombinedOutput(); err != nil {
+			t.Fatalf("generate fixture: %v: %s", err, output)
+		}
+	}
+	video := mustReadEmbedProductFile(t, videoPath)
+	audio := mustReadEmbedProductFile(t, audioPath)
+	image := mustReadEmbedProductFile(t, imagePath)
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/page":
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(writer, `{
+				"id":"webm-pair","title":"WebM Pair","ext":"webm",
+				"formats":[
+					{"format_id":"video","url":%q,"ext":"webm","vcodec":"vp9","acodec":"none","height":720},
+					{"format_id":"audio","url":%q,"ext":"webm","vcodec":"none","acodec":"opus","abr":128}
+				],
+				"thumbnail":%q
+			}`, server.URL+"/video.webm", server.URL+"/audio.webm", server.URL+"/cover.png")
+		case "/video.webm":
+			_, _ = writer.Write(video)
+		case "/audio.webm":
+			_, _ = writer.Write(audio)
+		case "/cover.png":
+			_, _ = writer.Write(image)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	return server, video, audio, image
 }
 
 func mustReadEmbedProductFile(t *testing.T, path string) []byte {
