@@ -9,7 +9,7 @@ marking, and FFmpeg-driven media cutting with subtitle synchronization**.
 
 When a caller passes a `ytdlp.Request` with
 `SponsorBlock.Enabled == true` and the operation targets a
-YouTube-family extractor, the client performs a single bounded
+canonical `youtube` extractor key, the client performs a single bounded
 SponsorBlock API lookup and writes the result to
 `result.InfoJSON` under the key `sponsorblock_chapters`. Disabled
 requests never touch the network.
@@ -183,11 +183,11 @@ Example (ordinary chapter plus manual range removal):
 
 ## Supported extractor
 
-Only YouTube-family extractors are supported. The package rejects
-a SponsorBlock request against any other extractor with a
-categorized `unsupported` error; the operation never silently
-claims success. The supported extractor key is the YouTube watch
-extractor (the `youtube` key).
+The pinned `SponsorBlockPP.EXTRACTORS` table has exactly one entry:
+`Youtube` -> `YouTube`. Accordingly, the sole supported canonical extractor
+key is `youtube`; the service identity is derived from that selected extractor
+key, never webpage metadata. A request against any other extractor is a
+categorized `unsupported` error and makes no SponsorBlock request.
 
 ## Endpoint contract
 
@@ -210,11 +210,11 @@ group; prefix collisions with other video IDs are ignored.
 ## Cookies, transport, and cancellation
 
 The client uses the operation's shared `internal/network.Client`
-transport. The client requires its credential-isolated request path;
-the call fails closed with a categorized security error otherwise.
+transport. The client requires its credential-isolated, no-redirect request
+path; the call fails closed with a categorized security error otherwise.
 SponsorBlock requests never receive operation cookies, authorization,
-or proxy-authorization headers, including values configured as
-operation defaults.
+proxy-authorization, or referer headers, including values configured as
+operation defaults, and a 3xx response is never followed.
 
 The call is context-aware: a cancelled or expired context
 returns a categorized cancellation error that preserves the context cause.
@@ -322,10 +322,12 @@ remap each contiguous leading tag independently and keep surviving lyric text;
 timestamp-shaped text later in lyrics is preserved literally. Malformed
 or unrecognized SRT cue blocks fail closed with `invalid_input` instead
 of silently dropping content. FFmpeg concat is not used for subtitles.
-Unsupported sidecar formats fail closed with a categorized `unsupported`
-error so the product never silently leaves subtitles desynced. This is
-stricter than yt-dlp's warn-and-continue policy for unsupported external
-subtitle types and is recorded as a known deviation.
+Unsupported external sidecar formats are left untouched and emit a typed
+metadata warning (including the artifact path); the media and supported
+sidecars can still commit atomically, matching yt-dlp's warn-and-continue
+policy. Malformed supported sidecars, unsafe paths, staging failures,
+cancellation, and commit/rollback failures remain fail-closed, so no partial
+supported-sidecar transaction is published.
 
 ## Output schema
 
@@ -404,6 +406,9 @@ SponsorBlock request:
 - Maximum unique force-keyframe timestamps: 512.
 - Maximum chapter-removal specifications: 64.
 - Maximum bytes per chapter-removal specification: 4096 (64 KiB total).
+- Maximum chapter-regex translated bytes: 16 KiB; title input: 64 KiB.
+- Maximum chapter-regex attempts: 256; inspected bytes: 4 MiB; per-match
+  timeout: 25 ms; aggregate wall time: 250 ms.
 
 Exceeding any bound produces a categorized invalid metadata
 error and the operation stops.
@@ -420,17 +425,11 @@ real cookies, tokens, video IDs, or captured production
 response. They are mirrored by deterministic package fixtures and
 exercised without network access, Python, or a clock.
 
-## Out of scope / remaining deviations
+## Safety bounds
 
-The following SponsorBlock features from the pinned reference
-remain unimplemented or intentionally different in this release:
-
-- SponsorBlock metadata for services other than YouTube
-  (PeerTube, Vimeo, etc.).
-- Python-only regular-expression constructs for ordinary chapter removal;
-  the native implementation uses bounded Go RE2 syntax.
-- yt-dlp's warn-and-continue policy for unsupported external
-  subtitle formats during remove (this port fails closed instead).
-
-These are documented in the capability manifest's
-`known_deviation` and are not a regression of any prior claim.
+The pinned SponsorBlock service table is YouTube-only; no Vimeo, PeerTube, or
+other service is attributable to this reference. Deliberate safety bounds are
+documented above: malformed supported sidecars and transactional failures fail
+closed, and Python-compatible chapter searches have finite source, input,
+attempt, byte, per-match, and aggregate-time limits. These bounds are recorded
+honestly in the capability manifest.

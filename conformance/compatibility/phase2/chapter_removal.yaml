@@ -32,6 +32,7 @@ cases:
 notes:
   - These are hand-authored behavioral expectations; no upstream fixture is copied.
   - Repeated regular expressions are ORed and use search, not full-match, semantics.
+  - Title expressions use bounded Python-compatible search, including look-around, backreferences, named groups, flags, and Unicode.
   - Manual ranges are parsed from the same repeatable --remove-chapters option as upstream.
   - Negative timestamps are rejected for chapter removal.
   - The Go port additionally rejects infinite starts and equal/inverted ranges before postprocessing.

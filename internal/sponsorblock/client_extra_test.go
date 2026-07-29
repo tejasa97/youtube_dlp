@@ -6,7 +6,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+
+	"github.com/ytdlp-go/ytdlp/internal/network"
 )
 
 func TestFetchMalformedBodyCategorized(t *testing.T) {
@@ -59,6 +62,33 @@ func TestFetchCancellationRespected(t *testing.T) {
 	}
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context cancellation", err)
+	}
+}
+
+func TestFetchRefusesRedirectWithoutContactingDestination(t *testing.T) {
+	var destinationCalls atomic.Int32
+	destination := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		destinationCalls.Add(1)
+	}))
+	defer destination.Close()
+	source := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Location", destination.URL+"/unexpected")
+		writer.WriteHeader(http.StatusFound)
+	}))
+	defer source.Close()
+	transport, err := network.New(network.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer transport.CloseIdleConnections()
+	_, err = Fetch(context.Background(), transport, Options{
+		Enabled: true, Categories: []string{"sponsor"}, APIBase: source.URL,
+	}, "YouTube", "abc", 0)
+	if !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("redirect error = %v", err)
+	}
+	if destinationCalls.Load() != 0 {
+		t.Fatalf("redirect destination calls = %d", destinationCalls.Load())
 	}
 }
 
@@ -156,4 +186,13 @@ func (transport *serverTransport) DoWithoutCredentials(ctx context.Context, requ
 	request.Header.Del("Cookie")
 	request.Header.Del("Authorization")
 	return http.DefaultClient.Do(request)
+}
+
+func (transport *serverTransport) DoWithoutCredentialsNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
+	request = request.Clone(ctx)
+	request.Header.Del("Cookie")
+	request.Header.Del("Authorization")
+	client := *http.DefaultClient
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return client.Do(request)
 }

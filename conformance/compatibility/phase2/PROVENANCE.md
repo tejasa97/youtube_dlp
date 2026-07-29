@@ -54,7 +54,8 @@ initial check, and those conditions are reevaluated against the original
 selected-format metadata plus normalized selection fields,
 and no-format entries fail before prompting. Merged A/V fields follow the
 pinned merge policy; multi-output interactive plans fail explicitly because
-per-output prompting is not claimed. The core grammar
-remains free of queue and prompting policy. Regular expressions use Go's
-bounded RE2 engine; Python-only
-look-around and backreference syntax is rejected explicitly.
+per-output prompting is not claimed. The core grammar remains free of queue
+and prompting policy. Chapter-title expressions use the shared bounded
+Python-compatible regex translator and engine, with cancellation,
+source/translation/input limits, per-match timeout, and aggregate
+attempt/byte/wall-time budgets.

@@ -13,7 +13,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ytdlp-go/ytdlp/internal/extractor"
 	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
+	"github.com/ytdlp-go/ytdlp/internal/network"
+	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
 func TestMultiOutputLifecycleSidecarsPrintsAndMetadataIsolation(t *testing.T) {
@@ -224,6 +227,105 @@ func TestMultiOutputLifecycleRemovesChapterRangesPerPlan(t *testing.T) {
 		}
 		duration, parseErr := strconv.ParseFloat(probe.Format.Duration, 64)
 		if parseErr != nil || duration <= 0 || duration >= 0.4 {
+			t.Fatalf("probe %q duration=%q err=%v", artifact.Path, probe.Format.Duration, parseErr)
+		}
+	}
+}
+
+func TestMultiOutputLifecycleAppliesSponsorBlockMarkRemovePerPlan(t *testing.T) {
+	mediaServer := newMultiOutputMediaServer(t, true, false)
+	sponsorServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "" || request.Header.Get("Cookie") != "" ||
+			request.URL.Query().Get("service") != "YouTube" {
+			t.Errorf("SponsorBlock request = %#v", request)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(writer, `[{"videoID":"multi-sponsor","segments":[{"segment":[0.1,0.2],"category":"sponsor","actionType":"skip"}]}]`)
+	}))
+	defer sponsorServer.Close()
+	transport, err := network.New(network.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer transport.CloseIdleConnections()
+	root := t.TempDir()
+	request := Request{
+		OutputDir: root, Format: "first,second", Overwrite: true,
+		OutputTemplate: "%(format_id)s.%(ext)s",
+		RelatedFiles:   RelatedFileOptions{WriteInfoJSON: true},
+		Subtitles:      SubtitleOptions{WriteManual: true},
+		PrintRules:     []PrintRule{{Stage: PrintAfterMove, Template: "%(format_id)s|%(duration)s"}},
+		SponsorBlock: SponsorBlockOptions{
+			Enabled: true, Mark: true, Remove: true, Categories: []string{"sponsor"},
+			ForceKeyframes: true, APIBase: sponsorServer.URL,
+		},
+	}
+	compatibility, err := prepareCompatibility(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("multi-sponsor")},
+		value.Field{Key: "title", Value: value.String("Multi Sponsor")},
+		value.Field{Key: "ext", Value: value.String("mp4")},
+		value.Field{Key: "formats", Value: value.List(
+			value.ObjectValue(value.NewObject(
+				value.Field{Key: "format_id", Value: value.String("first")},
+				value.Field{Key: "url", Value: value.String(mediaServer.URL + "/first.mp4")},
+				value.Field{Key: "ext", Value: value.String("mp4")},
+				value.Field{Key: "vcodec", Value: value.String("mpeg4")},
+				value.Field{Key: "acodec", Value: value.String("aac")},
+			)),
+			value.ObjectValue(value.NewObject(
+				value.Field{Key: "format_id", Value: value.String("second")},
+				value.Field{Key: "url", Value: value.String(mediaServer.URL + "/second.mp4")},
+				value.Field{Key: "ext", Value: value.String("mp4")},
+				value.Field{Key: "vcodec", Value: value.String("mpeg4")},
+				value.Field{Key: "acodec", Value: value.String("aac")},
+			)),
+		)},
+		value.Field{Key: "subtitles", Value: value.ObjectValue(value.NewObject(
+			value.Field{Key: "en", Value: value.List(value.ObjectValue(value.NewObject(
+				value.Field{Key: "url", Value: value.String(mediaServer.URL + "/en.vtt")},
+				value.Field{Key: "ext", Value: value.String("vtt")},
+			)))},
+		))},
+	))
+	operation := &operation{client: NewClient(), request: request, transport: transport, compatibility: compatibility}
+	result, err := operation.processMedia(t.Context(), extractor.Media(info), "youtube")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Prints) != 2 || result.Bytes <= 0 {
+		t.Fatalf("prints=%#v bytes=%d", result.Prints, result.Bytes)
+	}
+	media := mediaArtifactsOnly(result.Artifacts)
+	if len(media) != 2 {
+		t.Fatalf("artifacts=%#v", result.Artifacts)
+	}
+	var subtitles, sidecars int
+	for _, artifact := range result.Artifacts {
+		switch artifact.Kind {
+		case "subtitle":
+			subtitles++
+		case "infojson":
+			sidecars++
+		}
+	}
+	if subtitles != 2 || sidecars != 2 {
+		t.Fatalf("artifacts=%#v", result.Artifacts)
+	}
+	tools, err := ffmpeg.Discover(ffmpeg.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, artifact := range media {
+		probe, probeErr := tools.Probe(t.Context(), artifact.Path)
+		if probeErr != nil {
+			t.Fatal(probeErr)
+		}
+		duration, parseErr := strconv.ParseFloat(probe.Format.Duration, 64)
+		if parseErr != nil || duration <= 0 || duration >= 0.35 {
 			t.Fatalf("probe %q duration=%q err=%v", artifact.Path, probe.Format.Duration, parseErr)
 		}
 	}

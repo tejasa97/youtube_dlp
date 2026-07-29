@@ -242,7 +242,7 @@ func TestSponsorBlockFetchCategoriesUnionsRemoveSet(t *testing.T) {
 	}
 }
 
-func TestSponsorBlockUnsupportedSubtitleFailsClosedWithoutMutatingMedia(t *testing.T) {
+func TestSponsorBlockUnsupportedSubtitleWarnsAndLeavesSidecarUntouched(t *testing.T) {
 	root := t.TempDir()
 	media := generateChapterRemovalMedia(t, 4)
 	sub := filepath.Join(root, "track.json3")
@@ -258,20 +258,31 @@ func TestSponsorBlockUnsupportedSubtitleFailsClosedWithoutMutatingMedia(t *testi
 	info.Set("sponsorblock_chapters", value.List(chapterValue(sponsorblock.Chapter{
 		StartTime: 1, EndTime: 2, Category: "sponsor", Title: "Sponsor", Type: "skip",
 	})))
-	operation := &operation{request: Request{SponsorBlock: SponsorBlockOptions{
-		Enabled: true, Remove: true, Categories: []string{"sponsor"},
-	}}}
+	var warnings []Event
+	operation := &operation{
+		client: &Client{handler: func(_ context.Context, event Event) error {
+			warnings = append(warnings, event)
+			return nil
+		}},
+		request: Request{SponsorBlock: SponsorBlockOptions{
+			Enabled: true, Remove: true, Categories: []string{"sponsor"},
+		}},
+	}
 	_, _, cut, err := operation.applySponsorBlockRemove(context.Background(), &info, media, []Artifact{{Path: sub, Kind: "subtitle"}}, nil)
-	if cut || err == nil || !IsCategory(err, ErrorUnsupported) {
+	if err != nil || !cut {
 		t.Fatalf("error = %v cut=%v", err, cut)
 	}
 	body, readErr := os.ReadFile(media)
-	if readErr != nil || string(body) != string(beforeMedia) {
-		t.Fatalf("media mutated despite prevalidation failure: %v", readErr)
+	if readErr != nil || string(body) == string(beforeMedia) {
+		t.Fatalf("media was not cut: %v", readErr)
 	}
 	subBody, readErr := os.ReadFile(sub)
 	if readErr != nil || string(subBody) != "{}" {
 		t.Fatalf("subtitle mutated: %v %q", readErr, subBody)
+	}
+	if len(warnings) != 1 || warnings[0].Kind != EventMetadataWarning ||
+		warnings[0].Path != sub || !strings.Contains(warnings[0].Message, "json3") {
+		t.Fatalf("warnings = %#v", warnings)
 	}
 }
 

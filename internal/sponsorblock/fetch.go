@@ -17,9 +17,9 @@ var errNotFound = errors.New("sponsorblock not found")
 // response body. It enforces cookie isolation, context cancellation,
 // response size limits, and secret-safe error mapping.
 func fetchBody(ctx context.Context, transport Transport, endpoint *url.URL) ([]byte, error) {
-	isolated, ok := transport.(cookieIsolated)
+	isolated, ok := transport.(cookieIsolatedNoRedirect)
 	if !ok {
-		return nil, errorf(ErrIsolation, "credential isolation unavailable")
+		return nil, errorf(ErrIsolation, "credential-isolated no-redirect transport unavailable")
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 	if err != nil {
@@ -30,7 +30,7 @@ func fetchBody(ctx context.Context, transport Transport, endpoint *url.URL) ([]b
 	request.Header.Del("Cookie")
 	request.Header.Del("Authorization")
 	request.Header.Set("Accept", "application/json")
-	response, err := isolated.DoWithoutCredentials(ctx, request)
+	response, err := isolated.DoWithoutCredentialsNoRedirect(ctx, request)
 	if err != nil {
 		if contextErr := ctx.Err(); contextErr != nil {
 			return nil, contextErr

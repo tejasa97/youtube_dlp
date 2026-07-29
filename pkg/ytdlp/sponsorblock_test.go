@@ -398,6 +398,25 @@ func TestSponsorBlockDisabledUnsupportedAndMissingID(t *testing.T) {
 	}
 }
 
+func TestSponsorBlockServiceIdentityMatchesPinnedExtractorTable(t *testing.T) {
+	for _, test := range []struct {
+		extractor string
+		service   string
+		ok        bool
+	}{
+		{extractor: "youtube", service: "YouTube", ok: true},
+		{extractor: "vimeo", ok: false},
+		{extractor: "peertube", ok: false},
+		{extractor: "YouTube", ok: false},
+		{extractor: "youtube\x00evil", ok: false},
+	} {
+		service, ok := sponsorBlockServiceForExtractor(test.extractor)
+		if service != test.service || ok != test.ok {
+			t.Fatalf("service(%q) = %q, %t; want %q, %t", test.extractor, service, ok, test.service, test.ok)
+		}
+	}
+}
+
 func TestSponsorBlockCancellationCategoryPreservesCause(t *testing.T) {
 	err := mapSponsorBlockError(context.Canceled)
 	if !IsCategory(err, ErrorCancelled) || !errors.Is(err, context.Canceled) {
