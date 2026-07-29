@@ -3,6 +3,7 @@ FROM golang:1.25.12-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
+COPY README.md ./
 COPY cmd ./cmd
 COPY .github ./.github
 COPY conformance ./conformance

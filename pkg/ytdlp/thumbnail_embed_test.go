@@ -195,32 +195,43 @@ func TestThumbnailEmbeddingPromotesOnlyMergedWebM(t *testing.T) {
 	}
 	if got := thumbnailEmbeddingOutputExtension(Request{
 		Thumbnails: ThumbnailOptions{Embed: true},
-	}, pair); got != "mkv" {
+	}, pair, "webm"); got != "mkv" {
 		t.Fatalf("embedded WebM pair extension=%q", got)
 	}
-	if got := thumbnailEmbeddingOutputExtension(Request{}, pair); got != "webm" {
+	if got := thumbnailEmbeddingOutputExtension(Request{
+		Thumbnails: ThumbnailOptions{Embed: true}, MergeOutputFormat: "webm",
+	}, pair, "webm"); got != "webm" {
+		t.Fatalf("explicit webm extension=%q", got)
+	}
+	if got := thumbnailEmbeddingOutputExtension(Request{
+		Thumbnails: ThumbnailOptions{Embed: true}, MergeOutputFormat: "mkv",
+	}, pair, "webm"); got != "webm" {
+		t.Fatalf("explicit mkv does not auto-promote from %q", got)
+	}
+	if got := thumbnailEmbeddingOutputExtension(Request{}, pair, "webm"); got != "webm" {
 		t.Fatalf("plain WebM pair extension=%q", got)
 	}
 	if got := thumbnailEmbeddingOutputExtension(Request{
 		Thumbnails: ThumbnailOptions{Embed: true},
-	}, pair[:1]); got != "webm" {
+	}, pair[:1], "webm"); got != "webm" {
 		t.Fatalf("single WebM extension=%q", got)
 	}
 	request := Request{Thumbnails: ThumbnailOptions{Embed: true}}
+	withThumbnail := value.NewInfo(value.NewObject(value.Field{Key: "thumbnail", Value: value.String("https://example.com/t.jpg")}))
 	for input, want := range map[string]string{
 		"/tmp/fixed.webm":  "/tmp/fixed.mkv",
 		"/tmp/fixed.mkv":   "/tmp/fixed.mkv",
 		"/tmp/fixed":       "/tmp/fixed.mkv",
 		"/tmp/fixed.other": "/tmp/fixed.other.mkv",
 	} {
-		if got := thumbnailEmbeddingDestination(request, pair, input, true); got != want {
+		if got := thumbnailEmbeddingDestination(request, pair, input, withThumbnail); got != want {
 			t.Fatalf("destination(%q)=%q want=%q", input, got, want)
 		}
 	}
-	if got := thumbnailEmbeddingDestination(Request{}, pair, "/tmp/fixed.webm", true); got != "/tmp/fixed.webm" {
+	if got := thumbnailEmbeddingDestination(Request{}, pair, "/tmp/fixed.webm", withThumbnail); got != "/tmp/fixed.webm" {
 		t.Fatalf("plain destination=%q", got)
 	}
-	if got := thumbnailEmbeddingDestination(request, pair, "/tmp/fixed.webm", false); got != "/tmp/fixed.webm" {
+	if got := thumbnailEmbeddingDestination(request, pair, "/tmp/fixed.webm", value.NewInfo(value.NewObject())); got != "/tmp/fixed.webm" {
 		t.Fatalf("no-thumbnail destination=%q", got)
 	}
 }

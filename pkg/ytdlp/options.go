@@ -366,6 +366,9 @@ func validateRequestOptions(request Request) error {
 			soundCloudComments.Sort != "oldest" && soundCloudComments.Sort != "track-timestamp") {
 		return fmt.Errorf("%w: SoundCloud comment options", errInvalidRequestOptions)
 	}
+	if _, err := ParseMergeOutputFormat(request.MergeOutputFormat); err != nil {
+		return fmt.Errorf("%w: merge output format", errInvalidRequestOptions)
+	}
 	if err := validateSponsorBlockOptions(request.SponsorBlock); err != nil {
 		return fmt.Errorf("%w: %v", errInvalidRequestOptions, err)
 	}
