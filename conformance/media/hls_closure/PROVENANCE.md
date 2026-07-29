@@ -1,0 +1,32 @@
+# HLS closure fixture provenance
+
+These deterministic, synthetic media-playlist snapshots are owned by this
+repository. They contain no upstream media, credentials, encrypted keys, or
+network captures.
+
+The behavioral baseline remains read-only
+`yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`, inspected in
+`yt_dlp/downloader/hls.py`. It establishes native playlist ordering,
+`EXT-X-MEDIA-SEQUENCE`, discontinuities, AES-128 state, byte ranges, and
+conservative unsupported-encryption behavior. That pinned downloader has no
+native implementation of low-latency `EXT-X-PRELOAD-HINT`,
+`EXT-X-RENDITION-REPORT`, or HTTP delivery-directive continuation; those are
+bounded Go extensions derived from the HLS specification's low-latency media
+playlist tags.
+
+The fixtures prove only these claims:
+
+- a `CAN-BLOCK-RELOAD=YES` playlist can request the next part with generated
+  `_HLS_msn`/`_HLS_part` directives while preserving pre-existing manifest
+  query values;
+- a preload hint is continuation metadata and is never fetched before it
+  appears as a declared part or complete segment;
+- a server rejecting delivery directives falls back once to the canonical
+  playlist URL;
+- a decreasing media sequence creates a new physical epoch so old and new
+  fragments cannot collide; and
+- repeated AES key URIs are fetched per key declaration, not treated as an
+  immutable URI-level cache.
+
+Hostile URI and duplicate-attribute cases are generated inline by the parser
+tests so every input remains visibly local and deterministic.

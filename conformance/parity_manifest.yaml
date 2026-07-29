@@ -516,6 +516,15 @@ capabilities:
       - internal/protocol/hls.TestParseLowLatencyPartsAndDeltaSkip
       - internal/protocol/hls.TestParseRejectsInvalidLowLatencyAttributes
       - internal/protocol/hls.TestDownloadLowLatencyPartsAreReplacedByCompletedSegment
+      - internal/protocol/hls.TestParseLowLatencyContinuationMetadata
+      - internal/protocol/hls.TestParseRejectsHostileOrAmbiguousURIs
+      - internal/protocol/hls.TestParseRejectsMissingLowLatencyContinuationURIs
+      - internal/protocol/hls.TestDownloadLiveUsesBlockingReloadWithoutPrefetchingHint
+      - internal/protocol/hls.TestDownloadLiveBlockingReloadFallsBackOnce
+      - internal/protocol/hls.TestDownloadLiveSequenceResetUsesNewPhysicalEpoch
+      - internal/protocol/hls.TestDownloadLiveOverlappingSequenceChangedURLStartsNewEpoch
+      - internal/protocol/hls.TestDownloadRefetchesKeyAfterSameURIKeyRotation
+      - internal/protocol/hls.TestDownloadLiveRefetchesSameURIKeyAcrossSnapshots
       - internal/protocol/hls.TestDownloadEmptyPlaylistReturnsNoSegments
       - internal/protocol/hls.TestParseBoundsInputAndEntryCount
       - internal/protocol/hls.TestAdvertisementMarkerExactGrammar
@@ -553,9 +562,11 @@ capabilities:
       - conformance/media/llhls/PROVENANCE.md
       - conformance/media/hls_aes/PROVENANCE.md
       - conformance/media/hls_ads/PROVENANCE.md
+      - conformance/media/hls_closure/PROVENANCE.md
       - docs/HLS_AD_FRAGMENT_SUPPRESSION_EVIDENCE.md
+      - docs/HLS_PROTOCOL_CLOSURE_EVIDENCE.md
     owner: io
-    known_deviation: Product format dispatch includes bounded low-latency parts, delta skips, AES-128 media and initialization-map decryption, guarded ffmpeg delegation for clear-key identity SAMPLE-AES, exact attributed Anvato/Uplynk ad-fragment suppression, conservative exact-case EXT-X-CUE-{OUT,OUT-CONT,IN} marker state, and validated EXT-X-DATERANGE SCTE-35 directional payloads. Marker state restarts for each playlist snapshot unless a new snapshot carries OUT-CONT or a validated DATERANGE signal mid-break. Interstitial asset lists, URI heuristics, generic CLASS strings, and markerless server-side insertion are not guessed. Physical sequence identities are retained across ads for live/delta de-duplication and implicit media-segment AES IVs rather than reproducing the pinned native downloader's compact numbering; encrypted initialization maps require explicit IVs. Preload hints and rendition reports are ignored. SAMPLE-AES-CTR, DRM/unknown key delivery, process-visible authenticated headers, and native SAMPLE-AES fragment resume/concurrency/ad suppression remain unsupported.
+    known_deviation: Product format dispatch includes bounded low-latency parts, delta skips, blocked-reload delivery directives, retained rendition-report metadata, AES-128 media and initialization-map decryption, guarded ffmpeg delegation for clear-key identity SAMPLE-AES, exact attributed Anvato/Uplynk ad-fragment suppression, conservative exact-case EXT-X-CUE-{OUT,OUT-CONT,IN} marker state, and validated EXT-X-DATERANGE SCTE-35 directional payloads. Preload hints are continuation metadata and are never speculatively fetched; rendition reports never trigger implicit rendition switching. Marker state restarts for each playlist snapshot unless a new snapshot carries OUT-CONT or a validated DATERANGE signal mid-break. Interstitial asset lists, URI heuristics, generic CLASS strings, and markerless server-side insertion are not guessed. Stream epoch plus discontinuity and media sequence identities are retained across ads/live resets for de-duplication and implicit media-segment AES IVs; encrypted initialization maps require explicit IVs. SAMPLE-AES-CTR, DRM/unknown key delivery, process-visible authenticated headers, and native SAMPLE-AES fragment resume/concurrency/ad suppression remain unsupported.
 
   - id: protocol.dash
     name: DASH downloading

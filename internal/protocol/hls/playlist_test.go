@@ -107,6 +107,61 @@ func TestParseLowLatencyPartsAndDeltaSkip(t *testing.T) {
 	}
 }
 
+func TestParseLowLatencyContinuationMetadata(t *testing.T) {
+	playlist, err := Parse("https://example.invalid/live/media.m3u8?token=kept", []byte(`#EXTM3U
+#EXT-X-MEDIA-SEQUENCE:40
+#EXT-X-DISCONTINUITY-SEQUENCE:7
+#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,CAN-SKIP-UNTIL=12.5
+#EXT-X-PART-INF:PART-TARGET=0.5
+#EXT-X-PART:DURATION=0.5,URI="part-40.0.m4s"
+#EXT-X-PRELOAD-HINT:TYPE=PART,URI="part-40.1.m4s",BYTERANGE-START=12,BYTERANGE-LENGTH=9
+#EXT-X-RENDITION-REPORT:URI="audio.m3u8",LAST-MSN=39,LAST-PART=2
+#EXT-X-DISCONTINUITY
+#EXTINF:1,
+segment-40.m4s
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	media := playlist.Media
+	if media == nil || !media.CanBlockReload || media.CanSkipUntil != 12500*time.Millisecond || media.PreloadHint == nil {
+		t.Fatalf("media continuation metadata=%#v", media)
+	}
+	if media.PreloadHint.URL != "https://example.invalid/live/part-40.1.m4s" || media.PreloadHint.RangeStart != 12 || media.PreloadHint.RangeLength != 9 {
+		t.Fatalf("preload hint=%#v", media.PreloadHint)
+	}
+	if len(media.RenditionReports) != 1 || media.RenditionReports[0].URL != "https://example.invalid/live/audio.m3u8" || media.RenditionReports[0].LastMSN != 39 || media.RenditionReports[0].LastPart != 2 {
+		t.Fatalf("rendition reports=%#v", media.RenditionReports)
+	}
+	if len(media.Segments) != 2 || media.Segments[1].DiscontinuitySequence != 8 || media.Segments[1].MapDeclared {
+		t.Fatalf("segments=%#v", media.Segments)
+	}
+}
+
+func TestParseRejectsHostileOrAmbiguousURIs(t *testing.T) {
+	for _, input := range []string{
+		"#EXTM3U\n#EXTINF:1,\nhttps://user@media.example/segment.ts\n",
+		"#EXTM3U\n#EXTINF:1,\njavascript:alert(1)\n",
+		"#EXTM3U\n#EXT-X-PRELOAD-HINT:TYPE=PART,URI=javascript:alert(1)\n",
+		"#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1,BANDWIDTH=2\nmedia.m3u8\n",
+	} {
+		if _, err := Parse("https://example.invalid/live/media.m3u8", []byte(input)); !errors.Is(err, ErrInvalidPlaylist) {
+			t.Fatalf("input=%q error=%v", input, err)
+		}
+	}
+}
+
+func TestParseRejectsMissingLowLatencyContinuationURIs(t *testing.T) {
+	for _, input := range []string{
+		"#EXTM3U\n#EXT-X-PRELOAD-HINT:TYPE=PART\n",
+		"#EXTM3U\n#EXT-X-RENDITION-REPORT:LAST-MSN=10,LAST-PART=1\n",
+	} {
+		if _, err := Parse("https://example.invalid/live/media.m3u8", []byte(input)); !errors.Is(err, ErrInvalidPlaylist) {
+			t.Fatalf("input=%q error=%v", input, err)
+		}
+	}
+}
+
 func TestParseRejectsInvalidLowLatencyAttributes(t *testing.T) {
 	for _, input := range []string{
 		"#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:-1\n",

@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/ytdlp-go/ytdlp/internal/events"
@@ -38,6 +40,27 @@ type Downloader struct {
 	config    Config
 }
 
+// segmentKey is a physical HLS identity. Sequence numbers are only unique
+// within a discontinuity epoch; live origins are permitted to restart them.
+// Part completion intentionally shares the same epoch/sequence identity so a
+// complete segment atomically replaces its previously advertised parts.
+type segmentKey struct {
+	epoch, discontinuity, sequence int64
+	part                           int
+	partial                        bool
+}
+
+type playlistContext struct {
+	mapValue *Map
+	keyValue *Key
+}
+
+type keyIdentity struct {
+	url         string
+	declaration int64
+	snapshot    uint64
+}
+
 func NewDownloader(transport Transport, config Config) *Downloader {
 	config.Headers = config.Headers.Clone()
 	if config.PollInterval <= 0 {
@@ -54,30 +77,56 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 	if err != nil {
 		return fragment.Result{}, err
 	}
-	type segmentKey struct {
-		sequence int64
-		part     int
-		partial  bool
-	}
 	segments := make(map[segmentKey]Segment)
-	complete := make(map[int64]bool)
+	complete := make(map[segmentKey]bool)
+	var contextState playlistContext
+	var previous *MediaPlaylist
+	epoch := int64(0)
+	snapshot := uint64(0)
 	polls := 0
 	for {
 		polls++
+		if snapshot == ^uint64(0) {
+			return fragment.Result{}, fmt.Errorf("%w: live snapshot overflow", ErrInvalidPlaylist)
+		}
+		snapshot++
+		if previous != nil && playlistSequenceReset(previous, media) {
+			if epoch == int64(^uint64(0)>>1) {
+				return fragment.Result{}, fmt.Errorf("%w: live epoch overflow", ErrInvalidPlaylist)
+			}
+			epoch++
+			// A new live epoch cannot inherit a previous epoch's crypto or map
+			// state. This avoids publishing plausibly decrypted but corrupt bytes.
+			contextState = playlistContext{}
+		}
+		inheritPlaylistContext(media, &contextState)
+		stampKeySnapshot(media, snapshot)
+		if err := downloader.captureSnapshotKeyMaterial(ctx, media); err != nil {
+			return fragment.Result{}, err
+		}
+		rememberPlaylistContext(media, &contextState)
 		for _, segment := range media.Segments {
+			base := segmentKey{epoch: epoch, discontinuity: segment.DiscontinuitySequence, sequence: segment.Sequence}
 			if segment.Partial {
-				if !complete[segment.Sequence] {
-					segments[segmentKey{sequence: segment.Sequence, part: segment.PartIndex, partial: true}] = segment
+				completeKey := base
+				if !complete[completeKey] {
+					partKey := base
+					partKey.part, partKey.partial = segment.PartIndex, true
+					if existing, exists := segments[partKey]; !exists || (existing.Advertisement && !segment.Advertisement) {
+						segments[partKey] = segment
+					}
 				}
 				continue
 			}
-			complete[segment.Sequence] = true
+			complete[base] = true
 			for key := range segments {
-				if key.sequence == segment.Sequence && key.partial {
+				if key.epoch == base.epoch && key.discontinuity == base.discontinuity && key.sequence == base.sequence && key.partial {
 					delete(segments, key)
 				}
 			}
-			segments[segmentKey{sequence: segment.Sequence}] = segment
+			if existing, exists := segments[base]; !exists || (existing.Advertisement && !segment.Advertisement) {
+				segments[base] = segment
+			}
 		}
 		if media.EndList {
 			break
@@ -92,7 +141,14 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 			return fragment.Result{}, ctx.Err()
 		case <-timer.C:
 		}
-		body, _, err := downloader.readPage(ctx, mediaURL)
+		previous = media
+		reloadURL := liveReloadURL(mediaURL, media)
+		body, _, err := downloader.readPage(ctx, reloadURL)
+		if err != nil && reloadURL != mediaURL && isUnsupportedBlockingReload(err) {
+			// Servers that advertise blocking reload but reject delivery
+			// directives remain readable through the ordinary playlist URL.
+			body, _, err = downloader.readPage(ctx, mediaURL)
+		}
 		if err != nil {
 			return fragment.Result{}, err
 		}
@@ -108,6 +164,12 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 		keys = append(keys, key)
 	}
 	sort.Slice(keys, func(left, right int) bool {
+		if keys[left].epoch != keys[right].epoch {
+			return keys[left].epoch < keys[right].epoch
+		}
+		if keys[left].discontinuity != keys[right].discontinuity {
+			return keys[left].discontinuity < keys[right].discontinuity
+		}
 		if keys[left].sequence != keys[right].sequence {
 			return keys[left].sequence < keys[right].sequence
 		}
@@ -116,34 +178,26 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 		}
 		return keys[left].part < keys[right].part
 	})
-	keyCache := make(map[string][]byte)
 	type mapIdentity struct {
-		url, keyURL, iv         string
-		rangeStart, rangeLength int64
+		url, keyURL, iv                      string
+		epoch, discontinuity, keyDeclaration int64
+		keySnapshot                          uint64
+		rangeStart, rangeLength              int64
 	}
 	var lastMap *mapIdentity
 	loadEncryption := func(key *Key, sequence int64) (*fragment.AES128, error) {
 		if key == nil {
 			return nil, nil
 		}
-		keyBytes := keyCache[key.URL]
-		if keyBytes == nil {
-			body, _, err := downloader.readPage(ctx, key.URL)
-			if err != nil {
-				return nil, err
-			}
-			if len(body) != 16 {
-				return nil, fmt.Errorf("AES-128 key length = %d, want 16", len(body))
-			}
-			keyBytes = append([]byte(nil), body...)
-			keyCache[key.URL] = keyBytes
+		if len(key.material) != 16 {
+			return nil, fmt.Errorf("%w: AES-128 key material was not captured", ErrInvalidPlaylist)
 		}
 		iv := append([]byte(nil), key.IV...)
 		if len(iv) == 0 {
 			iv = make([]byte, 16)
 			binary.BigEndian.PutUint64(iv[8:], uint64(sequence))
 		}
-		return &fragment.AES128{Key: keyBytes, IV: iv}, nil
+		return &fragment.AES128{Key: append([]byte(nil), key.material...), IV: iv}, nil
 	}
 	var plan []fragment.Segment
 	for _, key := range keys {
@@ -160,12 +214,14 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 			}
 			identity := mapIdentity{
 				url: segment.Map.URL, rangeStart: segment.Map.RangeStart, rangeLength: segment.Map.RangeLength,
-				iv: hex.EncodeToString(mapIV),
+				iv: hex.EncodeToString(mapIV), epoch: key.epoch, discontinuity: segment.DiscontinuitySequence,
 			}
 			if segment.Map.Key != nil {
 				identity.keyURL = segment.Map.Key.URL
+				identity.keyDeclaration = segment.Map.Key.Declaration
+				identity.keySnapshot = segment.Map.Key.snapshot
 			}
-			if segment.Discontinuity || lastMap == nil || *lastMap != identity {
+			if segment.Discontinuity || segment.MapDeclared || lastMap == nil || *lastMap != identity {
 				encryption, err := loadEncryption(segment.Map.Key, segment.Sequence)
 				if err != nil {
 					return fragment.Result{}, err
@@ -192,6 +248,217 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 		Attempts: downloader.config.Attempts, RetryBaseDelay: downloader.config.RetryBaseDelay,
 		RetryMaxDelay: downloader.config.RetryMaxDelay, Overwrite: overwrite,
 	}, sink)
+}
+
+func inheritPlaylistContext(media *MediaPlaylist, state *playlistContext) {
+	if media == nil || state == nil {
+		return
+	}
+	for index := range media.Segments {
+		segment := &media.Segments[index]
+		if segment.Map == nil {
+			segment.Map = cloneMap(state.mapValue)
+			segment.MapInherited = segment.Map != nil
+		} else {
+			state.mapValue = cloneMap(segment.Map)
+		}
+		if !segment.KeyDeclared {
+			segment.Key = cloneKey(state.keyValue)
+		} else {
+			state.keyValue = cloneKey(segment.Key)
+		}
+	}
+}
+
+func rememberPlaylistContext(media *MediaPlaylist, state *playlistContext) {
+	if media == nil || state == nil {
+		return
+	}
+	for index := range media.Segments {
+		segment := &media.Segments[index]
+		if segment.Map != nil && !segment.MapInherited {
+			state.mapValue = cloneMap(segment.Map)
+		}
+		if segment.KeyDeclared {
+			state.keyValue = cloneKey(segment.Key)
+		}
+	}
+}
+
+// captureSnapshotKeyMaterial reads each retained AES-128 key while its
+// manifest snapshot is current. Final assembly must never re-fetch key bytes:
+// a live key URI may legitimately serve a later rotation by then.
+func (downloader *Downloader) captureSnapshotKeyMaterial(ctx context.Context, media *MediaPlaylist) error {
+	if media == nil {
+		return nil
+	}
+	type capturedKey struct {
+		key     *Key
+		aliases []*Key
+	}
+	index := make(map[keyIdentity]int)
+	keys := make([]capturedKey, 0, 4)
+	add := func(key *Key) {
+		if key == nil || key.Method != "AES-128" {
+			return
+		}
+		identity := keyIdentity{url: key.URL, declaration: key.Declaration, snapshot: key.snapshot}
+		if existing, ok := index[identity]; ok {
+			keys[existing].aliases = append(keys[existing].aliases, key)
+			return
+		}
+		index[identity] = len(keys)
+		keys = append(keys, capturedKey{key: key, aliases: []*Key{key}})
+	}
+	for index := range media.Segments {
+		segment := &media.Segments[index]
+		if segment.Advertisement {
+			continue
+		}
+		if segment.Map != nil {
+			add(segment.Map.Key)
+		}
+		add(segment.Key)
+	}
+	for _, declaration := range keys {
+		key := declaration.key
+		if len(key.material) == 0 {
+			body, _, err := downloader.readPage(ctx, key.URL)
+			if err != nil {
+				return err
+			}
+			if len(body) != 16 {
+				return fmt.Errorf("AES-128 key length = %d, want 16", len(body))
+			}
+			key.material = append([]byte(nil), body...)
+		}
+		for _, alias := range declaration.aliases {
+			alias.material = append([]byte(nil), key.material...)
+		}
+	}
+	return nil
+}
+
+// stampKeySnapshot makes a parsed playlist's key declaration local to that
+// snapshot. The parser's declaration ordinal starts at one for each Parse, so
+// it is not itself a cache identity across live reloads. Reusing a key URI is
+// legal; reusing old key bytes for a later declaration is not.
+func stampKeySnapshot(media *MediaPlaylist, snapshot uint64) {
+	if media == nil {
+		return
+	}
+	for index := range media.Segments {
+		segment := &media.Segments[index]
+		if segment.Key != nil && segment.KeyDeclared {
+			segment.Key.snapshot = snapshot
+		}
+		if segment.Map != nil && segment.Map.Key != nil && !segment.MapInherited {
+			segment.Map.Key.snapshot = snapshot
+		}
+	}
+}
+
+func playlistSequenceReset(previous, current *MediaPlaylist) bool {
+	if previous == nil || current == nil || len(previous.Segments) == 0 || len(current.Segments) == 0 {
+		return false
+	}
+	if current.DiscontinuitySequence < previous.DiscontinuitySequence {
+		return true
+	}
+	// An origin can restart at the same (or an overlapping) media sequence.
+	// Sequence alone is not a physical identity: accepting a different object
+	// under the old key would silently publish stale media. Complete segments
+	// and LL-HLS parts intentionally have separate logical identities, so a
+	// normal part-to-complete replacement remains within the same epoch.
+	type logicalIdentity struct {
+		discontinuity, sequence int64
+		part                    int
+		partial                 bool
+	}
+	previousSegments := make(map[logicalIdentity]Segment, len(previous.Segments))
+	for _, segment := range previous.Segments {
+		previousSegments[logicalIdentity{
+			discontinuity: segment.DiscontinuitySequence,
+			sequence:      segment.Sequence,
+			part:          segment.PartIndex,
+			partial:       segment.Partial,
+		}] = segment
+	}
+	for _, segment := range current.Segments {
+		identity := logicalIdentity{
+			discontinuity: segment.DiscontinuitySequence,
+			sequence:      segment.Sequence,
+			part:          segment.PartIndex,
+			partial:       segment.Partial,
+		}
+		if old, overlaps := previousSegments[identity]; overlaps &&
+			(old.URL != segment.URL || old.RangeStart != segment.RangeStart || old.RangeLength != segment.RangeLength) {
+			return true
+		}
+	}
+	previousMin, previousMax := previous.Segments[0].Sequence, previous.Segments[0].Sequence
+	currentMin, currentMax := current.Segments[0].Sequence, current.Segments[0].Sequence
+	for _, segment := range previous.Segments[1:] {
+		if segment.Sequence < previousMin {
+			previousMin = segment.Sequence
+		}
+		if segment.Sequence > previousMax {
+			previousMax = segment.Sequence
+		}
+	}
+	for _, segment := range current.Segments[1:] {
+		if segment.Sequence < currentMin {
+			currentMin = segment.Sequence
+		}
+		if segment.Sequence > currentMax {
+			currentMax = segment.Sequence
+		}
+	}
+	// A sliding window only moves forward. A wholly older window is therefore a
+	// source restart, not an ordinary delta or a late playlist response.
+	return currentMin < previousMin && currentMax < previousMin
+}
+
+func liveReloadURL(rawURL string, media *MediaPlaylist) string {
+	if media == nil || !media.CanBlockReload || len(media.Segments) == 0 {
+		return rawURL
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.User != nil || parsed.Hostname() == "" ||
+		(parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return rawURL
+	}
+	last := media.Segments[len(media.Segments)-1]
+	msn := last.Sequence
+	part := -1
+	if last.Partial {
+		if last.PartIndex == int(^uint(0)>>1) {
+			return rawURL
+		}
+		part = last.PartIndex + 1
+	} else {
+		if msn == int64(^uint64(0)>>1) {
+			return rawURL
+		}
+		msn++
+		if media.PreloadHint != nil {
+			part = 0
+		}
+	}
+	query := parsed.Query()
+	query.Del("_HLS_msn")
+	query.Del("_HLS_part")
+	query.Set("_HLS_msn", strconv.FormatInt(msn, 10))
+	if part >= 0 {
+		query.Set("_HLS_part", strconv.Itoa(part))
+	}
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
+}
+
+func isUnsupportedBlockingReload(err error) bool {
+	var status *network.StatusError
+	return errors.As(err, &status) && (status.Code == http.StatusBadRequest || status.Code == http.StatusNotFound || status.Code == http.StatusNotImplemented)
 }
 
 func (downloader *Downloader) loadMedia(ctx context.Context, manifestURL string) (string, *MediaPlaylist, error) {
