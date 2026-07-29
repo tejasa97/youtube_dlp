@@ -127,6 +127,37 @@ func (operation *operation) executeOutputLifecycle(
 	lifecycle *outputLifecycle,
 	sink events.Sink,
 ) error {
+	if err := operation.executeOutputLifecyclePhases(ctx, transaction, lifecycle, sink); err != nil {
+		return err
+	}
+	if err := operation.runLifecycleAfterPrints(ctx, transaction, lifecycle); err != nil {
+		return err
+	}
+	if err := operation.accountLifecycleArtifacts(lifecycle); err != nil {
+		return err
+	}
+	lifecycle.Downloaded = true
+	return nil
+}
+
+// executeOutputLifecyclePhases runs the pre-download prints and the
+// download stage for one plan. Callers that need to run entry-scoped
+// post-process stages between download and after-prints (the
+// historical single-output order: download → postprocessors →
+// chapter cuts → embeds → after-prints) call this helper, run their
+// entry-scoped stages, and then invoke runLifecycleAfterPrints.
+//
+// executeOutputLifecyclePhases preserves the historical stage order
+// for the pre-download phases: PrintVideo, then PrintBeforeDL, then
+// download. PrintVideo and PrintBeforeDL match the existing
+// single-output flow exactly; the print file artifacts are appended
+// to lifecycle.Sidecars and registered with the PR 7 transaction.
+func (operation *operation) executeOutputLifecyclePhases(
+	ctx context.Context,
+	transaction *mediaTransaction,
+	lifecycle *outputLifecycle,
+	sink events.Sink,
+) error {
 	if lifecycle == nil {
 		return fmt.Errorf("%w: nil lifecycle", errLifecycleInternal)
 	}
@@ -142,16 +173,6 @@ func (operation *operation) executeOutputLifecycle(
 	if err := operation.runLifecycleDownload(ctx, transaction, lifecycle, sink); err != nil {
 		return err
 	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := operation.runLifecycleAfterPrints(ctx, transaction, lifecycle); err != nil {
-		return err
-	}
-	if err := operation.accountLifecycleArtifacts(lifecycle); err != nil {
-		return err
-	}
-	lifecycle.Downloaded = true
 	return nil
 }
 
