@@ -65,7 +65,7 @@ service response.
 | bbciplayer | bbc.co.uk iPlayer episodes | playlist/API, manifest-heavy, regional |
 | ard | ardmediathek.de player and collection pages | playlist/API, manifest-heavy, regional |
 | nrk | nrk.no pages and nrk: opaque URLs | playlist/API, manifest-heavy, regional |
-| rai family | RaiPlay/RaiPlay Sound VOD, live and program routes; legacy Rai, Rai News, Rai Cultura, and Rai Südtirol public pages | playlist/API, manifest-heavy, regional, live, audio; HDS/F4M intentionally excluded |
+| rai family | RaiPlay/RaiPlay Sound VOD, live and program routes; legacy Rai, Rai News, Rai Cultura, and Rai Südtirol public pages | playlist/API, manifest-heavy, regional, live, audio; bounded unencrypted Rai F4M/HDS VOD |
 | bluesky | bsky.app, www.bsky.app, main.bsky.dev post URLs and at:// URIs (public posts only) | playlist/API, manifest-heavy, regional |
 | imgur | imgur.com and i.imgur.com public videos, animated images, galleries, and albums | simple/direct, playlist/API |
 | flickr | flickr.com public video pages | simple/direct, playlist/API |

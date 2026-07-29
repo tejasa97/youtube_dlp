@@ -67,17 +67,35 @@ verifies that genuinely distant base formats do not satisfy
 registry selection and typed playlist re-entry. The two Rai fuzz targets
 preserve route and media-URL safety invariants.
 
+The pinned Rai F4M branch is covered by
+`internal/extractor.TestRaiF4MFormatEmissionPreservesSignedQuery`,
+`TestRaiF4MLegacyManifestShapeNormalizesWithoutDroppingQuery`,
+`TestRaiF4MExistingPinnedControlsRemainByteExact`, and
+`TestRaiF4MConflictingControlsAreRejected`. These tests attribute one
+metadata-only `hds`/`f4m_native`/`flv` format to the relinker branch, preserve
+signed raw-query bytes and duplicate ordering, normalize only the exact legacy
+Rai spelling, and reject conflicting control parameters without rewriting the
+signed query. `TestRaiF4MRejectsUnsafeRecognizedURLs` covers arbitrary
+fragments, userinfo, and private media URLs.
+
 Relinker requests require a redirect-disabled, credential-isolated operation
 transport. URLs, JSON/XML bodies, nested XML, formats, subtitles, thumbnails,
 and playlist entries are bounded. Geo placeholder media is categorized as
 region restricted; non-empty DRM licenses are not treated as playable.
 A generic bounded HDS/F4M VOD downloader exists in this product
-(`internal/protocol/hds`, merged via #163).  This Rai foundation
-intentionally does NOT emit or wire F4M formats into Rai extractions;
-linking the Rai base extractor to the HDS/F4M downloader and
-advertising the corresponding parity row are deferred to an
-integration PR owned outside this cycle.  No HDS-specific Rai product
-files are introduced here.  Direct MP4 synthesis is attributed to the
+(`internal/protocol/hds`, merged via #163). The Rai F4M format is wired to
+that generic path without extractor-side manifest parsing or downloading.
+`pkg/ytdlp.TestProductRaiF4MExtractionBridgesIntoHDSAndAssemblesFLV` proves
+selection, dispatch, ordered FLV assembly, signed duplicate-query preservation
+on every fragment. After extraction, the test seeds sensitive selection
+headers and proves they are stripped from HDS manifest, bootstrap, and
+fragment requests; it does not claim that coverage for the earlier Rai page
+or relinker requests. Its companion failure tests prove atomic cleanup plus
+invalid-input, cancellation, size-bound, live, and DRM categorization;
+`TestProductRaiF4MBridgeCancellationCleansDestination` also proves no HDS
+manifest fetch occurs after cancellation. This closes only the
+bounded unencrypted Rai F4M VOD lane; it does not claim authenticated, dynamic,
+encrypted, or live parity. Direct MP4 synthesis is attributed to the
 pinned `yt_dlp/extractor/rai.py@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`.
 The remaining non-HDS residual audit concluded that untested
 authenticated pages, dynamic-page schema variants, and remote-schema

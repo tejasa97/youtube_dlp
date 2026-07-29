@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ytdlp-go/ytdlp/internal/extractor"
 	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
 	"github.com/ytdlp-go/ytdlp/internal/network"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/hds"
@@ -30,11 +31,19 @@ func makeTestBox(kind string, payload []byte) []byte {
 // makeTestABST builds an ABST payload with one ASRT (3 fragments) and one
 // AFRT (3 fragments). Deterministic and self-contained.
 func makeTestABST() []byte {
+	return makeTestABSTWithLive(false)
+}
+
+func makeTestABSTWithLive(live bool) []byte {
 	body := make([]byte, 0, 128)
 	// version + flags + bootstrapinfo version
 	body = append(body, 0, 0, 0, 0, 0, 0, 0, 0)
-	// profile flags (no live bit 0x20)
-	body = append(body, 0x00)
+	// profile flags; bit 0x20 is the HDS live marker.
+	var profileFlags byte
+	if live {
+		profileFlags = 0x20
+	}
+	body = append(body, profileFlags)
 	// timescale
 	body = append(body, 0, 0, 0, 0x03)
 	// current media time + smpte offset (8 + 8)
@@ -234,6 +243,335 @@ func TestProductHDSF4MDispatchHandlesAltProtocol(t *testing.T) {
 	if err != nil {
 		t.Fatalf("downloadSelection: %v", err)
 	}
+}
+
+type raiHDSBridgeRoundTripper struct {
+	pageURL     string
+	manifestURL string
+	manifest    string
+	bootstrap   []byte
+	fragment    []byte
+	calls       []string
+	seenAuth    []string
+	seenHeaders map[string]http.Header
+	malformed   bool
+	drm         bool
+	live        bool
+}
+
+func (rt *raiHDSBridgeRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	rt.calls = append(rt.calls, req.URL.String())
+	rt.seenAuth = append(rt.seenAuth, req.Header.Get("Authorization")+"|"+req.Header.Get("Cookie"))
+	if rt.seenHeaders == nil {
+		rt.seenHeaders = make(map[string]http.Header)
+	}
+	rt.seenHeaders[req.URL.String()] = req.Header.Clone()
+	body := []byte(nil)
+	contentType := "application/octet-stream"
+	switch {
+	case req.URL.String() == rt.pageURL+".json":
+		body = []byte(`{"id":"ContentItem-cb27157f-9dd0-4aee-b788-b1f67643a391","video":{"content_url":"https://relinker.rai.it/resolve?sig=SIGNED"}}`)
+		contentType = "application/json"
+	case req.URL.Host == "relinker.rai.it":
+		body = []byte(`<root><url type="content">https://cdn.rai.test/stream/manifest.f4m?token=SIGNED%2BVALUE&amp;dup=one&amp;dup=two</url><is_live>N</is_live></root>`)
+		contentType = "application/xml"
+	case req.URL.String() == rt.manifestURL:
+		if rt.malformed {
+			body = []byte(`<manifest xmlns="http://ns.adobe.com/f4m/1.0"><media`)
+		} else if rt.drm {
+			body = []byte(`<manifest xmlns="http://ns.adobe.com/f4m/1.0"><drmAdditionalHeader>encrypted</drmAdditionalHeader><media url="media.mp4" bitrate="800"/><bootstrapInfo url="https://cdn.rai.test/stream/bootstrap.bin"/></manifest>`)
+		} else {
+			body = []byte(rt.manifest)
+		}
+		contentType = "application/xml"
+	case strings.HasSuffix(req.URL.Path, "/bootstrap.bin"):
+		if rt.bootstrap == nil {
+			rt.bootstrap = makeTestABSTWithLive(rt.live)
+		}
+		body = rt.bootstrap
+	case strings.HasSuffix(req.URL.Path, "media.mp4Seg1-Frag1"):
+		body = rt.fragment
+	case strings.HasSuffix(req.URL.Path, "media.mp4Seg1-Frag2"):
+		body = makeTestFragment("RAI-HDS-2")
+	case strings.HasSuffix(req.URL.Path, "media.mp4Seg1-Frag3"):
+		body = makeTestFragment("RAI-HDS-3")
+	default:
+		return nil, errors.New("unexpected Rai/HDS bridge request: " + req.URL.Redacted())
+	}
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": {contentType}},
+		Body:       io.NopCloser(strings.NewReader(string(body))),
+		Request:    req,
+	}, nil
+}
+
+func TestProductRaiF4MExtractionBridgesIntoHDSAndAssemblesFLV(t *testing.T) {
+	pageURL := "https://www.raiplay.it/video/x-cb27157f-9dd0-4aee-b788-b1f67643a391"
+	manifestURL := "https://cdn.rai.test/stream/manifest.f4m?token=SIGNED%2BVALUE&dup=one&dup=two&hdcore=3.7.0&plugin=aasp-3.7.0.39.44"
+	rt := &raiHDSBridgeRoundTripper{
+		pageURL:     pageURL,
+		manifestURL: manifestURL,
+		manifest:    `<?xml version="1.0"?><manifest xmlns="http://ns.adobe.com/f4m/1.0"><media url="media.mp4?frag=one&amp;frag=two" bitrate="800"/><bootstrapInfo url="https://cdn.rai.test/stream/bootstrap.bin"/></manifest>`,
+		bootstrap:   makeTestABST(),
+		fragment:    makeTestFragment("RAI-HDS"),
+	}
+	transport, err := network.New(network.Config{RoundTripper: rt})
+	if err != nil {
+		t.Fatalf("network.New: %v", err)
+	}
+	extracted, err := extractor.NewRaiPlay().Extract(context.Background(), extractor.Request{
+		URL: pageURL + ".html", Transport: transport,
+	})
+	if err != nil {
+		t.Fatalf("Rai extraction: %v", err)
+	}
+	selection, err := mediaformat.Best(extracted.Info)
+	if err != nil {
+		t.Fatalf("format selection: %v", err)
+	}
+	if selection.Protocol != "f4m_native" || selection.ID != "hds" || selection.Ext != "flv" {
+		t.Fatalf("selection = %+v, want hds/f4m_native/flv", selection)
+	}
+	if selection.URL != manifestURL {
+		t.Fatalf("selected manifest URL = %q, want %q", selection.URL, manifestURL)
+	}
+	selection.Headers = http.Header{
+		"Authorization":       {"rai-auth-sentinel"},
+		"Cookie":              {"rai-cookie-sentinel"},
+		"Proxy-Authorization": {"rai-proxy-sentinel"},
+		"Referer":             {"https://page.example.test/rai"},
+	}
+
+	root := t.TempDir()
+	destination := filepath.Join(root, "rai.flv")
+	op := &operation{
+		client:    NewClient(),
+		request:   Request{OutputDir: root, Overwrite: true, Downloader: DownloaderOptions{Attempts: 1}},
+		transport: transport,
+	}
+	path, _, err := op.downloadSelection(context.Background(), selection, root, destination, nil)
+	if err != nil {
+		t.Fatalf("HDS product download: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read FLV: %v", err)
+	}
+	if !strings.HasPrefix(string(data), flvHeaderConst) || !strings.HasSuffix(string(data), "RAI-HDSRAI-HDS-2RAI-HDS-3") {
+		t.Fatalf("assembled FLV = %q, want FLV header and RAI-HDS payload", data)
+	}
+	wantFragmentURLs := []string{
+		"https://cdn.rai.test/stream/media.mp4Seg1-Frag1?frag=one&frag=two",
+		"https://cdn.rai.test/stream/media.mp4Seg1-Frag2?frag=one&frag=two",
+		"https://cdn.rai.test/stream/media.mp4Seg1-Frag3?frag=one&frag=two",
+	}
+	if !containsURL(rt.calls, manifestURL) {
+		t.Fatalf("HDS calls = %v, want signed manifest", rt.calls)
+	}
+	for _, want := range wantFragmentURLs {
+		if !containsURL(rt.calls, want) {
+			t.Fatalf("HDS calls = %v, want signed duplicate query on %s", rt.calls, want)
+		}
+	}
+	for _, requestURL := range append([]string{manifestURL}, wantFragmentURLs...) {
+		headers, ok := rt.seenHeaders[requestURL]
+		if !ok {
+			t.Fatalf("missing recorded HDS request headers for %s", requestURL)
+		}
+		for _, key := range []string{"Authorization", "Cookie", "Proxy-Authorization", "Referer"} {
+			if got := headers.Get(key); got != "" {
+				t.Fatalf("%s leaked to HDS URL %s: %q", key, requestURL, got)
+			}
+		}
+	}
+}
+
+func TestProductRaiF4MBridgeFailureCleansDestinationAndPreservesCategory(t *testing.T) {
+	pageURL := "https://www.raiplay.it/video/x-cb27157f-9dd0-4aee-b788-b1f67643a391"
+	manifestURL := "https://cdn.rai.test/stream/manifest.f4m?token=SIGNED%2BVALUE&dup=one&dup=two&hdcore=3.7.0&plugin=aasp-3.7.0.39.44"
+	rt := &raiHDSBridgeRoundTripper{
+		pageURL:     pageURL,
+		manifestURL: manifestURL,
+		manifest:    `<?xml version="1.0"?><manifest xmlns="http://ns.adobe.com/f4m/1.0"><media url="media.mp4" bitrate="800"/><bootstrapInfo url="https://cdn.rai.test/stream/bootstrap.bin"/></manifest>`,
+		bootstrap:   makeTestABST(),
+		fragment:    makeTestFragment("never-written"),
+		malformed:   true,
+	}
+	transport, err := network.New(network.Config{RoundTripper: rt})
+	if err != nil {
+		t.Fatalf("network.New: %v", err)
+	}
+	extracted, err := extractor.NewRaiPlay().Extract(context.Background(), extractor.Request{URL: pageURL + ".html", Transport: transport})
+	if err != nil {
+		t.Fatalf("Rai extraction: %v", err)
+	}
+	selection, err := mediaformat.Best(extracted.Info)
+	if err != nil {
+		t.Fatalf("format selection: %v", err)
+	}
+	root := t.TempDir()
+	destination := filepath.Join(root, "rai-failed.flv")
+	op := &operation{
+		client:    NewClient(),
+		request:   Request{OutputDir: root, Overwrite: true, Downloader: DownloaderOptions{Attempts: 1}},
+		transport: transport,
+	}
+	_, _, err = op.downloadSelection(context.Background(), selection, root, destination, nil)
+	if !errors.Is(err, hds.ErrInvalidManifest) {
+		t.Fatalf("error = %v, want ErrInvalidManifest", err)
+	}
+	if !IsCategory(categorized("Rai HDS bridge", err), ErrorInvalidInput) {
+		t.Fatalf("error category = %v, want invalid_input", categorized("Rai HDS bridge", err))
+	}
+	if _, statErr := os.Stat(destination); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("failed destination exists: %v", statErr)
+	}
+}
+
+func extractRaiBridgeSelection(t *testing.T, rt *raiHDSBridgeRoundTripper) (*network.Client, mediaformat.Selection) {
+	t.Helper()
+	transport, err := network.New(network.Config{RoundTripper: rt})
+	if err != nil {
+		t.Fatalf("network.New: %v", err)
+	}
+	extracted, err := extractor.NewRaiPlay().Extract(context.Background(), extractor.Request{
+		URL: rt.pageURL + ".html", Transport: transport,
+	})
+	if err != nil {
+		t.Fatalf("Rai extraction: %v", err)
+	}
+	selection, err := mediaformat.Best(extracted.Info)
+	if err != nil {
+		t.Fatalf("format selection: %v", err)
+	}
+	return transport, selection
+}
+
+func TestProductRaiF4MBridgeCancellationCleansDestination(t *testing.T) {
+	pageURL := "https://www.raiplay.it/video/x-cb27157f-9dd0-4aee-b788-b1f67643a391"
+	manifestURL := "https://cdn.rai.test/stream/manifest.f4m?token=SIGNED%2BVALUE&dup=one&dup=two&hdcore=3.7.0&plugin=aasp-3.7.0.39.44"
+	rt := &raiHDSBridgeRoundTripper{
+		pageURL:     pageURL,
+		manifestURL: manifestURL,
+		manifest:    `<?xml version="1.0"?><manifest xmlns="http://ns.adobe.com/f4m/1.0"><media url="media.mp4" bitrate="800"/><bootstrapInfo url="https://cdn.rai.test/stream/bootstrap.bin"/></manifest>`,
+		bootstrap:   makeTestABST(),
+		fragment:    makeTestFragment("never-written"),
+	}
+	transport, selection := extractRaiBridgeSelection(t, rt)
+	root := t.TempDir()
+	destination := filepath.Join(root, "rai-canceled.flv")
+	op := &operation{
+		client:    NewClient(),
+		request:   Request{OutputDir: root, Overwrite: true, Downloader: DownloaderOptions{Attempts: 1}},
+		transport: transport,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _, err := op.downloadSelection(ctx, selection, root, destination, nil)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+	if containsURL(rt.calls, manifestURL) {
+		t.Fatalf("manifest fetched after cancellation: %v", rt.calls)
+	}
+	if _, statErr := os.Stat(destination); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("canceled destination exists: %v", statErr)
+	}
+}
+
+func TestProductRaiF4MBridgeSizeBoundCleansDestinationAndPreservesCategory(t *testing.T) {
+	pageURL := "https://www.raiplay.it/video/x-cb27157f-9dd0-4aee-b788-b1f67643a391"
+	manifestURL := "https://cdn.rai.test/stream/manifest.f4m?token=SIGNED%2BVALUE&dup=one&dup=two&hdcore=3.7.0&plugin=aasp-3.7.0.39.44"
+	rt := &raiHDSBridgeRoundTripper{
+		pageURL:     pageURL,
+		manifestURL: manifestURL,
+		manifest:    `<?xml version="1.0"?><manifest xmlns="http://ns.adobe.com/f4m/1.0"><media url="media.mp4" bitrate="800"/><bootstrapInfo url="https://cdn.rai.test/stream/bootstrap.bin"/></manifest>`,
+		bootstrap:   makeTestABST(),
+		fragment:    makeTestFragment("RAI-HDS"),
+	}
+	transport, selection := extractRaiBridgeSelection(t, rt)
+	root := t.TempDir()
+	destination := filepath.Join(root, "rai-bounded.flv")
+	op := &operation{
+		client: NewClient(),
+		request: Request{OutputDir: root, Overwrite: true, Downloader: DownloaderOptions{
+			Attempts: 1, MaxBytes: 20, MaxSegmentBytes: 64,
+		}},
+		transport: transport,
+	}
+	_, _, err := op.downloadSelection(context.Background(), selection, root, destination, nil)
+	if !errors.Is(err, hds.ErrFragmentTooLarge) {
+		t.Fatalf("error = %v, want ErrFragmentTooLarge", err)
+	}
+	if !IsCategory(categorized("Rai HDS bridge", err), ErrorInvalidInput) {
+		t.Fatalf("error category = %v, want invalid_input", categorized("Rai HDS bridge", err))
+	}
+	if _, statErr := os.Stat(destination); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("bounded destination exists: %v", statErr)
+	}
+}
+
+func TestProductRaiF4MBridgePreservesLiveAndDRMRestrictions(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		drm, live    bool
+		wantSentinel error
+	}{
+		{name: "drm", drm: true, wantSentinel: hds.ErrUnsupportedDRM},
+		{name: "live", live: true, wantSentinel: hds.ErrUnsupportedLive},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pageURL := "https://www.raiplay.it/video/x-cb27157f-9dd0-4aee-b788-b1f67643a391"
+			manifestURL := "https://cdn.rai.test/stream/manifest.f4m?token=SIGNED%2BVALUE&dup=one&dup=two&hdcore=3.7.0&plugin=aasp-3.7.0.39.44"
+			rt := &raiHDSBridgeRoundTripper{
+				pageURL:     pageURL,
+				manifestURL: manifestURL,
+				manifest:    `<?xml version="1.0"?><manifest xmlns="http://ns.adobe.com/f4m/1.0"><media url="media.mp4" bitrate="800"/><bootstrapInfo url="https://cdn.rai.test/stream/bootstrap.bin"/></manifest>`,
+				drm:         tc.drm,
+				live:        tc.live,
+				fragment:    makeTestFragment("never-written"),
+			}
+			transport, err := network.New(network.Config{RoundTripper: rt})
+			if err != nil {
+				t.Fatalf("network.New: %v", err)
+			}
+			extracted, err := extractor.NewRaiPlay().Extract(context.Background(), extractor.Request{URL: pageURL + ".html", Transport: transport})
+			if err != nil {
+				t.Fatalf("Rai extraction: %v", err)
+			}
+			selection, err := mediaformat.Best(extracted.Info)
+			if err != nil {
+				t.Fatalf("format selection: %v", err)
+			}
+			root := t.TempDir()
+			destination := filepath.Join(root, tc.name+".flv")
+			op := &operation{
+				client:    NewClient(),
+				request:   Request{OutputDir: root, Overwrite: true, Downloader: DownloaderOptions{Attempts: 1}},
+				transport: transport,
+			}
+			_, _, err = op.downloadSelection(context.Background(), selection, root, destination, nil)
+			if !errors.Is(err, tc.wantSentinel) {
+				t.Fatalf("error = %v, want %v", err, tc.wantSentinel)
+			}
+			if !IsCategory(categorized("Rai HDS bridge", err), ErrorUnsupported) {
+				t.Fatalf("error category = %v, want unsupported", categorized("Rai HDS bridge", err))
+			}
+			if _, statErr := os.Stat(destination); !errors.Is(statErr, os.ErrNotExist) {
+				t.Fatalf("failed destination exists: %v", statErr)
+			}
+		})
+	}
+}
+
+func containsURL(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 // TestProductHDSCategorizesLiveBootstrap verifies that hds.ErrUnsupportedLive
