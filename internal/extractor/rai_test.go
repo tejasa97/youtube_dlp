@@ -279,6 +279,101 @@ func TestRaiPublicURLRejectsLocalAndIPLiteralVariants(t *testing.T) {
 	}
 }
 
+func TestRaiF4MFormatEmissionPreservesSignedQuery(t *testing.T) {
+	raw := "https://media.example.test/path/manifest.f4m?token=SIGNED%2BVALUE&sig=abc%2F123&token=SECOND"
+	formats, err := raiFormats(raw, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(formats) != 1 {
+		t.Fatalf("formats = %d, want one generic F4M format", len(formats))
+	}
+	object, ok := formats[0].Object()
+	if !ok {
+		t.Fatal("format is not an object")
+	}
+	if got, _ := object.Lookup("format_id").StringValue(); got != "hds" {
+		t.Fatalf("format_id = %q, want hds", got)
+	}
+	if got, _ := object.Lookup("protocol").StringValue(); got != "f4m_native" {
+		t.Fatalf("protocol = %q, want f4m_native", got)
+	}
+	if got, _ := object.Lookup("ext").StringValue(); got != "flv" {
+		t.Fatalf("ext = %q, want flv", got)
+	}
+	wantURL := raw + "&hdcore=3.7.0&plugin=aasp-3.7.0.39.44"
+	if got, _ := object.Lookup("url").StringValue(); got != wantURL {
+		t.Fatalf("url = %q, want byte-preserved append %q", got, wantURL)
+	}
+}
+
+func TestRaiF4MLegacyManifestShapeNormalizesWithoutDroppingQuery(t *testing.T) {
+	raw := "https://media.example.test/path/manifest#live_hds.f4m?sig=SIGNED&part=1"
+	formats, err := raiFormats(raw, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	object, _ := formats[0].Object()
+	wantURL := "https://media.example.test/path/manifest.f4m?sig=SIGNED&part=1&hdcore=3.7.0&plugin=aasp-3.7.0.39.44"
+	if got, _ := object.Lookup("url").StringValue(); got != wantURL {
+		t.Fatalf("url = %q, want %q", got, wantURL)
+	}
+}
+
+func TestRaiF4MExistingPinnedControlsRemainByteExact(t *testing.T) {
+	raw := "https://media.example.test/path/manifest.f4m?sig=SIGNED&hdcore=3.7.0&plugin=aasp-3.7.0.39.44&z=last"
+	formats, err := raiFormats(raw, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	object, _ := formats[0].Object()
+	if got, _ := object.Lookup("url").StringValue(); got != raw {
+		t.Fatalf("url = %q, want existing pinned controls and signed bytes unchanged", got)
+	}
+}
+
+func TestRaiF4MConflictingControlsAreRejected(t *testing.T) {
+	for _, raw := range []string{
+		"https://media.example.test/path/manifest.f4m?sig=SIGNED&hdcore=3.6.0",
+		"https://media.example.test/path/manifest.f4m?sig=SIGNED&plugin=other",
+		"https://media.example.test/path/manifest.f4m?sig=SIGNED&hdcore=3.7.0&hdcore=3.7.0",
+	} {
+		if _, err := raiFormats(raw, nil, false); !errors.Is(err, ErrInvalidMetadata) {
+			t.Fatalf("raiFormats(%q) = %v, want conflicting-control rejection", raw, err)
+		}
+	}
+}
+
+func TestRaiF4MQueryMarkerIsNotRewrittenOrReclassified(t *testing.T) {
+	raw := "https://media.example.test/path/video?token=manifest%23live_hds.f4m"
+	got, recognized, err := raiF4MManifestURL(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recognized || got != "" {
+		t.Fatalf("raiF4MManifestURL(%q) = %q, %t; query marker must not become F4M", raw, got, recognized)
+	}
+}
+
+func TestRaiF4MMalformedQueryIsRejected(t *testing.T) {
+	raw := "https://media.example.test/path/manifest.f4m?sig=SIGNED;broken"
+	if _, err := raiFormats(raw, nil, false); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("raiFormats(%q) = %v, want malformed-query rejection", raw, err)
+	}
+}
+
+func TestRaiF4MRejectsUnsafeRecognizedURLs(t *testing.T) {
+	for _, raw := range []string{
+		"https://user:pass@media.example.test/manifest.f4m?sig=SIGNED",
+		"https://media.example.test/manifest.f4m?sig=SIGNED#fragment",
+		"https://127.0.0.1/manifest.f4m?sig=SIGNED",
+	} {
+		if _, err := raiFormats(raw, nil, false); !errors.Is(err, ErrInvalidMetadata) {
+			t.Fatalf("raiFormats(%q) = %v, want ErrInvalidMetadata", raw, err)
+		}
+	}
+}
+
 func TestRaiRoutingMatrixAndHostHardening(t *testing.T) {
 	id := "cb27157f-9dd0-4aee-b788-b1f67643a391"
 	cases := []struct{ raw, want string }{

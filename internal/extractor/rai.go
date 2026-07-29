@@ -594,6 +594,14 @@ func raiXML(data []byte) (map[string]string, error) {
 	return out, nil
 }
 func raiFormats(raw string, f map[string]string, audioOnly bool) ([]value.Value, error) {
+	if manifestURL, recognized, err := raiF4MManifestURL(raw); recognized {
+		if err != nil {
+			return nil, err
+		}
+		format := manifestFormat("hds", manifestURL, "f4m_native")
+		format.Set("ext", value.String("flv"))
+		return []value.Value{value.ObjectValue(format)}, nil
+	}
 	if !raiPublicURL(raw) {
 		return nil, fmt.Errorf("%w: unsafe Rai media URL", ErrInvalidMetadata)
 	}
@@ -629,6 +637,72 @@ func raiFormats(raw string, f map[string]string, audioOnly bool) ([]value.Value,
 		return nil, fmt.Errorf("%w: unsupported Rai media extension", ErrUnavailable)
 	}
 	return []value.Value{value.ObjectValue(format)}, nil
+}
+
+// raiF4MManifestURL mirrors the pinned Rai F4M branch without downloading or
+// parsing the manifest. The legacy `manifest#live_hds.f4m` spelling is first
+// normalized with a byte-preserving replacement; the original raw query is
+// then retained verbatim and the Adobe compatibility parameters are appended.
+// A recognized but unsafe F4M URL returns an error rather than falling back to
+// another media type.
+func raiF4MManifestURL(raw string) (string, bool, error) {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "", true, fmt.Errorf("%w: invalid Rai F4M URL", ErrInvalidMetadata)
+	}
+	normalized := raw
+	// The pinned legacy spelling is a path named exactly "manifest" followed
+	// by the literal fragment "#live_hds.f4m". A query-like suffix after that
+	// fragment is retained as query text because the pinned replacement turns
+	// it into `manifest.f4m?<suffix>`; no replacement is attempted elsewhere.
+	if parsed.RawQuery == "" && path.Base(parsed.Path) == "manifest" {
+		const legacyMarker = "#live_hds.f4m"
+		if marker := strings.Index(raw, legacyMarker); marker >= 0 {
+			suffix := raw[marker+len(legacyMarker):]
+			if suffix == "" || strings.HasPrefix(suffix, "?") {
+				normalized = raw[:marker] + ".f4m" + suffix
+			}
+		}
+	}
+	normalizedParsed, err := url.Parse(normalized)
+	if err != nil {
+		return "", true, fmt.Errorf("%w: invalid Rai F4M URL", ErrInvalidMetadata)
+	}
+	if !strings.EqualFold(path.Ext(normalizedParsed.Path), ".f4m") {
+		return "", false, nil
+	}
+	if normalizedParsed.Scheme != "http" && normalizedParsed.Scheme != "https" || normalizedParsed.User != nil || normalizedParsed.Fragment != "" || normalizedParsed.Hostname() == "" || !raiPublicURL(normalized) {
+		return "", true, fmt.Errorf("%w: unsafe Rai F4M URL", ErrInvalidMetadata)
+	}
+	query, queryErr := url.ParseQuery(normalizedParsed.RawQuery)
+	if queryErr != nil {
+		return "", true, fmt.Errorf("%w: malformed Rai F4M query", ErrInvalidMetadata)
+	}
+	controls := map[string]string{
+		"hdcore": "3.7.0",
+		"plugin": "aasp-3.7.0.39.44",
+	}
+	missing := make([]string, 0, len(controls))
+	for key, want := range controls {
+		values, present := query[key]
+		if !present {
+			missing = append(missing, key+"="+want)
+			continue
+		}
+		if len(values) != 1 || values[0] != want {
+			return "", true, fmt.Errorf("%w: conflicting Rai F4M %s query", ErrInvalidMetadata, key)
+		}
+	}
+	// Keep output deterministic while leaving every existing byte untouched.
+	sort.Strings(missing)
+	if len(missing) == 0 {
+		return normalized, true, nil
+	}
+	separator := "?"
+	if normalizedParsed.RawQuery != "" {
+		separator = "&"
+	}
+	return normalized + separator + strings.Join(missing, "&"), true, nil
 }
 
 // raiMP4URL applies the pinned MP4 URL template

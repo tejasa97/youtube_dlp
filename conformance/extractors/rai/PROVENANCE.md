@@ -18,21 +18,44 @@ pinned `_MANIFEST_REG`, `_QUALITY`, `percentage`, and `get_format_info`
 definitions in `yt_dlp/extractor/rai.py`.  Fixtures contain no copied
 webpages, cookies, signed Rai URLs, or production tokens.
 
-Deliberate deviations: a generic bounded HDS/F4M VOD downloader exists in
-this product (added in #163, see `internal/protocol/hds`); this Rai
-foundation intentionally does NOT emit or wire F4M formats into Rai
-extractions.  Wiring the Rai base extractor to the HDS/F4M downloader and
-advertising the corresponding parity row are explicitly deferred to an
-integration PR owned outside this cycle; no HDS-specific Rai product
-files are introduced here.  The stale "no HDS" claim against the direct
-MP4 path has been removed; the direct MP4 path is now attributed to
-`_create_http_urls` and is fully covered by the synthetic evidence below.
+The Rai F4M branch is now wired to the generic bounded HDS/F4M VOD downloader
+from #163 through metadata-only `f4m_native` format emission. The extractor
+does not parse or download HDS. `raiF4MManifestURL` preserves existing signed
+raw-query bytes and order, normalizes only the pinned
+`manifest#live_hds.f4m` spelling, appends the pinned Adobe compatibility
+parameters without duplicating exact pinned controls, and rejects conflicting
+controls, arbitrary fragments, userinfo, and private media URLs. Product-level
+bridge fixtures prove selection, HDS dispatch, ordered FLV assembly, transport
+credential isolation, atomic cleanup, and stable live/DRM/error categories.
+The stale no-HDS claim is therefore closed only for bounded unencrypted Rai
+F4M VOD; the direct MP4 path remains attributed to `_create_http_urls` and is
+covered by the synthetic evidence below.
 Direct HLS manifests remain delegated to the existing native HLS pipeline
 rather than expanded by the extractor.  The legacy HTML fallback is
 limited to bounded player-data discovery.  These constraints keep every
 Rai row partial rather than claiming full upstream parity.
 
 Attributable synthetic evidence (no production data):
+
+- `internal/extractor.TestRaiF4MFormatEmissionPreservesSignedQuery`,
+  `TestRaiF4MLegacyManifestShapeNormalizesWithoutDroppingQuery`,
+  `TestRaiF4MExistingPinnedControlsRemainByteExact`, and
+  `TestRaiF4MConflictingControlsAreRejected` attribute the pinned F4M URL
+  normalization and exact-query/control-key policy. The extractor emits one
+  `hds`/`f4m_native`/`flv` format and does not own HDS parsing or download.
+- `pkg/ytdlp.TestProductRaiF4MExtractionBridgesIntoHDSAndAssemblesFLV`
+  proves the extracted selection enters the merged generic HDS path and
+  assembles the deterministic FLV fixture in fragment order while preserving
+  duplicate signed query parameters on every fragment and keeping credentials
+  out of HDS manifest, bootstrap, and fragment requests after sensitive
+  selection headers are seeded. It does not claim credential coverage for the
+  earlier Rai page or relinker requests. `TestProductRaiF4MBridgeFailureCleansDestinationAndPreservesCategory`
+  proves malformed-manifest rollback and invalid-input categorization, while
+  `TestProductRaiF4MBridgeCancellationCleansDestination` proves cancellation
+  stops before the HDS manifest fetch. `TestProductRaiF4MBridgeSizeBoundCleansDestinationAndPreservesCategory`
+  proves the product byte caps surface the HDS size sentinel and roll back the
+  destination. `TestProductRaiF4MBridgePreservesLiveAndDRMRestrictions`
+  proves live and DRM remain unsupported and leave no destination.
 
 - `internal/extractor.TestRaiMP4ManifestQualitiesStates` and
   `TestRaiMP4ManifestQualitiesBound` lock the three-state manifest return
