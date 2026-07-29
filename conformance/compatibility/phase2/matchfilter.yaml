@@ -72,7 +72,7 @@ cases:
 notes:
   - These are attributable, hand-authored expectations; no upstream test data is copied.
   - Repeated filters are ORed; unescaped ampersands join conditions within one filter.
-  - Regular expressions use bounded Go RE2 syntax. Python-only constructs are rejected.
+  - Regular expressions use the bounded Python-compatible subset translated by `internal/compat/pyregex.Translate` and compiled with `regexp2`. Safety is enforced at execution time by source/translated/input byte limits, per-match attempts, per-match wall time (`regexp2.MatchTimeout`), aggregate inspected bytes, and aggregate wall time (`internal/compat/matchfilter/filter.go::searchPythonRegex`). Python-only constructs that exceed the source/translated byte budgets or fail translation are rejected at parse/compile time; unsupported runtime semantics remain a deliberate gap.
   - Interactive "-" remains outside this core grammar and is implemented by the product layer for complete, non-archived entries; breaking prompts precede ordinary filters.
   - Interactive prechecks defer only the pinned upstream format-field set; selected-format metadata is then reevaluated before prompting.
   - Break-match-filter reuses this grammar in the product layer, evaluates before ordinary filters, and stops before retaining the rejected playlist entry.

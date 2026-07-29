@@ -23,11 +23,15 @@ Evidence is self-contained in
 `conformance/matchfilter-parity-2026-07-29/`, plus unit, fuzz, product, and
 CLI tests. No Python runtime is part of verification.
 
-Integration follow-up for the owning integrator:
+Resolved by the parity-contract reconciliation patch:
 
-- In `docs/P2_COMPAT_LANGUAGES.md`, replace the sentence saying match-filter
-  Python regular-expression semantics are unsupported with this document's
-  bounded Python-compatible regex contract.
-- In `conformance/parity_manifest.yaml`, update only the match-filter
-  capability/deviation entry to point at this evidence and retain the stated
-  resource bounds.
+- `docs/P2_COMPAT_LANGUAGES.md` now describes the bounded
+  Python-compatible subset translated by `internal/compat/pyregex.Translate`
+  and the per-source, per-translated, per-input, per-match attempts,
+  per-match wall time, and aggregate wall-time budgets that re-bound it.
+- `conformance/parity_manifest.yaml` `compat.languages_principal` now lists
+  this evidence document and the tests
+  `internal/compat/matchfilter.TestPinnedMatchFilterConformance`,
+  `internal/compat/matchfilter.TestEvaluationCancellationAndBounds`, and
+  the corresponding chapter-removal tests under
+  `postprocess.chapter_removal`.

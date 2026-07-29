@@ -167,15 +167,35 @@ The following prior findings remain visible and were not reclassified as new:
 - `G2-S01` (Medium): Windows update health-check start-to-Job-assignment race.
 - `G2-S02` (Medium): Windows updater-root owner/DACL and directory durability
   guarantees require deployment policy.
-- `G2-S03` (Medium): deprecated macOS `sandbox-exec` and unsupported resource
-  quotas fail closed.
+- `G2-S03` (Medium): macOS has no production native-sandbox adapter; every
+  native plan fails closed with `internal/sandbox.ErrAdapterUnavailable`. The
+  previously documented `sandbox-exec` path was removed and unsupported
+  resource quotas are not claimed (`internal/sandbox/sandbox.go::PrepareForOS`).
 - `G2-S04` (Low): release output directory assumes a single-owner CI workspace.
 - `G2-S05` (Informational): Windows signed-pack lifecycle is unavailable and
   verification-only.
-- Native plugin path revalidation-to-exec is not handle-atomic; native portable
-  CPU/address-space/process-count limits are absent; Windows RPC has a narrow
-  start-to-Job-assignment race; WASM has wall-clock but no instruction-fuel
-  accounting (`docs/P2_PLUGIN_ABI_V1.md:223-231`).
+- Native plugin path revalidation-to-exec is not handle-atomic. The plugin RPC
+  transport does not implement a portable CPU, address-space, or process-count
+  quota in its own transport; the address-space, CPU-seconds, process-count,
+  and open-files caps live in `internal/sandbox.Limits` and are honoured by
+  the production plugin RPC exchange on Linux through the `bwrap` adapter and,
+  when host resource caps are set, the `prlimit` adapter
+  (`internal/plugin/rpc/client.go::exchange`, `sandbox.PrepareForOS` /
+  `sandbox.Prepare`). macOS and Windows generic native plans fail closed with
+  `internal/sandbox.ErrAdapterUnavailable` because no production adapter is
+  wired up; the previously documented `sandbox-exec` path was removed. The
+  Windows Job Object code path in `internal/plugin/rpc/process_windows.go`
+  is reachable from the plugin RPC exchange and closes its own
+  start-before-Job race via `CREATE_SUSPENDED` -> `SetInformationJobObject`
+  -> `AssignProcessToJobObject` -> `resumeInitialThread`. The Windows
+  updater health-check start-before-Job race remains a separate concern
+  tracked as `G2-S01` below and is not closed by the plugin RPC work. WASM
+  has wall-clock, memory-page, and message limits; wazero v1.9 has no stable
+  instruction-fuel API, so a non-zero `Limits.WASMInstructionBudget` is
+  rejected with `plugin.ErrIsolationUnavailable` rather than silently falling
+  back to wall-clock-only accounting (`docs/P2_PLUGIN_ABI_V1.md:223-231`,
+  `internal/plugin/wasm/host.go`,
+  `internal/plugin/wasm/host_test.go::TestWASMInstructionBudgetFailsClosedWithoutFuelAPI`).
 - The SDK requires its input `Close` to interrupt a blocked read, and a handler
   that ignores context can delay in-process SDK shutdown; the host's process
   supervisor remains the hard-stop boundary.
