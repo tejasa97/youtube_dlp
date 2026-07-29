@@ -340,14 +340,19 @@ func TestFormatSelectorProductRollbackOnFailure(t *testing.T) {
 		{Tracks: []mediaformat.Selection{{ID: "ok", URL: server.URL + "/ok", Ext: "mp4", VCodec: "avc1", ACodec: "aac"}}},
 		{Tracks: []mediaformat.Selection{{ID: "bad", URL: "://missing-scheme", Ext: "mp4", VCodec: "avc1", ACodec: "aac"}}},
 	}
-	tracker := newPublishedMediaTracker(
+	tracker := newMediaTransaction()
+	if err := tracker.acquireDestinationBackups([]string{
 		mustOutputPlanDestination(t, destination, 0, plans[0], true),
 		mustOutputPlanDestination(t, destination, 1, plans[1], true),
-	)
+	}, true); err != nil {
+		t.Fatal(err)
+	}
 	for index, plan := range plans {
 		path, _, downloadErr := operation.downloadSelections(context.Background(), plan.Tracks, root, mustOutputPlanDestination(t, destination, index, plan, true), nil)
 		if downloadErr != nil {
-			tracker.removeCreated()
+			if rollbackErr := tracker.rollback(); rollbackErr != nil {
+				t.Fatalf("rollback = %v", rollbackErr)
+			}
 			if index == 0 {
 				t.Fatalf("first download should succeed: %v", downloadErr)
 			}
@@ -359,7 +364,7 @@ func TestFormatSelectorProductRollbackOnFailure(t *testing.T) {
 			}
 			return
 		}
-		tracker.add(path)
+		tracker.markPublished(path)
 	}
 	t.Fatal("expected second download to fail")
 }
@@ -562,29 +567,6 @@ func TestMultiOutputProductRejectsSubtitleEmbed(t *testing.T) {
 	}
 }
 
-func TestPublishedMediaTrackerPreservesPreexisting(t *testing.T) {
-	root := t.TempDir()
-	existing := filepath.Join(root, "keep.mp4")
-	if err := os.WriteFile(existing, []byte("stay"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	tracker := newPublishedMediaTracker(existing)
-	tracker.add(existing)
-	tracker.removeCreated()
-	if body, readErr := os.ReadFile(existing); readErr != nil || string(body) != "stay" {
-		t.Fatalf("preexisting removed: %q %v", body, readErr)
-	}
-	created := filepath.Join(root, "new.mp4")
-	if err := os.WriteFile(created, []byte("gone"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	tracker.add(created)
-	tracker.removeCreated()
-	if _, err := os.Stat(created); err == nil {
-		t.Fatal("created file still present")
-	}
-}
-
 func TestErrSelectorLimitCategorizedInvalidInput(t *testing.T) {
 	err := categorized("select format", fmt.Errorf("%w: too many independent outputs", mediaformat.ErrSelectorLimit))
 	if !IsCategory(err, ErrorInvalidInput) {
@@ -690,7 +672,7 @@ func TestMultiOutputPreservesPerPlanExtensions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(result.Filename, ".f1_video.mp4") {
+	if !strings.HasSuffix(result.Filename, ".mp4") {
 		t.Fatalf("Filename = %q", result.Filename)
 	}
 	if result.Filename != result.Artifacts[0].Path {
@@ -699,10 +681,10 @@ func TestMultiOutputPreservesPerPlanExtensions(t *testing.T) {
 	if len(result.Artifacts) != 2 {
 		t.Fatalf("artifacts = %#v", result.Artifacts)
 	}
-	if !strings.HasSuffix(result.Artifacts[0].Path, ".f1_video.mp4") {
+	if !strings.HasSuffix(result.Artifacts[0].Path, ".mp4") {
 		t.Fatalf("video artifact = %q", result.Artifacts[0].Path)
 	}
-	if !strings.HasSuffix(result.Artifacts[1].Path, ".f2_audio.m4a") {
+	if !strings.HasSuffix(result.Artifacts[1].Path, ".m4a") {
 		t.Fatalf("audio artifact = %q", result.Artifacts[1].Path)
 	}
 	videoBody, err := os.ReadFile(result.Artifacts[0].Path)

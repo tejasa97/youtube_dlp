@@ -603,6 +603,7 @@ type operation struct {
 	sabrMerge                        func(ctx context.Context, video, audio, destination string, overwrite bool, sink events.Sink) error
 	plannerCapabilities              *mediaformat.PlannerCapabilities
 	formatAvailability               mediaformat.FormatAvailability
+	activeTransaction                *mediaTransaction
 }
 
 func (operation *operation) process(ctx context.Context, rawURL, extractorKey string, overlay *extractor.Entry, ancestors map[string]bool, depth int) (Result, error) {
@@ -1235,15 +1236,26 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		singlePrintPlan = &outputPlans[0]
 	}
 	operation.applyThumbnailEmbeddingOutputExtension(&info, selectedFormats)
-	var destination string
-	if len(outputPlans) == 1 {
-		destination, err = operation.printFilenameForPlan(info, outputPlans[0])
-	} else if len(selectedFormats) > 0 || operation.hasPrintStageAtOrAfter(PrintVideo) {
-		destination, err = operation.printFilename(info, selectedFormats)
-	}
+	planDestinations, err := operation.resolveOutputPlanDestinations(info, outputPlans)
 	if err != nil {
 		return Result{}, categorized("render output template", err)
 	}
+	var destination string
+	if len(planDestinations) > 0 {
+		destination = planDestinations[0]
+	}
+	var mediaTx *mediaTransaction
+	willDownloadMedia := !operation.request.SkipDownload && !operation.request.Simulate && len(outputPlans) > 0
+	if willDownloadMedia {
+		if err := operation.preflightMediaDestinations(planDestinations); err != nil {
+			return Result{}, categorized("preflight output destinations", err)
+		}
+		mediaTx = newMediaTransaction()
+	}
+	operation.activeTransaction = mediaTx
+	defer func() {
+		operation.activeTransaction = nil
+	}()
 	if needsInteractiveFormat {
 		if destination == "" {
 			return Result{}, categorized("select format", mediaformat.ErrNoFormats)
@@ -1259,57 +1271,62 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 			ctx, interactiveInfo, interactiveDecision, destination,
 		)
 		if resolveErr != nil {
-			return Result{}, resolveErr
+			return rollbackTransactionResult(mediaTx, resolveErr)
 		}
 		terminal, finishErr := operation.finishMatchFilterDecision(ctx, &result, extractorName, resolved)
 		if finishErr != nil {
-			return Result{}, finishErr
+			return rollbackTransactionResult(mediaTx, finishErr)
 		}
 		if terminal {
 			return result, nil
 		}
 	}
 	if err := operation.validatePrintRules(ctx, info, singlePrintPlan, selectedFormats, destination, false); err != nil {
-		return Result{}, categorized("validate print rules", err)
+		return rollbackTransactionResult(mediaTx, categorized("validate print rules", err))
 	}
 	prints, err = operation.capturePrints(ctx, PrintVideo, info, singlePrintPlan, selectedFormats, destination)
 	if err != nil {
-		return Result{}, categorized("render video print", err)
+		return rollbackTransactionResult(mediaTx, categorized("render video print", err))
 	}
 	result.Prints = append(result.Prints, prints...)
 	printArtifacts, printBytes, err = operation.writePrintFiles(ctx, PrintVideo, info, singlePrintPlan, selectedFormats, destination)
+	trackTransactionArtifacts(mediaTx, printArtifacts)
 	if err != nil {
-		return Result{}, categorized("write video print file", err)
+		return rollbackTransactionResult(mediaTx, categorized("write video print file", err))
 	}
 	addPrintFileArtifacts(&result, printArtifacts, printBytes)
 	if operation.request.Simulate {
 		return result, nil
 	}
 	thumbnailArtifacts, thumbnailBytes, err := operation.writeThumbnails(ctx, &info, false)
+	trackTransactionArtifacts(mediaTx, thumbnailArtifacts)
 	if err != nil {
-		return Result{}, categorized("write thumbnails", err)
+		return rollbackTransactionResult(mediaTx, categorized("write thumbnails", err))
 	}
 	result.Artifacts = append(result.Artifacts, thumbnailArtifacts...)
 	result.Bytes += thumbnailBytes
 	relatedArtifacts, relatedBytes, err := operation.writeRelatedFiles(ctx, info, false)
+	trackTransactionArtifacts(mediaTx, relatedArtifacts)
 	if err != nil {
-		return Result{}, categorized("write related files", err)
+		return rollbackTransactionResult(mediaTx, categorized("write related files", err))
 	}
 	result.Artifacts = append(result.Artifacts, relatedArtifacts...)
 	result.Bytes += relatedBytes
 	prints, err = operation.capturePrints(ctx, PrintBeforeDL, info, singlePrintPlan, selectedFormats, destination)
 	if err != nil {
-		return Result{}, categorized("render before-download print", err)
+		return rollbackTransactionResult(mediaTx, categorized("render before-download print", err))
 	}
 	result.Prints = append(result.Prints, prints...)
 	printArtifacts, printBytes, err = operation.writePrintFiles(ctx, PrintBeforeDL, info, singlePrintPlan, selectedFormats, destination)
+	trackTransactionArtifacts(mediaTx, printArtifacts)
 	if err != nil {
-		return Result{}, categorized("write before-download print file", err)
+		return rollbackTransactionResult(mediaTx, categorized("write before-download print file", err))
 	}
 	addPrintFileArtifacts(&result, printArtifacts, printBytes)
 	subtitleArtifacts, subtitleBytes, err := operation.downloadSubtitles(ctx, info, selectedSubtitles, operation.eventSink())
+	trackTransactionArtifacts(mediaTx, subtitleArtifacts)
 	if err != nil {
-		return Result{}, categorized("download subtitles", err)
+		return rollbackTransactionResult(mediaTx, categorized("download subtitles", err))
 	}
 	result.Artifacts = append(result.Artifacts, subtitleArtifacts...)
 	result.Bytes += subtitleBytes
@@ -1318,12 +1335,12 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		ctx, selectedSubtitles, result.Artifacts, operation.eventSink(),
 	)
 	if err != nil {
-		return Result{}, categorized("convert subtitles", err)
+		return rollbackTransactionResult(mediaTx, categorized("convert subtitles", err))
 	}
 	if convertedSubtitles {
 		result.Bytes, err = artifactBytes(result.Artifacts)
 		if err != nil {
-			return Result{}, categorized("account converted subtitle artifacts", err)
+			return rollbackTransactionResult(mediaTx, categorized("account converted subtitle artifacts", err))
 		}
 	}
 	if len(result.Artifacts) > 0 {
@@ -1331,7 +1348,7 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	}
 	result.InfoJSON, err = encodeInfo(info)
 	if err != nil {
-		return Result{}, err
+		return rollbackTransactionResult(mediaTx, err)
 	}
 	if operation.request.SkipDownload {
 		for _, stage := range []PrintStage{PrintPostProcess, PrintAfterMove, PrintAfterVideo} {
@@ -1351,27 +1368,25 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 
 	outputDir := operation.request.outputRoot(OutputPathHome)
 
+	if mediaTx != nil {
+		if err := mediaTx.acquireDestinationBackups(planDestinations, operation.request.Overwrite); err != nil {
+			return rollbackTransactionResult(mediaTx, categorized("prepare output destinations", err))
+		}
+	}
+
 	sink := operation.eventSink()
 	multiOutput := len(outputPlans) > 1
 	var downloadedPath string
 	mediaArtifactStart := len(result.Artifacts)
-	planDestinations := make([]string, len(outputPlans))
-	for index, plan := range outputPlans {
-		planDestination, destErr := outputPlanDestination(destination, index, plan, multiOutput, operation.mergeOutputPreferences())
-		if destErr != nil {
-			return Result{}, categorized("render output template", destErr)
-		}
-		planDestinations[index] = planDestination
-	}
-	tracker := newPublishedMediaTracker(planDestinations...)
 	for planIndex, plan := range outputPlans {
 		planDestination := planDestinations[planIndex]
 		path, _, downloadErr := operation.downloadSelections(ctx, plan.Tracks, outputDir, planDestination, sink)
 		if downloadErr != nil {
-			tracker.removeCreated()
-			return Result{}, categorized("download selected formats", downloadErr)
+			return rollbackMediaResult(mediaTx, categorized("download selected formats", downloadErr))
 		}
-		tracker.add(path)
+		if mediaTx != nil {
+			mediaTx.markPublished(path)
+		}
 		if multiOutput {
 			result.Artifacts = append(result.Artifacts, Artifact{Path: path, Kind: "media"})
 			if planIndex == 0 {
@@ -1382,28 +1397,31 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		var mediaArtifacts []Artifact
 		path, mediaArtifacts, downloadErr = operation.applyPostprocessors(ctx, outputDir, path, sink)
 		if downloadErr != nil {
-			tracker.removeCreated()
-			return Result{}, categorized("run postprocessors", downloadErr)
+			return rollbackMediaResult(mediaTx, categorized("run postprocessors", downloadErr))
 		}
-		for _, artifact := range mediaArtifacts {
-			tracker.add(artifact.Path)
+		if mediaTx != nil {
+			mediaTx.markPublished(path)
 		}
+		trackTransactionArtifacts(mediaTx, mediaArtifacts)
 		result.Artifacts = append(result.Artifacts, mediaArtifacts...)
 		if planIndex == 0 {
 			downloadedPath = path
+		}
+	}
+	if mediaTx != nil {
+		if commitErr := mediaTx.commitDestinations(); commitErr != nil {
+			return Result{}, categorized("commit output transaction", commitErr)
 		}
 	}
 	var cutApplied bool
 	if !multiOutput {
 		downloadedPath, result.Artifacts, cutApplied, err = operation.applyChapterCuts(ctx, &info, downloadedPath, result.Artifacts, sink)
 		if err != nil {
-			tracker.removeCreated()
-			return Result{}, err
+			return rollbackArtifactResult(mediaTx, err)
 		}
 		result.InfoJSON, err = encodeInfo(info)
 		if err != nil {
-			tracker.removeCreated()
-			return Result{}, err
+			return rollbackArtifactResult(mediaTx, err)
 		}
 	}
 	var embeddedSubtitles bool
@@ -1412,8 +1430,7 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 			ctx, &info, downloadedPath, selectedSubtitles, result.Artifacts, sink,
 		)
 		if err != nil {
-			tracker.removeCreated()
-			return Result{}, categorized("embed subtitles", err)
+			return rollbackArtifactResult(mediaTx, categorized("embed subtitles", err))
 		}
 	}
 	var embeddedThumbnail bool
@@ -1422,7 +1439,7 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 			ctx, &info, downloadedPath, result.Artifacts, sink,
 		)
 		if err != nil {
-			return Result{}, categorized("embed thumbnail", err)
+			return rollbackArtifactResult(mediaTx, categorized("embed thumbnail", err))
 		}
 	}
 	result.Downloaded = true
@@ -1430,33 +1447,37 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	if cutApplied || embeddedSubtitles || embeddedThumbnail {
 		result.Bytes, err = artifactBytes(result.Artifacts)
 		if err != nil {
-			tracker.removeCreated()
-			return Result{}, categorized("account post-cut artifacts", err)
+			return rollbackArtifactResult(mediaTx, categorized("account post-cut artifacts", err))
 		}
 		result.InfoJSON, err = encodeInfo(info)
 		if err != nil {
-			tracker.removeCreated()
-			return Result{}, err
+			return rollbackArtifactResult(mediaTx, err)
 		}
 	} else {
 		mediaBytes, err := mediaArtifactBytes(result.Artifacts[mediaArtifactStart:])
 		if err != nil {
-			tracker.removeCreated()
-			return Result{}, categorized("account media artifacts", err)
+			return rollbackArtifactResult(mediaTx, categorized("account media artifacts", err))
 		}
 		result.Bytes += mediaBytes
 	}
 	for _, stage := range []PrintStage{PrintPostProcess, PrintAfterMove, PrintAfterVideo} {
 		prints, err = operation.capturePrints(ctx, stage, info, singlePrintPlan, selectedFormats, downloadedPath)
 		if err != nil {
-			return Result{}, categorized("render "+string(stage)+" print", err)
+			return rollbackArtifactResult(mediaTx, categorized("render "+string(stage)+" print", err))
 		}
 		result.Prints = append(result.Prints, prints...)
 		printArtifacts, printBytes, err = operation.writePrintFiles(ctx, stage, info, singlePrintPlan, selectedFormats, downloadedPath)
+		trackTransactionArtifacts(mediaTx, printArtifacts)
 		if err != nil {
-			return Result{}, categorized("write "+string(stage)+" print file", err)
+			return rollbackArtifactResult(mediaTx, categorized("write "+string(stage)+" print file", err))
 		}
 		addPrintFileArtifacts(&result, printArtifacts, printBytes)
+	}
+	if mediaTx != nil {
+		if commitErr := mediaTx.commitArtifacts(); commitErr != nil {
+			return Result{}, categorized("commit output transaction", commitErr)
+		}
+		mediaTx.finalize()
 	}
 	if operation.archive != nil {
 		if _, err := operation.archive.Record(ctx, archiveIdentity); err != nil {

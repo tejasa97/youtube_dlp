@@ -38,22 +38,28 @@ func (operation *operation) convertSelectedSubtitles(
 		}
 		info, err := os.Lstat(source)
 		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-			return nil, nil, false, fmt.Errorf("%w: subtitle source is not a regular file", ffmpeg.ErrInvalidOperation)
+			return tracks, artifacts, converted, fmt.Errorf("%w: subtitle source is not a regular file", ffmpeg.ErrInvalidOperation)
 		}
 		destination := strings.TrimSuffix(source, filepath.Ext(source)) + "." + extension
 		outputRoot := operation.request.outputRoot(OutputPathHome)
 		destination, err = confinedPostprocessPath(outputRoot, destination)
 		if err != nil {
-			return nil, nil, false, err
+			return tracks, artifacts, converted, err
+		}
+		if err := operation.protectTransactionPath(destination); err != nil {
+			return tracks, artifacts, converted, err
 		}
 		if tools == nil {
 			tools, err = ffmpeg.Discover(ffmpeg.Config{})
 			if err != nil {
-				return nil, nil, false, err
+				return tracks, artifacts, converted, err
 			}
 		}
 		if err := tools.ConvertSubtitle(ctx, source, destination, ffmpeg.SubtitleOptions{Format: format}, operation.request.Overwrite, sink); err != nil {
-			return nil, nil, false, err
+			return tracks, artifacts, converted, err
+		}
+		if err := operation.snapshotTransactionRemovedPath(source); err != nil {
+			return tracks, artifacts, converted, err
 		}
 		removeErr := operation.removeLocalFile(source)
 		retainedSource := removeErr != nil && !os.IsNotExist(removeErr)

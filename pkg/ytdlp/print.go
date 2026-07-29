@@ -196,6 +196,9 @@ func (operation *operation) writePrintFiles(
 		if err := prepareRelatedDestination(outputRoot, destination); err != nil {
 			return artifacts, total, fmt.Errorf("%w: %v", errUnsafePrintFile, err)
 		}
+		if err := operation.protectTransactionAppendPath(destination); err != nil {
+			return artifacts, total, err
+		}
 		written, err := appendPrintLine(ctx, destination, rendered)
 		if err != nil {
 			return artifacts, total, err
@@ -651,23 +654,46 @@ func (operation *operation) printFilename(info value.Info, selections []mediafor
 	return operation.renderFilename(selectedFormatInfo(info, selections), selections)
 }
 
-func (operation *operation) printFilenameForPlan(info value.Info, plan mediaformat.OutputPlan) (string, error) {
+func (operation *operation) planDestinationOutputInfo(info value.Info, plan mediaformat.OutputPlan) value.Info {
 	outputInfo := selectedPlanInfo(info, plan)
-	if prefs := operation.mergeOutputPreferences(); len(prefs) > 0 && len(plan.Tracks) > 1 {
-		outputInfo.Set("ext", value.String(plannedOutputExtension(plan, prefs)))
+	if len(plan.Tracks) > 1 {
+		ext := plannedOutputExtension(plan, operation.mergeOutputPreferences())
+		if ext != "" {
+			outputInfo.Set("ext", value.String(ext))
+		}
 	}
-	return operation.renderFilename(outputInfo, plan.Tracks)
+	operation.applyThumbnailEmbeddingOutputExtension(&outputInfo, plan.Tracks)
+	return outputInfo
 }
 
-func (operation *operation) renderFilename(outputInfo value.Info, selections []mediaformat.Selection) (string, error) {
+func (operation *operation) printFilenameForPlan(info value.Info, plan mediaformat.OutputPlan) (string, error) {
+	outputInfo := operation.planDestinationOutputInfo(info, plan)
+	destination, err := operation.renderFilenameBase(outputInfo)
+	if err != nil {
+		return "", err
+	}
+	return thumbnailEmbeddingDestination(
+		operation.request, plan.Tracks, destination, outputInfo,
+	), nil
+}
+
+func (operation *operation) renderFilenameBase(outputInfo value.Info) (string, error) {
 	pattern := operation.request.outputTemplate(OutputTemplateDefault)
-	operation.applyThumbnailEmbeddingOutputExtension(&outputInfo, selections)
 	outputDir := operation.request.outputRoot(OutputPathHome)
 	filename, err := outputtemplate.Resolve(outputDir, pattern, outputInfo)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Clean(thumbnailEmbeddingDestination(
-		operation.request, selections, filename, outputInfo,
-	)), nil
+	return filepath.Clean(filename), nil
+}
+
+func (operation *operation) renderFilename(outputInfo value.Info, selections []mediaformat.Selection) (string, error) {
+	operation.applyThumbnailEmbeddingOutputExtension(&outputInfo, selections)
+	destination, err := operation.renderFilenameBase(outputInfo)
+	if err != nil {
+		return "", err
+	}
+	return thumbnailEmbeddingDestination(
+		operation.request, selections, destination, outputInfo,
+	), nil
 }
