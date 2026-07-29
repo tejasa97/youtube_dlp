@@ -60,6 +60,9 @@ type PluginLimits struct {
 	MaxMessageBytes  uint32
 	MaxStderrBytes   int
 	MemoryLimitPages uint32
+	// WASMInstructionBudget requests deterministic WASM fuel. It currently
+	// fails closed because pinned wazero lacks a stable public fuel API.
+	WASMInstructionBudget uint64
 }
 
 // PluginSandbox configures fail-closed OS isolation for a native plugin. The
@@ -73,6 +76,9 @@ type PluginSandbox struct {
 	CPUSeconds        uint64
 	Processes         uint64
 	OpenFiles         uint64
+	// AllowExternalTools explicitly permits validated Linux bwrap/prlimit
+	// adapters. It is false by default.
+	AllowExternalTools bool
 }
 
 type PackRevocation = pack.PackageRevocation
@@ -302,21 +308,26 @@ type PluginHost struct {
 // platform sandbox adapter. Missing or unsupported adapters fail closed. WASM
 // plugins retain their separate no-WASI, bounded-memory isolation boundary.
 func NewSandboxedPluginHost(installed *InstalledPlugin, approver PluginPermissionApprover, limits PluginLimits, policy PluginSandbox) (*PluginHost, error) {
-	host, err := NewPluginHost(installed, approver, limits)
-	if err != nil {
-		return nil, err
+	if installed == nil || approver == nil {
+		return nil, &Error{Category: ErrorInvalidInput, Op: "configure sandboxed plugin host", Err: plugin.ErrInvalidConfig}
 	}
 	copy := policy
 	copy.ReadOnlyPaths = append([]string(nil), policy.ReadOnlyPaths...)
 	copy.WritablePaths = append([]string(nil), policy.WritablePaths...)
 	copy.SecretHandles = append([]string(nil), policy.SecretHandles...)
-	host.sandbox = &copy
-	return host, nil
+	return &PluginHost{installed: installed, approver: approver, limits: limits, sandbox: &copy}, nil
 }
 
 func NewPluginHost(installed *InstalledPlugin, approver PluginPermissionApprover, limits PluginLimits) (*PluginHost, error) {
 	if installed == nil || approver == nil {
 		return nil, &Error{Category: ErrorInvalidInput, Op: "configure plugin host", Err: plugin.ErrInvalidConfig}
+	}
+	// WASM has a self-contained no-WASI boundary. Native plugins must use the
+	// explicit sandbox constructor; accepting an installed native executable
+	// without confinement would turn signed-pack approval into ambient host
+	// authority.
+	if installed.packageValue.Manifest.Runtime == pluginapi.RuntimeNative {
+		return nil, &Error{Category: ErrorUnsupported, Op: "configure native plugin host", Err: plugin.ErrIsolationUnavailable}
 	}
 	return &PluginHost{installed: installed, approver: approver, limits: limits}, nil
 }
@@ -349,7 +360,8 @@ func internalPluginLimits(limits PluginLimits) plugin.Limits {
 	return plugin.Limits{
 		Timeout: limits.Timeout, CancelGrace: limits.CancelGrace,
 		MaxMessageBytes: limits.MaxMessageBytes, MaxStderrBytes: limits.MaxStderrBytes,
-		MemoryLimitPages: limits.MemoryLimitPages,
+		MemoryLimitPages:      limits.MemoryLimitPages,
+		WASMInstructionBudget: limits.WASMInstructionBudget,
 	}
 }
 
@@ -357,10 +369,11 @@ func (host *PluginHost) rpcConfig() rpc.Config {
 	config := rpc.Config{Package: &host.installed.packageValue, Approver: host.approver, Limits: internalPluginLimits(host.limits)}
 	if host.sandbox != nil {
 		config.Sandbox = &rpc.SandboxConfig{
-			ReadOnlyPaths: append([]string(nil), host.sandbox.ReadOnlyPaths...),
-			WritablePaths: append([]string(nil), host.sandbox.WritablePaths...),
-			SecretHandles: append([]string(nil), host.sandbox.SecretHandles...),
-			Limits:        sandbox.Limits{AddressSpaceBytes: host.sandbox.AddressSpaceBytes, CPUSeconds: host.sandbox.CPUSeconds, Processes: host.sandbox.Processes, OpenFiles: host.sandbox.OpenFiles},
+			ReadOnlyPaths:      append([]string(nil), host.sandbox.ReadOnlyPaths...),
+			WritablePaths:      append([]string(nil), host.sandbox.WritablePaths...),
+			SecretHandles:      append([]string(nil), host.sandbox.SecretHandles...),
+			Limits:             sandbox.Limits{AddressSpaceBytes: host.sandbox.AddressSpaceBytes, CPUSeconds: host.sandbox.CPUSeconds, Processes: host.sandbox.Processes, OpenFiles: host.sandbox.OpenFiles},
+			AllowExternalTools: host.sandbox.AllowExternalTools,
 		}
 	}
 	return config
@@ -379,6 +392,9 @@ func runPluginExtract(ctx context.Context, installed *InstalledPlugin, approver 
 			Package: &installed.packageValue, Manifest: installed.packageValue.Manifest,
 			Approver: approver, Limits: internalPluginLimits(limits),
 		}, request)
+	}
+	if sandboxPolicy == nil {
+		return PluginExtractResponse{}, plugin.ErrIsolationUnavailable
 	}
 	host := &PluginHost{installed: installed, approver: approver, limits: limits, sandbox: sandboxPolicy}
 	return (rpc.Client{}).Extract(ctx, host.rpcConfig(), request)

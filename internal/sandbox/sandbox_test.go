@@ -37,7 +37,7 @@ func newSandboxFixture(t testing.TB) sandboxFixture {
 		t.Fatal(err)
 	}
 	tools := make(map[string]string)
-	for _, name := range []string{"bwrap", "prlimit", "sandbox-exec"} {
+	for _, name := range []string{"bwrap", "prlimit"} {
 		path := filepath.Join(toolRoot, name)
 		if err := os.WriteFile(path, []byte("synthetic adapter"), 0o700); err != nil {
 			t.Fatal(err)
@@ -49,6 +49,7 @@ func newSandboxFixture(t testing.TB) sandboxFixture {
 			Executable: plugin, Arguments: []string{"extract", "fixture"},
 			WorkingDirectory: readRoot, ReadOnlyPaths: []string{readRoot},
 			WritablePaths: []string{writeRoot}, SecretHandles: []string{"cookie.main", "oauth-token"},
+			AllowExternalTools: true,
 		},
 		tools: tools,
 		lookup: func(name string) (string, error) {
@@ -92,6 +93,14 @@ func TestLinuxPlanIsolatesFilesystemNetworkAndSecrets(t *testing.T) {
 	}
 }
 
+func TestLinuxPlanRequiresExplicitExternalAdapterPolicy(t *testing.T) {
+	fixture := newSandboxFixture(t)
+	fixture.spec.AllowExternalTools = false
+	if _, err := PrepareForOS("linux", fixture.spec, fixture.lookup); !errors.Is(err, ErrAdapterUnavailable) {
+		t.Fatalf("implicit external adapter error = %v", err)
+	}
+}
+
 func TestLinuxPlanUsesPrlimitForRequestedCaps(t *testing.T) {
 	fixture := newSandboxFixture(t)
 	fixture.spec.Limits = Limits{AddressSpaceBytes: 256 << 20, CPUSeconds: 30, Processes: 8, OpenFiles: 64}
@@ -115,28 +124,10 @@ func TestLinuxPlanUsesPrlimitForRequestedCaps(t *testing.T) {
 	}
 }
 
-func TestDarwinPlanHasExplicitProfileAndLimitDeviation(t *testing.T) {
+func TestDarwinFailsClosedRatherThanClaimingDeprecatedSandboxExec(t *testing.T) {
 	fixture := newSandboxFixture(t)
-	plan, err := PrepareForOS("darwin", fixture.spec, fixture.lookup)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if plan.Adapter != AdapterSandboxExec || plan.Executable != fixture.tools["sandbox-exec"] || len(plan.Arguments) < 4 || plan.Arguments[0] != "-p" {
-		t.Fatalf("unexpected plan: %#v", plan)
-	}
-	profile := plan.Arguments[1]
-	for _, expected := range []string{"(deny default)", "process-exec", fixture.spec.Executable, fixture.spec.ReadOnlyPaths[0], fixture.spec.WritablePaths[0]} {
-		if !strings.Contains(profile, expected) {
-			t.Fatalf("profile missing %q: %s", expected, profile)
-		}
-	}
-	if strings.Contains(profile, "network*") {
-		t.Fatal("profile allowed network without permission")
-	}
-	fixture.spec.AllowNetwork = true
-	plan, err = PrepareForOS("darwin", fixture.spec, fixture.lookup)
-	if err != nil || !strings.Contains(plan.Arguments[1], "(allow network*)") {
-		t.Fatalf("network profile = %#v, error = %v", plan, err)
+	if _, err := PrepareForOS("darwin", fixture.spec, fixture.lookup); !errors.Is(err, ErrAdapterUnavailable) {
+		t.Fatalf("Darwin native sandbox error = %v", err)
 	}
 	fixture.spec.Limits = Limits{CPUSeconds: 1}
 	if _, err := PrepareForOS("darwin", fixture.spec, fixture.lookup); !errors.Is(err, ErrUnsupportedLimit) {

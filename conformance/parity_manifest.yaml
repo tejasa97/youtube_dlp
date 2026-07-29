@@ -2446,8 +2446,10 @@ capabilities:
       - pkg/ytdlp.TestPublicPackCatalogVerificationAndExactResolution
       - cmd/ytdlp-pack.TestRunCatalogVerifyAndExactResolve
       - internal/sandbox.TestLinuxPlanIsolatesFilesystemNetworkAndSecrets
-      - internal/sandbox.TestDarwinPlanHasExplicitProfileAndLimitDeviation
+      - internal/sandbox.TestLinuxPlanRequiresExplicitExternalAdapterPolicy
+      - internal/sandbox.TestDarwinFailsClosedRatherThanClaimingDeprecatedSandboxExec
       - pkg/ytdlp.TestSandboxedPluginHostBuildsFailClosedNativePolicy
+      - pkg/ytdlp.TestNativePluginHostRequiresExplicitSandbox
       - pkg/ytdlp.TestSignedWASMPluginPackHostAndProductIntegration
       - pkg/ytdlp.TestPluginPackBindingFailsBeforeFilesystemMutation
       - cmd/ytdlp-pack.TestRunVerifyRejectsMalformedPackWithoutLeakingBytes
@@ -2456,9 +2458,10 @@ capabilities:
       - docs/P2_SIGNED_PACKS.md
       - docs/P3_PACK_CATALOG.md
       - docs/P2_PLUGIN_THREAT_MODEL.md
+      - docs/P3_PLUGIN_SANDBOX_HARDENING.md
     owner: release
     known_deviation: >-
-      Canonical build and verification are portable, but secure install, rollback, and removal currently fail closed outside Linux and macOS because equivalent Windows owner/ACL, lock, and atomic-publication evidence is not yet available. Native sandbox execution is explicit and fail-closed: macOS sandbox-exec is deprecated and cannot enforce requested resource quotas; Linux requires bwrap and prlimit for requested quotas; Windows remains unsupported. Unsandboxed native hosts retain the documented signed-and-approved trusted-code boundary.
+      Canonical build and verification are portable, but secure install, rollback, and removal currently fail closed outside Linux and macOS because equivalent Windows owner/ACL, lock, and atomic-publication evidence is not yet available. Native installed plugins require an explicit sandbox host: Linux uses owner-validated bwrap and, for quotas, prlimit only when the host explicitly allows those external adapters; macOS and the generic Windows filesystem/network policy fail closed. PrepareForOS rejects Windows, so the internal suspended-process/kill-on-close Job code is not a reachable product generic sandbox path and is not containment evidence. Wazero has bounded memory/messages/time and no WASI/imports; pinned v1.9.0 has no stable fuel API, so an instruction-budget request fails closed.
 
   - id: extractor.phase2_breadth
     name: Phase 2 representative extractor breadth

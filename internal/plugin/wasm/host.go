@@ -73,6 +73,12 @@ func (Host) Extract(ctx context.Context, moduleBytes []byte, config Config, requ
 		return plugin.ExtractResponse{}, err
 	}
 	limits := config.Limits.WithDefaults()
+	if limits.WASMInstructionBudget != 0 {
+		// wazero v1.9.0 deliberately exposes no stable public fuel or
+		// instruction-metering API. Context cancellation bounds wall time; it
+		// is not equivalent to deterministic fuel, so reject the request.
+		return plugin.ExtractResponse{}, fmt.Errorf("%w: wazero v1.9.0 has no stable instruction metering API", plugin.ErrIsolationUnavailable)
+	}
 	if err := plugin.ValidateManifest(manifest); err != nil {
 		return plugin.ExtractResponse{}, err
 	}

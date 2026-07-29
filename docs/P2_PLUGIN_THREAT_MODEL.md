@@ -36,7 +36,7 @@ Detected aliases or mutations fail closed.
 | Symlink/hardlink replacement | no archive links; Lstat/SameFile/link-count checks; exact installed tree on rollback; removal never follows links | Same-UID racing after checks is outside the guarantee |
 | Permission escalation on update/rollback/removal | sorted added/removed review; increases require explicit approval | A granted capability can still be abused by a malicious but correctly signed plugin |
 | Secret disclosure | sandbox accepts only validated opaque handle IDs; no secret values in manifest, argv, environment, errors, or fixtures | A broker is not implemented in this lane; hosts must deny secret permission until an operation-scoped broker exists |
-| Host resource exhaustion | bounded RPC/WASM hosts; Linux adapter can require `prlimit`; wall-clock/process-tree control remains supervisor-owned | macOS adapter cannot enforce CPU/memory/process limits and rejects requested adapter limits |
+| Host resource exhaustion | bounded RPC/WASM hosts; Linux adapter can require `prlimit`; wall-clock/process-tree control remains supervisor-owned | macOS rejects every native plugin plan; it has no active adapter and therefore makes no resource-containment claim |
 
 ## Writable paths
 
@@ -69,20 +69,22 @@ data only and must not grant access.
 Linux plans use `bwrap` with a new session, all namespaces unshared, network
 shared only when explicitly granted, a new `/proc`, `/dev`, and `/tmp`, an empty
 environment rebuilt from fixed values, read-only declared binds, and distinct
-writable binds. Optional address-space, CPU, process, and descriptor caps are
-applied by `prlimit`; requested caps fail if it is unavailable. Dynamic runtime
-and library roots must be explicitly declared, favoring static RPC plugins.
+writable binds. The host must explicitly set `AllowExternalTools`; no plugin can
+implicitly trust PATH helpers. Optional address-space, CPU, process, and
+descriptor caps are applied by owner-validated `prlimit` before `bwrap` exec;
+requested caps fail if it is unavailable. Dynamic runtime and library roots must
+be explicitly declared, favoring static RPC plugins.
 
-macOS plans use an explicit `sandbox-exec` deny-default profile with declared
-read/write paths and network disabled by default. The adapter is deprecated by
-Apple and checked at runtime. It cannot prove resource caps, so any requested
-cap returns `ErrUnsupportedLimit`. A separate supervisor remains responsible
-for wall-clock cancellation and process-tree termination.
+macOS native execution fails closed. `sandbox-exec` is deprecated and does not
+provide the maintained filesystem/network and resource-limit security contract
+required for hostile native code, so it is not represented as an adapter.
 
-Windows and other platforms return `ErrUnsupportedPlatform`; there is no
-unsandboxed fallback. A future Windows adapter needs an AppContainer/restricted
-token, job-object process tree, ACL-aware path broker, and automated escape and
-resource-limit evidence.
+The generic Windows filesystem/network sandbox policy also fails closed pending
+an AppContainer/restricted-token and ACL-aware path broker. The RPC process
+cleanup boundary itself is race-free: it creates the process suspended, assigns
+the kill-on-close Job and supported memory/CPU/process limits, then resumes the
+initial thread. Descriptor limits are rejected because Jobs cannot enforce
+them. There is no unsandboxed product fallback.
 
 Plans contain argv arrays and fixed environment entries. Integrators must use
 them directly with `os/exec`, set the specified working directory/environment,

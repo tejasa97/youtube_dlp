@@ -154,6 +154,15 @@ func TestWASMTimeoutCancellationAndMemoryLimit(t *testing.T) {
 	}
 }
 
+func TestWASMInstructionBudgetFailsClosedWithoutFuelAPI(t *testing.T) {
+	request := plugin.ExtractRequest{ID: "one", URL: "https://fixture.invalid/video"}
+	config := fixtureConfig()
+	config.Limits.WASMInstructionBudget = 1000
+	if _, err := (Host{}).Extract(context.Background(), fixtureModule(1, []byte(`{"id":"one"}`), false), config, request); !errors.Is(err, plugin.ErrIsolationUnavailable) {
+		t.Fatalf("fuel API absence error = %v", err)
+	}
+}
+
 func FuzzDecodeResponse(f *testing.F) {
 	f.Add([]byte("{\"id\":\"one\",\"metadata\":{\"title\":\"fixture\"}}"))
 	f.Add([]byte("{"))
