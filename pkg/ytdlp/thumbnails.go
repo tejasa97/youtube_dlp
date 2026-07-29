@@ -284,7 +284,7 @@ func (operation *operation) writeThumbnails(ctx context.Context, info *value.Inf
 				return artifacts, total, fmt.Errorf("%w: duplicate thumbnail destination", extractor.ErrInvalidMetadata)
 			}
 		}
-		if err := operation.protectTransactionPath(destination); err != nil {
+		if err := operation.protectTransactionPath(ctx, destination); err != nil {
 			return artifacts, total, err
 		}
 		downloadOptions := operation.request.Downloader

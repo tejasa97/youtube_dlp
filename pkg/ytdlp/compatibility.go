@@ -286,30 +286,49 @@ func (operation *operation) planPreparedFormats(prepared mediaformat.Prepared) (
 	return prepared.PlanWithOptions(*operation.compatibility.selector, evaluation)
 }
 
-// validateMultiOutputProduct rejects multi-plan downloads when requested
-// product stages cannot be applied safely to every output. Multi-output
-// execution supports only the no-postprocessor download path. After-download
-// print stages intentionally render only the first plan's selections and primary path.
+// validateMultiOutputProduct retains the product validation seam introduced
+// before per-output lifecycles existed. PR 8 executes every supported stage
+// independently for each plan, so the completed lifecycle has no blanket
+// multi-output exclusions.
 func validateMultiOutputProduct(request Request, planCount int) error {
 	if planCount <= 1 {
 		return nil
 	}
-	if len(request.Postprocessors) > 0 {
-		return fmt.Errorf("%w: postprocessors with multi-output selectors", mediaformat.ErrMultiOutput)
-	}
-	if request.SponsorBlock.Enabled && request.SponsorBlock.Remove {
-		return fmt.Errorf("%w: SponsorBlock remove with multi-output selectors", mediaformat.ErrMultiOutput)
-	}
-	if len(request.RemoveChapters) > 0 {
-		return fmt.Errorf("%w: chapter removal with multi-output selectors", mediaformat.ErrMultiOutput)
-	}
-	if request.Subtitles.Embed {
-		return fmt.Errorf("%w: subtitle embedding with multi-output selectors", mediaformat.ErrMultiOutput)
-	}
-	if request.Thumbnails.Embed {
-		return fmt.Errorf("%w: thumbnail embedding with multi-output selectors", mediaformat.ErrMultiOutput)
+	for _, step := range request.Postprocessors {
+		if destination := postprocessorExplicitDestination(step); destination != "" {
+			return fmt.Errorf("%w: fixed postprocessor destination %q collides across output plans", mediaformat.ErrMultiOutput, destination)
+		}
 	}
 	return nil
+}
+
+func postprocessorExplicitDestination(step Postprocessor) string {
+	switch {
+	case step.ExtractAudio != nil:
+		return step.ExtractAudio.Destination
+	case step.Remux != nil:
+		return step.Remux.Destination
+	case step.ConvertSubtitle != nil:
+		return step.ConvertSubtitle.Destination
+	case step.ConvertThumbnail != nil:
+		return step.ConvertThumbnail.Destination
+	case step.EmbedMetadata != nil:
+		return step.EmbedMetadata.Destination
+	case step.EmbedChapters != nil:
+		return step.EmbedChapters.Destination
+	case step.EmbedThumbnail != nil:
+		return step.EmbedThumbnail.Destination
+	case step.EmbedSubtitle != nil:
+		return step.EmbedSubtitle.Destination
+	case step.Fixup != nil:
+		return step.Fixup.Destination
+	case step.Concat != nil:
+		return step.Concat.Destination
+	case step.Move != nil:
+		return step.Move.Destination
+	default:
+		return ""
+	}
 }
 
 func mediaArtifactBytes(artifacts []Artifact) (int64, error) {

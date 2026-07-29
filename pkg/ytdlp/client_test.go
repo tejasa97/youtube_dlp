@@ -1053,13 +1053,13 @@ func TestClientInteractiveMatchFilterDoesNotPromptWithoutFormats(t *testing.T) {
 	}
 }
 
-func TestClientInteractiveMatchFilterRejectsMultiOutput(t *testing.T) {
-	calls := 0
+func TestClientInteractiveMatchFilterPromptsPerOutput(t *testing.T) {
+	var prompts []InteractiveMatchFilterPrompt
 	request := Request{
 		URL: "https://fixture.invalid/video", SkipDownload: true,
 		Format: "bestvideo,bestaudio", MatchFilters: []string{"-"},
-		InteractiveMatchFilter: func(context.Context, InteractiveMatchFilterPrompt) (bool, error) {
-			calls++
+		InteractiveMatchFilter: func(_ context.Context, prompt InteractiveMatchFilterPrompt) (bool, error) {
+			prompts = append(prompts, prompt)
 			return true, nil
 		},
 	}
@@ -1072,8 +1072,11 @@ func TestClientInteractiveMatchFilterRejectsMultiOutput(t *testing.T) {
 		compatibility: plan,
 	}
 	_, err = operation.process(context.Background(), request.URL, "", nil, make(map[string]bool), 0)
-	if !IsCategory(err, ErrorUnsupported) || !errors.Is(err, mediaformat.ErrMultiOutput) || calls != 0 {
-		t.Fatalf("calls=%d error=%v", calls, err)
+	if err != nil || len(prompts) != 2 {
+		t.Fatalf("prompts=%#v error=%v", prompts, err)
+	}
+	if prompts[0].Filename == prompts[1].Filename || prompts[0].Filename == "" || prompts[1].Filename == "" {
+		t.Fatalf("prompts do not identify distinct outputs: %#v", prompts)
 	}
 }
 

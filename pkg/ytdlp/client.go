@@ -603,7 +603,6 @@ type operation struct {
 	sabrMerge                        func(ctx context.Context, video, audio, destination string, overwrite bool, sink events.Sink) error
 	plannerCapabilities              *mediaformat.PlannerCapabilities
 	formatAvailability               mediaformat.FormatAvailability
-	activeTransaction                *mediaTransaction
 }
 
 func (operation *operation) process(ctx context.Context, rawURL, extractorKey string, overlay *extractor.Entry, ancestors map[string]bool, depth int) (Result, error) {
@@ -1224,12 +1223,6 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		if err := validateOutputPlans(outputPlans, operation.mergeOutputPreferences()); err != nil {
 			return Result{}, categorized("select format", err)
 		}
-		if needsInteractiveFormat && len(outputPlans) > 1 {
-			return Result{}, categorized(
-				"select format",
-				fmt.Errorf("%w: interactive match filtering with multi-output selectors", mediaformat.ErrMultiOutput),
-			)
-		}
 	}
 	var singlePrintPlan *mediaformat.OutputPlan
 	if len(outputPlans) == 1 && len(outputPlans[0].Tracks) > 1 {
@@ -1245,45 +1238,125 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		destination = planDestinations[0]
 	}
 	var mediaTx *mediaTransaction
-	willDownloadMedia := !operation.request.SkipDownload && !operation.request.Simulate && len(outputPlans) > 0
-	if willDownloadMedia {
-		if err := operation.preflightMediaDestinations(planDestinations); err != nil {
-			return Result{}, categorized("preflight output destinations", err)
-		}
+	if len(outputPlans) > 0 {
 		mediaTx = newMediaTransaction()
+		if !operation.request.Simulate {
+			if err := operation.preflightOutputLifecycles(info, outputPlans, planDestinations, selectedSubtitles); err != nil {
+				return Result{}, categorized("preflight output destinations", err)
+			}
+		}
 	}
-	operation.activeTransaction = mediaTx
-	defer func() {
-		operation.activeTransaction = nil
-	}()
+	ctx = withMediaTransaction(ctx, mediaTx)
 	if needsInteractiveFormat {
-		if destination == "" {
+		if len(planDestinations) == 0 {
 			return Result{}, categorized("select format", mediaformat.ErrNoFormats)
 		}
-		var interactiveInfo value.Info
-		if len(outputPlans) > 0 {
-			interactiveInfo = selectedPlanInfo(info, outputPlans[0])
-		} else {
-			interactiveInfo = selectedFormatInfo(info, selectedFormats)
-		}
-		operation.applyThumbnailEmbeddingOutputExtension(&interactiveInfo, selectedFormats)
-		resolved, resolveErr := operation.resolveInteractiveCompatibility(
-			ctx, interactiveInfo, interactiveDecision, destination,
-		)
-		if resolveErr != nil {
-			return rollbackTransactionResult(mediaTx, resolveErr)
-		}
-		terminal, finishErr := operation.finishMatchFilterDecision(ctx, &result, extractorName, resolved)
-		if finishErr != nil {
-			return rollbackTransactionResult(mediaTx, finishErr)
-		}
-		if terminal {
-			return result, nil
+		for index, plan := range outputPlans {
+			interactiveInfo := selectedPlanInfo(info, plan)
+			operation.applyThumbnailEmbeddingOutputExtension(&interactiveInfo, plan.Tracks)
+			resolved, resolveErr := operation.resolveInteractiveCompatibility(
+				ctx, interactiveInfo, interactiveDecision, planDestinations[index],
+			)
+			if resolveErr != nil {
+				return rollbackTransactionResult(mediaTx, resolveErr)
+			}
+			terminal, finishErr := operation.finishMatchFilterDecision(ctx, &result, extractorName, resolved)
+			if finishErr != nil {
+				return rollbackTransactionResult(mediaTx, finishErr)
+			}
+			if terminal {
+				return result, nil
+			}
 		}
 	}
-	if err := operation.validatePrintRules(ctx, info, singlePrintPlan, selectedFormats, destination, false); err != nil {
-		return rollbackTransactionResult(mediaTx, categorized("validate print rules", err))
+	if len(outputPlans) == 0 {
+		if err := operation.validatePrintRules(ctx, info, singlePrintPlan, selectedFormats, destination, false); err != nil {
+			return rollbackTransactionResult(mediaTx, categorized("validate print rules", err))
+		}
+	} else {
+		for index, plan := range outputPlans {
+			planInfo := selectedPlanInfo(info, plan)
+			var printPlan *mediaformat.OutputPlan
+			if len(plan.Tracks) > 1 {
+				printPlan = &plan
+			}
+			if err := operation.validatePrintRules(ctx, planInfo, printPlan, plan.Tracks, planDestinations[index], false); err != nil {
+				return rollbackTransactionResult(mediaTx, categorized("validate print rules", err))
+			}
+		}
 	}
+
+	// PR 8 routes every output plan through the per-output lifecycle
+	// abstraction. The branch is positioned after
+	// validatePrintRules so the existing pre-download sidecar
+	// writes (PrintVideo, thumbnails, related, PrintBeforeDL,
+	// subtitles, converted subtitles) are bypassed and re-driven once
+	// per plan by executePlanLifecycle.
+	if len(outputPlans) > 0 {
+		if !operation.request.Simulate && !operation.request.SkipDownload {
+			if err := mediaTx.acquireDestinationBackups(planDestinations, operation.request.Overwrite); err != nil {
+				return rollbackTransactionResult(mediaTx, categorized("prepare output destinations", err))
+			}
+		}
+		sink := operation.eventSink()
+		planResults := make([]Result, len(outputPlans))
+		for index, plan := range outputPlans {
+			lifecycle := newOutputLifecycleForPlan(index, plan, info, planDestinations[index])
+			operation.applyThumbnailEmbeddingOutputExtension(&lifecycle.Info, plan.Tracks)
+			planResult, lifecycleErr := operation.executePlanLifecycle(
+				ctx, mediaTx, &lifecycle, selectedSubtitles, sink,
+			)
+			if lifecycleErr != nil {
+				if len(outputPlans) > 1 {
+					return rollbackTransactionResult(mediaTx, lifecycleErr)
+				}
+				return Result{}, lifecycleErr
+			}
+			planResults[index] = planResult
+		}
+
+		var mediaArtifacts []Artifact
+		for index := range planResults {
+			planResult := planResults[index]
+			result.Downloaded = result.Downloaded || planResult.Downloaded
+			result.Prints = append(result.Prints, planResult.Prints...)
+			if index == 0 {
+				result.Filename = planResult.Filename
+				if len(planResult.InfoJSON) > 0 {
+					result.InfoJSON = planResult.InfoJSON
+				}
+			}
+			for _, artifact := range planResult.Artifacts {
+				if artifact.Kind == "media" {
+					mediaArtifacts = appendUniqueArtifact(mediaArtifacts, artifact)
+					continue
+				}
+				result.Artifacts = appendUniqueArtifact(result.Artifacts, artifact)
+			}
+		}
+		for _, artifact := range mediaArtifacts {
+			result.Artifacts = appendUniqueArtifact(result.Artifacts, artifact)
+		}
+		if len(result.Artifacts) > 0 {
+			result.Bytes, err = artifactBytes(result.Artifacts)
+			if err != nil {
+				return rollbackTransactionResult(mediaTx, categorized("account output artifacts", err))
+			}
+		}
+		if !operation.request.Simulate {
+			if commitErr := mediaTx.commit(); commitErr != nil {
+				return Result{}, categorized("commit output transaction", commitErr)
+			}
+			mediaTx.finalize()
+		}
+		if operation.archive != nil && !operation.request.Simulate && !operation.request.SkipDownload {
+			if _, archiveErr := operation.archive.Record(ctx, archiveIdentity); archiveErr != nil {
+				return Result{}, categorized("record download archive", archiveErr)
+			}
+		}
+		return result, nil
+	}
+
 	prints, err = operation.capturePrints(ctx, PrintVideo, info, singlePrintPlan, selectedFormats, destination)
 	if err != nil {
 		return rollbackTransactionResult(mediaTx, categorized("render video print", err))

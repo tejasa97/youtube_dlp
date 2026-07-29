@@ -180,7 +180,7 @@ capabilities:
       - pkg/ytdlp.TestProductEmbedsThumbnailIntoXiphContainers
       - pkg/ytdlp.TestProductPromotesMergedWebMToMatroskaForThumbnail
       - pkg/ytdlp.TestThumbnailEmbeddingPromotesOnlyMergedWebM
-      - pkg/ytdlp.TestValidateMultiOutputRejectsThumbnailEmbedding
+      - pkg/ytdlp.TestValidateMultiOutputAllowsThumbnailEmbedding
       - pkg/ytdlp.FuzzThumbnailPathAndURL
       - pkg/ytdlp.FuzzThumbnailConversionMapping
       - internal/cli.TestThumbnailModeFlagPrecedence
@@ -2043,7 +2043,7 @@ capabilities:
       - pkg/ytdlp.TestClientInteractiveMatchFilterUsesSelectedFormatFilename
       - pkg/ytdlp.TestClientInteractiveBreakingFilterReevaluatesSelectedFormat
       - pkg/ytdlp.TestClientInteractiveMatchFilterDoesNotPromptWithoutFormats
-      - pkg/ytdlp.TestClientInteractiveMatchFilterRejectsMultiOutput
+      - pkg/ytdlp.TestClientInteractiveMatchFilterPromptsPerOutput
       - pkg/ytdlp.TestClientInteractiveMatchFilterCallbackErrorsAreCategorized
       - pkg/ytdlp.TestOperationFlatPlaylistDoesNotPromptForInteractiveMatchFilter
       - pkg/ytdlp.TestOperationHydratedPlaylistPromptsOnceForInteractiveMatchFilter
@@ -2058,7 +2058,7 @@ capabilities:
       - internal/cli.TestRunWaveTwoCompatibilityFlags
       - conformance/compatibility/phase2/PROVENANCE.md
     owner: core
-    known_deviation: Compatibility is scoped to the bounded Phase 2 corpus. Match filters support the documented boolean, string, numeric, none-inclusive, filesize, and duration grammar with explicit evaluation bounds; break-match filters reuse that grammar and stop playlist expansion before the rejected entry. Exact `-` marker prompting is supported on ordinary and breaking filters for complete, non-archived entries; flat/incomplete entries, no-format entries, and automatic subtitle-only listing do not prompt, explicit simulation and combined metadata-output modes do, and breaking-prompt acceptance preserves the pinned ordinary-filter bypass. Prompts use the selected single-output format filename, format-dependent conditions are reevaluated against that selection, and merged A/V fields follow the pinned merge policy. Interactive multi-output plans are explicitly unsupported because per-output prompting is not yet represented. Interactive filtering is intentionally rejected with `--progress-json` to preserve its machine-readable stderr contract. Match-filter Python regular-expression semantics remain unsupported. Template arithmetic and Unicode conversions are limited to the bounded corpus; arbitrary template code evaluation, remaining format-selector evaluator/product semantics, and product download of arbitrary all-format sets remain explicitly unsupported.
+    known_deviation: Compatibility is scoped to the bounded Phase 2 corpus. Match filters support the documented boolean, string, numeric, none-inclusive, filesize, and duration grammar with explicit evaluation bounds; break-match filters reuse that grammar and stop playlist expansion before the rejected entry. Exact `-` marker prompting is supported on ordinary and breaking filters for complete, non-archived entries; flat/incomplete entries, no-format entries, and automatic subtitle-only listing do not prompt, explicit simulation and combined metadata-output modes do, and breaking-prompt acceptance preserves the pinned ordinary-filter bypass. Prompts use each selected output plan's filename in stable order, format-dependent conditions are reevaluated against that selection, and merged A/V fields follow the pinned merge policy. Interactive filtering is intentionally rejected with `--progress-json` to preserve its machine-readable stderr contract. Match-filter Python regular-expression semantics remain unsupported. Template arithmetic and Unicode conversions are limited to the bounded corpus; arbitrary template code evaluation and remaining CLI format-selection surfaces remain explicitly unsupported.
 
   - id: downloader.protocol_matrix
     name: Alpha downloader and protocol matrix
@@ -2137,7 +2137,7 @@ capabilities:
       - pkg/ytdlp.TestChapterRemovalWarningsAndSimulationDoNotMutateMetadata
       - pkg/ytdlp.TestChapterRemovalNoMatchWarningAndCancellation
       - pkg/ytdlp.TestChapterRemovalInvalidRequestsFailBeforeNetwork
-      - pkg/ytdlp.TestChapterRemovalRejectsMultiOutputBeforeDownload
+      - pkg/ytdlp.TestChapterRemovalAllowsMultiOutputPlanning
       - pkg/ytdlp.TestChapterRemovalProbesDurationAndFixesOpenFinalChapter
       - pkg/ytdlp.TestChapterRemovalUsesRealDurationForMissingMetadataAndOpenRange
       - pkg/ytdlp.TestChapterRemovalSafetyFailuresLeaveMediaAndMetadataUnchanged
@@ -2189,7 +2189,7 @@ capabilities:
       - conformance/format_planner/PROVENANCE.md
       - docs/FORMAT_SELECTOR_PARITY.md
     owner: core
-    known_deviation: Parser, filters, bounded Python-regex translation, evaluator ordering, defaults, multistream suppression, merged metadata, and injected availability match the pinned corpora. Pinned sorter parity is tracked separately by compat.format_sorter. Go retains deliberate defensive-copy, malformed-metadata rejection, discarded-punctuation rejection, and bounded collection/evaluation differences. Arbitrary retained N-track execution and broader multi-output lifecycle support remain in later format-parity PRs.
+    known_deviation: Parser, filters, bounded Python-regex translation, evaluator ordering, defaults, multistream suppression, merged metadata, injected availability, retained N-track execution, and the per-output product lifecycle match the pinned bounded corpora. Pinned sorter parity is tracked separately by compat.format_sorter. Go retains deliberate defensive-copy, malformed-metadata rejection, discarded-punctuation rejection, and bounded collection/evaluation differences. CLI format checking and remaining selector flags are tracked separately.
 
   - id: compat.format_sorter
     name: Pinned FormatSorter parity
