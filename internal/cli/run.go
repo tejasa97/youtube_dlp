@@ -959,14 +959,15 @@ type formatSortFlag []string
 func (values *formatSortFlag) String() string { return strings.Join(*values, ",") }
 
 func (values *formatSortFlag) Set(input string) error {
-	fields := strings.Split(input, ",")
+	raw := strings.Split(input, ",")
+	fields := make([]string, 0, len(raw))
+	for _, field := range raw {
+		if field = strings.TrimSpace(field); field != "" {
+			fields = append(fields, field)
+		}
+	}
 	if len(fields) == 0 {
 		return nil
-	}
-	for _, field := range fields {
-		if strings.TrimSpace(field) == "" {
-			return errors.New("format sort field must not be empty")
-		}
 	}
 	next := make(formatSortFlag, 0, len(*values)+len(fields))
 	next = append(next, fields...)

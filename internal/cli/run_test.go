@@ -1364,7 +1364,7 @@ func TestInteractiveMatchFilterPromptHonorsCancellationWhileReading(t *testing.T
 
 func TestFormatSortFlagOrderingAndReset(t *testing.T) {
 	var values formatSortFlag
-	if err := values.Set("res,fps"); err != nil {
+	if err := values.Set("res,, fps"); err != nil {
 		t.Fatal(err)
 	}
 	if err := values.Set("codec"); err != nil {
@@ -1372,6 +1372,12 @@ func TestFormatSortFlagOrderingAndReset(t *testing.T) {
 	}
 	if got, want := []string(values), []string{"codec", "res", "fps"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("ordered fields=%v want=%v", got, want)
+	}
+	if err := values.Set(","); err != nil || !reflect.DeepEqual([]string(values), []string{"codec", "res", "fps"}) {
+		t.Fatalf("empty occurrence changed values=%v err=%v", values, err)
+	}
+	if err := values.Set("   "); err != nil || !reflect.DeepEqual([]string(values), []string{"codec", "res", "fps"}) {
+		t.Fatalf("whitespace occurrence changed values=%v err=%v", values, err)
 	}
 	values = nil // equivalent to --format-sort-reset in ordered flag parsing
 	if err := values.Set("abr"); err != nil {
