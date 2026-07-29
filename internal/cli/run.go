@@ -363,6 +363,46 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	audioBitrate := flags.String("audio-bitrate", "", "ffmpeg audio bitrate for --extract-audio")
 	audioQuality := flags.Int("audio-quality", 0, "ffmpeg audio quality for --extract-audio")
 	remuxVideo := flags.String("remux-video", "", "remux video to the selected container with ffmpeg")
+	recodeVideo := flags.String("recode-video", "", "transcode video to the selected container (mapping string, e.g. mp4 or mov>mp4/webm>mp4)")
+	embedMetadata := flags.Bool("embed-metadata", false, "embed bounded canonical metadata in the final media")
+	flags.BoolVar(embedMetadata, "add-metadata", false, "alias for --embed-metadata")
+	flags.BoolFunc("no-embed-metadata", "disable metadata embedding (default)", func(input string) error {
+		enabled, err := strconv.ParseBool(input)
+		if err != nil {
+			return err
+		}
+		if enabled {
+			*embedMetadata = false
+		}
+		return nil
+	})
+	flags.BoolFunc("no-add-metadata", "alias for --no-embed-metadata", func(input string) error {
+		enabled, err := strconv.ParseBool(input)
+		if err != nil {
+			return err
+		}
+		if enabled {
+			*embedMetadata = false
+		}
+		return nil
+	})
+	var embedChapters bool
+	var embedChaptersSet bool
+	setEmbedChapters := func(value bool) func(string) error {
+		return func(input string) error {
+			enabled, err := strconv.ParseBool(input)
+			if err != nil {
+				return err
+			}
+			embedChapters = value == enabled
+			embedChaptersSet = true
+			return nil
+		}
+	}
+	flags.BoolFunc("embed-chapters", "embed chapter markers in the final media", setEmbedChapters(true))
+	flags.BoolFunc("add-chapters", "alias for --embed-chapters", setEmbedChapters(true))
+	flags.BoolFunc("no-embed-chapters", "disable chapter embedding", setEmbedChapters(false))
+	flags.BoolFunc("no-add-chapters", "alias for --no-embed-chapters", setEmbedChapters(false))
 	writeSubtitles := flags.Bool("write-subs", false, "write manual subtitle sidecar files")
 	flags.BoolVar(writeSubtitles, "write-srt", false, "alias for --write-subs")
 	flags.BoolFunc("no-write-subs", "disable writing manual subtitles", func(string) error {
@@ -613,8 +653,14 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	if *extractAudio {
 		postprocessors = append(postprocessors, ytdlp.Postprocessor{ExtractAudio: &ytdlp.ExtractAudioPostprocessor{Codec: *audioFormat, Bitrate: *audioBitrate, Quality: *audioQuality}})
 	}
-	if *remuxVideo != "" {
+	if *remuxVideo != "" && *recodeVideo != "" {
+		fmt.Fprintln(stderr, "ytdlp-go: --remux-video is ignored since --recode-video was given")
+	}
+	if *remuxVideo != "" && *recodeVideo == "" {
 		postprocessors = append(postprocessors, ytdlp.Postprocessor{Remux: &ytdlp.RemuxPostprocessor{Format: *remuxVideo}})
+	}
+	if *recodeVideo != "" {
+		postprocessors = append(postprocessors, ytdlp.Postprocessor{RecodeVideo: &ytdlp.RecodeVideoPostprocessor{Format: *recodeVideo}})
 	}
 	// yt-dlp's listing flags imply simulation only when the user has not made
 	// the tri-state simulation choice explicit.
@@ -639,6 +685,10 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	if interactiveFormatRequested {
 		interactiveFormat = newInteractiveFormatPrompt(coordinator, stderr)
 	}
+	var requestEmbedChapters *bool
+	if embedChaptersSet {
+		requestEmbedChapters = &embedChapters
+	}
 	result, err := client.Run(ctx, ytdlp.Request{
 		URL: flags.Arg(0), OutputTemplates: outputTemplates.clone(), OutputDir: *outputDir, OutputPaths: paths.clone(), Proxy: *proxy, ImpersonationProfile: *impersonationProfile,
 		CookieFile: *cookieFile, CookiesFromBrowser: *cookiesFromBrowser, UseNetRC: *useNetRC, NetRCLocation: *netRCLocation,
@@ -654,6 +704,8 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 		InteractiveFormat:      interactiveFormat,
 		BreakMatchFilters:      requestBreakMatchFilters,
 		MetadataActions:        append([]ytdlp.MetadataAction(nil), metadataActions...),
+		EmbedMetadata:          *embedMetadata,
+		EmbedChapters:          requestEmbedChapters,
 		Subtitles:              requestSubtitles,
 		Thumbnails: ytdlp.ThumbnailOptions{
 			Write:    thumbnailMode == thumbnailModeBest || *embedThumbnail,

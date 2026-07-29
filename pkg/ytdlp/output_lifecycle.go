@@ -548,19 +548,14 @@ func (operation *operation) executePlanLifecycle(
 	result.Artifacts = append(result.Artifacts, mediaArtifacts...)
 
 	// mediaArtifactStart records the slice index where post-process
-	// media artifacts begin. The post-process stages (chapter cuts,
-	// subtitle embedding, thumbnail embedding) append more artifacts
+	// media artifacts begin. The post-process stages (subtitle embedding,
+	// chapter cuts, metadata embedding, thumbnail embedding) append more artifacts
 	// to result.Artifacts; the byte accounting below needs to know
 	// which slice to read from.
 	mediaArtifactStart := len(result.Artifacts) - len(mediaArtifacts)
-	var cutApplied bool
-	lifecycle.MediaPath, result.Artifacts, cutApplied, err = operation.applyChapterCuts(ctx, &lifecycle.Info, lifecycle.MediaPath, result.Artifacts, sink)
-	if err != nil {
-		return fail(err)
-	}
-	registerArtifacts(result.Artifacts)
-	lifecycle.FinalPath = lifecycle.MediaPath
-
+	// Pinned order: subtitles must be inside the container before
+	// ModifyChapters cuts it; metadata/chapters are written afterward using the
+	// final post-cut timeline.
 	var embeddedSubtitles bool
 	result.Artifacts, embeddedSubtitles, err = operation.embedSelectedSubtitles(
 		ctx, &lifecycle.Info, lifecycle.MediaPath, selectedSubtitles, result.Artifacts, sink,
@@ -569,6 +564,20 @@ func (operation *operation) executePlanLifecycle(
 		return fail(categorized("embed subtitles", err))
 	}
 	registerArtifacts(result.Artifacts)
+
+	var cutApplied bool
+	lifecycle.MediaPath, result.Artifacts, cutApplied, err = operation.applyChapterCuts(ctx, &lifecycle.Info, lifecycle.MediaPath, result.Artifacts, sink)
+	if err != nil {
+		return fail(err)
+	}
+	registerArtifacts(result.Artifacts)
+	lifecycle.FinalPath = lifecycle.MediaPath
+
+	var embeddedMetadata bool
+	embeddedMetadata, err = operation.applyAutomaticMetadataEmbedding(ctx, lifecycle.Info, lifecycle.MediaPath, sink)
+	if err != nil {
+		return fail(categorized("embed metadata", err))
+	}
 
 	var embeddedThumbnail bool
 	result.Artifacts, embeddedThumbnail, err = operation.embedSelectedThumbnail(
@@ -583,6 +592,7 @@ func (operation *operation) executePlanLifecycle(
 	result.Filename = lifecycle.FinalPath
 	_ = cutApplied
 	_ = embeddedSubtitles
+	_ = embeddedMetadata
 	_ = embeddedThumbnail
 	_ = mediaArtifactStart
 

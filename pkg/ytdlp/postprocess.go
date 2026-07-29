@@ -73,6 +73,46 @@ func (operation *operation) applyPostprocessors(ctx context.Context, outputRoot,
 			}
 			current = destination
 			continue
+		case specification.RecodeVideo != nil:
+			config := specification.RecodeVideo
+			mapping := strings.TrimSpace(config.Format)
+			if mapping == "" {
+				return "", nil, fmt.Errorf("%w: postprocessors[%d] recode mapping is required", postprocess.ErrInvalidGraph, index)
+			}
+			sourceExtension := strings.TrimPrefix(strings.ToLower(filepath.Ext(current)), ".")
+			if sourceExtension == "" {
+				return "", nil, fmt.Errorf("%w: postprocessors[%d] recode source has no extension", postprocess.ErrInvalidGraph, index)
+			}
+			target, skip, mapErr := ffmpeg.ResolveRecodeMapping(sourceExtension, mapping)
+			if mapErr != nil {
+				return "", nil, fmt.Errorf("%w: postprocessors[%d] %v", postprocess.ErrInvalidGraph, index, mapErr)
+			}
+			if skip != "" {
+				// Pinned FFmpegVideoConvertorPP.run no-ops when the resolved
+				// target equals the source or no mapping rule applies. In
+				// both cases current must remain the original path, no
+				// destination may be reserved, and no ffmpeg tool may be
+				// discovered. Surface the skip reason via the typed event
+				// stream so callers and tests can observe it.
+				if sink != nil {
+					if emitErr := sink.Emit(ctx, events.Event{Kind: events.KindPostprocessCompleted, Path: current, Message: skip}); emitErr != nil {
+						return "", nil, emitErr
+					}
+				}
+				continue
+			}
+			destination, err := postprocessOutput(outputRoot, config.Destination, current, target)
+			if err != nil {
+				return "", nil, err
+			}
+			graphOperation = postprocess.Recode{
+				Input:     postprocess.Artifact{Path: current, Kind: postprocess.ArtifactMedia, Owned: true},
+				Output:    postprocess.Artifact{Path: destination, Kind: postprocess.ArtifactMedia},
+				SourceExt: sourceExtension,
+				Mapping:   mapping,
+				Overwrite: operation.request.Overwrite,
+			}
+			current = destination
 		case specification.ConvertSubtitle != nil:
 			config := specification.ConvertSubtitle
 			source, err := postprocessInput(outputRoot, config.Source)
@@ -193,6 +233,7 @@ func countPostprocessorChoices(step Postprocessor) int {
 	count := 0
 	for _, selected := range []bool{
 		step.ExtractAudio != nil, step.Remux != nil, step.ConvertSubtitle != nil,
+		step.RecodeVideo != nil,
 		step.ConvertThumbnail != nil, step.EmbedMetadata != nil, step.EmbedChapters != nil,
 		step.EmbedThumbnail != nil, step.EmbedSubtitle != nil, step.Fixup != nil,
 		step.Concat != nil, step.Move != nil,
@@ -241,6 +282,16 @@ func validatePostprocessorPaths(request Request) error {
 			}
 		case step.Remux != nil:
 			if err := validateDestination(step.Remux.Destination); err != nil {
+				return err
+			}
+		case step.RecodeVideo != nil:
+			if strings.TrimSpace(step.RecodeVideo.Format) == "" {
+				return fmt.Errorf("%w: recode mapping is required", postprocess.ErrInvalidGraph)
+			}
+			if err := ffmpeg.ValidateRecodeMapping(step.RecodeVideo.Format); err != nil {
+				return fmt.Errorf("%w: recode mapping: %v", postprocess.ErrInvalidGraph, err)
+			}
+			if err := validateDestination(step.RecodeVideo.Destination); err != nil {
 				return err
 			}
 		case step.ConvertSubtitle != nil:

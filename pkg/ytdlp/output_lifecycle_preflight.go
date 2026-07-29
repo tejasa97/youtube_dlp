@@ -7,6 +7,7 @@ import (
 
 	outputtemplate "github.com/ytdlp-go/ytdlp/internal/compat/template"
 	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
+	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
@@ -176,6 +177,23 @@ func (operation *operation) postprocessorDestinations(downloadedPath string) ([]
 			if err := addOutput(step.Remux.Destination, current, format, true); err != nil {
 				return nil, fmt.Errorf("postprocessors[%d]: %w", index, err)
 			}
+		case step.RecodeVideo != nil:
+			sourceExtension := strings.TrimPrefix(strings.ToLower(filepath.Ext(current)), ".")
+			target, skip, mapErr := ffmpeg.ResolveRecodeMapping(sourceExtension, step.RecodeVideo.Format)
+			if mapErr != nil {
+				return nil, fmt.Errorf("postprocessors[%d]: %w", index, mapErr)
+			}
+			if skip != "" {
+				// Pinned FFmpegVideoConvertorPP.run no-ops when the resolved
+				// target equals the source or no mapping rule applies: no
+				// destination is reserved and current must remain unchanged
+				// so subsequent steps operate on the original media path.
+				_ = skip
+				continue
+			}
+			if err := addOutput(step.RecodeVideo.Destination, current, target, true); err != nil {
+				return nil, fmt.Errorf("postprocessors[%d]: %w", index, err)
+			}
 		case step.ConvertSubtitle != nil:
 			source, err := postprocessInput(root, step.ConvertSubtitle.Source)
 			if err != nil {
@@ -221,6 +239,9 @@ func (operation *operation) postprocessorDestinations(downloadedPath string) ([]
 				return nil, err
 			}
 		}
+	}
+	if err := validateMetadataEmbeddingContainer(current, operation.request); err != nil {
+		return nil, err
 	}
 	return destinations, nil
 }

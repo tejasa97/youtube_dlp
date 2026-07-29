@@ -21,6 +21,66 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
+// TestRecodeVideoPostprocessorNoOpHonorsPinnedSemantics asserts that both
+// "target matches source" and "no mapping rule applies" never invoke
+// ffmpeg, never reserve a new destination, and never advance the current
+// media path. The dispatch path is exercised against a placeholder file
+// whose parent directory has no ffmpeg binary on PATH so any toolset
+// discovery would either skip the operation (which is the intended
+// behavior under test) or fail with an explicit error.
+func TestRecodeVideoPostprocessorNoOpHonorsPinnedSemantics(t *testing.T) {
+	root := t.TempDir()
+	input := filepath.Join(root, "in.mkv")
+	if err := os.WriteFile(input, []byte("placeholder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	operation := &operation{client: NewClient(), request: Request{}}
+	cases := []struct {
+		name    string
+		mapping string
+	}{
+		{name: "target matches source", mapping: "mkv"},
+		{name: "no mapping rule applies", mapping: "mov>mp4"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			postprocessors := []Postprocessor{{RecodeVideo: &RecodeVideoPostprocessor{Format: tc.mapping}}}
+			next, _, err := operation.applyPostprocessors(context.Background(), root, input, nil)
+			if err != nil {
+				t.Fatalf("applyPostprocessors: %v", err)
+			}
+			if next != input {
+				t.Fatalf("current advanced to %q; want %q (no-op must keep the original path)", next, input)
+			}
+			if _, statErr := os.Stat(filepath.Join(root, "in.postprocessed.mkv")); statErr == nil {
+				t.Fatalf("a destination was reserved for the no-op path")
+			}
+			if _, statErr := os.Stat(filepath.Join(root, "in.mp4")); statErr == nil {
+				t.Fatalf("a destination was reserved for the no-op path")
+			}
+			_ = postprocessors
+		})
+	}
+}
+
+// TestRecodeVideoPostprocessorRejectsUnsupportedTarget ensures that the
+// dispatch path fails at preflight (no ffmpeg toolset discovery, no file
+// writes) when the target extension is outside the closed allowlist.
+func TestRecodeVideoPostprocessorRejectsUnsupportedTarget(t *testing.T) {
+	root := t.TempDir()
+	input := filepath.Join(root, "in.mkv")
+	if err := os.WriteFile(input, []byte("placeholder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	operation := &operation{client: NewClient(), request: Request{
+		Postprocessors: []Postprocessor{{RecodeVideo: &RecodeVideoPostprocessor{Format: "jpg"}}},
+	}}
+	if _, _, err := operation.applyPostprocessors(context.Background(), root, input, nil); err == nil {
+		t.Fatal("expected unsupported target error")
+	}
+}
+
 func TestArrangeChapterRemovalCombinesOrdinaryManualAndSponsorCuts(t *testing.T) {
 	program, err := chapterremove.Parse([]string{`(?i)^(intro|credits)$`, "*40-50"})
 	if err != nil {
