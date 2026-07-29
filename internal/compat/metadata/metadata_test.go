@@ -148,7 +148,7 @@ func TestParseEscapedColonParity(t *testing.T) {
 	}
 }
 
-func TestInterpretIntermediateCaptureIsNonGreedy(t *testing.T) {
+func TestInterpretRepeatedDelimiterUsesPinnedGreedyCaptures(t *testing.T) {
 	info := value.NewInfo(value.NewObject(value.Field{Key: "title", Value: value.String("A - B - Song")}))
 	action, err := ParseFromField("title:%(artist)s - %(track)s")
 	if err != nil {
@@ -157,10 +157,10 @@ func TestInterpretIntermediateCaptureIsNonGreedy(t *testing.T) {
 	if _, err := Apply(&info, []Action{action}); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := info.Lookup("artist").StringValue(); got != "A" {
+	if got, _ := info.Lookup("artist").StringValue(); got != "A - B" {
 		t.Fatalf("artist=%q", got)
 	}
-	if got, _ := info.Lookup("track").StringValue(); got != "B - Song" {
+	if got, _ := info.Lookup("track").StringValue(); got != "Song" {
 		t.Fatalf("track=%q", got)
 	}
 }
@@ -184,6 +184,43 @@ func TestReplaceFieldsPythonReplacementGrammar(t *testing.T) {
 	for _, raw := range []string{`title:x:\\q`, `title:(:x`} {
 		if _, err := ParseReplace(raw); !errors.Is(err, ErrUnsupportedRegex) && !errors.Is(err, ErrInvalidAction) {
 			t.Fatalf("ParseReplace(%q) = %v", raw, err)
+		}
+	}
+}
+
+func TestPythonReplacementGroupAndOctalParity(t *testing.T) {
+	apply := func(pattern, replacement, input string) (string, error) {
+		t.Helper()
+		actions, err := ParseReplaceFields("title", pattern, replacement)
+		if err != nil {
+			return "", err
+		}
+		info := value.NewInfo(value.NewObject(value.Field{Key: "title", Value: value.String(input)}))
+		_, err = Apply(&info, actions)
+		got, _ := info.Lookup("title").StringValue()
+		return got, err
+	}
+	twelve := `(.)(.)(.)(.)(.)(.)(.)(.)(.)(.)(.)(.)`
+	if got, err := apply(twelve, `\12`, "abcdefghijkl"); err != nil || got != "l" {
+		t.Fatalf("\\12 = %q, %v", got, err)
+	}
+	if got, err := apply(`(a)`, `\g<1>2`, "a"); err != nil || got != "a2" {
+		t.Fatalf("\\g<1>2 = %q, %v", got, err)
+	}
+	if got, err := apply(`(a)`, `\0`, "a"); err != nil || got != "\x00" {
+		t.Fatalf("\\0 = %q, %v", got, err)
+	}
+	if got, err := apply(`(a)`, `\g<0>`, "a"); err != nil || got != "a" {
+		t.Fatalf("\\g<0> = %q, %v", got, err)
+	}
+	if got, err := apply(`(a)`, `\123`, "a"); err != nil || got != "S" {
+		t.Fatalf("\\123 = %q, %v", got, err)
+	}
+	for _, test := range []struct{ pattern, replacement string }{
+		{`(a)`, `\12`}, {`(a)`, `\g<2>`}, {`(?P<one>a)`, `\g<missing>`},
+	} {
+		if _, err := ParseReplaceFields("title", test.pattern, test.replacement); !errors.Is(err, ErrInvalidAction) {
+			t.Fatalf("ParseReplaceFields(%q, %q) = %v", test.pattern, test.replacement, err)
 		}
 	}
 }

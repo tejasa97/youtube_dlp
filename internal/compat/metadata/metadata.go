@@ -146,7 +146,7 @@ func ParseReplaceFields(fields, search, replacement string) ([]Action, error) {
 	if err != nil {
 		return nil, err
 	}
-	goReplacement, err := translateReplacement(replacement, search)
+	goReplacement, err := translateReplacement(replacement, search, re)
 	if err != nil {
 		return nil, err
 	}
@@ -334,11 +334,9 @@ func compileFormat(format string) (*regexp2.Regexp, []capture, error) {
 	cursor := 0
 	for index, item := range placeholders {
 		pattern.WriteString(regexp.QuoteMeta(format[cursor:item.start]))
-		if index+1 < len(placeholders) {
-			pattern.WriteString("(.+?)")
-		} else {
-			pattern.WriteString("(.+)")
-		}
+		// MetadataParserPP.format_to_regex appends .+ for every placeholder.
+		// Keep its greedy behavior exactly, including repeated delimiters.
+		pattern.WriteString("(.+)")
 		captures = append(captures, capture{number: index + 1, field: item.field})
 		cursor = item.end
 	}
@@ -410,10 +408,23 @@ func compileRegex(pattern string) (*regexp2.Regexp, error) {
 
 // translateReplacement converts the normal Python re.sub replacement grammar
 // needed by MetadataParserPP into regexp.ExpandString's syntax.
-func translateReplacement(replacement, pattern string) (string, error) {
+func translateReplacement(replacement, pattern string, expression *regexp2.Regexp) (string, error) {
 	named := make(map[string]int)
 	for _, target := range namedCaptures(pattern) {
 		named[target.field] = target.number
+	}
+	groups := make(map[int]struct{})
+	if expression != nil {
+		for _, number := range expression.GetGroupNumbers() {
+			groups[number] = struct{}{}
+		}
+	}
+	writeGroup := func(output *strings.Builder, number int) error {
+		if _, ok := groups[number]; !ok {
+			return fmt.Errorf("%w: unknown replacement group %d", ErrInvalidAction, number)
+		}
+		output.WriteString("${" + strconv.Itoa(number) + "}")
+		return nil
 	}
 	var output strings.Builder
 	for i := 0; i < len(replacement); {
@@ -432,11 +443,39 @@ func translateReplacement(replacement, pattern string) (string, error) {
 		}
 		next := replacement[i+1]
 		switch {
-		case next >= '0' && next <= '9':
-			output.WriteString("${")
-			output.WriteByte(next)
-			output.WriteByte('}')
-			i += 2
+		case next == '0':
+			end := i + 2
+			for end < len(replacement) && end < i+4 && replacement[end] >= '0' && replacement[end] <= '7' {
+				end++
+			}
+			value, err := strconv.ParseUint(replacement[i+1:end], 8, 8)
+			if err != nil {
+				return "", fmt.Errorf("%w: invalid octal replacement escape", ErrInvalidAction)
+			}
+			output.WriteByte(byte(value))
+			i = end
+		case next >= '1' && next <= '9':
+			if i+4 <= len(replacement) && allOctal(replacement[i+1:i+4]) {
+				value, err := strconv.ParseUint(replacement[i+1:i+4], 8, 8)
+				if err != nil {
+					return "", fmt.Errorf("%w: invalid octal replacement escape", ErrInvalidAction)
+				}
+				output.WriteByte(byte(value))
+				i += 4
+				continue
+			}
+			end := i + 1
+			for end < len(replacement) && replacement[end] >= '0' && replacement[end] <= '9' {
+				end++
+			}
+			number, err := strconv.Atoi(replacement[i+1 : end])
+			if err != nil {
+				return "", fmt.Errorf("%w: invalid replacement group", ErrInvalidAction)
+			}
+			if err := writeGroup(&output, number); err != nil {
+				return "", err
+			}
+			i = end
 		case next == 'g' && i+3 < len(replacement) && replacement[i+2] == '<':
 			end := strings.IndexByte(replacement[i+3:], '>')
 			if end < 0 {
@@ -447,9 +486,13 @@ func translateReplacement(replacement, pattern string) (string, error) {
 				return "", fmt.Errorf("%w: empty replacement group", ErrInvalidAction)
 			}
 			if number, ok := named[name]; ok {
-				output.WriteString("${" + strconv.Itoa(number) + "}")
-			} else if _, err := strconv.Atoi(name); err == nil {
-				output.WriteString("${" + name + "}")
+				if err := writeGroup(&output, number); err != nil {
+					return "", err
+				}
+			} else if number, err := strconv.Atoi(name); err == nil {
+				if err := writeGroup(&output, number); err != nil {
+					return "", err
+				}
 			} else {
 				return "", fmt.Errorf("%w: unknown replacement group", ErrInvalidAction)
 			}
@@ -471,6 +514,18 @@ func translateReplacement(replacement, pattern string) (string, error) {
 		}
 	}
 	return output.String(), nil
+}
+
+func allOctal(input string) bool {
+	if len(input) != 3 {
+		return false
+	}
+	for index := range input {
+		if input[index] < '0' || input[index] > '7' {
+			return false
+		}
+	}
+	return true
 }
 
 func newRegexBudget() *regexBudget { return &regexBudget{started: time.Now()} }
