@@ -34,13 +34,52 @@ const (
 	raiMaxSubs      = 32
 	raiMaxThumbs    = 32
 	raiMaxEntries   = 10000
+
+	// raiMaxMP4Probe mirrors the bounded HEAD probe used to gate the pinned
+	// _create_http_urls MP4 synthesis path.  It must stay tiny because the
+	// response body of a HEAD probe is expected to be empty; any payload above
+	// this is rejected as a contract violation.
+	raiMaxMP4Probe int64 = 1 << 14
+	// raiMaxMP4Qualities caps the parsed manifest quality list so a hostile
+	// or pathological relinker cannot drive unbounded synthesis.
+	raiMaxMP4Qualities = 32
 )
 
 var (
 	raiUUID            = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 	raiUUIDPath        = regexp.MustCompile(`(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
 	raiNewsCulturaPath = regexp.MustCompile(`(?i)^/.*?-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:-[^/]+)?\.html$`)
+
+	// raiMP4Manifest extracts the bounded quality list from a Rai manifest
+	// URL path.  It mirrors the pinned `_MANIFEST_REG` in
+	// yt_dlp/extractor/rai.py (aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8).
+	raiMP4Manifest = regexp.MustCompile(`/(?P<id>\w+)(?:_(?P<quality>[\d,]+))?(?:\.mp4)?(?:\.csmil)?/playlist\.m3u8$`)
+	// raiMP4QualitySelector only matches a single digit-and-comma quality
+	// token; the manifest quality list is comma separated and bounded to
+	// values in `raiMP4QualityTable`.
+	raiMP4QualitySelector = regexp.MustCompile(`^[\d,]+$`)
 )
+
+// raiMP4QualityTable mirrors the pinned `_QUALITY` mapping in
+// yt_dlp/extractor/rai.py (aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8).  It
+// records (width, height) for each enumerated bitrate token.  Unknown
+// qualities are rejected by the synthesis path; they never synthesize
+// unsupported dimensions.
+var raiMP4QualityTable = map[int][2]int{
+	250:   {352, 198},
+	400:   {512, 288},
+	600:   {512, 288},
+	700:   {512, 288},
+	800:   {700, 394},
+	1200:  {736, 414},
+	1500:  {920, 518},
+	1800:  {1024, 576},
+	2400:  {1280, 720},
+	3200:  {1440, 810},
+	3600:  {1440, 810},
+	5000:  {1920, 1080},
+	10000: {1920, 1080},
+}
 
 // Concrete types are intentionally tiny.  Their keys match yt-dlp's public
 // classes while all extraction is owned by raiAdapter.
@@ -476,6 +515,28 @@ func raiRelinker(ctx context.Context, transport Transport, raw, id string, audio
 	if len(formats) == 0 && strings.EqualFold(fields["geoprotection"], "Y") {
 		return raiRelinkerInfo{}, ErrRegionRestricted
 	}
+	// Bounded `_create_http_urls` synthesis: append a credential-isolated
+	// availability probe and synthetic MP4 HTTP format entries when the
+	// pinned preconditions hold (m3u8, !live, !audioOnly, manifest matched).
+	// The original relinker URL is preserved verbatim so the relinker's
+	// signature survives the synthesis round-trip.
+	//
+	// Pinned `_create_http_urls` swallows every non-context error from URL
+	// preparation or the availability probe and degrades to no synthetic
+	// formats; only context cancellation propagates.  We mirror that
+	// contract so a hostile or transient MP4 availability failure cannot
+	// drop a valid base HLS extraction.
+	live := strings.EqualFold(fields["is_live"], "Y")
+	synthetic, err := raiMP4Synthesize(ctx, transport, raw, media, formats, live, audioOnly)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return raiRelinkerInfo{}, err
+		}
+		synthetic = nil
+	}
+	if len(synthetic) > 0 {
+		formats = append(formats, synthetic...)
+	}
 	return raiRelinkerInfo{formats: formats, duration: raiDuration(fields["duration"]), live: strings.EqualFold(fields["is_live"], "Y")}, nil
 }
 func raiXML(data []byte) (map[string]string, error) {
@@ -568,6 +629,438 @@ func raiFormats(raw string, f map[string]string, audioOnly bool) ([]value.Value,
 		return nil, fmt.Errorf("%w: unsupported Rai media extension", ErrUnavailable)
 	}
 	return []value.Value{value.ObjectValue(format)}, nil
+}
+
+// raiMP4URL applies the pinned MP4 URL template
+// (`overrideUserAgentRule=mp4-<quality>`) to a relinker URL while preserving
+// the original RawQuery byte order and any signature-bearing query
+// parameters (the Rai relinker signs its base query string; rewriting it via
+// `url.Values.Encode` invalidates the signature).  The override parameter is
+// appended verbatim after a `&` separator; a pre-existing
+// `overrideUserAgentRule` key in the relinker URL is rejected so a malicious
+// or stale signature cannot leak through.  Fragments, userinfo, and empty
+// RawQuery are rejected so a relinker URL cannot leak secrets via the
+// synthesized URL.  Quality must be either `*` or digit/comma.
+func raiMP4URL(relinkerURL, quality string) (string, error) {
+	if quality != "*" && !raiMP4QualitySelector.MatchString(quality) {
+		return "", fmt.Errorf("%w: invalid Rai MP4 quality", ErrInvalidMetadata)
+	}
+	if quality != "*" && strings.Contains(quality, ",") {
+		return "", fmt.Errorf("%w: Rai MP4 quality must be a single token", ErrInvalidMetadata)
+	}
+	parsed, err := url.Parse(relinkerURL)
+	if err != nil {
+		return "", fmt.Errorf("%w: invalid Rai relinker URL", ErrInvalidMetadata)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", fmt.Errorf("%w: unsupported Rai relinker protocol", ErrUnavailable)
+	}
+	if parsed.User != nil || parsed.Fragment != "" || parsed.ForceQuery || parsed.RawQuery == "" {
+		return "", fmt.Errorf("%w: unsafe Rai relinker URL", ErrInvalidMetadata)
+	}
+	if _, exists := parsed.Query()["overrideUserAgentRule"]; exists {
+		return "", fmt.Errorf("%w: Rai relinker URL already overrides User-Agent", ErrInvalidMetadata)
+	}
+	candidate := parsed.String() + "&overrideUserAgentRule=mp4-" + quality
+	if !raiPublicURL(candidate) {
+		return "", fmt.Errorf("%w: unsafe Rai MP4 URL", ErrInvalidMetadata)
+	}
+	return candidate, nil
+}
+
+// raiMP4ManifestQualities returns the bounded list of MP4 quality tokens
+// declared by a manifest URL path.  The three-state return distinguishes:
+//   - (nil, false): the manifest URL did not match the pinned `_MANIFEST_REG`
+//     at all; synthesis is suppressed entirely so we do not invent MP4
+//     formats for arbitrary Rai m3u8 URLs.
+//   - (nil, true):  the manifest URL matched but exposes no quality list;
+//     synthesis proceeds with the wildcard token `*`.
+//   - (qualities, true): the manifest URL matched and declared an explicit
+//     list; each element is a bounded digit/comma token.  Unknown or
+//     malformed quality tokens, or lists that exceed
+//     `raiMaxMP4Qualities` entries, are treated as `valid=false` so the
+//     caller suppresses synthesis instead of falling back to the wildcard.
+func raiMP4ManifestQualities(manifestURL string) ([]string, bool) {
+	match := raiMP4Manifest.FindStringSubmatch(strings.SplitN(manifestURL, "?", 2)[0])
+	if len(match) == 0 {
+		return nil, false
+	}
+	quality := match[2]
+	if quality == "" {
+		return nil, true
+	}
+	parts := strings.Split(quality, ",")
+	out := make([]string, 0, len(parts))
+	seen := make(map[string]bool, len(parts))
+	for _, part := range parts {
+		if !raiMP4QualitySelector.MatchString(part) {
+			return nil, false
+		}
+		if seen[part] {
+			continue
+		}
+		seen[part] = true
+		out = append(out, part)
+		if len(out) > raiMaxMP4Qualities {
+			return nil, false
+		}
+	}
+	return out, true
+}
+
+// raiMP4Probe executes a credential-isolated no-redirect HEAD probe against
+// the availability probe URL (`overrideUserAgentRule=mp4-*`).  It mirrors
+// the pinned availability gate at the top of `_create_http_urls`.  The probe
+// is only considered successful when the response status is in the 2xx
+// range and the (bounded) body is empty.  Network errors are treated as
+// "probe failed" while context cancellation and deadline errors are
+// propagated verbatim so callers can distinguish them from a "service
+// unavailable" path.  Nil responses or nil bodies are rejected without
+// panic.
+func raiMP4Probe(ctx context.Context, transport Transport, probeURL string) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	probe, err := url.Parse(probeURL)
+	if err != nil || !raiPublicURL(probeURL) {
+		return false, fmt.Errorf("%w: unsafe Rai MP4 probe URL", ErrInvalidMetadata)
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodHead, probe.String(), nil)
+	if err != nil {
+		return false, fmt.Errorf("%w: invalid Rai MP4 probe", ErrInvalidMetadata)
+	}
+	request.Header.Set("User-Agent", "Rai")
+	isolated, ok := transport.(CredentialIsolatedNoRedirectTransport)
+	if !ok {
+		return false, ErrTransportIsolation
+	}
+	response, err := isolated.DoWithoutCredentialsNoRedirect(ctx, request)
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return false, ctxErr
+		}
+		return false, nil
+	}
+	if response == nil {
+		return false, nil
+	}
+	if response.Body == nil {
+		return false, nil
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return false, nil
+	}
+	data, err := io.ReadAll(io.LimitReader(response.Body, raiMaxMP4Probe+1))
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return false, ctxErr
+		}
+		return false, nil
+	}
+	if int64(len(data)) > raiMaxMP4Probe {
+		return false, nil
+	}
+	return true, nil
+}
+
+// raiMP4QualityBounds mirrors the percentage-and-roof helper used in the
+// pinned `_create_http_urls.get_format_info`.  It returns true when `target`
+// is within `min(20%, 125 kbps)` of `number`.  In the pinned call site
+// `number` is the desired tbr and `target` is the candidate base-format tbr.
+// The check is implemented as the strict, overflow-safe conditions
+// `diff < 125 && diff*5 < number` (both integers).  Non-positive inputs
+// disable the match.
+func raiMP4QualityBounds(number, target int64) bool {
+	if number <= 0 || target <= 0 {
+		return false
+	}
+	diff := target - number
+	if diff < 0 {
+		diff = -diff
+	}
+	if diff >= 125 {
+		return false
+	}
+	return diff*5 < number
+}
+
+// raiMP4Synthesize implements the bounded `_create_http_urls` synthesis path
+// from yt_dlp/extractor/rai.py
+// (aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8).  It is only invoked when the
+// pinned preconditions hold: the manifest URL matched the pinned
+// `_MANIFEST_REG`, the relinker response is not flagged as live, and the
+// caller has not requested audio-only synthesis.  Audio/video single-stream
+// HLS base formats are filtered out of the metadata-copy candidates but do
+// not abort synthesis - the pinned default table is still emitted when
+// `!audioOnly && !live`.  Synthesis is bounded by `raiMaxFormats` overall
+// (base + synthetic), the pinned quality table, and the parsed manifest
+// quality list.  When the manifest exposes no explicit quality list the
+// wildcard token `*` is used; invalid or oversized quality lists suppress
+// synthesis entirely.
+//
+// The credential-isolated no-redirect HEAD availability probe is the first
+// network step, mirroring the pinned `_request_webpage(HEADRequest(...))`
+// call site at the top of `_create_http_urls`.  Only a successful probe
+// is followed by the manifest-regex quality extraction; a probe failure
+// degrades to no synthetic formats without surfacing an error.
+func raiMP4Synthesize(ctx context.Context, transport Transport, relinkerURL, manifestURL string, baseFormats []value.Value, live, audioOnly bool) ([]value.Value, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if live || audioOnly {
+		return nil, nil
+	}
+	probeURL, err := raiMP4URL(relinkerURL, "*")
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err
+		}
+		return nil, nil
+	}
+	available, err := raiMP4Probe(ctx, transport, probeURL)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err
+		}
+		return nil, nil
+	}
+	if !available {
+		return nil, nil
+	}
+	qualities, matched := raiMP4ManifestQualities(manifestURL)
+	if !matched {
+		return nil, nil
+	}
+	// Filter combined A/V base formats for metadata-copy selection.  The
+	// pinned code uses `len(filtered)==1` as the trigger for the 250 kbps
+	// fallback path; audio-only or video-only base formats never qualify.
+	combined := make([]value.Value, 0, len(baseFormats))
+	singleTBR := int64(0)
+	for _, candidate := range baseFormats {
+		object, ok := candidate.Object()
+		if !ok {
+			continue
+		}
+		vcodec, _ := object.Lookup("vcodec").StringValue()
+		acodec, _ := object.Lookup("acodec").StringValue()
+		if vcodec == "none" || acodec == "none" {
+			continue
+		}
+		combined = append(combined, candidate)
+		if tbr, ok := raiNumericValue(object, "tbr"); ok && tbr > 0 {
+			singleTBR = tbr
+		}
+	}
+	if len(qualities) == 0 {
+		qualities = []string{"*"}
+	}
+	remaining := raiMaxFormats - len(baseFormats)
+	if remaining <= 0 {
+		return nil, nil
+	}
+	out := make([]value.Value, 0, min(len(qualities), remaining))
+	seen := make(map[string]bool, len(qualities))
+	for _, quality := range qualities {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if quality != "*" {
+			tbr, parseErr := strconv.Atoi(quality)
+			if parseErr != nil || tbr <= 0 {
+				continue
+			}
+			if _, known := raiMP4QualityTable[tbr]; !known {
+				// Pinned `_create_http_urls` still emits an explicit
+				// quality even when the table lacks it, as long as
+				// `raiMP4Format` can either derive a metadata copy or
+				// fall back to the table default.  We only skip here
+				// when neither path can produce a valid synthetic entry.
+				if !raiMP4FormatResolves(int64(tbr), combined) {
+					continue
+				}
+			}
+		}
+		formatURL, err := raiMP4URL(relinkerURL, quality)
+		if err != nil {
+			continue
+		}
+		if seen[formatURL] {
+			continue
+		}
+		seen[formatURL] = true
+		out = append(out, value.ObjectValue(raiMP4Format(formatURL, quality, combined, singleTBR, len(combined))))
+		if len(out) >= remaining {
+			break
+		}
+	}
+	return out, nil
+}
+
+// raiNumericValue reads an integer-typed or float-typed value from an Object,
+// matching the existing `value.Value` int/float conversion conventions.
+func raiNumericValue(object *value.Object, key string) (int64, bool) {
+	v := object.Lookup(key)
+	if n, ok := v.Int(); ok {
+		return n, true
+	}
+	if f, ok := v.Float(); ok {
+		return int64(f), true
+	}
+	return 0, false
+}
+
+// raiMP4FormatResolves reports whether `raiMP4Format` can produce a valid
+// synthetic entry for an explicit tbr token that is not in the pinned
+// `_QUALITY` table.  It returns true when at least one combined base
+// format has a bitrate within the percentage bounds of the desired tbr
+// or matches its resolution table entry.  Used by `raiMP4Synthesize` to
+// decide whether to skip a non-table quality token without ever calling
+// `raiMP4Format`.
+func raiMP4FormatResolves(desired int64, combined []value.Value) bool {
+	for _, candidate := range combined {
+		object, ok := candidate.Object()
+		if !ok {
+			continue
+		}
+		baseTBR, ok := raiNumericValue(object, "tbr")
+		if !ok {
+			continue
+		}
+		if raiMP4QualityBounds(desired, baseTBR) {
+			return true
+		}
+		baseW, hasW := object.Lookup("width").Int()
+		baseH, hasH := object.Lookup("height").Int()
+		if dims, known := raiMP4QualityTable[int(desired)]; known && hasW && hasH && baseW == int64(dims[0]) && baseH == int64(dims[1]) {
+			return true
+		}
+	}
+	return false
+}
+
+// raiMP4Format builds one synthetic MP4 HTTP format entry.  Pinned
+// `_create_http_urls.get_format_info` is invoked once per synthesized
+// quality token (including explicit ones), not only on the wildcard.  The
+// metadata-copy selection prefers bitrate matches over resolution matches
+// and always picks the LAST matching candidate in iteration order,
+// mirroring the pinned Python loop.  When no combined A/V base format copy
+// is selected, width/height remain absent so the caller can distinguish
+// them from explicit table defaults; codecs/fps likewise only inherit
+// from the chosen copy.  The 250/352x198 table default is applied only as
+// a fallback when no copy was selected and the desired tbr is not in the
+// pinned table.
+func raiMP4Format(rawURL, quality string, combined []value.Value, singleTBR int64, combinedCount int) *value.Object {
+	width, height := 0, 0
+	var vcodec, acodec string
+	fps := 25
+	desired := int64(250)
+	if quality == "*" {
+		if combinedCount == 1 && singleTBR > 0 {
+			derived := (singleTBR / 100) * 100
+			if derived <= 0 || derived < 250 {
+				derived = 250
+			}
+			// Pinned semantics: the original code uses `br > 300` (strict)
+			// to enable the derived fallback.  When the rounded value is
+			// 300 it falls through to the 250 default; otherwise the
+			// rounded value is the desired tbr.
+			if derived > 300 || (derived == 300 && singleTBR > 300) {
+				desired = derived
+			}
+		}
+	} else {
+		if parsedTBR, parseErr := strconv.ParseInt(quality, 10, 64); parseErr == nil && parsedTBR > 0 {
+			desired = parsedTBR
+		}
+	}
+	var bitrateMatch *value.Object
+	var resolutionMatch *value.Object
+	for _, candidate := range combined {
+		object, ok := candidate.Object()
+		if !ok {
+			continue
+		}
+		baseTBR, hasTBR := raiNumericValue(object, "tbr")
+		baseW, hasW := object.Lookup("width").Int()
+		baseH, hasH := object.Lookup("height").Int()
+		if hasTBR && raiMP4QualityBounds(desired, baseTBR) {
+			// Deep clone so the resolution-match branch (which mutates
+			// tbr) cannot corrupt the bitrate-match copy via the shared
+			// backing slice.  Shallow `*object` copies leak mutations
+			// because Object.fields shares its backing array.
+			bitrateMatch = object.Clone()
+		}
+		if dims, known := raiMP4QualityTable[int(desired)]; known && hasW && hasH && baseW == int64(dims[0]) && baseH == int64(dims[1]) {
+			resolutionMatch = object.Clone()
+			resolutionMatch.Set("tbr", value.Int(desired))
+		}
+	}
+	chosen := bitrateMatch
+	if chosen == nil {
+		chosen = resolutionMatch
+	}
+	if chosen != nil {
+		if w, ok := chosen.Lookup("width").Int(); ok && w > 0 {
+			width = int(w)
+		}
+		if h, ok := chosen.Lookup("height").Int(); ok && h > 0 {
+			height = int(h)
+		}
+		if v, ok := chosen.Lookup("vcodec").StringValue(); ok && v != "" && v != "none" {
+			vcodec = v
+		}
+		if a, ok := chosen.Lookup("acodec").StringValue(); ok && a != "" && a != "none" {
+			acodec = a
+		}
+		if f, ok := chosen.Lookup("fps").Int(); ok && f > 0 {
+			fps = int(f)
+		}
+	}
+	if vcodec == "" {
+		vcodec = "avc1"
+	}
+	if acodec == "" {
+		acodec = "mp4a"
+	}
+	tbr := int(desired)
+	if chosen != nil {
+		// Pinned `format_copy.get('tbr') or desired`: when the chosen copy
+		// exposes its own tbr, that value wins over the desired/rounded
+		// tbr.  format_id remains the desired tbr per the pinned contract.
+		if chosenTBR, ok := raiNumericValue(chosen, "tbr"); ok && chosenTBR > 0 {
+			tbr = int(chosenTBR)
+		}
+	}
+	formatID := "https-" + strconv.FormatInt(desired, 10)
+	fields := []value.Field{
+		{Key: "format_id", Value: value.String(formatID)},
+		{Key: "url", Value: value.String(rawURL)},
+		{Key: "protocol", Value: value.String("https")},
+		{Key: "ext", Value: value.String("mp4")},
+		{Key: "vcodec", Value: value.String(vcodec)},
+		{Key: "acodec", Value: value.String(acodec)},
+		{Key: "tbr", Value: value.Int(int64(tbr))},
+	}
+	// width/height are emitted only when the chosen base format copy
+	// exposed them.  When no copy was selected we apply the table default
+	// for the *desired* tbr; if neither path produces a dimension we omit
+	// the field entirely (no synthetic 1280x720 fallback).
+	if width > 0 && height > 0 {
+		fields = append(fields,
+			value.Field{Key: "width", Value: value.Int(int64(width))},
+			value.Field{Key: "height", Value: value.Int(int64(height))},
+		)
+	} else if chosen == nil {
+		if dims, known := raiMP4QualityTable[tbr]; known {
+			fields = append(fields,
+				value.Field{Key: "width", Value: value.Int(int64(dims[0]))},
+				value.Field{Key: "height", Value: value.Int(int64(dims[1]))},
+			)
+		}
+	}
+	fields = append(fields, value.Field{Key: "fps", Value: value.Int(int64(fps))})
+	return value.NewObject(fields...)
 }
 
 func raiPlaylist(ctx context.Context, request Request, target raiTarget) (Extraction, error) {
