@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/ytdlp-go/ytdlp/internal/events"
 	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
@@ -19,6 +20,13 @@ import (
 // identity checks (errors.Is(err, ErrDestinationExists) and friends)
 // continue to work.
 var errLifecycleInternal = errors.New("output lifecycle")
+
+// errMissingLifecycleArtifact flags an internal accounting failure:
+// the lifecycle registered an artifact path with the transaction,
+// but the file is not on disk when accountLifecycleArtifacts runs.
+// Lifecycle bookkeeping has drifted from reality and the
+// transaction must abort so the caller can rollback cleanly.
+var errMissingLifecycleArtifact = errors.New("lifecycle artifact missing from filesystem")
 
 // wrapLifecycleError produces an error that satisfies
 // errors.Is(err, errLifecycleInternal) while preserving the underlying
@@ -116,11 +124,9 @@ type outputPreDownloadArtifact struct {
 // cause with %w so categorised error categories remain detectable via
 // errors.Is.
 //
-// The transaction is used only for ownership tracking
-// (transaction.recordCreated). All filesystem writes for this output
-// are routed through the PR 7 transaction or registered as
-// transaction-owned files. The lifecycle does not call
-// transaction.rollback; the caller in processMedia drives rollback.
+// The transaction owns media publication and sidecar overwrite protection.
+// All filesystem writes for this output are routed through the active PR 7
+// transaction or registered as transaction-owned files.
 func (operation *operation) executeOutputLifecycle(
 	ctx context.Context,
 	transaction *mediaTransaction,
@@ -179,34 +185,64 @@ func (operation *operation) executeOutputLifecyclePhases(
 // runLifecyclePreDownloadPrints emits PrintVideo and PrintBeforeDL for
 // this lifecycle with its own Info and destination. Print file
 // artifacts participate in the PR 7 transaction: each printed file
-// is registered with transaction.recordCreated so rollback can clean
-// up partially-written print files.
+// is tracked by the transaction so rollback can clean up partially-written
+// print files or restore an append target.
 func (operation *operation) runLifecyclePreDownloadPrints(
 	ctx context.Context,
 	transaction *mediaTransaction,
 	lifecycle *outputLifecycle,
 ) error {
-	plan := lifecycle.Plan
 	for _, stage := range []PrintStage{PrintVideo, PrintBeforeDL} {
-		prints, err := operation.capturePrints(
-			ctx, stage, lifecycle.Info, &plan, plan.Tracks, lifecycle.Destination,
-		)
-		if err != nil {
-			return wrapLifecycleError("render "+string(stage)+" print", err)
+		if err := operation.runLifecyclePrintStage(ctx, transaction, lifecycle, stage, lifecycle.Destination); err != nil {
+			return err
 		}
-		lifecycle.Prints = append(lifecycle.Prints, prints...)
-		fileArtifacts, fileBytes, err := operation.writePrintFiles(
-			ctx, stage, lifecycle.Info, &plan, plan.Tracks, lifecycle.Destination,
-		)
-		if err != nil {
-			return wrapLifecycleError("write "+string(stage)+" print file", err)
-		}
-		for _, artifact := range fileArtifacts {
-			transaction.recordCreated(artifact.Path)
-		}
-		lifecycle.Sidecars = append(lifecycle.Sidecars, fileArtifacts...)
-		lifecycle.Bytes += fileBytes
 	}
+	return nil
+}
+
+// runLifecyclePrintStage runs a single print stage for the lifecycle.
+// It captures the print outputs, writes any print file artifacts,
+// registers them with the transaction, and appends them to the
+// lifecycle's Sidecars and Prints slices.
+//
+// The caller may invoke this helper individually (so the
+// single-output product path can interleave PrintVideo before
+// thumbnails and PrintBeforeDL after related files, preserving the
+// historical artifact ordering) or as part of the higher-level
+// runLifecyclePreDownloadPrints / runLifecycleAfterPrints helpers.
+func (operation *operation) runLifecyclePrintStage(
+	ctx context.Context,
+	transaction *mediaTransaction,
+	lifecycle *outputLifecycle,
+	stage PrintStage,
+	filename string,
+) error {
+	plan := lifecycle.Plan
+	// capturePrints and writePrintFiles expect a *OutputPlan that is
+	// non-nil only for multi-track plans (matching the historical
+	// singlePrintPlan logic in processMedia). For single-track
+	// plans they take selections directly so the URL/format
+	// fields are populated from the merged selection.
+	var printPlan *mediaformat.OutputPlan
+	if len(plan.Tracks) > 1 {
+		printPlan = &plan
+	}
+	prints, err := operation.capturePrints(
+		ctx, stage, lifecycle.Info, printPlan, plan.Tracks, filename,
+	)
+	if err != nil {
+		return wrapLifecycleError("render "+string(stage)+" print", err)
+	}
+	lifecycle.Prints = append(lifecycle.Prints, prints...)
+	fileArtifacts, fileBytes, err := operation.writePrintFiles(
+		ctx, stage, lifecycle.Info, printPlan, plan.Tracks, filename,
+	)
+	if err != nil {
+		return wrapLifecycleError("write "+string(stage)+" print file", err)
+	}
+	trackTransactionArtifacts(transaction, fileArtifacts)
+	lifecycle.Sidecars = mergePrintArtifacts(lifecycle.Sidecars, fileArtifacts)
+	lifecycle.Bytes += fileBytes
 	return nil
 }
 
@@ -230,7 +266,7 @@ func (operation *operation) runLifecycleDownload(
 	if err != nil {
 		return wrapLifecycleError("download selected formats", err)
 	}
-	transaction.recordCreated(path)
+	transaction.markPublished(path)
 	lifecycle.MediaPath = path
 	lifecycle.FinalPath = path
 	lifecycle.MediaArtifacts = append(lifecycle.MediaArtifacts, Artifact{Path: path, Kind: "media"})
@@ -247,26 +283,10 @@ func (operation *operation) runLifecycleAfterPrints(
 	transaction *mediaTransaction,
 	lifecycle *outputLifecycle,
 ) error {
-	plan := lifecycle.Plan
 	for _, stage := range []PrintStage{PrintPostProcess, PrintAfterMove, PrintAfterVideo} {
-		prints, err := operation.capturePrints(
-			ctx, stage, lifecycle.Info, &plan, plan.Tracks, lifecycle.FinalPath,
-		)
-		if err != nil {
-			return wrapLifecycleError("render "+string(stage)+" print", err)
+		if err := operation.runLifecyclePrintStage(ctx, transaction, lifecycle, stage, lifecycle.FinalPath); err != nil {
+			return err
 		}
-		lifecycle.Prints = append(lifecycle.Prints, prints...)
-		fileArtifacts, fileBytes, err := operation.writePrintFiles(
-			ctx, stage, lifecycle.Info, &plan, plan.Tracks, lifecycle.FinalPath,
-		)
-		if err != nil {
-			return wrapLifecycleError("write "+string(stage)+" print file", err)
-		}
-		for _, artifact := range fileArtifacts {
-			transaction.recordCreated(artifact.Path)
-		}
-		lifecycle.Sidecars = append(lifecycle.Sidecars, fileArtifacts...)
-		lifecycle.Bytes += fileBytes
 	}
 	return nil
 }
@@ -275,15 +295,23 @@ func (operation *operation) runLifecycleAfterPrints(
 // it reflects only the published artifacts owned by this output. The
 // final Result.Bytes is computed by PR 7's transaction using the
 // authoritative artifact ordering (sidecars before media).
+//
+// Accounting is strict: every artifact the lifecycle registered must
+// exist on disk once the lifecycle returns successfully. A missing
+// artifact is an internal accounting error and aborts the
+// transaction. The strict check catches lifecycle bookkeeping bugs
+// (a recorded path that was never written, or a sidecar removed by
+// a stray cleanup) before they leak into Result.Bytes or
+// Result.Artifacts.
 func (operation *operation) accountLifecycleArtifacts(lifecycle *outputLifecycle) error {
 	var total int64
 	for _, artifact := range append(append([]Artifact{}, lifecycle.Sidecars...), lifecycle.MediaArtifacts...) {
 		info, err := os.Stat(artifact.Path)
 		if err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			return wrapLifecycleError("stat "+artifact.Path, err)
+			return wrapLifecycleError(
+				"account lifecycle artifact "+artifact.Path,
+				fmt.Errorf("%w: %v", errMissingLifecycleArtifact, err),
+			)
 		}
 		total += info.Size()
 	}
@@ -341,4 +369,239 @@ func cleanLifecyclePath(path string) {
 		return
 	}
 	_ = os.Remove(cleaned)
+}
+
+// executePlanLifecycle drives the complete product path for one output plan
+// through the per-output lifecycle abstraction while preserving the
+// historical single-output Result contract and extending it per plan:
+//
+//   - Result.Artifacts order:
+//     PrintVideo print files, thumbnails, related files,
+//     PrintBeforeDL print files, subtitles (downloaded + converted),
+//     media (post-processed, cut, embedded).
+//   - Result.Filename = the plan's post-processed media path.
+//   - Result.Bytes = artifactBytes(result.Artifacts) when chapter
+//     cuts or embeds happen, otherwise mediaArtifactBytes for the
+//     post-processed media.
+//   - Result.InfoJSON = the latest encoded info after every
+//     transformation.
+//   - Result.Prints = lifecycle.Prints (in stage order).
+//
+// The lifecycle rolls back failures at stages where the historical
+// single-output path did so. processMedia additionally rolls back the shared
+// transaction when any plan in a multi-output product fails, including the
+// historical thumbnail-embed exception. The transaction owns every path the
+// lifecycle or its sidecar stages write.
+//
+// Simulate mode short-circuits to PrintVideo-only: no thumbnails,
+// related, subtitles, downloads, or post-process stages run. This
+// matches the historical single-output Simulate contract.
+func (operation *operation) executePlanLifecycle(
+	ctx context.Context,
+	transaction *mediaTransaction,
+	lifecycle *outputLifecycle,
+	selectedSubtitles []subtitleTrack,
+	sink events.Sink,
+) (Result, error) {
+	var result Result
+	mergeLifecyclePrintArtifacts := func() {
+		result.Artifacts = mergePrintArtifacts(result.Artifacts, lifecycle.Sidecars)
+	}
+	registerArtifacts := func(artifacts []Artifact) {
+		trackTransactionArtifacts(transaction, artifacts)
+	}
+	finish := func() (Result, error) {
+		mergeLifecyclePrintArtifacts()
+		lifecycle.Sidecars = lifecycle.Sidecars[:0]
+		lifecycle.MediaArtifacts = lifecycle.MediaArtifacts[:0]
+		for _, artifact := range result.Artifacts {
+			if artifact.Kind == "media" {
+				lifecycle.MediaArtifacts = append(lifecycle.MediaArtifacts, artifact)
+			} else {
+				lifecycle.Sidecars = append(lifecycle.Sidecars, artifact)
+			}
+		}
+		if err := operation.accountLifecycleArtifacts(lifecycle); err != nil {
+			transaction.rollback()
+			return Result{}, err
+		}
+		result.Bytes = lifecycle.Bytes
+		encoded, err := encodeInfo(lifecycle.Info)
+		if err != nil {
+			transaction.rollback()
+			return Result{}, err
+		}
+		result.InfoJSON = encoded
+		result.Downloaded = result.Downloaded || len(result.Artifacts) > 0 || lifecycle.Downloaded
+		return result, nil
+	}
+
+	if operation.request.Simulate {
+		if err := operation.runLifecyclePrintStage(ctx, transaction, lifecycle, PrintVideo, lifecycle.Destination); err != nil {
+			return Result{}, categorized("render video print", err)
+		}
+		result.Prints = append(result.Prints, lifecycle.Prints...)
+		return finish()
+	}
+
+	if len(selectedSubtitles) > 0 {
+		requestedSubtitles := value.NewObject()
+		cloned := make([]subtitleTrack, len(selectedSubtitles))
+		for index, track := range selectedSubtitles {
+			cloned[index] = track
+			cloned[index].headers = track.headers.Clone()
+			cloned[index].metadata = track.metadata.Clone()
+			requestedSubtitles.Set(track.language, value.ObjectValue(cloned[index].metadata))
+		}
+		selectedSubtitles = cloned
+		lifecycle.Info.Set("requested_subtitles", value.ObjectValue(requestedSubtitles))
+	}
+
+	// Phase 1: PrintVideo (before thumbnails, related, subtitles).
+	if err := operation.runLifecyclePrintStage(ctx, transaction, lifecycle, PrintVideo, lifecycle.Destination); err != nil {
+		return Result{}, categorized("render video print", err)
+	}
+	mergeLifecyclePrintArtifacts()
+
+	// Phase 2: entry-scoped pre-download sidecars (thumbnails,
+	// related files, subtitles). These remain entry-scoped until
+	// Phases 11-13 move them into the lifecycle.
+	thumbnailArtifacts, _, err := operation.writeThumbnails(ctx, &lifecycle.Info, false)
+	if err != nil {
+		transaction.rollback()
+		return Result{}, categorized("write thumbnails", err)
+	}
+	registerArtifacts(thumbnailArtifacts)
+	result.Artifacts = append(result.Artifacts, thumbnailArtifacts...)
+
+	relatedArtifacts, _, err := operation.writeRelatedFiles(ctx, lifecycle.Info, false)
+	if err != nil {
+		transaction.rollback()
+		return Result{}, categorized("write related files", err)
+	}
+	registerArtifacts(relatedArtifacts)
+	result.Artifacts = append(result.Artifacts, relatedArtifacts...)
+
+	// Phase 3: PrintBeforeDL (after thumbnails/related).
+	if err := operation.runLifecyclePrintStage(ctx, transaction, lifecycle, PrintBeforeDL, lifecycle.Destination); err != nil {
+		return Result{}, categorized("render before-download print", err)
+	}
+	mergeLifecyclePrintArtifacts()
+
+	subtitleArtifacts, _, err := operation.downloadSubtitles(ctx, lifecycle.Info, selectedSubtitles, operation.eventSink())
+	if err != nil {
+		transaction.rollback()
+		return Result{}, categorized("download subtitles", err)
+	}
+	registerArtifacts(subtitleArtifacts)
+	result.Artifacts = append(result.Artifacts, subtitleArtifacts...)
+
+	selectedSubtitles, result.Artifacts, _, err = operation.convertSelectedSubtitles(
+		ctx, selectedSubtitles, result.Artifacts, operation.eventSink(),
+	)
+	if err != nil {
+		transaction.rollback()
+		return Result{}, categorized("convert subtitles", err)
+	}
+	registerArtifacts(result.Artifacts)
+
+	if operation.request.SkipDownload {
+		// After-prints still run for skip-download mode.
+		if err := operation.runLifecycleAfterPrints(ctx, transaction, lifecycle); err != nil {
+			transaction.rollback()
+			return Result{}, err
+		}
+		result.Prints = append(result.Prints, lifecycle.Prints...)
+		return finish()
+	}
+
+	// PR 7 protects overwrite targets before a producer mutates them. Media
+	// destinations were acquired as one set by processMedia; derived
+	// postprocessor outputs are plan-specific and are protected here before the
+	// download/postprocessor chain starts.
+	postprocessorPaths, err := operation.postprocessorDestinations(lifecycle.Destination)
+	if err != nil {
+		transaction.rollback()
+		return Result{}, categorized("preflight postprocessor destinations", err)
+	}
+	for _, path := range postprocessorPaths {
+		if err := transaction.protectPath(path, operation.request.Overwrite); err != nil {
+			transaction.rollback()
+			return Result{}, categorized("prepare postprocessor destination", err)
+		}
+	}
+
+	// Phase 4: download via the lifecycle.
+	if err := operation.runLifecycleDownload(ctx, transaction, lifecycle, sink); err != nil {
+		transaction.rollback()
+		return Result{}, categorized("download selected formats", err)
+	}
+
+	// Phase 5: entry-scoped post-process stages using lifecycle.MediaPath.
+	outputDir := operation.request.outputRoot(OutputPathHome)
+	var mediaArtifacts []Artifact
+	lifecycle.MediaPath, mediaArtifacts, err = operation.applyPostprocessors(ctx, outputDir, lifecycle.MediaPath, sink)
+	if err != nil {
+		transaction.rollback()
+		return Result{}, categorized("run postprocessors", err)
+	}
+	trackTransactionArtifacts(transaction, mediaArtifacts)
+	lifecycle.MediaArtifacts = mediaArtifacts
+	lifecycle.FinalPath = lifecycle.MediaPath
+	// Update InfoJSON with the postprocessed extension and path.
+	if extension := strings.TrimPrefix(filepath.Ext(lifecycle.MediaPath), "."); extension != "" {
+		lifecycle.Info.Set("ext", value.String(extension))
+	}
+	lifecycle.Info.Set("filepath", value.String(lifecycle.MediaPath))
+	result.Artifacts = append(result.Artifacts, mediaArtifacts...)
+
+	// mediaArtifactStart records the slice index where post-process
+	// media artifacts begin. The post-process stages (chapter cuts,
+	// subtitle embedding, thumbnail embedding) append more artifacts
+	// to result.Artifacts; the byte accounting below needs to know
+	// which slice to read from.
+	mediaArtifactStart := len(result.Artifacts) - len(mediaArtifacts)
+	var cutApplied bool
+	lifecycle.MediaPath, result.Artifacts, cutApplied, err = operation.applyChapterCuts(ctx, &lifecycle.Info, lifecycle.MediaPath, result.Artifacts, sink)
+	if err != nil {
+		transaction.rollback()
+		return Result{}, err
+	}
+	registerArtifacts(result.Artifacts)
+	lifecycle.FinalPath = lifecycle.MediaPath
+
+	var embeddedSubtitles bool
+	result.Artifacts, embeddedSubtitles, err = operation.embedSelectedSubtitles(
+		ctx, &lifecycle.Info, lifecycle.MediaPath, selectedSubtitles, result.Artifacts, sink,
+	)
+	if err != nil {
+		transaction.rollback()
+		return Result{}, categorized("embed subtitles", err)
+	}
+	registerArtifacts(result.Artifacts)
+
+	var embeddedThumbnail bool
+	result.Artifacts, embeddedThumbnail, err = operation.embedSelectedThumbnail(
+		ctx, &lifecycle.Info, lifecycle.MediaPath, result.Artifacts, sink,
+	)
+	if err != nil {
+		return Result{}, categorized("embed thumbnail", err)
+	}
+	registerArtifacts(result.Artifacts)
+
+	result.Downloaded = true
+	result.Filename = lifecycle.FinalPath
+	_ = cutApplied
+	_ = embeddedSubtitles
+	_ = embeddedThumbnail
+	_ = mediaArtifactStart
+
+	// Phase 6: after-download prints via the lifecycle.
+	if err := operation.runLifecycleAfterPrints(ctx, transaction, lifecycle); err != nil {
+		transaction.rollback()
+		return Result{}, err
+	}
+
+	result.Prints = append(result.Prints, lifecycle.Prints...)
+	return finish()
 }

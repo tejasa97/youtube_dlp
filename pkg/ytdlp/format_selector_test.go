@@ -421,7 +421,7 @@ func TestMultiOutputProductRejectsMoveBeforeDownload(t *testing.T) {
 	}
 }
 
-func TestMultiOutputProductRejectsDefaultDestinationPostprocessors(t *testing.T) {
+func TestMultiOutputProductAcceptsDefaultDestinationPostprocessors(t *testing.T) {
 	tests := []struct {
 		name string
 		post Postprocessor
@@ -431,18 +431,8 @@ func TestMultiOutputProductRejectsDefaultDestinationPostprocessors(t *testing.T)
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			mediaHits := 0
-			pageURL := multiOutputSelectorFixture(t, func() { mediaHits++ })
-			root := t.TempDir()
-			_, err := NewClient().Run(context.Background(), Request{
-				URL: pageURL, OutputDir: root, Format: "video,audio", Overwrite: true,
-				Postprocessors: []Postprocessor{test.post},
-			})
-			if !errors.Is(err, mediaformat.ErrMultiOutput) {
-				t.Fatalf("Run() = %v", err)
-			}
-			if mediaHits != 0 {
-				t.Fatalf("media downloads = %d, want 0", mediaHits)
+			if err := validateMultiOutputProduct(Request{Postprocessors: []Postprocessor{test.post}}, 2); err != nil {
+				t.Fatalf("validate = %v", err)
 			}
 		})
 	}
@@ -523,7 +513,7 @@ func TestMultiOutputMediaByteAccounting(t *testing.T) {
 	}
 }
 
-func TestMultiOutputProductRejectsPostprocessors(t *testing.T) {
+func TestMultiOutputProductValidatesPostprocessorDestinations(t *testing.T) {
 	tests := []struct {
 		name string
 		post Postprocessor
@@ -534,14 +524,19 @@ func TestMultiOutputProductRejectsPostprocessors(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if err := validateMultiOutputProduct(Request{Postprocessors: []Postprocessor{test.post}}, 2); !errors.Is(err, mediaformat.ErrMultiOutput) {
-				t.Fatalf("validate = %v", err)
+			request := Request{Postprocessors: []Postprocessor{test.post}}
+			if destination := postprocessorExplicitDestination(test.post); destination == "" {
+				if err := validateMultiOutputProduct(request, 2); err != nil {
+					t.Fatalf("default destination validate = %v", err)
+				}
+			} else if err := validateMultiOutputProduct(request, 2); !errors.Is(err, mediaformat.ErrMultiOutput) {
+				t.Fatalf("fixed destination validate = %v", err)
 			}
 		})
 	}
 }
 
-func TestMultiOutputProductRejectsSponsorBlockRemove(t *testing.T) {
+func TestMultiOutputProductAllowsSponsorBlockRemove(t *testing.T) {
 	operation := &operation{
 		request: Request{
 			Format: "bestvideo,bestaudio",
@@ -550,19 +545,19 @@ func TestMultiOutputProductRejectsSponsorBlockRemove(t *testing.T) {
 			},
 		},
 	}
-	if err := validateMultiOutputProduct(operation.request, 2); !errors.Is(err, mediaformat.ErrMultiOutput) {
+	if err := validateMultiOutputProduct(operation.request, 2); err != nil {
 		t.Fatalf("validate = %v", err)
 	}
 }
 
-func TestMultiOutputProductRejectsSubtitleEmbed(t *testing.T) {
+func TestMultiOutputProductAllowsSubtitleEmbed(t *testing.T) {
 	operation := &operation{
 		request: Request{
 			Format:    "bestvideo,bestaudio",
 			Subtitles: SubtitleOptions{Embed: true},
 		},
 	}
-	if err := validateMultiOutputProduct(operation.request, 2); !errors.Is(err, mediaformat.ErrMultiOutput) {
+	if err := validateMultiOutputProduct(operation.request, 2); err != nil {
 		t.Fatalf("validate = %v", err)
 	}
 }
