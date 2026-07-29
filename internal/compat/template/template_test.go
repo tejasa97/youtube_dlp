@@ -1,8 +1,10 @@
 package template
 
 import (
+	"context"
 	"errors"
 	"math"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -10,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/ytdlp-go/ytdlp/internal/value"
+	"gopkg.in/yaml.v3"
 )
 
 func fixtureInfo() value.Info {
@@ -23,11 +26,42 @@ func fixtureInfo() value.Info {
 		value.Field{Key: "view_count", Value: value.Int(42)},
 		value.Field{Key: "rating", Value: value.Float(4.25)},
 		value.Field{Key: "upload_date", Value: value.String("20260717")},
+		value.Field{Key: "epoch", Value: value.Int(0)},
+		value.Field{Key: "numbers", Value: value.List(value.Int(0), value.Int(1), value.Int(2), value.Int(3), value.Int(4))},
+		value.Field{Key: "unicode", Value: value.String("á 𝐀")},
 		value.Field{Key: "chapters", Value: value.List(
 			value.ObjectValue(value.NewObject(value.Field{Key: "title", Value: value.String("first")})),
 			value.ObjectValue(value.NewObject(value.Field{Key: "title", Value: value.String("last")})),
 		)},
 	))
+}
+
+func TestPinnedOutputTemplateLanguageCorpus(t *testing.T) {
+	data, err := os.ReadFile("../../../conformance/compatibility/output-template-language-phase2.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var corpus struct {
+		Reference struct{ Commit, Interpreter string }       `yaml:"reference"`
+		Cases     []struct{ Name, Pattern, Rendered string } `yaml:"cases"`
+	}
+	if err := yaml.Unmarshal(data, &corpus); err != nil {
+		t.Fatal(err)
+	}
+	if corpus.Reference.Commit != "aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8" || corpus.Reference.Interpreter == "" {
+		t.Fatal("invalid corpus provenance")
+	}
+	for _, test := range corpus.Cases {
+		t.Run(test.Name, func(t *testing.T) {
+			got, err := Render(test.Pattern, fixtureInfo())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != test.Rendered {
+				t.Fatalf("Render(%q) = %q, want %q", test.Pattern, got, test.Rendered)
+			}
+		})
+	}
 }
 
 func TestRenderSubset(t *testing.T) {
@@ -45,6 +79,9 @@ func TestValidateIsSyntaxOnly(t *testing.T) {
 		"%(start_time-2)D",
 		"%(missing)d",
 		"%(categories)l",
+		"%(field&)s",
+		"%(field&literal)s",
+		"%(field&{:>20})s",
 		"",
 	} {
 		if err := Validate(pattern); err != nil {
@@ -54,7 +91,6 @@ func TestValidateIsSyntaxOnly(t *testing.T) {
 	for _, pattern := range []string{
 		"%(field",
 		"%(field)999999s",
-		"%(field&)s",
 		"%(field+)d",
 	} {
 		if err := Validate(pattern); !errors.Is(err, ErrInvalidTemplate) {
@@ -84,13 +120,32 @@ func FuzzValidate(f *testing.F) {
 	})
 }
 
+func FuzzRender(f *testing.F) {
+	for _, seed := range []string{
+		"%(title)s", "%(numbers.::-1)j", "%(uploader&{:>20})s",
+		"%(epoch>%Y-%m-%d %z)s", "%(view_count)#x", "%%",
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, pattern string) {
+		if len(pattern) > maxTemplateBytes+1 {
+			t.Skip()
+		}
+		first, firstErr := Render(pattern, fixtureInfo())
+		second, secondErr := Render(pattern, fixtureInfo())
+		if (firstErr == nil) != (secondErr == nil) || first != second {
+			t.Fatalf("nondeterministic render: first=%q/%v second=%q/%v", first, firstErr, second, secondErr)
+		}
+	})
+}
+
 func TestRenderTraversalAlternativesDefaultsAndReplacement(t *testing.T) {
-	pattern := "%(missing,uploader|anonymous)s %(missing|anonymous)s %(uploader&by {}|unknown)s %(chapters.-1.title)s"
+	pattern := "%(missing,uploader|anonymous)s %(missing|anonymous)s %(uploader&by {}|unknown)s %(uploader&literal)s %(uploader&{:>8})s %(chapters.-1.title)s"
 	got, err := Render(pattern, fixtureInfo())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "alice anonymous by alice last" {
+	if got != "alice anonymous by alice literal    alice last" {
 		t.Fatalf("Render() = %q", got)
 	}
 	got, err = Render("%(missing&00{})j", fixtureInfo())
@@ -109,6 +164,33 @@ func TestRenderNumericAndDateFormatting(t *testing.T) {
 	}
 	if got != "00000042 4.2 2026-07-17 % done" {
 		t.Fatalf("Render() = %q", got)
+	}
+}
+
+func TestRenderPinnedPrintfAndUTCDateConversions(t *testing.T) {
+	info := fixtureInfo()
+	info.Set("epoch", value.Int(0))
+	for _, test := range []struct{ pattern, want string }{
+		{"%(view_count)i %(view_count)u %(view_count)#x %(view_count)o", "42 42 0x2a 52"},
+		{"%(rating).2E %(rating)g %(view_count)04X", "4.25E+00 4.25 002A"},
+		{"%(epoch>%Y-%m-%d %H:%M:%S %z %Z %s)s", "1970-01-01 00:00:00 +0000 UTC 0"},
+		{"%(upload_date>%a %b %d %Y)s", "Fri Jul 17 2026"},
+	} {
+		got, err := Render(test.pattern, info)
+		if err != nil {
+			t.Fatalf("Render(%q): %v", test.pattern, err)
+		}
+		if got != test.want {
+			t.Fatalf("Render(%q) = %q, want %q", test.pattern, got, test.want)
+		}
+	}
+}
+
+func TestRenderContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := RenderContext(ctx, "%(title)s", fixtureInfo()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("RenderContext cancellation = %v", err)
 	}
 }
 
@@ -875,7 +957,7 @@ func TestResolveRejectsTraversalAndAbsolutePaths(t *testing.T) {
 }
 
 func TestRenderRejectsUnsupportedSyntax(t *testing.T) {
-	for _, pattern := range []string{"%(title)", "%(title)d", "%title", "%(title.upper)s", "%(uploader&prefix)s", "%(upload_date>%Q)s"} {
+	for _, pattern := range []string{"%(title)", "%(title)d", "%title", "%(title.upper)s", "%(upload_date>%Q)s"} {
 		if _, err := Render(pattern, fixtureInfo()); !errors.Is(err, ErrInvalidTemplate) {
 			t.Fatalf("Render(%q) error = %v", pattern, err)
 		}
