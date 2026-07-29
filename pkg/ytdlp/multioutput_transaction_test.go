@@ -137,27 +137,57 @@ func TestSingleOutputSkipsMergedExtensionAlignment(t *testing.T) {
 	}
 }
 
-func TestBeginMediaTransactionRejectsExistingWithoutOverwrite(t *testing.T) {
+func TestPreflightMediaDestinationsRejectsExistingWithoutOverwrite(t *testing.T) {
 	root := t.TempDir()
 	existing := filepath.Join(root, "Title.mp4")
 	if err := os.WriteFile(existing, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	operation := &operation{request: Request{OutputDir: root, Overwrite: false}}
-	_, err := operation.beginMediaTransaction([]string{existing})
-	if !errors.Is(err, downloader.ErrDestinationExists) {
-		t.Fatalf("begin = %v", err)
+	if err := operation.preflightMediaDestinations([]string{existing}); !errors.Is(err, downloader.ErrDestinationExists) {
+		t.Fatalf("preflight = %v", err)
 	}
 }
 
-func TestBeginMediaTransactionRejectsPortableCollision(t *testing.T) {
+func TestPreflightMediaDestinationsRejectsPortableCollision(t *testing.T) {
 	root := t.TempDir()
 	first := filepath.Join(root, "A.mp4")
 	second := filepath.Join(root, "a.mp4")
 	operation := &operation{request: Request{OutputDir: root, Overwrite: true}}
-	_, err := operation.beginMediaTransaction([]string{first, second})
-	if !errors.Is(err, errDestinationCollision) {
-		t.Fatalf("begin = %v", err)
+	if err := operation.preflightMediaDestinations([]string{first, second}); !errors.Is(err, errDestinationCollision) {
+		t.Fatalf("preflight = %v", err)
+	}
+}
+
+func TestPreflightMediaDestinationsRejectsNonRegularFile(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "blocked.mp4")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	operation := &operation{request: Request{OutputDir: root, Overwrite: true}}
+	if err := operation.preflightMediaDestinations([]string{dir}); !errors.Is(err, downloader.ErrUnsafeDestination) {
+		t.Fatalf("preflight = %v", err)
+	}
+}
+
+func TestAcquireDestinationBackupsRollsBackPartialFailure(t *testing.T) {
+	root := t.TempDir()
+	first := filepath.Join(root, "one.mp4")
+	second := filepath.Join(root, "two.mp4")
+	if err := os.WriteFile(first, []byte("first"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(second, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tx := newMediaTransaction()
+	if err := tx.acquireDestinationBackups([]string{first, second}, true); err == nil {
+		t.Fatal("expected acquire error")
+	}
+	body, readErr := os.ReadFile(first)
+	if readErr != nil || string(body) != "first" {
+		t.Fatalf("first restored = %q, %v", body, readErr)
 	}
 }
 
@@ -168,9 +198,8 @@ func TestMediaTransactionRestoresOverwrittenDestination(t *testing.T) {
 	if err := os.WriteFile(existing, original, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	operation := &operation{request: Request{OutputDir: root, Overwrite: true}}
-	tx, err := operation.beginMediaTransaction([]string{existing})
-	if err != nil {
+	tx := newMediaTransaction()
+	if err := tx.acquireDestinationBackups([]string{existing}, true); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(existing, []byte("replacement"), 0o644); err != nil {
@@ -195,16 +224,15 @@ func TestMediaTransactionCommitRemovesBackups(t *testing.T) {
 	if err := os.WriteFile(existing, []byte("original"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	operation := &operation{request: Request{OutputDir: root, Overwrite: true}}
-	tx, err := operation.beginMediaTransaction([]string{existing})
-	if err != nil {
+	tx := newMediaTransaction()
+	if err := tx.acquireDestinationBackups([]string{existing}, true); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(existing, []byte("new"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	tx.markPublished(existing)
-	if err := tx.commit(); err != nil {
+	if err := tx.commitDestinations(); err != nil {
 		t.Fatal(err)
 	}
 	entries, err := os.ReadDir(root)
@@ -228,9 +256,8 @@ func TestMediaTransactionRollbackSurfacesRestoreError(t *testing.T) {
 	if err := os.WriteFile(existing, []byte("original"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	operation := &operation{request: Request{OutputDir: root, Overwrite: true}}
-	tx, err := operation.beginMediaTransaction([]string{existing})
-	if err != nil {
+	tx := newMediaTransaction()
+	if err := tx.acquireDestinationBackups([]string{existing}, true); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(existing, []byte("replacement"), 0o644); err != nil {
@@ -244,9 +271,103 @@ func TestMediaTransactionRollbackSurfacesRestoreError(t *testing.T) {
 			}
 		}
 	}
-	rollbackErr := tx.rollback()
-	if rollbackErr == nil {
+	if err := tx.rollback(); err == nil {
 		t.Fatal("expected rollback error")
+	}
+}
+
+func TestProtectPathRestoresOverwrittenSidecar(t *testing.T) {
+	root := t.TempDir()
+	sidecar := filepath.Join(root, "Title.description")
+	original := []byte("original-sidecar")
+	if err := os.WriteFile(sidecar, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tx := newMediaTransaction()
+	if err := tx.protectPath(sidecar, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sidecar, []byte("replacement"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.rollbackArtifacts(); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(sidecar)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != string(original) {
+		t.Fatalf("restored = %q, want %q", body, original)
+	}
+}
+
+func TestCommitDestinationsRetainsSlotsOnCleanupFailure(t *testing.T) {
+	root := t.TempDir()
+	existing := filepath.Join(root, "keep.mp4")
+	if err := os.WriteFile(existing, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tx := newMediaTransaction()
+	if err := tx.acquireDestinationBackups([]string{existing}, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(existing, []byte("replacement"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tx.markPublished(existing)
+	for index := range tx.destinations {
+		backup := tx.destinations[index].backupPath
+		if backup == "" {
+			continue
+		}
+		content, readErr := os.ReadFile(backup)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if err := os.Remove(backup); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(backup, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(backup, "payload"), content, 0o444); err != nil {
+			t.Fatal(err)
+		}
+		// Non-empty directory cannot be removed by commitDestinations.
+		if err := os.Chmod(backup, 0o555); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tx.commitDestinations(); err == nil {
+		t.Fatal("expected commit error")
+	}
+	if len(tx.destinations) == 0 {
+		t.Fatal("destination slots cleared on failed backup cleanup")
+	}
+	if tx.destinations[0].backupPath == "" {
+		t.Fatal("backup path cleared on failed cleanup")
+	}
+	backup := tx.destinations[0].backupPath
+	if err := os.Chmod(backup, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	payload, err := os.ReadFile(filepath.Join(backup, "payload"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(backup, "payload"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(backup); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(existing, payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(existing)
+	if err != nil || string(body) != "original" {
+		t.Fatalf("restored = %q, %v", body, err)
 	}
 }
 

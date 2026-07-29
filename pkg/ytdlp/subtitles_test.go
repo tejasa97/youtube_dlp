@@ -743,10 +743,10 @@ func TestSubtitleHLSIsolatedTrackSendsNoCredentials(t *testing.T) {
 	defer server.Close()
 	transport, err := network.New(network.Config{
 		DefaultHeaders: http.Header{
-			"Cookie":               {"ambient-session=secret"},
-			"Authorization":        {"Bearer ambient-token"},
-			"Proxy-Authorization":    {"Basic proxy-secret"},
-			"Referer":              {"https://vimeo.com/123456789"},
+			"Cookie":              {"ambient-session=secret"},
+			"Authorization":       {"Bearer ambient-token"},
+			"Proxy-Authorization": {"Basic proxy-secret"},
+			"Referer":             {"https://vimeo.com/123456789"},
 		},
 	})
 	if err != nil {
@@ -818,10 +818,10 @@ func TestSubtitleHLSPreservesAmbientCredentialsAndRedirects(t *testing.T) {
 	defer server.Close()
 	transport, err := network.New(network.Config{
 		DefaultHeaders: http.Header{
-			"Cookie":            {"ambient-session=secret"},
-			"Authorization":     {"Bearer ambient-token"},
+			"Cookie":              {"ambient-session=secret"},
+			"Authorization":       {"Bearer ambient-token"},
 			"Proxy-Authorization": {"Basic proxy-secret"},
-			"Referer":           {"https://media.example/watch"},
+			"Referer":             {"https://media.example/watch"},
 		},
 	})
 	if err != nil {
@@ -899,10 +899,10 @@ func TestSubtitleDirectDownloadPreservesAmbientCredentialsAndRedirects(t *testin
 	defer server.Close()
 	transport, err := network.New(network.Config{
 		DefaultHeaders: http.Header{
-			"Cookie":            {"ambient-session=secret"},
-			"Authorization":     {"Bearer ambient-token"},
+			"Cookie":              {"ambient-session=secret"},
+			"Authorization":       {"Bearer ambient-token"},
 			"Proxy-Authorization": {"Basic proxy-secret"},
-			"Referer":           {"https://media.example/watch"},
+			"Referer":             {"https://media.example/watch"},
 		},
 	})
 	if err != nil {
@@ -977,10 +977,10 @@ func TestSubtitleDASHDownloadPreservesAmbientCredentials(t *testing.T) {
 	defer server.Close()
 	transport, err := network.New(network.Config{
 		DefaultHeaders: http.Header{
-			"Cookie":            {"ambient-session=secret"},
-			"Authorization":     {"Bearer ambient-token"},
+			"Cookie":              {"ambient-session=secret"},
+			"Authorization":       {"Bearer ambient-token"},
 			"Proxy-Authorization": {"Basic proxy-secret"},
-			"Referer":           {"https://media.example/watch"},
+			"Referer":             {"https://media.example/watch"},
 		},
 	})
 	if err != nil {
@@ -1045,10 +1045,10 @@ func TestSubtitleIsolatedDirectDownloadSendsNoCredentials(t *testing.T) {
 	defer server.Close()
 	transport, err := network.New(network.Config{
 		DefaultHeaders: http.Header{
-			"Cookie":            {"ambient-session=secret"},
-			"Authorization":     {"Bearer ambient-token"},
+			"Cookie":              {"ambient-session=secret"},
+			"Authorization":       {"Bearer ambient-token"},
 			"Proxy-Authorization": {"Basic proxy-secret"},
-			"Referer":           {"https://vimeo.com/123456789"},
+			"Referer":             {"https://vimeo.com/123456789"},
 		},
 	})
 	if err != nil {
@@ -1174,10 +1174,10 @@ func TestCredentialIsolatedSubtitleTransportStripsAmbientCredentials(t *testing.
 	defer server.Close()
 	ambient, err := network.New(network.Config{
 		DefaultHeaders: http.Header{
-			"Cookie":            {"ambient-session=secret"},
-			"Authorization":     {"Bearer ambient-token"},
+			"Cookie":              {"ambient-session=secret"},
+			"Authorization":       {"Bearer ambient-token"},
 			"Proxy-Authorization": {"Basic proxy-secret"},
-			"Referer":           {"https://vimeo.com/123456789"},
+			"Referer":             {"https://vimeo.com/123456789"},
 		},
 	})
 	if err != nil {

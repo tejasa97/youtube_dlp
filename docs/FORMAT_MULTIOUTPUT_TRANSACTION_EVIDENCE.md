@@ -20,16 +20,20 @@ Depends on merged PR 5 (planner metadata) and PR 6 (N-track execution).
   and `len(plan.Tracks) > 1`). Single-output filename rendering is unchanged
   (extensionless templates and custom suffixes like `%(title)s.out` stay as
   rendered). Thumbnail destination promotion runs after alignment.
-- **Preflight before side effects:** `beginMediaTransaction` runs immediately
-  after plan destinations resolve and before interactive filter, print files,
-  thumbnails, related files, or subtitles. Media preflight failure creates no
-  media, sidecar, subtitle, thumbnail, or print-file writes.
-- **Overwrite transaction:** existing destinations are renamed to same-filesystem
-  `.ytdlp-trx-*` backups before publication when `Overwrite=true`. On download
-  failure, `rollback` restores overwritten files byte-for-byte and removes new
-  artifacts. `commitDestinations` drops backups after all plan downloads succeed.
-  Post-download embed/cut failures leave committed media on disk; artifact-only
-  rollback removes sidecars/prints but not published media paths.
+- **Preflight before side effects:** `preflightMediaDestinations` runs immediately
+  after plan destinations resolve and rejects portable collisions and existing
+  regular files when `Overwrite` is false without mutating the filesystem.
+  `acquireDestinationBackups` renames overwrite targets only immediately before
+  media download starts.
+- **Overwrite transaction:** existing media destinations are renamed to
+  same-filesystem `.ytdlp-trx-*` backups at download time when `Overwrite=true`.
+  On download failure, `rollback` restores overwritten files byte-for-byte and
+  removes new artifacts. `commitDestinations` drops backups after all plan
+  downloads succeed and retains destination slots when backup cleanup fails so
+  rollback can still restore. Post-download embed/cut failures leave committed
+  media on disk; artifact-only rollback removes sidecars/prints but not
+  published media paths. Destination inspection uses `Lstat` and requires regular
+  files; partial backup acquisition rolls back before returning an error.
 - **Transaction rollback:** `mediaTransaction` replaces `publishedMediaTracker`;
   partial comma-output download failure rolls back newly created files and
   restores pre-existing overwritten destinations. Rollback/cleanup errors are
