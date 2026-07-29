@@ -215,6 +215,55 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 		*playlistReverse = false
 		return nil
 	})
+	playlistRandom := flags.Bool("playlist-random", false, "process selected playlist entries in random order")
+	flags.BoolFunc("no-playlist-random", "disable inherited random playlist order", func(input string) error {
+		enabled, err := strconv.ParseBool(input)
+		if err != nil {
+			return err
+		}
+		if enabled {
+			*playlistRandom = false
+		}
+		return nil
+	})
+	lazyPlaylist := flags.Bool("lazy-playlist", false, "process playlist entries as they are received")
+	flags.BoolFunc("no-lazy-playlist", "materialize playlist ordering when required (default)", func(input string) error {
+		enabled, err := strconv.ParseBool(input)
+		if err != nil {
+			return err
+		}
+		if enabled {
+			*lazyPlaylist = false
+		}
+		return nil
+	})
+	playlistErrorPolicy := ytdlp.PlaylistErrorContinue
+	playlistFailuresAreSuccess := false
+	setPlaylistErrorPolicy := func(policy ytdlp.PlaylistErrorPolicy, failuresAreSuccess bool) func(string) error {
+		return func(input string) error {
+			enabled, err := strconv.ParseBool(input)
+			if err != nil {
+				return err
+			}
+			if enabled {
+				playlistErrorPolicy = policy
+				playlistFailuresAreSuccess = failuresAreSuccess
+			} else if policy == ytdlp.PlaylistErrorAbort {
+				playlistErrorPolicy = ytdlp.PlaylistErrorContinue
+				playlistFailuresAreSuccess = false
+			} else {
+				playlistErrorPolicy = ytdlp.PlaylistErrorAbort
+				playlistFailuresAreSuccess = false
+			}
+			return nil
+		}
+	}
+	flags.BoolFunc("ignore-errors", "continue and treat ordinary playlist entry errors as successful", setPlaylistErrorPolicy(ytdlp.PlaylistErrorContinue, true))
+	flags.BoolFunc("i", "alias for --ignore-errors", setPlaylistErrorPolicy(ytdlp.PlaylistErrorContinue, true))
+	flags.BoolFunc("no-abort-on-error", "continue after ordinary playlist entry errors (default)", setPlaylistErrorPolicy(ytdlp.PlaylistErrorContinue, false))
+	flags.BoolFunc("abort-on-error", "abort on the first playlist entry error", setPlaylistErrorPolicy(ytdlp.PlaylistErrorAbort, false))
+	flags.BoolFunc("no-ignore-errors", "alias for --abort-on-error", setPlaylistErrorPolicy(ytdlp.PlaylistErrorAbort, false))
+	playlistMaxFailures := flags.Int("skip-playlist-after-errors", 0, "skip remaining entries after N ordinary failures (0 disables)")
 	playlistItems := flags.String("playlist-items", "", "comma-separated playlist indexes or START:END:STEP ranges")
 	flags.StringVar(playlistItems, "I", "", "alias for --playlist-items")
 	flatPlaylist := flags.Bool("flat-playlist", false, "list playlist entries without recursively extracting them")
@@ -726,7 +775,9 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 		RemoveChapters:       append([]string(nil), removeChapters...),
 		ForceKeyframesAtCuts: sponsorBlockForceKeyframes,
 		Playlist: ytdlp.PlaylistOptions{
-			Start: *playlistStart, End: *playlistEnd, Reverse: *playlistReverse, Items: *playlistItems, Flat: *flatPlaylist,
+			Start: *playlistStart, End: *playlistEnd, Reverse: *playlistReverse, Random: *playlistRandom,
+			Lazy: *lazyPlaylist, Items: *playlistItems, Flat: *flatPlaylist,
+			ErrorPolicy: playlistErrorPolicy, MaxFailures: *playlistMaxFailures,
 		},
 		Downloader: downloaderOptions, Postprocessors: postprocessors,
 	})
@@ -773,6 +824,9 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	if *printJSON && !*dumpJSON && !*dumpSingleJSON {
 		_, _ = stdout.Write(result.InfoJSON)
 		_, _ = fmt.Fprintln(stdout)
+	}
+	if result.SuppressedFailures > 0 && !playlistFailuresAreSuccess {
+		return 1
 	}
 	return 0
 }

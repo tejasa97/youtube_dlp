@@ -27,6 +27,12 @@ The CLI exposes these as `--playlist-start` and `--playlist-end`, with
 selection stays lazy and does not request a page
 after the end bound. `Playlist.Reverse`/`--playlist-reverse` reverses the
 selected range, so it buffers at most the bounded 10,000-entry operation limit.
+`Playlist.Random`/`--playlist-random` applies a bounded shuffle after selection;
+the Go API accepts an injected random source for deterministic tests. Random
+takes precedence over Reverse with a warning. `Playlist.Lazy`/`--lazy-playlist`
+keeps iterator-order streaming and disables Reverse and Random with the pinned
+per-option warnings. This sequential extractor model already streams normal
+ordered playlists, so Lazy does not invent an unavailable total-entry count.
 In either output order, `playlist_index` remains the entry's original position
 in its source playlist.
 
@@ -59,15 +65,27 @@ unchanged. `--no-flat-playlist` disables an inherited configuration value.
 - On-demand pagination stops at the first short page.
 - One operation accepts at most 10,000 entries and eight nested playlist
   levels; recursive URL cycles fail before another request.
-- Iterator, extraction, and download errors are fail-fast in this pilot. They
-  retain structured error categories and the failing one-based entry index.
+- Ordinary entry extraction/download failures follow `Playlist.ErrorPolicy`:
+  the zero-value Continue policy records a redacted event, increments
+  `Result.SuppressedFailures`, and advances to the next entry; Abort propagates
+  the indexed error immediately. Cancellation, security failures, playlist
+  resource limits, invalid request options, and event-handler failures always
+  propagate. Iterator failures are playlist-global and always propagate.
+- `Playlist.MaxFailures`/`--skip-playlist-after-errors` stops the remaining
+  queue after the configured number of ordinary failures and emits one bounded
+  aggregate event. Zero disables the threshold.
+- CLI `--ignore-errors`/`-i` treats a completed partial playlist as successful;
+  the default `--no-abort-on-error` continues but exits non-zero when
+  `SuppressedFailures` is non-zero. `--abort-on-error` and
+  `--no-ignore-errors` select Abort.
 - Metadata is held in memory after resolution so `--print-json` and
   `--dump-single-json` can emit the complete ordered hierarchy, while
   `--dump-json` recursively emits ordered leaf entries.
 
-This is the reusable base for the representative site pilots. Broader yt-dlp
-options such as random ordering, the non-CLI global/discard variants of
-`extract_flat`, arbitrary transparent field overlays, and configurable
-ignore-error thresholds remain explicit later compatibility work rather than
-hidden behavior. Unlike upstream random-access paged lists, this sequential
+This is the reusable base for the representative site pilots. The non-CLI
+global/discard variants of `extract_flat` and arbitrary transparent field
+overlays remain explicit later compatibility work rather than hidden behavior.
+The Go API intentionally exposes continue-versus-abort plus an observable
+failure count; yt-dlp's internal `ignoreerrors="only_download"` return-code
+sentinel is represented only at the CLI exit-policy boundary. Unlike upstream random-access paged lists, this sequential
 extractor boundary may fetch earlier pages while seeking a later sparse index.
