@@ -206,6 +206,150 @@ func TestParseDerivesContiguousPeriodTiming(t *testing.T) {
 	}
 }
 
+func TestSelectDynamicMultiPeriodAllowsStableFragmentedMixedAddressing(t *testing.T) {
+	mpd, err := Parse("https://example.test/root/manifest.mpd", []byte(`<MPD type="dynamic" mediaPresentationDuration="PT2S"><Period id="opening" duration="PT1S"><AdaptationSet contentType="video" mimeType="video/mp4" codecs="avc1"><Representation id="opening-v" bandwidth="100"><SegmentTemplate media="opening-$Number$.m4s" initialization="opening-init.mp4" duration="1"/></Representation></AdaptationSet></Period><Period id="feature" duration="PT1S"><AdaptationSet contentType="video" mimeType="video/mp4" codecs="avc1"><Representation id="feature-v" bandwidth="100"><SegmentList><Initialization sourceURL="feature-init.mp4"/><SegmentURL media="feature.m4s"/></SegmentList></Representation></AdaptationSet></Period></MPD>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, err := selectRepresentations(mpd)
+	if err != nil {
+		t.Fatalf("selectRepresentations() error = %v", err)
+	}
+	if len(selected) != 1 || !selected[0].Fragmented || !reflect.DeepEqual(selected[0].PeriodIDs, []string{"opening", "feature"}) || !reflect.DeepEqual(selected[0].PeriodRepresentationIDs, []string{"opening-v", "feature-v"}) {
+		t.Fatalf("selected = %#v", selected)
+	}
+	if got := len(selected[0].PeriodSegments); got != 2 {
+		t.Fatalf("period segments = %d; want 2", got)
+	}
+}
+
+func TestParseMixedAddressingMultiPeriodFixtureSelectsOneSafeTrack(t *testing.T) {
+	fixtureRoot := filepath.Join("..", "..", "..", "conformance", "media", "dash")
+	input, err := os.ReadFile(filepath.Join(fixtureRoot, "multi_period_mixed_addressing.mpd"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mpd, err := Parse("https://media.example.test/dash/manifest.mpd", input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, err := selectRepresentations(mpd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(selected) != 1 || len(selected[0].PeriodSegments) != 3 {
+		t.Fatalf("selected = %#v", selected)
+	}
+	if !selected[0].PeriodSegments[0][0].Initialize || !selected[0].PeriodSegments[1][0].Initialize || selected[0].PeriodSegments[2][0].IndexRange == "" {
+		t.Fatalf("mixed addressing segments = %#v", selected[0].PeriodSegments)
+	}
+}
+
+func TestDownloadDynamicMultiPeriodAccumulatesStableSnapshots(t *testing.T) {
+	var manifests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/manifest.mpd":
+			if manifests.Add(1) == 1 {
+				_, _ = fmt.Fprint(writer, dynamicMultiPeriodMPD(true))
+				return
+			}
+			_, _ = fmt.Fprint(writer, dynamicMultiPeriodMPD(false))
+		case "/p1-init.mp4":
+			_, _ = writer.Write([]byte("P1-INIT"))
+		case "/p1-1.m4s":
+			_, _ = writer.Write([]byte("P1-1"))
+		case "/p1-2.m4s":
+			_, _ = writer.Write([]byte("P1-2"))
+		case "/p2-init.mp4":
+			_, _ = writer.Write([]byte("P2-INIT"))
+		case "/p2-1.m4s":
+			_, _ = writer.Write([]byte("P2-1"))
+		case "/p2-2.m4s":
+			_, _ = writer.Write([]byte("P2-2"))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	result, err := NewDownloader(transport, Config{DynamicPolls: 2, PollInterval: time.Millisecond, FragmentConcurrency: 1}).Download(
+		context.Background(), server.URL+"/manifest.mpd", root, filepath.Join(root, "video.mp4"), false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.MultiPeriod || len(result.Tracks) != 1 || len(result.Tracks[0].PeriodDownloads) != len(result.Tracks[0].Representation.PeriodSegments) {
+		t.Fatalf("result = %#v", result)
+	}
+	seenPaths := make(map[string]struct{}, len(result.Tracks[0].PeriodDownloads))
+	for _, download := range result.Tracks[0].PeriodDownloads {
+		if _, exists := seenPaths[download.Path]; exists {
+			t.Fatalf("duplicate period download result for %q: %#v", download.Path, result.Tracks[0].PeriodDownloads)
+		}
+		seenPaths[download.Path] = struct{}{}
+	}
+	want := []string{"P1-INITP1-1P1-2", "P2-INITP2-1P2-2"}
+	for index, download := range result.Tracks[0].PeriodDownloads {
+		body, readErr := os.ReadFile(download.Path)
+		if readErr != nil || string(body) != want[index] {
+			t.Fatalf("period %d = %q, error = %v; want %q", index, body, readErr, want[index])
+		}
+	}
+}
+
+func TestDownloadDynamicMultiPeriodRejectsRepresentationReplacement(t *testing.T) {
+	var manifests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/manifest.mpd" {
+			http.Error(writer, "unexpected media request", http.StatusInternalServerError)
+			return
+		}
+		if manifests.Add(1) == 1 {
+			_, _ = fmt.Fprint(writer, dynamicMultiPeriodMPD(true))
+			return
+		}
+		_, _ = fmt.Fprint(writer, strings.Replace(dynamicMultiPeriodMPD(false), `id="p2-v"`, `id="replacement-v"`, 1))
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	_, err := NewDownloader(transport, Config{DynamicPolls: 2, PollInterval: time.Millisecond}).Download(
+		context.Background(), server.URL+"/manifest.mpd", root, filepath.Join(root, "video.mp4"), false, nil)
+	if !errors.Is(err, ErrUnsupportedAddressing) || !strings.Contains(err.Error(), "identity") {
+		t.Fatalf("Download() error = %v", err)
+	}
+	if entries, readErr := os.ReadDir(root); readErr != nil || len(entries) != 0 {
+		t.Fatalf("output entries = %v, error = %v; want none", entries, readErr)
+	}
+}
+
+func TestDownloadDynamicMultiPeriodSIDXFailsClosedBeforeMedia(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/manifest.mpd" {
+			_, _ = fmt.Fprint(writer, `<MPD type="dynamic" mediaPresentationDuration="PT2S"><Period id="p1" duration="PT1S"><AdaptationSet contentType="video" mimeType="video/mp4" codecs="avc1"><SegmentBase indexRange="10-19"/><Representation id="v1" bandwidth="100"><BaseURL>p1.mp4</BaseURL></Representation></AdaptationSet></Period><Period id="p2" duration="PT1S"><AdaptationSet contentType="video" mimeType="video/mp4" codecs="avc1"><SegmentBase indexRange="10-19"/><Representation id="v2" bandwidth="100"><BaseURL>p2.mp4</BaseURL></Representation></AdaptationSet></Period></MPD>`)
+			return
+		}
+		http.Error(writer, "must not fetch index or media", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	_, err := NewDownloader(transport, Config{}).Download(context.Background(), server.URL+"/manifest.mpd", t.TempDir(), filepath.Join(t.TempDir(), "video.mp4"), false, nil)
+	if !errors.Is(err, ErrUnsupportedAddressing) || !strings.Contains(err.Error(), "dynamic multi-period SegmentBase/SIDX") {
+		t.Fatalf("Download() error = %v", err)
+	}
+}
+
+func dynamicMultiPeriodMPD(first bool) string {
+	p1, p2, typ := `<SegmentURL media="p1-1.m4s"/>`, `<SegmentURL media="p2-1.m4s"/>`, "dynamic"
+	if !first {
+		p1 += `<SegmentURL media="p1-2.m4s"/>`
+		p2 += `<SegmentURL media="p2-2.m4s"/>`
+		typ = "static"
+	}
+	return fmt.Sprintf(`<MPD type="%s" mediaPresentationDuration="PT2S" minimumUpdatePeriod="PT0.001S"><Period id="p1" duration="PT1S"><AdaptationSet contentType="video" mimeType="video/mp4" codecs="avc1"><Representation id="p1-v" bandwidth="100"><SegmentList><Initialization sourceURL="p1-init.mp4"/>%s</SegmentList></Representation></AdaptationSet></Period><Period id="p2" duration="PT1S"><AdaptationSet contentType="video" mimeType="video/mp4" codecs="avc1"><Representation id="p2-v" bandwidth="100"><SegmentList><Initialization sourceURL="p2-init.mp4"/>%s</SegmentList></Representation></AdaptationSet></Period></MPD>`, typ, p1, p2)
+}
+
 func TestDownloadMultiPeriodConcatenatesFragmentsInManifestOrder(t *testing.T) {
 	server := multiPeriodServer(t, nil)
 	defer server.Close()

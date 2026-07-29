@@ -31,6 +31,7 @@ ISO-BMFF specifications:
 | `negative_repeat.expected.json` | Expected parse output for the above |
 | `multi_period.mpd` | Two static periods with compatible fragmented video representations |
 | `multi_period.expected.json` | Expected period identity, representation order, and resolved URLs |
+| `multi_period_mixed_addressing.mpd` | Static Template/List/SegmentBase selection matrix fixture |
 | `sidx_indexrange.mpd` | SegmentBase with indexRange at representation and adaptation-set levels |
 | `sidx_indexrange.expected.json` | Expected parse output showing marker segments |
 | `sidx_v0_two_refs.hex` | Synthetic SIDX v0 binary box with 2 references |
@@ -91,6 +92,8 @@ uses the supervised ffmpeg concat boundary before optional audio/video merge.
 Omitted timing is derived only from adjacent Period boundaries or the declared
 presentation duration; unresolved, gapped, or overlapping timelines fail
 closed. The configured segment limit applies to the complete selected track.
-Dynamic multi-period manifests, unfragmented multi-period resources, and sets
-without one compatible signature across every period also fail closed. This
-is documented in `docs/DASH_MULTI_PERIOD_EVIDENCE.md`.
+Dynamic multi-period Template/List composition is supported only when every
+snapshot retains exact ordered Period IDs, timing, and selected representation
+IDs. Dynamic multi-period SegmentBase/SIDX, unfragmented multi-period
+resources, and sets without one compatible signature across every period fail
+closed. This is documented in `docs/DASH_MULTI_PERIOD_EVIDENCE.md`.

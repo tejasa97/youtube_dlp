@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthetic static MPD: one compatible video track across Template, List,
+     and SegmentBase/SIDX Periods. Parser/selection evidence only. -->
+<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" mediaPresentationDuration="PT3S">
+  <Period id="template" duration="PT1S">
+    <AdaptationSet contentType="video" mimeType="video/mp4" codecs="avc1.4d401f">
+      <SegmentTemplate media="template-$Number$.m4s" initialization="template-init.mp4" duration="1"/>
+      <Representation id="template-v" bandwidth="100" width="640" height="360"/>
+    </AdaptationSet>
+  </Period>
+  <Period id="list" duration="PT1S">
+    <AdaptationSet contentType="video" mimeType="video/mp4" codecs="avc1.4d401f">
+      <SegmentList><Initialization sourceURL="list-init.mp4"/><SegmentURL media="list-1.m4s"/></SegmentList>
+      <Representation id="list-v" bandwidth="100" width="640" height="360"/>
+    </AdaptationSet>
+  </Period>
+  <Period id="base" duration="PT1S">
+    <AdaptationSet contentType="video" mimeType="video/mp4" codecs="avc1.4d401f">
+      <SegmentBase indexRange="100-199"><Initialization range="0-99"/></SegmentBase>
+      <Representation id="base-v" bandwidth="100" width="640" height="360"><BaseURL>base.mp4</BaseURL></Representation>
+    </AdaptationSet>
+  </Period>
+</MPD>

@@ -61,8 +61,16 @@ type Representation struct {
 	Height      int
 	Segments    []Segment
 	// PeriodSegments preserves static multi-period boundaries for supervised
-	// media concatenation. It is nil for ordinary single-period MPDs.
+	// media concatenation. It is nil for ordinary single-period MPDs. Dynamic
+	// multi-period polling may only merge these boundaries when their matching
+	// period and representation identities remain stable.
 	PeriodSegments [][]Segment
+	// PeriodIDs and PeriodRepresentationIDs are populated on a selected
+	// multi-period track. They retain the identities that were collapsed into a
+	// single output track so a later dynamic MPD snapshot cannot silently splice
+	// a different period or representation into an existing download.
+	PeriodIDs               []string
+	PeriodRepresentationIDs []string
 }
 
 type Segment struct {

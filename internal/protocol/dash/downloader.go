@@ -103,6 +103,13 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 
 	dynamicSIDX := mpd.Dynamic && hasSIDXMarkers(selected)
 	if dynamicSIDX {
+		// Multi-period SIDX refresh requires independently stable index and
+		// live-window identities per period. Do not route it through the
+		// single-period accumulator, where doing so could splice ranges from
+		// different period resources into one output plan.
+		if mpd.PeriodCount > 1 {
+			return Result{}, fmt.Errorf("%w: dynamic multi-period SegmentBase/SIDX", ErrUnsupportedAddressing)
+		}
 		if err := validateHomogeneousDynamicSIDXSelection(selected); err != nil {
 			return Result{}, err
 		}
@@ -157,9 +164,36 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 			if err != nil {
 				return Result{}, err
 			}
-			for _, representation := range updated.Representations {
-				if target := byID[representationKey(representation)]; target != nil {
-					target.Segments = mergeSegments(target.Segments, representation.Segments)
+			updatedSelected, err := selectRepresentations(updated)
+			if err != nil {
+				return Result{}, err
+			}
+			if mpd.PeriodCount > 1 {
+				if err := validateDynamicMultiPeriodSnapshot(mpd, updated); err != nil {
+					return Result{}, err
+				}
+			}
+			seen := make(map[string]struct{}, len(updatedSelected))
+			for _, representation := range updatedSelected {
+				key := representationKey(representation)
+				target := byID[key]
+				if target == nil {
+					continue
+				}
+				seen[key] = struct{}{}
+				if len(target.PeriodSegments) != 0 {
+					if err := mergeDynamicMultiPeriodRepresentation(target, representation); err != nil {
+						return Result{}, err
+					}
+					continue
+				}
+				target.Segments = mergeSegments(target.Segments, representation.Segments)
+			}
+			if mpd.PeriodCount > 1 {
+				for key := range byID {
+					if _, exists := seen[key]; !exists {
+						return Result{}, fmt.Errorf("%w: selected dynamic multi-period representation disappeared", ErrUnsupportedAddressing)
+					}
 				}
 			}
 			if !updated.Dynamic {
@@ -282,9 +316,6 @@ func selectRepresentations(mpd MPD) ([]Representation, error) {
 	if mpd.PeriodCount <= 1 {
 		return selectBestRepresentations(mpd.Representations), nil
 	}
-	if mpd.Dynamic {
-		return nil, fmt.Errorf("%w: dynamic multi-period manifests", ErrUnsupportedAddressing)
-	}
 	if err := validateMultiPeriodTiming(mpd); err != nil {
 		return nil, err
 	}
@@ -354,17 +385,68 @@ func selectRepresentations(mpd MPD) ([]Representation, error) {
 		combined := periodFormats[0][bestSignature]
 		combined.Segments = nil
 		combined.PeriodSegments = make([][]Segment, len(periodFormats))
+		combined.PeriodIDs = make([]string, len(periodFormats))
+		combined.PeriodRepresentationIDs = make([]string, len(periodFormats))
 		for periodIndex := range periodFormats {
 			periodRepresentation := periodFormats[periodIndex][bestSignature]
 			if len(combined.Segments) > maxSegmentsPerRepresentation-len(periodRepresentation.Segments) {
 				return nil, fmt.Errorf("%w: combined %s segment count exceeds %d", ErrUnsupportedAddressing, kind, maxSegmentsPerRepresentation)
 			}
 			combined.PeriodSegments[periodIndex] = append([]Segment(nil), periodRepresentation.Segments...)
+			combined.PeriodIDs[periodIndex] = periodRepresentation.PeriodID
+			combined.PeriodRepresentationIDs[periodIndex] = periodRepresentation.ID
 			combined.Segments = append(combined.Segments, periodRepresentation.Segments...)
 		}
 		selected = append(selected, combined)
 	}
 	return selected, nil
+}
+
+// validateDynamicMultiPeriodSnapshot proves that a later snapshot describes
+// the same bounded presentation intervals. A dynamic MPD can grow its segment
+// lists, but it cannot change period identity or timing underneath an already
+// selected concat plan.
+func validateDynamicMultiPeriodSnapshot(initial, updated MPD) error {
+	if updated.PeriodCount != initial.PeriodCount || len(updated.Periods) != len(initial.Periods) {
+		return fmt.Errorf("%w: dynamic multi-period identity changed", ErrUnsupportedAddressing)
+	}
+	if err := validateMultiPeriodTiming(updated); err != nil {
+		return err
+	}
+	for index := range initial.Periods {
+		left, right := initial.Periods[index], updated.Periods[index]
+		if left.ID != right.ID || left.Start != right.Start || left.Duration != right.Duration {
+			return fmt.Errorf("%w: dynamic period %d identity or timing changed", ErrUnsupportedAddressing, index)
+		}
+	}
+	return nil
+}
+
+// mergeDynamicMultiPeriodRepresentation preserves explicit period boundaries
+// while appending newly advertised fragments. It deliberately rejects changed
+// matching identities: byte-wise concatenation of a replacement representation
+// is unsafe even when its codec metadata happens to look compatible.
+func mergeDynamicMultiPeriodRepresentation(target *Representation, updated Representation) error {
+	if signatureFor(*target) != signatureFor(updated) || len(target.PeriodSegments) != len(updated.PeriodSegments) ||
+		len(target.PeriodIDs) != len(updated.PeriodIDs) || len(target.PeriodRepresentationIDs) != len(updated.PeriodRepresentationIDs) {
+		return fmt.Errorf("%w: dynamic multi-period representation shape changed", ErrUnsupportedAddressing)
+	}
+	nextPeriods := make([][]Segment, len(target.PeriodSegments))
+	nextSegments := make([]Segment, 0, len(target.Segments))
+	for index := range target.PeriodSegments {
+		if target.PeriodIDs[index] != updated.PeriodIDs[index] || target.PeriodRepresentationIDs[index] != updated.PeriodRepresentationIDs[index] {
+			return fmt.Errorf("%w: dynamic period %d representation identity changed", ErrUnsupportedAddressing, index)
+		}
+		merged := mergeSegments(target.PeriodSegments[index], updated.PeriodSegments[index])
+		if len(merged) > maxSegmentsPerRepresentation || len(nextSegments) > maxSegmentsPerRepresentation-len(merged) {
+			return fmt.Errorf("%w: combined dynamic segment count exceeds %d", ErrUnsupportedAddressing, maxSegmentsPerRepresentation)
+		}
+		nextPeriods[index] = merged
+		nextSegments = append(nextSegments, merged...)
+	}
+	target.PeriodSegments = nextPeriods
+	target.Segments = nextSegments
+	return nil
 }
 
 func validateMultiPeriodTiming(mpd MPD) error {
