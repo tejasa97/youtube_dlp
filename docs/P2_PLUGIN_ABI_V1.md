@@ -163,18 +163,26 @@ enforced only by the WASM host. A native memory/CPU sandbox requires a future
 platform supervisor; the absence is explicit rather than silently falling
 back to an unsandboxed mode.
 
-On Windows the plugin RPC transport spawns the child suspended via
+On Windows the internal plugin RPC code path spawns the child
+suspended via
 `syscall.SysProcAttr{CreationFlags: windows.CREATE_SUSPENDED}`
-(`internal/plugin/rpc/process_windows.go::configureIsolation`), creates a
-Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` and the optional
-address-space, CPU-time, and active-process limits, assigns the child with
-`windows.AssignProcessToJobObject`, and only then resumes the initial
-thread (`resumeInitialThread`). This closes the internal plugin RPC
-start-before-Job race. The generic product sandbox remains unreachable on
-Windows because `internal/sandbox.PrepareForOS` rejects `GOOS=windows`
-with `internal/sandbox.ErrUnsupportedPlatform`, so the macOS/Windows
-generic native plans still fail closed. Unix process-group creation happens
-as part of child creation.
+(`internal/plugin/rpc/process_windows.go::configureIsolation`),
+creates a Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` and
+the optional address-space, CPU-time, and active-process limits,
+assigns the child with `windows.AssignProcessToJobObject`, and only
+then resumes the initial thread (`resumeInitialThread`). This closes
+the start-before-Job race inside that internal code. Production
+signed native calls do not reach this path: a `SandboxConfig`-less
+signed call would otherwise bypass `internal/sandbox`, and a signed
+call that does set `SandboxConfig` hits `PrepareForOS(windows)` and
+fails closed with `internal/sandbox.ErrUnsupportedPlatform` before
+`command.Start`. The Job code is therefore an internal test/RPC
+seam, not product containment evidence. The generic product
+sandbox remains unreachable on Windows because
+`internal/sandbox.PrepareForOS` rejects `GOOS=windows` with
+`internal/sandbox.ErrUnsupportedPlatform`, so macOS/Windows
+generic native plans still fail closed. Unix process-group creation
+happens as part of child creation.
 
 ## Constrained WASM ABI
 
@@ -240,9 +248,11 @@ Known deviations remain explicit:
 - WASM has wall-clock but no instruction-fuel accounting; and
 - signer verification, deterministic signed archives, installation, rollback,
   and revocation belong to P2-09 rather than this ABI package.
-The internal plugin RPC transport closes its own start-before-Job race
-via `CREATE_SUSPENDED` -> `SetInformationJobObject` ->
+The internal plugin RPC code path closes its own start-before-Job
+race via `CREATE_SUSPENDED` -> `SetInformationJobObject` ->
 `AssignProcessToJobObject` -> `resumeInitialThread`
-(`internal/plugin/rpc/process_windows.go`); the separate Windows updater
-health-check start-to-Job race is tracked in the security audit as
-`G2-S01` and is not closed by this ABI.
+(`internal/plugin/rpc/process_windows.go`); this is internal code
+reached only through the test/RPC seam, not product containment.
+The separate Windows updater health-check start-to-Job race is
+tracked in the security audit as `G2-S01` and is not closed by
+this ABI.

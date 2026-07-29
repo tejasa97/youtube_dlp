@@ -181,20 +181,23 @@ The following prior findings remain visible and were not reclassified as new:
   the production plugin RPC exchange on Linux through the `bwrap` adapter and,
   when host resource caps are set, the `prlimit` adapter
   (`internal/plugin/rpc/client.go::exchange`, `sandbox.PrepareForOS` /
-  `sandbox.Prepare`). macOS and Windows generic native plans fail closed with
-  `internal/sandbox.ErrAdapterUnavailable` because no production adapter is
-  wired up; the previously documented `sandbox-exec` path was removed. The
-  Windows Job Object code path in `internal/plugin/rpc/process_windows.go`
-  is reachable from the plugin RPC exchange and closes its own
-  start-before-Job race via `CREATE_SUSPENDED` -> `SetInformationJobObject`
-  -> `AssignProcessToJobObject` -> `resumeInitialThread`. The Windows
-  updater health-check start-before-Job race remains a separate concern
-  tracked as `G2-S01` below and is not closed by the plugin RPC work. WASM
-  has wall-clock, memory-page, and message limits; wazero v1.9 has no stable
-  instruction-fuel API, so a non-zero `Limits.WASMInstructionBudget` is
-  rejected with `plugin.ErrIsolationUnavailable` rather than silently falling
-  back to wall-clock-only accounting (`docs/P2_PLUGIN_ABI_V1.md:223-231`,
-  `internal/plugin/wasm/host.go`,
+  `sandbox.Prepare`). Signed product calls that do configure a `SandboxConfig`
+  on Windows hit `PrepareForOS(windows)` and fail closed with
+  `internal/sandbox.ErrUnsupportedPlatform` before `command.Start`. macOS
+  generic native plans fail closed with `internal/sandbox.ErrAdapterUnavailable`
+  because no production adapter is wired up; the previously documented
+  `sandbox-exec` path was removed. The Windows Job Object code path in
+  `internal/plugin/rpc/process_windows.go` is reached only through the internal
+  test/RPC seam; it closes its own start-before-Job race via `CREATE_SUSPENDED`
+  -> `SetInformationJobObject` -> `AssignProcessToJobObject` ->
+  `resumeInitialThread`, but it is not product containment evidence. The
+  Windows updater health-check start-before-Job race remains a separate
+  concern tracked as `G2-S01` below and is not closed by the plugin RPC work.
+  WASM has wall-clock, memory-page, and message limits; wazero v1.9 has no
+  stable instruction-fuel API, so a non-zero `Limits.WASMInstructionBudget`
+  is rejected with `plugin.ErrIsolationUnavailable` rather than silently
+  falling back to wall-clock-only accounting
+  (`docs/P2_PLUGIN_ABI_V1.md:223-231`, `internal/plugin/wasm/host.go`,
   `internal/plugin/wasm/host_test.go::TestWASMInstructionBudgetFailsClosedWithoutFuelAPI`).
 - The SDK requires its input `Close` to interrupt a blocked read, and a handler
   that ignores context can delay in-process SDK shutdown; the host's process
