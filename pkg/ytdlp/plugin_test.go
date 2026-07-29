@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -100,6 +101,16 @@ func TestSandboxedPluginHostBuildsFailClosedNativePolicy(t *testing.T) {
 	config := host.rpcConfig()
 	if config.Sandbox == nil || config.Sandbox.ReadOnlyPaths[0] != "/input" || config.Sandbox.Limits.CPUSeconds != 5 || config.Sandbox.Limits.OpenFiles != 32 {
 		t.Fatalf("sandbox config = %#v", config.Sandbox)
+	}
+}
+
+func TestNativePluginHostRequiresExplicitSandbox(t *testing.T) {
+	installed := &InstalledPlugin{packageValue: plugin.Package{Manifest: plugin.Manifest{Runtime: pluginapi.RuntimeNative}}}
+	approver := PluginPermissionApproveFunc(func(context.Context, PluginApprovalRequest) (PluginApproval, error) {
+		return PluginApproval{}, nil
+	})
+	if _, err := NewPluginHost(installed, approver, PluginLimits{}); err == nil || !errors.Is(err, plugin.ErrIsolationUnavailable) {
+		t.Fatalf("unsandboxed native host error = %v", err)
 	}
 }
 

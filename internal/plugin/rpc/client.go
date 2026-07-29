@@ -28,6 +28,10 @@ type SandboxConfig struct {
 	SecretHandles []string
 	Limits        sandbox.Limits
 	Lookup        sandbox.Lookup
+	// AllowExternalTools permits the explicitly configured Linux bwrap/prlimit
+	// adapters. It defaults to false so a plugin cannot silently expand its
+	// launch trust boundary through PATH helpers.
+	AllowExternalTools bool
 }
 
 type Config struct {
@@ -156,6 +160,13 @@ func exchange(ctx context.Context, config Config, request envelope, resultType, 
 	operationCtx, cancel := context.WithTimeout(ctx, limits.Timeout)
 	defer cancel()
 	var preapprovedVersion uint32
+	// A signed native package is never a generic process launcher. Reject the
+	// known-unsandboxed configuration before invoking an approver: approval may
+	// be persisted by the product and must not be recorded for an operation
+	// that cannot ever be launched.
+	if expected != nil && config.Sandbox == nil && !config.UnsafeTestOnly {
+		return envelope{}, plugin.ErrIsolationUnavailable
+	}
 	if expected != nil {
 		if config.Approver == nil {
 			return envelope{}, fmt.Errorf("%w: trusted packages require an identity-bound approver", plugin.ErrPermissionReview)
@@ -176,7 +187,6 @@ func exchange(ctx context.Context, config Config, request envelope, resultType, 
 			return envelope{}, err
 		}
 	}
-
 	commandExecutable, commandArguments, commandEnvironment := executable, config.Args, environment
 	commandDirectory := ""
 	if expected != nil {
@@ -204,6 +214,7 @@ func exchange(ctx context.Context, config Config, request envelope, resultType, 
 			ReadOnlyPaths: readOnly, WritablePaths: config.Sandbox.WritablePaths,
 			AllowNetwork:  hasPermission(expected.Manifest.Permissions, plugin.PermissionNetwork),
 			SecretHandles: config.Sandbox.SecretHandles, Limits: config.Sandbox.Limits,
+			AllowExternalTools: config.Sandbox.AllowExternalTools,
 		}, config.Sandbox.Lookup)
 		if config.Sandbox.Lookup == nil {
 			plan, prepareErr = sandbox.Prepare(sandbox.Spec{
@@ -211,6 +222,7 @@ func exchange(ctx context.Context, config Config, request envelope, resultType, 
 				ReadOnlyPaths: readOnly, WritablePaths: config.Sandbox.WritablePaths,
 				AllowNetwork:  hasPermission(expected.Manifest.Permissions, plugin.PermissionNetwork),
 				SecretHandles: config.Sandbox.SecretHandles, Limits: config.Sandbox.Limits,
+				AllowExternalTools: config.Sandbox.AllowExternalTools,
 			})
 		}
 		if prepareErr != nil {
@@ -222,6 +234,17 @@ func exchange(ctx context.Context, config Config, request envelope, resultType, 
 	command := exec.Command(commandExecutable, commandArguments...)
 	command.Env = commandEnvironment
 	command.Dir = commandDirectory
+	// Revalidate after all approval and adapter preparation, immediately before
+	// process creation. A changed package must never inherit a prior approval.
+	if expected != nil {
+		fresh, revalidateErr := plugin.RevalidatePackage(*expected)
+		if revalidateErr != nil || fresh.EntrypointPath != executable {
+			if revalidateErr == nil {
+				revalidateErr = plugin.ErrUntrustedPath
+			}
+			return envelope{}, revalidateErr
+		}
+	}
 	if err := configureIsolation(command); err != nil {
 		return envelope{}, err
 	}
@@ -238,7 +261,7 @@ func exchange(ctx context.Context, config Config, request envelope, resultType, 
 	if err := command.Start(); err != nil {
 		return envelope{}, fmt.Errorf("%w: start: %v", plugin.ErrCrashed, plugin.RedactDiagnostic(err.Error()))
 	}
-	isolation, err := attachIsolation(command)
+	isolation, err := attachIsolation(command, sandboxLimits(config.Sandbox))
 	if err != nil {
 		_ = command.Process.Kill()
 		_ = command.Wait()
@@ -372,6 +395,9 @@ func exchange(ctx context.Context, config Config, request envelope, resultType, 
 	select {
 	case outcome := <-resultCh:
 		cleanupErr := cleanup(outcome.err != nil)
+		if stderr.Overflowed() {
+			return envelope{}, errors.Join(plugin.ErrResourceLimit, cleanupErr)
+		}
 		if outcome.err != nil {
 			if errors.Is(outcome.err, io.EOF) || errors.Is(outcome.err, io.ErrUnexpectedEOF) {
 				outcome.err = fmt.Errorf("%w: unexpected exit", plugin.ErrCrashed)
@@ -385,11 +411,21 @@ func exchange(ctx context.Context, config Config, request envelope, resultType, 
 	case <-operationCtx.Done():
 		_ = send(envelope{Type: "cancel", RequestID: requestID})
 		cleanupErr := cleanup(false)
+		if stderr.Overflowed() {
+			return envelope{}, errors.Join(plugin.ErrResourceLimit, cleanupErr)
+		}
 		if errors.Is(operationCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
 			return envelope{}, errors.Join(fmt.Errorf("%w: %v", plugin.ErrTimeout, operationCtx.Err()), cleanupErr)
 		}
 		return envelope{}, errors.Join(operationCtx.Err(), cleanupErr)
 	}
+}
+
+func sandboxLimits(config *SandboxConfig) sandbox.Limits {
+	if config == nil {
+		return sandbox.Limits{}
+	}
+	return config.Limits
 }
 
 func hasPermission(permissions []plugin.Permission, expected plugin.Permission) bool {
@@ -521,9 +557,10 @@ func responseID(value envelope) string {
 }
 
 type boundedBuffer struct {
-	buffer  bytes.Buffer
-	maximum int
-	mu      sync.Mutex
+	buffer   bytes.Buffer
+	maximum  int
+	overflow bool
+	mu       sync.Mutex
 }
 
 func (buffer *boundedBuffer) Write(data []byte) (int, error) {
@@ -534,8 +571,11 @@ func (buffer *boundedBuffer) Write(data []byte) (int, error) {
 	if remaining > 0 {
 		if len(data) > remaining {
 			data = data[:remaining]
+			buffer.overflow = true
 		}
 		_, _ = buffer.buffer.Write(data)
+	} else if len(data) != 0 {
+		buffer.overflow = true
 	}
 	return written, nil
 }
@@ -544,4 +584,10 @@ func (buffer *boundedBuffer) String() string {
 	buffer.mu.Lock()
 	defer buffer.mu.Unlock()
 	return buffer.buffer.String()
+}
+
+func (buffer *boundedBuffer) Overflowed() bool {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	return buffer.overflow
 }

@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/ytdlp-go/ytdlp/internal/plugin"
+	"github.com/ytdlp-go/ytdlp/internal/sandbox"
 )
 
 type processIsolation struct {
@@ -19,7 +20,7 @@ func configureIsolation(command *exec.Cmd) error {
 	return nil
 }
 
-func attachIsolation(command *exec.Cmd) (*processIsolation, error) {
+func attachIsolation(command *exec.Cmd, _ sandbox.Limits) (*processIsolation, error) {
 	if command.Process == nil || command.Process.Pid <= 0 {
 		return nil, fmt.Errorf("%w: missing process group", plugin.ErrIsolationUnavailable)
 	}

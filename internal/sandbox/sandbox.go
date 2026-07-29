@@ -22,8 +22,7 @@ const (
 type Adapter string
 
 const (
-	AdapterBubblewrap  Adapter = "bubblewrap"
-	AdapterSandboxExec Adapter = "sandbox-exec"
+	AdapterBubblewrap Adapter = "bubblewrap"
 )
 
 type Limits struct {
@@ -44,6 +43,12 @@ type Spec struct {
 	ReadOnlyPaths    []string
 	WritablePaths    []string
 	AllowNetwork     bool
+	// AllowExternalTools is an explicit host policy decision. Linux isolation
+	// relies on the distribution-provided bwrap (and, when limits are set,
+	// prlimit) executables. They are never discovered implicitly from a plugin
+	// request because a PATH-resolved helper would become part of the security
+	// boundary.
+	AllowExternalTools bool
 	// SecretHandles are opaque broker identifiers. Secret values are not a
 	// supported field and are never inserted into argv or the environment.
 	SecretHandles []string
@@ -228,6 +233,9 @@ func validHandle(handle string) bool {
 }
 
 func linuxPlan(spec Spec, lookup Lookup) (Plan, error) {
+	if !spec.AllowExternalTools {
+		return Plan{}, ErrAdapterUnavailable
+	}
 	bubblewrap, err := lookupExecutable("bwrap", lookup)
 	if err != nil {
 		return Plan{}, err
@@ -287,60 +295,14 @@ func linuxPlan(spec Spec, lookup Lookup) (Plan, error) {
 }
 
 func darwinPlan(spec Spec, lookup Lookup) (Plan, error) {
+	// sandbox-exec is deprecated and does not provide provable resource limits
+	// or a maintained security contract. Do not advertise a profile as native
+	// plugin isolation: native execution on Darwin remains fail-closed until a
+	// supported kernel confinement implementation exists.
 	if spec.Limits.requested() {
 		return Plan{}, ErrUnsupportedLimit
 	}
-	sandboxExec, err := lookupExecutable("sandbox-exec", lookup)
-	if err != nil {
-		return Plan{}, err
-	}
-	profile := darwinProfile(spec)
-	arguments := []string{"-p", profile, "--", spec.Executable}
-	arguments = append(arguments, spec.Arguments...)
-	return Plan{
-		Adapter: AdapterSandboxExec, Executable: sandboxExec, Arguments: arguments,
-		Environment:      []string{"HOME=/nonexistent", "LANG=C", "LC_ALL=C", "PATH=/usr/bin:/bin", "TMPDIR=/tmp"},
-		WorkingDirectory: spec.WorkingDirectory, ReadOnlyPaths: spec.ReadOnlyPaths,
-		WritablePaths: spec.WritablePaths, SecretHandles: spec.SecretHandles,
-		NetworkAllowed: spec.AllowNetwork,
-		Limitations:    []string{"sandbox-exec is deprecated by Apple and availability is checked at runtime", "CPU, memory, descriptor, and process limits require a separate supervisor", "process-tree cancellation remains a supervisor responsibility"},
-	}, nil
-}
-
-func darwinProfile(spec Spec) string {
-	var profile strings.Builder
-	profile.WriteString("(version 1)\n(deny default)\n")
-	profile.WriteString("(allow process-info*)\n(allow signal (target self))\n")
-	profile.WriteString("(allow process-exec (literal \"")
-	profile.WriteString(escapeProfile(spec.Executable))
-	profile.WriteString("\"))\n")
-	profile.WriteString("(allow file-read* (subpath \"/System/Library\") (subpath \"/usr/lib\") (literal \"/dev/null\"))\n")
-	for _, root := range spec.ReadOnlyPaths {
-		profile.WriteString("(allow file-read* (")
-		profile.WriteString(profilePathRule(root))
-		profile.WriteString(") )\n")
-	}
-	for _, root := range spec.WritablePaths {
-		profile.WriteString("(allow file-read* file-write* (subpath \"")
-		profile.WriteString(escapeProfile(root))
-		profile.WriteString("\"))\n")
-	}
-	if spec.AllowNetwork {
-		profile.WriteString("(allow network*)\n")
-	}
-	return profile.String()
-}
-
-func profilePathRule(root string) string {
-	info, err := os.Lstat(root)
-	if err == nil && info.IsDir() {
-		return "subpath \"" + escapeProfile(root) + "\""
-	}
-	return "literal \"" + escapeProfile(root) + "\""
-}
-
-func escapeProfile(input string) string {
-	return strings.NewReplacer("\\", "\\\\", "\"", "\\\"").Replace(input)
+	return Plan{}, ErrAdapterUnavailable
 }
 
 func lookupExecutable(name string, lookup Lookup) (string, error) {

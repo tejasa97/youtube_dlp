@@ -94,6 +94,10 @@ type Limits struct {
 	// MemoryLimitPages is enforced by the WASM host only. The native RPC
 	// transport does not claim a portable address-space limit.
 	MemoryLimitPages uint32
+	// WASMInstructionBudget requests deterministic guest instruction metering.
+	// wazero v1.9 has no stable public fuel API; a non-zero request therefore
+	// fails closed instead of being misrepresented as a wall-clock limit.
+	WASMInstructionBudget uint64
 }
 
 func (limits Limits) WithDefaults() Limits {
@@ -122,7 +126,7 @@ func (limits Limits) Validate() error {
 	limits = limits.WithDefaults()
 	if limits.Timeout > 10*time.Minute || limits.CancelGrace > 30*time.Second ||
 		limits.MaxMessageBytes > 16<<20 || limits.MaxStderrBytes > 1<<20 ||
-		limits.MemoryLimitPages > 65536 {
+		limits.MemoryLimitPages > 65536 || limits.WASMInstructionBudget > 1<<50 {
 		return fmt.Errorf("%w: limits exceed ABI hard caps", ErrInvalidConfig)
 	}
 	return nil

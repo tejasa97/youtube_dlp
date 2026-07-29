@@ -106,6 +106,14 @@ func TestRPCMalformedCrashAndOversize(t *testing.T) {
 	}
 }
 
+func TestRPCRejectsStderrOverflow(t *testing.T) {
+	config := helperConfig("stderr-overflow")
+	config.Limits.MaxStderrBytes = 16
+	if _, err := (Client{}).Extract(context.Background(), config, request()); !errors.Is(err, plugin.ErrResourceLimit) {
+		t.Fatalf("stderr overflow error = %v", err)
+	}
+}
+
 func TestRPCCrashDoesNotExposeStderrSecrets(t *testing.T) {
 	_, err := (Client{}).Extract(context.Background(), helperConfig("crash-secret"), request())
 	if !errors.Is(err, plugin.ErrCrashed) || strings.Contains(err.Error(), "fixture-secret") {
@@ -168,6 +176,7 @@ func TestRPCRejectsSecretArgumentsEnvironmentAndPython(t *testing.T) {
 type recordingApprover struct {
 	mu      sync.Mutex
 	request plugin.ApprovalRequest
+	calls   int
 }
 
 type denyingApprover struct{}
@@ -179,6 +188,7 @@ func (denyingApprover) Approve(context.Context, plugin.ApprovalRequest) (plugin.
 func (approver *recordingApprover) Approve(_ context.Context, request plugin.ApprovalRequest) (plugin.Approval, error) {
 	approver.mu.Lock()
 	defer approver.mu.Unlock()
+	approver.calls++
 	approver.request = request
 	return plugin.Approval{Granted: append([]plugin.Permission(nil), request.Requested...)}, nil
 }
@@ -235,6 +245,9 @@ func TestRPCTrustedPackageLaunch(t *testing.T) {
 	denied.Executable = ""
 	denied.UnsafeTestOnly = false
 	denied.Approver = denyingApprover{}
+	// A supplied policy reaches approval before adapter preparation, allowing
+	// an explicit denial to prevent any launch.
+	denied.Sandbox = &SandboxConfig{}
 	if _, err := (Client{}).Extract(context.Background(), denied, request()); !errors.Is(err, plugin.ErrPermissionDenied) {
 		t.Fatalf("pre-launch approval error = %v", err)
 	}
@@ -245,7 +258,7 @@ func TestRPCTrustedPackageLaunch(t *testing.T) {
 	config := helperConfig("trusted")
 	config.Package = &loaded
 	config.Executable = ""
-	config.UnsafeTestOnly = false
+	config.UnsafeTestOnly = true // exercise the internal RPC seam without bwrap
 	config.Approver = approver
 	config.PreviousPermissions = []plugin.Permission{plugin.PermissionNetwork}
 	response, err := (Client{}).Extract(context.Background(), config, request())
@@ -253,11 +266,24 @@ func TestRPCTrustedPackageLaunch(t *testing.T) {
 		t.Fatalf("response, error = %#v, %v", response, err)
 	}
 	approver.mu.Lock()
-	defer approver.mu.Unlock()
-	if approver.request.Signer != "fixture-signing-key" || approver.request.ExecutableDigest != loaded.ExecutableDigest ||
-		approver.request.PluginID != loaded.Manifest.ID || approver.request.Release != loaded.Manifest.Release ||
-		approver.request.ABI != plugin.ProtocolV1_1 || !reflect.DeepEqual(approver.request.Requested, loaded.Manifest.Permissions) {
-		t.Fatalf("identity-bound approval = %#v", approver.request)
+	approved := approver.request
+	callsBeforeStrict := approver.calls
+	approver.mu.Unlock()
+	if approved.Signer != "fixture-signing-key" || approved.ExecutableDigest != loaded.ExecutableDigest ||
+		approved.PluginID != loaded.Manifest.ID || approved.Release != loaded.Manifest.Release ||
+		approved.ABI != plugin.ProtocolV1_1 || !reflect.DeepEqual(approved.Requested, loaded.Manifest.Permissions) {
+		t.Fatalf("identity-bound approval = %#v", approved)
+	}
+	strict := config
+	strict.UnsafeTestOnly = false
+	if _, err := (Client{}).Extract(context.Background(), strict, request()); !errors.Is(err, plugin.ErrIsolationUnavailable) {
+		t.Fatalf("signed native package without sandbox error = %v", err)
+	}
+	approver.mu.Lock()
+	callsAfterStrict := approver.calls
+	approver.mu.Unlock()
+	if callsAfterStrict != callsBeforeStrict {
+		t.Fatalf("nil sandbox invoked approver: before=%d after=%d", callsBeforeStrict, callsAfterStrict)
 	}
 	manifest.Release = "1.1.1"
 	mutated, err := json.Marshal(manifest)
@@ -408,6 +434,9 @@ func TestRPCPluginHelper(t *testing.T) {
 		}
 		_, _ = fmt.Fprint(os.Stderr, message)
 		os.Exit(12)
+	}
+	if mode == "stderr-overflow" {
+		_, _ = fmt.Fprint(os.Stderr, strings.Repeat("x", 128))
 	}
 	if mode == "malformed" {
 		_, _ = os.Stdout.Write([]byte{0, 0, 0, 1, '{'})
