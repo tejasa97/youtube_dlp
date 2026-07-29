@@ -126,11 +126,10 @@ func (operation *operation) downloadAndMergeTracks(
 	mergeInputs := make([]ffmpeg.MergeInput, len(selections))
 	for index, selection := range selections {
 		mergeInputs[index] = ffmpeg.MergeInput{
-			Path:       paths[index],
-			HasAudio:   selectionHasAudio(selection),
-			HasVideo:   selectionHasVideo(selection),
-			Protocol:   selection.Protocol,
-			AudioCodec: selection.ACodec,
+			Path:     paths[index],
+			HasAudio: selectionHasAudio(selection),
+			HasVideo: selectionHasVideo(selection),
+			Protocol: selection.Protocol,
 		}
 	}
 	tools, err := ffmpeg.Discover(ffmpeg.Config{})

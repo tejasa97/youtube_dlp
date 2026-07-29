@@ -93,8 +93,8 @@ func TestBuildMergeArgumentsOrdering(t *testing.T) {
 			name: "hls aac audio among several audio tracks",
 			inputs: []MergeInput{
 				{Path: "/v.mp4", HasVideo: true},
-				{Path: "/hls.m4a", HasAudio: true, Protocol: "m3u8_native", AudioCodec: "aac"},
-				{Path: "/plain.m4a", HasAudio: true, Protocol: "http", AudioCodec: "aac"},
+				{Path: "/hls.m4a", HasAudio: true, HLSAACFixup: true},
+				{Path: "/plain.m4a", HasAudio: true, Protocol: "http"},
 			},
 			want: []string{
 				"-i", "/v.mp4", "-i", "/hls.m4a", "-i", "/plain.m4a",
