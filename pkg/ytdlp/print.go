@@ -653,8 +653,9 @@ func (operation *operation) printFilename(info value.Info, selections []mediafor
 
 func (operation *operation) printFilenameForPlan(info value.Info, plan mediaformat.OutputPlan) (string, error) {
 	outputInfo := selectedPlanInfo(info, plan)
-	if prefs := operation.mergeOutputPreferences(); len(prefs) > 0 && len(plan.Tracks) > 1 {
-		outputInfo.Set("ext", value.String(plannedOutputExtension(plan, prefs)))
+	ext := plannedOutputExtension(plan, operation.mergeOutputPreferences())
+	if ext != "" {
+		outputInfo.Set("ext", value.String(ext))
 	}
 	return operation.renderFilename(outputInfo, plan.Tracks)
 }

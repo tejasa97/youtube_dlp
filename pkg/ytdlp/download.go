@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/ytdlp-go/ytdlp/internal/downloader"
@@ -28,20 +27,6 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/protocol/youtubeump"
 	"github.com/ytdlp-go/ytdlp/internal/youtubepot"
 )
-
-func outputPlanDestination(base string, planIndex int, plan mediaformat.OutputPlan, multi bool, preferences []string) (string, error) {
-	if !multi {
-		return base, nil
-	}
-	extension, err := planDestinationExtension(plan, preferences)
-	if err != nil {
-		return "", err
-	}
-	baseExtension := filepath.Ext(base)
-	stem := strings.TrimSuffix(filepath.Base(base), baseExtension)
-	suffix := plan.DestinationSuffix(planIndex + 1)
-	return filepath.Join(filepath.Dir(base), stem+".f"+suffix+"."+extension), nil
-}
 
 func planDestinationExtension(plan mediaformat.OutputPlan, overridePreferences []string) (string, error) {
 	tracks := plan.Tracks
@@ -68,57 +53,6 @@ func plannedOutputExtension(plan mediaformat.OutputPlan, overridePreferences []s
 		return safeExtension(plan.Tracks[0].Ext)
 	}
 	return safeExtension(mediaformat.CompatibleExtensionForSelections(plan.Tracks, nil))
-}
-
-func validateOutputPlans(plans []mediaformat.OutputPlan, preferences []string) error {
-	for index, plan := range plans {
-		if _, err := planDestinationExtension(plan, preferences); err != nil {
-			return fmt.Errorf("output plan[%d]: %w", index, err)
-		}
-	}
-	return nil
-}
-
-type publishedMediaTracker struct {
-	preexisting map[string]struct{}
-	created     []string
-}
-
-func newPublishedMediaTracker(destinations ...string) publishedMediaTracker {
-	tracker := publishedMediaTracker{preexisting: make(map[string]struct{})}
-	for _, destination := range destinations {
-		destination = filepath.Clean(destination)
-		if destination == "" {
-			continue
-		}
-		if _, err := os.Stat(destination); err == nil {
-			tracker.preexisting[destination] = struct{}{}
-		}
-	}
-	return tracker
-}
-
-func (tracker *publishedMediaTracker) add(path string) {
-	path = filepath.Clean(path)
-	if path == "" {
-		return
-	}
-	if _, exists := tracker.preexisting[path]; exists {
-		return
-	}
-	for _, existing := range tracker.created {
-		if existing == path {
-			return
-		}
-	}
-	tracker.created = append(tracker.created, path)
-}
-
-func (tracker *publishedMediaTracker) removeCreated() {
-	for _, path := range tracker.created {
-		_ = os.Remove(path)
-	}
-	tracker.created = nil
 }
 
 func (operation *operation) downloadSelections(ctx context.Context, selections []mediaformat.Selection, outputRoot, destination string, sink events.Sink) (string, int64, error) {

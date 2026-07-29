@@ -1235,14 +1235,13 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		singlePrintPlan = &outputPlans[0]
 	}
 	operation.applyThumbnailEmbeddingOutputExtension(&info, selectedFormats)
-	var destination string
-	if len(outputPlans) == 1 {
-		destination, err = operation.printFilenameForPlan(info, outputPlans[0])
-	} else if len(selectedFormats) > 0 || operation.hasPrintStageAtOrAfter(PrintVideo) {
-		destination, err = operation.printFilename(info, selectedFormats)
-	}
+	planDestinations, err := operation.resolveOutputPlanDestinations(info, outputPlans)
 	if err != nil {
 		return Result{}, categorized("render output template", err)
+	}
+	var destination string
+	if len(planDestinations) > 0 {
+		destination = planDestinations[0]
 	}
 	if needsInteractiveFormat {
 		if destination == "" {
@@ -1355,23 +1354,18 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	multiOutput := len(outputPlans) > 1
 	var downloadedPath string
 	mediaArtifactStart := len(result.Artifacts)
-	planDestinations := make([]string, len(outputPlans))
-	for index, plan := range outputPlans {
-		planDestination, destErr := outputPlanDestination(destination, index, plan, multiOutput, operation.mergeOutputPreferences())
-		if destErr != nil {
-			return Result{}, categorized("render output template", destErr)
-		}
-		planDestinations[index] = planDestination
+	transaction, err := operation.preflightPlanDestinations(planDestinations)
+	if err != nil {
+		return Result{}, categorized("preflight output destinations", err)
 	}
-	tracker := newPublishedMediaTracker(planDestinations...)
 	for planIndex, plan := range outputPlans {
 		planDestination := planDestinations[planIndex]
 		path, _, downloadErr := operation.downloadSelections(ctx, plan.Tracks, outputDir, planDestination, sink)
 		if downloadErr != nil {
-			tracker.removeCreated()
+			transaction.rollback()
 			return Result{}, categorized("download selected formats", downloadErr)
 		}
-		tracker.add(path)
+		transaction.recordCreated(path)
 		if multiOutput {
 			result.Artifacts = append(result.Artifacts, Artifact{Path: path, Kind: "media"})
 			if planIndex == 0 {
@@ -1382,11 +1376,11 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		var mediaArtifacts []Artifact
 		path, mediaArtifacts, downloadErr = operation.applyPostprocessors(ctx, outputDir, path, sink)
 		if downloadErr != nil {
-			tracker.removeCreated()
+			transaction.rollback()
 			return Result{}, categorized("run postprocessors", downloadErr)
 		}
 		for _, artifact := range mediaArtifacts {
-			tracker.add(artifact.Path)
+			transaction.recordCreated(artifact.Path)
 		}
 		result.Artifacts = append(result.Artifacts, mediaArtifacts...)
 		if planIndex == 0 {
@@ -1397,12 +1391,12 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	if !multiOutput {
 		downloadedPath, result.Artifacts, cutApplied, err = operation.applyChapterCuts(ctx, &info, downloadedPath, result.Artifacts, sink)
 		if err != nil {
-			tracker.removeCreated()
+			transaction.rollback()
 			return Result{}, err
 		}
 		result.InfoJSON, err = encodeInfo(info)
 		if err != nil {
-			tracker.removeCreated()
+			transaction.rollback()
 			return Result{}, err
 		}
 	}
@@ -1412,7 +1406,7 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 			ctx, &info, downloadedPath, selectedSubtitles, result.Artifacts, sink,
 		)
 		if err != nil {
-			tracker.removeCreated()
+			transaction.rollback()
 			return Result{}, categorized("embed subtitles", err)
 		}
 	}
@@ -1430,18 +1424,18 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	if cutApplied || embeddedSubtitles || embeddedThumbnail {
 		result.Bytes, err = artifactBytes(result.Artifacts)
 		if err != nil {
-			tracker.removeCreated()
+			transaction.rollback()
 			return Result{}, categorized("account post-cut artifacts", err)
 		}
 		result.InfoJSON, err = encodeInfo(info)
 		if err != nil {
-			tracker.removeCreated()
+			transaction.rollback()
 			return Result{}, err
 		}
 	} else {
 		mediaBytes, err := mediaArtifactBytes(result.Artifacts[mediaArtifactStart:])
 		if err != nil {
-			tracker.removeCreated()
+			transaction.rollback()
 			return Result{}, categorized("account media artifacts", err)
 		}
 		result.Bytes += mediaBytes
