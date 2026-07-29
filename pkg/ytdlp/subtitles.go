@@ -398,6 +398,9 @@ func (operation *operation) downloadSubtitles(ctx context.Context, info value.In
 			return artifacts, total, err
 		}
 		destination := subtitleFilename(base, expectedExtension, track.language, track.extension)
+		if err := operation.protectTransactionPath(destination); err != nil {
+			return artifacts, total, err
+		}
 		options := operation.request.Downloader
 		if options.MaxBytes <= 0 || options.MaxBytes > maxSubtitleBytes {
 			options.MaxBytes = maxSubtitleBytes
