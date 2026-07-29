@@ -279,6 +279,9 @@ type ConcatPostprocessor struct {
 type MovePostprocessor struct{ Destination string }
 
 func validateRequestOptions(request Request) error {
+	if request.CheckFormats > FormatCheckAll {
+		return fmt.Errorf("%w: format availability mode", errInvalidRequestOptions)
+	}
 	if err := validateVideoPassword(request.VideoPassword); err != nil {
 		return err
 	}

@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -1337,12 +1338,11 @@ func (reader *blockingInteractiveReader) Read([]byte) (int, error) {
 }
 
 func TestInteractiveMatchFilterPromptHonorsCancellationWhileReading(t *testing.T) {
-	reader := &blockingInteractiveReader{
-		started: make(chan struct{}, 1),
-		release: make(chan struct{}),
-	}
+	reader := &blockingInteractiveReader{started: make(chan struct{}, 1), release: make(chan struct{})}
 	var output bytes.Buffer
-	prompt := newInteractiveMatchFilterPrompt(reader, &output)
+	coordinator := newInteractiveStdinCoordinator(reader)
+	defer coordinator.Close()
+	prompt := newInteractiveMatchFilterPromptWithCoordinator(coordinator, &output)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
@@ -1351,15 +1351,152 @@ func TestInteractiveMatchFilterPromptHonorsCancellationWhileReading(t *testing.T
 	}()
 	<-reader.started
 	cancel()
-	select {
-	case err := <-done:
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("error = %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("prompt did not return after cancellation")
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v", err)
 	}
 	close(reader.release)
+	select {
+	case <-coordinator.done:
+	case <-time.After(time.Second):
+		t.Fatal("reader did not terminate after release")
+	}
+}
+
+func TestFormatSortFlagOrderingAndReset(t *testing.T) {
+	var values formatSortFlag
+	if err := values.Set("res,, fps"); err != nil {
+		t.Fatal(err)
+	}
+	if err := values.Set("codec"); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := []string(values), []string{"codec", "res", "fps"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("ordered fields=%v want=%v", got, want)
+	}
+	if err := values.Set(","); err != nil || !reflect.DeepEqual([]string(values), []string{"codec", "res", "fps"}) {
+		t.Fatalf("empty occurrence changed values=%v err=%v", values, err)
+	}
+	if err := values.Set("   "); err != nil || !reflect.DeepEqual([]string(values), []string{"codec", "res", "fps"}) {
+		t.Fatalf("whitespace occurrence changed values=%v err=%v", values, err)
+	}
+	values = nil // equivalent to --format-sort-reset in ordered flag parsing
+	if err := values.Set("abr"); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := []string(values), []string{"abr"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("reset fields=%v want=%v", got, want)
+	}
+}
+
+func TestInteractiveFormatPromptChannelsAndEOF(t *testing.T) {
+	var stderr bytes.Buffer
+	prompt := newInteractiveFormatPrompt(newInteractiveStdinCoordinator(strings.NewReader("\n")), &stderr)
+	selector, err := prompt(context.Background(), ytdlp.InteractiveFormatPrompt{Attempt: 1})
+	if err != nil || selector != "" || !strings.Contains(stderr.String(), "Format selector") {
+		t.Fatalf("selector=%q err=%v stderr=%q", selector, err, stderr.String())
+	}
+	_, err = newInteractiveFormatPrompt(newInteractiveStdinCoordinator(strings.NewReader("")), io.Discard)(context.Background(), ytdlp.InteractiveFormatPrompt{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("EOF error=%v", err)
+	}
+}
+
+func TestRunRejectsProgressJSONWithInteractiveFormatBeforeExtraction(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := RunContextIO(context.Background(), []string{"--progress-json", "-f", "-", "https://example.invalid/video"}, strings.NewReader(""), &stdout, &stderr)
+	if code != 2 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "--progress-json cannot be combined") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+type captureCLIRunner struct{ request ytdlp.Request }
+
+func (r *captureCLIRunner) Run(_ context.Context, request ytdlp.Request) (ytdlp.Result, error) {
+	r.request = request
+	return ytdlp.Result{}, nil
+}
+func captureCLIRequest(t *testing.T, args ...string) ytdlp.Request {
+	t.Helper()
+	runner := &captureCLIRunner{}
+	var out, errout bytes.Buffer
+	args = append(args, "https://fixture.invalid/video")
+	code := runContextIOWithDependencies(context.Background(), args, strings.NewReader(""), &out, &errout, runDependencies{newRunner: func([]ytdlp.Option) cliRunner { return runner }})
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errout.String())
+	}
+	return runner.request
+}
+func runFormatFlagFixture(t *testing.T, input string, args ...string) (int, string, string) {
+	t.Helper()
+	server := testserver.New()
+	defer server.Close()
+	var out, errout bytes.Buffer
+	args = append(args, "--skip-download", server.URL+"/page")
+	code := RunContextIO(context.Background(), args, strings.NewReader(input), &out, &errout)
+	return code, out.String(), errout.String()
+}
+
+func TestRunFormatMultistreamFlagsLastOccurrenceWins(t *testing.T) {
+	r := captureCLIRequest(t, "--video-multistreams", "--no-video-multistreams", "--audio-multistreams", "--no-audio-multistreams")
+	if r.AllowMultipleVideoStreams || r.AllowMultipleAudioStreams {
+		t.Fatalf("request=%+v", r)
+	}
+}
+func TestRunFormatSortForceAndResetOrdering(t *testing.T) {
+	r := captureCLIRequest(t, "-S", "res,, fps", "--format-sort-reset", "-S", "abr", "--format-sort-force", "--no-format-sort-force")
+	if r.FormatSortForce || !reflect.DeepEqual(r.FormatSort, []string{"abr"}) {
+		t.Fatalf("request=%+v", r)
+	}
+}
+func TestRunPreferFreeAndUnplayableNegations(t *testing.T) {
+	r := captureCLIRequest(t, "--prefer-free-formats", "--no-prefer-free-formats", "--allow-unplayable-formats", "--no-allow-unplayable-formats")
+	if r.PreferFreeFormats || r.AllowUnplayableFormats {
+		t.Fatalf("request=%+v", r)
+	}
+}
+func TestRunAllFormatsAndExplicitFormatLastOccurrenceWins(t *testing.T) {
+	r := captureCLIRequest(t, "--all-formats", "-f", "best", "--all-formats")
+	if r.Format != "all" {
+		t.Fatalf("format=%q", r.Format)
+	}
+}
+func TestRunFormatCheckModesLastOccurrenceWins(t *testing.T) {
+	r := captureCLIRequest(t, "--check-all-formats", "--check-formats", "--no-check-formats")
+	if r.CheckFormats != ytdlp.FormatCheckNone {
+		t.Fatalf("mode=%v", r.CheckFormats)
+	}
+}
+func TestRunMergeOutputFormatPlumbing(t *testing.T) {
+	r := captureCLIRequest(t, "--merge-output-format", "mp4/mkv")
+	if r.MergeOutputFormat != "mp4/mkv" {
+		t.Fatalf("merge=%q", r.MergeOutputFormat)
+	}
+}
+
+func TestRunInteractiveFormatEmptyUsesDefault(t *testing.T) {
+	code, _, errout := runFormatFlagFixture(t, "\n", "-f", "-")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errout)
+	}
+}
+func TestRunInteractiveFormatUnavailableThenValid(t *testing.T) {
+	code, _, errout := runFormatFlagFixture(t, "missing\nbest\n", "-f", "-")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errout)
+	}
+}
+func TestRunInteractiveFormatAttemptsExhausted(t *testing.T) {
+	code, _, errout := runFormatFlagFixture(t, "missing\nmissing\nmissing\n", "-f", "-")
+	if code != 2 || !strings.Contains(errout, "attempts exhausted") {
+		t.Fatalf("code=%d stderr=%q", code, errout)
+	}
+}
+func TestRunInteractiveFormatEOFAndJSONChannelIsolation(t *testing.T) {
+	var out, errout bytes.Buffer
+	code := RunContextIO(context.Background(), []string{"--progress-json", "-f", "-", "https://example.invalid"}, strings.NewReader(""), &out, &errout)
+	if code != 2 || out.Len() != 0 || !strings.Contains(errout.String(), "--progress-json") {
+		t.Fatalf("code=%d out=%q err=%q", code, out.String(), errout.String())
+	}
 }
 
 func TestRunInteractiveMatchFilterListingAndOutputChannels(t *testing.T) {

@@ -112,6 +112,7 @@ type Request struct {
 	SkipDownload        bool
 	Format              string
 	FormatSort          []string
+	FormatSortForce     bool
 	PreferredExtensions []string
 	PreferFreeFormats   bool
 	// MergeOutputFormat is a slash-separated container preference order used
@@ -123,6 +124,11 @@ type Request struct {
 	// same-kind tracks in merged format plans. Both default to false.
 	AllowMultipleVideoStreams bool
 	AllowMultipleAudioStreams bool
+	// CheckFormats controls the bounded availability probes performed before a
+	// format is selected. It is deliberately separate from format.Options: the
+	// format package remains pure and receives the checker through
+	// format.EvaluationOptions.
+	CheckFormats              FormatCheckMode
 	YouTubeTranslatedCaptions bool
 	LiveFromStart             bool
 	YouTubeComments           YouTubeCommentOptions
@@ -145,6 +151,10 @@ type Request struct {
 	// InteractiveMatchFilter is required when MatchFilters or BreakMatchFilters
 	// contains "-". It is called only for complete, non-archived entries.
 	InteractiveMatchFilter InteractiveMatchFilterFunc
+	// InteractiveFormat is required when Format is exactly "-". It runs after
+	// extraction against canonical formats and returns one selector expression;
+	// an empty response selects the normal default.
+	InteractiveFormat InteractiveFormatFunc
 	// BreakMatchFilters use the same OR/AND language as MatchFilters, but a
 	// rejection stops playlist expansion before the rejected entry is retained.
 	BreakMatchFilters []string
@@ -157,6 +167,24 @@ type Request struct {
 	PluginID string
 }
 
+// FormatCheckMode controls when selected media URLs are availability-checked.
+// The zero value preserves the historical no-probe behavior.
+type FormatCheckMode uint8
+
+const (
+	// FormatCheckAuto mirrors yt-dlp's default: only formats explicitly marked
+	// DRM or __needs_testing are probed. It is intentionally the zero value.
+	FormatCheckAuto FormatCheckMode = iota
+	FormatCheckNone
+	FormatCheckSelected
+	FormatCheckAll
+)
+
+// ErrFormatCheckLimit reports exhaustion of the bounded availability checking
+// budget. It is exported so callers can distinguish a safety limit from an
+// unavailable media candidate.
+var ErrFormatCheckLimit = errors.New("format availability check limit exceeded")
+
 // InteractiveMatchFilterPrompt describes one interactive download decision.
 type InteractiveMatchFilterPrompt struct {
 	ID       string
@@ -168,9 +196,20 @@ type InteractiveMatchFilterPrompt struct {
 // to skip it. Implementations must honor context cancellation where possible.
 type InteractiveMatchFilterFunc func(context.Context, InteractiveMatchFilterPrompt) (bool, error)
 
-// ErrInteractiveInput identifies a missing or failed interactive prompt
+// InteractiveFormatPrompt describes one bounded selector retry. Error is a
+// safe diagnostic (it never contains a media URL or request headers).
+type InteractiveFormatPrompt struct {
+	Attempt int
+	Error   string
+}
+
+// InteractiveFormatFunc supplies a selector for an extracted media entry.
+// Empty selects the ordinary default. Implementations must honor cancellation.
+type InteractiveFormatFunc func(context.Context, InteractiveFormatPrompt) (string, error)
+
+// ErrInteractiveInput identifies a missing or failed interactive input prompt
 // boundary. Context cancellation remains discoverable through errors.Is.
-var ErrInteractiveInput = errors.New("interactive match filter input unavailable")
+var ErrInteractiveInput = errors.New("interactive input unavailable")
 
 type Result struct {
 	InfoJSON   json.RawMessage
@@ -388,7 +427,18 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 		rootExtractor:       &rootExtractor,
 		plannerCapabilities: &plannerCapabilities,
 	}
+	// Explicit selected/all checks take precedence over allow-unplayable. The
+	// latter bypasses only Auto's DRM/needs-testing default policy.
+	if shouldCheckFormats(request.CheckFormats, request.AllowUnplayableFormats) {
+		checker := newFormatAvailabilityChecker(ctx, transport, request.CheckFormats)
+		operation.formatAvailability = checker
+		operation.formatAvailabilityChecker = checker
+	}
 	return operation.process(ctx, request.URL, request.PluginID, nil, make(map[string]bool), 0)
+}
+
+func shouldCheckFormats(mode FormatCheckMode, allowUnplayable bool) bool {
+	return mode != FormatCheckNone && (mode != FormatCheckAuto || !allowUnplayable)
 }
 
 func (client *Client) productRegistry() *extractor.Registry {
@@ -603,6 +653,7 @@ type operation struct {
 	sabrMerge                        func(ctx context.Context, video, audio, destination string, overwrite bool, sink events.Sink) error
 	plannerCapabilities              *mediaformat.PlannerCapabilities
 	formatAvailability               mediaformat.FormatAvailability
+	formatAvailabilityChecker        *formatAvailabilityChecker
 }
 
 func (operation *operation) process(ctx context.Context, rawURL, extractorKey string, overlay *extractor.Entry, ancestors map[string]bool, depth int) (Result, error) {
@@ -1207,10 +1258,11 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	preparedFormats = preparedFormats.SyncInfo(info)
 	var selectedFormats []mediaformat.Selection
 	var outputPlans []mediaformat.OutputPlan
-	needsInteractiveFormat := interactiveDecision.interactive != interactiveMatchFilterNone
+	needsInteractiveFormat := interactiveDecision.interactive != interactiveMatchFilterNone ||
+		operation.compatibility.interactiveFormat
 	if (!operation.request.SkipDownload && !operation.request.Simulate) ||
 		operation.hasPrintStageAtOrAfter(PrintVideo) || needsInteractiveFormat {
-		outputPlans, err = operation.planPreparedFormats(preparedFormats)
+		outputPlans, err = operation.planPreparedFormatsContext(ctx, preparedFormats)
 		if err != nil {
 			return Result{}, categorized("select format", err)
 		}
@@ -1602,6 +1654,8 @@ func categorized(op string, err error) error {
 		category = ErrorSecurity
 	case errors.Is(err, errUnsafePrintFile):
 		category = ErrorSecurity
+	case errors.Is(err, ErrFormatCheckLimit):
+		category = ErrorInvalidInput
 	case errors.Is(err, errUnsafeThumbnailRedirect):
 		category = ErrorSecurity
 	case errors.Is(err, credentialnetrc.ErrIO):

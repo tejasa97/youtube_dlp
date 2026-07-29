@@ -160,9 +160,18 @@ FormatSorter field, alias, or limit:
 `--allow-unplayable-formats` permits DRM-marked formats to participate in
 selection; it does not decrypt DRM. Selector and regular-expression inputs are
 resource-bounded and fail explicitly when a limit is exceeded. Current product
-execution supports one media track or a mergeable video/audio pair per output;
-arbitrary N-track execution and broader multi-output lifecycle handling remain
-in the active parity plan.
+execution supports bounded arbitrary N-track merges per output; broader
+multi-output lifecycle handling remains in the active parity plan.
+
+Use `--video-multistreams` and `--audio-multistreams` to retain additional
+same-kind merge tracks, or their `--no-*` forms to clear inherited settings.
+`--format-sort-force` (`--S-force`) and `--format-sort-reset` control ordered
+sort preferences. `--merge-output-format mp4/mkv` supplies merge-container
+preferences. `--check-formats`, `--check-all-formats`, and
+`--no-check-formats` control bounded availability probing; the default Auto
+mode checks only formats marked DRM or `__needs_testing`. `-f -` prompts for a
+selector after extraction; prompts are written to stderr and cannot be used
+with `--progress-json`.
 
 See [format-selector behavior and limits](docs/FORMAT_SELECTOR_PARITY.md) and
 the [active implementation plan](docs/FORMAT_SELECTOR_PARITY_IMPLEMENTATION_PLAN.md).
