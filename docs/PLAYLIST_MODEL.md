@@ -68,7 +68,7 @@ unchanged. `--no-flat-playlist` disables an inherited configuration value.
 - Ordinary entry extraction/download failures follow `Playlist.ErrorPolicy`:
   the zero-value Continue policy records a redacted event, increments
   `Result.SuppressedFailures`, and advances to the next entry; Abort propagates
-  the indexed error immediately. Cancellation, security failures, playlist
+  the indexed error immediately. Cancellation, security/internal failures, playlist
   resource limits, invalid request options, and event-handler failures always
   propagate. Iterator failures are playlist-global and always propagate.
 - `Playlist.MaxFailures`/`--skip-playlist-after-errors` stops the remaining

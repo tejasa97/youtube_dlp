@@ -318,7 +318,15 @@ func (manager *Manager) lock(ctx context.Context) (func(), error) {
 			return nil, fmt.Errorf("%w: lock object", ErrUnsafePath)
 		}
 		if err := validateLockSecurity(path); err != nil {
-			if _, statErr := os.Lstat(path); errors.Is(statErr, os.ErrNotExist) {
+			current, statErr := os.Lstat(path)
+			if errors.Is(statErr, os.ErrNotExist) {
+				continue
+			}
+			if statErr == nil && !os.SameFile(info, current) {
+				// The observed owner released the lock and another contender
+				// replaced it between Lstat and validation. Retry against the
+				// replacement's own identity; never attribute one object's
+				// validation result to another object at the same path.
 				continue
 			}
 			return nil, fmt.Errorf("%w: lock ownership", err)
