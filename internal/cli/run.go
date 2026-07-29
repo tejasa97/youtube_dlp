@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	compatconfig "github.com/ytdlp-go/ytdlp/internal/compat/config"
@@ -201,11 +202,98 @@ func RunContextIO(ctx context.Context, args []string, stdin io.Reader, stdout, s
 	})
 	format := flags.String("format", "", "format selector expression")
 	flags.StringVar(format, "f", "", "alias for --format")
-	var formatSort, matchFilters, breakMatchFilters, parseMetadata, replaceMetadata stringListFlag
+	var formatSort formatSortFlag
+	var matchFilters, breakMatchFilters, parseMetadata, replaceMetadata stringListFlag
 	flags.Var(&formatSort, "format-sort", "format sort field (repeatable)")
 	flags.Var(&formatSort, "S", "alias for --format-sort")
-	preferFreeFormats := flags.Bool("prefer-free-formats", false, "prefer free containers when otherwise equivalent")
-	allowUnplayable := flags.Bool("allow-unplayable-formats", false, "include DRM-marked formats in selection")
+	flags.BoolFunc("format-sort-reset", "disregard preceding format sort fields", func(input string) error {
+		enabled, err := strconv.ParseBool(input)
+		if err != nil {
+			return err
+		}
+		if enabled {
+			formatSort = nil
+		}
+		return nil
+	})
+	formatSortForce := false
+	setFormatSortForce := func(enabled bool) func(string) error {
+		return func(input string) error {
+			value, err := strconv.ParseBool(input)
+			if err != nil {
+				return err
+			}
+			formatSortForce = enabled == value
+			return nil
+		}
+	}
+	flags.BoolFunc("format-sort-force", "give user format sort fields full precedence", setFormatSortForce(true))
+	flags.BoolFunc("S-force", "alias for --format-sort-force", setFormatSortForce(true))
+	flags.BoolFunc("no-format-sort-force", "retain mandatory format sort field precedence (default)", setFormatSortForce(false))
+	allowMultipleVideoStreams := false
+	allowMultipleAudioStreams := false
+	setMultistream := func(target *bool, enabled bool) func(string) error {
+		return func(input string) error {
+			value, err := strconv.ParseBool(input)
+			if err != nil {
+				return err
+			}
+			*target = enabled == value
+			return nil
+		}
+	}
+	flags.BoolFunc("video-multistreams", "allow multiple video streams in one output", setMultistream(&allowMultipleVideoStreams, true))
+	flags.BoolFunc("no-video-multistreams", "allow only one video stream in one output (default)", setMultistream(&allowMultipleVideoStreams, false))
+	flags.BoolFunc("audio-multistreams", "allow multiple audio streams in one output", setMultistream(&allowMultipleAudioStreams, true))
+	flags.BoolFunc("no-audio-multistreams", "allow only one audio stream in one output (default)", setMultistream(&allowMultipleAudioStreams, false))
+	flags.BoolFunc("all-formats", "select every available format (alias for -f all)", func(input string) error {
+		enabled, err := strconv.ParseBool(input)
+		if err != nil {
+			return err
+		}
+		if enabled {
+			*format = "all"
+		}
+		return nil
+	})
+	preferFreeFormats := false
+	flags.BoolFunc("prefer-free-formats", "prefer free containers when otherwise equivalent", setMultistream(&preferFreeFormats, true))
+	flags.BoolFunc("no-prefer-free-formats", "do not prefer free containers (default)", setMultistream(&preferFreeFormats, false))
+	allowUnplayable := false
+	flags.BoolFunc("allow-unplayable-formats", "include DRM-marked formats in selection", setMultistream(&allowUnplayable, true))
+	flags.BoolFunc("no-allow-unplayable-formats", "exclude DRM-marked formats (default)", setMultistream(&allowUnplayable, false))
+	checkFormats := ytdlp.FormatCheckAuto
+	flags.BoolFunc("check-formats", "select only bounded-probe-available formats", func(input string) error {
+		enabled, err := strconv.ParseBool(input)
+		if err != nil {
+			return err
+		}
+		if enabled {
+			checkFormats = ytdlp.FormatCheckSelected
+		}
+		return nil
+	})
+	flags.BoolFunc("check-all-formats", "probe every normalized format before selection", func(input string) error {
+		enabled, err := strconv.ParseBool(input)
+		if err != nil {
+			return err
+		}
+		if enabled {
+			checkFormats = ytdlp.FormatCheckAll
+		}
+		return nil
+	})
+	flags.BoolFunc("no-check-formats", "do not probe format availability", func(input string) error {
+		enabled, err := strconv.ParseBool(input)
+		if err != nil {
+			return err
+		}
+		if enabled {
+			checkFormats = ytdlp.FormatCheckNone
+		}
+		return nil
+	})
+	mergeOutputFormat := flags.String("merge-output-format", "", "preferred merge containers separated by / (for example mp4/mkv)")
 	progressTemplate := flags.String("progress-template", "", "render download events with a bounded progress template")
 	flags.Var(&matchFilters, "match-filter", `metadata filter expression, or "-" to prompt (repeatable OR)`)
 	flags.Var(&matchFilters, "match-filters", "alias for --match-filter")
@@ -398,11 +486,12 @@ func RunContextIO(ctx context.Context, args []string, stdin io.Reader, stdout, s
 		printRules, *getURL, *getTitle, *getID, *getThumbnail, *getDescription,
 		*getDuration, *getFilename, *getFormat,
 	)
+	interactiveFormatRequested := *format == "-"
 	interactiveFilterRequested := hasInteractiveMatchFilter(matchFilters) ||
 		hasInteractiveMatchFilter(breakMatchFilters)
 	suppressInteractivePrompt := *listSubtitles && !simulateSet &&
 		!*dumpJSON && !*dumpSingleJSON && !legacyGetting && len(printRules) == 0
-	if *progressJSON && interactiveFilterRequested && !suppressInteractivePrompt {
+	if *progressJSON && (interactiveFormatRequested || (interactiveFilterRequested && !suppressInteractivePrompt)) {
 		fmt.Fprintln(stderr, `ytdlp-go: --progress-json cannot be combined with interactive match filtering`)
 		return 2
 	}
@@ -515,8 +604,17 @@ func RunContextIO(ctx context.Context, args []string, stdin io.Reader, stdout, s
 		Languages:     subtitleLanguageRules(subtitleLanguages, *allSubtitles), Format: *subtitleFormat,
 	}
 	var interactiveMatchFilter ytdlp.InteractiveMatchFilterFunc
+	var interactiveFormat ytdlp.InteractiveFormatFunc
+	var coordinator *interactiveStdinCoordinator
+	if interactiveFilterRequested && !suppressInteractivePrompt || interactiveFormatRequested {
+		coordinator = newInteractiveStdinCoordinator(stdin)
+		defer coordinator.Close()
+	}
 	if interactiveFilterRequested && !suppressInteractivePrompt {
-		interactiveMatchFilter = newInteractiveMatchFilterPrompt(stdin, stderr)
+		interactiveMatchFilter = newInteractiveMatchFilterPromptWithCoordinator(coordinator, stderr)
+	}
+	if interactiveFormatRequested {
+		interactiveFormat = newInteractiveFormatPrompt(coordinator, stderr)
 	}
 	result, err := client.Run(ctx, ytdlp.Request{
 		URL: flags.Arg(0), OutputTemplates: outputTemplates.clone(), OutputDir: *outputDir, OutputPaths: paths.clone(), Proxy: *proxy, ImpersonationProfile: *impersonationProfile,
@@ -524,10 +622,13 @@ func RunContextIO(ctx context.Context, args []string, stdin io.Reader, stdout, s
 		VideoPassword:   *videoPassword,
 		DownloadArchive: *downloadArchive, CacheDir: *cacheDir,
 		Timeout: *timeout, Overwrite: *overwrite, Simulate: requestSimulate, SkipDownload: *skipDownload, LiveFromStart: *liveFromStart,
-		Format: *format, FormatSort: append([]string(nil), formatSort...),
-		PreferFreeFormats: *preferFreeFormats, AllowUnplayableFormats: *allowUnplayable,
+		Format: *format, FormatSort: append([]string(nil), formatSort...), FormatSortForce: formatSortForce,
+		PreferFreeFormats: preferFreeFormats, AllowUnplayableFormats: allowUnplayable,
+		AllowMultipleVideoStreams: allowMultipleVideoStreams, AllowMultipleAudioStreams: allowMultipleAudioStreams,
+		CheckFormats: checkFormats, MergeOutputFormat: *mergeOutputFormat,
 		ProgressTemplate: *progressTemplate, MatchFilters: requestMatchFilters,
 		InteractiveMatchFilter: interactiveMatchFilter,
+		InteractiveFormat:      interactiveFormat,
 		BreakMatchFilters:      requestBreakMatchFilters,
 		ParseMetadata:          append([]string(nil), parseMetadata...), ReplaceMetadata: append([]string(nil), replaceMetadata...),
 		Subtitles: requestSubtitles,
@@ -621,11 +722,110 @@ func withoutInteractiveMatchFilter(filters []string) []string {
 }
 
 func newInteractiveMatchFilterPrompt(input io.Reader, output io.Writer) ytdlp.InteractiveMatchFilterFunc {
+	return newInteractiveMatchFilterPromptWithCoordinator(newInteractiveStdinCoordinator(input), output)
+}
+
+// interactiveStdinCoordinator gives the two interactive CLI features one
+// bounded reader. Keeping the scanner and its lock here prevents competing
+// Scanner instances from consuming each other's input.
+type interactiveStdinCoordinator struct {
+	mu       sync.Mutex
+	scanner  *bufio.Scanner
+	requests chan chan interactiveReadResult
+	stop     chan struct{}
+	done     chan struct{}
+	stopOnce sync.Once
+	terminal error
+}
+
+type interactiveReadResult struct {
+	text string
+	err  error
+}
+
+func newInteractiveStdinCoordinator(input io.Reader) *interactiveStdinCoordinator {
 	if input == nil {
 		input = strings.NewReader("")
 	}
 	scanner := bufio.NewScanner(input)
 	scanner.Buffer(make([]byte, 1024), 4096)
+	coordinator := &interactiveStdinCoordinator{
+		scanner: scanner, requests: make(chan chan interactiveReadResult), stop: make(chan struct{}), done: make(chan struct{}),
+	}
+	go coordinator.run()
+	return coordinator
+}
+
+// run is the sole owner of Scanner.Scan. A blocked arbitrary io.Reader cannot
+// be portably interrupted, but cancellation terminally rejects future prompt
+// reads so it can never race a later Scan. Close releases an idle reader; a
+// blocked reader exits when its input is released/closed by its owner.
+func (coordinator *interactiveStdinCoordinator) run() {
+	defer close(coordinator.done)
+	for {
+		select {
+		case <-coordinator.stop:
+			return
+		case response := <-coordinator.requests:
+			if coordinator.scanner.Scan() {
+				response <- interactiveReadResult{text: coordinator.scanner.Text()}
+				continue
+			}
+			err := coordinator.scanner.Err()
+			if err == nil {
+				err = io.EOF
+			}
+			response <- interactiveReadResult{err: err}
+			return
+		}
+	}
+}
+
+func (coordinator *interactiveStdinCoordinator) Close() {
+	if coordinator == nil {
+		return
+	}
+	coordinator.stopOnce.Do(func() { close(coordinator.stop) })
+}
+
+func (coordinator *interactiveStdinCoordinator) readLine(ctx context.Context) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	coordinator.mu.Lock()
+	if coordinator.terminal != nil {
+		err := coordinator.terminal
+		coordinator.mu.Unlock()
+		return "", err
+	}
+	response := make(chan interactiveReadResult, 1)
+	coordinator.mu.Unlock()
+	select {
+	case coordinator.requests <- response:
+	case <-ctx.Done():
+		coordinator.mu.Lock()
+		coordinator.terminal = ctx.Err()
+		coordinator.mu.Unlock()
+		return "", ctx.Err()
+	}
+	select {
+	case <-ctx.Done():
+		coordinator.mu.Lock()
+		coordinator.terminal = ctx.Err()
+		coordinator.mu.Unlock()
+		return "", ctx.Err()
+	case result := <-response:
+		if result.err != nil {
+			if errors.Is(result.err, io.EOF) {
+				return "", context.Canceled
+			}
+			return "", fmt.Errorf("%w: %v", ytdlp.ErrInteractiveInput, result.err)
+		}
+		return result.text, nil
+	}
+}
+
+func newInteractiveMatchFilterPromptWithCoordinator(coordinator *interactiveStdinCoordinator, output io.Writer) ytdlp.InteractiveMatchFilterFunc {
 	return func(ctx context.Context, prompt ytdlp.InteractiveMatchFilterPrompt) (bool, error) {
 		for {
 			if err := ctx.Err(); err != nil {
@@ -634,35 +834,28 @@ func newInteractiveMatchFilterPrompt(input io.Reader, output io.Writer) ytdlp.In
 			if _, err := fmt.Fprintf(output, "Download %s? (Y/n): ", strconv.Quote(prompt.Filename)); err != nil {
 				return false, err
 			}
-			type scanResult struct {
-				text string
-				ok   bool
-				err  error
+			line, err := coordinator.readLine(ctx)
+			if err != nil {
+				return false, err
 			}
-			scanned := make(chan scanResult, 1)
-			go func() {
-				if scanner.Scan() {
-					scanned <- scanResult{text: scanner.Text(), ok: true}
-					return
-				}
-				scanned <- scanResult{err: scanner.Err()}
-			}()
-			var result scanResult
-			select {
-			case <-ctx.Done():
-				return false, ctx.Err()
-			case result = <-scanned:
-			}
-			if !result.ok {
-				if result.err != nil {
-					return false, fmt.Errorf("%w: %v", ytdlp.ErrInteractiveInput, result.err)
-				}
-				return false, context.Canceled
-			}
-			if accepted, valid := parseInteractiveMatchFilterResponse(result.text); valid {
+			if accepted, valid := parseInteractiveMatchFilterResponse(line); valid {
 				return accepted, nil
 			}
 		}
+	}
+}
+
+func newInteractiveFormatPrompt(coordinator *interactiveStdinCoordinator, output io.Writer) ytdlp.InteractiveFormatFunc {
+	return func(ctx context.Context, prompt ytdlp.InteractiveFormatPrompt) (string, error) {
+		if prompt.Error != "" {
+			if _, err := fmt.Fprintf(output, "ytdlp-go: %s\n", prompt.Error); err != nil {
+				return "", err
+			}
+		}
+		if _, err := fmt.Fprint(output, "Format selector (empty for default): "); err != nil {
+			return "", err
+		}
+		return coordinator.readLine(ctx)
 	}
 }
 
@@ -755,6 +948,30 @@ type stringListFlag []string
 func (values *stringListFlag) String() string { return strings.Join(*values, ",") }
 func (values *stringListFlag) Set(value string) error {
 	*values = append(*values, value)
+	return nil
+}
+
+// formatSortFlag mirrors yt-dlp's orderedSet_from_options accumulation: each
+// later -S occurrence prepends its comma-separated fields. The sorter itself
+// keeps the first duplicate, so this order makes the latest specification win.
+type formatSortFlag []string
+
+func (values *formatSortFlag) String() string { return strings.Join(*values, ",") }
+
+func (values *formatSortFlag) Set(input string) error {
+	fields := strings.Split(input, ",")
+	if len(fields) == 0 {
+		return nil
+	}
+	for _, field := range fields {
+		if strings.TrimSpace(field) == "" {
+			return errors.New("format sort field must not be empty")
+		}
+	}
+	next := make(formatSortFlag, 0, len(*values)+len(fields))
+	next = append(next, fields...)
+	next = append(next, (*values)...)
+	*values = next
 	return nil
 }
 

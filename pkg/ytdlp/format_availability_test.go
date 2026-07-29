@@ -1,0 +1,183 @@
+package ytdlp
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
+	"testing"
+
+	"github.com/ytdlp-go/ytdlp/internal/network"
+	"github.com/ytdlp-go/ytdlp/internal/value"
+)
+
+func availabilityTestChecker(t *testing.T, mode FormatCheckMode) *formatAvailabilityChecker {
+	t.Helper()
+	transport, err := network.New(network.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return newFormatAvailabilityChecker(context.Background(), transport, mode)
+}
+
+func availabilityFormat(rawURL string, headers http.Header, fields ...value.Field) *value.Object {
+	base := []value.Field{{Key: "url", Value: value.String(rawURL)}, {Key: "protocol", Value: value.String("https")}}
+	if len(headers) != 0 {
+		base = append(base, value.Field{Key: "http_headers", Value: value.ObjectValue(headerObject(headers))})
+	}
+	base = append(base, fields...)
+	return value.NewObject(base...)
+}
+
+func headerObject(headers http.Header) *value.Object {
+	fields := make([]value.Field, 0, len(headers))
+	for key, values := range headers {
+		if len(values) == 0 {
+			continue
+		}
+		// The normalized format contract uses one string per header field.
+		fields = append(fields, value.Field{Key: key, Value: value.String(values[len(values)-1])})
+	}
+	return value.NewObject(fields...)
+}
+
+func TestFormatAvailabilityUsesBoundedRangeGETBeforeHEAD(t *testing.T) {
+	var gets, heads atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.Method {
+		case http.MethodGet:
+			gets.Add(1)
+			if request.Header.Get("Range") != "bytes=0-0" {
+				t.Errorf("Range = %q", request.Header.Get("Range"))
+			}
+			// Deliberately ignore Range and expose a large body. The checker must
+			// accept the bounded prefix without consuming the media.
+			_, _ = writer.Write(make([]byte, 4096))
+		case http.MethodHead:
+			heads.Add(1)
+			writer.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer server.Close()
+	checker := availabilityTestChecker(t, FormatCheckSelected)
+	ok, err := checker.IsAvailable(availabilityFormat(server.URL, nil))
+	if err != nil || !ok {
+		t.Fatalf("IsAvailable = %v, %v", ok, err)
+	}
+	if gets.Load() != 1 || heads.Load() != 0 {
+		t.Fatalf("GET=%d HEAD=%d, want range GET only", gets.Load(), heads.Load())
+	}
+}
+
+func TestFormatAvailabilityCacheIncludesCredentialValues(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		calls.Add(1)
+		if request.Header.Get("Authorization") != "Bearer good" {
+			writer.WriteHeader(http.StatusForbidden)
+			return
+		}
+		_, _ = writer.Write([]byte("x"))
+	}))
+	defer server.Close()
+	checker := availabilityTestChecker(t, FormatCheckSelected)
+	bad, err := checker.IsAvailable(availabilityFormat(server.URL, http.Header{"Authorization": {"Bearer bad"}}))
+	if err != nil || bad {
+		t.Fatalf("bad credential = %v, %v", bad, err)
+	}
+	good, err := checker.IsAvailable(availabilityFormat(server.URL, http.Header{"Authorization": {"Bearer good"}}))
+	if err != nil || !good {
+		t.Fatalf("good credential = %v, %v", good, err)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("calls=%d, want separate probes", calls.Load())
+	}
+}
+
+func TestFormatAvailabilityAutoSkipsOrdinaryButChecksNeedsTesting(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		calls.Add(1)
+		writer.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+	checker := availabilityTestChecker(t, FormatCheckAuto)
+	ok, err := checker.IsAvailable(availabilityFormat(server.URL, nil))
+	if err != nil || !ok || calls.Load() != 0 {
+		t.Fatalf("ordinary auto = %v, %v calls=%d", ok, err, calls.Load())
+	}
+	ok, err = checker.IsAvailable(availabilityFormat(server.URL, nil, value.Field{Key: "__needs_testing", Value: value.Bool(true)}))
+	if err != nil || ok || calls.Load() != 1 {
+		t.Fatalf("needs-testing auto = %v, %v calls=%d", ok, err, calls.Load())
+	}
+}
+
+func TestFormatAvailabilityHLSProbesResolvedMediaSegment(t *testing.T) {
+	var master, media, segment atomic.Int32
+	var serverURL string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/master.m3u8":
+			master.Add(1)
+			_, _ = writer.Write([]byte("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nmedia.m3u8\n"))
+		case "/media.m3u8":
+			media.Add(1)
+			_, _ = writer.Write([]byte("#EXTM3U\n#EXTINF:1,\nsegment.ts\n#EXT-X-ENDLIST\n"))
+		case "/segment.ts":
+			segment.Add(1)
+			_, _ = writer.Write([]byte("x"))
+		default:
+			writer.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	serverURL = server.URL
+	checker := availabilityTestChecker(t, FormatCheckSelected)
+	format := value.NewObject(
+		value.Field{Key: "url", Value: value.String(serverURL + "/master.m3u8")},
+		value.Field{Key: "protocol", Value: value.String("m3u8_native")},
+	)
+	ok, err := checker.IsAvailable(format)
+	if err != nil || !ok {
+		t.Fatalf("IsAvailable = %v, %v", ok, err)
+	}
+	if master.Load() != 1 || media.Load() != 1 || segment.Load() != 1 {
+		t.Fatalf("master=%d media=%d segment=%d", master.Load(), media.Load(), segment.Load())
+	}
+}
+
+func TestFormatAvailabilityRedirectStripsExplicitCredentials(t *testing.T) {
+	var targetAuthorization string
+	target := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		targetAuthorization = request.Header.Get("Authorization")
+		_, _ = writer.Write([]byte("x"))
+	}))
+	defer target.Close()
+	origin := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		http.Redirect(writer, request, target.URL, http.StatusFound)
+	}))
+	defer origin.Close()
+	checker := availabilityTestChecker(t, FormatCheckSelected)
+	ok, err := checker.IsAvailable(availabilityFormat(origin.URL, http.Header{"Authorization": {"Bearer secret"}}))
+	if err != nil || !ok {
+		t.Fatalf("IsAvailable = %v, %v", ok, err)
+	}
+	if targetAuthorization != "" {
+		t.Fatalf("credential forwarded across origin: %q", targetAuthorization)
+	}
+}
+
+func TestFormatAvailabilityParentCancellationAborts(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	transport, err := network.New(network.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	checker := newFormatAvailabilityChecker(ctx, transport, FormatCheckSelected)
+	ok, err := checker.IsAvailable(availabilityFormat("https://example.invalid/media", nil))
+	if ok || !errors.Is(err, context.Canceled) {
+		t.Fatalf("IsAvailable = %v, %v", ok, err)
+	}
+}
