@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/ytdlp-go/ytdlp/internal/compat/chapterremove"
 	"github.com/ytdlp-go/ytdlp/internal/compat/matchfilter"
@@ -17,14 +18,15 @@ import (
 )
 
 type compatibilityPlan struct {
-	selector         *mediaformat.Selector
-	formatOptions    mediaformat.Options
-	matchFilter      matchfilter.Program
-	breakMatchFilter matchfilter.Program
-	interactive      interactiveMatchFilterKind
-	metadataActions  []compatmetadata.Action
-	chapterRemoval   chapterremove.Program
-	progressTemplate string
+	selector          *mediaformat.Selector
+	formatOptions     mediaformat.Options
+	matchFilter       matchfilter.Program
+	breakMatchFilter  matchfilter.Program
+	interactive       interactiveMatchFilterKind
+	interactiveFormat bool
+	metadataActions   []compatmetadata.Action
+	chapterRemoval    chapterremove.Program
+	progressTemplate  string
 }
 
 type interactiveMatchFilterKind uint8
@@ -50,7 +52,14 @@ var interactiveIncompleteFormatFields = func() map[string]struct{} {
 
 func prepareCompatibility(request Request) (compatibilityPlan, error) {
 	plan := compatibilityPlan{progressTemplate: request.ProgressTemplate}
-	if request.Format != "" {
+	if request.Format == "-" {
+		if request.InteractiveFormat == nil {
+			return compatibilityPlan{}, categorized(
+				"configure interactive format", fmt.Errorf("%w: prompt callback is required", ErrInteractiveInput),
+			)
+		}
+		plan.interactiveFormat = true
+	} else if request.Format != "" {
 		selector, err := mediaformat.ParseSelector(request.Format)
 		if err != nil {
 			return compatibilityPlan{}, categorized("parse format selector", err)
@@ -62,7 +71,7 @@ func prepareCompatibility(request Request) (compatibilityPlan, error) {
 		return compatibilityPlan{}, categorized("parse format sorting", err)
 	}
 	plan.formatOptions = mediaformat.Options{
-		Sort: sortFields, PreferFreeFormats: request.PreferFreeFormats,
+		Sort: sortFields, SortForce: request.FormatSortForce, PreferFreeFormats: request.PreferFreeFormats,
 		PreferExtensions:          append([]string(nil), request.PreferredExtensions...),
 		AllowDRM:                  request.AllowUnplayableFormats,
 		AllowMultipleVideoStreams: request.AllowMultipleVideoStreams,
@@ -270,7 +279,33 @@ func (operation *operation) planFormats(info value.Info) ([]mediaformat.OutputPl
 }
 
 func (operation *operation) planPreparedFormats(prepared mediaformat.Prepared) ([]mediaformat.OutputPlan, error) {
+	return operation.planPreparedFormatsContext(context.Background(), prepared)
+}
+
+func (operation *operation) planPreparedFormatsContext(ctx context.Context, prepared mediaformat.Prepared) ([]mediaformat.OutputPlan, error) {
+	if operation.formatAvailabilityChecker != nil {
+		headers, err := mediaformat.MergeHeaders(prepared.Info().Lookup("http_headers"))
+		if err != nil {
+			return nil, err
+		}
+		operation.formatAvailabilityChecker.setBaseHeaders(headers)
+		if operation.request.CheckFormats == FormatCheckAll {
+			formats, _ := prepared.Info().Lookup("formats").ListValue()
+			for _, candidate := range formats {
+				object, ok := candidate.Object()
+				if !ok || object == nil {
+					continue
+				}
+				if _, err := operation.formatAvailabilityChecker.IsAvailable(object); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
 	evaluation := mediaformat.EvaluationOptions{Availability: operation.formatAvailability}
+	if operation.compatibility.interactiveFormat {
+		return operation.planInteractiveFormat(ctx, prepared, evaluation)
+	}
 	if operation.compatibility.selector == nil {
 		capabilities := mediaformat.PlannerCapabilities{CanMergeFormats: true}
 		if operation.plannerCapabilities != nil {
@@ -284,6 +319,44 @@ func (operation *operation) planPreparedFormats(prepared mediaformat.Prepared) (
 		)
 	}
 	return prepared.PlanWithOptions(*operation.compatibility.selector, evaluation)
+}
+
+const maxInteractiveFormatAttempts = 3
+
+func (operation *operation) planInteractiveFormat(ctx context.Context, prepared mediaformat.Prepared, evaluation mediaformat.EvaluationOptions) ([]mediaformat.OutputPlan, error) {
+	var diagnostic string
+	for attempt := 1; attempt <= maxInteractiveFormatAttempts; attempt++ {
+		selectorText, err := operation.request.InteractiveFormat(ctx, InteractiveFormatPrompt{Attempt: attempt, Error: diagnostic})
+		if err != nil {
+			return nil, err
+		}
+		selectorText = strings.TrimSpace(selectorText)
+		if selectorText == "" {
+			capabilities := mediaformat.PlannerCapabilities{CanMergeFormats: true}
+			if operation.plannerCapabilities != nil {
+				capabilities = *operation.plannerCapabilities
+			}
+			isLive, _ := prepared.Info().Lookup("is_live").Bool()
+			return prepared.DefaultWithContext(capabilities, mediaformat.DefaultSelectorContext{
+				IsLive: isLive, LiveFromStart: operation.request.LiveFromStart,
+			}, evaluation)
+		}
+		selector, parseErr := mediaformat.ParseSelector(selectorText)
+		if parseErr != nil {
+			diagnostic = "invalid format selector"
+			continue
+		}
+		plans, planErr := prepared.PlanWithOptions(selector, evaluation)
+		if errors.Is(planErr, mediaformat.ErrNoMatch) {
+			diagnostic = "no matching available format"
+			continue
+		}
+		if planErr != nil {
+			return nil, planErr
+		}
+		return plans, nil
+	}
+	return nil, fmt.Errorf("%w: format selection attempts exhausted", ErrInteractiveInput)
 }
 
 // validateMultiOutputProduct retains the product validation seam introduced

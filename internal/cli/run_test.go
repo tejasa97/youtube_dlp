@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -1337,12 +1338,11 @@ func (reader *blockingInteractiveReader) Read([]byte) (int, error) {
 }
 
 func TestInteractiveMatchFilterPromptHonorsCancellationWhileReading(t *testing.T) {
-	reader := &blockingInteractiveReader{
-		started: make(chan struct{}, 1),
-		release: make(chan struct{}),
-	}
+	reader := &blockingInteractiveReader{started: make(chan struct{}, 1), release: make(chan struct{})}
 	var output bytes.Buffer
-	prompt := newInteractiveMatchFilterPrompt(reader, &output)
+	coordinator := newInteractiveStdinCoordinator(reader)
+	defer coordinator.Close()
+	prompt := newInteractiveMatchFilterPromptWithCoordinator(coordinator, &output)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
@@ -1351,15 +1351,56 @@ func TestInteractiveMatchFilterPromptHonorsCancellationWhileReading(t *testing.T
 	}()
 	<-reader.started
 	cancel()
-	select {
-	case err := <-done:
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("error = %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("prompt did not return after cancellation")
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v", err)
 	}
 	close(reader.release)
+	select {
+	case <-coordinator.done:
+	case <-time.After(time.Second):
+		t.Fatal("reader did not terminate after release")
+	}
+}
+
+func TestFormatSortFlagOrderingAndReset(t *testing.T) {
+	var values formatSortFlag
+	if err := values.Set("res,fps"); err != nil {
+		t.Fatal(err)
+	}
+	if err := values.Set("codec"); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := []string(values), []string{"codec", "res", "fps"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("ordered fields=%v want=%v", got, want)
+	}
+	values = nil // equivalent to --format-sort-reset in ordered flag parsing
+	if err := values.Set("abr"); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := []string(values), []string{"abr"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("reset fields=%v want=%v", got, want)
+	}
+}
+
+func TestInteractiveFormatPromptChannelsAndEOF(t *testing.T) {
+	var stderr bytes.Buffer
+	prompt := newInteractiveFormatPrompt(newInteractiveStdinCoordinator(strings.NewReader("\n")), &stderr)
+	selector, err := prompt(context.Background(), ytdlp.InteractiveFormatPrompt{Attempt: 1})
+	if err != nil || selector != "" || !strings.Contains(stderr.String(), "Format selector") {
+		t.Fatalf("selector=%q err=%v stderr=%q", selector, err, stderr.String())
+	}
+	_, err = newInteractiveFormatPrompt(newInteractiveStdinCoordinator(strings.NewReader("")), io.Discard)(context.Background(), ytdlp.InteractiveFormatPrompt{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("EOF error=%v", err)
+	}
+}
+
+func TestRunRejectsProgressJSONWithInteractiveFormatBeforeExtraction(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := RunContextIO(context.Background(), []string{"--progress-json", "-f", "-", "https://example.invalid/video"}, strings.NewReader(""), &stdout, &stderr)
+	if code != 2 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "--progress-json cannot be combined") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
 }
 
 func TestRunInteractiveMatchFilterListingAndOutputChannels(t *testing.T) {

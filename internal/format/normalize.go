@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	maxNormalizedEntries = 4096
+	maxNormalizedEntries = MaxNormalizedFormats
 	maxNormalizedIDBytes = 16 << 10
 	maxNormalizedTotal   = 4 << 20
 )
