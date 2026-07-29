@@ -25,8 +25,8 @@ func thumbnailEmbeddingOutputExtension(request Request, selections []mediaformat
 	if base == "" {
 		base = mergedOutputExtension(selections)
 	}
-	if request.Thumbnails.Embed && len(selections) == 2 && base == "webm" &&
-		mergeableSelections(selections) {
+	if request.Thumbnails.Embed && request.MergeOutputFormat == "" &&
+		len(selections) == 2 && base == "webm" && mergeableSelections(selections) {
 		return "mkv"
 	}
 	return base

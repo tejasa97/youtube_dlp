@@ -44,6 +44,12 @@ Matches pinned `FFmpegMergerPP`:
 2. Per input: `-map <i>:a:0` then `-map <i>:v:0` when present.
 3. `-c copy` plus HLS AAC `aac_adtstoasc` when required.
 
+HLS AAC fixup is decided from the probed local audio codec, not selected-format
+metadata. `MergeTracks` calls `prepareMergeInputs`, which ffprobes each
+`m3u8*` audio-bearing input and sets `HLSAACFixup` only when the first actual
+audio stream codec is exactly `aac`. `BuildMergeArguments` remains pure and
+consumes the prepared flag.
+
 ## Concurrency
 
 - Maximum tracks: `format.MaxMergeTracks` (16).
@@ -64,19 +70,30 @@ Matches pinned `FFmpegMergerPP`:
 
 ## Merge-output-format
 
-- `Request.MergeOutputFormat` (`mp4/mkv`) overrides planner `Metadata.ext` for
-  destination extension when explicitly set.
+- `Request.MergeOutputFormat` overrides planner `Metadata.ext` for destination
+  extension when explicitly set.
+- `ParseMergeOutputFormat` validates request input before extraction or download:
+  empty string is valid; otherwise slash-separated lowercase entries from the
+  pinned `FFmpegMergerPP.SUPPORTED_EXTS` allowlist (`avi`, `flv`, `mkv`, `mov`,
+  `mp4`, `webm`); max 64 bytes and 16 entries; no leading/trailing/doubled
+  slashes, whitespace-only components, or control characters.
+- Invalid values return `ErrorInvalidInput` via `errInvalidRequestOptions`.
 - `Request.PreferFreeFormats` remains planner-owned via `Metadata.ext` only.
+- Automatic WebM→MKV promotion for thumbnail embedding occurs only when
+  `MergeOutputFormat` is unset; explicit `webm` preserves the requested
+  container and thumbnail embedding returns the existing unsupported-container
+  media error instead of silently rewriting to MKV.
 
 ## Platform verification
 
-Verified locally on darwin/arm64:
+Verified locally on darwin/arm64 after review fixes:
 
-- `go test ./internal/format ./internal/media/ffmpeg ./internal/downloader ./pkg/ytdlp`
+- `gofmt` on changed Go files; `git diff --check`; `go mod tidy -diff`
+- `go test ./internal/format ./internal/media/ffmpeg ./internal/downloader ./pkg/ytdlp -count=1`
 - race tests on ffmpeg, downloader, ytdlp
-- 20× cancellation/cleanup repetition
+- 20× `NTrack|MergeTracks|Cancellation|Sibling|Cleanup|MergeOutput|Thumbnail`
 - `go vet`, `go run ./cmd/paritycheck`
-- `go test ./...`
+- `go test ./... -count=1`
 - cross-compilation linux/darwin/windows amd64/arm64
 - `docker build -f .github/python-free.Dockerfile`
 

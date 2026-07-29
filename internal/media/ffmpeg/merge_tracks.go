@@ -12,12 +12,13 @@ import (
 
 // MergeInput describes one local media file participating in a multi-track merge.
 // Stream presence flags come from the planner's selected-format metadata.
+// HLSAACFixup is set by prepareMergeInputs from the probed local audio codec.
 type MergeInput struct {
-	Path         string
-	HasAudio     bool
-	HasVideo     bool
-	Protocol     string
-	AudioCodec   string
+	Path        string
+	HasAudio    bool
+	HasVideo    bool
+	Protocol    string
+	HLSAACFixup bool
 }
 
 // BuildMergeArguments returns the ffmpeg argument vector for merging the
@@ -36,7 +37,7 @@ func BuildMergeArguments(inputs []MergeInput, destination string) ([]string, err
 		prefix := strconv.Itoa(index)
 		if input.HasAudio {
 			args = append(args, "-map", prefix+":a:0")
-			if hlsAACFixup(input) {
+			if input.HLSAACFixup {
 				args = append(args, "-bsf:a:"+strconv.Itoa(audioStreams), "aac_adtstoasc")
 			}
 			audioStreams++
@@ -71,7 +72,11 @@ func (tools *Toolset) MergeTracks(
 			return err
 		}
 	}
-	mergeArgs, err := BuildMergeArguments(inputs, "")
+	prepared, err := tools.prepareMergeInputs(ctx, inputs)
+	if err != nil {
+		return err
+	}
+	mergeArgs, err := BuildMergeArguments(prepared, "")
 	if err != nil {
 		return err
 	}
@@ -79,6 +84,37 @@ func (tools *Toolset) MergeTracks(
 		args := append(append([]string(nil), mergeArgs...), temporary)
 		return args
 	})
+}
+
+func (tools *Toolset) prepareMergeInputs(ctx context.Context, inputs []MergeInput) ([]MergeInput, error) {
+	prepared := append([]MergeInput(nil), inputs...)
+	for index := range prepared {
+		if !prepared[index].HasAudio || !strings.HasPrefix(prepared[index].Protocol, "m3u8") {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		codec, err := tools.firstAudioStreamCodec(ctx, prepared[index].Path)
+		if err != nil {
+			return nil, err
+		}
+		prepared[index].HLSAACFixup = codec == "aac"
+	}
+	return prepared, nil
+}
+
+func (tools *Toolset) firstAudioStreamCodec(ctx context.Context, path string) (string, error) {
+	probe, err := tools.Probe(ctx, path)
+	if err != nil {
+		return "", err
+	}
+	for _, stream := range probe.Streams {
+		if stream.CodecType == "audio" {
+			return stream.CodecName, nil
+		}
+	}
+	return "", nil
 }
 
 func validateMergeInputs(inputs []MergeInput) error {
@@ -97,16 +133,4 @@ func validateMergeInputs(inputs []MergeInput) error {
 		}
 	}
 	return nil
-}
-
-func hlsAACFixup(input MergeInput) bool {
-	if !strings.HasPrefix(input.Protocol, "m3u8") {
-		return false
-	}
-	codec := strings.ToLower(strings.TrimSpace(input.AudioCodec))
-	if codec == "" {
-		return false
-	}
-	base := strings.Split(codec, ".")[0]
-	return base == "aac" || strings.HasPrefix(base, "mp4a")
 }

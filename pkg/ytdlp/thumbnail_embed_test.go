@@ -198,6 +198,16 @@ func TestThumbnailEmbeddingPromotesOnlyMergedWebM(t *testing.T) {
 	}, pair, "webm"); got != "mkv" {
 		t.Fatalf("embedded WebM pair extension=%q", got)
 	}
+	if got := thumbnailEmbeddingOutputExtension(Request{
+		Thumbnails: ThumbnailOptions{Embed: true}, MergeOutputFormat: "webm",
+	}, pair, "webm"); got != "webm" {
+		t.Fatalf("explicit webm extension=%q", got)
+	}
+	if got := thumbnailEmbeddingOutputExtension(Request{
+		Thumbnails: ThumbnailOptions{Embed: true}, MergeOutputFormat: "mkv",
+	}, pair, "webm"); got != "webm" {
+		t.Fatalf("explicit mkv does not auto-promote from %q", got)
+	}
 	if got := thumbnailEmbeddingOutputExtension(Request{}, pair, "webm"); got != "webm" {
 		t.Fatalf("plain WebM pair extension=%q", got)
 	}
