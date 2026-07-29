@@ -20,10 +20,14 @@ type raiTestTransport struct {
 	relinker       string
 	relinkerStatus int
 	statuses       map[string]int
-	seen           http.Header
-	seenURL        *url.URL
-	isolated       bool
-	calls          int
+	// headStatus overrides the HEAD probe response status.  When nil the
+	// probe succeeds (200/empty).  Setting a non-2xx value simulates an MP4
+	// availability gate failure.
+	headStatus *int
+	seen       http.Header
+	seenURL    *url.URL
+	isolated   bool
+	calls      int
 }
 
 func (t *raiTestTransport) ReadPage(_ context.Context, raw string) ([]byte, http.Header, error) {
@@ -43,6 +47,16 @@ func (t *raiTestTransport) reply(_ context.Context, request *http.Request) (*htt
 	t.calls++
 	t.seen = request.Header.Clone()
 	t.seenURL = request.URL
+	if request.Method == http.MethodHead {
+		status := http.StatusOK
+		if t.headStatus != nil {
+			status = *t.headStatus
+			if status == 0 {
+				status = http.StatusOK
+			}
+		}
+		return &http.Response{StatusCode: status, Body: io.NopCloser(bytes.NewBufferString("")), Header: make(http.Header)}, nil
+	}
 	var body string
 	if strings.Contains(request.URL.Host, "relinker.rai.it") {
 		body = t.relinker
