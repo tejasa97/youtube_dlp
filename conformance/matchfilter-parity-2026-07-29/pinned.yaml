@@ -1,0 +1,48 @@
+version: 1
+reference:
+  repository: yt-dlp/yt-dlp
+  commit: aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8
+  files:
+    - yt_dlp/utils/_utils.py:3239-3355
+    - yt_dlp/options.py:742-767
+cases:
+  - name: repeated filters are an OR list
+    filters: ["duration < 30", "id = x"]
+    pass: true
+  - name: conditions are ANDed inside one filter
+    filters: ["duration >= 90 & playlist_id = 42"]
+    pass: true
+  - name: comparison negation and escaped ampersand
+    filters: ['description !*= "cats \& dogs"']
+    pass: false
+  - name: quoted escaped quote
+    filters: ["creator = 'тест \\' 123 \\' тест--'"]
+    pass: true
+  - name: missing none-inclusive comparison
+    filters: ["missing >? 100"]
+    pass: true
+  - name: missing incomplete comparison
+    filters: ["missing > 100"]
+    incomplete_fields: [missing]
+    pass: true
+  - name: ordinary missing comparison rejects
+    filters: ["missing > 100"]
+    pass: false
+  - name: numeric filesize coercion
+    filters: ["filesize >= 10K"]
+    pass: true
+  - name: numeric duration coercion
+    filters: ["duration = 2min"]
+    pass: true
+  - name: string typed number compares as string
+    filters: ["playlist_id > 41"]
+    pass: true
+  - name: Python lookahead regex search
+    filters: ["title ~= ^Ex(?=ample)ample$"]
+    pass: true
+  - name: Python named backreference regex search
+    filters: ["duplicate ~= ^(?P<word>Example) (?P=word)$"]
+    pass: true
+  - name: negative lookahead regex search
+    filters: ["title ~= ^(?!Other)Example"]
+    pass: true

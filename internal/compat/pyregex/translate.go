@@ -1,4 +1,6 @@
-package format
+// Package pyregex translates the bounded Python regular-expression surface
+// used by compatibility languages to regexp2 engine syntax.
+package pyregex
 
 import (
 	"fmt"
@@ -9,6 +11,8 @@ import (
 )
 
 const (
+	maxRegexNesting      = 64
+	maxRegexGroups       = 64
 	pythonWordClassBody  = `\p{L}\p{Nd}\p{Nl}\p{No}_`
 	pythonSpaceClassBody = `\t\n\r\f\v\x{1c}-\x{1f}\x{85}\p{Zs}\p{Zl}\p{Zp}`
 	pythonASCIIWordBody  = `A-Za-z0-9_`
@@ -54,7 +58,9 @@ type regexWidth struct {
 	ok       bool // false => unknown/variable
 }
 
-func translatePythonRegex(pattern string) (string, error) {
+// Translate converts supported Python syntax without compiling or executing
+// it. Callers own engine choice and runtime resource bounds.
+func Translate(pattern string) (string, error) {
 	pattern, err := rewritePythonPossessiveQuantifiers(pattern)
 	if err != nil {
 		return "", err
