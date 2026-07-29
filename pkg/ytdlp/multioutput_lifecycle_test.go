@@ -97,7 +97,7 @@ func TestMultiOutputLifecycleRejectsSharedSidecarBeforeDownload(t *testing.T) {
 }
 
 func TestMultiOutputLifecycleRunsDefaultPostprocessorPerPlan(t *testing.T) {
-	server := newMultiOutputMediaServer(t, false)
+	server := newMultiOutputMediaServer(t, false, false)
 	root := t.TempDir()
 	result, err := NewClient().Run(t.Context(), Request{
 		URL: server.URL + "/page", OutputDir: root, Format: "first,second", Overwrite: true,
@@ -133,8 +133,34 @@ func TestMultiOutputLifecycleRunsDefaultPostprocessorPerPlan(t *testing.T) {
 	}
 }
 
+func TestMultiOutputLifecycleRollbackRestoresPostprocessorOverwrite(t *testing.T) {
+	server := newMultiOutputMediaServer(t, false, true)
+	root := t.TempDir()
+	existing := filepath.Join(root, "first.mkv")
+	if err := os.WriteFile(existing, []byte("preexisting-remux"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := NewClient().Run(t.Context(), Request{
+		URL: server.URL + "/page", OutputDir: root, Format: "first,second", Overwrite: true,
+		OutputTemplate: "%(format_id)s.%(ext)s",
+		Postprocessors: []Postprocessor{{Remux: &RemuxPostprocessor{Format: "mkv"}}},
+	})
+	if err == nil {
+		t.Fatal("expected second-output download failure")
+	}
+	body, readErr := os.ReadFile(existing)
+	if readErr != nil || string(body) != "preexisting-remux" {
+		t.Fatalf("restored remux=%q err=%v", body, readErr)
+	}
+	for _, name := range []string{"first.mp4", "second.mp4", "second.mkv"} {
+		if _, statErr := os.Stat(filepath.Join(root, name)); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("transaction artifact %q remains: %v", name, statErr)
+		}
+	}
+}
+
 func TestMultiOutputLifecycleEmbedsSubtitlesAndThumbnailsPerPlan(t *testing.T) {
-	server := newMultiOutputMediaServer(t, true)
+	server := newMultiOutputMediaServer(t, true, false)
 	root := t.TempDir()
 	result, err := NewClient().Run(t.Context(), Request{
 		URL: server.URL + "/page", OutputDir: root, Format: "first,second", Overwrite: true,
@@ -173,7 +199,7 @@ func TestMultiOutputLifecycleEmbedsSubtitlesAndThumbnailsPerPlan(t *testing.T) {
 }
 
 func TestMultiOutputLifecycleRemovesChapterRangesPerPlan(t *testing.T) {
-	server := newMultiOutputMediaServer(t, false)
+	server := newMultiOutputMediaServer(t, false, false)
 	root := t.TempDir()
 	result, err := NewClient().Run(t.Context(), Request{
 		URL: server.URL + "/page", OutputDir: root, Format: "first,second", Overwrite: true,
@@ -213,7 +239,7 @@ func mediaArtifactsOnly(artifacts []Artifact) []Artifact {
 	return media
 }
 
-func newMultiOutputMediaServer(t *testing.T, sidecars bool) *httptest.Server {
+func newMultiOutputMediaServer(t *testing.T, sidecars, failSecond bool) *httptest.Server {
 	t.Helper()
 	ffmpegPath, err := exec.LookPath("ffmpeg")
 	if err != nil {
@@ -261,13 +287,17 @@ func newMultiOutputMediaServer(t *testing.T, sidecars bool) *httptest.Server {
 				"subtitles":{"en":[{"url":%q,"ext":"vtt","name":"English"}]}`,
 					server.URL+"/cover.png", server.URL+"/en.vtt")
 			}
+			secondURL := server.URL + "/second.mp4"
+			if failSecond {
+				secondURL = "://missing"
+			}
 			_, _ = fmt.Fprintf(writer, `{
 				"id":"multi-lifecycle","title":"Multi Lifecycle","description":"lifecycle description","ext":"mp4",
 				"formats":[
 					{"format_id":"first","url":%q,"ext":"mp4","vcodec":"mpeg4","acodec":"aac"},
 					{"format_id":"second","url":%q,"ext":"mp4","vcodec":"mpeg4","acodec":"aac"}
 				]%s
-			}`, server.URL+"/first.mp4", server.URL+"/second.mp4", extra)
+			}`, server.URL+"/first.mp4", secondURL, extra)
 		case "/first.mp4", "/second.mp4":
 			writer.Header().Set("Content-Type", "video/mp4")
 			writer.Header().Set("Content-Length", fmt.Sprint(len(media)))
@@ -287,7 +317,7 @@ func newMultiOutputMediaServer(t *testing.T, sidecars bool) *httptest.Server {
 }
 
 func TestMultiOutputLifecycleArtifactOrderDeterministic(t *testing.T) {
-	server := newMultiOutputMediaServer(t, false)
+	server := newMultiOutputMediaServer(t, false, false)
 	root := t.TempDir()
 	result, err := NewClient().Run(t.Context(), Request{
 		URL: server.URL + "/page", OutputDir: root, Format: "first,second", Overwrite: true,

@@ -404,6 +404,9 @@ func (operation *operation) executePlanLifecycle(
 	sink events.Sink,
 ) (Result, error) {
 	var result Result
+	fail := func(err error) (Result, error) {
+		return rollbackTransactionResult(transaction, err)
+	}
 	mergeLifecyclePrintArtifacts := func() {
 		result.Artifacts = mergePrintArtifacts(result.Artifacts, lifecycle.Sidecars)
 	}
@@ -422,14 +425,12 @@ func (operation *operation) executePlanLifecycle(
 			}
 		}
 		if err := operation.accountLifecycleArtifacts(lifecycle); err != nil {
-			transaction.rollback()
-			return Result{}, err
+			return fail(err)
 		}
 		result.Bytes = lifecycle.Bytes
 		encoded, err := encodeInfo(lifecycle.Info)
 		if err != nil {
-			transaction.rollback()
-			return Result{}, err
+			return fail(err)
 		}
 		result.InfoJSON = encoded
 		result.Downloaded = result.Downloaded || len(result.Artifacts) > 0 || lifecycle.Downloaded
@@ -468,16 +469,14 @@ func (operation *operation) executePlanLifecycle(
 	// Phases 11-13 move them into the lifecycle.
 	thumbnailArtifacts, _, err := operation.writeThumbnails(ctx, &lifecycle.Info, false)
 	if err != nil {
-		transaction.rollback()
-		return Result{}, categorized("write thumbnails", err)
+		return fail(categorized("write thumbnails", err))
 	}
 	registerArtifacts(thumbnailArtifacts)
 	result.Artifacts = append(result.Artifacts, thumbnailArtifacts...)
 
 	relatedArtifacts, _, err := operation.writeRelatedFiles(ctx, lifecycle.Info, false)
 	if err != nil {
-		transaction.rollback()
-		return Result{}, categorized("write related files", err)
+		return fail(categorized("write related files", err))
 	}
 	registerArtifacts(relatedArtifacts)
 	result.Artifacts = append(result.Artifacts, relatedArtifacts...)
@@ -490,8 +489,7 @@ func (operation *operation) executePlanLifecycle(
 
 	subtitleArtifacts, _, err := operation.downloadSubtitles(ctx, lifecycle.Info, selectedSubtitles, operation.eventSink())
 	if err != nil {
-		transaction.rollback()
-		return Result{}, categorized("download subtitles", err)
+		return fail(categorized("download subtitles", err))
 	}
 	registerArtifacts(subtitleArtifacts)
 	result.Artifacts = append(result.Artifacts, subtitleArtifacts...)
@@ -500,16 +498,14 @@ func (operation *operation) executePlanLifecycle(
 		ctx, selectedSubtitles, result.Artifacts, operation.eventSink(),
 	)
 	if err != nil {
-		transaction.rollback()
-		return Result{}, categorized("convert subtitles", err)
+		return fail(categorized("convert subtitles", err))
 	}
 	registerArtifacts(result.Artifacts)
 
 	if operation.request.SkipDownload {
 		// After-prints still run for skip-download mode.
 		if err := operation.runLifecycleAfterPrints(ctx, transaction, lifecycle); err != nil {
-			transaction.rollback()
-			return Result{}, err
+			return fail(err)
 		}
 		result.Prints = append(result.Prints, lifecycle.Prints...)
 		return finish()
@@ -521,20 +517,17 @@ func (operation *operation) executePlanLifecycle(
 	// download/postprocessor chain starts.
 	postprocessorPaths, err := operation.postprocessorDestinations(lifecycle.Destination)
 	if err != nil {
-		transaction.rollback()
-		return Result{}, categorized("preflight postprocessor destinations", err)
+		return fail(categorized("preflight postprocessor destinations", err))
 	}
 	for _, path := range postprocessorPaths {
 		if err := transaction.protectPath(path, operation.request.Overwrite); err != nil {
-			transaction.rollback()
-			return Result{}, categorized("prepare postprocessor destination", err)
+			return fail(categorized("prepare postprocessor destination", err))
 		}
 	}
 
 	// Phase 4: download via the lifecycle.
 	if err := operation.runLifecycleDownload(ctx, transaction, lifecycle, sink); err != nil {
-		transaction.rollback()
-		return Result{}, categorized("download selected formats", err)
+		return fail(categorized("download selected formats", err))
 	}
 
 	// Phase 5: entry-scoped post-process stages using lifecycle.MediaPath.
@@ -542,8 +535,7 @@ func (operation *operation) executePlanLifecycle(
 	var mediaArtifacts []Artifact
 	lifecycle.MediaPath, mediaArtifacts, err = operation.applyPostprocessors(ctx, outputDir, lifecycle.MediaPath, sink)
 	if err != nil {
-		transaction.rollback()
-		return Result{}, categorized("run postprocessors", err)
+		return fail(categorized("run postprocessors", err))
 	}
 	trackTransactionArtifacts(transaction, mediaArtifacts)
 	lifecycle.MediaArtifacts = mediaArtifacts
@@ -564,8 +556,7 @@ func (operation *operation) executePlanLifecycle(
 	var cutApplied bool
 	lifecycle.MediaPath, result.Artifacts, cutApplied, err = operation.applyChapterCuts(ctx, &lifecycle.Info, lifecycle.MediaPath, result.Artifacts, sink)
 	if err != nil {
-		transaction.rollback()
-		return Result{}, err
+		return fail(err)
 	}
 	registerArtifacts(result.Artifacts)
 	lifecycle.FinalPath = lifecycle.MediaPath
@@ -575,8 +566,7 @@ func (operation *operation) executePlanLifecycle(
 		ctx, &lifecycle.Info, lifecycle.MediaPath, selectedSubtitles, result.Artifacts, sink,
 	)
 	if err != nil {
-		transaction.rollback()
-		return Result{}, categorized("embed subtitles", err)
+		return fail(categorized("embed subtitles", err))
 	}
 	registerArtifacts(result.Artifacts)
 
@@ -598,8 +588,7 @@ func (operation *operation) executePlanLifecycle(
 
 	// Phase 6: after-download prints via the lifecycle.
 	if err := operation.runLifecycleAfterPrints(ctx, transaction, lifecycle); err != nil {
-		transaction.rollback()
-		return Result{}, err
+		return fail(err)
 	}
 
 	result.Prints = append(result.Prints, lifecycle.Prints...)
