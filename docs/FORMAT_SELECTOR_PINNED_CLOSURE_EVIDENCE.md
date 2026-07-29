@@ -8,7 +8,7 @@ This is the PR 10 closure record. It deliberately excludes PR 11's current-upstr
 
 `internal/format/testdata/pinned_closure_matrix.json` is a deterministic index over the already executable selector, sorter, and planner oracles. It uses the same schema/provenance convention as PR 1 and pins the reference SHA and `CPython 3.12.13`. Its derivation is a reviewed index, not a fresh Python capture; therefore there is no invented oracle provenance. The underlying fixture derivation and hashes remain in `conformance/compat/format_selector/PROVENANCE.md`, `conformance/compat/format_sorter/PROVENANCE.md`, and `conformance/format_planner/PROVENANCE.md`.
 
-The matrix runner (`internal/format.TestPinnedClosureMatrix`) validates that every indexed case is present in its authoritative oracle and that every non-passing selector case is one of the explicit bounded safety deviations. The existing oracle runners then compare actual normalized formats, plans, and sort orders with their committed expected outputs.
+The matrix runner (`internal/format.TestPinnedClosureMatrix`) requires every authoritative case to be assigned exactly once: all **109** selector cases, **41** sorter cases, and **44** planner cases. It rejects missing, unknown, or multiply assigned IDs, and requires every non-passing selector case to be one of the explicit bounded safety deviations. The existing oracle runners then compare actual normalized formats, plans, and sort orders with their committed expected outputs.
 
 ## Closure checklist
 
@@ -17,7 +17,7 @@ The matrix runner (`internal/format.TestPinnedClosureMatrix`) validates that eve
 | Atoms, aliases/star forms/.N, grouping, `/`/`+`/`,`, precedence; numeric/string/negated/none-inclusive filters, regex, quoting, escaping, missing/mixed values | `selector_conformance.json`; `filter_oracle.json`; `python_regex_oracle.json`; `TestSelectorConformanceCorpus`, `TestFilterOracleFixture`, `TestPythonRegexOracleFixture`, `TestParserParity*`, `TestPinnedClosureMatrix` | `go test ./internal/format -count=1` |
 | Normalization and sorting: aliases, limits, derived values, mixed values, stable ordering | `format_sorter_conformance.json`; `TestFormatSorterConformance`, `TestFormatSorter*`, `TestPinnedClosureMatrix` | `go test ./internal/format -count=1` |
 | Muxed/audio-only/video-only/incomplete fallback/storyboards/DRM/defaults and all audio/video multistream combinations | `planner_conformance.json`; selector corpus; `TestPlannerConformanceCorpus`, `TestPlannerDefaultSelectorSpecMatchesPinnedPolicy`, `TestPinnedClosureMatrix` | `go test ./internal/format -count=1` |
-| README selectors and CLI selection controls | README examples; `TestParserParityOfficialExamples`, `TestRun*Format*`, `TestRunMergeOutputFormatPlumbing`, `TestFormatSelectorInvalidSyntaxFailsBeforeExtraction` | `go test ./internal/format ./internal/cli ./pkg/ytdlp -count=1` |
+| Official pinned selector examples and CLI selection controls | The exact ten examples shared by `pinnedOfficialSelectorExamples`, `TestParserParityOfficialExamples`, and `pinned_closure_matrix.json`; `TestRun*Format*`, `TestRunMergeOutputFormatPlumbing`, `TestFormatSelectorInvalidSyntaxFailsBeforeExtraction` | `go test ./internal/format ./internal/cli ./pkg/ytdlp -count=1` |
 | Availability Auto/None/Selected/All; direct/HLS/DASH/ISM bounded GET probes, redirects, cookies, cache, timeout/cancellation/limits | `pkg/ytdlp/format_availability_test.go` | `go test ./pkg/ytdlp -run '^TestFormatAvailability' -count=1` |
 | Interactive `-f -`: default, retry, EOF/cancellation, JSON/progress separation | `internal/cli/run_test.go`; `pkg/ytdlp/client_test.go` | `go test ./internal/cli ./pkg/ytdlp -run 'InteractiveFormat|FormatSelector' -count=1` |
 | Single/two/N-track/mergeall, headers, container selection, cancellation, cleanup, atomic publication and media inspection | `pkg/ytdlp/ntrack_download_test.go`; `docs/FORMAT_NTRACK_EXECUTION_EVIDENCE.md` | `go test ./pkg/ytdlp -run 'NTrack|MergeAll|MergeOutput|TrackTemporary' -count=1` |
@@ -28,7 +28,7 @@ The N-track and lifecycle tests use repository-owned, tiny deterministic local m
 
 ## Marker decision and retained deviations
 
-`compat.format_selector_pilot` is retired and replaced with the compatible `compat.format_selector` capability. `internal/conformance.Manifest.Validate` requires `TestPinnedClosureMatrix`, this evidence record, and the matrix fixture whenever that replacement exists; `go run ./cmd/paritycheck` therefore rejects an unsupported marker removal.
+`compat.format_selector_pilot` is retired and replaced with the compatible `compat.format_selector` capability. `internal/conformance.Manifest.Validate` requires `TestPinnedClosureMatrix`, this evidence record, the matrix fixture, and direct availability, CLI, N-track, and multi-output lifecycle test anchors whenever that replacement exists; `go run ./cmd/paritycheck` therefore rejects an unsupported marker removal.
 
 There are no unresolved functional deviations for normal valid inputs inside the declared pinned contract. The retained entries in `docs/FORMAT_SELECTOR_PARITY.md` are deliberately outside it: malformed extractor metadata, explicit resource ceilings, and comment/string token forms that fail closed rather than silently rewriting a selector. They remain executable `deliberate_safety_gap` entries in the corpus. `Options.PreferExtensions` is a documented Go-only preference, not a claim of pinned CLI equivalence.
 
@@ -55,7 +55,7 @@ The Dockerfile explicitly asserts that neither `python` nor `python3` exists bef
 
 ## Validation record
 
-Performed on 2026-07-29 from the merged PR 1–9 baseline
+Initial validation was performed on 2026-07-29 from the merged PR 1–9 baseline
 `df5820721dead4469e770d8c8fe52be417af12f9`, before publication:
 
 | Command | Result |

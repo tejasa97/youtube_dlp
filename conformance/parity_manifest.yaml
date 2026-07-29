@@ -2172,6 +2172,28 @@ capabilities:
       - internal/format.TestPlannerDefaultSelectorSpecMatchesPinnedPolicy
       - internal/format.TestPlannerAvailabilityCacheScope
       - internal/format.TestPinnedClosureMatrix
+      - pkg/ytdlp.TestFormatAvailabilityAutoSkipsOrdinaryButChecksNeedsTesting
+      - pkg/ytdlp.TestFormatCheckNoneMakesNoProbeRequests
+      - pkg/ytdlp.TestFormatCheckSelectedFallsBackFromUnavailablePreferred
+      - pkg/ytdlp.TestFormatCheckAllReusesProbeCacheDuringPlanning
+      - pkg/ytdlp.TestFormatAvailabilityHLSProbesResolvedMediaSegment
+      - pkg/ytdlp.TestFormatAvailabilityDASHProbesInitialResource
+      - pkg/ytdlp.TestFormatAvailabilityISMProbesInitialResource
+      - pkg/ytdlp.TestFormatAvailabilityParentCancellationAborts
+      - internal/cli.TestRunFormatMultistreamFlagsLastOccurrenceWins
+      - internal/cli.TestRunFormatSortForceAndResetOrdering
+      - internal/cli.TestRunFormatCheckModesLastOccurrenceWins
+      - internal/cli.TestRunInteractiveFormatUnavailableThenValid
+      - internal/cli.TestRunInteractiveFormatEOFAndJSONChannelIsolation
+      - pkg/ytdlp.TestNTrackMergeRealMediaTwoTrack
+      - pkg/ytdlp.TestNTrackHeaderIsolationConcurrent
+      - pkg/ytdlp.TestNTrackSiblingCancellationPreservesRootError
+      - pkg/ytdlp.TestMergeAllProductExecution
+      - pkg/ytdlp.TestMultiOutputLifecycleSidecarsPrintsAndMetadataIsolation
+      - pkg/ytdlp.TestMultiOutputLifecycleEmbedsSubtitlesAndThumbnailsPerPlan
+      - pkg/ytdlp.TestMultiOutputLifecycleRemovesChapterRangesPerPlan
+      - pkg/ytdlp.TestMultiOutputLifecycleArtifactOrderDeterministic
+      - pkg/ytdlp.TestMultiOutputDownloadCancellationRollsBack
       - pkg/ytdlp.TestFormatSelectorInvalidSyntaxFailsBeforeExtraction
       - internal/format.TestPrepareFormatsNormalizesAfterStableOrdering
       - internal/format.TestPrepareFormatsFiltersBeforeGeneratedIDs

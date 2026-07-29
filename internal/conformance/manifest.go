@@ -190,6 +190,10 @@ func (manifest *Manifest) Validate() error {
 			"internal/format.TestPinnedClosureMatrix",
 			"internal/format/testdata/pinned_closure_matrix.json",
 			"docs/FORMAT_SELECTOR_PINNED_CLOSURE_EVIDENCE.md",
+			"pkg/ytdlp.TestFormatCheckAllReusesProbeCacheDuringPlanning",
+			"internal/cli.TestRunInteractiveFormatUnavailableThenValid",
+			"pkg/ytdlp.TestNTrackMergeRealMediaTwoTrack",
+			"pkg/ytdlp.TestMultiOutputLifecycleSidecarsPrintsAndMetadataIsolation",
 		} {
 			if !containsEvidence(selector.Evidence, required) {
 				return fmt.Errorf("compat.format_selector is missing required closure evidence %q", required)

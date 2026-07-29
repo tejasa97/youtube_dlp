@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -15,10 +16,11 @@ import (
 // plans, and sorting order. This keeps closure verification Python-free and
 // prevents PR-level checklists from silently losing a covered family.
 type pinnedClosureMatrix struct {
-	SchemaVersion     int                    `json:"schema_version"`
-	Reference         pinnedClosureReference `json:"reference"`
-	Families          []pinnedClosureFamily  `json:"families"`
-	AllowedDeviations []string               `json:"allowed_deviations"`
+	SchemaVersion          int                    `json:"schema_version"`
+	Reference              pinnedClosureReference `json:"reference"`
+	Families               []pinnedClosureFamily  `json:"families"`
+	OfficialParserExamples []string               `json:"official_parser_examples"`
+	AllowedDeviations      []string               `json:"allowed_deviations"`
 }
 
 type pinnedClosureReference struct {
@@ -45,6 +47,9 @@ func TestPinnedClosureMatrix(t *testing.T) {
 	sorterIDs := loadClosureFixtureIDs(t, "format_sorter_conformance.json")
 	plannerIDs := loadClosureFixtureIDs(t, "planner_conformance.json")
 	seenFamilies := make(map[string]struct{}, len(matrix.Families))
+	selectorAssignments := make(map[string]string, len(selectorIDs))
+	sorterAssignments := make(map[string]string, len(sorterIDs))
+	plannerAssignments := make(map[string]string, len(plannerIDs))
 	for _, family := range matrix.Families {
 		if family.ID == "" {
 			t.Fatal("closure matrix has an unnamed family")
@@ -60,28 +65,37 @@ func TestPinnedClosureMatrix(t *testing.T) {
 			if _, ok := selectorIDs[id]; !ok {
 				t.Fatalf("closure family %q references unknown selector case %q", family.ID, id)
 			}
+			assignClosureCase(t, selectorAssignments, family.ID, id, "selector")
 		}
 		for _, id := range family.SorterCases {
 			if !sorterIDs[id] {
 				t.Fatalf("closure family %q references unknown sorter case %q", family.ID, id)
 			}
+			assignClosureCase(t, sorterAssignments, family.ID, id, "sorter")
 		}
 		for _, id := range family.PlannerCases {
 			if !plannerIDs[id] {
 				t.Fatalf("closure family %q references unknown planner case %q", family.ID, id)
 			}
+			assignClosureCase(t, plannerAssignments, family.ID, id, "planner")
 		}
 	}
 	for _, required := range []string{
-		"selector-atoms-operators-filters",
-		"sorter-normalization-stability",
-		"media-defaults-and-multistreams",
-		"syntax-and-resource-contract",
-		"readme-selector-examples",
+		"quality-atoms-and-direct-selectors",
+		"operators-and-filter-cross-products",
+		"normalization-media-defaults-and-multistreams",
+		"parser-syntax-and-resource-contract",
+		"sorter-composition-and-ordering",
 	} {
 		if _, ok := seenFamilies[required]; !ok {
 			t.Fatalf("closure matrix is missing required family %q", required)
 		}
+	}
+	assertClosureCoverage(t, selectorIDs, selectorAssignments, "selector")
+	assertClosureCoverage(t, sorterIDs, sorterAssignments, "sorter")
+	assertClosureCoverage(t, plannerIDs, plannerAssignments, "planner")
+	if !reflect.DeepEqual(matrix.OfficialParserExamples, pinnedOfficialSelectorExamples) {
+		t.Fatalf("official parser examples = %#v, want %#v", matrix.OfficialParserExamples, pinnedOfficialSelectorExamples)
 	}
 
 	allowed := make(map[string]struct{}, len(matrix.AllowedDeviations))
@@ -125,7 +139,7 @@ func loadPinnedClosureMatrix(t *testing.T) pinnedClosureMatrix {
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 		t.Fatalf("closure matrix has trailing JSON: %v", err)
 	}
-	if matrix.SchemaVersion != 1 || matrix.Reference.Commit != selectorConformanceCommit || matrix.Reference.Repository == "" || matrix.Reference.PythonVersion != "CPython 3.12.13" || matrix.Reference.Derivation == "" || len(matrix.Families) == 0 {
+	if matrix.SchemaVersion != 1 || matrix.Reference.Commit != selectorConformanceCommit || matrix.Reference.Repository == "" || matrix.Reference.PythonVersion != "CPython 3.12.13" || matrix.Reference.Derivation == "" || len(matrix.Families) == 0 || len(matrix.OfficialParserExamples) == 0 {
 		t.Fatalf("invalid closure matrix provenance: %+v", matrix)
 	}
 	return matrix
@@ -152,8 +166,31 @@ func loadClosureFixtureIDs(t *testing.T, name string) map[string]bool {
 			t.Fatalf("decode %s case: %v", name, err)
 		}
 		if c.ID != "" {
+			if ids[c.ID] {
+				t.Fatalf("%s repeats case id %q", name, c.ID)
+			}
 			ids[c.ID] = true
 		}
 	}
 	return ids
+}
+
+func assignClosureCase(t *testing.T, assignments map[string]string, family, id, kind string) {
+	t.Helper()
+	if previous, duplicate := assignments[id]; duplicate {
+		t.Fatalf("%s case %q is assigned to both %q and %q", kind, id, previous, family)
+	}
+	assignments[id] = family
+}
+
+func assertClosureCoverage[T any](t *testing.T, authoritative map[string]T, assignments map[string]string, kind string) {
+	t.Helper()
+	if len(authoritative) != len(assignments) {
+		t.Fatalf("%s closure coverage = %d/%d cases", kind, len(assignments), len(authoritative))
+	}
+	for id := range authoritative {
+		if _, covered := assignments[id]; !covered {
+			t.Fatalf("%s case %q is not assigned to a closure family", kind, id)
+		}
+	}
 }
