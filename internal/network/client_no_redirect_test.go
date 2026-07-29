@@ -107,6 +107,52 @@ func TestDoNoRedirectDoesNotFollowCrossOriginRedirect(t *testing.T) {
 	}
 }
 
+func TestDoNoRedirectWithRequestCookiesPreservesInitialCookieAndRequest(t *testing.T) {
+	var targetHits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/redirect":
+			if request.Header.Get("Cookie") != "caller=present" {
+				http.Error(writer, "missing request cookie", http.StatusForbidden)
+				return
+			}
+			http.Redirect(writer, request, "/target", http.StatusFound)
+		case "/target":
+			targetHits.Add(1)
+		}
+	}))
+	defer server.Close()
+	client, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, _ := http.NewRequest(http.MethodGet, server.URL+"/redirect?token=secret", nil)
+	request.Header.Set("Cookie", "caller=present")
+	response, err := client.DoNoRedirectWithRequestCookies(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusFound || targetHits.Load() != 0 || request.Header.Get("Cookie") != "caller=present" {
+		t.Fatalf("status=%d target=%d request=%#v", response.StatusCode, targetHits.Load(), request.Header)
+	}
+}
+
+func TestDoNoRedirectWithRequestCookiesRedactsErrors(t *testing.T) {
+	client, err := New(Config{RoundTripper: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("token=secret")
+	})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, _ := http.NewRequest(http.MethodGet, "https://example.invalid/?token=secret", nil)
+	request.Header.Set("Cookie", "session=secret")
+	_, err = client.DoNoRedirectWithRequestCookies(context.Background(), request)
+	if err == nil || strings.Contains(err.Error(), "secret") || !strings.Contains(err.Error(), "REDACTED") {
+		t.Fatalf("error=%v", err)
+	}
+}
+
 func TestDoNoRedirectCancellationAndRedactsTransportFailures(t *testing.T) {
 	client, err := New(Config{RoundTripper: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
 		<-request.Context().Done()
