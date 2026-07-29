@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/ytdlp-go/ytdlp/internal/network"
+	"github.com/ytdlp-go/ytdlp/internal/protocol/dash"
+	"github.com/ytdlp-go/ytdlp/internal/protocol/ism"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
@@ -198,6 +200,55 @@ func TestFormatAvailabilityOversizedManifestReturnsLimit(t *testing.T) {
 	ok, err := checker.IsAvailable(format)
 	if ok || !errors.Is(err, ErrFormatCheckLimit) {
 		t.Fatalf("oversized result=%v err=%v", ok, err)
+	}
+}
+
+func TestFormatAvailabilityDASHProbesInitialResource(t *testing.T) {
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		if r.Header.Get("Range") != "bytes=0-0" {
+			t.Errorf("range=%q", r.Header.Get("Range"))
+		}
+		_, _ = w.Write([]byte("x"))
+	}))
+	defer server.Close()
+	ok, err := availabilityTestChecker(t, FormatCheckSelected).probeDASHFragment(context.Background(), dash.MPD{Representations: []dash.Representation{{Segments: []dash.Segment{{URL: server.URL}}}}}, nil)
+	if err != nil || !ok || hits.Load() != 1 {
+		t.Fatalf("ok=%v err=%v hits=%d", ok, err, hits.Load())
+	}
+}
+
+func TestFormatAvailabilityISMProbesInitialResource(t *testing.T) {
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits.Add(1); _, _ = w.Write([]byte("x")) }))
+	defer server.Close()
+	manifest := ism.Manifest{Timescale: 1, Duration: 1, Streams: []ism.Stream{{Type: "video", URL: "{bitrate}/{start time}", Qualities: []ism.Quality{{Bitrate: 1}}, Chunks: []ism.Chunk{{Time: 0, Duration: 1}}}}}
+	ok, err := availabilityTestChecker(t, FormatCheckSelected).probeISMFragment(context.Background(), server.URL+"/manifest", manifest, nil)
+	if err != nil || !ok || hits.Load() != 1 {
+		t.Fatalf("ok=%v err=%v hits=%d", ok, err, hits.Load())
+	}
+}
+
+func TestFormatAvailabilityRangeHonoringOversizedManifestReturnsLimit(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Range", "bytes 0-1/99999999")
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write([]byte("#"))
+	}))
+	defer server.Close()
+	checker := availabilityTestChecker(t, FormatCheckSelected)
+	_, _, err := checker.getDocument(context.Background(), server.URL, nil, 2)
+	if !errors.Is(err, ErrFormatCheckLimit) {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestFormatAvailabilityAggregateBudgetReturnsLimit(t *testing.T) {
+	checker := availabilityTestChecker(t, FormatCheckSelected)
+	checker.bytes = availabilityMaxTotalBytes
+	if err := checker.recordBytes(1); !errors.Is(err, ErrFormatCheckLimit) {
+		t.Fatalf("err=%v", err)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -302,6 +303,19 @@ func (checker *formatAvailabilityChecker) getDocument(ctx context.Context, rawUR
 		return nil, 0, err
 	}
 	defer response.Body.Close()
+	// A ranged 206 manifest may be only a prefix. Unlike media probes it cannot
+	// be accepted unless the declared total fits in the document budget.
+	if response.StatusCode == http.StatusPartialContent {
+		contentRange := response.Header.Get("Content-Range")
+		parts := strings.Split(contentRange, "/")
+		if len(parts) != 2 {
+			return nil, response.StatusCode, ErrFormatCheckLimit
+		}
+		total, parseErr := strconv.ParseInt(parts[1], 10, 64)
+		if parseErr != nil || total < 0 || total > limit {
+			return nil, response.StatusCode, ErrFormatCheckLimit
+		}
+	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
 	if err != nil {
 		return nil, response.StatusCode, errAvailabilityProbe
