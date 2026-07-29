@@ -35,7 +35,6 @@ func TestSubtitleConvertRollbackRestoresOverwrittenDestination(t *testing.T) {
 			OutputDir: root, Overwrite: true,
 			Subtitles: SubtitleOptions{ConvertFormat: "webvtt"},
 		},
-		activeTransaction: tx,
 	}
 	metadata := value.NewObject(
 		value.Field{Key: "filepath", Value: value.String(source)},
@@ -45,7 +44,7 @@ func TestSubtitleConvertRollbackRestoresOverwrittenDestination(t *testing.T) {
 	artifacts := []Artifact{{Path: source, Kind: "subtitle"}}
 
 	tracks, artifacts, converted, err := operation.convertSelectedSubtitles(
-		context.Background(), tracks, artifacts, nil,
+		withMediaTransaction(context.Background(), tx), tracks, artifacts, nil,
 	)
 	if err != nil || !converted {
 		t.Fatalf("convert = %v converted=%v", err, converted)
@@ -85,7 +84,6 @@ func TestSubtitleConvertRollbackRemovesNewDestination(t *testing.T) {
 			OutputDir: root, Overwrite: true,
 			Subtitles: SubtitleOptions{ConvertFormat: "webvtt"},
 		},
-		activeTransaction: tx,
 	}
 	metadata := value.NewObject(
 		value.Field{Key: "filepath", Value: value.String(source)},
@@ -95,7 +93,7 @@ func TestSubtitleConvertRollbackRemovesNewDestination(t *testing.T) {
 	artifacts := []Artifact{{Path: source, Kind: "subtitle"}}
 
 	_, _, converted, err := operation.convertSelectedSubtitles(
-		context.Background(), tracks, artifacts, nil,
+		withMediaTransaction(context.Background(), tx), tracks, artifacts, nil,
 	)
 	if err != nil || !converted {
 		t.Fatalf("convert = %v converted=%v", err, converted)

@@ -179,11 +179,11 @@ func TestEmbedSelectedThumbnailFailureCancellationAndWarnings(t *testing.T) {
 	}
 }
 
-func TestValidateMultiOutputRejectsThumbnailEmbedding(t *testing.T) {
+func TestValidateMultiOutputAllowsThumbnailEmbedding(t *testing.T) {
 	err := validateMultiOutputProduct(Request{
 		Thumbnails: ThumbnailOptions{Embed: true},
 	}, 2)
-	if !errors.Is(err, mediaformat.ErrMultiOutput) {
+	if err != nil {
 		t.Fatalf("thumbnail embedding with multi-output = %v", err)
 	}
 }
