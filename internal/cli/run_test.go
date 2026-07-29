@@ -1426,13 +1426,13 @@ func captureCLIRequest(t *testing.T, args ...string) ytdlp.Request {
 	}
 	return runner.request
 }
-func runFormatFlagFixture(t *testing.T, args ...string) (int, string, string) {
+func runFormatFlagFixture(t *testing.T, input string, args ...string) (int, string, string) {
 	t.Helper()
 	server := testserver.New()
 	defer server.Close()
 	var out, errout bytes.Buffer
 	args = append(args, "--skip-download", server.URL+"/page")
-	code := RunContextIO(context.Background(), args, strings.NewReader(""), &out, &errout)
+	code := RunContextIO(context.Background(), args, strings.NewReader(input), &out, &errout)
 	return code, out.String(), errout.String()
 }
 
@@ -1474,20 +1474,20 @@ func TestRunMergeOutputFormatPlumbing(t *testing.T) {
 }
 
 func TestRunInteractiveFormatEmptyUsesDefault(t *testing.T) {
-	code, _, errout := runFormatFlagFixture(t, "-f", "-")
+	code, _, errout := runFormatFlagFixture(t, "\n", "-f", "-")
 	if code != 0 {
 		t.Fatalf("code=%d stderr=%q", code, errout)
 	}
 }
 func TestRunInteractiveFormatUnavailableThenValid(t *testing.T) {
-	code, _, errout := runFormatFlagFixture(t, "-f", "-")
+	code, _, errout := runFormatFlagFixture(t, "missing\nbest\n", "-f", "-")
 	if code != 0 {
 		t.Fatalf("code=%d stderr=%q", code, errout)
 	}
 }
 func TestRunInteractiveFormatAttemptsExhausted(t *testing.T) {
-	code, _, errout := runFormatFlagFixture(t, "-f", "-")
-	if code != 0 {
+	code, _, errout := runFormatFlagFixture(t, "missing\nmissing\nmissing\n", "-f", "-")
+	if code != 2 || !strings.Contains(errout, "attempts exhausted") {
 		t.Fatalf("code=%d stderr=%q", code, errout)
 	}
 }
