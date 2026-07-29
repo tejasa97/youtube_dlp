@@ -603,7 +603,6 @@ type operation struct {
 	sabrMerge                        func(ctx context.Context, video, audio, destination string, overwrite bool, sink events.Sink) error
 	plannerCapabilities              *mediaformat.PlannerCapabilities
 	formatAvailability               mediaformat.FormatAvailability
-	activeTransaction                *mediaTransaction
 }
 
 func (operation *operation) process(ctx context.Context, rawURL, extractorKey string, overlay *extractor.Entry, ancestors map[string]bool, depth int) (Result, error) {
@@ -1247,10 +1246,7 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 			}
 		}
 	}
-	operation.activeTransaction = mediaTx
-	defer func() {
-		operation.activeTransaction = nil
-	}()
+	ctx = withMediaTransaction(ctx, mediaTx)
 	if needsInteractiveFormat {
 		if len(planDestinations) == 0 {
 			return Result{}, categorized("select format", mediaformat.ErrNoFormats)

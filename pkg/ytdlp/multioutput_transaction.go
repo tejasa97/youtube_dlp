@@ -1,6 +1,7 @@
 package ytdlp
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -621,25 +622,42 @@ func rollbackMediaTransaction(transaction *mediaTransaction, primary error) erro
 	return primary
 }
 
-func (operation *operation) protectTransactionAppendPath(path string) error {
-	if operation.activeTransaction == nil {
-		return nil
+type mediaTransactionContextKey struct{}
+
+func withMediaTransaction(ctx context.Context, transaction *mediaTransaction) context.Context {
+	if transaction == nil {
+		return ctx
 	}
-	return operation.activeTransaction.protectAppendPath(path)
+	return context.WithValue(ctx, mediaTransactionContextKey{}, transaction)
 }
 
-func (operation *operation) snapshotTransactionRemovedPath(path string) error {
-	if operation.activeTransaction == nil {
-		return nil
-	}
-	return operation.activeTransaction.snapshotRemovedPath(path)
+func mediaTransactionFromContext(ctx context.Context) *mediaTransaction {
+	transaction, _ := ctx.Value(mediaTransactionContextKey{}).(*mediaTransaction)
+	return transaction
 }
 
-func (operation *operation) protectTransactionPath(path string) error {
-	if operation.activeTransaction == nil {
+func (operation *operation) protectTransactionAppendPath(ctx context.Context, path string) error {
+	transaction := mediaTransactionFromContext(ctx)
+	if transaction == nil {
 		return nil
 	}
-	return operation.activeTransaction.protectPath(path, operation.request.Overwrite)
+	return transaction.protectAppendPath(path)
+}
+
+func (operation *operation) snapshotTransactionRemovedPath(ctx context.Context, path string) error {
+	transaction := mediaTransactionFromContext(ctx)
+	if transaction == nil {
+		return nil
+	}
+	return transaction.snapshotRemovedPath(path)
+}
+
+func (operation *operation) protectTransactionPath(ctx context.Context, path string) error {
+	transaction := mediaTransactionFromContext(ctx)
+	if transaction == nil {
+		return nil
+	}
+	return transaction.protectPath(path, operation.request.Overwrite)
 }
 
 func trackTransactionArtifacts(transaction *mediaTransaction, artifacts []Artifact) {

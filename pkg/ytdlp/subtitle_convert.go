@@ -46,7 +46,7 @@ func (operation *operation) convertSelectedSubtitles(
 		if err != nil {
 			return tracks, artifacts, converted, err
 		}
-		if err := operation.protectTransactionPath(destination); err != nil {
+		if err := operation.protectTransactionPath(ctx, destination); err != nil {
 			return tracks, artifacts, converted, err
 		}
 		if tools == nil {
@@ -58,7 +58,7 @@ func (operation *operation) convertSelectedSubtitles(
 		if err := tools.ConvertSubtitle(ctx, source, destination, ffmpeg.SubtitleOptions{Format: format}, operation.request.Overwrite, sink); err != nil {
 			return tracks, artifacts, converted, err
 		}
-		if err := operation.snapshotTransactionRemovedPath(source); err != nil {
+		if err := operation.snapshotTransactionRemovedPath(ctx, source); err != nil {
 			return tracks, artifacts, converted, err
 		}
 		removeErr := operation.removeLocalFile(source)

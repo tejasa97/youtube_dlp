@@ -99,7 +99,7 @@ func (operation *operation) writeRelatedFiles(ctx context.Context, info value.In
 		if err := prepareRelatedDestination(operation.request.outputRoot(OutputPathHome), destination); err != nil {
 			return artifacts, total, err
 		}
-		if err := operation.protectTransactionPath(destination); err != nil {
+		if err := operation.protectTransactionPath(ctx, destination); err != nil {
 			return artifacts, total, err
 		}
 		size, err := writeAtomicRelatedFile(ctx, destination, content, operation.request.Overwrite)
