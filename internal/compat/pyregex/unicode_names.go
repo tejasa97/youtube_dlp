@@ -4,7 +4,7 @@
 // NameAliases.txt: Unicode 15.0.0 sha256=3e39509e8fae3e5d50ba73759d0b97194501d14a9c63107a6372a46b38be18e8
 // Artifact: unicode_names.bin zlib payload sha256=0a76d5792d895a7054d63c8789f0fb79790b58608cbb0bc18426a236c84cf2de bytes=700996
 
-package format
+package pyregex
 
 import (
 	"bytes"

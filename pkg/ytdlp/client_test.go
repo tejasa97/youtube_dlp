@@ -924,6 +924,43 @@ func TestClientOrdinaryFilterRejectionDoesNotBecomeBreakStop(t *testing.T) {
 	}
 }
 
+func TestClientBreakMatchFilterUsesPythonRegex(t *testing.T) {
+	request := Request{
+		URL: "https://fixture.invalid/video", SkipDownload: true,
+		BreakMatchFilters: []string{`title ~= ^Fixture(?=$)`},
+		MatchFilters:      []string{"title=other"},
+	}
+	plan, err := prepareCompatibility(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := &operation{
+		client: NewClient(), request: request, registry: extractor.NewRegistry(numericMetadataExtractor{}),
+		compatibility: plan,
+	}
+	result, err := operation.process(context.Background(), request.URL, "", nil, make(map[string]bool), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Skipped || result.Stopped {
+		t.Fatalf("matched break regex result = %#v", result)
+	}
+
+	request.BreakMatchFilters = []string{`title ~= ^Other(?=$)`}
+	plan, err = prepareCompatibility(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation.compatibility = plan
+	result, err = operation.process(context.Background(), request.URL, "", nil, make(map[string]bool), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Skipped || !result.Stopped {
+		t.Fatalf("rejected break regex did not stop: %#v", result)
+	}
+}
+
 func TestClientInteractiveMatchFilterAcceptRejectAndOrdering(t *testing.T) {
 	for _, test := range []struct {
 		name         string

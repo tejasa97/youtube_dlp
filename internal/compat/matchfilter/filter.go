@@ -1,6 +1,7 @@
 // Package matchfilter implements the bounded, non-interactive subset of
 // yt-dlp's --match-filters language. It never evaluates code. Regular
-// expressions use Go's linear-time RE2 engine and are compiled during Parse.
+// expressions use a bounded Python-compatible search engine and compile during
+// Parse.
 package matchfilter
 
 import (
@@ -11,7 +12,12 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
+	"unicode/utf8"
 
+	"github.com/dlclark/regexp2"
+	"github.com/ytdlp-go/ytdlp/internal/compat/pyregex"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
@@ -24,13 +30,24 @@ const (
 	maxRegexBytes           = 512
 	maxEvaluatedStringBytes = 1 << 20
 	maxIncompleteFields     = 256
+	maxRegexInputBytes      = 64 << 10
+	maxRegexAttempts        = 256
+	maxRegexInspectedBytes  = 4 << 20
+	maxTranslatedRegexBytes = 16 << 10
+	regexMatchTimeout       = 25 * time.Millisecond
+	regexWallBudget         = 250 * time.Millisecond
+	regexTimeoutClockPeriod = 5 * time.Millisecond
 )
 
 var (
 	ErrInvalidFilter   = errors.New("invalid match filter")
 	ErrEvaluationLimit = errors.New("match filter evaluation limit exceeded")
 	ErrEvaluation      = errors.New("match filter evaluation failed")
+	errRegexTimeout    = errors.New("regular expression match timed out")
+	errRegexBudget     = errors.New("regular expression budget exhausted")
 )
+
+var regexTimeoutInit sync.Once
 
 // SyntaxError identifies the byte range rejected by the parser.
 type SyntaxError struct {
@@ -92,7 +109,7 @@ type condition struct {
 	unaryNegated         bool
 	comparisonNegated    bool
 	noneInclusive        bool
-	expression           *regexp.Regexp
+	expression           *regexp2.Regexp
 }
 
 type Decision struct {
@@ -166,6 +183,7 @@ func (p Program) EvaluateContext(ctx context.Context, info value.Info, options E
 	if len(p.expressions) == 0 {
 		return Decision{Pass: true, Incomplete: options.incomplete()}, nil
 	}
+	regexBudget := regexEvaluationBudget{started: time.Now()}
 	for _, expr := range p.expressions {
 		if err := ctx.Err(); err != nil {
 			return Decision{}, err
@@ -175,7 +193,7 @@ func (p Program) EvaluateContext(ctx context.Context, info value.Info, options E
 			if err := ctx.Err(); err != nil {
 				return Decision{}, err
 			}
-			matched, err := condition.matches(info, options)
+			matched, err := condition.matches(ctx, info, options, &regexBudget)
 			if err != nil {
 				return Decision{}, &EvaluationError{
 					Start: condition.start, End: condition.end, Field: condition.field, Err: err,
@@ -312,9 +330,9 @@ func parseCondition(input segment) (condition, error) {
 		if len(raw) > maxRegexBytes {
 			return condition{}, syntax(offset+rawStart, end, "regular expression exceeds size limit")
 		}
-		parsed.expression, err = regexp.Compile(raw)
+		parsed.expression, err = compilePythonRegex(raw)
 		if err != nil {
-			return condition{}, syntax(offset+rawStart, end, "invalid or unsupported RE2 regular expression")
+			return condition{}, syntax(offset+rawStart, end, "invalid regular expression")
 		}
 	}
 	return parsed, nil
@@ -357,7 +375,7 @@ func skipSpace(input string, index int) int {
 	return index
 }
 
-func (c condition) matches(info value.Info, options EvaluationOptions) (bool, error) {
+func (c condition) matches(ctx context.Context, info value.Info, options EvaluationOptions, budget *regexEvaluationBudget) (bool, error) {
 	input := info.Lookup(c.field)
 	if input.IsMissing() || input.IsNull() {
 		if options.isIncomplete(c.field) {
@@ -380,7 +398,11 @@ func (c condition) matches(info value.Info, options EvaluationOptions) (bool, er
 		if len(text) > maxEvaluatedStringBytes {
 			return false, fmt.Errorf("%w: string exceeds %d bytes", ErrEvaluationLimit, maxEvaluatedStringBytes)
 		}
-		matched = c.matchString(text)
+		var err error
+		matched, err = c.matchString(ctx, text, budget)
+		if err != nil {
+			return false, err
+		}
 	} else if left, ok := number(input); ok {
 		if isStringOperator(c.operator) {
 			return false, fmt.Errorf("%w: operator %s only supports string values", ErrEvaluation, c.operator)
@@ -399,29 +421,104 @@ func (c condition) matches(info value.Info, options EvaluationOptions) (bool, er
 	return matched, nil
 }
 
-func (c condition) matchString(input string) bool {
+func (c condition) matchString(ctx context.Context, input string, budget *regexEvaluationBudget) (bool, error) {
 	switch c.operator {
 	case "=":
-		return input == c.raw
+		return input == c.raw, nil
 	case "<":
-		return input < c.raw
+		return input < c.raw, nil
 	case "<=":
-		return input <= c.raw
+		return input <= c.raw, nil
 	case ">":
-		return input > c.raw
+		return input > c.raw, nil
 	case ">=":
-		return input >= c.raw
+		return input >= c.raw, nil
 	case "*=":
-		return strings.Contains(input, c.raw)
+		return strings.Contains(input, c.raw), nil
 	case "^=":
-		return strings.HasPrefix(input, c.raw)
+		return strings.HasPrefix(input, c.raw), nil
 	case "$=":
-		return strings.HasSuffix(input, c.raw)
+		return strings.HasSuffix(input, c.raw), nil
 	case "~=":
-		return c.expression.MatchString(input)
+		return searchPythonRegex(ctx, c.expression, input, budget)
 	default:
-		return false
+		return false, nil
 	}
+}
+
+type regexEvaluationBudget struct {
+	attempts       int
+	inspectedBytes int
+	wall           time.Duration
+	started        time.Time
+}
+
+func initRegexTimeoutClock() {
+	regexTimeoutInit.Do(func() { regexp2.SetTimeoutCheckPeriod(regexTimeoutClockPeriod) })
+}
+
+func compilePythonRegex(pattern string) (*regexp2.Regexp, error) {
+	initRegexTimeoutClock()
+	if !utf8.ValidString(pattern) {
+		return nil, errors.New("regular expression is not valid UTF-8")
+	}
+	translated, err := pyregex.Translate(pattern)
+	if err != nil || len(translated) > maxTranslatedRegexBytes {
+		return nil, errors.New("invalid regular expression")
+	}
+	compiled, err := regexp2.Compile(translated, regexp2.None)
+	if err != nil {
+		return nil, errors.New("invalid regular expression")
+	}
+	compiled.MatchTimeout = regexMatchTimeout
+	return compiled, nil
+}
+
+func searchPythonRegex(ctx context.Context, expression *regexp2.Regexp, input string, budget *regexEvaluationBudget) (bool, error) {
+	if expression == nil {
+		return false, fmt.Errorf("%w: missing regular expression", ErrEvaluation)
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if len(input) > maxRegexInputBytes {
+		return false, fmt.Errorf("%w: regular expression input exceeds size limit", ErrEvaluationLimit)
+	}
+	if !utf8.ValidString(input) {
+		return false, fmt.Errorf("%w: regular expression input is not valid UTF-8", ErrEvaluation)
+	}
+	if budget == nil {
+		budget = &regexEvaluationBudget{started: time.Now()}
+	}
+	if budget.started.IsZero() {
+		budget.started = time.Now()
+	}
+	budget.attempts++
+	budget.inspectedBytes += len(input)
+	if budget.attempts > maxRegexAttempts || budget.inspectedBytes > maxRegexInspectedBytes || time.Since(budget.started) > regexWallBudget {
+		return false, fmt.Errorf("%w: %v", ErrEvaluationLimit, errRegexBudget)
+	}
+	started := time.Now()
+	matched, err := expression.MatchString(input)
+	budget.wall += time.Since(started)
+	if budget.wall > regexWallBudget {
+		return false, fmt.Errorf("%w: %v", ErrEvaluationLimit, errRegexBudget)
+	}
+	if err != nil {
+		return false, sanitizeRegexError(err)
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	return matched, nil
+}
+
+func sanitizeRegexError(err error) error {
+	message := strings.ToLower(err.Error())
+	if strings.Contains(message, "timeout") || strings.Contains(message, "timed out") {
+		return fmt.Errorf("%w: %v", ErrEvaluationLimit, errRegexTimeout)
+	}
+	return fmt.Errorf("%w: %v", ErrEvaluationLimit, errRegexBudget)
 }
 
 func isStringOperator(operator string) bool {
