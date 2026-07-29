@@ -1409,50 +1409,67 @@ func TestRunRejectsProgressJSONWithInteractiveFormatBeforeExtraction(t *testing.
 	}
 }
 
+type captureCLIRunner struct{ request ytdlp.Request }
+
+func (r *captureCLIRunner) Run(_ context.Context, request ytdlp.Request) (ytdlp.Result, error) {
+	r.request = request
+	return ytdlp.Result{}, nil
+}
+func captureCLIRequest(t *testing.T, args ...string) ytdlp.Request {
+	t.Helper()
+	runner := &captureCLIRunner{}
+	var out, errout bytes.Buffer
+	args = append(args, "https://fixture.invalid/video")
+	code := runContextIOWithDependencies(context.Background(), args, strings.NewReader(""), &out, &errout, runDependencies{newRunner: func([]ytdlp.Option) cliRunner { return runner }})
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errout.String())
+	}
+	return runner.request
+}
 func runFormatFlagFixture(t *testing.T, args ...string) (int, string, string) {
 	t.Helper()
 	server := testserver.New()
 	defer server.Close()
-	var stdout, stderr bytes.Buffer
+	var out, errout bytes.Buffer
 	args = append(args, "--skip-download", server.URL+"/page")
-	code := RunContextIO(context.Background(), args, strings.NewReader(""), &stdout, &stderr)
-	return code, stdout.String(), stderr.String()
+	code := RunContextIO(context.Background(), args, strings.NewReader(""), &out, &errout)
+	return code, out.String(), errout.String()
 }
 
 func TestRunFormatMultistreamFlagsLastOccurrenceWins(t *testing.T) {
-	code, _, errout := runFormatFlagFixture(t, "--video-multistreams", "--no-video-multistreams", "--audio-multistreams", "--no-audio-multistreams")
-	if code != 0 {
-		t.Fatalf("code=%d stderr=%s", code, errout)
+	r := captureCLIRequest(t, "--video-multistreams", "--no-video-multistreams", "--audio-multistreams", "--no-audio-multistreams")
+	if r.AllowMultipleVideoStreams || r.AllowMultipleAudioStreams {
+		t.Fatalf("request=%+v", r)
 	}
 }
 func TestRunFormatSortForceAndResetOrdering(t *testing.T) {
-	code, _, errout := runFormatFlagFixture(t, "-S", "res,, fps", "--format-sort-reset", "-S", "abr", "--format-sort-force", "--no-format-sort-force")
-	if code != 0 {
-		t.Fatalf("code=%d stderr=%s", code, errout)
+	r := captureCLIRequest(t, "-S", "res,, fps", "--format-sort-reset", "-S", "abr", "--format-sort-force", "--no-format-sort-force")
+	if r.FormatSortForce || !reflect.DeepEqual(r.FormatSort, []string{"abr"}) {
+		t.Fatalf("request=%+v", r)
 	}
 }
 func TestRunPreferFreeAndUnplayableNegations(t *testing.T) {
-	code, _, errout := runFormatFlagFixture(t, "--prefer-free-formats", "--no-prefer-free-formats", "--allow-unplayable-formats", "--no-allow-unplayable-formats")
-	if code != 0 {
-		t.Fatalf("code=%d stderr=%s", code, errout)
+	r := captureCLIRequest(t, "--prefer-free-formats", "--no-prefer-free-formats", "--allow-unplayable-formats", "--no-allow-unplayable-formats")
+	if r.PreferFreeFormats || r.AllowUnplayableFormats {
+		t.Fatalf("request=%+v", r)
 	}
 }
 func TestRunAllFormatsAndExplicitFormatLastOccurrenceWins(t *testing.T) {
-	code, _, errout := runFormatFlagFixture(t, "--all-formats", "-f", "best", "--all-formats")
-	if code != 0 {
-		t.Fatalf("code=%d stderr=%s", code, errout)
+	r := captureCLIRequest(t, "--all-formats", "-f", "best", "--all-formats")
+	if r.Format != "all" {
+		t.Fatalf("format=%q", r.Format)
 	}
 }
 func TestRunFormatCheckModesLastOccurrenceWins(t *testing.T) {
-	code, _, errout := runFormatFlagFixture(t, "--check-all-formats", "--check-formats", "--no-check-formats")
-	if code != 0 {
-		t.Fatalf("code=%d stderr=%s", code, errout)
+	r := captureCLIRequest(t, "--check-all-formats", "--check-formats", "--no-check-formats")
+	if r.CheckFormats != ytdlp.FormatCheckNone {
+		t.Fatalf("mode=%v", r.CheckFormats)
 	}
 }
 func TestRunMergeOutputFormatPlumbing(t *testing.T) {
-	code, _, errout := runFormatFlagFixture(t, "--merge-output-format", "mp4/mkv")
-	if code != 0 {
-		t.Fatalf("code=%d stderr=%s", code, errout)
+	r := captureCLIRequest(t, "--merge-output-format", "mp4/mkv")
+	if r.MergeOutputFormat != "mp4/mkv" {
+		t.Fatalf("merge=%q", r.MergeOutputFormat)
 	}
 }
 

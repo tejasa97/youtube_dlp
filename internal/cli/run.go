@@ -37,6 +37,23 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer) in
 // RunContextIO exposes the CLI input boundary for deterministic embedding and
 // tests. The production command passes os.Stdin through RunContext.
 func RunContextIO(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	return runContextIOWithDependencies(ctx, args, stdin, stdout, stderr, runDependencies{
+		newRunner: func(options []ytdlp.Option) cliRunner { return ytdlp.NewClient(options...) },
+	})
+}
+
+type cliRunner interface {
+	Run(context.Context, ytdlp.Request) (ytdlp.Result, error)
+}
+
+type runDependencies struct {
+	newRunner func([]ytdlp.Option) cliRunner
+}
+
+func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, deps runDependencies) int {
+	if deps.newRunner == nil {
+		return 1
+	}
 	environment := compatconfig.RuntimeEnvironment()
 	environment.HomeConfigDir = homePathFromArgs(args)
 	loaded, err := compatconfig.Load(ctx, compatconfig.Request{
@@ -575,7 +592,7 @@ func RunContextIO(ctx context.Context, args []string, stdin io.Reader, stdout, s
 		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
 		return 2
 	}
-	client := ytdlp.NewClient(clientOptions...)
+	client := deps.newRunner(clientOptions)
 	downloaderOptions := ytdlp.DownloaderOptions{
 		Attempts: *retries, RetryBaseDelay: *retryBaseDelay, RetryMaxDelay: *retryMaxDelay,
 		RateLimit: int64(rateLimit), MaxBytes: int64(maxBytes), ThrottleRate: int64(throttleRate),
