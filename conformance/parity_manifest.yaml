@@ -2172,6 +2172,12 @@ capabilities:
       - internal/format.TestPlannerDefaultSelectorSpecMatchesPinnedPolicy
       - internal/format.TestPlannerAvailabilityCacheScope
       - internal/format.TestPinnedClosureMatrix
+
+      - internal/upstreamdelta.TestFormatSelectorCurrentUpstreamDelta
+
+      - conformance/upstream-delta/format-selector-current.json
+
+      - docs/FORMAT_SELECTOR_CURRENT_UPSTREAM_DELTA_EVIDENCE.md
       - pkg/ytdlp.TestFormatAvailabilityAutoSkipsOrdinaryButChecksNeedsTesting
       - pkg/ytdlp.TestFormatCheckNoneMakesNoProbeRequests
       - pkg/ytdlp.TestFormatCheckSelectedFallsBackFromUnavailablePreferred

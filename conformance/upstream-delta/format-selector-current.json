@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "kind": "format_selector_current_upstream_delta",
+  "source_repository": "https://github.com/yt-dlp/yt-dlp.git",
+  "from": "aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8",
+  "to": "fdcc954df4955267ec1627cbeb347b661a110e7c",
+  "observed_at": "2026-07-29T11:45:06Z",
+  "derivation": "Maintainer-only git fetch of both frozen objects into a disposable repository; merge-base, rev-list, log --name-status, and ls-tree compared offline. Product gates read this committed record only.",
+  "merge_base": "aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8",
+  "ahead_count": 7,
+  "conclusion": "no_format_selector_delta",
+  "normative_sources": [
+    {"path": "yt_dlp/YoutubeDL.py", "before_blob": "a2675bd44d9e7ff128bf93f780b62b8eab2b20bd", "after_blob": "a2675bd44d9e7ff128bf93f780b62b8eab2b20bd"},
+    {"path": "yt_dlp/options.py", "before_blob": "b46dba20f24c69ef479d388c9a71ca04fd12ef3c", "after_blob": "b46dba20f24c69ef479d388c9a71ca04fd12ef3c"},
+    {"path": "yt_dlp/utils/_utils.py", "before_blob": "a791556eb55c84633d6774a0226b246114c7c37f", "after_blob": "a791556eb55c84633d6774a0226b246114c7c37f"},
+    {"path": "test/test_YoutubeDL.py", "before_blob": "0f84d7e1694b56f2db5ca214406fceab151a9f0a", "after_blob": "0f84d7e1694b56f2db5ca214406fceab151a9f0a"}
+  ],
+  "commits": [
+    {"hash": "93ceb95cdf0eb05d8a2515e3760fd62239683b82", "committed_at": "2026-07-20T23:24:23Z", "subject": "[ie/youtube] Fix live adaptive fragments generation (#17262)", "paths": [{"path": "yt_dlp/extractor/youtube/_video.py", "classification": "extractor_input_adjacent_outside_selection_semantics", "disposition": "outside_selection_semantics"}]},
+    {"hash": "69ea200067c274667984c6495578a957ab7ca606", "committed_at": "2026-07-20T23:36:39Z", "subject": "[ie/youtube] Player client maintenance (#17261)", "paths": [{"path": "README.md", "classification": "unrelated", "disposition": "no_product_change"}, {"path": "yt_dlp/extractor/youtube/_base.py", "classification": "extractor_input_adjacent_outside_selection_semantics", "disposition": "outside_selection_semantics"}, {"path": "yt_dlp/extractor/youtube/_video.py", "classification": "extractor_input_adjacent_outside_selection_semantics", "disposition": "outside_selection_semantics"}]},
+    {"hash": "a8be438aac1b90c3888e974056d967b8be90fa7e", "committed_at": "2026-07-20T23:41:12Z", "subject": "[ie/vimeo] Client maintenance (#17272)", "paths": [{"path": "yt_dlp/extractor/vimeo.py", "classification": "extractor_input_adjacent_outside_selection_semantics", "disposition": "outside_selection_semantics"}]},
+    {"hash": "1f1101d0dc8a0ee316540fc938edbaca43e4977b", "committed_at": "2026-07-21T23:02:13Z", "subject": "[ie/instagram] Fix logged-in extraction (#17278)", "paths": [{"path": "yt_dlp/extractor/instagram.py", "classification": "extractor_input_adjacent_outside_selection_semantics", "disposition": "outside_selection_semantics"}]},
+    {"hash": "aaf7405ba3a45b32c59f160426efc9b561af035a", "committed_at": "2026-07-21T23:09:21Z", "subject": "[ie/apple] Rework extractors (#17277)", "paths": [{"path": "yt_dlp/extractor/appleconnect.py", "classification": "extractor_input_adjacent_outside_selection_semantics", "disposition": "outside_selection_semantics"}, {"path": "yt_dlp/extractor/applepodcasts.py", "classification": "extractor_input_adjacent_outside_selection_semantics", "disposition": "outside_selection_semantics"}]},
+    {"hash": "07591f601e55c9d23399c07bf5fe1136f0913888", "committed_at": "2026-07-23T10:59:57Z", "subject": "[ie/vimeo] Remove `ios` and `macos` clients (#17290)", "paths": [{"path": "README.md", "classification": "unrelated", "disposition": "no_product_change"}, {"path": "devscripts/changelog_override.json", "classification": "unrelated", "disposition": "no_product_change"}, {"path": "yt_dlp/extractor/vimeo.py", "classification": "extractor_input_adjacent_outside_selection_semantics", "disposition": "outside_selection_semantics"}]},
+    {"hash": "fdcc954df4955267ec1627cbeb347b661a110e7c", "committed_at": "2026-07-23T16:54:48Z", "subject": "[ie/vimeo] Add `macos_basic` client (#17292)", "paths": [{"path": "README.md", "classification": "unrelated", "disposition": "no_product_change"}, {"path": "yt_dlp/extractor/vimeo.py", "classification": "extractor_input_adjacent_outside_selection_semantics", "disposition": "outside_selection_semantics"}]}
+  ]
+}
