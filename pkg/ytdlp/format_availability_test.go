@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
 	"github.com/ytdlp-go/ytdlp/internal/network"
@@ -284,27 +285,37 @@ func TestFormatCheckAllReusesProbeCacheDuringPlanning(t *testing.T) {
 
 func TestFormatAvailabilityInternalTimeoutIsUnavailable(t *testing.T) {
 	checker := availabilityTestChecker(t, FormatCheckSelected)
-	// A transport-style probe failure is intentionally an unavailable candidate,
-	// unlike the parent cancellation test above.
-	ok, err := checker.IsAvailable(availabilityFormat("http://127.0.0.1:1/unreachable", nil))
+	checker.timeout = 10 * time.Millisecond
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
+	defer server.Close()
+	// Only the checker child deadline expires; the operation context stays live.
+	ok, err := checker.IsAvailable(availabilityFormat(server.URL, nil))
 	if ok || err != nil {
 		t.Fatalf("ok=%v err=%v", ok, err)
 	}
 }
 
 func TestFormatAvailabilityCrossOriginRedirectUsesOnlyDestinationScopedJarCookies(t *testing.T) {
-	var cookie string
+	var cookie, authorization string
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/set" {
+			http.SetCookie(w, &http.Cookie{Name: "destination", Value: "jar", Path: "/"})
+			return
+		}
 		cookie = r.Header.Get("Cookie")
+		authorization = r.Header.Get("Authorization")
 		_, _ = w.Write([]byte("x"))
 	}))
 	defer target.Close()
 	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, target.URL, http.StatusFound) }))
 	defer origin.Close()
 	checker := availabilityTestChecker(t, FormatCheckSelected)
+	if _, _, err := checker.transport.ReadPage(context.Background(), target.URL+"/set"); err != nil {
+		t.Fatal(err)
+	}
 	ok, err := checker.IsAvailable(availabilityFormat(origin.URL, http.Header{"Cookie": {"origin=secret"}, "Authorization": {"Bearer secret"}}))
-	if err != nil || !ok || cookie != "" {
-		t.Fatalf("ok=%v err=%v destination cookie=%q", ok, err, cookie)
+	if err != nil || !ok || cookie != "destination=jar" || authorization != "" {
+		t.Fatalf("ok=%v err=%v destination cookie=%q authorization=%q", ok, err, cookie, authorization)
 	}
 }
 

@@ -55,6 +55,7 @@ type formatAvailabilityChecker struct {
 	cache       map[string]availabilityResult
 	probes      int
 	bytes       int64
+	timeout     time.Duration
 }
 
 type availabilityResult struct {
@@ -64,7 +65,7 @@ type availabilityResult struct {
 
 func newFormatAvailabilityChecker(ctx context.Context, transport *network.Client, mode FormatCheckMode) *formatAvailabilityChecker {
 	return &formatAvailabilityChecker{
-		ctx: ctx, transport: transport, mode: mode, cache: make(map[string]availabilityResult),
+		ctx: ctx, transport: transport, mode: mode, timeout: availabilityProbeTimeout, cache: make(map[string]availabilityResult),
 	}
 }
 
@@ -171,7 +172,11 @@ func availabilityCacheKey(rawURL, protocol string, headers http.Header) string {
 }
 
 func (checker *formatAvailabilityChecker) probe(rawURL, protocol string, headers http.Header) (bool, error) {
-	ctx, cancel := context.WithTimeout(checker.ctx, availabilityProbeTimeout)
+	timeout := checker.timeout
+	if timeout <= 0 {
+		timeout = availabilityProbeTimeout
+	}
+	ctx, cancel := context.WithTimeout(checker.ctx, timeout)
 	defer cancel()
 	protocol = strings.ToLower(protocol)
 	switch {
