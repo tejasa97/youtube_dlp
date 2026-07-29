@@ -204,12 +204,30 @@ type SponsorBlockOptions struct {
 // End. Reverse is applied after selection while playlist_index continues to
 // identify the source entry. Flat retains the selected URL-result metadata
 // without recursively extracting or downloading child entries.
+//
+// Random applies a deterministic shuffle after selection and takes precedence
+// over Reverse with a warning. Lazy streams selected entries directly from the
+// source iterator and ignores both Reverse and Random with distinct warnings.
+// ErrorPolicy selects whether ordinary per-entry failures continue or abort.
+// Categorized errors that must
+// never be swallowed — cancellation, deadlines, resource limits, unsafe
+// paths, configuration errors, and global playlist failures — propagate
+// under every policy value. MaxFailures bounds the number of
+// suppressed failures tolerated during a single playlist iteration
+// (zero means unlimited) and corresponds to pinned
+// --skip-playlist-after-errors. RandomSource is the deterministic
+// injection seam used by Random; nil selects a time-seeded source.
 type PlaylistOptions struct {
-	Start   int
-	End     int
-	Reverse bool
-	Items   string
-	Flat    bool
+	Start        int
+	End          int
+	Reverse      bool
+	Random       bool
+	Lazy         bool
+	Items        string
+	Flat         bool
+	ErrorPolicy  PlaylistErrorPolicy
+	MaxFailures  int
+	RandomSource PlaylistRandomSource
 }
 
 // Artifact describes a file produced by the requested media pipeline.
@@ -330,6 +348,12 @@ func validateRequestOptions(request Request) error {
 		if _, err := parsePlaylistItems(request.Playlist.Items); err != nil {
 			return fmt.Errorf("%w: %w", errInvalidRequestOptions, err)
 		}
+	}
+	if !request.Playlist.ErrorPolicy.Valid() {
+		return fmt.Errorf("%w: playlist error policy", errInvalidRequestOptions)
+	}
+	if request.Playlist.MaxFailures < 0 || request.Playlist.MaxFailures > maxPlaylistEntries {
+		return fmt.Errorf("%w: playlist max failures", errInvalidRequestOptions)
 	}
 	if external := options.External; external != nil {
 		if external.Executable == "" || strings.ContainsRune(external.Executable, 0) || len(external.Arguments) > 128 {

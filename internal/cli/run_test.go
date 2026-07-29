@@ -1450,6 +1450,34 @@ func (r *captureCLIRunner) Run(_ context.Context, request ytdlp.Request) (ytdlp.
 	r.request = request
 	return ytdlp.Result{}, nil
 }
+
+type resultCLIRunner struct{ result ytdlp.Result }
+
+func (r resultCLIRunner) Run(context.Context, ytdlp.Request) (ytdlp.Result, error) {
+	return r.result, nil
+}
+
+func TestRunPlaylistSuppressedFailureExitSemantics(t *testing.T) {
+	run := func(args ...string) int {
+		var stdout, stderr bytes.Buffer
+		args = append(args, "https://fixture.invalid/video")
+		return runContextIOWithDependencies(
+			context.Background(), args, strings.NewReader(""), &stdout, &stderr,
+			runDependencies{newRunner: func([]ytdlp.Option) cliRunner {
+				return resultCLIRunner{result: ytdlp.Result{SuppressedFailures: 1}}
+			}},
+		)
+	}
+	if code := run(); code != 1 {
+		t.Fatalf("default code=%d", code)
+	}
+	if code := run("--no-abort-on-error"); code != 1 {
+		t.Fatalf("no-abort code=%d", code)
+	}
+	if code := run("--ignore-errors"); code != 0 {
+		t.Fatalf("ignore code=%d", code)
+	}
+}
 func captureCLIRequest(t *testing.T, args ...string) ytdlp.Request {
 	t.Helper()
 	runner := &captureCLIRunner{}
@@ -1540,6 +1568,21 @@ func TestRunRecodeWinsOverRemuxWithWarning(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "--remux-video is ignored since --recode-video was given") {
 		t.Fatalf("missing conflict warning: %q", stderr.String())
+	}
+}
+
+func TestRunPlaylistExecutionPolicyPlumbingAndLastFlagWins(t *testing.T) {
+	request := captureCLIRequest(t,
+		"--playlist-reverse", "--playlist-random", "--lazy-playlist",
+		"--abort-on-error", "--ignore-errors", "--skip-playlist-after-errors", "3",
+	)
+	if !request.Playlist.Reverse || !request.Playlist.Random || !request.Playlist.Lazy ||
+		request.Playlist.ErrorPolicy != ytdlp.PlaylistErrorContinue || request.Playlist.MaxFailures != 3 {
+		t.Fatalf("playlist=%+v", request.Playlist)
+	}
+	request = captureCLIRequest(t, "--ignore-errors", "--no-ignore-errors")
+	if request.Playlist.ErrorPolicy != ytdlp.PlaylistErrorAbort {
+		t.Fatalf("playlist=%+v", request.Playlist)
 	}
 }
 

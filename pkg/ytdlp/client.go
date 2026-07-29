@@ -257,6 +257,10 @@ type Result struct {
 	Entries    []Result
 	Artifacts  []Artifact
 	Prints     []PrintOutput
+	// SuppressedFailures counts ordinary entry failures that a playlist
+	// continued past. The failures remain observable even when Run returns a
+	// usable partial playlist result.
+	SuppressedFailures int
 }
 
 type Event struct {
@@ -678,6 +682,7 @@ type operation struct {
 	compatibility                    compatibilityPlan
 	rootExtractor                    *string
 	playlistItemsRangeWarningEmitted bool
+	playlistOrderingWarningsEmitted  map[string]bool
 	breakMatchTriggered              bool
 	breakMatchReason                 string
 	removeFile                       func(string) error
@@ -858,32 +863,56 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 	if err != nil {
 		return Result{}, categorized(extractorName+" playlist selection", fmt.Errorf("%w: %w", errInvalidRequestOptions, err))
 	}
-	var reversed []indexedPlaylistEntry
-	if operation.request.Playlist.Reverse {
+	options, orderingWarnings := normalizedPlaylistExecutionOptions(operation.request.Playlist)
+	if err := operation.emitPlaylistOrderingWarnings(ctx, orderingWarnings); err != nil {
+		return Result{}, err
+	}
+	var materialized []indexedPlaylistEntry
+	switch {
+	case options.Lazy:
+		// Lazy mode never pre-materializes; Reverse and Random are ignored.
+	case !options.Lazy && options.Reverse:
 		for {
-			entry, ok, err := iterator.Next(ctx)
-			if err != nil {
-				return Result{}, categorized(extractorName+" playlist iteration", err)
+			entry, ok, iterErr := iterator.Next(ctx)
+			if iterErr != nil {
+				return Result{}, categorized(extractorName+" playlist iteration", iterErr)
 			}
 			if !ok {
 				break
 			}
-			reversed = append(reversed, entry)
+			materialized = append(materialized, entry)
 		}
-		for left, right := 0, len(reversed)-1; left < right; left, right = left+1, right-1 {
-			reversed[left], reversed[right] = reversed[right], reversed[left]
+		reversePlaylistEntries(materialized)
+	case !options.Lazy && options.Random:
+		for {
+			entry, ok, iterErr := iterator.Next(ctx)
+			if iterErr != nil {
+				return Result{}, categorized(extractorName+" playlist iteration", iterErr)
+			}
+			if !ok {
+				break
+			}
+			materialized = append(materialized, entry)
 		}
+		shufflePlaylistEntries(materialized, options.RandomSource)
 	}
 	children := make([]Result, 0)
 	entryValues := make([]value.Value, 0)
 	playlistID, _ := extracted.Info.ID()
 	playlistTitle, _ := extracted.Info.Title()
+	var failures int
+	var maxFailuresEmitted bool
+	finish := func() (Result, error) {
+		result, err := operation.finishPlaylistResult(ctx, extracted.Info, extractorName, children, entryValues)
+		result.SuppressedFailures += failures
+		return result, err
+	}
 	for outputIndex := 0; ; outputIndex++ {
 		var selected indexedPlaylistEntry
 		var ok bool
-		if operation.request.Playlist.Reverse {
-			if outputIndex < len(reversed) {
-				selected, ok = reversed[outputIndex], true
+		if materialized != nil {
+			if outputIndex < len(materialized) {
+				selected, ok = materialized[outputIndex], true
 			}
 		} else {
 			var err error
@@ -893,20 +922,41 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 			}
 		}
 		if !ok {
-			return operation.finishPlaylistResult(ctx, extracted.Info, extractorName, children, entryValues)
+			return finish()
 		}
 		entry := selected.Entry
 		if entry.URL == "" {
-			return Result{}, categorized(extractorName+" playlist entry", extractor.ErrInvalidPlaylist)
+			entryErr := categorized(extractorName+" playlist entry", extractor.ErrInvalidPlaylist)
+			handled, stop, handlerErr := operation.handlePlaylistEntryError(ctx, extractorName, playlistTitle, selected.SourceIndex, entryErr, &failures, &maxFailuresEmitted)
+			if handlerErr != nil {
+				return Result{}, handlerErr
+			}
+			if handled {
+				if stop {
+					return finish()
+				}
+				continue
+			}
+			return Result{}, entryErr
 		}
-		if operation.request.Playlist.Flat {
+		if options.Flat {
 			entryInfo := flatPlaylistEntryInfo(entry, selected.SourceIndex, playlistID, playlistTitle)
 			child, _, _, terminal, err := operation.prepareMediaResult(ctx, &entryInfo, entry.ExtractorKey, true)
 			if err != nil {
+				handled, stop, handlerErr := operation.handlePlaylistEntryError(ctx, extractorName, playlistTitle, selected.SourceIndex, err, &failures, &maxFailuresEmitted)
+				if handlerErr != nil {
+					return Result{}, handlerErr
+				}
+				if handled {
+					if stop {
+						return finish()
+					}
+					continue
+				}
 				return Result{}, fmt.Errorf("flat playlist entry %d: %w", selected.SourceIndex, err)
 			}
 			if child.Stopped {
-				return operation.finishPlaylistResult(ctx, extracted.Info, extractorName, children, entryValues)
+				return finish()
 			}
 			if !terminal {
 				prints, err := operation.capturePrints(ctx, PrintVideo, entryInfo, nil, nil, "")
@@ -926,6 +976,16 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 		}
 		child, err := operation.process(ctx, entry.URL, entry.ExtractorKey, &entry, ancestors, depth+1)
 		if err != nil {
+			handled, stop, handlerErr := operation.handlePlaylistEntryError(ctx, extractorName, playlistTitle, selected.SourceIndex, err, &failures, &maxFailuresEmitted)
+			if handlerErr != nil {
+				return Result{}, handlerErr
+			}
+			if handled {
+				if stop {
+					return finish()
+				}
+				continue
+			}
 			return Result{}, fmt.Errorf("playlist entry %d: %w", selected.SourceIndex, err)
 		}
 		if child.Stopped {
@@ -941,7 +1001,7 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 				children = append(children, child)
 				entryValues = append(entryValues, entryValue)
 			}
-			return operation.finishPlaylistResult(ctx, extracted.Info, extractorName, children, entryValues)
+			return finish()
 		}
 		entryValue, err := playlistEntryValue(child.InfoJSON, selected.SourceIndex, playlistID, playlistTitle)
 		if err != nil {
@@ -994,6 +1054,7 @@ func (operation *operation) finishPlaylistResult(
 		result.Bytes += child.Bytes
 		result.Downloaded = result.Downloaded || child.Downloaded
 		result.Archived = result.Archived || child.Archived
+		result.SuppressedFailures += child.SuppressedFailures
 	}
 	if !operation.request.Simulate && !operation.request.RelatedFiles.NoPlaylist {
 		artifacts, artifactBytes, err := operation.writeRelatedFiles(ctx, info, true)
@@ -1044,6 +1105,60 @@ func (operation *operation) emitPlaylistItemsRangeWarning(ctx context.Context) e
 		return &Error{Category: ErrorInternal, Op: "emit playlist selection warning", Err: err}
 	}
 	return nil
+}
+
+func (operation *operation) emitPlaylistOrderingWarnings(ctx context.Context, warnings []string) error {
+	if len(warnings) == 0 {
+		return nil
+	}
+	if operation.playlistOrderingWarningsEmitted == nil {
+		operation.playlistOrderingWarningsEmitted = make(map[string]bool, len(warnings))
+	}
+	for _, warning := range warnings {
+		if operation.playlistOrderingWarningsEmitted[warning] {
+			continue
+		}
+		if err := operation.client.emit(ctx, Event{Kind: EventMetadataWarning, Message: warning}); err != nil {
+			return &Error{Category: ErrorInternal, Op: "emit playlist ordering warning", Err: err}
+		}
+		operation.playlistOrderingWarningsEmitted[warning] = true
+	}
+	return nil
+}
+
+// handlePlaylistEntryError decides whether the supplied per-entry error is
+// recorded and skipped (handled=true), stops the playlist when MaxFailures
+// is reached (stop=true), or must be propagated by the caller (handled=false).
+// A non-nil handlerErr always surfaces to the caller; it represents an
+// event-sink failure rather than the entry error itself.
+func (operation *operation) handlePlaylistEntryError(
+	ctx context.Context,
+	extractorName, playlistTitle string,
+	sourceIndex int,
+	err error,
+	failures *int,
+	maxFailuresEmitted *bool,
+) (handled, stop bool, handlerErr error) {
+	if isPlaylistErrorNonOverridable(err) {
+		return false, false, nil
+	}
+	if operation.request.Playlist.ErrorPolicy == PlaylistErrorAbort {
+		return false, false, nil
+	}
+	*failures++
+	if emitErr := emitPlaylistEntryError(ctx, operation.client, extractorName, sourceIndex, err); emitErr != nil {
+		return true, false, emitErr
+	}
+	if max := operation.request.Playlist.MaxFailures; max > 0 && *failures >= max {
+		if !*maxFailuresEmitted {
+			if emitErr := emitPlaylistMaxFailuresReached(ctx, operation.client, extractorName, playlistTitle, *failures); emitErr != nil {
+				return true, false, emitErr
+			}
+			*maxFailuresEmitted = true
+		}
+		return true, true, nil
+	}
+	return true, false, nil
 }
 
 type indexedPlaylistEntry struct {
@@ -1683,6 +1798,10 @@ func (client *Client) emit(ctx context.Context, event Event) error {
 func categorized(op string, err error) error {
 	if err == nil {
 		return nil
+	}
+	var existing *Error
+	if errors.As(err, &existing) && existing.Category != "" {
+		return &Error{Category: existing.Category, Op: op, Err: err}
 	}
 	category := ErrorNetwork
 	switch {

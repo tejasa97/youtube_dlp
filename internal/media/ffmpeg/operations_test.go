@@ -160,11 +160,11 @@ func FuzzOperationInputValidation(f *testing.F) {
 // their no-op branch.
 func TestResolveRecodeMappingNoOps(t *testing.T) {
 	cases := []struct {
-		name        string
-		source      string
-		mapping     string
-		wantSkip    string
-		wantTarget  string
+		name       string
+		source     string
+		mapping    string
+		wantSkip   string
+		wantTarget string
 	}{
 		{name: "single rule same format", source: "mkv", mapping: "mkv", wantTarget: "mkv", wantSkip: "already is in target format mkv"},
 		{name: "pair rule same format", source: "mp4", mapping: "mp4>mp4", wantTarget: "mp4", wantSkip: "already is in target format mp4"},

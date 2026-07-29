@@ -1,6 +1,7 @@
 # Playlist selection fixture provenance
 
-`selection.expected.json`, `items.expected.json`, and `flat.expected.json` are
+`selection.expected.json`, `items.expected.json`, `flat.expected.json`, and
+`random.expected.json` are
 attributable, synthetic expectations derived
 from the pinned yt-dlp reference checkout at commit
 `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`.
@@ -26,6 +27,15 @@ extractions and downloads. The pinned
 `yt_dlp/YoutubeDL.py::YoutubeDL.__process_playlist` evaluates incomplete entry
 filters and archive membership before processing each flat URL result; the Go
 tests retain those policy boundaries without invoking the child extractor.
+
+Random/lazy/error-policy behavior is derived from pinned
+`yt_dlp/__init__.py` option conflict normalization and
+`yt_dlp/YoutubeDL.py::YoutubeDL.__process_playlist`: randomization follows
+selection, random takes precedence over reverse, lazy disables both ordering
+transforms, ordinary entry failures can continue, and
+`skip_playlist_after_errors` stops the remaining queue at its threshold. The
+random fixture records a Go-injected deterministic permutation; upstream and
+the CLI intentionally use nondeterministic system randomness.
 
 The identifiers and compact JSON representations in this directory were
 written specifically for this Go project. They do not copy service responses,

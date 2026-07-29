@@ -1231,6 +1231,14 @@ capabilities:
       - pkg/ytdlp.TestOperationSlicesPlaylistLazilyAndPreservesSourceIndexes
       - pkg/ytdlp.TestOperationPlaylistEndStopsBeforeFetchingAnotherPage
       - pkg/ytdlp.TestOperationReversesSelectedRangeWithoutLosingSourceIndexes
+      - pkg/ytdlp.TestPlaylistRandomOrderIsDeterministicWithFixedSeed
+      - pkg/ytdlp.TestPlaylistRandomOverridesReverseWithWarning
+      - pkg/ytdlp.TestPlaylistLazyPlusReverseEmitsWarningAndDoesNotReverse
+      - pkg/ytdlp.TestPlaylistContinuePolicyContinuesPastEntryFailure
+      - pkg/ytdlp.TestPlaylistAbortPolicyAbortsOnFirstEntryFailure
+      - pkg/ytdlp.TestPlaylistMaxFailuresStopsAtConfiguredBound
+      - pkg/ytdlp.TestPlaylistSecurityAndEventHandlerFailuresAreNeverSuppressed
+      - pkg/ytdlp.TestPlaylistExecutionConformanceFixture
       - pkg/ytdlp.TestSelectedPlaylistIteratorHonorsCancellationWhileSkipping
       - pkg/ytdlp.TestSelectedPlaylistIteratorHonorsCancellationAtEndBoundary
       - pkg/ytdlp.TestPlaylistSelectionConformanceFixture
@@ -1253,13 +1261,16 @@ capabilities:
       - internal/cli.TestRunRejectsInvalidPlaylistRange
       - internal/cli.TestRunAcceptsLegacyUnboundedPlaylistEnd
       - internal/cli.TestRunAcceptsNoPlaylistReverseAfterInheritedReverse
+      - internal/cli.TestRunPlaylistExecutionPolicyPlumbingAndLastFlagWins
+      - internal/cli.TestRunPlaylistSuppressedFailureExitSemantics
       - internal/cli.TestRunPlaylistItemsAliasAndInvalidSpec
       - internal/cli.TestRunAcceptsFlatPlaylistAndCommandLineDisable
       - conformance/playlists/flat.expected.json
+      - conformance/playlists/random.expected.json
       - conformance/playlists/PROVENANCE.md
       - docs/PLAYLIST_MODEL.md
     owner: extractors
-    known_deviation: Playlist ranges and bounded item expressions are one-based, preserve original source indexes, support sparse and negative indexes plus positive/negative steps, suppress duplicate selections, stop finite pagination at the last requested index, and can reverse the selected result. Expressions that require the final length consume the bounded sequence, and the sequential extractor boundary may fetch earlier pages that an upstream random-access paged list can skip. Entries resolve sequentially with a fail-fast error policy and id/title overlays for transparent URL results. Flat playlist mode retains selected URL-result metadata without child extraction or download; upstream's non-CLI global/discard extract_flat modes are not exposed. Random ordering, arbitrary transparent fields, and configurable ignore-error policy remain broader compatibility work.
+    known_deviation: Playlist ranges and bounded item expressions are one-based, preserve original source indexes, support sparse and negative indexes plus positive/negative steps, suppress duplicate selections, stop finite pagination at the last requested index, and can reverse or randomly shuffle the selected result. Random takes precedence over reverse; lazy disables both with pinned warnings. Expressions that require the final length consume the bounded sequence, and the sequential extractor boundary may fetch earlier pages that an upstream random-access paged list can skip. Ordinary entry failures support continue/abort policy, an observable suppressed-failure count, a bounded stop-after-errors threshold, redacted events, and pinned CLI exit semantics; cancellation, security/internal/resource/configuration, iterator-global, and event-handler failures remain non-suppressible. The Go API does not expose yt-dlp's internal ignoreerrors="only_download" sentinel separately from Continue. Flat playlist mode retains selected URL-result metadata without child extraction or download; upstream's non-CLI global/discard extract_flat modes and arbitrary transparent fields are not exposed.
 
   - id: extractor.live
     name: Live extraction pilot
