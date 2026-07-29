@@ -1239,7 +1239,7 @@ func TestRunWaveTwoCompatibilityFlags(t *testing.T) {
 		"--replace-in-metadata", "title:Deterministic:Native",
 		"--match-filter", "title=discarded",
 		"--no-match-filters",
-		"--match-filters", "title~=Native",
+		"--match-filters", "title~=(?i)^Native(?= Fixture$)",
 		"--break-match-filter", "title=discarded",
 		"--no-break-match-filters",
 		"--break-match-filters", "title~=Native",
