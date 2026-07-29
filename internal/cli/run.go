@@ -509,7 +509,7 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	suppressInteractivePrompt := *listSubtitles && !simulateSet &&
 		!*dumpJSON && !*dumpSingleJSON && !legacyGetting && len(printRules) == 0
 	if *progressJSON && (interactiveFormatRequested || (interactiveFilterRequested && !suppressInteractivePrompt)) {
-		fmt.Fprintln(stderr, `ytdlp-go: --progress-json cannot be combined with interactive match filtering`)
+		fmt.Fprintln(stderr, `ytdlp-go: --progress-json cannot be combined with interactive prompts`)
 		return 2
 	}
 	requestMatchFilters := append([]string(nil), matchFilters...)
