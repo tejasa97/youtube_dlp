@@ -128,37 +128,82 @@ The struct holds:
 - `Index int` — the plan's stable index in the planner result.
 - `Plan format.OutputPlan` — immutable reference to the planner-owned
   plan.
-- `Info value.Info` — a defensive per-output clone. The clone is
-  produced by `selectedPlanInfo` (already available from PR 5) plus a
-  fresh request-subtitles object so each lifecycle may mutate without
-  affecting siblings.
-- `Destination string`, `StagedPath string`, `MediaPath string`,
-  `FinalPath string` — paths consumed by prints, the PR 6 executor, and
-  postprocessors. `Destination` comes from
-  `resolveOutputPlanDestinations`.
-- `Subtitles []subtitleTrack` — per-output selection (clone of the entry
-  selection).
-- `Artifacts []Artifact` — per-output artifacts. These are aggregated
-  into `Result.Artifacts` in PR 7 ordering (sidecars before media).
+- `Info value.Info` — a defensive per-output clone produced by
+  `selectedPlanInfo` (available from PR 5).
+- `Destination string` — the per-plan path resolved by PR 7's
+  `resolveOutputPlanDestinations`. The destination is both the
+  lifecycle's commit point and the path the executor writes to;
+  PR 7 does not separate staging from publication.
+- `MediaPath string` — current media file (advances through
+  postprocessor outputs and cuts).
+- `FinalPath string` — the path reported as `Result.Filename` when
+  `Index == 0`.
+- `Sidecars []Artifact` — per-output pre-download sidecars (print
+  files; later phases add thumbnails, related files, subtitles).
+- `MediaArtifacts []Artifact` — per-output media artifacts.
 - `Prints []PrintOutput` — per-output prints.
-- `Bytes int64` — per-output published byte total. The final Result
-  bytes follow PR 7: sidecars counted according to PR 7's shared
-  ownership rule, media counted post-publication.
+- `Bytes int64` — per-output published byte total.
 - `Downloaded bool` — set after the executor returns.
 
-`executeOutputLifecycle(ctx, transaction, lifecycle, options)` runs the
-per-output stages. Each stage uses only the lifecycle's own state.
+The lifecycle is built by
+`newOutputLifecycleForPlan(index, plan, info, destination)`.
+
+`executeOutputLifecycle(ctx, *mediaTransaction, lifecycle, sink)` runs
+the complete lifecycle for one plan. For callers that need to
+interleave entry-scoped post-process stages between download and
+after-prints (the historical single-output order: download,
+postprocessors, chapter cuts, embeds, after-prints), the helper is
+split:
+
+- `executeOutputLifecyclePhases(ctx, transaction, lifecycle, sink)`
+  runs PrintVideo, PrintBeforeDL, and the download.
+- `runLifecycleAfterPrints(ctx, transaction, lifecycle)` runs
+  PrintPostProcess, PrintAfterMove, and PrintAfterVideo.
+
+`aggregateLifecycles([]outputLifecycle)` produces the public Result
+payload following PR 7's authoritative artifact ordering: sidecars of
+plan 1, sidecars of plan 2, ..., media of plan 1, media of plan 2, ....
+`Result.Filename` is the first plan's `FinalPath`.
+
+Errors are wrapped via `wrapLifecycleError(op, err)` which produces
+`fmt.Errorf("%s: %w: %w", op, errLifecycleInternal, err)`. The double
+`%w` preserves both the lifecycle sentinel and the underlying cause,
+so `errors.Is(err, errLifecycleInternal)` and
+`errors.Is(err, downloader.ErrDestinationExists)` both succeed.
+`categorized` keeps working unchanged.
+
+Print file artifacts are registered with the PR 7 transaction via
+`transaction.recordCreated` so `transaction.rollback()` covers
+partially-written print files. A focused test
+(`TestExecuteOutputLifecycleRegistersPrintArtifactsInTransaction`)
+proves both the media and the print file are removed on rollback.
 
 ## Phase 3 — Single-output routed through the abstraction
 
-`processMedia` builds one `outputLifecycle` when `len(outputPlans) == 1`
-and forwards to `executeOutputLifecycle`. The PR 7 transaction is still
-constructed first.
+The single-output product path will be routed through the abstraction
+in a follow-up commit. The current PR introduces the helpers and the
+end-to-end regression baselines that the Phase 3 refactor must satisfy
+without regression:
 
-`TestProcessMediaSingleOutputMatchesLegacyContract` proves the public
-contract (`Result.Filename`, `Result.Artifacts`, `Result.Bytes`,
-`Result.InfoJSON`, prints, events, archive state, cleanup) is unchanged
-for a single output.
+- `TestSingleOutputLifecycleMatchesLegacyContract` runs the lifecycle
+  directly and asserts `Result.Filename`, `Result.Bytes`, and
+  `Result.Artifacts` match the historical single-output contract for
+  the simplest case (no postprocessors, no cuts, no embeds, no
+  sidecars beyond the media).
+- `TestSingleOutputLifecycleAggregatesMatchClientRun` runs
+  `client.Run` end-to-end on a single-output selection and asserts
+  the public Result fields (`Downloaded`, `Filename`, `Bytes`) are
+  populated. It then constructs the lifecycle from the same plan and
+  destination to confirm the per-output state matches what the
+  product path produced.
+
+The actual `processMedia` refactor (replacing the existing
+per-plan download loop and print stages with calls to
+`executeOutputLifecyclePhases` and `runLifecycleAfterPrints`,
+aggregating the lifecycle into `Result.Artifacts` in PR 7 order)
+lands in the Phase 3 commit once the entry-scoped sidecars
+(thumbnails, related files, subtitles) have their own per-output
+ownership model from Phases 11-13.
 
 ## Phase 4 — Plan-specific metadata
 
