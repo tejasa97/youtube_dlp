@@ -16,6 +16,15 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
+func newLifecycleTestTransaction(t testing.TB, destinations ...string) *mediaTransaction {
+	t.Helper()
+	transaction := newMediaTransaction()
+	if err := transaction.acquireDestinationBackups(destinations, true); err != nil {
+		t.Fatal(err)
+	}
+	return transaction
+}
+
 func TestNewOutputLifecycleForPlanClonesMetadata(t *testing.T) {
 	original := value.NewInfo(value.NewObject(
 		value.Field{Key: "id", Value: value.String("multi")},
@@ -116,8 +125,8 @@ func TestLifecycleInternalErrorPreservesUnderlyingIdentity(t *testing.T) {
 }
 
 func TestExecuteOutputLifecycleRejectsNilLifecycle(t *testing.T) {
-	transaction := newMediaTransaction(nil)
-	err := (&operation{}).executeOutputLifecycle(t.Context(), &transaction, nil, nil)
+	transaction := newMediaTransaction()
+	err := (&operation{}).executeOutputLifecycle(t.Context(), transaction, nil, nil)
 	if !errors.Is(err, errLifecycleInternal) {
 		t.Fatalf("err = %v", err)
 	}
@@ -181,8 +190,8 @@ func TestExecuteOutputLifecycleRegistersPrintArtifactsInTransaction(t *testing.T
 	}
 	sink := operation.eventSink()
 
-	transaction := newMediaTransaction([]string{destination})
-	if err := operation.executeOutputLifecycle(t.Context(), &transaction, &lifecycle, sink); err != nil {
+	transaction := newLifecycleTestTransaction(t, destination)
+	if err := operation.executeOutputLifecycle(t.Context(), transaction, &lifecycle, sink); err != nil {
 		t.Fatalf("lifecycle: %v", err)
 	}
 	if !lifecycle.Downloaded {
@@ -213,8 +222,8 @@ func TestExecuteOutputLifecycleContextCancellationIsDiscoverable(t *testing.T) {
 	cancel()
 	plan := mediaformat.OutputPlan{Tracks: []mediaformat.Selection{{ID: "video", Ext: "mp4"}}}
 	lifecycle := newOutputLifecycleForPlan(0, plan, value.NewInfo(value.NewObject()), "/tmp/video.mp4")
-	transaction := newMediaTransaction([]string{lifecycle.Destination})
-	err := (&operation{}).executeOutputLifecycle(ctx, &transaction, &lifecycle, nil)
+	transaction := newMediaTransaction()
+	err := (&operation{}).executeOutputLifecycle(ctx, transaction, &lifecycle, nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
@@ -244,8 +253,8 @@ func TestExecuteOutputLifecycleDownloadFailurePreservesErrorIdentity(t *testing.
 	defer transport.CloseIdleConnections()
 
 	operation := &operation{client: NewClient(), request: Request{OutputDir: root, Overwrite: true}, transport: transport}
-	transaction := newMediaTransaction([]string{destination})
-	err = operation.executeOutputLifecycle(t.Context(), &transaction, &lifecycle, operation.eventSink())
+	transaction := newLifecycleTestTransaction(t, destination)
+	err = operation.executeOutputLifecycle(t.Context(), transaction, &lifecycle, operation.eventSink())
 	if err == nil {
 		t.Fatal("expected download error")
 	}
@@ -308,9 +317,9 @@ func TestSingleOutputLifecycleMatchesLegacyContract(t *testing.T) {
 	defer transport.CloseIdleConnections()
 
 	operation := &operation{client: NewClient(), request: Request{OutputDir: root, Overwrite: true}, transport: transport}
-	transaction := newMediaTransaction([]string{destination})
+	transaction := newLifecycleTestTransaction(t, destination)
 	sink := operation.eventSink()
-	if err := operation.executeOutputLifecycle(t.Context(), &transaction, &lifecycle, sink); err != nil {
+	if err := operation.executeOutputLifecycle(t.Context(), transaction, &lifecycle, sink); err != nil {
 		t.Fatalf("lifecycle: %v", err)
 	}
 
@@ -416,5 +425,33 @@ func TestSingleOutputLifecycleAggregatesMatchClientRun(t *testing.T) {
 	}
 	if aggregated.Bytes != 0 {
 		t.Fatalf("pre-run bytes = %d", aggregated.Bytes)
+	}
+}
+
+// TestAccountLifecycleArtifactsReportsMissingFileAsError verifies that
+// a lifecycle artifact registered with the transaction must exist on
+// disk at accounting time. A missing artifact is an internal failure,
+// not a silent skip.
+func TestAccountLifecycleArtifactsReportsMissingFileAsError(t *testing.T) {
+	lifecycle := outputLifecycle{
+		Index:          0,
+		Destination:    "/tmp/missing.mp4",
+		MediaPath:      "/tmp/missing.mp4",
+		FinalPath:      "/tmp/missing.mp4",
+		MediaArtifacts: []Artifact{{Path: "/tmp/missing.mp4", Kind: "media"}},
+	}
+	operation := &operation{}
+	err := operation.accountLifecycleArtifacts(&lifecycle)
+	if err == nil {
+		t.Fatal("expected error for missing artifact")
+	}
+	if !errors.Is(err, errLifecycleInternal) {
+		t.Fatalf("err = %v, must wrap errLifecycleInternal", err)
+	}
+	if !errors.Is(err, errMissingLifecycleArtifact) {
+		t.Fatalf("err = %v, must wrap errMissingLifecycleArtifact", err)
+	}
+	if !strings.Contains(err.Error(), "/tmp/missing.mp4") {
+		t.Fatalf("err = %v, must mention missing path", err)
 	}
 }

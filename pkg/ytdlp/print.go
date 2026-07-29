@@ -191,13 +191,13 @@ func (operation *operation) writePrintFiles(
 		}
 		destination, err := outputtemplate.Resolve(outputRoot, rule.FileTemplate, printInfo)
 		if err != nil {
-			return artifacts, total, err
+			return artifacts, total, fmt.Errorf("%w: %v", errUnsafePrintFile, err)
 		}
 		if err := prepareRelatedDestination(outputRoot, destination); err != nil {
 			return artifacts, total, fmt.Errorf("%w: %v", errUnsafePrintFile, err)
 		}
 		if err := operation.protectTransactionAppendPath(destination); err != nil {
-			return artifacts, total, err
+			return artifacts, total, fmt.Errorf("%w: %v", errUnsafePrintFile, err)
 		}
 		written, err := appendPrintLine(ctx, destination, rendered)
 		if err != nil {

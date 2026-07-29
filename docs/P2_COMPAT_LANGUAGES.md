@@ -34,11 +34,10 @@ Intentional unsupported syntax is explicit rather than silently approximated:
   `--break-match-filter(s)` queue stopping. Exact `-` markers on ordinary or
   breaking filters prompt only for complete, non-archived entries; empty or
   `y` accepts, `n` skips or stops, and other input reprompts. The prompt uses
-  the selected single-output format filename, and format-dependent filter
-  fields are reevaluated after selection. Entries without a downloadable
-  format fail before prompting. Merged A/V fields follow the pinned merge
-  policy. Interactive filtering with multi-output selectors is rejected
-  explicitly rather than approximated.
+  each selected output plan's filename in stable order, and format-dependent
+  filter fields are reevaluated after selection. Entries without a
+  downloadable format fail before prompting. Merged A/V fields follow the
+  pinned merge policy.
   Automatic subtitle-only listing does not prompt, while explicit simulation
   and combined metadata-output modes do.
   Interactive filtering is rejected with `--progress-json` so its stderr
@@ -76,14 +75,12 @@ Intentional unsupported syntax is explicit rather than silently approximated:
   multi-output downloads use per-plan container extensions (single-track `Ext`
   or deterministic video+audio merge rules) and deterministic `.f<N>_<ID>`
   destination suffixes (stable one-based ordinals plus sanitized IDs), populate
-  `Result.Artifacts`, and keep `Result.Filename` on the first output. Multi-output downloads reject any
-  non-empty `Request.Postprocessors`, SponsorBlock remove, and subtitle
-  embedding with `ErrMultiOutput` before media download; only the
-  no-postprocessor path is executed. Interactive match filtering also rejects
-  multi-output plans because per-output prompting is not yet represented.
-  After-download print stages render only
-  the first plan's selections and primary path. `mergeall` and >2-track merges
-  remain explicit unsupported at download time.
+  `Result.Artifacts`, and keep `Result.Filename` on the first output. Each plan
+  independently runs sidecars, downloads, postprocessors, chapter/SponsorBlock
+  cuts, subtitle and thumbnail embedding, and staged prints. Deterministic
+  destinations are preflighted across plans; fixed postprocessor destinations
+  that cannot be plan-specific fail before download. `mergeall` and retained
+  N-track plans execute through the bounded N-track pipeline.
 - `ErrSelectorLimit` is returned for syntactically valid selectors that exceed
   bounded evaluation limits (`all`, `mergeall`, comma output count, merge
   track count). Product callers should use `errors.Is(err, format.ErrSelectorLimit)`

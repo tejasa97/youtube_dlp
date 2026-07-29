@@ -189,7 +189,7 @@ func TestChapterRemovalInvalidRequestsFailBeforeNetwork(t *testing.T) {
 	}
 }
 
-func TestChapterRemovalRejectsMultiOutputBeforeDownload(t *testing.T) {
+func TestChapterRemovalAllowsMultiOutputPlanning(t *testing.T) {
 	info := value.NewInfo(value.NewObject(
 		value.Field{Key: "id", Value: value.String("multi")},
 		value.Field{Key: "title", Value: value.String("Multi")},
@@ -220,8 +220,8 @@ func TestChapterRemovalRejectsMultiOutputBeforeDownload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := validateMultiOutputProduct(operation.request, len(plans)); err == nil {
-		t.Fatal("expected chapter removal multi-output rejection")
+	if err := validateMultiOutputProduct(operation.request, len(plans)); err != nil {
+		t.Fatalf("multi-output chapter removal validation: %v", err)
 	}
 }
 
