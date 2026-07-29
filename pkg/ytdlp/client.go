@@ -207,9 +207,9 @@ type InteractiveFormatPrompt struct {
 // Empty selects the ordinary default. Implementations must honor cancellation.
 type InteractiveFormatFunc func(context.Context, InteractiveFormatPrompt) (string, error)
 
-// ErrInteractiveInput identifies a missing or failed interactive prompt
+// ErrInteractiveInput identifies a missing or failed interactive input prompt
 // boundary. Context cancellation remains discoverable through errors.Is.
-var ErrInteractiveInput = errors.New("interactive match filter input unavailable")
+var ErrInteractiveInput = errors.New("interactive input unavailable")
 
 type Result struct {
 	InfoJSON   json.RawMessage
@@ -427,12 +427,18 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 		rootExtractor:       &rootExtractor,
 		plannerCapabilities: &plannerCapabilities,
 	}
-	if request.CheckFormats != FormatCheckNone && !request.AllowUnplayableFormats {
+	// Explicit selected/all checks take precedence over allow-unplayable. The
+	// latter bypasses only Auto's DRM/needs-testing default policy.
+	if shouldCheckFormats(request.CheckFormats, request.AllowUnplayableFormats) {
 		checker := newFormatAvailabilityChecker(ctx, transport, request.CheckFormats)
 		operation.formatAvailability = checker
 		operation.formatAvailabilityChecker = checker
 	}
 	return operation.process(ctx, request.URL, request.PluginID, nil, make(map[string]bool), 0)
+}
+
+func shouldCheckFormats(mode FormatCheckMode, allowUnplayable bool) bool {
+	return mode != FormatCheckNone && (mode != FormatCheckAuto || !allowUnplayable)
 }
 
 func (client *Client) productRegistry() *extractor.Registry {

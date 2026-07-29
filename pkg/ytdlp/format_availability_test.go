@@ -93,6 +93,10 @@ func TestFormatAvailabilityCacheIncludesCredentialValues(t *testing.T) {
 	if calls.Load() != 2 {
 		t.Fatalf("calls=%d, want separate probes", calls.Load())
 	}
+	goodAgain, err := checker.IsAvailable(availabilityFormat(server.URL, http.Header{"Authorization": {"Bearer good"}}))
+	if err != nil || !goodAgain || calls.Load() != 2 {
+		t.Fatalf("cached credential result=%v err=%v calls=%d", goodAgain, err, calls.Load())
+	}
 }
 
 func TestFormatAvailabilityAutoSkipsOrdinaryButChecksNeedsTesting(t *testing.T) {
@@ -165,6 +169,35 @@ func TestFormatAvailabilityRedirectStripsExplicitCredentials(t *testing.T) {
 	}
 	if targetAuthorization != "" {
 		t.Fatalf("credential forwarded across origin: %q", targetAuthorization)
+	}
+}
+
+func TestFormatAvailabilitySendsFormatCookieToOriginalOrigin(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Cookie") != "session=required" {
+			writer.WriteHeader(http.StatusForbidden)
+			return
+		}
+		_, _ = writer.Write([]byte("x"))
+	}))
+	defer server.Close()
+	checker := availabilityTestChecker(t, FormatCheckSelected)
+	ok, err := checker.IsAvailable(availabilityFormat(server.URL, http.Header{"Cookie": {"session=required"}}))
+	if err != nil || !ok {
+		t.Fatalf("format cookie result=%v err=%v", ok, err)
+	}
+}
+
+func TestFormatAvailabilityOversizedManifestReturnsLimit(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_, _ = writer.Write(make([]byte, availabilityMaxProbeBytes+1))
+	}))
+	defer server.Close()
+	checker := availabilityTestChecker(t, FormatCheckSelected)
+	format := value.NewObject(value.Field{Key: "url", Value: value.String(server.URL)}, value.Field{Key: "protocol", Value: value.String("m3u8_native")})
+	ok, err := checker.IsAvailable(format)
+	if ok || !errors.Is(err, ErrFormatCheckLimit) {
+		t.Fatalf("oversized result=%v err=%v", ok, err)
 	}
 }
 

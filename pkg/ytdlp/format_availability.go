@@ -175,7 +175,7 @@ func (checker *formatAvailabilityChecker) probe(rawURL, protocol string, headers
 	protocol = strings.ToLower(protocol)
 	switch {
 	case strings.Contains(protocol, "m3u8") || protocol == "hls" || protocol == "hls-aes":
-		body, status, err := checker.getBounded(ctx, rawURL, headers, availabilityMaxProbeBytes)
+		body, status, err := checker.getDocument(ctx, rawURL, headers, availabilityMaxProbeBytes)
 		if err != nil || status < 200 || status >= 300 {
 			return false, err
 		}
@@ -185,7 +185,7 @@ func (checker *formatAvailabilityChecker) probe(rawURL, protocol string, headers
 		}
 		return checker.probeHLSFragment(ctx, playlist, headers)
 	case strings.Contains(protocol, "dash"):
-		body, status, err := checker.getBounded(ctx, rawURL, headers, availabilityMaxProbeBytes)
+		body, status, err := checker.getDocument(ctx, rawURL, headers, availabilityMaxProbeBytes)
 		if err != nil || status < 200 || status >= 300 {
 			return false, err
 		}
@@ -195,7 +195,7 @@ func (checker *formatAvailabilityChecker) probe(rawURL, protocol string, headers
 		}
 		return checker.probeDASHFragment(ctx, manifest, headers)
 	case protocol == "ism" || protocol == "mss":
-		body, status, err := checker.getBounded(ctx, rawURL, headers, availabilityMaxProbeBytes)
+		body, status, err := checker.getDocument(ctx, rawURL, headers, availabilityMaxProbeBytes)
 		if err != nil || status < 200 || status >= 300 {
 			return false, err
 		}
@@ -207,7 +207,7 @@ func (checker *formatAvailabilityChecker) probe(rawURL, protocol string, headers
 	default:
 		// A one-byte range GET proves the media endpoint is readable; HEAD is
 		// only a compatibility fallback for servers that reject range GETs.
-		_, status, err := checker.getBounded(ctx, rawURL, headers, 1)
+		_, status, err := checker.getPrefix(ctx, rawURL, headers, 1)
 		if err == nil && status >= 200 && status < 400 {
 			return true, nil
 		}
@@ -221,7 +221,7 @@ func (checker *formatAvailabilityChecker) probe(rawURL, protocol string, headers
 
 func (checker *formatAvailabilityChecker) probeHLSFragment(ctx context.Context, playlist hls.Playlist, headers http.Header) (bool, error) {
 	if len(playlist.Variants) > 0 {
-		body, status, err := checker.getBounded(ctx, playlist.Variants[0].URL, headers, availabilityMaxProbeBytes)
+		body, status, err := checker.getDocument(ctx, playlist.Variants[0].URL, headers, availabilityMaxProbeBytes)
 		if err != nil || status < 200 || status >= 300 {
 			return false, err
 		}
@@ -234,7 +234,7 @@ func (checker *formatAvailabilityChecker) probeHLSFragment(ctx context.Context, 
 	if playlist.Media == nil || len(playlist.Media.Segments) == 0 {
 		return false, errAvailabilityProbe
 	}
-	_, status, err := checker.getBounded(ctx, playlist.Media.Segments[0].URL, headers, 1)
+	_, status, err := checker.getPrefix(ctx, playlist.Media.Segments[0].URL, headers, 1)
 	return err == nil && status >= 200 && status < 400, err
 }
 
@@ -244,7 +244,7 @@ func (checker *formatAvailabilityChecker) probeDASHFragment(ctx context.Context,
 			if segment.URL == "" {
 				continue
 			}
-			_, status, err := checker.getBounded(ctx, segment.URL, headers, 1)
+			_, status, err := checker.getPrefix(ctx, segment.URL, headers, 1)
 			return err == nil && status >= 200 && status < 400, err
 		}
 	}
@@ -257,7 +257,7 @@ func (checker *formatAvailabilityChecker) probeISMFragment(ctx context.Context, 
 		if err != nil || len(segments) == 0 {
 			continue
 		}
-		_, status, getErr := checker.getBounded(ctx, segments[0].URL, headers, 1)
+		_, status, getErr := checker.getPrefix(ctx, segments[0].URL, headers, 1)
 		return getErr == nil && status >= 200 && status < 400, getErr
 	}
 	return false, errAvailabilityProbe
@@ -272,7 +272,10 @@ func (checker *formatAvailabilityChecker) head(ctx context.Context, rawURL strin
 	return response.StatusCode, nil
 }
 
-func (checker *formatAvailabilityChecker) getBounded(ctx context.Context, rawURL string, headers http.Header, limit int64) ([]byte, int, error) {
+// getPrefix reads no more than limit bytes. It is used for media endpoints,
+// where a server ignoring Range must still be treated as available rather than
+// as an oversized document.
+func (checker *formatAvailabilityChecker) getPrefix(ctx context.Context, rawURL string, headers http.Header, limit int64) ([]byte, int, error) {
 	response, err := checker.doRedirects(ctx, http.MethodGet, rawURL, headers, limit)
 	if err != nil {
 		return nil, 0, err
@@ -284,6 +287,27 @@ func (checker *formatAvailabilityChecker) getBounded(ctx context.Context, rawURL
 	body, err := io.ReadAll(io.LimitReader(response.Body, limit))
 	if err != nil {
 		return nil, response.StatusCode, errAvailabilityProbe
+	}
+	if err := checker.recordBytes(int64(len(body))); err != nil {
+		return nil, response.StatusCode, err
+	}
+	return body, response.StatusCode, nil
+}
+
+// getDocument detects oversize manifests by reading one byte beyond limit.
+// Unlike media prefixes, manifest parsers require a complete bounded document.
+func (checker *formatAvailabilityChecker) getDocument(ctx context.Context, rawURL string, headers http.Header, limit int64) ([]byte, int, error) {
+	response, err := checker.doRedirects(ctx, http.MethodGet, rawURL, headers, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
+	if err != nil {
+		return nil, response.StatusCode, errAvailabilityProbe
+	}
+	if int64(len(body)) > limit {
+		return nil, response.StatusCode, ErrFormatCheckLimit
 	}
 	if err := checker.recordBytes(int64(len(body))); err != nil {
 		return nil, response.StatusCode, err
@@ -330,7 +354,7 @@ func (checker *formatAvailabilityChecker) doRedirects(ctx context.Context, metho
 		if rangeLength > 0 {
 			request.Header.Set("Range", fmt.Sprintf("bytes=0-%d", rangeLength-1))
 		}
-		response, doErr := checker.transport.DoNoRedirect(ctx, request)
+		response, doErr := checker.transport.DoNoRedirectWithRequestCookies(ctx, request)
 		if doErr != nil {
 			if errors.Is(doErr, context.Canceled) || errors.Is(doErr, context.DeadlineExceeded) {
 				return nil, doErr
