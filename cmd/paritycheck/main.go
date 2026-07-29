@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/ytdlp-go/ytdlp/internal/conformance"
+	"github.com/ytdlp-go/ytdlp/internal/upstreamdelta"
 )
 
 func main() {
@@ -34,6 +35,10 @@ func main() {
 	inventory, err := conformance.LoadFallbackInventoryFile(*fallbackInventory)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "paritycheck: %v\n", err)
+		os.Exit(1)
+	}
+	if _, err := upstreamdelta.LoadFormatSelectorCurrentFile("conformance/upstream-delta/format-selector-current.json"); err != nil {
+		fmt.Fprintf(os.Stderr, "paritycheck: format-selector current-upstream delta: %v\n", err)
 		os.Exit(1)
 	}
 	if *summary {
