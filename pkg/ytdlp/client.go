@@ -1410,7 +1410,7 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	}
 	if mediaTx != nil {
 		if commitErr := mediaTx.commitDestinations(); commitErr != nil {
-			return rollbackMediaResult(mediaTx, categorized("commit output transaction", commitErr))
+			return Result{}, categorized("commit output transaction", commitErr)
 		}
 	}
 	var cutApplied bool
@@ -1467,13 +1467,16 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		}
 		result.Prints = append(result.Prints, prints...)
 		printArtifacts, printBytes, err = operation.writePrintFiles(ctx, stage, info, singlePrintPlan, selectedFormats, downloadedPath)
+		trackTransactionArtifacts(mediaTx, printArtifacts)
 		if err != nil {
 			return rollbackArtifactResult(mediaTx, categorized("write "+string(stage)+" print file", err))
 		}
 		addPrintFileArtifacts(&result, printArtifacts, printBytes)
-		trackTransactionArtifacts(mediaTx, printArtifacts)
 	}
 	if mediaTx != nil {
+		if commitErr := mediaTx.commitArtifacts(); commitErr != nil {
+			return Result{}, categorized("commit output transaction", commitErr)
+		}
 		mediaTx.finalize()
 	}
 	if operation.archive != nil {

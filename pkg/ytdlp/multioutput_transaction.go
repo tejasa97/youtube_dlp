@@ -23,6 +23,7 @@ type destinationSlot struct {
 	destination string
 	backupPath  string
 	published   bool
+	removed     bool
 }
 
 // mediaTransaction tracks one entry download attempt: media destinations receive
@@ -250,6 +251,82 @@ func (transaction *mediaTransaction) hasPath(path string) bool {
 	return false
 }
 
+func copyExistingToBackup(path string) (string, error) {
+	path = filepath.Clean(path)
+	if path == "" || path == "-" {
+		return "", nil
+	}
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("inspect %s: %w", path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", downloader.ErrUnsafeDestination
+	}
+	backup, err := reserveMediaTransactionBackup(path)
+	if err != nil {
+		return "", err
+	}
+	if err := copyMediaTransactionFile(path, backup); err != nil {
+		_ = os.Remove(backup)
+		return "", err
+	}
+	return backup, nil
+}
+
+func (transaction *mediaTransaction) protectAppendPath(path string) error {
+	path = filepath.Clean(path)
+	if path == "" || path == "-" {
+		return nil
+	}
+	if transaction.hasPath(path) {
+		return nil
+	}
+	backup, err := copyExistingToBackup(path)
+	if err != nil {
+		return err
+	}
+	transaction.artifacts = append(transaction.artifacts, destinationSlot{
+		destination: path,
+		backupPath:  backup,
+	})
+	return nil
+}
+
+func (transaction *mediaTransaction) snapshotRemovedPath(path string) error {
+	path = filepath.Clean(path)
+	if path == "" || path == "-" {
+		return nil
+	}
+	for index, slot := range transaction.artifacts {
+		if slot.destination != path {
+			continue
+		}
+		if slot.backupPath == "" {
+			backup, err := copyExistingToBackup(path)
+			if err != nil {
+				return err
+			}
+			transaction.artifacts[index].backupPath = backup
+		}
+		transaction.artifacts[index].removed = true
+		return nil
+	}
+	backup, err := copyExistingToBackup(path)
+	if err != nil {
+		return err
+	}
+	transaction.artifacts = append(transaction.artifacts, destinationSlot{
+		destination: path,
+		backupPath:  backup,
+		removed:     true,
+	})
+	return nil
+}
+
 func (transaction *mediaTransaction) protectPath(path string, overwrite bool) error {
 	path = filepath.Clean(path)
 	if path == "" || path == "-" {
@@ -354,6 +431,12 @@ func rollbackDestinationSlot(slot destinationSlot) error {
 }
 
 func rollbackArtifactSlot(slot destinationSlot) error {
+	if slot.removed {
+		if slot.backupPath == "" {
+			return nil
+		}
+		return restoreMediaDestination(slot.destination, slot.backupPath)
+	}
 	if slot.backupPath == "" {
 		if err := os.Remove(slot.destination); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("remove %s: %w", slot.destination, err)
@@ -400,19 +483,34 @@ func (transaction *mediaTransaction) rollback() error {
 
 func (transaction *mediaTransaction) commitDestinations() error {
 	var commitErrs []error
-	remaining := make([]destinationSlot, 0, len(transaction.destinations))
-	for _, slot := range transaction.destinations {
+	for index, slot := range transaction.destinations {
 		if slot.backupPath == "" {
 			continue
 		}
 		if err := os.Remove(slot.backupPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 			commitErrs = append(commitErrs, fmt.Errorf("remove backup %s: %w", slot.backupPath, err))
-			remaining = append(remaining, slot)
 			continue
 		}
-		slot.backupPath = ""
+		transaction.destinations[index].backupPath = ""
 	}
-	transaction.destinations = remaining
+	if len(commitErrs) > 0 {
+		return errors.Join(commitErrs...)
+	}
+	return nil
+}
+
+func (transaction *mediaTransaction) commitArtifacts() error {
+	var commitErrs []error
+	for index, slot := range transaction.artifacts {
+		if slot.backupPath == "" {
+			continue
+		}
+		if err := os.Remove(slot.backupPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			commitErrs = append(commitErrs, fmt.Errorf("remove backup %s: %w", slot.backupPath, err))
+			continue
+		}
+		transaction.artifacts[index].backupPath = ""
+	}
 	if len(commitErrs) > 0 {
 		return errors.Join(commitErrs...)
 	}
@@ -427,10 +525,16 @@ func (transaction *mediaTransaction) finalize() {
 }
 
 func (transaction *mediaTransaction) commit() error {
+	var commitErrs []error
 	if err := transaction.commitDestinations(); err != nil {
-		return err
+		commitErrs = append(commitErrs, err)
 	}
-	transaction.finalize()
+	if err := transaction.commitArtifacts(); err != nil {
+		commitErrs = append(commitErrs, err)
+	}
+	if len(commitErrs) > 0 {
+		return errors.Join(commitErrs...)
+	}
 	return nil
 }
 
@@ -515,6 +619,20 @@ func rollbackMediaTransaction(transaction *mediaTransaction, primary error) erro
 		return fmt.Errorf("%w (rollback failed: %v)", primary, rollbackErr)
 	}
 	return primary
+}
+
+func (operation *operation) protectTransactionAppendPath(path string) error {
+	if operation.activeTransaction == nil {
+		return nil
+	}
+	return operation.activeTransaction.protectAppendPath(path)
+}
+
+func (operation *operation) snapshotTransactionRemovedPath(path string) error {
+	if operation.activeTransaction == nil {
+		return nil
+	}
+	return operation.activeTransaction.snapshotRemovedPath(path)
 }
 
 func (operation *operation) protectTransactionPath(path string) error {

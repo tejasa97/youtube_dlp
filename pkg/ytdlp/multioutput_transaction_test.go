@@ -371,6 +371,164 @@ func TestCommitDestinationsRetainsSlotsOnCleanupFailure(t *testing.T) {
 	}
 }
 
+func TestProtectAppendPathPreservesExistingForAppend(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "log.txt")
+	if err := os.WriteFile(path, []byte("existing\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tx := newMediaTransaction()
+	if err := tx.protectAppendPath(path); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil || string(body) != "existing\n" {
+		t.Fatalf("original removed before append: %q", body)
+	}
+	if _, err := appendPrintLine(context.Background(), path, "added"); err != nil {
+		t.Fatal(err)
+	}
+	body, err = os.ReadFile(path)
+	if err != nil || string(body) != "existing\nadded\n" {
+		t.Fatalf("append body = %q", body)
+	}
+}
+
+func TestProtectAppendPathRollbackRestoresPreAppend(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "log.txt")
+	if err := os.WriteFile(path, []byte("keep\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tx := newMediaTransaction()
+	if err := tx.protectAppendPath(path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := appendPrintLine(context.Background(), path, "drop"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.rollbackArtifacts(); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil || string(body) != "keep\n" {
+		t.Fatalf("restored = %q", body)
+	}
+}
+
+func TestProtectAppendPathAllowsOverwriteFalseAppend(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "log.txt")
+	if err := os.WriteFile(path, []byte("line\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tx := newMediaTransaction()
+	if err := tx.protectAppendPath(path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := appendPrintLine(context.Background(), path, "more"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCommitArtifactsRemovesBackupsOnSuccess(t *testing.T) {
+	root := t.TempDir()
+	sidecar := filepath.Join(root, "Title.description")
+	if err := os.WriteFile(sidecar, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tx := newMediaTransaction()
+	if err := tx.protectPath(sidecar, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sidecar, []byte("replacement"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.commitArtifacts(); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.Contains(entry.Name(), ".ytdlp-trx-") {
+			t.Fatalf("artifact backup still present: %s", entry.Name())
+		}
+	}
+	body, err := os.ReadFile(sidecar)
+	if err != nil || string(body) != "replacement" {
+		t.Fatalf("sidecar = %q, %v", body, err)
+	}
+}
+
+func TestCommitDestinationsPartialFailurePreservesPublishedMedia(t *testing.T) {
+	root := t.TempDir()
+	first := filepath.Join(root, "one.mp4")
+	second := filepath.Join(root, "two.mp4")
+	if err := os.WriteFile(first, []byte("FIRST"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, []byte("SECOND"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tx := newMediaTransaction()
+	if err := tx.acquireDestinationBackups([]string{first, second}, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(first, []byte("NEW1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, []byte("NEW2"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tx.markPublished(first)
+	tx.markPublished(second)
+	backup := tx.destinations[0].backupPath
+	content, err := os.ReadFile(backup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(backup); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(backup, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(backup, "payload"), content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(backup, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.commitDestinations(); err == nil {
+		t.Fatal("expected commit error")
+	}
+	if len(tx.destinations) != 2 {
+		t.Fatalf("destinations = %d, want 2", len(tx.destinations))
+	}
+	if tx.destinations[0].backupPath == "" {
+		t.Fatal("failed cleanup slot lost its backup path")
+	}
+	if tx.destinations[1].backupPath != "" {
+		t.Fatal("successful cleanup slot should clear backup path")
+	}
+	if err := os.Chmod(backup, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(backup, "payload"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	firstBody, err := os.ReadFile(first)
+	if err != nil || string(firstBody) != "NEW1" {
+		t.Fatalf("first published = %q", firstBody)
+	}
+	secondBody, err := os.ReadFile(second)
+	if err != nil || string(secondBody) != "NEW2" {
+		t.Fatalf("second published = %q", secondBody)
+	}
+}
+
 func TestMultiOutputProductDownloadsCommaSelector(t *testing.T) {
 	pageURL := multiOutputSelectorFixture(t, nil)
 	root := t.TempDir()
