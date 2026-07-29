@@ -142,6 +142,9 @@ func TestValidateRequiresFormatSelectorClosureEvidenceAfterPilotRetirement(t *te
 	}
 	manifest.Capabilities[0].Evidence = []string{
 		"internal/format.TestPinnedClosureMatrix",
+		"internal/upstreamdelta.TestFormatSelectorCurrentUpstreamDelta",
+		"conformance/upstream-delta/format-selector-current.json",
+		"docs/FORMAT_SELECTOR_CURRENT_UPSTREAM_DELTA_EVIDENCE.md",
 		"internal/format/testdata/pinned_closure_matrix.json",
 		"docs/FORMAT_SELECTOR_PINNED_CLOSURE_EVIDENCE.md",
 		"pkg/ytdlp.TestFormatCheckAllReusesProbeCacheDuringPlanning",
