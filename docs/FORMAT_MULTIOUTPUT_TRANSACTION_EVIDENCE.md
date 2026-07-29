@@ -27,13 +27,17 @@ Depends on merged PR 5 (planner metadata) and PR 6 (N-track execution).
   media download starts.
 - **Overwrite transaction:** existing media destinations are renamed to
   same-filesystem `.ytdlp-trx-*` backups at download time when `Overwrite=true`.
-  On download failure, `rollback` restores overwritten files byte-for-byte and
-  removes new artifacts. `commitDestinations` drops backups after all plan
-  downloads succeed and retains destination slots when backup cleanup fails so
-  rollback can still restore. Post-download embed/cut failures leave committed
-  media on disk; artifact-only rollback removes sidecars/prints but not
-  published media paths. Destination inspection uses `Lstat` and requires regular
-  files; partial backup acquisition rolls back before returning an error.
+  Sidecar overwrite paths use `protectPath` (rename backup); print-to-file paths
+  use `protectAppendPath` (copy-only snapshot) so append and `Overwrite=false`
+  semantics are preserved. `commitArtifacts` removes sidecar backups on success
+  before clearing slots. Subtitle conversion protects destinations before FFmpeg
+  and snapshots sources before removal. On download failure, `rollback` restores
+  overwritten files and removes new artifacts. `commitDestinations` and
+  `commitArtifacts` clear backup paths in-place; cleanup failures retain slots
+  and return an error without invoking rollback. Post-download embed/cut failures
+  leave committed media on disk. Destination inspection uses `Lstat` and
+  requires regular files; partial backup acquisition rolls back before returning
+  an error.
 - **Transaction rollback:** `mediaTransaction` replaces `publishedMediaTracker`;
   partial comma-output download failure rolls back newly created files and
   restores pre-existing overwritten destinations. Rollback/cleanup errors are

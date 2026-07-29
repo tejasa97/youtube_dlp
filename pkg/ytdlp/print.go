@@ -196,7 +196,7 @@ func (operation *operation) writePrintFiles(
 		if err := prepareRelatedDestination(outputRoot, destination); err != nil {
 			return artifacts, total, fmt.Errorf("%w: %v", errUnsafePrintFile, err)
 		}
-		if err := operation.protectTransactionPath(destination); err != nil {
+		if err := operation.protectTransactionAppendPath(destination); err != nil {
 			return artifacts, total, err
 		}
 		written, err := appendPrintLine(ctx, destination, rendered)
