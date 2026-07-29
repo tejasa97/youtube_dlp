@@ -9,12 +9,11 @@ import (
 	"unicode/utf8"
 
 	"github.com/dlclark/regexp2"
+	"github.com/ytdlp-go/ytdlp/internal/compat/pyregex"
 )
 
 const (
 	maxTranslatedRegexBytes       = 16 << 10
-	maxRegexNesting               = 64
-	maxRegexGroups                = 64
 	maxRegexPredicatesPerAST      = 32
 	maxRegexInputBytes            = 64 << 10
 	maxRegexInspectedBytesPerPlan = 64 << 20
@@ -59,7 +58,7 @@ func compilePythonRegex(pattern string, start, end int) (*pythonRegex, error) {
 	if !utf8.ValidString(pattern) {
 		return nil, selectorSyntax(start, end, "regular expression is not valid UTF-8")
 	}
-	translated, err := translatePythonRegex(pattern)
+	translated, err := pyregex.Translate(pattern)
 	if err != nil {
 		return nil, selectorSyntax(start, end, err.Error())
 	}
