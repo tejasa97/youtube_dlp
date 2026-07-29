@@ -1007,6 +1007,247 @@ ad-live.bin
 	}
 }
 
+func TestDownloadLiveUsesBlockingReloadWithoutPrefetchingHint(t *testing.T) {
+	var polls atomic.Int32
+	var preloadHits atomic.Int32
+	var sawDirective atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/live.m3u8":
+			if polls.Add(1) == 1 {
+				_, _ = fmt.Fprint(writer, `#EXTM3U
+#EXT-X-MEDIA-SEQUENCE:10
+#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES
+#EXT-X-PART:DURATION=0.5,URI="10.0.bin"
+#EXT-X-PRELOAD-HINT:TYPE=PART,URI="10.1.bin"
+`)
+				return
+			}
+			if request.URL.Query().Get("_HLS_msn") != "10" || request.URL.Query().Get("_HLS_part") != "1" {
+				http.Error(writer, "missing delivery directive", http.StatusBadRequest)
+				return
+			}
+			sawDirective.Store(true)
+			_, _ = fmt.Fprint(writer, `#EXTM3U
+#EXT-X-MEDIA-SEQUENCE:10
+#EXTINF:1,
+10.bin
+#EXT-X-ENDLIST
+`)
+		case "/10.bin":
+			_, _ = writer.Write([]byte("complete"))
+		case "/10.0.bin", "/10.1.bin":
+			preloadHits.Add(1)
+			_, _ = writer.Write([]byte("must-not-fetch"))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "blocking.bin")
+	_, err := NewDownloader(transport, Config{PollInterval: time.Millisecond, MaxPolls: 3}).Download(context.Background(), server.URL+"/live.m3u8?token=secret", root, destination, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(destination)
+	if err != nil || string(contents) != "complete" || !sawDirective.Load() || preloadHits.Load() != 0 {
+		t.Fatalf("contents=%q directive=%t preloadHits=%d err=%v", contents, sawDirective.Load(), preloadHits.Load(), err)
+	}
+}
+
+func TestDownloadLiveBlockingReloadFallsBackOnce(t *testing.T) {
+	var polls atomic.Int32
+	var directiveAttempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/live.m3u8" {
+			call := polls.Add(1)
+			if call == 1 {
+				_, _ = fmt.Fprint(writer, "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:1\n#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES\n#EXTINF:1,\n1.bin\n")
+				return
+			}
+			if request.URL.Query().Get("_HLS_msn") != "" {
+				directiveAttempts.Add(1)
+				http.Error(writer, "directives unsupported", http.StatusNotImplemented)
+				return
+			}
+			_, _ = fmt.Fprint(writer, "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:1\n#EXTINF:1,\n1.bin\n#EXTINF:1,\n2.bin\n#EXT-X-ENDLIST\n")
+			return
+		}
+		if request.URL.Path == "/1.bin" {
+			_, _ = writer.Write([]byte("one-"))
+			return
+		}
+		if request.URL.Path == "/2.bin" {
+			_, _ = writer.Write([]byte("two"))
+			return
+		}
+		http.NotFound(writer, request)
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "fallback.bin")
+	_, err := NewDownloader(transport, Config{PollInterval: time.Millisecond, MaxPolls: 3}).Download(context.Background(), server.URL+"/live.m3u8", root, destination, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(destination)
+	if err != nil || string(contents) != "one-two" || directiveAttempts.Load() != 1 {
+		t.Fatalf("contents=%q attempts=%d err=%v", contents, directiveAttempts.Load(), err)
+	}
+}
+
+func TestDownloadLiveSequenceResetUsesNewPhysicalEpoch(t *testing.T) {
+	var polls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/live.m3u8":
+			if polls.Add(1) == 1 {
+				_, _ = fmt.Fprint(writer, "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:5\n#EXTINF:1,\nold.bin\n")
+				return
+			}
+			_, _ = fmt.Fprint(writer, "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:1,\nnew.bin\n#EXT-X-ENDLIST\n")
+		case "/old.bin":
+			_, _ = writer.Write([]byte("old-"))
+		case "/new.bin":
+			_, _ = writer.Write([]byte("new"))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "reset.bin")
+	_, err := NewDownloader(transport, Config{PollInterval: time.Millisecond, MaxPolls: 3}).Download(context.Background(), server.URL+"/live.m3u8", root, destination, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(destination)
+	if err != nil || string(contents) != "old-new" {
+		t.Fatalf("contents=%q err=%v", contents, err)
+	}
+}
+
+func TestDownloadLiveOverlappingSequenceChangedURLStartsNewEpoch(t *testing.T) {
+	var polls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/live.m3u8":
+			if polls.Add(1) == 1 {
+				_, _ = fmt.Fprint(writer, "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:1,\nold-0.bin\n")
+				return
+			}
+			_, _ = fmt.Fprint(writer, "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:1,\nnew-0.bin\n#EXT-X-ENDLIST\n")
+		case "/old-0.bin":
+			_, _ = writer.Write([]byte("old-"))
+		case "/new-0.bin":
+			_, _ = writer.Write([]byte("new"))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "overlap-reset.bin")
+	_, err := NewDownloader(transport, Config{PollInterval: time.Millisecond, MaxPolls: 3}).Download(context.Background(), server.URL+"/live.m3u8", root, destination, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(destination)
+	if err != nil || string(contents) != "old-new" || polls.Load() != 2 {
+		t.Fatalf("contents=%q polls=%d err=%v", contents, polls.Load(), err)
+	}
+}
+
+func TestDownloadRefetchesKeyAfterSameURIKeyRotation(t *testing.T) {
+	keyA := []byte("0123456789abcdef")
+	keyB := []byte("abcdef0123456789")
+	ivA := []byte("aaaaaaaaaaaaaaaa")
+	ivB := []byte("bbbbbbbbbbbbbbbb")
+	var keyHits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/media.m3u8":
+			_, _ = fmt.Fprintf(writer, "#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=key.bin,IV=0x%x\n#EXTINF:1,\none.bin\n#EXT-X-KEY:METHOD=AES-128,URI=key.bin,IV=0x%x\n#EXTINF:1,\ntwo.bin\n#EXT-X-ENDLIST\n", ivA, ivB)
+		case "/key.bin":
+			if keyHits.Add(1) == 1 {
+				_, _ = writer.Write(keyA)
+			} else {
+				_, _ = writer.Write(keyB)
+			}
+		case "/one.bin":
+			_, _ = writer.Write(encryptSegment(t, []byte("one-"), keyA, ivA))
+		case "/two.bin":
+			_, _ = writer.Write(encryptSegment(t, []byte("two"), keyB, ivB))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "rotated-key.bin")
+	_, err := NewDownloader(transport, Config{}).Download(context.Background(), server.URL+"/media.m3u8", root, destination, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(destination)
+	if err != nil || string(contents) != "one-two" || keyHits.Load() != 2 {
+		t.Fatalf("contents=%q keyHits=%d err=%v", contents, keyHits.Load(), err)
+	}
+}
+
+func TestDownloadLiveRefetchesSameURIKeyAcrossSnapshots(t *testing.T) {
+	keyA := []byte("0123456789abcdef")
+	keyB := []byte("abcdef0123456789")
+	ivA := []byte("aaaaaaaaaaaaaaaa")
+	ivB := []byte("bbbbbbbbbbbbbbbb")
+	var polls atomic.Int32
+	var playlistEpoch atomic.Int32
+	var keyHits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/live.m3u8":
+			if polls.Add(1) == 1 {
+				playlistEpoch.Store(1)
+				_, _ = fmt.Fprintf(writer, "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:1\n#EXT-X-KEY:METHOD=AES-128,URI=key.bin,IV=0x%x\n#EXTINF:1,\none.bin\n", ivA)
+				return
+			}
+			playlistEpoch.Store(2)
+			_, _ = fmt.Fprintf(writer, "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:1\n#EXT-X-KEY:METHOD=AES-128,URI=key.bin,IV=0x%x\n#EXTINF:1,\none.bin\n#EXT-X-KEY:METHOD=AES-128,URI=key.bin,IV=0x%x\n#EXTINF:1,\ntwo.bin\n#EXT-X-ENDLIST\n", ivA, ivB)
+		case "/key.bin":
+			keyHits.Add(1)
+			if playlistEpoch.Load() == 1 {
+				_, _ = writer.Write(keyA)
+			} else {
+				_, _ = writer.Write(keyB)
+			}
+		case "/one.bin":
+			_, _ = writer.Write(encryptSegment(t, []byte("one-"), keyA, ivA))
+		case "/two.bin":
+			_, _ = writer.Write(encryptSegment(t, []byte("two"), keyB, ivB))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "live-rotated-key.bin")
+	_, err := NewDownloader(transport, Config{PollInterval: time.Millisecond, MaxPolls: 3}).Download(context.Background(), server.URL+"/live.m3u8", root, destination, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(destination)
+	if err != nil || string(contents) != "one-two" || keyHits.Load() != 3 {
+		t.Fatalf("contents=%q keyHits=%d err=%v", contents, keyHits.Load(), err)
+	}
+}
+
 func encryptSegment(t *testing.T, plaintext, key, iv []byte) []byte {
 	t.Helper()
 	padding := aes.BlockSize - len(plaintext)%aes.BlockSize

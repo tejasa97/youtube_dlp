@@ -59,25 +59,52 @@ type Variant struct {
 }
 
 type MediaPlaylist struct {
-	Sequence       int64
-	TargetDuration time.Duration
-	PartTarget     time.Duration
-	Segments       []Segment
-	EndList        bool
+	Sequence              int64
+	DiscontinuitySequence int64
+	TargetDuration        time.Duration
+	PartTarget            time.Duration
+	CanBlockReload        bool
+	CanSkipUntil          time.Duration
+	PreloadHint           *PreloadHint
+	RenditionReports      []RenditionReport
+	Segments              []Segment
+	EndList               bool
 }
 
 type Segment struct {
-	URL           string
-	Sequence      int64
-	Duration      time.Duration
-	RangeStart    int64
-	RangeLength   int64
-	Map           *Map
-	Key           *Key
-	Discontinuity bool
-	Partial       bool
-	PartIndex     int
-	Advertisement bool
+	URL                   string
+	Sequence              int64
+	DiscontinuitySequence int64
+	Duration              time.Duration
+	RangeStart            int64
+	RangeLength           int64
+	Map                   *Map
+	MapDeclared           bool
+	MapInherited          bool
+	Key                   *Key
+	KeyDeclared           bool
+	Discontinuity         bool
+	Partial               bool
+	PartIndex             int
+	Advertisement         bool
+}
+
+// PreloadHint describes the next low-latency part advertised by a playlist.
+// It is continuation metadata, not a downloadable fragment: a server may
+// replace or withdraw the hinted object before it becomes a playlist part.
+type PreloadHint struct {
+	URL         string
+	RangeStart  int64
+	RangeLength int64
+}
+
+// RenditionReport is bounded alternate-rendition progress metadata. The
+// downloader never switches rendition from it; doing so can change codecs,
+// authentication, and media alignment without product-level selection.
+type RenditionReport struct {
+	URL      string
+	LastMSN  int64
+	LastPart int
 }
 
 type Map struct {
@@ -88,9 +115,12 @@ type Map struct {
 }
 
 type Key struct {
-	Method string
-	URL    string
-	IV     []byte
+	Method      string
+	URL         string
+	IV          []byte
+	Declaration int64
+	snapshot    uint64
+	material    []byte
 }
 
 func Parse(rawURL string, input []byte) (Playlist, error) {
@@ -113,12 +143,16 @@ func Parse(rawURL string, input []byte) (Playlist, error) {
 	var pendingRangeStart int64
 	var nextRangeStart int64
 	var currentMap *Map
+	mapDeclared := false
 	var currentKey *Key
+	keyDeclared := false
+	keyDeclaration := int64(0)
 	var discontinuity bool
 	advertisement := false
 	partIndex := 0
 	nextPartRangeStart := int64(0)
 	sequence := int64(0)
+	discontinuitySequence := int64(0)
 
 	for scanner.Scan() {
 		lineNumber++
@@ -159,7 +193,8 @@ func Parse(rawURL string, input []byte) (Playlist, error) {
 			segment := Segment{
 				URL: resolved, Sequence: sequence, Duration: pendingDuration,
 				RangeStart: pendingRangeStart, RangeLength: pendingRangeLength,
-				Map: cloneMap(currentMap), Key: cloneKey(currentKey), Discontinuity: discontinuity,
+				Map: cloneMap(currentMap), MapDeclared: mapDeclared, Key: cloneKey(currentKey), KeyDeclared: keyDeclared,
+				DiscontinuitySequence: discontinuitySequence, Discontinuity: discontinuity,
 				Advertisement: advertisement,
 			}
 			media.Segments = append(media.Segments, segment)
@@ -173,6 +208,7 @@ func Parse(rawURL string, input []byte) (Playlist, error) {
 			pendingRangeLength = 0
 			pendingRangeStart = 0
 			discontinuity = false
+			mapDeclared = false
 			continue
 		}
 
@@ -211,6 +247,12 @@ func Parse(rawURL string, input []byte) (Playlist, error) {
 				err = errors.New("media sequence must not be negative")
 			}
 			media.Sequence = sequence
+		case strings.HasPrefix(line, "#EXT-X-DISCONTINUITY-SEQUENCE:"):
+			discontinuitySequence, err = strconv.ParseInt(strings.TrimPrefix(line, "#EXT-X-DISCONTINUITY-SEQUENCE:"), 10, 64)
+			if err == nil && discontinuitySequence < 0 {
+				err = errors.New("discontinuity sequence must not be negative")
+			}
+			media.DiscontinuitySequence = discontinuitySequence
 		case strings.HasPrefix(line, "#EXT-X-TARGETDURATION:"):
 			var seconds int64
 			seconds, err = strconv.ParseInt(strings.TrimPrefix(line, "#EXT-X-TARGETDURATION:"), 10, 64)
@@ -225,6 +267,32 @@ func Parse(rawURL string, input []byte) (Playlist, error) {
 					err = errors.New("part target must be positive")
 				}
 				media.PartTarget = time.Duration(seconds * float64(time.Second))
+			}
+		case strings.HasPrefix(line, "#EXT-X-SERVER-CONTROL:"):
+			var attributes map[string]string
+			attributes, err = parseAttributes(strings.TrimPrefix(line, "#EXT-X-SERVER-CONTROL:"))
+			if err == nil {
+				err = parseServerControl(media, attributes)
+			}
+		case strings.HasPrefix(line, "#EXT-X-PRELOAD-HINT:"):
+			var attributes map[string]string
+			attributes, err = parseAttributes(strings.TrimPrefix(line, "#EXT-X-PRELOAD-HINT:"))
+			if err == nil {
+				media.PreloadHint, err = parsePreloadHint(base, attributes)
+			}
+		case strings.HasPrefix(line, "#EXT-X-RENDITION-REPORT:"):
+			var attributes map[string]string
+			attributes, err = parseAttributes(strings.TrimPrefix(line, "#EXT-X-RENDITION-REPORT:"))
+			if err == nil {
+				var report RenditionReport
+				report, err = parseRenditionReport(base, attributes)
+				if err == nil {
+					if len(media.RenditionReports) >= maxPlaylistEntries {
+						err = fmt.Errorf("rendition report count exceeds %d", maxPlaylistEntries)
+					} else {
+						media.RenditionReports = append(media.RenditionReports, report)
+					}
+				}
 			}
 		case strings.HasPrefix(line, "#EXT-X-SKIP:"):
 			var attributes map[string]string
@@ -244,7 +312,7 @@ func Parse(rawURL string, input []byte) (Playlist, error) {
 			attributes, err = parseAttributes(strings.TrimPrefix(line, "#EXT-X-PART:"))
 			if err == nil {
 				var part Segment
-				part, nextPartRangeStart, err = parsePart(base, attributes, sequence, partIndex, nextPartRangeStart, currentMap, currentKey, discontinuity, advertisement)
+				part, nextPartRangeStart, err = parsePart(base, attributes, sequence, discontinuitySequence, partIndex, nextPartRangeStart, currentMap, mapDeclared, currentKey, keyDeclared, discontinuity, advertisement)
 				if err == nil {
 					if len(media.Segments) >= maxPlaylistEntries {
 						err = fmt.Errorf("segment count exceeds %d", maxPlaylistEntries)
@@ -252,6 +320,7 @@ func Parse(rawURL string, input []byte) (Playlist, error) {
 						media.Segments = append(media.Segments, part)
 						partIndex++
 						discontinuity = false
+						mapDeclared = false
 					}
 				}
 			}
@@ -273,12 +342,22 @@ func Parse(rawURL string, input []byte) (Playlist, error) {
 			attributes, err = parseAttributes(strings.TrimPrefix(line, "#EXT-X-MAP:"))
 			if err == nil {
 				currentMap, err = parseMap(base, attributes, currentKey)
+				mapDeclared = err == nil
 			}
 		case strings.HasPrefix(line, "#EXT-X-KEY:"):
 			var attributes map[string]string
 			attributes, err = parseAttributes(strings.TrimPrefix(line, "#EXT-X-KEY:"))
 			if err == nil {
 				currentKey, err = parseKey(base, attributes)
+				keyDeclared = true
+				if currentKey != nil {
+					if keyDeclaration == math.MaxInt64 {
+						err = errors.New("key declaration overflow")
+					} else {
+						keyDeclaration++
+						currentKey.Declaration = keyDeclaration
+					}
+				}
 			}
 		case strings.HasPrefix(line, "#EXT-X-SESSION-KEY:"):
 			var attributes map[string]string
@@ -289,6 +368,11 @@ func Parse(rawURL string, input []byte) (Playlist, error) {
 		case strings.HasPrefix(line, "#EXT-X-FAXS-CM:"):
 			err = &EncryptionError{Method: "ADOBE-FAXS"}
 		case line == "#EXT-X-DISCONTINUITY":
+			if discontinuitySequence == math.MaxInt64 {
+				err = errors.New("discontinuity sequence overflow")
+			} else {
+				discontinuitySequence++
+			}
 			discontinuity = true
 		case line == "#EXT-X-ENDLIST":
 			media.EndList = true
@@ -401,6 +485,9 @@ func parseAttributes(input string) (map[string]string, error) {
 		if key == "" {
 			return nil, errors.New("empty attribute name")
 		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("duplicate attribute %q", key)
+		}
 		result[key] = value
 		if index < len(input) {
 			if input[index] != ',' {
@@ -435,7 +522,7 @@ func parseMap(base *url.URL, attributes map[string]string, currentKey *Key) (*Ma
 	return result, err
 }
 
-func parsePart(base *url.URL, attributes map[string]string, sequence int64, partIndex int, inferredStart int64, currentMap *Map, currentKey *Key, discontinuity, advertisement bool) (Segment, int64, error) {
+func parsePart(base *url.URL, attributes map[string]string, sequence, discontinuitySequence int64, partIndex int, inferredStart int64, currentMap *Map, mapDeclared bool, currentKey *Key, keyDeclared, discontinuity, advertisement bool) (Segment, int64, error) {
 	rawURI := attributes["URI"]
 	resolved, err := resolveURL(base, rawURI)
 	if err != nil {
@@ -447,7 +534,8 @@ func parsePart(base *url.URL, attributes map[string]string, sequence int64, part
 	}
 	part := Segment{
 		URL: resolved, Sequence: sequence, Duration: time.Duration(seconds * float64(time.Second)),
-		Map: cloneMap(currentMap), Key: cloneKey(currentKey), Discontinuity: discontinuity,
+		Map: cloneMap(currentMap), MapDeclared: mapDeclared, Key: cloneKey(currentKey), KeyDeclared: keyDeclared,
+		DiscontinuitySequence: discontinuitySequence, Discontinuity: discontinuity,
 		Partial: true, PartIndex: partIndex, Advertisement: advertisement,
 	}
 	nextStart := int64(0)
@@ -469,6 +557,87 @@ func parsePart(base *url.URL, attributes map[string]string, sequence int64, part
 	return part, nextStart, nil
 }
 
+func parseServerControl(media *MediaPlaylist, attributes map[string]string) error {
+	if value := attributes["CAN-BLOCK-RELOAD"]; value != "" {
+		switch value {
+		case "YES":
+			media.CanBlockReload = true
+		case "NO":
+			media.CanBlockReload = false
+		default:
+			return errors.New("CAN-BLOCK-RELOAD must be YES or NO")
+		}
+	}
+	if value := attributes["CAN-SKIP-UNTIL"]; value != "" {
+		seconds, err := strconv.ParseFloat(value, 64)
+		if err != nil || !isFinitePositive(seconds) {
+			return errors.New("CAN-SKIP-UNTIL must be positive")
+		}
+		media.CanSkipUntil = time.Duration(seconds * float64(time.Second))
+	}
+	return nil
+}
+
+func parsePreloadHint(base *url.URL, attributes map[string]string) (*PreloadHint, error) {
+	// A preload hint may describe a map or part. Maps cannot be safely emitted
+	// before a declared media segment, and other types are not download input.
+	if attributes["TYPE"] != "PART" {
+		return nil, nil
+	}
+	if attributes["URI"] == "" {
+		return nil, errors.New("preload hint PART URI is missing")
+	}
+	resolved, err := resolveURL(base, attributes["URI"])
+	if err != nil {
+		return nil, err
+	}
+	hint := &PreloadHint{URL: resolved}
+	if start := attributes["BYTERANGE-START"]; start != "" {
+		hint.RangeStart, err = strconv.ParseInt(start, 10, 64)
+		if err != nil || hint.RangeStart < 0 {
+			return nil, errors.New("preload hint byte range start is invalid")
+		}
+	}
+	if length := attributes["BYTERANGE-LENGTH"]; length != "" {
+		hint.RangeLength, err = strconv.ParseInt(length, 10, 64)
+		if err != nil || hint.RangeLength <= 0 {
+			return nil, errors.New("preload hint byte range length is invalid")
+		}
+	}
+	return hint, nil
+}
+
+func parseRenditionReport(base *url.URL, attributes map[string]string) (RenditionReport, error) {
+	var result RenditionReport
+	var err error
+	result.LastPart = -1
+	rawURI := attributes["URI"]
+	if rawURI == "" {
+		return RenditionReport{}, errors.New("rendition report URI is missing")
+	}
+	result.URL, err = resolveURL(base, rawURI)
+	if err != nil {
+		return RenditionReport{}, err
+	}
+	if rawMSN := attributes["LAST-MSN"]; rawMSN != "" {
+		result.LastMSN, err = strconv.ParseInt(rawMSN, 10, 64)
+		if err != nil || result.LastMSN < 0 {
+			return RenditionReport{}, errors.New("rendition report LAST-MSN is invalid")
+		}
+	}
+	if rawPart := attributes["LAST-PART"]; rawPart != "" {
+		result.LastPart, err = strconv.Atoi(rawPart)
+		if err != nil || result.LastPart < 0 {
+			return RenditionReport{}, errors.New("rendition report LAST-PART is invalid")
+		}
+	}
+	return result, nil
+}
+
+func isFinitePositive(value float64) bool {
+	return value > 0 && !math.IsNaN(value) && !math.IsInf(value, 0)
+}
+
 func parseKey(base *url.URL, attributes map[string]string) (*Key, error) {
 	method := attributes["METHOD"]
 	if method == "NONE" {
@@ -479,16 +648,20 @@ func parseKey(base *url.URL, attributes map[string]string) (*Key, error) {
 		return nil, &EncryptionError{Method: method, KeyFormat: keyFormat}
 	}
 	if method == "SAMPLE-AES" {
-		eligible := keyFormat == "" || keyFormat == "identity"
+		if attributes["URI"] == "" {
+			return nil, errors.New("SAMPLE-AES key URI is missing")
+		}
+		eligible := (keyFormat == "" || keyFormat == "identity") && attributes["URI"] != ""
 		if eligible {
-			keyURL, err := resolveURL(base, attributes["URI"])
+			parsed, err := url.Parse(attributes["URI"])
 			if err != nil {
-				return nil, err
-			}
-			parsed, err := url.Parse(keyURL)
-			if err != nil || parsed.User != nil || parsed.Hostname() == "" ||
-				(parsed.Scheme != "http" && parsed.Scheme != "https") {
 				eligible = false
+			} else {
+				parsed = base.ResolveReference(parsed)
+				if parsed.User != nil || parsed.Hostname() == "" ||
+					(parsed.Scheme != "http" && parsed.Scheme != "https") {
+					eligible = false
+				}
 			}
 		}
 		return nil, &EncryptionError{
@@ -524,17 +697,21 @@ func validateSessionKey(base *url.URL, attributes map[string]string) error {
 		return errors.New("session key method NONE is invalid")
 	}
 	rawURI := attributes["URI"]
-	resolved, err := resolveURL(base, rawURI)
+	parsed, err := url.Parse(rawURI)
 	if err != nil {
 		return err
+	}
+	if strings.EqualFold(parsed.Scheme, "skd") ||
+		(keyFormat != "" && keyFormat != "identity") {
+		return &EncryptionError{Method: method, KeyFormat: keyFormat}
+	}
+	resolved, err := resolveURL(base, rawURI)
+	if err != nil {
+		return &EncryptionError{Method: method, KeyFormat: keyFormat}
 	}
 	keyURI, err := url.Parse(resolved)
 	if err != nil {
 		return err
-	}
-	if strings.EqualFold(keyURI.Scheme, "skd") ||
-		(keyFormat != "" && keyFormat != "identity") {
-		return &EncryptionError{Method: method, KeyFormat: keyFormat}
 	}
 	if keyURI.User != nil || keyURI.Hostname() == "" ||
 		(keyURI.Scheme != "http" && keyURI.Scheme != "https") {
@@ -556,7 +733,12 @@ func resolveURL(base *url.URL, raw string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return base.ResolveReference(reference).String(), nil
+	resolved := base.ResolveReference(reference)
+	if resolved.User != nil || resolved.Hostname() == "" ||
+		(resolved.Scheme != "http" && resolved.Scheme != "https") {
+		return "", errors.New("URI must resolve to credential-free HTTP(S)")
+	}
+	return resolved.String(), nil
 }
 
 func cloneMap(input *Map) *Map {
@@ -574,5 +756,6 @@ func cloneKey(input *Key) *Key {
 	}
 	copy := *input
 	copy.IV = append([]byte(nil), input.IV...)
+	copy.material = append([]byte(nil), input.material...)
 	return &copy
 }
