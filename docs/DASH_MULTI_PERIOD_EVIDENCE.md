@@ -12,6 +12,22 @@ Behavior was reviewed against the pinned reference
 `yt_dlp/extractor/common.py::_parse_mpd_periods` and `_merge_mpd_periods` plus
 `yt_dlp/postprocessor/ffmpeg.py::FFmpegFixupDuplicateMoovPP`.
 
+## Closure matrix
+
+| Manifest | Addressing | Periods | Status |
+| --- | --- | --- | --- |
+| static | SegmentTemplate, including inherited BaseURL/timeline/PTO | single | compatible |
+| dynamic | SegmentTemplate/List, bounded polling and append de-duplication | single | compatible |
+| static | SegmentList and byte ranges | single | compatible |
+| static | SegmentBase/indexRange with bounded SIDX and hierarchy | single | compatible |
+| static | Template/List/Base selected as one compatible track | multiple | compatible when timing and codec/container signature are exact |
+| dynamic | Template/List selected as one compatible track | multiple | compatible only with stable period and representation identities, exact contiguous timing, and bounded snapshots |
+| dynamic | SegmentBase/indexRange SIDX | multiple | fail closed: independent period index/window evolution is not yet proven |
+
+The `conformance/media/dash/multi_period_mixed_addressing.mpd` fixture uses
+only `example.test` URLs and exercises static Template/List/SegmentBase
+selection. Production does not read the pinned reference checkout.
+
 ## Implemented behavior
 
 1. The parser records bounded Period identity, derives omitted starts or
@@ -38,12 +54,18 @@ Behavior was reviewed against the pinned reference
    supervised media toolchain instead of publishing a raw duplicate-MOOV byte
    stream. When overwrite is disabled, an existing final destination is
    rejected before any Period fragments are transferred.
+7. Bounded dynamic multi-period Template/List selection is supported when each
+   snapshot preserves the exact ordered Period IDs, timing, selected
+   representation IDs, and format signature. New fragments are accumulated per
+   Period; a replacement identity fails before any fragments are requested.
 
 ## Fail-closed boundaries
 
 - At most 128 periods are accepted, matching the media concat input bound.
-- Dynamic multi-period MPDs are rejected because safe polling requires stable
-  period identity and expiry rules not present in the current model.
+- Dynamic multi-period SegmentBase/indexRange SIDX MPDs are rejected because
+  safe polling requires independently stable index and live-window identities
+  per Period. Dynamic Template/List MPDs are supported only under the stable
+  identity contract above.
 - Direct/unfragmented multi-period resources are rejected rather than byte
   concatenated.
 - Period timing must be fully derivable, start at zero, remain contiguous, and
@@ -72,6 +94,11 @@ mechanically testable.
 - `internal/protocol/dash.TestDownloadMultiPeriodRejectsExistingDestinationBeforeFragments`
 - `internal/protocol/dash.TestDownloadMultiPeriodFailureDoesNotPublishTrack`
 - `internal/protocol/dash.TestDownloadMultiPeriodCancellationDoesNotPublishTrack`
+- `internal/protocol/dash.TestSelectDynamicMultiPeriodAllowsStableFragmentedMixedAddressing`
+- `internal/protocol/dash.TestParseMixedAddressingMultiPeriodFixtureSelectsOneSafeTrack`
+- `internal/protocol/dash.TestDownloadDynamicMultiPeriodAccumulatesStableSnapshots`
+- `internal/protocol/dash.TestDownloadDynamicMultiPeriodRejectsRepresentationReplacement`
+- `internal/protocol/dash.TestDownloadDynamicMultiPeriodSIDXFailsClosedBeforeMedia`
 - `internal/media/pipeline.TestFinalizeDASHMultiPeriodRemuxesAndRemovesSource`
 - `internal/media/pipeline.TestFinalizeDASHMultiPeriodConcatenatesAndMergesTracks`
 - `pkg/ytdlp.TestClientDASHMultiPeriodDispatchAndFixup`
