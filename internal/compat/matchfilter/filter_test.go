@@ -3,6 +3,7 @@ package matchfilter
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -21,6 +22,7 @@ func info() value.Info {
 		value.Field{Key: "uploader", Value: value.String("變態妍字幕版 太妍 тест")},
 		value.Field{Key: "creator", Value: value.String("тест ' 123 ' тест--")},
 		value.Field{Key: "description", Value: value.String("cats & dogs")},
+		value.Field{Key: "duplicate", Value: value.String("Example Example")},
 		value.Field{Key: "playlist_id", Value: value.String("42")},
 		value.Field{Key: "enabled", Value: value.Bool(true)},
 		value.Field{Key: "disabled", Value: value.Bool(false)},
@@ -237,12 +239,66 @@ func TestErrorsHaveSpan(t *testing.T) {
 		t.Fatalf("error = %#v, %v", syntaxError, err)
 	}
 	for _, input := range []string{
-		"x ~= (", "bad-field=1", "", "-", "title ~= (?=Example)",
+		"x ~= (", "bad-field=1", "", "-",
 		"title = 'unterminated", "title !? Example", "ID = x", "id2 = x",
 	} {
 		if _, err := Parse([]string{input}); !errors.Is(err, ErrInvalidFilter) {
 			t.Fatalf("Parse(%q) = %v", input, err)
 		}
+	}
+}
+
+func TestPythonRegexSearchCompatibility(t *testing.T) {
+	metadata := value.NewInfo(value.NewObject(
+		value.Field{Key: "title", Value: value.String("Example Example")},
+		value.Field{Key: "description", Value: value.String("cats & dogs")},
+	))
+	for _, test := range []struct {
+		name, filter string
+		pass         bool
+	}{
+		{"lookahead", `title ~= ^Example(?= Example$)`, true},
+		{"negative lookahead", `title ~= ^(?!Other)Example`, true},
+		{"numeric backreference", `title ~= ^(Example) \1$`, true},
+		{"python named backreference", `title ~= ^(?P<word>Example) (?P=word)$`, true},
+		{"unicode boundary and flags", `description ~= (?i)\bcats\b`, true},
+		{"negated regex", `title !~= ^Other`, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			program, err := Parse([]string{test.filter})
+			if err != nil {
+				t.Fatalf("Parse(%q): %v", test.filter, err)
+			}
+			decision, err := program.EvaluateContext(context.Background(), metadata, EvaluationOptions{})
+			if err != nil || decision.Pass != test.pass {
+				t.Fatalf("Evaluate(%q) = (%#v, %v), want pass=%v", test.filter, decision, err, test.pass)
+			}
+		})
+	}
+}
+
+func TestPythonRegexBoundsAndSanitizedErrors(t *testing.T) {
+	program, err := Parse([]string{`title ~= (a+)+$`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := strings.Repeat("a", maxRegexInputBytes-1) + "!sensitive-tail"
+	metadata := value.NewInfo(value.NewObject(value.Field{Key: "title", Value: value.String(input)}))
+	_, err = program.EvaluateContext(context.Background(), metadata, EvaluationOptions{})
+	if !errors.Is(err, ErrEvaluationLimit) {
+		t.Fatalf("error = %v, want evaluation limit", err)
+	}
+	if strings.Contains(fmt.Sprint(err), "sensitive-tail") {
+		t.Fatalf("regex error leaked input: %v", err)
+	}
+
+	tooLarge := value.NewInfo(value.NewObject(value.Field{Key: "title", Value: value.String(strings.Repeat("x", maxRegexInputBytes+1))}))
+	if _, err := Parse([]string{`title ~= x`}); err != nil {
+		t.Fatal(err)
+	}
+	program, _ = Parse([]string{`title ~= x`})
+	if _, err := program.EvaluateContext(context.Background(), tooLarge, EvaluationOptions{}); !errors.Is(err, ErrEvaluationLimit) {
+		t.Fatalf("oversized regex input error = %v", err)
 	}
 }
 
@@ -288,6 +344,37 @@ func TestPinnedMatchFilterConformance(t *testing.T) {
 	}
 }
 
+func TestPinnedMatchFilterParityCorpus20260729(t *testing.T) {
+	data, err := os.ReadFile("../../../conformance/matchfilter-parity-2026-07-29/pinned.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var corpus conformanceCorpus
+	if err := yaml.Unmarshal(data, &corpus); err != nil {
+		t.Fatal(err)
+	}
+	if corpus.Version != 1 || len(corpus.Cases) == 0 {
+		t.Fatalf("invalid parity corpus: version=%d cases=%d", corpus.Version, len(corpus.Cases))
+	}
+	for _, test := range corpus.Cases {
+		t.Run(test.Name, func(t *testing.T) {
+			program, err := Parse(test.Filters)
+			if err != nil {
+				t.Fatal(err)
+			}
+			decision, err := program.EvaluateContext(context.Background(), info(), EvaluationOptions{
+				IncompleteAll: test.IncompleteAll, IncompleteFields: fields(test.IncompleteFields...),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if decision.Pass != test.Pass {
+				t.Fatalf("filters %q pass = %v, want %v", test.Filters, decision.Pass, test.Pass)
+			}
+		})
+	}
+}
+
 func fields(names ...string) map[string]struct{} {
 	result := make(map[string]struct{}, len(names))
 	for _, name := range names {
@@ -301,6 +388,8 @@ func FuzzParse(f *testing.F) {
 	f.Add(`description *= "cats \& dogs"`)
 	f.Add("missing >? 1")
 	f.Add("!")
+	f.Add(`title ~= ^(?P<word>Example) (?P=word)$`)
+	f.Add(`title ~= (a+)+$`)
 	f.Fuzz(func(t *testing.T, input string) {
 		program, err := Parse([]string{input})
 		if err != nil {
