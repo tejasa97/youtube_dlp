@@ -230,16 +230,10 @@ func (checker *formatAvailabilityChecker) probe(rawURL, protocol string, headers
 		}
 		return checker.probeISMFragment(ctx, rawURL, manifest, headers)
 	default:
-		// A one-byte range GET proves the media endpoint is readable; HEAD is
-		// only a compatibility fallback for servers that reject range GETs.
+		// A one-byte range GET proves the media endpoint is readable. A HEAD
+		// response alone is deliberately insufficient: it is not evidence that
+		// a downloader can obtain media bytes.
 		_, status, err := checker.getPrefix(ctx, rawURL, headers, 1)
-		if err == nil && status >= 200 && status < 400 {
-			return true, nil
-		}
-		if err != nil || (status != http.StatusMethodNotAllowed && status != http.StatusNotImplemented) {
-			return false, err
-		}
-		status, err = checker.head(ctx, rawURL, headers)
 		return err == nil && status >= 200 && status < 400, err
 	}
 }
@@ -286,15 +280,6 @@ func (checker *formatAvailabilityChecker) probeISMFragment(ctx context.Context, 
 		return getErr == nil && status >= 200 && status < 400, getErr
 	}
 	return false, errAvailabilityProbe
-}
-
-func (checker *formatAvailabilityChecker) head(ctx context.Context, rawURL string, headers http.Header) (int, error) {
-	response, err := checker.doRedirects(ctx, http.MethodHead, rawURL, headers, 0)
-	if err != nil {
-		return 0, err
-	}
-	defer response.Body.Close()
-	return response.StatusCode, nil
 }
 
 // getPrefix reads no more than limit bytes. It is used for media endpoints,

@@ -74,6 +74,28 @@ func TestFormatAvailabilityUsesBoundedRangeGETBeforeHEAD(t *testing.T) {
 	}
 }
 
+func TestFormatAvailabilityRejectsHEADOnlySuccess(t *testing.T) {
+	var gets, heads atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.Method {
+		case http.MethodGet:
+			gets.Add(1)
+			writer.WriteHeader(http.StatusMethodNotAllowed)
+		case http.MethodHead:
+			heads.Add(1)
+			writer.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer server.Close()
+	ok, err := availabilityTestChecker(t, FormatCheckSelected).IsAvailable(availabilityFormat(server.URL, nil))
+	if err != nil || ok {
+		t.Fatalf("IsAvailable = %v, %v", ok, err)
+	}
+	if gets.Load() != 1 || heads.Load() != 0 {
+		t.Fatalf("GET=%d HEAD=%d, want one GET and no HEAD", gets.Load(), heads.Load())
+	}
+}
+
 func TestFormatAvailabilityCacheIncludesCredentialValues(t *testing.T) {
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
