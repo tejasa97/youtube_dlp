@@ -4,23 +4,21 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 )
 
 // Transport is the minimal surface required to fetch one SponsorBlock
-// page. The shared internal/network.Client satisfies it. The
-// cookieIsolated interface is asserted at the call site so a transport
-// that cannot isolate cookies is rejected with a closed failure
-// instead of silently downgrading to a cookie-bearing request.
+// page. The shared internal/network.Client satisfies it. The stronger
+// credential-isolated, no-redirect interface is asserted at the call site so
+// a transport cannot silently downgrade this third-party request.
 type Transport interface {
 	Do(context.Context, *http.Request) (*http.Response, error)
 }
 
-// cookieIsolated is the stronger credential-isolated interface asserted at
-// request time.
-// The shared internal/network.Client implements it.
-type cookieIsolated interface {
-	DoWithoutCredentials(context.Context, *http.Request) (*http.Response, error)
+// cookieIsolatedNoRedirect is the stronger boundary required for SponsorBlock:
+// it drops operation credentials and returns the first redirect response. A
+// third-party API request must never be redirected to an arbitrary authority.
+type cookieIsolatedNoRedirect interface {
+	DoWithoutCredentialsNoRedirect(context.Context, *http.Request) (*http.Response, error)
 }
 
 // FetchResult is the bounded output of a single SponsorBlock lookup.
@@ -36,10 +34,9 @@ type FetchResult struct {
 // Fetch performs the canonical SponsorBlock lookup for one video and
 // returns the normalized chapters for the matching group. The function
 // is context-aware, retries are the caller's responsibility, and the
-// transport must support cookie isolation. If the transport does not
-// expose DoWithoutCredentials, the call fails closed and returns
-// ErrIsolation so operation credentials can never be forwarded to
-// SponsorBlock.
+// transport must support credential-isolated no-redirect requests. Otherwise
+// the call fails closed with ErrIsolation so credentials cannot be forwarded
+// and redirects cannot cross this third-party trust boundary.
 func Fetch(ctx context.Context, transport Transport, options Options, service, videoID string, videoDuration float64) (FetchResult, error) {
 	if ctx == nil {
 		return FetchResult{}, errorf(ErrInvalidInput, "nil context")
@@ -54,7 +51,7 @@ func Fetch(ctx context.Context, transport Transport, options Options, service, v
 	if err := cloned.validate(); err != nil {
 		return FetchResult{}, err
 	}
-	if strings.ToLower(service) != "youtube" {
+	if service != "YouTube" {
 		return FetchResult{}, errorf(ErrUnsupported, "unsupported service")
 	}
 	prefix, err := hashPrefix(videoID)

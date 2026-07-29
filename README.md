@@ -58,8 +58,8 @@ identify compatibility targets only.
 | Extensions | Versioned native RPC and constrained WASM plugins, signed packs, catalogs, and updater transactions |
 | Public API | Versioned v1alpha1 Go API with context cancellation, categorized errors, events, playlists, metadata, and artifacts |
 
-The capability manifest records **75 capabilities**: **72 compatible** within
-their declared corpora, **2 partial**, and **1 intentional deviation**.
+The capability manifest records **75 capabilities**: **73 compatible** within
+their declared corpora, **1 partial**, and **1 intentional deviation**.
 “Compatible” means the linked deterministic evidence passes; it does not mean
 unbounded equivalence with every upstream behavior.
 
@@ -314,8 +314,8 @@ the bounded shared output-template syntax; the pinned default is
 the API base or stored chapter-title template. Categories are repeatable,
 comma-separated, and support
 `all`/`default` plus `-category` exclusions.
-`--remove-chapters` is repeatable: regular expressions use title-search
-semantics, while values beginning with `*` contain comma-separated
+`--remove-chapters` is repeatable: regular expressions use bounded
+Python-compatible title-search semantics, while values beginning with `*` contain comma-separated
 `START-END` ranges with open bounds. `--no-remove-chapters` clears inherited
 rules. Ordinary, manual, and SponsorBlock cuts share one transactional ffmpeg
 and subtitle-retiming pass.

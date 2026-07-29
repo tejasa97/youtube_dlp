@@ -27,6 +27,10 @@ type sponsorBlockCutJob struct {
 	backup   string
 }
 
+type unsupportedSponsorBlockSubtitle struct {
+	path, extension string
+}
+
 // applySponsorBlockRemove retains the historical internal test seam. Product
 // execution calls applyChapterCuts, which combines SponsorBlock, ordinary
 // chapter-title, and manual range removals into one transaction.
@@ -75,13 +79,14 @@ func (operation *operation) applyChapterCuts(ctx context.Context, info *value.In
 	}
 	ordinaryRemove := make(map[int]struct{})
 	if chapterRemoval.HasPatterns() {
+		regexBudget := chapterremove.NewEvaluationBudget()
 		if len(normal) == 0 {
 			if err := operation.emitChapterRemovalWarning(ctx, "Chapter information is unavailable"); err != nil {
 				return mediaPath, artifacts, false, err
 			}
 		} else {
 			for _, chapter := range normal {
-				match, matchErr := chapterRemoval.MatchTitle(ctx, chapter.Title)
+				match, matchErr := chapterRemoval.MatchTitleWithBudget(ctx, chapter.Title, regexBudget)
 				if matchErr != nil {
 					return mediaPath, artifacts, false, mapChapterCutError(cutOp, matchErr)
 				}
@@ -188,9 +193,14 @@ func (operation *operation) applyChapterCuts(ctx context.Context, info *value.In
 		}
 		return mediaPath, artifacts, false, nil
 	}
-	jobs, err := operation.prepareSponsorBlockCutJobs(cutOp, mediaPath, artifacts)
+	jobs, skippedSubtitles, err := operation.prepareSponsorBlockCutJobs(cutOp, mediaPath, artifacts)
 	if err != nil {
 		return mediaPath, artifacts, false, err
+	}
+	for _, subtitle := range skippedSubtitles {
+		if err := operation.emitUnsupportedSponsorBlockSubtitleWarning(ctx, subtitle); err != nil {
+			return mediaPath, artifacts, false, err
+		}
 	}
 
 	if tools == nil {
@@ -409,32 +419,52 @@ func stageSponsorBlockSubtitle(original, staged string, cuts []sponsorblock.Rang
 	return os.WriteFile(staged, rewritten, 0o600)
 }
 
-func (operation *operation) prepareSponsorBlockCutJobs(op, mediaPath string, artifacts []Artifact) ([]sponsorBlockCutJob, error) {
+func (operation *operation) prepareSponsorBlockCutJobs(op, mediaPath string, artifacts []Artifact) ([]sponsorBlockCutJob, []unsupportedSponsorBlockSubtitle, error) {
 	if err := validateSponsorBlockCutPath(mediaPath); err != nil {
-		return nil, &Error{Category: ErrorInternal, Op: op, Err: errors.New("internal failure")}
+		return nil, nil, &Error{Category: ErrorInternal, Op: op, Err: errors.New("internal failure")}
 	}
 	jobs := []sponsorBlockCutJob{{kind: postprocess.ArtifactMedia, original: mediaPath}}
+	skipped := make([]unsupportedSponsorBlockSubtitle, 0)
 	for _, artifact := range artifacts {
 		if artifact.Kind != "subtitle" {
 			continue
 		}
-		extension := strings.TrimPrefix(strings.ToLower(filepath.Ext(artifact.Path)), ".")
-		if !sponsorblock.SupportedSubtitleExt(extension) {
-			return nil, &Error{
-				Category: ErrorUnsupported,
-				Op:       op + " subtitle",
-				Err:      errors.New("unsupported"),
-			}
-		}
 		if err := validateSponsorBlockCutPath(artifact.Path); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
+				// Match the pinned external-subtitle discovery path: absent
+				// sidecars (for example after embedding) are ignored.
 				continue
 			}
-			return nil, &Error{Category: ErrorInternal, Op: op + " subtitle", Err: errors.New("internal failure")}
+			return nil, nil, &Error{Category: ErrorInternal, Op: op + " subtitle", Err: errors.New("internal failure")}
+		}
+		extension := strings.TrimPrefix(strings.ToLower(filepath.Ext(artifact.Path)), ".")
+		if !sponsorblock.SupportedSubtitleExt(extension) {
+			skipped = append(skipped, unsupportedSponsorBlockSubtitle{path: artifact.Path, extension: extension})
+			continue
 		}
 		jobs = append(jobs, sponsorBlockCutJob{kind: postprocess.ArtifactSubtitle, original: artifact.Path})
 	}
-	return jobs, nil
+	return jobs, skipped, nil
+}
+
+// emitUnsupportedSponsorBlockSubtitleWarning preserves the pinned policy:
+// unsupported external sidecars are left untouched and the media cut may
+// proceed. Supported sidecars are still staged and committed atomically, so a
+// malformed supported subtitle or any staging/commit failure remains
+// fail-closed. Path is typed event metadata rather than interpolated into the
+// message, keeping diagnostics stable and avoiding accidental text leakage.
+func (operation *operation) emitUnsupportedSponsorBlockSubtitleWarning(ctx context.Context, subtitle unsupportedSponsorBlockSubtitle) error {
+	if operation.client == nil {
+		return nil // internal test seam; product operations always have a client
+	}
+	message := "Cannot remove chapters from external subtitles; sidecar is now out of sync"
+	if subtitle.extension != "" {
+		message = "Cannot remove chapters from external " + subtitle.extension + " subtitles; sidecar is now out of sync"
+	}
+	if err := operation.client.emit(ctx, Event{Kind: EventMetadataWarning, Message: message, Path: subtitle.path}); err != nil {
+		return &Error{Category: ErrorInternal, Op: "emit chapter removal warning", Err: err}
+	}
+	return nil
 }
 
 func validateSponsorBlockCutPath(path string) error {

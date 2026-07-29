@@ -10,6 +10,11 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/dlclark/regexp2"
+	"github.com/ytdlp-go/ytdlp/internal/compat/pyregex"
 )
 
 const (
@@ -17,11 +22,25 @@ const (
 	MaxSpecificationBytes = 4096
 	MaxTotalBytes         = 64 << 10
 	MaxRanges             = 256
+	// The chapter title language is a bounded Python regular-expression
+	// search, matching the pinned ModifyChaptersPP use of regex.search().
+	// Keep these limits local to chapter removal: this package shares syntax
+	// translation with match filters and metadata transforms, not their
+	// execution policy.
+	MaxRegexSourceBytes      = 4096
+	MaxRegexTranslatedBytes  = 16 << 10
+	MaxRegexInputBytes       = 64 << 10
+	MaxRegexAttempts         = 256
+	MaxRegexInspectedBytes   = 4 << 20
+	RegexMatchTimeout        = 25 * time.Millisecond
+	RegexAggregateWallBudget = 250 * time.Millisecond
 )
 
 var (
 	ErrInvalidSpecification = errors.New("invalid chapter removal specification")
 	ErrLimit                = errors.New("chapter removal limit exceeded")
+	errRegexTimeout         = errors.New("regular expression match timed out")
+	errRegexBudget          = errors.New("regular expression budget exhausted")
 )
 
 // Range is a parsed manual removal range. A nil End means the end of the
@@ -33,9 +52,29 @@ type Range struct {
 
 // Program is an immutable, concurrency-safe chapter removal program.
 type Program struct {
-	patterns []*regexp.Regexp
+	patterns []pattern
 	ranges   []Range
 }
+
+// EvaluationBudget bounds one logical group of chapter-title searches. It is
+// intentionally caller-owned so Program remains immutable and safe to reuse
+// concurrently. A fresh budget is suitable for a single MatchTitle call;
+// product code shares one budget across an entire media item's chapters.
+type EvaluationBudget struct {
+	attempts       int
+	inspectedBytes int
+	wall           time.Duration
+	started        time.Time
+}
+
+type pattern struct {
+	source, translated string
+	expression         *regexp2.Regexp
+}
+
+// NewEvaluationBudget returns a bounded accounting object for a complete
+// chapter-removal evaluation. It contains no source text or title data.
+func NewEvaluationBudget() *EvaluationBudget { return &EvaluationBudget{started: time.Now()} }
 
 // Parse compiles repeatable --remove-chapters values. Values beginning with
 // "*" are comma-separated time ranges; every other value is a title regular
@@ -52,11 +91,21 @@ func Parse(specifications []string) (Program, error) {
 			return Program{}, fmt.Errorf("%w: specification %d", ErrLimit, index)
 		}
 		if !strings.HasPrefix(specification, "*") {
-			expression, err := regexp.Compile(specification)
+			if len(specification) > MaxRegexSourceBytes || !utf8.ValidString(specification) {
+				return Program{}, fmt.Errorf("%w: regex %d", ErrInvalidSpecification, index)
+			}
+			translated, err := pyregex.Translate(specification)
+			if err != nil || len(translated) > MaxRegexTranslatedBytes {
+				return Program{}, fmt.Errorf("%w: regex %d", ErrInvalidSpecification, index)
+			}
+			expression, err := regexp2.Compile(translated, regexp2.None)
 			if err != nil {
 				return Program{}, fmt.Errorf("%w: regex %d", ErrInvalidSpecification, index)
 			}
-			program.patterns = append(program.patterns, expression)
+			expression.MatchTimeout = RegexMatchTimeout
+			program.patterns = append(program.patterns, pattern{
+				source: specification, translated: translated, expression: expression,
+			})
 			continue
 		}
 		parsed, err := parseRanges(specification)
@@ -88,15 +137,60 @@ func (program Program) HasRanges() bool {
 
 // MatchTitle reports whether any configured expression occurs in title.
 func (program Program) MatchTitle(ctx context.Context, title string) (bool, error) {
-	for _, expression := range program.patterns {
+	return program.MatchTitleWithBudget(ctx, title, NewEvaluationBudget())
+}
+
+// MatchTitleWithBudget reports whether any configured Python expression
+// searches title. The source, translated expression, input, number of
+// attempts, inspected bytes, individual match time, and aggregate wall time
+// are all bounded. Errors deliberately contain no pattern or title text.
+func (program Program) MatchTitleWithBudget(ctx context.Context, title string, budget *EvaluationBudget) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if len(title) > MaxRegexInputBytes || !utf8.ValidString(title) {
+		return false, fmt.Errorf("%w: regular expression input", ErrLimit)
+	}
+	if budget == nil {
+		budget = NewEvaluationBudget()
+	}
+	if budget.started.IsZero() {
+		budget.started = time.Now()
+	}
+	for _, item := range program.patterns {
 		if err := ctx.Err(); err != nil {
 			return false, err
 		}
-		if expression.MatchString(title) {
+		budget.attempts++
+		budget.inspectedBytes += len(title)
+		if budget.attempts > MaxRegexAttempts || budget.inspectedBytes > MaxRegexInspectedBytes || time.Since(budget.started) > RegexAggregateWallBudget {
+			return false, fmt.Errorf("%w: %w", ErrLimit, errRegexBudget)
+		}
+		started := time.Now()
+		matched, err := item.expression.MatchString(title)
+		budget.wall += time.Since(started)
+		if budget.wall > RegexAggregateWallBudget {
+			return false, fmt.Errorf("%w: %w", ErrLimit, errRegexBudget)
+		}
+		if err != nil {
+			return false, sanitizeRegexError(err)
+		}
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		if matched {
 			return true, nil
 		}
 	}
 	return false, nil
+}
+
+func sanitizeRegexError(err error) error {
+	message := strings.ToLower(err.Error())
+	if strings.Contains(message, "timeout") || strings.Contains(message, "timed out") {
+		return fmt.Errorf("%w: %w", ErrLimit, errRegexTimeout)
+	}
+	return fmt.Errorf("%w: %w", ErrLimit, errRegexBudget)
 }
 
 // ResolveRanges maps open range ends to duration and drops intervals wholly

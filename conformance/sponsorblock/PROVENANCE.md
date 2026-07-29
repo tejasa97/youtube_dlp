@@ -60,8 +60,17 @@ groups for `fixture-30` and `fixture-210`, which both have the verified
 SHA-256 prefix `b200`; the
 implementation must select the group whose `videoID` matches the
 request. `sample_malformed.json` is a structurally hostile
-envelope used to verify the bounded decoder and the categorized
-error path.
+envelope used to verify the bounded decoder and the categorized error path.
+
+The pinned `SponsorBlockPP.EXTRACTORS` table at this commit contains only
+`Youtube: YouTube`; it has no Vimeo, PeerTube, or other-service entry. Product
+tests therefore prove a canonical `youtube` -> `YouTube` allowlist and reject
+hostile/noncanonical extractor identities before networking. The request test
+also proves the credential-isolated API call does not follow a redirect to a
+second server. Chapter-title tests cover Python-compatible search constructs
+(look-around, named backreferences, flags, and Unicode) using the shared
+bounded translator/engine, and product cut tests prove unsupported external
+sidecars are warned and preserved while supported sidecars remain transactional.
 
 The video IDs are inert synthetic names. The category and action
 type identifiers match the pinned reference table exactly; the

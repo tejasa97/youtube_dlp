@@ -38,11 +38,11 @@ func (operation *operation) enrichWithSponsorBlock(ctx context.Context, extracto
 	if info == nil {
 		return &Error{Category: ErrorInternal, Op: "sponsorblock", Err: errors.New("missing metadata")}
 	}
-	// SponsorBlock metadata is defined for YouTube only. A
-	// non-YouTube extractor paired with the option is a
-	// categorized unsupported error rather than a silent
-	// success.
-	if !extractorSupportsSponsorBlock(extractorName) {
+	// The pinned SponsorBlockPP.EXTRACTORS table has exactly one entry:
+	// Youtube -> YouTube. Derive the service only from the selected canonical
+	// extractor key, never from user-controlled webpage metadata.
+	service, supported := sponsorBlockServiceForExtractor(extractorName)
+	if !supported {
 		return &Error{
 			Category: ErrorUnsupported,
 			Op:       "sponsorblock extractor",
@@ -83,7 +83,7 @@ func (operation *operation) enrichWithSponsorBlock(ctx context.Context, extracto
 		Categories: sponsorBlockFetchCategories(operation.request.SponsorBlock),
 		APIBase:    operation.request.SponsorBlock.APIBase,
 	}
-	result, err := sponsorblock.Fetch(ctx, operation.transport, options, "YouTube", id, duration)
+	result, err := sponsorblock.Fetch(ctx, operation.transport, options, service, id, duration)
 	if err != nil {
 		return mapSponsorBlockError(err)
 	}
@@ -257,15 +257,17 @@ func stringListValue(strings []string) value.Value {
 	return value.List(values...)
 }
 
-// extractorSupportsSponsorBlock returns true when extractorName is a
-// YouTube-family extractor. Only the watch-page extractor carries
-// real durations that the pinned normalizer can use.
-func extractorSupportsSponsorBlock(extractorName string) bool {
+// sponsorBlockServiceForExtractor mirrors the pinned SponsorBlockPP.EXTRACTORS
+// table at aefce1ee: no Vimeo, PeerTube, or other service identity appears in
+// that reference. Keep this an explicit allowlist so adding a new extractor
+// cannot accidentally enable a third-party SponsorBlock query.
+func sponsorBlockServiceForExtractor(extractorName string) (string, bool) {
 	switch extractorName {
 	case "youtube":
-		return true
+		return "YouTube", true
+	default:
+		return "", false
 	}
-	return false
 }
 
 // sponsorblockDuration extracts a numeric video duration in seconds

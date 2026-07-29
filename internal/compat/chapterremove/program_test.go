@@ -32,6 +32,50 @@ func TestParseMatchesTitlesWithSearchSemantics(t *testing.T) {
 	}
 }
 
+func TestParseUsesBoundedPythonRegexSearch(t *testing.T) {
+	program, err := Parse([]string{
+		`(?<=\b)intro(?=\b)`,            // look-around
+		`(?P<word>chapter)\s+(?P=word)`, // named capture/backreference
+		`(?im)^über$`,                   // flags and Unicode
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		title string
+		want  bool
+	}{
+		{"the intro chapter", true},
+		{"chapter chapter", true},
+		{"ÜBER", true},
+		{"introduction", false},
+	} {
+		got, matchErr := program.MatchTitle(context.Background(), test.title)
+		if matchErr != nil || got != test.want {
+			t.Fatalf("MatchTitle(%q) = %t, %v; want %t", test.title, got, matchErr, test.want)
+		}
+	}
+}
+
+func TestMatchTitleBoundsInputAndAggregateWork(t *testing.T) {
+	program, err := Parse([]string{`never-match`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := program.MatchTitle(context.Background(), strings.Repeat("x", MaxRegexInputBytes+1)); !errors.Is(err, ErrLimit) {
+		t.Fatalf("oversized title error = %v", err)
+	}
+	budget := NewEvaluationBudget()
+	for index := 0; index < MaxRegexAttempts; index++ {
+		if matched, err := program.MatchTitleWithBudget(context.Background(), "fixture", budget); err != nil || matched {
+			t.Fatalf("attempt %d = %t, %v", index, matched, err)
+		}
+	}
+	if _, err := program.MatchTitleWithBudget(context.Background(), "fixture", budget); !errors.Is(err, ErrLimit) {
+		t.Fatalf("aggregate budget error = %v", err)
+	}
+}
+
 func TestParseManualRangesAndResolve(t *testing.T) {
 	program, err := Parse([]string{"*1:30-2:00, -10, 3m-", "*5-inf"})
 	if err != nil {

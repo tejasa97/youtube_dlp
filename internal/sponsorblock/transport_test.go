@@ -42,6 +42,10 @@ func (transport *fakeTransport) DoWithoutCredentials(ctx context.Context, reques
 	return transport.respond(), nil
 }
 
+func (transport *fakeTransport) DoWithoutCredentialsNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
+	return transport.DoWithoutCredentials(ctx, request)
+}
+
 func (transport *fakeTransport) respond() *http.Response {
 	header := http.Header{}
 	if transport.contentType != "" {
@@ -79,6 +83,10 @@ func (transport *fakeResponseTransport) DoWithoutCredentials(ctx context.Context
 	transport.headers = request.Header.Clone()
 	transport.cookieValue = request.Header.Get("Cookie")
 	return transport.respond(), nil
+}
+
+func (transport *fakeResponseTransport) DoWithoutCredentialsNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
+	return transport.DoWithoutCredentials(ctx, request)
 }
 
 func (transport *fakeResponseTransport) respond() *http.Response {
