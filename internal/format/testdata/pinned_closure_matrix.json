@@ -8,30 +8,30 @@
   },
   "families": [
     {
-      "id": "selector-atoms-operators-filters",
-      "selector_cases": ["atom.best", "atom.best_star", "atom.best_dot2", "operator.grouping", "operator.precedence", "operator.fallback", "operator.comma", "operator.merge", "operator.mergeall", "filter.chained", "filter.negated-prefix", "filter.none-inclusive", "filter.quoted-escape", "filter.regex", "filter.field-syntax"],
-      "planner_cases": ["expression.grouped", "expression.plus-cartesian", "expression.slash-first-wins", "expression.comma-three"]
+      "id": "quality-atoms-and-direct-selectors",
+      "selector_cases": ["atom.best", "atom.b", "atom.worst", "atom.w", "atom.bestvideo", "atom.bv", "atom.worstvideo", "atom.wv", "atom.bestaudio", "atom.ba", "atom.worstaudio", "atom.wa", "atom.best_star", "atom.b_star", "atom.worst_star", "atom.w_star", "atom.bestvideo_star", "atom.bv_star", "atom.worstvideo_star", "atom.wv_star", "atom.bestaudio_star", "atom.ba_star", "atom.worstaudio_star", "atom.wa_star", "atom.best_dot2", "atom.bv_dot2", "atom.ba_dot2", "direct.id", "direct.unknown", "extension.video", "extension.audio", "extension.storyboard"],
+      "planner_cases": ["quality.basic-best", "quality.basic-worst", "quality.basic-best.2", "quality.basic-worst.2", "quality.basic-b", "quality.basic-w", "quality.basic-bv", "quality.basic-ba", "quality.basic-wv", "quality.basic-wa", "quality.basic-bv-star", "quality.basic-ba-star", "quality.basic-b-star", "quality.storyboard-excluded-by-best", "extension.audio-mp3", "extension.video-mp4", "extension.storyboard-mhtml", "extension.direct-id"]
     },
     {
-      "id": "sorter-normalization-stability",
-      "selector_cases": ["coercion.numeric-id", "normalize.generated-missing", "normalize.sanitized", "normalize.duplicates", "normalize.extension-conflict"],
-      "sorter_cases": ["default-order-full", "alias-resolution", "combined-field-limits", "numeric-string-mixed", "stable-complete-ties", "source-index-preservation", "sort-bounds-oversized"]
+      "id": "operators-and-filter-cross-products",
+      "selector_cases": ["operator.merge", "operator.fallback", "operator.comma", "operator.precedence", "operator.grouping", "operator.all", "operator.mergeall", "filter.eq", "filter.neq", "filter.gt", "filter.gte", "filter.lt", "filter.lte", "filter.prefix", "filter.suffix", "filter.contains", "filter.regex", "filter.quoted-double", "filter.quoted-single", "filter.leading", "filter.chained", "filter.negated-prefix", "filter.none-inclusive", "filter.quoted-escape", "filter.field-syntax", "gap.sort-colon-limit"],
+      "planner_cases": ["expression.all", "expression.all-filtered", "expression.mergeall", "expression.comma-three", "expression.slash-first-wins", "expression.slash-second-wins", "expression.plus-cartesian", "expression.grouped", "expression.all-includes-storyboard", "expression.group-filter-keeps-context-flags"]
     },
     {
-      "id": "media-defaults-and-multistreams",
-      "selector_cases": ["drm.default", "drm.allowed", "extension.storyboard", "gap.plain-best-combined", "gap.all-order", "gap.multistream-product"],
-      "planner_cases": ["incomplete.audio-only-best", "incomplete.video-only-best", "incomplete.mixed-best", "expression.all-includes-storyboard", "multistream.default", "multistream.allow-video", "multistream.allow-audio", "multistream.allow-both", "multistream.duplicate-preserved"]
+      "id": "normalization-media-defaults-and-multistreams",
+      "selector_cases": ["normalize.generated-missing", "normalize.sanitized", "normalize.duplicates", "normalize.extension-conflict", "metadata.muxed", "drm.default", "drm.allowed", "drm.all-excludes-disallowed", "drm.direct-id-excludes-disallowed", "url-filter.all", "url-filter.direct-missing", "url-filter.direct-empty", "coercion.numeric-id", "gap.plain-best-combined", "gap.all-order", "gap.multistream-product"],
+      "planner_cases": ["incomplete.video-only-best", "incomplete.video-only-best.2", "incomplete.audio-only-best", "incomplete.mixed-best", "multistream.default", "multistream.allow-video", "multistream.allow-audio", "multistream.allow-both", "multistream.duplicate-preserved", "multistream.combined-uses-both-slots", "multistream.storyboard-removed", "metadata.two-track", "metadata.single-track", "metadata.prefer-free-extension", "metadata.rich-two-track", "compatible_extension.cases"]
     },
     {
-      "id": "syntax-and-resource-contract",
-      "selector_cases": ["parser.quoted-filter-bracket", "parser.index-over-1000", "parser.reject-empty-comma-branch", "parser.syntax-original-offset", "limit.format-count", "limit.id-bytes", "limit.aggregate-id-bytes", "limit.output-count", "malformed.non-list", "malformed.non-object"]
+      "id": "parser-syntax-and-resource-contract",
+      "selector_cases": ["syntax.unclosed-filter", "syntax.empty-branch", "syntax.bad-index", "malformed.non-list", "malformed.non-object", "limit.format-count", "limit.id-bytes", "limit.aggregate-id-bytes", "limit.output-count", "parser.whitespace-bestvideo", "parser.whitespace-index", "parser.empty-group", "parser.trailing-comma", "parser.double-slash-direct-id", "parser.trailing-slash", "parser.group-trailing-slash", "parser.reject-leading-comma", "parser.reject-empty-comma-branch", "parser.reject-group-leading-comma", "parser.reject-group-empty-comma", "parser.atom-fallback-star-suffix", "parser.atom-fallback-best-dot", "parser.atom-fallback-best-01", "parser.direct-id-punctuation", "parser.quoted-filter-bracket", "parser.index-over-1000", "parser.syntax-original-offset", "parser.syntax-unclosed-quote", "parser.syntax-unexpected-close", "parser.direct-id-token-punctuation", "parser.direct-id-discarded-punctuation", "parser.extension-boundary-direct-id", "parser.direct-id-bang-op", "parser.direct-id-unicode-number", "parser.unquoted-backslash-filter"]
     },
     {
-      "id": "readme-selector-examples",
-      "selector_cases": ["operator.merge", "filter.chained", "filter.regex"],
-      "planner_cases": ["quality.basic-best", "quality.basic-bv", "quality.basic-ba"]
+      "id": "sorter-composition-and-ordering",
+      "sorter_cases": ["zero-value-default", "default-order-full", "forced-versus-non-forced-user", "user-before-extractor-precedence", "duplicate-first-occurrence", "_format_sort_fields", "repeated-user-fields-options", "default-codec-rankings", "unknown-codec", "ordered-missing-codec", "ordered-regex-prefix", "textual-ordered-limit", "normal-ext-order", "free-ext-order", "hdr-order", "protocol-order", "language-preference", "preference-hidden-behavior", "quality-and-source-preference", "resolution", "fps", "channels", "codec-combined", "ext-combined", "size-and-bitrate-multiple", "exact-field-limit", "closest-field-limit", "combined-field-limits", "alias-resolution", "deprecated-alias", "missing-null-values", "numeric-string-mixed", "stable-complete-ties", "derived-protocol-and-ext", "derived-audio-video-extensions", "derived-bitrate-fields", "hevc-over-flv-preference", "source-index-preservation", "canonical-infojson-order", "sort-bounds-oversized", "malformed-extractor-fields"]
     }
   ],
+  "official_parser_examples": ["22,17,18", "136/137/mp4/bestvideo,140/m4a/bestaudio", "bestvideo+bestaudio", "bv*+ba/b", "bv*+mergeall[vcodec=none]", "bv*+ba+ba.2", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4] / bv*+ba/b", "bv*[height<=480]+ba/b[height<=480] / wv*+ba/w", "(bv*+ba/b)[protocol^=http][protocol!*=dash] / (bv*+ba/b)", "((bv*[fps>30]/bv*)[height<=720]/(wv*[fps>30]/wv*)) + ba / (b[fps>30]/b)[height<=720]/(w[fps>30]/w)"],
   "allowed_deviations": [
     "malformed.non-list",
     "malformed.non-object",
