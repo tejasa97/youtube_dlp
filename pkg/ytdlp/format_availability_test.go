@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
 	"github.com/ytdlp-go/ytdlp/internal/network"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/dash"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/ism"
@@ -249,6 +250,84 @@ func TestFormatAvailabilityAggregateBudgetReturnsLimit(t *testing.T) {
 	checker.bytes = availabilityMaxTotalBytes
 	if err := checker.recordBytes(1); !errors.Is(err, ErrFormatCheckLimit) {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestFormatCheckNoneMakesNoProbeRequests(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls.Add(1) }))
+	defer server.Close()
+	if shouldCheckFormats(FormatCheckNone, false) {
+		t.Fatal("none enabled checker")
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("calls=%d", calls.Load())
+	}
+}
+
+func TestFormatCheckAllReusesProbeCacheDuringPlanning(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1); _, _ = w.Write([]byte("x")) }))
+	defer server.Close()
+	checker := availabilityTestChecker(t, FormatCheckAll)
+	format := availabilityFormat(server.URL, nil)
+	if _, err := checker.IsAvailable(format); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := checker.IsAvailable(format); err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("calls=%d want one cached identity", calls.Load())
+	}
+}
+
+func TestFormatAvailabilityInternalTimeoutIsUnavailable(t *testing.T) {
+	checker := availabilityTestChecker(t, FormatCheckSelected)
+	// A transport-style probe failure is intentionally an unavailable candidate,
+	// unlike the parent cancellation test above.
+	ok, err := checker.IsAvailable(availabilityFormat("http://127.0.0.1:1/unreachable", nil))
+	if ok || err != nil {
+		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+}
+
+func TestFormatAvailabilityCrossOriginRedirectUsesOnlyDestinationScopedJarCookies(t *testing.T) {
+	var cookie string
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cookie = r.Header.Get("Cookie")
+		_, _ = w.Write([]byte("x"))
+	}))
+	defer target.Close()
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, target.URL, http.StatusFound) }))
+	defer origin.Close()
+	checker := availabilityTestChecker(t, FormatCheckSelected)
+	ok, err := checker.IsAvailable(availabilityFormat(origin.URL, http.Header{"Cookie": {"origin=secret"}, "Authorization": {"Bearer secret"}}))
+	if err != nil || !ok || cookie != "" {
+		t.Fatalf("ok=%v err=%v destination cookie=%q", ok, err, cookie)
+	}
+}
+
+func TestFormatCheckSelectedFallsBackFromUnavailablePreferred(t *testing.T) {
+	formats := value.List(
+		value.ObjectValue(value.NewObject(value.Field{Key: "format_id", Value: value.String("bad")}, value.Field{Key: "url", Value: value.String("https://bad.invalid")}, value.Field{Key: "height", Value: value.Int(1080)})),
+		value.ObjectValue(value.NewObject(value.Field{Key: "format_id", Value: value.String("good")}, value.Field{Key: "url", Value: value.String("https://good.invalid")}, value.Field{Key: "height", Value: value.Int(720)})),
+	)
+	info := value.NewInfo(value.NewObject(value.Field{Key: "formats", Value: formats}))
+	prepared, err := mediaformat.Prepare(info, mediaformat.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selector, err := mediaformat.ParseSelector("best/best")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plans, err := prepared.PlanWithOptions(selector, mediaformat.EvaluationOptions{Availability: mediaformat.FormatAvailabilityFunc(func(o *value.Object) (bool, error) {
+		id, _ := o.Lookup("format_id").StringValue()
+		return id == "good", nil
+	})})
+	if err != nil || len(plans) != 1 || plans[0].Tracks[0].ID != "good" {
+		t.Fatalf("plans=%#v err=%v", plans, err)
 	}
 }
 

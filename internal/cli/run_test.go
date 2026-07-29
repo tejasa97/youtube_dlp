@@ -1409,6 +1409,79 @@ func TestRunRejectsProgressJSONWithInteractiveFormatBeforeExtraction(t *testing.
 	}
 }
 
+func runFormatFlagFixture(t *testing.T, args ...string) (int, string, string) {
+	t.Helper()
+	server := testserver.New()
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	args = append(args, "--skip-download", server.URL+"/page")
+	code := RunContextIO(context.Background(), args, strings.NewReader(""), &stdout, &stderr)
+	return code, stdout.String(), stderr.String()
+}
+
+func TestRunFormatMultistreamFlagsLastOccurrenceWins(t *testing.T) {
+	code, _, errout := runFormatFlagFixture(t, "--video-multistreams", "--no-video-multistreams", "--audio-multistreams", "--no-audio-multistreams")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, errout)
+	}
+}
+func TestRunFormatSortForceAndResetOrdering(t *testing.T) {
+	code, _, errout := runFormatFlagFixture(t, "-S", "res,, fps", "--format-sort-reset", "-S", "abr", "--format-sort-force", "--no-format-sort-force")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, errout)
+	}
+}
+func TestRunPreferFreeAndUnplayableNegations(t *testing.T) {
+	code, _, errout := runFormatFlagFixture(t, "--prefer-free-formats", "--no-prefer-free-formats", "--allow-unplayable-formats", "--no-allow-unplayable-formats")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, errout)
+	}
+}
+func TestRunAllFormatsAndExplicitFormatLastOccurrenceWins(t *testing.T) {
+	code, _, errout := runFormatFlagFixture(t, "--all-formats", "-f", "best", "--all-formats")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, errout)
+	}
+}
+func TestRunFormatCheckModesLastOccurrenceWins(t *testing.T) {
+	code, _, errout := runFormatFlagFixture(t, "--check-all-formats", "--check-formats", "--no-check-formats")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, errout)
+	}
+}
+func TestRunMergeOutputFormatPlumbing(t *testing.T) {
+	code, _, errout := runFormatFlagFixture(t, "--merge-output-format", "mp4/mkv")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%s", code, errout)
+	}
+}
+
+func TestRunInteractiveFormatEmptyUsesDefault(t *testing.T) {
+	code, _, errout := runFormatFlagFixture(t, "-f", "-")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errout)
+	}
+}
+func TestRunInteractiveFormatUnavailableThenValid(t *testing.T) {
+	code, _, errout := runFormatFlagFixture(t, "-f", "-")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errout)
+	}
+}
+func TestRunInteractiveFormatAttemptsExhausted(t *testing.T) {
+	code, _, errout := runFormatFlagFixture(t, "-f", "-")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errout)
+	}
+}
+func TestRunInteractiveFormatEOFAndJSONChannelIsolation(t *testing.T) {
+	var out, errout bytes.Buffer
+	code := RunContextIO(context.Background(), []string{"--progress-json", "-f", "-", "https://example.invalid"}, strings.NewReader(""), &out, &errout)
+	if code != 2 || out.Len() != 0 || !strings.Contains(errout.String(), "--progress-json") {
+		t.Fatalf("code=%d out=%q err=%q", code, out.String(), errout.String())
+	}
+}
+
 func TestRunInteractiveMatchFilterListingAndOutputChannels(t *testing.T) {
 	server := testserver.New()
 	defer server.Close()
