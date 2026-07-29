@@ -33,10 +33,8 @@ ytdlp-go -S 'res:1080' -S 'fps' --prefer-free-formats URL
 ```
 
 Format-sort reset wiring, interactive `-f -`, arbitrary N-track execution, and
-the complete multi-output lifecycle remain assigned to later PRs in the
-[implementation plan](FORMAT_SELECTOR_PARITY_IMPLEMENTATION_PLAN.md). The
-current product safely executes one track or a mergeable video/audio pair per
-output and rejects unsupported layouts before media transfer.
+the complete multi-output lifecycle are implemented and covered by the pinned
+closure matrix in [the PR 10 evidence record](FORMAT_SELECTOR_PINNED_CLOSURE_EVIDENCE.md).
 
 `internal/format.TestSelectorConformanceCorpus` validates the fixture schema,
 provenance, unique case IDs, safety limits, parity classification, normalized
@@ -136,7 +134,7 @@ planner consumes directly without mutating canonical state.
 
 `Options.PreferExtensions` remains a Go-only compatibility preference inserted
 at the extension position in the canonical tuple, after quality fields. CLI
-format-sort reset wiring remains deferred to PR 9.
+format-sort reset wiring is implemented and covered by the CLI parity evidence.
 
 ## Planner contract
 
@@ -185,7 +183,7 @@ ID bytes.
 | `direct-id.discarded-punctuation` | Direct-format IDs containing `# \ ' "` | Pinned Python comments `#...` away or token-errors on `\ ' "`. | Parser rejects the token with a syntax error. | `parser.direct-id-discarded-punctuation` | Deliberate safety gap for `#`; parity rejection for `\ ' "` | Failing closed avoids silently selecting a different ID for comments. |
 | `media.storyboard` | `mhtml` | Selects storyboard formats. | Supported and pinned in the corpus. | `extension.storyboard` | Closed | Guard against playable-universe regressions. |
 | `product.multistream-policy` | Same-kind merged tracks | Suppresses later same-kind streams by default and retains them when the corresponding option is enabled. | Matches all four pinned multistream combinations and preserves duplicate tracks when enabled. | `gap.multistream-product`, planner oracle | Passing parity | Execution of arbitrary retained N-track plans remains PR 6. |
-| `product.interactive-selector` | `-f -` | Prompts interactively per video. | `-` is not an interactive selector surface. | Provenance only | Product unsupported | Outside the library/fixture scope. |
+| `product.interactive-selector` | `-f -` | Prompts interactively per video. | Prompts after extraction with bounded retry/default/EOF handling and JSON-channel isolation. | `TestRunInteractiveFormat*`, `TestClientInteractiveFormatRepromptsThenSelects` | Passing parity within the bounded CLI contract | Interactive mode is rejected with `--progress-json` to protect machine-readable output. |
 | `product.multi-output-postprocess` | Multiple independent outputs | Applies the complete lifecycle independently to each output. | Per-plan sidecars, postprocessors, cuts, embeds, prints, accounting, rollback, and interactive decisions execute in stable order. | `TestMultiOutputLifecycle*` | Passing parity within the bounded operation set | Fixed postprocessor destinations that would collide across outputs fail during preflight. |
 | `bounds.collection` | Extractor format collections | No explicit format-count or ID-size bounds. | Returns `ErrFormatLimit`. | `limit.format-count`, `limit.id-bytes`, `limit.aggregate-id-bytes` | Deliberate safety gap | Retain deterministic resource limits. |
 | `bounds.selector-evaluation` | Large selector results | Broader/unbounded behavior. | Parser/evaluator cap AST depth, filters, merge terms, products, and outputs. | `limit.output-count` and parser-limit tests | Deliberate safety gap | Retain bounded evaluation. |

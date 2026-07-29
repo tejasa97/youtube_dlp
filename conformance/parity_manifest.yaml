@@ -2155,11 +2155,11 @@ capabilities:
       - postprocess.core_operations
     known_deviation: Title expressions use bounded Go RE2 search semantics; Python-only look-around and backreferences remain unsupported. The Go parser rejects infinite starts and equal/inverted ranges that upstream accepts initially but cannot turn into a positive cut. Removing the entire media and a greater-than-one-second metadata/real-duration mismatch fail closed without mutation. Unsupported external subtitle formats fail closed instead of yt-dlp's warn-and-continue policy. Manual ranges are intentionally exposed through upstream's *start-end --remove-chapters grammar rather than a separate --remove-ranges flag.
 
-  - id: compat.format_selector_pilot
-    name: Format-selector normalization and conformance baseline
+  - id: compat.format_selector
+    name: Pinned format-selector closure
     phase: 1
     compatibility_target: Filter, coerce, sort, and normalize extractor formats in pinned order, then share one defensive canonical view across selectors, tables, prints, results, InfoJSON, errors, and safety-limit fixtures.
-    status: partial
+    status: compatible
     evidence:
       - internal/format.TestSelectorConformanceCorpus
       - internal/format.TestParserParityOfficialExamples
@@ -2171,6 +2171,7 @@ capabilities:
       - internal/format.TestPlannerConformanceCorpus
       - internal/format.TestPlannerDefaultSelectorSpecMatchesPinnedPolicy
       - internal/format.TestPlannerAvailabilityCacheScope
+      - internal/format.TestPinnedClosureMatrix
       - pkg/ytdlp.TestFormatSelectorInvalidSyntaxFailsBeforeExtraction
       - internal/format.TestPrepareFormatsNormalizesAfterStableOrdering
       - internal/format.TestPrepareFormatsFiltersBeforeGeneratedIDs
@@ -2185,11 +2186,13 @@ capabilities:
       - internal/format/testdata/filter_oracle.json
       - internal/format/testdata/python_regex_oracle.json
       - internal/format/testdata/planner_conformance.json
+      - internal/format/testdata/pinned_closure_matrix.json
       - conformance/compat/format_selector/PROVENANCE.md
       - conformance/format_planner/PROVENANCE.md
       - docs/FORMAT_SELECTOR_PARITY.md
+      - docs/FORMAT_SELECTOR_PINNED_CLOSURE_EVIDENCE.md
     owner: core
-    known_deviation: Parser, filters, bounded Python-regex translation, evaluator ordering, defaults, multistream suppression, merged metadata, injected availability, retained N-track execution, and the per-output product lifecycle match the pinned bounded corpora. Pinned sorter parity is tracked separately by compat.format_sorter. Go retains deliberate defensive-copy, malformed-metadata rejection, discarded-punctuation rejection, and bounded collection/evaluation differences. CLI format checking and remaining selector flags are tracked separately.
+    known_deviation: "Parser, filters, bounded Python-regex translation, evaluator ordering, defaults, multistream suppression, merged metadata, injected availability, retained N-track execution, per-output lifecycle, and CLI format-selection controls match the committed pinned corpus. Pinned sorter parity is tracked separately by compat.format_sorter. The only retained selector differences are documented bounded-contract safety choices: defensive copying, malformed-metadata rejection, discarded-punctuation rejection, and collection/evaluation limits. PR 11's forward-upstream delta is explicitly outside this pinned claim."
 
   - id: compat.format_sorter
     name: Pinned FormatSorter parity
@@ -2209,8 +2212,8 @@ capabilities:
       - docs/FORMAT_SELECTOR_PARITY.md
     owner: core
     depends_on:
-      - compat.format_selector_pilot
-    known_deviation: Options.PreferExtensions is retained as a Go-only preference at the extension position after quality fields. CLI format-sort reset wiring is deferred to PR 9. The planner now consumes canonical worst-to-best order directly.
+      - compat.format_selector
+    known_deviation: Options.PreferExtensions is retained as a Go-only preference at the extension position after quality fields. CLI format-sort reset wiring is implemented. The planner consumes canonical worst-to-best order directly.
 
   - id: compat.output_template_pilot
     name: Output-template parser pilot
