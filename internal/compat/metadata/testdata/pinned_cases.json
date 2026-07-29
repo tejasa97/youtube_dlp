@@ -1,0 +1,12 @@
+{
+  "reference": {
+    "repository": "yt-dlp/yt-dlp",
+    "commit": "aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8",
+    "python": "CPython 3.12.13",
+    "derivation": "Source-level cases transcribed from MetadataParserPP at the pinned commit; no Python oracle was executed during this change."
+  },
+  "cases": [
+    {"name": "title-to-captures", "from": "title", "to": "%(artist)s - %(track)s", "input": "Artist - Song", "artist": "Artist", "track": "Song"},
+    {"name": "unicode-capture", "from": "title", "to": "%(é)s", "input": "Café", "é": "Café"}
+  ]
+}

@@ -158,13 +158,36 @@ type Request struct {
 	// BreakMatchFilters use the same OR/AND language as MatchFilters, but a
 	// rejection stops playlist expansion before the rejected entry is retained.
 	BreakMatchFilters []string
-	ParseMetadata     []string
-	ReplaceMetadata   []string
-	Downloader        DownloaderOptions
-	Postprocessors    []Postprocessor
+	// MetadataActions preserves command-line ordering between parse and replace
+	// metadata operations. ParseMetadata and ReplaceMetadata remain for callers
+	// of the earlier programmatic API; new callers should prefer this field.
+	MetadataActions []MetadataAction
+	ParseMetadata   []string
+	ReplaceMetadata []string
+	Downloader      DownloaderOptions
+	Postprocessors  []Postprocessor
 	// PluginID explicitly selects an installed signed plugin extractor. Plugins
 	// are never considered by automatic URL routing.
 	PluginID string
+}
+
+// MetadataActionKind identifies one MetadataParser operation.
+type MetadataActionKind uint8
+
+const (
+	MetadataActionParse MetadataActionKind = iota + 1
+	MetadataActionReplace
+)
+
+// MetadataAction is an ordered --parse-metadata or --replace-in-metadata
+// request. Replace actions use Fields, Search, and Replacement, matching
+// yt-dlp's three command-line arguments.
+type MetadataAction struct {
+	Kind        MetadataActionKind
+	Parse       string
+	Fields      string
+	Search      string
+	Replacement string
 }
 
 // FormatCheckMode controls when selected media URLs are availability-checked.
