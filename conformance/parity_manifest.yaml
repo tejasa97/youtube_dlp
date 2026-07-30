@@ -37,17 +37,19 @@ capabilities:
     owner: core
     known_deviation: Bounded Rai relinker F4M/HDS VOD emission is wired to the generic native HDS downloader, including signed-query preservation, credential isolation, atomic cleanup, and categorized live/DRM rejection. The HDS claim is limited to synthetic unencrypted VOD fixtures; authenticated pages, untested HTML state, remote-schema variants, and encrypted/live playback remain outside this public fixture-backed scope.
   - id: extractor.prx
-    name: PRX CMS stories, series, and accounts
+    name: PRX CMS stories, series, accounts, and search
     phase: 1
-    compatibility_target: Extract exact public numeric PRX story, series, and account routes through the bounded CMS API with canonical URL-result re-entry.
+    compatibility_target: Extract exact public numeric PRX story, series, and account routes plus pinned prxstories/prxseries opaque searches through the bounded CMS API with canonical URL-result re-entry.
     status: compatible
     evidence:
       - internal/extractor.TestPRXRoutesAndStory
       - internal/extractor.TestPRXStatusAndPagination
       - internal/extractor.FuzzPRXTarget
+      - internal/extractor.TestPRXSearchRoutingAndResults
+      - internal/extractor.FuzzPRXSearchTarget
       - conformance/extractors/prx/PROVENANCE.md
     owner: core
-    known_deviation: PRX story and series search extractors are deferred; synthetic fixtures do not prove behavior against future live API schema changes.
+    known_deviation: PRX support is bounded to the pinned numeric routes and opaque story/series search keys; synthetic fixtures do not prove behavior against future live API schema changes.
   - id: extractor.discovery_dplay
     name: Discovery and DPlay extractor family
     phase: 2

@@ -18,16 +18,19 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
 const (
-	prxAPI        = "https://cms.prx.org/api/v1/"
-	prxMaxPages   = 1000
-	prxMaxEntries = 10000
-	prxMaxPieces  = 100
-	prxMaxTags    = 100
+	prxAPI                 = "https://cms.prx.org/api/v1/"
+	prxMaxPages            = 1000
+	prxMaxEntries          = 10000
+	prxMaxPieces           = 100
+	prxMaxTags             = 100
+	prxSearchMaxQueryBytes = 500
+	prxSearchMaxURLBytes   = 4096
 )
 
 var (
@@ -40,16 +43,27 @@ var (
 type PRXStory struct{}
 type PRXSeries struct{}
 type PRXAccount struct{}
+type PRXStoriesSearch struct{}
+type PRXSeriesSearch struct{}
 
 func NewPRXStory() PRXStory                 { return PRXStory{} }
 func NewPRXSeries() PRXSeries               { return PRXSeries{} }
 func NewPRXAccount() PRXAccount             { return PRXAccount{} }
+func NewPRXStoriesSearch() PRXStoriesSearch { return PRXStoriesSearch{} }
+func NewPRXSeriesSearch() PRXSeriesSearch   { return PRXSeriesSearch{} }
 func (PRXStory) Name() string               { return "prx_story" }
 func (PRXSeries) Name() string              { return "prx_series" }
 func (PRXAccount) Name() string             { return "prx_account" }
+func (PRXStoriesSearch) Name() string       { return "prx_stories_search" }
+func (PRXSeriesSearch) Name() string        { return "prx_series_search" }
 func (PRXStory) Suitable(u *url.URL) bool   { k, _, ok := prxTarget(u); return ok && k == "stories" }
 func (PRXSeries) Suitable(u *url.URL) bool  { k, _, ok := prxTarget(u); return ok && k == "series" }
 func (PRXAccount) Suitable(u *url.URL) bool { k, _, ok := prxTarget(u); return ok && k == "accounts" }
+func (PRXStoriesSearch) Suitable(u *url.URL) bool {
+	_, ok := prxSearchTarget(u, "prxstories")
+	return ok
+}
+func (PRXSeriesSearch) Suitable(u *url.URL) bool { _, ok := prxSearchTarget(u, "prxseries"); return ok }
 
 func prxTarget(u *url.URL) (string, string, bool) {
 	if u == nil || hostedRejectUnsafeURL(u) || u.Scheme != "https" || !prxPartQueryOK(u) {
@@ -85,6 +99,46 @@ func prxPart(u *url.URL) int {
 	}
 	n, _ := strconv.Atoi(u.Query().Get("prx_part"))
 	return n
+}
+
+// PRX search has no public browser route in the pinned implementation. Only
+// the opaque yt-dlp-compatible keys are accepted, which keeps search input
+// from being repurposed as an API URL or request path.
+func prxSearchTarget(u *url.URL, key string) (string, bool) {
+	if u == nil || len(u.String()) > prxSearchMaxURLBytes || !strings.EqualFold(u.Scheme, key) || u.User != nil || u.Host != "" || u.RawQuery != "" || u.Fragment != "" || u.Opaque == "" {
+		return "", false
+	}
+	if !validPRXSearchQuery(u.Opaque) {
+		return "", false
+	}
+	return u.Opaque, true
+}
+
+func validPRXSearchQuery(query string) bool {
+	if query == "" || len(query) > prxSearchMaxQueryBytes || !utf8.ValidString(query) {
+		return false
+	}
+	for _, r := range query {
+		if r <= 0x1f || r == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+func prxSearchRequestURL(endpoint, query string, page int) (string, error) {
+	if (endpoint != "stories/search" && endpoint != "series/search") || !validPRXSearchQuery(query) || page < 1 || page > prxMaxPages {
+		return "", fmt.Errorf("%w: invalid PRX search request", ErrInvalidMetadata)
+	}
+	u, err := url.Parse(prxAPI + endpoint)
+	if err != nil {
+		return "", fmt.Errorf("%w: invalid PRX search endpoint", ErrInvalidMetadata)
+	}
+	u.RawQuery = url.Values{"q": {query}, "page": {strconv.Itoa(page)}, "per": {"100"}}.Encode()
+	if len(u.String()) > prxSearchMaxURLBytes {
+		return "", fmt.Errorf("%w: PRX search request exceeds bound", ErrInvalidMetadata)
+	}
+	return u.String(), nil
 }
 
 type prxResource struct {
@@ -171,10 +225,16 @@ func (id *prxID) UnmarshalJSON(data []byte) error {
 }
 
 func prxGet(ctx context.Context, t Transport, path string, out any) error {
+	return prxGetURL(ctx, t, prxAPI+path, out)
+}
+
+// prxGetURL is intentionally private to this backend. Its callers construct
+// only fixed CMS paths; search uses prxSearchRequestURL rather than accepting a
+// caller-provided endpoint.
+func prxGetURL(ctx context.Context, t Transport, raw string, out any) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	raw := prxAPI + path
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
 	if err != nil {
 		return ErrInvalidMetadata
@@ -454,6 +514,30 @@ func (x PRXSeries) Extract(ctx context.Context, req Request) (Extraction, error)
 func (x PRXAccount) Extract(ctx context.Context, req Request) (Extraction, error) {
 	return prxCollection(ctx, req, "accounts")
 }
+
+func (x PRXStoriesSearch) Extract(ctx context.Context, req Request) (Extraction, error) {
+	return prxSearch(ctx, req, "prxstories", "stories/search", "stories")
+}
+
+func (x PRXSeriesSearch) Extract(ctx context.Context, req Request) (Extraction, error) {
+	return prxSearch(ctx, req, "prxseries", "series/search", "series")
+}
+
+func prxSearch(ctx context.Context, req Request, key, endpoint, kind string) (Extraction, error) {
+	if err := contextError(ctx); err != nil {
+		return Extraction{}, err
+	}
+	query, ok := prxSearchTarget(mustPRXURL(req.URL), key)
+	if !ok || req.Transport == nil {
+		return Extraction{}, ErrUnsupported
+	}
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String(query)},
+		value.Field{Key: "title", Value: value.String(query)},
+		value.Field{Key: "webpage_url", Value: value.String(key + ":" + query)},
+	))
+	return Playlist(info, prxEntries{transport: req.Transport, endpoints: []string{endpoint}, itemKind: kind, query: query})
+}
 func prxCollection(ctx context.Context, req Request, kind string) (Extraction, error) {
 	k, id, ok := prxTarget(mustPRXURL(req.URL))
 	if !ok || k != kind || req.Transport == nil {
@@ -480,6 +564,10 @@ func prxCollection(ctx context.Context, req Request, kind string) (Extraction, e
 type prxEntries struct {
 	transport Transport
 	endpoints []string
+	// itemKind and query are search-only fixed values. Collections derive their
+	// item kind from the fixed endpoint list.
+	itemKind string
+	query    string
 }
 
 func (s prxEntries) Iterator() EntryIterator { return &prxIterator{s: s, page: 1} }
@@ -502,13 +590,14 @@ func (i *prxIterator) Next(ctx context.Context) (Entry, bool, error) {
 			if r.ID == "" || !prxRowID.MatchString(string(r.ID)) {
 				continue
 			}
-			kind := "stories"
-			key := "prx_story"
-			if strings.Contains(i.itemEndpoint, "/series") {
-				kind = "series"
-				key = "prx_series"
+			kind := i.s.itemKind
+			if kind == "" {
+				kind = "stories"
+				if strings.Contains(i.itemEndpoint, "/series") {
+					kind = "series"
+				}
 			}
-			return Entry{URL: "https://beta.prx.org/" + kind + "/" + string(r.ID), ExtractorKey: key, ID: string(r.ID), Title: firstPRX(r.Title, r.Name, string(r.ID))}, true, nil
+			return prxPlaylistEntry(r, kind), true, nil
 		}
 		if len(i.items) > 0 && i.index >= len(i.items) {
 			i.items = nil
@@ -522,7 +611,16 @@ func (i *prxIterator) Next(ctx context.Context) (Entry, bool, error) {
 			return Entry{}, false, fmt.Errorf("%w: PRX pagination overflow", ErrInvalidPlaylist)
 		}
 		var r prxResource
-		e := prxGet(ctx, i.s.transport, i.s.endpoints[i.endpoint]+"?page="+strconv.Itoa(i.page)+"&per=100", &r)
+		var e error
+		if i.s.query != "" {
+			var requestURL string
+			requestURL, e = prxSearchRequestURL(i.s.endpoints[i.endpoint], i.s.query, i.page)
+			if e == nil {
+				e = prxGetURL(ctx, i.s.transport, requestURL, &r)
+			}
+		} else {
+			e = prxGet(ctx, i.s.transport, i.s.endpoints[i.endpoint]+"?page="+strconv.Itoa(i.page)+"&per=100", &r)
+		}
 		if e != nil {
 			return Entry{}, false, e
 		}
@@ -549,4 +647,24 @@ func (i *prxIterator) Next(ctx context.Context) (Entry, bool, error) {
 			i.total = 0
 		}
 	}
+}
+
+func prxPlaylistEntry(r prxResource, kind string) Entry {
+	key := "prx_story"
+	if kind == "series" {
+		key = "prx_series"
+	}
+	entry := Entry{URL: "https://beta.prx.org/" + kind + "/" + string(r.ID), ExtractorKey: key, ID: string(r.ID), Title: firstPRX(r.Title, r.Name, string(r.ID))}
+	if info, err := prxInfo(r, kind); err == nil {
+		if thumbnail, ok := info.Lookup("thumbnail").StringValue(); ok {
+			entry.Thumbnail = thumbnail
+		}
+		if duration, ok := info.Lookup("duration").Int(); ok {
+			entry.Duration, entry.HasDuration = float64(duration), true
+		}
+		if timestamp, ok := info.Lookup("timestamp").Int(); ok {
+			entry.Timestamp, entry.HasTimestamp = timestamp, true
+		}
+	}
+	return entry
 }

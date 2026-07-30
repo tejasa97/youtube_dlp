@@ -148,6 +148,155 @@ func TestPRXRoutesAndStory(t *testing.T) {
 	}
 }
 
+func TestPRXSearchRoutingAndResults(t *testing.T) {
+	for _, tc := range []struct {
+		raw, name, searchKey, endpoint, kind string
+	}{
+		{"prxstories:hello world", "prx_stories_search", "prxstories", "stories/search", "stories"},
+		{"prxseries:café", "prx_series_search", "prxseries", "series/search", "series"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			u, err := url.Parse(tc.raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var ex Extractor
+			if tc.kind == "stories" {
+				ex = NewPRXStoriesSearch()
+			} else {
+				ex = NewPRXSeriesSearch()
+			}
+			if !ex.Suitable(u) {
+				t.Fatalf("not suitable: %s", tc.raw)
+			}
+			body1 := `{"count":2,"total":3,"_embedded":{"prx:items":[{"id":"1","title":"First","duration":12,"createdAt":"2024-01-01T00:00:00Z"},{"id":"","title":"skip"}]}}`
+			body2 := `{"count":1,"total":3,"_embedded":{"prx:items":[{"id":"3","title":"Third"}]}}`
+			tx := newPrxTransportSequence([]int{200, 200}, []string{body1, body2})
+			result, err := ex.Extract(context.Background(), Request{URL: tc.raw, Transport: tx})
+			if err != nil || !result.IsPlaylist() {
+				t.Fatalf("result=%#v err=%v", result, err)
+			}
+			entries, err := CollectEntries(context.Background(), result.Entries, 10)
+			if err != nil || len(entries) != 2 {
+				t.Fatalf("entries=%#v err=%v", entries, err)
+			}
+			wantKey := "prx_story"
+			if tc.kind == "series" {
+				wantKey = "prx_series"
+			}
+			if entries[0].URL != "https://beta.prx.org/"+tc.kind+"/1" || entries[0].ExtractorKey != wantKey || entries[0].Title != "First" || !entries[0].HasDuration || !entries[0].HasTimestamp {
+				t.Fatalf("unexpected metadata overlay: %#v", entries[0])
+			}
+			requests := tx.requestURLs()
+			if len(requests) != 2 {
+				t.Fatalf("requests = %v", requests)
+			}
+			query, _ := prxSearchTarget(u, tc.searchKey)
+			for page, raw := range requests {
+				requestURL, _ := url.Parse(raw)
+				q := requestURL.Query()
+				if requestURL.Path != "/api/v1/"+tc.endpoint || q.Get("q") != query || q.Get("per") != "100" || q.Get("page") != strconv.Itoa(page+1) {
+					t.Fatalf("invalid bounded request %q", raw)
+				}
+			}
+		})
+	}
+}
+
+func TestPRXSearchTargetRejectsHostileAndBounds(t *testing.T) {
+	bad := []string{
+		"https://prx.org/search?q=x", "prxstories:", "prxstories:x?y", "prxstories://host/x",
+		"prxstories:x#fragment", "prxstories:line\nbreak", "prxstories:" + strings.Repeat("x", prxSearchMaxQueryBytes+1),
+	}
+	for _, raw := range bad {
+		u, _ := url.Parse(raw)
+		if NewPRXStoriesSearch().Suitable(u) || NewPRXSeriesSearch().Suitable(u) {
+			t.Fatalf("accepted hostile search route %q", raw)
+		}
+	}
+	for _, tc := range []struct{ query, want string }{{"space & plus+ café", "space+%26+plus%2B+caf%C3%A9"}, {"a%2Fb", "a%252Fb"}} {
+		raw, err := prxSearchRequestURL("stories/search", tc.query, 1)
+		if err != nil || !strings.Contains(raw, "q="+tc.want) || strings.Contains(raw, "\n") {
+			t.Fatalf("query encoding %q: %q, %v", tc.query, raw, err)
+		}
+	}
+	if _, err := prxSearchRequestURL("https://evil.invalid", "x", 1); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("arbitrary endpoint err=%v", err)
+	}
+}
+
+func TestPRXSearchEmptyBoundsCancellationAndStatus(t *testing.T) {
+	for _, tc := range []struct {
+		status int
+		want   error
+	}{{301, ErrPRXNetwork}, {401, ErrAuthentication}, {429, ErrPRXRateLimited}, {500, ErrPRXNetwork}} {
+		t.Run(strconv.Itoa(tc.status), func(t *testing.T) {
+			tx := newPrxTransport(tc.status, `{}`)
+			r, err := NewPRXStoriesSearch().Extract(context.Background(), Request{URL: "prxstories:x", Transport: tx})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = CollectEntries(context.Background(), r.Entries, 1)
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("status %d: %v", tc.status, err)
+			}
+		})
+	}
+	tx := newPrxTransport(200, `{"count":0,"total":0,"_embedded":{"prx:items":[]}}`)
+	r, err := NewPRXStoriesSearch().Extract(context.Background(), Request{URL: "prxstories:empty", Transport: tx})
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := CollectEntries(context.Background(), r.Entries, 1)
+	if err != nil || len(entries) != 0 || tx.requestCount() != 1 {
+		t.Fatalf("empty result entries=%v err=%v calls=%d", entries, err, tx.requestCount())
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = CollectEntries(ctx, r.Entries, 1)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancellation err=%v", err)
+	}
+}
+
+func TestPRXSearchReuseAndRegistry(t *testing.T) {
+	entries := prxEntries{transport: newPrxTransport(200, `{"count":1,"total":1,"_embedded":{"prx:items":[{"id":"1"}]}}`), endpoints: []string{"series/search"}, itemKind: "series", query: "x"}
+	for n := 0; n < 2; n++ {
+		got, err := CollectEntries(context.Background(), entries, 2)
+		if err != nil || len(got) != 1 || got[0].ExtractorKey != "prx_series" {
+			t.Fatalf("iteration %d: %#v, %v", n, got, err)
+		}
+	}
+	reg := NewRegistry(NewPRXStoriesSearch(), NewPRXSeriesSearch(), NewPRXStory(), NewPRXSeries())
+	for raw, want := range map[string]string{"prxstories:x": "prx_stories_search", "prxseries:x": "prx_series_search"} {
+		ex, err := reg.Select(raw)
+		if err != nil || ex.Name() != want {
+			t.Fatalf("route %s: %v, %v", raw, ex, err)
+		}
+	}
+}
+
+func TestPRXSearchConcurrentIsolation(t *testing.T) {
+	var wg sync.WaitGroup
+	for n := 0; n < 12; n++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			tx := newPrxTransport(200, `{"count":1,"total":1,"_embedded":{"prx:items":[{"id":"1"}]}}`)
+			raw := "prxstories:q" + strconv.Itoa(n)
+			r, err := NewPRXStoriesSearch().Extract(context.Background(), Request{URL: raw, Transport: tx})
+			if err != nil {
+				t.Errorf("extract %d: %v", n, err)
+				return
+			}
+			if _, err = CollectEntries(context.Background(), r.Entries, 2); err != nil {
+				t.Errorf("entries %d: %v", n, err)
+			}
+		}(n)
+	}
+	wg.Wait()
+}
+
 func TestPRXNameAndSuitable(t *testing.T) {
 	if got := (PRXStory{}).Name(); got != "prx_story" {
 		t.Fatalf("PRXStory.Name = %q", got)
@@ -1441,6 +1590,35 @@ func FuzzPRXTarget(f *testing.F) {
 		u, e := url.Parse(raw)
 		if e == nil {
 			_, _, _ = prxTarget(u)
+		}
+	})
+}
+
+func FuzzPRXSearchTarget(f *testing.F) {
+	for _, seed := range []string{"prxstories:hello", "prxseries:café", "prxstories:a%2Fb", "prxstories:\x00", "https://prx.org/search?q=x"} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, raw string) {
+		u, err := url.Parse(raw)
+		if err != nil {
+			return
+		}
+		for _, key := range []string{"prxstories", "prxseries"} {
+			query, ok := prxSearchTarget(u, key)
+			if !ok {
+				continue
+			}
+			if !validPRXSearchQuery(query) {
+				t.Fatalf("accepted invalid query %q", query)
+			}
+			endpoint := "stories/search"
+			if key == "prxseries" {
+				endpoint = "series/search"
+			}
+			requestURL, err := prxSearchRequestURL(endpoint, query, 1)
+			if err != nil || len(requestURL) > prxSearchMaxURLBytes {
+				t.Fatalf("request=%q err=%v", requestURL, err)
+			}
 		}
 	})
 }

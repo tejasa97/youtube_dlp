@@ -5,7 +5,10 @@
 PRX supports exact HTTPS numeric `stories`, `series`, and `accounts` routes on
 `prx.org`, `beta.prx.org`, and `listen.prx.org`. Story audio, series story
 playlists, and account series-then-story playlists are backed by the PRX CMS
-API with bounded lazy pagination. PRX search routes are intentionally deferred.
+API with bounded lazy pagination. The pinned opaque search keys
+`prxstories:<query>` and `prxseries:<query>` use the bounded, credential-isolated
+CMS search endpoints and emit canonical story or series URL results. This claim
+is fixture-backed only; no live PRX API behavior is asserted.
 
 ## Amara
 
