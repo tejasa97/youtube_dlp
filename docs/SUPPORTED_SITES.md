@@ -72,7 +72,7 @@ service response.
 | bbc_co_uk_iplayer_group | bbc.co.uk iPlayer group listings | playlist/API, regional |
 | ard | ardmediathek.de player and collection pages | playlist/API, manifest-heavy, regional |
 | ard_audiothek (+ playlist) | ardaudiothek.de and ardsounds.de public episode and bounded show playlist pages | playlist/API, simple/direct, regional |
-| nrk | nrk.no pages and nrk: opaque URLs | playlist/API, manifest-heavy, regional |
+| nrk family | tv/radio/nrksuper programme and live routes, series/season catalogs, podcast UUIDs, Skole mediaId lookup, nrk.no article playlists, and nrk: opaque playback | playlist/API, manifest-heavy, regional |
 | rai family | RaiPlay/RaiPlay Sound VOD, live and program routes; legacy Rai, Rai News, Rai Cultura, and Rai Südtirol public pages | playlist/API, manifest-heavy, regional, live, audio; bounded unencrypted Rai F4M/HDS VOD |
 | nhk family | NHK World VOD/program; NHK for School bangumi/subject/program-list; Radiru on-demand/news/live (`--nhk-area`) | playlist/API, manifest-heavy, regional, live, audio |
 | bluesky | bsky.app, www.bsky.app, main.bsky.dev post URLs and at:// URIs (public posts only) | playlist/API, manifest-heavy, regional |

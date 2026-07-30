@@ -905,15 +905,15 @@ npo,VPROIE,VPRO,requires_new_backend,,,,low,no exact Go mapping or existing shar
 npo,WNLIE,WNL,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 npr,NprIE,Npr,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 nrk,NRKIE,NRK,already_supported,nrk,,,high,normalized upstream key exactly matches a registered Go extractor
-nrk,NRKPlaylistIE,NRKPlaylist,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
-nrk,NRKRadioPodkastIE,NRKRadioPodkast,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
-nrk,NRKSkoleIE,NRKSkole,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
-nrk,NRKTVDirekteIE,NRKTVDirekte,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
-nrk,NRKTVEpisodeIE,NRKTVEpisode,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
-nrk,NRKTVEpisodesIE,NRKTVEpisodes,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
-nrk,NRKTVIE,NRKTV,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
-nrk,NRKTVSeasonIE,NRKTVSeason,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
-nrk,NRKTVSeriesIE,NRKTVSeries,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
+nrk,NRKPlaylistIE,NRKPlaylist,already_supported,nrk_playlist,,,high,normalized upstream key exactly matches a registered Go extractor
+nrk,NRKRadioPodkastIE,NRKRadioPodkast,already_supported,nrk_radio_podkast,,,high,normalized upstream key exactly matches a registered Go extractor
+nrk,NRKSkoleIE,NRKSkole,already_supported,nrk_skole,,,high,normalized upstream key exactly matches a registered Go extractor
+nrk,NRKTVDirekteIE,NRKTVDirekte,already_supported,nrktv_direkte,,,high,normalized upstream key exactly matches a registered Go extractor
+nrk,NRKTVEpisodeIE,NRKTVEpisode,already_supported,nrktv_episode,,,high,normalized upstream key exactly matches a registered Go extractor
+nrk,NRKTVEpisodesIE,NRKTVEpisodes,already_supported,nrktv_episodes,,,high,normalized upstream key exactly matches a registered Go extractor
+nrk,NRKTVIE,NRKTV,already_supported,nrktv,,,high,normalized upstream key exactly matches a registered Go extractor
+nrk,NRKTVSeasonIE,NRKTVSeason,already_supported,nrktv_season,,,high,normalized upstream key exactly matches a registered Go extractor
+nrk,NRKTVSeriesIE,NRKTVSeries,already_supported,nrktv_series,,,high,normalized upstream key exactly matches a registered Go extractor
 nrl,NRLTVIE,NRLTV,obsolete_or_intentional_deviation,,,,high,upstream class explicitly declares _WORKING = False
 nts,NTSLiveIE,NTSLive,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 ntvcojp,NTVCoJpCUIE,NTVCoJpCU,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required

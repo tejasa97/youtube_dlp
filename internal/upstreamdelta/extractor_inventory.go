@@ -97,6 +97,7 @@ var moduleAliases = map[string][]string{
 	"megaphone":         {"podcast"},
 	"simplecast":        {"podcast"},
 	"spreaker":          {"podcast"},
+	"nrk":               {"nrk", "nrktv", "nrktv_direkte", "nrktv_episode", "nrktv_episodes", "nrktv_season", "nrktv_series", "nrk_radio_podkast", "nrk_skole", "nrk_playlist"},
 }
 
 // exactAliases cover intentionally different Go extractor IDs. These mappings
@@ -117,6 +118,16 @@ var exactAliases = map[string]string{
 	"ARDAudiothekPlaylistIE":   "ard_audiothek_playlist",
 	"ApplePodcastsIE":          "applepodcasts",
 	"TVAIE":                    "tva",
+	"NRKIE":                    "nrk",
+	"NRKPlaylistIE":            "nrk_playlist",
+	"NRKRadioPodkastIE":        "nrk_radio_podkast",
+	"NRKSkoleIE":               "nrk_skole",
+	"NRKTVDirekteIE":           "nrktv_direkte",
+	"NRKTVEpisodeIE":           "nrktv_episode",
+	"NRKTVEpisodesIE":          "nrktv_episodes",
+	"NRKTVIE":                  "nrktv",
+	"NRKTVSeasonIE":            "nrktv_season",
+	"NRKTVSeriesIE":            "nrktv_series",
 }
 
 func BuildExtractorInventory(referenceRoot, repositoryRoot string) ([]ExtractorInventoryEntry, error) {
