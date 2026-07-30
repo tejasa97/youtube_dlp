@@ -202,6 +202,14 @@ func TestDiscoveryAndTele5ExactAliasMappings(t *testing.T) {
 	}
 }
 
+func TestResidualAdapterExactAliasesRemainConservative(t *testing.T) {
+	for _, class := range []string{"ClipchampIE", "CorusIE", "NBCNewsIE", "ScrippsNetworksIE", "ScrippsNetworksWatchIE"} {
+		if alias, ok := exactAliases[class]; ok {
+			t.Fatalf("deferred class %s has exact alias %q", class, alias)
+		}
+	}
+}
+
 func TestReviewedInventoryPreservesCustomRationales(t *testing.T) {
 	goIDs, goModules, err := parseGoExtractorInventory(filepath.Join("..", "..", "internal", "extractor"))
 	if err != nil {
