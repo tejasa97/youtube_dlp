@@ -226,7 +226,7 @@ func readVimeoPage(ctx context.Context, transport Transport, webpageURL, referer
 		if err != nil || status < 300 {
 			return page, headers, err
 		}
-		if isVimeoEmbedOnlyBody(page) {
+		if isVimeoPrivacyRetryStatus(webpageURL, status) && isVimeoEmbedOnlyBody(page) {
 			validated, valid := validVimeoReferer(referer)
 			if !valid {
 				return nil, nil, ErrAuthentication
@@ -276,13 +276,22 @@ func readVimeoProfilePage(ctx context.Context, transport ProfiledPageNoRedirectT
 	if err != nil {
 		return nil, nil, 0, err
 	}
+	if resp == nil || resp.Body == nil {
+		return nil, nil, 0, ErrInvalidMetadata
+	}
 	defer resp.Body.Close()
 	limit := int64(vimeoMaxPageBytes)
 	if resp.StatusCode >= 300 {
 		limit = vimeoUnlistedAPIStatusReadBytes
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
-	if err != nil || int64(len(body)) > limit {
+	if err != nil {
+		if contextErr := contextError(ctx); contextErr != nil {
+			return nil, resp.Header.Clone(), resp.StatusCode, contextErr
+		}
+		return nil, resp.Header.Clone(), resp.StatusCode, ErrInvalidMetadata
+	}
+	if int64(len(body)) > limit {
 		return nil, resp.Header.Clone(), resp.StatusCode, ErrJSONResponseTooLarge
 	}
 	return body, resp.Header.Clone(), resp.StatusCode, nil
@@ -290,6 +299,16 @@ func readVimeoProfilePage(ctx context.Context, transport ProfiledPageNoRedirectT
 
 func isVimeoEmbedOnlyBody(body []byte) bool {
 	return len(body) <= int(vimeoUnlistedAPIStatusReadBytes) && bytes.Contains(body, []byte("Because of its privacy settings, this video cannot be played here"))
+}
+
+func isVimeoPrivacyRetryStatus(rawURL string, status int) bool {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	return (status == http.StatusForbidden && (host == "vimeo.com" || host == "www.vimeo.com")) ||
+		(status == http.StatusTooManyRequests && host == "player.vimeo.com")
 }
 
 // verifyVimeoVideoPassword submits the normal Vimeo password JSON only after a
@@ -2213,7 +2232,7 @@ func parseVimeoConfigContext(ctx context.Context, transport Transport, config vi
 		value.Field{Key: "description", Value: value.String(config.Video.Description)},
 		value.Field{Key: "uploader", Value: value.String(config.Video.Owner.Name)},
 		value.Field{Key: "uploader_url", Value: value.String(config.Video.Owner.URL)},
-		value.Field{Key: "webpage_url", Value: value.String(webpageURL)},
+		value.Field{Key: "webpage_url", Value: value.String(vimeoPublicWebpageURL(webpageURL))},
 		value.Field{Key: "ext", Value: value.String("mp4")},
 		value.Field{Key: "formats", Value: value.List(formats...)},
 	)

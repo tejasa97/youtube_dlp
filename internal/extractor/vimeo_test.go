@@ -317,6 +317,24 @@ func TestCategorizeVimeoResponseStatusIsHostSensitiveAndSecretSafe(t *testing.T)
 	}
 }
 
+func TestVimeoPrivacyRetryStatusIsPinned(t *testing.T) {
+	for _, test := range []struct {
+		raw    string
+		status int
+		want   bool
+	}{
+		{"https://vimeo.com/123", http.StatusForbidden, true},
+		{"https://player.vimeo.com/video/123", http.StatusTooManyRequests, true},
+		{"https://vimeo.com/123", http.StatusInternalServerError, false},
+		{"https://vimeo.com/123", http.StatusFound, false},
+		{"https://player.vimeo.com/video/123", http.StatusForbidden, false},
+	} {
+		if got := isVimeoPrivacyRetryStatus(test.raw, test.status); got != test.want {
+			t.Fatalf("%s/%d = %v", test.raw, test.status, got)
+		}
+	}
+}
+
 func TestVimeoSignedConfigUsesIsolatedNoRedirectTransport(t *testing.T) {
 	transport := &vimeoNoRedirectConfigTransport{vimeoFixtureTransport: &vimeoFixtureTransport{
 		page: readVimeoFixture(t, "page.html"), config: readVimeoFixture(t, "config.json"),

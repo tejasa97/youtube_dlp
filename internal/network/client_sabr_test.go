@@ -50,6 +50,36 @@ func TestDoWithoutCredentialsNoRedirectDropsAllCredentialSources(t *testing.T) {
 	}
 }
 
+func TestDoWithoutCredentialsNoRedirectWithRefererPreservesOnlyReferer(t *testing.T) {
+	var got http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Clone()
+		w.Header().Set("Set-Cookie", "leak=no; Path=/")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	client, err := New(Config{DefaultHeaders: http.Header{"Authorization": {"default"}, "Cookie": {"default-cookie"}, "Proxy-Authorization": {"default-proxy"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, _ := http.NewRequest(http.MethodGet, server.URL+"?token=synthetic-secret", nil)
+	req.Header.Set("Referer", "https://publisher.example/embed")
+	req.Header.Set("Authorization", "explicit")
+	req.Header.Set("Cookie", "explicit-cookie")
+	req.Header.Set("Proxy-Authorization", "explicit-proxy")
+	response, err := client.DoWithoutCredentialsNoRedirectWithReferer(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if got.Get("Referer") != "https://publisher.example/embed" || got.Get("Authorization") != "" || got.Get("Cookie") != "" || got.Get("Proxy-Authorization") != "" {
+		t.Fatalf("headers=%v", got)
+	}
+	if cookies, err := client.Cookies(server.URL); err != nil || len(cookies) != 0 {
+		t.Fatalf("cookies=%v err=%v", cookies, err)
+	}
+}
+
 func TestDoWithoutCredentialsNoRedirectRefusesSameOriginRedirect(t *testing.T) {
 	var requests int
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
