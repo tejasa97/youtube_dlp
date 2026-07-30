@@ -1,0 +1,37 @@
+{
+  "streams": {
+    "smooth_Streaming": {
+      "url": "https://prod-video-cms-rt-microsoft-com.akamaized.net/vhs/hls/ism/RWL07e/manifest.ism"
+    },
+    "apple_HTTP_Live_Streaming": {
+      "url": "https://prod-video-cms-rt-microsoft-com.akamaized.net/vhs/hls/playlist/RWL07e.m3u8"
+    },
+    "mPEG_DASH": {
+      "url": "https://prod-video-cms-rt-microsoft-com.akamaized.net/vhs/dash/manifest/RWL07e.mpd"
+    },
+    "high_bitrate_MP4": {
+      "url": "https://prod-video-cms-rt-microsoft-com.akamaized.net/vhs/mp4/RWL07e/high.mp4",
+      "widthPixels": 1920,
+      "heightPixels": 1080
+    },
+    "low_bitrate_MP4": {
+      "url": "https://prod-video-cms-rt-microsoft-com.akamaized.net/vhs/mp4/RWL07e/low.mp4",
+      "widthPixels": 640,
+      "heightPixels": 360
+    }
+  },
+  "captions": {
+    "en": {"url": "https://mediusimg.event.microsoft.com/captions/RWL07e/en.vtt"},
+    "es": {"url": "https://mediusimg.event.microsoft.com/captions/RWL07e/es.vtt"},
+    "fr": {"url": "https://mediusimg.event.microsoft.com/captions/RWL07e/fr.vtt"}
+  },
+  "snippet": {
+    "title": "Microsoft for Public Health and Social Services",
+    "activeStartDate": "/Date(1631658316000)/",
+    "minimumAge": 0,
+    "thumbnails": [
+      {"url": "https://img-prod-cms-rt-microsoft-com.akamaized.net/cms/api/am/imageFileData/RWL7Ju", "width": 1920, "height": 1080},
+      {"url": "https://img-prod-cms-rt-microsoft-com.akamaized.net/cms/api/am/imageFileData/RWL7Jv", "width": 1280, "height": 720}
+    ]
+  }
+}

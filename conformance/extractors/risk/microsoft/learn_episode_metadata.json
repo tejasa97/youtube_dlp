@@ -1,0 +1,20 @@
+{
+  "createTime": "2023-02-14T13:12:27Z",
+  "publicVideo": {
+    "adaptiveVideoUrl": "https://prod-video-cms-rt-microsoft-com.akamaized.net/learn/episode/ism/manifest.ism",
+    "adaptiveVideoHLSUrl": "https://prod-video-cms-rt-microsoft-com.akamaized.net/learn/episode/hls/playlist.m3u8",
+    "adaptiveVideoDashUrl": "https://prod-video-cms-rt-microsoft-com.akamaized.net/learn/episode/dash/manifest.mpd",
+    "lowQualityVideoUrl": "https://learn.microsoft.com/video/media/low.mp4",
+    "mediumQualityVideoUrl": "https://learn.microsoft.com/video/media/medium.mp4",
+    "highQualityVideoUrl": "https://learn.microsoft.com/video/media/high.mp4",
+    "audioUrl": "https://learn.microsoft.com/video/media/audio.mp3",
+    "captions": [
+      {"language": "en", "url": "https://learn.microsoft.com/video/media/captions/en.vtt"},
+      {"language": "es", "url": "https://learn.microsoft.com/video/media/captions/es.vtt"}
+    ],
+    "thumbnailOtherSizes": [
+      {"url": "https://learn.microsoft.com/video/media/thumb-1280.png"},
+      {"url": "https://learn.microsoft.com/video/media/thumb-640.png"}
+    ]
+  }
+}

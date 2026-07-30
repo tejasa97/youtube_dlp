@@ -733,12 +733,12 @@ meipai,MeipaiIE,Meipai,requires_new_backend,,,,low,no exact Go mapping or existi
 melonvod,MelonVODIE,MelonVOD,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 metacritic,MetacriticIE,Metacritic,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 mgtv,MGTVIE,MGTV,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-microsoftembed,MicrosoftBuildIE,MicrosoftBuild,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-microsoftembed,MicrosoftEmbedIE,MicrosoftEmbed,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-microsoftembed,MicrosoftLearnEpisodeIE,MicrosoftLearnEpisode,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-microsoftembed,MicrosoftLearnPlaylistIE,MicrosoftLearnPlaylist,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-microsoftembed,MicrosoftLearnSessionIE,MicrosoftLearnSession,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-microsoftembed,MicrosoftMediusIE,MicrosoftMedius,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
+microsoftembed,MicrosoftBuildIE,MicrosoftBuild,already_supported,microsoft_build,,,high,fixture-backed strict Build sessions routes with bounded Medius transparent re-entry and product download evidence
+microsoftembed,MicrosoftEmbedIE,MicrosoftEmbed,already_supported,microsoft_embed,,,high,fixture-backed strict Microsoft videoplayer route with native manifest and direct-media product evidence
+microsoftembed,MicrosoftLearnEpisodeIE,MicrosoftLearnEpisode,already_supported,microsoft_learn_episode,,,high,fixture-backed strict Learn show child route with bounded public video API and native media formats
+microsoftembed,MicrosoftLearnPlaylistIE,MicrosoftLearnPlaylist,already_supported,microsoft_learn_playlist,,,high,fixture-backed strict Learn shows/events routes with lazy reusable bounded API pagination
+microsoftembed,MicrosoftLearnSessionIE,MicrosoftLearnSession,already_supported,microsoft_learn_session,,,high,fixture-backed strict Learn event child route with validated scoped Medius transparent re-entry
+microsoftembed,MicrosoftMediusIE,MicrosoftMedius,already_supported,microsoft_medius,,,high,fixture-backed exact Medius Embed routes with canonical discovery and native ISM product evidence
 minds,MindsChannelIE,MindsChannel,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 minds,MindsGroupIE,MindsGroup,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 minds,MindsIE,Minds,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required

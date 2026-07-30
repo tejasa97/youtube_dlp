@@ -1647,6 +1647,62 @@ capabilities:
       - network.shared_transport
     known_deviation: Public anonymous API extraction only. Static-only posts, authenticated/private content, and the pinned webpage gifv/OG/Twitter fallback source discovery are not claimed. API assets are restricted to hardened i.imgur.com HTTPS URLs and collection inventories are bounded.
 
+  - id: extractor.microsoft_family
+    name: Microsoft public media family (partial)
+    phase: 2
+    compatibility_target: Extract exact microsoft.com videoplayer embeds, medius.microsoft.com Embed/video-nc and Embed/VideoDetails routes, learn.microsoft.com localized shows/events playlists and child pages, and build.microsoft.com session/sessions routes through the pinned Akamai CMS, Medius webpage, content browser, and Build session APIs with bounded credential-isolated ISM/HLS/DASH/direct HTTPS product paths.
+    status: partial
+    evidence:
+      - internal/extractor.TestMicrosoftFamilyRouteMatrix
+      - internal/extractor.TestMicrosoftFamilyRouteRejectsUnsafe
+      - internal/extractor.TestMicrosoftRoleHostAllowlist
+      - internal/extractor.TestMicrosoftEmbedSuccess
+      - internal/extractor.TestMicrosoftEmbedAkamaiTimestampFormats
+      - internal/extractor.TestMicrosoftEmbedCategorizesFailures
+      - internal/extractor.TestMicrosoftEmbedRejects3xxAsNoRedirectViolation
+      - internal/extractor.TestMicrosoftEmbedGenericStatusReturnsTypedError
+      - internal/extractor.TestMicrosoftFamilyCancellation
+      - internal/extractor.TestMicrosoftEmbedCredentialIsolation
+      - internal/extractor.TestMicrosoftEmbedMalformedJSON
+      - internal/extractor.TestMicrosoftEmbedTrailingJSON
+      - internal/extractor.TestMicrosoftErrorMessagesDoNotEchoSignedURL
+      - internal/extractor.TestMicrosoftMediusVideoNCSuccess
+      - internal/extractor.TestMicrosoftMediusVideoQueryRoute
+      - internal/extractor.TestMicrosoftMediusVideoQueryRejects
+      - internal/extractor.TestMicrosoftMediusVideoDetailsSuccess
+      - internal/extractor.TestMicrosoftMediusRejectsExtraSegments
+      - internal/extractor.TestMicrosoftMediusLegacyCaptionsStopsAtBlock
+      - internal/extractor.TestMicrosoftMediusMissingStreamURL
+      - internal/extractor.TestMicrosoftLearnPlaylistLazyIteratorNoAPIBeforeIteration
+      - internal/extractor.TestMicrosoftLearnPlaylistTwoIndependentIterations
+      - internal/extractor.TestMicrosoftLearnPlaylistPartialConsumption
+      - internal/extractor.TestMicrosoftLearnPlaylistInvalidRowsSkipByServerCount
+      - internal/extractor.TestMicrosoftLearnPlaylistRepeatedCursorTerminates
+      - internal/extractor.TestMicrosoftLearnPlaylistEmptyTerminalPage
+      - internal/extractor.TestMicrosoftLearnPlaylistCancellationDuringContinuation
+      - internal/extractor.TestMicrosoftLearnEpisodeSuccess
+      - internal/extractor.TestMicrosoftLearnSessionReentryValidatesMediusSuitability
+      - internal/extractor.TestMicrosoftLearnSessionExternalMustBeMediusRoute
+      - internal/extractor.TestMicrosoftBuildExactRoutes
+      - internal/extractor.TestMicrosoftBuildPlaylistOnDemandValidatesMediusSuitability
+      - internal/extractor.TestMicrosoftBuildSessionsPlaylist
+      - internal/extractor.TestMicrosoftBuildSingleUUID
+      - internal/extractor.TestMicrosoftBuildOnDemandMustBeMediusRoute
+      - internal/extractor.TestMicrosoftBuildMalformedJSON
+      - internal/extractor.TestMicrosoftEmbedURLValidationFuzz
+      - internal/extractor.TestMicrosoftMediusURLValidationFuzz
+      - internal/extractor.TestMicrosoftLearnRoutesFuzz
+      - pkg/ytdlp.TestProductMicrosoftEmbedDirectMP4DownloadStripsAmbientCredentials
+      - pkg/ytdlp.TestProductMicrosoftEmbedSidecarsStripAmbientCredentials
+      - pkg/ytdlp.TestProductMicrosoftEmbedHLSAndDASHDownloadStripsAmbientCredentials
+      - pkg/ytdlp.TestProductMicrosoftLearnSessionReentryDownload
+      - pkg/ytdlp.TestProductMicrosoftBuildPlaylistToMediusReentry
+      - pkg/ytdlp.TestProductMicrosoftEmbedNoArtifactsOnFailure
+      - pkg/ytdlp.TestProductMicrosoftEmbedCancellationLeavesNoArtifacts
+      - pkg/ytdlp.TestRepresentativeExtractorCatalogCountRoutingAndRiskCoverage
+      - conformance/extractors/risk/microsoft/PROVENANCE.md
+    owner: core
+    known_deviation: The Microsoft public media family claim is bounded to synthetic fixture-backed route, metadata, native ISM/HLS/DASH/direct download, credential-isolated no-redirect, and transparent reentry evidence. Authenticated, DRM-protected, signed-cookie Medius playback, live production interoperability, regional availability, unlisted CDN host rotation, and the pinned Python per-track non-English ISM language preference are not claimed.
   - id: extractor.flickr
     name: Flickr public video extraction
     phase: 4
