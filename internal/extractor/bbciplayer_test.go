@@ -24,8 +24,6 @@ func TestBBCIPlayerRoutingEpisodeGeoFallbackAndFormats(t *testing.T) {
 	for _, rawURL := range []string{
 		"https://www.bbc.co.uk/iplayer/episode/p0000000/title",
 		"https://bbc.co.uk/programmes/p0000000/player",
-		"https://www.bbc.co.uk/iplayer/episodes/p0000000/title",
-		"https://www.bbc.co.uk/iplayer/group/p0000000",
 	} {
 		parsed, _ := url.Parse(rawURL)
 		if !NewBBCIPlayer().Suitable(parsed) {
@@ -41,9 +39,9 @@ func TestBBCIPlayerRoutingEpisodeGeoFallbackAndFormats(t *testing.T) {
 	pageURL := "https://www.bbc.co.uk/iplayer/episode/p0000000/title"
 	iptv := bbcMediaSelectorBase + "iptv-all/vpid/p0000001"
 	pc := bbcMediaSelectorBase + "pc/vpid/p0000001"
-	transport := &riskFixtureTransport{
+	transport := &bbcFixtureTransport{
 		pages: map[string][]byte{pageURL: readRiskFixture(t, "bbciplayer", "episode.html")},
-		responses: map[string]riskFixtureResponse{
+		responses: map[string]bbcFixtureResponse{
 			"GET " + iptv: {body: []byte(`{"result":"geolocation"}`)},
 			"GET " + pc:   {body: readRiskFixture(t, "bbciplayer", "selector.json")},
 		},
@@ -72,30 +70,24 @@ func TestBBCIPlayerRoutingEpisodeGeoFallbackAndFormats(t *testing.T) {
 	if subtitles, ok := result.Info.Lookup("subtitles").Object(); !ok || subtitles.Lookup("en").IsMissing() {
 		t.Fatalf("subtitles = %#v", result.Info.Lookup("subtitles"))
 	}
+	for _, formatValue := range formats {
+		format, _ := formatValue.Object()
+		isolated, ok := format.Lookup("_credential_isolated").Bool()
+		if !ok || !isolated {
+			t.Fatalf("format missing credential isolation: %#v", format)
+		}
+	}
+	for _, header := range transport.headers {
+		if bbcFixtureHasSensitiveHeader(header) {
+			t.Fatalf("isolated BBC request leaked credentials: %#v", header)
+		}
+	}
 }
 
 func TestBBCIPlayerPlaylistIsLazy(t *testing.T) {
-	transport := &riskFixtureTransport{}
-	transport.handler = func(_ context.Context, request *http.Request) (*http.Response, error) {
-		body, _ := io.ReadAll(request.Body)
-		var call struct {
-			Variables struct {
-				Page    int `json:"page"`
-				PerPage int `json:"perPage"`
-			} `json:"variables"`
-		}
-		if err := json.Unmarshal(body, &call); err != nil {
-			t.Fatal(err)
-		}
-		if call.Variables.PerPage == 1 {
-			return riskHTTPResponse(http.StatusOK, []byte(`{"data":{"programme":{"title":{"default":"Fixture Series"},"synopsis":{"large":"Synthetic series"},"entities":{"results":[]}}}}`)), nil
-		}
-		if call.Variables.Page != 1 || call.Variables.PerPage != bbcPlaylistPageSize {
-			t.Fatalf("playlist variables = %#v", call.Variables)
-		}
-		return riskHTTPResponse(http.StatusOK, []byte(`{"data":{"programme":{"entities":{"results":[{"episode":{"id":"p0000001","subtitle":{"default":"Episode One"}}},{"episode":{"id":"p0000002","subtitle":{"default":"Episode Two"}}}]}}}}`)), nil
-	}
-	result, err := NewBBCIPlayer().Extract(context.Background(), Request{URL: "https://www.bbc.co.uk/iplayer/episodes/p0000000/fixture", Transport: transport})
+	transport := &bbcFixtureTransport{}
+	transport.handler = bbcEpisodesGraphQLHandler(t, false)
+	result, err := NewBBCCoUkIPlayerEpisodes().Extract(context.Background(), Request{URL: "https://www.bbc.co.uk/iplayer/episodes/p0000000/fixture", Transport: transport})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,12 +174,12 @@ func TestBBCIPlayerFailureCategoriesCancellationAndSecretSafety(t *testing.T) {
 		{"malformed-selector", `{"vpid":"p0000001"}`, `{"secret":"bbc-private-token"} trailing`, 0, ErrInvalidMetadata},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			transport := &riskFixtureTransport{pages: map[string][]byte{pageURL: []byte(test.page)}, handler: func(_ context.Context, request *http.Request) (*http.Response, error) {
+			transport := &bbcFixtureTransport{pages: map[string][]byte{pageURL: []byte(test.page)}, handler: func(_ context.Context, request *http.Request) (*http.Response, error) {
 				status := test.status
 				if status == 0 {
 					status = http.StatusOK
 				}
-				return riskHTTPResponse(status, []byte(test.selection)), nil
+				return bbcHTTPResponse(status, []byte(test.selection)), nil
 			}}
 			_, err := NewBBCIPlayer().Extract(context.Background(), Request{URL: pageURL, Transport: transport})
 			if !errors.Is(err, test.want) {
@@ -200,7 +192,7 @@ func TestBBCIPlayerFailureCategoriesCancellationAndSecretSafety(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := NewBBCIPlayer().Extract(ctx, Request{URL: pageURL, Transport: &riskFixtureTransport{wait: true}}); !errors.Is(err, context.Canceled) {
+	if _, err := NewBBCIPlayer().Extract(ctx, Request{URL: pageURL, Transport: &bbcFixtureTransport{wait: true}}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation error = %v", err)
 	}
 }
