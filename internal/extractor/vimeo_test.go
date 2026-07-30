@@ -69,6 +69,8 @@ type vimeoEmbedPageTransport struct {
 	config        []byte
 	statuses      []int
 	referers      []string
+	locations     []string
+	seenLocations []string
 }
 
 type vimeoProfileResponseTransport struct {
@@ -115,7 +117,12 @@ func (t *vimeoEmbedPageTransport) DoProfiledPageNoRedirect(_ context.Context, r 
 	if i == 0 && status >= 300 {
 		body = t.privacy
 	}
-	return &http.Response{StatusCode: status, Body: io.NopCloser(bytes.NewReader(body)), Header: make(http.Header), Request: r}, nil
+	header := make(http.Header)
+	if i < len(t.locations) && t.locations[i] != "" {
+		header.Set("Location", t.locations[i])
+	}
+	t.seenLocations = append(t.seenLocations, header.Get("Location"))
+	return &http.Response{StatusCode: status, Body: io.NopCloser(bytes.NewReader(body)), Header: header, Request: r}, nil
 }
 
 func (*vimeoCancelAfterContext) Deadline() (time.Time, bool) { return time.Time{}, false }
@@ -436,17 +443,22 @@ func TestVimeoEmbedPrivacyRetryRejectsNonPinnedBodiesAndRedirects(t *testing.T) 
 		t.Run(test.name, func(t *testing.T) {
 			tr := &vimeoEmbedPageTransport{page: privacy, privacy: privacy, statuses: test.statuses}
 			_, _, err := readVimeoPage(context.Background(), tr, test.url, "https://publisher.example/embed")
-			if (test.want != nil && !errors.Is(err, test.want)) || (test.want == nil && err == nil) || len(tr.referers) != test.wantCalls {
+			if (test.want != nil && !errors.Is(err, test.want)) || (test.want == nil && err == nil) ||
+				(test.want == nil && (errors.Is(err, ErrAuthentication) || errors.Is(err, ErrTransportProfile))) || len(tr.referers) != test.wantCalls {
 				t.Fatalf("err=%v referers=%v", err, tr.referers)
 			}
 		})
 	}
 	// A hostile Location on the retry response is returned as the second
 	// response; the no-redirect transport boundary prevents a third request.
-	tr := &vimeoEmbedPageTransport{privacy: privacy, statuses: []int{http.StatusForbidden, http.StatusFound}}
+	tr := &vimeoEmbedPageTransport{
+		privacy:   privacy,
+		statuses:  []int{http.StatusForbidden, http.StatusFound},
+		locations: []string{"", "https://evil.example/collect?token=synthetic-secret"},
+	}
 	_, _, err := readVimeoPage(context.Background(), tr, "https://vimeo.com/123456789?token=synthetic-secret", "https://publisher.example/embed")
-	if err == nil || len(tr.referers) != 2 || strings.Contains(fmt.Sprint(err), "synthetic-secret") {
-		t.Fatalf("redirect err=%v referers=%v", err, tr.referers)
+	if err == nil || len(tr.referers) != 2 || tr.seenLocations[1] != "https://evil.example/collect?token=synthetic-secret" || strings.Contains(fmt.Sprint(err), "synthetic-secret") {
+		t.Fatalf("redirect err=%v referers=%v locations=%v", err, tr.referers, tr.seenLocations)
 	}
 }
 

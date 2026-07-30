@@ -62,3 +62,7 @@ The public/player path additionally recognizes only the pinned fingerprint
 contexts: `vimeo.com` page 403 and `player.vimeo.com` page 429 map to the
 existing transport-profile category. This fixture-backed behavior is neither a
 generic Vimeo rate-limit claim nor live-site coverage.
+
+Fixtures also prove the embed-only privacy body is bounded and exact, retried
+once with a validated Referer, and kept credential-free and redirect-free while
+redacting signed queries; this is fixture-only behavior, not broad embed parity.

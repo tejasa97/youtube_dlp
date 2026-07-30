@@ -86,7 +86,12 @@ func TestDoWithoutCredentialsNoRedirectWithRefererPreservesOnlyReferer(t *testin
 }
 
 func TestDoWithoutCredentialsNoRedirectWithRefererRefusesRedirects(t *testing.T) {
-	for _, target := range []string{"/same-origin", "https://evil.example/collect?token=synthetic-secret"} {
+	crossOriginCalls := 0
+	crossOrigin := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		crossOriginCalls++
+	}))
+	defer crossOrigin.Close()
+	for _, target := range []string{"/same-origin", crossOrigin.URL + "/collect?token=synthetic-secret"} {
 		t.Run(target, func(t *testing.T) {
 			requests := 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -109,8 +114,8 @@ func TestDoWithoutCredentialsNoRedirectWithRefererRefusesRedirects(t *testing.T)
 				t.Fatal(err)
 			}
 			resp.Body.Close()
-			if resp.StatusCode != http.StatusFound || requests != 1 {
-				t.Fatalf("status=%d requests=%d", resp.StatusCode, requests)
+			if resp.StatusCode != http.StatusFound || requests != 1 || crossOriginCalls != 0 {
+				t.Fatalf("status=%d requests=%d crossOriginCalls=%d", resp.StatusCode, requests, crossOriginCalls)
 			}
 		})
 	}

@@ -202,6 +202,7 @@ func TestExtractorFailuresAreCategorized(t *testing.T) {
 		{extractor.ErrPlaylistLimit, ErrorInternal},
 		{context.Canceled, ErrorCancelled},
 		{extractor.ErrChallengeSolver, ErrorUnsupported},
+		{extractor.ErrTransportProfile, ErrorUnsupported},
 		{extractor.ErrTransportIsolation, ErrorUnsupported},
 		{extractor.ErrRegionRestricted, ErrorUnsupported},
 		{extractor.ErrPeerTubeNetwork, ErrorNetwork},

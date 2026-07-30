@@ -1795,6 +1795,7 @@ capabilities:
       - internal/extractor.TestVimeoFailuresAreCategorized
       - internal/extractor.TestCategorizeVimeoResponseStatusIsHostSensitiveAndSecretSafe
       - internal/extractor.TestVimeoEmbedPrivacyRetriesOnceWithValidatedReferer
+      - internal/extractor.TestVimeoEmbedPrivacyRetryRejectsNonPinnedBodiesAndRedirects
       - internal/extractor.TestReadVimeoProfilePageBoundsCancellationAndClosure
       - internal/extractor.TestVimeoSignedConfigQueryIsRequestOnlyAndMetadataSafe
       - internal/extractor.TestVimeoSignedConfigUsesIsolatedNoRedirectTransport
@@ -1838,6 +1839,8 @@ capabilities:
       - internal/network.TestDoWithScopedAuthorizationNoRedirectDoesNotAdoptDefaultAuthorization
       - internal/network.TestDoWithScopedAuthorizationNoRedirectRefusesRedirects
       - internal/network.TestDoWithScopedAuthorizationNoRedirectRedactsErrorsAndCancellation
+      - internal/network.TestDoWithoutCredentialsNoRedirectWithRefererPreservesOnlyReferer
+      - internal/network.TestDoWithoutCredentialsNoRedirectWithRefererRefusesRedirects
       - internal/extractor.FuzzParseVimeoConfig
       - internal/extractor.FuzzCategorizeVimeoResponseStatus
       - internal/extractor.FuzzNormalizeVimeoTextTrackURL
