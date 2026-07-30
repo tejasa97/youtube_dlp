@@ -2603,7 +2603,12 @@ capabilities:
       - internal/extractor.TestKickRoutingLiveExtractionAndProfile
       - internal/extractor.TestBBCIPlayerRoutingEpisodeGeoFallbackAndFormats
       - internal/extractor.TestARDRoutingItemFormatsAndLiveState
-      - internal/extractor.TestNRKRoutingProgrammeFormatsAndLive
+      - internal/extractor.TestNRKOpaquePlaybackFormatsAndLive
+      - internal/extractor.TestNRKFamilyRoutingPrecedence
+      - internal/extractor.TestNRKFamilyTransparentReentryUsesIsolatedPlayback
+      - internal/extractor.TestNRKSeasonPlaylistIsLazyAndCursorRestricted
+      - pkg/ytdlp.TestNRKFamilyRegistryRouting
+      - pkg/ytdlp.TestProductNRKTVReentersOpaquePlayback
       - internal/extractor.TestRiskFormatsIntegrateWithHLS_DASHAndDirectDownloaders
       - internal/extractor.TestPodcastFamilySuccessAndPlaylists
       - internal/extractor.TestCleanPodcastMediaURLPinnedCorpus
