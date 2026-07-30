@@ -1,0 +1,18 @@
+{
+  "data": {
+    "show": {
+      "title": "Fixture Audiothek Show",
+      "description": "Synthetic ARD Audiothek show playlist.",
+      "items": {
+        "nodes": [
+          {
+            "url": "https://www.ardaudiothek.de/episode/urn:ard:episode:cafebabe00000001"
+          },
+          {
+            "url": "https://www.ardaudiothek.de/episode/urn:ard:episode:cafebabe00000002"
+          }
+        ]
+      }
+    }
+  }
+}

@@ -86,6 +86,7 @@ var riskTokens = []struct {
 var moduleAliases = map[string][]string{
 	"archiveorg":        {"internetarchive"},
 	"applepodcasts":     {"applepodcasts"},
+	"ard":               {"ard", "ard_audiothek"},
 	"bbc":               {"bbciplayer"},
 	"svt":               {"region_svt", "region_svt_page"},
 	"theweatherchannel": {"weathercom"},
@@ -102,14 +103,16 @@ var moduleAliases = map[string][]string{
 // remain conservative: a class is omitted when the Go implementation only
 // covers part of the upstream class's URL corpus.
 var exactAliases = map[string]string{
-	"ArchiveOrgIE":       "internetarchive",
-	"SVTPlayIE":          "region_svt",
-	"SVTSeriesIE":        "region_svt",
-	"SVTPageIE":          "region_svt",
-	"BBCCoUkIE":          "bbciplayer",
-	"ARDBetaMediathekIE": "ard",
-	"ApplePodcastsIE":    "applepodcasts",
-	"TVAIE":              "tva",
+	"ArchiveOrgIE":           "internetarchive",
+	"SVTPlayIE":              "region_svt",
+	"SVTSeriesIE":            "region_svt",
+	"SVTPageIE":              "region_svt",
+	"BBCCoUkIE":              "bbciplayer",
+	"ARDBetaMediathekIE":     "ard",
+	"ARDAudiothekIE":         "ard_audiothek",
+	"ARDAudiothekPlaylistIE": "ard_audiothek_playlist",
+	"ApplePodcastsIE":        "applepodcasts",
+	"TVAIE":                  "tva",
 }
 
 func BuildExtractorInventory(referenceRoot, repositoryRoot string) ([]ExtractorInventoryEntry, error) {

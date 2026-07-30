@@ -1,0 +1,36 @@
+{
+  "data": {
+    "item": {
+      "audioList": [
+        {
+          "href": "https://cdn.example.invalid/ard/fixture-episode.mp3",
+          "distributionType": "default",
+          "audioBitrate": 128,
+          "audioCodec": "mp3"
+        },
+        {
+          "href": "https://cdn.example.invalid/ard/fixture-episode-high.mp3",
+          "distributionType": "high",
+          "audioBitrate": 256,
+          "audioCodec": "mp3"
+        }
+      ],
+      "show": {
+        "title": "Fixture Audiothek Show"
+      },
+      "image": {
+        "url1X1": "https://api.ardmediathek.de/image-service/images/urn:ard:image:fixture001?w=512"
+      },
+      "programSet": {
+        "publicationService": {
+          "organizationName": "WDR"
+        }
+      },
+      "description": "Synthetic ARD Audiothek episode description.",
+      "title": "Fixture Audiothek Episode",
+      "duration": 3339,
+      "startDate": "2024-07-17T10:00:41+00:00",
+      "episodeNumber": 4
+    }
+  }
+}

@@ -405,6 +405,8 @@ func TestProductRegistryIncludesIntegratedExtractors(t *testing.T) {
 		{"https://kick.com/fixture-channel", "kick"},
 		{"https://www.bbc.co.uk/iplayer/episode/p0000000/title", "bbciplayer"},
 		{"https://www.ardmediathek.de/player/Y3JpZDovL2ZpeHR1cmU", "ard"},
+		{"https://www.ardaudiothek.de/episode/urn:ard:episode:eabead1add170e93/", "ard_audiothek"},
+		{"https://www.ardsounds.de/sendung/mia-insomnia/urn:ard:show:c405aa26d9a4060a/", "ard_audiothek_playlist"},
 		{"nrk:MDDP12000117", "nrk"},
 		{"https://www.twitch.tv/fixture_channel", "twitch"},
 		{"scsearch3:fixture query", "soundcloud_search"},

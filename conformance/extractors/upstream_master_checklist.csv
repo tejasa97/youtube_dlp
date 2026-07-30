@@ -69,8 +69,8 @@ applepodcasts,ApplePodcastsIE,ApplePodcasts,already_supported,applepodcasts,,,hi
 archiveorg,ArchiveOrgIE,ArchiveOrg,already_supported,internetarchive,,,high,curated exact mapping to a registered Go extractor
 archiveorg,YoutubeWebArchiveIE,YoutubeWebArchive,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
 arcpublishing,ArcPublishingIE,ArcPublishing,already_supported,arcpublishing,arcpublishing,,high,normalized upstream key exactly matches a registered Go extractor
-ard,ARDAudiothekIE,ARDAudiothek,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
-ard,ARDAudiothekPlaylistIE,ARDAudiothekPlaylist,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
+ard,ARDAudiothekIE,ARDAudiothek,already_supported,ard_audiothek,,,high,curated exact mapping to a registered Go extractor
+ard,ARDAudiothekPlaylistIE,ARDAudiothekPlaylist,already_supported,ard_audiothek_playlist,,,high,curated exact mapping to a registered Go extractor
 ard,ARDBetaMediathekIE,ARDBetaMediathek,already_supported,ard,,authentication;login,high,curated exact mapping to a registered Go extractor
 ard,ARDMediathekCollectionIE,ARDMediathekCollection,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
 arnes,ArnesIE,Arnes,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
