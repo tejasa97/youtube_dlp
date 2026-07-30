@@ -106,11 +106,11 @@ bandcamp,BandcampWeeklyIE,BandcampWeekly,already_supported,bandcamp_weekly,,,hig
 bandlab,BandlabIE,Bandlab,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 bandlab,BandlabPlaylistIE,BandlabPlaylist,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 bannedvideo,BannedVideoIE,BannedVideo,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-bbc,BBCCoUkArticleIE,BBCCoUkArticle,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
+bbc,BBCCoUkArticleIE,BBCCoUkArticle,already_supported,bbc_co_uk_article,,,high,normalized upstream key exactly matches a registered Go extractor
 bbc,BBCCoUkIE,BBCCoUk,already_supported,bbciplayer,,login,high,curated exact mapping to a registered Go extractor
-bbc,BBCCoUkIPlayerEpisodesIE,BBCCoUkIPlayerEpisodes,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
-bbc,BBCCoUkIPlayerGroupIE,BBCCoUkIPlayerGroup,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
-bbc,BBCCoUkPlaylistIE,BBCCoUkPlaylist,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
+bbc,BBCCoUkIPlayerEpisodesIE,BBCCoUkIPlayerEpisodes,already_supported,bbc_co_uk_iplayer_episodes,,,high,normalized upstream key exactly matches a registered Go extractor
+bbc,BBCCoUkIPlayerGroupIE,BBCCoUkIPlayerGroup,already_supported,bbc_co_uk_iplayer_group,,,high,normalized upstream key exactly matches a registered Go extractor
+bbc,BBCCoUkPlaylistIE,BBCCoUkPlaylist,already_supported,bbc_co_uk_playlist,,,high,normalized upstream key exactly matches a registered Go extractor
 bbc,BBCIE,BBC,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
 beacon,BeaconTvIE,BeaconTv,requires_authentication_or_antibot,,,login,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"
 beatport,BeatportIE,Beatport,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required

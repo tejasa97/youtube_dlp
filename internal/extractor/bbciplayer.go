@@ -4,28 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"html"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 
 	"github.com/ytdlp-go/ytdlp/internal/value"
-)
-
-const (
-	bbcMediaSelectorBase = "https://open.live.bbc.co.uk/mediaselector/6/select/version/2.0/mediaset/"
-	bbcPlaylistGraphQL   = "https://graph.ibl.api.bbc.co.uk/"
-	bbcPlaylistPageSize  = 100
-)
-
-var (
-	bbcPIDPattern    = regexp.MustCompile(`^[pbmlw][0-9a-z]{7,14}$`)
-	bbcVpidPattern   = regexp.MustCompile(`(?i)["']vpid["']\s*:\s*["']([pbmlw][0-9a-z]{7,14})["']`)
-	bbcOGTitle       = regexp.MustCompile(`(?is)<meta\b[^>]*(?:property|name)=["']og:title["'][^>]*content=["']([^"']+)["']`)
-	bbcMetaDesc      = regexp.MustCompile(`(?is)<meta\b[^>]*name=["']description["'][^>]*content=["']([^"']*)["']`)
-	bbcIPlayerTarget = regexp.MustCompile(`^/iplayer/(episode|episodes|group|playlist)/([pbmlw][0-9a-z]{7,14})(?:/[^/?#]*)?/?$`)
-	bbcProgrammePath = regexp.MustCompile(`^/programmes/([pbmlw][0-9a-z]{7,14})(?:/player)?/?$`)
 )
 
 type BBCIPlayer struct{}
@@ -51,36 +34,28 @@ func (BBCIPlayer) Extract(ctx context.Context, request Request) (Extraction, err
 	if !ok {
 		return Extraction{}, ErrUnsupported
 	}
-	if target.playlist {
-		return extractBBCPlaylist(ctx, request.Transport, target.id, parsed.Query().Get("seriesId"), request.URL)
-	}
-	return extractBBCEpisode(ctx, request.Transport, target.id, request.URL)
+	return extractBBCEpisode(ctx, request.Transport, target, request.URL)
 }
 
-type bbcTarget struct {
-	id       string
-	playlist bool
+type bbcEpisodeTarget struct {
+	id string
 }
 
-func classifyBBCIPlayerURL(parsed *url.URL) (bbcTarget, bool) {
-	if parsed == nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Port() != "" || parsed.User != nil {
-		return bbcTarget{}, false
+func classifyBBCIPlayerURL(parsed *url.URL) (bbcEpisodeTarget, bool) {
+	if !bbcValidHost(parsed) {
+		return bbcEpisodeTarget{}, false
 	}
-	host := strings.ToLower(parsed.Hostname())
-	if host != "bbc.co.uk" && host != "www.bbc.co.uk" {
-		return bbcTarget{}, false
-	}
-	if match := bbcIPlayerTarget.FindStringSubmatch(parsed.Path); len(match) == 3 {
-		return bbcTarget{id: match[2], playlist: match[1] == "episodes" || match[1] == "group"}, true
+	if match := bbcEpisodePath.FindStringSubmatch(parsed.Path); len(match) == 2 {
+		return bbcEpisodeTarget{id: match[1]}, true
 	}
 	if match := bbcProgrammePath.FindStringSubmatch(parsed.Path); len(match) == 2 {
-		return bbcTarget{id: match[1]}, true
+		return bbcEpisodeTarget{id: match[1]}, true
 	}
-	return bbcTarget{}, false
+	return bbcEpisodeTarget{}, false
 }
 
-func extractBBCEpisode(ctx context.Context, transport Transport, pageID, webpageURL string) (Extraction, error) {
-	page, _, err := transport.ReadPage(ctx, webpageURL)
+func extractBBCEpisode(ctx context.Context, transport Transport, target bbcEpisodeTarget, webpageURL string) (Extraction, error) {
+	page, err := requestBBCIsolatedPage(ctx, transport, webpageURL)
 	if err != nil {
 		return Extraction{}, categorizeBBCPageError(err)
 	}
@@ -96,7 +71,7 @@ func extractBBCEpisode(ctx context.Context, transport Transport, pageID, webpage
 	case strings.Contains(lower, "no longer available"), strings.Contains(lower, "not currently available"):
 		return Extraction{}, ErrUnavailable
 	}
-	programmeID := pageID
+	programmeID := target.id
 	if match := bbcVpidPattern.FindSubmatch(page); len(match) == 2 {
 		programmeID = string(match[1])
 	}
@@ -136,7 +111,7 @@ func fetchBBCMediaSelector(ctx context.Context, transport Transport, programmeID
 	for _, mediaSet := range []string{"iptv-all", "pc"} {
 		endpoint := bbcMediaSelectorBase + mediaSet + "/vpid/" + programmeID
 		var selection bbcMediaSelection
-		err := requestRiskJSON(ctx, transport, http.MethodGet, endpoint, nil, make(http.Header), "", &selection)
+		err := requestBBCIsolatedJSON(ctx, transport, http.MethodGet, endpoint, nil, make(http.Header), &selection)
 		if err != nil {
 			switch riskHTTPStatus(err) {
 			case http.StatusUnauthorized:
@@ -206,6 +181,7 @@ func normalizeBBCMediaSelection(selection bbcMediaSelection, seen map[string]boo
 					value.Field{Key: "url", Value: value.String(connection.Href)},
 					value.Field{Key: "ext", Value: value.String("ttml")},
 				)
+				bbcMarkCredentialIsolated(entry)
 				subtitles.Set("en", value.List(value.ObjectValue(entry)))
 				break
 			}
@@ -247,119 +223,11 @@ func normalizeBBCMediaSelection(selection bbcMediaSelection, seen map[string]boo
 				riskString(format, "vcodec", media.Encoding)
 			}
 			riskPositiveInt(format, "filesize", media.MediaFileSize)
+			bbcMarkCredentialIsolated(format)
 			formats = append(formats, value.ObjectValue(format))
 		}
 	}
 	return formats, subtitles
-}
-
-func extractBBCPlaylist(ctx context.Context, transport Transport, pid, seriesID, webpageURL string) (Extraction, error) {
-	metadata, err := requestBBCPlaylistPage(ctx, transport, pid, seriesID, 1, 1)
-	if err != nil {
-		return Extraction{}, err
-	}
-	title := metadata.Title.Default
-	if title == "" {
-		title = pid
-	}
-	sequence, err := OnDemandEntries(bbcPlaylistPageSize, func(ctx context.Context, page int) ([]Entry, error) {
-		response, err := requestBBCPlaylistPage(ctx, transport, pid, seriesID, page+1, bbcPlaylistPageSize)
-		if err != nil {
-			return nil, err
-		}
-		entries := make([]Entry, 0, len(response.Entities.Results))
-		for _, result := range response.Entities.Results {
-			episode := result.Episode
-			if !bbcPIDPattern.MatchString(episode.ID) {
-				continue
-			}
-			entries = append(entries, Entry{
-				URL:          "https://www.bbc.co.uk/iplayer/episode/" + episode.ID,
-				ExtractorKey: "bbciplayer", ID: episode.ID, Title: episode.Subtitle.Default,
-			})
-		}
-		return entries, nil
-	})
-	if err != nil {
-		return Extraction{}, err
-	}
-	info := value.NewObject(
-		value.Field{Key: "id", Value: value.String(pid)},
-		value.Field{Key: "title", Value: value.String(title)},
-		value.Field{Key: "webpage_url", Value: value.String(webpageURL)},
-	)
-	riskString(info, "description", firstBBCSynopsis(metadata.Synopsis))
-	return Playlist(value.NewInfo(info), sequence)
-}
-
-type bbcPlaylistResponse struct {
-	Title struct {
-		Default string `json:"default"`
-	} `json:"title"`
-	Synopsis map[string]string `json:"synopsis"`
-	Entities struct {
-		Results []struct {
-			Episode struct {
-				ID       string `json:"id"`
-				Subtitle struct {
-					Default string `json:"default"`
-				} `json:"subtitle"`
-			} `json:"episode"`
-		} `json:"results"`
-	} `json:"entities"`
-}
-
-func requestBBCPlaylistPage(ctx context.Context, transport Transport, pid, seriesID string, page, perPage int) (bbcPlaylistResponse, error) {
-	variables := map[string]any{"id": pid, "page": page, "perPage": perPage}
-	if seriesID != "" {
-		variables["sliceId"] = seriesID
-	}
-	body, _ := json.Marshal(map[string]any{"id": "5692d93d5aac8d796a0305e895e61551", "variables": variables})
-	headers := make(http.Header)
-	headers.Set("Content-Type", "application/json")
-	var envelope struct {
-		Data struct {
-			Programme bbcPlaylistResponse `json:"programme"`
-		} `json:"data"`
-		Errors []json.RawMessage `json:"errors"`
-	}
-	err := requestRiskJSON(ctx, transport, http.MethodPost, bbcPlaylistGraphQL, body, headers, "", &envelope)
-	if err != nil {
-		switch riskHTTPStatus(err) {
-		case http.StatusUnauthorized:
-			return bbcPlaylistResponse{}, ErrAuthentication
-		case http.StatusForbidden, http.StatusUnavailableForLegalReasons:
-			return bbcPlaylistResponse{}, ErrRegionRestricted
-		case http.StatusNotFound, http.StatusGone:
-			return bbcPlaylistResponse{}, ErrUnavailable
-		}
-		return bbcPlaylistResponse{}, err
-	}
-	if len(envelope.Errors) != 0 {
-		return bbcPlaylistResponse{}, fmt.Errorf("%w: BBC playlist GraphQL error", ErrInvalidMetadata)
-	}
-	return envelope.Data.Programme, nil
-}
-
-func categorizeBBCPageError(err error) error {
-	switch riskHTTPStatus(err) {
-	case http.StatusUnauthorized:
-		return ErrAuthentication
-	case http.StatusForbidden, http.StatusUnavailableForLegalReasons:
-		return ErrRegionRestricted
-	case http.StatusNotFound, http.StatusGone:
-		return ErrUnavailable
-	default:
-		return err
-	}
-}
-
-func bbcHTMLField(page []byte, pattern *regexp.Regexp) string {
-	match := pattern.FindSubmatch(page)
-	if len(match) != 2 {
-		return ""
-	}
-	return strings.TrimSpace(html.UnescapeString(string(match[1])))
 }
 
 func mergeRiskSubtitles(target, source *value.Object) {
@@ -368,13 +236,4 @@ func mergeRiskSubtitles(target, source *value.Object) {
 		incoming, _ := field.Value.ListValue()
 		target.Set(field.Key, value.List(append(existing, incoming...)...))
 	}
-}
-
-func firstBBCSynopsis(synopsis map[string]string) string {
-	for _, key := range []string{"large", "medium", "small"} {
-		if synopsis[key] != "" {
-			return synopsis[key]
-		}
-	}
-	return ""
 }

@@ -66,6 +66,10 @@ service response.
 | instagram | instagram.com posts | playlist/API, anti-bot/impersonated |
 | kick | kick.com channels | live, anti-bot/impersonated, manifest-heavy |
 | bbciplayer | bbc.co.uk iPlayer episodes | playlist/API, manifest-heavy, regional |
+| bbc_co_uk_article | bbc.co.uk programme articles | playlist/API, regional |
+| bbc_co_uk_playlist | bbc.co.uk programmes listings | playlist/API, regional |
+| bbc_co_uk_iplayer_episodes | bbc.co.uk iPlayer episodes listings | playlist/API, regional |
+| bbc_co_uk_iplayer_group | bbc.co.uk iPlayer group listings | playlist/API, regional |
 | ard | ardmediathek.de player and collection pages | playlist/API, manifest-heavy, regional |
 | ard_audiothek (+ playlist) | ardaudiothek.de and ardsounds.de public episode and bounded show playlist pages | playlist/API, simple/direct, regional |
 | nrk | nrk.no pages and nrk: opaque URLs | playlist/API, manifest-heavy, regional |

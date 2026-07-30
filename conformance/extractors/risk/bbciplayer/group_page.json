@@ -1,0 +1,12 @@
+{
+  "group_episodes": {
+    "elements": [
+      {"id": "p0000001", "title": "Fixture Group Episode One", "subtitle": {"default": "Episode One"}},
+      {"id": "p0000002", "title": "Fixture Group Episode Two", "subtitle": {"default": "Episode Two"}}
+    ]
+  },
+  "group": {
+    "title": "Fixture BBC Group",
+    "synopses": {"large": "Synthetic group synopsis"}
+  }
+}
