@@ -50,6 +50,35 @@ capabilities:
       - conformance/extractors/prx/PROVENANCE.md
     owner: core
     known_deviation: PRX support is bounded to the pinned numeric routes and opaque story/series search keys; synthetic fixtures do not prove behavior against future live API schema changes.
+  - id: extractor.radiofrance_public
+    name: Radio France public media family
+    phase: 1
+    compatibility_target: Extract the pinned RadioFrance, FranceCulture, RadioFranceLive, RadioFrancePodcast, RadioFranceProfile, and RadioFranceProgramSchedule route corpus with credential-isolated discovery, bounded playlist pagination, attributable-host media validation, and transparent child reentry where fixture-backed.
+    status: partial
+    evidence:
+      - internal/extractor.TestRadioFranceRoutingMatrixAndNonOverlap
+      - internal/extractor.TestRadioFranceLegacyFormatsAndMetadata
+      - internal/extractor.TestFranceCultureEpisodeMetadata
+      - internal/extractor.TestRadioFranceLiveStationAndSubstation
+      - internal/extractor.TestRadioFrancePodcastLazyCursorAndDedupe
+      - internal/extractor.TestRadioFranceProfileCursorProgression
+      - internal/extractor.TestRadioFranceProgramScheduleTransparentReentry
+      - internal/extractor.TestRadioFranceScheduleQueryValidation
+      - internal/extractor.TestRadioFranceRejectsNonAttributableMediaHosts
+      - internal/extractor.TestRadioFranceFailureCategoriesCancellationAndSecretSafety
+      - internal/extractor.TestRadioFranceRequiresCredentialIsolation
+      - internal/extractor.TestRadioFranceNilTransportFailsClosed
+      - internal/extractor.TestRadioFranceRedirectRejection
+      - pkg/ytdlp.TestProductRegistryRoutesRadioFranceFamily
+      - pkg/ytdlp.TestProductFranceCultureDirectAudioDownloadCredentialIsolation
+      - pkg/ytdlp.TestProductRadioFranceLiveHLSDownloadCredentialIsolation
+      - pkg/ytdlp.TestProductRadioFranceLiveDirectAudioDownloadCredentialIsolation
+      - pkg/ytdlp.TestProductRadioFrancePodcastPlaylistChildDownload
+      - pkg/ytdlp.TestProductRadioFranceSchedulePlaylistChildDownload
+      - pkg/ytdlp.TestProductRadioFranceCancellationAndFailureCleanup
+      - conformance/extractors/risk/radiofrance/PROVENANCE.md
+    owner: core
+    known_deviation: Live HLS uses the generic native m3u8 product path without extractor-time manifest parsing; live HLS subtitle tracks are outside fixture scope. Media and thumbnail URLs are restricted to attributable radiofrance.fr and maison.radiofrance.fr hosts, which is stricter than upstream. Schedule query validation rejects duplicate, empty, and non-calendar date values beyond upstream shape checks.
   - id: extractor.discovery_dplay
     name: Discovery and DPlay extractor family
     phase: 2

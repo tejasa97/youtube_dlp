@@ -1,0 +1,22 @@
+{
+  "visual": {
+    "legend": "Fixture Live Legend"
+  },
+  "now": {
+    "firstLine": {"title": "Fixture First Line"},
+    "secondLine": {"title": "Fixture Second Line"},
+    "media": {
+      "sources": [
+        {
+          "format": "hls",
+          "url": "https://icecast.radiofrance.fr/franceinter/live.m3u8"
+        },
+        {
+          "format": "aac",
+          "url": "https://icecast.radiofrance.fr/franceinter/live.aac",
+          "bitrate": 128
+        }
+      ]
+    }
+  }
+}

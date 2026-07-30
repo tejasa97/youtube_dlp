@@ -644,6 +644,12 @@ func (client *Client) productRegistry() *extractor.Registry {
 		extractor.NewARD(),
 		extractor.NewARDAudiothekPlaylist(),
 		extractor.NewARDAudiothek(),
+		extractor.NewRadioFranceProgramSchedule(),
+		extractor.NewFranceCulture(),
+		extractor.NewRadioFrancePodcast(),
+		extractor.NewRadioFranceProfile(),
+		extractor.NewRadioFranceLive(),
+		extractor.NewRadioFrance(),
 		extractor.NewNRKSkole(),
 		extractor.NewNRKRadioPodkast(),
 		extractor.NewNRKTVEpisode(),
@@ -847,6 +853,12 @@ func applyTransparentOverlay(info *value.Info, overlay *extractor.Entry) {
 	if overlay.Language != "" {
 		info.Set("language", value.String(overlay.Language))
 	}
+	if overlay.SeriesID != "" {
+		info.Set("series_id", value.String(overlay.SeriesID))
+	}
+	if overlay.Series != "" {
+		info.Set("series", value.String(overlay.Series))
+	}
 }
 
 // overlayOntoEntry transfers a transparent overlay's metadata onto an Entry
@@ -882,6 +894,12 @@ func overlayOntoEntry(entry *extractor.Entry, overlay *extractor.Entry) {
 	}
 	if overlay.Language != "" {
 		entry.Language = overlay.Language
+	}
+	if overlay.SeriesID != "" {
+		entry.SeriesID = overlay.SeriesID
+	}
+	if overlay.Series != "" {
+		entry.Series = overlay.Series
 	}
 }
 
