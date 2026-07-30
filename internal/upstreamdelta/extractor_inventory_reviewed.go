@@ -104,6 +104,24 @@ var reviewedInventory = map[string]reviewedInventoryEntry{
 	"NhkVodProgramIE": {
 		rationale: "fixture-backed Go extractor for NHK World program playlist re-entry evidence",
 	},
+	"MicrosoftBuildIE": {
+		rationale: "fixture-backed strict Build sessions routes with bounded Medius transparent re-entry and product download evidence",
+	},
+	"MicrosoftEmbedIE": {
+		rationale: "fixture-backed strict Microsoft videoplayer route with native manifest and direct-media product evidence",
+	},
+	"MicrosoftLearnEpisodeIE": {
+		rationale: "fixture-backed strict Learn show child route with bounded public video API and native media formats",
+	},
+	"MicrosoftLearnPlaylistIE": {
+		rationale: "fixture-backed strict Learn shows/events routes with lazy reusable bounded API pagination",
+	},
+	"MicrosoftLearnSessionIE": {
+		rationale: "fixture-backed strict Learn event child route with validated scoped Medius transparent re-entry",
+	},
+	"MicrosoftMediusIE": {
+		rationale: "fixture-backed exact Medius Embed routes with canonical discovery and native ISM product evidence",
+	},
 	"PRXSeriesSearchIE": {
 		rationale: "pinned prxseries opaque search key is registered with bounded fixture-backed CMS paging",
 	},

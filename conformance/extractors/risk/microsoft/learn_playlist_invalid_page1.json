@@ -1,0 +1,11 @@
+{
+  "count": 8,
+  "results": [
+    {"url": "/en-us/shows/bash-for-beginners/episode-1"},
+    {"not_a_url": "ignored"},
+    {"url": "/en-us/shows/bash-for-beginners/episode-1"},
+    {"url": "/en-us/shows/bash-for-beginners/episode-2"},
+    {"url": "javascript:alert(1)"},
+    {"url": "/en-us/shows/bash-for-beginners/episode-3"}
+  ]
+}

@@ -48,6 +48,7 @@ type thumbnailTrack struct {
 	extension  string
 	rawURL     string
 	headers    http.Header
+	isolated   bool
 	preference float64
 	width      float64
 	height     float64
@@ -169,10 +170,11 @@ func selectThumbnails(info *value.Info) ([]thumbnailTrack, error) {
 			return nil, err
 		}
 		metadata := object.Clone()
+		isolated, _ := object.Lookup("_credential_isolated").Bool()
 		id := thumbnailOriginalID(metadata.Lookup("id"))
 		metadata.Set("ext", value.String(extension))
 		tracks = append(tracks, thumbnailTrack{
-			id: id, extension: extension, rawURL: rawURL, headers: headers,
+			id: id, extension: extension, rawURL: rawURL, headers: headers, isolated: isolated,
 			preference: thumbnailNumber(metadata.Lookup("preference")),
 			width:      thumbnailNumber(metadata.Lookup("width")),
 			height:     thumbnailNumber(metadata.Lookup("height")),
@@ -291,7 +293,11 @@ func (operation *operation) writeThumbnails(ctx context.Context, info *value.Inf
 		if downloadOptions.MaxBytes <= 0 || downloadOptions.MaxBytes > maxThumbnailBytes {
 			downloadOptions.MaxBytes = maxThumbnailBytes
 		}
-		result, downloadErr := downloader.New(thumbnailRedirectTransport{client: operation.transport}).Download(ctx, downloader.Job{
+		downloadTransport := network.Doer(thumbnailRedirectTransport{client: operation.transport})
+		if track.isolated {
+			downloadTransport = newCredentialIsolatedTransport(operation.transport)
+		}
+		result, downloadErr := downloader.New(downloadTransport).Download(ctx, downloader.Job{
 			URL: track.rawURL, Headers: track.headers, OutputRoot: operation.request.outputRoot(OutputPathHome), Destination: destination,
 			Overwrite: operation.request.Overwrite, Attempts: downloadOptions.Attempts,
 			RetryBaseDelay: downloadOptions.RetryBaseDelay, RetryMaxDelay: downloadOptions.RetryMaxDelay,

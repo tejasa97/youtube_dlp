@@ -681,6 +681,12 @@ func (client *Client) productRegistry() *extractor.Registry {
 		extractor.NewImgur(),
 		extractor.NewFlickr(),
 		extractor.NewAeonCo(),
+		extractor.NewMicrosoftEmbed(),
+		extractor.NewMicrosoftMedius(),
+		extractor.NewMicrosoftLearnPlaylist(),
+		extractor.NewMicrosoftLearnEpisode(),
+		extractor.NewMicrosoftLearnSession(),
+		extractor.NewMicrosoftBuild(),
 		extractor.NewRegionSVT(),
 		extractor.NewSyntheticAuth(),
 	}

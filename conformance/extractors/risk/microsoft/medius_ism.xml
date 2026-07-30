@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SmoothStreamingMedia MajorVersion="2" MinorVersion="2" Duration="6000000000" TimeScale="10000000">
+  <StreamIndex Type="video" Name="video" Chunks="2" TimeScale="10000000" Url="QualityLevels({bitrate})/Fragments(video={start time})">
+    <QualityLevel Index="0" Bitrate="1500000" FourCC="H264" MaxWidth="1280" MaxHeight="720" CodecPrivateData="000000016764001FACD940A02FF9700" />
+    <QualityLevel Index="1" Bitrate="3000000" FourCC="H264" MaxWidth="1920" MaxHeight="1080" CodecPrivateData="000000016764001FACD940A02FF9700" />
+    <c d="3000000000" />
+    <c d="3000000000" />
+  </StreamIndex>
+  <StreamIndex Type="audio" Name="audio_eng" Language="eng" Chunks="2" TimeScale="10000000" Url="QualityLevels({bitrate})/Fragments(audio={start time})">
+    <QualityLevel Index="0" Bitrate="128000" FourCC="AACL" SamplingRate="48000" Channels="2" BitsPerSample="16" PacketSize="4" AudioTag="255" CodecPrivateData="1190" />
+    <c d="3000000000" />
+    <c d="3000000000" />
+  </StreamIndex>
+  <StreamIndex Type="audio" Name="audio_spa" Language="spa" Chunks="2" TimeScale="10000000" Url="QualityLevels({bitrate})/Fragments(audio={start time})">
+    <QualityLevel Index="0" Bitrate="96000" FourCC="AACL" SamplingRate="48000" Channels="2" BitsPerSample="16" PacketSize="4" AudioTag="255" CodecPrivateData="1190" />
+    <c d="3000000000" />
+    <c d="3000000000" />
+  </StreamIndex>
+</SmoothStreamingMedia>

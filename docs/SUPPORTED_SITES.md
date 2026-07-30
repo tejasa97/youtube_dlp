@@ -21,7 +21,18 @@ handoffs preserve Amara title, description, thumbnail, duration, timestamp,
 subtitles, and webpage metadata while keeping the downstream YouTube/Vimeo
 video ID in the final result.
 
-ytdlp-go currently registers 44 representative native extractors. This is a
+## Microsoft public media
+
+Six exact keys cover the fixture-backed public family: `microsoft_embed`,
+`microsoft_medius`, `microsoft_learn_playlist`, `microsoft_learn_episode`,
+`microsoft_learn_session`, and `microsoft_build`. Coverage is restricted to
+the documented HTTPS Microsoft, Medius, Learn, and Build routes, anonymous
+bounded APIs, attributable media hosts, native ISM/HLS/DASH/direct downloads,
+and validated Learn/Build transparent re-entry into Medius. Authenticated,
+DRM-protected, signed-cookie, and live-production interoperability are not
+claimed.
+
+ytdlp-go currently registers 50 representative native extractors. This is a
 conformance catalog, not a claim of the thousands of sites supported by
 upstream yt-dlp.
 
@@ -79,6 +90,7 @@ service response.
 | imgur | imgur.com and i.imgur.com public videos, animated images, galleries, and albums | simple/direct, playlist/API |
 | flickr | flickr.com public video pages | simple/direct, playlist/API |
 | Discovery / DPlay family | Discovery, DPlay, Discovery+, Discovery+ India/Italy shows, AHC, Animal Planet, Cooking Channel, Destination America, Discovery Life, Food Network, HGTV, Investigation Discovery, Science Channel, TLC, Travel Channel, Tele5, DMAX/TLC Germany | playlist/API, manifest-heavy, regional/authenticated API |
+| Microsoft public media family | microsoft.com videoplayer embeds; medius.microsoft.com Embed routes; learn.microsoft.com shows/events playlists and child pages; build.microsoft.com sessions | playlist/API, manifest-heavy, simple/direct |
 
 ## Shared-family breadth (Wave 1 + priority-100)
 
