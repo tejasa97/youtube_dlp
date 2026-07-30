@@ -213,6 +213,31 @@ func (client *Client) DoProfile(ctx context.Context, request *http.Request, prof
 	return client.do(ctx, request, profileName, true)
 }
 
+// DoProfiledNoRedirect executes a profiled request using the operation jar and
+// returns the first redirect response. Explicit Cookie headers are discarded so
+// the jar remains the only cookie authority for the initial origin.
+func (client *Client) DoProfiledNoRedirect(ctx context.Context, request *http.Request, profileName string) (*http.Response, error) {
+	if request == nil {
+		return nil, errors.New("HTTP request must not be nil")
+	}
+	if profileName == "" {
+		return nil, fmt.Errorf("%w: missing profile", ErrImpersonationUnavailable)
+	}
+	cloned := client.prepareRequest(ctx, request, true, false)
+	cloned.Header.Del("Cookie")
+	cloned.Header.Del("Authorization")
+	cloned.Header.Del("Proxy-Authorization")
+	profile, err := client.noRedirectProfileClient(profileName)
+	if err != nil {
+		return nil, err
+	}
+	response, err := profile.Do(cloned)
+	if err != nil {
+		return nil, &RequestError{Method: cloned.Method, URL: RedactURL(cloned.URL), Err: err}
+	}
+	return response, nil
+}
+
 func (client *Client) do(ctx context.Context, request *http.Request, profileName string, includeCookies bool) (*http.Response, error) {
 	if request == nil {
 		return nil, errors.New("HTTP request must not be nil")
@@ -303,6 +328,28 @@ func (client *Client) isolatedProfileClient(name string) (*impersonate.Client, e
 		return nil, fmt.Errorf("%w: %s", ErrImpersonationUnavailable, name)
 	}
 	client.isolatedProfiles[name] = created
+	return created, nil
+}
+
+func (client *Client) noRedirectProfileClient(name string) (*impersonate.Client, error) {
+	profile, err := impersonate.Lookup(name)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrImpersonationUnavailable, name)
+	}
+	client.profileMu.Lock()
+	defer client.profileMu.Unlock()
+	key := "no-redirect:" + name
+	if existing := client.profiles[key]; existing != nil {
+		return existing, nil
+	}
+	config := client.profileConfig
+	config.Profile = profile
+	config.DisableRedirect = true
+	created, err := impersonate.New(config)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrImpersonationUnavailable, name)
+	}
+	client.profiles[key] = created
 	return created, nil
 }
 

@@ -3,6 +3,7 @@ package extractor
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -177,9 +178,161 @@ func extractVimeoVideo(ctx context.Context, request Request, videoID, contextual
 	}
 	config, err := extractVimeoConfig(ctx, request.Transport, configRefererURL(webpageURL, request.Referer), page)
 	if err != nil {
-		return Extraction{}, err
+		if !errors.Is(err, ErrAuthentication) {
+			return Extraction{}, err
+		}
+		if err := verifyVimeoVideoPassword(ctx, request.Transport, webpageURL, videoID, request.VideoPassword); err != nil {
+			return Extraction{}, err
+		}
+		page, _, err = ReadPageWithProfile(ctx, request.Transport, webpageURL, vimeoImpersonationProfile)
+		if err != nil {
+			return Extraction{}, err
+		}
+		config, err = extractVimeoConfig(ctx, request.Transport, configRefererURL(webpageURL, request.Referer), page)
+		if err != nil {
+			return Extraction{}, err
+		}
+	}
+	if config.View == 4 {
+		config, err = verifyVimeoPlayerPassword(ctx, request.Transport, "https://player.vimeo.com/video/"+videoID, request.VideoPassword)
+		if err != nil {
+			return Extraction{}, err
+		}
 	}
 	return parseVimeoConfigContext(ctx, request.Transport, config, videoID, webpageURL, request.Referer)
+}
+
+// verifyVimeoVideoPassword submits the normal Vimeo password JSON only after a
+// credential-isolated viewer fetch has supplied a bounded xsrft token. The
+// password request itself retains the operation jar so its same-origin session
+// cookie can be used by the immediately following public extraction flow.
+func verifyVimeoVideoPassword(ctx context.Context, transport Transport, webpageURL, videoID, password string) error {
+	if err := contextError(ctx); err != nil {
+		return err
+	}
+	if password == "" {
+		return ErrAuthentication
+	}
+	endpoint, referer, ok := vimeoVideoPasswordEndpoint(webpageURL, videoID)
+	if !ok {
+		return fmt.Errorf("%w: unsafe Vimeo password endpoint", ErrInvalidMetadata)
+	}
+	viewer, _, err := ReadPageWithProfileWithoutCredentialsNoRedirect(ctx, transport, "https://vimeo.com/_next/viewer", vimeoImpersonationProfile)
+	if err != nil {
+		return err
+	}
+	xsrft, err := parseVimeoViewerXSRFT(viewer)
+	if err != nil {
+		return err
+	}
+	body, err := json.Marshal(struct {
+		Password string `json:"password"`
+		Token    string `json:"token"`
+	}{password, xsrft})
+	if err != nil {
+		return ErrInvalidMetadata
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return ErrInvalidMetadata
+	}
+	request.Header.Set("Accept", "*/*")
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Referer", referer)
+	profiled, ok := transport.(ProfiledNoRedirectTransport)
+	if !ok {
+		return ErrTransportIsolation
+	}
+	response, err := profiled.DoProfiledNoRedirect(ctx, request, vimeoImpersonationProfile)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	switch response.StatusCode {
+	case http.StatusTeapot:
+		return ErrWrongPassword
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return ErrAuthentication
+	case http.StatusNotFound, http.StatusGone:
+		return ErrUnavailable
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return ErrVimeoPlaylistNetwork
+	}
+	return nil
+}
+
+func vimeoVideoPasswordEndpoint(webpageURL, videoID string) (endpoint, referer string, ok bool) {
+	parsed, err := url.Parse(webpageURL)
+	if err != nil || parsed.Scheme != "https" || parsed.User != nil || parsed.Port() != "" ||
+		(parsed.Hostname() != "vimeo.com" && parsed.Hostname() != "www.vimeo.com") || parsed.RawQuery != "" || parsed.Fragment != "" ||
+		vimeoUnsafePath(parsed) || !strings.HasSuffix(parsed.Path, "/"+videoID) {
+		return "", "", false
+	}
+	parsed.Host = "vimeo.com"
+	parsed.RawPath = ""
+	referer = parsed.String()
+	parsed.Path += "/password"
+	return parsed.String(), referer, true
+}
+
+func verifyVimeoPlayerPassword(ctx context.Context, transport Transport, playerURL, password string) (vimeoConfig, error) {
+	if err := contextError(ctx); err != nil {
+		return vimeoConfig{}, err
+	}
+	if password == "" {
+		return vimeoConfig{}, ErrAuthentication
+	}
+	endpoint, ok := vimeoPlayerPasswordEndpoint(playerURL)
+	if !ok {
+		return vimeoConfig{}, fmt.Errorf("%w: unsafe Vimeo player password endpoint", ErrInvalidMetadata)
+	}
+	form := url.Values{"password": {base64.StdEncoding.EncodeToString([]byte(password))}}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return vimeoConfig{}, ErrInvalidMetadata
+	}
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	profiled, ok := transport.(ProfiledNoRedirectTransport)
+	if !ok {
+		return vimeoConfig{}, ErrTransportIsolation
+	}
+	response, err := profiled.DoProfiledNoRedirect(ctx, request, vimeoImpersonationProfile)
+	if err != nil {
+		return vimeoConfig{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusTeapot {
+		return vimeoConfig{}, ErrWrongPassword
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return vimeoConfig{}, ErrVimeoPlaylistNetwork
+	}
+	data, err := io.ReadAll(io.LimitReader(response.Body, maxExtractorJSONBytes+1))
+	if err != nil || int64(len(data)) > maxExtractorJSONBytes {
+		return vimeoConfig{}, ErrInvalidMetadata
+	}
+	if bytes.Equal(bytes.TrimSpace(data), []byte("false")) {
+		return vimeoConfig{}, ErrWrongPassword
+	}
+	var config vimeoConfig
+	if json.Unmarshal(data, &config) != nil {
+		return vimeoConfig{}, fmt.Errorf("%w: invalid Vimeo player password response", ErrInvalidMetadata)
+	}
+	return config, nil
+}
+
+func vimeoPlayerPasswordEndpoint(playerURL string) (string, bool) {
+	parsed, err := url.Parse(playerURL)
+	if err != nil || parsed.Scheme != "https" || parsed.User != nil || parsed.Port() != "" ||
+		parsed.Hostname() != "player.vimeo.com" || parsed.Fragment != "" || vimeoUnsafePath(parsed) ||
+		!vimeoURLPattern.MatchString(parsed.Path) {
+		return "", false
+	}
+	parsed.RawQuery = ""
+	parsed.ForceQuery = false
+	parsed.Path += "/check-password"
+	return parsed.String(), true
 }
 
 // extractVimeoUnlistedVideo resolves a Vimeo private/unlisted share URL of
@@ -1656,8 +1809,8 @@ func extractVimeoConfig(ctx context.Context, transport Transport, webpageURL str
 	}
 	headers := make(http.Header)
 	headers.Set("Referer", webpageURL)
-	var config vimeoConfig
-	if err := RequestJSON(ctx, transport, http.MethodGet, configURL, nil, headers, &config); err != nil {
+	config, err := fetchVimeoConfig(ctx, transport, configURL, headers)
+	if err != nil {
 		var status *HTTPStatusError
 		if errors.As(err, &status) {
 			switch status.Code {
@@ -1670,6 +1823,57 @@ func extractVimeoConfig(ctx context.Context, transport Transport, webpageURL str
 		return vimeoConfig{}, err
 	}
 	return config, nil
+}
+
+// fetchVimeoConfig recognizes only Vimeo's bounded, structured 400 password
+// signal. Other 400s remain ordinary HTTP errors and therefore cannot trigger
+// a secret-bearing retry.
+func fetchVimeoConfig(ctx context.Context, transport Transport, rawURL string, headers http.Header) (vimeoConfig, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return vimeoConfig{}, ErrInvalidMetadata
+	}
+	request.Header = headers.Clone()
+	response, err := transport.Do(ctx, request)
+	if err != nil {
+		return vimeoConfig{}, err
+	}
+	defer response.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(response.Body, maxExtractorJSONBytes+1))
+	if err != nil || int64(len(data)) > maxExtractorJSONBytes {
+		return vimeoConfig{}, ErrJSONResponseTooLarge
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		if response.StatusCode == http.StatusBadRequest && vimeoConfigPasswordRequired(data) {
+			return vimeoConfig{}, ErrAuthentication
+		}
+		return vimeoConfig{}, &HTTPStatusError{Code: response.StatusCode}
+	}
+	var config vimeoConfig
+	if json.Unmarshal(data, &config) != nil {
+		return vimeoConfig{}, fmt.Errorf("%w: invalid JSON response", ErrInvalidMetadata)
+	}
+	return config, nil
+}
+
+func vimeoConfigPasswordRequired(data []byte) bool {
+	if len(data) == 0 || len(data) > 8<<10 {
+		return false
+	}
+	var response struct {
+		InvalidParameters []struct {
+			Field string `json:"field"`
+		} `json:"invalid_parameters"`
+	}
+	if json.Unmarshal(data, &response) != nil {
+		return false
+	}
+	for _, parameter := range response.InvalidParameters {
+		if parameter.Field == "password" {
+			return true
+		}
+	}
+	return false
 }
 
 // normalizeVimeoConfigURL permits only Vimeo's public player-config origin.
