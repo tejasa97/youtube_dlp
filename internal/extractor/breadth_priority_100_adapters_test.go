@@ -28,6 +28,9 @@ func (t *breadthVimeoTransport) ReadPage(context.Context, string) ([]byte, http.
 
 func (t *breadthVimeoTransport) ReadPageProfile(_ context.Context, rawURL, _ string) ([]byte, http.Header, error) {
 	id := strings.TrimPrefix(rawURL, "https://vimeo.com/")
+	if id == rawURL {
+		id = strings.TrimPrefix(rawURL, "https://player.vimeo.com/video/")
+	}
 	if !laracastsVimeoID.MatchString(id) {
 		return nil, nil, fmt.Errorf("unexpected webpage URL %q", rawURL)
 	}

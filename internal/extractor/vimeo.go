@@ -172,6 +172,7 @@ func extractVimeoVideo(ctx context.Context, request Request, videoID, contextual
 	if webpageURL == "" {
 		webpageURL = "https://vimeo.com/" + videoID
 	}
+	playerRoute := isVimeoPlayerVideoURL(webpageURL, videoID)
 	page, _, err := ReadPageWithProfile(ctx, request.Transport, webpageURL, vimeoImpersonationProfile)
 	if err != nil {
 		return Extraction{}, err
@@ -179,6 +180,12 @@ func extractVimeoVideo(ctx context.Context, request Request, videoID, contextual
 	config, err := extractVimeoConfig(ctx, request.Transport, configRefererURL(webpageURL, request.Referer), page)
 	if err != nil {
 		if !errors.Is(err, ErrAuthentication) {
+			return Extraction{}, err
+		}
+		// The pinned player flow exposes its password gate as config.view == 4.
+		// A player page without that bounded config must not be reinterpreted as
+		// the standard vimeo.com JSON password flow.
+		if playerRoute {
 			return Extraction{}, err
 		}
 		if err := verifyVimeoVideoPassword(ctx, request.Transport, webpageURL, videoID, request.VideoPassword); err != nil {
@@ -194,7 +201,11 @@ func extractVimeoVideo(ctx context.Context, request Request, videoID, contextual
 		}
 	}
 	if config.View == 4 {
-		config, err = verifyVimeoPlayerPassword(ctx, request.Transport, "https://player.vimeo.com/video/"+videoID, request.VideoPassword)
+		playerURL := "https://player.vimeo.com/video/" + videoID
+		if playerRoute {
+			playerURL = webpageURL
+		}
+		config, err = verifyVimeoPlayerPassword(ctx, request.Transport, playerURL, configRefererURL(webpageURL, request.Referer), request.VideoPassword)
 		if err != nil {
 			return Extraction{}, err
 		}
@@ -276,7 +287,7 @@ func vimeoVideoPasswordEndpoint(webpageURL, videoID string) (endpoint, referer s
 	return parsed.String(), referer, true
 }
 
-func verifyVimeoPlayerPassword(ctx context.Context, transport Transport, playerURL, password string) (vimeoConfig, error) {
+func verifyVimeoPlayerPassword(ctx context.Context, transport Transport, playerURL, referer, password string) (vimeoConfig, error) {
 	if err := contextError(ctx); err != nil {
 		return vimeoConfig{}, err
 	}
@@ -293,6 +304,11 @@ func verifyVimeoPlayerPassword(ctx context.Context, transport Transport, playerU
 		return vimeoConfig{}, ErrInvalidMetadata
 	}
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if validated, ok := validVimeoReferer(referer); ok {
+		request.Header.Set("Referer", validated)
+	} else {
+		return vimeoConfig{}, fmt.Errorf("%w: unsafe Vimeo player referer", ErrInvalidMetadata)
+	}
 	profiled, ok := transport.(ProfiledNoRedirectTransport)
 	if !ok {
 		return vimeoConfig{}, ErrTransportIsolation
@@ -302,11 +318,8 @@ func verifyVimeoPlayerPassword(ctx context.Context, transport Transport, playerU
 		return vimeoConfig{}, err
 	}
 	defer response.Body.Close()
-	if response.StatusCode == http.StatusTeapot {
-		return vimeoConfig{}, ErrWrongPassword
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return vimeoConfig{}, ErrVimeoPlaylistNetwork
+	if statusErr := categorizeVimeoPasswordStatus(response.StatusCode); statusErr != nil {
+		return vimeoConfig{}, statusErr
 	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, maxExtractorJSONBytes+1))
 	if err != nil || int64(len(data)) > maxExtractorJSONBytes {
@@ -322,6 +335,24 @@ func verifyVimeoPlayerPassword(ctx context.Context, transport Transport, playerU
 	return config, nil
 }
 
+func categorizeVimeoPasswordStatus(status int) error {
+	switch status {
+	case http.StatusOK, http.StatusCreated, http.StatusAccepted, http.StatusNoContent:
+		return nil
+	case http.StatusTeapot:
+		return ErrWrongPassword
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return ErrAuthentication
+	case http.StatusNotFound, http.StatusGone:
+		return ErrUnavailable
+	default:
+		if status >= 200 && status < 300 {
+			return nil
+		}
+		return ErrVimeoPlaylistNetwork
+	}
+}
+
 func vimeoPlayerPasswordEndpoint(playerURL string) (string, bool) {
 	parsed, err := url.Parse(playerURL)
 	if err != nil || parsed.Scheme != "https" || parsed.User != nil || parsed.Port() != "" ||
@@ -333,6 +364,12 @@ func vimeoPlayerPasswordEndpoint(playerURL string) (string, bool) {
 	parsed.ForceQuery = false
 	parsed.Path += "/check-password"
 	return parsed.String(), true
+}
+
+func isVimeoPlayerVideoURL(rawURL, videoID string) bool {
+	parsed, err := url.Parse(rawURL)
+	return err == nil && parsed.Scheme == "https" && parsed.Host == "player.vimeo.com" &&
+		parsed.Path == "/video/"+videoID && parsed.User == nil && parsed.Port() == "" && parsed.Fragment == "" && parsed.RawPath == ""
 }
 
 // extractVimeoUnlistedVideo resolves a Vimeo private/unlisted share URL of
@@ -820,8 +857,8 @@ func classifyVimeoURL(parsed *url.URL) (vimeoRouteKind, vimeoPlaylistTarget) {
 	}
 	host := strings.ToLower(parsed.Hostname())
 	if host == "player.vimeo.com" {
-		if match := vimeoURLPattern.FindStringSubmatch(parsed.Path); len(match) == 2 {
-			return vimeoRouteVideo, vimeoPlaylistTarget{kind: vimeoRouteVideo, id: match[1]}
+		if target, ok := classifyVimeoPlayerVideoURL(parsed); ok {
+			return vimeoRouteVideo, target
 		}
 		return vimeoRouteNone, vimeoPlaylistTarget{}
 	}
@@ -844,6 +881,31 @@ func classifyVimeoURL(parsed *url.URL) (vimeoRouteKind, vimeoPlaylistTarget) {
 		return target.kind, target
 	}
 	return vimeoRouteNone, vimeoPlaylistTarget{}
+}
+
+// classifyVimeoPlayerVideoURL preserves the bounded player request context for
+// the page fetch while canonicalizing the origin. Query parameters are needed
+// by some embeds, but are removed before the password endpoint is constructed.
+func classifyVimeoPlayerVideoURL(parsed *url.URL) (vimeoPlaylistTarget, bool) {
+	if parsed == nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.User != nil || parsed.Port() != "" ||
+		parsed.Opaque != "" || parsed.RawPath != "" || parsed.Fragment != "" || parsed.RawFragment != "" ||
+		len(parsed.RawQuery) > vimeoMaxConfigURL || strings.ContainsAny(parsed.RawQuery, "\\\x00\r\n") || vimeoUnsafePath(parsed) {
+		return vimeoPlaylistTarget{}, false
+	}
+	match := vimeoURLPattern.FindStringSubmatch(parsed.Path)
+	if len(match) != 2 || !validVimeoNumericVideoID(match[1]) {
+		return vimeoPlaylistTarget{}, false
+	}
+	canonical := &url.URL{
+		Scheme:   "https",
+		Host:     "player.vimeo.com",
+		Path:     parsed.Path,
+		RawQuery: parsed.RawQuery,
+	}
+	if len(canonical.String()) > vimeoMaxConfigURL {
+		return vimeoPlaylistTarget{}, false
+	}
+	return vimeoPlaylistTarget{kind: vimeoRouteVideo, id: match[1], canonical: canonical.String()}, true
 }
 
 // classifyVimeoUnlistedURL accepts only direct canonical Vimeo URLs of the
