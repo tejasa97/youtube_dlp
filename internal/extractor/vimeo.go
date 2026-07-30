@@ -265,6 +265,9 @@ func readVimeoPage(ctx context.Context, transport Transport, webpageURL, referer
 }
 
 func readVimeoProfilePage(ctx context.Context, transport ProfiledPageNoRedirectTransport, rawURL, referer string) ([]byte, http.Header, int, error) {
+	if err := contextError(ctx); err != nil {
+		return nil, nil, 0, err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, nil, 0, ErrInvalidMetadata
@@ -2042,9 +2045,10 @@ func categorizeVimeoResponseStatus(rawURL string, status int, body []byte) error
 	if matchesVimeoUnlistedErrorCode(body, vimeoUnlistedAPIErrorCode) {
 		return ErrAuthentication
 	}
-	// This exact pinned privacy message is an embed-only authorization signal,
-	// not a TLS-fingerprint block. Limit callers to the small status-body cap.
-	if len(body) <= int(vimeoUnlistedAPIStatusReadBytes) && bytes.Contains(body, []byte("Because of its privacy settings, this video cannot be played here")) {
+	// This exact pinned privacy message is an embed-only authorization signal
+	// only in the two retry contexts.  A phrase in an arbitrary 3xx/5xx body is
+	// ordinary server output and must not change its public error category.
+	if isVimeoPrivacyRetryStatus(rawURL, status) && isVimeoEmbedOnlyBody(body) {
 		return ErrAuthentication
 	}
 	parsed, err := url.Parse(rawURL)

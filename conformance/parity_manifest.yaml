@@ -1794,6 +1794,9 @@ capabilities:
       - internal/extractor.TestVimeoSuitableAndPlayerConfig
       - internal/extractor.TestVimeoFailuresAreCategorized
       - internal/extractor.TestCategorizeVimeoResponseStatusIsHostSensitiveAndSecretSafe
+      - internal/extractor.TestVimeoEmbedPrivacyRetriesOnceWithValidatedReferer
+      - internal/extractor.TestReadVimeoProfilePageBoundsCancellationAndClosure
+      - internal/extractor.TestVimeoSignedConfigQueryIsRequestOnlyAndMetadataSafe
       - internal/extractor.TestVimeoSignedConfigUsesIsolatedNoRedirectTransport
       - internal/extractor.TestVimeoConfigURLFailsClosedWithoutRequests
       - internal/extractor.TestVimeoTextTracksAreBoundedAndFailClosed

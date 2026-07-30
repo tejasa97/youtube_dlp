@@ -61,5 +61,4 @@ service compatibility is not asserted from synthetic fixtures alone.
 The public/player path additionally recognizes only the pinned fingerprint
 contexts: `vimeo.com` page 403 and `player.vimeo.com` page 429 map to the
 existing transport-profile category. This fixture-backed behavior is neither a
-generic Vimeo rate-limit claim nor live-site coverage; `api.vimeo.com` 429
-remains deliberately unresolved.
+generic Vimeo rate-limit claim nor live-site coverage.
