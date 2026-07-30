@@ -44,6 +44,13 @@ type CredentialIsolatedNoRedirectTransport interface {
 	DoWithoutCredentialsNoRedirect(context.Context, *http.Request) (*http.Response, error)
 }
 
+// RefererCredentialIsolatedNoRedirectTransport is the narrow variant for an
+// already-validated embedding Referer. It otherwise has the same isolation
+// and no-redirect guarantees as CredentialIsolatedNoRedirectTransport.
+type RefererCredentialIsolatedNoRedirectTransport interface {
+	DoWithoutCredentialsNoRedirectWithReferer(context.Context, *http.Request) (*http.Response, error)
+}
+
 // ScopedAuthorizationNoRedirectTransport executes a request with only the
 // caller-supplied Authorization header while excluding operation credentials,
 // cookies, response-cookie persistence, and redirects. It is intended for
@@ -80,6 +87,13 @@ type ProfileTransport interface {
 // same-origin form submissions that carry a per-video secret.
 type ProfiledNoRedirectTransport interface {
 	DoProfiledNoRedirect(context.Context, *http.Request, string) (*http.Response, error)
+}
+
+// ProfiledPageNoRedirectTransport is the page-read capability used when a
+// bounded extractor must inspect a response body before deciding whether to
+// retry with a validated Referer.
+type ProfiledPageNoRedirectTransport interface {
+	DoProfiledPageNoRedirect(context.Context, *http.Request, string) (*http.Response, error)
 }
 
 func DoWithProfile(ctx context.Context, transport Transport, request *http.Request, profile string) (*http.Response, error) {

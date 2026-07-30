@@ -103,3 +103,12 @@ config plus emitted media/source URLs carry neither credential. It also proves
 API URI and player-config ID agreement, pinned authenticated metadata
 preservation, the logged-in `privacy`/`download` source-format path, and strict
 numeric `error_code` 5460 categorization.
+
+## Vimeo fingerprint-block status fixtures
+
+`antibot-403.json` and `antibot-429.json` are invented, body-safe fixtures for
+the narrowly pinned response contexts in `VimeoIE._real_extract`: a 403 from a
+`vimeo.com` page and a 429 from a `player.vimeo.com` page. They do not model a
+generic rate limit or `Retry-After` behavior. Tests also assert the inverse
+host/status pairs remain unclassified and that signed query values are never
+included in diagnostics.

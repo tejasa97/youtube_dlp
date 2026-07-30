@@ -39,7 +39,7 @@ service response.
 | --- | --- | --- |
 | generic | Direct HTTP/HTTPS media, bounded native-provider embeds, and JSON-LD/Twitter/OpenGraph media | simple/direct, shared backend |
 | youtube | youtube.com/watch and youtu.be, /embed, /shorts, /playlist, and channel live alias URLs | playlist/API, manifest-heavy, JavaScript challenge |
-| vimeo | vimeo.com public videos and contextual child URLs; authenticated direct unlisted-share URLs; bounded public text tracks, channels, user profiles, groups, and numeric or safe-slug public album/showcase playlists | authenticated, playlist/API, manifest-heavy |
+| vimeo | vimeo.com public videos and contextual child URLs; authenticated direct unlisted-share URLs; bounded public text tracks, channels, user profiles, groups, and numeric or safe-slug public album/showcase playlists | authenticated, playlist/API, manifest-heavy; fixture-backed profile-block status handling |
 | twitch | twitch.tv channels, VODs, clips, collections, channel videos/profile, channel collections, and channel clips playlists | live, playlist/API, manifest-heavy |
 | soundcloud | soundcloud.com tracks with original downloads, opt-in public comments, and artwork/avatar thumbnail matrices; sets with tokenized private-set hydration; bare profiles; all pinned public profile tabs; legacy API user playlists; player/embed URLs; and bounded public search | playlist/API |
 | applepodcasts | podcasts.apple.com public episode pages with an explicit numeric episode query ID | simple/direct |

@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/ytdlp-go/ytdlp/internal/network"
 )
 
 type vimeoFixtureTransport struct {
@@ -27,10 +29,100 @@ type vimeoFixtureTransport struct {
 	pageReads  int
 	configGets int
 	webpageURL string
+	configURL  string
+}
+
+type vimeoNoRedirectConfigTransport struct {
+	*vimeoFixtureTransport
+	isolatedCalls       int
+	isolatedConfigCalls int
+	ambientCalls        int
+	redirect            bool
+}
+
+func (transport *vimeoNoRedirectConfigTransport) Do(ctx context.Context, request *http.Request) (*http.Response, error) {
+	transport.ambientCalls++
+	return nil, errors.New("signed config used ambient transport")
+}
+
+func (transport *vimeoNoRedirectConfigTransport) DoWithoutCredentialsNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
+	transport.isolatedCalls++
+	if request.URL.Path == "/video/123456789/config" {
+		transport.isolatedConfigCalls++
+	}
+	if transport.redirect {
+		return &http.Response{StatusCode: http.StatusFound, Header: http.Header{"Location": {"https://evil.example/collect?token=secret"}}, Body: io.NopCloser(strings.NewReader("")), Request: request}, nil
+	}
+	return transport.vimeoFixtureTransport.Do(ctx, request)
+}
+
+func (transport *vimeoNoRedirectConfigTransport) DoWithoutCredentialsNoRedirectWithReferer(ctx context.Context, request *http.Request) (*http.Response, error) {
+	return transport.DoWithoutCredentialsNoRedirect(ctx, request)
 }
 
 type vimeoCancelAfterContext struct {
 	calls, cancelAt int
+}
+
+type vimeoEmbedPageTransport struct {
+	page, privacy []byte
+	config        []byte
+	statuses      []int
+	referers      []string
+	locations     []string
+	seenLocations []string
+}
+
+type vimeoProfileResponseTransport struct {
+	response *http.Response
+	err      error
+	calls    int
+}
+
+func (t *vimeoProfileResponseTransport) DoProfiledPageNoRedirect(_ context.Context, r *http.Request, _ string) (*http.Response, error) {
+	t.calls++
+	if t.response != nil {
+		t.response.Request = r
+	}
+	return t.response, t.err
+}
+
+type vimeoCountingBody struct {
+	io.Reader
+	closed bool
+}
+
+func (b *vimeoCountingBody) Close() error { b.closed = true; return nil }
+
+func (t *vimeoEmbedPageTransport) ReadPage(context.Context, string) ([]byte, http.Header, error) {
+	return nil, nil, errors.New("unexpected")
+}
+func (t *vimeoEmbedPageTransport) DoProfile(ctx context.Context, r *http.Request, _ string) (*http.Response, error) {
+	return t.Do(ctx, r)
+}
+func (t *vimeoEmbedPageTransport) ReadPageProfile(context.Context, string, string) ([]byte, http.Header, error) {
+	return nil, nil, errors.New("unexpected")
+}
+func (t *vimeoEmbedPageTransport) Do(context.Context, *http.Request) (*http.Response, error) {
+	return nil, errors.New("ambient")
+}
+func (t *vimeoEmbedPageTransport) DoWithoutCredentialsNoRedirectWithReferer(_ context.Context, r *http.Request) (*http.Response, error) {
+	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(t.config)), Header: make(http.Header), Request: r}, nil
+}
+func (t *vimeoEmbedPageTransport) DoProfiledPageNoRedirect(_ context.Context, r *http.Request, _ string) (*http.Response, error) {
+	t.referers = append(t.referers, r.Header.Get("Referer"))
+	i := len(t.referers) - 1
+	status := t.statuses[i]
+	body := t.page
+	if i == 0 && status >= 300 {
+		body = t.privacy
+	}
+	header := make(http.Header)
+	if i < len(t.locations) && t.locations[i] != "" {
+		header.Set("Location", t.locations[i])
+	}
+	t.seenLocations = append(t.seenLocations, header.Get("Location"))
+	return &http.Response{StatusCode: status, Body: io.NopCloser(bytes.NewReader(body)), Header: header, Request: r}, nil
 }
 
 func (*vimeoCancelAfterContext) Deadline() (time.Time, bool) { return time.Time{}, false }
@@ -69,7 +161,11 @@ func (transport *vimeoFixtureTransport) Do(_ context.Context, request *http.Requ
 	if expectedReferer == "" {
 		expectedReferer = "https://vimeo.com/123456789"
 	}
-	if request.Method != http.MethodGet || request.URL.Scheme != "https" || request.URL.Host != "player.vimeo.com" || request.URL.Path != "/video/123456789/config" || request.URL.RawQuery != "token=fixture&ref=offline" || request.Header.Get("Referer") != expectedReferer || request.Header.Get("Origin") != "" || len(request.Header) != 1 {
+	expectedConfigURL := transport.configURL
+	if expectedConfigURL == "" {
+		expectedConfigURL = "https://player.vimeo.com/video/123456789/config?token=fixture&ref=offline"
+	}
+	if request.Method != http.MethodGet || request.URL.String() != expectedConfigURL || request.Header.Get("Referer") != expectedReferer || request.Header.Get("Origin") != "" || len(request.Header) != 1 {
 		return nil, fmt.Errorf("unexpected config request: %s %s %v", request.Method, request.URL, request.Header)
 	}
 	status := transport.status
@@ -77,6 +173,10 @@ func (transport *vimeoFixtureTransport) Do(_ context.Context, request *http.Requ
 		status = http.StatusOK
 	}
 	return &http.Response{StatusCode: status, Body: io.NopCloser(bytes.NewReader(transport.config)), Header: make(http.Header), Request: request}, nil
+}
+
+func (transport *vimeoFixtureTransport) DoWithoutCredentialsNoRedirectWithReferer(ctx context.Context, request *http.Request) (*http.Response, error) {
+	return transport.Do(ctx, request)
 }
 
 func (transport *vimeoFixtureTransport) DoProfile(ctx context.Context, request *http.Request, profile string) (*http.Response, error) {
@@ -231,6 +331,10 @@ func TestVimeoFailuresAreCategorized(t *testing.T) {
 	if _, err := NewVimeo().Extract(context.Background(), Request{URL: "https://vimeo.com/123456789", Transport: transport}); !errors.Is(err, ErrAuthentication) {
 		t.Fatalf("HTTP auth error = %v", err)
 	}
+	pageBlocked := &vimeoFixtureTransport{err: &network.StatusError{Code: http.StatusForbidden, URL: "https://vimeo.com/123456789?token=REDACTED"}}
+	if _, err := NewVimeo().Extract(context.Background(), Request{URL: "https://vimeo.com/123456789?token=secret", Transport: pageBlocked}); !errors.Is(err, ErrTransportProfile) {
+		t.Fatalf("vimeo page fingerprint block = %v", err)
+	}
 	withoutProfile := &memoryTransport{pages: map[string][]byte{"https://vimeo.com/123456789": readVimeoFixture(t, "page.html")}}
 	if _, err := NewVimeo().Extract(context.Background(), Request{URL: "https://vimeo.com/123456789", Transport: withoutProfile}); !errors.Is(err, ErrTransportProfile) {
 		t.Fatalf("profile error = %v", err)
@@ -246,6 +350,204 @@ func TestVimeoFailuresAreCategorized(t *testing.T) {
 	oversizedConfig := &vimeoFixtureTransport{page: readVimeoFixture(t, "page.html"), config: bytes.Repeat([]byte(" "), int(maxExtractorJSONBytes+1))}
 	if _, err := NewVimeo().Extract(context.Background(), Request{URL: "https://vimeo.com/123456789", Transport: oversizedConfig}); !errors.Is(err, ErrJSONResponseTooLarge) {
 		t.Fatalf("oversized config error = %v", err)
+	}
+}
+
+func TestCategorizeVimeoResponseStatusIsHostSensitiveAndSecretSafe(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		url    string
+		status int
+		body   []byte
+		want   error
+	}{
+		{"vimeo page 403", "https://vimeo.com/123?token=secret", http.StatusForbidden, readVimeoFixture(t, "antibot-403.json"), ErrTransportProfile},
+		{"embed-only precedes fingerprint", "https://vimeo.com/123", http.StatusForbidden, []byte("Because of its privacy settings, this video cannot be played here"), ErrAuthentication},
+		{"www vimeo page 403", "https://www.vimeo.com/123", http.StatusForbidden, nil, ErrTransportProfile},
+		{"player config 429", "https://player.vimeo.com/video/123/config?token=secret", http.StatusTooManyRequests, readVimeoFixture(t, "antibot-429.json"), ErrTransportProfile},
+		{"vimeo page 429 is not fingerprint case", "https://vimeo.com/123", http.StatusTooManyRequests, nil, nil},
+		{"player page 403 is not fingerprint case", "https://player.vimeo.com/video/123", http.StatusForbidden, nil, nil},
+		{"unrelated host", "https://example.test/123", http.StatusForbidden, nil, nil},
+		{"5460 remains authentication", "https://api.vimeo.com/videos/123?token=secret", http.StatusNotFound, []byte(`{"error_code":5460}`), ErrAuthentication},
+		{"quoted 5460 is ignored", "https://api.vimeo.com/videos/123", http.StatusNotFound, []byte(`{"error_code":"5460"}`), nil},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got := categorizeVimeoResponseStatus(test.url, test.status, test.body)
+			if !errors.Is(got, test.want) || (test.want == nil && got != nil) {
+				t.Fatalf("categorizeVimeoResponseStatus(%q, %d) = %v, want %v", test.url, test.status, got, test.want)
+			}
+			if got != nil && strings.Contains(got.Error(), "secret") {
+				t.Fatalf("secret leaked in status error: %v", got)
+			}
+		})
+	}
+}
+
+func TestVimeoPrivacyRetryStatusIsPinned(t *testing.T) {
+	for _, test := range []struct {
+		raw    string
+		status int
+		want   bool
+	}{
+		{"https://vimeo.com/123", http.StatusForbidden, true},
+		{"https://player.vimeo.com/video/123", http.StatusTooManyRequests, true},
+		{"https://vimeo.com/123", http.StatusInternalServerError, false},
+		{"https://vimeo.com/123", http.StatusFound, false},
+		{"https://player.vimeo.com/video/123", http.StatusForbidden, false},
+		{"http://vimeo.com/123", http.StatusForbidden, false},
+		{"https://user@vimeo.com/123", http.StatusForbidden, false},
+		{"https://vimeo.com:443/123", http.StatusForbidden, false},
+		{"https://vimeo.com/123#fragment", http.StatusForbidden, false},
+	} {
+		if got := isVimeoPrivacyRetryStatus(test.raw, test.status); got != test.want {
+			t.Fatalf("%s/%d = %v", test.raw, test.status, got)
+		}
+	}
+}
+
+func TestVimeoEmbedPrivacyRetriesOnceWithValidatedReferer(t *testing.T) {
+	page := readVimeoFixture(t, "page.html")
+	privacy := []byte("Because of its privacy settings, this video cannot be played here")
+	config := []byte(`{"video":{"id":123456789,"title":"ok","files":{"progressive":[{"url":"https://cdn.example/x.mp4","quality":"sd"}]}}}`)
+	transport := &vimeoEmbedPageTransport{page: page, privacy: privacy, config: config, statuses: []int{http.StatusForbidden, http.StatusOK}}
+	_, err := NewVimeo().Extract(context.Background(), Request{URL: "https://vimeo.com/123456789", Referer: "https://publisher.example/embed", Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(transport.referers, []string{"", "https://publisher.example/embed"}) {
+		t.Fatalf("referers=%v", transport.referers)
+	}
+	for _, bad := range []string{"", "http://evil.example/", "https://user@evil.example/"} {
+		transport := &vimeoEmbedPageTransport{page: page, privacy: privacy, config: config, statuses: []int{http.StatusForbidden}}
+		_, err := NewVimeo().Extract(context.Background(), Request{URL: "https://vimeo.com/123456789", Referer: bad, Transport: transport})
+		if !errors.Is(err, ErrAuthentication) || len(transport.referers) != 1 {
+			t.Fatalf("bad=%q err=%v referers=%v", bad, err, transport.referers)
+		}
+	}
+}
+
+func TestVimeoEmbedPrivacyRetryRejectsNonPinnedBodiesAndRedirects(t *testing.T) {
+	privacy := []byte("Because of its privacy settings, this video cannot be played here")
+	for _, test := range []struct {
+		name      string
+		url       string
+		statuses  []int
+		want      error
+		wantCalls int
+	}{
+		{"vimeo 500 privacy is ordinary", "https://vimeo.com/123456789", []int{http.StatusInternalServerError}, nil, 1},
+		{"vimeo 302 privacy is ordinary", "https://vimeo.com/123456789", []int{http.StatusFound}, nil, 1},
+		{"player 403 privacy is ordinary", "https://player.vimeo.com/video/123456789", []int{http.StatusForbidden}, nil, 1},
+		{"player 429 privacy is authentication", "https://player.vimeo.com/video/123456789", []int{http.StatusTooManyRequests, http.StatusTooManyRequests}, ErrAuthentication, 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			tr := &vimeoEmbedPageTransport{page: privacy, privacy: privacy, statuses: test.statuses}
+			_, _, err := readVimeoPage(context.Background(), tr, test.url, "https://publisher.example/embed")
+			if (test.want != nil && !errors.Is(err, test.want)) || (test.want == nil && err == nil) ||
+				(test.want == nil && (errors.Is(err, ErrAuthentication) || errors.Is(err, ErrTransportProfile))) || len(tr.referers) != test.wantCalls {
+				t.Fatalf("err=%v referers=%v", err, tr.referers)
+			}
+		})
+	}
+	// A hostile Location on the retry response is returned as the second
+	// response; the no-redirect transport boundary prevents a third request.
+	tr := &vimeoEmbedPageTransport{
+		privacy:   privacy,
+		statuses:  []int{http.StatusForbidden, http.StatusFound},
+		locations: []string{"", "https://evil.example/collect?token=synthetic-secret"},
+	}
+	_, _, err := readVimeoPage(context.Background(), tr, "https://vimeo.com/123456789?token=synthetic-secret", "https://publisher.example/embed")
+	if err == nil || len(tr.referers) != 2 || tr.seenLocations[1] != "https://evil.example/collect?token=synthetic-secret" || strings.Contains(fmt.Sprint(err), "synthetic-secret") {
+		t.Fatalf("redirect err=%v referers=%v locations=%v", err, tr.referers, tr.seenLocations)
+	}
+}
+
+func TestReadVimeoProfilePageBoundsCancellationAndClosure(t *testing.T) {
+	newResponse := func(status int, body io.ReadCloser) *http.Response {
+		return &http.Response{StatusCode: status, Header: http.Header{"X-Test": {"yes"}}, Body: body}
+	}
+	for _, test := range []struct {
+		name string
+		resp *http.Response
+		err  error
+		ctx  context.Context
+		want error
+	}{
+		{"nil response", nil, nil, context.Background(), ErrInvalidMetadata},
+		{"nil body", newResponse(http.StatusOK, nil), nil, context.Background(), ErrInvalidMetadata},
+		{"status cap", newResponse(http.StatusForbidden, io.NopCloser(bytes.NewReader(bytes.Repeat([]byte("x"), int(vimeoUnlistedAPIStatusReadBytes+1))))), nil, context.Background(), ErrJSONResponseTooLarge},
+		{"page cap", newResponse(http.StatusOK, io.NopCloser(bytes.NewReader(bytes.Repeat([]byte("x"), vimeoMaxPageBytes+1)))), nil, context.Background(), ErrJSONResponseTooLarge},
+		{"reader failure", newResponse(http.StatusOK, io.NopCloser(errReader{err: errors.New("reader secret")})), nil, context.Background(), ErrInvalidMetadata},
+		{"wrapped canceled", nil, fmt.Errorf("wrapped: %w", context.Canceled), context.Background(), context.Canceled},
+		{"wrapped deadline", nil, fmt.Errorf("wrapped: %w", context.DeadlineExceeded), context.Background(), context.DeadlineExceeded},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			tr := &vimeoProfileResponseTransport{response: test.resp, err: test.err}
+			_, _, _, err := readVimeoProfilePage(test.ctx, tr, "https://vimeo.com/123?token=synthetic-secret", "")
+			if !errors.Is(err, test.want) || strings.Contains(fmt.Sprint(err), "secret") {
+				t.Fatalf("err=%v", err)
+			}
+		})
+	}
+	body := &vimeoCountingBody{Reader: strings.NewReader("ok")}
+	tr := &vimeoProfileResponseTransport{response: newResponse(http.StatusOK, body)}
+	if _, _, _, err := readVimeoProfilePage(context.Background(), tr, "https://vimeo.com/123", ""); err != nil || !body.closed {
+		t.Fatalf("err=%v closed=%v", err, body.closed)
+	}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	tr = &vimeoProfileResponseTransport{}
+	if _, _, _, err := readVimeoProfilePage(cancelled, tr, "https://vimeo.com/123", ""); !errors.Is(err, context.Canceled) || tr.calls != 0 {
+		t.Fatalf("err=%v calls=%d", err, tr.calls)
+	}
+}
+
+type errReader struct{ err error }
+
+func (r errReader) Read([]byte) (int, error) { return 0, r.err }
+
+func TestVimeoSignedPageQueryIsRequestOnlyAndMetadataSafe(t *testing.T) {
+	url := "https://player.vimeo.com/video/123456789?token=synthetic-secret"
+	transport := &vimeoFixtureTransport{page: readVimeoFixture(t, "page.html"), config: readVimeoFixture(t, "config.json"), webpageURL: url}
+	result, err := NewVimeo().Extract(context.Background(), Request{URL: url, Transport: transport})
+	if err != nil || transport.pageReads != 1 || transport.webpageURL != url {
+		t.Fatalf("err=%v reads=%d", err, transport.pageReads)
+	}
+	serialized, _ := json.Marshal(result.Info.Fields())
+	if strings.Contains(string(serialized), "synthetic-secret") {
+		t.Fatalf("metadata leaked signed query: %s", serialized)
+	}
+}
+
+func TestVimeoSignedConfigQueryIsRequestOnlyAndMetadataSafe(t *testing.T) {
+	configURL := "https://player.vimeo.com/video/123456789/config?token=synthetic-secret"
+	page := bytes.Replace(readVimeoFixture(t, "page.html"), []byte("https://player.vimeo.com/video/123456789/config?token=fixture&amp;ref=offline"), []byte(configURL), 1)
+	transport := &vimeoFixtureTransport{page: page, config: readVimeoFixture(t, "config.json"), configURL: configURL}
+	result, err := NewVimeo().Extract(context.Background(), Request{URL: "https://vimeo.com/123456789", Transport: transport})
+	if err != nil || transport.configGets != 1 {
+		t.Fatalf("err=%v configGets=%d", err, transport.configGets)
+	}
+	serialized, _ := json.Marshal(result.Info.Fields())
+	if strings.Contains(string(serialized), "synthetic-secret") {
+		t.Fatalf("metadata leaked signed config query: %s", serialized)
+	}
+}
+
+func TestVimeoSignedConfigUsesIsolatedNoRedirectTransport(t *testing.T) {
+	transport := &vimeoNoRedirectConfigTransport{vimeoFixtureTransport: &vimeoFixtureTransport{
+		page: readVimeoFixture(t, "page.html"), config: readVimeoFixture(t, "config.json"),
+	}}
+	if _, err := NewVimeo().Extract(context.Background(), Request{URL: "https://vimeo.com/123456789", Transport: transport}); err != nil {
+		t.Fatal(err)
+	}
+	if transport.isolatedConfigCalls != 1 || transport.ambientCalls != 0 {
+		t.Fatalf("config isolated=%d total isolated=%d ambient=%d", transport.isolatedConfigCalls, transport.isolatedCalls, transport.ambientCalls)
+	}
+
+	transport.redirect = true
+	_, err := NewVimeo().Extract(context.Background(), Request{URL: "https://vimeo.com/123456789", Transport: transport})
+	if err == nil || strings.Contains(err.Error(), "secret") || transport.isolatedConfigCalls != 2 || transport.ambientCalls != 0 {
+		t.Fatalf("redirect err=%v config isolated=%d total isolated=%d ambient=%d", err, transport.isolatedConfigCalls, transport.isolatedCalls, transport.ambientCalls)
 	}
 }
 
@@ -363,6 +665,17 @@ func FuzzParseVimeoConfig(f *testing.F) {
 			}
 			assertVimeoSubtitleInvariants(t, result)
 		}
+	})
+}
+
+func FuzzCategorizeVimeoResponseStatus(f *testing.F) {
+	f.Add("https://vimeo.com/123?token=fixture", http.StatusForbidden, []byte(`{"error_code":5460}`))
+	f.Add("https://player.vimeo.com/video/123/config?token=fixture", http.StatusTooManyRequests, []byte(`{}`))
+	f.Fuzz(func(t *testing.T, rawURL string, status int, body []byte) {
+		if len(rawURL) > vimeoMaxConfigURL || len(body) > int(vimeoUnlistedAPIStatusReadBytes)+1 {
+			t.Skip()
+		}
+		_ = categorizeVimeoResponseStatus(rawURL, status, body)
 	})
 }
 

@@ -293,6 +293,10 @@ func (transport *aeonCoVimeoTransport) DoProfile(ctx context.Context, request *h
 	return transport.Do(ctx, request)
 }
 
+func (transport *aeonCoVimeoTransport) DoWithoutCredentialsNoRedirectWithReferer(ctx context.Context, request *http.Request) (*http.Response, error) {
+	return transport.Do(ctx, request)
+}
+
 func FuzzAeonCoRouting(f *testing.F) {
 	for _, seed := range []string{
 		"https://aeon.co/videos/raw-solar-storm-footage",

@@ -13,12 +13,27 @@ import (
 // googlevideo endpoints, hop-by-hop short-link Location validation (for example
 // TikTok vm/vt/t), and credential-isolated subtitle/CDN fetches.
 func (client *Client) DoWithoutCredentialsNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
+	return client.doWithoutCredentialsNoRedirect(ctx, request, false)
+}
+
+// DoWithoutCredentialsNoRedirectWithReferer preserves only an explicit,
+// extractor-validated Referer while retaining credential and redirect
+// isolation. Callers must validate the Referer before using this boundary.
+func (client *Client) DoWithoutCredentialsNoRedirectWithReferer(ctx context.Context, request *http.Request) (*http.Response, error) {
+	return client.doWithoutCredentialsNoRedirect(ctx, request, true)
+}
+
+func (client *Client) doWithoutCredentialsNoRedirect(ctx context.Context, request *http.Request, preserveReferer bool) (*http.Response, error) {
 	if request == nil {
 		return nil, errors.New("HTTP request must not be nil")
 	}
 	cloned := client.prepareRequest(ctx, request, false, true)
+	referer := request.Header.Get("Referer")
 	for _, key := range []string{"Authorization", "Cookie", "Proxy-Authorization", "Referer"} {
 		cloned.Header.Del(key)
+	}
+	if preserveReferer && referer != "" {
+		cloned.Header.Set("Referer", referer)
 	}
 	isolated := *client.httpClient
 	isolated.Jar = nil
