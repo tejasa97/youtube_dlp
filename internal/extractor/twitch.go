@@ -25,13 +25,15 @@ import (
 )
 
 const (
-	twitchGraphQLURL = "https://gql.twitch.tv/gql"
-	twitchUsherBase  = "https://usher.ttvnw.net/api/channel/hls/"
-	twitchVODBase    = "https://usher.ttvnw.net/vod/"
-	twitchClientID   = "ue6666qo983tsx6so1t0vnawi233wa"
-	twitchMaxURL     = 8 << 10
-	twitchMaxMoments = 1000
-	twitchMaxAssets  = 64
+	twitchGraphQLURL        = "https://gql.twitch.tv/gql"
+	twitchGraphQLOrigin     = "https://gql.twitch.tv"
+	twitchUsherBase         = "https://usher.ttvnw.net/api/channel/hls/"
+	twitchVODBase           = "https://usher.ttvnw.net/vod/"
+	twitchClientID          = "ue6666qo983tsx6so1t0vnawi233wa"
+	twitchMaxURL            = 8 << 10
+	twitchMaxMoments        = 1000
+	twitchMaxAssets         = 64
+	twitchMaxAuthTokenBytes = 512
 
 	twitchVideosOperation   = "FilterableVideoTower_Videos"
 	twitchVideosPageLimit   = 100
@@ -134,7 +136,20 @@ var twitchClipsRanges = map[string]twitchClipsRange{
 var (
 	ErrTwitchNetwork     = errors.New("Twitch network request failed")
 	ErrTwitchRateLimited = errors.New("Twitch rate limited")
+	// ErrTwitchSubscriberOnly distinguishes a logged-in account without the
+	// required entitlement from a missing login. It is consumed by the
+	// follow-up restricted-manifest categorization.
+	ErrTwitchSubscriberOnly = errors.New("Twitch subscriber-only content unavailable to this account")
 )
+
+// twitchAuthenticatedTransport is deliberately narrow: Twitch OAuth is made
+// only from the operation cookie jar and only for a no-redirect GQL request.
+// It is not a general-purpose credential transport.
+type twitchAuthenticatedTransport interface {
+	Transport
+	Cookies(string) ([]*http.Cookie, error)
+	DoNoRedirect(context.Context, *http.Request) (*http.Response, error)
+}
 
 type Twitch struct{}
 
@@ -698,7 +713,7 @@ func requestTwitchMetadata(ctx context.Context, transport Transport, channel str
 		return nil, fmt.Errorf("%w: Twitch metadata request", ErrInvalidMetadata)
 	}
 	var response []twitchMetadataResponse
-	if err := RequestJSON(ctx, transport, http.MethodPost, twitchGraphQLURL, body, twitchHeaders(), &response); err != nil {
+	if err := requestTwitchGQL(ctx, transport, body, &response); err != nil {
 		return nil, categorizeTwitchHTTP(err)
 	}
 	if len(response) != len(operations) {
@@ -733,7 +748,7 @@ func requestTwitchPlaybackToken(ctx context.Context, transport Transport, tokenK
 		} `json:"data"`
 		Errors []json.RawMessage `json:"errors"`
 	}
-	if err := RequestJSON(ctx, transport, http.MethodPost, twitchGraphQLURL, body, twitchHeaders(), &response); err != nil {
+	if err := requestTwitchGQL(ctx, transport, body, &response); err != nil {
 		return twitchAccessToken{}, categorizeTwitchHTTP(err)
 	}
 	token := response.Data.Stream
@@ -751,6 +766,78 @@ func twitchHeaders() http.Header {
 	headers.Set("Client-ID", twitchClientID)
 	headers.Set("Content-Type", "text/plain;charset=UTF-8")
 	return headers
+}
+
+// twitchOAuthHeaders constructs the only credential-bearing Twitch headers.
+// Cookie values are untrusted input even when they originate in the operation
+// jar, so reject control characters and overlong values before header use.
+func twitchOAuthHeaders(token string) (http.Header, error) {
+	if !twitchSafeAuthToken(token) {
+		return nil, ErrAuthentication
+	}
+	headers := twitchHeaders()
+	headers.Set("Authorization", "OAuth "+token)
+	return headers, nil
+}
+
+func twitchSafeAuthToken(token string) bool {
+	return token != "" && len(token) <= twitchMaxAuthTokenBytes && !strings.ContainsAny(token, "\r\n\x00")
+}
+
+// twitchAuthToken reads only the cookie snapshot applicable to the exact GQL
+// origin. A present but malformed token is an authentication failure rather
+// than an opportunity to silently downgrade an authenticated operation.
+func twitchAuthToken(cookies []*http.Cookie) (string, bool, error) {
+	for _, cookie := range cookies {
+		if cookie == nil || cookie.Name != "auth-token" {
+			continue
+		}
+		if !twitchSafeAuthToken(cookie.Value) {
+			return "", false, ErrAuthentication
+		}
+		return cookie.Value, true, nil
+	}
+	return "", false, nil
+}
+
+// requestTwitchGQL is the sole Twitch GraphQL transport path. It retains the
+// anonymous request behavior when no auth-token cookie exists. When one does,
+// it permits the jar cookie and derived OAuth header only on the fixed Twitch
+// GQL origin, and refuses redirects before the request reaches the network.
+func requestTwitchGQL(ctx context.Context, transport Transport, body []byte, target any) error {
+	if transport == nil {
+		return errors.New("invalid Twitch GQL request")
+	}
+	authTransport, ok := transport.(twitchAuthenticatedTransport)
+	if !ok {
+		return RequestJSON(ctx, transport, http.MethodPost, twitchGraphQLURL, body, twitchHeaders(), target)
+	}
+	cookies, err := authTransport.Cookies(twitchGraphQLOrigin)
+	if err != nil {
+		return ErrTwitchNetwork
+	}
+	token, present, err := twitchAuthToken(cookies)
+	if err != nil {
+		return err
+	}
+	if !present {
+		return RequestJSON(ctx, transport, http.MethodPost, twitchGraphQLURL, body, twitchHeaders(), target)
+	}
+	headers, err := twitchOAuthHeaders(token)
+	if err != nil {
+		return ErrAuthentication
+	}
+	err = requestJSON(ctx, authTransport.DoNoRedirect, http.MethodPost, twitchGraphQLURL, body, headers, target)
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, ErrInvalidMetadata) || errors.Is(err, ErrJSONResponseTooLarge) {
+		return err
+	}
+	var status *HTTPStatusError
+	if errors.As(err, &status) {
+		return err
+	}
+	// Do not let a transport error reflect a cookie-derived token.
+	return ErrTwitchNetwork
 }
 
 func categorizeTwitchHTTP(err error) error {
@@ -869,7 +956,7 @@ func requestTwitchVODMetadata(ctx context.Context, transport Transport, id strin
 		return twitchVODVideo{}, fmt.Errorf("%w: Twitch VOD metadata request", ErrInvalidMetadata)
 	}
 	var response []twitchVODResponse
-	if err := RequestJSON(ctx, transport, http.MethodPost, twitchGraphQLURL, body, twitchHeaders(), &response); err != nil {
+	if err := requestTwitchGQL(ctx, transport, body, &response); err != nil {
 		return twitchVODVideo{}, categorizeTwitchHTTP(err)
 	}
 	if len(response) != len(operations) {
@@ -1007,7 +1094,7 @@ func requestTwitchClip(ctx context.Context, transport Transport, slug string) (t
 		return twitchClip{}, fmt.Errorf("%w: Twitch clip metadata request", ErrInvalidMetadata)
 	}
 	var response []twitchClipResponse
-	if err := RequestJSON(ctx, transport, http.MethodPost, twitchGraphQLURL, body, twitchHeaders(), &response); err != nil {
+	if err := requestTwitchGQL(ctx, transport, body, &response); err != nil {
 		return twitchClip{}, categorizeTwitchHTTP(err)
 	}
 	if len(response) != 1 || len(response[0].Errors) != 0 {
@@ -1550,7 +1637,7 @@ func fetchTwitchVideosPage(ctx context.Context, transport Transport, channel str
 		return nil, "", err
 	}
 	var response []twitchVideosPageResponse
-	if err := RequestJSON(ctx, transport, http.MethodPost, twitchGraphQLURL, body, twitchHeaders(), &response); err != nil {
+	if err := requestTwitchGQL(ctx, transport, body, &response); err != nil {
 		return nil, "", categorizeTwitchHTTP(err)
 	}
 	return parseTwitchVideosPage(response)
@@ -1736,7 +1823,7 @@ func fetchTwitchCollection(ctx context.Context, transport Transport, collectionI
 		return nil, "", err
 	}
 	var response []twitchCollectionResponse
-	if err := RequestJSON(ctx, transport, http.MethodPost, twitchGraphQLURL, body, twitchHeaders(), &response); err != nil {
+	if err := requestTwitchGQL(ctx, transport, body, &response); err != nil {
 		return nil, "", categorizeTwitchHTTP(err)
 	}
 	return parseTwitchCollection(response)
@@ -1927,7 +2014,7 @@ func fetchTwitchChannelCollectionsPage(ctx context.Context, transport Transport,
 		return nil, "", err
 	}
 	var response []twitchChannelCollectionsPageResponse
-	if err := RequestJSON(ctx, transport, http.MethodPost, twitchGraphQLURL, body, twitchHeaders(), &response); err != nil {
+	if err := requestTwitchGQL(ctx, transport, body, &response); err != nil {
 		return nil, "", categorizeTwitchHTTP(err)
 	}
 	return parseTwitchChannelCollectionsPage(response)
@@ -2105,7 +2192,7 @@ func fetchTwitchChannelClipsPage(ctx context.Context, transport Transport, chann
 		return nil, "", err
 	}
 	var response []twitchChannelClipsPageResponse
-	if err := RequestJSON(ctx, transport, http.MethodPost, twitchGraphQLURL, body, twitchHeaders(), &response); err != nil {
+	if err := requestTwitchGQL(ctx, transport, body, &response); err != nil {
 		return nil, "", categorizeTwitchHTTP(err)
 	}
 	return parseTwitchChannelClipsPage(response)

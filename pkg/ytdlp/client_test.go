@@ -196,6 +196,7 @@ func TestExtractorFailuresAreCategorized(t *testing.T) {
 		category ErrorCategory
 	}{
 		{extractor.ErrAuthentication, ErrorAuthentication},
+		{extractor.ErrTwitchSubscriberOnly, ErrorAuthentication},
 		{extractor.ErrUnavailable, ErrorUnsupported},
 		{extractor.ErrInvalidMetadata, ErrorInternal},
 		{extractor.ErrPlaylistLimit, ErrorInternal},

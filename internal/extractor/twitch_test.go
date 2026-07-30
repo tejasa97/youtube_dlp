@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/ytdlp-go/ytdlp/internal/events"
+	"github.com/ytdlp-go/ytdlp/internal/network"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/hls"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
@@ -53,6 +54,57 @@ type twitchGraphQLFixture struct {
 	body   []byte
 	status int
 	err    error
+}
+
+type twitchRoundTripper func(*http.Request) (*http.Response, error)
+
+func (roundTripper twitchRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	return roundTripper(request)
+}
+
+// twitchAuthenticatedFixtureTransport models the narrow authenticated
+// capability. Its no-redirect method is intentionally separate from Do so the
+// tests can prove the credential-bearing path never uses ambient execution.
+type twitchAuthenticatedFixtureTransport struct {
+	cookies       []*http.Cookie
+	cookieURLs    []string
+	doCalls       int
+	noRedirects   int
+	request       *http.Request
+	noRedirectErr error
+}
+
+func (transport *twitchAuthenticatedFixtureTransport) Do(ctx context.Context, request *http.Request) (*http.Response, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	transport.doCalls++
+	transport.request = request.Clone(ctx)
+	return twitchHTTPResponse(http.StatusOK, []byte(`{"ok":true}`)), nil
+}
+
+func (*twitchAuthenticatedFixtureTransport) ReadPage(context.Context, string) ([]byte, http.Header, error) {
+	return nil, nil, errors.New("unexpected page request")
+}
+
+func (transport *twitchAuthenticatedFixtureTransport) Cookies(rawURL string) ([]*http.Cookie, error) {
+	transport.cookieURLs = append(transport.cookieURLs, rawURL)
+	if rawURL != twitchGraphQLOrigin {
+		return nil, errors.New("unexpected cookie origin")
+	}
+	return transport.cookies, nil
+}
+
+func (transport *twitchAuthenticatedFixtureTransport) DoNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	transport.noRedirects++
+	transport.request = request.Clone(ctx)
+	if transport.noRedirectErr != nil {
+		return nil, transport.noRedirectErr
+	}
+	return twitchHTTPResponse(http.StatusOK, []byte(`{"ok":true}`)), nil
 }
 
 func (transport *twitchFixtureTransport) Do(ctx context.Context, request *http.Request) (*http.Response, error) {
@@ -205,6 +257,113 @@ func twitchFixture(t testing.TB, name string) []byte {
 		t.Fatal(err)
 	}
 	return body
+}
+
+func TestTwitchAuthenticatedGQLUsesExactOriginOAuthAndNoRedirect(t *testing.T) {
+	const token = "synthetic-auth-token"
+	transport := &twitchAuthenticatedFixtureTransport{cookies: []*http.Cookie{{Name: "auth-token", Value: token}}}
+	var response struct {
+		OK bool `json:"ok"`
+	}
+	if err := requestTwitchGQL(context.Background(), transport, []byte(`{}`), &response); err != nil {
+		t.Fatal(err)
+	}
+	if !response.OK || transport.doCalls != 0 || transport.noRedirects != 1 {
+		t.Fatalf("response=%+v ambient=%d no-redirect=%d", response, transport.doCalls, transport.noRedirects)
+	}
+	if len(transport.cookieURLs) != 1 || transport.cookieURLs[0] != twitchGraphQLOrigin {
+		t.Fatalf("cookie origins = %q", transport.cookieURLs)
+	}
+	if transport.request.URL.String() != twitchGraphQLURL || transport.request.Header.Get("Authorization") != "OAuth "+token ||
+		transport.request.Header.Get("Client-ID") != twitchClientID {
+		t.Fatalf("unexpected authenticated request URL=%q headers=%v", transport.request.URL, transport.request.Header)
+	}
+}
+
+func TestTwitchAuthenticatedGQLClientKeepsJarCookieAndDoesNotFollowRedirect(t *testing.T) {
+	const token = "synthetic-auth-token"
+	var requests []*http.Request
+	client, err := network.New(network.Config{RoundTripper: twitchRoundTripper(func(request *http.Request) (*http.Response, error) {
+		requests = append(requests, request.Clone(request.Context()))
+		return &http.Response{
+			StatusCode: http.StatusFound,
+			Header:     http.Header{"Location": []string{"https://evil.example.test/redirect"}},
+			Body:       http.NoBody,
+			Request:    request,
+		}, nil
+	})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.AddCookies([]*http.Cookie{{Name: "auth-token", Value: token, Domain: "gql.twitch.tv", Path: "/"}}); err != nil {
+		t.Fatal(err)
+	}
+	var response map[string]bool
+	err = requestTwitchGQL(context.Background(), client, nil, &response)
+	var status *HTTPStatusError
+	if !errors.As(err, &status) || status.Code != http.StatusFound {
+		t.Fatalf("err=%v", err)
+	}
+	if len(requests) != 1 {
+		t.Fatalf("requests=%d", len(requests))
+	}
+	if requests[0].URL.String() != twitchGraphQLURL || requests[0].Header.Get("Authorization") != "OAuth "+token ||
+		!strings.Contains(requests[0].Header.Get("Cookie"), "auth-token="+token) {
+		t.Fatalf("url=%q headers=%v", requests[0].URL, requests[0].Header)
+	}
+}
+
+func TestTwitchGQLAnonymousAndInvalidCookieBehavior(t *testing.T) {
+	t.Run("no cookie preserves anonymous path", func(t *testing.T) {
+		transport := &twitchAuthenticatedFixtureTransport{}
+		var response map[string]bool
+		if err := requestTwitchGQL(context.Background(), transport, nil, &response); err != nil {
+			t.Fatal(err)
+		}
+		if !response["ok"] || transport.doCalls != 1 || transport.noRedirects != 0 || transport.request.Header.Get("Authorization") != "" {
+			t.Fatalf("response=%v ambient=%d no-redirect=%d headers=%v", response, transport.doCalls, transport.noRedirects, transport.request.Header)
+		}
+	})
+	for _, token := range []string{"", "\r", "\n", "\x00", strings.Repeat("x", twitchMaxAuthTokenBytes+1)} {
+		t.Run("reject unsafe cookie", func(t *testing.T) {
+			transport := &twitchAuthenticatedFixtureTransport{cookies: []*http.Cookie{{Name: "auth-token", Value: token}}}
+			var response map[string]bool
+			err := requestTwitchGQL(context.Background(), transport, nil, &response)
+			if !errors.Is(err, ErrAuthentication) || transport.doCalls != 0 || transport.noRedirects != 0 || token != "" && strings.Contains(err.Error(), token) {
+				t.Fatalf("err=%v ambient=%d no-redirect=%d", err, transport.doCalls, transport.noRedirects)
+			}
+		})
+	}
+}
+
+func TestTwitchAuthenticatedGQLCancellationAndSecretSafeFailures(t *testing.T) {
+	const token = "synthetic-auth-token"
+	transport := &twitchAuthenticatedFixtureTransport{
+		cookies:       []*http.Cookie{{Name: "auth-token", Value: token}},
+		noRedirectErr: errors.New("request failed token=" + token),
+	}
+	var response map[string]bool
+	err := requestTwitchGQL(context.Background(), transport, nil, &response)
+	if !errors.Is(err, ErrTwitchNetwork) || strings.Contains(err.Error(), token) {
+		t.Fatalf("err=%v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err = requestTwitchGQL(ctx, &twitchAuthenticatedFixtureTransport{cookies: []*http.Cookie{{Name: "auth-token", Value: token}}}, nil, &response)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancellation error=%v", err)
+	}
+}
+
+func FuzzTwitchOAuthHeaders(f *testing.F) {
+	f.Add("synthetic-auth-token")
+	f.Add("bad\rheader")
+	f.Fuzz(func(t *testing.T, token string) {
+		headers, err := twitchOAuthHeaders(token)
+		if err == nil && (headers.Get("Authorization") != "OAuth "+token || !twitchSafeAuthToken(token)) {
+			t.Fatalf("unsafe authorization accepted")
+		}
+	})
 }
 
 func twitchChannelCollectionsRequestCursor(body []byte) string {

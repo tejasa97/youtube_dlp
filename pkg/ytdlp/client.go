@@ -1811,7 +1811,7 @@ func categorized(op string, err error) error {
 		category = ErrorCancelled
 	case errors.Is(err, extractor.ErrUnsupported), errors.Is(err, mediaformat.ErrMultiOutput):
 		category = ErrorUnsupported
-	case errors.Is(err, extractor.ErrAuthentication), errors.Is(err, extractor.ErrWrongPassword):
+	case errors.Is(err, extractor.ErrAuthentication), errors.Is(err, extractor.ErrWrongPassword), errors.Is(err, extractor.ErrTwitchSubscriberOnly):
 		category = ErrorAuthentication
 	case errors.Is(err, credentialnetrc.ErrUnsafeFile):
 		category = ErrorSecurity
