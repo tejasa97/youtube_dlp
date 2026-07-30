@@ -1,0 +1,8 @@
+{
+  "title": "にている かな",
+  "description": "Synthetic school program JSON.",
+  "part": [
+    {"part-video-dasid": "D0005150191_00000", "part-video-title": "Part 1"},
+    {"part-video-dasid": "D0005150192_00000", "part-video-title": "Part 2"}
+  ]
+}

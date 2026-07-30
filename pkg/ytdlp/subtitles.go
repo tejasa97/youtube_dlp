@@ -24,20 +24,10 @@ import (
 // after stripping ambient Referer. The network client removes cookies,
 // Authorization, Proxy-Authorization, redirect following, and the cookie jar;
 // explicit credential headers are not forwarded to isolated CDN origins.
-type credentialIsolatedSubtitleTransport struct {
-	ambient *network.Client
-}
+type credentialIsolatedSubtitleTransport = credentialIsolatedTransport
 
-func (transport *credentialIsolatedSubtitleTransport) DoWithoutCredentialsNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
-	cloned := request.Clone(ctx)
-	for _, key := range []string{"Authorization", "Cookie", "Proxy-Authorization", "Referer"} {
-		cloned.Header.Del(key)
-	}
-	return transport.ambient.DoWithoutCredentialsNoRedirect(ctx, cloned)
-}
-
-func (transport *credentialIsolatedSubtitleTransport) Do(ctx context.Context, request *http.Request) (*http.Response, error) {
-	return transport.DoWithoutCredentialsNoRedirect(ctx, request)
+func newCredentialIsolatedSubtitleTransport(ambient *network.Client) *credentialIsolatedSubtitleTransport {
+	return newCredentialIsolatedTransport(ambient)
 }
 
 func subtitleCredentialIsolated(metadata *value.Object) bool {
@@ -411,7 +401,7 @@ func (operation *operation) downloadSubtitles(ctx context.Context, info value.In
 			var assembled []byte
 			var err error
 			if isolated {
-				assembled, err = hls.AssembleWebVTT(ctx, &credentialIsolatedSubtitleTransport{ambient: operation.transport}, track.rawURL, options.MaxBytes)
+				assembled, err = hls.AssembleWebVTT(ctx, newCredentialIsolatedSubtitleTransport(operation.transport), track.rawURL, options.MaxBytes)
 			} else {
 				assembled, err = hls.AssembleWebVTTRedirecting(ctx, operation.transport, track.rawURL, track.headers, options.MaxBytes)
 			}
@@ -428,7 +418,7 @@ func (operation *operation) downloadSubtitles(ctx context.Context, info value.In
 			}
 		} else if isolated {
 			var err error
-			result, err = downloader.New(&credentialIsolatedSubtitleTransport{ambient: operation.transport}).Download(ctx, downloader.Job{
+			result, err = downloader.New(newCredentialIsolatedSubtitleTransport(operation.transport)).Download(ctx, downloader.Job{
 				URL: track.rawURL, OutputRoot: operation.request.outputRoot(OutputPathHome), Destination: destination,
 				Overwrite: operation.request.Overwrite, Attempts: options.Attempts,
 				RetryBaseDelay: options.RetryBaseDelay, RetryMaxDelay: options.RetryMaxDelay,

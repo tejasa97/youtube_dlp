@@ -1,0 +1,33 @@
+{
+  "main": {
+    "program_name": "NHKラジオニュース",
+    "media_name": "NHKラジオ第1",
+    "thumbnail_c": "https://www.nhk.or.jp/radioondemand/json/18439M2W42/img/series_945_thumbnail.jpg",
+    "site_detail": "Synthetic Radiru news site detail.",
+    "detail_list": [
+      {
+        "headline_id": "2025072701",
+        "headline_image": "https://www.nhk.or.jp/news/images/headline1.jpg",
+        "file_list": [
+          {
+            "file_name": "https://radio-stream.nhk.jp/news/2025072701/index.m3u8",
+            "file_title": "正午のニュース",
+            "file_title_sub": "国内・国際",
+            "open_time": "2025-07-27T03:00:00Z",
+            "aa_vinfo4": "2025-07-27T02:00:00_000"
+          }
+        ]
+      },
+      {
+        "headline_id": "2025072702",
+        "file_list": [
+          {
+            "file_name": "https://radio-stream.nhk.jp/news/2025072702/index.m3u8",
+            "file_title": "午後のニュース",
+            "open_time": "2025-07-27T06:00:00Z"
+          }
+        ]
+      }
+    ]
+  }
+}

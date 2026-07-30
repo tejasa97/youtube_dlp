@@ -1,0 +1,41 @@
+{
+  "r1": {
+    "publishedOn": {
+      "id": "bs-r1-130",
+      "broadcastDisplayName": "NHKラジオ第1・東京",
+      "logo": [
+        {
+          "url": "https://www.nhk.jp/assets/images/broadcastservice/bs/r1/r1-logo.svg",
+          "width": 100,
+          "height": 100
+        }
+      ]
+    }
+  },
+  "r2": {
+    "publishedOn": {
+      "id": "bs-r2-400",
+      "broadcastDisplayName": "NHKラジオ第2",
+      "logo": [
+        {
+          "url": "https://www.nhk.jp/assets/images/broadcastservice/bs/r2/r2-logo.svg",
+          "width": 100,
+          "height": 100
+        }
+      ]
+    }
+  },
+  "r3": {
+    "publishedOn": {
+      "id": "bs-r3-010",
+      "broadcastDisplayName": "NHK FM・札幌",
+      "logo": [
+        {
+          "url": "https://www.nhk.jp/assets/images/broadcastservice/bs/r3/r3-logo.svg",
+          "width": 100,
+          "height": 100
+        }
+      ]
+    }
+  }
+}

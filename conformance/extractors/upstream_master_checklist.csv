@@ -850,14 +850,14 @@ nfl,NFLArticleIE,NFLArticle,requires_new_backend,,,,low,no exact Go mapping or e
 nfl,NFLIE,NFL,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 nfl,NFLPlusEpisodeIE,NFLPlusEpisode,requires_authentication_or_antibot,,,authentication,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"
 nfl,NFLPlusReplayIE,NFLPlusReplay,requires_authentication_or_antibot,,,authentication,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"
-nhk,NhkForSchoolBangumiIE,NhkForSchoolBangumi,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-nhk,NhkForSchoolProgramListIE,NhkForSchoolProgramList,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-nhk,NhkForSchoolSubjectIE,NhkForSchoolSubject,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-nhk,NhkRadioNewsPageIE,NhkRadioNewsPage,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-nhk,NhkRadiruIE,NhkRadiru,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-nhk,NhkRadiruLiveIE,NhkRadiruLive,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-nhk,NhkVodIE,NhkVod,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-nhk,NhkVodProgramIE,NhkVodProgram,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
+nhk,NhkForSchoolBangumiIE,NhkForSchoolBangumi,already_supported,nhk_for_school_bangumi,,,high,fixture-backed Go extractor with version-ID replacement and chapter evidence
+nhk,NhkForSchoolProgramListIE,NhkForSchoolProgramList,already_supported,nhk_for_school_program_list,,,high,fixture-backed Go extractor with bangumi re-entry evidence
+nhk,NhkForSchoolSubjectIE,NhkForSchoolSubject,already_supported,nhk_for_school_subject,,,high,fixture-backed Go extractor with allowlisted subject playlist evidence
+nhk,NhkRadioNewsPageIE,NhkRadioNewsPage,already_supported,nhk_radio_news_page,,,high,fixture-backed Go extractor with transparent Radiru handoff evidence
+nhk,NhkRadiruIE,NhkRadiru,already_supported,nhk_radiru,,,high,fixture-backed Go extractor for Radiru on-demand episode/playlist evidence
+nhk,NhkRadiruLiveIE,NhkRadiruLive,already_supported,nhk_radiru_live,,,high,fixture-backed Go extractor with area option and live HLS evidence
+nhk,NhkVodIE,NhkVod,already_supported,nhk_vod,,,high,fixture-backed Go extractor for NHK World VOD video/audio/clip evidence
+nhk,NhkVodProgramIE,NhkVodProgram,already_supported,nhk_vod_program,,,high,fixture-backed Go extractor for NHK World program playlist re-entry evidence
 nhl,NHLIE,NHL,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 nick,NickIE,Nick,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 niconico,NiconicoHistoryIE,NiconicoHistory,requires_authentication_or_antibot,,,login,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"

@@ -20,6 +20,7 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/fragment"
 	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
 	"github.com/ytdlp-go/ytdlp/internal/media/pipeline"
+	"github.com/ytdlp-go/ytdlp/internal/network"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/dash"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/hds"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/hls"
@@ -57,6 +58,9 @@ func plannedOutputExtension(plan mediaformat.OutputPlan, overridePreferences []s
 }
 
 func (operation *operation) downloadSelections(ctx context.Context, selections []mediaformat.Selection, outputRoot, destination string, sink events.Sink) (string, int64, error) {
+	if err := validateCredentialIsolatedDispatch(selections, operation.request.Downloader.External != nil); err != nil {
+		return "", 0, err
+	}
 	if len(selections) == 1 {
 		return operation.downloadSelection(ctx, selections[0], outputRoot, destination, sink)
 	}
@@ -104,6 +108,9 @@ func sabrTrackDestination(finalDestination string, selection mediaformat.Selecti
 }
 
 func (operation *operation) downloadYouTubeSABRPair(ctx context.Context, selections []mediaformat.Selection, outputRoot, destination string, sink events.Sink) (string, int64, error) {
+	if err := validateCredentialIsolatedDispatch(selections, false); err != nil {
+		return "", 0, err
+	}
 	if sink == nil {
 		sink = events.Nop()
 	}
@@ -247,8 +254,30 @@ func (operation *operation) downloadSelection(ctx context.Context, selected medi
 	return operation.downloadSelectionWithLiveRefresh(ctx, selected, outputRoot, destination, sink, nil)
 }
 
+func validateCredentialIsolatedDispatch(selections []mediaformat.Selection, external bool) error {
+	for _, selected := range selections {
+		if !selected.CredentialIsolated {
+			continue
+		}
+		switch {
+		case external:
+			return fmt.Errorf("%w: external downloader cannot enforce credential-isolated transport", extractor.ErrTransportIsolation)
+		case selected.YouTubeLiveFromStart:
+			return fmt.Errorf("%w: YouTube live-from-start cannot enforce credential-isolated transport", extractor.ErrTransportIsolation)
+		case selected.YouTubePostLive:
+			return fmt.Errorf("%w: YouTube post-live cannot enforce credential-isolated transport", extractor.ErrTransportIsolation)
+		case selected.YouTubeSABR || selected.Protocol == "youtube_sabr_ump":
+			return fmt.Errorf("%w: YouTube SABR cannot enforce credential-isolated transport", extractor.ErrTransportIsolation)
+		}
+	}
+	return nil
+}
+
 func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context, selected mediaformat.Selection, outputRoot, destination string, sink events.Sink, liveRefresh youtubelive.LiveRefreshFunc) (string, int64, error) {
 	options := operation.request.Downloader
+	if err := validateCredentialIsolatedDispatch([]mediaformat.Selection{selected}, options.External != nil); err != nil {
+		return "", 0, err
+	}
 	if selected.YouTubeLiveFromStart {
 		if options.External != nil {
 			return "", 0, fmt.Errorf("%w: external downloaders cannot consume generated YouTube live fragments", extractor.ErrUnsupported)
@@ -322,18 +351,28 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 		return result.Path, info.Size(), nil
 	}
 
+	mediaTransport := operation.mediaTransport(selected.CredentialIsolated)
+
 	switch selected.Protocol {
 	case "m3u8_native":
-		result, err := hls.NewDownloader(operation.transport, hls.Config{
+		result, err := hls.NewDownloader(mediaTransport.(hls.Transport), hls.Config{
 			Headers:             selected.Headers,
 			FragmentConcurrency: options.FragmentConcurrency, PerHostConcurrency: options.PerHostFragmentConcurrency,
 			MaxSegments: options.MaxSegments, MaxSegmentSize: options.MaxSegmentBytes, Attempts: options.Attempts,
 			RetryBaseDelay: options.RetryBaseDelay, RetryMaxDelay: options.RetryMaxDelay,
 		}).Download(ctx, selected.URL, outputRoot, destination, operation.request.Overwrite, sink)
 		if err != nil {
+			if selected.CredentialIsolated {
+				if cleanupErr := cleanupCredentialIsolatedHLSScratch(destination); cleanupErr != nil {
+					return "", 0, errors.Join(err, cleanupErr)
+				}
+			}
 			var encryption *hls.EncryptionError
 			if !errors.As(err, &encryption) || !encryption.FFmpegEligible {
 				return "", 0, err
+			}
+			if selected.CredentialIsolated {
+				return "", 0, fmt.Errorf("%w: HLS ffmpeg fallback cannot enforce credential-isolated transport", extractor.ErrTransportIsolation)
 			}
 			fallbackURL := encryption.MediaURL
 			if fallbackURL == "" {
@@ -372,7 +411,7 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 		}
 		return result.Path, result.Bytes, nil
 	case "http_dash_segments":
-		result, err := dash.NewDownloader(operation.transport, dash.Config{
+		result, err := dash.NewDownloader(mediaTransport.(dash.Transport), dash.Config{
 			Headers:             selected.Headers,
 			DynamicPolls:        options.LiveMaxPolls,
 			PollInterval:        options.LivePollInterval,
@@ -413,7 +452,7 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 		if maxOutput <= 0 {
 			maxOutput = 8 << 30 // 8 GiB intentional output cap.
 		}
-		result, err := hds.NewDownloader(operation.transport, hds.Config{
+		result, err := hds.NewDownloader(mediaTransport.(hds.Transport), hds.Config{
 			Headers:          selected.Headers,
 			Attempts:         options.Attempts,
 			RetryBaseDelay:   options.RetryBaseDelay,
@@ -431,7 +470,7 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 		}
 		return out.Path, out.Bytes, nil
 	case "ism", "ismc", "mss":
-		result, err := ism.NewDownloader(operation.transport, ism.Config{
+		result, err := ism.NewDownloader(mediaTransport.(ism.Transport), ism.Config{
 			Headers:             selected.Headers,
 			FragmentConcurrency: options.FragmentConcurrency,
 			PerHostConcurrency:  options.PerHostFragmentConcurrency,
@@ -474,7 +513,7 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 		}
 		return destination, info.Size(), nil
 	default:
-		result, err := downloader.New(operation.transport).Download(ctx, downloader.Job{
+		result, err := downloader.New(mediaTransport.(network.Doer)).Download(ctx, downloader.Job{
 			URL: selected.URL, Headers: selected.Headers, OutputRoot: outputRoot, Destination: destination,
 			Overwrite: operation.request.Overwrite, Attempts: options.Attempts,
 			RetryBaseDelay: options.RetryBaseDelay, RetryMaxDelay: options.RetryMaxDelay,
@@ -489,6 +528,16 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 	}
 }
 
+func cleanupCredentialIsolatedHLSScratch(destination string) error {
+	if err := os.RemoveAll(destination + ".fragments"); err != nil {
+		return fmt.Errorf("remove credential-isolated HLS fragments: %w", err)
+	}
+	if err := os.Remove(destination + ".part"); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove credential-isolated HLS partial output: %w", err)
+	}
+	return nil
+}
+
 func youtubeTargetDuration(seconds float64) (time.Duration, error) {
 	if seconds <= 0 || seconds > 3600 || math.IsNaN(seconds) || math.IsInf(seconds, 0) {
 		return 0, fmt.Errorf("%w: invalid YouTube live target duration", extractor.ErrInvalidMetadata)
@@ -501,6 +550,9 @@ func youtubeTargetDuration(seconds float64) (time.Duration, error) {
 }
 
 func (operation *operation) downloadYouTubeLivePair(ctx context.Context, selections []mediaformat.Selection, outputRoot, destination, temporaryRoot string, sink events.Sink) (string, int64, error) {
+	if err := validateCredentialIsolatedDispatch(selections, false); err != nil {
+		return "", 0, err
+	}
 	if sink == nil {
 		sink = events.Nop()
 	}
@@ -606,6 +658,9 @@ func safeExtension(extension string) string {
 }
 
 func downloadYouTubeSABRSelection(ctx context.Context, operation *operation, selected mediaformat.Selection, outputRoot, destination string, sink events.Sink, retainCompletionMarker bool, coordinator *youtubeSABRRefreshCoordinator) (youtubeump.Result, error) {
+	if err := validateCredentialIsolatedDispatch([]mediaformat.Selection{selected}, false); err != nil {
+		return youtubeump.Result{}, err
+	}
 	ustreamer, err := base64.StdEncoding.DecodeString(selected.YouTubeSABRUstreamerConfig)
 	if err != nil {
 		return youtubeump.Result{}, fmt.Errorf("%w: invalid SABR ustreamer config", extractor.ErrInvalidMetadata)

@@ -33,6 +33,9 @@ type Selection struct {
 	Height   int64
 	TBR      float64
 	Headers  http.Header
+	// CredentialIsolated requires isolated no-redirect transport for media
+	// fetches so ambient cookies, authorization, and referer cannot leak.
+	CredentialIsolated bool
 
 	// YouTubePostLive selects the finite post-live DVR sequence downloader.
 	// The discriminator is extractor-produced and never inferred from a URL.
@@ -207,6 +210,7 @@ func (prepared Prepared) Best() (Selection, error) {
 		selection.YouTubeSABRClientName, _ = object.Lookup("_youtube_client").StringValue()
 		selection.YouTubeSABRDrc, _ = object.Lookup("_youtube_sabr_drc").Bool()
 		selection.YouTubeSABRAudioTrackID, _ = object.Lookup("_youtube_sabr_audio_track_id").StringValue()
+		selection.CredentialIsolated, _ = object.Lookup("_credential_isolated").Bool()
 		if selection.YouTubeSABR {
 			selection.Protocol = "youtube_sabr_ump"
 		}

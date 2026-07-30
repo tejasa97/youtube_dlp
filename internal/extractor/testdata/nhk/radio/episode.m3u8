@@ -1,0 +1,3 @@
+#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=128000,CODECS="mp4a.40.2"
+https://radio-stream.nhk.jp/ondemand/4251382/128.m3u8

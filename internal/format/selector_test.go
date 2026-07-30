@@ -346,6 +346,20 @@ func TestSelectorRejectsMalformedSelectedHeaders(t *testing.T) {
 	}
 }
 
+func TestObjectSelectionPropagatesCredentialIsolation(t *testing.T) {
+	object := value.NewObject(
+		value.Field{Key: "format_id", Value: value.String("hls")},
+		value.Field{Key: "url", Value: value.String("https://example.invalid/stream.m3u8")},
+		value.Field{Key: "ext", Value: value.String("m4a")},
+		value.Field{Key: "protocol", Value: value.String("m3u8_native")},
+		value.Field{Key: "_credential_isolated", Value: value.Bool(true)},
+	)
+	selection := objectSelection(object)
+	if !selection.CredentialIsolated {
+		t.Fatal("credential isolation not propagated")
+	}
+}
+
 func FuzzParseSelector(f *testing.F) {
 	f.Add("bestvideo[height<=1080]+bestaudio/best")
 	f.Add("best[ext=mp4]")

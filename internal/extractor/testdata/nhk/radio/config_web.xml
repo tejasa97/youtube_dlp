@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root>
+  <url_program_noa>//www.nhk.or.jp/radio/config/now_on_air/{area}.json</url_program_noa>
+  <url_program_detail>//www.nhk.or.jp/radio-api/app/v1/web/ondemand/program/{broadcastEventId}.json</url_program_detail>
+  <data>
+    <area>tokyo</area>
+    <areakey>130</areakey>
+    <r1hls>https://radio-stream.nhk.jp/hls/live/r1-tokyo/master.m3u8</r1hls>
+    <r2hls>https://radio-stream.nhk.jp/hls/live/r2/master.m3u8</r2hls>
+    <fmhls>https://radio-stream.nhk.jp/hls/live/fm-tokyo/master.m3u8</fmhls>
+  </data>
+  <data>
+    <area>sapporo</area>
+    <areakey>010</areakey>
+    <r1hls>https://radio-stream.nhk.jp/hls/live/r1-sapporo/master.m3u8</r1hls>
+    <r2hls>https://radio-stream.nhk.jp/hls/live/r2/master.m3u8</r2hls>
+    <fmhls>https://radio-stream.nhk.jp/hls/live/fm-sapporo/master.m3u8</fmhls>
+  </data>
+  <data>
+    <area>fukuoka</area>
+    <areakey>800</areakey>
+    <r1hls>https://radio-stream.nhk.jp/hls/live/r1-fukuoka/master.m3u8</r1hls>
+    <r2hls>https://radio-stream.nhk.jp/hls/live/r2/master.m3u8</r2hls>
+    <fmhls>https://radio-stream.nhk.jp/hls/live/fm-fukuoka/master.m3u8</fmhls>
+  </data>
+</root>
