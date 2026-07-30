@@ -54,6 +54,8 @@ var representativeExtractorCatalog = []representativeExtractor{
 	{"wistia", "wistia:a1b2c3d4e5", []extractorRiskClass{riskSharedBackend, riskPlaylistAPI}},
 	{"sproutvideo", "https://videos.sproutvideo.com/embed/4abcdef1234567890a/0abcdef1234567890", []extractorRiskClass{riskSharedBackend}},
 	{"dailymotion", "https://www.dailymotion.com/video/x12345", []extractorRiskClass{riskPlaylistAPI}},
+	{"dailymotion_search", "https://www.dailymotion.com/search/fixture/videos", []extractorRiskClass{riskPlaylistAPI}},
+	{"dailymotion_user", "https://www.dailymotion.com/user/fixture", []extractorRiskClass{riskPlaylistAPI}},
 	{"reddit", "https://www.reddit.com/r/videos/comments/abc123/title/", []extractorRiskClass{riskPlaylistAPI}},
 	{"twitter", "https://x.com/fixture/status/1234567890", []extractorRiskClass{riskPlaylistAPI}},
 	{"bandcamp", "https://fixture.bandcamp.com/track/example", []extractorRiskClass{riskPlaylistAPI}},

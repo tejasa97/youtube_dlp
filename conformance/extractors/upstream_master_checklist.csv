@@ -286,9 +286,9 @@ dacast,DacastPlaylistIE,DacastPlaylist,already_supported,dacast_playlist,dacast,
 dacast,DacastVODIE,DacastVOD,partially_supported,,dacast,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
 dailymail,DailyMailIE,DailyMail,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 dailymotion,DailymotionIE,Dailymotion,already_supported,dailymotion,,authentication,high,normalized upstream key exactly matches a registered Go extractor
-dailymotion,DailymotionPlaylistIE,DailymotionPlaylist,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
-dailymotion,DailymotionSearchIE,DailymotionSearch,partially_supported,,,authentication,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
-dailymotion,DailymotionUserIE,DailymotionUser,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
+dailymotion,DailymotionPlaylistIE,DailymotionPlaylist,partially_supported,,,,medium,"the Go port implements playlist metadata via player metadata rather than GraphQL collection pagination"
+dailymotion,DailymotionSearchIE,DailymotionSearch,already_supported,dailymotion_search,,authentication,high,normalized upstream key exactly matches a registered Go extractor
+dailymotion,DailymotionUserIE,DailymotionUser,already_supported,dailymotion_user,,,high,normalized upstream key exactly matches a registered Go extractor
 dailywire,DailyWireIE,DailyWire,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 dailywire,DailyWirePodcastIE,DailyWirePodcast,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 damtomo,DamtomoRecordIE,DamtomoRecord,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required

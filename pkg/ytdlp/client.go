@@ -613,6 +613,8 @@ func (client *Client) productRegistry() *extractor.Registry {
 		extractor.NewJWPlatform(),
 		extractor.NewWistia(),
 		extractor.NewSproutVideo(),
+		extractor.NewDailymotionSearch(),
+		extractor.NewDailymotionUser(),
 		extractor.NewDailymotion(),
 		extractor.NewReddit(),
 		extractor.NewTwitter(),

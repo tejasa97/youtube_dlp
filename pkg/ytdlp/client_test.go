@@ -390,6 +390,8 @@ func TestProductRegistryIncludesIntegratedExtractors(t *testing.T) {
 		{"https://cdn.jwplayer.com/players/AbCd1234-ABCDEFGHI.js", "jwplatform"},
 		{"wistia:a1b2c3d4e5", "wistia"},
 		{"https://videos.sproutvideo.com/embed/4abcdef1234567890a/0abcdef1234567890", "sproutvideo"},
+		{"https://www.dailymotion.com/search/fixture/videos", "dailymotion_search"},
+		{"https://www.dailymotion.com/user/fixture", "dailymotion_user"},
 		{"https://www.dailymotion.com/video/x12345", "dailymotion"},
 		{"https://www.reddit.com/r/videos/comments/abc123/title/", "reddit"},
 		{"https://x.com/fixture/status/1234567890", "twitter"},
