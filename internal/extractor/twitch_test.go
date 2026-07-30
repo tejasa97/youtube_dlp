@@ -48,6 +48,7 @@ type twitchFixtureTransport struct {
 	storyboardStatus          int
 	storyboardHostileRedirect bool
 	manifest                  []byte
+	manifestReader            io.ReadCloser
 	manifestStatus            int
 	manifestRequests          []twitchRecordedRequest
 	cookies                   []*http.Cookie
@@ -68,6 +69,22 @@ type twitchRoundTripper func(*http.Request) (*http.Response, error)
 func (roundTripper twitchRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
 	return roundTripper(request)
 }
+
+type twitchFailingReader struct {
+	payload []byte
+	err     error
+	read    bool
+}
+
+func (reader *twitchFailingReader) Read(buffer []byte) (int, error) {
+	if !reader.read {
+		reader.read = true
+		return copy(buffer, reader.payload), reader.err
+	}
+	return 0, reader.err
+}
+
+func (reader *twitchFailingReader) Close() error { return nil }
 
 // twitchAuthenticatedFixtureTransport models the narrow authenticated
 // capability. Its no-redirect method is intentionally separate from Do so the
@@ -242,7 +259,7 @@ func (transport *twitchFixtureTransport) DoWithoutCredentialsNoRedirect(ctx cont
 	if request.URL.Host == "usher.ttvnw.net" && strings.HasPrefix(request.URL.Path, "/vod/") {
 		transport.mu.Lock()
 		transport.manifestRequests = append(transport.manifestRequests, twitchRecordedRequest{header: request.Header.Clone()})
-		status, body := transport.manifestStatus, transport.manifest
+		status, body, reader := transport.manifestStatus, transport.manifest, transport.manifestReader
 		transport.mu.Unlock()
 		if status == 0 {
 			status = http.StatusOK
@@ -250,7 +267,11 @@ func (transport *twitchFixtureTransport) DoWithoutCredentialsNoRedirect(ctx cont
 		if body == nil {
 			body = []byte("#EXTM3U\n")
 		}
-		return twitchHTTPResponse(status, body), nil
+		response := twitchHTTPResponse(status, body)
+		if reader != nil {
+			response.Body = reader
+		}
+		return response, nil
 	}
 	return nil, fmt.Errorf("unexpected isolated request: %s", request.URL)
 }
@@ -474,6 +495,32 @@ func TestTwitchVODManifestProbeCancellationAndNoRedirectFallback(t *testing.T) {
 	}
 }
 
+func TestTwitchVODManifestProbeBodyReadTaxonomy(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		err  error
+		want error
+	}{
+		{name: "mid-body cancellation", err: context.Canceled, want: context.Canceled},
+		{name: "mid-body deadline", err: context.DeadlineExceeded, want: context.DeadlineExceeded},
+		{name: "ordinary reader failure", err: errors.New("reader secret must not leak"), want: ErrTwitchNetwork},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			transport := &twitchFixtureTransport{
+				manifestStatus: http.StatusForbidden,
+				manifestReader: &twitchFailingReader{
+					payload: []byte(`{"error":"vod_manifest_restricted"}`),
+					err:     test.err,
+				},
+			}
+			err := probeTwitchVODManifest(context.Background(), transport, "https://usher.ttvnw.net/vod/123.m3u8?token=synthetic-token")
+			if !errors.Is(err, test.want) || strings.Contains(fmt.Sprint(err), "reader secret") {
+				t.Fatalf("err=%v want=%v", err, test.want)
+			}
+		})
+	}
+}
+
 func TestTwitchVODManifestProbeDropsAuthAcrossRedirect(t *testing.T) {
 	const token = "synthetic-auth-token"
 	var requests []*http.Request
@@ -520,6 +567,32 @@ func TestTwitchManifestRestrictedBoundsAndExactMarkers(t *testing.T) {
 	}
 }
 
+func TestTwitchManifestRestrictedStructuralBudgets(t *testing.T) {
+	nested := func(depth int) []byte {
+		return []byte(strings.Repeat(`[`, depth) + `"vod_manifest_restricted"` + strings.Repeat(`]`, depth))
+	}
+	if got, err := twitchManifestRestricted(bytes.NewReader(nested(twitchManifestRestrictionMaxDepth))); err != nil || !got {
+		t.Fatalf("near-depth restricted=%t err=%v", got, err)
+	}
+	if got, err := twitchManifestRestricted(bytes.NewReader(nested(twitchManifestRestrictionMaxDepth + 1))); err != nil || got {
+		t.Fatalf("over-depth restricted=%t err=%v", got, err)
+	}
+	tokenLimited := func(values int) []byte {
+		items := make([]string, values)
+		for index := range items {
+			items[index] = `0`
+		}
+		return []byte(`[` + strings.Join(items, `,`) + `,"vod_manifest_restricted"]`)
+	}
+	// Opening/closing delimiters plus values and the marker consume the budget.
+	if got, err := twitchManifestRestricted(bytes.NewReader(tokenLimited(twitchManifestRestrictionMaxTokens - 3))); err != nil || !got {
+		t.Fatalf("near-token restricted=%t err=%v", got, err)
+	}
+	if got, err := twitchManifestRestricted(bytes.NewReader(tokenLimited(twitchManifestRestrictionMaxTokens - 2))); err != nil || got {
+		t.Fatalf("over-token restricted=%t err=%v", got, err)
+	}
+}
+
 func FuzzTwitchOAuthHeaders(f *testing.F) {
 	f.Add("synthetic-auth-token")
 	f.Add("bad\rheader")
@@ -535,6 +608,7 @@ func FuzzTwitchManifestRestricted(f *testing.F) {
 	f.Add([]byte(`{"error":"vod_manifest_restricted"}`))
 	f.Add([]byte(`{"error":"unauthorized_entitlements"}`))
 	f.Add([]byte(`not json`))
+	f.Add([]byte(strings.Repeat(`[`, twitchManifestRestrictionMaxDepth+1) + `"vod_manifest_restricted"` + strings.Repeat(`]`, twitchManifestRestrictionMaxDepth+1)))
 	f.Fuzz(func(t *testing.T, body []byte) {
 		_, _ = twitchManifestRestricted(bytes.NewReader(body))
 	})

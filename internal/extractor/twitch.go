@@ -71,11 +71,20 @@ const (
 	// performed for a Twitch playback manifest. It is deliberately much smaller
 	// than a media manifest and is sufficient for Twitch's JSON error envelope.
 	twitchManifestRestrictionMaxBytes = 64 << 10
+	// These structural limits make marker detection independent of adversarial
+	// JSON nesting or token count within the capped response body.
+	twitchManifestRestrictionMaxDepth  = 64
+	twitchManifestRestrictionMaxTokens = 4096
 )
 
 type twitchVideosBroadcast struct {
 	Type  string
 	Label string
+}
+
+type twitchManifestRestrictionFrame struct {
+	object     bool
+	expectsKey bool
 }
 
 type twitchClipsRange struct {
@@ -960,47 +969,89 @@ func probeTwitchVODManifest(ctx context.Context, transport Transport, manifestUR
 	return ErrAuthentication
 }
 
-// twitchManifestRestricted parses a capped JSON error response and recognizes
-// only string values exactly equal to Twitch's two documented restriction
-// markers. Invalid and truncated JSON deliberately do not become an
-// entitlement classification.
+// twitchManifestRestricted parses a capped JSON error response with bounded
+// token-stream state. It recognizes only string values exactly equal to
+// Twitch's two documented restriction markers. Invalid, trailing, truncated,
+// or structurally excessive JSON deliberately does not become an entitlement
+// classification.
 func twitchManifestRestricted(body io.Reader) (bool, error) {
 	if body == nil {
 		return false, nil
 	}
 	payload, err := io.ReadAll(io.LimitReader(body, twitchManifestRestrictionMaxBytes+1))
 	if err != nil {
-		return false, err
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return false, err
+		}
+		return false, ErrTwitchNetwork
 	}
 	if len(payload) > twitchManifestRestrictionMaxBytes {
 		return false, nil
 	}
-	var decoded any
 	decoder := json.NewDecoder(bytes.NewReader(payload))
-	if err := decoder.Decode(&decoded); err != nil || ensureJSONEOF(decoder) != nil {
-		return false, nil
+	stack := make([]twitchManifestRestrictionFrame, 0, twitchManifestRestrictionMaxDepth)
+	roots, tokens := 0, 0
+	marker := false
+	for {
+		token, err := decoder.Token()
+		if err == io.EOF {
+			return roots == 1 && len(stack) == 0 && marker, nil
+		}
+		if err != nil {
+			return false, nil
+		}
+		tokens++
+		if tokens > twitchManifestRestrictionMaxTokens || roots > 1 {
+			return false, nil
+		}
+		switch typed := token.(type) {
+		case json.Delim:
+			switch typed {
+			case '{', '[':
+				if len(stack) == 0 {
+					roots++
+				} else {
+					twitchRestrictionValueComplete(stack)
+				}
+				if len(stack) == twitchManifestRestrictionMaxDepth {
+					return false, nil
+				}
+				stack = append(stack, twitchManifestRestrictionFrame{object: typed == '{', expectsKey: typed == '{'})
+			case '}', ']':
+				if len(stack) == 0 || (typed == '}' && !stack[len(stack)-1].object) || (typed == ']' && stack[len(stack)-1].object) {
+					return false, nil
+				}
+				stack = stack[:len(stack)-1]
+				if len(stack) > 0 {
+					twitchRestrictionValueComplete(stack)
+				}
+			}
+		case string:
+			if len(stack) == 0 {
+				roots++
+			} else if stack[len(stack)-1].object && stack[len(stack)-1].expectsKey {
+				stack[len(stack)-1].expectsKey = false
+				continue
+			} else {
+				if typed == "vod_manifest_restricted" || typed == "unauthorized_entitlements" {
+					marker = true
+				}
+				twitchRestrictionValueComplete(stack)
+			}
+		default:
+			if len(stack) == 0 {
+				roots++
+			} else {
+				twitchRestrictionValueComplete(stack)
+			}
+		}
 	}
-	return twitchRestrictionMarker(decoded), nil
 }
 
-func twitchRestrictionMarker(value any) bool {
-	switch typed := value.(type) {
-	case string:
-		return typed == "vod_manifest_restricted" || typed == "unauthorized_entitlements"
-	case []any:
-		for _, item := range typed {
-			if twitchRestrictionMarker(item) {
-				return true
-			}
-		}
-	case map[string]any:
-		for _, item := range typed {
-			if twitchRestrictionMarker(item) {
-				return true
-			}
-		}
+func twitchRestrictionValueComplete(stack []twitchManifestRestrictionFrame) {
+	if len(stack) != 0 && stack[len(stack)-1].object {
+		stack[len(stack)-1].expectsKey = true
 	}
-	return false
 }
 
 func twitchCacheBuster() string {

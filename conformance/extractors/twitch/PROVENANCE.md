@@ -65,6 +65,10 @@ response, account, cookie, token, or media URL. They justify only bounded local
 taxonomy and credential-isolation tests; they do not establish broader Twitch
 subscriber parity or live-site verification.
 
+A successful authenticated 200 manifest is not evidence that an entitlement
+gate was crossed, so this lane intentionally does not infer or emit
+`availability = subscriber_only` from that outcome.
+
 ## Channel videos playlist fixtures
 
 The channel videos playlist fixtures added on 2026-07-24 are attributable to
