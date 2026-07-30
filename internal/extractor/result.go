@@ -78,6 +78,8 @@ type Entry struct {
 	HasTimestamp bool
 	ViewCount    int64
 	HasViewCount bool
+	SeriesID     string
+	Series       string
 }
 
 func (entry Entry) Object() *value.Object {
@@ -115,6 +117,12 @@ func (entry Entry) Object() *value.Object {
 	}
 	if entry.Language != "" {
 		object.Set("language", value.String(entry.Language))
+	}
+	if entry.SeriesID != "" {
+		object.Set("series_id", value.String(entry.SeriesID))
+	}
+	if entry.Series != "" {
+		object.Set("series", value.String(entry.Series))
 	}
 	return object
 }

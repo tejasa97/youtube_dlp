@@ -1067,12 +1067,12 @@ radiko,RadikoRadioIE,RadikoRadio,requires_new_backend,,,,low,no exact Go mapping
 radiocanada,RadioCanadaAudioVideoIE,RadioCanadaAudioVideo,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 radiocanada,RadioCanadaIE,RadioCanada,requires_authentication_or_antibot,,,login,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"
 radiode,RadioDeIE,RadioDe,obsolete_or_intentional_deviation,,,,high,upstream class explicitly declares _WORKING = False
-radiofrance,FranceCultureIE,FranceCulture,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-radiofrance,RadioFranceIE,RadioFrance,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-radiofrance,RadioFranceLiveIE,RadioFranceLive,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-radiofrance,RadioFrancePodcastIE,RadioFrancePodcast,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-radiofrance,RadioFranceProfileIE,RadioFranceProfile,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-radiofrance,RadioFranceProgramScheduleIE,RadioFranceProgramSchedule,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
+radiofrance,FranceCultureIE,FranceCulture,already_supported,franceculture,,,high,fixture-backed public episode extraction with credential-isolated discovery and direct audio product download
+radiofrance,RadioFranceIE,RadioFrance,already_supported,radiofrance,,,high,fixture-backed legacy radiovisions direct audio extraction
+radiofrance,RadioFranceLiveIE,RadioFranceLive,already_supported,radiofrance_live,,,high,fixture-backed station and substation live extraction with direct audio and HLS product paths
+radiofrance,RadioFrancePodcastIE,RadioFrancePodcast,already_supported,radiofrance_podcast,,,high,fixture-backed bounded podcast playlist pagination with transparent child URLs
+radiofrance,RadioFranceProfileIE,RadioFranceProfile,already_supported,radiofrance_profile,,,high,fixture-backed bounded profile playlist pagination with transparent child URLs
+radiofrance,RadioFranceProgramScheduleIE,RadioFranceProgramSchedule,already_supported,radiofrance_program_schedule,,,high,fixture-backed program schedule playlists with FranceCulture transparent reentry
 radiojavan,RadioJavanIE,RadioJavan,obsolete_or_intentional_deviation,,,,high,upstream class explicitly declares _WORKING = False
 radiokapital,RadioKapitalIE,RadioKapital,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 radiokapital,RadioKapitalShowIE,RadioKapitalShow,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required

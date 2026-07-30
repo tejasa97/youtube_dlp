@@ -1,0 +1,25 @@
+{
+  "content": {
+    "id": "eaf6ef81-a980-4f1c-a7d1-8a75ecd54b17",
+    "title": "Le billet sciences",
+    "standFirst": "Synthetic podcast description.",
+    "visual": {"src": "https://static.radiofrance.fr/fixture/podcast-thumb.png"},
+    "expressions": {
+      "items": [
+        {
+          "path": "franceinfo/podcasts/le-billet-vert/episode-alpha-100001",
+          "title": "Episode Alpha",
+          "standFirst": "Alpha standfirst",
+          "publishedDate": 1672531200,
+          "visual": {"src": "https://static.radiofrance.fr/fixture/alpha.jpg"}
+        },
+        {
+          "path": "franceinfo/podcasts/le-billet-vert/episode-beta-100002",
+          "title": "Episode Beta",
+          "publishedDate": 1672617600
+        }
+      ],
+      "pagination": {"next": "cursor-page-2-secret"}
+    }
+  }
+}

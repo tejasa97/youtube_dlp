@@ -113,6 +113,24 @@ var reviewedInventory = map[string]reviewedInventoryEntry{
 	"Tele5IE": {
 		rationale: "fixture-backed Aurora CMS recursion preserves public Referer and webpage identity through product extraction",
 	},
+	"FranceCultureIE": {
+		rationale: "fixture-backed public episode extraction with credential-isolated discovery and direct audio product download",
+	},
+	"RadioFranceIE": {
+		rationale: "fixture-backed legacy radiovisions direct audio extraction",
+	},
+	"RadioFranceLiveIE": {
+		rationale: "fixture-backed station and substation live extraction with direct audio and HLS product paths",
+	},
+	"RadioFrancePodcastIE": {
+		rationale: "fixture-backed bounded podcast playlist pagination with transparent child URLs",
+	},
+	"RadioFranceProfileIE": {
+		rationale: "fixture-backed bounded profile playlist pagination with transparent child URLs",
+	},
+	"RadioFranceProgramScheduleIE": {
+		rationale: "fixture-backed program schedule playlists with FranceCulture transparent reentry",
+	},
 }
 
 func applyReviewedInventory(class string, entry *ExtractorInventoryEntry) {
