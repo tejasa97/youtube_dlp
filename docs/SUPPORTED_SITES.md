@@ -67,6 +67,7 @@ service response.
 | kick | kick.com channels | live, anti-bot/impersonated, manifest-heavy |
 | bbciplayer | bbc.co.uk iPlayer episodes | playlist/API, manifest-heavy, regional |
 | ard | ardmediathek.de player and collection pages | playlist/API, manifest-heavy, regional |
+| ard_audiothek (+ playlist) | ardaudiothek.de and ardsounds.de public episode and bounded show playlist pages | playlist/API, simple/direct, regional |
 | nrk | nrk.no pages and nrk: opaque URLs | playlist/API, manifest-heavy, regional |
 | rai family | RaiPlay/RaiPlay Sound VOD, live and program routes; legacy Rai, Rai News, Rai Cultura, and Rai Südtirol public pages | playlist/API, manifest-heavy, regional, live, audio; bounded unencrypted Rai F4M/HDS VOD |
 | nhk family | NHK World VOD/program; NHK for School bangumi/subject/program-list; Radiru on-demand/news/live (`--nhk-area`) | playlist/API, manifest-heavy, regional, live, audio |

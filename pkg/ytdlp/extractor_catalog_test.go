@@ -68,6 +68,8 @@ var representativeExtractorCatalog = []representativeExtractor{
 	{"kick", "https://kick.com/fixture-channel", []extractorRiskClass{riskLive, riskAntiBot, riskManifestHeavy}},
 	{"bbciplayer", "https://www.bbc.co.uk/iplayer/episode/p0000000/title", []extractorRiskClass{riskPlaylistAPI, riskManifestHeavy, riskRegional}},
 	{"ard", "https://www.ardmediathek.de/player/Y3JpZDovL2ZpeHR1cmU", []extractorRiskClass{riskPlaylistAPI, riskManifestHeavy, riskRegional}},
+	{"ard_audiothek", "https://www.ardaudiothek.de/episode/urn:ard:episode:eabead1add170e93/", []extractorRiskClass{riskPlaylistAPI, riskSimpleDirect, riskRegional}},
+	{"ard_audiothek_playlist", "https://www.ardaudiothek.de/sendung/mia-insomnia/urn:ard:show:c405aa26d9a4060a/", []extractorRiskClass{riskPlaylistAPI, riskRegional}},
 	{"nrk", "nrk:MDDP12000117", []extractorRiskClass{riskPlaylistAPI, riskManifestHeavy, riskRegional}},
 	{"nhk_vod", "https://www3.nhk.or.jp/nhkworld/en/shows/2049165/", []extractorRiskClass{riskPlaylistAPI, riskManifestHeavy, riskRegional}},
 	{"nhk_vod_program", "https://www3.nhk.or.jp/nhkworld/en/shows/sumo/", []extractorRiskClass{riskPlaylistAPI, riskRegional}},
