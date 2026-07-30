@@ -286,7 +286,7 @@ dacast,DacastPlaylistIE,DacastPlaylist,already_supported,dacast_playlist,dacast,
 dacast,DacastVODIE,DacastVOD,already_supported,dacast,dacast,,high,curated exact mapping to a registered Go extractor
 dailymail,DailyMailIE,DailyMail,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 dailymotion,DailymotionIE,Dailymotion,already_supported,dailymotion,,authentication,high,normalized upstream key exactly matches a registered Go extractor
-dailymotion,DailymotionPlaylistIE,DailymotionPlaylist,partially_supported,,,,medium,"the Go port implements playlist metadata via player metadata rather than GraphQL collection pagination"
+dailymotion,DailymotionPlaylistIE,DailymotionPlaylist,partially_supported,,,,medium,the Go port implements playlist metadata via player metadata rather than GraphQL collection pagination
 dailymotion,DailymotionSearchIE,DailymotionSearch,already_supported,dailymotion_search,,authentication,high,normalized upstream key exactly matches a registered Go extractor
 dailymotion,DailymotionUserIE,DailymotionUser,already_supported,dailymotion_user,,,high,normalized upstream key exactly matches a registered Go extractor
 dailywire,DailyWireIE,DailyWire,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
@@ -326,15 +326,15 @@ dplay,CookingChannelIE,CookingChannel,already_supported,cookingchannel,,,high,fi
 dplay,DPlayIE,DPlay,already_supported,dplay,,,high,fixture-backed legacy playback adapter with strict routing and product registry evidence
 dplay,DestinationAmericaIE,DestinationAmerica,already_supported,destinationamerica,,,high,fixture-backed configuration-driven Discovery adapter with strict routing and product registry evidence
 dplay,DiscoveryLifeIE,DiscoveryLife,already_supported,discoverylife,,,high,fixture-backed configuration-driven Discovery adapter with strict routing and product registry evidence
-dplay,DiscoveryNetworksDeIE,DiscoveryNetworksDe,already_supported,discoverynetworksde,,,high,fixture-backed Loma CMS and Hyoga playback adapter with fallback and product registry evidence
-dplay,DiscoveryPlusIE,DiscoveryPlus,already_supported,discoveryplus,,,high,fixture-backed Discovery Plus playback adapter with strict routing and product registry evidence
-dplay,DiscoveryPlusIndiaIE,DiscoveryPlusIndia,already_supported,discoveryplusindia,,,high,fixture-backed India playback adapter with strict routing and product registry evidence
+dplay,DiscoveryNetworksDeIE,DiscoveryNetworksDe,already_supported,discoverynetworksde,,authentication,high,fixture-backed Loma CMS and Hyoga playback adapter with fallback and product registry evidence
+dplay,DiscoveryPlusIE,DiscoveryPlus,already_supported,discoveryplus,,authentication,high,fixture-backed Discovery Plus playback adapter with strict routing and product registry evidence
+dplay,DiscoveryPlusIndiaIE,DiscoveryPlusIndia,already_supported,discoveryplusindia,,authentication,high,fixture-backed India playback adapter with strict routing and product registry evidence
 dplay,DiscoveryPlusIndiaShowIE,DiscoveryPlusIndiaShow,already_supported,discoveryplusindiashow,,,high,fixture-backed bounded multi-season show pagination and product registry evidence
-dplay,DiscoveryPlusItalyIE,DiscoveryPlusItaly,already_supported,discoveryplusitaly,,,high,fixture-backed Italy playback adapter with strict routing and product registry evidence
+dplay,DiscoveryPlusItalyIE,DiscoveryPlusItaly,already_supported,discoveryplusitaly,,authentication,high,fixture-backed Italy playback adapter with strict routing and product registry evidence
 dplay,DiscoveryPlusItalyShowIE,DiscoveryPlusItalyShow,already_supported,discoveryplusitalyshow,,,high,fixture-backed bounded multi-season show pagination and product registry evidence
 dplay,FoodNetworkIE,FoodNetwork,already_supported,foodnetwork,,,high,fixture-backed configuration-driven Discovery adapter with strict routing and product registry evidence
 dplay,GoDiscoveryIE,GoDiscovery,already_supported,godiscovery,,,high,fixture-backed configuration-driven Discovery adapter with strict routing and product registry evidence
-dplay,HGTVDeIE,HGTVDe,already_supported,hgtvde,,,high,fixture-backed Hyoga playback adapter restricted to the public sendungen route
+dplay,HGTVDeIE,HGTVDe,already_supported,hgtvde,,authentication,high,fixture-backed Hyoga playback adapter restricted to the public sendungen route
 dplay,HGTVUsaIE,HGTVUsa,already_supported,hgtvusa,,,high,fixture-backed configuration-driven Discovery adapter with strict routing and product registry evidence
 dplay,InvestigationDiscoveryIE,InvestigationDiscovery,already_supported,investigationdiscovery,,,high,fixture-backed configuration-driven Discovery adapter with strict routing and product registry evidence
 dplay,ScienceChannelIE,ScienceChannel,already_supported,sciencechannel,,,high,fixture-backed configuration-driven Discovery adapter with strict routing and product registry evidence
@@ -1046,8 +1046,8 @@ presstv,PressTVIE,PressTV,requires_new_backend,,,,low,no exact Go mapping or exi
 projectveritas,ProjectVeritasIE,ProjectVeritas,obsolete_or_intentional_deviation,,,,high,upstream class explicitly declares _WORKING = False
 prx,PRXAccountIE,PRXAccount,already_supported,prx_account,,,high,normalized upstream key exactly matches a registered Go extractor
 prx,PRXSeriesIE,PRXSeries,already_supported,prx_series,,,high,normalized upstream key exactly matches a registered Go extractor
-prx,PRXSeriesSearchIE,PRXSeriesSearch,already_supported,prx_series_search,,,high,"pinned prxseries opaque search key is registered with bounded fixture-backed CMS paging"
-prx,PRXStoriesSearchIE,PRXStoriesSearch,already_supported,prx_stories_search,,,high,"pinned prxstories opaque search key is registered with bounded fixture-backed CMS paging"
+prx,PRXSeriesSearchIE,PRXSeriesSearch,already_supported,prx_series_search,,,high,pinned prxseries opaque search key is registered with bounded fixture-backed CMS paging
+prx,PRXStoriesSearchIE,PRXStoriesSearch,already_supported,prx_stories_search,,,high,pinned prxstories opaque search key is registered with bounded fixture-backed CMS paging
 prx,PRXStoryIE,PRXStory,already_supported,prx_story,,,high,normalized upstream key exactly matches a registered Go extractor
 puhutv,PuhuTVIE,PuhuTV,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 puhutv,PuhuTVSerieIE,PuhuTVSerie,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
@@ -1338,7 +1338,7 @@ ted,TedPlaylistIE,TedPlaylist,requires_new_backend,,,,low,no exact Go mapping or
 ted,TedSeriesIE,TedSeries,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 ted,TedTalkIE,TedTalk,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 tele13,Tele13IE,Tele13,uses_existing_shared_backend,,youtube,,medium,upstream class references a media backend already implemented in Go
-tele5,Tele5IE,Tele5,already_supported,tele5,,,high,fixture-backed Aurora CMS recursion preserves public Referer and webpage identity through product extraction
+tele5,Tele5IE,Tele5,already_supported,tele5,,authentication,high,fixture-backed Aurora CMS recursion preserves public Referer and webpage identity through product extraction
 telebruxelles,TeleBruxellesIE,TeleBruxelles,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 telecaribe,TelecaribePlayIE,TelecaribePlay,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 telecinco,TelecincoIE,Telecinco,requires_authentication_or_antibot,,,impersonation,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"

@@ -96,9 +96,18 @@ func FuzzImportedClass(f *testing.F) {
 	})
 }
 
+func classifyWithReview(module, class, block string, goIDs map[string]string, goModules map[string]bool) ExtractorInventoryEntry {
+	entry := classifyExtractor(module, class, block, goIDs, goModules)
+	applyReviewedInventory(class, &entry)
+	return entry
+}
+
 func TestReconciledExactAliasMappings(t *testing.T) {
 	goIDs, goModules, err := parseGoExtractorInventory(filepath.Join("..", "..", "internal", "extractor"))
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateExtractorInventoryMappings(goIDs); err != nil {
 		t.Fatal(err)
 	}
 	reconciled := map[string]string{
@@ -121,7 +130,7 @@ func TestReconciledExactAliasMappings(t *testing.T) {
 		if _, ok := goIDs[normalizeExtractorKey(wantGo)]; !ok {
 			t.Fatalf("reconciled Go extractor %q for %s is not registered", wantGo, class)
 		}
-		entry := classifyExtractor("fixture", class, "class "+class+"(InfoExtractor):\n", goIDs, goModules)
+		entry := classifyWithReview("fixture", class, "class "+class+"(InfoExtractor):\n", goIDs, goModules)
 		if entry.Status != ExtractorAlreadySupported || entry.GoExtractor != wantGo {
 			t.Fatalf("%s: got status=%q go_extractor=%q", class, entry.Status, entry.GoExtractor)
 		}
@@ -136,10 +145,130 @@ func TestReconciledExactAliasMappings(t *testing.T) {
 		{"soundcloud", "SoundcloudPlaylistIE"},
 	}
 	for _, test := range stillPartial {
-		entry := classifyExtractor(test.module, test.class, "class "+test.class+"(InfoExtractor):\n", goIDs, goModules)
+		entry := classifyWithReview(test.module, test.class, "class "+test.class+"(InfoExtractor):\n", goIDs, goModules)
 		if entry.Status != ExtractorPartiallySupported {
 			t.Fatalf("%s:%s status=%q want %q", test.module, test.class, entry.Status, ExtractorPartiallySupported)
 		}
+	}
+}
+
+func TestDiscoveryAndTele5ExactAliasMappings(t *testing.T) {
+	goIDs, goModules, err := parseGoExtractorInventory(filepath.Join("..", "..", "internal", "extractor"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	discovery := map[string]string{
+		"AmHistoryChannelIE":       "amhistorychannel",
+		"AnimalPlanetIE":           "animalplanet",
+		"CookingChannelIE":         "cookingchannel",
+		"DPlayIE":                  "dplay",
+		"DestinationAmericaIE":     "destinationamerica",
+		"DiscoveryLifeIE":          "discoverylife",
+		"DiscoveryNetworksDeIE":    "discoverynetworksde",
+		"DiscoveryPlusIE":          "discoveryplus",
+		"DiscoveryPlusIndiaIE":     "discoveryplusindia",
+		"DiscoveryPlusIndiaShowIE": "discoveryplusindiashow",
+		"DiscoveryPlusItalyIE":     "discoveryplusitaly",
+		"DiscoveryPlusItalyShowIE": "discoveryplusitalyshow",
+		"FoodNetworkIE":            "foodnetwork",
+		"GoDiscoveryIE":            "godiscovery",
+		"HGTVDeIE":                 "hgtvde",
+		"HGTVUsaIE":                "hgtvusa",
+		"InvestigationDiscoveryIE": "investigationdiscovery",
+		"ScienceChannelIE":         "sciencechannel",
+		"TLCIE":                    "tlc",
+		"TravelChannelIE":          "travelchannel",
+		"Tele5IE":                  "tele5",
+	}
+	for class, wantGo := range discovery {
+		if got := exactAliases[class]; got != wantGo {
+			t.Fatalf("exactAliases[%s]=%q want %q", class, got, wantGo)
+		}
+		if _, ok := goIDs[normalizeExtractorKey(wantGo)]; !ok {
+			t.Fatalf("Discovery/Tele5 Go extractor %q for %s is not registered", wantGo, class)
+		}
+		module := "dplay"
+		if class == "Tele5IE" {
+			module = "tele5"
+		}
+		entry := classifyWithReview(module, class, "class "+class+"(InfoExtractor):\n", goIDs, goModules)
+		if entry.Status != ExtractorAlreadySupported || entry.GoExtractor != wantGo {
+			t.Fatalf("%s: got status=%q go_extractor=%q", class, entry.Status, entry.GoExtractor)
+		}
+		wantRationale := reviewedInventory[class].rationale
+		if entry.Rationale != wantRationale {
+			t.Fatalf("%s rationale=%q want %q", class, entry.Rationale, wantRationale)
+		}
+	}
+}
+
+func TestReviewedInventoryPreservesCustomRationales(t *testing.T) {
+	goIDs, goModules, err := parseGoExtractorInventory(filepath.Join("..", "..", "internal", "extractor"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		module string
+		class  string
+		status string
+	}{
+		{"dailymotion", "DailymotionPlaylistIE", ExtractorPartiallySupported},
+		{"nhk", "NhkVodIE", ExtractorAlreadySupported},
+		{"prx", "PRXSeriesSearchIE", ExtractorAlreadySupported},
+	}
+	for _, test := range tests {
+		entry := classifyWithReview(test.module, test.class, "class "+test.class+"(InfoExtractor):\n", goIDs, goModules)
+		if entry.Status != test.status {
+			t.Fatalf("%s status=%q want %q", test.class, entry.Status, test.status)
+		}
+		want := reviewedInventory[test.class].rationale
+		if entry.Rationale != want {
+			t.Fatalf("%s rationale=%q want %q", test.class, entry.Rationale, want)
+		}
+		if test.status == ExtractorAlreadySupported {
+			if _, ok := goIDs[normalizeExtractorKey(entry.GoExtractor)]; !ok {
+				t.Fatalf("%s go_extractor %q is not registered", test.class, entry.GoExtractor)
+			}
+		}
+	}
+}
+
+func TestParseGoExtractorInventoryIncludesDiscoveryConfiguredKeys(t *testing.T) {
+	goIDs, _, err := parseGoExtractorInventory(filepath.Join("..", "..", "internal", "extractor"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"dplay", "discoveryplus", "tele5", "amhistorychannel"} {
+		if _, ok := goIDs[normalizeExtractorKey(key)]; !ok {
+			t.Fatalf("missing configured Discovery extractor key %q", key)
+		}
+	}
+}
+
+func TestGeneratedInventoryMatchesCheckedCSV(t *testing.T) {
+	reference := os.Getenv("YTDLP_REFERENCE_ROOT")
+	if reference == "" {
+		t.Skip("YTDLP_REFERENCE_ROOT is not set")
+	}
+	if _, err := os.Stat(filepath.Join(reference, "yt_dlp", "extractor", "_extractors.py")); err != nil {
+		t.Skipf("reference checkout unavailable: %v", err)
+	}
+	repository := filepath.Join("..", "..")
+	entries, err := BuildExtractorInventory(reference, repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var generated bytes.Buffer
+	if err := WriteExtractorInventoryCSV(&generated, entries); err != nil {
+		t.Fatal(err)
+	}
+	checkedPath := filepath.Join(repository, "conformance", "extractors", "upstream_master_checklist.csv")
+	checked, err := os.ReadFile(checkedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(generated.Bytes(), checked) {
+		t.Fatalf("generated inventory does not match checked CSV at %s", checkedPath)
 	}
 }
 

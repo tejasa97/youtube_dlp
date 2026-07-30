@@ -44,6 +44,7 @@ var (
 	importedClassPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]*IE$`)
 	classPattern         = regexp.MustCompile(`(?m)^class\s+([A-Za-z][A-Za-z0-9_]*IE)\s*\(`)
 	goNamePattern        = regexp.MustCompile(`(?s)func\s*(?:\([^)]*\)\s*)?[A-Za-z0-9_]*Name\(\)\s*string\s*\{.*?return\s+"([a-z0-9_]+)"`)
+	configuredKeyPattern = regexp.MustCompile(`newDiscoveryDPlay\(discoveryConfig\{"([a-z0-9_]+)"`)
 )
 
 var existingBackendTokens = []struct {
@@ -104,41 +105,48 @@ var moduleAliases = map[string][]string{
 // remain conservative: a class is omitted when the Go implementation only
 // covers part of the upstream class's URL corpus.
 var exactAliases = map[string]string{
+	"AmHistoryChannelIE":       "amhistorychannel",
+	"AnimalPlanetIE":           "animalplanet",
 	"ArchiveOrgIE":             "internetarchive",
 	"SVTPlayIE":                "region_svt",
 	"SVTSeriesIE":              "region_svt",
 	"SVTPageIE":                "region_svt",
 	"BBCCoUkIE":                "bbciplayer",
-	"BBCCoUkArticleIE":         "bbc_co_uk_article",
-	"BBCCoUkIPlayerEpisodesIE": "bbc_co_uk_iplayer_episodes",
-	"BBCCoUkIPlayerGroupIE":    "bbc_co_uk_iplayer_group",
-	"BBCCoUkPlaylistIE":        "bbc_co_uk_playlist",
 	"ARDBetaMediathekIE":       "ard",
 	"ARDAudiothekIE":           "ard_audiothek",
 	"ARDAudiothekPlaylistIE":   "ard_audiothek_playlist",
 	"ApplePodcastsIE":          "applepodcasts",
 	"BandcampAlbumIE":          "bandcamp",
 	"BrightcoveNewIE":          "brightcove",
+	"CookingChannelIE":         "cookingchannel",
 	"DacastVODIE":              "dacast",
+	"DestinationAmericaIE":     "destinationamerica",
+	"DiscoveryLifeIE":          "discoverylife",
+	"DiscoveryNetworksDeIE":    "discoverynetworksde",
+	"DiscoveryPlusIE":          "discoveryplus",
+	"DiscoveryPlusIndiaIE":     "discoveryplusindia",
+	"DiscoveryPlusIndiaShowIE": "discoveryplusindiashow",
+	"DiscoveryPlusItalyIE":     "discoveryplusitaly",
+	"DiscoveryPlusItalyShowIE": "discoveryplusitalyshow",
+	"DPlayIE":                  "dplay",
 	"ImgurAlbumIE":             "imgur",
 	"ImgurGalleryIE":           "imgur",
+	"FoodNetworkIE":            "foodnetwork",
+	"GoDiscoveryIE":            "godiscovery",
+	"HGTVDeIE":                 "hgtvde",
+	"HGTVUsaIE":                "hgtvusa",
+	"InvestigationDiscoveryIE": "investigationdiscovery",
 	"KickClipIE":               "kick",
 	"KickVODIE":                "kick",
 	"MixcloudPlaylistIE":       "mixcloud",
 	"MixcloudUserIE":           "mixcloud",
 	"RumbleChannelIE":          "rumble",
 	"RumbleEmbedIE":            "rumble",
+	"ScienceChannelIE":         "sciencechannel",
+	"TLCIE":                    "tlc",
+	"Tele5IE":                  "tele5",
+	"TravelChannelIE":          "travelchannel",
 	"TVAIE":                    "tva",
-	"NRKIE":                    "nrk",
-	"NRKPlaylistIE":            "nrk_playlist",
-	"NRKRadioPodkastIE":        "nrk_radio_podkast",
-	"NRKSkoleIE":               "nrk_skole",
-	"NRKTVDirekteIE":           "nrktv_direkte",
-	"NRKTVEpisodeIE":           "nrktv_episode",
-	"NRKTVEpisodesIE":          "nrktv_episodes",
-	"NRKTVIE":                  "nrktv",
-	"NRKTVSeasonIE":            "nrktv_season",
-	"NRKTVSeriesIE":            "nrktv_series",
 }
 
 func BuildExtractorInventory(referenceRoot, repositoryRoot string) ([]ExtractorInventoryEntry, error) {
@@ -148,6 +156,9 @@ func BuildExtractorInventory(referenceRoot, repositoryRoot string) ([]ExtractorI
 	}
 	goIDs, goModules, err := parseGoExtractorInventory(filepath.Join(repositoryRoot, "internal", "extractor"))
 	if err != nil {
+		return nil, err
+	}
+	if err := validateExtractorInventoryMappings(goIDs); err != nil {
 		return nil, err
 	}
 
@@ -164,6 +175,12 @@ func BuildExtractorInventory(referenceRoot, repositoryRoot string) ([]ExtractorI
 		}
 		block := classBlock(source, item.Class)
 		entry := classifyExtractor(item.Module, item.Class, block, goIDs, goModules)
+		applyReviewedInventory(item.Class, &entry)
+		if entry.Status == ExtractorAlreadySupported {
+			if _, ok := goIDs[normalizeExtractorKey(entry.GoExtractor)]; !ok {
+				return nil, fmt.Errorf("classified %s as supported without registered Go extractor %q", item.Class, entry.GoExtractor)
+			}
+		}
 		entries = append(entries, entry)
 	}
 	sort.Slice(entries, func(i, j int) bool {
@@ -291,6 +308,12 @@ func parseGoExtractorInventory(root string) (map[string]string, map[string]bool,
 		for _, match := range goNamePattern.FindAllStringSubmatch(string(body), -1) {
 			id := match[1]
 			ids[normalizeExtractorKey(id)] = id
+		}
+		if module == "dplay" {
+			for _, match := range configuredKeyPattern.FindAllStringSubmatch(string(body), -1) {
+				id := match[1]
+				ids[normalizeExtractorKey(id)] = id
+			}
 		}
 	}
 	return ids, modules, nil
