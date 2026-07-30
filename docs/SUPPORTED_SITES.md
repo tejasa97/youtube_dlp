@@ -59,7 +59,7 @@ service response.
 | dailymotion | dailymotion.com videos, `/playlist/{id}`, public search, and user/channel uploads | playlist/API |
 | reddit | reddit.com post pages | playlist/API |
 | twitter | x.com and declared Twitter status URLs | playlist/API |
-| bandcamp | artist Bandcamp track pages | playlist/API |
+| bandcamp | artist Bandcamp track/album pages, artist discography playlists, and Bandcamp Weekly radio episodes | playlist/API |
 | mixcloud | mixcloud.com cloudcast pages | playlist/API |
 | rumble | rumble.com declared embed/video pages | playlist/API, live |
 | bilibili | bilibili.com video pages | playlist/API, manifest-heavy |

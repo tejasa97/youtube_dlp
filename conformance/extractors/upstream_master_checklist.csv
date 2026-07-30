@@ -101,8 +101,8 @@ banbye,BanByeChannelIE,BanByeChannel,requires_new_backend,,,,low,no exact Go map
 banbye,BanByeIE,BanBye,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 bandcamp,BandcampAlbumIE,BandcampAlbum,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
 bandcamp,BandcampIE,Bandcamp,already_supported,bandcamp,,,high,normalized upstream key exactly matches a registered Go extractor
-bandcamp,BandcampUserIE,BandcampUser,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
-bandcamp,BandcampWeeklyIE,BandcampWeekly,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
+bandcamp,BandcampUserIE,BandcampUser,already_supported,bandcamp_user,,,high,normalized upstream key exactly matches a registered Go extractor
+bandcamp,BandcampWeeklyIE,BandcampWeekly,already_supported,bandcamp_weekly,,,high,normalized upstream key exactly matches a registered Go extractor
 bandlab,BandlabIE,Bandlab,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 bandlab,BandlabPlaylistIE,BandlabPlaylist,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 bannedvideo,BannedVideoIE,BannedVideo,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required

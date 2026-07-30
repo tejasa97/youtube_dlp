@@ -1,0 +1,13 @@
+{
+  "tracklist": {
+    "title": "Magic Moments",
+    "subtitle": "Bandcamp Weekly",
+    "description": "Fixture episode description for Bandcamp Weekly.",
+    "date": 1491264000,
+    "imageId": "9982549",
+    "compiledTrack": {
+      "streamUrl": "https://stream.bcbits.com/stream/fixture-weekly?enc=mp3-128&token=fixture-secret",
+      "duration": 5829.77
+    }
+  }
+}

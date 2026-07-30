@@ -396,6 +396,8 @@ func TestProductRegistryIncludesIntegratedExtractors(t *testing.T) {
 		{"https://www.reddit.com/r/videos/comments/abc123/title/", "reddit"},
 		{"https://x.com/fixture/status/1234567890", "twitter"},
 		{"https://fixture.bandcamp.com/track/example", "bandcamp"},
+		{"https://fixture.bandcamp.com/music", "bandcamp_user"},
+		{"https://bandcamp.com/radio?show=224", "bandcamp_weekly"},
 		{"https://www.mixcloud.com/fixture/example/", "mixcloud"},
 		{"https://rumble.com/embed/v12345/", "rumble"},
 		{"https://www.bilibili.com/video/BV1abcdefgh", "bilibili"},
