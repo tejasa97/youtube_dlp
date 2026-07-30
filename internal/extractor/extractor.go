@@ -44,6 +44,13 @@ type CredentialIsolatedNoRedirectTransport interface {
 	DoWithoutCredentialsNoRedirect(context.Context, *http.Request) (*http.Response, error)
 }
 
+// RefererCredentialIsolatedNoRedirectTransport is the narrow variant for an
+// already-validated embedding Referer. It otherwise has the same isolation
+// and no-redirect guarantees as CredentialIsolatedNoRedirectTransport.
+type RefererCredentialIsolatedNoRedirectTransport interface {
+	DoWithoutCredentialsNoRedirectWithReferer(context.Context, *http.Request) (*http.Response, error)
+}
+
 // ScopedAuthorizationNoRedirectTransport executes a request with only the
 // caller-supplied Authorization header while excluding operation credentials,
 // cookies, response-cookie persistence, and redirects. It is intended for

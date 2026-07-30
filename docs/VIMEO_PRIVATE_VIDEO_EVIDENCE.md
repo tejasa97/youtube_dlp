@@ -48,7 +48,7 @@ categorization.
 ## Remaining deviations
 
 Interactive Vimeo login, copied mobile/desktop OAuth client credentials,
-password submission, non-share private URL discovery, uppercase or
+non-share private URL discovery, uppercase or
 non-10-character share hashes, HTTP input URLs, DRM, and live archives remain
 unsupported. Original/source discovery deliberately uses only the scoped web
 API `privacy`/`download` path: it does not use the cookie-bearing webpage
@@ -57,3 +57,9 @@ source extension is absent, and does not expose upstream's
 `original_format_policy=always` override. Source discovery failures other than
 cancellation remain nonfatal, matching upstream's best-effort behavior. Live
 service compatibility is not asserted from synthetic fixtures alone.
+
+The public/player path additionally recognizes only the pinned fingerprint
+contexts: `vimeo.com` page 403 and `player.vimeo.com` page 429 map to the
+existing transport-profile category. This fixture-backed behavior is neither a
+generic Vimeo rate-limit claim nor live-site coverage; `api.vimeo.com` 429
+remains deliberately unresolved.

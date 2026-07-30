@@ -1793,6 +1793,8 @@ capabilities:
       - internal/extractor.TestVimeoExtractsProgressiveHLSAndDASHWithProfile
       - internal/extractor.TestVimeoSuitableAndPlayerConfig
       - internal/extractor.TestVimeoFailuresAreCategorized
+      - internal/extractor.TestCategorizeVimeoResponseStatusIsHostSensitiveAndSecretSafe
+      - internal/extractor.TestVimeoSignedConfigUsesIsolatedNoRedirectTransport
       - internal/extractor.TestVimeoConfigURLFailsClosedWithoutRequests
       - internal/extractor.TestVimeoTextTracksAreBoundedAndFailClosed
       - internal/extractor.TestNormalizeVimeoTextTrackURLRejectsHostileInputs
@@ -1834,6 +1836,7 @@ capabilities:
       - internal/network.TestDoWithScopedAuthorizationNoRedirectRefusesRedirects
       - internal/network.TestDoWithScopedAuthorizationNoRedirectRedactsErrorsAndCancellation
       - internal/extractor.FuzzParseVimeoConfig
+      - internal/extractor.FuzzCategorizeVimeoResponseStatus
       - internal/extractor.FuzzNormalizeVimeoTextTrackURL
       - internal/extractor.FuzzNormalizeVimeoConfigURL
       - internal/extractor.FuzzParseVimeoPlaylistPage

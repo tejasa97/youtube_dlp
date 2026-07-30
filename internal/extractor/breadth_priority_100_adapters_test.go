@@ -58,6 +58,10 @@ func (t *breadthVimeoTransport) DoProfile(ctx context.Context, request *http.Req
 	return t.Do(ctx, request)
 }
 
+func (t *breadthVimeoTransport) DoWithoutCredentialsNoRedirectWithReferer(ctx context.Context, request *http.Request) (*http.Response, error) {
+	return t.Do(ctx, request)
+}
+
 func breadthVimeoReentryTransport(t *testing.T) *breadthVimeoTransport {
 	t.Helper()
 	return &breadthVimeoTransport{
