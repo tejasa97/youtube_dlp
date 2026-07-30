@@ -61,12 +61,22 @@ decisions.
 - `_WORKING = False` is recorded as the pinned upstream state, not a permanent
   decision to exclude the extractor.
 
-## Reconciled exact aliases (2026-07-30)
+## Generator-authoritative inventory (2026-07-30)
 
-Eleven stale `partially_supported` rows were promoted via curated `exactAliases`
-after route-corpus review against registered Go extractors. Each maps one
-upstream class to a single Go key whose `Suitable`/`Extract` paths cover that
-class's documented URL shape (not a broad family alias):
+The checklist generator is the single source of truth. Previously reviewed
+CSV-only promotions are now encoded in Go:
+
+- **`exactAliases`**: route-corpus mappings where the upstream IE name does not
+  normalize to the registered Go key. This includes eleven reconciled public
+  extractors (Bandcamp album, Brightcove new, Dacast VOD, Imgur album/gallery,
+  Kick VOD/clip, Mixcloud user/playlist, Rumble channel/embed) plus twenty
+  fixture-backed Discovery/DPlay adapters and `Tele5IE`.
+- **`reviewedInventory`**: preserves fixture-backed rationale text for Discovery,
+  NHK, PRX search, Tele5, and the partial `DailymotionPlaylistIE` row without
+  allowing unsupported promotions.
+
+Regenerating the CSV from the pinned reference must be byte-identical to the
+checked file (`cmp -s`) after source changes.
 
 | Upstream class | Go key | Evidence |
 | --- | --- | --- |
@@ -77,11 +87,14 @@ class's documented URL shape (not a broad family alias):
 | `KickVODIE` / `KickClipIE` | `kick` | `kick.go` `/videos/<uuid>` and `/clips/clip_*` |
 | `MixcloudUserIE` / `MixcloudPlaylistIE` | `mixcloud` | `mixcloud.go` user collections and `/playlists/` |
 | `RumbleChannelIE` / `RumbleEmbedIE` | `rumble` | `rumble.go` `/c|user/` channel and `/embed/` video |
+| Discovery/DPlay family (20 IEs) | per-adapter keys | `dplay.go` configuration-driven adapters |
+| `Tele5IE` | `tele5` | `dplay.go` Aurora CMS recursion with public identity |
 
 Deliberately left partial: `BrightcoveLegacyIE` (Go rejects legacy `/services`
 URLs), `PanoptoListIE` (`List.aspx` folder API vs `panopto_playlist` pid
-route), and all other family-only partial rows (bilibili, soundcloud, twitch,
-vimeo sub-classes, etc.).
+route), `DailymotionPlaylistIE` (player-metadata playlist vs GraphQL pagination),
+and all other family-only partial rows (bilibili, soundcloud, twitch, vimeo
+sub-classes, etc.).
 
 ## Refresh
 
