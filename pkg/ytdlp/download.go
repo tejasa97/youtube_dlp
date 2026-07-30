@@ -362,6 +362,11 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 			RetryBaseDelay: options.RetryBaseDelay, RetryMaxDelay: options.RetryMaxDelay,
 		}).Download(ctx, selected.URL, outputRoot, destination, operation.request.Overwrite, sink)
 		if err != nil {
+			if selected.CredentialIsolated {
+				if cleanupErr := cleanupCredentialIsolatedHLSScratch(destination); cleanupErr != nil {
+					return "", 0, errors.Join(err, cleanupErr)
+				}
+			}
 			var encryption *hls.EncryptionError
 			if !errors.As(err, &encryption) || !encryption.FFmpegEligible {
 				return "", 0, err
@@ -521,6 +526,16 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 		}
 		return result.Path, result.Bytes, nil
 	}
+}
+
+func cleanupCredentialIsolatedHLSScratch(destination string) error {
+	if err := os.RemoveAll(destination + ".fragments"); err != nil {
+		return fmt.Errorf("remove credential-isolated HLS fragments: %w", err)
+	}
+	if err := os.Remove(destination + ".part"); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove credential-isolated HLS partial output: %w", err)
+	}
+	return nil
 }
 
 func youtubeTargetDuration(seconds float64) (time.Duration, error) {

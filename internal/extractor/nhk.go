@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"path"
@@ -37,6 +38,8 @@ const (
 	nhkMaxSubtitleBytes = 1 << 20
 	nhkMaxAPIEntries    = 1024
 	nhkMaxProgramChild  = 1024
+	nhkMaxDurationSec   = 7 * 24 * 60 * 60
+	nhkMaxDimension     = 100_000
 )
 
 const (
@@ -630,20 +633,40 @@ func nhkThumbnails(payload map[string]any, webpageURL string) []value.Value {
 }
 
 func nhkIntFromAny(raw any) (int64, bool) {
+	var result int64
 	switch v := raw.(type) {
 	case float64:
-		return int64(v), true
+		if math.IsNaN(v) || math.IsInf(v, 0) || math.Trunc(v) != v || v < 1 || v > nhkMaxDimension {
+			return 0, false
+		}
+		result = int64(v)
 	case int64:
-		return v, true
+		result = v
 	case int:
-		return int64(v), true
+		result = int64(v)
 	case json.Number:
 		n, err := v.Int64()
-		if err == nil {
-			return n, true
+		if err != nil {
+			return 0, false
 		}
+		result = n
+	default:
+		return 0, false
 	}
-	return 0, false
+	if result < 1 || result > nhkMaxDimension {
+		return 0, false
+	}
+	return result, true
+}
+
+func nhkDurationWithinBounds(seconds float64, allowZero bool) bool {
+	if math.IsNaN(seconds) || math.IsInf(seconds, 0) || seconds > nhkMaxDurationSec {
+		return false
+	}
+	if allowZero {
+		return seconds >= 0
+	}
+	return seconds > 0
 }
 
 func nhkResolveURL(baseURL, reference string) string {

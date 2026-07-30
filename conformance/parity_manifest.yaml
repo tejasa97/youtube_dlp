@@ -1975,6 +1975,7 @@ capabilities:
       - internal/extractor.TestNHKWorldVODMissingStream
       - internal/extractor.TestNHKWorldProgramPlaylist
       - internal/extractor.TestNHKSchoolBangumiExtract
+      - internal/extractor.TestNHKSchoolBangumiTrailingPathRejected
       - internal/extractor.TestNHKSchoolSubjectAndProgramList
       - internal/extractor.TestNHKSchoolSougouSubjectTitle
       - internal/extractor.TestNHKSchoolSubjectAllowlist
@@ -1990,6 +1991,9 @@ capabilities:
       - internal/extractor.TestNHKRadiruLiveUnavailableMetadataFallback
       - internal/extractor.TestNHKRadiruLiveInvalidArea
       - internal/extractor.TestNHKRadiruMissingHeadline
+      - internal/extractor.TestNHKRadioSuitableURLBounds
+      - internal/extractor.TestNHKRadioXMLAttributeBound
+      - internal/extractor.TestNHKNumericMetadataBounds
       - internal/extractor.TestNHKCredentialIsolationRequired
       - internal/extractor.TestNHKCredentialIsolatedFormatsMarked
       - internal/extractor.TestNHKRedirectNotFollowedForMedia
@@ -2006,6 +2010,7 @@ capabilities:
       - pkg/ytdlp.TestNHKFamilyRegistryRouting
       - pkg/ytdlp.TestNHKOptionsValidation
       - pkg/ytdlp.TestNHKCredentialIsolatedMediaDownloadStripsAmbientCredentials
+      - pkg/ytdlp.TestNHKSchoolProductCredentialIsolation
       - pkg/ytdlp.TestCredentialIsolatedHLSManifestAndSegmentRequests
       - pkg/ytdlp.TestCredentialIsolatedHLSRefusesRedirects
       - pkg/ytdlp.TestCredentialIsolatedHDSManifestAndFragments

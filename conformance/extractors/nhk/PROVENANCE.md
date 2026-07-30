@@ -18,6 +18,7 @@ Retained shapes:
 - NHK World showsapi v1 episode/program JSON (`id`, `title`, `video`/`audio.url`, categories/tags/images)
 - NHK World clip API path `video_clips/{id}` (no doubled suffix)
 - School bangumi quoted `var` / `programObj` assignments, `chapterTime.push`, `cpTitle` HTML
+- School Akamai HLS media is marked for credential-isolated no-redirect product download
 - School subject `subjectName` span and program.json `part[*].part-video-dasid`
 - Radiru series JSON `episodes[]` at top level with numeric `id`, `aa_contents_id`, and `program_title`
 - Radiru `url_program_detail` template with `{broadcastEventId}` and extended program detail JSON
@@ -43,4 +44,5 @@ Known deviations:
 - No DRM decryption path
 - Radiru extended program-detail metadata failure is nonfatal as in the reference, but description formatting helpers are intentionally simpler/bounded
 - Credential-isolated manifest/media transport is required for emitted formats; product format selection propagates `_credential_isolated` into native HLS/DASH/HDS/ISM/direct downloads and fails closed before external, YouTube-special, or HLS ffmpeg-fallback dispatch
+- School movie routing accepts only exact bangumi/clip CGI paths; radio routes, XML attributes, durations, and image dimensions enforce the documented finite bounds before parsing or metadata emission
 - NHK World HLS master subtitle discovery is explicitly outside this change: no subtitle tracks or subtitle-parity claim are produced from those manifests

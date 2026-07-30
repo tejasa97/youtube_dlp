@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -362,6 +363,28 @@ func TestNHKSchoolBangumiExtract(t *testing.T) {
 	if !strings.Contains(formatURL, "D0005150191_00003_V_000.f4v") {
 		t.Fatalf("format url=%q", formatURL)
 	}
+	isolated, ok := formatObj.Lookup("_credential_isolated").Bool()
+	if !ok || !isolated {
+		t.Fatal("NHK School format is not credential-isolated")
+	}
+}
+
+func TestNHKSchoolBangumiTrailingPathRejected(t *testing.T) {
+	ie := NewNhkForSchoolBangumiIE()
+	for _, raw := range []string{
+		"https://www2.nhk.or.jp/school/movie/bangumi.cgi/extra?das_id=D0005150191_00000",
+		"https://www2.nhk.or.jp/school/movie/clip.cgi/extra?das_id=D0005150191_00000",
+		"https://www2.nhk.or.jp/school/movie/bangumi.cgi/?das_id=D0005150191_00000",
+		"https://www2.nhk.or.jp/school/movie/clip.cgi/?das_id=D0005150191_00000",
+	} {
+		parsed, err := url.Parse(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ie.Suitable(parsed) {
+			t.Fatalf("trailing School route accepted: %s", raw)
+		}
+	}
 }
 
 func TestNHKSchoolSubjectAndProgramList(t *testing.T) {
@@ -432,6 +455,114 @@ func TestNHKSchoolProgramListBeforeSubject(t *testing.T) {
 	if NewNhkForSchoolSubjectIE().Suitable(program) {
 		t.Fatal("subject stole program list URL")
 	}
+}
+
+func TestNHKRadioSuitableURLBounds(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		base string
+		ie   Extractor
+	}{
+		{name: "on-demand", base: "https://www.nhk.or.jp/radio/player/ondemand.html?p=LG96ZW5KZ4_01&pad=", ie: NewNhkRadiruIE()},
+		{name: "news", base: "https://www.nhk.or.jp/radionews/?pad=", ie: NewNhkRadioNewsPageIE()},
+		{name: "live", base: "https://www.nhk.or.jp/radio/player/?ch=r1&pad=", ie: NewNhkRadiruLiveIE()},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			exact := test.base + strings.Repeat("a", nhkRadioMaxURLBytes-len(test.base))
+			if len(exact) != nhkRadioMaxURLBytes {
+				t.Fatalf("fixture length = %d", len(exact))
+			}
+			parsed, err := url.Parse(exact)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !test.ie.Suitable(parsed) {
+				t.Fatal("boundary URL rejected")
+			}
+			over, err := url.Parse(exact + "a")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.ie.Suitable(over) {
+				t.Fatal("over-bound URL accepted")
+			}
+		})
+	}
+}
+
+func TestNHKRadioXMLAttributeBound(t *testing.T) {
+	if _, err := nhkRadioParseConfigXML(nhkRadioXMLAttributes(nhkRadioMaxXMLAttributes)); err != nil {
+		t.Fatalf("boundary attributes rejected: %v", err)
+	}
+	if _, err := nhkRadioParseConfigXML(nhkRadioXMLAttributes(nhkRadioMaxXMLAttributes + 1)); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("over-bound attributes error = %v", err)
+	}
+}
+
+func TestNHKNumericMetadataBounds(t *testing.T) {
+	for _, text := range []string{"NaN", "Inf", "-Inf", "-1", "-0", "604801", "00:60:00", "00:00:60"} {
+		if got, ok := nhkSchoolParseDurationChecked(text); ok || got != 0 {
+			t.Errorf("nhkSchoolParseDurationChecked(%q) = %v, %t", text, got, ok)
+		}
+	}
+	for _, text := range []string{"1", "00:00:01", "168:00:00"} {
+		if got, ok := nhkSchoolParseDurationChecked(text); !ok || got <= 0 || math.IsNaN(got) || math.IsInf(got, 0) {
+			t.Errorf("nhkSchoolParseDurationChecked(%q) = %v, %t", text, got, ok)
+		}
+	}
+	if chapters := nhkSchoolExtractChapters([]byte(`chapterTime.push('999999');<div class="cpTitle"><span>scene 1</span>bad</div>`), 0); len(chapters) != 0 {
+		t.Fatalf("out-of-range chapter time emitted: %v", chapters)
+	}
+
+	for _, raw := range []any{
+		math.NaN(), math.Inf(1), math.Inf(-1), "Inf", "-1", "0",
+		float64(nhkMaxDurationSec + 1), json.Number("604801"),
+	} {
+		if duration, ok := nhkRadioDurationSeconds(raw); ok || duration != 0 {
+			t.Errorf("nhkRadioDurationSeconds(%v) = %v, %t", raw, duration, ok)
+		}
+	}
+	if duration, ok := nhkRadioDurationSeconds(json.Number("42.5")); !ok || duration != 42.5 {
+		t.Fatalf("valid radio duration = %v, %t", duration, ok)
+	}
+	if got := (&nhkRadioEpisode{DurationSec: math.Inf(1)}).DurationSeconds(); got != 0 {
+		t.Fatalf("infinite episode duration = %v", got)
+	}
+
+	for _, raw := range []any{
+		math.NaN(), math.Inf(1), float64(-1), float64(0), float64(1.5),
+		float64(nhkMaxDimension + 1), int64(0), json.Number("100001"),
+	} {
+		if dimension, ok := nhkIntFromAny(raw); ok || dimension != 0 {
+			t.Errorf("nhkIntFromAny(%v) = %d, %t", raw, dimension, ok)
+		}
+	}
+	if dimension, ok := nhkIntFromAny(json.Number("100000")); !ok || dimension != nhkMaxDimension {
+		t.Fatalf("boundary dimension = %d, %t", dimension, ok)
+	}
+	thumbnails := nhkThumbnails(map[string]any{"images": []any{map[string]any{
+		"url": "https://vod-stream.nhk.jp/image.jpg", "width": math.NaN(), "height": math.Inf(1),
+	}}}, "https://www3.nhk.or.jp/nhkworld/en/shows/2049165/")
+	if len(thumbnails) != 1 {
+		t.Fatalf("thumbnail count = %d", len(thumbnails))
+	}
+	object, _ := thumbnails[0].Object()
+	if _, ok := object.Lookup("width").Int(); ok {
+		t.Fatalf("non-finite width emitted: %v", object)
+	}
+	if _, ok := object.Lookup("height").Int(); ok {
+		t.Fatalf("non-finite dimensions emitted: %v", object)
+	}
+}
+
+func nhkRadioXMLAttributes(count int) []byte {
+	var builder strings.Builder
+	builder.WriteString("<root")
+	for index := 0; index < count; index++ {
+		_, _ = fmt.Fprintf(&builder, " a%d=\"x\"", index)
+	}
+	builder.WriteString("/>")
+	return []byte(builder.String())
 }
 
 func TestNHKRadiruEpisodeAndPlaylist(t *testing.T) {
@@ -933,6 +1064,16 @@ func FuzzClassifyNHKURL(f *testing.F) {
 		"https://www.nhk.or.jp/radio/player/?ch=r1",
 		"https://evil.example/nhkworld/en/shows/2049165/",
 	}
+	for _, base := range []string{
+		"https://www.nhk.or.jp/radio/player/ondemand.html?p=LG96ZW5KZ4_01&pad=",
+		"https://www.nhk.or.jp/radionews/?pad=",
+		"https://www.nhk.or.jp/radio/player/?ch=r1&pad=",
+	} {
+		seeds = append(seeds,
+			base+strings.Repeat("a", nhkRadioMaxURLBytes-len(base)),
+			base+strings.Repeat("a", nhkRadioMaxURLBytes-len(base)+1),
+		)
+	}
 	for _, seed := range seeds {
 		f.Add(seed)
 	}
@@ -942,7 +1083,7 @@ func FuzzClassifyNHKURL(f *testing.F) {
 		NewNhkRadiruLiveIE(), NewNhkRadioNewsPageIE(), NewNhkRadiruIE(),
 	}
 	f.Fuzz(func(t *testing.T, raw string) {
-		if len(raw) > 4096 {
+		if len(raw) > nhkRadioMaxURLBytes+1 {
 			return
 		}
 		parsed, err := url.Parse(raw)
@@ -976,18 +1117,22 @@ func FuzzParseNHKWorldEpisode(f *testing.F) {
 
 func FuzzParseNHKSchoolPage(f *testing.F) {
 	f.Add([]byte(`var r_version = "00003"; programObj.name = "x";`))
+	f.Add([]byte(`var r_duration = "Inf"; chapterTime.push('00:00:00');`))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		if len(data) > 256<<10 {
 			return
 		}
-		_ = nhkSchoolExtractQuotedVars(data)
+		variables := nhkSchoolExtractQuotedVars(data)
 		_ = nhkSchoolExtractProgramObj(data)
 		_ = nhkSchoolExtractChapters(data, 600)
+		_, _ = nhkSchoolParseDurationChecked(variables["r_duration"])
+		_, _ = nhkSchoolParseDurationChecked(string(data))
 	})
 }
 
 func FuzzParseNHKRadiruResponse(f *testing.F) {
 	f.Add([]byte(`{"main":{"episodes":[{"id":"1","title":"t"}]}}`))
+	f.Add([]byte(`{"duration":"Inf","width":1e999,"height":-1}`))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		if len(data) > 1<<20 {
 			return
@@ -996,6 +1141,9 @@ func FuzzParseNHKRadiruResponse(f *testing.F) {
 		if err := nhkTestDecodeJSON(data, &payload); err != nil {
 			return
 		}
+		_, _ = nhkRadioDurationSeconds(payload["duration"])
+		_, _ = nhkIntFromAny(payload["width"])
+		_, _ = nhkIntFromAny(payload["height"])
 		_, err := nhkRadioBuildSeries(&nhkRadioConfig{Series: map[string]*nhkRadioConfigSeries{}}, payload, "SITE", "01")
 		if err != nil && !errors.Is(err, ErrInvalidMetadata) && !errors.Is(err, ErrInvalidPlaylist) {
 			t.Fatalf("uncategorized: %v", err)
@@ -1005,6 +1153,8 @@ func FuzzParseNHKRadiruResponse(f *testing.F) {
 
 func FuzzParseNHKConfigXML(f *testing.F) {
 	f.Add([]byte(`<root><data><area>tokyo</area><areakey>130</areakey><r1hls>https://x/a.m3u8</r1hls></data></root>`))
+	f.Add(nhkRadioXMLAttributes(nhkRadioMaxXMLAttributes))
+	f.Add(nhkRadioXMLAttributes(nhkRadioMaxXMLAttributes + 1))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		if len(data) > 1<<20 {
 			return

@@ -39,7 +39,6 @@ const (
 	nhkRadioMaxCategories    = 64
 	nhkRadioMaxCast          = 64
 	nhkRadioMaxEpisodes      = 1024
-	nhkRadioMaxChapter       = 256
 	nhkRadioMaxMetadata      = 8192
 	nhkRadioMaxAreas         = 128
 )
@@ -160,7 +159,7 @@ func (NhkRadiruIE) Suitable(parsed *url.URL) bool {
 }
 
 func nhkRadiruOnDemandSuitable(parsed *url.URL) bool {
-	if parsed == nil {
+	if !nhkRadioURLWithinBound(parsed) {
 		return false
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
@@ -209,7 +208,7 @@ func (NhkRadioNewsPageIE) Suitable(parsed *url.URL) bool {
 }
 
 func nhkRadioNewsPageSuitable(parsed *url.URL) bool {
-	if parsed == nil {
+	if !nhkRadioURLWithinBound(parsed) {
 		return false
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
@@ -249,7 +248,7 @@ func (NhkRadiruLiveIE) Suitable(parsed *url.URL) bool {
 }
 
 func nhkRadiruLiveSuitable(parsed *url.URL) bool {
-	if parsed == nil {
+	if !nhkRadioURLWithinBound(parsed) {
 		return false
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
@@ -280,6 +279,14 @@ func nhkRadiruLiveSuitable(parsed *url.URL) bool {
 	default:
 		return false
 	}
+}
+
+func nhkRadioURLWithinBound(parsed *url.URL) bool {
+	if parsed == nil {
+		return false
+	}
+	raw := parsed.String()
+	return len(raw) > 0 && len(raw) <= nhkRadioMaxURLBytes
 }
 
 func (NhkRadiruLiveIE) Extract(ctx context.Context, request Request) (Extraction, error) {
@@ -556,6 +563,9 @@ func nhkRadioParseConfigXML(data []byte) (*nhkRadioConfig, error) {
 			if len(stack) >= nhkRadioMaxXMLDepth {
 				return nil, fmt.Errorf("%w: NHK Radiru config XML too deep", ErrInvalidMetadata)
 			}
+			if len(t.Attr) > nhkRadioMaxXMLAttributes {
+				return nil, fmt.Errorf("%w: NHK Radiru config XML has too many attributes", ErrInvalidMetadata)
+			}
 			stack = append(stack, t)
 			textBuf.Reset()
 			if strings.EqualFold(t.Name.Local, "data") {
@@ -679,7 +689,7 @@ func (e *nhkRadioEpisode) DurationSeconds() float64 {
 	if e == nil {
 		return 0
 	}
-	if e.DurationSec > 0 {
+	if nhkDurationWithinBounds(e.DurationSec, false) {
 		return e.DurationSec
 	}
 	return 0
@@ -1062,25 +1072,36 @@ func nhkRadioExtendedCast(payload map[string]any) []string {
 }
 
 func nhkRadioDurationSeconds(raw any) (float64, bool) {
+	var seconds float64
 	switch value := raw.(type) {
 	case float64:
-		return value, value > 0
+		seconds = value
 	case int:
-		return float64(value), value > 0
+		seconds = float64(value)
 	case int64:
-		return float64(value), value > 0
+		seconds = float64(value)
 	case json.Number:
 		f, err := value.Float64()
-		return f, err == nil && f > 0
+		if err != nil {
+			return 0, false
+		}
+		seconds = f
 	case string:
 		if value == "" {
 			return 0, false
 		}
-		if seconds, err := strconv.ParseFloat(value, 64); err == nil && seconds > 0 {
-			return seconds, true
+		parsed, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return 0, false
 		}
+		seconds = parsed
+	default:
+		return 0, false
 	}
-	return 0, false
+	if !nhkDurationWithinBounds(seconds, false) {
+		return 0, false
+	}
+	return seconds, true
 }
 
 // --- Network ---

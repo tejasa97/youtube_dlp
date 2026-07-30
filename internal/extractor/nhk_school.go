@@ -27,7 +27,6 @@ const (
 	nhkSchoolMaxPrograms       = 4096
 	nhkSchoolMaxChapters       = 1024
 	nhkSchoolMaxThumbnail      = 32
-	nhkSchoolProgramIDLen      = 256
 	nhkSchoolBangumiIDLen      = 256
 	nhkSchoolBangumiAkamaiPath = 256
 )
@@ -134,12 +133,15 @@ func nhkSchoolBangumiSuitable(parsed *url.URL) bool {
 		strings.Contains(lowerPath, "%5c") {
 		return false
 	}
+	if parsed.EscapedPath() != "/school/movie/bangumi.cgi" && parsed.EscapedPath() != "/school/movie/clip.cgi" {
+		return false
+	}
 	id := parsed.Query().Get("das_id")
 	if !nhkSchoolBangumiIDPattern.MatchString(id) || len(id) > nhkSchoolBangumiIDLen {
 		return false
 	}
 	parts := splitPathSegments(parsed.Path)
-	if len(parts) < 3 || parts[0] != "school" || parts[1] != "movie" {
+	if len(parts) != 3 || parts[0] != "school" || parts[1] != "movie" {
 		return false
 	}
 	if parts[2] != "bangumi.cgi" && parts[2] != "clip.cgi" {
@@ -326,7 +328,10 @@ func nhkSchoolExtractChapters(page []byte, duration float64) []*value.Object {
 	starts := make([]float64, 0, len(timeMatches))
 	titles := make([]string, 0, len(titleMatches))
 	for index, match := range timeMatches {
-		start := nhkSchoolParseDuration(string(match[1]))
+		start, ok := nhkSchoolParseDurationChecked(string(match[1]))
+		if !ok {
+			return nil
+		}
 		if index > 0 && start < starts[index-1] {
 			return nil
 		}
@@ -452,31 +457,49 @@ func nhkSchoolDecodeEntities(input string) string {
 // nhkSchoolParseDuration parses durations in either seconds (numeric) or
 // HH:MM:SS(.ms) format.
 func nhkSchoolParseDuration(text string) float64 {
+	duration, _ := nhkSchoolParseDurationChecked(text)
+	return duration
+}
+
+func nhkSchoolParseDurationChecked(text string) (float64, bool) {
 	if text == "" {
-		return 0
+		return 0, false
 	}
-	if value, err := strconv.ParseFloat(text, 64); err == nil {
-		return value
+	if strings.HasPrefix(strings.TrimSpace(text), "-") {
+		return 0, false
+	}
+	if value, err := strconv.ParseFloat(text, 64); err == nil && nhkDurationWithinBounds(value, true) {
+		return value, true
 	}
 	parts := strings.Split(text, ":")
 	if len(parts) < 2 || len(parts) > 3 {
-		return 0
+		return 0, false
 	}
 	values := make([]float64, len(parts))
 	for index, segment := range parts {
 		parsed, err := strconv.ParseFloat(segment, 64)
 		if err != nil {
-			return 0
+			return 0, false
+		}
+		if !nhkDurationWithinBounds(parsed, true) {
+			return 0, false
 		}
 		values[index] = parsed
 	}
+	if values[len(values)-1] >= 60 || (len(values) == 3 && values[1] >= 60) {
+		return 0, false
+	}
+	var duration float64
 	switch len(values) {
 	case 2:
-		return values[0]*60 + values[1]
+		duration = values[0]*60 + values[1]
 	case 3:
-		return values[0]*3600 + values[1]*60 + values[2]
+		duration = values[0]*3600 + values[1]*60 + values[2]
 	}
-	return 0
+	if !nhkDurationWithinBounds(duration, true) {
+		return 0, false
+	}
+	return duration, true
 }
 
 func nhkSchoolParseTimestamp(text string) int64 {
@@ -496,6 +519,7 @@ func nhkSchoolFormat(rawURL string) *value.Object {
 	object.Set("url", value.String(rawURL))
 	object.Set("ext", value.String("mp4"))
 	object.Set("protocol", value.String("m3u8_native"))
+	object.Set("_credential_isolated", value.Bool(true))
 	return object
 }
 

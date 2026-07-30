@@ -8,7 +8,7 @@ Pinned reference: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8` (`yt_
 | --- | --- | --- |
 | `nhk_vod` | `NhkVodIE` | `TestNHKWorldVODExtract`, clip API URL (`TestNHKWorldVODClipAPIURL`), missing-stream, suitable/hostile routing |
 | `nhk_vod_program` | `NhkVodProgramIE` | `TestNHKWorldProgramPlaylist`, precedence vs VOD, trailing-path rejection |
-| `nhk_for_school_bangumi` | `NhkForSchoolBangumiIE` | version-ID replacement, chapters, Akamai HLS URL |
+| `nhk_for_school_bangumi` | `NhkForSchoolBangumiIE` | version-ID replacement, chapters, exact bangumi/clip routes, credential-isolated Akamai HLS URL |
 | `nhk_for_school_subject` | `NhkForSchoolSubjectIE` | allowlist, hostile child rejection, `subjectName` parsing (`TestNHKSchoolSougouSubjectTitle`) |
 | `nhk_for_school_program_list` | `NhkForSchoolProgramListIE` | program.json parts → bangumi re-entry, strict JSON EOF |
 | `nhk_radiru` | `NhkRadiruIE` | episode + playlist modes, news API (`TestNHKRadiruNewsPlaylistAndHeadline`), missing headline → unavailable |
@@ -24,13 +24,14 @@ Pinned reference: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8` (`yt_
 - API/config origins validated before fetch; CDN/media URLs use `strictValidHostedHTTPURL`
 - API-derived manifest/media fetches require `CredentialIsolatedNoRedirectTransport`, fail closed with `ErrTransportIsolation`, mark `_credential_isolated` on emitted formats, and product downloads honor the flag via isolated transport
 - Product dispatch keeps marked native HLS/DASH/HDS/ISM/direct downloads on that isolated transport and rejects external downloaders, YouTube live/post-live/SABR special paths, and HLS ffmpeg fallback before those paths can execute (`TestCredentialIsolated*`)
+- The School product E2E traverses the real registry/client processing path and proves manifest/segment credential stripping, redirect refusal, categorized failure, and scratch cleanup (`TestNHKSchoolProductCredentialIsolation`)
 - School/Radiru JSON parsers reject trailing values after the first object (`ensureJSONEOF`)
 - Errors are categorized and secret-safe (`TestNHKSecretSafeErrors`)
 - Context cancellation honored before network work
 
 ## Limits
 
-Conservative bounds cover response bytes, XML depth/tokens, JSON collections, playlist entries, thumbnails, categories/tags/cast, chapters, and metadata string lengths.
+Conservative bounds cover route URL bytes, response bytes, XML depth/tokens/attributes, JSON collections, playlist entries, thumbnails, categories/tags/cast, chapters, finite durations/dimensions, and metadata string lengths.
 
 ## Deviations / uncertainties
 
