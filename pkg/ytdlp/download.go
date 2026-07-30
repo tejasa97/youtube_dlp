@@ -58,6 +58,9 @@ func plannedOutputExtension(plan mediaformat.OutputPlan, overridePreferences []s
 }
 
 func (operation *operation) downloadSelections(ctx context.Context, selections []mediaformat.Selection, outputRoot, destination string, sink events.Sink) (string, int64, error) {
+	if err := validateCredentialIsolatedDispatch(selections, operation.request.Downloader.External != nil); err != nil {
+		return "", 0, err
+	}
 	if len(selections) == 1 {
 		return operation.downloadSelection(ctx, selections[0], outputRoot, destination, sink)
 	}
@@ -105,6 +108,9 @@ func sabrTrackDestination(finalDestination string, selection mediaformat.Selecti
 }
 
 func (operation *operation) downloadYouTubeSABRPair(ctx context.Context, selections []mediaformat.Selection, outputRoot, destination string, sink events.Sink) (string, int64, error) {
+	if err := validateCredentialIsolatedDispatch(selections, false); err != nil {
+		return "", 0, err
+	}
 	if sink == nil {
 		sink = events.Nop()
 	}
@@ -248,8 +254,30 @@ func (operation *operation) downloadSelection(ctx context.Context, selected medi
 	return operation.downloadSelectionWithLiveRefresh(ctx, selected, outputRoot, destination, sink, nil)
 }
 
+func validateCredentialIsolatedDispatch(selections []mediaformat.Selection, external bool) error {
+	for _, selected := range selections {
+		if !selected.CredentialIsolated {
+			continue
+		}
+		switch {
+		case external:
+			return fmt.Errorf("%w: external downloader cannot enforce credential-isolated transport", extractor.ErrTransportIsolation)
+		case selected.YouTubeLiveFromStart:
+			return fmt.Errorf("%w: YouTube live-from-start cannot enforce credential-isolated transport", extractor.ErrTransportIsolation)
+		case selected.YouTubePostLive:
+			return fmt.Errorf("%w: YouTube post-live cannot enforce credential-isolated transport", extractor.ErrTransportIsolation)
+		case selected.YouTubeSABR || selected.Protocol == "youtube_sabr_ump":
+			return fmt.Errorf("%w: YouTube SABR cannot enforce credential-isolated transport", extractor.ErrTransportIsolation)
+		}
+	}
+	return nil
+}
+
 func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context, selected mediaformat.Selection, outputRoot, destination string, sink events.Sink, liveRefresh youtubelive.LiveRefreshFunc) (string, int64, error) {
 	options := operation.request.Downloader
+	if err := validateCredentialIsolatedDispatch([]mediaformat.Selection{selected}, options.External != nil); err != nil {
+		return "", 0, err
+	}
 	if selected.YouTubeLiveFromStart {
 		if options.External != nil {
 			return "", 0, fmt.Errorf("%w: external downloaders cannot consume generated YouTube live fragments", extractor.ErrUnsupported)
@@ -338,6 +366,9 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 			if !errors.As(err, &encryption) || !encryption.FFmpegEligible {
 				return "", 0, err
 			}
+			if selected.CredentialIsolated {
+				return "", 0, fmt.Errorf("%w: HLS ffmpeg fallback cannot enforce credential-isolated transport", extractor.ErrTransportIsolation)
+			}
 			fallbackURL := encryption.MediaURL
 			if fallbackURL == "" {
 				fallbackURL = selected.URL
@@ -416,7 +447,7 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 		if maxOutput <= 0 {
 			maxOutput = 8 << 30 // 8 GiB intentional output cap.
 		}
-		result, err := hds.NewDownloader(operation.transport, hds.Config{
+		result, err := hds.NewDownloader(mediaTransport.(hds.Transport), hds.Config{
 			Headers:          selected.Headers,
 			Attempts:         options.Attempts,
 			RetryBaseDelay:   options.RetryBaseDelay,
@@ -504,6 +535,9 @@ func youtubeTargetDuration(seconds float64) (time.Duration, error) {
 }
 
 func (operation *operation) downloadYouTubeLivePair(ctx context.Context, selections []mediaformat.Selection, outputRoot, destination, temporaryRoot string, sink events.Sink) (string, int64, error) {
+	if err := validateCredentialIsolatedDispatch(selections, false); err != nil {
+		return "", 0, err
+	}
 	if sink == nil {
 		sink = events.Nop()
 	}
@@ -609,6 +643,9 @@ func safeExtension(extension string) string {
 }
 
 func downloadYouTubeSABRSelection(ctx context.Context, operation *operation, selected mediaformat.Selection, outputRoot, destination string, sink events.Sink, retainCompletionMarker bool, coordinator *youtubeSABRRefreshCoordinator) (youtubeump.Result, error) {
+	if err := validateCredentialIsolatedDispatch([]mediaformat.Selection{selected}, false); err != nil {
+		return youtubeump.Result{}, err
+	}
 	ustreamer, err := base64.StdEncoding.DecodeString(selected.YouTubeSABRUstreamerConfig)
 	if err != nil {
 		return youtubeump.Result{}, fmt.Errorf("%w: invalid SABR ustreamer config", extractor.ErrInvalidMetadata)

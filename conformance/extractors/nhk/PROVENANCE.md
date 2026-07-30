@@ -42,4 +42,5 @@ Known deviations:
 - Offline fixtures only; no live Japan geo canary
 - No DRM decryption path
 - Radiru extended program-detail metadata failure is nonfatal as in the reference, but description formatting helpers are intentionally simpler/bounded
-- Credential-isolated manifest/media transport is required for emitted formats; product format selection propagates `_credential_isolated` into downloads (HLS/DASH/direct)
+- Credential-isolated manifest/media transport is required for emitted formats; product format selection propagates `_credential_isolated` into native HLS/DASH/HDS/ISM/direct downloads and fails closed before external, YouTube-special, or HLS ffmpeg-fallback dispatch
+- NHK World HLS master subtitle discovery is explicitly outside this change: no subtitle tracks or subtitle-parity claim are produced from those manifests

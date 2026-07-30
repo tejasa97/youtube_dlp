@@ -23,6 +23,7 @@ Pinned reference: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8` (`yt_
 - Radiru extended program metadata uses `url_program_detail` and `aa_contents_id` (nonfatal on failure)
 - API/config origins validated before fetch; CDN/media URLs use `strictValidHostedHTTPURL`
 - API-derived manifest/media fetches require `CredentialIsolatedNoRedirectTransport`, fail closed with `ErrTransportIsolation`, mark `_credential_isolated` on emitted formats, and product downloads honor the flag via isolated transport
+- Product dispatch keeps marked native HLS/DASH/HDS/ISM/direct downloads on that isolated transport and rejects external downloaders, YouTube live/post-live/SABR special paths, and HLS ffmpeg fallback before those paths can execute (`TestCredentialIsolated*`)
 - School/Radiru JSON parsers reject trailing values after the first object (`ensureJSONEOF`)
 - Errors are categorized and secret-safe (`TestNHKSecretSafeErrors`)
 - Context cancellation honored before network work
@@ -37,7 +38,7 @@ Conservative bounds cover response bytes, XML depth/tokens, JSON collections, pl
 - No DRM decryption
 - Offline fixtures only; no live regional Japan success claim
 - Some Radiru description-formatting flourishes from the JS timetable helper are intentionally simplified and bounded
-- HLS subtitle discovery for NHK World masters is not claimed beyond format exposure in the current fixture corpus
+- NHK World HLS master subtitle discovery is not implemented in this PR. The extractor exposes media formats only; it does not emit manifest-derived subtitle tracks or claim subtitle parity.
 
 ## Checklist impact
 
