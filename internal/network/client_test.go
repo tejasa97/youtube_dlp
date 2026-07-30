@@ -629,6 +629,36 @@ func TestReadPageProfileWithoutCredentialsNoRedirectRefusesRedirects(t *testing.
 	})
 }
 
+func TestDoProfiledNoRedirectKeepsInitialJarOnly(t *testing.T) {
+	var firstCookie, finalCookie string
+	final := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		finalCookie = request.Header.Get("Cookie")
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer final.Close()
+	first := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		firstCookie = request.Header.Get("Cookie")
+		http.Redirect(writer, request, final.URL, http.StatusFound)
+	}))
+	defer first.Close()
+	client, err := New(Config{DefaultHeaders: http.Header{"Authorization": {"Bearer secret"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, _ := url.Parse(first.URL)
+	client.jar.SetCookies(target, []*http.Cookie{{Name: "session", Value: "secret", Path: "/"}})
+	request, _ := http.NewRequest(http.MethodPost, first.URL, strings.NewReader("password=secret"))
+	request.Header.Set("Cookie", "caller=must-not-send")
+	response, err := client.DoProfiledNoRedirect(context.Background(), request, impersonate.Chrome133Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusFound || firstCookie != "session=secret" || finalCookie != "" {
+		t.Fatalf("status=%d first=%q final=%q", response.StatusCode, firstCookie, finalCookie)
+	}
+}
+
 func TestReadPageProfileWithoutCredentialsNoRedirectBoundsCancellationAndNoNativeFallback(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {

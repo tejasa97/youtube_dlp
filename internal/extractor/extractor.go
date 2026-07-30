@@ -75,6 +75,13 @@ type ProfileTransport interface {
 	ReadPageProfile(context.Context, string, string) ([]byte, http.Header, error)
 }
 
+// ProfiledNoRedirectTransport executes a browser-profile request with the
+// operation cookie jar, but never follows redirects. It is reserved for
+// same-origin form submissions that carry a per-video secret.
+type ProfiledNoRedirectTransport interface {
+	DoProfiledNoRedirect(context.Context, *http.Request, string) (*http.Response, error)
+}
+
 func DoWithProfile(ctx context.Context, transport Transport, request *http.Request, profile string) (*http.Response, error) {
 	if profile == "" {
 		return transport.Do(ctx, request)
