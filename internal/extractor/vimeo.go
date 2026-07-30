@@ -173,7 +173,7 @@ func extractVimeoVideo(ctx context.Context, request Request, videoID, contextual
 		webpageURL = "https://vimeo.com/" + videoID
 	}
 	playerRoute := isVimeoPlayerVideoURL(webpageURL, videoID)
-	page, _, err := readVimeoPage(ctx, request.Transport, webpageURL)
+	page, _, err := readVimeoPage(ctx, request.Transport, webpageURL, request.Referer)
 	if err != nil {
 		return Extraction{}, err
 	}
@@ -191,7 +191,7 @@ func extractVimeoVideo(ctx context.Context, request Request, videoID, contextual
 		if err := verifyVimeoVideoPassword(ctx, request.Transport, webpageURL, videoID, request.VideoPassword); err != nil {
 			return Extraction{}, err
 		}
-		page, _, err = readVimeoPage(ctx, request.Transport, webpageURL)
+		page, _, err = readVimeoPage(ctx, request.Transport, webpageURL, request.Referer)
 		if err != nil {
 			return Extraction{}, err
 		}
@@ -217,9 +217,36 @@ func extractVimeoVideo(ctx context.Context, request Request, videoID, contextual
 // translating only the two pinned fingerprint-block status/origin pairs.  The
 // page helper owns response cleanup and bounds; its StatusError URL has already
 // had any signed query values redacted.
-func readVimeoPage(ctx context.Context, transport Transport, webpageURL string) ([]byte, http.Header, error) {
+func readVimeoPage(ctx context.Context, transport Transport, webpageURL, referer string) ([]byte, http.Header, error) {
 	if err := contextError(ctx); err != nil {
 		return nil, nil, err
+	}
+	if profiled, ok := transport.(ProfiledPageNoRedirectTransport); ok {
+		page, headers, status, err := readVimeoProfilePage(ctx, profiled, webpageURL, "")
+		if err != nil || status < 300 {
+			return page, headers, err
+		}
+		if isVimeoEmbedOnlyBody(page) {
+			validated, valid := validVimeoReferer(referer)
+			if !valid {
+				return nil, nil, ErrAuthentication
+			}
+			returnPage, returnHeaders, returnStatus, retryErr := readVimeoProfilePage(ctx, profiled, webpageURL, validated)
+			if retryErr != nil {
+				return nil, nil, retryErr
+			}
+			if returnStatus >= 300 {
+				if categorized := categorizeVimeoResponseStatus(webpageURL, returnStatus, returnPage); categorized != nil {
+					return nil, nil, categorized
+				}
+				return nil, nil, &HTTPStatusError{Code: returnStatus}
+			}
+			return returnPage, returnHeaders, nil
+		}
+		if categorized := categorizeVimeoResponseStatus(webpageURL, status, page); categorized != nil {
+			return nil, nil, categorized
+		}
+		return nil, nil, &HTTPStatusError{Code: status}
 	}
 	page, headers, err := ReadPageWithProfile(ctx, transport, webpageURL, vimeoImpersonationProfile)
 	if err == nil {
@@ -235,6 +262,34 @@ func readVimeoPage(ctx context.Context, transport Transport, webpageURL string) 
 		return nil, nil, ErrTransportProfile
 	}
 	return nil, nil, err
+}
+
+func readVimeoProfilePage(ctx context.Context, transport ProfiledPageNoRedirectTransport, rawURL, referer string) ([]byte, http.Header, int, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, nil, 0, ErrInvalidMetadata
+	}
+	if referer != "" {
+		req.Header.Set("Referer", referer)
+	}
+	resp, err := transport.DoProfiledPageNoRedirect(ctx, req, vimeoImpersonationProfile)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	defer resp.Body.Close()
+	limit := int64(vimeoMaxPageBytes)
+	if resp.StatusCode >= 300 {
+		limit = vimeoUnlistedAPIStatusReadBytes
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	if err != nil || int64(len(body)) > limit {
+		return nil, resp.Header.Clone(), resp.StatusCode, ErrJSONResponseTooLarge
+	}
+	return body, resp.Header.Clone(), resp.StatusCode, nil
+}
+
+func isVimeoEmbedOnlyBody(body []byte) bool {
+	return len(body) <= int(vimeoUnlistedAPIStatusReadBytes) && bytes.Contains(body, []byte("Because of its privacy settings, this video cannot be played here"))
 }
 
 // verifyVimeoVideoPassword submits the normal Vimeo password JSON only after a
@@ -795,7 +850,7 @@ func parseVimeoUnlistedConfigContext(ctx context.Context, transport Transport, c
 		value.Field{Key: "description", Value: value.String(config.Video.Description)},
 		value.Field{Key: "uploader", Value: value.String(config.Video.Owner.Name)},
 		value.Field{Key: "uploader_url", Value: value.String(config.Video.Owner.URL)},
-		value.Field{Key: "webpage_url", Value: value.String(webpageURL)},
+		value.Field{Key: "webpage_url", Value: value.String(vimeoPublicWebpageURL(webpageURL))},
 		value.Field{Key: "ext", Value: value.String("mp4")},
 		value.Field{Key: "formats", Value: value.List(formats...)},
 	)
@@ -2204,6 +2259,15 @@ func validVimeoReferer(rawReferer string) (string, bool) {
 	parsed.Scheme = "https"
 	parsed.Host = parsed.Hostname()
 	return parsed.String(), true
+}
+
+func vimeoPublicWebpageURL(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	parsed.RawQuery, parsed.ForceQuery, parsed.Fragment, parsed.RawFragment = "", false, "", ""
+	return parsed.String()
 }
 
 func vimeoReferrerHostname(referer string) string {

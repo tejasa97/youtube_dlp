@@ -296,6 +296,7 @@ func TestCategorizeVimeoResponseStatusIsHostSensitiveAndSecretSafe(t *testing.T)
 		want   error
 	}{
 		{"vimeo page 403", "https://vimeo.com/123?token=secret", http.StatusForbidden, readVimeoFixture(t, "antibot-403.json"), ErrTransportProfile},
+		{"embed-only precedes fingerprint", "https://vimeo.com/123", http.StatusForbidden, []byte("Because of its privacy settings, this video cannot be played here"), ErrAuthentication},
 		{"www vimeo page 403", "https://www.vimeo.com/123", http.StatusForbidden, nil, ErrTransportProfile},
 		{"player config 429", "https://player.vimeo.com/video/123/config?token=secret", http.StatusTooManyRequests, readVimeoFixture(t, "antibot-429.json"), ErrTransportProfile},
 		{"vimeo page 429 is not fingerprint case", "https://vimeo.com/123", http.StatusTooManyRequests, nil, nil},

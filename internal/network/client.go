@@ -238,6 +238,12 @@ func (client *Client) DoProfiledNoRedirect(ctx context.Context, request *http.Re
 	return response, nil
 }
 
+// DoProfiledPageNoRedirect is the bounded-extractor page variant. It shares
+// the no-redirect profile boundary with sensitive form requests.
+func (client *Client) DoProfiledPageNoRedirect(ctx context.Context, request *http.Request, profileName string) (*http.Response, error) {
+	return client.DoProfiledNoRedirect(ctx, request, profileName)
+}
+
 func (client *Client) do(ctx context.Context, request *http.Request, profileName string, includeCookies bool) (*http.Response, error) {
 	if request == nil {
 		return nil, errors.New("HTTP request must not be nil")

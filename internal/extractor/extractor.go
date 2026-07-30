@@ -89,6 +89,13 @@ type ProfiledNoRedirectTransport interface {
 	DoProfiledNoRedirect(context.Context, *http.Request, string) (*http.Response, error)
 }
 
+// ProfiledPageNoRedirectTransport is the page-read capability used when a
+// bounded extractor must inspect a response body before deciding whether to
+// retry with a validated Referer.
+type ProfiledPageNoRedirectTransport interface {
+	DoProfiledPageNoRedirect(context.Context, *http.Request, string) (*http.Response, error)
+}
+
 func DoWithProfile(ctx context.Context, transport Transport, request *http.Request, profile string) (*http.Response, error) {
 	if profile == "" {
 		return transport.Do(ctx, request)
