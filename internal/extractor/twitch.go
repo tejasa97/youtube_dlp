@@ -67,6 +67,10 @@ const (
 	twitchStoryboardMaxSpecs     = 16
 	twitchStoryboardMaxImages    = 1000
 	twitchStoryboardMaxDimension = 10_000
+	// twitchManifestRestrictionMaxBytes bounds the only error-body inspection
+	// performed for a Twitch playback manifest. It is deliberately much smaller
+	// than a media manifest and is sufficient for Twitch's JSON error envelope.
+	twitchManifestRestrictionMaxBytes = 64 << 10
 )
 
 type twitchVideosBroadcast struct {
@@ -800,6 +804,24 @@ func twitchAuthToken(cookies []*http.Cookie) (string, bool, error) {
 	return "", false, nil
 }
 
+// twitchHasAuthToken reports whether a usable operation-jar auth token exists
+// for the one credential origin. It never reads cookies for media origins.
+func twitchHasAuthToken(transport Transport) (bool, error) {
+	authTransport, ok := transport.(twitchAuthenticatedTransport)
+	if !ok {
+		return false, nil
+	}
+	cookies, err := authTransport.Cookies(twitchGraphQLOrigin)
+	if err != nil {
+		return false, ErrTwitchNetwork
+	}
+	_, present, err := twitchAuthToken(cookies)
+	if err != nil {
+		return false, err
+	}
+	return present, nil
+}
+
 // requestTwitchGQL is the sole Twitch GraphQL transport path. It retains the
 // anonymous request behavior when no auth-token cookie exists. When one does,
 // it permits the jar cookie and derived OAuth header only on the fixed Twitch
@@ -885,6 +907,100 @@ func twitchPlaybackManifestURL(base, id string, token twitchAccessToken) string 
 	query.Set("sig", token.Signature)
 	query.Set("token", token.Value)
 	return base + id + ".m3u8?" + query.Encode()
+}
+
+// probeTwitchVODManifest inspects only a forbidden response, because that is
+// the one point where Twitch exposes its subscriber-entitlement marker. The
+// signed Usher URL is always requested through a credential-isolated,
+// redirect-disabled transport: neither the operation jar nor OAuth headers can
+// reach Usher, a redirect target, or any media origin.
+func probeTwitchVODManifest(ctx context.Context, transport Transport, manifestURL string) error {
+	if err := contextError(ctx); err != nil {
+		return err
+	}
+	isolate, ok := transport.(CredentialIsolatedNoRedirectTransport)
+	if !ok {
+		return ErrTransportIsolation
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, manifestURL, nil)
+	if err != nil {
+		return fmt.Errorf("%w: invalid Twitch manifest request", ErrInvalidMetadata)
+	}
+	response, err := isolate.DoWithoutCredentialsNoRedirect(ctx, request)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
+		return ErrTwitchNetwork
+	}
+	if response == nil || response.Body == nil {
+		return ErrTwitchNetwork
+	}
+	defer response.Body.Close()
+	if response.StatusCode >= http.StatusOK && response.StatusCode < http.StatusMultipleChoices {
+		return nil
+	}
+	if response.StatusCode != http.StatusForbidden {
+		return categorizeTwitchHTTP(&HTTPStatusError{Code: response.StatusCode})
+	}
+	restricted, err := twitchManifestRestricted(response.Body)
+	if err != nil {
+		return err
+	}
+	if !restricted {
+		return ErrAuthentication
+	}
+	authenticated, err := twitchHasAuthToken(transport)
+	if err != nil {
+		return err
+	}
+	if authenticated {
+		return ErrTwitchSubscriberOnly
+	}
+	return ErrAuthentication
+}
+
+// twitchManifestRestricted parses a capped JSON error response and recognizes
+// only string values exactly equal to Twitch's two documented restriction
+// markers. Invalid and truncated JSON deliberately do not become an
+// entitlement classification.
+func twitchManifestRestricted(body io.Reader) (bool, error) {
+	if body == nil {
+		return false, nil
+	}
+	payload, err := io.ReadAll(io.LimitReader(body, twitchManifestRestrictionMaxBytes+1))
+	if err != nil {
+		return false, err
+	}
+	if len(payload) > twitchManifestRestrictionMaxBytes {
+		return false, nil
+	}
+	var decoded any
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	if err := decoder.Decode(&decoded); err != nil || ensureJSONEOF(decoder) != nil {
+		return false, nil
+	}
+	return twitchRestrictionMarker(decoded), nil
+}
+
+func twitchRestrictionMarker(value any) bool {
+	switch typed := value.(type) {
+	case string:
+		return typed == "vod_manifest_restricted" || typed == "unauthorized_entitlements"
+	case []any:
+		for _, item := range typed {
+			if twitchRestrictionMarker(item) {
+				return true
+			}
+		}
+	case map[string]any:
+		for _, item := range typed {
+			if twitchRestrictionMarker(item) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func twitchCacheBuster() string {
@@ -1000,6 +1116,10 @@ func extractTwitchVOD(ctx context.Context, transport Transport, target twitchTar
 	if token.Value == "" || token.Signature == "" {
 		return Extraction{}, ErrAuthentication
 	}
+	manifestURL := twitchVODManifestURL(target.id, token)
+	if err := probeTwitchVODManifest(ctx, transport, manifestURL); err != nil {
+		return Extraction{}, err
+	}
 	videoID := video.ID
 	if !twitchVODPattern.MatchString(videoID) {
 		videoID = target.id
@@ -1026,7 +1146,7 @@ func extractTwitchVOD(ctx context.Context, transport Transport, target twitchTar
 	if chapters := twitchChapters(video.Moments.Edges, video.LengthSeconds); len(chapters) != 0 {
 		info.Set("chapters", value.List(chapters...))
 	}
-	formats := []value.Value{value.ObjectValue(manifestFormat("hls", twitchVODManifestURL(target.id, token), "m3u8_native"))}
+	formats := []value.Value{value.ObjectValue(manifestFormat("hls", manifestURL, "m3u8_native"))}
 	if storyboards, err := extractTwitchStoryboardFormats(ctx, transport, video.SeekPreviewsURL, video.LengthSeconds); err != nil {
 		return Extraction{}, err
 	} else if len(storyboards) != 0 {

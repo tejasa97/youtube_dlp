@@ -47,6 +47,13 @@ type twitchFixtureTransport struct {
 	storyboard                []byte
 	storyboardStatus          int
 	storyboardHostileRedirect bool
+	manifest                  []byte
+	manifestStatus            int
+	manifestRequests          []twitchRecordedRequest
+	cookies                   []*http.Cookie
+	cookieErr                 error
+	cookieURLs                []string
+	noRedirects               int
 	mediaPolls                int
 }
 
@@ -186,6 +193,26 @@ func (transport *twitchFixtureTransport) Do(ctx context.Context, request *http.R
 	}
 }
 
+func (transport *twitchFixtureTransport) Cookies(rawURL string) ([]*http.Cookie, error) {
+	transport.mu.Lock()
+	defer transport.mu.Unlock()
+	transport.cookieURLs = append(transport.cookieURLs, rawURL)
+	if rawURL != twitchGraphQLOrigin {
+		return nil, errors.New("unexpected cookie origin")
+	}
+	if transport.cookieErr != nil {
+		return nil, transport.cookieErr
+	}
+	return transport.cookies, nil
+}
+
+func (transport *twitchFixtureTransport) DoNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
+	transport.mu.Lock()
+	transport.noRedirects++
+	transport.mu.Unlock()
+	return transport.Do(ctx, request)
+}
+
 func (transport *twitchFixtureTransport) DoWithoutCredentialsNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -209,6 +236,19 @@ func (transport *twitchFixtureTransport) DoWithoutCredentialsNoRedirect(ctx cont
 			if err != nil {
 				return nil, err
 			}
+		}
+		return twitchHTTPResponse(status, body), nil
+	}
+	if request.URL.Host == "usher.ttvnw.net" && strings.HasPrefix(request.URL.Path, "/vod/") {
+		transport.mu.Lock()
+		transport.manifestRequests = append(transport.manifestRequests, twitchRecordedRequest{header: request.Header.Clone()})
+		status, body := transport.manifestStatus, transport.manifest
+		transport.mu.Unlock()
+		if status == 0 {
+			status = http.StatusOK
+		}
+		if body == nil {
+			body = []byte("#EXTM3U\n")
 		}
 		return twitchHTTPResponse(status, body), nil
 	}
@@ -372,6 +412,114 @@ func TestTwitchAuthenticatedGQLCancellationAndSecretSafeFailures(t *testing.T) {
 	}
 }
 
+func TestTwitchVODManifestEntitlementTaxonomyAndIsolation(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		body   []byte
+		cookie bool
+		want   error
+	}{
+		{name: "restricted marker with entitlement missing", body: twitchFixture(t, "vod-manifest-restricted-403.json"), cookie: true, want: ErrTwitchSubscriberOnly},
+		{name: "unauthorized entitlements with entitlement missing", body: twitchFixture(t, "vod-unauthorized-entitlements-403.json"), cookie: true, want: ErrTwitchSubscriberOnly},
+		{name: "restricted marker without login", body: twitchFixture(t, "vod-manifest-restricted-403.json"), want: ErrAuthentication},
+		{name: "generic forbidden is not subscriber only", body: []byte(`{"error":"forbidden"}`), cookie: true, want: ErrAuthentication},
+		{name: "truncated marker is not subscriber only", body: append([]byte(`{"error":"`), []byte(strings.Repeat("x", twitchManifestRestrictionMaxBytes))...), cookie: true, want: ErrAuthentication},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			transport := &twitchFixtureTransport{
+				graphQLFixtures: []twitchGraphQLFixture{{body: twitchFixture(t, "vod_metadata.json")}, {body: twitchFixture(t, "vod_access_token.json")}},
+				manifestStatus:  http.StatusForbidden,
+				manifest:        test.body,
+			}
+			if test.cookie {
+				transport.cookies = []*http.Cookie{{Name: "auth-token", Value: "synthetic-auth-token"}}
+			}
+			_, err := NewTwitch().Extract(context.Background(), Request{URL: "https://www.twitch.tv/videos/1234567890", Transport: transport})
+			if !errors.Is(err, test.want) || strings.Contains(fmt.Sprint(err), "synthetic-auth-token") {
+				t.Fatalf("err=%v want=%v", err, test.want)
+			}
+			if len(transport.manifestRequests) != 1 || transport.manifestRequests[0].header.Get("Authorization") != "" || transport.manifestRequests[0].header.Get("Cookie") != "" {
+				t.Fatalf("manifest requests = %#v", transport.manifestRequests)
+			}
+			if test.cookie {
+				if len(transport.graphQLRequests) != 2 || transport.graphQLRequests[0].header.Get("Authorization") != "OAuth synthetic-auth-token" || transport.noRedirects != 2 {
+					t.Fatalf("GQL requests=%d redirects=%d headers=%v", len(transport.graphQLRequests), transport.noRedirects, transport.graphQLRequests)
+				}
+			}
+		})
+	}
+}
+
+func TestTwitchVODManifestSuccessfulProbeDoesNotInferAvailability(t *testing.T) {
+	transport := &twitchFixtureTransport{graphQLFixtures: []twitchGraphQLFixture{{body: twitchFixture(t, "vod_metadata.json")}, {body: twitchFixture(t, "vod_access_token.json")}}}
+	result, err := NewTwitch().Extract(context.Background(), Request{URL: "https://www.twitch.tv/videos/1234567890", Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Info.Lookup("availability").IsMissing() {
+		t.Fatalf("availability was inferred without an entitlement-gate response")
+	}
+	if len(transport.manifestRequests) != 1 {
+		t.Fatalf("manifest requests=%d", len(transport.manifestRequests))
+	}
+}
+
+func TestTwitchVODManifestProbeCancellationAndNoRedirectFallback(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	transport := &twitchFixtureTransport{}
+	err := probeTwitchVODManifest(ctx, transport, "https://usher.ttvnw.net/vod/123.m3u8?token=synthetic-token")
+	if !errors.Is(err, context.Canceled) || len(transport.manifestRequests) != 0 {
+		t.Fatalf("err=%v requests=%d", err, len(transport.manifestRequests))
+	}
+}
+
+func TestTwitchVODManifestProbeDropsAuthAcrossRedirect(t *testing.T) {
+	const token = "synthetic-auth-token"
+	var requests []*http.Request
+	client, err := network.New(network.Config{RoundTripper: twitchRoundTripper(func(request *http.Request) (*http.Response, error) {
+		requests = append(requests, request.Clone(request.Context()))
+		return &http.Response{
+			StatusCode: http.StatusFound,
+			Header:     http.Header{"Location": []string{"https://evil.example.test/manifest"}},
+			Body:       http.NoBody,
+			Request:    request,
+		}, nil
+	})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.AddCookies([]*http.Cookie{{Name: "auth-token", Value: token, Domain: "gql.twitch.tv", Path: "/"}}); err != nil {
+		t.Fatal(err)
+	}
+	err = probeTwitchVODManifest(context.Background(), client, "https://usher.ttvnw.net/vod/123.m3u8?token=synthetic-token")
+	if !errors.Is(err, ErrTwitchNetwork) || strings.Contains(fmt.Sprint(err), token) || len(requests) != 1 {
+		t.Fatalf("err=%v requests=%d", err, len(requests))
+	}
+	if requests[0].URL.Host != "usher.ttvnw.net" || requests[0].Header.Get("Authorization") != "" || requests[0].Header.Get("Cookie") != "" {
+		t.Fatalf("manifest request leaked credentials: url=%q headers=%v", requests[0].URL, requests[0].Header)
+	}
+}
+
+func TestTwitchManifestRestrictedBoundsAndExactMarkers(t *testing.T) {
+	for _, test := range []struct {
+		body []byte
+		want bool
+	}{
+		{[]byte(`{"error":"vod_manifest_restricted"}`), true},
+		{[]byte(`{"error":"unauthorized_entitlements"}`), true},
+		{[]byte(`{"error":"VOD_MANIFEST_RESTRICTED"}`), false},
+		{[]byte(`{"error":"prefix_vod_manifest_restricted"}`), false},
+		{[]byte(`not json vod_manifest_restricted`), false},
+		{append([]byte(`{"error":"vod_manifest_restricted","padding":"`), append([]byte(strings.Repeat("x", twitchManifestRestrictionMaxBytes)), []byte(`"}`)...)...), false},
+	} {
+		got, err := twitchManifestRestricted(bytes.NewReader(test.body))
+		if err != nil || got != test.want {
+			t.Fatalf("restricted=%t err=%v want=%t", got, err, test.want)
+		}
+	}
+}
+
 func FuzzTwitchOAuthHeaders(f *testing.F) {
 	f.Add("synthetic-auth-token")
 	f.Add("bad\rheader")
@@ -380,6 +528,15 @@ func FuzzTwitchOAuthHeaders(f *testing.F) {
 		if err == nil && (headers.Get("Authorization") != "OAuth "+token || !twitchSafeAuthToken(token)) {
 			t.Fatalf("unsafe authorization accepted")
 		}
+	})
+}
+
+func FuzzTwitchManifestRestricted(f *testing.F) {
+	f.Add([]byte(`{"error":"vod_manifest_restricted"}`))
+	f.Add([]byte(`{"error":"unauthorized_entitlements"}`))
+	f.Add([]byte(`not json`))
+	f.Fuzz(func(t *testing.T, body []byte) {
+		_, _ = twitchManifestRestricted(bytes.NewReader(body))
 	})
 }
 
