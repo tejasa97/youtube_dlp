@@ -328,6 +328,10 @@ func TestVimeoPrivacyRetryStatusIsPinned(t *testing.T) {
 		{"https://vimeo.com/123", http.StatusInternalServerError, false},
 		{"https://vimeo.com/123", http.StatusFound, false},
 		{"https://player.vimeo.com/video/123", http.StatusForbidden, false},
+		{"http://vimeo.com/123", http.StatusForbidden, false},
+		{"https://user@vimeo.com/123", http.StatusForbidden, false},
+		{"https://vimeo.com:443/123", http.StatusForbidden, false},
+		{"https://vimeo.com/123#fragment", http.StatusForbidden, false},
 	} {
 		if got := isVimeoPrivacyRetryStatus(test.raw, test.status); got != test.want {
 			t.Fatalf("%s/%d = %v", test.raw, test.status, got)

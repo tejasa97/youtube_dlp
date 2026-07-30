@@ -286,6 +286,9 @@ func readVimeoProfilePage(ctx context.Context, transport ProfiledPageNoRedirectT
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, resp.Header.Clone(), resp.StatusCode, err
+		}
 		if contextErr := contextError(ctx); contextErr != nil {
 			return nil, resp.Header.Clone(), resp.StatusCode, contextErr
 		}
@@ -303,7 +306,7 @@ func isVimeoEmbedOnlyBody(body []byte) bool {
 
 func isVimeoPrivacyRetryStatus(rawURL string, status int) bool {
 	parsed, err := url.Parse(rawURL)
-	if err != nil {
+	if err != nil || parsed.Scheme != "https" || parsed.User != nil || parsed.Port() != "" || parsed.Fragment != "" || parsed.RawFragment != "" || vimeoUnsafePath(parsed) {
 		return false
 	}
 	host := strings.ToLower(parsed.Hostname())
