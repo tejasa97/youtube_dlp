@@ -38,7 +38,7 @@ Classification used below:
 | P3-03 plugin SDK v1.x | Pass for native RPC/SDK contract | Real framed RPC helper exchanges cover old v1.0 host/new v1.1-capable plugin and new v1.1 host/v1.0 plugin. Public SDK negotiation, cancellation, malformed input, bounds, and secret-safe failures pass. |
 | P3-03 signed pack upgrade | Partial | The signed v1.0/v1.1 compatibility matrix passes, but `internal/pack/upgrade` has no production caller and is not consumed by the existing pack verifier/installer. |
 | P3-09 pack distribution | Partial | Signed canonical offline catalogs, exact resolution, expiry, signer revocation, package revocation, and CLI/public verification pass. There is no catalog-to-artifact-to-v1.1-negotiation-to-install transaction. Artifact transport and production revocation delivery remain external. |
-| P3-09 sandbox maturity | Partial | Linux plan construction with explicit `bwrap`/`prlimit` adapters and explicit `AllowExternalTools` policy is tested, and macOS fails closed with `ErrAdapterUnavailable` because the previously documented `sandbox-exec` path was removed. `internal/sandbox` is invoked from the production plugin RPC exchange on Linux (`internal/plugin/rpc/client.go::exchange`, `sandbox.PrepareForOS`/`sandbox.Prepare` when a trusted package is configured with a `SandboxConfig`), so a Linux plugin plan can run under the host's `bwrap`/`prlimit` policy. On Windows the plugin RPC exchange hits `PrepareForOS` and fails closed with `ErrUnsupportedPlatform` before `command.Start`. The Windows Job Object path in `internal/plugin/rpc/process_windows.go` is reached only through the internal test/RPC seam (it closes the start-before-Job race via `CREATE_SUSPENDED` -> `SetInformationJobObject` -> `AssignProcessToJobObject` -> `resumeInitialThread`) and is not product containment evidence. |
+| P3-09 sandbox maturity | Partial | Linux plan construction with explicit `bwrap`/`prlimit` adapters and explicit `AllowExternalTools` policy is tested, and macOS fails closed with `ErrAdapterUnavailable` because the previously documented `sandbox-exec` path was removed. `internal/sandbox` is invoked from the production plugin RPC exchange on Linux (`internal/plugin/rpc/client.go::exchange`, `sandbox.PrepareForOS`/`sandbox.Prepare` when a trusted package is configured with a `SandboxConfig`), so a Linux plugin plan can run under the host's `bwrap`/`prlimit` policy. On Windows a signed product call with `SandboxConfig` hits `PrepareForOS` and fails closed with `ErrUnsupportedPlatform` before `command.Start`; one without it is rejected before approval or process creation unless explicitly `UnsafeTestOnly`. The Windows Job Object path in `internal/plugin/rpc/process_windows.go` is reached only through that internal test/direct-RPC seam (it closes the start-before-Job race via `CREATE_SUSPENDED` -> `SetInformationJobObject` -> `AssignProcessToJobObject` -> `resumeInitialThread`) and is not product containment evidence. |
 | P3-10 canary framework | Partial | Opt-in execution, bounded secret handles, redacted records, timeout/cancellation, panic reduction, and rolling counts pass. The plan's expiry, rate-limit, and deterministic replay-capture requirements are absent, and no public, authenticated, or regional deployment runner exists. |
 | P3-11 diagnosis/patch operations | Blocker | Local telemetry, differential, and operations report commands exist, but the committed drill is synthetic timestamp arithmetic with patch ref `deadbeef`; it did not diagnose, patch, commit, or verify a real representative regression. Operations summaries also discard failure-class aggregation. |
 | G3 criterion 4 | **Blocker** | No executed 24–48-hour regression repair drill exists. The state-machine fixture proves validation and SLO bucket math only. |
@@ -135,8 +135,8 @@ every macOS plan fails closed with `internal/sandbox.ErrAdapterUnavailable`.
 On Windows the plugin RPC exchange hits `PrepareForOS` and fails closed with
 `internal/sandbox.ErrUnsupportedPlatform` before `command.Start`. The Windows
 Job Object path in `internal/plugin/rpc/process_windows.go` is reached only
-through the internal test/RPC seam (when the RPC seam does not gate on
-`SandboxConfig != nil`); it closes the start-before-Job race via
+through the explicit `UnsafeTestOnly` internal test/direct-RPC seam; it closes
+the start-before-Job race via
 `CREATE_SUSPENDED` -> `SetInformationJobObject` -> `AssignProcessToJobObject`
 -> `resumeInitialThread`, but it is not product containment evidence.
 
@@ -149,7 +149,7 @@ Platform boundaries (post-#159) remain:
   Windows Job Object path in `internal/plugin/rpc/process_windows.go`
   closes its own start-before-Job race by spawning suspended, assigning
   the Job, and only then resuming the initial thread, but it is reached
-  only through the internal test/RPC seam and is not product
+  only through the explicit `UnsafeTestOnly` internal test/direct-RPC seam and is not product
   containment evidence. The separate Windows updater health-check
   start-before-Job race remains G2-S01 in
   `docs/audits/P3_SECURITY_PRIVACY_ISOLATION_AUDIT.md` and is not

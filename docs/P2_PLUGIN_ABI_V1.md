@@ -172,12 +172,14 @@ the optional address-space, CPU-time, and active-process limits,
 assigns the child with `windows.AssignProcessToJobObject`, and only
 then resumes the initial thread (`resumeInitialThread`). This closes
 the start-before-Job race inside that internal code. Production
-signed native calls do not reach this path: a `SandboxConfig`-less
-signed call would otherwise bypass `internal/sandbox`, and a signed
-call that does set `SandboxConfig` hits `PrepareForOS(windows)` and
-fails closed with `internal/sandbox.ErrUnsupportedPlatform` before
-`command.Start`. The Job code is therefore an internal test/RPC
-seam, not product containment evidence. The generic product
+signed native calls do not reach this path: a signed package without
+`SandboxConfig` is rejected with `plugin.ErrIsolationUnavailable`
+before approval or process creation (unless explicitly
+`UnsafeTestOnly`), while one that sets `SandboxConfig` hits
+`PrepareForOS(windows)` and fails closed with
+`internal/sandbox.ErrUnsupportedPlatform` before `command.Start`.
+The Job code is therefore an internal test/direct-RPC seam, not
+product containment evidence. The generic product
 sandbox remains unreachable on Windows because
 `internal/sandbox.PrepareForOS` rejects `GOOS=windows` with
 `internal/sandbox.ErrUnsupportedPlatform`, so macOS/Windows

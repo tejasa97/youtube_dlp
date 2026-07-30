@@ -41,32 +41,28 @@ caller.
 
 ## Findings
 
-### P3-SP-01: native RPC permissions are not syscall-enforced (High, inherited and explicit)
+### P3-SP-01: native RPC sandbox enforcement is platform-conditional (High, inherited and explicit)
 
-An approved native plugin is executed directly with `exec.Command` in
-`internal/plugin/rpc/client.go:167-173`. Unix isolation creates only a process
-group (`internal/plugin/rpc/process_unix.go:17-36`); Windows creates a kill-on-close
-Job Object (`internal/plugin/rpc/process_windows.go:18-53`). Neither path applies
-the filesystem, network, process, or resource plan exposed by
-`internal/sandbox/sandbox.go:68-93`. A production-source search found no call to
-`sandbox.Prepare`.
+The production `Client.exchange` path invokes `internal/sandbox` for a trusted
+package configured with `SandboxConfig` (`internal/plugin/rpc/client.go::exchange`).
+On Linux, a valid plan launches through the explicitly permitted `bwrap` adapter
+and uses `prlimit` when resource caps are requested; missing adapters fail closed.
+A signed package without `SandboxConfig` is rejected with
+`plugin.ErrIsolationUnavailable` before approval or process creation unless the
+caller explicitly selects `UnsafeTestOnly`.
 
-Consequently, a correctly signed and approved native plugin receives the user's
-ambient OS filesystem and network access even if its manifest omits those
-permissions. Sanitized argv/environment, exact identity-bound approval, package
-revalidation, strict framing, and process-tree termination limit several attack
-paths but do not enforce the advertised permissions.
+This is not a portable native-plugin containment claim. macOS has no production
+adapter and fails closed with `internal/sandbox.ErrAdapterUnavailable`. On Windows,
+a signed production call with `SandboxConfig` fails closed at
+`sandbox.PrepareForOS(windows)` with `internal/sandbox.ErrUnsupportedPlatform`
+before `command.Start`. The suspended-process, kill-on-close Windows Job Object
+path is available only through the explicit `UnsafeTestOnly` internal test/direct
+RPC seam, so it is not product containment evidence.
 
-This is explicit in `docs/P2_PLUGIN_ABI_V1.md:103-106,158-164`, which calls approval
-a trust gate rather than a syscall sandbox, and in
-`docs/P2_PLUGIN_THREAT_MODEL.md:13-17,67-89`. The latter says a valid publisher
-signature does not make behavior safe and defines fail-closed adapters, but the
-RPC launch path does not integrate them.
-
-Required disposition: wire the native host to a fail-closed platform sandbox and
-operation-scoped writable/read-only roots, or rename the permissions as review
-metadata and formally exclude hostile native plugins. Do not grant `secrets` or
-`cookies` until an operation-scoped broker exists, as already required by
+Required disposition: retain fail-closed platform behavior and operation-scoped
+writable/read-only roots, and do not represent native-plugin containment as
+portable or use the Windows Job seam as evidence. Do not grant `secrets` or
+`cookies` until an operation-scoped broker exists, as required by
 `docs/P2_PLUGIN_THREAT_MODEL.md:54-65`.
 
 ### P3-SP-02: JavaScript helper may be resolved from an unverified `PATH` (High, inherited and explicit)
@@ -181,14 +177,16 @@ The following prior findings remain visible and were not reclassified as new:
   the production plugin RPC exchange on Linux through the `bwrap` adapter and,
   when host resource caps are set, the `prlimit` adapter
   (`internal/plugin/rpc/client.go::exchange`, `sandbox.PrepareForOS` /
-  `sandbox.Prepare`). Signed product calls that do configure a `SandboxConfig`
+  `sandbox.Prepare`). A signed package without `SandboxConfig` is rejected with
+  `plugin.ErrIsolationUnavailable` before approval or process creation unless
+  explicitly `UnsafeTestOnly`. Signed product calls that do configure a `SandboxConfig`
   on Windows hit `PrepareForOS(windows)` and fail closed with
   `internal/sandbox.ErrUnsupportedPlatform` before `command.Start`. macOS
   generic native plans fail closed with `internal/sandbox.ErrAdapterUnavailable`
   because no production adapter is wired up; the previously documented
   `sandbox-exec` path was removed. The Windows Job Object code path in
-  `internal/plugin/rpc/process_windows.go` is reached only through the internal
-  test/RPC seam; it closes its own start-before-Job race via `CREATE_SUSPENDED`
+  `internal/plugin/rpc/process_windows.go` is reached only through the explicit
+  `UnsafeTestOnly` internal test/direct-RPC seam; it closes its own start-before-Job race via `CREATE_SUSPENDED`
   -> `SetInformationJobObject` -> `AssignProcessToJobObject` ->
   `resumeInitialThread`, but it is not product containment evidence. The
   Windows updater health-check start-before-Job race remains a separate
