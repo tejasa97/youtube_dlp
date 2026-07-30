@@ -63,6 +63,39 @@ type vimeoCancelAfterContext struct {
 	calls, cancelAt int
 }
 
+type vimeoEmbedPageTransport struct {
+	page, privacy []byte
+	config        []byte
+	statuses      []int
+	referers      []string
+}
+
+func (t *vimeoEmbedPageTransport) ReadPage(context.Context, string) ([]byte, http.Header, error) {
+	return nil, nil, errors.New("unexpected")
+}
+func (t *vimeoEmbedPageTransport) DoProfile(ctx context.Context, r *http.Request, _ string) (*http.Response, error) {
+	return t.Do(ctx, r)
+}
+func (t *vimeoEmbedPageTransport) ReadPageProfile(context.Context, string, string) ([]byte, http.Header, error) {
+	return nil, nil, errors.New("unexpected")
+}
+func (t *vimeoEmbedPageTransport) Do(context.Context, *http.Request) (*http.Response, error) {
+	return nil, errors.New("ambient")
+}
+func (t *vimeoEmbedPageTransport) DoWithoutCredentialsNoRedirectWithReferer(_ context.Context, r *http.Request) (*http.Response, error) {
+	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(t.config)), Header: make(http.Header), Request: r}, nil
+}
+func (t *vimeoEmbedPageTransport) DoProfiledPageNoRedirect(_ context.Context, r *http.Request, _ string) (*http.Response, error) {
+	t.referers = append(t.referers, r.Header.Get("Referer"))
+	i := len(t.referers) - 1
+	status := t.statuses[i]
+	body := t.page
+	if i == 0 && status >= 300 {
+		body = t.privacy
+	}
+	return &http.Response{StatusCode: status, Body: io.NopCloser(bytes.NewReader(body)), Header: make(http.Header), Request: r}, nil
+}
+
 func (*vimeoCancelAfterContext) Deadline() (time.Time, bool) { return time.Time{}, false }
 func (*vimeoCancelAfterContext) Done() <-chan struct{}       { return nil }
 func (*vimeoCancelAfterContext) Value(any) any               { return nil }
@@ -335,6 +368,27 @@ func TestVimeoPrivacyRetryStatusIsPinned(t *testing.T) {
 	} {
 		if got := isVimeoPrivacyRetryStatus(test.raw, test.status); got != test.want {
 			t.Fatalf("%s/%d = %v", test.raw, test.status, got)
+		}
+	}
+}
+
+func TestVimeoEmbedPrivacyRetriesOnceWithValidatedReferer(t *testing.T) {
+	page := readVimeoFixture(t, "page.html")
+	privacy := []byte("Because of its privacy settings, this video cannot be played here")
+	config := []byte(`{"video":{"id":123456789,"title":"ok","files":{"progressive":[{"url":"https://cdn.example/x.mp4","quality":"sd"}]}}}`)
+	transport := &vimeoEmbedPageTransport{page: page, privacy: privacy, config: config, statuses: []int{http.StatusForbidden, http.StatusOK}}
+	_, err := NewVimeo().Extract(context.Background(), Request{URL: "https://vimeo.com/123456789", Referer: "https://publisher.example/embed", Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(transport.referers, []string{"", "https://publisher.example/embed"}) {
+		t.Fatalf("referers=%v", transport.referers)
+	}
+	for _, bad := range []string{"", "http://evil.example/", "https://user@evil.example/"} {
+		transport := &vimeoEmbedPageTransport{page: page, privacy: privacy, config: config, statuses: []int{http.StatusForbidden}}
+		_, err := NewVimeo().Extract(context.Background(), Request{URL: "https://vimeo.com/123456789", Referer: bad, Transport: transport})
+		if !errors.Is(err, ErrAuthentication) || len(transport.referers) != 1 {
+			t.Fatalf("bad=%q err=%v referers=%v", bad, err, transport.referers)
 		}
 	}
 }
