@@ -96,6 +96,53 @@ func FuzzImportedClass(f *testing.F) {
 	})
 }
 
+func TestReconciledExactAliasMappings(t *testing.T) {
+	goIDs, goModules, err := parseGoExtractorInventory(filepath.Join("..", "..", "internal", "extractor"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reconciled := map[string]string{
+		"BandcampAlbumIE":    "bandcamp",
+		"BrightcoveNewIE":    "brightcove",
+		"DacastVODIE":        "dacast",
+		"ImgurAlbumIE":       "imgur",
+		"ImgurGalleryIE":     "imgur",
+		"KickClipIE":         "kick",
+		"KickVODIE":          "kick",
+		"MixcloudPlaylistIE": "mixcloud",
+		"MixcloudUserIE":     "mixcloud",
+		"RumbleChannelIE":    "rumble",
+		"RumbleEmbedIE":      "rumble",
+	}
+	for class, wantGo := range reconciled {
+		if got := exactAliases[class]; got != wantGo {
+			t.Fatalf("exactAliases[%s]=%q want %q", class, got, wantGo)
+		}
+		if _, ok := goIDs[normalizeExtractorKey(wantGo)]; !ok {
+			t.Fatalf("reconciled Go extractor %q for %s is not registered", wantGo, class)
+		}
+		entry := classifyExtractor("fixture", class, "class "+class+"(InfoExtractor):\n", goIDs, goModules)
+		if entry.Status != ExtractorAlreadySupported || entry.GoExtractor != wantGo {
+			t.Fatalf("%s: got status=%q go_extractor=%q", class, entry.Status, entry.GoExtractor)
+		}
+	}
+	stillPartial := []struct {
+		module string
+		class  string
+	}{
+		{"brightcove", "BrightcoveLegacyIE"},
+		{"panopto", "PanoptoListIE"},
+		{"bbc", "BBCIE"},
+		{"soundcloud", "SoundcloudPlaylistIE"},
+	}
+	for _, test := range stillPartial {
+		entry := classifyExtractor(test.module, test.class, "class "+test.class+"(InfoExtractor):\n", goIDs, goModules)
+		if entry.Status != ExtractorPartiallySupported {
+			t.Fatalf("%s:%s status=%q want %q", test.module, test.class, entry.Status, ExtractorPartiallySupported)
+		}
+	}
+}
+
 func TestCheckedInExtractorInventoryIsCompleteAndConsistent(t *testing.T) {
 	path := filepath.Join("..", "..", "conformance", "extractors", "upstream_master_checklist.csv")
 	file, err := os.Open(path)
