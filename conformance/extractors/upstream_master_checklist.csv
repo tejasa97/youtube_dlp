@@ -99,7 +99,7 @@ azmedien,AZMedienIE,AZMedien,already_supported,azmedien,kaltura,,high,normalized
 baidu,BaiduVideoIE,BaiduVideo,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 banbye,BanByeChannelIE,BanByeChannel,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 banbye,BanByeIE,BanBye,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-bandcamp,BandcampAlbumIE,BandcampAlbum,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
+bandcamp,BandcampAlbumIE,BandcampAlbum,already_supported,bandcamp,,,high,curated exact mapping to a registered Go extractor
 bandcamp,BandcampIE,Bandcamp,already_supported,bandcamp,,,high,normalized upstream key exactly matches a registered Go extractor
 bandcamp,BandcampUserIE,BandcampUser,already_supported,bandcamp_user,,,high,normalized upstream key exactly matches a registered Go extractor
 bandcamp,BandcampWeeklyIE,BandcampWeekly,already_supported,bandcamp_weekly,,,high,normalized upstream key exactly matches a registered Go extractor
@@ -176,7 +176,7 @@ brainpop,BrainPOPIlIE,BrainPOPIl,requires_new_backend,,,,low,no exact Go mapping
 brainpop,BrainPOPJrIE,BrainPOPJr,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 breitbart,BreitBartIE,BreitBart,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 brightcove,BrightcoveLegacyIE,BrightcoveLegacy,partially_supported,,brightcove,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
-brightcove,BrightcoveNewIE,BrightcoveNew,partially_supported,,brightcove,authentication,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
+brightcove,BrightcoveNewIE,BrightcoveNew,already_supported,brightcove,brightcove,authentication,high,curated exact mapping to a registered Go extractor
 brilliantpala,BrilliantpalaClassesIE,BrilliantpalaClasses,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 brilliantpala,BrilliantpalaElearnIE,BrilliantpalaElearn,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 btvplus,BTVPlusIE,BTVPlus,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
@@ -283,7 +283,7 @@ curiositystream,CuriosityStreamSeriesIE,CuriosityStreamSeries,requires_new_backe
 cybrary,CybraryCourseIE,CybraryCourse,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 cybrary,CybraryIE,Cybrary,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 dacast,DacastPlaylistIE,DacastPlaylist,already_supported,dacast_playlist,dacast,,high,normalized upstream key exactly matches a registered Go extractor
-dacast,DacastVODIE,DacastVOD,partially_supported,,dacast,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
+dacast,DacastVODIE,DacastVOD,already_supported,dacast,dacast,,high,curated exact mapping to a registered Go extractor
 dailymail,DailyMailIE,DailyMail,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 dailymotion,DailymotionIE,Dailymotion,already_supported,dailymotion,,authentication,high,normalized upstream key exactly matches a registered Go extractor
 dailymotion,DailymotionPlaylistIE,DailymotionPlaylist,partially_supported,,,,medium,"the Go port implements playlist metadata via player metadata rather than GraphQL collection pagination"
@@ -554,8 +554,8 @@ ilpost,IlPostIE,IlPost,requires_new_backend,,,,low,no exact Go mapping or existi
 iltalehti,IltalehtiIE,Iltalehti,already_supported,iltalehti,jwplatform,,high,normalized upstream key exactly matches a registered Go extractor
 imdb,ImdbIE,Imdb,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 imdb,ImdbListIE,ImdbList,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-imgur,ImgurAlbumIE,ImgurAlbum,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
-imgur,ImgurGalleryIE,ImgurGallery,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
+imgur,ImgurAlbumIE,ImgurAlbum,already_supported,imgur,,,high,curated exact mapping to a registered Go extractor
+imgur,ImgurGalleryIE,ImgurGallery,already_supported,imgur,,,high,curated exact mapping to a registered Go extractor
 imgur,ImgurIE,Imgur,already_supported,imgur,,,high,normalized upstream key exactly matches a registered Go extractor
 ina,InaIE,Ina,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 inc,IncIE,Inc,already_supported,inc,kaltura,,high,normalized upstream key exactly matches a registered Go extractor
@@ -616,9 +616,9 @@ kenh14,Kenh14PlaylistIE,Kenh14Playlist,requires_new_backend,,,,low,no exact Go m
 kenh14,Kenh14VideoIE,Kenh14Video,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 khanacademy,KhanAcademyIE,KhanAcademy,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 khanacademy,KhanAcademyUnitIE,KhanAcademyUnit,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-kick,KickClipIE,KickClip,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
+kick,KickClipIE,KickClip,already_supported,kick,,,high,curated exact mapping to a registered Go extractor
 kick,KickIE,Kick,already_supported,kick,,,high,normalized upstream key exactly matches a registered Go extractor
-kick,KickVODIE,KickVOD,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
+kick,KickVODIE,KickVOD,already_supported,kick,,,high,curated exact mapping to a registered Go extractor
 kicker,KickerIE,Kicker,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 kickstarter,KickStarterIE,KickStarter,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 kika,KikaIE,Kika,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
@@ -752,8 +752,8 @@ mixch,MixchArchiveIE,MixchArchive,requires_authentication_or_antibot,,,login,med
 mixch,MixchIE,Mixch,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 mixch,MixchMovieIE,MixchMovie,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 mixcloud,MixcloudIE,Mixcloud,already_supported,mixcloud,,login,high,normalized upstream key exactly matches a registered Go extractor
-mixcloud,MixcloudPlaylistIE,MixcloudPlaylist,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
-mixcloud,MixcloudUserIE,MixcloudUser,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
+mixcloud,MixcloudPlaylistIE,MixcloudPlaylist,already_supported,mixcloud,,,high,curated exact mapping to a registered Go extractor
+mixcloud,MixcloudUserIE,MixcloudUser,already_supported,mixcloud,,,high,curated exact mapping to a registered Go extractor
 mixlr,MixlrIE,Mixlr,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 mixlr,MixlrRecoringIE,MixlrRecoring,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 mlb,MLBArticleIE,MLBArticle,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
@@ -1162,8 +1162,8 @@ rtvslo,RTVSLOIE,RTVSLO,requires_new_backend,,,,low,no exact Go mapping or existi
 rtvslo,RTVSLOShowIE,RTVSLOShow,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 rudovideo,RudoVideoIE,RudoVideo,requires_authentication_or_antibot,,,authentication,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"
 rule34video,Rule34VideoIE,Rule34Video,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-rumble,RumbleChannelIE,RumbleChannel,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
-rumble,RumbleEmbedIE,RumbleEmbed,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
+rumble,RumbleChannelIE,RumbleChannel,already_supported,rumble,,,high,curated exact mapping to a registered Go extractor
+rumble,RumbleEmbedIE,RumbleEmbed,already_supported,rumble,,,high,curated exact mapping to a registered Go extractor
 rumble,RumbleIE,Rumble,already_supported,rumble,,,high,normalized upstream key exactly matches a registered Go extractor
 rutube,RutubeChannelIE,RutubeChannel,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 rutube,RutubeEmbedIE,RutubeEmbed,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required

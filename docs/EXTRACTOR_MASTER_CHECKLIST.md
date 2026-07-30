@@ -12,16 +12,16 @@ are excluded.
 
 | Classification | Classes | Meaning |
 | --- | ---: | --- |
-| `already_supported` | 147 | An exact registered Go extractor mapping is known. Compatibility remains bounded by that extractor's manifest claim. |
-| `partially_supported` | 117 | The site family exists in Go, but this upstream class does not have a proven exact mapping. |
+| `already_supported` | 179 | An exact registered Go extractor mapping is known. Compatibility remains bounded by that extractor's manifest claim. |
+| `partially_supported` | 85 | The site family exists in Go, but this upstream class does not have a proven exact mapping. |
 | `uses_existing_shared_backend` | 50 | The upstream class visibly hands off to a backend already implemented in Go. |
 | `requires_authentication_or_antibot` | 135 | The class contains explicit login, password, OAuth, authorization, or impersonation behavior. |
 | `obsolete_or_intentional_deviation` | 136 | The pinned upstream class explicitly declares `_WORKING = False`. |
 | `requires_new_backend` | 1,166 | No exact Go mapping or existing-backend handoff was detected; manual family review is required. |
 | **Total** | **1,751** | All registered concrete classes in the pinned reference. |
 
-Exact extractor-class coverage is therefore 139/1,751 (7.9%). Including partial
-site-family coverage gives 256/1,751 (14.6%), but partial rows must not be
+Exact extractor-class coverage is therefore 179/1,751 (10.2%). Including partial
+site-family coverage gives 264/1,751 (15.1%), but partial rows must not be
 treated as complete. These figures measure extractor-class breadth only, not
 the completion of downloaders, post-processing, the CLI, or the overall Go
 port.
@@ -60,6 +60,28 @@ decisions.
   well as true shared families. It is intentionally low confidence.
 - `_WORKING = False` is recorded as the pinned upstream state, not a permanent
   decision to exclude the extractor.
+
+## Reconciled exact aliases (2026-07-30)
+
+Eleven stale `partially_supported` rows were promoted via curated `exactAliases`
+after route-corpus review against registered Go extractors. Each maps one
+upstream class to a single Go key whose `Suitable`/`Extract` paths cover that
+class's documented URL shape (not a broad family alias):
+
+| Upstream class | Go key | Evidence |
+| --- | --- | --- |
+| `BandcampAlbumIE` | `bandcamp` | `bandcamp.go` album `/album/` playlist extraction |
+| `BrightcoveNewIE` | `brightcove` | `brightcove.go` `players.brightcove.net` embed API |
+| `DacastVODIE` | `dacast` | `dacast.go` `iframe.dacast.com/vod/...` VOD route |
+| `ImgurAlbumIE` / `ImgurGalleryIE` | `imgur` | `imgur.go` `/a/` and `/gallery/` collection routes |
+| `KickVODIE` / `KickClipIE` | `kick` | `kick.go` `/videos/<uuid>` and `/clips/clip_*` |
+| `MixcloudUserIE` / `MixcloudPlaylistIE` | `mixcloud` | `mixcloud.go` user collections and `/playlists/` |
+| `RumbleChannelIE` / `RumbleEmbedIE` | `rumble` | `rumble.go` `/c|user/` channel and `/embed/` video |
+
+Deliberately left partial: `BrightcoveLegacyIE` (Go rejects legacy `/services`
+URLs), `PanoptoListIE` (`List.aspx` folder API vs `panopto_playlist` pid
+route), and all other family-only partial rows (bilibili, soundcloud, twitch,
+vimeo sub-classes, etc.).
 
 ## Refresh
 
