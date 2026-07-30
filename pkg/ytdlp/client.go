@@ -618,6 +618,8 @@ func (client *Client) productRegistry() *extractor.Registry {
 		extractor.NewDailymotion(),
 		extractor.NewReddit(),
 		extractor.NewTwitter(),
+		extractor.NewBandcampWeekly(),
+		extractor.NewBandcampUser(),
 		extractor.NewBandcamp(),
 		extractor.NewMixcloud(),
 		extractor.NewRumble(),

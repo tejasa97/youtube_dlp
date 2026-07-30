@@ -59,6 +59,8 @@ var representativeExtractorCatalog = []representativeExtractor{
 	{"reddit", "https://www.reddit.com/r/videos/comments/abc123/title/", []extractorRiskClass{riskPlaylistAPI}},
 	{"twitter", "https://x.com/fixture/status/1234567890", []extractorRiskClass{riskPlaylistAPI}},
 	{"bandcamp", "https://fixture.bandcamp.com/track/example", []extractorRiskClass{riskPlaylistAPI}},
+	{"bandcamp_user", "https://fixture.bandcamp.com/music", []extractorRiskClass{riskPlaylistAPI}},
+	{"bandcamp_weekly", "https://bandcamp.com/radio?show=224", []extractorRiskClass{riskPlaylistAPI}},
 	{"mixcloud", "https://www.mixcloud.com/fixture/example/", []extractorRiskClass{riskPlaylistAPI}},
 	{"rumble", "https://rumble.com/embed/v12345/", []extractorRiskClass{riskPlaylistAPI, riskLive}},
 	{"bilibili", "https://www.bilibili.com/video/BV1abcdefgh", []extractorRiskClass{riskPlaylistAPI, riskManifestHeavy}},

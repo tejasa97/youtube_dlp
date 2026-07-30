@@ -19,6 +19,9 @@ family-filter request option; child video metadata carries age limits. Twitter u
 public syndication endpoint
 rather than an embedded bearer-token GraphQL flow; Bilibili uses page hydration
 rather than signed WBI calls; Bandcamp does not follow customer download links.
+Bandcamp user and weekly collection fixtures live under
+`conformance/extractors/bandcamp/` with their own provenance record. They model
+pinned public discovery shapes; they are not production captures.
 Bilibili DASH codec-side normalization follows `BiliBiliBaseIE.extract_formats`:
 audio tracks expose `acodec` with `vcodec=none`, while video tracks expose
 `vcodec` with `acodec=none`. The synthetic corpus intentionally also covers an
