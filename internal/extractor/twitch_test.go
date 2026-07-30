@@ -67,6 +67,7 @@ func (roundTripper twitchRoundTripper) RoundTrip(request *http.Request) (*http.R
 // tests can prove the credential-bearing path never uses ambient execution.
 type twitchAuthenticatedFixtureTransport struct {
 	cookies       []*http.Cookie
+	cookieErr     error
 	cookieURLs    []string
 	doCalls       int
 	noRedirects   int
@@ -91,6 +92,9 @@ func (transport *twitchAuthenticatedFixtureTransport) Cookies(rawURL string) ([]
 	transport.cookieURLs = append(transport.cookieURLs, rawURL)
 	if rawURL != twitchGraphQLOrigin {
 		return nil, errors.New("unexpected cookie origin")
+	}
+	if transport.cookieErr != nil {
+		return nil, transport.cookieErr
 	}
 	return transport.cookies, nil
 }
@@ -336,6 +340,14 @@ func TestTwitchGQLAnonymousAndInvalidCookieBehavior(t *testing.T) {
 	}
 }
 
+func TestCategorizeTwitchHTTPPreservesAuthenticationSentinels(t *testing.T) {
+	for _, sentinel := range []error{ErrAuthentication, ErrTwitchSubscriberOnly} {
+		if err := categorizeTwitchHTTP(sentinel); !errors.Is(err, sentinel) {
+			t.Fatalf("categorizeTwitchHTTP(%v) = %v", sentinel, err)
+		}
+	}
+}
+
 func TestTwitchAuthenticatedGQLCancellationAndSecretSafeFailures(t *testing.T) {
 	const token = "synthetic-auth-token"
 	transport := &twitchAuthenticatedFixtureTransport{
@@ -346,6 +358,11 @@ func TestTwitchAuthenticatedGQLCancellationAndSecretSafeFailures(t *testing.T) {
 	err := requestTwitchGQL(context.Background(), transport, nil, &response)
 	if !errors.Is(err, ErrTwitchNetwork) || strings.Contains(err.Error(), token) {
 		t.Fatalf("err=%v", err)
+	}
+	cookieFailure := &twitchAuthenticatedFixtureTransport{cookieErr: errors.New("cookie read failed token=" + token)}
+	err = requestTwitchGQL(context.Background(), cookieFailure, nil, &response)
+	if !errors.Is(err, ErrTwitchNetwork) || strings.Contains(err.Error(), token) || cookieFailure.doCalls != 0 || cookieFailure.noRedirects != 0 {
+		t.Fatalf("cookie error=%v ambient=%d no-redirect=%d", err, cookieFailure.doCalls, cookieFailure.noRedirects)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

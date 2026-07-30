@@ -226,6 +226,52 @@ func TestExtractorFailuresAreCategorized(t *testing.T) {
 	}
 }
 
+type twitchMalformedAuthTransport struct {
+	token         string
+	cookieURL     string
+	ambientCalls  int
+	redirectCalls int
+}
+
+func (transport *twitchMalformedAuthTransport) Do(context.Context, *http.Request) (*http.Response, error) {
+	transport.ambientCalls++
+	return nil, errors.New("unexpected ambient Twitch request")
+}
+
+func (transport *twitchMalformedAuthTransport) ReadPage(context.Context, string) ([]byte, http.Header, error) {
+	transport.ambientCalls++
+	return nil, nil, errors.New("unexpected Twitch page request")
+}
+
+func (transport *twitchMalformedAuthTransport) Cookies(rawURL string) ([]*http.Cookie, error) {
+	transport.cookieURL = rawURL
+	return []*http.Cookie{{Name: "auth-token", Value: transport.token}}, nil
+}
+
+func (transport *twitchMalformedAuthTransport) DoNoRedirect(context.Context, *http.Request) (*http.Response, error) {
+	transport.redirectCalls++
+	return nil, errors.New("unexpected no-redirect Twitch request")
+}
+
+func TestProductCategorizesMalformedTwitchAuthCookieWithoutNetworkOrLeakage(t *testing.T) {
+	const marker = "synthetic-auth-token-marker"
+	transport := &twitchMalformedAuthTransport{token: strings.Repeat(marker, 32)}
+	_, extractErr := extractor.NewTwitch().Extract(context.Background(), extractor.Request{
+		URL:       "https://www.twitch.tv/fixture_channel",
+		Transport: transport,
+	})
+	if !errors.Is(extractErr, extractor.ErrAuthentication) || strings.Contains(extractErr.Error(), marker) {
+		t.Fatalf("extract error=%v", extractErr)
+	}
+	if transport.cookieURL != "https://gql.twitch.tv" || transport.ambientCalls != 0 || transport.redirectCalls != 0 {
+		t.Fatalf("cookie URL=%q ambient=%d no-redirect=%d", transport.cookieURL, transport.ambientCalls, transport.redirectCalls)
+	}
+	err := categorized("twitch extraction", extractErr)
+	if !IsCategory(err, ErrorAuthentication) || !errors.Is(err, extractor.ErrAuthentication) || strings.Contains(err.Error(), marker) {
+		t.Fatalf("categorized error=%v", err)
+	}
+}
+
 func TestSoundCloudCommentOptionsValidation(t *testing.T) {
 	t.Parallel()
 	for _, options := range []SoundCloudCommentOptions{

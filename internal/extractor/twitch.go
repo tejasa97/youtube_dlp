@@ -842,7 +842,8 @@ func requestTwitchGQL(ctx context.Context, transport Transport, body []byte, tar
 
 func categorizeTwitchHTTP(err error) error {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
-		errors.Is(err, ErrInvalidMetadata) || errors.Is(err, ErrJSONResponseTooLarge) {
+		errors.Is(err, ErrInvalidMetadata) || errors.Is(err, ErrJSONResponseTooLarge) ||
+		errors.Is(err, ErrAuthentication) || errors.Is(err, ErrTwitchSubscriberOnly) {
 		return err
 	}
 	var status *HTTPStatusError
