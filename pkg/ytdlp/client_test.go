@@ -415,6 +415,19 @@ func TestProductCategorizesPRXNetworkFailures(t *testing.T) {
 	}
 }
 
+func TestProductRegistryRoutesPRXOpaqueSearches(t *testing.T) {
+	registry := NewClient().productRegistry()
+	for raw, want := range map[string]string{
+		"prxstories:fixture query": "prx_stories_search",
+		"prxseries:fixture query":  "prx_series_search",
+	} {
+		extractor, err := registry.Select(raw)
+		if err != nil || extractor.Name() != want {
+			t.Fatalf("route %q: extractor=%v err=%v", raw, extractor, err)
+		}
+	}
+}
+
 func TestProductPRXMultipartReentryTerminates(t *testing.T) {
 	body := []byte(`{"id":"1","title":"Story","_embedded":{"prx:audio":{"_embedded":{"prx:items":[{"id":"11","position":1,"contentType":"audio/mpeg","_links":{"enclosure":{"href":"https://media.example/one.mp3"}}},{"id":"12","position":2,"contentType":"audio/mpeg","_links":{"enclosure":{"href":"https://media.example/two.mp3"}}}]}}}}`)
 	rt := &prxProductRoundTripper{body: body}

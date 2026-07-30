@@ -567,6 +567,8 @@ func (client *Client) productRegistry() *extractor.Registry {
 		extractor.NewLibsyn(),
 		extractor.NewSpreakerShow(),
 		extractor.NewSpreaker(),
+		extractor.NewPRXStoriesSearch(),
+		extractor.NewPRXSeriesSearch(),
 		extractor.NewPRXStory(),
 		extractor.NewPRXSeries(),
 		extractor.NewPRXAccount(),
