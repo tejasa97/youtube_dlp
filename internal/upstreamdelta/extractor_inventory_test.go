@@ -111,6 +111,7 @@ func TestReconciledExactAliasMappings(t *testing.T) {
 		t.Fatal(err)
 	}
 	reconciled := map[string]string{
+		"ARDMediathekCollectionIE": "ard_mediathek_collection",
 		"BandcampAlbumIE":          "bandcamp",
 		"BilibiliCollectionListIE": "bilibili_collection",
 		"BilibiliSeriesListIE":     "bilibili_series",

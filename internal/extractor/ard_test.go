@@ -10,21 +10,34 @@ import (
 	"testing"
 )
 
+type ardRiskFixtureTransport struct{ *riskFixtureTransport }
+
+func (transport *ardRiskFixtureTransport) DoWithoutCredentialsNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
+	cloned := request.Clone(ctx)
+	for _, header := range []string{"Authorization", "Cookie", "Proxy-Authorization", "Referer"} {
+		cloned.Header.Del(header)
+	}
+	return transport.Do(ctx, cloned)
+}
+
 func TestARDRoutingItemFormatsAndLiveState(t *testing.T) {
 	itemID := "Y3JpZDovL2ZpeHR1cmU"
 	for _, rawURL := range []string{
 		"https://www.ardmediathek.de/video/title/channel/" + itemID,
 		"https://ardmediathek.de/player/" + itemID,
 		"https://beta.ardmediathek.de/live/" + itemID,
-		"https://www.ardmediathek.de/sendung/title/" + itemID,
-		"https://www.ardmediathek.de/serie/title/staffel-1/" + itemID + "/1/OV",
 	} {
 		parsed, _ := url.Parse(rawURL)
 		if !NewARD().Suitable(parsed) {
 			t.Fatalf("Suitable(%q) = false", rawURL)
 		}
 	}
-	for _, rawURL := range []string{"https://example.com/video/id", "https://ardmediathek.de/other/id", "ftp://ardmediathek.de/video/id"} {
+	for _, rawURL := range []string{
+		"https://example.com/video/id",
+		"https://ardmediathek.de/other/id",
+		"ftp://ardmediathek.de/video/id",
+		"https://www.ardmediathek.de/sendung/title/" + itemID,
+	} {
 		parsed, _ := url.Parse(rawURL)
 		if NewARD().Suitable(parsed) {
 			t.Fatalf("Suitable(%q) = true", rawURL)
@@ -32,9 +45,9 @@ func TestARDRoutingItemFormatsAndLiveState(t *testing.T) {
 	}
 	pageURL := "https://www.ardmediathek.de/video/title/channel/" + itemID
 	endpoint := ardPageGatewayBase + "pages/ard/item/" + itemID + "?embedded=false&mcV6=true"
-	transport := &riskFixtureTransport{responses: map[string]riskFixtureResponse{
+	transport := &ardRiskFixtureTransport{riskFixtureTransport: &riskFixtureTransport{responses: map[string]riskFixtureResponse{
 		"GET " + endpoint: {body: readRiskFixture(t, "ard", "item.json")},
-	}}
+	}}}
 	result, err := NewARD().Extract(context.Background(), Request{URL: pageURL, Transport: transport})
 	if err != nil {
 		t.Fatal(err)
@@ -67,9 +80,35 @@ func TestARDRoutingItemFormatsAndLiveState(t *testing.T) {
 	}
 }
 
+func TestARDMediathekCollectionRoutingAndNonOverlap(t *testing.T) {
+	itemID := "Y3JpZDovL2ZpeHR1cmU"
+	for _, rawURL := range []string{
+		"https://www.ardmediathek.de/sendung/title/" + itemID,
+		"https://www.ardmediathek.de/serie/title/staffel-1/" + itemID + "/1/OV",
+		"https://www.ardmediathek.de/sammlung/title/" + itemID,
+	} {
+		parsed, _ := url.Parse(rawURL)
+		if !NewARDMediathekCollection().Suitable(parsed) {
+			t.Fatalf("collection Suitable(%q) = false", rawURL)
+		}
+		if NewARD().Suitable(parsed) {
+			t.Fatalf("item extractor overlaps collection URL %q", rawURL)
+		}
+	}
+	for _, rawURL := range []string{
+		"https://www.ardmediathek.de/video/title/channel/" + itemID,
+		"https://www.ardmediathek.de/player/" + itemID,
+	} {
+		parsed, _ := url.Parse(rawURL)
+		if NewARDMediathekCollection().Suitable(parsed) {
+			t.Fatalf("collection extractor overlaps item URL %q", rawURL)
+		}
+	}
+}
+
 func TestARDPlaylistIsLazy(t *testing.T) {
 	itemID := "Y3JpZDovL2ZpeHR1cmU"
-	transport := &riskFixtureTransport{handler: func(_ context.Context, request *http.Request) (*http.Response, error) {
+	transport := &ardRiskFixtureTransport{riskFixtureTransport: &riskFixtureTransport{handler: func(_ context.Context, request *http.Request) (*http.Response, error) {
 		if request.URL.Query().Get("pageSize") == "1" {
 			return riskHTTPResponse(http.StatusOK, []byte(`{"title":"Fixture Collection","synopsis":"Synthetic collection","teasers":[]}`)), nil
 		}
@@ -77,8 +116,8 @@ func TestARDPlaylistIsLazy(t *testing.T) {
 			t.Fatalf("playlist query = %s", request.URL.RawQuery)
 		}
 		return riskHTTPResponse(http.StatusOK, []byte(`{"teasers":[{"id":"asset-1","type":"video","longTitle":"Episode One","links":{"target":{"urlId":"EpisodeAsset1"}}},{"id":"collection-2","type":"compilation","longTitle":"Nested","links":{"target":{"urlId":"CollectionAsset2"}}}]}`)), nil
-	}}
-	result, err := NewARD().Extract(context.Background(), Request{URL: "https://www.ardmediathek.de/sendung/fixture/" + itemID, Transport: transport})
+	}}}
+	result, err := NewARDMediathekCollection().Extract(context.Background(), Request{URL: "https://www.ardmediathek.de/sendung/fixture/" + itemID, Transport: transport})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +125,7 @@ func TestARDPlaylistIsLazy(t *testing.T) {
 		t.Fatalf("playlist=%t requests=%d", result.IsPlaylist(), len(transport.requests))
 	}
 	entries, err := CollectEntries(context.Background(), result.Entries, 10)
-	if err != nil || len(entries) != 2 || entries[0].ExtractorKey != "ard" {
+	if err != nil || len(entries) != 2 || entries[0].ExtractorKey != "ard" || entries[1].ExtractorKey != "ard_mediathek_collection" {
 		t.Fatalf("entries=%#v error=%v", entries, err)
 	}
 	if len(transport.requests) != 2 {
@@ -113,9 +152,9 @@ func TestARDFailureCategoriesCancellationAndSecretSafety(t *testing.T) {
 		{"malformed", http.StatusOK, `{"secret":"ard-private-token"} trailing`, ErrInvalidMetadata},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			transport := &riskFixtureTransport{responses: map[string]riskFixtureResponse{
+			transport := &ardRiskFixtureTransport{riskFixtureTransport: &riskFixtureTransport{responses: map[string]riskFixtureResponse{
 				"GET " + endpoint: {status: test.status, body: []byte(test.body)},
-			}}
+			}}}
 			_, err := NewARD().Extract(context.Background(), Request{URL: pageURL, Transport: transport})
 			if !errors.Is(err, test.want) {
 				t.Fatalf("error = %v, want %v", err, test.want)
@@ -127,7 +166,7 @@ func TestARDFailureCategoriesCancellationAndSecretSafety(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := NewARD().Extract(ctx, Request{URL: pageURL, Transport: &riskFixtureTransport{wait: true}}); !errors.Is(err, context.Canceled) {
+	if _, err := NewARD().Extract(ctx, Request{URL: pageURL, Transport: &ardRiskFixtureTransport{riskFixtureTransport: &riskFixtureTransport{wait: true}}}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation error = %v", err)
 	}
 }

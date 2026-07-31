@@ -94,6 +94,7 @@ var representativeExtractorCatalog = []representativeExtractor{
 	{"bbc_co_uk_iplayer_episodes", "https://www.bbc.co.uk/iplayer/episodes/p0000000/fixture", []extractorRiskClass{riskPlaylistAPI, riskRegional}},
 	{"bbc_co_uk_iplayer_group", "https://www.bbc.co.uk/iplayer/group/p0000000", []extractorRiskClass{riskPlaylistAPI, riskRegional}},
 	{"ard", "https://www.ardmediathek.de/player/Y3JpZDovL2ZpeHR1cmU", []extractorRiskClass{riskPlaylistAPI, riskManifestHeavy, riskRegional}},
+	{"ard_mediathek_collection", "https://www.ardmediathek.de/sendung/fixture/Y3JpZDovL2ZpeHR1cmU", []extractorRiskClass{riskPlaylistAPI, riskRegional}},
 	{"ard_audiothek", "https://www.ardaudiothek.de/episode/urn:ard:episode:eabead1add170e93/", []extractorRiskClass{riskPlaylistAPI, riskSimpleDirect, riskRegional}},
 	{"ard_audiothek_playlist", "https://www.ardaudiothek.de/sendung/mia-insomnia/urn:ard:show:c405aa26d9a4060a/", []extractorRiskClass{riskPlaylistAPI, riskRegional}},
 	{"radiofrance", "http://maison.radiofrance.fr/radiovisions/one-one", []extractorRiskClass{riskSimpleDirect}},

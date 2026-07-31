@@ -87,7 +87,7 @@ var riskTokens = []struct {
 var moduleAliases = map[string][]string{
 	"archiveorg":        {"internetarchive"},
 	"applepodcasts":     {"applepodcasts"},
-	"ard":               {"ard", "ard_audiothek"},
+	"ard":               {"ard", "ard_mediathek_collection", "ard_audiothek"},
 	"radiofrance":       {"radiofrance", "franceculture", "radiofrance_live", "radiofrance_podcast", "radiofrance_profile", "radiofrance_program_schedule"},
 	"bbc":               {"bbciplayer"},
 	"svt":               {"region_svt", "region_svt_page"},
@@ -114,6 +114,7 @@ var exactAliases = map[string]string{
 	"SVTPageIE":                    "region_svt",
 	"BBCCoUkIE":                    "bbciplayer",
 	"ARDBetaMediathekIE":           "ard",
+	"ARDMediathekCollectionIE":     "ard_mediathek_collection",
 	"ARDAudiothekIE":               "ard_audiothek",
 	"ARDAudiothekPlaylistIE":       "ard_audiothek_playlist",
 	"FranceCultureIE":              "franceculture",

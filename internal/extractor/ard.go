@@ -1,9 +1,12 @@
 package extractor
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -27,8 +30,8 @@ func NewARD() ARD { return ARD{} }
 func (ARD) Name() string { return "ard" }
 
 func (ARD) Suitable(parsed *url.URL) bool {
-	_, ok := classifyARDURL(parsed)
-	return ok
+	target, ok := classifyARDURL(parsed)
+	return ok && !target.playlist
 }
 
 func (ARD) Extract(ctx context.Context, request Request) (Extraction, error) {
@@ -40,13 +43,40 @@ func (ARD) Extract(ctx context.Context, request Request) (Extraction, error) {
 		return Extraction{}, ErrUnsupported
 	}
 	target, ok := classifyARDURL(parsed)
-	if !ok {
+	if !ok || target.playlist {
 		return Extraction{}, ErrUnsupported
 	}
-	if target.playlist {
-		return extractARDPlaylist(ctx, request.Transport, target, request.URL)
-	}
 	return extractARDItem(ctx, request.Transport, target.id, request.URL)
+}
+
+// ARDMediathekCollection implements the pinned ARDMediathekCollectionIE
+// family. Item/player URLs remain owned by ARD; collection URLs have a
+// distinct key so playlist re-entry cannot accidentally select the item
+// extractor.
+type ARDMediathekCollection struct{}
+
+func NewARDMediathekCollection() ARDMediathekCollection { return ARDMediathekCollection{} }
+
+func (ARDMediathekCollection) Name() string { return "ard_mediathek_collection" }
+
+func (ARDMediathekCollection) Suitable(parsed *url.URL) bool {
+	target, ok := classifyARDURL(parsed)
+	return ok && target.playlist
+}
+
+func (ARDMediathekCollection) Extract(ctx context.Context, request Request) (Extraction, error) {
+	if err := ctx.Err(); err != nil {
+		return Extraction{}, err
+	}
+	parsed, err := url.Parse(request.URL)
+	if err != nil || request.Transport == nil {
+		return Extraction{}, ErrUnsupported
+	}
+	target, ok := classifyARDURL(parsed)
+	if !ok || !target.playlist {
+		return Extraction{}, ErrUnsupported
+	}
+	return extractARDPlaylist(ctx, request.Transport, target, request.URL)
 }
 
 type ardTarget struct {
@@ -166,7 +196,7 @@ type ardMediaCollection struct {
 func extractARDItem(ctx context.Context, transport Transport, displayID, webpageURL string) (Extraction, error) {
 	endpoint := ardPageGatewayBase + "pages/ard/item/" + url.PathEscape(displayID) + "?embedded=false&mcV6=true"
 	var page ardPageData
-	if err := requestRiskJSON(ctx, transport, http.MethodGet, endpoint, nil, make(http.Header), "", &page); err != nil {
+	if err := requestARDJSON(ctx, transport, http.MethodGet, endpoint, nil, &page); err != nil {
 		return Extraction{}, categorizeARDError(err)
 	}
 	if page.GeoBlocked || strings.Contains(strings.ToLower(page.Availability), "geo") {
@@ -235,6 +265,11 @@ func extractARDItem(ctx context.Context, transport Transport, displayID, webpage
 	riskPositiveInt(info, "timestamp", riskTimestamp(meta.BroadcastedOnDateTime))
 	if len(meta.Images) != 0 && validHTTPURL(meta.Images[0].URL) {
 		info.Set("thumbnail", value.String(meta.Images[0].URL))
+		info.Set("thumbnails", value.List(value.ObjectValue(value.NewObject(
+			value.Field{Key: "id", Value: value.String("0")},
+			value.Field{Key: "url", Value: value.String(meta.Images[0].URL)},
+			value.Field{Key: "_credential_isolated", Value: value.Bool(true)},
+		))))
 	}
 	if age, err := strconv.ParseInt(strings.TrimPrefix(strings.ToUpper(page.FSKRating), "FSK"), 10, 64); err == nil {
 		info.Set("age_limit", value.Int(age))
@@ -260,6 +295,7 @@ func normalizeARDMedia(media ardMediaCollection) ([]value.Value, *value.Object) 
 			if !ok {
 				continue
 			}
+			format.Set("_credential_isolated", value.Bool(true))
 			seen[source.URL] = true
 			riskPositiveInt(format, "width", source.MaxHResolutionPx)
 			riskPositiveInt(format, "height", source.MaxVResolutionPx)
@@ -288,7 +324,10 @@ func normalizeARDMedia(media ardMediaCollection) ([]value.Value, *value.Object) 
 				continue
 			}
 			extension := map[string]string{"webvtt": "vtt", "ebutt": "ttml"}[strings.ToLower(source.Kind)]
-			entry := value.NewObject(value.Field{Key: "url", Value: value.String(source.URL)})
+			entry := value.NewObject(
+				value.Field{Key: "url", Value: value.String(source.URL)},
+				value.Field{Key: "_credential_isolated", Value: value.Bool(true)},
+			)
 			riskString(entry, "ext", extension)
 			entries = append(entries, value.ObjectValue(entry))
 		}
@@ -340,6 +379,7 @@ func extractARDPlaylist(ctx context.Context, transport Transport, target ardTarg
 			mode, extractorKey := "video", "ard"
 			if teaser.Type == "compilation" {
 				mode = "sammlung"
+				extractorKey = "ard_mediathek_collection"
 			}
 			entries = append(entries, Entry{URL: "https://www.ardmediathek.de/" + mode + "/" + itemID, ExtractorKey: extractorKey, ID: teaser.ID, Title: teaser.LongTitle})
 		}
@@ -385,10 +425,56 @@ func requestARDPlaylistPage(ctx context.Context, transport Transport, target ard
 	}
 	endpoint := ardPageGatewayBase + apiPath + url.PathEscape(target.id) + "?" + query.Encode()
 	var response ardPlaylistPage
-	if err := requestRiskJSON(ctx, transport, http.MethodGet, endpoint, nil, make(http.Header), "", &response); err != nil {
+	if err := requestARDJSON(ctx, transport, http.MethodGet, endpoint, nil, &response); err != nil {
 		return ardPlaylistPage{}, categorizeARDError(err)
 	}
 	return response, nil
+}
+
+// requestARDJSON keeps public ARD discovery and collection APIs on the
+// credential-isolated no-redirect path. The endpoints are fixed by the
+// extractor, so no ambient page credentials or redirect target may influence
+// the result.
+func requestARDJSON(ctx context.Context, transport Transport, method, rawURL string, body []byte, target any) error {
+	if transport == nil || target == nil {
+		return fmt.Errorf("%w: invalid ARD JSON request", ErrInvalidMetadata)
+	}
+	isolated, ok := transport.(CredentialIsolatedNoRedirectTransport)
+	if !ok {
+		return ErrTransportIsolation
+	}
+	request, err := http.NewRequestWithContext(ctx, method, rawURL, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("%w: invalid ARD JSON request", ErrInvalidMetadata)
+	}
+	request.Header = make(http.Header)
+	response, err := isolated.DoWithoutCredentialsNoRedirect(ctx, request)
+	if err != nil {
+		return err
+	}
+	if response == nil || response.Body == nil {
+		return fmt.Errorf("%w: empty ARD JSON response", ErrInvalidMetadata)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return &HTTPStatusError{Code: response.StatusCode}
+	}
+	data, err := io.ReadAll(io.LimitReader(response.Body, riskExtractorMaxJSONBytes+1))
+	if err != nil {
+		return errors.New("read ARD JSON response failed")
+	}
+	if int64(len(data)) > riskExtractorMaxJSONBytes {
+		return ErrJSONResponseTooLarge
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(target); err != nil {
+		return fmt.Errorf("%w: invalid ARD JSON response", ErrInvalidMetadata)
+	}
+	if err := ensureJSONEOF(decoder); err != nil {
+		return fmt.Errorf("%w: trailing ARD JSON response", ErrInvalidMetadata)
+	}
+	return nil
 }
 
 func categorizeARDError(err error) error {
