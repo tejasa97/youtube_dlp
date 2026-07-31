@@ -36,6 +36,10 @@ type Selection struct {
 	// CredentialIsolated requires isolated no-redirect transport for media
 	// fetches so ambient cookies, authorization, and referer cannot leak.
 	CredentialIsolated bool
+	// CredentialIsolatedReferer is an extractor-validated referer that may be
+	// preserved only by the credential-isolated media transport. It is never
+	// taken from ambient request headers.
+	CredentialIsolatedReferer string
 
 	// YouTubePostLive selects the finite post-live DVR sequence downloader.
 	// The discriminator is extractor-produced and never inferred from a URL.
@@ -211,6 +215,7 @@ func (prepared Prepared) Best() (Selection, error) {
 		selection.YouTubeSABRDrc, _ = object.Lookup("_youtube_sabr_drc").Bool()
 		selection.YouTubeSABRAudioTrackID, _ = object.Lookup("_youtube_sabr_audio_track_id").StringValue()
 		selection.CredentialIsolated, _ = object.Lookup("_credential_isolated").Bool()
+		selection.CredentialIsolatedReferer, _ = object.Lookup("_credential_isolated_referer").StringValue()
 		if selection.YouTubeSABR {
 			selection.Protocol = "youtube_sabr_ump"
 		}

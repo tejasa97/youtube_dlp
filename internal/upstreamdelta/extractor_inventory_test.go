@@ -111,17 +111,19 @@ func TestReconciledExactAliasMappings(t *testing.T) {
 		t.Fatal(err)
 	}
 	reconciled := map[string]string{
-		"BandcampAlbumIE":    "bandcamp",
-		"BrightcoveNewIE":    "brightcove",
-		"DacastVODIE":        "dacast",
-		"ImgurAlbumIE":       "imgur",
-		"ImgurGalleryIE":     "imgur",
-		"KickClipIE":         "kick",
-		"KickVODIE":          "kick",
-		"MixcloudPlaylistIE": "mixcloud",
-		"MixcloudUserIE":     "mixcloud",
-		"RumbleChannelIE":    "rumble",
-		"RumbleEmbedIE":      "rumble",
+		"BandcampAlbumIE":          "bandcamp",
+		"BilibiliCollectionListIE": "bilibili_collection",
+		"BilibiliSeriesListIE":     "bilibili_series",
+		"BrightcoveNewIE":          "brightcove",
+		"DacastVODIE":              "dacast",
+		"ImgurAlbumIE":             "imgur",
+		"ImgurGalleryIE":           "imgur",
+		"KickClipIE":               "kick",
+		"KickVODIE":                "kick",
+		"MixcloudPlaylistIE":       "mixcloud",
+		"MixcloudUserIE":           "mixcloud",
+		"RumbleChannelIE":          "rumble",
+		"RumbleEmbedIE":            "rumble",
 	}
 	for class, wantGo := range reconciled {
 		if got := exactAliases[class]; got != wantGo {

@@ -73,7 +73,7 @@ service response.
 | bandcamp | artist Bandcamp track/album pages, artist discography playlists, and Bandcamp Weekly radio episodes | playlist/API |
 | mixcloud | mixcloud.com cloudcast pages | playlist/API |
 | rumble | rumble.com declared embed/video pages | playlist/API, live |
-| bilibili | bilibili.com video pages | playlist/API, manifest-heavy |
+| bilibili | public bilibili.com video, Player, Dynamic, Bangumi, collections, series, categories, audio, and BiliIntl routes; 13 promoted | playlist/API, manifest-heavy |
 | instagram | instagram.com posts | playlist/API, anti-bot/impersonated |
 | kick | kick.com channels | live, anti-bot/impersonated, manifest-heavy |
 | bbciplayer | bbc.co.uk iPlayer episodes | playlist/API, manifest-heavy, regional |

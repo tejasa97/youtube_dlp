@@ -256,6 +256,9 @@ func (operation *operation) downloadSelection(ctx context.Context, selected medi
 
 func validateCredentialIsolatedDispatch(selections []mediaformat.Selection, external bool) error {
 	for _, selected := range selections {
+		if selected.CredentialIsolatedReferer != "" && !selected.CredentialIsolated {
+			return fmt.Errorf("%w: scoped referer requires credential-isolated media", extractor.ErrTransportIsolation)
+		}
 		if !selected.CredentialIsolated {
 			continue
 		}
@@ -351,7 +354,10 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 		return result.Path, info.Size(), nil
 	}
 
-	mediaTransport := operation.mediaTransport(selected.CredentialIsolated)
+	mediaTransport, err := operation.mediaTransport(selected.CredentialIsolated, selected.CredentialIsolatedReferer)
+	if err != nil {
+		return "", 0, err
+	}
 
 	switch selected.Protocol {
 	case "m3u8_native":
@@ -522,6 +528,11 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 			ThrottleRestarts: options.ThrottleRestarts, FileAttempts: options.FileAttempts,
 		}, sink)
 		if err != nil {
+			if selected.CredentialIsolated {
+				if cleanupErr := cleanupCredentialIsolatedDownload(destination); cleanupErr != nil {
+					return "", 0, errors.Join(err, cleanupErr)
+				}
+			}
 			return "", 0, err
 		}
 		return result.Path, result.Bytes, nil
@@ -534,6 +545,18 @@ func cleanupCredentialIsolatedHLSScratch(destination string) error {
 	}
 	if err := os.Remove(destination + ".part"); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("remove credential-isolated HLS partial output: %w", err)
+	}
+	if err := os.Remove(destination + ".part.json"); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove credential-isolated HLS partial state: %w", err)
+	}
+	return nil
+}
+
+func cleanupCredentialIsolatedDownload(destination string) error {
+	for _, path := range []string{destination + ".part", destination + ".part.json"} {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove credential-isolated partial output: %w", err)
+		}
 	}
 	return nil
 }

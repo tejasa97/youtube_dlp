@@ -110,6 +110,61 @@ func TestCredentialIsolatedHLSManifestAndSegmentRequests(t *testing.T) {
 	assertCredentialHeadersAbsent(t, requests, "/manifest.m3u8", "/segment.ts")
 }
 
+type credentialCancellationBody struct {
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (body *credentialCancellationBody) Read(buffer []byte) (int, error) {
+	body.once.Do(func() { close(body.entered) })
+	<-body.release
+	copy(buffer, []byte("generic-partial"))
+	return len("generic-partial"), nil
+}
+
+func (body *credentialCancellationBody) Close() error { return nil }
+
+func TestCredentialIsolatedDirectCancellationRollsBackPartialArtifacts(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	transport := newCredentialIsolationTestTransport(t, roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"ETag": {`"generic"`}},
+			Body:       &credentialCancellationBody{entered: entered, release: release},
+			Request:    request,
+		}, nil
+	}))
+	root := t.TempDir()
+	destination := filepath.Join(root, "generic.bin")
+	operation := &operation{transport: transport, request: Request{OutputDir: root}}
+	selection := mediaformat.Selection{
+		URL: "https://media.example.invalid/generic.mp4", Ext: "mp4", CredentialIsolated: true,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := operation.downloadSelection(ctx, selection, root, destination, nil)
+		done <- err
+	}()
+	select {
+	case <-entered:
+	case <-ctx.Done():
+		t.Fatal("context canceled before direct body entered")
+	}
+	cancel()
+	close(release)
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancellation error=%v", err)
+	}
+	for _, path := range []string{destination, destination + ".part", destination + ".part.json"} {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("artifact %s remains: %v", path, err)
+		}
+	}
+}
+
 func TestCredentialIsolatedHLSRefusesRedirects(t *testing.T) {
 	var manifestTargetCalls atomic.Int64
 	var segmentTargetCalls atomic.Int64

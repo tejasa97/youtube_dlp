@@ -124,6 +124,8 @@ var exactAliases = map[string]string{
 	"RadioFranceProgramScheduleIE": "radiofrance_program_schedule",
 	"ApplePodcastsIE":              "applepodcasts",
 	"BandcampAlbumIE":              "bandcamp",
+	"BilibiliCollectionListIE":     "bilibili_collection",
+	"BilibiliSeriesListIE":         "bilibili_series",
 	"BrightcoveNewIE":              "brightcove",
 	"CookingChannelIE":             "cookingchannel",
 	"DacastVODIE":                  "dacast",

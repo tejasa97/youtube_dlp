@@ -127,25 +127,25 @@ bibeltv,BibelTVSeriesIE,BibelTVSeries,requires_new_backend,,,,low,no exact Go ma
 bibeltv,BibelTVVideoIE,BibelTVVideo,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 bigo,BigoIE,Bigo,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 bild,BildIE,Bild,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-bilibili,BiliBiliBangumiIE,BiliBiliBangumi,partially_supported,,,login,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
-bilibili,BiliBiliBangumiMediaIE,BiliBiliBangumiMedia,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
-bilibili,BiliBiliBangumiSeasonIE,BiliBiliBangumiSeason,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
-bilibili,BiliBiliDynamicIE,BiliBiliDynamic,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
+bilibili,BiliBiliBangumiIE,BiliBiliBangumi,already_supported,bilibili_bangumi,,login,high,normalized upstream key exactly matches a registered Go extractor
+bilibili,BiliBiliBangumiMediaIE,BiliBiliBangumiMedia,already_supported,bilibili_bangumi_media,,,high,normalized upstream key exactly matches a registered Go extractor
+bilibili,BiliBiliBangumiSeasonIE,BiliBiliBangumiSeason,already_supported,bilibili_bangumi_season,,,high,normalized upstream key exactly matches a registered Go extractor
+bilibili,BiliBiliDynamicIE,BiliBiliDynamic,already_supported,bilibili_dynamic,,,high,normalized upstream key exactly matches a registered Go extractor
 bilibili,BiliBiliIE,BiliBili,already_supported,bilibili,,login,high,normalized upstream key exactly matches a registered Go extractor
-bilibili,BiliBiliPlayerIE,BiliBiliPlayer,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
+bilibili,BiliBiliPlayerIE,BiliBiliPlayer,already_supported,bilibili_player,,,high,normalized upstream key exactly matches a registered Go extractor
 bilibili,BiliBiliSearchIE,BiliBiliSearch,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
-bilibili,BiliIntlIE,BiliIntl,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
-bilibili,BiliIntlSeriesIE,BiliIntlSeries,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
+bilibili,BiliIntlIE,BiliIntl,already_supported,biliintl,,,high,normalized upstream key exactly matches a registered Go extractor
+bilibili,BiliIntlSeriesIE,BiliIntlSeries,already_supported,biliintl_series,,,high,normalized upstream key exactly matches a registered Go extractor
 bilibili,BiliLiveIE,BiliLive,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
-bilibili,BilibiliAudioAlbumIE,BilibiliAudioAlbum,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
-bilibili,BilibiliAudioIE,BilibiliAudio,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
-bilibili,BilibiliCategoryIE,BilibiliCategory,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
+bilibili,BilibiliAudioAlbumIE,BilibiliAudioAlbum,already_supported,bilibili_audio_album,,,high,normalized upstream key exactly matches a registered Go extractor
+bilibili,BilibiliAudioIE,BilibiliAudio,already_supported,bilibili_audio,,,high,normalized upstream key exactly matches a registered Go extractor
+bilibili,BilibiliCategoryIE,BilibiliCategory,already_supported,bilibili_category,,,high,normalized upstream key exactly matches a registered Go extractor
 bilibili,BilibiliCheeseIE,BilibiliCheese,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
 bilibili,BilibiliCheeseSeasonIE,BilibiliCheeseSeason,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
-bilibili,BilibiliCollectionListIE,BilibiliCollectionList,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
+bilibili,BilibiliCollectionListIE,BilibiliCollectionList,already_supported,bilibili_collection,,,high,curated exact mapping to a registered Go extractor
 bilibili,BilibiliFavoritesListIE,BilibiliFavoritesList,partially_supported,,,login,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
 bilibili,BilibiliPlaylistIE,BilibiliPlaylist,partially_supported,,,login,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
-bilibili,BilibiliSeriesListIE,BilibiliSeriesList,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
+bilibili,BilibiliSeriesListIE,BilibiliSeriesList,already_supported,bilibili_series,,,high,curated exact mapping to a registered Go extractor
 bilibili,BilibiliSpaceAudioIE,BilibiliSpaceAudio,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
 bilibili,BilibiliSpaceVideoIE,BilibiliSpaceVideo,partially_supported,,,,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
 bilibili,BilibiliWatchlaterIE,BilibiliWatchlater,partially_supported,,,login,medium,"the Go port implements this upstream site family, but no exact extractor-key mapping is proven"
