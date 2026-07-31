@@ -1,1 +1,33 @@
-{"title":"Fixture Daily","description":"public fixture","duration":12.5,"created_time":1700000000,"poster_url":"https://image.invalid/daily.jpg","owner":{"screenname":"fixture","id":"owner-1"},"qualities":{"720":[{"url":"https://media.invalid/daily.mp4","type":"video/mp4","width":1280,"height":720,"bitrate":2500000}],"auto":[{"url":"https://media.invalid/daily.m3u8","type":"application/x-mpegURL"}]},"subtitles":{"data":{"en":{"urls":["https://media.invalid/daily.vtt"]}}}}
+{
+  "title": "Fixture Daily",
+  "description": "player fallback description",
+  "duration": 12,
+  "created_time": 1700000000,
+  "explicit": false,
+  "tags": ["fixture", "public"],
+  "poster_url": "https://s1.dmcdn.net/v/fixture/x720?sig=poster%2Btoken",
+  "posters": {
+    "360": "https://s1.dmcdn.net/v/fixture/x360?sig=poster-360%2Btoken",
+    "720": "https://s1.dmcdn.net/v/fixture/x720?sig=poster-720%2Btoken"
+  },
+  "thumbnails": {
+    "120": "https://s2.dmcdn.net/v/fixture/x120?sig=thumb-120%2Btoken"
+  },
+  "owner": {"screenname": "Fixture uploader", "id": "xowner1"},
+  "qualities": {
+    "720@60": [{
+      "url": "https://proxy-01.dailymotion.com/video/H264-1280x720-60/video.mp4?auth=direct%2Bsig&token=one#discarded",
+      "type": "video/mp4",
+      "width": 1280,
+      "height": 720,
+      "bitrate": 2500000
+    }],
+    "auto": [{
+      "url": "https://stream-01.dmcdn.net/video/master.m3u8?auth=master%2Bsig&token=two#discarded",
+      "type": "application/x-mpegURL"
+    }]
+  },
+  "subtitles": {"data": {"en": {"urls": [
+    "https://s1.dmcdn.net/subtitles/en.vtt?auth=subtitle%2Bsig&token=three#discarded"
+  ]}}}
+}

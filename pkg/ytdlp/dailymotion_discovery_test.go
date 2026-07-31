@@ -3,6 +3,7 @@ package ytdlp
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -61,17 +62,28 @@ func (rt *dailymotionProductRoundTripper) RoundTrip(request *http.Request) (*htt
 				Request: request,
 			}, nil
 		}
+		if bytes.Contains(body, []byte(`media(xid:`)) {
+			xid := "xfixture"
+			if bytes.Contains(body, []byte(`xmissing`)) {
+				xid = "xmissing"
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK, Header: make(http.Header),
+				Body:    io.NopCloser(strings.NewReader(fmt.Sprintf(`{"data":{"media":{"description":"GraphQL public description","xid":%q,"stats":{"likes":{"total":23},"views":{"total":4567}}}}}`, xid))),
+				Request: request,
+			}, nil
+		}
 		return &http.Response{
 			StatusCode: http.StatusOK, Header: make(http.Header),
 			Body:    io.NopCloser(strings.NewReader(`{"data":{"channel":{"videos":{"edges":[{"node":{"xid":"xfixture","url":"https://www.dailymotion.com/video/xfixture"}}]}}}}`)),
 			Request: request,
 		}, nil
-	case request.URL.String() == "https://www.dailymotion.com/player/metadata/video/xfixture":
+	case request.URL.String() == "https://www.dailymotion.com/player/metadata/video/xfixture?app=com.dailymotion.neon":
 		return &http.Response{
 			StatusCode: http.StatusOK, Header: make(http.Header),
 			Body: io.NopCloser(bytes.NewReader(rt.metadata)), Request: request,
 		}, nil
-	case request.URL.String() == "https://www.dailymotion.com/player/metadata/video/xmissing":
+	case request.URL.String() == "https://www.dailymotion.com/player/metadata/video/xmissing?app=com.dailymotion.neon":
 		return &http.Response{
 			StatusCode: http.StatusNotFound, Header: make(http.Header),
 			Body: io.NopCloser(strings.NewReader(`{}`)), Request: request,

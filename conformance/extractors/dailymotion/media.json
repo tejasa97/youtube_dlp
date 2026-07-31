@@ -1,0 +1,13 @@
+{
+  "data": {
+    "media": {
+      "description": "<p>GraphQL public <b>description</b></p>",
+      "geoblockedCountries": {"allowed": []},
+      "xid": "xfixture",
+      "stats": {
+        "likes": {"total": 23},
+        "views": {"total": 4567}
+      }
+    }
+  }
+}

@@ -338,7 +338,10 @@ func objectSelection(object *value.Object) (Selection, error) {
 	selection.YouTubeSABRAudioTrackID, _ = object.Lookup("_youtube_sabr_audio_track_id").StringValue()
 	selection.CredentialIsolated, _ = object.Lookup("_credential_isolated").Bool()
 	selection.CredentialIsolatedReferer, _ = object.Lookup("_credential_isolated_referer").StringValue()
-	selection.HostPolicy, _ = object.Lookup("_ted_host_policy").StringValue()
+	selection.HostPolicy, _ = object.Lookup("_host_policy").StringValue()
+	if selection.HostPolicy == "" {
+		selection.HostPolicy, _ = object.Lookup("_ted_host_policy").StringValue()
+	}
 	selection.NiconicoScoped, _ = object.Lookup("_niconico_scoped").Bool()
 	var allowedHostsErr error
 	selection.AllowedHosts, allowedHostsErr = readAllowedHosts(object)

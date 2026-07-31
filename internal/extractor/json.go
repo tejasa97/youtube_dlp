@@ -41,6 +41,21 @@ func RequestJSONWithoutCookies(ctx context.Context, transport Transport, method,
 	return requestJSON(ctx, isolated.DoWithoutCookies, method, rawURL, body, headers, target)
 }
 
+// RequestJSONWithoutCredentialsNoRedirect performs a bounded JSON request
+// without ambient credentials, cookies, Referer, response-cookie persistence,
+// or redirect following. Extractors use it for anonymous public APIs whose
+// responses must not inherit operation identity.
+func RequestJSONWithoutCredentialsNoRedirect(ctx context.Context, transport Transport, method, rawURL string, body []byte, headers http.Header, target any) error {
+	if transport == nil {
+		return errors.New("invalid JSON request")
+	}
+	isolated, ok := transport.(CredentialIsolatedNoRedirectTransport)
+	if !ok {
+		return ErrTransportIsolation
+	}
+	return requestJSON(ctx, isolated.DoWithoutCredentialsNoRedirect, method, rawURL, body, headers, target)
+}
+
 // RequestJSONWithScopedAuthorizationNoRedirect performs a bounded JSON request
 // with an extractor-generated Authorization header and no ambient credentials,
 // cookies, cookie persistence, or redirects.

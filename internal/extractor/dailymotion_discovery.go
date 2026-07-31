@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -21,6 +22,7 @@ const (
 	dailymotionTokenEndpoint       = "https://graphql.api.dailymotion.com/oauth/token"
 	dailymotionGraphQLOrigin       = "https://www.dailymotion.com"
 	dailymotionUserPageSize        = 100
+	dailymotionPlaylistPageSize    = 100
 	dailymotionSearchPageSize      = 20
 	dailymotionMaxIdentifierBytes  = 256
 	dailymotionMaxSearchTermBytes  = 512
@@ -29,6 +31,8 @@ const (
 	dailymotionSearchMaxEntries    = 1000
 	dailymotionUserMaxPages        = 100
 	dailymotionUserMaxEntries      = 10_000
+	dailymotionPlaylistMaxPages    = 100
+	dailymotionPlaylistMaxEntries  = 10_000
 	// OAuth client credentials embedded by the pinned yt-dlp
 	// DailymotionBaseInfoExtractor for anonymous client_credentials access.
 	// They are request material, not user secrets, and must never appear in
@@ -90,11 +94,11 @@ func dailymotionDiscoveryURLSafe(parsed *url.URL) bool {
 		return false
 	}
 	escaped := strings.ToLower(parsed.EscapedPath())
-	if !strings.HasPrefix(escaped, "/") || strings.HasPrefix(escaped, "//") || strings.Contains(escaped, "%2f") ||
+	if !strings.HasPrefix(escaped, "/") || strings.HasSuffix(escaped, "/") || strings.HasPrefix(escaped, "//") || strings.Contains(escaped, "//") || strings.Contains(escaped, "%2f") ||
 		strings.Contains(escaped, "%5c") || strings.Contains(escaped, "%00") || strings.Contains(parsed.String(), "\x00") {
 		return false
 	}
-	for _, part := range strings.Split(strings.Trim(escaped, "/"), "/") {
+	for _, part := range strings.Split(strings.TrimPrefix(escaped, "/"), "/") {
 		if part == "" {
 			return false
 		}
@@ -137,6 +141,20 @@ func dailymotionGraphQLString(value string) string {
 	return string(encoded)
 }
 
+func dailymotionGraphQLURLSafe(rawURL string) bool {
+	parsed, err := url.Parse(rawURL)
+	return err == nil && parsed.Scheme == "https" && parsed.Host == "graphql.api.dailymotion.com" &&
+		parsed.Path == "/" && parsed.RawQuery == "" && parsed.Fragment == "" &&
+		parsed.Opaque == "" && parsed.User == nil && parsed.Port() == ""
+}
+
+func requestDailymotionGraphQL(ctx context.Context, transport Transport, body []byte, headers http.Header, target any) error {
+	if !dailymotionGraphQLURLSafe(dailymotionGraphQLEndpoint) {
+		return ErrTransportIsolation
+	}
+	return RequestJSONWithScopedAuthorizationNoRedirect(ctx, transport, http.MethodPost, dailymotionGraphQLEndpoint, body, headers, target)
+}
+
 func (client *dailymotionDiscoveryClient) tokenValue(ctx context.Context, refresh bool) (string, error) {
 	client.mu.Lock()
 	defer client.mu.Unlock()
@@ -167,9 +185,13 @@ func dailymotionAcquireToken(ctx context.Context, transport Transport) (string, 
 	}
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	request.Header.Set("Origin", dailymotionGraphQLOrigin)
+	// An explicit empty value prevents the shared default-header layer from
+	// adding an ambient Referer. Dailymotion's anonymous token policy is Origin
+	// only; the generic scoped-Authorization boundary does not carry Referer.
+	request.Header.Set("Referer", "")
 	response, err := isolated.DoWithoutCredentialsNoRedirect(ctx, request)
 	if err != nil {
-		return "", err
+		return "", categorizeDailymotionError(err)
 	}
 	if response == nil || response.Body == nil {
 		return "", fmt.Errorf("%w: nil token response", ErrDailymotionDiscoveryToken)
@@ -186,7 +208,7 @@ func dailymotionAcquireToken(ctx context.Context, transport Transport) (string, 
 		return "", ErrJSONResponseTooLarge
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return "", categorizeDailymotionDiscoveryError(&HTTPStatusError{Code: response.StatusCode})
+		return "", categorizeDailymotionError(&HTTPStatusError{Code: response.StatusCode})
 	}
 	var payload struct {
 		AccessToken string `json:"access_token"`
@@ -206,9 +228,12 @@ func (client *dailymotionDiscoveryClient) graphQL(ctx context.Context, body []by
 		headers := make(http.Header)
 		headers.Set("Content-Type", "application/json")
 		headers.Set("Origin", dailymotionGraphQLOrigin)
+		// See the token request above: keep this policy explicit at the
+		// Dailymotion call site while preserving main's generic auth seam.
+		headers.Set("Referer", "")
 		headers.Set("Authorization", "Bearer "+token)
 		var payload json.RawMessage
-		err = RequestJSONWithScopedAuthorizationNoRedirect(ctx, client.transport, http.MethodPost, dailymotionGraphQLEndpoint, body, headers, &payload)
+		err = requestDailymotionGraphQL(ctx, client.transport, body, headers, &payload)
 		if err == nil {
 			return payload, nil
 		}
@@ -216,7 +241,7 @@ func (client *dailymotionDiscoveryClient) graphQL(ctx context.Context, body []by
 		if errors.As(err, &status) && status.Code == http.StatusUnauthorized && attempt == 0 {
 			continue
 		}
-		return nil, categorizeDailymotionDiscoveryError(err)
+		return nil, categorizeDailymotionError(err)
 	}
 	return nil, ErrAuthentication
 }
@@ -230,26 +255,22 @@ func dailymotionSearchTarget(parsed *url.URL) (term, canonical string, ok bool) 
 	if !dailymotionDiscoveryURLSafe(parsed) {
 		return "", "", false
 	}
-	parts := strings.Split(strings.Trim(parsed.EscapedPath(), "/"), "/")
+	parts := strings.Split(strings.TrimPrefix(parsed.EscapedPath(), "/"), "/")
 	if len(parts) != 3 || parts[0] != "search" || parts[2] != "videos" {
 		return "", "", false
 	}
-	term, err := url.PathUnescape(parts[1])
+	term, err := url.QueryUnescape(parts[1])
 	if err != nil || !dailymotionValidSearchTerm(term) {
 		return "", "", false
 	}
-	host := parsed.Hostname()
-	if strings.HasPrefix(strings.ToLower(host), "www.") {
-		host = host[4:]
-	}
-	return term, parsed.Scheme + "://" + host + "/search/" + url.PathEscape(term) + "/videos", true
+	return term, parsed.String(), true
 }
 
 func dailymotionUserTarget(parsed *url.URL) (string, string, bool) {
 	if !dailymotionDiscoveryURLSafe(parsed) {
 		return "", "", false
 	}
-	parts := strings.Split(strings.Trim(parsed.EscapedPath(), "/"), "/")
+	parts := strings.Split(strings.TrimPrefix(parsed.EscapedPath(), "/"), "/")
 	var id string
 	var err error
 	switch len(parts) {
@@ -270,18 +291,45 @@ func dailymotionUserTarget(parsed *url.URL) (string, string, bool) {
 	default:
 		return "", "", false
 	}
-	if err != nil || !dailymotionValidIdentifier(id) {
+	if err != nil || strings.Contains(parsed.EscapedPath(), "%") || !dailymotionValidIdentifier(id) {
 		return "", "", false
 	}
 	if _, reserved := dailymotionReservedUserSegments[strings.ToLower(id)]; reserved {
 		return "", "", false
 	}
-	host := parsed.Hostname()
-	if strings.HasPrefix(strings.ToLower(host), "www.") {
-		host = host[4:]
+	return id, parsed.String(), true
+}
+
+func dailymotionPlaylistTarget(parsed *url.URL) (string, string, bool) {
+	if !dailymotionBaseURLSafe(parsed) || parsed.RawQuery != "" || !dailymotionLocalizedHostOK(strings.ToLower(parsed.Hostname()), "", "www") {
+		return "", "", false
 	}
-	canonical := parsed.Scheme + "://" + host + "/" + url.PathEscape(id)
-	return id, canonical, true
+	parts, ok := dailymotionLiteralPathParts(parsed.EscapedPath())
+	if !ok || (len(parts) != 2 && len(parts) != 3) || parts[0] != "playlist" {
+		return "", "", false
+	}
+	identity := strings.SplitN(parts[1], "_", 2)
+	if !dailymotionPlaylistID.MatchString(identity[0]) || (len(identity) == 2 && !dailymotionVideoSlug.MatchString(identity[1])) {
+		return "", "", false
+	}
+	if len(parts) == 3 {
+		if len(parts[2]) > 9 {
+			return "", "", false
+		}
+		if _, err := strconv.ParseUint(parts[2], 10, 31); err != nil {
+			return "", "", false
+		}
+	}
+	if parsed.RawFragment != "" {
+		return "", "", false
+	}
+	if parsed.Fragment != "" {
+		fragment, err := url.ParseQuery(parsed.Fragment)
+		if err != nil || len(fragment) != 1 || len(fragment["video"]) != 1 || !dailymotionID.MatchString(fragment["video"][0]) {
+			return "", "", false
+		}
+	}
+	return identity[0], parsed.String(), true
 }
 
 func dailymotionValidateNodeURL(rawURL, xid string) error {
@@ -295,7 +343,7 @@ func dailymotionValidateNodeURL(rawURL, xid string) error {
 	if parsed.Scheme != "https" || parsed.User != nil || parsed.Port() != "" || parsed.Fragment != "" || parsed.RawQuery != "" {
 		return fmt.Errorf("%w: invalid Dailymotion node URL", ErrInvalidMetadata)
 	}
-	if !dailymotionDiscoveryHostOK(parsed.Hostname()) {
+	if !strings.EqualFold(parsed.Hostname(), "www.dailymotion.com") {
 		return fmt.Errorf("%w: invalid Dailymotion node URL", ErrInvalidMetadata)
 	}
 	parts := strings.Split(strings.Trim(parsed.EscapedPath(), "/"), "/")
@@ -510,6 +558,41 @@ func dailymotionParseUserNodes(raw []byte) ([]dailymotionGraphNode, error) {
 	return nodes, nil
 }
 
+func dailymotionParseCollectionNodes(raw []byte) ([]dailymotionGraphNode, error) {
+	if dailymotionGraphQLErrorsPresent(raw) {
+		return nil, ErrUnavailable
+	}
+	var envelope struct {
+		Data *struct {
+			Collection *struct {
+				Videos *struct {
+					Edges json.RawMessage `json:"edges"`
+				} `json:"videos"`
+			} `json:"collection"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return nil, fmt.Errorf("%w: malformed Dailymotion collection response", ErrInvalidMetadata)
+	}
+	if envelope.Data == nil || envelope.Data.Collection == nil || envelope.Data.Collection.Videos == nil {
+		return nil, fmt.Errorf("%w: missing Dailymotion collection envelope", ErrInvalidMetadata)
+	}
+	if envelope.Data.Collection.Videos.Edges == nil || string(envelope.Data.Collection.Videos.Edges) == "null" {
+		return nil, fmt.Errorf("%w: null Dailymotion collection edges", ErrInvalidMetadata)
+	}
+	var edges []struct {
+		Node dailymotionGraphNode `json:"node"`
+	}
+	if err := json.Unmarshal(envelope.Data.Collection.Videos.Edges, &edges); err != nil {
+		return nil, fmt.Errorf("%w: malformed Dailymotion collection edges", ErrInvalidMetadata)
+	}
+	nodes := make([]dailymotionGraphNode, len(edges))
+	for index, edge := range edges {
+		nodes[index] = edge.Node
+	}
+	return nodes, nil
+}
+
 func dailymotionNodesToEntries(nodes []dailymotionGraphNode, requireURL bool) ([]Entry, error) {
 	entries := make([]Entry, 0, len(nodes))
 	for _, node := range nodes {
@@ -525,19 +608,79 @@ func dailymotionNodesToEntries(nodes []dailymotionGraphNode, requireURL bool) ([
 	return entries, nil
 }
 
-func categorizeDailymotionDiscoveryError(err error) error {
-	var status *HTTPStatusError
-	if errors.As(err, &status) {
-		switch status.Code {
-		case http.StatusUnauthorized, http.StatusForbidden:
-			return ErrAuthentication
-		case http.StatusNotFound, http.StatusGone:
-			return ErrUnavailable
-		case http.StatusUnavailableForLegalReasons:
-			return ErrRegionRestricted
-		}
+func categorizeDailymotionDiscoveryError(err error) error { return categorizeDailymotionError(err) }
+
+// DailymotionPlaylist implements pinned public collection pagination.
+type DailymotionPlaylist struct{}
+
+func NewDailymotionPlaylist() DailymotionPlaylist { return DailymotionPlaylist{} }
+func (DailymotionPlaylist) Name() string          { return "dailymotion_playlist" }
+
+func (DailymotionPlaylist) Suitable(parsed *url.URL) bool {
+	_, _, ok := dailymotionPlaylistTarget(parsed)
+	return ok
+}
+
+func (extractor DailymotionPlaylist) Extract(ctx context.Context, request Request) (Extraction, error) {
+	if err := contextError(ctx); err != nil {
+		return Extraction{}, err
 	}
-	return err
+	if request.Transport == nil {
+		return Extraction{}, ErrUnsupported
+	}
+	parsed, err := url.Parse(request.URL)
+	if err != nil {
+		return Extraction{}, ErrUnsupported
+	}
+	playlistID, webpage, ok := dailymotionPlaylistTarget(parsed)
+	if !ok {
+		return Extraction{}, ErrUnsupported
+	}
+	client := newDailymotionDiscoveryClient(request.Transport)
+	sequence, err := newDailymotionDiscoverySequence(dailymotionPlaylistPageSize, dailymotionPlaylistMaxPages, dailymotionPlaylistMaxEntries,
+		func(ctx context.Context, page int) ([]Entry, bool, error) {
+			return extractor.fetchPlaylistPage(ctx, client, playlistID, page)
+		})
+	if err != nil {
+		return Extraction{}, err
+	}
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String(playlistID)},
+		value.Field{Key: "webpage_url", Value: value.String(webpage)},
+	))
+	return Playlist(info, sequence)
+}
+
+func (DailymotionPlaylist) fetchPlaylistPage(ctx context.Context, client *dailymotionDiscoveryClient, playlistID string, page int) ([]Entry, bool, error) {
+	query := fmt.Sprintf(`{
+  collection(xid: %s) {
+    videos(allowExplicit: true, first: %d, page: %d) {
+      edges {
+        node {
+          xid
+          url
+        }
+      }
+    }
+  }
+}`, dailymotionGraphQLString(playlistID), dailymotionPlaylistPageSize, page)
+	body, err := json.Marshal(map[string]string{"query": query})
+	if err != nil {
+		return nil, false, fmt.Errorf("%w: encode Dailymotion playlist request", ErrInvalidMetadata)
+	}
+	raw, err := client.graphQL(ctx, body)
+	if err != nil {
+		return nil, false, err
+	}
+	nodes, err := dailymotionParseCollectionNodes(raw)
+	if err != nil {
+		return nil, false, err
+	}
+	entries, err := dailymotionNodesToEntries(nodes, true)
+	if err != nil {
+		return nil, false, err
+	}
+	return entries, len(entries) < dailymotionPlaylistPageSize, nil
 }
 
 // DailymotionSearch implements public Dailymotion search result playlists.

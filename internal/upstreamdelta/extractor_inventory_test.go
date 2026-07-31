@@ -216,7 +216,7 @@ func TestResidualAdapterExactAliasesRemainConservative(t *testing.T) {
 	}
 }
 
-func TestReviewedInventoryPreservesCustomRationales(t *testing.T) {
+func TestReviewedInventoryPromotesCompletedDailymotionPlaylist(t *testing.T) {
 	goIDs, goModules, err := parseGoExtractorInventory(filepath.Join("..", "..", "internal", "extractor"))
 	if err != nil {
 		t.Fatal(err)
@@ -226,7 +226,7 @@ func TestReviewedInventoryPreservesCustomRationales(t *testing.T) {
 		class  string
 		status string
 	}{
-		{"dailymotion", "DailymotionPlaylistIE", ExtractorPartiallySupported},
+		{"dailymotion", "DailymotionPlaylistIE", ExtractorAlreadySupported},
 		{"nhk", "NhkVodIE", ExtractorAlreadySupported},
 		{"prx", "PRXSeriesSearchIE", ExtractorAlreadySupported},
 	}
@@ -236,6 +236,9 @@ func TestReviewedInventoryPreservesCustomRationales(t *testing.T) {
 			t.Fatalf("%s status=%q want %q", test.class, entry.Status, test.status)
 		}
 		want := reviewedInventory[test.class].rationale
+		if want == "" {
+			want = "normalized upstream key exactly matches a registered Go extractor"
+		}
 		if entry.Rationale != want {
 			t.Fatalf("%s rationale=%q want %q", test.class, entry.Rationale, want)
 		}

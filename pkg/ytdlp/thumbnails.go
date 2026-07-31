@@ -172,7 +172,7 @@ func selectThumbnails(info *value.Info) ([]thumbnailTrack, error) {
 		}
 		metadata := object.Clone()
 		isolated, _ := object.Lookup("_credential_isolated").Bool()
-		policy, _ := object.Lookup("_ted_host_policy").StringValue()
+		policy := extractorHostPolicy(object)
 		id := thumbnailOriginalID(metadata.Lookup("id"))
 		metadata.Set("ext", value.String(extension))
 		tracks = append(tracks, thumbnailTrack{
@@ -301,6 +301,8 @@ func (operation *operation) writeThumbnails(ctx context.Context, info *value.Inf
 			switch track.hostPolicy {
 			case "ted":
 				downloadTransport = newTedCredentialIsolatedTransport(operation.transport, "thumbnail")
+			case "dailymotion":
+				downloadTransport = newDailymotionCredentialIsolatedTransport(operation.transport, "thumbnail")
 			case "":
 				downloadTransport = newCredentialIsolatedTransport(operation.transport)
 			default:

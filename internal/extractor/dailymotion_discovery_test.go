@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"reflect"
 	"strings"
 	"sync"
@@ -25,6 +26,10 @@ type dailymotionDiscoveryFixtureTransport struct {
 	graphQLReqs    []*http.Request
 	searchPages    map[int][]byte
 	userPages      map[int][]byte
+	playlistPages  map[int][]byte
+	mediaBody      []byte
+	metadataBodies map[string][]byte
+	metadataStatus map[string]int
 	tokenBody      []byte
 	failToken      bool
 	failGraphQL    int
@@ -48,6 +53,14 @@ func dailymotionDiscoveryFixture(t testing.TB) *dailymotionDiscoveryFixtureTrans
 		tokenBody:   readDailymotionDiscoveryFixture(t, "token.json"),
 		searchPages: map[int][]byte{1: readDailymotionDiscoveryFixture(t, "search_page1.json"), 2: readDailymotionDiscoveryFixture(t, "search_page2.json")},
 		userPages:   map[int][]byte{1: readDailymotionDiscoveryFixture(t, "user_page1.json"), 2: readDailymotionDiscoveryFixture(t, "user_page2.json")},
+		playlistPages: map[int][]byte{
+			1: readDailymotionDiscoveryFixture(t, "playlist_page1.json"),
+		},
+		mediaBody: readDailymotionDiscoveryFixture(t, "media.json"),
+		metadataBodies: map[string][]byte{
+			"xfixture": readPublicFixture(t, "dailymotion", "success.json"),
+		},
+		metadataStatus: make(map[string]int),
 	}
 }
 
@@ -60,6 +73,24 @@ func (transport *dailymotionDiscoveryFixtureTransport) ReadPage(context.Context,
 }
 
 func (transport *dailymotionDiscoveryFixtureTransport) DoWithoutCredentialsNoRedirect(_ context.Context, request *http.Request) (*http.Response, error) {
+	for _, header := range []string{"Authorization", "Cookie", "Proxy-Authorization", "Referer"} {
+		if request.Header.Get(header) != "" {
+			return publicExtractorResponse(http.StatusBadRequest, nil), nil
+		}
+	}
+	if strings.HasPrefix(request.URL.String(), "https://www.dailymotion.com/player/metadata/video/") && request.Method == http.MethodGet {
+		if request.URL.Query().Get("app") != "com.dailymotion.neon" || len(request.URL.Query()) != 1 {
+			return publicExtractorResponse(http.StatusBadRequest, nil), nil
+		}
+		id := path.Base(request.URL.Path)
+		if status := transport.metadataStatus[id]; status != 0 {
+			return publicExtractorResponse(status, transport.metadataBodies[id]), nil
+		}
+		if body, ok := transport.metadataBodies[id]; ok {
+			return publicExtractorResponse(http.StatusOK, body), nil
+		}
+		return publicExtractorResponse(http.StatusNotFound, nil), nil
+	}
 	transport.mu.Lock()
 	transport.tokenCalls++
 	bodyBytes, _ := io.ReadAll(request.Body)
@@ -74,11 +105,6 @@ func (transport *dailymotionDiscoveryFixtureTransport) DoWithoutCredentialsNoRed
 	}
 	if request.Header.Get("Origin") != dailymotionGraphQLOrigin {
 		return publicExtractorResponse(http.StatusBadRequest, []byte(`{"error":"origin"}`)), nil
-	}
-	for _, header := range []string{"Authorization", "Cookie", "Proxy-Authorization"} {
-		if request.Header.Get(header) != "" {
-			return publicExtractorResponse(http.StatusBadRequest, nil), nil
-		}
 	}
 	if transport.failToken {
 		return publicExtractorResponse(http.StatusUnauthorized, []byte(`{"error_description":"denied"}`)), nil
@@ -96,7 +122,7 @@ func (transport *dailymotionDiscoveryFixtureTransport) DoWithScopedAuthorization
 	if !strings.HasPrefix(request.Header.Get("Authorization"), "Bearer ") {
 		return publicExtractorResponse(http.StatusUnauthorized, nil), nil
 	}
-	for _, header := range []string{"Cookie", "Proxy-Authorization"} {
+	for _, header := range []string{"Cookie", "Proxy-Authorization", "Referer"} {
 		if request.Header.Get(header) != "" {
 			return publicExtractorResponse(http.StatusBadRequest, nil), nil
 		}
@@ -142,15 +168,18 @@ func (transport *dailymotionDiscoveryFixtureTransport) DoWithScopedAuthorization
 		}
 		return publicExtractorResponse(http.StatusOK, []byte(`{"data":{"search":{"videos":{"edges":[]}}}}`)), nil
 	}
-	if strings.Contains(payload.Query, "channel(xid:") {
-		page := 1
-		if idx := strings.LastIndex(payload.Query, "page: "); idx >= 0 {
-			var parsedPage int
-			_, _ = fmt.Sscanf(payload.Query[idx:], "page: %d", &parsedPage)
-			if parsedPage > 0 {
-				page = parsedPage
-			}
+	if strings.Contains(payload.Query, "media(xid:") {
+		return publicExtractorResponse(http.StatusOK, transport.mediaBody), nil
+	}
+	if strings.Contains(payload.Query, "collection(xid:") {
+		page := dailymotionFixtureQueryPage(payload.Query)
+		if fixture, ok := transport.playlistPages[page]; ok {
+			return publicExtractorResponse(http.StatusOK, fixture), nil
 		}
+		return publicExtractorResponse(http.StatusOK, []byte(`{"data":{"collection":{"videos":{"edges":[]}}}}`)), nil
+	}
+	if strings.Contains(payload.Query, "channel(xid:") {
+		page := dailymotionFixtureQueryPage(payload.Query)
 		if fixture, ok := transport.userPages[page]; ok {
 			return publicExtractorResponse(http.StatusOK, fixture), nil
 		}
@@ -159,13 +188,25 @@ func (transport *dailymotionDiscoveryFixtureTransport) DoWithScopedAuthorization
 	return publicExtractorResponse(http.StatusBadRequest, []byte(`{"errors":[{"message":"unknown"}]}`)), nil
 }
 
+func dailymotionFixtureQueryPage(query string) int {
+	page := 1
+	if index := strings.LastIndex(query, "page: "); index >= 0 {
+		var parsed int
+		_, _ = fmt.Sscanf(query[index:], "page: %d", &parsed)
+		if parsed > 0 {
+			page = parsed
+		}
+	}
+	return page
+}
+
 var (
 	_ CredentialIsolatedNoRedirectTransport  = (*dailymotionDiscoveryFixtureTransport)(nil)
 	_ ScopedAuthorizationNoRedirectTransport = (*dailymotionDiscoveryFixtureTransport)(nil)
 )
 
 func TestDailymotionDiscoveryRoutePrecedence(t *testing.T) {
-	registry := NewRegistry(NewDailymotionSearch(), NewDailymotionUser(), NewDailymotion())
+	registry := NewRegistry(NewDailymotionPlaylist(), NewDailymotionSearch(), NewDailymotionUser(), NewDailymotion())
 	for raw, want := range map[string]string{
 		"https://www.dailymotion.com/search/king%20of%20turtles/videos": "dailymotion_search",
 		"https://www.dailymotion.com/user/nqtv":                         "dailymotion_user",
@@ -175,13 +216,72 @@ func TestDailymotionDiscoveryRoutePrecedence(t *testing.T) {
 		"https://dailymotion.de/user/channel":                           "dailymotion_user",
 		"https://www.dailymotion.co/search/query/videos":                "dailymotion_search",
 		"https://www.dailymotion.com/video/xfixture":                    "dailymotion",
-		"https://www.dailymotion.com/playlist/xfixture":                 "dailymotion",
+		"https://www.dailymotion.com/playlist/xfixture":                 "dailymotion_playlist",
 		"https://dai.ly/xfixture":                                       "dailymotion",
 	} {
 		selected, err := registry.Select(raw)
 		if err != nil || selected.Name() != want {
 			t.Fatalf("Select(%q) = %v err=%v want %q", raw, selected, err, want)
 		}
+	}
+}
+
+func TestDailymotionPlaylistLazyReusablePaginationAndContract(t *testing.T) {
+	transport := dailymotionDiscoveryFixture(t)
+	result, err := NewDailymotionPlaylist().Extract(context.Background(), Request{
+		URL: "https://www.dailymotion.com/playlist/xfixture_fixture-list/1#video=xfixture", Transport: transport,
+	})
+	if err != nil || !result.IsPlaylist() {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	if transport.tokenCalls != 0 || len(transport.graphQLBodies) != 0 {
+		t.Fatalf("playlist fetched eagerly: token=%d graphql=%d", transport.tokenCalls, len(transport.graphQLBodies))
+	}
+	for iteration := 0; iteration < 2; iteration++ {
+		entries, err := CollectEntries(context.Background(), result.Entries, dailymotionPlaylistMaxEntries)
+		if err != nil || len(entries) != 2 || entries[0].ID != "xplaylist01" || entries[1].ID != "xplaylist02" {
+			t.Fatalf("iteration=%d entries=%#v err=%v", iteration, entries, err)
+		}
+	}
+	if transport.tokenCalls != 1 || len(transport.graphQLBodies) != 2 {
+		t.Fatalf("token=%d graphql=%d", transport.tokenCalls, len(transport.graphQLBodies))
+	}
+	var payload struct {
+		Query string `json:"query"`
+	}
+	if err := json.Unmarshal(transport.graphQLBodies[0], &payload); err != nil ||
+		!strings.Contains(payload.Query, `collection(xid: "xfixture")`) ||
+		!strings.Contains(payload.Query, "videos(allowExplicit: true, first: 100, page: 1)") {
+		t.Fatalf("payload=%s err=%v", transport.graphQLBodies[0], err)
+	}
+	if _, ok := result.Info.Lookup("title").StringValue(); ok {
+		t.Fatal("playlist extractor invented a title")
+	}
+}
+
+func TestDailymotionPlaylistMalformedAndCancellation(t *testing.T) {
+	transport := dailymotionDiscoveryFixture(t)
+	transport.playlistPages[1] = []byte(`{"data":{"collection":{"videos":{"edges":[{"node":{"xid":"xbad","url":"https://evil.invalid/video/xbad"}}]}}}}`)
+	result, err := NewDailymotionPlaylist().Extract(context.Background(), Request{
+		URL: "https://www.dailymotion.com/playlist/xfixture", Transport: transport,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CollectEntries(context.Background(), result.Entries, dailymotionPlaylistMaxEntries); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("malformed=%v", err)
+	}
+	transport = dailymotionDiscoveryFixture(t)
+	result, err = NewDailymotionPlaylist().Extract(context.Background(), Request{
+		URL: "https://www.dailymotion.com/playlist/xfixture", Transport: transport,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, _, err := result.Entries.Iterator().Next(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancel=%v", err)
 	}
 }
 
@@ -241,6 +341,9 @@ func TestDailymotionDiscoveryTokenRequestShape(t *testing.T) {
 	if req.Header.Get("Content-Type") != "application/x-www-form-urlencoded" || req.Header.Get("Origin") != dailymotionGraphQLOrigin {
 		t.Fatalf("headers=%v", req.Header)
 	}
+	if req.Header.Get("Referer") != "" {
+		t.Fatalf("token Referer=%q, want no Referer", req.Header.Get("Referer"))
+	}
 	body, _ := io.ReadAll(req.Body)
 	values, _ := url.ParseQuery(string(body))
 	if len(transport.tokenForms) > 0 {
@@ -274,6 +377,9 @@ func TestDailymotionDiscoveryGraphQLRequestShape(t *testing.T) {
 	if req.Header.Get("Content-Type") != "application/json" || req.Header.Get("Origin") != dailymotionGraphQLOrigin {
 		t.Fatalf("headers=%v", req.Header)
 	}
+	if req.Header.Get("Referer") != "" {
+		t.Fatalf("GraphQL Referer=%q, want no Referer", req.Header.Get("Referer"))
+	}
 	if !strings.HasPrefix(req.Header.Get("Authorization"), "Bearer fixture-") {
 		t.Fatalf("authorization=%q", req.Header.Get("Authorization"))
 	}
@@ -291,6 +397,24 @@ func TestDailymotionDiscoveryGraphQLRequestShape(t *testing.T) {
 	if payload.OperationName != "SEARCH_QUERY" || payload.Variables.Query != "king of turtles" ||
 		payload.Variables.Page != 1 || payload.Variables.Limit != dailymotionSearchPageSize {
 		t.Fatalf("payload=%#v", payload)
+	}
+}
+
+func TestDailymotionGraphQLURLPolicy(t *testing.T) {
+	for _, test := range []struct {
+		rawURL string
+		want   bool
+	}{
+		{rawURL: dailymotionGraphQLEndpoint, want: true},
+		{rawURL: "https://graphql.api.dailymotion.com.evil.invalid/", want: false},
+		{rawURL: "https://graphql.api.dailymotion.com:443/", want: false},
+		{rawURL: "http://graphql.api.dailymotion.com/", want: false},
+		{rawURL: "https://graphql.api.dailymotion.com/graphql", want: false},
+		{rawURL: "https://graphql.api.dailymotion.com/?token=secret", want: false},
+	} {
+		if got := dailymotionGraphQLURLSafe(test.rawURL); got != test.want {
+			t.Fatalf("dailymotionGraphQLURLSafe(%q)=%t want %t", test.rawURL, got, test.want)
+		}
 	}
 }
 

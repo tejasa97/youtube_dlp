@@ -3,7 +3,8 @@
 These deterministic, synthetic, license-safe fixtures model the public
 `graphql.api.dailymotion.com` collection shapes used by the pinned yt-dlp
 reference at `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`, specifically
-`DailymotionBaseInfoExtractor`, `DailymotionSearchIE`, and `DailymotionUserIE`
+`DailymotionBaseInfoExtractor`, `DailymotionPlaylistIE`,
+`DailymotionSearchIE`, and `DailymotionUserIE`
 in `yt_dlp/extractor/dailymotion.py` (lines 26–99 and 541 onward).
 
 `token.json` models the anonymous `client_credentials` OAuth response from
@@ -11,11 +12,14 @@ in `yt_dlp/extractor/dailymotion.py` (lines 26–99 and 541 onward).
 OAuth client credential pair embedded by that upstream class; it is request
 material rather than a user secret and never appears in diagnostics.
 
-`search_page*.json` and `user_page*.json` model the `SEARCH_QUERY` operation
-and `channel(...).videos(...)` pagination envelopes. `search_page1_bad_edge.json`
-is a full 20-entry page with one malformed node to prove fail-closed pagination.
-All IDs, text, and URLs were independently authored. No production code reads
-this directory.
+`playlist_page1.json`, `search_page*.json`, and `user_page*.json` model the
+`collection(...).videos(...)`, `SEARCH_QUERY`, and
+`channel(...).videos(...)` pagination envelopes. `search_page1_bad_edge.json`
+is a full 20-entry page with one malformed node to prove fail-closed
+pagination. `media.json` models the public media GraphQL fragment, while
+`master.m3u8`, `720.m3u8`, and `en.vtt` are minimal signed-query playback and
+subtitle fixtures used by product-level isolation tests. All IDs, text, and
+URLs were independently authored. No production code reads this directory.
 
 Deliberate hardening beyond the reference: exact-origin credential-isolated
 token acquisition, scoped Authorization GraphQL POSTs with no redirects,

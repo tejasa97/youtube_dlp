@@ -634,6 +634,7 @@ func (client *Client) productRegistry() *extractor.Registry {
 		extractor.NewJWPlatform(),
 		extractor.NewWistia(),
 		extractor.NewSproutVideo(),
+		extractor.NewDailymotionPlaylist(),
 		extractor.NewDailymotionSearch(),
 		extractor.NewDailymotionUser(),
 		extractor.NewDailymotion(),

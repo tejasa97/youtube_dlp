@@ -171,7 +171,7 @@ func selectSubtitles(info value.Info, options SubtitleOptions) ([]subtitleTrack,
 				metadata := object.Clone()
 				metadata.Set("ext", value.String(extension))
 				metadata.Set("_auto", value.Bool(automatic))
-				policy, _ := object.Lookup("_ted_host_policy").StringValue()
+				policy := extractorHostPolicy(object)
 				tracks = append(tracks, subtitleTrack{
 					language: language, extension: extension, rawURL: rawURL,
 					hostPolicy: policy,
@@ -404,6 +404,8 @@ func (operation *operation) downloadSubtitles(ctx context.Context, info value.In
 		switch track.hostPolicy {
 		case "ted":
 			isolatedTransport = newTedCredentialIsolatedTransport(operation.transport, "subtitle")
+		case "dailymotion":
+			isolatedTransport = newDailymotionCredentialIsolatedTransport(operation.transport, "subtitle")
 		case "":
 		default:
 			isolatedTransport = newTedCredentialIsolatedTransport(operation.transport, "")
