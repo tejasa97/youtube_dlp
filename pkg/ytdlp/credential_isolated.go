@@ -6,11 +6,109 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 
 	"github.com/ytdlp-go/ytdlp/internal/extractor"
+	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
 	"github.com/ytdlp-go/ytdlp/internal/network"
 )
+
+type tedCredentialIsolatedTransport struct {
+	ambient *network.Client
+	role    string
+}
+
+func newTedCredentialIsolatedTransport(ambient *network.Client, role string) *tedCredentialIsolatedTransport {
+	if ambient == nil {
+		return nil
+	}
+	return &tedCredentialIsolatedTransport{ambient: ambient, role: role}
+}
+
+func (transport *tedCredentialIsolatedTransport) allowed(rawURL string) bool {
+	if transport == nil {
+		return false
+	}
+	role := transport.role
+	if role == "playback" {
+		parsed, err := url.Parse(rawURL)
+		if err != nil {
+			return false
+		}
+		// HLS manifests and variant playlists retain the manifest allowlist;
+		// every other playback request is an HLS segment. Direct media uses the
+		// separate media role, so the HLS boundary cannot broaden it.
+		if strings.EqualFold(path.Ext(parsed.Path), ".m3u8") {
+			role = "manifest"
+		} else {
+			role = "segment"
+		}
+	}
+	return extractor.TedAttributableURL(rawURL, role)
+}
+
+func validateHostPolicyDispatch(selections []mediaformat.Selection) error {
+	for _, selected := range selections {
+		switch selected.HostPolicy {
+		case "":
+			continue
+		case "ted":
+			if selected.CredentialIsolated {
+				continue
+			}
+			return fmt.Errorf("%w: TED host policy requires credential-isolated dispatch", extractor.ErrTransportIsolation)
+		default:
+			return fmt.Errorf("%w: unknown host policy", extractor.ErrUnavailable)
+		}
+	}
+	return nil
+}
+
+func (transport *tedCredentialIsolatedTransport) DoWithoutCredentialsNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
+	if request == nil || request.URL == nil || !transport.allowed(request.URL.String()) {
+		return nil, fmt.Errorf("%w: TED attributable host policy", extractor.ErrUnavailable)
+	}
+	cloned := request.Clone(ctx)
+	for _, key := range []string{"Authorization", "Cookie", "Proxy-Authorization", "Referer"} {
+		cloned.Header.Del(key)
+	}
+	return transport.ambient.DoWithoutCredentialsNoRedirect(ctx, cloned)
+}
+
+func (transport *tedCredentialIsolatedTransport) Do(ctx context.Context, request *http.Request) (*http.Response, error) {
+	return transport.DoWithoutCredentialsNoRedirect(ctx, request)
+}
+
+func (transport *tedCredentialIsolatedTransport) ReadPage(ctx context.Context, rawURL string) ([]byte, http.Header, error) {
+	if !transport.allowed(rawURL) {
+		return nil, nil, fmt.Errorf("%w: TED attributable host policy", extractor.ErrUnavailable)
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	response, err := transport.DoWithoutCredentialsNoRedirect(ctx, request)
+	if err != nil {
+		return nil, nil, err
+	}
+	if response == nil || response.Body == nil {
+		return nil, nil, fmt.Errorf("%w: empty TED response", extractor.ErrTedNetwork)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return nil, nil, extractor.TedStatusError(response.StatusCode)
+	}
+	const maxTEDReadPageBytes = 8 << 20
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxTEDReadPageBytes+1))
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(body) > maxTEDReadPageBytes {
+		return nil, nil, extractor.ErrJSONResponseTooLarge
+	}
+	return body, response.Header.Clone(), nil
+}
 
 // credentialIsolatedTransport delegates to DoWithoutCredentialsNoRedirect after
 // stripping ambient Referer. The network client removes cookies,
@@ -84,7 +182,20 @@ func (transport *credentialIsolatedTransport) ReadPage(ctx context.Context, rawU
 	return data, response.Header.Clone(), nil
 }
 
-func (operation *operation) mediaTransport(credentialIsolated bool, referer string) (any, error) {
+func (operation *operation) mediaTransport(credentialIsolated bool, referer, hostPolicy, protocol string) (any, error) {
+	if hostPolicy != "" {
+		if referer != "" {
+			return nil, fmt.Errorf("%w: scoped referer cannot be combined with host policy", extractor.ErrTransportIsolation)
+		}
+		if hostPolicy == "ted" && credentialIsolated {
+			role := "media"
+			if protocol == "m3u8_native" {
+				role = "playback"
+			}
+			return newTedCredentialIsolatedTransport(operation.transport, role), nil
+		}
+		return nil, fmt.Errorf("%w: unknown or inconsistent host policy", extractor.ErrTransportIsolation)
+	}
 	if !credentialIsolated {
 		if referer != "" {
 			return nil, fmt.Errorf("%w: scoped referer requires credential isolation", extractor.ErrTransportIsolation)

@@ -40,6 +40,10 @@ type Selection struct {
 	// preserved only by the credential-isolated media transport. It is never
 	// taken from ambient request headers.
 	CredentialIsolatedReferer string
+	// HostPolicy names an extractor-owned attributable-origin policy used by
+	// credential-isolated native downloaders. Empty keeps the existing generic
+	// credential boundary.
+	HostPolicy string
 
 	// YouTubePostLive selects the finite post-live DVR sequence downloader.
 	// The discriminator is extractor-produced and never inferred from a URL.
@@ -216,6 +220,7 @@ func (prepared Prepared) Best() (Selection, error) {
 		selection.YouTubeSABRAudioTrackID, _ = object.Lookup("_youtube_sabr_audio_track_id").StringValue()
 		selection.CredentialIsolated, _ = object.Lookup("_credential_isolated").Bool()
 		selection.CredentialIsolatedReferer, _ = object.Lookup("_credential_isolated_referer").StringValue()
+		selection.HostPolicy, _ = object.Lookup("_ted_host_policy").StringValue()
 		if selection.YouTubeSABR {
 			selection.Protocol = "youtube_sabr_ump"
 		}

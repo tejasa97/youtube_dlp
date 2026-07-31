@@ -34,6 +34,23 @@ func TestBestSelectsFirstDownloadableFormat(t *testing.T) {
 	}
 }
 
+func TestBestPropagatesCredentialIsolationHostPolicy(t *testing.T) {
+	info := value.NewInfo(value.NewObject(value.Field{Key: "formats", Value: value.List(value.ObjectValue(value.NewObject(
+		value.Field{Key: "format_id", Value: value.String("ted")},
+		value.Field{Key: "url", Value: value.String("https://hls.ted.com/fixture/master.m3u8?sig=1")},
+		value.Field{Key: "protocol", Value: value.String("m3u8_native")},
+		value.Field{Key: "_credential_isolated", Value: value.Bool(true)},
+		value.Field{Key: "_ted_host_policy", Value: value.String("ted")},
+	)))}))
+	selected, err := Best(info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !selected.CredentialIsolated || selected.HostPolicy != "ted" {
+		t.Fatalf("selection=%#v", selected)
+	}
+}
+
 func TestBestRejectsMissingFormats(t *testing.T) {
 	if _, err := Best(value.NewInfo(nil)); !errors.Is(err, ErrNoFormats) {
 		t.Fatalf("Best() error = %v", err)

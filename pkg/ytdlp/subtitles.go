@@ -63,12 +63,13 @@ var (
 )
 
 type subtitleTrack struct {
-	language  string
-	extension string
-	rawURL    string
-	headers   http.Header
-	automatic bool
-	metadata  *value.Object
+	language   string
+	extension  string
+	rawURL     string
+	headers    http.Header
+	hostPolicy string
+	automatic  bool
+	metadata   *value.Object
 }
 
 type subtitleLanguage struct {
@@ -170,9 +171,11 @@ func selectSubtitles(info value.Info, options SubtitleOptions) ([]subtitleTrack,
 				metadata := object.Clone()
 				metadata.Set("ext", value.String(extension))
 				metadata.Set("_auto", value.Bool(automatic))
+				policy, _ := object.Lookup("_ted_host_policy").StringValue()
 				tracks = append(tracks, subtitleTrack{
 					language: language, extension: extension, rawURL: rawURL,
-					automatic: automatic, metadata: metadata,
+					hostPolicy: policy,
+					automatic:  automatic, metadata: metadata,
 				})
 			}
 			if len(tracks) == 0 {
@@ -395,13 +398,21 @@ func (operation *operation) downloadSubtitles(ctx context.Context, info value.In
 		if options.MaxBytes <= 0 || options.MaxBytes > maxSubtitleBytes {
 			options.MaxBytes = maxSubtitleBytes
 		}
-		isolated := subtitleCredentialIsolated(track.metadata)
+		isolated := subtitleCredentialIsolated(track.metadata) || track.hostPolicy != ""
 		var result downloader.Result
+		isolatedTransport := any(newCredentialIsolatedSubtitleTransport(operation.transport))
+		switch track.hostPolicy {
+		case "ted":
+			isolatedTransport = newTedCredentialIsolatedTransport(operation.transport, "subtitle")
+		case "":
+		default:
+			isolatedTransport = newTedCredentialIsolatedTransport(operation.transport, "")
+		}
 		if hlsSubtitlePlaylistURL(track.rawURL) {
 			var assembled []byte
 			var err error
 			if isolated {
-				assembled, err = hls.AssembleWebVTT(ctx, newCredentialIsolatedSubtitleTransport(operation.transport), track.rawURL, options.MaxBytes)
+				assembled, err = hls.AssembleWebVTT(ctx, isolatedTransport.(hls.CredentialIsolatedSubtitleTransport), track.rawURL, options.MaxBytes)
 			} else {
 				assembled, err = hls.AssembleWebVTTRedirecting(ctx, operation.transport, track.rawURL, track.headers, options.MaxBytes)
 			}
@@ -418,7 +429,7 @@ func (operation *operation) downloadSubtitles(ctx context.Context, info value.In
 			}
 		} else if isolated {
 			var err error
-			result, err = downloader.New(newCredentialIsolatedSubtitleTransport(operation.transport)).Download(ctx, downloader.Job{
+			result, err = downloader.New(isolatedTransport.(network.Doer)).Download(ctx, downloader.Job{
 				URL: track.rawURL, OutputRoot: operation.request.outputRoot(OutputPathHome), Destination: destination,
 				Overwrite: operation.request.Overwrite, Attempts: options.Attempts,
 				RetryBaseDelay: options.RetryBaseDelay, RetryMaxDelay: options.RetryMaxDelay,

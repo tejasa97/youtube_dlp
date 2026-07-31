@@ -32,7 +32,19 @@ and validated Learn/Build transparent re-entry into Medius. Authenticated,
 DRM-protected, signed-cookie, and live-production interoperability are not
 claimed.
 
-ytdlp-go currently registers 50 representative native extractors. This is a
+## TED public media
+
+Four exact keys cover the fixture-backed anonymous public family:
+`ted_talk`, `ted_series`, `ted_playlist`, and `ted_embed`. Main routes accept
+strict `ted.com`/`www.ted.com` talk, series, and playlist paths; both
+`embed.ted.com` and `embed-ssl.ted.com` transparently re-enter the matching
+canonical `www.ted.com` route. Talks expose pinned Next metadata, attributable
+HTTPS direct/HLS/audio formats, HLS subtitles, thumbnails, chapters, and
+signed-query preservation. Series season fragments and playlist child IDs are
+bounded and reusable. Login/private, unavailable, DRM, geo, and arbitrary
+external media handoffs remain deferred.
+
+ytdlp-go currently registers 54 representative native extractors. This is a
 conformance catalog, not a claim of the thousands of sites supported by
 upstream yt-dlp.
 
@@ -91,6 +103,7 @@ service response.
 | flickr | flickr.com public video pages | simple/direct, playlist/API |
 | Discovery / DPlay family | Discovery, DPlay, Discovery+, Discovery+ India/Italy shows, AHC, Animal Planet, Cooking Channel, Destination America, Discovery Life, Food Network, HGTV, Investigation Discovery, Science Channel, TLC, Travel Channel, Tele5, DMAX/TLC Germany | playlist/API, manifest-heavy, regional/authenticated API |
 | Microsoft public media family | microsoft.com videoplayer embeds; medius.microsoft.com Embed routes; learn.microsoft.com shows/events playlists and child pages; build.microsoft.com sessions | playlist/API, manifest-heavy, simple/direct |
+| TED public media family | ted.com/www.ted.com talks, series, playlists, and embed/embed-ssl canonical routes | simple/direct, playlist/API, manifest-heavy |
 
 ## Shared-family breadth (Wave 1 + priority-100)
 

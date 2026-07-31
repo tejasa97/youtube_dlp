@@ -122,6 +122,18 @@ var reviewedInventory = map[string]reviewedInventoryEntry{
 	"MicrosoftMediusIE": {
 		rationale: "fixture-backed exact Medius Embed routes with canonical discovery and native ISM product evidence",
 	},
+	"TedEmbedIE": {
+		rationale: "fixture-backed TED embed-to-canonical-talk transparent routing with strict route overlap",
+	},
+	"TedPlaylistIE": {
+		rationale: "fixture-backed TED public playlist metadata and bounded child identity extraction",
+	},
+	"TedSeriesIE": {
+		rationale: "fixture-backed TED public series season filtering and child identity extraction",
+	},
+	"TedTalkIE": {
+		rationale: "fixture-backed TED public Next metadata, isolated direct/HLS/audio playback, sidecars, and chapters",
+	},
 	"PRXSeriesSearchIE": {
 		rationale: "pinned prxseries opaque search key is registered with bounded fixture-backed CMS paging",
 	},

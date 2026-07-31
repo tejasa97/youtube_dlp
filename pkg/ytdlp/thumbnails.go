@@ -49,6 +49,7 @@ type thumbnailTrack struct {
 	rawURL     string
 	headers    http.Header
 	isolated   bool
+	hostPolicy string
 	preference float64
 	width      float64
 	height     float64
@@ -171,10 +172,12 @@ func selectThumbnails(info *value.Info) ([]thumbnailTrack, error) {
 		}
 		metadata := object.Clone()
 		isolated, _ := object.Lookup("_credential_isolated").Bool()
+		policy, _ := object.Lookup("_ted_host_policy").StringValue()
 		id := thumbnailOriginalID(metadata.Lookup("id"))
 		metadata.Set("ext", value.String(extension))
 		tracks = append(tracks, thumbnailTrack{
-			id: id, extension: extension, rawURL: rawURL, headers: headers, isolated: isolated,
+			id: id, extension: extension, rawURL: rawURL, headers: headers,
+			isolated: isolated || policy != "", hostPolicy: policy,
 			preference: thumbnailNumber(metadata.Lookup("preference")),
 			width:      thumbnailNumber(metadata.Lookup("width")),
 			height:     thumbnailNumber(metadata.Lookup("height")),
@@ -295,7 +298,16 @@ func (operation *operation) writeThumbnails(ctx context.Context, info *value.Inf
 		}
 		downloadTransport := network.Doer(thumbnailRedirectTransport{client: operation.transport})
 		if track.isolated {
-			downloadTransport = newCredentialIsolatedTransport(operation.transport)
+			switch track.hostPolicy {
+			case "ted":
+				downloadTransport = newTedCredentialIsolatedTransport(operation.transport, "thumbnail")
+			case "":
+				downloadTransport = newCredentialIsolatedTransport(operation.transport)
+			default:
+				// A nonempty extractor marker must never fall back to the generic
+				// transport when its policy is unknown.
+				downloadTransport = newTedCredentialIsolatedTransport(operation.transport, "")
+			}
 		}
 		result, downloadErr := downloader.New(downloadTransport).Download(ctx, downloader.Job{
 			URL: track.rawURL, Headers: track.headers, OutputRoot: operation.request.outputRoot(OutputPathHome), Destination: destination,
