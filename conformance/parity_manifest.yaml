@@ -3028,3 +3028,32 @@ capabilities:
       - docs/SPONSORBLOCK_METADATA.md
     owner: core
     known_deviation: "The pinned SponsorBlock service table is YouTube-only; Vimeo, PeerTube, and other services are not omitted behavior. Deliberate safety bounds remain: API calls require credential-isolated no-redirect transport; malformed supported sidecars and every unsafe path, staging, cancellation, commit, or rollback failure fail closed; and subtitle sync deterministically remaps srt/vtt/ass/lrc instead of invoking ffmpeg concat. Ordinary chapter expressions and manual ranges share this transaction through postprocess.chapter_removal. Network retries use the existing network.Client rather than copying reference internals."
+  - id: extractor.bilibili_public_ecosystem
+    name: Bilibili public ecosystem extractors
+    phase: 1
+    compatibility_target: Extract the bounded anonymous public Bilibili domestic, Player, Dynamic, Bangumi, collection, series, category, audio, and international routes with isolated no-redirect HTTP and exact-byte product evidence.
+    status: partial
+    evidence:
+      - internal/extractor.TestBilibiliHydrationAndAnthology
+      - internal/extractor.TestBilibiliDASHPreservesReportedCodecs
+      - internal/extractor.TestBilibiliURLPoliciesAndOverlap
+      - internal/extractor.TestBilibiliHTTPBoundaryAndCancellation
+      - internal/extractor.TestBilibiliBangumiAndReusablePlaylists
+      - internal/extractor.TestBilibiliCollectionSeriesCategoryAndAudioRoutes
+      - internal/extractor.TestBilibiliPlayerDynamicIntlRoutes
+      - internal/extractor.TestBilibiliCancellationAndFuzzSeed
+      - internal/extractor.FuzzParseBilibiliPage
+      - pkg/ytdlp.TestProductBilibiliDomesticDASHExactBytes
+      - pkg/ytdlp.TestProductBilibiliBangumiExactBytesAndScopedReferer
+      - pkg/ytdlp.TestProductBilibiliAudioExactBytes
+      - pkg/ytdlp.TestProductBilibiliInternationalExactBytes
+      - pkg/ytdlp.TestProductBilibiliTransparentPlayerAndPlaylistReentry
+      - pkg/ytdlp.TestProductBilibiliRetainedPlaylistFamilies
+      - pkg/ytdlp.TestProductBilibiliCredentialIsolation
+      - pkg/ytdlp.TestProductBilibiliEnteredCancellationLeavesNoArtifacts
+      - pkg/ytdlp.TestProductBilibiliMediaFailureLeavesNoArtifacts
+      - conformance/extractors/risk/bilibili/PROVENANCE.md
+      - conformance/extractors/public/bilibili/success.html
+    owner: core
+    known_deviation: >-
+      Thirteen registered classes cover the bounded anonymous public routes listed in the provenance matrix. Cheese is deferred because paid-course playability is not an anonymous public contract; SpaceVideo, SpaceAudio, and Search are WBI-dependent; Live is deferred because HLS/live exact-byte proof is not retained; Favorites, Watchlater, and Playlist remain authentication/private scope. All retained page and API reads require credential-isolated no-redirect transport, with fixed scoped referers only through the dedicated referer interface. Emitted domestic and international media formats are role-host validated and credential-isolated. Product evidence proves exact-byte domestic, Bangumi, audio, international, transparent Player, and playlist child reentry behavior, plus entered cancellation rollback and secret-safe status mapping. Subtitle extraction, live/HLS fragments, paid/DRM, auth/private, geo-only, and WBI behavior are not claimed.
