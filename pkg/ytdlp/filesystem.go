@@ -7,6 +7,7 @@ import (
 
 	outputtemplate "github.com/ytdlp-go/ytdlp/internal/compat/template"
 	"github.com/ytdlp-go/ytdlp/internal/downloader"
+	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
 	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
@@ -43,8 +44,20 @@ func (operation *operation) directDownloadJob(url string, headers http.Header, o
 }
 
 func (operation *operation) ffmpegConfig() ffmpeg.Config {
-	ffmpegPath, ffprobePath := ffmpeg.ResolveConfiguredLocation(operation.request.Filesystem.FfmpegLocation)
+	return ffmpegConfigFor(operation.request.Filesystem)
+}
+
+func ffmpegConfigFor(filesystem FilesystemOptions) ffmpeg.Config {
+	ffmpegPath, ffprobePath := ffmpeg.ResolveConfiguredLocation(filesystem.FfmpegLocation)
 	return ffmpeg.Config{FFmpegPath: ffmpegPath, FFprobePath: ffprobePath}
+}
+
+func plannerCapabilitiesFor(request Request) mediaformat.PlannerCapabilities {
+	_, ffmpegErr := ffmpeg.DiscoverFFmpeg(ffmpegConfigFor(request.Filesystem))
+	return mediaformat.PlannerCapabilities{
+		CanMergeFormats: ffmpegErr == nil,
+		OutputToStdout:  request.outputTemplate(OutputTemplateDefault) == "-",
+	}
 }
 
 func (operation *operation) discoverFFmpeg() (*ffmpeg.Toolset, error) {

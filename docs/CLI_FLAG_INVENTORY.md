@@ -243,7 +243,7 @@ These are `Request`/options fields that are Go-specific and have no counterpart 
 
 | Category | Count |
 |----------|-------|
-| **present** | ~107 |
+| **present** | ~114 |
 | **wire-only** | 6 Go-only |
 | **needs-core** | ~4 (Wave 3: 2, misc) |
 | **parked** | ~4 (verbosity) |

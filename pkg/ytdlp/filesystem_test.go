@@ -81,3 +81,19 @@ func TestResolveConfiguredLocationDirectory(t *testing.T) {
 		t.Fatalf("ffprobe = %q; want %q", gotProbe, wantProbe)
 	}
 }
+
+func TestPlannerCapabilitiesHonorConfiguredFFmpeg(t *testing.T) {
+	root := t.TempDir()
+	configured := filepath.Join(root, "ffmpeg")
+	if err := os.WriteFile(configured, []byte("stub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if capabilities := plannerCapabilitiesFor(Request{Filesystem: FilesystemOptions{FfmpegLocation: root}}); !capabilities.CanMergeFormats {
+		t.Fatal("configured ffmpeg should enable merge planning")
+	}
+
+	missing := filepath.Join(root, "missing-ffmpeg")
+	if capabilities := plannerCapabilitiesFor(Request{Filesystem: FilesystemOptions{FfmpegLocation: missing}}); capabilities.CanMergeFormats {
+		t.Fatal("missing configured ffmpeg should disable merge planning")
+	}
+}

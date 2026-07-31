@@ -3242,6 +3242,7 @@ capabilities:
       - pkg/ytdlp.TestApplyOutputMtimeUsesUploadDate
       - pkg/ytdlp.TestApplyOutputMtimeHonorsNoMtime
       - pkg/ytdlp.TestResolveConfiguredLocationDirectory
+      - pkg/ytdlp.TestPlannerCapabilitiesHonorConfiguredFFmpeg
       - docs/CLI_FLAG_INVENTORY.md
     owner: core
     depends_on:

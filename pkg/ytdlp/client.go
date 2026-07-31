@@ -466,11 +466,7 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 		}
 	}
 	challengeSolver := client.sharedChallengeSolver()
-	_, ffmpegErr := ffmpeg.DiscoverFFmpeg(ffmpeg.Config{})
-	plannerCapabilities := mediaformat.PlannerCapabilities{
-		CanMergeFormats: ffmpegErr == nil,
-		OutputToStdout:  request.outputTemplate(OutputTemplateDefault) == "-",
-	}
+	plannerCapabilities := plannerCapabilitiesFor(request)
 	operation := &operation{
 		client: client, request: request, transport: transport,
 		registry: client.productRegistry(),
