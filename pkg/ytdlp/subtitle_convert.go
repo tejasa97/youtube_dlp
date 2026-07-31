@@ -50,7 +50,7 @@ func (operation *operation) convertSelectedSubtitles(
 			return tracks, artifacts, converted, err
 		}
 		if tools == nil {
-			tools, err = ffmpeg.Discover(ffmpeg.Config{})
+			tools, err = operation.discoverFFmpeg()
 			if err != nil {
 				return tracks, artifacts, converted, err
 			}

@@ -68,6 +68,11 @@ type Job struct {
 	ThrottleRestarts int
 	// FileAttempts bounds retry of transient file open/sync/rename operations.
 	FileAttempts int
+	// NoContinue discards existing partial downloads before starting.
+	NoContinue bool
+	// NoPart writes in-progress bytes directly to Destination instead of
+	// using a .part temporary file.
+	NoPart bool
 }
 
 type Result struct {
@@ -136,6 +141,14 @@ func (downloader *Downloader) Download(ctx context.Context, job Job, sink events
 
 	partPath := job.Destination + ".part"
 	statePath := partPath + ".json"
+	if job.NoPart {
+		partPath = job.Destination
+		statePath = job.Destination + ".part.json"
+	}
+	if job.NoContinue {
+		_ = os.Remove(partPath)
+		_ = os.Remove(statePath)
+	}
 	if err := regularOrAbsent(partPath); err != nil {
 		return Result{}, err
 	}
@@ -168,8 +181,10 @@ func (downloader *Downloader) Download(ctx context.Context, job Job, sink events
 			} else if !errors.Is(err, os.ErrNotExist) {
 				return Result{}, fmt.Errorf("recheck destination: %w", err)
 			}
-			if err := downloader.finalize(ctx, job, partPath, job.Destination, job.Overwrite); err != nil {
-				return Result{}, fmt.Errorf("finalize download: %w", err)
+			if partPath != job.Destination {
+				if err := downloader.finalize(ctx, job, partPath, job.Destination, job.Overwrite); err != nil {
+					return Result{}, fmt.Errorf("finalize download: %w", err)
+				}
 			}
 			_ = os.Remove(statePath)
 			result.Path = job.Destination
@@ -215,7 +230,10 @@ func finalizeOnce(partPath, destination string, overwrite bool) error {
 }
 
 func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, partPath, statePath string, sink events.Sink) (Result, error) {
-	state, offset := loadPartial(partPath, statePath, job.URL)
+	state, offset := partialState{URL: job.URL}, int64(0)
+	if !job.NoContinue {
+		state, offset = loadPartial(partPath, statePath, job.URL)
+	}
 	request, err := http.NewRequest(http.MethodGet, job.URL, nil)
 	if err != nil {
 		return Result{}, fmt.Errorf("create download request: %w", err)

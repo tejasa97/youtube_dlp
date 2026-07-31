@@ -27,7 +27,7 @@ func (operation *operation) applyPostprocessors(ctx context.Context, outputRoot,
 			return tools, nil
 		}
 		var err error
-		tools, err = ffmpeg.Discover(ffmpeg.Config{})
+		tools, err = operation.discoverFFmpeg()
 		return tools, err
 	}
 	for index, specification := range operation.request.Postprocessors {

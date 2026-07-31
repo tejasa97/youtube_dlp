@@ -141,7 +141,7 @@ func (operation *operation) applyChapterCuts(ctx context.Context, info *value.In
 		if strings.TrimSpace(mediaPath) == "" {
 			return mediaPath, artifacts, false, &Error{Category: ErrorInternal, Op: cutOp, Err: errors.New("missing media")}
 		}
-		tools, duration, err = probeChapterCutDuration(ctx, mediaPath)
+		tools, duration, err = operation.probeChapterCutDuration(ctx, mediaPath)
 		if err != nil {
 			return mediaPath, artifacts, false, mapChapterCutMediaError(cutOp, err)
 		}
@@ -277,8 +277,8 @@ func (operation *operation) applyChapterCuts(ctx context.Context, info *value.In
 	return mediaPath, artifacts, true, nil
 }
 
-func probeChapterCutDuration(ctx context.Context, mediaPath string) (*ffmpeg.Toolset, float64, error) {
-	tools, err := ffmpeg.Discover(ffmpeg.Config{})
+func (operation *operation) probeChapterCutDuration(ctx context.Context, mediaPath string) (*ffmpeg.Toolset, float64, error) {
+	tools, err := operation.discoverFFmpeg()
 	if err != nil {
 		return nil, 0, err
 	}

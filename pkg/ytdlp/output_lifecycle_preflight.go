@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	outputtemplate "github.com/ytdlp-go/ytdlp/internal/compat/template"
 	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
 	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
 	"github.com/ytdlp-go/ytdlp/internal/value"
@@ -47,7 +46,7 @@ func (operation *operation) outputLifecycleDestinations(
 	var destinations []string
 	addRelated := func(kind, extension string) error {
 		templateType := outputTemplateTypeForRelatedFile(kind, false)
-		path, err := relatedFilePath(
+		path, err := operation.relatedFilePath(
 			operation.request.outputRoot(outputPathTypeForTemplate(templateType)),
 			operation.request.outputTemplate(templateType), info, extension,
 		)
@@ -92,7 +91,7 @@ func (operation *operation) outputLifecycleDestinations(
 		root := operation.request.outputRoot(OutputPathThumbnail)
 		pattern := operation.request.outputTemplate(OutputTemplateThumbnail)
 		for _, track := range tracks {
-			source, err := thumbnailPath(root, pattern, info, track, multiple)
+			source, err := operation.thumbnailPath(root, pattern, info, track, multiple)
 			if err != nil {
 				return nil, err
 			}
@@ -117,7 +116,7 @@ func (operation *operation) outputLifecycleDestinations(
 			}
 			outputInfo := value.NewInfo(info.Fields().Clone())
 			outputInfo.Set("ext", value.String(expectedExtension))
-			base, err := outputtemplate.Resolve(root, pattern, outputInfo)
+			base, err := operation.resolveOutputPath(root, pattern, outputInfo)
 			if err != nil {
 				return nil, err
 			}

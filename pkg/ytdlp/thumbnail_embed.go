@@ -124,7 +124,7 @@ func (operation *operation) embedSelectedThumbnail(
 		}
 		converter := operation.thumbnailConvert
 		if converter == nil {
-			tools, discoverErr := ffmpeg.Discover(ffmpeg.Config{})
+			tools, discoverErr := operation.discoverFFmpeg()
 			if discoverErr != nil {
 				return artifacts, false, discoverErr
 			}
@@ -140,7 +140,7 @@ func (operation *operation) embedSelectedThumbnail(
 
 	embed := operation.thumbnailEmbed
 	if embed == nil {
-		tools, err := ffmpeg.Discover(ffmpeg.Config{})
+		tools, err := operation.discoverFFmpeg()
 		if err != nil {
 			operation.removeThumbnailEmbedTemporary(ctx, temporaryImage)
 			return artifacts, false, err

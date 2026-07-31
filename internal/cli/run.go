@@ -185,6 +185,38 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 		*overwrite = false
 		return nil
 	})
+	restrictFilenames := flags.Bool("restrict-filenames", false, "restrict output filenames to ASCII characters")
+	flags.BoolFunc("no-restrict-filenames", "allow Unicode characters in output filenames (default)", func(string) error {
+		*restrictFilenames = false
+		return nil
+	})
+	windowsFilenames := flags.Bool("windows-filenames", false, "force output filenames to be Windows-compatible")
+	flags.BoolFunc("no-windows-filenames", "sanitize output filenames only minimally (default)", func(string) error {
+		*windowsFilenames = false
+		return nil
+	})
+	trimFilenames := flags.Int("trim-filenames", 0, "limit output filename length excluding the extension")
+	flags.IntVar(trimFilenames, "trim-file-names", 0, "alias for --trim-filenames")
+	noContinue := flags.Bool("no-continue", false, "do not resume partial downloads")
+	flags.BoolFunc("continue", "resume partial downloads (default)", func(string) error {
+		*noContinue = false
+		return nil
+	})
+	flags.BoolFunc("c", "alias for --continue", func(string) error {
+		*noContinue = false
+		return nil
+	})
+	noPart := flags.Bool("no-part", false, "write directly to the output file instead of using a .part file")
+	flags.BoolFunc("part", "use .part files for in-progress downloads (default)", func(string) error {
+		*noPart = false
+		return nil
+	})
+	noMtime := flags.Bool("no-mtime", false, "do not use the media timestamp as the file modification time")
+	flags.BoolFunc("mtime", "use the media timestamp as the file modification time (default)", func(string) error {
+		*noMtime = false
+		return nil
+	})
+	ffmpegLocation := flags.String("ffmpeg-location", "", "path to the ffmpeg binary or its containing directory")
 	progressJSON := flags.Bool("progress-json", false, "write newline-delimited progress events to stderr")
 	telemetryJSON := flags.Bool("telemetry-json", false, "write one privacy-safe aggregate telemetry snapshot to stdout")
 	var quiet, quietSet bool
@@ -793,6 +825,15 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 			WriteLink: *writeLink, WriteURLLink: *writeURLLink,
 			WriteWeblocLink: *writeWeblocLink, WriteDesktopLink: *writeDesktopLink,
 			NoPlaylist: *noPlaylistMetafiles,
+		},
+		Filesystem: ytdlp.FilesystemOptions{
+			RestrictFilenames: *restrictFilenames,
+			WindowsFilenames:  *windowsFilenames,
+			TrimFilenames:     *trimFilenames,
+			NoContinue:        *noContinue,
+			NoPart:            *noPart,
+			NoMtime:           *noMtime,
+			FfmpegLocation:    *ffmpegLocation,
 		},
 		PrintRules:           printRules,
 		YouTubeComments:      commentLimits,

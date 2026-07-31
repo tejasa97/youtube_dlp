@@ -93,6 +93,20 @@ type RelatedFileOptions struct {
 	NoPlaylist       bool
 }
 
+// FilesystemOptions controls filename sanitization, partial-download behavior,
+// output mtimes, and ffmpeg discovery. Zero values preserve yt-dlp defaults:
+// continue and .part files are enabled, mtimes are written, and filenames use
+// the standard template sanitization path.
+type FilesystemOptions struct {
+	RestrictFilenames bool
+	WindowsFilenames  bool
+	TrimFilenames     int
+	NoContinue        bool
+	NoPart            bool
+	NoMtime           bool
+	FfmpegLocation    string
+}
+
 // ThumbnailOptions controls image sidecars. WriteAll takes precedence over
 // Write and retains every valid thumbnail; Write keeps only the best one.
 type ThumbnailOptions struct {
@@ -430,6 +444,12 @@ func validateRequestOptions(request Request) error {
 	}
 	if err := validateNHKOptions(request.NHK); err != nil {
 		return fmt.Errorf("%w: %v", errInvalidRequestOptions, err)
+	}
+	if request.Filesystem.TrimFilenames < 0 || request.Filesystem.TrimFilenames > 4096 {
+		return fmt.Errorf("%w: trim filenames", errInvalidRequestOptions)
+	}
+	if request.Filesystem.FfmpegLocation != "" && len(request.Filesystem.FfmpegLocation) > 4096 {
+		return fmt.Errorf("%w: ffmpeg location", errInvalidRequestOptions)
 	}
 	if request.ForceKeyframesAtCuts &&
 		len(request.RemoveChapters) == 0 &&

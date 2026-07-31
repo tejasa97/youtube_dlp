@@ -132,7 +132,7 @@ func (operation *operation) downloadAndMergeTracks(
 			Protocol: selection.Protocol,
 		}
 	}
-	tools, err := ffmpeg.Discover(ffmpeg.Config{})
+	tools, err := operation.discoverFFmpeg()
 	if err != nil {
 		return "", 0, err
 	}

@@ -58,7 +58,7 @@ func (operation *operation) embedSelectedSubtitles(
 		}
 		return artifacts, false, nil
 	}
-	tools, err := ffmpeg.Discover(ffmpeg.Config{})
+	tools, err := operation.discoverFFmpeg()
 	if err != nil {
 		return nil, false, err
 	}

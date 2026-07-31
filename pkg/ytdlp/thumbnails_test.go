@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	outputtemplate "github.com/ytdlp-go/ytdlp/internal/compat/template"
 	"github.com/ytdlp-go/ytdlp/internal/downloader"
 	"github.com/ytdlp-go/ytdlp/internal/network"
 	"github.com/ytdlp-go/ytdlp/internal/value"
@@ -345,7 +346,9 @@ func FuzzThumbnailPathAndURL(f *testing.F) {
 			track.extension = "jpg"
 		}
 		info := value.NewInfo(value.NewObject(value.Field{Key: "id", Value: value.String("item")}))
-		destination, err := thumbnailPath(t.TempDir(), "%(id)s.%(ext)s", info, track, true)
+		outputInfo := value.NewInfo(info.Fields().Clone())
+		outputInfo.Set("ext", value.String(track.extension))
+		destination, err := outputtemplate.Resolve(t.TempDir(), "%(id)s.%(ext)s", outputInfo)
 		if err != nil {
 			return
 		}

@@ -3228,3 +3228,23 @@ capabilities:
     depends_on:
       - foundation.cli
     known_deviation: YouTube extractor implements _yes_playlist-style choice via NoPlaylist for ambiguous video+playlist URLs. Other extractors with ambiguous URLs (Dailymotion, etc.) do not yet consume NoPlaylist; --no-playlist has no effect on their extraction behavior.
+  - id: cli.flag_wave2
+    name: Wave 2 CLI flag parity — filename and filesystem controls
+    phase: 3
+    compatibility_target: Wire --restrict-filenames, --windows-filenames, --trim-filenames, --continue/--no-continue, --part/--no-part, --mtime/--no-mtime, and --ffmpeg-location from the CLI FlagSet to Request.Filesystem with correct last-wins semantics. Filename options flow into output-template resolution. Continue/part flags control direct downloader behavior. Mtime is applied from timestamp/upload_date metadata. Ffmpeg location propagates through ffmpeg discovery for merge/postprocess stages.
+    status: compatible
+    evidence:
+      - internal/cli.TestRunFilesystemFlagsWireToRequest
+      - internal/cli.TestRunContinueAndMtimeDefaultsEnabled
+      - internal/cli.TestRunNoContinueAfterContinueLastWins
+      - internal/compat/template.TestResolveFilenameOptions
+      - pkg/ytdlp.TestMetadataModificationTimePrefersTimestamp
+      - pkg/ytdlp.TestApplyOutputMtimeUsesUploadDate
+      - pkg/ytdlp.TestApplyOutputMtimeHonorsNoMtime
+      - pkg/ytdlp.TestResolveConfiguredLocationDirectory
+      - pkg/ytdlp.TestPlannerCapabilitiesHonorConfiguredFFmpeg
+      - docs/CLI_FLAG_INVENTORY.md
+    owner: core
+    depends_on:
+      - foundation.cli
+      - cli.flag_wave1
