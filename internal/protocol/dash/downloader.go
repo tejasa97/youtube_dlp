@@ -58,6 +58,7 @@ type Config struct {
 	Attempts            int
 	RetryBaseDelay      time.Duration
 	RetryMaxDelay       time.Duration
+	URLValidator        func(string) error
 }
 
 type Downloader struct {
@@ -299,6 +300,9 @@ func representationKey(representation Representation) string {
 }
 
 func (downloader *Downloader) load(ctx context.Context, manifestURL string) (MPD, error) {
+	if err := downloader.validateURL(manifestURL); err != nil {
+		return MPD{}, err
+	}
 	var body []byte
 	var err error
 	if len(downloader.config.Headers) == 0 {
@@ -309,7 +313,42 @@ func (downloader *Downloader) load(ctx context.Context, manifestURL string) (MPD
 	if err != nil {
 		return MPD{}, err
 	}
-	return Parse(manifestURL, body)
+	mpd, err := Parse(manifestURL, body)
+	if err != nil {
+		return MPD{}, err
+	}
+	if err := downloader.validateMPDURLs(mpd); err != nil {
+		return MPD{}, err
+	}
+	return mpd, nil
+}
+
+func (downloader *Downloader) validateURL(rawURL string) error {
+	if downloader.config.URLValidator == nil {
+		return nil
+	}
+	if err := downloader.config.URLValidator(rawURL); err != nil {
+		return fmt.Errorf("%w: URL policy rejected: %w", ErrInvalidMPD, err)
+	}
+	return nil
+}
+
+func (downloader *Downloader) validateMPDURLs(mpd MPD) error {
+	for _, representation := range mpd.Representations {
+		for _, segment := range representation.Segments {
+			if err := downloader.validateURL(segment.URL); err != nil {
+				return err
+			}
+		}
+		for _, periodSegments := range representation.PeriodSegments {
+			for _, segment := range periodSegments {
+				if err := downloader.validateURL(segment.URL); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func selectRepresentations(mpd MPD) ([]Representation, error) {
@@ -905,6 +944,9 @@ func (downloader *Downloader) effectiveParserLeafBudget(session *sidxSessionStat
 // TransferredBytes read from the wire. For 206 responses these are normally
 // equal; for 200 fallbacks TransferredBytes may exceed len(Data).
 func (downloader *Downloader) fetchIndexRange(ctx context.Context, mediaURL string, rangeStart, rangeLength, remainingBudget int64) (indexRangeResult, error) {
+	if err := downloader.validateURL(mediaURL); err != nil {
+		return indexRangeResult{}, err
+	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, mediaURL, nil)
 	if err != nil {
 		return indexRangeResult{}, fmt.Errorf("create index range request: %w", err)

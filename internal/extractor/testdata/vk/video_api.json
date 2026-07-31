@@ -1,0 +1,40 @@
+{
+  "payload": [
+    "0",
+    "<div class=\"mv_info_date\">14 Nov 2023</div><span class=\"mv_views_count\">1 234</span>",
+    {
+      "mvData": {
+        "title": "VK Fixture Video",
+        "desc": "A public VK fixture",
+        "duration": 42,
+        "likes": 7,
+        "commcount": 3
+      },
+      "player": {
+        "params": [
+          {
+            "md_title": "VK Fixture Video",
+            "md_author": "Fixture Group",
+            "author_id": "-123",
+            "date": 1700000000,
+            "duration": 42,
+            "url360": "https://media.vkuservideo.net/video/fixture-360.mp4?sig=direct%2Bsigned&expires=1700000000",
+            "hls": "https://media.vkuservideo.net/video/master.m3u8?sig=hls-signed&expires=1700000000",
+            "jpg": "https://sun9.userapi.com/impg/fixture-thumb.jpg?size=large&sig=thumb-signed",
+            "subs": [
+              {
+                "lang": "en",
+                "title": ".vtt",
+                "url": "https://sub.vkuservideo.net/video/en.vtt?sig=subtitle-signed"
+              }
+            ],
+            "time_codes": [
+              {"time": 0, "text": "Intro"},
+              {"time": 20, "text": "Body"}
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

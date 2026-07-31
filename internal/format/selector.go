@@ -337,6 +337,7 @@ func objectSelection(object *value.Object) (Selection, error) {
 	selection.YouTubeSABRDrc, _ = object.Lookup("_youtube_sabr_drc").Bool()
 	selection.YouTubeSABRAudioTrackID, _ = object.Lookup("_youtube_sabr_audio_track_id").StringValue()
 	selection.CredentialIsolated, _ = object.Lookup("_credential_isolated").Bool()
+	selection.AssetPolicy, _ = object.Lookup("_asset_policy").StringValue()
 	selection.CredentialIsolatedReferer, _ = object.Lookup("_credential_isolated_referer").StringValue()
 	selection.HostPolicy, _ = object.Lookup("_host_policy").StringValue()
 	if selection.HostPolicy == "" {

@@ -1745,6 +1745,35 @@ capabilities:
       - protocol.hls
       - network.shared_transport
     known_deviation: The claim is limited to the pinned anonymous public corpus and attributable TED HTTPS hosts. Login/private, unavailable, DRM, geo, live, future GraphQL/API schema changes, arbitrary external media handoffs, and production-service interoperability beyond the deterministic fixtures are deferred.
+  - id: extractor.vk_public_ecosystem
+    name: VK public ecosystem (partial)
+    phase: 2
+    compatibility_target: Extract exact anonymous public VK video/clip/embed/feed forms, public user/group video playlists, public wall posts with safe transparent media, public VK Play recordings, and signed anonymous VK Play live HLS through bounded isolated APIs/pages and native direct/HLS/DASH paths.
+    status: partial
+    evidence:
+      - internal/extractor.TestVKRouteMatrixAndOverlap
+      - internal/extractor.TestVKVideoAPIAndEmbedPreserveSignedAssetsAndMetadata
+      - internal/extractor.TestVKUserVideosLazyReusableAndRepeatedPageDetection
+      - internal/extractor.TestVKWallPostTransparentVideoAndOpaqueAudio
+      - internal/extractor.TestVKPlayRecordingAndLiveHLS
+      - internal/extractor.TestVKFailuresAndCancellationAreTypedAndSecretSafe
+      - internal/extractor.TestVKRequiresCredentialIsolatedTransport
+      - pkg/ytdlp.TestProductVKRegisteredAPIAndDirectPlaybackWithAllSidecarsIsolated
+      - pkg/ytdlp.TestProductVKEmbedPageAndHLSExactBytesAreIsolated
+      - pkg/ytdlp.TestProductVKPlayRecordingHLSAndDirectBytesAreIsolated
+      - pkg/ytdlp.TestProductVKPlayDASHBaseURLIndexAndRepresentationHopsAreIsolated
+      - pkg/ytdlp.TestProductVKPlayLiveHLSFailureAndCancellation
+      - pkg/ytdlp.TestProductVKManifestHopPolicyFailsClosedBeforeHostileNetwork
+      - pkg/ytdlp.TestProductVKWallPostTransparentReentryAndUserPlaylistPaging
+      - pkg/ytdlp.TestProductVKFailureAndInFlightCancellationLeaveZeroArtifacts
+      - pkg/ytdlp.TestRepresentativeExtractorCatalogCountRoutingAndRiskCoverage
+      - conformance/extractors/risk/vk/PROVENANCE.md
+    owner: extractors
+    depends_on:
+      - network.shared_transport
+      - extractor.playlists
+    known_deviation: Only anonymous public fixture-backed VK/VK Play paths are claimed. VKIE Daxab forms and YouTube/Vimeo/Dailymotion handoffs remain deferred. VK Play live is HLS-only; login/private/password/deleted/friends-only/age/account-gated/geo-only/DRM/websocket/chat/unavailable rows/redirects/non-HLS live and production host rotation remain deferred.
+
   - id: extractor.flickr
     name: Flickr public video extraction
     phase: 4

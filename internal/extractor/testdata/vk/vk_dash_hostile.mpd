@@ -1,0 +1,1 @@
+<MPD mediaPresentationDuration="PT1S"><Period><AdaptationSet contentType="video" mimeType="video/mp4"><Representation id="hostile" bandwidth="1000"><SegmentList><Initialization sourceURL="https://evil.example/init.mp4?sig=hostile-init"/><SegmentURL media="https://evil.example/segment.m4s?sig=hostile-segment"/></SegmentList></Representation></AdaptationSet></Period></MPD>

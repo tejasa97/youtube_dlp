@@ -34,7 +34,7 @@ remains explicit.
 
 > [!CAUTION]
 > **This is alpha software, not yet a drop-in replacement for yt-dlp.**
-> The repository currently has 61 representative native extractors and broad
+> The repository currently has 66 representative native extractors and broad
 > downloader infrastructure, but not yt-dlp's thousands of sites or complete
 > option language. Check the [supported-site catalog](docs/SUPPORTED_SITES.md)
 > and [capability manifest](conformance/parity_manifest.yaml) before relying on
@@ -49,7 +49,7 @@ identify compatibility targets only.
 | Area | Evidence-backed scope today |
 | --- | --- |
 | Runtime | Native Go binaries; no Python execution or interpreter fallback |
-| Extractors | 61 representative extractors across simple, shared-backend, playlist, live, authenticated, regional, anti-bot, manifest, and JavaScript-heavy families |
+| Extractors | 66 representative extractors across simple, shared-backend, playlist, live, authenticated, regional, anti-bot, manifest, and JavaScript-heavy families |
 | Media | Direct HTTP(S), HLS, DASH, and ISM/Smooth Streaming |
 | Playlists | Lazy reusable sequences, bounded continuations, item/range selection, reverse selection, and flat-playlist mode |
 | Formats | Bounded selector AST, sorting and filtering, video+audio merging, fallbacks, and multi-output plans |
@@ -58,8 +58,8 @@ identify compatibility targets only.
 | Extensions | Versioned native RPC and constrained WASM plugins, signed packs, catalogs, and updater transactions |
 | Public API | Versioned v1alpha1 Go API with context cancellation, categorized errors, events, playlists, metadata, and artifacts |
 
-The capability manifest records **81 capabilities**: **75 compatible** within
-their declared corpora, **5 partial**, and **1 intentional deviation**.
+The capability manifest records **82 capabilities**: **75 compatible** within
+their declared corpora, **6 partial**, and **1 intentional deviation**.
 “Compatible” means the linked deterministic evidence passes; it does not mean
 unbounded equivalence with every upstream behavior.
 

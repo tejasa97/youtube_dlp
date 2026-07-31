@@ -223,6 +223,23 @@ var reviewedInventory = map[string]reviewedInventoryEntry{
 	"RadioFranceProgramScheduleIE": {
 		rationale: "fixture-backed program schedule playlists with FranceCulture transparent reentry",
 	},
+	"VKIE": {
+		status:    ExtractorPartiallySupported,
+		rationale: "fixture-backed strict anonymous public VK video, clip, embed, vksport alias, signed-query, metadata, and native playback paths; Daxab and external-provider handoffs remain deferred",
+	},
+	"VKPlayIE": {
+		rationale: "fixture-backed anonymous VK Play public-recording API with strict vkplay.live, live.vkplay.ru, and live.vkvideo.ru aliases, attributable direct/HLS/DASH playback, and isolated sidecars",
+	},
+	"VKPlayLiveIE": {
+		status:    ExtractorPartiallySupported,
+		rationale: "fixture-backed anonymous VK Play live HLS only; live DASH, chat, websocket, authenticated, and account-gated behavior remain deferred",
+	},
+	"VKUserVideosIE": {
+		rationale: "fixture-backed public VK user/group video playlists with lazy reusable server-row pagination and repeat-page detection",
+	},
+	"VKWallPostIE": {
+		rationale: "fixture-backed public VK wall posts with bounded audio results, safe VK video embeds, and transparent child reentry",
+	},
 }
 
 func applyReviewedInventory(class string, entry *ExtractorInventoryEntry) {

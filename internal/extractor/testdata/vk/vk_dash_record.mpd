@@ -1,0 +1,1 @@
+<MPD mediaPresentationDuration="PT2S"><Period><AdaptationSet contentType="video" mimeType="video/mp4"><Representation id="fixture" bandwidth="1000"><SegmentList><Initialization sourceURL="init.mp4?sig=init-signed"/><SegmentURL media="one.m4s?sig=dash-one"/><SegmentURL media="two.m4s?sig=dash-two"/></SegmentList></Representation></AdaptationSet></Period></MPD>

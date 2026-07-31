@@ -117,6 +117,11 @@ var representativeExtractorCatalog = []representativeExtractor{
 	{"bluesky", "https://bsky.app/profile/fixture.bsky.social/post/3l4omssdl632g", []extractorRiskClass{riskPlaylistAPI, riskManifestHeavy, riskRegional}},
 	{"imgur", "https://imgur.com/gallery/fixture-A61SaA1", []extractorRiskClass{riskPlaylistAPI, riskSimpleDirect}},
 	{"flickr", "https://www.flickr.com/photos/fixture-user/5645318632/in/photostream/", []extractorRiskClass{riskPlaylistAPI, riskSimpleDirect}},
+	{"vk", "https://vk.com/video-123_101", []extractorRiskClass{riskPlaylistAPI, riskManifestHeavy, riskSimpleDirect}},
+	{"vk_uservideos", "https://vk.com/video/@fixture_group", []extractorRiskClass{riskPlaylistAPI}},
+	{"vk_wallpost", "https://vk.com/wall-123_77", []extractorRiskClass{riskPlaylistAPI, riskSimpleDirect}},
+	{"vkplay", "https://vkplay.live/caster/record/f5e6e3b5-dc52-4d14-965d-0680dd2882da", []extractorRiskClass{riskManifestHeavy, riskSimpleDirect}},
+	{"vkplay_live", "https://vkplay.live/caster", []extractorRiskClass{riskLive, riskManifestHeavy}},
 }
 
 func TestRepresentativeExtractorCatalogCountRoutingAndRiskCoverage(t *testing.T) {

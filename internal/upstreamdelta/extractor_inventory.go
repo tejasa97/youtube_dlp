@@ -180,6 +180,11 @@ var exactAliases = map[string]string{
 	"Tele5IE":                      "tele5",
 	"TravelChannelIE":              "travelchannel",
 	"TVAIE":                        "tva",
+	"VKIE":                         "vk",
+	"VKPlayIE":                     "vkplay",
+	"VKPlayLiveIE":                 "vkplay_live",
+	"VKUserVideosIE":               "vk_uservideos",
+	"VKWallPostIE":                 "vk_wallpost",
 }
 
 func BuildExtractorInventory(referenceRoot, repositoryRoot string) ([]ExtractorInventoryEntry, error) {

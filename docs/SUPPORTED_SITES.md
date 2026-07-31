@@ -121,6 +121,7 @@ service response.
 | Discovery / DPlay family | Discovery, DPlay, Discovery+, Discovery+ India/Italy shows, AHC, Animal Planet, Cooking Channel, Destination America, Discovery Life, Food Network, HGTV, Investigation Discovery, Science Channel, TLC, Travel Channel, Tele5, DMAX/TLC Germany | playlist/API, manifest-heavy, regional/authenticated API |
 | Microsoft public media family | microsoft.com videoplayer embeds; medius.microsoft.com Embed routes; learn.microsoft.com shows/events playlists and child pages; build.microsoft.com sessions | playlist/API, manifest-heavy, simple/direct |
 | TED public media family | ted.com/www.ted.com talks, series, playlists, and embed/embed-ssl canonical routes | simple/direct, playlist/API, manifest-heavy |
+| VK public ecosystem family | `vk.com`, `m.vk.com`, `new.vk.com`, `vkvideo.ru`, `vksport.vkvideo.ru` public video/clip/embed, user/group, and wall routes; `vkplay.live`, `live.vkplay.ru`, and `live.vkvideo.ru` recordings and signed live HLS | playlist/API, simple/direct, live, manifest-heavy |
 
 ## Shared-family breadth (Wave 1 + priority-100)
 

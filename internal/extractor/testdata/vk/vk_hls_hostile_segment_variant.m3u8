@@ -1,0 +1,4 @@
+#EXTM3U
+#EXTINF:1,
+https://evil.example/segment.bin?sig=hostile-segment
+#EXT-X-ENDLIST

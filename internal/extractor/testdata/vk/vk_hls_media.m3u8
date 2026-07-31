@@ -1,0 +1,8 @@
+#EXTM3U
+#EXT-X-MAP:URI="init.mp4?sig=init-signed&expires=1700000000"
+#EXT-X-KEY:METHOD=AES-128,URI="key.bin?sig=key-signed&expires=1700000000",IV=0x61626364656630313233343536373839
+#EXTINF:1,
+one.bin?sig=segment-one&expires=1700000000
+#EXTINF:1,
+two.bin?sig=segment-two&expires=1700000000
+#EXT-X-ENDLIST

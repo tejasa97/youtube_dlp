@@ -1553,11 +1553,11 @@ viu,ViuIE,Viu,requires_new_backend,,,,low,no exact Go mapping or existing shared
 viu,ViuOTTIE,ViuOTT,requires_authentication_or_antibot,,,authentication;login,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"
 viu,ViuOTTIndonesiaIE,ViuOTTIndonesia,requires_authentication_or_antibot,,,authentication,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"
 viu,ViuPlaylistIE,ViuPlaylist,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-vk,VKIE,VK,uses_existing_shared_backend,,vimeo,,medium,upstream class references a media backend already implemented in Go
-vk,VKPlayIE,VKPlay,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-vk,VKPlayLiveIE,VKPlayLive,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-vk,VKUserVideosIE,VKUserVideos,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-vk,VKWallPostIE,VKWallPost,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
+vk,VKIE,VK,partially_supported,vk,,,high,fixture-backed strict anonymous public VK video clip embed and vksport alias playback; Daxab and external-provider handoffs remain deferred
+vk,VKPlayIE,VKPlay,already_supported,vkplay,,,high,fixture-backed anonymous public VK Play recording API with attributable direct HLS and DASH playback
+vk,VKPlayLiveIE,VKPlayLive,partially_supported,vkplay_live,,live,medium,anonymous public live HLS only; live DASH chat websocket authenticated and account-gated behavior remains deferred
+vk,VKUserVideosIE,VKUserVideos,already_supported,vk_uservideos,,playlist/API,high,fixture-backed lazy reusable public user and group video playlist pagination by server row counts
+vk,VKWallPostIE,VKWallPost,already_supported,vk_wallpost,,playlist/API,high,fixture-backed public wall media with bounded audio results safe VK video embeds and transparent reentry
 vocaroo,VocarooIE,Vocaroo,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 vodplatform,VODPlatformIE,VODPlatform,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 voicy,VoicyChannelIE,VoicyChannel,obsolete_or_intentional_deviation,,,,high,upstream class explicitly declares _WORKING = False

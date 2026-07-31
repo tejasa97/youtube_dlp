@@ -284,6 +284,15 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 	if err := validateCredentialIsolatedDispatch([]mediaformat.Selection{selected}, options.External != nil); err != nil {
 		return "", 0, err
 	}
+	assetValidator, err := extractor.AssetURLValidator(selected.AssetPolicy)
+	if err != nil {
+		return "", 0, err
+	}
+	if assetValidator != nil {
+		if err := assetValidator(selected.URL); err != nil {
+			return "", 0, err
+		}
+	}
 	if selected.YouTubeLiveFromStart {
 		if options.External != nil {
 			return "", 0, fmt.Errorf("%w: external downloaders cannot consume generated YouTube live fragments", extractor.ErrUnsupported)
@@ -382,6 +391,7 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 			FragmentConcurrency: options.FragmentConcurrency, PerHostConcurrency: options.PerHostFragmentConcurrency,
 			MaxSegments: options.MaxSegments, MaxSegmentSize: options.MaxSegmentBytes, Attempts: options.Attempts,
 			RetryBaseDelay: options.RetryBaseDelay, RetryMaxDelay: options.RetryMaxDelay,
+			URLValidator: assetValidator,
 		}).Download(ctx, selected.URL, outputRoot, destination, operation.request.Overwrite, sink)
 		if err != nil {
 			if selected.CredentialIsolated {
@@ -440,6 +450,7 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 			FragmentConcurrency: options.FragmentConcurrency, PerHostConcurrency: options.PerHostFragmentConcurrency,
 			MaxSegments: options.MaxSegments, MaxSegmentSize: options.MaxSegmentBytes, Attempts: options.Attempts,
 			RetryBaseDelay: options.RetryBaseDelay, RetryMaxDelay: options.RetryMaxDelay,
+			URLValidator: assetValidator,
 		}).Download(ctx, selected.URL, outputRoot, destination, operation.request.Overwrite, sink)
 		if err != nil {
 			return "", 0, err

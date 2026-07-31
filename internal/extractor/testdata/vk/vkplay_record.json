@@ -1,0 +1,21 @@
+{
+  "data": {
+    "record": {
+      "id": "f5e6e3b5-dc52-4d14-965d-0680dd2882da",
+      "title": "VK Play Record Fixture",
+      "startTime": 1683461378,
+      "previewUrl": "https://cdn.vkplay.live/public_video_stream/record/f5e6e3b5-dc52-4d14-965d-0680dd2882da/preview?sig=preview-signed",
+      "duration": 12,
+      "count": {"views": 10, "likes": 2, "viewers": 0},
+      "category": {"title": "Fixture Game"},
+      "user": {"nick": "FixtureCaster", "id": "13159830"},
+      "data": [
+        {"playerUrls": [
+          {"type": "hls", "url": "https://cdn.vkplay.live/record/master.m3u8?sig=record-hls"},
+          {"type": "dash", "url": "https://cdn.vkplay.live/record/manifest.mpd?sig=record-dash"},
+          {"type": "high", "url": "https://cdn.vkplay.live/record/high.mp4?sig=record-direct", "width": 1280, "height": 720}
+        ]}
+      ]
+    }
+  }
+}

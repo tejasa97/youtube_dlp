@@ -1,0 +1,10 @@
+{
+  "data": {
+    "stream": {
+      "id": "live-fixture-offline",
+      "title": "VK Play Offline Fixture",
+      "isOnline": false,
+      "data": []
+    }
+  }
+}

@@ -513,6 +513,12 @@ func (client *Client) productRegistry() *extractor.Registry {
 		extractor.NewYouTubeChannelTab(),
 		extractor.NewYouTube(),
 		extractor.NewVimeo(),
+		extractor.NewVKUserVideos(),
+		extractor.NewVKWallPost(),
+		extractor.NewVK(),
+		extractor.NewVKAudio(),
+		extractor.NewVKPlay(),
+		extractor.NewVKPlayLive(),
 		extractor.NewTikTok(),
 		extractor.NewHytale(),
 		extractor.NewCloudflareStream(),
@@ -1914,6 +1920,10 @@ func categorized(op string, err error) error {
 		category = ErrorUnsupported
 	case errors.Is(err, extractor.ErrAuthentication), errors.Is(err, extractor.ErrWrongPassword), errors.Is(err, extractor.ErrTwitchSubscriberOnly):
 		category = ErrorAuthentication
+	case errors.Is(err, extractor.ErrVKAuthentication):
+		category = ErrorAuthentication
+	case errors.Is(err, extractor.ErrVKUnsafeAsset):
+		category = ErrorSecurity
 	case errors.Is(err, credentialnetrc.ErrUnsafeFile):
 		category = ErrorSecurity
 	case errors.Is(err, errUnsafePrintFile):
@@ -1942,8 +1952,11 @@ func categorized(op string, err error) error {
 		errors.Is(err, safari.ErrUnsupportedPlatform):
 		category = ErrorUnsupported
 	case errors.Is(err, extractor.ErrUnavailable), errors.Is(err, extractor.ErrRegionRestricted), errors.Is(err, extractor.ErrChallengeSolver),
+		errors.Is(err, extractor.ErrVKUnavailable), errors.Is(err, extractor.ErrVKRegionRestricted), errors.Is(err, extractor.ErrVKNotLive),
 		errors.Is(err, extractor.ErrTransportProfile), errors.Is(err, extractor.ErrTransportIsolation), errors.Is(err, network.ErrImpersonationUnavailable):
 		category = ErrorUnsupported
+	case errors.Is(err, extractor.ErrVKRateLimited), errors.Is(err, extractor.ErrVKNetwork), errors.Is(err, extractor.ErrVKInvalidStatus), errors.Is(err, extractor.ErrVKRepeatedPage):
+		category = ErrorNetwork
 	case errors.Is(err, ffmpeg.ErrFFmpegUnavailable), errors.Is(err, ffmpeg.ErrFFprobeUnavailable),
 		errors.Is(err, ffmpeg.ErrUnsafeHLSHeaders):
 		category = ErrorUnsupported
