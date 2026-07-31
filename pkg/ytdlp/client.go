@@ -681,6 +681,7 @@ func (client *Client) productRegistry() *extractor.Registry {
 		extractor.NewRaiCultura(),
 		extractor.NewRaiSudtirol(),
 		extractor.NewRai(),
+		extractor.NewARDMediathekCollection(),
 		extractor.NewARD(),
 		extractor.NewARDAudiothekPlaylist(),
 		extractor.NewARDAudiothek(),
