@@ -9,10 +9,12 @@ import (
 // text for rows whose classification is already determined by exactAliases or
 // normalized Go key matches. Overrides are keyed only by upstream IE class
 // names that exist in the pinned registry; they cannot invent rows or promote
-// unsupported classes.
+// unsupported classes. Deferred rows may carry an explicit reviewed status
+// without pretending that an exact Go mapping exists.
 type reviewedInventoryEntry struct {
 	rationale string
 	status    string
+	deferred  bool
 }
 
 var reviewedInventory = map[string]reviewedInventoryEntry{
@@ -122,6 +124,49 @@ var reviewedInventory = map[string]reviewedInventoryEntry{
 	"MicrosoftMediusIE": {
 		rationale: "fixture-backed exact Medius Embed routes with canonical discovery and native ISM product evidence",
 	},
+	"NiconicoHistoryIE": {
+		status:    ExtractorAuthOrAntiBot,
+		deferred:  true,
+		rationale: "deferred: pinned history/likes API requires authenticated cookies; no registered native mapping or product evidence is claimed",
+	},
+	"NiconicoIE": {
+		status:    ExtractorPartiallySupported,
+		rationale: "fixture-backed anonymous v3_guest watch/shorts and access-rights HLS; authentication, entitlements, sensitive, geo, comments, and future service behavior remain outside the claim",
+	},
+	"NiconicoLiveIE": {
+		status:    ExtractorAuthOrAntiBot,
+		deferred:  true,
+		rationale: "deferred: pinned live extraction requires websocket seat, stream-cookie, heartbeat, and live lifecycle behavior; no registered native mapping or product evidence is claimed",
+	},
+	"NiconicoPlaylistIE": {
+		status:    ExtractorPartiallySupported,
+		rationale: "fixture-backed anonymous mylist API pagination with reusable bounded child routing; authenticated/private and unproven service states remain outside the claim",
+	},
+	"NiconicoSeriesIE": {
+		status:    ExtractorPartiallySupported,
+		rationale: "fixture-backed anonymous series API pagination with reusable bounded child routing; authenticated/private and unproven service states remain outside the claim",
+	},
+	"NiconicoUserIE": {
+		status:    ExtractorPartiallySupported,
+		rationale: "fixture-backed anonymous user video API pagination with reusable bounded child routing; authenticated/private and unproven service states remain outside the claim",
+	},
+	"NicovideoSearchDateIE": {
+		status:    ExtractorNewBackend,
+		deferred:  true,
+		rationale: "deferred: pinned date search uses wall-clock recursive interval splitting and has no registered exact class mapping, fixed bounded native contract, or product evidence",
+	},
+	"NicovideoSearchIE": {
+		status:    ExtractorPartiallySupported,
+		rationale: "fixture-backed anonymous bounded pseudo-search HTML pagination; date search, live service drift, and unproven response families remain outside the claim",
+	},
+	"NicovideoSearchURLIE": {
+		status:    ExtractorPartiallySupported,
+		rationale: "fixture-backed anonymous bounded search URL HTML pagination with strict query policy and child routing",
+	},
+	"NicovideoTagURLIE": {
+		status:    ExtractorPartiallySupported,
+		rationale: "fixture-backed anonymous bounded tag HTML pagination with strict query policy and child routing",
+	},
 	"TedEmbedIE": {
 		rationale: "fixture-backed TED embed-to-canonical-talk transparent routing with strict route overlap",
 	},
@@ -183,7 +228,7 @@ func validateExtractorInventoryMappings(goIDs map[string]string) error {
 		}
 	}
 	for class, review := range reviewedInventory {
-		if review.status == ExtractorPartiallySupported {
+		if review.deferred || review.status == ExtractorPartiallySupported {
 			continue
 		}
 		if _, ok := exactAliases[class]; ok {

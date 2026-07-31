@@ -2692,6 +2692,57 @@ capabilities:
     known_deviation: >-
       Canonical build and verification are portable, but secure install, rollback, and removal currently fail closed outside Linux and macOS because equivalent Windows owner/ACL, lock, and atomic-publication evidence is not yet available. Native installed plugins require an explicit sandbox host: Linux uses owner-validated bwrap and, for quotas, prlimit only when the host explicitly allows those external adapters; macOS and the generic Windows filesystem/network policy fail closed. PrepareForOS rejects Windows, so the internal suspended-process/kill-on-close Job code is not a reachable product generic sandbox path and is not containment evidence. Wazero has bounded memory/messages/time and no WASI/imports; pinned v1.9.0 has no stable fuel API, so an instruction-budget request fails closed.
 
+  - id: extractor.niconico
+    name: Niconico anonymous public ecosystem
+    phase: 2
+    compatibility_target: Extract the bounded anonymous public Niconico watch/shorts, mylist, series, user, pseudo-search, search URL, and tag URL families through credential-isolated no-redirect API/page requests and generic native HLS dispatch.
+    status: partial
+    evidence:
+      - pkg/ytdlp.TestProductNiconicoRegisteredWatchHLSDownloadIsolatedAndSigned
+      - pkg/ytdlp.TestProductNiconicoRegisteredBestAudioDownloadIsExactAndIsolated
+      - pkg/ytdlp.TestProductNiconicoRegisteredSearchChildReentryIsolation
+      - pkg/ytdlp.TestProductNiconicoPlaylistChildReentryUsesRegisteredKeys
+      - pkg/ytdlp.TestProductNiconicoHLSFailureAndCancellationLeaveNoArtifacts
+      - conformance/extractors/risk/niconico/PROVENANCE.md
+      - conformance/extractors/risk/niconico/watch_guest.json
+      - conformance/extractors/risk/niconico/access_rights.json
+      - conformance/extractors/risk/niconico/master.m3u8
+      - conformance/extractors/risk/niconico/video-v360.m3u8
+      - conformance/extractors/risk/niconico/video-v720.m3u8
+      - conformance/extractors/risk/niconico/audio-a64.m3u8
+      - conformance/extractors/risk/niconico/audio-a128.m3u8
+      - conformance/extractors/risk/niconico/mylist_page_1.json
+      - conformance/extractors/risk/niconico/mylist_page_2.json
+      - conformance/extractors/risk/niconico/series_page_1.json
+      - conformance/extractors/risk/niconico/series_page_2.json
+      - conformance/extractors/risk/niconico/user_page_1.json
+      - conformance/extractors/risk/niconico/user_page_2.json
+      - conformance/extractors/risk/niconico/search_page_1.html
+      - conformance/extractors/risk/niconico/search_page_2.html
+      - conformance/extractors/risk/niconico/search_empty.html
+      - docs/EXTRACTOR_NICONICO_EVIDENCE.md
+      - conformance/extractors/upstream_master_checklist.csv
+    owner: extractors
+    known_deviation: >-
+      The claim is fixture-backed and intentionally partial. Only the seven
+      registered mappings in this claim are partial: NiconicoIE,
+      NiconicoPlaylistIE, NiconicoSeriesIE, NiconicoUserIE, NicovideoSearchIE,
+      NicovideoSearchURLIE, and NicovideoTagURLIE. NiconicoHistoryIE and
+      NiconicoLiveIE remain requires_authentication_or_antibot because their
+      pinned authenticated/history and websocket live lifecycles have no
+      registered native mapping or product evidence. NicovideoSearchDateIE
+      remains requires_new_backend because its wall-clock recursive date search
+      has no registered exact class mapping, fixed bounded native contract, or
+      product evidence. Comments, premium/member/PPV playback, sensitive
+      accounts, geo-restricted playback, redirects, and other unproven upstream
+      response families remain outside the claim. Watch/shorts uses only the
+      anonymous v3_guest envelope, the pinned guest and access-rights
+      action-track shapes, bounded access-rights output/master parsing, signed
+      contentUrl preservation, and an exact delivery.domand.nicovideo.jp scoped
+      HLS path. The exact-DMS-host, no-redirect, malformed-master route is
+      intentionally stricter than upstream's generic HLS URL handling and does
+      not claim every upstream DMS host or response variant.
+
   - id: extractor.phase2_breadth
     name: Phase 2 representative extractor breadth
     phase: 2

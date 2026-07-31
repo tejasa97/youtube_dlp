@@ -299,6 +299,13 @@ func WithTelemetryCollector(collector *TelemetryCollector) Option {
 	return func(client *Client) { client.telemetry = collector }
 }
 
+// withTransportFactory is an unexported package test seam. Production clients
+// always use network.New; same-package deterministic product tests may replace
+// only construction of the normal network client without bypassing Client.Run.
+func withTransportFactory(factory func(network.Config) (*network.Client, error)) Option {
+	return func(client *Client) { client.transportFactory = factory }
+}
+
 // Runner is the cancellable operation contract.
 type Runner interface {
 	Run(context.Context, Request) (Result, error)
@@ -322,6 +329,7 @@ type Client struct {
 	telemetry             *TelemetryCollector
 	youtubePOT            *youtubepot.Director
 	youtubePOTErr         error
+	transportFactory      func(network.Config) (*network.Client, error)
 
 	solverMu     sync.Mutex
 	sharedSolver *lazyYouTubeSolver
@@ -376,7 +384,11 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 	if err != nil {
 		return Result{}, err
 	}
-	transport, err := network.New(network.Config{Proxy: request.Proxy, Timeout: request.Timeout, DefaultProfile: request.ImpersonationProfile})
+	transportFactory := client.transportFactory
+	if transportFactory == nil {
+		transportFactory = network.New
+	}
+	transport, err := transportFactory(network.Config{Proxy: request.Proxy, Timeout: request.Timeout, DefaultProfile: request.ImpersonationProfile})
 	if err != nil {
 		return Result{}, categorized("configure network", err)
 	}
@@ -483,6 +495,15 @@ func shouldCheckFormats(mode FormatCheckMode, allowUnplayable bool) bool {
 
 func (client *Client) productRegistry() *extractor.Registry {
 	registered := []extractor.Extractor{
+		// Niconico's opaque search and exact collection routes must be selected
+		// before generic HTTP handling; live/history are intentionally absent.
+		extractor.NewNiconicoSearch(),
+		extractor.NewNiconicoSearchURL(),
+		extractor.NewNiconicoTag(),
+		extractor.NewNiconicoPlaylist(),
+		extractor.NewNiconicoSeries(),
+		extractor.NewNiconicoUser(),
+		extractor.NewNiconico(),
 		extractor.NewYouTubeMusicSearch(),
 		extractor.NewYouTubeMusicBrowse(),
 		extractor.NewYouTubeSearch(),
@@ -1891,6 +1912,8 @@ func categorized(op string, err error) error {
 	case errors.Is(err, ErrFormatCheckLimit):
 		category = ErrorInvalidInput
 	case errors.Is(err, errUnsafeThumbnailRedirect):
+		category = ErrorSecurity
+	case errors.Is(err, errNiconicoMediaHost), errors.Is(err, errNiconicoMediaRedirect):
 		category = ErrorSecurity
 	case errors.Is(err, credentialnetrc.ErrIO):
 		category = ErrorAuthentication

@@ -339,6 +339,7 @@ func objectSelection(object *value.Object) Selection {
 	selection.CredentialIsolated, _ = object.Lookup("_credential_isolated").Bool()
 	selection.CredentialIsolatedReferer, _ = object.Lookup("_credential_isolated_referer").StringValue()
 	selection.HostPolicy, _ = object.Lookup("_ted_host_policy").StringValue()
+	selection.NiconicoScoped, _ = object.Lookup("_niconico_scoped").Bool()
 	if selection.YouTubeSABR {
 		selection.Protocol = "youtube_sabr_ump"
 	}
