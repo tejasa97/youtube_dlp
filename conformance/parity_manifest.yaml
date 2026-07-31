@@ -1348,7 +1348,7 @@ capabilities:
     owner: extractors
     depends_on:
       - protocol.hls
-    known_deviation: The compatible pilot includes Twitch extraction through signed HLS discovery, live polling, end-of-stream, de-duplication, and ordered assembly, plus bounded finite and opt-in active YouTube live-from-start reconstruction. External live-generator delegation, restart resume, subscriber entitlements, and chat remain later coverage; VOD, clip, and channel videos playlist breadth is tracked by extractor.twitch_pilot.
+    known_deviation: The compatible pilot includes signed Twitch HLS discovery, live polling, end-of-stream, de-duplication, and ordered assembly. External live-generator delegation, restart resume, subscriber/private entitlements, restricted mature/geo behavior, chat/comments, and unsupported credential flows remain deferred; the reviewed Twitch family breadth is tracked by extractor.twitch_pilot.
 
   - id: extractor.twitch_pilot
     name: Twitch live extraction pilot
@@ -1397,6 +1397,20 @@ capabilities:
       - internal/extractor.TestTwitchStoryboardFailuresAreNonfatal
       - internal/extractor.FuzzParseTwitchStoryboardSpecs
       - internal/extractor.FuzzResolveTwitchStoryboardImageURL
+      - internal/extractor.TestTwitchRoleSpecificAssetHosts
+      - internal/protocol/hls.TestDownloadAllowedHostsCoversMasterVariantsSegmentsKeysAndMaps
+      - internal/protocol/hls.TestDownloadAllowedHostsRejectsHostileResolvedURI
+      - internal/protocol/hls.TestDownloadAllowedHostsRejectsMalformedPolicy
+      - internal/format.TestSelectRejectsMalformedAllowedHosts
+      - pkg/ytdlp.TestProductTwitchVODHLSExactBytesAndIsolation
+      - pkg/ytdlp.TestProductTwitchLiveAndRerunHLSExactBytes
+      - pkg/ytdlp.TestProductTwitchClipDirectExactBytesAndIsolation
+      - pkg/ytdlp.TestProductTwitchPlayerEmbedReentryExactBytes
+      - pkg/ytdlp.TestProductTwitchRetainedPlaylistFamiliesReenterAndDownload
+      - pkg/ytdlp.TestProductTwitchEnteredCancellationCleansArtifacts
+      - pkg/ytdlp.TestProductTwitchStatusFailureIsTypedAndSecretSafe
+      - pkg/ytdlp.TestProductTwitchHostileHLSFailsClosed
+      - pkg/ytdlp.TestProductTwitchAdaptersSelectExactKeys
       - conformance/extractors/twitch/storyboard_spec.json
       - conformance/extractors/twitch/PROVENANCE.md
       - docs/P3_TWITCH_BREADTH.md
@@ -1405,7 +1419,7 @@ capabilities:
       - protocol.hls
       - network.shared_transport
       - extractor.playlists
-    known_deviation: Compatibility covers pinned public live, VOD, clip, direct collection, channel collections, channel videos/profile, and channel clips playlist corpora, including historical clip archive IDs, portrait format/thumbnail preference scores on the pinned synthetic clip corpus, and bounded VOD storyboard MHTML formats from seekPreviewsURL. Direct CollectionSideBar and channel collections pages are capped at 100 edges per response; channel clips pages use the required 20-edge limit. Oversized payloads fail closed. Subscriber-cookie success, live-from-start fallback, and chat remain explicit deviations.
+    known_deviation: Compatibility covers the pinned anonymous public live/rerun, VOD, clip, direct collection, channel collections, channel videos/profile, and channel clips corpora through exact normalized class adapters. Direct CollectionSideBar and channel collections pages are capped at 100 edges per response; channel clips pages use the required 20-edge limit. Oversized payloads fail closed. GraphQL, Usher, storyboard, direct media, thumbnails, and all native HLS child URLs are credential-isolated and no-redirect. Login/private, subscriber-only or entitlement-gated media, restricted mature/geo behavior, chat/comments, live-from-start VOD association, and unsupported credential flows remain explicit deviations.
 
   - id: extractor.soundcloud_pilot
     name: SoundCloud API and playlist pilot

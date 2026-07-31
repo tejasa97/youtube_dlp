@@ -27,7 +27,7 @@ var representativeExtractorCatalog = []representativeExtractor{
 	{"generic", "https://media.example.invalid/video.mp4", []extractorRiskClass{riskSimpleDirect}},
 	{"youtube", "https://www.youtube.com/watch?v=fixture0001", []extractorRiskClass{riskPlaylistAPI, riskManifestHeavy, riskJavaScript}},
 	{"vimeo", "https://vimeo.com/123456789", []extractorRiskClass{riskManifestHeavy}},
-	{"twitch", "https://www.twitch.tv/fixture_channel", []extractorRiskClass{riskLive, riskManifestHeavy}},
+	{"twitch_stream", "https://www.twitch.tv/fixture_channel", []extractorRiskClass{riskLive, riskManifestHeavy}},
 	{"soundcloud", "https://soundcloud.com/fixture-artist/synthetic-signal", []extractorRiskClass{riskPlaylistAPI}},
 	{"applepodcasts", "https://podcasts.apple.com/us/podcast/fixture/id123?i=456", []extractorRiskClass{riskSimpleDirect}},
 	{"streamable", "https://streamable.com/e/fixture_1", []extractorRiskClass{riskSharedBackend, riskSimpleDirect}},

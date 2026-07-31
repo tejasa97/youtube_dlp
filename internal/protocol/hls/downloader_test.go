@@ -7,11 +7,13 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -19,6 +21,12 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/fragment"
 	"github.com/ytdlp-go/ytdlp/internal/network"
 )
+
+type hlsRoundTripper func(*http.Request) (*http.Response, error)
+
+func (roundTripper hlsRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	return roundTripper(request)
+}
 
 func TestDownloadMasterByteRangeMapAndAES128(t *testing.T) {
 	key := []byte("0123456789abcdef")
@@ -62,6 +70,91 @@ func TestDownloadMasterByteRangeMapAndAES128(t *testing.T) {
 	}
 	if result.Bytes != int64(len(contents)) {
 		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestDownloadAllowedHostsCoversMasterVariantsSegmentsKeysAndMaps(t *testing.T) {
+	key := []byte("0123456789abcdef")
+	iv := make([]byte, aes.BlockSize)
+	encrypted := encryptSegment(t, []byte("segment"), key, iv)
+	requests := make([]string, 0)
+	var requestsMu sync.Mutex
+	transport, err := network.New(network.Config{RoundTripper: hlsRoundTripper(func(request *http.Request) (*http.Response, error) {
+		requestsMu.Lock()
+		requests = append(requests, request.URL.String())
+		requestsMu.Unlock()
+		body := ""
+		switch request.URL.String() {
+		case "https://usher.ttvnw.net/master.m3u8?sig=master":
+			body = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nhttps://edge.ttvnw.net/media.m3u8?sig=variant\n"
+		case "https://edge.ttvnw.net/media.m3u8?sig=variant":
+			body = "#EXTM3U\n#EXT-X-MAP:URI=\"init.mp4?sig=init\"\n#EXT-X-KEY:METHOD=AES-128,URI=\"key.bin?sig=key\"\n#EXTINF:1,\nsegment.ts?sig=segment\n#EXT-X-ENDLIST\n"
+		case "https://edge.ttvnw.net/init.mp4?sig=init":
+			body = "init"
+		case "https://edge.ttvnw.net/key.bin?sig=key":
+			body = "0123456789abcdef"
+		case "https://edge.ttvnw.net/segment.ts?sig=segment":
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(string(encrypted))), Request: request}, nil
+		default:
+			return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader("")), Request: request}, nil
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
+	})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer transport.CloseIdleConnections()
+	root := t.TempDir()
+	destination := filepath.Join(root, "allowed.bin")
+	_, err = NewDownloader(transport, Config{AllowedHosts: []string{"ttvnw.net"}}).Download(
+		context.Background(), "https://usher.ttvnw.net/master.m3u8?sig=master", root, destination, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data, readErr := os.ReadFile(destination); readErr != nil || string(data) != "initsegment" {
+		t.Fatalf("data=%q err=%v", data, readErr)
+	}
+	requestsMu.Lock()
+	requestedURLs := append([]string(nil), requests...)
+	requestsMu.Unlock()
+	for _, rawURL := range requestedURLs {
+		if !strings.Contains(rawURL, "sig=") {
+			t.Fatalf("signed query was lost: %q", rawURL)
+		}
+	}
+}
+
+func TestDownloadAllowedHostsRejectsHostileResolvedURI(t *testing.T) {
+	transport, err := network.New(network.Config{RoundTripper: hlsRoundTripper(func(request *http.Request) (*http.Response, error) {
+		if request.URL.String() == "https://usher.ttvnw.net/master.m3u8" {
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nhttps://evil.invalid/media.m3u8\n")), Request: request}, nil
+		}
+		return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader("")), Request: request}, nil
+	})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer transport.CloseIdleConnections()
+	_, err = NewDownloader(transport, Config{AllowedHosts: []string{"ttvnw.net"}}).Download(
+		context.Background(), "https://usher.ttvnw.net/master.m3u8", t.TempDir(), filepath.Join(t.TempDir(), "hostile.bin"), false, nil)
+	if !errors.Is(err, ErrInvalidPlaylist) {
+		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestDownloadAllowedHostsRejectsMalformedPolicy(t *testing.T) {
+	for _, rawHost := range []string{
+		"", "ttvnw.net/", "ttvnw..net", " ttvnw.net", "ttvnw.net ",
+		"ttvnw.net:443", "127.0.0.1", "[::1]", "edge_ttvnw.net", "-ttvnw.net", "ttvnw-.net",
+	} {
+		t.Run(rawHost, func(t *testing.T) {
+			destination := filepath.Join(t.TempDir(), "malformed.bin")
+			_, err := NewDownloader(nil, Config{AllowedHosts: []string{rawHost}}).Download(
+				context.Background(), "https://usher.ttvnw.net/master.m3u8", t.TempDir(), destination, false, nil)
+			if !errors.Is(err, ErrInvalidPlaylist) {
+				t.Fatalf("host %q error=%v", rawHost, err)
+			}
+		})
 	}
 }
 

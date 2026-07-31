@@ -6,11 +6,14 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/ytdlp-go/ytdlp/internal/events"
 	"github.com/ytdlp-go/ytdlp/internal/fragment"
@@ -23,7 +26,13 @@ type Transport interface {
 }
 
 type Config struct {
-	Headers             http.Header
+	Headers http.Header
+	// AllowedHosts is an optional extractor-owned HTTPS host policy. When set,
+	// every manifest, variant, segment, key, map, preload hint, and rendition
+	// report URI must remain on one of these exact DNS zones or subdomains. The
+	// suffix form is intentional: Twitch uses distinct edge hostnames within a
+	// small CDN zone, and the dot boundary prevents look-alike hosts.
+	AllowedHosts        []string
 	PollInterval        time.Duration
 	MaxPolls            int
 	FragmentConcurrency int
@@ -100,6 +109,9 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 			contextState = playlistContext{}
 		}
 		inheritPlaylistContext(media, &contextState)
+		if err := downloader.validateMediaPlaylist(media); err != nil {
+			return fragment.Result{}, err
+		}
 		stampKeySnapshot(media, snapshot)
 		if err := downloader.captureSnapshotKeyMaterial(ctx, media); err != nil {
 			return fragment.Result{}, err
@@ -462,6 +474,9 @@ func isUnsupportedBlockingReload(err error) bool {
 }
 
 func (downloader *Downloader) loadMedia(ctx context.Context, manifestURL string) (string, *MediaPlaylist, error) {
+	if err := downloader.validateURL(manifestURL); err != nil {
+		return "", nil, err
+	}
 	body, _, err := downloader.readPage(ctx, manifestURL)
 	if err != nil {
 		return "", nil, err
@@ -472,10 +487,18 @@ func (downloader *Downloader) loadMedia(ctx context.Context, manifestURL string)
 		return "", nil, err
 	}
 	if playlist.Media != nil {
+		if err := downloader.validateMediaPlaylist(playlist.Media); err != nil {
+			return "", nil, err
+		}
 		return manifestURL, playlist.Media, nil
 	}
 	if len(playlist.Variants) == 0 {
 		return "", nil, ErrInvalidPlaylist
+	}
+	for _, variant := range playlist.Variants {
+		if err := downloader.validateURL(variant.URL); err != nil {
+			return "", nil, err
+		}
 	}
 	selected := playlist.Variants[0]
 	for _, variant := range playlist.Variants[1:] {
@@ -492,7 +515,104 @@ func (downloader *Downloader) loadMedia(ctx context.Context, manifestURL string)
 		annotateEncryptionMediaURL(err, selected.URL)
 		return "", nil, errors.Join(err, ErrInvalidPlaylist)
 	}
+	if err := downloader.validateMediaPlaylist(playlist.Media); err != nil {
+		return "", nil, err
+	}
 	return selected.URL, playlist.Media, nil
+}
+
+func (downloader *Downloader) validateURL(rawURL string) error {
+	if len(downloader.config.AllowedHosts) == 0 {
+		return nil
+	}
+	allowedHosts := make([]string, 0, len(downloader.config.AllowedHosts))
+	seen := make(map[string]struct{}, len(downloader.config.AllowedHosts))
+	for _, rawHost := range downloader.config.AllowedHosts {
+		host, ok := normalizeAllowedHost(rawHost)
+		if !ok {
+			return ErrInvalidPlaylist
+		}
+		if _, duplicate := seen[host]; duplicate {
+			return ErrInvalidPlaylist
+		}
+		seen[host] = struct{}{}
+		allowedHosts = append(allowedHosts, host)
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Scheme != "https" || parsed.Opaque != "" || parsed.User != nil || parsed.Port() != "" || parsed.Fragment != "" || parsed.Hostname() == "" {
+		return ErrInvalidPlaylist
+	}
+	host, ok := normalizeAllowedHost(parsed.Hostname())
+	if !ok {
+		return ErrInvalidPlaylist
+	}
+	for _, allowed := range allowedHosts {
+		// Require an exact zone or a dot-delimited child of that zone. This
+		// admits edge.ttvnw.net but rejects evilttvnw.net.
+		if host == allowed || strings.HasSuffix(host, "."+allowed) {
+			return nil
+		}
+	}
+	return ErrInvalidPlaylist
+}
+
+func normalizeAllowedHost(host string) (string, bool) {
+	if host == "" || len(host) > 253 || host != strings.TrimSpace(host) || net.ParseIP(host) != nil {
+		return "", false
+	}
+	if strings.IndexFunc(host, unicode.IsSpace) >= 0 || strings.ContainsAny(host, "/\\:\x00\r\n") {
+		return "", false
+	}
+	labels := strings.Split(host, ".")
+	for _, label := range labels {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return "", false
+		}
+		for _, character := range label {
+			if (character < 'a' || character > 'z') && (character < 'A' || character > 'Z') &&
+				(character < '0' || character > '9') && character != '-' {
+				return "", false
+			}
+		}
+	}
+	return strings.ToLower(host), true
+}
+
+func (downloader *Downloader) validateMediaPlaylist(media *MediaPlaylist) error {
+	if len(downloader.config.AllowedHosts) == 0 || media == nil {
+		return nil
+	}
+	if media.PreloadHint != nil {
+		if err := downloader.validateURL(media.PreloadHint.URL); err != nil {
+			return err
+		}
+	}
+	for _, report := range media.RenditionReports {
+		if err := downloader.validateURL(report.URL); err != nil {
+			return err
+		}
+	}
+	for _, segment := range media.Segments {
+		if err := downloader.validateURL(segment.URL); err != nil {
+			return err
+		}
+		if segment.Key != nil {
+			if err := downloader.validateURL(segment.Key.URL); err != nil {
+				return err
+			}
+		}
+		if segment.Map != nil {
+			if err := downloader.validateURL(segment.Map.URL); err != nil {
+				return err
+			}
+			if segment.Map.Key != nil {
+				if err := downloader.validateURL(segment.Map.Key.URL); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func annotateEncryptionMediaURL(err error, mediaURL string) {
@@ -503,6 +623,9 @@ func annotateEncryptionMediaURL(err error, mediaURL string) {
 }
 
 func (downloader *Downloader) readPage(ctx context.Context, rawURL string) ([]byte, http.Header, error) {
+	if err := downloader.validateURL(rawURL); err != nil {
+		return nil, nil, err
+	}
 	if len(downloader.config.Headers) == 0 {
 		return downloader.transport.ReadPage(ctx, rawURL)
 	}

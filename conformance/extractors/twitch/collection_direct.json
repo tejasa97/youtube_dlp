@@ -9,7 +9,7 @@
               "node": {
                 "id": "1000000001",
                 "title": "Synthetic collection VOD one",
-                "previewThumbnailURL": "https://static-cdn.example.test/vod1-320x180.jpg",
+                "previewThumbnailURL": "https://static-cdn.jtvnw.net/vod1-320x180.jpg",
                 "lengthSeconds": 120,
                 "viewCount": 11
               }
@@ -33,7 +33,7 @@
                 "__typename": "Video",
                 "id": "1000000002",
                 "title": "Synthetic collection VOD two",
-                "previewThumbnailURL": "https://static-cdn.example.test/vod2-320x180.jpg",
+                "previewThumbnailURL": "https://static-cdn.jtvnw.net/vod2-320x180.jpg",
                 "lengthSeconds": 240,
                 "viewCount": 22
               }

@@ -4,8 +4,10 @@ package format
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
+	"unicode"
 
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
@@ -47,6 +49,10 @@ type Selection struct {
 	// NiconicoScoped applies the Niconico attributable host policy to every
 	// manifest and fragment hop after the generic HLS dispatcher re-enters.
 	NiconicoScoped bool
+	// AllowedHosts is an extractor-owned HLS trust boundary. When present, the
+	// native HLS downloader applies it to the manifest, variants, segments,
+	// encryption keys, and initialization maps.
+	AllowedHosts []string
 
 	// YouTubePostLive selects the finite post-live DVR sequence downloader.
 	// The discriminator is extractor-produced and never inferred from a URL.
@@ -225,6 +231,11 @@ func (prepared Prepared) Best() (Selection, error) {
 		selection.CredentialIsolatedReferer, _ = object.Lookup("_credential_isolated_referer").StringValue()
 		selection.HostPolicy, _ = object.Lookup("_ted_host_policy").StringValue()
 		selection.NiconicoScoped, _ = object.Lookup("_niconico_scoped").Bool()
+		var allowedHostsErr error
+		selection.AllowedHosts, allowedHostsErr = readAllowedHosts(object)
+		if allowedHostsErr != nil {
+			return Selection{}, allowedHostsErr
+		}
 		if selection.YouTubeSABR {
 			selection.Protocol = "youtube_sabr_ump"
 		}
@@ -233,6 +244,54 @@ func (prepared Prepared) Best() (Selection, error) {
 		return selection, nil
 	}
 	return Selection{}, fmt.Errorf("%w: formats contain no URL", ErrNoFormats)
+}
+
+func readAllowedHosts(object *value.Object) ([]string, error) {
+	raw := object.Lookup("_allowed_hosts")
+	if raw.IsMissing() {
+		return nil, nil
+	}
+	values, ok := raw.ListValue()
+	if !ok || len(values) == 0 || len(values) > 32 {
+		return nil, fmt.Errorf("%w: invalid allowed HLS hosts", ErrInvalidFormats)
+	}
+	hosts := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, rawHost := range values {
+		host, ok := rawHost.StringValue()
+		host, ok = normalizeAllowedHost(host, ok)
+		if !ok {
+			return nil, fmt.Errorf("%w: invalid allowed HLS host", ErrInvalidFormats)
+		}
+		if _, duplicate := seen[host]; duplicate {
+			return nil, fmt.Errorf("%w: duplicate allowed HLS host", ErrInvalidFormats)
+		}
+		seen[host] = struct{}{}
+		hosts = append(hosts, host)
+	}
+	return hosts, nil
+}
+
+func normalizeAllowedHost(host string, present bool) (string, bool) {
+	if !present || host == "" || len(host) > 253 || host != strings.TrimSpace(host) || net.ParseIP(host) != nil {
+		return "", false
+	}
+	if strings.IndexFunc(host, unicode.IsSpace) >= 0 || strings.ContainsAny(host, "/\\:\x00\r\n") {
+		return "", false
+	}
+	labels := strings.Split(host, ".")
+	for _, label := range labels {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return "", false
+		}
+		for _, character := range label {
+			if (character < 'a' || character > 'z') && (character < 'A' || character > 'Z') &&
+				(character < '0' || character > '9') && character != '-' {
+				return "", false
+			}
+		}
+	}
+	return strings.ToLower(host), true
 }
 
 func mergeHeaders(values ...value.Value) (http.Header, error) {

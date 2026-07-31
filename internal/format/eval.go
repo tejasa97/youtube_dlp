@@ -113,7 +113,10 @@ func (prepared Prepared) PlanWithOptions(selector Selector, evalOptions Evaluati
 		}
 		selections := make([]Selection, 0, len(tracks))
 		for _, object := range tracks {
-			selection := objectSelection(object)
+			selection, selectionErr := objectSelection(object)
+			if selectionErr != nil {
+				return nil, selectionErr
+			}
 			if item, ok := byObject[object]; ok {
 				selection.setSourceFormatIndex(item.Source)
 				selection.setNormalizedFormatIndex(item.Index)

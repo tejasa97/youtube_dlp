@@ -12,7 +12,7 @@
                 "__typename": "Collection",
                 "id": "FixtureCollection03",
                 "title": "Synthetic collection three",
-                "thumbnailURL": "https://static-cdn.example.test/coll3-320x180.jpg",
+                "thumbnailURL": "https://static-cdn.jtvnw.net/coll3-320x180.jpg",
                 "lengthSeconds": 1800,
                 "viewCount": 303,
                 "updatedAt": "2024-03-01T00:00:00Z"

@@ -376,8 +376,15 @@ search, hashtag playlists, general and Music search/browse, captions,
 comments, live aliases, post-live reconstruction, live-from-start, multiple
 native player clients, and an explicit PO-token provider boundary.
 
-Twitch coverage includes live channels, VODs, clips, direct collections,
-channel videos, channel collections, and channel clip playlists.
+Twitch coverage includes the seven reviewed public classes from the pinned
+reference: anonymous live/rerun channels, VODs, direct clips and collections,
+and bounded channel videos, clips, and collections playlists. The registered
+keys are `twitch_stream`, `twitch_vod`, `twitch_clips`, `twitch_collection`,
+`twitch_videos`, `twitch_videos_clips`, and `twitch_videos_collections`.
+Credential-isolated no-redirect GraphQL/Usher/HLS/direct-clip-media/thumbnail handling is
+fixture-backed; login/private, subscriber-only or restricted entitlement,
+mature/geo-restricted, chat/comments, and unsupported credential flows remain
+deferred.
 
 SoundCloud coverage includes tracks, sets, bare profiles, the pinned public
 `tracks`, `albums`, `sets`, `reposts`, `likes`, `spotlight`, and `comments`
