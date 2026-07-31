@@ -1191,6 +1191,30 @@ func escapeFFMetadata(value string) string {
 	return strings.NewReplacer("\\", "\\\\", "=", "\\=", ";", "\\;", "#", "\\#").Replace(value)
 }
 
+// ResolveConfiguredLocation resolves an explicit ffmpeg location. Empty location
+// leaves discovery to PATH. A directory is searched for ffmpeg and ffprobe; a
+// file path selects ffmpeg and probes the sibling ffprobe name.
+func ResolveConfiguredLocation(location string) (ffmpegPath, ffprobePath string) {
+	if location == "" {
+		return "", ""
+	}
+	info, err := os.Stat(location)
+	if err != nil {
+		return location, ""
+	}
+	if info.IsDir() {
+		return filepath.Join(location, executableName("ffmpeg")), filepath.Join(location, executableName("ffprobe"))
+	}
+	return location, filepath.Join(filepath.Dir(location), executableName("ffprobe"))
+}
+
+func executableName(name string) string {
+	if runtime.GOOS == "windows" {
+		return name + ".exe"
+	}
+	return name
+}
+
 func discover(configured, name string, unavailable error) (string, error) {
 	if configured != "" {
 		info, err := os.Stat(configured)

@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/ytdlp-go/ytdlp/internal/value"
 	"gopkg.in/yaml.v3"
@@ -1013,6 +1014,36 @@ func TestReservedFilename(t *testing.T) {
 	}
 	if !strings.HasSuffix(got, string(filepath.Separator)+"_CON.txt") {
 		t.Fatalf("reserved path = %q", got)
+	}
+}
+
+func TestResolveFilenameOptions(t *testing.T) {
+	root := t.TempDir()
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "title", Value: value.String("á test:file")},
+		value.Field{Key: "ext", Value: value.String("mp4")},
+	))
+	restricted, err := ResolveWithOptions(root, "%(title)s.%(ext)s", info, FilenameOptions{RestrictFilenames: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(restricted, "á") {
+		t.Fatalf("restricted path retains non-ASCII: %q", restricted)
+	}
+	windows, err := ResolveWithOptions(root, "%(title)s.%(ext)s", info, FilenameOptions{WindowsFilenames: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.ContainsAny(windows, `<>:"|?*`) {
+		t.Fatalf("windows path retains forbidden characters: %q", windows)
+	}
+	trimmed, err := ResolveWithOptions(root, "%(title)s.%(ext)s", info, FilenameOptions{TrimFilenames: 8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := filepath.Base(trimmed)
+	if utf8.RuneCountInString(strings.TrimSuffix(base, ".mp4")) > 8 {
+		t.Fatalf("trimmed basename = %q; want at most 8 runes before extension", base)
 	}
 }
 

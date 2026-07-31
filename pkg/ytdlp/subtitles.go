@@ -10,7 +10,6 @@ import (
 	"regexp"
 	"strings"
 
-	outputtemplate "github.com/ytdlp-go/ytdlp/internal/compat/template"
 	"github.com/ytdlp-go/ytdlp/internal/downloader"
 	"github.com/ytdlp-go/ytdlp/internal/events"
 	"github.com/ytdlp-go/ytdlp/internal/extractor"
@@ -386,7 +385,7 @@ func (operation *operation) downloadSubtitles(ctx context.Context, info value.In
 			expectedExtension = "subtitle"
 			outputInfo.Set("ext", value.String(expectedExtension))
 		}
-		base, err := outputtemplate.Resolve(outputRoot, pattern, outputInfo)
+		base, err := operation.resolveOutputPath(outputRoot, pattern, outputInfo)
 		if err != nil {
 			return artifacts, total, err
 		}
@@ -431,27 +430,17 @@ func (operation *operation) downloadSubtitles(ctx context.Context, info value.In
 			}
 		} else if isolated {
 			var err error
-			result, err = downloader.New(isolatedTransport.(network.Doer)).Download(ctx, downloader.Job{
-				URL: track.rawURL, OutputRoot: operation.request.outputRoot(OutputPathHome), Destination: destination,
-				Overwrite: operation.request.Overwrite, Attempts: options.Attempts,
-				RetryBaseDelay: options.RetryBaseDelay, RetryMaxDelay: options.RetryMaxDelay,
-				RateLimit: options.RateLimit, MaxBytes: options.MaxBytes,
-				ThrottleRate: options.ThrottleRate, ThrottleWindow: options.ThrottleWindow,
-				ThrottleRestarts: options.ThrottleRestarts, FileAttempts: options.FileAttempts,
-			}, sink)
+			result, err = downloader.New(isolatedTransport.(network.Doer)).Download(ctx, operation.directDownloadJob(
+				track.rawURL, nil, operation.request.outputRoot(OutputPathHome), destination,
+			), sink)
 			if err != nil {
 				return artifacts, total, err
 			}
 		} else {
 			var err error
-			result, err = downloader.New(operation.transport).Download(ctx, downloader.Job{
-				URL: track.rawURL, Headers: track.headers, OutputRoot: operation.request.outputRoot(OutputPathHome), Destination: destination,
-				Overwrite: operation.request.Overwrite, Attempts: options.Attempts,
-				RetryBaseDelay: options.RetryBaseDelay, RetryMaxDelay: options.RetryMaxDelay,
-				RateLimit: options.RateLimit, MaxBytes: options.MaxBytes,
-				ThrottleRate: options.ThrottleRate, ThrottleWindow: options.ThrottleWindow,
-				ThrottleRestarts: options.ThrottleRestarts, FileAttempts: options.FileAttempts,
-			}, sink)
+			result, err = downloader.New(operation.transport).Download(ctx, operation.directDownloadJob(
+				track.rawURL, track.headers, operation.request.outputRoot(OutputPathHome), destination,
+			), sink)
 			if err != nil {
 				return artifacts, total, err
 			}

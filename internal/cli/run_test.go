@@ -1862,3 +1862,34 @@ func TestRunPlaylistDefaultDoesNotSetDisabled(t *testing.T) {
 		t.Fatalf("request.Playlist.Disabled=%v, want false (default)", r.Playlist.Disabled)
 	}
 }
+
+func TestRunFilesystemFlagsWireToRequest(t *testing.T) {
+	r := captureCLIRequest(t,
+		"--restrict-filenames",
+		"--windows-filenames",
+		"--trim-filenames", "64",
+		"--no-continue",
+		"--no-part",
+		"--no-mtime",
+		"--ffmpeg-location", "/opt/ffmpeg/bin",
+	)
+	fs := r.Filesystem
+	if !fs.RestrictFilenames || !fs.WindowsFilenames || fs.TrimFilenames != 64 ||
+		!fs.NoContinue || !fs.NoPart || !fs.NoMtime || fs.FfmpegLocation != "/opt/ffmpeg/bin" {
+		t.Fatalf("filesystem = %+v", fs)
+	}
+}
+
+func TestRunContinueAndMtimeDefaultsEnabled(t *testing.T) {
+	r := captureCLIRequest(t)
+	if r.Filesystem.NoContinue || r.Filesystem.NoPart || r.Filesystem.NoMtime {
+		t.Fatalf("filesystem defaults = %+v", r.Filesystem)
+	}
+}
+
+func TestRunNoContinueAfterContinueLastWins(t *testing.T) {
+	r := captureCLIRequest(t, "--no-continue", "--continue")
+	if r.Filesystem.NoContinue {
+		t.Fatalf("request.Filesystem.NoContinue=%v, want false (last wins)", r.Filesystem.NoContinue)
+	}
+}

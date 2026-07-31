@@ -18,7 +18,6 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/extractor"
 	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
 	"github.com/ytdlp-go/ytdlp/internal/fragment"
-	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
 	"github.com/ytdlp-go/ytdlp/internal/media/pipeline"
 	"github.com/ytdlp-go/ytdlp/internal/network"
 	"github.com/ytdlp-go/ytdlp/internal/protocol/dash"
@@ -173,7 +172,7 @@ func (operation *operation) downloadYouTubeSABRPair(ctx context.Context, selecti
 	}
 	merge := operation.sabrMerge
 	if merge == nil {
-		merge = mergeSABRTracks
+		merge = operation.mergeSABRTracks
 	}
 	if err := merge(ctx, video, audio, destination, operation.request.Overwrite, serializedSink); err != nil {
 		return "", 0, err
@@ -185,8 +184,8 @@ func (operation *operation) downloadYouTubeSABRPair(ctx context.Context, selecti
 	return destination, bytes, nil
 }
 
-func mergeSABRTracks(ctx context.Context, video, audio, destination string, overwrite bool, sink events.Sink) error {
-	tools, err := ffmpeg.Discover(ffmpeg.Config{})
+func (operation *operation) mergeSABRTracks(ctx context.Context, video, audio, destination string, overwrite bool, sink events.Sink) error {
+	tools, err := operation.discoverFFmpeg()
 	if err != nil {
 		return err
 	}
@@ -412,7 +411,7 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 			}
 			fallback := operation.hlsFallback
 			if fallback == nil {
-				tools, discoverErr := ffmpeg.DiscoverFFmpeg(ffmpeg.Config{})
+				tools, discoverErr := operation.discoverFFmpegOnly()
 				if discoverErr != nil {
 					return "", 0, errors.Join(err, discoverErr)
 				}
@@ -456,7 +455,7 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 			return "", 0, err
 		}
 		if result.MergeRequired || result.MultiPeriod {
-			tools, discoverErr := ffmpeg.Discover(ffmpeg.Config{})
+			tools, discoverErr := operation.discoverFFmpeg()
 			if discoverErr != nil {
 				return "", 0, discoverErr
 			}
@@ -531,7 +530,7 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 		if video == "" || audio == "" {
 			return "", 0, pipeline.ErrMissingDASHTracks
 		}
-		tools, discoverErr := ffmpeg.Discover(ffmpeg.Config{})
+		tools, discoverErr := operation.discoverFFmpeg()
 		if discoverErr != nil {
 			return "", 0, discoverErr
 		}
@@ -546,14 +545,9 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 		}
 		return destination, info.Size(), nil
 	default:
-		result, err := downloader.New(mediaTransport.(network.Doer)).Download(ctx, downloader.Job{
-			URL: selected.URL, Headers: selected.Headers, OutputRoot: outputRoot, Destination: destination,
-			Overwrite: operation.request.Overwrite, Attempts: options.Attempts,
-			RetryBaseDelay: options.RetryBaseDelay, RetryMaxDelay: options.RetryMaxDelay,
-			RateLimit: options.RateLimit, MaxBytes: options.MaxBytes,
-			ThrottleRate: options.ThrottleRate, ThrottleWindow: options.ThrottleWindow,
-			ThrottleRestarts: options.ThrottleRestarts, FileAttempts: options.FileAttempts,
-		}, sink)
+		result, err := downloader.New(mediaTransport.(network.Doer)).Download(ctx, operation.directDownloadJob(
+			selected.URL, selected.Headers, outputRoot, destination,
+		), sink)
 		if err != nil {
 			if selected.CredentialIsolated {
 				if cleanupErr := cleanupCredentialIsolatedDownload(destination); cleanupErr != nil {
@@ -648,7 +642,7 @@ func (operation *operation) downloadYouTubeLivePair(ctx context.Context, selecti
 	if selections[1].VCodec != "" && selections[1].VCodec != "none" {
 		video, audio = paths[1], paths[0]
 	}
-	tools, err := ffmpeg.Discover(ffmpeg.Config{})
+	tools, err := operation.discoverFFmpeg()
 	if err != nil {
 		return "", 0, err
 	}

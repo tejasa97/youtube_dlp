@@ -146,6 +146,7 @@ type Request struct {
 	Subtitles            SubtitleOptions
 	Thumbnails           ThumbnailOptions
 	RelatedFiles         RelatedFileOptions
+	Filesystem           FilesystemOptions
 	PrintRules           []PrintRule
 	Playlist             PlaylistOptions
 	ProgressTemplate     string
@@ -1837,6 +1838,9 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	}
 	result.Downloaded = true
 	result.Filename = downloadedPath
+	if err := operation.applyOutputMtime(downloadedPath, info); err != nil {
+		return rollbackArtifactResult(mediaTx, categorized("set output mtime", err))
+	}
 	if cutApplied || embeddedSubtitles || embeddedMetadata || embeddedThumbnail {
 		result.Bytes, err = artifactBytes(result.Artifacts)
 		if err != nil {

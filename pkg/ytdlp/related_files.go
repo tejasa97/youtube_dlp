@@ -85,7 +85,7 @@ func (operation *operation) writeRelatedFiles(ctx context.Context, info value.In
 		templateType := outputTemplateTypeForRelatedFile(file.kind, playlist)
 		outputRoot := operation.request.outputRoot(outputPathTypeForTemplate(templateType))
 		pattern := operation.request.outputTemplate(templateType)
-		destination, err := relatedFilePath(outputRoot, pattern, info, file.extension)
+		destination, err := operation.relatedFilePath(outputRoot, pattern, info, file.extension)
 		if err != nil {
 			return artifacts, total, err
 		}
@@ -200,10 +200,10 @@ func desktopEscape(input string) string {
 	return replacer.Replace(input)
 }
 
-func relatedFilePath(outputRoot, pattern string, info value.Info, extension string) (string, error) {
+func (operation *operation) relatedFilePath(outputRoot, pattern string, info value.Info, extension string) (string, error) {
 	outputInfo := value.NewInfo(info.Fields().Clone())
 	outputInfo.Set("ext", value.String(sidecarBaseExt))
-	base, err := outputtemplate.Resolve(outputRoot, pattern, outputInfo)
+	base, err := operation.resolveOutputPath(outputRoot, pattern, outputInfo)
 	if err != nil {
 		return "", err
 	}

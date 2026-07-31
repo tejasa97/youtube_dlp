@@ -142,7 +142,7 @@ func (operation *operation) validatePrintRules(
 		}
 		if rule.FileTemplate != "" {
 			outputRoot := operation.request.outputRoot(OutputPathHome)
-			if _, err := outputtemplate.Resolve(outputRoot, rule.FileTemplate, printInfo); err != nil {
+			if _, err := operation.resolveOutputPath(outputRoot, rule.FileTemplate, printInfo); err != nil {
 				return err
 			}
 		}
@@ -189,7 +189,7 @@ func (operation *operation) writePrintFiles(
 		if err != nil {
 			return artifacts, total, err
 		}
-		destination, err := outputtemplate.Resolve(outputRoot, rule.FileTemplate, printInfo)
+		destination, err := operation.resolveOutputPath(outputRoot, rule.FileTemplate, printInfo)
 		if err != nil {
 			return artifacts, total, fmt.Errorf("%w: %v", errUnsafePrintFile, err)
 		}
@@ -680,7 +680,7 @@ func (operation *operation) printFilenameForPlan(info value.Info, plan mediaform
 func (operation *operation) renderFilenameBase(outputInfo value.Info) (string, error) {
 	pattern := operation.request.outputTemplate(OutputTemplateDefault)
 	outputDir := operation.request.outputRoot(OutputPathHome)
-	filename, err := outputtemplate.Resolve(outputDir, pattern, outputInfo)
+	filename, err := operation.resolveOutputPath(outputDir, pattern, outputInfo)
 	if err != nil {
 		return "", err
 	}

@@ -247,8 +247,21 @@ func templateSyntax(start, end int, message string) error {
 	return &SyntaxError{Start: start, End: end, Message: message}
 }
 
+// FilenameOptions controls post-render filename sanitization applied by Resolve.
+type FilenameOptions struct {
+	RestrictFilenames bool
+	WindowsFilenames  bool
+	TrimFilenames     int
+}
+
 // Resolve renders and sanitizes a relative template beneath outputRoot.
 func Resolve(outputRoot, pattern string, info value.Info) (string, error) {
+	return ResolveWithOptions(outputRoot, pattern, info, FilenameOptions{})
+}
+
+// ResolveWithOptions renders and sanitizes a relative template beneath outputRoot
+// using the supplied filename options.
+func ResolveWithOptions(outputRoot, pattern string, info value.Info, opts FilenameOptions) (string, error) {
 	rendered, err := Render(pattern, info)
 	if err != nil {
 		return "", err
@@ -266,10 +279,22 @@ func Resolve(outputRoot, pattern string, info value.Info) (string, error) {
 		if part == ".." {
 			return "", ErrUnsafePath
 		}
-		cleaned = append(cleaned, sanitizeSegment(part))
+		part, err = applyFilenameOptions(part, opts)
+		if err != nil {
+			return "", err
+		}
+		cleaned = append(cleaned, part)
 	}
 	if len(cleaned) == 0 {
 		return "", fmt.Errorf("%w: template produced an empty path", ErrInvalidTemplate)
+	}
+	if opts.TrimFilenames > 0 {
+		last := len(cleaned) - 1
+		trimmed, err := trimFilenameStem(cleaned[last], opts.TrimFilenames)
+		if err != nil {
+			return "", err
+		}
+		cleaned[last] = trimmed
 	}
 	root, err := filepath.Abs(outputRoot)
 	if err != nil {
@@ -2483,6 +2508,74 @@ var windowsReserved = map[string]struct{}{
 	"CON": {}, "PRN": {}, "AUX": {}, "NUL": {},
 	"COM1": {}, "COM2": {}, "COM3": {}, "COM4": {}, "COM5": {}, "COM6": {}, "COM7": {}, "COM8": {}, "COM9": {},
 	"LPT1": {}, "LPT2": {}, "LPT3": {}, "LPT4": {}, "LPT5": {}, "LPT6": {}, "LPT7": {}, "LPT8": {}, "LPT9": {},
+}
+
+var windowsPathPartPattern = regexp.MustCompile(`[/<>:"|\\?\*]|[\s.]$`)
+
+func applyFilenameOptions(part string, opts FilenameOptions) (string, error) {
+	if opts.RestrictFilenames {
+		sanitized, err := sanitizeFilename(part, true)
+		if err != nil {
+			return "", err
+		}
+		part = sanitized
+	}
+	switch {
+	case opts.WindowsFilenames || runtime.GOOS == "windows":
+		part = sanitizeWindowsPathPart(part)
+	default:
+		part = sanitizeSegment(part)
+	}
+	return part, nil
+}
+
+func sanitizeWindowsPathPart(part string) string {
+	if part == "" {
+		return "_"
+	}
+	result := windowsPathPartPattern.ReplaceAllStringFunc(part, func(match string) string {
+		return strings.Repeat("#", len([]rune(match)))
+	})
+	result = strings.TrimRight(result, " .")
+	if result == "" {
+		result = "_"
+	}
+	base := strings.ToUpper(strings.SplitN(result, ".", 2)[0])
+	if _, reserved := windowsReserved[base]; reserved {
+		result = "_" + result
+	}
+	return result
+}
+
+func trimFilenameStem(segment string, limit int) (string, error) {
+	if limit <= 0 {
+		return segment, nil
+	}
+	const ellipses = "..."
+	base, extension := splitFilenameExtension(segment)
+	if utf8.RuneCountInString(base) <= limit {
+		return segment, nil
+	}
+	runes := []rune(base)
+	if limit <= len(ellipses) {
+		return string(runes[:limit]) + extension, nil
+	}
+	trimmed := string(runes[:limit-len(ellipses)]) + ellipses + extension
+	if len(trimmed) > maxRenderedBytes {
+		return "", fmt.Errorf("%w: trimmed filename exceeds size limit", ErrInvalidTemplate)
+	}
+	return trimmed, nil
+}
+
+func splitFilenameExtension(segment string) (string, string) {
+	if segment == "" || segment == "." || segment == ".." {
+		return segment, ""
+	}
+	dot := strings.LastIndex(segment, ".")
+	if dot <= 0 {
+		return segment, ""
+	}
+	return segment[:dot], segment[dot:]
 }
 
 func sanitizeSegment(segment string) string {

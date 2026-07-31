@@ -16,7 +16,6 @@ import (
 	"strconv"
 	"strings"
 
-	outputtemplate "github.com/ytdlp-go/ytdlp/internal/compat/template"
 	"github.com/ytdlp-go/ytdlp/internal/downloader"
 	"github.com/ytdlp-go/ytdlp/internal/events"
 	"github.com/ytdlp-go/ytdlp/internal/extractor"
@@ -242,7 +241,7 @@ func (operation *operation) writeThumbnails(ctx context.Context, info *value.Inf
 	multiple := writeAll && len(tracks) > 1
 	seen := make(map[string]struct{}, len(tracks))
 	for _, track := range tracks {
-		source, pathErr := thumbnailPath(outputRoot, pattern, *info, track, multiple)
+		source, pathErr := operation.thumbnailPath(outputRoot, pattern, *info, track, multiple)
 		if pathErr != nil {
 			return nil, 0, pathErr
 		}
@@ -262,7 +261,7 @@ func (operation *operation) writeThumbnails(ctx context.Context, info *value.Inf
 	if converter == nil {
 		converter = func(ctx context.Context, source, destination, format string, overwrite bool, sink events.Sink) error {
 			if tools == nil {
-				discovered, discoverErr := ffmpeg.Discover(ffmpeg.Config{})
+				discovered, discoverErr := operation.discoverFFmpeg()
 				if discoverErr != nil {
 					return discoverErr
 				}
@@ -280,7 +279,7 @@ func (operation *operation) writeThumbnails(ctx context.Context, info *value.Inf
 			return artifacts, total, err
 		}
 		track := tracks[index]
-		destination, err := thumbnailPath(outputRoot, pattern, *info, track, multiple)
+		destination, err := operation.thumbnailPath(outputRoot, pattern, *info, track, multiple)
 		if err != nil {
 			return artifacts, total, err
 		}
@@ -311,14 +310,9 @@ func (operation *operation) writeThumbnails(ctx context.Context, info *value.Inf
 				downloadTransport = newTedCredentialIsolatedTransport(operation.transport, "")
 			}
 		}
-		result, downloadErr := downloader.New(downloadTransport).Download(ctx, downloader.Job{
-			URL: track.rawURL, Headers: track.headers, OutputRoot: operation.request.outputRoot(OutputPathHome), Destination: destination,
-			Overwrite: operation.request.Overwrite, Attempts: downloadOptions.Attempts,
-			RetryBaseDelay: downloadOptions.RetryBaseDelay, RetryMaxDelay: downloadOptions.RetryMaxDelay,
-			RateLimit: downloadOptions.RateLimit, MaxBytes: downloadOptions.MaxBytes,
-			ThrottleRate: downloadOptions.ThrottleRate, ThrottleWindow: downloadOptions.ThrottleWindow,
-			ThrottleRestarts: downloadOptions.ThrottleRestarts, FileAttempts: downloadOptions.FileAttempts,
-		}, operation.eventSink())
+		result, downloadErr := downloader.New(downloadTransport).Download(ctx, operation.directDownloadJob(
+			track.rawURL, track.headers, operation.request.outputRoot(OutputPathHome), destination,
+		), operation.eventSink())
 		if downloadErr != nil {
 			if errors.Is(downloadErr, context.Canceled) || errors.Is(downloadErr, context.DeadlineExceeded) {
 				return artifacts, total, downloadErr
@@ -501,10 +495,10 @@ func (operation *operation) emitThumbnailCleanupWarning(ctx context.Context, sou
 	})
 }
 
-func thumbnailPath(outputRoot, pattern string, info value.Info, track thumbnailTrack, multiple bool) (string, error) {
+func (operation *operation) thumbnailPath(outputRoot, pattern string, info value.Info, track thumbnailTrack, multiple bool) (string, error) {
 	outputInfo := value.NewInfo(info.Fields().Clone())
 	outputInfo.Set("ext", value.String(track.extension))
-	base, err := outputtemplate.Resolve(outputRoot, pattern, outputInfo)
+	base, err := operation.resolveOutputPath(outputRoot, pattern, outputInfo)
 	if err != nil {
 		return "", err
 	}

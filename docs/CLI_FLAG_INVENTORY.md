@@ -117,7 +117,7 @@
 | `--xattrs` / `--xattr` | defer | Extended attributes |
 | `--concat-playlist` | defer | Playlist concatenation |
 | `--fixup` | defer | Media fixup |
-| `--ffmpeg-location` | **needs-core** | New `Request.FfmpegLocation` + toolset propagation |
+| `--ffmpeg-location` | **present** | `Request.Filesystem.FfmpegLocation` + ffmpeg discovery propagation |
 | `--exec` / `--no-exec` | defer | External command execution |
 | `--exec-before-download` / `--no-exec-before-download` | defer | External command execution |
 | `--convert-subs` / `--convert-sub` / `--convert-subtitles` | present | `flags.String("convert-subs", ...)` |
@@ -178,15 +178,15 @@
 | `--output` / `-o` | present | `flags.Var(&outputTemplates, "output", ...)` |
 | `--output-na-placeholder` | defer | NA placeholder |
 | `--autonumber-size` / `--autonumber-start` | defer | Autonumbering |
-| `--restrict-filenames` / `--no-restrict-filenames` | **needs-core** | Template has `sanitizeFilename(..., restricted)`. Needs CLI + product option |
-| `--windows-filenames` / `--no-windows-filenames` | **needs-core** | Filename sanitization |
-| `--trim-filenames` / `--trim-file-names` | **needs-core** | Filename length limit |
+| `--restrict-filenames` / `--no-restrict-filenames` | **present** | `Filesystem.RestrictFilenames` wired to template filename sanitization |
+| `--windows-filenames` / `--no-windows-filenames` | **present** | `Filesystem.WindowsFilenames` wired to Windows-compatible path parts |
+| `--trim-filenames` / `--trim-file-names` | **present** | `Filesystem.TrimFilenames` wired to basename length limit |
 | `--no-overwrites` / `-w` | present | Inverse of `--force-overwrites`; added in Wave 1 |
 | `--force-overwrites` / `--yes-overwrites` | present | `flags.Bool("force-overwrites", ...)` |
 | `--no-force-overwrites` | present | Inverse handled by default |
-| `--continue` / `-c` / `--no-continue` | **needs-core** | Resume partial downloads |
-| `--part` / `--no-part` | **needs-core** | `.part` file usage |
-| `--mtime` / `--no-mtime` | **needs-core** | File modification time |
+| `--continue` / `-c` / `--no-continue` | **present** | `Filesystem.NoContinue` wired to direct downloader resume control |
+| `--part` / `--no-part` | **present** | `Filesystem.NoPart` wired to `.part` temporary file control |
+| `--mtime` / `--no-mtime` | **present** | `Filesystem.NoMtime` wired to output file mtime from metadata |
 | `--write-description` / `--no-write-description` | present | `flags.Bool("write-description", ...)` |
 | `--write-info-json` / `--no-write-info-json` | present | `flags.Bool("write-info-json", ...)` |
 | `--write-playlist-metafiles` / `--no-write-playlist-metafiles` | present | `flags.Bool("no-write-playlist-metafiles", ...)` |
@@ -245,7 +245,7 @@ These are `Request`/options fields that are Go-specific and have no counterpart 
 |----------|-------|
 | **present** | ~107 |
 | **wire-only** | 6 Go-only |
-| **needs-core** | ~11 (Wave 2: 7, Wave 3: 2, misc) |
+| **needs-core** | ~4 (Wave 3: 2, misc) |
 | **parked** | ~4 (verbosity) |
 | **defer** | ~100+ |
 | **Total yt-dlp options** | ~292 |
@@ -261,16 +261,16 @@ These are `Request`/options fields that are Go-specific and have no counterpart 
 ### Wave 1b (playlist-disable consume)
 | `--no-playlist` / `--yes-playlist` | present | YouTube implements `_yes_playlist`-style choice via `NoPlaylist`. Other extractors deferred |
 
-### Wave 2
+### Wave 2 (this PR)
 | Flag | Classification | Work |
 |------|---------------|------|
-| `--restrict-filenames` / `--no-restrict-filenames` | needs-core | Wire to existing `sanitizeFilename` |
-| `--windows-filenames` / `--no-windows-filenames` | needs-core | Filename sanitization |
-| `--trim-filenames` | needs-core | Filename length limit |
-| `--continue` / `--no-continue` | needs-core | Resume support |
-| `--part` / `--no-part` | needs-core | `.part` file support |
-| `--mtime` / `--no-mtime` | needs-core | File mtime support |
-| `--ffmpeg-location` | needs-core | Toolset discovery |
+| `--restrict-filenames` / `--no-restrict-filenames` | present | `Filesystem.RestrictFilenames` → template filename sanitization |
+| `--windows-filenames` / `--no-windows-filenames` | present | `Filesystem.WindowsFilenames` → Windows-compatible path parts |
+| `--trim-filenames` / `--trim-file-names` | present | `Filesystem.TrimFilenames` → basename length limit |
+| `--continue` / `-c` / `--no-continue` | present | `Filesystem.NoContinue` → direct downloader resume control |
+| `--part` / `--no-part` | present | `Filesystem.NoPart` → `.part` temporary file control |
+| `--mtime` / `--no-mtime` | present | `Filesystem.NoMtime` → output file mtime from metadata |
+| `--ffmpeg-location` | present | `Filesystem.FfmpegLocation` → ffmpeg/ffprobe discovery |
 
 ### Wave 3
 | Flag | Classification | Work |
