@@ -3224,4 +3224,4 @@ capabilities:
     owner: core
     depends_on:
       - foundation.cli
-    known_deviation: Playlist.Disabled is wired from CLI to Request but is not yet consumed by the extractor routing or playlist-expansion logic. Behavioral parity for --no-playlist / --yes-playlist (URL that can resolve to video or playlist) is deferred until the consume site is implemented.
+    known_deviation: Playlist.Disabled is wired from CLI to Request but is not yet consumed by the extractor routing or playlist-expansion logic. Behavioral parity for --no-playlist / --yes-playlist (URL that can resolve to video or playlist) is deferred to a follow-up (playlist-disable consume).

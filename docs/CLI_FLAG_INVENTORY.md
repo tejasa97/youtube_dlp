@@ -258,6 +258,9 @@ These are `Request`/options fields that are Go-specific and have no counterpart 
 | `--no-overwrites` | present | Inverse of `--force-overwrites`, pure CLI |
 | `--no-playlist` / `--yes-playlist` | needs-core | New `Playlist.Disabled` field |
 
+### Wave 1b (playlist-disable consume)
+| `--no-playlist` / `--yes-playlist` | needs-core | Behavioral consumption of `Playlist.Disabled` in extraction routing |
+
 ### Wave 2
 | Flag | Classification | Work |
 |------|---------------|------|
