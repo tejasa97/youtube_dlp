@@ -80,7 +80,7 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	flags := flag.NewFlagSet("ytdlp-go", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.Usage = func() {
-		fmt.Fprintln(flags.Output(), "Usage: ytdlp-go [OPTIONS] URL")
+		fmt.Fprintln(flags.Output(), "Usage: ytdlp-go [OPTIONS] URL [URL ...]")
 		fmt.Fprintln(flags.Output())
 		fmt.Fprintln(flags.Output(), "Experimental Python-free Go implementation informed by yt-dlp behavior.")
 		fmt.Fprintln(flags.Output())
@@ -133,6 +133,8 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 		return nil
 	})
 	listThumbnails := flags.Bool("list-thumbnails", false, "list available thumbnails (simulates unless --no-simulate)")
+	listFormats := flags.Bool("list-formats", false, "list available formats without downloading (simulates unless --no-simulate)")
+	flags.BoolVar(listFormats, "F", false, "alias for --list-formats")
 	printJSON := flags.Bool("print-json", false, "print normalized metadata JSON to stdout")
 	dumpJSON := flags.Bool("dump-json", false, "quietly print one JSON object per video (simulates unless --no-simulate)")
 	flags.BoolVar(dumpJSON, "j", false, "alias for --dump-json")
@@ -141,6 +143,13 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	var printTemplates stringListFlag
 	flags.Var(&printTemplates, "print", "print a field or [WHEN:]output template (repeatable)")
 	flags.Var(&printTemplates, "O", "alias for --print")
+	var batchFiles stringListFlag
+	flags.Var(&batchFiles, "batch-file", "download URLs from a file, one URL per line; '-' reads stdin (repeatable)")
+	flags.Var(&batchFiles, "a", "alias for --batch-file")
+	flags.BoolFunc("no-batch-file", "clear all batch files inherited from configuration", func(string) error {
+		batchFiles = nil
+		return nil
+	})
 	getURL := flags.Bool("get-url", false, "print selected media URL(s)")
 	flags.BoolVar(getURL, "g", false, "alias for --get-url")
 	getTitle := flags.Bool("get-title", false, "print the video title")
@@ -630,11 +639,16 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 		fmt.Fprintf(stdout, "ytdlp-go %s\n", Version)
 		return 0
 	}
-	if flags.NArg() != 1 {
+	batchInputs, err := readBatchInputs(batchFiles, stdin, flags.Args())
+	if err != nil {
+		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
+		return 2
+	}
+	if len(batchInputs) == 0 {
 		flags.Usage()
 		return 2
 	}
-	if *telemetryJSON && (*printJSON || *dumpJSON || *dumpSingleJSON || len(printTemplates) > 0 ||
+	if *telemetryJSON && (*printJSON || *dumpJSON || *dumpSingleJSON || *listFormats || len(printTemplates) > 0 ||
 		*getURL || *getTitle || *getID || *getThumbnail || *getDescription || *getDuration || *getFilename || *getFormat) {
 		fmt.Fprintln(stderr, "ytdlp-go: --telemetry-json and metadata output cannot share stdout")
 		return 2
@@ -650,6 +664,9 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 		return 2
 	}
 	printRules = append(printRules, printFileRules...)
+	if *listFormats {
+		printRules = append([]ytdlp.PrintRule{{Stage: ytdlp.PrintPreProcess, Template: "%(formats_table)s"}}, printRules...)
+	}
 	legacyGetting := *getURL || *getTitle || *getID || *getThumbnail || *getDescription ||
 		*getDuration || *getFilename || *getFormat
 	printRules = appendLegacyPrintRules(
@@ -659,6 +676,10 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	interactiveFormatRequested := *format == "-"
 	interactiveFilterRequested := hasInteractiveMatchFilter(matchFilters) ||
 		hasInteractiveMatchFilter(breakMatchFilters)
+	if containsBatchStdin(batchFiles) && (interactiveFormatRequested || interactiveFilterRequested) {
+		fmt.Fprintln(stderr, "ytdlp-go: --batch-file - cannot share stdin with an interactive format or filter prompt")
+		return 2
+	}
 	suppressInteractivePrompt := *listSubtitles && !simulateSet &&
 		!*dumpJSON && !*dumpSingleJSON && !legacyGetting && len(printRules) == 0
 	if *progressJSON && (interactiveFormatRequested || (interactiveFilterRequested && !suppressInteractivePrompt)) {
@@ -772,7 +793,7 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	// yt-dlp's listing flags imply simulation only when the user has not made
 	// the tri-state simulation choice explicit.
 	requestSimulate := simulate || !simulateSet &&
-		(*listSubtitles || *listThumbnails || *dumpJSON || *dumpSingleJSON || legacyGetting || printRulesImplySimulation(printRules))
+		(*listSubtitles || *listThumbnails || *listFormats || *dumpJSON || *dumpSingleJSON || legacyGetting || printRulesImplySimulation(printRules))
 	requestSubtitles := ytdlp.SubtitleOptions{
 		WriteManual: *writeSubtitles, WriteAutomatic: *writeAutomaticSubtitles,
 		Embed: *embedSubtitles, KeepFiles: *embedSubtitles && *writeSubtitles,
@@ -796,105 +817,148 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	if embedChaptersSet {
 		requestEmbedChapters = &embedChapters
 	}
-	result, err := client.Run(ctx, ytdlp.Request{
-		URL: flags.Arg(0), OutputTemplates: outputTemplates.clone(), OutputDir: *outputDir, OutputPaths: paths.clone(), Proxy: *proxy, ImpersonationProfile: *impersonationProfile,
-		CookieFile: *cookieFile, CookiesFromBrowser: *cookiesFromBrowser, UseNetRC: *useNetRC, NetRCLocation: *netRCLocation,
-		VideoPassword:   *videoPassword,
-		DownloadArchive: *downloadArchive, CacheDir: *cacheDir,
-		Timeout: *timeout, Overwrite: *overwrite, Simulate: requestSimulate, SkipDownload: *skipDownload, LiveFromStart: *liveFromStart,
-		Format: *format, FormatSort: append([]string(nil), formatSort...), FormatSortForce: formatSortForce,
-		PreferFreeFormats: preferFreeFormats, AllowUnplayableFormats: allowUnplayable,
-		AllowMultipleVideoStreams: allowMultipleVideoStreams, AllowMultipleAudioStreams: allowMultipleAudioStreams,
-		CheckFormats: checkFormats, MergeOutputFormat: *mergeOutputFormat,
-		ProgressTemplate: *progressTemplate, MatchFilters: requestMatchFilters,
-		InteractiveMatchFilter: interactiveMatchFilter,
-		InteractiveFormat:      interactiveFormat,
-		BreakMatchFilters:      requestBreakMatchFilters,
-		MetadataActions:        append([]ytdlp.MetadataAction(nil), metadataActions...),
-		EmbedMetadata:          *embedMetadata,
-		EmbedChapters:          requestEmbedChapters,
-		Subtitles:              requestSubtitles,
-		Thumbnails: ytdlp.ThumbnailOptions{
-			Write:    thumbnailMode == thumbnailModeBest || *embedThumbnail,
-			WriteAll: thumbnailMode == thumbnailModeAll, List: *listThumbnails,
-			Embed: *embedThumbnail, KeepFiles: *embedThumbnail && thumbnailMode != thumbnailModeNone,
-			ConvertFormat: *convertThumbnails,
-		},
-		RelatedFiles: ytdlp.RelatedFileOptions{
-			WriteInfoJSON: *writeInfoJSON, WriteDescription: *writeDescription,
-			WriteLink: *writeLink, WriteURLLink: *writeURLLink,
-			WriteWeblocLink: *writeWeblocLink, WriteDesktopLink: *writeDesktopLink,
-			NoPlaylist: *noPlaylistMetafiles,
-		},
-		Filesystem: ytdlp.FilesystemOptions{
-			RestrictFilenames: *restrictFilenames,
-			WindowsFilenames:  *windowsFilenames,
-			TrimFilenames:     *trimFilenames,
-			NoContinue:        *noContinue,
-			NoPart:            *noPart,
-			NoMtime:           *noMtime,
-			FfmpegLocation:    *ffmpegLocation,
-		},
-		PrintRules:           printRules,
-		YouTubeComments:      commentLimits,
-		SoundCloudComments:   soundCloudComments,
-		SponsorBlock:         sponsorBlockOptions,
-		NHK:                  ytdlp.NHKOptions{RadiruArea: *nhkArea},
-		RemoveChapters:       append([]string(nil), removeChapters...),
-		ForceKeyframesAtCuts: sponsorBlockForceKeyframes,
-		Playlist: ytdlp.PlaylistOptions{
-			Start: *playlistStart, End: *playlistEnd, Reverse: *playlistReverse, Random: *playlistRandom,
-			Lazy: *lazyPlaylist, Items: *playlistItems, Flat: *flatPlaylist,
-			Disabled: noPlaylist,
-			ErrorPolicy: playlistErrorPolicy, MaxFailures: *playlistMaxFailures,
-		},
-		Downloader: downloaderOptions, Postprocessors: postprocessors,
-	})
+	makeRequest := func(inputURL string) ytdlp.Request {
+		return ytdlp.Request{
+			URL: inputURL, OutputTemplates: outputTemplates.clone(), OutputDir: *outputDir, OutputPaths: paths.clone(), Proxy: *proxy, ImpersonationProfile: *impersonationProfile,
+			CookieFile: *cookieFile, CookiesFromBrowser: *cookiesFromBrowser, UseNetRC: *useNetRC, NetRCLocation: *netRCLocation,
+			VideoPassword:   *videoPassword,
+			DownloadArchive: *downloadArchive, CacheDir: *cacheDir,
+			Timeout: *timeout, Overwrite: *overwrite, Simulate: requestSimulate, SkipDownload: *skipDownload, LiveFromStart: *liveFromStart,
+			Format: *format, FormatSort: append([]string(nil), formatSort...), FormatSortForce: formatSortForce,
+			PreferFreeFormats: preferFreeFormats, AllowUnplayableFormats: allowUnplayable,
+			AllowMultipleVideoStreams: allowMultipleVideoStreams, AllowMultipleAudioStreams: allowMultipleAudioStreams,
+			CheckFormats: checkFormats, MergeOutputFormat: *mergeOutputFormat,
+			ProgressTemplate: *progressTemplate, MatchFilters: requestMatchFilters,
+			InteractiveMatchFilter: interactiveMatchFilter,
+			InteractiveFormat:      interactiveFormat,
+			BreakMatchFilters:      requestBreakMatchFilters,
+			MetadataActions:        append([]ytdlp.MetadataAction(nil), metadataActions...),
+			EmbedMetadata:          *embedMetadata,
+			EmbedChapters:          requestEmbedChapters,
+			Subtitles:              requestSubtitles,
+			Thumbnails: ytdlp.ThumbnailOptions{
+				Write:    thumbnailMode == thumbnailModeBest || *embedThumbnail,
+				WriteAll: thumbnailMode == thumbnailModeAll, List: *listThumbnails,
+				Embed: *embedThumbnail, KeepFiles: *embedThumbnail && thumbnailMode != thumbnailModeNone,
+				ConvertFormat: *convertThumbnails,
+			},
+			RelatedFiles: ytdlp.RelatedFileOptions{
+				WriteInfoJSON: *writeInfoJSON, WriteDescription: *writeDescription,
+				WriteLink: *writeLink, WriteURLLink: *writeURLLink,
+				WriteWeblocLink: *writeWeblocLink, WriteDesktopLink: *writeDesktopLink,
+				NoPlaylist: *noPlaylistMetafiles,
+			},
+			Filesystem: ytdlp.FilesystemOptions{
+				RestrictFilenames: *restrictFilenames,
+				WindowsFilenames:  *windowsFilenames,
+				TrimFilenames:     *trimFilenames,
+				NoContinue:        *noContinue,
+				NoPart:            *noPart,
+				NoMtime:           *noMtime,
+				FfmpegLocation:    *ffmpegLocation,
+			},
+			PrintRules:           printRules,
+			YouTubeComments:      commentLimits,
+			SoundCloudComments:   soundCloudComments,
+			SponsorBlock:         sponsorBlockOptions,
+			NHK:                  ytdlp.NHKOptions{RadiruArea: *nhkArea},
+			RemoveChapters:       append([]string(nil), removeChapters...),
+			ForceKeyframesAtCuts: sponsorBlockForceKeyframes,
+			Playlist: ytdlp.PlaylistOptions{
+				Start: *playlistStart, End: *playlistEnd, Reverse: *playlistReverse, Random: *playlistRandom,
+				Lazy: *lazyPlaylist, Items: *playlistItems, Flat: *flatPlaylist,
+				Disabled:    noPlaylist,
+				ErrorPolicy: playlistErrorPolicy, MaxFailures: *playlistMaxFailures,
+			},
+			Downloader: downloaderOptions, Postprocessors: postprocessors,
+		}
+	}
+	var firstErr error
+	resultFailures := 0
+	for _, inputURL := range batchInputs {
+		result, runErr := client.Run(ctx, makeRequest(inputURL))
+		if runErr != nil {
+			if firstErr == nil {
+				firstErr = runErr
+			}
+			fmt.Fprintf(stderr, "ytdlp-go: %v\n", runErr)
+			if exitCode(runErr) == 130 {
+				break
+			}
+			continue
+		}
+		if hasConsolePrintRules(printRules) {
+			if writeErr := writePrintOutputs(ctx, result, stdout); writeErr != nil {
+				if firstErr == nil {
+					firstErr = writeErr
+				}
+				fmt.Fprintf(stderr, "ytdlp-go: %v\n", writeErr)
+				break
+			}
+		}
+		if *listSubtitles {
+			if writeErr := writeSubtitleListings(ctx, result, stdout, stderr); writeErr != nil {
+				if firstErr == nil {
+					firstErr = writeErr
+				}
+				fmt.Fprintf(stderr, "ytdlp-go: %v\n", writeErr)
+				break
+			}
+		}
+		if *listThumbnails {
+			if writeErr := writeThumbnailListings(ctx, result, stdout, stderr); writeErr != nil {
+				if firstErr == nil {
+					firstErr = writeErr
+				}
+				fmt.Fprintf(stderr, "ytdlp-go: %v\n", writeErr)
+				break
+			}
+		}
+		if *dumpJSON {
+			if writeErr := writeVideoJSONLines(ctx, result, stdout); writeErr != nil {
+				if firstErr == nil {
+					firstErr = writeErr
+				}
+				fmt.Fprintf(stderr, "ytdlp-go: %v\n", writeErr)
+				break
+			}
+		}
+		if *dumpSingleJSON {
+			if writeErr := writeJSONLine(ctx, result.InfoJSON, stdout); writeErr != nil {
+				if firstErr == nil {
+					firstErr = writeErr
+				}
+				fmt.Fprintf(stderr, "ytdlp-go: %v\n", writeErr)
+				break
+			}
+		}
+		if *printJSON && !*dumpJSON && !*dumpSingleJSON {
+			if _, writeErr := stdout.Write(result.InfoJSON); writeErr != nil {
+				if firstErr == nil {
+					firstErr = writeErr
+				}
+				fmt.Fprintf(stderr, "ytdlp-go: %v\n", writeErr)
+				break
+			}
+			if _, writeErr := fmt.Fprintln(stdout); writeErr != nil {
+				if firstErr == nil {
+					firstErr = writeErr
+				}
+				break
+			}
+		}
+		resultFailures += result.SuppressedFailures
+	}
 	if telemetryCollector != nil {
 		if writeErr := telemetryCollector.WriteCanonical(context.Background(), stdout); writeErr != nil {
 			fmt.Fprintln(stderr, "ytdlp-go: cannot write telemetry snapshot")
 			return 1
 		}
 	}
-	if err != nil {
-		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
-		return exitCode(err)
+	if firstErr != nil {
+		return exitCode(firstErr)
 	}
-	if hasConsolePrintRules(printRules) {
-		if err := writePrintOutputs(ctx, result, stdout); err != nil {
-			fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
-			return exitCode(err)
-		}
-	}
-	if *listSubtitles {
-		if err := writeSubtitleListings(ctx, result, stdout, stderr); err != nil {
-			fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
-			return exitCode(err)
-		}
-	}
-	if *listThumbnails {
-		if err := writeThumbnailListings(ctx, result, stdout, stderr); err != nil {
-			fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
-			return exitCode(err)
-		}
-	}
-	if *dumpJSON {
-		if err := writeVideoJSONLines(ctx, result, stdout); err != nil {
-			fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
-			return exitCode(err)
-		}
-	}
-	if *dumpSingleJSON {
-		if err := writeJSONLine(ctx, result.InfoJSON, stdout); err != nil {
-			fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
-			return exitCode(err)
-		}
-	}
-	if *printJSON && !*dumpJSON && !*dumpSingleJSON {
-		_, _ = stdout.Write(result.InfoJSON)
-		_, _ = fmt.Fprintln(stdout)
-	}
-	if result.SuppressedFailures > 0 && !playlistFailuresAreSuccess {
+	if resultFailures > 0 && !playlistFailuresAreSuccess {
 		return 1
 	}
 	return 0
@@ -1147,6 +1211,85 @@ func (values *stringListFlag) String() string { return strings.Join(*values, ","
 func (values *stringListFlag) Set(value string) error {
 	*values = append(*values, value)
 	return nil
+}
+
+const (
+	maxBatchFileBytes = 8 << 20
+	maxBatchLineBytes = 64 << 10
+	maxBatchInputs    = 10000
+)
+
+// readBatchInputs expands positional URLs and repeatable --batch-file values
+// into one bounded input sequence. Batch files intentionally contain URLs
+// only: options are never re-parsed from their contents. A single '-' reads
+// the supplied stdin reader, which keeps the boundary deterministic for both
+// the command and embedded callers.
+func readBatchInputs(files []string, stdin io.Reader, positional []string) ([]string, error) {
+	if len(positional) > maxBatchInputs {
+		return nil, fmt.Errorf("too many input URLs (maximum %d)", maxBatchInputs)
+	}
+	inputs := append([]string(nil), positional...)
+	stdinRead := false
+	for _, filename := range files {
+		var content []byte
+		if filename == "-" {
+			if stdinRead {
+				return nil, errors.New("--batch-file - may be used only once")
+			}
+			stdinRead = true
+			content = make([]byte, 0, maxBatchFileBytes)
+			reader := io.LimitReader(stdin, maxBatchFileBytes+1)
+			var err error
+			content, err = io.ReadAll(reader)
+			if err != nil {
+				return nil, fmt.Errorf("read batch file from stdin: %w", err)
+			}
+		} else {
+			file, err := os.Open(filename)
+			if err != nil {
+				return nil, fmt.Errorf("open batch file %q: %w", filename, err)
+			}
+			content, err = io.ReadAll(io.LimitReader(file, maxBatchFileBytes+1))
+			closeErr := file.Close()
+			if err != nil {
+				return nil, fmt.Errorf("read batch file %q: %w", filename, err)
+			}
+			if closeErr != nil {
+				return nil, fmt.Errorf("close batch file %q: %w", filename, closeErr)
+			}
+		}
+		if len(content) > maxBatchFileBytes {
+			return nil, fmt.Errorf("batch file %q exceeds %d bytes", filename, maxBatchFileBytes)
+		}
+		scanner := bufio.NewScanner(bytes.NewReader(content))
+		scanner.Buffer(make([]byte, 4<<10), maxBatchLineBytes)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			if strings.IndexByte(line, 0) >= 0 {
+				return nil, fmt.Errorf("batch file %q contains a NUL byte", filename)
+			}
+			if len(inputs) == maxBatchInputs {
+				return nil, fmt.Errorf("too many input URLs (maximum %d)", maxBatchInputs)
+			}
+			inputs = append(inputs, line)
+		}
+		if err := scanner.Err(); err != nil {
+			return nil, fmt.Errorf("read batch file %q: %w", filename, err)
+		}
+	}
+	return inputs, nil
+}
+
+func containsBatchStdin(files []string) bool {
+	for _, filename := range files {
+		if filename == "-" {
+			return true
+		}
+	}
+	return false
 }
 
 // metadataActionFlag preserves the flag stream's interleaving. Standard flag

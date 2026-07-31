@@ -432,6 +432,99 @@ func TestRunPrintSyntheticTableFields(t *testing.T) {
 	}
 }
 
+func TestRunListFormatsUsesFormatTableAndSimulation(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"-F", server.URL + "/page"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "ID          EXT") || strings.Contains(stderr.String(), "Extracting") {
+		t.Fatalf("list-formats output=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestRunBatchFilesReadInOrderAndHonorAliases(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "urls.txt")
+	if err := os.WriteFile(file, []byte("# ignored\n first-url \n\nsecond-url\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &recordingCLIRunner{}
+	var stdout, stderr bytes.Buffer
+	code := runContextIOWithDependencies(
+		context.Background(), []string{"-a", file}, strings.NewReader(""), &stdout, &stderr,
+		runDependencies{newRunner: func([]ytdlp.Option) cliRunner { return runner }},
+	)
+	if code != 0 || !reflect.DeepEqual(runner.urls, []string{"first-url", "second-url"}) {
+		t.Fatalf("code=%d urls=%v stdout=%q stderr=%q", code, runner.urls, stdout.String(), stderr.String())
+	}
+
+	runner = &recordingCLIRunner{}
+	stdout.Reset()
+	stderr.Reset()
+	code = runContextIOWithDependencies(
+		context.Background(), []string{"--no-batch-file", "--batch-file", file}, strings.NewReader(""), &stdout, &stderr,
+		runDependencies{newRunner: func([]ytdlp.Option) cliRunner { return runner }},
+	)
+	if code != 0 || !reflect.DeepEqual(runner.urls, []string{"first-url", "second-url"}) {
+		t.Fatalf("last-wins code=%d urls=%v stderr=%q", code, runner.urls, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = runContextIOWithDependencies(
+		context.Background(), []string{"--batch-file", file, "--no-batch-file"}, strings.NewReader(""), &stdout, &stderr,
+		runDependencies{newRunner: func([]ytdlp.Option) cliRunner { return &recordingCLIRunner{} }},
+	)
+	if code != 2 || !strings.Contains(stderr.String(), "Usage: ytdlp-go") {
+		t.Fatalf("clear code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunBatchFileStdinIsBoundedAndExclusive(t *testing.T) {
+	runner := &recordingCLIRunner{}
+	var stdout, stderr bytes.Buffer
+	code := runContextIOWithDependencies(
+		context.Background(), []string{"--batch-file", "-"}, strings.NewReader("stdin-one\n# comment\nstdin-two\n"), &stdout, &stderr,
+		runDependencies{newRunner: func([]ytdlp.Option) cliRunner { return runner }},
+	)
+	if code != 0 || !reflect.DeepEqual(runner.urls, []string{"stdin-one", "stdin-two"}) {
+		t.Fatalf("stdin code=%d urls=%v stderr=%q", code, runner.urls, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = runContextIOWithDependencies(
+		context.Background(), []string{"--batch-file", "-", "--batch-file", "-"}, strings.NewReader("one\n"), &stdout, &stderr,
+		runDependencies{newRunner: func([]ytdlp.Option) cliRunner { return &recordingCLIRunner{} }},
+	)
+	if code != 2 || !strings.Contains(stderr.String(), "may be used only once") {
+		t.Fatalf("duplicate stdin code=%d stderr=%q", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = runContextIOWithDependencies(
+		context.Background(), []string{"--batch-file", "-"}, strings.NewReader(strings.Repeat("x", maxBatchLineBytes+1)), &stdout, &stderr,
+		runDependencies{newRunner: func([]ytdlp.Option) cliRunner { return &recordingCLIRunner{} }},
+	)
+	if code != 2 || !strings.Contains(stderr.String(), "read batch file") {
+		t.Fatalf("oversized line code=%d stderr=%q", code, stderr.String())
+	}
+}
+
+func TestRunListFormatsPlumbsSimulationAndPreProcessTable(t *testing.T) {
+	request := captureCLIRequest(t, "-F")
+	if !request.Simulate || len(request.PrintRules) == 0 ||
+		request.PrintRules[0] != (ytdlp.PrintRule{Stage: ytdlp.PrintPreProcess, Template: "%(formats_table)s"}) {
+		t.Fatalf("list-formats request=%+v", request)
+	}
+	request = captureCLIRequest(t, "-F", "--no-simulate")
+	if request.Simulate {
+		t.Fatalf("explicit no-simulate request=%+v", request)
+	}
+}
+
 func TestRunLegacyGetAliasesOrderAndOptionalOmission(t *testing.T) {
 	server := testserver.New()
 	defer server.Close()
@@ -1451,6 +1544,13 @@ func (r *captureCLIRunner) Run(_ context.Context, request ytdlp.Request) (ytdlp.
 	return ytdlp.Result{}, nil
 }
 
+type recordingCLIRunner struct{ urls []string }
+
+func (r *recordingCLIRunner) Run(_ context.Context, request ytdlp.Request) (ytdlp.Result, error) {
+	r.urls = append(r.urls, request.URL)
+	return ytdlp.Result{}, nil
+}
+
 type resultCLIRunner struct{ result ytdlp.Result }
 
 func (r resultCLIRunner) Run(context.Context, ytdlp.Request) (ytdlp.Result, error) {
@@ -1826,7 +1926,6 @@ func TestRunForceOverwritesAfterNoOverwritesLastWins(t *testing.T) {
 		t.Fatalf("request.Overwrite=%v, want true (last wins)", r.Overwrite)
 	}
 }
-
 
 func TestRunNoPlaylistFlag(t *testing.T) {
 	r := captureCLIRequest(t, "--no-playlist")

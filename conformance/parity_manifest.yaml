@@ -3248,3 +3248,28 @@ capabilities:
     depends_on:
       - foundation.cli
       - cli.flag_wave1
+  - id: cli.flag_wave3
+    name: Wave 3 CLI flag parity — batch inputs and format discovery
+    phase: 3
+    compatibility_target: >-
+      Wire --batch-file/-a/--no-batch-file and --list-formats/-F through the
+      existing CLI execution path. Batch files contain one URL per line, skip
+      blank/comment lines, preserve file order, allow repeatable files and a
+      single stdin file via '-', and combine with positional URLs. Input
+      expansion is bounded to 10000 URLs, 8 MiB per file, and 64 KiB per line.
+      Each input runs through the normal Client.Run and output pipeline. -F
+      renders the existing formats_table at pre-process time and implies
+      simulation unless --no-simulate was explicitly selected.
+    status: compatible
+    evidence:
+      - internal/cli.TestRunBatchFilesReadInOrderAndHonorAliases
+      - internal/cli.TestRunBatchFileStdinIsBoundedAndExclusive
+      - internal/cli.TestRunListFormatsUsesFormatTableAndSimulation
+      - internal/cli.TestRunListFormatsPlumbsSimulationAndPreProcessTable
+      - internal/cli.TestRunPrintSyntheticTableFields
+      - pkg/ytdlp.TestRenderSyntheticPrintTables
+      - docs/CLI_FLAG_INVENTORY.md
+    owner: core
+    depends_on:
+      - foundation.cli
+      - cli.flag_wave2
