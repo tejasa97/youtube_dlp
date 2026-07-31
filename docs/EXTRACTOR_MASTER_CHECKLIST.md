@@ -12,16 +12,16 @@ are excluded.
 
 | Classification | Classes | Meaning |
 | --- | ---: | --- |
-| `already_supported` | 179 | An exact registered Go extractor mapping is known. Compatibility remains bounded by that extractor's manifest claim. |
+| `already_supported` | 195 | An exact registered Go extractor mapping is known. Compatibility remains bounded by that extractor's manifest claim. |
 | `partially_supported` | 85 | The site family exists in Go, but this upstream class does not have a proven exact mapping. |
 | `uses_existing_shared_backend` | 50 | The upstream class visibly hands off to a backend already implemented in Go. |
 | `requires_authentication_or_antibot` | 135 | The class contains explicit login, password, OAuth, authorization, or impersonation behavior. |
 | `obsolete_or_intentional_deviation` | 136 | The pinned upstream class explicitly declares `_WORKING = False`. |
-| `requires_new_backend` | 1,166 | No exact Go mapping or existing-backend handoff was detected; manual family review is required. |
+| `requires_new_backend` | 1,150 | No exact Go mapping or existing-backend handoff was detected; manual family review is required. |
 | **Total** | **1,751** | All registered concrete classes in the pinned reference. |
 
-Exact extractor-class coverage is therefore 179/1,751 (10.2%). Including partial
-site-family coverage gives 264/1,751 (15.1%), but partial rows must not be
+Exact extractor-class coverage is therefore 195/1,751 (11.1%). Including partial
+site-family coverage gives 280/1,751 (16.0%), but partial rows must not be
 treated as complete. These figures measure extractor-class breadth only, not
 the completion of downloaders, post-processing, the CLI, or the overall Go
 port.
@@ -69,8 +69,9 @@ CSV-only promotions are now encoded in Go:
 - **`exactAliases`**: route-corpus mappings where the upstream IE name does not
   normalize to the registered Go key. This includes eleven reconciled public
   extractors (Bandcamp album, Brightcove new, Dacast VOD, Imgur album/gallery,
-  Kick VOD/clip, Mixcloud user/playlist, Rumble channel/embed) plus twenty
-  fixture-backed Discovery/DPlay adapters and `Tele5IE`.
+  Kick VOD/clip, Mixcloud user/playlist, Rumble channel/embed), the four
+  fixture-backed TED public-family adapters, plus twenty fixture-backed
+  Discovery/DPlay adapters and `Tele5IE`.
 - **`reviewedInventory`**: preserves fixture-backed rationale text for Discovery,
   NHK, PRX search, Tele5, and the partial `DailymotionPlaylistIE` row without
   allowing unsupported promotions.
@@ -87,6 +88,7 @@ checked file (`cmp -s`) after source changes.
 | `KickVODIE` / `KickClipIE` | `kick` | `kick.go` `/videos/<uuid>` and `/clips/clip_*` |
 | `MixcloudUserIE` / `MixcloudPlaylistIE` | `mixcloud` | `mixcloud.go` user collections and `/playlists/` |
 | `RumbleChannelIE` / `RumbleEmbedIE` | `rumble` | `rumble.go` `/c|user/` channel and `/embed/` video |
+| `TedTalkIE` / `TedSeriesIE` / `TedPlaylistIE` / `TedEmbedIE` | `ted_talk` / `ted_series` / `ted_playlist` / `ted_embed` | `ted.go` strict public routes, Next metadata, direct/HLS/sidecars, series/playlist children, transparent embeds |
 | Discovery/DPlay family (20 IEs) | per-adapter keys | `dplay.go` configuration-driven adapters |
 | `Tele5IE` | `tele5` | `dplay.go` Aurora CMS recursion with public identity |
 

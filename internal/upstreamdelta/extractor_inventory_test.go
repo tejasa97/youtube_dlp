@@ -124,6 +124,10 @@ func TestReconciledExactAliasMappings(t *testing.T) {
 		"MixcloudUserIE":           "mixcloud",
 		"RumbleChannelIE":          "rumble",
 		"RumbleEmbedIE":            "rumble",
+		"TedEmbedIE":               "ted_embed",
+		"TedPlaylistIE":            "ted_playlist",
+		"TedSeriesIE":              "ted_series",
+		"TedTalkIE":                "ted_talk",
 	}
 	for class, wantGo := range reconciled {
 		if got := exactAliases[class]; got != wantGo {

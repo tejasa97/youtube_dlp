@@ -255,6 +255,9 @@ func (operation *operation) downloadSelection(ctx context.Context, selected medi
 }
 
 func validateCredentialIsolatedDispatch(selections []mediaformat.Selection, external bool) error {
+	if err := validateHostPolicyDispatch(selections); err != nil {
+		return err
+	}
 	for _, selected := range selections {
 		if selected.CredentialIsolatedReferer != "" && !selected.CredentialIsolated {
 			return fmt.Errorf("%w: scoped referer requires credential-isolated media", extractor.ErrTransportIsolation)
@@ -354,7 +357,12 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 		return result.Path, info.Size(), nil
 	}
 
-	mediaTransport, err := operation.mediaTransport(selected.CredentialIsolated, selected.CredentialIsolatedReferer)
+	mediaTransport, err := operation.mediaTransport(
+		selected.CredentialIsolated,
+		selected.CredentialIsolatedReferer,
+		selected.HostPolicy,
+		selected.Protocol,
+	)
 	if err != nil {
 		return "", 0, err
 	}

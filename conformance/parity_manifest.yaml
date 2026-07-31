@@ -1703,6 +1703,34 @@ capabilities:
       - conformance/extractors/risk/microsoft/PROVENANCE.md
     owner: core
     known_deviation: The Microsoft public media family claim is bounded to synthetic fixture-backed route, metadata, native ISM/HLS/DASH/direct download, credential-isolated no-redirect, and transparent reentry evidence. Authenticated, DRM-protected, signed-cookie Medius playback, live production interoperability, regional availability, unlisted CDN host rotation, and the pinned Python per-track non-English ISM language preference are not claimed.
+
+  - id: extractor.ted_public_family
+    name: TED public media family
+    phase: 4
+    compatibility_target: Extract the pinned anonymous public TedTalkIE, TedSeriesIE, TedPlaylistIE, and TedEmbedIE route corpus with strict TED-origin routing, Next metadata, direct/HLS/audio formats, HLS subtitles, thumbnails, chapters, season/filter semantics, reusable child identities, transparent embed re-entry, and credential-isolated no-redirect product dispatch.
+    status: compatible
+    evidence:
+      - internal/extractor.TestTedFamilyRoutingAndExactNonOverlap
+      - internal/extractor.TestTedTalkMetadataFormatsSubtitlesThumbnailsAndIsolation
+      - internal/extractor.TestTedSeriesPlaylistSeasonFilteringAndReusableChildren
+      - internal/extractor.TestTedEmbedTransparentCanonicalReentry
+      - internal/extractor.TestTedAttributableURLRolePolicy
+      - internal/extractor.TestTedStatusCancellationAndIsolationErrorsAreTypedAndSecretSafe
+      - internal/extractor.TestTedRouteParserSeedCases
+      - internal/extractor.FuzzTedRouteParser
+      - pkg/ytdlp.TestProductTedDirectDownloadPreservesBytesAndSignedQuery
+      - pkg/ytdlp.TestProductTedHLSSubtitleThumbnailAndIsolation
+      - pkg/ytdlp.TestProductTedEmbedReentryAndPlaylistChildrenReuse
+      - pkg/ytdlp.TestProductTedHostPolicyRejectsHostileAssets
+      - pkg/ytdlp.TestProductTedUnknownThumbnailPolicyFailsClosed
+      - pkg/ytdlp.TestProductTedCancellationAndFailureLeaveNoArtifacts
+      - pkg/ytdlp.TestRepresentativeExtractorCatalogCountRoutingAndRiskCoverage
+      - conformance/extractors/risk/ted/PROVENANCE.md
+    owner: core
+    depends_on:
+      - protocol.hls
+      - network.shared_transport
+    known_deviation: The claim is limited to the pinned anonymous public corpus and attributable TED HTTPS hosts. Login/private, unavailable, DRM, geo, live, future GraphQL/API schema changes, arbitrary external media handoffs, and production-service interoperability beyond the deterministic fixtures are deferred.
   - id: extractor.flickr
     name: Flickr public video extraction
     phase: 4

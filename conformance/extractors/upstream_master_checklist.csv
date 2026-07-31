@@ -1333,10 +1333,10 @@ teachingchannel,TeachingChannelIE,TeachingChannel,obsolete_or_intentional_deviat
 teamcoco,ConanClassicIE,ConanClassic,obsolete_or_intentional_deviation,,,,high,upstream class explicitly declares _WORKING = False
 teamcoco,TeamcocoIE,Teamcoco,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 teamtreehouse,TeamTreeHouseIE,TeamTreeHouse,requires_authentication_or_antibot,,,login,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"
-ted,TedEmbedIE,TedEmbed,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-ted,TedPlaylistIE,TedPlaylist,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-ted,TedSeriesIE,TedSeries,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-ted,TedTalkIE,TedTalk,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
+ted,TedEmbedIE,TedEmbed,already_supported,ted_embed,,,high,fixture-backed TED embed-to-canonical-talk transparent routing with strict route overlap
+ted,TedPlaylistIE,TedPlaylist,already_supported,ted_playlist,,,high,fixture-backed TED public playlist metadata and bounded child identity extraction
+ted,TedSeriesIE,TedSeries,already_supported,ted_series,,,high,fixture-backed TED public series season filtering and child identity extraction
+ted,TedTalkIE,TedTalk,already_supported,ted_talk,,,high,"fixture-backed TED public Next metadata, isolated direct/HLS/audio playback, sidecars, and chapters"
 tele13,Tele13IE,Tele13,uses_existing_shared_backend,,youtube,,medium,upstream class references a media backend already implemented in Go
 tele5,Tele5IE,Tele5,already_supported,tele5,,authentication,high,fixture-backed Aurora CMS recursion preserves public Referer and webpage identity through product extraction
 telebruxelles,TeleBruxellesIE,TeleBruxelles,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required

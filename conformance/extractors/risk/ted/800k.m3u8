@@ -1,0 +1,7 @@
+#EXTM3U
+#EXT-X-TARGETDURATION:6
+#EXTINF:6,
+https://download.ted.com/talks/fixture/seg-0.ts?sig=segment-0
+#EXTINF:6,
+https://download.ted.com/talks/fixture/seg-1.ts?sig=segment-1
+#EXT-X-ENDLIST

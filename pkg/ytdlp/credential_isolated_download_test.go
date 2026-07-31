@@ -90,7 +90,7 @@ func TestCredentialIsolatedHLSManifestAndSegmentRequests(t *testing.T) {
 	operation := &operation{transport: transport, request: Request{OutputDir: root}}
 	path, _, err := operation.downloadSelection(context.Background(), mediaformat.Selection{
 		URL: server.URL + "/manifest.m3u8", Protocol: "m3u8_native", Ext: "ts",
-		Headers: credentialIsolationHeaders(), CredentialIsolated: true,
+		Headers: credentialIsolationHeaders(), CredentialIsolated: true, HostPolicy: "",
 	}, root, destination, nil)
 	if err != nil {
 		t.Fatal(err)

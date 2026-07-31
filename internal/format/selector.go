@@ -338,6 +338,7 @@ func objectSelection(object *value.Object) Selection {
 	selection.YouTubeSABRAudioTrackID, _ = object.Lookup("_youtube_sabr_audio_track_id").StringValue()
 	selection.CredentialIsolated, _ = object.Lookup("_credential_isolated").Bool()
 	selection.CredentialIsolatedReferer, _ = object.Lookup("_credential_isolated_referer").StringValue()
+	selection.HostPolicy, _ = object.Lookup("_ted_host_policy").StringValue()
 	if selection.YouTubeSABR {
 		selection.Protocol = "youtube_sabr_ump"
 	}

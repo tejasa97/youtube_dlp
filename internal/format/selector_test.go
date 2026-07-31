@@ -353,10 +353,14 @@ func TestObjectSelectionPropagatesCredentialIsolation(t *testing.T) {
 		value.Field{Key: "ext", Value: value.String("m4a")},
 		value.Field{Key: "protocol", Value: value.String("m3u8_native")},
 		value.Field{Key: "_credential_isolated", Value: value.Bool(true)},
+		value.Field{Key: "_ted_host_policy", Value: value.String("ted")},
 	)
 	selection := objectSelection(object)
 	if !selection.CredentialIsolated {
 		t.Fatal("credential isolation not propagated")
+	}
+	if selection.HostPolicy != "ted" {
+		t.Fatalf("host policy not propagated: %#v", selection)
 	}
 }
 
