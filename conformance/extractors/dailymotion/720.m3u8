@@ -1,0 +1,8 @@
+#EXTM3U
+#EXT-X-TARGETDURATION:2
+#EXT-X-MEDIA-SEQUENCE:0
+#EXTINF:2,
+https://proxy-01.dailymotion.com/video/segment-0.ts?auth=segment%2Bsig&token=five
+#EXTINF:2,
+https://proxy-02.dailymotion.com/video/segment-1.ts?auth=segment%2Bsig&token=six
+#EXT-X-ENDLIST

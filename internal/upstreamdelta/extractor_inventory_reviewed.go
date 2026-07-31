@@ -39,10 +39,6 @@ var reviewedInventory = map[string]reviewedInventoryEntry{
 	"TwitchVodIE": {
 		rationale: "fixture-backed exact Twitch class adapter over the shared backend; anonymous public VODs only",
 	},
-	"DailymotionPlaylistIE": {
-		status:    ExtractorPartiallySupported,
-		rationale: "the Go port implements playlist metadata via player metadata rather than GraphQL collection pagination",
-	},
 	"AmHistoryChannelIE": {
 		rationale: "fixture-backed configuration-driven Discovery adapter with strict routing and product registry evidence",
 	},

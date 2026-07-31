@@ -484,13 +484,12 @@ func canonicalGenericYouTubeEmbed(parsed *url.URL) (Entry, bool) {
 }
 
 func genericDailymotionEmbedURL(parsed *url.URL) bool {
-	host := strings.ToLower(parsed.Hostname())
-	if host != "dailymotion.com" && !strings.HasSuffix(host, ".dailymotion.com") {
+	target, ok := dailymotionVideoTarget(parsed)
+	if !ok || target.videoID == "" {
 		return false
 	}
-	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
-	return (len(parts) == 3 && parts[0] == "embed" && parts[1] == "video" && dailymotionVideoID(parsed) != "") ||
-		(strings.HasPrefix(strings.TrimPrefix(parsed.Path, "/"), "player/") && dailymotionID.MatchString(parsed.Query().Get("video")))
+	parts, ok := dailymotionLiteralPathParts(parsed.EscapedPath())
+	return ok && ((len(parts) == 3 && strings.EqualFold(parts[0], "embed") && strings.EqualFold(parts[1], "video")) || dailymotionPlayerPath(parts))
 }
 
 func genericRumbleEmbedURL(parsed *url.URL) bool {

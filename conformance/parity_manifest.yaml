@@ -2768,8 +2768,12 @@ capabilities:
       - internal/extractor.TestSharedHostingSuccessFixtures
       - internal/extractor.TestSharedHostingErrorsAreCategorizedAndSecretSafe
       - internal/extractor.TestDailymotionPublicMetadata
-      - internal/extractor.TestDailymotionPlaylist
-      - internal/extractor.TestDailymotionRoutes
+      - internal/extractor.TestDailymotionPlaylistLazyReusablePaginationAndContract
+      - internal/extractor.TestDailymotionSearchPaginationReuseAndRequests
+      - internal/extractor.TestDailymotionRoutesAndExactNonOverlap
+      - pkg/ytdlp.TestProductDailymotionClientRunDirectAndHLSIsolation
+      - pkg/ytdlp.TestProductDailymotionClientRunRepeatedPublicChildren
+      - pkg/ytdlp.TestProductDailymotionClientRunFailureCancellationAndZeroArtifacts
       - internal/extractor.TestRedditPublicListing
       - internal/extractor.TestTwitterSyndicationMetadata
       - internal/extractor.TestBandcampPublicTrackAndAlbum
