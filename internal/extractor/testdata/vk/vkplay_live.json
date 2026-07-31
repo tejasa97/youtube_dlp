@@ -1,0 +1,20 @@
+{
+  "data": {
+    "stream": {
+      "id": "live-fixture",
+      "title": "VK Play Live Fixture",
+      "isOnline": true,
+      "startTime": 1687209962,
+      "previewUrl": "https://cdn.vkplay.live/public_video_stream/fixture/preview?sig=live-preview",
+      "count": {"views": 22, "likes": 3, "viewers": 4},
+      "category": {"title": "Fixture Game"},
+      "user": {"nick": "LiveCaster", "id": "12279401"},
+      "data": [
+        {"playerUrls": [
+          {"type": "live_hls", "url": "https://cdn.vkplay.live/live/master.m3u8?sig=live-hls"},
+          {"type": "live_dash", "url": "https://cdn.vkplay.live/live/manifest.mpd?sig=live-dash"}
+        ]}
+      ]
+    }
+  }
+}

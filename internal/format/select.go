@@ -38,6 +38,9 @@ type Selection struct {
 	// CredentialIsolated requires isolated no-redirect transport for media
 	// fetches so ambient cookies, authorization, and referer cannot leak.
 	CredentialIsolated bool
+	// AssetPolicy identifies an extractor-owned URL policy that must be
+	// enforced again by native manifest and fragment downloaders at every hop.
+	AssetPolicy string
 	// CredentialIsolatedReferer is an extractor-validated referer that may be
 	// preserved only by the credential-isolated media transport. It is never
 	// taken from ambient request headers.
@@ -228,6 +231,7 @@ func (prepared Prepared) Best() (Selection, error) {
 		selection.YouTubeSABRDrc, _ = object.Lookup("_youtube_sabr_drc").Bool()
 		selection.YouTubeSABRAudioTrackID, _ = object.Lookup("_youtube_sabr_audio_track_id").StringValue()
 		selection.CredentialIsolated, _ = object.Lookup("_credential_isolated").Bool()
+		selection.AssetPolicy, _ = object.Lookup("_asset_policy").StringValue()
 		selection.CredentialIsolatedReferer, _ = object.Lookup("_credential_isolated_referer").StringValue()
 		selection.HostPolicy, _ = object.Lookup("_host_policy").StringValue()
 		if selection.HostPolicy == "" {

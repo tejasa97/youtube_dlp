@@ -1,0 +1,6 @@
+{
+  "payload": [
+    "0",
+    "<div class=\"PostHeaderTitle__authorName\">Fixture Publisher</div><div class=\"wall_post_text\">Public wall fixture</div><div id=\"wl_post_body\"><a href=\"/video-123_101?list=signed-list\">video</a><a href=\"/video-123_101?list=signed-list\">duplicate</a><a href=\"https://evil.example/video-1\">unsafe</a></div><div data-audio=\"{&quot;id&quot;:&quot;900&quot;,&quot;owner_id&quot;:&quot;77&quot;,&quot;url&quot;:&quot;https://audio.vkuseraudio.net/fixture/track.m4a?sig=audio-signed&quot;,&quot;title&quot;:&quot;Track&quot;,&quot;artist&quot;:&quot;Artist&quot;,&quot;duration&quot;:9,&quot;coverUrl&quot;:&quot;https://sun9.userapi.com/impg/cover.jpg?sig=cover-signed&quot;}\"></div>"
+  ]
+}

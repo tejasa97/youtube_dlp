@@ -1,0 +1,3 @@
+#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=1000
+media.m3u8?sig=variant-signed&expires=1700000000

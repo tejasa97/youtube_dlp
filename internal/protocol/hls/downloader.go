@@ -42,6 +42,7 @@ type Config struct {
 	Attempts            int
 	RetryBaseDelay      time.Duration
 	RetryMaxDelay       time.Duration
+	URLValidator        func(string) error
 }
 
 type Downloader struct {
@@ -167,6 +168,9 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 		parsed, err := Parse(mediaURL, body)
 		if err != nil || parsed.Media == nil {
 			return fragment.Result{}, errors.Join(err, ErrInvalidPlaylist)
+		}
+		if err := downloader.validatePlaylistURLs(parsed); err != nil {
+			return fragment.Result{}, err
 		}
 		media = parsed.Media
 	}
@@ -487,7 +491,7 @@ func (downloader *Downloader) loadMedia(ctx context.Context, manifestURL string)
 		return "", nil, err
 	}
 	if playlist.Media != nil {
-		if err := downloader.validateMediaPlaylist(playlist.Media); err != nil {
+		if err := downloader.validatePlaylistURLs(playlist); err != nil {
 			return "", nil, err
 		}
 		return manifestURL, playlist.Media, nil
@@ -495,10 +499,8 @@ func (downloader *Downloader) loadMedia(ctx context.Context, manifestURL string)
 	if len(playlist.Variants) == 0 {
 		return "", nil, ErrInvalidPlaylist
 	}
-	for _, variant := range playlist.Variants {
-		if err := downloader.validateURL(variant.URL); err != nil {
-			return "", nil, err
-		}
+	if err := downloader.validatePlaylistURLs(playlist); err != nil {
+		return "", nil, err
 	}
 	selected := playlist.Variants[0]
 	for _, variant := range playlist.Variants[1:] {
@@ -515,45 +517,52 @@ func (downloader *Downloader) loadMedia(ctx context.Context, manifestURL string)
 		annotateEncryptionMediaURL(err, selected.URL)
 		return "", nil, errors.Join(err, ErrInvalidPlaylist)
 	}
-	if err := downloader.validateMediaPlaylist(playlist.Media); err != nil {
+	if err := downloader.validatePlaylistURLs(playlist); err != nil {
 		return "", nil, err
 	}
 	return selected.URL, playlist.Media, nil
 }
 
 func (downloader *Downloader) validateURL(rawURL string) error {
-	if len(downloader.config.AllowedHosts) == 0 {
-		return nil
-	}
-	allowedHosts := make([]string, 0, len(downloader.config.AllowedHosts))
-	seen := make(map[string]struct{}, len(downloader.config.AllowedHosts))
-	for _, rawHost := range downloader.config.AllowedHosts {
-		host, ok := normalizeAllowedHost(rawHost)
+	if len(downloader.config.AllowedHosts) > 0 {
+		allowedHosts := make([]string, 0, len(downloader.config.AllowedHosts))
+		seen := make(map[string]struct{}, len(downloader.config.AllowedHosts))
+		for _, rawHost := range downloader.config.AllowedHosts {
+			host, ok := normalizeAllowedHost(rawHost)
+			if !ok {
+				return ErrInvalidPlaylist
+			}
+			if _, duplicate := seen[host]; duplicate {
+				return ErrInvalidPlaylist
+			}
+			seen[host] = struct{}{}
+			allowedHosts = append(allowedHosts, host)
+		}
+		parsed, err := url.Parse(rawURL)
+		if err != nil || parsed.Scheme != "https" || parsed.Opaque != "" || parsed.User != nil || parsed.Port() != "" || parsed.Fragment != "" || parsed.Hostname() == "" {
+			return ErrInvalidPlaylist
+		}
+		host, ok := normalizeAllowedHost(parsed.Hostname())
 		if !ok {
 			return ErrInvalidPlaylist
 		}
-		if _, duplicate := seen[host]; duplicate {
+		allowed := false
+		for _, zone := range allowedHosts {
+			if host == zone || strings.HasSuffix(host, "."+zone) {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
 			return ErrInvalidPlaylist
 		}
-		seen[host] = struct{}{}
-		allowedHosts = append(allowedHosts, host)
 	}
-	parsed, err := url.Parse(rawURL)
-	if err != nil || parsed.Scheme != "https" || parsed.Opaque != "" || parsed.User != nil || parsed.Port() != "" || parsed.Fragment != "" || parsed.Hostname() == "" {
-		return ErrInvalidPlaylist
-	}
-	host, ok := normalizeAllowedHost(parsed.Hostname())
-	if !ok {
-		return ErrInvalidPlaylist
-	}
-	for _, allowed := range allowedHosts {
-		// Require an exact zone or a dot-delimited child of that zone. This
-		// admits edge.ttvnw.net but rejects evilttvnw.net.
-		if host == allowed || strings.HasSuffix(host, "."+allowed) {
-			return nil
+	if downloader.config.URLValidator != nil {
+		if err := downloader.config.URLValidator(rawURL); err != nil {
+			return fmt.Errorf("%w: URL policy rejected: %w", ErrInvalidPlaylist, err)
 		}
 	}
-	return ErrInvalidPlaylist
+	return nil
 }
 
 func normalizeAllowedHost(host string) (string, bool) {
@@ -578,8 +587,17 @@ func normalizeAllowedHost(host string) (string, bool) {
 	return strings.ToLower(host), true
 }
 
+func (downloader *Downloader) validatePlaylistURLs(playlist Playlist) error {
+	for _, variant := range playlist.Variants {
+		if err := downloader.validateURL(variant.URL); err != nil {
+			return err
+		}
+	}
+	return downloader.validateMediaPlaylist(playlist.Media)
+}
+
 func (downloader *Downloader) validateMediaPlaylist(media *MediaPlaylist) error {
-	if len(downloader.config.AllowedHosts) == 0 || media == nil {
+	if media == nil {
 		return nil
 	}
 	if media.PreloadHint != nil {
