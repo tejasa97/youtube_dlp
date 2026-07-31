@@ -975,7 +975,12 @@ func (tools *Toolset) execute(ctx context.Context, binary string, args []string,
 	}
 	isolation, err := attachCommand(command)
 	if err != nil {
-		_ = command.Process.Kill()
+		// Child may still be CREATE_SUSPENDED and not yet in a Job. Kill the
+		// direct process; attachCommand already TerminateJobObject'd if assign
+		// succeeded and only resume failed.
+		if command.Process != nil {
+			_ = command.Process.Kill()
+		}
 		_ = command.Wait()
 		return nil, fmt.Errorf("%w: attach %s: %v", ErrMediaFailure, filepath.Base(binary), err)
 	}
