@@ -431,7 +431,7 @@ func TestProductRegistryIncludesIntegratedExtractors(t *testing.T) {
 		{"https://tv.nrk.no/program/MDDP12000117", "nrktv"},
 		{"https://tv.nrk.no/serie/fixture", "nrktv_series"},
 		{"https://www.nrk.no/skole/?mediaId=14099", "nrk_skole"},
-		{"https://www.twitch.tv/fixture_channel", "twitch"},
+		{"https://www.twitch.tv/fixture_channel", "twitch_stream"},
 		{"scsearch3:fixture query", "soundcloud_search"},
 		{"https://soundcloud.com/fixture-artist/synthetic-signal", "soundcloud"},
 		{"https://streamable.com/e/fixture_1", "streamable"},

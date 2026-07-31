@@ -135,6 +135,10 @@ func (transport *twitchAuthenticatedFixtureTransport) DoNoRedirect(ctx context.C
 	return twitchHTTPResponse(http.StatusOK, []byte(`{"ok":true}`)), nil
 }
 
+func (transport *twitchAuthenticatedFixtureTransport) DoWithoutCredentialsNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
+	return transport.Do(ctx, request)
+}
+
 func (transport *twitchFixtureTransport) Do(ctx context.Context, request *http.Request) (*http.Response, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -234,7 +238,7 @@ func (transport *twitchFixtureTransport) DoWithoutCredentialsNoRedirect(ctx cont
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if request.URL.Host == "static-cdn.example.test" && request.URL.Path == "/storyboards/spec.json" {
+	if request.URL.Host == "static-cdn.jtvnw.net" && request.URL.Path == "/storyboards/spec.json" {
 		if transport.storyboardHostileRedirect {
 			return &http.Response{
 				StatusCode: http.StatusFound,
@@ -255,6 +259,9 @@ func (transport *twitchFixtureTransport) DoWithoutCredentialsNoRedirect(ctx cont
 			}
 		}
 		return twitchHTTPResponse(status, body), nil
+	}
+	if request.URL.Host == "gql.twitch.tv" && request.URL.Path == "/gql" {
+		return transport.Do(ctx, request)
 	}
 	if request.URL.Host == "usher.ttvnw.net" && strings.HasPrefix(request.URL.Path, "/vod/") {
 		transport.mu.Lock()
@@ -669,7 +676,7 @@ func TestTwitchSuitable(t *testing.T) {
 		want   bool
 	}{
 		{"http://www.twitch.tv/shroomztv", true},
-		{"https://go.twitch.tv/food#profile-0", true},
+		{"https://go.twitch.tv/food#profile-0", false},
 		{"https://m.twitch.tv/fixture_channel", true},
 		{"https://player.twitch.tv/?channel=lotsofs", true},
 		{"https://www.twitch.tv/videos/123", true},
@@ -728,6 +735,37 @@ func TestTwitchSuitable(t *testing.T) {
 			}
 			if got := NewTwitch().Suitable(parsed); got != test.want {
 				t.Fatalf("Suitable(%q) = %t, want %t", test.rawURL, got, test.want)
+			}
+		})
+	}
+}
+
+func TestTwitchRoleSpecificAssetHosts(t *testing.T) {
+	tests := []struct {
+		name string
+		role func(string) bool
+		url  string
+		want bool
+	}{
+		{name: "clip media fixture host", role: validTwitchMediaURL, url: "https://clips-media.twitch.tv/720.mp4?sig=signed", want: true},
+		{name: "clip media documented host", role: validTwitchMediaURL, url: "https://clips-media-assets2.twitch.tv/720.mp4?sig=signed", want: true},
+		{name: "clip media rejects page origin", role: validTwitchMediaURL, url: "https://www.twitch.tv/not-media.mp4", want: false},
+		{name: "clip media rejects thumbnail CDN", role: validTwitchMediaURL, url: "https://static-cdn.jtvnw.net/not-media.mp4", want: false},
+		{name: "thumbnail CDN", role: validTwitchThumbnailURL, url: "https://static-cdn.jtvnw.net/thumb.jpg?sig=signed", want: true},
+		{name: "thumbnail clip host", role: validTwitchThumbnailURL, url: "https://clips-media.twitch.tv/thumb.jpg", want: true},
+		{name: "thumbnail rejects page origin", role: validTwitchThumbnailURL, url: "https://www.twitch.tv/page.jpg", want: false},
+		{name: "storyboard CDN", role: validTwitchStoryboardURL, url: "https://static-cdn.jtvnw.net/storyboards/spec.json", want: true},
+		{name: "storyboard rejects clip media", role: validTwitchStoryboardURL, url: "https://clips-media.twitch.tv/storyboards/spec.json", want: false},
+		{name: "storyboard rejects page origin", role: validTwitchStoryboardURL, url: "https://www.twitch.tv/storyboards/spec.json", want: false},
+		{name: "HLS edge zone", role: validTwitchHLSURL, url: "https://edge.ttvnw.net/media.m3u8?sig=signed", want: true},
+		{name: "HLS rejects clip media", role: validTwitchHLSURL, url: "https://clips-media.twitch.tv/media.m3u8?sig=signed", want: false},
+		{name: "all roles reject userinfo", role: validTwitchMediaURL, url: "https://user@clips-media.twitch.tv/720.mp4", want: false},
+		{name: "all roles reject port", role: validTwitchThumbnailURL, url: "https://static-cdn.jtvnw.net:443/thumb.jpg", want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := test.role(test.url); got != test.want {
+				t.Fatalf("role(%q)=%t want=%t", test.url, got, test.want)
 			}
 		})
 	}
@@ -876,13 +914,13 @@ func TestTwitchClipLegacyArchiveIDDerivation(t *testing.T) {
 		finalURL string
 		want     string
 	}{
-		{"encoded-marker", "https://clips-media.example.test/portrait-%7C246810-12.mp4", "twitchclips 246810"},
-		{"no-suffix", "https://clips-media.example.test/portrait-%7C246810.mp4", "twitchclips 246810"},
-		{"signed-query-ignored", "https://clips-media.example.test/portrait-%7C246810.mp4?sig=secret&token=do-not-log", "twitchclips 246810"},
-		{"missing-marker", "https://clips-media.example.test/video-123456.mp4", ""},
-		{"nonnumeric-marker", "https://clips-media.example.test/%7Cabc.mp4", ""},
+		{"encoded-marker", "https://clips-media.twitch.tv/portrait-%7C246810-12.mp4", "twitchclips 246810"},
+		{"no-suffix", "https://clips-media.twitch.tv/portrait-%7C246810.mp4", "twitchclips 246810"},
+		{"signed-query-ignored", "https://clips-media.twitch.tv/portrait-%7C246810.mp4?sig=secret&token=do-not-log", "twitchclips 246810"},
+		{"missing-marker", "https://clips-media.twitch.tv/video-123456.mp4", ""},
+		{"nonnumeric-marker", "https://clips-media.twitch.tv/%7Cabc.mp4", ""},
 		{"empty", "", ""},
-		{"not-decoded", "https://clips-media.example.test/portrait-|246810.mp4", ""},
+		{"not-decoded", "https://clips-media.twitch.tv/portrait-|246810.mp4", ""},
 	} {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
@@ -945,8 +983,8 @@ func TestTwitchClipLegacyArchiveIDUsesFinalFormatAndRejectsUnsafe(t *testing.T) 
 
 	// A matching earlier format followed by a nonmatching final format yields no ID.
 	response := load()
-	response[0].Data.Clip.Assets[0].VideoQualities[0].SourceURL = "https://clips-media.example.test/720-%7C111222.mp4"
-	response[0].Data.Clip.Assets[1].VideoQualities[0].SourceURL = "https://clips-media.example.test/portrait-plain.mp4"
+	response[0].Data.Clip.Assets[0].VideoQualities[0].SourceURL = "https://clips-media.twitch.tv/720-%7C111222.mp4"
+	response[0].Data.Clip.Assets[1].VideoQualities[0].SourceURL = "https://clips-media.twitch.tv/portrait-plain.mp4"
 	if result, err := extract(response); err != nil {
 		t.Fatal(err)
 	} else if id, present := archiveID(result); present {
@@ -964,9 +1002,9 @@ func TestTwitchClipLegacyArchiveIDUsesFinalFormatAndRejectsUnsafe(t *testing.T) 
 
 	// No match means the field is absent, not an empty list.
 	response = load()
-	response[0].Data.Clip.Assets[0].VideoQualities[0].SourceURL = "https://clips-media.example.test/720.mp4"
-	response[0].Data.Clip.Assets[0].VideoQualities[1].SourceURL = "https://clips-media.example.test/480.mp4"
-	response[0].Data.Clip.Assets[1].VideoQualities[0].SourceURL = "https://clips-media.example.test/portrait-720.mp4"
+	response[0].Data.Clip.Assets[0].VideoQualities[0].SourceURL = "https://clips-media.twitch.tv/720.mp4"
+	response[0].Data.Clip.Assets[0].VideoQualities[1].SourceURL = "https://clips-media.twitch.tv/480.mp4"
+	response[0].Data.Clip.Assets[1].VideoQualities[0].SourceURL = "https://clips-media.twitch.tv/portrait-720.mp4"
 	if result, err := extract(response); err != nil {
 		t.Fatal(err)
 	} else if !result.Info.Lookup("_old_archive_ids").IsMissing() {
@@ -1031,7 +1069,7 @@ func TestTwitchVODAndClipFailuresAreBoundedCategorizedAndRedacted(t *testing.T) 
 	}
 	response[0].Data.Clip.Assets[0].VideoQualities[0].SourceURL = "https://127.0.0.1/private.mp4"
 	response[0].Data.Clip.Assets[0].VideoQualities[1].SourceURL = "https://metadata.internal/private.mp4"
-	response[0].Data.Clip.Assets[1].VideoQualities[0].SourceURL = "https://clips-media.example.test:8443/private.mp4"
+	response[0].Data.Clip.Assets[1].VideoQualities[0].SourceURL = "https://clips-media.twitch.tv:8443/private.mp4"
 	unsafeBody, _ := json.Marshal(response)
 	unsafeClip := &twitchFixtureTransport{graphQLFixtures: []twitchGraphQLFixture{{body: unsafeBody}}}
 	if _, err := NewTwitch().Extract(context.Background(), Request{URL: "https://clips.twitch.tv/CulturedFixtureSlug-abc_123", Transport: unsafeClip}); !errors.Is(err, ErrUnavailable) {
@@ -1586,7 +1624,7 @@ func FuzzTwitchVideosPageResponse(f *testing.F) {
 				t.Fatalf("hostile entry URL %q", entry.URL)
 			}
 			id := strings.TrimPrefix(entry.ID, "v")
-			if !twitchVODPattern.MatchString(id) || entry.ExtractorKey != "twitch" || !entry.Transparent {
+			if !twitchVODPattern.MatchString(id) || entry.ExtractorKey != "twitch_vod" || !entry.Transparent {
 				t.Fatalf("unsafe entry %#v", entry)
 			}
 			if len(entry.Title) > twitchVideosMaxString {
@@ -1764,7 +1802,7 @@ func TestTwitchVideosPlaylistLazyContinuationReusableAndContract(t *testing.T) {
 		t.Fatalf("first page requests = %d", len(transport.graphQLRequests))
 	}
 	assertTwitchVideosGraphQLRequest(t, transport.graphQLRequests[0], "fixture_channel", "ARCHIVE", "VIEWS", "")
-	if first.ID != "v1000000001" || first.URL != "https://www.twitch.tv/videos/1000000001" || !first.Transparent || first.ExtractorKey != "twitch" {
+	if first.ID != "v1000000001" || first.URL != "https://www.twitch.tv/videos/1000000001" || !first.Transparent || first.ExtractorKey != "twitch_vod" {
 		t.Fatalf("first entry = %#v", first)
 	}
 	second, ok, err := iterator.Next(context.Background())
@@ -2174,7 +2212,7 @@ func TestTwitchDirectCollectionSuccessContractAndSkipping(t *testing.T) {
 	if err != nil || len(entries) != 2 {
 		t.Fatalf("entries=%#v err=%v", entries, err)
 	}
-	if entries[0].ID != "v1000000001" || entries[0].URL != "https://www.twitch.tv/videos/1000000001" || !entries[0].Transparent || entries[0].ExtractorKey != "twitch" {
+	if entries[0].ID != "v1000000001" || entries[0].URL != "https://www.twitch.tv/videos/1000000001" || !entries[0].Transparent || entries[0].ExtractorKey != "twitch_vod" {
 		t.Fatalf("first entry=%#v", entries[0])
 	}
 	if entries[1].ID != "v1000000002" {
@@ -2459,7 +2497,7 @@ func TestTwitchChannelCollectionsLazyContinuationReusableAndContract(t *testing.
 		t.Fatalf("first page requests = %d", len(transport.graphQLRequests))
 	}
 	assertTwitchChannelCollectionsGraphQLRequest(t, transport.graphQLRequests[0], "fixture_channel", "")
-	if first.ID != "FixtureCollection01" || first.URL != "https://www.twitch.tv/collections/FixtureCollection01" || !first.Transparent || first.ExtractorKey != "twitch" {
+	if first.ID != "FixtureCollection01" || first.URL != "https://www.twitch.tv/collections/FixtureCollection01" || !first.Transparent || first.ExtractorKey != "twitch_collection" {
 		t.Fatalf("first entry = %#v", first)
 	}
 	second, ok, err := iterator.Next(context.Background())
@@ -2786,7 +2824,7 @@ func FuzzTwitchCollectionResponse(f *testing.F) {
 				t.Fatalf("hostile entry URL %q", entry.URL)
 			}
 			id := strings.TrimPrefix(entry.ID, "v")
-			if !twitchVODPattern.MatchString(id) || entry.ExtractorKey != "twitch" || !entry.Transparent {
+			if !twitchVODPattern.MatchString(id) || entry.ExtractorKey != "twitch_vod" || !entry.Transparent {
 				t.Fatalf("unsafe entry %#v", entry)
 			}
 			if len(entry.Title) > twitchCollectionsMaxString {
@@ -2829,7 +2867,7 @@ func FuzzTwitchChannelCollectionsPageResponse(f *testing.F) {
 			if !strings.HasPrefix(entry.URL, "https://www.twitch.tv/collections/") {
 				t.Fatalf("hostile entry URL %q", entry.URL)
 			}
-			if !twitchCollectionPattern.MatchString(entry.ID) || entry.ExtractorKey != "twitch" || !entry.Transparent {
+			if !twitchCollectionPattern.MatchString(entry.ID) || entry.ExtractorKey != "twitch_collection" || !entry.Transparent {
 				t.Fatalf("unsafe entry %#v", entry)
 			}
 			if len(entry.Title) > twitchCollectionsMaxString {
@@ -3014,13 +3052,13 @@ func TestTwitchChannelClipsLazyContinuationReusableAndContract(t *testing.T) {
 		t.Fatalf("first page requests = %d", len(transport.graphQLRequests))
 	}
 	assertTwitchChannelClipsGraphQLRequest(t, transport.graphQLRequests[0], "fixture_channel", "LAST_DAY", "")
-	if first.ID != "4123456789" || first.URL != "https://clips.twitch.tv/CulturedFixtureSlug-abc_123" || !first.Transparent || first.ExtractorKey != "twitch" {
+	if first.ID != "4123456789" || first.URL != "https://clips.twitch.tv/CulturedFixtureSlug-abc_123" || !first.Transparent || first.ExtractorKey != "twitch_clips" {
 		t.Fatalf("first entry = %#v", first)
 	}
 	if first.Title != "Synthetic clip one" {
 		t.Fatalf("first title = %q", first.Title)
 	}
-	if first.Thumbnail != "https://static-cdn.example.test/clip1-320x180.jpg" || !first.HasDuration || first.Duration != 32.5 ||
+	if first.Thumbnail != "https://static-cdn.jtvnw.net/clip1-320x180.jpg" || !first.HasDuration || first.Duration != 32.5 ||
 		!first.HasTimestamp || first.Timestamp != 1705320000 || !first.HasViewCount || first.ViewCount != 101 || first.Language != "en" {
 		t.Fatalf("first soft metadata = %#v", first)
 	}
@@ -3028,7 +3066,7 @@ func TestTwitchChannelClipsLazyContinuationReusableAndContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantJSON := `{"_type":"url_transparent","url":"https://clips.twitch.tv/CulturedFixtureSlug-abc_123","ie_key":"twitch","id":"4123456789","title":"Synthetic clip one","thumbnail":"https://static-cdn.example.test/clip1-320x180.jpg","duration":32.5,"timestamp":1705320000,"view_count":101,"language":"en"}`
+	wantJSON := `{"_type":"url_transparent","url":"https://clips.twitch.tv/CulturedFixtureSlug-abc_123","ie_key":"twitch_clips","id":"4123456789","title":"Synthetic clip one","thumbnail":"https://static-cdn.jtvnw.net/clip1-320x180.jpg","duration":32.5,"timestamp":1705320000,"view_count":101,"language":"en"}`
 	if string(encoded) != wantJSON {
 		t.Fatalf("first entry JSON = %s", encoded)
 	}
@@ -3323,7 +3361,7 @@ func TestTwitchChannelClipsPageCursorSemanticsAndDedup(t *testing.T) {
 	}
 
 	entries, cursor, err := parseTwitchChannelClipsPage(mustParse(`[{"data":{"user":{"id":"9001","clips":{"edges":[
-			{"__typename":"ClipEdge","cursor":"keep-me","node":{"__typename":"Clip","id":"4123456789","url":"https://clips.twitch.tv/CulturedFixtureSlug-abc_123","title":"First","thumbnailURL":"https://static-cdn.example.test/a.jpg","durationSeconds":10,"createdAt":"2024-01-01T00:00:00Z","viewCount":5,"language":"en"}},
+			{"__typename":"ClipEdge","cursor":"keep-me","node":{"__typename":"Clip","id":"4123456789","url":"https://clips.twitch.tv/CulturedFixtureSlug-abc_123","title":"First","thumbnailURL":"https://static-cdn.jtvnw.net/a.jpg","durationSeconds":10,"createdAt":"2024-01-01T00:00:00Z","viewCount":5,"language":"en"}},
 			{"__typename":"NotClipEdge","cursor":"skip-edge","node":{"__typename":"Clip","id":"4999999999","url":"https://clips.twitch.tv/Skipped","title":"Bad edge"}},
 			{"__typename":"ClipEdge","cursor":"skip-node","node":{"__typename":"Video","id":"1000000001","url":"https://www.twitch.tv/videos/1000000001","title":"Bad node"}},
 			{"__typename":"ClipEdge","cursor":"skip-url","node":{"__typename":"Clip","id":"4888888888","url":"https://evil.example/x","title":"Hostile"}},
@@ -3393,7 +3431,7 @@ func TestTwitchChannelClipEntrySoftMetadataParity(t *testing.T) {
 		"id":"4123456789",
 		"url":"https://clips.twitch.tv/CulturedFixtureSlug-abc_123",
 		"title":"Complete",
-		"thumbnailURL":"https://static-cdn.example.test/complete.jpg",
+		"thumbnailURL":"https://static-cdn.jtvnw.net/complete.jpg",
 		"durationSeconds":32.5,
 		"createdAt":"2024-01-15T12:00:00Z",
 		"viewCount":101,
@@ -3402,7 +3440,7 @@ func TestTwitchChannelClipEntrySoftMetadataParity(t *testing.T) {
 	if !ok {
 		t.Fatal("expected complete entry")
 	}
-	if complete.Thumbnail != "https://static-cdn.example.test/complete.jpg" || !complete.HasDuration || complete.Duration != 32.5 ||
+	if complete.Thumbnail != "https://static-cdn.jtvnw.net/complete.jpg" || !complete.HasDuration || complete.Duration != 32.5 ||
 		!complete.HasTimestamp || complete.Timestamp != 1705320000 || !complete.HasViewCount || complete.ViewCount != 101 || complete.Language != "en" {
 		t.Fatalf("complete=%#v", complete)
 	}
@@ -3441,7 +3479,7 @@ func TestTwitchChannelClipEntrySoftMetadataParity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantAbsent := `{"_type":"url_transparent","url":"https://clips.twitch.tv/CulturedFixtureSlug-abc_123","ie_key":"twitch","id":"4123456789","title":"Absent"}`
+	wantAbsent := `{"_type":"url_transparent","url":"https://clips.twitch.tv/CulturedFixtureSlug-abc_123","ie_key":"twitch_clips","id":"4123456789","title":"Absent"}`
 	if string(absentJSON) != wantAbsent {
 		t.Fatalf("absent JSON = %s", absentJSON)
 	}
@@ -3470,14 +3508,14 @@ func TestTwitchChannelClipEntrySoftMetadataParity(t *testing.T) {
 				"id":"4123456789",
 				"url":"https://clips.twitch.tv/CulturedFixtureSlug-abc_123",
 				"title":"Keep",
-				"thumbnailURL":"https://static-cdn.example.test/ok.jpg",
+				"thumbnailURL":"https://static-cdn.jtvnw.net/ok.jpg",
 				"durationSeconds":"not-a-number",
 				"createdAt":"not-rfc3339",
 				"viewCount":"nope",
 				"language":` + strconv.Quote(strings.Repeat("l", twitchClipsMaxLanguage+1)) + `
 			}`,
 			check: func(entry Entry) {
-				if entry.Thumbnail != "https://static-cdn.example.test/ok.jpg" || entry.HasDuration || entry.HasTimestamp || entry.HasViewCount || entry.Language != "" {
+				if entry.Thumbnail != "https://static-cdn.jtvnw.net/ok.jpg" || entry.HasDuration || entry.HasTimestamp || entry.HasViewCount || entry.Language != "" {
 					t.Fatalf("malformed optional = %#v", entry)
 				}
 			},
@@ -3642,13 +3680,13 @@ func FuzzTwitchChannelClipsPageResponse(f *testing.F) {
 				t.Fatalf("hostile entry URL %q", entry.URL)
 			}
 			target, ok := classifyTwitchURL(parsed)
-			if !ok || target.kind != twitchKindClip || !twitchClipPattern.MatchString(entry.ID) || entry.ExtractorKey != "twitch" || !entry.Transparent {
+			if !ok || target.kind != twitchKindClip || !twitchClipPattern.MatchString(entry.ID) || entry.ExtractorKey != "twitch_clips" || !entry.Transparent {
 				t.Fatalf("unsafe entry %#v", entry)
 			}
 			if len(entry.Title) > twitchClipsMaxString {
 				t.Fatalf("title exceeds bound")
 			}
-			if entry.Thumbnail != "" && !validTwitchAssetURL(entry.Thumbnail) {
+			if entry.Thumbnail != "" && !validTwitchThumbnailURL(entry.Thumbnail) {
 				t.Fatalf("unsafe thumbnail %q", entry.Thumbnail)
 			}
 			if entry.HasDuration && (entry.Duration < 0 || entry.Duration > float64(30*24*60*60)) {
@@ -3878,7 +3916,7 @@ func TestParseTwitchStoryboardSpecsRejectsOversizedImageList(t *testing.T) {
 }
 
 func TestResolveTwitchStoryboardImageURLRejectsUnsafe(t *testing.T) {
-	base, _ := url.Parse("https://static-cdn.example.test/storyboards/spec.json")
+	base, _ := url.Parse("https://static-cdn.jtvnw.net/storyboards/spec.json")
 	for _, image := range []string{"https://evil.example/a.jpg", "https://localhost/a.jpg", "javascript:alert(1)"} {
 		if got := resolveTwitchStoryboardImageURL(base, image); got != "" {
 			t.Fatalf("accepted unsafe image %q as %q", image, got)
@@ -3890,7 +3928,7 @@ func TestExtractTwitchStoryboardFormatsCancellation(t *testing.T) {
 	transport := &twitchFixtureTransport{}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := extractTwitchStoryboardFormats(ctx, transport, "https://static-cdn.example.test/storyboards/spec.json", 120); !errors.Is(err, context.Canceled) {
+	if _, err := extractTwitchStoryboardFormats(ctx, transport, "https://static-cdn.jtvnw.net/storyboards/spec.json", 120); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancel error = %v", err)
 	}
 }
@@ -3918,8 +3956,8 @@ func FuzzParseTwitchStoryboardSpecs(f *testing.F) {
 }
 
 func FuzzResolveTwitchStoryboardImageURL(f *testing.F) {
-	f.Add("https://static-cdn.example.test/storyboards/spec.json", "frame-0.jpg")
-	f.Add("https://static-cdn.example.test/storyboards/spec.json", "//evil.example.test/a.jpg")
+	f.Add("https://static-cdn.jtvnw.net/storyboards/spec.json", "frame-0.jpg")
+	f.Add("https://static-cdn.jtvnw.net/storyboards/spec.json", "//evil.example.test/a.jpg")
 	f.Fuzz(func(t *testing.T, baseURL, image string) {
 		base, err := url.Parse(baseURL)
 		if err != nil {
@@ -3929,7 +3967,7 @@ func FuzzResolveTwitchStoryboardImageURL(f *testing.F) {
 		if got == "" {
 			return
 		}
-		if !validTwitchAssetURL(got) {
+		if !validTwitchStoryboardURL(got) {
 			t.Fatalf("unsafe accepted URL %q", got)
 		}
 	})

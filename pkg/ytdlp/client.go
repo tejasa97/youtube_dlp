@@ -701,7 +701,15 @@ func (client *Client) productRegistry() *extractor.Registry {
 		extractor.NewNhkRadiruLiveIE(),
 		extractor.NewNhkRadioNewsPageIE(),
 		extractor.NewNhkRadiruIE(),
-		extractor.NewTwitch(),
+		// Twitch adapters are registered from narrowest overlap boundary to
+		// broad live-channel semantics. All seven reuse internal/extractor/twitch.go.
+		extractor.NewTwitchVodIE(),
+		extractor.NewTwitchCollectionIE(),
+		extractor.NewTwitchVideosClipsIE(),
+		extractor.NewTwitchVideosCollectionsIE(),
+		extractor.NewTwitchVideosIE(),
+		extractor.NewTwitchClipsIE(),
+		extractor.NewTwitchStreamIE(),
 		extractor.NewSoundCloudSearch(),
 		extractor.NewSoundCloudEmbed(),
 		extractor.NewSoundCloud(),

@@ -355,7 +355,10 @@ func TestObjectSelectionPropagatesCredentialIsolation(t *testing.T) {
 		value.Field{Key: "_credential_isolated", Value: value.Bool(true)},
 		value.Field{Key: "_ted_host_policy", Value: value.String("ted")},
 	)
-	selection := objectSelection(object)
+	selection, err := objectSelection(object)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !selection.CredentialIsolated {
 		t.Fatal("credential isolation not propagated")
 	}

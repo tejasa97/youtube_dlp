@@ -94,6 +94,26 @@ func TestBestRejectsMalformedHTTPHeaders(t *testing.T) {
 	}
 }
 
+func TestSelectRejectsMalformedAllowedHosts(t *testing.T) {
+	for _, rawHost := range []string{"", "ttvnw.net/", "ttvnw..net", " ttvnw.net", "ttvnw.net:443", "127.0.0.1"} {
+		t.Run(rawHost, func(t *testing.T) {
+			formatObject := value.NewObject(
+				value.Field{Key: "format_id", Value: value.String("1")},
+				value.Field{Key: "url", Value: value.String("https://edge.ttvnw.net/media.m3u8")},
+				value.Field{Key: "_allowed_hosts", Value: value.List(value.String(rawHost))},
+			)
+			info := value.NewInfo(value.NewObject(value.Field{Key: "formats", Value: value.List(value.ObjectValue(formatObject))}))
+			selector, err := ParseSelector("1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Select(info, selector); !errors.Is(err, ErrInvalidFormats) {
+				t.Fatalf("host %q error=%v", rawHost, err)
+			}
+		})
+	}
+}
+
 func TestBestRejectsNonObjectMember(t *testing.T) {
 	info := value.NewInfo(value.NewObject(value.Field{Key: "formats", Value: value.List(
 		value.String("invalid"),

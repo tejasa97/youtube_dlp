@@ -12,7 +12,7 @@
                 "__typename": "Collection",
                 "id": "FixtureCollection01",
                 "title": "Synthetic collection one",
-                "thumbnailURL": "https://static-cdn.example.test/coll1-320x180.jpg",
+                "thumbnailURL": "https://static-cdn.jtvnw.net/coll1-320x180.jpg",
                 "lengthSeconds": 3600,
                 "viewCount": 101,
                 "updatedAt": "2024-01-01T00:00:00Z"
@@ -52,7 +52,7 @@
                 "__typename": "Collection",
                 "id": "FixtureCollection02",
                 "title": "Synthetic collection two",
-                "thumbnailURL": "https://static-cdn.example.test/coll2-320x180.jpg",
+                "thumbnailURL": "https://static-cdn.jtvnw.net/coll2-320x180.jpg",
                 "lengthSeconds": 7200,
                 "viewCount": 202,
                 "updatedAt": "2024-02-01T00:00:00Z"

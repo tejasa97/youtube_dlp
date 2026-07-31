@@ -302,7 +302,7 @@ func formatScore(object *value.Object, video, audio bool) float64 {
 	return height*1e12 + tbr*1e6 + filesize
 }
 
-func objectSelection(object *value.Object) Selection {
+func objectSelection(object *value.Object) (Selection, error) {
 	selection := Selection{}
 	selection.ID, _ = object.Lookup("format_id").StringValue()
 	selection.URL, _ = object.Lookup("url").StringValue()
@@ -340,10 +340,15 @@ func objectSelection(object *value.Object) Selection {
 	selection.CredentialIsolatedReferer, _ = object.Lookup("_credential_isolated_referer").StringValue()
 	selection.HostPolicy, _ = object.Lookup("_ted_host_policy").StringValue()
 	selection.NiconicoScoped, _ = object.Lookup("_niconico_scoped").Bool()
+	var allowedHostsErr error
+	selection.AllowedHosts, allowedHostsErr = readAllowedHosts(object)
+	if allowedHostsErr != nil {
+		return Selection{}, allowedHostsErr
+	}
 	if selection.YouTubeSABR {
 		selection.Protocol = "youtube_sabr_ump"
 	}
-	return selection
+	return selection, nil
 }
 
 func preferenceRank(object *value.Object, options Options) int {

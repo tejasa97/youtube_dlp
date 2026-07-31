@@ -12,16 +12,16 @@ are excluded.
 
 | Classification | Classes | Meaning |
 | --- | ---: | --- |
-| `already_supported` | 195 | An exact registered Go extractor mapping is known. Compatibility remains bounded by that extractor's manifest claim. |
-| `partially_supported` | 85 | The site family exists in Go, but this upstream class does not have a proven exact mapping. |
+| `already_supported` | 214 | An exact registered Go extractor mapping is known. Compatibility remains bounded by that extractor's manifest claim. |
+| `partially_supported` | 73 | The site family exists in Go, but this upstream class does not have a proven exact mapping. |
 | `uses_existing_shared_backend` | 50 | The upstream class visibly hands off to a backend already implemented in Go. |
 | `requires_authentication_or_antibot` | 135 | The class contains explicit login, password, OAuth, authorization, or impersonation behavior. |
 | `obsolete_or_intentional_deviation` | 136 | The pinned upstream class explicitly declares `_WORKING = False`. |
 | `requires_new_backend` | 1,150 | No exact Go mapping or existing-backend handoff was detected; manual family review is required. |
 | **Total** | **1,751** | All registered concrete classes in the pinned reference. |
 
-Exact extractor-class coverage is therefore 195/1,751 (11.1%). Including partial
-site-family coverage gives 280/1,751 (16.0%), but partial rows must not be
+Exact extractor-class coverage is therefore 214/1,751 (12.2%). Including partial
+site-family coverage gives 287/1,751 (16.4%), but partial rows must not be
 treated as complete. These figures measure extractor-class breadth only, not
 the completion of downloaders, post-processing, the CLI, or the overall Go
 port.
@@ -95,8 +95,19 @@ checked file (`cmp -s`) after source changes.
 Deliberately left partial: `BrightcoveLegacyIE` (Go rejects legacy `/services`
 URLs), `PanoptoListIE` (`List.aspx` folder API vs `panopto_playlist` pid
 route), `DailymotionPlaylistIE` (player-metadata playlist vs GraphQL pagination),
-and all other family-only partial rows (bilibili, soundcloud, twitch, vimeo
-sub-classes, etc.).
+and all other family-only partial rows (bilibili, soundcloud, vimeo sub-classes,
+etc.). Twitch's seven reviewed public classes are listed in the exact mapping
+table below.
+
+| Upstream class | Go key | Evidence |
+| --- | --- | --- |
+| `TwitchVodIE` | `twitch_vod` | shared Twitch backend, VOD/Usher/HLS product corpus |
+| `TwitchCollectionIE` | `twitch_collection` | shared Twitch backend, direct collection corpus |
+| `TwitchVideosIE` | `twitch_videos` | shared Twitch backend, bounded videos/profile corpus |
+| `TwitchVideosClipsIE` | `twitch_videos_clips` | shared Twitch backend, bounded clips corpus |
+| `TwitchVideosCollectionsIE` | `twitch_videos_collections` | shared Twitch backend, bounded collections corpus |
+| `TwitchStreamIE` | `twitch_stream` | shared Twitch backend, live/rerun HLS product corpus |
+| `TwitchClipsIE` | `twitch_clips` | shared Twitch backend, direct clip product corpus |
 
 ## Refresh
 

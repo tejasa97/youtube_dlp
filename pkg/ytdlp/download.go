@@ -378,6 +378,7 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 	case "m3u8_native":
 		result, err := hls.NewDownloader(mediaTransport.(hls.Transport), hls.Config{
 			Headers:             selected.Headers,
+			AllowedHosts:        append([]string(nil), selected.AllowedHosts...),
 			FragmentConcurrency: options.FragmentConcurrency, PerHostConcurrency: options.PerHostFragmentConcurrency,
 			MaxSegments: options.MaxSegments, MaxSegmentSize: options.MaxSegmentBytes, Attempts: options.Attempts,
 			RetryBaseDelay: options.RetryBaseDelay, RetryMaxDelay: options.RetryMaxDelay,

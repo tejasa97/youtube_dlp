@@ -51,8 +51,8 @@ tokens, landscape/portrait direct qualities, thumbnails, broadcaster/curator,
 and category fields.
 
 All identifiers, counts, timestamps, titles, response bodies, signed tokens,
-and `.example.test` asset hosts are synthetic. No Twitch response or user data
-was captured. Tests never fetch the declared VOD, clip, thumbnail, or storyboard
+and Twitch-shaped CDN hosts are synthetic. No Twitch response or user data was
+captured. Tests never fetch the declared VOD, clip, thumbnail, or storyboard
 assets. Python and the reference checkout are not used at build or runtime.
 
 ## Subscriber-only manifest restriction fixtures
@@ -154,7 +154,7 @@ Fixtures:
 - `clips_not_found.json`: `user.id` exact empty string with decoy edges;
 - `clips_malformed.json`: non-array GraphQL envelope.
 
-All identifiers, titles, counts, timestamps, languages, and `.example.test`
+All identifiers, titles, counts, timestamps, languages, and Twitch-shaped
 thumbnail hosts are synthetic. No Twitch response or user data was captured.
 Python and the reference checkout are not used at build or runtime.
 
@@ -189,5 +189,39 @@ response, signed URL, token, or credential was captured.
 contract (same repository and commit), including width-descending `sb0`/`sb1`
 ordering, `mhtml` protocol metadata, `count / duration` fps, and per-image
 fragment durations. The seek-preview URL in `vod_metadata.json` and the
-storyboard image hosts use the repository's reserved `.example.test` fixture
-origin only. No live Twitch storyboard response was captured.
+storyboard image hosts use attributable Twitch-shaped CDN domains only. No live
+Twitch storyboard response was captured.
+
+## Exact public class adapters and security boundary
+
+The seven retained upstream classes map to these registered Go keys:
+
+| Pinned class | Go key | Boundary |
+| --- | --- | --- |
+| `TwitchVodIE` | `twitch_vod` | anonymous public VOD/HLS/storyboard |
+| `TwitchCollectionIE` | `twitch_collection` | anonymous public direct collection |
+| `TwitchVideosIE` | `twitch_videos` | bounded anonymous public videos/profile |
+| `TwitchVideosClipsIE` | `twitch_videos_clips` | bounded anonymous public clips |
+| `TwitchVideosCollectionsIE` | `twitch_videos_collections` | bounded anonymous public collections |
+| `TwitchStreamIE` | `twitch_stream` | anonymous public live/rerun |
+| `TwitchClipsIE` | `twitch_clips` | anonymous public direct clip |
+
+Each adapter delegates to `internal/extractor/twitch.go`; parsing and media
+construction are not duplicated. GraphQL, Usher, and storyboard requests are
+no-redirect and credential-isolated. Formats and thumbnails retain signed
+queries and are downloaded through isolated transport. The native HLS policy
+checks every master/variant/segment/key/init URL against attributable Twitch
+zones. Direct clip media is limited to the explicit Twitch clip-media origins
+(`clips-media.twitch.tv`, `clips-media-assets.twitch.tv`, and
+`clips-media-assets2.twitch.tv`); preview thumbnails and storyboards have
+separate CDN-role allowlists. Login/private, entitlement/subscriber, mature/geo-restricted, chat,
+comments, and unsupported credential flow remain deferred.
+
+The shared HLS `AllowedHosts` boundary accepts only strict ASCII DNS hostnames
+and rejects whitespace, ports, paths, IP literals, empty labels, invalid
+labels, and duplicates. Its exact-or-dot-delimited-subdomain semantics match
+Twitch's CDN zone naming while rejecting look-alike suffixes; malformed policy
+metadata fails during selection rather than being silently discarded. The
+product tests use public `Client.Run`, exercise the registry and transport
+factory, repeat every retained playlist family, and verify ambient-header
+stripping and secret-safe typed failures at each hop.

@@ -18,6 +18,27 @@ type reviewedInventoryEntry struct {
 }
 
 var reviewedInventory = map[string]reviewedInventoryEntry{
+	"TwitchClipsIE": {
+		rationale: "fixture-backed exact Twitch class adapter over the shared backend; anonymous public clips only",
+	},
+	"TwitchCollectionIE": {
+		rationale: "fixture-backed exact Twitch class adapter over the shared backend; anonymous public collections only",
+	},
+	"TwitchStreamIE": {
+		rationale: "fixture-backed exact Twitch class adapter over the shared backend; anonymous public live/rerun only",
+	},
+	"TwitchVideosClipsIE": {
+		rationale: "fixture-backed exact Twitch class adapter over the shared backend; bounded anonymous public clips playlist only",
+	},
+	"TwitchVideosCollectionsIE": {
+		rationale: "fixture-backed exact Twitch class adapter over the shared backend; bounded anonymous public collections playlist only",
+	},
+	"TwitchVideosIE": {
+		rationale: "fixture-backed exact Twitch class adapter over the shared backend; bounded anonymous public videos/profile playlist only",
+	},
+	"TwitchVodIE": {
+		rationale: "fixture-backed exact Twitch class adapter over the shared backend; anonymous public VODs only",
+	},
 	"DailymotionPlaylistIE": {
 		status:    ExtractorPartiallySupported,
 		rationale: "the Go port implements playlist metadata via player metadata rather than GraphQL collection pagination",

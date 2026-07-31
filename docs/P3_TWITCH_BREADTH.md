@@ -40,11 +40,44 @@ keys, reserved channel names, extra path components, `/profile` and
 `/videos/all` clips filters, and malformed query escaping while permitting
 benign unrelated query keys. Both collection GraphQL responses are fail-closed
 at 100 edges per page; channel clips pages are fail-closed at 20 edges per
-page. Clip media URLs must be bounded HTTPS assets on Twitch CDN domains
-(reserved `.example.test` is accepted only for deterministic fixtures), without
+page. Clip media URLs must be bounded HTTPS assets on the explicit Twitch
+clip-media origins (`clips-media.twitch.tv`, `clips-media-assets.twitch.tv`,
+and `clips-media-assets2.twitch.tv`), without
 credentials, ports, IP hosts, fragments, or local/internal suffixes. Format,
 asset, chapter, and playlist page collections have hard bounds. API/transport
 failures are reduced to categorized, secret-safe errors.
+
+The product registry exposes exact normalized keys for all seven retained
+upstream classes: `twitch_vod`, `twitch_collection`, `twitch_videos`,
+`twitch_videos_clips`, `twitch_videos_collections`, `twitch_stream`, and
+`twitch_clips`. The adapters are thin route-kind selectors over the shared
+backend; transparent children use the corresponding exact key.
+
+GraphQL, Usher, and storyboard requests require credential-isolated,
+no-redirect transport. Twitch HLS formats carry an allowed-host policy that is
+enforced across master, variant, segment, key, and initialization-map URLs;
+signed query parameters are retained. Direct media and thumbnails are also
+marked for isolated no-redirect download. HLS uses the Twitch CDN zones
+`ttvnw.net`, `twitchcdn.net`, and `jtvnw.net`; thumbnails use the preview CDN
+zones plus the explicit clip-media origins; storyboards use preview CDN zones
+only. Role crossing is rejected. Allowed-host metadata is accepted only as
+strict DNS hostnames (ASCII labels, no whitespace, ports, paths, IP literals,
+empty labels, or duplicates); matching is exact or dot-delimited subdomain
+matching, and malformed policy fails closed during format selection.
+
+The registered-product tests invoke the public `Client.Run` lifecycle through
+the same product registry and a narrow transport-construction seam. They seed
+ambient Authorization, Cookie, Proxy-Authorization, and Referer values and
+verify that every GraphQL, Usher, HLS child, direct-media, thumbnail, and
+storyboard request strips them. Each retained playlist family is consumed
+twice with fresh bounded cursor requests and identical child metadata and
+download bytes.
+
+The retained boundary is anonymous public behavior only. Login/private,
+subscriber-only or entitlement-gated media, restricted mature/geo responses,
+chat/comments, live-from-start VOD association, and interactive credential
+flows remain deferred. Oversize, malformed, redirect, client, rate-limit,
+legal, server, and cancellation failures remain typed and secret-safe.
 
 Known deviations from the pinned reference:
 

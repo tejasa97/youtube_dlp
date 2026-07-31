@@ -77,6 +77,10 @@ const (
 	twitchManifestRestrictionMaxTokens = 4096
 )
 
+func twitchHLSAllowedHosts() []string {
+	return []string{"ttvnw.net", "twitchcdn.net", "jtvnw.net"}
+}
+
 type twitchVideosBroadcast struct {
 	Type  string
 	Label string
@@ -149,6 +153,9 @@ var twitchClipsRanges = map[string]twitchClipsRange{
 var (
 	ErrTwitchNetwork     = errors.New("Twitch network request failed")
 	ErrTwitchRateLimited = errors.New("Twitch rate limited")
+	ErrTwitchRedirect    = errors.New("Twitch redirect response")
+	ErrTwitchClient      = errors.New("Twitch client response")
+	ErrTwitchServer      = errors.New("Twitch server response")
 	// ErrTwitchSubscriberOnly distinguishes a logged-in account without the
 	// required entitlement from a missing login. It is consumed by the
 	// follow-up restricted-manifest categorization.
@@ -205,6 +212,106 @@ func (Twitch) Extract(ctx context.Context, request Request) (Extraction, error) 
 	}
 }
 
+// The upstream Twitch family is seven overlapping InfoExtractor classes. The
+// adapters below deliberately contain no extraction logic: they only make the
+// class boundary and registry key explicit while routing all work through the
+// shared Twitch backend above.
+type TwitchVodIE struct{}
+
+func NewTwitchVodIE() TwitchVodIE { return TwitchVodIE{} }
+func (TwitchVodIE) Name() string  { return "twitch_vod" }
+func (TwitchVodIE) Suitable(parsed *url.URL) bool {
+	target, ok := classifyTwitchURL(parsed)
+	return ok && target.kind == twitchKindVOD
+}
+func (TwitchVodIE) Extract(ctx context.Context, request Request) (Extraction, error) {
+	return extractTwitchByKind(ctx, request, twitchKindVOD)
+}
+
+type TwitchCollectionIE struct{}
+
+func NewTwitchCollectionIE() TwitchCollectionIE { return TwitchCollectionIE{} }
+func (TwitchCollectionIE) Name() string         { return "twitch_collection" }
+func (TwitchCollectionIE) Suitable(parsed *url.URL) bool {
+	target, ok := classifyTwitchURL(parsed)
+	return ok && target.kind == twitchKindCollection
+}
+func (TwitchCollectionIE) Extract(ctx context.Context, request Request) (Extraction, error) {
+	return extractTwitchByKind(ctx, request, twitchKindCollection)
+}
+
+type TwitchVideosIE struct{}
+
+func NewTwitchVideosIE() TwitchVideosIE { return TwitchVideosIE{} }
+func (TwitchVideosIE) Name() string     { return "twitch_videos" }
+func (TwitchVideosIE) Suitable(parsed *url.URL) bool {
+	target, ok := classifyTwitchURL(parsed)
+	return ok && target.kind == twitchKindVideos
+}
+func (TwitchVideosIE) Extract(ctx context.Context, request Request) (Extraction, error) {
+	return extractTwitchByKind(ctx, request, twitchKindVideos)
+}
+
+type TwitchVideosClipsIE struct{}
+
+func NewTwitchVideosClipsIE() TwitchVideosClipsIE { return TwitchVideosClipsIE{} }
+func (TwitchVideosClipsIE) Name() string          { return "twitch_videos_clips" }
+func (TwitchVideosClipsIE) Suitable(parsed *url.URL) bool {
+	target, ok := classifyTwitchURL(parsed)
+	return ok && target.kind == twitchKindChannelClips
+}
+func (TwitchVideosClipsIE) Extract(ctx context.Context, request Request) (Extraction, error) {
+	return extractTwitchByKind(ctx, request, twitchKindChannelClips)
+}
+
+type TwitchVideosCollectionsIE struct{}
+
+func NewTwitchVideosCollectionsIE() TwitchVideosCollectionsIE { return TwitchVideosCollectionsIE{} }
+func (TwitchVideosCollectionsIE) Name() string                { return "twitch_videos_collections" }
+func (TwitchVideosCollectionsIE) Suitable(parsed *url.URL) bool {
+	target, ok := classifyTwitchURL(parsed)
+	return ok && target.kind == twitchKindChannelCollections
+}
+func (TwitchVideosCollectionsIE) Extract(ctx context.Context, request Request) (Extraction, error) {
+	return extractTwitchByKind(ctx, request, twitchKindChannelCollections)
+}
+
+type TwitchStreamIE struct{}
+
+func NewTwitchStreamIE() TwitchStreamIE { return TwitchStreamIE{} }
+func (TwitchStreamIE) Name() string     { return "twitch_stream" }
+func (TwitchStreamIE) Suitable(parsed *url.URL) bool {
+	target, ok := classifyTwitchURL(parsed)
+	return ok && target.kind == twitchKindLive
+}
+func (TwitchStreamIE) Extract(ctx context.Context, request Request) (Extraction, error) {
+	return extractTwitchByKind(ctx, request, twitchKindLive)
+}
+
+type TwitchClipsIE struct{}
+
+func NewTwitchClipsIE() TwitchClipsIE { return TwitchClipsIE{} }
+func (TwitchClipsIE) Name() string    { return "twitch_clips" }
+func (TwitchClipsIE) Suitable(parsed *url.URL) bool {
+	target, ok := classifyTwitchURL(parsed)
+	return ok && target.kind == twitchKindClip
+}
+func (TwitchClipsIE) Extract(ctx context.Context, request Request) (Extraction, error) {
+	return extractTwitchByKind(ctx, request, twitchKindClip)
+}
+
+func extractTwitchByKind(ctx context.Context, request Request, kind twitchKind) (Extraction, error) {
+	parsed, err := url.Parse(request.URL)
+	if err != nil || request.Transport == nil {
+		return Extraction{}, ErrUnsupported
+	}
+	target, ok := classifyTwitchURL(parsed)
+	if !ok || target.kind != kind {
+		return Extraction{}, ErrUnsupported
+	}
+	return NewTwitch().Extract(ctx, request)
+}
+
 type twitchKind uint8
 
 const (
@@ -238,26 +345,42 @@ type twitchTarget struct {
 
 func classifyTwitchURL(parsed *url.URL) (twitchTarget, bool) {
 	if parsed == nil || len(parsed.String()) == 0 || len(parsed.String()) > twitchMaxURL ||
-		(parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil || parsed.Port() != "" {
+		(parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil || parsed.Port() != "" ||
+		parsed.Fragment != "" || parsed.RawFragment != "" || parsed.Opaque != "" || !twitchUniqueQueryOK(parsed) {
 		return twitchTarget{}, false
 	}
 	host := strings.ToLower(parsed.Hostname())
-	parts := strings.Split(strings.Trim(parsed.EscapedPath(), "/"), "/")
+	escapedPath := parsed.EscapedPath()
+	if host != "player.twitch.tv" && (escapedPath == "" || !strings.HasPrefix(escapedPath, "/") || strings.HasSuffix(escapedPath, "/")) {
+		return twitchTarget{}, false
+	}
+	if host == "player.twitch.tv" && escapedPath != "" && escapedPath != "/" {
+		return twitchTarget{}, false
+	}
+	parts := strings.Split(strings.TrimPrefix(escapedPath, "/"), "/")
 	decode := func(raw string, pattern *regexp.Regexp) (string, bool) {
 		decoded, err := url.PathUnescape(raw)
 		return decoded, err == nil && decoded == raw && pattern.MatchString(raw)
 	}
 	if host == "player.twitch.tv" {
-		if strings.Trim(parsed.Path, "/") != "" {
+		if parsed.Path != "" && parsed.Path != "/" {
 			return twitchTarget{}, false
 		}
-		if raw := strings.TrimPrefix(parsed.Query().Get("video"), "v"); raw != "" {
+		query, err := url.ParseQuery(parsed.RawQuery)
+		if err != nil || !twitchQueryValuesSafe(query) {
+			return twitchTarget{}, false
+		}
+		if rawVideo := query.Get("video"); rawVideo != "" {
+			raw := strings.TrimPrefix(rawVideo, "v")
+			if raw == rawVideo && strings.HasPrefix(rawVideo, "v") {
+				return twitchTarget{}, false
+			}
 			if id, ok := decode(raw, twitchVODPattern); ok {
 				return twitchTarget{kind: twitchKindVOD, id: id}, true
 			}
 			return twitchTarget{}, false
 		}
-		if channel, ok := decode(parsed.Query().Get("channel"), twitchChannelPattern); ok {
+		if channel, ok := decode(query.Get("channel"), twitchChannelPattern); ok {
 			if _, reserved := twitchReservedPaths[strings.ToLower(channel)]; !reserved {
 				return twitchTarget{kind: twitchKindLive, id: strings.ToLower(channel)}, true
 			}
@@ -268,14 +391,16 @@ func classifyTwitchURL(parsed *url.URL) (twitchTarget, bool) {
 		var raw string
 		if len(parts) == 1 {
 			raw = parts[0]
-		} else if len(parts) == 2 && parts[0] != "embed" {
-			raw = parts[1]
-		} else if len(parts) == 1 && parts[0] == "embed" {
-			raw = parsed.Query().Get("clip")
+		} else if len(parts) >= 2 && parts[0] != "embed" {
+			raw = parts[len(parts)-1]
 		}
 		// The embed endpoint has no slug in its path.
-		if strings.Trim(parsed.Path, "/") == "embed" {
-			raw = parsed.Query().Get("clip")
+		if parsed.Path == "/embed" {
+			query, err := url.ParseQuery(parsed.RawQuery)
+			if err != nil || !twitchQueryValuesSafe(query) {
+				return twitchTarget{}, false
+			}
+			raw = query.Get("clip")
 		}
 		if slug, ok := decode(raw, twitchClipPattern); ok {
 			return twitchTarget{kind: twitchKindClip, id: slug}, true
@@ -471,14 +596,27 @@ func twitchRouteQuerySafe(parsed *url.URL) bool {
 	if parsed == nil {
 		return false
 	}
-	if parsed.RawQuery == "" {
-		return true
-	}
 	query, err := url.ParseQuery(parsed.RawQuery)
 	if err != nil {
 		return false
 	}
 	return twitchQueryValuesSafe(query)
+}
+
+func twitchUniqueQueryOK(parsed *url.URL) bool {
+	if parsed == nil || parsed.ForceQuery {
+		return false
+	}
+	query, err := url.ParseQuery(parsed.RawQuery)
+	if err != nil || !twitchQueryValuesSafe(query) {
+		return false
+	}
+	for key, values := range query {
+		if key == "" || len(values) != 1 {
+			return false
+		}
+	}
+	return true
 }
 
 func twitchQueryValuesSafe(query url.Values) bool {
@@ -613,6 +751,8 @@ func extractTwitchLive(ctx context.Context, transport Transport, channel string)
 		title += " (" + streamType + ")"
 	}
 
+	format := manifestFormat("hls", manifestURL, "m3u8_native")
+	markTwitchHLSFormat(format)
 	info := value.NewObject(
 		value.Field{Key: "id", Value: value.String(streamID)},
 		value.Field{Key: "display_id", Value: value.String(channel)},
@@ -620,7 +760,7 @@ func extractTwitchLive(ctx context.Context, transport Transport, channel string)
 		value.Field{Key: "uploader_id", Value: value.String(channel)},
 		value.Field{Key: "webpage_url", Value: value.String("https://www.twitch.tv/" + channel)},
 		value.Field{Key: "ext", Value: value.String("mp4")},
-		value.Field{Key: "formats", Value: value.List(value.ObjectValue(manifestFormat("hls", manifestURL, "m3u8_native")))},
+		value.Field{Key: "formats", Value: value.List(value.ObjectValue(format))},
 		value.Field{Key: "is_live", Value: value.Bool(streamType == "live")},
 	)
 	if description != "" {
@@ -641,9 +781,9 @@ func extractTwitchLive(ctx context.Context, transport Transport, channel string)
 		info.Set("view_count", value.Int(*stream.Viewers))
 	}
 	if validHTTPURL(thumbnail) {
-		thumbnails := []value.Value{value.ObjectValue(value.NewObject(value.Field{Key: "url", Value: value.String(twitchFullSizeThumbnail(thumbnail))}))}
+		thumbnails := []value.Value{twitchThumbnailObject(twitchFullSizeThumbnail(thumbnail), "", nil)}
 		if twitchFullSizeThumbnail(thumbnail) != thumbnail {
-			thumbnails = append(thumbnails, value.ObjectValue(value.NewObject(value.Field{Key: "url", Value: value.String(thumbnail)})))
+			thumbnails = append(thumbnails, twitchThumbnailObject(thumbnail, "", nil))
 		}
 		info.Set("thumbnails", value.List(thumbnails...))
 	}
@@ -839,9 +979,16 @@ func requestTwitchGQL(ctx context.Context, transport Transport, body []byte, tar
 	if transport == nil {
 		return errors.New("invalid Twitch GQL request")
 	}
+	if err := contextError(ctx); err != nil {
+		return err
+	}
 	authTransport, ok := transport.(twitchAuthenticatedTransport)
 	if !ok {
-		return RequestJSON(ctx, transport, http.MethodPost, twitchGraphQLURL, body, twitchHeaders(), target)
+		isolated, isolatedOK := transport.(CredentialIsolatedNoRedirectTransport)
+		if !isolatedOK {
+			return ErrTransportIsolation
+		}
+		return requestJSON(ctx, isolated.DoWithoutCredentialsNoRedirect, http.MethodPost, twitchGraphQLURL, body, twitchHeaders(), target)
 	}
 	cookies, err := authTransport.Cookies(twitchGraphQLOrigin)
 	if err != nil {
@@ -852,12 +999,22 @@ func requestTwitchGQL(ctx context.Context, transport Transport, body []byte, tar
 		return err
 	}
 	if !present {
-		return RequestJSON(ctx, transport, http.MethodPost, twitchGraphQLURL, body, twitchHeaders(), target)
+		isolated, ok := transport.(CredentialIsolatedNoRedirectTransport)
+		if !ok {
+			return ErrTransportIsolation
+		}
+		return requestJSON(ctx, isolated.DoWithoutCredentialsNoRedirect, http.MethodPost, twitchGraphQLURL, body, twitchHeaders(), target)
 	}
 	headers, err := twitchOAuthHeaders(token)
 	if err != nil {
 		return ErrAuthentication
 	}
+	// DoNoRedirect retains only the operation-jar cookie and the explicit
+	// OAuth header. Empty sentinels prevent ambient default Proxy-Authorization
+	// and Referer values from being reintroduced by transports that merge
+	// defaults after this boundary.
+	headers.Set("Proxy-Authorization", "")
+	headers.Set("Referer", "")
 	err = requestJSON(ctx, authTransport.DoNoRedirect, http.MethodPost, twitchGraphQLURL, body, headers, target)
 	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
 		errors.Is(err, ErrInvalidMetadata) || errors.Is(err, ErrJSONResponseTooLarge) {
@@ -879,6 +1036,9 @@ func categorizeTwitchHTTP(err error) error {
 	}
 	var status *HTTPStatusError
 	if errors.As(err, &status) {
+		if status.Code >= 300 && status.Code < 400 {
+			return errors.Join(ErrTwitchRedirect, ErrTwitchNetwork)
+		}
 		switch status.Code {
 		case http.StatusUnauthorized, http.StatusForbidden:
 			return ErrAuthentication
@@ -888,6 +1048,12 @@ func categorizeTwitchHTTP(err error) error {
 			return ErrTwitchRateLimited
 		case http.StatusUnavailableForLegalReasons:
 			return ErrRegionRestricted
+		case http.StatusBadRequest, http.StatusRequestEntityTooLarge, http.StatusUnprocessableEntity,
+			http.StatusConflict:
+			return errors.Join(ErrTwitchClient, ErrTwitchNetwork)
+		case http.StatusInternalServerError, http.StatusNotImplemented, http.StatusBadGateway,
+			http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+			return errors.Join(ErrTwitchServer, ErrTwitchNetwork)
 		default:
 			return ErrTwitchNetwork
 		}
@@ -1093,6 +1259,9 @@ type twitchVODVideo struct {
 		DisplayName string `json:"displayName"`
 		Login       string `json:"login"`
 	} `json:"owner"`
+	Game struct {
+		DisplayName string `json:"displayName"`
+	} `json:"game"`
 	Moments struct {
 		Edges []twitchMomentEdge `json:"edges"`
 	} `json:"moments"`
@@ -1171,7 +1340,7 @@ func extractTwitchVOD(ctx context.Context, transport Transport, target twitchTar
 	if err := probeTwitchVODManifest(ctx, transport, manifestURL); err != nil {
 		return Extraction{}, err
 	}
-	videoID := video.ID
+	videoID := strings.TrimPrefix(video.ID, "v")
 	if !twitchVODPattern.MatchString(videoID) {
 		videoID = target.id
 	}
@@ -1181,7 +1350,6 @@ func extractTwitchVOD(ctx context.Context, transport Transport, target twitchTar
 		value.Field{Key: "webpage_url", Value: value.String("https://www.twitch.tv/videos/" + target.id)},
 		value.Field{Key: "ext", Value: value.String("mp4")},
 		value.Field{Key: "formats", Value: value.List()},
-		value.Field{Key: "is_live", Value: value.Bool(false)},
 		value.Field{Key: "was_live", Value: value.Bool(true)},
 		value.Field{Key: "live_status", Value: value.String("was_live")},
 	)
@@ -1191,13 +1359,20 @@ func extractTwitchVOD(ctx context.Context, transport Transport, target twitchTar
 	twitchSetString(info, "uploader_id", strings.ToLower(video.Owner.Login))
 	twitchSetPositiveInt(info, "timestamp", twitchTimestamp(video.PublishedAt))
 	twitchSetPositiveInt(info, "view_count", video.ViewCount)
-	if validTwitchAssetURL(video.PreviewThumbnailURL) {
+	if strings.Contains(video.PreviewThumbnailURL, "/404_processing_") {
+		info.Set("is_live", value.Bool(video.BroadcastType == "ARCHIVE"))
+	} else if validTwitchThumbnailURL(video.PreviewThumbnailURL) {
+		info.Set("is_live", value.Bool(false))
 		info.Set("thumbnails", twitchThumbnails(video.PreviewThumbnailURL))
 	}
 	if chapters := twitchChapters(video.Moments.Edges, video.LengthSeconds); len(chapters) != 0 {
 		info.Set("chapters", value.List(chapters...))
+	} else if game := boundedTwitchString(video.Game.DisplayName); game != "" {
+		info.Set("chapters", value.List(value.ObjectValue(value.NewObject(value.Field{Key: "title", Value: value.String(game)}))))
 	}
-	formats := []value.Value{value.ObjectValue(manifestFormat("hls", manifestURL, "m3u8_native"))}
+	manifestFormatObject := manifestFormat("hls", manifestURL, "m3u8_native")
+	markTwitchHLSFormat(manifestFormatObject)
+	formats := []value.Value{value.ObjectValue(manifestFormatObject)}
 	if storyboards, err := extractTwitchStoryboardFormats(ctx, transport, video.SeekPreviewsURL, video.LengthSeconds); err != nil {
 		return Extraction{}, err
 	} else if len(storyboards) != 0 {
@@ -1298,13 +1473,19 @@ func extractTwitchClip(ctx context.Context, transport Transport, target twitchTa
 	qualityCount := 0
 	finalFormatURL := ""
 	for assetIndex, asset := range clip.Assets {
+		// The pinned extractor consumes only the landscape default and the
+		// portrait companion; later asset variants are not part of its public
+		// contract and must not silently change format ordering/archive IDs.
+		if assetIndex > 1 {
+			continue
+		}
 		qualityCount += len(asset.VideoQualities)
 		if qualityCount > twitchMaxAssets {
 			return Extraction{}, fmt.Errorf("%w: Twitch clip exceeds quality limits", ErrInvalidMetadata)
 		}
 		portrait := assetIndex > 0
 		for _, quality := range asset.VideoQualities {
-			if !validTwitchAssetURL(quality.SourceURL) || seen[quality.SourceURL] {
+			if !validTwitchMediaURL(quality.SourceURL) || seen[quality.SourceURL] {
 				continue
 			}
 			seen[quality.SourceURL] = true
@@ -1323,6 +1504,7 @@ func extractTwitchClip(ctx context.Context, transport Transport, target twitchTa
 			if !ok {
 				continue
 			}
+			markTwitchIsolatedAsset(format)
 			if match := twitchQualityHeight.FindStringSubmatch(quality.Quality); len(match) == 2 {
 				height, _ := strconv.ParseInt(match[1], 10, 64)
 				twitchSetPositiveInt(format, "height", height)
@@ -1339,29 +1521,22 @@ func extractTwitchClip(ctx context.Context, transport Transport, target twitchTa
 			formats = append(formats, value.ObjectValue(format))
 			finalFormatURL = signedURL
 		}
-		if validTwitchAssetURL(asset.ThumbnailURL) {
+		if validTwitchThumbnailURL(asset.ThumbnailURL) {
 			thumbnailID := "default"
 			preference := int64(0)
 			if portrait {
 				thumbnailID = "portrait"
 				preference = -1
 			}
-			thumbnails = append(thumbnails, value.ObjectValue(value.NewObject(
-				value.Field{Key: "id", Value: value.String(thumbnailID)},
-				value.Field{Key: "url", Value: value.String(asset.ThumbnailURL)},
-				value.Field{Key: "preference", Value: value.Int(preference)},
-			)))
+			thumbnails = append(thumbnails, twitchThumbnailObject(asset.ThumbnailURL, thumbnailID, &preference))
 		}
 	}
 	if len(formats) == 0 {
 		return Extraction{}, ErrUnavailable
 	}
-	if validTwitchAssetURL(clip.ThumbnailURL) && !seenTwitchThumbnail(thumbnails, clip.ThumbnailURL) {
-		thumbnails = append(thumbnails, value.ObjectValue(value.NewObject(
-			value.Field{Key: "id", Value: value.String("small")},
-			value.Field{Key: "url", Value: value.String(clip.ThumbnailURL)},
-			value.Field{Key: "preference", Value: value.Int(-2)},
-		)))
+	if validTwitchThumbnailURL(clip.ThumbnailURL) && !seenTwitchThumbnail(thumbnails, clip.ThumbnailURL) {
+		preference := int64(-2)
+		thumbnails = append(thumbnails, twitchThumbnailObject(clip.ThumbnailURL, "small", &preference))
 	}
 	title := strings.TrimSpace(clip.Title)
 	if title == "" || len(title) > 16<<10 {
@@ -1436,9 +1611,9 @@ func twitchTimestamp(input string) int64 {
 
 func twitchThumbnails(thumbnail string) value.Value {
 	full := twitchFullSizeThumbnail(thumbnail)
-	thumbnails := []value.Value{value.ObjectValue(value.NewObject(value.Field{Key: "url", Value: value.String(full)}))}
+	thumbnails := []value.Value{twitchThumbnailObject(full, "", nil)}
 	if full != thumbnail {
-		thumbnails = append(thumbnails, value.ObjectValue(value.NewObject(value.Field{Key: "url", Value: value.String(thumbnail)})))
+		thumbnails = append(thumbnails, twitchThumbnailObject(thumbnail, "", nil))
 	}
 	return value.List(thumbnails...)
 }
@@ -1538,7 +1713,7 @@ func extractTwitchStoryboardFormats(ctx context.Context, transport Transport, st
 	if durationSeconds <= 0 || strings.TrimSpace(storyboardURL) == "" {
 		return nil, nil
 	}
-	if !validTwitchAssetURL(storyboardURL) {
+	if !validTwitchStoryboardURL(storyboardURL) {
 		return nil, nil
 	}
 	specs, err := fetchTwitchStoryboardSpecs(ctx, transport, storyboardURL)
@@ -1613,6 +1788,7 @@ func extractTwitchStoryboardFormats(ctx context.Context, transport Transport, st
 			value.Field{Key: "fps", Value: value.Float(float64(spec.Count) / duration)},
 			value.Field{Key: "fragments", Value: value.List(fragments...)},
 		)
+		markTwitchIsolatedAsset(format)
 		if spec.Rows > 0 {
 			format.Set("rows", value.Int(spec.Rows))
 		}
@@ -1685,7 +1861,7 @@ func resolveTwitchStoryboardImageURL(base *url.URL, imagePath string) string {
 		return ""
 	}
 	resolved := base.ResolveReference(parsed).String()
-	if !validTwitchAssetURL(resolved) {
+	if !validTwitchStoryboardURL(resolved) {
 		return ""
 	}
 	return resolved
@@ -1703,30 +1879,117 @@ func twitchStoryboardRedirectAllowed(originalURL, location string) bool {
 	if target.Scheme == "" {
 		target = original.ResolveReference(target)
 	}
-	if !validTwitchAssetURL(target.String()) {
+	if !validTwitchStoryboardURL(target.String()) {
 		return false
 	}
 	return strings.EqualFold(original.Hostname(), target.Hostname()) && original.Scheme == target.Scheme
 }
 
-func validTwitchAssetURL(rawURL string) bool {
+func validTwitchHTTPSURL(rawURL string) (*url.URL, bool) {
 	if len(rawURL) == 0 || len(rawURL) > twitchMaxURL {
-		return false
+		return nil, false
 	}
 	parsed, err := url.Parse(rawURL)
-	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.Port() != "" || parsed.Fragment != "" {
-		return false
+	if err != nil || parsed.Scheme != "https" || parsed.Opaque != "" || parsed.Host == "" || parsed.User != nil || parsed.Port() != "" || parsed.Fragment != "" || parsed.RawFragment != "" {
+		return nil, false
 	}
 	host := strings.ToLower(parsed.Hostname())
-	if net.ParseIP(host) != nil || host == "localhost" || strings.HasSuffix(host, ".local") || strings.HasSuffix(host, ".internal") {
-		return false
+	if strings.HasSuffix(host, ".") || net.ParseIP(host) != nil || host == "localhost" || strings.HasSuffix(host, ".local") || strings.HasSuffix(host, ".internal") {
+		return nil, false
 	}
-	for _, suffix := range []string{".twitchcdn.net", ".ttvnw.net", ".jtvnw.net", ".twitch.tv", ".example.test"} {
-		if strings.HasSuffix(host, suffix) {
+	return parsed, true
+}
+
+type twitchURLRole uint8
+
+const (
+	twitchURLRolePlaybackHLS twitchURLRole = iota + 1
+	twitchURLRoleClipMedia
+	twitchURLRoleThumbnail
+	twitchURLRoleStoryboard
+)
+
+func twitchHostSuffix(host string, suffixes ...string) bool {
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	for _, suffix := range suffixes {
+		suffix = strings.ToLower(suffix)
+		if host == suffix || strings.HasSuffix(host, "."+suffix) {
 			return true
 		}
 	}
 	return false
+}
+
+func validTwitchMediaURL(rawURL string) bool {
+	parsed, ok := validTwitchHTTPSURL(rawURL)
+	return ok && twitchRoleHostAllowed(parsed.Hostname(), twitchURLRoleClipMedia)
+}
+
+func validTwitchThumbnailURL(rawURL string) bool {
+	parsed, ok := validTwitchHTTPSURL(rawURL)
+	return ok && twitchRoleHostAllowed(parsed.Hostname(), twitchURLRoleThumbnail)
+}
+
+func validTwitchStoryboardURL(rawURL string) bool {
+	parsed, ok := validTwitchHTTPSURL(rawURL)
+	return ok && twitchRoleHostAllowed(parsed.Hostname(), twitchURLRoleStoryboard)
+}
+
+func validTwitchHLSURL(rawURL string) bool {
+	parsed, ok := validTwitchHTTPSURL(rawURL)
+	return ok && twitchRoleHostAllowed(parsed.Hostname(), twitchURLRolePlaybackHLS)
+}
+
+func twitchRoleHostAllowed(host string, role twitchURLRole) bool {
+	host = strings.ToLower(host)
+	switch role {
+	case twitchURLRolePlaybackHLS:
+		// Twitch edge manifests use usher/edge hosts in these CDN zones. HLS
+		// separately enforces the same zone policy for every child URI.
+		return twitchHostSuffix(host, "ttvnw.net", "twitchcdn.net", "jtvnw.net")
+	case twitchURLRoleClipMedia:
+		// The pinned clip shape uses clips-media.twitch.tv; the public Twitch
+		// API also serves the documented clips-media-assets variants.
+		return host == "clips-media.twitch.tv" || host == "clips-media-assets.twitch.tv" || host == "clips-media-assets2.twitch.tv"
+	case twitchURLRoleThumbnail:
+		return twitchHostSuffix(host, "jtvnw.net", "twitchcdn.net") || twitchRoleHostAllowed(host, twitchURLRoleClipMedia)
+	case twitchURLRoleStoryboard:
+		return twitchHostSuffix(host, "jtvnw.net", "twitchcdn.net")
+	default:
+		return false
+	}
+}
+
+func markTwitchIsolatedAsset(object *value.Object) {
+	if object != nil {
+		object.Set("_credential_isolated", value.Bool(true))
+	}
+}
+
+func markTwitchHLSFormat(object *value.Object) {
+	if object == nil {
+		return
+	}
+	markTwitchIsolatedAsset(object)
+	hosts := twitchHLSAllowedHosts()
+	values := make([]value.Value, 0, len(hosts))
+	for _, host := range hosts {
+		values = append(values, value.String(host))
+	}
+	object.Set("_allowed_hosts", value.List(values...))
+}
+
+func twitchThumbnailObject(url string, id string, preference *int64) value.Value {
+	fields := []value.Field{value.Field{Key: "url", Value: value.String(url)}}
+	if id != "" {
+		fields = append(fields, value.Field{Key: "id", Value: value.String(id)})
+	}
+	if preference != nil {
+		fields = append(fields, value.Field{Key: "preference", Value: value.Int(*preference)})
+	}
+	object := value.NewObject(fields...)
+	markTwitchIsolatedAsset(object)
+	return value.ObjectValue(object)
 }
 
 func twitchSignedAssetURL(rawURL string, token twitchAccessToken) string {
@@ -1874,9 +2137,12 @@ type twitchVideosEdge struct {
 }
 
 type twitchVideosNode struct {
-	Typename string `json:"__typename"`
-	ID       string `json:"id"`
-	Title    string `json:"title"`
+	Typename            string `json:"__typename"`
+	ID                  string `json:"id"`
+	Title               string `json:"title"`
+	PreviewThumbnailURL string `json:"previewThumbnailURL"`
+	LengthSeconds       int64  `json:"lengthSeconds"`
+	ViewCount           int64  `json:"viewCount"`
 }
 
 func parseTwitchVideosPage(response []twitchVideosPageResponse) ([]Entry, string, error) {
@@ -1956,11 +2222,23 @@ func twitchVideosEntry(raw json.RawMessage) (Entry, bool) {
 	}
 	return Entry{
 		URL:          "https://www.twitch.tv/videos/" + node.ID,
-		ExtractorKey: "twitch",
+		ExtractorKey: "twitch_vod",
 		ID:           "v" + node.ID,
 		Title:        title,
 		Transparent:  true,
+		Thumbnail:    twitchValidOptionalThumbnail(node.PreviewThumbnailURL),
+		Duration:     float64(node.LengthSeconds),
+		HasDuration:  node.LengthSeconds > 0,
+		ViewCount:    node.ViewCount,
+		HasViewCount: node.ViewCount >= 0 && node.ViewCount != 0,
 	}, true
+}
+
+func twitchValidOptionalThumbnail(raw string) string {
+	if validTwitchThumbnailURL(raw) {
+		return raw
+	}
+	return ""
 }
 
 func extractTwitchCollection(ctx context.Context, transport Transport, target twitchTarget) (Extraction, error) {
@@ -2087,9 +2365,12 @@ func twitchCollectionVideoEntry(raw json.RawMessage) (Entry, bool) {
 		return Entry{}, false
 	}
 	var node struct {
-		Typename string `json:"__typename"`
-		ID       string `json:"id"`
-		Title    string `json:"title"`
+		Typename            string `json:"__typename"`
+		ID                  string `json:"id"`
+		Title               string `json:"title"`
+		PreviewThumbnailURL string `json:"previewThumbnailURL"`
+		LengthSeconds       int64  `json:"lengthSeconds"`
+		ViewCount           int64  `json:"viewCount"`
 	}
 	if err := json.Unmarshal(raw, &node); err != nil {
 		return Entry{}, false
@@ -2106,10 +2387,15 @@ func twitchCollectionVideoEntry(raw json.RawMessage) (Entry, bool) {
 	}
 	return Entry{
 		URL:          "https://www.twitch.tv/videos/" + node.ID,
-		ExtractorKey: "twitch",
+		ExtractorKey: "twitch_vod",
 		ID:           "v" + node.ID,
 		Title:        title,
 		Transparent:  true,
+		Thumbnail:    twitchValidOptionalThumbnail(node.PreviewThumbnailURL),
+		Duration:     float64(node.LengthSeconds),
+		HasDuration:  node.LengthSeconds > 0,
+		ViewCount:    node.ViewCount,
+		HasViewCount: node.ViewCount > 0,
 	}, true
 }
 
@@ -2245,9 +2531,13 @@ type twitchCollectionsItemEdge struct {
 }
 
 type twitchCollectionNode struct {
-	Typename string `json:"__typename"`
-	ID       string `json:"id"`
-	Title    string `json:"title"`
+	Typename      string `json:"__typename"`
+	ID            string `json:"id"`
+	Title         string `json:"title"`
+	ThumbnailURL  string `json:"thumbnailURL"`
+	LengthSeconds int64  `json:"lengthSeconds"`
+	UpdatedAt     string `json:"updatedAt"`
+	ViewCount     int64  `json:"viewCount"`
 }
 
 func parseTwitchChannelCollectionsPage(response []twitchChannelCollectionsPageResponse) ([]Entry, string, error) {
@@ -2316,10 +2606,17 @@ func twitchChannelCollectionEntry(raw json.RawMessage) (Entry, bool) {
 	}
 	return Entry{
 		URL:          "https://www.twitch.tv/collections/" + node.ID,
-		ExtractorKey: "twitch",
+		ExtractorKey: "twitch_collection",
 		ID:           node.ID,
 		Title:        title,
 		Transparent:  true,
+		Thumbnail:    twitchValidOptionalThumbnail(node.ThumbnailURL),
+		Duration:     float64(node.LengthSeconds),
+		HasDuration:  node.LengthSeconds > 0,
+		Timestamp:    twitchTimestamp(node.UpdatedAt),
+		HasTimestamp: twitchTimestamp(node.UpdatedAt) != 0,
+		ViewCount:    node.ViewCount,
+		HasViewCount: node.ViewCount > 0,
 	}, true
 }
 
@@ -2532,12 +2829,12 @@ func twitchChannelClipEntry(raw json.RawMessage) (Entry, bool) {
 	}
 	entry := Entry{
 		URL:          clipURL,
-		ExtractorKey: "twitch",
+		ExtractorKey: "twitch_clips",
 		ID:           id,
 		Title:        title,
 		Transparent:  true,
 	}
-	if thumb := strings.TrimSpace(node.ThumbnailURL); validTwitchAssetURL(thumb) {
+	if thumb := strings.TrimSpace(node.ThumbnailURL); validTwitchThumbnailURL(thumb) {
 		entry.Thumbnail = thumb
 	}
 	if duration, present := twitchOptionalFloat(node.DurationSeconds, float64(30*24*60*60)); present {

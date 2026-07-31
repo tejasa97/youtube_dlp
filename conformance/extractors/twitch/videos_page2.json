@@ -12,7 +12,7 @@
                 "__typename": "Video",
                 "id": "1000000003",
                 "title": "Synthetic archive three",
-                "previewThumbnailURL": "https://static-cdn.example.test/vod3-320x180.jpg",
+                "previewThumbnailURL": "https://static-cdn.jtvnw.net/vod3-320x180.jpg",
                 "lengthSeconds": 360,
                 "viewCount": 33
               }
