@@ -44,7 +44,23 @@ signed-query preservation. Series season fragments and playlist child IDs are
 bounded and reusable. Login/private, unavailable, DRM, geo, and arbitrary
 external media handoffs remain deferred.
 
-ytdlp-go currently registers 54 representative native extractors. This is a
+## Niconico public ecosystem
+
+The partial `niconico` family retains exact fixture-backed anonymous public
+watch/shorts, mylist, series, user, pseudo-search, search URL, and tag URL
+routes. Watch/shorts uses bounded `v3_guest` metadata, the pinned guest and
+access-rights action-track shapes, and a bounded access-rights HLS master parse;
+the signed `contentUrl` is preserved exactly and generic native HLS downloads
+its validated manifest and fragments through a credential-isolated no-redirect
+transport. Collections use reusable lazy API pagination and route children back
+through the registered `niconico` key.
+
+History, websocket live, date-recursive search, comments, premium/member/PPV,
+sensitive-account, geo-restricted, and other unproven/unavailable playback
+surfaces are explicitly deferred. See
+`docs/EXTRACTOR_NICONICO_EVIDENCE.md` and the Niconico fixture provenance.
+
+ytdlp-go currently registers 61 representative native extractors. This is a
 conformance catalog, not a claim of the thousands of sites supported by
 upstream yt-dlp.
 
@@ -86,6 +102,7 @@ service response.
 | mixcloud | mixcloud.com cloudcast pages | playlist/API |
 | rumble | rumble.com declared embed/video pages | playlist/API, live |
 | bilibili | public bilibili.com video, Player, Dynamic, Bangumi, collections, series, categories, audio, and BiliIntl routes; 13 promoted | playlist/API, manifest-heavy |
+| niconico family | nicovideo.jp watch/shorts, mylists, series, users, bounded search and tag routes | playlist/API, manifest-heavy; anonymous-only partial claim |
 | instagram | instagram.com posts | playlist/API, anti-bot/impersonated |
 | kick | kick.com channels | live, anti-bot/impersonated, manifest-heavy |
 | bbciplayer | bbc.co.uk iPlayer episodes | playlist/API, manifest-heavy, regional |

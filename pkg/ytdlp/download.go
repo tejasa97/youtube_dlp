@@ -366,6 +366,13 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 	if err != nil {
 		return "", 0, err
 	}
+	if selected.NiconicoScoped {
+		base, ok := mediaTransport.(extractor.Transport)
+		if !ok {
+			return "", 0, extractor.ErrTransportIsolation
+		}
+		mediaTransport = newNiconicoMediaTransport(base)
+	}
 
 	switch selected.Protocol {
 	case "m3u8_native":

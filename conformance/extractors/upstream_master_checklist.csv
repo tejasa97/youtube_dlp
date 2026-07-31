@@ -860,16 +860,16 @@ nhk,NhkVodIE,NhkVod,already_supported,nhk_vod,,,high,fixture-backed Go extractor
 nhk,NhkVodProgramIE,NhkVodProgram,already_supported,nhk_vod_program,,,high,fixture-backed Go extractor for NHK World program playlist re-entry evidence
 nhl,NHLIE,NHL,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 nick,NickIE,Nick,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-niconico,NiconicoHistoryIE,NiconicoHistory,requires_authentication_or_antibot,,,login,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"
-niconico,NiconicoIE,Niconico,requires_authentication_or_antibot,,,login,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"
-niconico,NiconicoLiveIE,NiconicoLive,requires_authentication_or_antibot,,,login,medium,"upstream class contains explicit authentication, password, OAuth, or impersonation behavior"
-niconico,NiconicoPlaylistIE,NiconicoPlaylist,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-niconico,NiconicoSeriesIE,NiconicoSeries,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-niconico,NiconicoUserIE,NiconicoUser,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-niconico,NicovideoSearchDateIE,NicovideoSearchDate,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-niconico,NicovideoSearchIE,NicovideoSearch,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-niconico,NicovideoSearchURLIE,NicovideoSearchURL,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
-niconico,NicovideoTagURLIE,NicovideoTagURL,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
+niconico,NiconicoHistoryIE,NiconicoHistory,requires_authentication_or_antibot,,,login,medium,deferred: pinned history/likes API requires authenticated cookies; no registered native mapping or product evidence is claimed
+niconico,NiconicoIE,Niconico,partially_supported,niconico,,login,high,"fixture-backed anonymous v3_guest watch/shorts and access-rights HLS; authentication, entitlements, sensitive, geo, comments, and future service behavior remain outside the claim"
+niconico,NiconicoLiveIE,NiconicoLive,requires_authentication_or_antibot,,,login,medium,"deferred: pinned live extraction requires websocket seat, stream-cookie, heartbeat, and live lifecycle behavior; no registered native mapping or product evidence is claimed"
+niconico,NiconicoPlaylistIE,NiconicoPlaylist,partially_supported,niconico_playlist,,,high,fixture-backed anonymous mylist API pagination with reusable bounded child routing; authenticated/private and unproven service states remain outside the claim
+niconico,NiconicoSeriesIE,NiconicoSeries,partially_supported,niconico_series,,,high,fixture-backed anonymous series API pagination with reusable bounded child routing; authenticated/private and unproven service states remain outside the claim
+niconico,NiconicoUserIE,NiconicoUser,partially_supported,niconico_user,,,high,fixture-backed anonymous user video API pagination with reusable bounded child routing; authenticated/private and unproven service states remain outside the claim
+niconico,NicovideoSearchDateIE,NicovideoSearchDate,requires_new_backend,,,,medium,"deferred: pinned date search uses wall-clock recursive interval splitting and has no registered exact class mapping, fixed bounded native contract, or product evidence"
+niconico,NicovideoSearchIE,NicovideoSearch,partially_supported,niconico_search,,,high,"fixture-backed anonymous bounded pseudo-search HTML pagination; date search, live service drift, and unproven response families remain outside the claim"
+niconico,NicovideoSearchURLIE,NicovideoSearchURL,partially_supported,niconico_search_url,,,high,fixture-backed anonymous bounded search URL HTML pagination with strict query policy and child routing
+niconico,NicovideoTagURLIE,NicovideoTagURL,partially_supported,niconico_tag,,,high,fixture-backed anonymous bounded tag HTML pagination with strict query policy and child routing
 niconicochannelplus,NiconicoChannelPlusChannelLivesIE,NiconicoChannelPlusChannelLives,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 niconicochannelplus,NiconicoChannelPlusChannelVideosIE,NiconicoChannelPlusChannelVideos,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required
 niconicochannelplus,NiconicoChannelPlusIE,NiconicoChannelPlus,requires_new_backend,,,,low,no exact Go mapping or existing shared-backend handoff was detected; manual family review is required

@@ -310,6 +310,10 @@ func fragmentRetryMessage(err error) string {
 
 type retryableFragmentError struct{ error }
 
+func (err retryableFragmentError) Unwrap() error {
+	return err.error
+}
+
 func fragmentRetryable(err error) bool {
 	var target retryableFragmentError
 	return errors.As(err, &target)

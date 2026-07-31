@@ -44,6 +44,9 @@ type Selection struct {
 	// credential-isolated native downloaders. Empty keeps the existing generic
 	// credential boundary.
 	HostPolicy string
+	// NiconicoScoped applies the Niconico attributable host policy to every
+	// manifest and fragment hop after the generic HLS dispatcher re-enters.
+	NiconicoScoped bool
 
 	// YouTubePostLive selects the finite post-live DVR sequence downloader.
 	// The discriminator is extractor-produced and never inferred from a URL.
@@ -221,6 +224,7 @@ func (prepared Prepared) Best() (Selection, error) {
 		selection.CredentialIsolated, _ = object.Lookup("_credential_isolated").Bool()
 		selection.CredentialIsolatedReferer, _ = object.Lookup("_credential_isolated_referer").StringValue()
 		selection.HostPolicy, _ = object.Lookup("_ted_host_policy").StringValue()
+		selection.NiconicoScoped, _ = object.Lookup("_niconico_scoped").Bool()
 		if selection.YouTubeSABR {
 			selection.Protocol = "youtube_sabr_ump"
 		}
