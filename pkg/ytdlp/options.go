@@ -237,6 +237,12 @@ type PlaylistOptions struct {
 	Lazy         bool
 	Items        string
 	Flat         bool
+	// Disabled, when true, tells the operation to treat a URL that can resolve
+	// to either a single video or a playlist as a single video. This is the
+	// --no-playlist / --yes-playlist toggle. False means the default heuristic
+	// applies. This field is distinct from RelatedFiles.NoPlaylist, which only
+	// controls playlist metadata sidecars.
+	Disabled     bool
 	ErrorPolicy  PlaylistErrorPolicy
 	MaxFailures  int
 	RandomSource PlaylistRandomSource

@@ -177,6 +177,14 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	impersonationProfile := flags.String("impersonate", "", "default explicit browser profile (for example firefox-120)")
 	timeout := flags.Duration("socket-timeout", 30*time.Second, "network operation timeout")
 	overwrite := flags.Bool("force-overwrites", false, "replace an existing final file")
+	flags.BoolFunc("no-overwrites", "disable overwriting existing files (default)", func(string) error {
+		*overwrite = false
+		return nil
+	})
+	flags.BoolFunc("w", "alias for --no-overwrites", func(string) error {
+		*overwrite = false
+		return nil
+	})
 	progressJSON := flags.Bool("progress-json", false, "write newline-delimited progress events to stderr")
 	telemetryJSON := flags.Bool("telemetry-json", false, "write one privacy-safe aggregate telemetry snapshot to stdout")
 	var quiet, quietSet bool
@@ -266,6 +274,23 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	playlistMaxFailures := flags.Int("skip-playlist-after-errors", 0, "skip remaining entries after N ordinary failures (0 disables)")
 	playlistItems := flags.String("playlist-items", "", "comma-separated playlist indexes or START:END:STEP ranges")
 	flags.StringVar(playlistItems, "I", "", "alias for --playlist-items")
+	var noPlaylist bool
+	flags.BoolFunc("no-playlist", "treat a URL that can resolve to a video or playlist as a single video", func(input string) error {
+		enabled, err := strconv.ParseBool(input)
+		if err != nil {
+			return err
+		}
+		noPlaylist = enabled
+		return nil
+	})
+	flags.BoolFunc("yes-playlist", "treat a URL that can resolve to a video or playlist as a playlist", func(input string) error {
+		enabled, err := strconv.ParseBool(input)
+		if err != nil {
+			return err
+		}
+		noPlaylist = !enabled
+		return nil
+	})
 	flatPlaylist := flags.Bool("flat-playlist", false, "list playlist entries without recursively extracting them")
 	flags.BoolFunc("no-flat-playlist", "fully extract playlist entries (default)", func(string) error {
 		*flatPlaylist = false
@@ -779,6 +804,7 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 		Playlist: ytdlp.PlaylistOptions{
 			Start: *playlistStart, End: *playlistEnd, Reverse: *playlistReverse, Random: *playlistRandom,
 			Lazy: *lazyPlaylist, Items: *playlistItems, Flat: *flatPlaylist,
+			Disabled: noPlaylist,
 			ErrorPolicy: playlistErrorPolicy, MaxFailures: *playlistMaxFailures,
 		},
 		Downloader: downloaderOptions, Postprocessors: postprocessors,

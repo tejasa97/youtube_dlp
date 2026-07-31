@@ -152,6 +152,10 @@ type Request struct {
 	YouTubeComments           YouTubeCommentOptions
 	SoundCloudComments        SoundCloudCommentOptions
 	NHK                       NHKOptions
+	// NoPlaylist mirrors yt-dlp's --no-playlist / --yes-playlist toggle.
+	// When true, extractors that can return a video or a playlist for the same
+	// URL should prefer the video result. Pure playlist URLs are unaffected.
+	NoPlaylist bool
 }
 
 // NHKOptions carries narrowly scoped NHK extractor state. The Radiru area

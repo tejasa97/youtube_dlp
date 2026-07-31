@@ -1799,3 +1799,66 @@ func TestRunRecodeVideoSameFormatIsNoOp(t *testing.T) {
 		}
 	}
 }
+func TestRunNoOverwritesFlag(t *testing.T) {
+	r := captureCLIRequest(t, "--no-overwrites")
+	if r.Overwrite {
+		t.Fatalf("request.Overwrite=%v, want false", r.Overwrite)
+	}
+}
+
+func TestRunNoOverwritesAliasW(t *testing.T) {
+	r := captureCLIRequest(t, "-w")
+	if r.Overwrite {
+		t.Fatalf("request.Overwrite=%v, want false", r.Overwrite)
+	}
+}
+
+func TestRunNoOverwritesAfterForceOverwrites(t *testing.T) {
+	r := captureCLIRequest(t, "--force-overwrites", "--no-overwrites")
+	if r.Overwrite {
+		t.Fatalf("request.Overwrite=%v, want false", r.Overwrite)
+	}
+}
+
+func TestRunForceOverwritesAfterNoOverwritesLastWins(t *testing.T) {
+	r := captureCLIRequest(t, "--no-overwrites", "--force-overwrites")
+	if !r.Overwrite {
+		t.Fatalf("request.Overwrite=%v, want true (last wins)", r.Overwrite)
+	}
+}
+
+
+func TestRunNoPlaylistFlag(t *testing.T) {
+	r := captureCLIRequest(t, "--no-playlist")
+	if !r.Playlist.Disabled {
+		t.Fatalf("request.Playlist.Disabled=%v, want true", r.Playlist.Disabled)
+	}
+}
+
+func TestRunYesPlaylistFlag(t *testing.T) {
+	r := captureCLIRequest(t, "--yes-playlist")
+	if r.Playlist.Disabled {
+		t.Fatalf("request.Playlist.Disabled=%v, want false", r.Playlist.Disabled)
+	}
+}
+
+func TestRunNoPlaylistThenYesPlaylistLastWins(t *testing.T) {
+	r := captureCLIRequest(t, "--no-playlist", "--yes-playlist")
+	if r.Playlist.Disabled {
+		t.Fatalf("request.Playlist.Disabled=%v, want false (last wins)", r.Playlist.Disabled)
+	}
+}
+
+func TestRunYesPlaylistThenNoPlaylistLastWins(t *testing.T) {
+	r := captureCLIRequest(t, "--yes-playlist", "--no-playlist")
+	if !r.Playlist.Disabled {
+		t.Fatalf("request.Playlist.Disabled=%v, want true (last wins)", r.Playlist.Disabled)
+	}
+}
+
+func TestRunPlaylistDefaultDoesNotSetDisabled(t *testing.T) {
+	r := captureCLIRequest(t)
+	if r.Playlist.Disabled {
+		t.Fatalf("request.Playlist.Disabled=%v, want false (default)", r.Playlist.Disabled)
+	}
+}

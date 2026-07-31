@@ -607,6 +607,123 @@ func TestParseYouTubeTargetOffsets(t *testing.T) {
 	}
 }
 
+func TestParseYouTubeTargetListParam(t *testing.T) {
+	t.Run("extracts-list-from-watch-url", func(t *testing.T) {
+		target, err := parseYouTubeTarget("https://www.youtube.com/watch?v=fixture0001&list=PL_test_playlist")
+		if err != nil {
+			t.Fatalf("parseYouTubeTarget: %v", err)
+		}
+		if target.videoID != "fixture0001" {
+			t.Fatalf("videoID = %q; want fixture0001", target.videoID)
+		}
+		if target.playlistID != "PL_test_playlist" {
+			t.Fatalf("playlistID = %q; want PL_test_playlist", target.playlistID)
+		}
+	})
+	t.Run("extracts-list-from-fragment", func(t *testing.T) {
+		target, err := parseYouTubeTarget("https://www.youtube.com/watch?v=fixture0001#list=PL_test_playlist")
+		if err != nil {
+			t.Fatalf("parseYouTubeTarget: %v", err)
+		}
+		if target.playlistID != "PL_test_playlist" {
+			t.Fatalf("playlistID = %q; want PL_test_playlist", target.playlistID)
+		}
+	})
+	t.Run("empty-when-no-list", func(t *testing.T) {
+		target, err := parseYouTubeTarget("https://www.youtube.com/watch?v=fixture0001")
+		if err != nil {
+			t.Fatalf("parseYouTubeTarget: %v", err)
+		}
+		if target.playlistID != "" {
+			t.Fatalf("playlistID = %q; want empty", target.playlistID)
+		}
+	})
+	t.Run("empty-on-pure-playlist-url", func(t *testing.T) {
+		// Pure /playlist URLs are handled by youtubePlaylistID, not
+		// parseYouTubeTarget, so parseYouTubeTarget should reject them.
+		_, err := parseYouTubeTarget("https://www.youtube.com/playlist?list=PL_test_playlist")
+		if !errors.Is(err, ErrUnsupported) {
+			t.Fatalf("parseYouTubeTarget(/playlist) err = %v; want ErrUnsupported", err)
+		}
+	})
+	t.Run("rejects-invalid-playlist-id", func(t *testing.T) {
+		target, err := parseYouTubeTarget("https://www.youtube.com/watch?v=fixture0001&list=")
+		if err != nil {
+			t.Fatalf("parseYouTubeTarget: %v", err)
+		}
+		if target.playlistID != "" {
+			t.Fatalf("playlistID = %q; want empty (empty ID rejected)", target.playlistID)
+		}
+	})
+}
+
+func TestYouTubeNoPlaylistAmbiguousURLChoice(t *testing.T) {
+	ambiguousURL := "https://www.youtube.com/watch?v=fixture0001&list=PL_fixture"
+	playlistPageURL := "https://www.youtube.com/playlist?list=PL_fixture"
+	watchPageURL := "https://www.youtube.com/watch?v=fixture0001"
+
+	playlistPage := readYouTubeFixture(t, "playlist.html")
+	watchPage := readYouTubeFixture(t, "watch.html")
+	player := readYouTubeFixture(t, "../../javascript/ejs-0.8.0/synthetic-player.js")
+	solver, err := ejs.New(engine.New(4))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("default-prefers-playlist", func(t *testing.T) {
+		transport := &memoryTransport{pages: map[string][]byte{
+			playlistPageURL: playlistPage,
+		}}
+		result, err := NewYouTube().Extract(context.Background(), Request{
+			URL: ambiguousURL, Transport: transport,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.IsPlaylist() {
+			t.Fatalf("expected playlist result, got %#v", result)
+		}
+		if len(transport.reads) != 1 || transport.reads[0] != playlistPageURL {
+			t.Fatalf("reads = %#v; want playlist page only", transport.reads)
+		}
+	})
+
+	t.Run("no-playlist-prefers-video", func(t *testing.T) {
+		transport := &memoryTransport{pages: map[string][]byte{
+			watchPageURL:     watchPage,
+			youtubePlayerURL: player,
+		}}
+		result, err := NewYouTube().Extract(context.Background(), Request{
+			URL: ambiguousURL, Transport: transport, NoPlaylist: true, ChallengeSolver: solver,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.IsPlaylist() {
+			t.Fatal("expected video result, got playlist")
+		}
+		if len(transport.reads) < 1 || transport.reads[0] != watchPageURL {
+			t.Fatalf("reads = %#v; want watch page first", transport.reads)
+		}
+	})
+
+	t.Run("no-playlist-does-not-affect-pure-playlist-url", func(t *testing.T) {
+		purePlaylistURL := "https://www.youtube.com/playlist?list=PL_fixture"
+		transport := &memoryTransport{pages: map[string][]byte{
+			playlistPageURL: playlistPage,
+		}}
+		result, err := NewYouTube().Extract(context.Background(), Request{
+			URL: purePlaylistURL, Transport: transport, NoPlaylist: true,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.IsPlaylist() {
+			t.Fatal("expected playlist result for pure playlist URL even with NoPlaylist=true")
+		}
+	})
+}
+
 func TestParseYouTubeOffsetReferenceCases(t *testing.T) {
 	// Derived from yt-dlp test/test_utils.py::test_parse_duration at
 	// aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8.

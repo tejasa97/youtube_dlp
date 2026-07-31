@@ -842,6 +842,7 @@ func (operation *operation) processWithTransparentParent(ctx context.Context, ra
 		NHK: extractor.NHKOptions{
 			RadiruArea: operation.request.NHK.RadiruArea,
 		},
+		NoPlaylist: operation.request.Playlist.Disabled,
 	})
 	if err != nil {
 		return Result{}, categorized(selected.Name()+" extraction", err)

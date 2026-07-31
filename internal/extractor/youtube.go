@@ -149,6 +149,14 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 	if err != nil {
 		return Extraction{}, err
 	}
+	// Ambiguous URL: a watch URL with both a video ID and a playlist ID
+	// (e.g. https://www.youtube.com/watch?v=VIDEOID&list=PLAYLISTID).
+	// When NoPlaylist is false (the default / --yes-playlist), prefer the
+	// playlist result. Pure playlist URLs (/playlist?list=...) are already
+	// handled above by youtubePlaylistID and are unaffected.
+	if target.videoID != "" && target.playlistID != "" && !request.NoPlaylist {
+		return extractYouTubePlaylist(ctx, request, target.playlistID)
+	}
 	videoID := target.videoID
 	webpageURL := "https://www.youtube.com/watch?v=" + videoID
 	page, _, err := request.Transport.ReadPage(ctx, webpageURL)
@@ -1276,6 +1284,7 @@ func youtubeVideoID(rawURL string) (string, error) {
 
 type youtubeTarget struct {
 	videoID            string
+	playlistID         string
 	startTime, endTime *float64
 	startSet, endSet   bool
 }
@@ -1365,6 +1374,10 @@ func parseYouTubeTarget(rawURL string) (youtubeTarget, error) {
 					if seconds, ok := parseYouTubeOffset(rawValue); ok {
 						target.endTime = &seconds
 					}
+				}
+			case "list":
+				if target.playlistID == "" && youtubePlaylistIDPattern.MatchString(rawValue) {
+					target.playlistID = rawValue
 				}
 			}
 		}

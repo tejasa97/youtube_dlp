@@ -3205,3 +3205,26 @@ capabilities:
     owner: core
     known_deviation: >-
       Thirteen registered classes cover the bounded anonymous public routes listed in the provenance matrix. Cheese is deferred because paid-course playability is not an anonymous public contract; SpaceVideo, SpaceAudio, and Search are WBI-dependent; Live is deferred because HLS/live exact-byte proof is not retained; Favorites, Watchlater, and Playlist remain authentication/private scope. All retained page and API reads require credential-isolated no-redirect transport, with fixed scoped referers only through the dedicated referer interface. Emitted domestic and international media formats are role-host validated and credential-isolated. Product evidence proves exact-byte domestic, Bangumi, audio, international, transparent Player, and playlist child reentry behavior, plus entered cancellation rollback and secret-safe status mapping. Subtitle extraction, live/HLS fragments, paid/DRM, auth/private, geo-only, and WBI behavior are not claimed.
+  - id: cli.flag_wave1
+    name: Wave 1 CLI flag parity — overwrite and playlist-vs-single controls
+    phase: 3
+    compatibility_target: Wire --no-overwrites, --no-playlist, and --yes-playlist from the CLI FlagSet to the Request struct with correct last-wins semantics. --no-overwrites is the inverse of --force-overwrites. --no-playlist/--yes-playlist set Request.Playlist.Disabled (distinct from RelatedFiles.NoPlaylist). The Disabled signal is passed to extractor.Request.NoPlaylist; YouTube implements _yes_playlist-style choice for ambiguous URLs (video+playlist). Other extractors with ambiguous URLs remain deferred.
+    status: partial
+    evidence:
+      - internal/cli.TestRunNoOverwritesFlag
+      - internal/cli.TestRunNoOverwritesAliasW
+      - internal/cli.TestRunNoOverwritesAfterForceOverwrites
+      - internal/cli.TestRunForceOverwritesAfterNoOverwritesLastWins
+      - internal/cli.TestRunNoPlaylistFlag
+      - internal/cli.TestRunYesPlaylistFlag
+      - internal/cli.TestRunNoPlaylistThenYesPlaylistLastWins
+      - internal/cli.TestRunYesPlaylistThenNoPlaylistLastWins
+      - internal/cli.TestRunPlaylistDefaultDoesNotSetDisabled
+      - docs/CLI_FLAG_INVENTORY.md
+      - pkg/ytdlp.TestNoPlaylistWiredFromRequestToExtractor
+      - internal/extractor.TestParseYouTubeTargetListParam
+      - internal/extractor.TestYouTubeNoPlaylistAmbiguousURLChoice
+    owner: core
+    depends_on:
+      - foundation.cli
+    known_deviation: YouTube extractor implements _yes_playlist-style choice via NoPlaylist for ambiguous video+playlist URLs. Other extractors with ambiguous URLs (Dailymotion, etc.) do not yet consume NoPlaylist; --no-playlist has no effect on their extraction behavior.
