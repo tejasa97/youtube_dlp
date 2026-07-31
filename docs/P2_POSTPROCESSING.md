@@ -3,9 +3,9 @@
 `internal/media/ffmpeg` is the sole external-tool boundary. It starts ffmpeg
 and ffprobe with argument vectors (never a shell), uses an explicitly bounded
 environment and diagnostics, starts a separate process group on Unix, and
-atomically finalizes outputs. Cancellation kills the supervised Unix process
-group; on Windows it currently kills the direct child only. Failed and cancelled
-work removes temporary outputs.
+atomically finalizes outputs. Cancellation terminates the entire process tree — on Unix via process-group
+kill, on Windows via a tested Job Object (KILL_ON_JOB_CLOSE). Failed and
+cancelled work removes temporary outputs.
 
 Each invocation gets a private same-filesystem temporary directory and an
 exclusive output file, so concurrent operations cannot collide or replace its
@@ -59,8 +59,9 @@ cancellation, sync before publish, and retain the source until publication. On
 Windows, overwriting an existing move destination is refused because the Go
 rename primitive cannot provide the same atomic replacement guarantee there;
 the same restriction applies to ffmpeg post-processing finalization.
-Windows process-tree termination is a known deviation until the supervisor uses
-a tested Job Object implementation.
+A residual G2-S01 start-then-assign race remains:
+descendants spawned between Start and the attachCommand call are not captured
+by the job.
 Hardlink-count inspection is intentionally not enforced cross-platform: callers
 must treat an `Owned` artifact as exclusively owned before asking the graph to
 delete it.
