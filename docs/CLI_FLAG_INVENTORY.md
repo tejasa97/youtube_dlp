@@ -172,7 +172,7 @@
 
 | Option | Status | Notes |
 |--------|--------|-------|
-| `--batch-file` / `-a` / `--no-batch-file` | **needs-core** | URL reading pipeline |
+| `--batch-file` / `-a` / `--no-batch-file` | **present** | Bounded URL reading pipeline; repeatable files and stdin via `-` |
 | `--id` | defer | Use video ID as filename |
 | `--paths` / `-P` | present | `flags.Var(paths, "paths", ...)` |
 | `--output` / `-o` | present | `flags.Var(&outputTemplates, "output", ...)` |
@@ -243,9 +243,9 @@ These are `Request`/options fields that are Go-specific and have no counterpart 
 
 | Category | Count |
 |----------|-------|
-| **present** | ~114 |
+| **present** | ~116 |
 | **wire-only** | 6 Go-only |
-| **needs-core** | ~4 (Wave 3: 2, misc) |
+| **needs-core** | ~2 (misc) |
 | **parked** | ~4 (verbosity) |
 | **defer** | ~100+ |
 | **Total yt-dlp options** | ~292 |
@@ -275,8 +275,8 @@ These are `Request`/options fields that are Go-specific and have no counterpart 
 ### Wave 3
 | Flag | Classification | Work |
 |------|---------------|------|
-| `--batch-file` / `-a` / `--no-batch-file` | needs-core | URL reading pipeline |
-| `--list-formats` / `-F` | needs-core | Sugar over simulate + `%(formats_table)s` |
+| `--batch-file` / `-a` / `--no-batch-file` | present | Bounded URL reading pipeline; repeatable files, comments/blank lines, and stdin via `-` |
+| `--list-formats` / `-F` | present | Existing format-table renderer at the pre-process stage; simulation is implied unless `--no-simulate` is explicit |
 
 ### Parked
 `--verbose` / `-v` / `--no-verbose`, `--no-warnings` / `--warnings`, `--progress` / `--no-progress`
