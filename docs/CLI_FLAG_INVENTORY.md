@@ -77,7 +77,7 @@
 | `--min-views` / `--max-views` | defer | View count filter |
 | `--match-filters` / `--no-match-filters` | present | `flags.Var(&matchFilters, "match-filter", ...)` |
 | `--break-match-filters` / `--no-break-match-filters` | present | `flags.Var(&breakMatchFilters, "break-match-filter", ...)` |
-| `--no-playlist` / `--yes-playlist` | **needs-core** | New `Playlist.Disabled` field. NOT `RelatedFiles.NoPlaylist` |
+| `--no-playlist` / `--yes-playlist` | present | `Playlist.Disabled` field. YouTube implements `_yes_playlist`-style choice for ambiguous video+playlist URLs |
 | `--age-limit` | defer | Age restriction filter |
 | `--download-archive` / `--no-download-archive` | present | `flags.String("download-archive", ...)` |
 | `--max-downloads` | defer | Download count limit |
@@ -243,9 +243,9 @@ These are `Request`/options fields that are Go-specific and have no counterpart 
 
 | Category | Count |
 |----------|-------|
-| **present** | ~106 |
+| **present** | ~107 |
 | **wire-only** | 6 Go-only |
-| **needs-core** | ~12 (Wave 1: 1, Wave 2: 7, Wave 3: 2, misc) |
+| **needs-core** | ~11 (Wave 2: 7, Wave 3: 2, misc) |
 | **parked** | ~4 (verbosity) |
 | **defer** | ~100+ |
 | **Total yt-dlp options** | ~292 |
@@ -256,10 +256,10 @@ These are `Request`/options fields that are Go-specific and have no counterpart 
 | Flag | Classification | Work |
 |------|---------------|------|
 | `--no-overwrites` | present | Inverse of `--force-overwrites`, pure CLI |
-| `--no-playlist` / `--yes-playlist` | needs-core | New `Playlist.Disabled` field |
+| `--no-playlist` / `--yes-playlist` | present | `Playlist.Disabled` field. YouTube implements `_yes_playlist`-style choice for ambiguous video+playlist URLs |
 
 ### Wave 1b (playlist-disable consume)
-| `--no-playlist` / `--yes-playlist` | needs-core | Behavioral consumption of `Playlist.Disabled` in extraction routing |
+| `--no-playlist` / `--yes-playlist` | present | YouTube implements `_yes_playlist`-style choice via `NoPlaylist`. Other extractors deferred |
 
 ### Wave 2
 | Flag | Classification | Work |

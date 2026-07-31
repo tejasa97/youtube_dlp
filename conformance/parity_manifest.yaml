@@ -3208,7 +3208,7 @@ capabilities:
   - id: cli.flag_wave1
     name: Wave 1 CLI flag parity — overwrite and playlist-vs-single controls
     phase: 3
-    compatibility_target: Wire --no-overwrites, --no-playlist, and --yes-playlist from the CLI FlagSet to the Request struct with correct last-wins semantics. --no-overwrites is the inverse of --force-overwrites. --no-playlist/--yes-playlist set Request.Playlist.Disabled (distinct from RelatedFiles.NoPlaylist); behavioral consumption of Disabled in extraction routing is deferred to a later wave.
+    compatibility_target: Wire --no-overwrites, --no-playlist, and --yes-playlist from the CLI FlagSet to the Request struct with correct last-wins semantics. --no-overwrites is the inverse of --force-overwrites. --no-playlist/--yes-playlist set Request.Playlist.Disabled (distinct from RelatedFiles.NoPlaylist). The Disabled signal is passed to extractor.Request.NoPlaylist; YouTube implements _yes_playlist-style choice for ambiguous URLs (video+playlist). Other extractors with ambiguous URLs remain deferred.
     status: partial
     evidence:
       - internal/cli.TestRunNoOverwritesFlag
@@ -3221,7 +3221,10 @@ capabilities:
       - internal/cli.TestRunYesPlaylistThenNoPlaylistLastWins
       - internal/cli.TestRunPlaylistDefaultDoesNotSetDisabled
       - docs/CLI_FLAG_INVENTORY.md
+      - pkg/ytdlp.TestNoPlaylistWiredFromRequestToExtractor
+      - internal/extractor.TestParseYouTubeTargetListParam
+      - internal/extractor.TestYouTubeNoPlaylistAmbiguousURLChoice
     owner: core
     depends_on:
       - foundation.cli
-    known_deviation: Playlist.Disabled is wired from CLI to Request but is not yet consumed by the extractor routing or playlist-expansion logic. Behavioral parity for --no-playlist / --yes-playlist (URL that can resolve to video or playlist) is deferred to a follow-up (playlist-disable consume).
+    known_deviation: YouTube extractor implements _yes_playlist-style choice via NoPlaylist for ambiguous video+playlist URLs. Other extractors with ambiguous URLs (Dailymotion, etc.) do not yet consume NoPlaylist; --no-playlist has no effect on their extraction behavior.

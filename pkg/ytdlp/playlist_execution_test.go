@@ -616,3 +616,68 @@ func TestPlaylistExecutionConformanceFixture(t *testing.T) {
 		t.Fatalf("ids = %v; want %v", gotIDs, fixture.IDs)
 	}
 }
+
+// captureNoPlaylistExtractor records the NoPlaylist value it receives from
+// the operation and returns a simple URL redirect so the pipeline can proceed.
+type captureNoPlaylistExtractor struct {
+	noPlaylist *bool
+}
+
+func (*captureNoPlaylistExtractor) Name() string { return "capture-noplaylist" }
+
+func (*captureNoPlaylistExtractor) Suitable(parsed *url.URL) bool {
+	return parsed.Path == "/capture-noplaylist"
+}
+
+func (c *captureNoPlaylistExtractor) Extract(_ context.Context, request extractor.Request) (extractor.Extraction, error) {
+	*c.noPlaylist = request.NoPlaylist
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("captured")},
+		value.Field{Key: "title", Value: value.String("Captured")},
+		value.Field{Key: "webpage_url", Value: value.String(request.URL)},
+	))
+	return extractor.Media(info), nil
+}
+
+func TestNoPlaylistWiredFromRequestToExtractor(t *testing.T) {
+	transport, err := network.New(network.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Run("disabled", func(t *testing.T) {
+		var captured bool
+		op := &operation{
+			client:    NewClient(),
+			request:   Request{SkipDownload: true, Playlist: PlaylistOptions{Disabled: true}},
+			transport: transport,
+			registry: extractor.NewRegistry(
+				&captureNoPlaylistExtractor{noPlaylist: &captured},
+			),
+		}
+		_, err := op.process(context.Background(), "https://example.com/capture-noplaylist", "", nil, make(map[string]bool), 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !captured {
+			t.Fatal("extractor.Request.NoPlaylist = false; want true when Playlist.Disabled is set")
+		}
+	})
+	t.Run("default", func(t *testing.T) {
+		var captured bool
+		op := &operation{
+			client:    NewClient(),
+			request:   Request{SkipDownload: true, Playlist: PlaylistOptions{}},
+			transport: transport,
+			registry: extractor.NewRegistry(
+				&captureNoPlaylistExtractor{noPlaylist: &captured},
+			),
+		}
+		_, err := op.process(context.Background(), "https://example.com/capture-noplaylist", "", nil, make(map[string]bool), 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if captured {
+			t.Fatal("extractor.Request.NoPlaylist = true; want false when Playlist.Disabled is not set")
+		}
+	})
+}
