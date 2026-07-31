@@ -9,4 +9,8 @@ Known deviation: the optional ARD SSO JWT bootstrap is deliberately outside the
 extractor request contract. Age-blocked (`blockedByFsk`) media therefore fails
 closed with authentication-required. Item and collection APIs, live state,
 regional failures, HLS/DASH/direct media, captions, and lazy bounded pagination
-are implemented.
+are implemented. The registered `ard_mediathek_collection` key covers
+`ARDMediathekCollectionIE`; collection children re-enter either `ard` for
+media items or the collection key for nested compilations. Product evidence
+uses the public `Client.Run` path and verifies repeated child execution and
+credential-isolated discovery/media requests.

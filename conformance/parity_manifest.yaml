@@ -3154,6 +3154,28 @@ capabilities:
       - docs/SPONSORBLOCK_METADATA.md
     owner: core
     known_deviation: "The pinned SponsorBlock service table is YouTube-only; Vimeo, PeerTube, and other services are not omitted behavior. Deliberate safety bounds remain: API calls require credential-isolated no-redirect transport; malformed supported sidecars and every unsafe path, staging, cancellation, commit, or rollback failure fail closed; and subtitle sync deterministically remaps srt/vtt/ass/lrc instead of invoking ffmpeg concat. Ordinary chapter expressions and manual ranges share this transaction through postprocess.chapter_removal. Network retries use the existing network.Client rather than copying reference internals."
+  - id: extractor.ard_mediathek_collection
+    name: ARD Mediathek public collections
+    phase: 2
+    compatibility_target: Extract the pinned ARDMediathekCollectionIE sendung, serie, sammlung, season, original-version, and audio-description routes through bounded credential-isolated Page Gateway pagination and registered ARD child re-entry.
+    status: compatible
+    evidence:
+      - internal/extractor.TestARDMediathekCollectionRoutingAndNonOverlap
+      - internal/extractor.TestARDPlaylistIsLazy
+      - internal/extractor.TestARDFailureCategoriesCancellationAndSecretSafety
+      - pkg/ytdlp.TestProductRegistryRoutesARDMediathekCollection
+      - pkg/ytdlp.TestProductARDMediathekCollectionClientRunReentryAndIsolation
+      - pkg/ytdlp.TestProductARDMediathekCollectionCancellationLeavesNoArtifacts
+      - conformance/extractors/risk/ard/PROVENANCE.md
+    owner: extractors
+    known_deviation: >-
+      The claim is limited to the deterministic anonymous Page Gateway corpus.
+      Authentication/SSO bootstrap, geo-only or age-blocked media, DRM, future
+      API schema changes, and production-service interoperability beyond the
+      checked-in fixtures remain outside the claim. Collection pages are
+      lazy and bounded; normal media children re-enter the registered `ard`
+      extractor while compilation children re-enter this collection key.
+
   - id: extractor.bilibili_public_ecosystem
     name: Bilibili public ecosystem extractors
     phase: 1

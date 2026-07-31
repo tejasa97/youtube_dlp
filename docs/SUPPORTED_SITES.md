@@ -110,7 +110,8 @@ service response.
 | bbc_co_uk_playlist | bbc.co.uk programmes listings | playlist/API, regional |
 | bbc_co_uk_iplayer_episodes | bbc.co.uk iPlayer episodes listings | playlist/API, regional |
 | bbc_co_uk_iplayer_group | bbc.co.uk iPlayer group listings | playlist/API, regional |
-| ard | ardmediathek.de player and collection pages | playlist/API, manifest-heavy, regional |
+| ard | ardmediathek.de player pages | playlist/API, manifest-heavy, regional |
+| ard_mediathek_collection | ardmediathek.de public sendung, serie, sammlung, season, OV, and AD collection pages | playlist/API, regional |
 | ard_audiothek (+ playlist) | ardaudiothek.de and ardsounds.de public episode and bounded show playlist pages | playlist/API, simple/direct, regional |
 | nrk family | tv/radio/nrksuper programme and live routes, series/season catalogs, podcast UUIDs, Skole mediaId lookup, nrk.no article playlists, and nrk: opaque playback | playlist/API, manifest-heavy, regional |
 | rai family | RaiPlay/RaiPlay Sound VOD, live and program routes; legacy Rai, Rai News, Rai Cultura, and Rai Südtirol public pages | playlist/API, manifest-heavy, regional, live, audio; bounded unencrypted Rai F4M/HDS VOD |

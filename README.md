@@ -58,7 +58,7 @@ identify compatibility targets only.
 | Extensions | Versioned native RPC and constrained WASM plugins, signed packs, catalogs, and updater transactions |
 | Public API | Versioned v1alpha1 Go API with context cancellation, categorized errors, events, playlists, metadata, and artifacts |
 
-The capability manifest records **82 capabilities**: **75 compatible** within
+The capability manifest records **83 capabilities**: **76 compatible** within
 their declared corpora, **6 partial**, and **1 intentional deviation**.
 “Compatible” means the linked deterministic evidence passes; it does not mean
 unbounded equivalence with every upstream behavior.
@@ -391,6 +391,13 @@ SoundCloud coverage includes tracks, sets, bare profiles, the pinned public
 profile tabs, tokenized private-set hydration, stations, related resources,
 bounded public track search, and the full pinned artwork/avatar thumbnail
 matrix.
+
+ARD Mediathek coverage has a dedicated `ard_mediathek_collection` key for
+bounded public `sendung`, `serie`, and `sammlung` pages, including season,
+original-version, and audio-description variants. Collection children re-enter
+the registered ARD item extractor; authentication, geo-only, DRM, and
+production-service interoperability beyond the deterministic corpus are not
+claimed.
 
 Microsoft public-media coverage includes six exact fixture-backed keys for
 videoplayer embeds, Medius embeds, Learn shows/events and child pages, and
