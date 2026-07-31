@@ -38,6 +38,7 @@ func (operation *operation) directDownloadJob(url string, headers http.Header, o
 		Overwrite: operation.request.Overwrite, Attempts: options.Attempts,
 		RetryBaseDelay: options.RetryBaseDelay, RetryMaxDelay: options.RetryMaxDelay,
 		RateLimit: options.RateLimit, MaxBytes: options.MaxBytes,
+		MinFilesize: options.MinFilesize, MaxFilesize: options.MaxFilesize,
 		ThrottleRate: options.ThrottleRate, ThrottleWindow: options.ThrottleWindow,
 		ThrottleRestarts: options.ThrottleRestarts, FileAttempts: options.FileAttempts,
 	}, operation.request.Filesystem)

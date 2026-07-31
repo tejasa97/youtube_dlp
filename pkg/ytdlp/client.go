@@ -161,6 +161,24 @@ type Request struct {
 	// BreakMatchFilters use the same OR/AND language as MatchFilters, but a
 	// rejection stops playlist expansion before the rejected entry is retained.
 	BreakMatchFilters []string
+	// SimpleFilters mirrors yt-dlp's simple --match-title/--date/--age-limit
+	// style filters. They are evaluated before the generic match filters,
+	// after the download-archive check, matching _match_entry's order.
+	SimpleFilters SimpleFilterOptions
+	// MaxDownloads aborts the run after this many media entries pass
+	// selection (including simulated downloads). Zero means unlimited. The
+	// limit is scoped to this Run; batch callers carry the remaining budget
+	// across inputs and set BreakPerInput to reset it per input.
+	MaxDownloads int
+	// BreakOnExisting stops the run when an entry is already recorded in the
+	// download archive (yt-dlp --break-on-existing).
+	BreakOnExisting bool
+	// BreakOnReject stops the run when any filter rejects an entry
+	// (yt-dlp --break-on-reject).
+	BreakOnReject bool
+	// BreakPerInput makes MaxDownloads and the stop conditions apply per
+	// input URL rather than across the whole batch (yt-dlp --break-per-input).
+	BreakPerInput bool
 	// MetadataActions preserves command-line ordering between parse and replace
 	// metadata operations. ParseMetadata and ReplaceMetadata remain for callers
 	// of the earlier programmatic API; new callers should prefer this field.
@@ -244,6 +262,38 @@ type InteractiveFormatFunc func(context.Context, InteractiveFormatPrompt) (strin
 // boundary. Context cancellation remains discoverable through errors.Is.
 var ErrInteractiveInput = errors.New("interactive input unavailable")
 
+// StopKind classifies why a result's processing queue ended. The zero value
+// means the result completed normally.
+type StopKind uint8
+
+const (
+	StopNone StopKind = iota
+	// StopBreakMatchFilter reports a --break-match-filter rejection, which
+	// always stops regardless of --break-on-reject.
+	StopBreakMatchFilter
+	// StopBreakOnReject reports a filter rejection with --break-on-reject.
+	StopBreakOnReject
+	// StopBreakOnExisting reports an archive match with --break-on-existing.
+	StopBreakOnExisting
+	// StopMaxDownloads reports that the per-run MaxDownloads cap was reached.
+	StopMaxDownloads
+)
+
+func (kind StopKind) String() string {
+	switch kind {
+	case StopBreakMatchFilter:
+		return "break match filter"
+	case StopBreakOnReject:
+		return "break on reject"
+	case StopBreakOnExisting:
+		return "break on existing"
+	case StopMaxDownloads:
+		return "max downloads reached"
+	default:
+		return "none"
+	}
+}
+
 type Result struct {
 	InfoJSON   json.RawMessage
 	Extractor  string
@@ -251,14 +301,21 @@ type Result struct {
 	Archived   bool
 	Skipped    bool
 	SkipReason string
-	// Stopped reports that a breaking match filter ended this result's queue.
+	// Stopped reports that a stopping condition (break match filter,
+	// --break-on-reject, --break-on-existing, or --max-downloads) ended this
+	// result's queue. StopKind classifies the condition.
 	Stopped    bool
+	StopKind   StopKind
 	StopReason string
-	Filename   string
-	Bytes      int64
-	Entries    []Result
-	Artifacts  []Artifact
-	Prints     []PrintOutput
+	// Downloads counts media entries in this result that passed selection
+	// (archive and filters) and entered the download pipeline, including
+	// simulated downloads. Playlist results aggregate their children.
+	Downloads int
+	Filename  string
+	Bytes     int64
+	Entries   []Result
+	Artifacts []Artifact
+	Prints    []PrintOutput
 	// SuppressedFailures counts ordinary entry failures that a playlist
 	// continued past. The failures remain observable even when Run returns a
 	// usable partial playlist result.
@@ -775,17 +832,33 @@ type operation struct {
 	rootExtractor                    *string
 	playlistItemsRangeWarningEmitted bool
 	playlistOrderingWarningsEmitted  map[string]bool
-	breakMatchTriggered              bool
-	breakMatchReason                 string
-	removeFile                       func(string) error
-	thumbnailConvert                 thumbnailConvertFunc
-	thumbnailEmbed                   thumbnailEmbedFunc
-	hlsFallback                      func(context.Context, string, string, string, http.Header, bool, events.Sink) (fragment.Result, error)
-	youtubeLiveRefresh               func(mediaformat.Selection) youtubelive.LiveRefreshFunc
-	sabrMerge                        func(ctx context.Context, video, audio, destination string, overwrite bool, sink events.Sink) error
-	plannerCapabilities              *mediaformat.PlannerCapabilities
-	formatAvailability               mediaformat.FormatAvailability
-	formatAvailabilityChecker        *formatAvailabilityChecker
+	// stopTriggered is the operation-wide stopping state. Once set, every
+	// subsequent result reports Stopped with stopKind/stopReason.
+	stopTriggered bool
+	stopKind      StopKind
+	stopReason    string
+	// downloads counts media entries that passed selection and entered the
+	// download pipeline during this Run, mirroring yt-dlp's _num_downloads.
+	downloads                 int
+	removeFile                func(string) error
+	thumbnailConvert          thumbnailConvertFunc
+	thumbnailEmbed            thumbnailEmbedFunc
+	hlsFallback               func(context.Context, string, string, string, http.Header, bool, events.Sink) (fragment.Result, error)
+	youtubeLiveRefresh        func(mediaformat.Selection) youtubelive.LiveRefreshFunc
+	sabrMerge                 func(ctx context.Context, video, audio, destination string, overwrite bool, sink events.Sink) error
+	plannerCapabilities       *mediaformat.PlannerCapabilities
+	formatAvailability        mediaformat.FormatAvailability
+	formatAvailabilityChecker *formatAvailabilityChecker
+}
+
+func (operation *operation) setStop(kind StopKind, reason string) {
+	operation.stopTriggered = true
+	operation.stopKind = kind
+	operation.stopReason = reason
+}
+
+func (operation *operation) maxDownloadsReached() bool {
+	return operation.request.MaxDownloads > 0 && operation.downloads >= operation.request.MaxDownloads
 }
 
 func (operation *operation) process(ctx context.Context, rawURL, extractorKey string, overlay *extractor.Entry, ancestors map[string]bool, depth int) (Result, error) {
@@ -1153,7 +1226,7 @@ func (operation *operation) finishPlaylistResult(
 	}
 	result := Result{
 		InfoJSON: encoded, Extractor: extractorName, Entries: children,
-		Stopped: operation.breakMatchTriggered, StopReason: operation.breakMatchReason,
+		Stopped: operation.stopTriggered, StopKind: operation.stopKind, StopReason: operation.stopReason,
 	}
 	result.Artifacts = append(result.Artifacts, thumbnailArtifacts...)
 	result.Bytes += thumbnailBytes
@@ -1162,6 +1235,7 @@ func (operation *operation) finishPlaylistResult(
 		result.Bytes += child.Bytes
 		result.Downloaded = result.Downloaded || child.Downloaded
 		result.Archived = result.Archived || child.Archived
+		result.Downloads += child.Downloads
 		result.SuppressedFailures += child.SuppressedFailures
 	}
 	if !operation.request.Simulate && !operation.request.RelatedFiles.NoPlaylist {
@@ -1363,6 +1437,49 @@ func (operation *operation) prepareMediaResult(
 	extractorName string,
 	incomplete bool,
 ) (Result, archive.Identity, compatibilityDecision, bool, error) {
+	var archiveIdentity archive.Identity
+	if operation.archive != nil {
+		id, hasID := info.ID()
+		if hasID && extractorName != "" {
+			identity, err := archive.NewIdentity(extractorName, id)
+			if err != nil {
+				return Result{}, archive.Identity{}, compatibilityDecision{}, false, categorized("build archive identity", err)
+			}
+			legacyIDs, err := oldArchiveIDs(*info)
+			if err != nil {
+				return Result{}, archive.Identity{}, compatibilityDecision{}, false, categorized("read legacy archive identities", err)
+			}
+			matched, found, err := operation.archive.Match(ctx, identity, legacyIDs)
+			if err != nil {
+				return Result{}, archive.Identity{}, compatibilityDecision{}, false, categorized("match download archive", err)
+			}
+			archiveIdentity = identity
+			if found {
+				// Archive matches take precedence over every filter check,
+				// mirroring _match_entry. --break-on-existing stops the run;
+				// otherwise the archived entry is skipped without a download.
+				encoded, err := encodeInfo(*info)
+				if err != nil {
+					return Result{}, archive.Identity{}, compatibilityDecision{}, false, err
+				}
+				result := Result{InfoJSON: encoded, Extractor: extractorName, Archived: true}
+				if err := operation.client.emit(ctx, Event{
+					Kind: EventArchiveMatch, Extractor: extractorName, Message: matched,
+				}); err != nil {
+					return Result{}, archive.Identity{}, compatibilityDecision{}, false, &Error{
+						Category: ErrorInternal, Op: "emit archive event", Err: err,
+					}
+				}
+				terminal := true
+				if operation.request.BreakOnExisting {
+					reason := archiveRejectionReason(*info)
+					operation.setStop(StopBreakOnExisting, reason)
+					result.Stopped, result.StopKind, result.StopReason = true, operation.stopKind, operation.stopReason
+				}
+				return result, archiveIdentity, compatibilityDecision{}, terminal, nil
+			}
+		}
+	}
 	decision, err := operation.applyCompatibility(ctx, info, incomplete)
 	if err != nil {
 		return Result{}, archive.Identity{}, compatibilityDecision{}, false, err
@@ -1377,42 +1494,31 @@ func (operation *operation) prepareMediaResult(
 		if err != nil {
 			return Result{}, archive.Identity{}, compatibilityDecision{}, false, err
 		}
-		return result, archive.Identity{}, compatibilityDecision{}, terminal, nil
+		return result, archiveIdentity, decision, terminal, nil
 	}
-	if operation.archive == nil {
-		return result, archive.Identity{}, decision, false, nil
-	}
-	id, hasID := info.ID()
-	if !hasID || extractorName == "" {
-		if incomplete {
-			return result, archive.Identity{}, compatibilityDecision{}, false, nil
-		}
-		return Result{}, archive.Identity{}, compatibilityDecision{}, false, categorized("build archive identity", archive.ErrInvalidIdentity)
-	}
-	archiveIdentity, err := archive.NewIdentity(extractorName, id)
-	if err != nil {
-		return Result{}, archive.Identity{}, compatibilityDecision{}, false, categorized("build archive identity", err)
-	}
-	legacyIDs, err := oldArchiveIDs(*info)
-	if err != nil {
-		return Result{}, archive.Identity{}, compatibilityDecision{}, false, categorized("read legacy archive identities", err)
-	}
-	matched, found, err := operation.archive.Match(ctx, archiveIdentity, legacyIDs)
-	if err != nil {
-		return Result{}, archive.Identity{}, compatibilityDecision{}, false, categorized("match download archive", err)
-	}
-	if !found {
-		return result, archiveIdentity, decision, false, nil
-	}
-	result.Archived = true
-	if err := operation.client.emit(ctx, Event{
-		Kind: EventArchiveMatch, Extractor: extractorName, Message: matched,
-	}); err != nil {
-		return Result{}, archive.Identity{}, compatibilityDecision{}, false, &Error{
-			Category: ErrorInternal, Op: "emit archive event", Err: err,
+	if operation.archive != nil {
+		_, hasID := info.ID()
+		if !hasID || extractorName == "" {
+			if incomplete {
+				return result, archive.Identity{}, compatibilityDecision{}, false, nil
+			}
+			return Result{}, archive.Identity{}, compatibilityDecision{}, false, categorized("build archive identity", archive.ErrInvalidIdentity)
 		}
 	}
-	return result, archiveIdentity, compatibilityDecision{}, true, nil
+	return result, archiveIdentity, decision, false, nil
+}
+
+// archiveRejectionReason mirrors the reference rejection message
+// "<id>: <title> has already been recorded in the archive".
+func archiveRejectionReason(info value.Info) string {
+	reason := ""
+	if id, ok := info.ID(); ok && id != "" {
+		reason += id + ": "
+	}
+	if title, ok := info.Title(); ok && title != "" {
+		reason += title + " "
+	}
+	return reason + "has already been recorded in the archive"
 }
 
 func (operation *operation) finishMatchFilterDecision(
@@ -1425,8 +1531,13 @@ func (operation *operation) finishMatchFilterDecision(
 		return false, nil
 	}
 	result.Skipped, result.SkipReason = true, decision.Reason
-	if operation.breakMatchTriggered {
-		result.Stopped, result.StopReason = true, operation.breakMatchReason
+	if operation.stopTriggered {
+		result.Stopped, result.StopKind, result.StopReason = true, operation.stopKind, operation.stopReason
+	} else if operation.request.BreakOnReject {
+		// --break-on-reject stops on any rejection, including simple
+		// filters and ordinary --match-filters (reference break_on_reject).
+		operation.setStop(StopBreakOnReject, decision.Reason)
+		result.Stopped, result.StopKind, result.StopReason = true, operation.stopKind, operation.stopReason
 	}
 	if err := operation.client.emit(ctx, Event{
 		Kind: EventMatchFilterSkipped, Extractor: extractorName, Message: decision.Reason,
@@ -1438,7 +1549,22 @@ func (operation *operation) finishMatchFilterDecision(
 	return true, nil
 }
 
-func (operation *operation) processMedia(ctx context.Context, extracted extractor.Extraction, extractorName string) (Result, error) {
+func (operation *operation) processMedia(ctx context.Context, extracted extractor.Extraction, extractorName string) (result Result, _ error) {
+	// counted tracks whether this entry passed selection and entered the
+	// download pipeline. The defer applies the reference _num_downloads
+	// semantics: the entry counts (even for simulated or skipped-by-size
+	// downloads) and the MaxDownloads cap is checked after the entry's
+	// processing completes, so the Nth download finishes before the stop.
+	counted := false
+	defer func() {
+		if counted {
+			result.Downloads = 1
+			if !result.Stopped && operation.maxDownloadsReached() {
+				operation.setStop(StopMaxDownloads, "max downloads reached")
+				result.Stopped, result.StopKind, result.StopReason = true, operation.stopKind, operation.stopReason
+			}
+		}
+	}()
 	preparedFormats, err := mediaformat.Prepare(extracted.Info, operation.compatibility.formatOptions)
 	if err != nil {
 		return Result{}, categorized("normalize formats", err)
@@ -1478,6 +1604,11 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		}
 		return result, nil
 	}
+	// The reference increments _num_downloads for every entry that passes
+	// selection, before the download attempt; the cap is checked after the
+	// entry finishes (see the defer above), so the Nth download completes.
+	operation.downloads++
+	counted = true
 	prints, err := operation.capturePrints(ctx, PrintAfterFilter, info, nil, nil, "")
 	if err != nil {
 		return Result{}, categorized("render after-filter print", err)
@@ -1617,6 +1748,16 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 				ctx, mediaTx, &lifecycle, selectedSubtitles, sink,
 			)
 			if lifecycleErr != nil {
+				var sizeAbort *downloader.FileSizeAbortError
+				if errors.As(lifecycleErr, &sizeAbort) {
+					// yt-dlp's direct downloader aborts media outside the
+					// min/max filesize bounds with a diagnostic; the entry is
+					// skipped instead of failing the run.
+					_ = operation.client.emit(ctx, Event{Kind: EventDownloadCancelled, Message: sizeAbort.Message})
+					result.Skipped = true
+					result.SkipReason = sizeAbort.Message
+					return result, nil
+				}
 				if len(outputPlans) > 1 {
 					return rollbackTransactionResult(mediaTx, lifecycleErr)
 				}
@@ -1659,7 +1800,7 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 			}
 			mediaTx.finalize()
 		}
-		if operation.archive != nil && !operation.request.Simulate && !operation.request.SkipDownload {
+		if operation.archive != nil && !operation.request.Simulate && !operation.request.SkipDownload && !result.Skipped {
 			if _, archiveErr := operation.archive.Record(ctx, archiveIdentity); archiveErr != nil {
 				return Result{}, categorized("record download archive", archiveErr)
 			}

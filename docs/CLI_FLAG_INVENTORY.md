@@ -70,20 +70,20 @@
 | `--playlist-start` | present | `flags.Int("playlist-start", ...)` |
 | `--playlist-end` | present | `flags.Int("playlist-end", ...)` |
 | `--playlist-items` / `-I` | present | `flags.String("playlist-items", ...)` |
-| `--match-title` | defer | Regex filter |
-| `--reject-title` | defer | Regex filter |
-| `--min-filesize` / `--max-filesize` | defer | Download filter |
-| `--date` / `--datebefore` / `--dateafter` | defer | Date filter |
-| `--min-views` / `--max-views` | defer | View count filter |
+| `--match-title` | present | Hidden parity flag. `SimpleFilters.MatchTitle` → `internal/compat/simplefilter` (case-insensitive regex search on title) |
+| `--reject-title` | present | Hidden parity flag. `SimpleFilters.RejectTitle` → `internal/compat/simplefilter` |
+| `--min-filesize` / `--max-filesize` | present | `DownloaderOptions.MinFilesize/MaxFilesize` → direct HTTP downloader abort using Content-Length + resume offset (reference `parse_bytes` SIZE grammar) |
+| `--date` / `--datebefore` / `--dateafter` | present | `SimpleFilters.Date/DateBefore/DateAfter` → strict `date_from_str` grammar; `--date` wins over the range bounds with a warning |
+| `--min-views` / `--max-views` | present | Hidden parity flags. `SimpleFilters.MinViews/MaxViews` |
 | `--match-filters` / `--no-match-filters` | present | `flags.Var(&matchFilters, "match-filter", ...)` |
 | `--break-match-filters` / `--no-break-match-filters` | present | `flags.Var(&breakMatchFilters, "break-match-filter", ...)` |
 | `--no-playlist` / `--yes-playlist` | present | `Playlist.Disabled` field. YouTube implements `_yes_playlist`-style choice for ambiguous video+playlist URLs |
-| `--age-limit` | defer | Age restriction filter |
+| `--age-limit` | present | `SimpleFilters.AgeLimit` → `age_restricted` semantics |
 | `--download-archive` / `--no-download-archive` | present | `flags.String("download-archive", ...)` |
-| `--max-downloads` | defer | Download count limit |
-| `--break-on-existing` / `--no-break-on-existing` | defer | Archive-based stop |
-| `--break-on-reject` | defer | Reject-based stop |
-| `--break-per-input` / `--no-break-per-input` | defer | Per-input break |
+| `--max-downloads` | present | Per-Run `Request.MaxDownloads`; `Result.Downloads` aggregates qualifying entries; CLI carries the remaining budget across batch inputs |
+| `--break-on-existing` / `--no-break-on-existing` | present | `Request.BreakOnExisting` → `StopBreakOnExisting` |
+| `--break-on-reject` | present | Hidden parity flag. `Request.BreakOnReject` → `StopBreakOnReject` |
+| `--break-per-input` / `--no-break-per-input` | present | `Request.BreakPerInput`; resets the max-downloads budget and stop scope per input |
 | `--skip-playlist-after-errors` | present | `flags.Int("skip-playlist-after-errors", ...)` |
 | `--js-runtimes` / `--no-js-runtimes` | defer | JS runtime subsystem |
 | `--remote-components` / `--no-remote-components` | defer | Remote component subsystem |
@@ -277,6 +277,19 @@ These are `Request`/options fields that are Go-specific and have no counterpart 
 |------|---------------|------|
 | `--batch-file` / `-a` / `--no-batch-file` | present | Bounded URL reading pipeline; repeatable files, comments/blank lines, and stdin via `-` |
 | `--list-formats` / `-F` | present | Existing format-table renderer at the pre-process stage; simulation is implied unless `--no-simulate` is explicit |
+
+### Wave 4
+| Flag | Classification | Work |
+|------|---------------|------|
+| `--match-title` / `--reject-title` | present | Hidden parity flags; `internal/compat/simplefilter` case-insensitive regex title checks |
+| `--date` / `--dateafter` / `--datebefore` | present | Strict `date_from_str` grammar + inclusive `DateRange`; `--date` wins with a warning |
+| `--min-views` / `--max-views` / `--age-limit` | present | Hidden parity flags for views; `age_restricted` semantics |
+| `--min-filesize` / `--max-filesize` | present | `DownloaderOptions` bounds enforced in the direct HTTP downloader (Content-Length + resume offset, skip Content-Encoding/unknown length) |
+| `--max-downloads` | present | Per-Run cap with `Result.Downloads` accounting; CLI carries the remaining budget across batch inputs |
+| `--break-on-existing` / `--no-break-on-existing` | present | Archive matches stop the run (`StopBreakOnExisting`) |
+| `--break-on-reject` | present | Hidden parity flag; any filter rejection stops the run (`StopBreakOnReject`) |
+| `--break-per-input` / `--no-break-per-input` | present | Resets the max-downloads budget and stop scope per input URL |
+| Stopping exit contract | present | Partial result is emitted, then `Aborting remaining downloads` and exit 101; cancellation remains 130 |
 
 ### Parked
 `--verbose` / `-v` / `--no-verbose`, `--no-warnings` / `--warnings`, `--progress` / `--no-progress`

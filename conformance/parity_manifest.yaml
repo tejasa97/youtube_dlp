@@ -3290,3 +3290,60 @@ capabilities:
     depends_on:
       - foundation.cli
       - cli.flag_wave2
+
+
+  - id: cli.filtering_stop_wave
+    name: Wave 4 CLI flag parity — filtering and stopping conditions
+    phase: 3
+    compatibility_target: >-
+      Wire the simple metadata filters (--match-title, --reject-title,
+      --date/--dateafter/--datebefore with --date precedence and a warning,
+      --min-views/--max-views, --age-limit), the stop conditions
+      (--break-on-existing/--no-break-on-existing, --break-on-reject,
+      --break-per-input/--no-break-per-input), --max-downloads, and
+      --min-filesize/--max-filesize through the CLI and the pkg/ytdlp API.
+      Simple filters evaluate per entry after the download-archive check and
+      before the generic match filters, with the exact reference rejection
+      messages and absent-field semantics. Stop conditions classify via
+      Result.StopKind; the CLI prints the partial result, then
+      "Aborting remaining downloads" and exits 101, or continues per input
+      under --break-per-input. MaxDownloads is a per-Run cap; Result.Downloads
+      aggregates qualifying media children including simulated downloads, and
+      the CLI carries the remaining budget across batch inputs. File size
+      bounds enforce in the direct HTTP downloader using Content-Length plus
+      the resume offset, skipping Content-Encoding or unknown-length
+      responses, with the reference parse_bytes SIZE grammar (decimals,
+      binary K-Y units). Hidden reference flags are registered but omitted
+      from --help.
+    status: compatible
+    evidence:
+      - internal/compat/simplefilter.TestDateRangeStrictParse
+      - internal/compat/simplefilter.TestDateRangeContainsAndMessage
+      - internal/compat/simplefilter.TestMatchTitleAndRejectTitle
+      - internal/compat/simplefilter.TestViewCountFilters
+      - internal/compat/simplefilter.TestAgeLimitFilter
+      - internal/downloader.TestDownloadMaxFilesizeAbort
+      - internal/downloader.TestDownloadMinFilesizeAbort
+      - internal/downloader.TestDownloadFilesizeSkipsContentEncoding
+      - internal/downloader.TestDownloadFilesizeUsesResumeOffset
+      - internal/downloader.TestDownloadFilesizeAbortIsNotRetryable
+      - pkg/ytdlp.TestOperationSimpleFilterRejections
+      - pkg/ytdlp.TestClientBreakOnRejectStops
+      - pkg/ytdlp.TestClientBreakMatchFilterAlwaysStops
+      - pkg/ytdlp.TestClientArchivePrecedesFilters
+      - pkg/ytdlp.TestClientMaxDownloadsCountsPassingEntries
+      - pkg/ytdlp.TestOperationMaxDownloadsStopsPlaylist
+      - pkg/ytdlp.TestClientFilesizeAbortSkipsEntry
+      - pkg/ytdlp.TestClientFilesizeAbortNotRecordedInArchive
+      - internal/cli.TestParseByteQuantity
+      - internal/cli.TestRunDatePrecedenceWarning
+      - internal/cli.TestRunHelpOmitsHiddenFlags
+      - internal/cli.TestRunMaxDownloadsBudgetAcrossInputs
+      - internal/cli.TestRunStopConditionExits101
+      - internal/cli.TestRunFilesizeAbortPrintsDiagnostic
+      - conformance/filtering-stop/PROVENANCE.md
+      - docs/CLI_FLAG_INVENTORY.md
+    owner: core
+    depends_on:
+      - foundation.cli
+      - cli.flag_wave3

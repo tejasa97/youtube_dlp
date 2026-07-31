@@ -1,0 +1,73 @@
+# Pinned expectations for the CLI filtering/stopping wave
+
+Reference: yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8.
+These expectations are asserted by the Go test corpus listed in
+`conformance/parity_manifest.yaml` (`cli.filtering_stop_wave`).
+
+## Simple filter rejection messages (YoutubeDL._match_entry)
+
+- match title: `"<title>" title did not match pattern "<pattern>"`
+- reject title: `"<title>" title matched reject pattern "<pattern>"`
+- date range: `<iso-upload-date> upload date is not in range <start> to <end>`
+  with inclusive bounds and ISO start/end
+- min views: `Skipping <title>, because it has not reached minimum view count (<view>/<min>)`
+- max views: `Skipping <title>, because it has exceeded the maximum view count (<view>/<max>)`
+- age limit: `Skipping "<title>" because it is age restricted`
+  (restricted iff both ages present and `limit < content_age`)
+- archive: `<id>: <title> has already been recorded in the archive`
+
+## Evaluation order (per entry)
+
+1. download archive match (precedence over every filter)
+2. simple filters: title, upload date, view count, age
+3. generic `--break-match-filters` (rejection always stops)
+4. generic `--match-filters` (rejection stops only with `--break-on-reject`)
+5. metadata actions apply after selection in the reference (see PROVENANCE)
+
+In the Go product, metadata actions run between steps 1 and 2, so the
+archive check sees untransformed metadata while the filters see the
+transformed metadata (see PROVENANCE known deviations).
+
+## Date grammar (strict)
+
+- `YYYYMMDD`
+- `now` / `today` / `yesterday` with optional `-Nday|week|month|year` (plural
+  suffix allowed)
+- anything else fails closed at option validation
+
+## Stop conditions
+
+| Flag | Trigger | CLI outcome |
+|------|---------|-------------|
+| `--break-match-filter` | any breaking-filter rejection | stop, exit 101 |
+| `--break-on-reject` | any filter rejection | stop, exit 101 |
+| `--break-on-existing` | archive match | stop, exit 101 |
+| `--max-downloads N` | N media entries pass selection | stop, exit 101 |
+| `--break-per-input` | resets the budget and stop scope per input | continue |
+
+On stop the CLI prints `Aborting remaining downloads` and exits 101;
+cancellation remains 130. The partial result is emitted before the abort.
+
+## --date precedence
+
+`--date` wins over `--dateafter`/`--datebefore`; the ignored options emit
+`<option> is ignored since --date was given` as a warning, not an error.
+
+## Filesize bounds (downloader/http.py)
+
+- Check uses `Content-Length + resume offset`; no decision when the length is
+  unknown or `Content-Encoding` is present.
+- Abort messages:
+  `File is smaller than min-filesize (<actual> bytes < <min> bytes)`
+  `File is larger than max-filesize (<actual> bytes > <max> bytes)`
+- SIZE grammar (utils.parse_bytes, strict): `\d+(?:\.\d+)?\s*[KMGTPEZY]?`,
+  binary multipliers, round-to-even; applies only to direct HTTP media.
+
+## Max-downloads accounting
+
+- `MaxDownloads == 0` means unlimited.
+- The counter increments for every media entry that passes archive and
+  filters, including simulated downloads, before the download attempt; the
+  stop fires after the Nth entry completes.
+- `Result.Downloads` aggregates qualifying media children; the CLI decrements
+  the remaining budget across batch inputs.

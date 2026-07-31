@@ -1491,9 +1491,9 @@ func TestRunInteractiveMatchFilterPrompt(t *testing.T) {
 		{name: "reject", input: "n\n", filters: []string{"-"}, wantPrompts: 1},
 		{name: "duplicate marker prompts once", input: "y\n", filters: []string{"-", "-"}, wantPrompts: 1},
 		{name: "ordinary rejection precedes prompt", input: "y\n", filters: []string{"-", "title=other"}},
-		{name: "break rejection precedes prompt", input: "y\n", filters: []string{"-"}, breakFilter: "title=other"},
+		{name: "break rejection precedes prompt", input: "y\n", filters: []string{"-"}, breakFilter: "title=other", wantCode: 101},
 		{name: "breaking interactive accepts", input: "y\n", breakFilter: "-", wantPrompts: 1},
-		{name: "breaking interactive rejects", input: "n\n", breakFilter: "-", wantPrompts: 1},
+		{name: "breaking interactive rejects", input: "n\n", breakFilter: "-", wantPrompts: 1, wantCode: 101},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			arguments := []string{"--skip-download"}
