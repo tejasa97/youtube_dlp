@@ -72,7 +72,7 @@ extractor negotiates capabilities by type-asserting the ambient `Transport`:
 - `RedactURL` / `RedactRawURL` strip sensitive query keys
   (`auth`, `authorization`, `key`, `sig`, `signature`, `token`).
 - `RedactHeaders` masks `Authorization`, `Cookie`, `Proxy-Authorization`, `Set-Cookie`.
-- `RetryableStatus(code)` → true for 408, 429, and ≥500.
+- `RetryableStatus(code)` → true for 408, 429, and valid 5xx statuses (500–599).
 
 **JSON helpers** (`internal/extractor/json.go`):
 - `RequestJSON(ctx, transport, method, url, body, headers, &target)` — ambient.

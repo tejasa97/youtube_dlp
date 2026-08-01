@@ -220,7 +220,7 @@
 
 | Option | Status | Notes |
 |--------|--------|-------|
-| `--extractor-retries` | present | Bounded transient network retries around entered extractor calls only; default 3 in CLI |
+| `--extractor-retries` | present | Bounded transient retries around entered calls only for extractors that explicitly claim replay safety; default 3 in CLI; other extractors run once |
 | `--allow-dynamic-mpd` / `--ignore-dynamic-mpd` | defer | DASH policy |
 | `--hls-split-discontinuity` / `--no-hls-split-discontinuity` | defer | HLS policy |
 | `--extractor-args` | defer | Extractor-specific arguments |

@@ -703,7 +703,7 @@ func cookieValues(cookies []*http.Cookie) map[string]string {
 }
 
 func TestRedaction(t *testing.T) {
-	parsed, _ := url.Parse("https://user:secret@example.invalid/v?token=secret&visible=yes")
+	parsed, _ := url.Parse("https://user:secret@example.invalid/v?token=secret&x-AmZ-sIgNaTuRe=signature-secret&visible=yes")
 	redacted := RedactURL(parsed)
 	if strings.Contains(redacted, "secret") || !strings.Contains(redacted, "visible=yes") {
 		t.Fatalf("RedactURL() = %q", redacted)

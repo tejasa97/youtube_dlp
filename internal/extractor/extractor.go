@@ -217,6 +217,17 @@ type Extractor interface {
 	Extract(context.Context, Request) (Extraction, error)
 }
 
+// RetrySafeExtractor is an explicit opt-in contract for the product's outer
+// whole-Extract retry loop. Implementations must guarantee that replaying the
+// complete Extract operation cannot repeat a non-idempotent side effect or
+// otherwise make extraction state inconsistent. An ordinary Extractor does
+// not make that guarantee and is therefore called at most once by the
+// product-level retry boundary.
+type RetrySafeExtractor interface {
+	Extractor
+	RetrySafe()
+}
+
 type Registry struct {
 	extractors []Extractor
 }
