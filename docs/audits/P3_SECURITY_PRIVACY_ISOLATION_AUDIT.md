@@ -159,7 +159,8 @@ and is not currently populated by the public `pkg/ytdlp` configuration; the
 product therefore claims safe default discovery and optional embedding-provided
 artifact identity, not an unconditional release-digest guarantee. The
 remediation implementation and its final commit are tracked by the PR branch
-`codex/security-import-helper-hardening`.
+`codex/security-import-helper-hardening`; implementation commit:
+[`75ac7d04ccd8a1a53e9ac85309a38572ba1571bd`](https://github.com/tejasa97/youtube_dlp/commit/75ac7d04ccd8a1a53e9ac85309a38572ba1571bd).
 
 ## Surface review
 
