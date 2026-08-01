@@ -283,6 +283,63 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	ffmpegLocation := flags.String("ffmpeg-location", "", "path to the ffmpeg binary or its containing directory")
 	progressJSON := flags.Bool("progress-json", false, "write newline-delimited progress events to stderr")
 	telemetryJSON := flags.Bool("telemetry-json", false, "write one privacy-safe aggregate telemetry snapshot to stdout")
+	var progressModeValue progressMode
+	setProgressMode := func(enabled bool) func(string) error {
+		return func(input string) error {
+			value, err := strconv.ParseBool(input)
+			if err != nil {
+				return err
+			}
+			if enabled == value {
+				progressModeValue = progressShow
+			} else {
+				progressModeValue = progressHide
+			}
+			return nil
+		}
+	}
+	flags.BoolFunc("no-progress", "suppress human-readable progress updates", setProgressMode(false))
+	flags.BoolFunc("progress", "show human-readable progress even in quiet mode", setProgressMode(true))
+	newline := flags.Bool("newline", false, "write each progress update as a new line")
+	progressDelta := flags.Float64("progress-delta", 0, "minimum seconds between progress updates (default: 0)")
+	var colors = newColorConfig()
+	flags.BoolFunc("no-colors", "disable terminal colors", func(string) error {
+		colors.disable()
+		return nil
+	})
+	flags.BoolFunc("no-colours", "alias for --no-colors", func(string) error {
+		colors.disable()
+		return nil
+	})
+	hiddenFlags["no-colors"] = true
+	hiddenFlags["no-colours"] = true
+	flags.Func("color", "terminal color policy, optionally STREAM:POLICY (repeatable)", colors.set)
+	var verbose, noWarnings bool
+	setVerbose := func(enabled bool) func(string) error {
+		return func(input string) error {
+			value, err := strconv.ParseBool(input)
+			if err != nil {
+				return err
+			}
+			verbose = enabled == value
+			return nil
+		}
+	}
+	setWarnings := func(enabled bool) func(string) error {
+		return func(input string) error {
+			value, err := strconv.ParseBool(input)
+			if err != nil {
+				return err
+			}
+			noWarnings = enabled == value
+			return nil
+		}
+	}
+	flags.BoolFunc("verbose", "print additional lifecycle and debugging information", setVerbose(true))
+	flags.BoolFunc("v", "alias for --verbose", setVerbose(true))
+	flags.BoolFunc("no-verbose", "disable additional lifecycle and debugging information", setVerbose(false))
+	flags.BoolFunc("no-warnings", "suppress warning diagnostics", setWarnings(true))
+	flags.BoolFunc("warnings", "show warning diagnostics (default)", setWarnings(false))
 	var quiet, quietSet bool
 	setQuiet := func(enabled bool) func(string) error {
 		return func(input string) error {
@@ -805,15 +862,31 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 		}
 		return 2
 	}
+	if math.IsNaN(*progressDelta) || math.IsInf(*progressDelta, 0) || *progressDelta < 0 ||
+		*progressDelta >= float64(math.MaxInt64)/float64(time.Second) {
+		fmt.Fprintf(stderr, "ytdlp-go: invalid --progress-delta %q\n", strconv.FormatFloat(*progressDelta, 'g', -1, 64))
+		return 2
+	}
+	presentation := newTerminalPresentation(stderr, terminalPresentationConfig{
+		quiet:         quiet,
+		verbose:       verbose,
+		noWarnings:    noWarnings,
+		progressJSON:  *progressJSON,
+		progressMode:  progressModeValue,
+		newline:       *newline,
+		progressDelta: time.Duration(*progressDelta * float64(time.Second)),
+		stderrTTY:     writerIsTerminal(stderr),
+		colors:        colors,
+	})
 	// --date wins over --dateafter/--datebefore with a warning, matching the
 	// reference report_conflict behavior.
 	if simpleFilters.Date != "" {
 		if simpleFilters.DateAfter != "" {
-			fmt.Fprintln(stderr, "ytdlp-go: --dateafter is ignored since --date was given")
+			_ = presentation.writeWarning("--dateafter is ignored since --date was given")
 			simpleFilters.DateAfter = ""
 		}
 		if simpleFilters.DateBefore != "" {
-			fmt.Fprintln(stderr, "ytdlp-go: --datebefore is ignored since --date was given")
+			_ = presentation.writeWarning("--datebefore is ignored since --date was given")
 			simpleFilters.DateBefore = ""
 		}
 	}
@@ -828,7 +901,7 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	}
 	if *loadInfoJSON != "" || *rmCacheDir {
 		if len(batchInputs) > 0 {
-			fmt.Fprintln(stderr, "ytdlp-go: positional URLs are ignored by the selected file/cache operation")
+			_ = presentation.writeWarning("positional URLs are ignored by the selected file/cache operation")
 		}
 		batchInputs = []string{""}
 	}
@@ -839,7 +912,7 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	useIDRequest := *useID
 	if useIDRequest {
 		if _, explicitOutput := outputTemplates.values[ytdlp.OutputTemplateDefault]; explicitOutput {
-			fmt.Fprintln(stderr, "ytdlp-go: --id is ignored since --output was given")
+			_ = presentation.writeWarning("--id is ignored since --output was given")
 			useIDRequest = false
 		}
 	}
@@ -890,40 +963,14 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	if (*dumpJSON || *dumpSingleJSON || hasConsolePrintRules(printRules)) && !quietSet {
 		quiet = true
 	}
+	presentation.config.quiet = quiet
 	subtitleConvertFormat, err := parseSubtitleConvertFormat(*convertSubtitles)
 	if err != nil {
 		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
 		return 2
 	}
 
-	handler := func(_ context.Context, event ytdlp.Event) error {
-		if *progressJSON {
-			return json.NewEncoder(stderr).Encode(event)
-		}
-		if quiet {
-			return nil
-		}
-		switch event.Kind {
-		case ytdlp.EventExtracting:
-			_, _ = fmt.Fprintf(stderr, "[%s] Extracting %s\n", event.Extractor, event.URL)
-		case ytdlp.EventDownloadStarting:
-			_, _ = fmt.Fprintf(stderr, "[download] Destination: %s\n", event.Path)
-		case ytdlp.EventDownloadProgress:
-			if event.Total > 0 {
-				_, _ = fmt.Fprintf(stderr, "[download] %d/%d bytes\n", event.Bytes, event.Total)
-			}
-		case ytdlp.EventDownloadRetry:
-			_, _ = fmt.Fprintf(stderr, "[download] Retry %d: %s\n", event.Attempt, event.Message)
-		case ytdlp.EventDownloadCompleted:
-			_, _ = fmt.Fprintf(stderr, "[download] Completed: %s\n", event.Path)
-		case ytdlp.EventDownloadCancelled:
-			if event.Message != "" {
-				_, _ = fmt.Fprintf(stderr, "[download] %s\n", event.Message)
-			}
-		}
-		return nil
-	}
-	clientOptions := []ytdlp.Option{ytdlp.WithEventHandler(handler), ytdlp.WithJavaScriptHelper(*javascriptHelper)}
+	clientOptions := []ytdlp.Option{ytdlp.WithEventHandler(presentation.handle), ytdlp.WithJavaScriptHelper(*javascriptHelper)}
 	var telemetryCollector *ytdlp.TelemetryCollector
 	if *telemetryJSON {
 		telemetryCollector, err = ytdlp.NewTelemetryCollector(ytdlp.TelemetryConfig{Extractors: ytdlp.BuiltInExtractorIDs()})
@@ -982,7 +1029,7 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 		postprocessors = append(postprocessors, ytdlp.Postprocessor{ExtractAudio: &ytdlp.ExtractAudioPostprocessor{Codec: *audioFormat, Bitrate: *audioBitrate, Quality: *audioQuality}})
 	}
 	if *remuxVideo != "" && *recodeVideo != "" {
-		fmt.Fprintln(stderr, "ytdlp-go: --remux-video is ignored since --recode-video was given")
+		_ = presentation.writeWarning("--remux-video is ignored since --recode-video was given")
 	}
 	if *remuxVideo != "" && *recodeVideo == "" {
 		postprocessors = append(postprocessors, ytdlp.Postprocessor{Remux: &ytdlp.RemuxPostprocessor{Format: *remuxVideo}})

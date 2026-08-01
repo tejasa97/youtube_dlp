@@ -92,8 +92,8 @@
 | `--live-from-start` / `--no-live-from-start` | present | `flags.Bool("live-from-start", ...)` |
 | `--wait-for-video` / `--no-wait-for-video` | defer | Live wait behavior |
 | `--mark-watched` / `--no-mark-watched` | defer | YouTube-specific |
-| `--no-colors` / `--no-colours` | defer | Terminal output |
-| `--color` | defer | Terminal output |
+| `--no-colors` / `--no-colours` | present | Hidden aliases that disable both stderr color policies; a later `--color` occurrence can restore one stream |
+| `--color` | present | Parses `STREAM:POLICY` (`always`, `auto`, `auto-tty`, `never`, `no_color`, `no_color-tty`) with per-stream last-wins semantics; human event presentation is stderr-only so stdout remains byte-stable |
 | `--compat-options` | defer | Compatibility shims |
 ## Post-Processing Options
 
@@ -143,7 +143,7 @@
 | Option | Status | Notes |
 |--------|--------|-------|
 | `--quiet` / `--no-quiet` | present | `flags.BoolFunc("quiet", ...)` |
-| `--no-warnings` / `--warnings` | **parked** | Needs a defined stderr/verbosity pipeline before registration |
+| `--no-warnings` / `--warnings` | present | Suppresses/restores CLI conflict and structured metadata warnings; errors and machine-readable output remain on their established channels |
 | `--simulate` / `-s` / `--no-simulate` | present | `flags.BoolFunc("simulate", ...)` |
 | `--ignore-no-formats-error` / `--no-ignore-no-formats-error` | defer | Error handling |
 | `--skip-download` / `--no-download` | present | `flags.Bool("skip-download", ...)` |
@@ -161,12 +161,13 @@
 | `--dump-single-json` / `-J` | present | `flags.Bool("dump-single-json", ...)` |
 | `--print-json` | present | `flags.Bool("print-json", ...)` |
 | `--force-write-archive` / aliases | present | Records successful simulate/skip-download entries after selection |
-| `--newline` | defer | Output format |
-| `--no-progress` / `--progress` | **parked** | Needs a defined stderr/verbosity pipeline before registration |
+| `--newline` | present | Forces each human progress update onto its own stderr line, including on a TTY |
+| `--no-progress` / `--progress` | present | Last occurrence selects whether human progress is suppressed or shown even in quiet mode; lifecycle diagnostics remain independent |
+| `--progress-json` | present | Emits newline-delimited structured events to stderr and takes precedence over human presentation |
 | `--console-title` | defer | Terminal title |
 | `--progress-template` | present | `flags.String("progress-template", ...)` |
-| `--progress-delta` | defer | Progress update interval |
-| `--verbose` / `-v` / `--no-verbose` | **parked** | Needs a defined stderr/verbosity pipeline before registration |
+| `--progress-delta` | present | Non-negative seconds between human progress updates; first update per path is emitted and the clock is injectable in tests |
+| `--verbose` / `-v` / `--no-verbose` | present | Last occurrence controls lifecycle/debug event presentation, including quiet mode; no network traffic/title features are implied |
 | `--dump-pages` / `--write-pages` / `--load-pages` | defer | Debug page dumping |
 | `--print-traffic` | defer | Network traffic debug |
 ## Filesystem Options
@@ -294,7 +295,7 @@ These are `Request`/options fields that are Go-specific and have no counterpart 
 | Stopping exit contract | present | Queue-wide stops emit `Aborting remaining downloads` and exit 101; per-input stops continue silently; cancellation remains 130 |
 
 ### Parked
-`--verbose` / `-v` / `--no-verbose`, `--no-warnings` / `--warnings`, `--progress` / `--no-progress`
+No flags in this terminal/presentation slice. Console title and traffic dumping remain deferred because they are explicitly outside the event/presentation contract.
 
 ### Go-only (Wave 4)
 `--preferred-extensions`, `--youtube-translated-captions`, live poll flags

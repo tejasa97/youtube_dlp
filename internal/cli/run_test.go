@@ -154,6 +154,71 @@ func TestRunResumesPartialDownload(t *testing.T) {
 	}
 }
 
+func TestRunProgressControlsPreserveJSONOutputSeparation(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"--print-json", "--progress", "--output-dir", t.TempDir(), server.URL + "/page"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("progress code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !json.Valid(bytes.TrimSpace(stdout.Bytes())) || !strings.Contains(stderr.String(), "[download]") {
+		t.Fatalf("progress channels stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"--no-progress", "--output-dir", t.TempDir(), server.URL + "/page"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("no-progress code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if strings.Contains(stderr.String(), " bytes\n") || !strings.Contains(stderr.String(), "Destination:") {
+		t.Fatalf("no-progress output=%q", stderr.String())
+	}
+}
+
+func TestRunProgressPresentationHonorsTTYAndColorPolicy(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+
+	var stdout bytes.Buffer
+	ttyOutput := &terminalBuffer{terminal: true}
+	if code := Run([]string{"--color", "stderr:never", "--output-dir", t.TempDir(), server.URL + "/page"}, &stdout, ttyOutput); code != 0 {
+		t.Fatalf("tty code=%d stdout=%q stderr=%q", code, stdout.String(), ttyOutput.String())
+	}
+	if !strings.Contains(ttyOutput.String(), "\r[download]") {
+		t.Fatalf("tty did not use inline progress: %q", ttyOutput.String())
+	}
+
+	stdout.Reset()
+	newlineOutput := &terminalBuffer{terminal: true}
+	if code := Run([]string{"--color", "stderr:never", "--newline", "--output-dir", t.TempDir(), server.URL + "/page"}, &stdout, newlineOutput); code != 0 {
+		t.Fatalf("newline code=%d stdout=%q stderr=%q", code, stdout.String(), newlineOutput.String())
+	}
+	if strings.Contains(newlineOutput.String(), "\r[download]") || !strings.Contains(newlineOutput.String(), "[download]") {
+		t.Fatalf("newline output=%q", newlineOutput.String())
+	}
+
+	stdout.Reset()
+	coloredOutput := &terminalBuffer{}
+	if code := Run([]string{"--color", "stderr:always", "--skip-download", server.URL + "/page"}, &stdout, coloredOutput); code != 0 {
+		t.Fatalf("color code=%d stdout=%q stderr=%q", code, stdout.String(), coloredOutput.String())
+	}
+	if !strings.Contains(coloredOutput.String(), "\x1b[") {
+		t.Fatalf("color policy was ignored: %q", coloredOutput.String())
+	}
+}
+
+func TestRunVerboseOverridesQuietLifecycleSuppression(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"--quiet", "--verbose", "--skip-download", server.URL + "/page"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("verbose code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "Extracting") {
+		t.Fatalf("verbose quiet output=%q", stderr.String())
+	}
+}
+
 func TestRunCancellationExitCode(t *testing.T) {
 	server := testserver.New()
 	defer server.Close()
