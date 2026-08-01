@@ -67,7 +67,9 @@ validation on a platform without the Unix parent checks, can therefore race the
 validation-to-exec window. The optional digest is not launch-bound and the public
 `pkg/ytdlp` configuration does not populate it. This boundary claims safer
 fail-closed discovery and pre-launch validation, not handle-atomic execution or
-unconditional release identity.
+unconditional release identity. The phased platform design and test bar are
+recorded in [ADR 0006](adr/0006-helper-launch-identity.md); that ADR is
+design-only and does not claim that any platform has already closed this race.
 
 The stable error codes distinguish invalid input, incompatible versions,
 syntax and execution failures, missing functions, unsupported modules, timeout,

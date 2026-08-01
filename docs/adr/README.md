@@ -8,3 +8,4 @@ with a new record instead of rewriting the original decision and its context.
 - [0003: Browser impersonation transport](0003-browser-impersonation.md)
 - [0004: Plugin architecture](0004-plugin-architecture.md)
 - [0005: ffmpeg process boundary](0005-ffmpeg-boundary.md)
+- [0006: JavaScript helper launch identity](0006-helper-launch-identity.md)
