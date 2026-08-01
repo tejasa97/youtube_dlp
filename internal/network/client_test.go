@@ -9,11 +9,13 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -216,6 +218,191 @@ func TestReadPageLimitAndCancellation(t *testing.T) {
 	if _, _, err := client.ReadPage(ctx, server.URL+"/slow?delay=1s"); err == nil || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("cancel error = %v", err)
 	}
+}
+
+func TestAddressPolicyBindsIPv4Source(t *testing.T) {
+	remoteAddress := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		remoteAddress <- request.RemoteAddr
+		_, _ = io.WriteString(writer, "ipv4")
+	}))
+	defer server.Close()
+	client, err := New(Config{SourceAddress: "127.0.0.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _, err := client.ReadPage(context.Background(), server.URL)
+	if err != nil || string(body) != "ipv4" {
+		t.Fatalf("body = %q, error = %v", body, err)
+	}
+	if remote := <-remoteAddress; !strings.HasPrefix(remote, "127.0.0.1:") {
+		t.Fatalf("remote address = %q, want 127.0.0.1", remote)
+	}
+}
+
+func TestAddressPolicyBindsIPv6Source(t *testing.T) {
+	listener, err := net.Listen("tcp6", "[::1]:0")
+	if err != nil {
+		t.Skipf("IPv6 loopback unavailable: %v", err)
+	}
+	remoteAddress := make(chan string, 1)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		remoteAddress <- request.RemoteAddr
+		_, _ = io.WriteString(writer, "ipv6")
+	}))
+	server.Listener = listener
+	server.Start()
+	defer server.Close()
+	client, err := New(Config{ForceIPv6: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _, err := client.ReadPage(context.Background(), server.URL)
+	if err != nil || string(body) != "ipv6" {
+		t.Fatalf("body = %q, error = %v", body, err)
+	}
+	if remote := <-remoteAddress; !strings.HasPrefix(remote, "[::1]:") {
+		t.Fatalf("remote address = %q, want [::1]", remote)
+	}
+}
+
+func TestImpersonationAddressPolicyBindsIPv4Source(t *testing.T) {
+	remoteAddress := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		remoteAddress <- request.RemoteAddr
+		_, _ = io.WriteString(writer, "profile-ipv4")
+	}))
+	defer server.Close()
+	client, err := New(Config{DefaultProfile: impersonate.Chrome133Name, SourceAddress: "127.0.0.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _, err := client.ReadPage(context.Background(), server.URL)
+	if err != nil || string(body) != "profile-ipv4" {
+		t.Fatalf("body = %q, error = %v", body, err)
+	}
+	if remote := <-remoteAddress; !strings.HasPrefix(remote, "127.0.0.1:") {
+		t.Fatalf("profile remote address = %q, want 127.0.0.1", remote)
+	}
+}
+
+func TestAddressPolicyRejectsInvalidAndConflictingValues(t *testing.T) {
+	for name, config := range map[string]Config{
+		"invalid source":     {SourceAddress: "not-an-ip"},
+		"both families":      {ForceIPv4: true, ForceIPv6: true},
+		"source plus family": {SourceAddress: "127.0.0.1", ForceIPv4: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := New(config)
+			if err == nil {
+				t.Fatal("New unexpectedly accepted invalid address policy")
+			}
+			if !errors.Is(err, ErrInvalidSourceAddress) && !errors.Is(err, ErrConflictingAddressPolicy) {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+}
+
+type addressPolicyRoundTripper struct {
+	policy AddressPolicy
+	err    error
+}
+
+func (transport *addressPolicyRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, errors.New("round trip should not be reached")
+}
+
+func (transport *addressPolicyRoundTripper) ConfigureAddressPolicy(policy AddressPolicy) error {
+	transport.policy = policy
+	return transport.err
+}
+
+func TestInjectedTransportMustDeclareAddressPolicyCapability(t *testing.T) {
+	for name, transport := range map[string]http.RoundTripper{
+		"plain":     roundTripFunc(func(*http.Request) (*http.Response, error) { return nil, nil }),
+		"rejecting": &addressPolicyRoundTripper{err: errors.New("secret-interface-detail")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := New(Config{RoundTripper: transport, SourceAddress: "10.0.0.9"})
+			if err == nil || !errors.Is(err, ErrNetworkPolicyUnavailable) {
+				t.Fatalf("error = %v, want ErrNetworkPolicyUnavailable", err)
+			}
+			if strings.Contains(err.Error(), "secret-interface-detail") || strings.Contains(err.Error(), "10.0.0.9") {
+				t.Fatalf("policy error leaked details: %v", err)
+			}
+		})
+	}
+
+	capable := &addressPolicyRoundTripper{}
+	client, err := New(Config{RoundTripper: capable, SourceAddress: "127.0.0.9"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.CloseIdleConnections()
+	if capable.policy.Family != AddressFamilyIPv4 || capable.policy.SourceAddress != "127.0.0.9" {
+		t.Fatalf("configured policy = %#v", capable.policy)
+	}
+}
+
+func TestIsRetryableErrorRejectsDirectAndWrappedPermanentDNS(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{name: "direct not found", err: &net.DNSError{Err: "no such host", Name: "missing.invalid", IsNotFound: true}},
+		{name: "wrapped not found", err: &RequestError{Method: http.MethodGet, URL: "https://missing.invalid/", Err: &net.DNSError{Err: "no such host", Name: "missing.invalid", IsNotFound: true}}},
+		{name: "direct permanent resolver", err: &net.DNSError{Err: "permanent resolver failure", Name: "broken.invalid"}},
+		{name: "wrapped permanent resolver", err: &RequestError{Method: http.MethodGet, URL: "https://broken.invalid/", Err: &net.DNSError{Err: "permanent resolver failure", Name: "broken.invalid"}}},
+		{name: "direct permanent net error", err: retryClassificationNetError{}},
+		{name: "wrapped permanent net error", err: &RequestError{Method: http.MethodGet, URL: "https://broken.invalid/", Err: retryClassificationNetError{}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if IsRetryableError(test.err) {
+				t.Fatalf("IsRetryableError(%T) = true, want false", test.err)
+			}
+		})
+	}
+}
+
+func TestIsRetryableErrorPreservesTransientTransportFailures(t *testing.T) {
+	connectionRefused := &net.OpError{Op: "dial", Net: "tcp", Err: os.NewSyscallError("connect", syscall.ECONNREFUSED)}
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{name: "direct DNS timeout", err: &net.DNSError{Err: "timeout", Name: "slow.invalid", IsTimeout: true}},
+		{name: "wrapped temporary DNS", err: &RequestError{Method: http.MethodGet, URL: "https://slow.invalid/", Err: &net.DNSError{Err: "temporary resolver failure", Name: "slow.invalid", IsTemporary: true}}},
+		{name: "direct timeout", err: retryClassificationNetError{timeout: true}},
+		{name: "wrapped temporary", err: &RequestError{Method: http.MethodGet, URL: "https://slow.invalid/", Err: retryClassificationNetError{temporary: true}}},
+		{name: "direct connection refused", err: connectionRefused},
+		{name: "wrapped connection refused", err: &RequestError{Method: http.MethodGet, URL: "https://offline.invalid/", Err: connectionRefused}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if !IsRetryableError(test.err) {
+				t.Fatalf("IsRetryableError(%T) = false, want true", test.err)
+			}
+		})
+	}
+}
+
+type retryClassificationNetError struct {
+	timeout   bool
+	temporary bool
+}
+
+func (retryClassificationNetError) Error() string { return "classified network failure" }
+
+func (err retryClassificationNetError) Timeout() bool { return err.timeout }
+
+func (err retryClassificationNetError) Temporary() bool { return err.temporary }
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return function(request)
 }
 
 func TestConfiguredTimeoutDoesNotCapActiveResponseBody(t *testing.T) {

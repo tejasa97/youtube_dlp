@@ -86,12 +86,18 @@ func IsCategory(err error, category ErrorCategory) bool {
 }
 
 type Request struct {
-	URL                  string
-	OutputTemplate       string
-	OutputTemplates      OutputTemplates
-	OutputDir            string
-	OutputPaths          OutputPaths
-	Proxy                string
+	URL             string
+	OutputTemplate  string
+	OutputTemplates OutputTemplates
+	OutputDir       string
+	OutputPaths     OutputPaths
+	Proxy           string
+	// SourceAddress binds native and browser-profile TCP dials to this local IP.
+	// ForceIPv4 and ForceIPv6 are mutually exclusive at the API boundary; the
+	// CLI resolves them with last-option-wins semantics before Run is called.
+	SourceAddress        string
+	ForceIPv4            bool
+	ForceIPv6            bool
 	ImpersonationProfile string
 	CookieFile           string
 	CookiesFromBrowser   string
@@ -195,10 +201,14 @@ type Request struct {
 	// cuts. EmbedChapters is tri-state so nil can mirror yt-dlp's dependent
 	// default: chapters are embedded when metadata or SponsorBlock marking is
 	// enabled, while an explicit false disables that implication.
-	EmbedMetadata  bool
-	EmbedChapters  *bool
-	Downloader     DownloaderOptions
-	Postprocessors []Postprocessor
+	EmbedMetadata bool
+	EmbedChapters *bool
+	Downloader    DownloaderOptions
+	// ExtractorRetries bounds retries of entered extractor operations only. A
+	// zero value disables this outer retry loop; the CLI supplies yt-dlp's
+	// default of three retries explicitly.
+	ExtractorRetries int
+	Postprocessors   []Postprocessor
 	// PluginID explicitly selects an installed signed plugin extractor. Plugins
 	// are never considered by automatic URL routing.
 	PluginID string
@@ -451,7 +461,10 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 	if transportFactory == nil {
 		transportFactory = network.New
 	}
-	transport, err := transportFactory(network.Config{Proxy: request.Proxy, Timeout: request.Timeout, DefaultProfile: request.ImpersonationProfile})
+	transport, err := transportFactory(network.Config{
+		Proxy: request.Proxy, Timeout: request.Timeout, DefaultProfile: request.ImpersonationProfile,
+		SourceAddress: request.SourceAddress, ForceIPv4: request.ForceIPv4, ForceIPv6: request.ForceIPv6,
+	})
 	if err != nil {
 		return Result{}, categorized("configure network", err)
 	}
@@ -870,6 +883,7 @@ type operation struct {
 	plannerCapabilities       *mediaformat.PlannerCapabilities
 	formatAvailability        mediaformat.FormatAvailability
 	formatAvailabilityChecker *formatAvailabilityChecker
+	extractorRetryWait        extractorRetryWaitFunc
 }
 
 func (operation *operation) setStop(kind StopKind, reason string) {
@@ -911,7 +925,7 @@ func (operation *operation) processWithTransparentParent(ctx context.Context, ra
 	if err := operation.client.emit(ctx, Event{Kind: string(events.KindExtracting), Extractor: selected.Name(), URL: eventURL}); err != nil {
 		return Result{}, &Error{Category: ErrorInternal, Op: "emit extracting event", Err: err}
 	}
-	extracted, err := selected.Extract(ctx, extractor.Request{
+	extracted, err := operation.extractWithRetry(ctx, selected, extractor.Request{
 		URL: rawURL, Referer: referer, Transport: operation.transport, ChallengeSolver: operation.solver, Credentials: operation.credentials,
 		VideoPassword: operation.request.VideoPassword,
 		YouTubePOT:    operation.client.youtubePOT, YouTubeTranslatedCaptions: operation.request.YouTubeTranslatedCaptions,
@@ -934,7 +948,7 @@ func (operation *operation) processWithTransparentParent(ctx context.Context, ra
 			RadiruArea: operation.request.NHK.RadiruArea,
 		},
 		NoPlaylist: operation.request.Playlist.Disabled,
-	})
+	}, eventURL)
 	if err != nil {
 		return Result{}, categorized(selected.Name()+" extraction", err)
 	}
@@ -2209,6 +2223,8 @@ func categorized(op string, err error) error {
 		errors.Is(err, ffmpeg.ErrInvalidOperation), errors.Is(err, postprocess.ErrInvalidGraph),
 		errors.Is(err, postprocess.ErrUnsafePath),
 		errors.Is(err, network.ErrInvalidProxy), errors.Is(err, network.ErrInvalidCookie),
+		errors.Is(err, network.ErrInvalidSourceAddress), errors.Is(err, network.ErrConflictingAddressPolicy),
+		errors.Is(err, network.ErrNetworkPolicyUnavailable),
 		errors.Is(err, errInvalidBrowserCookieSpec), errors.Is(err, netscape.ErrMalformed), errors.Is(err, netscape.ErrFile),
 		errors.Is(err, netscape.ErrWrongFormat), errors.Is(err, netscape.ErrTooLarge),
 		errors.Is(err, firefox.ErrUnsafePath), errors.Is(err, firefox.ErrLimit),

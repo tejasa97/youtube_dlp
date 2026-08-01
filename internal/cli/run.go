@@ -189,6 +189,12 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 		return nil
 	})
 	proxy := flags.String("proxy", "", "HTTP/HTTPS proxy URL")
+	var addressPolicy addressPolicyFlag
+	flags.Var(&addressPolicy, "source-address", "client-side IP address to bind to")
+	flags.BoolFunc("force-ipv4", "make all connections use IPv4", addressPolicy.setIPv4)
+	flags.BoolFunc("4", "alias for --force-ipv4", addressPolicy.setIPv4)
+	flags.BoolFunc("force-ipv6", "make all connections use IPv6", addressPolicy.setIPv6)
+	flags.BoolFunc("6", "alias for --force-ipv6", addressPolicy.setIPv6)
 	impersonationProfile := flags.String("impersonate", "", "default explicit browser profile (for example firefox-120)")
 	timeout := flags.Duration("socket-timeout", 30*time.Second, "network operation timeout")
 	overwrite := flags.Bool("force-overwrites", false, "replace an existing final file")
@@ -565,6 +571,7 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	retries := flags.Int("retries", 0, "direct and fragment download attempts (maximum 100)")
 	retryBaseDelay := flags.Duration("retry-base-delay", 0, "deterministic initial retry delay")
 	retryMaxDelay := flags.Duration("retry-max-delay", 0, "maximum retry delay")
+	extractorRetries := flags.Int("extractor-retries", 3, "retries for transient extractor network errors (maximum 100)")
 	fragmentConcurrency := flags.Int("concurrent-fragments", 0, "parallel fragment downloads (maximum 128)")
 	perHostFragments := flags.Int("per-host-fragments", 0, "parallel fragments per host (maximum 128)")
 	maxSegments := flags.Int("max-segments", 0, "maximum fragments in a manifest (maximum 10000)")
@@ -947,8 +954,10 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	maxDownloadsPerInput := 0
 	makeRequest := func(inputURL string) ytdlp.Request {
 		return ytdlp.Request{
-			URL: inputURL, OutputTemplates: outputTemplates.clone(), OutputDir: *outputDir, OutputPaths: paths.clone(), Proxy: *proxy, ImpersonationProfile: *impersonationProfile,
-			CookieFile: *cookieFile, CookiesFromBrowser: *cookiesFromBrowser, UseNetRC: *useNetRC, NetRCLocation: *netRCLocation,
+			URL: inputURL, OutputTemplates: outputTemplates.clone(), OutputDir: *outputDir, OutputPaths: paths.clone(), Proxy: *proxy,
+			SourceAddress: addressPolicy.source, ForceIPv4: addressPolicy.forceIPv4, ForceIPv6: addressPolicy.forceIPv6,
+			ImpersonationProfile: *impersonationProfile,
+			CookieFile:           *cookieFile, CookiesFromBrowser: *cookiesFromBrowser, UseNetRC: *useNetRC, NetRCLocation: *netRCLocation,
 			VideoPassword:   *videoPassword,
 			DownloadArchive: *downloadArchive, ForceWriteArchive: forceWriteArchive, CacheDir: *cacheDir,
 			Timeout: *timeout, Overwrite: *overwrite, Simulate: requestSimulate, SkipDownload: *skipDownload, LiveFromStart: *liveFromStart,
@@ -1003,7 +1012,7 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 				Disabled:    noPlaylist,
 				ErrorPolicy: playlistErrorPolicy, MaxFailures: *playlistMaxFailures,
 			},
-			Downloader: downloaderOptions, Postprocessors: postprocessors,
+			Downloader: downloaderOptions, ExtractorRetries: *extractorRetries, Postprocessors: postprocessors,
 		}
 	}
 	var firstErr, terminalErr error
@@ -1387,6 +1396,56 @@ type stringListFlag []string
 func (values *stringListFlag) String() string { return strings.Join(*values, ",") }
 func (values *stringListFlag) Set(value string) error {
 	*values = append(*values, value)
+	return nil
+}
+
+type addressPolicyFlag struct {
+	source    string
+	forceIPv4 bool
+	forceIPv6 bool
+}
+
+func (policy *addressPolicyFlag) String() string {
+	if policy == nil {
+		return ""
+	}
+	return policy.source
+}
+
+func (policy *addressPolicyFlag) Set(value string) error {
+	policy.source = value
+	policy.forceIPv4 = false
+	policy.forceIPv6 = false
+	return nil
+}
+
+func (policy *addressPolicyFlag) setIPv4(input string) error {
+	enabled, err := strconv.ParseBool(input)
+	if err != nil {
+		return err
+	}
+	if enabled {
+		policy.source = ""
+		policy.forceIPv4 = true
+		policy.forceIPv6 = false
+	} else if policy.forceIPv4 {
+		policy.forceIPv4 = false
+	}
+	return nil
+}
+
+func (policy *addressPolicyFlag) setIPv6(input string) error {
+	enabled, err := strconv.ParseBool(input)
+	if err != nil {
+		return err
+	}
+	if enabled {
+		policy.source = ""
+		policy.forceIPv4 = false
+		policy.forceIPv6 = true
+	} else if policy.forceIPv6 {
+		policy.forceIPv6 = false
+	}
 	return nil
 }
 

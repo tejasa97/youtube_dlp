@@ -18,22 +18,26 @@ import (
 	"golang.org/x/net/proxy"
 )
 
-func newProxyDialContext(proxyURL *url.URL, timeout time.Duration) (func(context.Context, string, string) (net.Conn, error), error) {
+func newProxyDialContext(proxyURL *url.URL, timeout time.Duration, sourceAddress string) (func(context.Context, string, string) (net.Conn, error), error) {
+	dialer, dialNetwork, err := newSourceDialer(timeout, sourceAddress)
+	if err != nil {
+		return nil, err
+	}
 	switch strings.ToLower(proxyURL.Scheme) {
 	case "http", "https":
-		dialer := &connectProxyDialer{proxyURL: cloneURL(proxyURL), timeout: timeout}
-		return dialer.DialContext, nil
+		proxyDialer := &connectProxyDialer{proxyURL: cloneURL(proxyURL), timeout: timeout, dialer: dialer, network: dialNetwork}
+		return proxyDialer.DialContext, nil
 	case "socks5", "socks5h":
 		var auth *proxy.Auth
 		if proxyURL.User != nil {
 			password, _ := proxyURL.User.Password()
 			auth = &proxy.Auth{User: proxyURL.User.Username(), Password: password}
 		}
-		dialer, err := proxy.SOCKS5("tcp", proxyURL.Host, auth, &net.Dialer{Timeout: timeout})
+		proxyDialer, err := proxy.SOCKS5(dialNetwork, proxyURL.Host, auth, dialer)
 		if err != nil {
 			return nil, fmt.Errorf("create SOCKS5 proxy dialer: %w", err)
 		}
-		contextDialer, ok := dialer.(proxy.ContextDialer)
+		contextDialer, ok := proxyDialer.(proxy.ContextDialer)
 		if !ok {
 			return nil, errors.New("SOCKS5 proxy dialer does not support cancellation")
 		}
@@ -46,6 +50,8 @@ func newProxyDialContext(proxyURL *url.URL, timeout time.Duration) (func(context
 type connectProxyDialer struct {
 	proxyURL *url.URL
 	timeout  time.Duration
+	dialer   *net.Dialer
+	network  string
 }
 
 // DialContext retains tls-client's all-target CONNECT behavior. In particular,
@@ -60,7 +66,11 @@ func (dialer *connectProxyDialer) DialContext(ctx context.Context, network, addr
 		}
 		proxyAddress = net.JoinHostPort(dialer.proxyURL.Hostname(), port)
 	}
-	connection, err := (&net.Dialer{Timeout: dialer.timeout}).DialContext(ctx, network, proxyAddress)
+	dialNetwork := network
+	if dialer.network != "" {
+		dialNetwork = dialer.network
+	}
+	connection, err := dialer.dialer.DialContext(ctx, dialNetwork, proxyAddress)
 	if err != nil {
 		return nil, err
 	}

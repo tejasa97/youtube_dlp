@@ -16,6 +16,7 @@ func TestPublicEventKindsMatchOperationEvents(t *testing.T) {
 		{EventDownloadStarting, events.KindStarting},
 		{EventDownloadProgress, events.KindProgress},
 		{EventDownloadRetry, events.KindRetry},
+		{EventExtractorRetry, events.KindExtractorRetry},
 		{EventDownloadCancelled, events.KindCancelled},
 		{EventDownloadCompleted, events.KindCompleted},
 		{EventFragmentStarting, events.KindFragmentStarting},

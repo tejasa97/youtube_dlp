@@ -4,7 +4,7 @@
 
 **Reference**: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8` (`yt_dlp/options.py`)
 
-**Go baseline**: `origin/main` at `05b2282` (feat: add VK public ecosystem)
+**Go baseline**: `origin/main` at `be41e0d` (close queue selection and stopping parity)
 
 **Classification key**:
 
@@ -46,11 +46,11 @@
 |--------|--------|-------|
 | `--proxy` | present | `flags.String("proxy", ...)` |
 | `--socket-timeout` | present | `flags.Duration("socket-timeout", ...)` |
-| `--source-address` | defer | Network binding |
+| `--source-address` | present | Validated native/profile TCP source binding; programmatic source/family conflicts fail closed |
 | `--impersonate` | present | `flags.String("impersonate", ...)` |
 | `--list-impersonate-targets` | defer | Impersonation listing |
-| `--force-ipv4` / `-4` | defer | Network preference |
-| `--force-ipv6` / `-6` | defer | Network preference |
+| `--force-ipv4` / `-4` | present | Native/profile TCP family policy; CLI options are last-wins |
+| `--force-ipv6` / `-6` | present | Native/profile TCP family policy; CLI options are last-wins |
 | `--enable-file-urls` | defer | File URL support |
 
 ## Geo-restriction
@@ -220,7 +220,7 @@
 
 | Option | Status | Notes |
 |--------|--------|-------|
-| `--extractor-retries` | defer | Extractor retry logic |
+| `--extractor-retries` | present | Bounded transient network retries around entered extractor calls only; default 3 in CLI |
 | `--allow-dynamic-mpd` / `--ignore-dynamic-mpd` | defer | DASH policy |
 | `--hls-split-discontinuity` / `--no-hls-split-discontinuity` | defer | HLS policy |
 | `--extractor-args` | defer | Extractor-specific arguments |

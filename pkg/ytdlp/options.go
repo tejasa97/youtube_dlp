@@ -377,6 +377,12 @@ func validateRequestOptions(request Request) error {
 	if request.CheckFormats > FormatCheckAll {
 		return fmt.Errorf("%w: format availability mode", errInvalidRequestOptions)
 	}
+	if request.ExtractorRetries < 0 || request.ExtractorRetries > 100 {
+		return fmt.Errorf("%w: extractor retry count", errInvalidRequestOptions)
+	}
+	if request.ForceIPv4 && request.ForceIPv6 || request.SourceAddress != "" && (request.ForceIPv4 || request.ForceIPv6) {
+		return fmt.Errorf("%w: conflicting network address policy", errInvalidRequestOptions)
+	}
 	if err := validateVideoPassword(request.VideoPassword); err != nil {
 		return err
 	}

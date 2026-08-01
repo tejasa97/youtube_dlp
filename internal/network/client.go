@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/ytdlp-go/ytdlp/internal/network/impersonate"
@@ -28,8 +29,38 @@ var (
 	ErrPageTooLarge             = errors.New("HTTP response exceeds page size limit")
 	ErrInvalidProxy             = errors.New("invalid proxy URL")
 	ErrInvalidCookie            = errors.New("invalid cookie")
+	ErrInvalidSourceAddress     = errors.New("invalid source address")
+	ErrConflictingAddressPolicy = errors.New("conflicting source address policy")
+	ErrNetworkPolicyUnavailable = errors.New("network policy unavailable")
 	ErrImpersonationUnavailable = errors.New("impersonation profile unavailable")
 )
+
+// AddressFamily is the address family selected for native TCP dials.
+type AddressFamily uint8
+
+const (
+	AddressFamilyAny AddressFamily = iota
+	AddressFamilyIPv4
+	AddressFamilyIPv6
+)
+
+// AddressPolicy is the normalized, credential-neutral network address policy
+// used by native and browser-profile transports. SourceAddress is always a
+// canonical IP string when non-empty; wildcard values select a family without
+// pinning a specific local interface.
+type AddressPolicy struct {
+	SourceAddress string
+	Family        AddressFamily
+}
+
+// PolicyCapableRoundTripper is the explicit contract for injected transports.
+// A custom transport that cannot bind the requested address policy must not be
+// accepted as though it did. ConfigureAddressPolicy is called exactly once
+// during client construction, before any request can be sent.
+type PolicyCapableRoundTripper interface {
+	http.RoundTripper
+	ConfigureAddressPolicy(AddressPolicy) error
+}
 
 // Doer is the minimal transport boundary consumed by extractors and downloaders.
 type Doer interface {
@@ -44,6 +75,9 @@ type Config struct {
 	DefaultProfile string
 	RoundTripper   http.RoundTripper
 	RootCAs        *x509.CertPool
+	SourceAddress  string
+	ForceIPv4      bool
+	ForceIPv6      bool
 }
 
 // Client owns cookies and shared HTTP behavior for one operation.
@@ -60,6 +94,10 @@ type Client struct {
 }
 
 func New(config Config) (*Client, error) {
+	addressPolicy, err := normalizeAddressPolicy(config.SourceAddress, config.ForceIPv4, config.ForceIPv6)
+	if err != nil {
+		return nil, err
+	}
 	if config.DefaultProfile != "" {
 		if _, err := impersonate.Lookup(config.DefaultProfile); err != nil {
 			return nil, fmt.Errorf("%w: %s", ErrImpersonationUnavailable, config.DefaultProfile)
@@ -70,9 +108,18 @@ func New(config Config) (*Client, error) {
 		timeout = defaultTimeout
 	}
 	transport := config.RoundTripper
+	if transport != nil && addressPolicy.Family != AddressFamilyAny {
+		capable, ok := transport.(PolicyCapableRoundTripper)
+		if !ok {
+			return nil, fmt.Errorf("%w: injected transport does not support source address or IP-family policy", ErrNetworkPolicyUnavailable)
+		}
+		if err := capable.ConfigureAddressPolicy(addressPolicy); err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrNetworkPolicyUnavailable, redactPolicyError(err))
+		}
+	}
 	if transport == nil {
 		base := http.DefaultTransport.(*http.Transport).Clone()
-		base.DialContext = (&net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second}).DialContext
+		base.DialContext = addressPolicy.dialContext(timeout)
 		base.TLSHandshakeTimeout = timeout
 		base.ResponseHeaderTimeout = timeout
 		if config.Proxy != "" {
@@ -114,12 +161,63 @@ func New(config Config) (*Client, error) {
 		maxPageSize:    maxPageSize,
 		defaultProfile: config.DefaultProfile,
 		profileConfig: impersonate.Config{
-			Proxy: config.Proxy, Timeout: timeout, Jar: jar, RootCAs: config.RootCAs,
+			Proxy: config.Proxy, Timeout: timeout, Jar: jar, RootCAs: config.RootCAs, SourceAddress: addressPolicy.SourceAddress,
 		},
 		profiles:         make(map[string]*impersonate.Client),
 		isolatedProfiles: make(map[string]*impersonate.Client),
 	}
 	return client, nil
+}
+
+func normalizeAddressPolicy(sourceAddress string, forceIPv4, forceIPv6 bool) (AddressPolicy, error) {
+	if forceIPv4 && forceIPv6 || sourceAddress != "" && (forceIPv4 || forceIPv6) {
+		return AddressPolicy{}, ErrConflictingAddressPolicy
+	}
+	if forceIPv4 {
+		return AddressPolicy{SourceAddress: "0.0.0.0", Family: AddressFamilyIPv4}, nil
+	}
+	if forceIPv6 {
+		return AddressPolicy{SourceAddress: "::", Family: AddressFamilyIPv6}, nil
+	}
+	if sourceAddress == "" {
+		return AddressPolicy{}, nil
+	}
+	ip := net.ParseIP(sourceAddress)
+	if ip == nil {
+		return AddressPolicy{}, ErrInvalidSourceAddress
+	}
+	if v4 := ip.To4(); v4 != nil {
+		return AddressPolicy{SourceAddress: v4.String(), Family: AddressFamilyIPv4}, nil
+	}
+	return AddressPolicy{SourceAddress: ip.String(), Family: AddressFamilyIPv6}, nil
+}
+
+func (policy AddressPolicy) dialContext(timeout time.Duration) func(context.Context, string, string) (net.Conn, error) {
+	dialNetwork := "tcp"
+	var localAddress net.Addr
+	switch policy.Family {
+	case AddressFamilyIPv4:
+		dialNetwork = "tcp4"
+	case AddressFamilyIPv6:
+		dialNetwork = "tcp6"
+	}
+	if policy.SourceAddress != "" {
+		localAddress = &net.TCPAddr{IP: net.ParseIP(policy.SourceAddress)}
+	}
+	dialer := &net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second, LocalAddr: localAddress}
+	return dialContextForNetwork(dialer, dialNetwork)
+}
+
+// dialContextForNetwork keeps the policy construction readable while
+// retaining the standard net.Dialer callback shape.
+func dialContextForNetwork(dialer *net.Dialer, network string) func(context.Context, string, string) (net.Conn, error) {
+	return func(ctx context.Context, _ string, address string) (net.Conn, error) {
+		return dialer.DialContext(ctx, network, address)
+	}
+}
+
+func redactPolicyError(error) error {
+	return errors.New("injected transport rejected address policy")
 }
 
 // Do clones request, applies operation defaults, and binds it to ctx. The
@@ -536,6 +634,53 @@ func (err *StatusError) Error() string {
 
 func RetryableStatus(code int) bool {
 	return code == http.StatusRequestTimeout || code == http.StatusTooManyRequests || code >= 500
+}
+
+// IsRetryableError classifies only transient HTTP statuses and transport-level
+// failures. It deliberately excludes context termination and malformed or
+// policy/security errors so callers can safely use it for bounded outer retry
+// loops without duplicating downloader classification.
+func IsRetryableError(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var status *StatusError
+	if errors.As(err, &status) {
+		return RetryableStatus(status.Code)
+	}
+	var requestErr *RequestError
+	if errors.As(err, &requestErr) {
+		return isRetryableTransportError(requestErr.Err)
+	}
+	return isRetryableTransportError(err)
+}
+
+func isRetryableTransportError(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		// NXDOMAIN and equivalent authoritative not-found answers are stable for
+		// the attempted name. Some resolvers also mark them temporary; the
+		// deterministic not-found signal takes precedence.
+		return !dnsErr.IsNotFound && (dnsErr.IsTimeout || dnsErr.IsTemporary)
+	}
+	for _, transient := range []error{
+		syscall.ECONNABORTED,
+		syscall.ECONNREFUSED,
+		syscall.ECONNRESET,
+		syscall.EHOSTUNREACH,
+		syscall.ENETUNREACH,
+		syscall.ETIMEDOUT,
+		syscall.EPIPE,
+	} {
+		if errors.Is(err, transient) {
+			return true
+		}
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && (netErr.Timeout() || netErr.Temporary())
 }
 
 var sensitiveQueryKeys = map[string]struct{}{
