@@ -574,11 +574,13 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 		plannerCapabilities: &plannerCapabilities,
 		autonumberNext:      request.AutonumberIndex,
 	}
+	var loadedInfo value.Info
 	if request.LoadInfoJSON != "" {
 		info, loadErr := loadInfoJSON(ctx, request.LoadInfoJSON)
 		if loadErr != nil {
 			return Result{}, categorized("load info JSON", loadErr)
 		}
+		loadedInfo = info
 		rootExtractor = "loaded-info-json"
 		result, runErr = operation.processMedia(ctx, extractor.Media(info), "loaded-info-json")
 	} else {
@@ -590,6 +592,13 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 			operation.formatAvailabilityChecker = checker
 		}
 		result, runErr = operation.process(ctx, request.URL, request.PluginID, nil, make(map[string]bool), 0)
+	}
+	if runErr != nil && request.LoadInfoJSON != "" && shouldFallbackLoadedInfo(loadedInfo, result, runErr) {
+		webpageURL, _ := loadedInfo.Lookup("webpage_url").StringValue()
+		if err := client.emit(ctx, Event{Kind: EventMetadataWarning, Message: "loaded info direct URL failed; retrying its webpage URL"}); err != nil {
+			return result, &Error{Category: ErrorInternal, Op: "emit loaded-info fallback warning", Err: err}
+		}
+		result, runErr = operation.process(ctx, webpageURL, "", nil, make(map[string]bool), 0)
 	}
 	if accepted := operation.autonumberCount(); result.AutonumberCount < accepted {
 		result.AutonumberCount = accepted
@@ -610,6 +619,16 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 		}
 	}
 	return result, runErr
+}
+
+func shouldFallbackLoadedInfo(info value.Info, result Result, runErr error) bool {
+	if runErr == nil || result.Downloaded || len(result.Artifacts) > 0 ||
+		(!IsCategory(runErr, ErrorNetwork) && !IsCategory(runErr, ErrorInternal) && !IsCategory(runErr, ErrorUnsupported)) {
+		return false
+	}
+	directURL, directOK := info.Lookup("url").StringValue()
+	webpageURL, webpageOK := info.Lookup("webpage_url").StringValue()
+	return directOK && directURL != "" && webpageOK && webpageURL != "" && webpageURL != directURL
 }
 
 func shouldCheckFormats(mode FormatCheckMode, allowUnplayable bool) bool {
@@ -1151,15 +1170,25 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 	}
 	children := make([]Result, 0)
 	entryValues := make([]value.Value, 0)
+	autonumberBefore := operation.autonumberPosition()
 	playlistID, _ := extracted.Info.ID()
 	playlistTitle, _ := extracted.Info.Title()
 	var failures int
 	var failedDownloads int
 	var maxFailuresEmitted bool
+	var suppressedPrints []PrintOutput
+	var suppressedArtifacts []Artifact
+	var suppressedBytes int64
 	finish := func() (Result, error) {
 		result, err := operation.finishPlaylistResult(ctx, extracted.Info, extractorName, children, entryValues)
 		result.SuppressedFailures += failures
 		result.Downloads += failedDownloads
+		if consumed := operation.autonumberCountSince(autonumberBefore); result.AutonumberCount < consumed {
+			result.AutonumberCount = consumed
+		}
+		result.Prints = append(suppressedPrints, result.Prints...)
+		result.Artifacts = append(suppressedArtifacts, result.Artifacts...)
+		result.Bytes += suppressedBytes
 		return result, err
 	}
 	for outputIndex := 0; ; outputIndex++ {
@@ -1233,14 +1262,20 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 				if err != nil {
 					return Result{}, err
 				}
-				prints, err := operation.capturePrints(ctx, PrintVideo, entryInfo, nil, nil, "")
-				if err != nil {
-					return Result{}, fmt.Errorf("flat playlist entry %d print: %w", selected.SourceIndex, err)
+			}
+			if !child.Skipped {
+				printInfo := entryInfo
+				if terminal {
+					printInfo = operation.provisionalAutonumberInfo(printInfo)
+				}
+				prints, printErr := operation.capturePrints(ctx, PrintVideo, printInfo, nil, nil, "")
+				if printErr != nil {
+					return Result{}, fmt.Errorf("flat playlist entry %d print: %w", selected.SourceIndex, printErr)
 				}
 				child.Prints = append(child.Prints, prints...)
-				printArtifacts, printBytes, err := operation.writePrintFiles(ctx, PrintVideo, entryInfo, nil, nil, "")
-				if err != nil {
-					return Result{}, fmt.Errorf("flat playlist entry %d print file: %w", selected.SourceIndex, err)
+				printArtifacts, printBytes, printErr := operation.writePrintFiles(ctx, PrintVideo, printInfo, nil, nil, "")
+				if printErr != nil {
+					return Result{}, fmt.Errorf("flat playlist entry %d print file: %w", selected.SourceIndex, printErr)
 				}
 				addPrintFileArtifacts(&child, printArtifacts, printBytes)
 			}
@@ -1251,6 +1286,9 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 		downloadsBefore := operation.downloads
 		child, err := operation.process(ctx, entry.URL, entry.ExtractorKey, &entry, ancestors, depth+1)
 		if err != nil {
+			suppressedPrints = append(suppressedPrints, child.Prints...)
+			suppressedArtifacts = append(suppressedArtifacts, child.Artifacts...)
+			suppressedBytes += child.Bytes
 			failedDownloads += operation.downloads - downloadsBefore
 			handled, stop, handlerErr := operation.handlePlaylistEntryError(ctx, extractorName, playlistTitle, selected.SourceIndex, err, &failures, &maxFailuresEmitted)
 			if handlerErr != nil {
@@ -1537,8 +1575,9 @@ func (operation *operation) prepareMediaResult(
 	var archiveIdentity archive.Identity
 	if operation.archive != nil {
 		id, hasID := info.ID()
-		if hasID && extractorName != "" {
-			identity, err := archive.NewIdentity(extractorName, id)
+		archiveExtractor := archiveExtractorKey(*info, extractorName)
+		if hasID && archiveExtractor != "" {
+			identity, err := archive.NewIdentity(archiveExtractor, id)
 			if err != nil {
 				return Result{}, archive.Identity{}, compatibilityDecision{}, false, categorized("build archive identity", err)
 			}
@@ -1612,6 +1651,18 @@ func (operation *operation) prepareMediaResult(
 	return result, archiveIdentity, decision, false, nil
 }
 
+func archiveExtractorKey(info value.Info, fallback string) string {
+	for _, field := range []string{"extractor_key", "ie_key"} {
+		if key, ok := info.Lookup(field).StringValue(); ok && key != "" {
+			return key
+		}
+	}
+	if fallback == "loaded-info-json" {
+		return ""
+	}
+	return fallback
+}
+
 // archiveRejectionReason mirrors the reference rejection message
 // "<id>: <title> has already been recorded in the archive".
 func archiveRejectionReason(info value.Info) string {
@@ -1671,27 +1722,30 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	}()
 	preparedFormats, err := mediaformat.Prepare(extracted.Info, operation.compatibility.formatOptions)
 	if err != nil {
-		return Result{}, categorized("normalize formats", err)
+		return result, categorized("normalize formats", err)
 	}
 	info := preparedFormats.Info()
 	if operation.request.Thumbnails.List {
 		if _, err := selectThumbnails(&info); err != nil {
-			return Result{}, categorized("normalize thumbnails", err)
+			return result, categorized("normalize thumbnails", err)
 		}
 	}
 	preProcessInfo := operation.provisionalAutonumberInfo(info)
 	preProcessPrints, err := operation.capturePrints(ctx, PrintPreProcess, preProcessInfo, nil, nil, "")
 	if err != nil {
-		return Result{}, categorized("render pre-process print", err)
+		return result, categorized("render pre-process print", err)
 	}
 	preProcessArtifacts, preProcessBytes, err := operation.writePrintFiles(ctx, PrintPreProcess, preProcessInfo, nil, nil, "")
 	if err != nil {
-		return Result{}, categorized("write pre-process print file", err)
+		return result, categorized("write pre-process print file", err)
 	}
-	result, archiveIdentity, interactiveDecision, terminal, err := operation.prepareMediaResult(ctx, &info, extractorName, false)
+	preliminary := Result{Prints: append([]PrintOutput(nil), preProcessPrints...)}
+	addPrintFileArtifacts(&preliminary, preProcessArtifacts, preProcessBytes)
+	preparedResult, archiveIdentity, interactiveDecision, terminal, err := operation.prepareMediaResult(ctx, &info, extractorName, false)
 	if err != nil {
-		return Result{}, err
+		return preliminary, err
 	}
+	result = preparedResult
 	result.Prints = append(result.Prints, preProcessPrints...)
 	addPrintFileArtifacts(&result, preProcessArtifacts, preProcessBytes)
 	if terminal {
@@ -1699,12 +1753,12 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 			afterFilterInfo := operation.provisionalAutonumberInfo(info)
 			prints, printErr := operation.capturePrints(ctx, PrintAfterFilter, afterFilterInfo, nil, nil, "")
 			if printErr != nil {
-				return Result{}, categorized("render after-filter print", printErr)
+				return result, categorized("render after-filter print", printErr)
 			}
 			result.Prints = append(result.Prints, prints...)
 			printArtifacts, printBytes, printErr := operation.writePrintFiles(ctx, PrintAfterFilter, afterFilterInfo, nil, nil, "")
 			if printErr != nil {
-				return Result{}, categorized("write after-filter print file", printErr)
+				return result, categorized("write after-filter print file", printErr)
 			}
 			addPrintFileArtifacts(&result, printArtifacts, printBytes)
 		}
@@ -1717,37 +1771,37 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		operation.compatibility.interactiveFormat
 	if extracted.Enrich != nil {
 		if err := extracted.Enrich(ctx, &info); err != nil {
-			return Result{}, categorized(extractorName+" deferred metadata", err)
+			return result, categorized(extractorName+" deferred metadata", err)
 		}
 		result.InfoJSON, err = encodeInfo(info)
 		if err != nil {
-			return Result{}, err
+			return result, err
 		}
 	}
 	if err := operation.enrichWithSponsorBlock(ctx, extractorName, &info); err != nil {
-		return Result{}, err
+		return result, err
 	}
 	afterFilterInfo := operation.provisionalAutonumberInfo(info)
 	prints, err := operation.capturePrints(ctx, PrintAfterFilter, afterFilterInfo, nil, nil, "")
 	if err != nil {
-		return Result{}, categorized("render after-filter print", err)
+		return result, categorized("render after-filter print", err)
 	}
 	result.Prints = append(result.Prints, prints...)
 	printArtifacts, printBytes, err := operation.writePrintFiles(ctx, PrintAfterFilter, afterFilterInfo, nil, nil, "")
 	if err != nil {
-		return Result{}, categorized("write after-filter print file", err)
+		return result, categorized("write after-filter print file", err)
 	}
 	addPrintFileArtifacts(&result, printArtifacts, printBytes)
 	selectedSubtitles, requestedSubtitles, err := selectSubtitles(info, operation.request.Subtitles)
 	if err != nil {
-		return Result{}, categorized("select subtitles", err)
+		return result, categorized("select subtitles", err)
 	}
 	if requestedSubtitles != nil {
 		info.Set("requested_subtitles", value.ObjectValue(requestedSubtitles))
 	}
 	result.InfoJSON, err = encodeInfo(info)
 	if err != nil {
-		return Result{}, err
+		return result, err
 	}
 	// Metadata actions and deferred enrichment mutate the canonical Info after
 	// Prepare; rebind evaluation objects so selection matches InfoJSON.
@@ -1758,16 +1812,16 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		operation.hasPrintStageAtOrAfter(PrintVideo) || needsInteractiveFormat {
 		outputPlans, err = operation.planPreparedFormatsContext(ctx, preparedFormats)
 		if err != nil {
-			return Result{}, categorized("select format", err)
+			return result, categorized("select format", err)
 		}
 		if len(outputPlans) > 0 {
 			selectedFormats = outputPlans[0].Tracks
 		}
 		if err := validateMultiOutputProduct(operation.request, len(outputPlans)); err != nil {
-			return Result{}, categorized("select format", err)
+			return result, categorized("select format", err)
 		}
 		if err := validateOutputPlans(outputPlans, operation.mergeOutputPreferences()); err != nil {
-			return Result{}, categorized("select format", err)
+			return result, categorized("select format", err)
 		}
 	}
 	var singlePrintPlan *mediaformat.OutputPlan
@@ -1778,10 +1832,10 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	if needsInteractiveFormat {
 		provisionalDestinations, resolveErr := operation.resolveOutputPlanDestinations(info, outputPlans)
 		if resolveErr != nil {
-			return Result{}, categorized("render output template", resolveErr)
+			return result, categorized("render output template", resolveErr)
 		}
 		if len(provisionalDestinations) == 0 {
-			return Result{}, categorized("select format", mediaformat.ErrNoFormats)
+			return result, categorized("select format", mediaformat.ErrNoFormats)
 		}
 		for index, plan := range outputPlans {
 			interactiveInfo := selectedPlanInfo(info, plan)
@@ -1790,11 +1844,11 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 				ctx, interactiveInfo, interactiveDecision, provisionalDestinations[index],
 			)
 			if resolveErr != nil {
-				return Result{}, resolveErr
+				return result, resolveErr
 			}
 			terminal, finishErr := operation.finishMatchFilterDecision(ctx, &result, extractorName, resolved)
 			if finishErr != nil {
-				return Result{}, finishErr
+				return result, finishErr
 			}
 			if terminal {
 				return result, nil
@@ -1807,11 +1861,11 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	counted = true
 	result.InfoJSON, err = encodeInfo(info)
 	if err != nil {
-		return Result{}, err
+		return result, err
 	}
 	planDestinations, err := operation.resolveOutputPlanDestinations(info, outputPlans)
 	if err != nil {
-		return Result{}, categorized("render output template", err)
+		return result, categorized("render output template", err)
 	}
 	var destination string
 	if len(planDestinations) > 0 {
@@ -1822,7 +1876,7 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		mediaTx = newMediaTransaction()
 		if !operation.request.Simulate {
 			if err := operation.preflightOutputLifecycles(info, outputPlans, planDestinations, selectedSubtitles); err != nil {
-				return Result{}, categorized("preflight output destinations", err)
+				return result, categorized("preflight output destinations", err)
 			}
 		}
 	}
@@ -1878,7 +1932,7 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 				if len(outputPlans) > 1 {
 					return rollbackTransactionResult(mediaTx, lifecycleErr)
 				}
-				return Result{}, lifecycleErr
+				return result, lifecycleErr
 			}
 			planResults[index] = planResult
 		}
@@ -1913,13 +1967,13 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		}
 		if !operation.request.Simulate {
 			if commitErr := mediaTx.commit(); commitErr != nil {
-				return Result{}, categorized("commit output transaction", commitErr)
+				return result, categorized("commit output transaction", commitErr)
 			}
 			mediaTx.finalize()
 		}
 		if !result.Skipped && (operation.request.ForceWriteArchive || (!operation.request.Simulate && !operation.request.SkipDownload)) {
 			if err := operation.recordArchive(ctx, archiveIdentity); err != nil {
-				return Result{}, err
+				return result, err
 			}
 		}
 		return result, nil
@@ -1938,7 +1992,7 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	addPrintFileArtifacts(&result, printArtifacts, printBytes)
 	if operation.request.Simulate {
 		if err := operation.recordForcedArchive(ctx, archiveIdentity); err != nil {
-			return Result{}, err
+			return result, err
 		}
 		return result, nil
 	}
@@ -1998,17 +2052,17 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		for _, stage := range []PrintStage{PrintPostProcess, PrintAfterMove, PrintAfterVideo} {
 			prints, err = operation.capturePrints(ctx, stage, info, singlePrintPlan, selectedFormats, destination)
 			if err != nil {
-				return Result{}, categorized("render "+string(stage)+" print", err)
+				return result, categorized("render "+string(stage)+" print", err)
 			}
 			result.Prints = append(result.Prints, prints...)
 			printArtifacts, printBytes, err = operation.writePrintFiles(ctx, stage, info, singlePrintPlan, selectedFormats, destination)
 			if err != nil {
-				return Result{}, categorized("write "+string(stage)+" print file", err)
+				return result, categorized("write "+string(stage)+" print file", err)
 			}
 			addPrintFileArtifacts(&result, printArtifacts, printBytes)
 		}
 		if err := operation.recordForcedArchive(ctx, archiveIdentity); err != nil {
-			return Result{}, err
+			return result, err
 		}
 		return result, nil
 	}
@@ -2057,7 +2111,7 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	}
 	if mediaTx != nil {
 		if commitErr := mediaTx.commitDestinations(); commitErr != nil {
-			return Result{}, categorized("commit output transaction", commitErr)
+			return result, categorized("commit output transaction", commitErr)
 		}
 	}
 	var embeddedSubtitles bool
@@ -2132,12 +2186,12 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	}
 	if mediaTx != nil {
 		if commitErr := mediaTx.commitArtifacts(); commitErr != nil {
-			return Result{}, categorized("commit output transaction", commitErr)
+			return result, categorized("commit output transaction", commitErr)
 		}
 		mediaTx.finalize()
 	}
 	if err := operation.recordArchive(ctx, archiveIdentity); err != nil {
-		return Result{}, err
+		return result, err
 	}
 	return result, nil
 }
@@ -2166,23 +2220,16 @@ func (operation *operation) addAutonumber(info *value.Info) {
 	}
 	operation.autonumberMu.Lock()
 	defer operation.autonumberMu.Unlock()
-	start := operation.request.AutonumberStart
-	if start <= 0 {
-		start = 1
-	}
-	info.Set("autonumber", value.Int(int64(start+operation.autonumberNext)))
-	operation.autonumberNext++
+	acceptedCount := operation.autonumberNext + 1
+	info.Set("autonumber", value.Int(int64(normalizedAutonumberStart(operation.request.AutonumberStart)-1+acceptedCount)))
+	operation.autonumberNext = acceptedCount
 }
 
 func (operation *operation) provisionalAutonumberInfo(info value.Info) value.Info {
 	operation.autonumberMu.Lock()
 	defer operation.autonumberMu.Unlock()
-	start := operation.request.AutonumberStart
-	if start <= 0 {
-		start = 1
-	}
 	provisional := value.NewInfo(info.Fields().Clone())
-	provisional.Set("autonumber", value.Int(int64(start-1+operation.autonumberNext)))
+	provisional.Set("autonumber", value.Int(int64(normalizedAutonumberStart(operation.request.AutonumberStart)-1+operation.autonumberNext)))
 	return provisional
 }
 
@@ -2194,6 +2241,20 @@ func (operation *operation) autonumberCount() int {
 		return 0
 	}
 	return count
+}
+
+func (operation *operation) autonumberPosition() int {
+	operation.autonumberMu.Lock()
+	defer operation.autonumberMu.Unlock()
+	return operation.autonumberNext
+}
+
+func (operation *operation) autonumberCountSince(previous int) int {
+	current := operation.autonumberPosition()
+	if current < previous {
+		return 0
+	}
+	return current - previous
 }
 
 func oldArchiveIDs(info value.Info) ([]string, error) {

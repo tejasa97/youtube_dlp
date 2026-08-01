@@ -30,6 +30,13 @@ func normalizedAutonumberSize(size int) int {
 	return size
 }
 
+func normalizedAutonumberStart(start int) int {
+	if start <= 0 {
+		return 1
+	}
+	return start
+}
+
 func (operation *operation) resolveOutputPath(outputRoot, pattern string, info value.Info) (string, error) {
 	return outputtemplate.ResolveWithOptions(outputRoot, pattern, info, operation.filenameOptions())
 }

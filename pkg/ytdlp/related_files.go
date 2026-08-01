@@ -145,6 +145,9 @@ func cleanInfoObject(input *value.Object) *value.Object {
 	}
 	output := value.NewObject()
 	for _, field := range input.Fields() {
+		if strings.HasPrefix(field.Key, "__") {
+			continue
+		}
 		if _, private := cleanedInfoPrivateFields[field.Key]; private || field.Value.IsNull() {
 			continue
 		}

@@ -105,7 +105,7 @@ func (operation *operation) capturePrints(
 				continue
 			}
 		}
-		rendered, err := outputtemplate.Render(rule.Template, printInfo)
+		rendered, err := outputtemplate.RenderContextWithOptions(ctx, rule.Template, printInfo, operation.filenameOptions())
 		if err != nil {
 			return outputs, err
 		}
@@ -137,7 +137,7 @@ func (operation *operation) validatePrintRules(
 		if !includeFilepath {
 			operation.applyThumbnailEmbeddingOutputExtension(&printInfo, selections)
 		}
-		if _, err := outputtemplate.Render(rule.Template, printInfo); err != nil {
+		if _, err := outputtemplate.RenderContextWithOptions(ctx, rule.Template, printInfo, operation.filenameOptions()); err != nil {
 			return err
 		}
 		if rule.FileTemplate != "" {
@@ -185,7 +185,7 @@ func (operation *operation) writePrintFiles(
 				continue
 			}
 		}
-		rendered, err := outputtemplate.Render(rule.Template, printInfo)
+		rendered, err := outputtemplate.RenderContextWithOptions(ctx, rule.Template, printInfo, operation.filenameOptions())
 		if err != nil {
 			return artifacts, total, err
 		}

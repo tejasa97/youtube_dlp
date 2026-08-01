@@ -55,6 +55,26 @@ func TestLoadInfoJSONDownloadsBoundedMetadataWithoutAmbientCredentials(t *testin
 	}
 }
 
+func TestLoadInfoJSONArchiveIdentityUsesExtractorMetadata(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	for _, field := range []string{"extractor_key", "ie_key"} {
+		t.Run(field, func(t *testing.T) {
+			input := writeInfoFixture(t, `{"id":"loaded","title":"Loaded","`+field+`":"FixtureLoaded","url":"`+server.URL+`/media","ext":"bin"}`)
+			archivePath := filepath.Join(t.TempDir(), "archive.txt")
+			if err := os.WriteFile(archivePath, []byte("fixtureloaded loaded\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			result, err := NewClient().Run(context.Background(), Request{
+				LoadInfoJSON: input, DownloadArchive: archivePath, SkipDownload: true,
+			})
+			if err != nil || !result.Archived || result.Skipped {
+				t.Fatalf("result=%#v err=%v", result, err)
+			}
+		})
+	}
+}
+
 func TestLoadInfoJSONPreservesAcceptedAutonumberOnOutputFailure(t *testing.T) {
 	server := testserver.New()
 	defer server.Close()
@@ -68,6 +88,22 @@ func TestLoadInfoJSONPreservesAcceptedAutonumberOnOutputFailure(t *testing.T) {
 	})
 	if err == nil || result.AutonumberCount != 1 {
 		t.Fatalf("result=%#v err=%v", result, err)
+	}
+}
+
+func TestLoadInfoJSONFallsBackFromDirectURLToWebpage(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	input := writeInfoFixture(t, `{"id":"loaded","title":"Loaded","url":"`+server.URL+`/missing","webpage_url":"`+server.URL+`/page","ext":"bin"}`)
+	root := t.TempDir()
+	result, err := NewClient().Run(context.Background(), Request{
+		LoadInfoJSON: input, OutputDir: root, OutputTemplate: "%(id)s.%(ext)s", Overwrite: true,
+	})
+	if err != nil || !result.Downloaded || result.Extractor != "fixture" {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	if _, err := os.Stat(result.Filename); err != nil {
+		t.Fatalf("webpage fallback output: %v", err)
 	}
 }
 
@@ -280,13 +316,13 @@ func TestAutonumberCountsOnlyAcceptedPlaylistEntries(t *testing.T) {
 	if !result.Entries[1].Skipped || !result.Entries[2].Archived {
 		t.Fatalf("rejected/archive lifecycle=%#v", result.Entries)
 	}
-	if got := result.Entries[0].Prints; len(got) != 2 || got[0].Text != "3|003" || got[1].Text != "3|003" {
+	if got := result.Entries[0].Prints; len(got) != 2 || got[0].Text != "003|003" || got[1].Text != "003|003" {
 		t.Fatalf("first accepted provisional prints=%#v", got)
 	}
-	if got := result.Entries[1].Prints; len(got) != 1 || got[0].Text != "4|004" {
+	if got := result.Entries[1].Prints; len(got) != 1 || got[0].Text != "004|004" {
 		t.Fatalf("rejected provisional prints=%#v", got)
 	}
-	if got := result.Entries[2].Prints; len(got) != 2 || got[0].Text != "4|004" || got[1].Text != "4|004" {
+	if got := result.Entries[2].Prints; len(got) != 2 || got[0].Text != "004|004" || got[1].Text != "004|004" {
 		t.Fatalf("archived provisional prints=%#v", got)
 	}
 }

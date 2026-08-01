@@ -133,8 +133,10 @@ func TestInfoJSONCleaningPreservesPublicMetadataAndExplicitOverride(t *testing.T
 		value.Field{Key: "public_list", Value: value.List(value.Null(), value.String("kept"))},
 		value.Field{Key: "filepath", Value: value.String("/private/path")},
 		value.Field{Key: "requested_formats", Value: value.List(value.String("private"))},
+		value.Field{Key: "__private", Value: value.String("private")},
 		value.Field{Key: "nested", Value: value.ObjectValue(value.NewObject(
 			value.Field{Key: "filename", Value: value.String("private")},
+			value.Field{Key: "__nested_private", Value: value.String("private")},
 			value.Field{Key: "public", Value: value.String("kept")},
 		))},
 	))
@@ -153,11 +155,11 @@ func TestInfoJSONCleaningPreservesPublicMetadataAndExplicitOverride(t *testing.T
 	if err := json.Unmarshal(data, &cleaned); err != nil {
 		t.Fatal(err)
 	}
-	if cleaned["description"] != "kept" || cleaned["public_null"] != nil || cleaned["filepath"] != nil || cleaned["requested_formats"] != nil {
+	if cleaned["description"] != "kept" || cleaned["public_null"] != nil || cleaned["filepath"] != nil || cleaned["requested_formats"] != nil || cleaned["__private"] != nil {
 		t.Fatalf("cleaned metadata = %#v", cleaned)
 	}
 	nested := cleaned["nested"].(map[string]any)
-	if nested["public"] != "kept" || nested["filename"] != nil {
+	if nested["public"] != "kept" || nested["filename"] != nil || nested["__nested_private"] != nil {
 		t.Fatalf("cleaned nested metadata = %#v", nested)
 	}
 	publicList := cleaned["public_list"].([]any)

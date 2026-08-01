@@ -406,7 +406,9 @@ func TestOperationFlatPlaylistChecksArchiveWithoutRecording(t *testing.T) {
 			}
 			return nil
 		})),
-		request:   Request{Playlist: PlaylistOptions{Items: "2", Flat: true}},
+		request: Request{Playlist: PlaylistOptions{Items: "2", Flat: true}, PrintRules: []PrintRule{
+			{Stage: PrintVideo, Template: "%(id)s|%(autonumber)s"},
+		}},
 		transport: transport, archive: store,
 		registry: extractor.NewRegistry(
 			&selectionFixtureExtractor{pageFetches: &pages}, extractor.NewGeneric(),
@@ -424,6 +426,9 @@ func TestOperationFlatPlaylistChecksArchiveWithoutRecording(t *testing.T) {
 	}
 	if archiveEvent.Extractor != "generic" || archiveEvent.Message != "generic item-2" {
 		t.Fatalf("archive event = %#v", archiveEvent)
+	}
+	if len(result.Entries[0].Prints) != 1 || result.Entries[0].Prints[0].Text != "item-2|00000" {
+		t.Fatalf("archived flat prints = %#v", result.Entries[0].Prints)
 	}
 	data, err := os.ReadFile(archivePath)
 	if err != nil || string(data) != "generic item-2\n" {

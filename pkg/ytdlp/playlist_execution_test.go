@@ -18,6 +18,7 @@ import (
 
 	"github.com/ytdlp-go/ytdlp/internal/extractor"
 	"github.com/ytdlp-go/ytdlp/internal/network"
+	"github.com/ytdlp-go/ytdlp/internal/testserver"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
@@ -337,6 +338,66 @@ func TestPlaylistContinuePolicyContinuesPastEntryFailure(t *testing.T) {
 	}
 	if !strings.Contains(recorded[0].Message, "playlist entry 3: ") {
 		t.Fatalf("event message = %q", recorded[0].Message)
+	}
+}
+
+type failingMediaExtractor struct{ mediaURL string }
+
+func (failingMediaExtractor) Name() string { return "failing-media" }
+
+func (failingMediaExtractor) Suitable(parsed *url.URL) bool {
+	return parsed != nil && parsed.Host == "failing-media.invalid"
+}
+
+func (f failingMediaExtractor) Extract(_ context.Context, request extractor.Request) (extractor.Extraction, error) {
+	parsed, err := url.Parse(request.URL)
+	if err != nil {
+		return extractor.Extraction{}, err
+	}
+	if parsed.Path == "/playlist" {
+		return extractor.Playlist(value.NewInfo(value.NewObject(
+			value.Field{Key: "id", Value: value.String("failed-playlist")},
+			value.Field{Key: "title", Value: value.String("Failed playlist")},
+		)), extractor.StaticEntries(extractor.Entry{
+			URL: "https://failing-media.invalid/item", ExtractorKey: "failing-media",
+		}))
+	}
+	return extractor.Media(value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("failed-media")},
+		value.Field{Key: "title", Value: value.String("Failed media")},
+		value.Field{Key: "url", Value: value.String(f.mediaURL + "/missing")},
+		value.Field{Key: "ext", Value: value.String("bin")},
+	))), nil
+}
+
+func TestPlaylistContinuePreservesPrintLifecycleForDownloadError(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	transport, err := network.New(network.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := Request{
+		OutputDir: t.TempDir(), PrintRules: []PrintRule{
+			{Stage: PrintPreProcess, Template: "pre:%(id)s"},
+			{Stage: PrintAfterFilter, Template: "after:%(id)s"},
+		},
+		Playlist: PlaylistOptions{ErrorPolicy: PlaylistErrorContinue},
+	}
+	compatibility, err := prepareCompatibility(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := &operation{
+		client: NewClient(), request: request, compatibility: compatibility, transport: transport,
+		registry: extractor.NewRegistry(failingMediaExtractor{mediaURL: server.URL}),
+	}
+	result, err := operation.process(context.Background(), "https://failing-media.invalid/playlist", "", nil, make(map[string]bool), 0)
+	if err != nil || result.SuppressedFailures != 1 {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	if len(result.Prints) != 2 || result.Prints[0].Text != "pre:failed-media" || result.Prints[1].Text != "after:failed-media" {
+		t.Fatalf("suppressed error prints=%#v", result.Prints)
 	}
 }
 

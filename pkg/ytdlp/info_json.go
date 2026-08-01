@@ -192,6 +192,9 @@ func sanitizeLoadedInfoObject(ctx context.Context, input *value.Object, depth in
 	output := value.NewObject()
 	for _, field := range input.Fields() {
 		keyLower := strings.ToLower(field.Key)
+		if strings.HasPrefix(field.Key, "__") {
+			continue
+		}
 		if _, forbidden := loadedInfoPathFields[field.Key]; forbidden {
 			return nil, fmt.Errorf("%w: path field %q is not accepted", ErrInvalidInfoJSON, field.Key)
 		}
