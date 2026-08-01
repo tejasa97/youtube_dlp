@@ -14,6 +14,7 @@ const (
 	KindStarting             Kind = "download_starting"
 	KindProgress             Kind = "download_progress"
 	KindRetry                Kind = "download_retry"
+	KindExtractorRetry       Kind = "extractor_retry"
 	KindCancelled            Kind = "download_cancelled"
 	KindCompleted            Kind = "download_completed"
 	KindFragmentStarting     Kind = "fragment_starting"

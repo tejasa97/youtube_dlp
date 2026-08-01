@@ -1,6 +1,7 @@
 package impersonate
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -19,6 +20,7 @@ type Config struct {
 	Jar             http.CookieJar
 	RootCAs         *x509.CertPool
 	DisableRedirect bool
+	SourceAddress   string
 }
 
 // Client exposes a browser-fingerprinted transport through the repository's
@@ -34,10 +36,16 @@ func New(config Config) (*Client, error) {
 		return nil, errors.New("impersonation profile is required")
 	}
 	timeout := compatibleTimeout(config.Timeout)
+	dialer, dialNetwork, err := newSourceDialer(timeout, config.SourceAddress)
+	if err != nil {
+		return nil, err
+	}
 	client := req.C().
 		SetLogger(nil).
 		SetTimeout(0).
-		SetDial((&net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second}).DialContext).
+		SetDial(func(ctx context.Context, _ string, address string) (net.Conn, error) {
+			return dialer.DialContext(ctx, dialNetwork, address)
+		}).
 		SetTLSHandshakeTimeout(timeout)
 	client.SetResponseHeaderTimeout(timeout)
 	client.SetTLSClientConfig(&tls.Config{
@@ -55,7 +63,7 @@ func New(config Config) (*Client, error) {
 		if err != nil || proxyURL.Scheme == "" || proxyURL.Host == "" {
 			return nil, errors.New("invalid impersonation proxy URL")
 		}
-		dialContext, err := newProxyDialContext(proxyURL, timeout)
+		dialContext, err := newProxyDialContext(proxyURL, timeout, config.SourceAddress)
 		if err != nil {
 			return nil, err
 		}
@@ -66,6 +74,25 @@ func New(config Config) (*Client, error) {
 		client.SetRedirectPolicy(req.NoRedirectPolicy())
 	}
 	return &Client{profile: config.Profile, client: client}, nil
+}
+
+func newSourceDialer(timeout time.Duration, sourceAddress string) (*net.Dialer, string, error) {
+	dialNetwork := "tcp"
+	var localAddress net.Addr
+	if sourceAddress != "" {
+		ip := net.ParseIP(sourceAddress)
+		if ip == nil {
+			return nil, "", errors.New("invalid source address")
+		}
+		if v4 := ip.To4(); v4 != nil {
+			dialNetwork = "tcp4"
+			ip = v4
+		} else {
+			dialNetwork = "tcp6"
+		}
+		localAddress = &net.TCPAddr{IP: ip}
+	}
+	return &net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second, LocalAddr: localAddress}, dialNetwork, nil
 }
 
 func (client *Client) Do(request *http.Request) (*http.Response, error) {

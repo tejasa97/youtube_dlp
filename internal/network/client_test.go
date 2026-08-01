@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -216,6 +217,137 @@ func TestReadPageLimitAndCancellation(t *testing.T) {
 	if _, _, err := client.ReadPage(ctx, server.URL+"/slow?delay=1s"); err == nil || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("cancel error = %v", err)
 	}
+}
+
+func TestAddressPolicyBindsIPv4Source(t *testing.T) {
+	remoteAddress := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		remoteAddress <- request.RemoteAddr
+		_, _ = io.WriteString(writer, "ipv4")
+	}))
+	defer server.Close()
+	client, err := New(Config{SourceAddress: "127.0.0.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _, err := client.ReadPage(context.Background(), server.URL)
+	if err != nil || string(body) != "ipv4" {
+		t.Fatalf("body = %q, error = %v", body, err)
+	}
+	if remote := <-remoteAddress; !strings.HasPrefix(remote, "127.0.0.1:") {
+		t.Fatalf("remote address = %q, want 127.0.0.1", remote)
+	}
+}
+
+func TestAddressPolicyBindsIPv6Source(t *testing.T) {
+	listener, err := net.Listen("tcp6", "[::1]:0")
+	if err != nil {
+		t.Skipf("IPv6 loopback unavailable: %v", err)
+	}
+	remoteAddress := make(chan string, 1)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		remoteAddress <- request.RemoteAddr
+		_, _ = io.WriteString(writer, "ipv6")
+	}))
+	server.Listener = listener
+	server.Start()
+	defer server.Close()
+	client, err := New(Config{ForceIPv6: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _, err := client.ReadPage(context.Background(), server.URL)
+	if err != nil || string(body) != "ipv6" {
+		t.Fatalf("body = %q, error = %v", body, err)
+	}
+	if remote := <-remoteAddress; !strings.HasPrefix(remote, "[::1]:") {
+		t.Fatalf("remote address = %q, want [::1]", remote)
+	}
+}
+
+func TestImpersonationAddressPolicyBindsIPv4Source(t *testing.T) {
+	remoteAddress := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		remoteAddress <- request.RemoteAddr
+		_, _ = io.WriteString(writer, "profile-ipv4")
+	}))
+	defer server.Close()
+	client, err := New(Config{DefaultProfile: impersonate.Chrome133Name, SourceAddress: "127.0.0.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _, err := client.ReadPage(context.Background(), server.URL)
+	if err != nil || string(body) != "profile-ipv4" {
+		t.Fatalf("body = %q, error = %v", body, err)
+	}
+	if remote := <-remoteAddress; !strings.HasPrefix(remote, "127.0.0.1:") {
+		t.Fatalf("profile remote address = %q, want 127.0.0.1", remote)
+	}
+}
+
+func TestAddressPolicyRejectsInvalidAndConflictingValues(t *testing.T) {
+	for name, config := range map[string]Config{
+		"invalid source":     {SourceAddress: "not-an-ip"},
+		"both families":      {ForceIPv4: true, ForceIPv6: true},
+		"source plus family": {SourceAddress: "127.0.0.1", ForceIPv4: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := New(config)
+			if err == nil {
+				t.Fatal("New unexpectedly accepted invalid address policy")
+			}
+			if !errors.Is(err, ErrInvalidSourceAddress) && !errors.Is(err, ErrConflictingAddressPolicy) {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+}
+
+type addressPolicyRoundTripper struct {
+	policy AddressPolicy
+	err    error
+}
+
+func (transport *addressPolicyRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, errors.New("round trip should not be reached")
+}
+
+func (transport *addressPolicyRoundTripper) ConfigureAddressPolicy(policy AddressPolicy) error {
+	transport.policy = policy
+	return transport.err
+}
+
+func TestInjectedTransportMustDeclareAddressPolicyCapability(t *testing.T) {
+	for name, transport := range map[string]http.RoundTripper{
+		"plain":     roundTripFunc(func(*http.Request) (*http.Response, error) { return nil, nil }),
+		"rejecting": &addressPolicyRoundTripper{err: errors.New("secret-interface-detail")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := New(Config{RoundTripper: transport, SourceAddress: "10.0.0.9"})
+			if err == nil || !errors.Is(err, ErrNetworkPolicyUnavailable) {
+				t.Fatalf("error = %v, want ErrNetworkPolicyUnavailable", err)
+			}
+			if strings.Contains(err.Error(), "secret-interface-detail") || strings.Contains(err.Error(), "10.0.0.9") {
+				t.Fatalf("policy error leaked details: %v", err)
+			}
+		})
+	}
+
+	capable := &addressPolicyRoundTripper{}
+	client, err := New(Config{RoundTripper: capable, SourceAddress: "127.0.0.9"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.CloseIdleConnections()
+	if capable.policy.Family != AddressFamilyIPv4 || capable.policy.SourceAddress != "127.0.0.9" {
+		t.Fatalf("configured policy = %#v", capable.policy)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return function(request)
 }
 
 func TestConfiguredTimeoutDoesNotCapActiveResponseBody(t *testing.T) {

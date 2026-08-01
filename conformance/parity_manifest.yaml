@@ -389,6 +389,34 @@ capabilities:
     depends_on:
       - test.fixture_server
 
+  - id: network.address_policy_and_extractor_retry
+    name: Network address policy and extractor retry controls
+    phase: 3
+    compatibility_target: >-
+      Bind native and browser-profile HTTP transports to a validated source IP
+      or IPv4/IPv6 family, preserve proxy CONNECT/SOCKS5H semantics, and apply
+      bounded transient extractor retries only before media/artifact work.
+    status: compatible
+    evidence:
+      - internal/network.TestAddressPolicyBindsIPv4Source
+      - internal/network.TestAddressPolicyBindsIPv6Source
+      - internal/network.TestImpersonationAddressPolicyBindsIPv4Source
+      - internal/network.TestAddressPolicyRejectsInvalidAndConflictingValues
+      - internal/network.TestInjectedTransportMustDeclareAddressPolicyCapability
+      - internal/network/impersonate.TestHTTPConnectProxyHonorsIPv4SourceAddress
+      - internal/network/impersonate.TestSOCKS5ProxyHonorsIPv4SourceAddress
+      - internal/network/impersonate.TestSOCKS5HProxyRetainsRemoteDNSAndHonorsIPv6SourceAddress
+      - pkg/ytdlp.TestExtractorRetryRetriesTransientErrorsInOrderAndRedactsEvents
+      - pkg/ytdlp.TestExtractorRetryClassificationRejectsPermanentAndCategorizedErrors
+      - pkg/ytdlp.TestExtractorRetryCancellationStopsBeforeNextEnteredOperation
+      - pkg/ytdlp.TestExtractorRetryIsBoundedAndUsesDeterministicBackoff
+      - internal/cli.TestRunAddressPolicyFlagsUseLastOptionWins
+      - internal/cli.TestRunExtractorRetriesDefaultsToThreeAndAllowsZero
+      - conformance/network/address-policy/PROVENANCE.md
+    owner: io
+    depends_on:
+      - network.shared_transport
+
   - id: extractor.direct_media
     name: Direct-media extraction
     phase: 0

@@ -17,6 +17,7 @@ const (
 	EventDownloadStarting     = "download_starting"
 	EventDownloadProgress     = "download_progress"
 	EventDownloadRetry        = "download_retry"
+	EventExtractorRetry       = "extractor_retry"
 	EventDownloadCancelled    = "download_cancelled"
 	EventDownloadCompleted    = "download_completed"
 	EventFragmentStarting     = "fragment_starting"
