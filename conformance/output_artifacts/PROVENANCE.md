@@ -32,11 +32,19 @@ covered controls are:
   platform snapshot open does not follow the final path component, and opened
   handle/path identities are checked before and after the bounded read. Cookie,
   browser-cookie, netrc, and video-password request options are rejected at the
-  API boundary so a loaded file cannot reuse ambient credentials.
+  API boundary so a loaded file cannot reuse ambient credentials. When a
+  direct top-level `url` fails with a bounded network/internal/unsupported
+  error before any artifact is committed, a distinct validated `webpage_url`
+  is retried through the normal extractor path, matching the pinned
+  `download_with_info_file` fallback at a narrower error boundary.
 - `--rm-cache-dir` removes only an explicitly configured cache-named root using
-  the native cache namespace format. The root itself must not be a symlink,
-  broad filesystem root, or home directory. Unknown entries, links, and
-  special files fail closed; context cancellation stops before further removal.
+  descriptor-bounded native cache operations. The root itself must not be a
+  symlink, broad filesystem root, or home directory. Unknown entries,
+  root-level regular files (including unknown `.cache-*` names), links, and
+  special files fail closed; context cancellation stops before further
+  removal. Unix-like builds coordinate cache users with a shared process gate
+  and an advisory root lock; Windows rejects destructive cleanup rather than
+  claiming an equivalent no-follow boundary.
 
 Evidence is provided by:
 
@@ -44,9 +52,12 @@ Evidence is provided by:
 - `pkg/ytdlp.TestInfoJSONCleaningPreservesPublicMetadataAndExplicitOverride`
 - `pkg/ytdlp.TestLoadInfoJSONDownloadsBoundedMetadataWithoutAmbientCredentials`
 - `pkg/ytdlp.TestLoadInfoJSONPreservesAcceptedAutonumberOnOutputFailure`
+- `pkg/ytdlp.TestLoadInfoJSONArchiveIdentityUsesExtractorMetadata`
+- `pkg/ytdlp.TestLoadInfoJSONFallsBackFromDirectURLToWebpage`
 - `pkg/ytdlp.TestLoadInfoJSONRejectsUnsafeShapesBoundsAndCancellation`
 - `pkg/ytdlp.TestAutonumberCountsOnlyAcceptedPlaylistEntries`
 - `internal/cache.TestRemoveRootIsConfinedAtomicAndCancellationAware`
+- `internal/cache.TestRemoveRootRejectsUnknownRootLevelTemporaryFile`
 - `internal/cli.TestOutputArtifactFlagsAndIDOrdering`
 - `internal/cli.TestLoadInfoJSONAndRemoveCacheCLIRequestsAreURLIndependent`
 - `internal/cli.TestCLIPropagatesAutonumberAcrossMultipleInputs`

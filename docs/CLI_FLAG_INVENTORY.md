@@ -193,11 +193,11 @@
 | `--write-playlist-metafiles` / `--no-write-playlist-metafiles` | present | `flags.Bool("no-write-playlist-metafiles", ...)` |
 | `--clean-info-json` / `--no-clean-info-json` | **present** | Removes only pinned private/internal metadata (and nulls) from video sidecars by default; explicit no-clean preserves the normalized envelope |
 | `--write-comments` / `--get-comments` / `--no-write-comments` / `--no-get-comments` | present | `flags.Bool("write-comments", ...)` |
-| `--load-info-json` | **present** | Loads one bounded, regular non-symlink video metadata file with URL/path/type validation and no ambient credential reuse |
+| `--load-info-json` | **present** | Loads one bounded, regular non-symlink video metadata file with URL/path/type validation and no ambient credential reuse; narrowly retries a distinct validated `webpage_url` after an uncommitted direct-URL network/internal/unsupported failure |
 | `--cookies` / `--no-cookies` | present | `flags.String("cookies", ...)` |
 | `--cookies-from-browser` / `--no-cookies-from-browser` | present | `flags.String("cookies-from-browser", ...)` |
 | `--cache-dir` / `--no-cache-dir` | present | `flags.String("cache-dir", ...)` |
-| `--rm-cache-dir` | **present** | Fail-closed removal of a configured cache root; rejects unsafe roots, symlinks, special files, and cancellation leaves remaining data intact |
+| `--rm-cache-dir` | **partial** | Unix-like builds use descriptor-bounded cleanup with shared/advisory locking and reject unknown root entries; Windows rejects destructive cleanup as an intentional safety boundary |
 
 ## Thumbnail Options
 

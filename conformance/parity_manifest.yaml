@@ -197,7 +197,7 @@ capabilities:
     name: Output naming and metadata artifact controls
     phase: 3
     compatibility_target: Provide bounded yt-dlp-compatible ID naming, missing-field placeholders, autonumber lifecycle, info JSON cleaning/loading, and confined cache removal through the native output and metadata transaction layers.
-    status: compatible
+    status: partial
     evidence:
       - pkg/ytdlp.TestOutputArtifactTemplatePlaceholderAndAutonumberCompatibility
       - pkg/ytdlp.TestInfoJSONCleaningPreservesPublicMetadataAndExplicitOverride
@@ -215,7 +215,7 @@ capabilities:
       - cli.metadata_sidecars
       - compat.output_template_minimal
       - metadata.deterministic_json
-    known_deviation: Load-info-json is bounded to one single-video metadata envelope and never restores cookies, browser cookies, netrc, or password credentials. Playlist metafiles retain entries under the default setting; explicit cleaning and no-clean modes are covered. Arbitrary Python objects, unsupported output-template types, and custom cache roots without cache-identifying path components remain outside this claim.
+    known_deviation: Load-info-json is bounded to one single-video metadata envelope and never restores cookies, browser cookies, netrc, or password credentials. A distinct validated webpage_url is retried only after an uncommitted direct top-level URL fails with a network/internal/unsupported error; broader DownloadError/ReExtractInfo compatibility is not claimed. Playlist metafiles retain entries under the default setting; explicit cleaning and no-clean modes are covered. Arbitrary Python objects, unsupported output-template types, custom cache roots without cache-identifying path components, and Windows destructive cache cleanup remain outside this claim.
 
   - id: cli.thumbnail_sidecars
     name: Thumbnail sidecars, conversion, embedding, and listing
