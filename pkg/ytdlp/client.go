@@ -956,10 +956,17 @@ func (operation *operation) setStopLocked(kind StopKind, reason string) {
 	operation.stopReason = reason
 }
 
-func (operation *operation) maxDownloadsReached() bool {
+// admitDownload reserves one selected media attempt, or atomically rejects a
+// later attempt once the operation-wide maximum has been reserved.
+func (operation *operation) admitDownload() bool {
 	operation.stateMu.Lock()
 	defer operation.stateMu.Unlock()
-	return operation.request.MaxDownloads > 0 && operation.downloads >= operation.request.MaxDownloads
+	if operation.request.MaxDownloads > 0 && operation.downloads >= operation.request.MaxDownloads {
+		operation.setStopLocked(StopMaxDownloads, "max downloads reached")
+		return false
+	}
+	operation.downloads++
+	return true
 }
 
 func (operation *operation) downloadCount() int {
@@ -968,10 +975,14 @@ func (operation *operation) downloadCount() int {
 	return operation.downloads
 }
 
-func (operation *operation) incrementDownloads() {
+func (operation *operation) finishAdmittedDownload() (bool, StopKind, string) {
 	operation.stateMu.Lock()
 	defer operation.stateMu.Unlock()
-	operation.downloads++
+	if operation.request.MaxDownloads > 0 && operation.downloads >= operation.request.MaxDownloads {
+		operation.setStopLocked(StopMaxDownloads, "max downloads reached")
+		return true, operation.stopKind, operation.stopReason
+	}
+	return false, StopNone, ""
 }
 
 func (operation *operation) stopState() (bool, StopKind, string) {
@@ -1751,18 +1762,18 @@ func (operation *operation) finishMatchFilterDecision(
 
 func (operation *operation) processMedia(ctx context.Context, extracted extractor.Extraction, extractorName string) (result Result, _ error) {
 	// counted tracks whether this entry passed selection and entered the
-	// download pipeline. The defer applies the reference _num_downloads
-	// semantics: the entry counts (even for simulated or skipped-by-size
-	// downloads) and the MaxDownloads cap is checked after the entry's
-	// processing completes, so the Nth download finishes before the stop.
+	// download pipeline. Admission reserves the operation-wide download slot
+	// atomically; the defer applies the reference _num_downloads semantics by
+	// stopping only after an admitted Nth entry finishes.
 	counted := false
 	defer func() {
 		if counted {
 			result.Downloads = 1
-			if !result.Stopped && operation.maxDownloadsReached() {
-				operation.setStop(StopMaxDownloads, "max downloads reached")
-				_, result.StopKind, result.StopReason = operation.stopState()
-				result.Stopped = true
+			if !result.Stopped {
+				if reached, stopKind, stopReason := operation.finishAdmittedDownload(); reached {
+					result.StopKind, result.StopReason = stopKind, stopReason
+					result.Stopped = true
+				}
 			}
 		}
 	}()
@@ -1901,9 +1912,14 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 			}
 		}
 	}
+	if !operation.admitDownload() {
+		result.Stopped = true
+		result.StopKind = StopMaxDownloads
+		result.StopReason = "max downloads reached"
+		return result, nil
+	}
 	operation.addAutonumber(&info)
 	result.AutonumberCount = 1
-	operation.incrementDownloads()
 	counted = true
 	result.InfoJSON, err = encodeInfo(info)
 	if err != nil {
