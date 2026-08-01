@@ -324,6 +324,34 @@ func TestDownloadDynamicMultiPeriodRejectsRepresentationReplacement(t *testing.T
 	}
 }
 
+func TestDownloadDynamicMultiPeriodRejectsDisjointSegmentReplacement(t *testing.T) {
+	var manifests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/manifest.mpd" {
+			http.Error(writer, "media must not be fetched before snapshot validation", http.StatusInternalServerError)
+			return
+		}
+		if manifests.Add(1) == 1 {
+			_, _ = fmt.Fprint(writer, dynamicMultiPeriodMPD(true))
+			return
+		}
+		updated := strings.Replace(dynamicMultiPeriodMPD(false), `p1-1.m4s`, `p1-replacement.m4s`, 1)
+		_, _ = fmt.Fprint(writer, updated)
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "video.mp4")
+	_, err := NewDownloader(transport, Config{DynamicPolls: 2, PollInterval: time.Millisecond}).Download(
+		context.Background(), server.URL+"/manifest.mpd", root, destination, false, nil)
+	if !errors.Is(err, ErrUnsupportedAddressing) || !strings.Contains(err.Error(), "disjoint segment replacement") {
+		t.Fatalf("Download() error = %v, want precise disjoint replacement error", err)
+	}
+	if entries, readErr := os.ReadDir(root); readErr != nil || len(entries) != 0 {
+		t.Fatalf("output entries = %v, error = %v; want none", entries, readErr)
+	}
+}
+
 func TestDownloadDynamicMultiPeriodSIDXFailsClosedBeforeMedia(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/manifest.mpd" {

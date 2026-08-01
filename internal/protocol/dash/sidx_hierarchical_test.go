@@ -1012,10 +1012,13 @@ func TestFetchIndexRange200ExceedsBudget(t *testing.T) {
 		resource:      make([]byte, budget+1),
 		contentLength: -1,
 	}
-	_, err := NewDownloader(transport, Config{}).fetchIndexRange(
+	result, err := NewDownloader(transport, Config{}).fetchIndexRange(
 		context.Background(), "https://media.example.test/video.mp4", 0, 8, budget)
 	if err == nil || !strings.Contains(err.Error(), "budget") {
 		t.Fatalf("err = %v, want cumulative budget error", err)
+	}
+	if result.TransferredBytes != budget+1 {
+		t.Fatalf("transferred bytes = %d, want %d", result.TransferredBytes, budget+1)
 	}
 }
 
@@ -1037,6 +1040,86 @@ func TestFetchIndexRangeExactBudgetBoundary(t *testing.T) {
 	if !bytes.Equal(result.Data, resource[8:24]) {
 		t.Fatalf("data = %x, want requested slice", result.Data)
 	}
+}
+
+func TestFetchIndexRange206ShortResponseChargesTransferredBytes(t *testing.T) {
+	transport := &fixedIndexResponseTransport{
+		status: http.StatusPartialContent, body: []byte("short"), contentRange: "bytes 0-7/8",
+	}
+	result, err := NewDownloader(transport, Config{Attempts: 1}).fetchIndexRange(
+		context.Background(), "https://media.example.test/video.mp4", 0, 8, 64)
+	if err == nil || !strings.Contains(err.Error(), "response length") {
+		t.Fatalf("err = %v, want short 206 length error", err)
+	}
+	if result.TransferredBytes != 5 {
+		t.Fatalf("transferred bytes = %d, want 5", result.TransferredBytes)
+	}
+}
+
+func TestFetchIndexRangeMismatchedContentRangeChargesNoBytes(t *testing.T) {
+	transport := &fixedIndexResponseTransport{
+		status: http.StatusPartialContent, body: []byte("ignored"), contentRange: "bytes 1-8/9",
+	}
+	result, err := NewDownloader(transport, Config{Attempts: 1}).fetchIndexRange(
+		context.Background(), "https://media.example.test/video.mp4", 0, 8, 64)
+	if err == nil || !strings.Contains(err.Error(), "Content-Range mismatch") {
+		t.Fatalf("err = %v, want Content-Range mismatch", err)
+	}
+	if result.TransferredBytes != 0 {
+		t.Fatalf("transferred bytes = %d, want 0 before body read", result.TransferredBytes)
+	}
+}
+
+func TestFetchIndexRange200ExtractionFailureChargesTransferredBytes(t *testing.T) {
+	transport := &fixedIndexResponseTransport{status: http.StatusOK, body: []byte("short"), contentLength: 5}
+	result, err := NewDownloader(transport, Config{Attempts: 1}).fetchIndexRange(
+		context.Background(), "https://media.example.test/video.mp4", 4, 8, 64)
+	if err == nil || !strings.Contains(err.Error(), "too short") {
+		t.Fatalf("err = %v, want 200 extraction length error", err)
+	}
+	if result.TransferredBytes != 5 {
+		t.Fatalf("transferred bytes = %d, want 5", result.TransferredBytes)
+	}
+}
+
+func TestExpandSIDXParseFailureChargesTransferredBytes(t *testing.T) {
+	const body = "not-sidx"
+	transport := &fixedIndexResponseTransport{
+		status: http.StatusOK, body: []byte(body), contentLength: int64(len(body)),
+	}
+	session := &sidxSessionState{}
+	_, err := NewDownloader(transport, Config{Attempts: 1}).expandOneSIDX(
+		context.Background(), Segment{URL: "https://media.example.test/video.mp4", IndexRange: "0-7"}, session)
+	if err == nil || !strings.Contains(err.Error(), "SIDX") {
+		t.Fatalf("err = %v, want SIDX parse error", err)
+	}
+	if session.indexBytes != int64(len(body)) {
+		t.Fatalf("session index bytes = %d, want %d", session.indexBytes, len(body))
+	}
+}
+
+type fixedIndexResponseTransport struct {
+	status        int
+	body          []byte
+	contentLength int64
+	contentRange  string
+}
+
+func (transport *fixedIndexResponseTransport) Do(_ context.Context, _ *http.Request) (*http.Response, error) {
+	header := http.Header{}
+	if transport.contentRange != "" {
+		header.Set("Content-Range", transport.contentRange)
+	}
+	return &http.Response{
+		StatusCode:    transport.status,
+		Body:          io.NopCloser(bytes.NewReader(transport.body)),
+		ContentLength: transport.contentLength,
+		Header:        header,
+	}, nil
+}
+
+func (transport *fixedIndexResponseTransport) ReadPage(context.Context, string) ([]byte, http.Header, error) {
+	return nil, nil, fmt.Errorf("unexpected MPD request")
 }
 
 func TestDownloadHierarchicalSIDXNoPartialPlanAfterNestedFetchFailure(t *testing.T) {
