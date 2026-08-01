@@ -105,8 +105,8 @@
 | `--remux-video` | present | `flags.String("remux-video", ...)` |
 | `--recode-video` | present | `flags.String("recode-video", ...)` |
 | `--postprocessor-args` / `--ppa` | defer | Post-processor args |
-| `--keep-video` / `-k` / `--no-keep-video` | defer | Post-process cleanup |
-| `--post-overwrites` / `--no-post-overwrites` | defer | Post-process overwrite |
+| `--keep-video` / `-k` / `--no-keep-video` | present | `Request.KeepVideo`; retains successfully replaced intermediate media only |
+| `--post-overwrites` / `--no-post-overwrites` | present | `Request.PostOverwrites`; independent postprocessor destination policy, enabled by default |
 | `--embed-subs` / `--no-embed-subs` | present | `flags.Bool("embed-subs", ...)` |
 | `--embed-thumbnail` / `--no-embed-thumbnail` | present | `flags.Bool("embed-thumbnail", ...)` |
 | `--embed-metadata` / `--add-metadata` / `--no-embed-metadata` / `--no-add-metadata` | present | `flags.Bool("embed-metadata", ...)` + `Request.EmbedMetadata` |

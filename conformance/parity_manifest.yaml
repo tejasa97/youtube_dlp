@@ -855,6 +855,14 @@ capabilities:
       - internal/media/ffmpeg.TestRecodeRejectsUnsupportedTarget
       - internal/media/ffmpeg.FuzzSubtitleEmbedMetadataValidation
       - internal/media/ffmpeg.FuzzRedactDiagnostic
+      - pkg/ytdlp.TestPostprocessLifecycleSuccessAndKeepVideo
+      - pkg/ytdlp.TestPostprocessLifecycleFailureRollsBackIntermediateCleanup
+      - pkg/ytdlp.TestPostprocessLifecycleCancellationRollsBackCommittedSuccessor
+      - pkg/ytdlp.TestPostprocessLifecyclePostOverwriteRetry
+      - pkg/ytdlp.TestPostprocessLifecycleMultiOutputNoPartAndCleanup
+      - pkg/ytdlp.TestPostprocessLifecycleSimulationAndSkipDoNotCreateMedia
+      - pkg/ytdlp.TestPostprocessLifecycleMultiOutputCancellationRollsBackAllOutputs
+      - internal/cli.TestRunPostprocessLifecycleFlags
       - internal/media/pipeline.TestDASHDownloadAndFFmpegMergeEndToEnd
       - internal/media/pipeline.TestRemuxDownloadFinalizesThenRemovesSource
       - internal/cli.TestConvertResultSubtitlesSuccessRecursesAndUsesArgv
@@ -868,7 +876,8 @@ capabilities:
       - docs/YOUTUBE_SUBTITLE_CONVERSION_EVIDENCE.md
       - docs/YOUTUBE_SUBTITLE_EMBEDDING_EVIDENCE.md
     owner: media
-    known_deviation: The operation set covers probe, separate-track merge, atomic container remux, bounded target-mapped video recoding, bounded SRT/ASS/WebVTT sidecar conversion, bounded multi-track subtitle embedding, and canonical metadata/chapter embedding. Arbitrary ffmpeg arguments, caller-selected recode codecs, broad metadata rewriting, and containers outside the documented embedding matrices remain unsupported safety boundaries.
+    known_deviation: >-
+      The operation set covers probe, separate-track merge, atomic container remux, bounded target-mapped video recoding, bounded SRT/ASS/WebVTT sidecar conversion, bounded multi-track subtitle embedding, and canonical metadata/chapter embedding. Postprocessor lifecycle cleanup is transaction-backed: sources are retired only after a successor commits, `--keep-video` retains replaced intermediate media, and `--post-overwrites` is independent from final-output overwrite policy. Arbitrary ffmpeg arguments, shell hooks, `--exec`, plugin postprocessors, concat, chapter splitting, caller-selected recode codecs, broad metadata rewriting, and containers outside the documented embedding matrices remain unsupported or unchanged safety boundaries.
 
   - id: javascript.ejs
     name: Python-free EJS execution

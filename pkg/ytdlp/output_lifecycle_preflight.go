@@ -21,20 +21,37 @@ func (operation *operation) preflightOutputLifecycles(
 	mediaDestinations []string,
 	selectedSubtitles []subtitleTrack,
 ) error {
-	var destinations []string
+	var destinations []destinationPolicy
 	for index, plan := range plans {
 		planInfo := selectedPlanInfo(info, plan)
 		operation.applyThumbnailEmbeddingOutputExtension(&planInfo, plan.Tracks)
 		if !operation.request.SkipDownload {
-			destinations = append(destinations, mediaDestinations[index])
+			destinations = append(destinations, destinationPolicy{
+				path: mediaDestinations[index], overwrite: operation.request.Overwrite,
+			})
 		}
 		derived, err := operation.outputLifecycleDestinations(planInfo, plan, mediaDestinations[index], selectedSubtitles)
 		if err != nil {
 			return err
 		}
-		destinations = append(destinations, derived...)
+		for _, path := range derived {
+			destinations = append(destinations, destinationPolicy{
+				path: path, overwrite: operation.request.Overwrite,
+			})
+		}
+		if !operation.request.SkipDownload {
+			postprocessorPaths, err := operation.postprocessorDestinations(mediaDestinations[index])
+			if err != nil {
+				return err
+			}
+			for _, path := range postprocessorPaths {
+				destinations = append(destinations, destinationPolicy{
+					path: path, overwrite: operation.request.postprocessorOverwrites(),
+				})
+			}
+		}
 	}
-	return operation.preflightMediaDestinations(destinations)
+	return operation.preflightDestinationPolicies(destinations)
 }
 
 func (operation *operation) outputLifecycleDestinations(
@@ -137,13 +154,6 @@ func (operation *operation) outputLifecycleDestinations(
 		}
 	}
 
-	if !operation.request.SkipDownload {
-		postprocessorDestinations, err := operation.postprocessorDestinations(mediaDestination)
-		if err != nil {
-			return nil, err
-		}
-		destinations = append(destinations, postprocessorDestinations...)
-	}
 	return destinations, nil
 }
 

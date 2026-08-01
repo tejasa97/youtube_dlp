@@ -520,7 +520,7 @@ func (operation *operation) executePlanLifecycle(
 		return fail(categorized("preflight postprocessor destinations", err))
 	}
 	for _, path := range postprocessorPaths {
-		if err := transaction.protectPath(path, operation.request.Overwrite); err != nil {
+		if err := transaction.protectPath(path, operation.request.postprocessorOverwrites()); err != nil {
 			return fail(categorized("prepare postprocessor destination", err))
 		}
 	}

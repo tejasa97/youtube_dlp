@@ -529,6 +529,9 @@ func validateRequestOptions(request Request) error {
 		if countPostprocessorChoices(postprocessor) != 1 {
 			return fmt.Errorf("%w: postprocessors[%d] must select exactly one operation", errInvalidRequestOptions, index)
 		}
+		if request.KeepVideo && postprocessor.Move != nil {
+			return fmt.Errorf("%w: keep-video is incompatible with move postprocessors", errInvalidRequestOptions)
+		}
 	}
 	if err := validatePostprocessorPaths(request); err != nil {
 		return fmt.Errorf("%w: %v", errInvalidRequestOptions, err)

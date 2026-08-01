@@ -634,6 +634,21 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	audioQuality := flags.Int("audio-quality", 0, "ffmpeg audio quality for --extract-audio")
 	remuxVideo := flags.String("remux-video", "", "remux video to the selected container with ffmpeg")
 	recodeVideo := flags.String("recode-video", "", "transcode video to the selected container (mapping string, e.g. mp4 or mov>mp4/webm>mp4)")
+	keepVideo := flags.Bool("keep-video", false, "keep intermediate media files after post-processing")
+	flags.BoolVar(keepVideo, "k", false, "alias for --keep-video")
+	flags.BoolFunc("no-keep-video", "delete intermediate media files after post-processing (default)", func(string) error {
+		*keepVideo = false
+		return nil
+	})
+	postOverwrites := true
+	flags.BoolFunc("post-overwrites", "overwrite post-processed destinations (default)", func(string) error {
+		postOverwrites = true
+		return nil
+	})
+	flags.BoolFunc("no-post-overwrites", "do not overwrite existing post-processed destinations", func(string) error {
+		postOverwrites = false
+		return nil
+	})
 	embedMetadata := flags.Bool("embed-metadata", false, "embed bounded canonical metadata in the final media")
 	flags.BoolVar(embedMetadata, "add-metadata", false, "alias for --embed-metadata")
 	flags.BoolFunc("no-embed-metadata", "disable metadata embedding (default)", func(input string) error {
@@ -1016,7 +1031,8 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 			CookieFile:           *cookieFile, CookiesFromBrowser: *cookiesFromBrowser, UseNetRC: *useNetRC, NetRCLocation: *netRCLocation,
 			VideoPassword:   *videoPassword,
 			DownloadArchive: *downloadArchive, ForceWriteArchive: forceWriteArchive, CacheDir: *cacheDir,
-			Timeout: *timeout, Overwrite: *overwrite, Simulate: requestSimulate, SkipDownload: *skipDownload, LiveFromStart: *liveFromStart,
+			Timeout: *timeout, Overwrite: *overwrite, KeepVideo: *keepVideo, PostOverwrites: &postOverwrites,
+			Simulate: requestSimulate, SkipDownload: *skipDownload, LiveFromStart: *liveFromStart,
 			Format: *format, FormatSort: append([]string(nil), formatSort...), FormatSortForce: formatSortForce,
 			PreferFreeFormats: preferFreeFormats, AllowUnplayableFormats: allowUnplayable,
 			AllowMultipleVideoStreams: allowMultipleVideoStreams, AllowMultipleAudioStreams: allowMultipleAudioStreams,

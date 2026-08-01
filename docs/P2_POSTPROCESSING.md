@@ -16,12 +16,16 @@ files only; it cannot turn a URL or protocol string into an ffmpeg input.
 `internal/media/postprocess` represents work as typed operations over typed
 artifacts. Supported operations are audio extraction, subtitle and thumbnail
 conversion, bounded video recoding, metadata and chapter embedding, thumbnail and subtitle embedding, compatibility fixups,
-concat, and safe file moves. An owned input is removed only after its replacement
-has been atomically finalized. Metadata and media-option values are validated;
-there is no command-string API.
+concat, and safe file moves. In the active download lifecycle, media sources
+are explicitly non-destructive graph inputs; the lifecycle transaction retires
+one only after its successor has atomically committed, and keeps a reversible
+snapshot until every output plan commits. Metadata and media-option values are
+validated; there is no command-string API.
 
 The public Go request contract exposes a tagged postprocessor union and returns
-typed output artifacts. The CLI exposes audio extraction, remuxing, bounded
+typed output artifacts. `Request.KeepVideo` retains successfully replaced
+intermediate media, while `Request.PostOverwrites` (nil defaults to enabled)
+controls only postprocessor destinations. The CLI exposes audio extraction, remuxing, bounded
 `--recode-video` target mappings, automatic canonical `--embed-metadata` and
 `--embed-chapters`, thumbnail conversion/embedding, and bounded multi-track subtitle embedding;
 embedders can request every typed operation. Operation count and path confinement are
@@ -60,3 +64,8 @@ a tested Job Object implementation.
 Hardlink-count inspection is intentionally not enforced cross-platform: callers
 must treat an `Owned` artifact as exclusively owned before asking the graph to
 delete it.
+
+This lifecycle PR deliberately does not add shell hooks, `--exec`,
+`--postprocessor-args`, plugin postprocessors, concat, or chapter splitting.
+Simulation and skip-download remain media-write suppressors, and `.part` versus
+`--no-part` remains owned by the downloader rather than postprocessor cleanup.
