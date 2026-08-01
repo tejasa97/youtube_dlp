@@ -37,6 +37,10 @@ var loadedInfoURLFields = map[string]struct{}{
 }
 
 func loadInfoJSON(ctx context.Context, filename string) (value.Info, error) {
+	return loadInfoJSONWithOpen(ctx, filename, os.Open)
+}
+
+func loadInfoJSONWithOpen(ctx context.Context, filename string, open func(string) (*os.File, error)) (value.Info, error) {
 	if err := ctx.Err(); err != nil {
 		return value.Info{}, err
 	}
@@ -53,14 +57,34 @@ func loadInfoJSON(ctx context.Context, filename string) (value.Info, error) {
 	if fileInfo.Size() < 0 || fileInfo.Size() > maxLoadedInfoJSONBytes {
 		return value.Info{}, fmt.Errorf("%w: file exceeds %d bytes", ErrInvalidInfoJSON, maxLoadedInfoJSONBytes)
 	}
-	file, err := os.Open(filename)
+	file, err := open(filename)
 	if err != nil {
 		return value.Info{}, fmt.Errorf("%w: open file", ErrInvalidInfoJSON)
 	}
 	defer file.Close()
+	openedInfo, err := file.Stat()
+	if err != nil {
+		return value.Info{}, fmt.Errorf("%w: inspect opened file", ErrInvalidInfoJSON)
+	}
+	if !openedInfo.Mode().IsRegular() || !os.SameFile(fileInfo, openedInfo) {
+		return value.Info{}, fmt.Errorf("%w: file changed while opening", ErrInvalidInfoJSON)
+	}
 	data, err := readLoadedInfoBytes(ctx, file)
 	if err != nil {
 		return value.Info{}, err
+	}
+	openedAfter, err := file.Stat()
+	if err != nil {
+		return value.Info{}, fmt.Errorf("%w: inspect opened file after reading", ErrInvalidInfoJSON)
+	}
+	pathAfter, err := os.Lstat(filename)
+	if err != nil {
+		return value.Info{}, fmt.Errorf("%w: inspect file after reading", ErrInvalidInfoJSON)
+	}
+	if pathAfter.Mode()&os.ModeSymlink != 0 || !pathAfter.Mode().IsRegular() ||
+		!os.SameFile(openedInfo, openedAfter) || !os.SameFile(openedAfter, pathAfter) ||
+		openedInfo.Size() != openedAfter.Size() || !openedInfo.ModTime().Equal(openedAfter.ModTime()) {
+		return value.Info{}, fmt.Errorf("%w: file changed while reading", ErrInvalidInfoJSON)
 	}
 	var decoded value.Value
 	if err := json.Unmarshal(data, &decoded); err != nil {

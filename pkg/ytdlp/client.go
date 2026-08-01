@@ -1192,7 +1192,6 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 		}
 		if options.Flat {
 			entryInfo := flatPlaylistEntryInfo(entry, selected.SourceIndex, playlistID, playlistTitle)
-			operation.addAutonumber(&entryInfo)
 			child, archiveIdentity, _, terminal, err := operation.prepareMediaResult(ctx, &entryInfo, entry.ExtractorKey, true)
 			if err != nil {
 				handled, stop, handlerErr := operation.handlePlaylistEntryError(ctx, extractorName, playlistTitle, selected.SourceIndex, err, &failures, &maxFailuresEmitted)
@@ -1224,6 +1223,12 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 					}
 					return Result{}, fmt.Errorf("flat playlist entry %d archive: %w", selected.SourceIndex, err)
 				}
+				operation.addAutonumber(&entryInfo)
+				child.AutonumberCount = 1
+				child.InfoJSON, err = encodeInfo(entryInfo)
+				if err != nil {
+					return Result{}, err
+				}
 				prints, err := operation.capturePrints(ctx, PrintVideo, entryInfo, nil, nil, "")
 				if err != nil {
 					return Result{}, fmt.Errorf("flat playlist entry %d print: %w", selected.SourceIndex, err)
@@ -1236,7 +1241,6 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 				addPrintFileArtifacts(&child, printArtifacts, printBytes)
 			}
 			children = append(children, child)
-			child.AutonumberCount = 1
 			entryValues = append(entryValues, value.ObjectValue(entryInfo.Fields()))
 			continue
 		}
@@ -1666,7 +1670,6 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		return Result{}, categorized("normalize formats", err)
 	}
 	info := preparedFormats.Info()
-	operation.addAutonumber(&info)
 	if operation.request.Thumbnails.List {
 		if _, err := selectThumbnails(&info); err != nil {
 			return Result{}, categorized("normalize thumbnails", err)
@@ -1684,7 +1687,6 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	if err != nil {
 		return Result{}, err
 	}
-	result.AutonumberCount = 1
 	result.Prints = append(result.Prints, preProcessPrints...)
 	addPrintFileArtifacts(&result, preProcessArtifacts, preProcessBytes)
 	if terminal {
@@ -1707,20 +1709,6 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	// the last selection step, so rejected prompts must not consume budget.
 	needsInteractiveFormat := interactiveDecision.interactive != interactiveMatchFilterNone ||
 		operation.compatibility.interactiveFormat
-	if !needsInteractiveFormat {
-		operation.downloads++
-		counted = true
-	}
-	prints, err := operation.capturePrints(ctx, PrintAfterFilter, info, nil, nil, "")
-	if err != nil {
-		return Result{}, categorized("render after-filter print", err)
-	}
-	result.Prints = append(result.Prints, prints...)
-	printArtifacts, printBytes, err := operation.writePrintFiles(ctx, PrintAfterFilter, info, nil, nil, "")
-	if err != nil {
-		return Result{}, categorized("write after-filter print file", err)
-	}
-	addPrintFileArtifacts(&result, printArtifacts, printBytes)
 	if extracted.Enrich != nil {
 		if err := extracted.Enrich(ctx, &info); err != nil {
 			return Result{}, categorized(extractorName+" deferred metadata", err)
@@ -1770,6 +1758,50 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		singlePrintPlan = &outputPlans[0]
 	}
 	operation.applyThumbnailEmbeddingOutputExtension(&info, selectedFormats)
+	if needsInteractiveFormat {
+		provisionalDestinations, resolveErr := operation.resolveOutputPlanDestinations(info, outputPlans)
+		if resolveErr != nil {
+			return Result{}, categorized("render output template", resolveErr)
+		}
+		if len(provisionalDestinations) == 0 {
+			return Result{}, categorized("select format", mediaformat.ErrNoFormats)
+		}
+		for index, plan := range outputPlans {
+			interactiveInfo := selectedPlanInfo(info, plan)
+			operation.applyThumbnailEmbeddingOutputExtension(&interactiveInfo, plan.Tracks)
+			resolved, resolveErr := operation.resolveInteractiveCompatibility(
+				ctx, interactiveInfo, interactiveDecision, provisionalDestinations[index],
+			)
+			if resolveErr != nil {
+				return Result{}, resolveErr
+			}
+			terminal, finishErr := operation.finishMatchFilterDecision(ctx, &result, extractorName, resolved)
+			if finishErr != nil {
+				return Result{}, finishErr
+			}
+			if terminal {
+				return result, nil
+			}
+		}
+	}
+	operation.addAutonumber(&info)
+	result.AutonumberCount = 1
+	operation.downloads++
+	counted = true
+	result.InfoJSON, err = encodeInfo(info)
+	if err != nil {
+		return Result{}, err
+	}
+	prints, err := operation.capturePrints(ctx, PrintAfterFilter, info, nil, nil, "")
+	if err != nil {
+		return Result{}, categorized("render after-filter print", err)
+	}
+	result.Prints = append(result.Prints, prints...)
+	printArtifacts, printBytes, err := operation.writePrintFiles(ctx, PrintAfterFilter, info, nil, nil, "")
+	if err != nil {
+		return Result{}, categorized("write after-filter print file", err)
+	}
+	addPrintFileArtifacts(&result, printArtifacts, printBytes)
 	planDestinations, err := operation.resolveOutputPlanDestinations(info, outputPlans)
 	if err != nil {
 		return Result{}, categorized("render output template", err)
@@ -1788,32 +1820,6 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		}
 	}
 	ctx = withMediaTransaction(ctx, mediaTx)
-	if needsInteractiveFormat {
-		if len(planDestinations) == 0 {
-			return Result{}, categorized("select format", mediaformat.ErrNoFormats)
-		}
-		for index, plan := range outputPlans {
-			interactiveInfo := selectedPlanInfo(info, plan)
-			operation.applyThumbnailEmbeddingOutputExtension(&interactiveInfo, plan.Tracks)
-			resolved, resolveErr := operation.resolveInteractiveCompatibility(
-				ctx, interactiveInfo, interactiveDecision, planDestinations[index],
-			)
-			if resolveErr != nil {
-				return rollbackTransactionResult(mediaTx, resolveErr)
-			}
-			terminal, finishErr := operation.finishMatchFilterDecision(ctx, &result, extractorName, resolved)
-			if finishErr != nil {
-				return rollbackTransactionResult(mediaTx, finishErr)
-			}
-			if terminal {
-				return result, nil
-			}
-		}
-	}
-	if !counted {
-		operation.downloads++
-		counted = true
-	}
 	if len(outputPlans) == 0 {
 		if err := operation.validatePrintRules(ctx, info, singlePrintPlan, selectedFormats, destination, false); err != nil {
 			return rollbackTransactionResult(mediaTx, categorized("validate print rules", err))
