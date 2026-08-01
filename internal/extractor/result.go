@@ -164,14 +164,20 @@ func (iterator *staticEntryIterator) Next(ctx context.Context) (Entry, bool, err
 
 type PageFetcher func(context.Context, int) ([]Entry, error)
 
+// PageFetcherWithContinuation returns a filtered page and whether the source
+// has another raw page. It is useful when filtering can reduce a full source
+// page below the requested page size.
+type PageFetcherWithContinuation func(context.Context, int) ([]Entry, bool, error)
+
 type ContinuationFetcher func(context.Context, string) ([]Entry, string, error)
 
 type StatefulContinuationFetcher func(context.Context, string, string) ([]Entry, string, string, error)
 
 type pagedEntries struct {
-	pageSize int
-	maxPages int
-	fetch    PageFetcher
+	pageSize              int
+	maxPages              int
+	fetch                 PageFetcher
+	fetchWithContinuation PageFetcherWithContinuation
 }
 
 // OnDemandEntries fetches zero-based pages until a short page is returned.
@@ -181,6 +187,15 @@ func OnDemandEntries(pageSize int, fetch PageFetcher) (EntrySequence, error) {
 		return nil, fmt.Errorf("%w: invalid page source", ErrInvalidPlaylist)
 	}
 	return pagedEntries{pageSize: pageSize, maxPages: defaultMaxPlaylistPages, fetch: fetch}, nil
+}
+
+// OnDemandEntriesWithContinuation is like OnDemandEntries, but the fetcher
+// supplies the continuation decision from the unfiltered source page.
+func OnDemandEntriesWithContinuation(pageSize int, fetch PageFetcherWithContinuation) (EntrySequence, error) {
+	if pageSize <= 0 || fetch == nil {
+		return nil, fmt.Errorf("%w: invalid page source", ErrInvalidPlaylist)
+	}
+	return pagedEntries{pageSize: pageSize, maxPages: defaultMaxPlaylistPages, fetchWithContinuation: fetch}, nil
 }
 
 // LazyFirstPageEntries defers a single bounded fetch until the first Next call.
@@ -401,18 +416,30 @@ func (iterator *pagedEntryIterator) Next(ctx context.Context) (Entry, bool, erro
 			iterator.done = true
 			return Entry{}, false, ErrPlaylistLimit
 		}
-		page, err := iterator.source.fetch(ctx, iterator.pageNum)
+		var page []Entry
+		var hasMore bool
+		var err error
+		if iterator.source.fetchWithContinuation != nil {
+			page, hasMore, err = iterator.source.fetchWithContinuation(ctx, iterator.pageNum)
+		} else {
+			page, err = iterator.source.fetch(ctx, iterator.pageNum)
+			hasMore = len(page) >= iterator.source.pageSize
+		}
 		if err != nil {
 			iterator.done = true
 			return Entry{}, false, err
 		}
 		iterator.pageNum++
 		iterator.page, iterator.pageIndex = append([]Entry(nil), page...), 0
-		if len(page) < iterator.source.pageSize {
+		if !hasMore {
 			iterator.lastPage = true
 		}
 		if len(page) == 0 {
-			return Entry{}, false, nil
+			if iterator.lastPage {
+				iterator.done = true
+				return Entry{}, false, nil
+			}
+			continue
 		}
 	}
 	entry := iterator.page[iterator.pageIndex]

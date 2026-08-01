@@ -359,10 +359,10 @@ func extractARDPlaylist(ctx context.Context, transport Transport, target ardTarg
 	if err != nil {
 		return Extraction{}, err
 	}
-	sequence, err := OnDemandEntries(ardPlaylistPageSize, func(ctx context.Context, page int) ([]Entry, error) {
+	sequence, err := OnDemandEntriesWithContinuation(ardPlaylistPageSize, func(ctx context.Context, page int) ([]Entry, bool, error) {
 		response, err := requestARDPlaylistPage(ctx, transport, target, page, ardPlaylistPageSize)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		entries := make([]Entry, 0, len(response.Teasers))
 		for _, teaser := range response.Teasers {
@@ -383,7 +383,7 @@ func extractARDPlaylist(ctx context.Context, transport Transport, target ardTarg
 			}
 			entries = append(entries, Entry{URL: "https://www.ardmediathek.de/" + mode + "/" + itemID, ExtractorKey: extractorKey, ID: teaser.ID, Title: teaser.LongTitle})
 		}
-		return entries, nil
+		return entries, len(response.Teasers) >= ardPlaylistPageSize, nil
 	})
 	if err != nil {
 		return Extraction{}, err

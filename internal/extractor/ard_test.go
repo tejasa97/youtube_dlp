@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -130,6 +131,91 @@ func TestARDPlaylistIsLazy(t *testing.T) {
 	}
 	if len(transport.requests) != 2 {
 		t.Fatalf("requests after iteration = %d", len(transport.requests))
+	}
+}
+
+func TestARDPlaylistContinuesAfterFilteredFullPage(t *testing.T) {
+	const itemID = "FixtureCollection"
+	const pageSize = ardPlaylistPageSize
+
+	teaser := func(id, targetID string) map[string]any {
+		return map[string]any{
+			"id":        id,
+			"type":      "video",
+			"longTitle": id,
+			"links": map[string]any{
+				"target": map[string]any{"urlId": targetID},
+			},
+		}
+	}
+	page := func(teasers []map[string]any) []byte {
+		body, err := json.Marshal(map[string]any{"title": "Fixture Collection", "teasers": teasers})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return body
+	}
+	firstPage := make([]map[string]any, pageSize)
+	firstPage[0] = teaser("self", itemID)
+	for index := 1; index < pageSize; index++ {
+		firstPage[index] = teaser("asset-"+strconv.Itoa(index), "Asset"+strconv.Itoa(index))
+	}
+	secondPage := []map[string]any{teaser("asset-100", "Asset100")}
+
+	transport := &ardRiskFixtureTransport{riskFixtureTransport: &riskFixtureTransport{handler: func(_ context.Context, request *http.Request) (*http.Response, error) {
+		query := request.URL.Query()
+		switch query.Get("pageSize") {
+		case "1":
+			return riskHTTPResponse(http.StatusOK, page(nil)), nil
+		case "100":
+			switch query.Get("pageNumber") {
+			case "0":
+				return riskHTTPResponse(http.StatusOK, page(firstPage)), nil
+			case "1":
+				return riskHTTPResponse(http.StatusOK, page(secondPage)), nil
+			default:
+				t.Fatalf("unexpected page number %q", query.Get("pageNumber"))
+				return nil, nil
+			}
+		default:
+			t.Fatalf("unexpected page size %q", query.Get("pageSize"))
+			return nil, nil
+		}
+	}}}
+	result, err := NewARDMediathekCollection().Extract(context.Background(), Request{
+		URL:       "https://www.ardmediathek.de/sendung/fixture/" + itemID,
+		Transport: transport,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(transport.requests); got != 1 {
+		t.Fatalf("requests before iteration = %d, want 1", got)
+	}
+
+	entries, err := CollectEntries(context.Background(), result.Entries, pageSize)
+	if err != nil || len(entries) != pageSize || entries[len(entries)-1].ID != "asset-100" {
+		t.Fatalf("entries=%#v error=%v", entries, err)
+	}
+	if got := len(transport.requests); got != 3 {
+		t.Fatalf("requests after first iteration = %d, want 3", got)
+	}
+
+	entries, err = CollectEntries(context.Background(), result.Entries, pageSize)
+	if err != nil || len(entries) != pageSize || entries[len(entries)-1].ID != "asset-100" {
+		t.Fatalf("reused entries=%#v error=%v", entries, err)
+	}
+	if got := len(transport.requests); got != 5 {
+		t.Fatalf("requests after reused iteration = %d, want 5", got)
+	}
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, _, err := result.Entries.Iterator().Next(cancelled); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled iteration error = %v", err)
+	}
+	if got := len(transport.requests); got != 5 {
+		t.Fatalf("requests after cancelled iteration = %d, want 5", got)
 	}
 }
 
