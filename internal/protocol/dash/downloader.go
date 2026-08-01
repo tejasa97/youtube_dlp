@@ -58,8 +58,21 @@ type Transport interface {
 	ReadPage(context.Context, string) ([]byte, http.Header, error)
 }
 
+// DynamicMPDPolicy controls whether dynamic MPDs are accepted at the DASH
+// protocol boundary. The zero value is intentionally named and means default
+// allow; callers that need the product's unsupported path can explicitly set
+// DynamicMPDPolicyDeny.
+type DynamicMPDPolicy uint8
+
+const (
+	DynamicMPDPolicyDefaultAllow DynamicMPDPolicy = iota
+	DynamicMPDPolicyAllow
+	DynamicMPDPolicyDeny
+)
+
 type Config struct {
 	Headers             http.Header
+	DynamicMPDPolicy    DynamicMPDPolicy
 	DynamicPolls        int
 	PollInterval        time.Duration
 	FragmentConcurrency int
@@ -212,6 +225,9 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 	}
 	mpd, err := downloader.load(ctx, manifestURL)
 	if err != nil {
+		return Result{}, err
+	}
+	if err := validateDynamicMPDPolicy(downloader.config.DynamicMPDPolicy, mpd); err != nil {
 		return Result{}, err
 	}
 	selected, err := selectRepresentations(mpd)
@@ -375,6 +391,20 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 		result.Tracks = append(result.Tracks, track)
 	}
 	return result, nil
+}
+
+func validateDynamicMPDPolicy(policy DynamicMPDPolicy, mpd MPD) error {
+	switch policy {
+	case DynamicMPDPolicyDefaultAllow, DynamicMPDPolicyAllow:
+		return nil
+	case DynamicMPDPolicyDeny:
+		if mpd.Dynamic {
+			return ErrDynamicMPDUnsupported
+		}
+		return nil
+	default:
+		return fmt.Errorf("%w: value %d", ErrInvalidDynamicMPDPolicy, policy)
+	}
 }
 
 func dynamicPollInterval(configured, manifest time.Duration) (time.Duration, error) {
@@ -1286,14 +1316,20 @@ func (downloader *Downloader) fetchIndexRangeAttempt(ctx context.Context, mediaU
 		return indexRangeResult{TransferredBytes: int64(len(body))}, dashRequestError(mediaURL, err, !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded))
 	}
 	transferred := int64(len(body))
+	failedRead := func(failure error) (indexRangeResult, error) {
+		// The body has already crossed the transport boundary. Preserve its
+		// measured size even when validation rejects the attempt so the caller's
+		// cumulative safety budget charges it exactly once.
+		return indexRangeResult{TransferredBytes: transferred}, failure
+	}
 
 	// Enforce per-request bound.
 	if transferred > maxIndexRangeBytes {
-		return indexRangeResult{}, fmt.Errorf("%w: index response exceeds %d bytes", ErrUnsupportedAddressing, maxIndexRangeBytes)
+		return failedRead(fmt.Errorf("%w: index response exceeds %d bytes", ErrUnsupportedAddressing, maxIndexRangeBytes))
 	}
 	// Enforce cumulative transfer budget.
 	if transferred > remainingBudget {
-		return indexRangeResult{}, fmt.Errorf("%w: cumulative index transfer budget exhausted (read %d, budget %d)", ErrUnsupportedAddressing, transferred, remainingBudget)
+		return failedRead(fmt.Errorf("%w: cumulative index transfer budget exhausted (read %d, budget %d)", ErrUnsupportedAddressing, transferred, remainingBudget))
 	}
 
 	// For a 200 response, extract the requested byte range.
@@ -1302,17 +1338,17 @@ func (downloader *Downloader) fetchIndexRangeAttempt(ctx context.Context, mediaU
 	if response.StatusCode == http.StatusOK {
 		bodyLen := int64(len(body))
 		if rangeStart > bodyLen {
-			return indexRangeResult{}, fmt.Errorf("%w: 200 response too short for requested range", ErrUnsupportedAddressing)
+			return failedRead(fmt.Errorf("%w: 200 response too short for requested range", ErrUnsupportedAddressing))
 		}
 		if rangeLength > bodyLen-rangeStart {
-			return indexRangeResult{}, fmt.Errorf("%w: 200 response too short for requested range", ErrUnsupportedAddressing)
+			return failedRead(fmt.Errorf("%w: 200 response too short for requested range", ErrUnsupportedAddressing))
 		}
 		body = body[rangeStart : rangeStart+rangeLength]
 	}
 
 	// Validate we got the expected amount of data for a 206.
 	if response.StatusCode == http.StatusPartialContent && int64(len(body)) != rangeLength {
-		return indexRangeResult{}, fmt.Errorf("%w: index response length %d != requested %d", ErrUnsupportedAddressing, len(body), rangeLength)
+		return failedRead(fmt.Errorf("%w: index response length %d != requested %d", ErrUnsupportedAddressing, len(body), rangeLength))
 	}
 
 	return indexRangeResult{Data: body, TransferredBytes: transferred}, nil

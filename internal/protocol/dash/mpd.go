@@ -17,6 +17,11 @@ var (
 	ErrInvalidMPD            = errors.New("invalid DASH MPD")
 	ErrUnsupportedTimeline   = errors.New("unsupported DASH segment timeline")
 	ErrUnsupportedAddressing = errors.New("unsupported DASH segment addressing")
+	// ErrDynamicMPDUnsupported is returned when the protocol boundary is
+	// configured to deny dynamic MPDs. Callers can map this sentinel to their
+	// product-level unsupported category without parsing error text.
+	ErrDynamicMPDUnsupported   = errors.New("dynamic DASH MPD unsupported")
+	ErrInvalidDynamicMPDPolicy = errors.New("invalid DASH dynamic MPD policy")
 )
 
 const (
@@ -80,7 +85,7 @@ type Representation struct {
 	// collapsed period. Dynamic multi-period polling rejects a template/list or
 	// SegmentBase composition change even when visible track metadata stays
 	// compatible.
-	PeriodAddressings       []string
+	PeriodAddressings []string
 }
 
 type Segment struct {

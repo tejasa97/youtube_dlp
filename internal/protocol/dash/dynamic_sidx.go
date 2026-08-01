@@ -508,13 +508,13 @@ func (state *sidxExpansionState) recordIndexTransfer(transferred int64) error {
 	if state.session != nil {
 		state.session.indexBytes += transferred
 		if state.session.indexBytes > maxCumulativeIndexBytes {
-			return fmt.Errorf("%w: cumulative index bytes exceed %d", ErrUnsupportedAddressing, maxCumulativeIndexBytes)
+			return fmt.Errorf("%w: cumulative index transfer budget exhausted (bytes %d exceed limit %d)", ErrUnsupportedAddressing, state.session.indexBytes, maxCumulativeIndexBytes)
 		}
 		return nil
 	}
 	state.indexBytes += transferred
 	if state.indexBytes > maxCumulativeIndexBytes {
-		return fmt.Errorf("%w: cumulative index bytes exceed %d", ErrUnsupportedAddressing, maxCumulativeIndexBytes)
+		return fmt.Errorf("%w: cumulative index transfer budget exhausted (bytes %d exceed limit %d)", ErrUnsupportedAddressing, state.indexBytes, maxCumulativeIndexBytes)
 	}
 	return nil
 }

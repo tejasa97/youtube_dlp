@@ -113,6 +113,82 @@ func TestDownloadRetriesTransientMPDWithoutDuplicateSegments(t *testing.T) {
 	}
 }
 
+func TestDynamicMPDPolicyDefaultsAllow(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/live.mpd" {
+			_, _ = fmt.Fprint(writer, `<MPD type="dynamic"><Period><AdaptationSet contentType="video"><Representation id="v"><SegmentTemplate media="segment.m4s"><SegmentTimeline><S t="0" d="1"/></SegmentTimeline></SegmentTemplate></Representation></AdaptationSet></Period></MPD>`)
+			return
+		}
+		_, _ = writer.Write([]byte("dynamic-allowed"))
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	result, err := NewDownloader(transport, Config{}).Download(
+		context.Background(), server.URL+"/live.mpd", root, filepath.Join(root, "out.bin"), false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, readErr := os.ReadFile(result.Tracks[0].Download.Path)
+	if readErr != nil || string(contents) != "dynamic-allowed" {
+		t.Fatalf("contents = %q, error = %v", contents, readErr)
+	}
+}
+
+func TestDynamicMPDPolicyDenyRunsParseAndURLValidationBeforeTransfer(t *testing.T) {
+	var nonManifestRequests atomic.Int32
+	var validatedURLs atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/live.mpd" {
+			_, _ = fmt.Fprint(writer, `<MPD type="dynamic"><Period><AdaptationSet contentType="video"><Representation id="v"><BaseURL>video.mp4</BaseURL><SegmentBase indexRange="0-7"/></Representation></AdaptationSet></Period></MPD>`)
+			return
+		}
+		nonManifestRequests.Add(1)
+		http.Error(writer, "dynamic policy should stop before index/media", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	_, err := NewDownloader(transport, Config{
+		DynamicMPDPolicy: DynamicMPDPolicyDeny,
+		URLValidator: func(string) error {
+			validatedURLs.Add(1)
+			return nil
+		},
+	}).Download(context.Background(), server.URL+"/live.mpd", root, filepath.Join(root, "out.bin"), false, nil)
+	if !errors.Is(err, ErrDynamicMPDUnsupported) {
+		t.Fatalf("error = %v, want ErrDynamicMPDUnsupported", err)
+	}
+	if validatedURLs.Load() < 2 {
+		t.Fatalf("validated URLs = %d, want manifest and representation URL validation", validatedURLs.Load())
+	}
+	if nonManifestRequests.Load() != 0 {
+		t.Fatalf("index/media requests = %d, want 0", nonManifestRequests.Load())
+	}
+}
+
+func TestDynamicMPDPolicyDenyLeavesStaticMPDUnaffected(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/manifest.mpd" {
+			_, _ = fmt.Fprint(writer, `<MPD mediaPresentationDuration="PT1S"><Period><AdaptationSet contentType="video"><Representation id="v"><SegmentTemplate media="segment.m4s" duration="1"/></Representation></AdaptationSet></Period></MPD>`)
+			return
+		}
+		_, _ = writer.Write([]byte("static-allowed"))
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	result, err := NewDownloader(transport, Config{DynamicMPDPolicy: DynamicMPDPolicyDeny}).Download(
+		context.Background(), server.URL+"/manifest.mpd", root, filepath.Join(root, "out.bin"), false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, readErr := os.ReadFile(result.Tracks[0].Download.Path)
+	if readErr != nil || string(contents) != "static-allowed" {
+		t.Fatalf("contents = %q, error = %v", contents, readErr)
+	}
+}
+
 func TestDownloadCancellationDuringMPDFetchDoesNotRetryOrCreateOutput(t *testing.T) {
 	var manifestAttempts atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
