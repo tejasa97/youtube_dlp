@@ -15,7 +15,7 @@
 // Categorized errors that must never be swallowed (context cancellation,
 // deadlines, resource limits, unsafe paths, configuration errors, and
 // global playlist failures) propagate regardless of the configured mode.
-// This invariant is enforced by isPlaylistErrorNonOverridable.
+// This invariant is enforced by IsNonOverridableError.
 package ytdlp
 
 import (
@@ -73,13 +73,13 @@ func DefaultPlaylistRandomSource() *rand.Rand {
 	return rand.New(rand.NewSource(time.Now().UnixNano()))
 }
 
-// isPlaylistErrorNonOverridable reports whether the supplied error belongs to
+// IsNonOverridableError reports whether the supplied error belongs to
 // a category that must propagate regardless of the configured error
 // mode. The set is closed and mirrors the categorization in categorized(); it
 // is reviewed whenever the project's error categorization gains a new root
 // sentinel. Plain entry errors that fall outside these categories are governed
 // by the playlist error policy.
-func isPlaylistErrorNonOverridable(err error) bool {
+func IsNonOverridableError(err error) bool {
 	if err == nil {
 		return false
 	}
@@ -102,6 +102,10 @@ func isPlaylistErrorNonOverridable(err error) bool {
 		return true
 	}
 	return false
+}
+
+func isPlaylistErrorNonOverridable(err error) bool {
+	return IsNonOverridableError(err)
 }
 
 // playlistEntryErrorEventKind is the emitted event kind used when an entry

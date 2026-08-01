@@ -873,17 +873,18 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 			Downloader: downloaderOptions, Postprocessors: postprocessors,
 		}
 	}
-	var firstErr error
+	var firstErr, terminalErr error
 	resultFailures := 0
 	for _, inputURL := range batchInputs {
 		result, runErr := client.Run(ctx, makeRequest(inputURL))
 		if runErr != nil {
+			fmt.Fprintf(stderr, "ytdlp-go: %v\n", runErr)
+			if ytdlp.IsNonOverridableError(runErr) {
+				terminalErr = runErr
+				break
+			}
 			if firstErr == nil {
 				firstErr = runErr
-			}
-			fmt.Fprintf(stderr, "ytdlp-go: %v\n", runErr)
-			if exitCode(runErr) == 130 {
-				break
 			}
 			continue
 		}
@@ -954,6 +955,9 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 			fmt.Fprintln(stderr, "ytdlp-go: cannot write telemetry snapshot")
 			return 1
 		}
+	}
+	if terminalErr != nil {
+		return exitCode(terminalErr)
 	}
 	if firstErr != nil {
 		return exitCode(firstErr)
@@ -1225,10 +1229,11 @@ const (
 // the supplied stdin reader, which keeps the boundary deterministic for both
 // the command and embedded callers.
 func readBatchInputs(files []string, stdin io.Reader, positional []string) ([]string, error) {
-	if len(positional) > maxBatchInputs {
-		return nil, fmt.Errorf("too many input URLs (maximum %d)", maxBatchInputs)
+	capacity := len(positional)
+	if capacity > maxBatchInputs {
+		capacity = maxBatchInputs
 	}
-	inputs := append([]string(nil), positional...)
+	inputs := make([]string, 0, capacity)
 	stdinRead := false
 	for _, filename := range files {
 		var content []byte
@@ -1279,6 +1284,12 @@ func readBatchInputs(files []string, stdin io.Reader, positional []string) ([]st
 		if err := scanner.Err(); err != nil {
 			return nil, fmt.Errorf("read batch file %q: %w", filename, err)
 		}
+	}
+	for _, input := range positional {
+		if len(inputs) == maxBatchInputs {
+			return nil, fmt.Errorf("too many input URLs (maximum %d)", maxBatchInputs)
+		}
+		inputs = append(inputs, input)
 	}
 	return inputs, nil
 }
