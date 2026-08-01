@@ -141,13 +141,16 @@ type Request struct {
 	// while still performing extraction. ForceWriteArchive is the explicit
 	// exception for successful selected entries. Unlike SkipDownload, it does
 	// not permit related-file writes.
-	Simulate            bool
-	SkipDownload        bool
-	Format              string
-	FormatSort          []string
-	FormatSortForce     bool
-	PreferredExtensions []string
-	PreferFreeFormats   bool
+	Simulate     bool
+	SkipDownload bool
+	Format       string
+	// HLSSplitDiscontinuity selects the first eligible discontinuity group from
+	// an already-selected HLS representation. It never creates extra outputs.
+	HLSSplitDiscontinuity bool
+	FormatSort            []string
+	FormatSortForce       bool
+	PreferredExtensions   []string
+	PreferFreeFormats     bool
 	// MergeOutputFormat is a slash-separated container preference order used
 	// when merging multiple format tracks (for example "mp4/mkv"). CLI
 	// exposure is added in a later PR; execution consumes the field now.
@@ -225,6 +228,9 @@ type Request struct {
 	EmbedMetadata bool
 	EmbedChapters *bool
 	Downloader    DownloaderOptions
+	// DenyDynamicMPD maps the product's --no-allow-dynamic-mpd policy to the
+	// DASH protocol boundary. The zero value intentionally allows dynamic MPDs.
+	DenyDynamicMPD bool
 	// ExtractorRetries bounds retries of entered extractor operations only when
 	// the selected extractor explicitly implements extractor.RetrySafeExtractor.
 	// Extractors without that replay-safety capability are called once. A zero
@@ -1885,6 +1891,12 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		if err != nil {
 			return result, categorized("select format", err)
 		}
+		if operation.request.HLSSplitDiscontinuity {
+			outputPlans, err = operation.selectDefaultHLSDiscontinuityPlans(ctx, outputPlans)
+			if err != nil {
+				return result, categorized("select HLS discontinuity group", err)
+			}
+		}
 		if len(outputPlans) > 0 {
 			selectedFormats = outputPlans[0].Tracks
 		}
@@ -2417,6 +2429,7 @@ func categorized(op string, err error) error {
 		category = ErrorUnsupported
 	case errors.Is(err, downloader.ErrExternalUnavailable), errors.Is(err, hls.ErrUnsupportedEncryption),
 		errors.Is(err, dash.ErrUnsupportedTimeline), errors.Is(err, dash.ErrUnsupportedAddressing),
+		errors.Is(err, dash.ErrDynamicMPDUnsupported),
 		errors.Is(err, hds.ErrUnsupportedLive), errors.Is(err, hds.ErrUnsupportedDRM),
 		errors.Is(err, hds.ErrUnsupportedEmpty):
 		category = ErrorUnsupported
@@ -2434,6 +2447,7 @@ func categorized(op string, err error) error {
 		errors.Is(err, downloader.ErrTooManyAttempts), errors.Is(err, downloader.ErrInvalidLimits),
 		errors.Is(err, downloader.ErrUnsafeExternalArg), errors.Is(err, downloader.ErrUnsafeExternalTool),
 		errors.Is(err, downloader.ErrInvalidExternalURL),
+		errors.Is(err, dash.ErrInvalidDynamicMPDPolicy),
 		errors.Is(err, fragment.ErrTooManySegments), errors.Is(err, fragment.ErrTooManyAttempts),
 		errors.Is(err, fragment.ErrTooMuchConcurrency), errors.Is(err, fragment.ErrSegmentTooLarge),
 		errors.Is(err, fragment.ErrUnsafeDestination), errors.Is(err, ism.ErrInvalidConfig),

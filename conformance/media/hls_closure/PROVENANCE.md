@@ -30,3 +30,15 @@ The fixtures prove only these claims:
 
 Hostile URI and duplicate-attribute cases are generated inline by the parser
 tests so every input remains visibly local and deterministic.
+
+Product integration is covered by local scripted HTTP fixtures in
+`pkg/ytdlp/adaptive_streaming_resilience_product_test.go`. The product exposes
+the approved `--hls-split-discontinuity` behavior after ordinary format
+selection: it discovers groups only for the selected HLS representation and
+pins the downloader to the first eligible group. It preserves the normal
+single-group destination and keeps maps/keys, retry, cancellation, transaction
+cleanup, archive state, and redacted group-aware progress within the existing
+boundaries. Explicit multi-group product selection is deferred in v2 because
+no unapproved selector or public API is added. Merged output plans containing
+multiple native HLS tracks are rejected before probing because their absolute
+discontinuity identities may differ; the product never synchronizes them.
