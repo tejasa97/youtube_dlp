@@ -14,9 +14,13 @@ covered controls are:
 - `--output-na-placeholder` is applied only by confined filename rendering;
   the default remains `NA` and the value is bounded and free of control lines.
 - `--autonumber-start` and `--autonumber-size` are deterministic across nested
-  playlist entries and multiple CLI inputs. Rejected entries consume a slot,
-  matching the reference's video-count lifecycle. The public Go request carries
-  the caller's prior zero-based count so concurrent clients do not share state.
+  playlist entries and multiple CLI inputs. Rejected, archived, and
+  extractor-before-selection failures do not advance the counter; an accepted
+  attempt remains counted if a later output step fails. `pre_process` and
+  `after_filter` print stages use the pinned provisional, non-consuming value,
+  while output filenames use the committed accepted count. `--break-per-input`
+  resets that count for every top-level input. The public Go request carries the
+  caller's prior zero-based count so concurrent clients do not share state.
 - Info JSON cleaning removes the pinned private field set recursively and
   omits nulls. By default playlist metafiles retain `entries`, matching the
   reference's default playlist-metafile behavior; explicit `--clean-info-json`
@@ -24,7 +28,9 @@ covered controls are:
   normalized fields.
 - `--load-info-json` accepts one bounded single-video object only. It rejects
   playlists, path-bearing private fields, unsupported/userinfo URLs, malformed
-  headers, credential fields, oversized/deep input, and symlink files. Cookie,
+  headers, credential fields, oversized/deep input, and symlink files. Its
+  platform snapshot open does not follow the final path component, and opened
+  handle/path identities are checked before and after the bounded read. Cookie,
   browser-cookie, netrc, and video-password request options are rejected at the
   API boundary so a loaded file cannot reuse ambient credentials.
 - `--rm-cache-dir` removes only an explicitly configured cache-named root using
@@ -37,8 +43,9 @@ Evidence is provided by:
 - `pkg/ytdlp.TestOutputArtifactTemplatePlaceholderAndAutonumberCompatibility`
 - `pkg/ytdlp.TestInfoJSONCleaningPreservesPublicMetadataAndExplicitOverride`
 - `pkg/ytdlp.TestLoadInfoJSONDownloadsBoundedMetadataWithoutAmbientCredentials`
+- `pkg/ytdlp.TestLoadInfoJSONPreservesAcceptedAutonumberOnOutputFailure`
 - `pkg/ytdlp.TestLoadInfoJSONRejectsUnsafeShapesBoundsAndCancellation`
-- `pkg/ytdlp.TestAutonumberTracksPlaylistEntriesAndRejectedMedia`
+- `pkg/ytdlp.TestAutonumberCountsOnlyAcceptedPlaylistEntries`
 - `internal/cache.TestRemoveRootIsConfinedAtomicAndCancellationAware`
 - `internal/cli.TestOutputArtifactFlagsAndIDOrdering`
 - `internal/cli.TestLoadInfoJSONAndRemoveCacheCLIRequestsAreURLIndependent`

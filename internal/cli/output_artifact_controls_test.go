@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -55,6 +56,14 @@ type artifactAutonumberRunner struct {
 
 func (runner *artifactAutonumberRunner) Run(_ context.Context, request ytdlp.Request) (ytdlp.Result, error) {
 	runner.requests = append(runner.requests, request)
+	switch filepath.Base(request.URL) {
+	case "rejected", "archived":
+		return ytdlp.Result{}, nil
+	case "error":
+		return ytdlp.Result{}, &ytdlp.Error{Category: ytdlp.ErrorNetwork, Op: "fixture", Err: errors.New("entry failed")}
+	case "accepted-error":
+		return ytdlp.Result{AutonumberCount: 1}, &ytdlp.Error{Category: ytdlp.ErrorNetwork, Op: "fixture", Err: errors.New("accepted entry failed")}
+	}
 	return ytdlp.Result{AutonumberCount: 1}, nil
 }
 
@@ -62,12 +71,30 @@ func TestCLIPropagatesAutonumberAcrossMultipleInputs(t *testing.T) {
 	runner := &artifactAutonumberRunner{}
 	var stdout, stderr bytes.Buffer
 	code := runContextIOWithDependencies(context.Background(), []string{
-		"--autonumber-start", "9", "--autonumber-size", "4", "https://example.invalid/one", "https://example.invalid/two",
+		"--autonumber-start", "9", "--autonumber-size", "4",
+		"https://example.invalid/accepted-one", "https://example.invalid/rejected",
+		"https://example.invalid/archived", "https://example.invalid/error",
+		"https://example.invalid/accepted-error",
+		"https://example.invalid/accepted-two",
 	}, nil, &stdout, &stderr, runDependencies{newRunner: func([]ytdlp.Option) cliRunner { return runner }})
-	if code != 0 || len(runner.requests) != 2 {
+	if code != 4 || len(runner.requests) != 6 {
 		t.Fatalf("code=%d requests=%+v stderr=%q", code, runner.requests, stderr.String())
 	}
-	if runner.requests[0].AutonumberIndex != 0 || runner.requests[1].AutonumberIndex != 1 {
-		t.Fatalf("autonumber indexes=%d,%d", runner.requests[0].AutonumberIndex, runner.requests[1].AutonumberIndex)
+	want := []int{0, 1, 1, 1, 1, 2}
+	for index, request := range runner.requests {
+		if request.AutonumberIndex != want[index] {
+			t.Fatalf("request %d autonumber index=%d; want %d", index, request.AutonumberIndex, want[index])
+		}
+	}
+
+	resetRunner := &artifactAutonumberRunner{}
+	stdout.Reset()
+	stderr.Reset()
+	code = runContextIOWithDependencies(context.Background(), []string{
+		"--break-per-input", "https://example.invalid/accepted-one", "https://example.invalid/accepted-two",
+	}, nil, &stdout, &stderr, runDependencies{newRunner: func([]ytdlp.Option) cliRunner { return resetRunner }})
+	if code != 0 || len(resetRunner.requests) != 2 ||
+		resetRunner.requests[0].AutonumberIndex != 0 || resetRunner.requests[1].AutonumberIndex != 0 {
+		t.Fatalf("break-per-input code=%d requests=%+v stderr=%q", code, resetRunner.requests, stderr.String())
 	}
 }

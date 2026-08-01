@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/ytdlp-go/ytdlp/internal/archive"
+	cookiesnapshot "github.com/ytdlp-go/ytdlp/internal/cookies/snapshot"
 	"github.com/ytdlp-go/ytdlp/internal/extractor"
 	"github.com/ytdlp-go/ytdlp/internal/network"
 	"github.com/ytdlp-go/ytdlp/internal/testserver"
@@ -54,6 +55,22 @@ func TestLoadInfoJSONDownloadsBoundedMetadataWithoutAmbientCredentials(t *testin
 	}
 }
 
+func TestLoadInfoJSONPreservesAcceptedAutonumberOnOutputFailure(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	input := writeInfoFixture(t, `{"id":"accepted","title":"Accepted","url":"`+server.URL+`/media","ext":"bin"}`)
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "occupied.bin"), []byte("existing"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := NewClient().Run(context.Background(), Request{
+		LoadInfoJSON: input, OutputDir: root, OutputTemplate: "occupied.bin",
+	})
+	if err == nil || result.AutonumberCount != 1 {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+}
+
 func TestLoadInfoJSONRejectsUnsafeShapesBoundsAndCancellation(t *testing.T) {
 	t.Run("symlink", func(t *testing.T) {
 		target := writeInfoFixture(t, `{"id":"x","title":"X","url":"https://example.invalid/x"}`)
@@ -90,6 +107,32 @@ func TestLoadInfoJSONRejectsUnsafeShapesBoundsAndCancellation(t *testing.T) {
 		})
 		if !errors.Is(err, ErrInvalidInfoJSON) {
 			t.Fatalf("swapped path error=%v", err)
+		}
+	})
+	t.Run("path swapped to symlink before open", func(t *testing.T) {
+		directory := t.TempDir()
+		path := filepath.Join(directory, "fixture.info.json")
+		target := filepath.Join(directory, "target.info.json")
+		original := filepath.Join(directory, "original.info.json")
+		for name, data := range map[string]string{
+			path:   `{"id":"original","title":"Original","url":"https://example.invalid/original"}`,
+			target: `{"id":"target","title":"Target","url":"https://example.invalid/target"}`,
+		} {
+			if err := os.WriteFile(name, []byte(data), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		_, err := loadInfoJSONWithOpen(context.Background(), path, func(name string) (*os.File, error) {
+			if err := os.Rename(name, original); err != nil {
+				return nil, err
+			}
+			if err := os.Symlink(target, name); err != nil {
+				return nil, err
+			}
+			return cookiesnapshot.OpenReadOnlyNoFollow(name)
+		})
+		if !errors.Is(err, ErrInvalidInfoJSON) {
+			t.Fatalf("swapped symlink error=%v", err)
 		}
 	})
 	t.Run("wrong root", func(t *testing.T) {
@@ -205,6 +248,10 @@ func TestAutonumberCountsOnlyAcceptedPlaylistEntries(t *testing.T) {
 			SkipDownload: true, MatchFilters: []string{`title != "Reject"`},
 			AutonumberStart: 4, AutonumberSize: 3,
 			Playlist: PlaylistOptions{ErrorPolicy: PlaylistErrorContinue},
+			PrintRules: []PrintRule{
+				{Stage: PrintPreProcess, Template: "%(autonumber)s|%(autonumber)03d"},
+				{Stage: PrintAfterFilter, Template: "%(autonumber)s|%(autonumber)03d"},
+			},
 		},
 		transport: transport, archive: store,
 		registry: extractor.NewRegistry(autonumberLifecycleExtractor{}),
@@ -232,5 +279,14 @@ func TestAutonumberCountsOnlyAcceptedPlaylistEntries(t *testing.T) {
 	}
 	if !result.Entries[1].Skipped || !result.Entries[2].Archived {
 		t.Fatalf("rejected/archive lifecycle=%#v", result.Entries)
+	}
+	if got := result.Entries[0].Prints; len(got) != 2 || got[0].Text != "3|003" || got[1].Text != "3|003" {
+		t.Fatalf("first accepted provisional prints=%#v", got)
+	}
+	if got := result.Entries[1].Prints; len(got) != 1 || got[0].Text != "4|004" {
+		t.Fatalf("rejected provisional prints=%#v", got)
+	}
+	if got := result.Entries[2].Prints; len(got) != 2 || got[0].Text != "4|004" || got[1].Text != "4|004" {
+		t.Fatalf("archived provisional prints=%#v", got)
 	}
 }

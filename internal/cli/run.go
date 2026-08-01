@@ -1108,6 +1108,7 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 			}
 		}
 		sharedMaxReached := *maxDownloads > 0 && !breakPerInput && result.Downloads > 0 && remainingDownloads == 0
+		autonumberIndex += result.AutonumberCount
 		if runErr != nil {
 			fmt.Fprintf(stderr, "ytdlp-go: %v\n", runErr)
 			if ytdlp.IsNonOverridableError(runErr) {
@@ -1122,7 +1123,6 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 			}
 			continue
 		}
-		autonumberIndex += result.AutonumberCount
 		if hasConsolePrintRules(printRules) {
 			if writeErr := writePrintOutputs(ctx, result, stdout); writeErr != nil {
 				if firstErr == nil {

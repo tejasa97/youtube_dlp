@@ -12,6 +12,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	cookiesnapshot "github.com/ytdlp-go/ytdlp/internal/cookies/snapshot"
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
 
@@ -37,7 +38,7 @@ var loadedInfoURLFields = map[string]struct{}{
 }
 
 func loadInfoJSON(ctx context.Context, filename string) (value.Info, error) {
-	return loadInfoJSONWithOpen(ctx, filename, os.Open)
+	return loadInfoJSONWithOpen(ctx, filename, cookiesnapshot.OpenReadOnlyNoFollow)
 }
 
 func loadInfoJSONWithOpen(ctx context.Context, filename string, open func(string) (*os.File, error)) (value.Info, error) {

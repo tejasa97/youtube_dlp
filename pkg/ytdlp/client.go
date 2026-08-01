@@ -580,16 +580,20 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 			return Result{}, categorized("load info JSON", loadErr)
 		}
 		rootExtractor = "loaded-info-json"
-		return operation.processMedia(ctx, extractor.Media(info), "loaded-info-json")
+		result, runErr = operation.processMedia(ctx, extractor.Media(info), "loaded-info-json")
+	} else {
+		// Explicit selected/all checks take precedence over allow-unplayable. The
+		// latter bypasses only Auto's DRM/needs-testing default policy.
+		if shouldCheckFormats(request.CheckFormats, request.AllowUnplayableFormats) {
+			checker := newFormatAvailabilityChecker(ctx, transport, request.CheckFormats)
+			operation.formatAvailability = checker
+			operation.formatAvailabilityChecker = checker
+		}
+		result, runErr = operation.process(ctx, request.URL, request.PluginID, nil, make(map[string]bool), 0)
 	}
-	// Explicit selected/all checks take precedence over allow-unplayable. The
-	// latter bypasses only Auto's DRM/needs-testing default policy.
-	if shouldCheckFormats(request.CheckFormats, request.AllowUnplayableFormats) {
-		checker := newFormatAvailabilityChecker(ctx, transport, request.CheckFormats)
-		operation.formatAvailability = checker
-		operation.formatAvailabilityChecker = checker
+	if accepted := operation.autonumberCount(); result.AutonumberCount < accepted {
+		result.AutonumberCount = accepted
 	}
-	result, runErr = operation.process(ctx, request.URL, request.PluginID, nil, make(map[string]bool), 0)
 	if runErr != nil {
 		// Selected attempts are part of yt-dlp's shared _num_downloads budget
 		// even when their download/post-processing path returns an error. Some
@@ -1675,11 +1679,12 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 			return Result{}, categorized("normalize thumbnails", err)
 		}
 	}
-	preProcessPrints, err := operation.capturePrints(ctx, PrintPreProcess, info, nil, nil, "")
+	preProcessInfo := operation.provisionalAutonumberInfo(info)
+	preProcessPrints, err := operation.capturePrints(ctx, PrintPreProcess, preProcessInfo, nil, nil, "")
 	if err != nil {
 		return Result{}, categorized("render pre-process print", err)
 	}
-	preProcessArtifacts, preProcessBytes, err := operation.writePrintFiles(ctx, PrintPreProcess, info, nil, nil, "")
+	preProcessArtifacts, preProcessBytes, err := operation.writePrintFiles(ctx, PrintPreProcess, preProcessInfo, nil, nil, "")
 	if err != nil {
 		return Result{}, categorized("write pre-process print file", err)
 	}
@@ -1691,12 +1696,13 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	addPrintFileArtifacts(&result, preProcessArtifacts, preProcessBytes)
 	if terminal {
 		if !result.Skipped {
-			prints, printErr := operation.capturePrints(ctx, PrintAfterFilter, info, nil, nil, "")
+			afterFilterInfo := operation.provisionalAutonumberInfo(info)
+			prints, printErr := operation.capturePrints(ctx, PrintAfterFilter, afterFilterInfo, nil, nil, "")
 			if printErr != nil {
 				return Result{}, categorized("render after-filter print", printErr)
 			}
 			result.Prints = append(result.Prints, prints...)
-			printArtifacts, printBytes, printErr := operation.writePrintFiles(ctx, PrintAfterFilter, info, nil, nil, "")
+			printArtifacts, printBytes, printErr := operation.writePrintFiles(ctx, PrintAfterFilter, afterFilterInfo, nil, nil, "")
 			if printErr != nil {
 				return Result{}, categorized("write after-filter print file", printErr)
 			}
@@ -1721,6 +1727,17 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	if err := operation.enrichWithSponsorBlock(ctx, extractorName, &info); err != nil {
 		return Result{}, err
 	}
+	afterFilterInfo := operation.provisionalAutonumberInfo(info)
+	prints, err := operation.capturePrints(ctx, PrintAfterFilter, afterFilterInfo, nil, nil, "")
+	if err != nil {
+		return Result{}, categorized("render after-filter print", err)
+	}
+	result.Prints = append(result.Prints, prints...)
+	printArtifacts, printBytes, err := operation.writePrintFiles(ctx, PrintAfterFilter, afterFilterInfo, nil, nil, "")
+	if err != nil {
+		return Result{}, categorized("write after-filter print file", err)
+	}
+	addPrintFileArtifacts(&result, printArtifacts, printBytes)
 	selectedSubtitles, requestedSubtitles, err := selectSubtitles(info, operation.request.Subtitles)
 	if err != nil {
 		return Result{}, categorized("select subtitles", err)
@@ -1792,16 +1809,6 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	if err != nil {
 		return Result{}, err
 	}
-	prints, err := operation.capturePrints(ctx, PrintAfterFilter, info, nil, nil, "")
-	if err != nil {
-		return Result{}, categorized("render after-filter print", err)
-	}
-	result.Prints = append(result.Prints, prints...)
-	printArtifacts, printBytes, err := operation.writePrintFiles(ctx, PrintAfterFilter, info, nil, nil, "")
-	if err != nil {
-		return Result{}, categorized("write after-filter print file", err)
-	}
-	addPrintFileArtifacts(&result, printArtifacts, printBytes)
 	planDestinations, err := operation.resolveOutputPlanDestinations(info, outputPlans)
 	if err != nil {
 		return Result{}, categorized("render output template", err)
@@ -2165,6 +2172,28 @@ func (operation *operation) addAutonumber(info *value.Info) {
 	}
 	info.Set("autonumber", value.Int(int64(start+operation.autonumberNext)))
 	operation.autonumberNext++
+}
+
+func (operation *operation) provisionalAutonumberInfo(info value.Info) value.Info {
+	operation.autonumberMu.Lock()
+	defer operation.autonumberMu.Unlock()
+	start := operation.request.AutonumberStart
+	if start <= 0 {
+		start = 1
+	}
+	provisional := value.NewInfo(info.Fields().Clone())
+	provisional.Set("autonumber", value.Int(int64(start-1+operation.autonumberNext)))
+	return provisional
+}
+
+func (operation *operation) autonumberCount() int {
+	operation.autonumberMu.Lock()
+	defer operation.autonumberMu.Unlock()
+	count := operation.autonumberNext - operation.request.AutonumberIndex
+	if count < 0 {
+		return 0
+	}
+	return count
 }
 
 func oldArchiveIDs(info value.Info) ([]string, error) {

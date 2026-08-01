@@ -202,8 +202,9 @@ capabilities:
       - pkg/ytdlp.TestOutputArtifactTemplatePlaceholderAndAutonumberCompatibility
       - pkg/ytdlp.TestInfoJSONCleaningPreservesPublicMetadataAndExplicitOverride
       - pkg/ytdlp.TestLoadInfoJSONDownloadsBoundedMetadataWithoutAmbientCredentials
+      - pkg/ytdlp.TestLoadInfoJSONPreservesAcceptedAutonumberOnOutputFailure
       - pkg/ytdlp.TestLoadInfoJSONRejectsUnsafeShapesBoundsAndCancellation
-      - pkg/ytdlp.TestAutonumberTracksPlaylistEntriesAndRejectedMedia
+      - pkg/ytdlp.TestAutonumberCountsOnlyAcceptedPlaylistEntries
       - internal/cache.TestRemoveRootIsConfinedAtomicAndCancellationAware
       - internal/cli.TestOutputArtifactFlagsAndIDOrdering
       - internal/cli.TestLoadInfoJSONAndRemoveCacheCLIRequestsAreURLIndependent
