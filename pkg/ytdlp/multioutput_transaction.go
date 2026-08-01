@@ -226,11 +226,28 @@ func backupExistingRegularFile(path string, overwrite bool) (string, error) {
 }
 
 func (operation *operation) preflightMediaDestinations(destinations []string) error {
+	policies := make([]destinationPolicy, len(destinations))
+	for index, destination := range destinations {
+		policies[index] = destinationPolicy{path: destination, overwrite: operation.request.Overwrite}
+	}
+	return operation.preflightDestinationPolicies(policies)
+}
+
+type destinationPolicy struct {
+	path      string
+	overwrite bool
+}
+
+func (operation *operation) preflightDestinationPolicies(policies []destinationPolicy) error {
+	destinations := make([]string, len(policies))
+	for index, policy := range policies {
+		destinations[index] = policy.path
+	}
 	if err := validatePortableDestinationSet(destinations); err != nil {
 		return err
 	}
-	for _, destination := range destinations {
-		if err := inspectDestinationPath(destination, operation.request.Overwrite); err != nil {
+	for _, policy := range policies {
+		if err := inspectDestinationPath(policy.path, policy.overwrite); err != nil {
 			return err
 		}
 	}

@@ -2,6 +2,7 @@ package ytdlp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -36,18 +37,24 @@ func (operation *operation) applyPostprocessors(ctx context.Context, outputRoot,
 		}
 		var graphOperation postprocess.Operation
 		needsTools := true
+		sourcePath := current
+		retireSource := false
 		switch {
 		case specification.ExtractAudio != nil:
 			config := specification.ExtractAudio
+			retireSource = true
 			destination, err := postprocessOutput(outputRoot, config.Destination, current, config.Codec)
 			if err != nil {
 				return "", nil, err
 			}
+			if err := operation.protectPostprocessDestination(ctx, destination); err != nil {
+				return "", nil, err
+			}
 			graphOperation = postprocess.AudioExtract{
-				Input:     postprocess.Artifact{Path: current, Kind: postprocess.ArtifactMedia, Owned: true},
+				Input:     postprocess.Artifact{Path: current, Kind: postprocess.ArtifactMedia},
 				Output:    postprocess.Artifact{Path: destination, Kind: postprocess.ArtifactMedia},
 				Options:   ffmpeg.AudioOptions{Codec: config.Codec, Bitrate: config.Bitrate, Quality: config.Quality},
-				Overwrite: operation.request.Overwrite,
+				Overwrite: operation.request.postprocessorOverwrites(),
 			}
 			current = destination
 		case specification.Remux != nil:
@@ -59,17 +66,18 @@ func (operation *operation) applyPostprocessors(ctx context.Context, outputRoot,
 			if err != nil {
 				return "", nil, err
 			}
+			if err := operation.protectPostprocessDestination(ctx, destination); err != nil {
+				return "", nil, err
+			}
 			toolset, err := discover()
 			if err != nil {
 				return "", nil, err
 			}
-			if err := toolset.Remux(ctx, current, destination, operation.request.Overwrite, sink); err != nil {
+			if err := toolset.Remux(ctx, current, destination, operation.request.postprocessorOverwrites(), sink); err != nil {
 				return "", nil, err
 			}
-			if current != destination {
-				if err := os.Remove(current); err != nil {
-					return "", nil, err
-				}
+			if err := operation.retirePostprocessSource(ctx, sourcePath, destination); err != nil {
+				return "", nil, err
 			}
 			current = destination
 			continue
@@ -101,16 +109,20 @@ func (operation *operation) applyPostprocessors(ctx context.Context, outputRoot,
 				}
 				continue
 			}
+			retireSource = true
 			destination, err := postprocessOutput(outputRoot, config.Destination, current, target)
 			if err != nil {
 				return "", nil, err
 			}
+			if err := operation.protectPostprocessDestination(ctx, destination); err != nil {
+				return "", nil, err
+			}
 			graphOperation = postprocess.Recode{
-				Input:     postprocess.Artifact{Path: current, Kind: postprocess.ArtifactMedia, Owned: true},
+				Input:     postprocess.Artifact{Path: current, Kind: postprocess.ArtifactMedia},
 				Output:    postprocess.Artifact{Path: destination, Kind: postprocess.ArtifactMedia},
 				SourceExt: sourceExtension,
 				Mapping:   mapping,
-				Overwrite: operation.request.Overwrite,
+				Overwrite: operation.request.postprocessorOverwrites(),
 			}
 			current = destination
 		case specification.ConvertSubtitle != nil:
@@ -123,7 +135,10 @@ func (operation *operation) applyPostprocessors(ctx context.Context, outputRoot,
 			if err != nil {
 				return "", nil, err
 			}
-			graphOperation = postprocess.SubtitleConvert{Input: postprocess.Artifact{Path: source, Kind: postprocess.ArtifactSubtitle}, Output: postprocess.Artifact{Path: destination, Kind: postprocess.ArtifactSubtitle}, Options: ffmpeg.SubtitleOptions{Format: config.Format}, Overwrite: operation.request.Overwrite}
+			if err := operation.protectPostprocessDestination(ctx, destination); err != nil {
+				return "", nil, err
+			}
+			graphOperation = postprocess.SubtitleConvert{Input: postprocess.Artifact{Path: source, Kind: postprocess.ArtifactSubtitle}, Output: postprocess.Artifact{Path: destination, Kind: postprocess.ArtifactSubtitle}, Options: ffmpeg.SubtitleOptions{Format: config.Format}, Overwrite: operation.request.postprocessorOverwrites()}
 			auxiliary = append(auxiliary, Artifact{Path: destination, Kind: "subtitle"})
 		case specification.ConvertThumbnail != nil:
 			config := specification.ConvertThumbnail
@@ -135,30 +150,42 @@ func (operation *operation) applyPostprocessors(ctx context.Context, outputRoot,
 			if err != nil {
 				return "", nil, err
 			}
-			graphOperation = postprocess.ThumbnailConvert{Input: postprocess.Artifact{Path: source, Kind: postprocess.ArtifactThumbnail}, Output: postprocess.Artifact{Path: destination, Kind: postprocess.ArtifactThumbnail}, Options: ffmpeg.ImageOptions{Format: config.Format}, Overwrite: operation.request.Overwrite}
+			if err := operation.protectPostprocessDestination(ctx, destination); err != nil {
+				return "", nil, err
+			}
+			graphOperation = postprocess.ThumbnailConvert{Input: postprocess.Artifact{Path: source, Kind: postprocess.ArtifactThumbnail}, Output: postprocess.Artifact{Path: destination, Kind: postprocess.ArtifactThumbnail}, Options: ffmpeg.ImageOptions{Format: config.Format}, Overwrite: operation.request.postprocessorOverwrites()}
 			auxiliary = append(auxiliary, Artifact{Path: destination, Kind: "thumbnail"})
 		case specification.EmbedMetadata != nil:
 			config := specification.EmbedMetadata
+			retireSource = true
 			destination, err := postprocessOutput(outputRoot, config.Destination, current, filepath.Ext(current))
 			if err != nil {
 				return "", nil, err
 			}
-			graphOperation = postprocess.MetadataEmbed{Input: postprocess.Artifact{Path: current, Kind: postprocess.ArtifactMedia, Owned: true}, Output: postprocess.Artifact{Path: destination, Kind: postprocess.ArtifactMedia}, Metadata: ffmpeg.Metadata(config.Metadata), Overwrite: operation.request.Overwrite}
+			if err := operation.protectPostprocessDestination(ctx, destination); err != nil {
+				return "", nil, err
+			}
+			graphOperation = postprocess.MetadataEmbed{Input: postprocess.Artifact{Path: current, Kind: postprocess.ArtifactMedia}, Output: postprocess.Artifact{Path: destination, Kind: postprocess.ArtifactMedia}, Metadata: ffmpeg.Metadata(config.Metadata), Overwrite: operation.request.postprocessorOverwrites()}
 			current = destination
 		case specification.EmbedChapters != nil:
 			config := specification.EmbedChapters
+			retireSource = true
 			destination, err := postprocessOutput(outputRoot, config.Destination, current, filepath.Ext(current))
 			if err != nil {
+				return "", nil, err
+			}
+			if err := operation.protectPostprocessDestination(ctx, destination); err != nil {
 				return "", nil, err
 			}
 			chapters := make([]ffmpeg.Chapter, len(config.Chapters))
 			for index, chapter := range config.Chapters {
 				chapters[index] = ffmpeg.Chapter{Start: chapter.Start, End: chapter.End, Title: chapter.Title}
 			}
-			graphOperation = postprocess.ChapterEmbed{Input: postprocess.Artifact{Path: current, Kind: postprocess.ArtifactMedia, Owned: true}, Output: postprocess.Artifact{Path: destination, Kind: postprocess.ArtifactMedia}, Chapters: chapters, Overwrite: operation.request.Overwrite}
+			graphOperation = postprocess.ChapterEmbed{Input: postprocess.Artifact{Path: current, Kind: postprocess.ArtifactMedia}, Output: postprocess.Artifact{Path: destination, Kind: postprocess.ArtifactMedia}, Chapters: chapters, Overwrite: operation.request.postprocessorOverwrites()}
 			current = destination
 		case specification.EmbedThumbnail != nil:
 			config := specification.EmbedThumbnail
+			retireSource = true
 			source, err := postprocessInput(outputRoot, config.Source)
 			if err != nil {
 				return "", nil, err
@@ -167,10 +194,14 @@ func (operation *operation) applyPostprocessors(ctx context.Context, outputRoot,
 			if err != nil {
 				return "", nil, err
 			}
-			graphOperation = postprocess.ThumbnailEmbed{Input: postprocess.Artifact{Path: current, Kind: postprocess.ArtifactMedia, Owned: true}, Image: postprocess.Artifact{Path: source, Kind: postprocess.ArtifactThumbnail}, Output: postprocess.Artifact{Path: destination, Kind: postprocess.ArtifactMedia}, Overwrite: operation.request.Overwrite}
+			if err := operation.protectPostprocessDestination(ctx, destination); err != nil {
+				return "", nil, err
+			}
+			graphOperation = postprocess.ThumbnailEmbed{Input: postprocess.Artifact{Path: current, Kind: postprocess.ArtifactMedia}, Image: postprocess.Artifact{Path: source, Kind: postprocess.ArtifactThumbnail}, Output: postprocess.Artifact{Path: destination, Kind: postprocess.ArtifactMedia}, Overwrite: operation.request.postprocessorOverwrites()}
 			current = destination
 		case specification.EmbedSubtitle != nil:
 			config := specification.EmbedSubtitle
+			retireSource = true
 			source, err := postprocessInput(outputRoot, config.Source)
 			if err != nil {
 				return "", nil, err
@@ -179,18 +210,26 @@ func (operation *operation) applyPostprocessors(ctx context.Context, outputRoot,
 			if err != nil {
 				return "", nil, err
 			}
-			graphOperation = postprocess.SubtitleEmbed{Input: postprocess.Artifact{Path: current, Kind: postprocess.ArtifactMedia, Owned: true}, Subtitle: postprocess.Artifact{Path: source, Kind: postprocess.ArtifactSubtitle}, Output: postprocess.Artifact{Path: destination, Kind: postprocess.ArtifactMedia}, Overwrite: operation.request.Overwrite}
+			if err := operation.protectPostprocessDestination(ctx, destination); err != nil {
+				return "", nil, err
+			}
+			graphOperation = postprocess.SubtitleEmbed{Input: postprocess.Artifact{Path: current, Kind: postprocess.ArtifactMedia}, Subtitle: postprocess.Artifact{Path: source, Kind: postprocess.ArtifactSubtitle}, Output: postprocess.Artifact{Path: destination, Kind: postprocess.ArtifactMedia}, Overwrite: operation.request.postprocessorOverwrites()}
 			current = destination
 		case specification.Fixup != nil:
 			config := specification.Fixup
+			retireSource = true
 			destination, err := postprocessOutput(outputRoot, config.Destination, current, filepath.Ext(current))
 			if err != nil {
 				return "", nil, err
 			}
-			graphOperation = postprocess.Fixup{Input: postprocess.Artifact{Path: current, Kind: postprocess.ArtifactMedia, Owned: true}, Output: postprocess.Artifact{Path: destination, Kind: postprocess.ArtifactMedia}, Kind: ffmpeg.Fixup(config.Kind), Overwrite: operation.request.Overwrite}
+			if err := operation.protectPostprocessDestination(ctx, destination); err != nil {
+				return "", nil, err
+			}
+			graphOperation = postprocess.Fixup{Input: postprocess.Artifact{Path: current, Kind: postprocess.ArtifactMedia}, Output: postprocess.Artifact{Path: destination, Kind: postprocess.ArtifactMedia}, Kind: ffmpeg.Fixup(config.Kind), Overwrite: operation.request.postprocessorOverwrites()}
 			current = destination
 		case specification.Concat != nil:
 			config := specification.Concat
+			retireSource = true
 			inputs := make([]postprocess.Artifact, len(config.Sources))
 			for sourceIndex, sourceName := range config.Sources {
 				source, err := postprocessInput(outputRoot, sourceName)
@@ -203,14 +242,26 @@ func (operation *operation) applyPostprocessors(ctx context.Context, outputRoot,
 			if err != nil {
 				return "", nil, err
 			}
-			graphOperation = postprocess.Concat{Inputs: inputs, Output: postprocess.Artifact{Path: destination, Kind: postprocess.ArtifactMedia}, Overwrite: operation.request.Overwrite}
+			if err := operation.protectPostprocessDestination(ctx, destination); err != nil {
+				return "", nil, err
+			}
+			graphOperation = postprocess.Concat{Inputs: inputs, Output: postprocess.Artifact{Path: destination, Kind: postprocess.ArtifactMedia}, Overwrite: operation.request.postprocessorOverwrites()}
 			current = destination
 		case specification.Move != nil:
+			if operation.request.KeepVideo {
+				return "", nil, fmt.Errorf("%w: keep-video is incompatible with move postprocessors", postprocess.ErrInvalidGraph)
+			}
+			if err := operation.snapshotPostprocessSource(ctx, sourcePath); err != nil {
+				return "", nil, err
+			}
 			destination, err := postprocessOutput(outputRoot, specification.Move.Destination, current, filepath.Ext(current))
 			if err != nil {
 				return "", nil, err
 			}
-			graphOperation = postprocess.Move{Input: postprocess.Artifact{Path: current, Kind: postprocess.ArtifactMedia, Owned: true}, Output: postprocess.Artifact{Path: destination, Kind: postprocess.ArtifactMedia}, Overwrite: operation.request.Overwrite}
+			if err := operation.protectPostprocessDestination(ctx, destination); err != nil {
+				return "", nil, err
+			}
+			graphOperation = postprocess.Move{Input: postprocess.Artifact{Path: current, Kind: postprocess.ArtifactMedia}, Output: postprocess.Artifact{Path: destination, Kind: postprocess.ArtifactMedia}, Overwrite: operation.request.postprocessorOverwrites()}
 			current, needsTools = destination, false
 		}
 		var toolset *ffmpeg.Toolset
@@ -224,9 +275,60 @@ func (operation *operation) applyPostprocessors(ctx context.Context, outputRoot,
 		if err := (postprocess.Graph{Operations: []postprocess.Operation{graphOperation}}).Run(ctx, toolset, sink); err != nil {
 			return "", nil, err
 		}
+		if retireSource {
+			if err := operation.retirePostprocessSource(ctx, sourcePath, current); err != nil {
+				return "", nil, err
+			}
+		}
 	}
 	artifacts := append(auxiliary, Artifact{Path: current, Kind: "media"})
 	return current, artifacts, nil
+}
+
+func (operation *operation) protectPostprocessDestination(ctx context.Context, path string) error {
+	transaction := mediaTransactionFromContext(ctx)
+	if transaction == nil {
+		return nil
+	}
+	if err := transaction.protectPath(path, operation.request.postprocessorOverwrites()); err != nil {
+		return fmt.Errorf("protect postprocessor destination %s: %w", path, err)
+	}
+	return nil
+}
+
+// snapshotPostprocessSource records a source before a move consumes it. A
+// transaction can restore the source if a later lifecycle stage fails; without
+// a transaction the move operation itself remains the atomic ownership handoff.
+func (operation *operation) snapshotPostprocessSource(ctx context.Context, source string) error {
+	if operation.request.KeepVideo || source == "" {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := operation.snapshotTransactionRemovedPath(ctx, source); err != nil {
+		return fmt.Errorf("snapshot postprocessor source %s: %w", source, err)
+	}
+	return nil
+}
+
+// retirePostprocessSource removes an intermediate only after its successor
+// operation has committed. Transaction snapshots make the removal reversible
+// until every output in a multi-output lifecycle commits.
+func (operation *operation) retirePostprocessSource(ctx context.Context, source, successor string) error {
+	if operation.request.KeepVideo || source == "" || filepath.Clean(source) == filepath.Clean(successor) {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := operation.snapshotTransactionRemovedPath(ctx, source); err != nil {
+		return fmt.Errorf("snapshot postprocessor source %s: %w", source, err)
+	}
+	if err := os.Remove(source); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove postprocessor source %s: %w", source, err)
+	}
+	return nil
 }
 
 func countPostprocessorChoices(step Postprocessor) int {

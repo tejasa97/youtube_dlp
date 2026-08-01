@@ -129,6 +129,14 @@ type Request struct {
 	CacheDir          string
 	Timeout           time.Duration
 	Overwrite         bool
+	// KeepVideo retains media inputs that a postprocessor successfully replaces.
+	// It only affects postprocessor-owned intermediate media; download outputs,
+	// sidecars, and explicit file moves retain their own lifecycle ownership.
+	KeepVideo bool
+	// PostOverwrites controls replacement of postprocessor destinations. A nil
+	// value selects yt-dlp's default (enabled); a non-nil false value rejects an
+	// existing postprocessor destination without changing final-output policy.
+	PostOverwrites *bool
 	// Simulate suppresses media, sidecar, archive, and postprocessor output
 	// while still performing extraction. ForceWriteArchive is the explicit
 	// exception for successful selected entries. Unlike SkipDownload, it does
@@ -227,6 +235,10 @@ type Request struct {
 	// PluginID explicitly selects an installed signed plugin extractor. Plugins
 	// are never considered by automatic URL routing.
 	PluginID string
+}
+
+func (request Request) postprocessorOverwrites() bool {
+	return request.PostOverwrites == nil || *request.PostOverwrites
 }
 
 // MetadataActionKind identifies one MetadataParser operation.

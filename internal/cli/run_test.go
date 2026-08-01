@@ -1771,6 +1771,21 @@ func TestRunRecodeWinsOverRemuxWithWarning(t *testing.T) {
 	}
 }
 
+func TestRunPostprocessLifecycleFlags(t *testing.T) {
+	request := captureCLIRequest(t)
+	if request.KeepVideo || request.PostOverwrites == nil || !*request.PostOverwrites {
+		t.Fatalf("defaults: keep=%v post-overwrites=%v", request.KeepVideo, request.PostOverwrites)
+	}
+	request = captureCLIRequest(t, "-k", "--no-keep-video", "--no-post-overwrites")
+	if request.KeepVideo || request.PostOverwrites == nil || *request.PostOverwrites {
+		t.Fatalf("last flag wins: keep=%v post-overwrites=%v", request.KeepVideo, request.PostOverwrites)
+	}
+	request = captureCLIRequest(t, "--no-post-overwrites", "--post-overwrites")
+	if request.PostOverwrites == nil || !*request.PostOverwrites {
+		t.Fatalf("post-overwrites last flag wins: %v", request.PostOverwrites)
+	}
+}
+
 func TestRunPlaylistExecutionPolicyPlumbingAndLastFlagWins(t *testing.T) {
 	request := captureCLIRequest(t,
 		"--playlist-reverse", "--playlist-random", "--lazy-playlist",
