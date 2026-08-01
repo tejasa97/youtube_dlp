@@ -60,7 +60,7 @@ func loadObservation(ctx context.Context, path string) (differential.Observation
 		return differential.ObservationEnvelope{}, err
 	}
 	defer file.Close()
-	return differential.ParseObservation(ctx, file)
+	return differential.ParseObservation(ctx, differential.NewInterruptibleReadCloser(file))
 }
 
 func validThreshold(value string) bool {

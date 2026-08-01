@@ -16,3 +16,8 @@ browser-specific profile registries. v11 support requires product integration
 to supply a Secret Service/KWallet provider; provider failures are categorized
 without including credential-store error text. Explicit database/profile paths
 remain portable for deterministic tests and migration tooling on every OS.
+
+Linux database and WAL copies use a no-follow open, compare the opened handle
+against the pre-open regular-file identity and bounds, and recheck it after the
+copy. Cookie fields share the bounded header-safe validator used by the macOS
+Chromium and Firefox importers.

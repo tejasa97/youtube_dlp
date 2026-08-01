@@ -4,6 +4,8 @@ package supervisor
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,7 +20,12 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/javascript/protocol"
 )
 
-const DefaultStderrBytes = 64 << 10
+const (
+	DefaultStderrBytes = 64 << 10
+	maxHelperBytes     = 1 << 30
+)
+
+var openHelperForValidation = os.Open
 
 type Config struct {
 	Path           string
@@ -28,6 +35,10 @@ type Config struct {
 	// The supervisor mints the extended wall-time grant only for requests
 	// whose ScriptHash matches this value. Empty disables trusted grants.
 	TrustedScriptHash string
+	// ExpectedHelperDigest optionally pins the helper's SHA-256 release digest.
+	// Empty retains the deployment's regular-file and safe-mode checks without
+	// claiming release-artifact identity that the caller has not supplied.
+	ExpectedHelperDigest string
 }
 
 // Client serializes requests through one helper so compiled-program caching is
@@ -44,7 +55,7 @@ type Client struct {
 }
 
 func New(config Config) (*Client, error) {
-	path, err := resolveHelper(config.Path)
+	path, err := resolveHelper(config.Path, config.ExpectedHelperDigest)
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +81,7 @@ func New(config Config) (*Client, error) {
 // so implicit executable search would turn an extractor challenge into code
 // execution from any writable search-path directory. An explicit path must be
 // absolute; the only implicit location is beside the running application.
-func resolveHelper(configured string) (string, error) {
+func resolveHelper(configured, expectedDigest string) (string, error) {
 	path := configured
 	if path == "" {
 		name := "ytdlp-js-helper"
@@ -86,21 +97,75 @@ func resolveHelper(configured string) (string, error) {
 	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
 		return "", errors.New("JavaScript helper path must be absolute")
 	}
-	info, err := os.Lstat(path)
-	if err != nil {
-		return "", fmt.Errorf("inspect JavaScript helper: %w", err)
-	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return "", errors.New("JavaScript helper must be a regular non-symlink file")
+	if err := validateHelperFile(path, expectedDigest); err != nil {
+		return "", err
 	}
 	canonical, err := filepath.EvalSymlinks(path)
 	if err != nil {
 		return "", errors.New("JavaScript helper path cannot be canonicalized")
 	}
-	if runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0 {
-		return "", errors.New("JavaScript helper is not executable")
-	}
 	return canonical, nil
+}
+
+func validateHelperFile(path, expectedDigest string) error {
+	if expectedDigest != "" {
+		if len(expectedDigest) != sha256.Size*2 {
+			return errors.New("JavaScript helper digest must be a SHA-256 hex string")
+		}
+		if _, err := hex.DecodeString(expectedDigest); err != nil {
+			return errors.New("JavaScript helper digest must be a SHA-256 hex string")
+		}
+	}
+	before, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("inspect JavaScript helper: %w", err)
+	}
+	if !before.Mode().IsRegular() || before.Mode()&os.ModeSymlink != 0 {
+		return errors.New("JavaScript helper must be a regular non-symlink file")
+	}
+	if before.Size() < 0 || before.Size() > maxHelperBytes {
+		return errors.New("JavaScript helper exceeds the safety size limit")
+	}
+	if runtime.GOOS != "windows" {
+		if before.Mode().Perm()&0o111 == 0 {
+			return errors.New("JavaScript helper is not executable")
+		}
+		if before.Mode().Perm()&0o022 != 0 {
+			return errors.New("JavaScript helper is group/world writable")
+		}
+		if !safeHelperOwner(before) {
+			return errors.New("JavaScript helper is not owned by the current user")
+		}
+	}
+	input, err := openHelperForValidation(path)
+	if err != nil {
+		return fmt.Errorf("open JavaScript helper for identity check: %w", err)
+	}
+	defer input.Close()
+	opened, err := input.Stat()
+	if err != nil || !sameHelperFile(before, opened) {
+		return errors.New("JavaScript helper changed during identity check")
+	}
+	if expectedDigest == "" {
+		return nil
+	}
+	hash := sha256.New()
+	if _, err := io.CopyN(hash, input, before.Size()); err != nil {
+		return fmt.Errorf("hash JavaScript helper: %w", err)
+	}
+	after, err := input.Stat()
+	if err != nil || !sameHelperFile(before, after) {
+		return errors.New("JavaScript helper changed during identity check")
+	}
+	if !strings.EqualFold(hex.EncodeToString(hash.Sum(nil)), expectedDigest) {
+		return errors.New("JavaScript helper digest does not match the expected release identity")
+	}
+	return nil
+}
+
+func sameHelperFile(expected, observed os.FileInfo) bool {
+	return expected != nil && observed != nil && expected.Mode().IsRegular() && observed.Mode().IsRegular() &&
+		os.SameFile(expected, observed) && expected.Size() == observed.Size() && expected.ModTime() == observed.ModTime()
 }
 
 func (client *Client) Execute(ctx context.Context, request protocol.Request) protocol.Response {
@@ -174,6 +239,9 @@ func (client *Client) Close() error {
 }
 
 func (client *Client) startLocked() error {
+	if err := validateHelperFile(client.config.Path, client.config.ExpectedHelperDigest); err != nil {
+		return err
+	}
 	command := exec.Command(client.config.Path)
 	configureProcess(command)
 	command.Env = helperEnvironment(client.config.MemoryBytes)

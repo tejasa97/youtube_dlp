@@ -19,6 +19,8 @@ import (
 
 	_ "github.com/ncruces/go-sqlite3/driver"
 	_ "github.com/ncruces/go-sqlite3/embed"
+	cookiesnapshot "github.com/ytdlp-go/ytdlp/internal/cookies/snapshot"
+	cookievalidate "github.com/ytdlp-go/ytdlp/internal/cookies/validate"
 )
 
 const maxContainerFile = 4 << 20
@@ -245,8 +247,11 @@ func copyRegular(ctx context.Context, source, destination string, required bool)
 	if err != nil || !info.Mode().IsRegular() || info.Size() < 0 || info.Size() > maxSnapshotBytes {
 		return ErrSnapshot
 	}
-	input, err := os.Open(source)
+	input, err := cookiesnapshot.OpenReadOnlyNoFollow(source)
 	if err != nil {
+		if errors.Is(err, cookiesnapshot.ErrUnsafeSource) || errors.Is(err, cookiesnapshot.ErrNoFollowUnsupported) {
+			return ErrUnsafePath
+		}
 		return ErrSnapshot
 	}
 	defer input.Close()
@@ -407,8 +412,7 @@ func firefoxSameSite(value int) http.SameSite {
 	}
 }
 func validCookie(host, name, value, path string) bool {
-	return host != "" && len(host) <= 255 && len(name) <= 4096 && len(value) <= 16<<20 && path != "" && len(path) <= 4096 && strings.HasPrefix(path, "/") &&
-		!strings.ContainsAny(host, "\r\n\x00") && !strings.ContainsAny(name, "\r\n\x00") && !strings.ContainsAny(value, "\r\n\x00") && !strings.ContainsAny(path, "\r\n\x00")
+	return cookievalidate.CookieFields(host, name, value, path)
 }
 func categorizeDB(ctx context.Context, err error) error {
 	if ctxErr := ctx.Err(); ctxErr != nil {

@@ -825,6 +825,10 @@ capabilities:
       - internal/javascript/engine.TestExecuteTimeoutCancellationAndFailures
       - internal/javascript/engine.TestExecuteOutputLimitAndNoAmbientHostAPIs
       - internal/javascript/supervisor.TestSupervisorExecutesAndRetainsCompiledCache
+      - internal/javascript/supervisor.TestSupervisorRejectsSearchPathAndSymlinkHelpers
+      - internal/javascript/supervisor.TestSupervisorValidatesOptionalHelperReleaseDigest
+      - internal/javascript/supervisor.TestSupervisorRejectsWritableHelper
+      - internal/javascript/supervisor.TestSupervisorRejectsHelperPathSwapBeforeStart
       - internal/javascript/supervisor.TestSupervisorCancellationDiscardsAndRestartsHelper
       - internal/javascript/supervisor.TestSupervisorCategorizesCrashAndMalformedResponse
       - internal/javascript/supervisor.TestSupervisorTrustedWallTimeCrossesProcessBoundary
@@ -943,6 +947,8 @@ capabilities:
       - internal/cookies/chromium.TestImportEnforcesRowAndFieldLimits
       - internal/cookies/chromium.TestImportRejectsInvalidBoundedCookieFields
       - internal/cookies/chromium.FuzzValidCookie
+      - internal/cookies/validate.TestCookieFieldsBoundsAndHeaderSafety
+      - internal/cookies/validate.FuzzCookieFields
       - internal/network.TestAddCookiesPreservesHostScopeAndSecurity
       - pkg/ytdlp.TestClientImportsBrowserCookiesBeforeExtraction
       - conformance/cookies/chromium-macos/PROVENANCE.md
@@ -2253,6 +2259,7 @@ capabilities:
       - internal/cookies/firefox.TestImportCopiesLockedLiveWAL
       - internal/cookies/firefox.TestLocateNewestSyntheticProfile
       - internal/cookies/firefox.TestImportCancellationAndUnsafePath
+      - internal/cookies/firefox.TestCopyRegularRejectsFinalSymlink
       - internal/cookies/firefox.FuzzValidCookie
       - internal/cookies/safari.TestParsePinnedSafariCookieCorpus
       - internal/cookies/safari.TestParseMultiplePagesSecureOrderAndFooter
@@ -2266,7 +2273,10 @@ capabilities:
       - internal/cookies/chromiumlinux.TestImportPlainV10V11AndSchema
       - internal/cookies/chromiumlinux.TestImportCredentialFailureIsPartialAndRedacted
       - internal/cookies/chromiumlinux.TestImportZeroesProviderPassword
+      - internal/cookies/chromiumlinux.TestCopyFileRejectsFinalSymlink
       - internal/cookies/chromiumlinux.FuzzDecrypt
+      - internal/cookies/snapshot.TestOpenReadOnlyNoFollowRejectsFinalSymlink
+      - internal/cookies/snapshot.TestOpenReadOnlyNoFollowOpensRegularFile
       - internal/cookies/chromiumwindows.TestImportAllEncryptionFamiliesAndWAL
       - internal/cookies/chromiumwindows.TestImportLegacySchemaAndLimits
       - internal/cookies/chromiumwindows.TestHostBindingAndAppBoundFailures
@@ -2596,6 +2606,8 @@ capabilities:
       - internal/differential.TestSemanticMismatchClassificationSeverityAndMissingNull
       - internal/differential.TestOrderPoliciesAndBoundedMismatchCollection
       - internal/differential.TestMalformedOversizedAndCancellation
+      - internal/differential.TestParseObservationInterruptsBlockingReaderOnCancellation
+      - internal/differential.TestParseObservationDocumentsNonClosableReaderContract
       - internal/differential.TestMetadataAndWarningSecretRedaction
       - internal/differential.FuzzParseObservation
       - cmd/shadowcheck.TestRunEqualAndCriticalMismatch

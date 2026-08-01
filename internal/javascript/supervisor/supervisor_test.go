@@ -2,6 +2,8 @@ package supervisor
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -77,6 +79,90 @@ func TestSupervisorRejectsSearchPathAndSymlinkHelpers(t *testing.T) {
 	}
 	if _, err := New(Config{Path: link}); err == nil {
 		t.Fatal("symlink helper unexpectedly accepted")
+	}
+}
+
+func TestSupervisorValidatesOptionalHelperReleaseDigest(t *testing.T) {
+	payload, err := os.ReadFile(helperPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(payload)
+	client, err := New(Config{Path: helperPath, ExpectedHelperDigest: hex.EncodeToString(digest[:])})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.Close()
+
+	wrong := digest
+	wrong[0] ^= 1
+	if _, err := New(Config{Path: helperPath, ExpectedHelperDigest: hex.EncodeToString(wrong[:])}); err == nil {
+		t.Fatal("helper with mismatched release digest was accepted")
+	}
+}
+
+func TestSupervisorRejectsWritableHelper(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("portable Windows modes do not expose owner/group write bits")
+	}
+	path := filepath.Join(t.TempDir(), "helper")
+	payload, err := os.ReadFile(helperPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, payload, 0o775); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o775); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(Config{Path: path}); err == nil {
+		t.Fatal("group-writable helper was accepted")
+	}
+}
+
+func TestSupervisorRejectsHelperPathSwapBeforeStart(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink swap is not portable on Windows")
+	}
+	directory := t.TempDir()
+	path := filepath.Join(directory, "helper")
+	hostile := filepath.Join(directory, "hostile")
+	payload, err := os.ReadFile(helperPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{path, hostile} {
+		if err := os.WriteFile(name, payload, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	digest := sha256.Sum256(payload)
+	client, err := New(Config{Path: path, ExpectedHelperDigest: hex.EncodeToString(digest[:])})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	canonicalPath := client.config.Path
+	previousOpen := openHelperForValidation
+	defer func() { openHelperForValidation = previousOpen }()
+	swapped := false
+	openHelperForValidation = func(candidate string) (*os.File, error) {
+		if candidate == canonicalPath && !swapped {
+			swapped = true
+			backup := canonicalPath + ".original"
+			if err := os.Rename(canonicalPath, backup); err != nil {
+				t.Fatalf("swap original helper: %v", err)
+			}
+			if err := os.Symlink(hostile, canonicalPath); err != nil {
+				t.Fatalf("swap helper symlink: %v", err)
+			}
+		}
+		return previousOpen(candidate)
+	}
+	response := client.Execute(context.Background(), evaluateRequest("swap", "1+1"))
+	if response.Error == nil || response.Error.Code != protocol.CodeHelperCrash {
+		t.Fatalf("path-swapped helper response = %#v", response)
 	}
 }
 

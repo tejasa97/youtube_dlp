@@ -50,6 +50,16 @@ helper and is reported by the supervisor as a helper crash. The process has a
 minimal environment and the JavaScript runtime exposes no filesystem, network,
 Node, browser, timer, or subprocess host functions.
 
+Helper discovery is hardened by default: the supervisor accepts an explicit
+absolute helper path or the helper beside the application executable and never
+searches `PATH`. The selected file must be regular, non-symlink, executable,
+owned by the current user, and not group/world-writable on Unix; those attributes and the opened-file
+identity are rechecked before each process start. Embeddings that have a
+release-artifact digest may supply `supervisor.Config.ExpectedHelperDigest` to
+pin the helper's SHA-256 bytes. The public `pkg/ytdlp` configuration currently
+does not populate that optional digest, so the product claims safe discovery
+and file-identity checks, not an unconditional release-digest guarantee.
+
 The stable error codes distinguish invalid input, incompatible versions,
 syntax and execution failures, missing functions, unsupported modules, timeout,
 cancellation, input/output/memory limits, helper crashes, and protocol faults.

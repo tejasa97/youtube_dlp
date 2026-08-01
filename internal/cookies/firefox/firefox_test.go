@@ -230,6 +230,22 @@ func TestSafeOpenedSnapshotRequiresSameRegularBoundedFile(t *testing.T) {
 	}
 }
 
+func TestCopyRegularRejectsFinalSymlink(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target")
+	link := filepath.Join(root, "link")
+	if err := os.WriteFile(target, []byte("not a cookie database"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	err := copyRegular(context.Background(), link, filepath.Join(root, "copy"), true)
+	if !errors.Is(err, ErrSnapshot) {
+		t.Fatalf("copyRegular() error = %v", err)
+	}
+}
+
 func TestErrorsRedactCookieSecrets(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cookies.sqlite")
 	if err := os.WriteFile(path, []byte("secret-cookie-value"), 0o600); err != nil {

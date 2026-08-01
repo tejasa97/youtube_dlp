@@ -23,9 +23,9 @@
 - Producer, extractor, format, playlist, warning, and protocol dimensions use
   bounded ASCII identifiers. Opaque display text belongs in redacted metadata,
   not in these persisted routing and aggregation dimensions.
-- Cancellation closes blocking readers that implement `io.Closer`. For an
-  arbitrary non-closeable reader, parsing returns on cancellation but Go cannot
-  force the reader's own blocked operation to terminate; it must eventually
-  return to release its read goroutine.
+- Cancellation closes and joins only readers explicitly marked with the
+  repository's `CloseInterruptible` contract. An unmarked reader, including a
+  normal `io.Closer` whose Close semantics are unknown, is read synchronously;
+  it must return on its own because `io.Reader` has no cancellation primitive.
 - Windows and regional behavior require separately attributable observations;
   no network or location claim is made here.

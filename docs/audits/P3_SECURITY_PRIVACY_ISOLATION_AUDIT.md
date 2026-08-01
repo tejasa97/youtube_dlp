@@ -141,6 +141,26 @@ Required disposition: document the closable-reader requirement or redesign the
 API around a caller-owned interruptible source. Add a deterministic non-closable
 blocking-reader lifecycle test without itself leaking a goroutine.
 
+## Remediation update (2026-08-01)
+
+The following repository changes remediate P3-SP-02 through P3-SP-05 within the
+documented boundaries. The original findings and 2026-07-19 severity table above
+are historical and intentionally unchanged.
+
+| Finding | Disposition | Linked evidence |
+| --- | --- | --- |
+| P3-SP-02 | Closed for the hardened default: helper discovery now accepts only an absolute configured path or the executable sibling, rejects symlinks, non-current owners, and group/world-writable Unix files, revalidates before each start, and supports an embedding-supplied SHA-256 digest. No release identity is claimed when the optional digest is absent. | [`TestSupervisorRejectsSearchPathAndSymlinkHelpers`](../../internal/javascript/supervisor/supervisor_test.go), [`TestSupervisorValidatesOptionalHelperReleaseDigest`](../../internal/javascript/supervisor/supervisor_test.go), [`TestSupervisorRejectsHelperPathSwapBeforeStart`](../../internal/javascript/supervisor/supervisor_test.go) |
+| P3-SP-03 | Closed within the opt-in browser-profile boundary: macOS retains its default row cap and typed `ErrLimit`, and macOS/Linux/Firefox share bounded header-safe cookie-field validation. | [`TestImportEnforcesRowAndFieldLimits`](../../internal/cookies/chromium/import_test.go), [`TestCookieFieldsBoundsAndHeaderSafety`](../../internal/cookies/validate/validate_test.go), [`FuzzCookieFields`](../../internal/cookies/validate/validate_test.go) |
+| P3-SP-04 | Closed for Darwin/Linux snapshot paths: no-follow opens are used where available, opened identity/type/size is checked before copying and after copying, and unsupported platforms fail closed. | [`TestOpenReadOnlyNoFollowRejectsFinalSymlink`](../../internal/cookies/snapshot/open_test.go), [`TestCopyFileRejectsFinalSymlink`](../../internal/cookies/chromiumlinux/import_test.go), [`TestCopyRegularRejectsFinalSymlink`](../../internal/cookies/firefox/firefox_test.go) |
+| P3-SP-05 | Contract narrowed and made explicit: only `CloseInterruptible` readers are read in a cancellable worker and are joined after synchronous `Close`; ordinary or unmarked readers are read synchronously and must return on their own. The marker is a caller assertion, not mechanical proof, so no universal cancellation guarantee is claimed. | [`TestParseObservationInterruptsBlockingReaderOnCancellation`](../../internal/differential/shadow_test.go), [`TestParseObservationDocumentsNonClosableReaderContract`](../../internal/differential/shadow_test.go), [`conformance/differential/phase3/PROVENANCE.md`](../../conformance/differential/phase3/PROVENANCE.md) |
+
+The helper digest is exposed only through `supervisor.Config.ExpectedHelperDigest`
+and is not currently populated by the public `pkg/ytdlp` configuration; the
+product therefore claims safe default discovery and optional embedding-provided
+artifact identity, not an unconditional release-digest guarantee. The
+remediation implementation and its final commit are tracked by the PR branch
+`codex/security-import-helper-hardening`.
+
 ## Surface review
 
 | Surface | Security/privacy controls reviewed | Result |

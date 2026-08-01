@@ -15,6 +15,7 @@ import (
 
 	_ "github.com/ncruces/go-sqlite3/driver"
 	_ "github.com/ncruces/go-sqlite3/embed"
+	cookievalidate "github.com/ytdlp-go/ytdlp/internal/cookies/validate"
 )
 
 const chromeEpochOffsetSeconds int64 = 11_644_473_600
@@ -146,10 +147,10 @@ func Import(ctx context.Context, options Options) (Result, error) {
 }
 
 const (
-	maxCookieHostBytes  = 255
-	maxCookieNameBytes  = 4096
-	maxCookieValueBytes = 16 << 20
-	maxCookiePathBytes  = 4096
+	maxCookieHostBytes  = cookievalidate.MaxHostBytes
+	maxCookieNameBytes  = cookievalidate.MaxNameBytes
+	maxCookieValueBytes = cookievalidate.MaxValueBytes
+	maxCookiePathBytes  = cookievalidate.MaxPathBytes
 )
 
 // validateCookieBounds checks sizes in SQLite before the driver materializes
@@ -177,10 +178,7 @@ func validateCookieBounds(ctx context.Context, database *sql.DB, maxCookies int)
 }
 
 func validCookie(host, name, value, path string) bool {
-	return host != "" && len(host) <= maxCookieHostBytes && len(name) <= maxCookieNameBytes && len(value) <= maxCookieValueBytes &&
-		path != "" && len(path) <= maxCookiePathBytes && strings.HasPrefix(path, "/") &&
-		!strings.ContainsAny(host, "\r\n\x00") && !strings.ContainsAny(name, "\r\n\x00") &&
-		!strings.ContainsAny(value, "\r\n\x00") && !strings.ContainsAny(path, "\r\n\x00")
+	return cookievalidate.CookieFields(host, name, value, path)
 }
 
 func settingsFor(browser Browser) (browserSettings, error) {

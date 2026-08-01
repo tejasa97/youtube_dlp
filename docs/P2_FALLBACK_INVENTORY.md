@@ -21,7 +21,7 @@ The following uses of the word “fallback” are not temporary execution bridge
 | Surface | Meaning | Owner | Milestone |
 | --- | --- | --- | --- |
 | format selector `/` | user-requested format-choice operator | compatibility | permanent syntax |
-| JavaScript helper discovery | configured path, then executable directory; `PATH` discovery was removed by `49c3440` | runtime | permanent fail-closed discovery policy |
+| JavaScript helper discovery | absolute configured path, then executable directory; `PATH` discovery was removed by `49c3440`; regular-file, safe-mode, opened-identity, and optional embedding-supplied digest checks apply | runtime | permanent fail-closed discovery policy |
 | extractor URL normalization | a site may synthesize its canonical API URL when optional webpage data is absent | extractor owner | corpus-specific behavior |
 
 Any future temporary fallback must emit an observable capability-decision

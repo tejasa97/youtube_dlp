@@ -155,10 +155,42 @@ type readResult struct {
 	err  error
 }
 
-// readAllContext runs the potentially blocking Reader outside the caller's
-// goroutine. Cancellation also closes readers that expose io.Closer, allowing
-// files, pipes, and response bodies to release their read promptly.
+// CloseInterruptible marks a reader whose Close method is guaranteed to
+// release a blocked Read before returning. The marker is intentional: io.Closer
+// alone does not promise that property, so ordinary readers and unmarked
+// closers are kept synchronous and cannot strand a worker goroutine.
+type CloseInterruptible interface {
+	io.Reader
+	io.Closer
+	CloseInterruptsRead()
+}
+
+// InterruptibleReadCloser adapts a caller-owned ReadCloser after the caller
+// has established the Close-unblocks-Read contract.
+type InterruptibleReadCloser struct{ io.ReadCloser }
+
+func (InterruptibleReadCloser) CloseInterruptsRead() {}
+
+func NewInterruptibleReadCloser(reader io.ReadCloser) InterruptibleReadCloser {
+	return InterruptibleReadCloser{ReadCloser: reader}
+}
+
+// readAllContext keeps ordinary finite readers in the caller's goroutine. An
+// unmarked reader therefore has an explicit contract to return, because
+// io.Reader has no cancellation primitive. Only a CloseInterruptible reader is
+// read in a worker; cancellation closes it synchronously and joins that worker
+// before returning. The marker is a caller assertion rather than mechanical
+// proof, so a false assertion can still block cancellation and violates the
+// contract documented above.
 func readAllContext(ctx context.Context, reader io.Reader, maximum int64) ([]byte, error) {
+	closer, closable := reader.(CloseInterruptible)
+	if !closable {
+		data, err := io.ReadAll(io.LimitReader(reader, maximum))
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		return data, err
+	}
 	results := make(chan readResult, 1)
 	go func() {
 		data, err := io.ReadAll(io.LimitReader(reader, maximum))
@@ -171,10 +203,12 @@ func readAllContext(ctx context.Context, reader io.Reader, maximum int64) ([]byt
 		}
 		return result.data, result.err
 	case <-ctx.Done():
-		if closer, ok := reader.(io.Closer); ok {
-			go func() { _ = closer.Close() }()
+		_ = closer.Close()
+		result := <-results
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
 		}
-		return nil, ctx.Err()
+		return result.data, result.err
 	}
 }
 
