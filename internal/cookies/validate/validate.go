@@ -2,7 +2,11 @@
 // cookie importers before values are turned into net/http cookies.
 package validate
 
-import "strings"
+import (
+	"strings"
+
+	"golang.org/x/net/http/httpguts"
+)
 
 const (
 	MaxHostBytes  = 255
@@ -11,12 +15,50 @@ const (
 	MaxPathBytes  = 4096
 )
 
-// CookieFields accepts only bounded, header-safe cookie fields. The caller is
-// still responsible for validating encrypted blobs separately because they are
-// not emitted as HTTP cookie values until after decryption.
+// CookieFields accepts only bounded, HTTP-safe cookie fields. Cookie names use
+// the HTTP token grammar. Values and paths use the printable-byte rules used by
+// net/http, which preserve ordinary spaces and commas in real-world values but
+// reject controls and delimiters that cannot be emitted safely.
 func CookieFields(host, name, value, path string) bool {
-	return host != "" && len(host) <= MaxHostBytes && len(name) <= MaxNameBytes && len(value) <= MaxValueBytes &&
-		path != "" && len(path) <= MaxPathBytes && strings.HasPrefix(path, "/") &&
-		!strings.ContainsAny(host, "\r\n\x00") && !strings.ContainsAny(name, "\r\n\x00") &&
-		!strings.ContainsAny(value, "\r\n\x00") && !strings.ContainsAny(path, "\r\n\x00")
+	return validHost(host) && len(name) <= MaxNameBytes && validName(name) &&
+		len(value) <= MaxValueBytes && validValue(value) && validPath(path)
+}
+
+func validHost(host string) bool {
+	if host == "" || len(host) > MaxHostBytes {
+		return false
+	}
+	for index := 0; index < len(host); index++ {
+		if host[index] <= ' ' || host[index] == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+func validName(name string) bool {
+	return name != "" && httpguts.ValidHeaderFieldName(name)
+}
+
+func validValue(value string) bool {
+	for index := 0; index < len(value); index++ {
+		byteValue := value[index]
+		if byteValue < 0x20 || byteValue >= 0x7f || byteValue == '"' || byteValue == ';' || byteValue == '\\' {
+			return false
+		}
+	}
+	return true
+}
+
+func validPath(path string) bool {
+	if path == "" || !strings.HasPrefix(path, "/") {
+		return false
+	}
+	for index := 0; index < len(path); index++ {
+		byteValue := path[index]
+		if byteValue < 0x20 || byteValue >= 0x7f || byteValue == ';' {
+			return false
+		}
+	}
+	return true
 }
