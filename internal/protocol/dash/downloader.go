@@ -19,8 +19,19 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/network"
 )
 
-// maxIndexRangeBytes bounds the SIDX index fetch to prevent unbounded reads.
-const maxIndexRangeBytes = 16 << 20
+// maxMPDBytes and maxIndexRangeBytes bound manifest and SIDX reads. Keep the
+// limits local to the DASH protocol so a retry cannot turn a failed attempt
+// into an unbounded parser or transfer operation.
+const (
+	maxMPDBytes        = 16 << 20
+	maxIndexRangeBytes = 16 << 20
+
+	defaultDASHAttempts = 3
+	maxDASHAttempts     = 100
+	maxDASHRetryDelay   = time.Minute
+	maxDASHPolls        = 100_000
+	maxDASHPollInterval = time.Hour
+)
 
 // Hierarchical SIDX expansion safety limits.
 const (
@@ -89,7 +100,116 @@ func NewDownloader(transport Transport, config Config) *Downloader {
 	return &Downloader{transport: transport, config: config}
 }
 
+type dashRetryableError struct{ err error }
+
+func (err dashRetryableError) Error() string { return err.err.Error() }
+
+func (err dashRetryableError) Unwrap() error { return err.err }
+
+type dashRetrySettings struct {
+	attempts int
+	base     time.Duration
+	max      time.Duration
+}
+
+func (downloader *Downloader) retrySettings() (dashRetrySettings, error) {
+	if downloader.config.Attempts < 0 {
+		return dashRetrySettings{}, fragment.ErrTooManyAttempts
+	}
+	attempts := downloader.config.Attempts
+	if attempts <= 0 {
+		attempts = defaultDASHAttempts
+	}
+	if attempts > maxDASHAttempts {
+		return dashRetrySettings{}, fragment.ErrTooManyAttempts
+	}
+	base, max := downloader.config.RetryBaseDelay, downloader.config.RetryMaxDelay
+	if base < 0 || max < 0 || base > maxDASHRetryDelay || max > maxDASHRetryDelay || (base > 0 && max > 0 && base > max) {
+		return dashRetrySettings{}, fragment.ErrTooManyAttempts
+	}
+	return dashRetrySettings{attempts: attempts, base: base, max: max}, nil
+}
+
+func (settings dashRetrySettings) delay(attempt int) time.Duration {
+	base := settings.base
+	if base <= 0 {
+		base = 20 * time.Millisecond
+	}
+	max := settings.max
+	if max <= 0 {
+		max = time.Second
+	}
+	if max > maxDASHRetryDelay {
+		max = maxDASHRetryDelay
+	}
+	for index := 1; index < attempt; index++ {
+		if base >= max || base > max/2 {
+			return max
+		}
+		base *= 2
+	}
+	return base
+}
+
+func (downloader *Downloader) retry(ctx context.Context, operation string, attempt func() error) error {
+	settings, err := downloader.retrySettings()
+	if err != nil {
+		return err
+	}
+	var lastErr error
+	for current := 1; current <= settings.attempts; current++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		lastErr = attempt()
+		if lastErr == nil {
+			return nil
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !dashRetryable(lastErr) || current == settings.attempts {
+			return lastErr
+		}
+		timer := time.NewTimer(settings.delay(current))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return fmt.Errorf("%s failed", operation)
+}
+
+func dashRetryable(err error) bool {
+	var marked dashRetryableError
+	return errors.As(err, &marked) || network.IsRetryableError(err)
+}
+
+func dashRequestError(rawURL string, err error, retryable bool) error {
+	var status *network.StatusError
+	if errors.As(err, &status) {
+		safeStatus := &network.StatusError{Code: status.Code, URL: network.RedactRawURL(rawURL)}
+		if network.RetryableStatus(status.Code) {
+			return dashRetryableError{err: safeStatus}
+		}
+		return safeStatus
+	}
+	safe := &network.RequestError{Method: http.MethodGet, URL: network.RedactRawURL(rawURL), Err: err}
+	if retryable {
+		return dashRetryableError{err: safe}
+	}
+	return safe
+}
+
 func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputRoot, destination string, overwrite bool, sink events.Sink) (Result, error) {
+	if downloader.config.DynamicPolls > maxDASHPolls {
+		return Result{}, fmt.Errorf("%w: dynamic poll count %d exceeds limit %d", ErrUnsupportedAddressing, downloader.config.DynamicPolls, maxDASHPolls)
+	}
+	if downloader.config.PollInterval > maxDASHPollInterval {
+		return Result{}, fmt.Errorf("%w: poll interval %s exceeds limit %s", ErrUnsupportedAddressing, downloader.config.PollInterval, maxDASHPollInterval)
+	}
 	mpd, err := downloader.load(ctx, manifestURL)
 	if err != nil {
 		return Result{}, err
@@ -146,12 +266,9 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 		for index := range selected {
 			byID[representationKey(selected[index])] = &selected[index]
 		}
-		pollInterval := downloader.config.PollInterval
-		if pollInterval <= 0 {
-			pollInterval = mpd.MinimumUpdatePeriod
-		}
-		if pollInterval <= 0 {
-			pollInterval = time.Second
+		pollInterval, err := dynamicPollInterval(downloader.config.PollInterval, mpd.MinimumUpdatePeriod)
+		if err != nil {
+			return Result{}, err
 		}
 		for poll := 1; poll < downloader.config.DynamicPolls; poll++ {
 			timer := time.NewTimer(pollInterval)
@@ -200,8 +317,11 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 			if !updated.Dynamic {
 				break
 			}
-			if downloader.config.PollInterval <= 0 && updated.MinimumUpdatePeriod > 0 {
-				pollInterval = updated.MinimumUpdatePeriod
+			if downloader.config.PollInterval <= 0 {
+				pollInterval, err = dynamicPollInterval(0, updated.MinimumUpdatePeriod)
+				if err != nil {
+					return Result{}, err
+				}
 			}
 		}
 	}
@@ -257,6 +377,20 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 	return result, nil
 }
 
+func dynamicPollInterval(configured, manifest time.Duration) (time.Duration, error) {
+	interval := configured
+	if interval <= 0 {
+		interval = manifest
+	}
+	if interval <= 0 {
+		interval = time.Second
+	}
+	if interval > maxDASHPollInterval {
+		return 0, fmt.Errorf("%w: poll interval %s exceeds limit %s", ErrUnsupportedAddressing, interval, maxDASHPollInterval)
+	}
+	return interval, nil
+}
+
 func (downloader *Downloader) downloadSegments(ctx context.Context, plan []Segment, outputRoot, destination string, overwrite bool, sink events.Sink, dynamicSIDX bool) (fragment.Result, error) {
 	segments := make([]fragment.Segment, len(plan))
 	for index, segment := range plan {
@@ -304,13 +438,11 @@ func (downloader *Downloader) load(ctx context.Context, manifestURL string) (MPD
 		return MPD{}, err
 	}
 	var body []byte
-	var err error
-	if len(downloader.config.Headers) == 0 {
-		body, _, err = downloader.transport.ReadPage(ctx, manifestURL)
-	} else {
-		body, _, err = network.ReadPageWithHeaders(ctx, downloader.transport, manifestURL, downloader.config.Headers, 16<<20)
-	}
-	if err != nil {
+	if err := downloader.retry(ctx, "MPD request", func() error {
+		var err error
+		body, err = downloader.fetchMPDAttempt(ctx, manifestURL)
+		return err
+	}); err != nil {
 		return MPD{}, err
 	}
 	mpd, err := Parse(manifestURL, body)
@@ -321,6 +453,45 @@ func (downloader *Downloader) load(ctx context.Context, manifestURL string) (MPD
 		return MPD{}, err
 	}
 	return mpd, nil
+}
+
+func (downloader *Downloader) fetchMPDAttempt(ctx context.Context, manifestURL string) ([]byte, error) {
+	if len(downloader.config.Headers) == 0 {
+		body, _, err := downloader.transport.ReadPage(ctx, manifestURL)
+		if err != nil {
+			return nil, dashRequestError(manifestURL, err, network.IsRetryableError(err))
+		}
+		if int64(len(body)) > maxMPDBytes {
+			return nil, fmt.Errorf("%w: limit is %d bytes", network.ErrPageTooLarge, maxMPDBytes)
+		}
+		return body, nil
+	}
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, manifestURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create MPD request: %w", err)
+	}
+	request.Header = downloader.config.Headers.Clone()
+	response, err := downloader.transport.Do(ctx, request)
+	if err != nil {
+		return nil, dashRequestError(manifestURL, err, network.IsRetryableError(err))
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		statusErr := &network.StatusError{Code: response.StatusCode, URL: network.RedactRawURL(manifestURL)}
+		if network.RetryableStatus(response.StatusCode) {
+			return nil, dashRetryableError{err: statusErr}
+		}
+		return nil, statusErr
+	}
+	body, readErr := io.ReadAll(io.LimitReader(response.Body, maxMPDBytes+1))
+	if readErr != nil {
+		return nil, dashRequestError(manifestURL, readErr, !errors.Is(readErr, context.Canceled) && !errors.Is(readErr, context.DeadlineExceeded))
+	}
+	if int64(len(body)) > maxMPDBytes {
+		return nil, fmt.Errorf("%w: limit is %d bytes", network.ErrPageTooLarge, maxMPDBytes)
+	}
+	return body, nil
 }
 
 func (downloader *Downloader) validateURL(rawURL string) error {
@@ -357,6 +528,13 @@ func selectRepresentations(mpd MPD) ([]Representation, error) {
 	}
 	if err := validateMultiPeriodTiming(mpd); err != nil {
 		return nil, err
+	}
+	if mpd.Dynamic {
+		for index, period := range mpd.Periods {
+			if period.ID == "" {
+				return nil, fmt.Errorf("%w: dynamic period %d identity is ambiguous", ErrUnsupportedAddressing, index)
+			}
+		}
 	}
 
 	periods := make([][]Representation, mpd.PeriodCount)
@@ -426,6 +604,7 @@ func selectRepresentations(mpd MPD) ([]Representation, error) {
 		combined.PeriodSegments = make([][]Segment, len(periodFormats))
 		combined.PeriodIDs = make([]string, len(periodFormats))
 		combined.PeriodRepresentationIDs = make([]string, len(periodFormats))
+		combined.PeriodAddressings = make([]string, len(periodFormats))
 		for periodIndex := range periodFormats {
 			periodRepresentation := periodFormats[periodIndex][bestSignature]
 			if len(combined.Segments) > maxSegmentsPerRepresentation-len(periodRepresentation.Segments) {
@@ -434,9 +613,19 @@ func selectRepresentations(mpd MPD) ([]Representation, error) {
 			combined.PeriodSegments[periodIndex] = append([]Segment(nil), periodRepresentation.Segments...)
 			combined.PeriodIDs[periodIndex] = periodRepresentation.PeriodID
 			combined.PeriodRepresentationIDs[periodIndex] = periodRepresentation.ID
+			combined.PeriodAddressings[periodIndex] = periodRepresentation.Addressing
 			combined.Segments = append(combined.Segments, periodRepresentation.Segments...)
 		}
 		selected = append(selected, combined)
+	}
+	if mpd.Dynamic {
+		for _, representation := range selected {
+			for index := range representation.PeriodIDs {
+				if representation.PeriodRepresentationIDs[index] == "" || representation.PeriodAddressings[index] == "" {
+					return nil, fmt.Errorf("%w: dynamic period %d representation identity is ambiguous", ErrUnsupportedAddressing, index)
+				}
+			}
+		}
 	}
 	return selected, nil
 }
@@ -467,7 +656,8 @@ func validateDynamicMultiPeriodSnapshot(initial, updated MPD) error {
 // is unsafe even when its codec metadata happens to look compatible.
 func mergeDynamicMultiPeriodRepresentation(target *Representation, updated Representation) error {
 	if signatureFor(*target) != signatureFor(updated) || len(target.PeriodSegments) != len(updated.PeriodSegments) ||
-		len(target.PeriodIDs) != len(updated.PeriodIDs) || len(target.PeriodRepresentationIDs) != len(updated.PeriodRepresentationIDs) {
+		len(target.PeriodIDs) != len(updated.PeriodIDs) || len(target.PeriodRepresentationIDs) != len(updated.PeriodRepresentationIDs) ||
+		len(target.PeriodAddressings) != len(updated.PeriodAddressings) {
 		return fmt.Errorf("%w: dynamic multi-period representation shape changed", ErrUnsupportedAddressing)
 	}
 	nextPeriods := make([][]Segment, len(target.PeriodSegments))
@@ -476,7 +666,16 @@ func mergeDynamicMultiPeriodRepresentation(target *Representation, updated Repre
 		if target.PeriodIDs[index] != updated.PeriodIDs[index] || target.PeriodRepresentationIDs[index] != updated.PeriodRepresentationIDs[index] {
 			return fmt.Errorf("%w: dynamic period %d representation identity changed", ErrUnsupportedAddressing, index)
 		}
-		merged := mergeSegments(target.PeriodSegments[index], updated.PeriodSegments[index])
+		if target.PeriodIDs[index] == "" || target.PeriodRepresentationIDs[index] == "" {
+			return fmt.Errorf("%w: dynamic period %d representation identity is ambiguous", ErrUnsupportedAddressing, index)
+		}
+		if target.PeriodAddressings[index] != updated.PeriodAddressings[index] {
+			return fmt.Errorf("%w: dynamic period %d segment composition changed from %s to %s", ErrUnsupportedAddressing, index, target.PeriodAddressings[index], updated.PeriodAddressings[index])
+		}
+		merged, err := mergeDynamicMultiPeriodSegments(target.PeriodSegments[index], updated.PeriodSegments[index])
+		if err != nil {
+			return fmt.Errorf("%w: dynamic period %d segment composition changed: %v", ErrUnsupportedAddressing, index, err)
+		}
 		if len(merged) > maxSegmentsPerRepresentation || len(nextSegments) > maxSegmentsPerRepresentation-len(merged) {
 			return fmt.Errorf("%w: combined dynamic segment count exceeds %d", ErrUnsupportedAddressing, maxSegmentsPerRepresentation)
 		}
@@ -486,6 +685,67 @@ func mergeDynamicMultiPeriodRepresentation(target *Representation, updated Repre
 	target.PeriodSegments = nextPeriods
 	target.Segments = nextSegments
 	return nil
+}
+
+// mergeDynamicMultiPeriodSegments permits only append-only growth or a
+// bounded live-window shift with an exact retained identity anchor. A later
+// snapshot that is disjoint from the already committed period plan is a
+// replacement, not evidence of safe continuation, and is rejected before any
+// output job can start.
+func mergeDynamicMultiPeriodSegments(existing, updated []Segment) ([]Segment, error) {
+	if len(existing) == 0 {
+		return append([]Segment(nil), updated...), nil
+	}
+	if len(updated) == 0 {
+		return append([]Segment(nil), existing...), nil
+	}
+
+	// A snapshot may repeat only the already committed prefix (for example a
+	// live MPD that has not advanced yet). Treat that as no new media.
+	if len(updated) <= len(existing) {
+		matchesPrefix := true
+		for index := range updated {
+			if segmentKey(existing[index]) != segmentKey(updated[index]) {
+				matchesPrefix = false
+				break
+			}
+		}
+		if matchesPrefix {
+			return append([]Segment(nil), existing...), nil
+		}
+	}
+
+	for drop := 0; drop < len(existing); drop++ {
+		retained := len(existing) - drop
+		if retained > len(updated) {
+			continue
+		}
+		anchored := true
+		for index := 0; index < retained; index++ {
+			if segmentKey(existing[drop+index]) != segmentKey(updated[index]) {
+				anchored = false
+				break
+			}
+		}
+		if !anchored {
+			continue
+		}
+		result := append([]Segment(nil), existing...)
+		seen := make(map[string]struct{}, len(existing))
+		for _, segment := range existing {
+			seen[segmentKey(segment)] = struct{}{}
+		}
+		for _, segment := range updated[retained:] {
+			key := segmentKey(segment)
+			if _, exists := seen[key]; exists {
+				return nil, fmt.Errorf("replayed segment identity %q", key)
+			}
+			result = append(result, segment)
+			seen[key] = struct{}{}
+		}
+		return result, nil
+	}
+	return nil, errors.New("unanchored or disjoint segment replacement")
 }
 
 func validateMultiPeriodTiming(mpd MPD) error {
@@ -669,10 +929,12 @@ func (downloader *Downloader) expandOneSIDX(ctx context.Context, marker Segment,
 
 	// Fetch the root index range bytes, enforcing the cumulative budget.
 	rootResult, err := downloader.fetchIndexRange(ctx, marker.URL, rangeStart, rangeLength, remainingBudget)
-	if err != nil {
-		return nil, err
+	if rootResult.TransferredBytes > 0 {
+		if recordErr := state.recordIndexTransfer(rootResult.TransferredBytes); recordErr != nil {
+			return nil, recordErr
+		}
 	}
-	if err := state.recordIndexTransfer(rootResult.TransferredBytes); err != nil {
+	if err != nil {
 		return nil, err
 	}
 	state.indexIntervals = append(state.indexIntervals, MediaRange{Start: rangeStart, Length: rangeLength})
@@ -858,11 +1120,13 @@ func (downloader *Downloader) expandSIDXReferences(ctx context.Context, sidx *SI
 		}
 
 		nestedResult, fetchErr := downloader.fetchIndexRange(ctx, state.mediaURL, nestedRange.Start, nestedRange.Length, remaining)
+		if nestedResult.TransferredBytes > 0 {
+			if recordErr := state.recordIndexTransfer(nestedResult.TransferredBytes); recordErr != nil {
+				return nil, recordErr
+			}
+		}
 		if fetchErr != nil {
 			return nil, fetchErr
-		}
-		if err := state.recordIndexTransfer(nestedResult.TransferredBytes); err != nil {
-			return nil, err
 		}
 		// Record the nested index interval for overlap validation.
 		state.indexIntervals = append(state.indexIntervals, MediaRange{Start: nestedRange.Start, Length: nestedRange.Length})
@@ -944,6 +1208,27 @@ func (downloader *Downloader) effectiveParserLeafBudget(session *sidxSessionStat
 // TransferredBytes read from the wire. For 206 responses these are normally
 // equal; for 200 fallbacks TransferredBytes may exceed len(Data).
 func (downloader *Downloader) fetchIndexRange(ctx context.Context, mediaURL string, rangeStart, rangeLength, remainingBudget int64) (indexRangeResult, error) {
+	if remainingBudget <= 0 {
+		return indexRangeResult{}, fmt.Errorf("%w: cumulative index transfer budget exhausted", ErrUnsupportedAddressing)
+	}
+	var result indexRangeResult
+	var transferred int64
+	err := downloader.retry(ctx, "index range request", func() error {
+		attemptBudget := remainingBudget - transferred
+		if attemptBudget <= 0 {
+			return fmt.Errorf("%w: cumulative index transfer budget exhausted", ErrUnsupportedAddressing)
+		}
+		attemptResult, attemptErr := downloader.fetchIndexRangeAttempt(ctx, mediaURL, rangeStart, rangeLength, attemptBudget)
+		transferred += attemptResult.TransferredBytes
+		result = attemptResult
+		result.TransferredBytes = transferred
+		return attemptErr
+	})
+	result.TransferredBytes = transferred
+	return result, err
+}
+
+func (downloader *Downloader) fetchIndexRangeAttempt(ctx context.Context, mediaURL string, rangeStart, rangeLength, remainingBudget int64) (indexRangeResult, error) {
 	if err := downloader.validateURL(mediaURL); err != nil {
 		return indexRangeResult{}, err
 	}
@@ -960,7 +1245,7 @@ func (downloader *Downloader) fetchIndexRange(ctx context.Context, mediaURL stri
 
 	response, err := downloader.transport.Do(ctx, request)
 	if err != nil {
-		return indexRangeResult{}, fmt.Errorf("index range request: %w", err)
+		return indexRangeResult{}, dashRequestError(mediaURL, err, network.IsRetryableError(err))
 	}
 	defer response.Body.Close()
 
@@ -982,8 +1267,9 @@ func (downloader *Downloader) fetchIndexRange(ctx context.Context, mediaURL stri
 			return indexRangeResult{}, fmt.Errorf("%w: 200 response too large for index extraction", ErrUnsupportedAddressing)
 		}
 	default:
+		statusErr := &network.StatusError{Code: response.StatusCode, URL: network.RedactRawURL(mediaURL)}
 		if network.RetryableStatus(response.StatusCode) {
-			return indexRangeResult{}, fmt.Errorf("index range request: HTTP status %d", response.StatusCode)
+			return indexRangeResult{}, dashRetryableError{err: statusErr}
 		}
 		return indexRangeResult{}, fmt.Errorf("%w: index range request returned HTTP %d", ErrUnsupportedAddressing, response.StatusCode)
 	}
@@ -997,7 +1283,7 @@ func (downloader *Downloader) fetchIndexRange(ctx context.Context, mediaURL stri
 	limited := io.LimitReader(response.Body, readLimit)
 	body, err := io.ReadAll(limited)
 	if err != nil {
-		return indexRangeResult{}, fmt.Errorf("read index range response: %w", err)
+		return indexRangeResult{TransferredBytes: int64(len(body))}, dashRequestError(mediaURL, err, !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded))
 	}
 	transferred := int64(len(body))
 

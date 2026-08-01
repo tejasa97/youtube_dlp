@@ -1,8 +1,10 @@
 package dash
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -301,15 +303,78 @@ func TestDownloadSIDXRetryTransientIndexFailure(t *testing.T) {
 	transport, _ := network.New(network.Config{})
 	root := t.TempDir()
 	dest := filepath.Join(root, "out.mp4")
-	// The index fetch itself doesn't retry (it's a single fetch), but the
-	// fragment downloader retries media segments. For index retry, we need
-	// to verify the error propagates. Since our fetchIndexRange doesn't retry,
-	// a 503 on the first attempt will fail.
-	_, err := NewDownloader(transport, Config{}).Download(context.Background(), server.URL+"/manifest.mpd", root, dest, false, nil)
-	if err == nil {
-		t.Fatal("expected error for 503 on index fetch")
+	result, err := NewDownloader(transport, Config{RetryBaseDelay: time.Millisecond}).Download(context.Background(), server.URL+"/manifest.mpd", root, dest, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attempts.Load() != 2 {
+		t.Fatalf("index attempts = %d, want 2", attempts.Load())
+	}
+	if result.Tracks[0].Download.Path != dest {
+		t.Fatalf("download path = %q, want %q", result.Tracks[0].Download.Path, dest)
 	}
 }
+
+func TestFetchIndexRangeRetryChargesFailedTransferAgainstBudget(t *testing.T) {
+	data := []byte("index-ok")
+	var attempts atomic.Int32
+	transport := &partialIndexRetryTransport{data: data, attempts: &attempts}
+	result, err := NewDownloader(transport, Config{Attempts: 2, RetryBaseDelay: time.Millisecond}).fetchIndexRange(
+		context.Background(), "https://media.example.test/video.mp4", 0, int64(len(data)), int64(len(data)+3))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attempts.Load() != 2 {
+		t.Fatalf("attempts = %d, want 2", attempts.Load())
+	}
+	if result.TransferredBytes != int64(len(data)+3) {
+		t.Fatalf("transferred bytes = %d, want %d", result.TransferredBytes, len(data)+3)
+	}
+	if !bytes.Equal(result.Data, data) {
+		t.Fatalf("data = %q, want %q", result.Data, data)
+	}
+}
+
+type partialIndexRetryTransport struct {
+	data     []byte
+	attempts *atomic.Int32
+}
+
+func (transport *partialIndexRetryTransport) Do(_ context.Context, request *http.Request) (*http.Response, error) {
+	if transport.attempts.Add(1) == 1 {
+		return &http.Response{
+			StatusCode: http.StatusPartialContent,
+			Body:       &partialIndexBody{data: []byte("bad"), failAt: 3},
+			Header:     http.Header{"Content-Range": {"bytes 0-7/8"}},
+		}, nil
+	}
+	return &http.Response{
+		StatusCode: http.StatusPartialContent,
+		Body:       io.NopCloser(bytes.NewReader(transport.data)),
+		Header:     http.Header{"Content-Range": {"bytes 0-7/8"}},
+	}, nil
+}
+
+func (transport *partialIndexRetryTransport) ReadPage(context.Context, string) ([]byte, http.Header, error) {
+	return nil, nil, fmt.Errorf("unexpected MPD request")
+}
+
+type partialIndexBody struct {
+	data   []byte
+	offset int
+	failAt int
+}
+
+func (body *partialIndexBody) Read(target []byte) (int, error) {
+	if body.offset >= body.failAt {
+		return 0, fmt.Errorf("simulated temporary body failure")
+	}
+	count := copy(target, body.data[body.offset:body.failAt])
+	body.offset += count
+	return count, nil
+}
+
+func (*partialIndexBody) Close() error { return nil }
 
 func TestDownloadSIDXRetryTransientMediaFailure(t *testing.T) {
 	resource, indexRange := sidxTestMedia()

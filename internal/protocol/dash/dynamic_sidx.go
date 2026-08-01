@@ -9,10 +9,11 @@ import (
 )
 
 type representationProfile struct {
-	key       string
-	id        string
-	signature representationSignature
-	mediaURL  string
+	key        string
+	id         string
+	signature  representationSignature
+	mediaURL   string
+	addressing string
 }
 
 type sidxSessionState struct {
@@ -333,10 +334,11 @@ func profileForRepresentation(representation Representation) (representationProf
 		return representationProfile{}, err
 	}
 	return representationProfile{
-		key:       representationKey(representation),
-		id:        representation.ID,
-		signature: signatureFor(representation),
-		mediaURL:  mediaURL,
+		key:        representationKey(representation),
+		id:         representation.ID,
+		signature:  signatureFor(representation),
+		mediaURL:   mediaURL,
+		addressing: representation.Addressing,
 	}, nil
 }
 
@@ -346,6 +348,9 @@ func validateRepresentationStable(profile representationProfile, refreshed Repre
 	}
 	if signatureFor(refreshed) != profile.signature {
 		return fmt.Errorf("%w: representation track properties changed", ErrUnsupportedAddressing)
+	}
+	if refreshed.Addressing != profile.addressing {
+		return fmt.Errorf("%w: representation segment composition changed from %s to %s", ErrUnsupportedAddressing, profile.addressing, refreshed.Addressing)
 	}
 	if err := validateRepresentationMarkers(refreshed.Segments); err != nil {
 		return err
@@ -429,12 +434,9 @@ func (downloader *Downloader) pollDynamicSIDX(ctx context.Context, manifestURL s
 		return err
 	}
 
-	pollInterval := downloader.config.PollInterval
-	if pollInterval <= 0 {
-		pollInterval = initialMPD.MinimumUpdatePeriod
-	}
-	if pollInterval <= 0 {
-		pollInterval = time.Second
+	pollInterval, err := dynamicPollInterval(downloader.config.PollInterval, initialMPD.MinimumUpdatePeriod)
+	if err != nil {
+		return err
 	}
 
 	currentMPD := initialMPD
@@ -460,8 +462,11 @@ func (downloader *Downloader) pollDynamicSIDX(ctx context.Context, manifestURL s
 		}
 		snapshots++
 		currentMPD = updated
-		if downloader.config.PollInterval <= 0 && updated.MinimumUpdatePeriod > 0 {
-			pollInterval = updated.MinimumUpdatePeriod
+		if downloader.config.PollInterval <= 0 {
+			pollInterval, err = dynamicPollInterval(0, updated.MinimumUpdatePeriod)
+			if err != nil {
+				return err
+			}
 		}
 	}
 

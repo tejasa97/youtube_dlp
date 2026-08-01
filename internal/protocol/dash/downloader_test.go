@@ -2,15 +2,18 @@ package dash
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/ytdlp-go/ytdlp/internal/fragment"
 	"github.com/ytdlp-go/ytdlp/internal/network"
 )
 
@@ -73,6 +76,121 @@ func TestDownloadDynamicMPDPollsAndDeduplicates(t *testing.T) {
 	contents, _ := os.ReadFile(result.Tracks[0].Download.Path)
 	if string(contents) != "/0.m4s/1.m4s" || polls.Load() != 2 {
 		t.Fatalf("contents = %q, polls = %d", contents, polls.Load())
+	}
+}
+
+func TestDownloadRetriesTransientMPDWithoutDuplicateSegments(t *testing.T) {
+	var manifestAttempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/live.mpd" {
+			if manifestAttempts.Add(1) == 1 {
+				writer.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+			_, _ = fmt.Fprint(writer, `<MPD type="dynamic" minimumUpdatePeriod="PT0.001S"><Period><AdaptationSet contentType="video"><Representation id="v"><SegmentTemplate media="segment-$Number$"><SegmentTimeline><S t="0" d="1"/></SegmentTimeline></SegmentTemplate></Representation></AdaptationSet></Period></MPD>`)
+			return
+		}
+		_, _ = writer.Write([]byte(request.URL.Path))
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "retry.bin")
+	result, err := NewDownloader(transport, Config{DynamicPolls: 1, Attempts: 3, RetryBaseDelay: time.Millisecond}).Download(
+		context.Background(), server.URL+"/live.mpd", root, destination, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifestAttempts.Load() != 2 {
+		t.Fatalf("manifest attempts = %d, want 2", manifestAttempts.Load())
+	}
+	contents, readErr := os.ReadFile(result.Tracks[0].Download.Path)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if got, want := string(contents), "/segment-1"; got != want {
+		t.Fatalf("contents = %q, want %q", got, want)
+	}
+}
+
+func TestDownloadCancellationDuringMPDFetchDoesNotRetryOrCreateOutput(t *testing.T) {
+	var manifestAttempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		manifestAttempts.Add(1)
+		<-request.Context().Done()
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "cancel.bin")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	_, err := NewDownloader(transport, Config{Attempts: 5, RetryBaseDelay: time.Millisecond}).Download(
+		ctx, server.URL+"/live.mpd", root, destination, false, nil)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want deadline exceeded", err)
+	}
+	if manifestAttempts.Load() != 1 {
+		t.Fatalf("manifest attempts = %d, want 1", manifestAttempts.Load())
+	}
+	if _, statErr := os.Stat(destination); !os.IsNotExist(statErr) {
+		t.Fatalf("destination should not exist: %v", statErr)
+	}
+}
+
+func TestDownloadMPDRetryRedactsURLAndPreservesHeaderIsolation(t *testing.T) {
+	var seenAuthorization atomic.Value
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		seenAuthorization.Store(request.Header.Get("Authorization"))
+		writer.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	header := http.Header{"Authorization": {"Bearer dash-secret"}}
+	downloader := NewDownloader(transport, Config{Headers: header, Attempts: 2, RetryBaseDelay: time.Millisecond})
+	header.Set("Authorization", "Bearer mutated-after-construction")
+	root := t.TempDir()
+	_, err := downloader.Download(context.Background(), server.URL+"/live.mpd?token=manifest-secret", root, filepath.Join(root, "out.bin"), false, nil)
+	if err == nil {
+		t.Fatal("expected transient MPD failure")
+	}
+	if got := seenAuthorization.Load().(string); got != "Bearer dash-secret" {
+		t.Fatalf("Authorization = %q, want cloned header", got)
+	}
+	if strings.Contains(err.Error(), "manifest-secret") || strings.Contains(err.Error(), "dash-secret") || strings.Contains(err.Error(), "mutated-after-construction") {
+		t.Fatalf("error leaked sensitive data: %v", err)
+	}
+	if !strings.Contains(err.Error(), "HTTP status 503") || !strings.Contains(err.Error(), "REDACTED") {
+		t.Fatalf("error = %v, want redacted status evidence", err)
+	}
+}
+
+func TestDownloadRejectsUnboundedProtocolRetryConfiguration(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests.Add(1)
+		writer.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	for name, test := range map[string]struct {
+		config Config
+		want   error
+	}{
+		"attempts":          {config: Config{Attempts: maxDASHAttempts + 1}, want: fragment.ErrTooManyAttempts},
+		"negative attempts": {config: Config{Attempts: -1}, want: fragment.ErrTooManyAttempts},
+		"delay":             {config: Config{RetryBaseDelay: maxDASHRetryDelay + time.Nanosecond}, want: fragment.ErrTooManyAttempts},
+		"polls":             {config: Config{DynamicPolls: maxDASHPolls + 1}, want: ErrUnsupportedAddressing},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := NewDownloader(transport, test.config).Download(context.Background(), server.URL+"/live.mpd", t.TempDir(), filepath.Join(t.TempDir(), "out.bin"), false, nil)
+			if !errors.Is(err, test.want) {
+				t.Fatalf("error = %v, want %v", err, test.want)
+			}
+		})
+	}
+	if requests.Load() != 0 {
+		t.Fatalf("requests = %d, want 0", requests.Load())
 	}
 }
 

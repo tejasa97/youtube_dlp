@@ -59,7 +59,12 @@ type Representation struct {
 	Bandwidth   int64
 	Width       int
 	Height      int
-	Segments    []Segment
+	// Addressing records the resolved segment source. It is kept separate from
+	// the media signature because static multi-period selection may combine
+	// compatible template/list sources, while dynamic polling must reject a
+	// later composition change underneath an already selected period.
+	Addressing string
+	Segments   []Segment
 	// PeriodSegments preserves static multi-period boundaries for supervised
 	// media concatenation. It is nil for ordinary single-period MPDs. Dynamic
 	// multi-period polling may only merge these boundaries when their matching
@@ -71,6 +76,11 @@ type Representation struct {
 	// a different period or representation into an existing download.
 	PeriodIDs               []string
 	PeriodRepresentationIDs []string
+	// PeriodAddressings retains the segment-source composition for each
+	// collapsed period. Dynamic multi-period polling rejects a template/list or
+	// SegmentBase composition change even when visible track metadata stays
+	// compatible.
+	PeriodAddressings       []string
 }
 
 type Segment struct {
@@ -357,14 +367,22 @@ func Parse(rawURL string, input []byte) (MPD, error) {
 				case template != nil:
 					normalized.Segments, err = templateSegments(representationBase, normalized, template, periodDuration)
 					normalized.Fragmented = true
+					normalized.Addressing = "template"
 				case list != nil:
 					normalized.Segments, err = listSegments(representationBase, list)
 					normalized.Fragmented = true
+					normalized.Addressing = "list"
 				case segmentBase != nil:
 					normalized.Segments, err = baseSegments(representationBase, segmentBase)
 					normalized.Fragmented = segmentBase.IndexRange != ""
+					if segmentBase.IndexRange != "" {
+						normalized.Addressing = "segmentbase-sidx"
+					} else {
+						normalized.Addressing = "segmentbase"
+					}
 				case representation.BaseURL != "":
 					normalized.Segments = []Segment{{URL: representationBase.String()}}
+					normalized.Addressing = "single-file"
 				default:
 					err = errors.New("representation has no segment source")
 				}
