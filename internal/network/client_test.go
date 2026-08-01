@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -343,6 +344,60 @@ func TestInjectedTransportMustDeclareAddressPolicyCapability(t *testing.T) {
 		t.Fatalf("configured policy = %#v", capable.policy)
 	}
 }
+
+func TestIsRetryableErrorRejectsDirectAndWrappedPermanentDNS(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{name: "direct not found", err: &net.DNSError{Err: "no such host", Name: "missing.invalid", IsNotFound: true}},
+		{name: "wrapped not found", err: &RequestError{Method: http.MethodGet, URL: "https://missing.invalid/", Err: &net.DNSError{Err: "no such host", Name: "missing.invalid", IsNotFound: true}}},
+		{name: "direct permanent resolver", err: &net.DNSError{Err: "permanent resolver failure", Name: "broken.invalid"}},
+		{name: "wrapped permanent resolver", err: &RequestError{Method: http.MethodGet, URL: "https://broken.invalid/", Err: &net.DNSError{Err: "permanent resolver failure", Name: "broken.invalid"}}},
+		{name: "direct permanent net error", err: retryClassificationNetError{}},
+		{name: "wrapped permanent net error", err: &RequestError{Method: http.MethodGet, URL: "https://broken.invalid/", Err: retryClassificationNetError{}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if IsRetryableError(test.err) {
+				t.Fatalf("IsRetryableError(%T) = true, want false", test.err)
+			}
+		})
+	}
+}
+
+func TestIsRetryableErrorPreservesTransientTransportFailures(t *testing.T) {
+	connectionRefused := &net.OpError{Op: "dial", Net: "tcp", Err: os.NewSyscallError("connect", syscall.ECONNREFUSED)}
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{name: "direct DNS timeout", err: &net.DNSError{Err: "timeout", Name: "slow.invalid", IsTimeout: true}},
+		{name: "wrapped temporary DNS", err: &RequestError{Method: http.MethodGet, URL: "https://slow.invalid/", Err: &net.DNSError{Err: "temporary resolver failure", Name: "slow.invalid", IsTemporary: true}}},
+		{name: "direct timeout", err: retryClassificationNetError{timeout: true}},
+		{name: "wrapped temporary", err: &RequestError{Method: http.MethodGet, URL: "https://slow.invalid/", Err: retryClassificationNetError{temporary: true}}},
+		{name: "direct connection refused", err: connectionRefused},
+		{name: "wrapped connection refused", err: &RequestError{Method: http.MethodGet, URL: "https://offline.invalid/", Err: connectionRefused}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if !IsRetryableError(test.err) {
+				t.Fatalf("IsRetryableError(%T) = false, want true", test.err)
+			}
+		})
+	}
+}
+
+type retryClassificationNetError struct {
+	timeout   bool
+	temporary bool
+}
+
+func (retryClassificationNetError) Error() string { return "classified network failure" }
+
+func (err retryClassificationNetError) Timeout() bool { return err.timeout }
+
+func (err retryClassificationNetError) Temporary() bool { return err.temporary }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
 

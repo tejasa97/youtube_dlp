@@ -403,6 +403,8 @@ capabilities:
       - internal/network.TestImpersonationAddressPolicyBindsIPv4Source
       - internal/network.TestAddressPolicyRejectsInvalidAndConflictingValues
       - internal/network.TestInjectedTransportMustDeclareAddressPolicyCapability
+      - internal/network.TestIsRetryableErrorRejectsDirectAndWrappedPermanentDNS
+      - internal/network.TestIsRetryableErrorPreservesTransientTransportFailures
       - internal/network/impersonate.TestHTTPConnectProxyHonorsIPv4SourceAddress
       - internal/network/impersonate.TestSOCKS5ProxyHonorsIPv4SourceAddress
       - internal/network/impersonate.TestSOCKS5HProxyRetainsRemoteDNSAndHonorsIPv6SourceAddress

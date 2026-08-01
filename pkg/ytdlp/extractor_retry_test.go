@@ -52,6 +52,7 @@ func TestExtractorRetryClassificationRejectsPermanentAndCategorizedErrors(t *tes
 		{name: "authentication", err: extractor.ErrAuthentication},
 		{name: "geo", err: extractor.ErrRegionRestricted},
 		{name: "unavailable", err: extractor.ErrUnavailable},
+		{name: "categorized unavailable", err: categorized("fixture extraction", extractor.ErrUnavailable)},
 		{name: "invalid", err: extractor.ErrInvalidMetadata},
 		{name: "permanent status", err: &network.StatusError{Code: 404}},
 		{name: "categorized auth", err: &Error{Category: ErrorAuthentication, Err: &network.StatusError{Code: 500}}},

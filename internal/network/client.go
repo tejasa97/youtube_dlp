@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/ytdlp-go/ytdlp/internal/network/impersonate"
@@ -649,11 +650,37 @@ func IsRetryableError(err error) bool {
 	}
 	var requestErr *RequestError
 	if errors.As(err, &requestErr) {
-		var netErr net.Error
-		return errors.As(requestErr.Err, &netErr)
+		return isRetryableTransportError(requestErr.Err)
+	}
+	return isRetryableTransportError(err)
+}
+
+func isRetryableTransportError(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		// NXDOMAIN and equivalent authoritative not-found answers are stable for
+		// the attempted name. Some resolvers also mark them temporary; the
+		// deterministic not-found signal takes precedence.
+		return !dnsErr.IsNotFound && (dnsErr.IsTimeout || dnsErr.IsTemporary)
+	}
+	for _, transient := range []error{
+		syscall.ECONNABORTED,
+		syscall.ECONNREFUSED,
+		syscall.ECONNRESET,
+		syscall.EHOSTUNREACH,
+		syscall.ENETUNREACH,
+		syscall.ETIMEDOUT,
+		syscall.EPIPE,
+	} {
+		if errors.Is(err, transient) {
+			return true
+		}
 	}
 	var netErr net.Error
-	return errors.As(err, &netErr)
+	return errors.As(err, &netErr) && (netErr.Timeout() || netErr.Temporary())
 }
 
 var sensitiveQueryKeys = map[string]struct{}{
