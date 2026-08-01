@@ -26,7 +26,21 @@ var (
 	ErrThrottled         = errors.New("download response remained below throttle threshold")
 	ErrThrottleExhausted = errors.New("download throttle restart limit exhausted")
 	ErrInvalidLimits     = errors.New("invalid download resource limits")
+	// ErrFileSizeAbort reports a download rejected by the --min-filesize or
+	// --max-filesize boundary before transfer, mirroring yt-dlp's
+	// downloader/http.py abort. It is deliberately not retryable.
+	ErrFileSizeAbort = errors.New("download aborted by file size limit")
 )
+
+// FileSizeAbortError carries the exact reference diagnostic for a
+// min/max-filesize abort: for example
+// "File is smaller than min-filesize (100 bytes < 200 bytes)".
+type FileSizeAbortError struct {
+	Message string
+}
+
+func (err *FileSizeAbortError) Error() string { return err.Message }
+func (err *FileSizeAbortError) Unwrap() error { return ErrFileSizeAbort }
 
 // HTTPStatusError identifies a non-success response rejected by the direct
 // downloader without exposing its potentially sensitive URL.
@@ -61,6 +75,12 @@ type Job struct {
 	// MaxBytes bounds a response even where the server omits Content-Length.
 	// Zero means the direct downloader's conservative 8 GiB ceiling.
 	MaxBytes int64
+	// MinFilesize and MaxFilesize reject a response before transfer when its
+	// advertised Content-Length (plus the resume offset) falls outside the
+	// bounds. Checks are skipped when Content-Encoding is present or the
+	// length is unknown, matching yt-dlp's downloader/http.py. Zero disables.
+	MinFilesize int64
+	MaxFilesize int64
 	// ThrottleRate enables slow-response detection when positive. A response
 	// below this byte/second rate for ThrottleWindow is restarted resumably.
 	ThrottleRate     int64
@@ -215,6 +235,14 @@ func (downloader *Downloader) Download(ctx context.Context, job Job, sink events
 			}
 		}
 	}
+	if errors.Is(lastErr, ErrFileSizeAbort) {
+		// In no-part mode the destination is the in-progress file. Preserve an
+		// existing destination rather than deleting it during abort cleanup.
+		if partPath != job.Destination {
+			removeRegularFile(partPath)
+		}
+		removeRegularFile(statePath)
+	}
 	return Result{}, lastErr
 }
 
@@ -270,12 +298,38 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, part
 	}
 	state.ETag = response.Header.Get("ETag")
 	state.Total = responseTotal(response, offset)
+	if job.MinFilesize > 0 || job.MaxFilesize > 0 {
+		// yt-dlp's http.py consults Content-Length plus the resume offset and
+		// skips the size decision when Content-Encoding is present or the
+		// length is unknown.
+		if response.Header.Get("Content-Encoding") == "" && state.Total > 0 {
+			if job.MinFilesize > 0 && state.Total < job.MinFilesize {
+				return Result{}, &FileSizeAbortError{
+					Message: fmt.Sprintf("File is smaller than min-filesize (%d bytes < %d bytes)", state.Total, job.MinFilesize),
+				}
+			}
+			if job.MaxFilesize > 0 && state.Total > job.MaxFilesize {
+				return Result{}, &FileSizeAbortError{
+					Message: fmt.Sprintf("File is larger than max-filesize (%d bytes > %d bytes)", state.Total, job.MaxFilesize),
+				}
+			}
+		}
+	}
 	maxBytes := job.MaxBytes
 	if maxBytes <= 0 {
 		maxBytes = maxDirectBytes
 	}
+	transferLimit := maxBytes
+	if response.Header.Get("Content-Encoding") == "" && job.MaxFilesize > 0 && job.MaxFilesize < transferLimit {
+		transferLimit = job.MaxFilesize
+	}
 	if state.Total > maxBytes {
 		return Result{}, fmt.Errorf("%w: advertised %d bytes exceeds %d", ErrIncomplete, state.Total, maxBytes)
+	}
+	if response.Header.Get("Content-Encoding") == "" && state.Total > transferLimit {
+		return Result{}, &FileSizeAbortError{
+			Message: fmt.Sprintf("File is larger than max-filesize (%d bytes > %d bytes)", state.Total, job.MaxFilesize),
+		}
 	}
 	if err := downloader.savePartialState(ctx, job, statePath, state); err != nil {
 		return Result{}, err
@@ -311,8 +365,13 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, part
 				file.Close()
 				return Result{}, retryableError{ErrThrottled}
 			}
-			if written+int64(count) > maxBytes {
+			if written+int64(count) > transferLimit {
 				file.Close()
+				if job.MaxFilesize > 0 && transferLimit == job.MaxFilesize {
+					return Result{}, &FileSizeAbortError{
+						Message: fmt.Sprintf("File is larger than max-filesize (%d bytes > %d bytes)", written+int64(count), job.MaxFilesize),
+					}
+				}
 				return Result{}, fmt.Errorf("%w: response exceeds %d bytes", ErrIncomplete, maxBytes)
 			}
 			if err := limiter.Wait(ctx, count); err != nil {
@@ -351,12 +410,29 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, part
 	if state.Total > 0 && written != state.Total {
 		return Result{}, retryableError{fmt.Errorf("%w: got %d, want %d bytes", ErrIncomplete, written, state.Total)}
 	}
+	if response.Header.Get("Content-Encoding") == "" && job.MinFilesize > 0 && written < job.MinFilesize {
+		return Result{}, &FileSizeAbortError{
+			Message: fmt.Sprintf("File is smaller than min-filesize (%d bytes < %d bytes)", written, job.MinFilesize),
+		}
+	}
 	return Result{Bytes: written, Resumed: resuming}, nil
+}
+
+// removeRegularFile cleans up an aborted partial artifact without following
+// or deleting a hostile replacement such as a symlink.
+func removeRegularFile(path string) {
+	info, err := os.Lstat(path)
+	if err == nil && info.Mode().IsRegular() {
+		_ = os.Remove(path)
+	}
 }
 
 func validateJob(job Job) error {
 	if job.Attempts > maxDirectAttempts {
 		return ErrTooManyAttempts
+	}
+	if job.MinFilesize < 0 || job.MaxFilesize < 0 {
+		return fmt.Errorf("%w: negative file size bound", ErrInvalidLimits)
 	}
 	if job.Attempts < 0 || job.RetryBaseDelay < 0 || job.RetryMaxDelay < 0 || job.RetryBaseDelay > maxDirectRetryDelay || job.RetryMaxDelay > maxDirectRetryDelay || (job.RetryBaseDelay > 0 && job.RetryMaxDelay > 0 && job.RetryBaseDelay > job.RetryMaxDelay) || job.RateLimit < 0 || job.MaxBytes < 0 || job.MaxBytes > maxDirectBytes || job.ThrottleRate < 0 || job.ThrottleWindow < 0 || job.ThrottleWindow > maxDirectRetryDelay || job.ThrottleRestarts < 0 || job.ThrottleRestarts > maxDirectRestarts || job.FileAttempts < 0 || job.FileAttempts > maxDirectFileRetries {
 		return ErrInvalidLimits

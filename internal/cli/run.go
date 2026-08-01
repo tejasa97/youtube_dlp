@@ -10,9 +10,11 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -79,6 +81,10 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	}
 	flags := flag.NewFlagSet("ytdlp-go", flag.ContinueOnError)
 	flags.SetOutput(stderr)
+	// hiddenFlags names options registered for pinned-reference parity
+	// (SUPPRESS_HELP upstream). It is local to this invocation so concurrent
+	// RunContextIO calls never share mutable registration state.
+	hiddenFlags := map[string]bool{}
 	flags.Usage = func() {
 		fmt.Fprintln(flags.Output(), "Usage: ytdlp-go [OPTIONS] URL [URL ...]")
 		fmt.Fprintln(flags.Output())
@@ -86,7 +92,7 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 		fmt.Fprintln(flags.Output())
 		fmt.Fprintln(flags.Output(), "  --print-to-file [WHEN:]TEMPLATE FILE")
 		fmt.Fprintln(flags.Output(), "        append a rendered template line to a confined file")
-		flags.PrintDefaults()
+		printFlagDefaults(flags, flags.Output(), hiddenFlags)
 	}
 
 	showVersion := flags.Bool("version", false, "print the version and exit")
@@ -457,6 +463,103 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 		breakMatchFilters = nil
 		return nil
 	})
+	// Simple metadata filters and stopping conditions. The hidden flags are
+	// registered for parity with the pinned reference (SUPPRESS_HELP) but
+	// omitted from --help output.
+	var simpleFilters ytdlp.SimpleFilterOptions
+	flags.StringVar(&simpleFilters.MatchTitle, "match-title", "", "download only titles matching a case-insensitive regex")
+	hiddenFlags["match-title"] = true
+	flags.StringVar(&simpleFilters.RejectTitle, "reject-title", "", "skip titles matching a case-insensitive regex")
+	hiddenFlags["reject-title"] = true
+	flags.StringVar(&simpleFilters.Date, "date", "", "download only videos uploaded on this date (YYYYMMDD or now/today/yesterday with optional -Nday/week/month/year)")
+	flags.StringVar(&simpleFilters.DateAfter, "dateafter", "", "download only videos uploaded on or after this date")
+	flags.StringVar(&simpleFilters.DateBefore, "datebefore", "", "download only videos uploaded on or before this date")
+	flags.Func("min-views", "skip videos with fewer views", func(value string) error {
+		parsed, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || parsed < 0 {
+			return fmt.Errorf("invalid view count %q", value)
+		}
+		simpleFilters.MinViews = &parsed
+		return nil
+	})
+	hiddenFlags["min-views"] = true
+	flags.Func("max-views", "skip videos with more views", func(value string) error {
+		parsed, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || parsed < 0 {
+			return fmt.Errorf("invalid view count %q", value)
+		}
+		simpleFilters.MaxViews = &parsed
+		return nil
+	})
+	hiddenFlags["max-views"] = true
+	flags.Func("age-limit", "download only videos suitable for the given age", func(value string) error {
+		parsed, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || parsed < 0 {
+			return fmt.Errorf("invalid age limit %q", value)
+		}
+		simpleFilters.AgeLimit = &parsed
+		return nil
+	})
+	var minFilesize, maxFilesize byteSizeFlag
+	flags.Var(&minFilesize, "min-filesize", "abort download if the file is smaller than SIZE, e.g. 50k or 44.6M")
+	flags.Var(&maxFilesize, "max-filesize", "abort download if the file is larger than SIZE, e.g. 50k or 44.6M")
+	maxDownloads := flags.Int("max-downloads", 0, "abort after downloading NUMBER files (0 disables)")
+	forceWriteArchive := false
+	setForceWriteArchive := func(string) error {
+		forceWriteArchive = true
+		return nil
+	}
+	flags.BoolFunc("force-write-archive", "write selected entries to the download archive even under simulation or skip-download", setForceWriteArchive)
+	flags.BoolFunc("force-write-download-archive", "alias for --force-write-archive", setForceWriteArchive)
+	flags.BoolFunc("force-download-archive", "alias for --force-write-archive", setForceWriteArchive)
+	breakOnExisting := false
+	flags.BoolFunc("break-on-existing", "stop when encountering a video already in the download archive", func(input string) error {
+		enabled, err := strconv.ParseBool(input)
+		if err != nil {
+			return err
+		}
+		breakOnExisting = enabled
+		return nil
+	})
+	flags.BoolFunc("no-break-on-existing", "do not stop on archived videos (default)", func(input string) error {
+		enabled, err := strconv.ParseBool(input)
+		if err != nil {
+			return err
+		}
+		if enabled {
+			breakOnExisting = false
+		}
+		return nil
+	})
+	breakOnReject := false
+	flags.BoolFunc("break-on-reject", "stop when a video is filtered out", func(input string) error {
+		enabled, err := strconv.ParseBool(input)
+		if err != nil {
+			return err
+		}
+		breakOnReject = enabled
+		return nil
+	})
+	hiddenFlags["break-on-reject"] = true
+	breakPerInput := false
+	flags.BoolFunc("break-per-input", "reset --max-downloads and stop conditions for each input URL", func(input string) error {
+		enabled, err := strconv.ParseBool(input)
+		if err != nil {
+			return err
+		}
+		breakPerInput = enabled
+		return nil
+	})
+	flags.BoolFunc("no-break-per-input", "do not reset stop conditions per input (default)", func(input string) error {
+		enabled, err := strconv.ParseBool(input)
+		if err != nil {
+			return err
+		}
+		if enabled {
+			breakPerInput = false
+		}
+		return nil
+	})
 	flags.Var(metadataParseFlag{actions: &metadataActions}, "parse-metadata", "[WHEN:]FROM:TO metadata action")
 	flags.Var(metadataReplaceFlag{actions: &metadataActions}, "replace-in-metadata", "[WHEN:]FIELDS REGEX REPLACEMENT metadata action")
 	retries := flags.Int("retries", 0, "direct and fragment download attempts (maximum 100)")
@@ -639,6 +742,18 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 		}
 		return 2
 	}
+	// --date wins over --dateafter/--datebefore with a warning, matching the
+	// reference report_conflict behavior.
+	if simpleFilters.Date != "" {
+		if simpleFilters.DateAfter != "" {
+			fmt.Fprintln(stderr, "ytdlp-go: --dateafter is ignored since --date was given")
+			simpleFilters.DateAfter = ""
+		}
+		if simpleFilters.DateBefore != "" {
+			fmt.Fprintln(stderr, "ytdlp-go: --datebefore is ignored since --date was given")
+			simpleFilters.DateBefore = ""
+		}
+	}
 	if *showVersion {
 		fmt.Fprintf(stdout, "ytdlp-go %s\n", Version)
 		return 0
@@ -725,6 +840,10 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 			_, _ = fmt.Fprintf(stderr, "[download] Retry %d: %s\n", event.Attempt, event.Message)
 		case ytdlp.EventDownloadCompleted:
 			_, _ = fmt.Fprintf(stderr, "[download] Completed: %s\n", event.Path)
+		case ytdlp.EventDownloadCancelled:
+			if event.Message != "" {
+				_, _ = fmt.Fprintf(stderr, "[download] %s\n", event.Message)
+			}
 		}
 		return nil
 	}
@@ -777,6 +896,7 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 		ThrottleWindow: *throttleWindow, ThrottleRestarts: *throttleRestarts, FileAttempts: *fileRetries,
 		FragmentConcurrency: *fragmentConcurrency, PerHostFragmentConcurrency: *perHostFragments,
 		MaxSegments: *maxSegments, MaxSegmentBytes: int64(maxFragmentBytes),
+		MinFilesize: int64(minFilesize), MaxFilesize: int64(maxFilesize),
 	}
 	if *externalDownloader != "" {
 		downloaderOptions.External = &ytdlp.ExternalDownloader{Executable: *externalDownloader, Arguments: append([]string(nil), externalArgs...)}
@@ -821,12 +941,16 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	if embedChaptersSet {
 		requestEmbedChapters = &embedChapters
 	}
+	// maxDownloadsPerInput is the per-Run cap. The CLI carries the remaining
+	// budget across inputs (yt-dlp's shared _num_downloads) and resets it per
+	// input under --break-per-input.
+	maxDownloadsPerInput := 0
 	makeRequest := func(inputURL string) ytdlp.Request {
 		return ytdlp.Request{
 			URL: inputURL, OutputTemplates: outputTemplates.clone(), OutputDir: *outputDir, OutputPaths: paths.clone(), Proxy: *proxy, ImpersonationProfile: *impersonationProfile,
 			CookieFile: *cookieFile, CookiesFromBrowser: *cookiesFromBrowser, UseNetRC: *useNetRC, NetRCLocation: *netRCLocation,
 			VideoPassword:   *videoPassword,
-			DownloadArchive: *downloadArchive, CacheDir: *cacheDir,
+			DownloadArchive: *downloadArchive, ForceWriteArchive: forceWriteArchive, CacheDir: *cacheDir,
 			Timeout: *timeout, Overwrite: *overwrite, Simulate: requestSimulate, SkipDownload: *skipDownload, LiveFromStart: *liveFromStart,
 			Format: *format, FormatSort: append([]string(nil), formatSort...), FormatSortForce: formatSortForce,
 			PreferFreeFormats: preferFreeFormats, AllowUnplayableFormats: allowUnplayable,
@@ -836,6 +960,11 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 			InteractiveMatchFilter: interactiveMatchFilter,
 			InteractiveFormat:      interactiveFormat,
 			BreakMatchFilters:      requestBreakMatchFilters,
+			SimpleFilters:          simpleFilters,
+			MaxDownloads:           maxDownloadsPerInput,
+			BreakOnExisting:        breakOnExisting,
+			BreakOnReject:          breakOnReject,
+			BreakPerInput:          breakPerInput,
 			MetadataActions:        append([]ytdlp.MetadataAction(nil), metadataActions...),
 			EmbedMetadata:          *embedMetadata,
 			EmbedChapters:          requestEmbedChapters,
@@ -879,8 +1008,36 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	}
 	var firstErr, terminalErr error
 	resultFailures := 0
+	// stopExit carries the reference stop code (101) so telemetry writing
+	// still runs before the CLI returns.
+	stopExit := 0
+	abortRemaining := func(stopped bool) bool {
+		if !stopped || breakPerInput {
+			return false
+		}
+		fmt.Fprintln(stderr, "Aborting remaining downloads")
+		stopExit = 101
+		return true
+	}
+	remainingDownloads := *maxDownloads
 	for _, inputURL := range batchInputs {
+		if *maxDownloads > 0 {
+			if breakPerInput {
+				maxDownloadsPerInput = *maxDownloads
+			} else {
+				maxDownloadsPerInput = remainingDownloads
+			}
+		} else {
+			maxDownloadsPerInput = 0
+		}
 		result, runErr := client.Run(ctx, makeRequest(inputURL))
+		if *maxDownloads > 0 && !breakPerInput {
+			remainingDownloads -= result.Downloads
+			if remainingDownloads < 0 {
+				remainingDownloads = 0
+			}
+		}
+		sharedMaxReached := *maxDownloads > 0 && !breakPerInput && result.Downloads > 0 && remainingDownloads == 0
 		if runErr != nil {
 			fmt.Fprintf(stderr, "ytdlp-go: %v\n", runErr)
 			if ytdlp.IsNonOverridableError(runErr) {
@@ -889,6 +1046,9 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 			}
 			if firstErr == nil {
 				firstErr = runErr
+			}
+			if abortRemaining(result.Stopped || sharedMaxReached) {
+				break
 			}
 			continue
 		}
@@ -953,6 +1113,12 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 			}
 		}
 		resultFailures += result.SuppressedFailures
+		if abortRemaining(result.Stopped || sharedMaxReached) {
+			// The partial result was already emitted above. Under
+			// --break-per-input the stop is consumed silently by the per-input
+			// wrapper and the next input receives a fresh budget.
+			break
+		}
 	}
 	if telemetryCollector != nil {
 		if writeErr := telemetryCollector.WriteCanonical(context.Background(), stdout); writeErr != nil {
@@ -962,6 +1128,9 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	}
 	if terminalErr != nil {
 		return exitCode(terminalErr)
+	}
+	if stopExit != 0 {
+		return stopExit
 	}
 	if firstErr != nil {
 		return exitCode(firstErr)
@@ -1830,25 +1999,51 @@ type byteSizeFlag int64
 
 func (value *byteSizeFlag) String() string { return strconv.FormatInt(int64(*value), 10) }
 func (value *byteSizeFlag) Set(input string) error {
-	trimmed := strings.TrimSpace(input)
-	if trimmed == "" {
-		return errors.New("byte size must not be empty")
-	}
-	multiplier := int64(1)
-	switch suffix := strings.ToUpper(trimmed[len(trimmed)-1:]); suffix {
-	case "K":
-		multiplier, trimmed = 1024, trimmed[:len(trimmed)-1]
-	case "M":
-		multiplier, trimmed = 1024*1024, trimmed[:len(trimmed)-1]
-	case "G":
-		multiplier, trimmed = 1024*1024*1024, trimmed[:len(trimmed)-1]
-	}
-	parsed, err := strconv.ParseInt(trimmed, 10, 64)
-	if err != nil || parsed < 0 || (parsed > 0 && parsed > (1<<63-1)/multiplier) {
+	parsed, ok := parseByteQuantity(input)
+	if !ok {
 		return fmt.Errorf("invalid byte size %q", input)
 	}
-	*value = byteSizeFlag(parsed * multiplier)
+	*value = byteSizeFlag(parsed)
 	return nil
+}
+
+// byteQuantityPattern mirrors yt-dlp's parse_bytes grammar: a decimal number
+// with an optional binary K/M/G/T/P/E/Z/Y suffix (uppercase-insensitive).
+var byteQuantityPattern = regexp.MustCompile(`^(\d+(?:\.\d+)?)\s*([KMGTPEZY]?)$`)
+
+// parseByteQuantity mirrors utils.parse_bytes: the input is uppercased, the
+// number is multiplied by the binary unit (1024**i for K..Y), and the result
+// is rounded to even like Python's round(). The anchored grammar rejects
+// surrounding whitespace like the reference re.fullmatch. Values exceeding
+// int64 are rejected rather than truncated: the reference's unbounded Python
+// integers have no int64 representation here.
+func parseByteQuantity(input string) (int64, bool) {
+	if input == "" {
+		return 0, false
+	}
+	match := byteQuantityPattern.FindStringSubmatch(strings.ToUpper(input))
+	if match == nil {
+		return 0, false
+	}
+	number, err := strconv.ParseFloat(match[1], 64)
+	if err != nil || math.IsNaN(number) || math.IsInf(number, 0) || number < 0 {
+		return 0, false
+	}
+	// The multiplier is computed in float64 (exact for every power of two up
+	// to 2^1023) so Z/Y units never wrap an int64 shift to zero; the
+	// int64-range check below then rejects their products.
+	multiplier := 1.0
+	if unit := match[2]; unit != "" {
+		multiplier = math.Pow(1024, float64(strings.IndexByte("KMGTPEZY", unit[0])+1))
+	}
+	result := math.RoundToEven(number * multiplier)
+	// float64 cannot represent MaxInt64 exactly (it rounds to 2^63), so the
+	// overflow boundary is the first value above int64's range: any rounded
+	// result at or beyond 2^63 must be rejected.
+	if math.IsNaN(result) || math.IsInf(result, 0) || result >= math.Ldexp(1, 63) {
+		return 0, false
+	}
+	return int64(result), true
 }
 
 type outputPathFlag struct {
@@ -2001,4 +2196,53 @@ func exitCode(err error) int {
 	default:
 		return 1
 	}
+}
+
+// printFlagDefaults renders --help entries for every registered flag except
+// the hidden parity flags. Go's flag package has no native hidden support, so
+// the renderer mirrors the standard PrintDefaults layout while skipping the
+// hidden set.
+func printFlagDefaults(flags *flag.FlagSet, output io.Writer, hidden map[string]bool) {
+	flags.VisitAll(func(f *flag.Flag) {
+		if hidden[f.Name] {
+			return
+		}
+		var builder strings.Builder
+		fmt.Fprintf(&builder, "  -%s", f.Name)
+		if name, _ := flag.UnquoteUsage(f); name != "" {
+			builder.WriteString(" ")
+			builder.WriteString(name)
+		}
+		if builder.Len() <= 4 {
+			builder.WriteString("\t")
+		} else {
+			builder.WriteString("\n    \t")
+		}
+		builder.WriteString(strings.ReplaceAll(f.Usage, "\n", "\n    \t"))
+		if !isZeroDefault(f) {
+			builder.WriteString(fmt.Sprintf(" (default %q)", f.DefValue))
+		}
+		fmt.Fprint(output, builder.String(), "\n")
+	})
+}
+
+// isZeroDefault reports whether a flag's default is the type's zero value,
+// mirroring flag.isZeroValue so the help omits redundant defaults.
+func isZeroDefault(f *flag.Flag) bool {
+	if f.DefValue == "" {
+		return true
+	}
+	if _, ok := f.Value.(interface{ IsBoolFlag() bool }); ok {
+		return f.DefValue == "false"
+	}
+	if parsed, err := strconv.ParseInt(f.DefValue, 10, 64); err == nil {
+		return parsed == 0
+	}
+	if parsed, err := strconv.ParseFloat(f.DefValue, 64); err == nil {
+		return parsed == 0
+	}
+	if parsed, err := time.ParseDuration(f.DefValue); err == nil {
+		return parsed == 0
+	}
+	return false
 }

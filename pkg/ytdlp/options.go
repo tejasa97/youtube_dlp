@@ -57,7 +57,14 @@ type DownloaderOptions struct {
 	LiveRefreshInterval        time.Duration
 	LiveMaxPolls               int
 	LiveMaxNoProgressPolls     int
-	External                   *ExternalDownloader
+	// MinFilesize and MaxFilesize abort a direct HTTP transfer before it
+	// starts when the advertised Content-Length (plus the resume offset)
+	// falls outside the bounds, mirroring yt-dlp's downloader/http.py.
+	// Zero disables the corresponding bound. They apply only to direct
+	// media downloads, never to subtitle or thumbnail payload writes.
+	MinFilesize int64
+	MaxFilesize int64
+	External    *ExternalDownloader
 }
 
 // ExternalDownloader explicitly selects a shell-free executable boundary.
@@ -65,6 +72,33 @@ type DownloaderOptions struct {
 type ExternalDownloader struct {
 	Executable string
 	Arguments  []string
+}
+
+// SimpleFilterOptions mirrors yt-dlp's simple video selection filters:
+// --match-title/--reject-title, --date/--dateafter/--datebefore,
+// --min-views/--max-views, and --age-limit. Zero values disable the
+// corresponding filter. MinViews, MaxViews, and AgeLimit are pointers so an
+// explicit zero remains observable. These are metadata filters evaluated
+// before the generic --match-filters; file size bounds live in
+// DownloaderOptions because yt-dlp enforces them in the direct downloader.
+type SimpleFilterOptions struct {
+	MatchTitle  string
+	RejectTitle string
+	// Date selects a single upload day and takes precedence over DateAfter
+	// and DateBefore (the reference CLI resolves the conflict with a warning).
+	Date       string
+	DateAfter  string
+	DateBefore string
+	MinViews   *int64
+	MaxViews   *int64
+	AgeLimit   *int64
+}
+
+// hasSimpleFilters reports whether any simple filter is configured.
+func (options SimpleFilterOptions) hasSimpleFilters() bool {
+	return options.MatchTitle != "" || options.RejectTitle != "" ||
+		options.Date != "" || options.DateAfter != "" || options.DateBefore != "" ||
+		options.MinViews != nil || options.MaxViews != nil || options.AgeLimit != nil
 }
 
 // SubtitleOptions selects subtitle tracks exposed by an extractor. Embed
@@ -244,13 +278,13 @@ type SponsorBlockOptions struct {
 // --skip-playlist-after-errors. RandomSource is the deterministic
 // injection seam used by Random; nil selects a time-seeded source.
 type PlaylistOptions struct {
-	Start        int
-	End          int
-	Reverse      bool
-	Random       bool
-	Lazy         bool
-	Items        string
-	Flat         bool
+	Start   int
+	End     int
+	Reverse bool
+	Random  bool
+	Lazy    bool
+	Items   string
+	Flat    bool
 	// Disabled, when true, tells the operation to treat a URL that can resolve
 	// to either a single video or a playlist as a single video. This is the
 	// --no-playlist / --yes-playlist toggle. False means the default heuristic
@@ -368,8 +402,12 @@ func validateRequestOptions(request Request) error {
 		options.LivePollInterval < 0 || options.LivePollInterval > time.Hour ||
 		options.LiveRefreshInterval < 0 || options.LiveRefreshInterval > 24*time.Hour ||
 		options.LiveMaxPolls < 0 || options.LiveMaxPolls > 100_000 ||
-		options.LiveMaxNoProgressPolls < 0 || options.LiveMaxNoProgressPolls > 10_000 {
+		options.LiveMaxNoProgressPolls < 0 || options.LiveMaxNoProgressPolls > 10_000 ||
+		options.MinFilesize < 0 || options.MaxFilesize < 0 {
 		return fmt.Errorf("%w: downloader resource limits", errInvalidRequestOptions)
+	}
+	if request.MaxDownloads < 0 {
+		return fmt.Errorf("%w: max downloads", errInvalidRequestOptions)
 	}
 	playlistStart, playlistEnd := normalizedPlaylistRange(request.Playlist)
 	if playlistStart < 1 || playlistStart > maxPlaylistEntries || request.Playlist.End < -1 || playlistEnd > maxPlaylistEntries ||

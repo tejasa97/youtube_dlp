@@ -1422,10 +1422,10 @@ func TestRunWaveTwoCompatibilityFlags(t *testing.T) {
 		"--replace-in-metadata", "title:Deterministic:Native",
 		"--match-filter", "title=discarded",
 		"--no-match-filters",
-		"--match-filters", "title~=(?i)^Native(?= Fixture$)",
+		"--match-filters", "title~=(?i)^Deterministic(?= Fixture$)",
 		"--break-match-filter", "title=discarded",
 		"--no-break-match-filters",
-		"--break-match-filters", "title~=Native",
+		"--break-match-filters", "title~=Deterministic",
 		server.URL + "/page",
 	}, &stdout, &stderr)
 	if code != 0 {
@@ -1449,7 +1449,7 @@ func TestRunMetadataThreeArgumentGrammarAndOrdering(t *testing.T) {
 		"--parse-metadata", "title:%(artist)s Fixture",
 		"--replace-in-metadata", "artist", "Deterministic", "Native",
 		"--parse-metadata", "artist:%(album)s",
-		"--match-filter", "album=Native",
+		"--match-filter", "title=Deterministic Fixture",
 		server.URL + "/page",
 	}, &stdout, &stderr)
 	if code != 0 {
@@ -1491,9 +1491,9 @@ func TestRunInteractiveMatchFilterPrompt(t *testing.T) {
 		{name: "reject", input: "n\n", filters: []string{"-"}, wantPrompts: 1},
 		{name: "duplicate marker prompts once", input: "y\n", filters: []string{"-", "-"}, wantPrompts: 1},
 		{name: "ordinary rejection precedes prompt", input: "y\n", filters: []string{"-", "title=other"}},
-		{name: "break rejection precedes prompt", input: "y\n", filters: []string{"-"}, breakFilter: "title=other"},
+		{name: "break rejection precedes prompt", input: "y\n", filters: []string{"-"}, breakFilter: "title=other", wantCode: 101},
 		{name: "breaking interactive accepts", input: "y\n", breakFilter: "-", wantPrompts: 1},
-		{name: "breaking interactive rejects", input: "n\n", breakFilter: "-", wantPrompts: 1},
+		{name: "breaking interactive rejects", input: "n\n", breakFilter: "-", wantPrompts: 1, wantCode: 101},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			arguments := []string{"--skip-download"}

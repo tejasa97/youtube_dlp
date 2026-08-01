@@ -11,6 +11,7 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/compat/matchfilter"
 	compatmetadata "github.com/ytdlp-go/ytdlp/internal/compat/metadata"
 	"github.com/ytdlp-go/ytdlp/internal/compat/progress"
+	"github.com/ytdlp-go/ytdlp/internal/compat/simplefilter"
 	"github.com/ytdlp-go/ytdlp/internal/events"
 	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
 	"github.com/ytdlp-go/ytdlp/internal/network"
@@ -22,6 +23,7 @@ type compatibilityPlan struct {
 	formatOptions     mediaformat.Options
 	matchFilter       matchfilter.Program
 	breakMatchFilter  matchfilter.Program
+	simpleFilter      *simplefilter.Checker
 	interactive       interactiveMatchFilterKind
 	interactiveFormat bool
 	metadataActions   []compatmetadata.Action
@@ -107,6 +109,18 @@ func prepareCompatibility(request Request) (compatibilityPlan, error) {
 	if err != nil {
 		return compatibilityPlan{}, categorized("parse break match filter", err)
 	}
+	if request.SimpleFilters.hasSimpleFilters() {
+		checker, filterErr := simplefilter.New(simplefilter.Options{
+			MatchTitle: request.SimpleFilters.MatchTitle, RejectTitle: request.SimpleFilters.RejectTitle,
+			Date: request.SimpleFilters.Date, DateAfter: request.SimpleFilters.DateAfter, DateBefore: request.SimpleFilters.DateBefore,
+			MinViews: request.SimpleFilters.MinViews, MaxViews: request.SimpleFilters.MaxViews,
+			AgeLimit: request.SimpleFilters.AgeLimit,
+		})
+		if filterErr != nil {
+			return compatibilityPlan{}, categorized("parse simple filter", filterErr)
+		}
+		plan.simpleFilter = checker
+	}
 	plan.chapterRemoval, err = chapterremove.Parse(request.RemoveChapters)
 	if err != nil {
 		return compatibilityPlan{}, categorized("parse remove chapters", err)
@@ -168,18 +182,20 @@ func prepareCompatibility(request Request) (compatibilityPlan, error) {
 }
 
 func (operation *operation) applyCompatibility(ctx context.Context, ctxInfo *value.Info, incomplete bool) (compatibilityDecision, error) {
-	result, err := compatmetadata.ApplyContext(ctx, ctxInfo, operation.compatibility.metadataActions)
-	if err != nil {
-		return compatibilityDecision{}, categorized("apply metadata actions", err)
-	}
-	for _, warning := range result.Warnings {
-		if err := operation.client.emit(ctx, Event{Kind: EventMetadataWarning, Message: warning}); err != nil {
-			return compatibilityDecision{}, &Error{Category: ErrorInternal, Op: "emit metadata warning", Err: err}
-		}
-	}
 	options := matchfilter.EvaluationOptions{IncompleteAll: incomplete}
 	if !incomplete && operation.compatibility.interactive != interactiveMatchFilterNone {
 		options.IncompleteFields = interactiveIncompleteFormatFields
+	}
+	// Simple filters (title/date/views/age) run before the generic
+	// breaking and ordinary match filters, mirroring check_filter's order.
+	if operation.compatibility.simpleFilter != nil {
+		reason, rejected, checkErr := operation.compatibility.simpleFilter.Check(ctx, *ctxInfo)
+		if checkErr != nil {
+			return compatibilityDecision{}, categorized("evaluate simple filter", checkErr)
+		}
+		if rejected {
+			return compatibilityDecision{Decision: matchfilter.Decision{Reason: reason}}, nil
+		}
 	}
 	breakDecision, err := operation.compatibility.breakMatchFilter.EvaluateContext(
 		ctx,
@@ -190,8 +206,10 @@ func (operation *operation) applyCompatibility(ctx context.Context, ctxInfo *val
 		return compatibilityDecision{}, categorized("evaluate break match filter", err)
 	}
 	if !breakDecision.Pass {
-		operation.breakMatchTriggered = true
-		operation.breakMatchReason = breakDecision.Reason
+		// --break-match-filter rejections always stop the run, regardless of
+		// --break-on-reject (reference match_filter_func raises
+		// RejectedVideoReached directly).
+		operation.setStop(StopBreakMatchFilter, breakDecision.Reason)
 		return compatibilityDecision{Decision: breakDecision}, nil
 	}
 	decision, err := operation.compatibility.matchFilter.EvaluateContext(
@@ -207,6 +225,23 @@ func (operation *operation) applyCompatibility(ctx context.Context, ctxInfo *val
 		resultDecision.interactive = operation.compatibility.interactive
 	}
 	return resultDecision, nil
+}
+
+// applyMetadataActions runs the preprocessing metadata transforms only after
+// entry selection. yt-dlp's _match_entry observes extractor metadata before
+// pre_process, while later filename, format and output stages observe the
+// transformed view.
+func (operation *operation) applyMetadataActions(ctx context.Context, info *value.Info) error {
+	result, err := compatmetadata.ApplyContext(ctx, info, operation.compatibility.metadataActions)
+	if err != nil {
+		return categorized("apply metadata actions", err)
+	}
+	for _, warning := range result.Warnings {
+		if err := operation.client.emit(ctx, Event{Kind: EventMetadataWarning, Message: warning}); err != nil {
+			return &Error{Category: ErrorInternal, Op: "emit metadata warning", Err: err}
+		}
+	}
+	return nil
 }
 
 func (operation *operation) resolveInteractiveCompatibility(
@@ -225,8 +260,7 @@ func (operation *operation) resolveInteractiveCompatibility(
 		return matchfilter.Decision{}, categorized("evaluate break match filter", err)
 	}
 	if !breakDecision.Pass {
-		operation.breakMatchTriggered = true
-		operation.breakMatchReason = breakDecision.Reason
+		operation.setStop(StopBreakMatchFilter, breakDecision.Reason)
 		return breakDecision, nil
 	}
 	if decision.interactive == interactiveMatchFilterBreaking {
@@ -274,8 +308,7 @@ func (operation *operation) promptInteractiveMatchFilter(
 		}
 		rejection := matchfilter.Decision{Reason: "Skipping " + title}
 		if kind == interactiveMatchFilterBreaking {
-			operation.breakMatchTriggered = true
-			operation.breakMatchReason = rejection.Reason
+			operation.setStop(StopBreakMatchFilter, rejection.Reason)
 		}
 		return rejection, nil
 	}

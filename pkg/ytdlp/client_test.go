@@ -732,7 +732,7 @@ func TestClientRejectsInvalidWaveTwoOptionsBeforeNetwork(t *testing.T) {
 	}
 }
 
-func TestClientAppliesMetadataBeforeMatchFilter(t *testing.T) {
+func TestClientAppliesMatchFilterBeforeMetadata(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "video/mp4")
 		writer.Header().Set("Content-Length", "4")
@@ -752,14 +752,14 @@ func TestClientAppliesMetadataBeforeMatchFilter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Skipped || !strings.Contains(result.SkipReason, "renamed") {
+	if !result.Skipped || !strings.Contains(result.SkipReason, "clip") || strings.Contains(result.SkipReason, "renamed") {
 		t.Fatalf("result = %#v", result)
 	}
 	var metadata map[string]any
 	if err := json.Unmarshal(result.InfoJSON, &metadata); err != nil {
 		t.Fatal(err)
 	}
-	if metadata["title"] != "renamed" {
+	if metadata["title"] != "clip" {
 		t.Fatalf("metadata title = %#v", metadata["title"])
 	}
 	if events[len(events)-1].Kind != EventMatchFilterSkipped {
