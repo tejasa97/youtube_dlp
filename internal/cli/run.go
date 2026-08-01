@@ -504,6 +504,14 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	flags.Var(&minFilesize, "min-filesize", "abort download if the file is smaller than SIZE, e.g. 50k or 44.6M")
 	flags.Var(&maxFilesize, "max-filesize", "abort download if the file is larger than SIZE, e.g. 50k or 44.6M")
 	maxDownloads := flags.Int("max-downloads", 0, "abort after downloading NUMBER files (0 disables)")
+	forceWriteArchive := false
+	setForceWriteArchive := func(string) error {
+		forceWriteArchive = true
+		return nil
+	}
+	flags.BoolFunc("force-write-archive", "write selected entries to the download archive even under simulation or skip-download", setForceWriteArchive)
+	flags.BoolFunc("force-write-download-archive", "alias for --force-write-archive", setForceWriteArchive)
+	flags.BoolFunc("force-download-archive", "alias for --force-write-archive", setForceWriteArchive)
 	breakOnExisting := false
 	flags.BoolFunc("break-on-existing", "stop when encountering a video already in the download archive", func(input string) error {
 		enabled, err := strconv.ParseBool(input)
@@ -942,7 +950,7 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 			URL: inputURL, OutputTemplates: outputTemplates.clone(), OutputDir: *outputDir, OutputPaths: paths.clone(), Proxy: *proxy, ImpersonationProfile: *impersonationProfile,
 			CookieFile: *cookieFile, CookiesFromBrowser: *cookiesFromBrowser, UseNetRC: *useNetRC, NetRCLocation: *netRCLocation,
 			VideoPassword:   *videoPassword,
-			DownloadArchive: *downloadArchive, CacheDir: *cacheDir,
+			DownloadArchive: *downloadArchive, ForceWriteArchive: forceWriteArchive, CacheDir: *cacheDir,
 			Timeout: *timeout, Overwrite: *overwrite, Simulate: requestSimulate, SkipDownload: *skipDownload, LiveFromStart: *liveFromStart,
 			Format: *format, FormatSort: append([]string(nil), formatSort...), FormatSortForce: formatSortForce,
 			PreferFreeFormats: preferFreeFormats, AllowUnplayableFormats: allowUnplayable,

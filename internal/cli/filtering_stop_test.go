@@ -67,6 +67,26 @@ func TestRunDatePrecedenceWarning(t *testing.T) {
 	}
 }
 
+func TestRunForceWriteArchiveAliases(t *testing.T) {
+	for _, flag := range []string{"--force-write-archive", "--force-write-download-archive", "--force-download-archive"} {
+		t.Run(flag, func(t *testing.T) {
+			runner := &captureCLIRunner{}
+			var stdout, stderr bytes.Buffer
+			code := runContextIOWithDependencies(
+				context.Background(), []string{flag, "--skip-download", "https://fixture.invalid/video"},
+				strings.NewReader(""), &stdout, &stderr,
+				runDependencies{newRunner: func([]ytdlp.Option) cliRunner { return runner }},
+			)
+			if code != 0 {
+				t.Fatalf("code=%d stderr=%q", code, stderr.String())
+			}
+			if !runner.request.ForceWriteArchive {
+				t.Fatalf("%s did not set ForceWriteArchive: %+v", flag, runner.request)
+			}
+		})
+	}
+}
+
 func TestRunHelpOmitsHiddenFlags(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := Run([]string{"--help"}, &stdout, &stderr)

@@ -235,6 +235,14 @@ func (downloader *Downloader) Download(ctx context.Context, job Job, sink events
 			}
 		}
 	}
+	if errors.Is(lastErr, ErrFileSizeAbort) {
+		// In no-part mode the destination is the in-progress file. Preserve an
+		// existing destination rather than deleting it during abort cleanup.
+		if partPath != job.Destination {
+			removeRegularFile(partPath)
+		}
+		removeRegularFile(statePath)
+	}
 	return Result{}, lastErr
 }
 
@@ -311,8 +319,17 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, part
 	if maxBytes <= 0 {
 		maxBytes = maxDirectBytes
 	}
+	transferLimit := maxBytes
+	if response.Header.Get("Content-Encoding") == "" && job.MaxFilesize > 0 && job.MaxFilesize < transferLimit {
+		transferLimit = job.MaxFilesize
+	}
 	if state.Total > maxBytes {
 		return Result{}, fmt.Errorf("%w: advertised %d bytes exceeds %d", ErrIncomplete, state.Total, maxBytes)
+	}
+	if response.Header.Get("Content-Encoding") == "" && state.Total > transferLimit {
+		return Result{}, &FileSizeAbortError{
+			Message: fmt.Sprintf("File is larger than max-filesize (%d bytes > %d bytes)", state.Total, job.MaxFilesize),
+		}
 	}
 	if err := downloader.savePartialState(ctx, job, statePath, state); err != nil {
 		return Result{}, err
@@ -348,8 +365,13 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, part
 				file.Close()
 				return Result{}, retryableError{ErrThrottled}
 			}
-			if written+int64(count) > maxBytes {
+			if written+int64(count) > transferLimit {
 				file.Close()
+				if job.MaxFilesize > 0 && transferLimit == job.MaxFilesize {
+					return Result{}, &FileSizeAbortError{
+						Message: fmt.Sprintf("File is larger than max-filesize (%d bytes > %d bytes)", written+int64(count), job.MaxFilesize),
+					}
+				}
 				return Result{}, fmt.Errorf("%w: response exceeds %d bytes", ErrIncomplete, maxBytes)
 			}
 			if err := limiter.Wait(ctx, count); err != nil {
@@ -388,7 +410,21 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, part
 	if state.Total > 0 && written != state.Total {
 		return Result{}, retryableError{fmt.Errorf("%w: got %d, want %d bytes", ErrIncomplete, written, state.Total)}
 	}
+	if response.Header.Get("Content-Encoding") == "" && job.MinFilesize > 0 && written < job.MinFilesize {
+		return Result{}, &FileSizeAbortError{
+			Message: fmt.Sprintf("File is smaller than min-filesize (%d bytes < %d bytes)", written, job.MinFilesize),
+		}
+	}
 	return Result{Bytes: written, Resumed: resuming}, nil
+}
+
+// removeRegularFile cleans up an aborted partial artifact without following
+// or deleting a hostile replacement such as a symlink.
+func removeRegularFile(path string) {
+	info, err := os.Lstat(path)
+	if err == nil && info.Mode().IsRegular() {
+		_ = os.Remove(path)
+	}
 }
 
 func validateJob(job Job) error {

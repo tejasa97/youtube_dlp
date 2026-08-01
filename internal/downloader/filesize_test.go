@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -54,6 +55,11 @@ func TestDownloadMaxFilesizeAbort(t *testing.T) {
 	}
 	if _, statErr := os.Stat(destination); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("aborted download wrote a destination: %v", statErr)
+	}
+	for _, path := range []string{destination + ".part", destination + ".part.json"} {
+		if _, statErr := os.Stat(path); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("aborted download left partial artifact %s: %v", path, statErr)
+		}
 	}
 }
 
@@ -109,23 +115,17 @@ func TestDownloadFilesizeSkipsContentEncoding(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := gzipped.Bytes()
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		writer.Header().Set("Content-Encoding", "gzip")
-		writer.Header().Set("Content-Length", fmt.Sprint(len(body)))
-		_, _ = writer.Write(body)
-	}))
-	defer server.Close()
-	transport, _ := network.New(network.Config{})
+	transport := contentEncodingDoer{body: body}
 	destination := filepath.Join(t.TempDir(), "media.bin")
 	if _, err := New(transport).Download(context.Background(), Job{
-		URL: server.URL, OutputRoot: filepath.Dir(destination), Destination: destination,
+		URL: "http://fixture.invalid/media", OutputRoot: filepath.Dir(destination), Destination: destination,
 		MaxFilesize: 1000,
 	}, nil); err != nil {
 		t.Fatalf("Content-Encoding responses must skip the size check: %v", err)
 	}
 }
 
-func TestDownloadFilesizeSkipsUnknownLength(t *testing.T) {
+func TestDownloadFilesizeEnforcesUnknownLength(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Transfer-Encoding", "chunked")
 		_, _ = writer.Write(make([]byte, 2000))
@@ -133,12 +133,64 @@ func TestDownloadFilesizeSkipsUnknownLength(t *testing.T) {
 	defer server.Close()
 	transport, _ := network.New(network.Config{})
 	destination := filepath.Join(t.TempDir(), "media.bin")
-	if _, err := New(transport).Download(context.Background(), Job{
+	_, err := New(transport).Download(context.Background(), Job{
 		URL: server.URL, OutputRoot: filepath.Dir(destination), Destination: destination,
-		MinFilesize: 10_000,
-	}, nil); err != nil {
-		t.Fatalf("unknown-length responses must skip the size check: %v", err)
+		MinFilesize: 10_000, MaxFilesize: 1_000,
+	}, nil)
+	var abort *FileSizeAbortError
+	if !errors.As(err, &abort) {
+		t.Fatalf("unknown-length response did not enforce filesize bounds: %v", err)
 	}
+	for _, path := range []string{destination + ".part", destination + ".part.json"} {
+		if _, statErr := os.Stat(path); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("unknown-length abort left partial artifact %s: %v", path, statErr)
+		}
+	}
+}
+
+func TestDownloadFilesizeEnforcesMisleadingContentLength(t *testing.T) {
+	body := make([]byte, 2000)
+	destination := filepath.Join(t.TempDir(), "media.bin")
+	transport := misleadingLengthDoer{body: body}
+	_, err := New(transport).Download(context.Background(), Job{
+		URL: "http://fixture.invalid/media", OutputRoot: filepath.Dir(destination), Destination: destination,
+		MaxFilesize: 1000,
+	}, nil)
+	var abort *FileSizeAbortError
+	if !errors.As(err, &abort) {
+		t.Fatalf("misleading Content-Length was not enforced: %v", err)
+	}
+	if _, statErr := os.Stat(destination); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("misleading-length abort wrote destination: %v", statErr)
+	}
+}
+
+type misleadingLengthDoer struct {
+	body []byte
+}
+
+func (doer misleadingLengthDoer) Do(_ context.Context, request *http.Request) (*http.Response, error) {
+	return &http.Response{
+		StatusCode:    http.StatusOK,
+		Header:        http.Header{"Content-Length": []string{"1"}},
+		ContentLength: 1,
+		Body:          io.NopCloser(bytes.NewReader(doer.body)),
+		Request:       request,
+	}, nil
+}
+
+type contentEncodingDoer struct {
+	body []byte
+}
+
+func (doer contentEncodingDoer) Do(_ context.Context, request *http.Request) (*http.Response, error) {
+	return &http.Response{
+		StatusCode:    http.StatusOK,
+		Header:        http.Header{"Content-Encoding": []string{"gzip"}},
+		ContentLength: int64(len(doer.body)),
+		Body:          io.NopCloser(bytes.NewReader(doer.body)),
+		Request:       request,
+	}, nil
 }
 
 func TestDownloadFilesizeUsesResumeOffset(t *testing.T) {
@@ -202,5 +254,29 @@ func TestDownloadFilesizeAbortIsNotRetryable(t *testing.T) {
 		if call == "retry" {
 			t.Fatalf("abort triggered a retry event: %v", sinkCalls)
 		}
+	}
+}
+
+func TestDownloadFilesizeAbortPreservesNoPartDestination(t *testing.T) {
+	body := make([]byte, 2000)
+	length := len(body)
+	server := sizedServer(body, &length, "")
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	destination := filepath.Join(t.TempDir(), "media.bin")
+	if err := os.WriteFile(destination, []byte("existing"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := New(transport).Download(context.Background(), Job{
+		URL: server.URL, OutputRoot: filepath.Dir(destination), Destination: destination,
+		Overwrite: true, NoPart: true, MaxFilesize: 1000,
+	}, nil)
+	var abort *FileSizeAbortError
+	if !errors.As(err, &abort) {
+		t.Fatalf("want FileSizeAbortError, got %v", err)
+	}
+	data, readErr := os.ReadFile(destination)
+	if readErr != nil || string(data) != "existing" {
+		t.Fatalf("no-part destination changed after abort: %q, %v", data, readErr)
 	}
 }

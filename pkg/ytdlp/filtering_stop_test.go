@@ -2,6 +2,9 @@ package ytdlp
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -119,6 +122,27 @@ func TestOperationSimpleFiltersPrecedeGenericFilters(t *testing.T) {
 	}
 }
 
+func TestFiltersSeePreprocessMetadataBeforeTransformedOutput(t *testing.T) {
+	info := fixtureMediaInfo()
+	info.Set("title", value.String("Original"))
+	result := runMediaOperation(t, Request{
+		OutputDir: t.TempDir(), Simulate: true,
+		SimpleFilters:   SimpleFilterOptions{MatchTitle: "^Original"},
+		MatchFilters:    []string{"title=Original"},
+		ReplaceMetadata: []string{"title:Original:Transformed"},
+	}, info)
+	if result.Skipped {
+		t.Fatalf("pre-transform filters rejected the original metadata: %#v", result)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(result.InfoJSON, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded["title"] != "Transformed" {
+		t.Fatalf("downstream metadata = %#v, want transformed title", decoded["title"])
+	}
+}
+
 func TestClientBreakOnRejectStops(t *testing.T) {
 	server := testserver.New()
 	defer server.Close()
@@ -228,6 +252,106 @@ func TestClientMaxDownloadsCountsPassingEntries(t *testing.T) {
 	}
 }
 
+func TestClientMaxDownloadsDoesNotCountArchiveOrRejectedEntries(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	root := t.TempDir()
+	archivePath := filepath.Join(root, "archive.txt")
+	if _, err := NewClient().Run(context.Background(), Request{
+		URL: server.URL + "/page", OutputDir: root, DownloadArchive: archivePath,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	archived, err := NewClient().Run(context.Background(), Request{
+		URL: server.URL + "/page", OutputDir: root, SkipDownload: true, DownloadArchive: archivePath, MaxDownloads: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archived.Downloads != 0 || archived.Stopped {
+		t.Fatalf("archived entry consumed max-downloads: %#v", archived)
+	}
+	rejected, err := NewClient().Run(context.Background(), Request{
+		URL: server.URL + "/page", OutputDir: root, SkipDownload: true, MaxDownloads: 1,
+		MatchFilters: []string{"title=other"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rejected.Downloads != 0 || rejected.Stopped {
+		t.Fatalf("rejected entry consumed max-downloads: %#v", rejected)
+	}
+}
+
+func TestClientMaxDownloadsCountsMediaFailureAfterSelection(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		http.Error(writer, "fixture failure", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	info := fixtureMediaInfo()
+	formats, ok := info.Lookup("formats").ListValue()
+	if !ok || len(formats) != 1 {
+		t.Fatal("fixture format missing")
+	}
+	format, ok := formats[0].Object()
+	if !ok {
+		t.Fatal("fixture format is not an object")
+	}
+	format.Set("url", value.String(server.URL+"/media"))
+	info.Set("formats", value.List(value.ObjectValue(format)))
+	request := Request{OutputDir: t.TempDir(), Downloader: DownloaderOptions{Attempts: 1}}
+	transport, err := network.New(network.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	compatibility, err := prepareCompatibility(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := &operation{client: NewClient(), request: request, transport: transport, compatibility: compatibility}
+	if _, err := operation.processMedia(context.Background(), extractor.Media(info), "fixture"); err == nil {
+		t.Fatal("media failure unexpectedly succeeded")
+	}
+	if operation.downloads != 1 {
+		t.Fatalf("selected media failure downloads=%d, want 1", operation.downloads)
+	}
+}
+
+func TestClientForceWriteArchiveInSimulationAndSkipDownload(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	for _, test := range []struct {
+		name     string
+		simulate bool
+		skip     bool
+	}{
+		{name: "simulate", simulate: true},
+		{name: "skip-download", skip: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			archivePath := filepath.Join(root, "archive.txt")
+			result, err := NewClient().Run(context.Background(), Request{
+				URL: server.URL + "/page", OutputDir: root, DownloadArchive: archivePath,
+				Simulate: test.simulate, SkipDownload: test.skip, ForceWriteArchive: true,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(archivePath)
+			if err != nil || !strings.Contains(string(data), "fixture fixture-direct") {
+				t.Fatalf("archive=%q err=%v result=%#v", data, err, result)
+			}
+			archived, err := NewClient().Run(context.Background(), Request{
+				URL: server.URL + "/page", OutputDir: root, SkipDownload: true, DownloadArchive: archivePath,
+			})
+			if err != nil || !archived.Archived {
+				t.Fatalf("forced archive was not observable on next run: result=%#v err=%v", archived, err)
+			}
+		})
+	}
+}
+
 func TestOperationMaxDownloadsStopsPlaylist(t *testing.T) {
 	server := playlistMediaServer(t)
 	defer server.Close()
@@ -271,7 +395,7 @@ func TestClientFilesizeAbortNotRecordedInArchive(t *testing.T) {
 	archivePath := filepath.Join(root, "archive.txt")
 	result, err := NewClient().Run(context.Background(), Request{
 		URL: server.URL + "/page", OutputDir: root, DownloadArchive: archivePath,
-		Downloader: DownloaderOptions{MaxFilesize: 100},
+		ForceWriteArchive: true, Downloader: DownloaderOptions{MaxFilesize: 100},
 	})
 	if err != nil {
 		t.Fatal(err)

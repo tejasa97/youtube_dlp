@@ -139,7 +139,7 @@ func TestFlatPlaylistEntryValuePreservesURLResultShape(t *testing.T) {
 	}
 }
 
-func TestOperationFlatPlaylistAppliesMetadataBeforeIncompleteMatchFilter(t *testing.T) {
+func TestOperationFlatPlaylistAppliesMatchFilterBeforeMetadata(t *testing.T) {
 	server, requests := selectionMediaServer(t)
 	defer server.Close()
 	transport, err := network.New(network.Config{})
@@ -175,14 +175,15 @@ func TestOperationFlatPlaylistAppliesMetadataBeforeIncompleteMatchFilter(t *test
 		t.Fatalf("flat playlist made child requests: %v", got)
 	}
 	if len(result.Entries) != 1 || !result.Entries[0].Skipped ||
-		!strings.Contains(result.Entries[0].SkipReason, "Renamed 2") {
+		!strings.Contains(result.Entries[0].SkipReason, "Item 2") ||
+		strings.Contains(result.Entries[0].SkipReason, "Renamed 2") {
 		t.Fatalf("flat filtered result = %#v", result)
 	}
 	var metadata map[string]any
 	if err := json.Unmarshal(result.Entries[0].InfoJSON, &metadata); err != nil {
 		t.Fatal(err)
 	}
-	if metadata["title"] != "Renamed 2" {
+	if metadata["title"] != "Item 2" {
 		t.Fatalf("transformed title = %#v", metadata["title"])
 	}
 	var parent map[string]any
@@ -190,12 +191,12 @@ func TestOperationFlatPlaylistAppliesMetadataBeforeIncompleteMatchFilter(t *test
 		t.Fatal(err)
 	}
 	parentEntries := parent["entries"].([]any)
-	if title := parentEntries[0].(map[string]any)["title"]; title != "Renamed 2" {
+	if title := parentEntries[0].(map[string]any)["title"]; title != "Item 2" {
 		t.Fatalf("parent transformed title = %#v", title)
 	}
 	foundSkipEvent := false
 	for _, event := range events {
-		if event.Kind == EventMatchFilterSkipped && strings.Contains(event.Message, "Renamed 2") {
+		if event.Kind == EventMatchFilterSkipped && strings.Contains(event.Message, "Item 2") {
 			foundSkipEvent = true
 		}
 	}
@@ -427,6 +428,42 @@ func TestOperationFlatPlaylistChecksArchiveWithoutRecording(t *testing.T) {
 	data, err := os.ReadFile(archivePath)
 	if err != nil || string(data) != "generic item-2\n" {
 		t.Fatalf("archive changed: %q, %v", data, err)
+	}
+}
+
+func TestOperationFlatPlaylistForceWritesArchive(t *testing.T) {
+	server, requests := selectionMediaServer(t)
+	defer server.Close()
+	archivePath := filepath.Join(t.TempDir(), "archive.txt")
+	store, err := archive.Open(context.Background(), archivePath, archive.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport, err := network.New(network.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pages atomic.Int32
+	operation := &operation{
+		client: NewClient(),
+		request: Request{
+			ForceWriteArchive: true,
+			Playlist:          PlaylistOptions{Items: "2", Flat: true},
+		},
+		transport: transport, archive: store,
+		registry: extractor.NewRegistry(
+			&selectionFixtureExtractor{pageFetches: &pages}, extractor.NewGeneric(),
+		),
+	}
+	if _, err := operation.process(context.Background(), server.URL+"/selection", "", nil, make(map[string]bool), 0); err != nil {
+		t.Fatal(err)
+	}
+	if got := requests(); len(got) != 0 {
+		t.Fatalf("flat playlist made child requests: %v", got)
+	}
+	data, err := os.ReadFile(archivePath)
+	if err != nil || string(data) != "generic item-2\n" {
+		t.Fatalf("forced flat archive = %q, %v", data, err)
 	}
 }
 

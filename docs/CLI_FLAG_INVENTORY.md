@@ -72,7 +72,7 @@
 | `--playlist-items` / `-I` | present | `flags.String("playlist-items", ...)` |
 | `--match-title` | present | Hidden parity flag. `SimpleFilters.MatchTitle` → `internal/compat/simplefilter` (case-insensitive regex search on title) |
 | `--reject-title` | present | Hidden parity flag. `SimpleFilters.RejectTitle` → `internal/compat/simplefilter` |
-| `--min-filesize` / `--max-filesize` | present | `DownloaderOptions.MinFilesize/MaxFilesize` → direct HTTP downloader abort using Content-Length + resume offset (reference `parse_bytes` SIZE grammar) |
+| `--min-filesize` / `--max-filesize` | present | `DownloaderOptions.MinFilesize/MaxFilesize` → direct HTTP downloader abort using Content-Length + resume offset and bounded streaming enforcement for unknown/misleading lengths (reference `parse_bytes` SIZE grammar) |
 | `--date` / `--datebefore` / `--dateafter` | present | `SimpleFilters.Date/DateBefore/DateAfter` → strict `date_from_str` grammar; `--date` wins over the range bounds with a warning |
 | `--min-views` / `--max-views` | present | Hidden parity flags. `SimpleFilters.MinViews/MaxViews` |
 | `--match-filters` / `--no-match-filters` | present | `flags.Var(&matchFilters, "match-filter", ...)` |
@@ -80,6 +80,7 @@
 | `--no-playlist` / `--yes-playlist` | present | `Playlist.Disabled` field. YouTube implements `_yes_playlist`-style choice for ambiguous video+playlist URLs |
 | `--age-limit` | present | `SimpleFilters.AgeLimit` → `age_restricted` semantics |
 | `--download-archive` / `--no-download-archive` | present | `flags.String("download-archive", ...)` |
+| `--force-write-archive` / `--force-write-download-archive` / `--force-download-archive` | present | `Request.ForceWriteArchive`; records successful simulate/skip-download entries only |
 | `--max-downloads` | present | Per-Run `Request.MaxDownloads`; `Result.Downloads` aggregates qualifying entries; CLI carries the remaining budget across batch inputs |
 | `--break-on-existing` / `--no-break-on-existing` | present | `Request.BreakOnExisting` → `StopBreakOnExisting` |
 | `--break-on-reject` | present | Hidden parity flag. `Request.BreakOnReject` → `StopBreakOnReject` |
@@ -159,7 +160,7 @@
 | `--dump-json` / `-j` | present | `flags.Bool("dump-json", ...)` |
 | `--dump-single-json` / `-J` | present | `flags.Bool("dump-single-json", ...)` |
 | `--print-json` | present | `flags.Bool("print-json", ...)` |
-| `--force-write-archive` | defer | Archive write behavior |
+| `--force-write-archive` / aliases | present | Records successful simulate/skip-download entries after selection |
 | `--newline` | defer | Output format |
 | `--no-progress` / `--progress` | **parked** | Needs a defined stderr/verbosity pipeline before registration |
 | `--console-title` | defer | Terminal title |
@@ -284,11 +285,12 @@ These are `Request`/options fields that are Go-specific and have no counterpart 
 | `--match-title` / `--reject-title` | present | Hidden parity flags; `internal/compat/simplefilter` case-insensitive regex title checks |
 | `--date` / `--dateafter` / `--datebefore` | present | Strict `date_from_str` grammar + inclusive `DateRange`; `--date` wins with a warning |
 | `--min-views` / `--max-views` / `--age-limit` | present | Hidden parity flags for views; `age_restricted` semantics |
-| `--min-filesize` / `--max-filesize` | present | `DownloaderOptions` bounds enforced in the direct HTTP downloader (Content-Length + resume offset, skip Content-Encoding/unknown length) |
+| `--min-filesize` / `--max-filesize` | present | `DownloaderOptions` bounds enforced in the direct HTTP downloader (known-length preflight plus bounded streaming for unknown/misleading lengths; Content-Encoding remains exempt) |
 | `--max-downloads` | present | Per-Run cap with `Result.Downloads` accounting; CLI carries the remaining budget across batch inputs |
 | `--break-on-existing` / `--no-break-on-existing` | present | Archive matches stop the run (`StopBreakOnExisting`) |
 | `--break-on-reject` | present | Hidden parity flag; any filter rejection stops the run (`StopBreakOnReject`) |
 | `--break-per-input` / `--no-break-per-input` | present | Resets the max-downloads budget and stop scope per input URL |
+| `--force-write-archive` / aliases | present | Records successful simulate/skip-download entries after selection; rejects and size aborts are not recorded |
 | Stopping exit contract | present | Partial result is emitted, then `Aborting remaining downloads` and exit 101; cancellation remains 130 |
 
 ### Parked

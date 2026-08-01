@@ -24,10 +24,6 @@ These expectations are asserted by the Go test corpus listed in
 4. generic `--match-filters` (rejection stops only with `--break-on-reject`)
 5. metadata actions apply after selection in the reference (see PROVENANCE)
 
-In the Go product, metadata actions run between steps 1 and 2, so the
-archive check sees untransformed metadata while the filters see the
-transformed metadata (see PROVENANCE known deviations).
-
 ## Date grammar (strict)
 
 - `YYYYMMDD`
@@ -55,8 +51,9 @@ cancellation remains 130. The partial result is emitted before the abort.
 
 ## Filesize bounds (downloader/http.py)
 
-- Check uses `Content-Length + resume offset`; no decision when the length is
-  unknown or `Content-Encoding` is present.
+- Check uses `Content-Length + resume offset` when available; the Go product
+  additionally bounds streaming bytes when the length is unknown or
+  misleading, while retaining the `Content-Encoding` exemption.
 - Abort messages:
   `File is smaller than min-filesize (<actual> bytes < <min> bytes)`
   `File is larger than max-filesize (<actual> bytes > <max> bytes)`
@@ -71,3 +68,10 @@ cancellation remains 130. The partial result is emitted before the abort.
   stop fires after the Nth entry completes.
 - `Result.Downloads` aggregates qualifying media children; the CLI decrements
   the remaining budget across batch inputs.
+
+## Forced archive writes
+
+- `--force-write-archive`, `--force-write-download-archive`, and
+  `--force-download-archive` write successfully selected entries even under
+  simulation or skip-download. Rejected, failed, and size-aborted entries are
+  never recorded.

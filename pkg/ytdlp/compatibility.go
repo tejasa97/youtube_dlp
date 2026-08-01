@@ -182,15 +182,6 @@ func prepareCompatibility(request Request) (compatibilityPlan, error) {
 }
 
 func (operation *operation) applyCompatibility(ctx context.Context, ctxInfo *value.Info, incomplete bool) (compatibilityDecision, error) {
-	result, err := compatmetadata.ApplyContext(ctx, ctxInfo, operation.compatibility.metadataActions)
-	if err != nil {
-		return compatibilityDecision{}, categorized("apply metadata actions", err)
-	}
-	for _, warning := range result.Warnings {
-		if err := operation.client.emit(ctx, Event{Kind: EventMetadataWarning, Message: warning}); err != nil {
-			return compatibilityDecision{}, &Error{Category: ErrorInternal, Op: "emit metadata warning", Err: err}
-		}
-	}
 	options := matchfilter.EvaluationOptions{IncompleteAll: incomplete}
 	if !incomplete && operation.compatibility.interactive != interactiveMatchFilterNone {
 		options.IncompleteFields = interactiveIncompleteFormatFields
@@ -234,6 +225,23 @@ func (operation *operation) applyCompatibility(ctx context.Context, ctxInfo *val
 		resultDecision.interactive = operation.compatibility.interactive
 	}
 	return resultDecision, nil
+}
+
+// applyMetadataActions runs the preprocessing metadata transforms only after
+// entry selection. yt-dlp's _match_entry observes extractor metadata before
+// pre_process, while later filename, format and output stages observe the
+// transformed view.
+func (operation *operation) applyMetadataActions(ctx context.Context, info *value.Info) error {
+	result, err := compatmetadata.ApplyContext(ctx, info, operation.compatibility.metadataActions)
+	if err != nil {
+		return categorized("apply metadata actions", err)
+	}
+	for _, warning := range result.Warnings {
+		if err := operation.client.emit(ctx, Event{Kind: EventMetadataWarning, Message: warning}); err != nil {
+			return &Error{Category: ErrorInternal, Op: "emit metadata warning", Err: err}
+		}
+	}
+	return nil
 }
 
 func (operation *operation) resolveInteractiveCompatibility(

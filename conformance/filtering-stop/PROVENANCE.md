@@ -19,6 +19,9 @@ from the read-only yt-dlp checkout at
 - `--min-filesize`/`--max-filesize` enforcement in
   `yt_dlp/downloader/http.py` (lines 210-230) with the SIZE grammar of
   `utils.parse_bytes` (`lookup_unit_table`, strict);
+- `--force-write-archive`, including its three aliases and its simulate/skip
+  behavior, in `yt_dlp/options.py` (lines 1322-1329) and
+  `yt_dlp/YoutubeDL.py` (`process_info` and `process_video_result`);
 - the CLI flag definitions and conflict resolution in `yt_dlp/options.py`
   (lines 699-814) and `yt_dlp/__init__.py` (lines 309-321, 533-579, 885-906).
 
@@ -30,15 +33,20 @@ fixture update must record its command, interpreter version, and date here.
 
 ## Known deviations
 
-- Metadata actions (`--parse-metadata`/`--replace-in-metadata`) run between
-  the archive check and the filter checks in the Go product: the archive
-  check sees the untransformed metadata (matching the reference order), while
-  the simple and generic filters observe the transformed metadata. The
-  reference runs `_match_entry` (archive + filters) before the pre-process
-  metadata postprocessors, so its filters observe untransformed metadata.
+- Metadata actions (`--parse-metadata`/`--replace-in-metadata`) are applied
+  after archive, simple, and generic filter selection, matching the pinned
+  `_match_entry` before `pre_process` order. Downstream filename, format, and
+  artifact stages retain the transformed metadata.
+- `--force-write-archive`, `--force-write-download-archive`, and
+  `--force-download-archive` record successfully selected simulate and
+  skip-download entries, but never rejected, failed, or size-aborted entries.
 - `--min-filesize`/`--max-filesize` are enforced only for direct HTTP media
-  downloads (matching `downloader/http.py`); subtitle and thumbnail payload
-  writes never carry the bounds.
+  downloads (matching `downloader/http.py`); known lengths are rejected before
+  transfer, unknown or misleading lengths are bounded during streaming, and
+  size-aborted `.part` artifacts are removed (direct `--no-part` destinations
+  are preserved). When the transport exposes `Content-Encoding`, the response
+  retains the reference's size-check exemption. Subtitle and thumbnail
+  payload writes never carry the bounds.
 - `--match-title`/`--reject-title` patterns are compiled at option-validation
   time; the reference compiles at first evaluation. Invalid patterns fail
   closed with a sanitized local error in both products.

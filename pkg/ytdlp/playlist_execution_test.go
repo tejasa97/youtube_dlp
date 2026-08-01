@@ -340,6 +340,38 @@ func TestPlaylistContinuePolicyContinuesPastEntryFailure(t *testing.T) {
 	}
 }
 
+func TestPlaylistMaxDownloadsDoesNotCountExtractionFailure(t *testing.T) {
+	server, _ := selectionMediaServer(t)
+	defer server.Close()
+	fixture := &failingSelectionExtractor{
+		pageFetches: new(atomic.Int32), failAtIndex: 3,
+		failError: errors.New("entry gone"), failMode: "entry",
+	}
+	transport, err := network.New(network.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := &operation{
+		client: NewClient(),
+		request: Request{
+			SkipDownload: true, MaxDownloads: 100,
+			Playlist: PlaylistOptions{ErrorPolicy: PlaylistErrorContinue},
+		},
+		transport: transport,
+		registry:  extractor.NewRegistry(fixture, &failEntryExtractor{err: fixture.failError}, extractor.NewGeneric()),
+	}
+	result, err := operation.process(context.Background(), server.URL+"/failing-selection", "", nil, make(map[string]bool), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.SuppressedFailures != 1 || len(result.Entries) != 4 {
+		t.Fatalf("result entries/failures = %d/%d", len(result.Entries), result.SuppressedFailures)
+	}
+	if operation.downloads != 4 || result.Downloads != 4 {
+		t.Fatalf("downloads = operation:%d result:%d, want 4 successful selections", operation.downloads, result.Downloads)
+	}
+}
+
 func TestPlaylistAbortPolicyAbortsOnFirstEntryFailure(t *testing.T) {
 	server, _ := selectionMediaServer(t)
 	defer server.Close()

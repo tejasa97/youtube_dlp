@@ -103,12 +103,17 @@ type Request struct {
 	// never echoed back in errors, events, or metadata.
 	VideoPassword   string
 	DownloadArchive string
-	CacheDir        string
-	Timeout         time.Duration
-	Overwrite       bool
+	// ForceWriteArchive records successfully selected entries even when
+	// Simulate or SkipDownload suppresses the normal archive write. It never
+	// records rejected, failed, or size-aborted entries.
+	ForceWriteArchive bool
+	CacheDir          string
+	Timeout           time.Duration
+	Overwrite         bool
 	// Simulate suppresses media, sidecar, archive, and postprocessor output
-	// while still performing extraction. Unlike SkipDownload, it does not
-	// permit related-file writes.
+	// while still performing extraction. ForceWriteArchive is the explicit
+	// exception for successful selected entries. Unlike SkipDownload, it does
+	// not permit related-file writes.
 	Simulate            bool
 	SkipDownload        bool
 	Format              string
@@ -1082,10 +1087,12 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 	playlistID, _ := extracted.Info.ID()
 	playlistTitle, _ := extracted.Info.Title()
 	var failures int
+	var failedDownloads int
 	var maxFailuresEmitted bool
 	finish := func() (Result, error) {
 		result, err := operation.finishPlaylistResult(ctx, extracted.Info, extractorName, children, entryValues)
 		result.SuppressedFailures += failures
+		result.Downloads += failedDownloads
 		return result, err
 	}
 	for outputIndex := 0; ; outputIndex++ {
@@ -1122,7 +1129,7 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 		}
 		if options.Flat {
 			entryInfo := flatPlaylistEntryInfo(entry, selected.SourceIndex, playlistID, playlistTitle)
-			child, _, _, terminal, err := operation.prepareMediaResult(ctx, &entryInfo, entry.ExtractorKey, true)
+			child, archiveIdentity, _, terminal, err := operation.prepareMediaResult(ctx, &entryInfo, entry.ExtractorKey, true)
 			if err != nil {
 				handled, stop, handlerErr := operation.handlePlaylistEntryError(ctx, extractorName, playlistTitle, selected.SourceIndex, err, &failures, &maxFailuresEmitted)
 				if handlerErr != nil {
@@ -1140,6 +1147,19 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 				return finish()
 			}
 			if !terminal {
+				if err := operation.recordForcedArchive(ctx, archiveIdentity); err != nil {
+					handled, stop, handlerErr := operation.handlePlaylistEntryError(ctx, extractorName, playlistTitle, selected.SourceIndex, err, &failures, &maxFailuresEmitted)
+					if handlerErr != nil {
+						return Result{}, handlerErr
+					}
+					if handled {
+						if stop {
+							return finish()
+						}
+						continue
+					}
+					return Result{}, fmt.Errorf("flat playlist entry %d archive: %w", selected.SourceIndex, err)
+				}
 				prints, err := operation.capturePrints(ctx, PrintVideo, entryInfo, nil, nil, "")
 				if err != nil {
 					return Result{}, fmt.Errorf("flat playlist entry %d print: %w", selected.SourceIndex, err)
@@ -1155,8 +1175,10 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 			entryValues = append(entryValues, value.ObjectValue(entryInfo.Fields()))
 			continue
 		}
+		downloadsBefore := operation.downloads
 		child, err := operation.process(ctx, entry.URL, entry.ExtractorKey, &entry, ancestors, depth+1)
 		if err != nil {
+			failedDownloads += operation.downloads - downloadsBefore
 			handled, stop, handlerErr := operation.handlePlaylistEntryError(ctx, extractorName, playlistTitle, selected.SourceIndex, err, &failures, &maxFailuresEmitted)
 			if handlerErr != nil {
 				return Result{}, handlerErr
@@ -1505,6 +1527,13 @@ func (operation *operation) prepareMediaResult(
 			return Result{}, archive.Identity{}, compatibilityDecision{}, false, categorized("build archive identity", archive.ErrInvalidIdentity)
 		}
 	}
+	if err := operation.applyMetadataActions(ctx, info); err != nil {
+		return Result{}, archive.Identity{}, compatibilityDecision{}, false, err
+	}
+	result.InfoJSON, err = encodeInfo(*info)
+	if err != nil {
+		return Result{}, archive.Identity{}, compatibilityDecision{}, false, err
+	}
 	return result, archiveIdentity, decision, false, nil
 }
 
@@ -1605,10 +1634,14 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		return result, nil
 	}
 	// The reference increments _num_downloads for every entry that passes
-	// selection, before the download attempt; the cap is checked after the
-	// entry finishes (see the defer above), so the Nth download completes.
-	operation.downloads++
-	counted = true
+	// selection, before the download attempt; an interactive match prompt is
+	// the last selection step, so rejected prompts must not consume budget.
+	needsInteractiveFormat := interactiveDecision.interactive != interactiveMatchFilterNone ||
+		operation.compatibility.interactiveFormat
+	if !needsInteractiveFormat {
+		operation.downloads++
+		counted = true
+	}
 	prints, err := operation.capturePrints(ctx, PrintAfterFilter, info, nil, nil, "")
 	if err != nil {
 		return Result{}, categorized("render after-filter print", err)
@@ -1647,8 +1680,6 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	preparedFormats = preparedFormats.SyncInfo(info)
 	var selectedFormats []mediaformat.Selection
 	var outputPlans []mediaformat.OutputPlan
-	needsInteractiveFormat := interactiveDecision.interactive != interactiveMatchFilterNone ||
-		operation.compatibility.interactiveFormat
 	if (!operation.request.SkipDownload && !operation.request.Simulate) ||
 		operation.hasPrintStageAtOrAfter(PrintVideo) || needsInteractiveFormat {
 		outputPlans, err = operation.planPreparedFormatsContext(ctx, preparedFormats)
@@ -1709,6 +1740,10 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 				return result, nil
 			}
 		}
+	}
+	if !counted {
+		operation.downloads++
+		counted = true
 	}
 	if len(outputPlans) == 0 {
 		if err := operation.validatePrintRules(ctx, info, singlePrintPlan, selectedFormats, destination, false); err != nil {
@@ -1800,9 +1835,9 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 			}
 			mediaTx.finalize()
 		}
-		if operation.archive != nil && !operation.request.Simulate && !operation.request.SkipDownload && !result.Skipped {
-			if _, archiveErr := operation.archive.Record(ctx, archiveIdentity); archiveErr != nil {
-				return Result{}, categorized("record download archive", archiveErr)
+		if !result.Skipped && (operation.request.ForceWriteArchive || (!operation.request.Simulate && !operation.request.SkipDownload)) {
+			if err := operation.recordArchive(ctx, archiveIdentity); err != nil {
+				return Result{}, err
 			}
 		}
 		return result, nil
@@ -1820,6 +1855,9 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	}
 	addPrintFileArtifacts(&result, printArtifacts, printBytes)
 	if operation.request.Simulate {
+		if err := operation.recordForcedArchive(ctx, archiveIdentity); err != nil {
+			return Result{}, err
+		}
 		return result, nil
 	}
 	thumbnailArtifacts, thumbnailBytes, err := operation.writeThumbnails(ctx, &info, false)
@@ -1886,6 +1924,9 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 				return Result{}, categorized("write "+string(stage)+" print file", err)
 			}
 			addPrintFileArtifacts(&result, printArtifacts, printBytes)
+		}
+		if err := operation.recordForcedArchive(ctx, archiveIdentity); err != nil {
+			return Result{}, err
 		}
 		return result, nil
 	}
@@ -2013,12 +2054,28 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		}
 		mediaTx.finalize()
 	}
-	if operation.archive != nil {
-		if _, err := operation.archive.Record(ctx, archiveIdentity); err != nil {
-			return Result{}, categorized("record download archive", err)
-		}
+	if err := operation.recordArchive(ctx, archiveIdentity); err != nil {
+		return Result{}, err
 	}
 	return result, nil
+}
+
+func (operation *operation) recordForcedArchive(ctx context.Context, identity archive.Identity) error {
+	if !operation.request.ForceWriteArchive {
+		return nil
+	}
+	return operation.recordArchive(ctx, identity)
+}
+
+func (operation *operation) recordArchive(ctx context.Context, identity archive.Identity) error {
+	if operation.archive == nil {
+		return nil
+	}
+	_, err := operation.archive.Record(ctx, identity)
+	if err != nil {
+		return categorized("record download archive", err)
+	}
+	return nil
 }
 
 func oldArchiveIDs(info value.Info) ([]string, error) {
