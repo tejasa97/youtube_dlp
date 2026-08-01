@@ -4,7 +4,7 @@
 
 **Reference**: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8` (`yt_dlp/options.py`)
 
-**Go baseline**: `origin/main` at `08b43ec` (harden cookie imports and JavaScript helper discovery)
+**Go baseline**: `origin/main` at `be41e0d` (close queue selection and stopping parity)
 
 **Classification key**:
 
