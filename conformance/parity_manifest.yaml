@@ -572,6 +572,27 @@ capabilities:
       - pkg/ytdlp.TestClientWalkingSkeleton
     owner: core
 
+  - id: cli.terminal_presentation
+    name: Deterministic terminal event presentation
+    phase: 3
+    compatibility_target: Present lifecycle, warning, and progress events with explicit quiet, verbosity, newline, color, TTY, and throttling semantics while preserving stdout for print and machine-readable output.
+    status: compatible
+    evidence:
+      - internal/cli.TestTerminalPresentationPipeAndTTYProgressAreDeterministic
+      - internal/cli.TestTerminalPresentationProgressDeltaUsesInjectedClock
+      - internal/cli.TestTerminalPresentationWarningSuppressionAndVerboseQuiet
+      - internal/cli.TestTerminalPresentationProgressJSONStaysStructuredOnStderr
+      - internal/cli.TestColorConfigLastWinsPerStream
+      - internal/cli.TestTerminalPresentationColorPolicyIsExplicit
+      - internal/cli.TestRunProgressControlsPreserveJSONOutputSeparation
+      - internal/cli.TestRunProgressPresentationHonorsTTYAndColorPolicy
+      - internal/cli.TestRunVerboseOverridesQuietLifecycleSuppression
+      - internal/cli.TestRunWarningControlsAreLastWins
+      - docs/CLI_FLAG_INVENTORY.md
+    owner: core
+    depends_on:
+      - operation.structured_events
+
   - id: format.selection_minimal
     name: Minimal format selection
     phase: 0

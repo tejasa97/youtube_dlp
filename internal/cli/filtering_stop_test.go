@@ -68,6 +68,31 @@ func TestRunDatePrecedenceWarning(t *testing.T) {
 	}
 }
 
+func TestRunWarningControlsAreLastWins(t *testing.T) {
+	run := func(args ...string) string {
+		runner := &recordingCLIRunner{}
+		var stdout, stderr bytes.Buffer
+		args = append(args, "--date", "20240101", "--dateafter", "20240201", "https://fixture.invalid/video")
+		code := runContextIOWithDependencies(
+			context.Background(), args, strings.NewReader(""), &stdout, &stderr,
+			runDependencies{newRunner: func([]ytdlp.Option) cliRunner { return runner }},
+		)
+		if code != 0 {
+			t.Fatalf("code=%d stderr=%q", code, stderr.String())
+		}
+		return stderr.String()
+	}
+	if got := run("--no-warnings"); strings.Contains(got, "WARNING") || strings.Contains(got, "dateafter") {
+		t.Fatalf("warnings were not suppressed: %q", got)
+	}
+	if got := run("--no-warnings", "--warnings"); !strings.Contains(got, "dateafter") {
+		t.Fatalf("last --warnings did not restore diagnostics: %q", got)
+	}
+	if got := run("--warnings", "--no-warnings"); strings.Contains(got, "dateafter") {
+		t.Fatalf("last --no-warnings did not suppress diagnostics: %q", got)
+	}
+}
+
 func TestRunForceWriteArchiveAliases(t *testing.T) {
 	for _, flag := range []string{"--force-write-archive", "--force-write-download-archive", "--force-download-archive"} {
 		t.Run(flag, func(t *testing.T) {
