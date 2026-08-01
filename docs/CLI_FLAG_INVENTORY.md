@@ -181,9 +181,9 @@
 | `--restrict-filenames` / `--no-restrict-filenames` | **present** | `Filesystem.RestrictFilenames` wired to template filename sanitization |
 | `--windows-filenames` / `--no-windows-filenames` | **present** | `Filesystem.WindowsFilenames` wired to Windows-compatible path parts |
 | `--trim-filenames` / `--trim-file-names` | **present** | `Filesystem.TrimFilenames` wired to basename length limit |
-| `--no-overwrites` / `-w` | present | Inverse of `--force-overwrites`; added in Wave 1 |
-| `--force-overwrites` / `--yes-overwrites` | present | `flags.Bool("force-overwrites", ...)` |
-| `--no-force-overwrites` | present | Inverse handled by default |
+| `--no-overwrites` / `-w` | present | Existing bool-based no-overwrite behavior |
+| `--force-overwrites` / `--yes-overwrites` | present | `--yes-overwrites` is an exact alias of `--force-overwrites` |
+| `--no-force-overwrites` | defer | Current bool plumbing cannot distinguish yt-dlp's tri-state default from explicit no-overwrites |
 | `--continue` / `-c` / `--no-continue` | **present** | `Filesystem.NoContinue` wired to direct downloader resume control |
 | `--part` / `--no-part` | **present** | `Filesystem.NoPart` wired to `.part` temporary file control |
 | `--mtime` / `--no-mtime` | **present** | `Filesystem.NoMtime` wired to output file mtime from metadata |

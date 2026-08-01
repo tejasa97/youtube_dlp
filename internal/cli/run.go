@@ -186,6 +186,10 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	impersonationProfile := flags.String("impersonate", "", "default explicit browser profile (for example firefox-120)")
 	timeout := flags.Duration("socket-timeout", 30*time.Second, "network operation timeout")
 	overwrite := flags.Bool("force-overwrites", false, "replace an existing final file")
+	flags.BoolFunc("yes-overwrites", "alias for --force-overwrites", func(string) error {
+		*overwrite = true
+		return nil
+	})
 	flags.BoolFunc("no-overwrites", "disable overwriting existing files (default)", func(string) error {
 		*overwrite = false
 		return nil

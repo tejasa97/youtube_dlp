@@ -2013,6 +2013,27 @@ func TestRunNoOverwritesAliasW(t *testing.T) {
 	}
 }
 
+func TestRunYesOverwritesAlias(t *testing.T) {
+	r := captureCLIRequest(t, "--yes-overwrites")
+	if !r.Overwrite {
+		t.Fatalf("request.Overwrite=%v, want true", r.Overwrite)
+	}
+}
+
+func TestRunNoOverwritesAfterYesOverwrites(t *testing.T) {
+	r := captureCLIRequest(t, "--yes-overwrites", "--no-overwrites")
+	if r.Overwrite {
+		t.Fatalf("request.Overwrite=%v, want false (last wins)", r.Overwrite)
+	}
+}
+
+func TestRunYesOverwritesAfterNoOverwrites(t *testing.T) {
+	r := captureCLIRequest(t, "--no-overwrites", "--yes-overwrites")
+	if !r.Overwrite {
+		t.Fatalf("request.Overwrite=%v, want true (last wins)", r.Overwrite)
+	}
+}
+
 func TestRunNoOverwritesAfterForceOverwrites(t *testing.T) {
 	r := captureCLIRequest(t, "--force-overwrites", "--no-overwrites")
 	if r.Overwrite {
