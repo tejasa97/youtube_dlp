@@ -13,3 +13,8 @@ Discovery checks the pinned reference's platform roots and common direct,
 single-child, and `Profiles/*` layouts, selecting the newest database. It does
 not parse `profiles.ini` aliases; callers can pass `ProfileDir` or
 `DatabasePath` for nonstandard layouts.
+
+Firefox database and WAL copies use a no-follow open on supported Unix
+platforms, compare opened identity/type/size before copying, and recheck after
+copying. Cookie fields use the shared bounded header-safe validator. These
+checks are deterministic repository evidence; no real profile is read in CI.

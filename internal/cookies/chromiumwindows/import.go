@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	cookievalidate "github.com/ytdlp-go/ytdlp/internal/cookies/validate"
 	_ "github.com/ncruces/go-sqlite3/driver"
 	_ "github.com/ncruces/go-sqlite3/embed"
 )
@@ -381,10 +382,7 @@ func buildCookieQuery(columns map[string]bool) (string, error) {
 }
 
 func validCookie(host, name, cookieValue, cookiePath string) bool {
-	return host != "" && len(host) <= 255 && len(name) <= 4096 && len(cookieValue) <= maximumEncryptedCookieBytes &&
-		cookiePath != "" && len(cookiePath) <= 4096 && strings.HasPrefix(cookiePath, "/") &&
-		!strings.ContainsAny(host, "\r\n\x00") && !strings.ContainsAny(name, "\r\n\x00") &&
-		!strings.ContainsAny(cookieValue, "\r\n\x00") && !strings.ContainsAny(cookiePath, "\r\n\x00")
+	return cookievalidate.CookieFields(host, name, cookieValue, cookiePath)
 }
 
 func chromiumTime(microseconds int64) time.Time {

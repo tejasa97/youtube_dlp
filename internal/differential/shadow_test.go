@@ -158,6 +158,36 @@ func TestParseObservationInterruptsBlockingReaderOnCancellation(t *testing.T) {
 	}
 }
 
+func TestParseObservationDocumentsNonClosableReaderContract(t *testing.T) {
+	reader := newBlockingReadOnly()
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() {
+		_, err := ParseObservation(ctx, reader)
+		result <- err
+	}()
+	select {
+	case <-reader.started:
+	case <-time.After(time.Second):
+		t.Fatal("ParseObservation did not start the non-closable read")
+	}
+	cancel()
+	select {
+	case err := <-result:
+		t.Fatalf("non-closable reader returned before its read completed: %v", err)
+	case <-time.After(25 * time.Millisecond):
+	}
+	reader.release()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("non-closable cancellation = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("non-closable reader lifecycle did not complete")
+	}
+}
+
 func TestPersistedIdentifiersUseRestrictedGrammar(t *testing.T) {
 	valid := fixtureObservation()
 	valid.Producer = "shadow.v1"
@@ -320,6 +350,26 @@ type blockingReadCloser struct {
 	releaseOnce sync.Once
 }
 
+type blockingReadOnly struct {
+	started  chan struct{}
+	released chan struct{}
+	once     sync.Once
+}
+
+func newBlockingReadOnly() *blockingReadOnly {
+	return &blockingReadOnly{started: make(chan struct{}), released: make(chan struct{})}
+}
+
+func (reader *blockingReadOnly) Read([]byte) (int, error) {
+	reader.once.Do(func() { close(reader.started) })
+	<-reader.released
+	return 0, errors.New("reader released")
+}
+
+func (reader *blockingReadOnly) release() {
+	close(reader.released)
+}
+
 func newBlockingReadCloser() *blockingReadCloser {
 	return &blockingReadCloser{started: make(chan struct{}), released: make(chan struct{})}
 }
@@ -334,3 +384,5 @@ func (reader *blockingReadCloser) Close() error {
 	reader.releaseOnce.Do(func() { close(reader.released) })
 	return nil
 }
+
+func (reader *blockingReadCloser) CloseInterruptsRead() {}

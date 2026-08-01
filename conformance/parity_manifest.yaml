@@ -825,6 +825,11 @@ capabilities:
       - internal/javascript/engine.TestExecuteTimeoutCancellationAndFailures
       - internal/javascript/engine.TestExecuteOutputLimitAndNoAmbientHostAPIs
       - internal/javascript/supervisor.TestSupervisorExecutesAndRetainsCompiledCache
+      - internal/javascript/supervisor.TestSupervisorRejectsSearchPathAndSymlinkHelpers
+      - internal/javascript/supervisor.TestSupervisorValidatesOptionalHelperReleaseDigest
+      - internal/javascript/supervisor.TestSupervisorRejectsWritableHelper
+      - internal/javascript/supervisor.TestSupervisorRejectsWritableHelperParent
+      - internal/javascript/supervisor.TestSupervisorRejectsHelperPathSwapDuringValidation
       - internal/javascript/supervisor.TestSupervisorCancellationDiscardsAndRestartsHelper
       - internal/javascript/supervisor.TestSupervisorCategorizesCrashAndMalformedResponse
       - internal/javascript/supervisor.TestSupervisorTrustedWallTimeCrossesProcessBoundary
@@ -893,7 +898,11 @@ capabilities:
       real 1-2 MB player fixture committed (proprietary); the generated
       ~150 KB workload exercises the parse path but does not empirically
       reproduce the original 30 s timeout; the fix is proven structurally
-      via protocol validation gating.
+      via protocol validation gating. Helper discovery does not search PATH
+      and validates file/Unix parent identity before command construction, but
+      portable exec remains pathname-based after the verified handle is closed;
+      the validation-to-exec race and lack of public helper-digest plumbing are
+      retained P3-SP-02 deviations.
 
   - id: network.impersonation
     name: Browser impersonation transport
@@ -943,6 +952,8 @@ capabilities:
       - internal/cookies/chromium.TestImportEnforcesRowAndFieldLimits
       - internal/cookies/chromium.TestImportRejectsInvalidBoundedCookieFields
       - internal/cookies/chromium.FuzzValidCookie
+      - internal/cookies/validate.TestCookieFieldsBoundsAndHeaderSafety
+      - internal/cookies/validate.FuzzCookieFields
       - internal/network.TestAddCookiesPreservesHostScopeAndSecurity
       - pkg/ytdlp.TestClientImportsBrowserCookiesBeforeExtraction
       - conformance/cookies/chromium-macos/PROVENANCE.md
@@ -2253,6 +2264,7 @@ capabilities:
       - internal/cookies/firefox.TestImportCopiesLockedLiveWAL
       - internal/cookies/firefox.TestLocateNewestSyntheticProfile
       - internal/cookies/firefox.TestImportCancellationAndUnsafePath
+      - internal/cookies/firefox.TestCopyRegularRejectsFinalSymlink
       - internal/cookies/firefox.FuzzValidCookie
       - internal/cookies/safari.TestParsePinnedSafariCookieCorpus
       - internal/cookies/safari.TestParseMultiplePagesSecureOrderAndFooter
@@ -2266,7 +2278,10 @@ capabilities:
       - internal/cookies/chromiumlinux.TestImportPlainV10V11AndSchema
       - internal/cookies/chromiumlinux.TestImportCredentialFailureIsPartialAndRedacted
       - internal/cookies/chromiumlinux.TestImportZeroesProviderPassword
+      - internal/cookies/chromiumlinux.TestCopyFileRejectsFinalSymlink
       - internal/cookies/chromiumlinux.FuzzDecrypt
+      - internal/cookies/snapshot.TestOpenReadOnlyNoFollowRejectsFinalSymlink
+      - internal/cookies/snapshot.TestOpenReadOnlyNoFollowOpensRegularFile
       - internal/cookies/chromiumwindows.TestImportAllEncryptionFamiliesAndWAL
       - internal/cookies/chromiumwindows.TestImportLegacySchemaAndLimits
       - internal/cookies/chromiumwindows.TestHostBindingAndAppBoundFailures
@@ -2596,6 +2611,8 @@ capabilities:
       - internal/differential.TestSemanticMismatchClassificationSeverityAndMissingNull
       - internal/differential.TestOrderPoliciesAndBoundedMismatchCollection
       - internal/differential.TestMalformedOversizedAndCancellation
+      - internal/differential.TestParseObservationInterruptsBlockingReaderOnCancellation
+      - internal/differential.TestParseObservationDocumentsNonClosableReaderContract
       - internal/differential.TestMetadataAndWarningSecretRedaction
       - internal/differential.FuzzParseObservation
       - cmd/shadowcheck.TestRunEqualAndCriticalMismatch

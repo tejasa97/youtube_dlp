@@ -50,6 +50,25 @@ helper and is reported by the supervisor as a helper crash. The process has a
 minimal environment and the JavaScript runtime exposes no filesystem, network,
 Node, browser, timer, or subprocess host functions.
 
+Helper discovery is hardened by default: the supervisor accepts an explicit
+absolute helper path or the helper beside the application executable and never
+searches `PATH`. The selected file must be regular, non-symlink, executable,
+owned by the current user, and not group/world-writable on Unix. Canonical Unix
+parent directories must be owned by root or the current user and must not be
+group/world-writable, except for root-owned sticky ancestors such as `/tmp`.
+Those attributes and the opened-file identity are checked
+immediately before constructing the process command. Embeddings that have a
+release-artifact digest may supply `supervisor.Config.ExpectedHelperDigest` to
+pin the helper's SHA-256 bytes during validation.
+
+Portable Go process launch still resolves `Config.Path` after the verified file
+handle is closed. A same-UID actor, or an actor able to replace the path after
+validation on a platform without the Unix parent checks, can therefore race the
+validation-to-exec window. The optional digest is not launch-bound and the public
+`pkg/ytdlp` configuration does not populate it. This boundary claims safer
+fail-closed discovery and pre-launch validation, not handle-atomic execution or
+unconditional release identity.
+
 The stable error codes distinguish invalid input, incompatible versions,
 syntax and execution failures, missing functions, unsupported modules, timeout,
 cancellation, input/output/memory limits, helper crashes, and protocol faults.

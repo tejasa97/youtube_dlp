@@ -7,6 +7,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	cookiesnapshot "github.com/ytdlp-go/ytdlp/internal/cookies/snapshot"
 )
 
 const maxDatabaseBytes int64 = 2 << 30
@@ -114,8 +116,11 @@ func copyStableRegularFile(ctx context.Context, source, destination string, opti
 		if !before.Mode().IsRegular() || before.Size() < 0 || before.Size() > maxDatabaseBytes {
 			return ErrUnsafeDatabase
 		}
-		input, err := os.Open(source)
+		input, err := cookiesnapshot.OpenReadOnlyNoFollow(source)
 		if err != nil {
+			if errors.Is(err, cookiesnapshot.ErrUnsafeSource) || errors.Is(err, cookiesnapshot.ErrNoFollowUnsupported) {
+				return ErrUnsafeDatabase
+			}
 			return fmt.Errorf("%w: open source", ErrSnapshot)
 		}
 		opened, statErr := input.Stat()

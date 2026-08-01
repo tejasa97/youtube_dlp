@@ -15,3 +15,10 @@ test time. Domains use `.example.com`, cookie values are artificial, Keychain ac
 is replaced by an injected provider, and no real browser profile is read in CI.
 The live importer invokes `/usr/bin/security` only after the user explicitly
 requests browser-cookie import.
+
+The importer preflights a default or caller-selected row cap and bounded
+host/name/plain/encrypted/path fields before materializing SQLite rows. Shared
+header-safe validation rejects control-bearing cookie fields. Database and WAL
+snapshots use regular-file identity checks and a no-follow open on supported
+Unix platforms; snapshot primitives fail closed where no portable no-follow
+operation exists.

@@ -51,12 +51,18 @@ public CLI.
 SQLite importers locate the selected profile's `Network/Cookies` or legacy
 `Cookies` file, reject unsafe/non-regular or oversized inputs, and copy the
 database plus an active WAL into a private snapshot before opening it
-query-only. Firefox applies the same snapshot boundary and validates optional
+query-only. Darwin and Linux snapshot opens use a no-follow primitive where
+available and compare the opened handle's identity/type/size before and after
+copying; unsupported platforms fail closed at that boundary. Firefox applies the same snapshot boundary and validates optional
 container metadata. Safari validates and parses the bounded
 `Cookies.binarycookies` file directly. Temporary snapshots are removed before
 the operation continues.
 
-Cookie names and values, profile paths, key-provider messages, protected bytes,
+All Chromium-family and Firefox SQLite importers apply the shared bounded,
+header-safe cookie-field validator before constructing `http.Cookie` values;
+macOS Chromium also preflights the default or caller-selected row cap and
+per-field/encrypted-value limits, returning typed `ErrLimit` on resource
+excess. Cookie names and values, profile paths, key-provider messages, protected bytes,
 and raw database errors are excluded from public events and rendered errors.
 Events expose bounded counts only. When an attributable subset cannot be
 decrypted, successfully imported cookies are retained and the failure count is
