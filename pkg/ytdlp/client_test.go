@@ -2963,6 +2963,7 @@ func TestOperationAmaraHandoffsAreConcurrentSafe(t *testing.T) {
 		"https://amara.org/en/videos/jVx79ZKGK1ky/info/why-jury-trials/",
 		"https://amara.org/en/videos/kYkK1VUTWW5I/info/vimeo-at-ces-2011",
 	}
+	operation.request.MaxDownloads = len(urls)
 	type outcome struct {
 		url    string
 		result Result
@@ -2995,6 +2996,16 @@ func TestOperationAmaraHandoffsAreConcurrentSafe(t *testing.T) {
 		} else if metadata["id"] != "18622084" || metadata["title"] != "Vimeo at CES 2011!" {
 			t.Fatalf("vimeo metadata = %#v", metadata)
 		}
+		autonumber, ok := metadata["autonumber"].(float64)
+		if !ok || (autonumber != 1 && autonumber != 2) {
+			t.Fatalf("concurrent autonumber = %#v", metadata["autonumber"])
+		}
+	}
+	if got := operation.downloadCount(); got != len(urls) {
+		t.Fatalf("concurrent download count = %d, want %d", got, len(urls))
+	}
+	if stopped, kind, reason := operation.stopState(); !stopped || kind != StopMaxDownloads || reason != "max downloads reached" {
+		t.Fatalf("concurrent stop state = %v/%v/%q", stopped, kind, reason)
 	}
 }
 

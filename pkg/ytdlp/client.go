@@ -609,13 +609,14 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 		// nested error paths cannot return a partial playlist Result, so carry
 		// the operation-wide accounting and stop state alongside the original
 		// categorized error.
-		if result.Downloads < operation.downloads {
-			result.Downloads = operation.downloads
+		if result.Downloads < operation.downloadCount() {
+			result.Downloads = operation.downloadCount()
 		}
-		if operation.stopTriggered && !result.Stopped {
+		stopped, stopKind, stopReason := operation.stopState()
+		if stopped && !result.Stopped {
 			result.Stopped = true
-			result.StopKind = operation.stopKind
-			result.StopReason = operation.stopReason
+			result.StopKind = stopKind
+			result.StopReason = stopReason
 		}
 	}
 	return result, runErr
@@ -940,16 +941,51 @@ type operation struct {
 	extractorRetryWait        extractorRetryWaitFunc
 	autonumberNext            int
 	autonumberMu              sync.Mutex
+	stateMu                   sync.Mutex
 }
 
 func (operation *operation) setStop(kind StopKind, reason string) {
+	operation.stateMu.Lock()
+	defer operation.stateMu.Unlock()
+	operation.setStopLocked(kind, reason)
+}
+
+func (operation *operation) setStopLocked(kind StopKind, reason string) {
 	operation.stopTriggered = true
 	operation.stopKind = kind
 	operation.stopReason = reason
 }
 
 func (operation *operation) maxDownloadsReached() bool {
+	operation.stateMu.Lock()
+	defer operation.stateMu.Unlock()
 	return operation.request.MaxDownloads > 0 && operation.downloads >= operation.request.MaxDownloads
+}
+
+func (operation *operation) downloadCount() int {
+	operation.stateMu.Lock()
+	defer operation.stateMu.Unlock()
+	return operation.downloads
+}
+
+func (operation *operation) incrementDownloads() {
+	operation.stateMu.Lock()
+	defer operation.stateMu.Unlock()
+	operation.downloads++
+}
+
+func (operation *operation) stopState() (bool, StopKind, string) {
+	operation.stateMu.Lock()
+	defer operation.stateMu.Unlock()
+	return operation.stopTriggered, operation.stopKind, operation.stopReason
+}
+
+func (operation *operation) setRootExtractor(name string) {
+	operation.stateMu.Lock()
+	defer operation.stateMu.Unlock()
+	if operation.rootExtractor != nil {
+		*operation.rootExtractor = name
+	}
 }
 
 func (operation *operation) process(ctx context.Context, rawURL, extractorKey string, overlay *extractor.Entry, ancestors map[string]bool, depth int) (Result, error) {
@@ -974,8 +1010,8 @@ func (operation *operation) processWithTransparentParent(ctx context.Context, ra
 	if err != nil {
 		return Result{}, categorized("select extractor", err)
 	}
-	if depth == 0 && operation.rootExtractor != nil {
-		*operation.rootExtractor = selected.Name()
+	if depth == 0 {
+		operation.setRootExtractor(selected.Name())
 	}
 	eventURL := network.RedactRawURL(rawURL)
 	if err := operation.client.emit(ctx, Event{Kind: string(events.KindExtracting), Extractor: selected.Name(), URL: eventURL}); err != nil {
@@ -1283,13 +1319,13 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 			entryValues = append(entryValues, value.ObjectValue(entryInfo.Fields()))
 			continue
 		}
-		downloadsBefore := operation.downloads
+		downloadsBefore := operation.downloadCount()
 		child, err := operation.process(ctx, entry.URL, entry.ExtractorKey, &entry, ancestors, depth+1)
 		if err != nil {
 			suppressedPrints = append(suppressedPrints, child.Prints...)
 			suppressedArtifacts = append(suppressedArtifacts, child.Artifacts...)
 			suppressedBytes += child.Bytes
-			failedDownloads += operation.downloads - downloadsBefore
+			failedDownloads += operation.downloadCount() - downloadsBefore
 			handled, stop, handlerErr := operation.handlePlaylistEntryError(ctx, extractorName, playlistTitle, selected.SourceIndex, err, &failures, &maxFailuresEmitted)
 			if handlerErr != nil {
 				return Result{}, handlerErr
@@ -1358,10 +1394,8 @@ func (operation *operation) finishPlaylistResult(
 	if err != nil {
 		return Result{}, err
 	}
-	result := Result{
-		InfoJSON: encoded, Extractor: extractorName, Entries: children,
-		Stopped: operation.stopTriggered, StopKind: operation.stopKind, StopReason: operation.stopReason,
-	}
+	result := Result{InfoJSON: encoded, Extractor: extractorName, Entries: children}
+	result.Stopped, result.StopKind, result.StopReason = operation.stopState()
 	result.Artifacts = append(result.Artifacts, thumbnailArtifacts...)
 	result.Bytes += thumbnailBytes
 	result.Downloaded = len(thumbnailArtifacts) > 0
@@ -1412,10 +1446,16 @@ func addPlaylistEntryFields(object *value.Object, index int, playlistID, playlis
 }
 
 func (operation *operation) emitPlaylistItemsRangeWarning(ctx context.Context) error {
-	if operation.playlistItemsRangeWarningEmitted || !playlistItemsOverrideRange(operation.request.Playlist) {
+	if !playlistItemsOverrideRange(operation.request.Playlist) {
+		return nil
+	}
+	operation.stateMu.Lock()
+	if operation.playlistItemsRangeWarningEmitted {
+		operation.stateMu.Unlock()
 		return nil
 	}
 	operation.playlistItemsRangeWarningEmitted = true
+	operation.stateMu.Unlock()
 	if err := operation.client.emit(ctx, Event{
 		Kind: EventMetadataWarning, Message: "playlist items override playlist start and end",
 	}); err != nil {
@@ -1428,17 +1468,20 @@ func (operation *operation) emitPlaylistOrderingWarnings(ctx context.Context, wa
 	if len(warnings) == 0 {
 		return nil
 	}
-	if operation.playlistOrderingWarningsEmitted == nil {
-		operation.playlistOrderingWarningsEmitted = make(map[string]bool, len(warnings))
-	}
 	for _, warning := range warnings {
+		operation.stateMu.Lock()
+		if operation.playlistOrderingWarningsEmitted == nil {
+			operation.playlistOrderingWarningsEmitted = make(map[string]bool, len(warnings))
+		}
 		if operation.playlistOrderingWarningsEmitted[warning] {
+			operation.stateMu.Unlock()
 			continue
 		}
+		operation.playlistOrderingWarningsEmitted[warning] = true
+		operation.stateMu.Unlock()
 		if err := operation.client.emit(ctx, Event{Kind: EventMetadataWarning, Message: warning}); err != nil {
 			return &Error{Category: ErrorInternal, Op: "emit playlist ordering warning", Err: err}
 		}
-		operation.playlistOrderingWarningsEmitted[warning] = true
 	}
 	return nil
 }
@@ -1610,7 +1653,8 @@ func (operation *operation) prepareMediaResult(
 				if operation.request.BreakOnExisting {
 					reason := archiveRejectionReason(*info)
 					operation.setStop(StopBreakOnExisting, reason)
-					result.Stopped, result.StopKind, result.StopReason = true, operation.stopKind, operation.stopReason
+					_, result.StopKind, result.StopReason = operation.stopState()
+					result.Stopped = true
 				}
 				return result, archiveIdentity, compatibilityDecision{}, terminal, nil
 			}
@@ -1686,13 +1730,14 @@ func (operation *operation) finishMatchFilterDecision(
 		return false, nil
 	}
 	result.Skipped, result.SkipReason = true, decision.Reason
-	if operation.stopTriggered {
-		result.Stopped, result.StopKind, result.StopReason = true, operation.stopKind, operation.stopReason
+	if stopped, stopKind, stopReason := operation.stopState(); stopped {
+		result.Stopped, result.StopKind, result.StopReason = true, stopKind, stopReason
 	} else if operation.request.BreakOnReject {
 		// --break-on-reject stops on any rejection, including simple
 		// filters and ordinary --match-filters (reference break_on_reject).
 		operation.setStop(StopBreakOnReject, decision.Reason)
-		result.Stopped, result.StopKind, result.StopReason = true, operation.stopKind, operation.stopReason
+		_, result.StopKind, result.StopReason = operation.stopState()
+		result.Stopped = true
 	}
 	if err := operation.client.emit(ctx, Event{
 		Kind: EventMatchFilterSkipped, Extractor: extractorName, Message: decision.Reason,
@@ -1716,7 +1761,8 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 			result.Downloads = 1
 			if !result.Stopped && operation.maxDownloadsReached() {
 				operation.setStop(StopMaxDownloads, "max downloads reached")
-				result.Stopped, result.StopKind, result.StopReason = true, operation.stopKind, operation.stopReason
+				_, result.StopKind, result.StopReason = operation.stopState()
+				result.Stopped = true
 			}
 		}
 	}()
@@ -1857,7 +1903,7 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	}
 	operation.addAutonumber(&info)
 	result.AutonumberCount = 1
-	operation.downloads++
+	operation.incrementDownloads()
 	counted = true
 	result.InfoJSON, err = encodeInfo(info)
 	if err != nil {
