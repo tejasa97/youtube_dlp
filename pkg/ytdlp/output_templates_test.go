@@ -32,6 +32,9 @@ func TestOutputTemplateTypePrecedenceAndValidation(t *testing.T) {
 	if got := (Request{}).outputTemplate(OutputTemplateDefault); got != "%(title)s.%(ext)s" {
 		t.Fatalf("built-in default = %q", got)
 	}
+	if got := (Request{UseID: true}).outputTemplate(OutputTemplateDefault); got != "%(id)s.%(ext)s" {
+		t.Fatalf("--id default = %q", got)
+	}
 	for _, invalid := range []Request{
 		{OutputTemplates: OutputTemplates{"annotation": "%(id)s.%(ext)s"}},
 		{OutputTemplates: OutputTemplates{OutputTemplateSubtitle: ""}},
@@ -55,6 +58,32 @@ func TestOutputTemplateTypePrecedenceAndValidation(t *testing.T) {
 		OutputTemplates: OutputTemplates{"annotation": "%(id)s.%(ext)s"},
 	}); !IsCategory(err, ErrorInvalidInput) {
 		t.Fatalf("unsupported type category = %v", err)
+	}
+}
+
+func TestOutputArtifactTemplatePlaceholderAndAutonumberCompatibility(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("fixture")},
+		value.Field{Key: "title", Value: value.String("Fixture")},
+		value.Field{Key: "ext", Value: value.String("mp4")},
+	))
+	operation := operation{request: Request{
+		OutputDir: root, OutputTemplate: "%(autonumber)s-%(missing)s-%(id)s.%(ext)s",
+		AutonumberStart: 7, AutonumberSize: 5,
+		Filesystem: FilesystemOptions{OutputNaPlaceholder: "unknown"},
+	}}
+	operation.addAutonumber(&info)
+	path, err := operation.resolveOutputPath(root, operation.request.OutputTemplate, info)
+	if err != nil || filepath.Base(path) != "00007-unknown-fixture.mp4" {
+		t.Fatalf("default autonumber path=%q err=%v", path, err)
+	}
+	operation.request.OutputTemplate = "%(autonumber)03d.%(id)s.%(ext)s"
+	operation.addAutonumber(&info)
+	path, err = operation.resolveOutputPath(root, operation.request.OutputTemplate, info)
+	if err != nil || filepath.Base(path) != "008.fixture.mp4" {
+		t.Fatalf("explicit autonumber path=%q err=%v", path, err)
 	}
 }
 

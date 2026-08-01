@@ -174,11 +174,11 @@
 | Option | Status | Notes |
 |--------|--------|-------|
 | `--batch-file` / `-a` / `--no-batch-file` | **present** | Bounded URL reading pipeline; repeatable files and stdin via `-` |
-| `--id` | defer | Use video ID as filename |
+| `--id` | **present** | Uses `%(id)s.%(ext)s` when no explicit default `--output` template is configured; explicit `--output` wins as in pinned option finalization |
 | `--paths` / `-P` | present | `flags.Var(paths, "paths", ...)` |
 | `--output` / `-o` | present | `flags.Var(&outputTemplates, "output", ...)` |
-| `--output-na-placeholder` | defer | NA placeholder |
-| `--autonumber-size` / `--autonumber-start` | defer | Autonumbering |
+| `--output-na-placeholder` | **present** | Bounded placeholder for unavailable fields in confined filename templates; default `NA` |
+| `--autonumber-size` / `--autonumber-start` | **present** | Deterministic zero-padded autonumber state across playlist entries and CLI inputs |
 | `--restrict-filenames` / `--no-restrict-filenames` | **present** | `Filesystem.RestrictFilenames` wired to template filename sanitization |
 | `--windows-filenames` / `--no-windows-filenames` | **present** | `Filesystem.WindowsFilenames` wired to Windows-compatible path parts |
 | `--trim-filenames` / `--trim-file-names` | **present** | `Filesystem.TrimFilenames` wired to basename length limit |
@@ -191,13 +191,13 @@
 | `--write-description` / `--no-write-description` | present | `flags.Bool("write-description", ...)` |
 | `--write-info-json` / `--no-write-info-json` | present | `flags.Bool("write-info-json", ...)` |
 | `--write-playlist-metafiles` / `--no-write-playlist-metafiles` | present | `flags.Bool("no-write-playlist-metafiles", ...)` |
-| `--clean-info-json` / `--no-clean-info-json` | defer | Info JSON cleaning |
+| `--clean-info-json` / `--no-clean-info-json` | **present** | Removes only pinned private/internal metadata (and nulls) from video sidecars by default; explicit no-clean preserves the normalized envelope |
 | `--write-comments` / `--get-comments` / `--no-write-comments` / `--no-get-comments` | present | `flags.Bool("write-comments", ...)` |
-| `--load-info-json` | defer | Load cached info |
+| `--load-info-json` | **present** | Loads one bounded, regular non-symlink video metadata file with URL/path/type validation and no ambient credential reuse |
 | `--cookies` / `--no-cookies` | present | `flags.String("cookies", ...)` |
 | `--cookies-from-browser` / `--no-cookies-from-browser` | present | `flags.String("cookies-from-browser", ...)` |
 | `--cache-dir` / `--no-cache-dir` | present | `flags.String("cache-dir", ...)` |
-| `--rm-cache-dir` | defer | Cache cleanup |
+| `--rm-cache-dir` | **present** | Fail-closed removal of a configured cache root; rejects unsafe roots, symlinks, special files, and cancellation leaves remaining data intact |
 
 ## Thumbnail Options
 

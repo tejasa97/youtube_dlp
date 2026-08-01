@@ -193,6 +193,29 @@ capabilities:
       - metadata.deterministic_json
     known_deviation: Related files use the port's deterministic normalized metadata schema. Implemented artifact types have per-type output templates; annotation sidecars and non-atomic Windows replacement where the platform cannot provide it remain outside this claim.
 
+  - id: cli.output_artifact_controls
+    name: Output naming and metadata artifact controls
+    phase: 3
+    compatibility_target: Provide bounded yt-dlp-compatible ID naming, missing-field placeholders, autonumber lifecycle, info JSON cleaning/loading, and confined cache removal through the native output and metadata transaction layers.
+    status: compatible
+    evidence:
+      - pkg/ytdlp.TestOutputArtifactTemplatePlaceholderAndAutonumberCompatibility
+      - pkg/ytdlp.TestInfoJSONCleaningPreservesPublicMetadataAndExplicitOverride
+      - pkg/ytdlp.TestLoadInfoJSONDownloadsBoundedMetadataWithoutAmbientCredentials
+      - pkg/ytdlp.TestLoadInfoJSONRejectsUnsafeShapesBoundsAndCancellation
+      - pkg/ytdlp.TestAutonumberTracksPlaylistEntriesAndRejectedMedia
+      - internal/cache.TestRemoveRootIsConfinedAtomicAndCancellationAware
+      - internal/cli.TestOutputArtifactFlagsAndIDOrdering
+      - internal/cli.TestLoadInfoJSONAndRemoveCacheCLIRequestsAreURLIndependent
+      - internal/cli.TestCLIPropagatesAutonumberAcrossMultipleInputs
+      - conformance/output_artifacts/PROVENANCE.md
+    owner: core
+    depends_on:
+      - cli.metadata_sidecars
+      - compat.output_template_minimal
+      - metadata.deterministic_json
+    known_deviation: Load-info-json is bounded to one single-video metadata envelope and never restores cookies, browser cookies, netrc, or password credentials. Playlist metafiles retain entries under the default setting; explicit cleaning and no-clean modes are covered. Arbitrary Python objects, unsupported output-template types, and custom cache roots without cache-identifying path components remain outside this claim.
+
   - id: cli.thumbnail_sidecars
     name: Thumbnail sidecars, conversion, embedding, and listing
     phase: 3

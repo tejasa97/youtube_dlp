@@ -328,6 +328,132 @@ func (store *Store) RemoveNamespace(ctx context.Context, namespace string) error
 	return nil
 }
 
+// RemoveAll removes the complete configured cache root. It only removes the
+// namespace directories and temporary cache files produced by this package;
+// unexpected entries, links, and special files fail closed.
+func (store *Store) RemoveAll(ctx context.Context) error {
+	if err := store.acquireWrite(ctx); err != nil {
+		return err
+	}
+	defer store.releaseWrite()
+	if err := secureExistingDirectory(store.root); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	entries, err := os.ReadDir(store.root)
+	if err != nil {
+		return fmt.Errorf("%w: list cache root", ErrIO)
+	}
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		path := filepath.Join(store.root, entry.Name())
+		info, err := os.Lstat(path)
+		if err != nil {
+			return fmt.Errorf("%w: inspect cache root entry", ErrIO)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return ErrUnsafePath
+		}
+		if info.IsDir() {
+			if !validNamespace(entry.Name()) {
+				return ErrUnsafePath
+			}
+			if err := store.removeNamespaceLocked(ctx, entry.Name()); err != nil {
+				return err
+			}
+			continue
+		}
+		if !info.Mode().IsRegular() || !strings.HasPrefix(entry.Name(), ".cache-") {
+			return ErrUnsafePath
+		}
+		if err := os.Remove(path); err != nil {
+			return fmt.Errorf("%w: remove temporary cache entry", ErrIO)
+		}
+	}
+	if err := os.Remove(store.root); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("%w: remove cache root", ErrIO)
+	}
+	return nil
+}
+
+func (store *Store) removeNamespaceLocked(ctx context.Context, namespace string) error {
+	directory, err := store.namespacePath(namespace, false)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return fmt.Errorf("%w: list namespace", ErrIO)
+	}
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !validEntryFilename(entry.Name()) {
+			return ErrUnsafePath
+		}
+		path := filepath.Join(directory, entry.Name())
+		info, err := os.Lstat(path)
+		if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			return ErrUnsafePath
+		}
+		if err := os.Remove(path); err != nil {
+			return fmt.Errorf("%w: remove cache entry", ErrIO)
+		}
+	}
+	if err := os.Remove(directory); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("%w: remove namespace", ErrIO)
+	}
+	return nil
+}
+
+// RemoveRoot opens no files and never creates the configured path. The root
+// must be an existing, non-symlink directory whose name (or parent name)
+// identifies it as a cache directory, preventing accidental broad deletion.
+func RemoveRoot(ctx context.Context, root string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if root == "" || strings.ContainsRune(root, 0) || filepath.Clean(root) != root {
+		return ErrUnsafePath
+	}
+	absolute, err := filepath.Abs(root)
+	if err != nil {
+		return ErrUnsafePath
+	}
+	if filepath.Dir(absolute) == absolute {
+		return ErrUnsafePath
+	}
+	if home, homeErr := os.UserHomeDir(); homeErr == nil {
+		if same, sameErr := filepath.Abs(home); sameErr == nil && same == absolute {
+			return ErrUnsafePath
+		}
+	}
+	base := strings.ToLower(filepath.Base(absolute))
+	parent := strings.ToLower(filepath.Base(filepath.Dir(absolute)))
+	if !strings.Contains(base, "cache") && !strings.Contains(parent, "cache") {
+		return ErrUnsafePath
+	}
+	info, err := os.Lstat(absolute)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("%w: inspect cache root", ErrIO)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return ErrUnsafePath
+	}
+	return (&Store{root: absolute, options: (Options{}).withDefaults(), writeGate: make(chan struct{}, 1)}).RemoveAll(ctx)
+}
+
 func validEntryFilename(name string) bool {
 	return strings.HasSuffix(name, ".cache") || strings.HasPrefix(name, ".cache-")
 }

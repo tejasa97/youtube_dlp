@@ -91,7 +91,20 @@ type Request struct {
 	OutputTemplates OutputTemplates
 	OutputDir       string
 	OutputPaths     OutputPaths
-	Proxy           string
+	// UseID selects the pinned %(id)s.%(ext)s default when no explicit output
+	// template is configured. Explicit typed/default templates always win.
+	UseID           bool
+	AutonumberStart int
+	AutonumberSize  int
+	// AutonumberIndex is the zero-based number of media entries processed
+	// before this request. CLI callers use it to preserve numbering across
+	// multiple inputs; zero is the normal default.
+	AutonumberIndex int
+	// LoadInfoJSON treats the named local file as an untrusted single-video
+	// metadata envelope. It is intentionally separate from URL extraction.
+	LoadInfoJSON   string
+	RemoveCacheDir bool
+	Proxy          string
 	// SourceAddress binds native and browser-profile TCP dials to this local IP.
 	// ForceIPv4 and ForceIPv6 are mutually exclusive at the API boundary; the
 	// CLI resolves them with last-option-wins semantics before Run is called.
@@ -335,6 +348,9 @@ type Result struct {
 	// continued past. The failures remain observable even when Run returns a
 	// usable partial playlist result.
 	SuppressedFailures int
+	// AutonumberCount reports how many media entries consumed an autonumber
+	// slot, allowing callers processing multiple requests to carry state.
+	AutonumberCount int
 }
 
 type Event struct {
@@ -450,6 +466,12 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 	if err := validateRequestOptions(request); err != nil {
 		return Result{}, categorized("validate request options", err)
 	}
+	if request.RemoveCacheDir {
+		if err := cache.RemoveRoot(ctx, request.CacheDir); err != nil {
+			return Result{}, categorized("remove cache directory", err)
+		}
+		return Result{}, nil
+	}
 	if client.youtubePOTErr != nil {
 		return Result{}, &Error{Category: ErrorInvalidInput, Op: "configure YouTube PO-token providers", Err: client.youtubePOTErr}
 	}
@@ -550,6 +572,15 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 		compatibility:       compatibility,
 		rootExtractor:       &rootExtractor,
 		plannerCapabilities: &plannerCapabilities,
+		autonumberNext:      request.AutonumberIndex,
+	}
+	if request.LoadInfoJSON != "" {
+		info, loadErr := loadInfoJSON(ctx, request.LoadInfoJSON)
+		if loadErr != nil {
+			return Result{}, categorized("load info JSON", loadErr)
+		}
+		rootExtractor = "loaded-info-json"
+		return operation.processMedia(ctx, extractor.Media(info), "loaded-info-json")
 	}
 	// Explicit selected/all checks take precedence over allow-unplayable. The
 	// latter bypasses only Auto's DRM/needs-testing default policy.
@@ -884,6 +915,8 @@ type operation struct {
 	formatAvailability        mediaformat.FormatAvailability
 	formatAvailabilityChecker *formatAvailabilityChecker
 	extractorRetryWait        extractorRetryWaitFunc
+	autonumberNext            int
+	autonumberMu              sync.Mutex
 }
 
 func (operation *operation) setStop(kind StopKind, reason string) {
@@ -1159,6 +1192,7 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 		}
 		if options.Flat {
 			entryInfo := flatPlaylistEntryInfo(entry, selected.SourceIndex, playlistID, playlistTitle)
+			operation.addAutonumber(&entryInfo)
 			child, archiveIdentity, _, terminal, err := operation.prepareMediaResult(ctx, &entryInfo, entry.ExtractorKey, true)
 			if err != nil {
 				handled, stop, handlerErr := operation.handlePlaylistEntryError(ctx, extractorName, playlistTitle, selected.SourceIndex, err, &failures, &maxFailuresEmitted)
@@ -1202,6 +1236,7 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 				addPrintFileArtifacts(&child, printArtifacts, printBytes)
 			}
 			children = append(children, child)
+			child.AutonumberCount = 1
 			entryValues = append(entryValues, value.ObjectValue(entryInfo.Fields()))
 			continue
 		}
@@ -1245,6 +1280,7 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 			return Result{}, &Error{Category: ErrorInternal, Op: "encode playlist entry metadata", Err: err}
 		}
 		children = append(children, child)
+		// processMedia consumes one autonumber slot for every accepted child.
 		entryValues = append(entryValues, entryValue)
 	}
 }
@@ -1289,6 +1325,7 @@ func (operation *operation) finishPlaylistResult(
 		result.Archived = result.Archived || child.Archived
 		result.Downloads += child.Downloads
 		result.SuppressedFailures += child.SuppressedFailures
+		result.AutonumberCount += child.AutonumberCount
 	}
 	if !operation.request.Simulate && !operation.request.RelatedFiles.NoPlaylist {
 		artifacts, artifactBytes, err := operation.writeRelatedFiles(ctx, info, true)
@@ -1629,6 +1666,7 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		return Result{}, categorized("normalize formats", err)
 	}
 	info := preparedFormats.Info()
+	operation.addAutonumber(&info)
 	if operation.request.Thumbnails.List {
 		if _, err := selectThumbnails(&info); err != nil {
 			return Result{}, categorized("normalize thumbnails", err)
@@ -1646,6 +1684,7 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	if err != nil {
 		return Result{}, err
 	}
+	result.AutonumberCount = 1
 	result.Prints = append(result.Prints, preProcessPrints...)
 	addPrintFileArtifacts(&result, preProcessArtifacts, preProcessBytes)
 	if terminal {
@@ -2108,6 +2147,20 @@ func (operation *operation) recordArchive(ctx context.Context, identity archive.
 	return nil
 }
 
+func (operation *operation) addAutonumber(info *value.Info) {
+	if info == nil {
+		return
+	}
+	operation.autonumberMu.Lock()
+	defer operation.autonumberMu.Unlock()
+	start := operation.request.AutonumberStart
+	if start <= 0 {
+		start = 1
+	}
+	info.Set("autonumber", value.Int(int64(start+operation.autonumberNext)))
+	operation.autonumberNext++
+}
+
 func oldArchiveIDs(info value.Info) ([]string, error) {
 	items, ok := info.Lookup("_old_archive_ids").ListValue()
 	if !ok {
@@ -2233,7 +2286,7 @@ func categorized(op string, err error) error {
 		errors.Is(err, chromiumwindows.ErrUnsafePath), errors.Is(err, chromiumwindows.ErrLimit),
 		errors.Is(err, credentialnetrc.ErrSyntax), errors.Is(err, credentialnetrc.ErrLimit), errors.Is(err, credentialnetrc.ErrInvalidHost),
 		errors.Is(err, archive.ErrInvalidIdentity), errors.Is(err, archive.ErrCorrupt), errors.Is(err, archive.ErrTooLarge), errors.Is(err, archive.ErrUnsafePath),
-		errors.Is(err, cache.ErrInvalidName), errors.Is(err, cache.ErrUnsafePath), errors.Is(err, cache.ErrTooLarge), errors.Is(err, cache.ErrCorrupt):
+		errors.Is(err, cache.ErrInvalidName), errors.Is(err, cache.ErrUnsafePath), errors.Is(err, cache.ErrTooLarge), errors.Is(err, cache.ErrCorrupt), errors.Is(err, ErrInvalidInfoJSON):
 		category = ErrorInvalidInput
 	case errors.Is(err, archive.ErrIO), errors.Is(err, archive.ErrLock), errors.Is(err, cache.ErrIO):
 		category = ErrorInternal

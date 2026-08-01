@@ -276,6 +276,61 @@ func TestCacheCancellationRemovalAndSecretSafeErrors(t *testing.T) {
 	}
 }
 
+func TestRemoveRootIsConfinedAtomicAndCancellationAware(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "cache")
+	store, err := Open(root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Store(context.Background(), "test", "one", []byte("value"), 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveRoot(context.Background(), root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(root); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("cache root after removal = %v", err)
+	}
+
+	unsafe := filepath.Join(t.TempDir(), "artifacts")
+	if err := os.Mkdir(unsafe, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveRoot(context.Background(), unsafe); !errors.Is(err, ErrUnsafePath) {
+		t.Fatalf("unsafe root error = %v", err)
+	}
+
+	root = filepath.Join(t.TempDir(), "cache")
+	store, err = Open(root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Store(context.Background(), "test", "one", []byte("value"), 0); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := RemoveRoot(ctx, root); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled removal error = %v", err)
+	}
+	if _, err := os.Stat(root); err != nil {
+		t.Fatalf("cancelled removal deleted root: %v", err)
+	}
+
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.Mkdir(outside, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "cache")
+	if err := os.Symlink(outside, link); err == nil {
+		if err := RemoveRoot(context.Background(), link); !errors.Is(err, ErrUnsafePath) {
+			t.Fatalf("symlink root error = %v", err)
+		}
+	} else if runtime.GOOS != "windows" {
+		t.Fatal(err)
+	}
+}
+
 func TestCacheMidWriteCancellationLeavesPriorValue(t *testing.T) {
 	store, err := Open(filepath.Join(t.TempDir(), "cache"), Options{MaxValueBytes: 1 << 20})
 	if err != nil {
