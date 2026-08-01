@@ -513,6 +513,96 @@ func TestRunBatchFileStdinIsBoundedAndExclusive(t *testing.T) {
 	}
 }
 
+func TestRunBatchInputsMatchPinnedBatchFirstOrdering(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.txt")
+	second := filepath.Join(dir, "second.txt")
+	if err := os.WriteFile(first, []byte("file-one\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, []byte("file-two\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := &recordingCLIRunner{}
+	var stdout, stderr bytes.Buffer
+	code := runContextIOWithDependencies(
+		context.Background(), []string{
+			"--batch-file", first, "--batch-file", "-", "--batch-file", second,
+			"positional-one", "positional-two",
+		}, strings.NewReader("stdin-one\nstdin-two\n"), &stdout, &stderr,
+		runDependencies{newRunner: func([]ytdlp.Option) cliRunner { return runner }},
+	)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	want := []string{"file-one", "stdin-one", "stdin-two", "file-two", "positional-one", "positional-two"}
+	if !reflect.DeepEqual(runner.urls, want) {
+		t.Fatalf("urls=%v want=%v", runner.urls, want)
+	}
+}
+
+func TestRunBatchOrdinaryFailureContinues(t *testing.T) {
+	runner := &scriptedCLIRunner{failures: map[string]error{
+		"ordinary": &ytdlp.Error{Category: ytdlp.ErrorNetwork, Op: "ordinary", Err: errors.New("temporary")},
+	}}
+	var stdout, stderr bytes.Buffer
+	code := runContextIOWithDependencies(
+		context.Background(), []string{"ordinary", "after"}, strings.NewReader(""), &stdout, &stderr,
+		runDependencies{newRunner: func([]ytdlp.Option) cliRunner { return runner }},
+	)
+	if code != 4 || !reflect.DeepEqual(runner.urls, []string{"ordinary", "after"}) {
+		t.Fatalf("code=%d urls=%v stderr=%q", code, runner.urls, stderr.String())
+	}
+}
+
+func TestRunBatchCancellationDominatesPriorOrdinaryFailure(t *testing.T) {
+	runner := &scriptedCLIRunner{failures: map[string]error{
+		"ordinary": &ytdlp.Error{Category: ytdlp.ErrorNetwork, Op: "ordinary", Err: errors.New("temporary")},
+		"cancel":   context.Canceled,
+	}}
+	var stdout, stderr bytes.Buffer
+	code := runContextIOWithDependencies(
+		context.Background(), []string{"ordinary", "cancel", "after"}, strings.NewReader(""), &stdout, &stderr,
+		runDependencies{newRunner: func([]ytdlp.Option) cliRunner { return runner }},
+	)
+	if code != 130 || !reflect.DeepEqual(runner.urls, []string{"ordinary", "cancel"}) {
+		t.Fatalf("code=%d urls=%v stderr=%q", code, runner.urls, stderr.String())
+	}
+}
+
+func TestRunBatchStopsOnNonOverridableFailures(t *testing.T) {
+	_, invalidRequestErr := ytdlp.NewClient().Run(context.Background(), ytdlp.Request{
+		URL:      "https://fixture.invalid/video",
+		Playlist: ytdlp.PlaylistOptions{Start: 4, End: 3},
+	})
+	if invalidRequestErr == nil || !ytdlp.IsNonOverridableError(invalidRequestErr) {
+		t.Fatalf("invalid request error=%v is not non-overridable", invalidRequestErr)
+	}
+
+	for _, test := range []struct {
+		name string
+		err  error
+		code int
+	}{
+		{name: "security", err: &ytdlp.Error{Category: ytdlp.ErrorSecurity, Op: "security", Err: errors.New("rejected")}, code: 6},
+		{name: "internal", err: &ytdlp.Error{Category: ytdlp.ErrorInternal, Op: "internal", Err: errors.New("broken")}, code: 1},
+		{name: "invalid request", err: invalidRequestErr, code: 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &scriptedCLIRunner{failures: map[string]error{"fatal": test.err}}
+			var stdout, stderr bytes.Buffer
+			code := runContextIOWithDependencies(
+				context.Background(), []string{"fatal", "after"}, strings.NewReader(""), &stdout, &stderr,
+				runDependencies{newRunner: func([]ytdlp.Option) cliRunner { return runner }},
+			)
+			if code != test.code || !reflect.DeepEqual(runner.urls, []string{"fatal"}) {
+				t.Fatalf("code=%d want=%d urls=%v stderr=%q", code, test.code, runner.urls, stderr.String())
+			}
+		})
+	}
+}
+
 func TestRunListFormatsPlumbsSimulationAndPreProcessTable(t *testing.T) {
 	request := captureCLIRequest(t, "-F")
 	if !request.Simulate || len(request.PrintRules) == 0 ||
@@ -1549,6 +1639,16 @@ type recordingCLIRunner struct{ urls []string }
 func (r *recordingCLIRunner) Run(_ context.Context, request ytdlp.Request) (ytdlp.Result, error) {
 	r.urls = append(r.urls, request.URL)
 	return ytdlp.Result{}, nil
+}
+
+type scriptedCLIRunner struct {
+	urls     []string
+	failures map[string]error
+}
+
+func (r *scriptedCLIRunner) Run(_ context.Context, request ytdlp.Request) (ytdlp.Result, error) {
+	r.urls = append(r.urls, request.URL)
+	return ytdlp.Result{}, r.failures[request.URL]
 }
 
 type resultCLIRunner struct{ result ytdlp.Result }
