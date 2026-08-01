@@ -97,12 +97,19 @@ func resolveHelper(configured, expectedDigest string) (string, error) {
 	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
 		return "", errors.New("JavaScript helper path must be absolute")
 	}
-	if err := validateHelperFile(path, expectedDigest); err != nil {
-		return "", err
+	original, err := os.Lstat(path)
+	if err != nil {
+		return "", fmt.Errorf("inspect JavaScript helper: %w", err)
+	}
+	if !original.Mode().IsRegular() || original.Mode()&os.ModeSymlink != 0 {
+		return "", errors.New("JavaScript helper must be a regular non-symlink file")
 	}
 	canonical, err := filepath.EvalSymlinks(path)
 	if err != nil {
 		return "", errors.New("JavaScript helper path cannot be canonicalized")
+	}
+	if err := validateHelperFile(canonical, expectedDigest); err != nil {
+		return "", err
 	}
 	return canonical, nil
 }
@@ -115,6 +122,9 @@ func validateHelperFile(path, expectedDigest string) error {
 		if _, err := hex.DecodeString(expectedDigest); err != nil {
 			return errors.New("JavaScript helper digest must be a SHA-256 hex string")
 		}
+	}
+	if !safeHelperParents(path) {
+		return errors.New("JavaScript helper parent directory is not trusted")
 	}
 	before, err := os.Lstat(path)
 	if err != nil {

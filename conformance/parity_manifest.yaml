@@ -828,7 +828,8 @@ capabilities:
       - internal/javascript/supervisor.TestSupervisorRejectsSearchPathAndSymlinkHelpers
       - internal/javascript/supervisor.TestSupervisorValidatesOptionalHelperReleaseDigest
       - internal/javascript/supervisor.TestSupervisorRejectsWritableHelper
-      - internal/javascript/supervisor.TestSupervisorRejectsHelperPathSwapBeforeStart
+      - internal/javascript/supervisor.TestSupervisorRejectsWritableHelperParent
+      - internal/javascript/supervisor.TestSupervisorRejectsHelperPathSwapDuringValidation
       - internal/javascript/supervisor.TestSupervisorCancellationDiscardsAndRestartsHelper
       - internal/javascript/supervisor.TestSupervisorCategorizesCrashAndMalformedResponse
       - internal/javascript/supervisor.TestSupervisorTrustedWallTimeCrossesProcessBoundary
@@ -897,7 +898,11 @@ capabilities:
       real 1-2 MB player fixture committed (proprietary); the generated
       ~150 KB workload exercises the parse path but does not empirically
       reproduce the original 30 s timeout; the fix is proven structurally
-      via protocol validation gating.
+      via protocol validation gating. Helper discovery does not search PATH
+      and validates file/Unix parent identity before command construction, but
+      portable exec remains pathname-based after the verified handle is closed;
+      the validation-to-exec race and lack of public helper-digest plumbing are
+      retained P3-SP-02 deviations.
 
   - id: network.impersonation
     name: Browser impersonation transport

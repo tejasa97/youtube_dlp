@@ -53,12 +53,21 @@ Node, browser, timer, or subprocess host functions.
 Helper discovery is hardened by default: the supervisor accepts an explicit
 absolute helper path or the helper beside the application executable and never
 searches `PATH`. The selected file must be regular, non-symlink, executable,
-owned by the current user, and not group/world-writable on Unix; those attributes and the opened-file
-identity are rechecked before each process start. Embeddings that have a
+owned by the current user, and not group/world-writable on Unix. Canonical Unix
+parent directories must be owned by root or the current user and must not be
+group/world-writable, except for root-owned sticky ancestors such as `/tmp`.
+Those attributes and the opened-file identity are checked
+immediately before constructing the process command. Embeddings that have a
 release-artifact digest may supply `supervisor.Config.ExpectedHelperDigest` to
-pin the helper's SHA-256 bytes. The public `pkg/ytdlp` configuration currently
-does not populate that optional digest, so the product claims safe discovery
-and file-identity checks, not an unconditional release-digest guarantee.
+pin the helper's SHA-256 bytes during validation.
+
+Portable Go process launch still resolves `Config.Path` after the verified file
+handle is closed. A same-UID actor, or an actor able to replace the path after
+validation on a platform without the Unix parent checks, can therefore race the
+validation-to-exec window. The optional digest is not launch-bound and the public
+`pkg/ytdlp` configuration does not populate it. This boundary claims safer
+fail-closed discovery and pre-launch validation, not handle-atomic execution or
+unconditional release identity.
 
 The stable error codes distinguish invalid input, incompatible versions,
 syntax and execution failures, missing functions, unsupported modules, timeout,

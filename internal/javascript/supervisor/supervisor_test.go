@@ -121,7 +121,31 @@ func TestSupervisorRejectsWritableHelper(t *testing.T) {
 	}
 }
 
-func TestSupervisorRejectsHelperPathSwapBeforeStart(t *testing.T) {
+func TestSupervisorRejectsWritableHelperParent(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("portable Windows modes do not expose parent owner/DACL trust")
+	}
+	directory := filepath.Join(t.TempDir(), "writable")
+	if err := os.Mkdir(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(directory, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, "helper")
+	payload, err := os.ReadFile(helperPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, payload, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(Config{Path: path}); err == nil {
+		t.Fatal("helper in group/world-writable parent was accepted")
+	}
+}
+
+func TestSupervisorRejectsHelperPathSwapDuringValidation(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink swap is not portable on Windows")
 	}
