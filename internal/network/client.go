@@ -633,7 +633,7 @@ func (err *StatusError) Error() string {
 }
 
 func RetryableStatus(code int) bool {
-	return code == http.StatusRequestTimeout || code == http.StatusTooManyRequests || code >= 500
+	return code == http.StatusRequestTimeout || code == http.StatusTooManyRequests || code >= 500 && code < 600
 }
 
 // IsRetryableError classifies only transient HTTP statuses and transport-level
@@ -684,7 +684,7 @@ func isRetryableTransportError(err error) bool {
 }
 
 var sensitiveQueryKeys = map[string]struct{}{
-	"auth": {}, "authorization": {}, "key": {}, "sig": {}, "signature": {}, "token": {},
+	"auth": {}, "authorization": {}, "key": {}, "sig": {}, "signature": {}, "token": {}, "x-amz-signature": {},
 }
 
 // RedactURL removes commonly sensitive query values from diagnostic output.

@@ -204,9 +204,11 @@ type Request struct {
 	EmbedMetadata bool
 	EmbedChapters *bool
 	Downloader    DownloaderOptions
-	// ExtractorRetries bounds retries of entered extractor operations only. A
-	// zero value disables this outer retry loop; the CLI supplies yt-dlp's
-	// default of three retries explicitly.
+	// ExtractorRetries bounds retries of entered extractor operations only when
+	// the selected extractor explicitly implements extractor.RetrySafeExtractor.
+	// Extractors without that replay-safety capability are called once. A zero
+	// value disables this outer retry loop; the CLI supplies yt-dlp's default of
+	// three retries explicitly.
 	ExtractorRetries int
 	Postprocessors   []Postprocessor
 	// PluginID explicitly selects an installed signed plugin extractor. Plugins

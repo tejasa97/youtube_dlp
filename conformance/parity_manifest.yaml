@@ -395,7 +395,8 @@ capabilities:
     compatibility_target: >-
       Bind native and browser-profile HTTP transports to a validated source IP
       or IPv4/IPv6 family, preserve proxy CONNECT/SOCKS5H semantics, and apply
-      bounded transient extractor retries only before media/artifact work.
+      bounded transient extractor retries only before media/artifact work, and
+      only for extractors with an explicit replay-safety capability.
     status: compatible
     evidence:
       - internal/network.TestAddressPolicyBindsIPv4Source
@@ -409,12 +410,20 @@ capabilities:
       - internal/network/impersonate.TestSOCKS5ProxyHonorsIPv4SourceAddress
       - internal/network/impersonate.TestSOCKS5HProxyRetainsRemoteDNSAndHonorsIPv6SourceAddress
       - pkg/ytdlp.TestExtractorRetryRetriesTransientErrorsInOrderAndRedactsEvents
+      - pkg/ytdlp.TestExtractorRetryClassifiesExtractorHTTPStatuses
       - pkg/ytdlp.TestExtractorRetryClassificationRejectsPermanentAndCategorizedErrors
+      - pkg/ytdlp.TestExtractorRetryRequiresExplicitReplaySafety
       - pkg/ytdlp.TestExtractorRetryCancellationStopsBeforeNextEnteredOperation
       - pkg/ytdlp.TestExtractorRetryIsBoundedAndUsesDeterministicBackoff
+      - internal/extractor.TestRequestJSONPreservesBodyCancellation
       - internal/cli.TestRunAddressPolicyFlagsUseLastOptionWins
       - internal/cli.TestRunExtractorRetriesDefaultsToThreeAndAllowsZero
       - conformance/network/address-policy/PROVENANCE.md
+    known_deviation: >-
+      Registered production extractors do not currently claim the explicit
+      replay-safety capability, so --extractor-retries is inert for those
+      extractors until a narrowly reviewed implementation opts in. This
+      fail-closed boundary avoids replaying non-idempotent extraction work.
     owner: io
     depends_on:
       - network.shared_transport

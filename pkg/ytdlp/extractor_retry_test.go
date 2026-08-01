@@ -3,8 +3,11 @@ package ytdlp
 import (
 	"context"
 	"errors"
+	"net/http"
 	"net/url"
 	"reflect"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -31,15 +34,43 @@ func TestExtractorRetryRetriesTransientErrorsInOrderAndRedactsEvents(t *testing.
 			return nil
 		},
 	}
-	_, err := operation.extractWithRetry(context.Background(), fixture, extractor.Request{URL: "https://media.invalid/watch?sig=secret"}, "https://media.invalid/watch?sig=REDACTED")
+	eventURL := "https://media.invalid/watch?x-AmZ-sIgNaTuRe=secret-signature&visible=yes"
+	_, err := operation.extractWithRetry(context.Background(), fixture, extractor.Request{URL: "https://media.invalid/watch?sig=secret"}, eventURL)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if fixture.calls.Load() != 2 || len(events) != 1 {
 		t.Fatalf("calls=%d events=%#v", fixture.calls.Load(), events)
 	}
-	if events[0].Kind != EventExtractorRetry || events[0].Attempt != 1 || events[0].URL != "https://media.invalid/watch?sig=REDACTED" || events[0].Message != "transient HTTP status 500" {
+	if events[0].Kind != EventExtractorRetry || events[0].Attempt != 1 || events[0].Message != "transient HTTP status 500" ||
+		strings.Contains(events[0].URL, "secret-signature") || !strings.Contains(events[0].URL, "x-AmZ-sIgNaTuRe=REDACTED") ||
+		!strings.Contains(events[0].URL, "visible=yes") {
 		t.Fatalf("retry event = %#v", events[0])
+	}
+}
+
+func TestExtractorRetryClassifiesExtractorHTTPStatuses(t *testing.T) {
+	tests := []struct {
+		code int
+		want bool
+	}{
+		{http.StatusRequestTimeout, true},
+		{http.StatusTooManyRequests, true},
+		{http.StatusInternalServerError, true},
+		{http.StatusServiceUnavailable, true},
+		{599, true},
+		{http.StatusBadRequest, false},
+		{http.StatusUnauthorized, false},
+		{http.StatusNotFound, false},
+		{499, false},
+		{600, false},
+	}
+	for _, test := range tests {
+		t.Run(strconv.Itoa(test.code), func(t *testing.T) {
+			if got := isExtractorRetryable(&extractor.HTTPStatusError{Code: test.code}); got != test.want {
+				t.Fatalf("isExtractorRetryable(HTTP %d) = %v, want %v", test.code, got, test.want)
+			}
+		})
 	}
 }
 
@@ -106,6 +137,27 @@ func TestExtractorRetryIsBoundedAndUsesDeterministicBackoff(t *testing.T) {
 	}
 }
 
+func TestExtractorRetryRequiresExplicitReplaySafety(t *testing.T) {
+	transient := &network.StatusError{Code: http.StatusServiceUnavailable}
+	fixture := &nonReplaySafeTestExtractor{err: transient}
+	var events []Event
+	operation := &operation{
+		client: NewClient(WithEventHandler(func(_ context.Context, event Event) error {
+			events = append(events, event)
+			return nil
+		})),
+		request: Request{ExtractorRetries: 3},
+		extractorRetryWait: func(context.Context, time.Duration) error {
+			t.Fatal("unsafe extractor should not enter retry wait")
+			return nil
+		},
+	}
+	_, err := operation.extractWithRetry(context.Background(), fixture, extractor.Request{URL: "https://media.invalid/video"}, "https://media.invalid/video")
+	if err != transient || fixture.calls.Load() != 1 || len(events) != 0 {
+		t.Fatalf("error=%v calls=%d events=%#v", err, fixture.calls.Load(), events)
+	}
+}
+
 type retryTestExtractor struct {
 	failures []error
 	calls    atomic.Int32
@@ -121,4 +173,20 @@ func (fixture *retryTestExtractor) Extract(context.Context, extractor.Request) (
 		return extractor.Extraction{}, fixture.failures[attempt]
 	}
 	return extractor.Extraction{}, nil
+}
+
+func (*retryTestExtractor) RetrySafe() {}
+
+type nonReplaySafeTestExtractor struct {
+	err   error
+	calls atomic.Int32
+}
+
+func (*nonReplaySafeTestExtractor) Name() string { return "non-replay-safe-test" }
+
+func (*nonReplaySafeTestExtractor) Suitable(*url.URL) bool { return true }
+
+func (fixture *nonReplaySafeTestExtractor) Extract(context.Context, extractor.Request) (extractor.Extraction, error) {
+	fixture.calls.Add(1)
+	return extractor.Extraction{}, fixture.err
 }

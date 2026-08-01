@@ -571,7 +571,7 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	retries := flags.Int("retries", 0, "direct and fragment download attempts (maximum 100)")
 	retryBaseDelay := flags.Duration("retry-base-delay", 0, "deterministic initial retry delay")
 	retryMaxDelay := flags.Duration("retry-max-delay", 0, "maximum retry delay")
-	extractorRetries := flags.Int("extractor-retries", 3, "retries for transient extractor network errors (maximum 100)")
+	extractorRetries := flags.Int("extractor-retries", 3, "retries for transient errors from replay-safe extractors (maximum 100)")
 	fragmentConcurrency := flags.Int("concurrent-fragments", 0, "parallel fragment downloads (maximum 128)")
 	perHostFragments := flags.Int("per-host-fragments", 0, "parallel fragments per host (maximum 128)")
 	maxSegments := flags.Int("max-segments", 0, "maximum fragments in a manifest (maximum 10000)")

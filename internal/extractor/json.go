@@ -93,6 +93,12 @@ func requestJSON(ctx context.Context, execute func(context.Context, *http.Reques
 	reader := &io.LimitedReader{R: response.Body, N: maxExtractorJSONBytes + 1}
 	data, err := io.ReadAll(reader)
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		return errors.New("read extractor JSON response failed")
 	}
 	if int64(len(data)) > maxExtractorJSONBytes {

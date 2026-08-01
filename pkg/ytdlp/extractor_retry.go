@@ -18,6 +18,10 @@ func (operation *operation) extractWithRetry(ctx context.Context, selected extra
 	if retries <= 0 {
 		return selected.Extract(ctx, request)
 	}
+	if _, ok := selected.(extractor.RetrySafeExtractor); !ok {
+		return selected.Extract(ctx, request)
+	}
+	retryEventURL := network.RedactRawURL(eventURL)
 	wait := operation.extractorRetryWait
 	if wait == nil {
 		wait = waitForExtractorRetry
@@ -35,7 +39,7 @@ func (operation *operation) extractWithRetry(ctx context.Context, selected extra
 		}
 		attempt := retry + 1
 		if emitErr := operation.client.emit(ctx, Event{
-			Kind: string(EventExtractorRetry), Extractor: selected.Name(), URL: eventURL,
+			Kind: string(EventExtractorRetry), Extractor: selected.Name(), URL: retryEventURL,
 			Attempt: attempt, Message: extractorRetryMessage(err),
 		}); emitErr != nil {
 			return extractor.Extraction{}, &Error{Category: ErrorInternal, Op: "emit extractor retry event", Err: emitErr}
@@ -64,13 +68,27 @@ func isExtractorRetryable(err error) bool {
 		errors.Is(err, extractor.ErrTransportProfile) {
 		return false
 	}
+	if code, ok := extractorHTTPStatusCode(err); ok {
+		return network.RetryableStatus(code)
+	}
 	return network.IsRetryableError(err)
 }
 
-func extractorRetryMessage(err error) string {
-	var status *network.StatusError
+func extractorHTTPStatusCode(err error) (int, bool) {
+	var status *extractor.HTTPStatusError
 	if errors.As(err, &status) {
-		return fmt.Sprintf("transient HTTP status %d", status.Code)
+		return status.Code, true
+	}
+	var statusErr *network.StatusError
+	if errors.As(err, &statusErr) {
+		return statusErr.Code, true
+	}
+	return 0, false
+}
+
+func extractorRetryMessage(err error) string {
+	if code, ok := extractorHTTPStatusCode(err); ok {
+		return fmt.Sprintf("transient HTTP status %d", code)
 	}
 	var requestErr *network.RequestError
 	if errors.As(err, &requestErr) {
