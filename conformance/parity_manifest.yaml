@@ -3308,10 +3308,13 @@ capabilities:
       selection so filters see the extractor view while downstream output
       stages retain transformed metadata. Stop conditions classify via
       Result.StopKind; the CLI prints the partial result, then
-      "Aborting remaining downloads" and exits 101, or continues per input
-      under --break-per-input. MaxDownloads is a per-Run cap; Result.Downloads
-      aggregates qualifying media children including simulated downloads, and
-      the CLI carries the remaining budget across batch inputs. The three
+      "Aborting remaining downloads" and exits 101 for queue-wide stops. Under
+      --break-per-input it consumes the stop without that diagnostic or exit
+      101 and continues with a fresh budget. MaxDownloads is a per-Run cap;
+      Result.Downloads aggregates qualifying media children including
+      simulated and failed selected attempts, remains populated alongside
+      categorized Run errors, and lets the CLI carry the exact remaining
+      budget across batch inputs. The three
       force-write-archive aliases record successful simulate/skip-download
       entries only. File size bounds enforce in the direct HTTP downloader
       using Content-Length plus the resume offset when available and bounded
@@ -3347,11 +3350,12 @@ capabilities:
       - pkg/ytdlp.TestClientFilesizeAbortSkipsEntry
       - pkg/ytdlp.TestClientFilesizeAbortNotRecordedInArchive
       - pkg/ytdlp.TestPlaylistMaxDownloadsDoesNotCountExtractionFailure
-      - pkg/ytdlp.TestClientMaxDownloadsCountsMediaFailureAfterSelection
+      - pkg/ytdlp.TestClientReturnsSelectedAttemptAccountingWithCategorizedFailure
       - internal/cli.TestParseByteQuantity
       - internal/cli.TestRunDatePrecedenceWarning
       - internal/cli.TestRunHelpOmitsHiddenFlags
       - internal/cli.TestRunMaxDownloadsBudgetAcrossInputs
+      - internal/cli.TestRunMaxDownloadsCountsErroredTopLevelAttempts
       - internal/cli.TestRunStopConditionExits101
       - internal/cli.TestRunFilesizeAbortPrintsDiagnostic
       - internal/cli.TestRunForceWriteArchiveAliases

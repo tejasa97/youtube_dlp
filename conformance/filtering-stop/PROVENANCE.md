@@ -52,7 +52,12 @@ fixture update must record its command, interpreter version, and date here.
   closed with a sanitized local error in both products.
 - A stopped run still returns the partial playlist/media result with
   `Stopped` set; the CLI emits the partial outputs, prints
-  "Aborting remaining downloads", and exits 101 (unless `--break-per-input`).
+  "Aborting remaining downloads", and exits 101. Under `--break-per-input`,
+  the per-input wrapper consumes the stop, emits no global abort diagnostic,
+  and continues with a fresh budget.
+- Selected attempts remain observable through `Result.Downloads` when
+  `Client.Run` also returns a categorized error. The CLI debits that partial
+  accounting before deciding whether to continue to the next top-level input.
 - Simple-filter evaluation failures (bounded regex timeouts, oversized
   upload dates) propagate as typed errors so the entry fails closed; the
   reference raises or rejects through its own bounded evaluation.

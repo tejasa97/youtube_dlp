@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -131,13 +132,37 @@ func TestRunMaxDownloadsBudgetAcrossInputs(t *testing.T) {
 	}
 	// --break-per-input resets the budget, so every input downloads.
 	code, urls, stderr = run("--max-downloads", "2", "--break-per-input")
-	if code != 0 || len(urls) != 3 {
+	if code != 0 || len(urls) != 3 || strings.Contains(stderr, "Aborting remaining downloads") {
 		t.Fatalf("break-per-input code=%d urls=%v stderr=%q", code, urls, stderr)
 	}
 }
 
+func TestRunMaxDownloadsCountsErroredTopLevelAttempts(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "urls.txt")
+	if err := os.WriteFile(file, []byte("one\ntwo\nthree\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &countedFailureCLIRunner{}
+	var stdout, stderr bytes.Buffer
+	code := runContextIOWithDependencies(
+		context.Background(), []string{"--ignore-errors", "--max-downloads", "2", "--batch-file", file},
+		strings.NewReader(""), &stdout, &stderr,
+		runDependencies{newRunner: func([]ytdlp.Option) cliRunner { return runner }},
+	)
+	if code != 101 || len(runner.urls) != 2 {
+		t.Fatalf("code=%d urls=%v stderr=%q", code, runner.urls, stderr.String())
+	}
+	if got := runner.maxDownloads; len(got) != 2 || got[0] != 2 || got[1] != 1 {
+		t.Fatalf("per-run max-downloads budgets = %v, want [2 1]", got)
+	}
+	if !strings.Contains(stderr.String(), "counted fixture failure") ||
+		!strings.Contains(stderr.String(), "Aborting remaining downloads") {
+		t.Fatalf("stderr=%q", stderr.String())
+	}
+}
+
 func TestRunStopConditionExits101(t *testing.T) {
-	run := func(stopped bool, breakPerInput bool) int {
+	run := func(stopped bool, breakPerInput bool) (int, string) {
 		var stdout, stderr bytes.Buffer
 		args := []string{"--batch-file", "-"}
 		if breakPerInput {
@@ -149,13 +174,13 @@ func TestRunStopConditionExits101(t *testing.T) {
 				return resultCLIRunner{result: ytdlp.Result{Stopped: stopped, StopKind: ytdlp.StopBreakOnReject, StopReason: "rejected"}}
 			}},
 		)
-		return code
+		return code, stderr.String()
 	}
-	if code := run(true, false); code != 101 {
-		t.Fatalf("stopped without break-per-input = %d", code)
+	if code, stderr := run(true, false); code != 101 || !strings.Contains(stderr, "Aborting remaining downloads") {
+		t.Fatalf("stopped without break-per-input = %d, stderr=%q", code, stderr)
 	}
-	if code := run(true, true); code != 0 {
-		t.Fatalf("stopped with break-per-input = %d", code)
+	if code, stderr := run(true, true); code != 0 || strings.Contains(stderr, "Aborting remaining downloads") {
+		t.Fatalf("stopped with break-per-input = %d, stderr=%q", code, stderr)
 	}
 }
 
@@ -178,6 +203,26 @@ func TestRunFilesizeAbortPrintsDiagnostic(t *testing.T) {
 type downloadsCLIRunner struct {
 	runner *recordingCLIRunner
 	count  int
+}
+
+type countedFailureCLIRunner struct {
+	urls         []string
+	maxDownloads []int
+}
+
+func (runner *countedFailureCLIRunner) Run(_ context.Context, request ytdlp.Request) (ytdlp.Result, error) {
+	runner.urls = append(runner.urls, request.URL)
+	runner.maxDownloads = append(runner.maxDownloads, request.MaxDownloads)
+	result := ytdlp.Result{Downloads: 1}
+	if request.MaxDownloads > 0 && request.MaxDownloads <= result.Downloads {
+		result.Stopped = true
+		result.StopKind = ytdlp.StopMaxDownloads
+		result.StopReason = "max downloads reached"
+	}
+	if len(runner.urls) == 1 {
+		return result, &ytdlp.Error{Category: ytdlp.ErrorNetwork, Op: "download", Err: errors.New("counted fixture failure")}
+	}
+	return result, nil
 }
 
 func (r *downloadsCLIRunner) Run(ctx context.Context, request ytdlp.Request) (ytdlp.Result, error) {

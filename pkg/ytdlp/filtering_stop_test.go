@@ -283,37 +283,43 @@ func TestClientMaxDownloadsDoesNotCountArchiveOrRejectedEntries(t *testing.T) {
 	}
 }
 
-func TestClientMaxDownloadsCountsMediaFailureAfterSelection(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		http.Error(writer, "fixture failure", http.StatusInternalServerError)
+func TestClientReturnsSelectedAttemptAccountingWithCategorizedFailure(t *testing.T) {
+	mediaURL := ""
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/page":
+			writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+			info := value.NewObject(
+				value.Field{Key: "id", Value: value.String("counted-failure")},
+				value.Field{Key: "title", Value: value.String("Counted failure")},
+				value.Field{Key: "ext", Value: value.String("mp4")},
+				value.Field{Key: "formats", Value: value.List(value.ObjectValue(value.NewObject(
+					value.Field{Key: "format_id", Value: value.String("direct")},
+					value.Field{Key: "url", Value: value.String(mediaURL)},
+					value.Field{Key: "ext", Value: value.String("mp4")},
+				)))},
+			)
+			_ = json.NewEncoder(writer).Encode(value.ObjectValue(info))
+		case "/media":
+			http.Error(writer, "fixture failure", http.StatusInternalServerError)
+		default:
+			http.NotFound(writer, request)
+		}
 	}))
 	defer server.Close()
-	info := fixtureMediaInfo()
-	formats, ok := info.Lookup("formats").ListValue()
-	if !ok || len(formats) != 1 {
-		t.Fatal("fixture format missing")
-	}
-	format, ok := formats[0].Object()
-	if !ok {
-		t.Fatal("fixture format is not an object")
-	}
-	format.Set("url", value.String(server.URL+"/media"))
-	info.Set("formats", value.List(value.ObjectValue(format)))
-	request := Request{OutputDir: t.TempDir(), Downloader: DownloaderOptions{Attempts: 1}}
-	transport, err := network.New(network.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	compatibility, err := prepareCompatibility(request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	operation := &operation{client: NewClient(), request: request, transport: transport, compatibility: compatibility}
-	if _, err := operation.processMedia(context.Background(), extractor.Media(info), "fixture"); err == nil {
+	mediaURL = server.URL + "/media"
+	result, err := NewClient().Run(context.Background(), Request{
+		URL: server.URL + "/page", OutputDir: t.TempDir(), MaxDownloads: 1,
+		Downloader: DownloaderOptions{Attempts: 1},
+	})
+	if err == nil {
 		t.Fatal("media failure unexpectedly succeeded")
 	}
-	if operation.downloads != 1 {
-		t.Fatalf("selected media failure downloads=%d, want 1", operation.downloads)
+	if !IsCategory(err, ErrorNetwork) {
+		t.Fatalf("media failure category = %v, want network", err)
+	}
+	if result.Downloads != 1 || !result.Stopped || result.StopKind != StopMaxDownloads {
+		t.Fatalf("selected media failure result = %#v", result)
 	}
 }
 

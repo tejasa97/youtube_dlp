@@ -1011,6 +1011,14 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	// stopExit carries the reference stop code (101) so telemetry writing
 	// still runs before the CLI returns.
 	stopExit := 0
+	abortRemaining := func(stopped bool) bool {
+		if !stopped || breakPerInput {
+			return false
+		}
+		fmt.Fprintln(stderr, "Aborting remaining downloads")
+		stopExit = 101
+		return true
+	}
 	remainingDownloads := *maxDownloads
 	for _, inputURL := range batchInputs {
 		if *maxDownloads > 0 {
@@ -1023,6 +1031,13 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 			maxDownloadsPerInput = 0
 		}
 		result, runErr := client.Run(ctx, makeRequest(inputURL))
+		if *maxDownloads > 0 && !breakPerInput {
+			remainingDownloads -= result.Downloads
+			if remainingDownloads < 0 {
+				remainingDownloads = 0
+			}
+		}
+		sharedMaxReached := *maxDownloads > 0 && !breakPerInput && result.Downloads > 0 && remainingDownloads == 0
 		if runErr != nil {
 			fmt.Fprintf(stderr, "ytdlp-go: %v\n", runErr)
 			if ytdlp.IsNonOverridableError(runErr) {
@@ -1032,10 +1047,10 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 			if firstErr == nil {
 				firstErr = runErr
 			}
+			if abortRemaining(result.Stopped || sharedMaxReached) {
+				break
+			}
 			continue
-		}
-		if *maxDownloads > 0 {
-			remainingDownloads -= result.Downloads
 		}
 		if hasConsolePrintRules(printRules) {
 			if writeErr := writePrintOutputs(ctx, result, stdout); writeErr != nil {
@@ -1098,16 +1113,10 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 			}
 		}
 		resultFailures += result.SuppressedFailures
-		if result.Stopped {
-			// yt-dlp catches DownloadCancelled at the top level, prints
-			// "Aborting remaining downloads", and exits 101. The partial
-			// result was already emitted above. --break-per-input resets the
-			// max-downloads budget and continues with the next input.
-			fmt.Fprintln(stderr, "Aborting remaining downloads")
-			if breakPerInput {
-				continue
-			}
-			stopExit = 101
+		if abortRemaining(result.Stopped || sharedMaxReached) {
+			// The partial result was already emitted above. Under
+			// --break-per-input the stop is consumed silently by the per-input
+			// wrapper and the next input receives a fresh budget.
 			break
 		}
 	}

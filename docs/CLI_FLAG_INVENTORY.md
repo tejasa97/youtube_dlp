@@ -81,10 +81,10 @@
 | `--age-limit` | present | `SimpleFilters.AgeLimit` → `age_restricted` semantics |
 | `--download-archive` / `--no-download-archive` | present | `flags.String("download-archive", ...)` |
 | `--force-write-archive` / `--force-write-download-archive` / `--force-download-archive` | present | `Request.ForceWriteArchive`; records successful simulate/skip-download entries only |
-| `--max-downloads` | present | Per-Run `Request.MaxDownloads`; `Result.Downloads` aggregates qualifying entries; CLI carries the remaining budget across batch inputs |
+| `--max-downloads` | present | Per-Run `Request.MaxDownloads`; `Result.Downloads` aggregates qualifying attempts, including errored runs; CLI carries the remaining budget across batch inputs |
 | `--break-on-existing` / `--no-break-on-existing` | present | `Request.BreakOnExisting` → `StopBreakOnExisting` |
 | `--break-on-reject` | present | Hidden parity flag. `Request.BreakOnReject` → `StopBreakOnReject` |
-| `--break-per-input` / `--no-break-per-input` | present | `Request.BreakPerInput`; resets the max-downloads budget and stop scope per input |
+| `--break-per-input` / `--no-break-per-input` | present | `Request.BreakPerInput`; resets budget/stop scope per input and consumes stops without the global abort diagnostic |
 | `--skip-playlist-after-errors` | present | `flags.Int("skip-playlist-after-errors", ...)` |
 | `--js-runtimes` / `--no-js-runtimes` | defer | JS runtime subsystem |
 | `--remote-components` / `--no-remote-components` | defer | Remote component subsystem |
@@ -286,12 +286,12 @@ These are `Request`/options fields that are Go-specific and have no counterpart 
 | `--date` / `--dateafter` / `--datebefore` | present | Strict `date_from_str` grammar + inclusive `DateRange`; `--date` wins with a warning |
 | `--min-views` / `--max-views` / `--age-limit` | present | Hidden parity flags for views; `age_restricted` semantics |
 | `--min-filesize` / `--max-filesize` | present | `DownloaderOptions` bounds enforced in the direct HTTP downloader (known-length preflight plus bounded streaming for unknown/misleading lengths; Content-Encoding remains exempt) |
-| `--max-downloads` | present | Per-Run cap with `Result.Downloads` accounting; CLI carries the remaining budget across batch inputs |
+| `--max-downloads` | present | Per-Run cap with partial `Result.Downloads` accounting on categorized errors; CLI carries the remaining budget across batch inputs |
 | `--break-on-existing` / `--no-break-on-existing` | present | Archive matches stop the run (`StopBreakOnExisting`) |
 | `--break-on-reject` | present | Hidden parity flag; any filter rejection stops the run (`StopBreakOnReject`) |
-| `--break-per-input` / `--no-break-per-input` | present | Resets the max-downloads budget and stop scope per input URL |
+| `--break-per-input` / `--no-break-per-input` | present | Resets budget/stop scope per input without `Aborting remaining downloads` or exit 101 |
 | `--force-write-archive` / aliases | present | Records successful simulate/skip-download entries after selection; rejects and size aborts are not recorded |
-| Stopping exit contract | present | Partial result is emitted, then `Aborting remaining downloads` and exit 101; cancellation remains 130 |
+| Stopping exit contract | present | Queue-wide stops emit `Aborting remaining downloads` and exit 101; per-input stops continue silently; cancellation remains 130 |
 
 ### Parked
 `--verbose` / `-v` / `--no-verbose`, `--no-warnings` / `--warnings`, `--progress` / `--no-progress`

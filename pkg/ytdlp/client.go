@@ -545,7 +545,23 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 		operation.formatAvailability = checker
 		operation.formatAvailabilityChecker = checker
 	}
-	return operation.process(ctx, request.URL, request.PluginID, nil, make(map[string]bool), 0)
+	result, runErr = operation.process(ctx, request.URL, request.PluginID, nil, make(map[string]bool), 0)
+	if runErr != nil {
+		// Selected attempts are part of yt-dlp's shared _num_downloads budget
+		// even when their download/post-processing path returns an error. Some
+		// nested error paths cannot return a partial playlist Result, so carry
+		// the operation-wide accounting and stop state alongside the original
+		// categorized error.
+		if result.Downloads < operation.downloads {
+			result.Downloads = operation.downloads
+		}
+		if operation.stopTriggered && !result.Stopped {
+			result.Stopped = true
+			result.StopKind = operation.stopKind
+			result.StopReason = operation.stopReason
+		}
+	}
+	return result, runErr
 }
 
 func shouldCheckFormats(mode FormatCheckMode, allowUnplayable bool) bool {
