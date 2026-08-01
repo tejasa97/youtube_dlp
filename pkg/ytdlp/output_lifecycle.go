@@ -588,6 +588,15 @@ func (operation *operation) executePlanLifecycle(
 	}
 	registerArtifacts(result.Artifacts)
 
+	// Apply the media timestamp only after every media-mutating postprocessor
+	// has completed. This is deliberately per lifecycle so multi-output runs
+	// update each media destination exactly once; sidecar artifacts are never
+	// touched. A failure is routed through fail so the shared transaction rolls
+	// back the media and any sidecars produced by this entry.
+	if err := operation.applyOutputMtime(lifecycle.FinalPath, lifecycle.Info); err != nil {
+		return fail(categorized("set output mtime", err))
+	}
+
 	result.Downloaded = true
 	result.Filename = lifecycle.FinalPath
 	_ = cutApplied
