@@ -75,13 +75,26 @@ func TestOutputArtifactTemplatePlaceholderAndAutonumberCompatibility(t *testing.
 		Filesystem: FilesystemOptions{OutputNaPlaceholder: "unknown"},
 	}}
 	operation.addAutonumber(&info)
-	path, err := operation.resolveOutputPath(root, operation.request.OutputTemplate, info)
-	if err != nil || filepath.Base(path) != "00007-unknown-fixture.mp4" {
-		t.Fatalf("default autonumber path=%q err=%v", path, err)
+	for _, test := range []struct {
+		name     string
+		template string
+		want     string
+	}{
+		{name: "bare", template: "%(autonumber)s", want: "00007"},
+		{name: "arithmetic", template: "%(autonumber+1)s", want: "00008"},
+		{name: "default", template: "%(autonumber|fallback)s", want: "00007"},
+		{name: "explicit", template: "%(autonumber+1)03d", want: "008"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path, err := operation.resolveOutputPath(root, test.template+".mp4", info)
+			if err != nil || filepath.Base(path) != test.want+".mp4" {
+				t.Fatalf("autonumber path=%q err=%v", path, err)
+			}
+		})
 	}
 	operation.request.OutputTemplate = "%(autonumber)03d.%(id)s.%(ext)s"
 	operation.addAutonumber(&info)
-	path, err = operation.resolveOutputPath(root, operation.request.OutputTemplate, info)
+	path, err := operation.resolveOutputPath(root, operation.request.OutputTemplate, info)
 	if err != nil || filepath.Base(path) != "008.fixture.mp4" {
 		t.Fatalf("explicit autonumber path=%q err=%v", path, err)
 	}

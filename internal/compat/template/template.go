@@ -336,6 +336,7 @@ func renderExpression(expression, spec string, info value.Info, outputNaPlacehol
 	source, replacement, hasReplacement := strings.Cut(source, "&")
 	var selected value.Value
 	var dateFormat string
+	var selectedPath string
 	for _, alternative := range splitAlternatives(source) {
 		path, format, hasDateFormat := strings.Cut(strings.TrimSpace(alternative), ">")
 		candidate, err := evaluateCandidate(info, path)
@@ -346,6 +347,7 @@ func renderExpression(expression, spec string, info value.Info, outputNaPlacehol
 			continue
 		}
 		selected = candidate
+		selectedPath = path
 		if hasDateFormat {
 			dateFormat = format
 		}
@@ -357,9 +359,6 @@ func renderExpression(expression, spec string, info value.Info, outputNaPlacehol
 		} else {
 			selected = value.String(outputNaPlaceholder)
 		}
-	}
-	if strings.TrimSpace(expression) == "autonumber" && autonumberSize > 0 && spec == "s" {
-		spec = "0" + strconv.Itoa(autonumberSize) + "d"
 	}
 	if dateFormat != "" {
 		converted, err := renderDate(selected, dateFormat)
@@ -379,7 +378,21 @@ func renderExpression(expression, spec string, info value.Info, outputNaPlacehol
 		}
 		selected = value.String(replaced)
 	}
+	if isAutonumberExpression(selectedPath) && selected.Kind() == value.KindInt && autonumberSize > 0 && spec == "s" {
+		spec = "0" + strconv.Itoa(autonumberSize) + "d"
+	}
 	return formatValue(selected, spec)
+}
+
+func isAutonumberExpression(expression string) bool {
+	operands, _, _, arithmetic, err := parseArithmetic(strings.TrimSpace(expression))
+	if err != nil || len(operands) == 0 {
+		return false
+	}
+	if !arithmetic {
+		return strings.TrimSpace(expression) == "autonumber"
+	}
+	return operands[0] == "autonumber"
 }
 
 type arithmeticNumber struct {
