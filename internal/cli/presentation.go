@@ -132,7 +132,7 @@ func (presentation *terminalPresentation) handle(ctx context.Context, event ytdl
 		return presentation.encoder.Encode(event)
 	}
 	if event.Kind == ytdlp.EventMetadataWarning {
-		return presentation.writeWarning(event.Message)
+		return presentation.emitWarning(event.Message)
 	}
 
 	switch event.Kind {
@@ -186,8 +186,17 @@ func (presentation *terminalPresentation) showLifecycle() bool {
 }
 
 func (presentation *terminalPresentation) writeWarning(message string) error {
+	return presentation.handle(context.Background(), ytdlp.Event{
+		Kind: ytdlp.EventMetadataWarning, Message: message,
+	})
+}
+
+func (presentation *terminalPresentation) emitWarning(message string) error {
 	if presentation.config.noWarnings || message == "" {
 		return nil
+	}
+	if presentation.config.progressJSON {
+		return presentation.encoder.Encode(ytdlp.Event{Kind: ytdlp.EventMetadataWarning, Message: message})
 	}
 	return presentation.writeLine("ytdlp-go: WARNING: "+message, ansiYellow)
 }

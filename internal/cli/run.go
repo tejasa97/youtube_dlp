@@ -901,7 +901,7 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	}
 	if *loadInfoJSON != "" || *rmCacheDir {
 		if len(batchInputs) > 0 {
-			fmt.Fprintln(stderr, "ytdlp-go: positional URLs are ignored by the selected file/cache operation")
+			_ = presentation.writeWarning("positional URLs are ignored by the selected file/cache operation")
 		}
 		batchInputs = []string{""}
 	}
@@ -912,7 +912,7 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	useIDRequest := *useID
 	if useIDRequest {
 		if _, explicitOutput := outputTemplates.values[ytdlp.OutputTemplateDefault]; explicitOutput {
-			fmt.Fprintln(stderr, "ytdlp-go: --id is ignored since --output was given")
+			_ = presentation.writeWarning("--id is ignored since --output was given")
 			useIDRequest = false
 		}
 	}

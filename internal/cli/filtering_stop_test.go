@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -90,6 +91,62 @@ func TestRunWarningControlsAreLastWins(t *testing.T) {
 	}
 	if got := run("--warnings", "--no-warnings"); strings.Contains(got, "dateafter") {
 		t.Fatalf("last --no-warnings did not suppress diagnostics: %q", got)
+	}
+}
+
+func TestRunProgressJSONConflictWarningsAreJSON(t *testing.T) {
+	run := func(arguments ...string) string {
+		runner := &recordingCLIRunner{}
+		var stdout, stderr bytes.Buffer
+		arguments = append([]string{"--progress-json"}, arguments...)
+		arguments = append(arguments, "https://fixture.invalid/video")
+		code := runContextIOWithDependencies(
+			context.Background(), arguments, strings.NewReader(""), &stdout, &stderr,
+			runDependencies{newRunner: func([]ytdlp.Option) cliRunner { return runner }},
+		)
+		if code != 0 {
+			t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+		}
+		return stderr.String()
+	}
+	decode := func(output string) []ytdlp.Event {
+		lines := strings.Split(strings.TrimSpace(output), "\n")
+		events := make([]ytdlp.Event, 0, len(lines))
+		for _, line := range lines {
+			if line == "" {
+				continue
+			}
+			var event ytdlp.Event
+			if err := json.Unmarshal([]byte(line), &event); err != nil {
+				t.Fatalf("stderr line is not JSON: %q: %v", line, err)
+			}
+			events = append(events, event)
+		}
+		return events
+	}
+
+	dateEvents := decode(run("--date", "20240101", "--dateafter", "20240201", "--datebefore", "20240301"))
+	if len(dateEvents) != 2 || dateEvents[0].Kind != ytdlp.EventMetadataWarning ||
+		dateEvents[1].Kind != ytdlp.EventMetadataWarning ||
+		!strings.Contains(dateEvents[0].Message, "dateafter") || !strings.Contains(dateEvents[1].Message, "datebefore") {
+		t.Fatalf("date warning events=%#v", dateEvents)
+	}
+
+	remuxEvents := decode(run("--remux-video", "mkv", "--recode-video", "mp4"))
+	if len(remuxEvents) != 1 || remuxEvents[0].Kind != ytdlp.EventMetadataWarning ||
+		!strings.Contains(remuxEvents[0].Message, "remux-video") {
+		t.Fatalf("remux warning events=%#v", remuxEvents)
+	}
+
+	idEvents := decode(run("--id", "--output", "%(title)s"))
+	if len(idEvents) != 1 || idEvents[0].Kind != ytdlp.EventMetadataWarning ||
+		!strings.Contains(idEvents[0].Message, "--id") {
+		t.Fatalf("id warning events=%#v", idEvents)
+	}
+
+	suppressed := decode(run("--no-warnings", "--date", "20240101", "--dateafter", "20240201"))
+	if len(suppressed) != 0 {
+		t.Fatalf("suppressed warning events=%#v", suppressed)
 	}
 }
 

@@ -588,6 +588,7 @@ capabilities:
       - internal/cli.TestRunProgressPresentationHonorsTTYAndColorPolicy
       - internal/cli.TestRunVerboseOverridesQuietLifecycleSuppression
       - internal/cli.TestRunWarningControlsAreLastWins
+      - internal/cli.TestRunProgressJSONConflictWarningsAreJSON
       - docs/CLI_FLAG_INVENTORY.md
     owner: core
     depends_on:
