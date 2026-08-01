@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	cookievalidate "github.com/ytdlp-go/ytdlp/internal/cookies/validate"
 	_ "github.com/ncruces/go-sqlite3/driver"
 	_ "github.com/ncruces/go-sqlite3/embed"
+	cookievalidate "github.com/ytdlp-go/ytdlp/internal/cookies/validate"
 )
 
 const (

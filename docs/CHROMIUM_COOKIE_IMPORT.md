@@ -60,9 +60,10 @@ the operation continues.
 
 All Chromium-family and Firefox SQLite importers apply the shared bounded,
 header-safe cookie-field validator before constructing `http.Cookie` values;
-macOS Chromium also preflights the default or caller-selected row cap and
-per-field/encrypted-value limits, returning typed `ErrLimit` on resource
-excess. Cookie names and values, profile paths, key-provider messages, protected bytes,
+macOS Chromium validates the effective value again after decryption, including
+legacy non-`v10` raw values. macOS Chromium also preflights the default or
+caller-selected row cap and per-field/encrypted-value limits, returning typed
+`ErrLimit` on resource excess. Cookie names and values, profile paths, key-provider messages, protected bytes,
 and raw database errors are excluded from public events and rendered errors.
 Events expose bounded counts only. When an attributable subset cannot be
 decrypted, successfully imported cookies are retained and the failure count is

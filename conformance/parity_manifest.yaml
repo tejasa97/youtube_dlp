@@ -981,6 +981,7 @@ capabilities:
       - internal/cookies/chromium.TestImportRejectsUnsafePathsAndCancellation
       - internal/cookies/chromium.TestImportEnforcesRowAndFieldLimits
       - internal/cookies/chromium.TestImportRejectsInvalidBoundedCookieFields
+      - internal/cookies/chromium.TestImportRejectsInvalidEffectiveDecryptedValues
       - internal/cookies/chromium.FuzzValidCookie
       - internal/cookies/validate.TestCookieFieldsBoundsAndHeaderSafety
       - internal/cookies/validate.FuzzCookieFields

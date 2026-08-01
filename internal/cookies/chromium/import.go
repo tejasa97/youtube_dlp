@@ -100,7 +100,11 @@ func Import(ctx context.Context, options Options) (Result, error) {
 		if result.Total > maxCookies {
 			return result, ErrLimit
 		}
-		if !validCookie(host, name, plainValue, path) {
+		// Validate the identity and path before decryption, but defer the value
+		// check until the effective plaintext is known. Chromium normally stores
+		// an empty TEXT value beside encrypted_value, and legacy values may be
+		// returned as raw bytes by the decryptor.
+		if !validCookie(host, name, "", path) {
 			return result, ErrInvalidDatabase
 		}
 		if len(encryptedValue) > maxCookieValueBytes {
@@ -119,6 +123,9 @@ func Import(ctx context.Context, options Options) (Result, error) {
 				}
 				continue
 			}
+		}
+		if !validCookie(host, name, value, path) {
+			return result, ErrInvalidDatabase
 		}
 		cookie := &http.Cookie{
 			Name: name, Value: value, Domain: host, Path: path,

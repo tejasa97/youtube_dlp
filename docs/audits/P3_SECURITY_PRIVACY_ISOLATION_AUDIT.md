@@ -41,6 +41,11 @@ caller.
 
 ## Findings
 
+The findings and surface-review results in this section describe the state at
+the audited commit. The current dispositions, including the closure of
+P3-SP-03 through P3-SP-05 and the residual status of P3-SP-02, are recorded in
+the remediation update below.
+
 ### P3-SP-01: native RPC sandbox enforcement is platform-conditional (High, inherited and explicit)
 
 The production `Client.exchange` path invokes `internal/sandbox` for a trusted
@@ -143,41 +148,39 @@ blocking-reader lifecycle test without itself leaking a goroutine.
 
 ## Remediation update (2026-08-01)
 
-The following repository changes address P3-SP-02 through P3-SP-05 within the
-documented boundaries. The original findings and 2026-07-19 severity table above
-are historical and intentionally unchanged. P3-SP-02 remains open in narrowed
-form because validation is not handle-atomic with process launch.
+The merged PR #197 changes close P3-SP-03, P3-SP-04, and P3-SP-05 within the
+documented boundaries and partially remediate P3-SP-02. P3-SP-02 remains the
+only residual item from this remediation set; it is not closed because helper
+validation is not handle-atomic with process launch. The original findings and
+2026-07-19 severity table above are historical and intentionally unchanged.
 
 | Finding | Disposition | Linked evidence |
 | --- | --- | --- |
 | P3-SP-02 | Partially remediated: helper discovery accepts only an absolute configured path or executable sibling, rejects unsafe files, validates canonical Unix parent ownership/modes, rechecks opened identity immediately before command construction, and supports an embedding-supplied SHA-256 digest. The verified handle is then closed and portable `exec.Command(path)` resolves the pathname later, so a same-UID actor or an actor on a platform without the Unix parent proof can still race validation-to-exec. The finding remains open for handle-atomic launch identity. | [`TestSupervisorRejectsSearchPathAndSymlinkHelpers`](../../internal/javascript/supervisor/supervisor_test.go), [`TestSupervisorRejectsWritableHelperParent`](../../internal/javascript/supervisor/supervisor_test.go), [`TestSupervisorValidatesOptionalHelperReleaseDigest`](../../internal/javascript/supervisor/supervisor_test.go), [`TestSupervisorRejectsHelperPathSwapDuringValidation`](../../internal/javascript/supervisor/supervisor_test.go) |
 | P3-SP-03 | Closed within the opt-in browser-profile boundary: macOS retains its default row cap and typed `ErrLimit`, and macOS/Linux/Firefox share bounded header-safe cookie-field validation. | [`TestImportEnforcesRowAndFieldLimits`](../../internal/cookies/chromium/import_test.go), [`TestCookieFieldsBoundsAndHeaderSafety`](../../internal/cookies/validate/validate_test.go), [`FuzzCookieFields`](../../internal/cookies/validate/validate_test.go) |
 | P3-SP-04 | Closed for Darwin/Linux snapshot paths: no-follow opens are used where available, opened identity/type/size is checked before copying and after copying, and unsupported platforms fail closed. | [`TestOpenReadOnlyNoFollowRejectsFinalSymlink`](../../internal/cookies/snapshot/open_test.go), [`TestCopyFileRejectsFinalSymlink`](../../internal/cookies/chromiumlinux/import_test.go), [`TestCopyRegularRejectsFinalSymlink`](../../internal/cookies/firefox/firefox_test.go) |
-| P3-SP-05 | Contract narrowed and made explicit: only `CloseInterruptible` readers are read in a cancellable worker and are joined after synchronous `Close`; ordinary or unmarked readers are read synchronously and must return on their own. The marker is a caller assertion, not mechanical proof, so no universal cancellation guarantee is claimed. | [`TestParseObservationInterruptsBlockingReaderOnCancellation`](../../internal/differential/shadow_test.go), [`TestParseObservationDocumentsNonClosableReaderContract`](../../internal/differential/shadow_test.go), [`conformance/differential/phase3/PROVENANCE.md`](../../conformance/differential/phase3/PROVENANCE.md) |
+| P3-SP-05 | Closed by an explicit caller contract: only `CloseInterruptible` readers are read in a cancellable worker and are joined after synchronous `Close`; ordinary or unmarked readers are read synchronously and must return on their own. The marker is a caller assertion, not mechanical proof, so no universal cancellation guarantee is claimed. | [`TestParseObservationInterruptsBlockingReaderOnCancellation`](../../internal/differential/shadow_test.go), [`TestParseObservationDocumentsNonClosableReaderContract`](../../internal/differential/shadow_test.go), [`conformance/differential/phase3/PROVENANCE.md`](../../conformance/differential/phase3/PROVENANCE.md) |
 
 The helper digest is exposed only through `supervisor.Config.ExpectedHelperDigest`
 and is not currently populated by the public `pkg/ytdlp` configuration. It
 validates bytes before launch but does not bind those bytes to the later path-based
 exec. The product therefore claims safer default discovery and optional
 embedding-provided validation, not handle-atomic or unconditional release
-identity. The
-remediation implementation and its final commit are tracked by the PR branch
-`codex/security-import-helper-hardening`; implementation commit:
-[`75ac7d04ccd8a1a53e9ac85309a38572ba1571bd`](https://github.com/tejasa97/youtube_dlp/commit/75ac7d04ccd8a1a53e9ac85309a38572ba1571bd).
+identity.
 
 ## Surface review
 
 | Surface | Security/privacy controls reviewed | Result |
 | --- | --- | --- |
-| Netrc and browser credentials | Netrc file type, mode, link, size and parser bounds; canonical host lookup; categorized secret-safe failures. Browser import uses private snapshots, read-only SQLite, bounded databases, cancellation, platform-native key stores/DPAPI, host-bound ciphertext where applicable, password zeroing, and redacted public errors. | Pass except P3-SP-03 and P3-SP-04. No real credentials were used. |
+| Netrc and browser credentials | Netrc file type, mode, link, size and parser bounds; canonical host lookup; categorized secret-safe failures. Browser import uses private snapshots, read-only SQLite, bounded databases, cancellation, platform-native key stores/DPAPI, host-bound ciphertext where applicable, password zeroing, and redacted public errors. | Historical result at the audited commit: pass except P3-SP-03 and P3-SP-04. Both are closed within scope by the remediation update above. No real credentials were used. |
 | Telemetry privacy | `internal/telemetry` accepts only constructor-allowlisted extractor/capability identifiers and a closed outcome enum; no raw URL, metadata, credential, arbitrary-label, or error-message API exists (`internal/telemetry/telemetry.go:1-7,106-179`). Snapshots are bounded, deterministic, and timestamp-free. Export destination, authentication, retention, and user consent remain outside this in-memory component. | Pass for the stated aggregate boundary. |
-| Differential privacy/redaction | Shadow observations sanitize at JSON persistence and comparison boundaries; URLs, fragments, sensitive query names, headers, credential handles, nested metadata, formats, playlists, manifests, and warnings are reduced/redacted (`internal/differential/shadow.go:101-109,413-473`). Shadow comparison sanitizes both sides before constructing differences. | Pass, with P3-SP-05 availability caveat. Generic `Document`/`diffcheck` reports exact values and is suitable only for the documented pre-sanitized fixture workflow (`docs/P1_DIFFERENTIAL_REVIEW.md:8`), not live secret-bearing inputs. |
+| Differential privacy/redaction | Shadow observations sanitize at JSON persistence and comparison boundaries; URLs, fragments, sensitive query names, headers, credential handles, nested metadata, formats, playlists, manifests, and warnings are reduced/redacted (`internal/differential/shadow.go:101-109,413-473`). Shadow comparison sanitizes both sides before constructing differences. | Historical result at the audited commit included the P3-SP-05 availability caveat. Its reader contract is narrowed and explicit in the remediation update above. Generic `Document`/`diffcheck` reports exact values and is suitable only for the documented pre-sanitized fixture workflow (`docs/P1_DIFFERENTIAL_REVIEW.md:8`), not live secret-bearing inputs. |
 | Network, proxy, and impersonation | Unknown profiles fail closed; environment proxies are explicitly disabled for impersonated transport; explicit proxy syntax is validated; TLS uses normal verification and optional caller roots; credential headers are stripped across unsafe redirects and redacted from public failures. | Pass. Known protocol/fingerprint fidelity deviations are compatibility issues, not trust bypasses. |
 | JavaScript engine and helper | Fresh goja runtime, no ambient filesystem/network bindings, source/module/result bounds, context interruption, strict bounded supervisor protocol, sanitized environment, crash categorization, and process termination were reviewed. | In-process engine passes; external helper trust is limited by P3-SP-02. Soft memory/process-tree platform limitations remain explicit. |
 | Plugin SDK/RPC/WASM | SDK v1.0/v1.1 exact negotiation and capability dispatch, strict JSON/framing, cancellation, secret-safe failures, and native-only author validation pass. Host RPC revalidates signed package identity/digest/manifest, requires exact approval, rejects interpreters/Python, bounds messages/stderr, and kills process trees. WASM uses wazero without WASI or imports, with digest revalidation, memory-page and timeout limits, and strict output validation (`internal/plugin/wasm/host.go:102-164`). | WASM passes its constrained isolation claim. Native RPC remains subject to P3-SP-01. |
 | Signed packs, catalogs, and upgrades | Canonical Store-only ZIPs, bounded archive/path rules, domain-separated Ed25519 signatures, derived key IDs, explicit trust/time, expiry/revocation/downgrade checks, exact offline catalog resolution, permission-delta review, atomic Unix lifecycle, and recovery journals were inspected. | Pass for declared platforms. Windows lifecycle remains fail-closed. The standalone pack-upgrade contract is evidence, not installer integration, and must not be represented otherwise. |
-| Filesystem and external commands | Download destinations are confined and symlink-aware; outputs are exclusive/atomic; diagnostics are bounded/redacted. External downloader, ffmpeg/ffprobe, keychain, update health checker, and Git replay use argv-based execution without a shell. Explicit executable selection remains a trusted-code boundary. | Pass for the documented boundary, with P3-SP-04 and inherited platform residuals below. |
-| Cancellation and limits | Request bodies, manifests, frames, archives, catalog data, telemetry cells, JS/WASM work, native plugin lifetime/stderr, downloads, and media operations have bounded controls and cancellation tests. | Pass except P3-SP-03 and P3-SP-05. Native CPU/address-space/process quotas remain explicit deviations. |
+| Filesystem and external commands | Download destinations are confined and symlink-aware; outputs are exclusive/atomic; diagnostics are bounded/redacted. External downloader, ffmpeg/ffprobe, keychain, update health checker, and Git replay use argv-based execution without a shell. Explicit executable selection remains a trusted-code boundary. | Historical result at the audited commit included P3-SP-04; the Darwin/Linux snapshot disposition is closed within scope by the remediation update above. Inherited platform residuals remain below. |
+| Cancellation and limits | Request bodies, manifests, frames, archives, catalog data, telemetry cells, JS/WASM work, native plugin lifetime/stderr, downloads, and media operations have bounded controls and cancellation tests. | Historical result at the audited commit included P3-SP-03 and P3-SP-05. P3-SP-03 is closed and P3-SP-05 is closed by the explicit caller contract in the remediation update above. Native CPU/address-space/process quotas remain explicit deviations. |
 | Python-free dependency paths | Production source tripwires reject Python invocation/reference-checkout coupling. `go.mod` contains Go dependencies only. The Python-free Dockerfile checks the build image has no `python`/`python3`, builds/tests in Go, and copies only static Go binaries, CA certificates, and notices into `scratch` (`.github/python-free.Dockerfile:1-37`). | Pass. No runtime or build-time dependency on Python or `/Users/tejas/projects/yt-dlp-reference` was found. Docker itself was not run in this independent audit. |
 
 ## Inherited explicit deviations
@@ -255,6 +258,7 @@ There is no critical unreviewed G3 blocker at the audited commit. Gate acceptanc
 must nevertheless preserve the narrowed claims in this report: constrained WASM
 is the hostile-plugin isolation boundary; native RPC is signed-and-approved code,
 not permission-enforced hostile code; and JavaScript-helper `PATH` integrity is a
-deployment prerequisite until P3-SP-02 is remediated. P3-SP-03 should be fixed
-before macOS browser-cookie support is promoted beyond alpha because it is the
-only new medium finding in this audit.
+deployment prerequisite because P3-SP-02 remains partially remediated and open.
+P3-SP-03, P3-SP-04, and P3-SP-05 are closed within their documented boundaries;
+P3-SP-05's closure is the explicit caller contract described above rather than a
+universal cancellation guarantee.

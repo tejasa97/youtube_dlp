@@ -2,6 +2,9 @@ package chromium
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
 	"errors"
@@ -163,6 +166,31 @@ func TestImportRejectsInvalidBoundedCookieFields(t *testing.T) {
 	}
 }
 
+func TestImportRejectsInvalidEffectiveDecryptedValues(t *testing.T) {
+	const host = ".example.com"
+	for _, test := range []struct {
+		name      string
+		encrypted []byte
+		provider  KeyProvider
+	}{
+		{name: "legacy raw bytes", encrypted: []byte("legacy\r\nforged")},
+		{name: "v10 decrypted bytes", encrypted: encryptMacCookie(t, "abc", host, "cbc\x00forged", 24), provider: &staticKeyProvider{password: []byte("abc")}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "Cookies")
+			database := createCookieDatabase(t, path, false)
+			insertCookie(t, database, host, "unsafe", "", test.encrypted, "/", 0, 0, 0, -1)
+			if err := database.Close(); err != nil {
+				t.Fatal(err)
+			}
+			_, err := Import(context.Background(), Options{DatabasePath: path, KeyProvider: test.provider})
+			if !errors.Is(err, ErrInvalidDatabase) {
+				t.Fatalf("Import() error = %v, want %v", err, ErrInvalidDatabase)
+			}
+		})
+	}
+}
+
 func TestImportReportsUnavailableKeyWithoutDiscardingPlaintext(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "Cookies")
 	database := createCookieDatabase(t, path, false)
@@ -270,6 +298,28 @@ func execStatements(t *testing.T, database *sql.DB, statements ...string) {
 
 func chromiumMicros(value time.Time) int64 {
 	return (value.Unix()+chromeEpochOffsetSeconds)*1_000_000 + int64(value.Nanosecond()/1_000)
+}
+
+func encryptMacCookie(t *testing.T, password, host, value string, metaVersion int) []byte {
+	t.Helper()
+	plaintext := []byte(value)
+	if metaVersion >= 24 {
+		digest := sha256.Sum256([]byte(host))
+		plaintext = append(digest[:], plaintext...)
+	}
+	padding := aes.BlockSize - len(plaintext)%aes.BlockSize
+	plaintext = append(plaintext, make([]byte, padding)...)
+	for index := len(plaintext) - padding; index < len(plaintext); index++ {
+		plaintext[index] = byte(padding)
+	}
+	block, err := aes.NewCipher(deriveMacKey([]byte(password)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	encrypted := make([]byte, 3+len(plaintext))
+	copy(encrypted, "v10")
+	cipher.NewCBCEncrypter(block, macIV).CryptBlocks(encrypted[3:], plaintext)
+	return encrypted
 }
 
 func cookiesByName(cookies []*http.Cookie) map[string]*http.Cookie {

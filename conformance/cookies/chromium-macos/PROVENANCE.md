@@ -18,7 +18,9 @@ requests browser-cookie import.
 
 The importer preflights a default or caller-selected row cap and bounded
 host/name/plain/encrypted/path fields before materializing SQLite rows. Shared
-header-safe validation rejects control-bearing cookie fields. Database and WAL
+header-safe validation rejects HTTP-invalid names, values, paths, and
+control-bearing hosts; macOS validates the effective value again after
+decryption, including legacy non-`v10` raw bytes. Database and WAL
 snapshots use regular-file identity checks and a no-follow open on supported
 Unix platforms; snapshot primitives fail closed where no portable no-follow
 operation exists.
