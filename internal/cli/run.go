@@ -99,13 +99,52 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	var outputTemplates outputTemplateFlag
 	flags.Var(&outputTemplates, "output", "output filename template, optionally TYPES:TEMPLATE (repeatable)")
 	flags.Var(&outputTemplates, "o", "alias for --output")
+	useID := flags.Bool("id", false, "use the video ID as the default filename")
 	outputDir := flags.String("output-dir", ".", "directory that confines output files")
+	outputNaPlaceholder := flags.String("output-na-placeholder", "NA", "placeholder for unavailable output-template fields")
+	autonumberSize := flags.Int("autonumber-size", 0, "zero-pad the %(autonumber)s output-template field")
+	autonumberStart := flags.Int("autonumber-start", 1, "starting number for %(autonumber)s")
 	paths := &outputPathFlag{home: outputDir}
 	flags.Var(paths, "paths", "set an output path, optionally TYPES:PATH (repeatable)")
 	flags.Var(paths, "P", "alias for --paths")
 	writeInfoJSON := flags.Bool("write-info-json", false, "write video metadata to a .info.json sidecar (may contain personal information)")
 	flags.BoolFunc("no-write-info-json", "disable writing metadata sidecars", func(string) error {
 		*writeInfoJSON = false
+		return nil
+	})
+	var cleanInfoJSON *bool
+	flags.BoolFunc("clean-info-json", "omit pinned private fields from metadata sidecars (default)", func(input string) error {
+		enabled, err := strconv.ParseBool(input)
+		if err != nil {
+			return err
+		}
+		cleanInfoJSON = &enabled
+		return nil
+	})
+	flags.BoolFunc("clean-infojson", "alias for --clean-info-json", func(input string) error {
+		enabled, err := strconv.ParseBool(input)
+		if err != nil {
+			return err
+		}
+		cleanInfoJSON = &enabled
+		return nil
+	})
+	flags.BoolFunc("no-clean-info-json", "preserve all normalized metadata fields in sidecars", func(input string) error {
+		enabled, err := strconv.ParseBool(input)
+		if err != nil {
+			return err
+		}
+		enabled = !enabled
+		cleanInfoJSON = &enabled
+		return nil
+	})
+	flags.BoolFunc("no-clean-infojson", "alias for --no-clean-info-json", func(input string) error {
+		enabled, err := strconv.ParseBool(input)
+		if err != nil {
+			return err
+		}
+		enabled = !enabled
+		cleanInfoJSON = &enabled
 		return nil
 	})
 	writeDescription := flags.Bool("write-description", false, "write video descriptions to .description sidecars")
@@ -269,6 +308,8 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 		return nil
 	})
 	cacheDir := flags.String("cache-dir", "", "directory for bounded compatibility cache entries")
+	loadInfoJSON := flags.String("load-info-json", "", "load one bounded video metadata JSON file instead of extracting a URL")
+	rmCacheDir := flags.Bool("rm-cache-dir", false, "remove the configured cache directory and exit")
 	flags.BoolFunc("no-cache-dir", "disable an inherited cache directory", func(string) error {
 		*cacheDir = ""
 		return nil
@@ -770,9 +811,22 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
 		return 2
 	}
+	if *loadInfoJSON != "" || *rmCacheDir {
+		if len(batchInputs) > 0 {
+			fmt.Fprintln(stderr, "ytdlp-go: positional URLs are ignored by the selected file/cache operation")
+		}
+		batchInputs = []string{""}
+	}
 	if len(batchInputs) == 0 {
 		flags.Usage()
 		return 2
+	}
+	useIDRequest := *useID
+	if useIDRequest {
+		if _, explicitOutput := outputTemplates.values[ytdlp.OutputTemplateDefault]; explicitOutput {
+			fmt.Fprintln(stderr, "ytdlp-go: --id is ignored since --output was given")
+			useIDRequest = false
+		}
 	}
 	if *telemetryJSON && (*printJSON || *dumpJSON || *dumpSingleJSON || *listFormats || len(printTemplates) > 0 ||
 		*getURL || *getTitle || *getID || *getThumbnail || *getDescription || *getDuration || *getFilename || *getFormat) {
@@ -952,9 +1006,11 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	// budget across inputs (yt-dlp's shared _num_downloads) and resets it per
 	// input under --break-per-input.
 	maxDownloadsPerInput := 0
-	makeRequest := func(inputURL string) ytdlp.Request {
+	makeRequest := func(inputURL string, autonumberIndex int) ytdlp.Request {
 		return ytdlp.Request{
-			URL: inputURL, OutputTemplates: outputTemplates.clone(), OutputDir: *outputDir, OutputPaths: paths.clone(), Proxy: *proxy,
+			URL: inputURL, OutputTemplates: outputTemplates.clone(), OutputDir: *outputDir, OutputPaths: paths.clone(), UseID: useIDRequest, Proxy: *proxy,
+			AutonumberStart: *autonumberStart, AutonumberSize: *autonumberSize, AutonumberIndex: autonumberIndex,
+			LoadInfoJSON: *loadInfoJSON, RemoveCacheDir: *rmCacheDir,
 			SourceAddress: addressPolicy.source, ForceIPv4: addressPolicy.forceIPv4, ForceIPv6: addressPolicy.forceIPv6,
 			ImpersonationProfile: *impersonationProfile,
 			CookieFile:           *cookieFile, CookiesFromBrowser: *cookiesFromBrowser, UseNetRC: *useNetRC, NetRCLocation: *netRCLocation,
@@ -985,19 +1041,20 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 				ConvertFormat: *convertThumbnails,
 			},
 			RelatedFiles: ytdlp.RelatedFileOptions{
-				WriteInfoJSON: *writeInfoJSON, WriteDescription: *writeDescription,
+				WriteInfoJSON: *writeInfoJSON, CleanInfoJSON: cleanInfoJSON, WriteDescription: *writeDescription,
 				WriteLink: *writeLink, WriteURLLink: *writeURLLink,
 				WriteWeblocLink: *writeWeblocLink, WriteDesktopLink: *writeDesktopLink,
 				NoPlaylist: *noPlaylistMetafiles,
 			},
 			Filesystem: ytdlp.FilesystemOptions{
-				RestrictFilenames: *restrictFilenames,
-				WindowsFilenames:  *windowsFilenames,
-				TrimFilenames:     *trimFilenames,
-				NoContinue:        *noContinue,
-				NoPart:            *noPart,
-				NoMtime:           *noMtime,
-				FfmpegLocation:    *ffmpegLocation,
+				RestrictFilenames:   *restrictFilenames,
+				WindowsFilenames:    *windowsFilenames,
+				TrimFilenames:       *trimFilenames,
+				NoContinue:          *noContinue,
+				NoPart:              *noPart,
+				NoMtime:             *noMtime,
+				OutputNaPlaceholder: *outputNaPlaceholder,
+				FfmpegLocation:      *ffmpegLocation,
 			},
 			PrintRules:           printRules,
 			YouTubeComments:      commentLimits,
@@ -1029,7 +1086,11 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 		return true
 	}
 	remainingDownloads := *maxDownloads
+	autonumberIndex := 0
 	for _, inputURL := range batchInputs {
+		if breakPerInput {
+			autonumberIndex = 0
+		}
 		if *maxDownloads > 0 {
 			if breakPerInput {
 				maxDownloadsPerInput = *maxDownloads
@@ -1039,7 +1100,7 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 		} else {
 			maxDownloadsPerInput = 0
 		}
-		result, runErr := client.Run(ctx, makeRequest(inputURL))
+		result, runErr := client.Run(ctx, makeRequest(inputURL, autonumberIndex))
 		if *maxDownloads > 0 && !breakPerInput {
 			remainingDownloads -= result.Downloads
 			if remainingDownloads < 0 {
@@ -1047,6 +1108,7 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 			}
 		}
 		sharedMaxReached := *maxDownloads > 0 && !breakPerInput && result.Downloads > 0 && remainingDownloads == 0
+		autonumberIndex += result.AutonumberCount
 		if runErr != nil {
 			fmt.Fprintf(stderr, "ytdlp-go: %v\n", runErr)
 			if ytdlp.IsNonOverridableError(runErr) {

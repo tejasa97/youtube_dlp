@@ -36,7 +36,7 @@ func (operation *operation) writeRelatedFiles(ctx context.Context, info value.In
 	options := operation.request.RelatedFiles
 	files := make([]relatedFile, 0, 5)
 	if options.WriteInfoJSON {
-		encoded, err := encodeInfo(info)
+		encoded, err := encodeRelatedInfo(info, cleanInfoJSON(options, playlist))
 		if err != nil {
 			return nil, 0, err
 		}
@@ -110,6 +110,67 @@ func (operation *operation) writeRelatedFiles(ctx context.Context, info value.In
 		total += size
 	}
 	return artifacts, total, nil
+}
+
+func cleanInfoJSON(options RelatedFileOptions, playlist bool) bool {
+	if options.CleanInfoJSON == nil {
+		// The pinned default keeps playlist entries available for playlist
+		// metafiles while cleaning private fields from video sidecars.
+		return !playlist
+	}
+	return *options.CleanInfoJSON
+}
+
+var cleanedInfoPrivateFields = map[string]struct{}{
+	"requested_downloads": {}, "requested_formats": {}, "requested_subtitles": {},
+	"requested_entries": {}, "entries": {}, "filepath": {}, "_filename": {},
+	"filename": {}, "infojson_filename": {}, "original_url": {}, "playlist_autonumber": {},
+}
+
+func encodeRelatedInfo(info value.Info, clean bool) (json.RawMessage, error) {
+	fields := info.Fields()
+	if clean {
+		fields = cleanInfoObject(fields)
+	}
+	encoded, err := json.Marshal(value.ObjectValue(fields))
+	if err != nil {
+		return nil, &Error{Category: ErrorInternal, Op: "encode metadata", Err: err}
+	}
+	return encoded, nil
+}
+
+func cleanInfoObject(input *value.Object) *value.Object {
+	if input == nil {
+		return value.NewObject()
+	}
+	output := value.NewObject()
+	for _, field := range input.Fields() {
+		if strings.HasPrefix(field.Key, "__") {
+			continue
+		}
+		if _, private := cleanedInfoPrivateFields[field.Key]; private || field.Value.IsNull() {
+			continue
+		}
+		output.Set(field.Key, cleanInfoValue(field.Value))
+	}
+	return output
+}
+
+func cleanInfoValue(input value.Value) value.Value {
+	switch input.Kind() {
+	case value.KindObject:
+		object, _ := input.Object()
+		return value.ObjectValue(cleanInfoObject(object))
+	case value.KindList:
+		items, _ := input.ListValue()
+		cleaned := make([]value.Value, 0, len(items))
+		for _, item := range items {
+			cleaned = append(cleaned, cleanInfoValue(item))
+		}
+		return value.List(cleaned...)
+	default:
+		return input.Clone()
+	}
 }
 
 func outputTemplateTypeForRelatedFile(kind string, playlist bool) OutputTemplateType {

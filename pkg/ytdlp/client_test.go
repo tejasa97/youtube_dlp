@@ -2963,6 +2963,7 @@ func TestOperationAmaraHandoffsAreConcurrentSafe(t *testing.T) {
 		"https://amara.org/en/videos/jVx79ZKGK1ky/info/why-jury-trials/",
 		"https://amara.org/en/videos/kYkK1VUTWW5I/info/vimeo-at-ces-2011",
 	}
+	operation.request.MaxDownloads = len(urls)
 	type outcome struct {
 		url    string
 		result Result
@@ -2995,6 +2996,114 @@ func TestOperationAmaraHandoffsAreConcurrentSafe(t *testing.T) {
 		} else if metadata["id"] != "18622084" || metadata["title"] != "Vimeo at CES 2011!" {
 			t.Fatalf("vimeo metadata = %#v", metadata)
 		}
+		autonumber, ok := metadata["autonumber"].(float64)
+		if !ok || (autonumber != 1 && autonumber != 2) {
+			t.Fatalf("concurrent autonumber = %#v", metadata["autonumber"])
+		}
+	}
+	if got := operation.downloadCount(); got != len(urls) {
+		t.Fatalf("concurrent download count = %d, want %d", got, len(urls))
+	}
+	if stopped, kind, reason := operation.stopState(); !stopped || kind != StopMaxDownloads || reason != "max downloads reached" {
+		t.Fatalf("concurrent stop state = %v/%v/%q", stopped, kind, reason)
+	}
+}
+
+type concurrentAdmissionExtractor struct {
+	arrived atomic.Int32
+	release chan struct{}
+}
+
+func (admissionExtractor *concurrentAdmissionExtractor) Name() string { return "concurrent-admission" }
+
+func (admissionExtractor *concurrentAdmissionExtractor) Suitable(parsed *url.URL) bool {
+	return parsed != nil && parsed.Host == "concurrent-admission.invalid"
+}
+
+func (admissionExtractor *concurrentAdmissionExtractor) Extract(ctx context.Context, request extractor.Request) (extractor.Extraction, error) {
+	if admissionExtractor.arrived.Add(1) == 2 {
+		close(admissionExtractor.release)
+	}
+	select {
+	case <-admissionExtractor.release:
+	case <-ctx.Done():
+		return extractor.Extraction{}, ctx.Err()
+	}
+	parsed, err := url.Parse(request.URL)
+	if err != nil {
+		return extractor.Extraction{}, err
+	}
+	id := strings.Trim(parsed.Path, "/")
+	return extractor.Media(value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String(id)},
+		value.Field{Key: "title", Value: value.String(id)},
+		value.Field{Key: "url", Value: value.String(request.URL)},
+		value.Field{Key: "ext", Value: value.String("bin")},
+	))), nil
+}
+
+func TestOperationConcurrentMaxDownloadsAdmission(t *testing.T) {
+	t.Parallel()
+	mediaExtractor := &concurrentAdmissionExtractor{release: make(chan struct{})}
+	operation := &operation{
+		client:   NewClient(),
+		request:  Request{SkipDownload: true, MaxDownloads: 1},
+		registry: extractor.NewRegistry(mediaExtractor),
+	}
+	urls := []string{
+		"https://concurrent-admission.invalid/one",
+		"https://concurrent-admission.invalid/two",
+	}
+	type outcome struct {
+		result Result
+		err    error
+	}
+	outcomes := make(chan outcome, len(urls))
+	var wait sync.WaitGroup
+	for _, rawURL := range urls {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			result, err := operation.process(context.Background(), rawURL, "", nil, make(map[string]bool), 0)
+			outcomes <- outcome{result: result, err: err}
+		}()
+	}
+	wait.Wait()
+	close(outcomes)
+
+	accepted := 0
+	for outcome := range outcomes {
+		if outcome.err != nil {
+			t.Fatal(outcome.err)
+		}
+		if !outcome.result.Stopped || outcome.result.StopKind != StopMaxDownloads || outcome.result.StopReason != "max downloads reached" {
+			t.Fatalf("concurrent admission stop result = %#v", outcome.result)
+		}
+		switch outcome.result.AutonumberCount {
+		case 0:
+			if outcome.result.Downloads != 0 {
+				t.Fatalf("rejected concurrent entry downloads = %d", outcome.result.Downloads)
+			}
+		case 1:
+			accepted++
+			if outcome.result.Downloads != 1 {
+				t.Fatalf("accepted concurrent entry downloads = %d", outcome.result.Downloads)
+			}
+		default:
+			t.Fatalf("concurrent entry autonumber count = %d", outcome.result.AutonumberCount)
+		}
+	}
+	if accepted != 1 {
+		t.Fatalf("accepted concurrent entries = %d, want 1", accepted)
+	}
+	if got := operation.downloadCount(); got != 1 {
+		t.Fatalf("global concurrent download count = %d, want 1", got)
+	}
+	if got := operation.autonumberCount(); got != 1 {
+		t.Fatalf("global concurrent autonumber count = %d, want 1", got)
+	}
+	if stopped, kind, reason := operation.stopState(); !stopped || kind != StopMaxDownloads || reason != "max downloads reached" {
+		t.Fatalf("global concurrent stop state = %v/%v/%q", stopped, kind, reason)
 	}
 }
 

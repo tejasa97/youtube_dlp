@@ -123,6 +123,64 @@ func TestWriteRelatedFilesPlaylistScopeUnsafeLinksAndCancellation(t *testing.T) 
 	}
 }
 
+func TestInfoJSONCleaningPreservesPublicMetadataAndExplicitOverride(t *testing.T) {
+	root := t.TempDir()
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "id", Value: value.String("clean")},
+		value.Field{Key: "title", Value: value.String("Public")},
+		value.Field{Key: "description", Value: value.String("kept")},
+		value.Field{Key: "public_null", Value: value.Null()},
+		value.Field{Key: "public_list", Value: value.List(value.Null(), value.String("kept"))},
+		value.Field{Key: "filepath", Value: value.String("/private/path")},
+		value.Field{Key: "requested_formats", Value: value.List(value.String("private"))},
+		value.Field{Key: "__private", Value: value.String("private")},
+		value.Field{Key: "nested", Value: value.ObjectValue(value.NewObject(
+			value.Field{Key: "filename", Value: value.String("private")},
+			value.Field{Key: "__nested_private", Value: value.String("private")},
+			value.Field{Key: "public", Value: value.String("kept")},
+		))},
+	))
+	operation := operation{client: NewClient(), request: Request{
+		OutputDir: root, OutputTemplate: "%(id)s.%(ext)s",
+		RelatedFiles: RelatedFileOptions{WriteInfoJSON: true},
+	}}
+	if _, _, err := operation.writeRelatedFiles(context.Background(), info, false); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "clean.info.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cleaned map[string]any
+	if err := json.Unmarshal(data, &cleaned); err != nil {
+		t.Fatal(err)
+	}
+	if cleaned["description"] != "kept" || cleaned["public_null"] != nil || cleaned["filepath"] != nil || cleaned["requested_formats"] != nil || cleaned["__private"] != nil {
+		t.Fatalf("cleaned metadata = %#v", cleaned)
+	}
+	nested := cleaned["nested"].(map[string]any)
+	if nested["public"] != "kept" || nested["filename"] != nil || nested["__nested_private"] != nil {
+		t.Fatalf("cleaned nested metadata = %#v", nested)
+	}
+	publicList := cleaned["public_list"].([]any)
+	if len(publicList) != 2 || publicList[0] != nil || publicList[1] != "kept" {
+		t.Fatalf("cleaned public list = %#v", publicList)
+	}
+	clean := false
+	operation.request.RelatedFiles.CleanInfoJSON = &clean
+	operation.request.Overwrite = true
+	if _, _, err := operation.writeRelatedFiles(context.Background(), info, false); err != nil {
+		t.Fatal(err)
+	}
+	data, err = os.ReadFile(filepath.Join(root, "clean.info.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"requested_formats"`) || !strings.Contains(string(data), `"filepath"`) {
+		t.Fatalf("un-cleaned metadata lost fields: %s", data)
+	}
+}
+
 func TestWriteAtomicRelatedFileRejectsSymlink(t *testing.T) {
 	root := t.TempDir()
 	target := filepath.Join(root, "target")

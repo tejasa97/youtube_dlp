@@ -51,6 +51,9 @@ func (request Request) outputTemplate(templateType OutputTemplateType) string {
 	if request.OutputTemplate != "" {
 		return request.OutputTemplate
 	}
+	if request.UseID {
+		return "%(id)s.%(ext)s"
+	}
 	return "%(title)s.%(ext)s"
 }
 

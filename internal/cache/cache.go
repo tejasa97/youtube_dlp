@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 )
@@ -58,20 +59,33 @@ func (options Options) withDefaults() Options {
 
 // Store is rooted at a private cache directory.
 type Store struct {
-	root      string
-	options   Options
-	writeGate chan struct{}
+	root        string
+	options     Options
+	writeGate   chan struct{}
+	rootLock    *os.File
+	rootLockErr error
 }
+
+var cacheRootGates sync.Map
 
 // Open validates or creates root without following a root symlink.
 func Open(root string, options Options) (*Store, error) {
 	if root == "" || strings.IndexByte(root, 0) >= 0 || filepath.Clean(root) != root {
 		return nil, ErrUnsafePath
 	}
-	if err := secureDirectory(root); err != nil {
+	absolute, err := filepath.Abs(root)
+	if err != nil {
+		return nil, ErrUnsafePath
+	}
+	gate := cacheRootGate(absolute)
+	if err := acquireCacheRootGate(context.Background(), gate); err != nil {
 		return nil, err
 	}
-	return &Store{root: root, options: options.withDefaults(), writeGate: make(chan struct{}, 1)}, nil
+	defer releaseCacheRootGate(gate)
+	if err := secureDirectory(absolute); err != nil {
+		return nil, err
+	}
+	return &Store{root: absolute, options: options.withDefaults(), writeGate: gate}, nil
 }
 
 // Store atomically writes a value. A non-positive TTL means no expiry.
@@ -202,6 +216,10 @@ func (store *Store) Lookup(ctx context.Context, namespace, key string) ([]byte, 
 	if err := ctx.Err(); err != nil {
 		return nil, false, err
 	}
+	if err := store.acquireWrite(ctx); err != nil {
+		return nil, false, err
+	}
+	defer store.releaseWrite()
 	path, _, err := store.path(namespace, key, false)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -328,24 +346,113 @@ func (store *Store) RemoveNamespace(ctx context.Context, namespace string) error
 	return nil
 }
 
-func validEntryFilename(name string) bool {
-	return strings.HasSuffix(name, ".cache") || strings.HasPrefix(name, ".cache-")
+// RemoveAll removes the complete configured cache root. It only removes the
+// namespace directories and temporary cache files produced by this package;
+// unexpected entries, links, and special files fail closed.
+func (store *Store) RemoveAll(ctx context.Context) error {
+	if err := store.acquireWrite(ctx); err != nil {
+		return err
+	}
+	defer store.releaseWrite()
+	if errors.Is(store.rootLockErr, os.ErrNotExist) {
+		return nil
+	}
+	if store.rootLock == nil {
+		return store.rootLockErr
+	}
+	return removeRootLocked(ctx, store.root, store.rootLock)
 }
 
-func (store *Store) acquireWrite(ctx context.Context) error {
+// RemoveRoot opens no files and never creates the configured path. The root
+// must be an existing, non-symlink directory whose name (or parent name)
+// identifies it as a cache directory, preventing accidental broad deletion.
+func RemoveRoot(ctx context.Context, root string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if root == "" || strings.ContainsRune(root, 0) || filepath.Clean(root) != root {
+		return ErrUnsafePath
+	}
+	absolute, err := filepath.Abs(root)
+	if err != nil {
+		return ErrUnsafePath
+	}
+	if filepath.Dir(absolute) == absolute {
+		return ErrUnsafePath
+	}
+	if home, homeErr := os.UserHomeDir(); homeErr == nil {
+		if same, sameErr := filepath.Abs(home); sameErr == nil && same == absolute {
+			return ErrUnsafePath
+		}
+	}
+	base := strings.ToLower(filepath.Base(absolute))
+	parent := strings.ToLower(filepath.Base(filepath.Dir(absolute)))
+	if !strings.Contains(base, "cache") && !strings.Contains(parent, "cache") {
+		return ErrUnsafePath
+	}
+	gate := cacheRootGate(absolute)
+	if err := acquireCacheRootGate(ctx, gate); err != nil {
+		return err
+	}
+	defer releaseCacheRootGate(gate)
+	lock, err := lockCacheRoot(ctx, absolute)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer unlockCacheRoot(lock)
+	return removeRootLocked(ctx, absolute, lock)
+}
+
+func cacheRootGate(root string) chan struct{} {
+	gate, _ := cacheRootGates.LoadOrStore(root, make(chan struct{}, 1))
+	return gate.(chan struct{})
+}
+
+func acquireCacheRootGate(ctx context.Context, gate chan struct{}) error {
 	select {
-	case store.writeGate <- struct{}{}:
+	case gate <- struct{}{}:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
 	}
 }
 
+func releaseCacheRootGate(gate chan struct{}) {
+	<-gate
+}
+
+func validEntryFilename(name string) bool {
+	return strings.HasSuffix(name, ".cache") || strings.HasPrefix(name, ".cache-")
+}
+
+func (store *Store) acquireWrite(ctx context.Context) error {
+	if err := acquireCacheRootGate(ctx, store.writeGate); err != nil {
+		return err
+	}
+	lock, err := lockCacheRoot(ctx, store.root)
+	if errors.Is(err, os.ErrNotExist) {
+		store.rootLockErr = err
+		releaseCacheRootGate(store.writeGate)
+		return err
+	}
+	if err != nil {
+		store.rootLockErr = err
+		releaseCacheRootGate(store.writeGate)
+		return err
+	}
+	store.rootLock = lock
+	store.rootLockErr = nil
+	return nil
+}
+
 func (store *Store) releaseWrite() {
-	<-store.writeGate
+	unlockCacheRoot(store.rootLock)
+	store.rootLock = nil
+	store.rootLockErr = nil
+	releaseCacheRootGate(store.writeGate)
 }
 
 func readHeader(reader *bufio.Reader) (expires int64, length int64, digest [sha256.Size]byte, err error) {

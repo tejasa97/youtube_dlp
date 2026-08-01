@@ -118,7 +118,10 @@ type SubtitleOptions struct {
 // RelatedFileOptions writes metadata files beside the rendered media path.
 // Simulate suppresses all related files. SkipDownload does not.
 type RelatedFileOptions struct {
-	WriteInfoJSON    bool
+	WriteInfoJSON bool
+	// CleanInfoJSON defaults to true when nil. A non-nil false value preserves
+	// the full normalized metadata envelope for --no-clean-info-json.
+	CleanInfoJSON    *bool
 	WriteDescription bool
 	WriteLink        bool
 	WriteURLLink     bool
@@ -139,6 +142,9 @@ type FilesystemOptions struct {
 	NoPart            bool
 	NoMtime           bool
 	FfmpegLocation    string
+	// OutputNaPlaceholder replaces unavailable fields in filename templates.
+	// Empty selects the pinned "NA" default.
+	OutputNaPlaceholder string
 }
 
 // ThumbnailOptions controls image sidecars. WriteAll takes precedence over
@@ -391,6 +397,25 @@ func validateRequestOptions(request Request) error {
 	}
 	if err := validateOutputPaths(request); err != nil {
 		return fmt.Errorf("%w: %v", errInvalidRequestOptions, err)
+	}
+	if len(request.Filesystem.OutputNaPlaceholder) > 256 || strings.ContainsAny(request.Filesystem.OutputNaPlaceholder, "\x00\r\n") ||
+		!utf8.ValidString(request.Filesystem.OutputNaPlaceholder) {
+		return fmt.Errorf("%w: output NA placeholder", errInvalidRequestOptions)
+	}
+	if request.AutonumberStart < 0 || request.AutonumberStart > 1_000_000_000 ||
+		request.AutonumberSize < 0 || request.AutonumberSize > 64 || request.AutonumberIndex < 0 || request.AutonumberIndex > maxPlaylistEntries {
+		return fmt.Errorf("%w: autonumber options", errInvalidRequestOptions)
+	}
+	if request.LoadInfoJSON != "" {
+		if len(request.LoadInfoJSON) > 4096 || strings.ContainsAny(request.LoadInfoJSON, "\x00\r\n") {
+			return fmt.Errorf("%w: load-info-json path", errInvalidRequestOptions)
+		}
+		if request.CookieFile != "" || request.CookiesFromBrowser != "" || request.UseNetRC || request.NetRCLocation != "" || request.VideoPassword != "" {
+			return fmt.Errorf("%w: load-info-json cannot reuse ambient credentials", errInvalidRequestOptions)
+		}
+	}
+	if request.RemoveCacheDir && request.CacheDir == "" {
+		return fmt.Errorf("%w: rm-cache-dir requires cache-dir", errInvalidRequestOptions)
 	}
 	options := request.Downloader
 	if options.Attempts < 0 || options.Attempts > 100 ||

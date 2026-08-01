@@ -104,6 +104,36 @@ func TestPrintRuleValidationOptionalFieldsAndCancellation(t *testing.T) {
 	}
 }
 
+func TestPrintUsesPlaceholderAndAutonumberWidth(t *testing.T) {
+	info := value.NewInfo(value.NewObject(value.Field{Key: "autonumber", Value: value.Int(7)}))
+	operation := operation{request: Request{
+		Filesystem: FilesystemOptions{OutputNaPlaceholder: "missing"}, AutonumberSize: 4,
+		PrintRules: []PrintRule{{Stage: PrintVideo, Template: "%(missing)s|%(autonumber)s"}},
+	}}
+	prints, err := operation.capturePrints(context.Background(), PrintVideo, info, nil, nil, "")
+	if err != nil || len(prints) != 1 || prints[0].Text != "missing|0007" {
+		t.Fatalf("prints=%#v err=%v", prints, err)
+	}
+	for _, test := range []struct {
+		name     string
+		template string
+		want     string
+	}{
+		{name: "arithmetic", template: "%(autonumber+1)s", want: "0008"},
+		{name: "default", template: "%(autonumber|fallback)s", want: "0007"},
+		{name: "explicit", template: "%(autonumber+1)03d", want: "008"},
+		{name: "missing default", template: "%(missing|fallback)s", want: "fallback"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			operation.request.PrintRules = []PrintRule{{Stage: PrintVideo, Template: test.template}}
+			prints, err := operation.capturePrints(context.Background(), PrintVideo, info, nil, nil, "")
+			if err != nil || len(prints) != 1 || prints[0].Text != test.want {
+				t.Fatalf("prints=%#v err=%v", prints, err)
+			}
+		})
+	}
+}
+
 func TestLatePrintValidationFailsBeforeOutputSideEffects(t *testing.T) {
 	server := testserver.New()
 	defer server.Close()

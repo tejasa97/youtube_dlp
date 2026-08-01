@@ -91,7 +91,20 @@ type Request struct {
 	OutputTemplates OutputTemplates
 	OutputDir       string
 	OutputPaths     OutputPaths
-	Proxy           string
+	// UseID selects the pinned %(id)s.%(ext)s default when no explicit output
+	// template is configured. Explicit typed/default templates always win.
+	UseID           bool
+	AutonumberStart int
+	AutonumberSize  int
+	// AutonumberIndex is the zero-based number of media entries processed
+	// before this request. CLI callers use it to preserve numbering across
+	// multiple inputs; zero is the normal default.
+	AutonumberIndex int
+	// LoadInfoJSON treats the named local file as an untrusted single-video
+	// metadata envelope. It is intentionally separate from URL extraction.
+	LoadInfoJSON   string
+	RemoveCacheDir bool
+	Proxy          string
 	// SourceAddress binds native and browser-profile TCP dials to this local IP.
 	// ForceIPv4 and ForceIPv6 are mutually exclusive at the API boundary; the
 	// CLI resolves them with last-option-wins semantics before Run is called.
@@ -335,6 +348,9 @@ type Result struct {
 	// continued past. The failures remain observable even when Run returns a
 	// usable partial playlist result.
 	SuppressedFailures int
+	// AutonumberCount reports how many media entries consumed an autonumber
+	// slot, allowing callers processing multiple requests to carry state.
+	AutonumberCount int
 }
 
 type Event struct {
@@ -450,6 +466,12 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 	if err := validateRequestOptions(request); err != nil {
 		return Result{}, categorized("validate request options", err)
 	}
+	if request.RemoveCacheDir {
+		if err := cache.RemoveRoot(ctx, request.CacheDir); err != nil {
+			return Result{}, categorized("remove cache directory", err)
+		}
+		return Result{}, nil
+	}
 	if client.youtubePOTErr != nil {
 		return Result{}, &Error{Category: ErrorInvalidInput, Op: "configure YouTube PO-token providers", Err: client.youtubePOTErr}
 	}
@@ -550,31 +572,64 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 		compatibility:       compatibility,
 		rootExtractor:       &rootExtractor,
 		plannerCapabilities: &plannerCapabilities,
+		autonumberNext:      request.AutonumberIndex,
 	}
-	// Explicit selected/all checks take precedence over allow-unplayable. The
-	// latter bypasses only Auto's DRM/needs-testing default policy.
-	if shouldCheckFormats(request.CheckFormats, request.AllowUnplayableFormats) {
-		checker := newFormatAvailabilityChecker(ctx, transport, request.CheckFormats)
-		operation.formatAvailability = checker
-		operation.formatAvailabilityChecker = checker
+	var loadedInfo value.Info
+	if request.LoadInfoJSON != "" {
+		info, loadErr := loadInfoJSON(ctx, request.LoadInfoJSON)
+		if loadErr != nil {
+			return Result{}, categorized("load info JSON", loadErr)
+		}
+		loadedInfo = info
+		rootExtractor = "loaded-info-json"
+		result, runErr = operation.processMedia(ctx, extractor.Media(info), "loaded-info-json")
+	} else {
+		// Explicit selected/all checks take precedence over allow-unplayable. The
+		// latter bypasses only Auto's DRM/needs-testing default policy.
+		if shouldCheckFormats(request.CheckFormats, request.AllowUnplayableFormats) {
+			checker := newFormatAvailabilityChecker(ctx, transport, request.CheckFormats)
+			operation.formatAvailability = checker
+			operation.formatAvailabilityChecker = checker
+		}
+		result, runErr = operation.process(ctx, request.URL, request.PluginID, nil, make(map[string]bool), 0)
 	}
-	result, runErr = operation.process(ctx, request.URL, request.PluginID, nil, make(map[string]bool), 0)
+	if runErr != nil && request.LoadInfoJSON != "" && shouldFallbackLoadedInfo(loadedInfo, result, runErr) {
+		webpageURL, _ := loadedInfo.Lookup("webpage_url").StringValue()
+		if err := client.emit(ctx, Event{Kind: EventMetadataWarning, Message: "loaded info direct URL failed; retrying its webpage URL"}); err != nil {
+			return result, &Error{Category: ErrorInternal, Op: "emit loaded-info fallback warning", Err: err}
+		}
+		result, runErr = operation.process(ctx, webpageURL, "", nil, make(map[string]bool), 0)
+	}
+	if accepted := operation.autonumberCount(); result.AutonumberCount < accepted {
+		result.AutonumberCount = accepted
+	}
 	if runErr != nil {
 		// Selected attempts are part of yt-dlp's shared _num_downloads budget
 		// even when their download/post-processing path returns an error. Some
 		// nested error paths cannot return a partial playlist Result, so carry
 		// the operation-wide accounting and stop state alongside the original
 		// categorized error.
-		if result.Downloads < operation.downloads {
-			result.Downloads = operation.downloads
+		if result.Downloads < operation.downloadCount() {
+			result.Downloads = operation.downloadCount()
 		}
-		if operation.stopTriggered && !result.Stopped {
+		stopped, stopKind, stopReason := operation.stopState()
+		if stopped && !result.Stopped {
 			result.Stopped = true
-			result.StopKind = operation.stopKind
-			result.StopReason = operation.stopReason
+			result.StopKind = stopKind
+			result.StopReason = stopReason
 		}
 	}
 	return result, runErr
+}
+
+func shouldFallbackLoadedInfo(info value.Info, result Result, runErr error) bool {
+	if runErr == nil || result.Downloaded || len(result.Artifacts) > 0 ||
+		(!IsCategory(runErr, ErrorNetwork) && !IsCategory(runErr, ErrorInternal) && !IsCategory(runErr, ErrorUnsupported)) {
+		return false
+	}
+	directURL, directOK := info.Lookup("url").StringValue()
+	webpageURL, webpageOK := info.Lookup("webpage_url").StringValue()
+	return directOK && directURL != "" && webpageOK && webpageURL != "" && webpageURL != directURL
 }
 
 func shouldCheckFormats(mode FormatCheckMode, allowUnplayable bool) bool {
@@ -884,16 +939,64 @@ type operation struct {
 	formatAvailability        mediaformat.FormatAvailability
 	formatAvailabilityChecker *formatAvailabilityChecker
 	extractorRetryWait        extractorRetryWaitFunc
+	autonumberNext            int
+	autonumberMu              sync.Mutex
+	stateMu                   sync.Mutex
 }
 
 func (operation *operation) setStop(kind StopKind, reason string) {
+	operation.stateMu.Lock()
+	defer operation.stateMu.Unlock()
+	operation.setStopLocked(kind, reason)
+}
+
+func (operation *operation) setStopLocked(kind StopKind, reason string) {
 	operation.stopTriggered = true
 	operation.stopKind = kind
 	operation.stopReason = reason
 }
 
-func (operation *operation) maxDownloadsReached() bool {
-	return operation.request.MaxDownloads > 0 && operation.downloads >= operation.request.MaxDownloads
+// admitDownload reserves one selected media attempt, or atomically rejects a
+// later attempt once the operation-wide maximum has been reserved.
+func (operation *operation) admitDownload() bool {
+	operation.stateMu.Lock()
+	defer operation.stateMu.Unlock()
+	if operation.request.MaxDownloads > 0 && operation.downloads >= operation.request.MaxDownloads {
+		operation.setStopLocked(StopMaxDownloads, "max downloads reached")
+		return false
+	}
+	operation.downloads++
+	return true
+}
+
+func (operation *operation) downloadCount() int {
+	operation.stateMu.Lock()
+	defer operation.stateMu.Unlock()
+	return operation.downloads
+}
+
+func (operation *operation) finishAdmittedDownload() (bool, StopKind, string) {
+	operation.stateMu.Lock()
+	defer operation.stateMu.Unlock()
+	if operation.request.MaxDownloads > 0 && operation.downloads >= operation.request.MaxDownloads {
+		operation.setStopLocked(StopMaxDownloads, "max downloads reached")
+		return true, operation.stopKind, operation.stopReason
+	}
+	return false, StopNone, ""
+}
+
+func (operation *operation) stopState() (bool, StopKind, string) {
+	operation.stateMu.Lock()
+	defer operation.stateMu.Unlock()
+	return operation.stopTriggered, operation.stopKind, operation.stopReason
+}
+
+func (operation *operation) setRootExtractor(name string) {
+	operation.stateMu.Lock()
+	defer operation.stateMu.Unlock()
+	if operation.rootExtractor != nil {
+		*operation.rootExtractor = name
+	}
 }
 
 func (operation *operation) process(ctx context.Context, rawURL, extractorKey string, overlay *extractor.Entry, ancestors map[string]bool, depth int) (Result, error) {
@@ -918,8 +1021,8 @@ func (operation *operation) processWithTransparentParent(ctx context.Context, ra
 	if err != nil {
 		return Result{}, categorized("select extractor", err)
 	}
-	if depth == 0 && operation.rootExtractor != nil {
-		*operation.rootExtractor = selected.Name()
+	if depth == 0 {
+		operation.setRootExtractor(selected.Name())
 	}
 	eventURL := network.RedactRawURL(rawURL)
 	if err := operation.client.emit(ctx, Event{Kind: string(events.KindExtracting), Extractor: selected.Name(), URL: eventURL}); err != nil {
@@ -1114,15 +1217,25 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 	}
 	children := make([]Result, 0)
 	entryValues := make([]value.Value, 0)
+	autonumberBefore := operation.autonumberPosition()
 	playlistID, _ := extracted.Info.ID()
 	playlistTitle, _ := extracted.Info.Title()
 	var failures int
 	var failedDownloads int
 	var maxFailuresEmitted bool
+	var suppressedPrints []PrintOutput
+	var suppressedArtifacts []Artifact
+	var suppressedBytes int64
 	finish := func() (Result, error) {
 		result, err := operation.finishPlaylistResult(ctx, extracted.Info, extractorName, children, entryValues)
 		result.SuppressedFailures += failures
 		result.Downloads += failedDownloads
+		if consumed := operation.autonumberCountSince(autonumberBefore); result.AutonumberCount < consumed {
+			result.AutonumberCount = consumed
+		}
+		result.Prints = append(suppressedPrints, result.Prints...)
+		result.Artifacts = append(suppressedArtifacts, result.Artifacts...)
+		result.Bytes += suppressedBytes
 		return result, err
 	}
 	for outputIndex := 0; ; outputIndex++ {
@@ -1190,14 +1303,26 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 					}
 					return Result{}, fmt.Errorf("flat playlist entry %d archive: %w", selected.SourceIndex, err)
 				}
-				prints, err := operation.capturePrints(ctx, PrintVideo, entryInfo, nil, nil, "")
+				operation.addAutonumber(&entryInfo)
+				child.AutonumberCount = 1
+				child.InfoJSON, err = encodeInfo(entryInfo)
 				if err != nil {
-					return Result{}, fmt.Errorf("flat playlist entry %d print: %w", selected.SourceIndex, err)
+					return Result{}, err
+				}
+			}
+			if !child.Skipped {
+				printInfo := entryInfo
+				if terminal {
+					printInfo = operation.provisionalAutonumberInfo(printInfo)
+				}
+				prints, printErr := operation.capturePrints(ctx, PrintVideo, printInfo, nil, nil, "")
+				if printErr != nil {
+					return Result{}, fmt.Errorf("flat playlist entry %d print: %w", selected.SourceIndex, printErr)
 				}
 				child.Prints = append(child.Prints, prints...)
-				printArtifacts, printBytes, err := operation.writePrintFiles(ctx, PrintVideo, entryInfo, nil, nil, "")
-				if err != nil {
-					return Result{}, fmt.Errorf("flat playlist entry %d print file: %w", selected.SourceIndex, err)
+				printArtifacts, printBytes, printErr := operation.writePrintFiles(ctx, PrintVideo, printInfo, nil, nil, "")
+				if printErr != nil {
+					return Result{}, fmt.Errorf("flat playlist entry %d print file: %w", selected.SourceIndex, printErr)
 				}
 				addPrintFileArtifacts(&child, printArtifacts, printBytes)
 			}
@@ -1205,10 +1330,13 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 			entryValues = append(entryValues, value.ObjectValue(entryInfo.Fields()))
 			continue
 		}
-		downloadsBefore := operation.downloads
+		downloadsBefore := operation.downloadCount()
 		child, err := operation.process(ctx, entry.URL, entry.ExtractorKey, &entry, ancestors, depth+1)
 		if err != nil {
-			failedDownloads += operation.downloads - downloadsBefore
+			suppressedPrints = append(suppressedPrints, child.Prints...)
+			suppressedArtifacts = append(suppressedArtifacts, child.Artifacts...)
+			suppressedBytes += child.Bytes
+			failedDownloads += operation.downloadCount() - downloadsBefore
 			handled, stop, handlerErr := operation.handlePlaylistEntryError(ctx, extractorName, playlistTitle, selected.SourceIndex, err, &failures, &maxFailuresEmitted)
 			if handlerErr != nil {
 				return Result{}, handlerErr
@@ -1245,6 +1373,7 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 			return Result{}, &Error{Category: ErrorInternal, Op: "encode playlist entry metadata", Err: err}
 		}
 		children = append(children, child)
+		// processMedia consumes one autonumber slot for every accepted child.
 		entryValues = append(entryValues, entryValue)
 	}
 }
@@ -1276,10 +1405,8 @@ func (operation *operation) finishPlaylistResult(
 	if err != nil {
 		return Result{}, err
 	}
-	result := Result{
-		InfoJSON: encoded, Extractor: extractorName, Entries: children,
-		Stopped: operation.stopTriggered, StopKind: operation.stopKind, StopReason: operation.stopReason,
-	}
+	result := Result{InfoJSON: encoded, Extractor: extractorName, Entries: children}
+	result.Stopped, result.StopKind, result.StopReason = operation.stopState()
 	result.Artifacts = append(result.Artifacts, thumbnailArtifacts...)
 	result.Bytes += thumbnailBytes
 	result.Downloaded = len(thumbnailArtifacts) > 0
@@ -1289,6 +1416,7 @@ func (operation *operation) finishPlaylistResult(
 		result.Archived = result.Archived || child.Archived
 		result.Downloads += child.Downloads
 		result.SuppressedFailures += child.SuppressedFailures
+		result.AutonumberCount += child.AutonumberCount
 	}
 	if !operation.request.Simulate && !operation.request.RelatedFiles.NoPlaylist {
 		artifacts, artifactBytes, err := operation.writeRelatedFiles(ctx, info, true)
@@ -1329,10 +1457,16 @@ func addPlaylistEntryFields(object *value.Object, index int, playlistID, playlis
 }
 
 func (operation *operation) emitPlaylistItemsRangeWarning(ctx context.Context) error {
-	if operation.playlistItemsRangeWarningEmitted || !playlistItemsOverrideRange(operation.request.Playlist) {
+	if !playlistItemsOverrideRange(operation.request.Playlist) {
+		return nil
+	}
+	operation.stateMu.Lock()
+	if operation.playlistItemsRangeWarningEmitted {
+		operation.stateMu.Unlock()
 		return nil
 	}
 	operation.playlistItemsRangeWarningEmitted = true
+	operation.stateMu.Unlock()
 	if err := operation.client.emit(ctx, Event{
 		Kind: EventMetadataWarning, Message: "playlist items override playlist start and end",
 	}); err != nil {
@@ -1345,17 +1479,20 @@ func (operation *operation) emitPlaylistOrderingWarnings(ctx context.Context, wa
 	if len(warnings) == 0 {
 		return nil
 	}
-	if operation.playlistOrderingWarningsEmitted == nil {
-		operation.playlistOrderingWarningsEmitted = make(map[string]bool, len(warnings))
-	}
 	for _, warning := range warnings {
+		operation.stateMu.Lock()
+		if operation.playlistOrderingWarningsEmitted == nil {
+			operation.playlistOrderingWarningsEmitted = make(map[string]bool, len(warnings))
+		}
 		if operation.playlistOrderingWarningsEmitted[warning] {
+			operation.stateMu.Unlock()
 			continue
 		}
+		operation.playlistOrderingWarningsEmitted[warning] = true
+		operation.stateMu.Unlock()
 		if err := operation.client.emit(ctx, Event{Kind: EventMetadataWarning, Message: warning}); err != nil {
 			return &Error{Category: ErrorInternal, Op: "emit playlist ordering warning", Err: err}
 		}
-		operation.playlistOrderingWarningsEmitted[warning] = true
 	}
 	return nil
 }
@@ -1492,8 +1629,9 @@ func (operation *operation) prepareMediaResult(
 	var archiveIdentity archive.Identity
 	if operation.archive != nil {
 		id, hasID := info.ID()
-		if hasID && extractorName != "" {
-			identity, err := archive.NewIdentity(extractorName, id)
+		archiveExtractor := archiveExtractorKey(*info, extractorName)
+		if hasID && archiveExtractor != "" {
+			identity, err := archive.NewIdentity(archiveExtractor, id)
 			if err != nil {
 				return Result{}, archive.Identity{}, compatibilityDecision{}, false, categorized("build archive identity", err)
 			}
@@ -1526,7 +1664,8 @@ func (operation *operation) prepareMediaResult(
 				if operation.request.BreakOnExisting {
 					reason := archiveRejectionReason(*info)
 					operation.setStop(StopBreakOnExisting, reason)
-					result.Stopped, result.StopKind, result.StopReason = true, operation.stopKind, operation.stopReason
+					_, result.StopKind, result.StopReason = operation.stopState()
+					result.Stopped = true
 				}
 				return result, archiveIdentity, compatibilityDecision{}, terminal, nil
 			}
@@ -1567,6 +1706,18 @@ func (operation *operation) prepareMediaResult(
 	return result, archiveIdentity, decision, false, nil
 }
 
+func archiveExtractorKey(info value.Info, fallback string) string {
+	for _, field := range []string{"extractor_key", "ie_key"} {
+		if key, ok := info.Lookup(field).StringValue(); ok && key != "" {
+			return key
+		}
+	}
+	if fallback == "loaded-info-json" {
+		return ""
+	}
+	return fallback
+}
+
 // archiveRejectionReason mirrors the reference rejection message
 // "<id>: <title> has already been recorded in the archive".
 func archiveRejectionReason(info value.Info) string {
@@ -1590,13 +1741,14 @@ func (operation *operation) finishMatchFilterDecision(
 		return false, nil
 	}
 	result.Skipped, result.SkipReason = true, decision.Reason
-	if operation.stopTriggered {
-		result.Stopped, result.StopKind, result.StopReason = true, operation.stopKind, operation.stopReason
+	if stopped, stopKind, stopReason := operation.stopState(); stopped {
+		result.Stopped, result.StopKind, result.StopReason = true, stopKind, stopReason
 	} else if operation.request.BreakOnReject {
 		// --break-on-reject stops on any rejection, including simple
 		// filters and ordinary --match-filters (reference break_on_reject).
 		operation.setStop(StopBreakOnReject, decision.Reason)
-		result.Stopped, result.StopKind, result.StopReason = true, operation.stopKind, operation.stopReason
+		_, result.StopKind, result.StopReason = operation.stopState()
+		result.Stopped = true
 	}
 	if err := operation.client.emit(ctx, Event{
 		Kind: EventMatchFilterSkipped, Extractor: extractorName, Message: decision.Reason,
@@ -1610,54 +1762,60 @@ func (operation *operation) finishMatchFilterDecision(
 
 func (operation *operation) processMedia(ctx context.Context, extracted extractor.Extraction, extractorName string) (result Result, _ error) {
 	// counted tracks whether this entry passed selection and entered the
-	// download pipeline. The defer applies the reference _num_downloads
-	// semantics: the entry counts (even for simulated or skipped-by-size
-	// downloads) and the MaxDownloads cap is checked after the entry's
-	// processing completes, so the Nth download finishes before the stop.
+	// download pipeline. Admission reserves the operation-wide download slot
+	// atomically; the defer applies the reference _num_downloads semantics by
+	// stopping only after an admitted Nth entry finishes.
 	counted := false
 	defer func() {
 		if counted {
 			result.Downloads = 1
-			if !result.Stopped && operation.maxDownloadsReached() {
-				operation.setStop(StopMaxDownloads, "max downloads reached")
-				result.Stopped, result.StopKind, result.StopReason = true, operation.stopKind, operation.stopReason
+			if !result.Stopped {
+				if reached, stopKind, stopReason := operation.finishAdmittedDownload(); reached {
+					result.StopKind, result.StopReason = stopKind, stopReason
+					result.Stopped = true
+				}
 			}
 		}
 	}()
 	preparedFormats, err := mediaformat.Prepare(extracted.Info, operation.compatibility.formatOptions)
 	if err != nil {
-		return Result{}, categorized("normalize formats", err)
+		return result, categorized("normalize formats", err)
 	}
 	info := preparedFormats.Info()
 	if operation.request.Thumbnails.List {
 		if _, err := selectThumbnails(&info); err != nil {
-			return Result{}, categorized("normalize thumbnails", err)
+			return result, categorized("normalize thumbnails", err)
 		}
 	}
-	preProcessPrints, err := operation.capturePrints(ctx, PrintPreProcess, info, nil, nil, "")
+	preProcessInfo := operation.provisionalAutonumberInfo(info)
+	preProcessPrints, err := operation.capturePrints(ctx, PrintPreProcess, preProcessInfo, nil, nil, "")
 	if err != nil {
-		return Result{}, categorized("render pre-process print", err)
+		return result, categorized("render pre-process print", err)
 	}
-	preProcessArtifacts, preProcessBytes, err := operation.writePrintFiles(ctx, PrintPreProcess, info, nil, nil, "")
+	preProcessArtifacts, preProcessBytes, err := operation.writePrintFiles(ctx, PrintPreProcess, preProcessInfo, nil, nil, "")
 	if err != nil {
-		return Result{}, categorized("write pre-process print file", err)
+		return result, categorized("write pre-process print file", err)
 	}
-	result, archiveIdentity, interactiveDecision, terminal, err := operation.prepareMediaResult(ctx, &info, extractorName, false)
+	preliminary := Result{Prints: append([]PrintOutput(nil), preProcessPrints...)}
+	addPrintFileArtifacts(&preliminary, preProcessArtifacts, preProcessBytes)
+	preparedResult, archiveIdentity, interactiveDecision, terminal, err := operation.prepareMediaResult(ctx, &info, extractorName, false)
 	if err != nil {
-		return Result{}, err
+		return preliminary, err
 	}
+	result = preparedResult
 	result.Prints = append(result.Prints, preProcessPrints...)
 	addPrintFileArtifacts(&result, preProcessArtifacts, preProcessBytes)
 	if terminal {
 		if !result.Skipped {
-			prints, printErr := operation.capturePrints(ctx, PrintAfterFilter, info, nil, nil, "")
+			afterFilterInfo := operation.provisionalAutonumberInfo(info)
+			prints, printErr := operation.capturePrints(ctx, PrintAfterFilter, afterFilterInfo, nil, nil, "")
 			if printErr != nil {
-				return Result{}, categorized("render after-filter print", printErr)
+				return result, categorized("render after-filter print", printErr)
 			}
 			result.Prints = append(result.Prints, prints...)
-			printArtifacts, printBytes, printErr := operation.writePrintFiles(ctx, PrintAfterFilter, info, nil, nil, "")
+			printArtifacts, printBytes, printErr := operation.writePrintFiles(ctx, PrintAfterFilter, afterFilterInfo, nil, nil, "")
 			if printErr != nil {
-				return Result{}, categorized("write after-filter print file", printErr)
+				return result, categorized("write after-filter print file", printErr)
 			}
 			addPrintFileArtifacts(&result, printArtifacts, printBytes)
 		}
@@ -1668,42 +1826,39 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	// the last selection step, so rejected prompts must not consume budget.
 	needsInteractiveFormat := interactiveDecision.interactive != interactiveMatchFilterNone ||
 		operation.compatibility.interactiveFormat
-	if !needsInteractiveFormat {
-		operation.downloads++
-		counted = true
-	}
-	prints, err := operation.capturePrints(ctx, PrintAfterFilter, info, nil, nil, "")
-	if err != nil {
-		return Result{}, categorized("render after-filter print", err)
-	}
-	result.Prints = append(result.Prints, prints...)
-	printArtifacts, printBytes, err := operation.writePrintFiles(ctx, PrintAfterFilter, info, nil, nil, "")
-	if err != nil {
-		return Result{}, categorized("write after-filter print file", err)
-	}
-	addPrintFileArtifacts(&result, printArtifacts, printBytes)
 	if extracted.Enrich != nil {
 		if err := extracted.Enrich(ctx, &info); err != nil {
-			return Result{}, categorized(extractorName+" deferred metadata", err)
+			return result, categorized(extractorName+" deferred metadata", err)
 		}
 		result.InfoJSON, err = encodeInfo(info)
 		if err != nil {
-			return Result{}, err
+			return result, err
 		}
 	}
 	if err := operation.enrichWithSponsorBlock(ctx, extractorName, &info); err != nil {
-		return Result{}, err
+		return result, err
 	}
+	afterFilterInfo := operation.provisionalAutonumberInfo(info)
+	prints, err := operation.capturePrints(ctx, PrintAfterFilter, afterFilterInfo, nil, nil, "")
+	if err != nil {
+		return result, categorized("render after-filter print", err)
+	}
+	result.Prints = append(result.Prints, prints...)
+	printArtifacts, printBytes, err := operation.writePrintFiles(ctx, PrintAfterFilter, afterFilterInfo, nil, nil, "")
+	if err != nil {
+		return result, categorized("write after-filter print file", err)
+	}
+	addPrintFileArtifacts(&result, printArtifacts, printBytes)
 	selectedSubtitles, requestedSubtitles, err := selectSubtitles(info, operation.request.Subtitles)
 	if err != nil {
-		return Result{}, categorized("select subtitles", err)
+		return result, categorized("select subtitles", err)
 	}
 	if requestedSubtitles != nil {
 		info.Set("requested_subtitles", value.ObjectValue(requestedSubtitles))
 	}
 	result.InfoJSON, err = encodeInfo(info)
 	if err != nil {
-		return Result{}, err
+		return result, err
 	}
 	// Metadata actions and deferred enrichment mutate the canonical Info after
 	// Prepare; rebind evaluation objects so selection matches InfoJSON.
@@ -1714,16 +1869,16 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		operation.hasPrintStageAtOrAfter(PrintVideo) || needsInteractiveFormat {
 		outputPlans, err = operation.planPreparedFormatsContext(ctx, preparedFormats)
 		if err != nil {
-			return Result{}, categorized("select format", err)
+			return result, categorized("select format", err)
 		}
 		if len(outputPlans) > 0 {
 			selectedFormats = outputPlans[0].Tracks
 		}
 		if err := validateMultiOutputProduct(operation.request, len(outputPlans)); err != nil {
-			return Result{}, categorized("select format", err)
+			return result, categorized("select format", err)
 		}
 		if err := validateOutputPlans(outputPlans, operation.mergeOutputPreferences()); err != nil {
-			return Result{}, categorized("select format", err)
+			return result, categorized("select format", err)
 		}
 	}
 	var singlePrintPlan *mediaformat.OutputPlan
@@ -1731,9 +1886,48 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		singlePrintPlan = &outputPlans[0]
 	}
 	operation.applyThumbnailEmbeddingOutputExtension(&info, selectedFormats)
+	if needsInteractiveFormat {
+		provisionalDestinations, resolveErr := operation.resolveOutputPlanDestinations(info, outputPlans)
+		if resolveErr != nil {
+			return result, categorized("render output template", resolveErr)
+		}
+		if len(provisionalDestinations) == 0 {
+			return result, categorized("select format", mediaformat.ErrNoFormats)
+		}
+		for index, plan := range outputPlans {
+			interactiveInfo := selectedPlanInfo(info, plan)
+			operation.applyThumbnailEmbeddingOutputExtension(&interactiveInfo, plan.Tracks)
+			resolved, resolveErr := operation.resolveInteractiveCompatibility(
+				ctx, interactiveInfo, interactiveDecision, provisionalDestinations[index],
+			)
+			if resolveErr != nil {
+				return result, resolveErr
+			}
+			terminal, finishErr := operation.finishMatchFilterDecision(ctx, &result, extractorName, resolved)
+			if finishErr != nil {
+				return result, finishErr
+			}
+			if terminal {
+				return result, nil
+			}
+		}
+	}
+	if !operation.admitDownload() {
+		result.Stopped = true
+		result.StopKind = StopMaxDownloads
+		result.StopReason = "max downloads reached"
+		return result, nil
+	}
+	operation.addAutonumber(&info)
+	result.AutonumberCount = 1
+	counted = true
+	result.InfoJSON, err = encodeInfo(info)
+	if err != nil {
+		return result, err
+	}
 	planDestinations, err := operation.resolveOutputPlanDestinations(info, outputPlans)
 	if err != nil {
-		return Result{}, categorized("render output template", err)
+		return result, categorized("render output template", err)
 	}
 	var destination string
 	if len(planDestinations) > 0 {
@@ -1744,37 +1938,11 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		mediaTx = newMediaTransaction()
 		if !operation.request.Simulate {
 			if err := operation.preflightOutputLifecycles(info, outputPlans, planDestinations, selectedSubtitles); err != nil {
-				return Result{}, categorized("preflight output destinations", err)
+				return result, categorized("preflight output destinations", err)
 			}
 		}
 	}
 	ctx = withMediaTransaction(ctx, mediaTx)
-	if needsInteractiveFormat {
-		if len(planDestinations) == 0 {
-			return Result{}, categorized("select format", mediaformat.ErrNoFormats)
-		}
-		for index, plan := range outputPlans {
-			interactiveInfo := selectedPlanInfo(info, plan)
-			operation.applyThumbnailEmbeddingOutputExtension(&interactiveInfo, plan.Tracks)
-			resolved, resolveErr := operation.resolveInteractiveCompatibility(
-				ctx, interactiveInfo, interactiveDecision, planDestinations[index],
-			)
-			if resolveErr != nil {
-				return rollbackTransactionResult(mediaTx, resolveErr)
-			}
-			terminal, finishErr := operation.finishMatchFilterDecision(ctx, &result, extractorName, resolved)
-			if finishErr != nil {
-				return rollbackTransactionResult(mediaTx, finishErr)
-			}
-			if terminal {
-				return result, nil
-			}
-		}
-	}
-	if !counted {
-		operation.downloads++
-		counted = true
-	}
 	if len(outputPlans) == 0 {
 		if err := operation.validatePrintRules(ctx, info, singlePrintPlan, selectedFormats, destination, false); err != nil {
 			return rollbackTransactionResult(mediaTx, categorized("validate print rules", err))
@@ -1826,7 +1994,7 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 				if len(outputPlans) > 1 {
 					return rollbackTransactionResult(mediaTx, lifecycleErr)
 				}
-				return Result{}, lifecycleErr
+				return result, lifecycleErr
 			}
 			planResults[index] = planResult
 		}
@@ -1861,13 +2029,13 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		}
 		if !operation.request.Simulate {
 			if commitErr := mediaTx.commit(); commitErr != nil {
-				return Result{}, categorized("commit output transaction", commitErr)
+				return result, categorized("commit output transaction", commitErr)
 			}
 			mediaTx.finalize()
 		}
 		if !result.Skipped && (operation.request.ForceWriteArchive || (!operation.request.Simulate && !operation.request.SkipDownload)) {
 			if err := operation.recordArchive(ctx, archiveIdentity); err != nil {
-				return Result{}, err
+				return result, err
 			}
 		}
 		return result, nil
@@ -1886,7 +2054,7 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	addPrintFileArtifacts(&result, printArtifacts, printBytes)
 	if operation.request.Simulate {
 		if err := operation.recordForcedArchive(ctx, archiveIdentity); err != nil {
-			return Result{}, err
+			return result, err
 		}
 		return result, nil
 	}
@@ -1946,17 +2114,17 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		for _, stage := range []PrintStage{PrintPostProcess, PrintAfterMove, PrintAfterVideo} {
 			prints, err = operation.capturePrints(ctx, stage, info, singlePrintPlan, selectedFormats, destination)
 			if err != nil {
-				return Result{}, categorized("render "+string(stage)+" print", err)
+				return result, categorized("render "+string(stage)+" print", err)
 			}
 			result.Prints = append(result.Prints, prints...)
 			printArtifacts, printBytes, err = operation.writePrintFiles(ctx, stage, info, singlePrintPlan, selectedFormats, destination)
 			if err != nil {
-				return Result{}, categorized("write "+string(stage)+" print file", err)
+				return result, categorized("write "+string(stage)+" print file", err)
 			}
 			addPrintFileArtifacts(&result, printArtifacts, printBytes)
 		}
 		if err := operation.recordForcedArchive(ctx, archiveIdentity); err != nil {
-			return Result{}, err
+			return result, err
 		}
 		return result, nil
 	}
@@ -2005,7 +2173,7 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	}
 	if mediaTx != nil {
 		if commitErr := mediaTx.commitDestinations(); commitErr != nil {
-			return Result{}, categorized("commit output transaction", commitErr)
+			return result, categorized("commit output transaction", commitErr)
 		}
 	}
 	var embeddedSubtitles bool
@@ -2080,12 +2248,12 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	}
 	if mediaTx != nil {
 		if commitErr := mediaTx.commitArtifacts(); commitErr != nil {
-			return Result{}, categorized("commit output transaction", commitErr)
+			return result, categorized("commit output transaction", commitErr)
 		}
 		mediaTx.finalize()
 	}
 	if err := operation.recordArchive(ctx, archiveIdentity); err != nil {
-		return Result{}, err
+		return result, err
 	}
 	return result, nil
 }
@@ -2106,6 +2274,49 @@ func (operation *operation) recordArchive(ctx context.Context, identity archive.
 		return categorized("record download archive", err)
 	}
 	return nil
+}
+
+func (operation *operation) addAutonumber(info *value.Info) {
+	if info == nil {
+		return
+	}
+	operation.autonumberMu.Lock()
+	defer operation.autonumberMu.Unlock()
+	acceptedCount := operation.autonumberNext + 1
+	info.Set("autonumber", value.Int(int64(normalizedAutonumberStart(operation.request.AutonumberStart)-1+acceptedCount)))
+	operation.autonumberNext = acceptedCount
+}
+
+func (operation *operation) provisionalAutonumberInfo(info value.Info) value.Info {
+	operation.autonumberMu.Lock()
+	defer operation.autonumberMu.Unlock()
+	provisional := value.NewInfo(info.Fields().Clone())
+	provisional.Set("autonumber", value.Int(int64(normalizedAutonumberStart(operation.request.AutonumberStart)-1+operation.autonumberNext)))
+	return provisional
+}
+
+func (operation *operation) autonumberCount() int {
+	operation.autonumberMu.Lock()
+	defer operation.autonumberMu.Unlock()
+	count := operation.autonumberNext - operation.request.AutonumberIndex
+	if count < 0 {
+		return 0
+	}
+	return count
+}
+
+func (operation *operation) autonumberPosition() int {
+	operation.autonumberMu.Lock()
+	defer operation.autonumberMu.Unlock()
+	return operation.autonumberNext
+}
+
+func (operation *operation) autonumberCountSince(previous int) int {
+	current := operation.autonumberPosition()
+	if current < previous {
+		return 0
+	}
+	return current - previous
 }
 
 func oldArchiveIDs(info value.Info) ([]string, error) {
@@ -2233,7 +2444,7 @@ func categorized(op string, err error) error {
 		errors.Is(err, chromiumwindows.ErrUnsafePath), errors.Is(err, chromiumwindows.ErrLimit),
 		errors.Is(err, credentialnetrc.ErrSyntax), errors.Is(err, credentialnetrc.ErrLimit), errors.Is(err, credentialnetrc.ErrInvalidHost),
 		errors.Is(err, archive.ErrInvalidIdentity), errors.Is(err, archive.ErrCorrupt), errors.Is(err, archive.ErrTooLarge), errors.Is(err, archive.ErrUnsafePath),
-		errors.Is(err, cache.ErrInvalidName), errors.Is(err, cache.ErrUnsafePath), errors.Is(err, cache.ErrTooLarge), errors.Is(err, cache.ErrCorrupt):
+		errors.Is(err, cache.ErrInvalidName), errors.Is(err, cache.ErrUnsafePath), errors.Is(err, cache.ErrTooLarge), errors.Is(err, cache.ErrCorrupt), errors.Is(err, ErrInvalidInfoJSON):
 		category = ErrorInvalidInput
 	case errors.Is(err, archive.ErrIO), errors.Is(err, archive.ErrLock), errors.Is(err, cache.ErrIO):
 		category = ErrorInternal

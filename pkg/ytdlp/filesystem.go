@@ -15,10 +15,26 @@ import (
 func (operation *operation) filenameOptions() outputtemplate.FilenameOptions {
 	fs := operation.request.Filesystem
 	return outputtemplate.FilenameOptions{
-		RestrictFilenames: fs.RestrictFilenames,
-		WindowsFilenames:  fs.WindowsFilenames,
-		TrimFilenames:     fs.TrimFilenames,
+		RestrictFilenames:   fs.RestrictFilenames,
+		WindowsFilenames:    fs.WindowsFilenames,
+		TrimFilenames:       fs.TrimFilenames,
+		OutputNaPlaceholder: fs.OutputNaPlaceholder,
+		AutonumberSize:      normalizedAutonumberSize(operation.request.AutonumberSize),
 	}
+}
+
+func normalizedAutonumberSize(size int) int {
+	if size <= 0 {
+		return 5
+	}
+	return size
+}
+
+func normalizedAutonumberStart(start int) int {
+	if start <= 0 {
+		return 1
+	}
+	return start
 }
 
 func (operation *operation) resolveOutputPath(outputRoot, pattern string, info value.Info) (string, error) {

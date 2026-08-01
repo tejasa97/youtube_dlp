@@ -74,6 +74,21 @@ func Render(pattern string, info value.Info) (string, error) {
 // rendering callers remain synchronous through Render; long untrusted input
 // paths can opt into prompt cancellation without changing their semantics.
 func RenderContext(ctx context.Context, pattern string, info value.Info) (string, error) {
+	return renderContext(ctx, pattern, info, "NA", 0)
+}
+
+// RenderContextWithOptions renders a template with the bounded filename
+// compatibility knobs used by ResolveWithOptions. RenderContext retains the
+// pinned default placeholder and no autonumber width for existing callers.
+func RenderContextWithOptions(ctx context.Context, pattern string, info value.Info, options FilenameOptions) (string, error) {
+	placeholder := options.OutputNaPlaceholder
+	if placeholder == "" {
+		placeholder = "NA"
+	}
+	return renderContext(ctx, pattern, info, placeholder, options.AutonumberSize)
+}
+
+func renderContext(ctx context.Context, pattern string, info value.Info, outputNaPlaceholder string, autonumberSize int) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -125,7 +140,7 @@ func RenderContext(ctx context.Context, pattern string, info value.Info) (string
 		if expressions > maxExpressions {
 			return "", templateSyntax(index, closeIndex+1, "too many template expressions")
 		}
-		rendered, err := renderExpression(expression, spec, info)
+		rendered, err := renderExpression(expression, spec, info, outputNaPlaceholder, autonumberSize)
 		if err != nil {
 			return "", templateSyntax(index+2, closeIndex, fmt.Sprintf("expression %q: %v", expression, err))
 		}
@@ -249,9 +264,11 @@ func templateSyntax(start, end int, message string) error {
 
 // FilenameOptions controls post-render filename sanitization applied by Resolve.
 type FilenameOptions struct {
-	RestrictFilenames bool
-	WindowsFilenames  bool
-	TrimFilenames     int
+	RestrictFilenames   bool
+	WindowsFilenames    bool
+	TrimFilenames       int
+	OutputNaPlaceholder string
+	AutonumberSize      int
 }
 
 // Resolve renders and sanitizes a relative template beneath outputRoot.
@@ -262,7 +279,7 @@ func Resolve(outputRoot, pattern string, info value.Info) (string, error) {
 // ResolveWithOptions renders and sanitizes a relative template beneath outputRoot
 // using the supplied filename options.
 func ResolveWithOptions(outputRoot, pattern string, info value.Info, opts FilenameOptions) (string, error) {
-	rendered, err := Render(pattern, info)
+	rendered, err := RenderContextWithOptions(context.Background(), pattern, info, opts)
 	if err != nil {
 		return "", err
 	}
@@ -308,7 +325,7 @@ func ResolveWithOptions(outputRoot, pattern string, info value.Info, opts Filena
 	return destination, nil
 }
 
-func renderExpression(expression, spec string, info value.Info) (string, error) {
+func renderExpression(expression, spec string, info value.Info, outputNaPlaceholder string, autonumberSize int) (string, error) {
 	if expression == "" {
 		if spec[len(spec)-1] != 'j' {
 			return "", errors.New("empty expression requires JSON conversion")
@@ -319,6 +336,7 @@ func renderExpression(expression, spec string, info value.Info) (string, error) 
 	source, replacement, hasReplacement := strings.Cut(source, "&")
 	var selected value.Value
 	var dateFormat string
+	var selectedPath string
 	for _, alternative := range splitAlternatives(source) {
 		path, format, hasDateFormat := strings.Cut(strings.TrimSpace(alternative), ">")
 		candidate, err := evaluateCandidate(info, path)
@@ -329,6 +347,7 @@ func renderExpression(expression, spec string, info value.Info) (string, error) 
 			continue
 		}
 		selected = candidate
+		selectedPath = path
 		if hasDateFormat {
 			dateFormat = format
 		}
@@ -338,7 +357,7 @@ func renderExpression(expression, spec string, info value.Info) (string, error) 
 		if hasDefault {
 			selected = value.String(defaultValue)
 		} else {
-			selected = value.String("NA")
+			selected = value.String(outputNaPlaceholder)
 		}
 	}
 	if dateFormat != "" {
@@ -359,7 +378,21 @@ func renderExpression(expression, spec string, info value.Info) (string, error) 
 		}
 		selected = value.String(replaced)
 	}
+	if isAutonumberExpression(selectedPath) && selected.Kind() == value.KindInt && autonumberSize > 0 && spec == "s" {
+		spec = "0" + strconv.Itoa(autonumberSize) + "d"
+	}
 	return formatValue(selected, spec)
+}
+
+func isAutonumberExpression(expression string) bool {
+	operands, _, _, arithmetic, err := parseArithmetic(strings.TrimSpace(expression))
+	if err != nil || len(operands) == 0 {
+		return false
+	}
+	if !arithmetic {
+		return strings.TrimSpace(expression) == "autonumber"
+	}
+	return operands[0] == "autonumber"
 }
 
 type arithmeticNumber struct {
