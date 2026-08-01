@@ -304,6 +304,250 @@ two
 	}
 }
 
+func TestDownloadSelectedDiscontinuityGroupFiltersMapsKeysAndParts(t *testing.T) {
+	selectedKey := []byte("0123456789abcdef")
+	selectedIV := []byte("selected-iv-1234")
+	encryptedMap := encryptSegment(t, []byte("selected-init"), selectedKey, selectedIV)
+	encryptedMedia := encryptSegment(t, []byte("selected"), selectedKey, selectedIV)
+	var unselectedHits, selectedMapHits, selectedKeyHits, selectedPartHits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/media.m3u8":
+			_, _ = fmt.Fprintf(writer, `#EXTM3U
+#EXT-X-KEY:METHOD=AES-128,URI="unselected.key",IV=0x%s
+#EXT-X-MAP:URI="unselected.init"
+#EXTINF:1,
+unselected.bin
+#EXT-X-DISCONTINUITY
+#EXT-X-KEY:METHOD=AES-128,URI="selected.key",IV=0x%s
+#EXT-X-MAP:URI="selected.init"
+#EXT-X-PART:DURATION=0.5,URI="selected-part.bin"
+#EXTINF:1,
+selected.bin
+#EXT-X-ENDLIST
+`, fmt.Sprintf("%x", selectedIV), fmt.Sprintf("%x", selectedIV))
+		case "/selected.key":
+			selectedKeyHits.Add(1)
+			_, _ = writer.Write(selectedKey)
+		case "/selected.init":
+			selectedMapHits.Add(1)
+			_, _ = writer.Write(encryptedMap)
+		case "/selected.bin":
+			_, _ = writer.Write(encryptedMedia)
+		case "/selected-part.bin":
+			selectedPartHits.Add(1)
+			_, _ = writer.Write([]byte("must-not-download"))
+		case "/unselected.key", "/unselected.init", "/unselected.bin":
+			unselectedHits.Add(1)
+			http.Error(writer, "unselected group fetched", http.StatusInternalServerError)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "selected.bin")
+	selectedGroup := DiscontinuityGroupID{DiscontinuitySequence: 1}
+	_, err := NewDownloader(transport, Config{SelectedDiscontinuityGroup: &selectedGroup}).Download(
+		context.Background(), server.URL+"/media.m3u8", root, destination, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(destination)
+	if err != nil || string(contents) != "selected-initselected" {
+		t.Fatalf("contents=%q err=%v", contents, err)
+	}
+	if unselectedHits.Load() != 0 || selectedMapHits.Load() != 1 || selectedKeyHits.Load() != 1 || selectedPartHits.Load() != 0 {
+		t.Fatalf("unselected=%d selected map=%d key=%d part=%d", unselectedHits.Load(), selectedMapHits.Load(), selectedKeyHits.Load(), selectedPartHits.Load())
+	}
+}
+
+func TestDownloadNilDiscontinuitySelectionPreservesAllGroups(t *testing.T) {
+	var segmentHits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/media.m3u8":
+			_, _ = fmt.Fprint(writer, `#EXTM3U
+#EXTINF:1,
+one.bin
+#EXT-X-DISCONTINUITY
+#EXTINF:1,
+two.bin
+#EXT-X-ENDLIST
+`)
+		case "/one.bin":
+			segmentHits.Add(1)
+			_, _ = writer.Write([]byte("one-"))
+		case "/two.bin":
+			segmentHits.Add(1)
+			_, _ = writer.Write([]byte("two"))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "all-groups.bin")
+	_, err := NewDownloader(transport, Config{SelectedDiscontinuityGroup: nil}).Download(
+		context.Background(), server.URL+"/media.m3u8", root, destination, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(destination)
+	if err != nil || string(contents) != "one-two" || segmentHits.Load() != 2 {
+		t.Fatalf("contents=%q hits=%d err=%v", contents, segmentHits.Load(), err)
+	}
+}
+
+func TestDownloadSelectedDiscontinuityGroupAbsentVODReturnsNoSegments(t *testing.T) {
+	var unselectedHits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/media.m3u8":
+			_, _ = fmt.Fprint(writer, "#EXTM3U\n#EXTINF:1,\nother.bin\n#EXT-X-ENDLIST\n")
+		case "/other.bin":
+			unselectedHits.Add(1)
+			_, _ = writer.Write([]byte("other"))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "absent.bin")
+	selectedGroup := DiscontinuityGroupID{DiscontinuitySequence: 1}
+	_, err := NewDownloader(transport, Config{SelectedDiscontinuityGroup: &selectedGroup}).Download(
+		context.Background(), server.URL+"/media.m3u8", root, destination, false, nil)
+	if !errors.Is(err, fragment.ErrNoSegments) || unselectedHits.Load() != 0 {
+		t.Fatalf("error=%v unselected hits=%d", err, unselectedHits.Load())
+	}
+	if _, statErr := os.Stat(destination); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("destination stat error=%v", statErr)
+	}
+}
+
+func TestDownloadSelectedDiscontinuityGroupAbsentLiveIsBounded(t *testing.T) {
+	var polls, unselectedHits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/live.m3u8":
+			polls.Add(1)
+			_, _ = fmt.Fprint(writer, "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:1\n#EXTINF:1,\nother.bin\n")
+		case "/other.bin":
+			unselectedHits.Add(1)
+			_, _ = writer.Write([]byte("other"))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "absent-live.bin")
+	selectedGroup := DiscontinuityGroupID{DiscontinuitySequence: 1}
+	_, err := NewDownloader(transport, Config{PollInterval: time.Millisecond, MaxPolls: 3, SelectedDiscontinuityGroup: &selectedGroup}).Download(
+		context.Background(), server.URL+"/live.m3u8", root, destination, false, nil)
+	if !errors.Is(err, ErrLivePollLimit) || polls.Load() != 3 || unselectedHits.Load() != 0 {
+		t.Fatalf("error=%v polls=%d unselected hits=%d", err, polls.Load(), unselectedHits.Load())
+	}
+	if _, statErr := os.Stat(destination); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("destination stat error=%v", statErr)
+	}
+}
+
+func TestDownloadSelectedDiscontinuityGroupDoesNotSwitchWhenAbsent(t *testing.T) {
+	var polls, selectedHits, unselectedHits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/live.m3u8":
+			switch polls.Add(1) {
+			case 1:
+				_, _ = fmt.Fprint(writer, "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:1\n#EXTINF:1,\nselected.bin\n")
+			case 2:
+				_, _ = fmt.Fprint(writer, "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:2\n#EXT-X-DISCONTINUITY\n#EXTINF:1,\nunselected.bin\n")
+			default:
+				_, _ = fmt.Fprint(writer, "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:2\n#EXT-X-DISCONTINUITY\n#EXTINF:1,\nunselected.bin\n#EXT-X-ENDLIST\n")
+			}
+		case "/selected.bin":
+			selectedHits.Add(1)
+			_, _ = writer.Write([]byte("selected"))
+		case "/unselected.bin":
+			unselectedHits.Add(1)
+			_, _ = writer.Write([]byte("unselected"))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "stable-selected.bin")
+	selectedGroup := DiscontinuityGroupID{DiscontinuitySequence: 0}
+	_, err := NewDownloader(transport, Config{PollInterval: time.Millisecond, MaxPolls: 4, SelectedDiscontinuityGroup: &selectedGroup}).Download(
+		context.Background(), server.URL+"/live.m3u8", root, destination, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(destination)
+	if err != nil || string(contents) != "selected" || polls.Load() != 3 || selectedHits.Load() != 1 || unselectedHits.Load() != 0 {
+		t.Fatalf("contents=%q err=%v polls=%d selected=%d unselected=%d", contents, err, polls.Load(), selectedHits.Load(), unselectedHits.Load())
+	}
+}
+
+func TestDownloadSelectedDiscontinuityGroupHonorsCancellation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/live.m3u8" {
+			_, _ = fmt.Fprint(writer, "#EXTM3U\n#EXTINF:1,\nother.bin\n")
+			return
+		}
+		http.NotFound(writer, request)
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Millisecond)
+	defer cancel()
+	root := t.TempDir()
+	selectedGroup := DiscontinuityGroupID{DiscontinuitySequence: 1}
+	_, err := NewDownloader(transport, Config{PollInterval: time.Second, SelectedDiscontinuityGroup: &selectedGroup}).Download(
+		ctx, server.URL+"/live.m3u8", root, filepath.Join(root, "cancel-selected.bin"), false, nil)
+	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Download() error=%v context=%v", err, ctx.Err())
+	}
+}
+
+func TestDownloadSelectedDiscontinuityGroupRejectsInconsistentBoundaryState(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/media.m3u8" {
+			_, _ = fmt.Fprint(writer, `#EXTM3U
+#EXT-X-MEDIA-SEQUENCE:1
+#EXTINF:1,
+one.bin
+#EXT-X-DISCONTINUITY
+#EXTINF:1,
+two.bin
+#EXT-X-DISCONTINUITY-SEQUENCE:0
+#EXTINF:1,
+three.bin
+#EXT-X-ENDLIST
+`)
+			return
+		}
+		http.NotFound(writer, request)
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	selectedGroup := DiscontinuityGroupID{DiscontinuitySequence: 0}
+	_, err := NewDownloader(transport, Config{SelectedDiscontinuityGroup: &selectedGroup}).Download(
+		context.Background(), server.URL+"/media.m3u8", root, filepath.Join(root, "malformed.bin"), false, nil)
+	if !errors.Is(err, ErrInvalidDiscontinuityGroups) {
+		t.Fatalf("error=%v", err)
+	}
+}
+
 func TestDownloadLivePreservesInitializationMapRotations(t *testing.T) {
 	var polls, mapAHits atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

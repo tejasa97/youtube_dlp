@@ -43,6 +43,12 @@ type Config struct {
 	RetryBaseDelay      time.Duration
 	RetryMaxDelay       time.Duration
 	URLValidator        func(string) error
+	// SelectedDiscontinuityGroup restricts this downloader to one absolute
+	// EXT-X-DISCONTINUITY-SEQUENCE group. Nil preserves the existing behavior
+	// of accumulating every group in the selected representation. A selected
+	// group that is absent from a live snapshot contributes no segments; the
+	// normal poll/no-segments bounds remain in force.
+	SelectedDiscontinuityGroup *DiscontinuityGroupID
 }
 
 type Downloader struct {
@@ -73,6 +79,10 @@ type keyIdentity struct {
 
 func NewDownloader(transport Transport, config Config) *Downloader {
 	config.Headers = config.Headers.Clone()
+	if config.SelectedDiscontinuityGroup != nil {
+		selected := *config.SelectedDiscontinuityGroup
+		config.SelectedDiscontinuityGroup = &selected
+	}
 	if config.PollInterval <= 0 {
 		config.PollInterval = time.Second
 	}
@@ -84,6 +94,10 @@ func NewDownloader(transport Transport, config Config) *Downloader {
 
 func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputRoot, destination string, overwrite bool, sink events.Sink) (fragment.Result, error) {
 	mediaURL, media, err := downloader.loadMedia(ctx, manifestURL)
+	if err != nil {
+		return fragment.Result{}, err
+	}
+	media, err = selectMediaPlaylistGroup(media, downloader.config.SelectedDiscontinuityGroup)
 	if err != nil {
 		return fragment.Result{}, err
 	}
@@ -169,10 +183,13 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 		if err != nil || parsed.Media == nil {
 			return fragment.Result{}, errors.Join(err, ErrInvalidPlaylist)
 		}
+		media, err = selectMediaPlaylistGroup(parsed.Media, downloader.config.SelectedDiscontinuityGroup)
+		if err != nil {
+			return fragment.Result{}, err
+		}
 		if err := downloader.validatePlaylistURLs(parsed); err != nil {
 			return fragment.Result{}, err
 		}
-		media = parsed.Media
 	}
 
 	keys := make([]segmentKey, 0, len(segments))

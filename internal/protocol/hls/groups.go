@@ -232,6 +232,40 @@ func SelectDiscontinuityGroup(media *MediaPlaylist, id DiscontinuityGroupID) (Di
 	return BuildDiscontinuitySelectionPlan(media, DiscontinuitySelection{GroupID: &id})
 }
 
+// selectMediaPlaylistGroup creates the downloader's filtered view of a media
+// snapshot. It deliberately keeps only segments carrying the requested
+// absolute discontinuity sequence, and drops continuation metadata that could
+// otherwise advance polling from an unselected group. No URI is synthesized or
+// fetched here.
+func selectMediaPlaylistGroup(media *MediaPlaylist, id *DiscontinuityGroupID) (*MediaPlaylist, error) {
+	if media == nil || id == nil {
+		return media, nil
+	}
+	if id.DiscontinuitySequence < 0 {
+		return nil, fmt.Errorf("%w: negative discontinuity sequence %d", ErrInvalidPlaylist, id.DiscontinuitySequence)
+	}
+	if _, err := BuildDiscontinuityGroups(media); err != nil {
+		return nil, err
+	}
+
+	filtered := *media
+	filtered.Segments = make([]Segment, 0, len(media.Segments))
+	for _, segment := range media.Segments {
+		if segment.DiscontinuitySequence == id.DiscontinuitySequence {
+			filtered.Segments = append(filtered.Segments, cloneSegment(segment))
+		}
+	}
+	if len(filtered.Segments) > 0 {
+		// Treat the filtered view as the selected group's absolute epoch for
+		// live reset detection. This prevents an older unselected group sliding
+		// out of the full playlist from resetting selected-group state.
+		filtered.DiscontinuitySequence = id.DiscontinuitySequence
+	}
+	filtered.PreloadHint = nil
+	filtered.RenditionReports = nil
+	return &filtered, nil
+}
+
 type groupPartIdentity struct {
 	sequence int64
 	part     int
