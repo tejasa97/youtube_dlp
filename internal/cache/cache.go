@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 )
@@ -58,20 +59,33 @@ func (options Options) withDefaults() Options {
 
 // Store is rooted at a private cache directory.
 type Store struct {
-	root      string
-	options   Options
-	writeGate chan struct{}
+	root        string
+	options     Options
+	writeGate   chan struct{}
+	rootLock    *os.File
+	rootLockErr error
 }
+
+var cacheRootGates sync.Map
 
 // Open validates or creates root without following a root symlink.
 func Open(root string, options Options) (*Store, error) {
 	if root == "" || strings.IndexByte(root, 0) >= 0 || filepath.Clean(root) != root {
 		return nil, ErrUnsafePath
 	}
-	if err := secureDirectory(root); err != nil {
+	absolute, err := filepath.Abs(root)
+	if err != nil {
+		return nil, ErrUnsafePath
+	}
+	gate := cacheRootGate(absolute)
+	if err := acquireCacheRootGate(context.Background(), gate); err != nil {
 		return nil, err
 	}
-	return &Store{root: root, options: options.withDefaults(), writeGate: make(chan struct{}, 1)}, nil
+	defer releaseCacheRootGate(gate)
+	if err := secureDirectory(absolute); err != nil {
+		return nil, err
+	}
+	return &Store{root: absolute, options: options.withDefaults(), writeGate: gate}, nil
 }
 
 // Store atomically writes a value. A non-positive TTL means no expiry.
@@ -202,6 +216,10 @@ func (store *Store) Lookup(ctx context.Context, namespace, key string) ([]byte, 
 	if err := ctx.Err(); err != nil {
 		return nil, false, err
 	}
+	if err := store.acquireWrite(ctx); err != nil {
+		return nil, false, err
+	}
+	defer store.releaseWrite()
 	path, _, err := store.path(namespace, key, false)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -336,82 +354,13 @@ func (store *Store) RemoveAll(ctx context.Context) error {
 		return err
 	}
 	defer store.releaseWrite()
-	if err := secureExistingDirectory(store.root); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		return err
-	}
-	entries, err := os.ReadDir(store.root)
-	if err != nil {
-		return fmt.Errorf("%w: list cache root", ErrIO)
-	}
-	for _, entry := range entries {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		path := filepath.Join(store.root, entry.Name())
-		info, err := os.Lstat(path)
-		if err != nil {
-			return fmt.Errorf("%w: inspect cache root entry", ErrIO)
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return ErrUnsafePath
-		}
-		if info.IsDir() {
-			if !validNamespace(entry.Name()) {
-				return ErrUnsafePath
-			}
-			if err := store.removeNamespaceLocked(ctx, entry.Name()); err != nil {
-				return err
-			}
-			continue
-		}
-		if !info.Mode().IsRegular() || !strings.HasPrefix(entry.Name(), ".cache-") {
-			return ErrUnsafePath
-		}
-		if err := os.Remove(path); err != nil {
-			return fmt.Errorf("%w: remove temporary cache entry", ErrIO)
-		}
-	}
-	if err := os.Remove(store.root); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("%w: remove cache root", ErrIO)
-	}
-	return nil
-}
-
-func (store *Store) removeNamespaceLocked(ctx context.Context, namespace string) error {
-	directory, err := store.namespacePath(namespace, false)
-	if errors.Is(err, os.ErrNotExist) {
+	if errors.Is(store.rootLockErr, os.ErrNotExist) {
 		return nil
 	}
-	if err != nil {
-		return err
+	if store.rootLock == nil {
+		return store.rootLockErr
 	}
-	entries, err := os.ReadDir(directory)
-	if err != nil {
-		return fmt.Errorf("%w: list namespace", ErrIO)
-	}
-	for _, entry := range entries {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if !validEntryFilename(entry.Name()) {
-			return ErrUnsafePath
-		}
-		path := filepath.Join(directory, entry.Name())
-		info, err := os.Lstat(path)
-		if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-			return ErrUnsafePath
-		}
-		if err := os.Remove(path); err != nil {
-			return fmt.Errorf("%w: remove cache entry", ErrIO)
-		}
-	}
-	if err := os.Remove(directory); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("%w: remove namespace", ErrIO)
-	}
-	return nil
+	return removeRootLocked(ctx, store.root, store.rootLock)
 }
 
 // RemoveRoot opens no files and never creates the configured path. The root
@@ -441,17 +390,38 @@ func RemoveRoot(ctx context.Context, root string) error {
 	if !strings.Contains(base, "cache") && !strings.Contains(parent, "cache") {
 		return ErrUnsafePath
 	}
-	info, err := os.Lstat(absolute)
+	gate := cacheRootGate(absolute)
+	if err := acquireCacheRootGate(ctx, gate); err != nil {
+		return err
+	}
+	defer releaseCacheRootGate(gate)
+	lock, err := lockCacheRoot(ctx, absolute)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("%w: inspect cache root", ErrIO)
+		return err
 	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		return ErrUnsafePath
+	defer unlockCacheRoot(lock)
+	return removeRootLocked(ctx, absolute, lock)
+}
+
+func cacheRootGate(root string) chan struct{} {
+	gate, _ := cacheRootGates.LoadOrStore(root, make(chan struct{}, 1))
+	return gate.(chan struct{})
+}
+
+func acquireCacheRootGate(ctx context.Context, gate chan struct{}) error {
+	select {
+	case gate <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
-	return (&Store{root: absolute, options: (Options{}).withDefaults(), writeGate: make(chan struct{}, 1)}).RemoveAll(ctx)
+}
+
+func releaseCacheRootGate(gate chan struct{}) {
+	<-gate
 }
 
 func validEntryFilename(name string) bool {
@@ -459,19 +429,30 @@ func validEntryFilename(name string) bool {
 }
 
 func (store *Store) acquireWrite(ctx context.Context) error {
-	if err := ctx.Err(); err != nil {
+	if err := acquireCacheRootGate(ctx, store.writeGate); err != nil {
 		return err
 	}
-	select {
-	case store.writeGate <- struct{}{}:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
+	lock, err := lockCacheRoot(ctx, store.root)
+	if errors.Is(err, os.ErrNotExist) {
+		store.rootLockErr = err
+		releaseCacheRootGate(store.writeGate)
+		return err
 	}
+	if err != nil {
+		store.rootLockErr = err
+		releaseCacheRootGate(store.writeGate)
+		return err
+	}
+	store.rootLock = lock
+	store.rootLockErr = nil
+	return nil
 }
 
 func (store *Store) releaseWrite() {
-	<-store.writeGate
+	unlockCacheRoot(store.rootLock)
+	store.rootLock = nil
+	store.rootLockErr = nil
+	releaseCacheRootGate(store.writeGate)
 }
 
 func readHeader(reader *bufio.Reader) (expires int64, length int64, digest [sha256.Size]byte, err error) {

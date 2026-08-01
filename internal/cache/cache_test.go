@@ -277,6 +277,9 @@ func TestCacheCancellationRemovalAndSecretSafeErrors(t *testing.T) {
 }
 
 func TestRemoveRootIsConfinedAtomicAndCancellationAware(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("descriptor-bounded cache cleanup is deliberately unsupported on Windows")
+	}
 	root := filepath.Join(t.TempDir(), "cache")
 	store, err := Open(root, Options{})
 	if err != nil {
@@ -328,6 +331,30 @@ func TestRemoveRootIsConfinedAtomicAndCancellationAware(t *testing.T) {
 		}
 	} else if runtime.GOOS != "windows" {
 		t.Fatal(err)
+	}
+}
+
+func TestRemoveRootRejectsUnknownRootLevelTemporaryFile(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "cache")
+	store, err := Open(root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Store(context.Background(), "test", "one", []byte("value"), 0); err != nil {
+		t.Fatal(err)
+	}
+	unknown := filepath.Join(root, ".cache-unknown")
+	if err := os.WriteFile(unknown, []byte("preserve"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveRoot(context.Background(), root); !errors.Is(err, ErrUnsafePath) {
+		t.Fatalf("RemoveRoot = %v", err)
+	}
+	if _, err := os.Stat(unknown); err != nil {
+		t.Fatalf("unknown root-level file was removed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "test")); err != nil {
+		t.Fatalf("known namespace was partially removed: %v", err)
 	}
 }
 
