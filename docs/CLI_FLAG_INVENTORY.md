@@ -115,7 +115,7 @@
 | `--metadata-from-title` | defer | Legacy metadata extraction |
 | `--parse-metadata` | present | `flags.Var(metadataParseFlag{...}, "parse-metadata", ...)` |
 | `--replace-in-metadata` | present | `flags.Var(metadataReplaceFlag{...}, "replace-in-metadata", ...)` |
-| `--xattrs` / `--xattr` | defer | Extended attributes |
+| `--xattrs` / `--xattr` | present | Bounded typed metadata mapping with platform capability checks, symlink confinement, and rollback |
 | `--concat-playlist` | present | Closed `never`/`always`/`multi_video` policy with typed compatibility checks and atomic `pl_video:` output |
 | `--fixup` | present | Closed policy values `never`, `ignore`, `warn`, `detect_or_warn`, `force`; detection calls only typed ffmpeg fixups |
 | `--ffmpeg-location` | **present** | `Request.Filesystem.FfmpegLocation` + ffmpeg discovery propagation |

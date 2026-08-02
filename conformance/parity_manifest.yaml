@@ -2528,6 +2528,15 @@ capabilities:
       - pkg/ytdlp.TestConcatPlaylistRejectsSymlinkedOutputRoot
       - pkg/ytdlp.TestConcatPlaylistPolicyValidationIsClosed
       - internal/cli.TestRunConcatPlaylistPolicyAndOutputTypePlumbing
+      - pkg/ytdlp.TestProductXattrsWritesBoundedMetadataMapping
+      - pkg/ytdlp.TestProductXattrsCancellationRestoresDestinationAndArchive
+      - pkg/ytdlp.TestXattrsRejectsBoundedValueAndSymlinkPath
+      - pkg/ytdlp.TestXattrsPartialWriteFailureRestoresMappedValues
+      - pkg/ytdlp.TestXattrsCancellationBetweenWritesRestoresMappedValues
+      - pkg/ytdlp.TestXattrsRollbackFailureIsReported
+      - internal/platform/xattrs.TestUnixXattrsRoundTripOrFilesystemUnsupported
+      - internal/platform/xattrs.TestWindowsXattrsFailClosed
+      - pkg/ytdlp.TestProductXattrsUnsupportedIsPubliclyCategorized
       - pkg/ytdlp.TestCanonicalEmbeddedMetadataUsesPinnedPrecedenceAndBounds
       - pkg/ytdlp.TestCanonicalEmbeddedChaptersValidatesTimeline
       - pkg/ytdlp.TestProductEmbedsSelectedSubtitleTracksAndAppliesRetention
@@ -2547,7 +2556,7 @@ capabilities:
       - conformance/media/postprocess/PROVENANCE.md
       - docs/YOUTUBE_SUBTITLE_EMBEDDING_EVIDENCE.md
     owner: media
-    known_deviation: SponsorBlock, ordinary chapter-regex, and manual range mutation use the separate transactional chapter-removal capability. Windows refuses unsafe atomic overwrite and currently terminates only the direct child process; Unix process-group cancellation is covered. Recode is intentionally limited to pinned target mappings with ffmpeg-selected codecs. Automatic metadata/chapter embedding is limited to canonical common fields and an explicit container matrix; embedded info-json is independently supported only as a cleaned, bounded attachment in mkv/mka.
+    known_deviation: SponsorBlock, ordinary chapter-regex, and manual range mutation use the separate transactional chapter-removal capability. Windows refuses unsafe atomic overwrite and currently terminates only the direct child process; Unix process-group cancellation is covered. Recode is intentionally limited to pinned target mappings with ffmpeg-selected codecs. Automatic metadata/chapter embedding is limited to canonical common fields and an explicit container matrix; embedded info-json is independently supported only as a cleaned, bounded attachment in mkv/mka. Xattrs use the fixed per-entry final-media mapping and do not claim chapter artifacts or the later playlist concat result.
 
   - id: postprocess.chapter_removal
     name: Ordinary chapter and manual range removal

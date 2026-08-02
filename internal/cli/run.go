@@ -808,6 +808,8 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 		return nil
 	})
 	concatPlaylist := flags.String("concat-playlist", "multi_video", "concatenate compatible playlist media: never, always, or multi_video")
+	xattrs := flags.Bool("xattrs", false, "write bounded metadata to media extended attributes")
+	flags.BoolVar(xattrs, "xattr", false, "alias for --xattrs")
 	writeSubtitles := flags.Bool("write-subs", false, "write manual subtitle sidecar files")
 	flags.BoolVar(writeSubtitles, "write-srt", false, "alias for --write-subs")
 	flags.BoolFunc("no-write-subs", "disable writing manual subtitles", func(string) error {
@@ -1192,6 +1194,7 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 			FixupPolicy:            *fixupPolicy,
 			SplitChapters:          *splitChapters,
 			ConcatPlaylist:         *concatPlaylist,
+			Xattrs:                 *xattrs,
 			Subtitles:              requestSubtitles,
 			Thumbnails: ytdlp.ThumbnailOptions{
 				Write:    thumbnailMode == thumbnailModeBest || *embedThumbnail,
