@@ -97,3 +97,11 @@ snapshot retains exact ordered Period IDs, timing, and selected representation
 IDs. Dynamic multi-period SegmentBase/SIDX, unfragmented multi-period
 resources, and sets without one compatible signature across every period fail
 closed. This is documented in `docs/DASH_MULTI_PERIOD_EVIDENCE.md`.
+
+Product integration is covered by local scripted HTTP fixtures in
+`pkg/ytdlp/adaptive_streaming_resilience_product_test.go` and
+`internal/cli/adaptive_streaming_flags_test.go`. Dynamic MPDs allow by default;
+the explicit deny aliases map `ErrDynamicMPDUnsupported` to the unsupported
+product category before any output is published. Dynamic multi-period
+SegmentBase/SIDX remains a fail-closed boundary rather than a claimed parity
+acceptance path.

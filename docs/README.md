@@ -36,6 +36,7 @@ The executable help is the authoritative CLI option list:
 - [Compatibility languages](P2_COMPAT_LANGUAGES.md)
 - [Format selector parity](FORMAT_SELECTOR_PARITY.md)
 - [Downloader and protocols](P2_DOWNLOADER_PROTOCOLS.md)
+- [Adaptive streaming resilience v2](ADAPTIVE_STREAMING_RESILIENCE_EVIDENCE.md)
 - [HLS attributed ad-fragment suppression evidence](HLS_AD_FRAGMENT_SUPPRESSION_EVIDENCE.md)
 - [Post-processing](P2_POSTPROCESSING.md)
 - [Fallback inventory](P2_FALLBACK_INVENTORY.md)

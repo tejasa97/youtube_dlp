@@ -684,6 +684,10 @@ capabilities:
       - pkg/ytdlp.TestHLSDelegatesEligibleSampleAESToFFmpegFallback
       - pkg/ytdlp.TestHLSNeverDelegatesDRMOrUnknownEncryption
       - pkg/ytdlp.TestHLSFallbackUnavailableAndCancellationAreCategorized
+      - pkg/ytdlp.TestProductHLSSplitDiscontinuitySelectsOnlySelectedRepresentation
+      - pkg/ytdlp.TestProductHLSSplitDiscontinuityRejectsMergedHLSRepresentations
+      - pkg/ytdlp.TestProductHLSSplitDiscontinuityRollbackArchiveAndRedactedProgress
+      - internal/cli.TestAdaptiveStreamingCLIFlagsAndNegativeAliases
       - internal/cli.TestRunHLSProtocolDispatch
       - conformance/media/llhls/PROVENANCE.md
       - conformance/media/hls_aes/PROVENANCE.md
@@ -691,6 +695,7 @@ capabilities:
       - conformance/media/hls_closure/PROVENANCE.md
       - docs/HLS_AD_FRAGMENT_SUPPRESSION_EVIDENCE.md
       - docs/HLS_PROTOCOL_CLOSURE_EVIDENCE.md
+      - docs/ADAPTIVE_STREAMING_RESILIENCE_EVIDENCE.md
     owner: io
     known_deviation: Product format dispatch includes bounded low-latency parts, delta skips, blocked-reload delivery directives, retained rendition-report metadata, AES-128 media and initialization-map decryption, guarded ffmpeg delegation for clear-key identity SAMPLE-AES, exact attributed Anvato/Uplynk ad-fragment suppression, conservative exact-case EXT-X-CUE-{OUT,OUT-CONT,IN} marker state, and validated EXT-X-DATERANGE SCTE-35 directional payloads. Preload hints are continuation metadata and are never speculatively fetched; rendition reports never trigger implicit rendition switching. Marker state restarts for each playlist snapshot unless a new snapshot carries OUT-CONT or a validated DATERANGE signal mid-break. Interstitial asset lists, URI heuristics, generic CLASS strings, and markerless server-side insertion are not guessed. Stream epoch plus discontinuity and media sequence identities are retained across ads/live resets for de-duplication and implicit media-segment AES IVs; encrypted initialization maps require explicit IVs. SAMPLE-AES-CTR, DRM/unknown key delivery, process-visible authenticated headers, and native SAMPLE-AES fragment resume/concurrency/ad suppression remain unsupported.
 
@@ -821,6 +826,8 @@ capabilities:
       - internal/protocol/dash.FuzzDynamicSIDXRollingWindowMerge
       - internal/protocol/dash.TestDownloadSeparateAudioVideoTracks
       - internal/protocol/dash.TestDownloadDynamicMPDPollsAndDeduplicates
+      - pkg/ytdlp.TestProductDASHDynamicMPDPolicyCategories
+      - internal/cli.TestAdaptiveStreamingCLIFlagsAndNegativeAliases
       - internal/protocol/dash.TestDownloadDynamicUsesManifestPollIntervalAndCancels
       - internal/protocol/dash.TestDownloadDynamicDoesNotCollideSameRepresentationID
       - internal/protocol/dash.TestParseMultiPeriodFixture
@@ -845,6 +852,7 @@ capabilities:
       - pkg/ytdlp.TestClientDASHMultiPeriodDispatchAndFixup
       - pkg/ytdlp.TestDASHDownloadLiveOptionsEnableDynamicSIDXPolling
       - conformance/media/dash/PROVENANCE.md
+      - docs/ADAPTIVE_STREAMING_RESILIENCE_EVIDENCE.md
       - conformance/media/dash/sidx_rolling_window.mpd
       - conformance/media/dash/sidx_rolling_window.expected.json
       - docs/DASH_SIDX_EVIDENCE.md

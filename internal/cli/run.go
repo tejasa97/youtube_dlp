@@ -453,6 +453,33 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	})
 	format := flags.String("format", "", "format selector expression")
 	flags.StringVar(format, "f", "", "alias for --format")
+	hlsSplitDiscontinuity := false
+	setHLSSplitDiscontinuity := func(enabled bool) func(string) error {
+		return func(input string) error {
+			value, err := strconv.ParseBool(input)
+			if err != nil {
+				return err
+			}
+			hlsSplitDiscontinuity = enabled == value
+			return nil
+		}
+	}
+	flags.BoolFunc("hls-split-discontinuity", "select the first eligible HLS discontinuity group after format selection", setHLSSplitDiscontinuity(true))
+	flags.BoolFunc("no-hls-split-discontinuity", "do not select an HLS discontinuity group (default)", setHLSSplitDiscontinuity(false))
+	dynamicMPDAllowed := true
+	setDynamicMPDAllowed := func(enabled bool) func(string) error {
+		return func(input string) error {
+			value, err := strconv.ParseBool(input)
+			if err != nil {
+				return err
+			}
+			dynamicMPDAllowed = enabled == value
+			return nil
+		}
+	}
+	flags.BoolFunc("allow-dynamic-mpd", "allow dynamic DASH MPDs (default)", setDynamicMPDAllowed(true))
+	flags.BoolFunc("no-allow-dynamic-mpd", "reject dynamic DASH MPDs as unsupported", setDynamicMPDAllowed(false))
+	flags.BoolFunc("ignore-dynamic-mpd", "alias for --no-allow-dynamic-mpd", setDynamicMPDAllowed(false))
 	var formatSort formatSortFlag
 	var matchFilters, breakMatchFilters stringListFlag
 	var metadataActions metadataActionFlag
@@ -1080,7 +1107,8 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 			DownloadArchive: *downloadArchive, ForceWriteArchive: forceWriteArchive, CacheDir: *cacheDir,
 			Timeout: *timeout, Overwrite: *overwrite, KeepVideo: *keepVideo, PostOverwrites: &postOverwrites,
 			Simulate: requestSimulate, SkipDownload: *skipDownload, LiveFromStart: *liveFromStart,
-			Format: *format, FormatSort: append([]string(nil), formatSort...), FormatSortForce: formatSortForce,
+			Format: *format, HLSSplitDiscontinuity: hlsSplitDiscontinuity,
+			FormatSort: append([]string(nil), formatSort...), FormatSortForce: formatSortForce,
 			PreferFreeFormats: preferFreeFormats, AllowUnplayableFormats: allowUnplayable,
 			AllowMultipleVideoStreams: allowMultipleVideoStreams, AllowMultipleAudioStreams: allowMultipleAudioStreams,
 			CheckFormats: checkFormats, MergeOutputFormat: *mergeOutputFormat,
@@ -1132,7 +1160,8 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 				Disabled:    noPlaylist,
 				ErrorPolicy: playlistErrorPolicy, MaxFailures: *playlistMaxFailures,
 			},
-			Downloader: downloaderOptions, ExtractorRetries: *extractorRetries, Postprocessors: postprocessors,
+			Downloader: downloaderOptions, DenyDynamicMPD: !dynamicMPDAllowed,
+			ExtractorRetries: *extractorRetries, Postprocessors: postprocessors,
 		}
 	}
 	var firstErr, terminalErr error

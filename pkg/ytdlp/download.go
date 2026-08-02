@@ -292,6 +292,17 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 			return "", 0, err
 		}
 	}
+	var hlsGroup *hls.DiscontinuityGroupID
+	if selected.Protocol == "m3u8_native" {
+		group, explicit, groupErr := hlsDiscontinuityGroupFromSelection(selected)
+		if groupErr != nil {
+			return "", 0, groupErr
+		}
+		if explicit {
+			hlsGroup = &group
+			sink = hlsDiscontinuityProgressSink{sink: sink, sequence: group.DiscontinuitySequence}
+		}
+	}
 	if selected.YouTubeLiveFromStart {
 		if options.External != nil {
 			return "", 0, fmt.Errorf("%w: external downloaders cannot consume generated YouTube live fragments", extractor.ErrUnsupported)
@@ -390,7 +401,7 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 			FragmentConcurrency: options.FragmentConcurrency, PerHostConcurrency: options.PerHostFragmentConcurrency,
 			MaxSegments: options.MaxSegments, MaxSegmentSize: options.MaxSegmentBytes, Attempts: options.Attempts,
 			RetryBaseDelay: options.RetryBaseDelay, RetryMaxDelay: options.RetryMaxDelay,
-			URLValidator: assetValidator,
+			URLValidator: assetValidator, SelectedDiscontinuityGroup: hlsGroup,
 		}).Download(ctx, selected.URL, outputRoot, destination, operation.request.Overwrite, sink)
 		if err != nil {
 			if selected.CredentialIsolated {
@@ -442,8 +453,13 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 		}
 		return result.Path, result.Bytes, nil
 	case "http_dash_segments":
+		dynamicPolicy := dash.DynamicMPDPolicyDefaultAllow
+		if operation.request.DenyDynamicMPD {
+			dynamicPolicy = dash.DynamicMPDPolicyDeny
+		}
 		result, err := dash.NewDownloader(mediaTransport.(dash.Transport), dash.Config{
 			Headers:             selected.Headers,
+			DynamicMPDPolicy:    dynamicPolicy,
 			DynamicPolls:        options.LiveMaxPolls,
 			PollInterval:        options.LivePollInterval,
 			FragmentConcurrency: options.FragmentConcurrency, PerHostConcurrency: options.PerHostFragmentConcurrency,
