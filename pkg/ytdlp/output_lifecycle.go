@@ -587,6 +587,12 @@ func (operation *operation) executePlanLifecycle(
 		return fail(categorized("embed thumbnail", err))
 	}
 	registerArtifacts(result.Artifacts)
+	chapterArtifacts, err := operation.splitChapters(ctx, lifecycle.Info, lifecycle.MediaPath, sink)
+	if err != nil {
+		return fail(categorized("split chapters", err))
+	}
+	registerArtifacts(chapterArtifacts)
+	result.Artifacts = append(result.Artifacts, chapterArtifacts...)
 
 	// Apply the media timestamp only after every media-mutating postprocessor
 	// has completed. This is deliberately per lifecycle so multi-output runs

@@ -256,6 +256,10 @@ type Request struct {
 	// ffmpeg fixup operations. The zero value disables automatic fixup; the CLI
 	// supplies detect_or_warn for parity with yt-dlp's default.
 	FixupPolicy string
+	// SplitChapters writes one media artifact per bounded internal chapter. The
+	// original media remains the primary result and is retained in the archive
+	// identity exactly once.
+	SplitChapters bool
 	Downloader  DownloaderOptions
 	// DenyDynamicMPD maps the product's --no-allow-dynamic-mpd policy to the
 	// DASH protocol boundary. The zero value intentionally allows dynamic MPDs.

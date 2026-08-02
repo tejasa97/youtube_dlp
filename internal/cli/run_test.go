@@ -1822,6 +1822,14 @@ func TestRunMetadataAndChapterEmbeddingFlags(t *testing.T) {
 	if request.EmbedInfoJSON == nil || *request.EmbedInfoJSON {
 		t.Fatalf("info-json clear request=%+v", request)
 	}
+	request = captureCLIRequest(t, "--split-chapters")
+	if !request.SplitChapters {
+		t.Fatalf("split chapters request=%+v", request)
+	}
+	request = captureCLIRequest(t, "--split-chapters", "--no-split-chapters")
+	if request.SplitChapters {
+		t.Fatalf("split chapters clear request=%+v", request)
+	}
 }
 
 func TestRunFixupPolicyPlumbing(t *testing.T) {

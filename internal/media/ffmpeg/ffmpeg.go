@@ -121,6 +121,17 @@ type Chapter struct {
 	Title string
 }
 
+// ChapterOutput describes one bounded chapter extraction. It is deliberately
+// a value type so callers cannot smuggle arbitrary ffmpeg arguments into the
+// split operation.
+type ChapterOutput struct {
+	Number int
+	Start  time.Duration
+	End    time.Duration
+	Title  string
+	Path   string
+}
+
 type Fixup string
 
 const (
@@ -486,6 +497,176 @@ func writeInfoJSONAttachment(destination string, payload []byte) (string, error)
 		return "", fmt.Errorf("%w: write info-json attachment: %v", ErrMediaFailure, err)
 	}
 	return path, nil
+}
+
+// SplitChapters extracts all chapter outputs into a private staging area and
+// publishes them only after every ffmpeg invocation succeeds. A failure or
+// cancellation therefore leaves no partial chapter set.
+func (tools *Toolset) SplitChapters(ctx context.Context, inputPath string, outputs []ChapterOutput, overwrite bool, sink events.Sink) error {
+	if len(outputs) == 0 || len(outputs) > maxChapters {
+		return fmt.Errorf("%w: chapter output count", ErrInvalidOperation)
+	}
+	if err := regularMediaInput(inputPath); err != nil {
+		return err
+	}
+	seen := make(map[string]struct{}, len(outputs))
+	for index, output := range outputs {
+		if output.Number != index+1 || output.Start < 0 || output.End <= output.Start ||
+			output.End-output.Start > 24*time.Hour || strings.ContainsAny(output.Title, "\x00\r\n") || len(output.Title) > 8192 {
+			return fmt.Errorf("%w: invalid chapter output %d", ErrInvalidOperation, index+1)
+		}
+		if err := validateLocalRegularDestination(output.Path, overwrite); err != nil {
+			return err
+		}
+		key := filepath.ToSlash(filepath.Clean(output.Path))
+		key = strings.ToLower(key)
+		if _, exists := seen[key]; exists {
+			return fmt.Errorf("%w: duplicate chapter destination", ErrInvalidOperation)
+		}
+		seen[key] = struct{}{}
+	}
+	type stagedOutput struct {
+		path, staged, directory, backup string
+		published                       bool
+	}
+	staged := make([]stagedOutput, 0, len(outputs))
+	createdDirectories := make([]string, 0, len(outputs))
+	committed := false
+	defer func() {
+		if committed {
+			return
+		}
+		for _, output := range staged {
+			if output.published {
+				_ = os.Remove(output.path)
+			}
+			if output.directory != "" {
+				_ = os.RemoveAll(output.directory)
+			}
+			if output.backup != "" {
+				_ = os.Rename(output.backup, output.path)
+			}
+		}
+		for index := len(createdDirectories) - 1; index >= 0; index-- {
+			_ = os.Remove(createdDirectories[index])
+		}
+	}()
+	for _, output := range outputs {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		parent := filepath.Dir(output.Path)
+		missingParents := make([]string, 0, 2)
+		for current := parent; ; current = filepath.Dir(current) {
+			_, statErr := os.Lstat(current)
+			if statErr == nil {
+				break
+			}
+			if !errors.Is(statErr, os.ErrNotExist) {
+				return fmt.Errorf("%w: inspect chapter directory: %v", ErrMediaFailure, statErr)
+			}
+			missingParents = append([]string{current}, missingParents...)
+			next := filepath.Dir(current)
+			if next == current {
+				break
+			}
+		}
+		if len(missingParents) > 0 {
+			if err := os.MkdirAll(parent, 0o755); err != nil {
+				return fmt.Errorf("%w: create chapter directory: %v", ErrMediaFailure, err)
+			}
+			createdDirectories = append(createdDirectories, missingParents...)
+		}
+		directory, err := os.MkdirTemp(filepath.Dir(output.Path), ".ytdlp-chapters-")
+		if err != nil {
+			return fmt.Errorf("%w: stage chapter: %v", ErrMediaFailure, err)
+		}
+		stagedPath := filepath.Join(directory, "chapter"+filepath.Ext(output.Path))
+		if err := tools.runAtomic(ctx, stagedPath, false, sink, func(temporary string) []string {
+			return []string{"-ss", formatChapterSeconds(output.Start), "-t", formatChapterSeconds(output.End - output.Start), "-i", inputPath, "-map", "0", "-c", "copy", "-progress", "pipe:1", "-nostats", temporary}
+		}); err != nil {
+			_ = os.RemoveAll(directory)
+			return err
+		}
+		backup := ""
+		if overwrite {
+			if _, statErr := os.Lstat(output.Path); statErr == nil {
+				backup, err = reserveSplitBackup(output.Path)
+				if err != nil {
+					_ = os.RemoveAll(directory)
+					return err
+				}
+				if err := os.Rename(output.Path, backup); err != nil {
+					_ = os.RemoveAll(directory)
+					return err
+				}
+			}
+		}
+		staged = append(staged, stagedOutput{path: output.Path, staged: stagedPath, directory: directory, backup: backup})
+	}
+	for index := range staged {
+		if err := os.MkdirAll(filepath.Dir(staged[index].path), 0o755); err != nil {
+			return err
+		}
+		if err := os.Rename(staged[index].staged, staged[index].path); err != nil {
+			return err
+		}
+		_ = os.RemoveAll(staged[index].directory)
+		staged[index].staged = ""
+		staged[index].directory = ""
+		staged[index].published = true
+	}
+	for index := range staged {
+		if staged[index].backup != "" {
+			_ = os.Remove(staged[index].backup)
+			staged[index].backup = ""
+		}
+	}
+	committed = true
+	return nil
+}
+
+func reserveSplitBackup(path string) (string, error) {
+	file, err := os.CreateTemp(filepath.Dir(path), ".ytdlp-split-backup-*")
+	if err != nil {
+		return "", fmt.Errorf("%w: reserve split backup: %v", ErrMediaFailure, err)
+	}
+	name := file.Name()
+	if err := file.Close(); err != nil {
+		_ = os.Remove(name)
+		return "", err
+	}
+	if err := os.Remove(name); err != nil {
+		return "", err
+	}
+	return name, nil
+}
+
+func validateLocalRegularDestination(path string, overwrite bool) error {
+	if path == "" || strings.ContainsAny(path, "\r\n\x00") || strings.Contains(path, "://") {
+		return fmt.Errorf("%w: unsafe destination", ErrInvalidOperation)
+	}
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("%w: inspect destination: %v", ErrMediaFailure, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return fmt.Errorf("%w: destination is not a regular file", ErrInvalidOperation)
+	}
+	if !overwrite {
+		return fmt.Errorf("%w: %s", ErrDestinationExists, path)
+	}
+	if runtime.GOOS == "windows" {
+		return fmt.Errorf("%w: atomic overwrite unavailable on Windows", ErrDestinationExists)
+	}
+	return nil
+}
+
+func formatChapterSeconds(duration time.Duration) string {
+	return strconv.FormatFloat(duration.Seconds(), 'f', 6, 64)
 }
 
 // EmbedThumbnail attaches an image as an attached picture without exposing a

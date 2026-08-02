@@ -23,18 +23,19 @@ const (
 	OutputTemplatePLDescription OutputTemplateType = "pl_description"
 	OutputTemplatePLInfoJSON    OutputTemplateType = "pl_infojson"
 	OutputTemplatePLThumbnail   OutputTemplateType = "pl_thumbnail"
+	OutputTemplateChapter       OutputTemplateType = "chapter"
 )
 
 var orderedOutputTemplateTypes = []OutputTemplateType{
 	OutputTemplateDefault, OutputTemplateSubtitle, OutputTemplateThumbnail, OutputTemplateDescription,
 	OutputTemplateInfoJSON, OutputTemplateLink, OutputTemplatePLDescription,
-	OutputTemplatePLInfoJSON, OutputTemplatePLThumbnail,
+	OutputTemplatePLInfoJSON, OutputTemplatePLThumbnail, OutputTemplateChapter,
 }
 
 var supportedOutputTemplateTypes = map[OutputTemplateType]struct{}{
 	OutputTemplateDefault: {}, OutputTemplateSubtitle: {}, OutputTemplateThumbnail: {}, OutputTemplateDescription: {},
 	OutputTemplateInfoJSON: {}, OutputTemplateLink: {}, OutputTemplatePLDescription: {},
-	OutputTemplatePLInfoJSON: {}, OutputTemplatePLThumbnail: {},
+	OutputTemplatePLInfoJSON: {}, OutputTemplatePLThumbnail: {}, OutputTemplateChapter: {},
 }
 
 // OutputTemplates maps an artifact type to its filename template. A missing
@@ -44,6 +45,9 @@ type OutputTemplates map[OutputTemplateType]string
 func (request Request) outputTemplate(templateType OutputTemplateType) string {
 	if pattern := request.OutputTemplates[templateType]; pattern != "" {
 		return pattern
+	}
+	if templateType == OutputTemplateChapter {
+		return "%(title)s-%(section_number)03d-%(section_title)s.%(ext)s"
 	}
 	if pattern := request.OutputTemplates[OutputTemplateDefault]; pattern != "" {
 		return pattern
