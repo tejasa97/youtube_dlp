@@ -11,11 +11,12 @@ ratio.
 
 Single-video extraction now emits, when attributable and valid:
 
-- `channel` and `channel_url` derived from the player response channel ID;
+- `channel` and `channel_url` derived from the player response channel ID
+  (channel URL requires the exact public UCID grammar);
 - `uploader_id`/`uploader_url` derived from a strictly validated
   `microformat.ownerProfileUrl` handle (`https://www.youtube.com/@handle`,
-  exact path, Unicode-aware handle grammar, no userinfo/ports/encoded
-  paths/query/fragment);
+  exact path, shared Unicode-aware `@[\w.-]{3,30}` grammar, no userinfo/ports/
+  encoded paths/query/fragment);
 - `upload_date`, plus `timestamp` only when the microformat `uploadDate`
   carries time and timezone (RFC 3339); a bare `YYYY-MM-DD` yields the date
   only, and malformed or over-budget values are omitted;
@@ -31,15 +32,21 @@ Single-video extraction now emits, when attributable and valid:
   attributable `og:image`/`twitter:image` (og:image wins, entities unescaped,
   hostile URLs rejected, scan bounded to the page head region), then the
   deterministic `i.ytimg.com` JPG/WebP ladder with the pinned preference
-  formula and first-occurrence URL deduplication; `thumbnail` remains the best
-  known original thumbnail;
+  formula and first-occurrence URL deduplication; the ladder is always
+  complete (originals are capped separately below the overall bound), and
+  `thumbnail` is the best original selected with the pinned `_sort_thumbnails`
+  ordering (preference, width, height, id, url ascending), so an `og:image`
+  never wins merely by being appended last;
 - `stretched_ratio` on every format whose `vcodec` is not `none` when a valid
   `yt:stretch=W:H` keyword is present (first valid match wins, both dimensions
   positive).
 
 Existing duration, live status, view count, and release timestamp behavior is
 unchanged. Optional metadata failures omit the affected field rather than
-failing extraction or emitting partial positive claims.
+failing extraction or emitting partial positive claims. Authenticated format
+recovery preserves the initial watch-page metadata: metadata normalization
+uses the validated initial WEB player plus attributable recovered responses,
+while `formats` remain the selected/recovered format sources only.
 
 ## Behavioral provenance
 
@@ -64,10 +71,14 @@ executes Python or reads the reference checkout.
 - The pinned `og:restrictions:age` fallback for `age_limit` is not
   implemented; only `microformat.isFamilySafe` drives the age limit.
 - `uploader_id` requires an exact `/@handle` path; the pinned prefix match
-  accepts trailing path/query noise.
+  accepts trailing path/query noise. Handle length uses the shared
+  Unicode-aware `@[\w.-]{3,30}` grammar, which is stricter than the prefix
+  match.
 - `tags` are omitted when empty instead of emitting an empty list.
 - Numeric HTML entities in OpenGraph meta content are not unescaped (named
   entities only).
+- `channel_url` requires the exact public UCID pattern (`UC` + 22 URL-safe
+  characters); the pinned reference emits it for any truthy channel ID.
 - The `channel` field currently derives from `videoDetails.author`; the pinned
   reference prefers the watch-page `videoSecondaryInfoRenderer` title, which
   arrives with watch-page enrichment.
@@ -84,6 +95,9 @@ format-quality enrichment, and storyboards.
 - `internal/extractor.TestYouTubePlayerMetadataPinnedExtraction`
 - `internal/extractor.TestYouTubePlayerMetadataUploadDates`
 - `internal/extractor.TestYouTubePlayerMetadataOwnerProfile`
+- `internal/extractor.TestYouTubePlayerMetadataHandleUnicodeBoundaries`
+- `internal/extractor.TestYouTubeChannelURLRequiresValidUCID`
+- `internal/extractor.TestYouTubePlayerMetadataPreservedDuringAuthenticatedRecovery`
 - `internal/extractor.TestYouTubePlayerMetadataAvailabilityAndAgeLimit`
 - `internal/extractor.TestYouTubePlayerMetadataMediaType`
 - `internal/extractor.TestYouTubePlayerMetadataThumbnails`
@@ -94,6 +108,7 @@ format-quality enrichment, and storyboards.
 - `internal/extractor.TestYouTubePlayerMetadataJSONFieldSurvival`
 - `internal/extractor.TestYouTubePlayerMetadataConcurrentDeterminism`
 - `internal/extractor.FuzzYouTubePlayerMetadata`
+- `pkg/ytdlp.TestProductYouTubePlayerMetadataJSONSurvival`
 
 The pinned corpus lives at `conformance/extractors/youtube_player_metadata/`
 (`watch.html`, `expected.json`, `PROVENANCE.md`). The pilot corpus

@@ -37,9 +37,31 @@ The player response shapes and field semantics follow the pinned reference
 All identifiers, metadata, URLs, dates, and thumbnails are artificial; no
 production response, cookie, token, signed URL, or account data is retained.
 The video ID `fixture0002` is reserved for this surface and never passes
-through the 11-character pilot validator as a live URL.
+through the 11-character pilot validator as a live URL. The channel ID
+`UCfixture000000000000000` satisfies the exact public UCID grammar
+(`UC` + 22 URL-safe characters) so `channel_url` emission is exercised.
 
 The expected document is intentionally checked in so field presence, ordering,
 and deterministic thumbnail preferences remain reviewable. The watch page
 contains a plain-URL player response with no signature or `n` challenges, so
 the pinned extraction performs exactly one transport read.
+
+## Review corrections
+
+- The best-original thumbnail is selected with the pinned `_sort_thumbnails`
+  ordering (preference, width, height, id, url ascending) over a copy of the
+  originals; an `og:image` never wins merely because it is appended last.
+- The generated 38-entry JPG/WebP ladder is always complete: originals are
+  capped separately (`youtubeMaxOriginalThumbnails`) below the overall
+  resource bound.
+- Owner handles use the shared Unicode-aware `@[\w.-]{3,30}` grammar
+  (`validYouTubeHandle`); percent-encoded paths (encoded `@`, separators) are
+  rejected via `RawPath` divergence.
+- `channel_url` requires the exact public UCID pattern.
+- Authenticated recovery preserves initial watch-page metadata: the validated
+  initial WEB player is part of the metadata collection even when recovered
+  responses supply only formats and sparse metadata.
+- The product JSON pipeline survival test
+  (`pkg/ytdlp.TestProductYouTubePlayerMetadataJSONSurvival`) runs the full
+  extraction-to-InfoJSON path against this fixture through an injected
+  transport.

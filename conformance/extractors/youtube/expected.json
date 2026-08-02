@@ -4,7 +4,7 @@
   "description": "offline fixture with a } brace and an escaped \" quote",
   "uploader": "fixture channel",
   "channel": "fixture channel",
-  "channel_id": "UCfixture",
+  "channel_id": "UCfixture000000000000000",
   "webpage_url": "https://www.youtube.com/watch?v=fixture0001",
   "ext": "mp4",
   "formats": [
@@ -42,12 +42,12 @@
       "protocol": "http_dash_segments"
     }
   ],
-  "channel_url": "https://www.youtube.com/channel/UCfixture",
+  "channel_url": "https://www.youtube.com/channel/UCfixture000000000000000",
   "age_limit": 0,
   "media_type": "video",
   "duration": 123,
   "view_count": 456,
-  "thumbnail": "https://img.example/large.jpg",
+  "thumbnail": "https://img.example/small.jpg",
   "thumbnails": [
     {
       "url": "https://img.example/small.jpg"

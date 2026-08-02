@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -19,8 +20,6 @@ import (
 const (
 	youtubeMaxUploadDateBytes   = 64
 	youtubeMaxOwnerProfileBytes = 256
-	youtubeMaxHandleBytes       = 200
-	youtubeMaxChannelIDBytes    = 128
 	youtubeMaxCategoryBytes     = 256
 	youtubeMaxTagBytes          = 1024
 	youtubeMaxTags              = 64
@@ -32,7 +31,6 @@ const (
 
 var (
 	youtubeUploadDateOnlyPattern = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
-	youtubeHandlePattern         = regexp.MustCompile(`^@[\p{L}\p{N}_.-]+$`)
 	youtubeStretchRatioPattern   = regexp.MustCompile(`(\d+)\s*:\s*(\d+)`)
 	// Attribute-order variants are separate RE2 patterns (no lookahead).
 	youtubeOGImagePattern = regexp.MustCompile(
@@ -77,8 +75,9 @@ func youtubeUploadDate(raw string) (uploadDate string, timestamp int64, hasTimes
 
 // youtubeOwnerHandle extracts a validated @handle from the microformat
 // ownerProfileUrl. Unlike the pinned reference's prefix match, the path must
-// be exactly "/@handle": query strings, fragments, extra segments, encoded
-// paths, ports, userinfo, and non-YouTube hosts fail closed.
+// be exactly "/@handle": query strings, fragments, encoded paths (RawPath),
+// ports, userinfo, and non-YouTube hosts fail closed. The handle grammar is
+// the shared Unicode-aware @[\w.-]{3,30} rule (validYouTubeHandle).
 func youtubeOwnerHandle(ownerProfileURL string) string {
 	if ownerProfileURL == "" || len(ownerProfileURL) > youtubeMaxOwnerProfileBytes || youtubeHasControlChars(ownerProfileURL) {
 		return ""
@@ -94,21 +93,20 @@ func youtubeOwnerHandle(ownerProfileURL string) string {
 	if host != "youtube.com" && host != "www.youtube.com" {
 		return ""
 	}
-	if parsed.RawQuery != "" || parsed.Fragment != "" || strings.Contains(parsed.Path, "%") || !strings.HasPrefix(parsed.Path, "/") {
+	if parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.RawPath != "" && parsed.RawPath != parsed.Path) || !strings.HasPrefix(parsed.Path, "/") {
 		return ""
 	}
 	handle := strings.TrimPrefix(parsed.Path, "/")
-	if handle == "" || handle == parsed.Path || len(handle) > youtubeMaxHandleBytes || !youtubeHandlePattern.MatchString(handle) {
+	if handle == "" || handle == parsed.Path || !validYouTubeHandle(handle) {
 		return ""
 	}
 	return handle
 }
 
-// youtubeChannelURL builds the canonical channel URL when the channel ID is
-// non-empty and safe to interpolate.
+// youtubeChannelURL builds the canonical channel URL only for channel IDs that
+// satisfy the exact public UCID grammar (UC + 22 URL-safe characters).
 func youtubeChannelURL(channelID string) string {
-	if channelID == "" || len(channelID) > youtubeMaxChannelIDBytes || youtubeHasControlChars(channelID) ||
-		strings.ContainsAny(channelID, "/\\") {
+	if !youtubeChannelIDPattern.MatchString(channelID) {
 		return ""
 	}
 	return "https://www.youtube.com/channel/" + channelID
@@ -240,16 +238,23 @@ func youtubeOGImageCandidate(raw string) string {
 	return raw
 }
 
+// youtubeMaxOriginalThumbnails reserves the full 38-entry generated ladder:
+// originals are capped separately so the deterministic ladder is always
+// complete, while youtubeMaxThumbnails remains the overall resource bound.
+var youtubeMaxOriginalThumbnails = youtubeMaxThumbnails - 2*len(youtubeThumbnailNames)
+
 // youtubeThumbnailCollection builds the normalized thumbnails list: original
 // player and microformat thumbnails, an attributable og:image, then the
 // deterministic i.ytimg.com JPG/WebP ladder with stable preferences. Earlier
-// URLs win on duplicates; hostile or over-budget URLs are omitted. best is the
-// best known original thumbnail (the last original before the ladder),
-// matching the pinned reference's thumbnail selection.
+// URLs win on duplicates; hostile or over-budget URLs are omitted. The best
+// original is selected by sorting a copy of the originals with the pinned
+// _sort_thumbnails ordering (preference, width, height, id, url ascending) so
+// an og:image never wins merely because it was appended last.
 func youtubeThumbnailCollection(page []byte, videoID string, details youtubeVideoDetails, microformat youtubePlayerMicroformat, liveStatus string) (thumbnails []value.Value, best string) {
 	seen := make(map[string]struct{})
+	var originals []value.Value
 	appendOriginal := func(raw string, width, height int64) {
-		if len(thumbnails) >= youtubeMaxThumbnails {
+		if len(originals) >= youtubeMaxOriginalThumbnails {
 			return
 		}
 		if raw = youtubeThumbnailURL(raw); raw == "" {
@@ -266,8 +271,7 @@ func youtubeThumbnailCollection(page []byte, videoID string, details youtubeVide
 		if height > 0 {
 			fields = append(fields, value.Field{Key: "height", Value: value.Int(height)})
 		}
-		thumbnails = append(thumbnails, value.ObjectValue(value.NewObject(fields...)))
-		best = raw
+		originals = append(originals, value.ObjectValue(value.NewObject(fields...)))
 	}
 	for _, thumb := range details.Thumbnail.Thumbnails {
 		appendOriginal(thumb.URL, thumb.Width, thumb.Height)
@@ -278,6 +282,16 @@ func youtubeThumbnailCollection(page []byte, videoID string, details youtubeVide
 	if ogImage := youtubeOGImage(page); ogImage != "" {
 		appendOriginal(ogImage, 0, 0)
 	}
+	if len(originals) > 0 {
+		sorted := make([]value.Value, len(originals))
+		copy(sorted, originals)
+		sort.SliceStable(sorted, func(i, j int) bool {
+			return youtubeThumbnailLess(sorted[i], sorted[j])
+		})
+		object, _ := sorted[len(sorted)-1].Object()
+		best, _ = object.Lookup("url").StringValue()
+	}
+	thumbnails = append(thumbnails, originals...)
 	live := ""
 	if liveStatus == "is_live" {
 		live = "_live"
@@ -305,6 +319,53 @@ func youtubeThumbnailCollection(page []byte, videoID string, details youtubeVide
 		}
 	}
 	return thumbnails, best
+}
+
+// youtubeThumbnailLess is the pinned _sort_thumbnails ascending ordering:
+// preference (default -1), width (default 0), height (default 0), id
+// (default ""), then url (default "").
+func youtubeThumbnailLess(left, right value.Value) bool {
+	leftObject, leftOK := left.Object()
+	rightObject, rightOK := right.Object()
+	if !leftOK || !rightOK {
+		return !leftOK && rightOK
+	}
+	preference := func(object *value.Object) int64 {
+		if number, ok := object.Lookup("preference").Int(); ok {
+			return number
+		}
+		return -1
+	}
+	dimension := func(object *value.Object, key string) int64 {
+		if number, ok := object.Lookup(key).Int(); ok {
+			return number
+		}
+		return 0
+	}
+	text := func(object *value.Object, key string) string {
+		value, ok := object.Lookup(key).StringValue()
+		if !ok {
+			return ""
+		}
+		return value
+	}
+	leftValues := []any{preference(leftObject), dimension(leftObject, "width"), dimension(leftObject, "height"), text(leftObject, "id"), text(leftObject, "url")}
+	rightValues := []any{preference(rightObject), dimension(rightObject, "width"), dimension(rightObject, "height"), text(rightObject, "id"), text(rightObject, "url")}
+	for index := range leftValues {
+		switch left := leftValues[index].(type) {
+		case int64:
+			right := rightValues[index].(int64)
+			if left != right {
+				return left < right
+			}
+		case string:
+			right := rightValues[index].(string)
+			if left != right {
+				return left < right
+			}
+		}
+	}
+	return false
 }
 
 // youtubeStretchedRatio derives the first valid yt:stretch=W:H aspect ratio

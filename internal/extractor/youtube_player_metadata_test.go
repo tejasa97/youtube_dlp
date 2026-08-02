@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"net/http"
 	"os"
 	"reflect"
 	"strings"
@@ -57,7 +58,7 @@ const youtubeMinimalPlayerMetadata = `{
   "playabilityStatus": {"status": "OK"},
   "videoDetails": {
     "videoId": "fixture0002", "title": "T", "lengthSeconds": "10",
-    "author": "A", "channelId": "UCfixture", "shortDescription": "D",
+    "author": "A", "channelId": "UCfixture000000000000000", "shortDescription": "D",
     "viewCount": "1", "isLiveContent": false
   },
   "microformat": {"playerMicroformatRenderer": {%s}},
@@ -152,7 +153,12 @@ func TestYouTubePlayerMetadataOwnerProfile(t *testing.T) {
 		{"no handle", "https://www.youtube.com/", ""},
 		{"space in handle", "https://www.youtube.com/@fo o", ""},
 		{"control chars", "https://www.youtube.com/@fo\x00o", ""},
-		{"oversized handle", "https://www.youtube.com/@" + strings.Repeat("a", 250), ""},
+		{"oversized handle", "https://www.youtube.com/@" + strings.Repeat("a", 31), ""},
+		{"too short", "https://www.youtube.com/@ab", ""},
+		{"boundary 3 codepoints", "https://www.youtube.com/@abc", "@abc"},
+		{"encoded at", "https://www.youtube.com/@%40test", ""},
+		{"encoded separator", "https://www.youtube.com/@foo%2Fbar", ""},
+		{"encoded space", "https://www.youtube.com/@foo%20bar", ""},
 		{"file scheme", "file:///www.youtube.com/@foo", ""},
 	}
 	for _, test := range tests {
@@ -173,10 +179,139 @@ func TestYouTubePlayerMetadataOwnerProfile(t *testing.T) {
 			}
 		})
 	}
-	// channel_url derives from the channel ID, not the owner profile.
+	// channel_url derives only from a valid public UCID.
 	info := extractYouTubePlayerMetadata(t, youtubeMetadataPlayer(fmt.Sprintf(youtubeMinimalPlayerMetadata, ``)))
-	if got := youtubeMetadataString(info, "channel_url"); got != "https://www.youtube.com/channel/UCfixture" {
+	if got := youtubeMetadataString(info, "channel_url"); got != "https://www.youtube.com/channel/UCfixture000000000000000" {
 		t.Fatalf("channel_url = %q", got)
+	}
+}
+
+func TestYouTubePlayerMetadataHandleUnicodeBoundaries(t *testing.T) {
+	// 30 multibyte codepoints is the valid maximum; 31 is rejected.
+	thirty := strings.Repeat("ö", 30)
+	thirtyOne := strings.Repeat("ö", 31)
+	tests := []struct {
+		name     string
+		ownerURL string
+		want     string
+	}{
+		{"thirty multibyte codepoints", "https://www.youtube.com/@" + thirty, "@" + thirty},
+		{"thirty one multibyte codepoints", "https://www.youtube.com/@" + thirtyOne, ""},
+		{"thirty ascii codepoints", "https://www.youtube.com/@" + strings.Repeat("a", 30), "@" + strings.Repeat("a", 30)},
+		{"thirty one ascii codepoints", "https://www.youtube.com/@" + strings.Repeat("a", 31), ""},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			encodedURL, _ := json.Marshal(test.ownerURL)
+			player := fmt.Sprintf(youtubeMinimalPlayerMetadata, `"ownerProfileUrl": `+string(encodedURL))
+			info := extractYouTubePlayerMetadata(t, youtubeMetadataPlayer(player))
+			if got := youtubeMetadataString(info, "uploader_id"); got != test.want {
+				t.Fatalf("uploader_id = %q; want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestYouTubeChannelURLRequiresValidUCID(t *testing.T) {
+	tests := []struct {
+		name      string
+		channelID string
+		want      string
+	}{
+		{"valid artificial UCID", "UCfixture000000000000000", "https://www.youtube.com/channel/UCfixture000000000000000"},
+		{"short pilot id", "UCfixture", ""},
+		{"empty", "", ""},
+		{"wrong prefix", "ABfixture000000000000000", ""},
+		{"query bearing", "UCfixture000000000000000?x=1", ""},
+		{"trailing slash", "UCfixture000000000000000/", ""},
+		{"too long", "UCfixture0000000000000001", ""},
+		{"percent encoded", "UCfixture00000000000000%00", ""},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := youtubeChannelURL(test.channelID); got != test.want {
+				t.Fatalf("youtubeChannelURL(%q) = %q; want %q", test.channelID, got, test.want)
+			}
+		})
+	}
+}
+
+func TestYouTubePlayerMetadataPreservedDuringAuthenticatedRecovery(t *testing.T) {
+	// The initial watch page carries rich metadata but no formats and a
+	// login-required playability status; the recovered response supplies the
+	// format but only sparse metadata (videoId only). Metadata normalization
+	// must keep the validated initial WEB player alongside the recovered
+	// responses so no metadata is lost when format sources are replaced.
+	page := []byte(`<!doctype html><html><body><script>
+ytcfg.set({"PLAYER_JS_URL":"\/s\/player\/fixture\/base.js","VISITOR_DATA":"fixture-visitor","LOGGED_IN":true,"INNERTUBE_CONTEXT_CLIENT_NAME":1,"INNERTUBE_CLIENT_VERSION":"2.fixture","SESSION_INDEX":0,"DATASYNC_ID":"delegated||user","INNERTUBE_CONTEXT":{"client":{"clientName":"WEB","userAgent":"fixture-agent"}}});
+var ytInitialPlayerResponse = {
+  "playabilityStatus": {"status": "LOGIN_REQUIRED", "reason": "sign in"},
+  "videoDetails": {
+    "videoId": "fixture0001", "title": "Initial Metadata Title", "lengthSeconds": "123",
+    "author": "Initial Channel", "channelId": "UCfixture000000000000000",
+    "shortDescription": "initial description", "viewCount": "456",
+    "keywords": ["initial-tag"], "averageRating": 3.5, "isPrivate": false, "isLiveContent": false
+  },
+  "microformat": {"playerMicroformatRenderer": {
+    "category": "Science & Technology", "ownerProfileUrl": "https://www.youtube.com/@initialchannel",
+    "uploadDate": "2024-01-15T18:30:00-08:00", "isFamilySafe": true, "isUnlisted": false, "isShortsEligible": false
+  }},
+  "assets": {"js": "/s/player/fixture/base.js"}
+};
+</script></body></html>`)
+	transport := &youtubeAuthenticatedRecoveryTransport{
+		memoryTransport: &memoryTransport{pages: map[string][]byte{youtubeFixtureURL: page}},
+		cookies: []*http.Cookie{
+			{Name: "LOGIN_INFO", Value: ""},
+			{Name: "__Secure-3PAPISID", Value: "secret-sid"},
+		},
+		response: []byte(`{
+			"playabilityStatus":{"status":"OK"},
+			"videoDetails":{"videoId":"fixture0001"},
+			"streamingData":{"formats":[{
+				"itag":18,
+				"url":"https://media.example/video.mp4",
+				"mimeType":"video/mp4; codecs=\"avc1.42001E, mp4a.40.2\""
+			}]}
+		}`),
+	}
+	result, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := result.Info.Fields()
+	formats, _ := info.Lookup("formats").ListValue()
+	if len(formats) != 1 {
+		t.Fatalf("formats = %d; want the recovered format only", len(formats))
+	}
+	for key, want := range map[string]string{
+		"title":        "Initial Metadata Title",
+		"uploader":     "Initial Channel",
+		"channel":      "Initial Channel",
+		"channel_id":   "UCfixture000000000000000",
+		"channel_url":  "https://www.youtube.com/channel/UCfixture000000000000000",
+		"description":  "initial description",
+		"uploader_id":  "@initialchannel",
+		"uploader_url": "https://www.youtube.com/@initialchannel",
+		"upload_date":  "20240116",
+		"media_type":   "video",
+	} {
+		if got := youtubeMetadataString(info, key); got != want {
+			t.Fatalf("%s = %q; want %q (initial watch-page metadata must survive recovery)", key, got, want)
+		}
+	}
+	if viewCount, ok := info.Lookup("view_count").Int(); !ok || viewCount != 456 {
+		t.Fatalf("view_count = %d, %v", viewCount, ok)
+	}
+	if timestamp, ok := info.Lookup("timestamp").Int(); !ok || timestamp != 1705372200 {
+		t.Fatalf("timestamp = %d, %v", timestamp, ok)
+	}
+	categories, _ := info.Lookup("categories").ListValue()
+	if len(categories) != 1 {
+		t.Fatalf("categories = %#v", categories)
+	}
+	if rating, ok := info.Lookup("average_rating").Float(); !ok || rating != 3.5 {
+		t.Fatalf("average_rating = %v, %v", rating, ok)
 	}
 }
 
@@ -257,8 +392,8 @@ func TestYouTubePlayerMetadataThumbnails(t *testing.T) {
 		if width != 160 {
 			t.Fatalf("thumbnails[0].width = %d", width)
 		}
-		if got := youtubeMetadataString(info, "thumbnail"); got != "https://img.example/micro.jpg" {
-			t.Fatalf("thumbnail = %q; want micro.jpg (last original)", got)
+		if got := youtubeMetadataString(info, "thumbnail"); got != "https://img.example/large.jpg" {
+			t.Fatalf("thumbnail = %q; want large.jpg (best by width/height, not insertion order)", got)
 		}
 		wantPreferences := []int64{0, -1, -2, -3, -36, -37}
 		wantPositions := []int{3, 4, 5, 6, len(list) - 2, len(list) - 1}
@@ -271,7 +406,17 @@ func TestYouTubePlayerMetadataThumbnails(t *testing.T) {
 		}
 	})
 
-	t.Run("og image becomes best original", func(t *testing.T) {
+	t.Run("high resolution player thumbnail beats dimensionless og image", func(t *testing.T) {
+		player := fmt.Sprintf(youtubeMinimalPlayerMetadata, ``)
+		player = strings.Replace(player, `"isLiveContent": false`, `"isLiveContent": false, "thumbnail": {"thumbnails": [{"url": "https://img.example/hd.jpg", "width": 1280, "height": 720}]}`, 1)
+		page := []byte(`<!doctype html><html><head><meta property="og:image" content="https://img.example/og.jpg"></head><body><script>var ytInitialPlayerResponse = ` + player + `;</script></body></html>`)
+		info := extractYouTubePlayerMetadata(t, page)
+		if got := youtubeMetadataString(info, "thumbnail"); got != "https://img.example/hd.jpg" {
+			t.Fatalf("thumbnail = %q; want the high-resolution player thumbnail, not the appended og:image", got)
+		}
+	})
+
+	t.Run("og image becomes best original when alone", func(t *testing.T) {
 		player := `{"playabilityStatus": {"status": "OK"}, "videoDetails": {"videoId": "fixture0002", "title": "T", "lengthSeconds": "10", "author": "A", "channelId": "UCfixture", "shortDescription": "D", "viewCount": "1", "isLiveContent": false}, "streamingData": {"formats": [{"itag": 18, "url": "https://media.example/v.mp4", "mimeType": "video/mp4; codecs=\"avc1.42001E\"", "bitrate": 100000, "contentLength": "100"}]}}`
 		page := []byte(`<!doctype html><html><head><meta property="og:image" content="https://img.example/og.jpg"></head><body><script>var ytInitialPlayerResponse = ` + player + `;</script></body></html>`)
 		info := extractYouTubePlayerMetadata(t, page)
@@ -339,7 +484,7 @@ func TestYouTubePlayerMetadataThumbnailsMore(t *testing.T) {
 		}
 	})
 
-	t.Run("cap total thumbnails", func(t *testing.T) {
+	t.Run("originals capped separately so the full ladder survives", func(t *testing.T) {
 		var raw strings.Builder
 		raw.WriteString("[")
 		for index := 0; index < 70; index++ {
@@ -355,6 +500,14 @@ func TestYouTubePlayerMetadataThumbnailsMore(t *testing.T) {
 		list, _ := info.Lookup("thumbnails").ListValue()
 		if len(list) != youtubeMaxThumbnails {
 			t.Fatalf("thumbnails length = %d; want %d", len(list), youtubeMaxThumbnails)
+		}
+		if len(list) != youtubeMaxOriginalThumbnails+2*len(youtubeThumbnailNames) {
+			t.Fatalf("thumbnails length = %d; want %d originals + %d ladder entries", len(list), youtubeMaxOriginalThumbnails, 2*len(youtubeThumbnailNames))
+		}
+		lastObject, _ := list[len(list)-1].Object()
+		last, _ := lastObject.Lookup("url").StringValue()
+		if last != "https://i.ytimg.com/vi/fixture0002/3.jpg" {
+			t.Fatalf("last thumbnail = %q; want the final ladder entry 3.jpg (ladder must be complete)", last)
 		}
 	})
 }
@@ -557,7 +710,7 @@ func FuzzYouTubePlayerMetadata(f *testing.F) {
 			t.Fatalf("timestamp without ok for %q", raw)
 		}
 		handle := youtubeOwnerHandle(raw)
-		if handle != "" && !youtubeHandlePattern.MatchString(handle) {
+		if handle != "" && !validYouTubeHandle(handle) {
 			t.Fatalf("invalid handle %q", handle)
 		}
 		ratio, hasRatio := youtubeStretchedRatio([]string{raw})

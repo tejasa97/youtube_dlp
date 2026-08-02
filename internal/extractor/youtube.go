@@ -192,7 +192,12 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 		player.clientVersion = clientVersion
 		player.userAgent = userAgent
 	}
+	// formatPlayers carries only the selected format sources; metadataPlayers
+	// additionally preserves the validated initial WEB player so metadata
+	// normalization keeps initial watch-page metadata even when authenticated
+	// recovery replaces the format sources (recovered responses may be sparse).
 	formatPlayers := []youtubePlayerResponse{player}
+	metadataPlayers := []youtubePlayerResponse{player}
 	if !initialHasFormats {
 		if pageConfig.LoggedIn != nil && *pageConfig.LoggedIn {
 			initialData, _ := extractJSONObject(page, youtubeInitialDataMarker)
@@ -216,6 +221,7 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 			// Selected authenticated candidates only — do not merge with the
 			// failed webpage player formats/SABR inventory.
 			formatPlayers = recovered
+			metadataPlayers = append(metadataPlayers, recovered...)
 			for i := range formatPlayers {
 				if formatPlayers[i].VideoDetails.Title == "" && player.VideoDetails.Title != "" {
 					formatPlayers[i].VideoDetails.Title = player.VideoDetails.Title
@@ -239,6 +245,7 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 				}
 			} else {
 				formatPlayers = append(formatPlayers, recovered...)
+				metadataPlayers = append(metadataPlayers, recovered...)
 				for _, recoveredPlayer := range recovered {
 					if playerPath == "" {
 						playerPath = recoveredPlayer.Assets.JS
@@ -251,7 +258,7 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 		}
 	}
 
-	captionResult, err := normalizeYouTubeCaptions(ctx, formatPlayers, videoID, request.YouTubePOT, request.YouTubeTranslatedCaptions)
+	captionResult, err := normalizeYouTubeCaptions(ctx, metadataPlayers, videoID, request.YouTubePOT, request.YouTubeTranslatedCaptions)
 	if err != nil {
 		return Extraction{}, err
 	}
@@ -261,14 +268,14 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 	if err != nil {
 		return Extraction{}, err
 	}
-	details := firstYouTubeVideoDetails(formatPlayers)
+	details := firstYouTubeVideoDetails(metadataPlayers)
 	if details.Title == "" {
 		return Extraction{}, fmt.Errorf("%w: missing title", ErrInvalidMetadata)
 	}
-	liveStatus := youtubeLiveStatusFromPlayers(formatPlayers)
+	liveStatus := youtubeLiveStatusFromPlayers(metadataPlayers)
 	activeFromStart := liveStatus == "is_live" && request.YouTubeLiveFromStart
-	startTimestamp, hasStart := firstYouTubeLiveTimestamp(formatPlayers, true)
-	endTimestamp, hasEnd := firstYouTubeLiveTimestamp(formatPlayers, false)
+	startTimestamp, hasStart := firstYouTubeLiveTimestamp(metadataPlayers, true)
+	endTimestamp, hasEnd := firstYouTubeLiveTimestamp(metadataPlayers, false)
 	duration, hasDuration := int64(0), false
 	if parsed, parseErr := strconv.ParseInt(details.LengthSeconds, 10, 64); parseErr == nil && parsed >= 0 {
 		duration, hasDuration = parsed, true
@@ -338,7 +345,7 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 		applyYouTubeStretchedRatio(formatValues, ratio)
 	}
 
-	microformat := firstYouTubeMicroformat(formatPlayers)
+	microformat := firstYouTubeMicroformat(metadataPlayers)
 	info := value.NewObject(
 		value.Field{Key: "id", Value: value.String(videoID)},
 		value.Field{Key: "title", Value: value.String(details.Title)},
@@ -381,7 +388,7 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 	if details.AverageRating != nil && !math.IsNaN(*details.AverageRating) && !math.IsInf(*details.AverageRating, 0) {
 		info.Set("average_rating", value.Float(*details.AverageRating))
 	}
-	if playableInEmbed := firstYouTubePlayableInEmbed(formatPlayers); playableInEmbed != nil {
+	if playableInEmbed := firstYouTubePlayableInEmbed(metadataPlayers); playableInEmbed != nil {
 		info.Set("playable_in_embed", value.Bool(*playableInEmbed))
 	}
 	info.Set("media_type", value.String(youtubeMediaType(details.IsLiveContent, microformat.IsShortsEligible)))
