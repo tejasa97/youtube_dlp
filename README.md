@@ -58,7 +58,7 @@ identify compatibility targets only.
 | Extensions | Versioned native RPC and constrained WASM plugins, signed packs, catalogs, and updater transactions |
 | Public API | Versioned v1alpha1 Go API with context cancellation, categorized errors, events, playlists, metadata, and artifacts |
 
-The capability manifest records **92 capabilities**: **83 compatible** within
+The capability manifest records **93 capabilities**: **84 compatible** within
 their declared corpora, **8 partial**, and **1 intentional deviation**.
 “Compatible” means the linked deterministic evidence passes; it does not mean
 unbounded equivalence with every upstream behavior.
@@ -125,6 +125,22 @@ Inspect the native extractor catalog without extraction or network access:
 `--list-extractors` uses positional and batch-file URLs only for offline
 `Suitable` matching; `--extractor-descriptions` is input-independent. Both
 write deterministic output to stdout and keep `generic` last.
+
+Unqualified inputs can use the bounded registered search routes:
+
+```sh
+./bin/ytdlp-go --default-search auto "search terms"
+./bin/ytdlp-go --default-search scsearch3 "soundcloud terms"
+```
+
+`--default-search` supports `auto`, `auto_warning`, `error`, `fixup_error`, and
+the registered `ytsearch*`, `scsearch*`, `nicosearch`, `prxstories`, and
+`prxseries` pseudo-extractors. `--force-generic-extractor` is a hidden
+compatibility flag for forcing automatic URL routing through the registered
+generic extractor; explicit extractor keys and plugin IDs remain authoritative.
+Routing is bounded and network-free, and local/IP protocol-less inputs and
+userinfo-bearing generic targets fail closed. See the
+[routing-controls evidence](docs/EXTRACTOR_ROUTING_CONTROLS_EVIDENCE.md).
 
 Extract audio with ffmpeg:
 

@@ -42,6 +42,7 @@ The executable help is the authoritative CLI option list:
 - [Fallback inventory](P2_FALLBACK_INVENTORY.md)
 - [Generic page-discovery evidence](GENERIC_EMBED_EVIDENCE.md)
 - [Extractor discovery evidence](EXTRACTOR_DISCOVERY_EVIDENCE.md)
+- [Extractor routing-controls evidence](EXTRACTOR_ROUTING_CONTROLS_EVIDENCE.md)
 - [CLI JSON dump evidence](CLI_JSON_OUTPUT_EVIDENCE.md)
 - [CLI staged print-output evidence](CLI_PRINT_OUTPUT_EVIDENCE.md)
 - [Metadata sidecar evidence](METADATA_SIDECARS_EVIDENCE.md)

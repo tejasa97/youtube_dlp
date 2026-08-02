@@ -394,6 +394,10 @@ func validateRequestOptions(request Request) error {
 	if err := extractor.ValidateSelectionRules(request.ExtractorSelection.Rules); err != nil {
 		return fmt.Errorf("%w: %v", errInvalidRequestOptions, err)
 	}
+	if len(request.DefaultSearch) > maxDefaultSearchBytes ||
+		!utf8.ValidString(request.DefaultSearch) || strings.ContainsAny(request.DefaultSearch, "\x00\r\n\t") {
+		return fmt.Errorf("%w: default-search value", errInvalidRequestOptions)
+	}
 	if request.CheckFormats > FormatCheckAll {
 		return fmt.Errorf("%w: format availability mode", errInvalidRequestOptions)
 	}

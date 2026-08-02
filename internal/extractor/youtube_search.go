@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
@@ -55,6 +56,11 @@ type YouTubeSearch struct{}
 
 func NewYouTubeSearch() YouTubeSearch { return YouTubeSearch{} }
 func (YouTubeSearch) Name() string    { return "youtube_search" }
+func (YouTubeSearch) SupportsSearchPrefix(prefix string) bool {
+	parsed, err := url.Parse(strings.ToLower(prefix) + ":routing")
+	return err == nil && youtubeSearchScheme.MatchString(parsed.Scheme) && parsed.Opaque != ""
+}
+func (YouTubeSearch) SearchQueryAllowed(query string) bool { return validYouTubeSearchQuery(query) }
 func (YouTubeSearch) Suitable(parsed *url.URL) bool {
 	_, _, _, ok := youtubeSearchTarget(parsed)
 	return ok
@@ -74,6 +80,15 @@ func (YouTubeSearch) Extract(ctx context.Context, request Request) (Extraction, 
 	query, count, canonical, ok := youtubeSearchTarget(parsed)
 	if !ok {
 		return Extraction{}, fmt.Errorf("%w: unsupported YouTube search", ErrUnsupported)
+	}
+	if request.SearchQueryOverride != "" {
+		if !validYouTubeSearchQuery(request.SearchQueryOverride) || !strings.HasPrefix(strings.ToLower(parsed.Scheme), "ytsearch") {
+			return Extraction{}, fmt.Errorf("%w: invalid YouTube search query", ErrUnsupported)
+		}
+		query = request.SearchQueryOverride
+		canonical = (&url.URL{Scheme: "https", Host: "www.youtube.com", Path: "/results", RawQuery: url.Values{
+			"search_query": {query}, "sp": {youtubeSearchVideosParams},
+		}.Encode()}).String()
 	}
 	page, _, err := request.Transport.ReadPage(ctx, canonical)
 	if err != nil {
@@ -185,7 +200,7 @@ func youtubeSearchSPSupported(sp string) bool {
 }
 
 func validYouTubeSearchQuery(query string) bool {
-	return query != "" && len(query) <= youtubeSearchMaxQueryBytes && !strings.ContainsAny(query, "\x00\r\n")
+	return query != "" && len(query) <= youtubeSearchMaxQueryBytes && utf8.ValidString(query) && !strings.ContainsAny(query, "\x00\r\n")
 }
 
 func parseYouTubeSearchData(data []byte) (youtubeRendererPage, error) {

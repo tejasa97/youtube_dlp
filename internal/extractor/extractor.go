@@ -15,6 +15,8 @@ import (
 
 var (
 	ErrUnsupported        = errors.New("unsupported URL")
+	ErrInvalidRouting     = errors.New("invalid routing input")
+	ErrUnsupportedRouting = errors.New("unsupported routing control")
 	ErrInvalidMetadata    = errors.New("invalid extractor metadata")
 	ErrUnavailable        = errors.New("media unavailable")
 	ErrRegionRestricted   = errors.New("media region restricted")
@@ -134,6 +136,12 @@ func ReadPageWithProfileWithoutCredentialsNoRedirect(ctx context.Context, transp
 
 type Request struct {
 	URL string
+	// SearchQueryOverride carries the original bounded query for a product
+	// routing decision that selected an opaque registered search extractor.
+	// The URL itself is a fixed safe routing token so user input cannot become
+	// URL syntax or leak through routing diagnostics. It is consumed only by
+	// the matching search extractor and is never rendered by Request.String.
+	SearchQueryOverride string
 	// Referer is an optional validated HTTPS embedding page URL propagated from
 	// bounded playlist recursion. It must never carry cookies, Authorization, or
 	// arbitrary caller headers.
@@ -217,6 +225,16 @@ type Extractor interface {
 	Extract(context.Context, Request) (Extraction, error)
 }
 
+// SearchPrefixExtractor marks a registered extractor that owns one or more
+// opaque search URL schemes. The product routing boundary uses this narrow
+// capability to resolve --default-search prefixes without maintaining a
+// second list of search backends or probing the network.
+type SearchPrefixExtractor interface {
+	Extractor
+	SupportsSearchPrefix(string) bool
+	SearchQueryAllowed(string) bool
+}
+
 // RetrySafeExtractor is an explicit opt-in contract for the product's outer
 // whole-Extract retry loop. Implementations must guarantee that replaying the
 // complete Extract operation cannot repeat a non-idempotent side effect or
@@ -287,7 +305,7 @@ func (registry *Registry) selectionOrder() []string {
 func (registry *Registry) Select(rawURL string) (Extractor, error) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" && parsed.Opaque == "" {
-		return nil, fmt.Errorf("%w: %q", ErrUnsupported, rawURL)
+		return nil, fmt.Errorf("%w: invalid URL", ErrUnsupported)
 	}
 	for _, name := range registry.selectionOrder() {
 		if name == selectionEndSentinel {
@@ -299,7 +317,7 @@ func (registry *Registry) Select(rawURL string) (Extractor, error) {
 			}
 		}
 	}
-	return nil, fmt.Errorf("%w: %s", ErrUnsupported, parsed.Redacted())
+	return nil, fmt.Errorf("%w: no registered extractor", ErrUnsupported)
 }
 
 // SelectFor honors an explicit URL-result extractor key. It never silently
@@ -321,13 +339,38 @@ func (registry *Registry) SelectFor(rawURL, extractorKey string) (Extractor, err
 					}
 				}
 			}
+			// The generic extractor is a broad HTTP(S) fallback, but an
+			// explicit generic selection must still honor its URL safety
+			// boundary. Other explicit extractor keys intentionally retain
+			// URL-result semantics and may receive opaque or canonical URLs
+			// that are not suitable for automatic matching.
+			if strings.EqualFold(candidate.Name(), "generic") && !candidate.Suitable(parsed) {
+				return nil, fmt.Errorf("%w: generic URL", ErrUnsupported)
+			}
 			if parsed.Host == "" && !candidate.Suitable(parsed) {
 				return nil, fmt.Errorf("%w: invalid opaque URL result", ErrUnsupported)
 			}
 			return candidate, nil
 		}
 	}
-	return nil, fmt.Errorf("%w: extractor key %q", ErrUnsupported, extractorKey)
+	return nil, fmt.Errorf("%w: unknown extractor key", ErrUnsupported)
+}
+
+// SearchPrefix returns the registered extractor that explicitly owns prefix.
+// Registration order remains the deterministic tie-breaker. Only extractors
+// implementing SearchPrefixExtractor participate; a matching ordinary
+// opaque extractor can therefore never be promoted into --default-search.
+func (registry *Registry) SearchPrefix(prefix string) (SearchPrefixExtractor, bool) {
+	if registry == nil {
+		return nil, false
+	}
+	for _, candidate := range registry.extractors {
+		search, ok := candidate.(SearchPrefixExtractor)
+		if ok && search.SupportsSearchPrefix(prefix) {
+			return search, true
+		}
+	}
+	return nil, false
 }
 
 func (registry *Registry) Extract(ctx context.Context, request Request) (Extraction, string, error) {

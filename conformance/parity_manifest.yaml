@@ -3436,6 +3436,41 @@ capabilities:
       search-prefix, netrc, and extractor-specific description metadata. The
       native lane intentionally reports only attributable Go metadata. Plugin
       discovery and --use-extractors selection are separate lanes.
+  - id: cli.extractor_routing_controls
+    name: Extractor routing controls
+    phase: 3
+    compatibility_target: >-
+      Provide deterministic, network-free --force-generic-extractor and
+      bounded --default-search routing through the registered generic and
+      native pseudo-search extractors. Explicit extractor keys and signed
+      plugin IDs remain authoritative; URL safety, query bounds, cancellation,
+      categorized errors, batch inputs, and credential-safe diagnostics are
+      enforced before live extraction.
+    status: compatible
+    evidence:
+      - pkg/ytdlp.TestRouteRequestInputURLAndSearchClassification
+      - pkg/ytdlp.TestRouteRequestInputCancellationAndConcurrency
+      - pkg/ytdlp.TestClientRoutesBeforeTransportAndDoesNotExposeInput
+      - pkg/ytdlp.TestClientForceGenericUsesRegisteredGenericExtractor
+      - pkg/ytdlp.TestDefaultSearchRequestOverrideIsTypedAndSafe
+      - pkg/ytdlp.TestClientDefaultSearchReachesRegisteredBackendAndIsolatesConcurrentRuns
+      - pkg/ytdlp.TestOperationSearchQueryOverrideIsRootOnlyForURLResultChildren
+      - pkg/ytdlp.TestRouteRequestInputPluginIDPreservesOriginalAndBypassesBuiltIns
+      - internal/cli.TestRunRoutingControlsWireToRequest
+      - internal/cli.TestRunRoutingControlsPreserveBatchInputs
+      - internal/extractor.TestYouTubeSearchUsesBoundedProductQueryOverride
+      - internal/extractor.TestRegistryHonorsExplicitExtractorKey
+      - docs/EXTRACTOR_ROUTING_CONTROLS_EVIDENCE.md
+      - conformance/routing/PROVENANCE.md
+    owner: core
+    depends_on:
+      - foundation.cli
+      - extractor.direct_media
+    known_deviation: >-
+      Configured default-search prefixes are limited to already registered
+      native pseudo-search extractors. Google Video, arbitrary upstream
+      backends, extractor discovery/listing, plugin discovery, broad URL
+      fixup, and unbounded extractor width are not claimed.
 
 
   - id: cli.filtering_stop_wave

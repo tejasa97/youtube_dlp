@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
@@ -41,6 +42,13 @@ type SoundCloudSearch struct{ client *SoundCloud }
 
 func NewSoundCloudSearch() SoundCloudSearch { return SoundCloudSearch{client: NewSoundCloud()} }
 func (SoundCloudSearch) Name() string       { return "soundcloud_search" }
+func (SoundCloudSearch) SupportsSearchPrefix(prefix string) bool {
+	parsed, err := url.Parse(strings.ToLower(prefix) + ":routing")
+	return err == nil && soundCloudSearchScheme.MatchString(parsed.Scheme) && parsed.Opaque != ""
+}
+func (SoundCloudSearch) SearchQueryAllowed(query string) bool {
+	return validSoundCloudSearchQuery(query)
+}
 func (extractor SoundCloudSearch) Suitable(parsed *url.URL) bool {
 	_, _, _, ok := soundCloudSearchTarget(parsed)
 	return ok
@@ -60,6 +68,13 @@ func (extractor SoundCloudSearch) Extract(ctx context.Context, request Request) 
 	query, count, canonical, ok := soundCloudSearchTarget(parsed)
 	if !ok {
 		return Extraction{}, fmt.Errorf("%w: unsupported SoundCloud search", ErrUnsupported)
+	}
+	if request.SearchQueryOverride != "" {
+		if !validSoundCloudSearchQuery(request.SearchQueryOverride) || !strings.HasPrefix(strings.ToLower(parsed.Scheme), "scsearch") {
+			return Extraction{}, fmt.Errorf("%w: invalid SoundCloud search query", ErrUnsupported)
+		}
+		query = request.SearchQueryOverride
+		canonical = (&url.URL{Scheme: "https", Host: "soundcloud.com", Path: "/search", RawQuery: url.Values{"q": {query}}.Encode()}).String()
 	}
 	firstURL := soundCloudSearchRequestURL(query, count)
 	policy := soundCloudContinuationPolicy{allowedPath: "/search/tracks"}
@@ -132,7 +147,7 @@ func soundCloudSearchTarget(parsed *url.URL) (query string, count int, canonical
 }
 
 func validSoundCloudSearchQuery(query string) bool {
-	return query != "" && len(query) <= soundCloudSearchMaxQueryBytes && !strings.ContainsAny(query, "\x00\r\n")
+	return query != "" && len(query) <= soundCloudSearchMaxQueryBytes && utf8.ValidString(query) && !strings.ContainsAny(query, "\x00\r\n")
 }
 
 func soundCloudSearchRequestURL(query string, count int) string {

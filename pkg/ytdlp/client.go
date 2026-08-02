@@ -92,10 +92,20 @@ type Request struct {
 	// exclude grammar. An empty final rule list selects the default policy.
 	// Installed signed plugins remain explicit-only.
 	ExtractorSelection ExtractorSelectionOptions
-	OutputTemplate     string
-	OutputTemplates    OutputTemplates
-	OutputDir          string
-	OutputPaths        OutputPaths
+	// ForceGenericExtractor routes automatic URL selection through the
+	// registered generic extractor. Explicit playlist extractor keys and an
+	// explicit PluginID remain authoritative, and generic URL safety is still
+	// enforced before any transport is constructed.
+	ForceGenericExtractor bool
+	// DefaultSearch controls bounded routing for unqualified inputs. The zero
+	// value is the pinned fixup_error behavior. Supported modes are error,
+	// fixup_error, auto, auto_warning, and prefixes owned by registered opaque
+	// search extractors.
+	DefaultSearch   string
+	OutputTemplate  string
+	OutputTemplates OutputTemplates
+	OutputDir       string
+	OutputPaths     OutputPaths
 	// UseID selects the pinned %(id)s.%(ext)s default when no explicit output
 	// template is configured. Explicit typed/default templates always win.
 	UseID           bool
@@ -514,6 +524,14 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 	if err != nil {
 		return Result{}, err
 	}
+	routed := routedInput{URL: request.URL}
+	if request.LoadInfoJSON == "" && !request.RemoveCacheDir {
+		routed, err = routeRequestInput(ctx, registry, request)
+		if err != nil {
+			return Result{}, categorized("route input", err)
+		}
+		request.URL = routed.URL
+	}
 	transportFactory := client.transportFactory
 	if transportFactory == nil {
 		transportFactory = network.New
@@ -601,13 +619,18 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 	plannerCapabilities := plannerCapabilitiesFor(request)
 	operation := &operation{
 		client: client, request: request, transport: transport,
-		registry: registry,
-		solver:   challengeSolver, archive: downloadArchive, cache: operationCache,
+		registry: registry, routingSearchQuery: routed.SearchQuery,
+		solver: challengeSolver, archive: downloadArchive, cache: operationCache,
 		credentials:         credentials,
 		compatibility:       compatibility,
 		rootExtractor:       &rootExtractor,
 		plannerCapabilities: &plannerCapabilities,
 		autonumberNext:      request.AutonumberIndex,
+	}
+	if routed.Warning != "" {
+		if err := client.emit(ctx, Event{Kind: string(events.KindMetadataWarning), Message: routed.Warning}); err != nil {
+			return Result{}, &Error{Category: ErrorInternal, Op: "emit routing warning", Err: err}
+		}
 	}
 	var loadedInfo value.Info
 	if request.LoadInfoJSON != "" {
@@ -948,6 +971,7 @@ type operation struct {
 	request                          Request
 	transport                        *network.Client
 	registry                         *extractor.Registry
+	routingSearchQuery               string
 	solver                           extractor.YouTubeChallengeSolver
 	archive                          *archive.Store
 	cache                            *cache.Store
@@ -1052,7 +1076,7 @@ func (operation *operation) processWithTransparentParent(ctx context.Context, ra
 	ancestors[rawURL] = true
 	defer delete(ancestors, rawURL)
 
-	selected, err := operation.registry.SelectFor(rawURL, extractorKey)
+	selected, err := operation.selectExtractor(rawURL, extractorKey)
 	if err != nil {
 		return Result{}, categorized("select extractor", err)
 	}
@@ -1063,10 +1087,15 @@ func (operation *operation) processWithTransparentParent(ctx context.Context, ra
 	if err := operation.client.emit(ctx, Event{Kind: string(events.KindExtracting), Extractor: selected.Name(), URL: eventURL}); err != nil {
 		return Result{}, &Error{Category: ErrorInternal, Op: "emit extracting event", Err: err}
 	}
+	searchQueryOverride := ""
+	if depth == 0 {
+		searchQueryOverride = operation.routingSearchQuery
+	}
 	extracted, err := operation.extractWithRetry(ctx, selected, extractor.Request{
 		URL: rawURL, Referer: referer, Transport: operation.transport, ChallengeSolver: operation.solver, Credentials: operation.credentials,
-		VideoPassword: operation.request.VideoPassword,
-		YouTubePOT:    operation.client.youtubePOT, YouTubeTranslatedCaptions: operation.request.YouTubeTranslatedCaptions,
+		SearchQueryOverride: searchQueryOverride,
+		VideoPassword:       operation.request.VideoPassword,
+		YouTubePOT:          operation.client.youtubePOT, YouTubeTranslatedCaptions: operation.request.YouTubeTranslatedCaptions,
 		YouTubeLiveFromStart: operation.request.LiveFromStart,
 		YouTubeComments: extractor.YouTubeCommentOptions{
 			Enabled:             operation.request.YouTubeComments.Enabled,
@@ -1121,6 +1150,16 @@ func (operation *operation) processWithTransparentParent(ctx context.Context, ra
 		return operation.processPlaylist(ctx, extracted, selected.Name(), ancestors, depth)
 	}
 	return operation.processMedia(ctx, extracted, selected.Name())
+}
+
+// selectExtractor preserves explicit URL-result keys while applying the
+// request-level generic forcing policy only to automatic routing. The generic
+// candidate is selected from the same registry used by normal product runs.
+func (operation *operation) selectExtractor(rawURL, extractorKey string) (extractor.Extractor, error) {
+	if extractorKey == "" && operation.request.ForceGenericExtractor && operation.request.PluginID == "" {
+		return operation.registry.SelectFor(rawURL, "generic")
+	}
+	return operation.registry.SelectFor(rawURL, extractorKey)
 }
 
 // applyTransparentOverlay writes every supported producer-side metadata field
@@ -2403,6 +2442,10 @@ func categorized(op string, err error) error {
 	switch {
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		category = ErrorCancelled
+	case errors.Is(err, extractor.ErrInvalidRouting):
+		category = ErrorInvalidInput
+	case errors.Is(err, extractor.ErrUnsupportedRouting):
+		category = ErrorUnsupported
 	case errors.Is(err, extractor.ErrUnsupported), errors.Is(err, mediaformat.ErrMultiOutput):
 		category = ErrorUnsupported
 	case errors.Is(err, ErrHLSDiscontinuitySelection),
