@@ -53,9 +53,6 @@ type runDependencies struct {
 }
 
 func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, deps runDependencies) int {
-	if deps.newRunner == nil {
-		return 1
-	}
 	environment := compatconfig.RuntimeEnvironment()
 	environment.HomeConfigDir = homePathFromArgs(args)
 	loaded, err := compatconfig.Load(ctx, compatconfig.Request{
@@ -426,6 +423,8 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	flags.BoolFunc("no-abort-on-error", "continue after ordinary playlist entry errors (default)", setPlaylistErrorPolicy(ytdlp.PlaylistErrorContinue, false))
 	flags.BoolFunc("abort-on-error", "abort on the first playlist entry error", setPlaylistErrorPolicy(ytdlp.PlaylistErrorAbort, false))
 	flags.BoolFunc("no-ignore-errors", "alias for --abort-on-error", setPlaylistErrorPolicy(ytdlp.PlaylistErrorAbort, false))
+	listExtractors := flags.Bool("list-extractors", false, "list all supported extractors and exit")
+	extractorDescriptions := flags.Bool("extractor-descriptions", false, "output descriptions of all supported extractors and exit")
 	playlistMaxFailures := flags.Int("skip-playlist-after-errors", 0, "skip remaining entries after N ordinary failures (0 disables)")
 	playlistItems := flags.String("playlist-items", "", "comma-separated playlist indexes or START:END:STEP ranges")
 	flags.StringVar(playlistItems, "I", "", "alias for --playlist-items")
@@ -889,6 +888,25 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 		}
 		return 2
 	}
+	if *listExtractors || *extractorDescriptions {
+		if err := ctx.Err(); err != nil {
+			fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
+			return 130
+		}
+		var discoveryURLs []string
+		if *listExtractors {
+			discoveryURLs, err = readBatchInputs(batchFiles, stdin, flags.Args())
+			if err != nil {
+				fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
+				return 2
+			}
+		}
+		metadata := ytdlp.BuiltInExtractorMetadata()
+		if *listExtractors {
+			metadata = ytdlp.BuiltInExtractorMetadataForURLs(discoveryURLs)
+		}
+		return runExtractorDiscovery(ctx, *listExtractors, metadata, stdout, stderr)
+	}
 	if math.IsNaN(*progressDelta) || math.IsInf(*progressDelta, 0) || *progressDelta < 0 ||
 		*progressDelta >= float64(math.MaxInt64)/float64(time.Second) {
 		fmt.Fprintf(stderr, "ytdlp-go: invalid --progress-delta %q\n", strconv.FormatFloat(*progressDelta, 'g', -1, 64))
@@ -1038,6 +1056,9 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	if err != nil {
 		fmt.Fprintf(stderr, "ytdlp-go: %v\n", err)
 		return 2
+	}
+	if deps.newRunner == nil {
+		return 1
 	}
 	client := deps.newRunner(clientOptions)
 	downloaderOptions := ytdlp.DownloaderOptions{

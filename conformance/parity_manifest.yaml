@@ -3394,6 +3394,40 @@ capabilities:
       - foundation.cli
       - cli.flag_wave2
 
+  - id: cli.extractor_discovery
+    name: Offline extractor registry discovery
+    phase: 3
+    compatibility_target: >-
+      Provide --list-extractors and --extractor-descriptions as early,
+      stdout-only commands backed by deterministic native registry metadata.
+      Preserve the existing routing-priority constructor catalog while using
+      stable display order, generic-last handling, bounded descriptions,
+      display-only alias support, deduplicated URL association through native
+      Suitable methods, writer errors, and cancellation-aware output.
+      Discovery performs no network, plugin discovery, extractor selection,
+      or extraction.
+    status: compatible
+    evidence:
+      - internal/extractor.TestRegistryMetadataIsStableBoundedAndGenericLast
+      - internal/extractor.TestRegistryMetadataDoesNotDuplicateNames
+      - internal/extractor.TestRegistryMetadataForURLsUsesStableDisplayOrderAndGenericRemainder
+      - internal/extractor.TestRegistryMetadataForURLsRetainsOverlappingSuitableMatches
+      - pkg/ytdlp.TestBuiltInExtractorMetadataIsDeterministicAndOffline
+      - internal/cli.TestRunExtractorDiscoveryUsesOfflineSuitableMatchingAndStdout
+      - internal/cli.TestRunExtractorDescriptionsAreOfflineAndBounded
+      - internal/cli.TestWriteExtractorDiscoveryOmitsAliasesAndPropagatesWriterErrors
+      - internal/cli.TestRunExtractorDiscoveryCancellation
+      - docs/EXTRACTOR_DISCOVERY_EVIDENCE.md
+      - conformance/extractors/discovery/PROVENANCE.md
+    owner: core
+    depends_on:
+      - foundation.cli
+    known_deviation: >-
+      The pinned reference can report Python extractor working-state,
+      search-prefix, netrc, and extractor-specific description metadata. The
+      native lane intentionally reports only attributable Go metadata. Plugin
+      discovery and --use-extractors selection are separate lanes.
+
 
   - id: cli.filtering_stop_wave
     name: Wave 4 CLI flag parity — filtering and stopping conditions

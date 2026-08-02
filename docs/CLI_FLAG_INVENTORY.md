@@ -31,8 +31,8 @@
 | `--ignore-errors` / `-i` | present | `flags.BoolFunc("ignore-errors", ...)` |
 | `--no-abort-on-error` | present | `flags.BoolFunc("no-abort-on-error", ...)` |
 | `--abort-on-error` | present | `flags.BoolFunc("abort-on-error", ...)` |
-| `--list-extractors` | defer | Extractor listing |
-| `--extractor-descriptions` | defer | Extractor listing |
+| `--list-extractors` | present | Offline built-in registry listing; consumes URLs only for native `Suitable` matching, with stable name order and `generic` last |
+| `--extractor-descriptions` | present | Offline bounded one-line descriptions on stdout; typed aliases are retained for library introspection but are not rendered |
 | `--use-extractors` / `--ies` | defer | Extractor selection |
 | `--force-generic-extractor` | defer | Extractor routing |
 | `--default-search` | defer | Search prefix |
@@ -279,6 +279,11 @@ These are `Request`/options fields that are Go-specific and have no counterpart 
 |------|---------------|------|
 | `--batch-file` / `-a` / `--no-batch-file` | present | Bounded URL reading pipeline; repeatable files, comments/blank lines, and stdin via `-` |
 | `--list-formats` / `-F` | present | Existing format-table renderer at the pre-process stage; simulation is implied unless `--no-simulate` is explicit |
+
+### Wave 5
+
+| `--list-extractors` | present | Deterministic built-in registry metadata on stdout; positional and batch URLs are deduplicated and assigned by offline `Suitable` matching |
+| `--extractor-descriptions` | present | Bounded native descriptions with stable ordering and explicit generic-last handling; input-independent |
 
 ### Wave 4
 | Flag | Classification | Work |

@@ -31,6 +31,9 @@ type Generic struct{}
 func NewGeneric() Generic { return Generic{} }
 
 func (Generic) Name() string { return "generic" }
+func (Generic) ExtractorMetadata() Metadata {
+	return Metadata{Description: "Generic downloader that works on some sites"}
+}
 func (Generic) Suitable(parsed *url.URL) bool {
 	return parsed != nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != "" && parsed.User == nil
 }
