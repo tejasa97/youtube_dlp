@@ -334,17 +334,57 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 		}
 		return Extraction{}, fmt.Errorf("%w: no downloadable formats", ErrUnavailable)
 	}
+	if ratio, ok := youtubeStretchedRatio(details.Keywords); ok {
+		applyYouTubeStretchedRatio(formatValues, ratio)
+	}
 
+	microformat := firstYouTubeMicroformat(formatPlayers)
 	info := value.NewObject(
 		value.Field{Key: "id", Value: value.String(videoID)},
 		value.Field{Key: "title", Value: value.String(details.Title)},
 		value.Field{Key: "description", Value: value.String(details.ShortDescription)},
 		value.Field{Key: "uploader", Value: value.String(details.Author)},
+		value.Field{Key: "channel", Value: value.String(details.Author)},
 		value.Field{Key: "channel_id", Value: value.String(details.ChannelID)},
 		value.Field{Key: "webpage_url", Value: value.String(webpageURL)},
 		value.Field{Key: "ext", Value: value.String("mp4")},
 		value.Field{Key: "formats", Value: value.List(formatValues...)},
 	)
+	if channelURL := youtubeChannelURL(details.ChannelID); channelURL != "" {
+		info.Set("channel_url", value.String(channelURL))
+	}
+	if handle := youtubeOwnerHandle(microformat.OwnerProfileURL); handle != "" {
+		info.Set("uploader_id", value.String(handle))
+		info.Set("uploader_url", value.String("https://www.youtube.com/"+handle))
+	}
+	if uploadDate, timestamp, hasTimestamp, ok := youtubeUploadDate(microformat.UploadDate); ok {
+		info.Set("upload_date", value.String(uploadDate))
+		if hasTimestamp {
+			info.Set("timestamp", value.Int(timestamp))
+		}
+	}
+	ageLimit := youtubeAgeLimit(microformat.IsFamilySafe)
+	info.Set("age_limit", value.Int(int64(ageLimit)))
+	if availability := youtubePlayerAvailability(details.IsPrivate, microformat.IsUnlisted, ageLimit); availability != "" {
+		info.Set("availability", value.String(availability))
+	}
+	if category := youtubeCategory(microformat.Category); category != "" {
+		info.Set("categories", value.List(value.String(category)))
+	}
+	if tags := youtubeTags(details.Keywords); len(tags) > 0 {
+		tagValues := make([]value.Value, 0, len(tags))
+		for _, tag := range tags {
+			tagValues = append(tagValues, value.String(tag))
+		}
+		info.Set("tags", value.List(tagValues...))
+	}
+	if details.AverageRating != nil && !math.IsNaN(*details.AverageRating) && !math.IsInf(*details.AverageRating, 0) {
+		info.Set("average_rating", value.Float(*details.AverageRating))
+	}
+	if playableInEmbed := firstYouTubePlayableInEmbed(formatPlayers); playableInEmbed != nil {
+		info.Set("playable_in_embed", value.Bool(*playableInEmbed))
+	}
+	info.Set("media_type", value.String(youtubeMediaType(details.IsLiveContent, microformat.IsShortsEligible)))
 	if hasDuration {
 		info.Set("duration", value.Int(duration))
 	}
@@ -354,9 +394,12 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 	if views, err := strconv.ParseInt(details.ViewCount, 10, 64); err == nil {
 		info.Set("view_count", value.Int(views))
 	}
-	if len(details.Thumbnail.Thumbnails) > 0 {
-		thumbnail := details.Thumbnail.Thumbnails[len(details.Thumbnail.Thumbnails)-1]
-		info.Set("thumbnail", value.String(thumbnail.URL))
+	thumbnails, bestThumbnail := youtubeThumbnailCollection(page, videoID, details, microformat, liveStatus)
+	if bestThumbnail != "" {
+		info.Set("thumbnail", value.String(bestThumbnail))
+	}
+	if len(thumbnails) > 0 {
+		info.Set("thumbnails", value.List(thumbnails...))
 	}
 	if liveStatus != "" {
 		info.Set("live_status", value.String(liveStatus))
@@ -509,12 +552,7 @@ type youtubePlayerResponse struct {
 		Tracklist youtubeCaptionTracklist `json:"playerCaptionsTracklistRenderer"`
 	} `json:"captions"`
 	Microformat struct {
-		PlayerMicroformatRenderer struct {
-			LiveBroadcastDetails struct {
-				StartTimestamp string `json:"startTimestamp"`
-				EndTimestamp   string `json:"endTimestamp"`
-			} `json:"liveBroadcastDetails"`
-		} `json:"playerMicroformatRenderer"`
+		PlayerMicroformatRenderer youtubePlayerMicroformat `json:"playerMicroformatRenderer"`
 	} `json:"microformat"`
 
 	clientName          string
@@ -971,22 +1009,48 @@ func mergeYouTubeFormats(players []youtubePlayerResponse) []youtubeFormat {
 	return merged
 }
 
-type youtubeVideoDetails struct {
-	VideoID          string `json:"videoId"`
-	Title            string `json:"title"`
-	LengthSeconds    string `json:"lengthSeconds"`
-	Author           string `json:"author"`
-	ChannelID        string `json:"channelId"`
-	ShortDescription string `json:"shortDescription"`
-	ViewCount        string `json:"viewCount"`
-	IsLive           *bool  `json:"isLive"`
-	IsLiveContent    *bool  `json:"isLiveContent"`
-	IsUpcoming       *bool  `json:"isUpcoming"`
-	IsPostLiveDVR    *bool  `json:"isPostLiveDvr"`
+type youtubeThumbnail struct {
+	URL    string `json:"url"`
+	Width  int64  `json:"width,omitempty"`
+	Height int64  `json:"height,omitempty"`
+}
+
+// youtubePlayerMicroformat carries the player microformat fields normalized
+// for single-video metadata. Fields absent from the response remain zero; the
+// info assembly omits them rather than emitting empty claims.
+type youtubePlayerMicroformat struct {
+	Category         string `json:"category"`
+	OwnerProfileURL  string `json:"ownerProfileUrl"`
+	UploadDate       string `json:"uploadDate"`
+	IsFamilySafe     *bool  `json:"isFamilySafe"`
+	IsUnlisted       *bool  `json:"isUnlisted"`
+	IsShortsEligible *bool  `json:"isShortsEligible"`
 	Thumbnail        struct {
-		Thumbnails []struct {
-			URL string `json:"url"`
-		} `json:"thumbnails"`
+		Thumbnails []youtubeThumbnail `json:"thumbnails"`
+	} `json:"thumbnail"`
+	LiveBroadcastDetails struct {
+		StartTimestamp string `json:"startTimestamp"`
+		EndTimestamp   string `json:"endTimestamp"`
+	} `json:"liveBroadcastDetails"`
+}
+
+type youtubeVideoDetails struct {
+	VideoID          string   `json:"videoId"`
+	Title            string   `json:"title"`
+	LengthSeconds    string   `json:"lengthSeconds"`
+	Author           string   `json:"author"`
+	ChannelID        string   `json:"channelId"`
+	ShortDescription string   `json:"shortDescription"`
+	ViewCount        string   `json:"viewCount"`
+	Keywords         []string `json:"keywords"`
+	AverageRating    *float64 `json:"averageRating"`
+	IsPrivate        *bool    `json:"isPrivate"`
+	IsLive           *bool    `json:"isLive"`
+	IsLiveContent    *bool    `json:"isLiveContent"`
+	IsUpcoming       *bool    `json:"isUpcoming"`
+	IsPostLiveDVR    *bool    `json:"isPostLiveDvr"`
+	Thumbnail        struct {
+		Thumbnails []youtubeThumbnail `json:"thumbnails"`
 	} `json:"thumbnail"`
 }
 
@@ -1035,6 +1099,16 @@ func firstYouTubeVideoDetails(players []youtubePlayerResponse) youtubeVideoDetai
 		if len(result.Thumbnail.Thumbnails) == 0 {
 			result.Thumbnail = candidate.Thumbnail
 		}
+		if result.Keywords == nil && candidate.Keywords != nil {
+			result.Keywords = candidate.Keywords
+		}
+		if result.AverageRating == nil && candidate.AverageRating != nil {
+			result.AverageRating = candidate.AverageRating
+		}
+		if result.IsPrivate == nil && candidate.IsPrivate != nil {
+			value := *candidate.IsPrivate
+			result.IsPrivate = &value
+		}
 		if result.IsPostLiveDVR == nil && candidate.IsPostLiveDVR != nil {
 			value := *candidate.IsPostLiveDVR
 			result.IsPostLiveDVR = &value
@@ -1057,6 +1131,59 @@ func firstYouTubeVideoDetails(players []youtubePlayerResponse) youtubeVideoDetai
 
 func youtubeLiveStatusFromPlayers(players []youtubePlayerResponse) string {
 	return youtubeLiveStatus(firstYouTubeVideoDetails(players))
+}
+
+// firstYouTubeMicroformat merges the player microformat fields across all
+// player responses, first attributable value wins. The live broadcast details
+// are merged separately so live timing keeps its existing first-player
+// behavior.
+func firstYouTubeMicroformat(players []youtubePlayerResponse) youtubePlayerMicroformat {
+	var result youtubePlayerMicroformat
+	for _, player := range players {
+		candidate := player.Microformat.PlayerMicroformatRenderer
+		if result.Category == "" {
+			result.Category = candidate.Category
+		}
+		if result.OwnerProfileURL == "" {
+			result.OwnerProfileURL = candidate.OwnerProfileURL
+		}
+		if result.UploadDate == "" {
+			result.UploadDate = candidate.UploadDate
+		}
+		if result.IsFamilySafe == nil && candidate.IsFamilySafe != nil {
+			value := *candidate.IsFamilySafe
+			result.IsFamilySafe = &value
+		}
+		if result.IsUnlisted == nil && candidate.IsUnlisted != nil {
+			value := *candidate.IsUnlisted
+			result.IsUnlisted = &value
+		}
+		if result.IsShortsEligible == nil && candidate.IsShortsEligible != nil {
+			value := *candidate.IsShortsEligible
+			result.IsShortsEligible = &value
+		}
+		if len(result.Thumbnail.Thumbnails) == 0 {
+			result.Thumbnail = candidate.Thumbnail
+		}
+		if result.LiveBroadcastDetails.StartTimestamp == "" {
+			result.LiveBroadcastDetails.StartTimestamp = candidate.LiveBroadcastDetails.StartTimestamp
+		}
+		if result.LiveBroadcastDetails.EndTimestamp == "" {
+			result.LiveBroadcastDetails.EndTimestamp = candidate.LiveBroadcastDetails.EndTimestamp
+		}
+	}
+	return result
+}
+
+// firstYouTubePlayableInEmbed returns the first attributable playableInEmbed
+// flag across all player responses.
+func firstYouTubePlayableInEmbed(players []youtubePlayerResponse) *bool {
+	for _, player := range players {
+		if player.PlayabilityStatus.PlayableInEmbed != nil {
+			return player.PlayabilityStatus.PlayableInEmbed
+		}
+	}
+	return nil
 }
 
 func firstYouTubeLiveTimestamp(players []youtubePlayerResponse, start bool) (int64, bool) {
@@ -1088,6 +1215,7 @@ type youtubePlayabilityStatus struct {
 	Status                     string          `json:"status"`
 	Reason                     string          `json:"reason"`
 	DesktopLegacyAgeGateReason json.RawMessage `json:"desktopLegacyAgeGateReason"`
+	PlayableInEmbed            *bool           `json:"playableInEmbed"`
 }
 
 type youtubeFormat struct {

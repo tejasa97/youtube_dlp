@@ -1,0 +1,62 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Synthetic YouTube player-metadata fixture</title>
+    <meta property="og:image" content="https://img.example/og.jpg">
+  </head>
+  <body>
+    <script>
+      var ytInitialPlayerResponse = {
+        "playabilityStatus": {"status": "OK", "playableInEmbed": true},
+        "videoDetails": {
+          "videoId": "fixture0002",
+          "title": "Synthetic Metadata Video",
+          "lengthSeconds": "123",
+          "author": "fixture channel",
+          "channelId": "UCfixture",
+          "shortDescription": "player-response metadata fixture",
+          "viewCount": "456",
+          "keywords": ["yt:stretch=4:3", "tag one", "tag two"],
+          "averageRating": 4.5,
+          "isPrivate": false,
+          "isLiveContent": false,
+          "thumbnail": {"thumbnails": [
+            {"url": "https://img.example/small.jpg", "width": 160, "height": 90},
+            {"url": "https://img.example/large.jpg", "width": 1280, "height": 720}
+          ]}
+        },
+        "microformat": {"playerMicroformatRenderer": {
+          "category": "Science & Technology",
+          "ownerProfileUrl": "https://www.youtube.com/@fixturechannel",
+          "uploadDate": "2024-01-15T18:30:00-08:00",
+          "isFamilySafe": true,
+          "isUnlisted": false,
+          "isShortsEligible": false,
+          "thumbnail": {"thumbnails": [
+            {"url": "https://img.example/micro.jpg", "width": 640, "height": 360}
+          ]}
+        }},
+        "streamingData": {
+          "formats": [{
+            "itag": 18,
+            "url": "https://media.example/video.mp4",
+            "mimeType": "video/mp4; codecs=\"avc1.42001E, mp4a.40.2\"",
+            "bitrate": 500000,
+            "contentLength": "1000",
+            "width": 640,
+            "height": 360,
+            "fps": 30
+          }],
+          "adaptiveFormats": [{
+            "itag": 140,
+            "url": "https://media.example/audio.m4a",
+            "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+            "bitrate": 128000,
+            "contentLength": "500"
+          }]
+        },
+        "assets": {"js": "/s/player/fixture/base.js"}
+      };
+    </script>
+  </body>
+</html>
