@@ -111,7 +111,7 @@
 | `--embed-thumbnail` / `--no-embed-thumbnail` | present | `flags.Bool("embed-thumbnail", ...)` |
 | `--embed-metadata` / `--add-metadata` / `--no-embed-metadata` / `--no-add-metadata` | present | `flags.Bool("embed-metadata", ...)` + `Request.EmbedMetadata` |
 | `--embed-chapters` / `--add-chapters` / `--no-embed-chapters` / `--no-add-chapters` | present | `flags.BoolFunc("embed-chapters", ...)` + `Request.EmbedChapters *bool` |
-| `--embed-info-json` / `--no-embed-info-json` | defer | Info JSON embedding |
+| `--embed-info-json` / `--no-embed-info-json` | present | `flags.BoolFunc(...)` + `Request.EmbedInfoJSON`; bounded sanitized attachment for mkv/mka only |
 | `--metadata-from-title` | defer | Legacy metadata extraction |
 | `--parse-metadata` | present | `flags.Var(metadataParseFlag{...}, "parse-metadata", ...)` |
 | `--replace-in-metadata` | present | `flags.Var(metadataReplaceFlag{...}, "replace-in-metadata", ...)` |

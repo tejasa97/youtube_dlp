@@ -780,6 +780,21 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	flags.BoolFunc("add-chapters", "alias for --embed-chapters", setEmbedChapters(true))
 	flags.BoolFunc("no-embed-chapters", "disable chapter embedding", setEmbedChapters(false))
 	flags.BoolFunc("no-add-chapters", "alias for --no-embed-chapters", setEmbedChapters(false))
+	var embedInfoJSON bool
+	var embedInfoJSONSet bool
+	setEmbedInfoJSON := func(enabled bool) func(string) error {
+		return func(input string) error {
+			value, err := strconv.ParseBool(input)
+			if err != nil {
+				return err
+			}
+			embedInfoJSON = enabled == value
+			embedInfoJSONSet = true
+			return nil
+		}
+	}
+	flags.BoolFunc("embed-info-json", "attach bounded sanitized info JSON to mkv/mka media", setEmbedInfoJSON(true))
+	flags.BoolFunc("no-embed-info-json", "disable info JSON attachment", setEmbedInfoJSON(false))
 	writeSubtitles := flags.Bool("write-subs", false, "write manual subtitle sidecar files")
 	flags.BoolVar(writeSubtitles, "write-srt", false, "alias for --write-subs")
 	flags.BoolFunc("no-write-subs", "disable writing manual subtitles", func(string) error {
@@ -1121,6 +1136,10 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	if embedChaptersSet {
 		requestEmbedChapters = &embedChapters
 	}
+	var requestEmbedInfoJSON *bool
+	if embedInfoJSONSet {
+		requestEmbedInfoJSON = &embedInfoJSON
+	}
 	// maxDownloadsPerInput is the per-Run cap. The CLI carries the remaining
 	// budget across inputs (yt-dlp's shared _num_downloads) and resets it per
 	// input under --break-per-input.
@@ -1156,6 +1175,7 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 			MetadataActions:        append([]ytdlp.MetadataAction(nil), metadataActions...),
 			EmbedMetadata:          *embedMetadata,
 			EmbedChapters:          requestEmbedChapters,
+			EmbedInfoJSON:          requestEmbedInfoJSON,
 			Subtitles:              requestSubtitles,
 			Thumbnails: ytdlp.ThumbnailOptions{
 				Write:    thumbnailMode == thumbnailModeBest || *embedThumbnail,

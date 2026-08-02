@@ -47,4 +47,6 @@ retention, postprocessor failure rollback, cancellation after a committed
 successor, overwrite rejection followed by retry, multi-output cleanup with
 `--no-part`, and simulate/skip suppression. This PR does not add shell hooks,
 `--exec`, `--postprocessor-args`, plugin postprocessors, concat, or chapter
-splitting surfaces.
+splitting surfaces. The separate embed-info-json boundary uses the same pinned
+`FFmpegMetadataPP` attachment semantics with a 256 KiB cleaned payload bound,
+attachment-only replacement, and transactional media snapshot.

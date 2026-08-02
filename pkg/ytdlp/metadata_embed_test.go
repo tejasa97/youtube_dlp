@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -69,6 +70,29 @@ func TestMetadataEmbeddingDependentChapterDefaultAndContainerPreflight(t *testin
 	}
 	if err := validateMetadataEmbeddingContainer("video.avi", request); !errors.Is(err, ffmpeg.ErrInvalidOperation) {
 		t.Fatalf("unsupported container error=%v", err)
+	}
+	enabled := true
+	if err := validateInfoJSONEmbeddingContainer("video.mkv", Request{EmbedInfoJSON: &enabled}); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateInfoJSONEmbeddingContainer("video.mp4", Request{EmbedInfoJSON: &enabled}); !errors.Is(err, ffmpeg.ErrInvalidOperation) {
+		t.Fatalf("unsupported info-json container error=%v", err)
+	}
+}
+
+func TestBoundedEmbeddedInfoJSONCleansPrivateFieldsAndRejectsOversize(t *testing.T) {
+	info := value.NewInfo(value.NewObject(
+		value.Field{Key: "title", Value: value.String("title")},
+		value.Field{Key: "filepath", Value: value.String("private")},
+		value.Field{Key: "__secret", Value: value.String("private")},
+	))
+	payload, err := boundedEmbeddedInfoJSON(info)
+	if err != nil || string(payload) != `{"title":"title"}` {
+		t.Fatalf("payload=%s err=%v", payload, err)
+	}
+	info.Set("description", value.String(strings.Repeat("x", maximumEmbeddedInfoJSONBytes)))
+	if _, err := boundedEmbeddedInfoJSON(info); !errors.Is(err, ffmpeg.ErrInvalidOperation) {
+		t.Fatalf("oversized payload error=%v", err)
 	}
 }
 

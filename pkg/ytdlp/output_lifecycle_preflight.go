@@ -253,5 +253,8 @@ func (operation *operation) postprocessorDestinations(downloadedPath string) ([]
 	if err := validateMetadataEmbeddingContainer(current, operation.request); err != nil {
 		return nil, err
 	}
+	if err := validateInfoJSONEmbeddingContainer(current, operation.request); err != nil {
+		return nil, err
+	}
 	return destinations, nil
 }
