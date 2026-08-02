@@ -58,7 +58,7 @@ identify compatibility targets only.
 | Extensions | Versioned native RPC and constrained WASM plugins, signed packs, catalogs, and updater transactions |
 | Public API | Versioned v1alpha1 Go API with context cancellation, categorized errors, events, playlists, metadata, and artifacts |
 
-The capability manifest records **90 capabilities**: **81 compatible** within
+The capability manifest records **91 capabilities**: **82 compatible** within
 their declared corpora, **8 partial**, and **1 intentional deviation**.
 “Compatible” means the linked deterministic evidence passes; it does not mean
 unbounded equivalence with every upstream behavior.
@@ -114,6 +114,17 @@ Extract metadata without downloading:
 ```sh
 ./bin/ytdlp-go --skip-download --print-json URL
 ```
+
+Inspect the native extractor catalog without extraction or network access:
+
+```sh
+./bin/ytdlp-go --list-extractors [URL ...]
+./bin/ytdlp-go --extractor-descriptions
+```
+
+`--list-extractors` uses positional and batch-file URLs only for offline
+`Suitable` matching; `--extractor-descriptions` is input-independent. Both
+write deterministic output to stdout and keep `generic` last.
 
 Extract audio with ffmpeg:
 
