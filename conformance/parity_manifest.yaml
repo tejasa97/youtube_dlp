@@ -2517,6 +2517,9 @@ capabilities:
       - pkg/ytdlp.TestProductTypedFixupCancellationRestoresDestinationAndArchive
       - pkg/ytdlp.TestProductTypedFixupFailureRestoresDestinationAndArchive
       - pkg/ytdlp.TestProductEmbedInfoJSONPostStageFailureRestoresDestinationAndArchive
+      - pkg/ytdlp.TestProductSplitChaptersPublishesConfinedArtifactsAndOneArchiveRecord
+      - pkg/ytdlp.TestProductSplitChaptersFailureIsAllOrNothing
+      - pkg/ytdlp.TestSplitChaptersRejectsConflictingRenderedNamesBeforeFFmpeg
       - pkg/ytdlp.TestCanonicalEmbeddedMetadataUsesPinnedPrecedenceAndBounds
       - pkg/ytdlp.TestCanonicalEmbeddedChaptersValidatesTimeline
       - pkg/ytdlp.TestProductEmbedsSelectedSubtitleTracksAndAppliesRetention

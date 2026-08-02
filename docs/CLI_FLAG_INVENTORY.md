@@ -123,7 +123,7 @@
 | `--exec-before-download` / `--no-exec-before-download` | defer | External command execution |
 | `--convert-subs` / `--convert-sub` / `--convert-subtitles` | present | `flags.String("convert-subs", ...)` |
 | `--convert-thumbnails` | present | `flags.String("convert-thumbnails", ...)` |
-| `--split-chapters` / `--no-split-chapters` | defer | Chapter splitting |
+| `--split-chapters` / `--no-split-chapters` | present | Bounded typed chapter artifacts under the `chapter:` output path class; all-or-nothing publication |
 | `--remove-chapters` / `--no-remove-chapters` | present | `flags.Var(&removeChapters, "remove-chapters", ...)` |
 | `--force-keyframes-at-cuts` / `--no-force-keyframes-at-cuts` | present | `flags.BoolFunc("force-keyframes-at-cuts", ...)` |
 | `--use-postprocessor` | defer | Plugin post-processor |
