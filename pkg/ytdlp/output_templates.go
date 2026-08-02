@@ -23,19 +23,20 @@ const (
 	OutputTemplatePLDescription OutputTemplateType = "pl_description"
 	OutputTemplatePLInfoJSON    OutputTemplateType = "pl_infojson"
 	OutputTemplatePLThumbnail   OutputTemplateType = "pl_thumbnail"
+	OutputTemplatePLVideo       OutputTemplateType = "pl_video"
 	OutputTemplateChapter       OutputTemplateType = "chapter"
 )
 
 var orderedOutputTemplateTypes = []OutputTemplateType{
 	OutputTemplateDefault, OutputTemplateSubtitle, OutputTemplateThumbnail, OutputTemplateDescription,
 	OutputTemplateInfoJSON, OutputTemplateLink, OutputTemplatePLDescription,
-	OutputTemplatePLInfoJSON, OutputTemplatePLThumbnail, OutputTemplateChapter,
+	OutputTemplatePLInfoJSON, OutputTemplatePLThumbnail, OutputTemplatePLVideo, OutputTemplateChapter,
 }
 
 var supportedOutputTemplateTypes = map[OutputTemplateType]struct{}{
 	OutputTemplateDefault: {}, OutputTemplateSubtitle: {}, OutputTemplateThumbnail: {}, OutputTemplateDescription: {},
 	OutputTemplateInfoJSON: {}, OutputTemplateLink: {}, OutputTemplatePLDescription: {},
-	OutputTemplatePLInfoJSON: {}, OutputTemplatePLThumbnail: {}, OutputTemplateChapter: {},
+	OutputTemplatePLInfoJSON: {}, OutputTemplatePLThumbnail: {}, OutputTemplatePLVideo: {}, OutputTemplateChapter: {},
 }
 
 // OutputTemplates maps an artifact type to its filename template. A missing
@@ -48,6 +49,9 @@ func (request Request) outputTemplate(templateType OutputTemplateType) string {
 	}
 	if templateType == OutputTemplateChapter {
 		return "%(title)s-%(section_number)03d-%(section_title)s.%(ext)s"
+	}
+	if templateType == OutputTemplatePLVideo {
+		return "%(playlist_title)s.%(ext)s"
 	}
 	if pattern := request.OutputTemplates[OutputTemplateDefault]; pattern != "" {
 		return pattern

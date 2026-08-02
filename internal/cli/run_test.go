@@ -1843,6 +1843,19 @@ func TestRunFixupPolicyPlumbing(t *testing.T) {
 	}
 }
 
+func TestRunConcatPlaylistPolicyAndOutputTypePlumbing(t *testing.T) {
+	request := captureCLIRequest(t, "--concat-playlist", "always", "-o", "pl_video:joined.%(ext)s", "-P", "pl_video:playlist")
+	if request.ConcatPlaylist != "always" {
+		t.Fatalf("concat policy=%q", request.ConcatPlaylist)
+	}
+	if request.OutputTemplates[ytdlp.OutputTemplatePLVideo] != "joined.%(ext)s" {
+		t.Fatalf("concat template=%+v", request.OutputTemplates)
+	}
+	if request.OutputPaths[ytdlp.OutputPathPLVideo] != "playlist" {
+		t.Fatalf("concat path=%+v", request.OutputPaths)
+	}
+}
+
 func TestRunRecodeWinsOverRemuxWithWarning(t *testing.T) {
 	runner := &captureCLIRunner{}
 	var stdout, stderr bytes.Buffer

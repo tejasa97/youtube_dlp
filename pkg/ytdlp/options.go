@@ -562,6 +562,9 @@ func validateRequestOptions(request Request) error {
 	if !validFixupPolicy(request.FixupPolicy) {
 		return fmt.Errorf("%w: fixup policy", errInvalidRequestOptions)
 	}
+	if !validConcatPlaylist(request.ConcatPlaylist) {
+		return fmt.Errorf("%w: concat playlist policy", errInvalidRequestOptions)
+	}
 	if err := validatePostprocessorPaths(request); err != nil {
 		return fmt.Errorf("%w: %v", errInvalidRequestOptions, err)
 	}
