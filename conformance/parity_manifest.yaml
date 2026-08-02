@@ -2520,6 +2520,14 @@ capabilities:
       - pkg/ytdlp.TestProductSplitChaptersPublishesConfinedArtifactsAndOneArchiveRecord
       - pkg/ytdlp.TestProductSplitChaptersFailureIsAllOrNothing
       - pkg/ytdlp.TestSplitChaptersRejectsConflictingRenderedNamesBeforeFFmpeg
+      - pkg/ytdlp.TestProductConcatPlaylistPublishesDeterministicJoinedMedia
+      - pkg/ytdlp.TestProductConcatPlaylistFailurePreservesInputsAndDestination
+      - pkg/ytdlp.TestProductConcatPlaylistDefaultMultiVideoNoOpsOrdinaryPlaylist
+      - pkg/ytdlp.TestProductConcatPlaylistCancellationPreservesSidecarAndDestination
+      - pkg/ytdlp.TestConcatPlaylistRejectsCaseOnlyDestinationCollision
+      - pkg/ytdlp.TestConcatPlaylistRejectsSymlinkedOutputRoot
+      - pkg/ytdlp.TestConcatPlaylistPolicyValidationIsClosed
+      - internal/cli.TestRunConcatPlaylistPolicyAndOutputTypePlumbing
       - pkg/ytdlp.TestCanonicalEmbeddedMetadataUsesPinnedPrecedenceAndBounds
       - pkg/ytdlp.TestCanonicalEmbeddedChaptersValidatesTimeline
       - pkg/ytdlp.TestProductEmbedsSelectedSubtitleTracksAndAppliesRetention

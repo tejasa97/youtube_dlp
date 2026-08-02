@@ -807,6 +807,7 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 		}
 		return nil
 	})
+	concatPlaylist := flags.String("concat-playlist", "multi_video", "concatenate compatible playlist media: never, always, or multi_video")
 	writeSubtitles := flags.Bool("write-subs", false, "write manual subtitle sidecar files")
 	flags.BoolVar(writeSubtitles, "write-srt", false, "alias for --write-subs")
 	flags.BoolFunc("no-write-subs", "disable writing manual subtitles", func(string) error {
@@ -1190,6 +1191,7 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 			EmbedInfoJSON:          requestEmbedInfoJSON,
 			FixupPolicy:            *fixupPolicy,
 			SplitChapters:          *splitChapters,
+			ConcatPlaylist:         *concatPlaylist,
 			Subtitles:              requestSubtitles,
 			Thumbnails: ytdlp.ThumbnailOptions{
 				Write:    thumbnailMode == thumbnailModeBest || *embedThumbnail,
@@ -1963,7 +1965,7 @@ func (output *outputTemplateFlag) String() string {
 		ytdlp.OutputTemplateDefault, ytdlp.OutputTemplateSubtitle,
 		ytdlp.OutputTemplateThumbnail, ytdlp.OutputTemplateDescription, ytdlp.OutputTemplateInfoJSON,
 		ytdlp.OutputTemplateLink, ytdlp.OutputTemplatePLDescription,
-		ytdlp.OutputTemplatePLInfoJSON, ytdlp.OutputTemplatePLThumbnail, ytdlp.OutputTemplateChapter,
+		ytdlp.OutputTemplatePLInfoJSON, ytdlp.OutputTemplatePLThumbnail, ytdlp.OutputTemplatePLVideo, ytdlp.OutputTemplateChapter,
 	}
 	parts := make([]string, 0, len(output.values))
 	for _, templateType := range ordered {
@@ -2044,7 +2046,7 @@ func parseOutputTemplateSpecification(specification string) ([]ytdlp.OutputTempl
 
 func recognizedUnimplementedOutputTemplateType(templateType ytdlp.OutputTemplateType) bool {
 	switch templateType {
-	case "annotation", "pl_video":
+	case "annotation":
 		return true
 	default:
 		return false
@@ -2056,7 +2058,7 @@ func supportedCLIOutputTemplateType(templateType ytdlp.OutputTemplateType) bool 
 	case ytdlp.OutputTemplateDefault, ytdlp.OutputTemplateSubtitle,
 		ytdlp.OutputTemplateThumbnail, ytdlp.OutputTemplateDescription, ytdlp.OutputTemplateInfoJSON,
 		ytdlp.OutputTemplateLink, ytdlp.OutputTemplatePLDescription,
-		ytdlp.OutputTemplatePLInfoJSON, ytdlp.OutputTemplatePLThumbnail, ytdlp.OutputTemplateChapter:
+		ytdlp.OutputTemplatePLInfoJSON, ytdlp.OutputTemplatePLThumbnail, ytdlp.OutputTemplatePLVideo, ytdlp.OutputTemplateChapter:
 		return true
 	default:
 		return false
@@ -2461,7 +2463,7 @@ func supportedCLIOutputPathType(pathType ytdlp.OutputPathType) bool {
 	switch pathType {
 	case ytdlp.OutputPathHome, ytdlp.OutputPathSubtitle, ytdlp.OutputPathThumbnail,
 		ytdlp.OutputPathDescription, ytdlp.OutputPathInfoJSON, ytdlp.OutputPathLink,
-		ytdlp.OutputPathPLDescription, ytdlp.OutputPathPLInfoJSON, ytdlp.OutputPathPLThumbnail:
+		ytdlp.OutputPathPLDescription, ytdlp.OutputPathPLInfoJSON, ytdlp.OutputPathPLThumbnail, ytdlp.OutputPathPLVideo:
 		return true
 	default:
 		return false
@@ -2470,7 +2472,7 @@ func supportedCLIOutputPathType(pathType ytdlp.OutputPathType) bool {
 
 func recognizedUnimplementedOutputPathType(pathType ytdlp.OutputPathType) bool {
 	switch pathType {
-	case "temp", "annotation", "pl_video":
+	case "temp", "annotation":
 		return true
 	default:
 		return false

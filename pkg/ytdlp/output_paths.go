@@ -20,13 +20,14 @@ const (
 	OutputPathPLDescription OutputPathType = "pl_description"
 	OutputPathPLInfoJSON    OutputPathType = "pl_infojson"
 	OutputPathPLThumbnail   OutputPathType = "pl_thumbnail"
+	OutputPathPLVideo       OutputPathType = "pl_video"
 	OutputPathChapter       OutputPathType = "chapter"
 )
 
 var orderedOutputPathTypes = []OutputPathType{
 	OutputPathHome, OutputPathSubtitle, OutputPathThumbnail, OutputPathDescription,
 	OutputPathInfoJSON, OutputPathLink, OutputPathPLDescription, OutputPathPLInfoJSON,
-	OutputPathPLThumbnail, OutputPathChapter,
+	OutputPathPLThumbnail, OutputPathPLVideo, OutputPathChapter,
 }
 
 var supportedOutputPathTypes = func() map[OutputPathType]struct{} {
@@ -125,6 +126,8 @@ func outputPathTypeForTemplate(templateType OutputTemplateType) OutputPathType {
 		return OutputPathPLInfoJSON
 	case OutputTemplatePLThumbnail:
 		return OutputPathPLThumbnail
+	case OutputTemplatePLVideo:
+		return OutputPathPLVideo
 	case OutputTemplateChapter:
 		return OutputPathChapter
 	default:

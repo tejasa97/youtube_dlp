@@ -260,7 +260,10 @@ type Request struct {
 	// original media remains the primary result and is retained in the archive
 	// identity exactly once.
 	SplitChapters bool
-	Downloader  DownloaderOptions
+	// ConcatPlaylist selects the closed playlist concatenation policy. The CLI
+	// supplies multi_video; an empty API value leaves concatenation disabled.
+	ConcatPlaylist string
+	Downloader     DownloaderOptions
 	// DenyDynamicMPD maps the product's --no-allow-dynamic-mpd policy to the
 	// DASH protocol boundary. The zero value intentionally allows dynamic MPDs.
 	DenyDynamicMPD bool
@@ -1318,6 +1321,23 @@ func (operation *operation) processPlaylist(ctx context.Context, extracted extra
 	var suppressedBytes int64
 	finish := func() (Result, error) {
 		result, err := operation.finishPlaylistResult(ctx, extracted.Info, extractorName, children, entryValues)
+		if err != nil {
+			return result, err
+		}
+		concatArtifact, concatErr := operation.concatPlaylist(ctx, extracted.Info, children, len(children)+failures)
+		if concatErr != nil {
+			return Result{}, categorized("concat playlist", concatErr)
+		}
+		if concatArtifact.Path != "" {
+			info, statErr := os.Stat(concatArtifact.Path)
+			if statErr != nil {
+				return Result{}, categorized("account concat playlist", statErr)
+			}
+			result.Artifacts = append(result.Artifacts, concatArtifact)
+			result.Bytes += info.Size()
+			result.Downloaded = true
+			result.Filename = concatArtifact.Path
+		}
 		result.SuppressedFailures += failures
 		result.Downloads += failedDownloads
 		if consumed := operation.autonumberCountSince(autonumberBefore); result.AutonumberCount < consumed {
