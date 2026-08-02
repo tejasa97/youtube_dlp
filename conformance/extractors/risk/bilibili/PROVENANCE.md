@@ -41,3 +41,11 @@ Favorites, watchlater, generic medialists, paid/DRM, authenticated/private,
 geo-only, and live/HLS behavior are not claimed by the Go registry. No
 fixture-only hostname, mutable test switch, subtitle implementation, or
 remote live state is part of the promotion.
+
+For domestic multi-page anthology URLs without an explicit `p` parameter, the
+registered `bilibili` extractor follows the pinned `_yes_playlist(video_id,
+video_id)` choice: the default returns a lazy playlist, while `Request.NoPlaylist`
+selects the first video page. Explicit `?p=` URLs and separate collection/list
+routes remain video or playlist routes as registered. Choice and product
+re-entry evidence is in `TestBilibiliNoPlaylistAnthologyChoice` and
+`TestProductBilibiliNoPlaylistChoice`.

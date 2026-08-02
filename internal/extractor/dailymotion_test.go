@@ -128,6 +128,47 @@ func TestDailymotionPlaylistAliasReentersRegisteredExtractor(t *testing.T) {
 	}
 }
 
+func TestDailymotionNoPlaylistAmbiguousURLChoice(t *testing.T) {
+	rawURL := "https://www.dailymotion.com/video/xfixture?playlist=xlist01&sig=a%2Bb&token=keep"
+
+	t.Run("default-prefers-playlist", func(t *testing.T) {
+		transport := dailymotionDiscoveryFixture(t)
+		result, err := NewDailymotion().Extract(context.Background(), Request{URL: rawURL, Transport: transport})
+		if err != nil || !result.IsURL() || result.Redirect.ExtractorKey != "dailymotion_playlist" {
+			t.Fatalf("result=%#v err=%v", result, err)
+		}
+		if result.Redirect.URL != "https://www.dailymotion.com/playlist/xlist01" {
+			t.Fatalf("redirect=%q", result.Redirect.URL)
+		}
+		if len(transport.tokenRequests) != 0 || len(transport.graphQLBodies) != 0 {
+			t.Fatalf("discarded video branch made requests: tokens=%d graphql=%d", len(transport.tokenRequests), len(transport.graphQLBodies))
+		}
+	})
+
+	t.Run("no-playlist-prefers-video-and-preserves-query", func(t *testing.T) {
+		transport := dailymotionDiscoveryFixture(t)
+		result, err := NewDailymotion().Extract(context.Background(), Request{URL: rawURL, Transport: transport, NoPlaylist: true})
+		if err != nil || result.IsURL() || result.IsPlaylist() {
+			t.Fatalf("result=%#v err=%v", result, err)
+		}
+		if webpage, _ := result.Info.Lookup("webpage_url").StringValue(); webpage != rawURL {
+			t.Fatalf("webpage_url=%q want exact %q", webpage, rawURL)
+		}
+		if len(transport.tokenRequests) != 1 || len(transport.graphQLBodies) != 1 {
+			t.Fatalf("video requests: tokens=%d graphql=%d", len(transport.tokenRequests), len(transport.graphQLBodies))
+		}
+	})
+
+	t.Run("playlist-only-player-remains-playlist", func(t *testing.T) {
+		result, err := NewDailymotion().Extract(context.Background(), Request{
+			URL: "https://geo.dailymotion.com/player/x86gw.html?playlist=xlist01&sig=a%2Bb", Transport: dailymotionDiscoveryFixture(t), NoPlaylist: true,
+		})
+		if err != nil || !result.IsURL() || result.Redirect.ExtractorKey != "dailymotion_playlist" {
+			t.Fatalf("result=%#v err=%v", result, err)
+		}
+	})
+}
+
 func TestDailymotionFailuresIsolationAndCancellation(t *testing.T) {
 	for _, test := range []struct {
 		name   string

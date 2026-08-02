@@ -67,6 +67,12 @@ it is opt-in and bounded; it does not authenticate, synthesize an estimated
 timestamp, expose the approximate count before retrieval, reproduce upstream's
 configurable ignore-error policy, or claim untested renderer families.
 
+Watch URLs carrying both `v` and `list` preserve the pinned playlist choice:
+the default returns the lazy playlist, while `Request.NoPlaylist` extracts the
+video. Pure `/playlist?list=...` URLs remain playlist-only routes. The extractor
+and product evidence also pin cancellation before the discarded branch, declared
+child routing, and the CLI's last-wins `--no-playlist`/`--yes-playlist` behavior.
+
 `playlist-modern.html` and `playlist-modern-continuation.json` extend that
 synthetic corpus with the `lockupViewModel` video and
 `continuationItemViewModel` shapes, including an executor-wrapped continuation

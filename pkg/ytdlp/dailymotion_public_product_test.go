@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -238,6 +239,59 @@ func TestProductDailymotionClientRunDirectAndHLSIsolation(t *testing.T) {
 }
 
 const testURL = "https://www.dailymotion.com/video/xfixture"
+
+func TestProductDailymotionNoPlaylistChoice(t *testing.T) {
+	rawURL := testURL + "?playlist=xfixture&sig=a%2Bb&token=keep"
+	for _, test := range []struct {
+		name              string
+		noPlaylist        bool
+		wantRootPlaylist  bool
+		wantRootExtractor string
+		wantCollectionAPI bool
+		wantArchive       string
+	}{
+		{name: "default-prefers-playlist", wantRootPlaylist: true, wantRootExtractor: "dailymotion_playlist", wantCollectionAPI: true, wantArchive: "dailymotion xfixture\n"},
+		{name: "no-playlist-prefers-video", noPlaylist: true, wantRootExtractor: "dailymotion", wantCollectionAPI: false, wantArchive: "dailymotion xfixture\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			transport := newDailymotionRunRoundTripper(t)
+			root := t.TempDir()
+			archivePath := filepath.Join(root, "archive.txt")
+			result, err := newDailymotionRunClient(transport).Run(context.Background(), Request{
+				URL: rawURL, OutputDir: root, OutputTemplate: "%(id)s.%(ext)s", Format: "http-720@60",
+				Overwrite: true, DownloadArchive: archivePath, Playlist: PlaylistOptions{Disabled: test.noPlaylist, Items: "1"},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Extractor != test.wantRootExtractor {
+				t.Fatalf("root extractor=%q", result.Extractor)
+			}
+			if test.wantRootPlaylist {
+				if len(result.Entries) != 1 || !result.Entries[0].Downloaded {
+					t.Fatalf("playlist result=%#v", result)
+				}
+			} else if len(result.Entries) != 0 || !result.Downloaded {
+				t.Fatalf("video result=%#v", result)
+			}
+			transport.mu.Lock()
+			collectionRequests := 0
+			for _, body := range transport.graphqlBodies {
+				if bytes.Contains(body, []byte("collection(xid:")) {
+					collectionRequests++
+				}
+			}
+			transport.mu.Unlock()
+			if (collectionRequests > 0) != test.wantCollectionAPI {
+				t.Fatalf("collection requests=%d want present=%t", collectionRequests, test.wantCollectionAPI)
+			}
+			archive, err := os.ReadFile(archivePath)
+			if err != nil || string(archive) != test.wantArchive {
+				t.Fatalf("archive=%q err=%v want=%q", archive, err, test.wantArchive)
+			}
+		})
+	}
+}
 
 func TestProductDailymotionClientRunRepeatedPublicChildren(t *testing.T) {
 	for _, test := range []struct {

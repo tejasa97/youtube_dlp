@@ -319,7 +319,7 @@ func (Bilibili) Extract(ctx context.Context, request Request) (Extraction, error
 	if err != nil {
 		return Extraction{}, err
 	}
-	return parseBilibiliPage(page, id, part, pageURL)
+	return parseBilibiliPageWithPlaylistChoice(page, id, part, pageURL, request.NoPlaylist)
 }
 
 func bilibiliURLID(parsed *url.URL) string {
@@ -402,6 +402,10 @@ type bilibiliDash struct {
 }
 
 func parseBilibiliPage(page []byte, requestedID string, part int, webpage string) (Extraction, error) {
+	return parseBilibiliPageWithPlaylistChoice(page, requestedID, part, webpage, false)
+}
+
+func parseBilibiliPageWithPlaylistChoice(page []byte, requestedID string, part int, webpage string, noPlaylist bool) (Extraction, error) {
 	if int64(len(page)) > maxExtractorJSONBytes {
 		return Extraction{}, ErrJSONResponseTooLarge
 	}
@@ -436,7 +440,10 @@ func parseBilibiliPage(page []byte, requestedID string, part int, webpage string
 	if video.Title == "" {
 		return Extraction{}, fmt.Errorf("%w: missing Bilibili title", ErrInvalidMetadata)
 	}
-	if len(video.Pages) > 1 && part == 0 {
+	// Bilibili anthologies use the same video URL for their playlist and first
+	// child. Match the pinned _yes_playlist(video_id, video_id) choice only
+	// when the URL did not explicitly select a page.
+	if len(video.Pages) > 1 && part == 0 && !noPlaylist {
 		entries := make([]Entry, 0, len(video.Pages))
 		for _, pageInfo := range video.Pages {
 			if pageInfo.Page < 1 {

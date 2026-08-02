@@ -77,7 +77,11 @@ func (Dailymotion) Extract(ctx context.Context, request Request) (Extraction, er
 	if !ok {
 		return Extraction{}, ErrUnsupported
 	}
-	if target.playlist != "" {
+	// A video URL with playlist context is ambiguous in the pinned reference:
+	// the playlist wins by default, while --no-playlist keeps the requested
+	// video. A playlist-only player URL still redirects to the explicit
+	// playlist extractor regardless of NoPlaylist.
+	if target.playlist != "" && (target.videoID == "" || !request.NoPlaylist) {
 		return URLResult(Entry{
 			URL:          "https://www.dailymotion.com/playlist/" + target.playlist,
 			ExtractorKey: "dailymotion_playlist",

@@ -3337,8 +3337,8 @@ capabilities:
   - id: cli.flag_wave1
     name: Wave 1 CLI flag parity — overwrite and playlist-vs-single controls
     phase: 3
-    compatibility_target: Wire --no-overwrites, --no-playlist, and --yes-playlist from the CLI FlagSet to the Request struct with correct last-wins semantics. --no-overwrites is the inverse of --force-overwrites. --no-playlist/--yes-playlist set Request.Playlist.Disabled (distinct from RelatedFiles.NoPlaylist). The Disabled signal is passed to extractor.Request.NoPlaylist; YouTube implements _yes_playlist-style choice for ambiguous URLs (video+playlist). Other extractors with ambiguous URLs remain deferred.
-    status: partial
+    compatibility_target: Wire --no-overwrites, --no-playlist, and --yes-playlist from the CLI FlagSet to the Request struct with correct last-wins semantics. --no-overwrites is the inverse of --force-overwrites. --no-playlist/--yes-playlist set Request.Playlist.Disabled (distinct from RelatedFiles.NoPlaylist). The Disabled signal is passed to extractor.Request.NoPlaylist; all currently registered _yes_playlist-style ambiguity lanes (YouTube watch, Dailymotion video-context, and Bilibili anthology URLs) honor it, while explicit playlist-only routes remain playlists.
+    status: compatible
     evidence:
       - internal/cli.TestRunNoOverwritesFlag
       - internal/cli.TestRunNoOverwritesAliasW
@@ -3353,10 +3353,15 @@ capabilities:
       - pkg/ytdlp.TestNoPlaylistWiredFromRequestToExtractor
       - internal/extractor.TestParseYouTubeTargetListParam
       - internal/extractor.TestYouTubeNoPlaylistAmbiguousURLChoice
+      - internal/extractor.TestDailymotionNoPlaylistAmbiguousURLChoice
+      - internal/extractor.TestBilibiliNoPlaylistAnthologyChoice
+      - pkg/ytdlp.TestProductYouTubeNoPlaylistChoice
+      - pkg/ytdlp.TestProductDailymotionNoPlaylistChoice
+      - pkg/ytdlp.TestProductBilibiliNoPlaylistChoice
+      - pkg/ytdlp.TestProductPlaylistChoiceRegistryKeepsExplicitPlaylistRouting
     owner: core
     depends_on:
       - foundation.cli
-    known_deviation: YouTube extractor implements _yes_playlist-style choice via NoPlaylist for ambiguous video+playlist URLs. Other extractors with ambiguous URLs (Dailymotion, etc.) do not yet consume NoPlaylist; --no-playlist has no effect on their extraction behavior.
   - id: cli.flag_wave2
     name: Wave 2 CLI flag parity — filename and filesystem controls
     phase: 3

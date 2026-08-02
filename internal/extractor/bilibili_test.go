@@ -111,6 +111,79 @@ func TestBilibiliHydrationAndAnthology(t *testing.T) {
 	}
 }
 
+func TestBilibiliNoPlaylistAnthologyChoice(t *testing.T) {
+	const rawURL = "https://www.bilibili.com/video/BV1fixture01"
+	page := bilibiliPage(`{"videoData":{"bvid":"BV1fixture01","title":"Fixture","pages":[{"page":1,"part":"one"},{"page":2,"part":"two"}]}}`)
+	page = append(page, []byte(`<script>window.__playinfo__=`)...)
+	page = append(page, bilibiliPlayinfoJSON(
+		"https://upos-sz-mirror.bilivideo.com/choice-video.mp4?sig=video",
+		"https://upos-sz-mirror.bilivideo.com/choice-audio.m4a?sig=audio",
+	)...)
+	page = append(page, []byte(`;</script>`)...)
+
+	t.Run("default-prefers-playlist", func(t *testing.T) {
+		transport := &bilibiliFixtureTransport{pages: map[string][]byte{rawURL: page}}
+		result, err := NewBilibili().Extract(context.Background(), Request{URL: rawURL, Transport: transport})
+		if err != nil || !result.IsPlaylist() {
+			t.Fatalf("result=%#v err=%v", result, err)
+		}
+		entries, err := CollectEntries(context.Background(), result.Entries, 10)
+		if err != nil || len(entries) != 2 || entries[0].URL != rawURL+"?p=1" {
+			t.Fatalf("entries=%#v err=%v", entries, err)
+		}
+		transport.mu.Lock()
+		calls := len(transport.calls)
+		transport.mu.Unlock()
+		if calls != 1 {
+			t.Fatalf("calls=%d want one root page before child re-entry", calls)
+		}
+	})
+
+	t.Run("no-playlist-prefers-first-video", func(t *testing.T) {
+		transport := &bilibiliFixtureTransport{pages: map[string][]byte{rawURL: page}}
+		result, err := NewBilibili().Extract(context.Background(), Request{URL: rawURL, Transport: transport, NoPlaylist: true})
+		if err != nil || result.IsPlaylist() || result.IsURL() {
+			t.Fatalf("result=%#v err=%v", result, err)
+		}
+		if id, _ := result.Info.Lookup("id").StringValue(); id != "BV1fixture01_p1" {
+			t.Fatalf("id=%q want first anthology page", id)
+		}
+		transport.mu.Lock()
+		calls := len(transport.calls)
+		transport.mu.Unlock()
+		if calls != 1 {
+			t.Fatalf("calls=%d want one direct page read", calls)
+		}
+	})
+
+	t.Run("explicit-page-remains-video", func(t *testing.T) {
+		transport := &bilibiliFixtureTransport{pages: map[string][]byte{rawURL + "?p=2": page}}
+		result, err := NewBilibili().Extract(context.Background(), Request{URL: rawURL + "?p=2", Transport: transport})
+		if err != nil || result.IsPlaylist() || result.IsURL() {
+			t.Fatalf("result=%#v err=%v", result, err)
+		}
+		if id, _ := result.Info.Lookup("id").StringValue(); id != "BV1fixture01_p2" {
+			t.Fatalf("id=%q want explicit anthology page", id)
+		}
+	})
+
+	t.Run("cancellation-prevents-page-read", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		transport := &bilibiliFixtureTransport{pages: map[string][]byte{rawURL: page}}
+		_, err := NewBilibili().Extract(ctx, Request{URL: rawURL, Transport: transport, NoPlaylist: true})
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("error=%v want cancellation", err)
+		}
+		transport.mu.Lock()
+		calls := len(transport.calls)
+		transport.mu.Unlock()
+		if calls != 0 {
+			t.Fatalf("cancelled request made %d calls", calls)
+		}
+	})
+}
+
 func TestBilibiliDASHPreservesReportedCodecs(t *testing.T) {
 	var play bilibiliPlayinfo
 	play.Data.DASH.Audio = []bilibiliDash{{ID: 30280, BaseURL: "https://upos-sz-mirror.bilivideo.com/audio.m4a", MimeType: "audio/mp4", Codecs: "mp4a.40.2"}}

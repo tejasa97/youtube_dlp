@@ -77,7 +77,7 @@
 | `--min-views` / `--max-views` | present | Hidden parity flags. `SimpleFilters.MinViews/MaxViews` |
 | `--match-filters` / `--no-match-filters` | present | `flags.Var(&matchFilters, "match-filter", ...)` |
 | `--break-match-filters` / `--no-break-match-filters` | present | `flags.Var(&breakMatchFilters, "break-match-filter", ...)` |
-| `--no-playlist` / `--yes-playlist` | present | `Playlist.Disabled` field. YouTube implements `_yes_playlist`-style choice for ambiguous video+playlist URLs |
+| `--no-playlist` / `--yes-playlist` | present | `Playlist.Disabled` reaches all registered `_yes_playlist`-style lanes: YouTube, Dailymotion, and Bilibili ambiguous video+playlist URLs |
 | `--age-limit` | present | `SimpleFilters.AgeLimit` → `age_restricted` semantics |
 | `--download-archive` / `--no-download-archive` | present | `flags.String("download-archive", ...)` |
 | `--force-write-archive` / `--force-write-download-archive` / `--force-download-archive` | present | `Request.ForceWriteArchive`; records successful simulate/skip-download entries only |
@@ -260,10 +260,10 @@ These are `Request`/options fields that are Go-specific and have no counterpart 
 | Flag | Classification | Work |
 |------|---------------|------|
 | `--no-overwrites` | present | Inverse of `--force-overwrites`, pure CLI |
-| `--no-playlist` / `--yes-playlist` | present | `Playlist.Disabled` field. YouTube implements `_yes_playlist`-style choice for ambiguous video+playlist URLs |
+| `--no-playlist` / `--yes-playlist` | present | `Playlist.Disabled` reaches the registered YouTube, Dailymotion, and Bilibili `_yes_playlist`-style ambiguity lanes |
 
 ### Wave 1b (playlist-disable consume)
-| `--no-playlist` / `--yes-playlist` | present | YouTube implements `_yes_playlist`-style choice via `NoPlaylist`. Other extractors deferred |
+| `--no-playlist` / `--yes-playlist` | present | YouTube watch, Dailymotion video-context, and Bilibili anthology routes consume `NoPlaylist`; explicit playlist-only routes remain playlists |
 
 ### Wave 2 (this PR)
 | Flag | Classification | Work |

@@ -58,8 +58,8 @@ identify compatibility targets only.
 | Extensions | Versioned native RPC and constrained WASM plugins, signed packs, catalogs, and updater transactions |
 | Public API | Versioned v1alpha1 Go API with context cancellation, categorized errors, events, playlists, metadata, and artifacts |
 
-The capability manifest records **93 capabilities**: **84 compatible** within
-their declared corpora, **8 partial**, and **1 intentional deviation**.
+The capability manifest records **93 capabilities**: **85 compatible** within
+their declared corpora, **7 partial**, and **1 intentional deviation**.
 “Compatible” means the linked deterministic evidence passes; it does not mean
 unbounded equivalence with every upstream behavior.
 
@@ -291,6 +291,12 @@ for the same type win.
 ### Playlists
 
 ```sh
+# Prefer the single video when a supported URL also carries playlist context
+./bin/ytdlp-go --no-playlist URL
+
+# Restore playlist selection; the last choice wins when both flags are given
+./bin/ytdlp-go --no-playlist --yes-playlist URL
+
 # Select sparse items and a stepped range
 ./bin/ytdlp-go -I "1,3,8:20:2" URL
 
@@ -304,6 +310,11 @@ for the same type win.
 # List entries without recursively extracting them
 ./bin/ytdlp-go --flat-playlist -J URL
 ```
+
+`--no-playlist` applies to the registered ambiguous YouTube watch, Dailymotion
+video-context, and Bilibili anthology routes. Explicit playlist-only URLs still
+produce playlists. Playlist entries remain lazy and reusable, and transparent
+child URLs re-enter their declared extractor.
 
 ### Subtitles and captions
 

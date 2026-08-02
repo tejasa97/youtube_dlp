@@ -27,3 +27,11 @@ identifier and search-term bounds, reserved-route rejection, hostile node URL
 rejection with canonical child emission, aggregate page and entry ceilings,
 repeated full-page detection, and bounded `allowExplicit: true` user uploads
 without a family-filter request option in this public slice.
+
+The video extractor also preserves the pinned `_yes_playlist` choice on
+video-context URLs: `/video/{id}?playlist={playlist}` prefers the playlist
+redirect by default and honors `Request.NoPlaylist` for the video branch. A
+playlist-only player URL remains a playlist redirect, and the video branch
+retains the original query bytes in `webpage_url`; see
+`internal/extractor.TestDailymotionNoPlaylistAmbiguousURLChoice` and
+`pkg/ytdlp.TestProductDailymotionNoPlaylistChoice`.
