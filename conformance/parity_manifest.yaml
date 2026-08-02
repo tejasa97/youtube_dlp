@@ -2493,6 +2493,8 @@ capabilities:
     status: compatible
     evidence:
       - internal/media/ffmpeg.TestTypedAudioMetadataConcatOperations
+      - internal/media/ffmpeg.TestEmbedInfoJSONIsBoundedIdempotentAndAttachmentOnly
+      - internal/media/ffmpeg.TestEmbedInfoJSONRejectsUnsupportedAndOversizedPayloads
       - internal/media/ffmpeg.TestTypedSubtitleAndImageConversions
       - internal/media/ffmpeg.TestOperationValidationAndAtomicFailure
       - internal/media/ffmpeg.TestRecodeArgsIsDeterministicAndAllowlisted
@@ -2508,6 +2510,9 @@ capabilities:
       - internal/media/postprocess.FuzzArtifactPaths
       - pkg/ytdlp.TestClientExtractAudioPostprocessorIntegration
       - pkg/ytdlp.TestAutomaticMetadataEmbeddingWithRealFFmpeg
+      - pkg/ytdlp.TestBoundedEmbeddedInfoJSONCleansPrivateFieldsAndRejectsOversize
+      - pkg/ytdlp.TestProductEmbedInfoJSONExactCleaningReplacementAndCancellation
+      - pkg/ytdlp.TestProductEmbedInfoJSONPostStageFailureRestoresDestinationAndArchive
       - pkg/ytdlp.TestCanonicalEmbeddedMetadataUsesPinnedPrecedenceAndBounds
       - pkg/ytdlp.TestCanonicalEmbeddedChaptersValidatesTimeline
       - pkg/ytdlp.TestProductEmbedsSelectedSubtitleTracksAndAppliesRetention
@@ -2527,7 +2532,7 @@ capabilities:
       - conformance/media/postprocess/PROVENANCE.md
       - docs/YOUTUBE_SUBTITLE_EMBEDDING_EVIDENCE.md
     owner: media
-    known_deviation: SponsorBlock, ordinary chapter-regex, and manual range mutation use the separate transactional chapter-removal capability. Windows refuses unsafe atomic overwrite and currently terminates only the direct child process; Unix process-group cancellation is covered. Recode is intentionally limited to pinned target mappings with ffmpeg-selected codecs, and automatic metadata/chapter embedding is limited to canonical common fields and an explicit container matrix.
+    known_deviation: SponsorBlock, ordinary chapter-regex, and manual range mutation use the separate transactional chapter-removal capability. Windows refuses unsafe atomic overwrite and currently terminates only the direct child process; Unix process-group cancellation is covered. Recode is intentionally limited to pinned target mappings with ffmpeg-selected codecs. Automatic metadata/chapter embedding is limited to canonical common fields and an explicit container matrix; embedded info-json is independently supported only as a cleaned, bounded attachment in mkv/mka.
 
   - id: postprocess.chapter_removal
     name: Ordinary chapter and manual range removal

@@ -584,7 +584,7 @@ func (operation *operation) executePlanLifecycle(
 		ctx, &lifecycle.Info, lifecycle.MediaPath, result.Artifacts, sink,
 	)
 	if err != nil {
-		return Result{}, categorized("embed thumbnail", err)
+		return fail(categorized("embed thumbnail", err))
 	}
 	registerArtifacts(result.Artifacts)
 

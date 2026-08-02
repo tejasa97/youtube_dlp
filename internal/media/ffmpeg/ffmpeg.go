@@ -126,6 +126,7 @@ type Fixup string
 const (
 	maxMetadataFields = 128
 	maxMetadataBytes  = 128 << 10
+	maxInfoJSONBytes  = 256 << 10
 	maxConcatInputs   = 128
 	maxChapters       = 1000
 	maxSubtitleInputs = 64
@@ -428,6 +429,63 @@ func (tools *Toolset) EmbedMetadataAndChapters(
 		}
 		return append(args, "-progress", "pipe:1", "-nostats", temporary)
 	})
+}
+
+// EmbedInfoJSON attaches one sanitized info-json payload to Matroska media.
+// Existing application/json attachments are removed first, making repeated
+// runs idempotent. The payload is written to a private temporary file and is
+// never interpolated into an argv string.
+func (tools *Toolset) EmbedInfoJSON(ctx context.Context, inputPath, destination string, payload []byte, overwrite bool, sink events.Sink) error {
+	if len(payload) == 0 || len(payload) > maxInfoJSONBytes || !json.Valid(payload) {
+		return fmt.Errorf("%w: info-json payload is empty, invalid, or too large", ErrInvalidOperation)
+	}
+	if err := regularMediaInput(inputPath); err != nil {
+		return err
+	}
+	container := strings.TrimPrefix(strings.ToLower(filepath.Ext(destination)), ".")
+	if container != "mkv" && container != "mka" {
+		return fmt.Errorf("%w: info-json attachment requires mkv or mka", ErrInvalidOperation)
+	}
+	probe, err := tools.Probe(ctx, inputPath)
+	if err != nil {
+		return err
+	}
+	attachmentPath, err := writeInfoJSONAttachment(destination, payload)
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(filepath.Dir(attachmentPath))
+	remove := make([]int, 0, 1)
+	for _, stream := range probe.Streams {
+		if stream.CodecType == "attachment" &&
+			(strings.EqualFold(stream.Tags["mimetype"], "application/json") || strings.EqualFold(stream.Tags["filename"], "info.json")) {
+			remove = append(remove, stream.Index)
+		}
+	}
+	kept := len(probe.Streams) - len(remove)
+	return tools.runAtomic(ctx, destination, overwrite, sink, func(temporary string) []string {
+		args := []string{"-i", inputPath, "-map", "0"}
+		for _, index := range remove {
+			args = append(args, "-map", "-0:"+strconv.Itoa(index))
+		}
+		args = append(args, "-c", "copy", "-attach", attachmentPath,
+			"-metadata:s:"+strconv.Itoa(kept), "mimetype=application/json",
+			"-metadata:s:"+strconv.Itoa(kept), "filename=info.json")
+		return append(args, "-progress", "pipe:1", "-nostats", temporary)
+	})
+}
+
+func writeInfoJSONAttachment(destination string, payload []byte) (string, error) {
+	directory, err := os.MkdirTemp(filepath.Dir(destination), ".ytdlp-infojson-")
+	if err != nil {
+		return "", fmt.Errorf("%w: create info-json staging directory: %v", ErrMediaFailure, err)
+	}
+	path := filepath.Join(directory, "info.json")
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
+		_ = os.RemoveAll(directory)
+		return "", fmt.Errorf("%w: write info-json attachment: %v", ErrMediaFailure, err)
+	}
+	return path, nil
 }
 
 // EmbedThumbnail attaches an image as an attached picture without exposing a
@@ -971,6 +1029,9 @@ func (tools *Toolset) execute(ctx context.Context, binary string, args []string,
 	stderr := newBoundedBuffer(tools.maxOutput)
 	command.Stderr = stderr
 	if err := command.Start(); err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, fmt.Errorf("%w: start %s: %v", ErrMediaFailure, filepath.Base(binary), err)
 	}
 	isolation, err := attachCommand(command)

@@ -248,6 +248,10 @@ type Request struct {
 	// enabled, while an explicit false disables that implication.
 	EmbedMetadata bool
 	EmbedChapters *bool
+	// EmbedInfoJSON attaches the cleaned, bounded Info JSON to Matroska media.
+	// Nil and false both disable attachment; an explicit false is retained so
+	// callers can clear an inherited setting without changing EmbedMetadata.
+	EmbedInfoJSON *bool
 	Downloader    DownloaderOptions
 	// DenyDynamicMPD maps the product's --no-allow-dynamic-mpd policy to the
 	// DASH protocol boundary. The zero value intentionally allows dynamic MPDs.
@@ -501,6 +505,10 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 	if request.EmbedChapters != nil {
 		embedChapters := *request.EmbedChapters
 		request.EmbedChapters = &embedChapters
+	}
+	if request.EmbedInfoJSON != nil {
+		embedInfoJSON := *request.EmbedInfoJSON
+		request.EmbedInfoJSON = &embedInfoJSON
 	}
 	request.OutputTemplates = cloneOutputTemplates(request.OutputTemplates)
 	request.OutputPaths = cloneOutputPaths(request.OutputPaths)

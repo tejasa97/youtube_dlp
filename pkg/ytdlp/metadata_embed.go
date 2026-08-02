@@ -2,6 +2,7 @@ package ytdlp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 )
 
 const maximumEmbeddedMetadataValue = 8192
+const maximumEmbeddedInfoJSONBytes = 256 << 10
 
 var metadataEmbeddingContainers = map[string]bool{
 	"flac": true, "m4a": true, "mka": true, "mkv": true, "mov": true,
@@ -40,6 +42,21 @@ func validateMetadataEmbeddingContainer(path string, request Request) error {
 	return nil
 }
 
+func (request Request) embedsInfoJSON() bool {
+	return request.EmbedInfoJSON != nil && *request.EmbedInfoJSON
+}
+
+func validateInfoJSONEmbeddingContainer(path string, request Request) error {
+	if !request.embedsInfoJSON() {
+		return nil
+	}
+	container := strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), ".")
+	if container != "mkv" && container != "mka" {
+		return fmt.Errorf("%w: info-json attachment cannot be embedded in container %q (supported: mkv, mka)", ffmpeg.ErrInvalidOperation, container)
+	}
+	return nil
+}
+
 // applyAutomaticMetadataEmbedding mirrors the pinned FFmpegMetadata stage. It
 // runs after conversion, subtitle embedding, and ModifyChapters so the final
 // container receives the post-cut chapter timeline and canonical metadata.
@@ -48,10 +65,14 @@ func (operation *operation) applyAutomaticMetadataEmbedding(
 ) (bool, error) {
 	addMetadata := operation.request.EmbedMetadata
 	addChapters := operation.request.embedsChapters()
-	if !addMetadata && !addChapters {
+	addInfoJSON := operation.request.embedsInfoJSON()
+	if !addMetadata && !addChapters && !addInfoJSON {
 		return false, nil
 	}
 	if err := validateMetadataEmbeddingContainer(mediaPath, operation.request); err != nil {
+		return false, err
+	}
+	if err := validateInfoJSONEmbeddingContainer(mediaPath, operation.request); err != nil {
 		return false, err
 	}
 	metadata := canonicalEmbeddedMetadata(info)
@@ -66,32 +87,71 @@ func (operation *operation) applyAutomaticMetadataEmbedding(
 		chapters = nil
 	}
 	if len(metadata) == 0 && len(chapters) == 0 {
-		if err := operation.client.emit(ctx, Event{Kind: EventMetadataWarning, Message: "there is no metadata or chapter information to embed"}); err != nil {
+		if addInfoJSON {
+			// Info JSON is independently useful even when no canonical ffmpeg
+			// metadata fields or chapters were selected.
+		} else {
+			if err := operation.client.emit(ctx, Event{Kind: EventMetadataWarning, Message: "there is no metadata or chapter information to embed"}); err != nil {
+				return false, err
+			}
+			return false, nil
+		}
+	}
+	var payload []byte
+	if addInfoJSON {
+		payload, err = boundedEmbeddedInfoJSON(info)
+		if err != nil {
 			return false, err
 		}
-		return false, nil
+	}
+	// In-place ffmpeg stages replace the already published media path. Snapshot
+	// it before the first mutation so the surrounding output transaction can
+	// restore the original artifact if any later post-processing stage fails.
+	if err := operation.snapshotTransactionRemovedPath(ctx, mediaPath); err != nil {
+		return false, fmt.Errorf("snapshot media before metadata embedding: %w", err)
 	}
 	tools, err := operation.discoverFFmpeg()
 	if err != nil {
 		return false, err
 	}
+	changed := false
 	if len(chapters) > 0 && len(metadata) > 0 {
 		if err := tools.EmbedMetadataAndChapters(ctx, mediaPath, mediaPath, metadata, chapters, true, sink); err != nil {
 			return false, err
 		}
-		return true, nil
+		changed = true
 	}
-	if len(chapters) > 0 {
+	if len(chapters) > 0 && len(metadata) == 0 {
 		if err := tools.EmbedChapters(ctx, mediaPath, mediaPath, chapters, true, sink); err != nil {
 			return false, err
 		}
+		changed = true
 	}
-	if len(metadata) > 0 {
+	if len(metadata) > 0 && len(chapters) == 0 {
 		if err := tools.EmbedMetadata(ctx, mediaPath, mediaPath, metadata, true, sink); err != nil {
 			return false, err
 		}
+		changed = true
 	}
-	return true, nil
+	if addInfoJSON {
+		if err := tools.EmbedInfoJSON(ctx, mediaPath, mediaPath, payload, true, sink); err != nil {
+			return false, err
+		}
+		changed = true
+	}
+	return changed, nil
+}
+
+func boundedEmbeddedInfoJSON(info value.Info) ([]byte, error) {
+	cleaned := cleanInfoObject(info.Fields())
+	payload, err := json.Marshal(value.ObjectValue(cleaned))
+	if err != nil {
+		return nil, fmt.Errorf("%w: encode embedded info-json: %v", ffmpeg.ErrInvalidOperation, err)
+	}
+	if len(payload) == 0 || len(payload) > maximumEmbeddedInfoJSONBytes {
+		return nil, fmt.Errorf("%w: embedded info-json exceeds %d bytes", ffmpeg.ErrInvalidOperation, maximumEmbeddedInfoJSONBytes)
+	}
+	return payload, nil
 }
 
 func canonicalEmbeddedMetadata(info value.Info) ffmpeg.Metadata {

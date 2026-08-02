@@ -70,6 +70,59 @@ func TestTypedAudioMetadataConcatOperations(t *testing.T) {
 	}
 }
 
+func TestEmbedInfoJSONIsBoundedIdempotentAndAttachmentOnly(t *testing.T) {
+	tools := requireToolset(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	root := t.TempDir()
+	input := filepath.Join(root, "input.mkv")
+	if _, err := tools.execute(ctx, tools.ffmpeg, []string{
+		"-nostdin", "-y", "-f", "lavfi", "-i", "color=c=black:s=16x16:d=0.3",
+		"-metadata:s:v:0", "mimetype=application/json", "-c:v", "mpeg4", input,
+	}, nil); err != nil {
+		t.Fatalf("generate matroska: %v", err)
+	}
+	output := filepath.Join(root, "embedded.mkv")
+	if err := tools.EmbedInfoJSON(ctx, input, output, []byte(`{"title":"first"}`), false, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := tools.EmbedInfoJSON(ctx, output, output, []byte(`{"title":"second"}`), true, nil); err != nil {
+		t.Fatal(err)
+	}
+	probe, err := tools.Probe(ctx, output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachments := 0
+	videoStreams := 0
+	for _, stream := range probe.Streams {
+		if stream.CodecType == "attachment" {
+			attachments++
+		}
+		if stream.CodecType == "video" {
+			videoStreams++
+		}
+	}
+	if attachments != 1 || videoStreams != 1 {
+		t.Fatalf("streams=%#v attachments=%d video=%d", probe.Streams, attachments, videoStreams)
+	}
+}
+
+func TestEmbedInfoJSONRejectsUnsupportedAndOversizedPayloads(t *testing.T) {
+	tools := requireToolset(t)
+	root := t.TempDir()
+	input := filepath.Join(root, "input.mp4")
+	if err := os.WriteFile(input, []byte("not media"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := tools.EmbedInfoJSON(context.Background(), input, filepath.Join(root, "out.mp4"), []byte(`{"ok":true}`), false, nil); !errors.Is(err, ErrInvalidOperation) {
+		t.Fatalf("unsupported container error=%v", err)
+	}
+	if err := tools.EmbedInfoJSON(context.Background(), input, filepath.Join(root, "out.mkv"), []byte("not-json"), false, nil); !errors.Is(err, ErrInvalidOperation) {
+		t.Fatalf("invalid payload error=%v", err)
+	}
+}
+
 func TestTypedSubtitleAndImageConversions(t *testing.T) {
 	tools := requireToolset(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)

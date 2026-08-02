@@ -283,7 +283,7 @@ func TestProductPromotesMergedWebMToMatroskaForThumbnail(t *testing.T) {
 	}
 }
 
-func TestProductPreservesExplicitWebMForThumbnailEmbedding(t *testing.T) {
+func TestProductRollsBackExplicitWebMForThumbnailEmbedding(t *testing.T) {
 	server, _, _, _ := newWebMPairThumbnailServer(t)
 	defer server.Close()
 	outputDir := t.TempDir()
@@ -297,12 +297,13 @@ func TestProductPreservesExplicitWebMForThumbnailEmbedding(t *testing.T) {
 		t.Fatalf("error = %v, want unsupported container", err)
 	}
 	merged := filepath.Join(outputDir, "fixed.webm")
-	if info, statErr := os.Stat(merged); statErr != nil || info.Size() == 0 {
-		t.Fatalf("merged webm missing: %v", statErr)
+	if _, statErr := os.Stat(merged); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("failed explicit webm left partial media: %v", statErr)
 	}
 	if matches, _ := filepath.Glob(filepath.Join(outputDir, "*.mkv")); len(matches) != 0 {
 		t.Fatalf("silent mkv rewrite created %v", matches)
 	}
+	assertNoPostprocessTemps(t, outputDir)
 }
 
 func TestProductExplicitWebMMergeDestinationWithoutThumbnail(t *testing.T) {

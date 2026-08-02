@@ -1814,6 +1814,14 @@ func TestRunMetadataAndChapterEmbeddingFlags(t *testing.T) {
 	if request.EmbedChapters == nil || !*request.EmbedChapters {
 		t.Fatalf("chapter request=%+v", request)
 	}
+	request = captureCLIRequest(t, "--embed-info-json")
+	if request.EmbedInfoJSON == nil || !*request.EmbedInfoJSON {
+		t.Fatalf("info-json request=%+v", request)
+	}
+	request = captureCLIRequest(t, "--embed-info-json", "--no-embed-info-json")
+	if request.EmbedInfoJSON == nil || *request.EmbedInfoJSON {
+		t.Fatalf("info-json clear request=%+v", request)
+	}
 }
 
 func TestRunRecodeWinsOverRemuxWithWarning(t *testing.T) {
