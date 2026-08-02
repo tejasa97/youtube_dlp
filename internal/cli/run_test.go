@@ -1824,6 +1824,17 @@ func TestRunMetadataAndChapterEmbeddingFlags(t *testing.T) {
 	}
 }
 
+func TestRunFixupPolicyPlumbing(t *testing.T) {
+	request := captureCLIRequest(t, "--fixup", "force")
+	if request.FixupPolicy != "force" {
+		t.Fatalf("fixup=%q", request.FixupPolicy)
+	}
+	request = captureCLIRequest(t, "--fixup", "never")
+	if request.FixupPolicy != "never" {
+		t.Fatalf("fixup=%q", request.FixupPolicy)
+	}
+}
+
 func TestRunRecodeWinsOverRemuxWithWarning(t *testing.T) {
 	runner := &captureCLIRunner{}
 	var stdout, stderr bytes.Buffer

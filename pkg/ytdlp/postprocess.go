@@ -14,7 +14,7 @@ import (
 )
 
 func (operation *operation) applyPostprocessors(ctx context.Context, outputRoot, downloadedPath string, sink events.Sink) (string, []Artifact, error) {
-	if len(operation.request.Postprocessors) == 0 {
+	if len(operation.request.Postprocessors) == 0 && !automaticFixupEnabled(operation.request.FixupPolicy) {
 		return downloadedPath, []Artifact{{Path: downloadedPath, Kind: "media"}}, nil
 	}
 	if len(operation.request.Postprocessors) > 64 {
@@ -280,6 +280,13 @@ func (operation *operation) applyPostprocessors(ctx context.Context, outputRoot,
 				return "", nil, err
 			}
 		}
+	}
+	if automaticFixupEnabled(operation.request.FixupPolicy) {
+		fixed, err := operation.applyFixupPolicy(ctx, current, sink)
+		if err != nil {
+			return "", nil, err
+		}
+		current = fixed
 	}
 	artifacts := append(auxiliary, Artifact{Path: current, Kind: "media"})
 	return current, artifacts, nil

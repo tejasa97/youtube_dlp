@@ -2512,6 +2512,10 @@ capabilities:
       - pkg/ytdlp.TestAutomaticMetadataEmbeddingWithRealFFmpeg
       - pkg/ytdlp.TestBoundedEmbeddedInfoJSONCleansPrivateFieldsAndRejectsOversize
       - pkg/ytdlp.TestProductEmbedInfoJSONExactCleaningReplacementAndCancellation
+      - pkg/ytdlp.TestProductTypedFixupSuccessAndWarnAreObservable
+      - pkg/ytdlp.TestProductTypedFixupInspectionUnavailableAndForceClosed
+      - pkg/ytdlp.TestProductTypedFixupCancellationRestoresDestinationAndArchive
+      - pkg/ytdlp.TestProductTypedFixupFailureRestoresDestinationAndArchive
       - pkg/ytdlp.TestProductEmbedInfoJSONPostStageFailureRestoresDestinationAndArchive
       - pkg/ytdlp.TestCanonicalEmbeddedMetadataUsesPinnedPrecedenceAndBounds
       - pkg/ytdlp.TestCanonicalEmbeddedChaptersValidatesTimeline
