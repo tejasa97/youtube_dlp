@@ -363,6 +363,44 @@ selected.bin
 	}
 }
 
+func TestDownloadInitialPlaylistSnapshotReusesInitialLoadAndReloadsLive(t *testing.T) {
+	var reloads, segmentHits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/live.m3u8" {
+			if request.Header.Get("X-Snapshot-Test") != "reloaded" {
+				t.Errorf("reload headers=%q, want selected headers", request.Header.Get("X-Snapshot-Test"))
+			}
+			if reloads.Add(1) != 1 {
+				t.Errorf("unexpected additional playlist reload")
+			}
+			_, _ = fmt.Fprint(writer, "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:1\n#EXTINF:1,\none.bin\n#EXT-X-ENDLIST\n")
+			return
+		}
+		if request.URL.Path == "/one.bin" {
+			segmentHits.Add(1)
+			_, _ = writer.Write([]byte("one"))
+			return
+		}
+		http.NotFound(writer, request)
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "snapshot.bin")
+	initial := []byte("#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:1\n#EXTINF:1,\none.bin\n")
+	_, err := NewDownloader(transport, Config{
+		Headers: http.Header{"X-Snapshot-Test": {"reloaded"}}, PollInterval: time.Millisecond,
+		InitialPlaylist: &InitialPlaylist{URL: server.URL + "/live.m3u8", Body: initial},
+	}).Download(context.Background(), server.URL+"/live.m3u8", root, destination, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(destination)
+	if err != nil || string(contents) != "one" || reloads.Load() != 1 || segmentHits.Load() != 1 {
+		t.Fatalf("contents=%q err=%v reloads=%d segments=%d, want cached initial plus one network reload", contents, err, reloads.Load(), segmentHits.Load())
+	}
+}
+
 func TestDownloadNilDiscontinuitySelectionPreservesAllGroups(t *testing.T) {
 	var segmentHits atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

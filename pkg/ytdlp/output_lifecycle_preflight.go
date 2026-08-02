@@ -137,6 +137,7 @@ func (operation *operation) outputLifecycleDestinations(
 			if err != nil {
 				return nil, err
 			}
+			base = applyHLSDiscontinuityDestinationSuffix(base, info)
 			source := subtitleFilename(base, expectedExtension, track.language, track.extension)
 			destinations = append(destinations, source)
 			if format := operation.request.Subtitles.ConvertFormat; format != "" {

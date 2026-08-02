@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -19,8 +20,18 @@ import (
 )
 
 const (
-	hlsDiscontinuityIDMarker    = "__hls_discontinuity_"
-	maxHLSDiscontinuityManifest = 16 << 20
+	hlsDiscontinuityIDMarker             = "__hls_discontinuity_"
+	hlsDiscontinuityDestinationSuffixKey = "__hls_discontinuity_destination_suffix"
+	maxHLSDiscontinuityManifest          = 16 << 20
+)
+
+var (
+	ErrHLSDiscontinuitySelection         = errors.New("invalid HLS discontinuity selection")
+	ErrHLSDiscontinuityGroupMissing      = errors.New("requested HLS discontinuity group is missing")
+	ErrHLSDiscontinuityPlaylistEmpty     = errors.New("HLS discontinuity playlist is empty")
+	ErrHLSDiscontinuityGroupAdOnly       = errors.New("requested HLS discontinuity group is advertisement-only")
+	ErrHLSDiscontinuityPlaylistMalformed = errors.New("malformed HLS discontinuity playlist")
+	ErrHLSDiscontinuityHostPolicy        = errors.New("HLS discontinuity URL violates AllowedHosts")
 )
 
 // hlsDiscontinuitySelectionID keeps the protocol identity in a format ID so
@@ -45,12 +56,16 @@ func hlsDiscontinuityGroupFromSelection(selection mediaformat.Selection) (hls.Di
 	value := selection.ID[marker+len(hlsDiscontinuityIDMarker):]
 	sequence, err := strconv.ParseInt(value, 10, 64)
 	if err != nil || sequence < 0 {
-		return hls.DiscontinuityGroupID{}, false, fmt.Errorf("invalid HLS discontinuity group selection")
+		return hls.DiscontinuityGroupID{}, false, fmt.Errorf("%w: invalid HLS discontinuity group selection", ErrHLSDiscontinuitySelection)
 	}
 	return hls.DiscontinuityGroupID{DiscontinuitySequence: sequence}, true, nil
 }
 
-func clonePlanForHLSDiscontinuityGroup(plan mediaformat.OutputPlan, group hls.DiscontinuityGroupID) mediaformat.OutputPlan {
+func clonePlanForHLSDiscontinuityGroup(
+	plan mediaformat.OutputPlan,
+	group hls.DiscontinuityGroupID,
+	explicitMulti bool,
+) mediaformat.OutputPlan {
 	cloned := plan
 	cloned.Tracks = make([]mediaformat.Selection, len(plan.Tracks))
 	copy(cloned.Tracks, plan.Tracks)
@@ -61,18 +76,63 @@ func clonePlanForHLSDiscontinuityGroup(plan mediaformat.OutputPlan, group hls.Di
 			)
 		}
 	}
-	cloned.Metadata = plan.Metadata
+	cloned.Metadata = value.NewInfo(plan.Metadata.Fields().Clone())
 	cloned.Metadata.Set("_hls_discontinuity_group", value.Int(group.DiscontinuitySequence))
+	if explicitMulti {
+		cloned.Metadata.Set(
+			hlsDiscontinuityDestinationSuffixKey,
+			value.String(".d"+strconv.FormatInt(group.DiscontinuitySequence, 10)),
+		)
+	}
 	if len(cloned.Tracks) == 1 {
 		cloned.Metadata.Set("format_id", value.String(cloned.Tracks[0].ID))
 	}
 	return cloned
 }
 
+func hlsDiscontinuityDestinationSuffix(info value.Info) string {
+	suffix, ok := info.Lookup(hlsDiscontinuityDestinationSuffixKey).StringValue()
+	if !ok || suffix == "" {
+		return ""
+	}
+	return suffix
+}
+
+func applyHLSDiscontinuityDestinationSuffix(path string, info value.Info) string {
+	suffix := hlsDiscontinuityDestinationSuffix(info)
+	if suffix == "" || path == "" || path == "-" {
+		return path
+	}
+	extension := filepath.Ext(path)
+	return strings.TrimSuffix(path, extension) + suffix + extension
+}
+
+type hlsDiscontinuityDiscovery struct {
+	Groups          []hls.DiscontinuityGroup
+	InitialPlaylist hls.InitialPlaylist
+}
+
+// hlsInitialPlaylistCacheKey scopes the selected-representation snapshot to
+// one processMedia entry. The operation itself may process entries
+// concurrently, so this state must travel with the entry context rather than
+// live on operation.
+type hlsInitialPlaylistCacheKey struct{}
+
+type hlsInitialPlaylistCache map[string]hls.InitialPlaylist
+
+func withHLSInitialPlaylistCache(ctx context.Context) context.Context {
+	return context.WithValue(ctx, hlsInitialPlaylistCacheKey{}, make(hlsInitialPlaylistCache, 1))
+}
+
+func hlsInitialPlaylistsFromContext(ctx context.Context) hlsInitialPlaylistCache {
+	cache, _ := ctx.Value(hlsInitialPlaylistCacheKey{}).(hlsInitialPlaylistCache)
+	return cache
+}
+
 func (operation *operation) hlsDiscontinuityGroupsForSelection(
 	ctx context.Context,
 	selection mediaformat.Selection,
-) ([]hls.DiscontinuityGroup, error) {
+) (hlsDiscontinuityDiscovery, error) {
 	transport, err := operation.mediaTransport(
 		selection.CredentialIsolated,
 		selection.CredentialIsolatedReferer,
@@ -80,11 +140,11 @@ func (operation *operation) hlsDiscontinuityGroupsForSelection(
 		selection.Protocol,
 	)
 	if err != nil {
-		return nil, err
+		return hlsDiscontinuityDiscovery{}, err
 	}
 	hlsTransport, ok := transport.(hls.Transport)
 	if !ok || hlsTransport == nil {
-		return nil, errors.New("HLS transport unavailable")
+		return hlsDiscontinuityDiscovery{}, errors.New("HLS transport unavailable")
 	}
 	return operation.readHLSDiscontinuityGroups(ctx, selection.URL, selection.Headers, hlsTransport, selection.AllowedHosts)
 }
@@ -95,24 +155,25 @@ func (operation *operation) readHLSDiscontinuityGroups(
 	headers http.Header,
 	transport hls.Transport,
 	allowedHosts []string,
-) ([]hls.DiscontinuityGroup, error) {
+) (hlsDiscontinuityDiscovery, error) {
 	if !hlsDiscontinuityAllowedURL(rawURL, allowedHosts) {
-		return nil, hls.ErrInvalidPlaylist
+		return hlsDiscontinuityDiscovery{}, ErrHLSDiscontinuityHostPolicy
 	}
 	if headers == nil {
 		headers = make(http.Header)
 	}
+	initialURL := rawURL
 	body, err := readHLSPageWithHeaders(ctx, transport, rawURL, headers, maxHLSDiscontinuityManifest)
 	if err != nil {
-		return nil, err
+		return hlsDiscontinuityDiscovery{}, err
 	}
 	playlist, err := hls.Parse(rawURL, body)
 	if err != nil {
-		return nil, err
+		return hlsDiscontinuityDiscovery{}, fmt.Errorf("%w: %v", ErrHLSDiscontinuityPlaylistMalformed, err)
 	}
 	if playlist.Media == nil {
 		if len(playlist.Variants) == 0 {
-			return nil, hls.ErrInvalidPlaylist
+			return hlsDiscontinuityDiscovery{}, hls.ErrInvalidPlaylist
 		}
 		variant := playlist.Variants[0]
 		for _, candidate := range playlist.Variants[1:] {
@@ -121,21 +182,29 @@ func (operation *operation) readHLSDiscontinuityGroups(
 			}
 		}
 		if !hlsDiscontinuityAllowedURL(variant.URL, allowedHosts) {
-			return nil, hls.ErrInvalidPlaylist
+			return hlsDiscontinuityDiscovery{}, ErrHLSDiscontinuityHostPolicy
 		}
+		initialURL = variant.URL
 		body, err = readHLSPageWithHeaders(ctx, transport, variant.URL, headers, maxHLSDiscontinuityManifest)
 		if err != nil {
-			return nil, err
+			return hlsDiscontinuityDiscovery{}, err
 		}
 		playlist, err = hls.Parse(variant.URL, body)
 		if err != nil {
-			return nil, err
+			return hlsDiscontinuityDiscovery{}, fmt.Errorf("%w: %v", ErrHLSDiscontinuityPlaylistMalformed, err)
 		}
 	}
 	if playlist.Media == nil {
-		return nil, hls.ErrInvalidPlaylist
+		return hlsDiscontinuityDiscovery{}, fmt.Errorf("%w: media playlist missing", ErrHLSDiscontinuityPlaylistMalformed)
 	}
-	return hls.BuildDiscontinuityGroups(playlist.Media)
+	groups, err := hls.BuildDiscontinuityGroups(playlist.Media)
+	if err != nil {
+		return hlsDiscontinuityDiscovery{}, fmt.Errorf("%w: %v", ErrHLSDiscontinuityPlaylistMalformed, err)
+	}
+	return hlsDiscontinuityDiscovery{
+		Groups:          groups,
+		InitialPlaylist: hls.InitialPlaylist{URL: initialURL, Body: append([]byte(nil), body...)},
+	}, nil
 }
 
 func hlsDiscontinuityAllowedHosts(raw value.Value) ([]string, error) {
@@ -228,17 +297,45 @@ func (sink hlsDiscontinuityProgressSink) Emit(ctx context.Context, event events.
 	return sink.sink.Emit(ctx, event)
 }
 
-// selectDefaultHLSDiscontinuityPlans discovers groups only after ordinary
-// format selection has produced the output plans. Each selected HLS track is
+func deduplicateHLSDiscontinuitySequences(input []int64) []int64 {
+	if len(input) == 0 {
+		return nil
+	}
+	seen := make(map[int64]struct{}, len(input))
+	result := make([]int64, 0, len(input))
+	for _, sequence := range input {
+		if _, exists := seen[sequence]; exists {
+			continue
+		}
+		seen[sequence] = struct{}{}
+		result = append(result, sequence)
+	}
+	return result
+}
+
+func classifyHLSDiscontinuityDiscoveryError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, hls.ErrInvalidPlaylist) || errors.Is(err, hls.ErrInvalidDiscontinuityGroups) {
+		return fmt.Errorf("%w: %v", ErrHLSDiscontinuityPlaylistMalformed, err)
+	}
+	return err
+}
+
+// selectHLSDiscontinuityPlans discovers groups only after ordinary format
+// selection has produced the output plans. Each selected HLS track is
 // therefore the sole representation this integration probes; no extractor
 // format list is expanded and no implicit multi-output selection is created.
-func (operation *operation) selectDefaultHLSDiscontinuityPlans(
+func (operation *operation) selectHLSDiscontinuityPlans(
 	ctx context.Context,
 	plans []mediaformat.OutputPlan,
 ) ([]mediaformat.OutputPlan, error) {
 	if len(plans) == 0 {
 		return plans, nil
 	}
+	explicit := deduplicateHLSDiscontinuitySequences(operation.request.HLSDiscontinuitySequences)
+	initialPlaylists := hlsInitialPlaylistsFromContext(ctx)
 	result := make([]mediaformat.OutputPlan, 0, len(plans))
 	for _, plan := range plans {
 		hlsTrackCount := 0
@@ -255,24 +352,67 @@ func (operation *operation) selectDefaultHLSDiscontinuityPlans(
 			if track.Protocol != "m3u8_native" {
 				continue
 			}
-			groups, err := operation.hlsDiscontinuityGroupsForSelection(ctx, track)
+			discovery, err := operation.hlsDiscontinuityGroupsForSelection(ctx, track)
 			if err != nil {
-				return nil, err
+				return nil, classifyHLSDiscontinuityDiscoveryError(err)
 			}
-			for _, group := range groups {
-				if !group.Selectable {
-					continue
+			if initialPlaylists != nil {
+				initialPlaylists[track.URL] = hls.InitialPlaylist{
+					URL:  discovery.InitialPlaylist.URL,
+					Body: append([]byte(nil), discovery.InitialPlaylist.Body...),
 				}
-				result = append(result, clonePlanForHLSDiscontinuityGroup(plan, group.ID))
-				selectedHLS = true
-				break
 			}
-			if !selectedHLS {
+			groups := discovery.Groups
+			if len(groups) == 0 {
+				if len(explicit) > 0 {
+					return nil, fmt.Errorf("%w: %w", ErrHLSDiscontinuityPlaylistEmpty, hls.ErrNoSelectableGroup)
+				}
 				return nil, hls.ErrNoSelectableGroup
 			}
+
+			selectedGroups := make([]hls.DiscontinuityGroup, 0, len(explicit))
+			if len(explicit) == 0 {
+				for _, group := range groups {
+					if group.Selectable {
+						selectedGroups = append(selectedGroups, group)
+						break
+					}
+				}
+				if len(selectedGroups) == 0 {
+					return nil, hls.ErrNoSelectableGroup
+				}
+			} else {
+				requested := make(map[int64]struct{}, len(explicit))
+				for _, sequence := range explicit {
+					requested[sequence] = struct{}{}
+				}
+				found := make(map[int64]struct{}, len(explicit))
+				for _, group := range groups {
+					if _, wanted := requested[group.ID.DiscontinuitySequence]; !wanted {
+						continue
+					}
+					found[group.ID.DiscontinuitySequence] = struct{}{}
+					if !group.Selectable {
+						return nil, fmt.Errorf("%w: sequence %d", ErrHLSDiscontinuityGroupAdOnly, group.ID.DiscontinuitySequence)
+					}
+					selectedGroups = append(selectedGroups, group)
+				}
+				for _, sequence := range explicit {
+					if _, exists := found[sequence]; !exists {
+						return nil, fmt.Errorf("%w: sequence %d", ErrHLSDiscontinuityGroupMissing, sequence)
+					}
+				}
+			}
+			for _, group := range selectedGroups {
+				result = append(result, clonePlanForHLSDiscontinuityGroup(plan, group.ID, len(selectedGroups) > 1))
+			}
+			selectedHLS = true
 			break
 		}
 		if !selectedHLS {
+			if len(explicit) > 0 {
+				return nil, fmt.Errorf("%w: selected format is not native HLS", ErrHLSDiscontinuitySelection)
+			}
 			result = append(result, plan)
 		}
 	}

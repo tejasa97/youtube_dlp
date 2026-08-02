@@ -79,6 +79,7 @@ func (operation *operation) resolveOutputPlanDestinations(
 		rendered[index] = thumbnailEmbeddingDestination(
 			operation.request, plan.Tracks, destination, outputInfo,
 		)
+		rendered[index] = applyHLSDiscontinuityDestinationSuffix(rendered[index], outputInfo)
 	}
 	if len(plans) == 1 {
 		return rendered, nil

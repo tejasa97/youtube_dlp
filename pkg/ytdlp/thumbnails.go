@@ -509,6 +509,7 @@ func (operation *operation) thumbnailPath(outputRoot, pattern string, info value
 	if multiple {
 		base += "." + track.id
 	}
+	base = applyHLSDiscontinuityDestinationSuffix(base, info)
 	return base + suffix, nil
 }
 

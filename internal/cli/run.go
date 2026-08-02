@@ -453,6 +453,7 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	format := flags.String("format", "", "format selector expression")
 	flags.StringVar(format, "f", "", "alias for --format")
 	hlsSplitDiscontinuity := false
+	var hlsDiscontinuitySequences int64ListFlag
 	setHLSSplitDiscontinuity := func(enabled bool) func(string) error {
 		return func(input string) error {
 			value, err := strconv.ParseBool(input)
@@ -465,6 +466,7 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	}
 	flags.BoolFunc("hls-split-discontinuity", "select the first eligible HLS discontinuity group after format selection", setHLSSplitDiscontinuity(true))
 	flags.BoolFunc("no-hls-split-discontinuity", "do not select an HLS discontinuity group (default)", setHLSSplitDiscontinuity(false))
+	flags.Var(&hlsDiscontinuitySequences, "hls-discontinuity-sequence", "select an absolute HLS discontinuity sequence (repeatable)")
 	dynamicMPDAllowed := true
 	setDynamicMPDAllowed := func(enabled bool) func(string) error {
 		return func(input string) error {
@@ -1129,7 +1131,8 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 			Timeout: *timeout, Overwrite: *overwrite, KeepVideo: *keepVideo, PostOverwrites: &postOverwrites,
 			Simulate: requestSimulate, SkipDownload: *skipDownload, LiveFromStart: *liveFromStart,
 			Format: *format, HLSSplitDiscontinuity: hlsSplitDiscontinuity,
-			FormatSort: append([]string(nil), formatSort...), FormatSortForce: formatSortForce,
+			HLSDiscontinuitySequences: append([]int64(nil), hlsDiscontinuitySequences...),
+			FormatSort:                append([]string(nil), formatSort...), FormatSortForce: formatSortForce,
 			PreferFreeFormats: preferFreeFormats, AllowUnplayableFormats: allowUnplayable,
 			AllowMultipleVideoStreams: allowMultipleVideoStreams, AllowMultipleAudioStreams: allowMultipleAudioStreams,
 			CheckFormats: checkFormats, MergeOutputFormat: *mergeOutputFormat,
@@ -1571,6 +1574,28 @@ type stringListFlag []string
 func (values *stringListFlag) String() string { return strings.Join(*values, ",") }
 func (values *stringListFlag) Set(value string) error {
 	*values = append(*values, value)
+	return nil
+}
+
+type int64ListFlag []int64
+
+func (values *int64ListFlag) String() string {
+	parts := make([]string, len(*values))
+	for index, value := range *values {
+		parts[index] = strconv.FormatInt(value, 10)
+	}
+	return strings.Join(parts, ",")
+}
+
+func (values *int64ListFlag) Set(input string) error {
+	if strings.TrimSpace(input) == "" {
+		return errors.New("HLS discontinuity sequence is empty")
+	}
+	sequence, err := strconv.ParseInt(input, 10, 64)
+	if err != nil || sequence < 0 {
+		return fmt.Errorf("invalid HLS discontinuity sequence %q", input)
+	}
+	*values = append(*values, sequence)
 	return nil
 }
 

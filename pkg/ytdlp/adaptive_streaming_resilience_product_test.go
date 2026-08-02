@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/ytdlp-go/ytdlp/internal/downloader"
 	"github.com/ytdlp-go/ytdlp/internal/extractor"
 )
 
@@ -79,8 +80,8 @@ second.ts
 	if lowManifestRequests.Load() != 0 {
 		t.Fatalf("unselected HLS rendition was fetched %d times", lowManifestRequests.Load())
 	}
-	if highManifestRequests.Load() != 2 {
-		t.Fatalf("selected HLS manifest requests=%d, want discovery plus native download", highManifestRequests.Load())
+	if highManifestRequests.Load() != 1 {
+		t.Fatalf("selected HLS manifest requests=%d, want one discovery/initial-load response", highManifestRequests.Load())
 	}
 	if string(resultBytes) != "first" || strings.Contains(filepath.Base(result.Filename), ".d") {
 		t.Fatalf("result path=%q bytes=%q info=%s, want one unsuffixed first group", result.Filename, resultBytes, result.InfoJSON)
@@ -264,4 +265,328 @@ func TestProductDASHDynamicMPDPolicyCategories(t *testing.T) {
 	if !errors.Is(err, extractor.ErrUnsupported) && !strings.Contains(err.Error(), "dynamic DASH MPD unsupported") {
 		t.Fatalf("error=%v, want exact dynamic unsupported cause", err)
 	}
+}
+
+func TestProductHLSExplicitDiscontinuitySequencesFanOutInPlaylistOrder(t *testing.T) {
+	var manifestRequests, segmentRequests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/selected.m3u8":
+			manifestRequests.Add(1)
+			_, _ = io.WriteString(writer, explicitHLSGroupManifest())
+		case "/five.ts":
+			segmentRequests.Add(1)
+			_, _ = io.WriteString(writer, "five")
+		case "/seven.ts":
+			segmentRequests.Add(1)
+			_, _ = io.WriteString(writer, "seven")
+		case "/ad.ts":
+			t.Fatalf("ad-only group was fetched")
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	input := writeExplicitHLSInfoJSON(t, server.URL+"/selected.m3u8")
+	root := t.TempDir()
+	archivePath := filepath.Join(t.TempDir(), "archive.txt")
+	result, err := NewClient().Run(context.Background(), Request{
+		LoadInfoJSON: input, OutputDir: root, OutputTemplate: "groups.%(ext)s", Format: "selected",
+		HLSDiscontinuitySequences: []int64{7, 5, 7}, DownloadArchive: archivePath,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	media := mediaArtifactsOnly(result.Artifacts)
+	if len(media) != 2 {
+		t.Fatalf("media artifacts=%#v, want two", media)
+	}
+	wantNames := []string{"groups.d5.mp4", "groups.d7.mp4"}
+	wantBodies := []string{"five", "seven"}
+	for index, artifact := range media {
+		if filepath.Base(artifact.Path) != wantNames[index] {
+			t.Fatalf("media[%d] path=%q, want %q", index, artifact.Path, wantNames[index])
+		}
+		body, readErr := os.ReadFile(artifact.Path)
+		if readErr != nil || string(body) != wantBodies[index] {
+			t.Fatalf("media[%d] body=%q err=%v, want %q", index, body, readErr, wantBodies[index])
+		}
+	}
+	if result.Filename != media[0].Path {
+		t.Fatalf("result filename=%q, want first plan %q", result.Filename, media[0].Path)
+	}
+	if manifestRequests.Load() != 1 || segmentRequests.Load() != 2 {
+		t.Fatalf("requests manifest=%d segments=%d, want one discovery/initial-load response and two selected downloads", manifestRequests.Load(), segmentRequests.Load())
+	}
+	archive, err := os.ReadFile(archivePath)
+	if err != nil || strings.Count(string(archive), "\n") != 1 {
+		t.Fatalf("archive=%q err=%v, want one committed entry", archive, err)
+	}
+}
+
+func TestProductHLSExplicitSingleDiscontinuityKeepsDestination(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/selected.m3u8":
+			_, _ = io.WriteString(writer, explicitHLSGroupManifest())
+		case "/seven.ts":
+			_, _ = io.WriteString(writer, "seven")
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	input := writeExplicitHLSInfoJSON(t, server.URL+"/selected.m3u8")
+	root := t.TempDir()
+	result, err := NewClient().Run(context.Background(), Request{
+		LoadInfoJSON: input, OutputDir: root, OutputTemplate: "group.%(ext)s", Format: "selected",
+		HLSDiscontinuitySequences: []int64{7},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Base(result.Filename) != "group.mp4" {
+		t.Fatalf("single explicit filename=%q, want existing destination", result.Filename)
+	}
+}
+
+func TestProductHLSExplicitDiscontinuityRejectsBeforeMediaArtifactAndArchiveMutation(t *testing.T) {
+	tests := []struct {
+		name      string
+		manifest  string
+		sequences []int64
+		want      error
+	}{
+		{name: "missing", manifest: explicitHLSGroupManifest(), sequences: []int64{99}, want: ErrHLSDiscontinuityGroupMissing},
+		{name: "ad-only", manifest: explicitHLSGroupManifest(), sequences: []int64{6}, want: ErrHLSDiscontinuityGroupAdOnly},
+		{name: "empty", manifest: "#EXTM3U\n#EXT-X-ENDLIST\n", sequences: []int64{5}, want: ErrHLSDiscontinuityPlaylistEmpty},
+		{name: "malformed", manifest: "#EXTM3U\n#EXTINF:not-a-duration,\nsegment.ts\n", sequences: []int64{5}, want: ErrHLSDiscontinuityPlaylistMalformed},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var segmentRequests atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				if request.URL.Path == "/selected.m3u8" {
+					_, _ = io.WriteString(writer, test.manifest)
+					return
+				}
+				segmentRequests.Add(1)
+				t.Fatalf("segment request %s after selection rejection", request.URL.Path)
+			}))
+			defer server.Close()
+			input := writeExplicitHLSInfoJSON(t, server.URL+"/selected.m3u8")
+			root := t.TempDir()
+			archivePath := filepath.Join(t.TempDir(), "archive.txt")
+			result, err := NewClient().Run(context.Background(), Request{
+				LoadInfoJSON: input, OutputDir: root, OutputTemplate: "group.%(ext)s", Format: "selected",
+				HLSDiscontinuitySequences: test.sequences, DownloadArchive: archivePath,
+			})
+			if err == nil || !IsCategory(err, ErrorInvalidInput) || !errors.Is(err, test.want) {
+				t.Fatalf("error=%v, want invalid_input and %v", err, test.want)
+			}
+			if result.Downloaded || len(result.Artifacts) != 0 || segmentRequests.Load() != 0 {
+				t.Fatalf("result=%#v segment requests=%d, want no media or artifacts", result, segmentRequests.Load())
+			}
+			entries, readDirErr := os.ReadDir(root)
+			if readDirErr != nil {
+				t.Fatal(readDirErr)
+			}
+			if len(entries) != 0 {
+				t.Fatalf("output entries=%v, want none", entries)
+			}
+			archive, readErr := os.ReadFile(archivePath)
+			if readErr == nil && len(archive) != 0 {
+				t.Fatalf("archive changed after selection rejection: %q", archive)
+			}
+			if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+				t.Fatal(readErr)
+			}
+		})
+	}
+}
+
+func TestProductHLSExplicitDiscontinuityRollsBackPartialFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/selected.m3u8":
+			_, _ = io.WriteString(writer, explicitHLSGroupManifest())
+		case "/five.ts":
+			_, _ = io.WriteString(writer, "five")
+		case "/seven.ts":
+			writer.WriteHeader(http.StatusInternalServerError)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	input := writeExplicitHLSInfoJSON(t, server.URL+"/selected.m3u8")
+	root := t.TempDir()
+	archivePath := filepath.Join(t.TempDir(), "archive.txt")
+	result, err := NewClient().Run(context.Background(), Request{
+		LoadInfoJSON: input, OutputDir: root, OutputTemplate: "groups.%(ext)s", Format: "selected",
+		HLSDiscontinuitySequences: []int64{5, 7}, DownloadArchive: archivePath,
+	})
+	if err == nil {
+		t.Fatal("expected second explicit group failure")
+	}
+	if result.Downloaded || len(result.Artifacts) != 0 {
+		t.Fatalf("result=%#v, want rolled-back outputs", result)
+	}
+	entries, readErr := os.ReadDir(root)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("output entries=%v, want none after rollback", entries)
+	}
+	archive, readErr := os.ReadFile(archivePath)
+	if readErr == nil && len(archive) != 0 {
+		t.Fatalf("archive changed after partial failure: %q", archive)
+	}
+}
+
+func TestProductHLSExplicitDiscontinuityPreflightsCollisionsBeforeMedia(t *testing.T) {
+	var segmentRequests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/selected.m3u8" {
+			_, _ = io.WriteString(writer, explicitHLSGroupManifest())
+			return
+		}
+		segmentRequests.Add(1)
+		t.Fatalf("segment request %s after collision", request.URL.Path)
+	}))
+	defer server.Close()
+	input := writeExplicitHLSInfoJSON(t, server.URL+"/selected.m3u8")
+	root := t.TempDir()
+	existing := filepath.Join(root, "groups.d5.mp4")
+	if err := os.WriteFile(existing, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := NewClient().Run(context.Background(), Request{
+		LoadInfoJSON: input, OutputDir: root, OutputTemplate: "groups.%(ext)s", Format: "selected",
+		HLSDiscontinuitySequences: []int64{5, 7},
+	})
+	if err == nil || !errors.Is(err, downloader.ErrDestinationExists) || segmentRequests.Load() != 0 {
+		t.Fatalf("error=%v segments=%d, want destination collision before media", err, segmentRequests.Load())
+	}
+	body, readErr := os.ReadFile(existing)
+	if readErr != nil || string(body) != "keep" {
+		t.Fatalf("existing collision target=%q err=%v", body, readErr)
+	}
+}
+
+func TestProductHLSExplicitDiscontinuityCancellationCleansScratchAndArchive(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/selected.m3u8":
+			_, _ = io.WriteString(writer, explicitHLSGroupManifest())
+		case "/five.ts":
+			_, _ = io.WriteString(writer, "five")
+		case "/seven.ts":
+			cancel()
+			<-request.Context().Done()
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	input := writeExplicitHLSInfoJSON(t, server.URL+"/selected.m3u8")
+	root := t.TempDir()
+	archivePath := filepath.Join(t.TempDir(), "archive.txt")
+	result, err := NewClient().Run(ctx, Request{
+		LoadInfoJSON: input, OutputDir: root, OutputTemplate: "groups.%(ext)s", Format: "selected",
+		HLSDiscontinuitySequences: []int64{5, 7}, DownloadArchive: archivePath,
+		Downloader: DownloaderOptions{FragmentConcurrency: 1},
+	})
+	if err == nil || !IsCategory(err, ErrorCancelled) || !errors.Is(err, context.Canceled) {
+		t.Fatalf("error=%v, want cancelled explicit fan-out", err)
+	}
+	if result.Downloaded || len(result.Artifacts) != 0 {
+		t.Fatalf("result=%#v, want no committed outputs", result)
+	}
+	entries, readErr := os.ReadDir(root)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("output entries=%v, want scratch cleanup", entries)
+	}
+	archive, readErr := os.ReadFile(archivePath)
+	if readErr == nil && len(archive) != 0 {
+		t.Fatalf("archive changed after cancellation: %q", archive)
+	}
+}
+
+func TestProductHLSExplicitDiscontinuityRejectsInvalidAPIValueBeforeNetwork(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests.Add(1)
+		http.Error(writer, "must not fetch", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	_, err := NewClient().Run(context.Background(), Request{
+		URL: server.URL + "/selected.m3u8", HLSDiscontinuitySequences: []int64{-1},
+	})
+	if err == nil || !IsCategory(err, ErrorInvalidInput) || requests.Load() != 0 {
+		t.Fatalf("error=%v requests=%d, want invalid input before network", err, requests.Load())
+	}
+}
+
+func FuzzDeduplicateHLSDiscontinuitySequences(f *testing.F) {
+	f.Add([]byte{7, 5, 7, 5})
+	f.Add([]byte{})
+	f.Fuzz(func(t *testing.T, input []byte) {
+		sequences := make([]int64, len(input))
+		for index, value := range input {
+			sequences[index] = int64(value)
+		}
+		got := deduplicateHLSDiscontinuitySequences(sequences)
+		seen := make(map[int64]struct{}, len(got))
+		for _, sequence := range got {
+			if _, exists := seen[sequence]; exists {
+				t.Fatalf("duplicate sequence %d in %#v", sequence, got)
+			}
+			seen[sequence] = struct{}{}
+		}
+	})
+}
+
+func explicitHLSGroupManifest() string {
+	return `#EXTM3U
+#EXT-X-TARGETDURATION:1
+#EXT-X-MEDIA-SEQUENCE:1
+#EXT-X-DISCONTINUITY-SEQUENCE:5
+#EXTINF:1,
+five.ts
+#EXT-X-DISCONTINUITY
+#EXT-X-CUE-OUT
+#EXTINF:1,
+ad.ts
+#EXT-X-CUE-IN
+#EXT-X-DISCONTINUITY
+#EXTINF:1,
+seven.ts
+#EXT-X-ENDLIST
+`
+}
+
+func writeExplicitHLSInfoJSON(t *testing.T, manifestURL string) string {
+	t.Helper()
+	input := filepath.Join(t.TempDir(), "selected.info.json")
+	data, err := json.Marshal(map[string]any{
+		"_type": "video", "id": "explicit", "title": "Explicit", "extractor_key": "fixture",
+		"webpage_url": manifestURL, "formats": []any{
+			map[string]any{"format_id": "selected", "url": manifestURL, "ext": "mp4", "protocol": "m3u8_native"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(input, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return input
 }

@@ -28,6 +28,12 @@ The fixtures prove only these claims:
 - repeated AES key URIs are fetched per key declaration, not treated as an
   immutable URI-level cache.
 
+The explicit-group product fixture additionally proves that the selected
+representation manifest is fetched once for discovery and the initial load
+shared by all selected groups. It does not fetch an unselected rendition;
+segments and later live playlist reloads remain network-backed and retain the
+selected headers and URL policy.
+
 Hostile URI and duplicate-attribute cases are generated inline by the parser
 tests so every input remains visibly local and deterministic.
 
@@ -38,7 +44,13 @@ selection: it discovers groups only for the selected HLS representation and
 pins the downloader to the first eligible group. It preserves the normal
 single-group destination and keeps maps/keys, retry, cancellation, transaction
 cleanup, archive state, and redacted group-aware progress within the existing
-boundaries. Explicit multi-group product selection is deferred in v2 because
-no unapproved selector or public API is added. Merged output plans containing
-multiple native HLS tracks are rejected before probing because their absolute
+boundaries. The repeatable `--hls-discontinuity-sequence` selector and
+`Request.HLSDiscontinuitySequences` select absolute IDs only from the one
+ordinary-selected representation. Duplicate IDs are deduplicated, playlist
+order is authoritative, one explicit group keeps the existing destination, and
+multiple groups use transactional `.d<absolute-sequence>` names. Missing,
+empty, ad-only, and malformed selections fail before media/artifact/archive
+mutation with `invalid_input`; AllowedHosts violations are `security` and
+transport failures remain `network`. Merged output plans containing multiple
+native HLS tracks are rejected before probing because their absolute
 discontinuity identities may differ; the product never synchronizes them.
