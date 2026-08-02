@@ -230,6 +230,7 @@ type RetrySafeExtractor interface {
 
 type Registry struct {
 	extractors []Extractor
+	selection  selectionPolicy
 }
 
 // Names returns extractor identifiers in deterministic routing-priority order.
@@ -250,6 +251,37 @@ func NewRegistry(extractors ...Extractor) *Registry {
 	return &Registry{extractors: append([]Extractor(nil), extractors...)}
 }
 
+// ConfigureSelection compiles the bounded include/exclude/order grammar
+// against this registry. The registry is normally operation-local, so the
+// compiled policy cannot leak across concurrent clients or requests.
+func (registry *Registry) ConfigureSelection(rules []string) error {
+	if registry == nil {
+		return fmt.Errorf("%w: nil registry", ErrInvalidSelection)
+	}
+	compiled, err := compileSelectionPolicy(rules, registry.extractors)
+	if err != nil {
+		return err
+	}
+	registry.selection = compiled
+	return nil
+}
+
+func (registry *Registry) selectionOrder() []string {
+	if registry == nil {
+		return nil
+	}
+	if !registry.selection.configured {
+		order := make([]string, 0, len(registry.extractors))
+		for _, candidate := range registry.extractors {
+			if candidate != nil {
+				order = append(order, candidate.Name())
+			}
+		}
+		return order
+	}
+	return registry.selection.ordered
+}
+
 // Select returns the first suitable extractor, making registration order the
 // explicit and deterministic priority rule.
 func (registry *Registry) Select(rawURL string) (Extractor, error) {
@@ -257,9 +289,14 @@ func (registry *Registry) Select(rawURL string) (Extractor, error) {
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" && parsed.Opaque == "" {
 		return nil, fmt.Errorf("%w: %q", ErrUnsupported, rawURL)
 	}
-	for _, candidate := range registry.extractors {
-		if candidate.Suitable(parsed) {
-			return candidate, nil
+	for _, name := range registry.selectionOrder() {
+		if name == selectionEndSentinel {
+			return nil, fmt.Errorf("%w: selection ended", ErrUnsupported)
+		}
+		for _, candidate := range registry.extractors {
+			if candidate != nil && strings.EqualFold(candidate.Name(), name) && candidate.Suitable(parsed) {
+				return candidate, nil
+			}
 		}
 	}
 	return nil, fmt.Errorf("%w: %s", ErrUnsupported, parsed.Redacted())
@@ -277,6 +314,13 @@ func (registry *Registry) SelectFor(rawURL, extractorKey string) (Extractor, err
 	}
 	for _, candidate := range registry.extractors {
 		if strings.EqualFold(candidate.Name(), extractorKey) {
+			if registry.selection.configured {
+				if _, allowed := registry.selection.allowed[strings.ToLower(candidate.Name())]; !allowed {
+					if _, explicitOnly := candidate.(ExplicitOnlyExtractor); !explicitOnly {
+						return nil, fmt.Errorf("%w: %w: %s", ErrUnsupported, ErrSelectionDisabled, extractorKey)
+					}
+				}
+			}
 			if parsed.Host == "" && !candidate.Suitable(parsed) {
 				return nil, fmt.Errorf("%w: invalid opaque URL result", ErrUnsupported)
 			}

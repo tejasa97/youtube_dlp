@@ -408,6 +408,7 @@ type installedPluginExtractor struct {
 func (candidate *installedPluginExtractor) Name() string {
 	return candidate.installed.packageValue.Manifest.ID
 }
+func (*installedPluginExtractor) ExplicitOnly()          {}
 func (*installedPluginExtractor) Suitable(*url.URL) bool { return false }
 
 func (candidate *installedPluginExtractor) Extract(ctx context.Context, request extractor.Request) (extractor.Extraction, error) {

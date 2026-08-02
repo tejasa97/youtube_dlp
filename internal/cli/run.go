@@ -21,6 +21,7 @@ import (
 	"time"
 
 	compatconfig "github.com/ytdlp-go/ytdlp/internal/compat/config"
+	"github.com/ytdlp-go/ytdlp/internal/extractor"
 	"github.com/ytdlp-go/ytdlp/internal/sponsorblock"
 	"github.com/ytdlp-go/ytdlp/pkg/ytdlp"
 )
@@ -356,6 +357,9 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	useNetRC := flags.Bool("netrc", false, "use credentials from a native .netrc file")
 	netRCLocation := flags.String("netrc-location", "", "path to .netrc or its containing directory")
 	videoPassword := flags.String("video-password", "", "per-video password for extractors that gate media behind a site secret; never echoed in errors, events, or metadata")
+	var extractorSelection extractorSelectionFlag
+	flags.Var(&extractorSelection, "use-extractors", "extractor names or case-insensitive regexes, comma-separated; use all/default/end and prefix with - to exclude")
+	flags.Var(&extractorSelection, "ies", "alias for --use-extractors")
 	downloadArchive := flags.String("download-archive", "", "record and skip downloaded extractor IDs")
 	flags.BoolFunc("no-download-archive", "disable an inherited download archive", func(string) error {
 		*downloadArchive = ""
@@ -1120,7 +1124,7 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	maxDownloadsPerInput := 0
 	makeRequest := func(inputURL string, autonumberIndex int) ytdlp.Request {
 		return ytdlp.Request{
-			URL: inputURL, OutputTemplates: outputTemplates.clone(), OutputDir: *outputDir, OutputPaths: paths.clone(), UseID: useIDRequest, Proxy: *proxy,
+			URL: inputURL, ExtractorSelection: ytdlp.ExtractorSelectionOptions{Rules: append([]string(nil), extractorSelection.rules...)}, OutputTemplates: outputTemplates.clone(), OutputDir: *outputDir, OutputPaths: paths.clone(), UseID: useIDRequest, Proxy: *proxy,
 			AutonumberStart: *autonumberStart, AutonumberSize: *autonumberSize, AutonumberIndex: autonumberIndex,
 			LoadInfoJSON: *loadInfoJSON, RemoveCacheDir: *rmCacheDir,
 			SourceAddress: addressPolicy.source, ForceIPv4: addressPolicy.forceIPv4, ForceIPv6: addressPolicy.forceIPv6,
@@ -1596,6 +1600,34 @@ func (values *int64ListFlag) Set(input string) error {
 		return fmt.Errorf("invalid HLS discontinuity sequence %q", input)
 	}
 	*values = append(*values, sequence)
+	return nil
+}
+
+// extractorSelectionFlag mirrors yt-dlp's list callback: each occurrence is
+// comma-split, surrounding whitespace is removed, empty fields are ignored,
+// and occurrence order is preserved for later registry compilation.
+type extractorSelectionFlag struct {
+	rules []string
+}
+
+func (values *extractorSelectionFlag) String() string {
+	if values == nil {
+		return ""
+	}
+	return strings.Join(values.rules, ",")
+}
+
+func (values *extractorSelectionFlag) Set(input string) error {
+	next := append([]string(nil), values.rules...)
+	for _, raw := range strings.Split(input, ",") {
+		if rule := strings.TrimSpace(raw); rule != "" {
+			next = append(next, rule)
+		}
+	}
+	if err := extractor.ValidateSelectionRules(next); err != nil {
+		return err
+	}
+	values.rules = next
 	return nil
 }
 

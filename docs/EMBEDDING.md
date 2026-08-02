@@ -100,7 +100,10 @@ netrc sources, timeout,
 overwrite and metadata-only operation, format selection/sorting, templates,
 filters, metadata transforms, bounded downloader controls, typed
 postprocessors, related files, staged print rules, archive/cache locations, and
-explicit plugin selection.
+explicit plugin selection. `Request.ExtractorSelection` carries ordered
+include/exclude regex rules and the `all`/`default`/`end` aliases; it applies to
+automatic roots and native URL-result re-entry before network setup. Signed
+plugins remain explicit-only through `Request.PluginID`.
 
 Result returns normalized InfoJSON, extractor identity, download/archive/skip
 state, filename and byte count, ordered playlist entries, typed artifacts, and

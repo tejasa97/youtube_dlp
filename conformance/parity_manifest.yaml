@@ -3511,3 +3511,44 @@ capabilities:
     depends_on:
       - foundation.cli
       - cli.flag_wave3
+
+  - id: cli.extractor_selection_control_plane
+    name: Extractor selection control plane
+    phase: 3
+    compatibility_target: >-
+      Implement the pinned --use-extractors/--ies ordered include, exclude, and
+      end-stop grammar across the typed Request and deterministic native
+      registry. Case-insensitive full-match rules, lower-case all/default/end
+      aliases, zero-match regex no-ops, leading-minus exclusions, and the
+      default fallback for an empty final rule list are bounded and compiled
+      before network setup. Automatic roots and native URL-result re-entry
+      share the policy, while explicit signed PluginID selection remains
+      available.
+    status: compatible
+    evidence:
+      - internal/extractor.TestRegistrySelectionRulesPreserveOrderAliasesCaseAndExclusions
+      - internal/extractor.TestRegistrySelectionRulesPreserveGenericFallbackPrecedence
+      - internal/extractor.TestRegistrySelectionRulesUnknownMalformedAndEnd
+      - internal/extractor.TestRegistrySelectionRulesDisableAutomaticAndURLResultReentry
+      - internal/extractor.TestRegistrySelectionRulesKeepExplicitOnlyPluginSelection
+      - internal/extractor.TestRegistrySelectionEndStopsAtItsOrderedPosition
+      - internal/cli.TestRunExtractorSelectionFlagsPreservePinnedRuleOrderAndAliases
+      - internal/cli.TestRunExtractorSelectionEmptyRulesNormalizeToDefault
+      - internal/cli.TestRunExtractorSelectionEmptyRulesUseDefaultRouting
+      - internal/cli.TestRunExtractorSelectionValidationFailsBeforeRunnerNetwork
+      - pkg/ytdlp.TestProductExtractorSelectionControlsRootAndURLResultReentry
+      - pkg/ytdlp.TestProductExtractorSelectionReusesPlaylistRegistryPolicy
+      - pkg/ytdlp.TestProductExtractorSelectionCancellationAndSecretSafeFailure
+      - pkg/ytdlp.TestProductExtractorSelectionPreflightAndConcurrentClients
+      - pkg/ytdlp.TestProductExtractorSelectionEmptyRulesUseDefaultGenericRouting
+      - docs/EXTRACTOR_SELECTION_EVIDENCE.md
+      - docs/CLI_FLAG_INVENTORY.md
+    owner: core
+    depends_on:
+      - foundation.cli
+    known_deviation: >-
+      The bounded contract intentionally excludes extractor listing and
+      descriptions, force-generic, default-search, extractor-args, plugin
+      discovery, and additional extractor breadth. The Go implementation keeps
+      alias keywords lower-case as in the pinned orderedSet_from_options helper;
+      extractor patterns themselves are case-insensitive.

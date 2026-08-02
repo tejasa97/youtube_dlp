@@ -86,11 +86,16 @@ func IsCategory(err error, category ErrorCategory) bool {
 }
 
 type Request struct {
-	URL             string
-	OutputTemplate  string
-	OutputTemplates OutputTemplates
-	OutputDir       string
-	OutputPaths     OutputPaths
+	URL string
+	// ExtractorSelection controls automatic and URL-result extractor routing.
+	// Rules are applied in order using the pinned comma-separated include /
+	// exclude grammar. An empty final rule list selects the default policy.
+	// Installed signed plugins remain explicit-only.
+	ExtractorSelection ExtractorSelectionOptions
+	OutputTemplate     string
+	OutputTemplates    OutputTemplates
+	OutputDir          string
+	OutputPaths        OutputPaths
 	// UseID selects the pinned %(id)s.%(ext)s default when no explicit output
 	// template is configured. Explicit typed/default templates always win.
 	UseID           bool
@@ -501,6 +506,10 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 	if client.youtubePOTErr != nil {
 		return Result{}, &Error{Category: ErrorInvalidInput, Op: "configure YouTube PO-token providers", Err: client.youtubePOTErr}
 	}
+	registry := client.productRegistry()
+	if err := registry.ConfigureSelection(request.ExtractorSelection.Rules); err != nil {
+		return Result{}, categorized("compile extractor selection", err)
+	}
 	compatibility, err := prepareCompatibility(request)
 	if err != nil {
 		return Result{}, err
@@ -592,7 +601,7 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 	plannerCapabilities := plannerCapabilitiesFor(request)
 	operation := &operation{
 		client: client, request: request, transport: transport,
-		registry: client.productRegistry(),
+		registry: registry,
 		solver:   challengeSolver, archive: downloadArchive, cache: operationCache,
 		credentials:         credentials,
 		compatibility:       compatibility,

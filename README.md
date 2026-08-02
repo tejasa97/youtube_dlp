@@ -58,7 +58,7 @@ identify compatibility targets only.
 | Extensions | Versioned native RPC and constrained WASM plugins, signed packs, catalogs, and updater transactions |
 | Public API | Versioned v1alpha1 Go API with context cancellation, categorized errors, events, playlists, metadata, and artifacts |
 
-The capability manifest records **91 capabilities**: **82 compatible** within
+The capability manifest records **92 capabilities**: **83 compatible** within
 their declared corpora, **8 partial**, and **1 intentional deviation**.
 “Compatible” means the linked deterministic evidence passes; it does not mean
 unbounded equivalence with every upstream behavior.
@@ -186,6 +186,29 @@ with `--progress-json`.
 
 See [format-selector behavior and limits](docs/FORMAT_SELECTOR_PARITY.md) and
 the [active implementation plan](docs/FORMAT_SELECTOR_PARITY_IMPLEMENTATION_PLAN.md).
+
+## Extractor selection
+
+Use `--use-extractors` or its `--ies` alias to constrain and order automatic
+extractor routing. Values are comma-separated and repeatable; extractor names
+and regex matches are case-insensitive. A leading `-` excludes matching
+extractors, while the pinned `all`, `default`, and ordered-stop `end` aliases
+select the corresponding registry entries:
+
+```sh
+# Keep the normal order but disable the generic HTTP fallback
+./bin/ytdlp-go --ies default,-generic URL
+
+# Prefer the YouTube family, then stop before later registry entries
+./bin/ytdlp-go --use-extractors 'youtube.*,end' URL
+```
+
+Rules are compiled before network setup and apply both to the root URL and to
+native URL-result playlist/transparent re-entry. A signed installed plugin is
+still available only through an explicit `PluginID`; it is never automatic.
+Extractor listing, descriptions, force-generic, default-search, extractor-args,
+and plugin discovery remain outside the current bounded contract. See the
+[extractor selection evidence](docs/EXTRACTOR_SELECTION_EVIDENCE.md).
 
 ## Common workflows
 
