@@ -56,9 +56,17 @@ func (PRXSeries) Name() string              { return "prx_series" }
 func (PRXAccount) Name() string             { return "prx_account" }
 func (PRXStoriesSearch) Name() string       { return "prx_stories_search" }
 func (PRXSeriesSearch) Name() string        { return "prx_series_search" }
-func (PRXStory) Suitable(u *url.URL) bool   { k, _, ok := prxTarget(u); return ok && k == "stories" }
-func (PRXSeries) Suitable(u *url.URL) bool  { k, _, ok := prxTarget(u); return ok && k == "series" }
-func (PRXAccount) Suitable(u *url.URL) bool { k, _, ok := prxTarget(u); return ok && k == "accounts" }
+func (PRXStoriesSearch) SupportsSearchPrefix(prefix string) bool {
+	return strings.EqualFold(prefix, "prxstories")
+}
+func (PRXStoriesSearch) SearchQueryAllowed(query string) bool { return validPRXSearchQuery(query) }
+func (PRXSeriesSearch) SupportsSearchPrefix(prefix string) bool {
+	return strings.EqualFold(prefix, "prxseries")
+}
+func (PRXSeriesSearch) SearchQueryAllowed(query string) bool { return validPRXSearchQuery(query) }
+func (PRXStory) Suitable(u *url.URL) bool                    { k, _, ok := prxTarget(u); return ok && k == "stories" }
+func (PRXSeries) Suitable(u *url.URL) bool                   { k, _, ok := prxTarget(u); return ok && k == "series" }
+func (PRXAccount) Suitable(u *url.URL) bool                  { k, _, ok := prxTarget(u); return ok && k == "accounts" }
 func (PRXStoriesSearch) Suitable(u *url.URL) bool {
 	_, ok := prxSearchTarget(u, "prxstories")
 	return ok
@@ -530,6 +538,12 @@ func prxSearch(ctx context.Context, req Request, key, endpoint, kind string) (Ex
 	query, ok := prxSearchTarget(mustPRXURL(req.URL), key)
 	if !ok || req.Transport == nil {
 		return Extraction{}, ErrUnsupported
+	}
+	if req.SearchQueryOverride != "" {
+		if !validPRXSearchQuery(req.SearchQueryOverride) {
+			return Extraction{}, fmt.Errorf("%w: invalid PRX search query", ErrUnsupported)
+		}
+		query = req.SearchQueryOverride
 	}
 	info := value.NewInfo(value.NewObject(
 		value.Field{Key: "id", Value: value.String(query)},

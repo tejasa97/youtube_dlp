@@ -34,8 +34,8 @@
 | `--list-extractors` | present | Offline built-in registry listing; consumes URLs only for native `Suitable` matching, with stable name order and `generic` last |
 | `--extractor-descriptions` | present | Offline bounded one-line descriptions on stdout; typed aliases are retained for library introspection but are not rendered |
 | `--use-extractors` / `--ies` | present | Bounded ordered extractor selection; comma-separated case-insensitive regex rules, `all`/`default`/`end` aliases, and leading `-` exclusions are compiled before network setup |
-| `--force-generic-extractor` | defer | Extractor routing |
-| `--default-search` | defer | Search prefix |
+| `--force-generic-extractor` | present | Hidden flag. Routes automatic input through the registered generic extractor while preserving explicit extractor keys/plugin IDs and generic URL safety |
+| `--default-search` | present | Bounded `fixup_error`, `error`, `auto`, `auto_warning`, and registered `ytsearch*`/`scsearch*`/`nicosearch`/`prxstories`/`prxseries` routing; no live lookup |
 | `--ignore-config` / `--no-config` | present | Config loader |
 | `--no-config-locations` | present | Config loader |
 | `--config-locations` | present | `flags.Var(&configLocations, "config-location", ...)` |

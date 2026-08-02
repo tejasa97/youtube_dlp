@@ -429,6 +429,9 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	flags.BoolFunc("no-ignore-errors", "alias for --abort-on-error", setPlaylistErrorPolicy(ytdlp.PlaylistErrorAbort, false))
 	listExtractors := flags.Bool("list-extractors", false, "list all supported extractors and exit")
 	extractorDescriptions := flags.Bool("extractor-descriptions", false, "output descriptions of all supported extractors and exit")
+	forceGenericExtractor := flags.Bool("force-generic-extractor", false, "force automatic URL routing through the generic extractor")
+	hiddenFlags["force-generic-extractor"] = true
+	defaultSearch := flags.String("default-search", "", "use this registered search prefix for unqualified inputs (auto, auto_warning, or error are also supported)")
 	playlistMaxFailures := flags.Int("skip-playlist-after-errors", 0, "skip remaining entries after N ordinary failures (0 disables)")
 	playlistItems := flags.String("playlist-items", "", "comma-separated playlist indexes or START:END:STEP ranges")
 	flags.StringVar(playlistItems, "I", "", "alias for --playlist-items")
@@ -1124,7 +1127,8 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	maxDownloadsPerInput := 0
 	makeRequest := func(inputURL string, autonumberIndex int) ytdlp.Request {
 		return ytdlp.Request{
-			URL: inputURL, ExtractorSelection: ytdlp.ExtractorSelectionOptions{Rules: append([]string(nil), extractorSelection.rules...)}, OutputTemplates: outputTemplates.clone(), OutputDir: *outputDir, OutputPaths: paths.clone(), UseID: useIDRequest, Proxy: *proxy,
+			URL: inputURL, ExtractorSelection: ytdlp.ExtractorSelectionOptions{Rules: append([]string(nil), extractorSelection.rules...)}, ForceGenericExtractor: *forceGenericExtractor, DefaultSearch: *defaultSearch,
+			OutputTemplates: outputTemplates.clone(), OutputDir: *outputDir, OutputPaths: paths.clone(), UseID: useIDRequest, Proxy: *proxy,
 			AutonumberStart: *autonumberStart, AutonumberSize: *autonumberSize, AutonumberIndex: autonumberIndex,
 			LoadInfoJSON: *loadInfoJSON, RemoveCacheDir: *rmCacheDir,
 			SourceAddress: addressPolicy.source, ForceIPv4: addressPolicy.forceIPv4, ForceIPv6: addressPolicy.forceIPv6,

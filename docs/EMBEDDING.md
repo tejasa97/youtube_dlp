@@ -105,6 +105,14 @@ include/exclude regex rules and the `all`/`default`/`end` aliases; it applies to
 automatic roots and native URL-result re-entry before network setup. Signed
 plugins remain explicit-only through `Request.PluginID`.
 
+`Request.ForceGenericExtractor` forces automatic URL routing through the
+registered generic extractor while preserving explicit playlist extractor keys
+and `Request.PluginID`. `Request.DefaultSearch` accepts the bounded
+`fixup_error`, `error`, `auto`, and `auto_warning` modes plus prefixes owned by
+registered `ytsearch*`, `scsearch*`, `nicosearch`, `prxstories`, and
+`prxseries` extractors. Routing is network-free and validates input bounds,
+query bounds, URL safety, and cancellation before extraction.
+
 Result returns normalized InfoJSON, extractor identity, download/archive/skip
 state, filename and byte count, ordered playlist entries, typed artifacts, and
 ordered staged print captures. Unknown ordered metadata is preserved in the

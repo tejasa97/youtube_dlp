@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/ytdlp-go/ytdlp/internal/protocol/hls"
 	"github.com/ytdlp-go/ytdlp/internal/value"
@@ -288,7 +289,7 @@ func niconicoSearchURLParts(u *url.URL, searchType string) (string, bool) {
 }
 
 func niconicoSafeSearchTerm(term string) bool {
-	if term == "" || len(term) > 256 {
+	if term == "" || len(term) > 256 || !utf8.ValidString(term) {
 		return false
 	}
 	for _, r := range term {
@@ -1498,6 +1499,10 @@ type NiconicoSearch struct{}
 
 func NewNiconicoSearch() NiconicoSearch { return NiconicoSearch{} }
 func (NiconicoSearch) Name() string     { return "niconico_search" }
+func (NiconicoSearch) SupportsSearchPrefix(prefix string) bool {
+	return strings.EqualFold(prefix, "nicosearch")
+}
+func (NiconicoSearch) SearchQueryAllowed(query string) bool { return niconicoSafeSearchTerm(query) }
 func (NiconicoSearch) Suitable(u *url.URL) bool {
 	_, ok := niconicoOpaqueSearchTerm(u.String(), "nicosearch")
 	return ok
@@ -1506,6 +1511,12 @@ func (NiconicoSearch) Extract(ctx context.Context, request Request) (Extraction,
 	term, ok := niconicoOpaqueSearchTerm(request.URL, "nicosearch")
 	if !ok {
 		return Extraction{}, ErrUnsupported
+	}
+	if request.SearchQueryOverride != "" {
+		if !niconicoSafeSearchTerm(request.SearchQueryOverride) {
+			return Extraction{}, fmt.Errorf("%w: invalid Niconico search query", ErrUnsupported)
+		}
+		term = request.SearchQueryOverride
 	}
 	return niconicoSearchExtraction(ctx, request.Transport, term, "search", term, "")
 }

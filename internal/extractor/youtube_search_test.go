@@ -74,6 +74,27 @@ func TestYouTubeSearchInitialContinuationAndAllCap(t *testing.T) {
 	}
 }
 
+func TestYouTubeSearchUsesBoundedProductQueryOverride(t *testing.T) {
+	transport := &searchTransport{page: readYouTubeSearchFixture(t, "initial.html"), continuation: readYouTubeSearchFixture(t, "continuation.json")}
+	result, err := NewYouTubeSearch().Extract(context.Background(), Request{
+		URL: "ytsearch:ytdlp-routing-placeholder", SearchQueryOverride: "cats & dogs?", Transport: transport,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsPlaylist() {
+		t.Fatalf("result=%#v", result)
+	}
+	if transport.requests != 0 {
+		// The initial search page is read through ReadPage, while continuation
+		// requests remain lazy.
+		t.Fatalf("unexpected eager continuation requests=%d", transport.requests)
+	}
+	if title, ok := result.Info.Title(); !ok || title != "cats & dogs?" {
+		t.Fatalf("title=%q ok=%v", title, ok)
+	}
+}
+
 func TestYouTubeSearchLazyReusableAndCancellation(t *testing.T) {
 	transport := &searchTransport{page: readYouTubeSearchFixture(t, "initial.html"), continuation: readYouTubeSearchFixture(t, "continuation.json")}
 	result, err := NewYouTubeSearch().Extract(context.Background(), Request{URL: "ytsearch:fixture", Transport: transport})
