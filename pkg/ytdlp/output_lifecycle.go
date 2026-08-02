@@ -593,6 +593,9 @@ func (operation *operation) executePlanLifecycle(
 	}
 	registerArtifacts(chapterArtifacts)
 	result.Artifacts = append(result.Artifacts, chapterArtifacts...)
+	if err := operation.applyXattrs(ctx, lifecycle.Info, lifecycle.MediaPath); err != nil {
+		return fail(categorized("write xattrs", err))
+	}
 
 	// Apply the media timestamp only after every media-mutating postprocessor
 	// has completed. This is deliberately per lifecycle so multi-output runs

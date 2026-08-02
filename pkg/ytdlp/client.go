@@ -263,7 +263,10 @@ type Request struct {
 	// ConcatPlaylist selects the closed playlist concatenation policy. The CLI
 	// supplies multi_video; an empty API value leaves concatenation disabled.
 	ConcatPlaylist string
-	Downloader     DownloaderOptions
+	// Xattrs writes the bounded metadata mapping to the final media file's
+	// extended attributes when the platform and filesystem support it.
+	Xattrs     bool
+	Downloader DownloaderOptions
 	// DenyDynamicMPD maps the product's --no-allow-dynamic-mpd policy to the
 	// DASH protocol boundary. The zero value intentionally allows dynamic MPDs.
 	DenyDynamicMPD bool
@@ -2532,7 +2535,7 @@ func categorized(op string, err error) error {
 	case errors.Is(err, extractor.ErrVKRateLimited), errors.Is(err, extractor.ErrVKNetwork), errors.Is(err, extractor.ErrVKInvalidStatus), errors.Is(err, extractor.ErrVKRepeatedPage):
 		category = ErrorNetwork
 	case errors.Is(err, ffmpeg.ErrFFmpegUnavailable), errors.Is(err, ffmpeg.ErrFFprobeUnavailable),
-		errors.Is(err, ffmpeg.ErrUnsafeHLSHeaders):
+		errors.Is(err, ffmpeg.ErrUnsafeHLSHeaders), errors.Is(err, ErrXattrsUnsupported):
 		category = ErrorUnsupported
 	case errors.Is(err, downloader.ErrExternalUnavailable), errors.Is(err, hls.ErrUnsupportedEncryption),
 		errors.Is(err, dash.ErrUnsupportedTimeline), errors.Is(err, dash.ErrUnsupportedAddressing),

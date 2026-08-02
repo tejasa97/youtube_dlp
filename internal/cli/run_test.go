@@ -1830,6 +1830,10 @@ func TestRunMetadataAndChapterEmbeddingFlags(t *testing.T) {
 	if request.SplitChapters {
 		t.Fatalf("split chapters clear request=%+v", request)
 	}
+	request = captureCLIRequest(t, "--xattr")
+	if !request.Xattrs {
+		t.Fatalf("xattrs request=%+v", request)
+	}
 }
 
 func TestRunFixupPolicyPlumbing(t *testing.T) {
