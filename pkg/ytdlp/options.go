@@ -559,6 +559,9 @@ func validateRequestOptions(request Request) error {
 			return fmt.Errorf("%w: keep-video is incompatible with move postprocessors", errInvalidRequestOptions)
 		}
 	}
+	if !validFixupPolicy(request.FixupPolicy) {
+		return fmt.Errorf("%w: fixup policy", errInvalidRequestOptions)
+	}
 	if err := validatePostprocessorPaths(request); err != nil {
 		return fmt.Errorf("%w: %v", errInvalidRequestOptions, err)
 	}

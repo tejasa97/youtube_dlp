@@ -741,6 +741,7 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 		postOverwrites = false
 		return nil
 	})
+	fixupPolicy := flags.String("fixup", "detect_or_warn", "automatically fix known media faults: never, ignore, warn, detect_or_warn, or force")
 	embedMetadata := flags.Bool("embed-metadata", false, "embed bounded canonical metadata in the final media")
 	flags.BoolVar(embedMetadata, "add-metadata", false, "alias for --embed-metadata")
 	flags.BoolFunc("no-embed-metadata", "disable metadata embedding (default)", func(input string) error {
@@ -1176,6 +1177,7 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 			EmbedMetadata:          *embedMetadata,
 			EmbedChapters:          requestEmbedChapters,
 			EmbedInfoJSON:          requestEmbedInfoJSON,
+			FixupPolicy:            *fixupPolicy,
 			Subtitles:              requestSubtitles,
 			Thumbnails: ytdlp.ThumbnailOptions{
 				Write:    thumbnailMode == thumbnailModeBest || *embedThumbnail,

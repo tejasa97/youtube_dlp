@@ -252,7 +252,11 @@ type Request struct {
 	// Nil and false both disable attachment; an explicit false is retained so
 	// callers can clear an inherited setting without changing EmbedMetadata.
 	EmbedInfoJSON *bool
-	Downloader    DownloaderOptions
+	// FixupPolicy selects the closed policy set implemented by the typed
+	// ffmpeg fixup operations. The zero value disables automatic fixup; the CLI
+	// supplies detect_or_warn for parity with yt-dlp's default.
+	FixupPolicy string
+	Downloader  DownloaderOptions
 	// DenyDynamicMPD maps the product's --no-allow-dynamic-mpd policy to the
 	// DASH protocol boundary. The zero value intentionally allows dynamic MPDs.
 	DenyDynamicMPD bool
