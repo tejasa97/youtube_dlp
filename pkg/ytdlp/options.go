@@ -7,9 +7,20 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/ytdlp-go/ytdlp/internal/extractor"
 )
 
 var errInvalidRequestOptions = errors.New("invalid request options")
+
+// ExtractorSelectionOptions is the bounded product representation of
+// yt-dlp's --use-extractors / --ies option. Rules are ordered, comma-split
+// include/exclude patterns. A leading '-' removes matching extractors;
+// aliases are all, default, and end. An empty final rule list selects the
+// normal registry order, matching yt-dlp's default fallback.
+type ExtractorSelectionOptions struct {
+	Rules []string
+}
 
 // maxVideoPasswordBytes bounds the public Request.VideoPassword. The value is
 // a generous upper bound; extractors that consume the password enforce their
@@ -380,6 +391,9 @@ type ConcatPostprocessor struct {
 type MovePostprocessor struct{ Destination string }
 
 func validateRequestOptions(request Request) error {
+	if err := extractor.ValidateSelectionRules(request.ExtractorSelection.Rules); err != nil {
+		return fmt.Errorf("%w: %v", errInvalidRequestOptions, err)
+	}
 	if request.CheckFormats > FormatCheckAll {
 		return fmt.Errorf("%w: format availability mode", errInvalidRequestOptions)
 	}

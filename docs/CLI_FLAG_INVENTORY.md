@@ -33,7 +33,7 @@
 | `--abort-on-error` | present | `flags.BoolFunc("abort-on-error", ...)` |
 | `--list-extractors` | present | Offline built-in registry listing; consumes URLs only for native `Suitable` matching, with stable name order and `generic` last |
 | `--extractor-descriptions` | present | Offline bounded one-line descriptions on stdout; typed aliases are retained for library introspection but are not rendered |
-| `--use-extractors` / `--ies` | defer | Extractor selection |
+| `--use-extractors` / `--ies` | present | Bounded ordered extractor selection; comma-separated case-insensitive regex rules, `all`/`default`/`end` aliases, and leading `-` exclusions are compiled before network setup |
 | `--force-generic-extractor` | defer | Extractor routing |
 | `--default-search` | defer | Search prefix |
 | `--ignore-config` / `--no-config` | present | Config loader |
@@ -221,6 +221,7 @@
 
 | Option | Status | Notes |
 |--------|--------|-------|
+| `--use-extractors` / `--ies` | present | `Request.ExtractorSelection`; automatic roots and URL-result re-entry share the same deterministic registry policy; explicit signed `PluginID` selection remains available |
 | `--extractor-retries` | present | Bounded transient retries around entered calls only for extractors that explicitly claim replay safety; default 3 in CLI; other extractors run once |
 | `--allow-dynamic-mpd` / `--no-allow-dynamic-mpd` / `--ignore-dynamic-mpd` | present | Dynamic DASH MPDs allow by default; explicit deny maps to unsupported |
 | `--hls-split-discontinuity` / `--no-hls-split-discontinuity` | present | After ordinary format selection, pin the selected HLS representation to its first eligible group; no explicit sequence list means one existing-destination output |
