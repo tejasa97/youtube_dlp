@@ -8,11 +8,13 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/ytdlp-go/ytdlp/internal/archive"
 	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
 	"github.com/ytdlp-go/ytdlp/internal/network"
 )
@@ -71,6 +73,10 @@ func (transport *bilibiliProductRoundTripper) isMedia(rawURL string) bool {
 
 func bilibiliProductDomesticPage(videoURL, audioURL string) []byte {
 	return []byte(fmt.Sprintf(`<script>window.__INITIAL_STATE__={"videoData":{"bvid":"BV1prod0001","aid":1,"cid":2,"title":"Product","desc":"fixture","duration":4,"pic":"https://i0.hdslb.com/bfs/archive/product.jpg","owner":{"name":"Fixture","mid":9},"pages":[{"page":1,"part":"Part 1","duration":4}]}};</script><script>window.__playinfo__={"code":0,"data":{"timelength":4000,"dash":{"video":[{"id":80,"baseUrl":"%s","mimeType":"video/mp4","bandwidth":800000,"width":640,"height":360,"codecs":"avc1"}],"audio":[{"id":30280,"baseUrl":"%s","mimeType":"audio/mp4","bandwidth":64000,"codecs":"mp4a"}]}}};</script>`, videoURL, audioURL))
+}
+
+func bilibiliProductAnthologyPage(videoURL, audioURL string) []byte {
+	return []byte(fmt.Sprintf(`<script>window.__INITIAL_STATE__={"videoData":{"bvid":"BV1prod0001","aid":1,"cid":2,"title":"Anthology Product","desc":"fixture","duration":4,"pic":"https://i0.hdslb.com/bfs/archive/product.jpg","owner":{"name":"Fixture","mid":9},"pages":[{"page":1,"part":"Part 1","duration":4},{"page":2,"part":"Part 2","duration":4}]}};</script><script>window.__playinfo__={"code":0,"data":{"timelength":4000,"dash":{"video":[{"id":80,"baseUrl":%q,"mimeType":"video/mp4","bandwidth":800000,"width":640,"height":360,"codecs":"avc1"}],"audio":[{"id":30280,"baseUrl":%q,"mimeType":"audio/mp4","bandwidth":64000,"codecs":"mp4a"}]}}};</script>`, videoURL, audioURL))
 }
 
 func bilibiliProductBangumiPage() []byte {
@@ -290,6 +296,72 @@ func TestProductBilibiliTransparentPlayerAndPlaylistReentry(t *testing.T) {
 	result, err = op.process(context.Background(), listURL, "", nil, make(map[string]bool), 0)
 	if err != nil || len(result.Entries) != 1 {
 		t.Fatalf("playlist result=%+v err=%v", result, err)
+	}
+}
+
+func TestProductBilibiliNoPlaylistChoice(t *testing.T) {
+	rawURL := "https://www.bilibili.com/video/BV1prod0001?tracking=keep&sig=a%2Bb"
+	rootURL := "https://www.bilibili.com/video/BV1prod0001"
+	childURL := rootURL + "?p=1"
+	videoURL := "https://upos-sz-mirror.bilivideo.com/choice-video.mp4?sig=video"
+	audioURL := "https://upos-sz-mirror.bilivideo.com/choice-audio.m4a?sig=audio"
+
+	for _, test := range []struct {
+		name             string
+		noPlaylist       bool
+		wantPlaylist     bool
+		wantChildPage    bool
+		wantArchiveEntry string
+	}{
+		{name: "default-prefers-playlist", wantPlaylist: true, wantChildPage: true, wantArchiveEntry: "bilibili BV1prod0001_p1\n"},
+		{name: "no-playlist-prefers-first-video", noPlaylist: true, wantArchiveEntry: "bilibili BV1prod0001_p1\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			rt := &bilibiliProductRoundTripper{
+				pages: map[string][]byte{
+					rootURL:  bilibiliProductAnthologyPage(videoURL, audioURL),
+					childURL: bilibiliProductDomesticPage(videoURL, audioURL),
+				},
+				media: map[string][]byte{videoURL: []byte("choice-video-bytes")},
+			}
+			op, root := newBilibiliProductOp(t, rt, rawURL, "bv*")
+			op.request.Playlist.Disabled = test.noPlaylist
+			if test.wantPlaylist {
+				op.request.Playlist.Items = "1"
+			}
+			archivePath := filepath.Join(root, "archive.txt")
+			archiveStore, err := archive.Open(context.Background(), archivePath, archive.Options{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			op.archive = archiveStore
+			result, err := op.process(context.Background(), rawURL, "", nil, make(map[string]bool), 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.wantPlaylist {
+				if len(result.Entries) != 1 || !result.Entries[0].Downloaded {
+					t.Fatalf("playlist result=%#v", result)
+				}
+			} else if len(result.Entries) != 0 || !result.Downloaded {
+				t.Fatalf("video result=%#v", result)
+			}
+			rt.mu.Lock()
+			childPageReads := 0
+			for _, request := range rt.requests {
+				if request.url == childURL {
+					childPageReads++
+				}
+			}
+			rt.mu.Unlock()
+			if (childPageReads > 0) != test.wantChildPage {
+				t.Fatalf("child page reads=%d want present=%t", childPageReads, test.wantChildPage)
+			}
+			archiveBytes, err := os.ReadFile(archivePath)
+			if err != nil || string(archiveBytes) != test.wantArchiveEntry {
+				t.Fatalf("archive=%q err=%v want=%q", archiveBytes, err, test.wantArchiveEntry)
+			}
+		})
 	}
 }
 
