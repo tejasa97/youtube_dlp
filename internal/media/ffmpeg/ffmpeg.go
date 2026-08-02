@@ -973,11 +973,25 @@ func (tools *Toolset) execute(ctx context.Context, binary string, args []string,
 	if err := command.Start(); err != nil {
 		return nil, fmt.Errorf("%w: start %s: %v", ErrMediaFailure, filepath.Base(binary), err)
 	}
+	isolation, err := attachCommand(command)
+	if err != nil {
+		// Child may still be CREATE_SUSPENDED and not yet in a Job. Kill the
+		// direct process; attachCommand already TerminateJobObject'd if assign
+		// succeeded and only resume failed.
+		if command.Process != nil {
+			_ = command.Process.Kill()
+		}
+		_ = command.Wait()
+		return nil, fmt.Errorf("%w: attach %s: %v", ErrMediaFailure, filepath.Base(binary), err)
+	}
+	defer closeCommand(isolation)
 	done := make(chan struct{})
+	watcherDone := make(chan struct{})
 	go func() {
+		defer close(watcherDone)
 		select {
 		case <-ctx.Done():
-			terminateCommand(command)
+			terminateCommand(command, isolation)
 		case <-done:
 		}
 	}()
@@ -994,13 +1008,14 @@ func (tools *Toolset) execute(ctx context.Context, binary string, args []string,
 		if onLine != nil && callbackErr == nil {
 			callbackErr = onLine(line)
 			if callbackErr != nil {
-				terminateCommand(command)
+				terminateCommand(command, isolation)
 			}
 		}
 	}
 	scanErr := scanner.Err()
 	waitErr := command.Wait()
 	close(done)
+	<-watcherDone
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
