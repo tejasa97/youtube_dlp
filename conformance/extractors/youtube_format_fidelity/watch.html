@@ -1,0 +1,207 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Synthetic YouTube format-fidelity fixture</title>
+  </head>
+  <body>
+    <script>
+      var ytInitialPlayerResponse = {
+        "playabilityStatus": {"status": "OK"},
+        "videoDetails": {
+          "videoId": "fixture0003",
+          "title": "Synthetic Format Fidelity Video",
+          "lengthSeconds": "123",
+          "author": "fixture channel",
+          "channelId": "UCfixture000000000000000",
+          "shortDescription": "format fidelity fixture",
+          "viewCount": "1",
+          "isLiveContent": false
+        },
+        "microformat": {"playerMicroformatRenderer": {
+          "ownerProfileUrl": "https://www.youtube.com/@fixturechannel",
+          "uploadDate": "2024-02-01T00:00:00Z",
+          "isFamilySafe": true,
+          "isUnlisted": false,
+          "isShortsEligible": false
+        }},
+        "streamingData": {
+          "formats": [
+            {
+              "itag": 18,
+              "url": "https://media.example/18.mp4",
+              "mimeType": "video/mp4; codecs=\"avc1.42001E, mp4a.40.2\"",
+              "bitrate": 500000,
+              "contentLength": "1000",
+              "width": 640,
+              "height": 360,
+              "fps": 30,
+              "quality": "medium",
+              "qualityLabel": "360p",
+              "audioSampleRate": 44100,
+              "audioChannels": 2
+            },
+            {
+              "itag": 22,
+              "url": "https://media.example/22.mp4",
+              "mimeType": "video/mp4; codecs=\"avc1.640028, mp4a.40.2\"",
+              "bitrate": 900000,
+              "contentLength": "3000",
+              "width": 1280,
+              "height": 720,
+              "fps": 30,
+              "quality": "hd720",
+              "qualityLabel": "720p"
+            },
+            {
+              "itag": 137,
+              "url": "https://media.example/137.mp4",
+              "mimeType": "video/mp4; codecs=\"avc1.640028\"",
+              "bitrate": 4000000,
+              "contentLength": "2000",
+              "width": 1920,
+              "height": 1080,
+              "fps": 30,
+              "quality": "hd1080",
+              "qualityLabel": "1080p"
+            },
+            {
+              "itag": 140,
+              "url": "https://media.example/140.mp4",
+              "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+              "bitrate": 128000,
+              "contentLength": "500",
+              "quality": "audio_quality_medium",
+              "audioSampleRate": 44100,
+              "audioChannels": 2,
+              "audioTrack": {"id": "en", "displayName": "English", "audioIsDefault": true}
+            },
+            {
+              "itag": 140,
+              "url": "https://media.example/140-us.mp4",
+              "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+              "bitrate": 130000,
+              "contentLength": "510",
+              "quality": "audio_quality_medium",
+              "audioTrack": {"id": "en-US", "displayName": "English (United States)"}
+            },
+            {
+              "itag": 251,
+              "url": "https://media.example/251.webm",
+              "mimeType": "audio/webm; codecs=\"opus\"",
+              "averageBitrate": 50000,
+              "approxDurationMs": 123000,
+              "quality": "audio_quality_high",
+              "audioTrack": {"id": "es", "displayName": "Spanish (original)"}
+            },
+            {
+              "itag": 401,
+              "url": "https://media.example/401.webm",
+              "mimeType": "video/webm; codecs=\"vp9.2.40\"",
+              "bitrate": 8000000,
+              "contentLength": "4000",
+              "width": 3840,
+              "height": 2160,
+              "fps": 60,
+              "quality": "hd2160",
+              "qualityLabel": "2160p"
+            },
+            {
+              "itag": 601,
+              "url": "https://media.example/601.mp4",
+              "mimeType": "video/mp4; codecs=\"avc1.640028\"",
+              "bitrate": 3000000,
+              "contentLength": "1500",
+              "width": 1920,
+              "height": 1080,
+              "fps": 30,
+              "quality": "hd1080",
+              "qualityLabel": "1080p",
+              "isDrc": true
+            },
+            {
+              "itag": 272,
+              "url": "https://media.example/272.mp4?xtags=sr%3D1",
+              "mimeType": "video/mp4; codecs=\"avc1.640028\"",
+              "bitrate": 7000000,
+              "contentLength": "3500",
+              "width": 3840,
+              "height": 2160,
+              "fps": 30,
+              "quality": "hd2160",
+              "qualityLabel": "2160p"
+            },
+            {
+              "itag": 802,
+              "url": "https://media.example/802.mp4",
+              "mimeType": "video/mp4; codecs=\"avc1.640028\"",
+              "bitrate": 5000000,
+              "contentLength": "2500",
+              "width": 1920,
+              "height": 1080,
+              "fps": 30,
+              "quality": "hd1080",
+              "qualityLabel": "1080p Premium"
+            },
+            {
+              "itag": 160,
+              "url": "https://media.example/160.mp4",
+              "mimeType": "video/mp4; codecs=\"avc1.4d400c\"",
+              "bitrate": 120000,
+              "contentLength": "60",
+              "width": 256,
+              "height": 144,
+              "fps": 30,
+              "quality": "tiny",
+              "qualityLabel": "144p",
+              "approxDurationMs": 50000
+            },
+            {
+              "itag": 17,
+              "url": "https://media.example/17.3gp",
+              "mimeType": "video/3gpp; codecs=\"mp4v.20.3, mp4a.40.2\"",
+              "bitrate": 100000,
+              "contentLength": "50",
+              "width": 176,
+              "height": 144,
+              "fps": 1,
+              "quality": "small",
+              "qualityLabel": "144p"
+            }
+          ]
+        },
+        "assets": {"js": "/s/player/fixture/base.js"}
+      };
+    </script>
+  </body>
+</html>
+
+              "quality": "audio_quality_medium",
+              "audioSampleRate": 44100,
+              "audioChannels": 2,
+              "audioTrack": {"id": "en", "displayName": "English", "audioIsDefault": true}
+            },
+            {
+              "itag": 140,
+              "url": "https://media.example/140-us.mp4",
+              "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+              "bitrate": 130000,
+              "contentLength": "510",
+              "quality": "audio_quality_medium",
+              "audioTrack": {"id": "en-US", "displayName": "English (United States)"}
+            },
+            {
+              "itag": 251,
+              "url": "https://media.example/251.webm",
+              "mimeType": "audio/webm; codecs=\"opus\"",
+              "averageBitrate": 50000,
+              "approxDurationMs": 123000,
+              "quality": "audio_quality_high",
+              "audioTrack": {"id": "es", "displayName": "Spanish (original)"}
+            }
+          ]
+        },
+        "assets": {"js": "/s/player/fixture/base.js"}
+      };
+    </script>
+  </body>
+</html>

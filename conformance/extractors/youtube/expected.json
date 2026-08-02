@@ -14,11 +14,13 @@
       "ext": "mp4",
       "vcodec": "avc1.42001E",
       "acodec": "mp4a.40.2",
-      "tbr": 500,
       "filesize": 1000,
+      "tbr": 500,
       "width": 640,
       "height": 360,
-      "fps": 30
+      "fps": 30,
+      "source_preference": -1,
+      "has_drm": false
     },
     {
       "format_id": "140",
@@ -26,8 +28,11 @@
       "ext": "m4a",
       "vcodec": "none",
       "acodec": "mp4a.40.2",
+      "container": "m4a_dash",
+      "filesize": 500,
       "tbr": 128,
-      "filesize": 500
+      "source_preference": -1,
+      "has_drm": false
     },
     {
       "format_id": "hls",

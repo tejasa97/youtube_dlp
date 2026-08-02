@@ -1,0 +1,380 @@
+{
+  "id": "fixture0003",
+  "title": "Synthetic Format Fidelity Video",
+  "description": "format fidelity fixture",
+  "uploader": "fixture channel",
+  "channel": "fixture channel",
+  "channel_id": "UCfixture000000000000000",
+  "webpage_url": "https://www.youtube.com/watch?v=fixture0003",
+  "ext": "mp4",
+  "formats": [
+    {
+      "format_id": "18",
+      "url": "https://media.example/18.mp4",
+      "ext": "mp4",
+      "vcodec": "avc1.42001E",
+      "acodec": "mp4a.40.2",
+      "asr": 44100,
+      "filesize": 1000,
+      "tbr": 500,
+      "width": 640,
+      "height": 360,
+      "fps": 30,
+      "audio_channels": 2,
+      "quality": 6,
+      "format_note": "360p",
+      "source_preference": -1,
+      "has_drm": false
+    },
+    {
+      "format_id": "22",
+      "url": "https://media.example/22.mp4",
+      "ext": "mp4",
+      "vcodec": "avc1.640028",
+      "acodec": "mp4a.40.2",
+      "filesize": 3000,
+      "tbr": 900,
+      "width": 1280,
+      "height": 720,
+      "fps": 30,
+      "quality": 8,
+      "format_note": "720p",
+      "source_preference": -5,
+      "has_drm": false
+    },
+    {
+      "format_id": "137",
+      "url": "https://media.example/137.mp4",
+      "ext": "mp4",
+      "vcodec": "avc1.640028",
+      "acodec": "none",
+      "container": "mp4_dash",
+      "filesize": 2000,
+      "tbr": 4000,
+      "width": 1920,
+      "height": 1080,
+      "fps": 30,
+      "quality": 9,
+      "format_note": "1080p",
+      "source_preference": -1,
+      "has_drm": false
+    },
+    {
+      "format_id": "140",
+      "url": "https://media.example/140.mp4",
+      "ext": "m4a",
+      "vcodec": "none",
+      "acodec": "mp4a.40.2",
+      "container": "m4a_dash",
+      "asr": 44100,
+      "filesize": 500,
+      "tbr": 128,
+      "audio_channels": 2,
+      "quality": 3,
+      "format_note": "English, (default), medium",
+      "source_preference": -1,
+      "has_drm": false,
+      "language": "en",
+      "language_preference": 5
+    },
+    {
+      "format_id": "140",
+      "url": "https://media.example/140-us.mp4",
+      "ext": "m4a",
+      "vcodec": "none",
+      "acodec": "mp4a.40.2",
+      "container": "m4a_dash",
+      "filesize": 510,
+      "tbr": 130,
+      "quality": 3,
+      "format_note": "English (United States), medium",
+      "source_preference": -1,
+      "has_drm": false,
+      "language": "en-US",
+      "language_preference": -1
+    },
+    {
+      "format_id": "251",
+      "url": "https://media.example/251.webm",
+      "ext": "webm",
+      "vcodec": "none",
+      "acodec": "opus",
+      "container": "webm_dash",
+      "tbr": 50,
+      "filesize_approx": 768750,
+      "quality": 4,
+      "format_note": "Spanish (original), high",
+      "source_preference": -1,
+      "has_drm": false,
+      "language": "es",
+      "language_preference": 10
+    },
+    {
+      "format_id": "401",
+      "url": "https://media.example/401.webm",
+      "ext": "webm",
+      "vcodec": "vp9.2.40",
+      "acodec": "none",
+      "dynamic_range": "HDR10",
+      "container": "webm_dash",
+      "filesize": 4000,
+      "tbr": 8000,
+      "width": 3840,
+      "height": 2160,
+      "fps": 60,
+      "quality": 11,
+      "format_note": "2160p",
+      "source_preference": -1,
+      "has_drm": false
+    },
+    {
+      "format_id": "601-drc",
+      "url": "https://media.example/601.mp4",
+      "ext": "mp4",
+      "vcodec": "avc1.640028",
+      "acodec": "none",
+      "container": "mp4_dash",
+      "filesize": 1500,
+      "tbr": 3000,
+      "width": 1920,
+      "height": 1080,
+      "fps": 30,
+      "quality": 8.5,
+      "format_note": "1080p, DRC",
+      "source_preference": -1,
+      "has_drm": false
+    },
+    {
+      "format_id": "272-sr",
+      "url": "https://media.example/272.mp4?xtags=sr%3D1",
+      "ext": "mp4",
+      "vcodec": "avc1.640028",
+      "acodec": "none",
+      "container": "mp4_dash",
+      "filesize": 3500,
+      "tbr": 7000,
+      "width": 3840,
+      "height": 2160,
+      "fps": 30,
+      "quality": 11,
+      "format_note": "2160p, AI-upscaled",
+      "source_preference": -1,
+      "has_drm": false
+    },
+    {
+      "format_id": "802",
+      "url": "https://media.example/802.mp4",
+      "ext": "mp4",
+      "vcodec": "avc1.640028",
+      "acodec": "none",
+      "container": "mp4_dash",
+      "filesize": 2500,
+      "tbr": 5000,
+      "width": 1920,
+      "height": 1080,
+      "fps": 30,
+      "quality": 9,
+      "format_note": "1080p Premium",
+      "source_preference": 99,
+      "has_drm": false
+    },
+    {
+      "format_id": "160",
+      "url": "https://media.example/160.mp4",
+      "ext": "mp4",
+      "vcodec": "avc1.4d400c",
+      "acodec": "none",
+      "container": "mp4_dash",
+      "filesize": 60,
+      "tbr": 120,
+      "filesize_approx": 750000,
+      "width": 256,
+      "height": 144,
+      "fps": 30,
+      "format_note": "144p, DAMAGED",
+      "source_preference": -1,
+      "has_drm": false,
+      "preference": -10
+    },
+    {
+      "format_id": "17",
+      "url": "https://media.example/17.3gp",
+      "ext": "3gp",
+      "vcodec": "mp4v.20.3",
+      "acodec": "mp4a.40.2",
+      "filesize": 50,
+      "tbr": 100,
+      "width": 176,
+      "height": 144,
+      "quality": 0,
+      "format_note": "144p",
+      "source_preference": -1,
+      "has_drm": false,
+      "preference": -2
+    }
+  ],
+  "channel_url": "https://www.youtube.com/channel/UCfixture000000000000000",
+  "uploader_id": "@fixturechannel",
+  "uploader_url": "https://www.youtube.com/@fixturechannel",
+  "upload_date": "20240201",
+  "timestamp": 1706745600,
+  "age_limit": 0,
+  "media_type": "video",
+  "duration": 123,
+  "view_count": 1,
+  "thumbnails": [
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0003/maxresdefault.webp",
+      "preference": 0
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0003/maxresdefault.jpg",
+      "preference": -1
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0003/hq720.webp",
+      "preference": -2
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0003/hq720.jpg",
+      "preference": -3
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0003/sddefault.webp",
+      "preference": -4
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0003/sddefault.jpg",
+      "preference": -5
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0003/hqdefault.webp",
+      "preference": -6
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0003/hqdefault.jpg",
+      "preference": -7
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0003/0.webp",
+      "preference": -8
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0003/0.jpg",
+      "preference": -9
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0003/mqdefault.webp",
+      "preference": -10
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0003/mqdefault.jpg",
+      "preference": -11
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0003/default.webp",
+      "preference": -12
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0003/default.jpg",
+      "preference": -13
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0003/sd1.webp",
+      "preference": -14
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0003/sd1.jpg",
+      "preference": -15
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0003/sd2.webp",
+      "preference": -16
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0003/sd2.jpg",
+      "preference": -17
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0003/sd3.webp",
+      "preference": -18
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0003/sd3.jpg",
+      "preference": -19
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0003/hq1.webp",
+      "preference": -20
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0003/hq1.jpg",
+      "preference": -21
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0003/hq2.webp",
+      "preference": -22
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0003/hq2.jpg",
+      "preference": -23
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0003/hq3.webp",
+      "preference": -24
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0003/hq3.jpg",
+      "preference": -25
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0003/mq1.webp",
+      "preference": -26
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0003/mq1.jpg",
+      "preference": -27
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0003/mq2.webp",
+      "preference": -28
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0003/mq2.jpg",
+      "preference": -29
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0003/mq3.webp",
+      "preference": -30
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0003/mq3.jpg",
+      "preference": -31
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0003/1.webp",
+      "preference": -32
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0003/1.jpg",
+      "preference": -33
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0003/2.webp",
+      "preference": -34
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0003/2.jpg",
+      "preference": -35
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0003/3.webp",
+      "preference": -36
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0003/3.jpg",
+      "preference": -37
+    }
+  ],
+  "live_status": "not_live"
+}

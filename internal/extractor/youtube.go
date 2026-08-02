@@ -289,7 +289,7 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 		if activeFromStart && !targetDurationValid {
 			continue
 		}
-		if normalized, ok := normalizeYouTubeFormat(format); ok {
+		if normalized, ok := normalizeYouTubeFormat(format, duration, hasDuration); ok {
 			if activeFromStart {
 				normalized.Set("protocol", value.String("http_dash_segments_generator"))
 				normalized.Set("target_duration", value.Float(format.TargetDurationSec))
@@ -1225,25 +1225,70 @@ type youtubePlayabilityStatus struct {
 	PlayableInEmbed            *bool           `json:"playableInEmbed"`
 }
 
+// youtubeAudioTrack is the audio-track identity used for language and
+// preference normalization.
+type youtubeAudioTrack struct {
+	ID             string `json:"id"`
+	DisplayName    string `json:"displayName"`
+	AudioIsDefault bool   `json:"audioIsDefault"`
+}
+
+// youtubeFlexibleInt64 accepts the integer representation used by Innertube,
+// which varies between a JSON number and a quoted decimal string by client.
+// Null and the empty string are treated as absent; malformed and overflowing
+// values fail extraction instead of being silently truncated.
+type youtubeFlexibleInt64 int64
+
+func (number *youtubeFlexibleInt64) UnmarshalJSON(encoded []byte) error {
+	trimmed := bytes.TrimSpace(encoded)
+	if bytes.Equal(trimmed, []byte("null")) || bytes.Equal(trimmed, []byte(`""`)) {
+		*number = 0
+		return nil
+	}
+	if len(trimmed) >= 2 && trimmed[0] == '"' && trimmed[len(trimmed)-1] == '"' {
+		var text string
+		if err := json.Unmarshal(trimmed, &text); err != nil {
+			return err
+		}
+		trimmed = []byte(text)
+	}
+	parsed, err := strconv.ParseInt(string(trimmed), 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid integer %q: %w", trimmed, err)
+	}
+	*number = youtubeFlexibleInt64(parsed)
+	return nil
+}
+
 type youtubeFormat struct {
-	Itag              int     `json:"itag"`
-	URL               string  `json:"url"`
-	SignatureCipher   string  `json:"signatureCipher"`
-	MimeType          string  `json:"mimeType"`
-	Bitrate           int64   `json:"bitrate"`
-	ContentLength     string  `json:"contentLength"`
-	Width             int64   `json:"width"`
-	Height            int64   `json:"height"`
-	FPS               int64   `json:"fps"`
-	Language          string  `json:"language"`
-	TargetDurationSec float64 `json:"targetDurationSec"`
-	LastModified      string  `json:"lastModified"`
-	XTags             string  `json:"xtags"`
-	IsDrc             *bool   `json:"isDrc"`
-	AudioTrack        *struct {
-		ID string `json:"id"`
-	} `json:"audioTrack"`
-	clientName string
+	Itag              int                  `json:"itag"`
+	URL               string               `json:"url"`
+	SignatureCipher   string               `json:"signatureCipher"`
+	MimeType          string               `json:"mimeType"`
+	Bitrate           int64                `json:"bitrate"`
+	AverageBitrate    int64                `json:"averageBitrate"`
+	ContentLength     string               `json:"contentLength"`
+	Width             int64                `json:"width"`
+	Height            int64                `json:"height"`
+	FPS               int64                `json:"fps"`
+	Language          string               `json:"language"`
+	TargetDurationSec float64              `json:"targetDurationSec"`
+	LastModified      string               `json:"lastModified"`
+	XTags             string               `json:"xtags"`
+	IsDrc             *bool                `json:"isDrc"`
+	AudioSampleRate   youtubeFlexibleInt64 `json:"audioSampleRate"`
+	AudioChannels     int64                `json:"audioChannels"`
+	ApproxDurationMS  youtubeFlexibleInt64 `json:"approxDurationMs"`
+	QualityLabel      string               `json:"qualityLabel"`
+	Quality           string               `json:"quality"`
+	AudioQuality      string               `json:"audioQuality"`
+	ProjectionType    string               `json:"projectionType"`
+	SpatialAudioType  string               `json:"spatialAudioType"`
+	// DRMFamilies is intentionally kept as raw JSON because YouTube may
+	// return null, a list, or an object depending on the playback client.
+	DRMFamilies json.RawMessage    `json:"drmFamilies"`
+	AudioTrack  *youtubeAudioTrack `json:"audioTrack"`
+	clientName  string
 }
 
 type pendingYouTubeFormat struct {
@@ -1352,41 +1397,65 @@ func resolveYouTubeURLs(ctx context.Context, request Request, webpageURL, videoI
 	return resolved, nil
 }
 
-func normalizeYouTubeFormat(format youtubeFormat) (*value.Object, bool) {
+func normalizeYouTubeFormat(format youtubeFormat, duration int64, hasDuration bool) (*value.Object, bool) {
 	if format.URL == "" {
+		return nil, false
+	}
+	itag, itagOK := youtubeFormatItag(format.Itag)
+	if !itagOK {
 		return nil, false
 	}
 	mediaType, parameters, _ := mime.ParseMediaType(format.MimeType)
 	extension := youtubeExtension(mediaType, format.URL)
+	vcodec, acodec, dynamicRange := youtubeParseCodecs(parameters["codecs"])
+	quality := youtubeFormatQuality(format.Quality, format.AudioQuality, itag)
+	name := youtubeFormatName(format.QualityLabel, quality)
+	superResolution := youtubeSuperResolution(format.URL)
+	isDRC := format.IsDrc != nil && *format.IsDrc
+	damaged := youtubeDamagedFormat(int64(format.ApproxDurationMS), duration, hasDuration)
+	language, languagePreference, hasLanguage := youtubeAudioLanguage(format.AudioTrack)
+	tbr := float64(format.AverageBitrate)
+	if tbr <= 0 {
+		tbr = float64(format.Bitrate)
+	}
+	if tbr > 0 {
+		tbr /= 1000
+	}
+	formatID := itag
+	switch {
+	case isDRC:
+		formatID += "-drc"
+	case superResolution:
+		formatID += "-sr"
+	}
 	object := value.NewObject(
-		value.Field{Key: "format_id", Value: value.String(strconv.Itoa(format.Itag))},
+		value.Field{Key: "format_id", Value: value.String(formatID)},
 		value.Field{Key: "url", Value: value.String(format.URL)},
 		value.Field{Key: "ext", Value: value.String(extension)},
 	)
-	codecs := strings.Split(parameters["codecs"], ",")
-	for index := range codecs {
-		codecs[index] = strings.TrimSpace(codecs[index])
+	if vcodec != "" {
+		object.Set("vcodec", value.String(vcodec))
 	}
-	if strings.HasPrefix(mediaType, "audio/") {
-		object.Set("vcodec", value.String("none"))
-		if len(codecs) > 0 && codecs[0] != "" {
-			object.Set("acodec", value.String(codecs[0]))
-		}
-	} else if strings.HasPrefix(mediaType, "video/") {
-		if len(codecs) > 0 && codecs[0] != "" {
-			object.Set("vcodec", value.String(codecs[0]))
-		}
-		if len(codecs) > 1 {
-			object.Set("acodec", value.String(codecs[1]))
-		} else {
-			object.Set("acodec", value.String("none"))
-		}
+	if acodec != "" {
+		object.Set("acodec", value.String(acodec))
 	}
-	if format.Bitrate > 0 {
-		object.Set("tbr", value.Float(float64(format.Bitrate)/1000))
+	if dynamicRange != "" {
+		object.Set("dynamic_range", value.String(dynamicRange))
+	}
+	if vcodec == "none" || acodec == "none" {
+		object.Set("container", value.String(extension+"_dash"))
+	}
+	if format.AudioSampleRate > 0 {
+		object.Set("asr", value.Int(int64(format.AudioSampleRate)))
 	}
 	if size, err := strconv.ParseInt(format.ContentLength, 10, 64); err == nil {
 		object.Set("filesize", value.Int(size))
+	}
+	if tbr > 0 {
+		object.Set("tbr", value.Float(tbr))
+		if approx, ok := youtubeFilesizeApprox(tbr, int64(format.ApproxDurationMS)); ok {
+			object.Set("filesize_approx", value.Int(approx))
+		}
 	}
 	if format.Width > 0 {
 		object.Set("width", value.Int(format.Width))
@@ -1394,13 +1463,56 @@ func normalizeYouTubeFormat(format youtubeFormat) (*value.Object, bool) {
 	if format.Height > 0 {
 		object.Set("height", value.Int(format.Height))
 	}
-	if format.FPS > 0 {
+	if format.FPS > 1 {
 		object.Set("fps", value.Int(format.FPS))
 	}
-	if format.Language != "" {
+	if format.AudioChannels > 0 {
+		object.Set("audio_channels", value.Int(format.AudioChannels))
+	}
+	if rank, ok := youtubeQualityRank(quality); ok {
+		qualityValue := float64(rank)
+		if isDRC {
+			qualityValue -= 0.5
+		}
+		object.Set("quality", value.Float(qualityValue))
+	}
+	if note := youtubeFormatNote(format.AudioTrack, name, isDRC, superResolution, damaged, format.ProjectionType, format.SpatialAudioType); note != "" {
+		object.Set("format_note", value.String(note))
+	}
+	sourcePreference := int64(-1)
+	if itag == "22" {
+		sourcePreference = -5
+	}
+	if strings.Contains(name, "Premium") {
+		sourcePreference += 100
+	}
+	object.Set("source_preference", value.Int(sourcePreference))
+	object.Set("has_drm", value.Bool(youtubeFormatHasDRM(format.DRMFamilies)))
+	if hasLanguage {
+		object.Set("language", value.String(language))
+		object.Set("language_preference", value.Int(languagePreference))
+	} else if format.Language != "" {
+		// Caption-derived audio language fallback for responses without an
+		// audio-track identity; no preference is attributable in that case.
 		object.Set("language", value.String(format.Language))
 	}
+	switch {
+	case damaged:
+		object.Set("preference", value.Int(-10))
+	case itag == "17":
+		object.Set("preference", value.Int(-2))
+	}
 	return object, true
+}
+
+// youtubeFormatHasDRM reports whether the drmFamilies field carries a
+// non-null value, mirroring the pinned truthiness check.
+func youtubeFormatHasDRM(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	trimmed := bytes.TrimSpace(raw)
+	return string(trimmed) != "null"
 }
 
 func manifestFormat(id, rawURL, protocolName string) *value.Object {
@@ -1726,3 +1838,5 @@ func youtubeExtension(mediaType, rawURL string) string {
 	}
 	return "bin"
 }
+
+// ZZ_SENTINEL_9f3a
