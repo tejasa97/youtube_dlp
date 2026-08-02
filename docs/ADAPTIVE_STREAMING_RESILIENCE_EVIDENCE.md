@@ -9,30 +9,42 @@ HTTP fixtures; it does not use live or copyrighted media.
 The HLS protocol layer owns parsing, map/key state, low-latency de-duplication,
 retry, cancellation, and `SelectedDiscontinuityGroup`. The DASH protocol layer
 owns dynamic-MPD validation, bounded polling/SIDX expansion, and
-`ErrDynamicMPDUnsupported`. The product layer in `pkg/ytdlp` only exposes those
-decisions through ordinary format selection, one selected HLS group, the
-approved CLI flag, event redaction, and the existing output transaction.
+`ErrDynamicMPDUnsupported`. The product layer in `pkg/ytdlp` exposes those
+decisions only after ordinary format selection, through the approved HLS
+selectors, event redaction, and the existing output transaction.
 
 ## HLS selection behavior
 
 `--hls-split-discontinuity` preserves ordinary format selection first, then
-discovers groups only from the selected HLS representation. It pins the native
-HLS downloader to the first eligible group in playlist order, so it never
-implicitly downloads every group and never probes unselected renditions. A
-single selected non-empty group keeps the existing destination. Explicit
-multi-group product selection is intentionally unsupported in v2; no extra
-group-selection flag or public Request API is provided. Empty and
-advertisement-only groups are not selectable and cannot create media, sidecars,
-or archive records. An ordinary selector that produces a merged output plan
-with more than one HLS native track is rejected as unsupported before either
-representation is probed; separate audio/video group identities are not
-inferred or synchronized.
+discovers groups only from the selected HLS representation. With no explicit
+sequence list it pins the native HLS downloader to the first eligible group in
+playlist order and keeps the existing destination. The repeatable
+`--hls-discontinuity-sequence` flag and `Request.HLSDiscontinuitySequences`
+select absolute sequence IDs from that same bounded group plan: duplicate IDs
+are ignored, groups are emitted in playlist order, one explicit group keeps the
+existing destination, and multiple groups become transactional output plans
+named `.d<absolute-sequence>` before the extension. No extractor format list is
+expanded and unselected renditions are never probed. Empty, advertisement-only,
+missing, or malformed explicit selections fail before media, sidecar, or
+archive mutation with the documented `invalid_input` category; AllowedHosts
+violations remain `security`, transport failures remain `network`, and
+cancellation remains `cancelled`. An ordinary selector that produces a merged
+output plan with more than one HLS native track is rejected as `unsupported`
+before either representation is probed; separate audio/video group identities
+are not inferred or synchronized.
 
 The selected HLS representation remains responsible for all protocol work:
 AES-128 maps and keys, low-latency parts, retry bounds, cancellation, and
 credential/header isolation. Group labels, progress messages, format IDs, and
 archive state never derive from signed URL queries. External downloaders remain
 outside authenticated media transport boundaries.
+
+The bounded selected-representation response used for discovery is also the
+initial media-playlist snapshot for every explicitly selected group. Thus a
+two-group fan-out fetches the selected manifest once, never fetches an
+unselected rendition, and still performs network-backed live polling/reloads
+after the initial snapshot. Snapshot state is copied only within the current
+media entry and is discarded afterwards.
 
 ## DASH policy behavior
 
@@ -51,14 +63,24 @@ tested by the DASH protocol layer.
 
 All selected output destinations are preflighted before publication. If any
 selected group fails or is cancelled, the existing #205 transaction rolls back
-all media and sidecars and leaves the archive unchanged. Archive records are
-written only after every selected group commits.
+all media and sidecars, removes native HLS fragment scratch, and leaves the
+archive unchanged. Archive records are written only after every selected group
+commits.
 
 Product evidence:
 
 - `pkg/ytdlp.TestProductHLSSplitDiscontinuitySelectsOnlySelectedRepresentation`
 - `pkg/ytdlp.TestProductHLSSplitDiscontinuityRejectsMergedHLSRepresentations`
 - `pkg/ytdlp.TestProductHLSSplitDiscontinuityRollbackArchiveAndRedactedProgress`
+- `pkg/ytdlp.TestProductHLSExplicitDiscontinuitySequencesFanOutInPlaylistOrder`
+- `pkg/ytdlp.TestProductHLSExplicitSingleDiscontinuityKeepsDestination`
+- `pkg/ytdlp.TestProductHLSExplicitDiscontinuityRejectsBeforeMediaArtifactAndArchiveMutation`
+- `pkg/ytdlp.TestProductHLSExplicitDiscontinuityPreflightsCollisionsBeforeMedia`
+- `pkg/ytdlp.TestProductHLSExplicitDiscontinuityRollsBackPartialFailure`
+- `pkg/ytdlp.TestProductHLSExplicitDiscontinuityCancellationCleansScratchAndArchive`
+- `pkg/ytdlp.TestProductHLSExplicitDiscontinuityRejectsInvalidAPIValueBeforeNetwork`
+- `internal/protocol/hls.TestDownloadInitialPlaylistSnapshotReusesInitialLoadAndReloadsLive`
+- `pkg/ytdlp.FuzzDeduplicateHLSDiscontinuitySequences`
 - `pkg/ytdlp.TestProductDASHDynamicMPDPolicyCategories`
 - `internal/cli.TestAdaptiveStreamingCLIFlagsAndNegativeAliases`
 
@@ -66,7 +88,7 @@ Protocol resilience evidence remains in the HLS and DASH parity entries and
 their fixture provenance documents. Together these tests cover selected-group
 output, selected-representation probing, transaction cleanup/archive state,
 redacted group-aware progress, map/key and low-latency de-duplication,
-cancellation/retry bounds, dynamic SIDX and multi-period boundaries, and
-credential/header isolation. Explicit multi-group output and deterministic
-`.d<sequence>` naming are deferred because v2 deliberately does not expose a
-multi-group selector.
+cancellation/retry bounds, initial-snapshot reuse with live reload, dynamic
+SIDX and multi-period boundaries, and credential/header isolation. Dynamic
+multi-period DASH SegmentBase/SIDX remains fail-closed and unsupported; this
+HLS fan-out does not change DASH or the HLS protocol core.

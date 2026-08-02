@@ -27,6 +27,11 @@ type Transport interface {
 
 type Config struct {
 	Headers http.Header
+	// InitialPlaylist supplies one already-fetched bounded media-playlist
+	// snapshot. It is used only for the initial load; live polling and every
+	// subsequent reload remain network-backed. The body is copied by
+	// NewDownloader so callers may release or reuse their buffer.
+	InitialPlaylist *InitialPlaylist
 	// AllowedHosts is an optional extractor-owned HTTPS host policy. When set,
 	// every manifest, variant, segment, key, map, preload hint, and rendition
 	// report URI must remain on one of these exact DNS zones or subdomains. The
@@ -49,6 +54,16 @@ type Config struct {
 	// group that is absent from a live snapshot contributes no segments; the
 	// normal poll/no-segments bounds remain in force.
 	SelectedDiscontinuityGroup *DiscontinuityGroupID
+}
+
+// InitialPlaylist is a bounded media-playlist snapshot that can be reused as
+// the initial load of one or more independent downloader instances. URL is the
+// canonical media-playlist URL used to resolve relative segment references and
+// to seed live reloads. Master-playlist selection remains network-backed unless
+// the caller supplies the selected media playlist itself.
+type InitialPlaylist struct {
+	URL  string
+	Body []byte
 }
 
 type Downloader struct {
@@ -79,6 +94,11 @@ type keyIdentity struct {
 
 func NewDownloader(transport Transport, config Config) *Downloader {
 	config.Headers = config.Headers.Clone()
+	if config.InitialPlaylist != nil {
+		initial := *config.InitialPlaylist
+		initial.Body = append([]byte(nil), initial.Body...)
+		config.InitialPlaylist = &initial
+	}
 	if config.SelectedDiscontinuityGroup != nil {
 		selected := *config.SelectedDiscontinuityGroup
 		config.SelectedDiscontinuityGroup = &selected
@@ -495,6 +515,22 @@ func isUnsupportedBlockingReload(err error) bool {
 }
 
 func (downloader *Downloader) loadMedia(ctx context.Context, manifestURL string) (string, *MediaPlaylist, error) {
+	if initial := downloader.config.InitialPlaylist; initial != nil {
+		if initial.URL == "" || len(initial.Body) > maxPlaylistBytes {
+			return "", nil, ErrInvalidPlaylist
+		}
+		if err := downloader.validateURL(initial.URL); err != nil {
+			return "", nil, err
+		}
+		playlist, err := Parse(initial.URL, initial.Body)
+		if err != nil || playlist.Media == nil {
+			return "", nil, errors.Join(err, ErrInvalidPlaylist)
+		}
+		if err := downloader.validatePlaylistURLs(playlist); err != nil {
+			return "", nil, err
+		}
+		return initial.URL, playlist.Media, nil
+	}
 	if err := downloader.validateURL(manifestURL); err != nil {
 		return "", nil, err
 	}

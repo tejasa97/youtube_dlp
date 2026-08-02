@@ -27,4 +27,12 @@ func TestAdaptiveStreamingCLIFlagsAndNegativeAliases(t *testing.T) {
 	if request.DenyDynamicMPD {
 		t.Fatalf("last dynamic MPD alias did not win: %+v", request)
 	}
+	request = captureCLIRequest(t, "--hls-discontinuity-sequence", "7", "--hls-discontinuity-sequence", "5", "--hls-discontinuity-sequence", "7")
+	if len(request.HLSDiscontinuitySequences) != 3 || request.HLSDiscontinuitySequences[0] != 7 || request.HLSDiscontinuitySequences[1] != 5 || request.HLSDiscontinuitySequences[2] != 7 {
+		t.Fatalf("repeatable HLS sequences=%v", request.HLSDiscontinuitySequences)
+	}
+	request = captureCLIRequest(t)
+	if len(request.HLSDiscontinuitySequences) != 0 {
+		t.Fatalf("HLS discontinuity sequence default=%v, want empty", request.HLSDiscontinuitySequences)
+	}
 }

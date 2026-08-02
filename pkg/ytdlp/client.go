@@ -147,10 +147,16 @@ type Request struct {
 	// HLSSplitDiscontinuity selects the first eligible discontinuity group from
 	// an already-selected HLS representation. It never creates extra outputs.
 	HLSSplitDiscontinuity bool
-	FormatSort            []string
-	FormatSortForce       bool
-	PreferredExtensions   []string
-	PreferFreeFormats     bool
+	// HLSDiscontinuitySequences selects one or more absolute HLS
+	// EXT-X-DISCONTINUITY-SEQUENCE group IDs from the already-selected native
+	// HLS representation. Duplicate IDs are ignored and selected groups are
+	// emitted in playlist order. One ID retains the ordinary destination; more
+	// than one ID creates transactional output plans.
+	HLSDiscontinuitySequences []int64
+	FormatSort                []string
+	FormatSortForce           bool
+	PreferredExtensions       []string
+	PreferFreeFormats         bool
 	// MergeOutputFormat is a slash-separated container preference order used
 	// when merging multiple format tracks (for example "mp4/mkv"). CLI
 	// exposure is added in a later PR; execution consumes the field now.
@@ -1781,6 +1787,7 @@ func (operation *operation) finishMatchFilterDecision(
 }
 
 func (operation *operation) processMedia(ctx context.Context, extracted extractor.Extraction, extractorName string) (result Result, _ error) {
+	ctx = withHLSInitialPlaylistCache(ctx)
 	// counted tracks whether this entry passed selection and entered the
 	// download pipeline. Admission reserves the operation-wide download slot
 	// atomically; the defer applies the reference _num_downloads semantics by
@@ -1812,20 +1819,19 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	if err != nil {
 		return result, categorized("render pre-process print", err)
 	}
-	preProcessArtifacts, preProcessBytes, err := operation.writePrintFiles(ctx, PrintPreProcess, preProcessInfo, nil, nil, "")
-	if err != nil {
-		return result, categorized("write pre-process print file", err)
-	}
 	preliminary := Result{Prints: append([]PrintOutput(nil), preProcessPrints...)}
-	addPrintFileArtifacts(&preliminary, preProcessArtifacts, preProcessBytes)
 	preparedResult, archiveIdentity, interactiveDecision, terminal, err := operation.prepareMediaResult(ctx, &info, extractorName, false)
 	if err != nil {
 		return preliminary, err
 	}
 	result = preparedResult
 	result.Prints = append(result.Prints, preProcessPrints...)
-	addPrintFileArtifacts(&result, preProcessArtifacts, preProcessBytes)
 	if terminal {
+		preProcessArtifacts, preProcessBytes, printErr := operation.writePrintFiles(ctx, PrintPreProcess, preProcessInfo, nil, nil, "")
+		if printErr != nil {
+			return result, categorized("write pre-process print file", printErr)
+		}
+		addPrintFileArtifacts(&result, preProcessArtifacts, preProcessBytes)
 		if !result.Skipped {
 			afterFilterInfo := operation.provisionalAutonumberInfo(info)
 			prints, printErr := operation.capturePrints(ctx, PrintAfterFilter, afterFilterInfo, nil, nil, "")
@@ -1859,16 +1865,11 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		return result, err
 	}
 	afterFilterInfo := operation.provisionalAutonumberInfo(info)
-	prints, err := operation.capturePrints(ctx, PrintAfterFilter, afterFilterInfo, nil, nil, "")
+	afterFilterPrints, err := operation.capturePrints(ctx, PrintAfterFilter, afterFilterInfo, nil, nil, "")
 	if err != nil {
 		return result, categorized("render after-filter print", err)
 	}
-	result.Prints = append(result.Prints, prints...)
-	printArtifacts, printBytes, err := operation.writePrintFiles(ctx, PrintAfterFilter, afterFilterInfo, nil, nil, "")
-	if err != nil {
-		return result, categorized("write after-filter print file", err)
-	}
-	addPrintFileArtifacts(&result, printArtifacts, printBytes)
+	result.Prints = append(result.Prints, afterFilterPrints...)
 	selectedSubtitles, requestedSubtitles, err := selectSubtitles(info, operation.request.Subtitles)
 	if err != nil {
 		return result, categorized("select subtitles", err)
@@ -1891,8 +1892,8 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		if err != nil {
 			return result, categorized("select format", err)
 		}
-		if operation.request.HLSSplitDiscontinuity {
-			outputPlans, err = operation.selectDefaultHLSDiscontinuityPlans(ctx, outputPlans)
+		if operation.request.HLSSplitDiscontinuity || len(operation.request.HLSDiscontinuitySequences) > 0 {
+			outputPlans, err = operation.selectHLSDiscontinuityPlans(ctx, outputPlans)
 			if err != nil {
 				return result, categorized("select HLS discontinuity group", err)
 			}
@@ -1969,6 +1970,16 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		}
 	}
 	ctx = withMediaTransaction(ctx, mediaTx)
+	preProcessArtifacts, preProcessBytes, err := operation.writePrintFiles(ctx, PrintPreProcess, preProcessInfo, nil, nil, "")
+	if err != nil {
+		return rollbackTransactionResult(mediaTx, categorized("write pre-process print file", err))
+	}
+	addPrintFileArtifacts(&result, preProcessArtifacts, preProcessBytes)
+	afterFilterArtifacts, afterFilterBytes, err := operation.writePrintFiles(ctx, PrintAfterFilter, afterFilterInfo, nil, nil, "")
+	if err != nil {
+		return rollbackTransactionResult(mediaTx, categorized("write after-filter print file", err))
+	}
+	addPrintFileArtifacts(&result, afterFilterArtifacts, afterFilterBytes)
 	if len(outputPlans) == 0 {
 		if err := operation.validatePrintRules(ctx, info, singlePrintPlan, selectedFormats, destination, false); err != nil {
 			return rollbackTransactionResult(mediaTx, categorized("validate print rules", err))
@@ -2067,12 +2078,12 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 		return result, nil
 	}
 
-	prints, err = operation.capturePrints(ctx, PrintVideo, info, singlePrintPlan, selectedFormats, destination)
+	prints, err := operation.capturePrints(ctx, PrintVideo, info, singlePrintPlan, selectedFormats, destination)
 	if err != nil {
 		return rollbackTransactionResult(mediaTx, categorized("render video print", err))
 	}
 	result.Prints = append(result.Prints, prints...)
-	printArtifacts, printBytes, err = operation.writePrintFiles(ctx, PrintVideo, info, singlePrintPlan, selectedFormats, destination)
+	printArtifacts, printBytes, err := operation.writePrintFiles(ctx, PrintVideo, info, singlePrintPlan, selectedFormats, destination)
 	trackTransactionArtifacts(mediaTx, printArtifacts)
 	if err != nil {
 		return rollbackTransactionResult(mediaTx, categorized("write video print file", err))
@@ -2385,6 +2396,14 @@ func categorized(op string, err error) error {
 		category = ErrorCancelled
 	case errors.Is(err, extractor.ErrUnsupported), errors.Is(err, mediaformat.ErrMultiOutput):
 		category = ErrorUnsupported
+	case errors.Is(err, ErrHLSDiscontinuitySelection),
+		errors.Is(err, ErrHLSDiscontinuityGroupMissing),
+		errors.Is(err, ErrHLSDiscontinuityPlaylistEmpty),
+		errors.Is(err, ErrHLSDiscontinuityGroupAdOnly),
+		errors.Is(err, ErrHLSDiscontinuityPlaylistMalformed):
+		category = ErrorInvalidInput
+	case errors.Is(err, ErrHLSDiscontinuityHostPolicy):
+		category = ErrorSecurity
 	case errors.Is(err, extractor.ErrAuthentication), errors.Is(err, extractor.ErrWrongPassword), errors.Is(err, extractor.ErrTwitchSubscriberOnly):
 		category = ErrorAuthentication
 	case errors.Is(err, extractor.ErrVKAuthentication):

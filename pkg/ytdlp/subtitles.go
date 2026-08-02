@@ -389,6 +389,7 @@ func (operation *operation) downloadSubtitles(ctx context.Context, info value.In
 		if err != nil {
 			return artifacts, total, err
 		}
+		base = applyHLSDiscontinuityDestinationSuffix(base, info)
 		destination := subtitleFilename(base, expectedExtension, track.language, track.extension)
 		if err := operation.protectTransactionPath(ctx, destination); err != nil {
 			return artifacts, total, err

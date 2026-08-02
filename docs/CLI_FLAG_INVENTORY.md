@@ -223,7 +223,8 @@
 |--------|--------|-------|
 | `--extractor-retries` | present | Bounded transient retries around entered calls only for extractors that explicitly claim replay safety; default 3 in CLI; other extractors run once |
 | `--allow-dynamic-mpd` / `--no-allow-dynamic-mpd` / `--ignore-dynamic-mpd` | present | Dynamic DASH MPDs allow by default; explicit deny maps to unsupported |
-| `--hls-split-discontinuity` / `--no-hls-split-discontinuity` | present | After ordinary format selection, pin the selected HLS representation to its first eligible discontinuity group; no explicit multi-group selector in v2 |
+| `--hls-split-discontinuity` / `--no-hls-split-discontinuity` | present | After ordinary format selection, pin the selected HLS representation to its first eligible group; no explicit sequence list means one existing-destination output |
+| `--hls-discontinuity-sequence` | present, repeatable | Select absolute `EXT-X-DISCONTINUITY-SEQUENCE` IDs from the selected native HLS representation; duplicate IDs are ignored, playlist order wins, and multiple IDs fan out transactionally with `.d<id>` names |
 | `--extractor-args` | defer | Extractor-specific arguments |
 
 ## Go-only Extensions (not in yt-dlp options.py)

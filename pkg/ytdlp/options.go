@@ -386,6 +386,14 @@ func validateRequestOptions(request Request) error {
 	if request.ExtractorRetries < 0 || request.ExtractorRetries > 100 {
 		return fmt.Errorf("%w: extractor retry count", errInvalidRequestOptions)
 	}
+	if len(request.HLSDiscontinuitySequences) > maxPlaylistEntries {
+		return fmt.Errorf("%w: too many HLS discontinuity sequences", errInvalidRequestOptions)
+	}
+	for _, sequence := range request.HLSDiscontinuitySequences {
+		if sequence < 0 {
+			return fmt.Errorf("%w: HLS discontinuity sequences must be non-negative", errInvalidRequestOptions)
+		}
+	}
 	if request.ForceIPv4 && request.ForceIPv6 || request.SourceAddress != "" && (request.ForceIPv4 || request.ForceIPv6) {
 		return fmt.Errorf("%w: conflicting network address policy", errInvalidRequestOptions)
 	}

@@ -395,8 +395,14 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 
 	switch selected.Protocol {
 	case "m3u8_native":
+		var initialPlaylist *hls.InitialPlaylist
+		if cached, ok := hlsInitialPlaylistsFromContext(ctx)[selected.URL]; ok {
+			initial := hls.InitialPlaylist{URL: cached.URL, Body: append([]byte(nil), cached.Body...)}
+			initialPlaylist = &initial
+		}
 		result, err := hls.NewDownloader(mediaTransport.(hls.Transport), hls.Config{
 			Headers:             selected.Headers,
+			InitialPlaylist:     initialPlaylist,
 			AllowedHosts:        append([]string(nil), selected.AllowedHosts...),
 			FragmentConcurrency: options.FragmentConcurrency, PerHostConcurrency: options.PerHostFragmentConcurrency,
 			MaxSegments: options.MaxSegments, MaxSegmentSize: options.MaxSegmentBytes, Attempts: options.Attempts,
@@ -404,10 +410,8 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 			URLValidator: assetValidator, SelectedDiscontinuityGroup: hlsGroup,
 		}).Download(ctx, selected.URL, outputRoot, destination, operation.request.Overwrite, sink)
 		if err != nil {
-			if selected.CredentialIsolated {
-				if cleanupErr := cleanupCredentialIsolatedHLSScratch(destination); cleanupErr != nil {
-					return "", 0, errors.Join(err, cleanupErr)
-				}
+			if cleanupErr := cleanupHLSFragments(destination); cleanupErr != nil {
+				return "", 0, errors.Join(err, cleanupErr)
 			}
 			var encryption *hls.EncryptionError
 			if !errors.As(err, &encryption) || !encryption.FFmpegEligible {
@@ -576,12 +580,12 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 	}
 }
 
-func cleanupCredentialIsolatedHLSScratch(destination string) error {
+func cleanupHLSFragments(destination string) error {
 	if err := os.RemoveAll(destination + ".fragments"); err != nil {
-		return fmt.Errorf("remove credential-isolated HLS fragments: %w", err)
+		return fmt.Errorf("remove HLS fragments: %w", err)
 	}
 	if err := os.Remove(destination + ".part"); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("remove credential-isolated HLS partial output: %w", err)
+		return fmt.Errorf("remove HLS partial output: %w", err)
 	}
 	if err := os.Remove(destination + ".part.json"); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("remove credential-isolated HLS partial state: %w", err)

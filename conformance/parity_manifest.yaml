@@ -672,6 +672,7 @@ capabilities:
       - internal/protocol/hls.TestAES128IdentityStillParsesNatively
       - internal/protocol/hls.TestSampleAESMissingURIIsNeverDelegated
       - internal/protocol/hls.TestDownloaderReportsSelectedMediaForSampleAES
+      - internal/protocol/hls.TestDownloadInitialPlaylistSnapshotReusesInitialLoadAndReloadsLive
       - internal/protocol/hls.FuzzParse
       - internal/protocol/hls.FuzzAdvertisementMarkers
       - internal/protocol/hls.FuzzSampleAESEligibility
@@ -687,6 +688,14 @@ capabilities:
       - pkg/ytdlp.TestProductHLSSplitDiscontinuitySelectsOnlySelectedRepresentation
       - pkg/ytdlp.TestProductHLSSplitDiscontinuityRejectsMergedHLSRepresentations
       - pkg/ytdlp.TestProductHLSSplitDiscontinuityRollbackArchiveAndRedactedProgress
+      - pkg/ytdlp.TestProductHLSExplicitDiscontinuitySequencesFanOutInPlaylistOrder
+      - pkg/ytdlp.TestProductHLSExplicitSingleDiscontinuityKeepsDestination
+      - pkg/ytdlp.TestProductHLSExplicitDiscontinuityRejectsBeforeMediaArtifactAndArchiveMutation
+      - pkg/ytdlp.TestProductHLSExplicitDiscontinuityPreflightsCollisionsBeforeMedia
+      - pkg/ytdlp.TestProductHLSExplicitDiscontinuityRollsBackPartialFailure
+      - pkg/ytdlp.TestProductHLSExplicitDiscontinuityCancellationCleansScratchAndArchive
+      - pkg/ytdlp.TestProductHLSExplicitDiscontinuityRejectsInvalidAPIValueBeforeNetwork
+      - pkg/ytdlp.FuzzDeduplicateHLSDiscontinuitySequences
       - internal/cli.TestAdaptiveStreamingCLIFlagsAndNegativeAliases
       - internal/cli.TestRunHLSProtocolDispatch
       - conformance/media/llhls/PROVENANCE.md

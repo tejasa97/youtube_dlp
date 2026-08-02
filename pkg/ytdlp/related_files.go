@@ -272,6 +272,7 @@ func (operation *operation) relatedFilePath(outputRoot, pattern string, info val
 	if strings.HasSuffix(base, sentinel) {
 		base = strings.TrimSuffix(base, sentinel)
 	}
+	base = applyHLSDiscontinuityDestinationSuffix(base, info)
 	return base + "." + extension, nil
 }
 

@@ -193,6 +193,7 @@ func (operation *operation) writePrintFiles(
 		if err != nil {
 			return artifacts, total, fmt.Errorf("%w: %v", errUnsafePrintFile, err)
 		}
+		destination = applyHLSDiscontinuityDestinationSuffix(destination, info)
 		if err := prepareRelatedDestination(outputRoot, destination); err != nil {
 			return artifacts, total, fmt.Errorf("%w: %v", errUnsafePrintFile, err)
 		}
