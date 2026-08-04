@@ -240,6 +240,33 @@ func TestYouTubeWatchMetadataDescriptionChaptersBothOrders(t *testing.T) {
 			wantTitles:  []string{"Intro", "Next"},
 			wantStarts:  []float64{0, 83},
 		},
+		{
+			// Non-Latin scripts (Japanese, Cyrillic, Arabic, CJK)
+			// must be accepted; the previously-broken ASCII-only
+			// check dropped every non-Latin title.
+			name:        "Japanese hiragana",
+			description: "0:00 はじめに\n1:23 次の章\n",
+			wantTitles:  []string{"はじめに", "次の章"},
+			wantStarts:  []float64{0, 83},
+		},
+		{
+			name:        "Cyrillic Russian",
+			description: "0:00 Введение\n1:23 Следующая глава\n",
+			wantTitles:  []string{"Введение", "Следующая глава"},
+			wantStarts:  []float64{0, 83},
+		},
+		{
+			name:        "Arabic",
+			description: "0:00 مرحبا\n1:23 الفصل التالي\n",
+			wantTitles:  []string{"مرحبا", "الفصل التالي"},
+			wantStarts:  []float64{0, 83},
+		},
+		{
+			name:        "CJK Chinese",
+			description: "0:00 序章\n1:23 第二章\n",
+			wantTitles:  []string{"序章", "第二章"},
+			wantStarts:  []float64{0, 83},
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

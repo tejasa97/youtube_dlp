@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/ytdlp-go/ytdlp/internal/value"
 )
@@ -660,21 +661,23 @@ func youtubeChapterTitleFromSameLine(line, timestamp string) (string, bool) {
 }
 
 // youtubeIsLikelyChapterTitle accepts titles within the bounded length
-// window that contain at least one non-digit, non-space character so a
-// pure numeric line (e.g. "1.") is not misclassified as a chapter.
+// window that contain at least one Unicode letter so a pure numeric or
+// pure punctuation line (e.g. "1." or "...") is not misclassified as a
+// chapter. The letter check uses unicode.IsLetter so valid Japanese,
+// Cyrillic, Arabic, CJK, and other non-Latin titles are accepted,
+// matching the pinned yt_dlp/extractor/youtube/_video.py:2350-2353
+// parser which imposes no script restriction.
 func youtubeIsLikelyChapterTitle(candidate string) bool {
 	candidate = strings.TrimSpace(candidate)
 	if len(candidate) < 2 || len(candidate) > 120 {
 		return false
 	}
-	hasLetter := false
 	for _, r := range candidate {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z':
-			hasLetter = true
+		if unicode.IsLetter(r) {
+			return true
 		}
 	}
-	return hasLetter
+	return false
 }
 
 func youtubeChaptersFromDescription(description string, duration int64, hasDuration bool) []value.Value {
