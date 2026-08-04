@@ -31,6 +31,10 @@ const (
 	MaxRanges             = 256
 	MaxTimestampBytes     = 64
 	MaxRangeCount         = 16
+	// MaxFractionalDigits bounds sub-second precision to the 3 fractional
+	// digits preserved through ffmpeg argument generation. Values with more
+	// precision (e.g. *0-0.0004) are rejected rather than silently rounded.
+	MaxFractionalDigits = 3
 )
 
 // Section is one normalized, bounded download range. Start is always set;
@@ -95,7 +99,10 @@ func Parse(specifications []string) (Program, error) {
 			return Program{}, fmt.Errorf("%w: start of %q", err, specification)
 		}
 		var end *float64
-		if strings.EqualFold(endRaw, "inf") || strings.EqualFold(endRaw, "infinite") {
+		// Only the literal "inf" end marker is accepted; "infinite",
+		// "Infinity", and scientific exponents are outside the documented
+		// grammar and fall through to timestamp parsing, which rejects them.
+		if strings.EqualFold(strings.TrimSpace(endRaw), "inf") {
 			end = nil
 		} else {
 			parsed, parseErr := parseTimestamp(endRaw, false)
@@ -125,6 +132,49 @@ func splitRange(specification string) (start, end string, ok bool) {
 		return "", "", false
 	}
 	return start, end, true
+}
+
+// validateSectionNumber enforces the documented section-timestamp grammar:
+// an unsigned decimal with at most MaxFractionalDigits fractional digits,
+// no exponent/scientific notation, and no leading sign. It returns the
+// parsed seconds.
+func validateSectionNumber(text string) (float64, bool) {
+	if text == "" || len(text) > MaxTimestampBytes {
+		return 0, false
+	}
+	if strings.ContainsAny(text, "eE") {
+		return 0, false
+	}
+	if strings.HasPrefix(text, "+") || strings.HasPrefix(text, "-") {
+		return 0, false
+	}
+	wholeAndFraction := strings.Split(text, ".")
+	if len(wholeAndFraction) > 2 {
+		return 0, false
+	}
+	if len(wholeAndFraction[0]) == 0 {
+		return 0, false
+	}
+	for _, ch := range wholeAndFraction[0] {
+		if ch < '0' || ch > '9' {
+			return 0, false
+		}
+	}
+	if len(wholeAndFraction) == 2 {
+		if len(wholeAndFraction[1]) == 0 || len(wholeAndFraction[1]) > MaxFractionalDigits {
+			return 0, false
+		}
+		for _, ch := range wholeAndFraction[1] {
+			if ch < '0' || ch > '9' {
+				return 0, false
+			}
+		}
+	}
+	value, err := strconv.ParseFloat(text, 64)
+	if err != nil || math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
+		return 0, false
+	}
+	return value, true
 }
 
 // parseTimestamp parses a bounded timestamp into seconds. It accepts the
@@ -158,8 +208,8 @@ func parseColonDuration(text string) (float64, bool) {
 		if part == "" {
 			return 0, false
 		}
-		value, err := strconv.ParseFloat(part, 64)
-		if err != nil || math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
+		value, ok := validateSectionNumber(part)
+		if !ok {
 			return 0, false
 		}
 		values[index] = value

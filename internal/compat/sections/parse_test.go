@@ -107,3 +107,46 @@ func FuzzParse(f *testing.F) {
 		}
 	})
 }
+
+// TestParseRejectsExcessPrecision verifies the documented precision contract:
+// values with more than MaxFractionalDigits fractional digits, scientific
+// notation, and the spelled-out "infinite" form are rejected rather than
+// silently rounded into ffmpeg arguments.
+func TestParseRejectsExcessPrecisionAndSyntax(t *testing.T) {
+	for _, spec := range []string{
+		"*0-0.0004",   // 4 fractional digits -> rounds "-t 0"
+		"*0-1e3",      // scientific notation
+		"*1e1-2e1",    // scientific notation
+		"*0-infinite", // spelled-out infinity outside the grammar
+		"*.5-1.5",     // leading dot
+	} {
+		if _, err := Parse([]string{spec}); err == nil {
+			t.Fatalf("Parse(%q) succeeded, want error", spec)
+		}
+	}
+}
+
+// TestParseAcceptsThreeFractionalDigits verifies the accepted grammar keeps
+// the 3-fractional-digit precision that ffmpeg argument generation preserves.
+func TestParseAcceptsThreeFractionalDigits(t *testing.T) {
+	program, err := Parse([]string{"*0-0.125"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(program.Sections) != 1 || program.Sections[0].End == nil || *program.Sections[0].End != 0.125 {
+		t.Fatalf("sections = %#v", program.Sections)
+	}
+}
+
+// TestParseRejectsInfinityOutsideOpenEnd verifies only the literal "inf"
+// end marker is accepted; any other infinity/scientific form is rejected.
+func TestParseRejectsOtherInfinityForms(t *testing.T) {
+	if _, err := Parse([]string{"*0-inf"}); err != nil {
+		t.Fatalf("*0-inf should parse: %v", err)
+	}
+	for _, spec := range []string{"*0-infinite", "*0-Infinity", "*0-1e999"} {
+		if _, err := Parse([]string{spec}); err == nil {
+			t.Fatalf("Parse(%q) succeeded, want error", spec)
+		}
+	}
+}

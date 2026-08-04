@@ -127,9 +127,13 @@ func validateSectionInputs(inputs []SectionInput) ([]SectionInput, error) {
 }
 
 // sectionFFmpegArgs builds the shell-free ffmpeg argument list for a
-// sectioned download. It mirrors FFmpegFD: -ss/-t, -map for separate A/V
-// inputs, and -c copy unless forceKeyframes requests re-encode around
-// section boundaries.
+// sectioned download. It mirrors FFmpegFD: each input gets its own
+// -headers and per-input seek options (-ss/-t) placed before its -i, so
+// the options apply to that URL and not to the following input or output.
+// Separate A/V inputs are mapped with -map. Stream copy is used by default;
+// forceKeyframes re-encodes around the section boundary (no -c copy) so the
+// cut lands on a keyframe, matching the pinned re-encoding semantics instead
+// of a hardcoded encoder.
 func sectionFFmpegArgs(
 	inputs []SectionInput,
 	headerBlocks []string,
@@ -140,19 +144,23 @@ func sectionFFmpegArgs(
 	args := []string{
 		"-protocol_whitelist", "http,https,tcp,tls,crypto",
 	}
-	cutArgs := []string{"-ss", formatSectionTime(bounds.Start)}
+	// Per-input seek options: -ss START -t DUR are input options that must
+	// precede the -i they apply to. Input seeking resets the output
+	// timeline, so the section starts at 0 in the output; -force_key_frames
+	// is therefore relative (0) rather than the absolute source start.
+	seekArgs := []string{"-ss", formatSectionTime(bounds.Start)}
 	if bounds.End != nil {
-		cutArgs = append(cutArgs, "-t", formatSectionTime(*bounds.End-bounds.Start))
-	}
-	if forceKeyframes {
-		// Seek-before-input with re-encode.
-		args = append(args, cutArgs...)
+		seekArgs = append(seekArgs, "-t", formatSectionTime(*bounds.End-bounds.Start))
 	}
 	for index, input := range inputs {
-		args = append(args, "-i", input.URL)
+		// Each input's options precede its own -i.
+		if forceKeyframes {
+			args = append(args, seekArgs...)
+		}
 		if headerBlocks[index] != "" {
 			args = append(args, "-headers", headerBlocks[index])
 		}
+		args = append(args, "-i", input.URL)
 	}
 	if len(inputs) > 1 {
 		for index, input := range inputs {
@@ -167,12 +175,16 @@ func sectionFFmpegArgs(
 		args = append(args, "-map", "0")
 	}
 	if !forceKeyframes {
-		args = append(args, cutArgs...)
-	}
-	if forceKeyframes {
-		args = append(args, "-c:v", "libx264", "-force_key_frames", formatSectionTime(bounds.Start))
-	} else {
+		// Output seeking after all inputs with stream copy.
+		args = append(args, seekArgs...)
 		args = append(args, "-c", "copy")
+	} else {
+		// Re-encode around the boundary so the cut lands on a keyframe.
+		// No -c copy and no hardcoded encoder: ffmpeg selects the default
+		// encoder, matching the pinned force_keyframes semantics. The
+		// boundary is relative to the section start (0) because input
+		// seeking reset the timeline.
+		args = append(args, "-force_key_frames", "0")
 	}
 	args = append(args, "-progress", "pipe:1", "-nostats", temporary)
 	return args

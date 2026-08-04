@@ -2650,7 +2650,7 @@ capabilities:
       - internal/media/ffmpeg.TestSectionFFmpegArgsSingleInputStreamCopy
       - internal/media/ffmpeg.TestSectionFFmpegArgsSeparateAV
       - internal/media/ffmpeg.TestSectionFFmpegArgsOpenEnded
-      - internal/media/ffmpeg.TestSectionFFmpegArgsForceKeyframes
+      - internal/media/ffmpeg.TestSectionFFmpegArgsForceKeyframesPerInput
       - internal/media/ffmpeg.TestValidateSectionBounds
       - internal/media/ffmpeg.TestValidateSectionInputsRejectsUnsafeHeader
       - internal/media/ffmpeg.TestValidateSectionInputsRejectsBadURL
@@ -2660,6 +2660,17 @@ capabilities:
       - pkg/ytdlp.TestExtractorSectionBoundsRejectsInvalid
       - pkg/ytdlp.TestFromURLSectionBounds
       - pkg/ytdlp.TestFromURLDoesNotTriggerWithoutRequest
+      - pkg/ytdlp.TestComposeSectionOffsetsStartAndClampsEnd
+      - pkg/ytdlp.TestComposeSectionRejectsStartBeyondWindow
+      - pkg/ytdlp.TestComposeSectionDoesNotMutateSharedProgram
+      - pkg/ytdlp.TestFromURLWithLiteralRangesComposes
+      - pkg/ytdlp.TestFromURLWithMissingBoundsFailsClosed
+      - pkg/ytdlp.TestExtractorSectionInvalidBoundsFailClosed
+      - pkg/ytdlp.TestProductExtractorSectionTrimsArtifact
+      - pkg/ytdlp.TestProductSectionDownloadMultipleSectionsCollisionSafe
+      - pkg/ytdlp.TestProductSectionDownloadFromURL
+      - pkg/ytdlp.TestSectionDownloadUnsafeHeaderFailsClosed
+      - pkg/ytdlp.TestProductSectionDownloadDelegatedHLS
       - internal/cli.TestRunDownloadSectionsValidationIgnoresNetwork
       - internal/cli.TestRunDownloadSectionsForceKeyframesRequiresSections
       - conformance/compatibility/phase2/download_sections.yaml

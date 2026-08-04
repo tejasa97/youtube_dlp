@@ -1,6 +1,7 @@
 package ytdlp
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"path/filepath"
@@ -22,6 +23,12 @@ type sectionPlan struct {
 	Number int
 }
 
+// errInvalidSuppliedSection marks extractor- or URL-supplied section bounds
+// that were present but invalid. It is distinct from "fields absent": an
+// invalid supplied range must fail before any output mutation rather than
+// silently degrading to a full download.
+var errInvalidSuppliedSection = errors.New("invalid supplied section bounds")
+
 // activeSectionPlans determines the effective section bounds for this
 // extraction and expands the given output plans into per-section plans.
 // It is the generic section consumer shared by the CLI (*START-END,
@@ -30,64 +37,49 @@ type sectionPlan struct {
 //
 // The returned slice is empty when no section is active; callers then
 // keep the ordinary single-plan behavior. When the request carries
-// explicit DownloadSections, the CLI ranges compose with an extractor
-// section using the extractor's start_time as the base offset, matching
-// the pinned YoutubeDL.py:3104-3132 behavior.
+// explicit DownloadSections, the CLI ranges compose inside the extractor
+// window (section_start/section_end) as the base coordinate, matching the
+// pinned YoutubeDL.py:3104-3132 behavior.
 func (operation *operation) activeSectionPlans(
 	outputPlans []mediaformat.OutputPlan,
 	info value.Info,
 ) ([]sectionPlan, error) {
 	program := operation.compatibility.sections
-	// Extractor-driven section metadata (section_start/section_end) also
-	// triggers section download, even without --download-sections.
-	extractorBounds, hasExtractor := extractorSectionBounds(info)
-	baseOffset := 0.0
-	if hasExtractor {
-		baseOffset = extractorBounds.Start
+	// Resolve the extractor window. Invalid supplied bounds fail closed;
+	// absent bounds mean no extractor window.
+	extractorBounds, hasExtractor, err := extractorSectionBounds(info)
+	if err != nil {
+		return nil, err
 	}
-	// *from-url consumes the extractor's start_time/end_time bounds as a
-	// section, but only when explicitly requested. Without --download-sections
-	// those fields do not trigger partial downloading.
-	if program.FromURL && len(program.Sections) == 0 {
-		if fromURLBounds, ok := fromURLSectionBounds(info); ok {
-			program.Sections = []sections.Section{fromURLBounds}
-		}
+	// Resolve the effective request sections. *from-url contributes a
+	// section from start_time/end_time and is appended after any literal
+	// ranges rather than being dropped when literal ranges are present.
+	effectiveSections, err := effectiveRequestSections(program, info, hasExtractor, extractorBounds)
+	if err != nil {
+		return nil, err
 	}
-	if len(program.Sections) == 0 && !hasExtractor {
+	if len(effectiveSections) == 0 && !hasExtractor {
 		return nil, nil
 	}
-	if len(program.Sections) == 0 && hasExtractor {
-		// Extractor-only section: one section from the extractor bounds.
-		if len(outputPlans) == 0 {
-			return nil, nil
-		}
-		plans := make([]sectionPlan, 0, len(outputPlans))
-		for index, plan := range outputPlans {
-			planInfo := value.NewInfo(selectedPlanInfo(info, plan).Fields().Clone())
-			applySectionInfo(planInfo, sections.Section{Start: extractorBounds.Start, End: extractorBounds.End}, 1)
-			plans = append(plans, sectionPlan{Plan: plan, Info: planInfo, Bounds: sections.Section{Start: extractorBounds.Start, End: extractorBounds.End}, Number: 1})
-			_ = index
-		}
-		return plans, nil
+	if len(effectiveSections) == 0 && hasExtractor {
+		// An extractor-driven section without explicit request ranges means
+		// one section covering the extractor window itself.
+		effectiveSections = []sections.Section{{Start: extractorBounds.Start, End: cloneEnd(extractorBounds.End)}}
 	}
-	// CLI ranges: compose with extractor base offset.
 	if len(outputPlans) == 0 {
 		return nil, nil
 	}
-	if len(outputPlans)*len(program.Sections) > maxSectionOutputPlans {
+	if len(outputPlans)*len(effectiveSections) > maxSectionOutputPlans {
 		return nil, fmt.Errorf("%w: section output plan count exceeds limit", extractor.ErrUnsupported)
 	}
-	plans := make([]sectionPlan, 0, len(outputPlans)*len(program.Sections))
+	plans := make([]sectionPlan, 0, len(outputPlans)*len(effectiveSections))
 	sectionNumber := 0
 	for _, plan := range outputPlans {
-		for _, section := range program.Sections {
+		for _, section := range effectiveSections {
 			sectionNumber++
-			composed := section
-			if hasExtractor {
-				composed.Start += baseOffset
-				if composed.End != nil {
-					*composed.End += baseOffset
-				}
+			composed, composeErr := composeSection(section, extractorBounds, hasExtractor)
+			if composeErr != nil {
+				return nil, composeErr
 			}
 			planInfo := value.NewInfo(selectedPlanInfo(info, plan).Fields().Clone())
 			applySectionInfo(planInfo, composed, sectionNumber)
@@ -103,57 +95,136 @@ func (operation *operation) activeSectionPlans(
 // sections so a hostile request cannot allocate unbounded plans.
 const maxSectionOutputPlans = 64
 
+// effectiveRequestSections assembles the request-level sections: literal
+// ranges first, then a *from-url range appended after them when requested.
+// When *from-url is explicitly requested but the URL bounds are unavailable
+// or invalid, it fails closed instead of silently producing an ordinary full
+// download.
+func effectiveRequestSections(
+	program sections.Program,
+	info value.Info,
+	hasExtractor bool,
+	extractorBounds sections.Section,
+) ([]sections.Section, error) {
+	out := make([]sections.Section, 0, len(program.Sections)+1)
+	out = append(out, program.Sections...)
+	if program.FromURL {
+		fromURL, present, err := fromURLSectionBounds(info)
+		if err != nil {
+			return nil, err
+		}
+		if !present {
+			return nil, fmt.Errorf("%w: *from-url requested but start_time/end_time are unavailable", errInvalidSuppliedSection)
+		}
+		out = append(out, fromURL)
+	}
+	_ = hasExtractor
+	_ = extractorBounds
+	return out, nil
+}
+
+// composeSection maps a request-level section into the extractor coordinate
+// space. The extractor window (section_start/section_end) is the base:
+// request starts and ends are offset by the window start, request ends are
+// then clamped to the window end, open-ended requests close at the window
+// end, and a request start beyond the window is rejected. The endpoint is
+// deep-copied so composition never mutates the shared program state.
+func composeSection(
+	section sections.Section,
+	extractorBounds sections.Section,
+	hasExtractor bool,
+) (sections.Section, error) {
+	composed := sections.Section{Start: section.Start}
+	if section.End != nil {
+		end := *section.End
+		composed.End = &end
+	}
+	if !hasExtractor {
+		return composed, nil
+	}
+	// Offset the start by the extractor window start.
+	composed.Start += extractorBounds.Start
+	// Reject a request start beyond the extractor window.
+	if extractorBounds.End != nil && composed.Start > *extractorBounds.End {
+		return sections.Section{}, fmt.Errorf("%w: section start %v is beyond the extractor window", errInvalidSuppliedSection, section.Start)
+	}
+	// Offset the request end by the window start, then clamp it to the window
+	// end. An open-ended request closes at the window end.
+	windowEnd := math.Inf(1)
+	if extractorBounds.End != nil {
+		windowEnd = *extractorBounds.End
+	}
+	if composed.End != nil {
+		*composed.End += extractorBounds.Start
+		if *composed.End > windowEnd {
+			*composed.End = windowEnd
+		}
+		if *composed.End <= composed.Start {
+			return sections.Section{}, fmt.Errorf("%w: section ends before it starts after clamping", errInvalidSuppliedSection)
+		}
+	} else if extractorBounds.End != nil {
+		end := windowEnd
+		composed.End = &end
+	}
+	return composed, nil
+}
+
 // fromURLSectionBounds reads start_time/end_time from the info for the
-// *from-url specification. Like extractorSectionBounds, at least one bound
-// must be present and both must be finite, nonnegative, and ordered when
-// both are present.
-func fromURLSectionBounds(info value.Info) (sections.Section, bool) {
-	start, hasStart := info.Lookup("start_time").Float()
-	endVal, hasEnd := info.Lookup("end_time").Float()
-	if !hasStart && !hasEnd {
-		return sections.Section{}, false
-	}
-	if hasStart && (math.IsNaN(start) || math.IsInf(start, 0) || start < 0) {
-		return sections.Section{}, false
-	}
-	if hasEnd && (math.IsNaN(endVal) || math.IsInf(endVal, 0) || endVal < 0) {
-		return sections.Section{}, false
-	}
-	bounds := sections.Section{Start: start}
-	if hasEnd {
-		bounds.End = floatPtr(endVal)
-	}
-	if bounds.End != nil && *bounds.End <= bounds.Start {
-		return sections.Section{}, false
-	}
-	return bounds, true
+// *from-url specification. It distinguishes "absent" (present=false,
+// err=nil) from "present but invalid" (err set) so a malformed URL range
+// fails closed rather than degrading to a full download.
+func fromURLSectionBounds(info value.Info) (sections.Section, bool, error) {
+	return sectionBoundsFromFields(info, "start_time", "end_time", "start_time/end_time")
 }
 
 // extractorSectionBounds reads section_start/section_end from the info
-// envelope. At least one bound must be present; both must be finite and
-// nonnegative; when both are present, end must exceed start. The
-// extractor's section is the PR5 contract: an extractor section triggers
-// ffmpeg section downloading even without --download-sections.
-func extractorSectionBounds(info value.Info) (sections.Section, bool) {
-	start, hasStart := info.Lookup("section_start").Float()
-	endVal, hasEnd := info.Lookup("section_end").Float()
+// envelope. It distinguishes "absent" (present=false, err=nil) from
+// "present but invalid" (err set). The extractor's section is the PR5
+// contract: an extractor section triggers ffmpeg section downloading even
+// without --download-sections, and malformed bounds must not silently become
+// a full download.
+func extractorSectionBounds(info value.Info) (sections.Section, bool, error) {
+	return sectionBoundsFromFields(info, "section_start", "section_end", "section_start/section_end")
+}
+
+// sectionBoundsFromFields reads a start/end field pair from the info
+// envelope, distinguishing absent from present-but-invalid. Numeric fields
+// are read tolerantly: JSON integers (e.g. "start_time": 0) decode as Int
+// and must be accepted alongside Float values.
+// sectionFieldFloat reads a numeric info field, accepting both Int and
+// Float representations (JSON integers decode as Int and must still be
+// recognized as section bounds).
+func sectionFieldFloat(info value.Info, field string) (float64, bool) {
+	if value, ok := info.Lookup(field).Float(); ok {
+		return value, true
+	}
+	if value, ok := info.Lookup(field).Int(); ok {
+		return float64(value), true
+	}
+	return 0, false
+}
+
+func sectionBoundsFromFields(info value.Info, startField, endField, label string) (sections.Section, bool, error) {
+	start, hasStart := sectionFieldFloat(info, startField)
+	endVal, hasEnd := sectionFieldFloat(info, endField)
 	if !hasStart && !hasEnd {
-		return sections.Section{}, false
+		return sections.Section{}, false, nil
 	}
 	if hasStart && (math.IsNaN(start) || math.IsInf(start, 0) || start < 0) {
-		return sections.Section{}, false
+		return sections.Section{}, false, fmt.Errorf("%w: %s has invalid start", errInvalidSuppliedSection, label)
 	}
 	if hasEnd && (math.IsNaN(endVal) || math.IsInf(endVal, 0) || endVal < 0) {
-		return sections.Section{}, false
+		return sections.Section{}, false, fmt.Errorf("%w: %s has invalid end", errInvalidSuppliedSection, label)
 	}
 	bounds := sections.Section{Start: start}
 	if hasEnd {
-		bounds.End = floatPtr(endVal)
+		end := endVal
+		bounds.End = &end
 	}
 	if bounds.End != nil && *bounds.End <= bounds.Start {
-		return sections.Section{}, false
+		return sections.Section{}, false, fmt.Errorf("%w: %s end must exceed start", errInvalidSuppliedSection, label)
 	}
-	return bounds, true
+	return bounds, true, nil
 }
 
 // applySectionInfo sets the per-section metadata on a cloned Info:
@@ -182,6 +253,16 @@ func roundSectionDuration(seconds float64) float64 {
 }
 
 func floatPtr(value float64) *float64 { return &value }
+
+// cloneEnd deep-copies an optional End pointer so composition never mutates
+// the shared program state.
+func cloneEnd(end *float64) *float64 {
+	if end == nil {
+		return nil
+	}
+	value := *end
+	return &value
+}
 
 // buildSectionLifecycles expands the ordinary output plans into the
 // effective list of lifecycles, expanding each plan into its requested
@@ -215,7 +296,10 @@ func (operation *operation) buildSectionLifecycles(
 	lifecycles := make([]outputLifecycle, 0, len(sectionPlans))
 	used := make(map[string]struct{}, len(sectionPlans))
 	for _, sp := range sectionPlans {
-		destination := operation.renderSectionDestination(sp.Info, sp.Number, used)
+		destination, renderErr := operation.renderSectionDestination(sp.Info, sp.Number, used)
+		if renderErr != nil {
+			return nil, renderErr
+		}
 		lifecycle := newOutputLifecycleForPlan(sp.Number-1, sp.Plan, info, destination)
 		lifecycle.Info = sp.Info
 		section := sp.Bounds
@@ -228,20 +312,21 @@ func (operation *operation) buildSectionLifecycles(
 // renderSectionDestination renders a collision-safe destination for a
 // section. If the user's template already includes section_number the
 // rendered path is used as-is; otherwise a deterministic numeric suffix is
-// appended only when it would collide with another section destination.
+// appended only when it would collide with another section destination. A
+// rendering error is returned rather than swallowed into the output root.
 func (operation *operation) renderSectionDestination(
 	sectionInfo value.Info,
 	number int,
 	used map[string]struct{},
-) string {
+) (string, error) {
 	base, err := operation.renderFilenameBase(sectionInfo)
 	if err != nil {
-		base = operation.request.outputRoot(OutputPathHome)
+		return "", err
 	}
 	base = filepath.Clean(base)
 	if _, exists := used[base]; !exists {
 		used[base] = struct{}{}
-		return base
+		return base, nil
 	}
 	// Collision: mechanically suffix with the section number rather than
 	// overwriting the earlier section.
@@ -251,7 +336,7 @@ func (operation *operation) renderSectionDestination(
 	for {
 		if _, exists := used[candidate]; !exists {
 			used[candidate] = struct{}{}
-			return candidate
+			return candidate, nil
 		}
 		number++
 		candidate = fmt.Sprintf("%s.%d%s", stem, number, ext)

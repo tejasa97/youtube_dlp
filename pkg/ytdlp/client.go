@@ -2131,7 +2131,11 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 					result.SkipReason = sizeAbort.Message
 					return result, nil
 				}
-				if len(outputPlans) > 1 {
+				// Roll back the shared transaction whenever multiple lifecycles are
+				// in flight. A single output plan may expand into many section
+				// lifecycles, so deciding rollback by len(outputPlans) would leave
+				// earlier section outputs published on a later lifecycle failure.
+				if len(lifecycles) > 1 {
 					return rollbackTransactionResult(mediaTx, lifecycleErr)
 				}
 				return result, lifecycleErr
