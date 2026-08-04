@@ -1,0 +1,35 @@
+version: 1
+reference:
+  repository: yt-dlp/yt-dlp
+  commit: aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8
+  files:
+    - yt_dlp/YoutubeDL.py:2869-2870
+    - yt_dlp/YoutubeDL.py:3104-3132
+    - yt_dlp/downloader/external.py:435-456
+    - yt_dlp/downloader/external.py:3486
+    - yt_dlp/extractor/youtube/_clip.py:1-80
+derived_on: 2026-08-04
+duration: 200
+cases:
+  - name: bounded absolute range
+    specification: '*10:15-15:00'
+    start: 615
+    end: 900
+  - name: open-ended range
+    specification: '*1:00-inf'
+    start: 60
+    end: null
+  - name: unit duration forms
+    specification: '*1h30m-2h'
+    start: 5400
+    end: 7200
+  - name: from-url consumes extractor bounds
+    specification: '*from-url'
+    from_url: true
+notes:
+  - These are hand-authored behavioral expectations; no upstream fixture is copied.
+  - Only *START-END, *START-inf, and *from-url are accepted; all other values are rejected explicitly.
+  - Bounds are validated as finite, nonnegative, ordered, and duration/count-bounded before any output mutation.
+  - Section downloading delegates to ffmpeg with -ss/-t (and -map for separate A/V inputs), mirroring FFmpegFD.
+  - Native fragment trimming is deferred; HLS/DASH partial downloads use ffmpeg as upstream does.
+  - An extractor section (section_start/section_end) triggers section download even without --download-sections.

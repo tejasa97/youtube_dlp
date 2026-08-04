@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/ytdlp-go/ytdlp/internal/compat/sections"
 	"github.com/ytdlp-go/ytdlp/internal/extractor"
 )
 
@@ -548,8 +549,12 @@ func validateRequestOptions(request Request) error {
 	}
 	if request.ForceKeyframesAtCuts &&
 		len(request.RemoveChapters) == 0 &&
+		len(request.DownloadSections) == 0 &&
 		!(request.SponsorBlock.Enabled && request.SponsorBlock.Remove) {
-		return fmt.Errorf("%w: force keyframes requires chapter or SponsorBlock removal", errInvalidRequestOptions)
+		return fmt.Errorf("%w: force keyframes requires chapter, section, or SponsorBlock removal", errInvalidRequestOptions)
+	}
+	if len(request.DownloadSections) > sections.MaxSpecifications {
+		return fmt.Errorf("%w: too many download sections", errInvalidRequestOptions)
 	}
 	for index, postprocessor := range request.Postprocessors {
 		if countPostprocessorChoices(postprocessor) != 1 {

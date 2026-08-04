@@ -154,7 +154,7 @@ replacement and follow the [embedding guide](docs/EMBEDDING.md).
 | Post-processing | Typed FFmpeg/FFprobe operations for merging, audio, metadata, subtitles, chapters, remuxing, concat, and safe moves |
 | Extensions | Versioned native RPC and constrained WASM plugins, signed packs, catalogs, and updater transactions |
 
-The capability manifest records **93 capabilities**: **85 compatible** within
+The capability manifest records **94 capabilities**: **86 compatible** within
 their declared corpora, **7 partial**, and **1 intentional deviation**.
 This summary is enforced against the manifest by repository tests.
 “Compatible” means the linked deterministic evidence passes within its

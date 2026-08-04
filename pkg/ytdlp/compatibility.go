@@ -11,6 +11,7 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/compat/matchfilter"
 	compatmetadata "github.com/ytdlp-go/ytdlp/internal/compat/metadata"
 	"github.com/ytdlp-go/ytdlp/internal/compat/progress"
+	"github.com/ytdlp-go/ytdlp/internal/compat/sections"
 	"github.com/ytdlp-go/ytdlp/internal/compat/simplefilter"
 	"github.com/ytdlp-go/ytdlp/internal/events"
 	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
@@ -28,6 +29,7 @@ type compatibilityPlan struct {
 	interactiveFormat bool
 	metadataActions   []compatmetadata.Action
 	chapterRemoval    chapterremove.Program
+	sections          sections.Program
 	progressTemplate  string
 }
 
@@ -124,6 +126,10 @@ func prepareCompatibility(request Request) (compatibilityPlan, error) {
 	plan.chapterRemoval, err = chapterremove.Parse(request.RemoveChapters)
 	if err != nil {
 		return compatibilityPlan{}, categorized("parse remove chapters", err)
+	}
+	plan.sections, err = sections.Parse(request.DownloadSections)
+	if err != nil {
+		return compatibilityPlan{}, categorized("parse download sections", err)
 	}
 	appendParse := func(specification string) error {
 		action, parseErr := compatmetadata.ParseFromField(specification)
