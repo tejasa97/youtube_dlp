@@ -1,0 +1,229 @@
+{
+  "id": "fixture0004",
+  "title": "Synthetic Watch Metadata Video",
+  "description": "watch metadata fixture",
+  "uploader": "fixture channel",
+  "channel": "fixture channel",
+  "channel_id": "UCfixture000000000000000",
+  "webpage_url": "https://www.youtube.com/watch?v=fixture0004",
+  "ext": "mp4",
+  "formats": [
+    {
+      "format_id": "18",
+      "url": "https://media.example/18.mp4",
+      "ext": "mp4",
+      "vcodec": "avc1.42001E",
+      "acodec": "mp4a.40.2",
+      "filesize": 1000,
+      "tbr": 500,
+      "width": 640,
+      "height": 360,
+      "fps": 30,
+      "quality": 6,
+      "format_note": "360p",
+      "source_preference": -1,
+      "has_drm": false
+    }
+  ],
+  "channel_url": "https://www.youtube.com/channel/UCfixture000000000000000",
+  "uploader_id": "@fixturechannel",
+  "uploader_url": "https://www.youtube.com/@fixturechannel",
+  "upload_date": "20240115",
+  "age_limit": 0,
+  "availability": "public",
+  "media_type": "video",
+  "duration": 123,
+  "view_count": 456,
+  "thumbnails": [
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0004/maxresdefault.webp",
+      "preference": 0
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0004/maxresdefault.jpg",
+      "preference": -1
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0004/hq720.webp",
+      "preference": -2
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0004/hq720.jpg",
+      "preference": -3
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0004/sddefault.webp",
+      "preference": -4
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0004/sddefault.jpg",
+      "preference": -5
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0004/hqdefault.webp",
+      "preference": -6
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0004/hqdefault.jpg",
+      "preference": -7
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0004/0.webp",
+      "preference": -8
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0004/0.jpg",
+      "preference": -9
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0004/mqdefault.webp",
+      "preference": -10
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0004/mqdefault.jpg",
+      "preference": -11
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0004/default.webp",
+      "preference": -12
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0004/default.jpg",
+      "preference": -13
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0004/sd1.webp",
+      "preference": -14
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0004/sd1.jpg",
+      "preference": -15
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0004/sd2.webp",
+      "preference": -16
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0004/sd2.jpg",
+      "preference": -17
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0004/sd3.webp",
+      "preference": -18
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0004/sd3.jpg",
+      "preference": -19
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0004/hq1.webp",
+      "preference": -20
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0004/hq1.jpg",
+      "preference": -21
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0004/hq2.webp",
+      "preference": -22
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0004/hq2.jpg",
+      "preference": -23
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0004/hq3.webp",
+      "preference": -24
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0004/hq3.jpg",
+      "preference": -25
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0004/mq1.webp",
+      "preference": -26
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0004/mq1.jpg",
+      "preference": -27
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0004/mq2.webp",
+      "preference": -28
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0004/mq2.jpg",
+      "preference": -29
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0004/mq3.webp",
+      "preference": -30
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0004/mq3.jpg",
+      "preference": -31
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0004/1.webp",
+      "preference": -32
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0004/1.jpg",
+      "preference": -33
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0004/2.webp",
+      "preference": -34
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0004/2.jpg",
+      "preference": -35
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0004/3.webp",
+      "preference": -36
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0004/3.jpg",
+      "preference": -37
+    }
+  ],
+  "chapters": [
+    {
+      "start_time": 0,
+      "end_time": 45,
+      "title": "Intro"
+    },
+    {
+      "start_time": 45,
+      "end_time": 90,
+      "title": "Chapter Two"
+    },
+    {
+      "start_time": 90,
+      "end_time": 123,
+      "title": "Outro"
+    }
+  ],
+  "heatmap": [
+    {
+      "start_time": 0,
+      "end_time": 30,
+      "value": 0.5
+    },
+    {
+      "start_time": 30,
+      "end_time": 75,
+      "value": 0.9
+    }
+  ],
+  "like_count": 1234,
+  "dislike_count": 56,
+  "comment_count": 1234,
+  "channel_follower_count": 12300,
+  "channel_is_verified": true,
+  "series": "Fixture Series",
+  "season_number": 1,
+  "episode_number": 2,
+  "live_status": "not_live"
+}

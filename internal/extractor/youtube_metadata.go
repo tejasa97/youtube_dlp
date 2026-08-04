@@ -165,6 +165,41 @@ func youtubePlayerAvailability(isPrivate *bool, isUnlisted *bool, ageLimit int) 
 	}
 }
 
+// youtubeMergedAvailability combines the watch-page badge availability with
+// player-derived signals through the shared precedence normalizer. The
+// badge claim is empty when unattributable, so the merged result degrades
+// to the player-only partial claim.
+//
+// Pin: yt_dlp/extractor/common.py:4010-4021 _availability. The public
+// inference requires both is_private and is_unlisted to be known-false
+// (non-nil and not true), matching the pinned yt_dlp/extractor/youtube/
+// _video.py:4555-4571 construction that supplies is_unlisted=None only
+// when is_private is None and otherwise carries the watched-page
+// unlisted signal. The state name "premium_only" matches the pinned
+// yt_dlp/extractor/common.py:4016 emission.
+func youtubeMergedAvailability(badgeAvailability string, isPrivate *bool, isUnlisted *bool, ageLimit int) string {
+	private := badgeAvailability == "private"
+	premiumOnly := badgeAvailability == "premium_only"
+	subscriberOnly := badgeAvailability == "subscriber_only"
+	unlisted := badgeAvailability == "unlisted"
+	public := badgeAvailability == "public"
+	if isPrivate != nil && *isPrivate {
+		private = true
+	}
+	if isUnlisted != nil && *isUnlisted {
+		unlisted = true
+	}
+	// Pinned all-known public inference: when is_private and is_unlisted
+	// are both known-false and no signal elevated the video, the merged
+	// claim is "public". Unknown signals leave the merged claim as the
+	// badge-only partial.
+	if isPrivate != nil && !*isPrivate && isUnlisted != nil && !*isUnlisted &&
+		!private && !premiumOnly && !subscriberOnly && !unlisted && badgeAvailability == "" {
+		public = true
+	}
+	return youtubeAvailabilityPrecedence(private, premiumOnly, subscriberOnly, ageLimit >= 18, unlisted, public)
+}
+
 // youtubeMediaType classifies the video from player data, matching the pinned
 // reference's livestream > short > video precedence.
 func youtubeMediaType(isLiveContent, isShortsEligible *bool) string {

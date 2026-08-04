@@ -346,6 +346,7 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 	}
 
 	microformat := firstYouTubeMicroformat(metadataPlayers)
+	watch, _ := extractYouTubeWatchMetadata(page, duration, hasDuration)
 	info := value.NewObject(
 		value.Field{Key: "id", Value: value.String(videoID)},
 		value.Field{Key: "title", Value: value.String(details.Title)},
@@ -369,10 +370,14 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 		if hasTimestamp {
 			info.Set("timestamp", value.Int(timestamp))
 		}
+	} else if watch.uploadDateFallback != "" {
+		// Watch-page date text is only attributable when the player response
+		// carried no upload date at all (pinned dateText fallback).
+		info.Set("upload_date", value.String(watch.uploadDateFallback))
 	}
 	ageLimit := youtubeAgeLimit(microformat.IsFamilySafe)
 	info.Set("age_limit", value.Int(int64(ageLimit)))
-	if availability := youtubePlayerAvailability(details.IsPrivate, microformat.IsUnlisted, ageLimit); availability != "" {
+	if availability := youtubeMergedAvailability(watch.availability, details.IsPrivate, microformat.IsUnlisted, ageLimit); availability != "" {
 		info.Set("availability", value.String(availability))
 	}
 	if category := youtubeCategory(microformat.Category); category != "" {
@@ -407,6 +412,45 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 	}
 	if len(thumbnails) > 0 {
 		info.Set("thumbnails", value.List(thumbnails...))
+	}
+	if len(watch.chapters) > 0 {
+		info.Set("chapters", value.List(watch.chapters...))
+	} else if chapters := youtubeChaptersFromDescription(details.ShortDescription, duration, hasDuration); len(chapters) > 0 {
+		// Description-based chapter fallback (pinned source 3).
+		info.Set("chapters", value.List(chapters...))
+	}
+	if len(watch.heatmap) > 0 {
+		info.Set("heatmap", value.List(watch.heatmap...))
+	}
+	if watch.hasLikeCount {
+		info.Set("like_count", value.Int(watch.likeCount))
+	}
+	if watch.hasDislikeCount {
+		info.Set("dislike_count", value.Int(watch.dislikeCount))
+	}
+	if watch.hasCommentCount {
+		info.Set("comment_count", value.Int(watch.commentCount))
+	}
+	if watch.hasChannelFollowerCount {
+		info.Set("channel_follower_count", value.Int(watch.channelFollowerCount))
+	}
+	if watch.hasChannelIsVerified {
+		info.Set("channel_is_verified", value.Bool(watch.channelIsVerified))
+	}
+	if watch.hasConcurrentViewCount {
+		info.Set("concurrent_view_count", value.Int(watch.concurrentViewCount))
+	}
+	if watch.series != "" {
+		info.Set("series", value.String(watch.series))
+	}
+	if watch.seasonNumber > 0 {
+		info.Set("season_number", value.Int(watch.seasonNumber))
+	}
+	if watch.episodeNumber > 0 {
+		info.Set("episode_number", value.Int(watch.episodeNumber))
+	}
+	if watch.location != "" {
+		info.Set("location", value.String(watch.location))
 	}
 	if liveStatus != "" {
 		info.Set("live_status", value.String(liveStatus))
@@ -446,7 +490,13 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 				return nil
 			}
 			fields.Set("comments", value.List(comments...))
-			fields.Set("comment_count", value.Int(int64(len(comments))))
+			// Preserve the approximate watch-page comment count after comment
+			// retrieval, matching the pinned reference; the actual bounded
+			// retrieved count is the documented fallback when the watch page
+			// carried no approximate count.
+			if fields.Lookup("comment_count").IsMissing() {
+				fields.Set("comment_count", value.Int(int64(len(comments))))
+			}
 			return nil
 		}
 	}

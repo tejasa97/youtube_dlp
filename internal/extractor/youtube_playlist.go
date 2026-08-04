@@ -20,6 +20,7 @@ const (
 	youtubePlaylistContinuationURL = "https://www.youtube.com/youtubei/v1/browse"
 	youtubeMaxJSONDepth            = 128
 	youtubeMaxJSONNodes            = 1_000_000
+	youtubeMaxJSONBytes            = 5 << 20 // 5 MiB; pinned ytInitialData upper bound
 	youtubeMaxContinuationCommands = 32
 	youtubeMaxContinuationBytes    = 16 << 10
 )
