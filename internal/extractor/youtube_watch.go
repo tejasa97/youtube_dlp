@@ -597,18 +597,24 @@ type youtubeChapterItem struct {
 }
 
 // youtubeChaptersFromDescription is the bounded description-based chapter
-// fallback (source 3). It accepts both pinned orders:
+// fallback (source 3). It accepts four pinned orders, tried in priority:
 //
-//  1. <title>\n<timestamp>    (e.g. "Intro\n0:00")
-//  2. <timestamp> <title>     (e.g. "0:00 Intro")
+//	A. <timestamp> <title>     (e.g. "0:00 Intro")
+//	B. <title> <timestamp>     (e.g. "Intro 0:00")
+//	C. <title>\n<timestamp>    (e.g. "Intro\n0:00")
+//	D. <timestamp>\n<title>    (e.g. "0:00\nIntro")
 //
 // Pin: yt_dlp/extractor/youtube/_video.py:2350-2353. yt-dlp consumes
 // the description line by line and pairs each title with the timestamp
-// that immediately follows (or precedes) it, never double-counting a
-// timestamp that has already anchored one chapter. This implementation
-// walks the description sequentially: at each timestamp anchor it tries
-// the previous-line, same-line, and next-line orders, emitting at most
-// one chapter per anchor.
+// that immediately follows or precedes it on the same physical line,
+// never double-counting a timestamp that has already anchored one
+// chapter. This implementation walks the description sequentially,
+// consuming each timestamp at most once across the four orders.
+//
+// Crucially, orders C and D only apply when the timestamp line is bare
+// (no same-line title); when the same line carries both a timestamp and
+// a title, only orders A and B are considered, so preceding or
+// following prose never gets mis-attributed as a chapter title.
 var (
 	youtubeDescriptionChapterTimestampPattern = regexp.MustCompile(`^\s*((?:\d{1,2}:)?\d{1,2}:\d{2})\s*$`)
 )
@@ -620,6 +626,55 @@ func youtubeHasDescriptionControlChars(raw string) bool {
 		}
 	}
 	return false
+}
+
+// youtubeIsTimestampLine reports whether the trimmed line is exactly a
+// timestamp (no surrounding text). Used to gate orders C and D so that
+// preceding/following prose never anchors a chapter.
+func youtubeIsTimestampLine(trimmed string) bool {
+	return youtubeDescriptionChapterTimestampPattern.MatchString(trimmed)
+}
+
+// youtubeChapterTitleFromSameLine extracts a title candidate from a line
+// that already has a timestamp prefix or suffix, returning the title
+// text and a boolean indicating whether a non-timestamp portion exists.
+// The line is split at the timestamp boundary; either side may carry
+// the title, or neither.
+func youtubeChapterTitleFromSameLine(line, timestamp string) (string, bool) {
+	if timestamp == "" {
+		return "", false
+	}
+	index := strings.Index(line, timestamp)
+	if index < 0 {
+		return "", false
+	}
+	before := strings.TrimSpace(line[:index])
+	after := strings.TrimSpace(line[index+len(timestamp):])
+	if before != "" && youtubeIsLikelyChapterTitle(before) {
+		return before, true
+	}
+	if after != "" && youtubeIsLikelyChapterTitle(after) {
+		return after, true
+	}
+	return "", false
+}
+
+// youtubeIsLikelyChapterTitle accepts titles within the bounded length
+// window that contain at least one non-digit, non-space character so a
+// pure numeric line (e.g. "1.") is not misclassified as a chapter.
+func youtubeIsLikelyChapterTitle(candidate string) bool {
+	candidate = strings.TrimSpace(candidate)
+	if len(candidate) < 2 || len(candidate) > 120 {
+		return false
+	}
+	hasLetter := false
+	for _, r := range candidate {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z':
+			hasLetter = true
+		}
+	}
+	return hasLetter
 }
 
 func youtubeChaptersFromDescription(description string, duration int64, hasDuration bool) []value.Value {
@@ -637,34 +692,41 @@ func youtubeChaptersFromDescription(description string, duration int64, hasDurat
 		if trimmed == "" {
 			continue
 		}
-		// Extract the leading timestamp prefix when the line has both a
-		// timestamp and a title on the same physical line.
-		timestampText := trimmed
-		rest := ""
-		if end := strings.IndexAny(trimmed, " \t"); end > 0 {
-			candidate := trimmed[:end]
-			if _, ok := youtubeParseWatchDuration(candidate); ok {
-				timestampText = candidate
-				rest = strings.TrimSpace(trimmed[end:])
-			}
+		// Find any timestamp in the line. yt-dlp accepts timestamps with
+		// optional whitespace inside the line and recognizes either
+		// "<timestamp> <title>" or "<title> <timestamp>" orders.
+		timestampText, ok := youtubeExtractTimestampFromLine(trimmed)
+		if !ok {
+			continue
 		}
 		start, ok := youtubeParseWatchDuration(timestampText)
 		if !ok {
 			continue
 		}
-		// Order 1: title is on the previous non-empty line.
+		// Order A/B: same-line timestamp + title (the line is not bare).
+		if title, hasTitle := youtubeChapterTitleFromSameLine(trimmed, timestampText); hasTitle {
+			items = append(items, youtubeChapterItem{start: start, title: title})
+			consumed[index] = true
+			continue
+		}
+		// Orders C/D only apply when the timestamp line is bare, so
+		// preceding/following prose never anchors a chapter.
+		if !youtubeIsTimestampLine(trimmed) {
+			continue
+		}
+		// Order C: title is on the previous non-empty line.
 		for back := index - 1; back >= 0; back-- {
 			if consumed[back] {
 				break
 			}
-			titleCandidate := strings.TrimSpace(lines[back])
-			if titleCandidate == "" {
+			candidate := strings.TrimSpace(lines[back])
+			if candidate == "" {
 				continue
 			}
-			if len(titleCandidate) < 2 || len(titleCandidate) > 120 {
+			if !youtubeIsLikelyChapterTitle(candidate) {
 				break
 			}
-			items = append(items, youtubeChapterItem{start: start, title: titleCandidate})
+			items = append(items, youtubeChapterItem{start: start, title: candidate})
 			consumed[back] = true
 			consumed[index] = true
 			break
@@ -672,34 +734,48 @@ func youtubeChaptersFromDescription(description string, duration int64, hasDurat
 		if consumed[index] {
 			continue
 		}
-		// Order 2: title is on the same line after the timestamp.
-		if rest != "" {
-			titleCandidate := rest
-			if len(titleCandidate) >= 2 && len(titleCandidate) <= 120 {
-				items = append(items, youtubeChapterItem{start: start, title: titleCandidate})
-				consumed[index] = true
-				continue
-			}
-		}
-		// Order 3: title is on the next non-empty line.
+		// Order D: title is on the next non-empty line.
 		for forward := index + 1; forward < len(lines); forward++ {
 			if consumed[forward] {
 				continue
 			}
-			titleCandidate := strings.TrimSpace(lines[forward])
-			if titleCandidate == "" {
+			candidate := strings.TrimSpace(lines[forward])
+			if candidate == "" {
 				continue
 			}
-			if len(titleCandidate) < 2 || len(titleCandidate) > 120 {
+			if !youtubeIsLikelyChapterTitle(candidate) {
 				break
 			}
-			items = append(items, youtubeChapterItem{start: start, title: titleCandidate})
+			items = append(items, youtubeChapterItem{start: start, title: candidate})
 			consumed[index] = true
 			consumed[forward] = true
 			break
 		}
 	}
 	return normalizeYouTubeChapters(items, duration, hasDuration)
+}
+
+// youtubeExtractTimestampFromLine returns the timestamp substring of a
+// trimmed line that contains exactly one timestamp, or false if the
+// line has no timestamp, multiple timestamps, or contains a timestamp
+// only inside other text. The split whitespace-aware because yt-dlp
+// accepts whitespace between the timestamp and the surrounding text.
+func youtubeExtractTimestampFromLine(trimmed string) (string, bool) {
+	parts := strings.Fields(trimmed)
+	if len(parts) == 0 {
+		return "", false
+	}
+	// Order A: <timestamp> ... <title>
+	if _, ok := youtubeParseWatchDuration(parts[0]); ok {
+		return parts[0], true
+	}
+	// Order B: <title> ... <timestamp>
+	if last := parts[len(parts)-1]; last != parts[0] {
+		if _, ok := youtubeParseWatchDuration(last); ok {
+			return last, true
+		}
+	}
+	return "", false
 }
 
 // normalizeYouTubeChapters sorts candidates by start time, bounds them to the

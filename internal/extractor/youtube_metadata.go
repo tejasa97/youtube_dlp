@@ -171,11 +171,11 @@ func youtubePlayerAvailability(isPrivate *bool, isUnlisted *bool, ageLimit int) 
 // to the player-only partial claim.
 //
 // Pin: yt_dlp/extractor/common.py:4010-4021 _availability. The public
-// inference is gated by is_private being known (non-nil); when is_private
-// is known-false and no badge elevated the video, the merged claim is
-// "public". is_unlisted is treated as None when is_private is None,
-// matching the pinned yt_dlp/extractor/youtube/_video.py:4555-4571
-// construction. The state name "premium_only" matches the pinned
+// inference requires both is_private and is_unlisted to be known-false
+// (non-nil and not true), matching the pinned yt_dlp/extractor/youtube/
+// _video.py:4555-4571 construction that supplies is_unlisted=None only
+// when is_private is None and otherwise carries the watched-page
+// unlisted signal. The state name "premium_only" matches the pinned
 // yt_dlp/extractor/common.py:4016 emission.
 func youtubeMergedAvailability(badgeAvailability string, isPrivate *bool, isUnlisted *bool, ageLimit int) string {
 	private := badgeAvailability == "private"
@@ -189,10 +189,12 @@ func youtubeMergedAvailability(badgeAvailability string, isPrivate *bool, isUnli
 	if isUnlisted != nil && *isUnlisted {
 		unlisted = true
 	}
-	// Pinned all-known public inference: when is_private is known and no
-	// signal elevated the video, the merged claim is "public". Unknown
-	// signals leave the merged claim as the badge-only partial.
-	if isPrivate != nil && !*isPrivate && !private && !premiumOnly && !subscriberOnly && !unlisted && badgeAvailability == "" {
+	// Pinned all-known public inference: when is_private and is_unlisted
+	// are both known-false and no signal elevated the video, the merged
+	// claim is "public". Unknown signals leave the merged claim as the
+	// badge-only partial.
+	if isPrivate != nil && !*isPrivate && isUnlisted != nil && !*isUnlisted &&
+		!private && !premiumOnly && !subscriberOnly && !unlisted && badgeAvailability == "" {
 		public = true
 	}
 	return youtubeAvailabilityPrecedence(private, premiumOnly, subscriberOnly, ageLimit >= 18, unlisted, public)

@@ -225,6 +225,21 @@ func TestYouTubeWatchMetadataDescriptionChaptersBothOrders(t *testing.T) {
 			wantTitles:  []string{"Intro", "Chapter Two", "Outro"},
 			wantStarts:  []float64{0, 83, 150},
 		},
+		{
+			// "<title> <timestamp>" on the same line.
+			name:        "title-then-time same line",
+			description: "Intro 0:00\nChapter Two 1:23\nOutro 2:30\n",
+			wantTitles:  []string{"Intro", "Chapter Two", "Outro"},
+			wantStarts:  []float64{0, 83, 150},
+		},
+		{
+			// Preceding prose must not anchor a chapter when the
+			// timestamp line carries its own same-line title.
+			name:        "preceding prose not attributed",
+			description: "Welcome to the video\n0:00 Intro\n1:23 Next\n",
+			wantTitles:  []string{"Intro", "Next"},
+			wantStarts:  []float64{0, 83},
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -274,16 +289,35 @@ func TestYouTubeWatchMetadataHeatmapGlobalCap(t *testing.T) {
 func TestYouTubeWatchMetadataAvailabilityInfersPublic(t *testing.T) {
 	privateFalse := false
 	unlistedFalse := false
+	privateTrue := true
+	unlistedTrue := true
+	// Both signals known-false: claim public.
 	if got := youtubeMergedAvailability("", &privateFalse, &unlistedFalse, 0); got != "public" {
-		t.Fatalf("merged availability = %q, want public", got)
+		t.Fatalf("merged availability with both known-false = %q, want public", got)
 	}
 	// Unknown signals must not claim public.
 	if got := youtubeMergedAvailability("", nil, nil, 0); got != "" {
-		t.Fatalf("merged availability with unknown signals = %q, want \"\"", got)
+		t.Fatalf("merged availability with both unknown = %q, want \"\"", got)
+	}
+	// isPrivate known-false, isUnlisted unknown: must not claim public
+	// (previously overclaimed; pinned yt-dlp requires all_known).
+	if got := youtubeMergedAvailability("", &privateFalse, nil, 0); got != "" {
+		t.Fatalf("merged availability with isPrivate=false, isUnlisted=nil = %q, want \"\"", got)
+	}
+	// isPrivate unknown, isUnlisted known-false: must not claim public.
+	if got := youtubeMergedAvailability("", nil, &unlistedFalse, 0); got != "" {
+		t.Fatalf("merged availability with isPrivate=nil, isUnlisted=false = %q, want \"\"", got)
 	}
 	// Premium_only state still beats public inference.
 	if got := youtubeMergedAvailability("premium_only", &privateFalse, &unlistedFalse, 0); got != "premium_only" {
 		t.Fatalf("merged availability with premium_only badge = %q, want premium_only", got)
+	}
+	// Other signals still beat public inference.
+	if got := youtubeMergedAvailability("", &privateTrue, &unlistedFalse, 0); got != "private" {
+		t.Fatalf("merged availability with private=true = %q, want private", got)
+	}
+	if got := youtubeMergedAvailability("", &privateFalse, &unlistedTrue, 0); got != "unlisted" {
+		t.Fatalf("merged availability with unlisted=true = %q, want unlisted", got)
 	}
 }
 
