@@ -205,6 +205,53 @@ func TestDownloadRequestsUseExactV0SelectorsAndDistinctOutputTemplates(t *testin
 	}
 }
 
+func TestSubmitRejectsUnknownQuality(t *testing.T) {
+	manager := New(nil, nil)
+	if _, err := manager.Submit(Request{
+		URL: "https://example.invalid/video", OutputDir: t.TempDir(), Quality: Quality("8k"),
+	}); err == nil || !strings.Contains(err.Error(), "unsupported quality") {
+		t.Fatalf("Submit() error = %v; want unsupported quality", err)
+	}
+}
+
+func TestEventsAreDeliveredInEmissionOrder(t *testing.T) {
+	received := make(chan string, 3)
+	manager := New(nil, func(event Event) { received <- event.Job.ID })
+
+	manager.mu.Lock()
+	manager.emitLocked(Event{Name: EventJobUpdate, Job: JobSnapshot{ID: "first"}})
+	manager.emitLocked(Event{Name: EventJobUpdate, Job: JobSnapshot{ID: "second"}})
+	manager.emitLocked(Event{Name: EventJobUpdate, Job: JobSnapshot{ID: "third"}})
+	manager.mu.Unlock()
+
+	for _, want := range []string{"first", "second", "third"} {
+		select {
+		case got := <-received:
+			if got != want {
+				t.Fatalf("event = %q; want %q", got, want)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for %q", want)
+		}
+	}
+}
+
+func TestRemoveDoesNotDropActiveOrPendingJobs(t *testing.T) {
+	manager := New(nil, nil)
+	manager.all["active"] = &jobState{snap: JobSnapshot{ID: "active", Status: StatusActive}}
+	manager.all["pending"] = &jobState{snap: JobSnapshot{ID: "pending", Status: StatusPending}}
+
+	manager.Remove("active")
+	manager.Remove("pending")
+
+	if _, ok := manager.Find("active"); !ok {
+		t.Fatal("Remove dropped an active job")
+	}
+	if _, ok := manager.Find("pending"); !ok {
+		t.Fatal("Remove dropped a pending job")
+	}
+}
+
 func TestClearTerminalRemovesCanceledJobAndEmitsEmptyQueue(t *testing.T) {
 	events := make(chan Event, 1)
 	manager := New(nil, func(event Event) { events <- event })

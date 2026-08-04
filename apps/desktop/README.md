@@ -1,6 +1,7 @@
-# ytdlp-desktop
+# YTDLP Go Desktop — Maintainer Guide
 
-A small Wails-based desktop GUI for `ytdlp-go`. It is intentionally limited to
+This directory contains the Wails/Svelte desktop interface for `ytdlp-go`. It
+is intentionally limited to
 **single, public YouTube videos**: no playlists, channels, search, live, Shorts,
 or other sites. The desktop app is a thin front end over the existing Go
 downloader; the extraction engine is unchanged and reusable from any Go
@@ -116,30 +117,33 @@ Svelte  ────────────────────────
 into `internal/`. The desktop app never embeds the extractor package
 directly.
 
-## Validation status
+## Validation
 
-- `frontend/` — `vite build` succeeds (134 modules transformed, ≈75 kB JS,
-  ≈25 kB CSS).
-- `internal/urlcheck/` — 17 unit tests covering accept/reject paths for single
-  videos, playlists, channels, search, Shorts, live, and bad schemes.
-- `internal/store/` — round-trip persistence + history ordering tests.
-- `internal/ffmpegdetect/` — probe + invalid-path tests using the host's
-  ffmpeg.
+Run the Desktop Go tests after building the ignored frontend output:
 
-## Known blockers
+```sh
+cd frontend
+npm ci
+npm run check
+npm run test:ui
+npm run build
+cd ..
 
-- `internal/extractor/youtube.go` (parent, pre-existing modifications) and
-  the untracked `internal/extractor/youtube_format.go` are out of scope per
-  the worktree guardrails. They contain a reference to
-  `format.DRFamilies` that does not yet exist on the `youtubeFormat` struct,
-  so `go build ./...` from `apps/desktop` cannot finish. `wails build` and
-  `wails dev` are blocked by the same issue because Wails compiles the full
-  module graph before generating bindings.
+go test -count=1 ./...
+go build ./...
+```
 
-  Resolution path (handled outside this worktree):
-  - Add a `DRFamilies` field to the `youtubeFormat` struct, **or**
-  - Remove the `youtubeFormatHasDRM(format.DRFamilies)` call until the field
-    is reintroduced.
+When observable behavior crosses into the parent engine, run its relevant Go
+package tests as well.
 
-  Once that lands, `wails generate module` and `wails build` will run end to
-  end.
+## Release packaging boundary
+
+`wails build` creates a host-platform developer artifact. It is not yet a
+complete public release process.
+
+The current `darwin/*` post-build hook packages and verifies
+`ytdlp-js-helper` for macOS output. Equivalent reviewed Windows and Linux
+helper packaging is still required. Public releases also need explicit
+FFmpeg/FFprobe installation or bundling behavior, platform signing,
+notarization where applicable, declared Linux WebKitGTK dependencies,
+checksums, notices, and clean-machine install/download verification.

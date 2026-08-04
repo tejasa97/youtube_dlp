@@ -39,6 +39,7 @@ test('accepted URLs with analysis failures use the generic error modal', async (
   const home = await read('../src/pages/Home.svelte');
   assert.match(home, /title: 'We could not analyze this video'/);
   assert.match(home, /kind: 'error'/);
+  assert.match(home, /message: errorMessage\(err,/);
   assert.doesNotMatch(home, /catch \(err\) \{\s*unsupported = \{\s*url: result\.url/);
 });
 
@@ -50,6 +51,9 @@ test('unsupported and FFmpeg-required states retain accurate V0 copy', async () 
   assert.match(home, /This app currently supports single public YouTube videos\./);
   assert.doesNotMatch(home, /supports YouTube videos and playlists/);
   assert.match(home, /class="unsupported-illustration"/);
+  assert.match(home, /reason: errorMessage\(err, 'This URL is not supported\.'\)/);
+  assert.match(home, /safeBrowserURL\(unsupported\.url\)/);
+  assert.match(home, /\{#if unsupportedBrowserURL\}<button[\s\S]*?BrowserOpenURL\(unsupportedBrowserURL!\)[\s\S]*?<\/button>\{\/if\}/);
   assert.match(home, /aria-hidden="true"/);
   assert.match(home, /id="warning-fill"/);
   assert.match(home, /M147 214c7-8 17-8 24 0/);
@@ -63,6 +67,19 @@ test('unsupported and FFmpeg-required states retain accurate V0 copy', async () 
   assert.match(modal, /action\.label === 'Locate FFmpeg'/);
   assert.match(modal, /action\.label === 'Installation Guide'/);
   assert.match(modal, /<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"\/><\/svg>Back/);
+});
+
+test('startup performs one FFmpeg fetch and normalizes binding errors', async () => {
+  const [app, stores] = await Promise.all([
+    read('../src/App.svelte'),
+    read('../src/lib/stores.ts'),
+  ]);
+  assert.equal((app.match(/api\.ffmpeg\.status\(\)/g) || []).length, 1);
+  assert.match(app, /title: 'The app could not finish starting'/);
+  assert.match(app, /api\.events\.onJobUpdate\(updateJobInList\)/);
+  assert.match(app, /if \(idx === -1\) return \[updated, \.\.\.list\]/);
+  assert.match(stores, /'message' in err/);
+  assert.match(stores, /return fallback/);
 });
 
 test('terminal queue rows expose recovery and removal actions', async () => {

@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { api } from './lib/api.js';
-  import { ffmpeg, history, jobs, route, settings, banner, modal } from './lib/stores.js';
+  import { errorMessage, ffmpeg, history, jobs, route, settings, modal } from './lib/stores.js';
+  import type { JobSnapshot } from './lib/types.js';
   import Sidebar from './lib/components/Sidebar.svelte';
   import Modal from './lib/components/Modal.svelte';
   import Banner from './lib/components/Banner.svelte';
@@ -10,43 +11,45 @@
   import Downloads from './pages/Downloads.svelte';
   import Settings from './pages/Settings.svelte';
 
-  let unsubJob: (() => void) | undefined;
-  let unsubQueue: (() => void) | undefined;
-  let unsubHistory: (() => void) | undefined;
-  let unsubSettings: (() => void) | undefined;
-  let unsubFFmpeg: (() => void) | undefined;
   let unsubAll: Array<() => void> = [];
 
   onMount(async () => {
-    const [s, st, jobs0, hist, ff] = await Promise.all([
-      api.settings.get(),
-      api.ffmpeg.status(),
-      api.jobs.list(),
-      api.downloads.list(),
-      api.ffmpeg.status(),
-    ]);
-    settings.set(s);
-    ffmpeg.set(st);
-    jobs.set(jobs0 ?? []);
-    history.set(hist ?? []);
-    ffmpeg.set(ff);
+    unsubAll = [
+      api.events.onJobUpdate(updateJobInList),
+      api.events.onQueue((list) => jobs.set(list ?? [])),
+      api.events.onHistory((entries) => history.set(entries ?? [])),
+      api.events.onSettings((value) => settings.set(value)),
+      api.events.onFFmpeg((status) => ffmpeg.set(status)),
+    ].filter(Boolean) as Array<() => void>;
 
-    unsubJob     = api.events.onJobUpdate((job) => updateJobInList(job));
-    unsubQueue   = api.events.onQueue((list) => jobs.set(list ?? []));
-    unsubHistory = api.events.onHistory((entries) => history.set(entries ?? []));
-    unsubSettings = api.events.onSettings((s) => settings.set(s));
-    unsubFFmpeg  = api.events.onFFmpeg((s) => ffmpeg.set(s));
-    unsubAll = [unsubJob, unsubQueue, unsubHistory, unsubSettings, unsubFFmpeg].filter(Boolean) as Array<() => void>;
+    try {
+      const [savedSettings, initialJobs, savedHistory, ffmpegStatus] = await Promise.all([
+        api.settings.get(),
+        api.jobs.list(),
+        api.downloads.list(),
+        api.ffmpeg.status(),
+      ]);
+      settings.set(savedSettings);
+      jobs.set(initialJobs ?? []);
+      history.set(savedHistory ?? []);
+      ffmpeg.set(ffmpegStatus);
+    } catch (err) {
+      modal.set({
+        kind: 'error',
+        title: 'The app could not finish starting',
+        message: errorMessage(err, 'Close and reopen the app. If the problem continues, copy the diagnostic details.'),
+      });
+    }
   });
 
   onDestroy(() => {
     for (const off of unsubAll) off();
   });
 
-  function updateJobInList(updated: { id: string }) {
+  function updateJobInList(updated: JobSnapshot) {
     jobs.update((list) => {
       const idx = list.findIndex((j) => j.id === updated.id);
-      if (idx === -1) return list;
+      if (idx === -1) return [updated, ...list];
       const copy = list.slice();
       copy[idx] = { ...copy[idx], ...updated };
       return copy;

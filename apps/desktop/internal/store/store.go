@@ -54,6 +54,12 @@ type Store struct {
 	state State
 }
 
+// NewEphemeral returns a fully functional in-memory store. It is used only as
+// a last-resort Desktop fallback when the operating-system config directory
+// cannot be opened. Mutations remain available for the current process but are
+// not persisted.
+func NewEphemeral() *Store { return &Store{state: defaultState()} }
+
 // Open loads (or initialises) the store at the given file path. If the
 // directory does not exist it is created. If the file is missing or
 // corrupt the default state is written and returned.
@@ -184,6 +190,9 @@ func (s *Store) ClearHistory() error {
 // writeLocked serialises state and writes it atomically. The caller must
 // hold s.mu for writing.
 func (s *Store) writeLocked() error {
+	if s.path == "" {
+		return nil
+	}
 	data, err := json.MarshalIndent(s.state, "", "  ")
 	if err != nil {
 		return fmt.Errorf("store: marshal: %w", err)

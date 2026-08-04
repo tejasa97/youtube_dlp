@@ -47,7 +47,7 @@ func (a *App) startup(ctx context.Context) {
 	st, err := store.Open(statePath)
 	if err != nil {
 		wailsruntime.LogErrorf(ctx, "desktop: open store: %v", err)
-		st = &store.Store{}
+		st = store.NewEphemeral()
 	}
 	a.store = st
 
@@ -64,17 +64,21 @@ func (a *App) startup(ctx context.Context) {
 
 	settings := a.store.Settings()
 	a.jobs.SetFFmpegLocation(settings.FFmpegPath)
-	a.lastFFmpeg = ffmpegdetect.Probe(ctx, settings.FFmpegPath)
+	a.setFFmpegStatus(ffmpegdetect.Probe(ctx, settings.FFmpegPath))
 }
 
 // shutdown is called by Wails when the window closes. It cancels every
 // in-flight job so the process can exit cleanly.
 func (a *App) shutdown(ctx context.Context) {
+	if a.jobs == nil {
+		return
+	}
 	for _, snap := range a.jobs.List() {
 		if snap.Status == jobs.StatusActive || snap.Status == jobs.StatusPending {
 			a.jobs.Cancel(snap.ID)
 		}
 	}
+	a.jobs.Close()
 }
 
 // ---------------------------------------------------------------------------
@@ -102,7 +106,7 @@ func (a *App) UpdateSettings(next store.Settings) (store.Settings, error) {
 		return store.Settings{}, err
 	}
 	a.jobs.SetFFmpegLocation(next.FFmpegPath)
-	a.lastFFmpeg = ffmpegdetect.Probe(a.ctx, next.FFmpegPath)
+	a.setFFmpegStatus(ffmpegdetect.Probe(a.ctx, next.FFmpegPath))
 	wailsruntime.EventsEmit(a.ctx, "settings:update", a.store.Settings())
 	return a.store.Settings(), nil
 }
@@ -120,30 +124,35 @@ func (a *App) PickDownloadFolder() (string, error) {
 // PickFFmpegPath opens a file picker for a binary and returns the
 // selected path. The caller validates the path with ConfigureFFmpeg.
 func (a *App) PickFFmpegPath() (string, error) {
+	pattern := "ffmpeg"
+	if runtime.GOOS == "windows" {
+		pattern = "ffmpeg.exe"
+	}
 	return wailsruntime.OpenFileDialog(a.ctx, wailsruntime.OpenDialogOptions{
 		Title: "Choose ffmpeg binary",
 		Filters: []wailsruntime.FileFilter{
-			{DisplayName: "ffmpeg binary", Pattern: "ffmpeg"},
+			{DisplayName: "ffmpeg binary", Pattern: pattern},
 			{DisplayName: "All files", Pattern: "*.*"},
 		},
 	})
 }
 
 // GetFFmpegStatus returns the current ffmpeg probe result.
-func (a *App) GetFFmpegStatus() ffmpegdetect.Status { return a.lastFFmpeg }
+func (a *App) GetFFmpegStatus() ffmpegdetect.Status { return a.ffmpegStatus() }
 
 // ProbeFFmpeg re-runs detection and broadcasts the result.
 func (a *App) ProbeFFmpeg() ffmpegdetect.Status {
-	a.lastFFmpeg = ffmpegdetect.Probe(a.ctx, a.store.Settings().FFmpegPath)
-	wailsruntime.EventsEmit(a.ctx, "ffmpeg:update", a.lastFFmpeg)
-	return a.lastFFmpeg
+	status := ffmpegdetect.Probe(a.ctx, a.store.Settings().FFmpegPath)
+	a.setFFmpegStatus(status)
+	wailsruntime.EventsEmit(a.ctx, "ffmpeg:update", status)
+	return status
 }
 
 // ConfigureFFmpeg validates a path, persists it, and re-probes.
 func (a *App) ConfigureFFmpeg(path string) (ffmpegdetect.Status, error) {
 	status := ffmpegdetect.ConfigurePath(a.ctx, path)
 	if !status.Available {
-		a.lastFFmpeg = status
+		a.setFFmpegStatus(status)
 		wailsruntime.EventsEmit(a.ctx, "ffmpeg:update", status)
 		return status, errors.New(status.Message)
 	}
@@ -153,7 +162,7 @@ func (a *App) ConfigureFFmpeg(path string) (ffmpegdetect.Status, error) {
 		return status, err
 	}
 	a.jobs.SetFFmpegLocation(status.Path)
-	a.lastFFmpeg = status
+	a.setFFmpegStatus(status)
 	wailsruntime.EventsEmit(a.ctx, "ffmpeg:update", status)
 	wailsruntime.EventsEmit(a.ctx, "settings:update", a.store.Settings())
 	return status, nil
@@ -166,10 +175,11 @@ func (a *App) ClearFFmpegPath() ffmpegdetect.Status {
 	settings.FFmpegPath = ""
 	_ = a.store.SetSettings(settings)
 	a.jobs.SetFFmpegLocation("")
-	a.lastFFmpeg = ffmpegdetect.Probe(a.ctx, "")
-	wailsruntime.EventsEmit(a.ctx, "ffmpeg:update", a.lastFFmpeg)
+	status := ffmpegdetect.Probe(a.ctx, "")
+	a.setFFmpegStatus(status)
+	wailsruntime.EventsEmit(a.ctx, "ffmpeg:update", status)
 	wailsruntime.EventsEmit(a.ctx, "settings:update", a.store.Settings())
-	return a.lastFFmpeg
+	return status
 }
 
 // ---------------------------------------------------------------------------
@@ -189,7 +199,9 @@ func (a *App) AnalyzeURL(raw string) (jobs.InfoSummary, error) {
 	if err != nil {
 		return jobs.InfoSummary{}, err
 	}
-	ctx, cancel := context.WithTimeout(a.ctx, 45*time.Second)
+	// EJS preprocessing has a 55-second execution budget. Leave additional
+	// room for the watch page and player-script requests around that phase.
+	ctx, cancel := context.WithTimeout(a.ctx, 75*time.Second)
 	defer cancel()
 	summary, err := a.jobs.Analyze(ctx, res.URL)
 	if err != nil {
@@ -258,12 +270,21 @@ func (a *App) ListDownloads() []store.HistoryEntry { return a.store.History() }
 
 // RemoveDownload deletes one history entry.
 func (a *App) RemoveDownload(id string) error {
-	_, err := a.store.RemoveHistory(id)
+	removed, err := a.store.RemoveHistory(id)
+	if err == nil && removed {
+		wailsruntime.EventsEmit(a.ctx, "history:update", a.store.History())
+	}
 	return err
 }
 
 // ClearDownloads empties the persisted history.
-func (a *App) ClearDownloads() error { return a.store.ClearHistory() }
+func (a *App) ClearDownloads() error {
+	if err := a.store.ClearHistory(); err != nil {
+		return err
+	}
+	wailsruntime.EventsEmit(a.ctx, "history:update", a.store.History())
+	return nil
+}
 
 // OpenFile opens a downloaded file with the OS default application.
 // It uses xdg-open / open / rundll32 so the platform handler is the
@@ -301,7 +322,7 @@ func (a *App) RevealInFinder(path string) error {
 // clipboard. It never includes the URL or any file path beyond the
 // folder basename.
 func (a *App) CopyDiagnostics() (string, error) {
-	status := a.lastFFmpeg
+	status := a.ffmpegStatus()
 	settings := a.store.Settings()
 	report := strings.Builder{}
 	report.WriteString("ytdlp-desktop diagnostics\n")
@@ -340,6 +361,18 @@ func isSupportedQuality(q jobs.Quality) bool {
 
 func isTerminal(s jobs.Status) bool {
 	return s == jobs.StatusComplete || s == jobs.StatusFailed || s == jobs.StatusCanceled
+}
+
+func (a *App) setFFmpegStatus(status ffmpegdetect.Status) {
+	a.mu.Lock()
+	a.lastFFmpeg = status
+	a.mu.Unlock()
+}
+
+func (a *App) ffmpegStatus() ffmpegdetect.Status {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.lastFFmpeg
 }
 
 func (a *App) recordHistory(snap jobs.JobSnapshot) {
@@ -416,6 +449,9 @@ func revealWithOS(path string) error {
 func friendlyAnalyzeError(err error) string {
 	if err == nil {
 		return "We could not read that video. Try again in a moment."
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "Video analysis timed out — retry"
 	}
 	var typed *ytdlp.Error
 	if errors.As(err, &typed) {

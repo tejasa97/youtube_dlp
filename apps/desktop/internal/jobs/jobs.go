@@ -59,25 +59,6 @@ func (q Quality) Label() string {
 	return string(q)
 }
 
-// ResolutionLabel returns a short resolution hint used in the picker.
-func (q Quality) ResolutionLabel() string {
-	switch q {
-	case QualityBest:
-		return "Up to source"
-	case Quality4K:
-		return "2160p"
-	case Quality1440p:
-		return "1440p"
-	case Quality1080p:
-		return "1080p"
-	case Quality720p:
-		return "720p"
-	case QualityAudioOnly:
-		return "MP3 / m4a"
-	}
-	return ""
-}
-
 // ytdlpFormat returns the core ytdlp format selector for a preset.
 func (q Quality) ytdlpFormat() string {
 	switch q {
@@ -104,10 +85,6 @@ func (q Quality) ytdlpFormat() string {
 func (q Quality) outputTemplate() string {
 	return fmt.Sprintf("%%(title)s [%%(id)s] [%s].%%(ext)s", q.Label())
 }
-
-// extractAudioOnly indicates whether the Audio only preset should run
-// through ffmpeg's audio extractor.
-func (q Quality) extractAudioOnly() bool { return q == QualityAudioOnly }
 
 // Status is the lifecycle state of a job.
 type Status string
@@ -159,9 +136,9 @@ type JobSnapshot struct {
 	ErrorReason   string  `json:"errorReason,omitempty"`
 }
 
-// Listener receives lifecycle events. The queue owns the delivery and
-// never blocks the worker for slow listeners; events are dispatched on
-// a dedicated goroutine and dropped if the channel is full.
+// Listener receives lifecycle events. The queue preserves event order through
+// one dedicated dispatcher instead of launching an independent goroutine for
+// every snapshot.
 type Listener func(event Event)
 
 // Event names match the Wails events emitted by the app layer.
@@ -177,10 +154,12 @@ type Event struct {
 	Queue []JobSnapshot `json:"queue"`
 }
 
-// Manager owns the queue and a single ytdlp client.
+// Manager owns the queue and the client used for metadata analysis. Downloads
+// use short-lived clients so each job can attach its own event handler.
 type Manager struct {
 	client         *ytdlp.Client
 	listener       Listener
+	events         chan Event
 	runDownload    downloadRunner
 	ffmpegLocation string
 	mu             sync.Mutex
@@ -205,16 +184,33 @@ func New(client *ytdlp.Client, listener Listener) *Manager {
 	if client == nil {
 		client = ytdlp.NewClient()
 	}
-	return &Manager{
+	manager := &Manager{
 		client:      client,
 		listener:    listener,
 		runDownload: defaultDownloadRunner,
 		all:         make(map[string]*jobState),
 	}
+	if listener != nil {
+		manager.events = make(chan Event, 256)
+		go manager.dispatchEvents()
+	}
+	return manager
 }
 
 func defaultDownloadRunner(ctx context.Context, req ytdlp.Request, handler ytdlp.EventHandler) (ytdlp.Result, error) {
-	return ytdlp.NewClient(ytdlp.WithEventHandler(handler)).Run(ctx, req)
+	client := ytdlp.NewClient(ytdlp.WithEventHandler(handler))
+	defer client.Close()
+	return client.Run(ctx, req)
+}
+
+// Close releases the analysis client's helper process. In-flight download
+// clients are owned and closed by defaultDownloadRunner.
+func (m *Manager) Close() { m.client.Close() }
+
+func (m *Manager) dispatchEvents() {
+	for event := range m.events {
+		m.listener(event)
+	}
 }
 
 // SetFFmpegLocation updates the per-request tool location. It is deliberately
@@ -240,6 +236,9 @@ func (m *Manager) Submit(req Request) (string, error) {
 	}
 	if req.Quality == "" {
 		req.Quality = QualityBest
+	}
+	if !isKnownQuality(req.Quality) {
+		return "", fmt.Errorf("jobs: unsupported quality %q", req.Quality)
 	}
 	if req.OutputDir == "" {
 		return "", errors.New("jobs: empty output directory")
@@ -362,7 +361,14 @@ func (m *Manager) Retry(id string) error {
 // Remove drops a terminal job from the manager entirely.
 func (m *Manager) Remove(id string) {
 	m.mu.Lock()
-	if _, ok := m.all[id]; !ok {
+	state, ok := m.all[id]
+	if !ok {
+		m.mu.Unlock()
+		return
+	}
+	switch state.snap.Status {
+	case StatusComplete, StatusFailed, StatusCanceled:
+	default:
 		m.mu.Unlock()
 		return
 	}
@@ -571,12 +577,14 @@ func (m *Manager) handleEvent(state *jobState, ev ytdlp.Event) {
 	}
 }
 
-// emitLocked dispatches an event asynchronously. Caller must hold m.mu.
+// emitLocked queues an immutable event for ordered delivery. Caller must hold
+// m.mu. The bounded buffer absorbs normal progress bursts; backpressure is
+// preferable to silently dropping the latest queue state.
 func (m *Manager) emitLocked(ev Event) {
 	if m.listener == nil {
 		return
 	}
-	go m.listener(ev)
+	m.events <- ev
 }
 
 // emitQueueLocked emits a queue:update event with the current display
@@ -709,6 +717,15 @@ func clampFloat(v float64) float64 {
 	return v
 }
 
+func isKnownQuality(quality Quality) bool {
+	for _, candidate := range AllQualities {
+		if candidate == quality {
+			return true
+		}
+	}
+	return false
+}
+
 // InfoSummary is the metadata displayed on the Home page after analyse.
 type InfoSummary struct {
 	Title     string `json:"title"`
@@ -777,40 +794,4 @@ func formatDuration(seconds int64) string {
 		return fmt.Sprintf("%d:%02d:%02d", h, m, s)
 	}
 	return fmt.Sprintf("%d:%02d", m, s)
-}
-
-// FormatBytes renders a byte count as a short human label.
-func FormatBytes(bytes int64) string {
-	const (
-		kb = 1024
-		mb = kb * 1024
-		gb = mb * 1024
-	)
-	switch {
-	case bytes >= gb:
-		return fmt.Sprintf("%.1f GB", float64(bytes)/float64(gb))
-	case bytes >= mb:
-		return fmt.Sprintf("%.1f MB", float64(bytes)/float64(mb))
-	case bytes >= kb:
-		return fmt.Sprintf("%.0f KB", float64(bytes)/float64(kb))
-	default:
-		return fmt.Sprintf("%d B", bytes)
-	}
-}
-
-// FormatSpeed renders a bytes-per-second value as a human label.
-func FormatSpeed(bps float64) string { return FormatBytes(int64(bps)) + "/s" }
-
-// FormatETA renders an ETA in seconds as a short label.
-func FormatETA(seconds float64) string {
-	if seconds <= 0 {
-		return ""
-	}
-	if seconds < 60 {
-		return fmt.Sprintf("%ds", int(seconds))
-	}
-	if seconds < 3600 {
-		return fmt.Sprintf("%dm %ds", int(seconds)/60, int(seconds)%60)
-	}
-	return fmt.Sprintf("%dh %dm", int(seconds)/3600, (int(seconds)/60)%60)
 }

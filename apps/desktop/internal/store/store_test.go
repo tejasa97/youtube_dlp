@@ -109,3 +109,21 @@ func TestStoreRemoveAndClear(t *testing.T) {
 		t.Fatalf("after clear length = %d, want 0", got)
 	}
 }
+
+func TestEphemeralStoreSupportsMutationsWithoutDisk(t *testing.T) {
+	store := NewEphemeral()
+	settings := store.Settings()
+	settings.DownloadFolder = filepath.Join(t.TempDir(), "downloads")
+	if err := store.SetSettings(settings); err != nil {
+		t.Fatalf("SetSettings: %v", err)
+	}
+	if err := store.AppendHistory(HistoryEntry{ID: "ephemeral", Title: "Temporary"}); err != nil {
+		t.Fatalf("AppendHistory: %v", err)
+	}
+	if got := store.Settings().DownloadFolder; got != settings.DownloadFolder {
+		t.Fatalf("DownloadFolder = %q, want %q", got, settings.DownloadFolder)
+	}
+	if got := len(store.History()); got != 1 {
+		t.Fatalf("history length = %d, want 1", got)
+	}
+}

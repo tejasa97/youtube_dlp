@@ -1,12 +1,19 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
 
 	"github.com/ytdlp-go/ytdlp/pkg/ytdlp"
 )
+
+func TestFriendlyAnalyzeErrorDeadline(t *testing.T) {
+	if got := friendlyAnalyzeError(context.DeadlineExceeded); got != "Video analysis timed out — retry" {
+		t.Fatalf("friendlyAnalyzeError() = %q; want analysis-timeout message", got)
+	}
+}
 
 func TestFriendlyAnalyzeErrorYouTubeChallengeTimeout(t *testing.T) {
 	typed := &ytdlp.Error{

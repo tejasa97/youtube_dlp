@@ -1,6 +1,5 @@
-// Reactive stores. Svelte 5 runes are used so the data flows the same
-// way across pages. Stores are intentionally thin — they just hold the
-// latest snapshot from the backend. Pages select slices themselves.
+// Reactive stores hold the latest snapshots from the backend. Pages select
+// the slices they need; transport and error normalization stay shared.
 
 import { writable, derived } from 'svelte/store';
 import type { FFmpegStatus, HistoryEntry, JobSnapshot, Settings } from './types.js';
@@ -72,6 +71,15 @@ export function showBanner(kind: Banner['kind'], message: string, ttl = 3500) {
 }
 
 export function showError(err: unknown, fallback = 'Something went wrong') {
-  const message = err instanceof Error ? err.message : String(err ?? fallback);
-  showBanner('danger', message);
+	showBanner('danger', errorMessage(err, fallback));
+}
+
+export function errorMessage(err: unknown, fallback: string): string {
+	if (err instanceof Error && err.message.trim()) return err.message;
+	if (typeof err === 'string' && err.trim()) return err;
+	if (err && typeof err === 'object' && 'message' in err) {
+		const message = String((err as { message?: unknown }).message ?? '').trim();
+		if (message) return message;
+	}
+	return fallback;
 }

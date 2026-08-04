@@ -1,7 +1,11 @@
+<script context="module" lang="ts">
+  let ffmpegPromptShown = false;
+</script>
+
 <script lang="ts">
   import { onMount, createEventDispatcher } from 'svelte';
   import { api } from '../lib/api.js';
-  import { ffmpeg, history, jobs, modal, settings, showBanner } from '../lib/stores.js';
+  import { errorMessage, ffmpeg, history, jobs, modal, settings, showBanner, showError } from '../lib/stores.js';
   import { formatRelative, qualityLabel } from '../lib/format.js';
   import { QUALITIES, type InfoSummary, type Quality, type UrlCheckResult } from '../lib/types.js';
 
@@ -17,20 +21,26 @@
   $: folder = $settings.downloadFolder || folder;
   $: recent = $history.slice(0, 3);
   $: activeJob = $jobs.find((job) => job.status === 'active');
+  $: unsupportedBrowserURL = unsupported ? safeBrowserURL(unsupported.url) : null;
 
   onMount(async () => {
     folder = $settings.downloadFolder || '';
-    const status = await api.ffmpeg.status();
-    if (!status.available) {
-      modal.set({
-        kind: 'ffmpeg-missing',
-        title: 'FFmpeg Required',
-        message: 'FFmpeg is required for certain downloads and audio extraction or conversion.',
-        actions: [
-          { label: 'Locate FFmpeg', primary: true, action: () => dispatch('goto', 'settings') },
-          { label: 'Installation Guide', action: () => window.runtime.BrowserOpenURL('https://ffmpeg.org/download.html') },
-        ],
-      });
+    try {
+      const status = await api.ffmpeg.status();
+      if (!status.available && !ffmpegPromptShown) {
+        ffmpegPromptShown = true;
+        modal.set({
+          kind: 'ffmpeg-missing',
+          title: 'FFmpeg Required',
+          message: 'FFmpeg is required for certain downloads and audio extraction or conversion.',
+          actions: [
+            { label: 'Locate FFmpeg', primary: true, action: () => dispatch('goto', 'settings') },
+            { label: 'Installation Guide', action: () => window.runtime.BrowserOpenURL('https://ffmpeg.org/download.html') },
+          ],
+        });
+      }
+    } catch (err) {
+      showError(err, 'Could not check FFmpeg');
     }
   });
 
@@ -43,8 +53,11 @@
       let result: UrlCheckResult;
       try {
         result = await api.validation.url(url);
-      } catch {
-        unsupported = { url: url.trim(), reason: 'Unsupported website' };
+      } catch (err) {
+        unsupported = {
+          url: url.trim(),
+          reason: errorMessage(err, 'This URL is not supported.'),
+        };
         return;
       }
       url = result.url;
@@ -54,7 +67,7 @@
         modal.set({
           kind: 'error',
           title: 'We could not analyze this video',
-          message: err instanceof Error ? err.message : 'The video could not be analyzed. Try again in a moment.',
+          message: errorMessage(err, 'The video could not be analyzed. Try again in a moment.'),
         });
       }
     } finally {
@@ -63,11 +76,15 @@
   }
 
   async function pickFolder() {
-    const path = await api.folder.pick();
-    if (!path) return;
-    const updated = await api.settings.update({ ...$settings, downloadFolder: path });
-    settings.set(updated);
-    folder = updated.downloadFolder;
+    try {
+      const path = await api.folder.pick();
+      if (!path) return;
+      const updated = await api.settings.update({ ...$settings, downloadFolder: path });
+      settings.set(updated);
+      folder = updated.downloadFolder;
+    } catch (err) {
+      showError(err, 'Could not choose the download folder');
+    }
   }
 
   async function start(mode: 'now' | 'queue') {
@@ -83,7 +100,7 @@
     } catch (err) {
       modal.set({
         kind: 'error', title: 'Download could not start',
-        message: err instanceof Error ? err.message : 'Could not start the download.',
+        message: errorMessage(err, 'Could not start the download.'),
       });
     }
   }
@@ -95,8 +112,21 @@
   }
 
   async function copyDiagnostics() {
-    await api.diagnostics.copy();
-    showBanner('info', 'Diagnostics copied to clipboard');
+    try {
+      await api.diagnostics.copy();
+      showBanner('info', 'Diagnostics copied to clipboard');
+    } catch (err) {
+      showError(err, 'Could not copy diagnostics');
+    }
+  }
+
+  function safeBrowserURL(value: string): string | null {
+    try {
+      const parsed = new URL(value);
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.toString() : null;
+    } catch {
+      return null;
+    }
   }
 </script>
 
@@ -151,7 +181,7 @@
       <div class="unsupported-actions">
         <button class="btn primary" type="button" on:click={reset}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 5v6h-6"/></svg>Try another URL</button>
         <button class="btn secondary" type="button" on:click={copyDiagnostics}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5h6v3H9zM7 7H5v14h14V7h-2"/></svg>Copy Diagnostics</button>
-        <button class="btn secondary" type="button" on:click={() => window.runtime.BrowserOpenURL(unsupported?.url || '')}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 13v7H4V6h7"/></svg>Open in Browser</button>
+        {#if unsupportedBrowserURL}<button class="btn secondary" type="button" on:click={() => window.runtime.BrowserOpenURL(unsupportedBrowserURL!)}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 13v7H4V6h7"/></svg>Open in Browser</button>{/if}
       </div>
     </section>
   {:else if preview}

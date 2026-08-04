@@ -2,9 +2,6 @@
   import { route, counts } from '../stores.js';
   type Route = 'home' | 'queue' | 'downloads' | 'settings';
 
-  let current: Route;
-  route.subscribe((value) => { current = value; });
-
   $: c = $counts;
 
   const items: Array<{ key: Route; label: string; icon: string }> = [
@@ -27,8 +24,8 @@
           <button
             type="button"
             class="nav-item"
-            class:active={current === item.key}
-            aria-current={current === item.key ? 'page' : undefined}
+            class:active={$route === item.key}
+            aria-current={$route === item.key ? 'page' : undefined}
             on:click={() => go(item.key)}
           >
             <span class="nav-icon" aria-hidden="true">
