@@ -142,7 +142,7 @@ func youtubeRendererAvailability(renderer *value.Object) string {
 	if !ok {
 		return ""
 	}
-	var private, premium, subscriber, unlisted, public bool
+	var private, premiumOnly, subscriberOnly, unlisted, public bool
 	for _, item := range badges {
 		object, ok := item.Object()
 		if !ok {
@@ -164,16 +164,16 @@ func youtubeRendererAvailability(renderer *value.Object) string {
 			case icon == "PRIVACY_UNLISTED" || label == "unlisted":
 				unlisted = true
 			case style == "BADGE_STYLE_TYPE_PREMIUM" || label == "premium":
-				premium = true
+				premiumOnly = true
 			case style == "BADGE_STYLE_TYPE_MEMBERS_ONLY" || label == "members only" || label == "members-only":
-				subscriber = true
+				subscriberOnly = true
 			}
 		})
 		if err != nil {
 			return ""
 		}
 	}
-	return youtubeAvailabilityPrecedence(private, premium, subscriber, false, unlisted, public)
+	return youtubeAvailabilityPrecedence(private, premiumOnly, subscriberOnly, false, unlisted, public)
 }
 
 const youtubeMaxCountTextBytes = 64

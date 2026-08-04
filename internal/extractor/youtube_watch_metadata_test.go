@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"reflect"
 	"strings"
@@ -162,7 +165,7 @@ func TestYouTubeWatchMetadataAvailabilityPrecedence(t *testing.T) {
 		want       string
 	}{
 		{"private wins", true, true, true, true, true, true, "private"},
-		{"premium beats subscriber", false, true, true, false, false, false, "premium"},
+		{"premium_only beats subscriber", false, true, true, false, false, false, "premium_only"},
 		{"subscriber beats auth", false, false, true, true, false, false, "subscriber_only"},
 		{"auth beats unlisted", false, false, false, true, true, false, "needs_auth"},
 		{"unlisted beats public", false, false, false, false, true, true, "unlisted"},
@@ -190,4 +193,311 @@ func TestYouTubeWatchMetadataCommentCountContract(t *testing.T) {
 	if !empty.Lookup("comment_count").IsMissing() {
 		t.Fatal("empty info must not have comment_count")
 	}
+}
+
+// TestYouTubeWatchMetadataDescriptionChaptersBothOrders reproduces the
+// previously-broken case where a standard three-chapter description in the
+// common "0:00 Title" order produced only one malformed chapter. The pinned
+// parser accepts both "<title>\\n<timestamp>" and "<timestamp> <title>"
+// orders, so a description using either form yields all three chapters.
+func TestYouTubeWatchMetadataDescriptionChaptersBothOrders(t *testing.T) {
+	cases := []struct {
+		name        string
+		description string
+		wantTitles  []string
+		wantStarts  []float64
+	}{
+		{
+			name:        "title-first order",
+			description: "Intro\n0:00\nChapter Two\n1:23\nOutro\n2:30\n",
+			wantTitles:  []string{"Intro", "Chapter Two", "Outro"},
+			wantStarts:  []float64{0, 83, 150},
+		},
+		{
+			name:        "time-first order",
+			description: "0:00 Intro\n1:23 Chapter Two\n2:30 Outro\n",
+			wantTitles:  []string{"Intro", "Chapter Two", "Outro"},
+			wantStarts:  []float64{0, 83, 150},
+		},
+		{
+			name:        "mixed order",
+			description: "Intro\n0:00\n1:23 Chapter Two\nOutro\n2:30\n",
+			wantTitles:  []string{"Intro", "Chapter Two", "Outro"},
+			wantStarts:  []float64{0, 83, 150},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			chapters := youtubeChaptersFromDescription(c.description, 200, true)
+			if len(chapters) != len(c.wantTitles) {
+				t.Fatalf("chapters = %d, want %d", len(chapters), len(c.wantTitles))
+			}
+			for index, want := range c.wantTitles {
+				object, _ := chapters[index].Object()
+				if title := youtubeWatchText(object, "title"); title != want {
+					t.Fatalf("chapter[%d].title = %q, want %q", index, title, want)
+				}
+				if start, _ := object.Lookup("start_time").Float(); start != c.wantStarts[index] {
+					t.Fatalf("chapter[%d].start_time = %v, want %v", index, start, c.wantStarts[index])
+				}
+			}
+		})
+	}
+}
+
+// TestYouTubeWatchMetadataHeatmapGlobalCap reproduces the previously-broken
+// case where two mutations of 1024 markers each produced 1025 entries
+// because the cap only short-circuited the inner marker loop. The fix
+// enforces the cap globally so the second mutation is short-circuited
+// as well.
+func TestYouTubeWatchMetadataHeatmapGlobalCap(t *testing.T) {
+	mutation := func() string {
+		markers := make([]string, 0, youtubeMaxWatchHeatmapEntries)
+		for index := 0; index < youtubeMaxWatchHeatmapEntries; index++ {
+			markers = append(markers, fmt.Sprintf(`{"startMillis":%d,"durationMillis":1000,"intensityScoreNormalized":0.5}`, index))
+		}
+		return `{"payload":{"macroMarkersListEntity":{"markersList":{"markerType":"MARKER_TYPE_HEATMAP","markers":[` + strings.Join(markers, ",") + `]}}}}`
+	}
+	page := []byte(`<!doctype html><html><body><script>var ytInitialData = {"frameworkUpdates":{"entityBatchUpdate":{"mutations":[` + mutation() + "," + mutation() + `]}}};</script></body></html>`)
+	metadata, err := extractYouTubeWatchMetadata(page, 123, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(metadata.heatmap) != youtubeMaxWatchHeatmapEntries {
+		t.Fatalf("heatmap = %d; want %d (global cap)", len(metadata.heatmap), youtubeMaxWatchHeatmapEntries)
+	}
+}
+
+// TestYouTubeWatchMetadataAvailabilityInfersPublic covers the pinned
+// inference: when isPrivate/isUnlisted are known-false and no badge
+// elevates the video, the merged claim is "public" rather than absent.
+func TestYouTubeWatchMetadataAvailabilityInfersPublic(t *testing.T) {
+	privateFalse := false
+	unlistedFalse := false
+	if got := youtubeMergedAvailability("", &privateFalse, &unlistedFalse, 0); got != "public" {
+		t.Fatalf("merged availability = %q, want public", got)
+	}
+	// Unknown signals must not claim public.
+	if got := youtubeMergedAvailability("", nil, nil, 0); got != "" {
+		t.Fatalf("merged availability with unknown signals = %q, want \"\"", got)
+	}
+	// Premium_only state still beats public inference.
+	if got := youtubeMergedAvailability("premium_only", &privateFalse, &unlistedFalse, 0); got != "premium_only" {
+		t.Fatalf("merged availability with premium_only badge = %q, want premium_only", got)
+	}
+}
+
+// TestYouTubeWatchMetadataCaseInsensitiveDislikeMatching reproduces the
+// previously-broken case where "56 Dislikes" was classified as like_count
+// because the captured "dis" prefix was compared case-sensitively. The
+// fix compares the captured prefix case-insensitively so all of
+// "dislikes"/"Dislikes"/"DISLIKES" map to dislikeCount. The unit test
+// invokes parseLikeToggle directly with synthesized toggle values, which
+// is the canonical code path for the case-insensitive comparison.
+func TestYouTubeWatchMetadataCaseInsensitiveDislikeMatching(t *testing.T) {
+	cases := []struct {
+		label       string
+		wantLike    bool
+		wantDislike bool
+	}{
+		{label: "56 likes", wantLike: true},
+		{label: "56 Likes", wantLike: true},
+		{label: "56 LIKES", wantLike: true},
+		{label: "56 dislikes", wantDislike: true},
+		{label: "56 Dislikes", wantDislike: true},
+		{label: "56 DISLIKES", wantDislike: true},
+	}
+	for _, c := range cases {
+		t.Run(c.label, func(t *testing.T) {
+			metadata := &youtubeWatchMetadata{}
+			toggle := value.ObjectValue(value.NewObject(
+				value.Field{Key: "defaultText", Value: value.ObjectValue(value.NewObject(
+					value.Field{Key: "accessibility", Value: value.ObjectValue(value.NewObject(
+						value.Field{Key: "accessibilityData", Value: value.ObjectValue(value.NewObject(
+							value.Field{Key: "label", Value: value.String(c.label)},
+						))},
+					))},
+				))},
+			))
+			if !metadata.parseLikeToggle(toggle) {
+				t.Fatalf("label %q: parseLikeToggle returned false", c.label)
+			}
+			if c.wantLike {
+				if !metadata.hasLikeCount || metadata.likeCount != 56 {
+					t.Fatalf("label %q => likeCount = %d, %v", c.label, metadata.likeCount, metadata.hasLikeCount)
+				}
+				if metadata.hasDislikeCount {
+					t.Fatalf("label %q must not classify as dislike", c.label)
+				}
+			}
+			if c.wantDislike {
+				if !metadata.hasDislikeCount || metadata.dislikeCount != 56 {
+					t.Fatalf("label %q => dislikeCount = %d, %v", c.label, metadata.dislikeCount, metadata.hasDislikeCount)
+				}
+				if metadata.hasLikeCount {
+					t.Fatalf("label %q must not classify as like", c.label)
+				}
+			}
+		})
+	}
+}
+
+// TestYouTubeWatchMetadataRootBoundsApplied reproduces the previously-broken
+// case where ytInitialData was fully unmarshaled without structural
+// bounds. The fix enforces the pinned depth/node/byte limits on the root
+// payload before parseRoot runs.
+func TestYouTubeWatchMetadataRootBoundsApplied(t *testing.T) {
+	// Oversized payload: more than youtubeMaxJSONBytes.
+	oversized := `{"a":` + strings.Repeat(`{"b":1}`, youtubeMaxJSONBytes/7) + `}`
+	page := []byte(`<!doctype html><html><body><script>var ytInitialData = ` + oversized + `;</script></body></html>`)
+	metadata, err := extractYouTubeWatchMetadata(page, 123, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metadata.hasAvailability || metadata.availability != "" {
+		t.Fatalf("oversized payload must not yield any availability claim")
+	}
+	if len(metadata.chapters) > 0 || len(metadata.heatmap) > 0 {
+		t.Fatalf("oversized payload must not yield chapters or heatmap")
+	}
+	// Deeply nested payload: depth > youtubeMaxJSONDepth.
+	deep := `{"a":`
+	for i := 0; i < youtubeMaxJSONDepth+2; i++ {
+		deep += `{"a":`
+	}
+	deep += `1`
+	for i := 0; i < youtubeMaxJSONDepth+2; i++ {
+		deep += `}`
+	}
+	deep += `}`
+	page = []byte(`<!doctype html><html><body><script>var ytInitialData = ` + deep + `;</script></body></html>`)
+	metadata, err = extractYouTubeWatchMetadata(page, 123, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metadata.hasAvailability || metadata.availability != "" {
+		t.Fatalf("deep payload must not yield any availability claim")
+	}
+}
+
+// TestYouTubeWatchMetadataCommentCountEnrichProduct exercises the pinned
+// comment-count contract through the actual Enrich closure path. The
+// synthetic transport serves an empty comment continuation so the closure
+// completes successfully with zero retrieved comments, and the test
+// proves that the approximate watch-page count is preserved through
+// deferred comment retrieval (matching the pinned reference).
+func TestYouTubeWatchMetadataCommentCountEnrichProduct(t *testing.T) {
+	withApprox := readYouTubeWatchFixture(t, "watch.html")
+	transport := newYouTubeCommentTransport(youtubeWatchFixtureURL, withApprox, nil)
+	result, err := NewYouTube().Extract(context.Background(), Request{
+		URL:             youtubeWatchFixtureURL,
+		Transport:       transport,
+		YouTubeComments: YouTubeCommentOptions{Enabled: true, MaxComments: 10},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count, ok := result.Info.Lookup("comment_count").Int(); !ok || count != 1234 {
+		t.Fatalf("initial comment_count = %d, ok=%v; want 1234", count, ok)
+	}
+	if result.Enrich == nil {
+		t.Fatal("Enrich closure not wired when comment retrieval is enabled")
+	}
+	if err := result.Enrich(context.Background(), &result.Info); err != nil {
+		t.Fatalf("Enrich failed: %v", err)
+	}
+	if count, ok := result.Info.Lookup("comment_count").Int(); !ok || count != 1234 {
+		t.Fatalf("approximate comment_count not preserved through Enrich: %d, %v", count, ok)
+	}
+}
+
+// youtubeCommentEnrichTransport is a minimal Transport that serves the
+// watch page from a static byte slice and answers /youtubei/v1/next
+// comment-continuation requests with an empty reloadContinuationItemsCommand
+// payload, so the closure's fetch path completes without network failure.
+type youtubeCommentEnrichTransport struct {
+	pageURL      string
+	page         []byte
+	continuation []byte
+	calls        int
+}
+
+func newYouTubeCommentTransport(pageURL string, page []byte, continuation []byte) *youtubeCommentEnrichTransport {
+	return &youtubeCommentEnrichTransport{pageURL: pageURL, page: page, continuation: continuation}
+}
+
+func (transport *youtubeCommentEnrichTransport) ReadPage(_ context.Context, rawURL string) ([]byte, http.Header, error) {
+	if rawURL != transport.pageURL {
+		return nil, nil, fmt.Errorf("unexpected URL %q", rawURL)
+	}
+	return append([]byte(nil), transport.page...), make(http.Header), nil
+}
+
+func (transport *youtubeCommentEnrichTransport) Do(_ context.Context, request *http.Request) (*http.Response, error) {
+	transport.calls++
+	body := transport.continuation
+	if body == nil {
+		// Empty but valid comment-continuation response: an empty
+		// reloadContinuationItemsCommand container so the parser sees
+		// zero retrieved comments and the closure completes successfully.
+		body = []byte(`{"onResponseReceivedEndpoints":[{"reloadContinuationItemsCommand":{"continuationItems":[]}}]}`)
+	}
+	response := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(bytes.NewReader(body)),
+		Header:     make(http.Header),
+		Request:    request,
+	}
+	response.Header.Set("Content-Type", "application/json")
+	return response, nil
+}
+
+func (transport *youtubeCommentEnrichTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	return transport.Do(nil, request)
+}
+
+// FuzzYouTubeWatchMetadataParser exercises the watch-page metadata
+// extractor against arbitrary ytInitialData blobs. The fuzz target
+// enforces the structural limits already promised by the evidence doc:
+// an oversized or deeply-nested payload must not crash, leak unbounded
+// allocations, or produce a partial availability/chapters/heatmap claim.
+func FuzzYouTubeWatchMetadataParser(f *testing.F) {
+	f.Add(`{"contents":{"twoColumnWatchNextResults":{"results":{"results":{"contents":[]}}}}}`)
+	f.Add(`{"frameworkUpdates":{"entityBatchUpdate":{"mutations":[]}}}`)
+	f.Add(`{"contents":{"twoColumnWatchNextResults":{"results":{"results":{"contents":[{"videoPrimaryInfoRenderer":{"dateText":{"simpleText":"Jan 15, 2024"}}}]}}}}}`)
+	f.Add(`{"contents":{"twoColumnWatchNextResults":{"results":{"results":{"contents":[{"videoSecondaryInfoRenderer":{"owner":{"videoOwnerRenderer":{"subscriberCountText":{"simpleText":"12.3K subscribers"}},"badges":[{"metadataBadgeRenderer":{"style":"BADGE_STYLE_TYPE_VERIFIED"}}]}}}}]}}}}}`)
+	f.Add(`<script>var ytInitialData = {"frameworkUpdates":{"entityBatchUpdate":{"mutations":[{"payload":{"macroMarkersListEntity":{"markersList":{"markerType":"MARKER_TYPE_HEATMAP","markers":[{"startMillis":0,"durationMillis":1000,"intensityScoreNormalized":0.5}]}}}}}]}}};</script>`)
+	f.Fuzz(func(t *testing.T, raw string) {
+		// Wrap the raw input as a minimal HTML payload; a non-JSON or
+		// hostile blob must simply yield zero metadata, never panic.
+		page := []byte(`<!doctype html><html><body><script>var ytInitialData = ` + raw + `;</script></body></html>`)
+		metadata, err := extractYouTubeWatchMetadata(page, 123, true)
+		if err != nil {
+			t.Fatalf("extractYouTubeWatchMetadata returned error %v", err)
+		}
+		// Structural limits must keep partial claims impossible: any
+		// successful parse yields either a complete claim or none.
+		if metadata.hasAvailability {
+			if metadata.availability == "" {
+				t.Fatalf("hasAvailability with empty availability")
+			}
+			if !youtubeAvailabilityIsKnown(metadata.availability) {
+				t.Fatalf("unknown availability string %q", metadata.availability)
+			}
+		}
+		if len(metadata.heatmap) > youtubeMaxWatchHeatmapEntries {
+			t.Fatalf("heatmap exceeded global cap: %d", len(metadata.heatmap))
+		}
+	})
+}
+
+// youtubeAvailabilityIsKnown validates that a parsed availability string
+// is one of the pinned states, so a hostile fuzz payload cannot fabricate
+// a non-existent state.
+func youtubeAvailabilityIsKnown(value string) bool {
+	switch value {
+	case "private", "premium_only", "subscriber_only", "needs_auth", "unlisted", "public":
+		return true
+	}
+	return false
 }

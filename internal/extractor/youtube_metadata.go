@@ -166,13 +166,21 @@ func youtubePlayerAvailability(isPrivate *bool, isUnlisted *bool, ageLimit int) 
 }
 
 // youtubeMergedAvailability combines the watch-page badge availability with
-// player-derived signals through the shared precedence normalizer. The badge
-// claim is empty when unattributable, so the merged result degrades to the
-// player-only partial claim.
+// player-derived signals through the shared precedence normalizer. The
+// badge claim is empty when unattributable, so the merged result degrades
+// to the player-only partial claim.
+//
+// Pin: yt_dlp/extractor/common.py:4010-4021 _availability. The public
+// inference is gated by is_private being known (non-nil); when is_private
+// is known-false and no badge elevated the video, the merged claim is
+// "public". is_unlisted is treated as None when is_private is None,
+// matching the pinned yt_dlp/extractor/youtube/_video.py:4555-4571
+// construction. The state name "premium_only" matches the pinned
+// yt_dlp/extractor/common.py:4016 emission.
 func youtubeMergedAvailability(badgeAvailability string, isPrivate *bool, isUnlisted *bool, ageLimit int) string {
 	private := badgeAvailability == "private"
-	premium := badgeAvailability == "premium"
-	subscriber := badgeAvailability == "subscriber_only"
+	premiumOnly := badgeAvailability == "premium_only"
+	subscriberOnly := badgeAvailability == "subscriber_only"
 	unlisted := badgeAvailability == "unlisted"
 	public := badgeAvailability == "public"
 	if isPrivate != nil && *isPrivate {
@@ -181,7 +189,13 @@ func youtubeMergedAvailability(badgeAvailability string, isPrivate *bool, isUnli
 	if isUnlisted != nil && *isUnlisted {
 		unlisted = true
 	}
-	return youtubeAvailabilityPrecedence(private, premium, subscriber, ageLimit >= 18, unlisted, public)
+	// Pinned all-known public inference: when is_private is known and no
+	// signal elevated the video, the merged claim is "public". Unknown
+	// signals leave the merged claim as the badge-only partial.
+	if isPrivate != nil && !*isPrivate && !private && !premiumOnly && !subscriberOnly && !unlisted && badgeAvailability == "" {
+		public = true
+	}
+	return youtubeAvailabilityPrecedence(private, premiumOnly, subscriberOnly, ageLimit >= 18, unlisted, public)
 }
 
 // youtubeMediaType classifies the video from player data, matching the pinned

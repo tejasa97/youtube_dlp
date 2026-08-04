@@ -230,5 +230,6 @@
       "preference": -37
     }
   ],
-  "live_status": "not_live"
+  "live_status": "not_live",
+  "availability": "public"
 }

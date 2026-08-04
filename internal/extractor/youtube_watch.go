@@ -63,14 +63,26 @@ type youtubeWatchMetadata struct {
 	hasAvailability         bool
 }
 
-// extractYouTubeWatchMetadata parses the watch page's ytInitialData once.
+// extractYouTubeWatchMetadata parses the watch page's ytInitialData once
+// through a bounded root walk before delegating to parseRoot. The byte
+// cap and structural limits mirror the pinned yt-dlp reference
+// (yt_dlp/extractor/youtube/_video.py:2293-2308) and the existing
+// walkOrderedJSON bounds used for badge subtrees; exceeding any of them
+// causes the entire watch-page metadata to be omitted rather than
+// producing a partial claim.
 func extractYouTubeWatchMetadata(page []byte, duration int64, hasDuration bool) (youtubeWatchMetadata, error) {
 	raw, err := extractJSONObject(page, youtubeInitialDataMarker)
 	if err != nil {
 		return youtubeWatchMetadata{}, nil // watch metadata is optional
 	}
+	if len(raw) > youtubeMaxJSONBytes {
+		return youtubeWatchMetadata{}, nil
+	}
 	var root value.Value
 	if err := json.Unmarshal(raw, &root); err != nil {
+		return youtubeWatchMetadata{}, nil
+	}
+	if !youtubeRootWithinBounds(root) {
 		return youtubeWatchMetadata{}, nil
 	}
 	rootObject, ok := root.Object()
@@ -80,6 +92,38 @@ func extractYouTubeWatchMetadata(page []byte, duration int64, hasDuration bool) 
 	var metadata youtubeWatchMetadata
 	metadata.parseRoot(rootObject, duration, hasDuration)
 	return metadata, nil
+}
+
+// youtubeRootWithinBounds enforces the advertised structural limits on
+// the entire ytInitialData payload. The walker counts every visited
+// node, tracks depth, and aborts on the first violation. Returns true
+// only when the entire tree stays within budget.
+func youtubeRootWithinBounds(root value.Value) bool {
+	nodes := 0
+	var walk func(item value.Value, depth int) bool
+	walk = func(item value.Value, depth int) bool {
+		nodes++
+		if depth > youtubeMaxJSONDepth || nodes > youtubeMaxJSONNodes {
+			return false
+		}
+		if object, ok := item.Object(); ok {
+			for _, field := range object.Fields() {
+				if !walk(field.Value, depth+1) {
+					return false
+				}
+			}
+			return true
+		}
+		if list, ok := item.ListValue(); ok {
+			for _, child := range list {
+				if !walk(child, depth+1) {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	return walk(root, 0)
 }
 
 func (metadata *youtubeWatchMetadata) parseRoot(root *value.Object, duration int64, hasDuration bool) {
@@ -269,7 +313,7 @@ func (metadata *youtubeWatchMetadata) parseLikeToggle(toggle value.Value) bool {
 	}
 	if match := youtubeLikeLabelPattern.FindStringSubmatch(label); match != nil {
 		if count, ok := youtubeParseCountText(match[1]); ok {
-			if match[2] == "dis" {
+			if strings.EqualFold(match[2], "dis") {
 				metadata.dislikeCount = count
 				metadata.hasDislikeCount = true
 			} else {
@@ -281,7 +325,7 @@ func (metadata *youtubeWatchMetadata) parseLikeToggle(toggle value.Value) bool {
 	}
 	if match := youtubeLikeAlongPattern.FindStringSubmatch(label); match != nil {
 		if count, ok := youtubeParseCountText(match[2]); ok {
-			if match[1] == "dis" {
+			if strings.EqualFold(match[1], "dis") {
 				metadata.dislikeCount = count
 				metadata.hasDislikeCount = true
 			} else {
@@ -370,7 +414,7 @@ func youtubeWatchUploadDate(dateText string) string {
 }
 
 func (metadata *youtubeWatchMetadata) parseAvailabilityBadges(badges value.Value) {
-	var private, premium, subscriber, unlisted, public bool
+	var private, premiumOnly, subscriberOnly, unlisted, public bool
 	list, ok := badges.ListValue()
 	if !ok {
 		return
@@ -396,9 +440,9 @@ func (metadata *youtubeWatchMetadata) parseAvailabilityBadges(badges value.Value
 			case icon == "PRIVACY_UNLISTED" || label == "unlisted":
 				unlisted = true
 			case style == "BADGE_STYLE_TYPE_PREMIUM" || label == "premium":
-				premium = true
+				premiumOnly = true
 			case style == "BADGE_STYLE_TYPE_MEMBERS_ONLY" || label == "members only" || label == "members-only":
-				subscriber = true
+				subscriberOnly = true
 			}
 		})
 		if err != nil {
@@ -407,7 +451,7 @@ func (metadata *youtubeWatchMetadata) parseAvailabilityBadges(badges value.Value
 			return
 		}
 	}
-	metadata.availability = youtubeAvailabilityPrecedence(private, premium, subscriber, false, unlisted, public)
+	metadata.availability = youtubeAvailabilityPrecedence(private, premiumOnly, subscriberOnly, false, unlisted, public)
 	metadata.hasAvailability = metadata.availability != ""
 }
 
@@ -431,14 +475,18 @@ func youtubeBadgeType(object *value.Object) youtubeBadgeKind {
 
 // youtubeAvailabilityPrecedence maps attributable availability signals onto the
 // pinned yt-dlp availability string with order-independent precedence:
-// private > premium > subscriber_only > needs_auth > unlisted > public.
-func youtubeAvailabilityPrecedence(private, premium, subscriber, needsAuth, unlisted, public bool) string {
+// private > premium_only > subscriber_only > needs_auth > unlisted > public.
+//
+// Pin: yt_dlp/extractor/common.py:4010-4021. The "public" branch is the
+// caller's all-known inference; when any signal is unknown, "public" must
+// not be claimed and the function returns "" (treated as None upstream).
+func youtubeAvailabilityPrecedence(private, premiumOnly, subscriberOnly, needsAuth, unlisted, public bool) string {
 	switch {
 	case private:
 		return "private"
-	case premium:
-		return "premium"
-	case subscriber:
+	case premiumOnly:
+		return "premium_only"
+	case subscriberOnly:
 		return "subscriber_only"
 	case needsAuth:
 		return "needs_auth"
@@ -549,28 +597,21 @@ type youtubeChapterItem struct {
 }
 
 // youtubeChaptersFromDescription is the bounded description-based chapter
-// fallback (source 3): consecutive "Title" / "MM:SS" line pairs.
-var youtubeChaptersFromDescriptionPattern = regexp.MustCompile(`(?m)^([^\n]{2,120})\n+((?:\d{1,2}:)?\d{1,2}:\d{2})`)
-
-func youtubeChaptersFromDescription(description string, duration int64, hasDuration bool) []value.Value {
-	if description == "" || len(description) > 1<<20 || youtubeHasDescriptionControlChars(description) {
-		return nil
-	}
-	matches := youtubeChaptersFromDescriptionPattern.FindAllStringSubmatch(description, -1)
-	if len(matches) == 0 {
-		return nil
-	}
-	items := make([]youtubeChapterItem, 0, len(matches))
-	for _, match := range matches {
-		title := strings.TrimSpace(match[1])
-		start, ok := youtubeParseWatchDuration(match[2])
-		if title == "" || !ok {
-			continue
-		}
-		items = append(items, youtubeChapterItem{start: start, title: title})
-	}
-	return normalizeYouTubeChapters(items, duration, hasDuration)
-}
+// fallback (source 3). It accepts both pinned orders:
+//
+//  1. <title>\n<timestamp>    (e.g. "Intro\n0:00")
+//  2. <timestamp> <title>     (e.g. "0:00 Intro")
+//
+// Pin: yt_dlp/extractor/youtube/_video.py:2350-2353. yt-dlp consumes
+// the description line by line and pairs each title with the timestamp
+// that immediately follows (or precedes) it, never double-counting a
+// timestamp that has already anchored one chapter. This implementation
+// walks the description sequentially: at each timestamp anchor it tries
+// the previous-line, same-line, and next-line orders, emitting at most
+// one chapter per anchor.
+var (
+	youtubeDescriptionChapterTimestampPattern = regexp.MustCompile(`^\s*((?:\d{1,2}:)?\d{1,2}:\d{2})\s*$`)
+)
 
 func youtubeHasDescriptionControlChars(raw string) bool {
 	for _, r := range raw {
@@ -579,6 +620,86 @@ func youtubeHasDescriptionControlChars(raw string) bool {
 		}
 	}
 	return false
+}
+
+func youtubeChaptersFromDescription(description string, duration int64, hasDuration bool) []value.Value {
+	if description == "" || len(description) > 1<<20 || youtubeHasDescriptionControlChars(description) {
+		return nil
+	}
+	lines := strings.Split(description, "\n")
+	items := make([]youtubeChapterItem, 0, 8)
+	consumed := make([]bool, len(lines))
+	for index, line := range lines {
+		if consumed[index] {
+			continue
+		}
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		// Extract the leading timestamp prefix when the line has both a
+		// timestamp and a title on the same physical line.
+		timestampText := trimmed
+		rest := ""
+		if end := strings.IndexAny(trimmed, " \t"); end > 0 {
+			candidate := trimmed[:end]
+			if _, ok := youtubeParseWatchDuration(candidate); ok {
+				timestampText = candidate
+				rest = strings.TrimSpace(trimmed[end:])
+			}
+		}
+		start, ok := youtubeParseWatchDuration(timestampText)
+		if !ok {
+			continue
+		}
+		// Order 1: title is on the previous non-empty line.
+		for back := index - 1; back >= 0; back-- {
+			if consumed[back] {
+				break
+			}
+			titleCandidate := strings.TrimSpace(lines[back])
+			if titleCandidate == "" {
+				continue
+			}
+			if len(titleCandidate) < 2 || len(titleCandidate) > 120 {
+				break
+			}
+			items = append(items, youtubeChapterItem{start: start, title: titleCandidate})
+			consumed[back] = true
+			consumed[index] = true
+			break
+		}
+		if consumed[index] {
+			continue
+		}
+		// Order 2: title is on the same line after the timestamp.
+		if rest != "" {
+			titleCandidate := rest
+			if len(titleCandidate) >= 2 && len(titleCandidate) <= 120 {
+				items = append(items, youtubeChapterItem{start: start, title: titleCandidate})
+				consumed[index] = true
+				continue
+			}
+		}
+		// Order 3: title is on the next non-empty line.
+		for forward := index + 1; forward < len(lines); forward++ {
+			if consumed[forward] {
+				continue
+			}
+			titleCandidate := strings.TrimSpace(lines[forward])
+			if titleCandidate == "" {
+				continue
+			}
+			if len(titleCandidate) < 2 || len(titleCandidate) > 120 {
+				break
+			}
+			items = append(items, youtubeChapterItem{start: start, title: titleCandidate})
+			consumed[index] = true
+			consumed[forward] = true
+			break
+		}
+	}
+	return normalizeYouTubeChapters(items, duration, hasDuration)
 }
 
 // normalizeYouTubeChapters sorts candidates by start time, bounds them to the
@@ -627,12 +748,16 @@ func normalizeYouTubeChapters(items []youtubeChapterItem, duration int64, hasDur
 }
 
 // parseFrameworkUpdates extracts the heatmap from entity batch mutations.
+// The cap is enforced globally: when the running entry count reaches
+// youtubeMaxWatchHeatmapEntries, both the inner marker loop and the outer
+// mutation loop are short-circuited so a second mutation cannot append a
+// 1025th entry.
 func (metadata *youtubeWatchMetadata) parseFrameworkUpdates(updates value.Value) {
 	mutations, ok := youtubeWatchChild(youtubeWatchChild(updates, "entityBatchUpdate"), "mutations").ListValue()
 	if !ok {
 		return
 	}
-	var entries []value.Value
+	entries := make([]value.Value, 0, youtubeMaxWatchHeatmapEntries)
 	for _, mutation := range mutations {
 		payload, ok := youtubeWatchChild(mutation, "payload").Object()
 		if !ok {
@@ -651,6 +776,10 @@ func (metadata *youtubeWatchMetadata) parseFrameworkUpdates(updates value.Value)
 			continue
 		}
 		for _, marker := range markers {
+			if len(entries) >= youtubeMaxWatchHeatmapEntries {
+				metadata.heatmap = entries
+				return
+			}
 			object, ok := marker.Object()
 			if !ok {
 				continue
@@ -669,9 +798,6 @@ func (metadata *youtubeWatchMetadata) parseFrameworkUpdates(updates value.Value)
 				value.Field{Key: "end_time", Value: value.Float(float64(startMS+durationMS) / 1000)},
 				value.Field{Key: "value", Value: value.Float(score)},
 			)))
-			if len(entries) >= youtubeMaxWatchHeatmapEntries {
-				break
-			}
 		}
 	}
 	metadata.heatmap = entries

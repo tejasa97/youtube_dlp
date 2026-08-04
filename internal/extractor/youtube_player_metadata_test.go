@@ -328,7 +328,7 @@ func TestYouTubePlayerMetadataAvailabilityAndAgeLimit(t *testing.T) {
 		{"family unsafe", `, "isPrivate": false`, `"isUnlisted": false, "isFamilySafe": false`, "needs_auth", 18},
 		{"private beats family unsafe", `, "isPrivate": true`, `"isUnlisted": false, "isFamilySafe": false`, "private", 18},
 		{"needs auth beats unlisted", `, "isPrivate": false`, `"isUnlisted": true, "isFamilySafe": false`, "needs_auth", 18},
-		{"public stays absent", `, "isPrivate": false`, `"isUnlisted": false, "isFamilySafe": true`, "", 0},
+		{"public inferred", `, "isPrivate": false`, `"isUnlisted": false, "isFamilySafe": true`, "public", 0},
 		{"absent flags", ``, ``, "", 0},
 	}
 	for _, test := range tests {
@@ -646,8 +646,8 @@ func TestYouTubePlayerMetadataJSONFieldSurvival(t *testing.T) {
 	if _, ok := formats[1].(map[string]any)["stretched_ratio"]; ok {
 		t.Fatal("audio format must not carry stretched_ratio")
 	}
-	if _, ok := document["availability"]; ok {
-		t.Fatal("public availability must stay absent in PR1 (badge data pending)")
+	if got, _ := document["availability"].(string); got != "public" {
+		t.Fatalf("availability = %q, want \"public\" (PR3 infers public from known signals)", got)
 	}
 }
 

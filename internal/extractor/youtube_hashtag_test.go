@@ -40,7 +40,7 @@ func TestYouTubeRendererAvailabilityBadges(t *testing.T) {
 	if err != nil || len(page.entries) != 5 {
 		t.Fatalf("page=%#v err=%v", page, err)
 	}
-	want := []string{"subscriber_only", "private", "premium", "unlisted", "public"}
+	want := []string{"subscriber_only", "private", "premium_only", "unlisted", "public"}
 	for i, availability := range want {
 		if page.entries[i].Availability != availability {
 			t.Fatalf("entry[%d].Availability=%q want %q", i, page.entries[i].Availability, availability)
@@ -71,7 +71,7 @@ func TestYouTubeRendererAvailabilityPrecedenceIsOrderIndependent(t *testing.T) {
 		{
 			name:   "unlisted then premium then subscriber",
 			badges: `[{"metadataBadgeRenderer":{"icon":{"iconType":"PRIVACY_UNLISTED"}}},{"metadataBadgeRenderer":{"style":"BADGE_STYLE_TYPE_PREMIUM"}},{"metadataBadgeRenderer":{"style":"BADGE_STYLE_TYPE_MEMBERS_ONLY"}}]`,
-			want:   "premium",
+			want:   "premium_only",
 		},
 		{
 			name:   "subscriber then unlisted",
