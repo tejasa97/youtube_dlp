@@ -1,0 +1,168 @@
+/* ----------------------------------------------------------------
+ * Design tokens
+ *
+ * The colour, spacing, and type scale are pinned to the agreed V0
+ * visual contract: a dark graphite/navy desktop surface with a single
+ * cobalt accent and restrained typography. Every component reads from
+ * these variables — no component owns a colour of its own.
+ * ---------------------------------------------------------------- */
+
+:root {
+  /* Surfaces */
+  --surface-bg:        #0B111B;
+  --surface-base:      #111925;
+  --surface-raised:    #141D29;
+  --surface-sunken:    #0D141E;
+  --surface-sidebar:   #0D1623;
+  --surface-hover:     #1B2635;
+  --surface-active:    #223149;
+
+  /* Borders & dividers */
+  --border-subtle:     #243142;
+  --border-default:    #334257;
+  --border-strong:     #46566D;
+
+  /* Text */
+  --text-primary:      #F2F4F8;
+  --text-secondary:    #B5BDCA;
+  --text-muted:        #7D889A;
+  --text-disabled:     #4A5063;
+  --text-on-accent:    #FFFFFF;
+
+  /* Accent — cobalt */
+  --accent-500:        #2F72ED;
+  --accent-600:        #2563D7;
+  --accent-400:        #60A5FA;
+  --accent-soft:       rgba(59, 130, 246, 0.16);
+  --accent-ring:       rgba(59, 130, 246, 0.45);
+
+  /* Status */
+  --status-success:    #34D399;
+  --status-success-soft: rgba(52, 211, 153, 0.12);
+  --status-danger:     #F87171;
+  --status-danger-soft:  rgba(248, 113, 113, 0.12);
+  --status-warning:    #FBBF24;
+  --status-warning-soft: rgba(251, 191, 36, 0.12);
+  --status-info:       #60A5FA;
+  --status-info-soft:  rgba(96, 165, 250, 0.12);
+
+  /* Typography */
+  --font-sans: 'Inter', 'SF Pro Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+
+  --fs-xs:   12px;
+  --fs-sm:   13px;
+  --fs-md:   15px;
+  --fs-lg:   17px;
+  --fs-xl:   21px;
+  --fs-2xl:  28px;
+  --fs-3xl:  32px;
+
+  /* Spacing */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-7: 32px;
+  --sp-8: 40px;
+  --sp-9: 48px;
+
+  /* Radii */
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 10px;
+  --r-xl: 14px;
+  --r-full: 9999px;
+
+  /* Misc */
+  --shadow-card: 0 1px 0 rgba(255,255,255,0.02) inset, 0 8px 24px rgba(0,0,0,0.32);
+  --shadow-modal: 0 24px 64px rgba(0,0,0,0.6);
+
+  --sidebar-w: 212px;
+  --header-h: 56px;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #app {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--surface-bg);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--fs-md);
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+#app { display: flex; min-height: 100%; }
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  padding: 0;
+}
+
+button:disabled { cursor: not-allowed; opacity: 0.55; }
+
+input, textarea, select {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-md);
+  padding: 0 var(--sp-4);
+  height: 40px;
+  outline: none;
+  width: 100%;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+
+input::placeholder, textarea::placeholder { color: var(--text-muted); }
+
+input:focus, textarea:focus, select:focus {
+  border-color: var(--accent-500);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+  background: var(--surface-base);
+}
+
+input:disabled, textarea:disabled, select:disabled { opacity: 0.6; }
+
+a { color: var(--accent-400); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--border-default); border-radius: var(--r-full); border: 2px solid var(--surface-bg); }
+::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* Utility classes (kept tiny — the app doesn't rely on a framework) */
+.row { display: flex; align-items: center; }
+.col { display: flex; flex-direction: column; }
+.gap-2 { gap: var(--sp-2); }
+.gap-3 { gap: var(--sp-3); }
+.gap-4 { gap: var(--sp-4); }
+.gap-5 { gap: var(--sp-5); }
+.gap-6 { gap: var(--sp-6); }
+.muted { color: var(--text-secondary); }
+.faint { color: var(--text-muted); }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hidden { display: none; }
+
+/* Focus visibility for keyboard users */
+:focus-visible { outline: 2px solid var(--accent-400); outline-offset: 2px; border-radius: var(--r-sm); }
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}
