@@ -1,0 +1,227 @@
+{
+  "id": "fixture0002",
+  "title": "Synthetic Metadata Video",
+  "description": "player-response metadata fixture",
+  "uploader": "fixture channel",
+  "channel": "fixture channel",
+  "channel_id": "UCfixture000000000000000",
+  "webpage_url": "https://www.youtube.com/watch?v=fixture0002",
+  "ext": "mp4",
+  "formats": [
+    {
+      "format_id": "18",
+      "url": "https://media.example/video.mp4",
+      "ext": "mp4",
+      "vcodec": "avc1.42001E",
+      "acodec": "mp4a.40.2",
+      "tbr": 500,
+      "filesize": 1000,
+      "width": 640,
+      "height": 360,
+      "fps": 30,
+      "stretched_ratio": 1.3333333333333333
+    },
+    {
+      "format_id": "140",
+      "url": "https://media.example/audio.m4a",
+      "ext": "m4a",
+      "vcodec": "none",
+      "acodec": "mp4a.40.2",
+      "tbr": 128,
+      "filesize": 500
+    }
+  ],
+  "channel_url": "https://www.youtube.com/channel/UCfixture000000000000000",
+  "uploader_id": "@fixturechannel",
+  "uploader_url": "https://www.youtube.com/@fixturechannel",
+  "upload_date": "20240116",
+  "timestamp": 1705372200,
+  "age_limit": 0,
+  "categories": [
+    "Science & Technology"
+  ],
+  "tags": [
+    "yt:stretch=4:3",
+    "tag one",
+    "tag two"
+  ],
+  "average_rating": 4.5,
+  "playable_in_embed": true,
+  "media_type": "video",
+  "duration": 123,
+  "view_count": 456,
+  "thumbnail": "https://img.example/large.jpg",
+  "thumbnails": [
+    {
+      "url": "https://img.example/small.jpg",
+      "width": 160,
+      "height": 90
+    },
+    {
+      "url": "https://img.example/large.jpg",
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "url": "https://img.example/micro.jpg",
+      "width": 640,
+      "height": 360
+    },
+    {
+      "url": "https://img.example/og.jpg"
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0002/maxresdefault.webp",
+      "preference": 0
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0002/maxresdefault.jpg",
+      "preference": -1
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0002/hq720.webp",
+      "preference": -2
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0002/hq720.jpg",
+      "preference": -3
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0002/sddefault.webp",
+      "preference": -4
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0002/sddefault.jpg",
+      "preference": -5
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0002/hqdefault.webp",
+      "preference": -6
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0002/hqdefault.jpg",
+      "preference": -7
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0002/0.webp",
+      "preference": -8
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0002/0.jpg",
+      "preference": -9
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0002/mqdefault.webp",
+      "preference": -10
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0002/mqdefault.jpg",
+      "preference": -11
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0002/default.webp",
+      "preference": -12
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0002/default.jpg",
+      "preference": -13
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0002/sd1.webp",
+      "preference": -14
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0002/sd1.jpg",
+      "preference": -15
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0002/sd2.webp",
+      "preference": -16
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0002/sd2.jpg",
+      "preference": -17
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0002/sd3.webp",
+      "preference": -18
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0002/sd3.jpg",
+      "preference": -19
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0002/hq1.webp",
+      "preference": -20
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0002/hq1.jpg",
+      "preference": -21
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0002/hq2.webp",
+      "preference": -22
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0002/hq2.jpg",
+      "preference": -23
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0002/hq3.webp",
+      "preference": -24
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0002/hq3.jpg",
+      "preference": -25
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0002/mq1.webp",
+      "preference": -26
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0002/mq1.jpg",
+      "preference": -27
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0002/mq2.webp",
+      "preference": -28
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0002/mq2.jpg",
+      "preference": -29
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0002/mq3.webp",
+      "preference": -30
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0002/mq3.jpg",
+      "preference": -31
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0002/1.webp",
+      "preference": -32
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0002/1.jpg",
+      "preference": -33
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0002/2.webp",
+      "preference": -34
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0002/2.jpg",
+      "preference": -35
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0002/3.webp",
+      "preference": -36
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0002/3.jpg",
+      "preference": -37
+    }
+  ],
+  "live_status": "not_live"
+}

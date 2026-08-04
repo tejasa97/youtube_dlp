@@ -3,7 +3,8 @@
   "title": "Synthetic YouTube Video",
   "description": "offline fixture with a } brace and an escaped \" quote",
   "uploader": "fixture channel",
-  "channel_id": "UCfixture",
+  "channel": "fixture channel",
+  "channel_id": "UCfixture000000000000000",
   "webpage_url": "https://www.youtube.com/watch?v=fixture0001",
   "ext": "mp4",
   "formats": [
@@ -41,8 +42,171 @@
       "protocol": "http_dash_segments"
     }
   ],
+  "channel_url": "https://www.youtube.com/channel/UCfixture000000000000000",
+  "age_limit": 0,
+  "media_type": "video",
   "duration": 123,
   "view_count": 456,
-  "thumbnail": "https://img.example/large.jpg",
+  "thumbnail": "https://img.example/small.jpg",
+  "thumbnails": [
+    {
+      "url": "https://img.example/small.jpg"
+    },
+    {
+      "url": "https://img.example/large.jpg"
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0001/maxresdefault.webp",
+      "preference": 0
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0001/maxresdefault.jpg",
+      "preference": -1
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0001/hq720.webp",
+      "preference": -2
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0001/hq720.jpg",
+      "preference": -3
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0001/sddefault.webp",
+      "preference": -4
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0001/sddefault.jpg",
+      "preference": -5
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0001/hqdefault.webp",
+      "preference": -6
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0001/hqdefault.jpg",
+      "preference": -7
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0001/0.webp",
+      "preference": -8
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0001/0.jpg",
+      "preference": -9
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0001/mqdefault.webp",
+      "preference": -10
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0001/mqdefault.jpg",
+      "preference": -11
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0001/default.webp",
+      "preference": -12
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0001/default.jpg",
+      "preference": -13
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0001/sd1.webp",
+      "preference": -14
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0001/sd1.jpg",
+      "preference": -15
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0001/sd2.webp",
+      "preference": -16
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0001/sd2.jpg",
+      "preference": -17
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0001/sd3.webp",
+      "preference": -18
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0001/sd3.jpg",
+      "preference": -19
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0001/hq1.webp",
+      "preference": -20
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0001/hq1.jpg",
+      "preference": -21
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0001/hq2.webp",
+      "preference": -22
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0001/hq2.jpg",
+      "preference": -23
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0001/hq3.webp",
+      "preference": -24
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0001/hq3.jpg",
+      "preference": -25
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0001/mq1.webp",
+      "preference": -26
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0001/mq1.jpg",
+      "preference": -27
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0001/mq2.webp",
+      "preference": -28
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0001/mq2.jpg",
+      "preference": -29
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0001/mq3.webp",
+      "preference": -30
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0001/mq3.jpg",
+      "preference": -31
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0001/1.webp",
+      "preference": -32
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0001/1.jpg",
+      "preference": -33
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0001/2.webp",
+      "preference": -34
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0001/2.jpg",
+      "preference": -35
+    },
+    {
+      "url": "https://i.ytimg.com/vi_webp/fixture0001/3.webp",
+      "preference": -36
+    },
+    {
+      "url": "https://i.ytimg.com/vi/fixture0001/3.jpg",
+      "preference": -37
+    }
+  ],
   "live_status": "not_live"
 }
