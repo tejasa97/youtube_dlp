@@ -1,0 +1,22 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "YTDLP Go Desktop",
+  "outputfilename": "ytdlp-desktop",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "postBuildHooks": {
+    "darwin/*": "../../scripts/package-js-helper.sh ${bin}"
+  },
+  "author": {
+    "name": "ytdlp-go contributors",
+    "email": ""
+  },
+  "info": {
+    "productName": "YTDLP Go Desktop",
+    "productVersion": "0.1.0",
+    "comments": "Single-video YouTube downloader built on ytdlp-go",
+    "copyright": "Apache-2.0"
+  }
+}
