@@ -14,11 +14,14 @@
       "ext": "mp4",
       "vcodec": "avc1.42001E",
       "acodec": "mp4a.40.2",
-      "tbr": 500,
       "filesize": 1000,
+      "quality": -1,
+      "tbr": 500,
       "width": 640,
       "height": 360,
       "fps": 30,
+      "source_preference": -1,
+      "has_drm": false,
       "stretched_ratio": 1.3333333333333333
     },
     {
@@ -27,8 +30,12 @@
       "ext": "m4a",
       "vcodec": "none",
       "acodec": "mp4a.40.2",
+      "container": "m4a_dash",
+      "filesize": 500,
+      "quality": -1,
       "tbr": 128,
-      "filesize": 500
+      "source_preference": -1,
+      "has_drm": false
     }
   ],
   "channel_url": "https://www.youtube.com/channel/UCfixture000000000000000",
