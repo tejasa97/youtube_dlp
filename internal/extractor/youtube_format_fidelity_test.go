@@ -427,6 +427,7 @@ func FuzzYouTubeFormatFidelity(f *testing.F) {
 	f.Add("en")
 	f.Add("Spanish (original)")
 	f.Add("https://media.example/v.mp4?xtags=x%3Dsr%3D1")
+	f.Add(".")
 	f.Add("yt:stretch=4:3")
 	f.Fuzz(func(t *testing.T, raw string) {
 		firstV, firstA, firstR := youtubeParseCodecs(raw)
@@ -454,4 +455,173 @@ func FuzzYouTubeFormatFidelity(f *testing.F) {
 			t.Fatalf("invalid ratio %v", firstRatio)
 		}
 	})
+}
+
+func TestYouTubeFormatFidelityFlexibleInt64TolerantOfMalformed(t *testing.T) {
+	cases := []struct {
+		raw   string
+		want  int64
+		valid bool
+	}{
+		{`null`, 0, true},
+		{`""`, 0, true},
+		{`0`, 0, true},
+		{`44100`, 44100, true},
+		{`"44100"`, 44100, true},
+		{`"0"`, 0, true},
+		// Malformed and overflowing values are silently dropped to 0; the
+		// extraction never aborts because of an optional numeric field.
+		{`"44100.5"`, 0, true},
+		{`"abc"`, 0, true},
+		{`{"x":1}`, 0, true},
+		{`[1,2]`, 0, true},
+		{`99999999999999999999999`, 0, true},
+	}
+	for _, c := range cases {
+		var got youtubeFlexibleInt64
+		err := got.UnmarshalJSON([]byte(c.raw))
+		if err != nil {
+			t.Fatalf("UnmarshalJSON(%s) returned error %v", c.raw, err)
+		}
+		if int64(got) != c.want {
+			t.Fatalf("UnmarshalJSON(%s) = %d, want %d", c.raw, int64(got), c.want)
+		}
+	}
+}
+
+func TestYouTubeFormatFidelityDRMTruthiness(t *testing.T) {
+	cases := []struct {
+		raw  string
+		want bool
+	}{
+		{``, false},
+		{`null`, false},
+		{`"null"`, false},
+		{`""`, false},
+		{`[]`, false},
+		{`[ ]`, false},
+		{`{}`, false},
+		{`{ }`, false},
+		{`false`, false},
+		{`0`, false},
+		{`["widevine"]`, true},
+		{`["widevine","playready"]`, true},
+		{`{"widevine":{}}`, true},
+	}
+	for _, c := range cases {
+		if got := youtubeFormatHasDRM(json.RawMessage(c.raw)); got != c.want {
+			t.Fatalf("youtubeFormatHasDRM(%s) = %v, want %v", c.raw, got, c.want)
+		}
+	}
+}
+
+func TestYouTubeFormatFidelityMergePreservesStreamIdentity(t *testing.T) {
+	url := "https://media.example/v.mp4?itag=140"
+	trackEN := &youtubeAudioTrack{ID: "en", DisplayName: "English"}
+	trackES := &youtubeAudioTrack{ID: "es", DisplayName: "Spanish"}
+	drcTrue := true
+	drcFalse := false
+	players := []youtubePlayerResponse{{clientName: "ANDROID"}}
+	players[0].StreamingData.AdaptiveFormats = []youtubeFormat{
+		{Itag: 140, MimeType: "audio/mp4", URL: url, AudioTrack: trackEN},
+		{Itag: 140, MimeType: "audio/mp4", URL: url, AudioTrack: trackES},
+		{Itag: 140, MimeType: "audio/mp4", URL: url, AudioTrack: trackEN, IsDrc: &drcTrue},
+		{Itag: 140, MimeType: "audio/mp4", URL: url, AudioTrack: trackEN, IsDrc: &drcFalse},
+	}
+	merged := mergeYouTubeFormats(players)
+	if len(merged) != 3 {
+		t.Fatalf("merged = %d formats, want 3 (distinct stream identities preserved)", len(merged))
+	}
+	identities := make(map[string]bool)
+	for _, format := range merged {
+		audioTrackID := ""
+		if format.AudioTrack != nil {
+			audioTrackID = format.AudioTrack.ID
+		}
+		drcFlag := "0"
+		if format.IsDrc != nil && *format.IsDrc {
+			drcFlag = "1"
+		}
+		key := audioTrackID + "\x00" + drcFlag
+		if identities[key] {
+			t.Fatalf("duplicate stream identity %q after merge", key)
+		}
+		identities[key] = true
+	}
+	// Same-URL/different-language and DRC/non-DRC variants must not be
+	// collapsed.
+	for _, want := range []string{"en\x000", "en\x001", "es\x000"} {
+		if !identities[want] {
+			t.Fatalf("missing expected identity %q after merge; got %v", want, identities)
+		}
+	}
+}
+
+func TestYouTubeFormatFidelityUnknownQualityAndDRCPenalty(t *testing.T) {
+	// Quality ladder: tiny=0, ultralow=1, low=2, audio_medium=3, audio_high=4,
+	// small=5, medium=6, large=7, hd720=8, hd1080=9, hd1440=10, hd2160=11,
+	// hd2880=12, highres=13. Unknown qualities get rank -1 with the DRC
+	// penalty still applied so a DRC unknown sorts strictly below a non-DRC
+	// unknown of the same rank.
+	cases := []struct {
+		quality   string
+		isDRC     bool
+		wantValue float64
+	}{
+		{quality: "tiny", isDRC: false, wantValue: 0},
+		{quality: "medium", isDRC: false, wantValue: 6},
+		{quality: "audio_quality_high", isDRC: true, wantValue: 3.5},
+		// Unknown qualities get rank -1, with the DRC penalty still applied.
+		{quality: "exotic", isDRC: false, wantValue: -1},
+		{quality: "exotic", isDRC: true, wantValue: -1.5},
+	}
+	for _, c := range cases {
+		rank, hasRank := youtubeQualityRank(c.quality)
+		qualityValue := -1.0
+		if hasRank {
+			qualityValue = float64(rank)
+		}
+		if c.isDRC {
+			qualityValue -= 0.5
+		}
+		if qualityValue != c.wantValue {
+			t.Fatalf("quality=%s drc=%v => %v, want %v", c.quality, c.isDRC, qualityValue, c.wantValue)
+		}
+	}
+	// DRC must strictly demote a format below its non-DRC peer across the
+	// ladder.
+	for _, name := range []string{"medium", "audio_quality_high", "hd720"} {
+		if rank, ok := youtubeQualityRank(name); ok {
+			if (float64(rank) - 0.5) >= float64(rank) {
+				t.Fatalf("DRC penalty did not strictly demote %q: %v vs %v", name, float64(rank)-0.5, float64(rank))
+			}
+		}
+	}
+}
+
+func TestYouTubeFormatFidelityAudioLanguageRejectsEmptyOrInvalid(t *testing.T) {
+	// Regression: "." previously produced language="" preference=-1 ok=true.
+	cases := []struct {
+		id     string
+		wantOK bool
+	}{
+		{id: ".", wantOK: false},
+		{id: " ", wantOK: false},
+		{id: "", wantOK: false},
+		{id: "..en", wantOK: false},
+		{id: "..", wantOK: false},
+		{id: "en", wantOK: true},
+		{id: "en-US", wantOK: true},
+		{id: "es", wantOK: true},
+	}
+	for _, c := range cases {
+		track := &youtubeAudioTrack{ID: c.id, DisplayName: "English"}
+		language, preference, ok := youtubeAudioLanguage(track)
+		if ok != c.wantOK {
+			t.Fatalf("youtubeAudioLanguage(%q) ok=%v, want %v", c.id, ok, c.wantOK)
+		}
+		if ok && (language == "" || preference < -10 || preference > 10) {
+			t.Fatalf("youtubeAudioLanguage(%q) = (%q, %d), invalid", c.id, language, preference)
+		}
+	}
 }

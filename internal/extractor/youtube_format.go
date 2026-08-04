@@ -169,12 +169,21 @@ func youtubeSuperResolution(rawURL string) bool {
 // youtubeAudioLanguage derives the format language and preference from the
 // audio track identity, mirroring get_language_code_and_preference:
 // descriptive tracks get a -desc suffix and -10, original tracks 10, default
-// tracks 5, and everything else -1. ok=false when no track identity exists.
+// tracks 5, and everything else -1. ok=false when no track identity exists
+// or when the pre-dot language component is empty or malformed (the pinned
+// reference uses a tolerant int_or_none / float_or_none-shaped reject for
+// invalid track ids rather than accepting them and risking a bare "-" suffix
+// or an empty language).
 func youtubeAudioLanguage(audioTrack *youtubeAudioTrack) (language string, preference int64, ok bool) {
 	if audioTrack == nil || audioTrack.ID == "" {
 		return "", 0, false
 	}
-	language = strings.Split(audioTrack.ID, ".")[0]
+	raw := strings.SplitN(audioTrack.ID, ".", 2)[0]
+	raw = strings.TrimSpace(raw)
+	if raw == "" || !isYouTubeAudioLanguageCode(raw) {
+		return "", 0, false
+	}
+	language = raw
 	displayName := strings.ToLower(audioTrack.DisplayName)
 	switch {
 	case strings.Contains(displayName, "descriptive"):
@@ -186,6 +195,29 @@ func youtubeAudioLanguage(audioTrack *youtubeAudioTrack) (language string, prefe
 	default:
 		return language, -1, true
 	}
+}
+
+// isYouTubeAudioLanguageCode validates the pre-dot language component of an
+// audio track id. YouTube's BCP-47 codes are short alphanumeric (with "-" or
+// "_" separators); we accept anything within bounded length made up of the
+// usual letters, digits, and separators, rejecting dots, whitespace, and
+// pathological payloads that the fuzz harness discovered.
+func isYouTubeAudioLanguageCode(raw string) bool {
+	if len(raw) == 0 || len(raw) > 16 {
+		return false
+	}
+	for index, rune := range raw {
+		switch {
+		case rune >= 'a' && rune <= 'z':
+		case rune >= 'A' && rune <= 'Z':
+		case rune >= '0' && rune <= '9':
+		case rune == '-' || rune == '_':
+		default:
+			return false
+		}
+		_ = index
+	}
+	return true
 }
 
 func joinYouTubeFormatLanguage(language, suffix string) string {

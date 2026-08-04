@@ -191,6 +191,7 @@
       "width": 256,
       "height": 144,
       "fps": 30,
+      "quality": -1,
       "format_note": "144p, DAMAGED",
       "source_preference": -1,
       "has_drm": false,
