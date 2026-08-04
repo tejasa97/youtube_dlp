@@ -1,16 +1,16 @@
 export namespace ffmpegdetect {
-	
+
 	export class Status {
 	    available: boolean;
 	    path: string;
 	    version: string;
 	    ffprobePath: string;
 	    message: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new Status(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.available = source["available"];
@@ -24,7 +24,7 @@ export namespace ffmpegdetect {
 }
 
 export namespace jobs {
-	
+
 	export class InfoSummary {
 	    title: string;
 	    channel: string;
@@ -32,11 +32,11 @@ export namespace jobs {
 	    thumbnail: string;
 	    videoId: string;
 	    url: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new InfoSummary(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.title = source["title"];
@@ -71,11 +71,11 @@ export namespace jobs {
 	    absolutePath: string;
 	    message: string;
 	    errorReason?: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new JobSnapshot(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -112,11 +112,11 @@ export namespace jobs {
 	    outputDir: string;
 	    duration: string;
 	    thumbnail: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new Request(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.url = source["url"];
@@ -133,7 +133,7 @@ export namespace jobs {
 }
 
 export namespace store {
-	
+
 	export class HistoryEntry {
 	    id: string;
 	    videoId: string;
@@ -146,11 +146,11 @@ export namespace store {
 	    completedAt: string;
 	    durationLabel: string;
 	    thumbnail?: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new HistoryEntry(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -171,11 +171,11 @@ export namespace store {
 	    ffmpegPath: string;
 	    windowWidth: number;
 	    windowHeight: number;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.downloadFolder = source["downloadFolder"];
@@ -188,16 +188,16 @@ export namespace store {
 }
 
 export namespace urlcheck {
-	
+
 	export class Result {
 	    url: string;
 	    videoId: string;
 	    kind: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new Result(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.url = source["url"];
@@ -207,4 +207,3 @@ export namespace urlcheck {
 	}
 
 }
-
