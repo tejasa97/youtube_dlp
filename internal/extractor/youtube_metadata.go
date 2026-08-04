@@ -165,6 +165,25 @@ func youtubePlayerAvailability(isPrivate *bool, isUnlisted *bool, ageLimit int) 
 	}
 }
 
+// youtubeMergedAvailability combines the watch-page badge availability with
+// player-derived signals through the shared precedence normalizer. The badge
+// claim is empty when unattributable, so the merged result degrades to the
+// player-only partial claim.
+func youtubeMergedAvailability(badgeAvailability string, isPrivate *bool, isUnlisted *bool, ageLimit int) string {
+	private := badgeAvailability == "private"
+	premium := badgeAvailability == "premium"
+	subscriber := badgeAvailability == "subscriber_only"
+	unlisted := badgeAvailability == "unlisted"
+	public := badgeAvailability == "public"
+	if isPrivate != nil && *isPrivate {
+		private = true
+	}
+	if isUnlisted != nil && *isUnlisted {
+		unlisted = true
+	}
+	return youtubeAvailabilityPrecedence(private, premium, subscriber, ageLimit >= 18, unlisted, public)
+}
+
 // youtubeMediaType classifies the video from player data, matching the pinned
 // reference's livestream > short > video precedence.
 func youtubeMediaType(isLiveContent, isShortsEligible *bool) string {

@@ -1,0 +1,238 @@
+<!doctype html>
+<html>
+  <head><title>Synthetic YouTube watch-metadata fixture</title></head>
+  <body>
+    <script>
+      var ytInitialData = {
+  "contents": {
+    "twoColumnWatchNextResults": {
+      "results": {
+        "results": {
+          "contents": [
+            {
+              "videoPrimaryInfoRenderer": {
+                "dateText": {
+                  "simpleText": "Jan 15, 2024"
+                },
+                "superTitleLink": {
+                  "text": {
+                    "runs": [
+                      {
+                        "text": "Fixture Series S1\u2022E2"
+                      }
+                    ]
+                  }
+                },
+                "videoActions": {
+                  "menuRenderer": {
+                    "topLevelButtons": [
+                      {
+                        "segmentedLikeDislikeButtonRenderer": {
+                          "likeButton": {
+                            "toggleButtonRenderer": {
+                              "defaultText": {
+                                "accessibility": {
+                                  "accessibilityData": {
+                                    "label": "1,234 likes"
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          "dislikeButton": {
+                            "toggleButtonRenderer": {
+                              "defaultText": {
+                                "accessibility": {
+                                  "accessibilityData": {
+                                    "label": "56 dislikes"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                "viewCount": {
+                  "videoViewCountRenderer": {
+                    "viewCount": {
+                      "simpleText": "456 views"
+                    }
+                  }
+                },
+                "badges": [
+                  {
+                    "metadataBadgeRenderer": {
+                      "icon": {
+                        "iconType": "PRIVACY_PUBLIC"
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "videoSecondaryInfoRenderer": {
+                "owner": {
+                  "videoOwnerRenderer": {
+                    "subscriberCountText": {
+                      "simpleText": "12.3K subscribers"
+                    },
+                    "badges": [
+                      {
+                        "metadataBadgeRenderer": {
+                          "label": "Verified"
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              "itemSectionRenderer": {
+                "contents": [
+                  {
+                    "commentsEntryPointHeaderRenderer": {
+                      "commentCount": {
+                        "simpleText": "1,234"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "playerOverlays": {
+    "playerOverlayRenderer": {
+      "decoratedPlayerBarRenderer": {
+        "decoratedPlayerBarRenderer": {
+          "playerBar": {
+            "chapteredPlayerBarRenderer": {
+              "chapters": [
+                {
+                  "chapterRenderer": {
+                    "timeRangeStartMillis": 0,
+                    "title": {
+                      "simpleText": "Intro"
+                    }
+                  }
+                },
+                {
+                  "chapterRenderer": {
+                    "timeRangeStartMillis": 45000,
+                    "title": {
+                      "simpleText": "Chapter Two"
+                    }
+                  }
+                },
+                {
+                  "chapterRenderer": {
+                    "timeRangeStartMillis": 90000,
+                    "title": {
+                      "simpleText": "Outro"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "engagementPanels": [
+    {
+      "engagementPanelSectionListRenderer": {
+        "panelIdentifier": "engagement-panel-comments-section",
+        "header": {
+          "engagementPanelTitleHeaderRenderer": {
+            "contextualInfo": {
+              "simpleText": "1,234 comments"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "frameworkUpdates": {
+    "entityBatchUpdate": {
+      "mutations": [
+        {
+          "payload": {
+            "macroMarkersListEntity": {
+              "markersList": {
+                "markerType": "MARKER_TYPE_HEATMAP",
+                "markers": [
+                  {
+                    "startMillis": 0,
+                    "durationMillis": 30000,
+                    "intensityScoreNormalized": 0.5
+                  },
+                  {
+                    "startMillis": 30000,
+                    "durationMillis": 45000,
+                    "intensityScoreNormalized": 0.9
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+};
+    </script>
+    <script>
+      var ytInitialPlayerResponse = {
+  "playabilityStatus": {
+    "status": "OK"
+  },
+  "videoDetails": {
+    "videoId": "fixture0004",
+    "title": "Synthetic Watch Metadata Video",
+    "lengthSeconds": "123",
+    "author": "fixture channel",
+    "channelId": "UCfixture000000000000000",
+    "shortDescription": "watch metadata fixture",
+    "viewCount": "456",
+    "isLiveContent": false
+  },
+  "microformat": {
+    "playerMicroformatRenderer": {
+      "ownerProfileUrl": "https://www.youtube.com/@fixturechannel",
+      "isFamilySafe": true,
+      "isUnlisted": false,
+      "isShortsEligible": false
+    }
+  },
+  "streamingData": {
+    "formats": [
+      {
+        "itag": 18,
+        "url": "https://media.example/18.mp4",
+        "mimeType": "video/mp4; codecs=\"avc1.42001E, mp4a.40.2\"",
+        "bitrate": 500000,
+        "contentLength": "1000",
+        "width": 640,
+        "height": 360,
+        "fps": 30,
+        "quality": "medium",
+        "qualityLabel": "360p"
+      }
+    ]
+  },
+  "assets": {
+    "js": "/s/player/fixture/base.js"
+  }
+};
+    </script>
+  </body>
+</html>

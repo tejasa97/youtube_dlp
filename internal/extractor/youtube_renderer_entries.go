@@ -134,8 +134,7 @@ func rendererTextValue(item value.Value) string {
 }
 
 // youtubeRendererAvailability maps attributable badge styles/labels onto
-// yt-dlp-style availability strings with order-independent precedence:
-// private > premium > subscriber_only > unlisted > public.
+// yt-dlp-style availability strings through the shared precedence normalizer.
 // Unknown badges are ignored. Parser-limit / traversal errors omit availability
 // rather than emitting a partial positive claim.
 func youtubeRendererAvailability(renderer *value.Object) string {
@@ -174,20 +173,7 @@ func youtubeRendererAvailability(renderer *value.Object) string {
 			return ""
 		}
 	}
-	switch {
-	case private:
-		return "private"
-	case premium:
-		return "premium"
-	case subscriber:
-		return "subscriber_only"
-	case unlisted:
-		return "unlisted"
-	case public:
-		return "public"
-	default:
-		return ""
-	}
+	return youtubeAvailabilityPrecedence(private, premium, subscriber, false, unlisted, public)
 }
 
 const youtubeMaxCountTextBytes = 64
