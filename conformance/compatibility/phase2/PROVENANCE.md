@@ -41,6 +41,16 @@ ranges before invoking the existing transactional media/subtitle cut path.
 It intentionally rejects infinite starts and non-positive ranges at parse time
 and fails closed on material metadata/real-duration mismatches.
 
+`download_sections.yaml` version 1 records hand-authored expectations for the
+bounded *START-END, *START-inf, and *from-url section specifications. The Go
+product delegates partial downloads to a shell-free supervised ffmpeg consumer
+with -ss/-t (and -map for separate A/V inputs), derives the base duration as
+section_end - section_start rounded compatibly, composes CLI ranges above an
+extractor section using its start as the base offset, and fails closed before
+producing output when a selected input cannot be safely delegated to ffmpeg.
+It intentionally rejects unsupported values, native fragment trimming, and
+untested partial live streams.
+
 The Go product layer evaluates breaking filters before ordinary filters and
 stops playlist expansion before retaining the rejected entry. Exact
 `--match-filter -` prompting occurs only for complete entries after those

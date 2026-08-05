@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/ytdlp-go/ytdlp/internal/compat/sections"
 	"github.com/ytdlp-go/ytdlp/internal/events"
 	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
 	"github.com/ytdlp-go/ytdlp/internal/value"
@@ -75,10 +76,14 @@ func wrapLifecycleError(op string, err error) error {
 //     result.Bytes is the sum of all published media plus sidecars
 //     counted by their kind and the shared-ownership rule.
 type outputLifecycle struct {
-	Index          int
-	Plan           mediaformat.OutputPlan
-	Info           value.Info
-	Destination    string
+	Index       int
+	Plan        mediaformat.OutputPlan
+	Info        value.Info
+	Destination string
+	// Section, when set, routes the download through the ffmpeg section
+	// consumer instead of the ordinary downloader. The bounds are the
+	// effective (composed) section for this lifecycle.
+	Section        *sections.Section
 	MediaPath      string
 	FinalPath      string
 	Sidecars       []Artifact
@@ -256,15 +261,32 @@ func (operation *operation) runLifecycleDownload(
 	lifecycle *outputLifecycle,
 	sink events.Sink,
 ) error {
-	path, _, err := operation.downloadSelections(
-		ctx,
-		lifecycle.Plan.Tracks,
-		operation.request.outputRoot(OutputPathHome),
-		lifecycle.Destination,
-		sink,
-	)
-	if err != nil {
-		return wrapLifecycleError("download selected formats", err)
+	var path string
+	var err error
+	if lifecycle.Section != nil {
+		path, _, err = operation.sectionDownloadSelections(
+			ctx,
+			lifecycle.Plan.Tracks,
+			*lifecycle.Section,
+			lifecycle.Destination,
+			operation.request.Overwrite,
+			operation.request.ForceKeyframesAtCuts,
+			sink,
+		)
+		if err != nil {
+			return wrapLifecycleError("download selected section", err)
+		}
+	} else {
+		path, _, err = operation.downloadSelections(
+			ctx,
+			lifecycle.Plan.Tracks,
+			operation.request.outputRoot(OutputPathHome),
+			lifecycle.Destination,
+			sink,
+		)
+		if err != nil {
+			return wrapLifecycleError("download selected formats", err)
+		}
 	}
 	transaction.markPublished(path)
 	lifecycle.MediaPath = path

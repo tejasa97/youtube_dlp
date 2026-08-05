@@ -20,6 +20,7 @@ import (
 	"github.com/ytdlp-go/ytdlp/internal/compat/matchfilter"
 	compatmetadata "github.com/ytdlp-go/ytdlp/internal/compat/metadata"
 	"github.com/ytdlp-go/ytdlp/internal/compat/progress"
+	"github.com/ytdlp-go/ytdlp/internal/compat/sections"
 	outputtemplate "github.com/ytdlp-go/ytdlp/internal/compat/template"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/chromium"
 	"github.com/ytdlp-go/ytdlp/internal/cookies/chromiumlinux"
@@ -196,8 +197,16 @@ type Request struct {
 	// specifications. Values beginning with "*" are manual time ranges;
 	// all other values are chapter-title regular expressions.
 	RemoveChapters []string
-	// ForceKeyframesAtCuts applies to ordinary chapter, manual range, and
-	// SponsorBlock cuts. It is invalid when no removal is requested.
+	// DownloadSections contains repeatable yt-dlp --download-sections
+	// specifications. Only the bounded forms are accepted: *START-END,
+	// *START-inf, and *from-url. Unsupported values are rejected. The
+	// ranges are parsed by the generic section planner and delegated to
+	// ffmpeg section downloading; *from-url consumes the extractor's
+	// start_time/end_time bounds.
+	DownloadSections []string
+	// ForceKeyframesAtCuts applies to ordinary chapter, manual range,
+	// SponsorBlock cuts, and section downloads. It is invalid when no
+	// removal or section download is requested.
 	ForceKeyframesAtCuts bool
 	Subtitles            SubtitleOptions
 	Thumbnails           ThumbnailOptions
@@ -2091,16 +2100,23 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 	// subtitles, converted subtitles) are bypassed and re-driven once
 	// per plan by executePlanLifecycle.
 	if len(outputPlans) > 0 {
+		sink := operation.eventSink()
+		lifecycles, sectionErr := operation.buildSectionLifecycles(info, outputPlans, planDestinations)
+		if sectionErr != nil {
+			return rollbackTransactionResult(mediaTx, categorized("expand download sections", sectionErr))
+		}
 		if !operation.request.Simulate && !operation.request.SkipDownload {
-			if err := mediaTx.acquireDestinationBackups(planDestinations, operation.request.Overwrite); err != nil {
+			backupDestinations := make([]string, len(lifecycles))
+			for index := range lifecycles {
+				backupDestinations[index] = lifecycles[index].Destination
+			}
+			if err := mediaTx.acquireDestinationBackups(backupDestinations, operation.request.Overwrite); err != nil {
 				return rollbackTransactionResult(mediaTx, categorized("prepare output destinations", err))
 			}
 		}
-		sink := operation.eventSink()
-		planResults := make([]Result, len(outputPlans))
-		for index, plan := range outputPlans {
-			lifecycle := newOutputLifecycleForPlan(index, plan, info, planDestinations[index])
-			operation.applyThumbnailEmbeddingOutputExtension(&lifecycle.Info, plan.Tracks)
+		planResults := make([]Result, len(lifecycles))
+		for index, lifecycle := range lifecycles {
+			operation.applyThumbnailEmbeddingOutputExtension(&lifecycle.Info, lifecycle.Plan.Tracks)
 			planResult, lifecycleErr := operation.executePlanLifecycle(
 				ctx, mediaTx, &lifecycle, selectedSubtitles, sink,
 			)
@@ -2115,7 +2131,11 @@ func (operation *operation) processMedia(ctx context.Context, extracted extracto
 					result.SkipReason = sizeAbort.Message
 					return result, nil
 				}
-				if len(outputPlans) > 1 {
+				// Roll back the shared transaction whenever multiple lifecycles are
+				// in flight. A single output plan may expand into many section
+				// lifecycles, so deciding rollback by len(outputPlans) would leave
+				// earlier section outputs published on a later lifecycle failure.
+				if len(lifecycles) > 1 {
 					return rollbackTransactionResult(mediaTx, lifecycleErr)
 				}
 				return result, lifecycleErr
@@ -2546,6 +2566,7 @@ func categorized(op string, err error) error {
 	case errors.Is(err, outputtemplate.ErrInvalidTemplate), errors.Is(err, outputtemplate.ErrUnsafePath),
 		errors.Is(err, errInvalidRequestOptions),
 		errors.Is(err, chapterremove.ErrInvalidSpecification), errors.Is(err, chapterremove.ErrLimit),
+		errors.Is(err, sections.ErrInvalidSpecification), errors.Is(err, sections.ErrLimit),
 		errors.Is(err, ErrInteractiveInput),
 		errors.Is(err, matchfilter.ErrInvalidFilter), errors.Is(err, matchfilter.ErrEvaluation),
 		errors.Is(err, matchfilter.ErrEvaluationLimit), errors.Is(err, compatmetadata.ErrInvalidAction),

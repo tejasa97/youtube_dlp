@@ -888,6 +888,8 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 	})
 	nhkArea := flags.String("nhk-area", "", "NHK Radiru Live broadcast area (short ASCII identifier; default tokyo)")
 	flags.Var(&removeChapters, "remove-chapters", "remove chapters matching REGEX or manual *START-END ranges (repeatable)")
+	var downloadSections stringListFlag
+	flags.Var(&downloadSections, "download-sections", "download only the specified section (repeatable): *START-END, *START-inf, or *from-url")
 	flags.BoolFunc("no-remove-chapters", "clear inherited chapter and manual range removal", func(input string) error {
 		enabled, err := strconv.ParseBool(input)
 		if err != nil {
@@ -1224,6 +1226,7 @@ func runContextIOWithDependencies(ctx context.Context, args []string, stdin io.R
 			SponsorBlock:         sponsorBlockOptions,
 			NHK:                  ytdlp.NHKOptions{RadiruArea: *nhkArea},
 			RemoveChapters:       append([]string(nil), removeChapters...),
+			DownloadSections:     append([]string(nil), downloadSections...),
 			ForceKeyframesAtCuts: sponsorBlockForceKeyframes,
 			Playlist: ytdlp.PlaylistOptions{
 				Start: *playlistStart, End: *playlistEnd, Reverse: *playlistReverse, Random: *playlistRandom,

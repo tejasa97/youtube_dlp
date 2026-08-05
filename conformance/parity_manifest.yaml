@@ -2633,6 +2633,50 @@ capabilities:
       - postprocess.core_operations
     known_deviation: Deliberate safety bounds apply to Python-compatible title search (4 KiB source, 16 KiB translation, 64 KiB title, 256 attempts, 4 MiB inspected bytes, 25 ms per match, and 250 ms aggregate wall time). The Go parser rejects infinite starts and equal/inverted ranges that cannot turn into positive cuts. Removing an entire media item and a greater-than-one-second metadata/real-duration mismatch fail closed without mutation. Malformed supported sidecars and all staging, path, cancellation, commit, or rollback failures fail closed; unsupported external sidecars instead warn and remain untouched. Manual ranges are intentionally exposed through upstream's *start-end --remove-chapters grammar rather than a separate --remove-ranges flag.
 
+
+  - id: product.download_sections
+    name: Generic media-section downloads and --download-sections
+    phase: 4
+    compatibility_target: Parse repeatable --download-sections specifications into bounded, normalized ranges and delegate partial downloads to a shell-free supervised ffmpeg consumer that receives the selected direct/HLS/DASH URL with -ss/-t (and both inputs with -map for separate A/V selections). Support the three accepted forms *START-END, *START-inf, and *from-url; reject unsupported values explicitly. Consume extractor-provided section_start/section_end generically (a section triggers section download even without the flag; derive the base duration as section_end - section_start rounded compatibly). Compose CLI ranges above an extractor section using its start as the base offset. Validate bounds (finite, nonnegative, ordered, bounded duration and count) before any output mutation, roll back all section outputs transactionally when any section fails or is cancelled, keep archive identical to one record per extractor item written only after every section commits, and bypass ffmpeg for simulation and skip-download while still validating range syntax.
+    status: compatible
+    evidence:
+      - internal/compat/sections.TestParseBasicRanges
+      - internal/compat/sections.TestParseRejectsUnsupported
+      - internal/compat/sections.TestParseRejectsBounds
+      - internal/compat/sections.TestParseOpenEnded
+      - internal/compat/sections.TestParseLimits
+      - internal/compat/sections.TestParseUnitAndColon
+      - internal/compat/sections.FuzzParse
+      - internal/media/ffmpeg.TestSectionFFmpegArgsSingleInputStreamCopy
+      - internal/media/ffmpeg.TestSectionFFmpegArgsSeparateAV
+      - internal/media/ffmpeg.TestSectionFFmpegArgsOpenEnded
+      - internal/media/ffmpeg.TestSectionFFmpegArgsForceKeyframesPerInput
+      - internal/media/ffmpeg.TestValidateSectionBounds
+      - internal/media/ffmpeg.TestValidateSectionInputsRejectsUnsafeHeader
+      - internal/media/ffmpeg.TestValidateSectionInputsRejectsBadURL
+      - pkg/ytdlp.TestProductDownloadSectionsCliRangeTrimsArtifact
+      - pkg/ytdlp.TestDownloadSectionsParseRejectsUnsupported
+      - pkg/ytdlp.TestExtractorSectionBoundsDerivesDuration
+      - pkg/ytdlp.TestExtractorSectionBoundsRejectsInvalid
+      - pkg/ytdlp.TestFromURLSectionBounds
+      - pkg/ytdlp.TestFromURLDoesNotTriggerWithoutRequest
+      - pkg/ytdlp.TestComposeSectionOffsetsStartAndClampsEnd
+      - pkg/ytdlp.TestComposeSectionRejectsStartBeyondWindow
+      - pkg/ytdlp.TestComposeSectionDoesNotMutateSharedProgram
+      - pkg/ytdlp.TestFromURLWithLiteralRangesComposes
+      - pkg/ytdlp.TestFromURLWithMissingBoundsFailsClosed
+      - pkg/ytdlp.TestExtractorSectionInvalidBoundsFailClosed
+      - pkg/ytdlp.TestProductExtractorSectionTrimsArtifact
+      - pkg/ytdlp.TestProductSectionDownloadMultipleSectionsCollisionSafe
+      - pkg/ytdlp.TestProductSectionDownloadFromURL
+      - pkg/ytdlp.TestSectionDownloadUnsafeHeaderFailsClosed
+      - pkg/ytdlp.TestProductSectionDownloadDelegatedHLS
+      - internal/cli.TestRunDownloadSectionsValidationIgnoresNetwork
+      - internal/cli.TestRunDownloadSectionsForceKeyframesRequiresSections
+      - conformance/compatibility/phase2/download_sections.yaml
+      - docs/YOUTUBE_MEDIA_SECTIONS_EVIDENCE.md
+    owner: media
+    known_deviation: Section downloading delegates to ffmpeg with -ss/-t (and -map for separate A/V inputs) mirroring pinned FFmpegFD; native fragment trimming is deferred, so HLS/DASH partial downloads use ffmpeg as upstream does. A parallel or direct downloader that cannot be safely delegated to ffmpeg (notably credential-isolated headers/cookies or unsupported protocols) fails closed before producing output rather than silently downloading the full source or weakening isolation. Deep parser bounds cap specification count, byte size, timestamp length, and the Cartesian product of output plans and sections. Chapter-title regular expressions, negative timestamps relative to duration, and arbitrary upstream range generators are deferred; partial live streams are not supported unless deterministically selected. A lone extractor-driven section retains ordinary destination behavior and is not routed through a special chapter output template.
   - id: compat.format_selector
     name: Pinned format-selector closure
     phase: 1
