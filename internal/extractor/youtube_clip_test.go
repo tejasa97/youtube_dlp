@@ -312,3 +312,96 @@ func TestYouTubeClipFixtureExpectedJSON(t *testing.T) {
 		t.Fatalf("section_end = %v", endVal)
 	}
 }
+
+// TestParseYouTubeClipDataAcceptsStringMilliseconds verifies the pinned
+// int(...) coercion: startTimeMs/endTimeMs supplied as integer strings are
+// accepted, not only JSON integers.
+func TestParseYouTubeClipDataAcceptsStringMilliseconds(t *testing.T) {
+	page := buildClipFixturePageStringTiming("ScPX26pdQik", "29000", "39700")
+	sourceID, timing, err := parseYouTubeClipData(page)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sourceID != "ScPX26pdQik" {
+		t.Fatalf("sourceID = %q", sourceID)
+	}
+	if timing.startMs != 29000 || timing.endMs != 39700 {
+		t.Fatalf("timing = %#v", timing)
+	}
+}
+
+// TestParseYouTubeClipDataRejectsNonNumericTiming verifies malformed timing
+// strings fail closed instead of being coerced.
+func TestParseYouTubeClipDataRejectsNonNumericTiming(t *testing.T) {
+	for _, timing := range [][2]string{{"abc", "39700"}, {"29000", ""}, {"1e5", "39700"}, {"-3", "39700"}} {
+		page := buildClipFixturePageStringTiming("ScPX26pdQik", timing[0], timing[1])
+		if _, _, err := parseYouTubeClipData(page); err == nil {
+			t.Fatalf("timing %v accepted", timing)
+		}
+	}
+}
+
+// TestYouTubeClipLoopTimingIgnoresUnrelatedLoopCommand verifies the timing
+// walker is anchored to the clip-attribution chain: an unrelated loopCommand
+// elsewhere in the payload is not treated as clip timing.
+func TestYouTubeClipLoopTimingIgnoresUnrelatedLoopCommand(t *testing.T) {
+	page := buildUnrelatedLoopCommandPage("ScPX26pdQik")
+	if _, _, err := parseYouTubeClipData(page); err == nil {
+		t.Fatal("unrelated loopCommand accepted as clip timing")
+	}
+}
+
+// buildClipFixturePageStringTiming constructs a clip page whose loop timing is
+// supplied as integer strings, exercising the pinned int(...) coercion.
+func buildClipFixturePageStringTiming(sourceID, startMs, endMs string) []byte {
+	loop := map[string]any{
+		"loopCommand": map[string]any{"startTimeMs": startMs, "endTimeMs": endMs},
+	}
+	raw, marshalErr := json.Marshal(clipFixtureBinding(sourceID, loop))
+	if marshalErr != nil {
+		panic(fmt.Sprintf("build string-timing fixture: %v", marshalErr))
+	}
+	return []byte("var ytInitialData = " + string(raw) + ";")
+}
+
+// buildUnrelatedLoopCommandPage constructs a payload with a loopCommand that is
+// NOT reachable from the clip-attribution path.
+func buildUnrelatedLoopCommandPage(sourceID string) []byte {
+	loop := map[string]any{
+		"loopCommand": map[string]any{"startTimeMs": 29000, "endTimeMs": 39700},
+	}
+	binding := map[string]any{
+		"currentVideoEndpoint": map[string]any{"watchEndpoint": map[string]any{"videoId": sourceID}},
+		"engagementPanels": []any{map[string]any{
+			"engagementPanelSectionListRenderer": map[string]any{
+				"content": map[string]any{
+					"somethingElse": []any{loop},
+				},
+			},
+		}},
+	}
+	raw, marshalErr := json.Marshal(binding)
+	if marshalErr != nil {
+		panic(fmt.Sprintf("build unrelated-loop fixture: %v", marshalErr))
+	}
+	return []byte("var ytInitialData = " + string(raw) + ";")
+}
+
+// clipFixtureBinding assembles the shared clip-page payload around a loop node.
+func clipFixtureBinding(sourceID string, loop any) map[string]any {
+	commands := []any{loop}
+	buttonCommand := map[string]any{"commandExecutorCommand": map[string]any{"commands": commands}}
+	button := map[string]any{"buttonRenderer": map[string]any{"command": buttonCommand}}
+	actionButton := map[string]any{"actionButton": button}
+	notification := map[string]any{"notificationActionRenderer": actionButton}
+	popup := map[string]any{"popup": notification}
+	openPopup := map[string]any{"openPopupAction": popup}
+	onScrub := map[string]any{"commandExecutorCommand": map[string]any{"commands": []any{openPopup}}}
+	attribution := map[string]any{"clipAttributionRenderer": map[string]any{"onScrubExit": onScrub}}
+	contents := map[string]any{"clipSectionRenderer": map[string]any{"contents": []any{attribution}}}
+	content := map[string]any{"engagementPanelSectionListRenderer": map[string]any{"content": contents}}
+	return map[string]any{
+		"currentVideoEndpoint": map[string]any{"watchEndpoint": map[string]any{"videoId": sourceID}},
+		"engagementPanels":     []any{content},
+	}
+}

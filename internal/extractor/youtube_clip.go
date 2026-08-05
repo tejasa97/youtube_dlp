@@ -13,6 +13,7 @@ import (
 	"math"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/ytdlp-go/ytdlp/internal/value"
@@ -30,6 +31,10 @@ var youtubeClipIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,200}$`)
 var youtubeClipSortFields = []string{
 	"proto:https", "quality", "res", "fps", "hdr:12", "source", "vcodec", "channels", "acodec", "lang",
 }
+
+// youtubeMaxClipTimingBytes bounds the length of a timing-value string.
+// int64 millisecond values are at most 19 characters (including sign).
+const youtubeMaxClipTimingBytes = 24
 
 // youtubeClipID returns the clip id when r is a /clip/<id> URL on a standard
 // youtube.com host, and false otherwise. nocookie hosts never serve clip
@@ -161,56 +166,96 @@ func parseYouTubeClipData(page []byte) (sourceID string, timing youtubeClipTimin
 	return sourceID, timing, nil
 }
 
-// youtubeClipLoopTiming walks the engagementPanels clip tree for the
-// startTimeMs/endTimeMs pair. It returns them only when both are present and
-// parse as nonnegative integers. A bounded walk prevents hostile nesting from
-// exhausting the parser.
+// youtubeClipLoopTiming traverses only the pinned clip-attribution chain in
+// ytInitialData:
+//
+//	engagementPanels -> ... -> engagementPanelSectionListRenderer -> content ->
+//	clipSectionRenderer -> contents -> ... -> clipAttributionRenderer ->
+//	onScrubExit -> commandExecutorCommand -> commands -> ... -> openPopupAction ->
+//	popup -> notificationActionRenderer -> actionButton -> buttonRenderer ->
+//	command -> commandExecutorCommand -> commands -> ... -> loopCommand
+//
+// and returns the loop-section start/end milliseconds. Unrelated loopCommand
+// nodes elsewhere in the raw data are ignored. The traversal is bounded by the
+// caller's youtubeRootWithinBounds pass, and each array step is capped by the
+// documented structural node budget.
 func youtubeClipLoopTiming(root value.Value) (startMs, endMs int64, ok bool) {
-	// Only the first valid pair found counts; the tree is walked with a
-	// bounded recursion mirroring youtubeRootWithinBounds. The inLoop flag is
-	// set when descending into a "loopCommand" key, so we accept only the
-	// startTimeMs/endTimeMs pair that actually belongs to the clip loop and
-	// ignore unrelated timing values elsewhere in the raw data.
-	nodes := 0
-	var found bool
-	var walk func(item value.Value, depth int, inLoop bool) bool
-	walk = func(item value.Value, depth int, inLoop bool) bool {
-		if found {
-			return false
-		}
-		nodes++
-		if depth > youtubeMaxJSONDepth || nodes > youtubeMaxJSONNodes {
-			return false
-		}
-		if object, objOK := item.Object(); objOK {
-			start, hasStart := object.Lookup("startTimeMs").Int()
-			end, hasEnd := object.Lookup("endTimeMs").Int()
-			if inLoop && hasStart && hasEnd && start >= 0 && end >= 0 && end > start {
-				startMs, endMs, found = start, end, true
-				return true
-			}
-			for _, field := range object.Fields() {
-				childInLoop := inLoop || field.Key == "loopCommand"
-				if !walk(field.Value, depth+1, childInLoop) {
-					return false
-				}
-			}
-			return true
-		}
-		if list, listOK := item.ListValue(); listOK {
-			for _, child := range list {
-				if !walk(child, depth+1, inLoop) {
-					return false
-				}
-			}
-		}
-		return true
-	}
-	walk(root, 0, false)
-	if !found {
+	panels, ok := youtubeWatchChild(root, "engagementPanels").ListValue()
+	if !ok {
 		return 0, 0, false
 	}
-	return startMs, endMs, true
+	for _, panel := range panels {
+		renderer := youtubeWatchChild(panel, "engagementPanelSectionListRenderer")
+		section := youtubeWatchChild(youtubeWatchChild(renderer, "content"), "clipSectionRenderer")
+		contents, ok := youtubeWatchChild(section, "contents").ListValue()
+		if !ok {
+			continue
+		}
+		for _, contentItem := range contents {
+			attribution := youtubeWatchChild(contentItem, "clipAttributionRenderer")
+			onScrubExit := youtubeWatchChild(attribution, "onScrubExit")
+			commandExecutor := youtubeWatchChild(onScrubExit, "commandExecutorCommand")
+			loop := youtubeClipLoopFromCommands(youtubeWatchChild(commandExecutor, "commands"))
+			if loop.IsMissing() {
+				continue
+			}
+			start, hasStart := youtubeClipTimingMs(youtubeWatchChild(loop, "startTimeMs"))
+			end, hasEnd := youtubeClipTimingMs(youtubeWatchChild(loop, "endTimeMs"))
+			if hasStart && hasEnd && start >= 0 && end >= 0 && end > start {
+				return start, end, true
+			}
+		}
+	}
+	return 0, 0, false
+}
+
+// youtubeClipLoopFromCommands follows the pinned openPopupAction command chain
+// from an onScrubExit commands array and returns the first reachable
+// loopCommand value the ellipsis traversal would accept.
+func youtubeClipLoopFromCommands(commands value.Value) value.Value {
+	firstLevel, ok := commands.ListValue()
+	if !ok {
+		return value.Missing()
+	}
+	for _, command := range firstLevel {
+		state := youtubeWatchChild(command, "openPopupAction")
+		state = youtubeWatchChild(state, "popup")
+		state = youtubeWatchChild(state, "notificationActionRenderer")
+		state = youtubeWatchChild(state, "actionButton")
+		state = youtubeWatchChild(state, "buttonRenderer")
+		state = youtubeWatchChild(state, "command")
+		state = youtubeWatchChild(state, "commandExecutorCommand")
+		if items, itemsOK := youtubeWatchChild(state, "commands").ListValue(); itemsOK {
+			for _, inner := range items {
+				loop := youtubeWatchChild(inner, "loopCommand")
+				if !loop.IsMissing() && !loop.IsNull() {
+					return loop
+				}
+			}
+		}
+	}
+	return value.Missing()
+}
+
+// youtubeClipTimingMs extracts a millisecond value that is either a JSON
+// integer or a bounded integer string, matching the pinned int(...) coercion.
+func youtubeClipTimingMs(item value.Value) (int64, bool) {
+	if intValue, ok := item.Int(); ok {
+		return intValue, true
+	}
+	text, ok := item.StringValue()
+	if !ok {
+		return 0, false
+	}
+	text = strings.TrimSpace(text)
+	if text == "" || len(text) > youtubeMaxClipTimingBytes {
+		return 0, false
+	}
+	parsed, err := strconv.ParseInt(text, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return parsed, true
 }
 
 // validateYouTubeClipTiming ensures the clip section bounds are finite,

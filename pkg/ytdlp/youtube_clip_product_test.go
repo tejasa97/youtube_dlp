@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ytdlp-go/ytdlp/internal/network"
@@ -105,26 +106,36 @@ func TestProductYouTubeClipSectionDownload(t *testing.T) {
 }
 
 // TestProductYouTubeClipMissingSourceVideoID verifies a clip page without a
-// source video id fails closed before producing media.
+// source video id fails closed before producing media, and that the failure is
+// reached through the real YouTube clip route (a youtube.com /clip/<id> URL),
+// not the generic extractor.
 func TestProductYouTubeClipMissingSourceVideoID(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		writer.Header().Set("Content-Type", "text/html")
-		_, _ = writer.Write(buildClipProductPage(""))
+	clipID := "UgytMissingPRODUCT0A12345"
+	pageTransport := &clipPageRoundTripper{
+		clip: buildClipProductPage(""),
+	}
+	client := NewClient(withTransportFactory(func(config network.Config) (*network.Client, error) {
+		config.RoundTripper = pageTransport
+		return network.New(config)
 	}))
-	defer server.Close()
-	_, err := NewClient().Run(context.Background(), Request{
-		URL: server.URL + "/clip?id=bad", OutputDir: t.TempDir(), OutputTemplate: "%(id)s.%(ext)s", Overwrite: true,
+	_, err := client.Run(context.Background(), Request{
+		URL: "https://www.youtube.com/clip/" + clipID, OutputDir: t.TempDir(), OutputTemplate: "%(id)s.%(ext)s", Overwrite: true,
 	})
 	if err == nil {
 		t.Fatal("clip with missing source id succeeded")
+	}
+	if !strings.Contains(err.Error(), "Unable to find video ID") {
+		t.Fatalf("error = %v; want pinned Unable-to-find-video-ID message", err)
 	}
 }
 
 // buildClipProductPage constructs a synthetic clip page whose source is the
 // given video id.
 func buildClipProductPage(sourceID string) []byte {
+	// Timing is supplied as integer strings to exercise the pinned int(...)
+	// coercion through the full product pipeline.
 	loop := map[string]any{
-		"loopCommand": map[string]any{"startTimeMs": 0, "endTimeMs": 1000},
+		"loopCommand": map[string]any{"startTimeMs": "0", "endTimeMs": "1000"},
 	}
 	commands := []any{loop}
 	buttonCommand := map[string]any{"commandExecutorCommand": map[string]any{"commands": commands}}
