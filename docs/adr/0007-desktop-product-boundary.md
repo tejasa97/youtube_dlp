@@ -105,7 +105,10 @@ is not affiliated with or endorsed by YouTube.
 
 Desktop V0 remains limited to:
 
-- public, on-demand, single-video `youtube.com/watch` and `youtu.be` URLs;
+- public, on-demand, single-video URLs accepted by the Desktop validator:
+  YouTube watch, `/embed/`, and `/v/` forms on `youtube.com` or
+  `youtube-nocookie.com`, plus `youtu.be` short links, canonicalized to a
+  `https://www.youtube.com/watch?v=...` URL;
 - metadata preview;
 - Best, 4K, 1440p, 1080p, 720p, and Audio only presets;
 - one active FIFO download with queueing, progress, cancellation, and retry;
