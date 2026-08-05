@@ -1,4 +1,4 @@
-# ADR 0007: Desktop product boundary and staged repository split
+# ADR 0007: Desktop boundary through explicit provider composition
 
 Status: Proposed (2026-08-05)
 
@@ -6,42 +6,92 @@ Status: Proposed (2026-08-05)
 
 `ytdlp-go` currently contains three interfaces over one native media engine:
 the broad CLI, the embeddable Go API, and a Wails Desktop preview. The engine
-supports many extractor families, while Desktop V0 intentionally accepts only
-one public, on-demand YouTube video at a time.
+supports many provider families, while Desktop V0 intentionally exposes only
+public, on-demand, single-video YouTube downloads.
 
-The Desktop module imports `pkg/ytdlp`, and `Client.Run` constructs the complete
-product registry. Concrete YouTube and non-YouTube extractors also share the
-single `internal/extractor` package. The UI therefore enforces a narrow product
-policy, but the engine does not yet provide a matching runtime or compilation
-boundary.
+The Desktop module imports `pkg/ytdlp`, whose broad `NewClient` entry point
+constructs the complete provider catalog. YouTube and non-YouTube
+implementations also share the `internal/extractor` package. The UI is narrow,
+but its dependency graph is not: a Desktop build reaches the broad catalog and
+all provider implementations.
 
-Creating a second repository by copying the current tree and deleting unrelated
-files would duplicate networking, selection, media protocols, FFmpeg
-orchestration, output handling, and YouTube challenge code. Fixes would then
-need to be ported between repositories. Moving the Desktop application before
-the engine has a stable restricted composition point would improve presentation
-without establishing a real product boundary.
+A runtime profile or extractor allowlist would restrict routing after broad
+code had already been linked. Such gates would duplicate product policy in the
+engine, create another configuration mode to secure, and would not prove that
+unrelated providers were absent from the Desktop binary. Conversely, copying
+the repository and deleting providers would duplicate networking, media,
+FFmpeg, output, and YouTube challenge code.
+
+The boundary must therefore be established by ordinary, explicit Go
+dependencies. Product capability is determined by which providers a
+composition root supplies to a provider-neutral engine, not by a runtime mode
+that filters a global catalog.
 
 ## Decision
 
-Treat the broad engine and the focused Desktop application as separate products
-that will eventually live in separate repositories, while implementing the
-split in stages.
+Treat the broad engine and focused Desktop application as separate products
+that will eventually live in separate repositories. Establish their boundary
+through explicit provider composition before extracting the Desktop repository.
+
+### Composition model
+
+The media engine defines provider-neutral contracts and receives its providers
+explicitly from its composition root. The engine does not discover providers
+through global initialization, blank imports, package-level registration, or a
+runtime extractor allowlist.
+
+There are two product compositions:
+
+- the broad CLI and compatibility facade compose the engine with the complete
+  provider catalog;
+- Desktop composes the engine with the complete YouTube provider and no other
+  provider.
+
+`pkg/ytdlp.NewClient` remains the broad compatibility facade. Calls that use
+its current API, including `NewClient()` with no options, retain the complete
+catalog and existing behavior. The facade may delegate to the new neutral
+composition point, but callers are not required to select a profile or assemble
+providers.
+
+Desktop does not use `ProfileYouTubePublicVideo`, another runtime profile, an
+extractor allowlist, or feature gates to narrow the engine. It imports the
+Desktop composition package, which explicitly constructs the neutral engine
+with the YouTube provider. Provider registration must remain visible in normal
+code review and dependency analysis; there is no global `init` registration or
+blank-import registration.
+
+The YouTube provider is a provider boundary, not the Desktop product-policy
+boundary. It may contain the complete related implementation set needed for
+YouTube video, playlist, channel, search, Music, and live behavior even while
+Desktop V0 exposes only public single-video downloads. Keeping that dependency
+closure together avoids splitting tightly coupled YouTube code into artificial
+product variants.
+
+The Desktop UI and its narrow request types define which workflows the product
+supports. Unsupported workflows are unrepresentable or rejected at that
+boundary before the engine is invoked. Engine or provider support does not
+implicitly widen the Desktop product.
+
+Adding a future provider to Desktop requires an explicit change in the Desktop
+composition package together with the corresponding UI, request mapping,
+product tests, and documentation. Importing or adding the provider elsewhere in
+the engine does not make it a Desktop capability.
 
 ### Product responsibilities
 
 The current repository remains the source of truth for:
 
-- the general extraction engine and public Go API;
-- the broad CLI;
-- provider implementations, including YouTube;
+- the provider-neutral media engine and public compatibility facade;
+- the broad CLI and complete provider catalog;
+- provider implementations, including the complete YouTube provider;
 - shared networking, media, output, compatibility, and conformance code; and
 - engine and provider release tags.
 
 The future focused repository will own:
 
 - the Wails application and UI-specific state;
-- the Desktop URL and feature policy;
+- the Desktop composition package and explicit provider selection;
+- the narrow Desktop request types, mapping, and product policy;
 - installers, signing, packaging, and end-user release automation;
 - product branding and user-facing documentation; and
 - only the optional CLI surface, if any, that the focused product exposes.
@@ -51,7 +101,7 @@ may describe compatibility targets, but they are not the product identity. The
 documentation and release metadata will continue to state that the application
 is not affiliated with or endorsed by YouTube.
 
-### V0 scope
+### Desktop V0 scope
 
 Desktop V0 remains limited to:
 
@@ -65,92 +115,69 @@ Desktop V0 remains limited to:
 Playlists, channels, handles, search, Shorts URL workflows, live and post-live
 streams, YouTube Music, comments, authentication, restricted content, and
 other sites remain outside V0. Supporting one of those workflows requires an
-explicit product decision and corresponding tests; engine support does not
-implicitly widen Desktop support.
+explicit product decision and changes to the UI, narrow request mapping, tests,
+and documentation.
 
-### Stage 1: restricted runtime profile
+### Staged implementation
 
-Before moving repositories, `pkg/ytdlp` will provide a high-level restricted
-client profile, conceptually:
+The boundary will be implemented in this order:
 
-```go
-client := ytdlp.NewClient(
-    ytdlp.WithProfile(ytdlp.ProfileYouTubeSingleVideo),
-)
-```
-
-The exact exported names may change during API review, but the semantics are
-fixed:
-
-- `NewClient()` retains the existing broad registry and behavior;
-- the restricted profile registers only the extractors required by Desktop V0;
-- the generic extractor is absent;
-- installed plugins and extractor-selection rules cannot widen the profile;
-- unsupported inputs fail before transport construction; and
-- URL-result or playlist re-entry cannot escape the restricted registry.
-
-The Desktop application will use this profile in the current repository before
-it is moved. Public profile selection is preferred over exposing the existing
-internal extractor interface as a raw provider API. A reusable public provider
-contract may be designed later if another embedding use case requires it.
-
-### Stage 2: provider compilation boundary
-
-Runtime restriction alone does not prove that unrelated implementations are
-absent from a binary. YouTube code will therefore be separated from the current
-mixed extractor package behind shared extraction contracts and an explicit
-composition root. The broad product composition may depend on every provider;
-the focused composition must not depend on the broad registry or non-YouTube
-provider packages.
-
-Compilation isolation is complete only when dependency and binary inspection
-show that focused builds do not include non-YouTube providers. Runtime routing
-tests remain authoritative for reachability; symbol inspection is a secondary
-guard rather than the sole proof.
-
-### Stage 3: repository extraction
-
-Create the focused repository only after:
-
-1. the restricted profile is used by Desktop and covered by public-API tests;
-2. non-YouTube and generic routing cannot be reached through the profile;
-3. the provider compilation boundary is established;
-4. the engine dependency can use a reviewed tag instead of a local `replace`;
-   and
-5. release ownership, attribution, and independent product naming are decided.
-
-Move Desktop-specific files with history and attribution. Do not copy engine or
-provider source into the focused repository.
+1. **Neutral contracts.** Separate provider-neutral extraction contracts and
+   shared engine behavior from concrete provider implementations.
+2. **Provider-neutral composition point.** Add an explicit engine constructor
+   that receives provider implementations from its caller. Do not add profiles,
+   allowlists, feature gates, or implicit registration.
+3. **Move the YouTube dependency closure.** Place the complete YouTube provider
+   and its tightly coupled video, playlist, channel, search, Music, live, and
+   challenge dependencies behind that provider boundary. Keep other providers
+   outside the YouTube dependency graph.
+4. **Switch Desktop.** Add the Desktop composition package, supply only the
+   complete YouTube provider, and route the Wails application through narrow
+   Desktop request types and explicit mapping. Preserve the full-catalog
+   `pkg/ytdlp.NewClient` behavior through the compatibility facade.
+5. **Dependency proof.** Add package-dependency and binary checks showing that
+   Desktop does not import or link the broad catalog or non-YouTube providers.
+   Product tests prove the V0 UI/request boundary; broad compatibility tests
+   prove the CLI and `pkg/ytdlp.NewClient` behavior remains unchanged.
+6. **Repository extraction.** After the composition and dependency proofs pass,
+   move Desktop-owned files with history and attribution to the focused
+   repository and consume a reviewed engine/provider release. Do not copy
+   engine or provider source.
 
 ## Validation requirements
 
-The restricted profile must have public-API regression tests proving:
+The implementation must prove both composition and product behavior:
 
-- accepted watch and short-link inputs work for preview and download planning;
-- each Desktop quality preset remains valid;
-- unsupported YouTube workflows and representative non-YouTube URLs fail with
-  the expected category before any network request;
-- generic extraction, plugins, and extractor-selection controls cannot widen
-  the profile;
-- cancellation and error categorization remain unchanged; and
-- the default broad client retains its existing registry and routing behavior.
+- neutral-engine tests use explicitly supplied fake or concrete providers;
+- full-catalog regression tests preserve broad CLI and `pkg/ytdlp.NewClient`
+  routing and compatibility;
+- Desktop composition tests show that only the YouTube provider is supplied;
+- Desktop request-mapping tests accept every V0 workflow and reject unsupported
+  YouTube workflows and representative non-YouTube inputs before engine use;
+- dependency checks show that Desktop does not depend on the broad catalog or
+  non-YouTube provider packages; and
+- adding a provider to the engine catalog alone does not change Desktop
+  capability.
 
-The later focused build must add dependency checks demonstrating that its
-composition does not import the broad registry or non-YouTube provider
-packages.
+Runtime routing tests remain useful product checks, but they are not a
+substitute for dependency proof. Symbol inspection may be used as a secondary
+binary guard, not as the sole proof of package isolation.
 
 ## Consequences
 
-The Desktop application remains in this repository temporarily, and the first
-restricted profile may still compile more provider code than the final focused
-build. That intermediate state is acceptable only while it is documented as a
-runtime boundary rather than a compilation-isolation claim.
+The complete YouTube implementation can remain larger than Desktop V0 without
+making those workflows product features. This deliberately separates provider
+capability from UI capability and avoids maintaining a second, partial YouTube
+implementation.
 
-The staged approach adds refactoring work before repository creation, but it
-keeps one implementation of shared downloader behavior and preserves the
-existing CLI and Go API by default. The future Desktop repository can remain
-small, release-focused, and unable to claim the engine's broad site support
-accidentally.
+Explicit composition creates reviewable dependency edges and lets Go's package
+graph enforce the product boundary. It also means provider additions require
+deliberate composition work rather than registration side effects.
+
+The staged refactor adds work before repository extraction, but preserves one
+implementation of shared downloader behavior and the existing broad public
+facade. The future Desktop repository can remain release-focused and cannot
+accidentally claim broad site support merely because the engine catalog grows.
 
 Product naming, signing identities, FFmpeg redistribution, and supported
 installer targets remain separate release decisions.
