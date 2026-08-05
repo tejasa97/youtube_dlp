@@ -479,7 +479,7 @@ func raiRelinker(ctx context.Context, transport Transport, raw, id string, audio
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return raiRelinkerInfo{}, raiCategorize(&HTTPStatusError{response.StatusCode})
+		return raiRelinkerInfo{}, raiCategorize(&HTTPStatusError{Code: response.StatusCode})
 	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, raiMaxXML+1))
 	if err != nil {

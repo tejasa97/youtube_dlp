@@ -1,0 +1,2053 @@
+package youtube
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"math"
+	"net/http"
+	"net/url"
+	"os"
+	"reflect"
+	"strconv"
+	"strings"
+	"testing"
+
+	"github.com/tejasa97/youtube_dlp/internal/javascript/ejs"
+	"github.com/tejasa97/youtube_dlp/internal/javascript/engine"
+	"github.com/tejasa97/youtube_dlp/internal/network"
+	"github.com/tejasa97/youtube_dlp/internal/value"
+	"github.com/tejasa97/youtube_dlp/internal/youtubepot"
+)
+
+const (
+	youtubeFixtureURL = "https://www.youtube.com/watch?v=fixture0001"
+	youtubePlayerURL  = "https://www.youtube.com/s/player/fixture/base.js"
+)
+
+type memoryTransport struct {
+	pages map[string][]byte
+	reads []string
+}
+
+type youtubeFallbackTransport struct {
+	*memoryTransport
+	responses map[string][]byte
+	requests  []*http.Request
+	bodies    [][]byte
+}
+
+type youtubeAuthenticatedRecoveryTransport struct {
+	*memoryTransport
+	cookies  []*http.Cookie
+	response []byte
+	request  *http.Request
+	body     []byte
+}
+
+type youtubeRoundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (function youtubeRoundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return function(request)
+}
+
+func (transport *youtubeAuthenticatedRecoveryTransport) Do(context.Context, *http.Request) (*http.Response, error) {
+	return nil, errors.New("authenticated recovery must use the no-redirect transport")
+}
+
+func (transport *youtubeAuthenticatedRecoveryTransport) Cookies(rawURL string) ([]*http.Cookie, error) {
+	if rawURL != youtubeAuthOrigin {
+		return nil, fmt.Errorf("unexpected cookie scope %q", rawURL)
+	}
+	return append([]*http.Cookie(nil), transport.cookies...), nil
+}
+
+func (transport *youtubeAuthenticatedRecoveryTransport) DoNoRedirect(ctx context.Context, request *http.Request) (*http.Response, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	body, err := io.ReadAll(request.Body)
+	if err != nil {
+		return nil, err
+	}
+	transport.request = request.Clone(request.Context())
+	transport.body = body
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(bytes.NewReader(transport.response)),
+		Header:     make(http.Header),
+		Request:    request,
+	}, nil
+}
+
+func (transport *youtubeFallbackTransport) Do(ctx context.Context, request *http.Request) (*http.Response, error) {
+	return nil, errors.New("unexpected cookie-bearing YouTube fallback request")
+}
+
+func (transport *youtubeFallbackTransport) DoWithoutCookies(ctx context.Context, request *http.Request) (*http.Response, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if request.Header.Get("Cookie") != "" {
+		return nil, errors.New("isolated YouTube fallback request contains cookies")
+	}
+	body, err := io.ReadAll(request.Body)
+	if err != nil {
+		return nil, err
+	}
+	transport.requests = append(transport.requests, request)
+	transport.bodies = append(transport.bodies, body)
+	response, ok := transport.responses[request.Header.Get("X-Youtube-Client-Name")]
+	if !ok {
+		return nil, fmt.Errorf("unexpected YouTube client %q", request.Header.Get("X-Youtube-Client-Name"))
+	}
+	return &http.Response{
+		StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(response)),
+		Header: make(http.Header), Request: request,
+	}, nil
+}
+
+func (transport *memoryTransport) Do(context.Context, *http.Request) (*http.Response, error) {
+	return nil, errors.New("unexpected Do call")
+}
+
+func (transport *memoryTransport) ReadPage(_ context.Context, rawURL string) ([]byte, http.Header, error) {
+	transport.reads = append(transport.reads, rawURL)
+	page, ok := transport.pages[rawURL]
+	if !ok {
+		return nil, nil, fmt.Errorf("unexpected URL %q", rawURL)
+	}
+	return append([]byte(nil), page...), make(http.Header), nil
+}
+
+func TestYouTubeSuitableAndVideoID(t *testing.T) {
+	extractor := NewYouTube()
+	for _, rawURL := range []string{
+		"https://www.youtube.com/watch?v=fixture0001",
+		"https://youtu.be/fixture0001",
+		"https://m.youtube.com/shorts/fixture0001",
+		"https://youtube.com/embed/fixture0001",
+		"https://youtube.com/live/fixture0001",
+		"https://www.youtube-nocookie.com/embed/fixture0001",
+		"https://youtube-nocookie.com/embed/fixture0001",
+	} {
+		parsed, err := url.Parse(rawURL)
+		if err != nil || !extractor.Suitable(parsed) {
+			t.Fatalf("Suitable(%q) = false, %v", rawURL, err)
+		}
+		if id, err := youtubeVideoID(rawURL); err != nil || id != "fixture0001" {
+			t.Fatalf("youtubeVideoID(%q) = %q, %v", rawURL, id, err)
+		}
+	}
+	if id, ok := youtubePlaylistID("https://www.youtube.com/playlist?list=PL_fixture"); !ok || id != "PL_fixture" {
+		t.Fatalf("youtubePlaylistID() = %q, %v", id, ok)
+	}
+	for _, rawURL := range []string{
+		"https://example.com/watch?v=fixture0001",
+		"https://www.youtube-nocookie.com.evil.example/embed/fixture0001",
+		"https://evil-youtube-nocookie.com/embed/fixture0001",
+		"https://attacker.youtube-nocookie.com/embed/fixture0001",
+	} {
+		parsed, _ := url.Parse(rawURL)
+		if extractor.Suitable(parsed) {
+			t.Fatalf("Suitable(%q) = true, want false", rawURL)
+		}
+	}
+	for _, rawURL := range []string{
+		"https://www.youtube.com/watch?v=short",
+		"https://www.youtube.com/playlist?list=fixture0001",
+		"https://youtu.be/fixture0001/extra",
+		"https://www.youtube-nocookie.com/embed/short",
+	} {
+		if _, err := youtubeVideoID(rawURL); !errors.Is(err, ErrUnsupported) {
+			t.Fatalf("youtubeVideoID(%q) error = %v", rawURL, err)
+		}
+	}
+}
+
+func TestYouTubeNoCookieSuitable(t *testing.T) {
+	extractor := NewYouTube()
+	for _, rawURL := range []string{
+		"https://www.youtube-nocookie.com/embed/fixture0001",
+		"https://youtube-nocookie.com/embed/fixture0001",
+		"http://www.youtube-nocookie.com/embed/fixture0001",
+		"http://youtube-nocookie.com/embed/fixture0001",
+		"//www.youtube-nocookie.com/embed/fixture0001",
+	} {
+		parsed, err := url.Parse(rawURL)
+		if err != nil {
+			t.Fatalf("parse(%q): %v", rawURL, err)
+		}
+		if !extractor.Suitable(parsed) {
+			t.Errorf("Suitable(%q) = false; want true", rawURL)
+		}
+	}
+	for _, rawURL := range []string{
+		"https://attacker.youtube-nocookie.com/embed/fixture0001",
+		"https://youtube-nocookie.com.evil.example/embed/fixture0001",
+		"https://evil-youtube-nocookie.com/embed/fixture0001",
+		"https://notyoutube-nocookie.com/embed/fixture0001",
+		"https://youtube-nocookie.com.attacker.com/embed/fixture0001",
+	} {
+		parsed, err := url.Parse(rawURL)
+		if err != nil {
+			t.Fatalf("parse(%q): %v", rawURL, err)
+		}
+		if extractor.Suitable(parsed) {
+			t.Errorf("Suitable(%q) = true; want false (lookalike)", rawURL)
+		}
+	}
+}
+
+func TestYouTubeNoCookieParseTarget(t *testing.T) {
+	t.Run("accepted", func(t *testing.T) {
+		for _, test := range []struct {
+			url              string
+			start, end       float64
+			hasStart, hasEnd bool
+		}{
+			{"https://www.youtube-nocookie.com/embed/fixture0001", 0, 0, false, false},
+			{"https://youtube-nocookie.com/embed/fixture0001", 0, 0, false, false},
+			{"http://www.youtube-nocookie.com/embed/fixture0001", 0, 0, false, false},
+			{"http://youtube-nocookie.com/embed/fixture0001", 0, 0, false, false},
+			{"//www.youtube-nocookie.com/embed/fixture0001", 0, 0, false, false},
+			{"https://www.youtube-nocookie.com/embed/fixture0001?t=10&end=20", 10, 20, true, true},
+			{"https://www.youtube-nocookie.com/embed/fixture0001#t=1h2m&end=2h", 3720, 7200, true, true},
+		} {
+			target, err := parseYouTubeTarget(test.url)
+			if err != nil {
+				t.Fatalf("parseYouTubeTarget(%q): %v", test.url, err)
+			}
+			if target.videoID != "fixture0001" {
+				t.Fatalf("parseYouTubeTarget(%q).videoID = %q", test.url, target.videoID)
+			}
+			if (target.startTime != nil) != test.hasStart || (target.endTime != nil) != test.hasEnd {
+				t.Fatalf("parseYouTubeTarget(%q) start/end presence mismatch: %#v", test.url, target)
+			}
+			if target.startTime != nil && *target.startTime != test.start {
+				t.Fatalf("parseYouTubeTarget(%q).startTime = %v, want %v", test.url, *target.startTime, test.start)
+			}
+			if target.endTime != nil && *target.endTime != test.end {
+				t.Fatalf("parseYouTubeTarget(%q).endTime = %v, want %v", test.url, *target.endTime, test.end)
+			}
+		}
+	})
+
+	t.Run("unsupported-routes", func(t *testing.T) {
+		for _, rawURL := range []string{
+			"https://www.youtube-nocookie.com/watch?v=fixture0001",
+			"https://www.youtube-nocookie.com/shorts/fixture0001",
+			"https://www.youtube-nocookie.com/live/fixture0001",
+			"https://www.youtube-nocookie.com/channel/UCfixture_channel_00001",
+			"https://www.youtube-nocookie.com/@fixture/live",
+			"https://www.youtube-nocookie.com/playlist?list=PL_fixture",
+			"https://www.youtube-nocookie.com/c/fixture-name/live",
+			"https://www.youtube-nocookie.com/user/fixture.name/live",
+		} {
+			if _, err := parseYouTubeTarget(rawURL); !errors.Is(err, ErrUnsupported) {
+				t.Errorf("parseYouTubeTarget(%q): err = %v; want ErrUnsupported", rawURL, err)
+			}
+		}
+	})
+
+	t.Run("path-shape-rejected", func(t *testing.T) {
+		for _, rawURL := range []string{
+			"https://www.youtube-nocookie.com/embed/fixture0001/",
+			"https://www.youtube-nocookie.com//embed/fixture0001",
+			"https://www.youtube-nocookie.com/embed//fixture0001",
+			"https://www.youtube-nocookie.com/embed/fixture0001/extra",
+		} {
+			if _, err := parseYouTubeTarget(rawURL); !errors.Is(err, ErrUnsupported) {
+				t.Errorf("parseYouTubeTarget(%q): err = %v; want ErrUnsupported", rawURL, err)
+			}
+		}
+	})
+
+	t.Run("host-confusion-rejected", func(t *testing.T) {
+		for _, rawURL := range []string{
+			"https://evil-youtube-nocookie.com/embed/fixture0001",
+			"https://youtube-nocookie.com.evil.example/embed/fixture0001",
+			"https://attacker.youtube-nocookie.com/embed/fixture0001",
+			"https://example.com/embed/fixture0001",
+			"https://example.com/watch?v=fixture0001",
+		} {
+			if _, err := parseYouTubeTarget(rawURL); !errors.Is(err, ErrUnsupported) {
+				t.Errorf("parseYouTubeTarget(%q): err = %v; want ErrUnsupported", rawURL, err)
+			}
+		}
+	})
+
+	t.Run("hostile-forms-rejected", func(t *testing.T) {
+		for _, rawURL := range []string{
+			"https://user@www.youtube-nocookie.com/embed/fixture0001",
+			"https://user:pass@www.youtube-nocookie.com/embed/fixture0001",
+			"https://www.youtube-nocookie.com:443/embed/fixture0001",
+			"https://www.youtube-nocookie.com:8080/embed/fixture0001",
+			"https://www.youtube-nocookie.com:/embed/fixture0001",
+			"ftp://www.youtube-nocookie.com/embed/fixture0001",
+			"file:///etc/passwd",
+			"https://www.youtube-nocookie.com/embed/fixture0001%2Fextra",
+			"https://www.youtube-nocookie.com/embed/fixture0001%5cextra",
+			"https://www.youtube-nocookie.com/embed/fix%00ture0001",
+			"https://www.youtube-nocookie.com/embed/short",
+		} {
+			if _, err := parseYouTubeTarget(rawURL); !errors.Is(err, ErrUnsupported) {
+				t.Errorf("parseYouTubeTarget(%q): err = %v; want ErrUnsupported", rawURL, err)
+			}
+		}
+	})
+}
+
+func TestYouTubeNoCookieDeterministicExtraction(t *testing.T) {
+	watch := readYouTubeFixture(t, "watch.html")
+	player := readYouTubeFixture(t, "../../javascript/ejs-0.8.0/synthetic-player.js")
+	solver, err := ejs.New(engine.New(4))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const embedURL = "https://www.youtube-nocookie.com/embed/fixture0001"
+	transport := &memoryTransport{pages: map[string][]byte{
+		youtubeFixtureURL: watch,
+		youtubePlayerURL:  player,
+		// Register the embed URL so any accidental fetch is visible.
+		embedURL: watch,
+	}}
+	result, err := NewYouTube().Extract(context.Background(), Request{
+		URL: embedURL, Transport: transport, Options: Options{ChallengeSolver: solver},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id, _ := result.Info.ID(); id != "fixture0001" {
+		t.Fatalf("id = %q", id)
+	}
+	if rawURL, _ := result.Info.Lookup("webpage_url").StringValue(); rawURL != youtubeFixtureURL {
+		t.Fatalf("webpage_url = %q; want %q", rawURL, youtubeFixtureURL)
+	}
+	formats, _ := result.Info.Formats()
+	if len(formats) == 0 {
+		t.Fatal("formats = 0")
+	}
+	// The nocookie URL must never be fetched; only canonical watch + player JS.
+	wantReads := []string{youtubeFixtureURL, youtubePlayerURL}
+	if !reflect.DeepEqual(transport.reads, wantReads) {
+		t.Fatalf("reads = %v; want %v", transport.reads, wantReads)
+	}
+}
+
+func TestYouTubeNoCookieContextCancellation(t *testing.T) {
+	watch := readYouTubeFixture(t, "watch.html")
+	player := readYouTubeFixture(t, "../../javascript/ejs-0.8.0/synthetic-player.js")
+	solver, err := ejs.New(engine.New(4))
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := &memoryTransport{pages: map[string][]byte{
+		youtubeFixtureURL: watch,
+		youtubePlayerURL:  player,
+	}}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+	_, err = NewYouTube().Extract(ctx, Request{
+		URL: "https://www.youtube-nocookie.com/embed/fixture0001", Transport: transport, Options: Options{ChallengeSolver: solver},
+	})
+	if err == nil {
+		t.Fatal("expected error from cancelled context")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v; want errors.Is(err, context.Canceled)", err)
+	}
+	// Cancellation must not cause additional transport work beyond what was
+	// already in-flight. The first ReadPage should fail immediately.
+	if len(transport.reads) > 1 {
+		t.Fatalf("transport.reads = %v; expected at most 1 read before cancellation", transport.reads)
+	}
+}
+
+func TestYouTubeExtractRejectsHostilePlaylistURLs(t *testing.T) {
+	transport := &memoryTransport{pages: map[string][]byte{}}
+	for _, rawURL := range []string{
+		"ftp://www.youtube.com/playlist?list=PL_fixture",
+		"https://user@www.youtube.com/playlist?list=PL_fixture",
+		"https://user:pass@www.youtube.com/playlist?list=PL_fixture",
+		"https://www.youtube.com:443/playlist?list=PL_fixture",
+		"https://www.youtube.com:8080/playlist?list=PL_fixture",
+		"https://www.youtube.com:/playlist?list=PL_fixture",
+		"https://example.com/playlist?list=PL_fixture",
+		"https://evil-youtube.com/playlist?list=PL_fixture",
+		"https://www.youtube.com/playlist%2F?list=PL_fixture",
+		"https://www.youtube.com/playlist%5c?list=PL_fixture",
+		"https://www.youtube.com/play%00list?list=PL_fixture",
+	} {
+		_, err := NewYouTube().Extract(context.Background(), Request{
+			URL: rawURL, Transport: transport,
+		})
+		if !errors.Is(err, ErrUnsupported) {
+			t.Errorf("Extract(%q) error = %v; want ErrUnsupported", rawURL, err)
+		}
+	}
+	// Verify no transport requests were made for any hostile URL.
+	if len(transport.reads) != 0 {
+		t.Fatalf("transport.reads = %v; want empty (no requests for hostile URLs)", transport.reads)
+	}
+}
+
+func TestYouTubeExtractRejectsHostileLiveAliasURLs(t *testing.T) {
+	transport := &memoryTransport{pages: map[string][]byte{}}
+	for _, rawURL := range []string{
+		"ftp://www.youtube.com/@fixture/live",
+		"https://user@www.youtube.com/@fixture/live",
+		"https://www.youtube.com:443/@fixture/live",
+		"https://www.youtube.com:/@fixture/live",
+		"https://example.com/@fixture/live",
+		"https://www.youtube.com/@fix%2fture/live",
+		"https://www.youtube.com/@fix%00ture/live",
+	} {
+		_, err := NewYouTube().Extract(context.Background(), Request{
+			URL: rawURL, Transport: transport,
+		})
+		if !errors.Is(err, ErrUnsupported) {
+			t.Errorf("Extract(%q) error = %v; want ErrUnsupported", rawURL, err)
+		}
+	}
+	if len(transport.reads) != 0 {
+		t.Fatalf("transport.reads = %v; want empty (no requests for hostile URLs)", transport.reads)
+	}
+}
+
+func TestYouTubeExtractRejectsEmptyPortAllRoutes(t *testing.T) {
+	transport := &memoryTransport{pages: map[string][]byte{}}
+	for _, rawURL := range []string{
+		// Standard video routes.
+		"https://www.youtube.com:/watch?v=fixture0001",
+		"https://youtube.com:/embed/fixture0001",
+		"https://youtu.be:/fixture0001",
+		// Nocookie route.
+		"https://www.youtube-nocookie.com:/embed/fixture0001",
+	} {
+		_, err := NewYouTube().Extract(context.Background(), Request{
+			URL: rawURL, Transport: transport,
+		})
+		if !errors.Is(err, ErrUnsupported) {
+			t.Errorf("Extract(%q) error = %v; want ErrUnsupported", rawURL, err)
+		}
+	}
+	if len(transport.reads) != 0 {
+		t.Fatalf("transport.reads = %v; want empty", transport.reads)
+	}
+}
+
+// stubChallengeSolver returns a fixed error from SolvePlayer, allowing tests
+// to exercise the cancellation guard in resolveYouTubeURLs without running the
+// real JavaScript engine.
+type stubChallengeSolver struct {
+	err error
+}
+
+func (s stubChallengeSolver) SolvePlayer(context.Context, string, string, []ejs.ChallengeRequest, bool) (ejs.Result, error) {
+	return ejs.Result{}, s.err
+}
+
+func TestYouTubeSolverCancellationPropagation(t *testing.T) {
+	watch := readYouTubeFixture(t, "watch.html")
+	player := readYouTubeFixture(t, "../../javascript/ejs-0.8.0/synthetic-player.js")
+
+	for _, test := range []struct {
+		name    string
+		solver  stubChallengeSolver
+		wantIs  error
+		wantNot error
+	}{
+		{
+			name:    "context.Canceled",
+			solver:  stubChallengeSolver{err: context.Canceled},
+			wantIs:  context.Canceled,
+			wantNot: ErrChallengeSolver,
+		},
+		{
+			name:    "context.DeadlineExceeded",
+			solver:  stubChallengeSolver{err: context.DeadlineExceeded},
+			wantIs:  context.DeadlineExceeded,
+			wantNot: ErrChallengeSolver,
+		},
+		{
+			name:    "wrapped cancellation",
+			solver:  stubChallengeSolver{err: fmt.Errorf("solver timeout: %w", context.Canceled)},
+			wantIs:  context.Canceled,
+			wantNot: ErrChallengeSolver,
+		},
+		{
+			name:   "normal solver failure remains ErrChallengeSolver",
+			solver: stubChallengeSolver{err: errors.New("n-param transform failed")},
+			wantIs: ErrChallengeSolver,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			transport := &memoryTransport{pages: map[string][]byte{
+				youtubeFixtureURL: watch,
+				youtubePlayerURL:  player,
+			}}
+			_, err := NewYouTube().Extract(context.Background(), Request{
+				URL:       "https://www.youtube-nocookie.com/embed/fixture0001",
+				Transport: transport,
+				Options:   Options{ChallengeSolver: test.solver},
+			})
+			if err == nil {
+				t.Fatal("expected error from stub solver")
+			}
+			if !errors.Is(err, test.wantIs) {
+				t.Fatalf("error = %v; want errors.Is(err, %v)", err, test.wantIs)
+			}
+			if test.wantNot != nil && errors.Is(err, test.wantNot) {
+				t.Fatalf("error = %v; must NOT satisfy errors.Is(err, %v)", err, test.wantNot)
+			}
+		})
+	}
+}
+
+func TestYouTubeChannelLiveAliasMatching(t *testing.T) {
+	for _, rawURL := range []string{
+		"https://www.youtube.com/@fixture/live",
+		"https://youtube.com/channel/UCfixture_channel_00001/live",
+		"https://m.youtube.com/user/fixture.name/live/",
+		"https://www.youtube.com/c/fixture-name/live",
+		"https://www.youtube.com/c/ИгорьКлейнер/live?feature=share#ignored",
+		"http://youtube.com/TheYoungTurks/live?feature=share",
+	} {
+		if !youtubeChannelLiveAlias(rawURL) {
+			t.Errorf("youtubeChannelLiveAlias(%q) = false", rawURL)
+		}
+	}
+	for _, rawURL := range []string{
+		"https://www.youtube.com/@fixture/videos",
+		"https://example.com/@fixture/live",
+		"https://www.youtube.com/@fixture%2Flive",
+		"https://www.youtube.com/watch/live",
+		"https://www.youtube.com/feed/live",
+		"https://www.youtube.com/signin/live",
+		"https://www.youtube.com/s/live",
+	} {
+		if youtubeChannelLiveAlias(rawURL) {
+			t.Errorf("youtubeChannelLiveAlias(%q) = true", rawURL)
+		}
+	}
+	canonical, ok := youtubeChannelLiveAliasURL("http://m.youtube.com/@fixture/live?feature=share#ignored")
+	if !ok || canonical != "https://www.youtube.com/@fixture/live" {
+		t.Fatalf("canonical alias = %q, %v", canonical, ok)
+	}
+}
+
+func TestYouTubeChannelLiveAliasResolvesThroughVideoExtractor(t *testing.T) {
+	const alias = "https://www.youtube.com/@fixture/live"
+	watch := readYouTubeFixture(t, "live-watch.html")
+	transport := &memoryTransport{pages: map[string][]byte{
+		alias: watch, "https://www.youtube.com/watch?v=livefix0001": watch,
+	}}
+	result, err := NewYouTube().Extract(context.Background(), Request{URL: alias, Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id, _ := result.Info.ID(); id != "livefix0001" {
+		t.Fatalf("id = %q", id)
+	}
+	if status, _ := result.Info.Lookup("live_status").StringValue(); status != "is_live" {
+		t.Fatalf("live_status = %q", status)
+	}
+	if !reflect.DeepEqual(transport.reads, []string{alias, "https://www.youtube.com/watch?v=livefix0001"}) {
+		t.Fatalf("reads = %v", transport.reads)
+	}
+}
+
+func TestYouTubeChannelLiveAliasOfflineAndMalformed(t *testing.T) {
+	const alias = "https://www.youtube.com/@fixture/live"
+	transport := &memoryTransport{pages: map[string][]byte{alias: []byte(`ytInitialData={"contents":{}};`)}}
+	if _, err := NewYouTube().Extract(context.Background(), Request{URL: alias, Transport: transport}); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("offline error = %v", err)
+	}
+
+	badPlayer := []byte(`ytInitialPlayerResponse={"playabilityStatus":{"status":"OK"},"videoDetails":{"videoId":"bad"}};`)
+	transport = &memoryTransport{pages: map[string][]byte{alias: badPlayer}}
+	if _, err := NewYouTube().Extract(context.Background(), Request{URL: alias, Transport: transport}); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("malformed error = %v", err)
+	}
+}
+
+func TestParseYouTubeTargetOffsets(t *testing.T) {
+	for _, test := range []struct {
+		url              string
+		start, end       float64
+		hasStart, hasEnd bool
+	}{
+		{"https://www.youtube.com/watch?v=fixture0001&t=1s&end=9", 1, 9, true, true},
+		{"https://www.youtube.com/watch?v=fixture0001#t=1h2m3.5s&end=4000", 3723.5, 4000, true, true},
+		{"https://www.youtube.com/watch?v=fixture0001#t=2m&t=3m", 120, 0, true, false},
+		{"https://www.youtube.com/watch?v=fixture0001&t=bad&start=7", 0, 0, false, false},
+		{"https://www.youtube.com/watch?v=fixture0001&t=-1&end=huge", 0, 0, false, false},
+		{"https://www.youtube.com/watch?v=fixture0001&t=1:02", 62, 0, true, false},
+		{"https://www.youtube.com/watch?v=fixture0001&t=1:02:03.5", 3723.5, 0, true, false},
+		{"https://www.youtube.com/watch?v=fixture0001&t=P1DT2H3M4S", 93784, 0, true, false},
+		{"https://www.youtube.com/watch?v=fixture0001&t=1.5hours", 5400, 0, true, false},
+	} {
+		target, err := parseYouTubeTarget(test.url)
+		if err != nil {
+			t.Fatalf("parseYouTubeTarget(%q): %v", test.url, err)
+		}
+		if target.videoID != "fixture0001" || (target.startTime != nil) != test.hasStart || (target.endTime != nil) != test.hasEnd {
+			t.Fatalf("parseYouTubeTarget(%q) = %#v", test.url, target)
+		}
+		if target.startTime != nil && *target.startTime != test.start {
+			t.Fatalf("start(%q) = %v", test.url, *target.startTime)
+		}
+		if target.endTime != nil && *target.endTime != test.end {
+			t.Fatalf("end(%q) = %v", test.url, *target.endTime)
+		}
+	}
+}
+
+func TestParseYouTubeTargetListParam(t *testing.T) {
+	t.Run("extracts-list-from-watch-url", func(t *testing.T) {
+		target, err := parseYouTubeTarget("https://www.youtube.com/watch?v=fixture0001&list=PL_test_playlist")
+		if err != nil {
+			t.Fatalf("parseYouTubeTarget: %v", err)
+		}
+		if target.videoID != "fixture0001" {
+			t.Fatalf("videoID = %q; want fixture0001", target.videoID)
+		}
+		if target.playlistID != "PL_test_playlist" {
+			t.Fatalf("playlistID = %q; want PL_test_playlist", target.playlistID)
+		}
+	})
+	t.Run("extracts-list-from-fragment", func(t *testing.T) {
+		target, err := parseYouTubeTarget("https://www.youtube.com/watch?v=fixture0001#list=PL_test_playlist")
+		if err != nil {
+			t.Fatalf("parseYouTubeTarget: %v", err)
+		}
+		if target.playlistID != "PL_test_playlist" {
+			t.Fatalf("playlistID = %q; want PL_test_playlist", target.playlistID)
+		}
+	})
+	t.Run("empty-when-no-list", func(t *testing.T) {
+		target, err := parseYouTubeTarget("https://www.youtube.com/watch?v=fixture0001")
+		if err != nil {
+			t.Fatalf("parseYouTubeTarget: %v", err)
+		}
+		if target.playlistID != "" {
+			t.Fatalf("playlistID = %q; want empty", target.playlistID)
+		}
+	})
+	t.Run("empty-on-pure-playlist-url", func(t *testing.T) {
+		// Pure /playlist URLs are handled by youtubePlaylistID, not
+		// parseYouTubeTarget, so parseYouTubeTarget should reject them.
+		_, err := parseYouTubeTarget("https://www.youtube.com/playlist?list=PL_test_playlist")
+		if !errors.Is(err, ErrUnsupported) {
+			t.Fatalf("parseYouTubeTarget(/playlist) err = %v; want ErrUnsupported", err)
+		}
+	})
+	t.Run("rejects-invalid-playlist-id", func(t *testing.T) {
+		target, err := parseYouTubeTarget("https://www.youtube.com/watch?v=fixture0001&list=")
+		if err != nil {
+			t.Fatalf("parseYouTubeTarget: %v", err)
+		}
+		if target.playlistID != "" {
+			t.Fatalf("playlistID = %q; want empty (empty ID rejected)", target.playlistID)
+		}
+	})
+}
+
+func TestYouTubeNoPlaylistAmbiguousURLChoice(t *testing.T) {
+	ambiguousURL := "https://www.youtube.com/watch?v=fixture0001&list=PL_fixture"
+	playlistPageURL := "https://www.youtube.com/playlist?list=PL_fixture"
+	watchPageURL := "https://www.youtube.com/watch?v=fixture0001"
+
+	playlistPage := readYouTubeFixture(t, "playlist.html")
+	watchPage := readYouTubeFixture(t, "watch.html")
+	player := readYouTubeFixture(t, "../../javascript/ejs-0.8.0/synthetic-player.js")
+	solver, err := ejs.New(engine.New(4))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("default-prefers-playlist", func(t *testing.T) {
+		transport := &memoryTransport{pages: map[string][]byte{
+			playlistPageURL: playlistPage,
+		}}
+		result, err := NewYouTube().Extract(context.Background(), Request{
+			URL: ambiguousURL, Transport: transport,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.IsPlaylist() {
+			t.Fatalf("expected playlist result, got %#v", result)
+		}
+		if len(transport.reads) != 1 || transport.reads[0] != playlistPageURL {
+			t.Fatalf("reads = %#v; want playlist page only", transport.reads)
+		}
+	})
+
+	t.Run("no-playlist-prefers-video", func(t *testing.T) {
+		transport := &memoryTransport{pages: map[string][]byte{
+			watchPageURL:     watchPage,
+			youtubePlayerURL: player,
+		}}
+		result, err := NewYouTube().Extract(context.Background(), Request{
+			URL: ambiguousURL, Transport: transport, NoPlaylist: true, Options: Options{ChallengeSolver: solver},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.IsPlaylist() {
+			t.Fatal("expected video result, got playlist")
+		}
+		if len(transport.reads) < 1 || transport.reads[0] != watchPageURL {
+			t.Fatalf("reads = %#v; want watch page first", transport.reads)
+		}
+	})
+
+	t.Run("no-playlist-does-not-affect-pure-playlist-url", func(t *testing.T) {
+		purePlaylistURL := "https://www.youtube.com/playlist?list=PL_fixture"
+		transport := &memoryTransport{pages: map[string][]byte{
+			playlistPageURL: playlistPage,
+		}}
+		result, err := NewYouTube().Extract(context.Background(), Request{
+			URL: purePlaylistURL, Transport: transport, NoPlaylist: true,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.IsPlaylist() {
+			t.Fatal("expected playlist result for pure playlist URL even with NoPlaylist=true")
+		}
+	})
+}
+
+func TestParseYouTubeOffsetReferenceCases(t *testing.T) {
+	// Derived from yt-dlp test/test_utils.py::test_parse_duration at
+	// aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8.
+	for _, test := range []struct {
+		input string
+		want  float64
+	}{
+		{"1337:12", 80232},
+		{"3 hours, 11 mins, 53 secs", 11513},
+		{"01:02:03.05", 3723.05},
+		{"T30M38S", 1838},
+		{"1 hour 3 minutes", 3780},
+		{"87 Min.", 5220},
+		{"PT1H0.040S", 3600.04},
+		{"PT00H03M30SZ", 210},
+		{"P0Y0M0DT0H4M20.880S", 260.88},
+		{"01:02:03:050", 3723.05},
+		{"103:050", 103.05},
+		{"1HR 3MIN", 3780},
+		{"2hrs 3mins", 7380},
+	} {
+		got, ok := parseYouTubeOffset(test.input)
+		if !ok || math.Abs(got-test.want) > 1e-9 {
+			t.Errorf("parseYouTubeOffset(%q) = (%v, %v), want (%v, true)", test.input, got, ok, test.want)
+		}
+	}
+}
+
+func TestYouTubeExtractionPreservesURLOffsets(t *testing.T) {
+	watch := readYouTubeFixture(t, "live-watch.html")
+	transport := &memoryTransport{pages: map[string][]byte{"https://www.youtube.com/watch?v=livefix0001": watch}}
+	result, err := NewYouTube().Extract(context.Background(), Request{
+		URL: "https://www.youtube.com/watch?v=livefix0001&t=1s&end=9", Transport: transport,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	start, _ := result.Info.Lookup("start_time").Int()
+	end, _ := result.Info.Lookup("end_time").Int()
+	if start != 1 || end != 9 {
+		t.Fatalf("offsets = %d, %d", start, end)
+	}
+}
+
+func TestYouTubeExtractsPinnedVideoAndSolvesChallenges(t *testing.T) {
+	watch := readYouTubeFixture(t, "watch.html")
+	player := readYouTubeFixture(t, "../../javascript/ejs-0.8.0/synthetic-player.js")
+	expected := readYouTubeFixture(t, "expected.json")
+	solver, err := ejs.New(engine.New(4))
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := &memoryTransport{pages: map[string][]byte{
+		youtubeFixtureURL: watch,
+		youtubePlayerURL:  player,
+	}}
+	result, err := NewYouTube().Extract(context.Background(), Request{
+		URL: youtubeFixtureURL, Transport: transport, Options: Options{ChallengeSolver: solver},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var actual bytes.Buffer
+	encoder := json.NewEncoder(&actual)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(result.Info.Fields()); err != nil {
+		t.Fatal(err)
+	}
+	var expectedDocument, actualDocument any
+	if err := json.Unmarshal(expected, &expectedDocument); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(actual.Bytes(), &actualDocument); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(actualDocument, expectedDocument) {
+		t.Fatalf("metadata mismatch\nactual:   %s\nexpected: %s", actual.Bytes(), expected)
+	}
+	if len(transport.reads) != 2 || transport.reads[0] != youtubeFixtureURL || transport.reads[1] != youtubePlayerURL {
+		t.Fatalf("reads = %#v", transport.reads)
+	}
+}
+
+func TestYouTubeDiscoversPlayerJavaScriptFromPageConfig(t *testing.T) {
+	watch := bytes.Replace(
+		readYouTubeFixture(t, "watch.html"),
+		[]byte(`"assets": {"js": "/s/player/fixture/base.js"}`),
+		[]byte(`"assets": {}`),
+		1,
+	)
+	watch = bytes.Replace(watch, []byte("<body>"), []byte(`<body><script>
+      var unrelated = {"jsUrl":"https://attacker.example/s/player/bad/base.js"};
+      ytcfg.set({"WEB_PLAYER_CONTEXT_CONFIGS":{"WEB_PLAYER_CONTEXT_CONFIG_ID_KEVLAR_WATCH":{"jsUrl":"\/s\/player\/fixture\/base.js"}}});
+    </script>`), 1)
+	solver, err := ejs.New(engine.New(4))
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := &memoryTransport{pages: map[string][]byte{
+		youtubeFixtureURL: watch,
+		youtubePlayerURL:  readYouTubeFixture(t, "../../javascript/ejs-0.8.0/synthetic-player.js"),
+	}}
+	result, err := NewYouTube().Extract(context.Background(), Request{
+		URL: youtubeFixtureURL, Transport: transport, Options: Options{ChallengeSolver: solver},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	formats, _ := result.Info.Formats()
+	if len(formats) != 4 || len(transport.reads) != 2 || transport.reads[1] != youtubePlayerURL {
+		t.Fatalf("formats=%d reads=%v", len(formats), transport.reads)
+	}
+}
+
+func TestYouTubePlayerURLValidation(t *testing.T) {
+	for _, playerPath := range []string{
+		"/s/player/fixture/base.js",
+		"https://www.youtube.com/s/player/fixture/base.js?cache=1",
+		"https://www.youtube-nocookie.com/s/player/fixture/base.js",
+	} {
+		if _, err := resolveYouTubePlayerURL(youtubeFixtureURL, playerPath); err != nil {
+			t.Fatalf("resolveYouTubePlayerURL(%q) error = %v", playerPath, err)
+		}
+	}
+	for _, playerPath := range []string{
+		"http://www.youtube.com/s/player/fixture/base.js",
+		"https://attacker.example/s/player/fixture/base.js",
+		"https://localhost/s/player/fixture/base.js",
+		"https://user@www.youtube.com/s/player/fixture/base.js",
+		"https://www.youtube.com:444/s/player/fixture/base.js",
+		"https://www.youtube.com/api/internal.js",
+		"https://www.youtube.com/s/player/../private.js",
+		"https://www.youtube.com/s/player/%2e%2e/private.js",
+		"https://www.youtube.com/s/player/fixture/base.js#fragment",
+	} {
+		if _, err := resolveYouTubePlayerURL(youtubeFixtureURL, playerPath); !errors.Is(err, ErrInvalidMetadata) {
+			t.Fatalf("resolveYouTubePlayerURL(%q) error = %v", playerPath, err)
+		}
+	}
+}
+
+func TestYouTubePageConfigParsingIsStructuredAndBounded(t *testing.T) {
+	var page strings.Builder
+	page.WriteString(`var unrelated={"PLAYER_JS_URL":"https://attacker.example/s/player/bad/base.js","VISITOR_DATA":"bad"};`)
+	for index := 0; index <= youtubeMaxPageConfigs; index++ {
+		fmt.Fprintf(&page, `ytcfg.set({"VISITOR_DATA":"visitor-%d"});`, index)
+	}
+	config := discoverYouTubePageConfig([]byte(page.String()))
+	if config.PlayerJSURL != "" || config.VisitorData != "visitor-7" {
+		t.Fatalf("config = %#v", config)
+	}
+}
+
+func TestYouTubePageConfigBuildsBoundedWEBAuthContext(t *testing.T) {
+	page := []byte(`ytcfg.set({
+		"INNERTUBE_API_KEY":"fixture-api-key",
+		"INNERTUBE_CONTEXT_CLIENT_NAME":1,
+		"INNERTUBE_CLIENT_VERSION":"2.fixture",
+		"SESSION_INDEX":"3",
+		"DATASYNC_ID":"delegated||user",
+		"LOGGED_IN":true,
+		"INNERTUBE_CONTEXT":{"client":{"clientName":"WEB","clientVersion":"ignored","visitorData":"context-visitor","userAgent":"fixture-agent"}}
+	});`)
+	config := discoverYouTubePageConfig(page).webAuthConfig("", "")
+	if config.ClientName != "WEB" || config.ClientID != "1" || config.ClientVersion != "2.fixture" ||
+		config.VisitorData != "context-visitor" || config.UserAgent != "fixture-agent" ||
+		config.DelegatedSessionID != "delegated" || config.UserSessionID != "user" ||
+		config.SessionIndex != "3" || !config.LoggedIn {
+		t.Fatalf("auth config = %#v", config)
+	}
+	if discovered := discoverYouTubePageConfig(page); discovered.APIKey != "fixture-api-key" {
+		t.Fatalf("API key = %q", discovered.APIKey)
+	}
+	responseFallback := discoverYouTubePageConfig([]byte(`ytcfg.set({
+		"INNERTUBE_CONTEXT_CLIENT_NAME":1,
+		"INNERTUBE_CLIENT_VERSION":"2.fixture",
+		"LOGGED_IN":true,
+		"INNERTUBE_CONTEXT":{"client":{"clientName":"WEB"}}
+	});`)).webAuthConfig("response-visitor", "response-delegated||response-user")
+	if responseFallback.DelegatedSessionID != "response-delegated" ||
+		responseFallback.UserSessionID != "response-user" ||
+		responseFallback.VisitorData != "response-visitor" {
+		t.Fatalf("response DataSync fallback = %#v", responseFallback)
+	}
+	for _, test := range []struct {
+		raw             string
+		delegated, user string
+	}{
+		{"delegated||user", "delegated", "user"},
+		{"user||", "", "user"},
+		{"user", "", "user"},
+	} {
+		delegated, user := parseYouTubeDataSyncID(test.raw)
+		if delegated != test.delegated || user != test.user {
+			t.Fatalf("parseYouTubeDataSyncID(%q) = %q, %q", test.raw, delegated, user)
+		}
+	}
+}
+
+func TestYouTubeRecoversURLBearingFormatsFromNativeClient(t *testing.T) {
+	unavailable := []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"}}`)
+	transport := &youtubeFallbackTransport{
+		memoryTransport: &memoryTransport{pages: map[string][]byte{
+			youtubeFixtureURL: readYouTubeFixture(t, "sabr-watch.html"),
+		}},
+		responses: map[string][]byte{
+			"3":  readYouTubeFixture(t, "android-player.json"),
+			"28": readYouTubeFixture(t, "android-vr-player.json"),
+			"1":  unavailable, "5": unavailable, "2": unavailable,
+		},
+	}
+	result, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if title, _ := result.Info.Lookup("title").StringValue(); title != "Synthetic SABR YouTube Video" {
+		t.Fatalf("title = %q", title)
+	}
+	formats, _ := result.Info.Formats()
+	if len(formats) != 3 {
+		t.Fatalf("formats = %#v", formats)
+	}
+	format, _ := formats[0].Object()
+	if rawURL, _ := format.Lookup("url").StringValue(); rawURL != "https://media.example/android-video.mp4" {
+		t.Fatalf("format = %#v", format)
+	}
+	if len(transport.requests) != 5 {
+		t.Fatalf("requests = %d", len(transport.requests))
+	}
+	request := transport.requests[0]
+	if request.Method != http.MethodPost || request.URL.String() != youtubePlayerAPIURL ||
+		request.Header.Get("X-Youtube-Client-Name") != "3" ||
+		request.Header.Get("X-Youtube-Client-Version") != "21.26.364" ||
+		request.Header.Get("X-Goog-Visitor-Id") != "fixture-visitor" ||
+		request.Header.Get("User-Agent") == "" {
+		t.Fatalf("request = %s %s headers=%v", request.Method, request.URL, request.Header)
+	}
+	var body struct {
+		VideoID      string `json:"videoId"`
+		ContentCheck bool   `json:"contentCheckOk"`
+		RacyCheck    bool   `json:"racyCheckOk"`
+		Context      struct {
+			Client struct {
+				Name    string `json:"clientName"`
+				Version string `json:"clientVersion"`
+				Visitor string `json:"visitorData"`
+			} `json:"client"`
+		} `json:"context"`
+		PlaybackContext struct {
+			Content struct {
+				Preference string `json:"html5Preference"`
+			} `json:"contentPlaybackContext"`
+		} `json:"playbackContext"`
+	}
+	if err := json.Unmarshal(transport.bodies[0], &body); err != nil || body.VideoID != "fixture0001" ||
+		!body.ContentCheck || !body.RacyCheck || body.Context.Client.Name != "ANDROID" ||
+		body.Context.Client.Version != "21.26.364" || body.Context.Client.Visitor != "fixture-visitor" ||
+		body.PlaybackContext.Content.Preference != "HTML5_PREF_WANTS" {
+		t.Fatalf("body = %#v, error=%v", body, err)
+	}
+}
+
+func TestYouTubeAppliesPlayerAndGVSTokensToIsolatedRecovery(t *testing.T) {
+	director, err := youtubepot.New(youtubepot.Config{
+		Policy: youtubepot.FetchAlways,
+		Providers: []youtubepot.Provider{youtubepot.ProviderFunc{ProviderName: "fixture", Function: func(_ context.Context, request youtubepot.Request) (youtubepot.Response, error) {
+			switch request.Context {
+			case youtubepot.ContextPlayer:
+				return youtubepot.Response{Token: "cGxheWVy"}, nil
+			case youtubepot.ContextGVS:
+				return youtubepot.Response{Token: "Z3Zz"}, nil
+			default:
+				return youtubepot.Response{}, youtubepot.ErrRejected
+			}
+		}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := &youtubeFallbackTransport{
+		memoryTransport: &memoryTransport{pages: map[string][]byte{
+			youtubeFixtureURL: readYouTubeFixture(t, "sabr-watch.html"),
+		}},
+		responses: map[string][]byte{
+			"3":  readYouTubeFixture(t, "android-player.json"),
+			"28": readYouTubeFixture(t, "android-vr-player.json"),
+			"1":  []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"}}`),
+			"5":  []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"}}`),
+			"2":  []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"}}`),
+		},
+	}
+	result, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport, Options: Options{POT: director}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(transport.bodies) != 5 {
+		t.Fatalf("request bodies = %d", len(transport.bodies))
+	}
+	androidBody := transport.bodies[0]
+	if !bytes.Contains(androidBody, []byte(`"serviceIntegrityDimensions":{"poToken":"cGxheWVy"}`)) {
+		t.Fatalf("player token missing from android request: %s", androidBody)
+	}
+	iosBody := transport.bodies[3]
+	if !bytes.Contains(iosBody, []byte(`"serviceIntegrityDimensions":{"poToken":"cGxheWVy"}`)) {
+		t.Fatalf("player token missing from ios request: %s", iosBody)
+	}
+	formats, _ := result.Info.Formats()
+	if len(formats) == 0 {
+		t.Fatal("no tokenized formats")
+	}
+	for _, item := range formats {
+		format, _ := item.Object()
+		rawURL, _ := format.Lookup("url").StringValue()
+		parsed, err := url.Parse(rawURL)
+		if err != nil || parsed.Query().Get("pot") != "Z3Zz" {
+			t.Fatalf("format URL is not tokenized: %q", rawURL)
+		}
+	}
+}
+
+func TestYouTubeGVSTokenPlacement(t *testing.T) {
+	player := youtubePlayerResponse{}
+	player.StreamingData.Formats = []youtubeFormat{{URL: "https://media.example/video?x=1"}}
+	player.StreamingData.AdaptiveFormats = []youtubeFormat{{SignatureCipher: "url=https%3A%2F%2Fmedia.example%2Faudio&sp=sig&s=fixture"}}
+	player.StreamingData.HLSManifestURL = "https://media.example/live/master.m3u8?keep=1"
+	player.StreamingData.DASHManifestURL = "https://media.example/dash/manifest.mpd"
+	applyYouTubeGVSToken(&player, "Z3Zz")
+
+	if parsed, _ := url.Parse(player.StreamingData.Formats[0].URL); parsed.Query().Get("pot") != "Z3Zz" || parsed.Query().Get("x") != "1" {
+		t.Fatalf("direct URL = %q", player.StreamingData.Formats[0].URL)
+	}
+	cipher, err := url.ParseQuery(player.StreamingData.AdaptiveFormats[0].SignatureCipher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed, _ := url.Parse(cipher.Get("url")); parsed.Query().Get("pot") != "Z3Zz" {
+		t.Fatalf("cipher URL = %q", cipher.Get("url"))
+	}
+	for _, manifest := range []string{player.StreamingData.HLSManifestURL, player.StreamingData.DASHManifestURL} {
+		parsed, err := url.Parse(manifest)
+		if err != nil || !strings.HasSuffix(parsed.Path, "/pot/Z3Zz") {
+			t.Fatalf("manifest URL = %q, error=%v", manifest, err)
+		}
+	}
+}
+
+func TestYouTubeRecoveryFailsClosedWithoutCookieIsolation(t *testing.T) {
+	transport := &memoryTransport{pages: map[string][]byte{
+		youtubeFixtureURL: readYouTubeFixture(t, "sabr-watch.html"),
+	}}
+	_, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport})
+	if !errors.Is(err, ErrTransportIsolation) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestYouTubeAuthenticatedPageDoesNotUseAnonymousRecovery(t *testing.T) {
+	page := bytes.Replace(readYouTubeFixture(t, "sabr-watch.html"), []byte(`"LOGGED_IN":false`), []byte(`"LOGGED_IN":true`), 1)
+	transport := &youtubeFallbackTransport{
+		memoryTransport: &memoryTransport{pages: map[string][]byte{youtubeFixtureURL: page}},
+		responses: map[string][]byte{
+			"3": readYouTubeFixture(t, "android-player.json"), "28": readYouTubeFixture(t, "android-vr-player.json"),
+		},
+	}
+	_, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport})
+	if !errors.Is(err, ErrAuthentication) || len(transport.requests) != 0 {
+		t.Fatalf("error=%v requests=%d", err, len(transport.requests))
+	}
+}
+
+func TestYouTubeRecoversAuthenticatedWEBFormatsWithoutAnonymousFallback(t *testing.T) {
+	page := bytes.Replace(
+		readYouTubeFixture(t, "sabr-watch.html"),
+		[]byte(`{"PLAYER_JS_URL":"\/s\/player\/fixture\/base.js","VISITOR_DATA":"fixture-visitor","LOGGED_IN":false}`),
+		[]byte(`{
+			"PLAYER_JS_URL":"\/s\/player\/fixture\/base.js",
+			"VISITOR_DATA":"fixture-visitor",
+			"LOGGED_IN":true,
+			"INNERTUBE_CONTEXT_CLIENT_NAME":1,
+			"INNERTUBE_CLIENT_VERSION":"2.fixture",
+			"SESSION_INDEX":0,
+			"DATASYNC_ID":"delegated||user",
+			"INNERTUBE_CONTEXT":{"client":{"clientName":"WEB","userAgent":"fixture-agent"}}
+		}`),
+		1,
+	)
+	transport := &youtubeAuthenticatedRecoveryTransport{
+		memoryTransport: &memoryTransport{pages: map[string][]byte{youtubeFixtureURL: page}},
+		cookies: []*http.Cookie{
+			{Name: "LOGIN_INFO", Value: "logged-in"},
+			{Name: "SAPISID", Value: "secret-sid"},
+		},
+		response: []byte(`{
+			"playabilityStatus":{"status":"OK"},
+			"videoDetails":{"videoId":"fixture0001"},
+			"streamingData":{"formats":[{
+				"itag":18,
+				"url":"https://media.example/video.mp4",
+				"mimeType":"video/mp4; codecs=\"avc1.42001E, mp4a.40.2\""
+			}]}
+		}`),
+	}
+	result, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	formats, _ := result.Info.Formats()
+	if len(formats) != 1 || transport.request == nil {
+		t.Fatalf("formats = %#v request = %#v", formats, transport.request)
+	}
+	if transport.request.URL.String() != youtubeAuthenticatedWEBPlayerURL ||
+		transport.request.Header.Get("Authorization") == "" ||
+		transport.request.Header.Get("X-Goog-PageId") != "delegated" ||
+		transport.request.Header.Get("X-Goog-AuthUser") != "0" {
+		t.Fatalf("authenticated request = %s %#v", transport.request.URL, transport.request.Header)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(transport.body, &payload); err != nil || payload["videoId"] != "fixture0001" {
+		t.Fatalf("authenticated payload = %#v, error = %v", payload, err)
+	}
+}
+
+func TestYouTubeAuthenticatedWEBRecoveryCanReplaceInitialLoginRequiredResponse(t *testing.T) {
+	page := bytes.Replace(
+		readYouTubeFixture(t, "sabr-watch.html"),
+		[]byte(`{"PLAYER_JS_URL":"\/s\/player\/fixture\/base.js","VISITOR_DATA":"fixture-visitor","LOGGED_IN":false}`),
+		[]byte(`{
+			"LOGGED_IN":true,
+			"INNERTUBE_CONTEXT_CLIENT_NAME":1,
+			"INNERTUBE_CLIENT_VERSION":"2.fixture",
+			"INNERTUBE_CONTEXT":{"client":{"clientName":"WEB"}}
+		}`),
+		1,
+	)
+	page = bytes.Replace(page, []byte(`"playabilityStatus": {"status": "OK"}`), []byte(`"playabilityStatus": {"status": "LOGIN_REQUIRED","reason":"sign in"}`), 1)
+	page = bytes.Replace(
+		page,
+		[]byte(`"videoDetails": {`),
+		[]byte(`"responseContext":{"visitorData":"response-visitor"},"videoDetails": {`),
+		1,
+	)
+	transport := &youtubeAuthenticatedRecoveryTransport{
+		memoryTransport: &memoryTransport{pages: map[string][]byte{youtubeFixtureURL: page}},
+		cookies: []*http.Cookie{
+			{Name: "LOGIN_INFO", Value: ""},
+			{Name: "__Secure-3PAPISID", Value: "secret-sid"},
+		},
+		response: []byte(`{
+			"playabilityStatus":{"status":"OK"},
+			"videoDetails":{"videoId":"fixture0001"},
+			"streamingData":{"formats":[{
+				"itag":18,
+				"url":"https://media.example/video.mp4",
+				"mimeType":"video/mp4; codecs=\"avc1.42001E, mp4a.40.2\""
+			}]}
+		}`),
+	}
+	result, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	formats, _ := result.Info.Formats()
+	if len(formats) != 1 || transport.request == nil {
+		t.Fatalf("formats = %#v request = %#v", formats, transport.request)
+	}
+	if transport.request.Header.Get("X-Goog-Visitor-Id") != "response-visitor" {
+		t.Fatalf("visitor header = %q", transport.request.Header.Get("X-Goog-Visitor-Id"))
+	}
+	var payload struct {
+		Context struct {
+			Client struct {
+				VisitorData string `json:"visitorData"`
+			} `json:"client"`
+		} `json:"context"`
+	}
+	if err := json.Unmarshal(transport.body, &payload); err != nil ||
+		payload.Context.Client.VisitorData != "response-visitor" {
+		t.Fatalf("visitor payload = %#v, error = %v", payload, err)
+	}
+}
+
+func TestYouTubeAuthenticatedWEBRecoveryUsesProductionCookieJarAndNoRedirectPath(t *testing.T) {
+	page := bytes.Replace(
+		readYouTubeFixture(t, "sabr-watch.html"),
+		[]byte(`{"PLAYER_JS_URL":"\/s\/player\/fixture\/base.js","VISITOR_DATA":"fixture-visitor","LOGGED_IN":false}`),
+		[]byte(`{
+			"PLAYER_JS_URL":"\/s\/player\/fixture\/base.js",
+			"VISITOR_DATA":"fixture-visitor",
+			"LOGGED_IN":true,
+			"INNERTUBE_CONTEXT_CLIENT_NAME":1,
+			"INNERTUBE_CLIENT_VERSION":"2.fixture",
+			"INNERTUBE_CONTEXT":{"client":{"clientName":"WEB","userAgent":"fixture-agent"}}
+		}`),
+		1,
+	)
+	var playerRequests int
+	transport, err := network.New(network.Config{
+		DefaultHeaders: http.Header{"Cookie": {"default-cookie=must-not-send"}},
+		RoundTripper: youtubeRoundTripperFunc(func(request *http.Request) (*http.Response, error) {
+			var body []byte
+			switch {
+			case request.Method == http.MethodGet && request.URL.String() == youtubeFixtureURL:
+				body = page
+			case request.Method == http.MethodPost && request.URL.String() == youtubeAuthenticatedWEBPlayerURL:
+				playerRequests++
+				cookie := request.Header.Get("Cookie")
+				if !strings.Contains(cookie, "LOGIN_INFO=logged-in") ||
+					!strings.Contains(cookie, "SAPISID=secret-sid") ||
+					strings.Contains(cookie, "default-cookie") {
+					return nil, fmt.Errorf("unexpected authenticated cookies")
+				}
+				if request.Header.Get("Authorization") == "" || request.Header.Get("Origin") != youtubeAuthOrigin {
+					return nil, fmt.Errorf("missing authenticated WEB headers")
+				}
+				body = []byte(`{
+					"playabilityStatus":{"status":"OK"},
+					"videoDetails":{"videoId":"fixture0001"},
+					"streamingData":{"formats":[{
+						"itag":18,
+						"url":"https://media.example/video.mp4",
+						"mimeType":"video/mp4; codecs=\"avc1.42001E, mp4a.40.2\""
+					}]}
+				}`)
+			default:
+				return nil, fmt.Errorf("unexpected request %s %s", request.Method, request.URL)
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(bytes.NewReader(body)),
+				Header:     make(http.Header),
+				Request:    request,
+			}, nil
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := transport.AddCookies([]*http.Cookie{
+		{Name: "LOGIN_INFO", Value: "logged-in", Domain: ".youtube.com", Path: "/", Secure: true},
+		{Name: "SAPISID", Value: "secret-sid", Domain: ".youtube.com", Path: "/", Secure: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	formats, _ := result.Info.Formats()
+	if len(formats) != 1 || playerRequests != 1 {
+		t.Fatalf("formats = %#v player requests = %d", formats, playerRequests)
+	}
+}
+
+func TestYouTubeAuthenticatedCommentsUseProductionCookieJarAndNoRedirectPath(t *testing.T) {
+	page := []byte(`<!doctype html><script>
+		ytcfg.set({
+			"INNERTUBE_API_KEY":"fixture-comment-key",
+			"INNERTUBE_CLIENT_VERSION":"2.fixture-comments",
+			"INNERTUBE_CONTEXT_CLIENT_NAME":1,
+			"VISITOR_DATA":"visitor-initial",
+			"LOGGED_IN":true,
+			"INNERTUBE_CONTEXT":{"client":{"clientName":"WEB"}}
+		});
+		var ytInitialPlayerResponse={
+			"playabilityStatus":{"status":"OK"},
+			"videoDetails":{"videoId":"fixture0001","title":"Authenticated comments fixture"},
+			"streamingData":{"formats":[{
+				"itag":18,
+				"url":"https://media.example/video.mp4",
+				"mimeType":"video/mp4; codecs=\"avc1.42001E, mp4a.40.2\""
+			}]}
+		};
+		var ytInitialData={"contents":{"twoColumnWatchNextResults":{"results":{"results":{"contents":[{
+			"itemSectionRenderer":{
+				"sectionIdentifier":"comment-item-section",
+				"contents":[{"continuationItemRenderer":{"continuationEndpoint":{
+					"continuationCommand":{"token":"initial-comments-token"}
+				}}}]
+			}
+		}]}}}}};
+	</script>`)
+	var nextRequests int
+	transport, err := network.New(network.Config{
+		DefaultHeaders: http.Header{"Cookie": {"default-cookie=must-not-send"}},
+		RoundTripper: youtubeRoundTripperFunc(func(request *http.Request) (*http.Response, error) {
+			var body []byte
+			switch {
+			case request.Method == http.MethodGet && request.URL.String() == youtubeFixtureURL:
+				body = page
+			case request.Method == http.MethodPost && request.URL.Path == "/youtubei/v1/next":
+				nextRequests++
+				cookie := request.Header.Get("Cookie")
+				if !strings.Contains(cookie, "LOGIN_INFO=logged-in") ||
+					!strings.Contains(cookie, "SAPISID=secret-sid") ||
+					strings.Contains(cookie, "default-cookie") {
+					return nil, errors.New("unexpected authenticated comment cookies")
+				}
+				if request.Header.Get("Authorization") == "" ||
+					request.Header.Get("X-Origin") != youtubeAuthOrigin ||
+					request.URL.Query().Get("key") != "fixture-comment-key" {
+					return nil, errors.New("missing authenticated comment request data")
+				}
+				body = readYouTubeFixture(t, "comments-page-2.json")
+			default:
+				return nil, fmt.Errorf("unexpected request %s %s", request.Method, request.URL)
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(bytes.NewReader(body)),
+				Header:     make(http.Header),
+				Request:    request,
+			}, nil
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := transport.AddCookies([]*http.Cookie{
+		{Name: "LOGIN_INFO", Value: "logged-in", Domain: ".youtube.com", Path: "/", Secure: true},
+		{Name: "SAPISID", Value: "secret-sid", Domain: ".youtube.com", Path: "/", Secure: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := NewYouTube().Extract(context.Background(), Request{
+		URL: youtubeFixtureURL, Transport: transport,
+		Options: Options{Comments: YouTubeCommentOptions{Enabled: true, MaxComments: 1}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Enrich == nil {
+		t.Fatal("missing comment enricher")
+	}
+	if err := result.Enrich(context.Background(), &result.Info); err != nil {
+		t.Fatal(err)
+	}
+	comments, ok := result.Info.Fields().Lookup("comments").ListValue()
+	if !ok || len(comments) != 1 || nextRequests != 1 {
+		t.Fatalf("comments = %#v next requests = %d", comments, nextRequests)
+	}
+}
+
+func TestYouTubeRecoveryContinuesAfterOneClientFails(t *testing.T) {
+	transport := &youtubeFallbackTransport{
+		memoryTransport: &memoryTransport{pages: map[string][]byte{
+			youtubeFixtureURL: readYouTubeFixture(t, "sabr-watch.html"),
+		}},
+		responses: map[string][]byte{
+			"3":  []byte(`{"playabilityStatus":`),
+			"28": readYouTubeFixture(t, "android-vr-player.json"),
+			"1":  []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"}}`),
+			"5":  []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"}}`),
+			"2":  []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"}}`),
+		},
+	}
+	result, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	formats, _ := result.Info.Formats()
+	if len(formats) != 2 || len(transport.requests) != 5 {
+		t.Fatalf("formats=%d requests=%d", len(formats), len(transport.requests))
+	}
+}
+
+func TestYouTubeSABRFallbackFailureIsCategorizedAndCancelable(t *testing.T) {
+	unavailable := []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED","reason":"fixture"}}`)
+	transport := &youtubeFallbackTransport{
+		memoryTransport: &memoryTransport{pages: map[string][]byte{
+			youtubeFixtureURL: readYouTubeFixture(t, "sabr-watch.html"),
+		}},
+		responses: map[string][]byte{
+			"3": unavailable, "28": unavailable, "1": unavailable, "5": unavailable, "2": unavailable,
+		},
+	}
+	_, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport})
+	if !errors.Is(err, ErrInvalidMetadata) || len(transport.requests) != 5 {
+		t.Fatalf("error=%v requests=%d", err, len(transport.requests))
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	transport.requests = nil
+	_, err = NewYouTube().Extract(ctx, Request{URL: youtubeFixtureURL, Transport: transport})
+	if !errors.Is(err, context.Canceled) || len(transport.requests) != 0 {
+		t.Fatalf("cancellation error=%v requests=%d", err, len(transport.requests))
+	}
+}
+
+func TestYouTubeRejectsMalformedNativeClientResponses(t *testing.T) {
+	for name, response := range map[string][]byte{
+		"invalid JSON": []byte(`{"playabilityStatus":`),
+		"wrong video":  []byte(`{"playabilityStatus":{"status":"OK"},"videoDetails":{"videoId":"different01"},"streamingData":{"formats":[{"itag":18,"url":"https://media.example/video.mp4"}]}}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			transport := &youtubeFallbackTransport{
+				memoryTransport: &memoryTransport{pages: map[string][]byte{
+					youtubeFixtureURL: readYouTubeFixture(t, "sabr-watch.html"),
+				}},
+				responses: map[string][]byte{
+					"3":  response,
+					"28": []byte(`{"playabilityStatus":{"status":"LOGIN_REQUIRED"}}`),
+				},
+			}
+			_, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport})
+			if !errors.Is(err, ErrInvalidMetadata) {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+}
+
+func TestYouTubeChallengeAndAvailabilityFailuresAreCategorized(t *testing.T) {
+	watch := readYouTubeFixture(t, "watch.html")
+	transport := &memoryTransport{pages: map[string][]byte{youtubeFixtureURL: watch}}
+	_, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport})
+	if !errors.Is(err, ErrChallengeSolver) {
+		t.Fatalf("missing challenge solver error = %v", err)
+	}
+
+	for _, test := range []struct {
+		status string
+		want   error
+	}{
+		{"LOGIN_REQUIRED", ErrAuthentication},
+		{"ERROR", ErrUnavailable},
+	} {
+		page := []byte(`ytInitialPlayerResponse = {"playabilityStatus":{"status":"` + test.status + `","reason":"fixture reason"}};`)
+		transport := &memoryTransport{pages: map[string][]byte{youtubeFixtureURL: page}}
+		_, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport})
+		if !errors.Is(err, test.want) {
+			t.Fatalf("status %s error = %v", test.status, err)
+		}
+	}
+}
+
+func TestYouTubeCanonicalizesShortURLsBeforeFetching(t *testing.T) {
+	page := []byte(`ytInitialPlayerResponse = {"playabilityStatus":{"status":"ERROR","reason":"fixture reason"}};`)
+	transport := &memoryTransport{pages: map[string][]byte{youtubeFixtureURL: page}}
+	_, err := NewYouTube().Extract(context.Background(), Request{
+		URL: "https://youtu.be/fixture0001", Transport: transport,
+	})
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("error = %v", err)
+	}
+	if len(transport.reads) != 1 || transport.reads[0] != youtubeFixtureURL {
+		t.Fatalf("reads = %#v", transport.reads)
+	}
+}
+
+func TestYouTubeRejectsMalformedPlayerResponse(t *testing.T) {
+	for _, page := range [][]byte{
+		[]byte("no player marker"),
+		[]byte("ytInitialPlayerResponse = {\"open\": true"),
+		[]byte("ytInitialPlayerResponse = {not-json};"),
+	} {
+		transport := &memoryTransport{pages: map[string][]byte{youtubeFixtureURL: page}}
+		_, err := NewYouTube().Extract(context.Background(), Request{URL: youtubeFixtureURL, Transport: transport})
+		if !errors.Is(err, ErrInvalidMetadata) {
+			t.Fatalf("page %q error = %v", page, err)
+		}
+	}
+}
+
+type youtubePlaylistTransport struct {
+	page         []byte
+	continuation []byte
+	status       int
+	reads        []string
+	requests     int
+}
+
+func (transport *youtubePlaylistTransport) ReadPage(_ context.Context, rawURL string) ([]byte, http.Header, error) {
+	transport.reads = append(transport.reads, rawURL)
+	if rawURL != "https://www.youtube.com/playlist?list=PL_fixture" {
+		return nil, nil, fmt.Errorf("unexpected URL %q", rawURL)
+	}
+	return append([]byte(nil), transport.page...), make(http.Header), nil
+}
+
+func (transport *youtubePlaylistTransport) Do(_ context.Context, request *http.Request) (*http.Response, error) {
+	transport.requests++
+	if request.Method != http.MethodPost || request.URL.Path != "/youtubei/v1/browse" ||
+		request.URL.Query().Get("key") != "fixture-key" || request.URL.Query().Get("prettyPrint") != "false" ||
+		request.Header.Get("X-Youtube-Client-Version") != youtubeDefaultClientVersion {
+		return nil, fmt.Errorf("unexpected continuation request: %s %s headers=%v", request.Method, request.URL, request.Header)
+	}
+	body, err := io.ReadAll(request.Body)
+	if err != nil || !strings.Contains(string(body), `"continuation":"fixture-token-2"`) || !strings.Contains(string(body), `"visitorData":"fixture-visitor"`) {
+		return nil, fmt.Errorf("unexpected continuation body: %s: %v", body, err)
+	}
+	status := transport.status
+	if status == 0 {
+		status = http.StatusOK
+	}
+	return &http.Response{
+		StatusCode: status, Body: io.NopCloser(bytes.NewReader(transport.continuation)),
+		Header: make(http.Header), Request: request,
+	}, nil
+}
+
+func TestYouTubePlaylistIsLazyPagedAndMatchesPinnedShape(t *testing.T) {
+	transport := &youtubePlaylistTransport{
+		page: readYouTubeFixture(t, "playlist.html"), continuation: readYouTubeFixture(t, "playlist-continuation.json"),
+	}
+	result, err := NewYouTube().Extract(context.Background(), Request{
+		URL: "https://www.youtube.com/playlist?feature=share&list=PL_fixture", Transport: transport,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsPlaylist() || transport.requests != 0 || len(transport.reads) != 1 {
+		t.Fatalf("result=%#v reads=%v requests=%d", result, transport.reads, transport.requests)
+	}
+	entries, err := CollectEntries(context.Background(), result.Entries, 10)
+	if err != nil || transport.requests != 1 {
+		t.Fatalf("entries=%#v error=%v requests=%d", entries, err, transport.requests)
+	}
+	info := value.NewInfo(result.Info.Fields().Clone())
+	entryValues := make([]value.Value, len(entries))
+	for index, entry := range entries {
+		entryValues[index] = value.ObjectValue(entry.Object())
+	}
+	info.Set("entries", value.List(entryValues...))
+	actual, err := json.Marshal(info.Fields())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var actualDocument, expectedDocument any
+	if err := json.Unmarshal(actual, &actualDocument); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(readYouTubeFixture(t, "playlist-expected.json"), &expectedDocument); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(actualDocument, expectedDocument) {
+		t.Fatalf("playlist mismatch\nactual: %s\nexpected: %#v", actual, expectedDocument)
+	}
+}
+
+func TestYouTubePlaylistParsesModernLockupAndContinuationViewModels(t *testing.T) {
+	page := readYouTubeFixture(t, "playlist-modern.html")
+	raw, err := extractJSONObject(page, youtubeInitialDataMarker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := parseYouTubePlaylistData(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.title != "Modern fixture playlist" || parsed.continuation != "modern-token-2" || len(parsed.entries) != 2 {
+		t.Fatalf("parsed = %#v", parsed)
+	}
+	entry := parsed.entries[0]
+	if entry.ID != "modern00001" || entry.Title != "Modern fixture video" || entry.URL != "https://www.youtube.com/watch?v=modern00001" || entry.ExtractorKey != "youtube" {
+		t.Fatalf("entry = %#v", entry)
+	}
+	if parsed.entries[1].ID != "modern00001" || parsed.entries[1].Title != "Repeated fixture video" {
+		t.Fatalf("repeated entry = %#v", parsed.entries[1])
+	}
+
+	continued, err := parseYouTubePlaylistData(readYouTubeFixture(t, "playlist-modern-continuation.json"))
+	if err != nil || len(continued.entries) != 1 || continued.entries[0].ID != "modern00002" {
+		t.Fatalf("continued = %#v, %v", continued, err)
+	}
+}
+
+func TestYouTubePlaylistScopesSelectedTabAndFirstContinuationAction(t *testing.T) {
+	initial := []byte(`{
+		"contents":{"twoColumnBrowseResultsRenderer":{"tabs":[
+			{"tabRenderer":{"selected":false,"content":{"playlistVideoRenderer":{"videoId":"decoy000001","title":{"simpleText":"decoy"}}}}},
+			{"tabRenderer":{"selected":true,"content":{"playlistVideoRenderer":{"videoId":"chosen00001","title":{"simpleText":"chosen"}}}}}
+		]}}
+	}`)
+	parsed, err := parseYouTubePlaylistData(initial)
+	if err != nil || len(parsed.entries) != 1 || parsed.entries[0].ID != "chosen00001" {
+		t.Fatalf("initial parsed=%#v err=%v", parsed, err)
+	}
+
+	continuation := []byte(`{
+		"onResponseReceivedActions":[
+			{"appendContinuationItemsAction":{"continuationItems":[{"playlistVideoRenderer":{"videoId":"first000001","title":{"simpleText":"first"}}}]}},
+			{"appendContinuationItemsAction":{"continuationItems":[{"playlistVideoRenderer":{"videoId":"decoy000002","title":{"simpleText":"decoy"}}}]}}
+		],
+		"unrelated":{"playlistVideoRenderer":{"videoId":"decoy000003","title":{"simpleText":"decoy"}}}
+	}`)
+	parsed, err = parseYouTubePlaylistData(continuation)
+	if err != nil || len(parsed.entries) != 1 || parsed.entries[0].ID != "first000001" {
+		t.Fatalf("continuation parsed=%#v err=%v", parsed, err)
+	}
+}
+
+func TestYouTubePlaylistContinuationRefreshesVisitorData(t *testing.T) {
+	parsed, err := parseYouTubePlaylistData(readYouTubeFixture(t, "playlist-continuation.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.visitorData != "fixture-visitor-rotated" {
+		t.Fatalf("visitorData=%q", parsed.visitorData)
+	}
+}
+
+func TestYouTubePlaylistRetainsStructuredContinuationContainerTokens(t *testing.T) {
+	initial := []byte(`{
+		"contents":{"twoColumnBrowseResultsRenderer":{"tabs":[{"tabRenderer":{
+			"selected":true,
+			"content":{"playlistVideoRenderer":{"videoId":"chosen00001","title":{"simpleText":"chosen"}}}
+		}}]}},
+		"continuationContents":{"playlistVideoListContinuation":{
+			"continuations":[{"nextContinuationData":{"continuation":"root-token"}}]
+		}}
+	}`)
+	parsed, err := parseYouTubePlaylistData(initial)
+	if err != nil || len(parsed.entries) != 1 || parsed.entries[0].ID != "chosen00001" || parsed.continuation != "root-token" {
+		t.Fatalf("initial parsed=%#v err=%v", parsed, err)
+	}
+
+	continued := []byte(`{
+		"continuationContents":{"playlistVideoListContinuation":{
+			"contents":[{"playlistVideoRenderer":{"videoId":"second00001","title":{"simpleText":"second"}}}],
+			"continuations":[{"nextContinuationData":{"continuation":"sibling-token"}}]
+		}}
+	}`)
+	parsed, err = parseYouTubePlaylistData(continued)
+	if err != nil || len(parsed.entries) != 1 || parsed.entries[0].ID != "second00001" || parsed.continuation != "sibling-token" {
+		t.Fatalf("continued parsed=%#v err=%v", parsed, err)
+	}
+}
+
+func TestYouTubeContinuationViewModelBounds(t *testing.T) {
+	tooMany := make([]value.Value, youtubeMaxContinuationCommands+1)
+	for index := range tooMany {
+		tooMany[index] = value.ObjectValue(value.NewObject())
+	}
+	viewModel := value.NewObject(value.Field{Key: "continuationCommand", Value: value.ObjectValue(value.NewObject(
+		value.Field{Key: "innertubeCommand", Value: value.ObjectValue(value.NewObject(
+			value.Field{Key: "commandExecutorCommand", Value: value.ObjectValue(value.NewObject(
+				value.Field{Key: "commands", Value: value.List(tooMany...)},
+			))},
+		))},
+	))})
+	if token := youtubeContinuationViewModelToken(viewModel); token != "" {
+		t.Fatalf("oversized executor token = %q", token)
+	}
+	if token := validYouTubeContinuationToken(strings.Repeat("x", youtubeMaxContinuationBytes+1)); token != "" {
+		t.Fatalf("oversized token accepted")
+	}
+}
+
+func TestYouTubePlaylistLockupRejectsNonVideoAndInvalidID(t *testing.T) {
+	for _, object := range []*value.Object{
+		value.NewObject(value.Field{Key: "contentId", Value: value.String("modern00001")}, value.Field{Key: "contentType", Value: value.String("LOCKUP_CONTENT_TYPE_PLAYLIST")}),
+		value.NewObject(value.Field{Key: "contentId", Value: value.String("too-short")}, value.Field{Key: "contentType", Value: value.String("LOCKUP_CONTENT_TYPE_VIDEO")}),
+	} {
+		if entry, ok := youtubePlaylistLockupEntry(object); ok {
+			t.Fatalf("accepted lockup %#v", entry)
+		}
+	}
+}
+
+func TestYouTubePlaylistFailuresAreCategorized(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		alert string
+		want  error
+	}{
+		{"private", "This playlist is private. Sign in to continue.", ErrAuthentication},
+		{"unavailable", "The playlist does not exist.", ErrUnavailable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			page := []byte(`ytInitialData={"metadata":{"playlistMetadataRenderer":{"title":"Fixture"}},"alerts":[{"alertRenderer":{"text":{"simpleText":` + strconv.Quote(test.alert) + `}}}]};`)
+			transport := &youtubePlaylistTransport{page: page}
+			_, err := NewYouTube().Extract(context.Background(), Request{URL: "https://www.youtube.com/playlist?list=PL_fixture", Transport: transport})
+			if !errors.Is(err, test.want) {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+	transport := &youtubePlaylistTransport{page: []byte(`ytInitialData={"contents":{}};`)}
+	if _, err := NewYouTube().Extract(context.Background(), Request{URL: "https://www.youtube.com/playlist?list=PL_fixture", Transport: transport}); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("malformed error = %v", err)
+	}
+	transport = &youtubePlaylistTransport{
+		page: readYouTubeFixture(t, "playlist.html"), continuation: []byte(`{}`), status: http.StatusForbidden,
+	}
+	result, err := NewYouTube().Extract(context.Background(), Request{URL: "https://www.youtube.com/playlist?list=PL_fixture", Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CollectEntries(context.Background(), result.Entries, 10); !errors.Is(err, ErrAuthentication) {
+		t.Fatalf("continuation auth error = %v", err)
+	}
+}
+
+func TestYouTubePlaylistTraversalDepthIsBounded(t *testing.T) {
+	data := strings.Repeat(`{"x":`, youtubeMaxJSONDepth+2) + `{}` + strings.Repeat(`}`, youtubeMaxJSONDepth+2)
+	if _, err := parseYouTubePlaylistData([]byte(data)); !errors.Is(err, ErrInvalidMetadata) {
+		t.Fatalf("depth error = %v", err)
+	}
+}
+
+func TestYouTubeExtractsLiveHLSAndClassifiesLiveStates(t *testing.T) {
+	liveURL := "https://www.youtube.com/watch?v=livefix0001"
+	transport := &memoryTransport{pages: map[string][]byte{liveURL: readYouTubeFixture(t, "live-watch.html")}}
+	result, err := NewYouTube().Extract(context.Background(), Request{URL: liveURL, Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status, _ := result.Info.Lookup("live_status").StringValue(); status != "is_live" {
+		t.Fatalf("live_status = %q", status)
+	}
+	formats, _ := result.Info.Formats()
+	format, _ := formats[0].Object()
+	if protocol, _ := format.Lookup("protocol").StringValue(); protocol != "m3u8_native" {
+		t.Fatalf("live format = %#v", format)
+	}
+	trueValue, falseValue := true, false
+	for _, test := range []struct {
+		details youtubeVideoDetails
+		want    string
+	}{
+		{youtubeVideoDetails{IsPostLiveDVR: &trueValue}, "post_live"},
+		{youtubeVideoDetails{IsUpcoming: &trueValue}, "is_upcoming"},
+		{youtubeVideoDetails{IsLiveContent: &trueValue}, "was_live"},
+		{youtubeVideoDetails{IsLive: &falseValue}, "not_live"},
+		{youtubeVideoDetails{}, ""},
+	} {
+		if got := youtubeLiveStatus(test.details); got != test.want {
+			t.Fatalf("youtubeLiveStatus(%#v) = %q, want %q", test.details, got, test.want)
+		}
+	}
+}
+
+func TestYouTubePostLiveAdaptiveFormatsUseFiniteDVRProtocol(t *testing.T) {
+	const rawURL = "https://www.youtube.com/watch?v=postlive001"
+	page := []byte(`ytInitialPlayerResponse={
+		"playabilityStatus":{"status":"OK"},
+		"videoDetails":{
+			"videoId":"postlive001","title":"Post-live fixture",
+			"isPostLiveDvr":true,"isLiveContent":true
+		},
+		"streamingData":{"hlsManifestUrl":"https://media.example/incomplete.m3u8","adaptiveFormats":[
+			{"itag":137,"url":"https://media.example/video?sig=video","mimeType":"video/mp4; codecs=\"avc1.4d401f\"","width":1280,"height":720,"targetDurationSec":5},
+			{"itag":140,"url":"https://media.example/audio?sig=audio","mimeType":"audio/mp4; codecs=\"mp4a.40.2\"","targetDurationSec":5},
+			{"itag":18,"url":"https://media.example/incomplete?sig=combined","mimeType":"video/mp4; codecs=\"avc1.42001E, mp4a.40.2\""}
+		]},
+		"microformat":{"playerMicroformatRenderer":{"liveBroadcastDetails":{
+			"startTimestamp":"2026-07-23T10:00:00Z",
+			"endTimestamp":"2026-07-23T10:02:03Z"
+		}}}
+	};`)
+	transport := &memoryTransport{pages: map[string][]byte{rawURL: page}}
+	result, err := NewYouTube().Extract(context.Background(), Request{URL: rawURL, Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status, _ := result.Info.Lookup("live_status").StringValue(); status != "post_live" {
+		t.Fatalf("live_status = %q", status)
+	}
+	if timestamp, _ := result.Info.Lookup("release_timestamp").Int(); timestamp != 1784800800 {
+		t.Fatalf("release_timestamp = %d", timestamp)
+	}
+	if duration, _ := result.Info.Lookup("duration").Int(); duration != 123 {
+		t.Fatalf("duration = %d", duration)
+	}
+	formats, ok := result.Info.Formats()
+	if !ok || len(formats) != 3 {
+		t.Fatalf("formats = %#v", formats)
+	}
+	for index, candidate := range formats {
+		format, _ := candidate.Object()
+		protocol, _ := format.Lookup("protocol").StringValue()
+		if index < 2 {
+			postLive, _ := format.Lookup("_youtube_post_live").Bool()
+			if protocol != "http_dash_segments" || !postLive {
+				t.Fatalf("format %d = %#v", index, format)
+			}
+			if targetDuration, _ := format.Lookup("target_duration").Float(); targetDuration != 5 {
+				t.Fatalf("format %d target_duration = %v", index, targetDuration)
+			}
+			if liveStart, _ := format.Lookup("live_start_timestamp").Int(); liveStart != 1784800800 {
+				t.Fatalf("format %d live_start_timestamp = %v", index, liveStart)
+			}
+		}
+	}
+	incomplete, _ := formats[2].Object()
+	if id, _ := incomplete.Lookup("format_id").StringValue(); id != "18" {
+		t.Fatalf("incomplete format ID = %q", id)
+	}
+	if preference, _ := incomplete.Lookup("preference").Int(); preference != -10 {
+		t.Fatalf("incomplete preference = %d", preference)
+	}
+}
+
+func TestYouTubeLiveFromStartEligibilityAndMetadataOnlyExtraction(t *testing.T) {
+	const rawURL = "https://www.youtube.com/watch?v=livefrm0001"
+	page := []byte(`ytInitialPlayerResponse={
+		"playabilityStatus":{"status":"OK"},
+		"videoDetails":{"videoId":"livefrm0001","title":"Active live fixture","isLive":true,"isLiveContent":true},
+		"streamingData":{
+			"hlsManifestUrl":"https://media.example/current.m3u8",
+			"dashManifestUrl":"https://media.example/current.mpd",
+			"adaptiveFormats":[
+				{"itag":137,"url":"https://media.example/video?pot=video","mimeType":"video/mp4; codecs=\"avc1.4d401f\"","width":1280,"height":720,"targetDurationSec":5},
+				{"itag":140,"url":"https://media.example/audio?pot=audio","mimeType":"audio/mp4; codecs=\"mp4a.40.2\"","targetDurationSec":5},
+				{"itag":18,"url":"https://media.example/current?pot=combined","mimeType":"video/mp4; codecs=\"avc1.42001E, mp4a.40.2\""}
+			]
+		},
+		"microformat":{"playerMicroformatRenderer":{"liveBroadcastDetails":{"startTimestamp":"2026-07-23T10:00:00Z"}}}
+	};`)
+	withoutFlag, err := NewYouTube().Extract(context.Background(), Request{
+		URL: rawURL, Transport: &memoryTransport{pages: map[string][]byte{rawURL: page}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	formats, _ := withoutFlag.Info.Formats()
+	if len(formats) != 5 {
+		t.Fatalf("current-edge formats = %#v", formats)
+	}
+	for _, candidate := range formats {
+		format, _ := candidate.Object()
+		if rewind, _ := format.Lookup("_youtube_live_from_start").Bool(); rewind {
+			t.Fatalf("default extraction enabled rewind: %#v", format)
+		}
+	}
+
+	withFlag, err := NewYouTube().Extract(context.Background(), Request{
+		URL: rawURL, Transport: &memoryTransport{pages: map[string][]byte{rawURL: page}},
+		Options: Options{LiveFromStart: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	formats, _ = withFlag.Info.Formats()
+	if len(formats) != 2 {
+		t.Fatalf("rewind formats = %#v", formats)
+	}
+	for _, candidate := range formats {
+		format, _ := candidate.Object()
+		rewind, _ := format.Lookup("_youtube_live_from_start").Bool()
+		protocol, _ := format.Lookup("protocol").StringValue()
+		client, _ := format.Lookup("_youtube_client").StringValue()
+		source, _ := format.Lookup("_youtube_source_url").StringValue()
+		target, _ := format.Lookup("target_duration").Float()
+		if !rewind || protocol != "http_dash_segments_generator" || client != "WEB" ||
+			source != rawURL || target != 5 {
+			t.Fatalf("rewind format = %#v", format)
+		}
+	}
+}
+
+func TestYouTubeLiveFromStartRequiresEligibleAdaptiveFormats(t *testing.T) {
+	const rawURL = "https://www.youtube.com/watch?v=livefrm0002"
+	page := []byte(`ytInitialPlayerResponse={
+		"playabilityStatus":{"status":"OK"},
+		"videoDetails":{"videoId":"livefrm0002","title":"No rewind formats","isLive":true},
+		"streamingData":{"formats":[
+			{"itag":18,"url":"https://media.example/current","mimeType":"video/mp4; codecs=\"avc1.42001E, mp4a.40.2\""}
+		]}
+	};`)
+	_, err := NewYouTube().Extract(context.Background(), Request{
+		URL: rawURL, Transport: &memoryTransport{pages: map[string][]byte{rawURL: page}},
+		Options: Options{LiveFromStart: true},
+	})
+	if !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestYouTubePostLiveMetadataFallsBackAcrossPlayerResponses(t *testing.T) {
+	const rawURL = "https://www.youtube.com/watch?v=fixture0001"
+	page := []byte(`ytInitialPlayerResponse={
+		"playabilityStatus":{"status":"OK"},
+		"videoDetails":{"videoId":"fixture0001","title":"Initial metadata"}
+	};ytcfg.set({"VISITOR_DATA":"fixture-visitor","LOGGED_IN":false});`)
+	recovered := []byte(`{
+		"playabilityStatus":{"status":"OK"},
+		"videoDetails":{"videoId":"fixture0001","isPostLiveDvr":true},
+		"streamingData":{"adaptiveFormats":[
+			{"itag":137,"url":"https://media.example/video?pot=video","mimeType":"video/mp4; codecs=\"avc1.4d401f\"","width":1280,"height":720,"targetDurationSec":5},
+			{"itag":140,"url":"https://media.example/audio?pot=audio","mimeType":"audio/mp4; codecs=\"mp4a.40.2\"","targetDurationSec":5}
+		]},
+		"microformat":{"playerMicroformatRenderer":{"liveBroadcastDetails":{
+			"startTimestamp":"2026-07-23T10:00:00Z",
+			"endTimestamp":"2026-07-23T10:02:03Z"
+		}}}
+	}`)
+	transport := &youtubeFallbackTransport{
+		memoryTransport: &memoryTransport{pages: map[string][]byte{rawURL: page}},
+		responses:       map[string][]byte{"3": recovered, "28": recovered},
+	}
+	result, err := NewYouTube().Extract(context.Background(), Request{URL: rawURL, Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if title, _ := result.Info.Lookup("title").StringValue(); title != "Initial metadata" {
+		t.Fatalf("title = %q", title)
+	}
+	if status, _ := result.Info.Lookup("live_status").StringValue(); status != "post_live" {
+		t.Fatalf("live_status = %q", status)
+	}
+	if timestamp, _ := result.Info.Lookup("release_timestamp").Int(); timestamp != 1784800800 {
+		t.Fatalf("release_timestamp = %d", timestamp)
+	}
+	if duration, _ := result.Info.Lookup("duration").Int(); duration != 123 {
+		t.Fatalf("duration = %d", duration)
+	}
+	formats, _ := result.Info.Formats()
+	if len(formats) != 2 {
+		t.Fatalf("formats = %#v", formats)
+	}
+	for _, candidate := range formats {
+		format, _ := candidate.Object()
+		if postLive, _ := format.Lookup("_youtube_post_live").Bool(); !postLive {
+			t.Fatalf("format = %#v", format)
+		}
+	}
+}
+
+func TestParseYouTubeLiveTimestampBounds(t *testing.T) {
+	if got, ok := parseYouTubeLiveTimestamp("2026-07-23T10:00:00+05:30"); !ok || got != 1784781000 {
+		t.Fatalf("timestamp = %d, %v", got, ok)
+	}
+	for _, raw := range []string{"", "not-a-time", strings.Repeat("x", 65), "2026-07-23T10:00:00Z\n"} {
+		if _, ok := parseYouTubeLiveTimestamp(raw); ok {
+			t.Fatalf("accepted %q", raw)
+		}
+	}
+}
+
+func FuzzParseYouTubePlaylistData(f *testing.F) {
+	page := readYouTubeFixture(f, "playlist.html")
+	if initial, err := extractJSONObject(page, youtubeInitialDataMarker); err == nil {
+		f.Add(initial)
+	}
+	f.Add(readYouTubeFixture(f, "playlist-continuation.json"))
+	if modern, err := extractJSONObject(readYouTubeFixture(f, "playlist-modern.html"), youtubeInitialDataMarker); err == nil {
+		f.Add(modern)
+	}
+	f.Add(readYouTubeFixture(f, "playlist-modern-continuation.json"))
+	f.Add([]byte(`{"metadata":{"playlistMetadataRenderer":{"title":"x"}}}`))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > 1<<20 {
+			t.Skip()
+		}
+		_, _ = parseYouTubePlaylistData(data)
+	})
+}
+
+func FuzzDiscoverYouTubePageConfig(f *testing.F) {
+	f.Add([]byte(`ytcfg.set({"PLAYER_JS_URL":"\/s\/player\/fixture\/base.js"})`))
+	f.Add([]byte(`ytcfg.data_ = {"WEB_PLAYER_CONTEXT_CONFIGS":{"watch":{"jsUrl":"https://www.youtube.com/s/player/fixture/base.js"}}}`))
+	f.Add([]byte(`ytcfg.set({"VISITOR_DATA":"fixture-visitor","LOGGED_IN":false})`))
+	f.Add([]byte(`ytcfg.set({"PLAYER_JS_URL":"unterminated}`))
+	f.Fuzz(func(t *testing.T, page []byte) {
+		if len(page) > 1<<20 {
+			t.Skip()
+		}
+		config := discoverYouTubePageConfig(page)
+		_ = config.playerPath("")
+		_ = config.visitorData("")
+	})
+}
+
+func FuzzParseYouTubeTarget(f *testing.F) {
+	f.Add("https://www.youtube.com/watch?v=fixture0001&t=1s&end=9")
+	f.Add("https://youtu.be/fixture0001#t=1h2m3s")
+	// Privacy-enhanced embed seeds.
+	f.Add("https://www.youtube-nocookie.com/embed/fixture0001")
+	f.Add("https://youtube-nocookie.com/embed/fixture0001")
+	f.Add("//www.youtube-nocookie.com/embed/fixture0001")
+	f.Add("https://www.youtube-nocookie.com/embed/fixture0001?t=10&end=20")
+	f.Add("https://www.youtube-nocookie.com/embed/fixture0001#t=1h2m&end=2h")
+	// Hostile and negative seeds.
+	f.Add("https://www.youtube-nocookie.com/embed/short")
+	f.Add("https://www.youtube-nocookie.com/watch?v=fixture0001")
+	f.Add("https://www.youtube-nocookie.com/embed/fixture0001/extra")
+	f.Add("https://user:pass@www.youtube-nocookie.com/embed/fixture0001")
+	f.Add("https://www.youtube-nocookie.com:443/embed/fixture0001")
+	f.Add("https://www.youtube-nocookie.com:/embed/fixture0001")
+	f.Add("ftp://www.youtube-nocookie.com/embed/fixture0001")
+	f.Add("https://www.youtube-nocookie.com/embed%2Ffixture0001")
+	f.Add("https://evil-youtube-nocookie.com/embed/fixture0001")
+	f.Add("https://example.com/embed/fixture0001")
+	f.Fuzz(func(t *testing.T, rawURL string) {
+		if len(rawURL) > 4096 {
+			t.Skip()
+		}
+		target, err := parseYouTubeTarget(rawURL)
+		if err == nil {
+			if !youtubeIDPattern.MatchString(target.videoID) {
+				t.Fatalf("parseYouTubeTarget(%q) returned invalid ID %q", rawURL, target.videoID)
+			}
+		} else {
+			if !errors.Is(err, ErrUnsupported) {
+				t.Fatalf("parseYouTubeTarget(%q) error = %v, want ErrUnsupported", rawURL, err)
+			}
+		}
+	})
+}
+
+func FuzzYouTubeChannelLiveAlias(f *testing.F) {
+	f.Add("https://www.youtube.com/@fixture/live")
+	f.Add("https://youtube.com/channel/UCfixture_channel_00001/live")
+	f.Fuzz(func(t *testing.T, rawURL string) {
+		if len(rawURL) > 4096 {
+			t.Skip()
+		}
+		_ = youtubeChannelLiveAlias(rawURL)
+	})
+}
+
+type youtubeTestHelper interface {
+	Helper()
+	Fatal(...any)
+}
+
+func readYouTubeFixture(t youtubeTestHelper, name string) []byte {
+	t.Helper()
+	data, err := os.ReadFile("../../../conformance/extractors/youtube/" + name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}

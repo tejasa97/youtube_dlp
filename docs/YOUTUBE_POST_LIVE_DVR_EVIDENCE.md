@@ -40,9 +40,9 @@ Python or reads the reference checkout.
 
 ## Automated evidence
 
-- `internal/extractor.TestYouTubePostLiveAdaptiveFormatsUseFiniteDVRProtocol`
-- `internal/extractor.TestYouTubePostLiveMetadataFallsBackAcrossPlayerResponses`
-- `internal/extractor.TestParseYouTubeLiveTimestampBounds`
+- `internal/providers/youtube.TestYouTubePostLiveAdaptiveFormatsUseFiniteDVRProtocol`
+- `internal/providers/youtube.TestYouTubePostLiveMetadataFallsBackAcrossPlayerResponses`
+- `internal/providers/youtube.TestParseYouTubeLiveTimestampBounds`
 - `internal/format.TestBestSelectsFirstDownloadableFormat`
 - `internal/format.TestDefaultPrefersAdaptivePairThenCombined`
 - `internal/format.TestPreferenceRanksDefaultsButNotExplicitFormatIDs`

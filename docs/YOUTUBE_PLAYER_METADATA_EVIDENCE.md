@@ -92,22 +92,22 @@ format-quality enrichment, and storyboards.
 
 ## Automated evidence
 
-- `internal/extractor.TestYouTubePlayerMetadataPinnedExtraction`
-- `internal/extractor.TestYouTubePlayerMetadataUploadDates`
-- `internal/extractor.TestYouTubePlayerMetadataOwnerProfile`
-- `internal/extractor.TestYouTubePlayerMetadataHandleUnicodeBoundaries`
-- `internal/extractor.TestYouTubeChannelURLRequiresValidUCID`
-- `internal/extractor.TestYouTubePlayerMetadataPreservedDuringAuthenticatedRecovery`
-- `internal/extractor.TestYouTubePlayerMetadataAvailabilityAndAgeLimit`
-- `internal/extractor.TestYouTubePlayerMetadataMediaType`
-- `internal/extractor.TestYouTubePlayerMetadataThumbnails`
-- `internal/extractor.TestYouTubePlayerMetadataThumbnailsMore`
-- `internal/extractor.TestYouTubePlayerMetadataTagsCategoryRating`
-- `internal/extractor.TestYouTubePlayerMetadataStretchedRatio`
-- `internal/extractor.TestYouTubePlayerMetadataOGImage`
-- `internal/extractor.TestYouTubePlayerMetadataJSONFieldSurvival`
-- `internal/extractor.TestYouTubePlayerMetadataConcurrentDeterminism`
-- `internal/extractor.FuzzYouTubePlayerMetadata`
+- `internal/providers/youtube.TestYouTubePlayerMetadataPinnedExtraction`
+- `internal/providers/youtube.TestYouTubePlayerMetadataUploadDates`
+- `internal/providers/youtube.TestYouTubePlayerMetadataOwnerProfile`
+- `internal/providers/youtube.TestYouTubePlayerMetadataHandleUnicodeBoundaries`
+- `internal/providers/youtube.TestYouTubeChannelURLRequiresValidUCID`
+- `internal/providers/youtube.TestYouTubePlayerMetadataPreservedDuringAuthenticatedRecovery`
+- `internal/providers/youtube.TestYouTubePlayerMetadataAvailabilityAndAgeLimit`
+- `internal/providers/youtube.TestYouTubePlayerMetadataMediaType`
+- `internal/providers/youtube.TestYouTubePlayerMetadataThumbnails`
+- `internal/providers/youtube.TestYouTubePlayerMetadataThumbnailsMore`
+- `internal/providers/youtube.TestYouTubePlayerMetadataTagsCategoryRating`
+- `internal/providers/youtube.TestYouTubePlayerMetadataStretchedRatio`
+- `internal/providers/youtube.TestYouTubePlayerMetadataOGImage`
+- `internal/providers/youtube.TestYouTubePlayerMetadataJSONFieldSurvival`
+- `internal/providers/youtube.TestYouTubePlayerMetadataConcurrentDeterminism`
+- `internal/providers/youtube.FuzzYouTubePlayerMetadata`
 - `pkg/ytdlp.TestProductYouTubePlayerMetadataJSONSurvival`
 
 The pinned corpus lives at `conformance/extractors/youtube_player_metadata/`

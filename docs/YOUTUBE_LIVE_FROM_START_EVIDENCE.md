@@ -39,8 +39,8 @@ and do not depend on the reference checkout.
 
 ## Automated evidence
 
-- `internal/extractor.TestYouTubeLiveFromStartEligibilityAndMetadataOnlyExtraction`
-- `internal/extractor.TestYouTubeLiveFromStartRequiresEligibleAdaptiveFormats`
+- `internal/providers/youtube.TestYouTubeLiveFromStartEligibilityAndMetadataOnlyExtraction`
+- `internal/providers/youtube.TestYouTubeLiveFromStartRequiresEligibleAdaptiveFormats`
 - `internal/protocol/youtubelive.TestLiveDownloadRefreshesAndFinalProbesEndedStream`
 - `internal/protocol/youtubelive.TestLiveDownloadAggressivelyRefreshesAfterMisses`
 - `internal/protocol/youtubelive.TestLiveMalformedProbeIsCategorizedAndRedacted`

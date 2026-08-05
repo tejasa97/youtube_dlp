@@ -39,16 +39,16 @@ do not depend on the reference checkout.
 
 ## Automated evidence
 
-- `internal/extractor.TestYouTubeAliasTabUserVideosCanonicalContinuationAndUCID`
-- `internal/extractor.TestYouTubeAliasTabUnicodeCPlaylistsFallbackAndRenderers`
-- `internal/extractor.TestYouTubeAliasTabTargetPolicy`
-- `internal/extractor.TestYouTubeAliasTabCanonicalURLPercentSafety`
-- `internal/extractor.TestYouTubeAliasTabPercentAliasFetchIsEncodedOnce`
-- `internal/extractor.TestYouTubeAliasTabSelectedIdentityAndMetadataFailures`
-- `internal/extractor.TestYouTubeAliasTabTraversalBounds`
-- `internal/extractor.TestYouTubeAliasTabCategorizedFailuresAndCancellation`
-- `internal/extractor.TestYouTubeAliasTabContinuationRateLimitAndReusableRace`
-- `internal/extractor.FuzzYouTubeAliasTabTarget`
+- `internal/providers/youtube.TestYouTubeAliasTabUserVideosCanonicalContinuationAndUCID`
+- `internal/providers/youtube.TestYouTubeAliasTabUnicodeCPlaylistsFallbackAndRenderers`
+- `internal/providers/youtube.TestYouTubeAliasTabTargetPolicy`
+- `internal/providers/youtube.TestYouTubeAliasTabCanonicalURLPercentSafety`
+- `internal/providers/youtube.TestYouTubeAliasTabPercentAliasFetchIsEncodedOnce`
+- `internal/providers/youtube.TestYouTubeAliasTabSelectedIdentityAndMetadataFailures`
+- `internal/providers/youtube.TestYouTubeAliasTabTraversalBounds`
+- `internal/providers/youtube.TestYouTubeAliasTabCategorizedFailuresAndCancellation`
+- `internal/providers/youtube.TestYouTubeAliasTabContinuationRateLimitAndReusableRace`
+- `internal/providers/youtube.FuzzYouTubeAliasTabTarget`
 - expanded mixed/community/release evidence in
   `docs/YOUTUBE_EXPANDED_TABS_EVIDENCE.md`
 - `pkg/ytdlp.TestProductRegistryIncludesIntegratedExtractors`

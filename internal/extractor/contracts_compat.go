@@ -90,6 +90,10 @@ func ReadPageWithProfileWithoutCredentialsNoRedirect(ctx context.Context, transp
 
 func Media(info value.Info) Extraction { return extraction.Media(info) }
 
+func manifestFormat(id, rawURL, protocolName string) *value.Object {
+	return extraction.ManifestFormat(id, rawURL, protocolName)
+}
+
 func URLResult(entry Entry) (Extraction, error) { return extraction.URLResult(entry) }
 
 func Playlist(info value.Info, entries EntrySequence) (Extraction, error) {

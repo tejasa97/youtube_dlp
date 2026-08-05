@@ -15,6 +15,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/tejasa97/youtube_dlp/internal/extraction"
 	"github.com/tejasa97/youtube_dlp/internal/value"
 )
 
@@ -89,7 +90,7 @@ func (extractor SoundCloudSearch) Extract(ctx context.Context, request Request) 
 		value.Field{Key: "title", Value: value.String(query)},
 		value.Field{Key: "webpage_url", Value: value.String(canonical)},
 	))
-	return Playlist(info, limitedEntries{source: sequence, limit: count})
+	return Playlist(info, extraction.LimitEntries(sequence, count))
 }
 
 func soundCloudSearchEntries(firstURL string, fetch ContinuationFetcher) (EntrySequence, error) {
