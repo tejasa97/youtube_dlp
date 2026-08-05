@@ -3,17 +3,12 @@
 package youtube
 
 import (
-	"context"
-
-	"github.com/tejasa97/youtube_dlp/internal/extraction"
-	"github.com/tejasa97/youtube_dlp/internal/javascript/ejs"
+	"github.com/tejasa97/youtube_dlp/engine/provider"
 	"github.com/tejasa97/youtube_dlp/internal/youtubepot"
 )
 
 // ChallengeSolver solves YouTube player JavaScript challenges.
-type ChallengeSolver interface {
-	SolvePlayer(context.Context, string, string, []ejs.ChallengeRequest, bool) (ejs.Result, error)
-}
+type ChallengeSolver = provider.ChallengeSolver
 
 // POTDirector preserves the concrete proof-of-origin token plumbing required
 // by the current provider family while assigning its request ownership here.
@@ -54,14 +49,14 @@ type Request struct {
 	URL                 string
 	SearchQueryOverride string
 	Referer             string
-	Transport           extraction.Transport
-	Credentials         extraction.CredentialProvider
+	Transport           provider.Transport
+	Credentials         provider.CredentialProvider
 	VideoPassword       string
 	NoPlaylist          bool
 	Options             Options
 }
 
-func NewRequest(base extraction.Request, options Options) Request {
+func NewRequest(base provider.Request, options Options) Request {
 	return Request{
 		URL:                 base.URL,
 		SearchQueryOverride: base.SearchQueryOverride,
@@ -74,8 +69,8 @@ func NewRequest(base extraction.Request, options Options) Request {
 	}
 }
 
-func (request Request) NeutralRequest() extraction.Request {
-	return extraction.Request{
+func (request Request) NeutralRequest() provider.Request {
+	return provider.Request{
 		URL:                 request.URL,
 		SearchQueryOverride: request.SearchQueryOverride,
 		Referer:             request.Referer,

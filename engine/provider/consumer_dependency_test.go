@@ -1,0 +1,49 @@
+package provider_test
+
+import (
+	"os/exec"
+	"strings"
+	"testing"
+)
+
+func TestProviderConsumersExcludeRootEngineCycle(t *testing.T) {
+	tests := []struct {
+		packagePath string
+		prohibited  []string
+	}{
+		{
+			packagePath: "github.com/tejasa97/youtube_dlp/internal/javascript/ejs",
+			prohibited:  []string{"github.com/tejasa97/youtube_dlp/engine"},
+		},
+		{
+			packagePath: "github.com/tejasa97/youtube_dlp/internal/youtubepot",
+			prohibited:  []string{"github.com/tejasa97/youtube_dlp/engine"},
+		},
+		{
+			packagePath: "github.com/tejasa97/youtube_dlp/internal/providers/youtube",
+			prohibited: []string{
+				"github.com/tejasa97/youtube_dlp/engine",
+				"github.com/tejasa97/youtube_dlp/internal/extraction",
+				"github.com/tejasa97/youtube_dlp/internal/extractor",
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.packagePath, func(t *testing.T) {
+			command := exec.Command("go", "list", "-deps", "-f", "{{.ImportPath}}", test.packagePath)
+			output, err := command.CombinedOutput()
+			if err != nil {
+				t.Fatalf("go list dependencies: %v\n%s", err, output)
+			}
+			dependencies := make(map[string]bool)
+			for _, dependency := range strings.Fields(string(output)) {
+				dependencies[dependency] = true
+			}
+			for _, prohibited := range test.prohibited {
+				if dependencies[prohibited] {
+					t.Fatalf("dependency graph contains prohibited package %q", prohibited)
+				}
+			}
+		})
+	}
+}

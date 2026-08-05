@@ -5,14 +5,14 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/engine"
+	"github.com/tejasa97/youtube_dlp/engine/provider"
 	enginevalue "github.com/tejasa97/youtube_dlp/engine/value"
 	"github.com/tejasa97/youtube_dlp/internal/extraction"
 	internalvalue "github.com/tejasa97/youtube_dlp/internal/value"
 )
 
 func TestPublicContractAliasesPreserveIdentity(t *testing.T) {
-	var publicRequest engine.Request
+	var publicRequest provider.Request
 	var internalRequest extraction.Request
 	if reflect.TypeOf(publicRequest) != reflect.TypeOf(internalRequest) {
 		t.Fatal("request compatibility alias changed type identity")
@@ -24,8 +24,8 @@ func TestPublicContractAliasesPreserveIdentity(t *testing.T) {
 		t.Fatal("value compatibility alias changed type identity")
 	}
 
-	if !errors.Is(extraction.ErrUnsupported, engine.ErrUnsupported) ||
-		!errors.Is(engine.ErrUnsupported, extraction.ErrUnsupported) {
+	if !errors.Is(extraction.ErrUnsupported, provider.ErrUnsupported) ||
+		!errors.Is(provider.ErrUnsupported, extraction.ErrUnsupported) {
 		t.Fatal("compatibility alias changed error identity")
 	}
 }

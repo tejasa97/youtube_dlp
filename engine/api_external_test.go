@@ -59,6 +59,7 @@ type publicPOTResolver struct{}
 func (publicPOTResolver) ResolvePolicy(context.Context, engine.POTRequest, bool, bool) (string, bool, error) {
 	return "", false, nil
 }
+func (publicPOTResolver) NewEpisodeResolver() engine.POTEpisodeResolver { return nil }
 
 func TestExternalPackageCanComposeTypedProviderRegistry(t *testing.T) {
 	request := typedRequest{

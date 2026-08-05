@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tejasa97/youtube_dlp/engine"
+	"github.com/tejasa97/youtube_dlp/engine/provider"
 )
 
 const (
@@ -40,12 +40,12 @@ var (
 	ErrForcedRefreshBudget = errors.New("YouTube PO-token forced refresh budget exhausted")
 )
 
-type Context = engine.POTContext
+type Context = provider.POTContext
 
 const (
-	ContextGVS    = engine.POTContextGVS
-	ContextPlayer = engine.POTContextPlayer
-	ContextSubs   = engine.POTContextSubs
+	ContextGVS    = provider.POTContextGVS
+	ContextPlayer = provider.POTContextPlayer
+	ContextSubs   = provider.POTContextSubs
 )
 
 type FetchPolicy string
@@ -56,8 +56,8 @@ const (
 	FetchAlways FetchPolicy = "always"
 )
 
-type Request = engine.POTRequest
-type Response = engine.POTResponse
+type Request = provider.POTRequest
+type Response = provider.POTResponse
 
 type Provider interface {
 	Name() string
@@ -118,6 +118,19 @@ type Episode struct {
 	forcedTotal   int
 	maxForced     int
 	pendingBypass bool
+}
+
+type episodeResolver struct {
+	director *Director
+	episode  *Episode
+}
+
+func (director *Director) NewEpisodeResolver() provider.POTEpisodeResolver {
+	return episodeResolver{director: director, episode: NewEpisode(0)}
+}
+
+func (resolver episodeResolver) Resolve(ctx context.Context, request provider.POTRequest, required, recommended bool) (string, bool, error) {
+	return resolver.director.ResolveEpisode(ctx, request, required, recommended, resolver.episode)
 }
 
 // NewEpisode constructs an operation-scoped forced-refresh budget.

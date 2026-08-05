@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/tejasa97/youtube_dlp/internal/extraction"
+	"github.com/tejasa97/youtube_dlp/engine/provider"
 	"github.com/tejasa97/youtube_dlp/internal/value"
 )
 
@@ -81,7 +81,7 @@ func extractYouTubeBareChannelUploads(ctx context.Context, transport Transport, 
 	if len(tabs) == 0 && youtubeChannelIDPattern.MatchString(metadata.channelID) {
 		uploadsID := "UU" + metadata.channelID[2:]
 		uploadsURL := "https://www.youtube.com/playlist?list=" + uploadsID
-		uploads, playlistErr := extractYouTubePlaylist(ctx, NewRequest(extraction.Request{
+		uploads, playlistErr := extractYouTubePlaylist(ctx, NewRequest(provider.Request{
 			URL: uploadsURL, Transport: transport,
 		}, Options{}), uploadsID)
 		if playlistErr == nil {

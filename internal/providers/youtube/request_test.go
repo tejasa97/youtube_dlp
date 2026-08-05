@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/internal/extraction"
+	"github.com/tejasa97/youtube_dlp/engine/provider"
 	"github.com/tejasa97/youtube_dlp/internal/javascript/ejs"
 	"github.com/tejasa97/youtube_dlp/internal/youtubepot"
 )
@@ -27,7 +27,7 @@ func TestRequestRetainsAllTypedYouTubeOptionsAndRedactsDiagnostics(t *testing.T)
 		Enabled: true, Sort: "new", MaxComments: 101, MaxParents: 102,
 		MaxReplies: 103, MaxRepliesPerThread: 104, MaxDepth: 105,
 	}
-	request := NewRequest(extraction.Request{URL: "https://user:secret@example.test/watch?v=private"}, Options{
+	request := NewRequest(provider.Request{URL: "https://user:secret@example.test/watch?v=private"}, Options{
 		ChallengeSolver: solver, POT: director, TranslatedCaptions: true,
 		LiveFromStart: true, Comments: comments,
 	})

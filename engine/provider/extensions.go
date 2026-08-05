@@ -1,4 +1,4 @@
-package engine
+package provider
 
 import (
 	"context"
@@ -77,4 +77,9 @@ func (POTResponse) GoString() string {
 // optional or required proof-of-origin tokens.
 type POTResolver interface {
 	ResolvePolicy(context.Context, POTRequest, bool, bool) (string, bool, error)
+	NewEpisodeResolver() POTEpisodeResolver
+}
+
+type POTEpisodeResolver interface {
+	Resolve(context.Context, POTRequest, bool, bool) (string, bool, error)
 }
