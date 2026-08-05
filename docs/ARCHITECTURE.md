@@ -88,9 +88,20 @@ it has no dependency on the mixed `internal/extractor` compatibility package.
 That compatibility package retains thin adapters so the broad catalog keeps
 its names, routing order, request surface, and URL-result re-entry behavior.
 
-This is still an internal boundary. The final public engine/provider
-composition API and Desktop's focused composition are separate later stages;
-the current `pkg/ytdlp.NewClient` remains the broad full-catalog facade.
+The concrete provider-composition boundary is still internal. The public
+client orchestration API, public YouTube bundle, and Desktop's focused
+composition are separate later stages; the current `pkg/ytdlp.NewClient`
+remains the broad full-catalog facade.
+
+The public extraction-contract owner is now
+`github.com/tejasa97/youtube_dlp/engine`. Its generic registry, operation
+request, result/entry model, transport and credential capabilities, metadata
+values, and typed challenge/token extension seams are nameable by external
+provider packages. Historical internal contract packages are compatibility
+aliases to this implementation.
+
+Provider-neutral client orchestration and the public YouTube bundle remain
+staged changes described in [Public engine extraction contracts](PUBLIC_ENGINE_CONTRACTS.md).
 
 See [Supported sites](SUPPORTED_SITES.md), [Extractor selection](EXTRACTOR_SELECTION_EVIDENCE.md),
 and [the extractor master checklist](EXTRACTOR_MASTER_CHECKLIST.md).

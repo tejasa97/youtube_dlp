@@ -104,6 +104,7 @@ Current focused work:
 
 - [Architecture overview](ARCHITECTURE.md)
 - [Architecture decisions](adr/README.md)
+- [Public engine extraction contracts](PUBLIC_ENGINE_CONTRACTS.md)
 - [YouTube provider request seam](YOUTUBE_PROVIDER_REQUEST_SEAM.md)
 - [Fixture and test-data policy](FIXTURE_POLICY.md)
 - Conformance fixture provenance is stored beside each corpus as

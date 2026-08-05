@@ -365,9 +365,9 @@ capabilities:
     compatibility_target: Preserve field order, heterogeneous values, and missing-versus-null semantics.
     status: compatible
     evidence:
-      - internal/value.TestMissingAndNullAreDistinct
-      - internal/value.TestObjectOrderAndUpdate
-      - internal/value.TestMergeRulesAndClone
+      - engine/value.TestMissingAndNullAreDistinct
+      - engine/value.TestObjectOrderAndUpdate
+      - engine/value.TestMergeRulesAndClone
     owner: core
 
   - id: metadata.deterministic_json
@@ -376,9 +376,9 @@ capabilities:
     compatibility_target: Encode ordered metadata deterministically with documented numeric behavior.
     status: compatible
     evidence:
-      - internal/value.TestDeterministicJSONAndMissingOmission
-      - internal/value.TestJSONRoundTripPreservesOrderAndKinds
-      - internal/value.FuzzValueJSON
+      - engine/value.TestDeterministicJSONAndMissingOmission
+      - engine/value.TestJSONRoundTripPreservesOrderAndKinds
+      - engine/value.FuzzValueJSON
     owner: core
     depends_on:
       - metadata.ordered_values

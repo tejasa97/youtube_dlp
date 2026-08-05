@@ -1,4 +1,4 @@
-package extraction
+package engine
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/internal/value"
+	"github.com/tejasa97/youtube_dlp/engine/value"
 )
 
 type registryRequest struct{ rawURL string }
