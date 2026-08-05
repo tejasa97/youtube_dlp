@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/internal/events"
+	"github.com/tejasa97/youtube_dlp/internal/events"
 )
 
 // TrackKind selects audio-only or video-only SABR reconstruction.

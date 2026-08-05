@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ytdlp-go/ytdlp/internal/value"
+	"github.com/tejasa97/youtube_dlp/internal/value"
 )
 
 // formatSorterFixture mirrors the JSON schema of format_sorter_conformance.json.

@@ -11,8 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/ytdlp-go/ytdlp/internal/extractor"
-	"github.com/ytdlp-go/ytdlp/internal/network"
+	"github.com/tejasa97/youtube_dlp/internal/extractor"
+	"github.com/tejasa97/youtube_dlp/internal/network"
 )
 
 func TestPlaylistItemsConformanceFixture(t *testing.T) {

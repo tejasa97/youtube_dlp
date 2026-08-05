@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ytdlp-go/ytdlp/internal/extractor"
+	"github.com/tejasa97/youtube_dlp/internal/extractor"
 )
 
 var errInvalidPlaylistItems = errors.New("invalid playlist items")

@@ -11,7 +11,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/internal/youtubecanary"
+	"github.com/tejasa97/youtube_dlp/internal/youtubecanary"
 )
 
 func main() {

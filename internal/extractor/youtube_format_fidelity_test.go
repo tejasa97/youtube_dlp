@@ -9,8 +9,8 @@ import (
 	"reflect"
 	"testing"
 
-	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
-	"github.com/ytdlp-go/ytdlp/internal/value"
+	mediaformat "github.com/tejasa97/youtube_dlp/internal/format"
+	"github.com/tejasa97/youtube_dlp/internal/value"
 )
 
 const youtubeFormatFixtureURL = "https://www.youtube.com/watch?v=fixture0003"

@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/internal/downloader"
-	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
-	"github.com/ytdlp-go/ytdlp/internal/value"
+	"github.com/tejasa97/youtube_dlp/internal/downloader"
+	mediaformat "github.com/tejasa97/youtube_dlp/internal/format"
+	"github.com/tejasa97/youtube_dlp/internal/value"
 )
 
 func planMetadataForTrack(id, ext string) value.Info {

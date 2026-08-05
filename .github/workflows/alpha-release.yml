@@ -42,9 +42,9 @@ jobs:
           PREVIOUS_VERSION: 0.1.0-alpha.0
         run: |
           mkdir -p dist
-          go build -trimpath -buildvcs=false -mod=readonly -ldflags="-buildid= -X github.com/ytdlp-go/ytdlp/internal/cli.Version=${VERSION}" -o dist/first${{ matrix.suffix }} ./cmd/ytdlp-go
-          go build -trimpath -buildvcs=false -mod=readonly -ldflags="-buildid= -X github.com/ytdlp-go/ytdlp/internal/cli.Version=${VERSION}" -o dist/ytdlp-go${{ matrix.suffix }} ./cmd/ytdlp-go
-          go build -trimpath -buildvcs=false -mod=readonly -ldflags="-buildid= -X github.com/ytdlp-go/ytdlp/internal/cli.Version=${PREVIOUS_VERSION}" -o dist/previous${{ matrix.suffix }} ./cmd/ytdlp-go
+          go build -trimpath -buildvcs=false -mod=readonly -ldflags="-buildid= -X github.com/tejasa97/youtube_dlp/internal/cli.Version=${VERSION}" -o dist/first${{ matrix.suffix }} ./cmd/ytdlp-go
+          go build -trimpath -buildvcs=false -mod=readonly -ldflags="-buildid= -X github.com/tejasa97/youtube_dlp/internal/cli.Version=${VERSION}" -o dist/ytdlp-go${{ matrix.suffix }} ./cmd/ytdlp-go
+          go build -trimpath -buildvcs=false -mod=readonly -ldflags="-buildid= -X github.com/tejasa97/youtube_dlp/internal/cli.Version=${PREVIOUS_VERSION}" -o dist/previous${{ matrix.suffix }} ./cmd/ytdlp-go
           cmp dist/first${{ matrix.suffix }} dist/ytdlp-go${{ matrix.suffix }}
       - name: Run native alpha binary
         shell: bash

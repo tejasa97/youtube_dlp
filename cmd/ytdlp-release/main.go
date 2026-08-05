@@ -16,12 +16,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/internal/release"
+	"github.com/tejasa97/youtube_dlp/internal/release"
 )
 
 const apiVersion = "ytdlp-release/v1alpha1"
 
-const expectedMainPackage = "github.com/ytdlp-go/ytdlp/cmd/ytdlp-go"
+const expectedMainPackage = "github.com/tejasa97/youtube_dlp/cmd/ytdlp-go"
 
 type stringsFlag []string
 
@@ -93,7 +93,7 @@ func run(ctx context.Context, args []string) error {
 	if err := release.WriteLicenseBundle(&licenseBundle, licenses); err != nil {
 		return err
 	}
-	namespace := "https://github.com/ytdlp-go/ytdlp/releases/" + *version + "/spdx"
+	namespace := "https://github.com/tejasa97/youtube_dlp/releases/" + *version + "/spdx"
 	if err := release.WriteSPDX(&sbom, release.SBOMOptions{Name: "ytdlp-go " + *version, Namespace: namespace, Created: epoch, Creator: "Tool: ytdlp-release", Components: components}); err != nil {
 		return err
 	}
@@ -139,8 +139,8 @@ func run(ctx context.Context, args []string) error {
 }
 
 func appendProjectLicense(components []release.Component, licenses []release.License, version string, body []byte) ([]release.Component, []release.License) {
-	components = append(components, release.Component{Name: "github.com/ytdlp-go/ytdlp", Version: version, SPDXID: "SPDXRef-ytdlp-go", LicenseDeclared: "Apache-2.0", Download: "NOASSERTION"})
-	licenses = append(licenses, release.License{Component: "github.com/ytdlp-go/ytdlp", Version: version, SPDX: "Apache-2.0", Text: body})
+	components = append(components, release.Component{Name: "github.com/tejasa97/youtube_dlp", Version: version, SPDXID: "SPDXRef-ytdlp-go", LicenseDeclared: "Apache-2.0", Download: "NOASSERTION"})
+	licenses = append(licenses, release.License{Component: "github.com/tejasa97/youtube_dlp", Version: version, SPDX: "Apache-2.0", Text: body})
 	return components, licenses
 }
 

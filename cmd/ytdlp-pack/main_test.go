@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/internal/pack"
-	packcatalog "github.com/ytdlp-go/ytdlp/internal/pack/catalog"
+	"github.com/tejasa97/youtube_dlp/internal/pack"
+	packcatalog "github.com/tejasa97/youtube_dlp/internal/pack/catalog"
 )
 
 func TestRunRejectsMissingAndInvalidTrust(t *testing.T) {

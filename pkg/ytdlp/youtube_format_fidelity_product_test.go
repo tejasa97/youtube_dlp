@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ytdlp-go/ytdlp/internal/network"
+	"github.com/tejasa97/youtube_dlp/internal/network"
 )
 
 const youtubeFormatFidelityProductURL = "https://www.youtube.com/watch?v=fixture0003"

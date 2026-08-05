@@ -14,7 +14,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/ytdlp-go/ytdlp/internal/events"
+	"github.com/tejasa97/youtube_dlp/internal/events"
 )
 
 func TestResumeAcrossDownloaderInstances(t *testing.T) {

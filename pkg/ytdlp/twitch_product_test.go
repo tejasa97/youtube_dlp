@@ -14,9 +14,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ytdlp-go/ytdlp/internal/extractor"
-	"github.com/ytdlp-go/ytdlp/internal/network"
-	"github.com/ytdlp-go/ytdlp/internal/protocol/hls"
+	"github.com/tejasa97/youtube_dlp/internal/extractor"
+	"github.com/tejasa97/youtube_dlp/internal/network"
+	"github.com/tejasa97/youtube_dlp/internal/protocol/hls"
 )
 
 type capturedTwitchProductRequest struct {

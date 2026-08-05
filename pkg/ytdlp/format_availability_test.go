@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
-	"github.com/ytdlp-go/ytdlp/internal/network"
-	"github.com/ytdlp-go/ytdlp/internal/protocol/dash"
-	"github.com/ytdlp-go/ytdlp/internal/protocol/ism"
-	"github.com/ytdlp-go/ytdlp/internal/value"
+	mediaformat "github.com/tejasa97/youtube_dlp/internal/format"
+	"github.com/tejasa97/youtube_dlp/internal/network"
+	"github.com/tejasa97/youtube_dlp/internal/protocol/dash"
+	"github.com/tejasa97/youtube_dlp/internal/protocol/ism"
+	"github.com/tejasa97/youtube_dlp/internal/value"
 )
 
 func availabilityTestChecker(t *testing.T, mode FormatCheckMode) *formatAvailabilityChecker {

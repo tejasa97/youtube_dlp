@@ -15,9 +15,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ytdlp-go/ytdlp/internal/events"
-	"github.com/ytdlp-go/ytdlp/internal/network"
-	"github.com/ytdlp-go/ytdlp/internal/testserver"
+	"github.com/tejasa97/youtube_dlp/internal/events"
+	"github.com/tejasa97/youtube_dlp/internal/network"
+	"github.com/tejasa97/youtube_dlp/internal/testserver"
 )
 
 func sizedServer(body []byte, contentLength *int, contentEncoding string) *httptest.Server {

@@ -8,8 +8,8 @@ import (
 	"syscall"
 	"unsafe"
 
-	"github.com/ytdlp-go/ytdlp/internal/plugin"
-	"github.com/ytdlp-go/ytdlp/internal/sandbox"
+	"github.com/tejasa97/youtube_dlp/internal/plugin"
+	"github.com/tejasa97/youtube_dlp/internal/sandbox"
 	"golang.org/x/sys/windows"
 )
 

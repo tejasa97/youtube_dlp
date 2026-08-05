@@ -11,11 +11,10 @@ This is a practical engineering and provenance review, not legal advice.
 Making source public does not itself authorize publishing production-signed binaries,
 enable private vulnerability reporting, or establish signing-key custody.
 
-The repository remote is currently `github.com/tejasa97/youtube_dlp`, while
-`go.mod` declares `github.com/ytdlp-go/ytdlp`. This does not block public source
-visibility or builds inside a checkout, but it must be reconciled before the
-project advertises normal `go get` installation, tags a public Go module, or
-promises stable external module resolution.
+The repository remote and `go.mod` now share the canonical path
+`github.com/tejasa97/youtube_dlp`. Normal Go module resolution no longer
+depends on repository redirection. Tagged release policy and stable API
+guarantees remain separate pre-release decisions.
 
 ## Licensing
 
@@ -99,9 +98,8 @@ Before changing visibility:
    names/emails already present in Git history.
 3. Keep releases disabled until signing custody, publishing credentials, and
    the Phase 2/Phase 3 operational gates are explicitly approved.
-4. Decide whether to publish at the declared canonical module path or migrate
-   `go.mod`; until then, keep external module installation documented as
-   unavailable rather than relying on Git redirection behavior.
+4. Verify module resolution and installation from the canonical repository path
+   before publishing a tagged Go module release.
 
 Immediately after changing visibility:
 

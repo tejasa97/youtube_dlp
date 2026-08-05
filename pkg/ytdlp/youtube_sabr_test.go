@@ -16,11 +16,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/internal/events"
-	"github.com/ytdlp-go/ytdlp/internal/format"
-	"github.com/ytdlp-go/ytdlp/internal/network"
-	"github.com/ytdlp-go/ytdlp/internal/protocol/youtubeump"
-	"github.com/ytdlp-go/ytdlp/internal/value"
+	"github.com/tejasa97/youtube_dlp/internal/events"
+	"github.com/tejasa97/youtube_dlp/internal/format"
+	"github.com/tejasa97/youtube_dlp/internal/network"
+	"github.com/tejasa97/youtube_dlp/internal/protocol/youtubeump"
+	"github.com/tejasa97/youtube_dlp/internal/value"
 )
 
 func TestYouTubeSABRProductDownloadDispatch(t *testing.T) {

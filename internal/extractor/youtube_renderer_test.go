@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/internal/value"
+	"github.com/tejasa97/youtube_dlp/internal/value"
 )
 
 func TestYouTubeRendererWalksSupportedFamilies(t *testing.T) {

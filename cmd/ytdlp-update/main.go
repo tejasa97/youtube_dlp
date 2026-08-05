@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/pkg/ytdlp"
+	"github.com/tejasa97/youtube_dlp/pkg/ytdlp"
 )
 
 func main() { os.Exit(run(context.Background(), os.Args[1:], os.Stdout, os.Stderr)) }

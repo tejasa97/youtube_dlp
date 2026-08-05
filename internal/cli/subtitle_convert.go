@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
-	"github.com/ytdlp-go/ytdlp/pkg/ytdlp"
+	"github.com/tejasa97/youtube_dlp/internal/media/ffmpeg"
+	"github.com/tejasa97/youtube_dlp/pkg/ytdlp"
 )
 
 const maxSubtitleConversions = 128

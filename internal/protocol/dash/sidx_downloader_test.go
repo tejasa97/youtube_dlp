@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/internal/network"
+	"github.com/tejasa97/youtube_dlp/internal/network"
 )
 
 // sidxTestMedia builds a synthetic media resource with an init segment,

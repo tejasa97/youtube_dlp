@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ytdlp-go/ytdlp/internal/value"
+	"github.com/tejasa97/youtube_dlp/internal/value"
 )
 
 var pinnedOfficialSelectorExamples = []string{

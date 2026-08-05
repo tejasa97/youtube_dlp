@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/ytdlp-go/ytdlp/pkg/pluginapi"
+	"github.com/tejasa97/youtube_dlp/pkg/pluginapi"
 )
 
 var (

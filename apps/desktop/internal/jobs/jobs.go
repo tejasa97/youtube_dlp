@@ -19,7 +19,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/ytdlp-go/ytdlp/pkg/ytdlp"
+	"github.com/tejasa97/youtube_dlp/pkg/ytdlp"
 )
 
 // Quality is the user-visible quality preset. The string values are

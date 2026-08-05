@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/ytdlp-go/ytdlp/internal/extractor"
+	"github.com/tejasa97/youtube_dlp/internal/extractor"
 )
 
 var errInvalidProviderComposition = errors.New("invalid provider composition")

@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/ytdlp-go/ytdlp/internal/network"
+	"github.com/tejasa97/youtube_dlp/internal/network"
 )
 
 func TestFetchMalformedBodyCategorized(t *testing.T) {

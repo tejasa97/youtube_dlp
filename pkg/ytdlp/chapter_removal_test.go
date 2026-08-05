@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/internal/compat/chapterremove"
-	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
-	"github.com/ytdlp-go/ytdlp/internal/network"
-	"github.com/ytdlp-go/ytdlp/internal/sponsorblock"
-	"github.com/ytdlp-go/ytdlp/internal/value"
+	"github.com/tejasa97/youtube_dlp/internal/compat/chapterremove"
+	"github.com/tejasa97/youtube_dlp/internal/media/ffmpeg"
+	"github.com/tejasa97/youtube_dlp/internal/network"
+	"github.com/tejasa97/youtube_dlp/internal/sponsorblock"
+	"github.com/tejasa97/youtube_dlp/internal/value"
 )
 
 // TestRecodeVideoPostprocessorNoOpHonorsPinnedSemantics asserts that both

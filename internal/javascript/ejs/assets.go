@@ -9,7 +9,7 @@ import (
 
 	"golang.org/x/crypto/sha3"
 
-	"github.com/ytdlp-go/ytdlp/internal/javascript/protocol"
+	"github.com/tejasa97/youtube_dlp/internal/javascript/protocol"
 )
 
 const (

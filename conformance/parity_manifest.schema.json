@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/ytdlp-go/ytdlp/conformance/parity_manifest.schema.json",
+  "$id": "https://github.com/tejasa97/youtube_dlp/conformance/parity_manifest.schema.json",
   "title": "yt-dlp Go capability parity manifest",
   "type": "object",
   "additionalProperties": false,

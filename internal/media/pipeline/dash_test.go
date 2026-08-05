@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/internal/fragment"
-	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
-	"github.com/ytdlp-go/ytdlp/internal/network"
-	"github.com/ytdlp-go/ytdlp/internal/protocol/dash"
+	"github.com/tejasa97/youtube_dlp/internal/fragment"
+	"github.com/tejasa97/youtube_dlp/internal/media/ffmpeg"
+	"github.com/tejasa97/youtube_dlp/internal/network"
+	"github.com/tejasa97/youtube_dlp/internal/protocol/dash"
 )
 
 func TestDASHDownloadAndFFmpegMergeEndToEnd(t *testing.T) {

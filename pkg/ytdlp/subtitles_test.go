@@ -14,14 +14,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/internal/downloader"
-	"github.com/ytdlp-go/ytdlp/internal/events"
-	"github.com/ytdlp-go/ytdlp/internal/extractor"
-	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
-	"github.com/ytdlp-go/ytdlp/internal/network"
-	"github.com/ytdlp-go/ytdlp/internal/protocol/hls"
-	"github.com/ytdlp-go/ytdlp/internal/testserver"
-	"github.com/ytdlp-go/ytdlp/internal/value"
+	"github.com/tejasa97/youtube_dlp/internal/downloader"
+	"github.com/tejasa97/youtube_dlp/internal/events"
+	"github.com/tejasa97/youtube_dlp/internal/extractor"
+	mediaformat "github.com/tejasa97/youtube_dlp/internal/format"
+	"github.com/tejasa97/youtube_dlp/internal/network"
+	"github.com/tejasa97/youtube_dlp/internal/protocol/hls"
+	"github.com/tejasa97/youtube_dlp/internal/testserver"
+	"github.com/tejasa97/youtube_dlp/internal/value"
 )
 
 func TestSubtitleSidecarsDownloadWithSkipDownload(t *testing.T) {

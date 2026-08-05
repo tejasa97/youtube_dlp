@@ -12,7 +12,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/ytdlp-go/ytdlp/internal/value"
+	"github.com/tejasa97/youtube_dlp/internal/value"
 	"gopkg.in/yaml.v3"
 )
 

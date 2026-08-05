@@ -14,8 +14,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/ytdlp-go/ytdlp/internal/downloader"
-	"github.com/ytdlp-go/ytdlp/internal/extractor"
+	"github.com/tejasa97/youtube_dlp/internal/downloader"
+	"github.com/tejasa97/youtube_dlp/internal/extractor"
 )
 
 func TestProductHLSSplitDiscontinuitySelectsOnlySelectedRepresentation(t *testing.T) {

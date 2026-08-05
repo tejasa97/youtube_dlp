@@ -1,6 +1,6 @@
 package format
 
-import "github.com/ytdlp-go/ytdlp/internal/value"
+import "github.com/tejasa97/youtube_dlp/internal/value"
 
 // FormatAvailability reports whether a candidate format object is currently
 // selectable by the planner. It mirrors yt-dlp's lazy _check_formats gate

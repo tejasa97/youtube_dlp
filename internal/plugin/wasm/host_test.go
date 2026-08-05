@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/internal/plugin"
+	"github.com/tejasa97/youtube_dlp/internal/plugin"
 )
 
 type wasmApprover struct {

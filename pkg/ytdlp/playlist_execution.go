@@ -27,7 +27,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/ytdlp-go/ytdlp/internal/extractor"
+	"github.com/tejasa97/youtube_dlp/internal/extractor"
 )
 
 // PlaylistErrorPolicy controls ordinary per-entry failures. Continue is the

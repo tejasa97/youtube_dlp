@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/ytdlp-go/ytdlp/internal/network/impersonate"
+	"github.com/tejasa97/youtube_dlp/internal/network/impersonate"
 )
 
 func TestSummarizeExtractsBoundedFingerprintEvidence(t *testing.T) {

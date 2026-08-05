@@ -9,7 +9,7 @@ import (
 	"runtime/debug"
 	"testing"
 
-	"github.com/ytdlp-go/ytdlp/internal/release"
+	"github.com/tejasa97/youtube_dlp/internal/release"
 )
 
 func TestDependencyRecordsAreDeterministicAndCovered(t *testing.T) {

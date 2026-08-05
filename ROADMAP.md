@@ -57,7 +57,7 @@ parity.
 
 ## Before a stable release
 
-- Resolve the repository/module path mismatch.
+- Validate tagged module installation from the canonical repository path.
 - Define versioning and support policy.
 - Establish an operational release workflow and signing identities.
 - Publish supported-platform and dependency guarantees.

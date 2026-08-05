@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ytdlp-go/ytdlp/internal/network"
+	"github.com/tejasa97/youtube_dlp/internal/network"
 )
 
 type soundCloudProductRoundTripper func(*http.Request) (*http.Response, error)

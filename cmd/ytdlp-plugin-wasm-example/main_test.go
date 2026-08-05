@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/internal/plugin"
-	pluginwasm "github.com/ytdlp-go/ytdlp/internal/plugin/wasm"
+	"github.com/tejasa97/youtube_dlp/internal/plugin"
+	pluginwasm "github.com/tejasa97/youtube_dlp/internal/plugin/wasm"
 )
 
 func TestExampleModule(t *testing.T) {

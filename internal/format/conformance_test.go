@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ytdlp-go/ytdlp/internal/value"
+	"github.com/tejasa97/youtube_dlp/internal/value"
 )
 
 const selectorConformanceCommit = "aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8"

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/ytdlp-go/ytdlp/pkg/ytdlp"
+	"github.com/tejasa97/youtube_dlp/pkg/ytdlp"
 )
 
 func TestFriendlyAnalyzeErrorDeadline(t *testing.T) {

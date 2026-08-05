@@ -12,7 +12,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ytdlp-go/ytdlp/internal/value"
+	"github.com/tejasa97/youtube_dlp/internal/value"
 )
 
 // Streamable extracts public videos through Streamable's anonymous metadata

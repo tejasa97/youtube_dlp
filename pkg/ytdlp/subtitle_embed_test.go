@@ -12,9 +12,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
-	"github.com/ytdlp-go/ytdlp/internal/testserver"
-	"github.com/ytdlp-go/ytdlp/internal/value"
+	"github.com/tejasa97/youtube_dlp/internal/media/ffmpeg"
+	"github.com/tejasa97/youtube_dlp/internal/testserver"
+	"github.com/tejasa97/youtube_dlp/internal/value"
 )
 
 func TestProductEmbedsSelectedSubtitleTracksAndAppliesRetention(t *testing.T) {

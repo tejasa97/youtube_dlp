@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ytdlp-go/ytdlp/internal/sponsorblock"
-	"github.com/ytdlp-go/ytdlp/pkg/ytdlp"
+	"github.com/tejasa97/youtube_dlp/internal/sponsorblock"
+	"github.com/tejasa97/youtube_dlp/pkg/ytdlp"
 )
 
 func TestBuildSponsorBlockOptionsMapping(t *testing.T) {

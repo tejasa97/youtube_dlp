@@ -11,10 +11,10 @@ import (
 	"strings"
 	"testing"
 
-	outputtemplate "github.com/ytdlp-go/ytdlp/internal/compat/template"
-	"github.com/ytdlp-go/ytdlp/internal/downloader"
-	"github.com/ytdlp-go/ytdlp/internal/network"
-	"github.com/ytdlp-go/ytdlp/internal/value"
+	outputtemplate "github.com/tejasa97/youtube_dlp/internal/compat/template"
+	"github.com/tejasa97/youtube_dlp/internal/downloader"
+	"github.com/tejasa97/youtube_dlp/internal/network"
+	"github.com/tejasa97/youtube_dlp/internal/value"
 )
 
 func TestSelectThumbnailsNormalizesSortsAndBoundsMetadata(t *testing.T) {

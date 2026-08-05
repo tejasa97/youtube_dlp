@@ -1,27 +1,26 @@
 # Embedding ytdlp-go
 
-The supported Go package contract is `github.com/ytdlp-go/ytdlp/pkg/ytdlp`.
+The supported Go package contract is `github.com/tejasa97/youtube_dlp/pkg/ytdlp`.
 The current contract version is v1alpha1. It is context-aware, safe for
 concurrent independent operations, and returns categorized errors rather than
 requiring callers to inspect diagnostic text.
 
 ## Module availability
 
-The repository is currently hosted at `github.com/tejasa97/youtube_dlp`, but
-`go.mod` declares the intended canonical module path
-`github.com/ytdlp-go/ytdlp`. Until the repository location and module path are
-reconciled, consumers should not publish a dependency that assumes
-`go get github.com/ytdlp-go/ytdlp` works.
+The repository and root Go module use the canonical path
+`github.com/tejasa97/youtube_dlp`. Add the supported package with:
 
-To compile an application against a local checkout for evaluation, declare the
-intended module and replace it locally:
+    go get github.com/tejasa97/youtube_dlp/pkg/ytdlp
 
-    require github.com/ytdlp-go/ytdlp v0.0.0
+To compile against a specific local checkout instead, declare the canonical
+module and replace it locally:
 
-    replace github.com/ytdlp-go/ytdlp => /absolute/path/to/youtube_dlp
+    require github.com/tejasa97/youtube_dlp v0.0.0
 
-This workaround is for local development only. A tagged public module requires
-canonical hosting, or an intentional module-path migration, before release.
+    replace github.com/tejasa97/youtube_dlp => /absolute/path/to/youtube_dlp
+
+The replacement is for local development only and should not be published by
+downstream modules.
 
 ## Minimal metadata extraction
 
@@ -32,7 +31,7 @@ canonical hosting, or an intentional module-path migration, before release.
         "fmt"
         "log"
 
-        "github.com/ytdlp-go/ytdlp/pkg/ytdlp"
+        "github.com/tejasa97/youtube_dlp/pkg/ytdlp"
     )
 
     func main() {

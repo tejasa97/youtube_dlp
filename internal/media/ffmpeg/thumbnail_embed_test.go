@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/internal/events"
+	"github.com/tejasa97/youtube_dlp/internal/events"
 )
 
 func TestEmbedThumbnailSupportedContainers(t *testing.T) {

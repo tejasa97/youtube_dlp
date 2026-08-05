@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/internal/network"
+	"github.com/tejasa97/youtube_dlp/internal/network"
 )
 
 type retryableError struct{ error }

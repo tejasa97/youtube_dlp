@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/internal/network"
+	"github.com/tejasa97/youtube_dlp/internal/network"
 )
 
 // hierarchicalTestMedia builds a synthetic media resource with a root SIDX
