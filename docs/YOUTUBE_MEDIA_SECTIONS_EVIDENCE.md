@@ -48,6 +48,13 @@ PR4 is a generic product/media-layer feature. It does not add extractor clip rou
   validating range syntax deterministically.
 - Archive identity is one record per extractor item, written only after every section commits.
   Section outputs roll back transactionally on any failure or cancellation.
+- Unsupported section downloader protocols fail with the pinned upstream message
+  "This format cannot be partially downloaded. Aborting" (YoutubeDL.py:3486) instead of a
+  protocol-specific substitute, and produce no artifact.
+- ForceKeyframesAtCuts accepts both request-level ranges and extractor-driven sections. Because
+  extractor sections (e.g. section_start/section_end from a clip) are invisible to pre-extraction
+  validation, the no-consumer case is rejected after extraction when no section, chapter removal,
+  or SponsorBlock removal materialized.
 
 ## Deferred (documented)
 
@@ -55,7 +62,8 @@ PR4 is a generic product/media-layer feature. It does not add extractor clip rou
   range generators).
 - Native fragment trimming; HLS/DASH partial downloads use ffmpeg as upstream does.
 - Partial live streams unless deterministically selected.
-- PR5 YouTube Clips routing (this PR provides the generic consumer PR5 will use).
+- Interop with PR5 YouTube Clips: this PR provides the generic consumer; PR5 (stacked on this
+  branch) supplies the clip routes and overlay.
 
 ## Validation
 

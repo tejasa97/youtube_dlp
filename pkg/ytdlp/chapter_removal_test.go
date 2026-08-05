@@ -237,7 +237,6 @@ func TestChapterRemovalInvalidRequestsFailBeforeNetwork(t *testing.T) {
 	for _, request := range []Request{
 		{RemoveChapters: []string{"("}},
 		{RemoveChapters: []string{"*1--2"}},
-		{ForceKeyframesAtCuts: true},
 	} {
 		request.URL = server.URL + "/media.mp4"
 		if _, err := NewClient().Run(context.Background(), request); !IsCategory(err, ErrorInvalidInput) {

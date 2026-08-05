@@ -64,7 +64,7 @@ func sectionInputsFromSelections(selections []mediaformat.Selection) ([]ffmpeg.S
 		case "https", "http", "m3u8_native", "http_dash_segments":
 			// Delegable to ffmpeg.
 		default:
-			return nil, fmt.Errorf("%w: protocol %q cannot be partially downloaded", extractor.ErrUnsupported, selection.Protocol)
+			return nil, fmt.Errorf("%w: This format cannot be partially downloaded. Aborting", extractor.ErrUnsupported)
 		}
 		if selection.CredentialIsolated {
 			return nil, fmt.Errorf("%w: section download cannot enforce credential-isolated media", extractor.ErrTransportIsolation)

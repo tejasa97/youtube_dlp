@@ -541,3 +541,110 @@ func generateHLSSectionFixture(t *testing.T) string {
 	t.Cleanup(server.Close)
 	return server.URL
 }
+
+// TestProductForceKeyframesNoConsumerFailsAfterExtraction verifies that
+// ForceKeyframesAtCuts with no section, chapter removal, or SponsorBlock
+// removal is rejected after extraction (pre-extraction validation cannot see
+// extractor-driven sections), and that a served extractor section makes the
+// same request valid.
+func TestProductForceKeyframesNoConsumerFailsAfterExtraction(t *testing.T) {
+	media := generateSplitChapterMedia(t)
+	server := serveGenericMediaPage(t, media)
+	defer server.Close()
+	root := t.TempDir()
+	_, err := NewClient().Run(context.Background(), Request{
+		URL: server.URL + "/page", OutputDir: root, OutputTemplate: "plain.%(ext)s", Overwrite: true,
+		ForceKeyframesAtCuts: true,
+	})
+	if !IsCategory(err, ErrorInvalidInput) {
+		t.Fatalf("no-consumer force-keyframes err = %v; want ErrorInvalidInput", err)
+	}
+}
+
+// TestProductForceKeyframesExtractorSectionSucceeds verifies an extractor-driven
+// section (section_start/section_end) is an accepted ForceKeyframesAtCuts
+// consumer even though the user requested no explicit --download-sections.
+func TestProductForceKeyframesExtractorSectionSucceeds(t *testing.T) {
+	media := generateSplitChapterMedia(t)
+	server := serveExtractorSectionMedia(t, media)
+	defer server.Close()
+	root := t.TempDir()
+	result, err := NewClient().Run(context.Background(), Request{
+		URL: server.URL + "/page", OutputDir: root, OutputTemplate: "extract-force.%(ext)s", Overwrite: true,
+		ForceKeyframesAtCuts: true,
+	})
+	if err != nil || !result.Downloaded {
+		t.Fatalf("extractor force-keyframes result=%+v err=%v", result, err)
+	}
+	if duration, err := probeDuration(result.Filename); err == nil && duration > 1.5 {
+		t.Fatalf("extractor force-keyframes artifact duration=%v, want ~1s", duration)
+	}
+}
+
+// serveGenericMediaPage serves a plain media page with no section fields.
+func serveGenericMediaPage(t *testing.T, media string) *httptest.Server {
+	t.Helper()
+	bytes, err := os.ReadFile(media)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/page":
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(writer, `{"id":"generic-section-fixture","title":"Generic","duration":2,"ext":"mp4","formats":[{"format_id":"media","url":%q,"ext":"mp4","vcodec":"mpeg4","acodec":"none"}]}`, server.URL+"/media.mp4")
+		case "/media.mp4":
+			writer.Header().Set("Content-Type", "video/mp4")
+			writer.Header().Set("Content-Length", fmt.Sprint(len(bytes)))
+			if request.Method != http.MethodHead {
+				_, _ = writer.Write(bytes)
+			}
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	return server
+}
+
+// TestSectionDownloadUnsupportedProtocolMatchesUpstreamError verifies the
+// unsupported-protocol failure uses the pinned upstream message
+// "This format cannot be partially downloaded. Aborting" rather than a
+// protocol-specific substitute, and produces no artifact.
+func TestSectionDownloadUnsupportedProtocolMatchesUpstreamError(t *testing.T) {
+	server := serveUnsupportedProtocolSectionMedia(t)
+	defer server.Close()
+	root := t.TempDir()
+	_, err := NewClient().Run(context.Background(), Request{
+		URL: server.URL + "/page", OutputDir: root, OutputTemplate: "proto.%(ext)s", Overwrite: true,
+		DownloadSections: []string{"*0-1"},
+	})
+	if err == nil {
+		t.Fatal("unsupported-protocol section download succeeded, want closed failure")
+	}
+	if !strings.Contains(err.Error(), "This format cannot be partially downloaded. Aborting") {
+		t.Fatalf("error = %v; want pinned upstream partial-download message", err)
+	}
+	entries, _ := os.ReadDir(root)
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), "proto") {
+			t.Fatalf("unsupported-protocol section produced output %q", entry.Name())
+		}
+	}
+}
+
+// serveUnsupportedProtocolSectionMedia serves an info whose selected format
+// carries a protocol that cannot be delegated to ffmpeg for section download.
+func serveUnsupportedProtocolSectionMedia(t *testing.T) *httptest.Server {
+	t.Helper()
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/page" {
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(writer, `{"id":"unsupported-proto","title":"Proto","duration":2,"ext":"mp4","formats":[{"format_id":"x","url":"https://media.test/f","ext":"mp4","protocol":"mhtml","vcodec":"mpeg4","acodec":"none"}]}`)
+			return
+		}
+		http.NotFound(writer, request)
+	}))
+	return server
+}

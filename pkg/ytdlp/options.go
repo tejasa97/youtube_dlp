@@ -547,12 +547,10 @@ func validateRequestOptions(request Request) error {
 	if request.Filesystem.FfmpegLocation != "" && len(request.Filesystem.FfmpegLocation) > 4096 {
 		return fmt.Errorf("%w: ffmpeg location", errInvalidRequestOptions)
 	}
-	if request.ForceKeyframesAtCuts &&
-		len(request.RemoveChapters) == 0 &&
-		len(request.DownloadSections) == 0 &&
-		!(request.SponsorBlock.Enabled && request.SponsorBlock.Remove) {
-		return fmt.Errorf("%w: force keyframes requires chapter, section, or SponsorBlock removal", errInvalidRequestOptions)
-	}
+	// ForceKeyframesAtCuts may be consumable by an extractor-driven section
+	// (e.g. section_start/section_end from a clip), which is invisible before
+	// extraction. The no-consumer case is therefore validated after
+	// extraction in buildSectionLifecycles rather than here.
 	if len(request.DownloadSections) > sections.MaxSpecifications {
 		return fmt.Errorf("%w: too many download sections", errInvalidRequestOptions)
 	}

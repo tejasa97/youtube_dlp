@@ -150,3 +150,45 @@ func TestParseRejectsOtherInfinityForms(t *testing.T) {
 		}
 	}
 }
+
+// TestParseUnitTimestampPrecisionRoutesThroughValidator verifies unit-form
+// timestamps go through the same precision validator as plain/colon forms:
+// *0-0.0004s (4 fractional digits) is rejected while the plain equivalent is
+// also rejected, and sub-second unit forms with 3 fractional digits remain
+// accepted.
+func TestParseUnitTimestampPrecisionRoutesThroughValidator(t *testing.T) {
+	for _, spec := range []string{
+		"*0-0.0004s",   // 4 fractional digits in a unit component -> rounds -t 0
+		"*0s-0.0004s",  // same, both unit components
+		"*0-1e3s",      // scientific notation in a unit component
+		"*1e1s-2e1s",   // scientific notation
+		"*0-infinites", // spelled-out infinity unit
+	} {
+		if _, err := Parse([]string{spec}); err == nil {
+			t.Fatalf("Parse(%q) succeeded, want error", spec)
+		}
+	}
+	program, err := Parse([]string{"*0-0.125s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(program.Sections) != 1 || program.Sections[0].End == nil || *program.Sections[0].End != 0.125 {
+		t.Fatalf("sections = %#v", program.Sections)
+	}
+}
+
+// TestParseUnitZeroStartAllowed verifies a zero unit start (e.g. *0s-1s) is
+// accepted: the planner treats total zero as a valid start and lets the range
+// ordering reject invalid zero-length ranges instead.
+func TestParseUnitZeroStartAllowed(t *testing.T) {
+	program, err := Parse([]string{"*0s-1s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(program.Sections) != 1 || program.Sections[0].Start != 0 || program.Sections[0].End == nil || *program.Sections[0].End != 1 {
+		t.Fatalf("sections = %#v", program.Sections)
+	}
+	if _, err := Parse([]string{"*0s-0s"}); err == nil {
+		t.Fatal("zero-length range *0s-0s accepted")
+	}
+}

@@ -284,6 +284,17 @@ func (operation *operation) buildSectionLifecycles(
 		return nil, err
 	}
 	if len(sectionPlans) == 0 {
+		// ForceKeyframesAtCuts is valid for both request-level and
+		// extractor-driven sections. Pre-extraction validation cannot see
+		// extractor sections (a clip supplies section_start/section_end only
+		// after extraction), so the no-consumer case is rejected here after
+		// extraction when no section and no other force-keyframe consumer
+		// (chapter removal or SponsorBlock removal) materialized.
+		if operation.request.ForceKeyframesAtCuts &&
+			operation.compatibility.chapterRemoval.Empty() &&
+			!(operation.request.SponsorBlock.Enabled && operation.request.SponsorBlock.Remove) {
+			return nil, fmt.Errorf("%w: force keyframes requires chapter, section, or SponsorBlock removal", errInvalidRequestOptions)
+		}
 		// Ordinary path: one lifecycle per output plan.
 		lifecycles := make([]outputLifecycle, len(outputPlans))
 		for index, plan := range outputPlans {

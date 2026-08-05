@@ -257,14 +257,17 @@ func parseUnitDuration(text string) (float64, bool) {
 		if num == "" {
 			return 0, false
 		}
-		value, err := strconv.ParseFloat(num, 64)
-		if err != nil || math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
+		// Route the unit component through the same precision validator used
+		// for plain and colon timestamps so values like *0-0.0004s (which
+		// would round into ffmpeg -t 0) are rejected rather than silently
+		// rounded, and scientific/infinity forms never reach ffmpeg.
+		value, ok := validateSectionNumber(strings.TrimSpace(num))
+		if !ok {
 			return 0, false
 		}
 		total += value * multipliers[index]
 	}
-	if total <= 0 {
-		return 0, false
-	}
+	// A zero total is allowed (e.g. a "0s" start). Zero-length ranges are
+	// rejected by the range-ordering check (end <= start), not here.
 	return total, true
 }
