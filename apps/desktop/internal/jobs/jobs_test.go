@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tejasa97/youtube_dlp/pkg/ytdlp"
+	"github.com/tejasa97/youtube_dlp/engine"
 )
 
 func TestHumanErrorYouTubeChallengeTimeout(t *testing.T) {
-	typed := &ytdlp.Error{
-		Category: ytdlp.ErrorUnsupported,
+	typed := &engine.Error{
+		Category: engine.ErrorUnsupported,
 		Op:       "youtube extraction",
 		Err: errors.New(
 			"JavaScript challenge solver unavailable: EJS helper timeout: JavaScript execution timed out",
@@ -30,8 +30,8 @@ func TestHumanErrorYouTubeChallengeTimeout(t *testing.T) {
 }
 
 func TestHumanErrorOtherUnsupportedIsUnchanged(t *testing.T) {
-	err := &ytdlp.Error{
-		Category: ytdlp.ErrorUnsupported,
+	err := &engine.Error{
+		Category: engine.ErrorUnsupported,
 		Op:       "youtube extraction",
 		Err:      errors.New("video unavailable"),
 	}
@@ -45,8 +45,8 @@ func TestHandleEventUsesPublicDownloadEventKinds(t *testing.T) {
 	manager := New(nil, nil)
 	state := &jobState{snap: JobSnapshot{Status: StatusActive}}
 
-	manager.handleEvent(state, ytdlp.Event{
-		Kind:  ytdlp.EventDownloadProgress,
+	manager.handleEvent(state, engine.Event{
+		Kind:  engine.EventDownloadProgress,
 		Bytes: 25,
 		Total: 100,
 	})
@@ -63,8 +63,8 @@ func TestHandleEventUsesPublicDownloadEventKinds(t *testing.T) {
 
 	state.startBps = time.Now().Add(-time.Second)
 	state.startByt = 25
-	manager.handleEvent(state, ytdlp.Event{
-		Kind:  ytdlp.EventDownloadProgress,
+	manager.handleEvent(state, engine.Event{
+		Kind:  engine.EventDownloadProgress,
 		Bytes: 75,
 		Total: 100,
 	})
@@ -81,13 +81,13 @@ func TestHandleEventMapsLifecycleCopy(t *testing.T) {
 		kind string
 		want string
 	}{
-		{ytdlp.EventDownloadStarting, "Starting download"},
-		{ytdlp.EventDownloadRetry, "Retrying"},
-		{ytdlp.EventPostprocessStarting, "Finalising"},
-		{ytdlp.EventDownloadCancelled, "Canceled"},
+		{engine.EventDownloadStarting, "Starting download"},
+		{engine.EventDownloadRetry, "Retrying"},
+		{engine.EventPostprocessStarting, "Finalising"},
+		{engine.EventDownloadCancelled, "Canceled"},
 	}
 	for _, test := range tests {
-		manager.handleEvent(state, ytdlp.Event{Kind: test.kind})
+		manager.handleEvent(state, engine.Event{Kind: test.kind})
 		if state.snap.Message != test.want {
 			t.Fatalf("kind %q message = %q; want %q", test.kind, state.snap.Message, test.want)
 		}
@@ -96,13 +96,13 @@ func TestHandleEventMapsLifecycleCopy(t *testing.T) {
 
 func TestCancelActiveKeepsFIFOSingleActive(t *testing.T) {
 	manager := New(nil, nil)
-	started := make(chan ytdlp.Request, 2)
+	started := make(chan engine.Request, 2)
 	release := make(chan struct{})
-	manager.runDownload = func(ctx context.Context, req ytdlp.Request, _ ytdlp.EventHandler) (ytdlp.Result, error) {
+	manager.runDownload = func(ctx context.Context, req engine.Request, _ engine.EventHandler) (engine.Result, error) {
 		started <- req
 		<-ctx.Done()
 		<-release
-		return ytdlp.Result{}, ctx.Err()
+		return engine.Result{}, ctx.Err()
 	}
 
 	first, err := manager.Submit(Request{URL: "https://example.invalid/first", OutputDir: t.TempDir()})
@@ -138,11 +138,11 @@ func TestDownloadRequestUsesConfiguredFFmpegLocation(t *testing.T) {
 	manager := New(nil, nil)
 	configured := filepath.Join(t.TempDir(), "ffmpeg")
 	manager.SetFFmpegLocation(configured)
-	started := make(chan ytdlp.Request, 1)
-	manager.runDownload = func(ctx context.Context, req ytdlp.Request, _ ytdlp.EventHandler) (ytdlp.Result, error) {
+	started := make(chan engine.Request, 1)
+	manager.runDownload = func(ctx context.Context, req engine.Request, _ engine.EventHandler) (engine.Result, error) {
 		started <- req
 		<-ctx.Done()
-		return ytdlp.Result{}, ctx.Err()
+		return engine.Result{}, ctx.Err()
 	}
 
 	id, err := manager.Submit(Request{URL: "https://example.invalid/video", OutputDir: t.TempDir()})
@@ -177,10 +177,10 @@ func TestDownloadRequestsUseExactV0SelectorsAndDistinctOutputTemplates(t *testin
 	for _, test := range tests {
 		t.Run(test.quality.Label(), func(t *testing.T) {
 			manager := New(nil, nil)
-			started := make(chan ytdlp.Request, 1)
-			manager.runDownload = func(_ context.Context, req ytdlp.Request, _ ytdlp.EventHandler) (ytdlp.Result, error) {
+			started := make(chan engine.Request, 1)
+			manager.runDownload = func(_ context.Context, req engine.Request, _ engine.EventHandler) (engine.Result, error) {
 				started <- req
-				return ytdlp.Result{}, nil
+				return engine.Result{}, nil
 			}
 
 			if _, err := manager.Submit(Request{URL: "https://example.invalid/video", OutputDir: t.TempDir(), Quality: test.quality}); err != nil {
@@ -277,10 +277,10 @@ func TestClearTerminalRemovesCanceledJobAndEmitsEmptyQueue(t *testing.T) {
 func TestCancelActiveTransitionsToCanceledThenClearTerminalRemovesIt(t *testing.T) {
 	manager := New(nil, nil)
 	started := make(chan struct{}, 1)
-	manager.runDownload = func(ctx context.Context, _ ytdlp.Request, _ ytdlp.EventHandler) (ytdlp.Result, error) {
+	manager.runDownload = func(ctx context.Context, _ engine.Request, _ engine.EventHandler) (engine.Result, error) {
 		started <- struct{}{}
 		<-ctx.Done()
-		return ytdlp.Result{}, ctx.Err()
+		return engine.Result{}, ctx.Err()
 	}
 	id, err := manager.Submit(Request{URL: "https://example.invalid/active", OutputDir: t.TempDir(), Quality: Quality4K})
 	if err != nil {

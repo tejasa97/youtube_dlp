@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/tejasa97/youtube_dlp/pkg/ytdlp"
+	"github.com/tejasa97/youtube_dlp/engine"
 )
 
 func TestFriendlyAnalyzeErrorDeadline(t *testing.T) {
@@ -16,8 +16,8 @@ func TestFriendlyAnalyzeErrorDeadline(t *testing.T) {
 }
 
 func TestFriendlyAnalyzeErrorYouTubeChallengeTimeout(t *testing.T) {
-	typed := &ytdlp.Error{
-		Category: ytdlp.ErrorUnsupported,
+	typed := &engine.Error{
+		Category: engine.ErrorUnsupported,
 		Op:       "youtube extraction",
 		Err: errors.New(
 			"JavaScript challenge solver unavailable: EJS helper timeout: JavaScript execution timed out",
@@ -31,8 +31,8 @@ func TestFriendlyAnalyzeErrorYouTubeChallengeTimeout(t *testing.T) {
 }
 
 func TestFriendlyAnalyzeErrorOtherUnsupportedIsUnchanged(t *testing.T) {
-	err := &ytdlp.Error{
-		Category: ytdlp.ErrorUnsupported,
+	err := &engine.Error{
+		Category: engine.ErrorUnsupported,
 		Op:       "youtube extraction",
 		Err:      errors.New("video unavailable"),
 	}

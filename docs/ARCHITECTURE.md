@@ -3,16 +3,14 @@
 `ytdlp-go` has one native media engine with three public interfaces:
 
 ```text
-YTDLP Go Desktop       ytdlp-go CLI       Go application
-        │                    │                  │
-        └────────────────────┴──────────────────┘
-                             │
-                         pkg/ytdlp
-                             │
-                    broad composition
-                             │
-                           engine
-                             │
+YTDLP Go Desktop        ytdlp-go CLI / Go application
+        │                           │
+providers/youtube                 pkg/ytdlp
+        │                     broad composition
+        └──────────────┬────────────┘
+                       │
+                    engine
+                       │
         ┌────────────────────┼────────────────────┐
         │                    │                    │
   extractor registry   operation policy    structured events
@@ -42,7 +40,10 @@ The Wails Desktop application owns UI-specific concerns:
 - FFmpeg detection and diagnostics; and
 - rendering events and errors for non-technical users.
 
-It calls the public `pkg/ytdlp` API and does not import extractor internals.
+It composes root `engine` with public `providers/youtube` through the shared
+Desktop client factory and does not import the broad facade or extractor
+internals. The UI's URL validation and narrow request flow remain its product
+workflow boundary.
 
 ### CLI
 
@@ -110,9 +111,10 @@ The public extraction-contract owner is
 bundle runtime, operation request, result/entry model, transport and credential
 capabilities, metadata values, and typed challenge/token and provider-support
 hooks are nameable by external provider packages. Historical internal contract
-packages remain compatibility aliases and wrappers. The remaining staged
-change is the public complete-YouTube bundle, followed by Desktop's focused
-composition, as described in
+packages remain compatibility aliases and wrappers. `providers/youtube`
+supplies the complete eight-provider YouTube family in preserved order, while
+Desktop explicitly uses only that composition. The remaining staged work is
+repository extraction, as described in
 [Public engine extraction contracts](PUBLIC_ENGINE_CONTRACTS.md).
 
 See [Supported sites](SUPPORTED_SITES.md), [Extractor selection](EXTRACTOR_SELECTION_EVIDENCE.md),

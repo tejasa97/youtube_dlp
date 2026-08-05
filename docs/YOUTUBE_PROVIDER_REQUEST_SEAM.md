@@ -1,7 +1,7 @@
 # YouTube provider request seam
 
-Status: request boundary and internal provider move implemented; public
-composition pending.
+Status: request boundary, internal provider move, public composition, and
+Desktop focused switch implemented.
 
 ADR 0007 requires the complete YouTube family to become an explicit provider
 dependency without making provider capability a Desktop workflow. This seam
@@ -28,8 +28,9 @@ provider-specific option bag. All three request forms use fixed redacted
 diagnostic formatting.
 
 The cycle-free public contract is now `engine/provider`. The internal YouTube
-implementation depends directly on that package, so a later public
-`providers/youtube` facade can expose only nameable public signatures.
+implementation depends directly on that package. Public `providers/youtube`
+adapts the typed request and hooks into `engine.Composition` without exposing
+any module-internal type in its public signatures.
 
 ## Completed internal move
 
@@ -55,10 +56,10 @@ typed composition. Its production dependency graph excludes
 compose and run a fake provider; broad compatibility tests preserve catalog
 order, plugin placement, provider option adaptation, and `pkg/ytdlp.NewClient`.
 
-The remaining public-provider PR will add a `providers/youtube` composition
-that adapts directly to `youtube.Request`. Plugins stay exclusive to the broad
-facade. Desktop remains unchanged until its later dedicated switch and
-dependency-proof change.
+`providers/youtube` now adapts directly to `youtube.Request` and keeps plugins
+exclusive to the broad facade. Desktop's analysis and per-download clients use
+that same focused composition, with dependency tests proving they cannot reach
+the broad facade, mixed extractor package, or non-YouTube providers.
 
 The generic bundle and registry remain parameterized by composition-owned
 configuration and request types. The compatibility catalog can bind

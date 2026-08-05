@@ -18,7 +18,7 @@ import (
 	"github.com/tejasa97/youtube_dlp/apps/desktop/internal/jobs"
 	"github.com/tejasa97/youtube_dlp/apps/desktop/internal/store"
 	"github.com/tejasa97/youtube_dlp/apps/desktop/internal/urlcheck"
-	"github.com/tejasa97/youtube_dlp/pkg/ytdlp"
+	"github.com/tejasa97/youtube_dlp/engine"
 )
 
 // App is the Wails-bound root. Every exported method is reachable from
@@ -453,23 +453,23 @@ func friendlyAnalyzeError(err error) string {
 	if errors.Is(err, context.DeadlineExceeded) {
 		return "Video analysis timed out — retry"
 	}
-	var typed *ytdlp.Error
+	var typed *engine.Error
 	if errors.As(err, &typed) {
 		switch typed.Category {
-		case ytdlp.ErrorUnsupported:
+		case engine.ErrorUnsupported:
 			if isYouTubeChallengeTimeout(err) {
 				return "YouTube challenge timed out — retry"
 			}
 			return "That link is not a supported single YouTube video."
-		case ytdlp.ErrorAuthentication:
+		case engine.ErrorAuthentication:
 			return "That video requires sign-in and is not available in this version."
-		case ytdlp.ErrorInvalidInput:
+		case engine.ErrorInvalidInput:
 			return "That YouTube link is not valid."
-		case ytdlp.ErrorNetwork:
+		case engine.ErrorNetwork:
 			return "We could not reach YouTube. Check your connection and try again."
-		case ytdlp.ErrorCancelled:
+		case engine.ErrorCancelled:
 			return "Video analysis was canceled."
-		case ytdlp.ErrorSecurity:
+		case engine.ErrorSecurity:
 			return "This video was blocked by a security check."
 		}
 	}

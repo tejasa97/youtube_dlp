@@ -1,5 +1,6 @@
 // Package ffmpegdetect probes the ffmpeg tool pair used by the desktop app.
-// The resolved setting is passed to pkg/ytdlp at each analyze/download
+// The resolved setting is passed to the focused engine composition at each
+// analyze/download.
 // request; this package does not mutate PATH or any process-global state.
 package ffmpegdetect
 

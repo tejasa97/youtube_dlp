@@ -1,7 +1,7 @@
 // Package store persists user settings and a minimal download history to
 // disk under the desktop app's per-user data directory.
 //
-// Persistence is intentionally separate from pkg/ytdlp so the core
+// Persistence is intentionally separate from the engine so the core
 // library stays free of UI state and OS-specific paths.
 package store
 
