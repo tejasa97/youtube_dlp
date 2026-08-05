@@ -1,4 +1,4 @@
-package extractor
+package extraction
 
 import (
 	"net/url"
@@ -30,13 +30,13 @@ type MetadataProvider interface {
 // Extract. The registry's slice remains the routing-priority authority; this
 // view is sorted for human-facing discovery and keeps generic last, matching
 // the pinned reference's list order.
-func (registry *Registry) Metadata() []Metadata {
+func (registry *Registry[R]) Metadata() []Metadata {
 	if registry == nil {
 		return nil
 	}
-	metadata := make([]Metadata, 0, len(registry.extractors))
-	seen := make(map[string]struct{}, len(registry.extractors))
-	for _, candidate := range registry.extractors {
+	metadata := make([]Metadata, 0, len(registry.providers))
+	seen := make(map[string]struct{}, len(registry.providers))
+	for _, candidate := range registry.providers {
 		if candidate == nil {
 			continue
 		}
@@ -78,7 +78,7 @@ func (registry *Registry) Metadata() []Metadata {
 // because it matches the pinned list-extractors behavior; routing selection
 // remains owned by Registry.Select and its registration order. Generic gets
 // only URLs that no concrete display entry matched.
-func (registry *Registry) MetadataForURLs(urls []string) []Metadata {
+func (registry *Registry[R]) MetadataForURLs(urls []string) []Metadata {
 	metadata := registry.Metadata()
 	if len(metadata) == 0 || len(urls) == 0 {
 		return metadata
@@ -94,8 +94,8 @@ func (registry *Registry) MetadataForURLs(urls []string) []Metadata {
 		uniqueURLs = append(uniqueURLs, rawURL)
 	}
 
-	byName := make(map[string]Extractor, len(registry.extractors))
-	for _, candidate := range registry.extractors {
+	byName := make(map[string]Provider[R], len(registry.providers))
+	for _, candidate := range registry.providers {
 		if candidate == nil {
 			continue
 		}
