@@ -473,6 +473,7 @@ type Runner interface {
 // downloads sharing the same YouTube player script skip redundant parsing.
 // A configured event handler must provide its own synchronization when shared.
 type Client struct {
+	composition           engineComposition
 	handler               EventHandler
 	javascriptHelper      string
 	browserCookieImporter func(context.Context, chromium.Options) (chromium.Result, error)
@@ -493,10 +494,8 @@ type Client struct {
 }
 
 func NewClient(options ...Option) *Client {
-	client := &Client{}
-	for _, option := range options {
-		option(client)
-	}
+	client := newClientWithComposition(broadCompatibilityComposition(nil, nil), options...)
+	client.composition = broadCompatibilityComposition(client.plugins, client.pluginApprover)
 	return client
 }
 
@@ -547,7 +546,10 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 	if client.youtubePOTErr != nil {
 		return Result{}, &Error{Category: ErrorInvalidInput, Op: "configure YouTube PO-token providers", Err: client.youtubePOTErr}
 	}
-	registry := client.productRegistry()
+	registry, err := client.composition.newRegistry()
+	if err != nil {
+		return Result{}, &Error{Category: ErrorInternal, Op: "compose provider registry", Err: err}
+	}
 	if err := registry.ConfigureSelection(request.ExtractorSelection.Rules); err != nil {
 		return Result{}, categorized("compile extractor selection", err)
 	}
@@ -725,7 +727,10 @@ func shouldCheckFormats(mode FormatCheckMode, allowUnplayable bool) bool {
 	return mode != FormatCheckNone && (mode != FormatCheckAuto || !allowUnplayable)
 }
 
-func (client *Client) productRegistry() *extractor.Registry {
+// broadCompatibilityProviders constructs the unchanged full provider catalog
+// for the CLI and pkg/ytdlp.NewClient facade. Plugins remain explicit-only and
+// retain their historical position before terminal and generic fallbacks.
+func broadCompatibilityProviders(plugins []*InstalledPlugin, pluginApprover PluginPermissionApprover) []extractor.Extractor {
 	registered := []extractor.Extractor{
 		// Niconico's opaque search and exact collection routes must be selected
 		// before generic HTTP handling; live/history are intentionally absent.
@@ -975,9 +980,9 @@ func (client *Client) productRegistry() *extractor.Registry {
 		extractor.NewRegionSVT(),
 		extractor.NewSyntheticAuth(),
 	}
-	for _, installed := range client.plugins {
+	for _, installed := range plugins {
 		if installed != nil {
-			registered = append(registered, &installedPluginExtractor{installed: installed, approver: client.pluginApprover})
+			registered = append(registered, &installedPluginExtractor{installed: installed, approver: pluginApprover})
 		}
 	}
 	registered = append(registered,
@@ -985,12 +990,8 @@ func (client *Client) productRegistry() *extractor.Registry {
 		extractor.NewFixture(),
 		extractor.NewGeneric(),
 	)
-	return extractor.NewRegistry(registered...)
+	return registered
 }
-
-// productRegistry retains the package-level test seam for the native-only
-// product registry.
-func productRegistry() *extractor.Registry { return (&Client{}).productRegistry() }
 
 const (
 	maxPlaylistDepth   = 8

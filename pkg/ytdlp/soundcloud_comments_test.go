@@ -40,7 +40,7 @@ func TestProductSoundCloudCommentOptionsPropagateAndEnrich(t *testing.T) {
 	}
 	operation := &operation{
 		client: NewClient(), request: request,
-		registry: NewClient().productRegistry(), transport: nativeTransport,
+		registry: productRegistry(), transport: nativeTransport,
 		compatibility: compatibility,
 	}
 	result, err := operation.process(context.Background(), request.URL, "", nil, make(map[string]bool), 0)

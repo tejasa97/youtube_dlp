@@ -493,7 +493,7 @@ func TestProductCategorizesPRXNetworkFailures(t *testing.T) {
 }
 
 func TestProductRegistryRoutesPRXOpaqueSearches(t *testing.T) {
-	registry := NewClient().productRegistry()
+	registry := productRegistry()
 	for raw, want := range map[string]string{
 		"prxstories:fixture query": "prx_stories_search",
 		"prxseries:fixture query":  "prx_series_search",
