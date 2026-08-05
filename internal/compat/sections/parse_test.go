@@ -192,3 +192,25 @@ func TestParseUnitZeroStartAllowed(t *testing.T) {
 		t.Fatal("zero-length range *0s-0s accepted")
 	}
 }
+
+// TestParseUnitBareZRejected verifies a bare trailing-Z (no duration component)
+// is not a valid timestamp and that a zero-valued matched component (0s) is
+// still accepted.
+func TestParseUnitBareZRejected(t *testing.T) {
+	for _, spec := range []string{
+		"*Z-1s", // parseUnitDuration("Z") must fail: Z is not a duration
+		"*0s-Z", // end side must fail for the same reason
+		"*Z-1",  // plain Z start
+	} {
+		if _, err := Parse([]string{spec}); err == nil {
+			t.Fatalf("Parse(%q) succeeded, want error", spec)
+		}
+	}
+	program, err := Parse([]string{"*0s-1s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(program.Sections) != 1 || program.Sections[0].Start != 0 || program.Sections[0].End == nil || *program.Sections[0].End != 1 {
+		t.Fatalf("sections = %#v", program.Sections)
+	}
+}
