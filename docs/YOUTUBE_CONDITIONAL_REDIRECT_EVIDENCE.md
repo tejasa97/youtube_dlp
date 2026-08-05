@@ -38,11 +38,11 @@ checkout.
 
 ## Automated evidence
 
-- `internal/extractor.TestYouTubeConditionalChannelRedirectIntegratesEveryRouteFamily`
-- `internal/extractor.TestYouTubeConditionalChannelRedirectCancellationBeforeRead`
-- `internal/extractor.TestYouTubeConditionalChannelRedirectDestinationFamiliesAndDuplicates`
-- `internal/extractor.TestYouTubeConditionalChannelRedirectRejectsHostileAmbiguousAndSelfTargets`
-- `internal/extractor.FuzzYouTubeConditionalChannelRedirect`
+- `internal/providers/youtube.TestYouTubeConditionalChannelRedirectIntegratesEveryRouteFamily`
+- `internal/providers/youtube.TestYouTubeConditionalChannelRedirectCancellationBeforeRead`
+- `internal/providers/youtube.TestYouTubeConditionalChannelRedirectDestinationFamiliesAndDuplicates`
+- `internal/providers/youtube.TestYouTubeConditionalChannelRedirectRejectsHostileAmbiguousAndSelfTargets`
+- `internal/providers/youtube.FuzzYouTubeConditionalChannelRedirect`
 
 ## Known deviations
 

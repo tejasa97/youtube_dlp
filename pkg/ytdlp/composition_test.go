@@ -126,6 +126,30 @@ func TestNewClientExplicitlySelectsBroadCompatibilityComposition(t *testing.T) {
 	}
 }
 
+func TestBroadCompatibilityCatalogPreservesCompleteYouTubeFamilyPositions(t *testing.T) {
+	names := productRegistry().Names()
+	want := []string{
+		"youtube_music_search",
+		"youtube_music_browse",
+		"youtube_search",
+		"youtube_hashtag",
+		"youtube_alias_tab",
+		"youtube_handle_tab",
+		"youtube_channel_tab",
+		"youtube",
+	}
+	const firstYouTubeIndex = 7
+	if len(names) <= firstYouTubeIndex+len(want) {
+		t.Fatalf("broad catalog too short: %d", len(names))
+	}
+	if got := names[firstYouTubeIndex : firstYouTubeIndex+len(want)]; !reflect.DeepEqual(got, want) {
+		t.Fatalf("YouTube family positions changed: got %v want %v", got, want)
+	}
+	if names[firstYouTubeIndex-1] != "niconico" || names[firstYouTubeIndex+len(want)] != "vimeo" {
+		t.Fatalf("YouTube family neighbors changed: before=%q after=%q", names[firstYouTubeIndex-1], names[firstYouTubeIndex+len(want)])
+	}
+}
+
 func TestRunRejectsMissingCompositionWithoutFallback(t *testing.T) {
 	client := newClientWithComposition(engineComposition{})
 	_, err := client.Run(context.Background(), Request{

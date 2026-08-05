@@ -61,26 +61,26 @@ The checked-in synthetic corpus covers:
 
 The primary automated evidence is:
 
-- `internal/extractor.TestYouTubeCommentsDefaultNewSortVisitorRotationAndFields`
-- `internal/extractor.TestYouTubeCommentsTopSortAndBounds`
-- `internal/extractor.TestYouTubeCommentsWrappedSortReplyContinuationAndMultipleActions`
-- `internal/extractor.TestYouTubeCommentsPinnedDuplicateDoesNotStopTraversal`
-- `internal/extractor.TestYouTubeCommentsReplyContinuationIsDepthFirstForTotalLimit`
-- `internal/extractor.TestYouTubeCommentsDisabledAndForcedContinuation`
-- `internal/extractor.TestYouTubeCommentFailuresCancellationAndLimits`
-- `internal/extractor.TestYouTubeCommentRetriesTransientAndIncompleteResponses`
-- `internal/extractor.TestYouTubeCommentsCapActualHTTPAttempts`
-- `internal/extractor.TestRequestAuthenticatedYouTubeWEBNext`
-- `internal/extractor.TestRequestAuthenticatedYouTubeWEBNextErrors`
-- `internal/extractor.TestRequestAuthenticatedYouTubeWEBNextCancellation`
-- `internal/extractor.TestYouTubeAuthenticatedCommentsUseNoRedirectForEveryContinuation`
-- `internal/extractor.TestYouTubeAuthenticatedCommentFailuresStayProtectedAndCategorized`
-- `internal/extractor.TestYouTubeAuthenticatedCommentsFailClosedForMissingCapabilityCookiesAndCancellation`
-- `internal/extractor.TestYouTubeAuthenticatedCommentsUseProductionCookieJarAndNoRedirectPath`
-- `internal/extractor.TestParseYouTubeCommentPageEnforcesStructuralBudgets`
-- `internal/extractor.TestYouTubeModernCommentSanitizesIdentityAndThumbnail`
-- `internal/extractor.TestParseYouTubeCommentPageRejectsMalformedAndOversizedText`
-- `internal/extractor.FuzzParseYouTubeCommentPage`
+- `internal/providers/youtube.TestYouTubeCommentsDefaultNewSortVisitorRotationAndFields`
+- `internal/providers/youtube.TestYouTubeCommentsTopSortAndBounds`
+- `internal/providers/youtube.TestYouTubeCommentsWrappedSortReplyContinuationAndMultipleActions`
+- `internal/providers/youtube.TestYouTubeCommentsPinnedDuplicateDoesNotStopTraversal`
+- `internal/providers/youtube.TestYouTubeCommentsReplyContinuationIsDepthFirstForTotalLimit`
+- `internal/providers/youtube.TestYouTubeCommentsDisabledAndForcedContinuation`
+- `internal/providers/youtube.TestYouTubeCommentFailuresCancellationAndLimits`
+- `internal/providers/youtube.TestYouTubeCommentRetriesTransientAndIncompleteResponses`
+- `internal/providers/youtube.TestYouTubeCommentsCapActualHTTPAttempts`
+- `internal/providers/youtube.TestRequestAuthenticatedYouTubeWEBNext`
+- `internal/providers/youtube.TestRequestAuthenticatedYouTubeWEBNextErrors`
+- `internal/providers/youtube.TestRequestAuthenticatedYouTubeWEBNextCancellation`
+- `internal/providers/youtube.TestYouTubeAuthenticatedCommentsUseNoRedirectForEveryContinuation`
+- `internal/providers/youtube.TestYouTubeAuthenticatedCommentFailuresStayProtectedAndCategorized`
+- `internal/providers/youtube.TestYouTubeAuthenticatedCommentsFailClosedForMissingCapabilityCookiesAndCancellation`
+- `internal/providers/youtube.TestYouTubeAuthenticatedCommentsUseProductionCookieJarAndNoRedirectPath`
+- `internal/providers/youtube.TestParseYouTubeCommentPageEnforcesStructuralBudgets`
+- `internal/providers/youtube.TestYouTubeModernCommentSanitizesIdentityAndThumbnail`
+- `internal/providers/youtube.TestParseYouTubeCommentPageRejectsMalformedAndOversizedText`
+- `internal/providers/youtube.FuzzParseYouTubeCommentPage`
 
 Additional product and CLI tests are recorded in
 `conformance/parity_manifest.yaml`. Fixture derivation and exact upstream

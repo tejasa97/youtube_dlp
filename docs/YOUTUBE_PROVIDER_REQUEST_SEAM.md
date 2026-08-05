@@ -1,10 +1,11 @@
 # YouTube provider request seam
 
-Status: implemented request boundary; concrete provider move pending.
+Status: request boundary and internal provider move implemented; public
+composition pending.
 
 ADR 0007 requires the complete YouTube family to become an explicit provider
 dependency without making provider capability a Desktop workflow. This seam
-separates request ownership before any concrete implementation files move.
+separates request ownership from the broad compatibility facade.
 
 ## Request ownership inventory
 
@@ -31,25 +32,35 @@ signatures containing types external callers cannot legally import. A public
 provider package therefore requires a separately reviewed public neutral
 engine contract; this change does not widen the public API.
 
-## Exact PR 6 move
+## Completed internal move
 
-PR 6 is a dependency-closure relocation, not another request redesign:
+The complete video, clips, playlists, channels, handles, aliases, tabs,
+search, hashtag, Music, comments, captions, authentication, metadata,
+renderer, live/post-live, format, and SABR-related provider implementation and
+tests now live in `internal/providers/youtube`. Every concrete implementation
+accepts `youtube.Request`; the package dependency graph contains no
+`internal/extractor` edge.
 
-1. Move the complete `internal/extractor/youtube*.go` implementation and tests
-   together into `internal/providers/youtube`, including video, clips,
-   playlists, channels and tabs, search, Music, comments, captions,
-   authentication, live, SABR, and renderer helpers.
-2. Change those concrete providers to accept `youtube.Request` directly and
-   replace neutral aliases from `internal/extractor` with imports from
-   `internal/extraction`.
-3. Leave thin constructors/adapters in `internal/extractor` for the broad
-   compatibility catalog. Each adapter converts the legacy request with
-   `YouTubeRequest`; the provider package must not import `internal/extractor`.
-4. Preserve broad catalog order, names, selection behavior, and
-   `pkg/ytdlp.NewClient` behavior. Do not switch Desktop in that move.
-5. Move or extract every shared helper reached by the YouTube files as part of
-   the same dependency closure. PR 6 must not solve compile failures by making
-   the provider import the mixed implementation package.
+`internal/extractor` retains thin named constructors and adapters for the
+broad catalog, URL-result re-entry, and legacy tests. Each adapter converts an
+`extractor.Request` through `YouTubeRequest` once. Shared bounded JSON
+transport, balanced JSON-object extraction, manifest-format construction, and
+entry limiting live in `internal/extraction`, with compatibility wrappers for
+non-YouTube providers. The broad provider names and positions remain fixed.
+
+## Remaining PR 7 seam
+
+PR 7 may expose the reviewed neutral engine/provider composition API and a
+publicly consumable complete YouTube provider. Before doing so it must give
+external callers nameable public contracts for the request, transport,
+credentials, extraction result, entries, registry/provider interface, and
+JavaScript challenge boundary. It must not publish signatures that contain
+types under `internal/`.
+
+That public composition should adapt directly to `youtube.Request`, preserve
+the full-catalog `pkg/ytdlp.NewClient` facade, and keep plugins exclusive to
+the broad composition. Desktop remains unchanged until a later dedicated
+switch and dependency-proof change.
 
 The generic registry type remains parameterized by its composition-owned
 request. The compatibility catalog still uses `extractor.Request`; a future

@@ -50,14 +50,14 @@ test paths.
 
 ## Automated evidence
 
-- `internal/extractor.TestYouTubeBareRootsAggregateVideosStreamsAndShortsLazily`
-- `internal/extractor.TestYouTubeBareRootNoVideosExcludesHomeShelvesAndEmptyRoot`
-- `internal/extractor.TestYouTubeBareRootFallsBackToTopicUploadsPlaylist`
-- `internal/extractor.TestYouTubeBareTopicFallbackPreservesCancellation`
-- `internal/extractor.TestYouTubeBareRootFallsBackAfterMissingVideosPage`
-- `internal/extractor.TestYouTubeBareRootSelectedTabValidationBoundsAndCancellation`
-- `internal/extractor.TestYouTubeBareRootNetworkAndAlertCategories`
-- `internal/extractor.FuzzYouTubeBareUploadTabs`
+- `internal/providers/youtube.TestYouTubeBareRootsAggregateVideosStreamsAndShortsLazily`
+- `internal/providers/youtube.TestYouTubeBareRootNoVideosExcludesHomeShelvesAndEmptyRoot`
+- `internal/providers/youtube.TestYouTubeBareRootFallsBackToTopicUploadsPlaylist`
+- `internal/providers/youtube.TestYouTubeBareTopicFallbackPreservesCancellation`
+- `internal/providers/youtube.TestYouTubeBareRootFallsBackAfterMissingVideosPage`
+- `internal/providers/youtube.TestYouTubeBareRootSelectedTabValidationBoundsAndCancellation`
+- `internal/providers/youtube.TestYouTubeBareRootNetworkAndAlertCategories`
+- `internal/providers/youtube.FuzzYouTubeBareUploadTabs`
 - existing channel, handle, and alias route fuzz targets
 - `pkg/ytdlp.TestProductRegistryIncludesIntegratedExtractors`
 

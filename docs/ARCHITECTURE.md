@@ -81,6 +81,17 @@ player or API. Specific extractors are ordered before generic discovery.
 Transparent and playlist child URLs re-enter the declared registry path rather
 than bypassing operation policy.
 
+Provider-neutral contracts and shared bounded helpers live in
+`internal/extraction`. The complete first-party YouTube dependency closure
+lives in `internal/providers/youtube` and accepts its typed provider request;
+it has no dependency on the mixed `internal/extractor` compatibility package.
+That compatibility package retains thin adapters so the broad catalog keeps
+its names, routing order, request surface, and URL-result re-entry behavior.
+
+This is still an internal boundary. The final public engine/provider
+composition API and Desktop's focused composition are separate later stages;
+the current `pkg/ytdlp.NewClient` remains the broad full-catalog facade.
+
 See [Supported sites](SUPPORTED_SITES.md), [Extractor selection](EXTRACTOR_SELECTION_EVIDENCE.md),
 and [the extractor master checklist](EXTRACTOR_MASTER_CHECKLIST.md).
 

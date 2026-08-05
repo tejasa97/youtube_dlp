@@ -48,13 +48,13 @@ remain Python-free.
 
 ## Automated evidence
 
-- `internal/extractor.TestYouTubeHomeTabMixedRenderersAndContinuation`
-- `internal/extractor.TestYouTubeCommunityTabAttachmentsInlineDedupAndContinuation`
-- `internal/extractor.TestYouTubeReleasesTabPlaylistOnlyContinuation`
-- `internal/extractor.TestYouTubeExpandedTabsIntegrateChannelAndAliasRoutes`
-- `internal/extractor.TestYouTubeExpandedTabIdentityAndCommunityLinkPolicy`
+- `internal/providers/youtube.TestYouTubeHomeTabMixedRenderersAndContinuation`
+- `internal/providers/youtube.TestYouTubeCommunityTabAttachmentsInlineDedupAndContinuation`
+- `internal/providers/youtube.TestYouTubeReleasesTabPlaylistOnlyContinuation`
+- `internal/providers/youtube.TestYouTubeExpandedTabsIntegrateChannelAndAliasRoutes`
+- `internal/providers/youtube.TestYouTubeExpandedTabIdentityAndCommunityLinkPolicy`
 - channel, handle, and alias routing/failure/cancellation tests
-- `internal/extractor.FuzzYouTubeCommunityPostEntries`
+- `internal/providers/youtube.FuzzYouTubeCommunityPostEntries`
 - existing channel/handle parser and route fuzz targets, now covering every
   supported tab kind
 

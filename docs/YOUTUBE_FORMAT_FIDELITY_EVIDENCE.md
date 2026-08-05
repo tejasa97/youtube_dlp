@@ -66,18 +66,18 @@ expansion, and Music-description metadata.
 
 ## Automated evidence
 
-- `internal/extractor.TestYouTubeFormatFidelityPinnedExtraction`
-- `internal/extractor.TestYouTubeFormatFidelityCodecs`
-- `internal/extractor.TestYouTubeFormatFidelityLanguagePreferences`
-- `internal/extractor.TestYouTubeFormatFidelityQualityAndNotes`
-- `internal/extractor.TestYouTubeFormatFidelitySourcePreference`
-- `internal/extractor.TestYouTubeFormatFidelityDRCAndSuperResolution`
-- `internal/extractor.TestYouTubeFormatFidelityDynamicRangeAndContainer`
-- `internal/extractor.TestYouTubeFormatFidelityDamagedAndPreference`
-- `internal/extractor.TestYouTubeFormatFidelityFilesizeApprox`
-- `internal/extractor.TestYouTubeFormatFidelityIDCollisionsAndOrdering`
-- `internal/extractor.TestYouTubeFormatFidelitySelectionUnchanged`
-- `internal/extractor.FuzzYouTubeFormatFidelity`
+- `internal/providers/youtube.TestYouTubeFormatFidelityPinnedExtraction`
+- `internal/providers/youtube.TestYouTubeFormatFidelityCodecs`
+- `internal/providers/youtube.TestYouTubeFormatFidelityLanguagePreferences`
+- `internal/providers/youtube.TestYouTubeFormatFidelityQualityAndNotes`
+- `internal/providers/youtube.TestYouTubeFormatFidelitySourcePreference`
+- `internal/providers/youtube.TestYouTubeFormatFidelityDRCAndSuperResolution`
+- `internal/providers/youtube.TestYouTubeFormatFidelityDynamicRangeAndContainer`
+- `internal/providers/youtube.TestYouTubeFormatFidelityDamagedAndPreference`
+- `internal/providers/youtube.TestYouTubeFormatFidelityFilesizeApprox`
+- `internal/providers/youtube.TestYouTubeFormatFidelityIDCollisionsAndOrdering`
+- `internal/providers/youtube.TestYouTubeFormatFidelitySelectionUnchanged`
+- `internal/providers/youtube.FuzzYouTubeFormatFidelity`
 - `pkg/ytdlp.TestProductYouTubeFormatFidelityListFormats`
 
 The pinned corpus lives at `conformance/extractors/youtube_format_fidelity/`

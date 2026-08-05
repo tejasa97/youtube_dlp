@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tejasa97/youtube_dlp/internal/extraction"
 	"github.com/tejasa97/youtube_dlp/internal/network"
 )
 
@@ -433,7 +434,7 @@ func TestSoundCloudSearchContinuationLoopAndBound(t *testing.T) {
 	}
 }
 func soundCloudSearchEntriesForTest(entries []Entry) (EntrySequence, error) {
-	return limitedEntries{source: StaticEntries(entries...), limit: soundCloudSearchMaxCount}, nil
+	return extraction.LimitEntries(StaticEntries(entries...), soundCloudSearchMaxCount), nil
 }
 
 func FuzzSoundCloudSearchTarget(f *testing.F) {
