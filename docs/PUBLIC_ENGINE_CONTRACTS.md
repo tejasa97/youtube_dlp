@@ -1,7 +1,7 @@
 # Public engine extraction contracts
 
-Status: cycle-free public contracts and root provider-neutral orchestration
-established; the public complete-YouTube bundle and Desktop switch remain staged.
+Status: cycle-free public contracts, root provider-neutral orchestration,
+public complete-YouTube composition, and the Desktop switch are established.
 
 The `github.com/tejasa97/youtube_dlp/engine/provider` package owns the nameable neutral
 contracts used between orchestration and a composed provider:
@@ -45,14 +45,19 @@ fakes without importing root `engine` or any concrete provider package; this
 lets moved orchestration tests retain white-box coverage without exporting
 operation internals.
 
-## Next: complete YouTube composition
+## Completed public YouTube composition and Desktop switch
 
-PR 3 adds `github.com/tejasa97/youtube_dlp/providers/youtube`. That public
-package adapts the complete eight-provider internal YouTube family to the
-engine contracts and exposes an explicit typed bundle in the preserved order.
-It converts the challenge and PO-token seams through the public engine types;
-no exported signature exposes a module-internal type.
+`github.com/tejasa97/youtube_dlp/providers/youtube` now adapts the complete
+eight-provider internal YouTube family to `engine.Composition` through
+`youtube.NewComposition` in preserved
+order: Music search, Music browse, search, hashtag, alias tab, handle tab,
+channel tab, and primary YouTube. It owns the typed request adapter, EJS
+challenge factory, YouTube error classification, SponsorBlock identity,
+live/SABR reload, and optional typed PO-token provider configuration. No public
+signature exposes a module-internal type.
 
-Desktop then composes both analysis and per-download clients from `engine`
-plus that bundle. Desktop's narrow request mapping and UI remain the workflow
-boundary even though the bundle contains the complete YouTube family.
+Desktop composes both analysis and per-download clients from `engine` plus that
+same bundle factory. Its narrow request mapping and UI remain the workflow
+boundary even though the bundle contains the complete YouTube family. Desktop
+dependency tests exclude `pkg/ytdlp`, `internal/extractor`, and non-YouTube
+provider packages; broad `pkg/ytdlp.NewClient` behavior remains unchanged.

@@ -1,6 +1,7 @@
 // Package jobs manages the desktop app's download queue. It serialises
 // downloads (one active at a time, FIFO waiting) and bridges events
-// from pkg/ytdlp into app-friendly JobSnapshot values the UI renders.
+// from the focused engine composition into app-friendly JobSnapshot values the
+// UI renders.
 //
 // The package deliberately keeps state in memory; persistence of
 // completed downloads is handled by the store package.
@@ -19,7 +20,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/tejasa97/youtube_dlp/pkg/ytdlp"
+	"github.com/tejasa97/youtube_dlp/engine"
+	provideryoutube "github.com/tejasa97/youtube_dlp/providers/youtube"
 )
 
 // Quality is the user-visible quality preset. The string values are
@@ -157,7 +159,7 @@ type Event struct {
 // Manager owns the queue and the client used for metadata analysis. Downloads
 // use short-lived clients so each job can attach its own event handler.
 type Manager struct {
-	client         *ytdlp.Client
+	client         *engine.Client
 	listener       Listener
 	events         chan Event
 	runDownload    downloadRunner
@@ -168,7 +170,7 @@ type Manager struct {
 	active         string
 }
 
-type downloadRunner func(context.Context, ytdlp.Request, ytdlp.EventHandler) (ytdlp.Result, error)
+type downloadRunner func(context.Context, engine.Request, engine.EventHandler) (engine.Result, error)
 
 type jobState struct {
 	snap     JobSnapshot
@@ -180,9 +182,9 @@ type jobState struct {
 }
 
 // New creates a Manager. listener may be nil for headless tests.
-func New(client *ytdlp.Client, listener Listener) *Manager {
+func New(client *engine.Client, listener Listener) *Manager {
 	if client == nil {
-		client = ytdlp.NewClient()
+		client = newFocusedClient()
 	}
 	manager := &Manager{
 		client:      client,
@@ -197,10 +199,17 @@ func New(client *ytdlp.Client, listener Listener) *Manager {
 	return manager
 }
 
-func defaultDownloadRunner(ctx context.Context, req ytdlp.Request, handler ytdlp.EventHandler) (ytdlp.Result, error) {
-	client := ytdlp.NewClient(ytdlp.WithEventHandler(handler))
+func defaultDownloadRunner(ctx context.Context, req engine.Request, handler engine.EventHandler) (engine.Result, error) {
+	client := newFocusedClient(engine.WithEventHandler(handler))
 	defer client.Close()
 	return client.Run(ctx, req)
+}
+
+// newFocusedClient is the single Desktop composition factory. Analysis keeps
+// one instance and each download creates one with only its event handler
+// differing, so both paths receive the complete YouTube provider family.
+func newFocusedClient(options ...engine.Option) *engine.Client {
+	return engine.NewClient(provideryoutube.NewComposition(), options...)
 }
 
 // Close releases the analysis client's helper process. In-flight download
@@ -445,14 +454,14 @@ func (m *Manager) run(state *jobState) {
 	defer close(state.done)
 
 	m.mu.Lock()
-	req := ytdlp.Request{
+	req := engine.Request{
 		URL:            state.snap.URL,
 		OutputDir:      state.snap.OutputDir,
 		Format:         state.snap.Quality.ytdlpFormat(),
 		OutputTemplate: state.snap.Quality.outputTemplate(),
 		Overwrite:      true,
-		Playlist:       ytdlp.PlaylistOptions{Disabled: true},
-		Filesystem: ytdlp.FilesystemOptions{
+		Playlist:       engine.PlaylistOptions{Disabled: true},
+		Filesystem: engine.FilesystemOptions{
 			FfmpegLocation: m.ffmpegLocation,
 		},
 	}
@@ -460,7 +469,7 @@ func (m *Manager) run(state *jobState) {
 	runner := m.runDownload
 	m.mu.Unlock()
 
-	handler := func(ctx context.Context, ev ytdlp.Event) error {
+	handler := func(ctx context.Context, ev engine.Event) error {
 		m.handleEvent(state, ev)
 		return nil
 	}
@@ -512,7 +521,7 @@ func (m *Manager) run(state *jobState) {
 	m.emitQueueLocked()
 }
 
-func (m *Manager) handleEvent(state *jobState, ev ytdlp.Event) {
+func (m *Manager) handleEvent(state *jobState, ev engine.Event) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if state.ctx != nil && state.ctx.Err() != nil && state.snap.Status == StatusActive {
@@ -520,10 +529,10 @@ func (m *Manager) handleEvent(state *jobState, ev ytdlp.Event) {
 	}
 
 	switch ev.Kind {
-	case ytdlp.EventDownloadStarting:
+	case engine.EventDownloadStarting:
 		state.snap.Message = "Starting download"
 		m.emitLocked(Event{Name: EventJobUpdate, Job: state.snap})
-	case ytdlp.EventDownloadProgress:
+	case engine.EventDownloadProgress:
 		if ev.Bytes > 0 {
 			state.snap.Bytes = ev.Bytes
 		}
@@ -554,19 +563,19 @@ func (m *Manager) handleEvent(state *jobState, ev ytdlp.Event) {
 		}
 		state.snap.Message = "Downloading"
 		m.emitLocked(Event{Name: EventJobUpdate, Job: state.snap})
-	case ytdlp.EventDownloadRetry, ytdlp.EventExtractorRetry:
+	case engine.EventDownloadRetry, engine.EventExtractorRetry:
 		state.snap.Message = "Retrying"
 		m.emitLocked(Event{Name: EventJobUpdate, Job: state.snap})
-	case ytdlp.EventDownloadCompleted:
+	case engine.EventDownloadCompleted:
 		if ev.Bytes > 0 {
 			state.snap.Bytes = ev.Bytes
 		}
 		state.snap.Message = "Finalising"
 		m.emitLocked(Event{Name: EventJobUpdate, Job: state.snap})
-	case ytdlp.EventPostprocessStarting, ytdlp.EventPostprocessProgress:
+	case engine.EventPostprocessStarting, engine.EventPostprocessProgress:
 		state.snap.Message = "Finalising"
 		m.emitLocked(Event{Name: EventJobUpdate, Job: state.snap})
-	case ytdlp.EventDownloadCancelled:
+	case engine.EventDownloadCancelled:
 		state.snap.Message = "Canceled"
 		m.emitLocked(Event{Name: EventJobUpdate, Job: state.snap})
 	default:
@@ -658,23 +667,23 @@ func humanError(err error) string {
 	if err == nil {
 		return "Failed"
 	}
-	var typed *ytdlp.Error
+	var typed *engine.Error
 	if errors.As(err, &typed) {
 		switch typed.Category {
-		case ytdlp.ErrorUnsupported:
+		case engine.ErrorUnsupported:
 			if isYouTubeChallengeTimeout(err) {
 				return "YouTube challenge timed out — retry"
 			}
 			return "This link is not supported"
-		case ytdlp.ErrorAuthentication:
+		case engine.ErrorAuthentication:
 			return "Sign-in is required for this video"
-		case ytdlp.ErrorInvalidInput:
+		case engine.ErrorInvalidInput:
 			return "The link is not valid"
-		case ytdlp.ErrorNetwork:
+		case engine.ErrorNetwork:
 			return "Network error"
-		case ytdlp.ErrorCancelled:
+		case engine.ErrorCancelled:
 			return "Canceled"
-		case ytdlp.ErrorSecurity:
+		case engine.ErrorSecurity:
 			return "The download was blocked by a security check"
 		}
 	}
@@ -700,7 +709,7 @@ func humanMessage(s string) string {
 }
 
 func errorReason(err error) string {
-	var typed *ytdlp.Error
+	var typed *engine.Error
 	if errors.As(err, &typed) {
 		return string(typed.Category)
 	}
@@ -736,18 +745,18 @@ type InfoSummary struct {
 	URL       string `json:"url"`
 }
 
-// Analyze calls ytdlp.Run with Simulate=true to extract metadata for
+// Analyze calls engine.Run with Simulate=true to extract metadata for
 // the Home page preview. It uses NoPlaylist so watch?v=...&list= links
 // still surface as a single video.
 func (m *Manager) Analyze(ctx context.Context, rawURL string) (InfoSummary, error) {
 	if rawURL == "" {
 		return InfoSummary{}, errors.New("analyze: empty url")
 	}
-	req := ytdlp.Request{
+	req := engine.Request{
 		URL:      rawURL,
 		Simulate: true,
-		Playlist: ytdlp.PlaylistOptions{Disabled: true},
-		Filesystem: ytdlp.FilesystemOptions{
+		Playlist: engine.PlaylistOptions{Disabled: true},
+		Filesystem: engine.FilesystemOptions{
 			FfmpegLocation: m.ffmpegLocationSnapshot(),
 		},
 	}

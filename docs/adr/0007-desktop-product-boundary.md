@@ -9,11 +9,9 @@ the broad CLI, the embeddable Go API, and a Wails Desktop preview. The engine
 supports many provider families, while Desktop V0 intentionally exposes only
 public, on-demand, single-video YouTube downloads.
 
-The Desktop module imports `pkg/ytdlp`, whose broad `NewClient` entry point
-constructs the complete provider catalog. YouTube and non-YouTube
-implementations also share the `internal/extractor` package. The UI is narrow,
-but its dependency graph is not: a Desktop build reaches the broad catalog and
-all provider implementations.
+Desktop formerly imported `pkg/ytdlp`, whose broad `NewClient` entry point
+constructed the complete provider catalog. The UI was narrow, but its
+dependency graph reached the broad catalog and all provider implementations.
 
 A runtime profile or extractor allowlist would restrict routing after broad
 code had already been linked. Such gates would duplicate product policy in the
@@ -147,12 +145,12 @@ The boundary will be implemented in this order:
    repository and consume a reviewed engine/provider release. Do not copy
    engine or provider source.
 
-As of 2026-08-05, the neutral public contracts, complete internal YouTube move,
-and root provider-neutral orchestration/composition point are complete. Root
-`engine` has no production dependency on the broad catalog or concrete
-providers, and `pkg/ytdlp.NewClient` explicitly owns the compatibility catalog.
-The public `providers/youtube` facade, Desktop switch, Desktop dependency proof,
-and repository extraction remain staged work.
+As of 2026-08-05, stages 1 through 5 are complete. Root `engine` has no
+production dependency on the broad catalog or concrete providers;
+`pkg/ytdlp.NewClient` explicitly owns the compatibility catalog; public
+`providers/youtube` composes the complete family; and Desktop uses that focused
+composition for analysis and downloads with dependency proof. Repository
+extraction remains staged work.
 
 ## Validation requirements
 
