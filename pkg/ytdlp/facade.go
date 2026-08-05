@@ -210,25 +210,31 @@ const (
 )
 
 var (
-	ErrUnsupported        = engine.ErrUnsupported
-	ErrInvalidRouting     = engine.ErrInvalidRouting
-	ErrUnsupportedRouting = engine.ErrUnsupportedRouting
-	ErrInvalidMetadata    = engine.ErrInvalidMetadata
-	ErrUnavailable        = engine.ErrUnavailable
-	ErrRegionRestricted   = engine.ErrRegionRestricted
-	ErrAuthentication     = engine.ErrAuthentication
-	ErrWrongPassword      = engine.ErrWrongPassword
-	ErrChallengeSolver    = engine.ErrChallengeSolver
-	ErrTransportProfile   = engine.ErrTransportProfile
-	ErrTransportIsolation = engine.ErrTransportIsolation
-	ErrInvalidPlaylist    = engine.ErrInvalidPlaylist
-	ErrPlaylistLimit      = engine.ErrPlaylistLimit
-	ErrInvalidSelection   = engine.ErrInvalidSelection
-	ErrSelectionDisabled  = engine.ErrSelectionDisabled
-	ErrInteractiveInput   = engine.ErrInteractiveInput
-	ErrFormatCheckLimit   = engine.ErrFormatCheckLimit
-	ErrInvalidInfoJSON    = engine.ErrInvalidInfoJSON
-	ErrXattrsUnsupported  = engine.ErrXattrsUnsupported
+	ErrUnsupported                       = engine.ErrUnsupported
+	ErrInvalidRouting                    = engine.ErrInvalidRouting
+	ErrUnsupportedRouting                = engine.ErrUnsupportedRouting
+	ErrInvalidMetadata                   = engine.ErrInvalidMetadata
+	ErrUnavailable                       = engine.ErrUnavailable
+	ErrRegionRestricted                  = engine.ErrRegionRestricted
+	ErrAuthentication                    = engine.ErrAuthentication
+	ErrWrongPassword                     = engine.ErrWrongPassword
+	ErrChallengeSolver                   = engine.ErrChallengeSolver
+	ErrTransportProfile                  = engine.ErrTransportProfile
+	ErrTransportIsolation                = engine.ErrTransportIsolation
+	ErrInvalidPlaylist                   = engine.ErrInvalidPlaylist
+	ErrPlaylistLimit                     = engine.ErrPlaylistLimit
+	ErrInvalidSelection                  = engine.ErrInvalidSelection
+	ErrSelectionDisabled                 = engine.ErrSelectionDisabled
+	ErrInteractiveInput                  = engine.ErrInteractiveInput
+	ErrFormatCheckLimit                  = engine.ErrFormatCheckLimit
+	ErrInvalidInfoJSON                   = engine.ErrInvalidInfoJSON
+	ErrXattrsUnsupported                 = engine.ErrXattrsUnsupported
+	ErrHLSDiscontinuitySelection         = engine.ErrHLSDiscontinuitySelection
+	ErrHLSDiscontinuityGroupMissing      = engine.ErrHLSDiscontinuityGroupMissing
+	ErrHLSDiscontinuityPlaylistEmpty     = engine.ErrHLSDiscontinuityPlaylistEmpty
+	ErrHLSDiscontinuityGroupAdOnly       = engine.ErrHLSDiscontinuityGroupAdOnly
+	ErrHLSDiscontinuityPlaylistMalformed = engine.ErrHLSDiscontinuityPlaylistMalformed
+	ErrHLSDiscontinuityHostPolicy        = engine.ErrHLSDiscontinuityHostPolicy
 
 	MergeOutputFormatSupported = engine.MergeOutputFormatSupported
 )

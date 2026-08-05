@@ -7,6 +7,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/tejasa97/youtube_dlp/engine"
 	"github.com/tejasa97/youtube_dlp/pkg/ytdlp"
 )
 
@@ -59,5 +60,26 @@ func TestAlphaEventJSONContract(t *testing.T) {
 	want := `{"kind":"download_progress","extractor":"fixture","url":"https://media.example/video","path":"video.mp4","bytes":4,"total":8,"attempt":2,"resuming":true,"fragment":1,"fragments":3}`
 	if string(encoded) != want {
 		t.Fatalf("event JSON = %s", encoded)
+	}
+}
+
+func TestFacadePreservesHLSDiscontinuitySentinelIdentity(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		got  error
+		want error
+	}{
+		{"selection", ytdlp.ErrHLSDiscontinuitySelection, engine.ErrHLSDiscontinuitySelection},
+		{"group missing", ytdlp.ErrHLSDiscontinuityGroupMissing, engine.ErrHLSDiscontinuityGroupMissing},
+		{"playlist empty", ytdlp.ErrHLSDiscontinuityPlaylistEmpty, engine.ErrHLSDiscontinuityPlaylistEmpty},
+		{"group ad only", ytdlp.ErrHLSDiscontinuityGroupAdOnly, engine.ErrHLSDiscontinuityGroupAdOnly},
+		{"playlist malformed", ytdlp.ErrHLSDiscontinuityPlaylistMalformed, engine.ErrHLSDiscontinuityPlaylistMalformed},
+		{"host policy", ytdlp.ErrHLSDiscontinuityHostPolicy, engine.ErrHLSDiscontinuityHostPolicy},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if test.got != test.want || !errors.Is(test.got, test.want) {
+				t.Fatalf("facade sentinel = %v, want engine identity %v", test.got, test.want)
+			}
+		})
 	}
 }
