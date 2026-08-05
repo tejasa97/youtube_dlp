@@ -19,6 +19,7 @@ import (
 
 	"github.com/tejasa97/youtube_dlp/internal/javascript/ejs"
 	"github.com/tejasa97/youtube_dlp/internal/protocol/youtubeump"
+	youtubeprovider "github.com/tejasa97/youtube_dlp/internal/providers/youtube"
 	"github.com/tejasa97/youtube_dlp/internal/value"
 )
 
@@ -152,6 +153,8 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 	if err != nil {
 		return Extraction{}, err
 	}
+	youtubeRequest := request.YouTubeRequest()
+	youtubeOptions := youtubeRequest.Options
 	// Ambiguous URL: a watch URL with both a video ID and a playlist ID
 	// (e.g. https://www.youtube.com/watch?v=VIDEOID&list=PLAYLISTID).
 	// When NoPlaylist is false (the default / --yes-playlist), prefer the
@@ -215,7 +218,7 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 				player.ResponseContext.MainAppWebResponseContext.DataSyncID,
 				premium,
 				ageGated,
-				request.YouTubePOT,
+				youtubeOptions.POT,
 				time.Now,
 			)
 			if authErr != nil {
@@ -235,7 +238,7 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 			}
 		} else {
 			visitorData := pageConfig.visitorData(player.ResponseContext.VisitorData)
-			recovered, err := recoverYouTubeFormats(ctx, request.Transport, videoID, visitorData, playerPath, request.YouTubePOT)
+			recovered, err := recoverYouTubeFormats(ctx, request.Transport, videoID, visitorData, playerPath, youtubeOptions.POT)
 			if err != nil {
 				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 					return Extraction{}, err
@@ -261,13 +264,13 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 		}
 	}
 
-	captionResult, err := normalizeYouTubeCaptions(ctx, metadataPlayers, videoID, request.YouTubePOT, request.YouTubeTranslatedCaptions)
+	captionResult, err := normalizeYouTubeCaptions(ctx, metadataPlayers, videoID, youtubeOptions.POT, youtubeOptions.TranslatedCaptions)
 	if err != nil {
 		return Extraction{}, err
 	}
 	formats := mergeYouTubeFormats(formatPlayers)
 	applyYouTubeAudioLanguage(formats, captionResult.audioLanguage)
-	resolved, err := resolveYouTubeURLs(ctx, request, webpageURL, videoID, playerPath, formats)
+	resolved, err := resolveYouTubeURLs(ctx, youtubeRequest, webpageURL, videoID, playerPath, formats)
 	if err != nil {
 		return Extraction{}, err
 	}
@@ -276,7 +279,7 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 		return Extraction{}, fmt.Errorf("%w: missing title", ErrInvalidMetadata)
 	}
 	liveStatus := youtubeLiveStatusFromPlayers(metadataPlayers)
-	activeFromStart := liveStatus == "is_live" && request.YouTubeLiveFromStart
+	activeFromStart := liveStatus == "is_live" && youtubeOptions.LiveFromStart
 	startTimestamp, hasStart := firstYouTubeLiveTimestamp(metadataPlayers, true)
 	endTimestamp, hasEnd := firstYouTubeLiveTimestamp(metadataPlayers, false)
 	duration, hasDuration := int64(0), false
@@ -471,8 +474,8 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 		setYouTubeOffset(info, "end_time", *target.endTime)
 	}
 	result := Media(value.NewInfo(info))
-	if request.YouTubeComments.Enabled {
-		options := request.YouTubeComments
+	if youtubeOptions.Comments.Enabled {
+		options := youtubeOptions.Comments
 		var commentAuth *youtubeCommentAuth
 		if pageConfig.LoggedIn != nil && *pageConfig.LoggedIn {
 			authConfig := pageConfig.webAuthConfig(
@@ -1378,7 +1381,7 @@ type pendingYouTubeFormat struct {
 	n      string
 }
 
-func resolveYouTubeURLs(ctx context.Context, request Request, webpageURL, videoID, playerPath string, formats []youtubeFormat) ([]youtubeFormat, error) {
+func resolveYouTubeURLs(ctx context.Context, request youtubeprovider.Request, webpageURL, videoID, playerPath string, formats []youtubeFormat) ([]youtubeFormat, error) {
 	pending := make([]pendingYouTubeFormat, 0, len(formats))
 	var nChallenges, sigChallenges []string
 	for _, format := range formats {
@@ -1414,7 +1417,7 @@ func resolveYouTubeURLs(ctx context.Context, request Request, webpageURL, videoI
 		}
 		return resolved, nil
 	}
-	if request.ChallengeSolver == nil {
+	if request.Options.ChallengeSolver == nil {
 		return nil, ErrChallengeSolver
 	}
 	if playerPath == "" {
@@ -1435,7 +1438,7 @@ func resolveYouTubeURLs(ctx context.Context, request Request, webpageURL, videoI
 	if len(sigChallenges) > 0 {
 		challengeRequests = append(challengeRequests, ejs.ChallengeRequest{Type: ejs.ChallengeSig, Challenges: sigChallenges})
 	}
-	solved, err := request.ChallengeSolver.SolvePlayer(ctx, "youtube-"+videoID, string(playerSource), challengeRequests, false)
+	solved, err := request.Options.ChallengeSolver.SolvePlayer(ctx, "youtube-"+videoID, string(playerSource), challengeRequests, false)
 	if err != nil {
 		// Preserve context cancellation and deadline expiry so callers can
 		// observe them with errors.Is; do not recategorize as ErrChallengeSolver.
