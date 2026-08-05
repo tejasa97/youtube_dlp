@@ -246,10 +246,12 @@ func parseUnitDuration(text string) (float64, bool) {
 	}
 	multipliers := []float64{3600, 60, 1}
 	total := 0.0
+	matched := false
 	for index, raw := range match[1:] {
 		if raw == "" {
 			continue
 		}
+		matched = true
 		if len(raw) > MaxTimestampBytes {
 			return 0, false
 		}
@@ -267,7 +269,14 @@ func parseUnitDuration(text string) (float64, bool) {
 		}
 		total += value * multipliers[index]
 	}
-	// A zero total is allowed (e.g. a "0s" start). Zero-length ranges are
-	// rejected by the range-ordering check (end <= start), not here.
+	// Require at least one duration component. The trailing-Z and optional
+	// components in the grammar are not themselves a duration, so a bare "Z"
+	// (all components empty) must be rejected even though it matches.
+	if !matched {
+		return 0, false
+	}
+	// A zero total is allowed (e.g. a "0s" start, which has a matched
+	// component with zero value). Zero-length ranges are rejected by the
+	// range-ordering check (end <= start), not here.
 	return total, true
 }

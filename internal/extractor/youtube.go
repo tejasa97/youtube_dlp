@@ -137,6 +137,9 @@ func (YouTube) Extract(ctx context.Context, request Request) (Extraction, error)
 	// alias pages; skip those branches so parseYouTubeTarget can reject
 	// every non-/embed/ path uniformly on nocookie hosts.
 	if kind == hostStandard {
+		if clipID, ok := youtubeClipID(request.URL); ok {
+			return extractYouTubeClip(ctx, request, clipID, request.URL)
+		}
 		if playlistID, ok := youtubePlaylistID(request.URL); ok {
 			return extractYouTubePlaylist(ctx, request, playlistID)
 		}
