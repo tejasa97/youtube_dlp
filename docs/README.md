@@ -7,6 +7,11 @@ when evaluating a compatibility claim.
 ## Users
 
 - [Project overview and quick start](../README.md)
+- [Installation](INSTALLATION.md)
+- [Desktop guide](DESKTOP.md)
+- [CLI usage](CLI_USAGE.md)
+- [Troubleshooting](TROUBLESHOOTING.md)
+- [Current project status](PROJECT_STATUS.md)
 - [Supported extractors](SUPPORTED_SITES.md)
 - [Configuration](CONFIGURATION.md)
 - [Browser cookie import](CHROMIUM_COOKIE_IMPORT.md)
@@ -73,13 +78,15 @@ The executable help is the authoritative CLI option list:
 
 ## Releases and security
 
+- [Changelog](../CHANGELOG.md)
+- [Roadmap](../ROADMAP.md)
 - [Alpha release procedure](P2_ALPHA_RELEASE.md)
 - [Updater and releases](P2_UPDATER_RELEASES.md)
 - [Phase 2 security review](P2_SECURITY_REVIEW.md)
 - [Publication-readiness review](PUBLICATION_READINESS.md)
 - [Third-party notices](../THIRD_PARTY_NOTICES.md)
 
-## Plans and exit reviews
+## Plans, history, and audits
 
 Current focused work:
 
@@ -95,6 +102,7 @@ Current focused work:
 
 ## Architecture and provenance
 
+- [Architecture overview](ARCHITECTURE.md)
 - [Architecture decisions](adr/README.md)
 - [Fixture and test-data policy](FIXTURE_POLICY.md)
 - Conformance fixture provenance is stored beside each corpus as
