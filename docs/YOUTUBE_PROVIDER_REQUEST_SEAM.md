@@ -14,7 +14,7 @@ fields now have these owners:
 
 | Owner | Fields | Reason |
 | --- | --- | --- |
-| Provider-neutral engine (`internal/extraction.Request`) | `URL`, `SearchQueryOverride`, `Referer`, `Transport`, `Credentials`, `VideoPassword`, `NoPlaylist` | Routing and operation-scoped facilities used across provider families. |
+| Provider-neutral engine (`engine/provider.Request`) | `URL`, `SearchQueryOverride`, `Referer`, `Transport`, `Credentials`, `VideoPassword`, `NoPlaylist` | Routing and operation-scoped facilities used across provider families. |
 | Complete YouTube family (`internal/providers/youtube.Options`) | `ChallengeSolver`, `YouTubePOT`, `YouTubeTranslatedCaptions`, `YouTubeLiveFromStart`, `YouTubeComments` | YouTube player challenges, PO tokens, captions, live handling, and comment continuation behavior. |
 | Other concrete providers | `SoundCloudComments`, `NHK` | Options remain with their existing provider implementations and are not copied into the YouTube request. |
 
@@ -26,11 +26,9 @@ their operation-local identities; neither is stored globally or copied into a
 provider-specific option bag. All three request forms use fixed redacted
 diagnostic formatting.
 
-The new provider request package is internal because the current neutral
-contracts are internal. Publishing `providers/youtube` now would expose
-signatures containing types external callers cannot legally import. A public
-provider package therefore requires a separately reviewed public neutral
-engine contract; this change does not widen the public API.
+The cycle-free public contract is now `engine/provider`. The internal YouTube
+implementation depends directly on that package, so a later public
+`providers/youtube` facade can expose only nameable public signatures.
 
 ## Completed internal move
 
@@ -45,24 +43,24 @@ accepts `youtube.Request`; the package dependency graph contains no
 broad catalog, URL-result re-entry, and legacy tests. Each adapter converts an
 `extractor.Request` through `YouTubeRequest` once. Shared bounded JSON
 transport, balanced JSON-object extraction, manifest-format construction, and
-entry limiting live in `internal/extraction`, with compatibility wrappers for
+entry limiting are owned by `engine/provider`, with compatibility wrappers for
 non-YouTube providers. The broad provider names and positions remain fixed.
 
-## Remaining PR 7 seam
+## Remaining orchestration and public-provider seams
 
-PR 7 may expose the reviewed neutral engine/provider composition API and a
-publicly consumable complete YouTube provider. Before doing so it must give
-external callers nameable public contracts for the request, transport,
-credentials, extraction result, entries, registry/provider interface, and
-JavaScript challenge boundary. It must not publish signatures that contain
-types under `internal/`.
+The next orchestration PR moves the operational client/API into root `engine`
+and fixes `engine/provider.Bundle[C]` to its public run configuration type.
+Neutral composition tests stay beside `engine/provider` and use public fake
+providers. Broad catalog, concrete-provider, plugin, and compatibility tests
+remain under `pkg/ytdlp`, avoiding a test-only dependency from `engine` back to
+`internal/extractor`.
 
 That public composition should adapt directly to `youtube.Request`, preserve
 the full-catalog `pkg/ytdlp.NewClient` facade, and keep plugins exclusive to
 the broad composition. Desktop remains unchanged until a later dedicated
 switch and dependency-proof change.
 
-The generic registry type remains parameterized by its composition-owned
-request. The compatibility catalog still uses `extractor.Request`; a future
-focused composition can bind the moved provider to `youtube.Request` without
-making SoundCloud or NHK options part of its dependency.
+The generic bundle and registry remain parameterized by composition-owned
+configuration and request types. The compatibility catalog can bind
+`extractor.Request`; a future focused composition can bind `youtube.Request`
+without making SoundCloud or NHK options part of its dependency.

@@ -1,6 +1,6 @@
-// Package extraction preserves the historical internal extraction surface
-// through aliases and thin wrappers to the public engine owner.
-package extraction
+// Package engine preserves the original public contract surface through aliases
+// and wrappers to the cycle-free engine/provider owner.
+package engine
 
 import (
 	"context"
@@ -45,6 +45,42 @@ type (
 	Metadata                    = provider.Metadata
 	MetadataProvider            = provider.MetadataProvider
 	HTTPStatusError             = provider.HTTPStatusError
+
+	ChallengeType      = provider.ChallengeType
+	ChallengeRequest   = provider.ChallengeRequest
+	ChallengeResponse  = provider.ChallengeResponse
+	ChallengeResult    = provider.ChallengeResult
+	ChallengeSolver    = provider.ChallengeSolver
+	POTContext         = provider.POTContext
+	POTRequest         = provider.POTRequest
+	POTResponse        = provider.POTResponse
+	POTResolver        = provider.POTResolver
+	POTEpisodeResolver = provider.POTEpisodeResolver
+
+	Operation             = provider.Operation
+	ErrorClass            = provider.ErrorClass
+	URLPolicyRequest      = provider.URLPolicyRequest
+	StatusErrorRequest    = provider.StatusErrorRequest
+	ReloadRequest         = provider.ReloadRequest
+	Hooks[C any]          = provider.Hooks[C]
+	Selected[C any]       = provider.Selected[C]
+	SearchSelected[C any] = provider.SearchSelected[C]
+	Runtime[C any]        = provider.Runtime[C]
+	Bundle[C any]         = provider.Bundle[C]
+)
+
+const (
+	ChallengeN                  = provider.ChallengeN
+	ChallengeSig                = provider.ChallengeSig
+	POTContextGVS               = provider.POTContextGVS
+	POTContextPlayer            = provider.POTContextPlayer
+	POTContextSubs              = provider.POTContextSubs
+	ProviderErrorAuthentication = provider.ErrorAuthentication
+	ProviderErrorInvalidInput   = provider.ErrorInvalidInput
+	ProviderErrorNetwork        = provider.ErrorNetwork
+	ProviderErrorSecurity       = provider.ErrorSecurity
+	ProviderErrorUnsupported    = provider.ErrorUnsupported
+	ProviderErrorInternal       = provider.ErrorInternal
 )
 
 var (
@@ -68,6 +104,10 @@ var (
 
 func NewRegistry[R URLRequest](providers ...Provider[R]) *Registry[R] {
 	return provider.NewRegistry[R](providers...)
+}
+
+func Compose[R URLRequest, C any](catalog func(C) []Provider[R], adapt func(Operation, C) R, hooks Hooks[C]) Bundle[C] {
+	return provider.Compose(catalog, adapt, hooks)
 }
 
 func ValidateSelectionRules(rules []string) error { return provider.ValidateSelectionRules(rules) }

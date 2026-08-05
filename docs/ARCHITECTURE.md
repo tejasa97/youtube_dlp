@@ -81,24 +81,27 @@ player or API. Specific extractors are ordered before generic discovery.
 Transparent and playlist child URLs re-enter the declared registry path rather
 than bypassing operation policy.
 
-Provider-neutral contracts and shared bounded helpers live in
-`internal/extraction`. The complete first-party YouTube dependency closure
-lives in `internal/providers/youtube` and accepts its typed provider request;
-it has no dependency on the mixed `internal/extractor` compatibility package.
-That compatibility package retains thin adapters so the broad catalog keeps
-its names, routing order, request surface, and URL-result re-entry behavior.
+Provider-facing contracts, registry behavior, bounded extraction helpers, and
+typed composition-support hooks live in the cycle-free public
+`engine/provider` package. `internal/extraction` is a compatibility facade.
+The complete first-party YouTube dependency closure lives in
+`internal/providers/youtube`, accepts its typed provider request, and depends
+directly on `engine/provider`; it has no dependency on the mixed
+`internal/extractor` compatibility package. That compatibility package retains
+thin adapters so the broad catalog keeps its names, routing order, request
+surface, and URL-result re-entry behavior.
 
 The concrete provider-composition boundary is still internal. The public
 client orchestration API, public YouTube bundle, and Desktop's focused
 composition are separate later stages; the current `pkg/ytdlp.NewClient`
 remains the broad full-catalog facade.
 
-The public extraction-contract owner is now
-`github.com/tejasa97/youtube_dlp/engine`. Its generic registry, operation
-request, result/entry model, transport and credential capabilities, metadata
-values, and typed challenge/token extension seams are nameable by external
-provider packages. Historical internal contract packages are compatibility
-aliases to this implementation.
+The public extraction-contract owner is
+`github.com/tejasa97/youtube_dlp/engine/provider`. Its generic registry and
+bundle runtime, operation request, result/entry model, transport and credential
+capabilities, metadata values, and typed challenge/token and provider-support
+hooks are nameable by external provider packages. Root `engine` and historical
+internal contract packages are compatibility aliases and wrappers.
 
 Provider-neutral client orchestration and the public YouTube bundle remain
 staged changes described in [Public engine extraction contracts](PUBLIC_ENGINE_CONTRACTS.md).

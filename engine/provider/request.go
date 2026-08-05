@@ -1,4 +1,4 @@
-package engine
+package provider
 
 // Request is the provider-neutral state supplied by engine orchestration to a
 // composed provider. Provider-specific packages layer typed options on this

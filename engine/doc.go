@@ -1,7 +1,6 @@
-// Package engine defines the public provider-neutral extraction contracts and
-// deterministic registry used by media-engine composition.
+// Package engine preserves the original public provider-contract surface.
 //
-// Registry is generic over the request supplied to providers. Request owns the
-// common operation state; provider packages may define typed request structs
-// that implement URLRequest and layer their own options on that state.
+// New provider packages should import engine/provider, the cycle-free owner of
+// these contracts. Root aliases remain for source compatibility and for the
+// later public orchestration API.
 package engine

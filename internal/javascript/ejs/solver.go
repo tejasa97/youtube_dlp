@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/tejasa97/youtube_dlp/engine"
+	"github.com/tejasa97/youtube_dlp/engine/provider"
 	"github.com/tejasa97/youtube_dlp/internal/javascript/protocol"
 )
 
@@ -39,20 +39,20 @@ const (
 	MaxCachedPlayers = 8
 )
 
-type ChallengeType = engine.ChallengeType
+type ChallengeType = provider.ChallengeType
 
 const (
-	ChallengeN   = engine.ChallengeN
-	ChallengeSig = engine.ChallengeSig
+	ChallengeN   = provider.ChallengeN
+	ChallengeSig = provider.ChallengeSig
 )
 
 type Executor interface {
 	Execute(context.Context, protocol.Request) protocol.Response
 }
 
-type ChallengeRequest = engine.ChallengeRequest
-type ChallengeResponse = engine.ChallengeResponse
-type Result = engine.ChallengeResult
+type ChallengeRequest = provider.ChallengeRequest
+type ChallengeResponse = provider.ChallengeResponse
+type Result = provider.ChallengeResult
 
 // Solver executes EJS challenge solving through an isolated JavaScript helper.
 // It caches preprocessed players so that repeated videos sharing the same
