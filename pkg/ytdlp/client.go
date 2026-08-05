@@ -1094,6 +1094,42 @@ func (operation *operation) process(ctx context.Context, rawURL, extractorKey st
 	return operation.processWithTransparentParent(ctx, rawURL, extractorKey, overlay, ancestors, depth, value.Info{})
 }
 
+// providerRequest is the product-to-provider adaptation boundary. It retains
+// the legacy request shape while assigning neutral and provider-specific state
+// to typed adapters that focused compositions can consume later.
+func (operation *operation) providerRequest(rawURL, referer, searchQueryOverride string) extractor.Request {
+	return extractor.Request{
+		URL:                       rawURL,
+		SearchQueryOverride:       searchQueryOverride,
+		Referer:                   referer,
+		Transport:                 operation.transport,
+		ChallengeSolver:           operation.solver,
+		Credentials:               operation.credentials,
+		VideoPassword:             operation.request.VideoPassword,
+		YouTubePOT:                operation.client.youtubePOT,
+		YouTubeTranslatedCaptions: operation.request.YouTubeTranslatedCaptions,
+		YouTubeLiveFromStart:      operation.request.LiveFromStart,
+		YouTubeComments: extractor.YouTubeCommentOptions{
+			Enabled:             operation.request.YouTubeComments.Enabled,
+			Sort:                operation.request.YouTubeComments.Sort,
+			MaxComments:         operation.request.YouTubeComments.MaxComments,
+			MaxParents:          operation.request.YouTubeComments.MaxParents,
+			MaxReplies:          operation.request.YouTubeComments.MaxReplies,
+			MaxRepliesPerThread: operation.request.YouTubeComments.MaxRepliesPerThread,
+			MaxDepth:            operation.request.YouTubeComments.MaxDepth,
+		},
+		SoundCloudComments: extractor.SoundCloudCommentOptions{
+			Enabled:     operation.request.SoundCloudComments.Enabled,
+			Sort:        operation.request.SoundCloudComments.Sort,
+			MaxComments: operation.request.SoundCloudComments.MaxComments,
+		},
+		NHK: extractor.NHKOptions{
+			RadiruArea: operation.request.NHK.RadiruArea,
+		},
+		NoPlaylist: operation.request.Playlist.Disabled,
+	}
+}
+
 func (operation *operation) processWithTransparentParent(ctx context.Context, rawURL, extractorKey string, overlay *extractor.Entry, ancestors map[string]bool, depth int, transparentParent value.Info) (Result, error) {
 	referer := ""
 	if overlay != nil {
@@ -1123,31 +1159,7 @@ func (operation *operation) processWithTransparentParent(ctx context.Context, ra
 	if depth == 0 {
 		searchQueryOverride = operation.routingSearchQuery
 	}
-	extracted, err := operation.extractWithRetry(ctx, selected, extractor.Request{
-		URL: rawURL, Referer: referer, Transport: operation.transport, ChallengeSolver: operation.solver, Credentials: operation.credentials,
-		SearchQueryOverride: searchQueryOverride,
-		VideoPassword:       operation.request.VideoPassword,
-		YouTubePOT:          operation.client.youtubePOT, YouTubeTranslatedCaptions: operation.request.YouTubeTranslatedCaptions,
-		YouTubeLiveFromStart: operation.request.LiveFromStart,
-		YouTubeComments: extractor.YouTubeCommentOptions{
-			Enabled:             operation.request.YouTubeComments.Enabled,
-			Sort:                operation.request.YouTubeComments.Sort,
-			MaxComments:         operation.request.YouTubeComments.MaxComments,
-			MaxParents:          operation.request.YouTubeComments.MaxParents,
-			MaxReplies:          operation.request.YouTubeComments.MaxReplies,
-			MaxRepliesPerThread: operation.request.YouTubeComments.MaxRepliesPerThread,
-			MaxDepth:            operation.request.YouTubeComments.MaxDepth,
-		},
-		SoundCloudComments: extractor.SoundCloudCommentOptions{
-			Enabled:     operation.request.SoundCloudComments.Enabled,
-			Sort:        operation.request.SoundCloudComments.Sort,
-			MaxComments: operation.request.SoundCloudComments.MaxComments,
-		},
-		NHK: extractor.NHKOptions{
-			RadiruArea: operation.request.NHK.RadiruArea,
-		},
-		NoPlaylist: operation.request.Playlist.Disabled,
-	}, eventURL)
+	extracted, err := operation.extractWithRetry(ctx, selected, operation.providerRequest(rawURL, referer, searchQueryOverride), eventURL)
 	if err != nil {
 		return Result{}, categorized(selected.Name()+" extraction", err)
 	}

@@ -3,10 +3,8 @@
 package extractor
 
 import (
-	"context"
-
-	"github.com/tejasa97/youtube_dlp/internal/javascript/ejs"
-	"github.com/tejasa97/youtube_dlp/internal/youtubepot"
+	"github.com/tejasa97/youtube_dlp/internal/extraction"
+	youtubeprovider "github.com/tejasa97/youtube_dlp/internal/providers/youtube"
 )
 
 type Request struct {
@@ -29,7 +27,7 @@ type Request struct {
 	// per-video secret and is never echoed back by the formatter.
 	Credentials               CredentialProvider
 	VideoPassword             string
-	YouTubePOT                *youtubepot.Director
+	YouTubePOT                *youtubeprovider.POTDirector
 	YouTubeTranslatedCaptions bool
 	YouTubeLiveFromStart      bool
 	YouTubeComments           YouTubeCommentOptions
@@ -56,17 +54,34 @@ func (Request) String() string                { return "[redacted extractor requ
 func (Request) GoString() string              { return "extractor.Request{[redacted]}" }
 func (request Request) ExtractionURL() string { return request.URL }
 
+// NeutralRequest adapts the legacy mixed request to engine-owned state.
+func (request Request) NeutralRequest() extraction.Request {
+	return extraction.Request{
+		URL:                 request.URL,
+		SearchQueryOverride: request.SearchQueryOverride,
+		Referer:             request.Referer,
+		Transport:           request.Transport,
+		Credentials:         request.Credentials,
+		VideoPassword:       request.VideoPassword,
+		NoPlaylist:          request.NoPlaylist,
+	}
+}
+
+// YouTubeRequest adapts the legacy mixed request to the future complete
+// YouTube provider's typed request without changing existing provider APIs.
+func (request Request) YouTubeRequest() youtubeprovider.Request {
+	return youtubeprovider.NewRequest(request.NeutralRequest(), youtubeprovider.Options{
+		ChallengeSolver:    request.ChallengeSolver,
+		POT:                request.YouTubePOT,
+		TranslatedCaptions: request.YouTubeTranslatedCaptions,
+		LiveFromStart:      request.YouTubeLiveFromStart,
+		Comments:           request.YouTubeComments,
+	})
+}
+
 // YouTubeCommentOptions controls opt-in comment retrieval. Zero Max selects
 // the extractor's bounded default. Sort accepts "top" or "new".
-type YouTubeCommentOptions struct {
-	Enabled             bool
-	Sort                string
-	MaxComments         int
-	MaxParents          int
-	MaxReplies          int
-	MaxRepliesPerThread int
-	MaxDepth            int
-}
+type YouTubeCommentOptions = youtubeprovider.CommentOptions
 
 type SoundCloudCommentOptions struct {
 	Enabled     bool
@@ -74,6 +89,4 @@ type SoundCloudCommentOptions struct {
 	MaxComments int
 }
 
-type YouTubeChallengeSolver interface {
-	SolvePlayer(context.Context, string, string, []ejs.ChallengeRequest, bool) (ejs.Result, error)
-}
+type YouTubeChallengeSolver = youtubeprovider.ChallengeSolver
