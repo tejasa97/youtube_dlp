@@ -103,7 +103,7 @@ func (transport *soundCloudEmbedProductTransport) Do(ctx context.Context, reques
 func TestProductRegistryReentersSoundCloudEmbedIntoMedia(t *testing.T) {
 	t.Parallel()
 	const playerURL = "https://w.soundcloud.com/player/?url=https%3A%2F%2Fsoundcloud.com%2Ffixture-artist%2Fsynthetic-signal"
-	registry := NewClient().productRegistry()
+	registry := productRegistry()
 	transport := newSoundCloudEmbedProductTransport(t)
 
 	first, firstName, err := registry.Extract(context.Background(), extractor.Request{URL: playerURL, Transport: transport})

@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ytdlp-go/ytdlp/internal/extractor"
 	"github.com/ytdlp-go/ytdlp/internal/pack"
 	"github.com/ytdlp-go/ytdlp/internal/plugin"
 	"github.com/ytdlp-go/ytdlp/pkg/pluginapi"
@@ -62,6 +63,17 @@ func TestSignedWASMPluginPackHostAndProductIntegration(t *testing.T) {
 	}
 	if result.Extractor != "example.wasm" || !strings.Contains(string(result.InfoJSON), `"title":"WASM example"`) {
 		t.Fatalf("unexpected product result: %#v %s", result, result.InfoJSON)
+	}
+
+	focused := newClientWithComposition(
+		composeProviders(func() []extractor.Extractor { return nil }),
+		WithInstalledPlugins(installed), WithPluginPermissionApprover(approver),
+	)
+	_, err = focused.Run(context.Background(), Request{
+		URL: "https://fixture.invalid/video", PluginID: "example.wasm", SkipDownload: true,
+	})
+	if !IsCategory(err, ErrorUnsupported) {
+		t.Fatalf("focused composition implicitly included installed plugin: %v", err)
 	}
 }
 
