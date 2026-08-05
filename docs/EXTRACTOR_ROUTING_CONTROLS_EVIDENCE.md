@@ -43,7 +43,7 @@ of `DefaultSearch`; no URL-vs-search lookup or probing is performed.
 ## Evidence
 
 - `pkg/ytdlp/routing_controls_test.go`
-- `pkg/ytdlp.TestClientForceGenericUsesRegisteredGenericExtractor`
+- `engine.TestClientForceGenericUsesRegisteredGenericExtractor`
 - `internal/cli/routing_controls_test.go`
 - `internal/extractor/TestYouTubeSearchUsesBoundedProductQueryOverride`
 - `internal/extractor.TestRegistryHonorsExplicitExtractorKey`

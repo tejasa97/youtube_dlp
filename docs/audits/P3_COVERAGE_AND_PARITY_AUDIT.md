@@ -148,7 +148,7 @@ evidence files or test functions exist. These exact references do not resolve:
 | `protocol.hls` | `internal/fragment.TestEngineReusesCompletedFragments` | Fragment reuse/revalidation tests exist under different names, including `TestEngineRevalidatesLegacyFragmentsWithoutDigests`. |
 | `network.impersonation` | `internal/network/impersonate.TestRequestAdapterPreservesSemanticsAndAppliesProfile` | `TestClientPreservesRequestSemanticsAndAppliesProfile` exists. |
 | `network.impersonation` | `internal/network/impersonate.TestCookieJarAdapterRoundTripsAllSupportedFields` | `TestClientUsesStandardCookieJar` exists. |
-| `extractor.soundcloud_pilot` | `pkg/ytdlp.TestProductRegistryIncludesPhaseOneExtractors` | `TestProductRegistryIncludesIntegratedExtractors` exists. |
+| `extractor.soundcloud_pilot` | `engine.TestProductRegistryIncludesPhaseOneExtractors` | `TestProductRegistryIncludesIntegratedExtractors` exists. |
 | `compat.format_selector_pilot` | `internal/compat_test.TestPinnedCompatibilityCorpus` | The test is `internal/compat.TestPinnedCompatibilityCorpus`. |
 | `compat.output_template_pilot` | `internal/compat_test.TestPinnedCompatibilityCorpus` | The test is `internal/compat.TestPinnedCompatibilityCorpus`. |
 

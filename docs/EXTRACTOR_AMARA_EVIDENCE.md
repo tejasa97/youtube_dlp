@@ -74,14 +74,14 @@ Reference baseline: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`
 - `internal/extractor.TestAmaraConcurrentExtractionSafety`
 - `internal/extractor.FuzzParseAmaraURL`
 - `internal/extractor.FuzzDecodeAmaraVideoResponse`
-- `pkg/ytdlp.TestOperationReentersAmaraYouTubeHandoff`
-- `pkg/ytdlp.TestOperationReentersAmaraVimeoHandoff`
-- `pkg/ytdlp.TestOperationAmaraHandoffDoesNotLeakMetadataBetweenCalls`
-- `pkg/ytdlp.TestOperationAmaraHandoffsAreConcurrentSafe`
-- `pkg/ytdlp.TestOperationAmaraParentMetadataDoesNotLeakIntoPlaylistEntries`
-- `pkg/ytdlp.TestOperationAmaraNestedTransparentPreservesChildID`
-- `pkg/ytdlp.TestOperationMergesTransparentParentInfoFromURLResult`
-- `pkg/ytdlp.TestProductRegistryIncludesIntegratedExtractors`
+- `engine.TestOperationReentersAmaraYouTubeHandoff`
+- `engine.TestOperationReentersAmaraVimeoHandoff`
+- `engine.TestOperationAmaraHandoffDoesNotLeakMetadataBetweenCalls`
+- `engine.TestOperationAmaraHandoffsAreConcurrentSafe`
+- `engine.TestOperationAmaraParentMetadataDoesNotLeakIntoPlaylistEntries`
+- `engine.TestOperationAmaraNestedTransparentPreservesChildID`
+- `engine.TestOperationMergesTransparentParentInfoFromURLResult`
+- `engine.TestProductRegistryIncludesIntegratedExtractors`
 - `conformance/extractors/shared/amara/PROVENANCE.md`
 
 ## Known deviations from pinned yt-dlp

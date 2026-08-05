@@ -1,0 +1,516 @@
+package engine
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/tejasa97/youtube_dlp/internal/events"
+	"github.com/tejasa97/youtube_dlp/internal/media/ffmpeg"
+	"github.com/tejasa97/youtube_dlp/internal/media/postprocess"
+)
+
+func (operation *operation) applyPostprocessors(ctx context.Context, outputRoot, downloadedPath string, sink events.Sink) (string, []Artifact, error) {
+	if len(operation.request.Postprocessors) == 0 && !automaticFixupEnabled(operation.request.FixupPolicy) {
+		return downloadedPath, []Artifact{{Path: downloadedPath, Kind: "media"}}, nil
+	}
+	if len(operation.request.Postprocessors) > 64 {
+		return "", nil, fmt.Errorf("%w: more than 64 postprocessors", postprocess.ErrInvalidGraph)
+	}
+	current := downloadedPath
+	auxiliary := make([]Artifact, 0)
+	var tools *ffmpeg.Toolset
+	discover := func() (*ffmpeg.Toolset, error) {
+		if tools != nil {
+			return tools, nil
+		}
+		var err error
+		tools, err = operation.discoverFFmpeg()
+		return tools, err
+	}
+	for index, specification := range operation.request.Postprocessors {
+		if countPostprocessorChoices(specification) != 1 {
+			return "", nil, fmt.Errorf("%w: postprocessors[%d] must select exactly one operation", postprocess.ErrInvalidGraph, index)
+		}
+		var graphOperation postprocess.Operation
+		needsTools := true
+		sourcePath := current
+		retireSource := false
+		switch {
+		case specification.ExtractAudio != nil:
+			config := specification.ExtractAudio
+			retireSource = true
+			destination, err := postprocessOutput(outputRoot, config.Destination, current, config.Codec)
+			if err != nil {
+				return "", nil, err
+			}
+			if err := operation.protectPostprocessDestination(ctx, destination); err != nil {
+				return "", nil, err
+			}
+			graphOperation = postprocess.AudioExtract{
+				Input:     postprocess.Artifact{Path: current, Kind: postprocess.ArtifactMedia},
+				Output:    postprocess.Artifact{Path: destination, Kind: postprocess.ArtifactMedia},
+				Options:   ffmpeg.AudioOptions{Codec: config.Codec, Bitrate: config.Bitrate, Quality: config.Quality},
+				Overwrite: operation.request.postprocessorOverwrites(),
+			}
+			current = destination
+		case specification.Remux != nil:
+			format := specification.Remux.Format
+			if format == "" {
+				format = "mkv"
+			}
+			destination, err := postprocessOutput(outputRoot, specification.Remux.Destination, current, format)
+			if err != nil {
+				return "", nil, err
+			}
+			if err := operation.protectPostprocessDestination(ctx, destination); err != nil {
+				return "", nil, err
+			}
+			toolset, err := discover()
+			if err != nil {
+				return "", nil, err
+			}
+			if err := toolset.Remux(ctx, current, destination, operation.request.postprocessorOverwrites(), sink); err != nil {
+				return "", nil, err
+			}
+			if err := operation.retirePostprocessSource(ctx, sourcePath, destination); err != nil {
+				return "", nil, err
+			}
+			current = destination
+			continue
+		case specification.RecodeVideo != nil:
+			config := specification.RecodeVideo
+			mapping := strings.TrimSpace(config.Format)
+			if mapping == "" {
+				return "", nil, fmt.Errorf("%w: postprocessors[%d] recode mapping is required", postprocess.ErrInvalidGraph, index)
+			}
+			sourceExtension := strings.TrimPrefix(strings.ToLower(filepath.Ext(current)), ".")
+			if sourceExtension == "" {
+				return "", nil, fmt.Errorf("%w: postprocessors[%d] recode source has no extension", postprocess.ErrInvalidGraph, index)
+			}
+			target, skip, mapErr := ffmpeg.ResolveRecodeMapping(sourceExtension, mapping)
+			if mapErr != nil {
+				return "", nil, fmt.Errorf("%w: postprocessors[%d] %v", postprocess.ErrInvalidGraph, index, mapErr)
+			}
+			if skip != "" {
+				// Pinned FFmpegVideoConvertorPP.run no-ops when the resolved
+				// target equals the source or no mapping rule applies. In
+				// both cases current must remain the original path, no
+				// destination may be reserved, and no ffmpeg tool may be
+				// discovered. Surface the skip reason via the typed event
+				// stream so callers and tests can observe it.
+				if sink != nil {
+					if emitErr := sink.Emit(ctx, events.Event{Kind: events.KindPostprocessCompleted, Path: current, Message: skip}); emitErr != nil {
+						return "", nil, emitErr
+					}
+				}
+				continue
+			}
+			retireSource = true
+			destination, err := postprocessOutput(outputRoot, config.Destination, current, target)
+			if err != nil {
+				return "", nil, err
+			}
+			if err := operation.protectPostprocessDestination(ctx, destination); err != nil {
+				return "", nil, err
+			}
+			graphOperation = postprocess.Recode{
+				Input:     postprocess.Artifact{Path: current, Kind: postprocess.ArtifactMedia},
+				Output:    postprocess.Artifact{Path: destination, Kind: postprocess.ArtifactMedia},
+				SourceExt: sourceExtension,
+				Mapping:   mapping,
+				Overwrite: operation.request.postprocessorOverwrites(),
+			}
+			current = destination
+		case specification.ConvertSubtitle != nil:
+			config := specification.ConvertSubtitle
+			source, err := postprocessInput(outputRoot, config.Source)
+			if err != nil {
+				return "", nil, err
+			}
+			destination, err := postprocessOutput(outputRoot, config.Destination, source, config.Format)
+			if err != nil {
+				return "", nil, err
+			}
+			if err := operation.protectPostprocessDestination(ctx, destination); err != nil {
+				return "", nil, err
+			}
+			graphOperation = postprocess.SubtitleConvert{Input: postprocess.Artifact{Path: source, Kind: postprocess.ArtifactSubtitle}, Output: postprocess.Artifact{Path: destination, Kind: postprocess.ArtifactSubtitle}, Options: ffmpeg.SubtitleOptions{Format: config.Format}, Overwrite: operation.request.postprocessorOverwrites()}
+			auxiliary = append(auxiliary, Artifact{Path: destination, Kind: "subtitle"})
+		case specification.ConvertThumbnail != nil:
+			config := specification.ConvertThumbnail
+			source, err := postprocessInput(outputRoot, config.Source)
+			if err != nil {
+				return "", nil, err
+			}
+			destination, err := postprocessOutput(outputRoot, config.Destination, source, config.Format)
+			if err != nil {
+				return "", nil, err
+			}
+			if err := operation.protectPostprocessDestination(ctx, destination); err != nil {
+				return "", nil, err
+			}
+			graphOperation = postprocess.ThumbnailConvert{Input: postprocess.Artifact{Path: source, Kind: postprocess.ArtifactThumbnail}, Output: postprocess.Artifact{Path: destination, Kind: postprocess.ArtifactThumbnail}, Options: ffmpeg.ImageOptions{Format: config.Format}, Overwrite: operation.request.postprocessorOverwrites()}
+			auxiliary = append(auxiliary, Artifact{Path: destination, Kind: "thumbnail"})
+		case specification.EmbedMetadata != nil:
+			config := specification.EmbedMetadata
+			retireSource = true
+			destination, err := postprocessOutput(outputRoot, config.Destination, current, filepath.Ext(current))
+			if err != nil {
+				return "", nil, err
+			}
+			if err := operation.protectPostprocessDestination(ctx, destination); err != nil {
+				return "", nil, err
+			}
+			graphOperation = postprocess.MetadataEmbed{Input: postprocess.Artifact{Path: current, Kind: postprocess.ArtifactMedia}, Output: postprocess.Artifact{Path: destination, Kind: postprocess.ArtifactMedia}, Metadata: ffmpeg.Metadata(config.Metadata), Overwrite: operation.request.postprocessorOverwrites()}
+			current = destination
+		case specification.EmbedChapters != nil:
+			config := specification.EmbedChapters
+			retireSource = true
+			destination, err := postprocessOutput(outputRoot, config.Destination, current, filepath.Ext(current))
+			if err != nil {
+				return "", nil, err
+			}
+			if err := operation.protectPostprocessDestination(ctx, destination); err != nil {
+				return "", nil, err
+			}
+			chapters := make([]ffmpeg.Chapter, len(config.Chapters))
+			for index, chapter := range config.Chapters {
+				chapters[index] = ffmpeg.Chapter{Start: chapter.Start, End: chapter.End, Title: chapter.Title}
+			}
+			graphOperation = postprocess.ChapterEmbed{Input: postprocess.Artifact{Path: current, Kind: postprocess.ArtifactMedia}, Output: postprocess.Artifact{Path: destination, Kind: postprocess.ArtifactMedia}, Chapters: chapters, Overwrite: operation.request.postprocessorOverwrites()}
+			current = destination
+		case specification.EmbedThumbnail != nil:
+			config := specification.EmbedThumbnail
+			retireSource = true
+			source, err := postprocessInput(outputRoot, config.Source)
+			if err != nil {
+				return "", nil, err
+			}
+			destination, err := postprocessOutput(outputRoot, config.Destination, current, filepath.Ext(current))
+			if err != nil {
+				return "", nil, err
+			}
+			if err := operation.protectPostprocessDestination(ctx, destination); err != nil {
+				return "", nil, err
+			}
+			graphOperation = postprocess.ThumbnailEmbed{Input: postprocess.Artifact{Path: current, Kind: postprocess.ArtifactMedia}, Image: postprocess.Artifact{Path: source, Kind: postprocess.ArtifactThumbnail}, Output: postprocess.Artifact{Path: destination, Kind: postprocess.ArtifactMedia}, Overwrite: operation.request.postprocessorOverwrites()}
+			current = destination
+		case specification.EmbedSubtitle != nil:
+			config := specification.EmbedSubtitle
+			retireSource = true
+			source, err := postprocessInput(outputRoot, config.Source)
+			if err != nil {
+				return "", nil, err
+			}
+			destination, err := postprocessOutput(outputRoot, config.Destination, current, filepath.Ext(current))
+			if err != nil {
+				return "", nil, err
+			}
+			if err := operation.protectPostprocessDestination(ctx, destination); err != nil {
+				return "", nil, err
+			}
+			graphOperation = postprocess.SubtitleEmbed{Input: postprocess.Artifact{Path: current, Kind: postprocess.ArtifactMedia}, Subtitle: postprocess.Artifact{Path: source, Kind: postprocess.ArtifactSubtitle}, Output: postprocess.Artifact{Path: destination, Kind: postprocess.ArtifactMedia}, Overwrite: operation.request.postprocessorOverwrites()}
+			current = destination
+		case specification.Fixup != nil:
+			config := specification.Fixup
+			retireSource = true
+			destination, err := postprocessOutput(outputRoot, config.Destination, current, filepath.Ext(current))
+			if err != nil {
+				return "", nil, err
+			}
+			if err := operation.protectPostprocessDestination(ctx, destination); err != nil {
+				return "", nil, err
+			}
+			graphOperation = postprocess.Fixup{Input: postprocess.Artifact{Path: current, Kind: postprocess.ArtifactMedia}, Output: postprocess.Artifact{Path: destination, Kind: postprocess.ArtifactMedia}, Kind: ffmpeg.Fixup(config.Kind), Overwrite: operation.request.postprocessorOverwrites()}
+			current = destination
+		case specification.Concat != nil:
+			config := specification.Concat
+			retireSource = true
+			inputs := make([]postprocess.Artifact, len(config.Sources))
+			for sourceIndex, sourceName := range config.Sources {
+				source, err := postprocessInput(outputRoot, sourceName)
+				if err != nil {
+					return "", nil, err
+				}
+				inputs[sourceIndex] = postprocess.Artifact{Path: source, Kind: postprocess.ArtifactMedia}
+			}
+			destination, err := postprocessOutput(outputRoot, config.Destination, current, filepath.Ext(current))
+			if err != nil {
+				return "", nil, err
+			}
+			if err := operation.protectPostprocessDestination(ctx, destination); err != nil {
+				return "", nil, err
+			}
+			graphOperation = postprocess.Concat{Inputs: inputs, Output: postprocess.Artifact{Path: destination, Kind: postprocess.ArtifactMedia}, Overwrite: operation.request.postprocessorOverwrites()}
+			current = destination
+		case specification.Move != nil:
+			if operation.request.KeepVideo {
+				return "", nil, fmt.Errorf("%w: keep-video is incompatible with move postprocessors", postprocess.ErrInvalidGraph)
+			}
+			if err := operation.snapshotPostprocessSource(ctx, sourcePath); err != nil {
+				return "", nil, err
+			}
+			destination, err := postprocessOutput(outputRoot, specification.Move.Destination, current, filepath.Ext(current))
+			if err != nil {
+				return "", nil, err
+			}
+			if err := operation.protectPostprocessDestination(ctx, destination); err != nil {
+				return "", nil, err
+			}
+			graphOperation = postprocess.Move{Input: postprocess.Artifact{Path: current, Kind: postprocess.ArtifactMedia}, Output: postprocess.Artifact{Path: destination, Kind: postprocess.ArtifactMedia}, Overwrite: operation.request.postprocessorOverwrites()}
+			current, needsTools = destination, false
+		}
+		var toolset *ffmpeg.Toolset
+		if needsTools {
+			var err error
+			toolset, err = discover()
+			if err != nil {
+				return "", nil, err
+			}
+		}
+		if err := (postprocess.Graph{Operations: []postprocess.Operation{graphOperation}}).Run(ctx, toolset, sink); err != nil {
+			return "", nil, err
+		}
+		if retireSource {
+			if err := operation.retirePostprocessSource(ctx, sourcePath, current); err != nil {
+				return "", nil, err
+			}
+		}
+	}
+	if automaticFixupEnabled(operation.request.FixupPolicy) {
+		fixed, err := operation.applyFixupPolicy(ctx, current, sink)
+		if err != nil {
+			return "", nil, err
+		}
+		current = fixed
+	}
+	artifacts := append(auxiliary, Artifact{Path: current, Kind: "media"})
+	return current, artifacts, nil
+}
+
+func (operation *operation) protectPostprocessDestination(ctx context.Context, path string) error {
+	transaction := mediaTransactionFromContext(ctx)
+	if transaction == nil {
+		return nil
+	}
+	if err := transaction.protectPath(path, operation.request.postprocessorOverwrites()); err != nil {
+		return fmt.Errorf("protect postprocessor destination %s: %w", path, err)
+	}
+	return nil
+}
+
+// snapshotPostprocessSource records a source before a move consumes it. A
+// transaction can restore the source if a later lifecycle stage fails; without
+// a transaction the move operation itself remains the atomic ownership handoff.
+func (operation *operation) snapshotPostprocessSource(ctx context.Context, source string) error {
+	if operation.request.KeepVideo || source == "" {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := operation.snapshotTransactionRemovedPath(ctx, source); err != nil {
+		return fmt.Errorf("snapshot postprocessor source %s: %w", source, err)
+	}
+	return nil
+}
+
+// retirePostprocessSource removes an intermediate only after its successor
+// operation has committed. Transaction snapshots make the removal reversible
+// until every output in a multi-output lifecycle commits.
+func (operation *operation) retirePostprocessSource(ctx context.Context, source, successor string) error {
+	if operation.request.KeepVideo || source == "" || filepath.Clean(source) == filepath.Clean(successor) {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := operation.snapshotTransactionRemovedPath(ctx, source); err != nil {
+		return fmt.Errorf("snapshot postprocessor source %s: %w", source, err)
+	}
+	if err := os.Remove(source); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove postprocessor source %s: %w", source, err)
+	}
+	return nil
+}
+
+func countPostprocessorChoices(step Postprocessor) int {
+	count := 0
+	for _, selected := range []bool{
+		step.ExtractAudio != nil, step.Remux != nil, step.ConvertSubtitle != nil,
+		step.RecodeVideo != nil,
+		step.ConvertThumbnail != nil, step.EmbedMetadata != nil, step.EmbedChapters != nil,
+		step.EmbedThumbnail != nil, step.EmbedSubtitle != nil, step.Fixup != nil,
+		step.Concat != nil, step.Move != nil,
+	} {
+		if selected {
+			count++
+		}
+	}
+	return count
+}
+
+func postprocessInput(root, requested string) (string, error) {
+	if requested == "" {
+		return "", fmt.Errorf("%w: source is required", postprocess.ErrUnsafePath)
+	}
+	if filepath.IsAbs(requested) {
+		if strings.ContainsRune(requested, 0) {
+			return "", postprocess.ErrUnsafePath
+		}
+		return filepath.Clean(requested), nil
+	}
+	return confinedPostprocessPath(root, requested)
+}
+
+func validatePostprocessorPaths(request Request) error {
+	root := request.outputRoot(OutputPathHome)
+	validateDestination := func(destination string) error {
+		if destination == "" {
+			return nil
+		}
+		_, err := confinedPostprocessPath(root, destination)
+		return err
+	}
+	validateSource := func(source string) error {
+		if source == "" {
+			return postprocess.ErrUnsafePath
+		}
+		_, err := postprocessInput(root, source)
+		return err
+	}
+	for _, step := range request.Postprocessors {
+		switch {
+		case step.ExtractAudio != nil:
+			if err := validateDestination(step.ExtractAudio.Destination); err != nil {
+				return err
+			}
+		case step.Remux != nil:
+			if err := validateDestination(step.Remux.Destination); err != nil {
+				return err
+			}
+		case step.RecodeVideo != nil:
+			if strings.TrimSpace(step.RecodeVideo.Format) == "" {
+				return fmt.Errorf("%w: recode mapping is required", postprocess.ErrInvalidGraph)
+			}
+			if err := ffmpeg.ValidateRecodeMapping(step.RecodeVideo.Format); err != nil {
+				return fmt.Errorf("%w: recode mapping: %v", postprocess.ErrInvalidGraph, err)
+			}
+			if err := validateDestination(step.RecodeVideo.Destination); err != nil {
+				return err
+			}
+		case step.ConvertSubtitle != nil:
+			if err := validateSource(step.ConvertSubtitle.Source); err != nil {
+				return err
+			}
+			if err := validateDestination(step.ConvertSubtitle.Destination); err != nil {
+				return err
+			}
+		case step.ConvertThumbnail != nil:
+			if err := validateSource(step.ConvertThumbnail.Source); err != nil {
+				return err
+			}
+			if err := validateDestination(step.ConvertThumbnail.Destination); err != nil {
+				return err
+			}
+		case step.EmbedMetadata != nil:
+			if err := validateDestination(step.EmbedMetadata.Destination); err != nil {
+				return err
+			}
+		case step.EmbedChapters != nil:
+			if err := validateDestination(step.EmbedChapters.Destination); err != nil {
+				return err
+			}
+		case step.EmbedThumbnail != nil:
+			if err := validateSource(step.EmbedThumbnail.Source); err != nil {
+				return err
+			}
+			if err := validateDestination(step.EmbedThumbnail.Destination); err != nil {
+				return err
+			}
+		case step.EmbedSubtitle != nil:
+			if err := validateSource(step.EmbedSubtitle.Source); err != nil {
+				return err
+			}
+			if err := validateDestination(step.EmbedSubtitle.Destination); err != nil {
+				return err
+			}
+		case step.Fixup != nil:
+			if err := validateDestination(step.Fixup.Destination); err != nil {
+				return err
+			}
+		case step.Concat != nil:
+			for _, source := range step.Concat.Sources {
+				if err := validateSource(source); err != nil {
+					return err
+				}
+			}
+			if err := validateDestination(step.Concat.Destination); err != nil {
+				return err
+			}
+		case step.Move != nil:
+			if err := validateDestination(step.Move.Destination); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func postprocessOutput(root, requested, current, fallbackExtension string) (string, error) {
+	if requested == "" {
+		extension := strings.TrimPrefix(fallbackExtension, ".")
+		if extension == "" {
+			return "", fmt.Errorf("%w: destination or output format is required", postprocess.ErrUnsafePath)
+		}
+		stem := strings.TrimSuffix(filepath.Base(current), filepath.Ext(current))
+		if strings.EqualFold(strings.TrimPrefix(filepath.Ext(current), "."), extension) {
+			requested = stem + ".postprocessed." + extension
+		} else {
+			requested = stem + "." + extension
+		}
+	}
+	if filepath.IsAbs(requested) {
+		return confinedPostprocessPath(root, requested)
+	}
+	return confinedPostprocessPath(root, requested)
+}
+
+func confinedPostprocessPath(root, requested string) (string, error) {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	candidate := requested
+	if !filepath.IsAbs(candidate) {
+		candidate = filepath.Join(rootAbs, candidate)
+	}
+	candidate, err = filepath.Abs(candidate)
+	if err != nil {
+		return "", err
+	}
+	relative, err := filepath.Rel(rootAbs, candidate)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", postprocess.ErrUnsafePath
+	}
+	if strings.ContainsRune(candidate, 0) {
+		return "", postprocess.ErrUnsafePath
+	}
+	current := rootAbs
+	for _, component := range strings.Split(filepath.Dir(relative), string(filepath.Separator)) {
+		if component == "" || component == "." {
+			continue
+		}
+		current = filepath.Join(current, component)
+		if info, statErr := os.Lstat(current); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
+			return "", postprocess.ErrUnsafePath
+		} else if statErr != nil && !os.IsNotExist(statErr) {
+			return "", statErr
+		}
+	}
+	return candidate, nil
+}

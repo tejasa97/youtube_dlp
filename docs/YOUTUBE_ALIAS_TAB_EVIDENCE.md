@@ -51,7 +51,7 @@ do not depend on the reference checkout.
 - `internal/providers/youtube.FuzzYouTubeAliasTabTarget`
 - expanded mixed/community/release evidence in
   `docs/YOUTUBE_EXPANDED_TABS_EVIDENCE.md`
-- `pkg/ytdlp.TestProductRegistryIncludesIntegratedExtractors`
+- `engine.TestProductRegistryIncludesIntegratedExtractors`
 
 ## Known deviations
 

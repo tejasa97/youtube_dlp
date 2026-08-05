@@ -43,7 +43,7 @@ Attributable synthetic evidence (no production data):
   `TestRaiF4MConflictingControlsAreRejected` attribute the pinned F4M URL
   normalization and exact-query/control-key policy. The extractor emits one
   `hds`/`f4m_native`/`flv` format and does not own HDS parsing or download.
-- `pkg/ytdlp.TestProductRaiF4MExtractionBridgesIntoHDSAndAssemblesFLV`
+- `engine.TestProductRaiF4MExtractionBridgesIntoHDSAndAssemblesFLV`
   proves the extracted selection enters the merged generic HDS path and
   assembles the deterministic FLV fixture in fragment order while preserving
   duplicate signed query parameters on every fragment and keeping credentials

@@ -62,6 +62,6 @@ the pinned extraction performs exactly one transport read.
   initial WEB player is part of the metadata collection even when recovered
   responses supply only formats and sparse metadata.
 - The product JSON pipeline survival test
-  (`pkg/ytdlp.TestProductYouTubePlayerMetadataJSONSurvival`) runs the full
+  (`engine.TestProductYouTubePlayerMetadataJSONSurvival`) runs the full
   extraction-to-InfoJSON path against this fixture through an injected
   transport.

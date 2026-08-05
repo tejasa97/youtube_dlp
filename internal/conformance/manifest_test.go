@@ -147,10 +147,10 @@ func TestValidateRequiresFormatSelectorClosureEvidenceAfterPilotRetirement(t *te
 		"docs/FORMAT_SELECTOR_CURRENT_UPSTREAM_DELTA_EVIDENCE.md",
 		"internal/format/testdata/pinned_closure_matrix.json",
 		"docs/FORMAT_SELECTOR_PINNED_CLOSURE_EVIDENCE.md",
-		"pkg/ytdlp.TestFormatCheckAllReusesProbeCacheDuringPlanning",
+		"engine.TestFormatCheckAllReusesProbeCacheDuringPlanning",
 		"internal/cli.TestRunInteractiveFormatUnavailableThenValid",
-		"pkg/ytdlp.TestNTrackMergeRealMediaTwoTrack",
-		"pkg/ytdlp.TestMultiOutputLifecycleSidecarsPrintsAndMetadataIsolation",
+		"engine.TestNTrackMergeRealMediaTwoTrack",
+		"engine.TestMultiOutputLifecycleSidecarsPrintsAndMetadataIsolation",
 	}
 	if err := manifest.Validate(); err != nil {
 		t.Fatalf("Validate() with closure evidence = %v", err)

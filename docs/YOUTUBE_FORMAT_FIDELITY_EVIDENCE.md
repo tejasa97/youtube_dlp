@@ -78,7 +78,7 @@ expansion, and Music-description metadata.
 - `internal/providers/youtube.TestYouTubeFormatFidelityIDCollisionsAndOrdering`
 - `internal/providers/youtube.TestYouTubeFormatFidelitySelectionUnchanged`
 - `internal/providers/youtube.FuzzYouTubeFormatFidelity`
-- `pkg/ytdlp.TestProductYouTubeFormatFidelityListFormats`
+- `engine.TestProductYouTubeFormatFidelityListFormats`
 
 The pinned corpus lives at `conformance/extractors/youtube_format_fidelity/`
 (`watch.html`, `expected.json`, `PROVENANCE.md`). The pilot and

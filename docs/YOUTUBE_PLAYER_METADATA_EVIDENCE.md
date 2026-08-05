@@ -108,7 +108,7 @@ format-quality enrichment, and storyboards.
 - `internal/providers/youtube.TestYouTubePlayerMetadataJSONFieldSurvival`
 - `internal/providers/youtube.TestYouTubePlayerMetadataConcurrentDeterminism`
 - `internal/providers/youtube.FuzzYouTubePlayerMetadata`
-- `pkg/ytdlp.TestProductYouTubePlayerMetadataJSONSurvival`
+- `engine.TestProductYouTubePlayerMetadataJSONSurvival`
 
 The pinned corpus lives at `conformance/extractors/youtube_player_metadata/`
 (`watch.html`, `expected.json`, `PROVENANCE.md`). The pilot corpus

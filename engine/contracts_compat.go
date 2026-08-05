@@ -32,7 +32,7 @@ type (
 	Credential                                   = provider.Credential
 	CredentialProvider                           = provider.CredentialProvider
 
-	Request                     = provider.Request
+	ProviderRequest             = provider.Request
 	Extraction                  = provider.Extraction
 	MetadataEnricher            = provider.MetadataEnricher
 	Entry                       = provider.Entry
@@ -61,6 +61,8 @@ type (
 	ErrorClass            = provider.ErrorClass
 	URLPolicyRequest      = provider.URLPolicyRequest
 	StatusErrorRequest    = provider.StatusErrorRequest
+	PolicyResponseRequest = provider.PolicyResponseRequest
+	ServiceRequest        = provider.ServiceRequest
 	ReloadRequest         = provider.ReloadRequest
 	Hooks[C any]          = provider.Hooks[C]
 	Selected[C any]       = provider.Selected[C]

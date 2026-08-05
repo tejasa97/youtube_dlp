@@ -40,11 +40,11 @@ preservation, hostile-host and redirect refusal, and failure
 cleanup/cancellation while a segment request is entered. The authoritative
 product evidence is limited to these public `Client.Run` tests:
 
-- `pkg/ytdlp.TestProductNiconicoRegisteredWatchHLSDownloadIsolatedAndSigned`
-- `pkg/ytdlp.TestProductNiconicoRegisteredBestAudioDownloadIsExactAndIsolated`
-- `pkg/ytdlp.TestProductNiconicoRegisteredSearchChildReentryIsolation`
-- `pkg/ytdlp.TestProductNiconicoPlaylistChildReentryUsesRegisteredKeys`
-- `pkg/ytdlp.TestProductNiconicoHLSFailureAndCancellationLeaveNoArtifacts`
+- `engine.TestProductNiconicoRegisteredWatchHLSDownloadIsolatedAndSigned`
+- `engine.TestProductNiconicoRegisteredBestAudioDownloadIsExactAndIsolated`
+- `engine.TestProductNiconicoRegisteredSearchChildReentryIsolation`
+- `engine.TestProductNiconicoPlaylistChildReentryUsesRegisteredKeys`
+- `engine.TestProductNiconicoHLSFailureAndCancellationLeaveNoArtifacts`
 
 The table-driven playlist
 test executes mylist,

@@ -901,6 +901,7 @@ func niconicoHLSFormats(manifestURL string, body []byte, videos, audios []niconi
 			{Key: "acodec", Value: value.String("aac")},
 			{Key: "_credential_isolated", Value: value.Bool(true)},
 			{Key: "_niconico_scoped", Value: value.Bool(true)},
+			{Key: "_media_policy", Value: value.String("niconico")},
 		}
 		for _, track := range availableAudioTracks {
 			if !strings.HasPrefix(rawID, track.ID) {
@@ -958,6 +959,7 @@ func niconicoHLSFormats(manifestURL string, body []byte, videos, audios []niconi
 			{Key: "acodec", Value: value.String(acodec)},
 			{Key: "_credential_isolated", Value: value.Bool(true)},
 			{Key: "_niconico_scoped", Value: value.Bool(true)},
+			{Key: "_media_policy", Value: value.String("niconico")},
 		}
 		if width, height := niconicoHLSResolution(variant.Resolution); width > 0 && height > 0 {
 			fields = append(fields, value.Field{Key: "width", Value: value.Int(int64(width))}, value.Field{Key: "height", Value: value.Int(int64(height))})

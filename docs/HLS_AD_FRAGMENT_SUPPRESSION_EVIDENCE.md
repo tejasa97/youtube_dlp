@@ -115,7 +115,7 @@ checkout.
 - `internal/protocol/hls.FuzzAdvertisementMarkers`
 - `internal/protocol/hls.FuzzSCTE35Daterange`
 - `internal/protocol/hls.FuzzSCTE35Payload`
-- `pkg/ytdlp.TestClientHLSSuppressesAttributedAdFragments`
+- `engine.TestClientHLSSuppressesAttributedAdFragments`
 
 ## Known deviations and improvements
 

@@ -1,7 +1,7 @@
 # Public engine extraction contracts
 
-Status: cycle-free public provider-contract and composition-support ownership
-established; root orchestration and public provider composition remain staged.
+Status: cycle-free public contracts and root provider-neutral orchestration
+established; the public complete-YouTube bundle and Desktop switch remain staged.
 
 The `github.com/tejasa97/youtube_dlp/engine/provider` package owns the nameable neutral
 contracts used between orchestration and a composed provider:
@@ -20,31 +20,32 @@ contain a `provider.Request` and their own bounded options. Registry request
 types are generic, so adding provider-specific state does not require an
 option map, runtime profile, provider-name switch, or global registration.
 
-Root `engine` and the former internal contract packages are compatibility
-aliases and thin wrappers. Existing concrete providers, the mixed compatibility
-package, and `pkg/ytdlp` therefore continue using the same implementations and
-error identities. EJS, PO-token support, and the complete internal YouTube
-family import the cycle-free owner directly.
+Root `engine` owns the operational `Client`, run `Request`/`Result`, options,
+events, errors, and extraction/download/media orchestration. It exposes
+`NewComposition`, whose typed catalog and request adapter create a fresh
+provider runtime for every run. A zero composition fails closed; engine never
+discovers or falls back to the broad catalog.
 
-## PR 2: orchestration ownership
+## Completed orchestration ownership
 
-The next PR moves provider-neutral client orchestration and its public request,
-result, event, option, and error API into `engine`. It changes the operation
-registry to consume these engine-owned contracts. `pkg/ytdlp` becomes the
-broad compatibility facade: its existing exported surface aliases or wraps
-`engine`, while `pkg/ytdlp.NewClient` explicitly supplies the unchanged full
-provider catalog and plugin behavior.
+`pkg/ytdlp` is now the broad compatibility facade. Its existing exported
+surface aliases or wraps `engine`, while `pkg/ytdlp.NewClient` explicitly
+supplies the unchanged full provider catalog and installed-plugin behavior.
+Provider-specific error classification, host/asset/media policies, external
+service identity, challenge construction, PO-token adaptation, and live/SABR
+reload enter through typed composition hooks rather than engine switches.
 
-The dependency proof for that stage must show that importing root `engine`
-does not reach the mixed compatibility extractor package or broad catalog.
-Its neutral same-package tests use public fake bundles; broad concrete-provider
-coverage remains in `pkg/ytdlp` so tests cannot recreate the package cycle.
+The dependency proof shows that importing root `engine` does not reach the
+mixed compatibility extractor package, concrete provider packages, EJS, the
+PO-token director, or the broad catalog. Neutral tests use public fake bundles;
+the moved orchestration suite uses test-only broad adapters, while production
+broad catalog and compatibility ownership remains in `pkg/ytdlp`.
 The module-internal `internal/enginetest` fixture package supplies provider
 fakes without importing root `engine` or any concrete provider package; this
 lets moved orchestration tests retain white-box coverage without exporting
 operation internals.
 
-## PR 3: complete YouTube composition
+## Next: complete YouTube composition
 
 PR 3 adds `github.com/tejasa97/youtube_dlp/providers/youtube`. That public
 package adapts the complete eight-provider internal YouTube family to the

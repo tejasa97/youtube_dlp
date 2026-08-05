@@ -29,7 +29,7 @@ func TestCycleFreeRootEngineTestHarness(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := selected.Extract(context.Background(), engine.Operation{
-		Request: engine.Request{URL: "https://fixture.example/watch"},
+		Request: engine.ProviderRequest{URL: "https://fixture.example/watch"},
 	}, "cycle-free")
 	if err != nil {
 		t.Fatal(err)
