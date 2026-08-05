@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ytdlp-go/ytdlp/internal/compat/sections"
-	"github.com/ytdlp-go/ytdlp/internal/extractor"
-	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
-	"github.com/ytdlp-go/ytdlp/internal/value"
+	"github.com/tejasa97/youtube_dlp/internal/compat/sections"
+	"github.com/tejasa97/youtube_dlp/internal/extractor"
+	mediaformat "github.com/tejasa97/youtube_dlp/internal/format"
+	"github.com/tejasa97/youtube_dlp/internal/value"
 )
 
 // sectionPlan pairs an expanded output plan with its normalized section

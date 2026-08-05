@@ -1,11 +1,11 @@
-module github.com/ytdlp-go/ytdlp/apps/desktop
+module github.com/tejasa97/youtube_dlp/apps/desktop
 
 go 1.25.12
 
 require (
 	github.com/google/uuid v1.6.0
+	github.com/tejasa97/youtube_dlp v0.0.0
 	github.com/wailsapp/wails/v2 v2.13.0
-	github.com/ytdlp-go/ytdlp v0.0.0
 )
 
 require (
@@ -50,4 +50,4 @@ require (
 	golang.org/x/text v0.37.0 // indirect
 )
 
-replace github.com/ytdlp-go/ytdlp => ../..
+replace github.com/tejasa97/youtube_dlp => ../..

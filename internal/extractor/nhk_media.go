@@ -6,7 +6,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/ytdlp-go/ytdlp/internal/value"
+	"github.com/tejasa97/youtube_dlp/internal/value"
 )
 
 func nhkValidPublicURL(raw string) bool {

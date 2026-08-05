@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	outputtemplate "github.com/ytdlp-go/ytdlp/internal/compat/template"
+	outputtemplate "github.com/tejasa97/youtube_dlp/internal/compat/template"
 )
 
 // OutputTemplateType identifies the artifact class rendered by an output

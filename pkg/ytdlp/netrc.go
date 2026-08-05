@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
-	credentialnetrc "github.com/ytdlp-go/ytdlp/internal/credentials/netrc"
-	"github.com/ytdlp-go/ytdlp/internal/extractor"
+	credentialnetrc "github.com/tejasa97/youtube_dlp/internal/credentials/netrc"
+	"github.com/tejasa97/youtube_dlp/internal/extractor"
 )
 
 type netRCCredentialProvider struct {

@@ -3,7 +3,7 @@ package ytdlp
 import (
 	"testing"
 
-	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
+	mediaformat "github.com/tejasa97/youtube_dlp/internal/format"
 )
 
 func TestMergedOutputExtensionFollowsSelectedTracks(t *testing.T) {

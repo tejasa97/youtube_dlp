@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/internal/events"
+	"github.com/tejasa97/youtube_dlp/internal/events"
 )
 
 // makeBox builds a single ISO box with the given type and payload using a

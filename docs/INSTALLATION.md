@@ -10,12 +10,16 @@ CI artifacts, test keys, or locally built bundles as endorsed releases.
 | --- | --- | --- |
 | YTDLP Go Desktop | Graphical single-video YouTube downloads | Development source build |
 | `ytdlp-go` CLI | Terminal and automation workflows | Source build |
-| `pkg/ytdlp` | Embedding in another Go application | Clone with a temporary local module replacement |
+| `pkg/ytdlp` | Embedding in another Go application | Canonical Go module dependency |
 
-The repository/module identity must be reconciled before normal `go install`
-or `go get` instructions are advertised. The repository is currently hosted at
-`github.com/tejasa97/youtube_dlp`, while `go.mod` declares
-`github.com/ytdlp-go/ytdlp`.
+The repository and Go module share the canonical path
+`github.com/tejasa97/youtube_dlp`. Add the embeddable package with:
+
+```sh
+go get github.com/tejasa97/youtube_dlp/pkg/ytdlp
+```
+
+The API is pre-release, so review dependency upgrades before adopting them.
 
 ## CLI source build
 

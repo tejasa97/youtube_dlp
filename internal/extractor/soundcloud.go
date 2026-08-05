@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/internal/network"
-	"github.com/ytdlp-go/ytdlp/internal/value"
+	"github.com/tejasa97/youtube_dlp/internal/network"
+	"github.com/tejasa97/youtube_dlp/internal/value"
 )
 
 const (

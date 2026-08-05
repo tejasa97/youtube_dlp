@@ -5,8 +5,8 @@ package extractor
 import (
 	"context"
 
-	"github.com/ytdlp-go/ytdlp/internal/javascript/ejs"
-	"github.com/ytdlp-go/ytdlp/internal/youtubepot"
+	"github.com/tejasa97/youtube_dlp/internal/javascript/ejs"
+	"github.com/tejasa97/youtube_dlp/internal/youtubepot"
 )
 
 type Request struct {

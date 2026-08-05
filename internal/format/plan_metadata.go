@@ -6,7 +6,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/ytdlp-go/ytdlp/internal/value"
+	"github.com/tejasa97/youtube_dlp/internal/value"
 )
 
 // planMetadataFor builds the planner-owned Metadata value for one OutputPlan.

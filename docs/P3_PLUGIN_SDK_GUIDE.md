@@ -16,8 +16,8 @@ import (
     "context"
     "os"
 
-    "github.com/ytdlp-go/ytdlp/pkg/pluginapi"
-    "github.com/ytdlp-go/ytdlp/pkg/pluginapi/sdk"
+    "github.com/tejasa97/youtube_dlp/pkg/pluginapi"
+    "github.com/tejasa97/youtube_dlp/pkg/pluginapi/sdk"
 )
 
 type extractor struct{}

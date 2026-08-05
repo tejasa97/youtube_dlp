@@ -11,7 +11,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/ytdlp-go/ytdlp/pkg/ytdlp"
+	"github.com/tejasa97/youtube_dlp/pkg/ytdlp"
 )
 
 const maxInputs = 256

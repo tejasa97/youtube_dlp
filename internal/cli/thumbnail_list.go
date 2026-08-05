@@ -10,8 +10,8 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/ytdlp-go/ytdlp/internal/value"
-	"github.com/ytdlp-go/ytdlp/pkg/ytdlp"
+	"github.com/tejasa97/youtube_dlp/internal/value"
+	"github.com/tejasa97/youtube_dlp/pkg/ytdlp"
 )
 
 const maxThumbnailListingJSON = 4 << 20

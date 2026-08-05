@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ytdlp-go/ytdlp/internal/events"
+	"github.com/tejasa97/youtube_dlp/internal/events"
 )
 
 // MaxForceKeyframes caps unique non-zero force-keyframe timestamps and matches

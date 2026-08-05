@@ -10,9 +10,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/ytdlp-go/ytdlp/internal/archive"
-	"github.com/ytdlp-go/ytdlp/internal/extractor"
-	"github.com/ytdlp-go/ytdlp/internal/network"
+	"github.com/tejasa97/youtube_dlp/internal/archive"
+	"github.com/tejasa97/youtube_dlp/internal/extractor"
+	"github.com/tejasa97/youtube_dlp/internal/network"
 )
 
 func TestOperationFlatPlaylistRetainsEntriesWithoutChildExtraction(t *testing.T) {

@@ -9,9 +9,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/ytdlp-go/ytdlp/internal/pack"
-	"github.com/ytdlp-go/ytdlp/internal/pack/catalog"
-	"github.com/ytdlp-go/ytdlp/internal/pack/upgrade"
+	"github.com/tejasa97/youtube_dlp/internal/pack"
+	"github.com/tejasa97/youtube_dlp/internal/pack/catalog"
+	"github.com/tejasa97/youtube_dlp/internal/pack/upgrade"
 )
 
 var (

@@ -17,7 +17,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/internal/network/impersonate"
+	"github.com/tejasa97/youtube_dlp/internal/network/impersonate"
 )
 
 const (

@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
-	"github.com/ytdlp-go/ytdlp/internal/value"
+	"github.com/tejasa97/youtube_dlp/internal/media/ffmpeg"
+	"github.com/tejasa97/youtube_dlp/internal/value"
 )
 
 func TestCanonicalEmbeddedMetadataUsesPinnedPrecedenceAndBounds(t *testing.T) {

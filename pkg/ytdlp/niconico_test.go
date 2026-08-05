@@ -14,7 +14,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ytdlp-go/ytdlp/internal/network"
+	"github.com/tejasa97/youtube_dlp/internal/network"
 )
 
 const niconicoProductFixtureRoot = "../../conformance/extractors/risk/niconico"

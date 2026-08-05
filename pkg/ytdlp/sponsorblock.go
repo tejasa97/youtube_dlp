@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"strings"
 
-	compattemplate "github.com/ytdlp-go/ytdlp/internal/compat/template"
-	"github.com/ytdlp-go/ytdlp/internal/sponsorblock"
-	"github.com/ytdlp-go/ytdlp/internal/value"
+	compattemplate "github.com/tejasa97/youtube_dlp/internal/compat/template"
+	"github.com/tejasa97/youtube_dlp/internal/sponsorblock"
+	"github.com/tejasa97/youtube_dlp/internal/value"
 )
 
 const sponsorBlockDurationMismatchWarning = "Some SponsorBlock segments are from a video of different duration, maybe from an old version of this video"

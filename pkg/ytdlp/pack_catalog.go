@@ -6,10 +6,10 @@ import (
 	"errors"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/internal/pack"
-	packcatalog "github.com/ytdlp-go/ytdlp/internal/pack/catalog"
-	packtransaction "github.com/ytdlp-go/ytdlp/internal/pack/transaction"
-	packupgrade "github.com/ytdlp-go/ytdlp/internal/pack/upgrade"
+	"github.com/tejasa97/youtube_dlp/internal/pack"
+	packcatalog "github.com/tejasa97/youtube_dlp/internal/pack/catalog"
+	packtransaction "github.com/tejasa97/youtube_dlp/internal/pack/transaction"
+	packupgrade "github.com/tejasa97/youtube_dlp/internal/pack/upgrade"
 )
 
 type PackContractVersion = packupgrade.ContractVersion

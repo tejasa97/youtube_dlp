@@ -10,7 +10,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/ytdlp-go/ytdlp/internal/operations"
+	"github.com/tejasa97/youtube_dlp/internal/operations"
 )
 
 func main() { os.Exit(run(context.Background(), os.Args[1:], os.Stdout, os.Stderr)) }

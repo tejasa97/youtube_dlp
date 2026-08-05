@@ -11,8 +11,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/ytdlp-go/ytdlp/internal/platform/xattrs"
-	"github.com/ytdlp-go/ytdlp/internal/value"
+	"github.com/tejasa97/youtube_dlp/internal/platform/xattrs"
+	"github.com/tejasa97/youtube_dlp/internal/value"
 )
 
 var ErrXattrsUnsupported = errors.New("extended attributes are unsupported")

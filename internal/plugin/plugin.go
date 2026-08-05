@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/pkg/pluginapi"
+	"github.com/tejasa97/youtube_dlp/pkg/pluginapi"
 )
 
 var sensitiveDiagnostic = regexp.MustCompile(`(?i)\b(authorization|cookie|password|secret|signature|token|sig|api[_-]?key|key)([=:][^&[:space:]]+)`)

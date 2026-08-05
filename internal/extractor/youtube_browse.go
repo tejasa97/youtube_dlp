@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/internal/value"
+	"github.com/tejasa97/youtube_dlp/internal/value"
 )
 
 // youtubeBrowseAuth carries the exact-origin WEB SID boundary for browse and

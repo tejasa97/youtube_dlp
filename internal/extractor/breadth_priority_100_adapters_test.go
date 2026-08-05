@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ytdlp-go/ytdlp/internal/javascript/ejs"
-	"github.com/ytdlp-go/ytdlp/internal/javascript/engine"
+	"github.com/tejasa97/youtube_dlp/internal/javascript/ejs"
+	"github.com/tejasa97/youtube_dlp/internal/javascript/engine"
 )
 
 // breadthVimeoTransport serves deterministic Vimeo player fixtures for any

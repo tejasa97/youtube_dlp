@@ -7,7 +7,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/ytdlp-go/ytdlp/internal/differential"
+	"github.com/tejasa97/youtube_dlp/internal/differential"
 )
 
 func main() {

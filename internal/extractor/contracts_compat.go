@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/ytdlp-go/ytdlp/internal/extraction"
-	"github.com/ytdlp-go/ytdlp/internal/value"
+	"github.com/tejasa97/youtube_dlp/internal/extraction"
+	"github.com/tejasa97/youtube_dlp/internal/value"
 )
 
 // These aliases preserve the existing internal/extractor surface while the

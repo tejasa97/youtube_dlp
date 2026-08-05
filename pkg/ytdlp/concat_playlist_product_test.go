@@ -13,12 +13,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ytdlp-go/ytdlp/internal/archive"
-	"github.com/ytdlp-go/ytdlp/internal/extractor"
-	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
-	"github.com/ytdlp-go/ytdlp/internal/media/postprocess"
-	"github.com/ytdlp-go/ytdlp/internal/network"
-	"github.com/ytdlp-go/ytdlp/internal/value"
+	"github.com/tejasa97/youtube_dlp/internal/archive"
+	"github.com/tejasa97/youtube_dlp/internal/extractor"
+	"github.com/tejasa97/youtube_dlp/internal/media/ffmpeg"
+	"github.com/tejasa97/youtube_dlp/internal/media/postprocess"
+	"github.com/tejasa97/youtube_dlp/internal/network"
+	"github.com/tejasa97/youtube_dlp/internal/value"
 )
 
 func TestProductConcatPlaylistPublishesDeterministicJoinedMedia(t *testing.T) {

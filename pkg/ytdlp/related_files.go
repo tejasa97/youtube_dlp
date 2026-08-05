@@ -14,9 +14,9 @@ import (
 	"runtime"
 	"strings"
 
-	outputtemplate "github.com/ytdlp-go/ytdlp/internal/compat/template"
-	"github.com/ytdlp-go/ytdlp/internal/extractor"
-	"github.com/ytdlp-go/ytdlp/internal/value"
+	outputtemplate "github.com/tejasa97/youtube_dlp/internal/compat/template"
+	"github.com/tejasa97/youtube_dlp/internal/extractor"
+	"github.com/tejasa97/youtube_dlp/internal/value"
 	"golang.org/x/net/idna"
 )
 

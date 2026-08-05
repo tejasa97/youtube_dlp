@@ -6,11 +6,11 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/ytdlp-go/ytdlp/internal/compat/sections"
-	"github.com/ytdlp-go/ytdlp/internal/events"
-	"github.com/ytdlp-go/ytdlp/internal/extractor"
-	mediaformat "github.com/ytdlp-go/ytdlp/internal/format"
-	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
+	"github.com/tejasa97/youtube_dlp/internal/compat/sections"
+	"github.com/tejasa97/youtube_dlp/internal/events"
+	"github.com/tejasa97/youtube_dlp/internal/extractor"
+	mediaformat "github.com/tejasa97/youtube_dlp/internal/format"
+	"github.com/tejasa97/youtube_dlp/internal/media/ffmpeg"
 )
 
 // sectionDownloadSelections delegates a sectioned download of the selected

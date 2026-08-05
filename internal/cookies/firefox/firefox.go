@@ -19,8 +19,8 @@ import (
 
 	_ "github.com/ncruces/go-sqlite3/driver"
 	_ "github.com/ncruces/go-sqlite3/embed"
-	cookiesnapshot "github.com/ytdlp-go/ytdlp/internal/cookies/snapshot"
-	cookievalidate "github.com/ytdlp-go/ytdlp/internal/cookies/validate"
+	cookiesnapshot "github.com/tejasa97/youtube_dlp/internal/cookies/snapshot"
+	cookievalidate "github.com/tejasa97/youtube_dlp/internal/cookies/validate"
 )
 
 const maxContainerFile = 4 << 20

@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/internal/javascript/engine"
-	"github.com/ytdlp-go/ytdlp/internal/javascript/protocol"
+	"github.com/tejasa97/youtube_dlp/internal/javascript/engine"
+	"github.com/tejasa97/youtube_dlp/internal/javascript/protocol"
 )
 
 type corpus struct {

@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/internal/fragment"
-	"github.com/ytdlp-go/ytdlp/internal/network"
+	"github.com/tejasa97/youtube_dlp/internal/fragment"
+	"github.com/tejasa97/youtube_dlp/internal/network"
 )
 
 func TestDownloadSeparateAudioVideoTracks(t *testing.T) {

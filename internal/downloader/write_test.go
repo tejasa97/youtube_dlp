@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ytdlp-go/ytdlp/internal/events"
+	"github.com/tejasa97/youtube_dlp/internal/events"
 )
 
 func TestWriteRejectsSymlinkDestination(t *testing.T) {

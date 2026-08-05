@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/internal/value"
-	"github.com/ytdlp-go/ytdlp/internal/youtubepot"
+	"github.com/tejasa97/youtube_dlp/internal/value"
+	"github.com/tejasa97/youtube_dlp/internal/youtubepot"
 )
 
 const (

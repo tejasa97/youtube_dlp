@@ -15,14 +15,14 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/internal/extractor"
-	"github.com/ytdlp-go/ytdlp/internal/pack"
-	"github.com/ytdlp-go/ytdlp/internal/plugin"
-	"github.com/ytdlp-go/ytdlp/internal/plugin/rpc"
-	pluginwasm "github.com/ytdlp-go/ytdlp/internal/plugin/wasm"
-	"github.com/ytdlp-go/ytdlp/internal/sandbox"
-	"github.com/ytdlp-go/ytdlp/internal/value"
-	"github.com/ytdlp-go/ytdlp/pkg/pluginapi"
+	"github.com/tejasa97/youtube_dlp/internal/extractor"
+	"github.com/tejasa97/youtube_dlp/internal/pack"
+	"github.com/tejasa97/youtube_dlp/internal/plugin"
+	"github.com/tejasa97/youtube_dlp/internal/plugin/rpc"
+	pluginwasm "github.com/tejasa97/youtube_dlp/internal/plugin/wasm"
+	"github.com/tejasa97/youtube_dlp/internal/sandbox"
+	"github.com/tejasa97/youtube_dlp/internal/value"
+	"github.com/tejasa97/youtube_dlp/pkg/pluginapi"
 )
 
 type PluginPermission = pluginapi.Permission

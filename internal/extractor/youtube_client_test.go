@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/internal/youtubepot"
+	"github.com/tejasa97/youtube_dlp/internal/youtubepot"
 )
 
 func TestYouTubeAnonymousClientProfilesAreExactAndIsolated(t *testing.T) {

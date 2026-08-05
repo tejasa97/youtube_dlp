@@ -136,10 +136,14 @@ This is a source development build, not a signed public release. The
 ### Embed the Go API
 
 `pkg/ytdlp` exposes context-aware requests, events, categorized errors,
-playlists, metadata, and produced artifacts. The repository URL and declared
-Go module path are not yet reconciled, so normal `go get` instructions are
-intentionally deferred. Use a reviewed checkout with a local module
-replacement and follow the [embedding guide](docs/EMBEDDING.md).
+playlists, metadata, and produced artifacts. Add the canonical package with:
+
+```sh
+go get github.com/tejasa97/youtube_dlp/pkg/ytdlp
+```
+
+The API remains pre-release; review upgrades and follow the
+[embedding guide](docs/EMBEDDING.md).
 
 ## Project status
 

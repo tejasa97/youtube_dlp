@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/internal/testserver"
+	"github.com/tejasa97/youtube_dlp/internal/testserver"
 )
 
 func TestCLIProcessWalkingSkeleton(t *testing.T) {

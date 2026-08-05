@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/internal/extractor"
-	"github.com/ytdlp-go/ytdlp/internal/pack"
-	"github.com/ytdlp-go/ytdlp/internal/plugin"
-	"github.com/ytdlp-go/ytdlp/pkg/pluginapi"
+	"github.com/tejasa97/youtube_dlp/internal/extractor"
+	"github.com/tejasa97/youtube_dlp/internal/pack"
+	"github.com/tejasa97/youtube_dlp/internal/plugin"
+	"github.com/tejasa97/youtube_dlp/pkg/pluginapi"
 )
 
 func TestSignedWASMPluginPackHostAndProductIntegration(t *testing.T) {

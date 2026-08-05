@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ytdlp-go/ytdlp/internal/testserver"
+	"github.com/tejasa97/youtube_dlp/internal/testserver"
 )
 
 func TestPrintToFileAppendsStagesAndReportsUniqueArtifact(t *testing.T) {

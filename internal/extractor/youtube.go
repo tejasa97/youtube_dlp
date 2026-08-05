@@ -17,9 +17,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/internal/javascript/ejs"
-	"github.com/ytdlp-go/ytdlp/internal/protocol/youtubeump"
-	"github.com/ytdlp-go/ytdlp/internal/value"
+	"github.com/tejasa97/youtube_dlp/internal/javascript/ejs"
+	"github.com/tejasa97/youtube_dlp/internal/protocol/youtubeump"
+	"github.com/tejasa97/youtube_dlp/internal/value"
 )
 
 const youtubePlayerMarker = "ytInitialPlayerResponse"

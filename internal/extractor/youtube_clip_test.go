@@ -8,9 +8,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/ytdlp-go/ytdlp/internal/javascript/ejs"
-	"github.com/ytdlp-go/ytdlp/internal/javascript/engine"
-	"github.com/ytdlp-go/ytdlp/internal/value"
+	"github.com/tejasa97/youtube_dlp/internal/javascript/ejs"
+	"github.com/tejasa97/youtube_dlp/internal/javascript/engine"
+	"github.com/tejasa97/youtube_dlp/internal/value"
 )
 
 // TestYouTubeClipIDRecognition verifies /clip/<id> recognition and the

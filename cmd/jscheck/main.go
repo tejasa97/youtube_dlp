@@ -9,9 +9,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/internal/javascript/ejs"
-	"github.com/ytdlp-go/ytdlp/internal/javascript/protocol"
-	"github.com/ytdlp-go/ytdlp/internal/javascript/supervisor"
+	"github.com/tejasa97/youtube_dlp/internal/javascript/ejs"
+	"github.com/tejasa97/youtube_dlp/internal/javascript/protocol"
+	"github.com/tejasa97/youtube_dlp/internal/javascript/supervisor"
 )
 
 func main() {

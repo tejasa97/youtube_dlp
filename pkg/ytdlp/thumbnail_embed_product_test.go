@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ytdlp-go/ytdlp/internal/media/ffmpeg"
+	"github.com/tejasa97/youtube_dlp/internal/media/ffmpeg"
 )
 
 func TestProductEmbedsMislabeledWebPThumbnailAndAppliesRetention(t *testing.T) {

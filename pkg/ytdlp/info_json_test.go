@@ -10,12 +10,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ytdlp-go/ytdlp/internal/archive"
-	cookiesnapshot "github.com/ytdlp-go/ytdlp/internal/cookies/snapshot"
-	"github.com/ytdlp-go/ytdlp/internal/extractor"
-	"github.com/ytdlp-go/ytdlp/internal/network"
-	"github.com/ytdlp-go/ytdlp/internal/testserver"
-	"github.com/ytdlp-go/ytdlp/internal/value"
+	"github.com/tejasa97/youtube_dlp/internal/archive"
+	cookiesnapshot "github.com/tejasa97/youtube_dlp/internal/cookies/snapshot"
+	"github.com/tejasa97/youtube_dlp/internal/extractor"
+	"github.com/tejasa97/youtube_dlp/internal/network"
+	"github.com/tejasa97/youtube_dlp/internal/testserver"
+	"github.com/tejasa97/youtube_dlp/internal/value"
 )
 
 func TestLoadInfoJSONDownloadsBoundedMetadataWithoutAmbientCredentials(t *testing.T) {

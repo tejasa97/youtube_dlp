@@ -3,7 +3,7 @@ package ytdlp
 import (
 	"time"
 
-	"github.com/ytdlp-go/ytdlp/internal/youtubepot"
+	"github.com/tejasa97/youtube_dlp/internal/youtubepot"
 )
 
 type YouTubePOTContext = youtubepot.Context
