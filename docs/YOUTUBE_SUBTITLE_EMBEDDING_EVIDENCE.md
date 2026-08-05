@@ -56,14 +56,14 @@ languages, names, paths, and metadata are artificial.
 - `internal/media/ffmpeg.FuzzSubtitleEmbedMetadataValidation`
 - `internal/media/postprocess.TestArtifactAndDestinationFailures`
 - `internal/media/postprocess.TestSubtitleEmbedFailurePreservesOwnedInputs`
-- `pkg/ytdlp.TestProductEmbedsSelectedSubtitleTracksAndAppliesRetention`
-- `pkg/ytdlp.TestProductSkipsUnsupportedEmbeddingContainerWithoutDeletingSidecar`
-- `pkg/ytdlp.TestProductSkipsUnsupportedWebMTrackWithoutDeletingSidecar`
-- `pkg/ytdlp.TestProductConvertsBeforeEmbeddingForWebM`
-- `pkg/ytdlp.TestSubtitleCleanupFailureIsNonVetoableAndReported`
-- `pkg/ytdlp.TestSubtitleEmbeddingImplicitlySelectsManualTracks`
-- `pkg/ytdlp.TestSubtitleKeepFilesRequiresEmbedding`
-- `pkg/ytdlp.TestSubtitleEmbeddingTrackLimitFailsBeforeDownload`
+- `engine.TestProductEmbedsSelectedSubtitleTracksAndAppliesRetention`
+- `engine.TestProductSkipsUnsupportedEmbeddingContainerWithoutDeletingSidecar`
+- `engine.TestProductSkipsUnsupportedWebMTrackWithoutDeletingSidecar`
+- `engine.TestProductConvertsBeforeEmbeddingForWebM`
+- `engine.TestSubtitleCleanupFailureIsNonVetoableAndReported`
+- `engine.TestSubtitleEmbeddingImplicitlySelectsManualTracks`
+- `engine.TestSubtitleKeepFilesRequiresEmbedding`
+- `engine.TestSubtitleEmbeddingTrackLimitFailsBeforeDownload`
 - `internal/cli.TestRunEmbedSubtitlesImplicitSelectionAndClear`
 - `internal/cli.TestRunEmbedsAutomaticSubtitleAndUsesPinnedRetentionRule`
 

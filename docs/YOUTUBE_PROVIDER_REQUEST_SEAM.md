@@ -18,8 +18,9 @@ fields now have these owners:
 | Complete YouTube family (`internal/providers/youtube.Options`) | `ChallengeSolver`, `YouTubePOT`, `YouTubeTranslatedCaptions`, `YouTubeLiveFromStart`, `YouTubeComments` | YouTube player challenges, PO tokens, captions, live handling, and comment continuation behavior. |
 | Other concrete providers | `SoundCloudComments`, `NHK` | Options remain with their existing provider implementations and are not copied into the YouTube request. |
 
-The broad product maps its public request into the legacy request exactly once
-through `operation.providerRequest`. `internal/extractor.Request.NeutralRequest`
+The broad facade maps the engine operation and public request into the legacy
+request exactly once through `pkg/ytdlp.broadProviderRequest`.
+`internal/extractor.Request.NeutralRequest`
 copies only engine-owned fields, and `YouTubeRequest` combines that neutral
 request with typed YouTube options. Transports and credential providers retain
 their operation-local identities; neither is stored globally or copied into a
@@ -46,19 +47,18 @@ transport, balanced JSON-object extraction, manifest-format construction, and
 entry limiting are owned by `engine/provider`, with compatibility wrappers for
 non-YouTube providers. The broad provider names and positions remain fixed.
 
-## Remaining orchestration and public-provider seams
+## Completed orchestration seam
 
-The next orchestration PR moves the operational client/API into root `engine`
-and fixes `engine/provider.Bundle[C]` to its public run configuration type.
-Neutral composition tests stay beside `engine/provider` and use public fake
-providers. Broad catalog, concrete-provider, plugin, and compatibility tests
-remain under `pkg/ytdlp`, avoiding a test-only dependency from `engine` back to
-`internal/extractor`.
+Root `engine` now owns the operational client/API and consumes an explicit
+typed composition. Its production dependency graph excludes
+`internal/extractor` and concrete providers. Neutral external-package tests
+compose and run a fake provider; broad compatibility tests preserve catalog
+order, plugin placement, provider option adaptation, and `pkg/ytdlp.NewClient`.
 
-That public composition should adapt directly to `youtube.Request`, preserve
-the full-catalog `pkg/ytdlp.NewClient` facade, and keep plugins exclusive to
-the broad composition. Desktop remains unchanged until a later dedicated
-switch and dependency-proof change.
+The remaining public-provider PR will add a `providers/youtube` composition
+that adapts directly to `youtube.Request`. Plugins stay exclusive to the broad
+facade. Desktop remains unchanged until its later dedicated switch and
+dependency-proof change.
 
 The generic bundle and registry remain parameterized by composition-owned
 configuration and request types. The compatibility catalog can bind

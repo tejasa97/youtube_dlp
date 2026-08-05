@@ -135,6 +135,19 @@ func cloneRevokedKeys(input map[string]bool) map[string]bool {
 	return output
 }
 
+func packPolicy(trust PluginPackTrust) pack.VerifyPolicy {
+	keys := clonePublicKeys(trust.Keys)
+	return pack.VerifyPolicy{
+		Trust: keys, Now: trust.Now, HostVersion: trust.HostVersion,
+		CurrentVersion: trust.CurrentVersion,
+		Revocations: pack.Revocations{
+			KeyIDs:         append([]string(nil), trust.Revocations.KeyIDs...),
+			ManifestSHA256: append([]string(nil), trust.Revocations.ManifestSHA256...),
+			Packages:       append([]pack.PackageRevocation(nil), trust.Revocations.Packages...),
+		},
+	}
+}
+
 func categorizePackTransaction(op string, err error) error {
 	if err == nil {
 		return nil

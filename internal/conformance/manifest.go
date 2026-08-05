@@ -193,10 +193,10 @@ func (manifest *Manifest) Validate() error {
 			"docs/FORMAT_SELECTOR_CURRENT_UPSTREAM_DELTA_EVIDENCE.md",
 			"internal/format/testdata/pinned_closure_matrix.json",
 			"docs/FORMAT_SELECTOR_PINNED_CLOSURE_EVIDENCE.md",
-			"pkg/ytdlp.TestFormatCheckAllReusesProbeCacheDuringPlanning",
+			"engine.TestFormatCheckAllReusesProbeCacheDuringPlanning",
 			"internal/cli.TestRunInteractiveFormatUnavailableThenValid",
-			"pkg/ytdlp.TestNTrackMergeRealMediaTwoTrack",
-			"pkg/ytdlp.TestMultiOutputLifecycleSidecarsPrintsAndMetadataIsolation",
+			"engine.TestNTrackMergeRealMediaTwoTrack",
+			"engine.TestMultiOutputLifecycleSidecarsPrintsAndMetadataIsolation",
 		} {
 			if !containsEvidence(selector.Evidence, required) {
 				return fmt.Errorf("compat.format_selector is missing required closure evidence %q", required)

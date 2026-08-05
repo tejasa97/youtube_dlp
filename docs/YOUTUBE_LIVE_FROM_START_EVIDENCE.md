@@ -48,12 +48,12 @@ and do not depend on the reference checkout.
 - `internal/protocol/youtubelive.TestLive120HourClamp`
 - `internal/protocol/youtubelive.TestLiveEventSinkFailureCleansAndCompletionCannotVeto`
 - `internal/protocol/youtubelive.FuzzLiveBeginSequence`
-- `pkg/ytdlp.TestYouTubeLiveFromStartDownloadsTracksConcurrentlyAndMerges`
-- `pkg/ytdlp.TestYouTubeLiveFromStartPublicRequestReachesExtractor`
-- `pkg/ytdlp.TestYouTubeLivePublicBoundsFailAtRequestValidation`
-- `pkg/ytdlp.TestYouTubeLiveRefreshCoordinatorCachesAndMatchesExactIdentity`
-- `pkg/ytdlp.TestYouTubeLiveRefreshCoordinatorReportsEndedStatus`
-- `pkg/ytdlp.TestYouTubeLiveRefreshCoordinatorEndsWithoutMatchingFinalFormat`
+- `engine.TestYouTubeLiveFromStartDownloadsTracksConcurrentlyAndMerges`
+- `engine.TestYouTubeLiveFromStartPublicRequestReachesExtractor`
+- `engine.TestYouTubeLivePublicBoundsFailAtRequestValidation`
+- `engine.TestYouTubeLiveRefreshCoordinatorCachesAndMatchesExactIdentity`
+- `engine.TestYouTubeLiveRefreshCoordinatorReportsEndedStatus`
+- `engine.TestYouTubeLiveRefreshCoordinatorEndsWithoutMatchingFinalFormat`
 - `internal/cli.TestRunAcceptsLiveFromStartAndLastNegativeFlagWins`
 
 ## Known deviations

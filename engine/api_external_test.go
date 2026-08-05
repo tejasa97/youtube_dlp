@@ -14,7 +14,7 @@ import (
 type typedOptions struct{ Enabled bool }
 
 type typedRequest struct {
-	engine.Request
+	engine.ProviderRequest
 	Options typedOptions
 }
 
@@ -63,7 +63,7 @@ func (publicPOTResolver) NewEpisodeResolver() engine.POTEpisodeResolver { return
 
 func TestExternalPackageCanComposeTypedProviderRegistry(t *testing.T) {
 	request := typedRequest{
-		Request: engine.Request{
+		ProviderRequest: engine.ProviderRequest{
 			URL:         "https://public.example/video",
 			Transport:   publicTransport{},
 			Credentials: publicCredentials{},
@@ -80,6 +80,28 @@ func TestExternalPackageCanComposeTypedProviderRegistry(t *testing.T) {
 	}
 	if title, ok := result.Info.Title(); !ok || title != "Public fixture" {
 		t.Fatalf("title=%q ok=%v", title, ok)
+	}
+}
+
+func TestExternalPackageCanComposeAndRunClient(t *testing.T) {
+	composition := engine.NewComposition[typedRequest](
+		func(engine.ClientProviderConfig) []engine.Provider[typedRequest] {
+			return []engine.Provider[typedRequest]{publicProvider{}}
+		},
+		func(operation engine.Operation, _ engine.Request) typedRequest {
+			return typedRequest{ProviderRequest: operation.Request, Options: typedOptions{Enabled: true}}
+		},
+		engine.ProviderHooks{},
+	)
+	client := engine.NewClient(composition)
+	result, err := client.Run(context.Background(), engine.Request{
+		URL: "https://public.example/video", SkipDownload: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Extractor != "public-fixture" || result.Downloaded {
+		t.Fatalf("result = %#v", result)
 	}
 }
 

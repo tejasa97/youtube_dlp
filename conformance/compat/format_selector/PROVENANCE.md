@@ -16,7 +16,7 @@
   `internal/format.TestParserParity*`,
   `internal/format.TestFilter*`,
   `internal/format.TestPythonRegex*`,
-  `pkg/ytdlp.TestFormatSelectorInvalidSyntaxFailsBeforeExtraction`
+  `engine.TestFormatSelectorInvalidSyntaxFailsBeforeExtraction`
 - Gap ledger: `docs/FORMAT_SELECTOR_PARITY.md`
 
 ## Fixture hashes

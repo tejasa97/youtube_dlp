@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tejasa97/youtube_dlp/engine"
+	providerapi "github.com/tejasa97/youtube_dlp/engine/provider"
 	"github.com/tejasa97/youtube_dlp/internal/extractor"
 	"github.com/tejasa97/youtube_dlp/internal/javascript/ejs"
 	"github.com/tejasa97/youtube_dlp/internal/network"
@@ -44,30 +46,26 @@ func TestProductRequestAdaptsEveryYouTubeOptionWithoutWideningScope(t *testing.T
 	}
 	solver := &providerRequestSolver{}
 	credentials := &providerRequestCredentials{}
-	operation := &operation{
-		client:      &Client{youtubePOT: director},
-		transport:   transport,
-		solver:      solver,
-		credentials: credentials,
-		request: Request{
-			VideoPassword:             "video-secret",
-			YouTubeTranslatedCaptions: true,
-			LiveFromStart:             true,
-			YouTubeComments: YouTubeCommentOptions{
-				Enabled: true, Sort: "new", MaxComments: 11, MaxParents: 12,
-				MaxReplies: 13, MaxRepliesPerThread: 14, MaxDepth: 15,
-			},
-			SoundCloudComments: SoundCloudCommentOptions{Enabled: true, Sort: "oldest", MaxComments: 16},
-			NHK:                NHKOptions{RadiruArea: "130"},
-			Playlist:           PlaylistOptions{Disabled: true},
+	productRequest := engine.Request{
+		VideoPassword:             "video-secret",
+		YouTubeTranslatedCaptions: true,
+		LiveFromStart:             true,
+		YouTubeComments: YouTubeCommentOptions{
+			Enabled: true, Sort: "new", MaxComments: 11, MaxParents: 12,
+			MaxReplies: 13, MaxRepliesPerThread: 14, MaxDepth: 15,
 		},
+		SoundCloudComments: SoundCloudCommentOptions{Enabled: true, Sort: "oldest", MaxComments: 16},
+		NHK:                NHKOptions{RadiruArea: "130"},
+		Playlist:           PlaylistOptions{Disabled: true},
 	}
-
-	legacy := operation.providerRequest(
-		"https://user:url-secret@www.youtube.com/watch?v=abcdefghijk",
-		"https://referrer.test/embed",
-		"private query",
-	)
+	legacy := broadProviderRequest(providerapi.Operation{
+		Request: providerapi.Request{
+			URL:     "https://user:url-secret@www.youtube.com/watch?v=abcdefghijk",
+			Referer: "https://referrer.test/embed", SearchQueryOverride: "private query",
+			Transport: transport, Credentials: credentials, VideoPassword: "video-secret", NoPlaylist: true,
+		},
+		ChallengeSolver: solver, POTResolver: director,
+	}, productRequest)
 	request := legacy.YouTubeRequest()
 	if request.Transport != transport || request.Credentials != credentials || request.Options.ChallengeSolver != solver || request.Options.POT != director {
 		t.Fatal("operation-scoped transport, credentials, solver, or POT director changed during adaptation")

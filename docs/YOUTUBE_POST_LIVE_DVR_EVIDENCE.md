@@ -59,9 +59,9 @@ Python or reads the reference checkout.
 - `internal/protocol/youtubelive.TestCompletedEventCannotVetoPublishedArtifact`
 - `internal/protocol/youtubelive.FuzzParseHeadSequence`
 - `internal/protocol/youtubelive.FuzzSequenceURLConstruction`
-- `pkg/ytdlp.TestYouTubePostLiveAdaptiveTracksDownloadAndMerge`
-- `pkg/ytdlp.TestYouTubePostLiveRejectsExternalDownloaderAndCategorizesFailures`
-- `pkg/ytdlp.TestOperationPostLivePreferenceKeepsExplicitDirectFormatAuthoritative`
+- `engine.TestYouTubePostLiveAdaptiveTracksDownloadAndMerge`
+- `engine.TestYouTubePostLiveRejectsExternalDownloaderAndCategorizesFailures`
+- `engine.TestOperationPostLivePreferenceKeepsExplicitDirectFormatAuthoritative`
 
 ## Known deviations
 

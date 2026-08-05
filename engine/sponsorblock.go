@@ -1,0 +1,384 @@
+package engine
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"math"
+	"strconv"
+	"strings"
+
+	providerapi "github.com/tejasa97/youtube_dlp/engine/provider"
+	compattemplate "github.com/tejasa97/youtube_dlp/internal/compat/template"
+	"github.com/tejasa97/youtube_dlp/internal/sponsorblock"
+	"github.com/tejasa97/youtube_dlp/internal/value"
+)
+
+const sponsorBlockDurationMismatchWarning = "Some SponsorBlock segments are from a video of different duration, maybe from an old version of this video"
+
+// enrichWithSponsorBlock performs the optional SponsorBlock metadata
+// fetch and writes the normalized chapters onto the given info. The
+// function is called only when the public Request explicitly opts in.
+//
+// Marking may rewrite chapter metadata without mutating media bytes.
+// When Mark is combined with SponsorBlock, ordinary chapter, or manual range
+// removal and a real download may still cut, arrangement is deferred to
+// applyChapterCuts so chapters are produced once on the post-cut timeline.
+// Under Simulate or SkipDownload the remove path never runs, so requested Mark
+// overlays are applied here without inventing media cuts.
+//
+// The function never panics. All errors are categorized and surface
+// through the engine Error mechanism. A valid empty
+// response (HTTP 200, HTTP 404, or no matching videoID) is treated
+// as success and the result.InfoJSON ends up with an empty
+// sponsorblock_chapters list.
+func (operation *operation) enrichWithSponsorBlock(ctx context.Context, extractorName string, info *value.Info) error {
+	if !operation.request.SponsorBlock.Enabled {
+		return nil
+	}
+	if info == nil {
+		return &Error{Category: ErrorInternal, Op: "sponsorblock", Err: errors.New("missing metadata")}
+	}
+	service, supported := "", false
+	var identify func(providerapi.ServiceRequest) (string, bool)
+	if operation.registry != nil {
+		identify = operation.registry.Hooks().ServiceIdentity
+	} else if operation.client != nil {
+		identify = operation.client.composition.hooks.ServiceIdentity
+	}
+	if identify != nil {
+		service, supported = identify(providerapi.ServiceRequest{
+			Capability: "sponsorblock", Provider: extractorName,
+		})
+	}
+	if !supported {
+		return &Error{
+			Category: ErrorUnsupported,
+			Op:       "sponsorblock extractor",
+			Err:      fmt.Errorf("sponsorblock: %w", sponsorblock.ErrUnsupported),
+		}
+	}
+	id, hasID := info.ID()
+	if !hasID || id == "" {
+		return &Error{Category: ErrorInternal, Op: "sponsorblock", Err: errors.New("missing video id")}
+	}
+	duration := 0.0
+	if raw := info.Lookup("duration"); !raw.IsMissing() {
+		if d, ok := sponsorblockDuration(raw); ok {
+			duration = d
+		}
+	}
+	// Defer marking whenever the shared remove path can still run. This keeps
+	// title expressions from matching synthesized SponsorBlock chapter titles.
+	deferMarkRemove := operation.request.SponsorBlock.Mark &&
+		(operation.request.SponsorBlock.Remove || len(operation.request.RemoveChapters) > 0) &&
+		!operation.request.Simulate &&
+		!operation.request.SkipDownload
+	markNow := operation.request.SponsorBlock.Mark && !deferMarkRemove
+	var normal []sponsorblock.NormalChapter
+	var originals []value.Value
+	if markNow {
+		if duration <= 0 {
+			return mapSponsorBlockError(fmt.Errorf("%w: mark duration", sponsorblock.ErrInvalidInput))
+		}
+		var err error
+		normal, originals, err = ordinarySponsorBlockChapters(info, duration, false)
+		if err != nil {
+			return mapSponsorBlockError(err)
+		}
+	}
+	options := sponsorblock.Options{
+		Enabled:    true,
+		Categories: sponsorBlockFetchCategories(operation.request.SponsorBlock),
+		APIBase:    operation.request.SponsorBlock.APIBase,
+	}
+	result, err := sponsorblock.Fetch(ctx, operation.transport, options, service, id, duration)
+	if err != nil {
+		return mapSponsorBlockError(err)
+	}
+	if result.DurationMismatchFiltered {
+		if operation.client == nil {
+			return &Error{Category: ErrorInternal, Op: "sponsorblock duration warning", Err: errors.New("missing event client")}
+		}
+		if err := operation.client.emit(ctx, Event{
+			Kind:    EventMetadataWarning,
+			Message: sponsorBlockDurationMismatchWarning,
+		}); err != nil {
+			return &Error{Category: ErrorInternal, Op: "sponsorblock duration warning", Err: err}
+		}
+	}
+	sponsorValues := make([]value.Value, 0, len(result.Chapters))
+	for _, chapter := range result.Chapters {
+		sponsorValues = append(sponsorValues, chapterValue(chapter))
+	}
+	var markedValues []value.Value
+	if markNow {
+		title, _ := info.Lookup("title").StringValue()
+		marked, err := sponsorblock.MarkChaptersWithTitle(
+			normal, result.Chapters, duration, title,
+			sponsorBlockChapterTitleRenderer(operation.request.SponsorBlock.ChapterTitle))
+		if err != nil {
+			return mapSponsorBlockError(err)
+		}
+		markedValues = renderMarkedChapters(marked, originals)
+	}
+	// Commit metadata only after fetch, parsing, warning emission, and
+	// optional mark arrangement all succeed.
+	info.Set("sponsorblock_chapters", value.List(sponsorValues...))
+	if markNow {
+		info.Set("chapters", value.List(markedValues...))
+	}
+	return nil
+}
+
+func validateSponsorBlockChapterTitle(pattern *string) error {
+	if pattern == nil {
+		return nil
+	}
+	if err := compattemplate.Validate(*pattern); err != nil {
+		return errors.New("SponsorBlock chapter title template invalid")
+	}
+	return nil
+}
+
+func sponsorBlockChapterTitleRenderer(pattern *string) sponsorblock.ChapterTitleRenderer {
+	if pattern == nil {
+		return nil
+	}
+	template := *pattern
+	return func(fields sponsorblock.ChapterTitleFields) (string, error) {
+		return compattemplate.Render(template, sponsorBlockChapterTitleInfo(fields))
+	}
+}
+
+func sponsorBlockChapterTitleInfo(fields sponsorblock.ChapterTitleFields) value.Info {
+	categories := make([]value.Value, 0, len(fields.Categories))
+	for _, category := range fields.Categories {
+		categories = append(categories, value.String(category))
+	}
+	names := make([]value.Value, 0, len(fields.CategoryNames))
+	for _, name := range fields.CategoryNames {
+		names = append(names, value.String(name))
+	}
+	return value.NewInfo(value.NewObject(
+		value.Field{Key: "start_time", Value: value.Float(fields.StartTime)},
+		value.Field{Key: "end_time", Value: value.Float(fields.EndTime)},
+		value.Field{Key: "category", Value: value.String(fields.Category)},
+		value.Field{Key: "categories", Value: value.List(categories...)},
+		value.Field{Key: "name", Value: value.String(fields.Name)},
+		value.Field{Key: "category_names", Value: value.List(names...)},
+	))
+}
+
+func ordinarySponsorBlockChapters(info *value.Info, finalEnd float64, allowOpenFinal bool) ([]sponsorblock.NormalChapter, []value.Value, error) {
+	raw := info.Lookup("chapters")
+	if raw.IsMissing() || raw.IsNull() {
+		return nil, nil, nil
+	}
+	originals, ok := raw.ListValue()
+	if !ok {
+		return nil, nil, fmt.Errorf("%w: ordinary chapters", sponsorblock.ErrInvalidInput)
+	}
+	normal := make([]sponsorblock.NormalChapter, 0, len(originals))
+	for index, item := range originals {
+		object, ok := item.Object()
+		if !ok {
+			return nil, nil, fmt.Errorf("%w: ordinary chapter object", sponsorblock.ErrInvalidInput)
+		}
+		start, ok := sponsorblockNumber(object.Lookup("start_time"))
+		if !ok {
+			return nil, nil, fmt.Errorf("%w: ordinary chapter start", sponsorblock.ErrInvalidInput)
+		}
+		end, ok := sponsorblockNumber(object.Lookup("end_time"))
+		if !ok || (index == len(originals)-1 && end == 0) {
+			if index != len(originals)-1 {
+				return nil, nil, fmt.Errorf("%w: ordinary chapter end", sponsorblock.ErrInvalidInput)
+			}
+			switch {
+			case finalEnd > start:
+				end = finalEnd
+			case allowOpenFinal:
+				end = start
+			default:
+				return nil, nil, fmt.Errorf("%w: ordinary chapter end", sponsorblock.ErrInvalidInput)
+			}
+		}
+		title := ""
+		if titleValue := object.Lookup("title"); !titleValue.IsMissing() && !titleValue.IsNull() {
+			title, ok = titleValue.StringValue()
+			if !ok {
+				return nil, nil, fmt.Errorf("%w: ordinary chapter title", sponsorblock.ErrInvalidInput)
+			}
+		}
+		normal = append(normal, sponsorblock.NormalChapter{
+			StartTime: start, EndTime: end, Title: title, Source: index,
+		})
+	}
+	return normal, originals, nil
+}
+
+func sponsorblockNumber(raw value.Value) (float64, bool) {
+	switch raw.Kind() {
+	case value.KindInt:
+		number, ok := raw.Int()
+		return float64(number), ok
+	case value.KindFloat:
+		number, ok := raw.Float()
+		return number, ok && !math.IsNaN(number) && !math.IsInf(number, 0)
+	default:
+		return 0, false
+	}
+}
+
+func renderMarkedChapters(marked []sponsorblock.MarkedChapter, originals []value.Value) []value.Value {
+	rendered := make([]value.Value, 0, len(marked))
+	for _, chapter := range marked {
+		var object *value.Object
+		if !chapter.Sponsor && chapter.Source >= 0 && chapter.Source < len(originals) {
+			cloned := originals[chapter.Source].Clone()
+			object, _ = cloned.Object()
+		}
+		if object == nil {
+			object = value.NewObject()
+		}
+		object.Set("start_time", value.Float(chapter.StartTime))
+		object.Set("end_time", value.Float(chapter.EndTime))
+		object.Set("title", value.String(chapter.Title))
+		if chapter.Sponsor {
+			object.Set("category", value.String(chapter.Category))
+			object.Set("categories", stringListValue(chapter.Categories))
+			object.Set("name", value.String(chapter.Name))
+			object.Set("category_names", stringListValue(chapter.CategoryNames))
+			if chapter.Type != "" {
+				object.Set("type", value.String(chapter.Type))
+			}
+		}
+		rendered = append(rendered, value.ObjectValue(object))
+	}
+	return rendered
+}
+
+func stringListValue(strings []string) value.Value {
+	values := make([]value.Value, len(strings))
+	for index, text := range strings {
+		values[index] = value.String(text)
+	}
+	return value.List(values...)
+}
+
+// sponsorblockDuration extracts a numeric video duration in seconds
+// from a value.Info field. The conversion is defensive: SponsorBlock
+// timestamps are float64 seconds; the value package stores durations
+// as int64 seconds, float64 seconds, or strings depending on the
+// extractor. Non-finite values are rejected.
+func sponsorblockDuration(raw value.Value) (float64, bool) {
+	switch raw.Kind() {
+	case value.KindInt:
+		seconds, ok := raw.Int()
+		if !ok || seconds < 0 {
+			return 0, false
+		}
+		return float64(seconds), true
+	case value.KindFloat:
+		seconds, ok := raw.Float()
+		if !ok {
+			return 0, false
+		}
+		if math.IsNaN(seconds) || math.IsInf(seconds, 0) || seconds < 0 {
+			return 0, false
+		}
+		return seconds, true
+	case value.KindString:
+		text, ok := raw.StringValue()
+		if !ok {
+			return 0, false
+		}
+		// Accept "SS" and "SS.SSS" forms only. Anything
+		// else is treated as missing so the normalizer
+		// keeps all entries (the duration filter is
+		// disabled without a known duration).
+		seconds, err := strconv.ParseFloat(strings.TrimSpace(text), 64)
+		if err != nil {
+			return 0, false
+		}
+		if math.IsNaN(seconds) || math.IsInf(seconds, 0) || seconds < 0 {
+			return 0, false
+		}
+		return seconds, true
+	}
+	return 0, false
+}
+
+// chapterValue renders one normalized chapter as a value.Object. Only
+// the pinned fields are exposed; untrusted extra API fields are
+// dropped. StartTime and EndTime are encoded as float64 to match the
+// pinned reference's JSON output.
+func chapterValue(chapter sponsorblock.Chapter) value.Value {
+	object := value.NewObject()
+	object.Set("start_time", value.Float(chapter.StartTime))
+	object.Set("end_time", value.Float(chapter.EndTime))
+	object.Set("category", value.String(chapter.Category))
+	object.Set("title", value.String(chapter.Title))
+	object.Set("type", value.String(chapter.Type))
+	return value.ObjectValue(object)
+}
+
+// mapSponsorBlockError translates a categorized SponsorBlock error
+// into the engine Error taxonomy. Network and invalid
+// metadata remain the dominant failure modes; authentication is
+// included for completeness even though SponsorBlock is
+// unauthenticated. The function never returns nil for a non-nil
+// input but the rendered message never includes the underlying
+// error verbatim; it is reduced to the sentinel so secrets and
+// URLs cannot leak through the public error chain.
+func mapSponsorBlockError(err error) error {
+	if err == nil {
+		return nil
+	}
+	category := ErrorInternal
+	switch {
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		category = ErrorCancelled
+	case errors.Is(err, sponsorblock.ErrInvalidInput):
+		category = ErrorInvalidInput
+	case errors.Is(err, sponsorblock.ErrUnsupported):
+		category = ErrorUnsupported
+	case errors.Is(err, sponsorblock.ErrUnavailable):
+		category = ErrorInternal
+	case errors.Is(err, sponsorblock.ErrNetwork):
+		category = ErrorNetwork
+	case errors.Is(err, sponsorblock.ErrAuthentication):
+		category = ErrorAuthentication
+	case errors.Is(err, sponsorblock.ErrIsolation):
+		category = ErrorSecurity
+	case errors.Is(err, sponsorblock.ErrInvalidMetadata):
+		category = ErrorInternal
+	}
+	if category == ErrorCancelled {
+		return &Error{Category: category, Op: "sponsorblock", Err: err}
+	}
+	return &Error{Category: category, Op: "sponsorblock", Err: errors.New(categorySentinel(category))}
+}
+
+// categorySentinel returns a short, static label for one public
+// error category. The label never includes caller-controlled
+// strings.
+func categorySentinel(category ErrorCategory) string {
+	switch category {
+	case ErrorInvalidInput:
+		return "invalid input"
+	case ErrorUnsupported:
+		return "unsupported"
+	case ErrorNetwork:
+		return "network failure"
+	case ErrorAuthentication:
+		return "authentication required"
+	case ErrorSecurity:
+		return "security violation"
+	case ErrorCancelled:
+		return "cancelled"
+	case ErrorInternal:
+		return "internal failure"
+	}
+	return string(category)
+}

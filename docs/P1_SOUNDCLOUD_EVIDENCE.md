@@ -198,8 +198,8 @@ The shared registry and parity manifest remain owned by the primary integrator.
 - `internal/extractor.TestSoundCloudOriginalPreservesSignedPathEncoding`
 - `internal/extractor.FuzzSoundCloudOriginalURL`
 - `internal/extractor.FuzzSoundCloudOriginalExtension`
-- `pkg/ytdlp.TestProductRegistryReentersSoundCloudEmbedIntoMedia`
-- `pkg/ytdlp.TestProductSoundCloudCommentOptionsPropagateAndEnrich`
+- `engine.TestProductRegistryReentersSoundCloudEmbedIntoMedia`
+- `engine.TestProductSoundCloudCommentOptionsPropagateAndEnrich`
 - `conformance/extractors/soundcloud/PROVENANCE.md`
 - `conformance/extractors/soundcloud/comments/PROVENANCE.md`
 - `conformance/extractors/soundcloud/download/PROVENANCE.md`

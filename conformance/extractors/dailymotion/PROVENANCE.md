@@ -34,4 +34,4 @@ redirect by default and honors `Request.NoPlaylist` for the video branch. A
 playlist-only player URL remains a playlist redirect, and the video branch
 retains the original query bytes in `webpage_url`; see
 `internal/extractor.TestDailymotionNoPlaylistAmbiguousURLChoice` and
-`pkg/ytdlp.TestProductDailymotionNoPlaylistChoice`.
+`engine.TestProductDailymotionNoPlaylistChoice`.

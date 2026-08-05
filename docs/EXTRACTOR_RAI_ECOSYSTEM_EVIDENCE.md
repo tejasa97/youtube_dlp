@@ -63,7 +63,7 @@ comma-list synthesis semantics; `TestRaiMP4FormatExplicitQualityWithoutMatchIsSk
 verifies that genuinely distant base formats do not satisfy
 `raiMP4FormatResolves`.
 
-`pkg/ytdlp.TestProductRegistryRoutesRaiAndPlaylistReentry` exercises product
+`engine.TestProductRegistryRoutesRaiAndPlaylistReentry` exercises product
 registry selection and typed playlist re-entry. The two Rai fuzz targets
 preserve route and media-URL safety invariants.
 
@@ -85,7 +85,7 @@ region restricted; non-empty DRM licenses are not treated as playable.
 A generic bounded HDS/F4M VOD downloader exists in this product
 (`internal/protocol/hds`, merged via #163). The Rai F4M format is wired to
 that generic path without extractor-side manifest parsing or downloading.
-`pkg/ytdlp.TestProductRaiF4MExtractionBridgesIntoHDSAndAssemblesFLV` proves
+`engine.TestProductRaiF4MExtractionBridgesIntoHDSAndAssemblesFLV` proves
 selection, dispatch, ordered FLV assembly, signed duplicate-query preservation
 on every fragment. After extraction, the test seeds sensitive selection
 headers and proves they are stripped from HDS manifest, bootstrap, and

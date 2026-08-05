@@ -3,6 +3,7 @@ package ytdlp
 import (
 	"time"
 
+	"github.com/tejasa97/youtube_dlp/engine"
 	"github.com/tejasa97/youtube_dlp/internal/youtubepot"
 )
 
@@ -34,10 +35,9 @@ type YouTubePOTConfig struct {
 }
 
 func WithYouTubePOTProviders(config YouTubePOTConfig) Option {
-	return func(client *Client) {
-		providers := append([]youtubepot.Provider(nil), config.Providers...)
-		client.youtubePOT, client.youtubePOTErr = youtubepot.New(youtubepot.Config{
-			Policy: config.Policy, CacheSize: config.CacheSize, RefreshSkew: config.RefreshSkew, Providers: providers,
-		})
-	}
+	providers := append([]youtubepot.Provider(nil), config.Providers...)
+	resolver, err := youtubepot.New(youtubepot.Config{
+		Policy: config.Policy, CacheSize: config.CacheSize, RefreshSkew: config.RefreshSkew, Providers: providers,
+	})
+	return engine.WithPOTResolver(resolver, err)
 }

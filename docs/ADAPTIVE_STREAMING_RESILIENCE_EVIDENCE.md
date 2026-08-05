@@ -69,19 +69,19 @@ commits.
 
 Product evidence:
 
-- `pkg/ytdlp.TestProductHLSSplitDiscontinuitySelectsOnlySelectedRepresentation`
-- `pkg/ytdlp.TestProductHLSSplitDiscontinuityRejectsMergedHLSRepresentations`
-- `pkg/ytdlp.TestProductHLSSplitDiscontinuityRollbackArchiveAndRedactedProgress`
-- `pkg/ytdlp.TestProductHLSExplicitDiscontinuitySequencesFanOutInPlaylistOrder`
-- `pkg/ytdlp.TestProductHLSExplicitSingleDiscontinuityKeepsDestination`
-- `pkg/ytdlp.TestProductHLSExplicitDiscontinuityRejectsBeforeMediaArtifactAndArchiveMutation`
-- `pkg/ytdlp.TestProductHLSExplicitDiscontinuityPreflightsCollisionsBeforeMedia`
-- `pkg/ytdlp.TestProductHLSExplicitDiscontinuityRollsBackPartialFailure`
-- `pkg/ytdlp.TestProductHLSExplicitDiscontinuityCancellationCleansScratchAndArchive`
-- `pkg/ytdlp.TestProductHLSExplicitDiscontinuityRejectsInvalidAPIValueBeforeNetwork`
+- `engine.TestProductHLSSplitDiscontinuitySelectsOnlySelectedRepresentation`
+- `engine.TestProductHLSSplitDiscontinuityRejectsMergedHLSRepresentations`
+- `engine.TestProductHLSSplitDiscontinuityRollbackArchiveAndRedactedProgress`
+- `engine.TestProductHLSExplicitDiscontinuitySequencesFanOutInPlaylistOrder`
+- `engine.TestProductHLSExplicitSingleDiscontinuityKeepsDestination`
+- `engine.TestProductHLSExplicitDiscontinuityRejectsBeforeMediaArtifactAndArchiveMutation`
+- `engine.TestProductHLSExplicitDiscontinuityPreflightsCollisionsBeforeMedia`
+- `engine.TestProductHLSExplicitDiscontinuityRollsBackPartialFailure`
+- `engine.TestProductHLSExplicitDiscontinuityCancellationCleansScratchAndArchive`
+- `engine.TestProductHLSExplicitDiscontinuityRejectsInvalidAPIValueBeforeNetwork`
 - `internal/protocol/hls.TestDownloadInitialPlaylistSnapshotReusesInitialLoadAndReloadsLive`
-- `pkg/ytdlp.FuzzDeduplicateHLSDiscontinuitySequences`
-- `pkg/ytdlp.TestProductDASHDynamicMPDPolicyCategories`
+- `engine.FuzzDeduplicateHLSDiscontinuitySequences`
+- `engine.TestProductDASHDynamicMPDPolicyCategories`
 - `internal/cli.TestAdaptiveStreamingCLIFlagsAndNegativeAliases`
 
 Protocol resilience evidence remains in the HLS and DASH parity entries and

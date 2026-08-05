@@ -21,17 +21,17 @@ capabilities:
       - internal/extractor.TestRaiF4MExistingPinnedControlsRemainByteExact
       - internal/extractor.TestRaiF4MConflictingControlsAreRejected
       - internal/extractor.TestRaiF4MRejectsUnsafeRecognizedURLs
-      - pkg/ytdlp.TestProductRaiF4MExtractionBridgesIntoHDSAndAssemblesFLV
-      - pkg/ytdlp.TestProductRaiF4MBridgeFailureCleansDestinationAndPreservesCategory
-      - pkg/ytdlp.TestProductRaiF4MBridgeCancellationCleansDestination
-      - pkg/ytdlp.TestProductRaiF4MBridgeSizeBoundCleansDestinationAndPreservesCategory
-      - pkg/ytdlp.TestProductRaiF4MBridgePreservesLiveAndDRMRestrictions
+      - engine.TestProductRaiF4MExtractionBridgesIntoHDSAndAssemblesFLV
+      - engine.TestProductRaiF4MBridgeFailureCleansDestinationAndPreservesCategory
+      - engine.TestProductRaiF4MBridgeCancellationCleansDestination
+      - engine.TestProductRaiF4MBridgeSizeBoundCleansDestinationAndPreservesCategory
+      - engine.TestProductRaiF4MBridgePreservesLiveAndDRMRestrictions
       - internal/extractor.TestRaiPlaylistSkipsBrokenOrUnavailableSets
       - internal/extractor.TestRaiPlaylistPreservesCancellationAndMeaningfulSetFailures
       - internal/extractor.TestRaiThumbnailsAreStableAndBounded
       - internal/extractor.FuzzRaiURLClassification
       - internal/extractor.FuzzRaiRelinkerXML
-      - pkg/ytdlp.TestProductRegistryRoutesRaiAndPlaylistReentry
+      - engine.TestProductRegistryRoutesRaiAndPlaylistReentry
       - conformance/extractors/rai/PROVENANCE.md
       - docs/EXTRACTOR_RAI_ECOSYSTEM_EVIDENCE.md
     owner: core
@@ -69,13 +69,13 @@ capabilities:
       - internal/extractor.TestRadioFranceRequiresCredentialIsolation
       - internal/extractor.TestRadioFranceNilTransportFailsClosed
       - internal/extractor.TestRadioFranceRedirectRejection
-      - pkg/ytdlp.TestProductRegistryRoutesRadioFranceFamily
-      - pkg/ytdlp.TestProductFranceCultureDirectAudioDownloadCredentialIsolation
-      - pkg/ytdlp.TestProductRadioFranceLiveHLSDownloadCredentialIsolation
-      - pkg/ytdlp.TestProductRadioFranceLiveDirectAudioDownloadCredentialIsolation
-      - pkg/ytdlp.TestProductRadioFrancePodcastPlaylistChildDownload
-      - pkg/ytdlp.TestProductRadioFranceSchedulePlaylistChildDownload
-      - pkg/ytdlp.TestProductRadioFranceCancellationAndFailureCleanup
+      - engine.TestProductRegistryRoutesRadioFranceFamily
+      - engine.TestProductFranceCultureDirectAudioDownloadCredentialIsolation
+      - engine.TestProductRadioFranceLiveHLSDownloadCredentialIsolation
+      - engine.TestProductRadioFranceLiveDirectAudioDownloadCredentialIsolation
+      - engine.TestProductRadioFrancePodcastPlaylistChildDownload
+      - engine.TestProductRadioFranceSchedulePlaylistChildDownload
+      - engine.TestProductRadioFranceCancellationAndFailureCleanup
       - conformance/extractors/risk/radiofrance/PROVENANCE.md
     owner: core
     known_deviation: Live HLS uses the generic native m3u8 product path without extractor-time manifest parsing; live HLS subtitle tracks are outside fixture scope. Media and thumbnail URLs are restricted to attributable radiofrance.fr and maison.radiofrance.fr hosts, which is stricter than upstream. Schedule query validation rejects duplicate, empty, and non-calendar date values beyond upstream shape checks.
@@ -105,11 +105,11 @@ capabilities:
       - internal/extractor.FuzzDiscoveryCMSPolicy
       - internal/network.TestDoWithScopedAuthenticationNoRedirectUsesExplicitShowScope
       - internal/network.TestDoWithScopedAuthenticationNoRedirectRejectsAmbientScope
-      - pkg/ytdlp.TestProductRegistrySelectsDiscoveryDPlayConcreteKeys
-      - pkg/ytdlp.TestProductDiscoveryHLSAndDASHDownloadDispatch
-      - pkg/ytdlp.TestProductDiscoveryDownloadRefererScope
-      - pkg/ytdlp.TestProductCategorizesDiscoveryFailures
-      - pkg/ytdlp.TestProductTele5CMSOpaqueReentryPreservesPublicIdentity
+      - engine.TestProductRegistrySelectsDiscoveryDPlayConcreteKeys
+      - engine.TestProductDiscoveryHLSAndDASHDownloadDispatch
+      - engine.TestProductDiscoveryDownloadRefererScope
+      - engine.TestProductCategorizesDiscoveryFailures
+      - engine.TestProductTele5CMSOpaqueReentryPreservesPublicIdentity
       - conformance/extractors/dplay/PROVENANCE.md
       - docs/EXTRACTOR_DPLAY_DISCOVERY_EVIDENCE.md
     owner: core
@@ -137,7 +137,7 @@ capabilities:
       - internal/cli.TestRunSimulationTriStateAndSkipDownloadRemainDistinct
       - internal/cli.TestRunListSubsNoSimulateDownloadsAndHonorsSubtitleWrites
       - internal/cli.TestRunCommandLineNoSimulateOverridesInheritedSimulation
-      - pkg/ytdlp.TestClientSimulationSuppressesEveryOutputArtifact
+      - engine.TestClientSimulationSuppressesEveryOutputArtifact
       - docs/YOUTUBE_SUBTITLE_LISTING_EVIDENCE.md
     owner: core
     depends_on:
@@ -170,19 +170,19 @@ capabilities:
     compatibility_target: Write confined video and playlist metadata files and safe platform shortcut formats without Python or a media download.
     status: compatible
     evidence:
-      - pkg/ytdlp.TestWriteRelatedFilesAllKindsAndExistingPolicy
-      - pkg/ytdlp.TestWriteRelatedFilesPlaylistScopeUnsafeLinksAndCancellation
-      - pkg/ytdlp.TestWriteAtomicRelatedFileRejectsSymlink
-      - pkg/ytdlp.TestPrepareRelatedDestinationRejectsNestedSymlink
-      - pkg/ytdlp.TestSafeLinkURLConvertsIRIHostAndEscapesPath
-      - pkg/ytdlp.TestOperationWritesFinalPlaylistAndEntryMetadataSidecars
-      - pkg/ytdlp.FuzzSafeLinkURL
+      - engine.TestWriteRelatedFilesAllKindsAndExistingPolicy
+      - engine.TestWriteRelatedFilesPlaylistScopeUnsafeLinksAndCancellation
+      - engine.TestWriteAtomicRelatedFileRejectsSymlink
+      - engine.TestPrepareRelatedDestinationRejectsNestedSymlink
+      - engine.TestSafeLinkURLConvertsIRIHostAndEscapesPath
+      - engine.TestOperationWritesFinalPlaylistAndEntryMetadataSidecars
+      - engine.FuzzSafeLinkURL
       - internal/cli.TestRunWritesMetadataAndShortcutSidecarsWithoutMedia
       - internal/cli.TestRunUsesTypedOutputTemplatesForArtifacts
       - internal/cli.TestRunTypedOutputTemplateCommandLineOverridesConfig
       - internal/cli.TestRunDumpJSONSimulationSuppressesRelatedFiles
-      - pkg/ytdlp.TestTypedRelatedFileTemplatesDistinguishEntryAndPlaylist
-      - pkg/ytdlp.TestTypedOutputTemplatesPreserveSafetyAndSimulation
+      - engine.TestTypedRelatedFileTemplatesDistinguishEntryAndPlaylist
+      - engine.TestTypedOutputTemplatesPreserveSafetyAndSimulation
       - conformance/related_files/PROVENANCE.md
       - conformance/output_templates/PROVENANCE.md
       - docs/METADATA_SIDECARS_EVIDENCE.md
@@ -199,12 +199,12 @@ capabilities:
     compatibility_target: Provide bounded yt-dlp-compatible ID naming, missing-field placeholders, autonumber lifecycle, info JSON cleaning/loading, and confined cache removal through the native output and metadata transaction layers.
     status: partial
     evidence:
-      - pkg/ytdlp.TestOutputArtifactTemplatePlaceholderAndAutonumberCompatibility
-      - pkg/ytdlp.TestInfoJSONCleaningPreservesPublicMetadataAndExplicitOverride
-      - pkg/ytdlp.TestLoadInfoJSONDownloadsBoundedMetadataWithoutAmbientCredentials
-      - pkg/ytdlp.TestLoadInfoJSONPreservesAcceptedAutonumberOnOutputFailure
-      - pkg/ytdlp.TestLoadInfoJSONRejectsUnsafeShapesBoundsAndCancellation
-      - pkg/ytdlp.TestAutonumberCountsOnlyAcceptedPlaylistEntries
+      - engine.TestOutputArtifactTemplatePlaceholderAndAutonumberCompatibility
+      - engine.TestInfoJSONCleaningPreservesPublicMetadataAndExplicitOverride
+      - engine.TestLoadInfoJSONDownloadsBoundedMetadataWithoutAmbientCredentials
+      - engine.TestLoadInfoJSONPreservesAcceptedAutonumberOnOutputFailure
+      - engine.TestLoadInfoJSONRejectsUnsafeShapesBoundsAndCancellation
+      - engine.TestAutonumberCountsOnlyAcceptedPlaylistEntries
       - internal/cache.TestRemoveRootIsConfinedAtomicAndCancellationAware
       - internal/cli.TestOutputArtifactFlagsAndIDOrdering
       - internal/cli.TestLoadInfoJSONAndRemoveCacheCLIRequestsAreURLIndependent
@@ -223,31 +223,31 @@ capabilities:
     compatibility_target: List or write the best or all bounded entry and playlist thumbnails through confined per-type templates, apply ordered jpg/png/webp conversion mappings, and automatically embed the best image into supported media containers.
     status: compatible
     evidence:
-      - pkg/ytdlp.TestSelectThumbnailsNormalizesSortsAndBoundsMetadata
-      - pkg/ytdlp.TestWriteThumbnailsBestFallbackAllPlaylistAndSafety
-      - pkg/ytdlp.TestClientWritesThumbnailWithSkipDownloadAndTypedTemplate
-      - pkg/ytdlp.TestWriteThumbnailsExistingDestination
-      - pkg/ytdlp.TestThumbnailRedirectPolicy
-      - pkg/ytdlp.TestThumbnailRemoteExhaustionWarnsAndContinues
-      - pkg/ytdlp.TestThumbnailConversionMapping
-      - pkg/ytdlp.TestWriteThumbnailsConvertsAllAndUpdatesMetadata
-      - pkg/ytdlp.TestThumbnailConversionFailureAndCleanupSafety
-      - pkg/ytdlp.TestThumbnailConversionCorrectsMislabeledWebP
-      - pkg/ytdlp.TestThumbnailConversionCancellationPreservesSource
-      - pkg/ytdlp.TestThumbnailConversionValidationPrecedesNetwork
-      - pkg/ytdlp.TestThumbnailConversionCollisionPrecedesDownload
-      - pkg/ytdlp.TestThumbnailConversionRejectsContentInducedCollision
-      - pkg/ytdlp.TestThumbnailConversionRejectsDownloadOverCommittedCorrectedPath
-      - pkg/ytdlp.TestEmbedSelectedThumbnailConversionAndOwnership
-      - pkg/ytdlp.TestEmbedSelectedThumbnailExplicitRetentionAndCleanupFailure
-      - pkg/ytdlp.TestEmbedSelectedThumbnailFailureCancellationAndWarnings
-      - pkg/ytdlp.TestProductEmbedsMislabeledWebPThumbnailAndAppliesRetention
-      - pkg/ytdlp.TestProductEmbedsThumbnailIntoXiphContainers
-      - pkg/ytdlp.TestProductPromotesMergedWebMToMatroskaForThumbnail
-      - pkg/ytdlp.TestThumbnailEmbeddingPromotesOnlyMergedWebM
-      - pkg/ytdlp.TestValidateMultiOutputAllowsThumbnailEmbedding
-      - pkg/ytdlp.FuzzThumbnailPathAndURL
-      - pkg/ytdlp.FuzzThumbnailConversionMapping
+      - engine.TestSelectThumbnailsNormalizesSortsAndBoundsMetadata
+      - engine.TestWriteThumbnailsBestFallbackAllPlaylistAndSafety
+      - engine.TestClientWritesThumbnailWithSkipDownloadAndTypedTemplate
+      - engine.TestWriteThumbnailsExistingDestination
+      - engine.TestThumbnailRedirectPolicy
+      - engine.TestThumbnailRemoteExhaustionWarnsAndContinues
+      - engine.TestThumbnailConversionMapping
+      - engine.TestWriteThumbnailsConvertsAllAndUpdatesMetadata
+      - engine.TestThumbnailConversionFailureAndCleanupSafety
+      - engine.TestThumbnailConversionCorrectsMislabeledWebP
+      - engine.TestThumbnailConversionCancellationPreservesSource
+      - engine.TestThumbnailConversionValidationPrecedesNetwork
+      - engine.TestThumbnailConversionCollisionPrecedesDownload
+      - engine.TestThumbnailConversionRejectsContentInducedCollision
+      - engine.TestThumbnailConversionRejectsDownloadOverCommittedCorrectedPath
+      - engine.TestEmbedSelectedThumbnailConversionAndOwnership
+      - engine.TestEmbedSelectedThumbnailExplicitRetentionAndCleanupFailure
+      - engine.TestEmbedSelectedThumbnailFailureCancellationAndWarnings
+      - engine.TestProductEmbedsMislabeledWebPThumbnailAndAppliesRetention
+      - engine.TestProductEmbedsThumbnailIntoXiphContainers
+      - engine.TestProductPromotesMergedWebMToMatroskaForThumbnail
+      - engine.TestThumbnailEmbeddingPromotesOnlyMergedWebM
+      - engine.TestValidateMultiOutputAllowsThumbnailEmbedding
+      - engine.FuzzThumbnailPathAndURL
+      - engine.FuzzThumbnailConversionMapping
       - internal/cli.TestThumbnailModeFlagPrecedence
       - internal/cli.TestRenderThumbnailListing
       - internal/cli.TestRunWritesAndListsThumbnailSidecars
@@ -279,23 +279,23 @@ capabilities:
     compatibility_target: Render bounded repeatable console/file templates and legacy get-field aliases with lifecycle-aware simulation and deterministic output.
     status: compatible
     evidence:
-      - pkg/ytdlp.TestPrintStagesCaptureTransformedAndSelectedMetadata
+      - engine.TestPrintStagesCaptureTransformedAndSelectedMetadata
       - pkg/ytdlp.TestAlphaPrintAPIContractCompiles
-      - pkg/ytdlp.TestPrintLaterStagesRunInLifecycleOrder
-      - pkg/ytdlp.TestPrintRuleValidationOptionalFieldsAndCancellation
-      - pkg/ytdlp.TestLatePrintValidationFailsBeforeOutputSideEffects
-      - pkg/ytdlp.TestPlaylistPrintsFollowChildLifecycle
-      - pkg/ytdlp.TestFormatPrintDurationPinnedShape
-      - pkg/ytdlp.TestPrintToFileAppendsStagesAndReportsUniqueArtifact
-      - pkg/ytdlp.TestPrintToFileSimulationSuppressesDiskButKeepsConsoleCapture
-      - pkg/ytdlp.TestPrintToFileRejectsUnsafePathsAndSymlinks
-      - pkg/ytdlp.TestAppendPrintLineCancellationLimitAndConcurrentRecords
-      - pkg/ytdlp.TestRenderPrintTablePinnedCorpus
-      - pkg/ytdlp.TestRenderSyntheticPrintTables
-      - pkg/ytdlp.TestSyntheticPrintFieldsAreAvailableAtLifecycleStages
-      - pkg/ytdlp.TestRenderFormatsTableDirectFallbackAndNonVideoOmission
-      - pkg/ytdlp.TestRenderPrintTablesLimitsAndMalformedRows
-      - pkg/ytdlp.FuzzRenderPrintTable
+      - engine.TestPrintLaterStagesRunInLifecycleOrder
+      - engine.TestPrintRuleValidationOptionalFieldsAndCancellation
+      - engine.TestLatePrintValidationFailsBeforeOutputSideEffects
+      - engine.TestPlaylistPrintsFollowChildLifecycle
+      - engine.TestFormatPrintDurationPinnedShape
+      - engine.TestPrintToFileAppendsStagesAndReportsUniqueArtifact
+      - engine.TestPrintToFileSimulationSuppressesDiskButKeepsConsoleCapture
+      - engine.TestPrintToFileRejectsUnsafePathsAndSymlinks
+      - engine.TestAppendPrintLineCancellationLimitAndConcurrentRecords
+      - engine.TestRenderPrintTablePinnedCorpus
+      - engine.TestRenderSyntheticPrintTables
+      - engine.TestSyntheticPrintFieldsAreAvailableAtLifecycleStages
+      - engine.TestRenderFormatsTableDirectFallbackAndNonVideoOmission
+      - engine.TestRenderPrintTablesLimitsAndMalformedRows
+      - engine.FuzzRenderPrintTable
       - internal/cli.TestParsePrintRulesStagesShorthandAndSimulation
       - internal/cli.TestExtractAndParsePrintToFileArguments
       - internal/cli.TestAppendLegacyPrintRulesOrderAndOptionalFields
@@ -326,10 +326,10 @@ capabilities:
     compatibility_target: Expose a context-aware operation interface with categorized errors.
     status: compatible
     evidence:
-      - pkg/ytdlp.TestIsCategory
-      - pkg/ytdlp.TestClientWalkingSkeleton
-      - pkg/ytdlp.TestClientConcurrentOperationsDoNotShareState
-      - pkg/ytdlp.TestClientCancellationReachesTransport
+      - engine.TestIsCategory
+      - engine.TestClientWalkingSkeleton
+      - engine.TestClientConcurrentOperationsDoNotShareState
+      - engine.TestClientCancellationReachesTransport
     owner: core
 
   - id: api.alpha_contract
@@ -341,7 +341,7 @@ capabilities:
       - pkg/ytdlp.TestAlphaAPIContractCompilesAndCategorizesCancellation
       - pkg/ytdlp.TestAlphaTrustAPIContractCompiles
       - pkg/ytdlp.TestAlphaEventJSONContract
-      - pkg/ytdlp.TestPublicEventKindsMatchOperationEvents
+      - engine.TestPublicEventKindsMatchOperationEvents
       - docs/P2_API_COMPATIBILITY_POLICY.md
       - docs/P2_FALLBACK_INVENTORY.md
     owner: core
@@ -433,12 +433,12 @@ capabilities:
       - internal/network/impersonate.TestHTTPConnectProxyHonorsIPv4SourceAddress
       - internal/network/impersonate.TestSOCKS5ProxyHonorsIPv4SourceAddress
       - internal/network/impersonate.TestSOCKS5HProxyRetainsRemoteDNSAndHonorsIPv6SourceAddress
-      - pkg/ytdlp.TestExtractorRetryRetriesTransientErrorsInOrderAndRedactsEvents
-      - pkg/ytdlp.TestExtractorRetryClassifiesExtractorHTTPStatuses
-      - pkg/ytdlp.TestExtractorRetryClassificationRejectsPermanentAndCategorizedErrors
-      - pkg/ytdlp.TestExtractorRetryRequiresExplicitReplaySafety
-      - pkg/ytdlp.TestExtractorRetryCancellationStopsBeforeNextEnteredOperation
-      - pkg/ytdlp.TestExtractorRetryIsBoundedAndUsesDeterministicBackoff
+      - engine.TestExtractorRetryRetriesTransientErrorsInOrderAndRedactsEvents
+      - engine.TestExtractorRetryClassifiesExtractorHTTPStatuses
+      - engine.TestExtractorRetryClassificationRejectsPermanentAndCategorizedErrors
+      - engine.TestExtractorRetryRequiresExplicitReplaySafety
+      - engine.TestExtractorRetryCancellationStopsBeforeNextEnteredOperation
+      - engine.TestExtractorRetryIsBoundedAndUsesDeterministicBackoff
       - internal/extractor.TestRequestJSONPreservesBodyCancellation
       - internal/cli.TestRunAddressPolicyFlagsUseLastOptionWins
       - internal/cli.TestRunExtractorRetriesDefaultsToThreeAndAllowsZero
@@ -497,9 +497,9 @@ capabilities:
       - internal/extractor.TestGenericMetadataMediaBoundsAndCancellation
       - internal/extractor.FuzzDiscoverGenericEmbedEntries
       - internal/extractor.FuzzDiscoverGenericMetadataMedia
-      - pkg/ytdlp.TestClientDownloadsGenericOpenGraphMediaWithPageReferer
-      - pkg/ytdlp.TestOperationURLResultBypassesPlaylistControls
-      - pkg/ytdlp.TestOperationRejectsURLResultCycle
+      - engine.TestClientDownloadsGenericOpenGraphMediaWithPageReferer
+      - engine.TestOperationURLResultBypassesPlaylistControls
+      - engine.TestOperationRejectsURLResultCycle
       - docs/GENERIC_EMBED_EVIDENCE.md
     owner: core
     depends_on:
@@ -539,9 +539,9 @@ capabilities:
       - internal/compat/template.TestResolveRejectsTraversalAndAbsolutePaths
       - internal/compat/template.TestReservedFilename
       - internal/compat/template.FuzzResolve
-      - pkg/ytdlp.TestOutputTemplateTypePrecedenceAndValidation
-      - pkg/ytdlp.TestTypedSubtitleAndDefaultMediaTemplates
-      - pkg/ytdlp.FuzzOutputTemplateTypeSelection
+      - engine.TestOutputTemplateTypePrecedenceAndValidation
+      - engine.TestTypedSubtitleAndDefaultMediaTemplates
+      - engine.FuzzOutputTemplateTypeSelection
       - internal/cli.TestOutputTemplateFlagParsesTypedAndDefaultTemplates
       - internal/cli.FuzzParseOutputTemplateSpecification
       - conformance/output_templates/PROVENANCE.md
@@ -569,7 +569,7 @@ capabilities:
     evidence:
       - internal/events.TestMultiEmitsInOrderAndJoinsErrors
       - internal/cli.TestRunProgressJSONStaysOnStderr
-      - pkg/ytdlp.TestClientWalkingSkeleton
+      - engine.TestClientWalkingSkeleton
     owner: core
 
   - id: cli.terminal_presentation
@@ -680,22 +680,22 @@ capabilities:
       - internal/media/ffmpeg.TestDownloadHLSRejectsUnsafeInputsBeforeExecution
       - internal/media/ffmpeg.TestDownloadHLSCancellationLeavesNoOutput
       - internal/media/ffmpeg.TestDiscoverFFmpegDoesNotRequireFFprobe
-      - pkg/ytdlp.TestClientHLSAndDASHDispatch
-      - pkg/ytdlp.TestClientHLSSuppressesAttributedAdFragments
-      - pkg/ytdlp.TestHLSDelegatesEligibleSampleAESToFFmpegFallback
-      - pkg/ytdlp.TestHLSNeverDelegatesDRMOrUnknownEncryption
-      - pkg/ytdlp.TestHLSFallbackUnavailableAndCancellationAreCategorized
-      - pkg/ytdlp.TestProductHLSSplitDiscontinuitySelectsOnlySelectedRepresentation
-      - pkg/ytdlp.TestProductHLSSplitDiscontinuityRejectsMergedHLSRepresentations
-      - pkg/ytdlp.TestProductHLSSplitDiscontinuityRollbackArchiveAndRedactedProgress
-      - pkg/ytdlp.TestProductHLSExplicitDiscontinuitySequencesFanOutInPlaylistOrder
-      - pkg/ytdlp.TestProductHLSExplicitSingleDiscontinuityKeepsDestination
-      - pkg/ytdlp.TestProductHLSExplicitDiscontinuityRejectsBeforeMediaArtifactAndArchiveMutation
-      - pkg/ytdlp.TestProductHLSExplicitDiscontinuityPreflightsCollisionsBeforeMedia
-      - pkg/ytdlp.TestProductHLSExplicitDiscontinuityRollsBackPartialFailure
-      - pkg/ytdlp.TestProductHLSExplicitDiscontinuityCancellationCleansScratchAndArchive
-      - pkg/ytdlp.TestProductHLSExplicitDiscontinuityRejectsInvalidAPIValueBeforeNetwork
-      - pkg/ytdlp.FuzzDeduplicateHLSDiscontinuitySequences
+      - engine.TestClientHLSAndDASHDispatch
+      - engine.TestClientHLSSuppressesAttributedAdFragments
+      - engine.TestHLSDelegatesEligibleSampleAESToFFmpegFallback
+      - engine.TestHLSNeverDelegatesDRMOrUnknownEncryption
+      - engine.TestHLSFallbackUnavailableAndCancellationAreCategorized
+      - engine.TestProductHLSSplitDiscontinuitySelectsOnlySelectedRepresentation
+      - engine.TestProductHLSSplitDiscontinuityRejectsMergedHLSRepresentations
+      - engine.TestProductHLSSplitDiscontinuityRollbackArchiveAndRedactedProgress
+      - engine.TestProductHLSExplicitDiscontinuitySequencesFanOutInPlaylistOrder
+      - engine.TestProductHLSExplicitSingleDiscontinuityKeepsDestination
+      - engine.TestProductHLSExplicitDiscontinuityRejectsBeforeMediaArtifactAndArchiveMutation
+      - engine.TestProductHLSExplicitDiscontinuityPreflightsCollisionsBeforeMedia
+      - engine.TestProductHLSExplicitDiscontinuityRollsBackPartialFailure
+      - engine.TestProductHLSExplicitDiscontinuityCancellationCleansScratchAndArchive
+      - engine.TestProductHLSExplicitDiscontinuityRejectsInvalidAPIValueBeforeNetwork
+      - engine.FuzzDeduplicateHLSDiscontinuitySequences
       - internal/cli.TestAdaptiveStreamingCLIFlagsAndNegativeAliases
       - internal/cli.TestRunHLSProtocolDispatch
       - conformance/media/llhls/PROVENANCE.md
@@ -835,7 +835,7 @@ capabilities:
       - internal/protocol/dash.FuzzDynamicSIDXRollingWindowMerge
       - internal/protocol/dash.TestDownloadSeparateAudioVideoTracks
       - internal/protocol/dash.TestDownloadDynamicMPDPollsAndDeduplicates
-      - pkg/ytdlp.TestProductDASHDynamicMPDPolicyCategories
+      - engine.TestProductDASHDynamicMPDPolicyCategories
       - internal/cli.TestAdaptiveStreamingCLIFlagsAndNegativeAliases
       - internal/protocol/dash.TestDownloadDynamicUsesManifestPollIntervalAndCancels
       - internal/protocol/dash.TestDownloadDynamicDoesNotCollideSameRepresentationID
@@ -856,10 +856,10 @@ capabilities:
       - internal/media/pipeline.TestDASHDownloadAndFFmpegMergeEndToEnd
       - internal/media/pipeline.TestFinalizeDASHMultiPeriodRemuxesAndRemovesSource
       - internal/media/pipeline.TestFinalizeDASHMultiPeriodConcatenatesAndMergesTracks
-      - pkg/ytdlp.TestClientHLSAndDASHDispatch
-      - pkg/ytdlp.TestClientDASHMergeDispatch
-      - pkg/ytdlp.TestClientDASHMultiPeriodDispatchAndFixup
-      - pkg/ytdlp.TestDASHDownloadLiveOptionsEnableDynamicSIDXPolling
+      - engine.TestClientHLSAndDASHDispatch
+      - engine.TestClientDASHMergeDispatch
+      - engine.TestClientDASHMultiPeriodDispatchAndFixup
+      - engine.TestDASHDownloadLiveOptionsEnableDynamicSIDXPolling
       - conformance/media/dash/PROVENANCE.md
       - docs/ADAPTIVE_STREAMING_RESILIENCE_EVIDENCE.md
       - conformance/media/dash/sidx_rolling_window.mpd
@@ -894,13 +894,13 @@ capabilities:
       - internal/media/ffmpeg.TestRecodeRejectsUnsupportedTarget
       - internal/media/ffmpeg.FuzzSubtitleEmbedMetadataValidation
       - internal/media/ffmpeg.FuzzRedactDiagnostic
-      - pkg/ytdlp.TestPostprocessLifecycleSuccessAndKeepVideo
-      - pkg/ytdlp.TestPostprocessLifecycleFailureRollsBackIntermediateCleanup
-      - pkg/ytdlp.TestPostprocessLifecycleCancellationRollsBackCommittedSuccessor
-      - pkg/ytdlp.TestPostprocessLifecyclePostOverwriteRetry
-      - pkg/ytdlp.TestPostprocessLifecycleMultiOutputNoPartAndCleanup
-      - pkg/ytdlp.TestPostprocessLifecycleSimulationAndSkipDoNotCreateMedia
-      - pkg/ytdlp.TestPostprocessLifecycleMultiOutputCancellationRollsBackAllOutputs
+      - engine.TestPostprocessLifecycleSuccessAndKeepVideo
+      - engine.TestPostprocessLifecycleFailureRollsBackIntermediateCleanup
+      - engine.TestPostprocessLifecycleCancellationRollsBackCommittedSuccessor
+      - engine.TestPostprocessLifecyclePostOverwriteRetry
+      - engine.TestPostprocessLifecycleMultiOutputNoPartAndCleanup
+      - engine.TestPostprocessLifecycleSimulationAndSkipDoNotCreateMedia
+      - engine.TestPostprocessLifecycleMultiOutputCancellationRollsBackAllOutputs
       - internal/cli.TestRunPostprocessLifecycleFlags
       - internal/media/pipeline.TestDASHDownloadAndFFmpegMergeEndToEnd
       - internal/media/pipeline.TestRemuxDownloadFinalizesThenRemovesSource
@@ -910,7 +910,7 @@ capabilities:
       - internal/cli.TestSubtitleConversionRejectsUnsafeAndCancellation
       - internal/cli.TestSubtitleConversionMetadataPreflightAndRelativePaths
       - internal/cli.FuzzSubtitleConversionPlanner
-      - pkg/ytdlp.TestClientDASHMergeDispatch
+      - engine.TestClientDASHMergeDispatch
       - docs/P1_MEDIA_COMPLETION.md
       - docs/YOUTUBE_SUBTITLE_CONVERSION_EVIDENCE.md
       - docs/YOUTUBE_SUBTITLE_EMBEDDING_EVIDENCE.md
@@ -971,7 +971,7 @@ capabilities:
       - internal/javascript/ejs.TestRepresentativeWorkloadUnderOldLimit
       - internal/javascript/ejs.TestLargeGeneratedPlayerWorkload
       - internal/javascript/ejs.TestPathologicalPlayerFixture
-      - pkg/ytdlp.TestClientConcurrentRunAndClose
+      - engine.TestClientConcurrentRunAndClose
       - conformance/javascript/ejs-0.8.0/PROVENANCE.md
       - .github/python-free.Dockerfile
     owner: runtime
@@ -1067,7 +1067,7 @@ capabilities:
       - internal/cookies/validate.TestCookieFieldsBoundsAndHeaderSafety
       - internal/cookies/validate.FuzzCookieFields
       - internal/network.TestAddCookiesPreservesHostScopeAndSecurity
-      - pkg/ytdlp.TestClientImportsBrowserCookiesBeforeExtraction
+      - engine.TestClientImportsBrowserCookiesBeforeExtraction
       - conformance/cookies/chromium-macos/PROVENANCE.md
     owner: authentication
     depends_on:
@@ -1295,7 +1295,7 @@ capabilities:
       - internal/providers/youtube.TestYouTubePlayerMetadataJSONFieldSurvival
       - internal/providers/youtube.TestYouTubePlayerMetadataConcurrentDeterminism
       - internal/providers/youtube.FuzzYouTubePlayerMetadata
-      - pkg/ytdlp.TestProductYouTubePlayerMetadataJSONSurvival
+      - engine.TestProductYouTubePlayerMetadataJSONSurvival
       - internal/providers/youtube.TestYouTubeFormatFidelityPinnedExtraction
       - internal/providers/youtube.TestYouTubeFormatFidelityCodecs
       - internal/providers/youtube.TestYouTubeFormatFidelityLanguagePreferences
@@ -1308,7 +1308,7 @@ capabilities:
       - internal/providers/youtube.TestYouTubeFormatFidelityIDCollisionsAndOrdering
       - internal/providers/youtube.TestYouTubeFormatFidelitySelectionUnchanged
       - internal/providers/youtube.FuzzYouTubeFormatFidelity
-      - pkg/ytdlp.TestProductYouTubeFormatFidelityListFormats
+      - engine.TestProductYouTubeFormatFidelityListFormats
       - internal/network.TestDoWithoutCookiesDoesNotSendOrPersistCookies
       - internal/youtubepot.TestDirectorProviderFallbackCacheExpiryAndBypass
       - internal/youtubepot.TestDirectorPolicyRequiredCancellationPanicAndRedaction
@@ -1320,25 +1320,25 @@ capabilities:
       - pkg/ytdlp.TestPublicYouTubePOTProviderConfiguration
       - pkg/ytdlp.TestPublicYouTubePOTConfigurationFailsClosed
       - pkg/ytdlp.TestPublicYouTubeCaptionOptionsReachExtractor
-      - pkg/ytdlp.TestClientDefersExpensiveMetadataUntilAfterMatchFilter
-      - pkg/ytdlp.TestClientDoesNotEnrichArchivedMedia
-      - pkg/ytdlp.TestClientRejectsInvalidWaveTwoOptionsBeforeNetwork
-      - pkg/ytdlp.TestExtractorFailuresAreCategorized
-      - pkg/ytdlp.TestSubtitleSidecarsDownloadWithSkipDownload
-      - pkg/ytdlp.TestSubtitleSelectionMatchesPinnedReferenceCases
-      - pkg/ytdlp.TestSubtitleAndMediaArtifactsAreBothReported
-      - pkg/ytdlp.TestSubtitleFormatSelectionFailsBeforeSidecarWrite
-      - pkg/ytdlp.TestSubtitleLiteralOutputSuffixIsPreserved
-      - pkg/ytdlp.TestSubtitleHeadersValidateOnlySelectedTrack
-      - pkg/ytdlp.TestSubtitleExtensionInference
-      - pkg/ytdlp.TestSelectSubtitleWithoutExplicitExtension
-      - pkg/ytdlp.TestSelectSubtitleLanguagesOrderedRules
-      - pkg/ytdlp.TestSubtitleDestinationExistingFileFailsClosed
-      - pkg/ytdlp.TestSubtitleDownloadCancellation
-      - pkg/ytdlp.TestSubtitleOptionsRejectInvalidRegexBeforeNetwork
-      - pkg/ytdlp.TestSubtitleMetadataCombinedLanguageLimit
-      - pkg/ytdlp.FuzzValidateSubtitleOptions
-      - pkg/ytdlp.FuzzSubtitleExtension
+      - engine.TestClientDefersExpensiveMetadataUntilAfterMatchFilter
+      - engine.TestClientDoesNotEnrichArchivedMedia
+      - engine.TestClientRejectsInvalidWaveTwoOptionsBeforeNetwork
+      - engine.TestExtractorFailuresAreCategorized
+      - engine.TestSubtitleSidecarsDownloadWithSkipDownload
+      - engine.TestSubtitleSelectionMatchesPinnedReferenceCases
+      - engine.TestSubtitleAndMediaArtifactsAreBothReported
+      - engine.TestSubtitleFormatSelectionFailsBeforeSidecarWrite
+      - engine.TestSubtitleLiteralOutputSuffixIsPreserved
+      - engine.TestSubtitleHeadersValidateOnlySelectedTrack
+      - engine.TestSubtitleExtensionInference
+      - engine.TestSelectSubtitleWithoutExplicitExtension
+      - engine.TestSelectSubtitleLanguagesOrderedRules
+      - engine.TestSubtitleDestinationExistingFileFailsClosed
+      - engine.TestSubtitleDownloadCancellation
+      - engine.TestSubtitleOptionsRejectInvalidRegexBeforeNetwork
+      - engine.TestSubtitleMetadataCombinedLanguageLimit
+      - engine.FuzzValidateSubtitleOptions
+      - engine.FuzzSubtitleExtension
       - internal/cli.TestRunWritesSelectedSubtitlesWhileSkippingMedia
       - internal/cli.TestRunListSubsSimulatesAndPreservesOutputChannels
       - internal/cli.TestRunListSubsPrintJSONAndCancellation
@@ -1356,16 +1356,16 @@ capabilities:
       - internal/cli.TestConvertResultSubtitlesSuccessRecursesAndUsesArgv
       - internal/cli.TestSubtitleConversionMetadataPreflightAndRelativePaths
       - internal/cli.FuzzSubtitleConversionPlanner
-      - pkg/ytdlp.TestProductEmbedsSelectedSubtitleTracksAndAppliesRetention
-      - pkg/ytdlp.TestProductSkipsUnsupportedEmbeddingContainerWithoutDeletingSidecar
-      - pkg/ytdlp.TestProductSkipsUnsupportedWebMTrackWithoutDeletingSidecar
-      - pkg/ytdlp.TestProductConvertsBeforeEmbeddingForWebM
-      - pkg/ytdlp.TestSubtitleCleanupFailureIsNonVetoableAndReported
-      - pkg/ytdlp.TestYouTubePostLiveAdaptiveTracksDownloadAndMerge
-      - pkg/ytdlp.TestYouTubePostLiveRejectsExternalDownloaderAndCategorizesFailures
-      - pkg/ytdlp.TestOperationPostLivePreferenceKeepsExplicitDirectFormatAuthoritative
-      - pkg/ytdlp.TestYouTubeLiveFromStartDownloadsTracksConcurrentlyAndMerges
-      - pkg/ytdlp.TestYouTubeLiveRefreshCoordinatorCachesAndMatchesExactIdentity
+      - engine.TestProductEmbedsSelectedSubtitleTracksAndAppliesRetention
+      - engine.TestProductSkipsUnsupportedEmbeddingContainerWithoutDeletingSidecar
+      - engine.TestProductSkipsUnsupportedWebMTrackWithoutDeletingSidecar
+      - engine.TestProductConvertsBeforeEmbeddingForWebM
+      - engine.TestSubtitleCleanupFailureIsNonVetoableAndReported
+      - engine.TestYouTubePostLiveAdaptiveTracksDownloadAndMerge
+      - engine.TestYouTubePostLiveRejectsExternalDownloaderAndCategorizesFailures
+      - engine.TestOperationPostLivePreferenceKeepsExplicitDirectFormatAuthoritative
+      - engine.TestYouTubeLiveFromStartDownloadsTracksConcurrentlyAndMerges
+      - engine.TestYouTubeLiveRefreshCoordinatorCachesAndMatchesExactIdentity
       - conformance/extractors/youtube/PROVENANCE.md
       - conformance/extractors/youtube_player_metadata/PROVENANCE.md
       - conformance/extractors/youtube_format_fidelity/PROVENANCE.md
@@ -1380,8 +1380,8 @@ capabilities:
       - internal/providers/youtube.TestParseYouTubeClipDataRejectsHostileTiming
       - internal/providers/youtube.TestApplyYouTubeClipOverlay
       - internal/providers/youtube.TestYouTubeClipFixtureParser
-      - pkg/ytdlp.TestProductYouTubeClipSectionDownload
-      - pkg/ytdlp.TestProductYouTubeClipMissingSourceVideoID
+      - engine.TestProductYouTubeClipSectionDownload
+      - engine.TestProductYouTubeClipMissingSourceVideoID
       - conformance/extractors/youtube_channel/PROVENANCE.md
       - conformance/extractors/youtube_handle_tab/PROVENANCE.md
       - conformance/extractors/youtube_alias_tab/PROVENANCE.md
@@ -1436,40 +1436,40 @@ capabilities:
       - internal/extractor.TestPlaylistMarksMetadataWithoutMaterializingEntries
       - internal/extractor.TestRegistryHonorsExplicitExtractorKey
       - internal/extractor.FuzzOnDemandEntries
-      - pkg/ytdlp.TestOperationResolvesNestedPlaylistInOrder
-      - pkg/ytdlp.TestOperationDownloadsPlaylistAndAggregatesBytes
-      - pkg/ytdlp.TestOperationRejectsNestedPlaylistCycle
-      - pkg/ytdlp.TestOperationMergesTransparentEntryMetadata
-      - pkg/ytdlp.TestOperationSlicesPlaylistLazilyAndPreservesSourceIndexes
-      - pkg/ytdlp.TestOperationPlaylistEndStopsBeforeFetchingAnotherPage
-      - pkg/ytdlp.TestOperationReversesSelectedRangeWithoutLosingSourceIndexes
-      - pkg/ytdlp.TestPlaylistRandomOrderIsDeterministicWithFixedSeed
-      - pkg/ytdlp.TestPlaylistRandomOverridesReverseWithWarning
-      - pkg/ytdlp.TestPlaylistLazyPlusReverseEmitsWarningAndDoesNotReverse
-      - pkg/ytdlp.TestPlaylistContinuePolicyContinuesPastEntryFailure
-      - pkg/ytdlp.TestPlaylistAbortPolicyAbortsOnFirstEntryFailure
-      - pkg/ytdlp.TestPlaylistMaxFailuresStopsAtConfiguredBound
-      - pkg/ytdlp.TestPlaylistSecurityAndEventHandlerFailuresAreNeverSuppressed
-      - pkg/ytdlp.TestPlaylistExecutionConformanceFixture
-      - pkg/ytdlp.TestSelectedPlaylistIteratorHonorsCancellationWhileSkipping
-      - pkg/ytdlp.TestSelectedPlaylistIteratorHonorsCancellationAtEndBoundary
-      - pkg/ytdlp.TestPlaylistSelectionConformanceFixture
-      - pkg/ytdlp.FuzzSelectedPlaylistIterator
-      - pkg/ytdlp.TestPlaylistItemsConformanceFixture
-      - pkg/ytdlp.TestOperationPlaylistItemsPreservesRequestedOrderAndStopsPagination
-      - pkg/ytdlp.TestPlaylistItemsFiniteWideStepDoesNotOverfetch
-      - pkg/ytdlp.TestOperationPlaylistItemsZeroDoesNotFetchEntries
-      - pkg/ytdlp.TestOperationPlaylistItemsNegativeIndexConsumesBoundedSequence
-      - pkg/ytdlp.TestOperationPlaylistItemsTakePrecedenceAndReverseAfterSelection
-      - pkg/ytdlp.TestPlaylistItemsOverrideRangeWarningPolicy
-      - pkg/ytdlp.TestPlaylistItemsOverrideRangeWarningEmittedOnce
-      - pkg/ytdlp.TestPlaylistItemsIteratorCancellationAndLimit
-      - pkg/ytdlp.FuzzPlaylistItemsParserAndExpansion
-      - pkg/ytdlp.TestOperationFlatPlaylistRetainsEntriesWithoutChildExtraction
-      - pkg/ytdlp.TestOperationFlatPlaylistAppliesMatchFilterBeforeMetadata
-      - pkg/ytdlp.TestOperationFlatPlaylistChecksArchiveWithoutRecording
-      - pkg/ytdlp.TestFlatPlaylistEntryValuePreservesURLResultShape
-      - pkg/ytdlp.FuzzFlatPlaylistEntryValue
+      - engine.TestOperationResolvesNestedPlaylistInOrder
+      - engine.TestOperationDownloadsPlaylistAndAggregatesBytes
+      - engine.TestOperationRejectsNestedPlaylistCycle
+      - engine.TestOperationMergesTransparentEntryMetadata
+      - engine.TestOperationSlicesPlaylistLazilyAndPreservesSourceIndexes
+      - engine.TestOperationPlaylistEndStopsBeforeFetchingAnotherPage
+      - engine.TestOperationReversesSelectedRangeWithoutLosingSourceIndexes
+      - engine.TestPlaylistRandomOrderIsDeterministicWithFixedSeed
+      - engine.TestPlaylistRandomOverridesReverseWithWarning
+      - engine.TestPlaylistLazyPlusReverseEmitsWarningAndDoesNotReverse
+      - engine.TestPlaylistContinuePolicyContinuesPastEntryFailure
+      - engine.TestPlaylistAbortPolicyAbortsOnFirstEntryFailure
+      - engine.TestPlaylistMaxFailuresStopsAtConfiguredBound
+      - engine.TestPlaylistSecurityAndEventHandlerFailuresAreNeverSuppressed
+      - engine.TestPlaylistExecutionConformanceFixture
+      - engine.TestSelectedPlaylistIteratorHonorsCancellationWhileSkipping
+      - engine.TestSelectedPlaylistIteratorHonorsCancellationAtEndBoundary
+      - engine.TestPlaylistSelectionConformanceFixture
+      - engine.FuzzSelectedPlaylistIterator
+      - engine.TestPlaylistItemsConformanceFixture
+      - engine.TestOperationPlaylistItemsPreservesRequestedOrderAndStopsPagination
+      - engine.TestPlaylistItemsFiniteWideStepDoesNotOverfetch
+      - engine.TestOperationPlaylistItemsZeroDoesNotFetchEntries
+      - engine.TestOperationPlaylistItemsNegativeIndexConsumesBoundedSequence
+      - engine.TestOperationPlaylistItemsTakePrecedenceAndReverseAfterSelection
+      - engine.TestPlaylistItemsOverrideRangeWarningPolicy
+      - engine.TestPlaylistItemsOverrideRangeWarningEmittedOnce
+      - engine.TestPlaylistItemsIteratorCancellationAndLimit
+      - engine.FuzzPlaylistItemsParserAndExpansion
+      - engine.TestOperationFlatPlaylistRetainsEntriesWithoutChildExtraction
+      - engine.TestOperationFlatPlaylistAppliesMatchFilterBeforeMetadata
+      - engine.TestOperationFlatPlaylistChecksArchiveWithoutRecording
+      - engine.TestFlatPlaylistEntryValuePreservesURLResultShape
+      - engine.FuzzFlatPlaylistEntryValue
       - internal/cli.TestRunRejectsInvalidPlaylistRange
       - internal/cli.TestRunAcceptsLegacyUnboundedPlaylistEnd
       - internal/cli.TestRunAcceptsNoPlaylistReverseAfterInheritedReverse
@@ -1504,9 +1504,9 @@ capabilities:
       - internal/protocol/youtubelive.TestLiveDownloadAggressivelyRefreshesAfterMisses
       - internal/protocol/youtubelive.TestLiveCancellationCleansTemporaryArtifacts
       - internal/protocol/youtubelive.FuzzLiveBeginSequence
-      - pkg/ytdlp.TestYouTubePostLiveAdaptiveTracksDownloadAndMerge
-      - pkg/ytdlp.TestOperationPostLivePreferenceKeepsExplicitDirectFormatAuthoritative
-      - pkg/ytdlp.TestYouTubeLiveFromStartDownloadsTracksConcurrentlyAndMerges
+      - engine.TestYouTubePostLiveAdaptiveTracksDownloadAndMerge
+      - engine.TestOperationPostLivePreferenceKeepsExplicitDirectFormatAuthoritative
+      - engine.TestYouTubeLiveFromStartDownloadsTracksConcurrentlyAndMerges
       - internal/protocol/youtubelive/PROVENANCE.md
       - docs/YOUTUBE_POST_LIVE_DVR_EVIDENCE.md
       - docs/YOUTUBE_LIVE_FROM_START_EVIDENCE.md
@@ -1573,15 +1573,15 @@ capabilities:
       - internal/protocol/hls.TestDownloadAllowedHostsRejectsHostileResolvedURI
       - internal/protocol/hls.TestDownloadAllowedHostsRejectsMalformedPolicy
       - internal/format.TestSelectRejectsMalformedAllowedHosts
-      - pkg/ytdlp.TestProductTwitchVODHLSExactBytesAndIsolation
-      - pkg/ytdlp.TestProductTwitchLiveAndRerunHLSExactBytes
-      - pkg/ytdlp.TestProductTwitchClipDirectExactBytesAndIsolation
-      - pkg/ytdlp.TestProductTwitchPlayerEmbedReentryExactBytes
-      - pkg/ytdlp.TestProductTwitchRetainedPlaylistFamiliesReenterAndDownload
-      - pkg/ytdlp.TestProductTwitchEnteredCancellationCleansArtifacts
-      - pkg/ytdlp.TestProductTwitchStatusFailureIsTypedAndSecretSafe
-      - pkg/ytdlp.TestProductTwitchHostileHLSFailsClosed
-      - pkg/ytdlp.TestProductTwitchAdaptersSelectExactKeys
+      - engine.TestProductTwitchVODHLSExactBytesAndIsolation
+      - engine.TestProductTwitchLiveAndRerunHLSExactBytes
+      - engine.TestProductTwitchClipDirectExactBytesAndIsolation
+      - engine.TestProductTwitchPlayerEmbedReentryExactBytes
+      - engine.TestProductTwitchRetainedPlaylistFamiliesReenterAndDownload
+      - engine.TestProductTwitchEnteredCancellationCleansArtifacts
+      - engine.TestProductTwitchStatusFailureIsTypedAndSecretSafe
+      - engine.TestProductTwitchHostileHLSFailsClosed
+      - engine.TestProductTwitchAdaptersSelectExactKeys
       - conformance/extractors/twitch/storyboard_spec.json
       - conformance/extractors/twitch/PROVENANCE.md
       - docs/P3_TWITCH_BREADTH.md
@@ -1672,9 +1672,9 @@ capabilities:
       - internal/extractor.TestSoundCloudPagedCollectionCancellation
       - internal/extractor.TestSoundCloudPagedCollectionIteratorSafety
       - internal/extractor.TestSoundCloudPagedCollectionRegression
-      - pkg/ytdlp.TestProductRegistryIncludesIntegratedExtractors
-      - pkg/ytdlp.TestProductRegistryReentersSoundCloudEmbedIntoMedia
-      - pkg/ytdlp.TestProductSoundCloudCommentOptionsPropagateAndEnrich
+      - engine.TestProductRegistryIncludesIntegratedExtractors
+      - engine.TestProductRegistryReentersSoundCloudEmbedIntoMedia
+      - engine.TestProductSoundCloudCommentOptionsPropagateAndEnrich
       - conformance/extractors/soundcloud/PROVENANCE.md
       - conformance/extractors/soundcloud/comments/PROVENANCE.md
       - conformance/extractors/soundcloud/download/PROVENANCE.md
@@ -1722,9 +1722,9 @@ capabilities:
       - internal/extractor.TestAeonCoVimeoReentryUsesAeonReferer
       - internal/extractor.FuzzAeonCoRouting
       - internal/extractor.FuzzAeonCoJSONLDHandoff
-      - pkg/ytdlp.TestProductAeonCoPropagatesRefererThroughURLRecursion
-      - pkg/ytdlp.TestProductRegistryIncludesIntegratedExtractors
-      - pkg/ytdlp.TestExtractorFailuresAreCategorized
+      - engine.TestProductAeonCoPropagatesRefererThroughURLRecursion
+      - engine.TestProductRegistryIncludesIntegratedExtractors
+      - engine.TestExtractorFailuresAreCategorized
       - conformance/extractors/shared/aeonco/PROVENANCE.md
       - docs/AEONCO_EVIDENCE.md
     owner: extractors
@@ -1798,7 +1798,7 @@ capabilities:
       - internal/extractor.TestBlueskyRequestAssertionsAndQueryArgs
       - internal/extractor.FuzzBlueskyRouting
       - internal/extractor.FuzzBlueskyJSON
-      - pkg/ytdlp.TestBuiltInExtractorIDsAreUniqueAndIncludeProductBoundaries
+      - engine.TestBuiltInExtractorIDsAreUniqueAndIncludeProductBoundaries
       - pkg/ytdlp.TestRepresentativeExtractorCatalogCountRoutingAndRiskCoverage
       - conformance/extractors/bluesky/PROVENANCE.md
     owner: extractors
@@ -1824,7 +1824,7 @@ capabilities:
       - internal/extractor.TestImgurHonorsCancellation
       - internal/extractor.TestNormalizeImgurAssetURL
       - internal/extractor.FuzzImgurRouting
-      - pkg/ytdlp.TestBuiltInExtractorIDsAreUniqueAndIncludeProductBoundaries
+      - engine.TestBuiltInExtractorIDsAreUniqueAndIncludeProductBoundaries
       - pkg/ytdlp.TestRepresentativeExtractorCatalogCountRoutingAndRiskCoverage
       - conformance/extractors/imgur/PROVENANCE.md
     owner: extractors
@@ -1877,13 +1877,13 @@ capabilities:
       - internal/extractor.TestMicrosoftEmbedURLValidationFuzz
       - internal/extractor.TestMicrosoftMediusURLValidationFuzz
       - internal/extractor.TestMicrosoftLearnRoutesFuzz
-      - pkg/ytdlp.TestProductMicrosoftEmbedDirectMP4DownloadStripsAmbientCredentials
-      - pkg/ytdlp.TestProductMicrosoftEmbedSidecarsStripAmbientCredentials
-      - pkg/ytdlp.TestProductMicrosoftEmbedHLSAndDASHDownloadStripsAmbientCredentials
-      - pkg/ytdlp.TestProductMicrosoftLearnSessionReentryDownload
-      - pkg/ytdlp.TestProductMicrosoftBuildPlaylistToMediusReentry
-      - pkg/ytdlp.TestProductMicrosoftEmbedNoArtifactsOnFailure
-      - pkg/ytdlp.TestProductMicrosoftEmbedCancellationLeavesNoArtifacts
+      - engine.TestProductMicrosoftEmbedDirectMP4DownloadStripsAmbientCredentials
+      - engine.TestProductMicrosoftEmbedSidecarsStripAmbientCredentials
+      - engine.TestProductMicrosoftEmbedHLSAndDASHDownloadStripsAmbientCredentials
+      - engine.TestProductMicrosoftLearnSessionReentryDownload
+      - engine.TestProductMicrosoftBuildPlaylistToMediusReentry
+      - engine.TestProductMicrosoftEmbedNoArtifactsOnFailure
+      - engine.TestProductMicrosoftEmbedCancellationLeavesNoArtifacts
       - pkg/ytdlp.TestRepresentativeExtractorCatalogCountRoutingAndRiskCoverage
       - conformance/extractors/risk/microsoft/PROVENANCE.md
     owner: core
@@ -1903,12 +1903,12 @@ capabilities:
       - internal/extractor.TestTedStatusCancellationAndIsolationErrorsAreTypedAndSecretSafe
       - internal/extractor.TestTedRouteParserSeedCases
       - internal/extractor.FuzzTedRouteParser
-      - pkg/ytdlp.TestProductTedDirectDownloadPreservesBytesAndSignedQuery
-      - pkg/ytdlp.TestProductTedHLSSubtitleThumbnailAndIsolation
-      - pkg/ytdlp.TestProductTedEmbedReentryAndPlaylistChildrenReuse
-      - pkg/ytdlp.TestProductTedHostPolicyRejectsHostileAssets
-      - pkg/ytdlp.TestProductTedUnknownThumbnailPolicyFailsClosed
-      - pkg/ytdlp.TestProductTedCancellationAndFailureLeaveNoArtifacts
+      - engine.TestProductTedDirectDownloadPreservesBytesAndSignedQuery
+      - engine.TestProductTedHLSSubtitleThumbnailAndIsolation
+      - engine.TestProductTedEmbedReentryAndPlaylistChildrenReuse
+      - engine.TestProductTedHostPolicyRejectsHostileAssets
+      - engine.TestProductTedUnknownThumbnailPolicyFailsClosed
+      - engine.TestProductTedCancellationAndFailureLeaveNoArtifacts
       - pkg/ytdlp.TestRepresentativeExtractorCatalogCountRoutingAndRiskCoverage
       - conformance/extractors/risk/ted/PROVENANCE.md
     owner: core
@@ -1929,14 +1929,14 @@ capabilities:
       - internal/extractor.TestVKPlayRecordingAndLiveHLS
       - internal/extractor.TestVKFailuresAndCancellationAreTypedAndSecretSafe
       - internal/extractor.TestVKRequiresCredentialIsolatedTransport
-      - pkg/ytdlp.TestProductVKRegisteredAPIAndDirectPlaybackWithAllSidecarsIsolated
-      - pkg/ytdlp.TestProductVKEmbedPageAndHLSExactBytesAreIsolated
-      - pkg/ytdlp.TestProductVKPlayRecordingHLSAndDirectBytesAreIsolated
-      - pkg/ytdlp.TestProductVKPlayDASHBaseURLIndexAndRepresentationHopsAreIsolated
-      - pkg/ytdlp.TestProductVKPlayLiveHLSFailureAndCancellation
-      - pkg/ytdlp.TestProductVKManifestHopPolicyFailsClosedBeforeHostileNetwork
-      - pkg/ytdlp.TestProductVKWallPostTransparentReentryAndUserPlaylistPaging
-      - pkg/ytdlp.TestProductVKFailureAndInFlightCancellationLeaveZeroArtifacts
+      - engine.TestProductVKRegisteredAPIAndDirectPlaybackWithAllSidecarsIsolated
+      - engine.TestProductVKEmbedPageAndHLSExactBytesAreIsolated
+      - engine.TestProductVKPlayRecordingHLSAndDirectBytesAreIsolated
+      - engine.TestProductVKPlayDASHBaseURLIndexAndRepresentationHopsAreIsolated
+      - engine.TestProductVKPlayLiveHLSFailureAndCancellation
+      - engine.TestProductVKManifestHopPolicyFailsClosedBeforeHostileNetwork
+      - engine.TestProductVKWallPostTransparentReentryAndUserPlaylistPaging
+      - engine.TestProductVKFailureAndInFlightCancellationLeaveZeroArtifacts
       - pkg/ytdlp.TestRepresentativeExtractorCatalogCountRoutingAndRiskCoverage
       - conformance/extractors/risk/vk/PROVENANCE.md
     owner: extractors
@@ -1961,7 +1961,7 @@ capabilities:
       - internal/extractor.TestFlickrFailsClosedWithoutCookieIsolation
       - internal/extractor.TestNormalizeFlickrStreamURL
       - internal/extractor.FuzzFlickrRouting
-      - pkg/ytdlp.TestBuiltInExtractorIDsAreUniqueAndIncludeProductBoundaries
+      - engine.TestBuiltInExtractorIDsAreUniqueAndIncludeProductBoundaries
       - pkg/ytdlp.TestRepresentativeExtractorCatalogCountRoutingAndRiskCoverage
       - conformance/extractors/flickr/PROVENANCE.md
     owner: extractors
@@ -1990,7 +1990,7 @@ capabilities:
       - internal/extractor.TestApplePodcastsDeterminismAndImmutability
       - internal/extractor.FuzzParseApplePodcastsURL
       - internal/extractor.FuzzApplePodcastsSerializedData
-      - pkg/ytdlp.TestProductRegistryIncludesIntegratedExtractors
+      - engine.TestProductRegistryIncludesIntegratedExtractors
       - pkg/ytdlp.TestRepresentativeExtractorCatalogCountRoutingAndRiskCoverage
       - conformance/extractors/applepodcasts/PROVENANCE.md
     owner: extractors
@@ -2017,11 +2017,11 @@ capabilities:
       - internal/extractor.TestAmaraCancellation
       - internal/extractor.FuzzParseAmaraURL
       - internal/extractor.FuzzDecodeAmaraVideoResponse
-      - pkg/ytdlp.TestOperationMergesTransparentParentInfoFromURLResult
-      - pkg/ytdlp.TestOperationAmaraHandoffsAreConcurrentSafe
-      - pkg/ytdlp.TestOperationAmaraParentMetadataDoesNotLeakIntoPlaylistEntries
+      - engine.TestOperationMergesTransparentParentInfoFromURLResult
+      - engine.TestOperationAmaraHandoffsAreConcurrentSafe
+      - engine.TestOperationAmaraParentMetadataDoesNotLeakIntoPlaylistEntries
       - pkg/ytdlp.TestRepresentativeExtractorCatalogCountRoutingAndRiskCoverage
-      - pkg/ytdlp.TestProductRegistryIncludesIntegratedExtractors
+      - engine.TestProductRegistryIncludesIntegratedExtractors
       - conformance/extractors/shared/amara/PROVENANCE.md
       - docs/EXTRACTOR_AMARA_EVIDENCE.md
     owner: extractors
@@ -2065,9 +2065,9 @@ capabilities:
       - internal/telemetry.TestCalculateCoverageMarksSaturatedTotalsInexact
       - internal/telemetry.FuzzDecode
       - internal/telemetry.FuzzMerge
-      - pkg/ytdlp.TestTelemetryCollectorProductIntegrationAndCanonicalRoundTrip
-      - pkg/ytdlp.TestTelemetryIsDisabledByDefaultAndUnknownExtractorIsBounded
-      - pkg/ytdlp.TestBuiltInExtractorIDsAreUniqueAndIncludeProductBoundaries
+      - engine.TestTelemetryCollectorProductIntegrationAndCanonicalRoundTrip
+      - engine.TestTelemetryIsDisabledByDefaultAndUnknownExtractorIsBounded
+      - engine.TestBuiltInExtractorIDsAreUniqueAndIncludeProductBoundaries
       - internal/cli.TestRunTelemetryJSONSuccessFailureAndConflict
       - cmd/telemetrycheck.TestRunMergesSnapshotsAndEvaluatesCoverage
       - cmd/telemetrycheck.TestRunGateFailuresAndSecretSafeDiagnostics
@@ -2250,8 +2250,8 @@ capabilities:
       - internal/credentials/netrc.TestLoadRejectsPermissionsSymlinkHardlinkDirectoryAndOversize
       - internal/credentials/netrc.FuzzParse
       - internal/credentials/netrc.FuzzLookupHost
-      - pkg/ytdlp.TestLoadNetRCCredentialsFromDirectory
-      - pkg/ytdlp.TestClientRejectsUnsafeNetRCBeforeExtraction
+      - engine.TestLoadNetRCCredentialsFromDirectory
+      - engine.TestClientRejectsUnsafeNetRCBeforeExtraction
       - internal/cli.TestRunNetRCFlagsFailClosedBeforeNetwork
       - conformance/extractors/synthetic-auth/PROVENANCE.md
       - conformance/auth/netrc/PROVENANCE.md
@@ -2343,16 +2343,16 @@ capabilities:
       - internal/extractor.FuzzParseNHKSchoolPage
       - internal/extractor.FuzzParseNHKRadiruResponse
       - internal/extractor.FuzzParseNHKConfigXML
-      - pkg/ytdlp.TestNHKFamilyRegistryRouting
-      - pkg/ytdlp.TestNHKOptionsValidation
-      - pkg/ytdlp.TestNHKCredentialIsolatedMediaDownloadStripsAmbientCredentials
-      - pkg/ytdlp.TestNHKSchoolProductCredentialIsolation
-      - pkg/ytdlp.TestCredentialIsolatedHLSManifestAndSegmentRequests
-      - pkg/ytdlp.TestCredentialIsolatedHLSRefusesRedirects
-      - pkg/ytdlp.TestCredentialIsolatedHDSManifestAndFragments
-      - pkg/ytdlp.TestCredentialIsolatedDispatchRejectsUnsafeBranches
-      - pkg/ytdlp.TestCredentialIsolatedPairDispatchRejectsUnsafeBranches
-      - pkg/ytdlp.TestCredentialIsolatedHLSRejectsFFmpegFallback
+      - engine.TestNHKFamilyRegistryRouting
+      - engine.TestNHKOptionsValidation
+      - engine.TestNHKCredentialIsolatedMediaDownloadStripsAmbientCredentials
+      - engine.TestNHKSchoolProductCredentialIsolation
+      - engine.TestCredentialIsolatedHLSManifestAndSegmentRequests
+      - engine.TestCredentialIsolatedHLSRefusesRedirects
+      - engine.TestCredentialIsolatedHDSManifestAndFragments
+      - engine.TestCredentialIsolatedDispatchRejectsUnsafeBranches
+      - engine.TestCredentialIsolatedPairDispatchRejectsUnsafeBranches
+      - engine.TestCredentialIsolatedHLSRejectsFFmpegFallback
       - internal/format.TestObjectSelectionPropagatesCredentialIsolation
       - internal/cli.TestRunNHKAreaFlagRecognized
       - internal/cli.TestRunNHKAreaRejectsHostileValue
@@ -2405,7 +2405,7 @@ capabilities:
       - internal/cache.TestCacheRemoveNamespacePreservesUnknownRegularFile
       - internal/cache.FuzzCacheKeyEncoding
       - internal/cache.FuzzCacheHeader
-      - pkg/ytdlp.TestClientInitializesConfiguredCacheSafely
+      - engine.TestClientInitializesConfiguredCacheSafely
       - conformance/cache/PROVENANCE.md
     owner: core
     known_deviation: The cache uses a checksummed ytdlp-go .cache envelope and intentionally does not consume disposable upstream JSON cache files. Namespaces use a portable ASCII subset, and independent processes may race near a namespace entry/byte cap while individual entries remain atomic.
@@ -2450,9 +2450,9 @@ capabilities:
       - internal/cookies/chromiumwindows.TestDiscoveryAndUnsafePaths
       - internal/cookies/chromiumwindows.TestSecureSourceRejectsSymlinksAndHardlinks
       - internal/cookies/chromiumwindows.FuzzDecryptBoundaries
-      - pkg/ytdlp.TestClientLoadsNetscapeCookieFileBeforeExtraction
-      - pkg/ytdlp.TestPortableBrowserCookieDispatch
-      - pkg/ytdlp.TestClientWindowsCookiePartialAppBoundFailurePreservesCookies
+      - engine.TestClientLoadsNetscapeCookieFileBeforeExtraction
+      - engine.TestPortableBrowserCookieDispatch
+      - engine.TestClientWindowsCookiePartialAppBoundFailurePreservesCookies
       - conformance/cookies/netscape/PROVENANCE.md
       - conformance/cookies/firefox/PROVENANCE.md
       - conformance/cookies/safari/PROVENANCE.md
@@ -2483,22 +2483,22 @@ capabilities:
       - internal/compat/matchfilter.TestNumericComparisonPreservesInt64Precision
       - internal/compat/matchfilter.TestEvaluationCancellationAndBounds
       - internal/compat/matchfilter.TestPinnedMatchFilterConformance
-      - pkg/ytdlp.TestOperationUsesRequestedFormatSelection
-      - pkg/ytdlp.TestClientAppliesMatchFilterBeforeMetadata
-      - pkg/ytdlp.TestClientCategorizesMatchFilterEvaluationFailure
-      - pkg/ytdlp.TestClientBreakMatchFilterStopsSingleMedia
-      - pkg/ytdlp.TestClientInteractiveMatchFilterAcceptRejectAndOrdering
-      - pkg/ytdlp.TestClientInteractiveMatchFilterDoesNotPromptForArchiveMatch
-      - pkg/ytdlp.TestClientInteractiveMatchFilterUsesSelectedFormatFilename
-      - pkg/ytdlp.TestClientInteractiveBreakingFilterReevaluatesSelectedFormat
-      - pkg/ytdlp.TestClientInteractiveMatchFilterDoesNotPromptWithoutFormats
-      - pkg/ytdlp.TestClientInteractiveMatchFilterPromptsPerOutput
-      - pkg/ytdlp.TestClientInteractiveMatchFilterCallbackErrorsAreCategorized
-      - pkg/ytdlp.TestOperationFlatPlaylistDoesNotPromptForInteractiveMatchFilter
-      - pkg/ytdlp.TestOperationHydratedPlaylistPromptsOnceForInteractiveMatchFilter
-      - pkg/ytdlp.TestOperationBreakMatchFilterStopsFlatPlaylistBeforeRejectedEntry
-      - pkg/ytdlp.TestOperationBreakMatchFilterStopsHydratedPlaylistBeforeNextEntry
-      - pkg/ytdlp.TestClientRendersProgressTemplateIntoEvents
+      - engine.TestOperationUsesRequestedFormatSelection
+      - engine.TestClientAppliesMatchFilterBeforeMetadata
+      - engine.TestClientCategorizesMatchFilterEvaluationFailure
+      - engine.TestClientBreakMatchFilterStopsSingleMedia
+      - engine.TestClientInteractiveMatchFilterAcceptRejectAndOrdering
+      - engine.TestClientInteractiveMatchFilterDoesNotPromptForArchiveMatch
+      - engine.TestClientInteractiveMatchFilterUsesSelectedFormatFilename
+      - engine.TestClientInteractiveBreakingFilterReevaluatesSelectedFormat
+      - engine.TestClientInteractiveMatchFilterDoesNotPromptWithoutFormats
+      - engine.TestClientInteractiveMatchFilterPromptsPerOutput
+      - engine.TestClientInteractiveMatchFilterCallbackErrorsAreCategorized
+      - engine.TestOperationFlatPlaylistDoesNotPromptForInteractiveMatchFilter
+      - engine.TestOperationHydratedPlaylistPromptsOnceForInteractiveMatchFilter
+      - engine.TestOperationBreakMatchFilterStopsFlatPlaylistBeforeRejectedEntry
+      - engine.TestOperationBreakMatchFilterStopsHydratedPlaylistBeforeNextEntry
+      - engine.TestClientRendersProgressTemplateIntoEvents
       - internal/cli.TestRunInteractiveMatchFilterPrompt
       - internal/cli.TestRunInteractiveMatchFilterInputFailures
       - internal/cli.TestInteractiveMatchFilterPromptHonorsCancellationWhileReading
@@ -2527,8 +2527,8 @@ capabilities:
       - internal/protocol/ism.TestAddressAndDownload
       - internal/protocol/ism.FuzzParse
       - internal/protocol/hls.TestDownloadPropagatesSelectedFormatHeaders
-      - pkg/ytdlp.TestClientISMDispatch
-      - pkg/ytdlp.TestClientRejectsInvalidWaveTwoOptionsBeforeNetwork
+      - engine.TestClientISMDispatch
+      - engine.TestClientRejectsInvalidWaveTwoOptionsBeforeNetwork
       - conformance/downloader/PROVENANCE.md
       - conformance/media/ism/PROVENANCE.md
     owner: io
@@ -2556,51 +2556,51 @@ capabilities:
       - internal/media/postprocess.TestSubtitleEmbedFailurePreservesOwnedInputs
       - internal/media/postprocess.TestRecodeNoOpGraphPreservesOwnedInputWithoutToolset
       - internal/media/postprocess.FuzzArtifactPaths
-      - pkg/ytdlp.TestClientExtractAudioPostprocessorIntegration
-      - pkg/ytdlp.TestAutomaticMetadataEmbeddingWithRealFFmpeg
-      - pkg/ytdlp.TestBoundedEmbeddedInfoJSONCleansPrivateFieldsAndRejectsOversize
-      - pkg/ytdlp.TestProductEmbedInfoJSONExactCleaningReplacementAndCancellation
-      - pkg/ytdlp.TestProductTypedFixupSuccessAndWarnAreObservable
-      - pkg/ytdlp.TestProductTypedFixupInspectionUnavailableAndForceClosed
-      - pkg/ytdlp.TestProductTypedFixupCancellationRestoresDestinationAndArchive
-      - pkg/ytdlp.TestProductTypedFixupFailureRestoresDestinationAndArchive
-      - pkg/ytdlp.TestProductEmbedInfoJSONPostStageFailureRestoresDestinationAndArchive
-      - pkg/ytdlp.TestProductSplitChaptersPublishesConfinedArtifactsAndOneArchiveRecord
-      - pkg/ytdlp.TestProductSplitChaptersFailureIsAllOrNothing
-      - pkg/ytdlp.TestSplitChaptersRejectsConflictingRenderedNamesBeforeFFmpeg
-      - pkg/ytdlp.TestProductConcatPlaylistPublishesDeterministicJoinedMedia
-      - pkg/ytdlp.TestProductConcatPlaylistFailurePreservesInputsAndDestination
-      - pkg/ytdlp.TestProductConcatPlaylistDefaultMultiVideoNoOpsOrdinaryPlaylist
-      - pkg/ytdlp.TestProductConcatPlaylistCancellationPreservesSidecarAndDestination
-      - pkg/ytdlp.TestConcatPlaylistRejectsCaseOnlyDestinationCollision
-      - pkg/ytdlp.TestConcatPlaylistRejectsSymlinkedOutputRoot
-      - pkg/ytdlp.TestConcatPlaylistPolicyValidationIsClosed
+      - engine.TestClientExtractAudioPostprocessorIntegration
+      - engine.TestAutomaticMetadataEmbeddingWithRealFFmpeg
+      - engine.TestBoundedEmbeddedInfoJSONCleansPrivateFieldsAndRejectsOversize
+      - engine.TestProductEmbedInfoJSONExactCleaningReplacementAndCancellation
+      - engine.TestProductTypedFixupSuccessAndWarnAreObservable
+      - engine.TestProductTypedFixupInspectionUnavailableAndForceClosed
+      - engine.TestProductTypedFixupCancellationRestoresDestinationAndArchive
+      - engine.TestProductTypedFixupFailureRestoresDestinationAndArchive
+      - engine.TestProductEmbedInfoJSONPostStageFailureRestoresDestinationAndArchive
+      - engine.TestProductSplitChaptersPublishesConfinedArtifactsAndOneArchiveRecord
+      - engine.TestProductSplitChaptersFailureIsAllOrNothing
+      - engine.TestSplitChaptersRejectsConflictingRenderedNamesBeforeFFmpeg
+      - engine.TestProductConcatPlaylistPublishesDeterministicJoinedMedia
+      - engine.TestProductConcatPlaylistFailurePreservesInputsAndDestination
+      - engine.TestProductConcatPlaylistDefaultMultiVideoNoOpsOrdinaryPlaylist
+      - engine.TestProductConcatPlaylistCancellationPreservesSidecarAndDestination
+      - engine.TestConcatPlaylistRejectsCaseOnlyDestinationCollision
+      - engine.TestConcatPlaylistRejectsSymlinkedOutputRoot
+      - engine.TestConcatPlaylistPolicyValidationIsClosed
       - internal/cli.TestRunConcatPlaylistPolicyAndOutputTypePlumbing
-      - pkg/ytdlp.TestProductXattrsWritesBoundedMetadataMapping
-      - pkg/ytdlp.TestProductXattrsCancellationRestoresDestinationAndArchive
-      - pkg/ytdlp.TestXattrsRejectsBoundedValueAndSymlinkPath
-      - pkg/ytdlp.TestXattrsPartialWriteFailureRestoresMappedValues
-      - pkg/ytdlp.TestXattrsCancellationBetweenWritesRestoresMappedValues
-      - pkg/ytdlp.TestXattrsRollbackFailureIsReported
+      - engine.TestProductXattrsWritesBoundedMetadataMapping
+      - engine.TestProductXattrsCancellationRestoresDestinationAndArchive
+      - engine.TestXattrsRejectsBoundedValueAndSymlinkPath
+      - engine.TestXattrsPartialWriteFailureRestoresMappedValues
+      - engine.TestXattrsCancellationBetweenWritesRestoresMappedValues
+      - engine.TestXattrsRollbackFailureIsReported
       - internal/platform/xattrs.TestUnixXattrsRoundTripOrFilesystemUnsupported
       - internal/platform/xattrs.TestWindowsXattrsFailClosed
-      - pkg/ytdlp.TestProductXattrsUnsupportedIsPubliclyCategorized
-      - pkg/ytdlp.TestCanonicalEmbeddedMetadataUsesPinnedPrecedenceAndBounds
-      - pkg/ytdlp.TestCanonicalEmbeddedChaptersValidatesTimeline
-      - pkg/ytdlp.TestProductEmbedsSelectedSubtitleTracksAndAppliesRetention
-      - pkg/ytdlp.TestProductSkipsUnsupportedEmbeddingContainerWithoutDeletingSidecar
-      - pkg/ytdlp.TestProductSkipsUnsupportedWebMTrackWithoutDeletingSidecar
-      - pkg/ytdlp.TestProductConvertsBeforeEmbeddingForWebM
-      - pkg/ytdlp.TestSubtitleCleanupFailureIsNonVetoableAndReported
-      - pkg/ytdlp.TestSubtitleEmbeddingImplicitlySelectsManualTracks
-      - pkg/ytdlp.TestSubtitleKeepFilesRequiresEmbedding
-      - pkg/ytdlp.TestSubtitleEmbeddingTrackLimitFailsBeforeDownload
+      - engine.TestProductXattrsUnsupportedIsPubliclyCategorized
+      - engine.TestCanonicalEmbeddedMetadataUsesPinnedPrecedenceAndBounds
+      - engine.TestCanonicalEmbeddedChaptersValidatesTimeline
+      - engine.TestProductEmbedsSelectedSubtitleTracksAndAppliesRetention
+      - engine.TestProductSkipsUnsupportedEmbeddingContainerWithoutDeletingSidecar
+      - engine.TestProductSkipsUnsupportedWebMTrackWithoutDeletingSidecar
+      - engine.TestProductConvertsBeforeEmbeddingForWebM
+      - engine.TestSubtitleCleanupFailureIsNonVetoableAndReported
+      - engine.TestSubtitleEmbeddingImplicitlySelectsManualTracks
+      - engine.TestSubtitleKeepFilesRequiresEmbedding
+      - engine.TestSubtitleEmbeddingTrackLimitFailsBeforeDownload
       - internal/cli.TestRunEmbedSubtitlesImplicitSelectionAndClear
       - internal/cli.TestRunEmbedsAutomaticSubtitleAndUsesPinnedRetentionRule
       - internal/cli.TestRunRecodeWinsOverRemuxWithWarning
       - internal/cli.TestRunMetadataAndChapterEmbeddingFlags
-      - pkg/ytdlp.FuzzConfinedPostprocessPath
-      - pkg/ytdlp.TestClientRejectsInvalidWaveTwoOptionsBeforeNetwork
+      - engine.FuzzConfinedPostprocessPath
+      - engine.TestClientRejectsInvalidWaveTwoOptionsBeforeNetwork
       - conformance/media/postprocess/PROVENANCE.md
       - docs/YOUTUBE_SUBTITLE_EMBEDDING_EVIDENCE.md
     owner: media
@@ -2623,16 +2623,16 @@ capabilities:
       - internal/compat/chapterremove.TestResolveRangesDropsOutsideMediaAndRejectsDuration
       - internal/compat/chapterremove.TestPinnedChapterRemovalCorpus
       - internal/compat/chapterremove.FuzzParse
-      - pkg/ytdlp.TestArrangeChapterRemovalCombinesOrdinaryManualAndSponsorCuts
-      - pkg/ytdlp.TestChapterRemovalWarningsAndSimulationDoNotMutateMetadata
-      - pkg/ytdlp.TestChapterRemovalNoMatchWarningAndCancellation
-      - pkg/ytdlp.TestChapterRemovalInvalidRequestsFailBeforeNetwork
-      - pkg/ytdlp.TestChapterRemovalAllowsMultiOutputPlanning
-      - pkg/ytdlp.TestChapterRemovalProbesDurationAndFixesOpenFinalChapter
-      - pkg/ytdlp.TestChapterRemovalUsesRealDurationForMissingMetadataAndOpenRange
-      - pkg/ytdlp.TestChapterRemovalSafetyFailuresLeaveMediaAndMetadataUnchanged
-      - pkg/ytdlp.TestChapterRemovalCombinesSponsorBlockOrdinaryAndManualCuts
-      - pkg/ytdlp.TestProductRemovesChapterAndRetimesSubtitle
+      - engine.TestArrangeChapterRemovalCombinesOrdinaryManualAndSponsorCuts
+      - engine.TestChapterRemovalWarningsAndSimulationDoNotMutateMetadata
+      - engine.TestChapterRemovalNoMatchWarningAndCancellation
+      - engine.TestChapterRemovalInvalidRequestsFailBeforeNetwork
+      - engine.TestChapterRemovalAllowsMultiOutputPlanning
+      - engine.TestChapterRemovalProbesDurationAndFixesOpenFinalChapter
+      - engine.TestChapterRemovalUsesRealDurationForMissingMetadataAndOpenRange
+      - engine.TestChapterRemovalSafetyFailuresLeaveMediaAndMetadataUnchanged
+      - engine.TestChapterRemovalCombinesSponsorBlockOrdinaryAndManualCuts
+      - engine.TestProductRemovesChapterAndRetimesSubtitle
       - internal/cli.TestRunChapterRemovalValidationAndResetOrdering
       - internal/cli.TestRunForceKeyframesAcceptsChapterRemovalAndRejectsNoCuts
       - internal/cli.TestRunNoSponsorBlockPreservesIndependentChapterCutForceFlag
@@ -2666,23 +2666,23 @@ capabilities:
       - internal/media/ffmpeg.TestValidateSectionBounds
       - internal/media/ffmpeg.TestValidateSectionInputsRejectsUnsafeHeader
       - internal/media/ffmpeg.TestValidateSectionInputsRejectsBadURL
-      - pkg/ytdlp.TestProductDownloadSectionsCliRangeTrimsArtifact
-      - pkg/ytdlp.TestDownloadSectionsParseRejectsUnsupported
-      - pkg/ytdlp.TestExtractorSectionBoundsDerivesDuration
-      - pkg/ytdlp.TestExtractorSectionBoundsRejectsInvalid
-      - pkg/ytdlp.TestFromURLSectionBounds
-      - pkg/ytdlp.TestFromURLDoesNotTriggerWithoutRequest
-      - pkg/ytdlp.TestComposeSectionOffsetsStartAndClampsEnd
-      - pkg/ytdlp.TestComposeSectionRejectsStartBeyondWindow
-      - pkg/ytdlp.TestComposeSectionDoesNotMutateSharedProgram
-      - pkg/ytdlp.TestFromURLWithLiteralRangesComposes
-      - pkg/ytdlp.TestFromURLWithMissingBoundsFailsClosed
-      - pkg/ytdlp.TestExtractorSectionInvalidBoundsFailClosed
-      - pkg/ytdlp.TestProductExtractorSectionTrimsArtifact
-      - pkg/ytdlp.TestProductSectionDownloadMultipleSectionsCollisionSafe
-      - pkg/ytdlp.TestProductSectionDownloadFromURL
-      - pkg/ytdlp.TestSectionDownloadUnsafeHeaderFailsClosed
-      - pkg/ytdlp.TestProductSectionDownloadDelegatedHLS
+      - engine.TestProductDownloadSectionsCliRangeTrimsArtifact
+      - engine.TestDownloadSectionsParseRejectsUnsupported
+      - engine.TestExtractorSectionBoundsDerivesDuration
+      - engine.TestExtractorSectionBoundsRejectsInvalid
+      - engine.TestFromURLSectionBounds
+      - engine.TestFromURLDoesNotTriggerWithoutRequest
+      - engine.TestComposeSectionOffsetsStartAndClampsEnd
+      - engine.TestComposeSectionRejectsStartBeyondWindow
+      - engine.TestComposeSectionDoesNotMutateSharedProgram
+      - engine.TestFromURLWithLiteralRangesComposes
+      - engine.TestFromURLWithMissingBoundsFailsClosed
+      - engine.TestExtractorSectionInvalidBoundsFailClosed
+      - engine.TestProductExtractorSectionTrimsArtifact
+      - engine.TestProductSectionDownloadMultipleSectionsCollisionSafe
+      - engine.TestProductSectionDownloadFromURL
+      - engine.TestSectionDownloadUnsafeHeaderFailsClosed
+      - engine.TestProductSectionDownloadDelegatedHLS
       - internal/cli.TestRunDownloadSectionsValidationIgnoresNetwork
       - internal/cli.TestRunDownloadSectionsForceKeyframesRequiresSections
       - conformance/compatibility/phase2/download_sections.yaml
@@ -2712,38 +2712,38 @@ capabilities:
       - conformance/upstream-delta/format-selector-current.json
 
       - docs/FORMAT_SELECTOR_CURRENT_UPSTREAM_DELTA_EVIDENCE.md
-      - pkg/ytdlp.TestFormatAvailabilityAutoSkipsOrdinaryButChecksNeedsTesting
-      - pkg/ytdlp.TestFormatCheckNoneMakesNoProbeRequests
-      - pkg/ytdlp.TestFormatCheckSelectedFallsBackFromUnavailablePreferred
-      - pkg/ytdlp.TestFormatCheckAllReusesProbeCacheDuringPlanning
-      - pkg/ytdlp.TestFormatAvailabilityHLSProbesResolvedMediaSegment
-      - pkg/ytdlp.TestFormatAvailabilityDASHProbesInitialResource
-      - pkg/ytdlp.TestFormatAvailabilityISMProbesInitialResource
-      - pkg/ytdlp.TestFormatAvailabilityParentCancellationAborts
+      - engine.TestFormatAvailabilityAutoSkipsOrdinaryButChecksNeedsTesting
+      - engine.TestFormatCheckNoneMakesNoProbeRequests
+      - engine.TestFormatCheckSelectedFallsBackFromUnavailablePreferred
+      - engine.TestFormatCheckAllReusesProbeCacheDuringPlanning
+      - engine.TestFormatAvailabilityHLSProbesResolvedMediaSegment
+      - engine.TestFormatAvailabilityDASHProbesInitialResource
+      - engine.TestFormatAvailabilityISMProbesInitialResource
+      - engine.TestFormatAvailabilityParentCancellationAborts
       - internal/cli.TestRunFormatMultistreamFlagsLastOccurrenceWins
       - internal/cli.TestRunFormatSortForceAndResetOrdering
       - internal/cli.TestRunFormatCheckModesLastOccurrenceWins
       - internal/cli.TestRunInteractiveFormatUnavailableThenValid
       - internal/cli.TestRunInteractiveFormatEOFAndJSONChannelIsolation
-      - pkg/ytdlp.TestNTrackMergeRealMediaTwoTrack
-      - pkg/ytdlp.TestNTrackHeaderIsolationConcurrent
-      - pkg/ytdlp.TestNTrackSiblingCancellationPreservesRootError
-      - pkg/ytdlp.TestMergeAllProductExecution
-      - pkg/ytdlp.TestMultiOutputLifecycleSidecarsPrintsAndMetadataIsolation
-      - pkg/ytdlp.TestMultiOutputLifecycleEmbedsSubtitlesAndThumbnailsPerPlan
-      - pkg/ytdlp.TestMultiOutputLifecycleRemovesChapterRangesPerPlan
-      - pkg/ytdlp.TestMultiOutputLifecycleArtifactOrderDeterministic
-      - pkg/ytdlp.TestMultiOutputDownloadCancellationRollsBack
-      - pkg/ytdlp.TestFormatSelectorInvalidSyntaxFailsBeforeExtraction
+      - engine.TestNTrackMergeRealMediaTwoTrack
+      - engine.TestNTrackHeaderIsolationConcurrent
+      - engine.TestNTrackSiblingCancellationPreservesRootError
+      - engine.TestMergeAllProductExecution
+      - engine.TestMultiOutputLifecycleSidecarsPrintsAndMetadataIsolation
+      - engine.TestMultiOutputLifecycleEmbedsSubtitlesAndThumbnailsPerPlan
+      - engine.TestMultiOutputLifecycleRemovesChapterRangesPerPlan
+      - engine.TestMultiOutputLifecycleArtifactOrderDeterministic
+      - engine.TestMultiOutputDownloadCancellationRollsBack
+      - engine.TestFormatSelectorInvalidSyntaxFailsBeforeExtraction
       - internal/format.TestPrepareFormatsNormalizesAfterStableOrdering
       - internal/format.TestPrepareFormatsFiltersBeforeGeneratedIDs
       - internal/format.TestPrepareFormatsCoercesPinnedScalarFieldsBeforeSorting
       - internal/format.TestPrepareFormatsDeepCloneAndConcurrentDeterminism
       - internal/format.TestPlanSelectUsesExactCloneForResidualCollisionHeaders
       - internal/format.FuzzPrepareFormats
-      - pkg/ytdlp.TestFormatNormalizationPreservesOriginalSelectedMetadata
-      - pkg/ytdlp.TestFormatNormalizationCanonicalAcrossProductSurfaces
-      - pkg/ytdlp.TestFormatNormalizationErrorsCategorizedInternal
+      - engine.TestFormatNormalizationPreservesOriginalSelectedMetadata
+      - engine.TestFormatNormalizationCanonicalAcrossProductSurfaces
+      - engine.TestFormatNormalizationErrorsCategorizedInternal
       - internal/format/testdata/selector_conformance.json
       - internal/format/testdata/filter_oracle.json
       - internal/format/testdata/python_regex_oracle.json
@@ -2802,12 +2802,12 @@ capabilities:
     compatibility_target: Route each currently produced media, subtitle, thumbnail, metadata, and playlist artifact through a repeatable typed output path with deterministic precedence and home fallback.
     status: compatible
     evidence:
-      - pkg/ytdlp.TestOutputPathResolutionAndValidation
-      - pkg/ytdlp.TestClientRoutesMediaSubtitlesAndRelatedFilesByType
-      - pkg/ytdlp.TestPlaylistAndThumbnailOutputPaths
-      - pkg/ytdlp.TestClientRejectsUnsafeOutputPathsBeforeExtractionAndClonesMap
-      - pkg/ytdlp.TestTypedOutputRootsRejectSymlinkEscapesFromHome
-      - pkg/ytdlp.FuzzValidateOutputPaths
+      - engine.TestOutputPathResolutionAndValidation
+      - engine.TestClientRoutesMediaSubtitlesAndRelatedFilesByType
+      - engine.TestPlaylistAndThumbnailOutputPaths
+      - engine.TestClientRejectsUnsafeOutputPathsBeforeExtractionAndClonesMap
+      - engine.TestTypedOutputRootsRejectSymlinkEscapesFromHome
+      - engine.FuzzValidateOutputPaths
       - internal/cli.TestParseOutputPathSpecification
       - internal/cli.TestHomePathFromArgsUsesSharedTypedParser
       - internal/cli.TestRunRoutesArtifactsThroughTypedOutputPaths
@@ -2872,7 +2872,7 @@ capabilities:
       - internal/archive.TestArchiveAcceptsTruncatedFinalRecordAndDoesNotMutateHardlink
       - internal/archive.TestArchiveRejectsMaliciousLockSymlink
       - internal/archive.FuzzParseIdentity
-      - pkg/ytdlp.TestClientDownloadArchiveRecordsAndSkips
+      - engine.TestClientDownloadArchiveRecordsAndSkips
       - conformance/archive/PROVENANCE.md
     owner: core
     known_deviation: The product uses portable atomic rewrites and directory locks rather than append plus platform file locks. It rejects invalid UTF-8, NUL, oversized records, and unsafe filesystem objects while preserving trimmed opaque legacy IDs and canonical yt-dlp identity matching.
@@ -2904,7 +2904,7 @@ capabilities:
       - pkg/pluginapi/sdk.TestCategorizedFailuresAreSecretSafe
       - pkg/pluginapi/sdk.TestPayloadResourceAndSecretBounds
       - pkg/pluginapi/sdk.FuzzServerMalformedInput
-      - pkg/ytdlp.TestSignedWASMPluginPackHostAndProductIntegration
+      - engine.TestSignedWASMPluginPackHostAndProductIntegration
       - docs/P2_PLUGIN_ABI_V1.md
       - docs/P3_PLUGIN_SDK_GUIDE.md
       - conformance/plugin/abi-v1/PROVENANCE.md
@@ -2970,10 +2970,10 @@ capabilities:
       - internal/sandbox.TestLinuxPlanIsolatesFilesystemNetworkAndSecrets
       - internal/sandbox.TestLinuxPlanRequiresExplicitExternalAdapterPolicy
       - internal/sandbox.TestDarwinFailsClosedRatherThanClaimingDeprecatedSandboxExec
-      - pkg/ytdlp.TestSandboxedPluginHostBuildsFailClosedNativePolicy
-      - pkg/ytdlp.TestNativePluginHostRequiresExplicitSandbox
-      - pkg/ytdlp.TestSignedWASMPluginPackHostAndProductIntegration
-      - pkg/ytdlp.TestPluginPackBindingFailsBeforeFilesystemMutation
+      - engine.TestSandboxedPluginHostBuildsFailClosedNativePolicy
+      - engine.TestNativePluginHostRequiresExplicitSandbox
+      - engine.TestSignedWASMPluginPackHostAndProductIntegration
+      - engine.TestPluginPackBindingFailsBeforeFilesystemMutation
       - cmd/ytdlp-pack.TestRunVerifyRejectsMalformedPackWithoutLeakingBytes
       - conformance/packs/PROVENANCE.md
       - conformance/pack/catalog-v1/PROVENANCE.md
@@ -2991,11 +2991,11 @@ capabilities:
     compatibility_target: Extract the bounded anonymous public Niconico watch/shorts, mylist, series, user, pseudo-search, search URL, and tag URL families through credential-isolated no-redirect API/page requests and generic native HLS dispatch.
     status: partial
     evidence:
-      - pkg/ytdlp.TestProductNiconicoRegisteredWatchHLSDownloadIsolatedAndSigned
-      - pkg/ytdlp.TestProductNiconicoRegisteredBestAudioDownloadIsExactAndIsolated
-      - pkg/ytdlp.TestProductNiconicoRegisteredSearchChildReentryIsolation
-      - pkg/ytdlp.TestProductNiconicoPlaylistChildReentryUsesRegisteredKeys
-      - pkg/ytdlp.TestProductNiconicoHLSFailureAndCancellationLeaveNoArtifacts
+      - engine.TestProductNiconicoRegisteredWatchHLSDownloadIsolatedAndSigned
+      - engine.TestProductNiconicoRegisteredBestAudioDownloadIsExactAndIsolated
+      - engine.TestProductNiconicoRegisteredSearchChildReentryIsolation
+      - engine.TestProductNiconicoPlaylistChildReentryUsesRegisteredKeys
+      - engine.TestProductNiconicoHLSFailureAndCancellationLeaveNoArtifacts
       - conformance/extractors/risk/niconico/PROVENANCE.md
       - conformance/extractors/risk/niconico/watch_guest.json
       - conformance/extractors/risk/niconico/access_rights.json
@@ -3043,16 +3043,16 @@ capabilities:
     status: compatible
     evidence:
       - pkg/ytdlp.TestRepresentativeExtractorCatalogCountRoutingAndRiskCoverage
-      - pkg/ytdlp.TestProductRegistryIncludesIntegratedExtractors
+      - engine.TestProductRegistryIncludesIntegratedExtractors
       - internal/extractor.TestSharedHostingSuccessFixtures
       - internal/extractor.TestSharedHostingErrorsAreCategorizedAndSecretSafe
       - internal/extractor.TestDailymotionPublicMetadata
       - internal/extractor.TestDailymotionPlaylistLazyReusablePaginationAndContract
       - internal/extractor.TestDailymotionSearchPaginationReuseAndRequests
       - internal/extractor.TestDailymotionRoutesAndExactNonOverlap
-      - pkg/ytdlp.TestProductDailymotionClientRunDirectAndHLSIsolation
-      - pkg/ytdlp.TestProductDailymotionClientRunRepeatedPublicChildren
-      - pkg/ytdlp.TestProductDailymotionClientRunFailureCancellationAndZeroArtifacts
+      - engine.TestProductDailymotionClientRunDirectAndHLSIsolation
+      - engine.TestProductDailymotionClientRunRepeatedPublicChildren
+      - engine.TestProductDailymotionClientRunFailureCancellationAndZeroArtifacts
       - internal/extractor.TestRedditPublicListing
       - internal/extractor.TestTwitterSyndicationMetadata
       - internal/extractor.TestBandcampPublicTrackAndAlbum
@@ -3068,8 +3068,8 @@ capabilities:
       - internal/extractor.TestNRKFamilyRoutingPrecedence
       - internal/extractor.TestNRKFamilyTransparentReentryUsesIsolatedPlayback
       - internal/extractor.TestNRKSeasonPlaylistIsLazyAndCursorRestricted
-      - pkg/ytdlp.TestNRKFamilyRegistryRouting
-      - pkg/ytdlp.TestProductNRKTVReentersOpaquePlayback
+      - engine.TestNRKFamilyRegistryRouting
+      - engine.TestProductNRKTVReentersOpaquePlayback
       - internal/extractor.TestRiskFormatsIntegrateWithHLS_DASHAndDirectDownloaders
       - internal/extractor.TestPodcastFamilySuccessAndPlaylists
       - internal/extractor.TestCleanPodcastMediaURLPinnedCorpus
@@ -3122,18 +3122,18 @@ capabilities:
       - internal/extractor.TestIltalehtiRelaxedAppState
       - internal/extractor.TestJWPlatformEntryConstructor
       - internal/extractor.FuzzParseJWPlatformAdaptersWave1URL
-      - pkg/ytdlp.TestProductRegistryJWPlatformAdaptersWave1Routing
-      - pkg/ytdlp.TestProductMirrorCoUKReentersJWPlatformMediaID
-      - pkg/ytdlp.TestProductBusinessInsiderArticleIDSurvivesJWReentry
-      - pkg/ytdlp.TestProductLeFigaroPosterAndTitleSurviveJWReentry
-      - pkg/ytdlp.TestProductTheInterceptProducerMetadataSurvivesJWReentry
-      - pkg/ytdlp.TestOperationMergesTransparentEntryMetadata
-      - pkg/ytdlp.TestOperationTransparentOverlayDoesNotEraseBackendMetadata
-      - pkg/ytdlp.TestOperationTransparentOverlayPreservesExplicitZeroNumerics
-      - pkg/ytdlp.TestOperationTransparentZeroNumericsSurviveURLResultHandoff
-      - pkg/ytdlp.TestOperationTransparentEntryAcrossTwoHopURLResults
-      - pkg/ytdlp.TestOperationMergesTransparentParentInfoFromURLResult
-      - pkg/ytdlp.TestOperationAmaraNestedTransparentPreservesChildID
+      - engine.TestProductRegistryJWPlatformAdaptersWave1Routing
+      - engine.TestProductMirrorCoUKReentersJWPlatformMediaID
+      - engine.TestProductBusinessInsiderArticleIDSurvivesJWReentry
+      - engine.TestProductLeFigaroPosterAndTitleSurviveJWReentry
+      - engine.TestProductTheInterceptProducerMetadataSurvivesJWReentry
+      - engine.TestOperationMergesTransparentEntryMetadata
+      - engine.TestOperationTransparentOverlayDoesNotEraseBackendMetadata
+      - engine.TestOperationTransparentOverlayPreservesExplicitZeroNumerics
+      - engine.TestOperationTransparentZeroNumericsSurviveURLResultHandoff
+      - engine.TestOperationTransparentEntryAcrossTwoHopURLResults
+      - engine.TestOperationMergesTransparentParentInfoFromURLResult
+      - engine.TestOperationAmaraNestedTransparentPreservesChildID
       - internal/extractor.TestKalturaJWAdaptersHandoff
       - internal/extractor.TestArcAdaptersExactRoutingHandoffAndEvidence
       - internal/extractor.TestPodcastFamilySuccessAndPlaylists
@@ -3143,7 +3143,7 @@ capabilities:
       - internal/extractor.TestCloudflareStreamSuccessAndSignedJWTRetention
       - internal/extractor.TestAnvatoFixedAuthVectorAndSuccess
       - internal/extractor.TestSharedHostingSuccessFixtures
-      - pkg/ytdlp.TestProductRegistryIncludesIntegratedExtractors
+      - engine.TestProductRegistryIncludesIntegratedExtractors
     owner: extractors
     known_deviation: >-
       Stretch target of 75 keys is not claimed. Live-service compatibility is not asserted from synthetic fixtures alone. Heise YouTube-only pages and Craftsy cookie-gated full-class catalogs remain unsupported/fail-closed. Shape inventory enforces canonical route identities (no Arc single/multi double-count, no hostname-alias padding). Laracasts does not smuggle a laracasts.com Vimeo Referer; ABCOTVS does not implement publishedKey selection; BuzzFeed Facebook embeds are bare URL entries without an explicit facebook ExtractorKey. Wave 1 JW Platform adapters (Bundesliga, Business Insider, DBTV, Hollywood Reporter, Iltalehti, Le Figaro Video Embed, Mirror.co.uk, Outside TV, The Intercept) deliberately omit upstream-only fields that `extractor.Entry` does not yet expose: DBTV, Mirror.co.uk, and The Intercept `display_id`; The Intercept `description` and `comment_count`; Le Figaro `description`. The Hollywood Reporter YouTube fixture uses the repository's synthetic `fixture0001` id rather than a real YouTube identifier.
@@ -3344,20 +3344,20 @@ capabilities:
       - internal/media/ffmpeg.TestConcatRangesValidation
       - internal/media/ffmpeg.TestNormalizeForceKeyframeTimestamps
       - internal/media/ffmpeg.TestForceKeyframeAndConcatRangeLimits
-      - pkg/ytdlp.TestSponsorBlockOptionsValidation
-      - pkg/ytdlp.TestSponsorBlockCustomChapterTitleUsesPinnedFields
-      - pkg/ytdlp.TestSponsorBlockExplicitEmptyChapterTitle
-      - pkg/ytdlp.TestSponsorBlockChapterTitleConformanceFixture
-      - pkg/ytdlp.TestSponsorBlockProcessMediaInfoJSONAndCredentialIsolation
-      - pkg/ytdlp.TestSponsorBlockDisabledUnsupportedAndMissingID
-      - pkg/ytdlp.TestSponsorBlockServiceIdentityMatchesPinnedExtractorTable
-      - pkg/ytdlp.TestSponsorBlockCancellationCategoryPreservesCause
-      - pkg/ytdlp.TestSponsorBlockRecursesIntoPlaylistMedia
-      - pkg/ytdlp.TestSponsorBlockMarkingRewritesChaptersAndPreservesFields
-      - pkg/ytdlp.TestSponsorBlockMarkingSynthesizesBackgroundChapter
-      - pkg/ytdlp.TestSponsorBlockMarkingFailureDoesNotPartiallyMutateInfo
-      - pkg/ytdlp.TestSponsorBlockMapErrorCategorizes
-      - pkg/ytdlp.TestSponsorBlockSecretSafeErrorMessages
+      - engine.TestSponsorBlockOptionsValidation
+      - engine.TestSponsorBlockCustomChapterTitleUsesPinnedFields
+      - engine.TestSponsorBlockExplicitEmptyChapterTitle
+      - engine.TestSponsorBlockChapterTitleConformanceFixture
+      - engine.TestSponsorBlockProcessMediaInfoJSONAndCredentialIsolation
+      - engine.TestSponsorBlockDisabledUnsupportedAndMissingID
+      - engine.TestSponsorBlockServiceIdentityMatchesPinnedExtractorTable
+      - engine.TestSponsorBlockCancellationCategoryPreservesCause
+      - engine.TestSponsorBlockRecursesIntoPlaylistMedia
+      - engine.TestSponsorBlockMarkingRewritesChaptersAndPreservesFields
+      - engine.TestSponsorBlockMarkingSynthesizesBackgroundChapter
+      - engine.TestSponsorBlockMarkingFailureDoesNotPartiallyMutateInfo
+      - engine.TestSponsorBlockMapErrorCategorizes
+      - engine.TestSponsorBlockSecretSafeErrorMessages
       - internal/cli.TestBuildSponsorBlockOptionsMapping
       - internal/cli.TestBuildSponsorBlockChapterTitlePreservesExplicitEmpty
       - internal/cli.TestRunSponsorBlockChapterTitleScalarPrecedence
@@ -3374,28 +3374,28 @@ capabilities:
       - internal/cli.TestRunForceKeyframesLastWinsParsesBeforeExtraction
       - internal/cli.FuzzParseSponsorBlockMarkCategories
       - internal/cli.FuzzParseSponsorBlockRemoveCategories
-      - pkg/ytdlp.TestSponsorBlockRemoveSkippedUnderSimulateAndSkipDownload
-      - pkg/ytdlp.TestSponsorBlockDurationMismatchWarnsOnceAndLeavesMetadataUncommittedOnEmitFailure
-      - pkg/ytdlp.TestSponsorBlockNoDurationMismatchWarningForWholeVideoOrInvalid
-      - pkg/ytdlp.TestSponsorBlockMarkPlusRemoveDefersMarkDuringEnrich
-      - pkg/ytdlp.TestSponsorBlockMarkPlusRemoveSimulateEnrichAppliesMarks
-      - pkg/ytdlp.TestSponsorBlockMarkPlusRemoveSkipDownloadEnrichAppliesMarks
-      - pkg/ytdlp.TestSponsorBlockMarkPlusRemoveNoCutsCommitsMarkedChapters
-      - pkg/ytdlp.TestSponsorBlockArrangeRemoveOnlyAndMarkRemove
-      - pkg/ytdlp.TestSponsorBlockRemoveNoopWithoutCuts
-      - pkg/ytdlp.TestSponsorBlockFetchCategoriesUnionsRemoveSet
-      - pkg/ytdlp.TestSponsorBlockUnsupportedSubtitleWarnsAndLeavesSidecarUntouched
-      - pkg/ytdlp.TestSponsorBlockRemoveRemapsOrdinaryChaptersWithoutMark
-      - pkg/ytdlp.TestSponsorBlockPrepareChaptersBeforeCommit
-      - pkg/ytdlp.TestSponsorBlockCutCommitIsTransactional
-      - pkg/ytdlp.TestSponsorBlockCutCommitReportsRollbackFailure
-      - pkg/ytdlp.TestSponsorBlockCutCommitReplacesAfterAllStaging
-      - pkg/ytdlp.TestSponsorBlockCutCommitCancellationLeavesFilesUnchanged
-      - pkg/ytdlp.TestSponsorBlockStageSubtitleDeterministic
-      - pkg/ytdlp.TestSponsorBlockPlanningLimitsAlignWithFFmpeg
-      - pkg/ytdlp.TestSponsorBlockDeferredArrangementUsesCustomChapterTitle
-      - pkg/ytdlp.TestMultiOutputLifecycleAppliesSponsorBlockMarkRemovePerPlan
-      - pkg/ytdlp.TestArtifactBytesRecountsAfterCut
+      - engine.TestSponsorBlockRemoveSkippedUnderSimulateAndSkipDownload
+      - engine.TestSponsorBlockDurationMismatchWarnsOnceAndLeavesMetadataUncommittedOnEmitFailure
+      - engine.TestSponsorBlockNoDurationMismatchWarningForWholeVideoOrInvalid
+      - engine.TestSponsorBlockMarkPlusRemoveDefersMarkDuringEnrich
+      - engine.TestSponsorBlockMarkPlusRemoveSimulateEnrichAppliesMarks
+      - engine.TestSponsorBlockMarkPlusRemoveSkipDownloadEnrichAppliesMarks
+      - engine.TestSponsorBlockMarkPlusRemoveNoCutsCommitsMarkedChapters
+      - engine.TestSponsorBlockArrangeRemoveOnlyAndMarkRemove
+      - engine.TestSponsorBlockRemoveNoopWithoutCuts
+      - engine.TestSponsorBlockFetchCategoriesUnionsRemoveSet
+      - engine.TestSponsorBlockUnsupportedSubtitleWarnsAndLeavesSidecarUntouched
+      - engine.TestSponsorBlockRemoveRemapsOrdinaryChaptersWithoutMark
+      - engine.TestSponsorBlockPrepareChaptersBeforeCommit
+      - engine.TestSponsorBlockCutCommitIsTransactional
+      - engine.TestSponsorBlockCutCommitReportsRollbackFailure
+      - engine.TestSponsorBlockCutCommitReplacesAfterAllStaging
+      - engine.TestSponsorBlockCutCommitCancellationLeavesFilesUnchanged
+      - engine.TestSponsorBlockStageSubtitleDeterministic
+      - engine.TestSponsorBlockPlanningLimitsAlignWithFFmpeg
+      - engine.TestSponsorBlockDeferredArrangementUsesCustomChapterTitle
+      - engine.TestMultiOutputLifecycleAppliesSponsorBlockMarkRemovePerPlan
+      - engine.TestArtifactBytesRecountsAfterCut
       - internal/network.TestDoWithoutCredentialsDropsExplicitAndDefaultSecrets
       - conformance/sponsorblock/PROVENANCE.md
       - conformance/sponsorblock/sample_arrange_mark_remove.json
@@ -3413,9 +3413,9 @@ capabilities:
       - internal/extractor.TestARDMediathekCollectionRoutingAndNonOverlap
       - internal/extractor.TestARDPlaylistIsLazy
       - internal/extractor.TestARDFailureCategoriesCancellationAndSecretSafety
-      - pkg/ytdlp.TestProductRegistryRoutesARDMediathekCollection
-      - pkg/ytdlp.TestProductARDMediathekCollectionClientRunReentryAndIsolation
-      - pkg/ytdlp.TestProductARDMediathekCollectionCancellationLeavesNoArtifacts
+      - engine.TestProductRegistryRoutesARDMediathekCollection
+      - engine.TestProductARDMediathekCollectionClientRunReentryAndIsolation
+      - engine.TestProductARDMediathekCollectionCancellationLeavesNoArtifacts
       - conformance/extractors/risk/ard/PROVENANCE.md
     owner: extractors
     known_deviation: >-
@@ -3441,15 +3441,15 @@ capabilities:
       - internal/extractor.TestBilibiliPlayerDynamicIntlRoutes
       - internal/extractor.TestBilibiliCancellationAndFuzzSeed
       - internal/extractor.FuzzParseBilibiliPage
-      - pkg/ytdlp.TestProductBilibiliDomesticDASHExactBytes
-      - pkg/ytdlp.TestProductBilibiliBangumiExactBytesAndScopedReferer
-      - pkg/ytdlp.TestProductBilibiliAudioExactBytes
-      - pkg/ytdlp.TestProductBilibiliInternationalExactBytes
-      - pkg/ytdlp.TestProductBilibiliTransparentPlayerAndPlaylistReentry
-      - pkg/ytdlp.TestProductBilibiliRetainedPlaylistFamilies
-      - pkg/ytdlp.TestProductBilibiliCredentialIsolation
-      - pkg/ytdlp.TestProductBilibiliEnteredCancellationLeavesNoArtifacts
-      - pkg/ytdlp.TestProductBilibiliMediaFailureLeavesNoArtifacts
+      - engine.TestProductBilibiliDomesticDASHExactBytes
+      - engine.TestProductBilibiliBangumiExactBytesAndScopedReferer
+      - engine.TestProductBilibiliAudioExactBytes
+      - engine.TestProductBilibiliInternationalExactBytes
+      - engine.TestProductBilibiliTransparentPlayerAndPlaylistReentry
+      - engine.TestProductBilibiliRetainedPlaylistFamilies
+      - engine.TestProductBilibiliCredentialIsolation
+      - engine.TestProductBilibiliEnteredCancellationLeavesNoArtifacts
+      - engine.TestProductBilibiliMediaFailureLeavesNoArtifacts
       - conformance/extractors/risk/bilibili/PROVENANCE.md
       - conformance/extractors/public/bilibili/success.html
     owner: core
@@ -3471,15 +3471,15 @@ capabilities:
       - internal/cli.TestRunYesPlaylistThenNoPlaylistLastWins
       - internal/cli.TestRunPlaylistDefaultDoesNotSetDisabled
       - docs/CLI_FLAG_INVENTORY.md
-      - pkg/ytdlp.TestNoPlaylistWiredFromRequestToExtractor
+      - engine.TestNoPlaylistWiredFromRequestToExtractor
       - internal/providers/youtube.TestParseYouTubeTargetListParam
       - internal/providers/youtube.TestYouTubeNoPlaylistAmbiguousURLChoice
       - internal/extractor.TestDailymotionNoPlaylistAmbiguousURLChoice
       - internal/extractor.TestBilibiliNoPlaylistAnthologyChoice
-      - pkg/ytdlp.TestProductYouTubeNoPlaylistChoice
-      - pkg/ytdlp.TestProductDailymotionNoPlaylistChoice
-      - pkg/ytdlp.TestProductBilibiliNoPlaylistChoice
-      - pkg/ytdlp.TestProductPlaylistChoiceRegistryKeepsExplicitPlaylistRouting
+      - engine.TestProductYouTubeNoPlaylistChoice
+      - engine.TestProductDailymotionNoPlaylistChoice
+      - engine.TestProductBilibiliNoPlaylistChoice
+      - engine.TestProductPlaylistChoiceRegistryKeepsExplicitPlaylistRouting
     owner: core
     depends_on:
       - foundation.cli
@@ -3493,11 +3493,11 @@ capabilities:
       - internal/cli.TestRunContinueAndMtimeDefaultsEnabled
       - internal/cli.TestRunNoContinueAfterContinueLastWins
       - internal/compat/template.TestResolveFilenameOptions
-      - pkg/ytdlp.TestMetadataModificationTimePrefersTimestamp
-      - pkg/ytdlp.TestApplyOutputMtimeUsesUploadDate
-      - pkg/ytdlp.TestApplyOutputMtimeHonorsNoMtime
-      - pkg/ytdlp.TestResolveConfiguredLocationDirectory
-      - pkg/ytdlp.TestPlannerCapabilitiesHonorConfiguredFFmpeg
+      - engine.TestMetadataModificationTimePrefersTimestamp
+      - engine.TestApplyOutputMtimeUsesUploadDate
+      - engine.TestApplyOutputMtimeHonorsNoMtime
+      - engine.TestResolveConfiguredLocationDirectory
+      - engine.TestPlannerCapabilitiesHonorConfiguredFFmpeg
       - docs/CLI_FLAG_INVENTORY.md
     owner: core
     depends_on:
@@ -3522,7 +3522,7 @@ capabilities:
       - internal/cli.TestRunListFormatsUsesFormatTableAndSimulation
       - internal/cli.TestRunListFormatsPlumbsSimulationAndPreProcessTable
       - internal/cli.TestRunPrintSyntheticTableFields
-      - pkg/ytdlp.TestRenderSyntheticPrintTables
+      - engine.TestRenderSyntheticPrintTables
       - docs/CLI_FLAG_INVENTORY.md
     owner: core
     depends_on:
@@ -3574,14 +3574,14 @@ capabilities:
       enforced before live extraction.
     status: compatible
     evidence:
-      - pkg/ytdlp.TestRouteRequestInputURLAndSearchClassification
-      - pkg/ytdlp.TestRouteRequestInputCancellationAndConcurrency
-      - pkg/ytdlp.TestClientRoutesBeforeTransportAndDoesNotExposeInput
-      - pkg/ytdlp.TestClientForceGenericUsesRegisteredGenericExtractor
-      - pkg/ytdlp.TestDefaultSearchRequestOverrideIsTypedAndSafe
-      - pkg/ytdlp.TestClientDefaultSearchReachesRegisteredBackendAndIsolatesConcurrentRuns
-      - pkg/ytdlp.TestOperationSearchQueryOverrideIsRootOnlyForURLResultChildren
-      - pkg/ytdlp.TestRouteRequestInputPluginIDPreservesOriginalAndBypassesBuiltIns
+      - engine.TestRouteRequestInputURLAndSearchClassification
+      - engine.TestRouteRequestInputCancellationAndConcurrency
+      - engine.TestClientRoutesBeforeTransportAndDoesNotExposeInput
+      - engine.TestClientForceGenericUsesRegisteredGenericExtractor
+      - engine.TestDefaultSearchRequestOverrideIsTypedAndSafe
+      - engine.TestClientDefaultSearchReachesRegisteredBackendAndIsolatesConcurrentRuns
+      - engine.TestOperationSearchQueryOverrideIsRootOnlyForURLResultChildren
+      - engine.TestRouteRequestInputPluginIDPreservesOriginalAndBypassesBuiltIns
       - internal/cli.TestRunRoutingControlsWireToRequest
       - internal/cli.TestRunRoutingControlsPreserveBatchInputs
       - internal/providers/youtube.TestYouTubeSearchUsesBoundedProductQueryOverride
@@ -3644,20 +3644,20 @@ capabilities:
       - internal/downloader.TestDownloadFilesizeUsesResumeOffset
       - internal/downloader.TestDownloadFilesizeAbortIsNotRetryable
       - internal/downloader.TestDownloadFilesizeAbortPreservesNoPartDestination
-      - pkg/ytdlp.TestOperationSimpleFilterRejections
-      - pkg/ytdlp.TestClientBreakOnRejectStops
-      - pkg/ytdlp.TestClientBreakMatchFilterAlwaysStops
-      - pkg/ytdlp.TestClientArchivePrecedesFilters
-      - pkg/ytdlp.TestClientMaxDownloadsCountsPassingEntries
-      - pkg/ytdlp.TestClientMaxDownloadsDoesNotCountArchiveOrRejectedEntries
-      - pkg/ytdlp.TestClientForceWriteArchiveInSimulationAndSkipDownload
-      - pkg/ytdlp.TestOperationFlatPlaylistForceWritesArchive
-      - pkg/ytdlp.TestFiltersSeePreprocessMetadataBeforeTransformedOutput
-      - pkg/ytdlp.TestOperationMaxDownloadsStopsPlaylist
-      - pkg/ytdlp.TestClientFilesizeAbortSkipsEntry
-      - pkg/ytdlp.TestClientFilesizeAbortNotRecordedInArchive
-      - pkg/ytdlp.TestPlaylistMaxDownloadsDoesNotCountExtractionFailure
-      - pkg/ytdlp.TestClientReturnsSelectedAttemptAccountingWithCategorizedFailure
+      - engine.TestOperationSimpleFilterRejections
+      - engine.TestClientBreakOnRejectStops
+      - engine.TestClientBreakMatchFilterAlwaysStops
+      - engine.TestClientArchivePrecedesFilters
+      - engine.TestClientMaxDownloadsCountsPassingEntries
+      - engine.TestClientMaxDownloadsDoesNotCountArchiveOrRejectedEntries
+      - engine.TestClientForceWriteArchiveInSimulationAndSkipDownload
+      - engine.TestOperationFlatPlaylistForceWritesArchive
+      - engine.TestFiltersSeePreprocessMetadataBeforeTransformedOutput
+      - engine.TestOperationMaxDownloadsStopsPlaylist
+      - engine.TestClientFilesizeAbortSkipsEntry
+      - engine.TestClientFilesizeAbortNotRecordedInArchive
+      - engine.TestPlaylistMaxDownloadsDoesNotCountExtractionFailure
+      - engine.TestClientReturnsSelectedAttemptAccountingWithCategorizedFailure
       - internal/cli.TestParseByteQuantity
       - internal/cli.TestRunDatePrecedenceWarning
       - internal/cli.TestRunHelpOmitsHiddenFlags
@@ -3697,11 +3697,11 @@ capabilities:
       - internal/cli.TestRunExtractorSelectionEmptyRulesNormalizeToDefault
       - internal/cli.TestRunExtractorSelectionEmptyRulesUseDefaultRouting
       - internal/cli.TestRunExtractorSelectionValidationFailsBeforeRunnerNetwork
-      - pkg/ytdlp.TestProductExtractorSelectionControlsRootAndURLResultReentry
-      - pkg/ytdlp.TestProductExtractorSelectionReusesPlaylistRegistryPolicy
-      - pkg/ytdlp.TestProductExtractorSelectionCancellationAndSecretSafeFailure
-      - pkg/ytdlp.TestProductExtractorSelectionPreflightAndConcurrentClients
-      - pkg/ytdlp.TestProductExtractorSelectionEmptyRulesUseDefaultGenericRouting
+      - engine.TestProductExtractorSelectionControlsRootAndURLResultReentry
+      - engine.TestProductExtractorSelectionReusesPlaylistRegistryPolicy
+      - engine.TestProductExtractorSelectionCancellationAndSecretSafeFailure
+      - engine.TestProductExtractorSelectionPreflightAndConcurrentClients
+      - engine.TestProductExtractorSelectionEmptyRulesUseDefaultGenericRouting
       - docs/EXTRACTOR_SELECTION_EVIDENCE.md
       - docs/CLI_FLAG_INVENTORY.md
     owner: core

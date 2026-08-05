@@ -48,14 +48,14 @@ covered controls are:
 
 Evidence is provided by:
 
-- `pkg/ytdlp.TestOutputArtifactTemplatePlaceholderAndAutonumberCompatibility`
-- `pkg/ytdlp.TestInfoJSONCleaningPreservesPublicMetadataAndExplicitOverride`
-- `pkg/ytdlp.TestLoadInfoJSONDownloadsBoundedMetadataWithoutAmbientCredentials`
-- `pkg/ytdlp.TestLoadInfoJSONPreservesAcceptedAutonumberOnOutputFailure`
-- `pkg/ytdlp.TestLoadInfoJSONArchiveIdentityUsesExtractorMetadata`
-- `pkg/ytdlp.TestLoadInfoJSONFallsBackFromDirectURLToWebpage`
-- `pkg/ytdlp.TestLoadInfoJSONRejectsUnsafeShapesBoundsAndCancellation`
-- `pkg/ytdlp.TestAutonumberCountsOnlyAcceptedPlaylistEntries`
+- `engine.TestOutputArtifactTemplatePlaceholderAndAutonumberCompatibility`
+- `engine.TestInfoJSONCleaningPreservesPublicMetadataAndExplicitOverride`
+- `engine.TestLoadInfoJSONDownloadsBoundedMetadataWithoutAmbientCredentials`
+- `engine.TestLoadInfoJSONPreservesAcceptedAutonumberOnOutputFailure`
+- `engine.TestLoadInfoJSONArchiveIdentityUsesExtractorMetadata`
+- `engine.TestLoadInfoJSONFallsBackFromDirectURLToWebpage`
+- `engine.TestLoadInfoJSONRejectsUnsafeShapesBoundsAndCancellation`
+- `engine.TestAutonumberCountsOnlyAcceptedPlaylistEntries`
 - `internal/cache.TestRemoveRootIsConfinedAtomicAndCancellationAware`
 - `internal/cache.TestRemoveRootRejectsUnknownRootLevelTemporaryFile`
 - `internal/cli.TestOutputArtifactFlagsAndIDOrdering`

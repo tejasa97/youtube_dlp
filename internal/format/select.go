@@ -52,6 +52,7 @@ type Selection struct {
 	// NiconicoScoped applies the Niconico attributable host policy to every
 	// manifest and fragment hop after the generic HLS dispatcher re-enters.
 	NiconicoScoped bool
+	MediaPolicy    string
 	// AllowedHosts is an extractor-owned HLS trust boundary. When present, the
 	// native HLS downloader applies it to the manifest, variants, segments,
 	// encryption keys, and initialization maps.
@@ -238,6 +239,7 @@ func (prepared Prepared) Best() (Selection, error) {
 			selection.HostPolicy, _ = object.Lookup("_ted_host_policy").StringValue()
 		}
 		selection.NiconicoScoped, _ = object.Lookup("_niconico_scoped").Bool()
+		selection.MediaPolicy, _ = object.Lookup("_media_policy").StringValue()
 		var allowedHostsErr error
 		selection.AllowedHosts, allowedHostsErr = readAllowedHosts(object)
 		if allowedHostsErr != nil {

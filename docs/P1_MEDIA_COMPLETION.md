@@ -68,7 +68,7 @@ Key evidence:
 - `internal/protocol/dash.TestSelectMultiPeriodRejectsDiscontinuousOrUnknownTiming`
 - `internal/protocol/dash.TestDownloadMultiPeriodEnforcesAggregateSegmentLimit`
 - `internal/media/pipeline.TestFinalizeDASHMultiPeriodConcatenatesAndMergesTracks`
-- `pkg/ytdlp.TestClientDASHMultiPeriodDispatchAndFixup`
+- `engine.TestClientDASHMultiPeriodDispatchAndFixup`
 - `internal/protocol/dash.FuzzParse`
 - `conformance/media/dash/PROVENANCE.md`
 

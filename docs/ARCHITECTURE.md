@@ -9,6 +9,10 @@ YTDLP Go Desktop       ytdlp-go CLI       Go application
                              │
                          pkg/ytdlp
                              │
+                    broad composition
+                             │
+                           engine
+                             │
         ┌────────────────────┼────────────────────┐
         │                    │                    │
   extractor registry   operation policy    structured events
@@ -48,10 +52,13 @@ consumers. Core packages do not write terminal presentation directly.
 
 ### Go API
 
-`pkg/ytdlp` is the supported embedding boundary. It exposes context-aware
-requests, client options, metadata, lazy playlists, categorized errors,
-events, results, and produced artifacts. Internal extractor and downloader
-packages are not public compatibility contracts.
+Root `engine` owns the provider-neutral operational client, request, result,
+options, events, errors, extraction/download orchestration, and explicit
+composition constructor. `pkg/ytdlp` remains the source-compatible broad
+embedding facade: its exported API aliases or wraps `engine`, and its
+`NewClient` explicitly supplies the complete catalog and plugin hooks.
+Internal extractor and downloader packages are not public compatibility
+contracts.
 
 ## Operation lifecycle
 
@@ -91,20 +98,22 @@ directly on `engine/provider`; it has no dependency on the mixed
 thin adapters so the broad catalog keeps its names, routing order, request
 surface, and URL-result re-entry behavior.
 
-The concrete provider-composition boundary is still internal. The public
-client orchestration API, public YouTube bundle, and Desktop's focused
-composition are separate later stages; the current `pkg/ytdlp.NewClient`
-remains the broad full-catalog facade.
+The public composition boundary is `engine.NewComposition`. Each run builds an
+operation-local provider runtime from the supplied catalog and request adapter;
+there is no implicit fallback catalog. Root `engine` does not import
+`internal/extractor`, concrete providers, EJS, or the concrete PO-token
+director. The broad `pkg/ytdlp` composition owns those dependencies and its
+provider-specific support hooks.
 
 The public extraction-contract owner is
 `github.com/tejasa97/youtube_dlp/engine/provider`. Its generic registry and
 bundle runtime, operation request, result/entry model, transport and credential
 capabilities, metadata values, and typed challenge/token and provider-support
-hooks are nameable by external provider packages. Root `engine` and historical
-internal contract packages are compatibility aliases and wrappers.
-
-Provider-neutral client orchestration and the public YouTube bundle remain
-staged changes described in [Public engine extraction contracts](PUBLIC_ENGINE_CONTRACTS.md).
+hooks are nameable by external provider packages. Historical internal contract
+packages remain compatibility aliases and wrappers. The remaining staged
+change is the public complete-YouTube bundle, followed by Desktop's focused
+composition, as described in
+[Public engine extraction contracts](PUBLIC_ENGINE_CONTRACTS.md).
 
 See [Supported sites](SUPPORTED_SITES.md), [Extractor selection](EXTRACTOR_SELECTION_EVIDENCE.md),
 and [the extractor master checklist](EXTRACTOR_MASTER_CHECKLIST.md).

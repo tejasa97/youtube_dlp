@@ -41,6 +41,21 @@ type StatusErrorRequest struct {
 	Status int
 }
 
+// PolicyResponseRequest describes a response received through a
+// composition-owned host/media policy. A nil error accepts the response.
+type PolicyResponseRequest struct {
+	Policy  string
+	Status  int
+	HasBody bool
+}
+
+// ServiceRequest asks a composition to map one of its canonical provider keys
+// to a provider-owned external service identity for a named capability.
+type ServiceRequest struct {
+	Capability string
+	Provider   string
+}
+
 // ReloadRequest carries bounded playback state for an attributable provider
 // reload. Bundles that do not support reload leave Hooks.Reload nil.
 type ReloadRequest struct {
@@ -58,12 +73,15 @@ type ReloadRequest struct {
 // Hooks contains the typed provider-specific support deliberately supplied by
 // a composition root. Engine orchestration never switches on provider names.
 type Hooks[C any] struct {
-	ClassifyError func(error) (ErrorClass, bool)
-	ValidateURL   func(URLPolicyRequest) error
-	NetworkError  func(string) error
-	StatusError   func(StatusErrorRequest) error
-	ValidateAsset func(URLPolicyRequest) error
-	Reload        func(context.Context, Operation, C, ReloadRequest) (Extraction, error)
+	ClassifyError    func(error) (ErrorClass, bool)
+	ValidatePolicy   func(string) error
+	ValidateURL      func(URLPolicyRequest) error
+	NetworkError     func(string) error
+	StatusError      func(StatusErrorRequest) error
+	ValidateResponse func(PolicyResponseRequest) error
+	ValidateAsset    func(URLPolicyRequest) error
+	ServiceIdentity  func(ServiceRequest) (string, bool)
+	Reload           func(context.Context, Operation, C, ReloadRequest) (Extraction, error)
 }
 
 type Selected[C any] interface {

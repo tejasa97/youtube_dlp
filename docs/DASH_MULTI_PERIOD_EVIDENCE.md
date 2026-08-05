@@ -101,7 +101,7 @@ mechanically testable.
 - `internal/protocol/dash.TestDownloadDynamicMultiPeriodSIDXFailsClosedBeforeMedia`
 - `internal/media/pipeline.TestFinalizeDASHMultiPeriodRemuxesAndRemovesSource`
 - `internal/media/pipeline.TestFinalizeDASHMultiPeriodConcatenatesAndMergesTracks`
-- `pkg/ytdlp.TestClientDASHMultiPeriodDispatchAndFixup`
+- `engine.TestClientDASHMultiPeriodDispatchAndFixup`
 - `internal/protocol/dash.FuzzParse` includes a deterministic multi-period seed
 
 The product test generates license-safe media with ffmpeg lavfi, downloads two

@@ -740,6 +740,7 @@ func tedParseHLS(ctx context.Context, transport Transport, rawURL string, format
 			value.Field{Key: "url", Value: value.String(rendition.URL)},
 			value.Field{Key: "ext", Value: value.String("vtt")},
 			value.Field{Key: "_credential_isolated", Value: value.Bool(true)},
+			value.Field{Key: "_host_policy", Value: value.String("ted")},
 			value.Field{Key: "_ted_host_policy", Value: value.String("ted")},
 		)))
 	}
@@ -767,6 +768,7 @@ func tedInlineSubtitles(player map[string]any, subtitles map[string][]value.Valu
 		object := value.NewObject(
 			value.Field{Key: "url", Value: value.String(rawURL)},
 			value.Field{Key: "_credential_isolated", Value: value.Bool(true)},
+			value.Field{Key: "_host_policy", Value: value.String("ted")},
 			value.Field{Key: "_ted_host_policy", Value: value.String("ted")},
 		)
 		if ext := tedExtension(rawURL); ext != "" {
@@ -779,6 +781,7 @@ func tedInlineSubtitles(player map[string]any, subtitles map[string][]value.Valu
 func tedManifestFormat(id, rawURL string) *value.Object {
 	object := manifestFormat(id, rawURL, "m3u8_native")
 	object.Set("_credential_isolated", value.Bool(true))
+	object.Set("_host_policy", value.String("ted"))
 	object.Set("_ted_host_policy", value.String("ted"))
 	return object
 }
@@ -790,6 +793,7 @@ func tedHTTPFormat(id, rawURL string) *value.Object {
 		value.Field{Key: "ext", Value: value.String(tedExtension(rawURL))},
 		value.Field{Key: "protocol", Value: value.String("https")},
 		value.Field{Key: "_credential_isolated", Value: value.Bool(true)},
+		value.Field{Key: "_host_policy", Value: value.String("ted")},
 		value.Field{Key: "_ted_host_policy", Value: value.String("ted")},
 	)
 	return object
@@ -800,6 +804,7 @@ func tedThumbnail(rawURL, id string) *value.Object {
 		value.Field{Key: "id", Value: value.String(id)},
 		value.Field{Key: "url", Value: value.String(rawURL)},
 		value.Field{Key: "_credential_isolated", Value: value.Bool(true)},
+		value.Field{Key: "_host_policy", Value: value.String("ted")},
 		value.Field{Key: "_ted_host_policy", Value: value.String("ted")},
 	)
 }

@@ -23,11 +23,11 @@ registered child keys, access-rights POST output pairing, exact best-video and
 best-audio segment bytes, and isolated requests. The only named product evidence
 is provided by these public `Client.Run` tests:
 
-- `pkg/ytdlp.TestProductNiconicoRegisteredWatchHLSDownloadIsolatedAndSigned`
-- `pkg/ytdlp.TestProductNiconicoRegisteredBestAudioDownloadIsExactAndIsolated`
-- `pkg/ytdlp.TestProductNiconicoRegisteredSearchChildReentryIsolation`
-- `pkg/ytdlp.TestProductNiconicoPlaylistChildReentryUsesRegisteredKeys`
-- `pkg/ytdlp.TestProductNiconicoHLSFailureAndCancellationLeaveNoArtifacts`
+- `engine.TestProductNiconicoRegisteredWatchHLSDownloadIsolatedAndSigned`
+- `engine.TestProductNiconicoRegisteredBestAudioDownloadIsExactAndIsolated`
+- `engine.TestProductNiconicoRegisteredSearchChildReentryIsolation`
+- `engine.TestProductNiconicoPlaylistChildReentryUsesRegisteredKeys`
+- `engine.TestProductNiconicoHLSFailureAndCancellationLeaveNoArtifacts`
 
 History is deferred because the upstream path requires cookies and has no
 registered native mapping or product evidence. Live is deferred because the

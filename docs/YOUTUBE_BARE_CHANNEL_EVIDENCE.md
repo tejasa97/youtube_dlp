@@ -59,7 +59,7 @@ test paths.
 - `internal/providers/youtube.TestYouTubeBareRootNetworkAndAlertCategories`
 - `internal/providers/youtube.FuzzYouTubeBareUploadTabs`
 - existing channel, handle, and alias route fuzz targets
-- `pkg/ytdlp.TestProductRegistryIncludesIntegratedExtractors`
+- `engine.TestProductRegistryIncludesIntegratedExtractors`
 
 ## Known deviations
 

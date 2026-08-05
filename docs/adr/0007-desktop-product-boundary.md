@@ -147,6 +147,13 @@ The boundary will be implemented in this order:
    repository and consume a reviewed engine/provider release. Do not copy
    engine or provider source.
 
+As of 2026-08-05, the neutral public contracts, complete internal YouTube move,
+and root provider-neutral orchestration/composition point are complete. Root
+`engine` has no production dependency on the broad catalog or concrete
+providers, and `pkg/ytdlp.NewClient` explicitly owns the compatibility catalog.
+The public `providers/youtube` facade, Desktop switch, Desktop dependency proof,
+and repository extraction remain staged work.
+
 ## Validation requirements
 
 The implementation must prove both composition and product behavior:

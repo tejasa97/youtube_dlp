@@ -344,6 +344,7 @@ func objectSelection(object *value.Object) (Selection, error) {
 		selection.HostPolicy, _ = object.Lookup("_ted_host_policy").StringValue()
 	}
 	selection.NiconicoScoped, _ = object.Lookup("_niconico_scoped").Bool()
+	selection.MediaPolicy, _ = object.Lookup("_media_policy").StringValue()
 	var allowedHostsErr error
 	selection.AllowedHosts, allowedHostsErr = readAllowedHosts(object)
 	if allowedHostsErr != nil {
