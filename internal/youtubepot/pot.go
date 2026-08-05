@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/tejasa97/youtube_dlp/engine"
 )
 
 const (
@@ -38,12 +40,12 @@ var (
 	ErrForcedRefreshBudget = errors.New("YouTube PO-token forced refresh budget exhausted")
 )
 
-type Context string
+type Context = engine.POTContext
 
 const (
-	ContextGVS    Context = "gvs"
-	ContextPlayer Context = "player"
-	ContextSubs   Context = "subs"
+	ContextGVS    = engine.POTContextGVS
+	ContextPlayer = engine.POTContextPlayer
+	ContextSubs   = engine.POTContextSubs
 )
 
 type FetchPolicy string
@@ -54,27 +56,8 @@ const (
 	FetchAlways FetchPolicy = "always"
 )
 
-type Request struct {
-	Context       Context
-	Client        string
-	VisitorData   string
-	DataSyncID    string
-	VideoID       string
-	PlayerURL     string
-	Authenticated bool
-	BypassCache   bool
-}
-
-func (Request) String() string   { return "[redacted YouTube PO-token request]" }
-func (Request) GoString() string { return "youtubepot.Request{[redacted]}" }
-
-type Response struct {
-	Token     string
-	ExpiresAt time.Time
-}
-
-func (Response) String() string   { return "[redacted YouTube PO-token response]" }
-func (Response) GoString() string { return "youtubepot.Response{[redacted]}" }
+type Request = engine.POTRequest
+type Response = engine.POTResponse
 
 type Provider interface {
 	Name() string

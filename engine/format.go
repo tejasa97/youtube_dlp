@@ -1,6 +1,6 @@
-package extraction
+package engine
 
-import "github.com/tejasa97/youtube_dlp/internal/value"
+import "github.com/tejasa97/youtube_dlp/engine/value"
 
 // ManifestFormat constructs the shared minimal manifest-backed format shape.
 func ManifestFormat(id, rawURL, protocolName string) *value.Object {
