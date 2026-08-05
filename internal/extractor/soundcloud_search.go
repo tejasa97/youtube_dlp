@@ -96,7 +96,7 @@ func soundCloudSearchEntries(firstURL string, fetch ContinuationFetcher) (EntryS
 	if firstURL == "" || fetch == nil {
 		return nil, fmt.Errorf("%w: invalid SoundCloud search source", ErrInvalidPlaylist)
 	}
-	return continuationEntries{nextToken: firstURL, fetch: fetch, maxPages: soundCloudSearchMaxPages}, nil
+	return continuationEntriesWithPageLimit(nil, firstURL, soundCloudSearchMaxPages, fetch)
 }
 
 // soundCloudSearchTarget is deliberately shared by route selection and

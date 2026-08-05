@@ -1,4 +1,4 @@
-package extractor
+package extraction
 
 import (
 	"errors"
@@ -24,11 +24,11 @@ var (
 	ErrSelectionDisabled = errors.New("extractor disabled by selection policy")
 )
 
-// ExplicitOnlyExtractor marks an extractor that is intentionally unavailable
+// ExplicitOnlyProvider marks a provider that is intentionally unavailable
 // to automatic URL routing. Installed signed plugins use this contract: a
 // caller may select one by its exact PluginID, but extractor rules must not
 // turn it into an automatic fallback.
-type ExplicitOnlyExtractor interface {
+type ExplicitOnlyProvider interface {
 	ExplicitOnly()
 }
 
@@ -99,7 +99,7 @@ func selectionRuleName(name string) string {
 	return name
 }
 
-func compileSelectionPolicy(rules []string, candidates []Extractor) (selectionPolicy, error) {
+func compileSelectionPolicy[R any](rules []string, candidates []Provider[R]) (selectionPolicy, error) {
 	if len(rules) == 0 {
 		return selectionPolicy{}, nil
 	}
@@ -125,7 +125,7 @@ func compileSelectionPolicy(rules []string, candidates []Extractor) (selectionPo
 		}
 		byName[key] = name
 		all = append(all, name)
-		if _, explicitOnly := candidate.(ExplicitOnlyExtractor); !explicitOnly {
+		if _, explicitOnly := candidate.(ExplicitOnlyProvider); !explicitOnly {
 			defaults = append(defaults, name)
 		}
 	}

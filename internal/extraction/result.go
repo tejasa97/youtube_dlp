@@ -1,4 +1,4 @@
-package extractor
+package extraction
 
 import (
 	"context"
@@ -238,12 +238,22 @@ type continuationEntries struct {
 // previous response. Empty intermediate pages are followed, repeated cursors
 // terminate safely, and each iterator owns independent cursor state.
 func ContinuationEntries(first []Entry, nextToken string, fetch ContinuationFetcher) (EntrySequence, error) {
+	return ContinuationEntriesWithPageLimit(first, nextToken, defaultMaxPlaylistPages, fetch)
+}
+
+// ContinuationEntriesWithPageLimit is ContinuationEntries with a stricter
+// provider-owned page budget. It exists for bounded APIs whose source limit is
+// lower than the engine-wide safety ceiling.
+func ContinuationEntriesWithPageLimit(first []Entry, nextToken string, maxPages int, fetch ContinuationFetcher) (EntrySequence, error) {
 	if nextToken != "" && fetch == nil {
 		return nil, fmt.Errorf("%w: missing continuation fetcher", ErrInvalidPlaylist)
 	}
+	if maxPages <= 0 {
+		return nil, fmt.Errorf("%w: invalid continuation page limit", ErrInvalidPlaylist)
+	}
 	return continuationEntries{
 		first: append([]Entry(nil), first...), nextToken: nextToken,
-		fetch: fetch, maxPages: defaultMaxPlaylistPages,
+		fetch: fetch, maxPages: maxPages,
 	}, nil
 }
 
