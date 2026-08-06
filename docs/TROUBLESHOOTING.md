@@ -4,7 +4,7 @@ Start by recording:
 
 - the exact application or CLI version/revision;
 - operating system and architecture;
-- whether you used Desktop, CLI, or the Go API;
+- whether you used VidStow, the CLI, or the Go API;
 - the smallest public URL that reproduces the problem;
 - whether FFmpeg, FFprobe, browser cookies, or the JavaScript helper were used;
 - expected and actual behavior; and
@@ -14,11 +14,13 @@ Remove cookies, tokens, authorization headers, signed media URLs, browser
 profiles, private-media titles, usernames, and sensitive local paths before
 sharing diagnostics.
 
-## A URL is rejected by Desktop
+## A URL is rejected by VidStow
 
-Desktop V0 accepts only one public, on-demand YouTube video. Playlists,
+VidStow currently accepts only one public, on-demand YouTube video. Playlists,
 channels, search pages, Shorts, live streams, authenticated videos, and other
-sites are outside its current scope.
+sites are outside its current scope. VidStow is independently versioned; check
+the [VidStow repository](https://github.com/tejasa97/vidstow) for its current
+product documentation and issue tracker.
 
 If the engine supports the input, try the CLI instead and consult
 [Supported sites](SUPPORTED_SITES.md).
@@ -78,7 +80,7 @@ ffmpeg -version
 ffprobe -version
 ```
 
-Desktop users can select an explicit FFmpeg location in Settings. CLI users
+VidStow users can select an explicit FFmpeg location in Settings. CLI users
 should ensure the toolchain is available through the configured media/filesystem
 environment.
 
@@ -128,34 +130,13 @@ Never export or upload a complete browser profile. See
 [Browser cookie import](CHROMIUM_COOKIE_IMPORT.md) and report only sanitized
 diagnostics.
 
-## Desktop will not launch
+## VidStow application or local-state problems
 
-Development builds are not signed public releases and may be blocked by normal
-platform protections. Verify that the bundle was built for the current
-operating system and architecture and that its helper binaries are present.
-
-Future public packages will document supported OS versions, signing, and
-verification. Do not bypass organizational security policy to run an unknown
-artifact.
-
-## Linux WebKitGTK problems
-
-Wails uses the platform webview. Linux distributions ship different WebKitGTK
-ABIs and package names. A binary built on one distribution may not run on an
-unverified distribution without the expected GTK/WebKit runtime.
-
-Until supported Linux release targets are published, use `wails doctor` and
-the Wails prerequisites for the host distribution when building from source.
-
-## Corrupt Desktop settings or history
-
-Desktop stores settings and history in `state.json` under the user's config
-directory. If the file cannot be decoded, the application preserves it with a
-`.bak` suffix and creates default state.
-
-Removing `state.json` resets settings and history but does not delete downloaded
-media. Preserve a copy first if it is needed for a bug report, and sanitize all
-local paths and history details before sharing it.
+VidStow owns its platform requirements, Wails/WebKit guidance, settings and
+history format, and application packaging. Use the
+[VidStow issue tracker](https://github.com/tejasa97/vidstow/issues) for those
+problems. Engine or provider defects reproducible through this repository's CLI
+or public Go packages belong here.
 
 ## Before opening an issue
 

@@ -1,14 +1,14 @@
 # Installation
 
-`ytdlp-go` is pre-release software. Public DMG, Windows installer, AppImage,
-Linux package, and standalone CLI releases are not published yet. Do not treat
-CI artifacts, test keys, or locally built bundles as endorsed releases.
+`ytdlp-go` is pre-release software. Standalone CLI archives and operating-system
+packages are not published yet. Do not treat CI artifacts, test keys, or locally
+built binaries as endorsed releases.
 
 ## Choose what to install
 
 | Interface | Intended use | Installation today |
 | --- | --- | --- |
-| YTDLP Go Desktop | Graphical single-video YouTube downloads | Development source build |
+| [VidStow](https://github.com/tejasa97/vidstow) | Graphical single-video YouTube downloads | See the separate VidStow repository |
 | `ytdlp-go` CLI | Terminal and automation workflows | Source build |
 | `pkg/ytdlp` | Embedding in another Go application | Canonical Go module dependency |
 
@@ -66,57 +66,22 @@ selected explicitly:
 ./bin/ytdlp-go --js-helper ./bin/ytdlp-js-helper URL
 ```
 
-## Desktop development build
+## Desktop application
 
-### Desktop requirements
-
-- Go 1.25.12 or newer.
-- Node.js 20 or newer and npm 10 or newer.
-- Wails CLI v2.13.0.
-- Platform build dependencies reported by `wails doctor`.
-- FFmpeg/FFprobe for media merging and post-processing.
-
-Install the pinned Wails CLI:
-
-```sh
-go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
-```
-
-From `apps/desktop`:
-
-```sh
-cd frontend
-npm ci
-cd ..
-
-wails doctor
-wails dev
-```
-
-Create a production-mode build for the current host platform:
-
-```sh
-wails build
-```
-
-This is a developer build, not a signed or notarized public release. The
-current macOS post-build hook packages and verifies `ytdlp-js-helper` in the
-application bundle. Equivalent Windows and Linux helper packaging, FFmpeg
-redistribution decisions, platform signing, and clean-machine verification
-must be completed before publishing artifacts to end users.
-
-See the [Desktop maintainer guide](../apps/desktop/README.md) for project layout
-and validation commands.
+VidStow is developed and released independently from this engine. Follow the
+[VidStow build instructions](https://github.com/tejasa97/vidstow#quick-start)
+for its Go, Node.js, Wails, FFmpeg, and platform requirements. The historical
+`apps/desktop` snapshot in this repository is not the current desktop source.
 
 ## FFmpeg and FFprobe
 
-The application can download some combined formats without FFmpeg, but many
-high-quality YouTube formats provide video and audio as separate tracks.
+The CLI and downstream applications can download some combined formats without
+FFmpeg, but many high-quality formats provide video and audio as separate tracks.
 FFmpeg is then required to produce one playable output file.
 
-The Desktop app checks `PATH` and also accepts an explicit FFmpeg location in
-Settings. The CLI uses its filesystem/media configuration and normal tool
-discovery. Run the following to inspect an installed system toolchain:
+VidStow checks `PATH` and also accepts an explicit FFmpeg location in Settings.
+The CLI uses its filesystem/media configuration and normal tool discovery. Run
+the following to inspect an installed system toolchain:
 
 ```sh
 ffmpeg -version
@@ -155,17 +120,14 @@ There is no endorsed binary update channel yet. Update a source checkout only
 after reviewing the target revision, then rebuild both the main binary and the
 JavaScript helper.
 
-Development Desktop builds can be removed like ordinary local application
-bundles. User settings and history are stored separately; see
-[Desktop data and privacy](DESKTOP.md#data-and-privacy) before deleting them.
+VidStow installation, local-data, update, and removal behavior is documented in
+the separate VidStow repository.
 
 ## Future release installation
 
 Once public packages exist, this page will document:
 
-- signed and notarized macOS DMGs;
-- signed Windows installers;
-- Linux AppImage and distribution packages;
+- signed CLI archives and operating-system packages where appropriate;
 - supported operating-system and architecture versions;
 - checksums, signatures, and provenance verification;
 - upgrades, rollback, and uninstall behavior; and

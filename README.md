@@ -1,7 +1,7 @@
 <h1 align="center">ytdlp-go</h1>
 
 <p align="center">
-  <strong>A native, Python-free media downloader for desktop, command-line, and Go applications.</strong>
+  <strong>A native, Python-free media engine for command-line and Go applications.</strong>
 </p>
 
 <p align="center">
@@ -13,7 +13,7 @@
 
 <p align="center">
   <a href="docs/INSTALLATION.md">Installation</a> ·
-  <a href="docs/DESKTOP.md">Desktop</a> ·
+  <a href="https://github.com/tejasa97/vidstow">VidStow</a> ·
   <a href="docs/CLI_USAGE.md">CLI</a> ·
   <a href="docs/EMBEDDING.md">Go API</a> ·
   <a href="docs/README.md">Documentation</a> ·
@@ -24,8 +24,9 @@
 
 `ytdlp-go` is an independent Go implementation informed by the observable
 behavior of [yt-dlp](https://github.com/yt-dlp/yt-dlp). It provides one native
-media engine through a focused Desktop application, a CLI, and an embeddable
-Go API.
+media engine through a CLI, an embeddable Go API, and explicit provider
+compositions. The separate [VidStow](https://github.com/tejasa97/vidstow)
+project provides a focused desktop experience powered by this engine.
 
 Python is not used as a runtime, build, test, plugin, fallback, or JavaScript
 execution dependency. Unsupported behavior fails explicitly instead of
@@ -46,18 +47,19 @@ identify compatibility targets only.
 
 | Interface | Maturity | Best for | Start here |
 | --- | --- | --- | --- |
-| YTDLP Go Desktop | Preview | A focused graphical workflow for non-technical users | [Desktop guide](docs/DESKTOP.md) |
+| [VidStow](https://github.com/tejasa97/vidstow) | Early stage | A focused graphical workflow for non-technical users | [VidStow repository](https://github.com/tejasa97/vidstow) |
 | `ytdlp-go` CLI | Alpha | Terminal use, scripting, and advanced controls | [CLI guide](docs/CLI_USAGE.md) |
 | `pkg/ytdlp` | `v1alpha1` | Embedding the engine in another Go application | [Go API guide](docs/EMBEDDING.md) |
 
-Desktop V0 accepts one public, on-demand YouTube video at a time. The CLI and
-Go API expose a broader evidence-backed feature set.
+VidStow currently accepts one public, on-demand YouTube video at a time. It is
+versioned and released independently. The CLI and Go API expose a broader
+evidence-backed feature set.
 
 ## Why ytdlp-go?
 
 | Principle | What it provides |
 | --- | --- |
-| Native deployment | Go programs and a desktop application without a Python environment |
+| Native deployment | Go programs and downstream applications without a Python environment |
 | Explicit compatibility | Claims linked to fixtures, tests, provenance, and known deviations |
 | Safe composition | Bounded resources, cancellation, categorized errors, and confined output |
 | Auditable boundaries | Visible interfaces for JavaScript, credentials, FFmpeg, plugins, and updates |
@@ -116,22 +118,12 @@ Inspect metadata without downloading media:
 See [CLI usage](docs/CLI_USAGE.md) for playlists, subtitles, output paths,
 cookies, SponsorBlock, routing, automation, and transfer controls.
 
-### Run the Desktop development preview
+### Use the focused desktop application
 
-Install the [Wails prerequisites](docs/INSTALLATION.md#desktop-development-build),
-then from `apps/desktop`:
-
-```sh
-cd frontend
-npm ci
-cd ..
-
-wails doctor
-wails dev
-```
-
-This is a source development build, not a signed public release. The
-[Desktop guide](docs/DESKTOP.md) documents V0 behavior and limitations.
+[VidStow](https://github.com/tejasa97/vidstow) is the independently versioned
+Wails/Svelte desktop application built on root `engine` plus
+`providers/youtube`. Its repository contains the current source-build,
+development, packaging, and product-scope documentation.
 
 ### Embed the Go API
 
@@ -150,7 +142,7 @@ The API remains pre-release; review upgrades and follow the
 | Area | Evidence-backed scope today |
 | --- | --- |
 | Runtime | Native Go programs; no Python interpreter or fallback |
-| Desktop | Single public, on-demand YouTube videos with six quality presets and FIFO queueing |
+| Downstream | VidStow provides a separately versioned, focused YouTube desktop workflow |
 | Extractors | Representative simple, shared-backend, playlist, live, authenticated, regional, manifest, and JavaScript-heavy families |
 | Media | Direct HTTP(S), HLS, DASH, and ISM/Smooth Streaming |
 | Playlists | Lazy sequences, bounded continuations, item/range selection, reverse, and flat modes |
@@ -172,13 +164,14 @@ the evidence model and principal limitations.
 ## Architecture
 
 ```text
-YTDLP Go Desktop       ytdlp-go CLI       Go application
-        │                    │                  │
-        └────────────────────┴──────────────────┘
+VidStow (separate repo)       ytdlp-go CLI       Go application
+ engine + providers/youtube       │             engine composition
+              │                pkg/ytdlp        or pkg/ytdlp
+              └──────────────┬─────┴─────────────────┘
                              │
-                         pkg/ytdlp
+                           engine
                              │
-          extractor → selection → transfer → post-processing
+          extraction → selection → transfer → post-processing
                              │
                   confined artifacts + events
 ```
@@ -195,12 +188,12 @@ boundary. Read the [architecture overview](docs/ARCHITECTURE.md) and
   operations.
 - **`ytdlp-js-helper`** beside the main executable for supported JavaScript
   challenge flows.
-- **Node.js, npm, Wails, and platform webview dependencies** for Desktop
-  development.
+- **Node.js** only when rebuilding the JavaScript challenge helper from its
+  upstream source inputs.
 
-No public DMG, Windows installer, Linux package, standalone CLI release, or
-production updater channel is currently endorsed. Build from a reviewed source
-revision. See [Installation](docs/INSTALLATION.md) and the
+No standalone CLI binary release or production updater channel is currently
+endorsed. Build from a reviewed source revision. See
+[Installation](docs/INSTALLATION.md) and the
 [Roadmap](ROADMAP.md) for the release boundary and planned packaging work.
 
 ## Documentation
@@ -208,12 +201,12 @@ revision. See [Installation](docs/INSTALLATION.md) and the
 | Document | Purpose |
 | --- | --- |
 | [Installation](docs/INSTALLATION.md) | Current source-build paths and future release boundary |
-| [Desktop](docs/DESKTOP.md) | V0 workflow, quality presets, queue, settings, and limitations |
+| [VidStow](https://github.com/tejasa97/vidstow) | Separate focused desktop application powered by this engine |
 | [CLI usage](docs/CLI_USAGE.md) | Task-oriented command-line workflows |
 | [Go embedding](docs/EMBEDDING.md) | Public library usage and lifecycle |
 | [Supported sites](docs/SUPPORTED_SITES.md) | Public URL families and known boundaries |
 | [Configuration](docs/CONFIGURATION.md) | Configuration files, precedence, aliases, and paths |
-| [Troubleshooting](docs/TROUBLESHOOTING.md) | Desktop, CLI, helper, FFmpeg, and platform failures |
+| [Troubleshooting](docs/TROUBLESHOOTING.md) | CLI, helper, FFmpeg, and engine failures |
 | [Project status](docs/PROJECT_STATUS.md) | Maturity labels, evidence model, and limitations |
 | [Architecture](docs/ARCHITECTURE.md) | Engine boundaries and operation lifecycle |
 | [Documentation index](docs/README.md) | Complete guide, evidence, plan, and audit index |
@@ -237,20 +230,6 @@ Run the main repository tests:
 ```sh
 go test ./...
 go run ./cmd/paritycheck
-```
-
-Validate the isolated Desktop module:
-
-```sh
-cd apps/desktop/frontend
-npm ci
-npm run check
-npm run test:ui
-npm run build
-
-cd ..
-go test ./...
-go build ./...
 ```
 
 Contributions should keep claims bounded, preserve fixture provenance, add

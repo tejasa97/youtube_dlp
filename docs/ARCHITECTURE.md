@@ -1,12 +1,13 @@
 # Architecture Overview
 
-`ytdlp-go` has one native media engine with three public interfaces:
+`ytdlp-go` has one native media engine with first-party CLI and Go interfaces,
+plus explicitly composed downstream applications:
 
 ```text
-YTDLP Go Desktop        ytdlp-go CLI / Go application
+VidStow (separate repo)  ytdlp-go CLI / Go application
         │                           │
-providers/youtube                 pkg/ytdlp
-        │                     broad composition
+engine + providers/youtube       pkg/ytdlp or an
+        │                     explicit composition
         └──────────────┬────────────┘
                        │
                     engine
@@ -29,9 +30,10 @@ or download logic independently.
 
 ## Public interfaces
 
-### Desktop
+### Downstream desktop: VidStow
 
-The Wails Desktop application owns UI-specific concerns:
+The separate [VidStow](https://github.com/tejasa97/vidstow) project owns
+UI-specific concerns:
 
 - URL validation for the narrower Desktop product scope;
 - settings and download-history persistence;
@@ -40,10 +42,11 @@ The Wails Desktop application owns UI-specific concerns:
 - FFmpeg detection and diagnostics; and
 - rendering events and errors for non-technical users.
 
-It composes root `engine` with public `providers/youtube` through the shared
-Desktop client factory and does not import the broad facade or extractor
-internals. The UI's URL validation and narrow request flow remain its product
-workflow boundary.
+It composes root `engine` with public `providers/youtube` through one focused
+client factory and does not import the broad facade or extractor internals. The
+UI's URL validation and narrow request flow remain its product workflow
+boundary. VidStow versioning, source builds, packaging, and releases belong to
+its repository rather than this engine repository.
 
 ### CLI
 
@@ -113,8 +116,8 @@ capabilities, metadata values, and typed challenge/token and provider-support
 hooks are nameable by external provider packages. Historical internal contract
 packages remain compatibility aliases and wrappers. `providers/youtube`
 supplies the complete eight-provider YouTube family in preserved order, while
-Desktop explicitly uses only that composition. The remaining staged work is
-repository extraction, as described in
+VidStow explicitly uses only that composition. The extraction and public
+repository split are complete; the contract rationale remains documented in
 [Public engine extraction contracts](PUBLIC_ENGINE_CONTRACTS.md).
 
 See [Supported sites](SUPPORTED_SITES.md), [Extractor selection](EXTRACTOR_SELECTION_EVIDENCE.md),
@@ -200,8 +203,8 @@ not yet define production signing identities or an endorsed update service.
 
 ## Persistence
 
-Core operation state is scoped to the client or request. The Desktop app owns
-its separate settings/history store; the library does not persist GUI state.
+Core operation state is scoped to the client or request. VidStow owns its
+separate settings/history store; the library does not persist GUI state.
 Cache and download-archive behavior is explicit and follows its own confined
 filesystem policy.
 
