@@ -1,5 +1,10 @@
 # Phase 3 Implementation Plan: High-Value Coverage and Beta
 
+> [!NOTE]
+> Historical implementation plan. Phase 3 repository work is complete and this
+> file is retained for engineering traceability, not as current work. See
+> [`ROADMAP.md`](../../../ROADMAP.md) for current priorities.
+
 Status: Repository implementation complete; Gate G3 blocked on external evidence  
 Date: 2026-07-19  
 Behavioral baseline: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`

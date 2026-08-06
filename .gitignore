@@ -24,3 +24,6 @@ cookies.txt
 .vscode/
 *.swp
 *~
+
+# Local AI-agent instructions
+/AGENTS.md

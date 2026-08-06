@@ -1,7 +1,12 @@
 # Zero-Python yt-dlp Go Port Plan
 
-- Status: Active program; Phases 0–3 repository implementation complete, with
-  external gate evidence and full capability parity still open
+> [!NOTE]
+> Historical program record. Phases 0–3 and their gates document how the
+> repository was built; they are not the active roadmap. See
+> [`ROADMAP.md`](../../../ROADMAP.md) for current priorities.
+
+- Status at archival: Phases 0–3 repository implementation complete; external
+  gate evidence and full capability parity remain open
 - Date: 2026-07-17
 - Last reconciled: 2026-07-25
 - Related assessment: [GO_PORT_EVALUATION.md](./GO_PORT_EVALUATION.md)
