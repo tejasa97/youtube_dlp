@@ -5,6 +5,9 @@ behavior. Contributions are welcome when they keep compatibility claims
 evidence-backed, preserve the Python-free boundary, and do not expose user or
 service credentials.
 
+All repository participation is governed by the
+[Code of Conduct](CODE_OF_CONDUCT.md).
+
 - [Before opening an issue](#before-opening-an-issue)
 - [Choosing the right report](#choosing-the-right-report)
 - [Development setup](#development-setup)
@@ -14,6 +17,7 @@ service credentials.
 - [Design rules](#design-rules)
 - [Submitting a pull request](#submitting-a-pull-request)
 - [Licensing and upstream separation](#licensing-and-upstream-separation)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
 
 ## Before opening an issue
 

@@ -1,136 +1,82 @@
 # Documentation
 
-This index separates public guidance from implementation plans and historical
-evidence. Start with the user or embedding documents; consult phase evidence
-when evaluating a compatibility claim.
+Start with the task you are trying to complete. Current user and developer
+guidance is separated from compatibility evidence and historical engineering
+records so that an old phase plan cannot be mistaken for the active roadmap.
 
 ## Users
 
 - [Project overview and quick start](../README.md)
 - [Installation](INSTALLATION.md)
-- [Desktop guide](DESKTOP.md)
 - [CLI usage](CLI_USAGE.md)
 - [Troubleshooting](TROUBLESHOOTING.md)
 - [Current project status](PROJECT_STATUS.md)
 - [Supported extractors](SUPPORTED_SITES.md)
 - [Configuration](CONFIGURATION.md)
 - [Browser cookie import](CHROMIUM_COOKIE_IMPORT.md)
-- [Native netrc evidence](P3_NETRC_EVIDENCE.md)
-- [Impersonation profiles](P3_IMPERSONATION_PROFILES.md)
-- [Playlist model](PLAYLIST_MODEL.md)
+- [Playlist behavior](PLAYLIST_MODEL.md)
+- [VidStow desktop application](https://github.com/tejasa97/vidstow)
 - [Support and issue reporting](../SUPPORT.md)
 - [Security reporting](../SECURITY.md)
 
 The executable help is the authoritative CLI option list:
 
-    ytdlp-go --help
+```sh
+ytdlp-go --help
+```
 
 ## Go embedding and extensions
 
 - [Embedding ytdlp-go](EMBEDDING.md)
+- [Public engine extraction contracts](PUBLIC_ENGINE_CONTRACTS.md)
+- [YouTube provider request seam](YOUTUBE_PROVIDER_REQUEST_SEAM.md)
 - [API compatibility policy](P2_API_COMPATIBILITY_POLICY.md)
+- [JavaScript helper protocol](JAVASCRIPT_HELPER_PROTOCOL.md)
 - [Plugin ABI v1](P2_PLUGIN_ABI_V1.md)
+- [Plugin SDK guide](P3_PLUGIN_SDK_GUIDE.md)
 - [Plugin threat model](P2_PLUGIN_THREAT_MODEL.md)
 - [Signed plugin packs](P2_SIGNED_PACKS.md)
-- [JavaScript helper protocol](JAVASCRIPT_HELPER_PROTOCOL.md)
-- [Trust and security policy](P2_TRUST_SECURITY_POLICY.md)
-- [Go plugin SDK guide](P3_PLUGIN_SDK_GUIDE.md)
 
-## Media and compatibility behavior
-
-- [Compatibility languages](P2_COMPAT_LANGUAGES.md)
-- [Format selector parity](FORMAT_SELECTOR_PARITY.md)
-- [Downloader and protocols](P2_DOWNLOADER_PROTOCOLS.md)
-- [Adaptive streaming resilience v2](ADAPTIVE_STREAMING_RESILIENCE_EVIDENCE.md)
-- [HLS attributed ad-fragment suppression evidence](HLS_AD_FRAGMENT_SUPPRESSION_EVIDENCE.md)
-- [Post-processing](P2_POSTPROCESSING.md)
-- [Fallback inventory](P2_FALLBACK_INVENTORY.md)
-- [Generic page-discovery evidence](GENERIC_EMBED_EVIDENCE.md)
-- [Extractor discovery evidence](EXTRACTOR_DISCOVERY_EVIDENCE.md)
-- [Extractor routing-controls evidence](EXTRACTOR_ROUTING_CONTROLS_EVIDENCE.md)
-- [CLI JSON dump evidence](CLI_JSON_OUTPUT_EVIDENCE.md)
-- [CLI staged print-output evidence](CLI_PRINT_OUTPUT_EVIDENCE.md)
-- [Metadata sidecar evidence](METADATA_SIDECARS_EVIDENCE.md)
-- [SponsorBlock metadata](SPONSORBLOCK_METADATA.md)
-- [YouTube protected-playback continuation](YOUTUBE_PROTECTED_PLAYBACK_PLAN.md)
-- [Native YouTube PO-token evidence](YOUTUBE_POT_EVIDENCE.md)
-- [YouTube caption extraction evidence](YOUTUBE_CAPTIONS_EVIDENCE.md)
-- [YouTube subtitle CLI and sidecar evidence](YOUTUBE_SUBTITLE_CLI_EVIDENCE.md)
-- [YouTube subtitle-listing evidence](YOUTUBE_SUBTITLE_LISTING_EVIDENCE.md)
-- [YouTube subtitle-conversion evidence](YOUTUBE_SUBTITLE_CONVERSION_EVIDENCE.md)
-- [YouTube subtitle-embedding evidence](YOUTUBE_SUBTITLE_EMBEDDING_EVIDENCE.md)
-- [YouTube channel-tab evidence](YOUTUBE_CHANNEL_EVIDENCE.md)
-- [YouTube handle-tab evidence](YOUTUBE_HANDLE_TAB_EVIDENCE.md)
-- [YouTube legacy alias-tab evidence](YOUTUBE_ALIAS_TAB_EVIDENCE.md)
-- [YouTube playlist-tab evidence](YOUTUBE_PLAYLIST_TABS_EVIDENCE.md)
-- [YouTube search evidence](YOUTUBE_SEARCH_EVIDENCE.md)
-- [YouTube Music search evidence](YOUTUBE_MUSIC_SEARCH_EVIDENCE.md)
-- [YouTube Music browse evidence](YOUTUBE_MUSIC_BROWSE_EVIDENCE.md)
-- [YouTube comments evidence](YOUTUBE_COMMENTS_EVIDENCE.md)
-- [YouTube post-live DVR evidence](YOUTUBE_POST_LIVE_DVR_EVIDENCE.md)
-- [YouTube live-from-start evidence](YOUTUBE_LIVE_FROM_START_EVIDENCE.md)
-- [SoundCloud search evidence](SOUNDCLOUD_SEARCH_EVIDENCE.md)
-- [Vimeo subtitle evidence](VIMEO_SUBTITLES_EVIDENCE.md)
-- [Vimeo authenticated unlisted-video evidence](VIMEO_PRIVATE_VIDEO_EVIDENCE.md)
-- [TikTok caption evidence](TIKTOK_CAPTIONS_EVIDENCE.md)
-- [Privacy-safe telemetry](P3_TELEMETRY.md)
-- [Semantic review ledger](P3_SEMANTIC_REVIEW_LEDGER.md)
-
-## Releases and security
-
-- [Changelog](../CHANGELOG.md)
-- [Roadmap](../ROADMAP.md)
-- [Alpha release procedure](P2_ALPHA_RELEASE.md)
-- [Updater and releases](P2_UPDATER_RELEASES.md)
-- [Phase 2 security review](P2_SECURITY_REVIEW.md)
-- [Publication-readiness review](PUBLICATION_READINESS.md)
-- [Third-party notices](../THIRD_PARTY_NOTICES.md)
-
-## Plans, history, and audits
-
-Current focused work:
-
-- [Format-selection parity implementation plan](FORMAT_SELECTOR_PARITY_IMPLEMENTATION_PLAN.md)
-
-| Phase | Plan | Exit or current evidence |
-| --- | --- | --- |
-| Zero-Python program | [Program plan](../ZERO_PYTHON_GO_PORT_PLAN.md) | [Port evaluation](../GO_PORT_EVALUATION.md) |
-| Phase 0 | [Implementation plan](../PHASE_0_IMPLEMENTATION_PLAN.md) | [Exit review](PHASE_0_EXIT_REVIEW.md) |
-| Phase 1 | [Implementation plan](../PHASE_1_IMPLEMENTATION_PLAN.md) | [Exit review](PHASE_1_EXIT_REVIEW.md) and [differential review](P1_DIFFERENTIAL_REVIEW.md) |
-| Phase 2 | [Implementation plan](../PHASE_2_IMPLEMENTATION_PLAN.md) | [Exit review](PHASE_2_EXIT_REVIEW.md) |
-| Phase 3 | [Implementation plan](../PHASE_3_IMPLEMENTATION_PLAN.md) | [Exit review](PHASE_3_EXIT_REVIEW.md) and [wave ledger](P3_WAVE_LEDGER.md) |
-
-## Architecture and provenance
+## Architecture and reference
 
 - [Architecture overview](ARCHITECTURE.md)
 - [Architecture decisions](adr/README.md)
-- [Public engine extraction contracts](PUBLIC_ENGINE_CONTRACTS.md)
-- [YouTube provider request seam](YOUTUBE_PROVIDER_REQUEST_SEAM.md)
 - [Fixture and test-data policy](FIXTURE_POLICY.md)
-- Conformance fixture provenance is stored beside each corpus as
-  conformance/**/PROVENANCE.md.
+- [Format-selector behavior](FORMAT_SELECTOR_PARITY.md)
+- [Downloader protocols](P2_DOWNLOADER_PROTOCOLS.md)
+- [Post-processing](P2_POSTPROCESSING.md)
+- [Trust and security policy](P2_TRUST_SECURITY_POLICY.md)
+- [Python-free runtime image](PYTHON_FREE_RUNTIME_IMAGE.md)
 
-## Independent audits
+## Project and releases
 
-- [Phase 3 coverage and parity audit](audits/P3_COVERAGE_AND_PARITY_AUDIT.md)
-- [Phase 3 security, privacy, and isolation audit](audits/P3_SECURITY_PRIVACY_ISOLATION_AUDIT.md)
-- [Phase 3 release, operations, and ABI audit](audits/P3_RELEASE_OPERATIONS_ABI_AUDIT.md)
+- [Roadmap](../ROADMAP.md)
+- [Changelog](../CHANGELOG.md)
+- [Publication readiness](PUBLICATION_READINESS.md)
+- [Updater and release foundations](P2_UPDATER_RELEASES.md)
+- [Third-party notices](../THIRD_PARTY_NOTICES.md)
+- [Code of Conduct](../CODE_OF_CONDUCT.md)
+- [Contributing](../CONTRIBUTING.md)
 
-Audit findings describe their exact historical baseline. Later remediation is
-recorded in the Phase 3 exit review rather than rewriting an independent audit.
+## Plans, history, and audits
 
-Historical lane reports under docs/P1_*.md and docs/P2_*.md explain why a
-capability was claimed at a particular gate. They are evidence records, not a
-substitute for current user documentation or the capability manifest.
+- [Evidence index](evidence/README.md) — current capability claims, ledgers,
+  protocol records, and fixture provenance
+- [Historical engineering records](history/README.md) — original port
+  evaluation, phase plans, exit reviews, and independent audits
+
+The capability manifest at `conformance/parity_manifest.yaml` is authoritative
+for compatibility counts. Provenance for an individual fixture remains beside
+that fixture as `conformance/**/PROVENANCE.md`.
 
 ## Documentation conventions
 
-- Put stable user workflows in README.md or a focused user document.
-- Put public Go contracts and security boundaries in focused docs linked from
-  this index.
-- Keep time-bound implementation plans and exit reviews clearly dated and
-  labeled with status.
-- Link every compatibility claim to automated evidence and fixture provenance.
-- State known deviations next to the feature they constrain.
-- Never copy upstream prose merely to imply parity; describe only behavior this
-  implementation proves.
+- Put stable user workflows in the root README or a focused task guide.
+- Put precise API, schema, protocol, and configuration facts in reference
+  documents.
+- Put architectural rationale in explanation documents or ADRs.
+- Put time-bound plans and completed gates in the historical-record index.
+- Link compatibility claims to automated evidence and fixture provenance.
+- State known deviations beside the feature they constrain.
+- Do not copy upstream prose merely to imply parity; describe only behavior
+  this implementation proves.

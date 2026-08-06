@@ -1,5 +1,10 @@
 # Phase 2 Implementation Plan: Native Foundation and Alpha
 
+> [!NOTE]
+> Historical implementation plan. Phase 2 repository work is complete and this
+> file is retained for engineering traceability, not as current work. See
+> [`ROADMAP.md`](../../../ROADMAP.md) for current priorities.
+
 Status: Implementation complete; Gate G2 awaits external Windows native-run evidence
 Date: 2026-07-18  
 Behavioral reference: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`

@@ -1,5 +1,10 @@
 # Phase 0 Implementation Plan: Foundation and Walking Skeleton
 
+> [!NOTE]
+> Historical implementation plan. Phase 0 is closed and this file is retained
+> for engineering traceability, not as current work. See
+> [`ROADMAP.md`](../../../ROADMAP.md) for current priorities.
+
 ## 1. Objective
 
 Build the first end-to-end, Python-free vertical slice of the Go port. At the

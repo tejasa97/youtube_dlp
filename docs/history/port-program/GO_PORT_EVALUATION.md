@@ -1,5 +1,10 @@
 # yt-dlp Go Port Evaluation
 
+> [!NOTE]
+> Historical engineering record. This evaluation explains the original port
+> decision and is not the active roadmap. See [`ROADMAP.md`](../../../ROADMAP.md)
+> for current priorities.
+
 Date: 2026-07-17  
 Reference snapshot: [`yt-dlp/yt-dlp@aefce1ee`](https://github.com/yt-dlp/yt-dlp/tree/aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8), dated 2026-07-14
 
