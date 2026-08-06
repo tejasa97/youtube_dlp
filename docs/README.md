@@ -58,7 +58,7 @@ ytdlp-go --help
 - [Code of Conduct](../CODE_OF_CONDUCT.md)
 - [Contributing](../CONTRIBUTING.md)
 
-## Evidence and history
+## Plans, history, and audits
 
 - [Evidence index](evidence/README.md) — current capability claims, ledgers,
   protocol records, and fixture provenance
