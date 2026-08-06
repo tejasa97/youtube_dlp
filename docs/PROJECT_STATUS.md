@@ -1,7 +1,8 @@
 # Project Status
 
-`ytdlp-go` is pre-release software. Its Desktop interface is a Preview, the CLI
-is Alpha, and the supported Go API is versioned `v1alpha1`.
+`ytdlp-go` is pre-release software. The CLI is Alpha, root engine/provider
+contracts are pre-1, and the broad compatibility facade is versioned
+`v1alpha1`.
 
 This document explains what those labels mean and where compatibility claims
 come from. It is intentionally more precise than the public README.
@@ -10,8 +11,8 @@ come from. It is intentionally more precise than the public README.
 
 | Interface | Maturity | Scope |
 | --- | --- | --- |
-| YTDLP Go Desktop | Preview | One public, on-demand YouTube video at a time |
 | `ytdlp-go` CLI | Alpha | Evidence-backed extractor, media, playlist, compatibility, and post-processing behavior |
+| root `engine` and provider packages | Pre-1 | Provider-neutral orchestration and explicit focused composition |
 | `pkg/ytdlp` | `v1alpha1` | Context-aware native Go API with events, categorized errors, playlists, metadata, and artifacts |
 
 There is no endorsed public binary release or production updater channel yet.
@@ -108,12 +109,13 @@ WASM plugin boundaries, signed packs, catalogs, updater transactions, rollback,
 and health checks. It does not yet choose production signing identities,
 publishing credentials, or an endorsed update channel.
 
-### Desktop
+### Downstream desktop application
 
-The Desktop application intentionally exposes a small, reviewable product
-surface over the existing Go engine. Its exact current scope is documented in
-[the Desktop guide](DESKTOP.md). Desktop support must not be inferred from
-engine support or vice versa.
+[VidStow](https://github.com/tejasa97/vidstow) is a separate project that
+intentionally exposes a small, reviewable product surface over root `engine`
+plus `providers/youtube`. Its repository is authoritative for desktop scope,
+packaging, and releases. VidStow support must not be inferred from engine
+support or vice versa.
 
 ## Historical phases and gates
 
@@ -134,8 +136,9 @@ Historical material is indexed under [Plans, history, and audits](README.md#plan
 - No complete yt-dlp site or option parity claim.
 - No endorsed binary release channel.
 - No production signing identities or updater trust root.
-- Repository and Go module identities are not yet reconciled.
-- Desktop V0 is limited to one public, on-demand YouTube video.
+- Public Go contracts remain pre-1 and may require reviewed migrations.
+- VidStow is independently versioned and currently exposes a narrower workflow
+  than the engine.
 - YouTube challenge behavior may drift or exceed helper execution limits.
 - Authentication and browser-cookie behavior varies by platform and extractor.
 - Third-party sites may change without notice.

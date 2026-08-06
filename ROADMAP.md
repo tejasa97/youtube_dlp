@@ -1,86 +1,83 @@
 # Roadmap
 
-This roadmap describes current priorities, not release-date commitments.
-Historical phase plans and exit reviews remain available through the
-[documentation index](docs/README.md), but they are not the active roadmap.
+This roadmap describes current engine priorities, not release-date
+commitments. Historical phase plans and exit reviews remain available through
+the [documentation index](docs/README.md), but they are not the active roadmap.
 
 ## Current direction
 
-`ytdlp-go` is organized as one native engine with three interfaces:
+`ytdlp-go` is a native media engine with two first-party interfaces:
 
-1. a focused Desktop application for non-technical users;
-2. a capable CLI for terminal and automation workflows; and
-3. a versioned Go API for embedding.
+1. the `ytdlp-go` CLI for terminal and automation workflows; and
+2. public Go packages for broad or explicitly focused provider composition.
 
-Work is prioritized by practical user value, attributable compatibility gaps,
-release safety, and maintainability rather than by claiming blanket yt-dlp
-parity.
+The separate [VidStow](https://github.com/tejasa97/vidstow) repository owns the
+focused desktop product, UI workflows, packaging, and release roadmap. VidStow
+uses root `engine` plus `providers/youtube`; its feature commitments are not
+inferred from the broader engine catalog.
+
+Work in this repository is prioritized by practical user value, attributable
+compatibility gaps, release safety, and maintainability rather than blanket
+yt-dlp parity claims.
 
 ## Near term
 
-### Desktop V0 stabilization
+### Public engine and provider contracts
 
-- Keep the interface aligned with the approved design and copy.
-- Verify every view and state on candidate host platforms.
-- Preserve single-video YouTube scope until the V0 workflow is reliable.
-- Improve actionable diagnostics for helper, FFmpeg, network, authentication,
-  and unsupported-input failures.
-- Maintain queue, cancellation, retry, history, settings, and accessibility
-  behavior with automated tests.
+- Stabilize the pre-1 root `engine`, `engine/provider`, and `engine/value`
+  surfaces through documented compatibility policy and external-package tests.
+- Keep `pkg/ytdlp` source-compatible as the broad convenience facade.
+- Keep focused provider packages explicit, typed, cycle-free, and free of
+  registration globals or hidden fallback catalogs.
+- Publish tagged module releases with clear migration notes when public
+  contracts change.
 
-### Release engineering
+### CLI and release engineering
 
-- Decide canonical project and package identity.
-- Define supported operating systems and architectures.
-- Build native Desktop artifacts on macOS, Windows, and Linux.
-- Package `ytdlp-js-helper` correctly on every platform.
-- Decide and document FFmpeg/FFprobe redistribution.
+- Define supported operating systems and architectures for CLI binaries.
+- Package `ytdlp-js-helper` beside every released CLI artifact.
+- Decide and document FFmpeg/FFprobe redistribution boundaries.
 - Add clean-machine installation and download smoke tests.
-- Establish macOS signing/notarization and Windows signing.
 - Produce checksums, provenance, third-party notices, and release notes.
-- Publish a beta only after the artifacts are reproducible and verifiable.
-
-### Public documentation
-
-- Keep README, installation, Desktop, CLI, troubleshooting, support, and
-  security guidance synchronized with observable behavior.
-- Add sanitized real screenshots before the first public Desktop release.
-- Replace “coming soon” release text only when real packages exist.
+- Establish signing identities and a documented security-fix release process.
 
 ### High-value compatibility
 
-- Deepen frequently used extractors and reusable backend behavior.
-- Close practical format-selection, match-filter, template, and metadata gaps.
-- Continue attributable HLS, DASH, downloader, and post-processing work.
+- Deepen frequently used extractors and reusable shared backends.
+- Close practical format-selection, match-filter, template, metadata, playlist,
+  and post-processing gaps.
+- Continue attributable HLS, DASH, downloader, and media-processing work.
 - Track upstream changes that affect supported behavior.
 - Keep known deviations explicit and fixture provenance reviewable.
 
+### Documentation and maintenance
+
+- Keep installation, CLI, embedding, troubleshooting, support, security, and
+  supported-site guidance synchronized with observable behavior.
+- Separate current user documentation from historical plans and evidence.
+- Keep conformance provenance beside the fixture corpus it explains.
+- Treat issues and reviewed pull requests as the source of truth for active
+  implementation work.
+
 ## Before a stable release
 
-- Validate tagged module installation from the canonical repository path.
-- Define versioning and support policy.
-- Establish an operational release workflow and signing identities.
-- Publish supported-platform and dependency guarantees.
+- Define versioning and compatibility guarantees for the CLI and public Go API.
+- Publish supported-platform and external-dependency guarantees.
 - Complete third-party binary redistribution review.
-- Define update notification or update delivery behavior.
-- Verify install, upgrade, rollback, and uninstall paths.
-- Maintain a release changelog and security-fix process.
-- Demonstrate the advertised Desktop workflows on clean machines.
+- Verify install, upgrade, rollback, and uninstall paths where promised.
+- Maintain a curated changelog and security-fix process.
+- Demonstrate advertised CLI and embedding workflows on clean environments.
+- Reconcile every release claim with `conformance/parity_manifest.yaml` and its
+  linked evidence.
 
 ## Later opportunities
 
-These are candidates after the initial Desktop release is dependable:
-
-- additional Desktop URL families;
-- playlist-aware Desktop workflows;
-- richer format and subtitle controls;
-- optional advanced settings without exposing raw CLI complexity;
-- additional Linux package formats;
-- Windows and Linux ARM64 artifacts when demand and test capacity justify them;
-- package-manager and store distribution; and
-- signed update notifications or automatic updates.
-
-Each addition should preserve a simple default path for non-technical users.
+- additional first-party focused provider packages;
+- richer public composition helpers without runtime feature gates;
+- package-manager distribution for the CLI;
+- additional platform and architecture artifacts when test capacity permits;
+- signed update notifications; and
+- broader plugin SDK and catalog adoption after the trust model is operational.
 
 ## Explicitly deferred or out of scope
 
@@ -90,13 +87,15 @@ Each addition should preserve a simple default path for non-technical users.
 - Automatic trust of plugins or executable helpers from `PATH`.
 - Treating synthetic fixtures as production deployment evidence.
 - Expanding experimental SABR/UMP work into an unbounded compatibility goal.
+- Owning VidStow UI features or release packaging in this repository.
 
 ## Sources of truth
 
-- Current user-facing scope: [README](README.md) and focused user guides.
+- Current project scope: [README](README.md).
 - Supported URL families: [Supported sites](docs/SUPPORTED_SITES.md).
 - Capability claims: `conformance/parity_manifest.yaml`.
 - Known compatibility boundaries: [Project status](docs/PROJECT_STATUS.md).
 - Active implementation changes: repository issues and reviewed pull requests.
+- Desktop product scope: [VidStow](https://github.com/tejasa97/vidstow).
 - Historical rationale: phase plans, exit reviews, audits, ADRs, and evidence
   linked from [Documentation](docs/README.md).
