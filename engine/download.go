@@ -409,6 +409,9 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 			URLValidator: assetValidator, SelectedDiscontinuityGroup: hlsGroup,
 		}).Download(ctx, selected.URL, outputRoot, destination, operation.request.Overwrite, sink)
 		if err != nil {
+			if preservePartialDownload(err, operation.request.Filesystem.PreservePartialOnCancel) {
+				return "", 0, err
+			}
 			if cleanupErr := cleanupHLSFragments(destination); cleanupErr != nil {
 				return "", 0, errors.Join(err, cleanupErr)
 			}
@@ -568,7 +571,7 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 			selected.URL, selected.Headers, outputRoot, destination,
 		), sink)
 		if err != nil {
-			if selected.CredentialIsolated {
+			if selected.CredentialIsolated && !preservePartialDownload(err, operation.request.Filesystem.PreservePartialOnCancel) {
 				if cleanupErr := cleanupCredentialIsolatedDownload(destination); cleanupErr != nil {
 					return "", 0, errors.Join(err, cleanupErr)
 				}
@@ -577,6 +580,10 @@ func (operation *operation) downloadSelectionWithLiveRefresh(ctx context.Context
 		}
 		return result.Path, result.Bytes, nil
 	}
+}
+
+func preservePartialDownload(err error, enabled bool) bool {
+	return enabled && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded))
 }
 
 func cleanupHLSFragments(destination string) error {

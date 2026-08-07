@@ -90,6 +90,63 @@ func TestEngineRevalidatesLegacyFragmentsWithoutDigests(t *testing.T) {
 	}
 }
 
+func TestEngineCancellationPreservesLedgerAndResumesCompletedFragments(t *testing.T) {
+	var resumed atomic.Bool
+	secondStarted := make(chan struct{}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/one":
+			_, _ = writer.Write([]byte("one-"))
+		case "/two":
+			if !resumed.Load() {
+				select {
+				case secondStarted <- struct{}{}:
+				default:
+				}
+				<-request.Context().Done()
+				return
+			}
+			_, _ = writer.Write([]byte("two"))
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "resume.bin")
+	job := Job{
+		OutputRoot: root, Destination: destination, Concurrency: 1,
+		Segments: []Segment{{URL: server.URL + "/one"}, {URL: server.URL + "/two"}},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := New(transport).Download(ctx, job, nil)
+		done <- err
+	}()
+	<-secondStarted
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancel error = %v; want context canceled", err)
+	}
+	workDir := destination + ".fragments"
+	if _, err := os.Stat(filepath.Join(workDir, "state.json")); err != nil {
+		t.Fatalf("resume ledger was not preserved: %v", err)
+	}
+	if _, err := os.Stat(fragmentPath(workDir, 0)); err != nil {
+		t.Fatalf("completed fragment was not preserved: %v", err)
+	}
+
+	resumed.Store(true)
+	result, err := New(transport).Download(context.Background(), job, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, _ := os.ReadFile(destination)
+	if string(contents) != "one-two" || result.Reused != 1 || result.Downloaded != 1 {
+		t.Fatalf("contents = %q, result = %#v; want one reused fragment", contents, result)
+	}
+}
+
 func TestFragmentEventsRedactSignedURL(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		_, _ = writer.Write([]byte("segment"))
