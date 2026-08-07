@@ -520,6 +520,52 @@ func TestProductHLSExplicitDiscontinuityCancellationCleansScratchAndArchive(t *t
 	}
 }
 
+func TestProductHLSPreservePartialOnCancelKeepsFragmentLedger(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/selected.m3u8":
+			_, _ = io.WriteString(writer, explicitHLSGroupManifest())
+		case "/five.ts":
+			_, _ = io.WriteString(writer, "five")
+		case "/seven.ts":
+			cancel()
+			<-request.Context().Done()
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	input := writeExplicitHLSInfoJSON(t, server.URL+"/selected.m3u8")
+	root := t.TempDir()
+	result, err := newBroadTestClient().Run(ctx, Request{
+		LoadInfoJSON: input, OutputDir: root, OutputTemplate: "groups.%(ext)s", Format: "selected",
+		HLSDiscontinuitySequences: []int64{5, 7},
+		Downloader:                DownloaderOptions{FragmentConcurrency: 1},
+		Filesystem:                FilesystemOptions{PreservePartialOnCancel: true},
+	})
+	if err == nil || !IsCategory(err, ErrorCancelled) || !errors.Is(err, context.Canceled) {
+		t.Fatalf("error=%v, want cancelled explicit fan-out", err)
+	}
+	if result.Downloaded || len(result.Artifacts) != 0 {
+		t.Fatalf("result=%#v, want no committed outputs", result)
+	}
+	entries, readErr := os.ReadDir(root)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	var foundLedger bool
+	for _, entry := range entries {
+		if entry.IsDir() && strings.HasSuffix(entry.Name(), ".fragments") {
+			foundLedger = true
+		}
+	}
+	if !foundLedger {
+		t.Fatalf("output entries=%v, want a preserved fragment ledger", entries)
+	}
+}
+
 func TestProductHLSExplicitDiscontinuityRejectsInvalidAPIValueBeforeNetwork(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

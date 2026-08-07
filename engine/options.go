@@ -151,8 +151,12 @@ type FilesystemOptions struct {
 	TrimFilenames     int
 	NoContinue        bool
 	NoPart            bool
-	NoMtime           bool
-	FfmpegLocation    string
+	// PreservePartialOnCancel keeps resumable HTTP partials and fragment
+	// ledgers when the request context is canceled. The default false retains
+	// the library's zero-artifact cancellation contract.
+	PreservePartialOnCancel bool
+	NoMtime                 bool
+	FfmpegLocation          string
 	// OutputNaPlaceholder replaces unavailable fields in filename templates.
 	// Empty selects the pinned "NA" default.
 	OutputNaPlaceholder string
