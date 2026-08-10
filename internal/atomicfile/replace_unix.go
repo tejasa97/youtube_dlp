@@ -4,6 +4,10 @@ package atomicfile
 
 import "os"
 
+func platformOpenForSync(path string) (*os.File, error) {
+	return os.Open(path)
+}
+
 func platformReplace(source, destination string) error {
 	return os.Rename(source, destination)
 }

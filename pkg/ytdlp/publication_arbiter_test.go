@@ -72,6 +72,70 @@ func TestPublicationArbiterPublicationTransitions(t *testing.T) {
 	})
 }
 
+func TestPublicationArbiterIndeterminateTransition(t *testing.T) {
+	arbiter := NewPublicationArbiter()
+	publication, err := arbiter.BeginPublication(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	publication.MarkIndeterminate()
+	if _, err := arbiter.BeginCancel(context.Background()); !errors.Is(err, ErrPublicationIndeterminate) {
+		t.Fatalf("BeginCancel error = %v", err)
+	}
+	if _, err := arbiter.BeginPublication(context.Background()); !errors.Is(err, ErrPublicationIndeterminate) {
+		t.Fatalf("BeginPublication error = %v", err)
+	}
+}
+
+func TestPublicationArbiterIndeterminateWakesWaiters(t *testing.T) {
+	arbiter := NewPublicationArbiter()
+	publication, err := arbiter.BeginPublication(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	started := make(chan struct{}, 2)
+	results := make(chan error, 2)
+	go func() {
+		started <- struct{}{}
+		_, err := arbiter.BeginCancel(context.Background())
+		results <- err
+	}()
+	go func() {
+		started <- struct{}{}
+		_, err := arbiter.BeginPublication(context.Background())
+		results <- err
+	}()
+	<-started
+	<-started
+	assertNoWaiterResult(t, results)
+
+	publication.MarkIndeterminate()
+	for range 2 {
+		if err := receive(t, results); !errors.Is(err, ErrPublicationIndeterminate) {
+			t.Fatalf("waiter error = %v", err)
+		}
+	}
+}
+
+func TestPublicationArbiterIndeterminateWaitRemainsContextBounded(t *testing.T) {
+	arbiter := NewPublicationArbiter()
+	publication, err := arbiter.BeginPublication(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if _, err := arbiter.BeginCancel(ctx); !errors.Is(err, context.DeadlineExceeded) ||
+		!errors.Is(err, ErrCompletionInProgress) {
+		t.Fatalf("waiting BeginCancel error = %v", err)
+	}
+	publication.MarkIndeterminate()
+	if _, err := arbiter.BeginCancel(context.Background()); !errors.Is(err, ErrPublicationIndeterminate) {
+		t.Fatalf("post-terminal BeginCancel error = %v", err)
+	}
+}
+
 func TestPublicationArbiterCanceledContexts(t *testing.T) {
 	for _, begin := range []struct {
 		name string
@@ -317,6 +381,14 @@ func TestPublicationReservationRejectsInvalidTerminalOperations(t *testing.T) {
 		reservation.AbortCancel()
 		assertPanics(t, reservation.WinCancel)
 	})
+	t.Run("copied cancel reservation cannot double terminal", func(t *testing.T) {
+		arbiter := NewPublicationArbiter()
+		reservation, _ := arbiter.BeginCancel(context.Background())
+		copied := *reservation
+		reservation.AbortCancel()
+		assertPanics(t, copied.WinCancel)
+		assertPanics(t, copied.AbortCancel)
+	})
 	t.Run("finish before replacement", func(t *testing.T) {
 		arbiter := NewPublicationArbiter()
 		reservation, _ := arbiter.BeginPublication(context.Background())
@@ -344,6 +416,101 @@ func TestPublicationReservationRejectsInvalidTerminalOperations(t *testing.T) {
 		reservation.FinishPublication()
 		assertPanics(t, reservation.FinishPublication)
 	})
+	t.Run("copied publication reservation cannot double finish", func(t *testing.T) {
+		arbiter := NewPublicationArbiter()
+		reservation, _ := arbiter.BeginPublication(context.Background())
+		reservation.MarkDestinationReplaced()
+		copied := *reservation
+		reservation.FinishPublication()
+		assertPanics(t, copied.FinishPublication)
+	})
+	t.Run("copied publication reservation cannot double indeterminate", func(t *testing.T) {
+		arbiter := NewPublicationArbiter()
+		reservation, _ := arbiter.BeginPublication(context.Background())
+		copied := *reservation
+		reservation.MarkIndeterminate()
+		assertPanics(t, copied.MarkIndeterminate)
+	})
+	t.Run("indeterminate rejects all other terminals", func(t *testing.T) {
+		arbiter := NewPublicationArbiter()
+		reservation, _ := arbiter.BeginPublication(context.Background())
+		reservation.MarkIndeterminate()
+		assertPanics(t, reservation.AbortBeforeReplace)
+		assertPanics(t, reservation.MarkDestinationReplaced)
+		assertPanics(t, reservation.FinishPublication)
+	})
+	t.Run("indeterminate after replacement is invalid", func(t *testing.T) {
+		arbiter := NewPublicationArbiter()
+		reservation, _ := arbiter.BeginPublication(context.Background())
+		reservation.MarkDestinationReplaced()
+		assertPanics(t, reservation.MarkIndeterminate)
+		reservation.FinishPublication()
+	})
+	t.Run("indeterminate after abort is invalid", func(t *testing.T) {
+		arbiter := NewPublicationArbiter()
+		reservation, _ := arbiter.BeginPublication(context.Background())
+		reservation.AbortBeforeReplace()
+		assertPanics(t, reservation.MarkIndeterminate)
+	})
+}
+
+func TestStaleCopiedCancelReservationCannotMutateReacquiredGeneration(t *testing.T) {
+	arbiter := NewPublicationArbiter()
+	first, err := arbiter.BeginCancel(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := *first
+	first.AbortCancel()
+
+	current, err := arbiter.BeginCancel(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertPanics(t, stale.WinCancel)
+	assertPanics(t, stale.AbortCancel)
+	current.AbortCancel()
+
+	publication, err := arbiter.BeginPublication(context.Background())
+	if err != nil {
+		t.Fatalf("stale Cancel reservation mutated current generation: %v", err)
+	}
+	publication.AbortBeforeReplace()
+}
+
+func TestStaleCopiedPublicationReservationCannotMutateReacquiredGeneration(t *testing.T) {
+	arbiter := NewPublicationArbiter()
+	first, err := arbiter.BeginPublication(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := *first
+	first.AbortBeforeReplace()
+
+	current, err := arbiter.BeginPublication(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertPanics(t, stale.MarkDestinationReplaced)
+	assertPanics(t, stale.MarkIndeterminate)
+	assertPanics(t, stale.AbortBeforeReplace)
+	assertPanics(t, stale.FinishPublication)
+	current.AbortBeforeReplace()
+
+	cancel, err := arbiter.BeginCancel(context.Background())
+	if err != nil {
+		t.Fatalf("stale publication reservation mutated current generation: %v", err)
+	}
+	cancel.AbortCancel()
+}
+
+func assertNoWaiterResult(t *testing.T, result <-chan error) {
+	t.Helper()
+	select {
+	case err := <-result:
+		t.Fatalf("waiter returned early: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
 }
 
 func assertStillWaiting(t *testing.T, result <-chan error) {

@@ -3,11 +3,13 @@ package atomicfile
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sync"
+	"syscall"
 	"testing"
 )
 
@@ -134,6 +136,173 @@ func TestWriteFailureCommitOutcomes(t *testing.T) {
 	}
 }
 
+func TestWriteKeepsTemporaryOwnerOnlyUntilEncodingCompletes(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "state.json")
+	if err := Write(path, 0o644, func(writer io.Writer) error {
+		matches, err := filepath.Glob(filepath.Join(directory, ".atomic-*"))
+		if err != nil {
+			return err
+		}
+		if len(matches) != 1 {
+			return fmt.Errorf("temporary file count = %d, want 1", len(matches))
+		}
+		info, err := os.Stat(matches[0])
+		if err != nil {
+			return err
+		}
+		if info.Mode().Perm() != 0o600 {
+			return fmt.Errorf("temporary mode = %o, want 600", info.Mode().Perm())
+		}
+		_, err = io.WriteString(writer, "complete")
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o644 {
+		t.Fatalf("committed mode = %o, want 644", info.Mode().Perm())
+	}
+}
+
+func TestWriteRetainsTemporaryOnIndeterminateReplacement(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "state.json")
+	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ops := productionOps
+	var temporaryPath string
+	replacementErr := errors.New("authority unknown")
+	ops.replaceFile = func(source, destination string) error {
+		temporaryPath = source
+		return indeterminateFailure("injected replacement", replacementErr)
+	}
+	err := write(path, 0o600, func(writer io.Writer) error {
+		_, err := io.WriteString(writer, "candidate")
+		return err
+	}, ops)
+	assertCommitOutcome(t, err, false, true, replacementErr)
+	if temporaryPath == "" {
+		t.Fatal("replacement seam was not called")
+	}
+	content, readErr := os.ReadFile(temporaryPath)
+	if readErr != nil {
+		t.Fatalf("indeterminate candidate was not retained: %v", readErr)
+	}
+	if string(content) != "candidate" {
+		t.Fatalf("retained candidate = %q, want candidate", content)
+	}
+	old, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(old) != "old" {
+		t.Fatalf("destination = %q, want old in injected scenario", old)
+	}
+	if removeErr := os.Remove(temporaryPath); removeErr != nil {
+		t.Fatal(removeErr)
+	}
+}
+
+func TestHandleExistingReplaceFailureRecoversOldAuthority(t *testing.T) {
+	restored := false
+	err := handleExistingReplaceResult(errorUnableToMoveReplacement2, "backup", "destination", replaceRecoveryOps{
+		backupExists:      func(string) (bool, error) { return true, nil },
+		destinationExists: func(string) (bool, error) { return true, nil },
+		restoreBackup: func(backup, destination string) error {
+			restored = backup == "backup" && destination == "destination"
+			return nil
+		},
+		removeBackup: func(string) error { return nil },
+	})
+	assertCommitOutcome(t, err, false, false, errorUnableToMoveReplacement2)
+	if !restored {
+		t.Fatal("backup was not restored")
+	}
+}
+
+func TestHandleExistingReplaceFailureReportsIndeterminateRecovery(t *testing.T) {
+	recoveryErr := errors.New("recovery failed")
+	err := handleExistingReplaceResult(errorUnableToMoveReplacement2, "backup", "destination", replaceRecoveryOps{
+		backupExists:      func(string) (bool, error) { return true, nil },
+		destinationExists: func(string) (bool, error) { return true, nil },
+		restoreBackup:     func(string, string) error { return recoveryErr },
+		removeBackup:      func(string) error { return nil },
+	})
+	assertCommitOutcome(t, err, false, true, errorUnableToMoveReplacement2)
+	if !errors.Is(err, recoveryErr) {
+		t.Fatalf("error %v does not wrap recovery failure", err)
+	}
+}
+
+func TestHandleExistingReplaceUnexpectedBackupIsIndeterminateAndNotRestored(t *testing.T) {
+	for _, replaceErr := range []error{errorUnableToMoveReplacement, syscall.EIO} {
+		t.Run(replaceErr.Error(), func(t *testing.T) {
+			restored := false
+			err := handleExistingReplaceResult(replaceErr, "backup", "destination", replaceRecoveryOps{
+				backupExists:      func(string) (bool, error) { return true, nil },
+				destinationExists: func(string) (bool, error) { return true, nil },
+				restoreBackup: func(string, string) error {
+					restored = true
+					return nil
+				},
+				removeBackup: func(string) error { return nil },
+			})
+			assertCommitOutcome(t, err, false, true, replaceErr)
+			if restored {
+				t.Fatal("unexpected backup was restored over destination")
+			}
+		})
+	}
+}
+
+func TestHandleExistingReplace1176WithoutBackupConfirmsDestination(t *testing.T) {
+	err := handleExistingReplaceResult(errorUnableToMoveReplacement, "backup", "destination", replaceRecoveryOps{
+		backupExists:      func(string) (bool, error) { return false, nil },
+		destinationExists: func(string) (bool, error) { return true, nil },
+		restoreBackup:     func(string, string) error { return nil },
+		removeBackup:      func(string) error { return nil },
+	})
+	assertCommitOutcome(t, err, false, false, errorUnableToMoveReplacement)
+}
+
+func TestHandleExistingReplaceReportsIndeterminateMissingAuthority(t *testing.T) {
+	for _, test := range []struct {
+		name              string
+		replaceErr        error
+		destinationExists bool
+	}{
+		{"1176 destination missing", errorUnableToMoveReplacement, false},
+		{"1177 backup missing", errorUnableToMoveReplacement2, true},
+		{"other error destination missing", syscall.EIO, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := handleExistingReplaceResult(test.replaceErr, "backup", "destination", replaceRecoveryOps{
+				backupExists:      func(string) (bool, error) { return false, nil },
+				destinationExists: func(string) (bool, error) { return test.destinationExists, nil },
+				restoreBackup:     func(string, string) error { return nil },
+				removeBackup:      func(string) error { return nil },
+			})
+			assertCommitOutcome(t, err, false, true, test.replaceErr)
+		})
+	}
+}
+
+func TestHandleExistingReplaceSuccessReportsCommittedCleanupFailure(t *testing.T) {
+	cleanupErr := errors.New("cleanup failed")
+	err := handleExistingReplaceResult(nil, "backup", "destination", replaceRecoveryOps{
+		backupExists:      func(string) (bool, error) { return true, nil },
+		destinationExists: func(string) (bool, error) { return true, nil },
+		restoreBackup:     func(string, string) error { return nil },
+		removeBackup:      func(string) error { return cleanupErr },
+	})
+	assertCommitOutcome(t, err, true, false, cleanupErr)
+}
+
 func TestReplaceCreatesAndReplaces(t *testing.T) {
 	directory := t.TempDir()
 	destination := filepath.Join(directory, "output")
@@ -231,6 +400,10 @@ func writeContent(t *testing.T, path, content string) {
 }
 
 func assertCommitError(t *testing.T, err error, committed bool, cause error) {
+	assertCommitOutcome(t, err, committed, false, cause)
+}
+
+func assertCommitOutcome(t *testing.T, err error, committed, indeterminate bool, cause error) {
 	t.Helper()
 	if err == nil {
 		t.Fatal("expected error")
@@ -241,6 +414,9 @@ func assertCommitError(t *testing.T, err error, committed bool, cause error) {
 	}
 	if commitErr.Committed() != committed {
 		t.Fatalf("Committed() = %v, want %v", commitErr.Committed(), committed)
+	}
+	if commitErr.Indeterminate() != indeterminate {
+		t.Fatalf("Indeterminate() = %v, want %v", commitErr.Indeterminate(), indeterminate)
 	}
 	if !errors.Is(err, cause) {
 		t.Fatalf("error %v does not wrap %v", err, cause)
