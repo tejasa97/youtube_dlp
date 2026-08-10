@@ -58,6 +58,135 @@ func TestDownloadCompleteAndResume(t *testing.T) {
 	}
 }
 
+func TestDownloadResumeIdentityAllowsRefreshedURL(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	destination := filepath.Join(t.TempDir(), "media.bin")
+	media := server.Media()
+	part := destination + ".part"
+	if err := os.WriteFile(part, media[:len(media)/2], 0o644); err != nil {
+		t.Fatal(err)
+	}
+	state, _ := json.Marshal(partialState{
+		ResumeIdentity: "video:fixture:298",
+		ETag:           server.MediaETag(),
+		Total:          int64(len(media)),
+	})
+	if err := os.WriteFile(part+".json", state, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := New(transport).Download(context.Background(), Job{
+		URL: server.URL + "/media?token=refreshed", ResumeIdentity: "video:fixture:298",
+		OutputRoot: filepath.Dir(destination), Destination: destination,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Resumed {
+		t.Fatalf("result = %#v; refreshed URL did not resume", result)
+	}
+	downloaded, _ := os.ReadFile(destination)
+	if string(downloaded) != string(media) {
+		t.Fatal("refreshed-URL resume produced incorrect bytes")
+	}
+}
+
+func TestDownloadResumeIdentityMismatchRestarts(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	destination := filepath.Join(t.TempDir(), "media.bin")
+	media := server.Media()
+	part := destination + ".part"
+	if err := os.WriteFile(part, media[:len(media)/2], 0o644); err != nil {
+		t.Fatal(err)
+	}
+	state, _ := json.Marshal(partialState{
+		ResumeIdentity: "video:other:298",
+		ETag:           server.MediaETag(),
+		Total:          int64(len(media)),
+	})
+	if err := os.WriteFile(part+".json", state, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := New(transport).Download(context.Background(), Job{
+		URL: server.URL + "/media?token=refreshed", ResumeIdentity: "video:fixture:298",
+		OutputRoot: filepath.Dir(destination), Destination: destination,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Resumed {
+		t.Fatal("mismatched media identity was incorrectly resumed")
+	}
+	downloaded, _ := os.ReadFile(destination)
+	if string(downloaded) != string(media) {
+		t.Fatal("identity-mismatch restart produced incorrect bytes")
+	}
+}
+
+func TestDownloadResumeIdentityMigratesLegacyExactURLState(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	destination := filepath.Join(t.TempDir(), "media.bin")
+	media := server.Media()
+	rawURL := server.URL + "/media"
+	part := destination + ".part"
+	if err := os.WriteFile(part, media[:len(media)/2], 0o644); err != nil {
+		t.Fatal(err)
+	}
+	state, _ := json.Marshal(partialState{
+		URL: rawURL, ETag: server.MediaETag(), Total: int64(len(media)),
+	})
+	if err := os.WriteFile(part+".json", state, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := New(transport).Download(context.Background(), Job{
+		URL: rawURL, ResumeIdentity: "video:fixture:298",
+		OutputRoot: filepath.Dir(destination), Destination: destination,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Resumed {
+		t.Fatal("legacy exact-URL partial was not migrated and resumed")
+	}
+}
+
+func TestDownloadResumeIdentityDoesNotMigrateLegacyRefreshedURL(t *testing.T) {
+	server := testserver.New()
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	destination := filepath.Join(t.TempDir(), "media.bin")
+	media := server.Media()
+	part := destination + ".part"
+	if err := os.WriteFile(part, media[:len(media)/2], 0o644); err != nil {
+		t.Fatal(err)
+	}
+	state, _ := json.Marshal(partialState{
+		URL: server.URL + "/media?token=old", ETag: server.MediaETag(), Total: int64(len(media)),
+	})
+	if err := os.WriteFile(part+".json", state, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := New(transport).Download(context.Background(), Job{
+		URL: server.URL + "/media?token=refreshed", ResumeIdentity: "video:fixture:298",
+		OutputRoot: filepath.Dir(destination), Destination: destination,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Resumed {
+		t.Fatal("legacy partial crossed the exact-URL migration boundary")
+	}
+}
+
 func TestDownloadRestartsWhenServerIgnoresRange(t *testing.T) {
 	body := []byte("complete body")
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
@@ -154,6 +283,49 @@ func TestDownloadCancellationLeavesPartialState(t *testing.T) {
 	}
 	if _, err := os.Stat(destination + ".part.json"); err != nil {
 		t.Fatalf("partial state missing: %v", err)
+	}
+}
+
+func TestDownloadResumeIdentityPartialStateOmitsExpiringURL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("ETag", `"slow"`)
+		flusher := writer.(http.Flusher)
+		for index := 0; index < 100; index++ {
+			select {
+			case <-request.Context().Done():
+				return
+			default:
+			}
+			_, _ = writer.Write(make([]byte, 1024))
+			flusher.Flush()
+			time.Sleep(5 * time.Millisecond)
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	destination := filepath.Join(t.TempDir(), "cancel.bin")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sink := events.SinkFunc(func(_ context.Context, event events.Event) error {
+		if event.Kind == events.KindProgress {
+			cancel()
+		}
+		return nil
+	})
+	rawURL := server.URL + "/media?token=playback-secret"
+	_, err := New(transport).Download(ctx, Job{
+		URL: rawURL, ResumeIdentity: "video:fixture:298",
+		OutputRoot: filepath.Dir(destination), Destination: destination,
+	}, sink)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Download() error = %v", err)
+	}
+	encoded, err := os.ReadFile(destination + ".part.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "playback-secret") || !strings.Contains(string(encoded), "video:fixture:298") {
+		t.Fatalf("partial state leaked refreshed URL or omitted identity: %s", encoded)
 	}
 }
 

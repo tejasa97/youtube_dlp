@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -198,6 +200,126 @@ func TestNTrackHeaderIsolationConcurrent(t *testing.T) {
 		if hits[index].Load() != 1 {
 			t.Fatalf("track %d hits = %d, want 1", index, hits[index].Load())
 		}
+	}
+}
+
+func TestNTrackPauseResumeUsesRangeAndPreservesWorkspace(t *testing.T) {
+	content := make([]byte, 8<<20)
+	var rangesMu sync.Mutex
+	var ranges []string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		rangesMu.Lock()
+		ranges = append(ranges, request.Header.Get("Range"))
+		rangesMu.Unlock()
+		http.ServeContent(writer, request, "track.bin", time.Unix(0, 0), bytes.NewReader(content))
+	}))
+	defer server.Close()
+
+	selections := func(token string) []mediaformat.Selection {
+		return []mediaformat.Selection{
+			{ID: "298", Ext: "mp4", VCodec: "avc1", ACodec: "none", Protocol: "https", URL: server.URL + "/video?token=" + token, YouTubeSourceURL: "https://www.youtube.com/watch?v=fixture0001"},
+			{ID: "258", Ext: "m4a", VCodec: "none", ACodec: "mp4a", Protocol: "https", URL: server.URL + "/audio?token=" + token, YouTubeSourceURL: "https://www.youtube.com/watch?v=fixture0001"},
+		}
+	}
+	root := t.TempDir()
+	destination := filepath.Join(root, "video.mp4")
+	request := Request{Overwrite: true, Filesystem: FilesystemOptions{PreservePartialOnCancel: true}}
+
+	firstCtx, firstCancel := context.WithCancel(context.Background())
+	var firstOnce sync.Once
+	firstSink := events.SinkFunc(func(_ context.Context, event events.Event) error {
+		if event.Kind == events.KindProgress && event.Bytes >= 256<<10 {
+			firstOnce.Do(firstCancel)
+		}
+		return nil
+	})
+	firstOperation := testOperation(t, request)
+	_, _, firstErr := firstOperation.downloadAndMergeTracks(
+		firstCtx, selections("first"), root, destination, firstSink,
+	)
+	if !errors.Is(firstErr, context.Canceled) {
+		t.Fatalf("first download error = %v; want cancellation", firstErr)
+	}
+	workspace, _, err := expectedNTrackWorkspace(root, destination, selections("first"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	partials, err := filepath.Glob(filepath.Join(workspace, "track-*.part"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(partials) == 0 {
+		t.Fatal("pause did not preserve any multi-track partial")
+	}
+
+	secondCtx, secondCancel := context.WithCancel(context.Background())
+	var secondOnce sync.Once
+	var resumed atomic.Bool
+	secondSink := events.SinkFunc(func(_ context.Context, event events.Event) error {
+		if event.Kind == events.KindProgress && event.Resuming {
+			resumed.Store(true)
+			secondOnce.Do(secondCancel)
+		}
+		return nil
+	})
+	secondOperation := testOperation(t, request)
+	_, _, secondErr := secondOperation.downloadAndMergeTracks(
+		secondCtx, selections("refreshed"), root, destination, secondSink,
+	)
+	if !errors.Is(secondErr, context.Canceled) {
+		t.Fatalf("resumed download error = %v; want cancellation", secondErr)
+	}
+	if !resumed.Load() {
+		t.Fatal("refreshed multi-track request did not report resumed progress")
+	}
+	rangesMu.Lock()
+	defer rangesMu.Unlock()
+	sawRange := false
+	for _, value := range ranges {
+		if strings.HasPrefix(value, "bytes=") && value != "bytes=0-" {
+			sawRange = true
+			break
+		}
+	}
+	if !sawRange {
+		t.Fatalf("requests = %#v; want a non-zero HTTP Range resume", ranges)
+	}
+	if info, err := os.Stat(workspace); err != nil || !info.IsDir() {
+		t.Fatalf("resumed cancellation did not retain workspace: %v", err)
+	}
+}
+
+func TestNTrackCanceledWithoutPreservationCleansWorkspace(t *testing.T) {
+	content := make([]byte, 4<<20)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		http.ServeContent(writer, request, "track.bin", time.Unix(0, 0), bytes.NewReader(content))
+	}))
+	defer server.Close()
+	selections := []mediaformat.Selection{
+		{ID: "video", Ext: "mp4", VCodec: "avc1", ACodec: "none", Protocol: "http", URL: server.URL + "/video"},
+		{ID: "audio", Ext: "m4a", VCodec: "none", ACodec: "mp4a", Protocol: "http", URL: server.URL + "/audio"},
+	}
+	root := t.TempDir()
+	destination := filepath.Join(root, "video.mp4")
+	ctx, cancel := context.WithCancel(context.Background())
+	var once sync.Once
+	sink := events.SinkFunc(func(_ context.Context, event events.Event) error {
+		if event.Kind == events.KindProgress {
+			once.Do(cancel)
+		}
+		return nil
+	})
+	operation := testOperation(t, Request{Overwrite: true})
+	_, _, err := operation.downloadAndMergeTracks(ctx, selections, root, destination, sink)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("download error = %v; want cancellation", err)
+	}
+	workspace, _, err := expectedNTrackWorkspace(root, destination, selections)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(workspace); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("non-preserving cancellation left workspace: %v", err)
 	}
 }
 

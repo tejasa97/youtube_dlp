@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -59,18 +60,26 @@ func (operation *operation) downloadAndMergeTracks(
 	selections []mediaformat.Selection,
 	outputRoot, destination string,
 	sink events.Sink,
-) (string, int64, error) {
+) (path string, bytes int64, returnErr error) {
 	if !mergeableTracks(selections) {
 		return "", 0, fmt.Errorf("%w: selected format set is not mergeable", ErrUnsupported)
 	}
 	if sink == nil {
 		sink = events.Nop()
 	}
-	workspace, err := os.MkdirTemp(outputRoot, ".ytdlp-formats-")
+	workspace, err := prepareNTrackWorkspace(
+		outputRoot, destination, selections, operation.request.Filesystem.NoContinue,
+	)
 	if err != nil {
-		return "", 0, fmt.Errorf("create selected-format workspace: %w", err)
+		return "", 0, err
 	}
-	defer os.RemoveAll(workspace)
+	preserveWorkspace := false
+	defer func() {
+		if preserveWorkspace {
+			return
+		}
+		returnErr = errors.Join(returnErr, removeNTrackWorkspace(workspace))
+	}()
 
 	serializedSink := &lockedEventSink{sink: sink}
 	childCtx, cancel := context.WithCancel(ctx)
@@ -97,6 +106,17 @@ func (operation *operation) downloadAndMergeTracks(
 				return
 			}
 			track := trackTemporaryPath(workspace, index, selection.Ext)
+			if size, reusable, reuseErr := reusableNTrack(track); reuseErr != nil {
+				outcomes <- outcome{index: index, err: reuseErr}
+				return
+			} else if reusable {
+				_ = serializedSink.Emit(childCtx, events.Event{
+					Kind: events.KindCompleted, Path: track,
+					Bytes: size, Total: size, Resuming: true,
+				})
+				outcomes <- outcome{index: index, path: track, bytes: size}
+				return
+			}
 			path, count, downloadErr := operation.downloadSelection(
 				childCtx, isolatedSelection(selection), workspace, track, serializedSink)
 			outcomes <- outcome{index: index, path: path, bytes: count, err: downloadErr}
@@ -119,6 +139,8 @@ func (operation *operation) downloadAndMergeTracks(
 		}
 	}
 	if firstErr != nil {
+		preserveWorkspace = operation.request.Filesystem.PreservePartialOnCancel &&
+			!operation.request.Filesystem.NoContinue && ctx.Err() != nil
 		return "", 0, firstErr
 	}
 
@@ -136,6 +158,8 @@ func (operation *operation) downloadAndMergeTracks(
 		return "", 0, err
 	}
 	if err := tools.MergeTracks(childCtx, mergeInputs, destination, operation.request.Overwrite, serializedSink); err != nil {
+		preserveWorkspace = operation.request.Filesystem.PreservePartialOnCancel &&
+			!operation.request.Filesystem.NoContinue && ctx.Err() != nil
 		return "", 0, err
 	}
 	info, err := os.Stat(destination)
