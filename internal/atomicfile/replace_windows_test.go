@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 )
 
@@ -72,5 +73,62 @@ func TestWriteWindowsReadOnlyTempCleanupAfterPreCommitFailure(t *testing.T) {
 				t.Fatalf("leaked read-only temporary files: %v", matches)
 			}
 		})
+	}
+}
+
+func TestHandleMoveFileFailureClassifiesAuthority(t *testing.T) {
+	moveErr := syscall.Errno(1234)
+	tests := []struct {
+		name              string
+		sourceExists      bool
+		destinationExists bool
+		committed         bool
+		indeterminate     bool
+	}{
+		{
+			name:              "source remains",
+			sourceExists:      true,
+			destinationExists: true,
+		},
+		{
+			name:              "destination only",
+			destinationExists: true,
+			committed:         true,
+		},
+		{
+			name:          "both names missing",
+			indeterminate: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := handleMoveFileFailure(moveErr, "source", "destination", moveRecoveryOps{
+				sourceExists: func(string) (bool, error) {
+					return test.sourceExists, nil
+				},
+				destinationExists: func(string) (bool, error) {
+					return test.destinationExists, nil
+				},
+			})
+			assertCommitOutcome(t, err, test.committed, test.indeterminate, moveErr)
+		})
+	}
+}
+
+func TestHandleMoveFileFailureInspectionErrorIsIndeterminate(t *testing.T) {
+	moveErr := errors.New("move failed")
+	inspectErr := errors.New("inspection failed")
+	err := handleMoveFileFailure(moveErr, "source", "destination", moveRecoveryOps{
+		sourceExists: func(string) (bool, error) {
+			return false, inspectErr
+		},
+		destinationExists: func(string) (bool, error) {
+			return true, nil
+		},
+	})
+	assertCommitOutcome(t, err, false, true, moveErr)
+	if !errors.Is(err, inspectErr) {
+		t.Fatalf("error %v does not wrap inspection failure", err)
 	}
 }

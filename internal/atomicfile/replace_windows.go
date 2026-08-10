@@ -71,12 +71,34 @@ func platformReplace(source, destination string) error {
 		} else {
 			// The destination disappeared after Lstat. ReplaceFileW did not
 			// commit, so let MoveFileExW handle the creation/race below.
-			_ = os.Remove(backup)
-			return windows.MoveFileEx(
+			cleanupErr := os.Remove(backup)
+			moveErr := moveFileEx(
 				sourcePointer,
 				destinationPointer,
-				windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH,
+				source,
+				destination,
 			)
+			if moveErr != nil && cleanupErr != nil && !errors.Is(cleanupErr, os.ErrNotExist) {
+				var commitErr CommitError
+				if errors.As(moveErr, &commitErr) && commitErr.Indeterminate() {
+					return indeterminateFailure(
+						"clean replacement backup after failed move",
+						errors.Join(moveErr, cleanupErr),
+					)
+				}
+				return failure(
+					"clean replacement backup after failed move",
+					errors.Join(moveErr, cleanupErr),
+					errors.As(moveErr, &commitErr) && commitErr.Committed(),
+				)
+			}
+			if moveErr != nil {
+				return moveErr
+			}
+			if cleanupErr != nil && !errors.Is(cleanupErr, os.ErrNotExist) {
+				return failure("clean replacement backup after move", cleanupErr, true)
+			}
+			return nil
 		}
 		return handleExistingReplaceResult(replaceErr, backup, destination, replaceRecoveryOps{
 			backupExists:      pathExists,
@@ -88,11 +110,71 @@ func platformReplace(source, destination string) error {
 		return statErr
 	}
 
-	return windows.MoveFileEx(
+	return moveFileEx(
+		sourcePointer,
+		destinationPointer,
+		source,
+		destination,
+	)
+}
+
+type moveRecoveryOps struct {
+	sourceExists      func(string) (bool, error)
+	destinationExists func(string) (bool, error)
+}
+
+// handleMoveFileFailure classifies a failed MoveFileExW by inspecting both
+// names. MoveFileExW has no backup/recovery protocol, so a missing source and
+// present destination is the only observable committed outcome; contradictory
+// or uninspectable names require reconciliation.
+func handleMoveFileFailure(
+	moveErr error,
+	source, destination string,
+	ops moveRecoveryOps,
+) error {
+	sourceExists, sourceErr := ops.sourceExists(source)
+	if sourceErr != nil {
+		return indeterminateFailure(
+			"inspect source after failed move",
+			errors.Join(moveErr, sourceErr),
+		)
+	}
+	destinationExists, destinationErr := ops.destinationExists(destination)
+	if destinationErr != nil {
+		return indeterminateFailure(
+			"inspect destination after failed move",
+			errors.Join(moveErr, destinationErr),
+		)
+	}
+	switch {
+	case !sourceExists && destinationExists:
+		return failure("replace destination", moveErr, true)
+	case sourceExists:
+		return failure("replace destination", moveErr, false)
+	default:
+		return indeterminateFailure(
+			"locate files after failed move",
+			errors.Join(moveErr, errors.New("source and destination are both missing")),
+		)
+	}
+}
+
+func moveFileEx(
+	sourcePointer, destinationPointer *uint16,
+	source, destination string,
+) error {
+	moveErr := windows.MoveFileEx(
 		sourcePointer,
 		destinationPointer,
 		windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH,
 	)
+	if moveErr == nil {
+		return nil
+	}
+	return handleMoveFileFailure(moveErr, source, destination, moveRecoveryOps{
+		sourceExists:      pathExists,
+		destinationExists: pathExists,
+	})
 }
 
 func reserveBackupName(destination string) (string, error) {

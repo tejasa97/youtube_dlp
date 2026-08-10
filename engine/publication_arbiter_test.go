@@ -1,4 +1,4 @@
-package ytdlp
+package engine
 
 import (
 	"context"
@@ -70,6 +70,22 @@ func TestPublicationArbiterPublicationTransitions(t *testing.T) {
 			t.Fatalf("BeginPublication error = %v", err)
 		}
 	})
+}
+
+func TestPublicationReservationCopiesShareReplacementPhase(t *testing.T) {
+	arbiter := NewPublicationArbiter()
+	reservation, err := arbiter.BeginPublication(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	copied := *reservation
+
+	copied.MarkDestinationReplaced()
+	reservation.FinishPublication()
+
+	if _, err := arbiter.BeginCancel(context.Background()); !errors.Is(err, ErrAlreadyPublished) {
+		t.Fatalf("BeginCancel error = %v", err)
+	}
 }
 
 func TestPublicationArbiterIndeterminateTransition(t *testing.T) {
