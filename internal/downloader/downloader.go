@@ -63,8 +63,12 @@ type Job struct {
 	Headers     http.Header
 	OutputRoot  string
 	Destination string
-	Overwrite   bool
-	Attempts    int
+	// ResumeIdentity is an optional caller-owned stable media identity. When
+	// present, a partial may resume after an expiring media URL is refreshed,
+	// provided the identity still matches. Empty retains exact-URL matching.
+	ResumeIdentity string
+	Overwrite      bool
+	Attempts       int
 	// RetryBaseDelay and RetryMaxDelay define a deterministic exponential
 	// backoff. Zero values retain the intentionally small native defaults.
 	RetryBaseDelay time.Duration
@@ -124,9 +128,10 @@ func NewWithHooks(transport network.Doer, now func() time.Time, sleep func(conte
 }
 
 type partialState struct {
-	URL   string `json:"url"`
-	ETag  string `json:"etag,omitempty"`
-	Total int64  `json:"total,omitempty"`
+	URL            string `json:"url,omitempty"`
+	ResumeIdentity string `json:"resumeIdentity,omitempty"`
+	ETag           string `json:"etag,omitempty"`
+	Total          int64  `json:"total,omitempty"`
 }
 
 func (downloader *Downloader) Download(ctx context.Context, job Job, sink events.Sink) (Result, error) {
@@ -258,9 +263,9 @@ func finalizeOnce(partPath, destination string, overwrite bool) error {
 }
 
 func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, partPath, statePath string, sink events.Sink) (Result, error) {
-	state, offset := partialState{URL: job.URL}, int64(0)
+	state, offset := newPartialState(job.URL, job.ResumeIdentity), int64(0)
 	if !job.NoContinue {
-		state, offset = loadPartial(partPath, statePath, job.URL)
+		state, offset = loadPartial(partPath, statePath, job.URL, job.ResumeIdentity)
 	}
 	request, err := http.NewRequest(http.MethodGet, job.URL, nil)
 	if err != nil {
@@ -294,7 +299,7 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, part
 	resuming := offset > 0 && response.StatusCode == http.StatusPartialContent && validContentRange(response.Header.Get("Content-Range"), offset)
 	if !resuming {
 		offset = 0
-		state = partialState{URL: job.URL}
+		state = newPartialState(job.URL, job.ResumeIdentity)
 	}
 	state.ETag = response.Header.Get("ETag")
 	state.Total = responseTotal(response, offset)
@@ -516,20 +521,43 @@ func regularOrAbsent(path string) error {
 	return nil
 }
 
-func loadPartial(partPath, statePath, rawURL string) (partialState, int64) {
+func loadPartial(partPath, statePath, rawURL, resumeIdentity string) (partialState, int64) {
+	empty := newPartialState(rawURL, resumeIdentity)
 	info, err := os.Stat(partPath)
 	if err != nil || info.Size() <= 0 {
-		return partialState{URL: rawURL}, 0
+		return empty, 0
 	}
 	encoded, err := os.ReadFile(statePath)
 	if err != nil {
-		return partialState{URL: rawURL}, 0
+		return empty, 0
 	}
 	var state partialState
-	if json.Unmarshal(encoded, &state) != nil || state.URL != rawURL {
-		return partialState{URL: rawURL}, 0
+	if json.Unmarshal(encoded, &state) != nil {
+		return empty, 0
 	}
+	if resumeIdentity != "" {
+		if state.ResumeIdentity != resumeIdentity {
+			// Migrate legacy partial state only across the old exact-URL
+			// boundary. A legacy state never authorizes a refreshed URL.
+			if state.ResumeIdentity != "" || state.URL != rawURL {
+				return empty, 0
+			}
+		}
+	} else if state.URL != rawURL {
+		return empty, 0
+	}
+	decoded := state
+	state = newPartialState(rawURL, resumeIdentity)
+	state.ETag = decoded.ETag
+	state.Total = decoded.Total
 	return state, info.Size()
+}
+
+func newPartialState(rawURL, resumeIdentity string) partialState {
+	if resumeIdentity != "" {
+		return partialState{ResumeIdentity: resumeIdentity}
+	}
+	return partialState{URL: rawURL}
 }
 
 func (downloader *Downloader) savePartialState(ctx context.Context, job Job, path string, state partialState) error {
