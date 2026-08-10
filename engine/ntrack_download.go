@@ -67,7 +67,13 @@ func (operation *operation) downloadAndMergeTracks(
 	if sink == nil {
 		sink = events.Nop()
 	}
-	workspace, err := prepareNTrackWorkspace(
+	workspace, _, err := expectedNTrackWorkspace(outputRoot, destination, selections)
+	if err != nil {
+		return "", 0, err
+	}
+	releaseWorkspace := acquireNTrackWorkspace(workspace)
+	defer releaseWorkspace()
+	workspace, err = prepareNTrackWorkspace(
 		outputRoot, destination, selections, operation.request.Filesystem.NoContinue,
 	)
 	if err != nil {

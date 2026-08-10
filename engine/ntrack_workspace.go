@@ -10,11 +10,22 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
 	mediaformat "github.com/tejasa97/youtube_dlp/internal/format"
 )
 
 const nTrackWorkspaceManifestVersion = 1
+
+var nTrackWorkspaceLocks = struct {
+	sync.Mutex
+	entries map[string]*nTrackWorkspaceLock
+}{entries: make(map[string]*nTrackWorkspaceLock)}
+
+type nTrackWorkspaceLock struct {
+	mutex sync.Mutex
+	users int
+}
 
 type nTrackWorkspaceManifest struct {
 	Version     int      `json:"version"`
@@ -89,6 +100,28 @@ func isNTrackDestinationRelative(relative string) bool {
 		return false
 	}
 	return !strings.HasPrefix(relative, ".."+string(filepath.Separator))
+}
+
+func acquireNTrackWorkspace(workspace string) func() {
+	nTrackWorkspaceLocks.Lock()
+	entry := nTrackWorkspaceLocks.entries[workspace]
+	if entry == nil {
+		entry = &nTrackWorkspaceLock{}
+		nTrackWorkspaceLocks.entries[workspace] = entry
+	}
+	entry.users++
+	nTrackWorkspaceLocks.Unlock()
+
+	entry.mutex.Lock()
+	return func() {
+		entry.mutex.Unlock()
+		nTrackWorkspaceLocks.Lock()
+		entry.users--
+		if entry.users == 0 {
+			delete(nTrackWorkspaceLocks.entries, workspace)
+		}
+		nTrackWorkspaceLocks.Unlock()
+	}
 }
 
 func prepareNTrackWorkspace(

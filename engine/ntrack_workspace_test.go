@@ -5,7 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	mediaformat "github.com/tejasa97/youtube_dlp/internal/format"
 )
@@ -173,4 +175,38 @@ func TestNTrackWorkspaceRejectsDestinationOutsideRoot(t *testing.T) {
 	if _, _, err := expectedNTrackWorkspace(root, outside, testNTrackSelections("first")); err == nil {
 		t.Fatal("destination outside output root was accepted")
 	}
+}
+
+func TestNTrackWorkspaceLockSerializesSameDestination(t *testing.T) {
+	workspace := filepath.Join(t.TempDir(), ".ytdlp-formats-fixture")
+	releaseFirst := acquireNTrackWorkspace(workspace)
+
+	started := make(chan struct{})
+	acquired := make(chan struct{})
+	var releaseSecond func()
+	var releaseMu sync.Mutex
+	go func() {
+		close(started)
+		release := acquireNTrackWorkspace(workspace)
+		releaseMu.Lock()
+		releaseSecond = release
+		releaseMu.Unlock()
+		close(acquired)
+	}()
+	<-started
+	select {
+	case <-acquired:
+		t.Fatal("second job acquired the same workspace concurrently")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	releaseFirst()
+	select {
+	case <-acquired:
+	case <-time.After(5 * time.Second):
+		t.Fatal("second job did not acquire the released workspace")
+	}
+	releaseMu.Lock()
+	releaseSecond()
+	releaseMu.Unlock()
 }
