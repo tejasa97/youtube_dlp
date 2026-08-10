@@ -176,10 +176,15 @@ func TestWriteRetainsTemporaryOnIndeterminateReplacement(t *testing.T) {
 	}
 	ops := productionOps
 	var temporaryPath string
+	cleanupCalled := false
 	replacementErr := errors.New("authority unknown")
 	ops.replaceFile = func(source, destination string) error {
 		temporaryPath = source
 		return indeterminateFailure("injected replacement", replacementErr)
+	}
+	ops.cleanupTemp = func(string) error {
+		cleanupCalled = true
+		return errors.New("indeterminate evidence must not be cleaned")
 	}
 	err := write(path, 0o600, func(writer io.Writer) error {
 		_, err := io.WriteString(writer, "candidate")
@@ -188,6 +193,9 @@ func TestWriteRetainsTemporaryOnIndeterminateReplacement(t *testing.T) {
 	assertCommitOutcome(t, err, false, true, replacementErr)
 	if temporaryPath == "" {
 		t.Fatal("replacement seam was not called")
+	}
+	if cleanupCalled {
+		t.Fatal("cleanup was called for indeterminate evidence")
 	}
 	content, readErr := os.ReadFile(temporaryPath)
 	if readErr != nil {
@@ -204,6 +212,38 @@ func TestWriteRetainsTemporaryOnIndeterminateReplacement(t *testing.T) {
 		t.Fatalf("destination = %q, want old in injected scenario", old)
 	}
 	if removeErr := os.Remove(temporaryPath); removeErr != nil {
+		t.Fatal(removeErr)
+	}
+}
+
+func TestWriteReportsPreCommitCleanupFailure(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "state.json")
+	operationErr := errors.New("sync failed")
+	cleanupErr := errors.New("cleanup failed")
+	ops := productionOps
+	ops.syncFile = func(*os.File) error { return operationErr }
+	ops.cleanupTemp = func(string) error { return cleanupErr }
+
+	err := write(path, 0o400, func(writer io.Writer) error {
+		_, err := io.WriteString(writer, "candidate")
+		return err
+	}, ops)
+	assertCommitOutcome(t, err, false, false, operationErr)
+	if !errors.Is(err, cleanupErr) {
+		t.Fatalf("error %v does not wrap cleanup failure", err)
+	}
+	matches, globErr := filepath.Glob(filepath.Join(directory, ".atomic-*"))
+	if globErr != nil {
+		t.Fatal(globErr)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("temporary file count = %d, want 1 after injected cleanup failure", len(matches))
+	}
+	if chmodErr := os.Chmod(matches[0], 0o600); chmodErr != nil {
+		t.Fatal(chmodErr)
+	}
+	if removeErr := os.Remove(matches[0]); removeErr != nil {
 		t.Fatal(removeErr)
 	}
 }

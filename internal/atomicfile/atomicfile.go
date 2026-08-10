@@ -62,6 +62,7 @@ type fileOps struct {
 	syncFile    func(*os.File) error
 	replaceFile func(string, string) error
 	syncParent  func(string) error
+	cleanupTemp func(string) error
 }
 
 var productionOps = fileOps{
@@ -73,6 +74,7 @@ var productionOps = fileOps{
 	syncFile:    (*os.File).Sync,
 	replaceFile: platformReplace,
 	syncParent:  platformSyncParent,
+	cleanupTemp: platformCleanupTemp,
 }
 
 // Write creates and syncs a temporary file beside path, then atomically
@@ -82,7 +84,7 @@ func Write(path string, perm fs.FileMode, encode func(io.Writer) error) error {
 	return write(path, perm, encode, productionOps)
 }
 
-func write(path string, perm fs.FileMode, encode func(io.Writer) error, ops fileOps) error {
+func write(path string, perm fs.FileMode, encode func(io.Writer) error, ops fileOps) (result error) {
 	if encode == nil {
 		return failure("write temporary file", fmt.Errorf("nil encoder"), false)
 	}
@@ -96,8 +98,15 @@ func write(path string, perm fs.FileMode, encode func(io.Writer) error, ops file
 	retainTemporary := false
 	defer func() {
 		_ = temporary.Close()
-		if !committed && !retainTemporary {
-			_ = os.Remove(temporaryPath)
+		if committed || retainTemporary {
+			return
+		}
+		if cleanupErr := ops.cleanupTemp(temporaryPath); cleanupErr != nil {
+			result = failure(
+				"clean temporary file after pre-commit failure",
+				errors.Join(result, cleanupErr),
+				false,
+			)
 		}
 	}()
 
@@ -116,8 +125,9 @@ func write(path string, perm fs.FileMode, encode func(io.Writer) error, ops file
 	if err := ops.replaceFile(temporaryPath, path); err != nil {
 		classified := classifyReplacementError(err)
 		var commitErr CommitError
-		if errors.As(classified, &commitErr) && commitErr.Indeterminate() {
-			retainTemporary = true
+		if errors.As(classified, &commitErr) {
+			retainTemporary = commitErr.Indeterminate()
+			committed = commitErr.Committed()
 		}
 		return classified
 	}

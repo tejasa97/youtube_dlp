@@ -8,6 +8,10 @@ func platformOpenForSync(path string) (*os.File, error) {
 	return os.Open(path)
 }
 
+func platformCleanupTemp(path string) error {
+	return os.Remove(path)
+}
+
 func platformReplace(source, destination string) error {
 	return os.Rename(source, destination)
 }

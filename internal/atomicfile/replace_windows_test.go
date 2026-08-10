@@ -3,6 +3,8 @@
 package atomicfile
 
 import (
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -28,5 +30,47 @@ func TestReplaceWindowsWritableSyncHandle(t *testing.T) {
 		if string(actual) != content {
 			t.Fatalf("content = %q, want %q", actual, content)
 		}
+	}
+}
+
+func TestWriteWindowsReadOnlyTempCleanupAfterPreCommitFailure(t *testing.T) {
+	injected := errors.New("injected pre-commit failure")
+	tests := []struct {
+		name      string
+		configure func(*fileOps)
+	}{
+		{
+			name: "sync failure",
+			configure: func(ops *fileOps) {
+				ops.syncFile = func(*os.File) error { return injected }
+			},
+		},
+		{
+			name: "replacement failure",
+			configure: func(ops *fileOps) {
+				ops.replaceFile = func(string, string) error { return injected }
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			directory := t.TempDir()
+			path := filepath.Join(directory, "state.json")
+			ops := productionOps
+			test.configure(&ops)
+			err := write(path, 0o400, func(writer io.Writer) error {
+				_, err := io.WriteString(writer, "candidate")
+				return err
+			}, ops)
+			assertCommitOutcome(t, err, false, false, injected)
+			matches, globErr := filepath.Glob(filepath.Join(directory, ".atomic-*"))
+			if globErr != nil {
+				t.Fatal(globErr)
+			}
+			if len(matches) != 0 {
+				t.Fatalf("leaked read-only temporary files: %v", matches)
+			}
+		})
 	}
 }

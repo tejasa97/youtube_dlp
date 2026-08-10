@@ -18,6 +18,19 @@ func platformOpenForSync(path string) (*os.File, error) {
 	return os.OpenFile(path, os.O_WRONLY, 0)
 }
 
+func platformCleanupTemp(path string) error {
+	if err := os.Chmod(path, 0o600); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
 func platformReplace(source, destination string) error {
 	sourcePointer, err := windows.UTF16PtrFromString(source)
 	if err != nil {
