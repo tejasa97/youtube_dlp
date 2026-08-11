@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tejasa97/youtube_dlp/internal/atomicfile"
 	"github.com/tejasa97/youtube_dlp/internal/events"
 	"github.com/tejasa97/youtube_dlp/internal/network"
 )
@@ -97,6 +98,9 @@ type Job struct {
 	// NoPart writes in-progress bytes directly to Destination instead of
 	// using a .part temporary file.
 	NoPart bool
+	// Checkpoint opts this direct transfer into durable partial progress. A
+	// nil value preserves legacy file-length resume behavior.
+	Checkpoint *CheckpointOptions
 }
 
 type Result struct {
@@ -106,9 +110,11 @@ type Result struct {
 }
 
 type Downloader struct {
-	transport network.Doer
-	now       func() time.Time
-	sleep     func(context.Context, time.Duration) error
+	transport          network.Doer
+	now                func() time.Time
+	sleep              func(context.Context, time.Duration) error
+	writePartialState  func(string, partialState) error
+	syncPartialPayload func(*os.File) error
 }
 
 func New(transport network.Doer) *Downloader {
@@ -124,18 +130,30 @@ func NewWithHooks(transport network.Doer, now func() time.Time, sleep func(conte
 	if sleep == nil {
 		sleep = waitFor
 	}
-	return &Downloader{transport: transport, now: now, sleep: sleep}
+	return &Downloader{
+		transport:          transport,
+		now:                now,
+		sleep:              sleep,
+		writePartialState:  savePartialStateOnce,
+		syncPartialPayload: (*os.File).Sync,
+	}
 }
 
 type partialState struct {
 	URL            string `json:"url,omitempty"`
 	ResumeIdentity string `json:"resumeIdentity,omitempty"`
 	ETag           string `json:"etag,omitempty"`
+	LastModified   string `json:"lastModified,omitempty"`
 	Total          int64  `json:"total,omitempty"`
+	CommittedBytes int64  `json:"committedBytes,omitempty"`
 }
 
 func (downloader *Downloader) Download(ctx context.Context, job Job, sink events.Sink) (Result, error) {
 	if err := validateJob(job); err != nil {
+		return Result{}, err
+	}
+	plan, err := checkpointPlanForJob(job)
+	if err != nil {
 		return Result{}, err
 	}
 	if sink == nil {
@@ -194,8 +212,14 @@ func (downloader *Downloader) Download(ctx context.Context, job Job, sink events
 	var lastErr error
 	throttleRestarts := 0
 	for attempt := 1; attempt <= attempts; attempt++ {
-		result, lastErr = downloader.downloadAttempt(ctx, job, partPath, statePath, sink)
+		result, lastErr = downloader.downloadAttempt(ctx, job, plan, partPath, statePath, sink)
 		if lastErr == nil {
+			if plan.enabled {
+				if err := ctx.Err(); err != nil {
+					_ = sink.Emit(context.Background(), events.Event{Kind: events.KindCancelled, URL: eventURL, Path: job.Destination, Message: err.Error()})
+					return Result{}, err
+				}
+			}
 			if info, err := os.Lstat(job.Destination); err == nil {
 				if !info.Mode().IsRegular() {
 					return Result{}, ErrUnsafeDestination
@@ -217,8 +241,12 @@ func (downloader *Downloader) Download(ctx context.Context, job Job, sink events
 			return result, nil
 		}
 		if ctx.Err() != nil {
-			_ = sink.Emit(context.Background(), events.Event{Kind: events.KindCancelled, URL: eventURL, Path: job.Destination, Message: ctx.Err().Error()})
-			return Result{}, ctx.Err()
+			cancelErr := ctx.Err()
+			_ = sink.Emit(context.Background(), events.Event{Kind: events.KindCancelled, URL: eventURL, Path: job.Destination, Message: cancelErr.Error()})
+			if plan.enabled && lastErr != nil && !errors.Is(lastErr, cancelErr) {
+				return Result{}, errors.Join(cancelErr, lastErr)
+			}
+			return Result{}, cancelErr
 		}
 		if !isRetryable(lastErr) {
 			break
@@ -262,13 +290,25 @@ func finalizeOnce(partPath, destination string, overwrite bool) error {
 	return installDestination(partPath, destination)
 }
 
-func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, partPath, statePath string, sink events.Sink) (Result, error) {
+func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, plan checkpointPlan, partPath, statePath string, sink events.Sink) (Result, error) {
 	state, offset := newPartialState(job.URL, job.ResumeIdentity), int64(0)
 	if !job.NoContinue {
-		state, offset = loadPartial(partPath, statePath, job.URL, job.ResumeIdentity)
+		var err error
+		state, offset, err = downloader.loadPartialWithPlan(ctx, job, plan, partPath, statePath)
+		if err != nil {
+			return Result{}, err
+		}
+	}
+	if plan.enabled {
+		if err := ctx.Err(); err != nil {
+			return Result{}, err
+		}
 	}
 	request, err := http.NewRequest(http.MethodGet, job.URL, nil)
 	if err != nil {
+		if plan.enabled {
+			err = redactCheckpointError(job.URL, err)
+		}
 		return Result{}, fmt.Errorf("create download request: %w", err)
 	}
 	if job.Headers != nil {
@@ -278,10 +318,18 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, part
 		request.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
 		if state.ETag != "" {
 			request.Header.Set("If-Range", state.ETag)
+		} else if state.LastModified != "" {
+			request.Header.Set("If-Range", state.LastModified)
 		}
 	}
 	response, err := downloader.transport.Do(ctx, request)
 	if err != nil {
+		if ctx.Err() != nil {
+			return Result{}, ctx.Err()
+		}
+		if plan.enabled {
+			err = redactCheckpointError(job.URL, err)
+		}
 		return Result{}, retryableError{err}
 	}
 	defer response.Body.Close()
@@ -296,13 +344,51 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, part
 		}
 		return Result{}, err
 	}
+
 	resuming := offset > 0 && response.StatusCode == http.StatusPartialContent && validContentRange(response.Header.Get("Content-Range"), offset)
+	if offset > 0 && response.StatusCode == http.StatusPartialContent && !resuming {
+		if err := downloader.restartPartial(ctx, job, partPath); err != nil {
+			return Result{}, err
+		}
+		job.NoContinue = true
+		return downloader.downloadAttempt(ctx, job, plan, partPath, statePath, sink)
+	}
+	if resuming && (!resumeResponseMatches(state, response) || !plan.responseMatchesBoundary(response)) {
+		if err := downloader.restartPartial(ctx, job, partPath); err != nil {
+			return Result{}, err
+		}
+		job.NoContinue = true
+		return downloader.downloadAttempt(ctx, job, plan, partPath, statePath, sink)
+	}
+	previousTotal := state.Total
+	responseOffset := offset
+	if !resuming {
+		responseOffset = 0
+	}
+	responseTotalBytes := responseTotal(response, responseOffset)
+	if resuming && responseTotalBytes > 0 && state.Total > 0 && responseTotalBytes != state.Total {
+		if err := downloader.restartPartial(ctx, job, partPath); err != nil {
+			return Result{}, err
+		}
+		job.NoContinue = true
+		return downloader.downloadAttempt(ctx, job, plan, partPath, statePath, sink)
+	}
 	if !resuming {
 		offset = 0
 		state = newPartialState(job.URL, job.ResumeIdentity)
 	}
 	state.ETag = response.Header.Get("ETag")
-	state.Total = responseTotal(response, offset)
+	state.LastModified = response.Header.Get("Last-Modified")
+	state.Total = responseTotalBytes
+	if state.Total == 0 && resuming {
+		state.Total = previousTotal
+	}
+	if plan.enabled {
+		state.CommittedBytes = offset
+		if err := validatePartialCheckpointState(state); err != nil {
+			return Result{}, err
+		}
+	}
 	if job.MinFilesize > 0 || job.MaxFilesize > 0 {
 		// yt-dlp's http.py consults Content-Length plus the resume offset and
 		// skips the size decision when Content-Encoding is present or the
@@ -348,30 +434,43 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, part
 	if err != nil {
 		return Result{}, fmt.Errorf("open partial file: %w", err)
 	}
+	if plan.enabled && offset > 0 {
+		if err := file.Truncate(offset); err != nil {
+			_ = file.Close()
+			return Result{}, fmt.Errorf("truncate uncommitted partial tail: %w", err)
+		}
+	}
 	if offset > 0 {
 		if _, err := file.Seek(offset, io.SeekStart); err != nil {
-			file.Close()
+			_ = file.Close()
 			return Result{}, fmt.Errorf("seek partial file: %w", err)
 		}
 	}
 
 	written := offset
+	lastCheckpointBytes := offset
+	lastCheckpointAt := time.Time{}
+	if plan.enabled {
+		lastCheckpointAt = downloader.now()
+	}
 	limiter := newThrottle(job.RateLimit)
 	detector := newThrottleDetector(job.ThrottleRate, job.ThrottleWindow, downloader.now)
 	buffer := make([]byte, 64<<10)
 	for {
 		if err := ctx.Err(); err != nil {
-			file.Close()
-			return Result{}, err
+			return Result{}, downloader.finishCancellation(ctx, job, plan, statePath, file, state, written)
 		}
 		count, readErr := response.Body.Read(buffer)
 		if count > 0 {
 			if detector.Observe(count) {
-				file.Close()
+				if ctx.Err() != nil {
+					return Result{}, downloader.finishCancellation(ctx, job, plan, statePath, file, state, written)
+				}
+				_ = file.Close()
 				return Result{}, retryableError{ErrThrottled}
 			}
 			if written+int64(count) > transferLimit {
-				file.Close()
+				_ = file.Close()
 				if job.MaxFilesize > 0 && transferLimit == job.MaxFilesize {
 					return Result{}, &FileSizeAbortError{
 						Message: fmt.Sprintf("File is larger than max-filesize (%d bytes > %d bytes)", written+int64(count), job.MaxFilesize),
@@ -380,37 +479,84 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, part
 				return Result{}, fmt.Errorf("%w: response exceeds %d bytes", ErrIncomplete, maxBytes)
 			}
 			if err := limiter.Wait(ctx, count); err != nil {
-				file.Close()
+				if ctx.Err() != nil {
+					return Result{}, downloader.finishCancellation(ctx, job, plan, statePath, file, state, written)
+				}
+				_ = file.Close()
 				return Result{}, err
 			}
 			writtenCount, writeErr := file.Write(buffer[:count])
 			written += int64(writtenCount)
 			if writeErr != nil || writtenCount != count {
-				file.Close()
+				_ = file.Close()
 				if writeErr == nil {
 					writeErr = io.ErrShortWrite
 				}
 				return Result{}, fmt.Errorf("write partial file: %w", writeErr)
 			}
 			if err := sink.Emit(ctx, events.Event{Kind: events.KindProgress, URL: network.RedactRawURL(job.URL), Path: job.Destination, Bytes: written, Total: state.Total, Resuming: resuming}); err != nil {
-				file.Close()
+				if ctx.Err() != nil {
+					return Result{}, downloader.finishCancellation(ctx, job, plan, statePath, file, state, written)
+				}
+				_ = file.Close()
+				if plan.enabled {
+					err = redactCheckpointError(job.URL, err)
+				}
 				return Result{}, fmt.Errorf("emit progress: %w", err)
+			}
+			checkpointNow := time.Time{}
+			if plan.enabled {
+				checkpointNow = downloader.now()
+			}
+			if plan.due(written, lastCheckpointBytes, lastCheckpointAt, checkpointNow) {
+				state.CommittedBytes = written
+				if err := downloader.commitPartialCheckpoint(job, plan, statePath, file, state, false); err != nil {
+					_ = file.Close()
+					return Result{}, err
+				}
+				lastCheckpointBytes = written
+				lastCheckpointAt = checkpointNow
 			}
 		}
 		if readErr != nil {
 			if errors.Is(readErr, io.EOF) {
 				break
 			}
-			file.Close()
+			if ctx.Err() != nil {
+				return Result{}, downloader.finishCancellation(ctx, job, plan, statePath, file, state, written)
+			}
+			_ = file.Close()
+			if plan.enabled {
+				readErr = redactCheckpointError(job.URL, readErr)
+			}
 			return Result{}, retryableError{fmt.Errorf("read download response: %w", readErr)}
 		}
 	}
-	if err := downloader.retryFile(ctx, job, func() error { return file.Sync() }); err != nil {
-		file.Close()
-		return Result{}, fmt.Errorf("sync partial file: %w", err)
+	if plan.enabled {
+		if written == lastCheckpointBytes {
+			if err := file.Close(); err != nil {
+				return Result{}, fmt.Errorf("close partial file: %w", err)
+			}
+		} else {
+			state.CommittedBytes = written
+			if err := downloader.commitPartialCheckpoint(job, plan, statePath, file, state, true); err != nil {
+				_ = file.Close()
+				return Result{}, err
+			}
+		}
+	} else {
+		if err := downloader.retryFile(ctx, job, func() error { return downloader.syncPayload(file) }); err != nil {
+			_ = file.Close()
+			return Result{}, fmt.Errorf("sync partial file: %w", err)
+		}
+		if err := file.Close(); err != nil {
+			return Result{}, fmt.Errorf("close partial file: %w", err)
+		}
 	}
-	if err := file.Close(); err != nil {
-		return Result{}, fmt.Errorf("close partial file: %w", err)
+	if plan.enabled {
+		if err := ctx.Err(); err != nil {
+			return Result{}, err
+		}
 	}
 	if state.Total > 0 && written != state.Total {
 		return Result{}, retryableError{fmt.Errorf("%w: got %d, want %d bytes", ErrIncomplete, written, state.Total)}
@@ -421,6 +567,108 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, part
 		}
 	}
 	return Result{Bytes: written, Resumed: resuming}, nil
+}
+
+func resumeResponseMatches(state partialState, response *http.Response) bool {
+	if state.ETag != "" && response.Header.Get("ETag") != state.ETag {
+		return false
+	}
+	if state.LastModified != "" && response.Header.Get("Last-Modified") != state.LastModified {
+		return false
+	}
+	return true
+}
+
+func (downloader *Downloader) syncPayload(file *os.File) error {
+	if downloader.syncPartialPayload != nil {
+		return downloader.syncPartialPayload(file)
+	}
+	return file.Sync()
+}
+
+func (downloader *Downloader) truncatePartial(ctx context.Context, job Job, path string, size int64) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return ErrUnsafeDestination
+	}
+	file, err := downloader.openPartial(ctx, job, path, os.O_WRONLY)
+	if err != nil {
+		return fmt.Errorf("open partial for truncation: %w", err)
+	}
+	if err := file.Truncate(size); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("truncate partial file: %w", err)
+	}
+	if err := downloader.retryFile(ctx, job, func() error { return downloader.syncPayload(file) }); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("sync truncated partial file: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close truncated partial file: %w", err)
+	}
+	return nil
+}
+
+func (downloader *Downloader) restartPartial(ctx context.Context, job Job, partPath string) error {
+	if err := downloader.truncatePartial(ctx, job, partPath, 0); err != nil {
+		return fmt.Errorf("restart partial download: %w", err)
+	}
+	return nil
+}
+
+func checkpointLocalContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), maxDirectCheckpointLocalDuration)
+}
+
+func (downloader *Downloader) commitPartialCheckpoint(job Job, plan checkpointPlan, statePath string, file *os.File, state partialState, closeFile bool) error {
+	localCtx, cancel := checkpointLocalContext()
+	defer cancel()
+	if err := downloader.retryFile(localCtx, job, func() error { return downloader.syncPayload(file) }); err != nil {
+		return fmt.Errorf("%w: sync partial file: %w", ErrCheckpointCommit, err)
+	}
+	if closeFile {
+		if err := file.Close(); err != nil {
+			return fmt.Errorf("%w: close partial file: %w", ErrCheckpointCommit, err)
+		}
+	}
+	if err := validatePartialCheckpointState(state); err != nil {
+		return err
+	}
+	if err := downloader.savePartialState(localCtx, job, statePath, state); err != nil {
+		return fmt.Errorf("%w: %w", ErrCheckpointCommit, err)
+	}
+	if plan.onCommit != nil {
+		if err := plan.onCommit(checkpointFromPartial(state)); err != nil {
+			return &checkpointCallbackError{cause: err}
+		}
+	}
+	return nil
+}
+
+func (downloader *Downloader) finishCancellation(ctx context.Context, job Job, plan checkpointPlan, statePath string, file *os.File, state partialState, written int64) error {
+	cancelErr := ctx.Err()
+	if cancelErr == nil {
+		cancelErr = context.Canceled
+	}
+	if !plan.enabled {
+		_ = file.Close()
+		return cancelErr
+	}
+	state.CommittedBytes = written
+	checkpointErr := downloader.commitPartialCheckpoint(job, plan, statePath, file, state, true)
+	if checkpointErr != nil {
+		return errors.Join(cancelErr, checkpointErr)
+	}
+	return cancelErr
 }
 
 // removeRegularFile cleans up an aborted partial artifact without following
@@ -441,6 +689,9 @@ func validateJob(job Job) error {
 	}
 	if job.Attempts < 0 || job.RetryBaseDelay < 0 || job.RetryMaxDelay < 0 || job.RetryBaseDelay > maxDirectRetryDelay || job.RetryMaxDelay > maxDirectRetryDelay || (job.RetryBaseDelay > 0 && job.RetryMaxDelay > 0 && job.RetryBaseDelay > job.RetryMaxDelay) || job.RateLimit < 0 || job.MaxBytes < 0 || job.MaxBytes > maxDirectBytes || job.ThrottleRate < 0 || job.ThrottleWindow < 0 || job.ThrottleWindow > maxDirectRetryDelay || job.ThrottleRestarts < 0 || job.ThrottleRestarts > maxDirectRestarts || job.FileAttempts < 0 || job.FileAttempts > maxDirectFileRetries {
 		return ErrInvalidLimits
+	}
+	if _, err := checkpointPlanForJob(job); err != nil {
+		return err
 	}
 	return nil
 }
@@ -522,35 +773,132 @@ func regularOrAbsent(path string) error {
 }
 
 func loadPartial(partPath, statePath, rawURL, resumeIdentity string) (partialState, int64) {
-	empty := newPartialState(rawURL, resumeIdentity)
+	downloader := &Downloader{writePartialState: savePartialStateOnce, syncPartialPayload: (*os.File).Sync}
+	state, offset, _ := downloader.loadPartialWithPlan(context.Background(), Job{URL: rawURL, ResumeIdentity: resumeIdentity}, checkpointPlan{}, partPath, statePath)
+	return state, offset
+}
+
+func (downloader *Downloader) loadPartialWithPlan(ctx context.Context, job Job, plan checkpointPlan, partPath, statePath string) (partialState, int64, error) {
+	empty := newPartialState(job.URL, job.ResumeIdentity)
+	if plan.enabled {
+		if err := checkPartialStateEvidence(statePath); err != nil {
+			return empty, 0, err
+		}
+	}
 	info, err := os.Stat(partPath)
-	if err != nil || info.Size() <= 0 {
-		return empty, 0
+	if errors.Is(err, os.ErrNotExist) || err != nil || info.Size() <= 0 {
+		return empty, 0, nil
 	}
-	encoded, err := os.ReadFile(statePath)
-	if err != nil {
-		return empty, 0
-	}
-	var state partialState
-	if json.Unmarshal(encoded, &state) != nil {
-		return empty, 0
-	}
-	if resumeIdentity != "" {
-		if state.ResumeIdentity != resumeIdentity {
-			// Migrate legacy partial state only across the old exact-URL
-			// boundary. A legacy state never authorizes a refreshed URL.
-			if state.ResumeIdentity != "" || state.URL != rawURL {
-				return empty, 0
+
+	encoded, readErr := os.ReadFile(statePath)
+	if errors.Is(readErr, os.ErrNotExist) {
+		if plan.enabled && plan.boundary != nil && plan.boundary.CommittedBytes > 0 && info.Size() >= plan.boundary.CommittedBytes {
+			state := stateFromBoundary(job, *plan.boundary)
+			if err := downloader.truncatePartial(ctx, job, partPath, plan.boundary.CommittedBytes); err != nil {
+				return empty, 0, err
+			}
+			return state, plan.boundary.CommittedBytes, nil
+		}
+		if plan.enabled {
+			if err := downloader.truncatePartial(ctx, job, partPath, 0); err != nil {
+				return empty, 0, err
 			}
 		}
-	} else if state.URL != rawURL {
-		return empty, 0
+		return empty, 0, nil
 	}
-	decoded := state
-	state = newPartialState(rawURL, resumeIdentity)
+	if readErr != nil {
+		if plan.enabled {
+			if err := downloader.truncatePartial(ctx, job, partPath, 0); err != nil {
+				return empty, 0, err
+			}
+		}
+		return empty, 0, nil
+	}
+
+	var decoded partialState
+	if json.Unmarshal(encoded, &decoded) != nil {
+		if plan.enabled {
+			if err := downloader.truncatePartial(ctx, job, partPath, 0); err != nil {
+				return empty, 0, err
+			}
+		}
+		return empty, 0, nil
+	}
+	if !partialStateMatchesJob(decoded, job, plan) {
+		if err := downloader.truncatePartial(ctx, job, partPath, 0); err != nil {
+			return empty, 0, err
+		}
+		return empty, 0, nil
+	}
+
+	state := newPartialState(job.URL, job.ResumeIdentity)
 	state.ETag = decoded.ETag
+	state.LastModified = decoded.LastModified
 	state.Total = decoded.Total
-	return state, info.Size()
+	state.CommittedBytes = decoded.CommittedBytes
+	if plan.enabled {
+		if !plan.matchesBoundary(state, job) || state.CommittedBytes <= 0 || state.CommittedBytes > info.Size() || state.CommittedBytes > maxDirectBytes {
+			if err := downloader.truncatePartial(ctx, job, partPath, 0); err != nil {
+				return empty, 0, err
+			}
+			return empty, 0, nil
+		}
+		if plan.boundary != nil {
+			if plan.boundary.CommittedBytes < state.CommittedBytes {
+				state.CommittedBytes = plan.boundary.CommittedBytes
+			}
+			if state.ETag == "" {
+				state.ETag = plan.boundary.ETag
+			}
+			if state.LastModified == "" {
+				state.LastModified = plan.boundary.LastModified
+			}
+			if state.Total == 0 {
+				state.Total = plan.boundary.Total
+			}
+		}
+		if state.CommittedBytes <= 0 {
+			if err := downloader.truncatePartial(ctx, job, partPath, 0); err != nil {
+				return empty, 0, err
+			}
+			return empty, 0, nil
+		}
+		if info.Size() > state.CommittedBytes {
+			if err := downloader.truncatePartial(ctx, job, partPath, state.CommittedBytes); err != nil {
+				return empty, 0, err
+			}
+		}
+		if err := validatePartialCheckpointState(state); err != nil {
+			return empty, 0, nil
+		}
+		return state, state.CommittedBytes, nil
+	}
+	return state, info.Size(), nil
+}
+
+func partialStateMatchesJob(state partialState, job Job, plan checkpointPlan) bool {
+	if job.ResumeIdentity != "" {
+		if state.ResumeIdentity == job.ResumeIdentity {
+			return true
+		}
+		if plan.enabled {
+			return false
+		}
+		// Migrate legacy partial state only across the old exact-URL
+		// boundary. A legacy state never authorizes a refreshed URL.
+		return state.ResumeIdentity == "" && state.URL == job.URL
+	}
+	return state.ResumeIdentity == "" && state.URL == job.URL
+}
+
+func stateFromBoundary(job Job, boundary Checkpoint) partialState {
+	state := newPartialState(job.URL, job.ResumeIdentity)
+	state.ResumeIdentity = job.ResumeIdentity
+	state.ETag = boundary.ETag
+	state.LastModified = boundary.LastModified
+	state.Total = boundary.Total
+	state.CommittedBytes = boundary.CommittedBytes
+	return state
 }
 
 func newPartialState(rawURL, resumeIdentity string) partialState {
@@ -561,7 +909,19 @@ func newPartialState(rawURL, resumeIdentity string) partialState {
 }
 
 func (downloader *Downloader) savePartialState(ctx context.Context, job Job, path string, state partialState) error {
-	return downloader.retryFile(ctx, job, func() error { return savePartialStateOnce(path, state) })
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if job.Checkpoint != nil {
+		if err := checkPartialStateEvidence(path); err != nil {
+			return err
+		}
+	}
+	writer := downloader.writePartialState
+	if writer == nil {
+		writer = savePartialStateOnce
+	}
+	return downloader.retryFile(ctx, job, func() error { return writer(path, state) })
 }
 
 func savePartialStateOnce(path string, state partialState) error {
@@ -569,58 +929,69 @@ func savePartialStateOnce(path string, state partialState) error {
 	if err != nil {
 		return err
 	}
-	if err := regularOrAbsent(path); err != nil {
-		return err
-	}
-	temporary, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return fmt.Errorf("create partial state: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if _, err = temporary.Write(encoded); err == nil {
-		err = temporary.Sync()
-	}
-	if closeErr := temporary.Close(); err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		return fmt.Errorf("write partial state: %w", err)
+	if state.ResumeIdentity != "" || state.CommittedBytes != 0 || state.LastModified != "" {
+		if err := validatePartialCheckpointState(state); err != nil {
+			return err
+		}
+		if int64(len(encoded)) > maxCheckpointStateBytes {
+			return fmt.Errorf("%w: state image exceeds size bound", ErrInvalidCheckpoint)
+		}
 	}
 	if err := regularOrAbsent(path); err != nil {
 		return err
 	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		// Windows cannot replace an existing state file. State metadata is
-		// recoverable from the partial payload, so a checked regular-file
-		// replacement is safe here (unlike replacing the final media output).
-		if replaceErr := regularOrAbsent(path); replaceErr != nil {
-			return replaceErr
-		}
-		if removeErr := os.Remove(path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-			return fmt.Errorf("replace partial state: %w", removeErr)
-		}
-		if retryErr := os.Rename(temporaryPath, path); retryErr != nil {
-			return fmt.Errorf("finalize partial state: %w", retryErr)
-		}
-	}
-	return nil
+	return atomicfile.Write(path, 0o600, func(writer io.Writer) error {
+		_, err := writer.Write(encoded)
+		return err
+	})
 }
 
 func validContentRange(header string, offset int64) bool {
-	return strings.HasPrefix(header, "bytes "+strconv.FormatInt(offset, 10)+"-")
+	start, _, _, ok := parseContentRange(header)
+	return ok && start == offset
 }
 
 func responseTotal(response *http.Response, offset int64) int64 {
 	if response.StatusCode == http.StatusPartialContent {
-		if slash := strings.LastIndexByte(response.Header.Get("Content-Range"), '/'); slash >= 0 {
-			if total, err := strconv.ParseInt(response.Header.Get("Content-Range")[slash+1:], 10, 64); err == nil {
-				return total
-			}
+		if _, _, total, ok := parseContentRange(response.Header.Get("Content-Range")); ok && total >= 0 {
+			return total
 		}
 	}
 	if response.ContentLength >= 0 {
 		return offset + response.ContentLength
 	}
 	return 0
+}
+
+func parseContentRange(header string) (start, end, total int64, ok bool) {
+	if !strings.HasPrefix(header, "bytes ") {
+		return 0, 0, 0, false
+	}
+	rangeAndTotal := strings.TrimPrefix(header, "bytes ")
+	slash := strings.LastIndexByte(rangeAndTotal, '/')
+	if slash < 0 {
+		return 0, 0, 0, false
+	}
+	rangePart := rangeAndTotal[:slash]
+	totalPart := rangeAndTotal[slash+1:]
+	dash := strings.IndexByte(rangePart, '-')
+	if dash <= 0 || dash == len(rangePart)-1 {
+		return 0, 0, 0, false
+	}
+	start, err := strconv.ParseInt(strings.TrimSpace(rangePart[:dash]), 10, 64)
+	if err != nil || start < 0 {
+		return 0, 0, 0, false
+	}
+	end, err = strconv.ParseInt(strings.TrimSpace(rangePart[dash+1:]), 10, 64)
+	if err != nil || end < start {
+		return 0, 0, 0, false
+	}
+	if totalPart == "*" {
+		return start, end, -1, true
+	}
+	total, err = strconv.ParseInt(strings.TrimSpace(totalPart), 10, 64)
+	if err != nil || total <= end {
+		return 0, 0, 0, false
+	}
+	return start, end, total, true
 }
