@@ -1811,14 +1811,27 @@ func (operation *operation) processMedia(ctx context.Context, extracted Extracti
 		return result, categorized("render output template", err)
 	}
 	if sessionRequestEnabled(operation) {
-		if err := validateDirectSessionOutput(operation.request, outputPlans, selectedSubtitles); err != nil {
-			return result, categorized("validate session output", err)
+		var sessionResult Result
+		var runErr error
+		if len(outputPlans) == 1 && len(outputPlans[0].Tracks) == 1 {
+			if err := validateDirectSessionOutput(operation.request, outputPlans, selectedSubtitles); err != nil {
+				return result, categorized("validate session output", err)
+			}
+			sessionRun, sessionErr := operation.newDirectSession(info, extractorName, outputPlans[0].Tracks[0], planDestinations[0])
+			if sessionErr != nil {
+				return result, categorized("open direct resume session", sessionErr)
+			}
+			sessionResult, runErr = sessionRun.run(ctx, operation.eventSink())
+		} else {
+			if err := validateMultiTrackSessionOutput(operation.request, outputPlans, selectedSubtitles); err != nil {
+				return result, categorized("validate session output", err)
+			}
+			sessionRun, sessionErr := newMultiTrackSession(operation, info, extractorName, outputPlans[0].Tracks, planDestinations[0])
+			if sessionErr != nil {
+				return result, categorized("open multi-track resume session", sessionErr)
+			}
+			sessionResult, runErr = sessionRun.run(ctx, operation.eventSink())
 		}
-		sessionRun, sessionErr := operation.newDirectSession(info, extractorName, outputPlans[0].Tracks[0], planDestinations[0])
-		if sessionErr != nil {
-			return result, categorized("open direct resume session", sessionErr)
-		}
-		sessionResult, runErr := sessionRun.run(ctx, operation.eventSink())
 		if runErr == nil && sessionResult.Downloaded {
 			if archiveErr := operation.recordArchive(ctx, archiveIdentity); archiveErr != nil {
 				return sessionResult, archiveErr
