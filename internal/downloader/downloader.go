@@ -160,6 +160,10 @@ func (downloader *Downloader) Download(ctx context.Context, job Job, sink events
 	if err != nil {
 		return Result{}, err
 	}
+	if plan.enabled {
+		job.OutputRoot = plan.outputRoot
+		job.Destination = plan.destination
+	}
 	if sink == nil {
 		sink = events.Nop()
 	}
@@ -193,6 +197,7 @@ func (downloader *Downloader) Download(ctx context.Context, job Job, sink events
 	partPath := job.Destination + ".part"
 	statePath := partPath + ".json"
 	if plan.enabled {
+		partPath = plan.partPath
 		if err := prepareCheckpointStateDirectory(job, plan, partPath); err != nil {
 			return Result{}, err
 		}
@@ -797,18 +802,81 @@ func validateDestination(root, destination string) error {
 	return nil
 }
 
-func prepareCheckpointStateDirectory(job Job, plan checkpointPlan, partPath string) error {
-	root, err := filepath.Abs(job.OutputRoot)
-	if err != nil {
-		return fmt.Errorf("%w: resolve output root", ErrInvalidCheckpoint)
+type checkpointPaths struct {
+	outputRoot     string
+	destination    string
+	partPath       string
+	stateDirectory string
+}
+
+func canonicalCheckpointPaths(outputRoot, destination, stateDirectory string) (checkpointPaths, error) {
+	for _, candidate := range []string{outputRoot, destination, stateDirectory} {
+		if candidate == "" || strings.ContainsRune(candidate, '\x00') || !filepath.IsAbs(candidate) || filepath.Clean(candidate) != candidate {
+			return checkpointPaths{}, fmt.Errorf("%w: checkpoint paths must be canonical and absolute", ErrInvalidCheckpoint)
+		}
 	}
-	root = filepath.Clean(root)
+	if !pathStrictlyWithin(outputRoot, destination) || !pathStrictlyWithin(outputRoot, stateDirectory) {
+		return checkpointPaths{}, fmt.Errorf("%w: checkpoint paths escape output root", ErrInvalidCheckpoint)
+	}
+	partPath := destination + ".part"
+	if filepath.Clean(partPath) != partPath || pathsOverlap(stateDirectory, destination) || pathsOverlap(stateDirectory, partPath) {
+		return checkpointPaths{}, fmt.Errorf("%w: checkpoint state directory overlaps payload paths", ErrInvalidCheckpoint)
+	}
+	resolvedRoot, err := resolveProspectivePath(outputRoot)
+	if err != nil {
+		return checkpointPaths{}, fmt.Errorf("%w: resolve output root", ErrInvalidCheckpoint)
+	}
+	destinationRelative, _ := filepath.Rel(outputRoot, destination)
+	stateRelative, _ := filepath.Rel(outputRoot, stateDirectory)
+	resolved := checkpointPaths{
+		outputRoot:     resolvedRoot,
+		destination:    filepath.Join(resolvedRoot, destinationRelative),
+		stateDirectory: filepath.Join(resolvedRoot, stateRelative),
+	}
+	resolved.partPath = resolved.destination + ".part"
+	if !pathStrictlyWithin(resolved.outputRoot, resolved.destination) || !pathStrictlyWithin(resolved.outputRoot, resolved.stateDirectory) ||
+		pathsOverlap(resolved.stateDirectory, resolved.destination) || pathsOverlap(resolved.stateDirectory, resolved.partPath) {
+		return checkpointPaths{}, fmt.Errorf("%w: resolved checkpoint paths overlap", ErrInvalidCheckpoint)
+	}
+	return resolved, nil
+}
+
+func resolveProspectivePath(path string) (string, error) {
+	current := path
+	var missing []string
+	for {
+		_, err := os.Lstat(current)
+		if err == nil {
+			resolved, err := filepath.EvalSymlinks(current)
+			if err != nil {
+				return "", err
+			}
+			for index := len(missing) - 1; index >= 0; index-- {
+				resolved = filepath.Join(resolved, missing[index])
+			}
+			return filepath.Clean(resolved), nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", err
+		}
+		missing = append(missing, filepath.Base(current))
+		current = parent
+	}
+}
+
+func prepareCheckpointStateDirectory(job Job, plan checkpointPlan, partPath string) error {
+	root := plan.outputRoot
 	rootInfo, err := os.Lstat(root)
 	if err != nil || !rootInfo.IsDir() || rootInfo.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("%w: output root is not a directory", ErrInvalidCheckpoint)
 	}
 	stateDirectory := plan.stateDirectory
-	if !pathStrictlyWithin(root, stateDirectory) || pathsOverlap(stateDirectory, job.Destination) || pathsOverlap(stateDirectory, partPath) {
+	if job.OutputRoot != root || job.Destination != plan.destination || partPath != plan.partPath ||
+		!pathStrictlyWithin(root, stateDirectory) || pathsOverlap(stateDirectory, job.Destination) || pathsOverlap(stateDirectory, partPath) {
 		return fmt.Errorf("%w: checkpoint state directory overlaps payload paths", ErrInvalidCheckpoint)
 	}
 	relative, err := filepath.Rel(root, stateDirectory)
@@ -822,10 +890,13 @@ func prepareCheckpointStateDirectory(job Job, plan checkpointPlan, partPath stri
 		}
 		current = filepath.Join(current, component)
 		info, inspectErr := os.Lstat(current)
+		created := false
 		if errors.Is(inspectErr, os.ErrNotExist) {
-			if mkdirErr := os.Mkdir(current, 0o700); mkdirErr != nil && !errors.Is(mkdirErr, os.ErrExist) {
+			mkdirErr := os.Mkdir(current, 0o700)
+			if mkdirErr != nil && !errors.Is(mkdirErr, os.ErrExist) {
 				return fmt.Errorf("create checkpoint state directory: %w", mkdirErr)
 			}
+			created = mkdirErr == nil
 			info, inspectErr = os.Lstat(current)
 		}
 		if inspectErr != nil {
@@ -833,6 +904,15 @@ func prepareCheckpointStateDirectory(job Job, plan checkpointPlan, partPath stri
 		}
 		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 			return fmt.Errorf("%w: checkpoint state chain is not a directory", ErrInvalidCheckpoint)
+		}
+		if created {
+			if err := protectCheckpointCreated(current, true); err != nil {
+				return fmt.Errorf("%w: protect checkpoint state directory", ErrInvalidCheckpoint)
+			}
+			info, inspectErr = os.Lstat(current)
+			if inspectErr != nil {
+				return fmt.Errorf("inspect protected checkpoint state directory: %w", inspectErr)
+			}
 		}
 		if err := validateCheckpointOwned(current, info); err != nil {
 			return fmt.Errorf("%w: checkpoint state directory is not owner-only", ErrInvalidCheckpoint)
@@ -870,6 +950,10 @@ func claimCheckpointStateDirectory(directory, identity, partPath string) error {
 		if createErr != nil {
 			return &checkpointArtifactError{kind: ErrCheckpointReconciliation, cause: createErr}
 		}
+		if protectErr := protectCheckpointCreated(ownerPath, false); protectErr != nil {
+			_ = file.Close()
+			return &checkpointArtifactError{kind: ErrCheckpointReconciliation, cause: protectErr}
+		}
 		_, writeErr := io.WriteString(file, expected)
 		if writeErr == nil {
 			writeErr = file.Sync()
@@ -880,6 +964,16 @@ func claimCheckpointStateDirectory(directory, identity, partPath string) error {
 		}
 		if closeErr != nil {
 			return &checkpointArtifactError{kind: ErrCheckpointReconciliation, cause: closeErr}
+		}
+		info, inspectErr := os.Lstat(ownerPath)
+		if inspectErr != nil || !info.Mode().IsRegular() {
+			if inspectErr == nil {
+				inspectErr = ErrUnsafeDestination
+			}
+			return &checkpointArtifactError{kind: ErrCheckpointReconciliation, cause: inspectErr}
+		}
+		if inspectErr := validateCheckpointOwned(ownerPath, info); inspectErr != nil {
+			return &checkpointArtifactError{kind: ErrCheckpointReconciliation, cause: inspectErr}
 		}
 		return nil
 	}
@@ -1185,10 +1279,34 @@ func savePartialStateOnce(path string, state partialState) error {
 	if err := regularOrAbsent(path); err != nil {
 		return err
 	}
-	return atomicfile.Write(path, 0o600, func(writer io.Writer) error {
+	err = atomicfile.Write(path, 0o600, func(writer io.Writer) error {
 		_, err := writer.Write(encoded)
 		return err
 	})
+	commitErr := err
+	if err != nil {
+		var outcome atomicfile.CommitError
+		if !errors.As(err, &outcome) || !outcome.Committed() {
+			return err
+		}
+	}
+	if state.Version != directCheckpointStateVersion {
+		return err
+	}
+	if err := protectCheckpointCreated(path, false); err != nil {
+		return errors.Join(commitErr, fmt.Errorf("protect checkpoint state: %w", err))
+	}
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		if err == nil {
+			err = ErrUnsafeDestination
+		}
+		return errors.Join(commitErr, fmt.Errorf("inspect protected checkpoint state: %w", err))
+	}
+	if err := validateCheckpointOwned(path, info); err != nil {
+		return errors.Join(commitErr, fmt.Errorf("validate protected checkpoint state: %w", err))
+	}
+	return commitErr
 }
 
 func validContentRange(header string, offset int64) bool {

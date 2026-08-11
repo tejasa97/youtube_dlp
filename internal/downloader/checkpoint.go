@@ -116,6 +116,9 @@ type checkpointPlan struct {
 	boundary       *Checkpoint
 	everyBytes     int64
 	everyDuration  time.Duration
+	outputRoot     string
+	destination    string
+	partPath       string
 	stateDirectory string
 	statePath      string
 	onCommit       func(context.Context, Checkpoint) error
@@ -135,17 +138,20 @@ func checkpointPlanForJob(job Job) (checkpointPlan, error) {
 	if err := validateCheckpointText(job.ResumeIdentity, maxCheckpointIdentityBytes, "resume identity"); err != nil {
 		return checkpointPlan{}, err
 	}
-	if options.StateDirectory == "" || strings.ContainsRune(options.StateDirectory, '\x00') ||
-		!filepath.IsAbs(options.StateDirectory) || filepath.Clean(options.StateDirectory) != options.StateDirectory {
-		return checkpointPlan{}, fmt.Errorf("%w: durable checkpoints require a dedicated state directory", ErrInvalidCheckpoint)
+	paths, err := canonicalCheckpointPaths(job.OutputRoot, job.Destination, options.StateDirectory)
+	if err != nil {
+		return checkpointPlan{}, err
 	}
 
 	plan := checkpointPlan{
 		enabled:        true,
 		everyBytes:     options.EveryBytes,
 		everyDuration:  options.EveryDuration,
-		stateDirectory: options.StateDirectory,
-		statePath:      filepath.Join(options.StateDirectory, "direct.json"),
+		outputRoot:     paths.outputRoot,
+		destination:    paths.destination,
+		partPath:       paths.partPath,
+		stateDirectory: paths.stateDirectory,
+		statePath:      filepath.Join(paths.stateDirectory, "direct.json"),
 		onCommit:       options.OnCommit,
 	}
 	if plan.everyBytes == 0 {

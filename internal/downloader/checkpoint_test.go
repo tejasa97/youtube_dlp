@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -186,6 +187,9 @@ func TestCheckpointInvalidStatePreservesArtifacts(t *testing.T) {
 			if err := os.WriteFile(statePath, test.encoded, 0o600); err != nil {
 				t.Fatal(err)
 			}
+			if err := protectCheckpointCreated(statePath, false); err != nil {
+				t.Fatal(err)
+			}
 			doer := &checkpointDoer{data: checkpointData(2 * minDirectCheckpointBytes), etag: `"fixture"`}
 			job := checkpointJob(destination, identity, &CheckpointOptions{})
 			_, err := New(doer).Download(context.Background(), job, nil)
@@ -211,6 +215,9 @@ func TestCheckpointInvalidStatePreservesArtifacts(t *testing.T) {
 }
 
 func TestCheckpointUnreadableStateReturnsFilesystemError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows ACL read denial is covered by native ACL tests")
+	}
 	destination := filepath.Join(t.TempDir(), "media.bin")
 	partial := checkpointData(minDirectCheckpointBytes)
 	if err := os.WriteFile(destination+".part", partial, 0o600); err != nil {
@@ -250,6 +257,9 @@ func TestCheckpointCallerBoundaryClampsCorruptState(t *testing.T) {
 	if err := os.WriteFile(statePath, []byte(`{"authorization":"Bearer secret"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := protectCheckpointCreated(statePath, false); err != nil {
+		t.Fatal(err)
+	}
 	doer := &checkpointDoer{data: data, etag: `"fixture"`, chunkSize: minDirectCheckpointBytes}
 	job := checkpointJob(destination, identity, &CheckpointOptions{ResumeBoundary: &Checkpoint{
 		ResumeIdentity: identity, ETag: `"fixture"`, Total: int64(len(data)), CommittedBytes: minDirectCheckpointBytes,
@@ -276,6 +286,9 @@ func TestCheckpointZeroBoundaryExplicitlyResetsCorruptState(t *testing.T) {
 	}
 	writeCheckpointOwner(t, destination, identity)
 	if err := os.WriteFile(statePath, []byte("not-json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := protectCheckpointCreated(statePath, false); err != nil {
 		t.Fatal(err)
 	}
 	doer := &checkpointDoer{data: data, etag: `"fixture"`}
@@ -591,6 +604,9 @@ func TestCheckpointRejectsNoPartAndRetainedAtomicEvidence(t *testing.T) {
 	if err := os.MkdirAll(stateDirectory, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	if err := protectCheckpointCreated(stateDirectory, true); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(stateDirectory, ".atomic-retained"), []byte("candidate"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -680,6 +696,60 @@ func TestCheckpointStateDirectoryPathAuthority(t *testing.T) {
 	}
 }
 
+func TestCheckpointRejectsRelativeAndNoncanonicalPathsBeforeMutation(t *testing.T) {
+	for _, name := range []string{"relative output root", "relative destination", "relative state directory", "noncanonical output root", "noncanonical destination", "noncanonical state directory"} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			destination := filepath.Join(root, "media.bin")
+			stateDirectory := filepath.Join(root, "checkpoint")
+			job := Job{
+				URL:            "https://fixture.invalid/media",
+				ResumeIdentity: "direct:fixture:canonical-paths",
+				OutputRoot:     root,
+				Destination:    destination,
+				Checkpoint:     &CheckpointOptions{StateDirectory: stateDirectory},
+			}
+			switch name {
+			case "relative output root":
+				job.OutputRoot = "checkpoint-relative-root-" + filepath.Base(root)
+			case "relative destination":
+				job.Destination = "checkpoint-relative-media-" + filepath.Base(root) + ".bin"
+			case "relative state directory":
+				job.Checkpoint.StateDirectory = "checkpoint-relative-state-" + filepath.Base(root)
+			case "noncanonical output root":
+				job.OutputRoot = filepath.Join(root, "child") + string(filepath.Separator) + ".."
+			case "noncanonical destination":
+				job.Destination = filepath.Join(root, "child") + string(filepath.Separator) + ".." + string(filepath.Separator) + "media.bin"
+			case "noncanonical state directory":
+				job.Checkpoint.StateDirectory = filepath.Join(root, "child") + string(filepath.Separator) + ".." + string(filepath.Separator) + "checkpoint"
+			}
+			var relativeArtifacts []string
+			for _, candidate := range []string{job.OutputRoot, job.Destination, job.Checkpoint.StateDirectory} {
+				if !filepath.IsAbs(candidate) {
+					if _, statErr := os.Lstat(candidate); !errors.Is(statErr, os.ErrNotExist) {
+						t.Fatalf("relative test artifact already exists: %s", candidate)
+					}
+					relativeArtifacts = append(relativeArtifacts, candidate)
+				}
+			}
+			_, err := New(&checkpointDoer{data: checkpointData(minDirectCheckpointBytes)}).Download(context.Background(), job, nil)
+			if !errors.Is(err, ErrInvalidCheckpoint) {
+				t.Fatalf("error = %v, want ErrInvalidCheckpoint", err)
+			}
+			for _, path := range []string{destination, destination + ".part", stateDirectory} {
+				if _, statErr := os.Lstat(path); !errors.Is(statErr, os.ErrNotExist) {
+					t.Fatalf("artifact %s created on rejected path: %v", path, statErr)
+				}
+			}
+			for _, path := range relativeArtifacts {
+				if _, statErr := os.Lstat(path); !errors.Is(statErr, os.ErrNotExist) {
+					t.Fatalf("relative artifact %s created on rejection: %v", path, statErr)
+				}
+			}
+		})
+	}
+}
+
 func TestCheckpointStateDirectoryCannotContainPayload(t *testing.T) {
 	root := t.TempDir()
 	destination := filepath.Join(root, "session", "media.bin")
@@ -701,6 +771,9 @@ func TestCheckpointUnknownStateDirectoryEntryRequiresReconciliation(t *testing.T
 	destination := filepath.Join(root, "media.bin")
 	stateDirectory := filepath.Join(root, "checkpoint")
 	if err := os.Mkdir(stateDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := protectCheckpointCreated(stateDirectory, true); err != nil {
 		t.Fatal(err)
 	}
 	unknownPath := filepath.Join(stateDirectory, "notes.txt")
@@ -733,6 +806,9 @@ func TestCheckpointStateDirectoryCannotBeSharedAcrossJobs(t *testing.T) {
 }
 
 func TestCheckpointWorldReadableStateRequiresReconciliation(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows ACL permission failures are covered by native ACL tests")
+	}
 	destination := filepath.Join(t.TempDir(), "media.bin")
 	identity := "direct:fixture:permissions"
 	if err := os.WriteFile(destination+".part", checkpointData(minDirectCheckpointBytes), 0o600); err != nil {
@@ -1100,6 +1176,9 @@ func writeCheckpointState(t *testing.T, path string, state partialState) {
 	if err := os.WriteFile(path, encoded, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := protectCheckpointCreated(path, false); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func writeCheckpointOwner(t *testing.T, destination, identity string) {
@@ -1108,8 +1187,19 @@ func writeCheckpointOwner(t *testing.T, destination, identity string) {
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	digest := sha256.Sum256([]byte(identity + "\x00" + filepath.Clean(destination+".part")))
+	if err := protectCheckpointCreated(directory, true); err != nil {
+		t.Fatal(err)
+	}
+	resolvedParent, err := filepath.EvalSymlinks(filepath.Dir(destination))
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalDestination := filepath.Join(resolvedParent, filepath.Base(destination))
+	digest := sha256.Sum256([]byte(identity + "\x00" + canonicalDestination + ".part"))
 	if err := os.WriteFile(filepath.Join(directory, "owner"), []byte(fmt.Sprintf("%x\n", digest)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := protectCheckpointCreated(filepath.Join(directory, "owner"), false); err != nil {
 		t.Fatal(err)
 	}
 }
