@@ -9,76 +9,323 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/tejasa97/youtube_dlp/internal/atomicfile"
 )
 
-// artifactManifest makes a cancelled fragment download safely resumable. It
-// records content digests only after each fragment is atomically published.
-// A legacy state file without Artifacts remains readable for compatibility.
+const (
+	checkpointVersion        = 1
+	maxManifestBytes         = 4 << 20
+	reconciliationMarker     = "reconcile.json"
+	publicationMarker        = "publication.json"
+	finalPublicationEvidence = "assembled.part"
+)
+
+// artifactManifest records content digests only after each fragment has been
+// fully written, synced, and atomically published. Durable mode binds those
+// records to caller-owned identity; legacy mode retains the previous plan-hash
+// behavior for callers that do not opt in.
 type artifactManifest struct {
-	path  string
-	state manifestState
-	mu    sync.Mutex
+	path     string
+	workDir  string
+	state    manifestState
+	durable  bool
+	write    func(string, os.FileMode, func(io.Writer) error) error
+	poisoned bool
+	mu       sync.Mutex
 }
+
 type manifestState struct {
-	Hash      string           `json:"hash"`
-	Artifacts map[int]artifact `json:"artifacts,omitempty"`
+	Version        int              `json:"version,omitempty"`
+	ResumeIdentity string           `json:"resume_identity,omitempty"`
+	PlanHash       string           `json:"plan_hash,omitempty"`
+	Hash           string           `json:"hash,omitempty"`
+	Artifacts      map[int]artifact `json:"artifacts,omitempty"`
 }
+
 type artifact struct {
 	Bytes  int64  `json:"bytes"`
 	SHA256 string `json:"sha256"`
 }
 
-const maxManifestBytes = 4 << 20
+type manifestExpectation struct {
+	durable        bool
+	resumeIdentity string
+	planHash       string
+	legacyHash     string
+	segmentCount   int
+}
 
-func openArtifactManifest(workDir, hash string) (*artifactManifest, error) {
-	path := filepath.Join(workDir, "state.json")
-	info, err := os.Lstat(path)
+func manifestExpectationFor(job Job) (manifestExpectation, error) {
+	expectation := manifestExpectation{segmentCount: len(job.Segments)}
+	if job.Checkpoint == nil {
+		hash, err := planHash(job.Segments)
+		if err != nil {
+			return manifestExpectation{}, err
+		}
+		expectation.legacyHash = hash
+		return expectation, nil
+	}
+	planHash, err := checkpointPlanHash(job.Segments)
+	if err != nil {
+		return manifestExpectation{}, err
+	}
+	expectation.durable = true
+	expectation.resumeIdentity = job.Checkpoint.ResumeIdentity
+	expectation.planHash = planHash
+	return expectation, nil
+}
+
+func openArtifactManifest(
+	workDir string,
+	expectation manifestExpectation,
+	write func(string, os.FileMode, func(io.Writer) error) error,
+) (*artifactManifest, error) {
+	created, err := ensureWorkDirectory(workDir, expectation.durable)
 	if err != nil {
 		return nil, err
 	}
-	if !info.Mode().IsRegular() {
+	if expectation.durable {
+		if err := inspectRetainedEvidence(workDir, expectation.segmentCount); err != nil {
+			return nil, err
+		}
+	}
+
+	statePath := filepath.Join(workDir, "state.json")
+	info, statErr := os.Lstat(statePath)
+	if errors.Is(statErr, os.ErrNotExist) {
+		if expectation.durable && !created {
+			return nil, checkpointFailure(ErrCheckpointReconciliation, "checkpoint ledger is missing from an existing checkpoint directory", nil)
+		}
+		state := initialManifestState(expectation)
+		if err := writeManifestState(statePath, state, write); err != nil {
+			if expectation.durable {
+				return nil, classifyInitialManifestWrite(workDir, err)
+			}
+			return nil, err
+		}
+		return &artifactManifest{path: statePath, workDir: workDir, state: state, durable: expectation.durable, write: write}, nil
+	}
+	if statErr != nil {
+		return nil, statErr
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		if expectation.durable {
+			return nil, checkpointFailure(ErrInvalidCheckpoint, "checkpoint ledger is a symlink or non-regular file", nil)
+		}
 		return nil, ErrUnsafeDestination
 	}
+
+	state, err := readManifestState(statePath)
+	if err != nil {
+		if expectation.durable {
+			return nil, checkpointFailure(ErrInvalidCheckpoint, "checkpoint ledger is corrupt, trailing, or oversized", err)
+		}
+		return resetLegacyManifest(workDir, expectation, write)
+	}
+	if err := validateManifestState(state, expectation); err != nil {
+		if expectation.durable {
+			return nil, err
+		}
+		return resetLegacyManifest(workDir, expectation, write)
+	}
+	manifest := &artifactManifest{path: statePath, workDir: workDir, state: state, durable: expectation.durable, write: write}
+	if expectation.durable {
+		if err := manifest.validateCommittedArtifacts(expectation.segmentCount); err != nil {
+			return nil, err
+		}
+	}
+	return manifest, nil
+}
+
+func ensureWorkDirectory(path string, durable bool) (bool, error) {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		if durable {
+			return false, checkpointFailure(ErrInvalidCheckpoint, "fragment checkpoint workspace is a symlink or non-directory", nil)
+		}
+		return false, ErrUnsafeDestination
+	}
+	return false, nil
+}
+
+func inspectRetainedEvidence(workDir string, segmentCount int) error {
+	entries, err := os.ReadDir(workDir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if name == reconciliationMarker || name == publicationMarker || name == finalPublicationEvidence || strings.HasPrefix(name, ".atomic-") {
+			return checkpointFailure(ErrCheckpointReconciliation, "retained atomic checkpoint evidence requires reconciliation", nil)
+		}
+		if name == "state.json" {
+			continue
+		}
+		index, valid := fragmentIndexFromName(name)
+		if !valid || index >= segmentCount {
+			return checkpointFailure(ErrCheckpointReconciliation, "checkpoint directory contains unknown prior work", nil)
+		}
+		info, infoErr := entry.Info()
+		if infoErr != nil {
+			return infoErr
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return checkpointFailure(ErrInvalidCheckpoint, "checkpoint fragment evidence is a symlink or non-regular file", nil)
+		}
+	}
+	return nil
+}
+
+func fragmentIndexFromName(name string) (int, bool) {
+	if len(name) != len("00000000.frag") || !strings.HasSuffix(name, ".frag") {
+		return 0, false
+	}
+	index, err := strconv.Atoi(strings.TrimSuffix(name, ".frag"))
+	return index, err == nil && index >= 0
+}
+
+func initialManifestState(expectation manifestExpectation) manifestState {
+	if expectation.durable {
+		return manifestState{Version: checkpointVersion, ResumeIdentity: expectation.resumeIdentity, PlanHash: expectation.planHash}
+	}
+	return manifestState{Hash: expectation.legacyHash}
+}
+
+func readManifestState(path string) (manifestState, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return manifestState{}, err
 	}
 	defer file.Close()
 	encoded, err := io.ReadAll(io.LimitReader(file, maxManifestBytes+1))
 	if err != nil {
-		return nil, err
+		return manifestState{}, err
 	}
 	if len(encoded) > maxManifestBytes {
-		return nil, fmt.Errorf("fragment artifact manifest exceeds %d bytes", maxManifestBytes)
+		return manifestState{}, fmt.Errorf("fragment artifact manifest exceeds %d bytes", maxManifestBytes)
 	}
 	var state manifestState
 	decoder := json.NewDecoder(strings.NewReader(string(encoded)))
-	if decoder.Decode(&state) != nil || decoder.Decode(&struct{}{}) != io.EOF || state.Hash != hash || len(state.Artifacts) > maxFragmentSegments {
-		return nil, fmt.Errorf("invalid fragment artifact manifest")
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&state); err != nil {
+		return manifestState{}, err
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return manifestState{}, fmt.Errorf("trailing checkpoint data")
+	}
+	return state, nil
+}
+
+func validateManifestState(state manifestState, expectation manifestExpectation) error {
+	if len(state.Artifacts) > maxFragmentSegments {
+		return checkpointFailure(ErrInvalidCheckpoint, "checkpoint artifact count exceeds limit", nil)
 	}
 	for index, artifact := range state.Artifacts {
-		if index < 0 || index >= maxFragmentSegments || artifact.Bytes <= 0 || len(artifact.SHA256) != 64 {
-			return nil, fmt.Errorf("invalid fragment artifact manifest")
+		if index < 0 || index >= expectation.segmentCount || artifact.Bytes <= 0 || len(artifact.SHA256) != sha256.Size*2 {
+			return checkpointFailure(ErrInvalidCheckpoint, "checkpoint artifact metadata is invalid", nil)
+		}
+		if _, err := hex.DecodeString(artifact.SHA256); err != nil {
+			return checkpointFailure(ErrInvalidCheckpoint, "checkpoint artifact digest is invalid", err)
 		}
 	}
-	return &artifactManifest{path: path, state: state}, nil
+	if expectation.durable {
+		if state.Version != checkpointVersion || state.Hash != "" || state.ResumeIdentity == "" || state.PlanHash == "" {
+			return checkpointFailure(ErrInvalidCheckpoint, "checkpoint ledger schema is invalid or missing durable identity", nil)
+		}
+		if state.ResumeIdentity != expectation.resumeIdentity {
+			return checkpointFailure(ErrCheckpointReconciliation, "resume identity changed", nil)
+		}
+		if state.PlanHash != expectation.planHash {
+			return checkpointFailure(ErrCheckpointReconciliation, "fragment plan changed for the resume identity", nil)
+		}
+		return nil
+	}
+	if state.Hash != expectation.legacyHash || state.Version != 0 || state.ResumeIdentity != "" || state.PlanHash != "" {
+		return fmt.Errorf("legacy fragment plan changed")
+	}
+	return nil
 }
-func (manifest *artifactManifest) Valid(index int, path string) bool {
+
+func resetLegacyManifest(workDir string, expectation manifestExpectation, write func(string, os.FileMode, func(io.Writer) error) error) (*artifactManifest, error) {
+	if err := os.RemoveAll(workDir); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		return nil, err
+	}
+	state := initialManifestState(expectation)
+	path := filepath.Join(workDir, "state.json")
+	if err := writeManifestState(path, state, write); err != nil {
+		return nil, err
+	}
+	return &artifactManifest{path: path, workDir: workDir, state: state, write: write}, nil
+}
+
+func (manifest *artifactManifest) validateCommittedArtifacts(segmentCount int) error {
+	for index := range manifest.state.Artifacts {
+		if index < 0 || index >= segmentCount {
+			return checkpointFailure(ErrInvalidCheckpoint, "checkpoint artifact index is outside the current plan", nil)
+		}
+		if valid, err := artifactMatches(manifest.state.Artifacts[index], fragmentPath(manifest.workDir, index)); err != nil || !valid {
+			return checkpointFailure(ErrCheckpointReconciliation, "committed fragment evidence is missing or does not match its digest", err)
+		}
+	}
+	return nil
+}
+
+func (manifest *artifactManifest) Reusable(index int, path string) (bool, error) {
 	manifest.mu.Lock()
 	known, present := manifest.state.Artifacts[index]
+	durable := manifest.durable
+	poisoned := manifest.poisoned
 	manifest.mu.Unlock()
+	if poisoned {
+		return false, checkpointFailure(ErrCheckpointReconciliation, "checkpoint ledger authority is uncertain", nil)
+	}
 	if !present {
-		return false
-	} // Legacy state lacked integrity evidence; re-download safely.
+		return false, nil
+	}
+	valid, err := artifactMatches(known, path)
+	if valid {
+		return true, nil
+	}
+	if durable {
+		return false, checkpointFailure(ErrCheckpointReconciliation, "committed fragment no longer matches its ledger digest", err)
+	}
+	return false, nil
+}
+
+// Valid retains the legacy test and package-internal compatibility surface.
+func (manifest *artifactManifest) Valid(index int, path string) bool {
+	valid, _ := manifest.Reusable(index, path)
+	return valid
+}
+
+func artifactMatches(known artifact, path string) (bool, error) {
 	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() {
-		return false
+	if err != nil {
+		return false, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return false, ErrUnsafeDestination
 	}
 	bytes, digest, err := digestFile(path)
-	return err == nil && bytes == known.Bytes && digest == known.SHA256
+	return err == nil && bytes == known.Bytes && digest == known.SHA256, err
 }
+
 func (manifest *artifactManifest) Record(index int, path string) error {
 	bytes, digest, err := digestFile(path)
 	if err != nil {
@@ -86,47 +333,68 @@ func (manifest *artifactManifest) Record(index int, path string) error {
 	}
 	manifest.mu.Lock()
 	defer manifest.mu.Unlock()
-	if manifest.state.Artifacts == nil {
-		manifest.state.Artifacts = make(map[int]artifact)
+	if manifest.poisoned {
+		return checkpointFailure(ErrCheckpointReconciliation, "checkpoint ledger authority is uncertain", nil)
 	}
-	manifest.state.Artifacts[index] = artifact{Bytes: bytes, SHA256: digest}
-	encoded, err := json.Marshal(manifest.state)
+	candidate := manifest.state
+	candidate.Artifacts = cloneArtifacts(manifest.state.Artifacts)
+	candidate.Artifacts[index] = artifact{Bytes: bytes, SHA256: digest}
+	if err := writeManifestState(manifest.path, candidate, manifest.write); err != nil {
+		var commitErr atomicfile.CommitError
+		if manifest.durable && errors.As(err, &commitErr) && (commitErr.Committed() || commitErr.Indeterminate()) {
+			if commitErr.Committed() {
+				manifest.state = candidate
+			}
+			manifest.poisoned = true
+			markerErr := writeReconciliationMarker(manifest.workDir, "checkpoint ledger authority is uncertain")
+			return checkpointFailure(ErrCheckpointReconciliation, "checkpoint ledger commit did not settle durably", errors.Join(err, markerErr))
+		}
+		return err
+	}
+	manifest.state = candidate
+	return nil
+}
+
+func cloneArtifacts(input map[int]artifact) map[int]artifact {
+	output := make(map[int]artifact, len(input)+1)
+	for index, artifact := range input {
+		output[index] = artifact
+	}
+	return output
+}
+
+func writeManifestState(path string, state manifestState, write func(string, os.FileMode, func(io.Writer) error) error) error {
+	encoded, err := json.Marshal(state)
 	if err != nil {
 		return err
 	}
 	if len(encoded) > maxManifestBytes {
 		return fmt.Errorf("fragment artifact manifest exceeds %d bytes", maxManifestBytes)
 	}
-	return writeManifestAtomically(manifest.path, encoded)
+	return write(path, 0o600, func(writer io.Writer) error {
+		_, err := writer.Write(encoded)
+		return err
+	})
 }
 
-func writeManifestAtomically(path string, encoded []byte) error {
-	if isSymlink(path) {
-		return ErrUnsafeDestination
+func classifyInitialManifestWrite(workDir string, err error) error {
+	var commitErr atomicfile.CommitError
+	if errors.As(err, &commitErr) && (commitErr.Committed() || commitErr.Indeterminate()) {
+		markerErr := writeReconciliationMarker(workDir, "initial checkpoint ledger authority is uncertain")
+		return checkpointFailure(ErrCheckpointReconciliation, "initial checkpoint ledger commit did not settle durably", errors.Join(err, markerErr))
 	}
-	temporary := path + ".tmp"
-	if isSymlink(temporary) {
-		return ErrUnsafeDestination
-	}
-	if err := os.Remove(temporary); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	file, err := os.OpenFile(temporary, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return err
-	}
-	if _, err = file.Write(encoded); err == nil {
-		err = file.Sync()
-	}
-	if closeErr := file.Close(); err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		_ = os.Remove(temporary)
-		return err
-	}
-	return os.Rename(temporary, path)
+	return err
 }
+
+func writeReconciliationMarker(workDir, reason string) error {
+	return atomicfile.Write(filepath.Join(workDir, reconciliationMarker), 0o600, func(writer io.Writer) error {
+		return json.NewEncoder(writer).Encode(struct {
+			Version int    `json:"version"`
+			Reason  string `json:"reason"`
+		}{Version: checkpointVersion, Reason: reason})
+	})
+}
+
 func digestFile(path string) (int64, string, error) {
 	file, err := os.Open(path)
 	if err != nil {
