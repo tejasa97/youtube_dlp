@@ -3,7 +3,10 @@
 package ffmpeg
 
 import (
+	"context"
+	"errors"
 	"flag"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,6 +32,7 @@ func TestWindowsJobHelper(t *testing.T) {
 		if err := os.WriteFile(*windowsJobReady, []byte("ready"), 0o600); err != nil {
 			os.Exit(22)
 		}
+		fmt.Println("progress=ready")
 		select {}
 	case "descendant":
 		time.Sleep(750 * time.Millisecond)
@@ -36,6 +40,46 @@ func TestWindowsJobHelper(t *testing.T) {
 			os.Exit(23)
 		}
 		os.Exit(0)
+	}
+}
+
+// TestWindowsExecuteTerminatesJobDescendants exercises the production runner,
+// not just attachCommand. CREATE_SUSPENDED plus Job assignment must cover the
+// descendant before the context watcher is allowed to return.
+func TestWindowsExecuteTerminatesJobDescendants(t *testing.T) {
+	directory := t.TempDir()
+	goPath := filepath.Join(directory, "go")
+	readyPath := filepath.Join(directory, "ready")
+	markerPath := filepath.Join(directory, "marker")
+	if err := os.WriteFile(goPath, []byte("go"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	tools := &Toolset{ffmpeg: os.Args[0], maxOutput: 1 << 20}
+	_, err := tools.execute(ctx, tools.ffmpeg, []string{
+		"-test.run=TestWindowsJobHelper",
+		"-ytdlp-ffmpeg-windows-job-mode=parent",
+		"-ytdlp-ffmpeg-windows-job-go=" + goPath,
+		"-ytdlp-ffmpeg-windows-job-ready=" + readyPath,
+		"-ytdlp-ffmpeg-windows-job-marker=" + markerPath,
+	}, func(line string) error {
+		if line == "progress=ready" {
+			cancel()
+		}
+		return nil
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("execute() error = %v", err)
+	}
+	// The production runner returned only after command.Wait and Job close.
+	// Give an escaped descendant longer than its marker delay; it must never
+	// write the marker after the parent cancellation.
+	time.Sleep(time.Second)
+	if _, statErr := os.Stat(markerPath); statErr == nil {
+		t.Fatal("ffmpeg descendant escaped the Windows Job Object")
+	} else if !os.IsNotExist(statErr) {
+		t.Fatal(statErr)
 	}
 }
 

@@ -1191,6 +1191,12 @@ func (tools *Toolset) runAtomicPrepared(
 			return fmt.Errorf("%w: prepare output: %v", ErrMediaFailure, err)
 		}
 	}
+	// Preparation may perform filesystem work, so retain a final reversible
+	// cancellation check immediately before publication.
+	if err := ctx.Err(); err != nil {
+		_ = os.Remove(temporary)
+		return err
+	}
 	if err := replace(temporary, destination, overwrite); err != nil {
 		_ = os.Remove(temporary)
 		return fmt.Errorf("%w: finalize output: %v", ErrMediaFailure, err)
@@ -1200,7 +1206,14 @@ func (tools *Toolset) runAtomicPrepared(
 }
 
 func (tools *Toolset) execute(ctx context.Context, binary string, args []string, onLine func(string) error) ([]byte, error) {
-	command := exec.CommandContext(ctx, binary, args...)
+	// Do not use exec.CommandContext here. Its built-in cancellation kills only
+	// the immediate process, while ffmpeg can leave protocol helpers behind.
+	// configureCommand establishes the platform isolation boundary before the
+	// child runs; this runner owns all cancellation after that point.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	command := exec.Command(binary, args...)
 	command.Env = append([]string(nil), tools.environment...)
 	configureCommand(command)
 	stdout, err := command.StdoutPipe()
@@ -1209,6 +1222,11 @@ func (tools *Toolset) execute(ctx context.Context, binary string, args []string,
 	}
 	stderr := newBoundedBuffer(tools.maxOutput)
 	command.Stderr = stderr
+	// Keep this check immediately adjacent to Start. A context that was already
+	// canceled must never launch ffmpeg or ffprobe.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if err := command.Start(); err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -1217,23 +1235,28 @@ func (tools *Toolset) execute(ctx context.Context, binary string, args []string,
 	}
 	isolation, err := attachCommand(command)
 	if err != nil {
-		// Child may still be CREATE_SUSPENDED and not yet in a Job. Kill the
-		// direct process; attachCommand already TerminateJobObject'd if assign
-		// succeeded and only resume failed.
-		if command.Process != nil {
-			_ = command.Process.Kill()
-		}
+		// Child may still be CREATE_SUSPENDED and not yet in a Job. On Unix the
+		// process group already exists; on Windows terminateCommand falls back to
+		// the direct suspended process. Always reap before returning.
+		terminateCommand(command, isolation)
 		_ = command.Wait()
+		closeCommand(isolation)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
 		return nil, fmt.Errorf("%w: attach %s: %v", ErrMediaFailure, filepath.Base(binary), err)
 	}
-	defer closeCommand(isolation)
 	done := make(chan struct{})
 	watcherDone := make(chan struct{})
+	var terminateOnce sync.Once
+	terminate := func() {
+		terminateOnce.Do(func() { terminateCommand(command, isolation) })
+	}
 	go func() {
 		defer close(watcherDone)
 		select {
 		case <-ctx.Done():
-			terminateCommand(command, isolation)
+			terminate()
 		case <-done:
 		}
 	}()
@@ -1250,7 +1273,7 @@ func (tools *Toolset) execute(ctx context.Context, binary string, args []string,
 		if onLine != nil && callbackErr == nil {
 			callbackErr = onLine(line)
 			if callbackErr != nil {
-				terminateCommand(command, isolation)
+				terminate()
 			}
 		}
 	}
@@ -1258,11 +1281,15 @@ func (tools *Toolset) execute(ctx context.Context, binary string, args []string,
 	waitErr := command.Wait()
 	close(done)
 	<-watcherDone
-	if ctx.Err() != nil {
-		return nil, ctx.Err()
-	}
+	// The immediate child has been reaped and the watcher can no longer race a
+	// Job Object close. Release isolation before selecting the externally
+	// visible error so callers never observe a half-torn-down process tree.
+	closeCommand(isolation)
 	if callbackErr != nil {
 		return nil, callbackErr
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	if scanErr != nil {
 		return nil, fmt.Errorf("%w: read %s output: %v", ErrMediaFailure, filepath.Base(binary), scanErr)
