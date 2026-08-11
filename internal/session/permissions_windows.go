@@ -108,7 +108,16 @@ func setProtectedWindowsACL(path string, directory bool) error {
 
 func secureWindowsACL(path string) bool {
 	descriptor, err := windows.GetNamedSecurityInfo(path, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
-	if err != nil || descriptor == nil {
+	return err == nil && secureWindowsACLDescriptor(descriptor)
+}
+
+func secureWindowsACLHandle(handle windows.Handle) bool {
+	descriptor, err := windows.GetSecurityInfo(handle, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
+	return err == nil && secureWindowsACLDescriptor(descriptor)
+}
+
+func secureWindowsACLDescriptor(descriptor *windows.SECURITY_DESCRIPTOR) bool {
+	if descriptor == nil {
 		return false
 	}
 	control, _, err := descriptor.Control()

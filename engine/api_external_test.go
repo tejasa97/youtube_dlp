@@ -105,6 +105,28 @@ func TestExternalPackageCanComposeAndRunClient(t *testing.T) {
 	}
 }
 
+func TestExternalPackageCanUseResumePlanningFacade(t *testing.T) {
+	metadata := value.NewInfo(value.NewObject(
+		value.Field{Key: "title", Value: value.String("Public fixture")},
+	))
+	artifacts, err := engine.RenderOutputArtifacts(engine.OutputPreviewRequest{
+		Template: "%(title)s.%(ext)s", Metadata: metadata, Extension: "mp4",
+	})
+	if err != nil || len(artifacts) != 1 || artifacts[0].ProposedBasename == "" {
+		t.Fatalf("RenderOutputArtifacts() artifacts=%#v err=%v", artifacts, err)
+	}
+	request := engine.Request{Filesystem: engine.FilesystemOptions{Resume: engine.ResumeOptions{
+		SessionID:          "0123456789abcdef0123456789abcdef",
+		PublicationArbiter: engine.NewPublicationArbiter(),
+		CommitTargets: []engine.CommitTarget{{
+			Kind: engine.ArtifactKindPrimary, Identity: artifacts[0].Identity, Basename: artifacts[0].ProposedBasename,
+		}},
+	}}}
+	if request.Filesystem.Resume.PublicationArbiter == nil || engine.ErrPauseRequested == nil {
+		t.Fatal("public resume contract is incomplete")
+	}
+}
+
 var (
 	_ engine.Provider[typedRequest] = publicProvider{}
 	_ engine.Transport              = publicTransport{}

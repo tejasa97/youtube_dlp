@@ -160,6 +160,37 @@ type FilesystemOptions struct {
 	// OutputNaPlaceholder replaces unavailable fields in filename templates.
 	// Empty selects the pinned "NA" default.
 	OutputNaPlaceholder string
+	// Resume opts this request into the durable session contract. An empty
+	// SessionID preserves the legacy output lifecycle exactly. Session-backed
+	// execution is wired in later phases; the declaration is validated here so
+	// callers cannot accidentally start a session run without no-replace
+	// publication authority and explicit, basename-only destinations.
+	Resume ResumeOptions
+}
+
+// ArtifactKind identifies one declared output artifact. The public contract
+// starts with a single primary artifact but intentionally leaves room for
+// required sidecars without changing reservation or commit semantics.
+type ArtifactKind string
+
+const ArtifactKindPrimary ArtifactKind = "primary"
+
+// CommitTarget is one app-reserved output destination for a session run.
+// Basename is exactly one sanitized filename, never a relative or absolute
+// path; the engine derives its containing output root from Request.
+type CommitTarget struct {
+	Kind     ArtifactKind
+	Identity string
+	Basename string
+}
+
+// ResumeOptions declares the public, per-run session boundary. The arbiter is
+// process-local coordination state: callers must create one per worker attempt
+// and must never persist or reuse it.
+type ResumeOptions struct {
+	SessionID          string
+	PublicationArbiter *PublicationArbiter
+	CommitTargets      []CommitTarget
 }
 
 // ThumbnailOptions controls image sidecars. WriteAll takes precedence over
@@ -428,12 +459,14 @@ func validateRequestOptions(request Request) error {
 	if err := validateOutputPaths(request); err != nil {
 		return fmt.Errorf("%w: %v", errInvalidRequestOptions, err)
 	}
-	if len(request.Filesystem.OutputNaPlaceholder) > 256 || strings.ContainsAny(request.Filesystem.OutputNaPlaceholder, "\x00\r\n") ||
-		!utf8.ValidString(request.Filesystem.OutputNaPlaceholder) {
-		return fmt.Errorf("%w: output NA placeholder", errInvalidRequestOptions)
+	if err := validateResumeOptions(request); err != nil {
+		return err
+	}
+	if err := validateFilenameOptions(request.Filesystem, request.AutonumberSize); err != nil {
+		return fmt.Errorf("%w: %v", errInvalidRequestOptions, err)
 	}
 	if request.AutonumberStart < 0 || request.AutonumberStart > 1_000_000_000 ||
-		request.AutonumberSize < 0 || request.AutonumberSize > 64 || request.AutonumberIndex < 0 || request.AutonumberIndex > maxPlaylistEntries {
+		request.AutonumberIndex < 0 || request.AutonumberIndex > maxPlaylistEntries {
 		return fmt.Errorf("%w: autonumber options", errInvalidRequestOptions)
 	}
 	if request.LoadInfoJSON != "" {
@@ -543,9 +576,6 @@ func validateRequestOptions(request Request) error {
 	}
 	if err := validateNHKOptions(request.NHK); err != nil {
 		return fmt.Errorf("%w: %v", errInvalidRequestOptions, err)
-	}
-	if request.Filesystem.TrimFilenames < 0 || request.Filesystem.TrimFilenames > 4096 {
-		return fmt.Errorf("%w: trim filenames", errInvalidRequestOptions)
 	}
 	if request.Filesystem.FfmpegLocation != "" && len(request.Filesystem.FfmpegLocation) > 4096 {
 		return fmt.Errorf("%w: ffmpeg location", errInvalidRequestOptions)

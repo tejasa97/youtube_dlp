@@ -1,9 +1,13 @@
 package engine
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	outputtemplate "github.com/tejasa97/youtube_dlp/internal/compat/template"
 	"github.com/tejasa97/youtube_dlp/internal/downloader"
@@ -12,15 +16,51 @@ import (
 	"github.com/tejasa97/youtube_dlp/internal/value"
 )
 
+const (
+	maxFilenameAutonumberSize   = 64
+	maxFilenameTrim             = 4096
+	maxOutputNaPlaceholderBytes = 256
+)
+
+var errInvalidFilenameOptions = errors.New("invalid filename options")
+
 func (operation *operation) filenameOptions() outputtemplate.FilenameOptions {
-	fs := operation.request.Filesystem
+	return filenameOptionsFor(operation.request.Filesystem, operation.request.AutonumberSize)
+}
+
+// filenameOptionsFor is the single conversion from public request controls to
+// the compatibility renderer. Output preview uses this same pure mapping so a
+// reservation proposal cannot drift from the runtime filename policy.
+func filenameOptionsFor(filesystem FilesystemOptions, autonumberSize int) outputtemplate.FilenameOptions {
 	return outputtemplate.FilenameOptions{
-		RestrictFilenames:   fs.RestrictFilenames,
-		WindowsFilenames:    fs.WindowsFilenames,
-		TrimFilenames:       fs.TrimFilenames,
-		OutputNaPlaceholder: fs.OutputNaPlaceholder,
-		AutonumberSize:      normalizedAutonumberSize(operation.request.AutonumberSize),
+		RestrictFilenames:   filesystem.RestrictFilenames,
+		WindowsFilenames:    filesystem.WindowsFilenames,
+		TrimFilenames:       filesystem.TrimFilenames,
+		OutputNaPlaceholder: filesystem.OutputNaPlaceholder,
+		AutonumberSize:      normalizedAutonumberSize(autonumberSize),
 	}
+}
+
+// validateFilenameOptions is shared by Request preflight and the public
+// network-free preview. Keeping the bounds here prevents preview-only callers
+// from reaching the renderer with controls that runtime would reject.
+func validateFilenameOptions(filesystem FilesystemOptions, autonumberSize int) error {
+	if autonumberSize < 0 || autonumberSize > maxFilenameAutonumberSize {
+		return fmt.Errorf("%w: autonumber size", errInvalidFilenameOptions)
+	}
+	if filesystem.TrimFilenames < 0 || filesystem.TrimFilenames > maxFilenameTrim {
+		return fmt.Errorf("%w: trim filenames", errInvalidFilenameOptions)
+	}
+	placeholder := filesystem.OutputNaPlaceholder
+	if len(placeholder) > maxOutputNaPlaceholderBytes || !utf8.ValidString(placeholder) {
+		return fmt.Errorf("%w: output NA placeholder", errInvalidFilenameOptions)
+	}
+	for _, character := range placeholder {
+		if unicode.IsControl(character) {
+			return fmt.Errorf("%w: output NA placeholder control", errInvalidFilenameOptions)
+		}
+	}
+	return nil
 }
 
 func normalizedAutonumberSize(size int) int {

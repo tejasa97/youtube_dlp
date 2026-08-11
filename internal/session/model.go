@@ -182,8 +182,9 @@ type Manifest struct {
 // WorkspaceRef is portable data for a future public engine API. It carries
 // no open file, process, or lease handle.
 type WorkspaceRef struct {
-	OutputRoot string `json:"output_root"`
-	SessionID  string `json:"session_id"`
+	OutputRoot         string `json:"output_root"`
+	OutputRootIdentity string `json:"-"`
+	SessionID          string `json:"session_id"`
 }
 
 // CreateOptions contains only safe session intent. RelativeDestination is a
