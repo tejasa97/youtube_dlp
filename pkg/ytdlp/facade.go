@@ -57,6 +57,11 @@ type (
 	OutputPreviewRequest      = engine.OutputPreviewRequest
 	ArtifactDeclaration       = engine.ArtifactDeclaration
 	SessionOutcome            = engine.SessionOutcome
+	SessionPhase              = engine.SessionPhase
+	SessionStatus             = engine.SessionStatus
+	SessionDesiredState       = engine.SessionDesiredState
+	SessionPublicationState   = engine.SessionPublicationState
+	SessionCleanupState       = engine.SessionCleanupState
 	SessionDisposition        = engine.SessionDisposition
 	PublicationOutcome        = engine.PublicationOutcome
 	CleanupOutcome            = engine.CleanupOutcome
