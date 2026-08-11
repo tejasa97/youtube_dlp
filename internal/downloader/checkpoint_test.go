@@ -876,6 +876,173 @@ func TestCheckpointRejectsResumedContentLengthRangeMismatch(t *testing.T) {
 	}
 }
 
+func TestCheckpointNonzeroBoundaryPreservesAuthorityOnUnsafeResumeResponse(t *testing.T) {
+	for _, name := range []string{"200 fallback", "malformed 206", "validator mismatch", "total mismatch"} {
+		t.Run(name, func(t *testing.T) {
+			data := checkpointData(2 * minDirectCheckpointBytes)
+			destination := filepath.Join(t.TempDir(), "media.bin")
+			identity := "direct:fixture:nonregression"
+			boundaryBytes := minDirectCheckpointBytes
+			if err := os.WriteFile(destination+".part", data[:boundaryBytes], 0o600); err != nil {
+				t.Fatal(err)
+			}
+			writeCheckpointState(t, checkpointStatePath(destination), partialState{
+				ResumeIdentity: identity,
+				ETag:           `"old"`,
+				Total:          int64(len(data)),
+				CommittedBytes: boundaryBytes,
+			})
+			beforePayload, err := os.ReadFile(destination + ".part")
+			if err != nil {
+				t.Fatal(err)
+			}
+			beforeState, err := os.ReadFile(checkpointStatePath(destination))
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			body := &checkpointCancelBody{
+				checkpointBody: checkpointBody{data: data, chunkSize: 32 << 10},
+				cancel:         cancel,
+				cancelAfter:    32 << 10,
+			}
+			var requests int
+			doer := checkpointDoerFunc(func(_ context.Context, request *http.Request) (*http.Response, error) {
+				requests++
+				if got := request.Header.Get("Range"); got != fmt.Sprintf("bytes=%d-", boundaryBytes) {
+					t.Fatalf("range = %q, want caller boundary", got)
+				}
+				response := &http.Response{StatusCode: http.StatusPartialContent, Header: make(http.Header), Body: body, Request: request}
+				response.Header.Set("ETag", `"old"`)
+				switch name {
+				case "200 fallback":
+					response.StatusCode = http.StatusOK
+					response.Header.Set("ETag", `"new"`)
+					response.ContentLength = int64(len(data))
+				case "malformed 206":
+					response.Header.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", boundaryBytes, len(data)-1, len(data)))
+					response.ContentLength = int64(len(data)) - boundaryBytes - 1
+				case "validator mismatch":
+					response.Header.Set("ETag", `"new"`)
+					response.Header.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", boundaryBytes, len(data)-1, len(data)))
+					response.ContentLength = int64(len(data)) - boundaryBytes
+				case "total mismatch":
+					mismatchedTotal := int64(len(data)) + minDirectCheckpointBytes
+					response.Header.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", boundaryBytes, mismatchedTotal-1, mismatchedTotal))
+					response.ContentLength = mismatchedTotal - boundaryBytes
+				}
+				return response, nil
+			})
+			var callbacks []Checkpoint
+			job := checkpointJob(destination, identity, &CheckpointOptions{
+				ResumeBoundary: &Checkpoint{ResumeIdentity: identity, ETag: `"old"`, Total: int64(len(data)), CommittedBytes: boundaryBytes},
+				OnCommit: func(_ context.Context, checkpoint Checkpoint) error {
+					callbacks = append(callbacks, checkpoint)
+					return nil
+				},
+			})
+			job.Attempts = 1
+			_, err = New(doer).Download(ctx, job, nil)
+			if !errors.Is(err, ErrCheckpointResetRequired) || !errors.Is(err, ErrCheckpointReconciliation) {
+				t.Fatalf("error = %v, want typed reset/reconciliation", err)
+			}
+			if requests != 1 || len(callbacks) != 0 || body.read != 0 || ctx.Err() != nil {
+				t.Fatalf("requests=%d callbacks=%#v body reads=%d context=%v", requests, callbacks, body.read, ctx.Err())
+			}
+			assertCheckpointArtifactsEqual(t, destination, beforePayload, beforeState)
+		})
+	}
+}
+
+func TestCheckpointCancellationNeverRegressesNonzeroCallerBoundary(t *testing.T) {
+	data := checkpointData(3 * minDirectCheckpointBytes)
+	destination := filepath.Join(t.TempDir(), "media.bin")
+	identity := "direct:fixture:cancel-nonregression"
+	boundaryBytes := minDirectCheckpointBytes
+	if err := os.WriteFile(destination+".part", data[:boundaryBytes], 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeCheckpointState(t, checkpointStatePath(destination), partialState{
+		ResumeIdentity: identity, ETag: `"old"`, Total: int64(len(data)), CommittedBytes: boundaryBytes,
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var callbacks []Checkpoint
+	job := checkpointJob(destination, identity, &CheckpointOptions{
+		ResumeBoundary: &Checkpoint{ResumeIdentity: identity, ETag: `"old"`, Total: int64(len(data)), CommittedBytes: boundaryBytes},
+		EveryBytes:     2 * minDirectCheckpointBytes,
+		OnCommit: func(_ context.Context, checkpoint Checkpoint) error {
+			callbacks = append(callbacks, checkpoint)
+			return nil
+		},
+	})
+	doer := &checkpointDoer{data: data, etag: `"old"`, chunkSize: 32 << 10}
+	sink := events.SinkFunc(func(_ context.Context, event events.Event) error {
+		if event.Kind == events.KindProgress && event.Bytes >= boundaryBytes+(32<<10) {
+			cancel()
+		}
+		return nil
+	})
+	_, err := New(doer).Download(ctx, job, sink)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
+	}
+	if len(callbacks) != 1 || callbacks[0].CommittedBytes < boundaryBytes {
+		t.Fatalf("callbacks regressed caller authority: %#v", callbacks)
+	}
+	state := readCheckpointState(t, checkpointStatePath(destination))
+	if state.CommittedBytes != callbacks[0].CommittedBytes || state.CommittedBytes < boundaryBytes {
+		t.Fatalf("state=%#v callbacks=%#v", state, callbacks)
+	}
+}
+
+func TestCheckpointRejectsNoContinueWithNonzeroBoundaryBeforeMutation(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "workspace")
+	destination := filepath.Join(root, "media.bin")
+	identity := "direct:fixture:no-continue-boundary"
+	doer := &checkpointDoer{data: checkpointData(2 * minDirectCheckpointBytes), etag: `"old"`}
+	callbackCount := 0
+	job := Job{
+		URL:            "https://fixture.invalid/media",
+		ResumeIdentity: identity,
+		OutputRoot:     root,
+		Destination:    destination,
+		NoContinue:     true,
+		Checkpoint: &CheckpointOptions{
+			StateDirectory: filepath.Join(root, "checkpoint"),
+			ResumeBoundary: &Checkpoint{ResumeIdentity: identity, ETag: `"old"`, Total: 2 * minDirectCheckpointBytes, CommittedBytes: minDirectCheckpointBytes},
+			OnCommit: func(context.Context, Checkpoint) error {
+				callbackCount++
+				return nil
+			},
+		},
+	}
+	_, err := New(doer).Download(context.Background(), job, nil)
+	if !errors.Is(err, ErrInvalidCheckpoint) || !errors.Is(err, ErrCheckpointResetRequired) {
+		t.Fatalf("error = %v, want invalid checkpoint reset requirement", err)
+	}
+	if doer.requestCount() != 0 || callbackCount != 0 {
+		t.Fatalf("requests=%d callbacks=%d", doer.requestCount(), callbackCount)
+	}
+	if _, statErr := os.Lstat(root); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("workspace was created on rejected contract: %v", statErr)
+	}
+}
+
+func assertCheckpointArtifactsEqual(t *testing.T, destination string, payload, state []byte) {
+	t.Helper()
+	gotPayload, err := os.ReadFile(destination + ".part")
+	if err != nil || !bytes.Equal(gotPayload, payload) {
+		t.Fatalf("payload changed: err=%v", err)
+	}
+	gotState, err := os.ReadFile(checkpointStatePath(destination))
+	if err != nil || !bytes.Equal(gotState, state) {
+		t.Fatalf("state changed: err=%v", err)
+	}
+}
+
 func TestCheckpointCancellationCallbackUsesBoundedLocalContext(t *testing.T) {
 	data := checkpointData(minDirectCheckpointBytes)
 	destination := filepath.Join(t.TempDir(), "media.bin")
@@ -1108,6 +1275,20 @@ type checkpointBody struct {
 	failAfter int64
 	failWith  error
 	failed    bool
+}
+
+type checkpointCancelBody struct {
+	checkpointBody
+	cancel      context.CancelFunc
+	cancelAfter int
+}
+
+func (body *checkpointCancelBody) Read(target []byte) (int, error) {
+	count, err := body.checkpointBody.Read(target)
+	if body.cancel != nil && body.read >= body.cancelAfter {
+		body.cancel()
+	}
+	return count, err
 }
 
 func (body *checkpointBody) Read(target []byte) (int, error) {

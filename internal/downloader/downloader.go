@@ -377,6 +377,9 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, plan
 	}
 
 	resuming := offset > 0 && response.StatusCode == http.StatusPartialContent && validResumeResponse(response, offset)
+	if offset > 0 && !resuming && plan.hasCallerAuthority() {
+		return Result{}, &checkpointResetRequiredError{}
+	}
 	if offset > 0 && response.StatusCode == http.StatusPartialContent && !resuming {
 		if err := downloader.restartPartial(ctx, job, partPath); err != nil {
 			return Result{}, err
@@ -385,6 +388,9 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, plan
 		return downloader.downloadAttempt(ctx, job, plan, partPath, statePath, sink)
 	}
 	if resuming && (!resumeResponseMatches(state, response) || !plan.responseMatchesBoundary(response)) {
+		if plan.hasCallerAuthority() {
+			return Result{}, &checkpointResetRequiredError{}
+		}
 		if err := downloader.restartPartial(ctx, job, partPath); err != nil {
 			return Result{}, err
 		}
@@ -398,6 +404,9 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, plan
 	}
 	responseTotalBytes := responseTotal(response, responseOffset)
 	if resuming && responseTotalBytes > 0 && state.Total > 0 && responseTotalBytes != state.Total {
+		if plan.hasCallerAuthority() {
+			return Result{}, &checkpointResetRequiredError{}
+		}
 		if err := downloader.restartPartial(ctx, job, partPath); err != nil {
 			return Result{}, err
 		}

@@ -30,7 +30,18 @@ var (
 	// ErrInvalidCheckpointState reports a local state image that cannot be
 	// treated as authority. Existing payload and state artifacts are preserved.
 	ErrInvalidCheckpointState = errors.New("invalid download checkpoint state")
+	// ErrCheckpointResetRequired reports a server response that cannot continue
+	// from a nonzero caller-authoritative boundary without regressing authority.
+	ErrCheckpointResetRequired = errors.New("download checkpoint reset required")
 )
+
+type checkpointResetRequiredError struct{}
+
+func (*checkpointResetRequiredError) Error() string { return ErrCheckpointResetRequired.Error() }
+
+func (*checkpointResetRequiredError) Is(target error) bool {
+	return target == ErrCheckpointResetRequired || target == ErrCheckpointReconciliation
+}
 
 type checkpointCallbackError struct{ cause error }
 
@@ -173,9 +184,16 @@ func checkpointPlanForJob(job Job) (checkpointPlan, error) {
 		if boundary.ResumeIdentity != job.ResumeIdentity {
 			return checkpointPlan{}, fmt.Errorf("%w: resume identity does not match job", ErrInvalidCheckpoint)
 		}
+		if job.NoContinue && boundary.CommittedBytes > 0 {
+			return checkpointPlan{}, fmt.Errorf("%w: %w", ErrInvalidCheckpoint, &checkpointResetRequiredError{})
+		}
 		plan.boundary = &boundary
 	}
 	return plan, nil
+}
+
+func (plan checkpointPlan) hasCallerAuthority() bool {
+	return plan.boundary != nil && plan.boundary.CommittedBytes > 0
 }
 
 func validateCheckpoint(checkpoint Checkpoint) error {
