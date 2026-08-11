@@ -543,6 +543,9 @@ func (client *Client) Run(ctx context.Context, request Request) (result Result, 
 	}
 	request.OutputTemplates = cloneOutputTemplates(request.OutputTemplates)
 	request.OutputPaths = cloneOutputPaths(request.OutputPaths)
+	if resumeOptionsPresent(request.Filesystem.Resume) {
+		request.Filesystem.Resume = cloneResumeOptions(request.Filesystem.Resume)
+	}
 	if err := validateRequestOptions(request); err != nil {
 		return Result{}, categorized("validate request options", err)
 	}

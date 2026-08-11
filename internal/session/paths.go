@@ -25,11 +25,27 @@ func NewWorkspaceRef(outputRoot, sessionID string) (WorkspaceRef, error) {
 	return newWorkspaceRef(outputRoot, sessionID)
 }
 
+// NewWorkspaceRefWithIdentity binds a portable workspace reference to an
+// already-validated output root. Existing callers that do not carry an
+// identity retain the legacy reference shape; public maintenance calls use
+// this stricter constructor and fail closed if the root is replaced.
+func NewWorkspaceRefWithIdentity(outputRoot, identity, sessionID string) (WorkspaceRef, error) {
+	ref, err := newWorkspaceRef(outputRoot, sessionID)
+	if err != nil || !validRootIdentity(identity) {
+		return WorkspaceRef{}, ErrInvalidReference
+	}
+	ref.OutputRootIdentity = identity
+	return ref, nil
+}
+
 func (ref WorkspaceRef) validate() error {
 	if _, err := canonicalOutputRoot(ref.OutputRoot); err != nil {
 		return ErrInvalidReference
 	}
 	if !validSessionID(ref.SessionID) {
+		return ErrInvalidReference
+	}
+	if ref.OutputRootIdentity != "" && !validRootIdentity(ref.OutputRootIdentity) {
 		return ErrInvalidReference
 	}
 	return nil
@@ -130,6 +146,9 @@ func ensureDirectory(path string, mode fs.FileMode, ownerOnly bool) error {
 
 func validateExistingWorkspace(ref WorkspaceRef) (string, error) {
 	if err := ref.validate(); err != nil {
+		return "", err
+	}
+	if err := validateWorkspaceRootIdentity(ref); err != nil {
 		return "", err
 	}
 	root := filepath.Clean(ref.OutputRoot)

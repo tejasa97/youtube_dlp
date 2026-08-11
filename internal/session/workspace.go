@@ -151,6 +151,14 @@ func Open(ref WorkspaceRef) (*Workspace, error) {
 	if err != nil {
 		return nil, err
 	}
+	guardPath := filepath.Join(filepath.Dir(workspacePath), discardGuardPrefix+ref.SessionID)
+	guardExists, guardErr := safeDirectoryExists(guardPath)
+	if guardErr != nil {
+		return nil, ErrNeedsReconciliation
+	}
+	if guardExists {
+		return nil, ErrNeedsReconciliation
+	}
 	leasePath, err := ref.leasePath()
 	if err != nil {
 		return nil, ErrInvalidReference
@@ -160,6 +168,11 @@ func Open(ref WorkspaceRef) (*Workspace, error) {
 		return nil, err
 	}
 	if hasAtomicManifestEvidence(workspacePath) {
+		_ = lease.Close()
+		return nil, ErrNeedsReconciliation
+	}
+	_, marker, _ := readDiscardRecord(filepath.Join(workspacePath, discardMarkerName))
+	if marker {
 		_ = lease.Close()
 		return nil, ErrNeedsReconciliation
 	}

@@ -21,6 +21,7 @@ const (
 	InspectionManifestIndeterminate    InspectionClass = "manifest_commit_indeterminate"
 	InspectionPublicationIndeterminate InspectionClass = "publication_indeterminate"
 	InspectionNeedsReconciliation      InspectionClass = "needs_reconciliation"
+	InspectionDiscardPending           InspectionClass = "discard_pending"
 )
 
 // Inspection is intentionally value-oriented. Manifest is populated only
@@ -58,6 +59,11 @@ func Inspect(ref WorkspaceRef) (Inspection, error) {
 	if err := ref.validate(); err != nil {
 		return inspection, ErrInvalidReference
 	}
+	if err := validateWorkspaceRootIdentity(ref); err != nil {
+		inspection.add(InspectionUnsafePath)
+		inspection.add(InspectionNeedsReconciliation)
+		return inspection, nil
+	}
 	root := filepath.Clean(ref.OutputRoot)
 	if err := validateDirectoryChain(root, false); err != nil {
 		if errors.Is(err, ErrWorkspaceUnavailable) {
@@ -85,6 +91,25 @@ func Inspect(ref WorkspaceRef) (Inspection, error) {
 		if errors.Is(err, ErrWorkspaceUnavailable) {
 			inspection.add(InspectionUnavailableRoot)
 		} else {
+			inspection.add(InspectionUnsafePath)
+		}
+		return inspection, nil
+	}
+	guardPath := filepath.Join(filepath.Dir(workspacePath), discardGuardPrefix+ref.SessionID)
+	guardExists, guardErr := safeDirectoryExists(guardPath)
+	if guardErr != nil || guardExists {
+		inspection.add(InspectionDiscardPending)
+		inspection.add(InspectionNeedsReconciliation)
+		if guardErr != nil {
+			inspection.add(InspectionUnsafePath)
+		}
+		return inspection, nil
+	}
+	_, marker, unsafe := readDiscardRecord(filepath.Join(workspacePath, discardMarkerName))
+	if marker {
+		inspection.add(InspectionDiscardPending)
+		inspection.add(InspectionNeedsReconciliation)
+		if unsafe {
 			inspection.add(InspectionUnsafePath)
 		}
 		return inspection, nil
