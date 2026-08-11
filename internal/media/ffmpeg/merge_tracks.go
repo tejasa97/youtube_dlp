@@ -64,6 +64,32 @@ func (tools *Toolset) MergeTracks(
 	overwrite bool,
 	sink events.Sink,
 ) error {
+	return tools.mergeTracks(ctx, inputs, destination, overwrite, sink, nil)
+}
+
+// MergeTracksWithWorkspace runs the same merge through an opt-in restart-safe
+// processing workspace. Interrupted FFmpeg output is discarded on reopen and
+// processing restarts from the complete caller-owned inputs. The legacy
+// MergeTracks path is unchanged.
+func (tools *Toolset) MergeTracksWithWorkspace(
+	ctx context.Context,
+	inputs []MergeInput,
+	destination string,
+	overwrite bool,
+	sink events.Sink,
+	workspace ProcessingWorkspace,
+) error {
+	return tools.mergeTracks(ctx, inputs, destination, overwrite, sink, &workspace)
+}
+
+func (tools *Toolset) mergeTracks(
+	ctx context.Context,
+	inputs []MergeInput,
+	destination string,
+	overwrite bool,
+	sink events.Sink,
+	workspace *ProcessingWorkspace,
+) error {
 	if err := validateMergeInputs(inputs); err != nil {
 		return err
 	}
@@ -72,18 +98,36 @@ func (tools *Toolset) MergeTracks(
 			return err
 		}
 	}
+	var preflight *processingPreflight
+	if workspace != nil {
+		var err error
+		preflight, err = preflightProcessingWorkspace(ctx, destination, overwrite, *workspace, productionProcessingWorkspaceOps)
+		if err != nil {
+			return err
+		}
+	}
 	prepared, err := tools.prepareMergeInputs(ctx, inputs)
 	if err != nil {
+		if preflight != nil {
+			_ = preflight.lease.release()
+		}
 		return err
 	}
 	mergeArgs, err := BuildMergeArguments(prepared, "")
 	if err != nil {
+		if preflight != nil {
+			_ = preflight.lease.release()
+		}
 		return err
 	}
-	return tools.runAtomic(ctx, destination, overwrite, sink, func(temporary string) []string {
+	operation := func(temporary string) []string {
 		args := append(append([]string(nil), mergeArgs...), temporary)
 		return args
-	})
+	}
+	if preflight != nil {
+		return tools.executeProcessingWorkspace(ctx, overwrite, sink, preflight, nil, operation, productionProcessingWorkspaceOps)
+	}
+	return tools.runAtomic(ctx, destination, overwrite, sink, operation)
 }
 
 func (tools *Toolset) prepareMergeInputs(ctx context.Context, inputs []MergeInput) ([]MergeInput, error) {
