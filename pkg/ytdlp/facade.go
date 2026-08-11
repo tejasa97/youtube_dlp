@@ -8,6 +8,7 @@ import (
 	"crypto/ed25519"
 	"io"
 	"math/rand"
+	"time"
 
 	"github.com/tejasa97/youtube_dlp/engine"
 )
@@ -42,6 +43,23 @@ type (
 	SubtitleOptions           = engine.SubtitleOptions
 	RelatedFileOptions        = engine.RelatedFileOptions
 	FilesystemOptions         = engine.FilesystemOptions
+	ResumeOptions             = engine.ResumeOptions
+	CommitTarget              = engine.CommitTarget
+	ArtifactKind              = engine.ArtifactKind
+	OutputRootRef             = engine.OutputRootRef
+	ResumeSummary             = engine.ResumeSummary
+	ResumeComponent           = engine.ResumeComponent
+	ResumeInspectionClass     = engine.ResumeInspectionClass
+	ResumeDiscardDisposition  = engine.ResumeDiscardDisposition
+	ResumeDiscardHandle       = engine.ResumeDiscardHandle
+	ResumeDiscardResult       = engine.ResumeDiscardResult
+	CollectionResult          = engine.CollectionResult
+	OutputPreviewRequest      = engine.OutputPreviewRequest
+	ArtifactDeclaration       = engine.ArtifactDeclaration
+	SessionOutcome            = engine.SessionOutcome
+	SessionDisposition        = engine.SessionDisposition
+	PublicationOutcome        = engine.PublicationOutcome
+	CleanupOutcome            = engine.CleanupOutcome
 	ThumbnailOptions          = engine.ThumbnailOptions
 	YouTubeCommentOptions     = engine.YouTubeCommentOptions
 	SoundCloudCommentOptions  = engine.SoundCloudCommentOptions
@@ -163,17 +181,36 @@ const (
 	OutputPathPLVideo       = engine.OutputPathPLVideo
 	OutputPathChapter       = engine.OutputPathChapter
 
-	OutputTemplateDefault       = engine.OutputTemplateDefault
-	OutputTemplateSubtitle      = engine.OutputTemplateSubtitle
-	OutputTemplateThumbnail     = engine.OutputTemplateThumbnail
-	OutputTemplateDescription   = engine.OutputTemplateDescription
-	OutputTemplateInfoJSON      = engine.OutputTemplateInfoJSON
-	OutputTemplateLink          = engine.OutputTemplateLink
-	OutputTemplatePLDescription = engine.OutputTemplatePLDescription
-	OutputTemplatePLInfoJSON    = engine.OutputTemplatePLInfoJSON
-	OutputTemplatePLThumbnail   = engine.OutputTemplatePLThumbnail
-	OutputTemplatePLVideo       = engine.OutputTemplatePLVideo
-	OutputTemplateChapter       = engine.OutputTemplateChapter
+	OutputTemplateDefault               = engine.OutputTemplateDefault
+	OutputTemplateSubtitle              = engine.OutputTemplateSubtitle
+	OutputTemplateThumbnail             = engine.OutputTemplateThumbnail
+	OutputTemplateDescription           = engine.OutputTemplateDescription
+	OutputTemplateInfoJSON              = engine.OutputTemplateInfoJSON
+	OutputTemplateLink                  = engine.OutputTemplateLink
+	OutputTemplatePLDescription         = engine.OutputTemplatePLDescription
+	OutputTemplatePLInfoJSON            = engine.OutputTemplatePLInfoJSON
+	OutputTemplatePLThumbnail           = engine.OutputTemplatePLThumbnail
+	OutputTemplatePLVideo               = engine.OutputTemplatePLVideo
+	OutputTemplateChapter               = engine.OutputTemplateChapter
+	ArtifactKindPrimary                 = engine.ArtifactKindPrimary
+	ResumeDiscarded                     = engine.ResumeDiscarded
+	ResumeDiscardCleanupPending         = engine.ResumeDiscardCleanupPending
+	ResumeDiscardReconciliationRequired = engine.ResumeDiscardReconciliationRequired
+	SessionRetained                     = engine.SessionRetained
+	SessionDiscarded                    = engine.SessionDiscarded
+	SessionCleanupPending               = engine.SessionCleanupPending
+	SessionCollision                    = engine.SessionCollision
+	SessionPublished                    = engine.SessionPublished
+	SessionRecoveryRequired             = engine.SessionRecoveryRequired
+	PublicationNotAttempted             = engine.PublicationNotAttempted
+	PublicationReady                    = engine.PublicationReady
+	PublicationWon                      = engine.PublicationWon
+	PublicationCollision                = engine.PublicationCollision
+	PublicationIndeterminateOutcome     = engine.PublicationIndeterminateOutcome
+	CleanupNotNeeded                    = engine.CleanupNotNeeded
+	CleanupComplete                     = engine.CleanupComplete
+	CleanupPendingOutcome               = engine.CleanupPendingOutcome
+	CleanupRecoveryNeeded               = engine.CleanupRecoveryNeeded
 
 	PrintPreProcess  = engine.PrintPreProcess
 	PrintAfterFilter = engine.PrintAfterFilter
@@ -235,6 +272,12 @@ var (
 	ErrHLSDiscontinuityGroupAdOnly       = engine.ErrHLSDiscontinuityGroupAdOnly
 	ErrHLSDiscontinuityPlaylistMalformed = engine.ErrHLSDiscontinuityPlaylistMalformed
 	ErrHLSDiscontinuityHostPolicy        = engine.ErrHLSDiscontinuityHostPolicy
+	ErrPauseRequested                    = engine.ErrPauseRequested
+	ErrDestinationCollision              = engine.ErrDestinationCollision
+	ErrResumeIdentityMismatch            = engine.ErrResumeIdentityMismatch
+	ErrResumeIdentityRequired            = engine.ErrResumeIdentityRequired
+	ErrSessionNeedsReconciliation        = engine.ErrSessionNeedsReconciliation
+	ErrSessionInUse                      = engine.ErrSessionInUse
 
 	MergeOutputFormatSupported = engine.MergeOutputFormatSupported
 )
@@ -244,6 +287,20 @@ func NewClient(options ...Option) *Client {
 }
 
 func BuiltInExtractorIDs() []string { return productRegistry().Names() }
+
+func ValidateOutputRoot(path string) (OutputRootRef, error) { return engine.ValidateOutputRoot(path) }
+func InspectResumeState(ctx context.Context, root OutputRootRef, sessionID string) (ResumeSummary, error) {
+	return engine.InspectResumeState(ctx, root, sessionID)
+}
+func PrepareResumeDiscard(ctx context.Context, root OutputRootRef, sessionID string) (*ResumeDiscardHandle, error) {
+	return engine.PrepareResumeDiscard(ctx, root, sessionID)
+}
+func CollectResumeOrphans(ctx context.Context, root OutputRootRef, live map[string]struct{}, olderThan time.Time) (CollectionResult, error) {
+	return engine.CollectResumeOrphans(ctx, root, live, olderThan)
+}
+func RenderOutputArtifacts(request OutputPreviewRequest) ([]ArtifactDeclaration, error) {
+	return engine.RenderOutputArtifacts(request)
+}
 
 func WithEventHandler(handler EventHandler) Option { return engine.WithEventHandler(handler) }
 func WithJavaScriptHelper(path string) Option      { return engine.WithJavaScriptHelper(path) }

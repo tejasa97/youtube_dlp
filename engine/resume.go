@@ -18,6 +18,69 @@ import (
 
 var ErrPauseRequested = errors.New("engine: pause requested")
 
+var (
+	// ErrDestinationCollision reports that a session publication encountered
+	// an existing target whose bytes did not match the staged artifact. The
+	// target is never replaced and the ready-to-publish session remains
+	// retryable.
+	ErrDestinationCollision = errors.New("engine: destination collision")
+	// ErrResumeIdentityMismatch reports that a caller reused a session for a
+	// different provider track or output plan. The existing evidence is left
+	// untouched so a caller can reconcile it explicitly.
+	ErrResumeIdentityMismatch = errors.New("engine: resume identity mismatch")
+	// ErrResumeIdentityRequired reports that a session-enabled direct resource
+	// did not expose a stable, non-secret provider/format identity.
+	ErrResumeIdentityRequired = errors.New("engine: stable resume identity required")
+	// ErrSessionNeedsReconciliation reports that publication or manifest
+	// evidence cannot be classified without destructive guessing.
+	ErrSessionNeedsReconciliation = errors.New("engine: resume session needs reconciliation")
+	// ErrSessionInUse reports bounded lease contention without exposing the
+	// workspace or holder metadata.
+	ErrSessionInUse = errors.New("engine: resume session is in use")
+)
+
+// SessionDisposition is the bounded lifecycle result of a session-enabled
+// direct run. It intentionally contains no paths or transport material.
+type SessionDisposition string
+
+const (
+	SessionRetained         SessionDisposition = "retained"
+	SessionDiscarded        SessionDisposition = "discarded"
+	SessionCleanupPending   SessionDisposition = "cleanup_pending"
+	SessionCollision        SessionDisposition = "collision"
+	SessionPublished        SessionDisposition = "published"
+	SessionRecoveryRequired SessionDisposition = "recovery_required"
+)
+
+type PublicationOutcome string
+
+const (
+	PublicationNotAttempted         PublicationOutcome = "not_attempted"
+	PublicationReady                PublicationOutcome = "ready"
+	PublicationWon                  PublicationOutcome = "published"
+	PublicationCollision            PublicationOutcome = "collision"
+	PublicationIndeterminateOutcome PublicationOutcome = "indeterminate"
+)
+
+type CleanupOutcome string
+
+const (
+	CleanupNotNeeded      CleanupOutcome = "not_needed"
+	CleanupComplete       CleanupOutcome = "complete"
+	CleanupPendingOutcome CleanupOutcome = "pending"
+	CleanupRecoveryNeeded CleanupOutcome = "recovery_required"
+)
+
+// SessionOutcome is attached to Result for session-enabled requests. Zero
+// values preserve the legacy result shape and behavior.
+type SessionOutcome struct {
+	SessionID   string
+	Disposition SessionDisposition
+	Phase       SessionPhase
+	Publication PublicationOutcome
+	Cleanup     CleanupOutcome
+}
+
 const (
 	maxResumeCommitTargets = 64
 	maxResumeComponents    = 128
@@ -190,6 +253,9 @@ func PrepareResumeDiscard(ctx context.Context, root OutputRootRef, sessionID str
 	}
 	handle, err := session.PrepareDiscard(ref)
 	if err != nil {
+		if errors.Is(err, session.ErrLeaseContended) {
+			return nil, errors.Join(ErrSessionInUse, fmt.Errorf("engine: prepare resume discard: %w", err))
+		}
 		return nil, fmt.Errorf("engine: prepare resume discard: %w", err)
 	}
 	if err := contextError(ctx); err != nil {
@@ -317,6 +383,9 @@ func validateResumeOptions(request Request) error {
 	}
 	if request.Overwrite {
 		return fmt.Errorf("%w: session runs require overwrite=false", errInvalidRequestOptions)
+	}
+	if request.Filesystem.NoPart {
+		return fmt.Errorf("%w: session runs require part files", errInvalidRequestOptions)
 	}
 	if resume.PublicationArbiter == nil {
 		return fmt.Errorf("%w: session runs require a publication arbiter", errInvalidRequestOptions)

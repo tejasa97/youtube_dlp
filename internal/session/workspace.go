@@ -37,6 +37,20 @@ type Workspace struct {
 // Create creates an owner-only hidden workspace and its initial manifest. The
 // returned handle owns the workspace lease and must be closed by the caller.
 func Create(options CreateOptions) (*Workspace, error) {
+	return create(options, "")
+}
+
+// CreateWithID creates a workspace using a caller-owned session ID. The ID is
+// never generated or persisted by the engine on behalf of the caller. If the
+// workspace already exists, callers should open it instead.
+func CreateWithID(options CreateOptions, sessionID string) (*Workspace, error) {
+	if !validSessionID(sessionID) {
+		return nil, ErrInvalidReference
+	}
+	return create(options, sessionID)
+}
+
+func create(options CreateOptions, requestedSessionID string) (*Workspace, error) {
 	root, err := canonicalOutputRoot(options.OutputRoot)
 	if err != nil {
 		return nil, ErrUnsafePath
@@ -74,17 +88,29 @@ func Create(options CreateOptions) (*Workspace, error) {
 	}
 
 	for attempt := 0; attempt < 16; attempt++ {
-		sessionID, randomErr := randomSessionID()
-		if randomErr != nil {
-			return nil, ErrWorkspaceUnavailable
+		sessionID := requestedSessionID
+		if sessionID == "" {
+			var randomErr error
+			sessionID, randomErr = randomSessionID()
+			if randomErr != nil {
+				return nil, ErrWorkspaceUnavailable
+			}
 		}
-		ref := WorkspaceRef{OutputRoot: root, SessionID: sessionID}
+		ref := WorkspaceRef{OutputRoot: root, OutputRootIdentity: options.OutputRootIdentity, SessionID: sessionID}
+		if options.OutputRootIdentity != "" {
+			if err := validateWorkspaceRootIdentity(ref); err != nil {
+				return nil, err
+			}
+		}
 		workspacePath, pathErr := ref.Path()
 		if pathErr != nil {
 			return nil, ErrInvalidReference
 		}
 		if mkdirErr := os.Mkdir(workspacePath, 0o700); mkdirErr != nil {
 			if errors.Is(mkdirErr, os.ErrExist) {
+				if requestedSessionID != "" {
+					return nil, ErrWorkspaceUnavailable
+				}
 				continue
 			}
 			return nil, ErrWorkspaceUnavailable
@@ -283,6 +309,10 @@ const (
 	mutationDesired
 	mutationDestination
 	mutationComponentProgress
+	mutationComponentCheckpoint
+	mutationComponentReset
+	mutationStagedOutput
+	mutationDestinationRebind
 	mutationPublication
 	mutationPublicationResolution
 	mutationCleanup
@@ -446,6 +476,69 @@ func validateMutationAuthority(before, after Manifest, authority mutationAuthori
 		if !found {
 			return ErrMutationRejected
 		}
+	case mutationComponentCheckpoint:
+		found := false
+		if len(permitted.Components) != len(after.Components) {
+			return ErrMutationRejected
+		}
+		for index := range permitted.Components {
+			if permitted.Components[index].ID != authority.componentID {
+				continue
+			}
+			found = true
+			beforeComponent := before.Components[index]
+			afterComponent := after.Components[index]
+			if afterComponent.ObservedBytes < beforeComponent.ObservedBytes || afterComponent.CommittedBytes < beforeComponent.CommittedBytes ||
+				afterComponent.Checkpoint.RelativePath != beforeComponent.Checkpoint.RelativePath {
+				return ErrMutationRejected
+			}
+			permitted.Components[index].ObservedBytes = afterComponent.ObservedBytes
+			permitted.Components[index].CommittedBytes = afterComponent.CommittedBytes
+			permitted.Components[index].Checkpoint = afterComponent.Checkpoint
+		}
+		if !found {
+			return ErrMutationRejected
+		}
+	case mutationComponentReset:
+		found := false
+		if len(permitted.Components) != len(after.Components) {
+			return ErrMutationRejected
+		}
+		for index := range permitted.Components {
+			if permitted.Components[index].ID != authority.componentID {
+				continue
+			}
+			found = true
+			beforeComponent := before.Components[index]
+			afterComponent := after.Components[index]
+			if afterComponent.ObservedBytes != 0 || afterComponent.CommittedBytes != 0 ||
+				afterComponent.Checkpoint.RelativePath != beforeComponent.Checkpoint.RelativePath ||
+				afterComponent.Checkpoint.Digest != "" || afterComponent.Checkpoint.Sequence != 0 ||
+				afterComponent.Checkpoint.ETag != "" || afterComponent.Checkpoint.LastModified != "" || afterComponent.Checkpoint.Total != 0 {
+				return ErrMutationRejected
+			}
+			permitted.Components[index].ObservedBytes = 0
+			permitted.Components[index].CommittedBytes = 0
+			permitted.Components[index].Checkpoint = afterComponent.Checkpoint
+		}
+		if !found {
+			return ErrMutationRejected
+		}
+	case mutationStagedOutput:
+		if before.Phase != PhaseProcessing && before.Phase != PhaseReadyToPublish || before.Status != StatusActive ||
+			before.Publication == PublicationCommitted || before.Publication == PublicationIndeterminate ||
+			after.StagedFingerprint == "" || after.StagedBytes < 0 ||
+			after.Phase != before.Phase || after.Status != before.Status || after.Desired != before.Desired || after.Publication != before.Publication || after.RelativeDestination != before.RelativeDestination || after.LastTransition != before.LastTransition {
+			return ErrMutationRejected
+		}
+		permitted.StagedFingerprint = after.StagedFingerprint
+		permitted.StagedBytes = after.StagedBytes
+	case mutationDestinationRebind:
+		if before.Phase != PhaseReadyToPublish || before.Status == StatusActive || before.Publication == PublicationCommitted || before.Publication == PublicationIndeterminate ||
+			!isSafeRelativePath(after.RelativeDestination) || after.Phase != before.Phase || after.Status != before.Status || after.Desired != before.Desired || after.Publication != before.Publication || after.StagedFingerprint != before.StagedFingerprint || after.StagedBytes != before.StagedBytes || after.LastTransition != before.LastTransition {
+			return ErrMutationRejected
+		}
+		permitted.RelativeDestination = after.RelativeDestination
 	case mutationPublication:
 		if after.Phase != before.Phase || !validPublicationTransition(before.Publication, after.Publication, before.Phase) || (after.Publication != before.Publication && before.Status != StatusActive) {
 			return ErrMutationRejected
@@ -582,6 +675,79 @@ func (workspace *Workspace) SetComponentProgress(expectedRevision, expectedGener
 		if err := manifest.SetComponentProgress(id, observedBytes, committedBytes); err != nil {
 			return err
 		}
+		return nil
+	})
+}
+
+// SetComponentCheckpoint records a durable direct-transfer checkpoint and its
+// bounded validators after the downloader has flushed both payload and local
+// checkpoint state. The checkpoint path is immutable for the component.
+func (workspace *Workspace) SetComponentCheckpoint(expectedRevision, expectedGeneration uint64, id string, observedBytes, committedBytes int64, checkpoint CheckpointMetadata) error {
+	return workspace.update(expectedRevision, expectedGeneration, mutationAuthority{kind: mutationComponentCheckpoint, componentID: id}, func(manifest *Manifest) error {
+		for index := range manifest.Components {
+			if manifest.Components[index].ID != id {
+				continue
+			}
+			if checkpoint.RelativePath != manifest.Components[index].Checkpoint.RelativePath ||
+				observedBytes < manifest.Components[index].ObservedBytes || committedBytes < manifest.Components[index].CommittedBytes {
+				return ErrInvalidManifest
+			}
+			manifest.Components[index].ObservedBytes = observedBytes
+			manifest.Components[index].CommittedBytes = committedBytes
+			manifest.Components[index].Checkpoint = checkpoint
+			return nil
+		}
+		return ErrInvalidManifest
+	})
+}
+
+// ResetComponent discards a component's durable progress after the remote
+// representation fails the strong-equivalence check. The caller owns the
+// corresponding payload reset; this method only changes manifest authority.
+func (workspace *Workspace) ResetComponent(expectedRevision, expectedGeneration uint64, id string, now time.Time) error {
+	return workspace.update(expectedRevision, expectedGeneration, mutationAuthority{kind: mutationComponentReset, componentID: id}, func(manifest *Manifest) error {
+		if now.IsZero() {
+			return ErrInvalidManifest
+		}
+		for index := range manifest.Components {
+			if manifest.Components[index].ID != id {
+				continue
+			}
+			path := manifest.Components[index].Checkpoint.RelativePath
+			manifest.Components[index].ObservedBytes = 0
+			manifest.Components[index].CommittedBytes = 0
+			manifest.Components[index].Checkpoint = CheckpointMetadata{RelativePath: path}
+			manifest.UpdatedAt = now.UTC()
+			return nil
+		}
+		return ErrInvalidManifest
+	})
+}
+
+// SetStagedOutput records the fingerprint of a fully fsynced staged output.
+// It is separate from publication state so a crash can distinguish a staged
+// artifact from a destination commit.
+func (workspace *Workspace) SetStagedOutput(expectedRevision, expectedGeneration uint64, fingerprint string, bytes int64) error {
+	return workspace.update(expectedRevision, expectedGeneration, mutationAuthority{kind: mutationStagedOutput}, func(manifest *Manifest) error {
+		if fingerprint == "" || bytes < 0 {
+			return ErrInvalidManifest
+		}
+		manifest.StagedFingerprint = fingerprint
+		manifest.StagedBytes = bytes
+		return nil
+	})
+}
+
+// RebindRelativeDestination changes the reserved basename after a durable
+// destination collision. It is legal only for a failed/paused ready-to-publish
+// session; completed publication and indeterminate evidence are immutable.
+func (workspace *Workspace) RebindRelativeDestination(expectedRevision, expectedGeneration uint64, relative string, now time.Time) error {
+	return workspace.update(expectedRevision, expectedGeneration, mutationAuthority{kind: mutationDestinationRebind}, func(manifest *Manifest) error {
+		if !isSafeRelativePath(relative) || now.IsZero() || manifest.Phase != PhaseReadyToPublish || manifest.Status == StatusActive || manifest.Publication == PublicationCommitted || manifest.Publication == PublicationIndeterminate {
+			return ErrInvalidTransition
+		}
+		manifest.RelativeDestination = relative
+		manifest.UpdatedAt = now.UTC()
 		return nil
 	})
 }

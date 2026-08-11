@@ -30,6 +30,7 @@ const (
 	maxComponentIdentifier = 256
 	maxCheckpointPath      = 1024
 	maxSourceField         = 4096
+	maxCheckpointValidator = 1024
 )
 
 var (
@@ -135,6 +136,12 @@ type CheckpointMetadata struct {
 	RelativePath string `json:"relative_path,omitempty"`
 	Digest       string `json:"digest,omitempty"`
 	Sequence     uint64 `json:"sequence,omitempty"`
+	// ETag and LastModified are bounded remote representation validators. They
+	// are safe checkpoint metadata, not request material; URLs, headers,
+	// cookies, and credentials must never be added here.
+	ETag         string `json:"etag,omitempty"`
+	LastModified string `json:"last_modified,omitempty"`
+	Total        int64  `json:"total,omitempty"`
 }
 
 // Component records both observed progress and the last progress known to be
@@ -176,6 +183,8 @@ type Manifest struct {
 	UpdatedAt           time.Time        `json:"updated_at"`
 	LastTransition      TransitionRecord `json:"last_transition,omitempty"`
 	Publication         PublicationState `json:"publication_state"`
+	StagedFingerprint   string           `json:"staged_fingerprint,omitempty"`
+	StagedBytes         int64            `json:"staged_bytes,omitempty"`
 	Cleanup             CleanupState     `json:"cleanup_state"`
 }
 
@@ -190,7 +199,10 @@ type WorkspaceRef struct {
 // CreateOptions contains only safe session intent. RelativeDestination is a
 // slash-separated path below OutputRoot and is validated before persistence.
 type CreateOptions struct {
-	OutputRoot          string
+	OutputRoot string
+	// OutputRootIdentity optionally binds the workspace to a previously
+	// validated root. It is intentionally opaque and is never serialized.
+	OutputRootIdentity  string
 	Source              SourceIntent
 	Output              OutputIntent
 	RelativeDestination string
@@ -676,7 +688,7 @@ func validateCheckpoint(checkpoint CheckpointMetadata) error {
 		if len(checkpoint.RelativePath) > maxCheckpointPath || !isCheckpointRelativePath(checkpoint.RelativePath) {
 			return ErrUnsafePath
 		}
-	} else if checkpoint.Digest != "" || checkpoint.Sequence != 0 {
+	} else if checkpoint.Digest != "" || checkpoint.Sequence != 0 || checkpoint.ETag != "" || checkpoint.LastModified != "" || checkpoint.Total != 0 {
 		return ErrInvalidManifest
 	}
 	if checkpoint.Digest != "" {
@@ -686,6 +698,11 @@ func validateCheckpoint(checkpoint CheckpointMetadata) error {
 		if _, err := hex.DecodeString(checkpoint.Digest); err != nil || checkpoint.Digest != strings.ToLower(checkpoint.Digest) {
 			return ErrInvalidManifest
 		}
+	}
+	if len(checkpoint.ETag) > maxCheckpointValidator || strings.ContainsAny(checkpoint.ETag, "\x00\r\n") ||
+		len(checkpoint.LastModified) > maxCheckpointValidator || strings.ContainsAny(checkpoint.LastModified, "\x00\r\n") ||
+		checkpoint.Total < 0 || checkpoint.Total > 8<<30 {
+		return ErrInvalidManifest
 	}
 	return nil
 }
@@ -758,6 +775,17 @@ func (manifest Manifest) Validate() error {
 		return ErrInvalidManifest
 	}
 	if manifest.Publication != PublicationNotStarted && manifest.Publication != PublicationPending && manifest.Publication != PublicationCommitted && manifest.Publication != PublicationIndeterminate {
+		return ErrInvalidManifest
+	}
+	if manifest.StagedFingerprint != "" {
+		if len(manifest.StagedFingerprint) != sha256.Size*2 || manifest.StagedFingerprint != strings.ToLower(manifest.StagedFingerprint) {
+			return ErrInvalidManifest
+		}
+		if _, err := hex.DecodeString(manifest.StagedFingerprint); err != nil {
+			return ErrInvalidManifest
+		}
+	}
+	if manifest.StagedBytes < 0 || manifest.StagedBytes > 8<<30 {
 		return ErrInvalidManifest
 	}
 	if manifest.Cleanup != CleanupPending && manifest.Cleanup != CleanupComplete && manifest.Cleanup != CleanupIndeterminate {
