@@ -656,16 +656,17 @@ func TestCheckpointNoClobberWhenDestinationAppearsBeforeCommit(t *testing.T) {
 	destination := filepath.Join(root, "out")
 	job := checkpointTestJob(root, destination, "format=mp4;track=video", []Segment{{URL: server.URL}})
 	engine := New(transport)
-	productionWrite := engine.writeAtomic
+	engine.replaceAtomic = func(string, string) error {
+		t.Fatal("overwrite=false called replacement publisher")
+		return nil
+	}
+	productionPublish := engine.publishNoClobber
 	lateMedia := []byte("late-existing-media")
-	engine.writeAtomic = func(path string, mode os.FileMode, encode func(io.Writer) error) error {
-		if err := productionWrite(path, mode, encode); err != nil {
+	engine.publishNoClobber = func(source, destination string) error {
+		if err := os.WriteFile(destination, lateMedia, 0o600); err != nil {
 			return err
 		}
-		if filepath.Base(path) == publicationMarker {
-			return os.WriteFile(destination, lateMedia, 0o600)
-		}
-		return nil
+		return productionPublish(source, destination)
 	}
 	_, err := engine.Download(context.Background(), job, nil)
 	if !errors.Is(err, ErrCheckpointReconciliation) {
@@ -674,6 +675,45 @@ func TestCheckpointNoClobberWhenDestinationAppearsBeforeCommit(t *testing.T) {
 	contents, readErr := os.ReadFile(destination)
 	if readErr != nil || string(contents) != string(lateMedia) {
 		t.Fatalf("late destination was damaged: %q, %v", contents, readErr)
+	}
+	if _, markerErr := os.Stat(filepath.Join(job.Checkpoint.Directory, publicationMarker)); markerErr != nil {
+		t.Fatalf("no-clobber failure lost publication evidence: %v", markerErr)
+	}
+}
+
+func TestCheckpointNoClobberPublicationCommitOutcomes(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		committed     bool
+		indeterminate bool
+	}{
+		{name: "committed-with-error", committed: true},
+		{name: "indeterminate", indeterminate: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				_, _ = writer.Write([]byte("downloaded"))
+			}))
+			defer server.Close()
+			transport, _ := network.New(network.Config{})
+			root := t.TempDir()
+			destination := filepath.Join(root, "out")
+			job := checkpointTestJob(root, destination, "format=mp4;track=video", []Segment{{URL: server.URL}})
+			engine := New(transport)
+			injected := &checkpointCommitError{name: test.name, committed: test.committed, indeterminate: test.indeterminate}
+			engine.publishNoClobber = func(string, string) error { return injected }
+			_, err := engine.Download(context.Background(), job, nil)
+			if !errors.Is(err, injected) || !errors.Is(err, ErrCheckpointReconciliation) {
+				t.Fatalf("no-clobber publication error = %v", err)
+			}
+			var commitErr atomicfile.CommitError
+			if !errors.As(err, &commitErr) || commitErr.Committed() != test.committed || commitErr.Indeterminate() != test.indeterminate {
+				t.Fatalf("no-clobber outcome = %#v, %v", commitErr, err)
+			}
+			if _, markerErr := os.Stat(filepath.Join(job.Checkpoint.Directory, publicationMarker)); markerErr != nil {
+				t.Fatalf("publication marker missing: %v", markerErr)
+			}
+		})
 	}
 }
 

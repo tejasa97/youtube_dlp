@@ -147,17 +147,19 @@ type fragmentOutcome struct {
 }
 
 type Engine struct {
-	transport     network.Doer
-	writeAtomic   func(string, os.FileMode, func(io.Writer) error) error
-	replaceAtomic func(string, string) error
-	removeAll     func(string) error
-	cleanupOps    checkpointCleanupOps
+	transport        network.Doer
+	writeAtomic      func(string, os.FileMode, func(io.Writer) error) error
+	replaceAtomic    func(string, string) error
+	publishNoClobber func(string, string) error
+	removeAll        func(string) error
+	cleanupOps       checkpointCleanupOps
 }
 
 func New(transport network.Doer) *Engine {
 	return &Engine{
 		transport: transport, writeAtomic: atomicfile.Write, replaceAtomic: atomicfile.Replace,
-		removeAll: os.RemoveAll, cleanupOps: productionCheckpointCleanupOps,
+		publishNoClobber: publishNoClobber,
+		removeAll:        os.RemoveAll, cleanupOps: productionCheckpointCleanupOps,
 	}
 }
 
@@ -694,31 +696,22 @@ func (engine *Engine) assemble(ctx context.Context, workDir string, count int, d
 		// makes every interrupted or failed outcome explicitly reconcilable.
 		retainTemporary = true
 	}
-	if !overwrite {
-		reservation, reserveErr := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-		if reserveErr != nil {
-			if durable {
-				return 0, checkpointFailure(ErrCheckpointReconciliation, "final destination appeared before no-clobber publication", reserveErr)
-			}
-			return 0, reserveErr
-		}
-		if closeErr := reservation.Close(); closeErr != nil {
-			if durable {
-				return 0, checkpointFailure(ErrCheckpointReconciliation, "close no-clobber destination reservation", closeErr)
-			}
-			return 0, closeErr
-		}
+	var publicationErr error
+	if overwrite {
+		publicationErr = engine.replaceAtomic(temporary, destination)
+	} else {
+		publicationErr = engine.publishNoClobber(temporary, destination)
 	}
-	if err := engine.replaceAtomic(temporary, destination); err != nil {
+	if publicationErr != nil {
 		if durable {
 			var commitErr atomicfile.CommitError
-			if errors.As(err, &commitErr) && (commitErr.Committed() || commitErr.Indeterminate()) {
+			if errors.As(publicationErr, &commitErr) && (commitErr.Committed() || commitErr.Indeterminate()) {
 				markerErr := writeReconciliationMarker(workDir, "final publication authority is uncertain")
-				return 0, checkpointFailure(ErrCheckpointReconciliation, "final publication did not settle durably", errors.Join(err, markerErr))
+				return 0, checkpointFailure(ErrCheckpointReconciliation, "final publication did not settle durably", errors.Join(publicationErr, markerErr))
 			}
-			return 0, checkpointFailure(ErrCheckpointReconciliation, "final publication failed before commit and retained recoverable evidence", err)
+			return 0, checkpointFailure(ErrCheckpointReconciliation, "final publication failed before commit and retained recoverable evidence", publicationErr)
 		}
-		return 0, err
+		return 0, publicationErr
 	}
 	committed = true
 	return total, nil
