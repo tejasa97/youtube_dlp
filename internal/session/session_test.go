@@ -72,6 +72,15 @@ func requireClasses(t *testing.T, inspection Inspection, expected ...InspectionC
 	}
 }
 
+func requireNoClass(t *testing.T, inspection Inspection, unexpected InspectionClass) {
+	t.Helper()
+	for _, actual := range inspection.Classifications {
+		if actual == unexpected {
+			t.Fatalf("inspection classes = %v, unexpectedly contained %q", inspection.Classifications, unexpected)
+		}
+	}
+}
+
 func TestCreateOpenInspectAndOwnerOnlyLayout(t *testing.T) {
 	workspace, ref := createTestWorkspace(t)
 	path := workspace.Path()
@@ -120,12 +129,12 @@ func TestCreateOpenInspectAndOwnerOnlyLayout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !inspection.HasManifest || inspection.Manifest.SessionID != ref.SessionID {
-		t.Fatalf("inspection = %+v", inspection)
-	}
 	requireClasses(t, inspection, InspectionLeaseContended)
 	if !inspection.LeaseContended {
 		t.Fatal("same-process lease was not contended")
+	}
+	if inspection.HasManifest {
+		t.Fatal("contended inspection read a manifest without authority")
 	}
 
 	if err := workspace.Close(); err != nil {
@@ -170,11 +179,7 @@ func TestManifestAllowsExtractionWithoutDestinationButRequiresItBeforeDownload(t
 	if err := workspace.Transition(manifest.Revision, manifest.RunGeneration, PhaseDownloading, StatusActive, DesiredRunning, testNow.Add(2*time.Minute)); !errors.Is(err, ErrInvalidTransition) {
 		t.Fatalf("empty destination transition error = %v, want invalid transition", err)
 	}
-	if err := workspace.Update(manifest.Revision, manifest.RunGeneration, func(candidate *Manifest) error {
-		candidate.RelativeDestination = "downloads/video.mp4"
-		candidate.UpdatedAt = testNow.Add(3 * time.Minute)
-		return nil
-	}); err != nil {
+	if err := workspace.SetRelativeDestination(manifest.Revision, manifest.RunGeneration, "downloads/video.mp4", testNow.Add(3*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	manifest = workspace.Manifest()
@@ -249,6 +254,96 @@ func TestPausedProcessingResumeNormalizesToCommittedBytesAndNewGeneration(t *tes
 	boundaries := paused.ResumeBoundaries()
 	if len(boundaries) != 2 || boundaries[0].ComponentID != "audio" || boundaries[1].ComponentID != "video" || boundaries[1].DurableBytes != 96 || boundaries[1].DiscardBytes != 32 {
 		t.Fatalf("resume boundaries = %+v", boundaries)
+	}
+}
+
+func TestRestartAuthorityAndPendingIntentCannotBeBypassed(t *testing.T) {
+	workspace, _ := createTestWorkspace(t)
+	defer workspace.Close()
+	manifest := workspace.Manifest()
+	if err := workspace.Resume(manifest.Revision, manifest.RunGeneration, testNow.Add(time.Minute)); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("resume from active error = %v", err)
+	}
+	if err := workspace.Transition(manifest.Revision, manifest.RunGeneration, PhaseExtracting, StatusActive, DesiredRunning, testNow.Add(2*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	manifest = workspace.Manifest()
+	if err := workspace.Transition(manifest.Revision, manifest.RunGeneration, PhaseExtracting, StatusPaused, DesiredPaused, testNow.Add(3*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	paused := workspace.Manifest()
+	if err := workspace.Transition(paused.Revision, paused.RunGeneration, PhaseExtracting, StatusActive, DesiredRunning, testNow.Add(4*time.Minute)); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("generic restart error = %v", err)
+	}
+	if err := workspace.Resume(paused.Revision, paused.RunGeneration, testNow.Add(5*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	resumed := workspace.Manifest()
+	if resumed.RunGeneration != paused.RunGeneration+1 {
+		t.Fatalf("resume generation = %d, want %d", resumed.RunGeneration, paused.RunGeneration+1)
+	}
+	if err := workspace.SetDesired(resumed.Revision, resumed.RunGeneration, DesiredPaused, testNow.Add(6*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	pending := workspace.Manifest()
+	if err := workspace.Transition(pending.Revision, pending.RunGeneration, PhaseDownloading, StatusActive, DesiredRunning, testNow.Add(7*time.Minute)); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("phase progression overwrote pending pause: %v", err)
+	}
+	if err := workspace.Transition(pending.Revision, pending.RunGeneration, PhaseDownloading, StatusActive, DesiredPaused, testNow.Add(7*time.Minute)); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("phase progression ignored pending pause: %v", err)
+	}
+	if err := workspace.Transition(pending.Revision, pending.RunGeneration, PhaseExtracting, StatusPaused, DesiredPaused, testNow.Add(8*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInternalMutationAuthorityRejectsFieldBypass(t *testing.T) {
+	workspace, _ := createTestWorkspace(t)
+	defer workspace.Close()
+	manifest := workspace.Manifest()
+	if err := workspace.update(manifest.Revision, manifest.RunGeneration, mutationAuthority{kind: mutationDesired}, func(candidate *Manifest) error {
+		candidate.Publication = PublicationCommitted
+		candidate.UpdatedAt = testNow.Add(time.Minute)
+		return nil
+	}); !errors.Is(err, ErrMutationRejected) {
+		t.Fatalf("publication authority bypass error = %v", err)
+	}
+	if err := workspace.update(manifest.Revision, manifest.RunGeneration, mutationAuthority{kind: mutationPublication}, func(candidate *Manifest) error {
+		candidate.Publication = PublicationCommitted
+		candidate.UpdatedAt = testNow.Add(time.Minute)
+		return nil
+	}); !errors.Is(err, ErrMutationRejected) {
+		t.Fatalf("publication fast-forward with publication authority error = %v", err)
+	}
+	if err := workspace.update(manifest.Revision, manifest.RunGeneration, mutationAuthority{kind: mutationCleanup}, func(candidate *Manifest) error {
+		candidate.Cleanup = CleanupComplete
+		candidate.UpdatedAt = testNow.Add(time.Minute)
+		return nil
+	}); !errors.Is(err, ErrMutationRejected) {
+		t.Fatalf("active cleanup with cleanup authority error = %v", err)
+	}
+	if err := workspace.update(manifest.Revision, manifest.RunGeneration, mutationAuthority{kind: mutationComponentProgress, componentID: "video"}, func(candidate *Manifest) error {
+		candidate.Components[1].ObservedBytes = 80
+		candidate.Components[1].CommittedBytes = 64
+		candidate.UpdatedAt = testNow.Add(time.Minute)
+		return nil
+	}); !errors.Is(err, ErrMutationRejected) {
+		t.Fatalf("committed-byte regression error = %v", err)
+	}
+	if err := workspace.update(manifest.Revision, manifest.RunGeneration, mutationAuthority{kind: mutationComponentProgress, componentID: "video"}, func(candidate *Manifest) error {
+		candidate.Components[1].Checkpoint.RelativePath = "checkpoints/reassigned.json"
+		candidate.UpdatedAt = testNow.Add(time.Minute)
+		return nil
+	}); !errors.Is(err, ErrMutationRejected) {
+		t.Fatalf("checkpoint ownership rewrite error = %v", err)
+	}
+	if err := workspace.update(manifest.Revision, manifest.RunGeneration, mutationAuthority{kind: mutationDesired}, func(candidate *Manifest) error {
+		candidate.CreatedAt = candidate.CreatedAt.Add(time.Second)
+		candidate.LastTransition = TransitionRecord{FromPhase: PhasePrepared, FromStatus: StatusActive, ToPhase: PhasePrepared, ToStatus: StatusActive, At: testNow.Add(time.Minute)}
+		candidate.UpdatedAt = testNow.Add(time.Minute)
+		return nil
+	}); !errors.Is(err, ErrMutationRejected) {
+		t.Fatalf("timestamp/transition authority bypass error = %v", err)
 	}
 }
 
@@ -328,11 +423,30 @@ func TestManifestCrossFieldAndIdentityValidation(t *testing.T) {
 		{name: "indeterminate publication without reconciliation", mutate: func(manifest *Manifest) {
 			manifest.Publication = PublicationIndeterminate
 		}},
+		{name: "committed publication before ready", mutate: func(manifest *Manifest) {
+			manifest.Publication = PublicationCommitted
+		}},
+		{name: "cleanup complete while active", mutate: func(manifest *Manifest) {
+			manifest.Cleanup = CleanupComplete
+		}},
+		{name: "cleanup indeterminate without reconciliation", mutate: func(manifest *Manifest) {
+			manifest.Cleanup = CleanupIndeterminate
+		}},
+		{name: "cleanup reconciliation without terminal origin", mutate: func(manifest *Manifest) {
+			manifest.Status = StatusNeedsReconciliation
+			manifest.Desired = DesiredPaused
+			manifest.Cleanup = CleanupComplete
+			manifest.LastTransition = TransitionRecord{FromPhase: PhasePrepared, FromStatus: StatusActive, ToPhase: PhasePrepared, ToStatus: StatusNeedsReconciliation, At: testNow.Add(time.Minute)}
+			manifest.UpdatedAt = testNow.Add(time.Minute)
+		}},
 		{name: "missing provider", mutate: func(manifest *Manifest) {
 			manifest.Source.Provider = ""
 		}},
 		{name: "missing component id", mutate: func(manifest *Manifest) {
 			manifest.Components[0].ID = ""
+		}},
+		{name: "committed bytes without checkpoint location", mutate: func(manifest *Manifest) {
+			manifest.Components[0].Checkpoint = CheckpointMetadata{}
 		}},
 		{name: "transition target mismatch", mutate: func(manifest *Manifest) {
 			manifest.LastTransition = TransitionRecord{FromPhase: PhasePrepared, FromStatus: StatusActive, ToPhase: PhaseExtracting, ToStatus: StatusActive, At: testNow}
@@ -362,12 +476,8 @@ func TestPublicationAndCleanupStateAreMonotonic(t *testing.T) {
 	if err := workspace.SetPublicationState(manifest.Revision, manifest.RunGeneration, PublicationCommitted, testNow.Add(time.Minute)); !errors.Is(err, ErrInvalidTransition) {
 		t.Fatalf("committed during prepared error = %v", err)
 	}
-	if err := workspace.SetCleanupState(manifest.Revision, manifest.RunGeneration, CleanupComplete, testNow.Add(time.Minute)); err != nil {
-		t.Fatal(err)
-	}
-	manifest = workspace.Manifest()
-	if err := workspace.SetCleanupState(manifest.Revision, manifest.RunGeneration, CleanupPending, testNow.Add(2*time.Minute)); !errors.Is(err, ErrInvalidManifest) && !errors.Is(err, ErrInvalidTransition) {
-		t.Fatalf("cleanup rollback error = %v", err)
+	if err := workspace.SetCleanupState(manifest.Revision, manifest.RunGeneration, CleanupComplete, testNow.Add(time.Minute)); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("cleanup during active prepared error = %v", err)
 	}
 
 	for _, phase := range []Phase{PhaseExtracting, PhaseDownloading, PhaseReadyToPublish} {
@@ -390,6 +500,17 @@ func TestPublicationAndCleanupStateAreMonotonic(t *testing.T) {
 	}
 	if err := workspace.SetPublicationState(manifest.Revision, manifest.RunGeneration, PublicationIndeterminate, testNow.Add(12*time.Minute)); !errors.Is(err, ErrInvalidTransition) {
 		t.Fatalf("publication fast-forward error = %v", err)
+	}
+	if err := workspace.Transition(manifest.Revision, manifest.RunGeneration, PhaseCompleted, StatusCompleted, DesiredRunning, testNow.Add(13*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	manifest = workspace.Manifest()
+	if err := workspace.SetCleanupState(manifest.Revision, manifest.RunGeneration, CleanupComplete, testNow.Add(14*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	manifest = workspace.Manifest()
+	if err := workspace.SetCleanupState(manifest.Revision, manifest.RunGeneration, CleanupPending, testNow.Add(15*time.Minute)); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("cleanup rollback error = %v", err)
 	}
 
 	// A pending publication can become indeterminate, but only the dedicated
@@ -425,6 +546,93 @@ func TestPublicationAndCleanupStateAreMonotonic(t *testing.T) {
 	if err := workspace2.ResolveReconciliation(resolved.Revision, resolved.RunGeneration, StatusCompleted, DesiredRunning, testNow.Add(33*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
+
+	workspace3, _ := createTestWorkspace(t)
+	defer workspace3.Close()
+	manifest = workspace3.Manifest()
+	if err := workspace3.Transition(manifest.Revision, manifest.RunGeneration, PhasePrepared, StatusFailed, DesiredRunning, testNow.Add(40*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	manifest = workspace3.Manifest()
+	if err := workspace3.SetCleanupState(manifest.Revision, manifest.RunGeneration, CleanupIndeterminate, testNow.Add(41*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	needs = workspace3.Manifest()
+	if needs.Status != StatusNeedsReconciliation || needs.Cleanup != CleanupIndeterminate {
+		t.Fatalf("indeterminate cleanup did not fail closed: %+v", needs)
+	}
+	if err := workspace3.ResolveReconciliation(needs.Revision, needs.RunGeneration, StatusFailed, DesiredPaused, testNow.Add(42*time.Minute)); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("unresolved cleanup reconciliation error = %v", err)
+	}
+	if err := workspace3.ResolveCleanup(needs.Revision, needs.RunGeneration, CleanupComplete, testNow.Add(43*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	resolved = workspace3.Manifest()
+	if err := workspace3.ResolveReconciliation(resolved.Revision, resolved.RunGeneration, StatusFailed, DesiredPaused, testNow.Add(44*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+
+	workspace4, _ := createTestWorkspace(t)
+	defer workspace4.Close()
+	for _, phase := range []Phase{PhaseExtracting, PhaseDownloading, PhaseReadyToPublish} {
+		manifest = workspace4.Manifest()
+		if err := workspace4.Transition(manifest.Revision, manifest.RunGeneration, phase, StatusActive, DesiredRunning, testNow.Add(time.Duration(manifest.Revision+50)*time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	manifest = workspace4.Manifest()
+	if err := workspace4.SetPublicationState(manifest.Revision, manifest.RunGeneration, PublicationPending, testNow.Add(60*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	manifest = workspace4.Manifest()
+	if err := workspace4.SetPublicationState(manifest.Revision, manifest.RunGeneration, PublicationIndeterminate, testNow.Add(61*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	needs = workspace4.Manifest()
+	if err := workspace4.ResolvePublication(needs.Revision, needs.RunGeneration, PublicationPending, testNow.Add(62*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	resolved = workspace4.Manifest()
+	if resolved.Publication != PublicationPending || resolved.Status != StatusNeedsReconciliation {
+		t.Fatalf("publication retry resolution = %+v", resolved)
+	}
+	if err := workspace4.ResolveReconciliation(resolved.Revision, resolved.RunGeneration, StatusPaused, DesiredPaused, testNow.Add(63*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	paused := workspace4.Manifest()
+	if err := workspace4.Resume(paused.Revision, paused.RunGeneration, testNow.Add(64*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	manifest = workspace4.Manifest()
+	if err := workspace4.SetPublicationState(manifest.Revision, manifest.RunGeneration, PublicationCommitted, testNow.Add(65*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+
+	workspace5, _ := createTestWorkspace(t)
+	defer workspace5.Close()
+	manifest = workspace5.Manifest()
+	if err := workspace5.Transition(manifest.Revision, manifest.RunGeneration, PhasePrepared, StatusFailed, DesiredRunning, testNow.Add(70*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	manifest = workspace5.Manifest()
+	if err := workspace5.SetCleanupState(manifest.Revision, manifest.RunGeneration, CleanupIndeterminate, testNow.Add(71*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	needs = workspace5.Manifest()
+	if err := workspace5.ResolveCleanup(needs.Revision, needs.RunGeneration, CleanupPending, testNow.Add(72*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	resolved = workspace5.Manifest()
+	if resolved.Cleanup != CleanupPending || resolved.Status != StatusNeedsReconciliation {
+		t.Fatalf("cleanup retry resolution = %+v", resolved)
+	}
+	if err := workspace5.ResolveReconciliation(resolved.Revision, resolved.RunGeneration, StatusFailed, DesiredRunning, testNow.Add(73*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	manifest = workspace5.Manifest()
+	if err := workspace5.SetCleanupState(manifest.Revision, manifest.RunGeneration, CleanupComplete, testNow.Add(74*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestStaleRevisionAndGenerationMutationsAreRejected(t *testing.T) {
@@ -435,10 +643,7 @@ func TestStaleRevisionAndGenerationMutationsAreRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 	current := workspace.Manifest()
-	if err := workspace.Update(initial.Revision, initial.RunGeneration, func(candidate *Manifest) error {
-		candidate.Desired = DesiredPaused
-		return nil
-	}); !errors.Is(err, ErrStaleMutation) {
+	if err := workspace.SetDesired(initial.Revision, initial.RunGeneration, DesiredPaused, testNow.Add(2*time.Minute)); !errors.Is(err, ErrStaleMutation) {
 		t.Fatalf("stale revision error = %v", err)
 	}
 	if err := workspace.Transition(current.Revision, current.RunGeneration, PhaseExtracting, StatusPaused, DesiredPaused, testNow.Add(2*time.Minute)); err != nil {
@@ -452,10 +657,7 @@ func TestStaleRevisionAndGenerationMutationsAreRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 	resumed := workspace.Manifest()
-	if err := workspace.Update(paused.Revision, paused.RunGeneration, func(candidate *Manifest) error {
-		candidate.Desired = DesiredCanceled
-		return nil
-	}); !errors.Is(err, ErrStaleMutation) {
+	if err := workspace.SetDesired(paused.Revision, paused.RunGeneration, DesiredCanceled, testNow.Add(5*time.Minute)); !errors.Is(err, ErrStaleMutation) {
 		t.Fatalf("stale pre-resume worker error = %v", err)
 	}
 	if resumed.RunGeneration != paused.RunGeneration+1 {
@@ -474,11 +676,7 @@ func TestConcurrentExpectedRevisionAllowsOnlyOneMutation(t *testing.T) {
 		wait.Add(1)
 		go func(index int) {
 			defer wait.Done()
-			results <- workspace.Update(manifest.Revision, manifest.RunGeneration, func(candidate *Manifest) error {
-				candidate.Desired = DesiredRunning
-				candidate.UpdatedAt = testNow.Add(time.Duration(index+1) * time.Second)
-				return nil
-			})
+			results <- workspace.SetDesired(manifest.Revision, manifest.RunGeneration, DesiredRunning, testNow.Add(time.Duration(index+1)*time.Second))
 		}(index)
 	}
 	wait.Wait()
@@ -571,8 +769,11 @@ func TestManifestAtomicCommitOutcomes(t *testing.T) {
 				t.Fatalf("precommit/indeterminate in-memory phase = %q, want %q", got, before.Phase)
 			}
 			if test.indeterminate {
-				if err := workspace.Update(before.Revision, before.RunGeneration, func(candidate *Manifest) error { return nil }); !errors.Is(err, ErrNeedsReconciliation) {
+				if err := workspace.SetDesired(before.Revision, before.RunGeneration, DesiredPaused, testNow.Add(2*time.Minute)); !errors.Is(err, ErrNeedsReconciliation) {
 					t.Fatalf("post-indeterminate mutation error = %v", err)
+				}
+				if err := workspace.Close(); err != nil {
+					t.Fatal(err)
 				}
 				if inspection, inspectErr := Inspect(workspace.Ref()); inspectErr != nil {
 					t.Fatal(inspectErr)
@@ -625,7 +826,7 @@ func TestCreatePreservesRecoverableRefForCommittedAndIndeterminateOutcomes(t *te
 				t.Fatalf("create error = %v, outcome = %v/%v", err, outcome.Committed(), outcome.Indeterminate())
 			}
 			if test.indeterminate {
-				if err := workspace.Update(1, 1, func(candidate *Manifest) error { return nil }); !errors.Is(err, ErrNeedsReconciliation) {
+				if err := workspace.SetDesired(1, 1, DesiredPaused, testNow.Add(time.Minute)); !errors.Is(err, ErrNeedsReconciliation) {
 					t.Fatalf("indeterminate create allowed mutation: %v", err)
 				}
 			}
@@ -711,6 +912,37 @@ func TestOpenAndInspectFailClosedForMissingLeaseAndAtomicEvidence(t *testing.T) 
 	}
 	if _, err := Open(ref); !errors.Is(err, ErrNeedsReconciliation) {
 		t.Fatalf("Open atomic evidence error = %v", err)
+	}
+	inspection, err = Inspect(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireClasses(t, inspection, InspectionManifestIndeterminate)
+}
+
+func TestLeaseContentionPrecedesTransientAtomicEvidence(t *testing.T) {
+	workspace, ref := createTestWorkspace(t)
+	evidence := filepath.Join(workspace.Path(), ".atomic-in-flight")
+	if err := os.WriteFile(evidence, []byte("candidate"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(ref); !errors.Is(err, ErrLeaseContended) {
+		t.Fatalf("Open in-flight evidence error = %v, want lease contention", err)
+	}
+	inspection, err := Inspect(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireClasses(t, inspection, InspectionLeaseContended)
+	requireNoClass(t, inspection, InspectionManifestIndeterminate)
+	if inspection.HasManifest || inspection.CommitIndeterminate {
+		t.Fatalf("contended inspection treated transient evidence as authoritative: %+v", inspection)
+	}
+	if err := workspace.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(ref); !errors.Is(err, ErrNeedsReconciliation) {
+		t.Fatalf("Open retained evidence error = %v", err)
 	}
 	inspection, err = Inspect(ref)
 	if err != nil {
@@ -897,6 +1129,51 @@ func TestCheckpointSymlinkRejection(t *testing.T) {
 	if err != nil || string(data) != "safe" {
 		t.Fatalf("outside checkpoint changed: %q, %v", data, err)
 	}
+}
+
+func TestCheckpointNamespaceOwnershipAndCoherence(t *testing.T) {
+	for _, relative := range []string{
+		ManifestFileName,
+		LeaseFileName,
+		".atomic-component",
+		"other/video.json",
+		CheckpointDirectoryName + "/.atomic-component",
+		CheckpointDirectoryName + "/" + ManifestFileName,
+		CheckpointDirectoryName + "/" + LeaseFileName,
+	} {
+		t.Run(relative, func(t *testing.T) {
+			options := testCreateOptions(t.TempDir())
+			options.Components[0].Checkpoint.RelativePath = relative
+			if _, err := Create(options); err == nil {
+				t.Fatalf("checkpoint path %q was accepted", relative)
+			}
+		})
+	}
+
+	t.Run("duplicate paths", func(t *testing.T) {
+		options := testCreateOptions(t.TempDir())
+		options.Components[1].Checkpoint.RelativePath = options.Components[0].Checkpoint.RelativePath
+		if _, err := Create(options); err == nil {
+			t.Fatal("duplicate component checkpoint paths were accepted")
+		}
+	})
+
+	t.Run("ancestor overlap", func(t *testing.T) {
+		options := testCreateOptions(t.TempDir())
+		options.Components[0].Checkpoint.RelativePath = CheckpointDirectoryName + "/shared"
+		options.Components[1].Checkpoint.RelativePath = CheckpointDirectoryName + "/shared/child.json"
+		if _, err := Create(options); err == nil {
+			t.Fatal("ancestor-overlapping checkpoint paths were accepted")
+		}
+	})
+
+	t.Run("committed bytes require location", func(t *testing.T) {
+		options := testCreateOptions(t.TempDir())
+		options.Components[0].Checkpoint = CheckpointMetadata{}
+		if _, err := Create(options); err == nil {
+			t.Fatal("committed bytes without an owned checkpoint location were accepted")
+		}
+	})
 }
 
 func TestOutputIntentRejectsSecretBearingPlanIdentity(t *testing.T) {

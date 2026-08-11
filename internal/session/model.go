@@ -20,9 +20,10 @@ const (
 	// package. A future reader must reject versions it does not understand.
 	ManifestSchemaVersion = 1
 
-	SessionsDirectoryName = ".ytdlp-sessions"
-	ManifestFileName      = "manifest.json"
-	LeaseFileName         = ".lease"
+	SessionsDirectoryName   = ".ytdlp-sessions"
+	ManifestFileName        = "manifest.json"
+	LeaseFileName           = ".lease"
+	CheckpointDirectoryName = "checkpoints"
 
 	maxManifestBytes       = 1 << 20
 	maxComponents          = 4096
@@ -251,6 +252,9 @@ func (manifest *Manifest) SetComponentProgress(id string, observedBytes, committ
 	}
 	for index := range manifest.Components {
 		if manifest.Components[index].ID == id {
+			if observedBytes < manifest.Components[index].ObservedBytes || committedBytes < manifest.Components[index].CommittedBytes || (committedBytes > 0 && manifest.Components[index].Checkpoint.RelativePath == "") {
+				return ErrInvalidManifest
+			}
 			manifest.Components[index].ObservedBytes = observedBytes
 			manifest.Components[index].CommittedBytes = committedBytes
 			return nil
@@ -315,8 +319,17 @@ func CanTransition(from, to LifecycleState) bool {
 	if from == to {
 		return true
 	}
-	if from.Status == StatusCompleted || to.Status == StatusCompleted {
-		return from.Phase == PhaseReadyToPublish && (from.Status == StatusActive || from.Status == StatusNeedsReconciliation) && to.Phase == PhaseCompleted
+	if from.Phase == PhaseCompleted || to.Phase == PhaseCompleted {
+		switch {
+		case from.Phase == PhaseReadyToPublish && (from.Status == StatusActive || from.Status == StatusNeedsReconciliation) && to == (LifecycleState{Phase: PhaseCompleted, Status: StatusCompleted}):
+			return true
+		case from == (LifecycleState{Phase: PhaseCompleted, Status: StatusCompleted}) && to == (LifecycleState{Phase: PhaseCompleted, Status: StatusNeedsReconciliation}):
+			return true
+		case from == (LifecycleState{Phase: PhaseCompleted, Status: StatusNeedsReconciliation}) && to == (LifecycleState{Phase: PhaseCompleted, Status: StatusCompleted}):
+			return true
+		default:
+			return false
+		}
 	}
 	if from.Phase == to.Phase {
 		return samePhaseStatusTransitions[from.Status][to.Status]
@@ -336,14 +349,33 @@ func ValidateTransition(from, to LifecycleState) error {
 // changing the manifest revision. Workspace mutations add the revision only
 // after the candidate image has passed validation and has been committed.
 func (manifest *Manifest) Transition(nextPhase Phase, nextStatus Status, desired DesiredState, now time.Time) error {
-	return manifest.transition(nextPhase, nextStatus, desired, now, false)
+	return manifest.transition(nextPhase, nextStatus, desired, now, false, false)
 }
 
-func (manifest *Manifest) transition(nextPhase Phase, nextStatus Status, desired DesiredState, now time.Time, allowReconciliationResult bool) error {
+func (manifest *Manifest) transition(nextPhase Phase, nextStatus Status, desired DesiredState, now time.Time, allowReconciliationResult, allowTerminalReconciliation bool) error {
 	if manifest == nil || now.IsZero() {
 		return ErrInvalidTransition
 	}
 	if manifest.Status == StatusNeedsReconciliation && !allowReconciliationResult {
+		return ErrInvalidTransition
+	}
+	if manifest.Status == StatusCompleted && !allowTerminalReconciliation {
+		return ErrInvalidTransition
+	}
+	if nextStatus == StatusActive && manifest.Status != StatusActive {
+		// Restart authority belongs exclusively to Resume so generation and
+		// durable checkpoint normalization cannot be skipped.
+		return ErrInvalidTransition
+	}
+	if manifest.Status == StatusActive && nextStatus == StatusActive && manifest.Desired != DesiredRunning {
+		// A worker that observes a pending pause/cancel intent may not progress
+		// the phase and overwrite that intent.
+		return ErrInvalidTransition
+	}
+	if manifest.Status == StatusActive && nextStatus == StatusActive && desired != manifest.Desired {
+		return ErrInvalidTransition
+	}
+	if !allowReconciliationResult && manifest.Desired != DesiredRunning && desired != manifest.Desired {
 		return ErrInvalidTransition
 	}
 	from := LifecycleState{Phase: manifest.Phase, Status: manifest.Status}
@@ -374,13 +406,13 @@ func (manifest *Manifest) transition(nextPhase Phase, nextStatus Status, desired
 // TransitionTo is a descriptive alias for callers that prefer an explicit
 // method name when applying a validated lifecycle state.
 func (manifest *Manifest) TransitionTo(nextPhase Phase, nextStatus Status, desired DesiredState, now time.Time) error {
-	return manifest.transition(nextPhase, nextStatus, desired, now, false)
+	return manifest.transition(nextPhase, nextStatus, desired, now, false, false)
 }
 
 // Resume normalizes advisory progress to durable checkpoint boundaries,
 // retains the current execution phase, and starts a new run generation.
 func (manifest *Manifest) Resume(now time.Time) error {
-	if manifest == nil || now.IsZero() || manifest.Phase == PhaseCompleted || manifest.Status == StatusCanceled || manifest.Status == StatusNeedsReconciliation {
+	if manifest == nil || now.IsZero() || (manifest.Status != StatusPaused && manifest.Status != StatusFailed) || manifest.Cleanup != CleanupPending {
 		return ErrInvalidTransition
 	}
 	to := LifecycleState{Phase: manifest.Phase, Status: StatusActive}
@@ -409,19 +441,19 @@ func (manifest *Manifest) Resume(now time.Time) error {
 // disposition. It deliberately cannot produce active; callers must provide a
 // concrete paused, failed, canceled, or completed result.
 func (manifest *Manifest) ResolveReconciliation(nextStatus Status, desired DesiredState, now time.Time) error {
-	if manifest == nil || manifest.Status != StatusNeedsReconciliation || now.IsZero() {
+	if manifest == nil || manifest.Status != StatusNeedsReconciliation || manifest.Publication == PublicationIndeterminate || manifest.Cleanup == CleanupIndeterminate || now.IsZero() {
 		return ErrInvalidTransition
 	}
 	nextPhase := manifest.Phase
 	if nextStatus == StatusCompleted {
-		if manifest.Phase != PhaseReadyToPublish || manifest.Publication != PublicationCommitted {
+		if manifest.Publication != PublicationCommitted || (manifest.Phase != PhaseReadyToPublish && manifest.Phase != PhaseCompleted) {
 			return ErrInvalidTransition
 		}
 		nextPhase = PhaseCompleted
 	} else if nextStatus != StatusPaused && nextStatus != StatusFailed && nextStatus != StatusCanceled {
 		return ErrInvalidTransition
 	}
-	return manifest.transition(nextPhase, nextStatus, desired, now, true)
+	return manifest.transition(nextPhase, nextStatus, desired, now, true, false)
 }
 
 func validPhase(phase Phase) bool {
@@ -447,7 +479,7 @@ func validLifecycleState(state LifecycleState) bool {
 		return false
 	}
 	if state.Phase == PhaseCompleted {
-		return state.Status == StatusCompleted
+		return state.Status == StatusCompleted || state.Status == StatusNeedsReconciliation
 	}
 	return state.Status != StatusCompleted
 }
@@ -503,6 +535,10 @@ func validCleanupTransition(current, next CleanupState) bool {
 		return false
 	}
 	return next == CleanupComplete || next == CleanupIndeterminate
+}
+
+func terminalCleanupStatus(status Status) bool {
+	return status == StatusFailed || status == StatusCanceled || status == StatusCompleted
 }
 
 func normalizeSource(source SourceIntent) (SourceIntent, error) {
@@ -607,6 +643,9 @@ func normalizeComponents(components []Component) ([]Component, error) {
 		if err := validateCheckpoint(component.Checkpoint); err != nil {
 			return nil, err
 		}
+		if component.CommittedBytes > 0 && component.Checkpoint.RelativePath == "" {
+			return nil, ErrInvalidManifest
+		}
 	}
 	sort.Slice(result, func(left, right int) bool { return result[left].ID < result[right].ID })
 	for index := 1; index < len(result); index++ {
@@ -614,14 +653,30 @@ func normalizeComponents(components []Component) ([]Component, error) {
 			return nil, ErrInvalidManifest
 		}
 	}
+	checkpointPaths := make([]string, 0, len(result))
+	for _, component := range result {
+		if component.Checkpoint.RelativePath != "" {
+			checkpointPaths = append(checkpointPaths, component.Checkpoint.RelativePath)
+		}
+	}
+	sort.Strings(checkpointPaths)
+	for index := 1; index < len(checkpointPaths); index++ {
+		previous := checkpointPaths[index-1]
+		current := checkpointPaths[index]
+		if current == previous || strings.HasPrefix(current, previous+"/") {
+			return nil, ErrUnsafePath
+		}
+	}
 	return result, nil
 }
 
 func validateCheckpoint(checkpoint CheckpointMetadata) error {
 	if checkpoint.RelativePath != "" {
-		if len(checkpoint.RelativePath) > maxCheckpointPath || !isSafeRelativePath(checkpoint.RelativePath) {
+		if len(checkpoint.RelativePath) > maxCheckpointPath || !isCheckpointRelativePath(checkpoint.RelativePath) {
 			return ErrUnsafePath
 		}
+	} else if checkpoint.Digest != "" || checkpoint.Sequence != 0 {
+		return ErrInvalidManifest
 	}
 	if checkpoint.Digest != "" {
 		if len(checkpoint.Digest) != sha256.Size*2 {
@@ -632,6 +687,18 @@ func validateCheckpoint(checkpoint CheckpointMetadata) error {
 		}
 	}
 	return nil
+}
+
+func isCheckpointRelativePath(value string) bool {
+	if !isSafeRelativePath(value) || !strings.HasPrefix(value, CheckpointDirectoryName+"/") {
+		return false
+	}
+	for _, component := range strings.Split(value, "/") {
+		if component == ManifestFileName || component == LeaseFileName || strings.HasPrefix(component, ".atomic-") {
+			return false
+		}
+	}
+	return true
 }
 
 func validIdentifier(value string, limit int) bool {
@@ -695,13 +762,25 @@ func (manifest Manifest) Validate() error {
 	if manifest.Cleanup != CleanupPending && manifest.Cleanup != CleanupComplete && manifest.Cleanup != CleanupIndeterminate {
 		return ErrInvalidManifest
 	}
-	if manifest.Phase == PhaseCompleted && manifest.Status == StatusCompleted && manifest.Publication != PublicationCommitted {
+	if manifest.Phase == PhaseCompleted && manifest.Publication != PublicationCommitted {
 		return ErrInvalidManifest
 	}
 	if manifest.Publication == PublicationPending && manifest.Phase != PhaseReadyToPublish {
 		return ErrInvalidManifest
 	}
+	if manifest.Publication == PublicationCommitted && manifest.Phase != PhaseReadyToPublish && manifest.Phase != PhaseCompleted {
+		return ErrInvalidManifest
+	}
 	if manifest.Publication == PublicationIndeterminate && manifest.Status != StatusNeedsReconciliation {
+		return ErrInvalidManifest
+	}
+	if manifest.Cleanup == CleanupComplete && manifest.Status != StatusCompleted && manifest.Status != StatusFailed && manifest.Status != StatusCanceled && manifest.Status != StatusNeedsReconciliation {
+		return ErrInvalidManifest
+	}
+	if manifest.Cleanup == CleanupIndeterminate && manifest.Status != StatusNeedsReconciliation {
+		return ErrInvalidManifest
+	}
+	if manifest.Cleanup != CleanupPending && manifest.Status == StatusNeedsReconciliation && !terminalCleanupStatus(manifest.LastTransition.FromStatus) {
 		return ErrInvalidManifest
 	}
 	if manifest.LastTransition.At.IsZero() {

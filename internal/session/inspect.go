@@ -50,8 +50,9 @@ func (inspection *Inspection) add(classification InspectionClass) {
 }
 
 // Inspect performs only validation, bounded reads, and a nonblocking native
-// lease probe. It never writes holder metadata, removes candidates, or calls a
-// network API.
+// lease acquisition without holder metadata. Holding the lease while reading
+// prevents transient atomic-write evidence from being misclassified. Inspect
+// never removes candidates or calls a network API.
 func Inspect(ref WorkspaceRef) (Inspection, error) {
 	inspection := Inspection{Ref: ref}
 	if err := ref.validate(); err != nil {
@@ -88,6 +89,24 @@ func Inspect(ref WorkspaceRef) (Inspection, error) {
 		}
 		return inspection, nil
 	}
+	leasePath := filepath.Join(workspacePath, LeaseFileName)
+	lease, leaseErr := acquireWorkspaceLease(leasePath, false, false)
+	if leaseErr != nil {
+		switch {
+		case errors.Is(leaseErr, ErrLeaseContended):
+			inspection.LeaseContended = true
+			inspection.add(InspectionLeaseContended)
+		case errors.Is(leaseErr, ErrMissingLease):
+			inspection.add(InspectionMissingLease)
+			inspection.add(InspectionNeedsReconciliation)
+		case errors.Is(leaseErr, ErrWorkspaceUnavailable), errors.Is(leaseErr, ErrLeaseUnavailable):
+			inspection.add(InspectionUnavailableRoot)
+		default:
+			inspection.add(InspectionUnsafePath)
+		}
+		return inspection, nil
+	}
+	defer lease.Close()
 
 	manifestPath := filepath.Join(workspacePath, ManifestFileName)
 	if info, statErr := os.Lstat(manifestPath); statErr != nil {
@@ -128,23 +147,6 @@ func Inspect(ref WorkspaceRef) (Inspection, error) {
 		if inspection.Manifest.Status == StatusNeedsReconciliation {
 			inspection.add(InspectionNeedsReconciliation)
 		}
-	}
-	leasePath := filepath.Join(workspacePath, LeaseFileName)
-	contended, leaseErr := inspectWorkspaceLease(leasePath)
-	if leaseErr != nil {
-		if errors.Is(leaseErr, ErrUnsafePath) {
-			inspection.add(InspectionUnsafePath)
-		} else if errors.Is(leaseErr, ErrMissingLease) {
-			inspection.add(InspectionMissingLease)
-			inspection.add(InspectionNeedsReconciliation)
-		} else if errors.Is(leaseErr, ErrWorkspaceUnavailable) {
-			inspection.add(InspectionUnavailableRoot)
-		} else {
-			inspection.add(InspectionUnsafePath)
-		}
-	} else if contended {
-		inspection.LeaseContended = true
-		inspection.add(InspectionLeaseContended)
 	}
 	if inspection.Classification == "" {
 		inspection.add(InspectionAvailable)

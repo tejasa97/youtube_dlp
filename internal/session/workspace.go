@@ -9,6 +9,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -88,15 +90,18 @@ func Create(options CreateOptions) (*Workspace, error) {
 			return nil, ErrWorkspaceUnavailable
 		}
 		if err := secureDirectoryPath(workspacePath); err != nil {
-			return nil, err
+			return recoverCreateFailure(ref, workspacePath, nil, Manifest{}, err)
 		}
 		if err := validateDirectory(workspacePath, true); err != nil {
-			return nil, err
+			return recoverCreateFailure(ref, workspacePath, nil, Manifest{}, err)
 		}
 		leasePath, _ := ref.leasePath()
 		lease, leaseErr := acquireWorkspaceLease(leasePath, true, true)
 		if leaseErr != nil {
-			return nil, leaseErr
+			if errors.Is(leaseErr, ErrLeaseContended) {
+				return recoverableCreateHandle(ref, workspacePath, Manifest{}), leaseErr
+			}
+			return recoverCreateFailure(ref, workspacePath, nil, Manifest{}, leaseErr)
 		}
 		manifest := Manifest{
 			Version:             ManifestSchemaVersion,
@@ -116,12 +121,10 @@ func Create(options CreateOptions) (*Workspace, error) {
 			Cleanup:             CleanupPending,
 		}
 		if err := manifest.Validate(); err != nil {
-			_ = lease.Close()
-			return nil, err
+			return recoverCreateFailure(ref, workspacePath, lease, manifest, err)
 		}
 		if err := validateManifestDerivedPaths(root, workspacePath, manifest); err != nil {
-			_ = lease.Close()
-			return nil, err
+			return recoverCreateFailure(ref, workspacePath, lease, manifest, err)
 		}
 		if err := persistManifest(filepath.Join(workspacePath, ManifestFileName), manifest); err != nil {
 			var outcome atomicfile.CommitError
@@ -134,17 +137,7 @@ func Create(options CreateOptions) (*Workspace, error) {
 					reconciliationNeeded: outcome.Indeterminate(),
 				}, err
 			}
-			_ = lease.Close()
-			if !cleanupCreatedWorkspace(workspacePath) {
-				return &Workspace{
-					ref:                  ref,
-					path:                 workspacePath,
-					manifest:             manifest,
-					closed:               true,
-					reconciliationNeeded: true,
-				}, err
-			}
-			return nil, err
+			return recoverCreateFailure(ref, workspacePath, lease, manifest, err)
 		}
 		return &Workspace{ref: ref, path: workspacePath, lease: lease, manifest: manifest}, nil
 	}
@@ -158,9 +151,6 @@ func Open(ref WorkspaceRef) (*Workspace, error) {
 	if err != nil {
 		return nil, err
 	}
-	if hasAtomicManifestEvidence(workspacePath) {
-		return nil, ErrNeedsReconciliation
-	}
 	leasePath, err := ref.leasePath()
 	if err != nil {
 		return nil, ErrInvalidReference
@@ -168,6 +158,10 @@ func Open(ref WorkspaceRef) (*Workspace, error) {
 	lease, err := acquireWorkspaceLease(leasePath, false, true)
 	if err != nil {
 		return nil, err
+	}
+	if hasAtomicManifestEvidence(workspacePath) {
+		_ = lease.Close()
+		return nil, ErrNeedsReconciliation
 	}
 	manifest, err := readManifest(filepath.Join(workspacePath, ManifestFileName))
 	if err != nil {
@@ -183,6 +177,28 @@ func Open(ref WorkspaceRef) (*Workspace, error) {
 		return nil, err
 	}
 	return &Workspace{ref: ref, path: workspacePath, lease: lease, manifest: manifest}, nil
+}
+
+func recoverableCreateHandle(ref WorkspaceRef, workspacePath string, manifest Manifest) *Workspace {
+	return &Workspace{
+		ref:                  ref,
+		path:                 workspacePath,
+		manifest:             manifest,
+		closed:               true,
+		reconciliationNeeded: true,
+	}
+}
+
+func recoverCreateFailure(ref WorkspaceRef, workspacePath string, lease *workspaceLease, manifest Manifest, cause error) (*Workspace, error) {
+	if lease != nil {
+		if err := lease.Close(); err != nil {
+			return recoverableCreateHandle(ref, workspacePath, manifest), cause
+		}
+	}
+	if cleanupCreatedWorkspace(workspacePath) {
+		return nil, cause
+	}
+	return recoverableCreateHandle(ref, workspacePath, manifest), cause
 }
 
 // Manifest returns a copy of the last known manifest image.
@@ -245,14 +261,31 @@ func (workspace *Workspace) Close() error {
 	return lease.Close()
 }
 
-// Update performs an optimistic, generation-aware manifest mutation. Both
-// expected values are checked against a fresh disk read while the lease is
-// held; stale workers cannot overwrite a later pause, cancel, or resume.
-func (workspace *Workspace) Update(expectedRevision, expectedGeneration uint64, mutate func(*Manifest) error) error {
-	return workspace.update(expectedRevision, expectedGeneration, false, false, mutate)
+type mutationKind uint8
+
+const (
+	mutationTransition mutationKind = iota
+	mutationResume
+	mutationReconciliation
+	mutationDesired
+	mutationDestination
+	mutationComponentProgress
+	mutationPublication
+	mutationPublicationResolution
+	mutationCleanup
+	mutationCleanupResolution
+)
+
+type mutationAuthority struct {
+	kind        mutationKind
+	componentID string
 }
 
-func (workspace *Workspace) update(expectedRevision, expectedGeneration uint64, allowGenerationBump, allowReconciliationResult bool, mutate func(*Manifest) error) error {
+// update is deliberately unexported. Every caller supplies a narrow authority
+// whose exact field projection is checked after the callback; adding a new
+// mutation API therefore cannot accidentally inherit unrestricted manifest
+// write authority.
+func (workspace *Workspace) update(expectedRevision, expectedGeneration uint64, authority mutationAuthority, mutate func(*Manifest) error) error {
 	if workspace == nil {
 		return ErrWorkspaceClosed
 	}
@@ -278,16 +311,13 @@ func (workspace *Workspace) update(expectedRevision, expectedGeneration uint64, 
 	if err := mutate(&candidate); err != nil {
 		return safeMutationError(err)
 	}
-	if candidate.Version != diskManifest.Version || candidate.SessionID != diskManifest.SessionID || candidate.Source != diskManifest.Source || candidate.Output != diskManifest.Output {
-		return ErrMutationRejected
-	}
-	if diskManifest.RelativeDestination != "" && candidate.RelativeDestination != diskManifest.RelativeDestination {
-		return ErrMutationRejected
+	if err := validateMutationAuthority(diskManifest, candidate, authority); err != nil {
+		return err
 	}
 	fromState := LifecycleState{Phase: diskManifest.Phase, Status: diskManifest.Status}
 	toState := LifecycleState{Phase: candidate.Phase, Status: candidate.Status}
 	if fromState != toState {
-		if !allowReconciliationResult && diskManifest.Status == StatusNeedsReconciliation {
+		if authority.kind != mutationReconciliation && diskManifest.Status == StatusNeedsReconciliation {
 			return ErrInvalidTransition
 		}
 		if !CanTransition(fromState, toState) {
@@ -297,7 +327,7 @@ func (workspace *Workspace) update(expectedRevision, expectedGeneration uint64, 
 	if candidate.Revision != diskManifest.Revision {
 		return ErrMutationRejected
 	}
-	if allowGenerationBump {
+	if authority.kind == mutationResume {
 		if candidate.RunGeneration != diskManifest.RunGeneration+1 {
 			return ErrMutationRejected
 		}
@@ -309,7 +339,11 @@ func (workspace *Workspace) update(expectedRevision, expectedGeneration uint64, 
 	}
 	candidate.Revision++
 	if candidate.UpdatedAt.Equal(diskManifest.UpdatedAt) {
-		candidate.UpdatedAt = time.Now().UTC()
+		now := time.Now().UTC()
+		if now.Before(diskManifest.UpdatedAt) {
+			now = diskManifest.UpdatedAt
+		}
+		candidate.UpdatedAt = now
 	}
 	if err := candidate.Validate(); err != nil {
 		return err
@@ -333,9 +367,147 @@ func (workspace *Workspace) update(expectedRevision, expectedGeneration uint64, 
 	return nil
 }
 
+func validateMutationAuthority(before, after Manifest, authority mutationAuthority) error {
+	if after.Revision != before.Revision || after.UpdatedAt.Before(before.UpdatedAt) {
+		return ErrMutationRejected
+	}
+	permitted := before.Clone()
+	permitted.UpdatedAt = after.UpdatedAt
+	switch authority.kind {
+	case mutationTransition:
+		if !validOrdinaryTransitionMutation(before, after) {
+			return ErrMutationRejected
+		}
+		permitted.Phase = after.Phase
+		permitted.Status = after.Status
+		permitted.Desired = after.Desired
+		permitted.LastTransition = after.LastTransition
+	case mutationReconciliation:
+		if before.Status != StatusNeedsReconciliation || after.Status == StatusActive || before.Publication == PublicationIndeterminate || before.Cleanup == CleanupIndeterminate || !validRecordedTransition(before, after) {
+			return ErrMutationRejected
+		}
+		permitted.Phase = after.Phase
+		permitted.Status = after.Status
+		permitted.Desired = after.Desired
+		permitted.LastTransition = after.LastTransition
+	case mutationResume:
+		if (before.Status != StatusPaused && before.Status != StatusFailed) || before.Cleanup != CleanupPending || after.Phase != before.Phase || after.Status != StatusActive || after.Desired != DesiredRunning || after.RunGeneration != before.RunGeneration+1 || !validRecordedTransition(before, after) {
+			return ErrMutationRejected
+		}
+		permitted.Status = after.Status
+		permitted.Desired = after.Desired
+		permitted.LastTransition = after.LastTransition
+		permitted.RunGeneration = after.RunGeneration
+		if len(permitted.Components) != len(after.Components) {
+			return ErrMutationRejected
+		}
+		for index := range permitted.Components {
+			if after.Components[index].ObservedBytes != before.Components[index].CommittedBytes {
+				return ErrMutationRejected
+			}
+			permitted.Components[index].ObservedBytes = after.Components[index].ObservedBytes
+		}
+	case mutationDesired:
+		permitted.Desired = after.Desired
+	case mutationDestination:
+		if before.RelativeDestination != "" || !isSafeRelativePath(after.RelativeDestination) || phaseRequiresDestination(before.Phase) {
+			return ErrMutationRejected
+		}
+		permitted.RelativeDestination = after.RelativeDestination
+	case mutationComponentProgress:
+		found := false
+		if len(permitted.Components) != len(after.Components) {
+			return ErrMutationRejected
+		}
+		for index := range permitted.Components {
+			if permitted.Components[index].ID != authority.componentID {
+				continue
+			}
+			found = true
+			if after.Components[index].ObservedBytes < before.Components[index].ObservedBytes || after.Components[index].CommittedBytes < before.Components[index].CommittedBytes {
+				return ErrMutationRejected
+			}
+			permitted.Components[index].ObservedBytes = after.Components[index].ObservedBytes
+			permitted.Components[index].CommittedBytes = after.Components[index].CommittedBytes
+		}
+		if !found {
+			return ErrMutationRejected
+		}
+	case mutationPublication:
+		if after.Phase != before.Phase || !validPublicationTransition(before.Publication, after.Publication, before.Phase) || (after.Publication != before.Publication && before.Status != StatusActive) {
+			return ErrMutationRejected
+		}
+		if after.Publication == PublicationIndeterminate {
+			if after.Status != StatusNeedsReconciliation || !validRecordedTransition(before, after) {
+				return ErrMutationRejected
+			}
+		} else if before.Phase != after.Phase || before.Status != after.Status || before.Desired != after.Desired || before.LastTransition != after.LastTransition {
+			return ErrMutationRejected
+		}
+		permitted.Publication = after.Publication
+		permitted.Status = after.Status
+		permitted.Desired = after.Desired
+		permitted.LastTransition = after.LastTransition
+	case mutationPublicationResolution:
+		if before.Status != StatusNeedsReconciliation || before.Publication != PublicationIndeterminate || (after.Publication != PublicationCommitted && after.Publication != PublicationPending) {
+			return ErrMutationRejected
+		}
+		permitted.Publication = after.Publication
+	case mutationCleanup:
+		if !terminalCleanupStatus(before.Status) || !validCleanupTransition(before.Cleanup, after.Cleanup) {
+			return ErrMutationRejected
+		}
+		if after.Cleanup == CleanupIndeterminate {
+			if after.Phase != before.Phase || after.Status != StatusNeedsReconciliation || !validRecordedTransition(before, after) {
+				return ErrMutationRejected
+			}
+		} else if before.Phase != after.Phase || before.Status != after.Status || before.Desired != after.Desired || before.LastTransition != after.LastTransition {
+			return ErrMutationRejected
+		}
+		permitted.Cleanup = after.Cleanup
+		permitted.Phase = after.Phase
+		permitted.Status = after.Status
+		permitted.Desired = after.Desired
+		permitted.LastTransition = after.LastTransition
+	case mutationCleanupResolution:
+		if before.Status != StatusNeedsReconciliation || before.Cleanup != CleanupIndeterminate || (after.Cleanup != CleanupComplete && after.Cleanup != CleanupPending) {
+			return ErrMutationRejected
+		}
+		permitted.Cleanup = after.Cleanup
+	default:
+		return ErrMutationRejected
+	}
+	if !reflect.DeepEqual(permitted, after) {
+		return ErrMutationRejected
+	}
+	return nil
+}
+
+func validRecordedTransition(before, after Manifest) bool {
+	return after.LastTransition.FromPhase == before.Phase &&
+		after.LastTransition.FromStatus == before.Status &&
+		after.LastTransition.ToPhase == after.Phase &&
+		after.LastTransition.ToStatus == after.Status &&
+		after.LastTransition.At.Equal(after.UpdatedAt) &&
+		!after.LastTransition.At.Before(before.UpdatedAt)
+}
+
+func validOrdinaryTransitionMutation(before, after Manifest) bool {
+	if !validRecordedTransition(before, after) || !CanTransition(LifecycleState{Phase: before.Phase, Status: before.Status}, LifecycleState{Phase: after.Phase, Status: after.Status}) {
+		return false
+	}
+	if before.Status != StatusActive && after.Status == StatusActive {
+		return false
+	}
+	if before.Status == StatusActive && after.Status == StatusActive && (before.Desired != DesiredRunning || after.Desired != before.Desired) {
+		return false
+	}
+	return before.Desired == DesiredRunning || after.Desired == before.Desired
+}
+
 // Transition applies a checked lifecycle transition.
 func (workspace *Workspace) Transition(expectedRevision, expectedGeneration uint64, phase Phase, status Status, desired DesiredState, now time.Time) error {
-	return workspace.Update(expectedRevision, expectedGeneration, func(manifest *Manifest) error {
+	return workspace.update(expectedRevision, expectedGeneration, mutationAuthority{kind: mutationTransition}, func(manifest *Manifest) error {
 		return manifest.Transition(phase, status, desired, now)
 	})
 }
@@ -343,7 +515,7 @@ func (workspace *Workspace) Transition(expectedRevision, expectedGeneration uint
 // Resume retains the current Phase, normalizes component progress to durable
 // checkpoints, and increments RunGeneration before committing the new image.
 func (workspace *Workspace) Resume(expectedRevision, expectedGeneration uint64, now time.Time) error {
-	return workspace.update(expectedRevision, expectedGeneration, true, false, func(manifest *Manifest) error {
+	return workspace.update(expectedRevision, expectedGeneration, mutationAuthority{kind: mutationResume}, func(manifest *Manifest) error {
 		return manifest.Resume(now)
 	})
 }
@@ -351,7 +523,7 @@ func (workspace *Workspace) Resume(expectedRevision, expectedGeneration uint64, 
 // ResolveReconciliation applies a concrete reconciliation result. It is the
 // only workspace mutation that can leave StatusNeedsReconciliation.
 func (workspace *Workspace) ResolveReconciliation(expectedRevision, expectedGeneration uint64, status Status, desired DesiredState, now time.Time) error {
-	return workspace.update(expectedRevision, expectedGeneration, false, true, func(manifest *Manifest) error {
+	return workspace.update(expectedRevision, expectedGeneration, mutationAuthority{kind: mutationReconciliation}, func(manifest *Manifest) error {
 		return manifest.ResolveReconciliation(status, desired, now)
 	})
 }
@@ -359,7 +531,7 @@ func (workspace *Workspace) ResolveReconciliation(expectedRevision, expectedGene
 // SetDesired records a new intent without pretending that the worker has
 // already reached the corresponding disposition.
 func (workspace *Workspace) SetDesired(expectedRevision, expectedGeneration uint64, desired DesiredState, now time.Time) error {
-	return workspace.Update(expectedRevision, expectedGeneration, func(manifest *Manifest) error {
+	return workspace.update(expectedRevision, expectedGeneration, mutationAuthority{kind: mutationDesired}, func(manifest *Manifest) error {
 		if !validDesired(desired) || now.IsZero() || !validDesiredForStatus(manifest.Status, desired) {
 			return ErrInvalidTransition
 		}
@@ -369,11 +541,35 @@ func (workspace *Workspace) SetDesired(expectedRevision, expectedGeneration uint
 	})
 }
 
+// SetRelativeDestination records the metadata-derived output path once. The
+// destination is immutable after it has been established.
+func (workspace *Workspace) SetRelativeDestination(expectedRevision, expectedGeneration uint64, relative string, now time.Time) error {
+	return workspace.update(expectedRevision, expectedGeneration, mutationAuthority{kind: mutationDestination}, func(manifest *Manifest) error {
+		if manifest.RelativeDestination != "" || !isSafeRelativePath(relative) || now.IsZero() || phaseRequiresDestination(manifest.Phase) {
+			return ErrInvalidTransition
+		}
+		manifest.RelativeDestination = relative
+		manifest.UpdatedAt = now.UTC()
+		return nil
+	})
+}
+
 // SetComponentProgress records observed progress and a separately confirmed
 // durable checkpoint boundary.
 func (workspace *Workspace) SetComponentProgress(expectedRevision, expectedGeneration uint64, id string, observedBytes, committedBytes int64) error {
-	return workspace.Update(expectedRevision, expectedGeneration, func(manifest *Manifest) error {
-		return manifest.SetComponentProgress(id, observedBytes, committedBytes)
+	return workspace.update(expectedRevision, expectedGeneration, mutationAuthority{kind: mutationComponentProgress, componentID: id}, func(manifest *Manifest) error {
+		for _, component := range manifest.Components {
+			if component.ID == id {
+				if observedBytes < component.ObservedBytes || committedBytes < component.CommittedBytes || (committedBytes > 0 && component.Checkpoint.RelativePath == "") {
+					return ErrInvalidManifest
+				}
+				break
+			}
+		}
+		if err := manifest.SetComponentProgress(id, observedBytes, committedBytes); err != nil {
+			return err
+		}
+		return nil
 	})
 }
 
@@ -381,8 +577,8 @@ func (workspace *Workspace) SetComponentProgress(expectedRevision, expectedGener
 // publication moves the disposition to needs_reconciliation while preserving
 // the execution phase.
 func (workspace *Workspace) SetPublicationState(expectedRevision, expectedGeneration uint64, state PublicationState, now time.Time) error {
-	return workspace.Update(expectedRevision, expectedGeneration, func(manifest *Manifest) error {
-		if now.IsZero() || !validPublicationTransition(manifest.Publication, state, manifest.Phase) {
+	return workspace.update(expectedRevision, expectedGeneration, mutationAuthority{kind: mutationPublication}, func(manifest *Manifest) error {
+		if now.IsZero() || manifest.Status != StatusActive || !validPublicationTransition(manifest.Publication, state, manifest.Phase) {
 			return ErrInvalidTransition
 		}
 		if manifest.Publication == PublicationIndeterminate && state != PublicationIndeterminate {
@@ -390,7 +586,7 @@ func (workspace *Workspace) SetPublicationState(expectedRevision, expectedGenera
 		}
 		if state == PublicationIndeterminate {
 			if manifest.Status != StatusNeedsReconciliation {
-				if err := manifest.Transition(manifest.Phase, StatusNeedsReconciliation, DesiredPaused, now); err != nil {
+				if err := manifest.Transition(manifest.Phase, StatusNeedsReconciliation, manifest.Desired, now); err != nil {
 					return err
 				}
 			}
@@ -402,11 +598,11 @@ func (workspace *Workspace) SetPublicationState(expectedRevision, expectedGenera
 }
 
 // ResolvePublication is the dedicated reconciliation mutation for an
-// indeterminate publication. Normal callers cannot roll it back or silently
-// fast-forward it.
+// indeterminate publication. Reconciliation may prove that publication
+// committed or that it remains pending and is safe to retry.
 func (workspace *Workspace) ResolvePublication(expectedRevision, expectedGeneration uint64, state PublicationState, now time.Time) error {
-	return workspace.update(expectedRevision, expectedGeneration, false, true, func(manifest *Manifest) error {
-		if manifest.Status != StatusNeedsReconciliation || manifest.Publication != PublicationIndeterminate || state != PublicationCommitted || now.IsZero() {
+	return workspace.update(expectedRevision, expectedGeneration, mutationAuthority{kind: mutationPublicationResolution}, func(manifest *Manifest) error {
+		if manifest.Status != StatusNeedsReconciliation || manifest.Publication != PublicationIndeterminate || (state != PublicationCommitted && state != PublicationPending) || now.IsZero() {
 			return ErrInvalidTransition
 		}
 		manifest.Publication = state
@@ -417,9 +613,28 @@ func (workspace *Workspace) ResolvePublication(expectedRevision, expectedGenerat
 
 // SetCleanupState records cleanup authority without removing anything.
 func (workspace *Workspace) SetCleanupState(expectedRevision, expectedGeneration uint64, state CleanupState, now time.Time) error {
-	return workspace.Update(expectedRevision, expectedGeneration, func(manifest *Manifest) error {
-		if now.IsZero() || !validCleanupTransition(manifest.Cleanup, state) {
-			return ErrInvalidManifest
+	return workspace.update(expectedRevision, expectedGeneration, mutationAuthority{kind: mutationCleanup}, func(manifest *Manifest) error {
+		if now.IsZero() || !validCleanupTransition(manifest.Cleanup, state) || !terminalCleanupStatus(manifest.Status) {
+			return ErrInvalidTransition
+		}
+		if state == CleanupIndeterminate {
+			if err := manifest.transition(manifest.Phase, StatusNeedsReconciliation, manifest.Desired, now, false, true); err != nil {
+				return err
+			}
+		}
+		manifest.Cleanup = state
+		manifest.UpdatedAt = now.UTC()
+		return nil
+	})
+}
+
+// ResolveCleanup records whether indeterminate cleanup completed or remains
+// pending and safe to retry. The reconciliation disposition is retained until
+// ResolveReconciliation records the resulting terminal lifecycle state.
+func (workspace *Workspace) ResolveCleanup(expectedRevision, expectedGeneration uint64, state CleanupState, now time.Time) error {
+	return workspace.update(expectedRevision, expectedGeneration, mutationAuthority{kind: mutationCleanupResolution}, func(manifest *Manifest) error {
+		if manifest.Status != StatusNeedsReconciliation || manifest.Cleanup != CleanupIndeterminate || (state != CleanupComplete && state != CleanupPending) || now.IsZero() {
+			return ErrInvalidTransition
 		}
 		manifest.Cleanup = state
 		manifest.UpdatedAt = now.UTC()
@@ -463,16 +678,39 @@ func validateManifestDerivedPaths(outputRoot, workspacePath string, manifest Man
 		if component.Checkpoint.RelativePath == "" {
 			continue
 		}
-		checkpointPath := filepath.Join(workspacePath, filepath.FromSlash(component.Checkpoint.RelativePath))
-		if err := validateExistingComponents(workspacePath, checkpointPath); err != nil {
+		if err := validateCheckpointDerivedPath(workspacePath, component.Checkpoint.RelativePath); err != nil {
 			return err
 		}
-		if info, err := os.Lstat(checkpointPath); err == nil {
-			if !info.Mode().IsRegular() || !ownerOnlyFileAt(checkpointPath, info) {
+	}
+	return nil
+}
+
+func validateCheckpointDerivedPath(workspacePath, relative string) error {
+	if !isCheckpointRelativePath(relative) {
+		return ErrUnsafePath
+	}
+	target := filepath.Join(workspacePath, filepath.FromSlash(relative))
+	contained, err := filepath.Rel(workspacePath, target)
+	if err != nil || contained != filepath.FromSlash(relative) || filepath.IsAbs(contained) || strings.HasPrefix(contained, ".."+string(filepath.Separator)) {
+		return ErrUnsafePath
+	}
+	current := workspacePath
+	parts := strings.Split(relative, "/")
+	for index, part := range parts {
+		current = filepath.Join(current, part)
+		info, statErr := os.Lstat(current)
+		if errors.Is(statErr, os.ErrNotExist) {
+			return nil
+		}
+		if statErr != nil || info.Mode()&os.ModeSymlink != 0 {
+			return ErrUnsafePath
+		}
+		if index == len(parts)-1 {
+			if !info.Mode().IsRegular() || !ownerOnlyFileAt(current, info) {
 				return ErrUnsafePath
 			}
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return ErrWorkspaceUnavailable
+		} else if !info.IsDir() || !ownerOnlyDirectoryAt(current, info) {
+			return ErrUnsafePath
 		}
 	}
 	return nil

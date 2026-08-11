@@ -111,6 +111,10 @@ func secureWindowsACL(path string) bool {
 	if err != nil || descriptor == nil {
 		return false
 	}
+	control, _, err := descriptor.Control()
+	if err != nil || control&windows.SE_DACL_PROTECTED == 0 {
+		return false
+	}
 	owner, _, err := descriptor.Owner()
 	if err != nil || owner == nil {
 		return false
@@ -137,13 +141,7 @@ func secureWindowsACL(path string) bool {
 		if err := windows.GetAce(dacl, index, &ace); err != nil || ace == nil {
 			return false
 		}
-		if ace.Header.AceFlags&windows.INHERIT_ONLY_ACE != 0 {
-			continue
-		}
-		if ace.Header.AceType == windows.ACCESS_DENIED_ACE_TYPE {
-			continue
-		}
-		if ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE {
+		if ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE && ace.Header.AceType != windows.ACCESS_DENIED_ACE_TYPE {
 			return false
 		}
 		sid := (*windows.SID)(unsafe.Pointer(&ace.SidStart))

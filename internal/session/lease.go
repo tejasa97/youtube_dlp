@@ -72,41 +72,6 @@ func acquireWorkspaceLease(path string, create, writeMetadata bool) (*workspaceL
 	return lease, nil
 }
 
-func inspectWorkspaceLease(path string) (bool, error) {
-	if path == "" || !filepath.IsAbs(path) || filepath.Base(path) != LeaseFileName || containsNUL(path) {
-		return false, ErrUnsafePath
-	}
-	info, err := os.Lstat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return false, ErrMissingLease
-	}
-	if err != nil {
-		return false, ErrLeaseUnavailable
-	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || !ownerOnlyFileAt(path, info) {
-		return false, ErrUnsafePath
-	}
-	file, err := os.OpenFile(path, os.O_RDWR, 0)
-	if err != nil {
-		return false, ErrLeaseUnavailable
-	}
-	native, err := tryNativeLock(file)
-	if errors.Is(err, ErrLeaseContended) {
-		_ = file.Close()
-		return true, nil
-	}
-	if err != nil {
-		_ = file.Close()
-		return false, err
-	}
-	unlockErr := releaseNativeLock(file, native)
-	closeErr := file.Close()
-	if unlockErr != nil || closeErr != nil {
-		return false, ErrLeaseUnavailable
-	}
-	return false, nil
-}
-
 func (lease *workspaceLease) Close() error {
 	if lease == nil {
 		return nil
