@@ -121,6 +121,36 @@ func validateFiniteFragmentPlan(segments []Segment) error {
 			(segment.RangeLength > 0 && segment.RangeStart > int64(^uint64(0)>>1)-(segment.RangeLength-1)) {
 			return fmt.Errorf("%w: segment %d", ErrInvalidSegmentRange, index+1)
 		}
+		if segment.Scale != nil {
+			if err := validateScale(segment.Scale); err != nil {
+				return fmt.Errorf("%w: segment %d: %v", ErrInvalidCheckpoint, index+1, err)
+			}
+		}
+	}
+	return nil
+}
+
+func validateScale(scale *Scale) error {
+	if scale == nil {
+		return nil
+	}
+	if !RecognizedScaleKind(scale.Kind) {
+		return fmt.Errorf("unrecognized proof kind %q", scale.Kind)
+	}
+	if !canonicalSHA256(scale.Key) {
+		return fmt.Errorf("structural key is not canonical SHA-256")
+	}
+	if !canonicalSHA256(scale.Scope) {
+		return fmt.Errorf("proof scope is not canonical SHA-256")
+	}
+	if scale.Kind == "" {
+		if scale.Value != "" {
+			return fmt.Errorf("proof value supplied without a proof kind")
+		}
+		return nil
+	}
+	if !canonicalSHA256(scale.Value) {
+		return fmt.Errorf("proof value is not canonical SHA-256")
 	}
 	return nil
 }
@@ -200,6 +230,7 @@ func reconcileResumeBoundary(
 	boundary ResumeBoundary,
 	write func(string, os.FileMode, func(io.Writer) error) error,
 	resetOps checkpointResetOps,
+	coordinatorOwnsReset bool,
 ) error {
 	if err := boundary.Validate(); err != nil {
 		return err
@@ -220,6 +251,9 @@ func reconcileResumeBoundary(
 		}
 		if boundary != empty.ResumeBoundary() {
 			return checkpointFailure(ErrCheckpointReconciliation, "caller zero boundary is not canonical for the job", nil)
+		}
+		if coordinatorOwnsReset && checkpointWorkspaceHasEvidence(workDir) {
+			return checkpointFailure(ErrCheckpointReconciliation, "caller-authoritative zero boundary requires coordinator reset", nil)
 		}
 		return resetCheckpointWorkspace(workDir, expectation, resetOps)
 	}
@@ -275,7 +309,19 @@ func reconcileResumeBoundary(
 	if local.ResumeBoundary() != boundary {
 		return checkpointFailure(ErrCheckpointReconciliation, "caller prefix digest, byte count, or sequence does not match local evidence", nil)
 	}
-	return clampCheckpointWorkspace(workDir, statePath, state, boundary.Sequence, write)
+	return clampCheckpointWorkspace(workDir, statePath, state, boundary.Sequence, write, coordinatorOwnsReset)
+}
+
+// checkpointWorkspaceHasEvidence is intentionally read-only. Session callers
+// use it before a zero-boundary reset so the package never removes stale
+// candidates through an unanchored pathname; the coordinator owns the
+// identity-bound handle-relative deletion.
+func checkpointWorkspaceHasEvidence(workDir string) bool {
+	entries, err := os.ReadDir(workDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return false
+	}
+	return err != nil || len(entries) != 0
 }
 
 type checkpointResetOps struct {
@@ -365,6 +411,7 @@ func clampCheckpointWorkspace(
 	state manifestState,
 	sequence uint64,
 	write func(string, os.FileMode, func(io.Writer) error) error,
+	coordinatorOwnsReset bool,
 ) error {
 	entries, err := os.ReadDir(workDir)
 	if err != nil {
@@ -385,6 +432,9 @@ func clampCheckpointWorkspace(
 	}
 	if !localAhead {
 		return nil
+	}
+	if coordinatorOwnsReset {
+		return checkpointFailure(ErrCheckpointReconciliation, "caller-authoritative checkpoint clamp requires coordinator reset", nil)
 	}
 	candidate := state
 	candidate.Artifacts = make(map[int]artifact, int(sequence))

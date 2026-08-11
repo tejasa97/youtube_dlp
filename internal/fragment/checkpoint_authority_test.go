@@ -10,11 +10,14 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/tejasa97/youtube_dlp/internal/atomicfile"
 )
 
 func TestCheckpointCommitSnapshotsFollowContiguousCompletion(t *testing.T) {
@@ -258,6 +261,27 @@ func TestCheckpointCanonicalZeroBoundaryResetsOwnedWork(t *testing.T) {
 	}
 }
 
+func TestCoordinatorOwnedCanonicalZeroDoesNotDeleteBeforeHandleReset(t *testing.T) {
+	root := t.TempDir()
+	job := checkpointTestJob(root, filepath.Join(root, "out"), "asset:coordinator-zero", []Segment{{URL: "https://example.test/0"}})
+	writeCheckpointFixture(t, job, map[int][]byte{0: []byte("retained")})
+	zero, err := InitialResumeBoundary(job.Checkpoint.ResumeIdentity, job.Segments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	job.Checkpoint.ResumeBoundary = &zero
+	job.Checkpoint.RequireCoordinatorReset = true
+	before := snapshotCheckpointTree(t, root)
+	_, err = New(newControlledFragmentTransport(map[int]string{0: "network"})).Download(context.Background(), job, nil)
+	if !errors.Is(err, ErrCheckpointReconciliation) {
+		t.Fatalf("error=%v, want coordinator reconciliation", err)
+	}
+	after := snapshotCheckpointTree(t, root)
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("generic fragment reset mutated coordinator-owned evidence\nbefore=%v\nafter=%v", before, after)
+	}
+}
+
 func TestCheckpointZeroBoundaryRejectsRetainedPublicationEvidenceAndDestination(t *testing.T) {
 	for _, test := range []struct {
 		name            string
@@ -413,6 +437,97 @@ func TestCheckpointAuthorityValuesExcludeRequestSecrets(t *testing.T) {
 			t.Fatalf("safe authority persisted %q: %s", secret, encoded)
 		}
 	}
+}
+
+func TestScaledCheckpointProofGatesWholeRepresentationReuse(t *testing.T) {
+	scope := strings.Repeat("b", 64)
+	newJob := func(root string, proof string) Job {
+		return checkpointTestJob(root, filepath.Join(root, "out"), "asset:scaled", []Segment{
+			{URL: "https://cdn.example.test/0?sig=old", Scale: &Scale{Key: strings.Repeat("1", 64), Kind: "content-identity", Value: proof, Scope: scope}},
+			{URL: "https://cdn.example.test/1?sig=old", Scale: &Scale{Key: strings.Repeat("2", 64), Kind: "content-identity", Value: proof, Scope: scope}},
+		})
+	}
+	writeFixture := func(t *testing.T, job Job, contents []string) {
+		t.Helper()
+		ensureTestCheckpointDirectory(t, job)
+		state := initialManifestState(mustExpectation(t, job))
+		state.Artifacts = make(map[int]artifact, len(contents))
+		for index, content := range contents {
+			path := fragmentPath(job.Checkpoint.Directory, index)
+			if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			bytes, digest, err := digestFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			scale := job.Segments[index].Scale
+			state.Artifacts[index] = artifact{Bytes: bytes, SHA256: digest, Key: scale.Key, ProofKind: scale.Kind, ProofValue: scale.Value, ProofScope: scale.Scope}
+		}
+		if err := writeManifestState(filepath.Join(job.Checkpoint.Directory, "state.json"), state, atomicfile.Write); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Run("unchanged proof reuses", func(t *testing.T) {
+		root := t.TempDir()
+		job := newJob(root, strings.Repeat("a", 64))
+		writeFixture(t, job, []string{"old-a", "old-b"})
+		transport := newControlledFragmentTransport(map[int]string{0: "new-a", 1: "new-b"})
+		result, err := New(transport).Download(context.Background(), job, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Reused != 2 || transport.totalHits() != 0 {
+			t.Fatalf("result=%#v hits=%d, want full reuse", result, transport.totalHits())
+		}
+		body, err := os.ReadFile(job.Destination)
+		if err != nil || string(body) != "old-aold-b" {
+			t.Fatalf("output=%q err=%v", body, err)
+		}
+	})
+
+	t.Run("changed proof restarts complete scope", func(t *testing.T) {
+		root := t.TempDir()
+		oldJob := newJob(root, strings.Repeat("c", 64))
+		writeFixture(t, oldJob, []string{"old-a", "old-b"})
+		job := newJob(root, strings.Repeat("d", 64))
+		transport := newControlledFragmentTransport(map[int]string{0: "new-a", 1: "new-b"})
+		transport.release(0)
+		transport.release(1)
+		result, err := New(transport).Download(context.Background(), job, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Reused != 0 || result.Downloaded != 2 || transport.totalHits() != 2 {
+			t.Fatalf("result=%#v hits=%d, want complete restart", result, transport.totalHits())
+		}
+		body, err := os.ReadFile(job.Destination)
+		if err != nil || string(body) != "new-anew-b" {
+			t.Fatalf("output=%q err=%v", body, err)
+		}
+	})
+
+	t.Run("missing proof restarts complete scope", func(t *testing.T) {
+		root := t.TempDir()
+		oldJob := newJob(root, strings.Repeat("a", 64))
+		writeFixture(t, oldJob, []string{"old-a", "old-b"})
+		job := newJob(root, strings.Repeat("a", 64))
+		for index := range job.Segments {
+			job.Segments[index].Scale.Kind = ""
+			job.Segments[index].Scale.Value = ""
+		}
+		transport := newControlledFragmentTransport(map[int]string{0: "new-a", 1: "new-b"})
+		transport.release(0)
+		transport.release(1)
+		result, err := New(transport).Download(context.Background(), job, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Reused != 0 || result.Downloaded != 2 || transport.totalHits() != 2 {
+			t.Fatalf("result=%#v hits=%d, want complete restart without proof", result, transport.totalHits())
+		}
+	})
 }
 
 func TestInitialResumeBoundaryValidatesFinitePlanBeforeHashing(t *testing.T) {
@@ -674,13 +789,19 @@ func (transport *controlledFragmentTransport) release(index int) {
 }
 
 func (transport *controlledFragmentTransport) Do(ctx context.Context, request *http.Request) (*http.Response, error) {
-	index := int(request.URL.Path[len(request.URL.Path)-1] - '0')
+	index, parseErr := strconv.Atoi(strings.TrimPrefix(request.URL.Path, "/"))
+	if parseErr != nil || index < 0 {
+		return nil, fmt.Errorf("controlled transport requires a non-negative numeric path, got %q", request.URL.Path)
+	}
 	transport.mu.Lock()
 	transport.hitCount[index]++
 	hit := transport.hitCount[index]
 	gate := transport.gates[index]
 	responses := transport.responses[index]
 	transport.mu.Unlock()
+	if gate == nil {
+		return nil, fmt.Errorf("controlled transport has no configured gate for %d", index)
+	}
 	transport.started <- index
 	select {
 	case <-ctx.Done():

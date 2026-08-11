@@ -2,6 +2,7 @@ package hls
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/tejasa97/youtube_dlp/internal/events"
 	"github.com/tejasa97/youtube_dlp/internal/fragment"
@@ -48,12 +50,78 @@ type Config struct {
 	RetryBaseDelay      time.Duration
 	RetryMaxDelay       time.Duration
 	URLValidator        func(string) error
+	// Checkpoint opts a finite VOD playlist into caller-owned fragment resume.
+	// It is deliberately ignored for a playlist that was not finite at the
+	// initial snapshot: live HLS remains within-run only.
+	Checkpoint *fragment.Checkpoint
+	// RequireVODCheckpoint rejects a non-ENDLIST initial snapshot when a
+	// checkpoint was supplied. Session callers set it so live HLS cannot leave
+	// legacy destination-derived artifacts in a durable workspace.
+	RequireVODCheckpoint bool
+	// EquivalenceProof supplies an explicit URL-free proof for a VOD fragment.
+	// A nil callback (or no proof) conservatively disables cross-refresh reuse.
+	// The returned Scale's Key is ignored; the downloader owns the structural
+	// key and accepts only its Kind, Value, and Scope.
+	EquivalenceProof func(FragmentIdentity) (fragment.Scale, bool)
+	// StableKeyIdentity is the extractor-owned, non-secret identity of an
+	// encrypted HLS key epoch. Without it encrypted fragments cannot safely
+	// cross a refreshed key URL and always restart.
+	StableKeyIdentity func(FragmentIdentity) (string, bool)
+	// RepresentationIdentity is a bounded provider/selection identity supplied
+	// by the coordinator. It binds rendition/track selection into structural
+	// keys; it is never inferred from a URL.
+	RepresentationIdentity string
 	// SelectedDiscontinuityGroup restricts this downloader to one absolute
 	// EXT-X-DISCONTINUITY-SEQUENCE group. Nil preserves the existing behavior
 	// of accumulating every group in the selected representation. A selected
 	// group that is absent from a live snapshot contributes no segments; the
 	// normal poll/no-segments bounds remain in force.
 	SelectedDiscontinuityGroup *DiscontinuityGroupID
+}
+
+// FragmentIdentity is the bounded structural identity supplied to a VOD
+// remote-equivalence proof callback. It intentionally omits every URI,
+// request header, cookie, key URI, and AES key byte.
+type FragmentIdentity struct {
+	Map                    bool
+	DiscontinuitySequence  int64
+	MediaSequence          int64
+	PartIndex              int
+	Partial                bool
+	RangeStart             int64
+	RangeLength            int64
+	DurationNanos          int64
+	MapOrdinal             int
+	KeyDeclaration         int64
+	Encrypted              bool
+	RepresentationIdentity string
+	// Playlist and selected-rendition facts are the bounded URL-free HLS
+	// representation model. They are hashed into the stable fragment key, so
+	// a selected stream's codec/audio relationship or playlist epoch cannot be
+	// mistaken for the old representation after signed URL rotation.
+	PlaylistVersion               int
+	PlaylistMediaSequence         int64
+	PlaylistDiscontinuitySequence int64
+	SelectedBandwidth             int64
+	SelectedCodecs                string
+	SelectedResolution            string
+	SelectedAudioGroup            string
+	SelectedAudioLanguage         string
+	SelectedDiscontinuityGroup    int64
+	StableKeyIdentity             string
+	CanonicalComplete             bool
+	// Encryption is the method/IV declaration only. It never contains a key
+	// URI or AES key material and is included to make an encryption-declaration
+	// change invalidate the structural key.
+	Encryption string
+}
+
+type selectedRendition struct {
+	Bandwidth  int64
+	Codecs     string
+	Resolution string
+	AudioGroup string
+	Language   string
 }
 
 // InitialPlaylist is a bounded media-playlist snapshot that can be reused as
@@ -103,6 +171,19 @@ func NewDownloader(transport Transport, config Config) *Downloader {
 		selected := *config.SelectedDiscontinuityGroup
 		config.SelectedDiscontinuityGroup = &selected
 	}
+	if config.Checkpoint != nil {
+		checkpoint := *config.Checkpoint
+		if checkpoint.ResumeBoundary != nil {
+			boundary := *checkpoint.ResumeBoundary
+			checkpoint.ResumeBoundary = &boundary
+		}
+		config.Checkpoint = &checkpoint
+		if !validRepresentationIdentity(config.RepresentationIdentity) {
+			// Keep the invalid value so Download can reject before filesystem
+			// work, rather than silently changing the representation scope.
+			config.RepresentationIdentity = ""
+		}
+	}
 	if config.PollInterval <= 0 {
 		config.PollInterval = time.Second
 	}
@@ -113,13 +194,24 @@ func NewDownloader(transport Transport, config Config) *Downloader {
 }
 
 func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputRoot, destination string, overwrite bool, sink events.Sink) (fragment.Result, error) {
-	mediaURL, media, err := downloader.loadMedia(ctx, manifestURL)
+	mediaURL, media, selected, err := downloader.loadMedia(ctx, manifestURL)
 	if err != nil {
 		return fragment.Result{}, err
 	}
 	media, err = selectMediaPlaylistGroup(media, downloader.config.SelectedDiscontinuityGroup)
 	if err != nil {
 		return fragment.Result{}, err
+	}
+	// Only an EXT-X-ENDLIST snapshot is a finite VOD representation. A live
+	// playlist may be stable enough to finish within this process, but it has
+	// no cross-restart availability epoch contract and must not retain durable
+	// fragment authority.
+	initialVOD := media.EndList
+	if downloader.config.Checkpoint != nil && downloader.config.RequireVODCheckpoint && !initialVOD {
+		return fragment.Result{}, ErrVODCheckpointRequired
+	}
+	if downloader.config.Checkpoint != nil && downloader.config.RepresentationIdentity == "" {
+		return fragment.Result{}, ErrInvalidPlaylist
 	}
 	segments := make(map[segmentKey]Segment)
 	complete := make(map[segmentKey]bool)
@@ -253,6 +345,7 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 		return &fragment.AES128{Key: append([]byte(nil), key.material...), IV: iv}, nil
 	}
 	var plan []fragment.Segment
+	mapOrdinal := 0
 	for _, key := range keys {
 		segment := segments[key]
 		if segment.Advertisement {
@@ -265,42 +358,236 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 			if segment.Map.Key != nil {
 				mapIV = segment.Map.Key.IV
 			}
-			identity := mapIdentity{
+			mapKey := mapIdentity{
 				url: segment.Map.URL, rangeStart: segment.Map.RangeStart, rangeLength: segment.Map.RangeLength,
 				iv: hex.EncodeToString(mapIV), epoch: key.epoch, discontinuity: segment.DiscontinuitySequence,
 			}
 			if segment.Map.Key != nil {
-				identity.keyURL = segment.Map.Key.URL
-				identity.keyDeclaration = segment.Map.Key.Declaration
-				identity.keySnapshot = segment.Map.Key.snapshot
+				mapKey.keyURL = segment.Map.Key.URL
+				mapKey.keyDeclaration = segment.Map.Key.Declaration
+				mapKey.keySnapshot = segment.Map.Key.snapshot
 			}
-			if segment.Discontinuity || segment.MapDeclared || lastMap == nil || *lastMap != identity {
+			if segment.Discontinuity || segment.MapDeclared || lastMap == nil || *lastMap != mapKey {
 				encryption, err := loadEncryption(segment.Map.Key, segment.Sequence)
 				if err != nil {
 					return fragment.Result{}, err
 				}
+				mapOrdinal++
+				fragmentIdentity := downloader.fragmentIdentity(media, selected, FragmentIdentity{
+					Map: true, DiscontinuitySequence: segment.DiscontinuitySequence,
+					MediaSequence: segment.Sequence, RangeStart: segment.Map.RangeStart,
+					RangeLength: segment.Map.RangeLength, MapOrdinal: mapOrdinal, KeyDeclaration: hlsKeyDeclaration(segment.Map.Key),
+					Encrypted: segment.Map.Key != nil, Encryption: hlsEncryptionDeclaration(segment.Map.Key, segment.Sequence),
+				})
 				plan = append(plan, fragment.Segment{
 					URL: segment.Map.URL, RangeStart: segment.Map.RangeStart,
 					RangeLength: segment.Map.RangeLength, AES128: encryption,
+					Scale: downloader.vodScale(fragmentIdentity),
 				})
-				identityCopy := identity
-				lastMap = &identityCopy
+				mapKeyCopy := mapKey
+				lastMap = &mapKeyCopy
 			}
 		}
-		planned := fragment.Segment{URL: segment.URL, RangeStart: segment.RangeStart, RangeLength: segment.RangeLength}
+		identity := downloader.fragmentIdentity(media, selected, FragmentIdentity{
+			DiscontinuitySequence: segment.DiscontinuitySequence, MediaSequence: segment.Sequence,
+			PartIndex: segment.PartIndex, Partial: segment.Partial, RangeStart: segment.RangeStart,
+			RangeLength: segment.RangeLength, DurationNanos: segment.Duration.Nanoseconds(),
+			MapOrdinal: mapOrdinal, KeyDeclaration: hlsKeyDeclaration(segment.Key), Encrypted: segment.Key != nil, Encryption: hlsEncryptionDeclaration(segment.Key, segment.Sequence),
+		})
+		planned := fragment.Segment{URL: segment.URL, RangeStart: segment.RangeStart, RangeLength: segment.RangeLength, Scale: downloader.vodScale(identity)}
 		planned.AES128, err = loadEncryption(segment.Key, segment.Sequence)
 		if err != nil {
 			return fragment.Result{}, err
 		}
 		plan = append(plan, planned)
 	}
-	return fragment.New(downloader.transport).Download(ctx, fragment.Job{
+	job := fragment.Job{
 		Segments: plan, Headers: downloader.config.Headers, OutputRoot: outputRoot, Destination: destination,
 		Concurrency: downloader.config.FragmentConcurrency, PerHostConcurrency: downloader.config.PerHostConcurrency,
 		MaxSegments: downloader.config.MaxSegments, MaxSegmentSize: downloader.config.MaxSegmentSize,
 		Attempts: downloader.config.Attempts, RetryBaseDelay: downloader.config.RetryBaseDelay,
 		RetryMaxDelay: downloader.config.RetryMaxDelay, Overwrite: overwrite,
-	}, sink)
+	}
+	if initialVOD && downloader.config.Checkpoint != nil {
+		checkpoint := *downloader.config.Checkpoint
+		job.Checkpoint = &checkpoint
+	} else {
+		// Scales are only meaningful inside a durable VOD ledger. Avoid
+		// changing legacy plan hashes or retaining live HLS state.
+		for index := range job.Segments {
+			job.Segments[index].Scale = nil
+		}
+	}
+	return fragment.New(downloader.transport).Download(ctx, job, sink)
+}
+
+func (downloader *Downloader) vodScale(identity FragmentIdentity) *fragment.Scale {
+	if !identity.CanonicalComplete {
+		// Do not hash malformed untrusted playlist metadata. In particular, a
+		// value that looks like a URI must never become a persisted URL-derived
+		// digest. The proof-less sentinel forces a complete safe restart.
+		return hlsSafeRestartScale("incomplete")
+	}
+	if identity.Encrypted {
+		if downloader.config.StableKeyIdentity == nil {
+			return hlsSafeRestartScale("encrypted-unproven")
+		}
+		keyIdentity, ok := downloader.config.StableKeyIdentity(identity)
+		if !ok || !validRepresentationIdentity(keyIdentity) {
+			return hlsSafeRestartScale("encrypted-unproven")
+		}
+		identity.StableKeyIdentity = keyIdentity
+	}
+	representationDigest := sha256.Sum256([]byte(hlsRepresentationCanonical(identity)))
+	representation := hex.EncodeToString(representationDigest[:])
+	segmentDigest := sha256.Sum256([]byte(hlsFragmentCanonical(identity)))
+	key := hex.EncodeToString(segmentDigest[:])
+	scale := &fragment.Scale{Key: key, Scope: representation}
+	if downloader.config.EquivalenceProof == nil {
+		return scale
+	}
+	if proof, ok := downloader.config.EquivalenceProof(identity); ok {
+		if validHLSProof(proof) {
+			scale.Kind, scale.Value, scale.Scope = proof.Kind, proof.Value, proof.Scope
+		}
+	}
+	return scale
+}
+
+// A protocol callback is not trusted input for ledger serialization. Invalid
+// proof shapes simply withhold reuse authorization; the structural scale then
+// makes retained fragments restart as one scope rather than failing playback.
+func validHLSProof(proof fragment.Scale) bool {
+	if proof.Kind != "provider-immutable" && proof.Kind != "content-identity" {
+		return false
+	}
+	return canonicalHLSProofDigest(proof.Value) && canonicalHLSProofDigest(proof.Scope)
+}
+
+func canonicalHLSProofDigest(value string) bool {
+	if len(value) != sha256.Size*2 || value != strings.ToLower(value) {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
+}
+
+func hlsSafeRestartScale(reason string) *fragment.Scale {
+	key := sha256.Sum256([]byte("hls-v3-restart-key:" + reason))
+	scope := sha256.Sum256([]byte("hls-v3-restart-scope:" + reason))
+	return &fragment.Scale{Key: hex.EncodeToString(key[:]), Scope: hex.EncodeToString(scope[:])}
+}
+
+func (downloader *Downloader) fragmentIdentity(media *MediaPlaylist, selected selectedRendition, identity FragmentIdentity) FragmentIdentity {
+	identity.RepresentationIdentity = downloader.config.RepresentationIdentity
+	identity.SelectedBandwidth = selected.Bandwidth
+	identity.SelectedCodecs = selected.Codecs
+	identity.SelectedResolution = selected.Resolution
+	identity.SelectedAudioGroup = selected.AudioGroup
+	identity.SelectedAudioLanguage = selected.Language
+	if media != nil {
+		identity.PlaylistVersion = media.Version
+		if identity.PlaylistVersion == 0 {
+			identity.PlaylistVersion = 1 // RFC default when EXT-X-VERSION is absent.
+		}
+		identity.PlaylistMediaSequence = media.Sequence
+		identity.PlaylistDiscontinuitySequence = media.DiscontinuitySequence
+	}
+	identity.SelectedDiscontinuityGroup = -1
+	if downloader.config.SelectedDiscontinuityGroup != nil {
+		identity.SelectedDiscontinuityGroup = downloader.config.SelectedDiscontinuityGroup.DiscontinuitySequence
+	}
+	identity.CanonicalComplete = media != nil && media.Sequence >= 0 && media.DiscontinuitySequence >= 0 &&
+		validRepresentationIdentity(identity.RepresentationIdentity) && identity.PlaylistVersion > 0 &&
+		identity.SelectedDiscontinuityGroup >= -1 && hlsCanonicalFieldsSafe(identity)
+	return identity
+}
+
+func hlsCanonicalFieldsSafe(identity FragmentIdentity) bool {
+	for _, value := range []string{identity.SelectedCodecs, identity.SelectedResolution, identity.SelectedAudioGroup, identity.SelectedAudioLanguage} {
+		if !safeHLSCanonicalField(value) {
+			return false
+		}
+	}
+	return safeHLSEncryptionDeclaration(identity.Encryption)
+}
+
+func safeHLSCanonicalField(value string) bool {
+	if len(value) > 256 || !utf8.ValidString(value) || strings.IndexFunc(value, unicode.IsControl) >= 0 {
+		return false
+	}
+	return !strings.ContainsAny(value, ":/\\?@#&=")
+}
+
+func safeHLSEncryptionDeclaration(value string) bool {
+	if value == "none" {
+		return true
+	}
+	parts := strings.Split(value, ":")
+	if len(parts) != 3 || parts[0] != "aes-128" || parts[1] != "identity" || len(parts[2]) != 32 {
+		return false
+	}
+	for _, character := range parts[2] {
+		if !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f')) {
+			return false
+		}
+	}
+	return true
+}
+
+// These canonical strings contain no URI, URI-derived hash, credential, key
+// URI, or key material. Their SHA-256 digests are the persisted bounded keys.
+func hlsRepresentationCanonical(identity FragmentIdentity) string {
+	return fmt.Sprintf("v=3|provider=%s|variant-bw=%d|codecs=%s|resolution=%s|audio-group=%s|audio-lang=%s|selected-disc=%d",
+		identity.RepresentationIdentity, identity.SelectedBandwidth, identity.SelectedCodecs,
+		identity.SelectedResolution, identity.SelectedAudioGroup, identity.SelectedAudioLanguage,
+		identity.SelectedDiscontinuityGroup)
+}
+
+func hlsFragmentCanonical(identity FragmentIdentity) string {
+	return fmt.Sprintf("%s|playlist-v=%d|playlist-msn=%d|playlist-dsn=%d|map=%t|disc=%d|msn=%d|part=%d|partial=%t|range=%d:%d|duration=%d|map-ordinal=%d|key-declaration=%d|encrypted=%t|encryption=%s|stable-key=%s",
+		hlsRepresentationCanonical(identity), identity.PlaylistVersion, identity.PlaylistMediaSequence,
+		identity.PlaylistDiscontinuitySequence, identity.Map, identity.DiscontinuitySequence,
+		identity.MediaSequence, identity.PartIndex, identity.Partial, identity.RangeStart,
+		identity.RangeLength, identity.DurationNanos, identity.MapOrdinal, identity.KeyDeclaration, identity.Encrypted,
+		identity.Encryption, identity.StableKeyIdentity)
+}
+
+func hlsKeyDeclaration(key *Key) int64 {
+	if key == nil {
+		return 0
+	}
+	return key.Declaration
+}
+
+func validRepresentationIdentity(value string) bool {
+	if value == "" || len(value) > 256 {
+		return false
+	}
+	for _, character := range value {
+		if (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
+			(character >= '0' && character <= '9') || strings.ContainsRune("._:-", character) {
+			continue
+		}
+		return false
+	}
+	return value != "." && value != ".."
+}
+
+func hlsEncryptionDeclaration(key *Key, sequence int64) string {
+	if key == nil {
+		return "none"
+	}
+	iv := append([]byte(nil), key.IV...)
+	if len(iv) == 0 {
+		iv = make([]byte, 16)
+		binary.BigEndian.PutUint64(iv[8:], uint64(sequence))
+	}
+	format := strings.ToLower(key.KeyFormat)
+	if format == "" {
+		format = "identity"
+	}
+	return strings.ToLower(key.Method) + ":" + format + ":" + hex.EncodeToString(iv)
 }
 
 func inheritPlaylistContext(media *MediaPlaylist, state *playlistContext) {
@@ -514,46 +801,46 @@ func isUnsupportedBlockingReload(err error) bool {
 	return errors.As(err, &status) && (status.Code == http.StatusBadRequest || status.Code == http.StatusNotFound || status.Code == http.StatusNotImplemented)
 }
 
-func (downloader *Downloader) loadMedia(ctx context.Context, manifestURL string) (string, *MediaPlaylist, error) {
+func (downloader *Downloader) loadMedia(ctx context.Context, manifestURL string) (string, *MediaPlaylist, selectedRendition, error) {
 	if initial := downloader.config.InitialPlaylist; initial != nil {
 		if initial.URL == "" || len(initial.Body) > maxPlaylistBytes {
-			return "", nil, ErrInvalidPlaylist
+			return "", nil, selectedRendition{}, ErrInvalidPlaylist
 		}
 		if err := downloader.validateURL(initial.URL); err != nil {
-			return "", nil, err
+			return "", nil, selectedRendition{}, err
 		}
 		playlist, err := Parse(initial.URL, initial.Body)
 		if err != nil || playlist.Media == nil {
-			return "", nil, errors.Join(err, ErrInvalidPlaylist)
+			return "", nil, selectedRendition{}, errors.Join(err, ErrInvalidPlaylist)
 		}
 		if err := downloader.validatePlaylistURLs(playlist); err != nil {
-			return "", nil, err
+			return "", nil, selectedRendition{}, err
 		}
-		return initial.URL, playlist.Media, nil
+		return initial.URL, playlist.Media, selectedRendition{}, nil
 	}
 	if err := downloader.validateURL(manifestURL); err != nil {
-		return "", nil, err
+		return "", nil, selectedRendition{}, err
 	}
 	body, _, err := downloader.readPage(ctx, manifestURL)
 	if err != nil {
-		return "", nil, err
+		return "", nil, selectedRendition{}, err
 	}
 	playlist, err := Parse(manifestURL, body)
 	if err != nil {
 		annotateEncryptionMediaURL(err, manifestURL)
-		return "", nil, err
+		return "", nil, selectedRendition{}, err
 	}
 	if playlist.Media != nil {
 		if err := downloader.validatePlaylistURLs(playlist); err != nil {
-			return "", nil, err
+			return "", nil, selectedRendition{}, err
 		}
-		return manifestURL, playlist.Media, nil
+		return manifestURL, playlist.Media, selectedRendition{}, nil
 	}
 	if len(playlist.Variants) == 0 {
-		return "", nil, ErrInvalidPlaylist
+		return "", nil, selectedRendition{}, ErrInvalidPlaylist
 	}
 	if err := downloader.validatePlaylistURLs(playlist); err != nil {
-		return "", nil, err
+		return "", nil, selectedRendition{}, err
 	}
 	selected := playlist.Variants[0]
 	for _, variant := range playlist.Variants[1:] {
@@ -561,19 +848,34 @@ func (downloader *Downloader) loadMedia(ctx context.Context, manifestURL string)
 			selected = variant
 		}
 	}
+	selectedFacts := selectRendition(playlist, selected)
 	body, _, err = downloader.readPage(ctx, selected.URL)
 	if err != nil {
-		return "", nil, err
+		return "", nil, selectedRendition{}, err
 	}
 	playlist, err = Parse(selected.URL, body)
 	if err != nil || playlist.Media == nil {
 		annotateEncryptionMediaURL(err, selected.URL)
-		return "", nil, errors.Join(err, ErrInvalidPlaylist)
+		return "", nil, selectedRendition{}, errors.Join(err, ErrInvalidPlaylist)
 	}
 	if err := downloader.validatePlaylistURLs(playlist); err != nil {
-		return "", nil, err
+		return "", nil, selectedRendition{}, err
 	}
-	return selected.URL, playlist.Media, nil
+	return selected.URL, playlist.Media, selectedFacts, nil
+}
+
+func selectRendition(playlist Playlist, variant Variant) selectedRendition {
+	selected := selectedRendition{Bandwidth: variant.Bandwidth, Codecs: variant.Codecs, Resolution: variant.Resolution, AudioGroup: variant.AudioGroup}
+	if variant.AudioGroup == "" {
+		return selected
+	}
+	for _, rendition := range playlist.Renditions {
+		if rendition.Type == "AUDIO" && rendition.GroupID == variant.AudioGroup {
+			selected.Language = rendition.Language
+			break
+		}
+	}
+	return selected
 }
 
 func (downloader *Downloader) validateURL(rawURL string) error {

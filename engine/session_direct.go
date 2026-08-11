@@ -14,18 +14,23 @@ import (
 	"strings"
 	"time"
 
+	providerapi "github.com/tejasa97/youtube_dlp/engine/provider"
 	"github.com/tejasa97/youtube_dlp/engine/value"
 	"github.com/tejasa97/youtube_dlp/internal/atomicfile"
 	"github.com/tejasa97/youtube_dlp/internal/downloader"
 	"github.com/tejasa97/youtube_dlp/internal/events"
 	mediaformat "github.com/tejasa97/youtube_dlp/internal/format"
+	"github.com/tejasa97/youtube_dlp/internal/fragment"
 	"github.com/tejasa97/youtube_dlp/internal/network"
+	protocoldash "github.com/tejasa97/youtube_dlp/internal/protocol/dash"
+	protocolhls "github.com/tejasa97/youtube_dlp/internal/protocol/hls"
 	"github.com/tejasa97/youtube_dlp/internal/session"
 )
 
 const (
 	directSessionComponentID     = "primary"
 	directSessionCheckpoint      = session.CheckpointDirectoryName + "/direct.json"
+	fragmentSessionCheckpoint    = session.CheckpointDirectoryName + "/fragments/state.json"
 	directSessionPublishDir      = "publish"
 	directSessionStageName       = "final.staged"
 	directSessionJournalName     = "journal.json"
@@ -34,19 +39,22 @@ const (
 )
 
 type directSession struct {
-	operation    *operation
-	workspace    *session.Workspace
-	root         OutputRootRef
-	target       CommitTarget
-	selection    mediaformat.Selection
-	identity     string
-	planIdentity string
-	destination  string
-	payload      string
-	checkpoint   string
-	stage        string
-	journal      string
-	created      bool
+	operation        *operation
+	workspace        *session.Workspace
+	root             OutputRootRef
+	target           CommitTarget
+	selection        mediaformat.Selection
+	identity         string
+	fragmentIdentity string
+	planIdentity     string
+	destination      string
+	payload          string
+	checkpoint       string
+	stage            string
+	journal          string
+	fragmentRoot     string
+	fragmented       bool
+	created          bool
 }
 
 type directPublicationJournal struct {
@@ -130,6 +138,22 @@ func directSessionSupportedSelection(selection mediaformat.Selection) bool {
 	return err == nil && (parsed.URL.Scheme == "http" || parsed.URL.Scheme == "https")
 }
 
+// fragmentedSessionSupportedSelection is intentionally narrow. The session
+// implementation supplies an engine-owned payload and fragment ledger for
+// finite HLS VOD and static DASH only; live HLS, dynamic DASH, SABR/UMP, and
+// every other adaptive protocol remain outside this durable path.
+func fragmentedSessionSupportedSelection(selection mediaformat.Selection) bool {
+	if selection.YouTubeLiveFromStart || selection.YouTubePostLive || selection.YouTubeSABR {
+		return false
+	}
+	switch selection.Protocol {
+	case "m3u8_native", "http_dash_segments":
+		return selection.URL != ""
+	default:
+		return false
+	}
+}
+
 func directSessionTrackIdentity(info value.Info, selection mediaformat.Selection) (string, error) {
 	providerID, _ := info.ID()
 	formatID := selection.ID
@@ -195,8 +219,9 @@ func (operation *operation) newDirectSession(info value.Info, extractor string, 
 	if !sessionRequestEnabled(operation) {
 		return nil, ErrResumeIdentityRequired
 	}
-	if !directSessionSupportedSelection(selection) {
-		return nil, fmt.Errorf("%w: session mode supports direct HTTP tracks only", ErrUnsupported)
+	fragmented := fragmentedSessionSupportedSelection(selection)
+	if !directSessionSupportedSelection(selection) && !fragmented {
+		return nil, fmt.Errorf("%w: session mode supports direct HTTP, finite HLS VOD, and static DASH tracks only", ErrUnsupported)
 	}
 	root, err := ValidateOutputRoot(operation.request.outputRoot(OutputPathHome))
 	if err != nil {
@@ -216,6 +241,11 @@ func (operation *operation) newDirectSession(info value.Info, extractor string, 
 	if err != nil {
 		return nil, err
 	}
+	fragmentIdentity := identity
+	if selection.FragmentResumeIdentity != "" {
+		digest := sha256.Sum256([]byte(identity + "\x00" + selection.FragmentResumeIdentity))
+		fragmentIdentity = "fragment-v1-" + hex.EncodeToString(digest[:])
+	}
 	planIdentity := directSessionPlanIdentity(identity, selection.Ext)
 	ref, err := session.NewWorkspaceRefWithIdentity(root.CanonicalPath, root.Identity, resume.SessionID)
 	if err != nil {
@@ -230,12 +260,16 @@ func (operation *operation) newDirectSession(info value.Info, extractor string, 
 		if !errors.Is(openErr, session.ErrWorkspaceUnavailable) {
 			return nil, fmt.Errorf("open resume session: %w", openErr)
 		}
+		componentKind, checkpointPath := "direct", directSessionCheckpoint
+		if fragmented {
+			componentKind, checkpointPath = "fragmented-"+selection.Protocol, fragmentSessionCheckpoint
+		}
 		workspace, openErr = session.CreateWithID(session.CreateOptions{
 			OutputRoot: root.CanonicalPath, OutputRootIdentity: root.Identity,
 			Source:              session.SourceIntent{Provider: directSessionProvider(extractor), ID: directSessionSourceID(info, identity), Kind: "video"},
 			Output:              session.OutputIntent{Container: safeSessionIdentifier(selection.Ext, "bin"), Extension: safeSessionIdentifier(selection.Ext, "bin"), PlanIdentity: planIdentity},
 			RelativeDestination: target.Basename,
-			Components:          []session.Component{{ID: directSessionComponentID, Kind: "direct", Checkpoint: session.CheckpointMetadata{RelativePath: directSessionCheckpoint}}},
+			Components:          []session.Component{{ID: directSessionComponentID, Kind: componentKind, Checkpoint: session.CheckpointMetadata{RelativePath: checkpointPath}}},
 		}, resume.SessionID)
 		created = openErr == nil
 		if openErr != nil {
@@ -250,14 +284,20 @@ func (operation *operation) newDirectSession(info value.Info, extractor string, 
 			return nil, fmt.Errorf("create resume session: %w", openErr)
 		}
 	}
+	checkpointPath := directSessionCheckpoint
+	if fragmented {
+		checkpointPath = fragmentSessionCheckpoint
+	}
 	result := &directSession{
 		operation: operation, workspace: workspace, root: root, target: target, selection: selection,
-		identity: identity, planIdentity: planIdentity, destination: destination,
-		payload:    filepath.Join(workspace.Path(), "payload"),
-		checkpoint: filepath.Join(workspace.Path(), filepath.FromSlash(directSessionCheckpoint)),
-		stage:      filepath.Join(workspace.Path(), directSessionPublishDir, directSessionStageName),
-		journal:    filepath.Join(workspace.Path(), directSessionPublishDir, directSessionJournalName),
-		created:    created,
+		identity: identity, fragmentIdentity: fragmentIdentity, planIdentity: planIdentity, destination: destination,
+		payload:      filepath.Join(workspace.Path(), "payload"),
+		checkpoint:   filepath.Join(workspace.Path(), filepath.FromSlash(checkpointPath)),
+		fragmentRoot: filepath.Join(workspace.Path(), filepath.FromSlash(filepath.Dir(fragmentSessionCheckpoint))),
+		fragmented:   fragmented,
+		stage:        filepath.Join(workspace.Path(), directSessionPublishDir, directSessionStageName),
+		journal:      filepath.Join(workspace.Path(), directSessionPublishDir, directSessionJournalName),
+		created:      created,
 	}
 	if err := result.validateManifestIdentity(); err != nil {
 		_ = workspace.Close()
@@ -279,7 +319,11 @@ func (run *directSession) validateManifestIdentity() error {
 	if err != nil {
 		return err
 	}
-	if manifest.SessionID != run.operation.request.Filesystem.Resume.SessionID || len(manifest.Components) != 1 || manifest.Components[0].ID != directSessionComponentID || manifest.Components[0].Kind != "direct" {
+	wantKind, wantCheckpoint := "direct", directSessionCheckpoint
+	if run.fragmented {
+		wantKind, wantCheckpoint = "fragmented-"+run.selection.Protocol, fragmentSessionCheckpoint
+	}
+	if manifest.SessionID != run.operation.request.Filesystem.Resume.SessionID || len(manifest.Components) != 1 || manifest.Components[0].ID != directSessionComponentID || manifest.Components[0].Kind != wantKind || manifest.Components[0].Checkpoint.RelativePath != wantCheckpoint {
 		return ErrResumeIdentityMismatch
 	}
 	if manifest.Output.PlanIdentity != run.planIdentity || manifest.RelativeDestination == "" && manifest.Phase != session.PhasePrepared {
@@ -321,7 +365,11 @@ func (run *directSession) validateAuthorities() error {
 	if err != nil || root.CanonicalPath != run.root.CanonicalPath || root.Identity != run.root.Identity {
 		return ErrSessionNeedsReconciliation
 	}
-	for _, path := range []string{run.payload, run.stage, run.journal} {
+	paths := []string{run.payload, run.stage, run.journal}
+	if run.fragmented {
+		paths = append(paths, run.fragmentRoot, run.checkpoint)
+	}
+	for _, path := range paths {
 		if err := validateWorkspaceFilePath(run.workspace.Path(), path, false); err != nil {
 			return err
 		}
@@ -560,33 +608,48 @@ func (run *directSession) run(ctx context.Context, sink events.Sink) (result Res
 		return result, err
 	}
 	if !complete {
-		boundary, reset, boundaryErr := run.resumeBoundary(component)
-		if boundaryErr != nil {
-			return result, boundaryErr
-		}
-		if reset {
-			if err := run.resetDirectEvidence(manifest); err != nil {
-				return result, err
-			}
-			manifest, err = run.snapshot()
-			if err != nil {
-				return result, err
-			}
-			boundary = nil
-		}
 		if manifest.Phase == session.PhaseProcessing {
 			return result, ErrSessionNeedsReconciliation
 		}
-		if err := run.download(ctx, boundary, reset, sink); err != nil {
-			if errors.Is(err, downloader.ErrCheckpointResetRequired) || errors.Is(err, downloader.ErrCheckpointReconciliation) || errors.Is(err, downloader.ErrInvalidCheckpointState) {
-				if resetErr := run.resetDirectEvidence(manifest); resetErr != nil {
-					return result, errors.Join(err, resetErr)
+		if run.fragmented {
+			if err := run.downloadFragmented(ctx, sink); err != nil {
+				if errors.Is(err, fragment.ErrCheckpointReconciliation) || errors.Is(err, fragment.ErrInvalidCheckpoint) {
+					if resetErr := run.resetFragmentEvidence(manifest); resetErr != nil {
+						return result, errors.Join(err, resetErr)
+					}
+					if retryErr := run.downloadFragmented(ctx, sink); retryErr != nil {
+						return run.handleInterruption(ctx, result, retryErr)
+					}
+				} else {
+					return run.handleInterruption(ctx, result, err)
 				}
-				if retryErr := run.download(ctx, nil, true, sink); retryErr != nil {
-					return run.handleInterruption(ctx, result, retryErr)
+			}
+		} else {
+			boundary, reset, boundaryErr := run.resumeBoundary(component)
+			if boundaryErr != nil {
+				return result, boundaryErr
+			}
+			if reset {
+				if err := run.resetDirectEvidence(manifest); err != nil {
+					return result, err
 				}
-			} else {
-				return run.handleInterruption(ctx, result, err)
+				manifest, err = run.snapshot()
+				if err != nil {
+					return result, err
+				}
+				boundary = nil
+			}
+			if err := run.download(ctx, boundary, reset, sink); err != nil {
+				if errors.Is(err, downloader.ErrCheckpointResetRequired) || errors.Is(err, downloader.ErrCheckpointReconciliation) || errors.Is(err, downloader.ErrInvalidCheckpointState) {
+					if resetErr := run.resetDirectEvidence(manifest); resetErr != nil {
+						return result, errors.Join(err, resetErr)
+					}
+					if retryErr := run.download(ctx, nil, true, sink); retryErr != nil {
+						return run.handleInterruption(ctx, result, retryErr)
+					}
+				} else {
+					return run.handleInterruption(ctx, result, err)
+				}
 			}
 		}
 		manifest, err = run.snapshot()
@@ -598,7 +661,7 @@ func (run *directSession) run(ctx context.Context, sink events.Sink) (result Res
 			return result, err
 		}
 		if !complete {
-			return result, fmt.Errorf("%w: direct payload did not reach its committed length", session.ErrNeedsReconciliation)
+			return result, fmt.Errorf("%w: session payload did not reach its committed length", session.ErrNeedsReconciliation)
 		}
 	}
 	if manifest.Phase == session.PhaseDownloading {
@@ -744,6 +807,166 @@ func (run *directSession) download(ctx context.Context, boundary *downloader.Che
 	return downloadErr
 }
 
+func (run *directSession) commitFragmentCheckpoint(_ context.Context, snapshot fragment.CommitSnapshot) error {
+	if snapshot.ResumeIdentity != run.identity {
+		return ErrResumeIdentityMismatch
+	}
+	manifest, err := run.snapshot()
+	if err != nil {
+		return err
+	}
+	component := manifest.Components[0]
+	if component.Checkpoint.RelativePath != fragmentSessionCheckpoint {
+		return ErrResumeIdentityMismatch
+	}
+	// A changed/absent proof resets the fragment representation before its
+	// next committed prefix. Reset the coordinator boundary in the same
+	// direction so its monotonic component model never authorizes stale bytes.
+	if snapshot.CommittedBytes < component.CommittedBytes || (component.Checkpoint.PlanHash != "" && component.Checkpoint.PlanHash != snapshot.PlanHash) {
+		if err := run.workspace.ResetComponent(manifest.Revision, manifest.RunGeneration, directSessionComponentID, time.Now().UTC()); err != nil {
+			return err
+		}
+		manifest, err = run.snapshot()
+		if err != nil {
+			return err
+		}
+		component = manifest.Components[0]
+	}
+	metadata := component.Checkpoint
+	metadata.Digest = snapshot.Digest
+	metadata.PlanHash = snapshot.PlanHash
+	metadata.Sequence = snapshot.Sequence
+	metadata.Total = snapshot.CommittedBytes
+	return run.workspace.SetComponentCheckpoint(manifest.Revision, manifest.RunGeneration, directSessionComponentID, snapshot.CommittedBytes, snapshot.CommittedBytes, metadata)
+}
+
+func (run *directSession) fragmentEquivalenceProof() (fragment.Scale, bool) {
+	proof := run.selection.FragmentEquivalence
+	if run.selection.FragmentResumeIdentity == "" || proof.Value == "" || proof.Scope == "" {
+		return fragment.Scale{}, false
+	}
+	// Strong validators are not caller assertions. They require a fresh
+	// transport response check (strong ETag + length/range comparability), so
+	// this extractor-owned descriptor seam intentionally accepts only the two
+	// provider contracts that are identities by construction.
+	if proof.Kind != "provider-immutable" && proof.Kind != "content-identity" {
+		return fragment.Scale{}, false
+	}
+	return fragment.Scale{Kind: proof.Kind, Value: proof.Value, Scope: proof.Scope}, true
+}
+
+func (run *directSession) fragmentKeyIdentity() (string, bool) {
+	if run.selection.FragmentKeyIdentity == "" {
+		return "", false
+	}
+	return run.selection.FragmentKeyIdentity, true
+}
+
+func (run *directSession) fragmentResumeBoundary() (*fragment.ResumeBoundary, error) {
+	manifest, err := run.snapshot()
+	if err != nil {
+		return nil, err
+	}
+	component := manifest.Components[0]
+	if component.CommittedBytes == 0 {
+		return nil, nil
+	}
+	metadata := component.Checkpoint
+	boundary := &fragment.ResumeBoundary{ResumeIdentity: run.identity, PlanHash: metadata.PlanHash, Sequence: metadata.Sequence, Digest: metadata.Digest, CommittedBytes: component.CommittedBytes}
+	if metadata.Total != component.CommittedBytes || boundary.Validate() != nil {
+		return nil, ErrSessionNeedsReconciliation
+	}
+	return boundary, nil
+}
+
+func (run *directSession) downloadFragmented(ctx context.Context, sink events.Sink) error {
+	mediaTransport, err := run.operation.mediaTransport(
+		run.selection.CredentialIsolated, run.selection.CredentialIsolatedReferer,
+		run.selection.HostPolicy, run.selection.Protocol,
+	)
+	if err != nil {
+		return err
+	}
+	if run.selection.MediaPolicy != "" {
+		mediaTransport = newProviderPolicyTransport(run.operation, run.selection.MediaPolicy, "media")
+	}
+	var assetValidator func(string) error
+	if run.selection.AssetPolicy != "" {
+		hooks := run.operation.registry.Hooks()
+		if hooks.ValidateAsset == nil {
+			return ErrUnavailable
+		}
+		assetValidator = func(rawURL string) error {
+			return hooks.ValidateAsset(providerapi.URLPolicyRequest{Policy: run.selection.AssetPolicy, Role: "asset", URL: rawURL})
+		}
+		if err := assetValidator(run.selection.URL); err != nil {
+			return err
+		}
+	}
+	boundary, boundaryErr := run.fragmentResumeBoundary()
+	if boundaryErr != nil {
+		return boundaryErr
+	}
+	checkpoint := &fragment.Checkpoint{
+		Directory: run.fragmentRoot, ResumeIdentity: run.identity,
+		ResumeBoundary: boundary, OnCommit: run.commitFragmentCheckpoint, RequireCoordinatorReset: true, CoordinatorBoundary: true,
+	}
+	switch run.selection.Protocol {
+	case "m3u8_native":
+		var initialPlaylist *protocolhls.InitialPlaylist
+		if cached, ok := hlsInitialPlaylistsFromContext(ctx)[run.selection.URL]; ok {
+			initial := protocolhls.InitialPlaylist{URL: cached.URL, Body: append([]byte(nil), cached.Body...)}
+			initialPlaylist = &initial
+		}
+		var hlsGroup *protocolhls.DiscontinuityGroupID
+		group, explicit, groupErr := hlsDiscontinuityGroupFromSelection(run.selection)
+		if groupErr != nil {
+			return groupErr
+		}
+		if explicit {
+			hlsGroup = &group
+			sink = hlsDiscontinuityProgressSink{sink: sink, sequence: group.DiscontinuitySequence}
+		}
+		_, err := protocolhls.NewDownloader(mediaTransport.(protocolhls.Transport), protocolhls.Config{
+			Headers: run.selection.Headers, AllowedHosts: append([]string(nil), run.selection.AllowedHosts...), InitialPlaylist: initialPlaylist,
+			FragmentConcurrency: run.operation.request.Downloader.FragmentConcurrency,
+			PerHostConcurrency:  run.operation.request.Downloader.PerHostFragmentConcurrency,
+			MaxSegments:         run.operation.request.Downloader.MaxSegments, MaxSegmentSize: run.operation.request.Downloader.MaxSegmentBytes,
+			Attempts: run.operation.request.Downloader.Attempts, RetryBaseDelay: run.operation.request.Downloader.RetryBaseDelay,
+			RetryMaxDelay: run.operation.request.Downloader.RetryMaxDelay, Checkpoint: checkpoint, RequireVODCheckpoint: true,
+			RepresentationIdentity: run.fragmentIdentity,
+			EquivalenceProof:       func(protocolhls.FragmentIdentity) (fragment.Scale, bool) { return run.fragmentEquivalenceProof() },
+			StableKeyIdentity:      func(protocolhls.FragmentIdentity) (string, bool) { return run.fragmentKeyIdentity() },
+			URLValidator:           assetValidator, SelectedDiscontinuityGroup: hlsGroup,
+		}).Download(ctx, run.selection.URL, run.workspace.Path(), run.payload, true, sink)
+		return err
+	case "http_dash_segments":
+		result, err := protocoldash.NewDownloader(mediaTransport.(protocoldash.Transport), protocoldash.Config{
+			Headers: run.selection.Headers, DynamicMPDPolicy: protocoldash.DynamicMPDPolicyDeny,
+			FragmentConcurrency: run.operation.request.Downloader.FragmentConcurrency,
+			PerHostConcurrency:  run.operation.request.Downloader.PerHostFragmentConcurrency,
+			MaxSegments:         run.operation.request.Downloader.MaxSegments, MaxSegmentSize: run.operation.request.Downloader.MaxSegmentBytes,
+			Attempts: run.operation.request.Downloader.Attempts, RetryBaseDelay: run.operation.request.Downloader.RetryBaseDelay,
+			RetryMaxDelay: run.operation.request.Downloader.RetryMaxDelay, Checkpoint: checkpoint, RequireStaticSingleRepresentation: true,
+			RepresentationIdentity: run.fragmentIdentity,
+			EquivalenceProof:       func(protocoldash.FragmentIdentity) (fragment.Scale, bool) { return run.fragmentEquivalenceProof() },
+			URLValidator:           assetValidator,
+		}).Download(ctx, run.selection.URL, run.workspace.Path(), run.payload, true, sink)
+		if err != nil {
+			return err
+		}
+		// Session E4 intentionally supports one static representation. A DASH
+		// plan requiring merge or period concatenation remains outside this
+		// single-track staged-output route.
+		if result.MergeRequired || result.MultiPeriod || len(result.Tracks) != 1 {
+			return fmt.Errorf("%w: session DASH requires one static representation", ErrUnsupported)
+		}
+		return nil
+	default:
+		return ErrUnsupported
+	}
+}
+
 func (run *directSession) resetDirectEvidence(manifest session.Manifest) error {
 	for _, path := range []string{run.payload, run.payload + ".part", run.checkpoint} {
 		if err := removeOwnedRegular(path); err != nil {
@@ -754,6 +977,10 @@ func (run *directSession) resetDirectEvidence(manifest session.Manifest) error {
 		return err
 	}
 	return nil
+}
+
+func (run *directSession) resetFragmentEvidence(manifest session.Manifest) error {
+	return run.workspace.ResetFragmentComponent(manifest.Revision, manifest.RunGeneration, directSessionComponentID, time.Now().UTC())
 }
 
 func removeOwnedRegular(path string) error {

@@ -56,6 +56,18 @@ type manifestState struct {
 type artifact struct {
 	Bytes  int64  `json:"bytes"`
 	SHA256 string `json:"sha256"`
+	// Key is the bounded URL-free structural segment key for session-mode
+	// ledgers. It is bound into checkpointPlanHash and persisted so a later
+	// run can detect a representation that kept positional structure but not
+	// segment identity. Legacy artifacts leave it empty.
+	Key string `json:"key,omitempty"`
+	// ProofKind, ProofValue, and ProofScope persist the remote byte-equivalence
+	// proof that authorized reuse of this fragment at commit time. They are
+	// bounded, non-secret, and URL-free. An empty ProofKind means no proof was
+	// established; such an artifact is never reusable across a refresh.
+	ProofKind  string `json:"proof_kind,omitempty"`
+	ProofValue string `json:"proof_value,omitempty"`
+	ProofScope string `json:"proof_scope,omitempty"`
 }
 
 type manifestExpectation struct {
@@ -67,12 +79,14 @@ type manifestExpectation struct {
 	planHash       string
 	legacyHash     string
 	segmentCount   int
+	segments       []Segment
 }
 
 func manifestExpectationFor(job Job) (manifestExpectation, error) {
 	expectation := manifestExpectation{
 		segmentCount: len(job.Segments), outputRoot: job.OutputRoot,
 		destination: job.Destination, overwrite: job.Overwrite,
+		segments: append([]Segment(nil), job.Segments...),
 	}
 	if job.Checkpoint == nil {
 		hash, err := planHash(job.Segments)
@@ -325,6 +339,9 @@ func validateManifestState(state manifestState, expectation manifestExpectation)
 		if _, err := hex.DecodeString(artifact.SHA256); err != nil {
 			return checkpointFailure(ErrInvalidCheckpoint, "checkpoint artifact digest is invalid", err)
 		}
+		if expectation.durable && !safeArtifactProof(artifact) {
+			return checkpointFailure(ErrInvalidCheckpoint, "checkpoint fragment proof is malformed", nil)
+		}
 	}
 	if expectation.durable {
 		if state.Version != checkpointVersion || state.Hash != "" || state.ResumeIdentity == "" || state.PlanHash == "" {
@@ -342,6 +359,13 @@ func validateManifestState(state manifestState, expectation manifestExpectation)
 		return fmt.Errorf("legacy fragment plan changed")
 	}
 	return nil
+}
+
+func safeArtifactProof(artifact artifact) bool {
+	if artifact.Key == "" && artifact.ProofKind == "" && artifact.ProofValue == "" && artifact.ProofScope == "" {
+		return true
+	}
+	return validateScale(&Scale{Key: artifact.Key, Kind: artifact.ProofKind, Value: artifact.ProofValue, Scope: artifact.ProofScope}) == nil
 }
 
 func resetLegacyManifest(workDir string, expectation manifestExpectation, write func(string, os.FileMode, func(io.Writer) error) error) (*artifactManifest, error) {
@@ -371,7 +395,56 @@ func (manifest *artifactManifest) validateCommittedArtifacts(segmentCount int) e
 	return nil
 }
 
+// equivalenceRestartRequired reports whether any retained artifact in a
+// URL-free session plan lacks an exactly matching proof for the freshly
+// extracted representation. The fragment directory represents one selected
+// representation, so resetting the full directory is the conservative proof
+// scope: no uncertain old fragment can be assembled with newly fetched bytes.
+func (manifest *artifactManifest) equivalenceRestartRequired(segments []Segment) bool {
+	if !manifest.durable || len(segments) == 0 {
+		return false
+	}
+	usesScale := false
+	for _, segment := range segments {
+		if segment.Scale != nil {
+			usesScale = true
+			break
+		}
+	}
+	if !usesScale {
+		return false
+	}
+	manifest.mu.Lock()
+	defer manifest.mu.Unlock()
+	for index, artifact := range manifest.state.Artifacts {
+		if index < 0 || index >= len(segments) {
+			return true
+		}
+		scale := segments[index].Scale
+		// A plan that opted into structural identity never falls back to
+		// digest-only reuse. Missing proof, changed key/scope, or a changed
+		// proof all restart the complete representation scope.
+		if scale == nil || scale.Kind == "" || artifact.Key != scale.Key ||
+			artifact.ProofKind != scale.Kind || artifact.ProofValue != scale.Value ||
+			artifact.ProofScope != scale.Scope {
+			return true
+		}
+	}
+	return false
+}
+
 func (manifest *artifactManifest) Reusable(index int, path string) (bool, error) {
+	return manifest.reusableScaled(index, path, nil)
+}
+
+// reusableScaled reports whether the local fragment at path may be reused for
+// the caller's current scale. When scale carries a recognized proof kind,
+// durable reuse additionally requires an exactly matching persisted proof:
+// refreshed remote bytes are otherwise not established equivalent and the
+// fragment is re-downloaded. A nil scale or an empty proof kind preserves the
+// legacy digest-only behavior so caller-authoritative checkpoint callers that
+// do not opt into URL-free proof identity keep their existing semantics.
+func (manifest *artifactManifest) reusableScaled(index int, path string, scale *Scale) (bool, error) {
 	manifest.mu.Lock()
 	known, present := manifest.state.Artifacts[index]
 	durable := manifest.durable
@@ -386,6 +459,13 @@ func (manifest *artifactManifest) Reusable(index int, path string) (bool, error)
 	}
 	if !present {
 		return false, nil
+	}
+	if durable && scale != nil && scale.Kind != "" {
+		// Session-mode reuse gate. Without proof at commit time, or with a
+		// mismatch against the current refresh proof, reuse is never authorized.
+		if known.ProofKind != scale.Kind || known.ProofValue != scale.Value || known.ProofScope != scale.Scope {
+			return false, nil
+		}
 	}
 	valid, err := artifactMatches(known, path)
 	if valid {
@@ -416,6 +496,14 @@ func artifactMatches(known artifact, path string) (bool, error) {
 }
 
 func (manifest *artifactManifest) Record(index int, path string) error {
+	return manifest.RecordScaled(index, path, nil)
+}
+
+// RecordScaled records a committed fragment. scale optionally persists the
+// URL-free structural key and remote byte-equivalence proof that authorized
+// reuse for the current run; a later run may reuse the fragment only when that
+// proof matches.
+func (manifest *artifactManifest) RecordScaled(index int, path string, scale *Scale) error {
 	bytes, digest, err := digestFile(path)
 	if err != nil {
 		return err
@@ -430,7 +518,14 @@ func (manifest *artifactManifest) Record(index int, path string) error {
 	}
 	candidate := manifest.state
 	candidate.Artifacts = cloneArtifacts(manifest.state.Artifacts)
-	candidate.Artifacts[index] = artifact{Bytes: bytes, SHA256: digest}
+	recorded := artifact{Bytes: bytes, SHA256: digest}
+	if scale != nil {
+		recorded.Key = scale.Key
+		recorded.ProofKind = scale.Kind
+		recorded.ProofValue = scale.Value
+		recorded.ProofScope = scale.Scope
+	}
+	candidate.Artifacts[index] = recorded
 	sequence := manifest.notifiedSequence
 	var snapshot CommitSnapshot
 	if manifest.durable {

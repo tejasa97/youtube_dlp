@@ -22,6 +22,7 @@ var (
 	// product-level unsupported category without parsing error text.
 	ErrDynamicMPDUnsupported   = errors.New("dynamic DASH MPD unsupported")
 	ErrInvalidDynamicMPDPolicy = errors.New("invalid DASH dynamic MPD policy")
+	ErrStaticResumeUnsupported = errors.New("DASH durable resume requires one static representation and period")
 )
 
 const (
@@ -51,19 +52,20 @@ type Period struct {
 }
 
 type Representation struct {
-	ID          string
-	PeriodID    string
-	PeriodIndex int
-	Fragmented  bool
-	ContentType string
-	MimeType    string
-	Codecs      string
-	Language    string
-	FrameRate   string
-	AudioRate   string
-	Bandwidth   int64
-	Width       int
-	Height      int
+	ID              string
+	PeriodID        string
+	PeriodIndex     int
+	AdaptationSetID string
+	Fragmented      bool
+	ContentType     string
+	MimeType        string
+	Codecs          string
+	Language        string
+	FrameRate       string
+	AudioRate       string
+	Bandwidth       int64
+	Width           int
+	Height          int
 	// Addressing records the resolved segment source. It is kept separate from
 	// the media signature because static multi-period selection may combine
 	// compatible template/list sources, while dynamic polling must reject a
@@ -86,13 +88,50 @@ type Representation struct {
 	// SegmentBase composition change even when visible track metadata stays
 	// compatible.
 	PeriodAddressings []string
+	// Resume is the URL-free canonical structural model used only by the
+	// finite static-session path. It deliberately contains no BaseURL, media
+	// template literal, initialization URI, or resolved transport URL.
+	Resume ResumeStructure
+}
+
+// ResumeStructure records all structural DASH facts necessary to distinguish
+// a static representation after URLs are refreshed. Every field is bounded
+// scalar/token data; URL/path/query text is intentionally absent.
+type ResumeStructure struct {
+	Complete                  bool
+	PeriodID                  string
+	PeriodIndex               int
+	PeriodStartNanos          int64
+	PeriodDurationNanos       int64
+	PeriodTimingKnown         bool
+	AdaptationSetID           string
+	AddressingMode            string
+	NumberTimeRole            string
+	Timescale                 int64
+	PresentationTimeOffset    int64
+	StartNumber               int64
+	SegmentDuration           int64
+	FrameRate                 string
+	AudioRate                 string
+	TemplateGrammar           string
+	TimelineGrammar           string
+	InitializationIdentity    string
+	InitializationRangeStart  int64
+	InitializationRangeLength int64
+	IndexRangeStart           int64
+	IndexRangeLength          int64
 }
 
 type Segment struct {
 	URL         string
 	RangeStart  int64
 	RangeLength int64
-	Initialize  bool
+	// Sequence and Timeline are resolved numeric addressing facts. They are
+	// intentionally URL-free and distinguish equal-sized template fragments
+	// without persisting media templates.
+	Sequence   int64
+	Timeline   int64
+	Initialize bool
 	// IndexRange is set when this segment requires SIDX expansion. The
 	// downloader fetches this byte range from the media resource, parses the
 	// SIDX box, and replaces this segment with expanded media byte ranges.
@@ -126,6 +165,7 @@ type periodXML struct {
 }
 
 type adaptationSetXML struct {
+	ID              string              `xml:"id,attr"`
 	ContentType     string              `xml:"contentType,attr"`
 	MimeType        string              `xml:"mimeType,attr"`
 	Codecs          string              `xml:"codecs,attr"`
@@ -156,13 +196,14 @@ type representationXML struct {
 }
 
 type segmentTemplateXML struct {
-	Media                 string             `xml:"media,attr"`
-	Initialization        string             `xml:"initialization,attr"`
-	Timescale             int64              `xml:"timescale,attr"`
-	Duration              int64              `xml:"duration,attr"`
-	StartNumber           int64              `xml:"startNumber,attr"`
-	Timeline              segmentTimelineXML `xml:"SegmentTimeline"`
-	InitializationElement *initializationXML `xml:"Initialization"`
+	Media                  string             `xml:"media,attr"`
+	Initialization         string             `xml:"initialization,attr"`
+	Timescale              int64              `xml:"timescale,attr"`
+	Duration               int64              `xml:"duration,attr"`
+	StartNumber            int64              `xml:"startNumber,attr"`
+	PresentationTimeOffset int64              `xml:"presentationTimeOffset,attr"`
+	Timeline               segmentTimelineXML `xml:"SegmentTimeline"`
+	InitializationElement  *initializationXML `xml:"Initialization"`
 }
 
 type segmentTimelineXML struct {
@@ -176,12 +217,13 @@ type timelineEntryXML struct {
 }
 
 type segmentListXML struct {
-	Timescale      int64              `xml:"timescale,attr"`
-	Duration       int64              `xml:"duration,attr"`
-	StartNumber    int64              `xml:"startNumber,attr"`
-	Timeline       segmentTimelineXML `xml:"SegmentTimeline"`
-	Initialization *initializationXML `xml:"Initialization"`
-	Segments       []segmentURLXML    `xml:"SegmentURL"`
+	Timescale              int64              `xml:"timescale,attr"`
+	Duration               int64              `xml:"duration,attr"`
+	StartNumber            int64              `xml:"startNumber,attr"`
+	PresentationTimeOffset int64              `xml:"presentationTimeOffset,attr"`
+	Timeline               segmentTimelineXML `xml:"SegmentTimeline"`
+	Initialization         *initializationXML `xml:"Initialization"`
+	Segments               []segmentURLXML    `xml:"SegmentURL"`
 }
 
 type segmentBaseXML struct {
@@ -357,13 +399,21 @@ func Parse(rawURL string, input []byte) (MPD, error) {
 				}
 				normalized := Representation{
 					ID: representation.ID, PeriodID: period.ID, PeriodIndex: periodIndex,
-					ContentType: adaptation.ContentType,
-					MimeType:    firstNonEmpty(representation.MimeType, adaptation.MimeType),
-					Codecs:      firstNonEmpty(representation.Codecs, adaptation.Codecs),
-					Language:    firstNonEmpty(representation.Language, adaptation.Language),
-					FrameRate:   firstNonEmpty(representation.FrameRate, adaptation.FrameRate),
-					AudioRate:   firstNonEmpty(representation.AudioRate, adaptation.AudioRate),
-					Bandwidth:   representation.Bandwidth, Width: representation.Width, Height: representation.Height,
+					AdaptationSetID: adaptation.ID,
+					ContentType:     adaptation.ContentType,
+					MimeType:        firstNonEmpty(representation.MimeType, adaptation.MimeType),
+					Codecs:          firstNonEmpty(representation.Codecs, adaptation.Codecs),
+					Language:        firstNonEmpty(representation.Language, adaptation.Language),
+					FrameRate:       firstNonEmpty(representation.FrameRate, adaptation.FrameRate),
+					AudioRate:       firstNonEmpty(representation.AudioRate, adaptation.AudioRate),
+					Bandwidth:       representation.Bandwidth, Width: representation.Width, Height: representation.Height,
+					Resume: ResumeStructure{
+						PeriodID: period.ID, PeriodIndex: periodIndex,
+						PeriodStartNanos: periodStart.Nanoseconds(), PeriodDurationNanos: periodDuration.Nanoseconds(),
+						PeriodTimingKnown: periods[periodIndex].TimingKnown, AdaptationSetID: adaptation.ID,
+						FrameRate: firstNonEmpty(representation.FrameRate, adaptation.FrameRate),
+						AudioRate: firstNonEmpty(representation.AudioRate, adaptation.AudioRate),
+					},
 				}
 				template := mergeSegmentTemplates(period.SegmentTemplate, adaptation.SegmentTemplate, representation.SegmentTemplate)
 				list := mergeSegmentLists(period.SegmentList, adaptation.SegmentList, representation.SegmentList)
@@ -373,10 +423,12 @@ func Parse(rawURL string, input []byte) (MPD, error) {
 					normalized.Segments, err = templateSegments(representationBase, normalized, template, periodDuration)
 					normalized.Fragmented = true
 					normalized.Addressing = "template"
+					normalized.Resume = resumeTemplateStructure(normalized.Resume, template)
 				case list != nil:
 					normalized.Segments, err = listSegments(representationBase, list)
 					normalized.Fragmented = true
 					normalized.Addressing = "list"
+					normalized.Resume = resumeListStructure(normalized.Resume, list)
 				case segmentBase != nil:
 					normalized.Segments, err = baseSegments(representationBase, segmentBase)
 					normalized.Fragmented = segmentBase.IndexRange != ""
@@ -385,9 +437,11 @@ func Parse(rawURL string, input []byte) (MPD, error) {
 					} else {
 						normalized.Addressing = "segmentbase"
 					}
+					normalized.Resume = resumeBaseStructure(normalized.Resume, segmentBase)
 				case representation.BaseURL != "":
 					normalized.Segments = []Segment{{URL: representationBase.String()}}
 					normalized.Addressing = "single-file"
+					normalized.Resume = resumeSingleFileStructure(normalized.Resume)
 				default:
 					err = errors.New("representation has no segment source")
 				}
@@ -461,7 +515,7 @@ func templateSegments(base *url.URL, representation Representation, template *se
 				if err != nil {
 					return nil, err
 				}
-				result = append(result, Segment{URL: resolved})
+				result = append(result, Segment{URL: resolved, Sequence: number, Timeline: currentTime})
 				number++
 				currentTime += entry.Duration
 			}
@@ -480,7 +534,7 @@ func templateSegments(base *url.URL, representation Representation, template *se
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, Segment{URL: resolved})
+		result = append(result, Segment{URL: resolved, Sequence: number, Timeline: index * template.Duration})
 		number++
 	}
 	return result, nil
@@ -633,6 +687,9 @@ func mergeSegmentTemplates(values ...*segmentTemplateXML) *segmentTemplateXML {
 		if value.StartNumber != 0 {
 			result.StartNumber = value.StartNumber
 		}
+		if value.PresentationTimeOffset != 0 {
+			result.PresentationTimeOffset = value.PresentationTimeOffset
+		}
 		if len(value.Timeline.Entries) > 0 {
 			result.Timeline = value.Timeline
 		}
@@ -657,6 +714,9 @@ func mergeSegmentLists(values ...*segmentListXML) *segmentListXML {
 		}
 		if value.StartNumber != 0 {
 			result.StartNumber = value.StartNumber
+		}
+		if value.PresentationTimeOffset != 0 {
+			result.PresentationTimeOffset = value.PresentationTimeOffset
 		}
 		if len(value.Timeline.Entries) > 0 {
 			result.Timeline = value.Timeline
@@ -694,6 +754,178 @@ func mergeSegmentBases(values ...*segmentBaseXML) *segmentBaseXML {
 		}
 	}
 	return result
+}
+
+// Resume canonicalization deliberately serializes only DASH grammar and
+// numeric addressing facts. A template's literal path/query portion, every
+// BaseURL, and initialization source URI are omitted rather than hashed.
+// Remote proof—not URL equality—authorizes byte reuse.
+func resumeTemplateStructure(base ResumeStructure, template *segmentTemplateXML) ResumeStructure {
+	base.AddressingMode = "template"
+	base.Timescale = template.Timescale
+	if base.Timescale <= 0 {
+		base.Timescale = 1
+	}
+	base.PresentationTimeOffset = template.PresentationTimeOffset
+	base.StartNumber = template.StartNumber
+	if base.StartNumber <= 0 {
+		base.StartNumber = 1
+	}
+	base.SegmentDuration = template.Duration
+	base.TemplateGrammar = canonicalTemplateGrammar(template.Media) + ";init=" + canonicalTemplateGrammar(template.Initialization)
+	base.NumberTimeRole = templateRole(template.Media)
+	base.TimelineGrammar = canonicalTimelineGrammar(template.Timeline)
+	base.InitializationIdentity, base.InitializationRangeStart, base.InitializationRangeLength = canonicalInitialization(template.Initialization, template.InitializationElement)
+	return finishResumeStructure(base)
+}
+
+func resumeListStructure(base ResumeStructure, list *segmentListXML) ResumeStructure {
+	base.AddressingMode = "list"
+	base.Timescale = list.Timescale
+	if base.Timescale <= 0 {
+		base.Timescale = 1
+	}
+	base.PresentationTimeOffset = list.PresentationTimeOffset
+	base.StartNumber = list.StartNumber
+	if base.StartNumber <= 0 {
+		base.StartNumber = 1
+	}
+	base.SegmentDuration = list.Duration
+	base.NumberTimeRole = "list-index"
+	base.TemplateGrammar = "list-index"
+	base.TimelineGrammar = canonicalTimelineGrammar(list.Timeline)
+	base.InitializationIdentity, base.InitializationRangeStart, base.InitializationRangeLength = canonicalInitialization("", list.Initialization)
+	return finishResumeStructure(base)
+}
+
+func resumeBaseStructure(base ResumeStructure, segmentBase *segmentBaseXML) ResumeStructure {
+	base.AddressingMode = "segmentbase"
+	base.NumberTimeRole = "base"
+	base.TemplateGrammar = "base"
+	base.InitializationIdentity, base.InitializationRangeStart, base.InitializationRangeLength = canonicalInitialization("", segmentBase.Initialization)
+	if segmentBase.IndexRange != "" {
+		start, length, ok := canonicalRange(segmentBase.IndexRange)
+		if !ok {
+			base.Complete = false
+			return base
+		}
+		base.AddressingMode = "segmentbase-sidx"
+		base.IndexRangeStart, base.IndexRangeLength = start, length
+	}
+	return finishResumeStructure(base)
+}
+
+func resumeSingleFileStructure(base ResumeStructure) ResumeStructure {
+	base.AddressingMode, base.NumberTimeRole, base.TemplateGrammar = "single-file", "single", "single-file"
+	base.InitializationIdentity = "none"
+	return finishResumeStructure(base)
+}
+
+func finishResumeStructure(value ResumeStructure) ResumeStructure {
+	// DASH permits a Period without an ID only when its resolved interval is
+	// known. AdaptationSet and Representation IDs are mandatory here because
+	// cross-refresh matching must never fall back to URL position.
+	value.Complete = value.AddressingMode != "" && value.NumberTimeRole != "" && value.TemplateGrammar != "" &&
+		value.AdaptationSetID != "" && (value.PeriodID != "" || value.PeriodTimingKnown)
+	if value.TemplateGrammar == "invalid" || value.TimelineGrammar == "invalid" || value.InitializationIdentity == "invalid" {
+		value.Complete = false
+	}
+	return value
+}
+
+func canonicalTemplateGrammar(pattern string) string {
+	if pattern == "" {
+		return "none"
+	}
+	if len(pattern) > 4096 {
+		return "invalid"
+	}
+	replaced := strings.ReplaceAll(pattern, "$$", "")
+	matches := templatePattern.FindAllStringSubmatch(replaced, -1)
+	stripped := templatePattern.ReplaceAllString(replaced, "")
+	if strings.Contains(stripped, "$") {
+		return "invalid"
+	}
+	tokens := make([]string, 0, len(matches))
+	for _, match := range matches {
+		token := match[1]
+		if match[3] != "" {
+			token += "-w" + match[3]
+		}
+		tokens = append(tokens, token)
+	}
+	if len(tokens) == 0 {
+		return "literal-free"
+	}
+	return strings.Join(tokens, "+")
+}
+
+func templateRole(pattern string) string {
+	grammar := canonicalTemplateGrammar(pattern)
+	if grammar == "invalid" {
+		return ""
+	}
+	hasNumber, hasTime := strings.Contains(grammar, "Number"), strings.Contains(grammar, "Time")
+	switch {
+	case hasNumber && hasTime:
+		return "number-time"
+	case hasNumber:
+		return "number"
+	case hasTime:
+		return "time"
+	default:
+		return "literal-index"
+	}
+}
+
+func canonicalTimelineGrammar(timeline segmentTimelineXML) string {
+	if len(timeline.Entries) == 0 {
+		return "none"
+	}
+	if len(timeline.Entries) > maxSegmentsPerRepresentation {
+		return "invalid"
+	}
+	parts := make([]string, 0, len(timeline.Entries))
+	for _, entry := range timeline.Entries {
+		if entry.Duration <= 0 || entry.Repeat < -1 {
+			return "invalid"
+		}
+		start := "implicit"
+		if entry.Time != nil {
+			start = strconv.FormatInt(*entry.Time, 10)
+		}
+		parts = append(parts, "t"+start+"-d"+strconv.FormatInt(entry.Duration, 10)+"-r"+strconv.FormatInt(entry.Repeat, 10))
+	}
+	return strings.Join(parts, ";")
+}
+
+func canonicalInitialization(template string, initialization *initializationXML) (string, int64, int64) {
+	if template != "" {
+		grammar := canonicalTemplateGrammar(template)
+		if grammar == "invalid" {
+			return "invalid", 0, 0
+		}
+		return "template:" + grammar, 0, 0
+	}
+	if initialization == nil {
+		return "none", 0, 0
+	}
+	if initialization.Range == "" {
+		return "element", 0, 0
+	}
+	start, length, ok := canonicalRange(initialization.Range)
+	if !ok {
+		return "invalid", 0, 0
+	}
+	return "element-range", start, length
+}
+
+func canonicalRange(raw string) (int64, int64, bool) {
+	start, end, err := parseByteRange(raw)
+	if err != nil || end < start {
+		return 0, 0, false
+	}
+	return start, end - start + 1, true
 }
 
 func rangedSegment(base *url.URL, rawURL, rawRange string) (Segment, error) {

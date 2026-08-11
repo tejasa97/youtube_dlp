@@ -2,6 +2,8 @@ package dash
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/tejasa97/youtube_dlp/internal/events"
 	"github.com/tejasa97/youtube_dlp/internal/fragment"
@@ -83,6 +87,64 @@ type Config struct {
 	RetryBaseDelay      time.Duration
 	RetryMaxDelay       time.Duration
 	URLValidator        func(string) error
+	// Checkpoint opts one finite static representation into a caller-owned
+	// fragment ledger. Dynamic MPDs and multi-representation/multi-period
+	// outputs intentionally ignore it; they remain within-run only.
+	Checkpoint *fragment.Checkpoint
+	// RequireStaticSingleRepresentation rejects dynamic, multi-period, or
+	// multi-representation plans before any output artifact is created.
+	RequireStaticSingleRepresentation bool
+	// EquivalenceProof supplies an explicit URL-free remote byte-equivalence
+	// proof. Nil means a refreshed representation restarts conservatively.
+	// The returned Scale's Key is ignored because DASH owns structural keys.
+	EquivalenceProof func(FragmentIdentity) (fragment.Scale, bool)
+	// RepresentationIdentity is a coordinator-supplied, bounded provider-track
+	// identity. It binds extractor selection to the static DASH structural
+	// scope and is never inferred from BaseURL or templates.
+	RepresentationIdentity string
+}
+
+// FragmentIdentity contains only bounded structural DASH addressing facts for
+// proof selection. It excludes BaseURL, templates, URI literals, headers, and
+// request credentials.
+type FragmentIdentity struct {
+	RepresentationID          string
+	PeriodIndex               int
+	Addressing                string
+	Initialize                bool
+	RangeStart                int64
+	RangeLength               int64
+	Sequence                  int64
+	Timeline                  int64
+	Index                     int
+	ProviderTrackIdentity     string
+	PeriodID                  string
+	PeriodStartNanos          int64
+	PeriodDurationNanos       int64
+	PeriodTimingKnown         bool
+	AdaptationSetID           string
+	ContentType               string
+	MimeType                  string
+	Codecs                    string
+	Language                  string
+	FrameRate                 string
+	AudioRate                 string
+	Bandwidth                 int64
+	Width                     int
+	Height                    int
+	NumberTimeRole            string
+	Timescale                 int64
+	PresentationTimeOffset    int64
+	StartNumber               int64
+	SegmentDuration           int64
+	TemplateGrammar           string
+	TimelineGrammar           string
+	InitializationIdentity    string
+	InitializationRangeStart  int64
+	InitializationRangeLength int64
+	IndexRangeStart           int64
+	IndexRangeLength          int64
+	CanonicalComplete         bool
 }
 
 type Downloader struct {
@@ -109,6 +171,14 @@ func NewDownloader(transport Transport, config Config) *Downloader {
 	}
 	if config.MaxSegments == 0 {
 		config.MaxSegments = defaultMaxDownloadSegments
+	}
+	if config.Checkpoint != nil {
+		checkpoint := *config.Checkpoint
+		if checkpoint.ResumeBoundary != nil {
+			boundary := *checkpoint.ResumeBoundary
+			checkpoint.ResumeBoundary = &boundary
+		}
+		config.Checkpoint = &checkpoint
 	}
 	return &Downloader{transport: transport, config: config}
 }
@@ -236,6 +306,12 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 	}
 	if len(selected) == 0 {
 		return Result{}, fmt.Errorf("%w: no selectable representation", ErrInvalidMPD)
+	}
+	if downloader.config.RequireStaticSingleRepresentation && (mpd.Dynamic || mpd.PeriodCount != 1 || len(selected) != 1) {
+		return Result{}, ErrStaticResumeUnsupported
+	}
+	if downloader.config.Checkpoint != nil && !validProviderTrackIdentity(downloader.config.RepresentationIdentity) {
+		return Result{}, ErrStaticResumeUnsupported
 	}
 
 	dynamicSIDX := mpd.Dynamic && hasSIDXMarkers(selected)
@@ -366,7 +442,7 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 		if result.MultiPeriod {
 			for periodIndex, segments := range representation.PeriodSegments {
 				trackDestination := fmt.Sprintf("%s.%s.period-%04d", destination, trackSuffix(representation), periodIndex)
-				downloaded, err := downloader.downloadSegments(ctx, segments, outputRoot, trackDestination, overwrite, sink, false)
+				downloaded, err := downloader.downloadSegments(ctx, segments, outputRoot, trackDestination, overwrite, sink, false, representation, periodIndex, false)
 				if err != nil {
 					removePeriodDownloads(track.PeriodDownloads)
 					for _, completedTrack := range result.Tracks {
@@ -383,7 +459,8 @@ func (downloader *Downloader) Download(ctx context.Context, manifestURL, outputR
 		if len(selected) > 1 {
 			trackDestination += "." + trackSuffix(representation)
 		}
-		downloaded, err := downloader.downloadSegments(ctx, representation.Segments, outputRoot, trackDestination, overwrite, sink, dynamicSIDX)
+		checkpointable := !mpd.Dynamic && !dynamicSIDX && len(selected) == 1 && !result.MultiPeriod
+		downloaded, err := downloader.downloadSegments(ctx, representation.Segments, outputRoot, trackDestination, overwrite, sink, dynamicSIDX, representation, representation.PeriodIndex, checkpointable)
 		if err != nil {
 			return Result{}, fmt.Errorf("representation %s: %w", representation.ID, err)
 		}
@@ -421,10 +498,31 @@ func dynamicPollInterval(configured, manifest time.Duration) (time.Duration, err
 	return interval, nil
 }
 
-func (downloader *Downloader) downloadSegments(ctx context.Context, plan []Segment, outputRoot, destination string, overwrite bool, sink events.Sink, dynamicSIDX bool) (fragment.Result, error) {
+func (downloader *Downloader) downloadSegments(ctx context.Context, plan []Segment, outputRoot, destination string, overwrite bool, sink events.Sink, dynamicSIDX bool, representation Representation, periodIndex int, checkpointable bool) (fragment.Result, error) {
 	segments := make([]fragment.Segment, len(plan))
 	for index, segment := range plan {
 		segments[index] = fragment.Segment{URL: segment.URL, RangeStart: segment.RangeStart, RangeLength: segment.RangeLength}
+		if checkpointable && downloader.config.Checkpoint != nil {
+			segments[index].Scale = downloader.staticScale(FragmentIdentity{
+				RepresentationID: representation.ID, PeriodIndex: periodIndex, Addressing: representation.Addressing,
+				Initialize: segment.Initialize, RangeStart: segment.RangeStart, RangeLength: segment.RangeLength,
+				Sequence: segment.Sequence, Timeline: segment.Timeline, Index: index,
+				ProviderTrackIdentity: downloader.config.RepresentationIdentity,
+				PeriodID:              representation.Resume.PeriodID, PeriodStartNanos: representation.Resume.PeriodStartNanos,
+				PeriodDurationNanos: representation.Resume.PeriodDurationNanos, PeriodTimingKnown: representation.Resume.PeriodTimingKnown,
+				AdaptationSetID: representation.Resume.AdaptationSetID, ContentType: representation.ContentType,
+				MimeType: representation.MimeType, Codecs: representation.Codecs, Language: representation.Language,
+				FrameRate: representation.Resume.FrameRate, AudioRate: representation.Resume.AudioRate,
+				Bandwidth: representation.Bandwidth, Width: representation.Width, Height: representation.Height,
+				NumberTimeRole: representation.Resume.NumberTimeRole, Timescale: representation.Resume.Timescale,
+				PresentationTimeOffset: representation.Resume.PresentationTimeOffset, StartNumber: representation.Resume.StartNumber, SegmentDuration: representation.Resume.SegmentDuration,
+				TemplateGrammar: representation.Resume.TemplateGrammar, TimelineGrammar: representation.Resume.TimelineGrammar,
+				InitializationIdentity:   representation.Resume.InitializationIdentity,
+				InitializationRangeStart: representation.Resume.InitializationRangeStart, InitializationRangeLength: representation.Resume.InitializationRangeLength,
+				IndexRangeStart: representation.Resume.IndexRangeStart, IndexRangeLength: representation.Resume.IndexRangeLength,
+				CanonicalComplete: representation.Resume.Complete,
+			})
+		}
 	}
 	maxSegments := downloader.config.MaxSegments
 	if dynamicSIDX && maxSegments > 0 {
@@ -434,13 +532,188 @@ func (downloader *Downloader) downloadSegments(ctx context.Context, plan []Segme
 			maxSegments = fragmentHardSegmentCap
 		}
 	}
-	return fragment.New(downloader.transport).Download(ctx, fragment.Job{
+	job := fragment.Job{
 		Segments: segments, Headers: downloader.config.Headers, OutputRoot: outputRoot, Destination: destination,
 		Concurrency: downloader.config.FragmentConcurrency, PerHostConcurrency: downloader.config.PerHostConcurrency,
 		MaxSegments: maxSegments, MaxSegmentSize: downloader.config.MaxSegmentSize,
 		Attempts: downloader.config.Attempts, RetryBaseDelay: downloader.config.RetryBaseDelay,
 		RetryMaxDelay: downloader.config.RetryMaxDelay, Overwrite: overwrite,
-	}, sink)
+	}
+	if checkpointable && downloader.config.Checkpoint != nil {
+		checkpoint := *downloader.config.Checkpoint
+		job.Checkpoint = &checkpoint
+	}
+	return fragment.New(downloader.transport).Download(ctx, job, sink)
+}
+
+func (downloader *Downloader) staticScale(identity FragmentIdentity) *fragment.Scale {
+	if !identity.CanonicalComplete || !dashCanonicalFieldsSafe(identity) {
+		return dashSafeRestartScale("incomplete")
+	}
+	representationDigest := sha256.Sum256([]byte(dashRepresentationCanonical(identity)))
+	fragmentDigest := sha256.Sum256([]byte(dashFragmentCanonical(identity)))
+	representation := hex.EncodeToString(representationDigest[:])
+	key := hex.EncodeToString(fragmentDigest[:])
+	scale := &fragment.Scale{Key: key, Scope: representation}
+	if downloader.config.EquivalenceProof == nil {
+		return scale
+	}
+	if proof, ok := downloader.config.EquivalenceProof(identity); ok {
+		if validDASHProof(proof) {
+			scale.Kind, scale.Value, scale.Scope = proof.Kind, proof.Value, proof.Scope
+		}
+	}
+	return scale
+}
+
+// Invalid callback proofs must not become a download failure or a persisted
+// opaque value. Keeping the generated structural scale denies cross-refresh
+// reuse and therefore restarts the representation safely.
+func validDASHProof(proof fragment.Scale) bool {
+	if proof.Kind != "provider-immutable" && proof.Kind != "content-identity" {
+		return false
+	}
+	return canonicalDASHProofDigest(proof.Value) && canonicalDASHProofDigest(proof.Scope)
+}
+
+func canonicalDASHProofDigest(value string) bool {
+	if len(value) != sha256.Size*2 || value != strings.ToLower(value) {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
+}
+
+func dashSafeRestartScale(reason string) *fragment.Scale {
+	key := sha256.Sum256([]byte("dash-v2-restart-key:" + reason))
+	scope := sha256.Sum256([]byte("dash-v2-restart-scope:" + reason))
+	return &fragment.Scale{Key: hex.EncodeToString(key[:]), Scope: hex.EncodeToString(scope[:])}
+}
+
+func resumeStructureComplete(representation Representation) bool {
+	return representation.ID != "" && representation.Resume.Complete && representation.Resume.AddressingMode == representation.Addressing &&
+		dashCanonicalFieldsSafe(FragmentIdentity{
+			ProviderTrackIdentity: "canonical-provider",
+			RepresentationID:      representation.ID, PeriodID: representation.Resume.PeriodID, AdaptationSetID: representation.Resume.AdaptationSetID,
+			ContentType: representation.ContentType, MimeType: representation.MimeType, Codecs: representation.Codecs, Language: representation.Language,
+			FrameRate: representation.Resume.FrameRate, AudioRate: representation.Resume.AudioRate,
+			Addressing: representation.Addressing, NumberTimeRole: representation.Resume.NumberTimeRole, TemplateGrammar: representation.Resume.TemplateGrammar,
+			TimelineGrammar: representation.Resume.TimelineGrammar, InitializationIdentity: representation.Resume.InitializationIdentity,
+		})
+}
+
+func dashCanonicalFieldsSafe(identity FragmentIdentity) bool {
+	if !safeDASHGrammar(identity.ProviderTrackIdentity) {
+		return false
+	}
+	for _, value := range []string{identity.AdaptationSetID, identity.RepresentationID, identity.Addressing, identity.NumberTimeRole} {
+		if !safeDASHCanonicalField(value, false) {
+			return false
+		}
+	}
+	for _, value := range []string{identity.TemplateGrammar, identity.TimelineGrammar} {
+		if !safeDASHGeneratedGrammar(value) {
+			return false
+		}
+	}
+	if !safeDASHGrammar(identity.InitializationIdentity) {
+		return false
+	}
+	if identity.PeriodID != "" && !safeDASHCanonicalField(identity.PeriodID, false) {
+		return false
+	}
+	for _, value := range []string{identity.ContentType, identity.Codecs, identity.Language, identity.FrameRate, identity.AudioRate} {
+		if !safeDASHCanonicalField(value, true) {
+			return false
+		}
+	}
+	return safeDASHMIME(identity.MimeType)
+}
+
+func safeDASHGeneratedGrammar(value string) bool {
+	if value == "" || len(value) > 4096 || !utf8.ValidString(value) || strings.IndexFunc(value, unicode.IsControl) >= 0 || strings.Contains(value, "://") || strings.ContainsAny(value, "/\\?@#& ") {
+		return false
+	}
+	for _, character := range value {
+		if (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
+			(character >= '0' && character <= '9') || strings.ContainsRune("._:-+=;", character) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func safeDASHGrammar(value string) bool {
+	if value == "" || len(value) > 4096 || !utf8.ValidString(value) || strings.IndexFunc(value, unicode.IsControl) >= 0 || strings.Contains(value, "://") || strings.ContainsAny(value, "/\\?@#&= ") {
+		return false
+	}
+	for _, character := range value {
+		if (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
+			(character >= '0' && character <= '9') || strings.ContainsRune("._:-+", character) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func safeDASHCanonicalField(value string, allowEmpty bool) bool {
+	if (!allowEmpty && value == "") || len(value) > 4096 || !utf8.ValidString(value) || strings.IndexFunc(value, unicode.IsControl) >= 0 {
+		return false
+	}
+	return !strings.ContainsAny(value, ":/\\?@#&=")
+}
+
+func safeDASHMIME(value string) bool {
+	if value == "" {
+		return true
+	}
+	if len(value) > 255 || strings.Count(value, "/") != 1 || strings.ContainsAny(value, ":\\?@#&= ") {
+		return false
+	}
+	for _, character := range value {
+		if (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
+			(character >= '0' && character <= '9') || character == '/' || character == '.' || character == '+' || character == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// Canonical structural strings intentionally exclude every resolved URL,
+// BaseURL, template literal, header, and credential. Persisted Scale keys are
+// their bounded SHA-256 digests; proofs still establish byte equivalence.
+func dashRepresentationCanonical(identity FragmentIdentity) string {
+	return fmt.Sprintf("v=3|provider=%s|period-id=%s|period-index=%d|period-start=%d|period-duration=%d|timing=%t|adaptation=%s|representation=%s|content=%s|mime=%s|codecs=%s|lang=%s|frame-rate=%s|audio-rate=%s|bw=%d|dimensions=%dx%d|addressing=%s|role=%s|timescale=%d|pto=%d|start=%d|segment-duration=%d|template=%s|timeline=%s|init=%s:%d:%d|index=%d:%d",
+		identity.ProviderTrackIdentity, identity.PeriodID, identity.PeriodIndex, identity.PeriodStartNanos,
+		identity.PeriodDurationNanos, identity.PeriodTimingKnown, identity.AdaptationSetID, identity.RepresentationID,
+		identity.ContentType, identity.MimeType, identity.Codecs, identity.Language, identity.FrameRate, identity.AudioRate, identity.Bandwidth,
+		identity.Width, identity.Height, identity.Addressing, identity.NumberTimeRole, identity.Timescale,
+		identity.PresentationTimeOffset, identity.StartNumber, identity.SegmentDuration, identity.TemplateGrammar, identity.TimelineGrammar,
+		identity.InitializationIdentity, identity.InitializationRangeStart, identity.InitializationRangeLength,
+		identity.IndexRangeStart, identity.IndexRangeLength)
+}
+
+func dashFragmentCanonical(identity FragmentIdentity) string {
+	return fmt.Sprintf("%s|init=%t|range=%d:%d|number=%d|time=%d|index=%d",
+		dashRepresentationCanonical(identity), identity.Initialize, identity.RangeStart, identity.RangeLength,
+		identity.Sequence, identity.Timeline, identity.Index)
+}
+
+func validProviderTrackIdentity(value string) bool {
+	if value == "" || len(value) > 256 {
+		return false
+	}
+	for _, character := range value {
+		if (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
+			(character >= '0' && character <= '9') || strings.ContainsRune("._:-", character) {
+			continue
+		}
+		return false
+	}
+	return value != "." && value != ".."
 }
 
 func mediaSegmentCount(segments []Segment) int {
