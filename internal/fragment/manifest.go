@@ -53,6 +53,7 @@ type artifact struct {
 
 type manifestExpectation struct {
 	durable        bool
+	outputRoot     string
 	resumeIdentity string
 	planHash       string
 	legacyHash     string
@@ -60,7 +61,7 @@ type manifestExpectation struct {
 }
 
 func manifestExpectationFor(job Job) (manifestExpectation, error) {
-	expectation := manifestExpectation{segmentCount: len(job.Segments)}
+	expectation := manifestExpectation{segmentCount: len(job.Segments), outputRoot: job.OutputRoot}
 	if job.Checkpoint == nil {
 		hash, err := planHash(job.Segments)
 		if err != nil {
@@ -84,7 +85,7 @@ func openArtifactManifest(
 	expectation manifestExpectation,
 	write func(string, os.FileMode, func(io.Writer) error) error,
 ) (*artifactManifest, error) {
-	created, err := ensureWorkDirectory(workDir, expectation.durable)
+	_, err := ensureWorkDirectory(workDir, expectation)
 	if err != nil {
 		return nil, err
 	}
@@ -97,8 +98,14 @@ func openArtifactManifest(
 	statePath := filepath.Join(workDir, "state.json")
 	info, statErr := os.Lstat(statePath)
 	if errors.Is(statErr, os.ErrNotExist) {
-		if expectation.durable && !created {
-			return nil, checkpointFailure(ErrCheckpointReconciliation, "checkpoint ledger is missing from an existing checkpoint directory", nil)
+		if expectation.durable {
+			entries, readErr := os.ReadDir(workDir)
+			if readErr != nil {
+				return nil, readErr
+			}
+			if len(entries) != 0 {
+				return nil, checkpointFailure(ErrCheckpointReconciliation, "checkpoint ledger is missing while prior work remains", nil)
+			}
 		}
 		state := initialManifestState(expectation)
 		if err := writeManifestState(statePath, state, write); err != nil {
@@ -141,7 +148,10 @@ func openArtifactManifest(
 	return manifest, nil
 }
 
-func ensureWorkDirectory(path string, durable bool) (bool, error) {
+func ensureWorkDirectory(path string, expectation manifestExpectation) (bool, error) {
+	if expectation.durable {
+		return ensureProtectedCheckpointDirectory(expectation.outputRoot, path)
+	}
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		if err := os.MkdirAll(path, 0o755); err != nil {
@@ -153,12 +163,68 @@ func ensureWorkDirectory(path string, durable bool) (bool, error) {
 		return false, err
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		if durable {
-			return false, checkpointFailure(ErrInvalidCheckpoint, "fragment checkpoint workspace is a symlink or non-directory", nil)
-		}
 		return false, ErrUnsafeDestination
 	}
 	return false, nil
+}
+
+func ensureProtectedCheckpointDirectory(root, path string) (bool, error) {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return false, checkpointFailure(ErrInvalidCheckpoint, "resolve checkpoint output root", err)
+	}
+	pathAbs, err := filepath.Abs(path)
+	if err != nil {
+		return false, checkpointFailure(ErrInvalidCheckpoint, "resolve checkpoint directory", err)
+	}
+	relative, err := filepath.Rel(rootAbs, pathAbs)
+	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return false, checkpointFailure(ErrInvalidCheckpoint, "checkpoint directory is not a dedicated child of output root", err)
+	}
+	rootInfo, err := os.Lstat(rootAbs)
+	if err != nil {
+		return false, checkpointFailure(ErrInvalidCheckpoint, "inspect checkpoint output root", err)
+	}
+	if rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
+		return false, checkpointFailure(ErrInvalidCheckpoint, "checkpoint output root is a symlink or non-directory", nil)
+	}
+	current := rootAbs
+	createdFinal := false
+	parts := strings.Split(relative, string(filepath.Separator))
+	for index, part := range parts {
+		if part == "" || part == "." || part == ".." {
+			return false, checkpointFailure(ErrInvalidCheckpoint, "checkpoint directory chain is invalid", nil)
+		}
+		current = filepath.Join(current, part)
+		info, statErr := os.Lstat(current)
+		if errors.Is(statErr, os.ErrNotExist) {
+			if mkdirErr := createProtectedCheckpointDirectory(current); mkdirErr != nil {
+				if !errors.Is(mkdirErr, os.ErrExist) {
+					return false, mkdirErr
+				}
+				info, statErr = os.Lstat(current)
+			} else {
+				info, statErr = os.Lstat(current)
+				if index == len(parts)-1 {
+					createdFinal = true
+				}
+			}
+		}
+		if statErr != nil {
+			return false, statErr
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return false, checkpointFailure(ErrInvalidCheckpoint, "checkpoint directory chain contains a symlink or non-directory", nil)
+		}
+		protected, protectErr := checkpointDirectoryProtected(current, info)
+		if protectErr != nil {
+			return false, protectErr
+		}
+		if !protected {
+			return false, checkpointFailure(ErrInvalidCheckpoint, "checkpoint directory chain is not owner-only", nil)
+		}
+	}
+	return createdFinal, nil
 }
 
 func inspectRetainedEvidence(workDir string, segmentCount int) error {

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -110,7 +111,7 @@ func TestCheckpointResumesAcrossRefreshedCredentialsWithoutPersistingSecrets(t *
 func TestCheckpointRejectsMissingChangedIdentityAndPlan(t *testing.T) {
 	root := t.TempDir()
 	destination := filepath.Join(root, "out")
-	job := checkpointTestJob(root, destination, "stable", []Segment{{URL: "https://example.test/one"}})
+	job := checkpointTestJob(root, destination, "asset=one;format=mp4;plan=video-only", []Segment{{URL: "https://example.test/one"}})
 	writeCheckpointFixture(t, job, map[int][]byte{0: []byte("committed")})
 
 	missing := job
@@ -124,9 +125,14 @@ func TestCheckpointRejectsMissingChangedIdentityAndPlan(t *testing.T) {
 		t.Fatalf("missing checkpoint directory error = %v", err)
 	}
 	unsafeBoundary := job
-	unsafeBoundary.Checkpoint = &Checkpoint{Directory: root, ResumeIdentity: "stable"}
+	unsafeBoundary.Checkpoint = &Checkpoint{Directory: root, ResumeIdentity: job.Checkpoint.ResumeIdentity}
 	if _, err := New(nil).Download(context.Background(), unsafeBoundary, nil); !errors.Is(err, ErrInvalidCheckpoint) {
 		t.Fatalf("checkpoint boundary containing destination error = %v", err)
+	}
+	reverseBoundary := job
+	reverseBoundary.Checkpoint = &Checkpoint{Directory: filepath.Join(destination, "checkpoint"), ResumeIdentity: job.Checkpoint.ResumeIdentity}
+	if _, err := New(nil).Download(context.Background(), reverseBoundary, nil); !errors.Is(err, ErrInvalidCheckpoint) {
+		t.Fatalf("destination boundary containing checkpoint error = %v", err)
 	}
 	oversized := job
 	oversized.Checkpoint = &Checkpoint{Directory: job.Checkpoint.Directory, ResumeIdentity: strings.Repeat("x", maxResumeIdentityBytes+1)}
@@ -135,7 +141,8 @@ func TestCheckpointRejectsMissingChangedIdentityAndPlan(t *testing.T) {
 	}
 
 	changed := job
-	changed.Checkpoint = &Checkpoint{Directory: job.Checkpoint.Directory, ResumeIdentity: "different"}
+	changed.Checkpoint = &Checkpoint{Directory: job.Checkpoint.Directory, ResumeIdentity: "asset=one;format=webm;plan=video-only"}
+	changed.Segments = []Segment{{URL: "https://refreshed.example/same-shape-url-only-plan"}}
 	beforeMismatch := snapshotCheckpointTree(t, job.Checkpoint.Directory)
 	if _, err := New(nil).Download(context.Background(), changed, nil); !errors.Is(err, ErrCheckpointReconciliation) {
 		t.Fatalf("changed identity error = %v", err)
@@ -151,6 +158,116 @@ func TestCheckpointRejectsMissingChangedIdentityAndPlan(t *testing.T) {
 	}
 	if contents, err := os.ReadFile(fragmentPath(job.Checkpoint.Directory, 0)); err != nil || string(contents) != "committed" {
 		t.Fatalf("prior work changed: %q, %v", contents, err)
+	}
+}
+
+func TestCheckpointRejectsForbiddenIdentityControls(t *testing.T) {
+	for _, identity := range []string{"stable\x00suffix", "stable\rformat", "stable\nformat"} {
+		root := t.TempDir()
+		job := checkpointTestJob(root, filepath.Join(root, "out"), identity, []Segment{{URL: "https://example.test/one"}})
+		if _, err := New(nil).Download(context.Background(), job, nil); !errors.Is(err, ErrInvalidCheckpoint) {
+			t.Fatalf("identity %q error = %v", identity, err)
+		}
+	}
+}
+
+func TestCheckpointDirectoryProtectionAndEmptyInitialization(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = writer.Write([]byte("fragment"))
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	t.Run("caller-precreated empty", func(t *testing.T) {
+		root := t.TempDir()
+		job := checkpointTestJob(root, filepath.Join(root, "out"), "format=mp4;track=video", []Segment{{URL: server.URL}})
+		ensureTestCheckpointDirectory(t, job)
+		if _, err := New(transport).Download(context.Background(), job, nil); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("created chain owner only", func(t *testing.T) {
+		root := t.TempDir()
+		job := checkpointTestJob(root, filepath.Join(root, "out"), "format=mp4;track=video", []Segment{{URL: server.URL}})
+		job.Checkpoint.Directory = filepath.Join(root, "private", "component")
+		engine := New(transport)
+		productionWrite := engine.writeAtomic
+		engine.writeAtomic = func(path string, mode os.FileMode, encode func(io.Writer) error) error {
+			if filepath.Base(path) == "state.json" && runtime.GOOS != "windows" {
+				for _, directory := range []string{filepath.Join(root, "private"), job.Checkpoint.Directory} {
+					info, err := os.Stat(directory)
+					if err != nil {
+						t.Fatalf("inspect checkpoint directory %s: %v", directory, err)
+					}
+					if info.Mode().Perm() != 0o700 {
+						t.Fatalf("checkpoint directory %s mode = %v", directory, info.Mode().Perm())
+					}
+				}
+			}
+			return productionWrite(path, mode, encode)
+		}
+		if _, err := engine.Download(context.Background(), job, nil); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("symlinked chain", func(t *testing.T) {
+		root := t.TempDir()
+		outside := t.TempDir()
+		link := filepath.Join(root, "linked")
+		if err := os.Symlink(outside, link); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		job := checkpointTestJob(root, filepath.Join(root, "out"), "format=mp4;track=video", []Segment{{URL: server.URL}})
+		job.Checkpoint.Directory = filepath.Join(link, "component")
+		if _, err := New(transport).Download(context.Background(), job, nil); !errors.Is(err, ErrInvalidCheckpoint) {
+			t.Fatalf("symlinked chain error = %v", err)
+		}
+		if entries, err := os.ReadDir(outside); err != nil || len(entries) != 0 {
+			t.Fatalf("symlink target was changed: entries=%v error=%v", entries, err)
+		}
+	})
+	t.Run("unprotected precreated directory", func(t *testing.T) {
+		root := t.TempDir()
+		job := checkpointTestJob(root, filepath.Join(root, "out"), "format=mp4;track=video", []Segment{{URL: server.URL}})
+		if err := os.MkdirAll(job.Checkpoint.Directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if runtime.GOOS != "windows" {
+			if err := os.Chmod(job.Checkpoint.Directory, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := New(transport).Download(context.Background(), job, nil); !errors.Is(err, ErrInvalidCheckpoint) {
+			t.Fatalf("unprotected checkpoint directory error = %v", err)
+		}
+	})
+}
+
+func TestCheckpointInitialLedgerPrecommitFailureAllowsEmptyReinitialization(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = writer.Write([]byte("fragment"))
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	job := checkpointTestJob(root, filepath.Join(root, "out"), "format=mp4;track=video", []Segment{{URL: server.URL}})
+	engine := New(transport)
+	injected := &checkpointCommitError{name: "initial-ledger-precommit"}
+	productionWrite := engine.writeAtomic
+	engine.writeAtomic = func(path string, mode os.FileMode, encode func(io.Writer) error) error {
+		if filepath.Base(path) == "state.json" {
+			return injected
+		}
+		return productionWrite(path, mode, encode)
+	}
+	if _, err := engine.Download(context.Background(), job, nil); !errors.Is(err, injected) {
+		t.Fatalf("initial ledger error = %v", err)
+	}
+	entries, err := os.ReadDir(job.Checkpoint.Directory)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("confirmed precommit did not leave a proven-empty boundary: entries=%v error=%v", entries, err)
+	}
+	if _, err := New(transport).Download(context.Background(), job, nil); err != nil {
+		t.Fatalf("proven-empty checkpoint did not reinitialize: %v", err)
 	}
 }
 
@@ -198,9 +315,7 @@ func TestCheckpointInvalidStatePreservesAllPriorArtifacts(t *testing.T) {
 		want  error
 	}{
 		{name: "missing ledger", want: ErrCheckpointReconciliation, setup: func(t *testing.T, job Job) []string {
-			if err := os.MkdirAll(job.Checkpoint.Directory, 0o755); err != nil {
-				t.Fatal(err)
-			}
+			ensureTestCheckpointDirectory(t, job)
 			path := fragmentPath(job.Checkpoint.Directory, 0)
 			if err := os.WriteFile(path, []byte("uncommitted-tail"), 0o600); err != nil {
 				t.Fatal(err)
@@ -210,14 +325,12 @@ func TestCheckpointInvalidStatePreservesAllPriorArtifacts(t *testing.T) {
 		{name: "unknown ledger field", want: ErrInvalidCheckpoint, setup: func(t *testing.T, job Job) []string {
 			expectation := mustExpectation(t, job)
 			path := fragmentPath(job.Checkpoint.Directory, 0)
-			if err := os.MkdirAll(job.Checkpoint.Directory, 0o755); err != nil {
-				t.Fatal(err)
-			}
+			ensureTestCheckpointDirectory(t, job)
 			if err := os.WriteFile(path, []byte("prior-artifact"), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			ledger := fmt.Sprintf(`{"version":1,"resume_identity":"stable","plan_hash":%q,"unknown":true}`, expectation.planHash)
-			writeRawLedger(t, job.Checkpoint.Directory, []byte(ledger))
+			writeRawLedger(t, job, []byte(ledger))
 			return []string{path, filepath.Join(job.Checkpoint.Directory, "state.json")}
 		}},
 		{name: "unknown workspace entry", want: ErrCheckpointReconciliation, setup: func(t *testing.T, job Job) []string {
@@ -261,26 +374,25 @@ func TestCheckpointRejectsInvalidLedgerAndRetainedEvidence(t *testing.T) {
 		setup func(*testing.T, string, Job)
 		want  error
 	}{
-		{name: "corrupt", want: ErrInvalidCheckpoint, setup: func(t *testing.T, workDir string, _ Job) {
-			writeRawLedger(t, workDir, []byte("{"))
+		{name: "corrupt", want: ErrInvalidCheckpoint, setup: func(t *testing.T, _ string, job Job) {
+			writeRawLedger(t, job, []byte("{"))
 		}},
 		{name: "trailing", want: ErrInvalidCheckpoint, setup: func(t *testing.T, workDir string, job Job) {
 			state := initialManifestState(mustExpectation(t, job))
 			encoded := mustJSON(t, state)
-			writeRawLedger(t, workDir, append(encoded, []byte(" trailing")...))
+			writeRawLedger(t, job, append(encoded, []byte(" trailing")...))
 		}},
-		{name: "oversized", want: ErrInvalidCheckpoint, setup: func(t *testing.T, workDir string, _ Job) {
-			writeRawLedger(t, workDir, []byte(strings.Repeat("x", maxManifestBytes+1)))
+		{name: "oversized", want: ErrInvalidCheckpoint, setup: func(t *testing.T, _ string, job Job) {
+			writeRawLedger(t, job, []byte(strings.Repeat("x", maxManifestBytes+1)))
 		}},
-		{name: "non-regular", want: ErrInvalidCheckpoint, setup: func(t *testing.T, workDir string, _ Job) {
-			if err := os.MkdirAll(filepath.Join(workDir, "state.json"), 0o755); err != nil {
+		{name: "non-regular", want: ErrInvalidCheckpoint, setup: func(t *testing.T, workDir string, job Job) {
+			ensureTestCheckpointDirectory(t, job)
+			if err := os.Mkdir(filepath.Join(workDir, "state.json"), 0o700); err != nil {
 				t.Fatal(err)
 			}
 		}},
-		{name: "symlink", want: ErrInvalidCheckpoint, setup: func(t *testing.T, workDir string, _ Job) {
-			if err := os.MkdirAll(workDir, 0o755); err != nil {
-				t.Fatal(err)
-			}
+		{name: "symlink", want: ErrInvalidCheckpoint, setup: func(t *testing.T, workDir string, job Job) {
+			ensureTestCheckpointDirectory(t, job)
 			if err := os.Symlink(filepath.Join(t.TempDir(), "outside"), filepath.Join(workDir, "state.json")); err != nil {
 				t.Skipf("symlinks unavailable: %v", err)
 			}
@@ -359,6 +471,48 @@ func TestCheckpointLedgerCommitOutcomes(t *testing.T) {
 			_, markerErr := os.Stat(filepath.Join(workDir, reconciliationMarker))
 			if test.wantReconcile != (markerErr == nil) {
 				t.Fatalf("reconciliation marker error = %v", markerErr)
+			}
+		})
+	}
+}
+
+func TestCheckpointFragmentPublicationCommitOutcomes(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		committed     bool
+		indeterminate bool
+	}{
+		{name: "committed-with-error", committed: true},
+		{name: "indeterminate", indeterminate: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				_, _ = writer.Write([]byte("fragment"))
+			}))
+			defer server.Close()
+			transport, _ := network.New(network.Config{})
+			root := t.TempDir()
+			job := checkpointTestJob(root, filepath.Join(root, "out"), "format=mp4;track=video", []Segment{{URL: server.URL}})
+			engine := New(transport)
+			productionWrite := engine.writeAtomic
+			injected := &checkpointCommitError{name: test.name, committed: test.committed, indeterminate: test.indeterminate}
+			engine.writeAtomic = func(path string, mode os.FileMode, encode func(io.Writer) error) error {
+				if strings.HasSuffix(path, ".frag") {
+					if test.committed {
+						if err := productionWrite(path, mode, encode); err != nil {
+							return err
+						}
+					}
+					return injected
+				}
+				return productionWrite(path, mode, encode)
+			}
+			_, err := engine.Download(context.Background(), job, nil)
+			if !errors.Is(err, injected) || !errors.Is(err, ErrCheckpointReconciliation) {
+				t.Fatalf("fragment publication error = %v", err)
+			}
+			if _, markerErr := os.Stat(filepath.Join(job.Checkpoint.Directory, reconciliationMarker)); markerErr != nil {
+				t.Fatalf("fragment publication reconciliation marker missing: %v", markerErr)
 			}
 		})
 	}
@@ -492,6 +646,73 @@ func TestCheckpointPublicationAtomicallyReplacesExistingDestination(t *testing.T
 	}
 }
 
+func TestCheckpointNoClobberWhenDestinationAppearsBeforeCommit(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = writer.Write([]byte("downloaded"))
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "out")
+	job := checkpointTestJob(root, destination, "format=mp4;track=video", []Segment{{URL: server.URL}})
+	engine := New(transport)
+	productionWrite := engine.writeAtomic
+	lateMedia := []byte("late-existing-media")
+	engine.writeAtomic = func(path string, mode os.FileMode, encode func(io.Writer) error) error {
+		if err := productionWrite(path, mode, encode); err != nil {
+			return err
+		}
+		if filepath.Base(path) == publicationMarker {
+			return os.WriteFile(destination, lateMedia, 0o600)
+		}
+		return nil
+	}
+	_, err := engine.Download(context.Background(), job, nil)
+	if !errors.Is(err, ErrCheckpointReconciliation) {
+		t.Fatalf("late destination error = %v", err)
+	}
+	contents, readErr := os.ReadFile(destination)
+	if readErr != nil || string(contents) != string(lateMedia) {
+		t.Fatalf("late destination was damaged: %q, %v", contents, readErr)
+	}
+}
+
+func TestCheckpointCleanupFailureReportsCommittedPublication(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = writer.Write([]byte("committed-output"))
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "out")
+	job := checkpointTestJob(root, destination, "format=mp4;track=video", []Segment{{URL: server.URL}})
+	engine := New(transport)
+	injected := errors.New("injected checkpoint cleanup failure")
+	engine.removeAll = func(string) error { return injected }
+	result, err := engine.Download(context.Background(), job, nil)
+	if !errors.Is(err, ErrCheckpointCleanup) || !errors.Is(err, injected) {
+		t.Fatalf("cleanup error = %v", err)
+	}
+	var commitErr atomicfile.CommitError
+	if !errors.As(err, &commitErr) || !commitErr.Committed() || commitErr.Indeterminate() {
+		t.Fatalf("cleanup outcome = %#v, %v", commitErr, err)
+	}
+	if result.Path != destination || result.Bytes != int64(len("committed-output")) {
+		t.Fatalf("committed result = %#v", result)
+	}
+	contents, readErr := os.ReadFile(destination)
+	if readErr != nil || string(contents) != "committed-output" {
+		t.Fatalf("committed destination = %q, %v", contents, readErr)
+	}
+	if _, markerErr := os.Stat(filepath.Join(job.Checkpoint.Directory, publicationMarker)); markerErr != nil {
+		t.Fatalf("cleanup evidence missing: %v", markerErr)
+	}
+	job.Overwrite = true
+	if _, retryErr := New(transport).Download(context.Background(), job, nil); !errors.Is(retryErr, ErrCheckpointReconciliation) {
+		t.Fatalf("committed cleanup failure invited republication: %v", retryErr)
+	}
+}
+
 type checkpointCommitError struct {
 	name          string
 	committed     bool
@@ -512,9 +733,7 @@ func checkpointTestJob(root, destination, identity string, segments []Segment) J
 func writeCheckpointFixture(t *testing.T, job Job, artifacts map[int][]byte) {
 	t.Helper()
 	workDir := job.Checkpoint.Directory
-	if err := os.MkdirAll(workDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	ensureTestCheckpointDirectory(t, job)
 	state := initialManifestState(mustExpectation(t, job))
 	for index, contents := range artifacts {
 		path := fragmentPath(workDir, index)
@@ -544,12 +763,18 @@ func mustExpectation(t *testing.T, job Job) manifestExpectation {
 	return expectation
 }
 
-func writeRawLedger(t *testing.T, workDir string, contents []byte) {
+func writeRawLedger(t *testing.T, job Job, contents []byte) {
 	t.Helper()
-	if err := os.MkdirAll(workDir, 0o755); err != nil {
+	ensureTestCheckpointDirectory(t, job)
+	workDir := job.Checkpoint.Directory
+	if err := os.WriteFile(filepath.Join(workDir, "state.json"), contents, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(workDir, "state.json"), contents, 0o600); err != nil {
+}
+
+func ensureTestCheckpointDirectory(t *testing.T, job Job) {
+	t.Helper()
+	if _, err := ensureProtectedCheckpointDirectory(job.OutputRoot, job.Checkpoint.Directory); err != nil {
 		t.Fatal(err)
 	}
 }

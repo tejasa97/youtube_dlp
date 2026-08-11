@@ -35,6 +35,7 @@ var (
 	ErrTooMuchConcurrency       = errors.New("fragment concurrency exceeds limit")
 	ErrInvalidCheckpoint        = errors.New("invalid fragment checkpoint")
 	ErrCheckpointReconciliation = errors.New("fragment checkpoint reconciliation required")
+	ErrCheckpointCleanup        = errors.New("committed fragment publication requires checkpoint cleanup")
 )
 
 const (
@@ -47,9 +48,11 @@ const (
 
 // Checkpoint opts a finite fragment job into durable resume. Directory is an
 // isolated, caller-owned directory for exactly one session component and must
-// not contain Destination. ResumeIdentity is an opaque, caller-owned,
-// non-secret media identity. It must remain stable while signed URLs, request
-// credentials, and encryption material refresh.
+// be disjoint from Destination in both directions. ResumeIdentity is an
+// opaque, caller-owned, non-secret media identity. It must bind the exact
+// stable output plan and format while signed URLs, request credentials, and
+// encryption material refresh. The engine's credential-free structural hash
+// is only a consistency check and never substitutes for this caller authority.
 type Checkpoint struct {
 	Directory      string
 	ResumeIdentity string
@@ -82,6 +85,25 @@ func (failure *CheckpointFailure) Unwrap() []error {
 func checkpointFailure(kind error, detail string, cause error) error {
 	return &CheckpointFailure{Kind: kind, Detail: detail, Cause: cause}
 }
+
+// CheckpointPublicationError reports that final output publication committed
+// durably but checkpoint cleanup failed. Callers must adopt the destination
+// and reconcile the retained checkpoint evidence; retrying publication is not
+// a valid recovery action.
+type CheckpointPublicationError struct {
+	Cause error
+}
+
+func (failure *CheckpointPublicationError) Error() string {
+	return fmt.Sprintf("%v: %v", ErrCheckpointCleanup, failure.Cause)
+}
+
+func (failure *CheckpointPublicationError) Unwrap() []error {
+	return []error{ErrCheckpointCleanup, failure.Cause}
+}
+
+func (*CheckpointPublicationError) Committed() bool     { return true }
+func (*CheckpointPublicationError) Indeterminate() bool { return false }
 
 type AES128 struct {
 	Key []byte `json:"key"`
@@ -128,10 +150,11 @@ type Engine struct {
 	transport     network.Doer
 	writeAtomic   func(string, os.FileMode, func(io.Writer) error) error
 	replaceAtomic func(string, string) error
+	removeAll     func(string) error
 }
 
 func New(transport network.Doer) *Engine {
-	return &Engine{transport: transport, writeAtomic: atomicfile.Write, replaceAtomic: atomicfile.Replace}
+	return &Engine{transport: transport, writeAtomic: atomicfile.Write, replaceAtomic: atomicfile.Replace, removeAll: os.RemoveAll}
 }
 
 type planState struct {
@@ -159,8 +182,8 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 		sink = events.Nop()
 	}
 	if job.Checkpoint != nil {
-		if identity := job.Checkpoint.ResumeIdentity; len(identity) == 0 || len(identity) > maxResumeIdentityBytes || !utf8.ValidString(identity) {
-			return Result{}, checkpointFailure(ErrInvalidCheckpoint, "resume identity is missing, oversized, or invalid UTF-8", nil)
+		if identity := job.Checkpoint.ResumeIdentity; len(identity) == 0 || len(identity) > maxResumeIdentityBytes || !utf8.ValidString(identity) || strings.ContainsAny(identity, "\x00\r\n") {
+			return Result{}, checkpointFailure(ErrInvalidCheckpoint, "resume identity is missing, oversized, contains a forbidden control, or is invalid UTF-8", nil)
 		}
 		if err := validateCheckpointDirectory(job.OutputRoot, job.Destination, job.Checkpoint.Directory); err != nil {
 			return Result{}, err
@@ -323,15 +346,18 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 		return Result{}, err
 	}
 
-	bytesWritten, err := engine.assemble(ctx, workDir, len(job.Segments), job.Destination, job.Checkpoint != nil)
+	bytesWritten, err := engine.assemble(ctx, workDir, len(job.Segments), job.Destination, job.Overwrite, job.Checkpoint != nil)
 	if err != nil {
 		return Result{}, err
 	}
-	if err := os.RemoveAll(workDir); err != nil {
-		return Result{}, fmt.Errorf("remove fragment work directory: %w", err)
-	}
 	result.Path = job.Destination
 	result.Bytes = bytesWritten
+	if err := engine.removeAll(workDir); err != nil {
+		if job.Checkpoint != nil {
+			return result, &CheckpointPublicationError{Cause: err}
+		}
+		return Result{}, fmt.Errorf("remove fragment work directory: %w", err)
+	}
 	return result, nil
 }
 
@@ -362,6 +388,13 @@ func (engine *Engine) fetchWithRetry(ctx context.Context, job Job, segment Segme
 		lastErr = engine.fetch(ctx, segment, destination, maxSize, job.Headers)
 		if lastErr == nil {
 			return nil
+		}
+		if job.Checkpoint != nil {
+			var commitErr atomicfile.CommitError
+			if errors.As(lastErr, &commitErr) && (commitErr.Committed() || commitErr.Indeterminate()) {
+				markerErr := writeReconciliationMarker(filepath.Dir(destination), "fragment publication authority is uncertain")
+				return checkpointFailure(ErrCheckpointReconciliation, "fragment publication did not settle durably", errors.Join(lastErr, markerErr))
+			}
 		}
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -583,7 +616,7 @@ func fragmentPath(workDir string, index int) string {
 	return filepath.Join(workDir, fmt.Sprintf("%08d.frag", index))
 }
 
-func (engine *Engine) assemble(ctx context.Context, workDir string, count int, destination string, durable bool) (int64, error) {
+func (engine *Engine) assemble(ctx context.Context, workDir string, count int, destination string, overwrite, durable bool) (int64, error) {
 	temporary := filepath.Join(workDir, "assembled.part")
 	if info, err := os.Lstat(temporary); err == nil {
 		if durable {
@@ -656,6 +689,21 @@ func (engine *Engine) assemble(ctx context.Context, workDir string, count int, d
 		// makes every interrupted or failed outcome explicitly reconcilable.
 		retainTemporary = true
 	}
+	if !overwrite {
+		reservation, reserveErr := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if reserveErr != nil {
+			if durable {
+				return 0, checkpointFailure(ErrCheckpointReconciliation, "final destination appeared before no-clobber publication", reserveErr)
+			}
+			return 0, reserveErr
+		}
+		if closeErr := reservation.Close(); closeErr != nil {
+			if durable {
+				return 0, checkpointFailure(ErrCheckpointReconciliation, "close no-clobber destination reservation", closeErr)
+			}
+			return 0, closeErr
+		}
+	}
 	if err := engine.replaceAtomic(temporary, destination); err != nil {
 		if durable {
 			var commitErr atomicfile.CommitError
@@ -715,7 +763,7 @@ func validateDestination(root, destination string) error {
 }
 
 func validateCheckpointDirectory(root, destination, checkpointDirectory string) error {
-	if checkpointDirectory == "" {
+	if checkpointDirectory == "" || strings.ContainsRune(checkpointDirectory, '\x00') {
 		return checkpointFailure(ErrInvalidCheckpoint, "checkpoint directory is required", nil)
 	}
 	if err := validateDestination(root, checkpointDirectory); err != nil {
@@ -729,14 +777,15 @@ func validateCheckpointDirectory(root, destination, checkpointDirectory string) 
 	if err != nil {
 		return checkpointFailure(ErrInvalidCheckpoint, "resolve fragment destination", err)
 	}
-	relative, err := filepath.Rel(directoryAbs, destinationAbs)
-	if err != nil {
-		return checkpointFailure(ErrInvalidCheckpoint, "compare checkpoint directory and destination", err)
-	}
-	if relative == "." || (relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))) {
-		return checkpointFailure(ErrInvalidCheckpoint, "checkpoint directory must not contain the final destination", nil)
+	if pathContains(directoryAbs, destinationAbs) || pathContains(destinationAbs, directoryAbs) {
+		return checkpointFailure(ErrInvalidCheckpoint, "checkpoint directory and final destination must be disjoint", nil)
 	}
 	return nil
+}
+
+func pathContains(parent, child string) bool {
+	relative, err := filepath.Rel(parent, child)
+	return err == nil && (relative == "." || (relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))))
 }
 
 func isSymlink(path string) bool {
