@@ -1,0 +1,621 @@
+package session
+
+import (
+	"bytes"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+
+	"github.com/tejasa97/youtube_dlp/internal/atomicfile"
+)
+
+// atomicManifestWrite is a narrow seam for commit-outcome tests. Production
+// persistence always goes through PR #240's atomicfile primitive.
+var atomicManifestWrite = atomicfile.Write
+
+// Workspace owns an exclusive cross-process lease for the lifetime of the
+// handle. It is intentionally not part of WorkspaceRef and cannot be encoded
+// into the portable reference.
+type Workspace struct {
+	mu                   sync.Mutex
+	ref                  WorkspaceRef
+	path                 string
+	lease                *workspaceLease
+	manifest             Manifest
+	closed               bool
+	reconciliationNeeded bool
+}
+
+// Create creates an owner-only hidden workspace and its initial manifest. The
+// returned handle owns the workspace lease and must be closed by the caller.
+func Create(options CreateOptions) (*Workspace, error) {
+	root, err := canonicalOutputRoot(options.OutputRoot)
+	if err != nil {
+		return nil, ErrUnsafePath
+	}
+	if err := ensureOutputRoot(root); err != nil {
+		return nil, err
+	}
+	sessionsRoot := filepath.Join(root, SessionsDirectoryName)
+	if err := ensureDirectory(sessionsRoot, 0o700, true); err != nil {
+		return nil, err
+	}
+	source, err := normalizeSource(options.Source)
+	if err != nil {
+		return nil, err
+	}
+	output, err := normalizeOutputIntent(options.Output)
+	if err != nil {
+		return nil, err
+	}
+	components, err := normalizeComponents(options.Components)
+	if err != nil {
+		return nil, err
+	}
+	if options.RelativeDestination != "" {
+		if err := validateDestination(root, options.RelativeDestination); err != nil {
+			return nil, err
+		}
+	}
+	now := time.Now().UTC()
+	if options.Now != nil {
+		now = options.Now().UTC()
+	}
+	if now.IsZero() {
+		return nil, ErrInvalidManifest
+	}
+
+	for attempt := 0; attempt < 16; attempt++ {
+		sessionID, randomErr := randomSessionID()
+		if randomErr != nil {
+			return nil, ErrWorkspaceUnavailable
+		}
+		ref := WorkspaceRef{OutputRoot: root, SessionID: sessionID}
+		workspacePath, pathErr := ref.Path()
+		if pathErr != nil {
+			return nil, ErrInvalidReference
+		}
+		if mkdirErr := os.Mkdir(workspacePath, 0o700); mkdirErr != nil {
+			if errors.Is(mkdirErr, os.ErrExist) {
+				continue
+			}
+			return nil, ErrWorkspaceUnavailable
+		}
+		if err := secureDirectoryPath(workspacePath); err != nil {
+			return nil, err
+		}
+		if err := validateDirectory(workspacePath, true); err != nil {
+			return nil, err
+		}
+		leasePath, _ := ref.leasePath()
+		lease, leaseErr := acquireWorkspaceLease(leasePath, true, true)
+		if leaseErr != nil {
+			return nil, leaseErr
+		}
+		manifest := Manifest{
+			Version:             ManifestSchemaVersion,
+			SessionID:           sessionID,
+			Revision:            1,
+			RunGeneration:       1,
+			Source:              source,
+			Output:              output,
+			RelativeDestination: options.RelativeDestination,
+			Phase:               PhasePrepared,
+			Status:              StatusActive,
+			Desired:             DesiredRunning,
+			Components:          components,
+			CreatedAt:           now,
+			UpdatedAt:           now,
+			Publication:         PublicationNotStarted,
+			Cleanup:             CleanupPending,
+		}
+		if err := manifest.Validate(); err != nil {
+			_ = lease.Close()
+			return nil, err
+		}
+		if err := validateManifestDerivedPaths(root, workspacePath, manifest); err != nil {
+			_ = lease.Close()
+			return nil, err
+		}
+		if err := persistManifest(filepath.Join(workspacePath, ManifestFileName), manifest); err != nil {
+			var outcome atomicfile.CommitError
+			if errors.As(err, &outcome) && (outcome.Committed() || outcome.Indeterminate()) {
+				return &Workspace{
+					ref:                  ref,
+					path:                 workspacePath,
+					lease:                lease,
+					manifest:             manifest,
+					reconciliationNeeded: outcome.Indeterminate(),
+				}, err
+			}
+			_ = lease.Close()
+			if !cleanupCreatedWorkspace(workspacePath) {
+				return &Workspace{
+					ref:                  ref,
+					path:                 workspacePath,
+					manifest:             manifest,
+					closed:               true,
+					reconciliationNeeded: true,
+				}, err
+			}
+			return nil, err
+		}
+		return &Workspace{ref: ref, path: workspacePath, lease: lease, manifest: manifest}, nil
+	}
+	return nil, ErrWorkspaceUnavailable
+}
+
+// Open validates an existing reference, acquires its lease, and loads its
+// manifest. It never performs network work or destructive recovery.
+func Open(ref WorkspaceRef) (*Workspace, error) {
+	workspacePath, err := validateExistingWorkspace(ref)
+	if err != nil {
+		return nil, err
+	}
+	if hasAtomicManifestEvidence(workspacePath) {
+		return nil, ErrNeedsReconciliation
+	}
+	leasePath, err := ref.leasePath()
+	if err != nil {
+		return nil, ErrInvalidReference
+	}
+	lease, err := acquireWorkspaceLease(leasePath, false, true)
+	if err != nil {
+		return nil, err
+	}
+	manifest, err := readManifest(filepath.Join(workspacePath, ManifestFileName))
+	if err != nil {
+		_ = lease.Close()
+		return nil, err
+	}
+	if manifest.SessionID != ref.SessionID {
+		_ = lease.Close()
+		return nil, ErrCorruptManifest
+	}
+	if err := validateManifestDerivedPaths(ref.OutputRoot, workspacePath, manifest); err != nil {
+		_ = lease.Close()
+		return nil, err
+	}
+	return &Workspace{ref: ref, path: workspacePath, lease: lease, manifest: manifest}, nil
+}
+
+// Manifest returns a copy of the last known manifest image.
+func (workspace *Workspace) Manifest() Manifest {
+	if workspace == nil {
+		return Manifest{}
+	}
+	workspace.mu.Lock()
+	defer workspace.mu.Unlock()
+	return workspace.manifest.Clone()
+}
+
+// Snapshot is the error-reporting form of Manifest for callers that need to
+// distinguish a closed handle.
+func (workspace *Workspace) Snapshot() (Manifest, error) {
+	if workspace == nil {
+		return Manifest{}, ErrWorkspaceClosed
+	}
+	workspace.mu.Lock()
+	defer workspace.mu.Unlock()
+	if workspace.closed {
+		return Manifest{}, ErrWorkspaceClosed
+	}
+	return workspace.manifest.Clone(), nil
+}
+
+// Ref returns the portable reference for this workspace.
+func (workspace *Workspace) Ref() WorkspaceRef {
+	if workspace == nil {
+		return WorkspaceRef{}
+	}
+	return workspace.ref
+}
+
+// Path returns the validated on-disk workspace path.
+func (workspace *Workspace) Path() string {
+	if workspace == nil {
+		return ""
+	}
+	return workspace.path
+}
+
+// Close releases the native lease. It does not remove the workspace or any
+// evidence, including indeterminate atomic candidates.
+func (workspace *Workspace) Close() error {
+	if workspace == nil {
+		return nil
+	}
+	workspace.mu.Lock()
+	if workspace.closed {
+		workspace.mu.Unlock()
+		return nil
+	}
+	workspace.closed = true
+	lease := workspace.lease
+	workspace.mu.Unlock()
+	if lease == nil {
+		return nil
+	}
+	return lease.Close()
+}
+
+// Update performs an optimistic, generation-aware manifest mutation. Both
+// expected values are checked against a fresh disk read while the lease is
+// held; stale workers cannot overwrite a later pause, cancel, or resume.
+func (workspace *Workspace) Update(expectedRevision, expectedGeneration uint64, mutate func(*Manifest) error) error {
+	return workspace.update(expectedRevision, expectedGeneration, false, false, mutate)
+}
+
+func (workspace *Workspace) update(expectedRevision, expectedGeneration uint64, allowGenerationBump, allowReconciliationResult bool, mutate func(*Manifest) error) error {
+	if workspace == nil {
+		return ErrWorkspaceClosed
+	}
+	workspace.mu.Lock()
+	defer workspace.mu.Unlock()
+	if workspace.closed {
+		return ErrWorkspaceClosed
+	}
+	if workspace.reconciliationNeeded {
+		return ErrNeedsReconciliation
+	}
+	if expectedRevision == 0 || expectedGeneration == 0 || mutate == nil {
+		return ErrStaleMutation
+	}
+	diskManifest, err := readManifest(filepath.Join(workspace.path, ManifestFileName))
+	if err != nil {
+		return err
+	}
+	if diskManifest.SessionID != workspace.ref.SessionID || diskManifest.Revision != expectedRevision || diskManifest.RunGeneration != expectedGeneration {
+		return ErrStaleMutation
+	}
+	candidate := diskManifest.Clone()
+	if err := mutate(&candidate); err != nil {
+		return safeMutationError(err)
+	}
+	if candidate.Version != diskManifest.Version || candidate.SessionID != diskManifest.SessionID || candidate.Source != diskManifest.Source || candidate.Output != diskManifest.Output {
+		return ErrMutationRejected
+	}
+	if diskManifest.RelativeDestination != "" && candidate.RelativeDestination != diskManifest.RelativeDestination {
+		return ErrMutationRejected
+	}
+	fromState := LifecycleState{Phase: diskManifest.Phase, Status: diskManifest.Status}
+	toState := LifecycleState{Phase: candidate.Phase, Status: candidate.Status}
+	if fromState != toState {
+		if !allowReconciliationResult && diskManifest.Status == StatusNeedsReconciliation {
+			return ErrInvalidTransition
+		}
+		if !CanTransition(fromState, toState) {
+			return ErrInvalidTransition
+		}
+	}
+	if candidate.Revision != diskManifest.Revision {
+		return ErrMutationRejected
+	}
+	if allowGenerationBump {
+		if candidate.RunGeneration != diskManifest.RunGeneration+1 {
+			return ErrMutationRejected
+		}
+	} else if candidate.RunGeneration != diskManifest.RunGeneration {
+		return ErrMutationRejected
+	}
+	if candidate.Revision == ^uint64(0) {
+		return ErrInvalidManifest
+	}
+	candidate.Revision++
+	if candidate.UpdatedAt.Equal(diskManifest.UpdatedAt) {
+		candidate.UpdatedAt = time.Now().UTC()
+	}
+	if err := candidate.Validate(); err != nil {
+		return err
+	}
+	if err := validateManifestDerivedPaths(workspace.ref.OutputRoot, workspace.path, candidate); err != nil {
+		return err
+	}
+	if err := persistManifest(filepath.Join(workspace.path, ManifestFileName), candidate); err != nil {
+		var commitErr atomicfile.CommitError
+		if errors.As(err, &commitErr) {
+			if commitErr.Committed() {
+				workspace.manifest = candidate
+			}
+			if commitErr.Indeterminate() {
+				workspace.reconciliationNeeded = true
+			}
+		}
+		return err
+	}
+	workspace.manifest = candidate
+	return nil
+}
+
+// Transition applies a checked lifecycle transition.
+func (workspace *Workspace) Transition(expectedRevision, expectedGeneration uint64, phase Phase, status Status, desired DesiredState, now time.Time) error {
+	return workspace.Update(expectedRevision, expectedGeneration, func(manifest *Manifest) error {
+		return manifest.Transition(phase, status, desired, now)
+	})
+}
+
+// Resume retains the current Phase, normalizes component progress to durable
+// checkpoints, and increments RunGeneration before committing the new image.
+func (workspace *Workspace) Resume(expectedRevision, expectedGeneration uint64, now time.Time) error {
+	return workspace.update(expectedRevision, expectedGeneration, true, false, func(manifest *Manifest) error {
+		return manifest.Resume(now)
+	})
+}
+
+// ResolveReconciliation applies a concrete reconciliation result. It is the
+// only workspace mutation that can leave StatusNeedsReconciliation.
+func (workspace *Workspace) ResolveReconciliation(expectedRevision, expectedGeneration uint64, status Status, desired DesiredState, now time.Time) error {
+	return workspace.update(expectedRevision, expectedGeneration, false, true, func(manifest *Manifest) error {
+		return manifest.ResolveReconciliation(status, desired, now)
+	})
+}
+
+// SetDesired records a new intent without pretending that the worker has
+// already reached the corresponding disposition.
+func (workspace *Workspace) SetDesired(expectedRevision, expectedGeneration uint64, desired DesiredState, now time.Time) error {
+	return workspace.Update(expectedRevision, expectedGeneration, func(manifest *Manifest) error {
+		if !validDesired(desired) || now.IsZero() || !validDesiredForStatus(manifest.Status, desired) {
+			return ErrInvalidTransition
+		}
+		manifest.Desired = desired
+		manifest.UpdatedAt = now.UTC()
+		return nil
+	})
+}
+
+// SetComponentProgress records observed progress and a separately confirmed
+// durable checkpoint boundary.
+func (workspace *Workspace) SetComponentProgress(expectedRevision, expectedGeneration uint64, id string, observedBytes, committedBytes int64) error {
+	return workspace.Update(expectedRevision, expectedGeneration, func(manifest *Manifest) error {
+		return manifest.SetComponentProgress(id, observedBytes, committedBytes)
+	})
+}
+
+// SetPublicationState records publication authority. An indeterminate
+// publication moves the disposition to needs_reconciliation while preserving
+// the execution phase.
+func (workspace *Workspace) SetPublicationState(expectedRevision, expectedGeneration uint64, state PublicationState, now time.Time) error {
+	return workspace.Update(expectedRevision, expectedGeneration, func(manifest *Manifest) error {
+		if now.IsZero() || !validPublicationTransition(manifest.Publication, state, manifest.Phase) {
+			return ErrInvalidTransition
+		}
+		if manifest.Publication == PublicationIndeterminate && state != PublicationIndeterminate {
+			return ErrNeedsReconciliation
+		}
+		if state == PublicationIndeterminate {
+			if manifest.Status != StatusNeedsReconciliation {
+				if err := manifest.Transition(manifest.Phase, StatusNeedsReconciliation, DesiredPaused, now); err != nil {
+					return err
+				}
+			}
+		}
+		manifest.Publication = state
+		manifest.UpdatedAt = now.UTC()
+		return nil
+	})
+}
+
+// ResolvePublication is the dedicated reconciliation mutation for an
+// indeterminate publication. Normal callers cannot roll it back or silently
+// fast-forward it.
+func (workspace *Workspace) ResolvePublication(expectedRevision, expectedGeneration uint64, state PublicationState, now time.Time) error {
+	return workspace.update(expectedRevision, expectedGeneration, false, true, func(manifest *Manifest) error {
+		if manifest.Status != StatusNeedsReconciliation || manifest.Publication != PublicationIndeterminate || state != PublicationCommitted || now.IsZero() {
+			return ErrInvalidTransition
+		}
+		manifest.Publication = state
+		manifest.UpdatedAt = now.UTC()
+		return nil
+	})
+}
+
+// SetCleanupState records cleanup authority without removing anything.
+func (workspace *Workspace) SetCleanupState(expectedRevision, expectedGeneration uint64, state CleanupState, now time.Time) error {
+	return workspace.Update(expectedRevision, expectedGeneration, func(manifest *Manifest) error {
+		if now.IsZero() || !validCleanupTransition(manifest.Cleanup, state) {
+			return ErrInvalidManifest
+		}
+		manifest.Cleanup = state
+		manifest.UpdatedAt = now.UTC()
+		return nil
+	})
+}
+
+func randomSessionID() (string, error) {
+	var bytes [16]byte
+	if _, err := rand.Read(bytes[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes[:]), nil
+}
+
+func persistManifest(path string, manifest Manifest) error {
+	if err := validateManifestTarget(path, true); err != nil {
+		return err
+	}
+	if err := manifest.Validate(); err != nil {
+		return err
+	}
+	err := atomicManifestWrite(path, 0o600, func(writer io.Writer) error {
+		encoder := json.NewEncoder(writer)
+		encoder.SetEscapeHTML(false)
+		return encoder.Encode(manifest)
+	})
+	if err == nil {
+		return nil
+	}
+	return wrapManifestCommit(err)
+}
+
+func validateManifestDerivedPaths(outputRoot, workspacePath string, manifest Manifest) error {
+	if manifest.RelativeDestination != "" {
+		if err := validateDestination(outputRoot, manifest.RelativeDestination); err != nil {
+			return err
+		}
+	}
+	for _, component := range manifest.Components {
+		if component.Checkpoint.RelativePath == "" {
+			continue
+		}
+		checkpointPath := filepath.Join(workspacePath, filepath.FromSlash(component.Checkpoint.RelativePath))
+		if err := validateExistingComponents(workspacePath, checkpointPath); err != nil {
+			return err
+		}
+		if info, err := os.Lstat(checkpointPath); err == nil {
+			if !info.Mode().IsRegular() || !ownerOnlyFileAt(checkpointPath, info) {
+				return ErrUnsafePath
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return ErrWorkspaceUnavailable
+		}
+	}
+	return nil
+}
+
+func cleanupCreatedWorkspace(workspacePath string) bool {
+	info, err := os.Lstat(workspacePath)
+	if errors.Is(err, os.ErrNotExist) {
+		return true
+	}
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return false
+	}
+	entries, err := os.ReadDir(workspacePath)
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if entry.Name() != ManifestFileName && entry.Name() != LeaseFileName {
+			// In particular, retained .atomic-* evidence is never silently
+			// removed when cleanup cannot prove a confirmed precommit state.
+			return false
+		}
+		child := filepath.Join(workspacePath, entry.Name())
+		childInfo, statErr := os.Lstat(child)
+		if statErr != nil || childInfo.Mode()&os.ModeSymlink != 0 || !childInfo.Mode().IsRegular() || !ownerOnlyFileAt(child, childInfo) {
+			return false
+		}
+	}
+	for _, name := range []string{ManifestFileName, LeaseFileName} {
+		if err := os.Remove(filepath.Join(workspacePath, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return false
+		}
+	}
+	return os.Remove(workspacePath) == nil
+}
+
+func readManifest(path string) (Manifest, error) {
+	if err := validateManifestTarget(path, false); err != nil {
+		return Manifest{}, ErrCorruptManifest
+	}
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || !ownerOnlyFileAt(path, info) || info.Size() > maxManifestBytes {
+		return Manifest{}, ErrCorruptManifest
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return Manifest{}, ErrCorruptManifest
+	}
+	defer file.Close()
+	encoded, err := io.ReadAll(io.LimitReader(file, maxManifestBytes+1))
+	if err != nil || len(encoded) > maxManifestBytes {
+		return Manifest{}, ErrCorruptManifest
+	}
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	decoder.DisallowUnknownFields()
+	var manifest Manifest
+	if err := decoder.Decode(&manifest); err != nil {
+		return Manifest{}, ErrCorruptManifest
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return Manifest{}, ErrCorruptManifest
+	}
+	if err := manifest.Validate(); err != nil {
+		if errors.Is(err, ErrUnknownManifestVersion) {
+			return Manifest{}, err
+		}
+		return Manifest{}, ErrCorruptManifest
+	}
+	return manifest, nil
+}
+
+func validateManifestTarget(path string, allowMissing bool) error {
+	if path == "" || !filepath.IsAbs(path) || filepath.Base(path) != ManifestFileName || containsNUL(path) {
+		return ErrUnsafePath
+	}
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		if allowMissing {
+			return nil
+		}
+		return ErrCorruptManifest
+	}
+	if err != nil {
+		return ErrUnsafePath
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || !ownerOnlyFileAt(path, info) {
+		return ErrUnsafePath
+	}
+	return nil
+}
+
+func containsNUL(value string) bool {
+	for index := 0; index < len(value); index++ {
+		if value[index] == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func wrapManifestCommit(err error) error {
+	if err == nil {
+		return nil
+	}
+	var outcome atomicfile.CommitError
+	if !errors.As(err, &outcome) {
+		return &manifestCommitError{err: err}
+	}
+	return &manifestCommitError{err: err, committed: outcome.Committed(), indeterminate: outcome.Indeterminate()}
+}
+
+type manifestCommitError struct {
+	err           error
+	committed     bool
+	indeterminate bool
+}
+
+func (err *manifestCommitError) Error() string {
+	if err.indeterminate {
+		return "session manifest commit outcome is indeterminate"
+	}
+	if err.committed {
+		return "session manifest commit completed with a durability error"
+	}
+	return "session manifest commit failed before replacement"
+}
+
+func (err *manifestCommitError) Is(target error) bool {
+	return target == ErrManifestCommit
+}
+
+func (err *manifestCommitError) Committed() bool { return err.committed }
+
+func (err *manifestCommitError) Indeterminate() bool { return err.indeterminate }
+
+func safeMutationError(err error) error {
+	safe := []error{ErrInvalidManifest, ErrUnsafePath, ErrInvalidTransition, ErrNeedsReconciliation}
+	for _, candidate := range safe {
+		if errors.Is(err, candidate) {
+			return candidate
+		}
+	}
+	return ErrMutationRejected
+}
