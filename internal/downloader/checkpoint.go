@@ -1,6 +1,7 @@
 package downloader
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -26,6 +27,9 @@ var (
 	// ErrCheckpointReconciliation reports retained atomic replacement evidence
 	// whose commit authority cannot be safely inferred by this downloader.
 	ErrCheckpointReconciliation = errors.New("download checkpoint reconciliation required")
+	// ErrInvalidCheckpointState reports a local state image that cannot be
+	// treated as authority. Existing payload and state artifacts are preserved.
+	ErrInvalidCheckpointState = errors.New("invalid download checkpoint state")
 )
 
 type checkpointCallbackError struct{ cause error }
@@ -59,6 +63,7 @@ func redactCheckpointError(rawURL string, cause error) error {
 }
 
 const (
+	directCheckpointStateVersion = 1
 	// Checkpoint cadence is intentionally bounded. A small lower bound keeps a
 	// caller from turning every response read into an fsync, while the upper
 	// bound prevents a single unobserved tail from becoming needlessly large.
@@ -95,20 +100,25 @@ type Checkpoint struct {
 // session manifest. Local payload bytes beyond that boundary are discarded
 // before they can be used for a Range request. OnCommit is synchronous and is
 // called only after the payload has been synced and the local state image has
-// been atomically committed. The callback receives only a Checkpoint value.
+// been atomically committed. StateDirectory must be a caller-owned directory
+// dedicated to this job. OnCommit must honor its bounded local context and
+// receives only a Checkpoint value.
 type CheckpointOptions struct {
 	ResumeBoundary *Checkpoint
+	StateDirectory string
 	EveryBytes     int64
 	EveryDuration  time.Duration
-	OnCommit       func(Checkpoint) error
+	OnCommit       func(context.Context, Checkpoint) error
 }
 
 type checkpointPlan struct {
-	enabled       bool
-	boundary      *Checkpoint
-	everyBytes    int64
-	everyDuration time.Duration
-	onCommit      func(Checkpoint) error
+	enabled        bool
+	boundary       *Checkpoint
+	everyBytes     int64
+	everyDuration  time.Duration
+	stateDirectory string
+	statePath      string
+	onCommit       func(context.Context, Checkpoint) error
 }
 
 func checkpointPlanForJob(job Job) (checkpointPlan, error) {
@@ -119,17 +129,24 @@ func checkpointPlanForJob(job Job) (checkpointPlan, error) {
 		return checkpointPlan{}, fmt.Errorf("%w: NoPart cannot be combined with durable checkpoints", ErrInvalidCheckpoint)
 	}
 	options := job.Checkpoint
-	if job.ResumeIdentity != "" {
-		if err := validateCheckpointText(job.ResumeIdentity, maxCheckpointIdentityBytes, "resume identity"); err != nil {
-			return checkpointPlan{}, err
-		}
+	if job.ResumeIdentity == "" {
+		return checkpointPlan{}, fmt.Errorf("%w: durable checkpoints require a stable resume identity", ErrInvalidCheckpoint)
+	}
+	if err := validateCheckpointText(job.ResumeIdentity, maxCheckpointIdentityBytes, "resume identity"); err != nil {
+		return checkpointPlan{}, err
+	}
+	if options.StateDirectory == "" || strings.ContainsRune(options.StateDirectory, '\x00') ||
+		!filepath.IsAbs(options.StateDirectory) || filepath.Clean(options.StateDirectory) != options.StateDirectory {
+		return checkpointPlan{}, fmt.Errorf("%w: durable checkpoints require a dedicated state directory", ErrInvalidCheckpoint)
 	}
 
 	plan := checkpointPlan{
-		enabled:       true,
-		everyBytes:    options.EveryBytes,
-		everyDuration: options.EveryDuration,
-		onCommit:      options.OnCommit,
+		enabled:        true,
+		everyBytes:     options.EveryBytes,
+		everyDuration:  options.EveryDuration,
+		stateDirectory: options.StateDirectory,
+		statePath:      filepath.Join(options.StateDirectory, "direct.json"),
+		onCommit:       options.OnCommit,
 	}
 	if plan.everyBytes == 0 {
 		plan.everyBytes = defaultDirectCheckpointBytes
@@ -156,6 +173,9 @@ func checkpointPlanForJob(job Job) (checkpointPlan, error) {
 }
 
 func validateCheckpoint(checkpoint Checkpoint) error {
+	if checkpoint.ResumeIdentity == "" {
+		return fmt.Errorf("%w: empty resume identity", ErrInvalidCheckpoint)
+	}
 	if err := validateCheckpointText(checkpoint.ResumeIdentity, maxCheckpointIdentityBytes, "resume identity"); err != nil {
 		return err
 	}
@@ -179,29 +199,6 @@ func validateCheckpointText(value string, limit int, name string) error {
 		return fmt.Errorf("%w: invalid %s", ErrInvalidCheckpoint, name)
 	}
 	return nil
-}
-
-func (plan checkpointPlan) matchesBoundary(state partialState, job Job) bool {
-	if plan.boundary == nil {
-		return true
-	}
-	boundary := plan.boundary
-	if boundary.ResumeIdentity != "" && state.ResumeIdentity != boundary.ResumeIdentity {
-		return false
-	}
-	if boundary.ResumeIdentity == "" && job.ResumeIdentity != "" && state.ResumeIdentity != job.ResumeIdentity {
-		return false
-	}
-	if boundary.ETag != "" && state.ETag != "" && state.ETag != boundary.ETag {
-		return false
-	}
-	if boundary.LastModified != "" && state.LastModified != "" && state.LastModified != boundary.LastModified {
-		return false
-	}
-	if boundary.Total > 0 && state.Total > 0 && state.Total != boundary.Total {
-		return false
-	}
-	return true
 }
 
 func (plan checkpointPlan) responseMatchesBoundary(response *http.Response) bool {
@@ -238,7 +235,10 @@ func checkpointFromPartial(state partialState) Checkpoint {
 }
 
 func validatePartialCheckpointState(state partialState) error {
-	if state.ResumeIdentity != "" && state.URL != "" {
+	if state.Version != directCheckpointStateVersion {
+		return fmt.Errorf("%w: unsupported checkpoint state version", ErrInvalidCheckpoint)
+	}
+	if state.URL != "" {
 		return fmt.Errorf("%w: stable identity state contains a URL", ErrInvalidCheckpoint)
 	}
 	if err := validateCheckpoint(checkpointFromPartial(state)); err != nil {
@@ -257,13 +257,10 @@ func checkPartialStateEvidence(path string) error {
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		// atomicfile intentionally keeps an indeterminate replacement candidate
-		// under these names. Its generic prefix cannot be associated with a
-		// destination without reopening the evidence, so opt-in resume fails
-		// closed for any retained candidate in the state directory.
-		if strings.HasPrefix(name, ".atomic-") || strings.HasPrefix(name, ".atomic-backup-") {
-			return ErrCheckpointReconciliation
+		if name == "direct.json" || name == "owner" {
+			continue
 		}
+		return ErrCheckpointReconciliation
 	}
 	return nil
 }

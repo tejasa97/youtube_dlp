@@ -3,6 +3,7 @@ package downloader
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -115,6 +116,7 @@ type Downloader struct {
 	sleep              func(context.Context, time.Duration) error
 	writePartialState  func(string, partialState) error
 	syncPartialPayload func(*os.File) error
+	checkpointTimeout  time.Duration
 }
 
 func New(transport network.Doer) *Downloader {
@@ -136,10 +138,12 @@ func NewWithHooks(transport network.Doer, now func() time.Time, sleep func(conte
 		sleep:              sleep,
 		writePartialState:  savePartialStateOnce,
 		syncPartialPayload: (*os.File).Sync,
+		checkpointTimeout:  maxDirectCheckpointLocalDuration,
 	}
 }
 
 type partialState struct {
+	Version        int    `json:"version,omitempty"`
 	URL            string `json:"url,omitempty"`
 	ResumeIdentity string `json:"resumeIdentity,omitempty"`
 	ETag           string `json:"etag,omitempty"`
@@ -159,7 +163,11 @@ func (downloader *Downloader) Download(ctx context.Context, job Job, sink events
 	if sink == nil {
 		sink = events.Nop()
 	}
-	if err := os.MkdirAll(job.OutputRoot, 0o755); err != nil {
+	rootMode := os.FileMode(0o755)
+	if plan.enabled {
+		rootMode = 0o700
+	}
+	if err := os.MkdirAll(job.OutputRoot, rootMode); err != nil {
 		return Result{}, fmt.Errorf("create output root: %w", err)
 	}
 	if err := validateDestination(job.OutputRoot, job.Destination); err != nil {
@@ -184,13 +192,31 @@ func (downloader *Downloader) Download(ctx context.Context, job Job, sink events
 
 	partPath := job.Destination + ".part"
 	statePath := partPath + ".json"
+	if plan.enabled {
+		if err := prepareCheckpointStateDirectory(job, plan, partPath); err != nil {
+			return Result{}, err
+		}
+		statePath = plan.statePath
+	}
 	if job.NoPart {
 		partPath = job.Destination
 		statePath = job.Destination + ".part.json"
 	}
 	if job.NoContinue {
-		_ = os.Remove(partPath)
-		_ = os.Remove(statePath)
+		if plan.enabled {
+			if err := checkPartialStateEvidence(statePath); err != nil {
+				return Result{}, err
+			}
+			if err := removeRegularFileStrict(partPath); err != nil {
+				return Result{}, fmt.Errorf("reset partial payload: %w", err)
+			}
+			if err := removeRegularFileStrict(statePath); err != nil {
+				return Result{}, fmt.Errorf("reset partial state: %w", err)
+			}
+		} else {
+			_ = os.Remove(partPath)
+			_ = os.Remove(statePath)
+		}
 	}
 	if err := regularOrAbsent(partPath); err != nil {
 		return Result{}, err
@@ -243,7 +269,7 @@ func (downloader *Downloader) Download(ctx context.Context, job Job, sink events
 		if ctx.Err() != nil {
 			cancelErr := ctx.Err()
 			_ = sink.Emit(context.Background(), events.Event{Kind: events.KindCancelled, URL: eventURL, Path: job.Destination, Message: cancelErr.Error()})
-			if plan.enabled && lastErr != nil && !errors.Is(lastErr, cancelErr) {
+			if plan.enabled && lastErr != nil && lastErr != cancelErr {
 				return Result{}, errors.Join(cancelErr, lastErr)
 			}
 			return Result{}, cancelErr
@@ -291,7 +317,7 @@ func finalizeOnce(partPath, destination string, overwrite bool) error {
 }
 
 func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, plan checkpointPlan, partPath, statePath string, sink events.Sink) (Result, error) {
-	state, offset := newPartialState(job.URL, job.ResumeIdentity), int64(0)
+	state, offset := newPartialStateForPlan(job, plan), int64(0)
 	if !job.NoContinue {
 		var err error
 		state, offset, err = downloader.loadPartialWithPlan(ctx, job, plan, partPath, statePath)
@@ -345,7 +371,7 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, plan
 		return Result{}, err
 	}
 
-	resuming := offset > 0 && response.StatusCode == http.StatusPartialContent && validContentRange(response.Header.Get("Content-Range"), offset)
+	resuming := offset > 0 && response.StatusCode == http.StatusPartialContent && validResumeResponse(response, offset)
 	if offset > 0 && response.StatusCode == http.StatusPartialContent && !resuming {
 		if err := downloader.restartPartial(ctx, job, partPath); err != nil {
 			return Result{}, err
@@ -375,7 +401,7 @@ func (downloader *Downloader) downloadAttempt(ctx context.Context, job Job, plan
 	}
 	if !resuming {
 		offset = 0
-		state = newPartialState(job.URL, job.ResumeIdentity)
+		state = newPartialStateForPlan(job, plan)
 	}
 	state.ETag = response.Header.Get("ETag")
 	state.LastModified = response.Header.Get("Last-Modified")
@@ -625,12 +651,16 @@ func (downloader *Downloader) restartPartial(ctx context.Context, job Job, partP
 	return nil
 }
 
-func checkpointLocalContext() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), maxDirectCheckpointLocalDuration)
+func (downloader *Downloader) checkpointLocalContext() (context.Context, context.CancelFunc) {
+	timeout := downloader.checkpointTimeout
+	if timeout <= 0 || timeout > maxDirectCheckpointLocalDuration {
+		timeout = maxDirectCheckpointLocalDuration
+	}
+	return context.WithTimeout(context.Background(), timeout)
 }
 
 func (downloader *Downloader) commitPartialCheckpoint(job Job, plan checkpointPlan, statePath string, file *os.File, state partialState, closeFile bool) error {
-	localCtx, cancel := checkpointLocalContext()
+	localCtx, cancel := downloader.checkpointLocalContext()
 	defer cancel()
 	if err := downloader.retryFile(localCtx, job, func() error { return downloader.syncPayload(file) }); err != nil {
 		return fmt.Errorf("%w: sync partial file: %w", ErrCheckpointCommit, err)
@@ -647,7 +677,7 @@ func (downloader *Downloader) commitPartialCheckpoint(job Job, plan checkpointPl
 		return fmt.Errorf("%w: %w", ErrCheckpointCommit, err)
 	}
 	if plan.onCommit != nil {
-		if err := plan.onCommit(checkpointFromPartial(state)); err != nil {
+		if err := plan.onCommit(localCtx, checkpointFromPartial(state)); err != nil {
 			return &checkpointCallbackError{cause: err}
 		}
 	}
@@ -678,6 +708,20 @@ func removeRegularFile(path string) {
 	if err == nil && info.Mode().IsRegular() {
 		_ = os.Remove(path)
 	}
+}
+
+func removeRegularFileStrict(path string) error {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return ErrUnsafeDestination
+	}
+	return os.Remove(path)
 }
 
 func validateJob(job Job) error {
@@ -753,6 +797,114 @@ func validateDestination(root, destination string) error {
 	return nil
 }
 
+func prepareCheckpointStateDirectory(job Job, plan checkpointPlan, partPath string) error {
+	root, err := filepath.Abs(job.OutputRoot)
+	if err != nil {
+		return fmt.Errorf("%w: resolve output root", ErrInvalidCheckpoint)
+	}
+	root = filepath.Clean(root)
+	rootInfo, err := os.Lstat(root)
+	if err != nil || !rootInfo.IsDir() || rootInfo.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%w: output root is not a directory", ErrInvalidCheckpoint)
+	}
+	stateDirectory := plan.stateDirectory
+	if !pathStrictlyWithin(root, stateDirectory) || pathsOverlap(stateDirectory, job.Destination) || pathsOverlap(stateDirectory, partPath) {
+		return fmt.Errorf("%w: checkpoint state directory overlaps payload paths", ErrInvalidCheckpoint)
+	}
+	relative, err := filepath.Rel(root, stateDirectory)
+	if err != nil {
+		return fmt.Errorf("%w: resolve checkpoint state directory", ErrInvalidCheckpoint)
+	}
+	current := root
+	for _, component := range strings.Split(relative, string(filepath.Separator)) {
+		if component == "" || component == "." || component == ".." {
+			return fmt.Errorf("%w: non-canonical checkpoint state directory", ErrInvalidCheckpoint)
+		}
+		current = filepath.Join(current, component)
+		info, inspectErr := os.Lstat(current)
+		if errors.Is(inspectErr, os.ErrNotExist) {
+			if mkdirErr := os.Mkdir(current, 0o700); mkdirErr != nil && !errors.Is(mkdirErr, os.ErrExist) {
+				return fmt.Errorf("create checkpoint state directory: %w", mkdirErr)
+			}
+			info, inspectErr = os.Lstat(current)
+		}
+		if inspectErr != nil {
+			return fmt.Errorf("inspect checkpoint state directory: %w", inspectErr)
+		}
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%w: checkpoint state chain is not a directory", ErrInvalidCheckpoint)
+		}
+		if err := validateCheckpointOwned(current, info); err != nil {
+			return fmt.Errorf("%w: checkpoint state directory is not owner-only", ErrInvalidCheckpoint)
+		}
+	}
+	if err := checkPartialStateEvidence(plan.statePath); err != nil {
+		return err
+	}
+	return claimCheckpointStateDirectory(plan.stateDirectory, job.ResumeIdentity, partPath)
+}
+
+func pathStrictlyWithin(parent, child string) bool {
+	relative, err := filepath.Rel(filepath.Clean(parent), filepath.Clean(child))
+	return err == nil && relative != "." && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
+}
+
+func pathsOverlap(first, second string) bool {
+	first = filepath.Clean(first)
+	second = filepath.Clean(second)
+	return first == second || pathStrictlyWithin(first, second) || pathStrictlyWithin(second, first)
+}
+
+func claimCheckpointStateDirectory(directory, identity, partPath string) error {
+	ownerPath := filepath.Join(directory, "owner")
+	digest := sha256.Sum256([]byte(identity + "\x00" + filepath.Clean(partPath)))
+	expected := fmt.Sprintf("%x\n", digest)
+	info, err := os.Lstat(ownerPath)
+	if errors.Is(err, os.ErrNotExist) {
+		if _, stateExists, inspectErr := inspectRegularArtifact(filepath.Join(directory, "direct.json")); inspectErr != nil {
+			return &checkpointArtifactError{kind: ErrCheckpointReconciliation, cause: inspectErr}
+		} else if stateExists {
+			return ErrCheckpointReconciliation
+		}
+		file, createErr := os.OpenFile(ownerPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if createErr != nil {
+			return &checkpointArtifactError{kind: ErrCheckpointReconciliation, cause: createErr}
+		}
+		_, writeErr := io.WriteString(file, expected)
+		if writeErr == nil {
+			writeErr = file.Sync()
+		}
+		closeErr := file.Close()
+		if writeErr != nil {
+			return &checkpointArtifactError{kind: ErrCheckpointReconciliation, cause: writeErr}
+		}
+		if closeErr != nil {
+			return &checkpointArtifactError{kind: ErrCheckpointReconciliation, cause: closeErr}
+		}
+		return nil
+	}
+	if err != nil || !info.Mode().IsRegular() {
+		if err == nil {
+			err = ErrUnsafeDestination
+		}
+		return &checkpointArtifactError{kind: ErrCheckpointReconciliation, cause: err}
+	}
+	if err := validateCheckpointOwned(ownerPath, info); err != nil {
+		return &checkpointArtifactError{kind: ErrCheckpointReconciliation, cause: err}
+	}
+	if info.Size() != int64(len(expected)) {
+		return ErrCheckpointReconciliation
+	}
+	encoded, err := os.ReadFile(ownerPath)
+	if err != nil {
+		return &checkpointArtifactError{kind: ErrCheckpointReconciliation, cause: err}
+	}
+	if string(encoded) != expected {
+		return ErrCheckpointReconciliation
+	}
+	return nil
+}
+
 func symlink(path string) bool {
 	info, err := os.Lstat(path)
 	return err == nil && info.Mode()&os.ModeSymlink != 0
@@ -779,101 +931,184 @@ func loadPartial(partPath, statePath, rawURL, resumeIdentity string) (partialSta
 }
 
 func (downloader *Downloader) loadPartialWithPlan(ctx context.Context, job Job, plan checkpointPlan, partPath, statePath string) (partialState, int64, error) {
-	empty := newPartialState(job.URL, job.ResumeIdentity)
-	if plan.enabled {
-		if err := checkPartialStateEvidence(statePath); err != nil {
-			return empty, 0, err
-		}
+	if !plan.enabled {
+		return loadLegacyPartial(job, partPath, statePath)
 	}
-	info, err := os.Stat(partPath)
-	if errors.Is(err, os.ErrNotExist) || err != nil || info.Size() <= 0 {
-		return empty, 0, nil
+	empty := newPartialStateForPlan(job, plan)
+	if err := checkPartialStateEvidence(statePath); err != nil {
+		return empty, 0, err
 	}
 
-	encoded, readErr := os.ReadFile(statePath)
-	if errors.Is(readErr, os.ErrNotExist) {
-		if plan.enabled && plan.boundary != nil && plan.boundary.CommittedBytes > 0 && info.Size() >= plan.boundary.CommittedBytes {
-			state := stateFromBoundary(job, *plan.boundary)
-			if err := downloader.truncatePartial(ctx, job, partPath, plan.boundary.CommittedBytes); err != nil {
-				return empty, 0, err
-			}
-			return state, plan.boundary.CommittedBytes, nil
-		}
-		if plan.enabled {
-			if err := downloader.truncatePartial(ctx, job, partPath, 0); err != nil {
-				return empty, 0, err
-			}
-		}
-		return empty, 0, nil
+	info, partExists, err := inspectRegularArtifact(partPath)
+	if err != nil {
+		return empty, 0, &checkpointArtifactError{kind: ErrCheckpointReconciliation, cause: err}
 	}
-	if readErr != nil {
-		if plan.enabled {
-			if err := downloader.truncatePartial(ctx, job, partPath, 0); err != nil {
-				return empty, 0, err
-			}
-		}
-		return empty, 0, nil
+	stateInfo, stateExists, err := inspectRegularArtifact(statePath)
+	if err != nil {
+		return empty, 0, &checkpointArtifactError{kind: ErrCheckpointReconciliation, cause: err}
 	}
-
-	var decoded partialState
-	if json.Unmarshal(encoded, &decoded) != nil {
-		if plan.enabled {
-			if err := downloader.truncatePartial(ctx, job, partPath, 0); err != nil {
-				return empty, 0, err
-			}
+	if stateExists {
+		if err := validateCheckpointOwned(statePath, stateInfo); err != nil {
+			return empty, 0, &checkpointArtifactError{kind: ErrCheckpointReconciliation, cause: err}
 		}
-		return empty, 0, nil
 	}
-	if !partialStateMatchesJob(decoded, job, plan) {
-		if err := downloader.truncatePartial(ctx, job, partPath, 0); err != nil {
-			return empty, 0, err
-		}
-		return empty, 0, nil
-	}
-
-	state := newPartialState(job.URL, job.ResumeIdentity)
-	state.ETag = decoded.ETag
-	state.LastModified = decoded.LastModified
-	state.Total = decoded.Total
-	state.CommittedBytes = decoded.CommittedBytes
-	if plan.enabled {
-		if !plan.matchesBoundary(state, job) || state.CommittedBytes <= 0 || state.CommittedBytes > info.Size() || state.CommittedBytes > maxDirectBytes {
-			if err := downloader.truncatePartial(ctx, job, partPath, 0); err != nil {
-				return empty, 0, err
+	if !partExists {
+		if !stateExists {
+			if plan.boundary != nil && plan.boundary.CommittedBytes > 0 {
+				return empty, 0, ErrCheckpointReconciliation
 			}
 			return empty, 0, nil
 		}
-		if plan.boundary != nil {
-			if plan.boundary.CommittedBytes < state.CommittedBytes {
-				state.CommittedBytes = plan.boundary.CommittedBytes
-			}
-			if state.ETag == "" {
-				state.ETag = plan.boundary.ETag
-			}
-			if state.LastModified == "" {
-				state.LastModified = plan.boundary.LastModified
-			}
-			if state.Total == 0 {
-				state.Total = plan.boundary.Total
-			}
-		}
-		if state.CommittedBytes <= 0 {
-			if err := downloader.truncatePartial(ctx, job, partPath, 0); err != nil {
-				return empty, 0, err
-			}
+		decoded, decodeErr := decodeCheckpointState(statePath, stateInfo)
+		if plan.boundary != nil && plan.boundary.CommittedBytes == 0 {
 			return empty, 0, nil
 		}
-		if info.Size() > state.CommittedBytes {
+		if decodeErr != nil {
+			return empty, 0, decodeErr
+		}
+		if decoded.ResumeIdentity != job.ResumeIdentity {
+			return empty, 0, ErrInvalidCheckpointState
+		}
+		if decoded.CommittedBytes != 0 || (plan.boundary != nil && plan.boundary.CommittedBytes > 0) {
+			return empty, 0, ErrCheckpointReconciliation
+		}
+		return empty, 0, nil
+	}
+
+	partSize := info.Size()
+	boundaryAuthorizes := plan.boundary != nil && plan.boundary.CommittedBytes <= partSize
+	useBoundary := func() (partialState, int64, error) {
+		if !boundaryAuthorizes {
+			return empty, 0, ErrCheckpointReconciliation
+		}
+		state := stateFromBoundary(job, *plan.boundary)
+		if partSize != state.CommittedBytes {
 			if err := downloader.truncatePartial(ctx, job, partPath, state.CommittedBytes); err != nil {
 				return empty, 0, err
 			}
 		}
-		if err := validatePartialCheckpointState(state); err != nil {
-			return empty, 0, nil
-		}
 		return state, state.CommittedBytes, nil
 	}
+
+	if !stateExists {
+		if plan.boundary != nil {
+			return useBoundary()
+		}
+		return empty, 0, ErrCheckpointReconciliation
+	}
+
+	decoded, err := decodeCheckpointState(statePath, stateInfo)
+	if err != nil {
+		if plan.boundary != nil {
+			return useBoundary()
+		}
+		return empty, 0, err
+	}
+	if decoded.ResumeIdentity != job.ResumeIdentity {
+		if plan.boundary != nil {
+			return useBoundary()
+		}
+		return empty, 0, ErrInvalidCheckpointState
+	}
+	if plan.boundary != nil {
+		return useBoundary()
+	}
+	if decoded.CommittedBytes > partSize {
+		return empty, 0, ErrCheckpointReconciliation
+	}
+	if partSize != decoded.CommittedBytes {
+		if err := downloader.truncatePartial(ctx, job, partPath, decoded.CommittedBytes); err != nil {
+			return empty, 0, err
+		}
+	}
+	return decoded, decoded.CommittedBytes, nil
+}
+
+func loadLegacyPartial(job Job, partPath, statePath string) (partialState, int64, error) {
+	empty := newPartialState(job.URL, job.ResumeIdentity)
+	info, err := os.Stat(partPath)
+	if errors.Is(err, os.ErrNotExist) || err != nil || info.Size() <= 0 {
+		return empty, 0, nil
+	}
+	encoded, readErr := os.ReadFile(statePath)
+	if readErr != nil {
+		return empty, 0, nil
+	}
+	var decoded partialState
+	if json.Unmarshal(encoded, &decoded) != nil {
+		return empty, 0, nil
+	}
+	if !partialStateMatchesJob(decoded, job, checkpointPlan{}) {
+		return empty, 0, nil
+	}
+	state := newPartialState(job.URL, job.ResumeIdentity)
+	state.ETag = decoded.ETag
+	state.LastModified = decoded.LastModified
+	state.Total = decoded.Total
 	return state, info.Size(), nil
+}
+
+type checkpointArtifactError struct {
+	kind  error
+	cause error
+}
+
+func (err *checkpointArtifactError) Error() string { return err.kind.Error() }
+func (err *checkpointArtifactError) Unwrap() error { return err.cause }
+func (err *checkpointArtifactError) Is(target error) bool {
+	return target == err.kind || errors.Is(err.cause, target)
+}
+
+func inspectRegularArtifact(path string) (os.FileInfo, bool, error) {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, true, ErrUnsafeDestination
+	}
+	return info, true, nil
+}
+
+func decodeCheckpointState(path string, expected os.FileInfo) (partialState, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return partialState{}, &checkpointArtifactError{kind: ErrCheckpointReconciliation, cause: err}
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !os.SameFile(expected, info) || !info.Mode().IsRegular() {
+		if err == nil {
+			err = ErrUnsafeDestination
+		}
+		return partialState{}, &checkpointArtifactError{kind: ErrCheckpointReconciliation, cause: err}
+	}
+	if err := validateCheckpointOwned(path, info); err != nil {
+		return partialState{}, &checkpointArtifactError{kind: ErrCheckpointReconciliation, cause: err}
+	}
+	if info.Size() <= 0 || info.Size() > maxCheckpointStateBytes {
+		return partialState{}, ErrInvalidCheckpointState
+	}
+	decoder := json.NewDecoder(io.LimitReader(file, maxCheckpointStateBytes+1))
+	decoder.DisallowUnknownFields()
+	var state partialState
+	if err := decoder.Decode(&state); err != nil {
+		return partialState{}, ErrInvalidCheckpointState
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return partialState{}, ErrInvalidCheckpointState
+	}
+	if state.Version != directCheckpointStateVersion {
+		return partialState{}, ErrInvalidCheckpointState
+	}
+	if err := validatePartialCheckpointState(state); err != nil {
+		return partialState{}, ErrInvalidCheckpointState
+	}
+	return state, nil
 }
 
 func partialStateMatchesJob(state partialState, job Job, plan checkpointPlan) bool {
@@ -892,13 +1127,23 @@ func partialStateMatchesJob(state partialState, job Job, plan checkpointPlan) bo
 }
 
 func stateFromBoundary(job Job, boundary Checkpoint) partialState {
-	state := newPartialState(job.URL, job.ResumeIdentity)
-	state.ResumeIdentity = job.ResumeIdentity
+	state := newCheckpointPartialState(job.ResumeIdentity)
 	state.ETag = boundary.ETag
 	state.LastModified = boundary.LastModified
 	state.Total = boundary.Total
 	state.CommittedBytes = boundary.CommittedBytes
 	return state
+}
+
+func newPartialStateForPlan(job Job, plan checkpointPlan) partialState {
+	if plan.enabled {
+		return newCheckpointPartialState(job.ResumeIdentity)
+	}
+	return newPartialState(job.URL, job.ResumeIdentity)
+}
+
+func newCheckpointPartialState(resumeIdentity string) partialState {
+	return partialState{Version: directCheckpointStateVersion, ResumeIdentity: resumeIdentity}
 }
 
 func newPartialState(rawURL, resumeIdentity string) partialState {
@@ -929,7 +1174,7 @@ func savePartialStateOnce(path string, state partialState) error {
 	if err != nil {
 		return err
 	}
-	if state.ResumeIdentity != "" || state.CommittedBytes != 0 || state.LastModified != "" {
+	if state.Version == directCheckpointStateVersion {
 		if err := validatePartialCheckpointState(state); err != nil {
 			return err
 		}
@@ -949,6 +1194,14 @@ func savePartialStateOnce(path string, state partialState) error {
 func validContentRange(header string, offset int64) bool {
 	start, _, _, ok := parseContentRange(header)
 	return ok && start == offset
+}
+
+func validResumeResponse(response *http.Response, offset int64) bool {
+	start, end, _, ok := parseContentRange(response.Header.Get("Content-Range"))
+	if !ok || start != offset {
+		return false
+	}
+	return response.ContentLength < 0 || response.ContentLength == end-start+1
 }
 
 func responseTotal(response *http.Response, offset int64) int64 {

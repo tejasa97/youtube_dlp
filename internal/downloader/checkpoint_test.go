@@ -3,6 +3,7 @@ package downloader
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,7 +31,7 @@ func TestCheckpointAuthoritativeBoundaryTruncatesLongerPartial(t *testing.T) {
 	if err := os.WriteFile(partPath, append(append([]byte(nil), data[:boundaryBytes]...), bytes.Repeat([]byte("tail"), 4096)...), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	writeCheckpointState(t, partPath+".json", partialState{
+	writeCheckpointState(t, checkpointStatePath(destination), partialState{
 		ResumeIdentity: identity,
 		ETag:           `"fixture"`,
 		Total:          int64(len(data)),
@@ -92,7 +93,7 @@ func TestCheckpointBoundaryRequiresExactJobIdentity(t *testing.T) {
 		ResumeIdentity: "direct:fixture:1",
 		OutputRoot:     root,
 		Destination:    filepath.Join(root, "media.bin"),
-		Checkpoint: &CheckpointOptions{ResumeBoundary: &Checkpoint{
+		Checkpoint: &CheckpointOptions{StateDirectory: filepath.Join(root, "checkpoint"), ResumeBoundary: &Checkpoint{
 			ResumeIdentity: "",
 			CommittedBytes: minDirectCheckpointBytes,
 		}},
@@ -110,18 +111,19 @@ func TestCheckpointBoundaryRequiresExactJobIdentity(t *testing.T) {
 func TestCheckpointBoundaryDoesNotResumeMismatchedLocalIdentity(t *testing.T) {
 	data := checkpointData(96 << 10)
 	destination := filepath.Join(t.TempDir(), "media.bin")
+	identity := "direct:fixture:1"
 	partPath := destination + ".part"
 	if err := os.WriteFile(partPath, data[:minDirectCheckpointBytes], 0o600); err != nil {
 		t.Fatal(err)
 	}
-	writeCheckpointState(t, partPath+".json", partialState{
+	writeCheckpointState(t, checkpointStatePath(destination), partialState{
 		ResumeIdentity: "direct:other:1",
 		ETag:           `"fixture"`,
 		Total:          int64(len(data)),
 		CommittedBytes: minDirectCheckpointBytes,
 	})
+	writeCheckpointOwner(t, destination, identity)
 	doer := &checkpointDoer{data: data, etag: `"fixture"`, chunkSize: 32 << 10}
-	identity := "direct:fixture:1"
 	job := checkpointJob(destination, identity, &CheckpointOptions{
 		ResumeBoundary: &Checkpoint{ResumeIdentity: identity, ETag: `"fixture"`, Total: int64(len(data)), CommittedBytes: minDirectCheckpointBytes},
 		EveryBytes:     minDirectCheckpointBytes,
@@ -130,11 +132,183 @@ func TestCheckpointBoundaryDoesNotResumeMismatchedLocalIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Resumed {
-		t.Fatal("mismatched local identity was resumed")
+	if !result.Resumed {
+		t.Fatal("exact caller boundary did not independently authorize prefix")
 	}
-	if got := doer.requestRange(0); got != "" {
-		t.Fatalf("range = %q, want fresh download", got)
+	if got := doer.requestRange(0); got != fmt.Sprintf("bytes=%d-", minDirectCheckpointBytes) {
+		t.Fatalf("range = %q, want caller boundary", got)
+	}
+}
+
+func TestCheckpointRequiresStableIdentityAndDedicatedStateDirectory(t *testing.T) {
+	root := t.TempDir()
+	job := Job{
+		URL:         "https://signed.example/media?token=secret",
+		OutputRoot:  root,
+		Destination: filepath.Join(root, "media.bin"),
+		Checkpoint:  &CheckpointOptions{StateDirectory: filepath.Join(root, "checkpoint")},
+	}
+	if err := validateJob(job); !errors.Is(err, ErrInvalidCheckpoint) {
+		t.Fatalf("empty identity error = %v, want ErrInvalidCheckpoint", err)
+	}
+	job.ResumeIdentity = "direct:fixture:1"
+	job.Checkpoint.StateDirectory = ""
+	if err := validateJob(job); !errors.Is(err, ErrInvalidCheckpoint) {
+		t.Fatalf("empty state directory error = %v, want ErrInvalidCheckpoint", err)
+	}
+}
+
+func TestCheckpointInvalidStatePreservesArtifacts(t *testing.T) {
+	identity := "direct:fixture:strict-state"
+	validOtherIdentity := fmt.Sprintf(`{"version":1,"resumeIdentity":"direct:other","etag":"fixture","committedBytes":%d}`, minDirectCheckpointBytes)
+	for _, test := range []struct {
+		name    string
+		encoded []byte
+	}{
+		{name: "malformed", encoded: []byte(`{"version":`)},
+		{name: "oversized", encoded: bytes.Repeat([]byte("x"), maxCheckpointStateBytes+1)},
+		{name: "trailing object", encoded: []byte(`{"version":1,"resumeIdentity":"direct:fixture:strict-state","committedBytes":65536}{}`)},
+		{name: "unknown field", encoded: []byte(`{"version":1,"resumeIdentity":"direct:fixture:strict-state","committedBytes":65536,"authorization":"Bearer secret"}`)},
+		{name: "url field", encoded: []byte(`{"version":1,"resumeIdentity":"direct:fixture:strict-state","url":"https://signed.example/media?token=secret","committedBytes":65536}`)},
+		{name: "identity mismatch", encoded: []byte(validOtherIdentity)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			destination := filepath.Join(t.TempDir(), "media.bin")
+			partial := checkpointData(minDirectCheckpointBytes)
+			if err := os.WriteFile(destination+".part", partial, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			statePath := checkpointStatePath(destination)
+			if err := os.MkdirAll(filepath.Dir(statePath), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			writeCheckpointOwner(t, destination, identity)
+			if err := os.WriteFile(statePath, test.encoded, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			doer := &checkpointDoer{data: checkpointData(2 * minDirectCheckpointBytes), etag: `"fixture"`}
+			job := checkpointJob(destination, identity, &CheckpointOptions{})
+			_, err := New(doer).Download(context.Background(), job, nil)
+			if !errors.Is(err, ErrInvalidCheckpointState) {
+				t.Fatalf("error = %v, want ErrInvalidCheckpointState", err)
+			}
+			if strings.Contains(err.Error(), "authorization") || strings.Contains(err.Error(), "secret") {
+				t.Fatalf("state contents leaked through error: %q", err)
+			}
+			gotPartial, readErr := os.ReadFile(destination + ".part")
+			if readErr != nil || !bytes.Equal(gotPartial, partial) {
+				t.Fatalf("partial changed: err=%v size=%d", readErr, len(gotPartial))
+			}
+			gotState, readErr := os.ReadFile(statePath)
+			if readErr != nil || !bytes.Equal(gotState, test.encoded) {
+				t.Fatalf("state changed: err=%v", readErr)
+			}
+			if doer.requestCount() != 0 {
+				t.Fatalf("requests = %d, invalid local authority must stop before network", doer.requestCount())
+			}
+		})
+	}
+}
+
+func TestCheckpointUnreadableStateReturnsFilesystemError(t *testing.T) {
+	destination := filepath.Join(t.TempDir(), "media.bin")
+	partial := checkpointData(minDirectCheckpointBytes)
+	if err := os.WriteFile(destination+".part", partial, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	statePath := checkpointStatePath(destination)
+	writeCheckpointState(t, statePath, partialState{ResumeIdentity: "direct:fixture:unreadable", CommittedBytes: minDirectCheckpointBytes})
+	if err := os.Chmod(statePath, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(statePath, 0o600) })
+	if file, openErr := os.Open(statePath); openErr == nil {
+		_ = file.Close()
+		t.Skip("platform permits reading mode-000 files")
+	}
+	_, err := New(&checkpointDoer{}).Download(context.Background(), checkpointJob(destination, "direct:fixture:unreadable", &CheckpointOptions{}), nil)
+	if !errors.Is(err, ErrCheckpointReconciliation) {
+		t.Fatalf("error = %v, want reconciliation with filesystem cause", err)
+	}
+	if info, statErr := os.Stat(destination + ".part"); statErr != nil || info.Size() != minDirectCheckpointBytes {
+		t.Fatalf("partial was changed: info=%v err=%v", info, statErr)
+	}
+}
+
+func TestCheckpointCallerBoundaryClampsCorruptState(t *testing.T) {
+	data := checkpointData(2 * minDirectCheckpointBytes)
+	destination := filepath.Join(t.TempDir(), "media.bin")
+	identity := "direct:fixture:boundary"
+	if err := os.WriteFile(destination+".part", data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	statePath := checkpointStatePath(destination)
+	if err := os.MkdirAll(filepath.Dir(statePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeCheckpointOwner(t, destination, identity)
+	if err := os.WriteFile(statePath, []byte(`{"authorization":"Bearer secret"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	doer := &checkpointDoer{data: data, etag: `"fixture"`, chunkSize: minDirectCheckpointBytes}
+	job := checkpointJob(destination, identity, &CheckpointOptions{ResumeBoundary: &Checkpoint{
+		ResumeIdentity: identity, ETag: `"fixture"`, Total: int64(len(data)), CommittedBytes: minDirectCheckpointBytes,
+	}})
+	result, err := New(doer).Download(context.Background(), job, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Resumed || doer.requestRange(0) != fmt.Sprintf("bytes=%d-", minDirectCheckpointBytes) {
+		t.Fatalf("boundary did not clamp corrupt state: result=%#v range=%q", result, doer.requestRange(0))
+	}
+}
+
+func TestCheckpointZeroBoundaryExplicitlyResetsCorruptState(t *testing.T) {
+	data := checkpointData(minDirectCheckpointBytes)
+	destination := filepath.Join(t.TempDir(), "media.bin")
+	identity := "direct:fixture:zero"
+	if err := os.WriteFile(destination+".part", bytes.Repeat([]byte("tail"), 1024), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	statePath := checkpointStatePath(destination)
+	if err := os.MkdirAll(filepath.Dir(statePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeCheckpointOwner(t, destination, identity)
+	if err := os.WriteFile(statePath, []byte("not-json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	doer := &checkpointDoer{data: data, etag: `"fixture"`}
+	job := checkpointJob(destination, identity, &CheckpointOptions{ResumeBoundary: &Checkpoint{ResumeIdentity: identity}})
+	result, err := New(doer).Download(context.Background(), job, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Resumed || doer.requestRange(0) != "" {
+		t.Fatalf("zero boundary did not reset: result=%#v range=%q", result, doer.requestRange(0))
+	}
+}
+
+func TestCheckpointMismatchedValidatorsWithoutAuthorizingBoundaryPreservesArtifacts(t *testing.T) {
+	destination := filepath.Join(t.TempDir(), "media.bin")
+	partial := checkpointData(minDirectCheckpointBytes)
+	if err := os.WriteFile(destination+".part", partial, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	identity := "direct:fixture:validator"
+	writeCheckpointState(t, checkpointStatePath(destination), partialState{
+		ResumeIdentity: identity, ETag: `"local"`, Total: 2 * minDirectCheckpointBytes, CommittedBytes: minDirectCheckpointBytes,
+	})
+	job := checkpointJob(destination, identity, &CheckpointOptions{ResumeBoundary: &Checkpoint{
+		ResumeIdentity: identity, ETag: `"caller"`, Total: 2 * minDirectCheckpointBytes, CommittedBytes: 2 * minDirectCheckpointBytes,
+	}})
+	_, err := New(&checkpointDoer{}).Download(context.Background(), job, nil)
+	if !errors.Is(err, ErrCheckpointReconciliation) {
+		t.Fatalf("error = %v, want reconciliation", err)
+	}
+	got, readErr := os.ReadFile(destination + ".part")
+	if readErr != nil || !bytes.Equal(got, partial) {
+		t.Fatalf("partial changed: err=%v", readErr)
 	}
 }
 
@@ -160,7 +334,7 @@ func TestCheckpointOrderingSyncsPayloadBeforeStateAndCallback(t *testing.T) {
 	}
 	job := checkpointJob(destination, "direct:fixture:1", &CheckpointOptions{
 		EveryBytes: minDirectCheckpointBytes,
-		OnCommit: func(state Checkpoint) error {
+		OnCommit: func(_ context.Context, state Checkpoint) error {
 			mu.Lock()
 			defer mu.Unlock()
 			order = append(order, "callback")
@@ -208,7 +382,7 @@ func TestCheckpointDurationUsesInjectedClock(t *testing.T) {
 	job := checkpointJob(destination, "direct:fixture:clock", &CheckpointOptions{
 		EveryBytes:    minDirectCheckpointBytes,
 		EveryDuration: minDirectCheckpointInterval,
-		OnCommit: func(state Checkpoint) error {
+		OnCommit: func(_ context.Context, state Checkpoint) error {
 			callbacks = append(callbacks, state)
 			return nil
 		},
@@ -230,7 +404,7 @@ func TestCheckpointCancellationFinalizesDurableCheckpoint(t *testing.T) {
 	var callbacks []Checkpoint
 	job := checkpointJob(destination, "direct:fixture:1", &CheckpointOptions{
 		EveryBytes: minDirectCheckpointBytes * 2,
-		OnCommit: func(state Checkpoint) error {
+		OnCommit: func(_ context.Context, state Checkpoint) error {
 			callbacks = append(callbacks, state)
 			return nil
 		},
@@ -248,7 +422,7 @@ func TestCheckpointCancellationFinalizesDurableCheckpoint(t *testing.T) {
 	if len(callbacks) != 1 || callbacks[0].CommittedBytes != minDirectCheckpointBytes {
 		t.Fatalf("callbacks = %#v, want final cancellation checkpoint", callbacks)
 	}
-	state := readCheckpointState(t, destination+".part.json")
+	state := readCheckpointState(t, checkpointStatePath(destination))
 	if state.CommittedBytes != minDirectCheckpointBytes {
 		t.Fatalf("state = %#v, want committed cancellation boundary", state)
 	}
@@ -267,7 +441,7 @@ func TestCheckpointCallbackFailureIsGenericAndStopsTransfer(t *testing.T) {
 	callbackCause := errors.New("callback saw https://cdn.example/media?token=secret")
 	job := checkpointJob(destination, "direct:fixture:1", &CheckpointOptions{
 		EveryBytes: minDirectCheckpointBytes,
-		OnCommit:   func(Checkpoint) error { return callbackCause },
+		OnCommit:   func(context.Context, Checkpoint) error { return callbackCause },
 	})
 	_, err := New(doer).Download(context.Background(), job, nil)
 	if !errors.Is(err, ErrCheckpointCallback) || !errors.Is(err, callbackCause) {
@@ -282,7 +456,7 @@ func TestCheckpointCallbackFailureIsGenericAndStopsTransfer(t *testing.T) {
 	if _, statErr := os.Stat(destination); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("destination = %v, want unpublished", statErr)
 	}
-	state := readCheckpointState(t, destination+".part.json")
+	state := readCheckpointState(t, checkpointStatePath(destination))
 	if state.CommittedBytes != minDirectCheckpointBytes {
 		t.Fatalf("state = %#v, want last locally committed bytes", state)
 	}
@@ -303,7 +477,7 @@ func TestCheckpointReopenDiscardsUncommittedTail(t *testing.T) {
 	if err == nil {
 		t.Fatal("unclean response unexpectedly completed")
 	}
-	state := readCheckpointState(t, destination+".part.json")
+	state := readCheckpointState(t, checkpointStatePath(destination))
 	if state.CommittedBytes != 0 {
 		t.Fatalf("state = %#v, uncommitted tail was advanced", state)
 	}
@@ -334,7 +508,7 @@ func TestCheckpointRefreshedURLUsesStableIdentityWithoutPersistingURL(t *testing
 	first := &checkpointDoer{data: data, etag: `"fixture"`, chunkSize: minDirectCheckpointBytes}
 	job := checkpointJob(destination, identity, &CheckpointOptions{
 		EveryBytes: minDirectCheckpointBytes * 2,
-		OnCommit:   func(Checkpoint) error { return nil },
+		OnCommit:   func(context.Context, Checkpoint) error { return nil },
 	})
 	job.URL = secretURL
 	sink := events.SinkFunc(func(_ context.Context, event events.Event) error {
@@ -348,14 +522,14 @@ func TestCheckpointRefreshedURLUsesStableIdentityWithoutPersistingURL(t *testing
 	if !errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), "signature") {
 		t.Fatalf("first error = %v, signed URL leaked or cancellation lost", err)
 	}
-	encoded, readErr := os.ReadFile(destination + ".part.json")
+	encoded, readErr := os.ReadFile(checkpointStatePath(destination))
 	if readErr != nil {
 		t.Fatal(readErr)
 	}
 	if strings.Contains(string(encoded), "signed.example") || strings.Contains(string(encoded), "secret") || !strings.Contains(string(encoded), identity) {
 		t.Fatalf("state contains unsafe URL material: %s", encoded)
 	}
-	boundary := readCheckpointState(t, destination+".part.json")
+	boundary := readCheckpointState(t, checkpointStatePath(destination))
 	second := &checkpointDoer{data: data, etag: `"fixture"`, chunkSize: minDirectCheckpointBytes}
 	job.Checkpoint.ResumeBoundary = &Checkpoint{
 		ResumeIdentity: identity,
@@ -390,8 +564,9 @@ func TestCheckpointStateWritePropagatesAtomicOutcomes(t *testing.T) {
 			client.writePartialState = func(string, partialState) error {
 				return checkpointCommitOutcome{cause: cause, committed: test.committed, indeterminate: test.indeterminate}
 			}
-			job := Job{Checkpoint: &CheckpointOptions{}}
-			state := partialState{ResumeIdentity: "direct:fixture:1", Total: 2 * minDirectCheckpointBytes, CommittedBytes: minDirectCheckpointBytes}
+			job := Job{ResumeIdentity: "direct:fixture:1", Checkpoint: &CheckpointOptions{StateDirectory: directory}}
+			state := newCheckpointPartialState("direct:fixture:1")
+			state.Total, state.CommittedBytes = 2*minDirectCheckpointBytes, minDirectCheckpointBytes
 			err := client.savePartialState(context.Background(), job, filepath.Join(directory, "state.json"), state)
 			var outcome atomicfile.CommitError
 			if !errors.As(err, &outcome) {
@@ -406,24 +581,262 @@ func TestCheckpointStateWritePropagatesAtomicOutcomes(t *testing.T) {
 
 func TestCheckpointRejectsNoPartAndRetainedAtomicEvidence(t *testing.T) {
 	root := t.TempDir()
-	job := Job{URL: "https://example.invalid/media", OutputRoot: root, Destination: filepath.Join(root, "media.bin"), NoPart: true, Checkpoint: &CheckpointOptions{}}
+	job := Job{URL: "https://example.invalid/media", ResumeIdentity: "direct:fixture:1", OutputRoot: root, Destination: filepath.Join(root, "media.bin"), NoPart: true, Checkpoint: &CheckpointOptions{StateDirectory: filepath.Join(root, "checkpoint")}}
 	if err := validateJob(job); !errors.Is(err, ErrInvalidCheckpoint) {
 		t.Fatalf("NoPart checkpoint error = %v", err)
 	}
 
-	destination := filepath.Join(root, "media.bin")
-	statePath := destination + ".part.json"
-	if err := os.WriteFile(filepath.Join(root, ".atomic-retained"), []byte("candidate"), 0o600); err != nil {
+	stateDirectory := filepath.Join(root, "checkpoint")
+	statePath := filepath.Join(stateDirectory, "direct.json")
+	if err := os.MkdirAll(stateDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDirectory, ".atomic-retained"), []byte("candidate"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	job.NoPart = false
 	job.URL = "https://example.invalid/media"
-	job.Checkpoint = &CheckpointOptions{}
+	job.Checkpoint = &CheckpointOptions{StateDirectory: stateDirectory}
 	if _, err := New(&checkpointDoer{data: checkpointData(minDirectCheckpointBytes), etag: `"fixture"`}).Download(context.Background(), job, nil); !errors.Is(err, ErrCheckpointReconciliation) {
 		t.Fatalf("retained evidence error = %v, want reconciliation", err)
 	}
 	if _, statErr := os.Stat(statePath); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("state path = %v, evidence failure should not create state", statErr)
+	}
+}
+
+func TestCheckpointAtomicEvidenceIsIsolatedPerJob(t *testing.T) {
+	root := t.TempDir()
+	firstStateDirectory := filepath.Join(root, "session-a")
+	if err := os.MkdirAll(firstStateDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(firstStateDirectory, ".atomic-retained"), []byte("candidate"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	data := checkpointData(minDirectCheckpointBytes)
+	secondDestination := filepath.Join(root, "second.bin")
+	second := checkpointJob(secondDestination, "direct:fixture:second", &CheckpointOptions{
+		StateDirectory: filepath.Join(root, "session-b"),
+	})
+	if _, err := New(&checkpointDoer{data: data, etag: `"fixture"`}).Download(context.Background(), second, nil); err != nil {
+		t.Fatalf("other job's atomic evidence caused a false positive: %v", err)
+	}
+	contents, err := os.ReadFile(secondDestination)
+	if err != nil || !bytes.Equal(contents, data) {
+		t.Fatalf("second download differs: %v", err)
+	}
+}
+
+func TestCheckpointStateDirectoryPathAuthority(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		setup func(t *testing.T, root, destination string) string
+	}{
+		{name: "relative", setup: func(_ *testing.T, _, _ string) string { return "checkpoint" }},
+		{name: "traversal", setup: func(_ *testing.T, root, _ string) string {
+			return filepath.Join(root, "session", "..", "checkpoint") + string(filepath.Separator) + ".." + string(filepath.Separator) + "checkpoint"
+		}},
+		{name: "outside root", setup: func(t *testing.T, _, _ string) string { return filepath.Join(t.TempDir(), "checkpoint") }},
+		{name: "symlink parent", setup: func(t *testing.T, root, _ string) string {
+			target := filepath.Join(root, "real")
+			if err := os.Mkdir(target, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			link := filepath.Join(root, "link")
+			if err := os.Symlink(target, link); err != nil {
+				t.Skipf("symlinks unavailable: %v", err)
+			}
+			return filepath.Join(link, "checkpoint")
+		}},
+		{name: "group readable parent", setup: func(t *testing.T, root, _ string) string {
+			parent := filepath.Join(root, "session")
+			if err := os.Mkdir(parent, 0o750); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(parent, 0o750); err != nil {
+				t.Fatal(err)
+			}
+			return filepath.Join(parent, "checkpoint")
+		}},
+		{name: "equals destination", setup: func(_ *testing.T, _, destination string) string { return destination }},
+		{name: "equals partial", setup: func(_ *testing.T, _, destination string) string { return destination + ".part" }},
+		{name: "contains destination", setup: func(_ *testing.T, root, _ string) string { return root }},
+		{name: "inside destination", setup: func(_ *testing.T, _, destination string) string { return filepath.Join(destination, "checkpoint") }},
+		{name: "inside partial", setup: func(_ *testing.T, _, destination string) string {
+			return filepath.Join(destination+".part", "checkpoint")
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			destination := filepath.Join(root, "media.bin")
+			stateDirectory := test.setup(t, root, destination)
+			job := checkpointJob(destination, "direct:fixture:path", &CheckpointOptions{StateDirectory: stateDirectory})
+			_, err := New(&checkpointDoer{data: checkpointData(minDirectCheckpointBytes), etag: `"fixture"`}).Download(context.Background(), job, nil)
+			if !errors.Is(err, ErrInvalidCheckpoint) {
+				t.Fatalf("error = %v, want ErrInvalidCheckpoint", err)
+			}
+		})
+	}
+}
+
+func TestCheckpointStateDirectoryCannotContainPayload(t *testing.T) {
+	root := t.TempDir()
+	destination := filepath.Join(root, "session", "media.bin")
+	job := Job{
+		URL:            "https://fixture.invalid/media",
+		ResumeIdentity: "direct:fixture:containment",
+		OutputRoot:     root,
+		Destination:    destination,
+		Checkpoint:     &CheckpointOptions{StateDirectory: filepath.Join(root, "session")},
+	}
+	_, err := New(&checkpointDoer{data: checkpointData(minDirectCheckpointBytes)}).Download(context.Background(), job, nil)
+	if !errors.Is(err, ErrInvalidCheckpoint) {
+		t.Fatalf("error = %v, want payload containment rejection", err)
+	}
+}
+
+func TestCheckpointUnknownStateDirectoryEntryRequiresReconciliation(t *testing.T) {
+	root := t.TempDir()
+	destination := filepath.Join(root, "media.bin")
+	stateDirectory := filepath.Join(root, "checkpoint")
+	if err := os.Mkdir(stateDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	unknownPath := filepath.Join(stateDirectory, "notes.txt")
+	if err := os.WriteFile(unknownPath, []byte("unclassified"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	job := checkpointJob(destination, "direct:fixture:unknown-entry", &CheckpointOptions{StateDirectory: stateDirectory})
+	_, err := New(&checkpointDoer{data: checkpointData(minDirectCheckpointBytes)}).Download(context.Background(), job, nil)
+	if !errors.Is(err, ErrCheckpointReconciliation) {
+		t.Fatalf("error = %v, want reconciliation", err)
+	}
+	if contents, readErr := os.ReadFile(unknownPath); readErr != nil || string(contents) != "unclassified" {
+		t.Fatalf("unknown evidence changed: contents=%q err=%v", contents, readErr)
+	}
+}
+
+func TestCheckpointStateDirectoryCannotBeSharedAcrossJobs(t *testing.T) {
+	root := t.TempDir()
+	stateDirectory := filepath.Join(root, "checkpoint")
+	firstDestination := filepath.Join(root, "first.bin")
+	first := checkpointJob(firstDestination, "direct:fixture:first", &CheckpointOptions{StateDirectory: stateDirectory})
+	if _, err := New(&checkpointDoer{data: checkpointData(minDirectCheckpointBytes), etag: `"fixture"`}).Download(context.Background(), first, nil); err != nil {
+		t.Fatal(err)
+	}
+	second := checkpointJob(filepath.Join(root, "second.bin"), "direct:fixture:second", &CheckpointOptions{StateDirectory: stateDirectory})
+	_, err := New(&checkpointDoer{data: checkpointData(minDirectCheckpointBytes), etag: `"fixture"`}).Download(context.Background(), second, nil)
+	if !errors.Is(err, ErrCheckpointReconciliation) {
+		t.Fatalf("shared directory error = %v, want reconciliation", err)
+	}
+}
+
+func TestCheckpointWorldReadableStateRequiresReconciliation(t *testing.T) {
+	destination := filepath.Join(t.TempDir(), "media.bin")
+	identity := "direct:fixture:permissions"
+	if err := os.WriteFile(destination+".part", checkpointData(minDirectCheckpointBytes), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	statePath := checkpointStatePath(destination)
+	writeCheckpointState(t, statePath, partialState{ResumeIdentity: identity, CommittedBytes: minDirectCheckpointBytes})
+	if err := os.Chmod(statePath, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := New(&checkpointDoer{}).Download(context.Background(), checkpointJob(destination, identity, &CheckpointOptions{}), nil)
+	if !errors.Is(err, ErrCheckpointReconciliation) {
+		t.Fatalf("error = %v, want reconciliation", err)
+	}
+}
+
+func TestCheckpointRejectsResumedContentLengthRangeMismatch(t *testing.T) {
+	data := checkpointData(2 * minDirectCheckpointBytes)
+	destination := filepath.Join(t.TempDir(), "media.bin")
+	identity := "direct:fixture:range-length"
+	if err := os.WriteFile(destination+".part", data[:minDirectCheckpointBytes], 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeCheckpointState(t, checkpointStatePath(destination), partialState{
+		ResumeIdentity: identity, ETag: `"fixture"`, Total: int64(len(data)), CommittedBytes: minDirectCheckpointBytes,
+	})
+	var mu sync.Mutex
+	var ranges []string
+	doer := checkpointDoerFunc(func(_ context.Context, request *http.Request) (*http.Response, error) {
+		mu.Lock()
+		ranges = append(ranges, request.Header.Get("Range"))
+		requestNumber := len(ranges)
+		mu.Unlock()
+		if requestNumber == 1 {
+			body := data[minDirectCheckpointBytes:]
+			return &http.Response{
+				StatusCode:    http.StatusPartialContent,
+				Header:        http.Header{"ETag": []string{`"fixture"`}, "Content-Range": []string{fmt.Sprintf("bytes %d-%d/%d", minDirectCheckpointBytes, len(data)-1, len(data))}},
+				ContentLength: int64(len(body) - 1),
+				Body:          io.NopCloser(bytes.NewReader(body)),
+				Request:       request,
+			}, nil
+		}
+		return &http.Response{
+			StatusCode:    http.StatusOK,
+			Header:        http.Header{"ETag": []string{`"fixture"`}, "Content-Length": []string{fmt.Sprint(len(data))}},
+			ContentLength: int64(len(data)),
+			Body:          io.NopCloser(bytes.NewReader(data)),
+			Request:       request,
+		}, nil
+	})
+	result, err := New(doer).Download(context.Background(), checkpointJob(destination, identity, &CheckpointOptions{}), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	gotRanges := append([]string(nil), ranges...)
+	mu.Unlock()
+	if result.Resumed || len(gotRanges) != 2 || gotRanges[0] == "" || gotRanges[1] != "" {
+		t.Fatalf("malformed 206 was accepted: result=%#v ranges=%v", result, gotRanges)
+	}
+	contents, err := os.ReadFile(destination)
+	if err != nil || !bytes.Equal(contents, data) {
+		t.Fatalf("download differs after safe restart: %v", err)
+	}
+}
+
+func TestCheckpointCancellationCallbackUsesBoundedLocalContext(t *testing.T) {
+	data := checkpointData(minDirectCheckpointBytes)
+	destination := filepath.Join(t.TempDir(), "media.bin")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	callbackEntered := make(chan struct{}, 1)
+	job := checkpointJob(destination, "direct:fixture:bounded-callback", &CheckpointOptions{
+		EveryBytes: 2 * minDirectCheckpointBytes,
+		OnCommit: func(localCtx context.Context, _ Checkpoint) error {
+			callbackEntered <- struct{}{}
+			if _, ok := localCtx.Deadline(); !ok {
+				return errors.New("checkpoint callback context has no deadline")
+			}
+			<-localCtx.Done()
+			return localCtx.Err()
+		},
+	})
+	sink := events.SinkFunc(func(_ context.Context, event events.Event) error {
+		if event.Kind == events.KindProgress {
+			cancel()
+		}
+		return nil
+	})
+	client := New(&checkpointDoer{data: data, etag: `"fixture"`, chunkSize: minDirectCheckpointBytes})
+	client.checkpointTimeout = 20 * time.Millisecond
+	started := time.Now()
+	_, err := client.Download(ctx, job, sink)
+	if !errors.Is(err, context.Canceled) || !errors.Is(err, ErrCheckpointCallback) || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want cancellation and bounded callback failure", err)
+	}
+	if time.Since(started) > time.Second {
+		t.Fatalf("cancellation settlement exceeded bound: %v", time.Since(started))
+	}
+	select {
+	case <-callbackEntered:
+	default:
+		t.Fatal("checkpoint callback was not invoked")
 	}
 }
 
@@ -435,7 +848,8 @@ func TestCheckpointCadenceBounds(t *testing.T) {
 		{EveryDuration: maxDirectCheckpointInterval + time.Nanosecond},
 	}
 	for _, options := range invalid {
-		if err := validateJob(Job{Checkpoint: &options}); !errors.Is(err, ErrInvalidCheckpoint) {
+		options.StateDirectory = t.TempDir()
+		if err := validateJob(Job{ResumeIdentity: "direct:fixture:1", Checkpoint: &options}); !errors.Is(err, ErrInvalidCheckpoint) {
 			t.Fatalf("options %#v accepted: %v", options, err)
 		}
 	}
@@ -466,6 +880,21 @@ func TestLegacyStateDoesNotGainCheckpointAuthority(t *testing.T) {
 	}
 }
 
+func TestLegacyStateWithLastModifiedRemainsCompatible(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy.part.json")
+	state := partialState{URL: "https://legacy.example/media", LastModified: "Tue, 11 Aug 2026 00:00:00 GMT", Total: 42}
+	if err := savePartialStateOnce(path, state); err != nil {
+		t.Fatalf("legacy state write failed: %v", err)
+	}
+	encoded, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(encoded, []byte(state.URL)) || bytes.Contains(encoded, []byte("resumeIdentity")) || bytes.Contains(encoded, []byte("committedBytes")) {
+		t.Fatalf("legacy state shape changed: %s", encoded)
+	}
+}
+
 func TestCheckpointRepeatedCancellationBoundaries(t *testing.T) {
 	for iteration := 0; iteration < 8; iteration++ {
 		t.Run(fmt.Sprintf("iteration-%d", iteration), func(t *testing.T) {
@@ -477,7 +906,7 @@ func TestCheckpointRepeatedCancellationBoundaries(t *testing.T) {
 			doer := &checkpointDoer{data: data, etag: `"fixture"`, chunkSize: minDirectCheckpointBytes}
 			job := checkpointJob(destination, "direct:fixture:1", &CheckpointOptions{
 				EveryBytes: minDirectCheckpointBytes * 2,
-				OnCommit: func(state Checkpoint) error {
+				OnCommit: func(_ context.Context, state Checkpoint) error {
 					callbackCount++
 					if state.CommittedBytes != minDirectCheckpointBytes {
 						t.Fatalf("callback state = %#v", state)
@@ -524,6 +953,12 @@ type checkpointDoer struct {
 }
 
 type checkpointRequest struct{ rangeValue string }
+
+type checkpointDoerFunc func(context.Context, *http.Request) (*http.Response, error)
+
+func (doer checkpointDoerFunc) Do(ctx context.Context, request *http.Request) (*http.Response, error) {
+	return doer(ctx, request)
+}
 
 func (doer *checkpointDoer) Do(ctx context.Context, request *http.Request) (*http.Response, error) {
 	if err := ctx.Err(); err != nil {
@@ -622,6 +1057,9 @@ func (body *checkpointBody) Read(target []byte) (int, error) {
 func (body *checkpointBody) Close() error { return nil }
 
 func checkpointJob(destination, identity string, options *CheckpointOptions) Job {
+	if options != nil && options.StateDirectory == "" {
+		options.StateDirectory = destination + ".checkpoint"
+	}
 	return Job{
 		URL:            "https://fixture.invalid/media",
 		ResumeIdentity: identity,
@@ -629,6 +1067,10 @@ func checkpointJob(destination, identity string, options *CheckpointOptions) Job
 		Destination:    destination,
 		Checkpoint:     options,
 	}
+}
+
+func checkpointStatePath(destination string) string {
+	return filepath.Join(destination+".checkpoint", "direct.json")
 }
 
 func checkpointData(size int64) []byte {
@@ -641,11 +1083,33 @@ func checkpointData(size int64) []byte {
 
 func writeCheckpointState(t *testing.T, path string, state partialState) {
 	t.Helper()
+	if state.Version == 0 {
+		state.Version = directCheckpointStateVersion
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if state.ResumeIdentity != "" && strings.HasSuffix(filepath.Dir(path), ".checkpoint") {
+		destination := strings.TrimSuffix(filepath.Dir(path), ".checkpoint")
+		writeCheckpointOwner(t, destination, state.ResumeIdentity)
+	}
 	encoded, err := json.Marshal(state)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeCheckpointOwner(t *testing.T, destination, identity string) {
+	t.Helper()
+	directory := destination + ".checkpoint"
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256([]byte(identity + "\x00" + filepath.Clean(destination+".part")))
+	if err := os.WriteFile(filepath.Join(directory, "owner"), []byte(fmt.Sprintf("%x\n", digest)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
