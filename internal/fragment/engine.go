@@ -18,7 +18,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/tejasa97/youtube_dlp/internal/atomicfile"
 	"github.com/tejasa97/youtube_dlp/internal/events"
@@ -33,9 +32,11 @@ var (
 	ErrTooManySegments          = errors.New("fragment plan exceeds segment limit")
 	ErrTooManyAttempts          = errors.New("fragment retry attempts exceed limit")
 	ErrTooMuchConcurrency       = errors.New("fragment concurrency exceeds limit")
+	ErrInvalidSegmentRange      = errors.New("invalid fragment range")
 	ErrInvalidCheckpoint        = errors.New("invalid fragment checkpoint")
 	ErrCheckpointReconciliation = errors.New("fragment checkpoint reconciliation required")
 	ErrCheckpointCleanup        = errors.New("committed fragment publication requires checkpoint cleanup")
+	ErrCheckpointCallback       = errors.New("fragment checkpoint callback failed")
 )
 
 const (
@@ -56,6 +57,14 @@ const (
 type Checkpoint struct {
 	Directory      string
 	ResumeIdentity string
+	// ResumeBoundary, when present, is external caller authority previously
+	// accepted from an OnCommit snapshot. Local-ahead work is clamped to it
+	// before any fragment is reused or requested.
+	ResumeBoundary *ResumeBoundary
+	// OnCommit runs synchronously after the ledger atomically commits a newly
+	// advanced contiguous prefix. It receives a bounded, cancellation-
+	// independent context and a credential-free value snapshot.
+	OnCommit func(context.Context, CommitSnapshot) error
 }
 
 // CheckpointFailure reports checkpoint state that cannot be safely reused.
@@ -147,12 +156,14 @@ type fragmentOutcome struct {
 }
 
 type Engine struct {
-	transport        network.Doer
-	writeAtomic      func(string, os.FileMode, func(io.Writer) error) error
-	replaceAtomic    func(string, string) error
-	publishNoClobber func(string, string) error
-	removeAll        func(string) error
-	cleanupOps       checkpointCleanupOps
+	transport         network.Doer
+	writeAtomic       func(string, os.FileMode, func(io.Writer) error) error
+	replaceAtomic     func(string, string) error
+	publishNoClobber  func(string, string) error
+	removeAll         func(string) error
+	cleanupOps        checkpointCleanupOps
+	resetOps          checkpointResetOps
+	checkpointTimeout time.Duration
 }
 
 func New(transport network.Doer) *Engine {
@@ -160,6 +171,8 @@ func New(transport network.Doer) *Engine {
 		transport: transport, writeAtomic: atomicfile.Write, replaceAtomic: atomicfile.Replace,
 		publishNoClobber: publishNoClobber,
 		removeAll:        os.RemoveAll, cleanupOps: productionCheckpointCleanupOps,
+		resetOps:          productionCheckpointResetOps,
+		checkpointTimeout: maxCheckpointCallbackDuration,
 	}
 }
 
@@ -184,12 +197,15 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 	if len(job.Segments) > maxSegments {
 		return Result{}, fmt.Errorf("%w: got %d, limit %d", ErrTooManySegments, len(job.Segments), maxSegments)
 	}
+	if err := validateFiniteFragmentPlan(job.Segments); err != nil {
+		return Result{}, err
+	}
 	if sink == nil {
 		sink = events.Nop()
 	}
 	if job.Checkpoint != nil {
-		if identity := job.Checkpoint.ResumeIdentity; len(identity) == 0 || len(identity) > maxResumeIdentityBytes || !utf8.ValidString(identity) || strings.ContainsAny(identity, "\x00\r\n") {
-			return Result{}, checkpointFailure(ErrInvalidCheckpoint, "resume identity is missing, oversized, contains a forbidden control, or is invalid UTF-8", nil)
+		if err := validateResumeIdentity(job.Checkpoint.ResumeIdentity); err != nil {
+			return Result{}, err
 		}
 		if err := validateCheckpointDirectory(job.OutputRoot, job.Destination, job.Checkpoint.Directory); err != nil {
 			return Result{}, err
@@ -197,9 +213,6 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 	}
 	if err := validateDestination(job.OutputRoot, job.Destination); err != nil {
 		return Result{}, err
-	}
-	if err := os.MkdirAll(filepath.Dir(job.Destination), 0o755); err != nil {
-		return Result{}, fmt.Errorf("create fragment output directory: %w", err)
 	}
 	if info, err := os.Lstat(job.Destination); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
@@ -256,9 +269,22 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 	if err != nil {
 		return Result{}, err
 	}
+	if job.Checkpoint != nil && job.Checkpoint.ResumeBoundary != nil {
+		if err := reconcileResumeBoundary(workDir, expectation, *job.Checkpoint.ResumeBoundary, engine.writeAtomic, engine.resetOps); err != nil {
+			return Result{}, err
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(job.Destination), 0o755); err != nil {
+		return Result{}, fmt.Errorf("create fragment output directory: %w", err)
+	}
 	manifest, err := openArtifactManifest(workDir, expectation, engine.writeAtomic)
 	if err != nil {
 		return Result{}, err
+	}
+	if job.Checkpoint != nil {
+		if err := manifest.configureCallback(job.Checkpoint, engine.checkpointTimeout); err != nil {
+			return Result{}, err
+		}
 	}
 	hosts := newHostLimiter(job.PerHostConcurrency)
 
@@ -346,6 +372,9 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 		}
 	}
 	if err := deterministicOutcomeError(completed, received); err != nil {
+		if errors.Is(err, ErrCheckpointCallback) && ctx.Err() != nil {
+			return Result{}, errors.Join(err, ctx.Err())
+		}
 		return Result{}, err
 	}
 	if err := ctx.Err(); err != nil {
