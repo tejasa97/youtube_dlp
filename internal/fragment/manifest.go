@@ -1,6 +1,7 @@
 package fragment
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -12,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/tejasa97/youtube_dlp/internal/atomicfile"
 )
@@ -29,13 +31,18 @@ const (
 // records to caller-owned identity; legacy mode retains the previous plan-hash
 // behavior for callers that do not opt in.
 type artifactManifest struct {
-	path     string
-	workDir  string
-	state    manifestState
-	durable  bool
-	write    func(string, os.FileMode, func(io.Writer) error) error
-	poisoned bool
-	mu       sync.Mutex
+	path             string
+	workDir          string
+	state            manifestState
+	durable          bool
+	write            func(string, os.FileMode, func(io.Writer) error) error
+	poisoned         bool
+	onCommit         func(context.Context, CommitSnapshot) error
+	callbackTimeout  time.Duration
+	notifiedSequence uint64
+	callerSequence   uint64
+	callbackErr      error
+	mu               sync.Mutex
 }
 
 type manifestState struct {
@@ -369,7 +376,11 @@ func (manifest *artifactManifest) Reusable(index int, path string) (bool, error)
 	known, present := manifest.state.Artifacts[index]
 	durable := manifest.durable
 	poisoned := manifest.poisoned
+	callbackErr := manifest.callbackErr
 	manifest.mu.Unlock()
+	if callbackErr != nil {
+		return false, callbackErr
+	}
 	if poisoned {
 		return false, checkpointFailure(ErrCheckpointReconciliation, "checkpoint ledger authority is uncertain", nil)
 	}
@@ -411,12 +422,33 @@ func (manifest *artifactManifest) Record(index int, path string) error {
 	}
 	manifest.mu.Lock()
 	defer manifest.mu.Unlock()
+	if manifest.callbackErr != nil {
+		return manifest.callbackErr
+	}
 	if manifest.poisoned {
 		return checkpointFailure(ErrCheckpointReconciliation, "checkpoint ledger authority is uncertain", nil)
 	}
 	candidate := manifest.state
 	candidate.Artifacts = cloneArtifacts(manifest.state.Artifacts)
 	candidate.Artifacts[index] = artifact{Bytes: bytes, SHA256: digest}
+	sequence := manifest.notifiedSequence
+	var snapshot CommitSnapshot
+	if manifest.durable {
+		sequence = contiguousSequence(candidate)
+		if sequence < manifest.notifiedSequence {
+			return checkpointFailure(ErrCheckpointReconciliation, "checkpoint callback sequence regressed", nil)
+		}
+		if sequence > manifest.notifiedSequence {
+			if sequence <= manifest.callerSequence {
+				return checkpointFailure(ErrCheckpointReconciliation, "checkpoint callback would fall below caller authority", nil)
+			}
+			var snapshotErr error
+			snapshot, snapshotErr = snapshotForPrefix(candidate, sequence)
+			if snapshotErr != nil {
+				return snapshotErr
+			}
+		}
+	}
 	if err := writeManifestState(manifest.path, candidate, manifest.write); err != nil {
 		var commitErr atomicfile.CommitError
 		if manifest.durable && errors.As(err, &commitErr) && (commitErr.Committed() || commitErr.Indeterminate()) {
@@ -430,6 +462,38 @@ func (manifest *artifactManifest) Record(index int, path string) error {
 		return err
 	}
 	manifest.state = candidate
+	if manifest.durable && sequence > manifest.notifiedSequence {
+		if manifest.onCommit != nil {
+			timeout := manifest.callbackTimeout
+			if timeout <= 0 || timeout > maxCheckpointCallbackDuration {
+				timeout = maxCheckpointCallbackDuration
+			}
+			localCtx, cancel := context.WithTimeout(context.Background(), timeout)
+			err := manifest.onCommit(localCtx, snapshot)
+			cancel()
+			if err != nil {
+				manifest.callbackErr = &checkpointCallbackError{cause: err}
+				return manifest.callbackErr
+			}
+		}
+		manifest.notifiedSequence = sequence
+	}
+	return nil
+}
+
+func (manifest *artifactManifest) configureCallback(checkpoint *Checkpoint, timeout time.Duration) error {
+	manifest.mu.Lock()
+	defer manifest.mu.Unlock()
+	manifest.onCommit = checkpoint.OnCommit
+	manifest.callbackTimeout = timeout
+	manifest.notifiedSequence = contiguousSequence(manifest.state)
+	if checkpoint.ResumeBoundary != nil {
+		manifest.callerSequence = checkpoint.ResumeBoundary.Sequence
+		manifest.notifiedSequence = checkpoint.ResumeBoundary.Sequence
+		if contiguous := contiguousSequence(manifest.state); contiguous < manifest.callerSequence {
+			return checkpointFailure(ErrCheckpointReconciliation, "local checkpoint fell below caller authority", nil)
+		}
+	}
 	return nil
 }
 
