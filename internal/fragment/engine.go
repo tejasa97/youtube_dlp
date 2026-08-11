@@ -18,19 +18,24 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
+	"github.com/tejasa97/youtube_dlp/internal/atomicfile"
 	"github.com/tejasa97/youtube_dlp/internal/events"
 	"github.com/tejasa97/youtube_dlp/internal/network"
 )
 
 var (
-	ErrNoSegments         = errors.New("fragment plan has no segments")
-	ErrSegmentTooLarge    = errors.New("fragment exceeds size limit")
-	ErrInvalidEncryption  = errors.New("invalid AES-128 fragment encryption")
-	ErrUnsafeDestination  = errors.New("fragment destination escapes output root")
-	ErrTooManySegments    = errors.New("fragment plan exceeds segment limit")
-	ErrTooManyAttempts    = errors.New("fragment retry attempts exceed limit")
-	ErrTooMuchConcurrency = errors.New("fragment concurrency exceeds limit")
+	ErrNoSegments               = errors.New("fragment plan has no segments")
+	ErrSegmentTooLarge          = errors.New("fragment exceeds size limit")
+	ErrInvalidEncryption        = errors.New("invalid AES-128 fragment encryption")
+	ErrUnsafeDestination        = errors.New("fragment destination escapes output root")
+	ErrTooManySegments          = errors.New("fragment plan exceeds segment limit")
+	ErrTooManyAttempts          = errors.New("fragment retry attempts exceed limit")
+	ErrTooMuchConcurrency       = errors.New("fragment concurrency exceeds limit")
+	ErrInvalidCheckpoint        = errors.New("invalid fragment checkpoint")
+	ErrCheckpointReconciliation = errors.New("fragment checkpoint reconciliation required")
+	ErrCheckpointCleanup        = errors.New("committed fragment publication requires checkpoint cleanup")
 )
 
 const (
@@ -38,7 +43,67 @@ const (
 	maxFragmentConcurrency = 128
 	maxFragmentSize        = 512 << 20
 	maxRetryDelay          = time.Minute
+	maxResumeIdentityBytes = 512
 )
+
+// Checkpoint opts a finite fragment job into durable resume. Directory is an
+// isolated, caller-owned directory for exactly one session component and must
+// be disjoint from Destination in both directions. ResumeIdentity is an
+// opaque, caller-owned, non-secret media identity. It must bind the exact
+// stable output plan and format while signed URLs, request credentials, and
+// encryption material refresh. The engine's credential-free structural hash
+// is only a consistency check and never substitutes for this caller authority.
+type Checkpoint struct {
+	Directory      string
+	ResumeIdentity string
+}
+
+// CheckpointFailure reports checkpoint state that cannot be safely reused.
+// Kind is ErrInvalidCheckpoint for malformed state and
+// ErrCheckpointReconciliation when retained evidence or an identity mismatch
+// requires an explicit caller decision.
+type CheckpointFailure struct {
+	Kind   error
+	Detail string
+	Cause  error
+}
+
+func (failure *CheckpointFailure) Error() string {
+	if failure.Cause != nil {
+		return fmt.Sprintf("%v: %s: %v", failure.Kind, failure.Detail, failure.Cause)
+	}
+	return fmt.Sprintf("%v: %s", failure.Kind, failure.Detail)
+}
+
+func (failure *CheckpointFailure) Unwrap() []error {
+	if failure.Cause == nil {
+		return []error{failure.Kind}
+	}
+	return []error{failure.Kind, failure.Cause}
+}
+
+func checkpointFailure(kind error, detail string, cause error) error {
+	return &CheckpointFailure{Kind: kind, Detail: detail, Cause: cause}
+}
+
+// CheckpointPublicationError reports that final output publication committed
+// durably but checkpoint cleanup failed. Callers must adopt the destination
+// and reconcile the retained checkpoint evidence; retrying publication is not
+// a valid recovery action.
+type CheckpointPublicationError struct {
+	Cause error
+}
+
+func (failure *CheckpointPublicationError) Error() string {
+	return fmt.Sprintf("%v: %v", ErrCheckpointCleanup, failure.Cause)
+}
+
+func (failure *CheckpointPublicationError) Unwrap() []error {
+	return []error{ErrCheckpointCleanup, failure.Cause}
+}
+
+func (*CheckpointPublicationError) Committed() bool     { return true }
+func (*CheckpointPublicationError) Indeterminate() bool { return false }
 
 type AES128 struct {
 	Key []byte `json:"key"`
@@ -65,6 +130,7 @@ type Job struct {
 	RetryBaseDelay     time.Duration
 	RetryMaxDelay      time.Duration
 	Overwrite          bool
+	Checkpoint         *Checkpoint
 }
 
 type Result struct {
@@ -74,11 +140,28 @@ type Result struct {
 	Reused     int
 }
 
-type Engine struct {
-	transport network.Doer
+type fragmentOutcome struct {
+	index  int
+	reused bool
+	err    error
 }
 
-func New(transport network.Doer) *Engine { return &Engine{transport: transport} }
+type Engine struct {
+	transport        network.Doer
+	writeAtomic      func(string, os.FileMode, func(io.Writer) error) error
+	replaceAtomic    func(string, string) error
+	publishNoClobber func(string, string) error
+	removeAll        func(string) error
+	cleanupOps       checkpointCleanupOps
+}
+
+func New(transport network.Doer) *Engine {
+	return &Engine{
+		transport: transport, writeAtomic: atomicfile.Write, replaceAtomic: atomicfile.Replace,
+		publishNoClobber: publishNoClobber,
+		removeAll:        os.RemoveAll, cleanupOps: productionCheckpointCleanupOps,
+	}
+}
 
 type planState struct {
 	Hash string `json:"hash"`
@@ -104,14 +187,29 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 	if sink == nil {
 		sink = events.Nop()
 	}
+	if job.Checkpoint != nil {
+		if identity := job.Checkpoint.ResumeIdentity; len(identity) == 0 || len(identity) > maxResumeIdentityBytes || !utf8.ValidString(identity) || strings.ContainsAny(identity, "\x00\r\n") {
+			return Result{}, checkpointFailure(ErrInvalidCheckpoint, "resume identity is missing, oversized, contains a forbidden control, or is invalid UTF-8", nil)
+		}
+		if err := validateCheckpointDirectory(job.OutputRoot, job.Destination, job.Checkpoint.Directory); err != nil {
+			return Result{}, err
+		}
+	}
 	if err := validateDestination(job.OutputRoot, job.Destination); err != nil {
 		return Result{}, err
 	}
 	if err := os.MkdirAll(filepath.Dir(job.Destination), 0o755); err != nil {
 		return Result{}, fmt.Errorf("create fragment output directory: %w", err)
 	}
-	if _, err := os.Stat(job.Destination); err == nil && !job.Overwrite {
-		return Result{}, fmt.Errorf("destination exists: %s", job.Destination)
+	if info, err := os.Lstat(job.Destination); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return Result{}, ErrUnsafeDestination
+		}
+		if !job.Overwrite {
+			return Result{}, fmt.Errorf("destination exists: %s", job.Destination)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return Result{}, err
 	}
 
 	concurrency := job.Concurrency
@@ -145,17 +243,20 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 		return Result{}, ErrTooManyAttempts
 	}
 	workDir := job.Destination + ".fragments"
+	if job.Checkpoint != nil {
+		workDir = job.Checkpoint.Directory
+	}
 	if isSymlink(workDir) {
+		if job.Checkpoint != nil {
+			return Result{}, checkpointFailure(ErrInvalidCheckpoint, "fragment checkpoint workspace is a symlink", nil)
+		}
 		return Result{}, ErrUnsafeDestination
 	}
-	hash, err := planHash(job.Segments)
+	expectation, err := manifestExpectationFor(job)
 	if err != nil {
 		return Result{}, err
 	}
-	if err := prepareWorkDir(workDir, hash); err != nil {
-		return Result{}, err
-	}
-	manifest, err := openArtifactManifest(workDir, hash)
+	manifest, err := openArtifactManifest(workDir, expectation, engine.writeAtomic)
 	if err != nil {
 		return Result{}, err
 	}
@@ -164,12 +265,7 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 	workerCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	indices := make(chan int)
-	type outcome struct {
-		index  int
-		reused bool
-		err    error
-	}
-	outcomes := make(chan outcome, len(job.Segments))
+	outcomes := make(chan fragmentOutcome, len(job.Segments))
 	var workers sync.WaitGroup
 	var sinkMu sync.Mutex
 	emit := func(event events.Event) error {
@@ -186,8 +282,14 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 			defer workers.Done()
 			for index := range indices {
 				path := fragmentPath(workDir, index)
-				if info, err := os.Stat(path); err == nil && info.Size() > 0 && manifest.Valid(index, path) {
-					outcomes <- outcome{index: index, reused: true}
+				reused, reuseErr := manifest.Reusable(index, path)
+				if reuseErr != nil {
+					cancel()
+					outcomes <- fragmentOutcome{index: index, err: reuseErr}
+					continue
+				}
+				if reused {
+					outcomes <- fragmentOutcome{index: index, reused: true}
 					continue
 				}
 				eventURL := network.RedactRawURL(job.Segments[index].URL)
@@ -212,7 +314,7 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 				if err != nil {
 					cancel()
 				}
-				outcomes <- outcome{index: index, err: err}
+				outcomes <- fragmentOutcome{index: index, err: err}
 			}
 		}()
 	}
@@ -232,34 +334,59 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 	}()
 
 	result := Result{}
-	var firstErr error
+	completed := make([]fragmentOutcome, len(job.Segments))
+	received := make([]bool, len(job.Segments))
 	for outcome := range outcomes {
+		completed[outcome.index] = outcome
+		received[outcome.index] = true
 		if outcome.reused {
 			result.Reused++
 		} else if outcome.err == nil {
 			result.Downloaded++
 		}
-		if outcome.err != nil && firstErr == nil {
-			firstErr = fmt.Errorf("fragment %d: %w", outcome.index+1, outcome.err)
-		}
 	}
-	if firstErr != nil {
-		return Result{}, firstErr
+	if err := deterministicOutcomeError(completed, received); err != nil {
+		return Result{}, err
 	}
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
 
-	bytesWritten, err := assemble(workDir, len(job.Segments), job.Destination, job.Overwrite)
+	bytesWritten, err := engine.assemble(ctx, workDir, len(job.Segments), job.Destination, job.Overwrite, job.Checkpoint != nil)
 	if err != nil {
 		return Result{}, err
 	}
-	if err := os.RemoveAll(workDir); err != nil {
-		return Result{}, fmt.Errorf("remove fragment work directory: %w", err)
-	}
 	result.Path = job.Destination
 	result.Bytes = bytesWritten
+	if job.Checkpoint != nil {
+		if err := cleanupCommittedCheckpoint(workDir, engine.cleanupOps); err != nil {
+			return result, &CheckpointPublicationError{Cause: err}
+		}
+	} else if err := engine.removeAll(workDir); err != nil {
+		return Result{}, fmt.Errorf("remove fragment work directory: %w", err)
+	}
 	return result, nil
+}
+
+func deterministicOutcomeError(outcomes []fragmentOutcome, received []bool) error {
+	for _, checkpointOnly := range []bool{true, false} {
+		for index, outcome := range outcomes {
+			if !received[index] || outcome.err == nil {
+				continue
+			}
+			isCheckpoint := errors.Is(outcome.err, ErrInvalidCheckpoint) || errors.Is(outcome.err, ErrCheckpointReconciliation)
+			isContext := errors.Is(outcome.err, context.Canceled) || errors.Is(outcome.err, context.DeadlineExceeded)
+			if (checkpointOnly && isCheckpoint) || (!checkpointOnly && !isCheckpoint && !isContext) {
+				return fmt.Errorf("fragment %d: %w", index+1, outcome.err)
+			}
+		}
+	}
+	for index, outcome := range outcomes {
+		if received[index] && outcome.err != nil {
+			return fmt.Errorf("fragment %d: %w", index+1, outcome.err)
+		}
+	}
+	return nil
 }
 
 func (engine *Engine) fetchWithRetry(ctx context.Context, job Job, segment Segment, destination string, attempts int, maxSize int64, retryEvent func(int, error) error) error {
@@ -268,6 +395,13 @@ func (engine *Engine) fetchWithRetry(ctx context.Context, job Job, segment Segme
 		lastErr = engine.fetch(ctx, segment, destination, maxSize, job.Headers)
 		if lastErr == nil {
 			return nil
+		}
+		if job.Checkpoint != nil {
+			var commitErr atomicfile.CommitError
+			if errors.As(lastErr, &commitErr) && (commitErr.Committed() || commitErr.Indeterminate()) {
+				markerErr := writeReconciliationMarker(filepath.Dir(destination), "fragment publication authority is uncertain")
+				return checkpointFailure(ErrCheckpointReconciliation, "fragment publication did not settle durably", errors.Join(lastErr, markerErr))
+			}
 		}
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -428,33 +562,10 @@ func (engine *Engine) fetch(ctx context.Context, segment Segment, destination st
 			return err
 		}
 	}
-	temporary := destination + ".tmp"
-	if info, statErr := os.Lstat(temporary); statErr == nil {
-		if !info.Mode().IsRegular() {
-			return ErrUnsafeDestination
-		}
-		if err := os.Remove(temporary); err != nil {
-			return err
-		}
-	} else if !errors.Is(statErr, os.ErrNotExist) {
-		return statErr
-	}
-	file, err := os.OpenFile(temporary, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
-	if err != nil {
+	return engine.writeAtomic(destination, 0o644, func(writer io.Writer) error {
+		_, err := writer.Write(body)
 		return err
-	}
-	if _, err := file.Write(body); err != nil {
-		file.Close()
-		return err
-	}
-	if err := file.Sync(); err != nil {
-		file.Close()
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	return os.Rename(temporary, destination)
+	})
 }
 
 func decryptAES128(input []byte, encryption *AES128) ([]byte, error) {
@@ -488,84 +599,149 @@ func planHash(segments []Segment) (string, error) {
 	return hex.EncodeToString(hash[:]), nil
 }
 
-func prepareWorkDir(path, hash string) error {
-	statePath := filepath.Join(path, "state.json")
-	info, statErr := os.Lstat(statePath)
-	if statErr == nil && !info.Mode().IsRegular() {
-		return ErrUnsafeDestination
+func checkpointPlanHash(segments []Segment) (string, error) {
+	type checkpointSegment struct {
+		RangeStart  int64 `json:"range_start"`
+		RangeLength int64 `json:"range_length"`
+		Encrypted   bool  `json:"encrypted"`
 	}
-	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
-		return statErr
-	}
-	file, err := os.Open(statePath)
-	if err == nil {
-		defer file.Close()
-		encoded, readErr := io.ReadAll(io.LimitReader(file, maxManifestBytes+1))
-		if readErr != nil {
-			return readErr
+	plan := make([]checkpointSegment, len(segments))
+	for index, segment := range segments {
+		plan[index] = checkpointSegment{
+			RangeStart: segment.RangeStart, RangeLength: segment.RangeLength, Encrypted: segment.AES128 != nil,
 		}
-		if len(encoded) > maxManifestBytes {
-			return fmt.Errorf("fragment state exceeds %d bytes", maxManifestBytes)
-		}
-		var state planState
-		decoder := json.NewDecoder(strings.NewReader(string(encoded)))
-		if decoder.Decode(&state) == nil && decoder.Decode(&struct{}{}) == io.EOF && state.Hash == hash {
-			return nil
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
 	}
-	if err := os.RemoveAll(path); err != nil {
-		return err
+	encoded, err := json.Marshal(plan)
+	if err != nil {
+		return "", err
 	}
-	if err := os.MkdirAll(path, 0o755); err != nil {
-		return err
-	}
-	encoded, _ := json.Marshal(planState{Hash: hash})
-	return os.WriteFile(statePath, encoded, 0o600)
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:]), nil
 }
 
 func fragmentPath(workDir string, index int) string {
 	return filepath.Join(workDir, fmt.Sprintf("%08d.frag", index))
 }
 
-func assemble(workDir string, count int, destination string, overwrite bool) (int64, error) {
-	temporary := destination + ".part"
-	output, err := os.OpenFile(temporary, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+func (engine *Engine) assemble(ctx context.Context, workDir string, count int, destination string, overwrite, durable bool) (int64, error) {
+	temporary := filepath.Join(workDir, "assembled.part")
+	if info, err := os.Lstat(temporary); err == nil {
+		if durable {
+			return 0, checkpointFailure(ErrCheckpointReconciliation, "retained final publication candidate", nil)
+		}
+		if !info.Mode().IsRegular() {
+			return 0, ErrUnsafeDestination
+		}
+		if err := os.Remove(temporary); err != nil {
+			return 0, err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return 0, err
+	}
+	output, err := os.OpenFile(temporary, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
 		return 0, err
 	}
+	committed := false
+	retainTemporary := false
+	defer func() {
+		_ = output.Close()
+		if !committed && !retainTemporary {
+			_ = os.Remove(temporary)
+		}
+	}()
 	var total int64
 	for index := 0; index < count; index++ {
-		input, err := os.Open(fragmentPath(workDir, index))
-		if err != nil {
-			output.Close()
+		if err := ctx.Err(); err != nil {
 			return 0, err
 		}
-		written, copyErr := io.Copy(output, input)
+		input, err := os.Open(fragmentPath(workDir, index))
+		if err != nil {
+			return 0, err
+		}
+		written, copyErr := copyFragment(ctx, output, input)
 		closeErr := input.Close()
 		total += written
 		if copyErr != nil || closeErr != nil {
-			output.Close()
 			return 0, errors.Join(copyErr, closeErr)
 		}
-	}
-	if err := output.Sync(); err != nil {
-		output.Close()
-		return 0, err
 	}
 	if err := output.Close(); err != nil {
 		return 0, err
 	}
-	if err := os.Rename(temporary, destination); err == nil {
-		return total, nil
-	} else if !overwrite {
+	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
-	if err := os.Remove(destination); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return 0, err
+	if durable {
+		bytes, digest, digestErr := digestFile(temporary)
+		if digestErr != nil {
+			return 0, digestErr
+		}
+		if bytes != total {
+			return 0, fmt.Errorf("assembled fragment bytes = %d, want %d", bytes, total)
+		}
+		markerErr := engine.writeAtomic(filepath.Join(workDir, publicationMarker), 0o600, func(writer io.Writer) error {
+			return json.NewEncoder(writer).Encode(artifact{Bytes: bytes, SHA256: digest})
+		})
+		if markerErr != nil {
+			var commitErr atomicfile.CommitError
+			if errors.As(markerErr, &commitErr) && (commitErr.Committed() || commitErr.Indeterminate()) {
+				retainTemporary = true
+				reconcileErr := writeReconciliationMarker(workDir, "final publication marker authority is uncertain")
+				return 0, checkpointFailure(ErrCheckpointReconciliation, "final publication marker did not settle durably", errors.Join(markerErr, reconcileErr))
+			}
+			return 0, markerErr
+		}
+		// From this point through replacement, the durable publication marker
+		// makes every interrupted or failed outcome explicitly reconcilable.
+		retainTemporary = true
 	}
-	return total, os.Rename(temporary, destination)
+	var publicationErr error
+	if overwrite {
+		publicationErr = engine.replaceAtomic(temporary, destination)
+	} else {
+		publicationErr = engine.publishNoClobber(temporary, destination)
+	}
+	if publicationErr != nil {
+		if durable {
+			var commitErr atomicfile.CommitError
+			if errors.As(publicationErr, &commitErr) && (commitErr.Committed() || commitErr.Indeterminate()) {
+				markerErr := writeReconciliationMarker(workDir, "final publication authority is uncertain")
+				return 0, checkpointFailure(ErrCheckpointReconciliation, "final publication did not settle durably", errors.Join(publicationErr, markerErr))
+			}
+			return 0, checkpointFailure(ErrCheckpointReconciliation, "final publication failed before commit and retained recoverable evidence", publicationErr)
+		}
+		return 0, publicationErr
+	}
+	committed = true
+	return total, nil
+}
+
+func copyFragment(ctx context.Context, destination io.Writer, source io.Reader) (int64, error) {
+	buffer := make([]byte, 128<<10)
+	var total int64
+	for {
+		if err := ctx.Err(); err != nil {
+			return total, err
+		}
+		read, readErr := source.Read(buffer)
+		if read > 0 {
+			written, writeErr := destination.Write(buffer[:read])
+			total += int64(written)
+			if writeErr != nil {
+				return total, writeErr
+			}
+			if written != read {
+				return total, io.ErrShortWrite
+			}
+		}
+		if errors.Is(readErr, io.EOF) {
+			return total, nil
+		}
+		if readErr != nil {
+			return total, readErr
+		}
+	}
 }
 
 func validateDestination(root, destination string) error {
@@ -582,6 +758,32 @@ func validateDestination(root, destination string) error {
 		return ErrUnsafeDestination
 	}
 	return nil
+}
+
+func validateCheckpointDirectory(root, destination, checkpointDirectory string) error {
+	if checkpointDirectory == "" || strings.ContainsRune(checkpointDirectory, '\x00') {
+		return checkpointFailure(ErrInvalidCheckpoint, "checkpoint directory is required", nil)
+	}
+	if err := validateDestination(root, checkpointDirectory); err != nil {
+		return checkpointFailure(ErrInvalidCheckpoint, "checkpoint directory escapes output root", err)
+	}
+	directoryAbs, err := filepath.Abs(checkpointDirectory)
+	if err != nil {
+		return checkpointFailure(ErrInvalidCheckpoint, "resolve checkpoint directory", err)
+	}
+	destinationAbs, err := filepath.Abs(destination)
+	if err != nil {
+		return checkpointFailure(ErrInvalidCheckpoint, "resolve fragment destination", err)
+	}
+	if pathContains(directoryAbs, destinationAbs) || pathContains(destinationAbs, directoryAbs) {
+		return checkpointFailure(ErrInvalidCheckpoint, "checkpoint directory and final destination must be disjoint", nil)
+	}
+	return nil
+}
+
+func pathContains(parent, child string) bool {
+	relative, err := filepath.Rel(parent, child)
+	return err == nil && (relative == "." || (relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))))
 }
 
 func isSymlink(path string) bool {
