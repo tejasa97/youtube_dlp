@@ -394,6 +394,107 @@ func TestDiscardTreeBudgetMakesMonotonicProgressAcrossAttempts(t *testing.T) {
 	t.Fatal("bounded cleanup did not converge across repeated attempts")
 }
 
+func TestDiscardRemovesProtectedNamesBelowWorkspaceRoot(t *testing.T) {
+	workspace, _ := createTestWorkspace(t)
+	nested := filepath.Join(workspace.Path(), "nested")
+	if err := os.Mkdir(nested, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	regulars := filepath.Join(nested, "regulars")
+	if err := os.Mkdir(regulars, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{discardMarkerName, LeaseFileName} {
+		if err := os.WriteFile(filepath.Join(regulars, name), []byte(name), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	directories := filepath.Join(nested, "directories")
+	if err := os.Mkdir(directories, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{discardMarkerName, LeaseFileName} {
+		child := filepath.Join(directories, name)
+		if err := os.Mkdir(child, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(child, "payload"), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := workspace.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ref := strictMaintenanceRef(t, workspace)
+	handle, err := PrepareDiscard(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	disposition, discardErr := handle.Discard()
+	if disposition != Discarded || discardErr != nil {
+		t.Fatalf("nested protected-name discard = %v, %v; want complete discard", disposition, discardErr)
+	}
+	if _, err := os.Stat(workspace.Path()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("workspace remains after nested protected-name cleanup: %v", err)
+	}
+}
+
+func TestWindowsNTPathNormalization(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{name: "drive", path: `C:\output\sessions`, want: `\??\C:\output\sessions`},
+		{name: "drive slash", path: `C:/output/sessions`, want: `\??\C:\output\sessions`},
+		{name: "unc", path: `\\server\share\output`, want: `\??\UNC\server\share\output`},
+		{name: "extended drive", path: `\\?\C:\output`, want: `\??\C:\output`},
+		{name: "extended unc", path: `\\?\UNC\server\share\output`, want: `\??\UNC\server\share\output`},
+		{name: "nt drive", path: `\??\C:\output`, want: `\??\C:\output`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := windowsNTPath(test.path)
+			if err != nil || got != test.want {
+				t.Fatalf("windowsNTPath(%q) = %q, %v; want %q", test.path, got, err, test.want)
+			}
+		})
+	}
+	for _, path := range []string{
+		"relative\\path", `C:relative`, `\server\share`, `\\server`, `\\.\pipe\name`, `\Device\HarddiskVolume1`,
+		`\\?\GLOBALROOT\Device\HarddiskVolume1`, `C:\output\..\sessions`, `\\server\share\..\output`, `C:\output\name.`, `C:\output\name `,
+	} {
+		if got, err := windowsNTPath(path); err == nil || got != "" {
+			t.Errorf("windowsNTPath(%q) = %q, %v; want rejection", path, got, err)
+		}
+	}
+}
+
+func TestWindowsDiscardMissingStatusMapping(t *testing.T) {
+	for _, status := range []uint32{0xC000000F, 0xC0000034, 0xC000003A} {
+		if !windowsDiscardMissingStatus(status) {
+			t.Errorf("status %#x was not classified as missing", status)
+		}
+		if err := normalizeWindowsDiscardOpenError(status); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("status %#x normalized to %v; want os.ErrNotExist", status, err)
+		}
+	}
+	if err := normalizeWindowsDiscardOpenError(0xC0000001); err != nil {
+		t.Fatalf("unknown status normalized to %v; want nil", err)
+	}
+}
+
+func TestWindowsDiscardVolumeCapabilityGate(t *testing.T) {
+	if !windowsDiscardStableVolumeCapabilities(requiredWindowsDiscardVolumeFlags) {
+		t.Fatal("required Windows stable-ID capabilities were rejected")
+	}
+	for _, flags := range []uint32{0, 0x00010000, 0x01000000} {
+		if windowsDiscardStableVolumeCapabilities(flags) {
+			t.Fatalf("incomplete Windows capability flags %#x were accepted", flags)
+		}
+	}
+}
+
 func TestDiscardTraversalRejectsDirectorySymlinkSwap(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("creating a directory symlink requires elevated Windows privileges")

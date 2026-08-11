@@ -3,4 +3,6 @@
 package session
 
 func directoryIdentity(string) (string, error) { return "", ErrWorkspaceUnavailable }
-func validRootIdentity(string) bool            { return false }
+
+func validateOutputRootCapabilities(string) error { return nil }
+func validRootIdentity(string) bool               { return false }

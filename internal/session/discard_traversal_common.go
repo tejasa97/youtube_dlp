@@ -93,10 +93,10 @@ func removeDiscardChildrenWithBudget(path string, budget *discardTreeBudget) err
 		return err
 	}
 	defer directory.close()
-	return removeDiscardChildrenFromHandle(directory, budget)
+	return removeDiscardChildrenFromHandle(directory, budget, true)
 }
 
-func removeDiscardChildrenFromHandle(directory *discardDirectory, budget *discardTreeBudget) error {
+func removeDiscardChildrenFromHandle(directory *discardDirectory, budget *discardTreeBudget, topLevel bool) error {
 	remaining := discardTreeEntryLimit - budget.entries
 	if remaining <= 0 {
 		return ErrNeedsReconciliation
@@ -107,8 +107,11 @@ func removeDiscardChildrenFromHandle(directory *discardDirectory, budget *discar
 	// deletion budget. A full window is treated as truncated; this is
 	// deliberately conservative and causes another bounded pass even when the
 	// directory contains exactly that many entries.
-	const protectedEntries = 2
-	readWindow := remaining + protectedEntries + 1
+	readWindow := remaining + 1
+	if topLevel {
+		const protectedEntries = 2
+		readWindow += protectedEntries
+	}
 	entries, readErr := directory.file.ReadDir(readWindow)
 	if readErr != nil && !errorsIsEOF(readErr) {
 		return readErr
@@ -118,7 +121,7 @@ func removeDiscardChildrenFromHandle(directory *discardDirectory, budget *discar
 	progress := false
 	truncated := len(entries) == readWindow
 	for _, entry := range entries {
-		if entry.Name() == discardMarkerName || entry.Name() == LeaseFileName {
+		if topLevel && (entry.Name() == discardMarkerName || entry.Name() == LeaseFileName) {
 			continue
 		}
 		if budget.entries >= discardTreeEntryLimit {
@@ -154,7 +157,7 @@ func removeDiscardChildrenFromHandle(directory *discardDirectory, budget *discar
 			budget.depth++
 			removeErr := removeDiscardChildrenFromHandle(&discardDirectory{
 				file: child.file, path: child.path, identity: child.identity,
-			}, budget)
+			}, budget, false)
 			budget.depth--
 			if removeErr != nil {
 				// The recursive helper consumed the child file. Reopen is not

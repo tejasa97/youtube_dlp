@@ -12,18 +12,21 @@ import (
 )
 
 func openDiscardRoot(path, expectedIdentity string) (*discardDirectory, error) {
-	file, err := openWindowsDiscardHandle(`\??\`+filepath.Clean(path), windows.FILE_DIRECTORY_FILE|windows.FILE_SYNCHRONOUS_IO_NONALERT, windows.Handle(0))
+	ntPath, err := windowsNTPath(path)
+	if err != nil {
+		return nil, ErrUnsafePath
+	}
+	file, err := openWindowsDiscardHandle(ntPath, windows.FILE_DIRECTORY_FILE|windows.FILE_SYNCHRONOUS_IO_NONALERT, windows.Handle(0))
 	if err != nil {
 		return nil, err
 	}
 	info, details, err := windowsDiscardHandleInfo(file)
-	if err != nil || !info.IsDir() {
+	if err != nil || !info.IsDir() || !discardOwnerOnlyDirectoryHandle(file, info) {
 		_ = file.Close()
 		return nil, ErrUnsafePath
 	}
 	var volumeFlags uint32
-	if err := windows.GetVolumeInformationByHandle(windows.Handle(file.Fd()), nil, 0, nil, nil, &volumeFlags, nil, 0); err != nil ||
-		volumeFlags&(windows.FILE_SUPPORTS_OBJECT_IDS|windows.FILE_SUPPORTS_OPEN_BY_FILE_ID) != (windows.FILE_SUPPORTS_OBJECT_IDS|windows.FILE_SUPPORTS_OPEN_BY_FILE_ID) {
+	if err := windows.GetVolumeInformationByHandle(windows.Handle(file.Fd()), nil, 0, nil, nil, &volumeFlags, nil, 0); err != nil || !windowsDiscardStableVolumeCapabilities(volumeFlags) {
 		_ = file.Close()
 		return nil, ErrWorkspaceUnavailable
 	}
@@ -55,7 +58,9 @@ func openDiscardEntry(parent *discardDirectory, name string, expected os.FileInf
 		return nil, err
 	}
 	if (details.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT) != 0 ||
-		(wantDirectory && !info.IsDir()) || (!wantDirectory && !info.Mode().IsRegular()) {
+		(wantDirectory && !info.IsDir()) || (!wantDirectory && !info.Mode().IsRegular()) ||
+		(wantDirectory && !discardOwnerOnlyDirectoryHandle(file, info)) ||
+		(!wantDirectory && !discardOwnerOnlyFileHandle(file, info)) {
 		_ = file.Close()
 		return nil, ErrUnsafePath
 	}
@@ -92,6 +97,14 @@ func (entry *discardEntryHandle) remove() error {
 
 func syncDiscardDirectoryHandle(_ *discardDirectory) error { return nil }
 
+func discardOwnerOnlyDirectoryHandle(file *os.File, info os.FileInfo) bool {
+	return info.IsDir() && secureWindowsACLHandle(windows.Handle(file.Fd()))
+}
+
+func discardOwnerOnlyFileHandle(file *os.File, info os.FileInfo) bool {
+	return info.Mode().IsRegular() && secureWindowsACLHandle(windows.Handle(file.Fd()))
+}
+
 func openWindowsDiscardHandle(name string, options uint32, parent windows.Handle) (*os.File, error) {
 	objectName, err := windows.NewNTUnicodeString(name)
 	if err != nil {
@@ -119,9 +132,25 @@ func openWindowsDiscardHandle(name string, options uint32, parent windows.Handle
 		0,
 	)
 	if err != nil {
-		return nil, err
+		return nil, normalizeWindowsDiscardNativeError(err)
 	}
 	return os.NewFile(uintptr(handle), name), nil
+}
+
+func normalizeWindowsDiscardNativeError(err error) error {
+	switch status := err.(type) {
+	case windows.NTStatus:
+		if normalized := normalizeWindowsDiscardOpenError(uint32(status)); normalized != nil {
+			return normalized
+		}
+	case *windows.NTStatus:
+		if status != nil {
+			if normalized := normalizeWindowsDiscardOpenError(uint32(*status)); normalized != nil {
+				return normalized
+			}
+		}
+	}
+	return err
 }
 
 func windowsDiscardHandleInfo(file *os.File) (os.FileInfo, windows.ByHandleFileInformation, error) {

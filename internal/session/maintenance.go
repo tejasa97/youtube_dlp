@@ -444,7 +444,7 @@ func (handle *DiscardHandle) cleanupTree(state discardHandleState) (DiscardDispo
 		return DiscardCleanupPending, cause
 	}
 	targetDirectory := &discardDirectory{file: target.file, path: target.path, identity: target.identity}
-	if err := removeDiscardChildrenFromHandle(targetDirectory, &discardTreeBudget{}); err != nil {
+	if err := removeDiscardChildrenFromHandle(targetDirectory, &discardTreeBudget{}, true); err != nil {
 		return fail(err)
 	}
 	if err := removeDiscardNamedFile(targetDirectory, LeaseFileName); err != nil && !errors.Is(err, os.ErrNotExist) {

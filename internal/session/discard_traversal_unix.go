@@ -19,7 +19,7 @@ func openDiscardRoot(path, expectedIdentity string) (*discardDirectory, error) {
 	}
 	file := os.NewFile(uintptr(fd), path)
 	info, err := file.Stat()
-	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || !ownerOnlyDirectory(info) {
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || !discardOwnerOnlyDirectoryHandle(file, info) {
 		_ = file.Close()
 		return nil, ErrUnsafePath
 	}
@@ -55,11 +55,11 @@ func openDiscardEntry(parent *discardDirectory, name string, expected os.FileInf
 		_ = file.Close()
 		return nil, err
 	}
-	if info.Mode()&os.ModeSymlink != 0 || (wantDirectory && !info.IsDir()) || (!wantDirectory && !info.Mode().IsRegular()) || !ownerOnlyFile(info) && !wantDirectory {
+	if info.Mode()&os.ModeSymlink != 0 || (wantDirectory && !info.IsDir()) || (!wantDirectory && !info.Mode().IsRegular()) || !discardOwnerOnlyFileHandle(file, info) && !wantDirectory {
 		_ = file.Close()
 		return nil, ErrUnsafePath
 	}
-	if wantDirectory && !ownerOnlyDirectory(info) {
+	if wantDirectory && !discardOwnerOnlyDirectoryHandle(file, info) {
 		_ = file.Close()
 		return nil, ErrUnsafePath
 	}
@@ -116,6 +116,14 @@ func syncDiscardDirectoryHandle(directory *discardDirectory) error {
 		return ErrWorkspaceClosed
 	}
 	return directory.file.Sync()
+}
+
+func discardOwnerOnlyDirectoryHandle(_ *os.File, info os.FileInfo) bool {
+	return ownerOnlyDirectory(info)
+}
+
+func discardOwnerOnlyFileHandle(_ *os.File, info os.FileInfo) bool {
+	return ownerOnlyFile(info)
 }
 
 func unixDiscardIdentity(info os.FileInfo) (string, error) {

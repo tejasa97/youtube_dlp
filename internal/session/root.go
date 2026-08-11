@@ -24,6 +24,9 @@ func ValidateOutputRoot(path string) (RootRef, error) {
 	if err != nil || !validRootIdentity(identity) {
 		return RootRef{}, ErrUnsafePath
 	}
+	if err := validateOutputRootCapabilities(root); err != nil {
+		return RootRef{}, err
+	}
 	return RootRef{CanonicalPath: root, Identity: identity}, nil
 }
 

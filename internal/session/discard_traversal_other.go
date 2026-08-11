@@ -15,3 +15,7 @@ func (entry *discardEntryHandle) remove() error {
 }
 
 func syncDiscardDirectoryHandle(*discardDirectory) error { return ErrWorkspaceUnavailable }
+
+func discardOwnerOnlyDirectoryHandle(_ *os.File, info os.FileInfo) bool { return info.IsDir() }
+
+func discardOwnerOnlyFileHandle(_ *os.File, info os.FileInfo) bool { return info.Mode().IsRegular() }

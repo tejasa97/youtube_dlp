@@ -21,3 +21,5 @@ func directoryIdentity(path string) (string, error) {
 }
 
 func validRootIdentity(identity string) bool { return len(identity) > 0 && len(identity) <= 128 }
+
+func validateOutputRootCapabilities(string) error { return nil }
