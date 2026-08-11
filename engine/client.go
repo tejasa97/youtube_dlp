@@ -417,6 +417,7 @@ type Result struct {
 	// AutonumberCount reports how many media entries consumed an autonumber
 	// slot, allowing callers processing multiple requests to carry state.
 	AutonumberCount int
+	Session         SessionOutcome
 }
 
 type Event struct {
@@ -1808,6 +1809,23 @@ func (operation *operation) processMedia(ctx context.Context, extracted Extracti
 	planDestinations, err := operation.resolveOutputPlanDestinations(info, outputPlans)
 	if err != nil {
 		return result, categorized("render output template", err)
+	}
+	if sessionRequestEnabled(operation) {
+		if err := validateDirectSessionOutput(operation.request, outputPlans, selectedSubtitles); err != nil {
+			return result, categorized("validate session output", err)
+		}
+		sessionRun, sessionErr := operation.newDirectSession(info, extractorName, outputPlans[0].Tracks[0], planDestinations[0])
+		if sessionErr != nil {
+			return result, categorized("open direct resume session", sessionErr)
+		}
+		sessionResult, runErr := sessionRun.run(ctx, operation.eventSink())
+		if runErr == nil && sessionResult.Downloaded {
+			if archiveErr := operation.recordArchive(ctx, archiveIdentity); archiveErr != nil {
+				return sessionResult, archiveErr
+			}
+			sessionResult.Archived = operation.archive != nil
+		}
+		return sessionResult, runErr
 	}
 	var destination string
 	if len(planDestinations) > 0 {
