@@ -677,39 +677,86 @@ func TestCheckpointNoClobberWhenDestinationAppearsBeforeCommit(t *testing.T) {
 	}
 }
 
-func TestCheckpointCleanupFailureReportsCommittedPublication(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-		_, _ = writer.Write([]byte("committed-output"))
-	}))
-	defer server.Close()
-	transport, _ := network.New(network.Config{})
-	root := t.TempDir()
-	destination := filepath.Join(root, "out")
-	job := checkpointTestJob(root, destination, "format=mp4;track=video", []Segment{{URL: server.URL}})
-	engine := New(transport)
-	injected := errors.New("injected checkpoint cleanup failure")
-	engine.removeAll = func(string) error { return injected }
-	result, err := engine.Download(context.Background(), job, nil)
-	if !errors.Is(err, ErrCheckpointCleanup) || !errors.Is(err, injected) {
-		t.Fatalf("cleanup error = %v", err)
-	}
-	var commitErr atomicfile.CommitError
-	if !errors.As(err, &commitErr) || !commitErr.Committed() || commitErr.Indeterminate() {
-		t.Fatalf("cleanup outcome = %#v, %v", commitErr, err)
-	}
-	if result.Path != destination || result.Bytes != int64(len("committed-output")) {
-		t.Fatalf("committed result = %#v", result)
-	}
-	contents, readErr := os.ReadFile(destination)
-	if readErr != nil || string(contents) != "committed-output" {
-		t.Fatalf("committed destination = %q, %v", contents, readErr)
-	}
-	if _, markerErr := os.Stat(filepath.Join(job.Checkpoint.Directory, publicationMarker)); markerErr != nil {
-		t.Fatalf("cleanup evidence missing: %v", markerErr)
-	}
-	job.Overwrite = true
-	if _, retryErr := New(transport).Download(context.Background(), job, nil); !errors.Is(retryErr, ErrCheckpointReconciliation) {
-		t.Fatalf("committed cleanup failure invited republication: %v", retryErr)
+func TestCheckpointOrderedCleanupKeepsPublicationMarkerUntilCommit(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		removeBase string
+		failSync   bool
+		postCommit bool
+	}{
+		{name: "fragment removal", removeBase: "00000000.frag"},
+		{name: "state removal", removeBase: "state.json"},
+		{name: "artifact directory sync", failSync: true},
+		{name: "publication marker removal", removeBase: publicationMarker},
+		{name: "empty directory removal after commit", removeBase: "checkpoint", postCommit: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				_, _ = writer.Write([]byte("committed-output"))
+			}))
+			defer server.Close()
+			transport, _ := network.New(network.Config{})
+			root := t.TempDir()
+			destination := filepath.Join(root, "out")
+			job := checkpointTestJob(root, destination, "format=mp4;track=video", []Segment{{URL: server.URL}})
+			engine := New(transport)
+			injected := errors.New("injected " + test.name)
+			productionRemove := engine.cleanupOps.remove
+			productionSync := engine.cleanupOps.syncDirectory
+			var syncCalls int
+			engine.cleanupOps.remove = func(path string) error {
+				base := filepath.Base(path)
+				if test.postCommit && path == job.Checkpoint.Directory {
+					return injected
+				}
+				if !test.postCommit && base == test.removeBase {
+					return injected
+				}
+				return productionRemove(path)
+			}
+			engine.cleanupOps.syncDirectory = func(path string) error {
+				syncCalls++
+				if test.failSync && syncCalls == 1 {
+					return injected
+				}
+				return productionSync(path)
+			}
+			result, err := engine.Download(context.Background(), job, nil)
+			if test.postCommit {
+				if err != nil {
+					t.Fatalf("post-commit directory cleanup became retryable: %v", err)
+				}
+				if _, markerErr := os.Stat(filepath.Join(job.Checkpoint.Directory, publicationMarker)); !errors.Is(markerErr, os.ErrNotExist) {
+					t.Fatalf("publication marker remains after cleanup commit: %v", markerErr)
+				}
+				job.Overwrite = true
+				if _, retryErr := New(transport).Download(context.Background(), job, nil); !errors.Is(retryErr, ErrCheckpointReconciliation) {
+					t.Fatalf("retained empty post-commit boundary invited republication: %v", retryErr)
+				}
+				return
+			}
+			if !errors.Is(err, ErrCheckpointCleanup) || !errors.Is(err, injected) {
+				t.Fatalf("cleanup error = %v", err)
+			}
+			var commitErr atomicfile.CommitError
+			if !errors.As(err, &commitErr) || !commitErr.Committed() || commitErr.Indeterminate() {
+				t.Fatalf("cleanup outcome = %#v, %v", commitErr, err)
+			}
+			if result.Path != destination || result.Bytes != int64(len("committed-output")) {
+				t.Fatalf("committed result = %#v", result)
+			}
+			contents, readErr := os.ReadFile(destination)
+			if readErr != nil || string(contents) != "committed-output" {
+				t.Fatalf("committed destination = %q, %v", contents, readErr)
+			}
+			if _, markerErr := os.Stat(filepath.Join(job.Checkpoint.Directory, publicationMarker)); markerErr != nil {
+				t.Fatalf("pre-commit cleanup failure lost publication evidence: %v", markerErr)
+			}
+			job.Overwrite = true
+			if _, retryErr := New(transport).Download(context.Background(), job, nil); !errors.Is(retryErr, ErrCheckpointReconciliation) {
+				t.Fatalf("committed cleanup failure invited republication: %v", retryErr)
+			}
+		})
 	}
 }
 

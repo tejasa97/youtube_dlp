@@ -151,10 +151,14 @@ type Engine struct {
 	writeAtomic   func(string, os.FileMode, func(io.Writer) error) error
 	replaceAtomic func(string, string) error
 	removeAll     func(string) error
+	cleanupOps    checkpointCleanupOps
 }
 
 func New(transport network.Doer) *Engine {
-	return &Engine{transport: transport, writeAtomic: atomicfile.Write, replaceAtomic: atomicfile.Replace, removeAll: os.RemoveAll}
+	return &Engine{
+		transport: transport, writeAtomic: atomicfile.Write, replaceAtomic: atomicfile.Replace,
+		removeAll: os.RemoveAll, cleanupOps: productionCheckpointCleanupOps,
+	}
 }
 
 type planState struct {
@@ -352,10 +356,11 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 	}
 	result.Path = job.Destination
 	result.Bytes = bytesWritten
-	if err := engine.removeAll(workDir); err != nil {
-		if job.Checkpoint != nil {
+	if job.Checkpoint != nil {
+		if err := cleanupCommittedCheckpoint(workDir, engine.cleanupOps); err != nil {
 			return result, &CheckpointPublicationError{Cause: err}
 		}
+	} else if err := engine.removeAll(workDir); err != nil {
 		return Result{}, fmt.Errorf("remove fragment work directory: %w", err)
 	}
 	return result, nil

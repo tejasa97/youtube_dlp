@@ -54,6 +54,8 @@ type artifact struct {
 type manifestExpectation struct {
 	durable        bool
 	outputRoot     string
+	destination    string
+	overwrite      bool
 	resumeIdentity string
 	planHash       string
 	legacyHash     string
@@ -61,7 +63,10 @@ type manifestExpectation struct {
 }
 
 func manifestExpectationFor(job Job) (manifestExpectation, error) {
-	expectation := manifestExpectation{segmentCount: len(job.Segments), outputRoot: job.OutputRoot}
+	expectation := manifestExpectation{
+		segmentCount: len(job.Segments), outputRoot: job.OutputRoot,
+		destination: job.Destination, overwrite: job.Overwrite,
+	}
 	if job.Checkpoint == nil {
 		hash, err := planHash(job.Segments)
 		if err != nil {
@@ -85,7 +90,7 @@ func openArtifactManifest(
 	expectation manifestExpectation,
 	write func(string, os.FileMode, func(io.Writer) error) error,
 ) (*artifactManifest, error) {
-	_, err := ensureWorkDirectory(workDir, expectation)
+	created, err := ensureWorkDirectory(workDir, expectation)
 	if err != nil {
 		return nil, err
 	}
@@ -105,6 +110,13 @@ func openArtifactManifest(
 			}
 			if len(entries) != 0 {
 				return nil, checkpointFailure(ErrCheckpointReconciliation, "checkpoint ledger is missing while prior work remains", nil)
+			}
+			if !created && expectation.overwrite {
+				if _, destinationErr := os.Lstat(expectation.destination); destinationErr == nil {
+					return nil, checkpointFailure(ErrCheckpointReconciliation, "empty retained checkpoint boundary accompanies an existing final destination", nil)
+				} else if !errors.Is(destinationErr, os.ErrNotExist) {
+					return nil, destinationErr
+				}
 			}
 		}
 		state := initialManifestState(expectation)
