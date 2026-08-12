@@ -1415,7 +1415,6 @@ capabilities:
       - docs/YOUTUBE_WATCH_ENRICHMENT_EVIDENCE.md
       - docs/YOUTUBE_POST_LIVE_DVR_EVIDENCE.md
       - docs/YOUTUBE_LIVE_FROM_START_EVIDENCE.md
-      - docs/YOUTUBE_PROTECTED_PLAYBACK_PLAN.md
       - docs/YOUTUBE_CLIENT_BREADTH_EVIDENCE.md
     owner: extractors
     depends_on:

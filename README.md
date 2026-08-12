@@ -193,14 +193,14 @@ boundary. Read the [architecture overview](docs/ARCHITECTURE.md) and
 
 No standalone CLI binary release or production updater channel is currently
 endorsed. Build from a reviewed source revision. See
-[Installation](docs/INSTALLATION.md) and the
-[Roadmap](ROADMAP.md) for the release boundary and planned packaging work.
+[Installation](docs/INSTALLATION.md) and
+[Current scope](docs/CURRENT_SCOPE.md) for the exact boundary.
 
 ## Documentation
 
 | Document | Purpose |
 | --- | --- |
-| [Installation](docs/INSTALLATION.md) | Current source-build paths and future release boundary |
+| [Installation](docs/INSTALLATION.md) | Current source-build requirements and verification boundary |
 | [VidStow](https://github.com/tejasa97/vidstow) | Separate focused desktop application powered by this engine |
 | [CLI usage](docs/CLI_USAGE.md) | Task-oriented command-line workflows |
 | [Go embedding](docs/EMBEDDING.md) | Public library usage and lifecycle |
@@ -209,9 +209,9 @@ endorsed. Build from a reviewed source revision. See
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | CLI, helper, FFmpeg, and engine failures |
 | [Project status](docs/PROJECT_STATUS.md) | Maturity labels, evidence model, and limitations |
 | [Architecture](docs/ARCHITECTURE.md) | Engine boundaries and operation lifecycle |
-| [Documentation index](docs/README.md) | Complete guide, evidence, plan, and audit index |
+| [Documentation index](docs/README.md) | User, developer, architecture, and evidence index |
 | [Changelog](CHANGELOG.md) | User-visible changes |
-| [Roadmap](ROADMAP.md) | Current priorities without release-date promises |
+| [Current scope](docs/CURRENT_SCOPE.md) | Present interfaces, compatibility boundary, and non-goals |
 
 ## Python-free by design
 

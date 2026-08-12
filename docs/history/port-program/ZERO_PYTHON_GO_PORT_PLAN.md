@@ -3,7 +3,7 @@
 > [!NOTE]
 > Historical program record. Phases 0–3 and their gates document how the
 > repository was built; they are not the active roadmap. See
-> [`ROADMAP.md`](../../../ROADMAP.md) for current priorities.
+> [`CURRENT_SCOPE.md`](../../CURRENT_SCOPE.md) for current priorities.
 
 - Status at archival: Phases 0–3 repository implementation complete; external
   gate evidence and full capability parity remain open

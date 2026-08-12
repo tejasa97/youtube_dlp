@@ -64,11 +64,3 @@ GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go test -c -o /tmp/ytdlp-engine.test.exe
 
 For native Windows execution, keep the CI job timeout around the equivalent
 `go test` selection.
-
-## Release-tag recommendation
-
-Recommend a **new pre-release engine tag** only after the command matrix above
-passes on a native Windows runner and the coordinator reviews the retained
-platform limitation. Do not treat this evidence as authorization for a public
-binary, updater channel, VidStow release, or a stable API tag. The repository
-still requires the release gates in `ROADMAP.md` and `docs/PROJECT_STATUS.md`.

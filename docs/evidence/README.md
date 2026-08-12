@@ -64,7 +64,7 @@ go run ./cmd/paritycheck
 
 ## Release, security, and operational evidence
 
-- [Publication readiness](../PUBLICATION_READINESS.md)
+- [Current project scope](../CURRENT_SCOPE.md)
 - [Trust and security policy](../P2_TRUST_SECURITY_POLICY.md)
 - [Plugin threat model](../P2_PLUGIN_THREAT_MODEL.md)
 - [Signed packs](../P2_SIGNED_PACKS.md)
@@ -78,7 +78,7 @@ go run ./cmd/paritycheck
 Fixture-specific provenance remains next to the data it governs under
 `conformance/**/PROVENANCE.md`. Those records should not be centralized or
 moved merely to shorten the documentation tree: collocation makes review,
-licensing, sanitization, and future fixture changes auditable.
+licensing, sanitization, and subsequent fixture changes auditable.
 
 Evidence documents whose names end in `_EVIDENCE.md`, phase lane reports named
 `P1_*`, `P2_*`, or `P3_*`, and records under `docs/audits/` retain their

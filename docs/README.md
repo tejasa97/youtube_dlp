@@ -1,8 +1,7 @@
 # Documentation
 
 Start with the task you are trying to complete. Current user and developer
-guidance is separated from compatibility evidence and historical engineering
-records so that an old phase plan cannot be mistaken for the active roadmap.
+guidance is separated from compatibility evidence and architectural records.
 
 ## Users
 
@@ -50,21 +49,20 @@ ytdlp-go --help
 
 ## Project and releases
 
-- [Roadmap](../ROADMAP.md)
+- [Current scope](CURRENT_SCOPE.md)
 - [Changelog](../CHANGELOG.md)
-- [Publication readiness](PUBLICATION_READINESS.md)
 - [Updater and release foundations](P2_UPDATER_RELEASES.md)
 - [Third-party notices](../THIRD_PARTY_NOTICES.md)
 - [Code of Conduct](../CODE_OF_CONDUCT.md)
 - [Contributing](../CONTRIBUTING.md)
 
-## Plans, history, and audits
+## Evidence and audits
 
 - [Engine E5 hardening evidence](ENGINE_E5_HARDENING.md)
-- [Evidence index](evidence/README.md) — current capability claims, ledgers,
-  protocol records, and fixture provenance
-- [Historical engineering records](history/README.md) — original port
-  evaluation, phase plans, exit reviews, and independent audits
+- [Evidence index](evidence/README.md) — current capability claims, protocol
+  records, and fixture provenance
+- [Historical engineering records](history/README.md) — retained exit reviews
+  and independent audits
 
 The capability manifest at `conformance/parity_manifest.yaml` is authoritative
 for compatibility counts. Provenance for an individual fixture remains beside
@@ -76,7 +74,6 @@ that fixture as `conformance/**/PROVENANCE.md`.
 - Put precise API, schema, protocol, and configuration facts in reference
   documents.
 - Put architectural rationale in explanation documents or ADRs.
-- Put time-bound plans and completed gates in the historical-record index.
 - Link compatibility claims to automated evidence and fixture provenance.
 - State known deviations beside the feature they constrain.
 - Do not copy upstream prose merely to imply parity; describe only behavior

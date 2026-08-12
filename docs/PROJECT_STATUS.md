@@ -156,5 +156,5 @@ A user-visible capability change should update, in the same coherent change:
 5. known limitations; and
 6. the changelog when the change affects a release-facing workflow.
 
-See [Contributing](../CONTRIBUTING.md), [Publication readiness](PUBLICATION_READINESS.md),
-and the [documentation index](README.md) for the detailed review paths.
+See [Contributing](../CONTRIBUTING.md), [Current scope](CURRENT_SCOPE.md), and
+the [documentation index](README.md) for the detailed review paths.

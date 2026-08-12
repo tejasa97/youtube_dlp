@@ -1,12 +1,10 @@
 # Historical engineering records
 
-These documents explain how the project reached its current architecture and
-why a capability was accepted at a particular historical baseline. They are
-retained for traceability and review; they are not the active roadmap, current
-user guide, or release promise.
+These documents record evidence at historical baselines. They are not current
+user documentation or compatibility claims.
 
-Use the root [`ROADMAP.md`](../../ROADMAP.md) for current priorities and
-[`PROJECT_STATUS.md`](../PROJECT_STATUS.md) for current compatibility claims.
+Use [`CURRENT_SCOPE.md`](../CURRENT_SCOPE.md) and
+[`PROJECT_STATUS.md`](../PROJECT_STATUS.md) for the current boundary.
 
 ## Port program
 
@@ -27,7 +25,6 @@ Use the root [`ROADMAP.md`](../../ROADMAP.md) for current priorities and
 - [Phase 2 exit review](../PHASE_2_EXIT_REVIEW.md)
 - [Phase 2 security review](../P2_SECURITY_REVIEW.md)
 - [Phase 3 exit review](../PHASE_3_EXIT_REVIEW.md)
-- [Phase 3 wave ledger](../P3_WAVE_LEDGER.md)
 
 ## Independent audits
 

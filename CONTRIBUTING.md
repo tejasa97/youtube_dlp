@@ -94,9 +94,7 @@ go run ./cmd/paritycheck
 ```
 
 Run relevant fuzz targets and no-cgo cross-builds when changing parsers,
-protocols, packaging, platform code, or release behavior. The
-[publication-readiness review](docs/PUBLICATION_READINESS.md) records the wider
-local gate used while GitHub Actions is disabled.
+protocols, packaging, platform code, or release behavior.
 
 ## Making a change
 
