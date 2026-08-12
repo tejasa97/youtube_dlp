@@ -9,37 +9,32 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-type checkpointACLHeader struct {
-	revision  byte
-	reserved  byte
-	size      uint16
-	count     uint16
-	reserved2 uint16
-}
+const checkpointFileAllAccess windows.ACCESS_MASK = 0x1f01ff
 
 func protectCheckpointCreated(path string, directory bool) error {
-	user, system, administrators, err := checkpointTrustees()
-	if err != nil {
+	user, _, _, err := checkpointTrustees()
+	if err != nil || user == nil {
 		return ErrUnsafeDestination
 	}
-	inheritance := uint32(windows.NO_INHERITANCE)
+	inheritance := ""
 	if directory {
-		inheritance = windows.SUB_CONTAINERS_AND_OBJECTS_INHERIT
+		inheritance = "OICI"
 	}
-	entries := []windows.EXPLICIT_ACCESS{
-		checkpointAccessEntry(user, windows.TRUSTEE_IS_USER, inheritance),
-		checkpointAccessEntry(system, windows.TRUSTEE_IS_USER, inheritance),
-		checkpointAccessEntry(administrators, windows.TRUSTEE_IS_GROUP, inheritance),
+	sid := user.String()
+	ace := func(principal string) string { return "(A;" + inheritance + ";FA;;;" + principal + ")" }
+	descriptor, err := windows.SecurityDescriptorFromString("O:" + sid + "G:" + sid + "D:P" + ace(sid) + ace("SY") + ace("BA"))
+	if err != nil || descriptor == nil {
+		return ErrUnsafeDestination
 	}
-	acl, err := windows.ACLFromEntries(entries, nil)
-	if err != nil {
+	acl, _, err := descriptor.DACL()
+	if err != nil || acl == nil {
 		return ErrUnsafeDestination
 	}
 	if err := windows.SetNamedSecurityInfo(
 		path,
 		windows.SE_FILE_OBJECT,
-		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
-		nil,
+		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
+		user,
 		nil,
 		acl,
 		nil,
@@ -47,19 +42,6 @@ func protectCheckpointCreated(path string, directory bool) error {
 		return ErrUnsafeDestination
 	}
 	return nil
-}
-
-func checkpointAccessEntry(sid *windows.SID, trusteeType windows.TRUSTEE_TYPE, inheritance uint32) windows.EXPLICIT_ACCESS {
-	return windows.EXPLICIT_ACCESS{
-		AccessPermissions: windows.GENERIC_ALL,
-		AccessMode:        windows.SET_ACCESS,
-		Inheritance:       inheritance,
-		Trustee: windows.TRUSTEE{
-			TrusteeForm:  windows.TRUSTEE_IS_SID,
-			TrusteeType:  trusteeType,
-			TrusteeValue: windows.TrusteeValueFromSID(sid),
-		},
-	}
 }
 
 func checkpointTrustees() (user, system, administrators *windows.SID, err error) {
@@ -97,7 +79,7 @@ func validateCheckpointOwned(path string, info os.FileInfo) error {
 		return ErrUnsafeDestination
 	}
 	descriptor, err := windows.GetSecurityInfo(handle, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
-	if err != nil {
+	if err != nil || descriptor == nil || !descriptor.IsValid() {
 		return ErrUnsafeDestination
 	}
 	control, _, err := descriptor.Control()
@@ -116,26 +98,30 @@ func validateCheckpointOwned(path string, info os.FileInfo) error {
 	if err != nil || dacl == nil {
 		return ErrUnsafeDestination
 	}
-	header := (*checkpointACLHeader)(unsafe.Pointer(dacl))
-	seenUser, seenSystem, seenAdministrators := false, false, false
-	for index := uint32(0); index < uint32(header.count); index++ {
+	if dacl.AceCount != 3 {
+		return ErrUnsafeDestination
+	}
+	seen := make(map[string]bool, 3)
+	wantFlags := byte(0)
+	if info.IsDir() {
+		wantFlags = windows.OBJECT_INHERIT_ACE | windows.CONTAINER_INHERIT_ACE
+	}
+	for index := uint32(0); index < uint32(dacl.AceCount); index++ {
 		var ace *windows.ACCESS_ALLOWED_ACE
-		if err := windows.GetAce(dacl, index, &ace); err != nil || ace == nil || ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE {
+		if err := windows.GetAce(dacl, index, &ace); err != nil || ace == nil || ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE || ace.Header.AceFlags != wantFlags || ace.Mask != checkpointFileAllAccess || ace.Header.AceFlags&windows.INHERITED_ACE != 0 {
 			return ErrUnsafeDestination
 		}
 		sid := (*windows.SID)(unsafe.Pointer(&ace.SidStart))
-		switch {
-		case sid.Equals(user):
-			seenUser = true
-		case sid.Equals(system):
-			seenSystem = true
-		case sid.Equals(administrators):
-			seenAdministrators = true
-		default:
+		if !sid.IsValid() {
 			return ErrUnsafeDestination
 		}
+		key := sid.String()
+		if seen[key] || (!sid.Equals(user) && !sid.Equals(system) && !sid.Equals(administrators)) {
+			return ErrUnsafeDestination
+		}
+		seen[key] = true
 	}
-	if !seenUser || !seenSystem || !seenAdministrators {
+	if len(seen) != 3 || !seen[user.String()] || !seen[system.String()] || !seen[administrators.String()] {
 		return ErrUnsafeDestination
 	}
 	return nil

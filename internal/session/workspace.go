@@ -18,8 +18,10 @@ import (
 )
 
 // atomicManifestWrite is a narrow seam for commit-outcome tests. Production
-// persistence always goes through PR #240's atomicfile primitive.
-var atomicManifestWrite = atomicfile.Write
+// persistence hardens both the temporary and committed manifest files.
+var atomicManifestWrite = func(path string, mode os.FileMode, encode func(io.Writer) error) error {
+	return atomicfile.WriteWithTempSecurity(path, mode, encode, secureFilePath)
+}
 
 // Workspace owns an exclusive cross-process lease for the lifetime of the
 // handle. It is intentionally not part of WorkspaceRef and cannot be encoded
@@ -60,7 +62,7 @@ func create(options CreateOptions, requestedSessionID string) (*Workspace, error
 		return nil, err
 	}
 	sessionsRoot := filepath.Join(root, SessionsDirectoryName)
-	if err := ensureDirectory(sessionsRoot, 0o700, true); err != nil {
+	if err := ensureSharedSessionsRoot(sessionsRoot); err != nil {
 		return nil, err
 	}
 	source, err := normalizeSource(options.Source)
@@ -951,10 +953,39 @@ func persistManifest(path string, manifest Manifest) error {
 		encoder.SetEscapeHTML(false)
 		return encoder.Encode(manifest)
 	})
-	if err == nil {
-		return nil
+	committedError := false
+	var outcome atomicfile.CommitError
+	if err != nil {
+		if !errors.As(err, &outcome) {
+			return wrapManifestCommit(err)
+		}
+		if !outcome.Committed() || outcome.Indeterminate() {
+			return wrapManifestCommit(err)
+		}
+		committedError = true
 	}
-	return wrapManifestCommit(err)
+	// A successful replacement can still leave a file with inherited ACLs
+	// when a platform's atomic rename preserves the temporary security
+	// descriptor. Harden and revalidate the committed destination before it is
+	// observable through Open, Inspect, or maintenance.
+	if hardenErr := secureCommittedFile(path); hardenErr != nil {
+		return &manifestCommitError{err: errors.Join(err, hardenErr), committed: true}
+	}
+	if committedError {
+		return wrapManifestCommit(err)
+	}
+	return nil
+}
+
+func secureCommittedFile(path string) error {
+	if err := secureFilePath(path); err != nil {
+		return err
+	}
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || !ownerOnlyFileAt(path, info) {
+		return ErrUnsafePath
+	}
+	return nil
 }
 
 func validateManifestDerivedPaths(outputRoot, workspacePath string, manifest Manifest) error {
@@ -1132,6 +1163,8 @@ func (err *manifestCommitError) Error() string {
 func (err *manifestCommitError) Is(target error) bool {
 	return target == ErrManifestCommit
 }
+
+func (err *manifestCommitError) Unwrap() error { return err.err }
 
 func (err *manifestCommitError) Committed() bool { return err.committed }
 

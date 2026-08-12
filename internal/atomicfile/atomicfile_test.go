@@ -29,6 +29,35 @@ func TestWriteCreatesAndReplacesWholeFile(t *testing.T) {
 	}
 }
 
+func TestWriteWithTempSecuritySecuresTemporaryBeforeEncoding(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "state.json")
+	secured := false
+	if err := WriteWithTempSecurity(path, 0o600, func(writer io.Writer) error {
+		if !secured {
+			return errors.New("temporary file was not secured before encoding")
+		}
+		_, err := io.WriteString(writer, "complete")
+		return err
+	}, func(temp string) error {
+		info, err := os.Stat(temp)
+		if err != nil {
+			return err
+		}
+		if info.Mode().Perm()&0o077 != 0 {
+			return fmt.Errorf("temporary mode = %o, want private", info.Mode().Perm())
+		}
+		secured = true
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil || string(content) != "complete" {
+		t.Fatalf("content = %q, err = %v", content, err)
+	}
+}
+
 func TestWriteReadersObserveOnlyWholeImages(t *testing.T) {
 	directory := t.TempDir()
 	path := filepath.Join(directory, "state.json")

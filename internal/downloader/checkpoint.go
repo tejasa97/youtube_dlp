@@ -53,6 +53,20 @@ func (err *checkpointCallbackError) Is(target error) bool {
 	return target == ErrCheckpointCallback || errors.Is(err.cause, target)
 }
 
+type checkpointCommitOutcomeError struct {
+	cause         error
+	committed     bool
+	indeterminate bool
+}
+
+func (err *checkpointCommitOutcomeError) Error() string { return ErrCheckpointCommit.Error() }
+func (err *checkpointCommitOutcomeError) Unwrap() error { return err.cause }
+func (err *checkpointCommitOutcomeError) Is(target error) bool {
+	return target == ErrCheckpointCommit || errors.Is(err.cause, target)
+}
+func (err *checkpointCommitOutcomeError) Committed() bool     { return err.committed }
+func (err *checkpointCommitOutcomeError) Indeterminate() bool { return err.indeterminate }
+
 type checkpointSafeError struct {
 	message string
 	cause   error

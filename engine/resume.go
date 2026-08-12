@@ -11,8 +11,6 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/tejasa97/youtube_dlp/engine/value"
-	outputtemplate "github.com/tejasa97/youtube_dlp/internal/compat/template"
 	"github.com/tejasa97/youtube_dlp/internal/session"
 )
 
@@ -415,9 +413,7 @@ func validateResumeOptions(request Request) error {
 			return fmt.Errorf("%w: duplicate session commit basename", errInvalidRequestOptions)
 		}
 		basenames[target.Basename] = struct{}{}
-		candidate := filepath.Join(root.CanonicalPath, target.Basename)
-		relative, relErr := filepath.Rel(root.CanonicalPath, candidate)
-		if relErr != nil || relative != target.Basename {
+		if _, ok := portableResumeDestination(root.CanonicalPath, target.Basename); !ok {
 			return fmt.Errorf("%w: session commit target escapes output root", errInvalidRequestOptions)
 		}
 	}
@@ -466,8 +462,11 @@ func validResumeIdentifier(value string) bool {
 
 func validResumeBasename(value string) bool {
 	if value == "" || len(value) > maxResumeBasenameBytes || !utf8.ValidString(value) ||
-		strings.ContainsAny(value, "\x00/\\") || filepath.Base(value) != value || filepath.VolumeName(value) != "" ||
+		strings.ContainsAny(value, "\x00/\\<>:\"|?*") ||
 		value == "." || value == ".." {
+		return false
+	}
+	if strings.HasSuffix(value, ".") || strings.HasSuffix(value, " ") {
 		return false
 	}
 	for _, character := range value {
@@ -475,23 +474,36 @@ func validResumeBasename(value string) bool {
 			return false
 		}
 	}
+	base := strings.ToUpper(strings.SplitN(value, ".", 2)[0])
+	switch base {
+	case "CON", "PRN", "AUX", "NUL":
+		return false
+	}
+	if len(base) == 4 && (strings.HasPrefix(base, "COM") || strings.HasPrefix(base, "LPT")) && base[3] >= '1' && base[3] <= '9' {
+		return false
+	}
 	return true
 }
 
 func validPortableResumeBasename(basename string) bool {
-	if !validResumeBasename(basename) {
-		return false
+	return validResumeBasename(basename)
+}
+
+// portableResumeDestination maps the wire-format basename to a native path
+// and proves that the native path round-trips to the same portable basename.
+// The basename itself is never interpreted with host-native volume or
+// separator rules; only the already-validated native output root is.
+func portableResumeDestination(root, basename string) (string, bool) {
+	if !filepath.IsAbs(root) || !validPortableResumeBasename(basename) {
+		return "", false
 	}
-	root := filepath.Join(string(filepath.Separator), "engine-commit-target")
-	info := value.NewInfo(value.NewObject(value.Field{Key: "basename", Value: value.String(basename)}))
-	resolved, err := outputtemplate.ResolveWithOptions(
-		root, "%(basename)s", info, outputtemplate.FilenameOptions{WindowsFilenames: true},
-	)
-	if err != nil {
-		return false
+	root = filepath.Clean(root)
+	target := filepath.Join(root, filepath.FromSlash(basename))
+	relative, err := filepath.Rel(root, target)
+	if err != nil || filepath.IsAbs(relative) || filepath.ToSlash(relative) != basename {
+		return "", false
 	}
-	relative, err := filepath.Rel(root, resolved)
-	return err == nil && relative == basename && filepath.Dir(relative) == "."
+	return target, true
 }
 
 func contextError(ctx context.Context) error {

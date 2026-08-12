@@ -190,8 +190,8 @@ func TestCheckpointDirectoryProtectionAndEmptyInitialization(t *testing.T) {
 		job := checkpointTestJob(root, filepath.Join(root, "out"), "format=mp4;track=video", []Segment{{URL: server.URL}})
 		job.Checkpoint.Directory = filepath.Join(root, "private", "component")
 		engine := New(transport)
-		productionWrite := engine.writeAtomic
-		engine.writeAtomic = func(path string, mode os.FileMode, encode func(io.Writer) error) error {
+		productionWrite := engine.writeCheckpoint
+		engine.writeCheckpoint = func(path string, mode os.FileMode, encode func(io.Writer) error) error {
 			if filepath.Base(path) == "state.json" && runtime.GOOS != "windows" {
 				for _, directory := range []string{filepath.Join(root, "private"), job.Checkpoint.Directory} {
 					info, err := os.Stat(directory)
@@ -252,8 +252,8 @@ func TestCheckpointInitialLedgerPrecommitFailureAllowsEmptyReinitialization(t *t
 	job := checkpointTestJob(root, filepath.Join(root, "out"), "format=mp4;track=video", []Segment{{URL: server.URL}})
 	engine := New(transport)
 	injected := &checkpointCommitError{name: "initial-ledger-precommit"}
-	productionWrite := engine.writeAtomic
-	engine.writeAtomic = func(path string, mode os.FileMode, encode func(io.Writer) error) error {
+	productionWrite := engine.writeCheckpoint
+	engine.writeCheckpoint = func(path string, mode os.FileMode, encode func(io.Writer) error) error {
 		if filepath.Base(path) == "state.json" {
 			return injected
 		}
@@ -268,6 +268,36 @@ func TestCheckpointInitialLedgerPrecommitFailureAllowsEmptyReinitialization(t *t
 	}
 	if _, err := New(transport).Download(context.Background(), job, nil); err != nil {
 		t.Fatalf("proven-empty checkpoint did not reinitialize: %v", err)
+	}
+}
+
+func TestCheckpointWriterKeepsProductionAndInjectionSeamsSeparate(t *testing.T) {
+	root := t.TempDir()
+	engine := New(nil)
+	engine.writeAtomic = func(string, os.FileMode, func(io.Writer) error) error {
+		return errors.New("generic writer should not handle durable checkpoint output")
+	}
+	path := filepath.Join(root, "state.json")
+	if err := engine.checkpointWriter(true)(path, 0o600, func(writer io.Writer) error {
+		_, err := io.WriteString(writer, "secure checkpoint")
+		return err
+	}); err != nil {
+		t.Fatalf("production checkpoint writer error = %v", err)
+	}
+	if contents, err := os.ReadFile(path); err != nil || string(contents) != "secure checkpoint" {
+		t.Fatalf("checkpoint contents = %q, %v", contents, err)
+	}
+
+	var injected bool
+	engine.writeCheckpoint = func(path string, mode os.FileMode, encode func(io.Writer) error) error {
+		injected = true
+		return engine.writeAtomic(path, mode, encode)
+	}
+	if err := engine.checkpointWriter(true)(filepath.Join(root, "injected.json"), 0o600, func(writer io.Writer) error {
+		_, err := io.WriteString(writer, "injected")
+		return err
+	}); err == nil || !injected {
+		t.Fatalf("checkpoint injection did not intercept: injected=%v error=%v", injected, err)
 	}
 }
 
@@ -443,10 +473,10 @@ func TestCheckpointLedgerCommitOutcomes(t *testing.T) {
 			destination := filepath.Join(root, "out")
 			job := checkpointTestJob(root, destination, "stable", []Segment{{URL: server.URL}})
 			engine := New(transport)
-			productionWrite := engine.writeAtomic
+			productionWrite := engine.writeCheckpoint
 			var stateWrites atomic.Int32
 			injected := &checkpointCommitError{name: test.name, committed: test.committed, indeterminate: test.indeterminate}
-			engine.writeAtomic = func(path string, mode os.FileMode, encode func(io.Writer) error) error {
+			engine.writeCheckpoint = func(path string, mode os.FileMode, encode func(io.Writer) error) error {
 				if filepath.Base(path) != "state.json" || stateWrites.Add(1) != 2 {
 					return productionWrite(path, mode, encode)
 				}
@@ -494,9 +524,9 @@ func TestCheckpointFragmentPublicationCommitOutcomes(t *testing.T) {
 			root := t.TempDir()
 			job := checkpointTestJob(root, filepath.Join(root, "out"), "format=mp4;track=video", []Segment{{URL: server.URL}})
 			engine := New(transport)
-			productionWrite := engine.writeAtomic
+			productionWrite := engine.writeCheckpoint
 			injected := &checkpointCommitError{name: test.name, committed: test.committed, indeterminate: test.indeterminate}
-			engine.writeAtomic = func(path string, mode os.FileMode, encode func(io.Writer) error) error {
+			engine.writeCheckpoint = func(path string, mode os.FileMode, encode func(io.Writer) error) error {
 				if strings.HasSuffix(path, ".frag") {
 					if test.committed {
 						if err := productionWrite(path, mode, encode); err != nil {
@@ -530,11 +560,11 @@ func TestCheckpointCancellationWaitsForLedgerCommitAndReusesSettledFragment(t *t
 	destination := filepath.Join(root, "out")
 	job := checkpointTestJob(root, destination, "stable", []Segment{{URL: server.URL}})
 	engine := New(transport)
-	productionWrite := engine.writeAtomic
+	productionWrite := engine.writeCheckpoint
 	enteredCommit := make(chan struct{})
 	releaseCommit := make(chan struct{})
 	var stateWrites atomic.Int32
-	engine.writeAtomic = func(path string, mode os.FileMode, encode func(io.Writer) error) error {
+	engine.writeCheckpoint = func(path string, mode os.FileMode, encode func(io.Writer) error) error {
 		if filepath.Base(path) == "state.json" && stateWrites.Add(1) == 2 {
 			close(enteredCommit)
 			<-releaseCommit

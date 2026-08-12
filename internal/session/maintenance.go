@@ -644,11 +644,22 @@ func readDiscardRecord(path string) (discardRecord, bool, bool) {
 }
 
 func writeDiscardMarker(path string, record discardRecord) error {
-	if err := atomicfile.Write(path, 0o600, func(writer io.Writer) error {
+	err := atomicfile.WriteWithTempSecurity(path, 0o600, func(writer io.Writer) error {
 		encoder := json.NewEncoder(writer)
 		encoder.SetEscapeHTML(false)
 		return encoder.Encode(record)
-	}); err != nil {
+	}, secureFilePath)
+	if err != nil {
+		var outcome atomicfile.CommitError
+		if errors.As(err, &outcome) && outcome.Committed() && !outcome.Indeterminate() {
+			// The replacement is authoritative even when the platform reports a
+			// post-commit durability error. Harden the committed marker before
+			// returning the required reconciliation error.
+			_ = secureCommittedFile(path)
+		}
+		return ErrNeedsReconciliation
+	}
+	if err := secureCommittedFile(path); err != nil {
 		return ErrNeedsReconciliation
 	}
 	observed, exists, unsafe := readDiscardRecord(path)

@@ -233,8 +233,8 @@ func (operation *operation) newDirectSession(info value.Info, extractor string, 
 	}
 	target := resume.CommitTargets[0]
 	destination = filepath.Clean(destination)
-	relative, err := filepath.Rel(root.CanonicalPath, destination)
-	if err != nil || relative != target.Basename || filepath.IsAbs(relative) || !validPortableResumeBasename(relative) {
+	declaredDestination, ok := portableResumeDestination(root.CanonicalPath, target.Basename)
+	if !ok || declaredDestination != destination {
 		return nil, fmt.Errorf("%w: runtime destination does not match the declared commit target", errInvalidRequestOptions)
 	}
 	identity, err := directSessionTrackIdentity(info, selection)
@@ -349,12 +349,11 @@ func (run *directSession) snapshot() (session.Manifest, error) {
 }
 
 func (run *directSession) targetForManifest(manifest session.Manifest) (string, error) {
-	if manifest.RelativeDestination == "" || !validPortableResumeBasename(manifest.RelativeDestination) {
+	if manifest.RelativeDestination == "" {
 		return "", ErrSessionNeedsReconciliation
 	}
-	path := filepath.Join(run.root.CanonicalPath, filepath.FromSlash(manifest.RelativeDestination))
-	relative, err := filepath.Rel(run.root.CanonicalPath, path)
-	if err != nil || relative != filepath.FromSlash(manifest.RelativeDestination) || !validPortableResumeBasename(relative) {
+	path, ok := portableResumeDestination(run.root.CanonicalPath, manifest.RelativeDestination)
+	if !ok {
 		return "", ErrSessionNeedsReconciliation
 	}
 	return path, nil

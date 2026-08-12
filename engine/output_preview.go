@@ -47,7 +47,10 @@ func RenderOutputArtifacts(request OutputPreviewRequest) ([]ArtifactDeclaration,
 	}
 	info := value.NewInfo(request.Metadata.Fields().Clone())
 	info.Set("ext", value.String(strings.TrimPrefix(request.Extension, ".")))
-	root := filepath.Join(string(filepath.Separator), "engine-output-preview")
+	root, err := filepath.Abs("engine-output-preview")
+	if err != nil {
+		return nil, errors.New("engine: output preview root is unavailable")
+	}
 	resolved, err := outputtemplate.ResolveWithOptions(
 		root, request.Template, info, filenameOptionsFor(request.Filesystem, request.AutonumberSize),
 	)

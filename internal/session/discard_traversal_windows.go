@@ -98,11 +98,11 @@ func (entry *discardEntryHandle) remove() error {
 func syncDiscardDirectoryHandle(_ *discardDirectory) error { return nil }
 
 func discardOwnerOnlyDirectoryHandle(file *os.File, info os.FileInfo) bool {
-	return info.IsDir() && secureWindowsACLHandle(windows.Handle(file.Fd()))
+	return info.IsDir() && secureWindowsACLHandle(windows.Handle(file.Fd()), true)
 }
 
 func discardOwnerOnlyFileHandle(file *os.File, info os.FileInfo) bool {
-	return info.Mode().IsRegular() && secureWindowsACLHandle(windows.Handle(file.Fd()))
+	return info.Mode().IsRegular() && secureWindowsACLHandle(windows.Handle(file.Fd()), false)
 }
 
 func openWindowsDiscardHandle(name string, options uint32, parent windows.Handle) (*os.File, error) {

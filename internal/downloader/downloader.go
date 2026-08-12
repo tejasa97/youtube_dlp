@@ -1288,10 +1288,10 @@ func savePartialStateOnce(path string, state partialState) error {
 	if err := regularOrAbsent(path); err != nil {
 		return err
 	}
-	err = atomicfile.Write(path, 0o600, func(writer io.Writer) error {
+	err = atomicfile.WriteWithTempSecurity(path, 0o600, func(writer io.Writer) error {
 		_, err := writer.Write(encoded)
 		return err
-	})
+	}, protectCheckpointTemp)
 	commitErr := err
 	if err != nil {
 		var outcome atomicfile.CommitError
@@ -1303,19 +1303,34 @@ func savePartialStateOnce(path string, state partialState) error {
 		return err
 	}
 	if err := protectCheckpointCreated(path, false); err != nil {
-		return errors.Join(commitErr, fmt.Errorf("protect checkpoint state: %w", err))
+		return checkpointProtectionFailure(commitErr, "protect checkpoint state", err)
 	}
 	info, err := os.Lstat(path)
 	if err != nil || !info.Mode().IsRegular() {
 		if err == nil {
 			err = ErrUnsafeDestination
 		}
-		return errors.Join(commitErr, fmt.Errorf("inspect protected checkpoint state: %w", err))
+		return checkpointProtectionFailure(commitErr, "inspect protected checkpoint state", err)
 	}
 	if err := validateCheckpointOwned(path, info); err != nil {
-		return errors.Join(commitErr, fmt.Errorf("validate protected checkpoint state: %w", err))
+		return checkpointProtectionFailure(commitErr, "validate protected checkpoint state", err)
 	}
 	return commitErr
+}
+
+func checkpointProtectionFailure(commitErr error, operation string, cause error) error {
+	protectionErr := &checkpointCommitOutcomeError{
+		cause:     fmt.Errorf("%s: %w", operation, cause),
+		committed: true,
+	}
+	if commitErr == nil {
+		return protectionErr
+	}
+	return errors.Join(commitErr, protectionErr)
+}
+
+func protectCheckpointTemp(path string) error {
+	return protectCheckpointCreated(path, false)
 }
 
 func validContentRange(header string, offset int64) bool {

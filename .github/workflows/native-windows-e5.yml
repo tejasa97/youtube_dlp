@@ -23,4 +23,4 @@ jobs:
       - name: Run native Windows E5 lease and publication matrix
         shell: pwsh
         run: |
-          go test -timeout 150s ./internal/session ./engine -run 'Test(CrossProcessLeaseCrashReleasesForBoundedGC|HelperProcessLeaseContentionAndRelease|DiscardGuardBlocksCrossProcessRecovery|DirectSession(Collision|PostReplace|Indeterminate|PrePublication)|DirectSessionsRaceToOneDestinationWithoutReplacement|FiniteHLSSession|StaticDASHSession|MultiTrackSession(Collision|PostReplace|Indeterminate|PrePublication|LeaseContention))' -count=1
+          go test -timeout 150s ./internal/session ./internal/fragment ./engine -run 'Test(CrossProcessLeaseCrashReleasesForBoundedGC|HelperProcessLeaseContentionAndRelease|DiscardGuardBlocksCrossProcessRecovery|WindowsDurableCheckpointFilesHaveExplicitACL|DirectSession(Collision|PostReplace|Indeterminate|PrePublication)|DirectSessionsRaceToOneDestinationWithoutReplacement|FiniteHLSSession|StaticDASHSession|MultiTrackSession(Collision|PostReplace|Indeterminate|PrePublication|LeaseContention))' -count=1

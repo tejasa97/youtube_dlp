@@ -201,6 +201,7 @@ type fragmentOutcome struct {
 type Engine struct {
 	transport         network.Doer
 	writeAtomic       func(string, os.FileMode, func(io.Writer) error) error
+	writeCheckpoint   func(string, os.FileMode, func(io.Writer) error) error
 	replaceAtomic     func(string, string) error
 	publishNoClobber  func(string, string) error
 	removeAll         func(string) error
@@ -211,12 +212,22 @@ type Engine struct {
 
 func New(transport network.Doer) *Engine {
 	return &Engine{
-		transport: transport, writeAtomic: atomicfile.Write, replaceAtomic: atomicfile.Replace,
+		transport: transport, writeAtomic: atomicfile.Write, writeCheckpoint: writeProtectedCheckpointArtifact, replaceAtomic: atomicfile.Replace,
 		publishNoClobber: publishNoClobber,
 		removeAll:        os.RemoveAll, cleanupOps: productionCheckpointCleanupOps,
 		resetOps:          productionCheckpointResetOps,
 		checkpointTimeout: maxCheckpointCallbackDuration,
 	}
+}
+
+func (engine *Engine) checkpointWriter(durable bool) func(string, os.FileMode, func(io.Writer) error) error {
+	if !durable {
+		return engine.writeAtomic
+	}
+	if engine.writeCheckpoint != nil {
+		return engine.writeCheckpoint
+	}
+	return engine.writeAtomic
 }
 
 type planState struct {
@@ -312,6 +323,8 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 	if err != nil {
 		return Result{}, err
 	}
+	durable := job.Checkpoint != nil
+	checkpointWrite := engine.checkpointWriter(durable)
 	if job.Checkpoint != nil && (job.Checkpoint.ResumeBoundary != nil || job.Checkpoint.CoordinatorBoundary) {
 		boundary := job.Checkpoint.ResumeBoundary
 		if boundary == nil {
@@ -321,14 +334,14 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 			}
 			boundary = &zero
 		}
-		if err := reconcileResumeBoundary(workDir, expectation, *boundary, engine.writeAtomic, engine.resetOps, job.Checkpoint.RequireCoordinatorReset); err != nil {
+		if err := reconcileResumeBoundary(workDir, expectation, *boundary, checkpointWrite, engine.resetOps, job.Checkpoint.RequireCoordinatorReset); err != nil {
 			return Result{}, err
 		}
 	}
 	if err := os.MkdirAll(filepath.Dir(job.Destination), 0o755); err != nil {
 		return Result{}, fmt.Errorf("create fragment output directory: %w", err)
 	}
-	manifest, err := openArtifactManifest(workDir, expectation, engine.writeAtomic)
+	manifest, err := openArtifactManifest(workDir, expectation, checkpointWrite)
 	if err != nil {
 		return Result{}, err
 	}
@@ -342,7 +355,7 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 		if err := resetCheckpointWorkspace(workDir, expectation, engine.resetOps); err != nil {
 			return Result{}, err
 		}
-		manifest, err = openArtifactManifest(workDir, expectation, engine.writeAtomic)
+		manifest, err = openArtifactManifest(workDir, expectation, checkpointWrite)
 		if err != nil {
 			return Result{}, err
 		}
@@ -395,7 +408,7 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 					if hostErr != nil {
 						err = hostErr
 					} else if err = hosts.Acquire(workerCtx, host); err == nil {
-						err = engine.fetchWithRetry(workerCtx, job, job.Segments[index], path, attempts, maxSize, func(nextAttempt int, retryErr error) error {
+						err = engine.fetchWithRetry(workerCtx, job, job.Segments[index], path, attempts, maxSize, checkpointWrite, func(nextAttempt int, retryErr error) error {
 							return emit(events.Event{Kind: events.KindRetry, URL: eventURL, Path: job.Destination, Attempt: nextAttempt, Fragment: index + 1, Fragments: len(job.Segments), Message: fragmentRetryMessage(retryErr)})
 						})
 						hosts.Release(host)
@@ -451,7 +464,7 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 		return Result{}, err
 	}
 
-	bytesWritten, err := engine.assemble(ctx, workDir, len(job.Segments), job.Destination, job.Overwrite, job.Checkpoint != nil)
+	bytesWritten, err := engine.assemble(ctx, workDir, len(job.Segments), job.Destination, job.Overwrite, durable, checkpointWrite)
 	if err != nil {
 		return Result{}, err
 	}
@@ -488,17 +501,17 @@ func deterministicOutcomeError(outcomes []fragmentOutcome, received []bool) erro
 	return nil
 }
 
-func (engine *Engine) fetchWithRetry(ctx context.Context, job Job, segment Segment, destination string, attempts int, maxSize int64, retryEvent func(int, error) error) error {
+func (engine *Engine) fetchWithRetry(ctx context.Context, job Job, segment Segment, destination string, attempts int, maxSize int64, write func(string, os.FileMode, func(io.Writer) error) error, retryEvent func(int, error) error) error {
 	var lastErr error
 	for attempt := 1; attempt <= attempts; attempt++ {
-		lastErr = engine.fetch(ctx, segment, destination, maxSize, job.Headers)
+		lastErr = engine.fetch(ctx, segment, destination, maxSize, job.Headers, write)
 		if lastErr == nil {
 			return nil
 		}
 		if job.Checkpoint != nil {
 			var commitErr atomicfile.CommitError
 			if errors.As(lastErr, &commitErr) && (commitErr.Committed() || commitErr.Indeterminate()) {
-				markerErr := writeReconciliationMarker(filepath.Dir(destination), "fragment publication authority is uncertain")
+				markerErr := writeReconciliationMarker(filepath.Dir(destination), "fragment publication authority is uncertain", write)
 				return checkpointFailure(ErrCheckpointReconciliation, "fragment publication did not settle durably", errors.Join(lastErr, markerErr))
 			}
 		}
@@ -616,7 +629,7 @@ func segmentHost(raw string) (string, error) {
 	return strings.ToLower(parsed.Hostname()), nil
 }
 
-func (engine *Engine) fetch(ctx context.Context, segment Segment, destination string, maxSize int64, headers http.Header) error {
+func (engine *Engine) fetch(ctx context.Context, segment Segment, destination string, maxSize int64, headers http.Header, write func(string, os.FileMode, func(io.Writer) error) error) error {
 	if isSymlink(destination) || isSymlink(destination+".tmp") {
 		return ErrUnsafeDestination
 	}
@@ -661,7 +674,7 @@ func (engine *Engine) fetch(ctx context.Context, segment Segment, destination st
 			return err
 		}
 	}
-	return engine.writeAtomic(destination, 0o644, func(writer io.Writer) error {
+	return write(destination, 0o644, func(writer io.Writer) error {
 		_, err := writer.Write(body)
 		return err
 	})
@@ -727,7 +740,7 @@ func fragmentPath(workDir string, index int) string {
 	return filepath.Join(workDir, fmt.Sprintf("%08d.frag", index))
 }
 
-func (engine *Engine) assemble(ctx context.Context, workDir string, count int, destination string, overwrite, durable bool) (int64, error) {
+func (engine *Engine) assemble(ctx context.Context, workDir string, count int, destination string, overwrite, durable bool, write func(string, os.FileMode, func(io.Writer) error) error) (int64, error) {
 	temporary := filepath.Join(workDir, "assembled.part")
 	if info, err := os.Lstat(temporary); err == nil {
 		if durable {
@@ -745,6 +758,13 @@ func (engine *Engine) assemble(ctx context.Context, workDir string, count int, d
 	output, err := os.OpenFile(temporary, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
 		return 0, err
+	}
+	if durable {
+		if err := secureCheckpointFile(temporary); err != nil {
+			_ = output.Close()
+			_ = os.Remove(temporary)
+			return 0, checkpointFailure(ErrCheckpointReconciliation, "assembled checkpoint part could not be secured", err)
+		}
 	}
 	committed := false
 	retainTemporary := false
@@ -773,6 +793,12 @@ func (engine *Engine) assemble(ctx context.Context, workDir string, count int, d
 	if err := output.Close(); err != nil {
 		return 0, err
 	}
+	if durable {
+		if err := secureCheckpointFile(temporary); err != nil {
+			retainTemporary = true
+			return 0, checkpointFailure(ErrCheckpointReconciliation, "assembled checkpoint part could not be revalidated", &checkpointArtifactCommitError{cause: err, committed: true})
+		}
+	}
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
@@ -784,14 +810,14 @@ func (engine *Engine) assemble(ctx context.Context, workDir string, count int, d
 		if bytes != total {
 			return 0, fmt.Errorf("assembled fragment bytes = %d, want %d", bytes, total)
 		}
-		markerErr := engine.writeAtomic(filepath.Join(workDir, publicationMarker), 0o600, func(writer io.Writer) error {
+		markerErr := write(filepath.Join(workDir, publicationMarker), 0o600, func(writer io.Writer) error {
 			return json.NewEncoder(writer).Encode(artifact{Bytes: bytes, SHA256: digest})
 		})
 		if markerErr != nil {
 			var commitErr atomicfile.CommitError
 			if errors.As(markerErr, &commitErr) && (commitErr.Committed() || commitErr.Indeterminate()) {
 				retainTemporary = true
-				reconcileErr := writeReconciliationMarker(workDir, "final publication marker authority is uncertain")
+				reconcileErr := writeReconciliationMarker(workDir, "final publication marker authority is uncertain", write)
 				return 0, checkpointFailure(ErrCheckpointReconciliation, "final publication marker did not settle durably", errors.Join(markerErr, reconcileErr))
 			}
 			return 0, markerErr
@@ -810,7 +836,7 @@ func (engine *Engine) assemble(ctx context.Context, workDir string, count int, d
 		if durable {
 			var commitErr atomicfile.CommitError
 			if errors.As(publicationErr, &commitErr) && (commitErr.Committed() || commitErr.Indeterminate()) {
-				markerErr := writeReconciliationMarker(workDir, "final publication authority is uncertain")
+				markerErr := writeReconciliationMarker(workDir, "final publication authority is uncertain", write)
 				return 0, checkpointFailure(ErrCheckpointReconciliation, "final publication did not settle durably", errors.Join(publicationErr, markerErr))
 			}
 			return 0, checkpointFailure(ErrCheckpointReconciliation, "final publication failed before commit and retained recoverable evidence", publicationErr)
