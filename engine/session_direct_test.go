@@ -502,6 +502,70 @@ func TestDirectSessionCollisionPreservesTargetAndSupportsPublishOnlyRetry(t *tes
 	}
 }
 
+func TestDirectSessionsRaceToOneDestinationWithoutReplacement(t *testing.T) {
+	first := []byte(strings.Repeat("first-race-payload-", 8<<10))
+	second := []byte(strings.Repeat("second-race-payload-", 8<<10))
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		body := first
+		if request.URL.Query().Get("track") == "second" {
+			body = second
+		}
+		writer.Header().Set("ETag", `"`+request.URL.Query().Get("track")+`"`)
+		http.ServeContent(writer, request, "media.bin", time.Unix(0, 0), strings.NewReader(string(body)))
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	firstInfoPath := filepath.Join(t.TempDir(), "first.json")
+	secondInfoPath := filepath.Join(t.TempDir(), "second.json")
+	writeDirectSessionInfo(t, firstInfoPath, server.URL+"/media?track=first")
+	writeDirectSessionInfo(t, secondInfoPath, server.URL+"/media?track=second")
+	type outcome struct {
+		result Result
+		err    error
+	}
+	start := make(chan struct{})
+	outcomes := make(chan outcome, 2)
+	for _, test := range []struct {
+		sessionID string
+		infoPath  string
+	}{
+		{sessionID: "abababababababababababababababab", infoPath: firstInfoPath},
+		{sessionID: "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd", infoPath: secondInfoPath},
+	} {
+		go func(sessionID, infoPath string) {
+			<-start
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			result, err := newBroadTestClient().Run(ctx, directSessionRequest(root, infoPath, sessionID, NewPublicationArbiter()))
+			outcomes <- outcome{result: result, err: err}
+		}(test.sessionID, test.infoPath)
+	}
+	close(start)
+	winners, collisions := 0, 0
+	for range 2 {
+		select {
+		case outcome := <-outcomes:
+			switch {
+			case outcome.err == nil && outcome.result.Downloaded && outcome.result.Session.Disposition == SessionPublished:
+				winners++
+			case errors.Is(outcome.err, ErrDestinationCollision) && outcome.result.Session.Disposition == SessionCollision:
+				collisions++
+			default:
+				t.Fatalf("race outcome err=%v result=%#v", outcome.err, outcome.result)
+			}
+		case <-time.After(20 * time.Second):
+			t.Fatal("timed out waiting for competing publications")
+		}
+	}
+	if winners != 1 || collisions != 1 {
+		t.Fatalf("publication race winners=%d collisions=%d, want 1 each", winners, collisions)
+	}
+	output, err := os.ReadFile(filepath.Join(root, "output.bin"))
+	if err != nil || (string(output) != string(first) && string(output) != string(second)) {
+		t.Fatalf("published race output=%d bytes err=%v", len(output), err)
+	}
+}
+
 func TestDirectSessionPostReplaceJournalFailureIsRecoveryRequired(t *testing.T) {
 	fixture := &directSessionFixture{body: []byte(strings.Repeat("journal-fault-", 8<<10))}
 	fixture.etag.Store(`"journal-fault"`)
@@ -730,4 +794,53 @@ func TestDirectPublicationJournalRejectsCredentialMaterial(t *testing.T) {
 	if strings.Contains(string(encoded), "http") || strings.Contains(string(encoded), "token") || strings.Contains(string(encoded), "cookie") {
 		t.Fatalf("journal contains unexpected request material: %s", encoded)
 	}
+}
+
+func TestDirectPublicationJournalRejectsTrailingEvidence(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "publish", directSessionJournalName)
+	journal := directPublicationJournal{
+		Version: directSessionJournalVersion, SessionID: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", State: directJournalReady,
+		Fingerprint: strings.Repeat("a", 64), TargetKind: "primary", TargetIdentity: "primary", TargetBasename: "out.bin", UpdatedAt: time.Now().UTC(),
+	}
+	if err := writeDirectPublicationJournal(path, journal); err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(encoded, []byte(`{"unexpected":true}`)...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readDirectPublicationJournal(path); !errors.Is(err, ErrSessionNeedsReconciliation) {
+		t.Fatalf("trailing journal evidence error = %v", err)
+	}
+}
+
+func FuzzDirectPublicationJournalEvidence(f *testing.F) {
+	valid := []byte(`{"version":1,"session_id":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","state":"ready","fingerprint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","target_kind":"primary","target_identity":"primary","target_basename":"out.bin","updated_at":"2026-08-12T00:00:00Z"}`)
+	f.Add(valid)
+	f.Add(append(append([]byte(nil), valid...), []byte(" trailing")...))
+	f.Add([]byte(`{"version":1}`))
+	f.Fuzz(func(t *testing.T, raw []byte) {
+		if len(raw) > maxDirectSessionJournalBytes+1 {
+			raw = raw[:maxDirectSessionJournalBytes+1]
+		}
+		path := filepath.Join(t.TempDir(), directSessionJournalName)
+		if err := os.WriteFile(path, raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		journal, err := readDirectPublicationJournal(path)
+		if err != nil {
+			if !errors.Is(err, ErrSessionNeedsReconciliation) {
+				t.Fatalf("read error = %v", err)
+			}
+			return
+		}
+		if journal.Version != directSessionJournalVersion || !validDirectJournalState(journal.State) || journal.UpdatedAt.IsZero() ||
+			len(journal.Fingerprint) != 64 || journal.Fingerprint != strings.ToLower(journal.Fingerprint) ||
+			!validResumeIdentifier(journal.SessionID) || !validResumeIdentifier(journal.TargetKind) || !validResumeIdentifier(journal.TargetIdentity) || !validPortableResumeBasename(journal.TargetBasename) {
+			t.Fatalf("accepted invalid journal: %#v", journal)
+		}
+	})
 }

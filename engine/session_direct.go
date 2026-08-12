@@ -1148,6 +1148,12 @@ func readDirectPublicationJournal(path string) (directPublicationJournal, error)
 	if err := decoder.Decode(&journal); err != nil {
 		return directPublicationJournal{}, ErrSessionNeedsReconciliation
 	}
+	// A journal is atomic evidence, not a permissive JSON stream. Accepting a
+	// valid object followed by arbitrary bytes would let torn or concatenated
+	// evidence look committed during restart reconciliation.
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return directPublicationJournal{}, ErrSessionNeedsReconciliation
+	}
 	if journal.Version != directSessionJournalVersion || !validDirectJournalState(journal.State) || journal.UpdatedAt.IsZero() || len(journal.Fingerprint) != sha256.Size*2 || journal.Fingerprint != strings.ToLower(journal.Fingerprint) || !validResumeIdentifier(journal.SessionID) || !validResumeIdentifier(journal.TargetKind) || !validResumeIdentifier(journal.TargetIdentity) || !validPortableResumeBasename(journal.TargetBasename) {
 		return directPublicationJournal{}, ErrSessionNeedsReconciliation
 	}

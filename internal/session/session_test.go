@@ -1187,7 +1187,7 @@ func TestOutputIntentRejectsSecretBearingPlanIdentity(t *testing.T) {
 }
 
 func TestHelperProcessLeaseContentionAndRelease(t *testing.T) {
-	if os.Getenv("YTDLP_SESSION_LEASE_HELPER") == "1" {
+	if helperMode := os.Getenv("YTDLP_SESSION_LEASE_HELPER"); helperMode != "" {
 		var ref WorkspaceRef
 		if err := json.Unmarshal([]byte(os.Getenv("YTDLP_SESSION_LEASE_REF")), &ref); err != nil {
 			os.Exit(2)
@@ -1197,6 +1197,9 @@ func TestHelperProcessLeaseContentionAndRelease(t *testing.T) {
 			os.Exit(3)
 		}
 		fmt.Fprintln(os.Stdout, "ready")
+		if helperMode == "crash" {
+			select {}
+		}
 		_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
 		_ = workspace.Close()
 		os.Exit(0)
@@ -1242,6 +1245,70 @@ func TestHelperProcessLeaseContentionAndRelease(t *testing.T) {
 	}
 	if err := reopened.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCrossProcessLeaseCrashReleasesForBoundedGC(t *testing.T) {
+	workspace, ref := createTestWorkspace(t)
+	if err := workspace.Close(); err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command(os.Args[0], "-test.run=TestHelperProcessLeaseContentionAndRelease", "--")
+	command.Env = append(os.Environ(), "YTDLP_SESSION_LEASE_HELPER=crash", "YTDLP_SESSION_LEASE_REF="+string(encoded))
+	stdout, err := command.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	scanner := bufio.NewScanner(stdout)
+	ready := make(chan bool, 1)
+	go func() { ready <- scanner.Scan() && scanner.Text() == "ready" }()
+	select {
+	case ok := <-ready:
+		if !ok {
+			_ = command.Process.Kill()
+			t.Fatal("crash helper did not acquire the lease")
+		}
+	case <-time.After(10 * time.Second):
+		_ = command.Process.Kill()
+		t.Fatal("timed out waiting for crash helper lease")
+	}
+	if _, err := Open(ref); !errors.Is(err, ErrLeaseContended) {
+		_ = command.Process.Kill()
+		t.Fatalf("live helper Open() error = %v, want lease contention", err)
+	}
+	if err := command.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	waited := make(chan error, 1)
+	go func() { waited <- command.Wait() }()
+	select {
+	case err := <-waited:
+		if err == nil {
+			t.Fatal("crash helper exited cleanly")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for crash helper termination")
+	}
+	root, err := ValidateOutputRoot(ref.OutputRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := CollectOrphans(root.CanonicalPath, root.Identity, nil, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Collected) != 1 || result.Collected[0] != ref.SessionID || len(result.Reconciliation) != 0 || len(result.CleanupPending) != 0 {
+		t.Fatalf("post-crash collection = %#v", result)
+	}
+	if _, err := os.Stat(workspace.Path()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("crashed workspace remains after collection: %v", err)
 	}
 }
 
