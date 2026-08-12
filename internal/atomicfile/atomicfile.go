@@ -84,7 +84,19 @@ func Write(path string, perm fs.FileMode, encode func(io.Writer) error) error {
 	return write(path, perm, encode, productionOps)
 }
 
+// WriteWithTempSecurity is Write with a callback that hardens the newly
+// created temporary file before any bytes are written. This is used by
+// security-sensitive callers whose parent directory intentionally grants
+// inheritance to descendants but whose files must have explicit ACLs.
+func WriteWithTempSecurity(path string, perm fs.FileMode, encode func(io.Writer) error, secureTemp func(string) error) error {
+	return writeWithTempSecurity(path, perm, encode, productionOps, secureTemp)
+}
+
 func write(path string, perm fs.FileMode, encode func(io.Writer) error, ops fileOps) (result error) {
+	return writeWithTempSecurity(path, perm, encode, ops, nil)
+}
+
+func writeWithTempSecurity(path string, perm fs.FileMode, encode func(io.Writer) error, ops fileOps, secureTemp func(string) error) (result error) {
 	if encode == nil {
 		return failure("write temporary file", fmt.Errorf("nil encoder"), false)
 	}
@@ -109,6 +121,11 @@ func write(path string, perm fs.FileMode, encode func(io.Writer) error, ops file
 			)
 		}
 	}()
+	if secureTemp != nil {
+		if err := secureTemp(temporaryPath); err != nil {
+			return failure("secure temporary file", err, false)
+		}
+	}
 
 	if err := ops.writeTemp(temporary, encode); err != nil {
 		return failure("write temporary file", err, false)

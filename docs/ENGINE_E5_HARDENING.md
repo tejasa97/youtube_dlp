@@ -19,6 +19,15 @@ The session path remains deliberately unavailable for live HLS, dynamic DASH,
 YouTube live/post-live, SABR, and UMP. E5 neither adds a scheduler nor changes
 VidStow composition or release scope.
 
+The native Windows blocker found on the first manual E5 run had two product
+causes: workspace ACL setup did not explicitly bind ownership and its
+validator accepted only the incidental ACE layout produced by one Windows
+ACL-construction path; session basenames also used host-native volume and path
+comparisons. The repaired path constructs a protected SDDL allow-list for the
+current user, LocalSystem, and Builtin Administrators, validates exact
+allow-only ACEs, and validates portable basenames before mapping them to native
+paths. The workflow itself is unchanged; the exact hosted Windows run remains
+the coordinator's post-review acceptance check.
 ## Lease, GC, and publication invariants
 
 - Workspace authority uses a native exclusive lease. A killed holder releases
@@ -41,7 +50,7 @@ VidStow composition or release scope.
 | Platform | Lease primitive | No-replace publication | Evidence status |
 | --- | --- | --- | --- |
 | Unix targets supported by `lease_unix.go` | non-blocking `flock` | hard-link create-if-absent, with fingerprint reconciliation | deterministic and cross-process tests exercised on this Unix host |
-| Windows | `LockFileEx` | Go `os.Link` create-if-absent path with the same fingerprint/collision checks | compile-checked here; native Windows runner must execute the bounded test command before release approval |
+| Windows | `LockFileEx` | Go `os.Link` create-if-absent path with the same fingerprint/collision checks | test binaries compile here; native Windows runner must execute the bounded test command before release approval |
 | Other targets | fail closed (`ErrLeaseUnavailable`) | not an advertised resumable-session platform | intentional |
 
 Run the bounded E5 regression suite with explicit test and fuzz limits:
@@ -49,7 +58,8 @@ Run the bounded E5 regression suite with explicit test and fuzz limits:
 ```sh
 go test -timeout 150s ./internal/session ./engine -run 'Test(CrossProcessLeaseCrashReleasesForBoundedGC|HelperProcessLeaseContentionAndRelease|DiscardGuardBlocksCrossProcessRecovery|DirectSession(Collision|PostReplace|Indeterminate|PrePublication)|DirectSessionsRaceToOneDestinationWithoutReplacement|FiniteHLSSession|StaticDASHSession|MultiTrackSession(Collision|PostReplace|Indeterminate|PrePublication|LeaseContention))' -count=1
 go test -timeout 60s ./engine -run '^$' -fuzz '^FuzzDirectPublicationJournalEvidence$' -fuzztime=10s
-GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go test ./internal/session ./engine -run '^$'
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go test -c -o /tmp/ytdlp-session.test.exe ./internal/session
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go test -c -o /tmp/ytdlp-engine.test.exe ./engine
 ```
 
 For native Windows execution, keep the CI job timeout around the equivalent

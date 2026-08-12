@@ -143,7 +143,7 @@ func openArtifactManifest(
 		state := initialManifestState(expectation)
 		if err := writeManifestState(statePath, state, write); err != nil {
 			if expectation.durable {
-				return nil, classifyInitialManifestWrite(workDir, err)
+				return nil, classifyInitialManifestWrite(workDir, err, write)
 			}
 			return nil, err
 		}
@@ -551,7 +551,7 @@ func (manifest *artifactManifest) RecordScaled(index int, path string, scale *Sc
 				manifest.state = candidate
 			}
 			manifest.poisoned = true
-			markerErr := writeReconciliationMarker(manifest.workDir, "checkpoint ledger authority is uncertain")
+			markerErr := writeReconciliationMarker(manifest.workDir, "checkpoint ledger authority is uncertain", manifest.write)
 			return checkpointFailure(ErrCheckpointReconciliation, "checkpoint ledger commit did not settle durably", errors.Join(err, markerErr))
 		}
 		return err
@@ -614,17 +614,17 @@ func writeManifestState(path string, state manifestState, write func(string, os.
 	})
 }
 
-func classifyInitialManifestWrite(workDir string, err error) error {
+func classifyInitialManifestWrite(workDir string, err error, write func(string, os.FileMode, func(io.Writer) error) error) error {
 	var commitErr atomicfile.CommitError
 	if errors.As(err, &commitErr) && (commitErr.Committed() || commitErr.Indeterminate()) {
-		markerErr := writeReconciliationMarker(workDir, "initial checkpoint ledger authority is uncertain")
+		markerErr := writeReconciliationMarker(workDir, "initial checkpoint ledger authority is uncertain", write)
 		return checkpointFailure(ErrCheckpointReconciliation, "initial checkpoint ledger commit did not settle durably", errors.Join(err, markerErr))
 	}
 	return err
 }
 
-func writeReconciliationMarker(workDir, reason string) error {
-	return atomicfile.Write(filepath.Join(workDir, reconciliationMarker), 0o600, func(writer io.Writer) error {
+func writeReconciliationMarker(workDir, reason string, write func(string, os.FileMode, func(io.Writer) error) error) error {
+	return write(filepath.Join(workDir, reconciliationMarker), 0o600, func(writer io.Writer) error {
 		return json.NewEncoder(writer).Encode(struct {
 			Version int    `json:"version"`
 			Reason  string `json:"reason"`

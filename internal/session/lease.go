@@ -37,13 +37,22 @@ func acquireWorkspaceLease(path string, create, writeMetadata bool) (*workspaceL
 	flags := os.O_RDWR
 	if create {
 		flags |= os.O_CREATE
+		if created {
+			flags |= os.O_EXCL
+		}
 	}
 	file, err := os.OpenFile(path, flags, 0o600)
+	if err != nil && created && errors.Is(err, os.ErrExist) {
+		// Another process won the create race. Reopen its lease and apply the
+		// ordinary strict validation below; never treat a raced-in file as ours.
+		created = false
+		file, err = os.OpenFile(path, os.O_RDWR, 0o600)
+	}
 	if err != nil {
 		return nil, ErrLeaseUnavailable
 	}
 	info, err = file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || !ownerOnlyFileAt(path, info) {
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 		_ = file.Close()
 		return nil, ErrUnsafePath
 	}
@@ -53,8 +62,8 @@ func acquireWorkspaceLease(path string, create, writeMetadata bool) (*workspaceL
 			return nil, err
 		}
 	}
-	info, err = file.Stat()
-	if err != nil || !info.Mode().IsRegular() || !ownerOnlyFileAt(path, info) {
+	current, statErr := os.Lstat(path)
+	if statErr != nil || current.Mode()&os.ModeSymlink != 0 || !current.Mode().IsRegular() || !os.SameFile(info, current) || !ownerOnlyFileAt(path, current) {
 		_ = file.Close()
 		return nil, ErrPermissionUnavailable
 	}

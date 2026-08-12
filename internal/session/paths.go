@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 func newWorkspaceRef(outputRoot, sessionID string) (WorkspaceRef, error) {
@@ -99,6 +100,76 @@ func ensureOutputRoot(root string) error {
 		return err
 	}
 	return ensureDirectory(canonical, 0o755, false)
+}
+
+const (
+	sharedSessionsRootWindow     = 1500 * time.Millisecond
+	sharedSessionsRootBackoff    = 2 * time.Millisecond
+	sharedSessionsRootMaxBackoff = 50 * time.Millisecond
+)
+
+type sharedSessionsRootOps struct {
+	lstat  func(string) (os.FileInfo, error)
+	ensure func(string) error
+	now    func() time.Time
+	sleep  func(time.Duration)
+}
+
+// ensureSharedSessionsRoot retries only the narrow race where this process
+// observed a missing shared root and another creator made the directory while
+// its ACL was still being hardened. A pre-existing directory is never retried
+// or accepted by this path; every attempt still performs the strict owner-only
+// validation in ensureDirectory.
+func ensureSharedSessionsRoot(path string) error {
+	return ensureSharedSessionsRootWith(path, sharedSessionsRootOps{
+		lstat:  os.Lstat,
+		ensure: func(path string) error { return ensureDirectory(path, 0o700, true) },
+		now:    time.Now,
+		sleep:  time.Sleep,
+	})
+}
+
+func ensureSharedSessionsRootWith(path string, ops sharedSessionsRootOps) error {
+	deadline := ops.now().Add(sharedSessionsRootWindow)
+	backoff := sharedSessionsRootBackoff
+	initiallyMissing := false
+	for {
+		_, beforeErr := ops.lstat(path)
+		wasMissing := errors.Is(beforeErr, os.ErrNotExist)
+		if wasMissing {
+			initiallyMissing = true
+		} else if beforeErr != nil && !initiallyMissing {
+			return ops.ensure(path)
+		}
+		err := ops.ensure(path)
+		if err == nil {
+			return nil
+		}
+		if !initiallyMissing || (!errors.Is(err, ErrWorkspaceUnavailable) && !errors.Is(err, ErrUnsafePath)) {
+			return err
+		}
+		if !ops.now().Before(deadline) {
+			return err
+		}
+		info, afterErr := ops.lstat(path)
+		if afterErr != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return err
+		}
+		remaining := deadline.Sub(ops.now())
+		if remaining <= 0 {
+			return err
+		}
+		if backoff > remaining {
+			backoff = remaining
+		}
+		ops.sleep(backoff)
+		if backoff < sharedSessionsRootMaxBackoff {
+			backoff *= 2
+			if backoff > sharedSessionsRootMaxBackoff {
+				backoff = sharedSessionsRootMaxBackoff
+			}
+		}
+	}
 }
 
 func ensureDirectory(path string, mode fs.FileMode, ownerOnly bool) error {

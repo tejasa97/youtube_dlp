@@ -444,7 +444,7 @@ func clampCheckpointWorkspace(
 	if err := writeManifestState(statePath, candidate, write); err != nil {
 		var commitErr atomicfile.CommitError
 		if errors.As(err, &commitErr) && (commitErr.Committed() || commitErr.Indeterminate()) {
-			markerErr := writeReconciliationMarker(workDir, "caller-authoritative checkpoint clamp is uncertain")
+			markerErr := writeReconciliationMarker(workDir, "caller-authoritative checkpoint clamp is uncertain", write)
 			return checkpointFailure(ErrCheckpointReconciliation, "caller-authoritative ledger clamp did not settle durably", errors.Join(err, markerErr))
 		}
 		return checkpointFailure(ErrCheckpointReconciliation, "caller-authoritative ledger clamp failed", err)

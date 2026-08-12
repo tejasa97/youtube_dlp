@@ -110,9 +110,9 @@ func checkpointWindowsACL(t *testing.T, inheritance uint32, additional *windows.
 		t.Fatal(err)
 	}
 	entries := []windows.EXPLICIT_ACCESS{
-		checkpointAccessEntry(user, windows.TRUSTEE_IS_USER, inheritance),
-		checkpointAccessEntry(system, windows.TRUSTEE_IS_USER, inheritance),
-		checkpointAccessEntry(administrators, windows.TRUSTEE_IS_GROUP, inheritance),
+		checkpointTestAccessEntry(user, windows.TRUSTEE_IS_USER, inheritance),
+		checkpointTestAccessEntry(system, windows.TRUSTEE_IS_USER, inheritance),
+		checkpointTestAccessEntry(administrators, windows.TRUSTEE_IS_GROUP, inheritance),
 	}
 	if additional != nil {
 		entries = append(entries, *additional)
@@ -122,6 +122,19 @@ func checkpointWindowsACL(t *testing.T, inheritance uint32, additional *windows.
 		t.Fatal(err)
 	}
 	return acl
+}
+
+func checkpointTestAccessEntry(sid *windows.SID, trusteeType windows.TRUSTEE_TYPE, inheritance uint32) windows.EXPLICIT_ACCESS {
+	return windows.EXPLICIT_ACCESS{
+		AccessPermissions: windows.GENERIC_ALL,
+		AccessMode:        windows.SET_ACCESS,
+		Inheritance:       inheritance,
+		Trustee: windows.TRUSTEE{
+			TrusteeForm:  windows.TRUSTEE_IS_SID,
+			TrusteeType:  trusteeType,
+			TrusteeValue: windows.TrusteeValueFromSID(sid),
+		},
+	}
 }
 
 func checkpointWindowsDACLProtected(t *testing.T, path string) bool {

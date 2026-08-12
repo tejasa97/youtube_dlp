@@ -159,6 +159,103 @@ func TestCreateOpenInspectAndOwnerOnlyLayout(t *testing.T) {
 	}
 }
 
+func TestConcurrentCreateWithDistinctIDsSharesSessionRootSafely(t *testing.T) {
+	root := t.TempDir()
+	const creators = 8
+	start := make(chan struct{})
+	results := make(chan struct {
+		workspace *Workspace
+		err       error
+	}, creators)
+	for index := 0; index < creators; index++ {
+		id := fmt.Sprintf("%030x%02x", index, index)
+		go func() {
+			<-start
+			workspace, err := CreateWithID(testCreateOptions(root), id)
+			results <- struct {
+				workspace *Workspace
+				err       error
+			}{workspace: workspace, err: err}
+		}()
+	}
+	close(start)
+	for index := 0; index < creators; index++ {
+		result := <-results
+		if result.err != nil {
+			t.Fatalf("concurrent session creation failed: %v", result.err)
+		}
+		if result.workspace == nil {
+			t.Fatal("concurrent session creation returned a nil workspace")
+		}
+		if err := result.workspace.Close(); err != nil {
+			t.Fatalf("close concurrent workspace: %v", err)
+		}
+	}
+}
+
+func TestSharedSessionsRootRetriesOnlyObservedPreparationWindow(t *testing.T) {
+	path := filepath.Join(t.TempDir(), SessionsDirectoryName)
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock := time.Now()
+	lstatCalls := 0
+	ensureCalls := 0
+	sleeps := 0
+	if err := ensureSharedSessionsRootWith(path, sharedSessionsRootOps{
+		lstat: func(string) (os.FileInfo, error) {
+			lstatCalls++
+			if lstatCalls == 1 {
+				return nil, os.ErrNotExist
+			}
+			return info, nil
+		},
+		ensure: func(string) error {
+			ensureCalls++
+			if ensureCalls < 3 {
+				return ErrUnsafePath
+			}
+			return nil
+		},
+		now: func() time.Time { return clock },
+		sleep: func(delay time.Duration) {
+			sleeps++
+			clock = clock.Add(delay)
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if ensureCalls != 3 || sleeps != 2 {
+		t.Fatalf("preparation retries = %d, sleeps = %d; want 3, 2", ensureCalls, sleeps)
+	}
+}
+
+func TestSharedSessionsRootRejectsPreexistingUnsafeDirectoryWithoutRetry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), SessionsDirectoryName)
+	info, err := os.Stat(filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ensureCalls := 0
+	if err := ensureSharedSessionsRootWith(path, sharedSessionsRootOps{
+		lstat: func(string) (os.FileInfo, error) { return info, nil },
+		ensure: func(string) error {
+			ensureCalls++
+			return ErrUnsafePath
+		},
+		now:   time.Now,
+		sleep: func(time.Duration) { t.Fatal("preexisting unsafe directory was retried") },
+	}); !errors.Is(err, ErrUnsafePath) {
+		t.Fatalf("unsafe preexisting directory error = %v", err)
+	} else if ensureCalls != 1 {
+		t.Fatalf("unsafe preexisting directory ensure calls = %d, want 1", ensureCalls)
+	}
+}
+
 func TestManifestAllowsExtractionWithoutDestinationButRequiresItBeforeDownload(t *testing.T) {
 	root := t.TempDir()
 	options := testCreateOptions(root)
@@ -782,6 +879,33 @@ func TestManifestAtomicCommitOutcomes(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestCommittedManifestDurabilityErrorRemainsErrorAfterACLHardening(t *testing.T) {
+	workspace, _ := createTestWorkspace(t)
+	defer workspace.Close()
+	before := workspace.Manifest()
+	original := atomicManifestWrite
+	t.Cleanup(func() { atomicManifestWrite = original })
+	atomicManifestWrite = func(path string, mode fs.FileMode, encode func(io.Writer) error) error {
+		encoded := encodeManifestForTest(t, encode)
+		if err := os.WriteFile(path, encoded, mode); err != nil {
+			t.Fatal(err)
+		}
+		return injectedCommitError{committed: true, err: errors.New("committed durability failure")}
+	}
+
+	err := workspace.Transition(before.Revision, before.RunGeneration, PhaseExtracting, StatusActive, DesiredRunning, testNow.Add(time.Minute))
+	if err == nil {
+		t.Fatal("committed manifest write reported success")
+	}
+	var outcome atomicfile.CommitError
+	if !errors.As(err, &outcome) || !outcome.Committed() || outcome.Indeterminate() {
+		t.Fatalf("error = %T %v, outcome = %v/%v", err, err, outcome.Committed(), outcome.Indeterminate())
+	}
+	if workspace.Manifest().Phase != PhaseExtracting {
+		t.Fatalf("committed in-memory phase = %q, want %q", workspace.Manifest().Phase, PhaseExtracting)
 	}
 }
 

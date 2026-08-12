@@ -131,6 +131,33 @@ func TestSessionRequestRequiresCompleteSafeCommitDeclaration(t *testing.T) {
 	}
 }
 
+func TestPortableResumeBasenameWireFormatIsHostIndependent(t *testing.T) {
+	cases := []struct {
+		basename string
+		valid    bool
+	}{
+		{"output.bin", true}, {"résumé.mp4", true}, {"part-01.m4a", true},
+		{"", false}, {".", false}, {"..", false}, {"../output.bin", false},
+		{"nested/output.bin", false}, {"nested\\output.bin", false},
+		{"C:\\output.bin", false}, {"C:/output.bin", false}, {"C:output.bin", false},
+		{"CON", false}, {"CON.txt", false}, {"com1.mp4", false}, {"LPT9.log", false},
+		{"trailing.", false}, {"trailing ", false}, {"bad:name.bin", false},
+		{"bad<name>.bin", false}, {"bad\u0085name.bin", false},
+	}
+	root := t.TempDir()
+	for _, test := range cases {
+		t.Run(test.basename, func(t *testing.T) {
+			if got := validPortableResumeBasename(test.basename); got != test.valid {
+				t.Fatalf("validPortableResumeBasename(%q) = %t, want %t", test.basename, got, test.valid)
+			}
+			path, ok := portableResumeDestination(root, test.basename)
+			if ok != test.valid {
+				t.Fatalf("portableResumeDestination(%q) accepted=%t, want %t (path=%q)", test.basename, ok, test.valid, path)
+			}
+		})
+	}
+}
+
 func TestRenderOutputArtifactsUsesSanitizedBasenameOnly(t *testing.T) {
 	t.Parallel()
 	metadata := value.NewInfo(value.NewObject(
