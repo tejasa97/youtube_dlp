@@ -13,7 +13,7 @@ import (
 var washingtonPostUUIDPath = regexp.MustCompile(`(?i)/(?:video|posttv)/(?:[^/]+/)*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`)
 
 // WashingtonPost is a thin Arc Publishing adapter for documented WaPo video UUID
-// paths. Article playlist discovery remains out of this wave.
+// paths. Article playlist discovery is outside this adapter boundary.
 type WashingtonPost struct{}
 
 func NewWashingtonPost() WashingtonPost { return WashingtonPost{} }

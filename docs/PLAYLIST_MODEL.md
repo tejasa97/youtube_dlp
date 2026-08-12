@@ -84,8 +84,8 @@ unchanged. `--no-flat-playlist` disables an inherited configuration value.
 
 This is the reusable base for the representative site pilots. The non-CLI
 global/discard variants of `extract_flat` and arbitrary transparent field
-overlays remain explicit later compatibility work rather than hidden behavior.
-The Go API intentionally exposes continue-versus-abort plus an observable
+overlays are outside the current compatibility claim rather than hidden
+behavior. The Go API intentionally exposes continue-versus-abort plus an observable
 failure count; yt-dlp's internal `ignoreerrors="only_download"` return-code
 sentinel is represented only at the CLI exit-policy boundary. Unlike upstream random-access paged lists, this sequential
 extractor boundary may fetch earlier pages while seeking a later sparse index.

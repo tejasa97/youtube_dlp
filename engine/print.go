@@ -402,7 +402,7 @@ func addSelectedFormatFields(info *value.Info, selections []mediaformat.Selectio
 }
 
 // selectedPlanInfo is the plan-aware merged-metadata helper introduced in
-// PR 5. The canonical merged-format dictionary is owned by the format
+// the format planner. The canonical merged-format dictionary is owned by the format
 // planner, so when an OutputPlan is already available the product layer
 // should consume plan.Metadata instead of reconstructing merged fields
 // from []Selection. Use this helper wherever an OutputPlan is available.

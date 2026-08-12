@@ -11,9 +11,10 @@ import (
 	"testing"
 )
 
-// Program-wide auditable inventory for extractor-breadth since baseline 172a718c
-// (wave 1 + priority-100). Counts require successful Extract (or verified
-// URLResult re-entry / playlist CollectEntries), never Suitable-only, and never
+// Program-wide auditable inventory for extractor-breadth since baseline
+// 172a718c (the shared-family breadth set). Counts require successful Extract
+// (or verified URLResult re-entry / playlist CollectEntries), never
+// Suitable-only, and never
 // hostname aliases with identical behavior.
 
 const (

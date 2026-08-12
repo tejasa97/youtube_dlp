@@ -1881,7 +1881,7 @@ func (operation *operation) processMedia(ctx context.Context, extracted Extracti
 		}
 	}
 
-	// PR 8 routes every output plan through the per-output lifecycle
+	// The current lifecycle routes every output plan through the per-output lifecycle
 	// abstraction. The branch is positioned after
 	// validatePrintRules so the existing pre-download sidecar
 	// writes (PrintVideo, thumbnails, related, PrintBeforeDL,

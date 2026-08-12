@@ -1,4 +1,4 @@
-// Package dash parses and downloads the Phase 1 DASH pilot subset.
+// Package dash parses and downloads the supported DASH subset.
 package dash
 
 import (

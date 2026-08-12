@@ -1,8 +1,8 @@
 # YouTube watch-enrichment evidence
 
 Status: compatible for the bounded single-video watch-page metadata corpus
-described below. This wave extends the single-video extraction with
-watch-page (`ytInitialData`) fields via a reusable bounded parser and a shared
+described below. This capability extends single-video extraction with watch-page
+(`ytInitialData`) fields via a reusable bounded parser and a shared
 availability normalizer. No new network requests are introduced.
 
 ## User-visible behavior

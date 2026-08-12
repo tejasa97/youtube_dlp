@@ -12,7 +12,7 @@ import (
 
 // preflightOutputLifecycles resolves every deterministic path that a plan can
 // publish before the first lifecycle starts. Passing the complete set through
-// PR 7's preflight prevents two plan-specific sidecars or postprocessor
+// The lifecycle preflight prevents two plan-specific sidecars or postprocessor
 // outputs from silently overwriting one another and teaches rollback which
 // destinations existed before this run.
 func (operation *operation) preflightOutputLifecycles(

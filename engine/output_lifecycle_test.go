@@ -276,9 +276,8 @@ func TestExecuteOutputLifecycleDownloadFailurePreservesErrorIdentity(t *testing.
 //   - Prints: deterministic per-stage ordering.
 //   - Downloaded: true.
 //
-// This is the zero-regression baseline used by the Phase 3 integration
-// to confirm the abstraction is contract-compatible before any
-// processMedia refactor lands.
+// This zero-regression test confirms that the lifecycle abstraction remains
+// compatible with the public result contract.
 func TestSingleOutputLifecycleMatchesLegacyContract(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/video" {
@@ -346,7 +345,7 @@ func writePrintFileFixture(path, content string) error {
 }
 
 // TestSingleOutputLifecycleAggregatesMatchClientRun is the
-// end-to-end zero-regression baseline for Phase 3. It exercises
+// end-to-end zero-regression baseline. It exercises
 // client.Run on a single-output selection and asserts that the
 // lifecycle abstraction, when constructed from the same plan and
 // destination, reports:
@@ -355,10 +354,9 @@ func writePrintFileFixture(path, content string) error {
 //   - A Byte total no smaller than the actual media file size.
 //   - A non-empty lifecycle with Downloaded = true.
 //
-// The integration asserts only fields that PR 7 already pins for
+// The integration asserts only fields that the public result contract pins for
 // single-output. Other fields (sidecars, postprocessors, cuts,
-// embeds) remain entry-scoped until later phases move them into
-// the lifecycle.
+// embeds) are outside this focused assertion.
 func TestSingleOutputLifecycleAggregatesMatchClientRun(t *testing.T) {
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

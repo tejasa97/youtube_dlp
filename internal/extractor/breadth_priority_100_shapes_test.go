@@ -16,7 +16,7 @@ func breadthProgramSuccessShapes(t *testing.T) []breadthShapeSpec {
 		out = append(out, breadthShapeSpec{ID: id, Canonical: canonical, Key: key, Kind: kind, Run: run})
 	}
 
-	// --- Wave 1 ---
+	// Shared-family extractor shapes.
 	add("cfstream-watch-hex", "cloudflarestream|watch.cloudflarestream.com/{hex}", "cloudflarestream", "media", func(t *testing.T) {
 		result, err := NewCloudflareStream().Extract(context.Background(), Request{URL: "https://watch.cloudflarestream.com/9df17203414fd1db3e3ed74abbe936c1"})
 		if err != nil {

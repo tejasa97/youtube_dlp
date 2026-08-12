@@ -59,7 +59,7 @@ func validHostedHTTPURL(rawURL string) bool {
 	return err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != "" && parsed.User == nil
 }
 
-// strictValidHostedHTTPURL is the wave-1 family policy: HTTPS/HTTP with no
+// strictValidHostedHTTPURL is the strict shared-family policy: HTTPS/HTTP with no
 // userinfo, no explicit port, no IP-literal/localhost-like hosts, no fragments,
 // and no non-canonical/dot-segment/backslash path tricks. Existing Brightcove /
 // Kaltura / JW / Wistia / SproutVideo backends keep validHostedHTTPURL.
@@ -115,7 +115,7 @@ func looksLikeLocalOrInternalHost(host string) bool {
 	return false
 }
 
-// hostedRejectUnsafeURL rejects request URLs for wave-1 routing/adapters under
+// hostedRejectUnsafeURL rejects request URLs for strict shared-family routing and adapters under
 // the strict URL policy. Legacy shared-hosting backends do not use this helper.
 func hostedRejectUnsafeURL(parsed *url.URL) bool {
 	if parsed == nil || len(parsed.String()) > sharedHostingMaxURLBytes {

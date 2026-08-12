@@ -50,7 +50,7 @@ func TestSelectorBestWorstAndStringFilters(t *testing.T) {
 		{"bestvideo[vcodec^=av]", "360"},
 		{"worstvideo", "360"},
 		{"bestaudio[format_id$=high]", "audio-high"},
-		// PR 5 §7A: plain best/worst require both vcodec and acodec.
+		// Pinned plain best/worst behavior: require both vcodec and acodec.
 		// selectorInfo() has no combined format, so plain best yields
 		// ErrNoMatch. We document this behaviour with best*.
 		{`best*[ext~="webm|mp4"]`, "720"},

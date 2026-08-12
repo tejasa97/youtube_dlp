@@ -9,12 +9,12 @@ import (
 // text for rows whose classification is already determined by exactAliases or
 // normalized Go key matches. Overrides are keyed only by upstream IE class
 // names that exist in the pinned registry; they cannot invent rows or promote
-// unsupported classes. Deferred rows may carry an explicit reviewed status
+// unsupported classes. Reviewed unsupported rows may carry an explicit status
 // without pretending that an exact Go mapping exists.
 type reviewedInventoryEntry struct {
-	rationale string
-	status    string
-	deferred  bool
+	rationale     string
+	status        string
+	allowUnmapped bool
 }
 
 var reviewedInventory = map[string]reviewedInventoryEntry{
@@ -142,18 +142,18 @@ var reviewedInventory = map[string]reviewedInventoryEntry{
 		rationale: "fixture-backed exact Medius Embed routes with canonical discovery and native ISM product evidence",
 	},
 	"NiconicoHistoryIE": {
-		status:    ExtractorAuthOrAntiBot,
-		deferred:  true,
-		rationale: "deferred: pinned history/likes API requires authenticated cookies; no registered native mapping or product evidence is claimed",
+		status:        ExtractorAuthOrAntiBot,
+		allowUnmapped: true,
+		rationale:     "unsupported: pinned history/likes API requires authenticated cookies; no registered native mapping or product evidence is claimed",
 	},
 	"NiconicoIE": {
 		status:    ExtractorPartiallySupported,
 		rationale: "fixture-backed anonymous v3_guest watch/shorts and access-rights HLS; authentication, entitlements, sensitive, geo, comments, and future service behavior remain outside the claim",
 	},
 	"NiconicoLiveIE": {
-		status:    ExtractorAuthOrAntiBot,
-		deferred:  true,
-		rationale: "deferred: pinned live extraction requires websocket seat, stream-cookie, heartbeat, and live lifecycle behavior; no registered native mapping or product evidence is claimed",
+		status:        ExtractorAuthOrAntiBot,
+		allowUnmapped: true,
+		rationale:     "unsupported: pinned live extraction requires websocket seat, stream-cookie, heartbeat, and live lifecycle behavior; no registered native mapping or product evidence is claimed",
 	},
 	"NiconicoPlaylistIE": {
 		status:    ExtractorPartiallySupported,
@@ -168,9 +168,9 @@ var reviewedInventory = map[string]reviewedInventoryEntry{
 		rationale: "fixture-backed anonymous user video API pagination with reusable bounded child routing; authenticated/private and unproven service states remain outside the claim",
 	},
 	"NicovideoSearchDateIE": {
-		status:    ExtractorNewBackend,
-		deferred:  true,
-		rationale: "deferred: pinned date search uses wall-clock recursive interval splitting and has no registered exact class mapping, fixed bounded native contract, or product evidence",
+		status:        ExtractorNewBackend,
+		allowUnmapped: true,
+		rationale:     "unsupported: pinned date search uses wall-clock recursive interval splitting and has no registered exact class mapping, fixed bounded native contract, or product evidence",
 	},
 	"NicovideoSearchIE": {
 		status:    ExtractorPartiallySupported,
@@ -225,14 +225,14 @@ var reviewedInventory = map[string]reviewedInventoryEntry{
 	},
 	"VKIE": {
 		status:    ExtractorPartiallySupported,
-		rationale: "fixture-backed strict anonymous public VK video, clip, embed, vksport alias, signed-query, metadata, and native playback paths; Daxab and external-provider handoffs remain deferred",
+		rationale: "fixture-backed strict anonymous public VK video, clip, embed, vksport alias, signed-query, metadata, and native playback paths; Daxab and external-provider handoffs are outside the current claim",
 	},
 	"VKPlayIE": {
 		rationale: "fixture-backed anonymous VK Play public-recording API with strict vkplay.live, live.vkplay.ru, and live.vkvideo.ru aliases, attributable direct/HLS/DASH playback, and isolated sidecars",
 	},
 	"VKPlayLiveIE": {
 		status:    ExtractorPartiallySupported,
-		rationale: "fixture-backed anonymous VK Play live HLS only; live DASH, chat, websocket, authenticated, and account-gated behavior remain deferred",
+		rationale: "fixture-backed anonymous VK Play live HLS only; live DASH, chat, websocket, authenticated, and account-gated behavior are outside the current claim",
 	},
 	"VKUserVideosIE": {
 		rationale: "fixture-backed public VK user/group video playlists with lazy reusable server-row pagination and repeat-page detection",
@@ -262,7 +262,7 @@ func validateExtractorInventoryMappings(goIDs map[string]string) error {
 		}
 	}
 	for class, review := range reviewedInventory {
-		if review.deferred || review.status == ExtractorPartiallySupported {
+		if review.allowUnmapped || review.status == ExtractorPartiallySupported {
 			continue
 		}
 		if _, ok := exactAliases[class]; ok {

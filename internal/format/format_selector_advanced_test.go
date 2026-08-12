@@ -177,7 +177,7 @@ func TestAdvancedSelectorMergeRetainsDistinctSameKindTracks(t *testing.T) {
 	if len(plans) != 1 || len(plans[0].Tracks) != 2 {
 		t.Fatalf("plans = %#v", plans)
 	}
-	// PR 5 applies Python-compatible multistream suppression. With
+	// The evaluator applies Python-compatible multistream suppression. With
 	// AllowMultipleVideoStreams=false the planner keeps the first
 	// video-bearing track and removes the later one; bestaudio is the
 	// only audio-bearing track and survives.
@@ -222,7 +222,7 @@ func TestAdvancedSelectorDeterminismConcurrent(t *testing.T) {
 }
 
 func TestAdvancedSelectorFilterOnlyImplicitBest(t *testing.T) {
-	// PR 5 §7A: implicit best with no filter type/star requires both
+	// Pinned implicit-best behavior: with no filter type/star requires both
 	// vcodec and acodec. The audio-high format is audio-only and so does
 	// not match — the test exercises the positive path through a
 	// combined format with a format_id filter.

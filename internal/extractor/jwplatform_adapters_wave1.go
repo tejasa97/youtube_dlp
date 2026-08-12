@@ -1,6 +1,6 @@
 package extractor
 
-// Wave-1 thin adapters onto the existing jwplatform backend. Each adapter
+// Thin adapters onto the existing jwplatform backend. Each adapter
 // discovers a validated 8-character JW Platform media id for one public site
 // from the pinned upstream reference and hands off as `jwplatform:<id>`.
 // No JW playback logic is duplicated here.

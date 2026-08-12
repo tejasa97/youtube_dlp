@@ -1,8 +1,8 @@
 # YouTube format fidelity evidence
 
 Status: compatible for the bounded single-video format normalization corpus
-described below. This wave populates the format fields already consumed by the
-format sorter and the CLI tables without changing downloader protocols.
+described below. This capability populates the format fields already consumed
+by the format sorter and the CLI tables without changing downloader protocols.
 
 ## User-visible behavior
 

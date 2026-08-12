@@ -433,7 +433,7 @@ func (operation *operation) planInteractiveFormat(ctx context.Context, prepared 
 }
 
 // validateMultiOutputProduct retains the product validation seam introduced
-// before per-output lifecycles existed. PR 8 executes every supported stage
+// before per-output lifecycles existed. The current path executes every supported stage
 // independently for each plan, so the completed lifecycle has no blanket
 // multi-output exclusions.
 func validateMultiOutputProduct(request Request, planCount int) error {

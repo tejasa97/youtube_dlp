@@ -82,7 +82,7 @@ JW-backed product coverage:
 - Le Figaro accepts only HTTPS posters through `strictValidHostedHTTPURL` + scheme check; HTTP and non-conforming posters are omitted without failing the extraction.
 - All JW-backed site adapters share the validated transparent helper
   `jwPlatformURLEntry` defined alongside `jwPlatformURLResult` in
-  `internal/extractor/kaltura_jw_adapters.go`; the wave-1 adapter
+  `internal/extractor/kaltura_jw_adapters.go`; the adapter
   handoff no longer duplicates that contract.
 - Hollywood Reporter's YouTube showcase fixture uses the synthetic
   `fixture0001` id to avoid real-identifier fixtures.
