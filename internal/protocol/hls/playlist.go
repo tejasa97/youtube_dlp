@@ -17,6 +17,7 @@ var (
 	ErrInvalidPlaylist       = errors.New("invalid HLS playlist")
 	ErrUnsupportedEncryption = errors.New("unsupported HLS encryption")
 	ErrLivePollLimit         = errors.New("HLS live poll limit reached")
+	ErrVODCheckpointRequired = errors.New("HLS durable checkpoint requires finite VOD")
 )
 
 // EncryptionError describes an HLS encryption mode that the native
@@ -47,8 +48,9 @@ const (
 )
 
 type Playlist struct {
-	Variants []Variant
-	Media    *MediaPlaylist
+	Variants   []Variant
+	Renditions []Rendition
+	Media      *MediaPlaylist
 }
 
 type Variant struct {
@@ -56,9 +58,23 @@ type Variant struct {
 	Bandwidth  int64
 	Codecs     string
 	Resolution string
+	// AudioGroup is the EXT-X-STREAM-INF AUDIO group ID.  It is deliberately
+	// kept apart from URL resolution so resume canonicalization can retain the
+	// selected rendition relationship without retaining a rendition URI.
+	AudioGroup string
+}
+
+// Rendition is the URL-free subset of an EXT-X-MEDIA declaration required to
+// bind a selected variant to its audio rendition. URI is intentionally not
+// represented here: it is transport state, not resumable identity.
+type Rendition struct {
+	Type     string
+	GroupID  string
+	Language string
 }
 
 type MediaPlaylist struct {
+	Version               int
 	Sequence              int64
 	DiscontinuitySequence int64
 	TargetDuration        time.Duration
@@ -116,6 +132,7 @@ type Map struct {
 
 type Key struct {
 	Method      string
+	KeyFormat   string
 	URL         string
 	IV          []byte
 	Declaration int64
@@ -180,6 +197,7 @@ func Parse(rawURL string, input []byte) (Playlist, error) {
 				bandwidth, _ := strconv.ParseInt(pendingVariant["BANDWIDTH"], 10, 64)
 				playlist.Variants = append(playlist.Variants, Variant{
 					URL: resolved, Bandwidth: bandwidth, Codecs: pendingVariant["CODECS"], Resolution: pendingVariant["RESOLUTION"],
+					AudioGroup: pendingVariant["AUDIO"],
 				})
 				pendingVariant = nil
 				continue
@@ -241,12 +259,32 @@ func Parse(rawURL string, input []byte) (Playlist, error) {
 		switch {
 		case strings.HasPrefix(line, "#EXT-X-STREAM-INF:"):
 			pendingVariant, err = parseAttributes(strings.TrimPrefix(line, "#EXT-X-STREAM-INF:"))
+		case strings.HasPrefix(line, "#EXT-X-MEDIA:"):
+			var attributes map[string]string
+			attributes, err = parseAttributes(strings.TrimPrefix(line, "#EXT-X-MEDIA:"))
+			if err == nil {
+				rendition, renditionErr := parseRendition(attributes)
+				if renditionErr != nil {
+					err = renditionErr
+				} else if rendition.Type != "" {
+					if len(playlist.Renditions) >= maxPlaylistEntries {
+						err = fmt.Errorf("rendition count exceeds %d", maxPlaylistEntries)
+					} else {
+						playlist.Renditions = append(playlist.Renditions, rendition)
+					}
+				}
+			}
 		case strings.HasPrefix(line, "#EXT-X-MEDIA-SEQUENCE:"):
 			sequence, err = strconv.ParseInt(strings.TrimPrefix(line, "#EXT-X-MEDIA-SEQUENCE:"), 10, 64)
 			if err == nil && sequence < 0 {
 				err = errors.New("media sequence must not be negative")
 			}
 			media.Sequence = sequence
+		case strings.HasPrefix(line, "#EXT-X-VERSION:"):
+			media.Version, err = strconv.Atoi(strings.TrimPrefix(line, "#EXT-X-VERSION:"))
+			if err == nil && (media.Version < 1 || media.Version > 99) {
+				err = errors.New("playlist version is invalid")
+			}
 		case strings.HasPrefix(line, "#EXT-X-DISCONTINUITY-SEQUENCE:"):
 			discontinuitySequence, err = strconv.ParseInt(strings.TrimPrefix(line, "#EXT-X-DISCONTINUITY-SEQUENCE:"), 10, 64)
 			if err == nil && discontinuitySequence < 0 {
@@ -394,6 +432,20 @@ func Parse(rawURL string, input []byte) (Playlist, error) {
 		playlist.Media = media
 	}
 	return playlist, nil
+}
+
+func parseRendition(attributes map[string]string) (Rendition, error) {
+	result := Rendition{Type: strings.ToUpper(attributes["TYPE"]), GroupID: attributes["GROUP-ID"], Language: attributes["LANGUAGE"]}
+	if result.Type == "" {
+		return Rendition{}, errors.New("rendition TYPE is missing")
+	}
+	if result.GroupID == "" {
+		return Rendition{}, errors.New("rendition GROUP-ID is missing")
+	}
+	if len(result.Type) > 32 || len(result.GroupID) > 256 || len(result.Language) > 256 {
+		return Rendition{}, errors.New("rendition identity exceeds bounds")
+	}
+	return result, nil
 }
 
 func isAdvertisementStart(trimmed, raw string) bool {
@@ -678,7 +730,7 @@ func parseKey(base *url.URL, attributes map[string]string) (*Key, error) {
 	if err != nil {
 		return nil, err
 	}
-	key := &Key{Method: method, URL: resolved}
+	key := &Key{Method: method, KeyFormat: keyFormat, URL: resolved}
 	if rawIV := attributes["IV"]; rawIV != "" {
 		rawIV = strings.TrimPrefix(strings.TrimPrefix(rawIV, "0x"), "0X")
 		if len(rawIV) > 32 {

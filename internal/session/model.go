@@ -135,6 +135,7 @@ type OutputIntent struct {
 type CheckpointMetadata struct {
 	RelativePath string `json:"relative_path,omitempty"`
 	Digest       string `json:"digest,omitempty"`
+	PlanHash     string `json:"plan_hash,omitempty"`
 	Sequence     uint64 `json:"sequence,omitempty"`
 	// ETag and LastModified are bounded remote representation validators. They
 	// are safe checkpoint metadata, not request material; URLs, headers,
@@ -688,7 +689,7 @@ func validateCheckpoint(checkpoint CheckpointMetadata) error {
 		if len(checkpoint.RelativePath) > maxCheckpointPath || !isCheckpointRelativePath(checkpoint.RelativePath) {
 			return ErrUnsafePath
 		}
-	} else if checkpoint.Digest != "" || checkpoint.Sequence != 0 || checkpoint.ETag != "" || checkpoint.LastModified != "" || checkpoint.Total != 0 {
+	} else if checkpoint.Digest != "" || checkpoint.PlanHash != "" || checkpoint.Sequence != 0 || checkpoint.ETag != "" || checkpoint.LastModified != "" || checkpoint.Total != 0 {
 		return ErrInvalidManifest
 	}
 	if checkpoint.Digest != "" {
@@ -698,6 +699,17 @@ func validateCheckpoint(checkpoint CheckpointMetadata) error {
 		if _, err := hex.DecodeString(checkpoint.Digest); err != nil || checkpoint.Digest != strings.ToLower(checkpoint.Digest) {
 			return ErrInvalidManifest
 		}
+	}
+	if checkpoint.PlanHash != "" {
+		if len(checkpoint.PlanHash) != sha256.Size*2 || checkpoint.PlanHash != strings.ToLower(checkpoint.PlanHash) {
+			return ErrInvalidManifest
+		}
+		if _, err := hex.DecodeString(checkpoint.PlanHash); err != nil {
+			return ErrInvalidManifest
+		}
+	}
+	if checkpoint.Sequence > 0 && (checkpoint.Digest == "" || checkpoint.PlanHash == "") {
+		return ErrInvalidManifest
 	}
 	if len(checkpoint.ETag) > maxCheckpointValidator || strings.ContainsAny(checkpoint.ETag, "\x00\r\n") ||
 		len(checkpoint.LastModified) > maxCheckpointValidator || strings.ContainsAny(checkpoint.LastModified, "\x00\r\n") ||

@@ -92,6 +92,35 @@ func writeDirectSessionInfo(t *testing.T, path, mediaURL string) {
 	}
 }
 
+func writeFragmentSessionInfo(t *testing.T, path, mediaURL, formatID, protocol string) {
+	writeFragmentSessionInfoWithProof(t, path, mediaURL, formatID, protocol, false)
+}
+
+func writeFragmentSessionInfoWithProof(t *testing.T, path, mediaURL, formatID, protocol string, proof bool) {
+	t.Helper()
+	format := map[string]any{
+		"format_id": formatID, "url": mediaURL, "ext": "bin", "protocol": protocol,
+		"vcodec": "fixture", "acodec": "none",
+	}
+	if proof {
+		format["_fragment_resume_identity"] = "fixture:fragment:track"
+		format["_fragment_equivalence_kind"] = "content-identity"
+		format["_fragment_equivalence_digest"] = strings.Repeat("a", 64)
+		format["_fragment_equivalence_scope_digest"] = strings.Repeat("b", 64)
+		format["_fragment_key_identity"] = "fixture:key:epoch"
+	}
+	encoded, err := json.Marshal(map[string]any{
+		"id": "fragment-fixture", "title": "fragment fixture", "webpage_url": "https://fixture.example/watch",
+		"formats": []map[string]any{format},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func directSessionRequest(root, infoPath, sessionID string, arbiter *PublicationArbiter) Request {
 	return Request{
 		LoadInfoJSON: infoPath, OutputDir: root, OutputTemplate: "output.bin", Format: "direct",
@@ -99,6 +128,179 @@ func directSessionRequest(root, infoPath, sessionID string, arbiter *Publication
 			SessionID: sessionID, PublicationArbiter: arbiter,
 			CommitTargets: []CommitTarget{{Kind: ArtifactKindPrimary, Identity: "primary", Basename: "output.bin"}},
 		}},
+	}
+}
+
+func TestFiniteHLSSessionUsesWorkspacePayloadAndStagedPublication(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/vod.m3u8":
+			_, _ = fmt.Fprint(writer, "#EXTM3U\n#EXTINF:1,\none.ts?token=one\n#EXTINF:1,\ntwo.ts?token=two\n#EXT-X-ENDLIST\n")
+		case "/one.ts":
+			_, _ = writer.Write([]byte("one"))
+		case "/two.ts":
+			_, _ = writer.Write([]byte("two"))
+		}
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	infoPath := filepath.Join(t.TempDir(), "info.json")
+	writeFragmentSessionInfo(t, infoPath, server.URL+"/vod.m3u8?manifest=secret", "hls", "m3u8_native")
+	request := directSessionRequest(root, infoPath, "fafafafafafafafafafafafafafafafa", NewPublicationArbiter())
+	request.Format = "hls"
+	result, err := newBroadTestClient().Run(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Downloaded || result.Session.Disposition != SessionPublished {
+		t.Fatalf("result=%#v", result)
+	}
+	if output, readErr := os.ReadFile(filepath.Join(root, "output.bin")); readErr != nil || string(output) != "onetwo" {
+		t.Fatalf("output=%q err=%v", output, readErr)
+	}
+	rootRef, refErr := ValidateOutputRoot(root)
+	if refErr != nil {
+		t.Fatal(refErr)
+	}
+	workspace, openErr := session.Open(session.WorkspaceRef{OutputRoot: rootRef.CanonicalPath, OutputRootIdentity: rootRef.Identity, SessionID: request.Filesystem.Resume.SessionID})
+	if openErr != nil {
+		t.Fatal(openErr)
+	}
+	defer workspace.Close()
+	if _, statErr := os.Lstat(filepath.Join(workspace.Path(), directSessionPublishDir, directSessionStageName)); statErr != nil {
+		t.Fatalf("staged output missing: %v", statErr)
+	}
+	if _, statErr := os.Lstat(filepath.Join(workspace.Path(), "payload")); statErr != nil {
+		t.Fatalf("completed workspace payload missing: %v", statErr)
+	}
+}
+
+func TestStaticDASHSessionUsesWorkspacePayloadAndStagedPublication(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/manifest.mpd":
+			_, _ = fmt.Fprint(writer, `<MPD type="static" mediaPresentationDuration="PT2S"><Period><AdaptationSet id="video" contentType="video"><Representation id="v" bandwidth="1"><SegmentTemplate duration="1" media="segment-$Number$?token=secret"/></Representation></AdaptationSet></Period></MPD>`)
+		case "/segment-1":
+			_, _ = writer.Write([]byte("one"))
+		case "/segment-2":
+			_, _ = writer.Write([]byte("two"))
+		}
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	infoPath := filepath.Join(t.TempDir(), "info.json")
+	writeFragmentSessionInfo(t, infoPath, server.URL+"/manifest.mpd?manifest=secret", "dash", "http_dash_segments")
+	request := directSessionRequest(root, infoPath, "fbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfb", NewPublicationArbiter())
+	request.Format = "dash"
+	result, err := newBroadTestClient().Run(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Downloaded || result.Session.Disposition != SessionPublished {
+		t.Fatalf("result=%#v", result)
+	}
+	if output, readErr := os.ReadFile(filepath.Join(root, "output.bin")); readErr != nil || string(output) != "onetwo" {
+		t.Fatalf("output=%q err=%v", output, readErr)
+	}
+}
+
+func TestFiniteHLSSessionReusesProvenFragmentsAfterSignedURLRotation(t *testing.T) {
+	var generation atomic.Int32
+	var firstCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/master.m3u8":
+			_, _ = fmt.Fprintf(writer, "#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio-main\",LANGUAGE=\"en\"\n#EXT-X-STREAM-INF:BANDWIDTH=1000,CODECS=\"avc1.4d401f,mp4a.40.2\",RESOLUTION=1920x1080,AUDIO=\"audio-main\"\nvariant.m3u8?token=%d\n", generation.Load())
+		case "/variant.m3u8":
+			_, _ = fmt.Fprintf(writer, "#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-MEDIA-SEQUENCE:7\n#EXT-X-DISCONTINUITY-SEQUENCE:3\n#EXTINF:1,\none.ts?token=%d\n#EXTINF:1,\ntwo.ts?token=%d\n#EXT-X-ENDLIST\n", generation.Load(), generation.Load())
+		case "/one.ts":
+			firstCalls.Add(1)
+			_, _ = writer.Write([]byte("one"))
+		case "/two.ts":
+			_, _ = writer.Write([]byte("two"))
+		}
+	}))
+	defer server.Close()
+	root, infoPath := t.TempDir(), filepath.Join(t.TempDir(), "info.json")
+	writeFragmentSessionInfoWithProof(t, infoPath, server.URL+"/master.m3u8?token=one", "hls", "m3u8_native", true)
+	ctx, cancel := context.WithCancelCause(context.Background())
+	var paused atomic.Bool
+	client := newBroadTestClient(WithEventHandler(func(_ context.Context, event Event) error {
+		if event.Kind == EventFragmentCompleted && event.Fragment == 1 && paused.CompareAndSwap(false, true) {
+			cancel(ErrPauseRequested)
+		}
+		return nil
+	}))
+	request := directSessionRequest(root, infoPath, "fcfcfcfcfcfcfcfcfcfcfcfcfcfcfcfc", NewPublicationArbiter())
+	request.Format = "hls"
+	if _, err := client.Run(ctx, request); !errors.Is(err, ErrPauseRequested) {
+		t.Fatalf("first run error=%v, want pause", err)
+	}
+	if firstCalls.Load() != 1 {
+		t.Fatalf("first fragment calls=%d, want 1", firstCalls.Load())
+	}
+	generation.Store(1)
+	writeFragmentSessionInfoWithProof(t, infoPath, server.URL+"/master.m3u8?token=two", "hls", "m3u8_native", true)
+	resumeRequest := directSessionRequest(root, infoPath, request.Filesystem.Resume.SessionID, NewPublicationArbiter())
+	resumeRequest.Format = "hls"
+	result, err := newBroadTestClient().Run(context.Background(), resumeRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Downloaded || firstCalls.Load() != 1 {
+		t.Fatalf("result=%#v first fragment calls=%d, want proven reuse", result, firstCalls.Load())
+	}
+	if body, err := os.ReadFile(filepath.Join(root, "output.bin")); err != nil || string(body) != "onetwo" {
+		t.Fatalf("output=%q err=%v", body, err)
+	}
+}
+
+func TestStaticDASHSessionReusesProvenFragmentsAfterBaseURLRotation(t *testing.T) {
+	var generation atomic.Int32
+	var firstCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/manifest.mpd":
+			_, _ = fmt.Fprintf(writer, `<MPD type="static" mediaPresentationDuration="PT2S"><BaseURL>media/g%d/?token=manifest-%d</BaseURL><Period><AdaptationSet id="video" contentType="video"><Representation id="v" bandwidth="1"><SegmentTemplate duration="1" media="segment-$Number$?token=fragment-%d"/></Representation></AdaptationSet></Period></MPD>`, generation.Load(), generation.Load(), generation.Load())
+		case "/media/g0/segment-1", "/media/g1/segment-1":
+			firstCalls.Add(1)
+			_, _ = writer.Write([]byte("one"))
+		case "/media/g0/segment-2", "/media/g1/segment-2":
+			_, _ = writer.Write([]byte("two"))
+		}
+	}))
+	defer server.Close()
+	root, infoPath := t.TempDir(), filepath.Join(t.TempDir(), "info.json")
+	writeFragmentSessionInfoWithProof(t, infoPath, server.URL+"/manifest.mpd?token=one", "dash", "http_dash_segments", true)
+	ctx, cancel := context.WithCancelCause(context.Background())
+	var paused atomic.Bool
+	client := newBroadTestClient(WithEventHandler(func(_ context.Context, event Event) error {
+		if event.Kind == EventFragmentCompleted && event.Fragment == 1 && paused.CompareAndSwap(false, true) {
+			cancel(ErrPauseRequested)
+		}
+		return nil
+	}))
+	request := directSessionRequest(root, infoPath, "fdfdfdfdfdfdfdfdfdfdfdfdfdfdfdfd", NewPublicationArbiter())
+	request.Format = "dash"
+	if _, err := client.Run(ctx, request); !errors.Is(err, ErrPauseRequested) {
+		t.Fatalf("first run error=%v, want pause", err)
+	}
+	if firstCalls.Load() != 1 {
+		t.Fatalf("first fragment calls=%d, want 1", firstCalls.Load())
+	}
+	generation.Store(1)
+	writeFragmentSessionInfoWithProof(t, infoPath, server.URL+"/manifest.mpd?token=two", "dash", "http_dash_segments", true)
+	resumeRequest := directSessionRequest(root, infoPath, request.Filesystem.Resume.SessionID, NewPublicationArbiter())
+	resumeRequest.Format = "dash"
+	result, err := newBroadTestClient().Run(context.Background(), resumeRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Downloaded || firstCalls.Load() != 1 {
+		t.Fatalf("result=%#v first fragment calls=%d, want BaseURL rotation reuse", result, firstCalls.Load())
+	}
+	if body, err := os.ReadFile(filepath.Join(root, "output.bin")); err != nil || string(body) != "onetwo" {
+		t.Fatalf("output=%q err=%v", body, err)
 	}
 }
 

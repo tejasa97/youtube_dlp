@@ -57,6 +57,15 @@ const (
 type Checkpoint struct {
 	Directory      string
 	ResumeIdentity string
+	// RequireCoordinatorReset prevents the fragment package from deleting a
+	// stale proof scope itself. Session coordinators set it and perform the
+	// reset through their lease-bound, handle-relative workspace primitive.
+	RequireCoordinatorReset bool
+	// CoordinatorBoundary makes ResumeBoundary caller-authoritative even when
+	// nil: nil is interpreted as the canonical zero prefix after the plan is
+	// known. Session coordinators enable it so a ledger commit that crashed
+	// before OnCommit can never become reusable local-ahead authority.
+	CoordinatorBoundary bool
 	// ResumeBoundary, when present, is external caller authority previously
 	// accepted from an OnCommit snapshot. Local-ahead work is clamped to it
 	// before any fragment is reused or requested.
@@ -119,11 +128,45 @@ type AES128 struct {
 	IV  []byte `json:"iv"`
 }
 
+// Scale is the bounded, URL-free structural + remote-equivalence identity of a
+// single finite fragment. It exists only for session-mode durable reuse: signed
+// URLs, request headers, cookies, and AES material must never appear here.
+// Key is a generated canonical SHA-256 of the URL-free structural identity.
+// Kind is exactly one recognized proof
+// contract ("provider-immutable", "content-identity", or the empty "none").
+// Value is a canonical SHA-256 digest produced by extractor-owned metadata;
+// arbitrary opaque callback strings are rejected so bearer-shaped material can
+// never enter a ledger. Strong-validator proof is intentionally not accepted
+// until an adapter checks fresh ETag/length/range evidence itself. Scope is a
+// canonical SHA-256 supplied by the provider/protocol proof contract; it
+// groups fragments for conservative whole-scope restart.
+type Scale struct {
+	Key   string `json:"key"`
+	Kind  string `json:"kind"`
+	Value string `json:"value"`
+	Scope string `json:"scope"`
+}
+
+// RecognizedScaleKind reports whether kind is one of the supported remote
+// byte-equivalence proof contracts. The empty string is "none".
+func RecognizedScaleKind(kind string) bool {
+	switch kind {
+	case "provider-immutable", "content-identity", "":
+		return true
+	default:
+		return false
+	}
+}
+
 type Segment struct {
 	URL         string  `json:"url"`
 	RangeStart  int64   `json:"range_start,omitempty"`
 	RangeLength int64   `json:"range_length,omitempty"`
 	AES128      *AES128 `json:"aes128,omitempty"`
+	// Scale carries the URL-free structural/proof identity for session-mode
+	// plans. When nil, the segment contributes only its range and encryption
+	// flag to the structural plan hash (legacy behavior).
+	Scale *Scale `json:"scale,omitempty"`
 }
 
 type Job struct {
@@ -269,8 +312,16 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 	if err != nil {
 		return Result{}, err
 	}
-	if job.Checkpoint != nil && job.Checkpoint.ResumeBoundary != nil {
-		if err := reconcileResumeBoundary(workDir, expectation, *job.Checkpoint.ResumeBoundary, engine.writeAtomic, engine.resetOps); err != nil {
+	if job.Checkpoint != nil && (job.Checkpoint.ResumeBoundary != nil || job.Checkpoint.CoordinatorBoundary) {
+		boundary := job.Checkpoint.ResumeBoundary
+		if boundary == nil {
+			zero, zeroErr := InitialResumeBoundary(job.Checkpoint.ResumeIdentity, job.Segments)
+			if zeroErr != nil {
+				return Result{}, zeroErr
+			}
+			boundary = &zero
+		}
+		if err := reconcileResumeBoundary(workDir, expectation, *boundary, engine.writeAtomic, engine.resetOps, job.Checkpoint.RequireCoordinatorReset); err != nil {
 			return Result{}, err
 		}
 	}
@@ -280,6 +331,21 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 	manifest, err := openArtifactManifest(workDir, expectation, engine.writeAtomic)
 	if err != nil {
 		return Result{}, err
+	}
+	if manifest.equivalenceRestartRequired(job.Segments) {
+		// A nonzero caller boundary is an external durable claim. Do not revoke
+		// it behind the coordinator's back; return reconciliation so it can
+		// durably reset its own component boundary before trying again.
+		if job.Checkpoint != nil && (job.Checkpoint.RequireCoordinatorReset || (job.Checkpoint.ResumeBoundary != nil && job.Checkpoint.ResumeBoundary.Sequence != 0)) {
+			return Result{}, checkpointFailure(ErrCheckpointReconciliation, "remote equivalence proof changed or is absent", nil)
+		}
+		if err := resetCheckpointWorkspace(workDir, expectation, engine.resetOps); err != nil {
+			return Result{}, err
+		}
+		manifest, err = openArtifactManifest(workDir, expectation, engine.writeAtomic)
+		if err != nil {
+			return Result{}, err
+		}
 	}
 	if job.Checkpoint != nil {
 		if err := manifest.configureCallback(job.Checkpoint, engine.checkpointTimeout); err != nil {
@@ -308,7 +374,11 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 			defer workers.Done()
 			for index := range indices {
 				path := fragmentPath(workDir, index)
-				reused, reuseErr := manifest.Reusable(index, path)
+				var scale *Scale
+				if index < len(job.Segments) {
+					scale = job.Segments[index].Scale
+				}
+				reused, reuseErr := manifest.reusableScaled(index, path, scale)
 				if reuseErr != nil {
 					cancel()
 					outcomes <- fragmentOutcome{index: index, err: reuseErr}
@@ -331,7 +401,7 @@ func (engine *Engine) Download(ctx context.Context, job Job, sink events.Sink) (
 						hosts.Release(host)
 					}
 					if err == nil {
-						err = manifest.Record(index, path)
+						err = manifest.RecordScaled(index, path, scale)
 					}
 				}
 				if err == nil {
@@ -630,14 +700,19 @@ func planHash(segments []Segment) (string, error) {
 
 func checkpointPlanHash(segments []Segment) (string, error) {
 	type checkpointSegment struct {
-		RangeStart  int64 `json:"range_start"`
-		RangeLength int64 `json:"range_length"`
-		Encrypted   bool  `json:"encrypted"`
+		RangeStart  int64  `json:"range_start"`
+		RangeLength int64  `json:"range_length"`
+		Encrypted   bool   `json:"encrypted"`
+		Key         string `json:"key,omitempty"`
 	}
 	plan := make([]checkpointSegment, len(segments))
 	for index, segment := range segments {
+		var key string
+		if segment.Scale != nil {
+			key = segment.Scale.Key
+		}
 		plan[index] = checkpointSegment{
-			RangeStart: segment.RangeStart, RangeLength: segment.RangeLength, Encrypted: segment.AES128 != nil,
+			RangeStart: segment.RangeStart, RangeLength: segment.RangeLength, Encrypted: segment.AES128 != nil, Key: key,
 		}
 	}
 	encoded, err := json.Marshal(plan)

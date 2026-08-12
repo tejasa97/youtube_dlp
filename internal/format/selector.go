@@ -350,6 +350,10 @@ func objectSelection(object *value.Object) (Selection, error) {
 	if allowedHostsErr != nil {
 		return Selection{}, allowedHostsErr
 	}
+	selection.FragmentResumeIdentity, selection.FragmentEquivalence, selection.FragmentKeyIdentity, allowedHostsErr = readFragmentEquivalence(object)
+	if allowedHostsErr != nil {
+		return Selection{}, allowedHostsErr
+	}
 	if selection.YouTubeSABR {
 		selection.Protocol = "youtube_sabr_ump"
 	}

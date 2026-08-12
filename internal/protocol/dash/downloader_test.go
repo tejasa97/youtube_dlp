@@ -2,6 +2,7 @@ package dash
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -13,9 +14,270 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tejasa97/youtube_dlp/internal/events"
 	"github.com/tejasa97/youtube_dlp/internal/fragment"
 	"github.com/tejasa97/youtube_dlp/internal/network"
 )
+
+func FuzzStaticCanonicalizationNeverPersistsURI(f *testing.F) {
+	f.Add("https://cdn.example.invalid/base/path?token=bearer-secret")
+	f.Fuzz(func(t *testing.T, raw string) {
+		identity := FragmentIdentity{
+			ProviderTrackIdentity: "provider:track:v1", RepresentationID: raw, PeriodID: raw, AdaptationSetID: raw,
+			Addressing: raw, NumberTimeRole: raw, TemplateGrammar: raw, TimelineGrammar: raw, InitializationIdentity: raw,
+			CanonicalComplete: true,
+		}
+		scale := NewDownloader(nil, Config{}).staticScale(identity)
+		encoded, err := json.Marshal(scale)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(encoded), "https://") || strings.Contains(string(encoded), "token=") || (len(raw) > 8 && strings.Contains(string(encoded), raw)) {
+			t.Fatalf("canonical scale leaked fuzz input: %q", encoded)
+		}
+		if len(scale.Key) > 256 || len(scale.Scope) > 256 {
+			t.Fatalf("unbounded scale: %#v", scale)
+		}
+	})
+}
+
+func TestStaticCheckpointProofControlsSignedBaseURLReuse(t *testing.T) {
+	var generation atomic.Int32
+	var firstSegmentCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/manifest.mpd":
+			_, _ = fmt.Fprintf(writer, `<MPD type="static" mediaPresentationDuration="PT2S"><Period><AdaptationSet id="video" contentType="video"><Representation id="v" bandwidth="1"><SegmentTemplate duration="1" media="segment-$Number$?token=token-%d"/></Representation></AdaptationSet></Period></MPD>`, generation.Load())
+		case "/segment-1":
+			firstSegmentCalls.Add(1)
+			_, _ = writer.Write([]byte("one"))
+		case "/segment-2":
+			_, _ = writer.Write([]byte("two"))
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "payload")
+	checkpoint := &fragment.Checkpoint{Directory: filepath.Join(root, "checkpoint"), ResumeIdentity: "dash:static:fixture"}
+	proof := func(FragmentIdentity) (fragment.Scale, bool) {
+		return fragment.Scale{Kind: "content-identity", Value: strings.Repeat("a", 64), Scope: strings.Repeat("b", 64)}, true
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	_, err := NewDownloader(transport, Config{Checkpoint: checkpoint, RequireStaticSingleRepresentation: true, RepresentationIdentity: "provider:track:v1", FragmentConcurrency: 1, EquivalenceProof: proof}).Download(ctx, server.URL+"/manifest.mpd?token=manifest-one", root, destination, true, events.SinkFunc(func(_ context.Context, event events.Event) error {
+		if event.Kind == events.KindFragmentCompleted && event.Fragment == 1 {
+			cancel()
+		}
+		return nil
+	}))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("first run error=%v, want cancellation", err)
+	}
+	ledger, readErr := os.ReadFile(filepath.Join(checkpoint.Directory, "state.json"))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	for _, secret := range []string{server.URL, "token-0", "manifest-one", "segment-1", "segment-2"} {
+		if strings.Contains(string(ledger), secret) {
+			t.Fatalf("checkpoint leaked %q: %s", secret, ledger)
+		}
+	}
+	generation.Store(1)
+	result, err := NewDownloader(transport, Config{Checkpoint: checkpoint, RequireStaticSingleRepresentation: true, RepresentationIdentity: "provider:track:v1", FragmentConcurrency: 1, EquivalenceProof: proof}).Download(context.Background(), server.URL+"/manifest.mpd?token=manifest-two", root, destination, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Tracks[0].Download.Reused != 1 || firstSegmentCalls.Load() != 1 {
+		t.Fatalf("result=%#v first segment calls=%d, want signed URL reuse", result, firstSegmentCalls.Load())
+	}
+	if body, err := os.ReadFile(destination); err != nil || string(body) != "onetwo" {
+		t.Fatalf("output=%q err=%v", body, err)
+	}
+}
+
+func TestStaticScaleRejectsOpaqueCallbackProof(t *testing.T) {
+	download := NewDownloader(nil, Config{RepresentationIdentity: "provider:track:v1", EquivalenceProof: func(FragmentIdentity) (fragment.Scale, bool) {
+		return fragment.Scale{Kind: "content-identity", Value: strings.Repeat("a", 64), Scope: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0b2tlbiJ9.signature"}, true
+	}})
+	scale := download.staticScale(FragmentIdentity{CanonicalComplete: true, ProviderTrackIdentity: "provider:track:v1", RepresentationID: "v", PeriodID: "p", AdaptationSetID: "a", Addressing: "template", NumberTimeRole: "number", TemplateGrammar: "Number", TimelineGrammar: "none", InitializationIdentity: "none"})
+	if scale.Kind != "" || scale.Value != "" || len(scale.Key) != 64 || len(scale.Scope) != 64 {
+		t.Fatalf("opaque callback proof was retained: %#v", scale)
+	}
+}
+
+func TestCheckpointRequiresStaticSingleRepresentationBeforeOutput(t *testing.T) {
+	transport, _ := network.New(network.Config{})
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_, _ = fmt.Fprint(writer, `<MPD type="dynamic"><Period><AdaptationSet><Representation id="v"><SegmentTemplate media="seg-$Number$"><SegmentTimeline><S t="0" d="1"/></SegmentTimeline></SegmentTemplate></Representation></AdaptationSet></Period></MPD>`)
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	_, err := NewDownloader(transport, Config{Checkpoint: &fragment.Checkpoint{Directory: filepath.Join(root, "checkpoint"), ResumeIdentity: "dash:dynamic"}, RequireStaticSingleRepresentation: true}).Download(context.Background(), server.URL+"/live.mpd", root, filepath.Join(root, "payload"), true, nil)
+	if !errors.Is(err, ErrStaticResumeUnsupported) {
+		t.Fatalf("error=%v, want static resume rejection", err)
+	}
+}
+
+func TestStaticCanonicalStructuralKeyChangesForEveryResumeFact(t *testing.T) {
+	download := NewDownloader(nil, Config{RepresentationIdentity: "provider:track:v1"})
+	base := FragmentIdentity{
+		RepresentationID: "v1", PeriodID: "period-1", PeriodIndex: 0, PeriodStartNanos: 1, PeriodDurationNanos: 2,
+		PeriodTimingKnown: true, AdaptationSetID: "video", ContentType: "video", MimeType: "video/mp4", Codecs: "avc1",
+		Language: "en", FrameRate: "30", AudioRate: "48000", Bandwidth: 1000, Width: 1920, Height: 1080, Addressing: "template", NumberTimeRole: "number",
+		Timescale: 1000, PresentationTimeOffset: 3, StartNumber: 4, SegmentDuration: 5, TemplateGrammar: "Number", TimelineGrammar: "t0-d1-r0",
+		InitializationIdentity: "template:RepresentationID", InitializationRangeStart: 5, InitializationRangeLength: 6,
+		IndexRangeStart: 7, IndexRangeLength: 8, Initialize: true, RangeStart: 9, RangeLength: 10, Sequence: 11,
+		Timeline: 12, Index: 13, ProviderTrackIdentity: "provider:track:v1", CanonicalComplete: true,
+	}
+	want := download.staticScale(base).Key
+	mutations := []struct {
+		name string
+		edit func(*FragmentIdentity)
+	}{
+		{"provider track identity", func(v *FragmentIdentity) { v.ProviderTrackIdentity = "provider:track:v2" }},
+		{"period id", func(v *FragmentIdentity) { v.PeriodID = "period-2" }},
+		{"period index", func(v *FragmentIdentity) { v.PeriodIndex++ }},
+		{"period start", func(v *FragmentIdentity) { v.PeriodStartNanos++ }},
+		{"period duration", func(v *FragmentIdentity) { v.PeriodDurationNanos++ }},
+		{"period timing", func(v *FragmentIdentity) { v.PeriodTimingKnown = false }},
+		{"adaptation set", func(v *FragmentIdentity) { v.AdaptationSetID = "audio" }},
+		{"representation", func(v *FragmentIdentity) { v.RepresentationID = "v2" }},
+		{"content type", func(v *FragmentIdentity) { v.ContentType = "audio" }},
+		{"mime", func(v *FragmentIdentity) { v.MimeType = "audio/mp4" }},
+		{"codecs", func(v *FragmentIdentity) { v.Codecs = "hev1" }},
+		{"language", func(v *FragmentIdentity) { v.Language = "fr" }},
+		{"frame rate", func(v *FragmentIdentity) { v.FrameRate = "60" }},
+		{"audio rate", func(v *FragmentIdentity) { v.AudioRate = "44100" }},
+		{"bandwidth", func(v *FragmentIdentity) { v.Bandwidth++ }},
+		{"width", func(v *FragmentIdentity) { v.Width++ }},
+		{"height", func(v *FragmentIdentity) { v.Height++ }},
+		{"addressing", func(v *FragmentIdentity) { v.Addressing = "list" }},
+		{"number time role", func(v *FragmentIdentity) { v.NumberTimeRole = "time" }},
+		{"timescale", func(v *FragmentIdentity) { v.Timescale++ }},
+		{"presentation time offset", func(v *FragmentIdentity) { v.PresentationTimeOffset++ }},
+		{"start number", func(v *FragmentIdentity) { v.StartNumber++ }},
+		{"segment duration", func(v *FragmentIdentity) { v.SegmentDuration++ }},
+		{"template grammar", func(v *FragmentIdentity) { v.TemplateGrammar = "Time" }},
+		{"timeline grammar", func(v *FragmentIdentity) { v.TimelineGrammar = "t1-d1-r0" }},
+		{"initialization identity", func(v *FragmentIdentity) { v.InitializationIdentity = "none" }},
+		{"initialization range", func(v *FragmentIdentity) { v.InitializationRangeStart++ }},
+		{"initialization range length", func(v *FragmentIdentity) { v.InitializationRangeLength++ }},
+		{"index range start", func(v *FragmentIdentity) { v.IndexRangeStart++ }},
+		{"index range", func(v *FragmentIdentity) { v.IndexRangeLength++ }},
+		{"fragment initialization", func(v *FragmentIdentity) { v.Initialize = false }},
+		{"fragment range", func(v *FragmentIdentity) { v.RangeStart++ }},
+		{"fragment range length", func(v *FragmentIdentity) { v.RangeLength++ }},
+		{"number", func(v *FragmentIdentity) { v.Sequence++ }},
+		{"time", func(v *FragmentIdentity) { v.Timeline++ }},
+		{"fragment index", func(v *FragmentIdentity) { v.Index++ }},
+	}
+	for _, mutation := range mutations {
+		t.Run(mutation.name, func(t *testing.T) {
+			candidate := base
+			mutation.edit(&candidate)
+			if got := download.staticScale(candidate).Key; got == want {
+				t.Fatalf("mutation %q did not change structural key", mutation.name)
+			}
+		})
+	}
+}
+
+func TestStaticCheckpointChangedProofRestartsWholeScope(t *testing.T) {
+	var generation atomic.Int32
+	var firstCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/manifest.mpd":
+			_, _ = fmt.Fprint(writer, `<MPD type="static" mediaPresentationDuration="PT2S"><Period><AdaptationSet id="video" contentType="video"><Representation id="v" bandwidth="1"><SegmentTemplate duration="1" media="segment-$Number$?token=rotated"/></Representation></AdaptationSet></Period></MPD>`)
+		case "/segment-1":
+			firstCalls.Add(1)
+			if generation.Load() == 0 {
+				_, _ = writer.Write([]byte("old"))
+			} else {
+				_, _ = writer.Write([]byte("new"))
+			}
+		case "/segment-2":
+			_, _ = writer.Write([]byte("two"))
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "payload")
+	checkpoint := &fragment.Checkpoint{Directory: filepath.Join(root, "checkpoint"), ResumeIdentity: "dash:proof:restart"}
+	proofValue := strings.Repeat("a", 64)
+	proof := func(FragmentIdentity) (fragment.Scale, bool) {
+		return fragment.Scale{Kind: "content-identity", Value: proofValue, Scope: strings.Repeat("b", 64)}, true
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	_, err := NewDownloader(transport, Config{Checkpoint: checkpoint, RequireStaticSingleRepresentation: true, RepresentationIdentity: "provider:track:v1", FragmentConcurrency: 1, EquivalenceProof: proof}).Download(ctx, server.URL+"/manifest.mpd?token=one", root, destination, true, events.SinkFunc(func(_ context.Context, event events.Event) error {
+		if event.Kind == events.KindFragmentCompleted && event.Fragment == 1 {
+			cancel()
+		}
+		return nil
+	}))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("first run error=%v, want cancellation", err)
+	}
+	generation.Store(1)
+	proofValue = strings.Repeat("c", 64)
+	result, err := NewDownloader(transport, Config{Checkpoint: checkpoint, RequireStaticSingleRepresentation: true, RepresentationIdentity: "provider:track:v1", FragmentConcurrency: 1, EquivalenceProof: proof}).Download(context.Background(), server.URL+"/manifest.mpd?token=two", root, destination, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Tracks[0].Download.Reused != 0 || firstCalls.Load() != 2 {
+		t.Fatalf("result=%#v first calls=%d, want complete restart", result, firstCalls.Load())
+	}
+	if body, err := os.ReadFile(destination); err != nil || string(body) != "newtwo" {
+		t.Fatalf("output=%q err=%v", body, err)
+	}
+}
+
+func TestStaticCheckpointIncompleteCanonicalMetadataDownloadsAndRestarts(t *testing.T) {
+	var generation atomic.Int32
+	var firstCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/manifest.mpd":
+			_, _ = fmt.Fprint(writer, `<MPD type="static" mediaPresentationDuration="PT2S"><Period><AdaptationSet contentType="video"><Representation id="v"><SegmentTemplate duration="1" media="segment-$Number$"/></Representation></AdaptationSet></Period></MPD>`)
+		case "/segment-1":
+			firstCalls.Add(1)
+			if generation.Load() == 0 {
+				_, _ = writer.Write([]byte("old"))
+			} else {
+				_, _ = writer.Write([]byte("new"))
+			}
+		case "/segment-2":
+			_, _ = writer.Write([]byte("two"))
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "payload")
+	checkpoint := &fragment.Checkpoint{Directory: filepath.Join(root, "checkpoint"), ResumeIdentity: "dash:incomplete:restart"}
+	ctx, cancel := context.WithCancel(context.Background())
+	_, err := NewDownloader(transport, Config{Checkpoint: checkpoint, RequireStaticSingleRepresentation: true, RepresentationIdentity: "provider:track:v1", FragmentConcurrency: 1}).Download(ctx, server.URL+"/manifest.mpd", root, destination, true, events.SinkFunc(func(_ context.Context, event events.Event) error {
+		if event.Kind == events.KindFragmentCompleted && event.Fragment == 1 {
+			cancel()
+		}
+		return nil
+	}))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("first run error=%v, want cancellation", err)
+	}
+	generation.Store(1)
+	result, err := NewDownloader(transport, Config{Checkpoint: checkpoint, RequireStaticSingleRepresentation: true, RepresentationIdentity: "provider:track:v1", FragmentConcurrency: 1}).Download(context.Background(), server.URL+"/manifest.mpd", root, destination, true, nil)
+	if err != nil {
+		t.Fatalf("incomplete canonical static DASH must download: %v", err)
+	}
+	if result.Tracks[0].Download.Reused != 0 || firstCalls.Load() != 2 {
+		t.Fatalf("result=%#v first calls=%d, want full restart", result, firstCalls.Load())
+	}
+	if body, err := os.ReadFile(destination); err != nil || string(body) != "newtwo" {
+		t.Fatalf("output=%q err=%v", body, err)
+	}
+}
 
 func TestDownloadSeparateAudioVideoTracks(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

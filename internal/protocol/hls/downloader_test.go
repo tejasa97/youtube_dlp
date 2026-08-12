@@ -5,6 +5,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -18,9 +19,329 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tejasa97/youtube_dlp/internal/events"
 	"github.com/tejasa97/youtube_dlp/internal/fragment"
 	"github.com/tejasa97/youtube_dlp/internal/network"
 )
+
+func FuzzVODCanonicalizationNeverPersistsURI(f *testing.F) {
+	f.Add("https://cdn.example.invalid/path.ts?token=bearer-secret")
+	f.Fuzz(func(t *testing.T, raw string) {
+		identity := FragmentIdentity{
+			RepresentationIdentity: "provider:track:v1", PlaylistVersion: 7, PlaylistMediaSequence: 1,
+			PlaylistDiscontinuitySequence: 0, SelectedDiscontinuityGroup: -1, CanonicalComplete: true,
+			SelectedCodecs: raw, SelectedResolution: raw, SelectedAudioGroup: raw, SelectedAudioLanguage: raw, Encryption: raw,
+		}
+		scale := NewDownloader(nil, Config{}).vodScale(identity)
+		encoded, err := json.Marshal(scale)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(encoded), "https://") || strings.Contains(string(encoded), "token=") || (len(raw) > 8 && strings.Contains(string(encoded), raw)) {
+			t.Fatalf("canonical scale leaked fuzz input: %q", encoded)
+		}
+		if len(scale.Key) > 256 || len(scale.Scope) > 256 {
+			t.Fatalf("unbounded scale: %#v", scale)
+		}
+	})
+}
+
+func TestVODCheckpointProofControlsSignedURLReuseAndStaysSecretFree(t *testing.T) {
+	var generation atomic.Int32
+	var firstSegmentCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/vod.m3u8":
+			_, _ = fmt.Fprintf(writer, "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:7\n#EXTINF:1,\nfirst.ts?token=token-%d\n#EXTINF:1,\nsecond.ts?token=token-%d\n#EXT-X-ENDLIST\n", generation.Load(), generation.Load())
+		case "/first.ts":
+			firstSegmentCalls.Add(1)
+			_, _ = writer.Write([]byte("first"))
+		case "/second.ts":
+			_, _ = writer.Write([]byte("second"))
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "payload")
+	checkpoint := &fragment.Checkpoint{Directory: filepath.Join(root, "checkpoint"), ResumeIdentity: "hls:vod:fixture"}
+	proof := func(FragmentIdentity) (fragment.Scale, bool) {
+		return fragment.Scale{Kind: "content-identity", Value: strings.Repeat("a", 64), Scope: strings.Repeat("b", 64)}, true
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	_, err := NewDownloader(transport, Config{Checkpoint: checkpoint, RequireVODCheckpoint: true, RepresentationIdentity: "provider:track:v1", FragmentConcurrency: 1, EquivalenceProof: proof}).Download(ctx, server.URL+"/vod.m3u8?token=manifest-one", root, destination, true, events.SinkFunc(func(_ context.Context, event events.Event) error {
+		if event.Kind == events.KindFragmentCompleted && event.Fragment == 1 {
+			cancel()
+		}
+		return nil
+	}))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("first run error=%v, want cancellation", err)
+	}
+	ledger, readErr := os.ReadFile(filepath.Join(checkpoint.Directory, "state.json"))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	for _, secret := range []string{server.URL, "token-0", "manifest-one", "first.ts", "second.ts"} {
+		if strings.Contains(string(ledger), secret) {
+			t.Fatalf("checkpoint leaked %q: %s", secret, ledger)
+		}
+	}
+	generation.Store(1)
+	result, err := NewDownloader(transport, Config{Checkpoint: checkpoint, RequireVODCheckpoint: true, RepresentationIdentity: "provider:track:v1", FragmentConcurrency: 1, EquivalenceProof: proof}).Download(context.Background(), server.URL+"/vod.m3u8?token=manifest-two", root, destination, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Reused != 1 || firstSegmentCalls.Load() != 1 {
+		t.Fatalf("result=%#v first segment calls=%d, want signed-URL reuse", result, firstSegmentCalls.Load())
+	}
+	body, readErr := os.ReadFile(destination)
+	if readErr != nil || string(body) != "firstsecond" {
+		t.Fatalf("output=%q err=%v", body, readErr)
+	}
+}
+
+func TestVODCheckpointEncryptedFragmentsDoNotClaimCrossRefreshProof(t *testing.T) {
+	download := NewDownloader(nil, Config{EquivalenceProof: func(FragmentIdentity) (fragment.Scale, bool) {
+		return fragment.Scale{Kind: "provider-immutable", Value: "immutable:fixture", Scope: "hls:fixture"}, true
+	}})
+	scale := download.vodScale(FragmentIdentity{Encrypted: true, DiscontinuitySequence: 1, MediaSequence: 2})
+	if scale.Kind != "" || scale.Value != "" {
+		t.Fatalf("encrypted scale=%#v, want no cross-refresh proof without key identity", scale)
+	}
+}
+
+func TestVODScaleRejectsOpaqueCallbackProof(t *testing.T) {
+	download := NewDownloader(nil, Config{EquivalenceProof: func(FragmentIdentity) (fragment.Scale, bool) {
+		return fragment.Scale{Kind: "content-identity", Value: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0b2tlbiJ9.signature", Scope: strings.Repeat("b", 64)}, true
+	}})
+	scale := download.vodScale(FragmentIdentity{CanonicalComplete: true, RepresentationIdentity: "provider:track:v1", PlaylistVersion: 1, PlaylistMediaSequence: 1, PlaylistDiscontinuitySequence: 0, SelectedDiscontinuityGroup: -1, Encryption: "none"})
+	if scale.Kind != "" || scale.Value != "" || len(scale.Key) != 64 || len(scale.Scope) != 64 {
+		t.Fatalf("opaque callback proof was retained: %#v", scale)
+	}
+}
+
+func TestVODCanonicalStructuralKeyChangesForEveryResumeFact(t *testing.T) {
+	download := NewDownloader(nil, Config{RepresentationIdentity: "provider:track:v1"})
+	base := FragmentIdentity{
+		Map: true, DiscontinuitySequence: 9, MediaSequence: 17, PartIndex: 2, Partial: true,
+		RangeStart: 3, RangeLength: 7, DurationNanos: 1_000_000_000, MapOrdinal: 1,
+		Encrypted: false, Encryption: "none", RepresentationIdentity: "provider:track:v1",
+		PlaylistVersion: 7, PlaylistMediaSequence: 17, PlaylistDiscontinuitySequence: 9,
+		SelectedBandwidth: 2_000_000, SelectedCodecs: "avc1.4d401f,mp4a.40.2", SelectedResolution: "1920x1080",
+		SelectedAudioGroup: "audio-main", SelectedAudioLanguage: "en", SelectedDiscontinuityGroup: 9,
+		CanonicalComplete: true,
+	}
+	want := download.vodScale(base).Key
+	mutations := []struct {
+		name string
+		edit func(*FragmentIdentity)
+	}{
+		{"provider representation identity", func(v *FragmentIdentity) { v.RepresentationIdentity = "provider:track:v2" }},
+		{"playlist version", func(v *FragmentIdentity) { v.PlaylistVersion++ }},
+		{"playlist media sequence", func(v *FragmentIdentity) { v.PlaylistMediaSequence++ }},
+		{"playlist discontinuity sequence", func(v *FragmentIdentity) { v.PlaylistDiscontinuitySequence++ }},
+		{"selected bandwidth", func(v *FragmentIdentity) { v.SelectedBandwidth++ }},
+		{"selected codecs", func(v *FragmentIdentity) { v.SelectedCodecs = "hev1" }},
+		{"selected resolution", func(v *FragmentIdentity) { v.SelectedResolution = "1280x720" }},
+		{"selected audio group", func(v *FragmentIdentity) { v.SelectedAudioGroup = "audio-alt" }},
+		{"selected audio language", func(v *FragmentIdentity) { v.SelectedAudioLanguage = "fr" }},
+		{"selected discontinuity group", func(v *FragmentIdentity) { v.SelectedDiscontinuityGroup++ }},
+		{"map role", func(v *FragmentIdentity) { v.Map = false }},
+		{"segment discontinuity", func(v *FragmentIdentity) { v.DiscontinuitySequence++ }},
+		{"segment media sequence", func(v *FragmentIdentity) { v.MediaSequence++ }},
+		{"part index", func(v *FragmentIdentity) { v.PartIndex++ }},
+		{"partial", func(v *FragmentIdentity) { v.Partial = false }},
+		{"range start", func(v *FragmentIdentity) { v.RangeStart++ }},
+		{"range length", func(v *FragmentIdentity) { v.RangeLength++ }},
+		{"duration", func(v *FragmentIdentity) { v.DurationNanos++ }},
+		{"map ordinal", func(v *FragmentIdentity) { v.MapOrdinal++ }},
+		{"key declaration", func(v *FragmentIdentity) { v.KeyDeclaration++ }},
+		{"encryption declaration", func(v *FragmentIdentity) { v.Encryption = "aes-128:identity:00" }},
+	}
+	for _, mutation := range mutations {
+		t.Run(mutation.name, func(t *testing.T) {
+			candidate := base
+			mutation.edit(&candidate)
+			if got := download.vodScale(candidate).Key; got == want {
+				t.Fatalf("mutation %q did not change structural key", mutation.name)
+			}
+		})
+	}
+}
+
+func TestVODCheckpointChangedProofRestartsWholeScope(t *testing.T) {
+	var generation atomic.Int32
+	var firstCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/vod.m3u8":
+			_, _ = fmt.Fprintf(writer, "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:1\n#EXTINF:1,\nfirst.ts?token=%d\n#EXTINF:1,\nsecond.ts?token=%d\n#EXT-X-ENDLIST\n", generation.Load(), generation.Load())
+		case "/first.ts":
+			firstCalls.Add(1)
+			if generation.Load() == 0 {
+				_, _ = writer.Write([]byte("old"))
+			} else {
+				_, _ = writer.Write([]byte("new"))
+			}
+		case "/second.ts":
+			_, _ = writer.Write([]byte("two"))
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "payload")
+	checkpoint := &fragment.Checkpoint{Directory: filepath.Join(root, "checkpoint"), ResumeIdentity: "hls:proof:restart"}
+	proofValue := strings.Repeat("a", 64)
+	proof := func(FragmentIdentity) (fragment.Scale, bool) {
+		return fragment.Scale{Kind: "content-identity", Value: proofValue, Scope: strings.Repeat("b", 64)}, true
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	_, err := NewDownloader(transport, Config{Checkpoint: checkpoint, RequireVODCheckpoint: true, RepresentationIdentity: "provider:track:v1", FragmentConcurrency: 1, EquivalenceProof: proof}).Download(ctx, server.URL+"/vod.m3u8?token=one", root, destination, true, events.SinkFunc(func(_ context.Context, event events.Event) error {
+		if event.Kind == events.KindFragmentCompleted && event.Fragment == 1 {
+			cancel()
+		}
+		return nil
+	}))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("first run error=%v, want cancellation", err)
+	}
+	generation.Store(1)
+	proofValue = strings.Repeat("c", 64)
+	result, err := NewDownloader(transport, Config{Checkpoint: checkpoint, RequireVODCheckpoint: true, RepresentationIdentity: "provider:track:v1", FragmentConcurrency: 1, EquivalenceProof: proof}).Download(context.Background(), server.URL+"/vod.m3u8?token=two", root, destination, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Reused != 0 || firstCalls.Load() != 2 {
+		t.Fatalf("result=%#v first calls=%d, want complete restart", result, firstCalls.Load())
+	}
+	if body, err := os.ReadFile(destination); err != nil || string(body) != "newtwo" {
+		t.Fatalf("output=%q err=%v", body, err)
+	}
+}
+
+func TestVODCheckpointIncompleteCanonicalMetadataDownloadsAndRestarts(t *testing.T) {
+	var generation atomic.Int32
+	var firstCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/master.m3u8":
+			_, _ = fmt.Fprint(writer, "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1,CODECS=\"unsafe/path\"\nvod.m3u8\n")
+		case "/vod.m3u8":
+			_, _ = fmt.Fprint(writer, "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:1\n#EXTINF:1,\nfirst.ts\n#EXTINF:1,\nsecond.ts\n#EXT-X-ENDLIST\n")
+		case "/first.ts":
+			firstCalls.Add(1)
+			if generation.Load() == 0 {
+				_, _ = writer.Write([]byte("old"))
+			} else {
+				_, _ = writer.Write([]byte("new"))
+			}
+		case "/second.ts":
+			_, _ = writer.Write([]byte("two"))
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root, destination := t.TempDir(), ""
+	destination = filepath.Join(root, "payload")
+	checkpoint := &fragment.Checkpoint{Directory: filepath.Join(root, "checkpoint"), ResumeIdentity: "hls:incomplete:restart"}
+	ctx, cancel := context.WithCancel(context.Background())
+	_, err := NewDownloader(transport, Config{Checkpoint: checkpoint, RequireVODCheckpoint: true, RepresentationIdentity: "provider:track:v1", FragmentConcurrency: 1}).Download(ctx, server.URL+"/master.m3u8", root, destination, true, events.SinkFunc(func(_ context.Context, event events.Event) error {
+		if event.Kind == events.KindFragmentCompleted && event.Fragment == 1 {
+			cancel()
+		}
+		return nil
+	}))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("first run error=%v, want cancellation", err)
+	}
+	generation.Store(1)
+	result, err := NewDownloader(transport, Config{Checkpoint: checkpoint, RequireVODCheckpoint: true, RepresentationIdentity: "provider:track:v1", FragmentConcurrency: 1}).Download(context.Background(), server.URL+"/master.m3u8", root, destination, true, nil)
+	if err != nil {
+		t.Fatalf("incomplete canonical VOD must download: %v", err)
+	}
+	if result.Reused != 0 || firstCalls.Load() != 2 {
+		t.Fatalf("result=%#v first calls=%d, want full restart", result, firstCalls.Load())
+	}
+	if body, err := os.ReadFile(destination); err != nil || string(body) != "newtwo" {
+		t.Fatalf("output=%q err=%v", body, err)
+	}
+}
+
+func TestVODCheckpointStableKeyIdentityReusesAcrossSignedKeyURLRotation(t *testing.T) {
+	key := []byte("0123456789abcdef")
+	iv := []byte("abcdef0123456789")
+	var generation atomic.Int32
+	var firstCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/vod.m3u8":
+			_, _ = fmt.Fprintf(writer, "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:1\n#EXT-X-KEY:METHOD=AES-128,URI=\"key.bin?token=%d\",IV=0x%x\n#EXTINF:1,\nfirst.ts?token=%d\n#EXTINF:1,\nsecond.ts?token=%d\n#EXT-X-ENDLIST\n", generation.Load(), iv, generation.Load(), generation.Load())
+		case "/key.bin":
+			_, _ = writer.Write(key)
+		case "/first.ts":
+			firstCalls.Add(1)
+			_, _ = writer.Write(encryptSegment(t, []byte("one"), key, iv))
+		case "/second.ts":
+			_, _ = writer.Write(encryptSegment(t, []byte("two"), key, iv))
+		}
+	}))
+	defer server.Close()
+	transport, _ := network.New(network.Config{})
+	root := t.TempDir()
+	destination := filepath.Join(root, "payload")
+	checkpoint := &fragment.Checkpoint{Directory: filepath.Join(root, "checkpoint"), ResumeIdentity: "hls:key:rotation"}
+	proof := func(FragmentIdentity) (fragment.Scale, bool) {
+		return fragment.Scale{Kind: "content-identity", Value: strings.Repeat("a", 64), Scope: strings.Repeat("b", 64)}, true
+	}
+	keyIdentity := func(FragmentIdentity) (string, bool) { return "provider:key:epoch-1", true }
+	ctx, cancel := context.WithCancel(context.Background())
+	_, err := NewDownloader(transport, Config{Checkpoint: checkpoint, RequireVODCheckpoint: true, RepresentationIdentity: "provider:track:v1", FragmentConcurrency: 1, EquivalenceProof: proof, StableKeyIdentity: keyIdentity}).Download(ctx, server.URL+"/vod.m3u8?token=one", root, destination, true, events.SinkFunc(func(_ context.Context, event events.Event) error {
+		if event.Kind == events.KindFragmentCompleted && event.Fragment == 1 {
+			cancel()
+		}
+		return nil
+	}))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("first run error=%v, want cancellation", err)
+	}
+	ledger, readErr := os.ReadFile(filepath.Join(checkpoint.Directory, "state.json"))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	for _, secret := range []string{"key.bin", "token=", string(key), string(iv)} {
+		if strings.Contains(string(ledger), secret) {
+			t.Fatalf("ledger leaked %q: %s", secret, ledger)
+		}
+	}
+	generation.Store(1)
+	result, err := NewDownloader(transport, Config{Checkpoint: checkpoint, RequireVODCheckpoint: true, RepresentationIdentity: "provider:track:v1", FragmentConcurrency: 1, EquivalenceProof: proof, StableKeyIdentity: keyIdentity}).Download(context.Background(), server.URL+"/vod.m3u8?token=two", root, destination, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Reused != 1 || firstCalls.Load() != 1 {
+		t.Fatalf("result=%#v first calls=%d, want signed key URL reuse", result, firstCalls.Load())
+	}
+	if body, err := os.ReadFile(destination); err != nil || string(body) != "onetwo" {
+		t.Fatalf("output=%q err=%v", body, err)
+	}
+}
+
+func TestCheckpointRejectsLivePlaylistBeforeFragmentArtifacts(t *testing.T) {
+	root := t.TempDir()
+	checkpoint := &fragment.Checkpoint{Directory: filepath.Join(root, "checkpoint"), ResumeIdentity: "hls:live:fixture"}
+	_, err := NewDownloader(nil, Config{
+		Checkpoint: checkpoint, RequireVODCheckpoint: true, RepresentationIdentity: "provider:track:live",
+		InitialPlaylist: &InitialPlaylist{URL: "https://example.test/live.m3u8", Body: []byte("#EXTM3U\n#EXTINF:1,\nsegment.ts\n")},
+	}).Download(context.Background(), "https://example.test/live.m3u8", root, filepath.Join(root, "payload"), true, nil)
+	if !errors.Is(err, ErrVODCheckpointRequired) {
+		t.Fatalf("error=%v, want VOD checkpoint rejection", err)
+	}
+	if _, statErr := os.Lstat(checkpoint.Directory); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("checkpoint directory created for live playlist: %v", statErr)
+	}
+}
 
 type hlsRoundTripper func(*http.Request) (*http.Response, error)
 

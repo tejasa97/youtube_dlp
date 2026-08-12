@@ -2,6 +2,7 @@
 package format
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -57,6 +58,17 @@ type Selection struct {
 	// native HLS downloader applies it to the manifest, variants, segments,
 	// encryption keys, and initialization maps.
 	AllowedHosts []string
+	// FragmentResumeIdentity and FragmentEquivalence are extractor-owned
+	// non-secret evidence for finite HLS/DASH session reuse. They are never
+	// inferred from URL, video ID, format ID, or itag. An absent descriptor
+	// means the engine conservatively restarts the complete representation on
+	// the next extraction/refresh.
+	FragmentResumeIdentity string
+	FragmentEquivalence    FragmentEquivalence
+	// FragmentKeyIdentity is an optional provider-issued, non-secret identity
+	// for an encrypted HLS key epoch. Its absence deliberately keeps encrypted
+	// fragments non-resumable across refreshed key URLs.
+	FragmentKeyIdentity string
 
 	// YouTubePostLive selects the finite post-live DVR sequence downloader.
 	// The discriminator is extractor-produced and never inferred from a URL.
@@ -94,6 +106,17 @@ type Selection struct {
 	sourceKnown     bool
 	normalizedIndex int
 	normalizedKnown bool
+}
+
+// FragmentEquivalence is a bounded provider assertion that maps a selected
+// representation's structural fragment keys to immutable bytes. Only
+// provider-immutable and content-identity are accepted here. Strong remote
+// validators require fresh response checking and are intentionally rejected
+// until an adapter implements that contract.
+type FragmentEquivalence struct {
+	Kind  string
+	Value string
+	Scope string
 }
 
 // SourceFormatIndex returns the original list index of the extractor-owned
@@ -245,6 +268,10 @@ func (prepared Prepared) Best() (Selection, error) {
 		if allowedHostsErr != nil {
 			return Selection{}, allowedHostsErr
 		}
+		selection.FragmentResumeIdentity, selection.FragmentEquivalence, selection.FragmentKeyIdentity, allowedHostsErr = readFragmentEquivalence(object)
+		if allowedHostsErr != nil {
+			return Selection{}, allowedHostsErr
+		}
 		if selection.YouTubeSABR {
 			selection.Protocol = "youtube_sabr_ump"
 		}
@@ -253,6 +280,52 @@ func (prepared Prepared) Best() (Selection, error) {
 		return selection, nil
 	}
 	return Selection{}, fmt.Errorf("%w: formats contain no URL", ErrNoFormats)
+}
+
+func readFragmentEquivalence(object *value.Object) (string, FragmentEquivalence, string, error) {
+	identity, _ := object.Lookup("_fragment_resume_identity").StringValue()
+	kind, _ := object.Lookup("_fragment_equivalence_kind").StringValue()
+	proofValue, _ := object.Lookup("_fragment_equivalence_digest").StringValue()
+	scope, _ := object.Lookup("_fragment_equivalence_scope_digest").StringValue()
+	keyIdentity, _ := object.Lookup("_fragment_key_identity").StringValue()
+	if identity == "" && kind == "" && proofValue == "" && scope == "" && keyIdentity == "" {
+		return "", FragmentEquivalence{}, "", nil
+	}
+	if !validFragmentProofToken(identity) {
+		return "", FragmentEquivalence{}, "", fmt.Errorf("%w: invalid fragment resume identity", ErrInvalidFormats)
+	}
+	if kind != "provider-immutable" && kind != "content-identity" {
+		return "", FragmentEquivalence{}, "", fmt.Errorf("%w: unsupported fragment equivalence kind", ErrInvalidFormats)
+	}
+	if !validFragmentProofDigest(proofValue) || !validFragmentProofDigest(scope) {
+		return "", FragmentEquivalence{}, "", fmt.Errorf("%w: invalid fragment equivalence proof", ErrInvalidFormats)
+	}
+	if keyIdentity != "" && !validFragmentProofToken(keyIdentity) {
+		return "", FragmentEquivalence{}, "", fmt.Errorf("%w: invalid fragment key identity", ErrInvalidFormats)
+	}
+	return identity, FragmentEquivalence{Kind: kind, Value: proofValue, Scope: scope}, keyIdentity, nil
+}
+
+func validFragmentProofDigest(value string) bool {
+	if len(value) != 64 || value != strings.ToLower(value) {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
+}
+
+func validFragmentProofToken(value string) bool {
+	if value == "" || len(value) > 256 {
+		return false
+	}
+	for _, character := range value {
+		if (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
+			(character >= '0' && character <= '9') || strings.ContainsRune("._:-", character) {
+			continue
+		}
+		return false
+	}
+	return value != "." && value != ".."
 }
 
 func readAllowedHosts(object *value.Object) ([]string, error) {

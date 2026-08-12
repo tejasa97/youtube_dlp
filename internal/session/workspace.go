@@ -28,6 +28,7 @@ type Workspace struct {
 	mu                   sync.Mutex
 	ref                  WorkspaceRef
 	path                 string
+	workspaceIdentity    string
 	lease                *workspaceLease
 	manifest             Manifest
 	closed               bool
@@ -121,6 +122,10 @@ func create(options CreateOptions, requestedSessionID string) (*Workspace, error
 		if err := validateDirectory(workspacePath, true); err != nil {
 			return recoverCreateFailure(ref, workspacePath, nil, Manifest{}, err)
 		}
+		workspaceIdentity, identityErr := directoryIdentity(workspacePath)
+		if identityErr != nil {
+			return recoverCreateFailure(ref, workspacePath, nil, Manifest{}, identityErr)
+		}
 		leasePath, _ := ref.leasePath()
 		lease, leaseErr := acquireWorkspaceLease(leasePath, true, true)
 		if leaseErr != nil {
@@ -158,6 +163,7 @@ func create(options CreateOptions, requestedSessionID string) (*Workspace, error
 				return &Workspace{
 					ref:                  ref,
 					path:                 workspacePath,
+					workspaceIdentity:    workspaceIdentity,
 					lease:                lease,
 					manifest:             manifest,
 					reconciliationNeeded: outcome.Indeterminate(),
@@ -165,7 +171,7 @@ func create(options CreateOptions, requestedSessionID string) (*Workspace, error
 			}
 			return recoverCreateFailure(ref, workspacePath, lease, manifest, err)
 		}
-		return &Workspace{ref: ref, path: workspacePath, lease: lease, manifest: manifest}, nil
+		return &Workspace{ref: ref, path: workspacePath, workspaceIdentity: workspaceIdentity, lease: lease, manifest: manifest}, nil
 	}
 	return nil, ErrWorkspaceUnavailable
 }
@@ -215,7 +221,12 @@ func Open(ref WorkspaceRef) (*Workspace, error) {
 		_ = lease.Close()
 		return nil, err
 	}
-	return &Workspace{ref: ref, path: workspacePath, lease: lease, manifest: manifest}, nil
+	workspaceIdentity, identityErr := directoryIdentity(workspacePath)
+	if identityErr != nil {
+		_ = lease.Close()
+		return nil, identityErr
+	}
+	return &Workspace{ref: ref, path: workspacePath, workspaceIdentity: workspaceIdentity, lease: lease, manifest: manifest}, nil
 }
 
 func recoverableCreateHandle(ref WorkspaceRef, workspacePath string, manifest Manifest) *Workspace {
@@ -722,6 +733,105 @@ func (workspace *Workspace) ResetComponent(expectedRevision, expectedGeneration 
 		}
 		return ErrInvalidManifest
 	})
+}
+
+// ResetFragmentComponent first revokes the component's durable authority, then
+// removes the fixed session fragment-ledger directory through the same
+// handle-relative/no-follow traversal used by discard. It is intentionally
+// limited to the engine-owned checkpoints/fragments layout; callers cannot
+// supply an arbitrary path. This order is deliberate: a failure or a workspace
+// replacement during deletion leaves a zero durable boundary, so stale local
+// bytes cannot be reused. A later retry may safely remove the retained files.
+func (workspace *Workspace) ResetFragmentComponent(expectedRevision, expectedGeneration uint64, id string, now time.Time) error {
+	if workspace == nil || now.IsZero() {
+		return ErrInvalidManifest
+	}
+	manifest, err := workspace.Snapshot()
+	if err != nil {
+		return err
+	}
+	if manifest.Revision != expectedRevision || manifest.RunGeneration != expectedGeneration {
+		return ErrStaleMutation
+	}
+	var relative string
+	found := false
+	for _, component := range manifest.Components {
+		if component.ID == id {
+			relative = component.Checkpoint.RelativePath
+			found = true
+			break
+		}
+	}
+	if !found || relative != CheckpointDirectoryName+"/fragments/state.json" {
+		return ErrUnsafePath
+	}
+	if err := validateWorkspaceRootIdentity(workspace.ref); err != nil {
+		return err
+	}
+	// Commit the authority reset before any destructive traversal. In
+	// particular, do not call the ordinary pathname-based manifest writer after
+	// an identity-bound deletion: a path replacement in that interval could
+	// redirect a manifest mutation. If deletion fails, this committed zero
+	// boundary is intentionally fail-closed and a later retry owns cleanup.
+	if err := workspace.ResetComponent(expectedRevision, expectedGeneration, id, now); err != nil {
+		return err
+	}
+	root, openErr := openDiscardRoot(workspace.path, workspace.workspaceIdentity)
+	if openErr == nil {
+		// Fixed payload candidates and checkpoint children are opened from
+		// this identity-bound workspace handle; no descendant pathname is
+		// trusted after the root is opened.
+		for _, name := range []string{"payload", "payload.part"} {
+			if removeErr := removeDiscardNamedFile(root, name); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+				_ = root.close()
+				return removeErr
+			}
+		}
+		parent, parentErr := openDiscardEntry(root, CheckpointDirectoryName, nil, true)
+		if parentErr == nil {
+			checkpointDirectory := &discardDirectory{file: parent.file, path: parent.path, identity: parent.identity}
+			child, childErr := openDiscardEntry(checkpointDirectory, "fragments", nil, true)
+			if childErr == nil {
+				directory := &discardDirectory{file: child.file, path: child.path, identity: child.identity}
+				removeErr := removeDiscardChildrenFromHandle(directory, &discardTreeBudget{}, true)
+				if removeErr == nil {
+					removeErr = syncDiscardDirectoryHandle(directory)
+				}
+				if removeErr == nil {
+					removeErr = child.remove()
+				}
+				closeErr := child.close()
+				parentErr := parent.close()
+				rootErr := root.close()
+				if removeErr != nil {
+					return removeErr
+				}
+				if closeErr != nil {
+					return closeErr
+				}
+				if parentErr != nil {
+					return parentErr
+				}
+				if rootErr != nil {
+					return rootErr
+				}
+			} else {
+				_ = parent.close()
+				_ = root.close()
+				if !errors.Is(childErr, os.ErrNotExist) {
+					return childErr
+				}
+			}
+		} else {
+			_ = root.close()
+			if !errors.Is(parentErr, os.ErrNotExist) {
+				return parentErr
+			}
+		}
+	} else if !errors.Is(openErr, os.ErrNotExist) {
+		return openErr
+	}
+	return nil
 }
 
 // SetStagedOutput records the fingerprint of a fully fsynced staged output.

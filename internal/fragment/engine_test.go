@@ -303,6 +303,58 @@ func FuzzPlanHash(f *testing.F) {
 	})
 }
 
+func FuzzScaleValidationRejectsURLAndBearerShapes(f *testing.F) {
+	for _, seed := range []string{"https://cdn.example/path?token=secret", "cookie=value", "Bearer secret", "key/uri", "content:stable", "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0b2tlbiJ9.signature"} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, value string) {
+		valid := validateScale(&Scale{Key: strings.Repeat("a", 64), Kind: "content-identity", Value: value, Scope: strings.Repeat("b", 64)}) == nil
+		if valid && value != strings.Repeat("a", 64) {
+			t.Fatalf("accepted non-canonical proof %q", value)
+		}
+	})
+}
+
+func TestScaleRejectsJWTShapedValueAndScope(t *testing.T) {
+	jwt := "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0b2tlbiJ9.signature"
+	base := Scale{Key: strings.Repeat("a", 64), Kind: "content-identity", Value: strings.Repeat("b", 64), Scope: strings.Repeat("c", 64)}
+	for _, test := range []struct {
+		name string
+		edit func(*Scale)
+	}{
+		{"value", func(scale *Scale) { scale.Value = jwt }},
+		{"scope", func(scale *Scale) { scale.Scope = jwt }},
+		{"key", func(scale *Scale) { scale.Key = jwt }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := base
+			test.edit(&candidate)
+			if err := validateScale(&candidate); err == nil {
+				t.Fatalf("accepted JWT-shaped %s", test.name)
+			}
+		})
+	}
+}
+
+func TestJWTShapedScaleCannotCreateOrSerializeCheckpointLedger(t *testing.T) {
+	root := t.TempDir()
+	checkpoint := filepath.Join(root, "checkpoint")
+	jwt := "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0b2tlbiJ9.signature"
+	_, err := New(nil).Download(context.Background(), Job{
+		OutputRoot: root, Destination: filepath.Join(root, "payload"),
+		Checkpoint: &Checkpoint{Directory: checkpoint, ResumeIdentity: "proof:serialization"},
+		Segments: []Segment{{URL: "https://example.invalid/fragment", Scale: &Scale{
+			Key: strings.Repeat("a", 64), Kind: "content-identity", Value: jwt, Scope: strings.Repeat("b", 64),
+		}}},
+	}, nil)
+	if !errors.Is(err, ErrInvalidCheckpoint) {
+		t.Fatalf("error=%v, want invalid checkpoint", err)
+	}
+	if _, statErr := os.Lstat(checkpoint); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("invalid proof created checkpoint state: %v", statErr)
+	}
+}
+
 func TestEngineRejectsExcessiveResourceConfiguration(t *testing.T) {
 	root := t.TempDir()
 	job := Job{OutputRoot: root, Destination: filepath.Join(root, "a"), Segments: []Segment{{URL: "https://example.test/a"}}, Concurrency: 129}

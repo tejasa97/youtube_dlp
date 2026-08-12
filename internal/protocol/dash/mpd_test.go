@@ -51,12 +51,42 @@ func TestParseBaseInheritanceTemplatesAndSegmentList(t *testing.T) {
 }
 
 func TestParseDurationTemplate(t *testing.T) {
-	mpd, err := Parse("https://example.invalid/m.mpd", []byte(`<MPD mediaPresentationDuration="PT5.5S"><Period><AdaptationSet mimeType="video/mp4"><Representation id="v" bandwidth="1"><SegmentTemplate timescale="10" duration="20" media="$Number$.m4s"/></Representation></AdaptationSet></Period></MPD>`))
+	mpd, err := Parse("https://example.invalid/m.mpd", []byte(`<MPD mediaPresentationDuration="PT5.5S"><Period><AdaptationSet mimeType="video/mp4" frameRate="30" audioSamplingRate="48000"><Representation id="v" bandwidth="1"><SegmentTemplate timescale="10" duration="20" media="$Number$.m4s"/></Representation></AdaptationSet></Period></MPD>`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := len(mpd.Representations[0].Segments); got != 3 {
 		t.Fatalf("segment count = %d", got)
+	}
+	if got := mpd.Representations[0].Resume.SegmentDuration; got != 20 {
+		t.Fatalf("template resume segment duration = %d, want 20", got)
+	}
+	if got := mpd.Representations[0].Resume.FrameRate; got != "30" {
+		t.Fatalf("template resume frame rate = %q, want 30", got)
+	}
+	if got := mpd.Representations[0].Resume.AudioRate; got != "48000" {
+		t.Fatalf("template resume audio rate = %q, want 48000", got)
+	}
+}
+
+func TestParseResumeStructureRetainsInheritedTemplateAndListDuration(t *testing.T) {
+	tests := []struct {
+		name, body string
+		want       int64
+	}{
+		{"template", `<MPD mediaPresentationDuration="PT1S"><Period id="p"><AdaptationSet id="a" contentType="video"><SegmentTemplate duration="7" media="seg-$Number$.m4s"/><Representation id="r"/></AdaptationSet></Period></MPD>`, 7},
+		{"list", `<MPD><Period id="p"><AdaptationSet id="a" contentType="audio"><SegmentList duration="9"><SegmentURL media="seg.m4s"/></SegmentList><Representation id="r"/></AdaptationSet></Period></MPD>`, 9},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			mpd, err := Parse("https://example.invalid/manifest.mpd", []byte(test.body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := mpd.Representations[0].Resume.SegmentDuration; got != test.want {
+				t.Fatalf("resume segment duration=%d, want %d", got, test.want)
+			}
+		})
 	}
 }
 
