@@ -1,0 +1,26 @@
+name: Native Windows E5 validation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e5-windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run native Windows E5 lease and publication matrix
+        shell: pwsh
+        run: |
+          go test -timeout 150s ./internal/session ./engine -run 'Test(CrossProcessLeaseCrashReleasesForBoundedGC|HelperProcessLeaseContentionAndRelease|DiscardGuardBlocksCrossProcessRecovery|DirectSession(Collision|PostReplace|Indeterminate|PrePublication)|DirectSessionsRaceToOneDestinationWithoutReplacement|FiniteHLSSession|StaticDASHSession|MultiTrackSession(Collision|PostReplace|Indeterminate|PrePublication|LeaseContention))' -count=1
