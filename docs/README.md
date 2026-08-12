@@ -60,6 +60,7 @@ ytdlp-go --help
 
 ## Plans, history, and audits
 
+- [Engine E5 hardening evidence](ENGINE_E5_HARDENING.md)
 - [Evidence index](evidence/README.md) — current capability claims, ledgers,
   protocol records, and fixture provenance
 - [Historical engineering records](history/README.md) — original port
