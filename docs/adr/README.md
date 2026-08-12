@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-Phase 0 decisions use short, immutable ADRs. A later change supersedes an ADR
+Architecture decisions use short, immutable ADRs. A changed decision supersedes an ADR
 with a new record instead of rewriting the original decision and its context.
 
 - [0001: Regular-expression compatibility](0001-regex-compatibility.md)

@@ -8,9 +8,9 @@ This project is pre-release software. Security fixes are made on the current
 ## Reporting a vulnerability
 
 Do not open a public issue for a suspected vulnerability. Use GitHub's private
-**Report a vulnerability** feature on the repository's Security tab. If that
-feature is unavailable, email `tejasarlimatti@gmail.com` with the subject
-`ytdlp-go security report`.
+**Report a vulnerability** feature on the repository's Security tab. If the
+private form is unavailable, do not include sensitive details in a public
+issue.
 
 Include the affected revision, impact, reproduction steps, and any suggested
 remediation. Use synthetic data wherever possible. Do not send real account

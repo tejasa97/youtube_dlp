@@ -31,5 +31,5 @@ notes:
   - Only *START-END, *START-inf, and *from-url are accepted; all other values are rejected explicitly.
   - Bounds are validated as finite, nonnegative, ordered, and duration/count-bounded before any output mutation.
   - Section downloading delegates to ffmpeg with -ss/-t (and -map for separate A/V inputs), mirroring FFmpegFD.
-  - Native fragment trimming is deferred; HLS/DASH partial downloads use ffmpeg as upstream does.
+  - Native fragment trimming is unsupported; HLS/DASH partial downloads use ffmpeg as upstream does.
   - An extractor section (section_start/section_end) triggers section download even without --download-sections.

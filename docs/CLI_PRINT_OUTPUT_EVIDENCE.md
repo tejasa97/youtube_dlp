@@ -58,5 +58,5 @@ Known deviations:
   rather than streamed at each lifecycle instant;
 - `post_process` and `after_move` both observe the final native pipeline path
   because this port atomically publishes postprocessed media as one operation;
-- upstream-only output-template syntax beyond the bounded native parser remains
-  pending.
+- upstream-only output-template syntax beyond the bounded native parser is
+  unsupported.

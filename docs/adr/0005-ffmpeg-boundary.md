@@ -1,27 +1,28 @@
-# ADR 0005: ffmpeg process boundary
+# ADR 0005: FFmpeg process boundary
 
-Status: Accepted for future implementation
+Status: Accepted
 
 ## Context
 
-Feature parity requires merging, transcoding, probing, and post-processing that
-ffmpeg already implements well. Reimplementing codecs in Go is outside the
-project goal. ffmpeg is not Python and is an acceptable optional external tool.
+Merging, transcoding, probing, and media post-processing rely on FFmpeg and
+FFprobe. Reimplementing codecs in Go is outside the project scope. These tools
+are external native dependencies, not a Python runtime.
 
 ## Decision
 
-ffmpeg and ffprobe will be supervised child processes invoked directly with an
-argument vector, never through a shell. Discovery order, minimum version,
-capabilities, and overrides will be explicit. Process lifetime is bound to the
-operation context, stderr is bounded, secrets are redacted from diagnostic
-arguments, and progress is translated into structured events.
+FFmpeg and FFprobe run as supervised child processes invoked directly with an
+argument vector, never through a shell. Discovery, capability checks, and
+caller overrides are explicit. Process lifetime is bound to the operation
+context, stderr is bounded, sensitive arguments are redacted from diagnostics,
+and progress is translated into structured events.
 
-Inputs and outputs must remain under approved paths unless the caller explicitly
-provides an external path. Temporary outputs use the same atomic-finalization
-rules as downloads. Tests use generated license-safe media fixtures.
+Inputs and outputs remain within approved paths unless the caller explicitly
+supplies another permitted path. Temporary outputs use the same staged and
+atomic-finalization rules as other media artifacts. Tests use generated,
+license-safe media fixtures.
 
 ## Consequences
 
-Codec parity can advance without Python or a codec rewrite. ffmpeg remains an
-optional runtime dependency for capabilities that need it; direct downloads do
-not require it. Phase 1 implements and tests this boundary.
+Media processing does not require Python or a codec implementation in this
+repository. FFmpeg remains an external runtime dependency for operations that
+need it; compatible direct downloads do not require it.

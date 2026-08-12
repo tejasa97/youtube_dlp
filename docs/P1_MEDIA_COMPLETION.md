@@ -1,10 +1,9 @@
-# Phase 1 media lane completion evidence
+# Media completion evidence
 
-This document records the scoped P1-03 and P1-04 implementation completed by
-the media lane. It does not change the shared parity manifest; the primary
-integrator owns those status decisions.
+This document records the implemented DASH protocol and ffmpeg supervision
+boundaries.
 
-## P1-03: DASH protocol core
+## DASH protocol core
 
 Implemented and covered by automated tests:
 
@@ -17,11 +16,11 @@ Implemented and covered by automated tests:
   duration, media-presentation duration, or deterministic dynamic
   availability/publish boundary.
 - SegmentList URLs and byte ranges, initialization ranges, and single-file
-  SegmentBase representations. A post-Phase 1 extension also expands bounded
+  SegmentBase representations. The current implementation also expands bounded
   static `SegmentBase@indexRange` entries through native SIDX v0/v1 parsing.
 - Separate deterministic best audio/video selection, including equal
   representation IDs across content types.
-- A post-Phase 1 extension intersects compatible fragmented formats across
+- The current implementation intersects compatible fragmented formats across
   ordered, contiguous static periods, applies the segment budget across the
   complete track, and finalizes each track through bounded ffmpeg concat before
   optional audio/video merge.
@@ -82,7 +81,7 @@ media URL. Bounded single-period dynamic SIDX polling with live-window prefix
 eviction is documented in `docs/DASH_DYNAMIC_SIDX_EVIDENCE.md`. See also
 `docs/DASH_SIDX_EVIDENCE.md` and `docs/DASH_MULTI_PERIOD_EVIDENCE.md`.
 
-## P1-04: ffmpeg and ffprobe supervision
+## ffmpeg and ffprobe supervision
 
 Implemented and covered by automated tests:
 
@@ -112,17 +111,17 @@ Key evidence:
 - `internal/media/pipeline.TestDASHDownloadAndFFmpegMergeEndToEnd`
 - `internal/media/pipeline.TestRemuxDownloadFinalizesThenRemovesSource`
 
-Known deviation: Phase 1 does not implement codec-specific transcoding,
-subtitle embedding, thumbnail embedding, or metadata rewriting. SIDX parsing
-was subsequently added to the DASH layer and does not change the ffmpeg
-supervision boundary described here.
-The new `Toolset.Remux` and `pipeline.RemuxDownload` APIs are product-facing
-integration hooks; shared client dispatch remains owned by the primary agent.
+This supervision boundary does not itself implement codec-specific
+transcoding, subtitle embedding, thumbnail embedding, or metadata rewriting;
+those behaviors are handled by typed post-processing layers. SIDX parsing is
+part of the DASH layer and does not change this ffmpeg supervision boundary.
+`Toolset.Remux` and `pipeline.RemuxDownload` are product-facing integration
+hooks.
 
 ## Portability and Python-free boundary
 
 The lane is pure Go. ffmpeg and ffprobe are optional non-Python external tools.
 Direct HTTP/HLS/DASH downloading does not require either executable. The lane
 is checked with native tests/race/vet/fuzz, Windows and Linux cross-compilation,
-and repository Docker verification by the integrator. No production source
+and the repository Docker verification. No production source
 loads fixtures or the pinned reference checkout.

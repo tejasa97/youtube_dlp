@@ -1,4 +1,4 @@
-# Phase 3 Twitch VOD, clip, and channel videos breadth
+# Twitch VOD, clip, and channel-video breadth
 
 This increment extends the existing native live-channel extractor with:
 
@@ -76,7 +76,7 @@ download bytes.
 The retained boundary is anonymous public behavior only. Login/private,
 subscriber-only or entitlement-gated media, restricted mature/geo responses,
 chat/comments, live-from-start VOD association, and interactive credential
-flows remain deferred. Oversize, malformed, redirect, client, rate-limit,
+flows remain unsupported. Oversize, malformed, redirect, client, rate-limit,
 legal, server, and cancellation failures remain typed and secret-safe.
 
 Known deviations from the pinned reference:

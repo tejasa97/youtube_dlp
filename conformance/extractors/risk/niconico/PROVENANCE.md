@@ -29,11 +29,11 @@ is provided by these public `Client.Run` tests:
 - `engine.TestProductNiconicoPlaylistChildReentryUsesRegisteredKeys`
 - `engine.TestProductNiconicoHLSFailureAndCancellationLeaveNoArtifacts`
 
-History is deferred because the upstream path requires cookies and has no
-registered native mapping or product evidence. Live is deferred because the
+History is unsupported because the upstream path requires cookies and has no
+registered native mapping or product evidence. Live is unsupported because the
 upstream websocket seat/heartbeat lifecycle is outside the existing finite
 native HLS abstractions and has no registered native mapping or product
-evidence. Date-recursive search remains deferred because it has no registered
+evidence. Date-recursive search is unsupported because it has no registered
 exact class mapping, fixed bounded native contract, or product evidence;
 comments, premium/member/PPV playback, sensitive-account playback, and
 geo-restricted playback are not claimed.

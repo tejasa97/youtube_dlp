@@ -1,4 +1,4 @@
-# Brightcove adapters wave 2 provenance
+# Brightcove adapter provenance
 
 Reference: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`
 

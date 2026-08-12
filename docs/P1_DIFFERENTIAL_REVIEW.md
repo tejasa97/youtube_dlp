@@ -1,4 +1,4 @@
-# Phase 1 differential conformance review
+# Pinned differential conformance review
 
 ## Review basis
 
@@ -11,8 +11,8 @@ The generic differential runner proves exact, ordered, set-like, ignored,
 tolerance, missing-versus-null, URL-redaction, format-selection, filename, and
 checksum comparison rules. Site corpora then assert normalized behavior
 directly in their extractor tests. This is intentional: a live Python oracle
-would make the Python-free gate non-hermetic and would make future upstream
-changes silently alter the expected result.
+would make the Python-free invariant non-hermetic and would let unpinned
+upstream changes silently alter the expected result.
 
 Critical semantics for this review are media identity, availability and
 authentication classification, normalized format URL/protocol, live state,
@@ -48,11 +48,11 @@ VOD/chat/entitlements, Vimeo password/showcase flows, expanded SoundCloud
 surfaces, TikTok signing and slideshows, SVT series/geo bypass, additional
 browser profiles and cookie stores, and automatic plugin discovery/signing.
 Bounded static SegmentBase `indexRange` expansion and compatible fragmented
-multi-period composition were added after the original Phase 1 review and are
+multi-period composition were added after the original pinned review and are
 covered by `docs/DASH_SIDX_EVIDENCE.md` and
 `docs/DASH_MULTI_PERIOD_EVIDENCE.md`. The remaining items are visible feature
 limits; none is hidden by a differential ignore rule.
 
-No critical semantic difference remains unreviewed in the Phase 1 pilot
+No critical semantic difference remains unreviewed in the pinned pilot
 corpus. Expanding a pilot requires new attributable fixtures and passing
 evidence before its compatibility target can be widened.

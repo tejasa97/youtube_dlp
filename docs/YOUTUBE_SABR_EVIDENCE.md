@@ -1,9 +1,8 @@
 # YouTube SABR/UMP evidence
 
 Status: retained bounded finite-VOD experimental extension. Synthetic fixtures
-only; excluded from project parity targets, roadmap deliverables, release
-gates, and remaining-work estimates. No expansion toward full SABR parity is
-planned.
+only; excluded from project parity and supported-product claims. Full SABR
+parity is outside the current claim.
 
 ## Supported wire subset
 
@@ -78,9 +77,8 @@ Synthetic fixtures: `conformance/extractors/youtube/sabr-only-watch.html`, `conf
 These boundaries are recorded for safe maintenance of the retained
 implementation. They are not project backlog items or parity blockers.
 
-See `docs/YOUTUBE_SABR_RECOVERY_ARCHITECTURE.md` for the frozen architecture
-table and `docs/YOUTUBE_SABR_BOUNDARIES.md` for the non-goal maintenance
-boundary.
+See `docs/YOUTUBE_SABR_RECOVERY_ARCHITECTURE.md` for the current architecture
+table and `docs/YOUTUBE_SABR_BOUNDARIES.md` for the non-goal boundary.
 
 ## Tests
 

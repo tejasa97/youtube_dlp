@@ -23,8 +23,7 @@ Vimeo client changes, Instagram logged-in extraction, and Apple extractor
 rework affect input inventory, metadata, or availability only. They do not
 touch the selector/filter/sorter/planner/CLI normative sources above.
 
-Therefore no product-code change or fixture recapture is warranted. PR 10's
+Therefore no product-code change or fixture recapture is warranted. The
 closure matrix and marker guard remain the executable evidence for unchanged
-normative behavior. No owned selector follow-up was identified; extractor,
-SABR, and client-policy implementation is intentionally outside this delta
-unless a future audit demonstrates a concrete selection semantic change.
+normative behavior. No current selector gap was identified. Extractor, SABR,
+and client-policy behavior is outside this selector claim.

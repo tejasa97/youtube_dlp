@@ -1,4 +1,4 @@
-# Phase 2 plugin-pack and sandbox threat model
+# Plugin-pack and sandbox threat model
 
 This document refines the project trust policy for signed packs and hostile
 out-of-process plugins. It aligns with `docs/P2_TRUST_SECURITY_POLICY.md`; that
@@ -27,7 +27,7 @@ Detected aliases or mutations fail closed.
 
 | Threat | Control | Residual risk |
 | --- | --- | --- |
-| Archive traversal or platform alias | ASCII portable names; case-fold/DOS/drive/trailing-dot rejection; exact declared entries | Future platforms may introduce new reserved aliases and require an updated schema |
+| Archive traversal or platform alias | ASCII portable names; case-fold/DOS/drive/trailing-dot rejection; exact declared entries | The schema covers only the currently documented platform aliases |
 | Compression bomb or oversized metadata | Store-only canonical ZIP and independent compressed/uncompressed/count/aggregate bounds | Configured bounds still consume bounded memory because verification returns payload bytes |
 | Signature/key-ID substitution | Full public-key-derived ID, domain-separated Ed25519 signature, explicit trust map, no TOFU | Compromised trusted keys require externally distributed revocation metadata |
 | Downgrade, expiration, or revoked artifact | Caller time, semantic versions, host minimum, key/manifest/version revocations | Authenticity and freshness of the revocation feed belong to updater/release policy |
@@ -79,8 +79,8 @@ macOS native execution fails closed. `sandbox-exec` is deprecated and does not
 provide the maintained filesystem/network and resource-limit security contract
 required for hostile native code, so it is not represented as an adapter.
 
-The generic Windows filesystem/network sandbox policy also fails closed pending
-an AppContainer/restricted-token and ACL-aware path broker. The RPC process
+The generic Windows filesystem/network sandbox policy also fails closed because
+no AppContainer/restricted-token and ACL-aware path broker is implemented. The RPC process
 cleanup boundary itself is race-free: it creates the process suspended, assigns
 the kill-on-close Job and supported memory/CPU/process limits, then resumes the
 initial thread. Descriptor limits are rejected because Jobs cannot enforce

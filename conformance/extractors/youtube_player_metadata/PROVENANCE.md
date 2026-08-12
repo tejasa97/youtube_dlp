@@ -9,7 +9,7 @@ average rating, embeddability, media type, the deterministic thumbnail
 collection with deduplication, and the `yt:stretch` stretched ratio. The
 fixture never exercises watch-page (`ytInitialData`) metadata, chapters,
 heatmap, likes, subscriber counts, badges, or Music auto-generated description
-fields, which remain pending.
+fields, which are outside this fixture claim.
 
 The player response shapes and field semantics follow the pinned reference
 `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`:

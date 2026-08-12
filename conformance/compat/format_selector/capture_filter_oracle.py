@@ -6,9 +6,9 @@ Docker images, and production never invoke this script.
 
 Example:
 
-  /Users/tejas/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 \\
+  python3 \\
     conformance/compat/format_selector/capture_filter_oracle.py \\
-    --reference /Users/tejas/projects/yt-dlp-reference \\
+    --reference /path/to/yt-dlp-reference \\
     --commit aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8 \\
     --write
 """

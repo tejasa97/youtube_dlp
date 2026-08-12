@@ -1,10 +1,10 @@
 # Plugin spike fixture provenance
 
-These fixtures were authored for the Go port's Phase 1 plugin boundary. They
+These fixtures were authored for the Go port's plugin boundary. They
 contain no captured network response, secret, copyrighted media, or executable
 derived from Python.
 
-- Reference repository: `/Users/tejas/projects/yt-dlp-reference`
+- Reference repository: `/path/to/yt-dlp-reference`
 - Reference commit: `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`
 - Reference use: behavioral context for the normalized extractor-result shape
   only. No upstream plugin implementation or fixture bytes were copied.

@@ -1,9 +1,6 @@
-# Extractor breadth priority-100 evidence
+# Extractor breadth evidence
 
-Baseline program start: `172a718c5f7ab660836ef52967858ac2f817c5e9`
 Pinned reference: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`
-Rebase base / current `origin/main`: `73f992c489f7e964e3324af32953da182ee64aa1` (Wave 1 `#87` plus later main, including YouTube production-parity `#90`).
-This PR continues the same program after wave 1 (`#87`).
 
 ## Automated inventories (authoritative)
 
@@ -18,13 +15,13 @@ Current automated floors:
 | Metric | Floor | Source |
 |--------|------:|--------|
 | Success URL shapes (Extract / URLResult re-entry / playlist CollectEntries) | **≥100** | `breadthMinSuccessShapes` |
-| Playlist/feed behaviors added by this program since baseline | **≥20** | `breadthMinPlaylists` |
+| Playlist/feed behaviors in the breadth inventory | **≥20** | `breadthMinPlaylists` |
 
 Shape entries carry a **canonical identity** (`key|route-syntax`). Duplicate IDs, fixture cardinality (`-single`/`-multi` on the same path), hostname aliases with identical behavior, and payload-only variants are rejected by the ledger.
 
 Aliases (`www`/identical-host mirrors), optional query order, and result cardinality are not counted as distinct shapes. Suitable-only routing is never counted.
 
-## Keys added on this branch (beyond wave 1)
+## Covered extractor keys
 
 **Brightcove adapters (11):** `pgatour`, `ninenews`, `ninenow`, `netapp`, `netapp_collection`, `amcnetworks`, `craftsy`, `tvo`, `tva`, `tvanouvelles`, `tvanouvelles_article`
 
@@ -58,10 +55,11 @@ Every program playlist in the automated inventory uses `LazyFirstPageEntries` or
 - hostile continuation rejection (`spreaker_show` `next_url`)
 - cancellation checked on Extract and between pages via `OnDemandEntries` / CollectEntries
 
-## Families (≥8)
+## Covered families
 
-Wave 1 families remain: Cloudflare Stream, Arc Publishing, Anvato, ThePlatform, plus pre-existing Brightcove/Kaltura/JW/Wistia/SproutVideo backends.
-This PR adds **Podcast / feeder APIs**, **NOWNESS**, **Dacast**, **Panopto**, and **MediaStream**.
+The inventory covers Cloudflare Stream, Arc Publishing, Anvato, ThePlatform,
+Brightcove, Kaltura, JW, Wistia, SproutVideo, podcast/feeder APIs, NOWNESS,
+Dacast, Panopto, and MediaStream.
 
 ## Compatibility claims
 

@@ -61,8 +61,8 @@ ytdlp-go --help
 - [Engine E5 hardening evidence](ENGINE_E5_HARDENING.md)
 - [Evidence index](evidence/README.md) — current capability claims, protocol
   records, and fixture provenance
-- [Historical engineering records](history/README.md) — retained exit reviews
-  and independent audits
+- [Historical engineering records](history/README.md) — retained factual
+  evidence at named baselines
 
 The capability manifest at `conformance/parity_manifest.yaml` is authoritative
 for compatibility counts. Provenance for an individual fixture remains beside

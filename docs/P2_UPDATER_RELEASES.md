@@ -1,7 +1,7 @@
-# Phase 2 signed updater and release foundations
+# Signed updater and release foundations
 
-Status: implemented internal foundation; product command and CI integration are
-owned by the primary Phase 2 integration lane.
+Status: implemented internal packages with explicit product-integration
+boundaries.
 
 ## Boundary and trust model
 
@@ -92,9 +92,9 @@ failures; and compare independent outputs byte for byte. Both decoders have
 bounded fuzz targets.
 
 Scoped verification includes unit, race, vet, fuzz, and CGO-disabled test-binary
-cross-compilation for Linux amd64, macOS arm64, and Windows amd64. The primary
-lane owns final command/workflow wiring, two clean full-product build comparison,
-artifact install/update/rollback/run execution on each OS, and container audit.
+cross-compilation for Linux amd64, macOS arm64, and Windows amd64. Cross-builds
+are not evidence of native execution, installation, rollback, or durability on
+the target operating system.
 
 ## Explicit deviations and integration risks
 
@@ -118,5 +118,4 @@ artifact install/update/rollback/run execution on each OS, and container audit.
   reviewed license conclusion remain `NOASSERTION`; the tool never guesses or
   downloads a license. The project component is explicitly declared
   `Apache-2.0` and its checked-in license text is included in every archive.
-- Archive construction is memory-oriented and bounded to the declared Phase 2
-  limits. Streaming multi-gigabyte release construction is not claimed.
+- Archive construction is memory-oriented and bounded to the declared package limits. Streaming multi-gigabyte release construction is not claimed.

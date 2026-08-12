@@ -1,9 +1,5 @@
 # Multi-output transaction evidence
 
-Branch: `codex/format-multioutput-transaction`
-
-Depends on merged PR 5 (planner metadata) and PR 6 (N-track execution).
-
 ## Implemented
 
 - **Per-plan destinations:** `resolveOutputPlanDestinations` renders each
@@ -54,11 +50,10 @@ Comma-selector partial download failure triggers all-or-nothing rollback of
 outputs created in the current attempt (including overwrite restore). Pinned
 Python leaves earlier outputs on disk.
 
-## Out of scope (PR 8)
+## Evidence boundary
 
-Per-plan postprocessors, subtitle/thumbnail embedding ownership, and lifting
-`validateMultiOutputProduct` restrictions remain entry-scoped; sidecar lifecycle
-per plan stays in PR 8.
+Per-plan postprocessors, subtitle/thumbnail embedding ownership, and sidecar
+lifecycle are covered by `FORMAT_MULTIOUTPUT_LIFECYCLE_EVIDENCE.md`.
 
 ## Tests
 

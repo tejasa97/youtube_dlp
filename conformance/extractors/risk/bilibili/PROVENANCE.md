@@ -27,7 +27,7 @@ family has registered-product exact-child-byte evidence; paged and lazy
 sequences are consumed partially and twice deterministically, with cancellation
 and repeated-row safeguards covered by extractor tests.
 
-## Deferred matrix
+## Outside the current claim
 
 | Upstream class/family | Reason |
 |---|---|
@@ -35,7 +35,7 @@ and repeated-row safeguards covered by extractor tests.
 | BilibiliSpaceVideoIE / SpaceAudioIE | WBI-dependent APIs; no unsigned anonymous contract |
 | BiliBiliSearchIE | WBI-dependent search API; no unsigned anonymous contract |
 | BiliLiveIE | HLS/live manifest and segment exact-byte product proof is not retained |
-| BilibiliFavoritesListIE / WatchlaterIE / PlaylistIE | authentication/private or playlist-state behavior is explicitly deferred |
+| BilibiliFavoritesListIE / WatchlaterIE / PlaylistIE | authentication/private or playlist-state behavior is unsupported |
 
 Favorites, watchlater, generic medialists, paid/DRM, authenticated/private,
 geo-only, and live/HLS behavior are not claimed by the Go registry. No

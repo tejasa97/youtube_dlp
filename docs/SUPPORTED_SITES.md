@@ -42,7 +42,7 @@ canonical `www.ted.com` route. Talks expose pinned Next metadata, attributable
 HTTPS direct/HLS/audio formats, HLS subtitles, thumbnails, chapters, and
 signed-query preservation. Series season fragments and playlist child IDs are
 bounded and reusable. Login/private, unavailable, DRM, geo, and arbitrary
-external media handoffs remain deferred.
+external media handoffs are outside the current claim.
 
 ## Niconico public ecosystem
 
@@ -57,7 +57,7 @@ through the registered `niconico` key.
 
 History, websocket live, date-recursive search, comments, premium/member/PPV,
 sensitive-account, geo-restricted, and other unproven/unavailable playback
-surfaces are explicitly deferred. See
+surfaces are outside the current claim. See
 `docs/EXTRACTOR_NICONICO_EVIDENCE.md` and the Niconico fixture provenance.
 
 ytdlp-go currently registers 61 representative native extractors. This is a
@@ -124,7 +124,7 @@ service response.
 | TED public media family | ted.com/www.ted.com talks, series, playlists, and embed/embed-ssl canonical routes | simple/direct, playlist/API, manifest-heavy |
 | VK public ecosystem family | `vk.com`, `m.vk.com`, `new.vk.com`, `vkvideo.ru`, `vksport.vkvideo.ru` public video/clip/embed, user/group, and wall routes; `vkplay.live`, `live.vkplay.ru`, and `live.vkvideo.ru` recordings and signed live HLS | playlist/API, simple/direct, live, manifest-heavy |
 
-## Shared-family breadth (Wave 1 + priority-100)
+## Shared-family breadth
 
 In addition to the representative catalog above, the product registry
 registers shared-backend families and exact-host adapters with fixture-backed
@@ -236,8 +236,7 @@ The following limitations are intentional and remain:
 
 ## YouTube support boundaries
 
-The YouTube extractor's scope matches the functionality completed in the
-protected-playback workstream. The following are supported:
+The following YouTube functionality is supported:
 
 - watch URLs (`youtube.com/watch?v=...`) and youtu.be short links;
 - embed URLs (`youtube.com/embed/...`);
@@ -348,7 +347,7 @@ The following limitations are intentional and remain:
   comments and browse/search continuations use the same account-bound,
   redirect-disabled WEB session. The retained bounded finite-VOD SABR
   implementation is experimental and outside the supported compatibility
-  corpus and roadmap; live/post-live SABR and `STREAM_PROTECTION_STATUS`
+  corpus and current scope; live/post-live SABR and `STREAM_PROTECTION_STATUS`
   remain fail-closed non-goals;
 - comment extraction does not synthesize estimated timestamps or expose
   YouTube's approximate count before retrieval, and supports only the

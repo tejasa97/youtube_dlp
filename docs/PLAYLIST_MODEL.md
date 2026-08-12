@@ -1,6 +1,6 @@
 # Playlist extraction model
 
-The Phase 1 extractor boundary represents either one media item or a playlist.
+The extractor boundary represents either one media item or a playlist.
 A playlist owns metadata plus an `EntrySequence`; constructing it does not fetch
 or materialize its entries. Static and on-demand paged sequences both create
 independent, ordered iterators.

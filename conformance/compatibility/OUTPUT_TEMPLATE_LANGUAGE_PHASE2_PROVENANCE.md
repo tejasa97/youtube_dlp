@@ -1,7 +1,7 @@
-# Output-template language Phase 2 evidence
+# Output-template language provenance
 
 Reference: `yt-dlp` `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`, inspected
-read-only at `/Users/tejas/projects/yt-dlp-reference` on 2026-07-29.
+read-only at `/path/to/yt-dlp-reference` on 2026-07-29.
 
 ## Feature gap ledger
 

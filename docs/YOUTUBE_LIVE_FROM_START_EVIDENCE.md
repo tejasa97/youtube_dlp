@@ -70,5 +70,5 @@ and do not depend on the reference checkout.
 - Audio and video tracks download concurrently, but segments within one track
   are fetched serially.
 - SABR/UMP is a separate retained experimental extension and is outside this
-  capability and the project roadmap. Broader authenticated Innertube coverage
+  capability claim. Broader authenticated Innertube coverage
   remains a separate compatibility gap.

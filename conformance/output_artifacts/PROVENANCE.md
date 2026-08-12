@@ -1,7 +1,7 @@
 # Output artifact controls provenance
 
 This track is compared with the pinned Python reference at
-`/Users/tejas/projects/yt-dlp-reference`, commit
+`/path/to/yt-dlp-reference`, commit
 `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`.
 
 The implementation is intentionally bounded and uses the existing Go output

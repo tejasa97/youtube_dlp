@@ -24,5 +24,5 @@
 No Safari profile is exposed. req v3.59.0 labels its helper Safari 16.6 but
 configures uTLS `HelloSafari_16_0`; the available engine therefore cannot make
 one version-consistent Safari claim. Relabeling that hybrid as either Safari
-16.0 or 16.6 would invent unsupported fidelity. A future profile requires a
+16.0 or 16.6 would invent unsupported fidelity. Another profile requires a
 version-matched ClientHello and attributable HTTP/2/header capture.

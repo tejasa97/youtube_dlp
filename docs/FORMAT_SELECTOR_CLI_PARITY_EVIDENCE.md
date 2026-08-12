@@ -16,8 +16,8 @@ Implemented flags are `--video-multistreams`,
 Format sort fields are accumulated in invocation order with later `-S` values
 given precedence, and `--format-sort-reset` clears prior values. Boolean flags
 are parsed in the combined config/CLI order, so the last occurrence wins.
-Merge container preferences are validated and selected only by the merged PR 6
-planner/executor APIs; the CLI does not perform container compatibility logic.
+Merge container preferences are validated and selected by the planner and
+executor APIs; the CLI does not perform container compatibility logic.
 
 Availability probing is an operation-scoped adapter injected through
 `format.EvaluationOptions`. It has no format-package IO, uses a canonical
@@ -43,6 +43,5 @@ stdin coordinator with interactive match filters. Prompts are written solely
 to stderr; `--progress-json` rejects either interactive mode so stdout JSON is
 not polluted.
 
-PR 8's merged per-output lifecycle is consumed as-is. This change only feeds
-its finalized planner/N-track APIs; it does not recreate transaction or result
-lifecycle behavior.
+The CLI consumes the existing per-output lifecycle and finalized planner and
+N-track APIs; it does not recreate transaction or result lifecycle behavior.

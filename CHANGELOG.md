@@ -7,9 +7,9 @@ changes are collected under **Unreleased**. Historical engineering phases and
 capability evidence are documented separately and are not reconstructed here
 as fictional releases.
 
-The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and future public versions are intended to follow semantic versioning where the
-interface's maturity permits it.
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+Published version identifiers follow the compatibility policy for the relevant
+interface maturity.
 
 ## Unreleased
 
@@ -19,7 +19,7 @@ interface's maturity permits it.
   presets, FIFO queueing, progress, cancellation, retry, history, settings, and
   FFmpeg detection.
 - Public documentation paths for Desktop usage, installation, CLI workflows,
-  troubleshooting, architecture, project status, and roadmap.
+  troubleshooting, architecture, project status, and current scope.
 
 ### Changed
 

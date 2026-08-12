@@ -1,7 +1,7 @@
 # Telemetry conformance provenance and threat assumptions
 
-The `snapshot_v1.json` fixture was authored for the Go port's Phase 3
-privacy-safe measurement foundation on 2026-07-19. It is not derived from an
+The `snapshot_v1.json` fixture covers the Go port's privacy-safe measurement
+foundation and was authored on 2026-07-19. It is not derived from an
 upstream yt-dlp fixture: the pinned upstream reference does not define this
 local aggregation/export contract. Names are synthetic capability identifiers,
 counts are arbitrary deterministic values, and the fixture contains no captured

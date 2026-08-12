@@ -1,6 +1,6 @@
 # YouTube media-section downloads evidence
 
-Status: implemented in PR4 (generic media-section downloads and --download-sections).
+Status: implemented (generic media-section downloads and `--download-sections`).
 
 ## Reference
 
@@ -10,11 +10,11 @@ Pinned Python reference: `yt-dlp/yt-dlp` at commit `aefce1eea4d0b6bab1ec2bd3beff
 - `yt_dlp/YoutubeDL.py:3104-3132` — --download-sections range parsing and section composition.
 - `yt_dlp/downloader/external.py:435,453-456` — FFmpegFD applies `-ss`/`-t`.
 - `yt_dlp/downloader/external.py:3486` — abort when the selected downloader cannot partially download.
-- `yt_dlp/extractor/youtube/_clip.py:1-80` — extractor-driven section_start/section_end contract (PR5 consumer).
+- `yt_dlp/extractor/youtube/_clip.py:1-80` — extractor-driven `section_start`/`section_end` contract.
 
 ## Design
 
-PR4 is a generic product/media-layer feature. It does not add extractor clip routing (that is PR5).
+Media-section handling is a generic product/media-layer feature. Extractor clip routing is implemented separately by the YouTube provider.
 
 - `internal/compat/sections` — bounded generic section planner.
   - Accepts only `*START-END`, `*START-inf`, `*from-url`; rejects all other values explicitly.
@@ -40,7 +40,7 @@ PR4 is a generic product/media-layer feature. It does not add extractor clip rou
 
 - An extractor-provided section (section_start/section_end) triggers ffmpeg section downloading
   even without --download-sections, and derives the base duration as
-  `section_end - section_start` rounded compatibly. This is the PR5 contract.
+  `section_end - section_start` rounded compatibly.
 - CLI ranges compose with an extractor section using the extractor's start as the base offset
   (pinned YoutubeDL.py:3104-3132). start_time/end_time are consumed only by *from-url and do not
   trigger partial downloading otherwise.
@@ -56,14 +56,14 @@ PR4 is a generic product/media-layer feature. It does not add extractor clip rou
   validation, the no-consumer case is rejected after extraction when no section, chapter removal,
   or SponsorBlock removal materialized.
 
-## Deferred (documented)
+## Outside the current claim
 
 - Chapter-title regular expressions (negative timestamps relative to duration, arbitrary upstream
   range generators).
 - Native fragment trimming; HLS/DASH partial downloads use ffmpeg as upstream does.
 - Partial live streams unless deterministically selected.
-- Interop with PR5 YouTube Clips: this PR provides the generic consumer; PR5 (stacked on this
-  branch) supplies the clip routes and overlay.
+- YouTube Clips use this generic consumer; the clip extractor supplies the
+  route and section overlay.
 
 ## Validation
 

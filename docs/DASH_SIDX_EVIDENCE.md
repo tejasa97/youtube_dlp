@@ -288,7 +288,7 @@ task brief:
 
 Single-attempt index retrieval is preserved from the flat SIDX path. We
 deliberately do not add transient index-fetch retries in this change; a
-later PR can introduce them if evidence shows a real need.
+they are outside the current capability claim.
 
 ## Design decision: Initialization shallow inheritance
 

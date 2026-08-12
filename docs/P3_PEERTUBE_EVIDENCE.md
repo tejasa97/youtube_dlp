@@ -1,4 +1,4 @@
-# Phase 3 PeerTube extractor evidence
+# PeerTube extractor evidence
 
 The native extractor covers federated single-video metadata, direct files, HLS
 playlists, playlist-contained direct files, optional full descriptions,

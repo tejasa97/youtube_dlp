@@ -53,4 +53,4 @@ CGO_ENABLED=0 GOOS={linux,darwin,windows} GOARCH=amd64 go test -c ./internal/pac
 
 All production code uses the Go standard library and the existing Go pack
 permission model. It has no runtime or build-time Python dependency and no
-dependency on `/Users/tejas/projects/yt-dlp-reference`.
+dependency on `/path/to/yt-dlp-reference`.

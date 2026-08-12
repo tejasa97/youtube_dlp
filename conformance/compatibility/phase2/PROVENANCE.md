@@ -1,7 +1,7 @@
-# Phase 2 compatibility-language fixtures
+# Compatibility-language fixture provenance
 
 These compact, hand-authored fixtures derive behavioural expectations from the
-read-only pinned checkout at `/Users/tejas/projects/yt-dlp-reference`, commit
+read-only pinned checkout at `/path/to/yt-dlp-reference`, commit
 `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`. They are not executed against
 that checkout and add no Python runtime, build, or test dependency.
 
@@ -25,8 +25,7 @@ Reference loci:
 - `test/test_YoutubeDL.py` lines 908-991 provide the attributable
   match-filter behavior matrix; and
 - `yt_dlp/utils/_utils.py` lines 5498-5615 and
-  `yt_dlp/postprocessor/metadataparser.py` cover the remaining Phase 2
-  compatibility-language corpus.
+  `yt_dlp/postprocessor/metadataparser.py` cover the compatibility-language corpus.
 
 `matchfilter.yaml` version 2 records hand-authored expectations for unary
 presence checks, OR/AND composition, none-inclusive and incomplete-field

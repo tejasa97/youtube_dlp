@@ -117,19 +117,8 @@ plus `providers/youtube`. Its repository is authoritative for desktop scope,
 packaging, and releases. VidStow support must not be inferred from engine
 support or vice versa.
 
-## Historical phases and gates
-
-The implementation was developed through Phases 0–3 with corresponding plans,
-exit reviews, audits, and evidence ledgers. Those records explain why a claim
-was accepted at a particular historical baseline; they are not the current
-user guide or roadmap.
-
-Gate G3 required real deployment evidence. That evidence was not replaced with
-synthetic fixtures and remains deferred. The project does not present fixture
-success as production canary, account, region, Windows, signing, or updater
-evidence.
-
-Historical material is indexed under [Plans, history, and audits](README.md#plans-history-and-audits).
+Synthetic fixtures are not presented as production canary, account, region,
+native Windows, signing, or updater-deployment evidence.
 
 ## Principal known limitations
 

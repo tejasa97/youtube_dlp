@@ -83,7 +83,7 @@ executes Python or reads the reference checkout.
   reference prefers the watch-page `videoSecondaryInfoRenderer` title, which
   arrives with watch-page enrichment.
 
-## Deferred
+## Outside the current claim
 
 Music auto-generated description fields (`album`, `artists`, `track`,
 `release_date`, `release_year`), likes, subscriber counts, badges and

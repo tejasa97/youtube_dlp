@@ -11,7 +11,7 @@ at `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`. The normative implementation is
 The executable source-derived fixture is
 `internal/compat/metadata/testdata/pinned_cases.json`; its adjacent provenance
 states that no Python oracle capture was performed. It records the pinned
-maintainer capture interpreter, `CPython 3.12.13`, for any future refreshed
+maintainer capture interpreter, `CPython 3.12.13`, for a refreshed
 observation. Go builds, tests, and runtime never invoke Python or read the
 reference checkout.
 

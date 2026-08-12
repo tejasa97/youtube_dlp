@@ -1,4 +1,4 @@
-# Phase 3 Impersonation Profiles
+# Impersonation profiles
 
 The profile registry exposes stable, versioned IDs. A profile is admitted only
 when the pinned Go engine can represent its TLS ClientHello, ordered HTTP/2

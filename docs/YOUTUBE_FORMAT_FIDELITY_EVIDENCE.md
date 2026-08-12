@@ -59,7 +59,7 @@ reads the reference checkout.
   downloader options are not emitted (PO-token gating and downloader chunking
   are handled elsewhere in the product).
 
-## Deferred
+## Outside the current claim
 
 Storyboard `mhtml` formats, DRM playback, new downloader protocols, SABR
 expansion, and Music-description metadata.

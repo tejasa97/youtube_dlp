@@ -33,7 +33,7 @@ synthetic media. They verify that the signed Usher URL produced by extraction
 can drive the repository's existing master-playlist selection, live polling,
 sequence de-duplication, and ordered fragment assembly without network access.
 
-## Phase 3 VOD and clip breadth fixtures
+## VOD and clip breadth fixtures
 
 The VOD and clip fixtures added on 2026-07-19 are attributable to the same
 pinned source, specifically:
@@ -215,7 +215,7 @@ zones. Direct clip media is limited to the explicit Twitch clip-media origins
 (`clips-media.twitch.tv`, `clips-media-assets.twitch.tv`, and
 `clips-media-assets2.twitch.tv`); preview thumbnails and storyboards have
 separate CDN-role allowlists. Login/private, entitlement/subscriber, mature/geo-restricted, chat,
-comments, and unsupported credential flow remain deferred.
+comments, and unsupported credential flow remain unsupported.
 
 The shared HLS `AllowedHosts` boundary accepts only strict ASCII DNS hostnames
 and rejects whitespace, ports, paths, IP literals, empty labels, invalid

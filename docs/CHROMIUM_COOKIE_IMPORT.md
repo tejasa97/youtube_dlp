@@ -93,5 +93,4 @@ profile, cookie database, cookie value, or credential-store output to a public
 issue.
 
 Detailed Windows behavior and residual platform evidence are recorded in
-[Windows Chromium cookie evidence](P3_WINDOWS_CHROMIUM_COOKIES_EVIDENCE.md)
-and the [Phase 3 exit review](PHASE_3_EXIT_REVIEW.md).
+[Windows Chromium cookie evidence](P3_WINDOWS_CHROMIUM_COOKIES_EVIDENCE.md).

@@ -1,4 +1,4 @@
-# Phase 1 TikTok impersonation pilot
+# TikTok impersonation evidence
 
 ## Scope and outcome
 

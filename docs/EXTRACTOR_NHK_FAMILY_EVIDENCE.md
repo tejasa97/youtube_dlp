@@ -39,11 +39,8 @@ Conservative bounds cover route URL bytes, response bytes, XML depth/tokens/attr
 - No DRM decryption
 - Offline fixtures only; no live regional Japan success claim
 - Some Radiru description-formatting flourishes from the JS timetable helper are intentionally simplified and bounded
-- NHK World HLS master subtitle discovery is not implemented in this PR. The extractor exposes media formats only; it does not emit manifest-derived subtitle tracks or claim subtitle parity.
+- NHK World HLS master subtitle discovery is unsupported. The extractor exposes media formats only; it does not emit manifest-derived subtitle tracks or claim subtitle parity.
 
-## Checklist impact
+## Inventory classification
 
-Promoted exactly eight NHK rows from `requires_new_backend` to `already_supported`.
-
-- `already_supported`: 139 → 147
-- `requires_new_backend`: 1,174 → 1,166
+The extractor inventory classifies all eight NHK rows as `already_supported`.

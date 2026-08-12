@@ -69,7 +69,7 @@ proves the same re-entry and page-boundary properties.
   recursively splits wall-clock date intervals, and there is no registered exact
   class mapping, fixed bounded native contract, or product evidence.
 - Comments, premium/member/PPV, sensitive-account, geo-restricted, and other
-  unavailable playback variants are deferred.
+  unavailable playback variants are unsupported.
 
 The deterministic corpus is synthetic and contains no production account data,
 cookies, access keys, signed URLs, or live captures. The authoritative class

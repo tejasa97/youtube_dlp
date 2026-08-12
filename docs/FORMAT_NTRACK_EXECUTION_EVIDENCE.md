@@ -2,10 +2,6 @@
 
 Reference: yt-dlp commit `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`
 
-Branch: `codex/format-ntrack-execution`
-
-Depends on: PR #147 (`codex/format-selector-planner-parity`, merged)
-
 ## Architecture
 
 ```mermaid
@@ -27,10 +23,10 @@ flowchart TD
 
 Execution consumes planner-owned metadata:
 
-1. **Default:** `plan.Metadata.ext` from PR 5 `planMetadataFor`.
+1. **Default:** `plan.Metadata.ext` from `planMetadataFor`.
 2. **Override:** when `Request.MergeOutputFormat` is set, recompute via
    `format.CompatibleExtensionForSelections` with parsed slash-separated
-   preferences (product-layer override until CLI PR 9).
+   preferences.
 3. **Single-track:** metadata or track `Ext` via `plannedOutputExtension`.
 
 The interim duplicate `get_compatible_ext` implementation in `pkg/ytdlp` was
@@ -97,9 +93,9 @@ Verified locally on darwin/arm64 after review fixes:
 - cross-compilation linux/darwin/windows amd64/arm64
 - `docker build -f .github/python-free.Dockerfile`
 
-## Remaining gaps
+## Current boundaries
 
-- SABR and YouTube live-from-start remain specialized 2-track paths.
-- PR 7 multi-output `Result` semantics and PR 8 postprocessor lifecycle not
-  pulled forward.
-- CLI `--merge-output-format` exposure remains in PR 9.
+- SABR and YouTube live-from-start use specialized two-track paths.
+- Multi-output result semantics and postprocessor lifecycle are documented by
+  their dedicated evidence records.
+- `--merge-output-format` is exposed by the CLI.

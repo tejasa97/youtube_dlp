@@ -1,4 +1,4 @@
-# Phase 2 compatibility-language lane
+# Compatibility-language boundary
 
 This lane implements bounded, Python-free compatibility primitives for a Go
 product layer to wire into its request/CLI contract.
@@ -66,7 +66,7 @@ Intentional unsupported syntax is explicit rather than silently approximated:
   codec/container/HDR/protocol/language rankings, exact and approximate
   filesize, derived values, limits, and stable mixed-type ordering. Plain
   `best`/`worst`, `all`, defaults, and multistream suppression still use the
-  pre-PR-5 evaluator behavior; product execution still rejects unsupported
+  established evaluator behavior; product execution still rejects unsupported
   track layouts before media transfer.
 - Templates implement bounded arithmetic and Unicode `U` conversions
   (including `#`/`+` flags), but do not implement object slicing, arbitrary

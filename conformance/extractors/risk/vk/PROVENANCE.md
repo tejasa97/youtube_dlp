@@ -12,7 +12,7 @@ and are not production captures.
   `vksport.vkvideo.ru` aliases on `vk.com`, `m.vk.com`, `new.vk.com`, and
   `vkvideo.ru`. Signed query bytes are preserved for validated requests and
   returned asset URLs. Daxab forms and YouTube, Vimeo, and Dailymotion
-  handoffs are deliberately deferred; arbitrary embeds are rejected.
+  handoffs are outside the current claim; arbitrary embeds are rejected.
 - `vk_uservideos` accepts public `vk.com/{m,new}.vk.com/video/@slug` and
   `vkvideo.ru/@slug` user/group video pages plus public numeric playlist routes.
   The first page is lazy after page identity discovery, each iterator is
@@ -57,7 +57,7 @@ rejection before hostile network access, wall reentry, multipage playlist
 consumption and same-client reuse, failure cleanup, typed status errors, and
 entered in-flight cancellation with zero artifacts.
 
-## Deferred boundary
+## Outside the current claim
 
 Login/private/password/deleted/friends-only/age- or account-gated/geo-only/DRM
 content, VK challenge solving, websocket/chat, unavailable rows beyond the

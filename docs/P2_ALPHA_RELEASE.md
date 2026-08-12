@@ -1,4 +1,4 @@
-# Phase 2 Python-free alpha release procedure
+# Python-free internal artifact procedure
 
 `cmd/ytdlp-release` assembles explicit, already-built Go executables into a
 deterministic internal alpha release set. It does not invoke a compiler,
@@ -29,8 +29,7 @@ Artifacts expire after seven days and are not published as a GitHub Release.
 
 The project is licensed under Apache License 2.0. The former fhttp licensing
 blocker was resolved by replacing that stack with MIT/BSD-licensed
-dependencies. This workflow remains engineering evidence until release
-operations and signing custody are approved. No production signing key is
-selected or generated here. Signed updater scenarios continue to use
+dependencies. This workflow produces engineering evidence, not an endorsed public binary.
+No production signing key is selected or generated here. Signed updater scenarios continue to use
 deterministic test keys; production root custody and publishing infrastructure
 are external policy inputs.

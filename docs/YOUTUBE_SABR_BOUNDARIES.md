@@ -2,9 +2,9 @@
 
 Scope decision: 2026-07-25.
 
-Status: non-goal boundary record for the retained finite-VOD SABR
-implementation after PR #88. Nothing in this document is an active
-production-parity blocker or roadmap workstream.
+Status: current non-goal boundary record for the retained finite-VOD SABR
+implementation. Nothing in this document expands the supported product or
+production-parity claim.
 
 Pinned wire provenance remains LuanRT/googlevideo @
 `d2fa40d761034a286cf60ee033653307a1295b0c` and davidzeng0 `ump.md` notes already
@@ -33,7 +33,7 @@ Recovery remains an unsupported non-goal.
 | Adjacent non-SABR paths | Bounded live-from-start and finite post-live DVR remain separate product paths and are not SABR claims |
 
 Preserve fail-closed behavior. Synthetic live SABR framing alone must not flip
-compatibility. Live/post-live SABR is not planned follow-up work.
+compatibility. Live/post-live SABR is outside the supported product scope.
 
 ## Evidence hygiene
 

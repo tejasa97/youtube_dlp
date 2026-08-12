@@ -1,9 +1,8 @@
-# JW Platform adapters wave 1 evidence
+# JW Platform adapter evidence
 
-Baseline: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`
-Go branch: `codex/jwplatform-adapters-wave1`
+Pinned reference: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`
 
-This wave adds nine public-site JW Platform adapters that discover validated
+This evidence covers nine public-site JW Platform adapters that discover validated
 8-character media ids and hand off to the existing `jwplatform` extractor. No JW
 playback logic was duplicated.
 
@@ -96,8 +95,7 @@ and are explicitly recorded as deviations rather than parity:
 - DBTV `display_id` — DBTV's adapter discards the article slug and uses the
   validated 8-character JW Platform media id (or 11-character YouTube id)
   as the entry id; the upstream `display_id` distinction is lost because
-  `extractor.Entry` has no dedicated display slot. Until `Entry` is
-  expanded, this is a deliberate simplification.
+  `extractor.Entry` has no dedicated display slot. Given the current `Entry` schema, this is a deliberate simplification.
 - Mirror.co.uk `display_id` — Mirror's adapter discards the article slug
   and preserves only the validated JW Platform media id as the entry id;
   the upstream `display_id` distinction is lost for the same reason.
@@ -105,33 +103,31 @@ and are explicitly recorded as deviations rather than parity:
   Intercept's adapter surfaces the numeric post id, producer title, and
   release timestamp; the upstream `display_id` (URL slug), post
   `description`, and `comment_count` are not representable because
-  `extractor.Entry` lacks dedicated slots for them. Recording them would
-  require widening the schema, which is out of scope for this PR.
+  `extractor.Entry` lacks dedicated slots for them. They are outside the current `Entry` schema.
 - Le Figaro `description` — not on `extractor.Entry`; producer title and
   HTTPS poster are preserved, description is unavailable.
 
-The plan deliberately keeps these as deviations; widening `extractor.Entry`
-is not part of this PR.
+These remain documented deviations from the pinned reference.
 
 ## Synthetic-fixture caveats
 
 Fixture pages embed synthesised identifiers because real third-party media
 ids cannot be checked into the repository. Routing, host matching, slug
 bounds, and parsing invariants are the real signal of correctness here;
-playback correctness is deferred to the existing `jwplatform` and
+playback correctness is delegated to the existing `jwplatform` and
 `youtube` extractors.
 
-## Checklist promotion
+## Inventory classification
 
-`go run ./cmd/extractorinventory` promotes these rows to `already_supported`:
+`go run ./cmd/extractorinventory` classifies these rows as `already_supported`:
 
 - `bundesliga`, `businessinsider`, `dbtv`, `hollywoodreporter`, `iltalehti`,
   `lefigarovideoembed`, `mirrorcouk`, `outsidetv`, `theintercept`
 
-Post-wave inventory counts are regenerated from
-`/Users/tejas/projects/yt-dlp-reference` at the end of this branch and
-captured in `conformance/extractors/upstream_master_checklist.csv` plus
-`docs/EXTRACTOR_MASTER_CHECKLIST.md`.
+The inventory classification is captured in
+`conformance/extractors/upstream_master_checklist.csv` and
+`docs/EXTRACTOR_MASTER_CHECKLIST.md`; maintainers can regenerate it from the
+pinned reference checkout.
 
 ## Verification commands
 
@@ -147,7 +143,7 @@ go test ./internal/upstreamdelta -count=1
 go vet ./...
 go mod tidy -diff
 go run ./cmd/paritycheck
-docker build -f .github/python-free.Dockerfile -t ytdlp-go:jwplatform-pr131 .
+docker build -f .github/python-free.Dockerfile -t ytdlp-go:jwplatform-evidence .
 ```
 
 Provenance: `conformance/extractors/shared/jwplatform-adapters-wave1/PROVENANCE.md`

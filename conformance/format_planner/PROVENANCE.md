@@ -1,7 +1,7 @@
 # Format-planner oracle provenance
 
-The PR 5 planner oracle in
-`internal/format/testdata/planner_conformance.json` was captured from the
+The planner oracle in `internal/format/testdata/planner_conformance.json` was
+captured from the
 read-only yt-dlp reference checkout at commit
 `aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8` using CPython 3.12.13.
 
@@ -13,9 +13,9 @@ the pinned `FormatSorter`, and `get_compatible_ext`.
 Generation command:
 
 ```sh
-/Users/tejas/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 \
+python3 \
   conformance/format_planner/capture_oracle.py \
-  --reference /Users/tejas/projects/yt-dlp-reference \
+  --reference /path/to/yt-dlp-reference \
   --commit aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8 \
   --output internal/format/testdata/planner_conformance.json
 ```

@@ -2,11 +2,11 @@
 
 Reference: `yt-dlp/yt-dlp@aefce1eea4d0b6bab1ec2bd3beff09bff91a39c8`.
 
-This is the PR 10 closure record. It deliberately excludes PR 11's current-upstream delta. Production, Go builds, Go tests, and Docker gates read only committed Go/JSON/YAML fixtures: none invoke Python, read the reference checkout, or use the network.
+This record covers the pinned selector contract. The current-upstream delta is documented separately. Production, Go builds, Go tests, and Docker gates read only committed Go/JSON/YAML fixtures: none invoke Python, read the reference checkout, or use the network.
 
 ## Fixture provenance
 
-`internal/format/testdata/pinned_closure_matrix.json` is a deterministic index over the already executable selector, sorter, and planner oracles. It uses the same schema/provenance convention as PR 1 and pins the reference SHA and `CPython 3.12.13`. Its derivation is a reviewed index, not a fresh Python capture; therefore there is no invented oracle provenance. The underlying fixture derivation and hashes remain in `conformance/compat/format_selector/PROVENANCE.md`, `conformance/compat/format_sorter/PROVENANCE.md`, and `conformance/format_planner/PROVENANCE.md`.
+`internal/format/testdata/pinned_closure_matrix.json` is a deterministic index over the already executable selector, sorter, and planner oracles. It uses the repository's selector-fixture schema and pins the reference SHA and `CPython 3.12.13`. Its derivation is a reviewed index, not a fresh Python capture; therefore there is no invented oracle provenance. The underlying fixture derivation and hashes remain in `conformance/compat/format_selector/PROVENANCE.md`, `conformance/compat/format_sorter/PROVENANCE.md`, and `conformance/format_planner/PROVENANCE.md`.
 
 The matrix runner (`internal/format.TestPinnedClosureMatrix`) requires every authoritative case to be assigned exactly once: all **109** selector cases, **41** sorter cases, and **44** planner cases. It rejects missing, unknown, or multiply assigned IDs, and requires every non-passing selector case to be one of the explicit bounded safety deviations. The existing oracle runners then compare actual normalized formats, plans, and sort orders with their committed expected outputs.
 
@@ -32,9 +32,9 @@ The N-track and lifecycle tests use repository-owned, tiny deterministic local m
 
 There are no unresolved functional deviations for normal valid inputs inside the declared pinned contract. The retained entries in `docs/FORMAT_SELECTOR_PARITY.md` are deliberately outside it: malformed extractor metadata, explicit resource ceilings, and comment/string token forms that fail closed rather than silently rewriting a selector. They remain executable `deliberate_safety_gap` entries in the corpus. `Options.PreferExtensions` is a documented Go-only preference, not a claim of pinned CLI equivalence.
 
-## Required pre-publication validation
+## Validation commands
 
-Run from a clean worktree after rebasing `origin/main`:
+Run from a clean worktree:
 
 ```sh
 gofmt -w internal/format/pinned_closure_test.go internal/conformance/manifest.go internal/conformance/manifest_test.go
@@ -55,8 +55,8 @@ The Dockerfile explicitly asserts that neither `python` nor `python3` exists bef
 
 ## Validation record
 
-Initial validation was performed on 2026-07-29 from the merged PR 1–9 baseline
-`df5820721dead4469e770d8c8fe52be417af12f9`, before publication:
+Initial validation was performed on 2026-07-29 at
+`df5820721dead4469e770d8c8fe52be417af12f9`:
 
 | Command | Result |
 | --- | --- |
@@ -68,6 +68,6 @@ Initial validation was performed on 2026-07-29 from the merged PR 1–9 baseline
 | `CGO_ENABLED=0 go build ./...` for Linux/Darwin/Windows × amd64/arm64 | Pass |
 | `.github/python-free.Dockerfile` build | Pass; image `ytdlp-go:format-selector-pinned-closure` = `sha256:d5a079708738efbd5d7a8f9a3f9421b0e1abc64697f4eab664be201708ca933e` |
 
-No Python oracle was run for PR 10: the closure index consumes the previously
+No Python oracle was run for the closure index. It consumes the previously
 captured, committed CPython 3.12.13 fixtures, so this record makes no claim of
 a new Python capture.

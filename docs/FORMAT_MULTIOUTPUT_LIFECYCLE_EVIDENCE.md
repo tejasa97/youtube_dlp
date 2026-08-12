@@ -1,10 +1,7 @@
 # Multi-output lifecycle evidence
 
-Branch: `codex/format-multioutput-lifecycle`
-
-Dependency: PR 7 commit `fc177e4`, which defines per-plan destinations,
-transaction rollback, artifact ordering, byte accounting, and the public
-multi-output `Result` contract.
+The transaction layer defines per-plan destinations, rollback, artifact
+ordering, byte accounting, and the public multi-output `Result` contract.
 
 ## Implemented contract
 
@@ -19,7 +16,7 @@ For every plan, `executePlanLifecycle` runs:
 2. Thumbnail and related-file production.
 3. `PrintBeforeDL`.
 4. Subtitle download and conversion.
-5. N-track download/merge through the PR 6 executor.
+5. N-track download/merge through the shared executor.
 6. The configured postprocessor chain.
 7. Chapter and SponsorBlock cuts.
 8. Subtitle embedding.
@@ -43,7 +40,7 @@ Postprocessor outputs update both `filepath` and `ext` in the lifecycle's
 final InfoJSON. Thumbnail embedding extension changes are applied to each
 plan's clone rather than the canonical extractor metadata.
 
-All files produced by a lifecycle are registered with the shared PR 7
+All files produced by a lifecycle are registered with the shared
 `mediaTransaction`. A failure in any output of a multi-output product rolls
 back transaction-owned files from all earlier outputs. Paths that existed
 before the transaction are never registered as newly created and are not
@@ -65,7 +62,8 @@ resolves the deterministic destinations for every plan:
 - thumbnail downloads and declared conversions;
 - every derived postprocessor output.
 
-The complete path set is passed to PR 7's collision/existence preflight. Thus
+The complete path set is passed to the transaction collision/existence
+preflight. Thus
 two plan-specific sidecars cannot silently overwrite one another. Fixed
 explicit postprocessor destinations are rejected for multi-output products
 because the current request model provides one literal destination shared by
