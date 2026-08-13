@@ -2,7 +2,7 @@
 
 > [!NOTE]
 > Historical engineering record. This evaluation explains the original port
-> decision and is not the active roadmap. See [`ROADMAP.md`](../../../ROADMAP.md)
+> decision and is not the active roadmap. See [`CURRENT_SCOPE.md`](../../CURRENT_SCOPE.md)
 > for current priorities.
 
 Date: 2026-07-17  

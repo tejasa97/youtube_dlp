@@ -54,8 +54,8 @@ credentials, a network canary, or the upstream checkout at runtime.
 
 #### H-01 — No measured traffic denominator; G3 criterion 1 cannot pass
 
-`docs/P3_EXTRACTOR_PRIORITY.md` explicitly says the project has no suitable
-production traffic dataset. `conformance/telemetry/PROVENANCE.md` says its
+The audited repository contained no suitable production traffic dataset.
+`conformance/telemetry/PROVENANCE.md` says its
 counts are arbitrary synthetic data, not captured traffic. The checked-in
 snapshot is therefore not a coverage result; it also contains 42 successes out
 of a 48-observation full denominator (8,750 basis points) before considering
@@ -99,8 +99,7 @@ close the security half of criterion 3.
 `pkg/ytdlp.TestRepresentativeExtractorCatalogCountRoutingAndRiskCoverage`
 routes 28 representative extractors and covers nine self-declared risk classes.
 That is useful registry evidence, but it is neither traffic-weighted nor a
-matrix for G3 criterion 6. `docs/P3_EXTRACTOR_PRIORITY.md` is explicit that its
-ordering is an engineering proxy.
+matrix for G3 criterion 6. The audited ordering was an engineering proxy.
 
 The manifest contains strong per-capability fixtures, but no authoritative
 high-value site set maps each selected site to routing, request shape,

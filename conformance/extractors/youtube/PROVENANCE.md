@@ -97,8 +97,8 @@ player response and resolves only a validated video ID through the existing
 video extractor. It does not retain a production channel page or redirect.
 
 The SABR fixture records below support maintenance of a retained experimental
-extension. SABR is excluded from project parity targets, roadmap deliverables,
-release gates, and remaining-work estimates.
+extension. SABR is excluded from project parity targets, release claims, and
+remaining-work estimates.
 
 `sabr-watch.html`, `android-player.json`, and `android-vr-player.json` are synthetic regression fixtures
 for URL-less `serverAbrStreamingUrl` webpage responses and native-client format

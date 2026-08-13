@@ -3,7 +3,7 @@
 > [!NOTE]
 > Historical implementation plan. Phase 0 is closed and this file is retained
 > for engineering traceability, not as current work. See
-> [`ROADMAP.md`](../../../ROADMAP.md) for current priorities.
+> [`CURRENT_SCOPE.md`](../../CURRENT_SCOPE.md) for current priorities.
 
 ## 1. Objective
 
